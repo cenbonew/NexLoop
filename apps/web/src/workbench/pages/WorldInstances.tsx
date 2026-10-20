@@ -11,10 +11,10 @@ import {useQuery} from '@tanstack/react-query';
 import {readObjectNeighbors,readObjectValues,readObjects,type NeighborGroup,type ObjectNeighbors,type PropertyValue,type WorldObjectType} from '../api';
 import {routePath,type Route} from '../route';
 import {DataTable} from '../DataTable';
-import {Empty,StatusBadge} from '../ui';
+import {StatusBadge,Time} from '../ui';
+import {Card,EmptyState,IdText,KeyValue} from '../kit';
 import {Failure} from './Page';
-import {kindOf,STATE_TEXT} from '../api';
-import {when} from './Consumers';
+import {kindOf} from '../api';
 import {SchemaGraph} from '../graph/SchemaGraph';
 
 const shortId=(id:string)=>id.length>14?id.slice(0,8)+'…'+id.slice(-4):id;
@@ -32,9 +32,9 @@ export function PropertyCell({p,expanded=false}:{p:PropertyValue;expanded?:boole
   if(p.status==='missing'||p.value===undefined)return <span className="note">—</span>;
   const value=p.valueType==='json'?<code>{p.value}</code>:<>{p.value}</>;
   const tail=p.truncated?<span className="note">（已截断）</span>:null;
-  if(p.value.length<=CUT)return <span style={{whiteSpace:'nowrap'}}>{value}{tail}</span>;
+  if(p.value.length<=CUT)return <span className="value-short">{value}{tail}</span>;
   return <details className="property-value" open={expanded}><summary title={p.value}>{p.value.slice(0,CUT)}…</summary>
-    <div style={{whiteSpace:'pre-wrap',wordBreak:'break-word',maxWidth:'40rem'}}>{value}{tail}</div></details>;
+    <div className="value-full">{value}{tail}</div></details>;
 }
 /** The property columns of a page: the first listed object's schema order, then any name only later objects carry. */
 export function propertyColumns(rows:{properties:PropertyValue[]}[]):string[]{
@@ -47,29 +47,29 @@ export type InstanceState={type:string|null;after:string|null;object:string|null
 export function Instances({types,state,onState}:{types:WorldObjectType[];state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
   const type=state.type&&types.some(t=>t.name===state.type)?state.type:null;
   return <div className="world-instances">
-    <div className="field" style={{maxWidth:420}}><label htmlFor="world-instance-type">Object Type</label>
+    <div className="field field-narrow"><label htmlFor="world-instance-type">Object Type</label>
       <select id="world-instance-type" value={type??''} onChange={e=>onState({type:e.target.value||null,after:null,object:null})}>
         <option value="">请选择 Object Type</option>
         {types.map(t=><option key={t.name} value={t.name}>{t.name}（{t.objects} 个）</option>)}</select></div>
-    {type?<InstanceList type={type} state={state} onState={onState}/>:<Empty kind="none" title="选择一个 Object Type 查看 Object" next="列出标识、版本、更新时间和你能读取的属性值；你没有读取权限的 Object 只计数，不显示。"/>}
+    {type?<InstanceList type={type} state={state} onState={onState}/>:<EmptyState kind="empty" subject="选中的 Object Type" next="先选择一个 Object Type：列出标识、版本、更新时间和你能读取的属性值；你没有读取权限的 Object 只计数，不显示。"/>}
   </div>;
 }
 
 function InstanceList({type,state,onState}:{type:string;state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
   const page=useQuery({queryKey:['workbench','objects',type,state.after??''],queryFn:()=>readObjects(type,state.after??undefined)});
-  if(page.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
-  if(page.isError)return kindOf(page.error)==='forbidden'?<Empty kind="forbidden"/>:<Failure kind={kindOf(page.error)} onRetry={()=>void page.refetch()}/>;
+  if(page.isPending)return <EmptyState kind="loading" subject="Object"/>;
+  if(page.isError)return kindOf(page.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些 Object"/>:<Failure kind={kindOf(page.error)} onRetry={()=>void page.refetch()}/>;
   const p=page.data;
-  return <div className="world-instance-grid" style={{display:'grid',gridTemplateColumns:state.object?'minmax(0,1fr) minmax(280px,420px)':'minmax(0,1fr)',gap:16}}>
+  return <div className={'world-instance-grid object-view'+(state.object?' object-view-detail':'')}>
     <div>
       <p className="workbench-summary" role="status">{type} 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
-      {p.items.length?<div className="table-scroll" style={{overflowX:'auto',maxWidth:'100%'}}><DataTable label={`${type} Object`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
+      {p.items.length?<DataTable label={`${type} Object`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
         {label:'Object',main:true,cell:r=><button type="button" className="link" aria-pressed={r.object_id===state.object} title={r.object_id}
-          onClick={()=>onState({object:r.object_id===state.object?null:r.object_id})}><code>{shortId(r.object_id)}</code></button>},
+          onClick={()=>onState({object:r.object_id===state.object?null:r.object_id})}><code className="id-code">{shortId(r.object_id)}</code></button>},
         ...propertyColumns(p.items).map(name=>({label:name,cell:(r:typeof p.items[number])=>{const v=r.properties.find(x=>x.name===name);return v?<PropertyCell p={v}/>:<span className="note">—</span>;}})),
         {label:'Schema 版本',num:true,cell:r=>`v${r.schema_version}`},{label:'修订',num:true,cell:r=>r.revision},
-        {label:'更新时间',cell:r=><span style={{whiteSpace:'nowrap'}}>{when(r.updated_at)}</span>}]}/></div>
-        :<Empty kind={p.invisible?'forbidden':'none'} title={p.invisible?`本页 ${p.invisible} 个 Object 你没有读取权限`:'这一页没有 Object'}/>}
+        {label:'更新时间',cell:r=><Time value={r.updated_at}/>}]}/>
+        :p.invisible?<EmptyState kind="forbidden" subject="本页的 Object" reason={`${p.invisible} 个 Object 你没有读取权限`}/>:<EmptyState kind="empty" subject="这一页的 Object"/>}
       <div className="pager">{state.after?<button type="button" onClick={()=>window.history.back()}>上一页</button>:null}
         {p.next_after?<button type="button" onClick={()=>onState({after:p.next_after,object:null})}>下一页</button>:null}</div>
     </div>
@@ -83,23 +83,23 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
   const neighbors=useQuery({queryKey:['workbench','object-neighbors',type,id],queryFn:()=>readObjectNeighbors(type,id)});
   const values=useQuery({queryKey:['workbench','object-values',type,id],queryFn:()=>readObjectValues(type,id)});
   const page=objectPage(type,id);
-  return <aside className="workbench-block world-panel world-object" aria-label={`${type} ${shortId(id)} 详情`}>
-    <h2 style={{marginTop:0}}>{type} <code title={id}>{shortId(id)}</code></h2>
-    <dl><div><dt>完整标识</dt><dd><code style={{wordBreak:'break-all'}}>{id}</code></dd></div>
-      {row?<><div><dt>Schema 版本</dt><dd>v{row.schema_version}</dd></div><div><dt>修订</dt><dd>{row.revision}</dd></div><div><dt>更新时间</dt><dd>{when(row.updated_at)}</dd></div></>:null}</dl>
-    <h3>属性</h3>
-    {values.isPending?<p role="status">{STATE_TEXT.loading}</p>
-      :values.isError?(kindOf(values.error)==='forbidden'?<Empty kind="forbidden"/>:kindOf(values.error)==='not_found'?<Empty kind="none" title="Object 已不存在"/>
-        :<Failure kind={kindOf(values.error)} onRetry={()=>void values.refetch()}/>)
-      :values.data.properties.length?<dl className="object-properties">{values.data.properties.map(v=><div key={v.name}><dt>{v.name}</dt><dd><PropertyCell p={v} expanded/></dd></div>)}</dl>
-      :<Empty kind="none" title="这个 Object 没有 Property"/>}
-    {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:null}
-    <h3>邻域（深度 1）</h3>
-    {neighbors.isPending?<p role="status">{STATE_TEXT.loading}</p>
-      :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<Empty kind="forbidden"/>:kindOf(neighbors.error)==='not_found'?<Empty kind="none" title="Object 已不存在"/>
-        :<Failure kind={kindOf(neighbors.error)} onRetry={()=>void neighbors.refetch()}/>)
-      :<Neighborhood value={neighbors.data} onOpen={onOpen}/>}
-    <button type="button" onClick={onClose}>关闭</button>
+  return <aside className="world-panel world-object" aria-label={`${type} ${shortId(id)} 详情`}>
+    <Card title={<>{type} <code className="id-code" title={id}>{shortId(id)}</code></>} label={`${type} 详情卡片`} footer={<button type="button" onClick={onClose}>关闭</button>}>
+      <KeyValue label="Object 标识" items={[{key:'完整标识',value:<IdText value={id} kind={type} expandable/>},
+        ...(row?[{key:'Schema 版本',value:`v${row.schema_version}`},{key:'修订',value:row.revision},{key:'更新时间',value:<Time value={row.updated_at}/>}]:[])]}/>
+      <h3>属性</h3>
+      {values.isPending?<EmptyState kind="loading" subject="属性" compact/>
+        :values.isError?(kindOf(values.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些属性" compact/>:kindOf(values.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
+          :<Failure kind={kindOf(values.error)} onRetry={()=>void values.refetch()}/>)
+        :values.data.properties.length?<div className="object-properties"><KeyValue label="属性值" items={values.data.properties.map(v=>({key:v.name,value:<PropertyCell p={v} expanded/>}))}/></div>
+        :<EmptyState kind="empty" subject="Property" compact/>}
+      {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:null}
+      <h3>邻域（深度 1）</h3>
+      {neighbors.isPending?<EmptyState kind="loading" subject="邻域" compact/>
+        :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<EmptyState kind="forbidden" subject="邻域" compact/>:kindOf(neighbors.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
+          :<Failure kind={kindOf(neighbors.error)} onRetry={()=>void neighbors.refetch()}/>)
+        :<Neighborhood value={neighbors.data} onOpen={onOpen}/>}
+    </Card>
   </aside>;
 }
 
@@ -118,13 +118,13 @@ export function neighborhoodGraph(v:ObjectNeighbors){
 }
 
 function Neighborhood({value,onOpen}:{value:ObjectNeighbors;onOpen:(type:string,id:string)=>void}){
-  if(!value.groups.length)return <Empty kind="none" title="没有关联的 Object"/>;
+  if(!value.groups.length)return <EmptyState kind="empty" subject="关联的 Object" compact/>;
   const graph=neighborhoodGraph(value);
   return <>
     <ul className="world-neighbors">{value.groups.map((g:NeighborGroup,i)=><li key={i}>
       <span>{g.direction==='outgoing'?'→':'←'} {g.type_name} · {viaText(g.via)}</span>
       {g.items.length?<ul>{g.items.map(item=><li key={item.object_id}><button type="button" className="link" title={item.object_id} onClick={()=>onOpen(item.type_name,item.object_id)}>
-        <code>{shortId(item.object_id)}</code></button></li>)}</ul>:null}
+        <code className="id-code">{shortId(item.object_id)}</code></button></li>)}</ul>:null}
       {g.invisible?<StatusBadge text={`不可见 ${g.invisible} 个`} tone="limited" code="invisible"/>:null}
       {g.collapsed?<StatusBadge text={`折叠 ${g.collapsed} 个`} tone="neutral" code="collapsed"/>:null}
       {!g.items.length&&!g.invisible&&!g.collapsed?<span className="note">无</span>:null}</li>)}</ul>

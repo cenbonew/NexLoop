@@ -14,6 +14,7 @@ import {DataTable} from '../DataTable';
 import {IdRef,NoWrap,Operations as OpsSection} from './PageOps';
 import {ALERT_INFO,sinceText,thresholdOf,valueText} from './alertInfo';
 import {routePath} from '../route';
+import {readableName} from './Capabilities';
 
 const age=ageText;
 
@@ -22,19 +23,23 @@ export function Alerts({actions}:{actions?:ReactNode}){
   return <Page title="告警" query={query}>{data=><>
     {data.evaluator.stale?<p className="warning" role="alert">{EVALUATOR_STALE_TEXT}</p>
       :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 <Time value={data.evaluator.last_evaluated_at}/>。</p>}
-    <h2>正在触发</h2>
-    {data.firing.length?<DataTable label="正在触发的告警" rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
-      {label:'告警',main:true,cell:a=>{const info=ALERT_INFO[a.rule_id];return <><strong>{info?.name??a.rule_id}</strong> <small className="alert-code"><code>{a.rule_id}</code></small>
-        {info?<span className="alert-help"> · {info.help} <a href={routePath({page:info.page})}>去处理</a></span>:null}</>;}},
-      {label:'级别',cell:a=><NoWrap>{SEVERITY_TEXT[a.severity]}</NoWrap>},{label:'影响对象',cell:a=><NoWrap>{a.selector??'全局'}</NoWrap>},
-      {label:'当前值 / 阈值',cell:a=>{const info=ALERT_INFO[a.rule_id];const t=thresholdOf(a,data.events);
-        return <>{valueText(info,a.value)}{t!==null?` / 阈值 ${valueText(info,t)}`:''}{info?.window?<small>（{info.window}）</small>:null}</>;}},
-      {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
-      {label:'静默',cell:a=>a.silenced_until?<>已静默至 <Time value={a.silenced_until}/>（仍在评估和记录）</>:'—'}]}/>
-      :<p className="note">当前没有触发中的告警。</p>}
-    <h2>最近事件</h2>
-    {data.events.length?<ol>{data.events.map(e=><li key={e.event_id}><Time value={e.recorded_at}/> · {e.kind==='firing'?'触发':'恢复'} · {SEVERITY_TEXT[e.severity]} · {ALERT_INFO[e.rule_id]?.name??e.rule_id}（{e.rule_id}）{e.selector?` · ${e.selector}`:''}
-      {e.value!==null?` · 值 ${valueText(ALERT_INFO[e.rule_id],e.value)}`:''}{e.threshold!==null?` / 阈值 ${valueText(ALERT_INFO[e.rule_id],e.threshold)}`:''}</li>)}</ol>:<p className="note">暂无事件。</p>}
+    <Card title="正在触发" badge={data.firing.length?<StatusBadge text={`${data.firing.length} 条`} tone={data.firing.some(a=>a.severity==='critical'&&!a.silenced_until)?'fail':'limited'}/>:null}>
+      <DataTable label="正在触发的告警" empty={{subject:'触发中的告警'}} rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
+        {label:'告警',main:true,cell:a=>{const info=ALERT_INFO[a.rule_id];return <><strong>{info?.name??a.rule_id}</strong><code className="tech-name alert-code">{a.rule_id}</code>
+          {info?<span className="alert-help">{info.help} <a href={routePath({page:info.page})}>去处理</a></span>:null}</>;}},
+        {label:'级别',cell:a=><StatusBadge domain="alert_severity" code={a.severity}/>},{label:'影响对象',cell:a=><NoWrap>{a.selector??'全局'}</NoWrap>},
+        {label:'当前值 / 阈值',cell:a=>{const info=ALERT_INFO[a.rule_id];const t=thresholdOf(a,data.events);
+          return <>{valueText(info,a.value)}{t!==null?` / 阈值 ${valueText(info,t)}`:''}{info?.window?<small>（{info.window}）</small>:null}</>;}},
+        {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
+        {label:'静默',cell:a=>a.silenced_until?<>已静默至 <Time value={a.silenced_until}/>（仍在评估和记录）</>:'—'}]}/>
+    </Card>
+    <Card title="最近事件">
+      <DataTable label="最近的告警事件" empty={{subject:'告警事件'}} rows={data.events} rowKey={e=>String(e.event_id)} columns={[
+        {label:'时间',cell:e=><Time value={e.recorded_at}/>},{label:'事件',cell:e=><StatusBadge domain="alert_event" code={e.kind}/>},
+        {label:'告警',main:true,cell:e=><><span className="name-main">{ALERT_INFO[e.rule_id]?.name??e.rule_id}</span><code className="tech-name">{e.rule_id}</code></>},
+        {label:'级别',cell:e=><StatusBadge domain="alert_severity" code={e.severity}/>},{label:'影响对象',cell:e=>e.selector??'全局'},
+        {label:'值 / 阈值',cell:e=><>{e.value!==null?valueText(ALERT_INFO[e.rule_id],e.value):'—'}{e.threshold!==null?` / 阈值 ${valueText(ALERT_INFO[e.rule_id],e.threshold)}`:''}</>}]}/>
+    </Card>
     <OpsSection actions={actions} title="静默（可选）"/>
   </>}</Page>;
 }
@@ -105,10 +110,9 @@ export function memberAlias(principal:string,role?:string):ReactNode{
 
 export function Audit({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','human-actions'],queryFn:readHumanActions});
-  return <Page title="审计" query={query} actions={actions} empty={d=>d.length===0}>{items=><>
-    <p className="note">谁在什么时候做了哪些受治理的人类操作，以及成员读取消息原文和客户资料的记录（只有负责人可见；只含 ID、类别和时间）。</p>
-    <DataTable label="审计" rows={items} rowKey={(_,i)=>String(i)} columns={[
-      {label:'时间',main:true,cell:x=><NoWrap><Time value={x.occurred_at}/></NoWrap>},{label:'类别',cell:x=><NoWrap>{x.category==='read'?'读取':'操作'}</NoWrap>},{label:'操作',cell:x=><NoWrap>{x.action}</NoWrap>},
-      {label:'成员',cell:x=><NoWrap>{memberAlias(x.principal_id,x.role)}</NoWrap>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdRef kind={x.target_kind} value={x.target_ref}/>:x.target_kind}]}/>
-  </>}</Page>;
+  return <Page title="审计" query={query} actions={actions} lead="谁在什么时候做了哪些受治理的人类操作，以及成员读取消息原文和客户资料的记录（只有负责人可见；只含 ID、类别和时间）。">{items=>
+    <DataTable label="审计" empty={{subject:'审计记录'}} rows={items} rowKey={(_,i)=>String(i)} columns={[
+      {label:'时间',main:true,cell:x=><Time value={x.occurred_at}/>},{label:'类别',cell:x=><StatusBadge domain="audit_category" code={x.category}/>},
+      {label:'操作',cell:x=><><span className="name-main">{readableName(x.action)}</span><code className="tech-name">{x.action}</code></>},
+      {label:'成员',cell:x=><NoWrap>{memberAlias(x.principal_id,x.role)}</NoWrap>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdRef kind={x.target_kind} value={x.target_ref}/>:statusLabel('audit_target',x.target_kind)}]}/>}</Page>;
 }

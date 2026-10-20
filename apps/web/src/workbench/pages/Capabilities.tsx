@@ -11,8 +11,8 @@ import type {Query} from '../route';
 import {routePath} from '../route';
 import {Page} from './Page';
 import {DataTable} from '../DataTable';
-import {Empty,StatusBadge,Tabs,type Tone} from '../ui';
-import {when} from './Consumers';
+import {StatusBadge,Tabs,Time,type Tone} from '../ui';
+import {EmptyState} from '../kit';
 import {realDispatch,type RealDispatch} from '../realDispatch';
 import {Layers,outcomeText} from '../RealDispatchPanel';
 
@@ -21,6 +21,10 @@ const TABS:{key:Tab;label:string}[]=[{key:'capabilities',label:'受治理能力'
 const SUBJECT_TEXT={human:'仅人类',agent_or_human:'Agent 或人类'} as const;
 const TRUST_TEXT={server:'服务端',signed:'签名',client:'客户端陈述'} as const;
 const TRUST_TONE:Record<keyof typeof TRUST_TEXT,Tone>={server:'ok',signed:'ok',client:'limited'};
+
+/** UI batch 3: a technical name as secondary text under a readable form of it (the product prefix dropped, separators as spaces). */
+export const readableName=(name:string)=>name.replace(/^(nexloop|eios:action:nexloop)\./,'').replace(/[._:]+/g,' ').trim();
+export function NameCell({name}:{name:string}){return <><span className="name-main">{readableName(name)}</span><code className="tech-name">{name}</code></>;}
 
 /** An Action's effect category in words: declared categories as declared; undeclared is closed (customer contact by default). */
 export function categoryBadge(a:CatalogAction){
@@ -49,28 +53,28 @@ function Body({catalog:c,tab,onTab}:{catalog:Catalog;tab:Tab;onTab:(tab:Tab)=>vo
     <Tabs label="能力目录" tabs={TABS} value={tab} onChange={onTab} announce={`${TABS.find(t=>t.key===tab)!.label}：${counts[tab]} 项`}/>
     <div role="tabpanel" aria-label={TABS.find(t=>t.key===tab)!.label}>
       {tab==='capabilities'?(c.capabilities.length?<DataTable label="受治理能力" rows={c.capabilities} rowKey={x=>x.capability} columns={[
-          {label:'能力',main:true,cell:x=><code>{x.capability}</code>},{label:'操作',cell:x=><code>{x.operation}</code>},
+          {label:'能力',main:true,cell:x=><NameCell name={x.capability}/>},{label:'操作',cell:x=><code className="tech-name">{x.operation}</code>},
           {label:'谁可以执行',cell:x=><StatusBadge text={SUBJECT_TEXT[x.subject_rule]} tone={x.subject_rule==='human'?'ok':'neutral'} code={x.subject_rule}/>},
-          {label:'来源任务',cell:x=>x.source_task},{label:'登记时间',cell:x=><span style={{whiteSpace:'nowrap'}}>{when(x.registered_at)}</span>}]}/>
-        :<Empty kind="none" title="还没有登记的受治理能力"/>)
+          {label:'来源任务',cell:x=>x.source_task},{label:'登记时间',cell:x=><Time value={x.registered_at}/>}]}/>
+        :<EmptyState kind="empty" subject="登记的受治理能力"/>)
       :tab==='actions'?(c.actions.length?<DataTable label="业务 Action" rows={c.actions} rowKey={a=>a.resource_id} columns={[
-          {label:'Action',main:true,cell:a=><code>{a.stable_name}</code>},{label:'版本',num:true,cell:a=>`v${a.version}`},
+          {label:'Action',main:true,cell:a=><NameCell name={a.stable_name}/>},{label:'版本',num:true,cell:a=>`v${a.version}`},
           {label:'状态',cell:a=><StatusBadge text={a.active?'生效':'停用'} tone={a.active?'ok':'neutral'} code={a.active?'active':'inactive'}/>},
           {label:'效应类别',cell:categoryBadge},
           {label:'副作用',cell:a=><StatusBadge text={a.has_side_effects?'有':'无'} tone={a.has_side_effects?'limited':'neutral'}/>},
-          {label:'能力',wide:true,cell:a=>a.capability?`${a.capability}${a.capability_version?' @'+a.capability_version:''}`:'—'},
+          {label:'能力',wide:true,cell:a=>a.capability?<><span>{readableName(a.capability)}</span><code className="tech-name">{a.capability}{a.capability_version?' @'+a.capability_version:''}</code></>:'—'},
           {label:'效应清单',num:true,cell:a=>a.effect_manifest_version?`v${a.effect_manifest_version}`:'—'}]}/>
-        :<Empty kind="none" title="还没有业务 Action"/>)
+        :<EmptyState kind="empty" subject="业务 Action"/>)
       :tab==='channels'?<>
           <h2>来信渠道</h2>
           {c.channels.length?<DataTable label="来信渠道" rows={c.channels} rowKey={x=>x.namespace} columns={[
-            {label:'命名空间',main:true,cell:x=><code>{x.namespace}</code>},
+            {label:'命名空间',main:true,cell:x=><NameCell name={x.namespace}/>},
             {label:'可信度',cell:x=><StatusBadge text={TRUST_TEXT[x.trust]} tone={TRUST_TONE[x.trust]} code={x.trust}/>},
-            {label:'允许时钟偏差',num:true,cell:x=>`${x.skew_seconds} 秒`}]}/>:<Empty kind="none" title="还没有登记的来信渠道"/>}
+            {label:'允许时钟偏差',num:true,cell:x=>`${x.skew_seconds} 秒`}]}/>:<EmptyState kind="empty" subject="登记的来信渠道"/>}
           <h2>交付路由</h2>
           {c.routes.length?<DataTable label="交付路由" rows={c.routes} rowKey={x=>x.delivery_action} columns={[
-            {label:'交付 Action',main:true,cell:x=><code>{x.delivery_action}</code>},{label:'生效的目录服务',num:true,cell:x=>x.active_offerings}]}/>
-            :<Empty kind="none" title="还没有经目录服务交付的 Action"/>}
+            {label:'交付 Action',main:true,cell:x=><NameCell name={x.delivery_action}/>},{label:'生效的目录服务',num:true,cell:x=>x.active_offerings}]}/>
+            :<EmptyState kind="empty" subject="经目录服务交付的 Action"/>}
           <p className="note">渠道供应商路由由部署配置决定（{c.provider_routes==='deployment_configuration'?'部署配置':c.provider_routes}），工作台不读取其中的地址和凭据。</p>
         </>
       :dispatch?<>
@@ -78,7 +82,7 @@ function Body({catalog:c,tab,onTab}:{catalog:Catalog;tab:Tab;onTab:(tab:Tab)=>vo
           <Layers state={dispatch}/>
           <p className="note">开关只能由负责人在 <a href={routePath({page:'settings'})}>设置与治理</a> 中开启或关闭；这里只读。</p>
         </>
-      :<Empty kind="unavailable" title="真实派发开关暂不可读"/>}
+      :<EmptyState kind="unavailable" subject="真实派发开关"/>}
     </div>
   </>;
 }

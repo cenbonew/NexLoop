@@ -46,5 +46,5 @@ test('real dispatch: the same parser, layers and outcome as the settings page, r
   expect(html).toContain(expected.text);expect(html).toContain(`data-dispatchable="${expected.dispatchable}"`);
   expect(html).toContain('真实派发三层开关');expect(html).toContain('href="/workbench/settings"');expect(html).not.toContain('<button type="button" onClick');
   const broken=structuredClone(example);broken.real_dispatch.world=7;
-  expect(render({tab:'dispatch'},broken)).toContain('真实派发开关暂不可读');
+  expect(render({tab:'dispatch'},broken)).toContain('真实派发开关暂不可用');
 });

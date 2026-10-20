@@ -10,7 +10,8 @@ import {ConsumerDetail,Consumers,Conversation} from './pages/Consumers';
 import {Actions} from './pages/Actions';
 import {CommitmentDetail,Commitments} from './pages/Commitments';
 import {Contact} from './pages/Contact';
-import {NotEnabled,Settings} from './pages/Settings';
+import {Settings} from './pages/Settings';
+import {Experiments} from './pages/Experiments';
 import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 import {Alerts,Audit,Operations} from './pages/Observability';
 import {WorldModel} from './pages/WorldModel';
@@ -65,7 +66,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'data_assets':return <DataAssets/>;
     case 'data_health':return <DataHealth/>;
     case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
-    case 'experiments':return <NotEnabled title={PAGES.experiments}/>;
+    case 'experiments':return <Experiments title={PAGES.experiments}/>;
   }
 }
 

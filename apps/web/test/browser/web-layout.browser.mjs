@@ -47,7 +47,8 @@ const measure=()=>{const vw=innerWidth;
     // Batch 5: breadcrumbs, the time zone note, empty states with a kind and a next step, badges with words, the title's top.
     crumbs:[...document.querySelectorAll('nav.breadcrumbs li')].map(l=>l.textContent.trim()),
     tz:document.querySelector('.brand-tz')?.textContent??null,
-    empties:[...document.querySelectorAll('.workbench-empty')].map(e=>({kind:e.dataset.empty??null,next:!!e.querySelector('.empty-next')?.textContent.trim()})),
+    // UI batch 1/3: the earlier Empty (.workbench-empty, data-empty) and the kit's EmptyState (.state, data-state) alike.
+    empties:[...document.querySelectorAll('.workbench-empty, .state:not(.state-loading)')].map(e=>({kind:e.dataset.empty??e.dataset.state??null,next:!!(e.querySelector('.empty-next')??e.querySelector('.state-next'))?.textContent.trim()})),
     badges_worded:[...document.querySelectorAll('.status-badge')].every(b=>b.textContent.replace(/[✓✕…!–]/g,'').trim().length>0&&!/^[a-z_]+$/.test(b.textContent.replace(/[✓✕…!–]/g,'').trim())),
     h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')
