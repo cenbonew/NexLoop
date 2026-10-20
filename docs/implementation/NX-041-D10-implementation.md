@@ -118,4 +118,21 @@ S7 原来那条 strict xfail 已经翻转，改成普通测试：先断言 `pi_r
 
 - 端到端用的是 deterministic-test 档位、不开 effect_tools 的 Run（调用一次模型就结束）。sim 组带工具的 Run，在已有 Host 测试里由替身覆盖（`nx041-sim-host-tools`），这里没有把真实 Pi 加工具跑一遍。
 - agent 用途的凭据已经签发，但这次端到端没有用到：Run 凭据由 api 凭据签发，worker 和 guard 用 worker 凭据。agent 凭据留给后续由 Agent 侧直接持有的场景。
-- 通过受信配置签发 sim 凭据时，目前没有传用途的字段：0272 只接受显式的 `sim_use`，受信配置的 manifest 还没有这一项。部署前要补，见待办。
+- 受信配置 manifest 的用途字段已在下一节补上。
+
+## 受信配置 manifest 签发 sim 凭据（部署前必须补的一项）
+
+迁移：`0273_nx041_d10_manifest.sql`，临时编号。
+
+| 项 | 实现 |
+| --- | --- |
+| Python 校验（`trusted_configuration.validate_manifest`） | 凭据条目允许可选键 `sim_use`。只绑定一个 sim 或 shadow world 的凭据，必须带 `sim_use`，取值 api、worker、agent；real 和 test 凭据带了这个键就拒绝。 |
+| SQL（`control.nexloop_configure_manifest`，以 0211 的最新函数体为底稿） | 同一条规则在 SQL 侧再校验一遍，绕过 Python 直接调用也会被拒；插入改成显式列名并写入 `sim_use`。原来是按位置插入 8 个值，而 `expires_at` 和 `sim_use` 之间还有一列 `agent_invocation`，按位置写入第 9 个值会落错列。重放同一份 manifest 时，冲突检查也会比对 `sim_use`。这次重定义已登记到复制件守护。 |
+| 契约 / deploy | manifest 没有对应的 JSON 契约（`packages/contracts` 下没有），`deploy/` 下也没有 manifest 示例，所以都没有改动。`service_grants` 只生成 real 和 test 的 manifest，不涉及 sim 凭据。 |
+
+测试 `tests/test_nx041_d10_manifest_pg.py`：
+
+- 一份 manifest 同时签发 api、worker、agent 三种用途的凭据：全部成功，`sim_use` 都写入了，各自能在本 world 认证；重放不改变任何东西。
+- 再签发一个已经存在的用途：被拒。
+- 缺少用途、用途非法、real 凭据带了用途、test 凭据带了用途：Python 校验和 SQL 都拒绝。阳性对照：带了合法用途的 sim 凭据，两条路径都能通过。
+- real 回归：service-grants 的真实 manifest 在前后各应用一次，结果不变；real 凭据都不带用途。

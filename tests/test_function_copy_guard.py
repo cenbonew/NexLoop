@@ -81,6 +81,13 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
+    # D10 trusted configuration (0273): a manifest names a simulation credential's use; real and test name none.
+    Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
+            ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
+             (r",item->>'sim_use'\)\s*on conflict\(token_digest\) do nothing;", ') on conflict(token_digest) do nothing;'),
+             (r'insert into authz\.nexloop_service_credentials\(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use\) values',
+              'insert into authz.nexloop_service_credentials values'),
+             (r"\s*and sim_use is not distinct from item->>'sim_use'\) then raise exception 'configuration conflict'", ") then raise exception 'configuration conflict'"))),
     Allowed('nx041_d10_credentials', 'authz.nexloop_issue_run_credential', 'D10 wiring: a simulation role issues Run credentials of its own world only (app_role); definer search_path gains pg_temp',
             ((r"if authz\.nexloop_app_role\(p_world\) is distinct from 'nexloop_api' then raise exception 'Run issuance denied' using errcode='42501';end if;\s*", ''),),
             PG_TEMP),
