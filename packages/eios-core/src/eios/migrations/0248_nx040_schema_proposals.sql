@@ -83,24 +83,22 @@ $$;
 alter function runtime.nexloop_schema_proposal_wire(ontology.nexloop_schema_proposals) owner to nexloop_owner;
 revoke all on function runtime.nexloop_schema_proposal_wire(ontology.nexloop_schema_proposals) from public;
 
--- The §4.1 structured change, exactly: a property (optional, nullable) to add, a vocabulary value to add to an existing property,
--- or a new Object Type with its primary key and properties. Names and EIOS value types only.
+-- The §4.1 structured change, exactly (as the F1 library judges it, nexloop_eios.evolution.schema_compat): a new property, optional
+-- and nullable, of a scalar EIOS value type; a vocabulary value to add to an existing property; or a new Object Type with its
+-- properties (optional, scalar) and no primary key (§4.1: a primary key on a new type is breaking_primary_key). Names only.
 create function runtime.nexloop_schema_change_valid(p_operation text,p_type text,p_change jsonb) returns boolean
  language sql immutable set search_path=pg_catalog,pg_temp as $$
  select coalesce(case p_operation
   when 'add_optional_property' then (select array_agg(k order by k) from jsonb_object_keys(p_change) k)=array['property_name','value_type']
-   and p_change->>'property_name'~'^[a-z][a-z0-9_]{0,63}$' and p_change->>'value_type' in ('string','integer','number','boolean','datetime','json')
+   and p_change->>'property_name'~'^[a-z][a-z0-9_]{0,63}$' and p_change->>'value_type' in ('string','integer','number','boolean','datetime')
   when 'add_vocabulary_value' then (select array_agg(k order by k) from jsonb_object_keys(p_change) k)=array['property_name','value']
    and p_change->>'property_name'~'^[a-z][a-z0-9_]{0,63}$' and jsonb_typeof(p_change->'value')='string' and char_length(p_change->>'value') between 1 and 200
-  when 'add_object_type' then (select array_agg(k order by k) from jsonb_object_keys(p_change) k)=array['primary_key','properties']
+  when 'add_object_type' then (select array_agg(k order by k) from jsonb_object_keys(p_change) k)=array['properties']
    and jsonb_typeof(p_change->'properties')='array' and jsonb_array_length(p_change->'properties') between 1 and 64
    and not exists(select 1 from jsonb_array_elements(p_change->'properties') e where jsonb_typeof(e)<>'object'
-     or (select array_agg(k order by k) from jsonb_object_keys(e) k) is distinct from array['property_name','required','value_type']
-     or e->>'property_name'!~'^[a-z][a-z0-9_]{0,63}$' or e->>'value_type' not in ('string','integer','number','boolean','datetime','json')
-     or jsonb_typeof(e->'required')<>'boolean')
-   and jsonb_typeof(p_change->'primary_key')='array' and jsonb_array_length(p_change->'primary_key') between 1 and 8
-   and not exists(select 1 from jsonb_array_elements_text(p_change->'primary_key') k where not exists(
-     select 1 from jsonb_array_elements(p_change->'properties') e where e->>'property_name'=k and (e->>'required')::boolean))
+     or (select array_agg(k order by k) from jsonb_object_keys(e) k) is distinct from array['property_name','value_type']
+     or e->>'property_name'!~'^[a-z][a-z0-9_]{0,63}$' or e->>'value_type' not in ('string','integer','number','boolean','datetime'))
+   and (select count(distinct e->>'property_name') from jsonb_array_elements(p_change->'properties') e)=jsonb_array_length(p_change->'properties')
   else false end,false)
 $$;
 alter function runtime.nexloop_schema_change_valid(text,text,jsonb) owner to nexloop_owner;

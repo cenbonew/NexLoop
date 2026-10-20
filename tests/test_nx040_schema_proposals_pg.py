@@ -111,7 +111,13 @@ def test_a_proposal_is_frozen_at_creation_and_never_changes(evo):
     with pytest.raises(psycopg.Error, match='needs an ontology_schema candidate'):
         freeze(f, semantic)
     with pytest.raises(psycopg.Error, match='object type exists'):
-        freeze(f, cid, operation='add_object_type', change={'primary_key': ['title'], 'properties': [{'property_name': 'title', 'value_type': 'string', 'required': True}]})
+        freeze(f, cid, operation='add_object_type', change={'properties': [{'property_name': 'title', 'value_type': 'string'}]})
+    # §4.1 as F1 judges it: a new type has no primary key; a new property is of a scalar type.
+    with pytest.raises(psycopg.Error, match='proposal invalid'):
+        freeze(f, cid, operation='add_object_type', type_name='Material',
+               change={'primary_key': ['code'], 'properties': [{'property_name': 'code', 'value_type': 'string'}]})
+    with pytest.raises(psycopg.Error, match='proposal invalid'):
+        freeze(f, cid, change={'property_name': 'material', 'value_type': 'json'})
 
 
 def test_three_states_move_once_and_events_are_append_only(evo):
@@ -155,3 +161,38 @@ def test_another_tenant_reads_nothing(evo):
         call(f, 'select authz.nexloop_schema_proposal_withdraw(%s,%s,%s)', pid, 'superseded', digest=f['other_digest'])
     for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_evo_writer'):
         assert f['admin'].execute("select has_table_privilege(%s,'ontology.nexloop_schema_proposals','select')", (role,)).fetchone() == (False,)
+
+
+# ---- end to end with F1 (nexloop_eios.evolution.schema_compat, NX-040 F1): what F2 freezes, F1 allows ----
+NEW_TYPE = {'properties': [{'property_name': 'code', 'value_type': 'string'}, {'property_name': 'weight', 'value_type': 'number'}]}
+
+
+def f1_change(proposal_row):
+    """The frozen change as F1's input, built the way F3's publication builds it (schema_publication.build): a new property optional and
+    nullable; a new type editable only through Actions, its properties optional, its primary key the frozen one (none)."""
+    op, name, change = proposal_row
+    if op == 'add_optional_property':
+        return {'op': op, 'type_name': name, 'property': {'property_name': change['property_name'], 'value_type': change['value_type'], 'required': False, 'nullable': True}}
+    return {'op': op, 'type_name': name, 'definition': {'type_name': name, 'version': 1, 'only_edit_via_actions': True, 'primary_key': list(change.get('primary_key') or []),
+            'properties': [{'property_name': p['property_name'], 'value_type': p['value_type'], 'required': False, 'nullable': True} for p in change['properties']]}}
+
+
+@pytest.mark.parametrize('operation', ['add_optional_property', 'add_object_type'])
+def test_what_f2_freezes_f1_allows(evo, operation):
+    compat = pytest.importorskip('nexloop_eios.evolution.schema_compat')
+    f = evo
+    admin = f['admin']
+    opened(f)
+    seed_type(admin)
+    if operation == 'add_object_type':
+        _, cid = schema_candidate(f, candidate={'allowed_change_scope': ['eios:object_type:Material']},
+                                 patch={'change_kind': 'add_object_type', 'target_refs': ['eios:object_type:Material']})
+        out = freeze(f, cid, operation=operation, type_name='Material', change=NEW_TYPE)[1]
+    else:
+        _, cid = schema_candidate(f)
+        out = freeze(f, cid)[1]
+    assert out['frozen'] is True
+    row = admin.execute('select operation,type_name,change from ontology.nexloop_schema_proposals where proposal_id=%s', (out['proposal']['proposal_id'],)).fetchone()
+    parent = {'types': {'Product': admin.execute("select definition from ontology.object_type_versions where type_name='Product'").fetchone()[0]}}
+    verdict = compat.judge(f1_change(row), parent)
+    assert verdict['allowed'] is True and verdict['change_class'] == 'minor' and verdict['codes'] == [], verdict
