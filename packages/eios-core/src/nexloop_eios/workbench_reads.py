@@ -690,5 +690,13 @@ class WorkbenchQueries:
         # D-G5: extraction, recall index, review reflow, ingestion, Artifact orphans and erasure propagation (owner, read only).
         return self.reader.observe('data_health')
 
+    def outreach_metrics(self):
+        # Outreach slice 8: proactive outreach metrics of the last 7 days (counts, ratios, codes; owner, read only).
+        return self.reader.observe('outreach_metrics')
+
+    def outreach_evidence(self, **query):
+        # Outreach slice 8: one send's evidence chain (intent_id) or a list (consumer_id, synthetic_only, limit); never the body.
+        return self.reader.observe('outreach_evidence', **query)
+
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)

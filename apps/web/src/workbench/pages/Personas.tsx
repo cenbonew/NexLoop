@@ -13,8 +13,9 @@ import {DataTable} from '../DataTable';
 import {Empty,StatusBadge,Tabs,Time} from '../ui';
 import {Form,WithMember} from '../actions';
 import {Page} from './Page';
+import {OutreachInsights} from './OutreachInsights';
 
-type Tab='personas'|'rules'|'disclosure'|'outreach';
+type Tab='personas'|'rules'|'disclosure'|'outreach'|'insights';
 const lines=(value:string)=>value.split('\n').map(x=>x.trim()).filter(Boolean);
 /** The highest published version of each persona: what a customer assigned to it gets now. */
 export function usableVersions(personas:PersonaVersion[]):Map<string,PersonaVersion>{
@@ -30,9 +31,9 @@ export function Personas({actions}:{actions?:ReactNode}){
   // 0232: the outreach controls tab is the owner's only (the read and the Action are owner only).
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
   const owner=member.data?.role==='owner';
-  const tabs:{key:Tab;label:string}[]=[{key:'personas',label:'人设与版本'},{key:'rules',label:'分配'},{key:'disclosure',label:'AI 身份披露'},...(owner?[{key:'outreach' as Tab,label:'外联控制'}]:[])];
+  const tabs:{key:Tab;label:string}[]=[{key:'personas',label:'人设与版本'},{key:'rules',label:'分配'},{key:'disclosure',label:'AI 身份披露'},...(owner?[{key:'outreach' as Tab,label:'外联控制'},{key:'insights' as Tab,label:'外联指标与证据'}]:[])];
   return <Page title="运营人设" query={query} actions={actions} toolbar={<Tabs label="人设设置" value={tab} onChange={setTab} tabs={tabs}/>}>{data=>
-    tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data}/>:tab==='outreach'&&owner?<OutreachControlsTab/>:<Disclosure setting={data.ai_disclosure}/>}</Page>;
+    tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data}/>:tab==='outreach'&&owner?<OutreachControlsTab/>:tab==='insights'&&owner?<OutreachInsights/>:<Disclosure setting={data.ai_disclosure}/>}</Page>;
 }
 
 // ---- versions and the editor ----

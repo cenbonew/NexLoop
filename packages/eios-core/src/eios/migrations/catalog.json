@@ -1250,6 +1250,11 @@
       "version": "0250",
       "name": "0250_nx039_erasure_watch.sql",
       "sha256": "f86b38a2b3af2c38e4eea1dd58d744feefd6bbdbad8794067fb2916f001d8159"
+    },
+    {
+      "version": "0251",
+      "name": "0251_outreach_metrics_evidence.sql",
+      "sha256": "ef169ad1f4214c90cb5ee7c6e70e940717d4910974c9de045536aea2b27bb3e5"
     }
   ]
 }
