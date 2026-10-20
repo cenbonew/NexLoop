@@ -1,17 +1,17 @@
 # NX-041 S5：模拟时钟
 
-依据：`NX-041-design.md` §4、D5、§11 S5、迁移 D。迁移 `0281_nx041_sim_clock.sql`（编号是临时的，只出现在文件名和 catalog 里）。
+依据：`NX-041-design.md` §4、D5、§11 S5、迁移 D。迁移 `0263_nx041_sim_clock.sql`（编号是临时的，只出现在文件名和 catalog 里）。
 
 ## 实现
 
 | 内容 | 位置 |
 | --- | --- |
-| 每个 sim/shadow 世界一个逻辑时钟 `control.nexloop_sim_clocks`：世界登记时随之创建，初始为**暂停**，停在世界的创建时间（D5：模拟世界默认不读墙钟）。时钟值 = 暂停时为 `sim_at`，运行时为 `sim_at + (墙钟 - anchor_at) × rate` | 0281 §1 |
-| 只往前走：触发器只接受受治理 Action 打开的修改，每次 revision 加 1，锚点不后退，新时间不早于旧时钟在同一墙钟时刻的值。时钟只能随世界整体删除（S2 purge，世界处于 deleting）离开 | 0281 §1 |
-| 每次变更写 `control.nexloop_sim_clock_events`（只追加，每个 revision 一行：操作、起止时间、速率、暂停、步长、操作人、请求号、原因）和一条 `runtime.audit_events` | 0281 §3 |
-| 读取：`runtime.nexloop_world_now(tenant, world)`。real/test 直接返回 `clock_timestamp()`，行为不变；sim/shadow 读自己的时钟，找不到时钟就报错，不回退墙钟。`runtime.nexloop_world_wall_at(tenant, world, at)`：一个世界时间对应的墙钟时刻。real/test 原样返回；时钟暂停时为 infinity | 0281 §2 |
-| 受治理 Action `nexloop.sim_clock.control` / `control_sim_clock`，subject_rule `human`，只给 owner。动作有 advance（秒，1 秒到 3650 天）、pause、resume、set_rate（大于 0 且不超过 100000）。目标是 real、test、`simulation` 字面值、未登记、他租户或非 active 世界时拒绝。同一请求号重试返回原结果 | 0281 §3；business-actions v32、capabilities、system-catalog-names、workbench-roles v28（slice `sim_worlds`）；`business_actions.py`、`goal_controls.py`、`workbench_actions_http.py`、`workbench_roles.py` |
-| 工作队列（work feed）仍按墙钟调度：一个世界的到期时间先换算成墙钟时刻再入队；每次时钟变更后，该世界待处理的 Commitment 和计划条目立即重新到期，按新时钟重算 | 0281 §2、§3 |
+| 每个 sim/shadow 世界一个逻辑时钟 `control.nexloop_sim_clocks`：世界登记时随之创建，初始为**暂停**，停在世界的创建时间（D5：模拟世界默认不读墙钟）。时钟值 = 暂停时为 `sim_at`，运行时为 `sim_at + (墙钟 - anchor_at) × rate` | 0263 §1 |
+| 只往前走：触发器只接受受治理 Action 打开的修改，每次 revision 加 1，锚点不后退，新时间不早于旧时钟在同一墙钟时刻的值。时钟只能随世界整体删除（S2 purge，世界处于 deleting）离开 | 0263 §1 |
+| 每次变更写 `control.nexloop_sim_clock_events`（只追加，每个 revision 一行：操作、起止时间、速率、暂停、步长、操作人、请求号、原因）和一条 `runtime.audit_events` | 0263 §3 |
+| 读取：`runtime.nexloop_world_now(tenant, world)`。real/test 直接返回 `clock_timestamp()`，行为不变；sim/shadow 读自己的时钟，找不到时钟就报错，不回退墙钟。`runtime.nexloop_world_wall_at(tenant, world, at)`：一个世界时间对应的墙钟时刻。real/test 原样返回；时钟暂停时为 infinity | 0263 §2 |
+| 受治理 Action `nexloop.sim_clock.control` / `control_sim_clock`，subject_rule `human`，只给 owner。动作有 advance（秒，1 秒到 3650 天）、pause、resume、set_rate（大于 0 且不超过 100000）。目标是 real、test、`simulation` 字面值、未登记、他租户或非 active 世界时拒绝。同一请求号重试返回原结果 | 0263 §3；business-actions v32、capabilities、system-catalog-names、workbench-roles v28（slice `sim_worlds`）；`business_actions.py`、`goal_controls.py`、`workbench_actions_http.py`、`workbench_roles.py` |
+| 工作队列（work feed）仍按墙钟调度：一个世界的到期时间先换算成墙钟时刻再入队；每次时钟变更后，该世界待处理的 Commitment 和计划条目立即重新到期，按新时钟重算 | 0263 §2、§3 |
 
 ## 时间逻辑清单
 
