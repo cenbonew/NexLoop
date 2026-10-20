@@ -60,7 +60,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Outreach slice 4: the owner asks for one proactive message; every gate is rechecked at dispatch.
     'outreach.send':'human_owner',
     # Outreach slice 6: approve or reject a send waiting for approval (never the requester's own).
-    'outreach.approve':'human_owner'}
+    'outreach.approve':'human_owner',
+    # ADR-036: the owner publishes the next version of a read-only Object Set.
+    'object_set.publish':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

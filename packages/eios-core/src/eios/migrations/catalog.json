@@ -1205,6 +1205,11 @@
       "version": "0241",
       "name": "0241_nx039_evaluation_open.sql",
       "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
+    },
+    {
+      "version": "0242",
+      "name": "0242_object_sets.sql",
+      "sha256": "2cfab276c0594f169e12a71bfad8e2a61ca2a2ff9e89ad49ac53548c5d821bfd"
     }
   ]
 }

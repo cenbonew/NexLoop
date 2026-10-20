@@ -408,6 +408,38 @@ class WorkbenchQueries:
         return {'type_name': type_name, 'items': visible, 'invisible': len(page) - len(visible), 'total': value['total'],
                 'next_after': page[-1]['object_id'] if len(page) == limit else None}
 
+    def object_sets(self):
+        """ADR-036: the latest version of each Object Set with its conditions and projection (definitions only, no object)."""
+        return self.reader.observe('object_sets')
+
+    def object_set_members(self, *, stable_name, version=None, offset=0, limit=25):
+        """ADR-036: one preview page of an Object Set, evaluated in SQL at read time (candidates only). Each object is shown only when its
+        READ holds (ADR-025/ADR-035, audited with purpose 'object_set'); the rest are counted as invisible. Each projected property is shown
+        only with its own property READ, otherwise listed as withheld. A set whose filter or sort property became restricted is withheld
+        as a whole."""
+        value = self.reader.observe('object_set_members', stable_name=stable_name, offset=offset, limit=limit,
+                                    **({'version': version} if version is not None else {}))
+        if value is None or value['status'] != 'ok':
+            return value
+        type_name, projection = value['object_type'], value['projection']
+        items, invisible = [], 0
+        for object_id in value['items']:
+            if self.reader.read_object(type_name, object_id, [], 'object_set') is None:
+                invisible += 1
+                continue
+            values = self.reader.read_object(type_name, object_id, projection, 'object_set') if projection else {}
+            withheld = []
+            if values is None:  # one projected property is not readable: read each on its own, show only those that are
+                values = {}
+                for prop in projection:
+                    single = self.reader.read_object(type_name, object_id, [prop], 'object_set')
+                    if single is None:
+                        withheld.append(prop)
+                    else:
+                        values[prop] = single.get(prop)
+            items.append({'object_id': object_id, 'values': {k: values.get(k) for k in projection if k not in withheld}, 'withheld': withheld})
+        return {**value, 'items': items, 'invisible': invisible}
+
     def object_neighbors(self, *, type_name, object_id):
         """World model W2: depth 1, at most 25 neighbours a group. The centre must be readable (else 403); a neighbour is shown only
         when its own READ holds and, for a property edge, the READ of the referencing property on whichever object holds it; the rest

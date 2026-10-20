@@ -23,6 +23,7 @@ _ID = re.compile(r'[a-f0-9]{64}')
 _CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{64}')
 _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirmed')
 _TYPE = re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')
+_OBJECT_SET = re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')  # ADR-036
 _OBJECT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ARTIFACT_CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{32}')
 _OFFSET = re.compile(r'0|[1-9][0-9]{0,5}')
@@ -245,6 +246,29 @@ def router(config, *, ports_for_workbench):
         except ValueError:
             return error('invalid_request', 422)
         return await invoke(request, 'objects', type_name=type_name, after=q.get('after'), limit=limit)
+
+    @routes.get('/object-sets')
+    async def object_sets(request: Request):
+        # ADR-036: the tenant's Object Sets (latest version of each, conditions and projection); every member, read only.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_sets')
+
+    @routes.get('/object-sets/{stable_name}/members')
+    async def object_set_members(stable_name: str, request: Request):
+        # ADR-036: one preview page evaluated at read time; each object's READ and each projected property's READ checked.
+        try:
+            q = query(request, ('version', 'offset', 'limit'))
+            if not _OBJECT_SET.fullmatch(stable_name):
+                raise ValueError()
+            version = limit_of(q['version']) if 'version' in q else None
+            offset = int(q['offset']) if 'offset' in q and q['offset'].isdigit() and len(q['offset']) <= 4 else (0 if 'offset' not in q else None)
+            limit = limit_of(q['limit']) if 'limit' in q else 25
+            if offset is None or offset > 1000 or limit > 50:
+                raise ValueError()
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_set_members', stable_name=stable_name, version=version, offset=offset, limit=limit)
 
     @routes.get('/objects/{type_name}/{object_id}/neighbors')
     async def object_neighbors(type_name: str, object_id: str, request: Request):

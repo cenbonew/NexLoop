@@ -16,6 +16,7 @@ import {Empty,StatusBadge} from '../ui';
 import {when} from './Consumers';
 import {CARDINALITY_TEXT,SchemaGraph} from '../graph/SchemaGraph';
 import {Instances,type InstanceState} from './WorldInstances';
+import {ObjectSets,type ObjectSetState} from './WorldObjectSets';
 
 const RISK_TEXT:Record<string,string>={low:'低',medium:'中',high:'高',critical:'极高'};
 const APPROVAL_TEXT:Record<string,string>={none:'无需审批',human:'人工审批',human_review:'人工审批',dual:'双人审批'};
@@ -26,18 +27,21 @@ export const SECTION_LEAD:Record<WorldSection,string>={
   properties:'归属于 Object Type 的字段定义，含数据类型与约束。',
   links:'Object Type 之间的关系及基数约束。',
   functions:'版本化的只读计算契约。',
-  actions:'版本化的写入契约，携带治理与副作用声明；对外的业务变更只经由受治理的 Action。'};
+  actions:'版本化的写入契约，携带治理与副作用声明；对外的业务变更只经由受治理的 Action。',
+  object_sets:'保存的只读查询：一个 Object Type 加条件；按当前数据求值，只显示你有读取权限的 Object。'};
 export const sectionLabel=(s:WorldSection)=>WORLD_SECTIONS.find(x=>x.key===s)!.label;
 
-export type WorldModelQuery={graph:boolean;focus:string|null}&InstanceState;
+export type WorldModelQuery={graph:boolean;focus:string|null}&InstanceState&ObjectSetState;
 export function worldQuery(section:WorldSection|undefined,query:Query|undefined):WorldModelQuery{
   const objects=section==='objects',types=section==='object_types';
   return {graph:types&&query?.view==='graph',focus:types?query?.focus??null:null,
-    type:objects?query?.type??null:null,after:objects&&query?.type?query?.after??null:null,object:objects&&query?.type?query?.object??null:null};
+    type:objects?query?.type??null:null,after:objects&&query?.type?query?.after??null:null,object:objects&&query?.type?query?.object??null:null,
+    set:section==='object_sets'?query?.set??null:null,offset:section==='object_sets'&&query?.set?Number(query?.offset??0):0};
 }
 function toQuery(section:WorldSection,q:WorldModelQuery):Query{
   if(section==='object_types')return {...(q.graph?{view:'graph'}:{}),...(q.focus?{focus:q.focus}:{})};
   if(section==='objects'&&q.type)return {type:q.type,...(q.after?{after:q.after}:{}),...(q.object?{object:q.object}:{})};
+  if(section==='object_sets'&&q.set)return {set:q.set,...(q.offset?{offset:String(q.offset)}:{})};
   return {};
 }
 
@@ -59,14 +63,15 @@ function properties(m:Model):PropertyRow[]{return m.object_types.flatMap(t=>t.pr
 
 function Summary({model:m,go}:{model:Model;go:WorldGo}){
   const props=useMemo(()=>properties(m),[m]);
-  const counts:Record<WorldSection,number>={object_types:m.object_types.length,objects:m.object_types.reduce((n,t)=>n+t.objects,0),properties:props.length,
-    links:m.relation_types.length,functions:m.functions.length,actions:m.actions.length};
+  // Object Sets are read on their own page (ADR-036): the summary links there without a count.
+  const counts:Record<WorldSection,number|null>={object_types:m.object_types.length,objects:m.object_types.reduce((n,t)=>n+t.objects,0),properties:props.length,
+    links:m.relation_types.length,functions:m.functions.length,actions:m.actions.length,object_sets:null};
   const withheld=props.filter(p=>p.property.withheld).length;
   return <>
     <ul className="world-summary" aria-label="模型计数" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:8,margin:'8px 0 16px',padding:0,listStyle:'none'}}>
-      {WORLD_SECTIONS.map(s=><li key={s.key}><button type="button" className="workbench-block world-count" aria-label={`${s.label} ${counts[s.key]} 个，查看`}
+      {WORLD_SECTIONS.map(s=><li key={s.key}><button type="button" className="workbench-block world-count" aria-label={counts[s.key]===null?`${s.label}，查看`:`${s.label} ${counts[s.key]} 个，查看`}
         onClick={()=>go(s.key)} style={{textAlign:'left',width:'100%',height:'100%'}}>
-        <span className="note">{s.label}{s.key==='objects'?'（real）':''}</span><strong style={{display:'block',fontSize:22}}>{counts[s.key]}</strong>
+        <span className="note">{s.label}{s.key==='objects'?'（real）':''}</span><strong style={{display:'block',fontSize:22}}>{counts[s.key]??'查看'}</strong>
         <span className="note" style={{display:'block'}}>{SECTION_LEAD[s.key]}</span></button></li>)}
       <li><div className="workbench-block world-count" aria-label={`Event Type ${m.event_types.length} 个`} style={{height:'100%'}}>
         <span className="note">Event Type</span><strong style={{display:'block',fontSize:22}}>{m.event_types.length}</strong>
@@ -110,6 +115,7 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
           {label:'说明',wide:true,cell:t=>t.description||'—'}]}/>:<Empty kind="none" title="还没有已发布的 Object Type"/>}
     </>;
     case 'objects':return <Instances types={m.object_types} state={q} onState={change=>set(change)}/>;
+    case 'object_sets':return <ObjectSets state={q} onState={change=>set(change)}/>;
     case 'properties':return props.length?<DataTable label="Property" rows={props} rowKey={r=>r.type+'/'+r.property.name} columns={[
       {label:'Property',main:true,cell:r=><Mono>{r.property.name}</Mono>},{label:'Object Type',cell:r=>typeLink(r.type)},
       {label:'数据类型',cell:r=>r.property.withheld?<StatusBadge text="受限" tone="limited" code="withheld"/>:r.property.value_type},
