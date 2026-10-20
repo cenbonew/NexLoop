@@ -12,6 +12,7 @@ import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validate
 // 10/18 (release 14): the model provider connection (TCP + TLS) bound and its retries on a new connection, before any request byte.
 const MODEL_CONNECT_TIMEOUT_MS=4000,MODEL_CONNECT_RETRIES=2;
 import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-gate.js';
+import {worldGroupAccepts,type WorldGroup} from './worlds.js';
 
 type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
 // ADR-022 §4: each guard call keeps its 2 s limit; an unanswered call is retried a bounded number of times.
@@ -71,11 +72,15 @@ export class RuntimeHost{
   private readonly keyPath:string;
   private pending=0;
   private readonly runtimeProfile:string;
+  private readonly worldGroup:WorldGroup;
   private readonly admission:RunAdmissionGate;
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','world_group'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    // NX-041 S6 (D3): one Host process serves one world group; real (the default) never a simulation Run, simulation never real or test.
+    if(config.world_group!==undefined&&config.world_group!=='real'&&config.world_group!=='simulation')throw new Error('runtime configuration refused');
+    this.worldGroup=config.world_group==='simulation'?'simulation':'real';
     if(config.runtime_profile==='deterministic-test'&&(config.model_configuration_file!==undefined||config.maximum_request_cost!==undefined))throw new Error('runtime configuration refused');
     if(config.runtime_profile==='deepseek-flash'&&(typeof config.model_configuration_file!=='string'||typeof config.maximum_request_cost!=='string'||!/^\d{1,8}(\.\d{1,8})?$/.test(config.maximum_request_cost)||Number(config.maximum_request_cost)<=0||Number(config.maximum_request_cost)>100||config.deterministic_effect_message!==undefined||config.deterministic_message_from_input!==undefined))throw new Error('runtime configuration refused');
     // D-g option 2 (owner 2026-10-13): the cost currency is USD (Pi catalogue prices) or CNY (a versioned tariff file at the
@@ -344,7 +349,7 @@ export class RuntimeHost{
     }
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
       activationForRun:runId=>this.activations.get(runId)?.ref}):undefined;
-    this.adapter=new PiRuntimeAdapter({root,models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
+    this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:RUN_INSTRUCTIONS}:{}),
       ...(typeof config.model_request_timeout_ms==='number'?{modelRequestTimeoutMs:config.model_request_timeout_ms}:{}),
@@ -359,6 +364,9 @@ export class RuntimeHost{
     const expected=operation==='start'||operation==='resume'?['activation_ref','command','input']:['activation_ref','command'];
     if(Object.keys(body).sort().join(',')!==expected.sort().join(',')||typeof body.activation_ref!=='string'||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(body.activation_ref))throw new RuntimeError('invalid_runtime_request');
     const command=validateRunCommand(body.command);
+    // NX-041 S6 (D3): compared before admission, any guard request or any file - a real Host never starts a sim/shadow Run and a
+    // simulation Host never a real or test one.
+    if(!worldGroupAccepts(this.worldGroup,command.world_id))throw new RuntimeError('invalid_run_world');
     if(command.runtime_profile!==this.runtimeProfile||((operation==='start'||operation==='resume')&&typeof body.input!=='string'))throw new RuntimeError('invalid_runtime_request');
     if(this.pending>=8)throw new RuntimeError('runtime_busy');this.pending++;
     // A new Run waits for a slot before any guard request (no proof is built while waiting).
@@ -375,12 +383,20 @@ export class RuntimeHost{
       return await this.adapter.cancel(command);
     }finally{this.pending--;slot?.release();}
   }
-  /** NX-029 D8: purge one settled Run's directory; body {run_id} only. */
+  /** NX-029 D8: purge one settled Run's directory; body {run_id} (a simulation Host: {run_id, world}). */
   async purge(body:Record<string,unknown>){
-    if(Object.keys(body).join(',')!=='run_id'||typeof body.run_id!=='string')throw new RuntimeError('invalid_runtime_request');
-    const runId=body.run_id.toLowerCase(),outcome=await this.adapter.purge(runId);
+    const keys=Object.keys(body).sort().join(',');
+    if((this.worldGroup==='simulation'?keys!=='run_id,world'||!worldGroupAccepts('simulation',body.world):keys!=='run_id')||typeof body.run_id!=='string')
+      throw new RuntimeError('invalid_runtime_request');
+    const runId=body.run_id.toLowerCase(),outcome=await this.adapter.purge(runId,this.worldGroup==='simulation'?body.world as string:undefined);
     this.activations.delete(runId);
     return {run_id:runId,outcome};
+  }
+  /** NX-041 S6 (D2): a simulation Host removes a deleted world's directory as a whole; body {world}. A real Host has none. */
+  async purgeWorld(body:Record<string,unknown>){
+    if(this.worldGroup!=='simulation'||Object.keys(body).join(',')!=='world'||!worldGroupAccepts('simulation',body.world))throw new RuntimeError('invalid_runtime_request');
+    for(const [runId,activation] of [...this.activations.entries()])if(activation.command?.world_id===body.world)this.activations.delete(runId);
+    return {world:body.world,outcome:await this.adapter.purgeWorld(body.world as string)};
   }
   async close(){await this.adapter.close();}
 }

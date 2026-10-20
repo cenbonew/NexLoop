@@ -1305,6 +1305,11 @@
       "version": "0261",
       "name": "0261_nx041_stand_ins.sql",
       "sha256": "1005044cbf339c6dd7356e486785df73eef4dd6db03a8ebe25351b79aa78b763"
+    },
+    {
+      "version": "0262",
+      "name": "0262_nx041_sim_process_group.sql",
+      "sha256": "64d4cc968e216e406b8f1a1b0da34866dc9aab637a4ad159810ead1ae4d4b2ae"
     }
   ]
 }

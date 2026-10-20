@@ -20,7 +20,8 @@ export function modelFailureLine(runId:string,call:number,elapsedMs:number,failu
     detail:{run_id:runId,call_sequence:call,elapsed_ms:Math.max(0,Math.round(elapsedMs)),kind:failure.kind,http_status:failure.http_status,exception:failure.exception,
       reason:failure.reason??'other',cause_code:failure.cause_code??null,connect_phase:failure.connect_phase??null,connect_failures:failure.connect_failures??0}})+'\n';
 }
-import {purgeRunDirectory,validRunId} from './run-purge.js';
+import {purgeRunDirectory,purgeWorldDirectory,validRunId} from './run-purge.js';
+import {worldDirectory} from './worlds.js';
 import {modelTiming} from './model-timing.js';
 import {MAXIMUM_REQUEST_BYTES} from './trusted-model-profile.js';
 import {RuntimeError,validateRunCommand,type RunCommand,type RuntimeAdapter,type RuntimeReceipt,type RuntimeInspection} from './runtime-adapter.js';
@@ -38,7 +39,9 @@ function toolManifest(context:Record<string,unknown>):unknown[]{
   return [context.tools??[],...messages.filter(m=>m.role==='system').map(m=>({added:m.toolsAdded??[],removed:m.toolsRemoved??[]}))];
 }
 export type PiRuntimeOptions={
-  root:string;models:Models;model:ModelRef;tools?:readonly ToolRegistration[];
+  root:string;
+  /** NX-041 S6: a simulation Host keeps each world's Runs under root/<sim-uuid|shadow-uuid>/<run_id>, so a deleted world's directory goes as a whole. */
+  worldDirectories?:boolean;models:Models;model:ModelRef;tools?:readonly ToolRegistration[];
   /** Trusted Host registry factory; each closure receives its immutable Run binding. */
   toolsForRun?:(command:RunCommand)=>readonly ToolRegistration[];
   /** Agent instructions of every new Run conversation (real-model profiles; the deterministic profiles script their turns). */
@@ -111,18 +114,19 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     return createHash('sha256').update(canonical({command,input})).digest('hex');
   }
   private async open(command:RunCommand,create:boolean,creationAuthorized=false):Promise<OpenRun>{
+    const base=this.base(command.world_id,create&&creationAuthorized);
     const existing=this.runs.get(command.run_id.toLowerCase());if(existing){
-      const existingPath=join(this.root,command.run_id.toLowerCase(),'runtime.sqlite');
-      try{privateDirectory(join(this.root,command.run_id.toLowerCase()));const info=lstatSync(existingPath);if(info.dev!==existing.device||info.ino!==existing.inode||info.isSymbolicLink()||info.nlink!==1)throw new RuntimeError('runtime_storage_refused');}
+      const existingPath=join(base,command.run_id.toLowerCase(),'runtime.sqlite');
+      try{privateDirectory(join(base,command.run_id.toLowerCase()));const info=lstatSync(existingPath);if(info.dev!==existing.device||info.ino!==existing.inode||info.isSymbolicLink()||info.nlink!==1)throw new RuntimeError('runtime_storage_refused');}
       catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')throw new RuntimeError('runtime_state_missing');throw error;}
       return existing;
     }
-    const directory=join(this.root,command.run_id.toLowerCase()),file=join(directory,'runtime.sqlite');
+    const directory=join(base,command.run_id.toLowerCase()),file=join(directory,'runtime.sqlite');
     let fresh=false;
     try{privateDirectory(directory);}catch(error){
       if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
       if(!create||!creationAuthorized)throw new RuntimeError('runtime_state_missing');
-      mkdirSync(directory,{mode:0o700});syncDirectory(this.root);fresh=true;
+      mkdirSync(directory,{mode:0o700});syncDirectory(base);fresh=true;
     }
     privateDirectory(directory);
     if(fresh){const fd=openSync(file,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);try{fsyncSync(fd);}finally{closeSync(fd);}syncDirectory(directory);}
@@ -419,9 +423,39 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     if(!conversation)throw new RuntimeError('runtime_state_missing');
     await conversation.abort(BACKGROUND_CONTEXT);return {run_id:valid.run_id,status:'cancel_requested'};
   });}
-  /** NX-029 D8: closes a settled Run (if this process opened it) and removes its private directory. */
-  purge(runId:string):Promise<'purged'|'absent'>{return this.serial(async()=>{
-    if(!validRunId(runId))throw new RuntimeError('invalid_runtime_request');
+  /** NX-041 S6: the directory holding a Run's directory - the root, or (a simulation Host) the world's own directory under it, made
+   * private on first use when a Run may be created. A world outside this Host's directories is refused. */
+  private worldBase(world:unknown):string{
+    const segment=worldDirectory(world);
+    if(segment===null)throw new RuntimeError('invalid_runtime_request');
+    return join(this.root,segment);
+  }
+  private base(world:string,create:boolean):string{
+    if(!this.options.worldDirectories)return this.root;
+    const directory=this.worldBase(world);
+    try{privateDirectory(directory);}catch(error){
+      if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+      if(!create)throw new RuntimeError('runtime_state_missing');
+      mkdirSync(directory,{mode:0o700});syncDirectory(this.root);privateDirectory(directory);
+    }
+    return directory;
+  }
+  /** NX-041 S6 (D2): a deleted simulation world's directory as a whole; refused while a Run of that world is open here. */
+  purgeWorld(world:string):Promise<'purged'|'absent'>{return this.serial(async()=>{
+    if(!this.options.worldDirectories||worldDirectory(world)===null)throw new RuntimeError('invalid_runtime_request');
+    for(const run of this.runs.values())if(run.command.world_id===world){
+      const settled=await Promise.race([(run.settled??Promise.resolve()).then(()=>true),new Promise<boolean>(resolve=>setTimeout(()=>resolve(false),50))]);
+      if(!settled)throw new RuntimeError('runtime_run_active');
+    }
+    for(const [runId,run] of [...this.runs.entries()])if(run.command.world_id===world){
+      if(run.timer)clearTimeout(run.timer);
+      await run.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(run.path);this.runs.delete(runId);
+    }
+    return purgeWorldDirectory(this.root,world);
+  });}
+  /** NX-029 D8: closes a settled Run (if this process opened it) and removes its private directory (a simulation Host: under its world). */
+  purge(runId:string,world?:string):Promise<'purged'|'absent'>{return this.serial(async()=>{
+    if(!validRunId(runId)||(this.options.worldDirectories?worldDirectory(world)===null:world!==undefined))throw new RuntimeError('invalid_runtime_request');
     const open=this.runs.get(runId);
     if(open){
       const settled=await Promise.race([(open.settled??Promise.resolve()).then(()=>true),new Promise<boolean>(resolve=>setTimeout(()=>resolve(false),50))]);
@@ -429,7 +463,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       if(open.timer)clearTimeout(open.timer);
       await open.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(open.path);this.runs.delete(runId);
     }
-    return purgeRunDirectory(this.root,runId);
+    return purgeRunDirectory(this.options.worldDirectories?this.worldBase(world):this.root,runId);
   });}
   close(){return this.serial(async()=>{this.closed=true;for(const run of this.runs.values())if(run.timer)clearTimeout(run.timer);const results=await Promise.allSettled([...this.runs.values()].map(async run=>{await run.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(run.path);}));this.runs.clear();if(results.some(r=>r.status==='rejected'))throw new RuntimeError('runtime_close_failed');});}
 }
