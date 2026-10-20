@@ -82,3 +82,28 @@ class CandidateStore:
     def link_review(self, decision_id: str, candidate_id: str, report_digest: str) -> dict:
         """D4: ties an S3 review decision to the candidate and the report digest it relied on."""
         return self._call('select authz.nexloop_evo_review_link(%s,%s,%s,%s)', (decision_id, candidate_id, report_digest))
+
+
+EVALUATOR_ROLE = 'nexloop_evo_evaluator'
+OPEN_REFUSALS = ('bundle_mismatch', 'candidate_not_ready', 'leakage_detected', 'holdout_exhausted', 'dimension_closed', 'dimension_stopped',
+                 'budget_exhausted')
+
+
+class EvaluatorStore:
+    """NX-039 V1 (design §2.2, §5.1; D39-1): the evaluator's port. Login role nexloop_evo_evaluator with a service credential whose
+    principal is registered as an evaluator (never also a writer: one purpose per principal, enforced in SQL). ``open`` runs the
+    seven checks of §2.2 in order; a refusal returns ``opened: False`` and one of OPEN_REFUSALS and changes nothing; an opening turns
+    the candidate proposed -> evaluating and records one use of its holdout (at most 5 candidates per holdout, D39-3)."""
+    def __init__(self, connect, credential_file):
+        from nexloop_eios.private_configuration import read_private_text
+        self.connect = connect
+        self._digest = lambda: hashlib.sha256(read_private_text(credential_file, maximum=16384).strip().encode()).hexdigest()
+
+    def _call(self, sql: str, params: tuple) -> Any:
+        with self.connect() as db:
+            if db.execute('select current_user').fetchone()[0] != EVALUATOR_ROLE:
+                raise StoreUnavailable('the evolution evaluator role is required')
+            return db.execute(sql, (self._digest(), *params)).fetchone()[0]
+
+    def open(self, candidate_id: str, bundle_digest: str) -> dict:
+        return self._call('select authz.nexloop_evo_evaluation_open(%s,%s,%s)', (candidate_id, bundle_digest))
