@@ -16,6 +16,7 @@ from nexloop_eios.evolution.adapter import EvaluationAdapter, normalize_result
 from nexloop_eios.evolution.candidate import Candidate, TransitionRefused
 from nexloop_eios.evolution.gate import EvaluationGate, GateInputError
 from nexloop_eios.evolution.lifecycle import BudgetExhausted, Chain, LifecycleError
+from support.tenants import TENANT_OTHER
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = json.loads((ROOT / 'packages/contracts/evolution-candidate.schema.json').read_text())
@@ -168,7 +169,7 @@ def test_incomplete_needs_a_legitimate_external_reason():
     two = chain(max_rounds=3).begin_round(round_candidate(1, 3)).start_evaluation().reject().begin_round(round_candidate(2, 3)).start_evaluation().reject()
     assert two.mark_incomplete('missing_data').end_reason == 'missing_data'  # D17: a deletion invalidates the chain
     with pytest.raises(LifecycleError):
-        chain().begin_round(candidate(status='proposed', tenant_id='22222222-2222-4222-8222-222222222222', maximum_rounds=2))
+        chain().begin_round(candidate(status='proposed', tenant_id=TENANT_OTHER, maximum_rounds=2))
 
 
 # ---- isolation (ADR-007, D18) ------------------------------------------------------------------------------------------
