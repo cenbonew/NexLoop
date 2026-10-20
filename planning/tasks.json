@@ -2660,7 +2660,7 @@
       "M23"
     ],
     "deliverable": "DATA_HOST 数据/APP_HOST 应用、端口与角色实际验证、无旧服务修改",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2775,6 +2775,24 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "Release 11 deployed on APP_HOST 2026-10-17 11:01 +08:00 without migration: 25 services running, 0 restarts, relay and webchat network namespaces shared, gateway root 200; deploy gate 19/20 with only real_dispatch_closed false because the owner keeps the three real-dispatch switches open for the NX-037 trial.",
         "recorded_at": "2026-10-17T05:00:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Final acceptance release 22 (20261019-47aa87b898f2-1, seal 21) deployed 2026-10-19 with owner-confirmed backups, migration 0221 and rebuild: 25 services running, 0 restarts; deploy gate 19/20 (only real_dispatch_closed, by policy). DATA_HOST PostgreSQL upgraded to the release-22 image (18.6, vector 0.8.7) the same day with the same system identifier. AT-058 re-probed on release 22 (passed); AT-072 passed. CI host firewall: the CI account and its subordinate UID range are denied DATA_HOST, the internal networks and the business ports (also by conntrack original destination), now with counters (positive control 2026-10-20).",
+        "recorded_at": "2026-10-20T18:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/v0.1-evidence/nx037-pack-prep-20261020.txt",
+        "summary": "Post-deployment inventories (2026-10-20): APP_HOST before = owner-accepted root baseline, after = release-22 gate; DATA_HOST after (owner, root) equals the 2026-10-16 baseline in firewall (algorithm 2), listening ports, compose projects, containers, data directories and NexLoop networks; only fwupd.service (on-demand) additionally active. No unrelated service changed.",
+        "recorded_at": "2026-10-20T07:10:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
+        "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
+        "recorded_at": "2026-10-20T12:00:00+08:00"
       }
     ]
   },
@@ -2791,7 +2809,7 @@
       "M23"
     ],
     "deliverable": "rootless/secret/内网隔离、受信ref与不可变SHA",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2858,6 +2876,24 @@
         "ref": "ci:lane/runs/20261012T215500Z-18f7ca118887",
         "summary": "s5t 全量（18f7ca1）RESULT=PASS，CI 合并基线清零：最后一项 runtime_effect_recovery::test_same_pi_run_survives_host_and_effect_worker_kill_query_first 的失败源于测试固定 1 s 窗口（CI 主机上首个 Generation 的授权、模型、工具与持久化超过 1 s），改为事件等待、30 s 上限，无产品代码改动；按 D-j 其余 B 类已在 s5q–s5s 连续通过后移出。门槛 4/4 169 s；parallel、heavy 22、pi 24、runtime 266 全过。",
         "recorded_at": "2026-10-12T22:48:38.743259+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx033-switch-20261020.md",
+        "summary": "Switched 2026-10-19 22:13 +08:00 (plan L): LAN queue repository with root-owned hooks, push identities by forced command, merge controller and GitHub sync units; main moves only through the controller (first merge PR #16, eed373ef). AT-054 (CI isolation, incl. the subordinate-UID and DNAT gaps found and closed) and AT-053 (disconnection drill 2026-10-20: merge seq 11 while GitHub was unreachable, sync_pending backlog 6, fast-forward catch-up) passed.",
+        "recorded_at": "2026-10-20T06:10:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/v0.1-evidence/nx033-trusted-upgrade-20261020.txt",
+        "summary": "Trusted installation upgraded to the reviewed main 7537c5b8 (2026-10-20, owner-confirmed): lane policy re-derived and identical, hooks and units switched, sync timeout 60 s and review/* sync; pre-receive refused a dispatcher push to main from the new install.",
+        "recorded_at": "2026-10-20T06:25:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
+        "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
+        "recorded_at": "2026-10-20T12:00:00+08:00"
       }
     ]
   },
@@ -2872,7 +2908,7 @@
       "M23"
     ],
     "deliverable": "镜像校验、release manifest、GitHub断连不阻断本地",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -2975,6 +3011,18 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "Stage releases 16-21 (2026-10-18/19), each from a CI-passed commit, signed and sealed, deployed with owner-confirmed backups, migrations and rebuilds: 16 20261018-dd42090f42b7-2 (0211-0212); 17 20261018-ff7b5674fcde-1 (0213-0215, roles v13); 18 20261018-0237717b9484-1 (0216); 19 20261018-1e54c5a26c82-1 (no migration); 20 built and signed but superseded before deployment; 21 20261018-7526d0dcadc3-1 (0217-0220, Actions set_persona and erase_synthetic published, roles v14, compose change: recall-indexer on claim_egress). After release 21 the owner enabled stage embedding (doubao-embedding-vision-251215@1024 profile active, tariff 0.70 CNY per million tokens, budgeted) and the merge configuration nx045-glue-v1-doubao1024 with alert rules v5. Deploy gates 19/20 each (only real_dispatch_closed: deployment layer standing open by owner policy; tenant and Action switches closed).",
         "recorded_at": "2026-10-19T07:20:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Releases 16-22 signed and sealed through the release lane from CI-passed commits; release 22 is the v0.1 acceptance release; deploy.py promote records current/known_good (AT-057 rollback-check passed). GitHub synchronization runs only through the LAN sync (AT-053 passed); owner-signed release tags are verified at pre-receive and by the sync (--tag-signers), create only.",
+        "recorded_at": "2026-10-20T10:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
+        "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
+        "recorded_at": "2026-10-20T12:00:00+08:00"
       }
     ]
   },
@@ -2990,7 +3038,7 @@
       "M23"
     ],
     "deliverable": "恢复隔离实例、删除水位、外部效应窗口、实际RPO/RTO",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -3045,6 +3093,18 @@
         "ref": "nexloop-pg-full.service (DATA_HOST, owner-run)",
         "summary": "Full PG backup 20261015-132633F verified (pgBackRest 2.59.3, repo1) as the migration gate backup; migrate 0198 applied within the 60-minute gate window.",
         "recorded_at": "2026-10-15T14:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/v0.1-evidence/at050-d20261019b.txt",
+        "summary": "AT-050 second stage drill (2026-10-19, d20261019b) with a synthetic erasure after the restore point and its replay: passed; AT-056 (migration gate refuses without a fresh verified backup, then allows) passed; AT-072 (release and restore by a second maintainer from the public runbooks) passed. Restore drill report is the evidence-pack item restore_drill.",
+        "recorded_at": "2026-10-20T10:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
+        "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
+        "recorded_at": "2026-10-20T12:00:00+08:00"
       }
     ]
   },
@@ -3060,7 +3120,7 @@
       "M23"
     ],
     "deliverable": "README双语、许可/NOTICE/SBOM/贡献/安全/操作手册",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "file",
@@ -3127,6 +3187,24 @@
         "ref": "e37a9f8",
         "summary": "v0.1.0-rc 发布说明草稿（中英，docs/release/v0.1.0-rc-notes*.md）：能力归纳、已知限制、部署前提（只用角色名）、全新部署与迁移 0001–0165、安全报告渠道、发布前检查 10 项（标明负责人本人执行项）；验收摘要占位待发布前填写。",
         "recorded_at": "2026-10-12T02:15:06.041554+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "scripts/release/release.py public-preflight",
+        "summary": "public-preflight on 15f071c0308a (CI host, nexloop-ci, controller timer stopped for the run, restricted list present only during the run, --previous-public 28707a5 = HEAD of the owner-confirmed full-history audit): ok true, nine steps passed; report sha256 e4e89029551acec5.",
+        "recorded_at": "2026-10-20T11:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/v0.1.0-release-notes.md",
+        "summary": "v0.1.0 release notes and GitHub Release draft finalised (D-tag-1: v0.1.0 directly; D-rel-1: the stage acceptance release 22 and the tag differ only in documentation, planning, CI/deploy examples and operator tooling, no migration and no application code). THIRD_PARTY_NOTICES and SBOMs at the release commit are evidence-pack items.",
+        "recorded_at": "2026-10-20T11:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
+        "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
+        "recorded_at": "2026-10-20T12:00:00+08:00"
       }
     ]
   },
@@ -3149,7 +3227,7 @@
       "M22"
     ],
     "deliverable": "真实Provider/交付证据、全部S1–S5验收、已知限制",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -3258,6 +3336,24 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "Trial 4f5d795c completed 2026-10-18 05:4x +08:00: 36/36 interactions (ok 34, error 2: seq 10 unknown_reconciliation and seq 24 ordinary_reply run_failed, both within the pause rule, decision continue); by kind ok/total ordinary_reply 15/16, real_delivery 6/6, restricted_after_refusal 5/5, human_takeover 5/5, unknown_reconciliation 3/4; safety facts all zero (unauthorized/wrong-recipient sends, contacts after refusal, cross-tenant reads, critical alerts, unresolved unknown effects), max executions per intent 1; cost 1.59 CNY of the 100 CNY cap; 11 owner-confirmed voids and 12 resumes, causes fixed in releases 11-15 (release 15 deployed 05:22). Switches closed after the trial (gate 20/20). Evidence pack on APP_HOST (evidence_pack.py ok, items ci_result, interactions, release_manifest); still missing effect_reconciliation, inventories, known_risks, load_report, public_preflight, restore_drill, third_party_notices, and AT-072 not run - task stays in_progress (owner 2026-10-18).",
         "recorded_at": "2026-10-18T06:10:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/v0.1-evidence/nx037-pack-prep-20261020.txt",
+        "summary": "NX-037 evidence pack APP_HOST ops/evidence-nx037-v010 (APP_HOST, evidence_pack.py ok, index sha256 ea6b33606119cff3): all 10 items present (inventory before/after, release manifest of release 22, its CI result, restore drill d20261019b, effect reconciliation 88/88 settled, AT-060 load report, public preflight, third-party notices, known risks) plus the trial 4f5d795c interactions, voids and resumes; real_evidence true, test_stack false.",
+        "recorded_at": "2026-10-20T11:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "planning/acceptance-tests.json",
+        "summary": "All S1-S5 acceptance tests required for v0.1 passed (68 passed; the 4 not run, AT-023/024/046/048, belong to S6/S7). Known risks final in docs/release/known-risks-v0.1.md. Real trial 4f5d795c: 36/36 interactions, safety facts all zero, 1.59 CNY.",
+        "recorded_at": "2026-10-20T11:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
+        "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
+        "recorded_at": "2026-10-20T12:00:00+08:00"
       }
     ]
   },
