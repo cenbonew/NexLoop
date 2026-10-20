@@ -94,7 +94,7 @@ def test_the_owner_creates_a_world_once_per_request_and_real_or_test_are_never_r
 
 def test_both_actions_are_owner_only_governed_human_actions(db):
     rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where source_task='NX-041'").fetchall())
-    assert rows == {'sim_world.create': 'human', 'sim_world.delete': 'human'}
+    assert rows == {'sim_world.create': 'human', 'sim_world.delete': 'human', 'sim_world.generate': 'human'}
     roles = json.loads((ROOT / 'deploy/authorization/workbench-roles.v1.json').read_text())['roles']
     for name in ('nexloop.sim_world.create', 'nexloop.sim_world.delete'):
         holders = sorted(r for r, grants in roles.items() if f'eios:action:{name}:1' in grants)

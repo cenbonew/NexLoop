@@ -1622,6 +1622,29 @@
       },
       "schema_hash": "032df29185e35ba037130a5a77af3776eae08c5f36491774a2e4432afca0911c",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "sim_world.generate",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "generate_sim_world_data",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "77fff17af6210638f657e840a2b5af62cb059ef4d2ed488b543e2df894440f7a",
+      "side_effects_reason": null
     }
   ]
 }

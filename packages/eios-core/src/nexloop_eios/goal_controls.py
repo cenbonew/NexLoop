@@ -84,7 +84,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Capability gap P2: the next version of a read-only Object View (sections of the type's properties, Links touching it; checked in SQL).
     'publish_object_view':'object_view.publish',
     # NX-041 S2 (D2, D10): create a simulation or shadow world, or delete one as a whole (checked in SQL).
-    'create_sim_world':'sim_world.create','delete_sim_world':'sim_world.delete'}
+    'create_sim_world':'sim_world.create','delete_sim_world':'sim_world.delete',
+    # NX-041 S3 (D8): synthetic or structural data in a simulation world (checked in SQL).
+    'generate_sim_world_data':'sim_world.generate'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -435,6 +437,16 @@ class GoalGovernedActions:
         if not valid_world(world) or world_kind(world) not in ('simulation','shadow') or type(reason) is not str or not 1<=len(reason.strip())<=500:
             raise ValueError('simulation world and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'delete_sim_world','world':world,'reason':reason})
+
+    # NX-041 S3 (D8): owner only; a simulation world receives synthetic or structural data, reproducible from seed and parameters.
+    def generate_sim_world_data(self,*,action_name,action_version,request_id,world,kind,seed,consumers,events_per_consumer,segments=None,max_objects=None):
+        if not valid_world(world) or world_kind(world)!='simulation' or kind not in ('synthetic','structural') or type(seed) is not str or not seed:
+            raise ValueError('simulation world, kind and seed required')
+        body={'request_id':request_id,'operation':'generate_sim_world_data','world':world,'kind':kind,'seed':seed,'consumers':consumers,
+              'events_per_consumer':events_per_consumer}
+        if kind=='synthetic': body['segments']=segments
+        else: body['max_objects']=max_objects
+        return self._submit(action_name,action_version,body)
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
