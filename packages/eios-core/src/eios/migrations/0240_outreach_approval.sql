@@ -128,49 +128,44 @@ begin
  return g;
 end $$;
 
--- 4. Acceptance (latest body copied; changes marked "Outreach slice 6") ------------------------------------------------------------
-create or replace function control.nexloop_governed_outreach_send(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
+-- 4. Acceptance (integration of slices 5 and 6: the shared acceptance of slice 5, runtime.nexloop_outreach_accept, copied with the
+--    approval of slice 6 marked "Outreach slice 6"; the governed handler of slice 5 already delegates to it, so both the owner's
+--    send and a reevaluation Run's request wait for approval) -----------------------------------------------------------------------
+create or replace function runtime.nexloop_outreach_accept(p_tenant text,p_world text,p_consumer text,p_purpose text,p_origin text,p_body text,p_conversation text,
+  p_initiator text,p_principal text,p_intent text,p_run uuid) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v_purpose jsonb;v_id text;v_digest text;v_head bigint;old runtime.nexloop_outreach_sends;v_day text;v_consumer text:=body->>'consumer_id';
+declare v_purpose jsonb;v_id text;v_digest text;v_head bigint;old runtime.nexloop_outreach_sends;v_day text;
  v_approval boolean;  -- Outreach slice 6
 begin
- if jsonb_typeof(body) is distinct from 'object'
-  or exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','consumer_id','purpose','origin_ref','body','channel','conversation_id'))
-  or coalesce(v_consumer,'')!~'^[a-f0-9]{64}$' or coalesce(body->>'purpose','')!~'^[a-z][a-z0-9_.]{0,63}$'
-  or coalesce(body->>'origin_ref','')!~'^(commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}$'
-  or jsonb_typeof(body->'body') is distinct from 'string' or char_length(body->>'body') not between 1 and 2000
-  or body->>'channel' is distinct from 'native.webchat'
-  or (body ? 'conversation_id' and body->'conversation_id'<>'null'::jsonb and coalesce(body->>'conversation_id','')!~'^[a-f0-9]{64}$') then
-  raise exception 'outreach send: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
- if not exists(select 1 from ontology.objects where tenant_id=p_tenant and world=p_world and type_name='Consumer' and object_id=v_consumer)
-  or runtime.nexloop_consumer_erasing(p_tenant,p_world,v_consumer) then raise exception 'outreach send: consumer_unavailable' using errcode='22023';end if;
+ if not exists(select 1 from ontology.objects where tenant_id=p_tenant and world=p_world and type_name='Consumer' and object_id=p_consumer)
+  or runtime.nexloop_consumer_erasing(p_tenant,p_world,p_consumer) then raise exception 'outreach send: consumer_unavailable' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
- if body->>'conversation_id' is not null and not exists(select 1 from runtime.nexloop_conversations cv where cv.tenant_id=p_tenant and cv.world=p_world
-   and cv.conversation_id=body->>'conversation_id' and cv.consumer_id=v_consumer) then raise exception 'outreach send: conversation_unavailable' using errcode='22023';end if;
+ if p_conversation is not null and not exists(select 1 from runtime.nexloop_conversations cv where cv.tenant_id=p_tenant and cv.world=p_world
+   and cv.conversation_id=p_conversation and cv.consumer_id=p_consumer) then raise exception 'outreach send: conversation_unavailable' using errcode='22023';end if;
  -- Topic, version and frequency class are frozen from the current list; whether the purpose is enabled is a dispatch gate.
- v_purpose:=runtime.nexloop_outreach_purpose(p_tenant,body->>'purpose');
+ v_purpose:=runtime.nexloop_outreach_purpose(p_tenant,p_purpose);
  if not (v_purpose->>'listed')::boolean then raise exception 'outreach send: purpose_not_allowed' using errcode='22023';end if;
- if char_length(body->>'body')>(v_purpose->'definition'->'content_rules'->>'max_chars')::integer then raise exception 'outreach send: body_too_long' using errcode='22023';end if;
- -- Outreach slice 6 (P5): a purpose configured to need approval waits for it; nothing is admitted before.
+ if char_length(p_body)>(v_purpose->'definition'->'content_rules'->>'max_chars')::integer then raise exception 'outreach send: body_too_long' using errcode='22023';end if;
+ -- Outreach slice 6 (P5): a purpose configured to need approval waits for it, whoever asked (owner or reevaluation Run); nothing is admitted before.
  v_approval:=coalesce((v_purpose->'definition'->>'requires_approval')::boolean,false);
  v_day:=to_char(clock_timestamp() at time zone (runtime.nexloop_outreach_settings(p_tenant)->>'time_zone'),'YYYY-MM-DD');
- v_id:='outreach:'||encode(sha256(convert_to(jsonb_build_array(p_tenant,v_consumer,body->>'purpose',body->>'origin_ref',v_day)::text,'UTF8')),'hex');
- v_digest:=encode(sha256(convert_to(body->>'body','UTF8')),'hex');
+ v_id:='outreach:'||encode(sha256(convert_to(jsonb_build_array(p_tenant,p_consumer,p_purpose,p_origin,v_day)::text,'UTF8')),'hex');
+ v_digest:=encode(sha256(convert_to(p_body,'UTF8')),'hex');
  select * into old from runtime.nexloop_outreach_sends where tenant_id=p_tenant and world=p_world and intent_id=v_id;
  if found then
-  if old.body_digest is distinct from v_digest or old.conversation_id is distinct from body->>'conversation_id' then
+  if old.body_digest is distinct from v_digest or old.conversation_id is distinct from p_conversation then
    raise exception 'outreach send: intent_exists' using errcode='22023';end if;
   return jsonb_build_object('intent_id',old.intent_id,'state',old.state,'replayed',true);
  end if;
  select revision into v_head from control.nexloop_control_heads where tenant_id=p_tenant and world=p_world;
  insert into runtime.nexloop_outreach_sends(tenant_id,world,intent_id,consumer_id,purpose_id,purpose_version,topic,frequency_class,channel,origin_ref,conversation_id,
-   body,body_digest,initiator,principal_id,request_intent,control_snapshot,state)
-  values(p_tenant,p_world,v_id,v_consumer,body->>'purpose',(v_purpose->>'list_version')::integer,v_purpose->'definition'->>'topic',
-   v_purpose->'definition'->>'frequency_class','native.webchat',body->>'origin_ref',body->>'conversation_id',body->>'body',v_digest,'human',p_principal,p_intent,
+   body,body_digest,initiator,principal_id,request_intent,control_snapshot,run_id,state)
+  values(p_tenant,p_world,v_id,p_consumer,p_purpose,(v_purpose->>'list_version')::integer,v_purpose->'definition'->>'topic',
+   v_purpose->'definition'->>'frequency_class','native.webchat',p_origin,p_conversation,p_body,v_digest,p_initiator,p_principal,p_intent,
    jsonb_build_object('control_revision',coalesce(v_head,0),
-    'scopes',jsonb_build_array(jsonb_build_object('kind','consumer','ref',v_consumer),jsonb_build_object('kind','consumer','ref','consumer:'||v_consumer),
-      jsonb_build_object('kind','action_type','ref','nexloop.outreach.send')),'goals','[]'::jsonb,'objects','[]'::jsonb,'budgets','[]'::jsonb),
+    'scopes',jsonb_build_array(jsonb_build_object('kind','consumer','ref',p_consumer),jsonb_build_object('kind','consumer','ref','consumer:'||p_consumer),
+      jsonb_build_object('kind','action_type','ref','nexloop.outreach.send')),'goals','[]'::jsonb,'objects','[]'::jsonb,'budgets','[]'::jsonb),p_run,
    case when v_approval then 'pending_approval' else 'accepted' end);
  if v_approval then  -- Outreach slice 6: the approval window starts at acceptance
   insert into runtime.nexloop_outreach_approvals(tenant_id,world,intent_id,requested_by,expires_at)
@@ -178,11 +173,11 @@ begin
  end if;
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
   values('outreach-send:'||v_id,'nexloop.outreach.send.accepted',p_tenant,p_principal,'outreach',p_intent,
-   jsonb_build_object('intent_id',v_id,'purpose',body->>'purpose','origin_ref',body->>'origin_ref'),clock_timestamp()) on conflict do nothing;
+   jsonb_build_object('intent_id',v_id,'purpose',p_purpose,'origin_ref',p_origin,'initiator',p_initiator),clock_timestamp()) on conflict do nothing;
  return jsonb_build_object('intent_id',v_id,'state',case when v_approval then 'pending_approval' else 'accepted' end,'replayed',false);
 end $$;
 
--- 5. Executor port (latest body copied; changes marked "Outreach slice 6") ---------------------------------------------------------
+-- 5. Executor port (slice 5 body copied - its agent requester rule kept; changes marked "Outreach slice 6") ---------------------------------------------------------
 create or replace function authz.nexloop_outreach_command(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-outreach-v1',
@@ -216,8 +211,14 @@ begin
     raise exception 'restricted' using errcode='42501',hint='contact_restricted';end if;
    -- The requester's authority now, not at acceptance: an active member whose current workbench role still holds the Action.
    cfg:=control.nexloop_workbench_current(t);
-   if not exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=t and m.principal_id=i.principal_id and m.payload->>'status'='active')
-    or (cfg.tenant_id is not null and not coalesce(cfg.roles->(cfg.members->>i.principal_id) ? v_resource,false)) then
+   if i.initiator='human' and (not exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=t and m.principal_id=i.principal_id and m.payload->>'status'='active')
+    or (cfg.tenant_id is not null and not coalesce(cfg.roles->(cfg.members->>i.principal_id) ? v_resource,false))) then
+    raise exception 'requester' using errcode='42501',hint='requester_unauthorized';end if;
+   -- Outreach slice 5: a reevaluation Run's request stands only while its Role's execution ceiling still holds the Action.
+   if i.initiator='agent' and exists(select 1 from authz.nexloop_role_run_bindings rb where rb.run_id=i.run_id) and not exists(
+     select 1 from authz.nexloop_role_run_bindings rb join ontology.objects d on d.tenant_id=t and d.world=p_world and d.type_name='RoleDefinition' and d.object_id=rb.role_id
+      join ontology.objects o on o.tenant_id=d.tenant_id and o.world=d.world and o.type_name='RoleExecutionCeiling' and o.object_id=d.properties->>'ceiling_ref'
+     where rb.run_id=i.run_id and coalesce(o.properties->'action_resources','[]'::jsonb) ? v_resource) then
     raise exception 'requester' using errcode='42501',hint='requester_unauthorized';end if;
    perform set_config('eios.tenant_id',t,true);
    begin
