@@ -33,7 +33,7 @@ function host(group?:string){
   const root=mkdtempSync(join(tmpdir(),'nexloop-host-group-'));chmodSync(root,0o700);roots.push(root);
   const file=(name:string,value:string)=>{const path=join(root,name);writeFileSync(path,value,{mode:0o600});return path;};
   const config=file('runtime-config',JSON.stringify({guard_ca_file:file('guard-ca','synthetic-not-used-ca'),guard_key_file:file('guard-key','a'.repeat(64)),
-    guard_url:'https://127.0.0.1:65431/internal/v1/runtime/authorize',runtime_profile:'deterministic-test',...(group===undefined?{}:{world_group:group}),
+    guard_url:'https://127.0.0.1:65431/internal/v1/runtime/authorize',runtime_profile:'deterministic-test',...(group===undefined?{}:{world_group:group}),...(group==='simulation'?{context_input_protocol:'nexloop.context-pack.sim.v1'}:{}),
     // Integration with S6: a simulation Host also has its own id and purge key.
     ...(group==='simulation'?{host_id:'sim-host-a',world_purge_key_file:file('purge-key','b'.repeat(64))}:{})}));
   const h=new RuntimeHost(root,config,(path:string,max:number,empty?:boolean)=>readPrivateMaterial(path,max,empty),()=>{});hosts.push(h);return h;

@@ -22,7 +22,7 @@ function host(group?:string,extra:Record<string,unknown>={}){
   const r=root(),file=(name:string,value:string)=>{const p=join(r,name);writeFileSync(p,value,{mode:0o600});return p;};
   const sim=group==='simulation'?{host_id:HOST_ID,world_purge_key_file:file('purge-key',PURGE_KEY)}:{};
   const config=file('runtime-config',JSON.stringify({guard_ca_file:file('guard-ca','synthetic-not-used-ca'),guard_key_file:file('guard-key','a'.repeat(64)),
-    guard_url:'https://127.0.0.1:65431/internal/v1/runtime/authorize',runtime_profile:'deterministic-test',...(group===undefined?{}:{world_group:group}),...sim,...extra}));
+    guard_url:'https://127.0.0.1:65431/internal/v1/runtime/authorize',runtime_profile:'deterministic-test',...(group===undefined?{}:{world_group:group}),...(group==='simulation'?{context_input_protocol:'nexloop.context-pack.sim.v1'}:{}),...sim,...extra}));
   const runtime=join(r,'runtime');mkdirSync(runtime,{mode:0o700});
   let reads=0;const material=(path:string,max:number,empty?:boolean)=>{reads++;return readPrivateMaterial(path,max,empty);};
   const h=new RuntimeHost(runtime,config,material,()=>{});hosts.push(h);return {host:h,runtime,reads:()=>reads};

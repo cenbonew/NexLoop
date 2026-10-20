@@ -1340,6 +1340,11 @@
       "version": "0268",
       "name": "0268_nx041_sim_roles.sql",
       "sha256": "675ad5f3dd63c249c444d974988bb1cb393543b2679e5a7c792b3ea568c25545"
+    },
+    {
+      "version": "0269",
+      "name": "0269_nx041_host_sim_context.sql",
+      "sha256": "7bfd4622b3ae46af4cf2da6b7d2f59813d17ea7d3515c129cea02f85603ee1d8"
     }
   ]
 }
