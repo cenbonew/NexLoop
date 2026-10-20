@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "candidate_id": "1e2f3a4b-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
+  "parent_revision": "sem-7",
+  "candidate_revision": "sem-7+c1",
+  "patch_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "input_snapshot_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "design_case_ids": [
+    "5d2a4d0e-6a3b-4b0f-9b8e-2a4c9b1d7e10"
+  ],
+  "validation_case_ids": [
+    "8f1d2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b"
+  ],
+  "case_groups": {
+    "5d2a4d0e-6a3b-4b0f-9b8e-2a4c9b1d7e10": "consumer:1111111111111111",
+    "8f1d2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b": "consumer:2222222222222222"
+  },
+  "hard_gates_version": "nx038-hard-gates-1",
+  "hard_gates": [
+    "references_valid",
+    "structure_valid",
+    "zero_overreach",
+    "zero_cross_tenant",
+    "zero_fact_pollution",
+    "no_forbidden_regression",
+    "index_migration_impact"
+  ],
+  "metrics": [
+    "coverage",
+    "ambiguity_rate",
+    "regressions"
+  ],
+  "non_inferiority": {
+    "primary_metric": "coverage",
+    "margin": 0.01,
+    "ties_accept": false
+  },
+  "levels": [
+    "L0"
+  ],
+  "budget_remaining": {
+    "unit": "CNY",
+    "rounds": 3,
+    "diagnosis": "20",
+    "candidate": "10",
+    "tenant_month": "100"
+  },
+  "evaluator_version": "l0-1",
+  "model_profile": "none",
+  "anonymize_seed": "00000000000000000000000000000000",
+  "frozen_at": "2026-10-20T04:00:00.000000Z"
+}

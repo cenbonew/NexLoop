@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:evolution-evaluation-bundle",
+  "title": "evolution-evaluation-bundle",
+  "description": "NX-038 E5 (design §12.4, §7; D7, D18, D19): the frozen evaluation bundle NX-038 hands to NX-039 with a proposed evolution candidate. Built in SQL from the stored candidate (authz.nexloop_evo_bundle_freeze); ids, digests, versions and numbers only, never a message body, Claim value, prompt or patch text. NX-039 may not change any condition in it; a changed condition is a new candidate. `case_groups` maps every case to its Consumer or session cluster so NX-039 can re-check that no cluster is on both sides (AT-048). The bundle_digest is the sha256 the database computes over the stored value. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "parent_revision",
+    "candidate_revision",
+    "patch_digest",
+    "input_snapshot_digest",
+    "design_case_ids",
+    "validation_case_ids",
+    "case_groups",
+    "hard_gates_version",
+    "hard_gates",
+    "metrics",
+    "non_inferiority",
+    "levels",
+    "budget_remaining",
+    "evaluator_version",
+    "model_profile",
+    "anonymize_seed",
+    "frozen_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "parent_revision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+    },
+    "candidate_revision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+    },
+    "patch_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "input_snapshot_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "design_case_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+    },
+    "validation_case_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      }
+    },
+    "case_groups": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 512,
+      "propertyNames": {
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9:._-]{1,190}$"
+      }
+    },
+    "hard_gates_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+    },
+    "hard_gates": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "references_valid",
+          "structure_valid",
+          "zero_overreach",
+          "zero_cross_tenant",
+          "zero_fact_pollution",
+          "no_forbidden_regression",
+          "index_migration_impact"
+        ]
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "coverage",
+          "ambiguity_rate",
+          "regressions"
+        ]
+      }
+    },
+    "non_inferiority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary_metric",
+        "margin",
+        "ties_accept"
+      ],
+      "properties": {
+        "primary_metric": {
+          "enum": [
+            "coverage"
+          ]
+        },
+        "margin": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "ties_accept": {
+          "const": false
+        }
+      }
+    },
+    "levels": {
+      "enum": [
+        [
+          "L0"
+        ],
+        [
+          "L0",
+          "L1"
+        ]
+      ]
+    },
+    "budget_remaining": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "rounds",
+        "diagnosis",
+        "candidate",
+        "tenant_month"
+      ],
+      "properties": {
+        "unit": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "rounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "diagnosis": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+            }
+          ]
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+            }
+          ]
+        },
+        "tenant_month": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]{1,12}(\\.[0-9]{1,6})?$"
+            }
+          ]
+        }
+      }
+    },
+    "evaluator_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+    },
+    "model_profile": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:@+-]{1,128}$"
+    },
+    "anonymize_seed": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "frozen_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
