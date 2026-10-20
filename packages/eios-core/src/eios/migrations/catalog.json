@@ -1170,6 +1170,11 @@
       "version": "0234",
       "name": "0234_nx038_semantic_access.sql",
       "sha256": "f1a5f5ae9e1590faf633844d0999e0a80ac359331c2cf37b709c9764e0e20315"
+    },
+    {
+      "version": "0235",
+      "name": "0235_outreach_purposes.sql",
+      "sha256": "155aca0677cdd0a665993e296a13f22cfb1e934c273ab282575428f76585416e"
     }
   ]
 }

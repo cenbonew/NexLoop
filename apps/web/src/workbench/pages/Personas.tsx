@@ -7,7 +7,7 @@
  */
 import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
+import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,readOutreachPurposes,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
   type PersonaOverview,type PersonaRule,type PersonaVersion} from '../api';
 import {DataTable} from '../DataTable';
 import {Empty,StatusBadge,Tabs,Time} from '../ui';
@@ -249,6 +249,7 @@ export function OutreachControlsTab(){
       {label:'确认的同意模式',cell:e=>e.consent_mode_confirmed?CONSENT_TEXT[e.consent_mode_confirmed]:'—'},{label:'时间',cell:e=><Time value={e.recorded_at}/>}]}/>:null}
     <p className="note">营销的合规要求（同意、退订、发送时段、发送方标识）因法域而异，由使用方负责；opt-out 在部分法域不被允许。</p>
     <WithMember>{member=><OutreachControlsForm member={member} current={s}/>}</WithMember>
+    <OutreachPurposes/>
   </>;
 }
 /** The settings the Action takes, from the form state (empty quiet hours means none). */
@@ -289,4 +290,26 @@ function OutreachControlsForm({member,current}:{member:Parameters<typeof Form>[0
     <div className="field"><label htmlFor="oc-sender">发送方标识（可选）</label><input id="oc-sender" value={f.sender} maxLength={40} onChange={e=>set({sender:e.target.value})}/></div>
     <div className="field"><label htmlFor="oc-reason">原因</label><input id="oc-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></div>
   </Form>;
+}
+
+
+// ---- outreach purposes (outreach slice 3, owner only): the purpose list is trusted configuration; the owner switches purposes ----
+const KIND_TEXT={commitment_followup:'承诺跟进',service_followup:'服务回访',plan_defined:'计划目的',marketing:'营销'} as const;
+const TRIGGER_TEXT:Record<string,string>={commitment_due:'承诺到期前',service_receipt:'服务回执',plan_reassess:'计划复评',owner_request:'负责人发起'};
+export function OutreachPurposes(){
+  const query=useQuery({queryKey:['workbench','outreach-purposes'],queryFn:readOutreachPurposes});
+  return <section aria-labelledby="outreach-purposes-title"><h2 id="outreach-purposes-title">外联目的</h2>
+    <p className="note">外联只能用目的清单里登记的目的；清单是可信配置，新增目的（包括计划目的）要发布新版清单。负责人在这里按租户启用或停用。</p>
+    {query.isPending?<p role="status">正在加载…</p>:query.isError?<Empty kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'}/>
+      :<><p className="note">目的清单 v{query.data.list_version}</p><DataTable label="外联目的" rows={query.data.purposes} rowKey={p=>p.purpose_id} columns={[
+        {label:'目的',main:true,cell:p=><>{KIND_TEXT[p.kind]} <code>{p.purpose_id}</code></>},
+        {label:'状态',cell:p=><StatusBadge text={p.enabled?'已启用':'已停用'} tone={p.enabled?'ok':'neutral'} code={p.enabled?'enabled':'disabled'}/>},
+        {label:'触发源',cell:p=>TRIGGER_TEXT[p.trigger]??p.trigger},
+        {label:'频率',cell:p=>p.frequency_class==='marketing'?'营销额度':'服务额度'},
+        {label:'同意',cell:p=>p.kind!=='marketing'?'—':p.requires_consent?'只发给已同意的客户（opt-in）':'跟随租户同意模式'},
+        {label:'内容',wide:true,cell:p=>`最多 ${p.max_chars} 字${p.unsubscribe_notice_required?'，末尾附退订话术':''}`},
+        {label:'审批',cell:p=>p.requires_approval?'需要（切片 6）':'不需要'},
+        {label:'操作',cell:p=><WithMember>{member=><Form operation="set_outreach_purpose" member={member} className="inline-action" title={p.enabled?'停用':'启用'}
+          body={()=>({purpose_id:p.purpose_id,enabled:!p.enabled,reason:p.enabled?'负责人停用':'负责人启用'})}><span/></Form>}</WithMember>}]}/></>}
+  </section>;
 }

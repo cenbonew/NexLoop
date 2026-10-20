@@ -2,15 +2,15 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
-import {contactPreferences,me,outreachControls,personaOverview} from '../src/workbench/api';
-import {ConsumerPersona,OutreachControlsTab,Personas,documentOf,outreachReady,outreachSettingsOf,usableVersions} from '../src/workbench/pages/Personas';
+import {contactPreferences,me,outreachControls,outreachPurposes,personaOverview} from '../src/workbench/api';
+import {ConsumerPersona,OutreachControlsTab,OutreachPurposes,Personas,documentOf,outreachReady,outreachSettingsOf,usableVersions} from '../src/workbench/pages/Personas';
 
 const doc={display_name:'小禾',tone:'亲切、简洁',expression:{max_chars:200,emoji:'few'},ai_disclosure:{deflect_statement:'我是本店的服务助手。'}};
 const raw={personas:[{persona_id:'xiaohe',version:1,status:'retired',display_name:'小禾',created_at:'2026-10-19T01:00:00+00:00',document:doc},
   {persona_id:'xiaohe',version:2,status:'published',display_name:'小禾',created_at:'2026-10-19T02:00:00+00:00',document:{...doc,tone:'专业'}}],
   rules:{version:1,default_persona_id:'xiaohe',rules:[{when:{property:'tier',equals:'gold'},persona_id:'xiaohe'}],published_at:'2026-10-19T02:00:00+00:00'},
   ai_disclosure:{mode:'none',when_asked:'deflect',block_human_claims:false,content_label:false,revision:0},consumer:null};
-const owner=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.outreach_controls.set:1','eios:action:nexloop.operator_persona.publish:1',
+const owner=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.outreach_controls.set:1','eios:action:nexloop.outreach_purposes.set:1','eios:action:nexloop.operator_persona.publish:1',
   'eios:action:nexloop.operator_persona.assign:1','eios:action:nexloop.operator_persona.rules_publish:1','eios:action:nexloop.ai_disclosure.set:1','eios:action:nexloop.contact_preference.dismiss:1']});
 const operator=me({principal_id:'synthetic-operator',role:'operator',actions:['eios:action:nexloop.workbench.read:1']});
 function client(seed:[unknown[],unknown][]){const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});for(const [k,v] of seed)c.setQueryData(k,v);return c;}
@@ -80,4 +80,21 @@ test('0232: the controls parse strictly and show their revision; the form maps t
   expect(outreachReady({...form,enabled:false},parsed.settings,false,'调整')).toBe(true);
   expect(outreachReady({...form,marketing_7d:'3'},parsed.settings,true,'开通营销')).toBe(false);
   expect(outreachReady(form,parsed.settings,true,'')).toBe(false);
+});
+
+
+test('outreach slice 3: the purpose list parses strictly and the owner switches listed purposes', ()=>{
+  const def=(id:string,kind:string,trigger:string,topic:string,fc:string,enabled:boolean,unsub:boolean)=>({purpose_id:id,listed:true,enabled,list_version:1,revision:0,
+    definition:{purpose_id:id,kind,trigger,topic,frequency_class:fc,requires_consent:false,requires_approval:false,default_enabled:enabled,content_rules:{max_chars:300,unsubscribe_notice_required:unsub}}});
+  const raw={list_version:1,purposes:[def('commitment_followup','commitment_followup','commitment_due','commitment_followup','service',true,false),
+    def('marketing_general','marketing','owner_request','marketing','marketing',false,true)]};
+  const parsed=outreachPurposes(raw);
+  expect(parsed.purposes.map(p=>[p.purpose_id,p.enabled])).toEqual([['commitment_followup',true],['marketing_general',false]]);
+  expect(()=>outreachPurposes({...raw,purposes:[{...raw.purposes[0],listed:false}]})).toThrow();
+  expect(()=>outreachPurposes({...raw,purposes:[{...raw.purposes[0],definition:{...raw.purposes[0].definition,kind:'flash'}}]})).toThrow();
+  const html=render(client([[['workbench','outreach-purposes'],parsed],[['workbench','me'],owner]]),h(OutreachPurposes,{}));
+  expect(html).toContain('目的清单 v1');expect(html).toContain('承诺跟进');expect(html).toContain('已启用');expect(html).toContain('已停用');
+  expect(html).toContain('末尾附退订话术');expect(html).toContain('跟随租户同意模式');expect(html).toContain('停用');expect(html).toContain('启用');
+  const asOperator=render(client([[['workbench','outreach-purposes'],parsed],[['workbench','me'],operator]]),h(OutreachPurposes,{}));
+  expect(asOperator).not.toContain('<form');
 });
