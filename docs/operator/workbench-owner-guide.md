@@ -185,7 +185,7 @@
 
 | Action | 做什么 | 配置文件里的字段 |
 |---|---|---|
-| `nexloop.sim_world.create` | 建立一个模拟世界（`sim:`）或影子世界（`shadow:`）；同一请求重试得到同一个世界；时钟建立时是暂停的 | `kind`（`simulation` 或 `shadow`）、`purpose`（目的）、`expires_in_days`（1–365） |
+| `nexloop.sim_world.create` | 建立一个模拟世界（`sim:`）或影子世界（`shadow:`）；同一请求重试得到同一个世界；时钟建立时是暂停的 | `kind`（`simulation` 或 `shadow`）、`purpose`（目的）、`expires_in_days`（1–30，默认 30） |
 | `nexloop.sim_world.generate` | 在 `sim:` 世界中生成数据：合成（按分组）或结构生成（按已发布定义）；同一（类型、种子）只生成一次，每个世界最多 10 次 | `world`、`kind`（`synthetic` 或 `structural`）、`seed`、`consumers`（1–2000）、`events_per_consumer`（`min`、`max`，0–50）、`segments`（合成时填，否则为空）、`max_objects`（结构生成时填，0–10000，否则为空） |
 | `nexloop.sim_clock.control` | 推进、暂停、恢复时钟或设置速率 | `world`、`action`（`advance`、`pause`、`resume`、`set_rate`）、`seconds`（推进时填）、`rate`（设置速率时填）、`reason` |
 | `nexloop.sim_world.delete` | 整体删除一个世界：分批清除，可以中断后继续；只保留 30 天摘要（计数与 digest），然后彻底删除 | `world`、`reason` |
@@ -198,10 +198,13 @@
 
 > **当前状态（`935aaf62`）**：这四个 Action 已经在工作台的写入口上（`create_sim_world`、`generate_sim_world_data`、`control_sim_clock`、`delete_sim_world`），但**工作台还没有页面，负责人用的命令行工具也还没有实现**。在工具合入之前，不要用其他方式代替；需要建立模拟世界时，请先让开发线补上这个工具。
 
+**数量与期限**（负责人 2026-10-21 定）：每个租户最多同时有 20 个 active 的模拟世界；每个世界默认 30 天到期，最长 30 天，到期后自动整体删除，不需要再执行删除。需要更久的实验，到期前另建一个世界，用同样的种子重新生成。
+
 **常见问题**
 - **生成时报 `quota_exceeded`**：这个世界已经生成过 10 次，换一个新世界。
 - **同一种子再生成一次没有变化**：同一（类型、种子）只生成一次，这是有意的，保证可以复现。
 - **删除后还能看到这个世界**：删除分批进行，状态会依次显示删除中、已删除；之后 30 天内只剩摘要。
+- **建立时被拒，提示数量已满**：已经有 20 个 active 的世界，先删除不用的世界。
 - **模拟世界的费用**：每个世界的模型预算是 100 元，按租户每月合计不超过 100 元；超出时新的模型调用被拒绝。
 
 ## 6. 相关文档

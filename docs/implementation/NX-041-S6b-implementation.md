@@ -1,5 +1,7 @@
 # NX-041 S6b：模拟组 Host 的效应工具接到替身提交
 
+> **D10 状态（2026-10-21 更新）**：D10 已定案（负责人 2026-10-21 放宽为三凭据：api、worker、agent，每个只绑定这一个模拟世界，删除世界时一并吊销），实现中。下文中“D10 待定”“等 D10 定下来”“D10 定案时”等说法，均指这一定案。
+
 依据：`NX-041-design.md` §3.2、§6。起点 959beadb（S6）。集成时（`int/nx041-s1s5`）按调度员定案丢弃了临时迁移 `0263_nx041_sim_host_tools.sql`：S4 修复（L3）由服务端取世界时间，payload 中出现 `sim_clock` 即拒绝；guard 本来就不传 `sim_clock`，所以本切片不需要迁移。下文提到的 0263 指被丢弃的那份。
 
 ## 实现
@@ -18,7 +20,7 @@
 
 1. 在管理机的私有临时目录（0700）生成 32 字节随机密钥，写出两份（NX-032 F3）：原始字节 `sim-signing.key`（服务读取）和十六进制 `sim-signing.key.hex`（受信配置读取），权限都是 0600。
 2. 选一个与 real 不同的 key_id，例如 `sim-<日期>`，不能含冒号，满足 `[A-Za-z0-9][A-Za-z0-9._-]{0,159}`。
-3. 用模拟世界的受信配置清单登记密钥。清单包含这个世界的三类服务主体，它们的凭据都只绑定该 world（D10 待负责人定）：
+3. 用模拟世界的受信配置清单登记密钥。清单包含这个世界的三类服务主体，它们的凭据都只绑定该 world（D10 已定案，负责人 2026-10-21 放宽为三凭据，实现中）：
    `python -m nexloop_eios.trusted_configuration --manifest <模拟世界清单> --apply --database-url-file <配置者 DSN 文件> --signing-key-file sim-signing.key.hex --signing-key-id <SIM_KEY_ID> --service-secrets-file <reference→令牌>`
 4. 把 `sim-signing.key` 放入 `NEXLOOP_SIM_SECRET_DIR/sim_signing_key`，在私有 env 中设置 `NEXLOOP_SIM_SIGNING_KEY_ID=<SIM_KEY_ID>`。
 5. 删除管理机上的临时目录。不要复用 real 的 `signing.key`；real 组的 key_id 不出现在模拟组的任何文件里。
