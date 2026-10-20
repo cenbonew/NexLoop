@@ -1,6 +1,6 @@
 /**
  * Data health (D-G5, owner decision as recommended; docs/implementation/eios-capability-gap.md): the health of NexLoop's own data
- * flows, read from the owner's data-health read (0242): claim extraction, the recall index, review reflow, ingestion, Artifacts and
+ * flows, read from the owner's data-health read (0245): claim extraction, the recall index, review reflow, ingestion, Artifacts and
  * erasure propagation. Counts, ratios, ages and reason codes only, never a message, Claim value, recall body or payload. Layout per
  * the workbench UI spec draft (docs/design/workbench-ui-spec.md §3/§7/§8): one card per flow, a status badge in the title row,
  * reasons as Chinese labels (the code in the title), "不可用" distinct from empty.

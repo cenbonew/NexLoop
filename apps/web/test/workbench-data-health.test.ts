@@ -1,4 +1,4 @@
-// D-G5 data health: the owner's read (0242) parsed strictly and rendered one card per flow; reasons as words, codes only in titles.
+// D-G5 data health: the owner's read (0245) parsed strictly and rendered one card per flow; reasons as words, codes only in titles.
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';

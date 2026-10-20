@@ -1207,8 +1207,8 @@
       "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
     },
     {
-      "version": "0242",
-      "name": "0242_data_health.sql",
+      "version": "0245",
+      "name": "0245_data_health.sql",
       "sha256": "669e359338f4f80621a87b3e1995e41b36a9b393fa41fac3dd6d94870da705d8"
     }
   ]

@@ -1,4 +1,4 @@
-"""Data health (D-G5, migration 0242): the health of NexLoop's own data flows, as the `data_health` block of the metrics snapshot,
+"""Data health (D-G5, migration 0245): the health of NexLoop's own data flows, as the `data_health` block of the metrics snapshot,
 alert rules v6 and the owner's workbench read GET /api/v1/workbench/data-health. Every item has a positive control: admin seeds one
 synthetic fault per flow (a dead-lettered extraction job, a stale extraction feed row, a recall entry without an embedding, vectors
 under another profile, a review decision waiting for reflow, a signature-rejected commercial receipt, an orphan / expired / stuck
