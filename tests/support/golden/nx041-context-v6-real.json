@@ -1,0 +1,191 @@
+{
+ "bindings": {
+  "artifact_id": "<hex32-1>",
+  "command_digest": "<hex64-1>",
+  "context_id": "<uuid-1>",
+  "namespace": "<hex64-2>",
+  "run_id": "<uuid-2>",
+  "source_principal": "<uuid-3>-assembly-source-principal",
+  "tenant_id": "<uuid-3>",
+  "world_id": "real"
+ },
+ "budget_report": {
+  "available": 14500,
+  "estimator": "conservative-bytes-half-v1",
+  "framing_reserve": 1500,
+  "input_token_budget": 16000,
+  "omitted": [],
+  "output_reserve": 4000,
+  "sections": {
+   "bindings": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "constraints": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "consumer_state": {
+    "included": 1,
+    "omitted": 0,
+    "tokens": 26
+   },
+   "current_event": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "evidence": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "experience": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "goal": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "open_work": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "role": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   },
+   "semantics": {
+    "included": 0,
+    "omitted": 0,
+    "tokens": 0
+   }
+  },
+  "used": 26
+ },
+ "constraints": [],
+ "consumer_state": [
+  {
+   "access_decision_ref": "decision:<hex64-3>",
+   "at": "",
+   "content": {
+    "properties": {},
+    "type": "Consumer"
+   },
+   "content_hash": "<hex64-4>",
+   "evidence_kind": "formal_object",
+   "ref": "eios:object:Consumer/<hex64-5>",
+   "relevance_permille": 1000,
+   "revision": "1",
+   "subsection": "Consumer",
+   "tags": []
+  }
+ ],
+ "current_constraints": {
+  "action": "nexloop.service.request:1",
+  "allow_effect": true,
+  "budget_units": 1,
+  "executor_principal": "<uuid-3>-assembly-executor-principal",
+  "reserved_units": 0,
+  "valid_until": "<time-1>"
+ },
+ "current_event": {
+  "kind": "consumer_message",
+  "message_id": "<hex64-6>",
+  "provenance": "eios:object:<hex64-6>"
+ },
+ "evidence": [],
+ "experience": [],
+ "formal_facts": [
+  {
+   "id": "<hex64-5>",
+   "provenance": "eios:object:<hex64-5>",
+   "revision": 1,
+   "type": "Consumer"
+  },
+  {
+   "id": "<hex64-7>",
+   "provenance": "eios:object:<hex64-7>",
+   "revision": 1,
+   "type": "EffectControl"
+  },
+  {
+   "id": "<hex64-8>",
+   "provenance": "eios:object:<hex64-8>",
+   "revision": 1,
+   "type": "Goal"
+  },
+  {
+   "id": "<hex64-9>",
+   "provenance": "eios:object:<hex64-9>",
+   "revision": 1,
+   "type": "PlanStep"
+  }
+ ],
+ "goal": {
+  "control_snapshot": {
+   "budgets": [
+    "model"
+   ],
+   "control_revision": 0,
+   "goals": [],
+   "objects": [
+    {
+     "object_id": "<hex64-5>",
+     "revision": 1,
+     "type_name": "Consumer"
+    }
+   ],
+   "scopes": [
+    {
+     "kind": "consumer",
+     "ref": "consumer:<hex64-5>"
+    }
+   ]
+  },
+  "goal_version_refs": [
+   "goal:<hex64-8>@1"
+  ]
+ },
+ "insufficient": [],
+ "open_work": [],
+ "role": null,
+ "schema_version": "nexloop.context-pack.v6",
+ "semantics": [],
+ "strategy_ref": "context-strategy:recent_plus_required@1",
+ "supply": {
+  "binding_id": "<hex64-10>",
+  "binding_revision": 1,
+  "offering_id": "<hex64-11>",
+  "offering_revision": 1,
+  "properties": {
+   "active": true,
+   "allowed_discounts": [],
+   "allowed_guarantees": [],
+   "content_kind": "json-message-export",
+   "currency": "CNY",
+   "delivery_action": "nexloop.service.request:1",
+   "eligibility": "current_consumer_plan",
+   "evidence_kind": "fsynced_json_export",
+   "price_amount": "0",
+   "service_code": "local.json-export",
+   "title": "本地 JSON 文本导出",
+   "valid_until": "<time-2>"
+  },
+  "provenance": "eios:object:<hex64-11>"
+ },
+ "user_statement": {
+  "body": "用户原文不是正式事实。",
+  "conversation_id": "<hex64-12>",
+  "message_id": "<hex64-6>",
+  "provenance": "eios:object:<hex64-6>",
+  "sequence": 1
+ }
+}
