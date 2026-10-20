@@ -67,7 +67,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # 0232: the owner's tenant outreach controls; switching marketing on confirms the consent mode (O5, checked in SQL).
     'set_outreach_controls':'outreach_controls.set',
     # Outreach slice 3: enable or disable a purpose of the current purpose list (checked in SQL).
-    'set_outreach_purpose':'outreach_purposes.set'}
+    'set_outreach_purpose':'outreach_purposes.set',
+    # Outreach slice 4: one proactive message for a listed purpose (accepted here, admitted at dispatch).
+    'send_outreach':'outreach.send'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -349,6 +351,15 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[a-z][a-z0-9_.]{0,63}',str(purpose_id)) or type(enabled) is not bool or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('purpose, enabled and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_outreach_purpose','purpose_id':purpose_id,'enabled':enabled,'reason':reason})
+
+    # Outreach slice 4: owner only; accepted is not sent (the executor admits it at dispatch, every gate rechecked there).
+    def send_outreach(self,*,action_name,action_version,request_id,consumer_id,purpose,origin_ref,body,channel='native.webchat',conversation_id=None):
+        if (not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or not re.fullmatch(r'[a-z][a-z0-9_.]{0,63}',str(purpose))
+            or not re.fullmatch(r'(commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}',str(origin_ref)) or type(body) is not str or not 1<=len(body)<=2000
+            or channel!='native.webchat' or not (conversation_id is None or re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)))):
+            raise ValueError('consumer, purpose, origin, body and the native WebChat channel required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'send_outreach','consumer_id':consumer_id,'purpose':purpose,
+            'origin_ref':origin_ref,'body':body,'channel':channel,**({'conversation_id':conversation_id} if conversation_id else {})})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

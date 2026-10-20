@@ -1185,6 +1185,11 @@
       "version": "0237",
       "name": "0237_nx038_isolation_handoff.sql",
       "sha256": "86ba69dd36b32c1a9a8a2948d2470c7bc7a4fa1e86df059add36b783fd7cf980"
+    },
+    {
+      "version": "0238",
+      "name": "0238_outreach_send.sql",
+      "sha256": "c09e336beb06add54adfd628aa65c9cfea0a04616903850d8cf53344cbe679ca"
     }
   ]
 }

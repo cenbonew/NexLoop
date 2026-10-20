@@ -56,7 +56,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # 0232 (outreach slice 2): the owner's tenant outreach controls (time zone, quiet hours, frequency, marketing and consent mode).
     'outreach_controls.set':'human_owner',
     # Outreach slice 3: the owner enables or disables a listed outreach purpose for the tenant.
-    'outreach_purposes.set':'human_owner'}
+    'outreach_purposes.set':'human_owner',
+    # Outreach slice 4: the owner asks for one proactive message; every gate is rechecked at dispatch.
+    'outreach.send':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

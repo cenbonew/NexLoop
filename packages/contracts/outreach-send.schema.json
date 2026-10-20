@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:outreach-send",
+  "title": "outreach-send",
+  "description": "Proactive outreach send request (docs/design/proactive-outreach.md §3.1, owner decision P1; outreach slice 4): the parameters of the governed Action nexloop.outreach.send:1 and the request the server freezes from them. The caller never chooses the topic, the purpose version, the origin kind or the business intent id: the server derives them (topic and version from the current purpose list; intent id = sha256 of tenant, consumer, purpose, origin_ref and the day in the tenant time zone). Every dispatch gate is rechecked at dispatch; the Action is external and its real dispatch switch is closed by default.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "parameters"],
+  "properties": {
+    "schema": {"const": "nexloop-outreach-send/1"},
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumer_id", "purpose", "origin_ref", "body", "channel"],
+      "properties": {
+        "consumer_id": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "purpose": {"type": "string", "pattern": "^[a-z][a-z0-9_.]{0,63}$", "description": "A purpose of the current outreach purpose list, enabled for the tenant."},
+        "origin_ref": {"type": "string", "pattern": "^(commitment|intent|plan|owner):[A-Za-z0-9._:-]{1,190}$", "description": "What the send follows from: a commitment, a receipt intent, a plan or the owner's own request."},
+        "body": {"type": "string", "minLength": 1, "maxLength": 2000, "description": "The message text; the purpose's content_rules.max_chars also applies."},
+        "channel": {"const": "native.webchat", "description": "v1: the native WebChat channel only."},
+        "conversation_id": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$", "description": "Optional (P4): continue this conversation of the consumer; otherwise the server chooses."}
+      }
+    },
+    "frozen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent_id", "origin_kind", "topic", "purpose_version", "frequency_class", "body_digest"],
+      "description": "Server-derived, never accepted from the caller.",
+      "properties": {
+        "intent_id": {"type": "string", "pattern": "^outreach:[0-9a-f]{64}$"},
+        "origin_kind": {"const": "proactive"},
+        "topic": {"type": "string", "pattern": "^[a-z][a-z0-9_.]{0,63}$"},
+        "purpose_version": {"type": "integer", "minimum": 1},
+        "frequency_class": {"enum": ["service", "marketing"]},
+        "body_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}
