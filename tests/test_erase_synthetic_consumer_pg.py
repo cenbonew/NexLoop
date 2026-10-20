@@ -178,4 +178,6 @@ def test_the_post_check_shows_messages_claims_and_exports_cleared(restoring, adm
         after = precheck(client, consumer).json()
     assert after['erasure']['state'] == 'completed' and after['erasure']['counts']['messages'] >= 2 and after['consumer_object'] is False
     assert after['held']['messages_with_body'] == 0 and after['held']['claims_not_erased'] == 0 and after['held']['data_exports'] == 0, after['held']
-    assert after['persona'] == 'synthetic'  # the marker stays (no customer data in it); a replayed erasure is not checked again
+    # 0227 (Codex review, PR 13): the marker row leaves with the Consumer (its events keep a pseudonym); a replayed erasure is not
+    # checked again, so nothing depends on it after the erasure.
+    assert after['persona'] == 'real' and after['persona_revision'] == 0

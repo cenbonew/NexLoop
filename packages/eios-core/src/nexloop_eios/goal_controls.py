@@ -58,7 +58,12 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # 0210: the owner confirms an unknown effect did not happen (evidence and wait checked in SQL; nothing is sent).
     'confirm_effect_not_delivered':'service.confirm_not_delivered',
     # 0220 (ADR-034 first step): persona marking and the erasure of a synthetic Consumer (persona checked in SQL).
-    'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic'}
+    'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic',
+    # 0227 operator persona slice 1 (document, rules and settings checked in SQL).
+    'publish_operator_persona':'operator_persona.publish','assign_operator_persona':'operator_persona.assign',
+    'publish_persona_rules':'operator_persona.rules_publish','set_ai_disclosure':'ai_disclosure.set',
+    # 0228: the owner declines or reinstates a consumer's communication preference (a Claim of the consumer).
+    'dismiss_contact_preference':'contact_preference.dismiss'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -293,6 +298,40 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('consumer and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_synthetic_consumer','consumer_id':consumer_id,'reason':reason})
+
+    # 0227 operator persona slice 1: owner only; SQL validates the document, rules and settings and keeps versions immutable.
+    def publish_operator_persona(self,*,action_name,action_version,request_id,persona_id,version,status,reason,document=None):
+        if not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}',str(persona_id)) or type(version) is not int or status not in ('published','retired') \
+                or (status=='published')!=(type(document) is dict) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('persona, version, status, document (published only) and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_operator_persona','persona_id':persona_id,'version':version,
+            'status':status,'reason':reason,**({'document':document} if document is not None else {})})
+
+    def assign_operator_persona(self,*,action_name,action_version,request_id,consumer_id,persona_id,reason):
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or (persona_id is not None and not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}',str(persona_id))) \
+                or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer, persona (or null) and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'assign_operator_persona','consumer_id':consumer_id,'persona_id':persona_id,'reason':reason})
+
+    def publish_persona_rules(self,*,action_name,action_version,request_id,version,default_persona_id,rules,reason):
+        if type(version) is not int or type(rules) is not list or (default_persona_id is not None and not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}',str(default_persona_id))) \
+                or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('version, default persona (or null), rules and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_persona_rules','version':version,
+            'default_persona_id':default_persona_id,'rules':rules,'reason':reason})
+
+    def set_ai_disclosure(self,*,action_name,action_version,request_id,mode,when_asked,block_human_claims,content_label,reason):
+        if mode not in ('none','first_contact','always') or when_asked not in ('deflect','handoff') or type(block_human_claims) is not bool \
+                or type(content_label) is not bool or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('mode, when_asked, block_human_claims, content_label and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_ai_disclosure','mode':mode,'when_asked':when_asked,
+            'block_human_claims':block_human_claims,'content_label':content_label,'reason':reason})
+
+    # 0228: owner only; SQL accepts only a preference Claim the consumer stated.
+    def dismiss_contact_preference(self,*,action_name,action_version,request_id,claim_id,dismissed,reason):
+        if not re.fullmatch(r'[0-9a-f]{64}',str(claim_id)) or type(dismissed) is not bool or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('claim, dismissed and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'dismiss_contact_preference','claim_id':claim_id,'dismissed':dismissed,'reason':reason})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

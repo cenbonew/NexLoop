@@ -5,6 +5,7 @@ import {COMMITMENT_STATUS_TEXT,DISPLAY_NOTE,STATE_TEXT,consumerAlias,consumerLab
 import type {Context} from '../WorkbenchApp';
 import type {Query} from '../route';
 import {Page,Short} from './Page';
+import {ConsumerPersona} from './Personas';
 import {CopyId,Keyword,Pager,relative} from '../ui';
 import {commitmentSummary} from './Commitments';
 import {DataTable} from '../DataTable';
@@ -127,6 +128,7 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
       conversations={d.conversations.length} onCommitments={onCommitments?()=>onCommitments(d.consumer_id):undefined}/>{d.paused?'主动联系已暂停':''}</>:null}>{data=><>
     <h2>联系限制</h2>
     {data.restriction?<p className={data.restriction.active?'warning':'note'}>{data.restriction.active?'受限':'已解除'} · 规则 {data.restriction.rule_id} · 控制 revision {data.restriction.control_revision} · {when(data.restriction.restricted_at)}</p>:<p className="note">没有联系限制。</p>}
+    <ConsumerPersona consumerId={data.consumer_id}/>
     <h2>属性</h2>
     {data.properties.status==='ok'?(Object.keys(data.properties.values).length?<dl>{Object.entries(data.properties.values).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{typeof v==='string'?v:JSON.stringify(v)}</dd></div>)}</dl>:<p className="note">没有可读属性。</p>)
       :<p className="note" role="status">无属性读取权限：字段与证据不显示（AT-003）。</p>}

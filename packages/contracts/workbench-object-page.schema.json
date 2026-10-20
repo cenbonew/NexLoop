@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:workbench-object-page",
+  "title": "workbench-object-page",
+  "description": "Enterprise world model W2 (owner 2026-10-19): one page of a type's instances for the owner workbench, GET /api/v1/workbench/objects/{type} (workbench read verb `objects`). Identifiers, schema versions, revisions and update times only, never a property. Each object is listed only when the member's ADR-025 READ derivation holds (an audited read); the others on the page are counted in `invisible`. `total` is the type's instance count in the tenant (metadata). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type_name",
+    "items",
+    "invisible",
+    "total",
+    "next_after"
+  ],
+  "properties": {
+    "type_name": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9_]{0,63}$"
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "object_id",
+          "schema_version",
+          "revision",
+          "updated_at"
+        ],
+        "properties": {
+          "object_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "invisible": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "next_after": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        }
+      ]
+    }
+  }
+}
