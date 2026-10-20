@@ -1160,6 +1160,11 @@
       "version": "0232",
       "name": "0232_outreach_controls.sql",
       "sha256": "fb0b246eedb8b93be7ae057e2969470b7749f5164837252b743de02d7b94edc8"
+    },
+    {
+      "version": "0233",
+      "name": "0233_nx038_trace_reader.sql",
+      "sha256": "8715a5606be43491976603a8219ebafbcfe5b51dbdfee63a0bea16c70e543524"
     }
   ]
 }

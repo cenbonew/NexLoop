@@ -661,6 +661,24 @@ class RunOutcomePlanUpdate1(BaseModel):
     strategy: None | str
     steps: list[RunOutcomePlanUpdate1StepsItem]
 
+class TrajectorySampleModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    calls: int
+    failed: int
+    unknown: int
+
+class TrajectorySampleFailuresItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    code: str | None = None
+    failure_code: str | None = None
+    failure_detail: str | None = None
+    failure_tool: str | None = None
+
+class TrajectorySampleRecoveredToolErrorsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    tool: str
+    code: str
+
 class WorkbenchArtifactsItemsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     artifact_id: str
@@ -1071,6 +1089,30 @@ class RunOutcome(_Contract):
     evidence_refs: list[str]
     intent_ref: None | str
     plan_update: None | RunOutcomePlanUpdate1
+
+class TrajectorySample(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:trajectory-sample","title":"trajectory-sample","description":"NX-038 E2 (design §11.2, D10/D11): one trajectory sample a diagnosis reads, from either route with one shape: the database route (authz.nexloop_evo_trace_runs as nexloop_evo_reader; one issued Run) or the evidence-pack route (one NX-037 interaction record). Identifiers, codes, counts and times only: never a message body, Claim value, prompt, quote or credential. `persona` is the served Consumer\'s ADR-034 persona (D12, always labelled; null when the Run serves no Consumer or the record carries none); test-stack records never reach a formal diagnosis (§11.3). A sample is input to diagnosis, never a business fact. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["schema_version","source","run_id","interaction_id","run_kind","scenario","issued_at","consumer_id","persona","test_stack","outcome","error_code","model","tool_calls","intents","intent_ids","refusals","failures","recovered_tool_errors","receipts","reconciliation"],"properties":{"schema_version":{"const":"1.0"},"source":{"enum":["database","evidence_pack"]},"run_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"interaction_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"run_kind":{"enum":["message","fallback","role","other",null]},"scenario":{"enum":["ordinary_reply","real_delivery","restricted_after_refusal","human_takeover","unknown_reconciliation",null]},"issued_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time"}]},"consumer_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"persona":{"enum":["real","simulated_agent","synthetic",null]},"test_stack":{"type":"boolean"},"outcome":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]},"error_code":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]},"model":{"type":"object","additionalProperties":false,"required":["calls","failed","unknown"],"properties":{"calls":{"type":"integer","minimum":0},"failed":{"type":"integer","minimum":0},"unknown":{"type":"integer","minimum":0}}},"tool_calls":{"type":"integer","minimum":0},"intents":{"type":"object","propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"integer","minimum":0}},"intent_ids":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}},"refusals":{"type":"object","propertyNames":{"pattern":"^[A-Za-z0-9_]{1,64}$"},"additionalProperties":{"type":"integer","minimum":0}},"failures":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_detail":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_tool":{"type":"string","pattern":"^(nexloop\\\\.[a-z][a-z_.]{0,63}|unregistered_tool)$"}}}},"recovered_tool_errors":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["tool","code"],"properties":{"tool":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z_.]{0,63}$"},"code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}}},"receipts":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}},"reconciliation":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]}}}')
+    schema_version: Literal['1.0']
+    source: Literal['database', 'evidence_pack']
+    run_id: None | str
+    interaction_id: None | str
+    run_kind: Literal['message', 'fallback', 'role', 'other', None]
+    scenario: Literal['ordinary_reply', 'real_delivery', 'restricted_after_refusal', 'human_takeover', 'unknown_reconciliation', None]
+    issued_at: None | str
+    consumer_id: None | str
+    persona: Literal['real', 'simulated_agent', 'synthetic', None]
+    test_stack: bool
+    outcome: None | str
+    error_code: None | str
+    model: TrajectorySampleModel
+    tool_calls: int
+    intents: dict[str, Any]
+    intent_ids: list[str]
+    refusals: dict[str, Any]
+    failures: list[TrajectorySampleFailuresItem]
+    recovered_tool_errors: list[TrajectorySampleRecoveredToolErrorsItem]
+    receipts: list[str]
+    reconciliation: None | str
 
 class WorkbenchArtifacts(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-artifacts","title":"workbench-artifacts","description":"Enterprise world model W4 (data assets): one page of a tenant\'s stored local Artifacts for the owner workbench, GET /api/v1/workbench/artifacts (workbench read verb `artifacts`; owners and operators, ADR-025 / ADR-035). Metadata only: id, purpose (from the binding that holds it), media type, size, the first 12 hex digits of its sha256, created and retention times, the source Run and the owning Consumer id; never content, storage keys or upload details. Newest first; `next_before` is the cursor \'<created_at>|<artifact_id>\' of the page\'s last item. An Artifact of a Consumer being erased, or one an erasure is deleting, is not listed and is counted in `hidden`. Each listed Artifact is audited. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["items","total","hidden","next_before"],"properties":{"items":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["artifact_id","purpose","media_type","size_bytes","sha256_prefix","created_at","retention_until","run_id","consumer_id"],"properties":{"artifact_id":{"type":"string","pattern":"^[a-f0-9]{32}$"},"purpose":{"enum":["message_context","fallback_context","role_context","other"]},"media_type":{"type":"string","minLength":1,"maxLength":255},"size_bytes":{"type":"integer","minimum":0,"maximum":16777216},"sha256_prefix":{"type":"string","pattern":"^[a-f0-9]{12}$"},"created_at":{"type":"string","format":"date-time"},"retention_until":{"type":"string","format":"date-time"},"run_id":{"anyOf":[{"type":"null"},{"type":"string","format":"uuid"}]},"consumer_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]}}}},"total":{"type":"integer","minimum":0},"hidden":{"type":"integer","minimum":0},"next_before":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9][0-9T:. +-]{9,39}\\\\|[a-f0-9]{32}$"}]}}}')
