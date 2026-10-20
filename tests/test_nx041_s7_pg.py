@@ -7,6 +7,7 @@ nexloop_stand_in_worker (S4). The Host group check of AT-046 runs in apps/agent-
 """
 import hashlib
 import json
+import re
 import socket
 import uuid
 from pathlib import Path
@@ -207,39 +208,167 @@ def test_at046_the_real_effect_path_refuses_a_sim_world_and_the_stand_in_serves_
 
 
 def test_at046_simulated_outputs_never_become_facts_or_fulfilled_commitments(s7):
-    """L6 S4 review 5.2 (rest), stated as the code has it: a Commitment exists only as registered from a commitment Claim (Claims need
-    a real-only conversation) and becomes fulfilled only with ledger evidence (runtime.nexloop_commitment_evidence: effect_fulfilled,
-    commercial_event, operator_attestation, delivered_message); the guard refuses a fulfilled status without evidence, and the effect
-    evidence source (effect intents) refuses a simulation row."""
+    """S7 review 5 (behaviour, not source text): every kind of Commitment evidence the ledger knows is refused in a simulation world,
+    whichever writer (effect intents, commercial records in data_mode test, the owner's attestation, delivered messages) would add it,
+    so a Commitment there is never fulfilled; the same rows are accepted in real (positive control). A fulfilled Commitment written
+    straight into a simulation world is refused, and its status target stays unfulfilled without evidence."""
     admin = s7['admin']
-    src = admin.execute("select prosrc from pg_proc where oid='runtime.nexloop_commitment_target(text,text,text,jsonb,timestamptz)'::regprocedure").fetchone()[0]
-    assert "'fulfilled'" in src and 'runtime.nexloop_commitment_evidence' in src
-    assert "x.kind in ('effect_fulfilled','commercial_event','operator_attestation')" in src
-    guard = admin.execute("select prosrc from pg_proc where oid='ontology.nexloop_commitment_guard()'::regprocedure").fetchone()[0]
-    assert 'commitment transition is not justified by its evidence' in guard
-    conv = [c for (c,) in admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='runtime.nexloop_conversations'::regclass and contype='c'""")]
-    assert any("world = 'real'" in c for c in conv)
-    assert admin.execute("""select count(*) from pg_constraint where conname='nx041_real_effect_world' and conrelid in
-        ('runtime.nexloop_effect_intents'::regclass,'runtime.nexloop_outbound_messages'::regclass)""").fetchone()[0] == 2
-    # A Commitment object written straight into a simulation world with a fulfilled status is refused by the guard.
+    definition = admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='runtime.nexloop_commitment_evidence'::regclass
+        and contype='c' and pg_get_constraintdef(oid) like '%kind%=%ANY%'""").fetchone()[0]
+    kinds = re.findall(r"'([a-z_]+)'::text", definition)
+    assert {'effect_fulfilled', 'commercial_event', 'operator_attestation', 'delivered_message'} <= set(kinds)
+    commitment = uuid.uuid4().hex * 2
+    insert = """insert into runtime.nexloop_commitment_evidence(tenant_id,world,commitment_id,kind,ref,occurred_at,recorded_by)
+        values(%s,%s,%s,%s,%s,now(),'writer')"""
+    for kind in kinds:
+        with admin.transaction(force_rollback=True):
+            admin.execute(insert, (TENANT_A, 'real', commitment, kind, 'ref:' + kind))  # positive control (rolled back)
+        for world in (s7['a'], s7['b']):
+            with pytest.raises(psycopg.errors.CheckViolation, match='nx041_no_simulation_evidence'), admin.transaction():
+                admin.execute(insert, (TENANT_A, world, commitment, kind, 'ref:' + kind))
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match='commitment creation was not prepared from its evidence'), admin.transaction():
         admin.execute("""insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
             values(%s,%s,'Commitment',%s,1,%s,'twin','synthetic',now(),now())""",
                       (TENANT_A, s7['a'], uuid.uuid4().hex, Jsonb({'status': 'fulfilled', 'made_to': 'f' * 64})))
-    assert admin.execute("select count(*) from ontology.objects where type_name='Commitment'").fetchone()[0] == 0
+    target = admin.execute('select runtime.nexloop_commitment_target(%s,%s,%s,%s,now())', (TENANT_A, s7['a'], commitment, Jsonb({
+        'status': 'open', 'fulfillment_basis': 'undetermined', 'promised_at': '2026-01-01T00:00:00Z', 'due_at': None}))).fetchone()[0]
+    assert target.get('status') != 'fulfilled'
 
 
-@pytest.mark.xfail(strict=True, raises=SystemExit, reason=(
-    'D10 pending (owner): one or three credentials per simulation world is not decided, so no simulation process group (runtime '
-    'worker, guard, Host) can run a complete Pi Run yet; the runtime worker still accepts real and test only (AT-046). When D10 is '
-    'decided and the worker gains its simulation option, this test passes and strict xfail fails, forcing the end-to-end test.'))
-def test_at046_a_simulation_process_group_runs_a_complete_pi_run(s7, tmp_path):
+class PiRunBlocked(Exception):
+    """A prerequisite of a complete Pi Run in a simulation process group is not there yet."""
+
+
+def pi_run_blockers(f):
+    """The prerequisites of a complete sim-group Pi Run, each probed in the system as it is (S7 review 4):
+    - D10: the owner's three-credentials-per-world decision (the S2 rule still allows one active credential per world);
+    - S6c: the simulation process group's own database roles (nexloop_sim_api, nexloop_sim_worker);
+    - the Host's simulation Context input protocol (the Host reads nexloop.context-pack.sim.v1)."""
+    admin = f['admin']
+    blockers = []
+    row = admin.execute('select tenant_id,binding,audience,expires_at from authz.nexloop_service_credentials where worlds=%s', ([f['a']],)).fetchone()
+    binding = {**row[1], 'credential_id': 'd10-probe', 'principal_id': 'd10-probe', 'subject_principal_id': 'd10-probe'}
+    try:
+        with admin.transaction(force_rollback=True):
+            admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
+                          (uuid.uuid4().hex * 2, row[0], 'd10-probe', Jsonb(binding), [f['a']], row[2], 'active', row[3]))
+    except psycopg.errors.InsufficientPrivilege as error:
+        if 'one active credential' not in str(error):
+            raise
+        blockers.append('D10: three credentials per simulation world not decided')
+    if admin.execute("select count(*) from pg_roles where rolname in ('nexloop_sim_api','nexloop_sim_worker')").fetchone()[0] < 2:
+        blockers.append('S6c: simulation process group roles absent')
+    if not any('nexloop.context-pack.sim.v1' in p.read_text() for p in (ROOT / 'apps/agent-host/src').glob('*.ts')):
+        blockers.append('Host: simulation Context input protocol absent')
+    return blockers
+
+
+def complete_sim_pi_run(f, tmp_path, blockers=pi_run_blockers):
+    """The end-to-end path of the sim group, as far as it exists: the worker accepts the sim world in the simulation group (S6),
+    then every prerequisite. Returns only when nothing blocks (then the end-to-end Run belongs here)."""
     from nexloop_eios import runtime_worker
     paths = {o: str(tmp_path / o) for o in ('database-url-file', 'signing-key-file', 'service-credential-file', 'artifact-root', 'host-control-key-file',
                                            'host-ca-file', 'guard-key-file', 'guard-certificate-file', 'guard-tls-key-file')}
-    argv = [x for o, p in paths.items() for x in ('--' + o, p)] + ['--world', s7['a'], '--queue', 'q', '--host-origin', 'https://127.0.0.1:1', '--guard-port', '1']
-    runtime_worker._arguments(argv)
-    raise AssertionError('the simulation runtime worker exists: replace this placeholder with the end-to-end Pi Run of the sim group')
+    argv = [x for o, p in paths.items() for x in ('--' + o, p)] + ['--world', f['a'], '--world-group', 'simulation', '--queue', 'q',
+                                                                  '--host-origin', 'https://127.0.0.1:1', '--guard-port', '8443']
+    runtime_worker._arguments(argv)  # S6: the simulation group's worker exists (a SystemExit here is a regression, not a blocker)
+    found = blockers(f)
+    if found:
+        raise PiRunBlocked(found)
+
+
+@pytest.mark.xfail(strict=True, raises=PiRunBlocked, reason=(
+    "Blocked until: (1) D10, the owner's three-credentials-per-simulation-world decision; (2) S6c, the simulation process group's own "
+    "database roles and grants; (3) the Host's simulation Context input protocol (nexloop.context-pack.sim.v1). Each is probed by "
+    "pi_run_blockers; when all are there the test passes, strict xfail turns that into a failure, and the end-to-end Run replaces it."))
+def test_at046_a_simulation_process_group_runs_a_complete_pi_run(s7, tmp_path):
+    complete_sim_pi_run(s7, tmp_path)
+
+
+def test_the_pi_run_xfail_flips_once_its_prerequisites_are_there(s7, tmp_path):
+    """Local proof of S7 review 4: today the probes report the three blockers; with the probes stubbed as satisfied the same body
+    returns, so the strict xfail above would XPASS and fail CI."""
+    found = pi_run_blockers(s7)
+    assert [b.split(':')[0] for b in found] == ['D10', 'S6c', 'Host'], found
+    with pytest.raises(PiRunBlocked):
+        complete_sim_pi_run(s7, tmp_path)
+    assert complete_sim_pi_run(s7, tmp_path, blockers=lambda f: []) is None
+
+
+def test_at046_forged_context_resume_guard_and_activation_paths(s7):
+    """S7 review 2.2, server side (the resume path is in apps/agent-host/test/nx041-host-group.test.ts):
+    - Context: the real assembly entry refuses a sim world (its body is real-only) and contract v6 refuses a sim binding; a real binding
+      validates (positive control);
+    - guard: a guard worker of the simulation group refuses real and test, the real group refuses sim; each accepts its own;
+    - SQL activation: an unsigned command is refused at its signature gate, alike for every credential and world (see the comment)."""
+    from nexloop_eios import runtime_guard_worker as G
+    admin = s7['admin']
+    with pytest.raises(psycopg.errors.InsufficientPrivilege), admin.transaction():
+        admin.execute('select authz.nexloop_context_v6_command(%s,%s,%s,%s,%s)', (digest(s7['token_a']), s7['a'], '{}', '', '{}'))
+    v6 = Draft202012Validator(json.loads((ROOT / 'packages/contracts/context-pack-v6.schema.json').read_text()), format_checker=FormatChecker())
+    example = json.loads((ROOT / 'packages/contracts/examples/context-pack-v6.valid.json').read_text())
+    v6.validate(example)
+    forged = json.loads(json.dumps(example))
+    forged['bindings']['world_id'] = s7['a']
+    assert not v6.is_valid(forged)
+    base = ['--listen-fd', '3', '--guard-port', '8443'] + [x for o in ('database-url-file', 'signing-key-file', 'service-credential-file', 'artifact-root',
+                                                                     'guard-key-file', 'guard-certificate-file', 'guard-tls-key-file') for x in ('--' + o, '/x')]
+    assert G._arguments(base + ['--world', s7['a'], '--world-group', 'simulation']).world == s7['a']
+    assert G._arguments(base + ['--world', 'real']).world == 'real'
+    for argv in (['--world', 'real', '--world-group', 'simulation'], ['--world', 'test', '--world-group', 'simulation'], ['--world', s7['a']]):
+        with pytest.raises(SystemExit):
+            G._arguments(base + argv)
+    # SQL activation: its first gates are the role, the queue and the command signature (0037), before the credential's world is
+    # read; the same unsigned request is refused alike for the sim credential and the real one, so nothing world-specific is
+    # reached without a signed command. The world binding is held by the service identity (sim credential refused for real/test,
+    # test_at046_a_sim_credential_never_authenticates_real) and by the command check (test_at046_a_forged_mode_is_refused_by_the_server).
+    worker = s7['role']('nexloop_domain_worker')
+    answers = []
+    for token, world in ((s7['token_a'], 'real'), (s7['token_real'], 'real'), (s7['token_a'], s7['a'])):
+        with worker() as db, pytest.raises(psycopg.errors.InsufficientPrivilege) as refused:
+            db.execute('select authz.nexloop_runtime_activation_command(%s,%s,%s,%s,%s)', (digest(token), world, '{}', '', '{"queue":"q","verb":"create"}'))
+        answers.append(refused.value.diag.message_primary)
+    assert answers == ['activation denied'] * 3
+
+
+def test_an_existing_port_role_is_brought_to_its_shape(admin):
+    """S7 review 1.4 (as S4 N2): a role named nexloop_twin_port that exists before the migration with other attributes, a role
+    membership and a privilege leaves it with exactly the declared shape and the two port entries."""
+    admin.execute('drop role if exists nexloop_twin_port')
+    admin.execute('create role nexloop_twin_port nologin inherit createdb bypassrls')
+    admin.execute('grant pg_read_all_data to nexloop_twin_port')
+    bootstrap(admin)
+    r = admin.execute("""select rolcanlogin,rolinherit,rolcreatedb,rolcreaterole,rolsuper,rolreplication,rolbypassrls from pg_roles
+        where rolname='nexloop_twin_port'""").fetchone()
+    assert r == (True, False, False, False, False, False, False), r
+    assert admin.execute("select count(*) from pg_auth_members a join pg_roles m on m.oid=a.member where m.rolname='nexloop_twin_port'").fetchone()[0] == 0
+    reachable = {x[0].split('(')[0] for x in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname in ('authz','control','runtime','ontology') and p.prosecdef and has_function_privilege('nexloop_twin_port',p.oid,'execute')""").fetchall()}
+    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits'}, reachable
+
+
+def test_the_port_takes_at_most_its_event_limit_per_world(s7):
+    """S7 review 1.5: a world takes at most runtime.nexloop_sim_port_event_limit() events (proposed 100 000); a replay is still
+    answered; another world is not affected."""
+    f = s7
+    admin = f['admin']
+    limit = admin.execute('select runtime.nexloop_sim_port_event_limit()').fetchone()[0]
+    assert limit == 100000
+    c = consumers(admin, f['a'])[0]
+    twin = P.TwinStub(seed='quota')
+    first = port(f).act(twin.act(c, 1))
+    with admin.transaction():  # fill the world to one below the limit, as the port would (triggers off: trusted bulk seed)
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into runtime.nexloop_sim_consumer_events(tenant_id,world,event_id,consumer_id,sequence,event_kind,content,content_digest,
+            twin_version,twin_seed,twin_step,sim_time,recorded_by)
+            select %s,%s,encode(sha256(convert_to('bulk'||i,'UTF8')),'hex'),%s,i+1,'visit','{}',repeat('0',64),'twin-stub/1','bulk',i,now(),'seed'
+            from generate_series(1,%s) i""", (TENANT_A, f['a'], c, limit - 2))
+    assert port(f).act(twin.act(c, 2))['frozen']['sequence'] == limit  # the last one fits (positive control)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='quota_exceeded'):
+        port(f).act(twin.act(c, 3))
+    assert port(f).act(twin.act(c, 1))['frozen']['event_id'] == first['frozen']['event_id']  # a replay is answered
+    generate(admin, f['b'], seed='other-quota')
+    assert port(f, f['b'], f['token_b']).act(twin.act(consumers(admin, f['b'])[0], 1))['frozen']['sequence'] == 1
 
 
 # 3. §8 proposed acceptances ---------------------------------------------------------------------------------------------------------
@@ -301,12 +430,16 @@ def test_acceptance_whole_deletion_of_a_simulation_world(s7):
     assert {t: after_real.get(t, 0) for t in before_real} == before_real  # real rows kept (the deletion adds only its own records)
 
 
-def run_frozen_input(f, world, token, seed='frozen-x'):
-    """One run of a frozen input: generation (seed, parameters), stand-in configuration, twin (version, seed) and an injection plan
-    (two steps per Consumer, one stand-in intent per Consumer)."""
+def run_frozen_input(f, world, token, seed='frozen-x', configured_from=None):
+    """One run of a frozen input: generation (seed, parameters), stand-in configuration (with its server outcome_seed; a replay
+    copies it from the first run by the server, decision A), twin (version, seed) and an injection plan (two steps per Consumer,
+    one stand-in intent per Consumer)."""
     admin = f['admin']
     gen = generate(admin, world, seed=seed)
-    admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'frozen-input')", (TENANT_A, world, Jsonb({'fail_rate': 0, 'latency_ms': {'min': 0, 'max': 0}})))
+    if configured_from is None:
+        admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'frozen-input')", (TENANT_A, world, Jsonb({'fail_rate': 0.5, 'latency_ms': {'min': 0, 'max': 50}})))
+    else:
+        admin.execute("select runtime.nexloop_stand_in_configure_copy(%s,%s,%s,'frozen-input')", (TENANT_A, configured_from, world))
     cs = consumers(admin, world)
     events = P.TwinStub(seed='twin-' + seed).run(P.ConsumerPort(f['twin'], token, world), cs, 2)
     for i, c in enumerate(cs):
@@ -318,21 +451,22 @@ def run_frozen_input(f, world, token, seed='frozen-x'):
     receipts = sorted(S.StandInExecutor(f['stand_in'], token, world).run_once(), key=lambda r: r.intent_id)
     return {'generation': (gen['output_digest'], gen['params_digest'], gen['counts']),
             'events': [(e['request']['consumer_id'], e['request']['event_kind'], e['frozen']['content_digest'], e['frozen']['sequence']) for e in events],
-            'receipts': [(r.intent_id, r.status, r.latency_ms, r.stand_in_version, r.simulated) for r in receipts],
+            'receipts': [json.dumps({k: v for k, v in vars(r).items() if k != 'world'}, sort_keys=True) for r in receipts],
             'metrics': admin.execute("""select count(*),count(distinct consumer_id),string_agg(event_kind,',' order by consumer_id,sequence)
                 from runtime.nexloop_sim_consumer_events where world=%s""", (world,)).fetchone()}
 
 
 def test_acceptance_a_frozen_input_reproduces(s7):
     """§8 'frozen input reproducible': the same frozen input in two worlds gives byte-identical generated data, twin events and event
-    metrics, and the same stand-in receipts (status, latency, version). The receipts' external reference is not compared: since the S4
-    review (4.2) each intent has a server salt, so it is not reproducible across runs (decision A: the byte-for-byte receipt test below waits for L6's outcome_seed in 0262)."""
+    metrics, and the same stand-in receipts: every field but the world, external reference included (S7 review 3), with the frozen
+    stand-in configuration copied by the server (decision A, outcome_seed)."""
     f = s7
     admin = f['admin']
     c, d = create_world(admin), create_world(admin)
     tc, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=c, identity_suffix='-s7-c')
     td, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'f' * 32, world=d, identity_suffix='-s7-d')
-    one, two = run_frozen_input(f, c, tc), run_frozen_input(f, d, td)
+    one = run_frozen_input(f, c, tc)
+    two = run_frozen_input(f, d, td, configured_from=c)
     assert one == two and len(one['events']) == 6 and len(one['receipts']) == 3
     # Positive control: another frozen input (another seed) gives other events.
     e = create_world(admin)
@@ -374,5 +508,8 @@ def test_acceptance_a_frozen_input_reproduces_the_stand_in_receipts_byte_for_byt
                     'intent_id': str(uuid.UUID(int=i + 1)), 'action_name': 'nexloop.service.request', 'action_version': 1, 'provider_kind': 'http',
                     # one business intent each (L6 S4 fix: one open intent per business digest)
                     'business_digest': f'{i + 1:064x}', 'request_digest': 'c' * 64, 'origin': 'injected'})))
-        receipts[world] = sorted((r.intent_id, r.status, r.external_ref, r.latency_ms) for r in S.StandInExecutor(f['stand_in'], token, world).run_once())
-    assert receipts[c] == receipts[d] and {s for _, s, _, _ in receipts[c]} == {'failed', 'fulfilled'}
+        # The whole receipt but its world (S7 review 3): status, failure code, external reference, latency, version, marks, counts.
+        receipts[world] = sorted((json.dumps({k: v for k, v in vars(r).items() if k != 'world'}, sort_keys=True)
+                                  for r in S.StandInExecutor(f['stand_in'], token, world).run_once()))
+    assert receipts[c] == receipts[d] and {json.loads(r)['status'] for r in receipts[c]} == {'failed', 'fulfilled'}
+    assert all(json.loads(r)['external_ref'].startswith('stand-in:') for r in receipts[c])

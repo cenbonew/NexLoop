@@ -58,7 +58,29 @@ do $$begin
   create role nexloop_twin_port login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
  end if;
 end $$;
+-- A role of that name that already exists (made by hand, another lineage) is brought to exactly this shape (S7 review 1.4, as S4 N2):
+-- its attributes, no role membership, and no privilege granted to it before; the grants below are then its only ones.
+do $$declare r pg_roles;m text;s text;begin
+ select * into r from pg_roles where rolname='nexloop_twin_port';
+ if not r.rolcanlogin or r.rolinherit or r.rolcreatedb or r.rolcreaterole then
+  execute 'alter role nexloop_twin_port login noinherit nocreatedb nocreaterole';end if;
+ if r.rolsuper or r.rolreplication or r.rolbypassrls then
+  execute 'alter role nexloop_twin_port nosuperuser noreplication nobypassrls';end if;
+ for m in select g.rolname from pg_auth_members a join pg_roles g on g.oid=a.roleid where a.member=r.oid loop
+  execute format('revoke %I from nexloop_twin_port',m);
+ end loop;
+ for s in select nspname from pg_namespace where nspname in ('authz','control','ontology','runtime','extensions','public') loop
+  execute format('revoke all on all tables in schema %I from nexloop_twin_port',s);
+  execute format('revoke all on all sequences in schema %I from nexloop_twin_port',s);
+  execute format('revoke all on all functions in schema %I from nexloop_twin_port',s);
+  execute format('revoke all on schema %I from nexloop_twin_port',s);
+ end loop;
+end $$;
 grant usage on schema authz to nexloop_twin_port;
+
+-- The per-world event ceiling of the port (one place; tests read it).
+create function runtime.nexloop_sim_port_event_limit() returns integer language sql immutable set search_path=pg_catalog,pg_temp as $$ select 100000 $$;
+alter function runtime.nexloop_sim_port_event_limit() owner to nexloop_owner;
 
 -- A synthetic Consumer of this world (S3: generated object and persona synthetic). The caller has set the tenant.
 create function runtime.nexloop_sim_consumer_known(p_tenant text,p_world text,p_consumer text) returns boolean
@@ -98,12 +120,16 @@ begin
  v_digest:=encode(sha256(convert_to((p_event->>'event_kind')||'|'||v_content::text,'UTF8')),'hex');
  v_principal:=authz.nexloop_service_identity(p_digest,p_world)->'binding'->>'principal_id';
  perform set_config('eios.tenant_id',v_tenant,true);
- -- One event at a time per consumer: the sequence is the next one.
- perform pg_advisory_xact_lock(hashtextextended('nexloop:sim-consumer:'||p_world||':'||v_consumer,0));
+ -- One event at a time per world (the sequence is the consumer's next one; the world's event count is exact under this lock).
+ perform pg_advisory_xact_lock(hashtextextended('nexloop:sim-consumer:'||p_world,0));
  select * into x from runtime.nexloop_sim_consumer_events where tenant_id=v_tenant and world=p_world and event_id=v_id;
  if found then
   if x.content_digest<>v_digest then raise exception 'consumer port: step_reused' using errcode='22023';end if;
  else
+  -- At most 100 000 events per world (S7 review 1.5; proposed, the dispatcher decides): the S3 generator's own ceiling (2 000
+  -- Consumers x 50 events) for the whole run of an experiment. A replay is never refused.
+  if (select count(*) from runtime.nexloop_sim_consumer_events where tenant_id=v_tenant and world=p_world)>=runtime.nexloop_sim_port_event_limit() then
+   raise exception 'consumer port: quota_exceeded' using errcode='22023';end if;
   insert into runtime.nexloop_sim_consumer_events(tenant_id,world,event_id,consumer_id,sequence,event_kind,content,content_digest,twin_version,twin_seed,twin_step,
     sim_time,recorded_by)
    values(v_tenant,p_world,v_id,v_consumer,coalesce((select max(sequence) from runtime.nexloop_sim_consumer_events where tenant_id=v_tenant and world=p_world
@@ -159,3 +185,12 @@ do $$declare f text;begin
 end $$;
 grant execute on function authz.nexloop_sim_consumer_act(text,text,jsonb) to nexloop_twin_port;
 grant execute on function authz.nexloop_sim_consumer_observe(text,text,text,integer) to nexloop_twin_port;
+
+-- 4. Simulated outputs never fulfil a Commitment (S7 review 5) -------------------------------------------------------------------
+-- A Commitment becomes fulfilled only with ledger evidence (0111: effect_fulfilled, commercial_event, operator_attestation,
+-- delivered_message). Evidence is real-world evidence by nature, so the evidence ledger holds no sim:/shadow: row whatever path writes
+-- it (effect intents, commercial records in data_mode test, the owner's attestation, delivered messages): a Commitment of a
+-- simulation world can be breached or cancelled, never fulfilled. A CHECK holds the row as finally written.
+alter table runtime.nexloop_commitment_evidence add constraint nx041_no_simulation_evidence
+ check(coalesce(runtime.nexloop_world_kind(world),'') not in ('simulation','shadow')) not valid;
+alter table runtime.nexloop_commitment_evidence validate constraint nx041_no_simulation_evidence;

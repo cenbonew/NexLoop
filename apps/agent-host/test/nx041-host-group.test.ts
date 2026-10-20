@@ -54,3 +54,32 @@ describe('NX-041 Host world group at dispatch (actual RuntimeHost)',()=>{
   });
   it('a configuration with another group value is refused',()=>{expect(()=>host('shadow')).toThrow('runtime configuration refused');});
 });
+
+import {mkdtemp,rm} from 'node:fs/promises';
+import {PiRuntimeAdapter} from '../src/pi-runtime-adapter.ts';
+import {deterministic,until} from './pi-runtime-support.ts';
+
+const adapterRoots:string[]=[];const adapters:PiRuntimeAdapter[]=[];
+afterEach(async()=>{for(const a of adapters.splice(0))await a.close();for(const r of adapterRoots.splice(0))await rm(r,{recursive:true,force:true});});
+async function adapter(worldDirectories:boolean){
+  const root=await mkdtemp(join(tmpdir(),'nexloop-resume-world-'));adapterRoots.push(root);const provider=deterministic();
+  const a=new PiRuntimeAdapter({root,worldDirectories,models:provider.models,model:{provider:'faux',modelId:'faux-1'},
+    costPolicy:{kind:'deterministic_zero',currency:'USD'},assertOwner:()=>{},authorize:async()=>({ever_execution_authorized:false})});
+  adapters.push(a);return a;
+}
+
+describe('NX-041 S7 review 2.2: resume never changes the world of a Run',()=>{
+  it('simulation Host: resuming a sim Run under another sim world finds no state; the same command resumes (positive control)',async()=>{
+    const a=await adapter(true);const cmd={...command(),world_id:SIM,mode:'simulation'};
+    await a.start(cmd,'input');await until(async()=>(await a.inspect(cmd)).submission_status==='done');
+    await expect(a.resume({...cmd,world_id:SIM.replace('0001','0009')},'input')).rejects.toMatchObject({code:'runtime_state_missing'});
+    await expect(a.resume({...cmd,world_id:SHADOW,mode:'shadow'},'input')).rejects.toMatchObject({code:'runtime_state_missing'});
+    await expect(a.resume(cmd,'input')).resolves.toBeDefined();
+  });
+  it('real Host: resuming a real Run as test is a conflict with the stored command; the same command resumes (positive control)',async()=>{
+    const a=await adapter(false);const cmd={...command(),world_id:'real',mode:'real'};
+    await a.start(cmd,'input');await until(async()=>(await a.inspect(cmd)).submission_status==='done');
+    await expect(a.resume({...cmd,world_id:'test',mode:'test'},'input')).rejects.toMatchObject({code:'runtime_request_conflict'});
+    await expect(a.resume(cmd,'input')).resolves.toBeDefined();
+  });
+});
