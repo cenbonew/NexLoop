@@ -1118,10 +1118,10 @@
       "license_file_sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48"
     },
     "evoontology": {
-      "provenance": null,
+      "provenance": "packages/eios-core/src/nexloop_eios/evolution/PROVENANCE.json",
       "license_file": "licenses/EvoOntology-MIT.txt",
       "license_file_sha256": "140ba67c27276d23ccb07533d1604629f000ae350e2ba75190618bb8f3c9e38e",
-      "note": "Selective reuse: no copied source at present (design reference only)."
+      "note": "Selective reuse (NX-038 E1): the evaluation gate and adapter contract ported, the session lifecycle rewritten as rules only; files listed in the provenance with upstream and NexLoop hashes; MIT kept in each file header."
     }
   },
   "assets": [

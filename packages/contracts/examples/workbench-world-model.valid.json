@@ -1,0 +1,73 @@
+{
+  "world": "real",
+  "computed_at": "2026-10-19T09:00:00+00:00",
+  "object_types": [
+    {
+      "name": "Consumer",
+      "version": 3,
+      "display_name": "",
+      "description": "",
+      "title_property": "display_name",
+      "primary_key": [],
+      "objects": 12,
+      "properties": [
+        {
+          "name": "display_name",
+          "withheld": false,
+          "value_type": "string",
+          "required": false,
+          "nullable": false,
+          "group": "identity",
+          "visibility": "normal",
+          "description": ""
+        },
+        {
+          "name": "spending_power",
+          "withheld": true
+        }
+      ]
+    },
+    {
+      "name": "Conversation",
+      "version": 1,
+      "display_name": "",
+      "description": "",
+      "title_property": "",
+      "primary_key": [],
+      "objects": 30,
+      "properties": []
+    }
+  ],
+  "relation_types": [
+    {
+      "name": "consumer_conversation",
+      "version": 1,
+      "source_type": "Consumer",
+      "target_type": "Conversation",
+      "cardinality": "one_to_many",
+      "inverse_name": "",
+      "description": "",
+      "property_count": 0
+    }
+  ],
+  "event_types": [],
+  "actions": [
+    {
+      "resource_id": "eios:action:nexloop.service.request:1",
+      "name": "nexloop.service.request",
+      "version": 1,
+      "risk_level": "low",
+      "approval_mode": "none",
+      "change_scope": "external_effect",
+      "has_side_effects": true,
+      "object_types": [
+        "Consumer"
+      ],
+      "required_scopes": [
+        "action.execute"
+      ],
+      "contract_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "functions": []
+}

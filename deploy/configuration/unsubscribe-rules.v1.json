@@ -1,0 +1,149 @@
+{
+  "schema": "nexloop-unsubscribe-rules/1",
+  "version": 1,
+  "decision": "Outreach design §4.4 and plan O4 (owner approved 2026-10-20): deterministic check of an inbound consumer message, only when the latest proactive message to that consumer was a marketing purpose within window_days; no model call. A hit writes a marketing topic refusal (unsubscribe record), never a general contact restriction; when the latest proactive message was not marketing, the general refusal rules decide (fallback: contact restriction). Text is normalized first (trim, NFKC full-width to half-width, lower case, leading/trailing punctuation removed); exclusions are checked first and a hit there means no unsubscribe (questions about unsubscribing, negation, refund and order wording go to the normal reply). Patterns are PostgreSQL ARE, case-insensitive; match is exact (the whole normalized message) or contains. A new version is a new file and a new published row; versions are only extended, never edited or reduced.",
+  "window_days": 30,
+  "topic": "marketing",
+  "unsubscribe": [
+    {
+      "id": "unsubscribe-word",
+      "match": "exact",
+      "text": "退订",
+      "pattern": "^退订$"
+    },
+    {
+      "id": "sms-td",
+      "match": "exact",
+      "text": "TD",
+      "pattern": "^td$"
+    },
+    {
+      "id": "unsub-marketing",
+      "match": "contains",
+      "text": "退订营销",
+      "pattern": "退订营销"
+    },
+    {
+      "id": "cancel-subscription",
+      "match": "contains",
+      "text": "取消订阅",
+      "pattern": "取消订阅"
+    },
+    {
+      "id": "stop-pushing",
+      "match": "contains",
+      "text": "不要再推了",
+      "pattern": "不要再推了"
+    },
+    {
+      "id": "stop-pushing-2",
+      "match": "contains",
+      "text": "别再推了",
+      "pattern": "别再推了"
+    },
+    {
+      "id": "no-push",
+      "match": "contains",
+      "text": "不要推送",
+      "pattern": "不要推送"
+    },
+    {
+      "id": "dont-push-me",
+      "match": "contains",
+      "text": "别给我推",
+      "pattern": "别给我推"
+    },
+    {
+      "id": "no-ads",
+      "match": "contains",
+      "text": "不要发广告",
+      "pattern": "不要发广告"
+    },
+    {
+      "id": "no-ads-2",
+      "match": "contains",
+      "text": "别发广告",
+      "pattern": "别发广告"
+    },
+    {
+      "id": "no-campaigns",
+      "match": "contains",
+      "text": "不要发活动",
+      "pattern": "不要发活动"
+    },
+    {
+      "id": "no-campaigns-2",
+      "match": "contains",
+      "text": "别发活动",
+      "pattern": "别发活动"
+    },
+    {
+      "id": "no-campaign-messages",
+      "match": "contains",
+      "text": "不想收到活动",
+      "pattern": "不想收到活动"
+    },
+    {
+      "id": "no-promotion",
+      "match": "contains",
+      "text": "不想再收到推广",
+      "pattern": "不想再收到推广"
+    },
+    {
+      "id": "no-offers",
+      "match": "contains",
+      "text": "不需要优惠信息",
+      "pattern": "不需要优惠信息"
+    },
+    {
+      "id": "close-marketing",
+      "match": "contains",
+      "text": "关闭营销消息",
+      "pattern": "关闭营销消息"
+    },
+    {
+      "id": "no-marketing",
+      "match": "contains",
+      "text": "不接收营销",
+      "pattern": "不接收营销"
+    }
+  ],
+  "exclusions": [
+    {
+      "id": "how-to-unsubscribe",
+      "match": "contains",
+      "text": "怎么退订",
+      "pattern": "怎么退订"
+    },
+    {
+      "id": "how-to-unsubscribe-2",
+      "match": "contains",
+      "text": "如何退订",
+      "pattern": "如何退订"
+    },
+    {
+      "id": "unsubscribed-yet",
+      "match": "contains",
+      "text": "退订了吗",
+      "pattern": "退订了吗"
+    },
+    {
+      "id": "do-not-unsubscribe",
+      "match": "contains",
+      "text": "不要退订",
+      "pattern": "不要退订"
+    },
+    {
+      "id": "refund",
+      "match": "contains",
+      "text": "退款",
+      "pattern": "退款"
+    },
+    {
+      "id": "return-order",
+      "match": "contains",
+      "text": "退订单",
+      "pattern": "退订单"
+    }
+  ]
+}

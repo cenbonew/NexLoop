@@ -83,8 +83,10 @@
       "source_path": "src/eios/adapters/postgres/database.py",
       "destination": "packages/eios-core/src/eios/adapters/postgres/database.py",
       "upstream_sha256": "dcf8f35a52e07a3c732577c4eafcc50741df1812d4a0751f1a5a0421f1deb4e0",
-      "adaptations": [],
-      "nexloop_sha256": "dcf8f35a52e07a3c732577c4eafcc50741df1812d4a0751f1a5a0421f1deb4e0"
+      "adaptations": [
+        "Pool checks each connection at checkout (SELECT 1) so a PostgreSQL restart does not surface broken connections; a failed check is replaced only while a fresh connection succeeds, otherwise the connection is handed out so a PostgreSQL outage still fails the request at once instead of waiting for the pool timeout"
+      ],
+      "nexloop_sha256": "3fe4c1abc30b355263bf9c380b63e578a10637308eb9a007d7fcf19abb51ad1b"
     },
     {
       "source_path": "src/eios/adapters/postgres/migrations.py",

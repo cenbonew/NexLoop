@@ -14,6 +14,7 @@
 | review-decision.schema.json | ADR-019：人类审核决定（approve/merge_into/reject），reviewer 由服务端会话解析，审核是受治理人类 Action |
 | claim.schema.json | NX-019：从已持久化消息提取的带原文证据 Claim（候选知识，非正式对象）；提取器永不产出 verified_fact，隐性推断只能是 hypothesis |
 | context-pack-v6.schema.json | NX-023：Context pack v6。消息 Run 携带冻结的 v2 核心（bindings、user_statement、formal_facts、current_constraints、supply），带可选 relationship_context 段时为 v4 核心（当前陈述只收已解决的用户陈述，hypothesis 只作证据），绑定时由 SQL 重新推导；Role Run 携带冻结的 v3/v5 核心（role 段、服务触发作为 current_event），加策略、目标与控制快照、正式状态、未确认执行、带标签证据、语义、预算报告与显式 insufficient；每个条目带来源 revision、规范内容 hash 与读取时的当前 READ 决策，SQL 逐条对源行复核；正式区不收 Claim，真实世界不收 hypothesis；不含浮点数；v2–v5 冻结，旧 Run 继续用原协议 |
+| workbench-world-model.schema.json | 企业世界模型 W1：工作台只读视图 `GET /api/v1/workbench/world-model`，即租户已发布模型的元数据（对象类型及属性、关系类型、事件类型、Action、Function、实例计数）。不含实例内容；负责人限制组的属性只给名字和 withheld；没有写入对应物 |
 
 ## Schema之外必须实现的语义检查
 

@@ -216,6 +216,8 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         super().__init__(services);self.strategy_id=strategy_id
         self.last_diagnostic=None;self.last_check=None;self.run=None;self.last_mismatch=None;self._sent_items=None
         self.degrade=False  # only the fallback reply Run may degrade (FallbackContextV6Producer)
+        # 0227 operator persona slice 1: the message Run bind (0227 copy of 0187) takes the section; the fallback bind does not yet.
+        self.operator_persona=True
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
         self.core=None
         if relationship_recipe is not None:
@@ -250,12 +252,14 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             current_message_id=core['user_statement']['message_id'],current_sequence=core['user_statement']['sequence'])
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
         statement=core['user_statement']
+        persona=self._operator_persona(consumer) if self.operator_persona else None
         def build(items,extra=()):
             return assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role=None,
                 current_event={'kind':'consumer_message','message_id':statement['message_id'],'provenance':statement['provenance']},user_statement=statement,
                 goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
                 formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=items,
-                extra_insufficient=list(found.insufficient)+list(extra),relationship_context=core.get('relationship_context'),effect_supplies=core.get('effect_supplies'))
+                extra_insufficient=list(found.insufficient)+list(extra),relationship_context=core.get('relationship_context'),effect_supplies=core.get('effect_supplies'),
+                operator_persona=persona)
         try:
             body,outcome=build(found.items)
             return body,outcome,found.items,found.proofs
@@ -273,6 +277,14 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             except ValueError as error:
                 if str(error)!='context_pack_too_large':raise
         raise ValueError('fallback_context_unsafe')
+
+    def _operator_persona(self,consumer):
+        """0227: the tenant's operator persona section for this Consumer (persona@version, document, AI disclosure), or None.
+        SQL re-derives it at bind and refuses a pack that differs or omits it."""
+        from nexloop_eios.assembly import verify_application_role
+        with self.pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            return db.execute('select authz.nexloop_context_operator_persona(%s,%s,%s)',(self.session.token_digest,'real',consumer)).fetchone()[0]
 
     def prepare(self,*,message_id,run_token,command,offering_id,binding_id):
         """10/18 stage (refusal-2 fallback dc7ff6f3: context source content mismatch). This Run's Artifact id is fixed by its
@@ -352,6 +364,7 @@ class FallbackContextV6Producer(ContextV6ArtifactProducer):
     def __init__(self,services,strategy_id):
         super().__init__(services,strategy_id)
         self.degrade=True
+        self.operator_persona=False  # the fallback bind (0212) accepts no operator persona section yet
 
     def _call(self,db,parameters,run,definition,capability,claim_binding=None):
         text,signature,body=self._envelope(parameters,run,definition,capability,claim_binding)

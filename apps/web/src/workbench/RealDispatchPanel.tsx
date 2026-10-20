@@ -34,7 +34,8 @@ function Outcome({state}:{state:RealDispatch}){
   return <p className={'rd-outcome '+(o.dispatchable==='no'?'note':'warning')} role="status" data-dispatchable={o.dispatchable}>{o.text}</p>;
 }
 
-function Layers({state}:{state:RealDispatch}){
+/** The three layers as a table (also on the capability catalog, from the same source). */
+export function Layers({state}:{state:RealDispatch}){
   const deliver=state.actions.find(a=>a.action_type===DELIVER);
   const others=state.actions.filter(a=>a.action_type!==DELIVER);
   const pill=(on:boolean|undefined)=><span className={'rd-pill '+(on?'rd-on':'rd-off')}>{onOff(on)}</span>;

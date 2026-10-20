@@ -169,3 +169,29 @@ def test_a_pack_over_the_bound_input_size_is_trimmed_by_quota_not_refused():
     # Pinned items alone over the bound are still refused, by name (never silently cut).
     huge=inputs();huge['items'].append(Item('constraints','policy','eios:action:nexloop.service.request:1','1',{'text':'限'*30000},'policy',D))
     with pytest.raises(ValueError,match='context_pack_too_large'):assemble_v6(**huge)
+
+
+OPERATOR_PERSONA={'persona_ref':'operator-persona:xiaohe@2','persona_id':'xiaohe','version':2,'source':'default',
+    'document':{'display_name':'小禾','signature':'小禾｜服务助理','tone':'亲切、简洁','values':['先解决问题再解释'],
+        'expression':{'max_chars':200,'emoji':'few','forbidden_phrases':['亲爱的']},'scenarios':['售后'],'ai_disclosure':{'deflect_statement':'我是本店的服务助手。'}},
+    'ai_disclosure':{'mode':'none','when_asked':'deflect','block_human_claims':False,'content_label':False}}
+
+
+def test_operator_persona_is_an_optional_exact_section():
+    """0221 operator persona slice 1: optional (packs without it stay valid); exact shape; persona_ref names id@version."""
+    assert 'operator_persona' not in V6['required']
+    assert VALID.is_valid(EXAMPLE) and VALID.is_valid({**EXAMPLE,'operator_persona':OPERATOR_PERSONA})
+    ContextPackV6.model_validate({**EXAMPLE,'operator_persona':OPERATOR_PERSONA})
+    for bad in ({'price_rule':'八折'},{'persona_ref':'operator-persona:xiaohe'},{'source':'experiment_arm'},
+                {'document':{**OPERATOR_PERSONA['document'],'discount':'10%'}},{'ai_disclosure':{**OPERATOR_PERSONA['ai_disclosure'],'when_asked':'truthful'}},
+                {'document':{**OPERATOR_PERSONA['document'],'expression':{'max_chars':5,'emoji':'few'}}}):
+        assert not VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,**bad}}),bad
+
+
+def test_operator_persona_may_carry_the_consumers_preferences():
+    """0222: optional, at least one item when present; claim id, dimension, polarity and a short value only."""
+    good=[{'claim_id':'a'*64,'dimension':'tone','polarity':'affirmed','value':'简短'},{'claim_id':'b'*64,'dimension':'frequency','polarity':'affirmed','value':1}]
+    assert VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':good}})
+    ContextPackV6.model_validate({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':good}})
+    for bad in ([],[{**good[0],'quote':'原话'}],[{**good[0],'dimension':'price'}],[{**good[0],'claim_id':'x'}],[{**good[0],'value':'x'*65}]):
+        assert not VALID.is_valid({**EXAMPLE,'operator_persona':{**OPERATOR_PERSONA,'preferences':bad}}),bad
