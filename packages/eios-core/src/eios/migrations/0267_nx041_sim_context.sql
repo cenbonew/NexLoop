@@ -17,9 +17,10 @@ declare v_tenant text;v_limit integer;v_now text;v_total integer;v_profile jsonb
  v_latest runtime.nexloop_sim_consumer_events;v_insufficient jsonb:='[]';
 begin
  if session_user not in ('nexloop_api','nexloop_domain_worker') then raise exception 'sim context: unavailable' using errcode='42501';end if;
- v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ -- Parameters first (review 2.2): a malformed request gets the same answer whatever the credential.
  if coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_limit is null or p_limit not between 1 and 256 then
   raise exception 'sim context: invalid' using errcode='22023';end if;
+ v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
  perform set_config('eios.tenant_id',v_tenant,true);
  if not runtime.nexloop_sim_consumer_known(v_tenant,p_world,p_consumer) then raise exception 'sim context: consumer_unknown' using errcode='22023';end if;
  v_limit:=p_limit;
@@ -39,7 +40,9 @@ begin
  select * into v_latest from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.consumer_id=p_consumer
   order by e.sequence desc limit 1;
  select coalesce(jsonb_agg(jsonb_build_object('subsection','simulated_conversation','ref','sim:event:'||x.event_id,'revision',x.sequence::text,
-   'content',jsonb_build_object('event_kind',x.event_kind)||x.content,'content_hash',x.content_digest,'evidence_kind','simulated_input',
+   -- content_hash is the sha256 of the content given here (its jsonb text), as for consumer_state (review 3.3).
+   'content',jsonb_build_object('event_kind',x.event_kind)||x.content,
+   'content_hash',encode(sha256(convert_to((jsonb_build_object('event_kind',x.event_kind)||x.content)::text,'UTF8')),'hex'),'evidence_kind','simulated_input',
    'source','simulated','at',runtime.nexloop_commercial_ts(x.sim_time),
    'tags',(case when x.sequence=v_latest.sequence then '["latest_consumer_turn"]'::jsonb else '[]'::jsonb end)
      ||(case when x.event_kind='refuse_contact' then '["contact_limit"]'::jsonb else '[]'::jsonb end)) order by x.sequence),'[]'::jsonb)
