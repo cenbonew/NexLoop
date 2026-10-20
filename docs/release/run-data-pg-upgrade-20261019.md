@@ -131,12 +131,12 @@ docker exec -u postgres nexloop-data-postgres-1 pgbackrest --stanza=nexloop info
 
 ### 4.2 APP_HOST（A，重启一步为 B）
 
-- **逐个重启 API 实例（B；部署了连接池取出前检查的版本之后为可选）**。PG 重启后，API 连接池里会留下已断开的连接：池子要等到下一次取用失败才丢弃它们，所以每个这样的连接会让一个请求返回 503（`dependency_unavailable`，日志为 `psycopg.pool … discarding closed connection`）。2026-10-19 在 stage 执行时，负责人的第一次登录和第一次 erasure-precheck 都是这样返回 503 的；依次重启 api-1、api-2 后恢复。所以 §4.1 核对通过后，立即逐个重启（同时只重启一个，另一个继续服务）：
+- **逐个重启 API 实例（B；部署了 v0.1 之后的批次 1 之后为可选）**。PG 重启后，API 连接池里会留下已断开的连接：池子要等到下一次取用失败才丢弃它们，所以每个这样的连接会让一个请求返回 503（`dependency_unavailable`，日志为 `psycopg.pool … discarding closed connection`）。2026-10-19 在 stage 执行时，负责人的第一次登录和第一次 erasure-precheck 都是这样返回 503 的；依次重启 api-1、api-2 后恢复。所以 §4.1 核对通过后，立即逐个重启（同时只重启一个，另一个继续服务）：
   ```
   docker compose -p nexloop-app <APP_HOST 的 compose 参数> restart api-1   # 等它 healthy
   docker compose -p nexloop-app <APP_HOST 的 compose 参数> restart api-2
   ```
-  不重启也会自愈：每个旧连接只造成一次 503，但会零星出现在负责人的操作上。worker 的每个 tick 会重新取连接，失败的那个 tick 记一次 `background tick failed` 后自动恢复，所以 worker 不需要重启。连接池取出前检查（l2/pool-check-and-scope-flake）部署之后，池子在取出连接时就会丢弃断开的连接并换新，重启后的第一次请求不再返回 503，worker 的 tick 也不再失败，这一步可以跳过；保留它只作为额外的保险。见 known-risks-v0.1 §4。
+  不重启也会自愈：每个旧连接只造成一次 503，但会零星出现在负责人的操作上。worker 的每个 tick 会重新取连接，失败的那个 tick 记一次 `background tick failed` 后自动恢复，所以 worker 不需要重启。批次 1 部署之后，连接池在取出连接时会先检查：PG 已经恢复时，断开的连接被换成新连接，重启后的第一次请求不再返回 503，worker 的 tick 也不再失败，所以这一步可以跳过，保留它只作为额外的保险。PG 仍在中断时，检查只重试一次新连接，连不上就让请求立即失败，不会挂起。见 known-risks-v0.1 §4。
 - `docker ps` 仍是 25 个运行、0 个异常（25/0）；除了上面的 API 重启，没有其他容器重启。
 - 后台服务没有持续的 tick 失败：
   - 各服务日志中 `background tick failed` 只在窗口内出现，之后有 `background tick recovered`；

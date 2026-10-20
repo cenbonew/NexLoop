@@ -127,6 +127,8 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
    - 同步：`sudo systemctl start nexloop-ci-sync.service`，跑一轮，`status` 的 `sync` 为 `synced`（暂时连不上 GitHub 时为 `sync_pending`，属于正常的自愈状态）。
 6. **回退**：把 hook 和 unit 中的路径改回 `<TRUSTED_BASE>/<OLD>`，再执行 `daemon-reload`，或者直接用第 3 步的备份覆盖回去。旧目录在下一次升级成功之前不要删除。
 
+- **同步服务必须有 `PrivateTmp=yes`**（见 `deploy/stage/ci/nexloop-ci-sync.service.example`）。同步服务用 `ProtectSystem=strict` 运行，这时 `/tmp` 是只读的；而 `git verify-tag` 需要写一个临时文件。缺了 `PrivateTmp=yes`，负责人签名的 tag 会在同步时验证失败：`status` 中显示 `tags_not_synced`，原因为 `tag_unverified`；单独复核时看到的是 `tag_signature_invalid`。tag 本身没有问题。v0.1.0 发布时就遇到了这种情况。补上这一行、`daemon-reload` 之后，下一轮同步就会推送这个 tag。
+
 2026-10-20 的升级把受信安装升到了 main `7537c5b8`：同步的超时改为 60 秒，`review/*` 的同步随之生效；车道策略重新派生后与旧版一致。
 
 ### 7.3 防火墙：带计数重新渲染，以及用 CI 账户做阳性对照
