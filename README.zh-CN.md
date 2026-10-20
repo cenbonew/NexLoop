@@ -18,25 +18,26 @@ NexLoop 是面向企业的开源 **持续运营系统**。负责人设定长期�
 
 ## 当前状态
 
-*截至 2026-10-20（main `eed373ef`）；数字取自 [`planning/`](planning)。*
+*截至 2026-10-20（main `7a153a29`）；数字取自 [`planning/`](planning)。标“在集成中”的内容还没有部署。*
 
-- **当前阶段：S5 收尾。** S0–S4 已完成。S5 的六个任务（NX-032 至 NX-037）都在进行中，每个任务还差什么见 [S5 收尾差距清单](docs/implementation/s5-closeout-gaps.md)。
-- **数字**：任务 47 done / 2 in_progress / 4 not_started（共 53）；验收 68 passed / 4 not_run（共 72）。S5 九项全部通过（AT-053 GitHub 断连演练于 2026-10-20 完成）；未运行的 4 项属于 S6/S7，不在 v0.1 范围内。
-- **已部署到两机 stage**：数据主机运行 PostgreSQL 与 Valkey，应用主机运行 API、各 worker 与 Agent Host。每个发布都先经本地 CI，再签名、封存，然后才部署。**v0.1 的最终验收发布（发布 22，`47aa87b8`）已部署**，此后到 v0.1.0 只收修复。stage 上已经执行过 pgBackRest 备份和一次恢复演练。
-- **受控真实试运行已完成（AT-071 passed）**：36/36 次受控交互，使用真实模型与一项真实交付动作，结果经 provider 查询对账；费用合计 1.59 元，上限 100 元；未授权发送、发错对象、拒收后再联系均为 0。顾客由负责人操作的 AI 代理扮演，证据中如实标注。
-- **向量召回与候选合并已在 stage 启用**：召回索引使用 embedding 模型，每次调用都计入租户的模型预算；claim-matcher 按已发布的合并配置合并候选。
-- **真实派发开关**：外部效应要三层都打开才会派发：部署总闸、租户、租户与 Action。stage 上部署层平时保持打开；租户层与 Action 层由负责人在工作台开关，试运行结束后已重新关闭。
+- **v0.1.0 已发布（2026-10-20）**：负责人签名的 tag，GitHub Release 附源码归档、公开版清单、镜像与源码的 SBOM、allowed signers 和 `SHA256SUMS`。v0.1 是受控真实闭环：S1–S5 共 68 项验收全部通过，包括在两机 stage 上进行的 36/36 次真实模型与真实交付的受控试运行（AT-071），以及由未参与开发的维护者完成的发布与恢复演练（AT-072）。见 [v0.1.0 发布说明](docs/release/v0.1.0-release-notes.zh-CN.md) 和 [已知风险](docs/release/known-risks-v0.1.md)。
+- **当前阶段：S6**（语义与兼容 Schema 的受控演进）。数字：任务 47 done / 1 in_progress / 5 not_started（共 53）；验收 68 passed / 4 not_run（共 72），未运行的 4 项属于 S6/S7。
+- **stage 上已部署（发布 23）**：
+  - 工作台的**企业世界模型**页面。最终结构是 EIOS 式的：侧栏按可展开的分组列出 Object Type、Object、Property、Link、Function、Action；Table 与 Graph 是 Object Type 页内的次级视图。这一结构随发布 24 上线；
+  - 能力目录与数据资产页；
+  - **运营人设与联系偏好**：人设版本与分配、AI 身份披露的开关；客户自己表达的联系偏好在派发时强制执行；
+  - **主动外联切片 1–2**：外联候选与派发预演（逐道闸门给出结论），以及租户级的外联控制。**没有真实外发**；
+  - **NX-038 E1–E3**：EvoOntology 评估逻辑的移植（带 provenance）、轨迹读取、语义访问逐次记录；
+  - **连接池修复**：PostgreSQL 重启后，第一次请求不再返回 503。
+- **在集成中（第二批，计划随发布 24 上线）**：
+  - NX-038 E4–E5：归因与候选、隔离与交接；
+  - 主动外联切片 3–6：目的清单、外发 Action（真实派发开关默认关闭）、复评 Run 接入、可选审批（只给负责人，审批人不能是请求人）；
+  - NX-039 V1：独立的评估器角色与开评。
+- **S6 进度**：NX-038 进行中；NX-039、NX-040 的设计稿与决定已定案（负责人 2026-10-20，“S6 全部按推荐”）。
+- **贡献流程**：变更推送到 LAN 上的本地 Git 队列，由合并控制器在 CI 通过后合并；GitHub 上的仓库只是镜像，由同步任务推进。
 - **演示**：[产品介绍与交互演示](https://www.zingnex.com/nexloop/)。
-- **第二维护者演练已通过（AT-072 passed）**：负责人指定的维护者（一个未参与开发的 AI Agent）只按公开文档，完成了一次发布与一次恢复。
-- **在最终验收发布上的核对已通过**：AT-050（带删除重放的 stage 恢复演练）、AT-054（CI 隔离，含切换中发现并修复的一个缺口）、AT-055（运行镜像与签名清单一致，篡改的发布被拒绝）、AT-056（没有近期已验证备份时拒绝迁移）、AT-057（拒绝盲目回滚）、AT-058（从六个位置重测网络隔离）。
-- **已切换到本地 Git 队列（NX-033，2026-10-19 晚）**：贡献流程改为向 LAN 上的队列推送，由合并控制器在 CI 通过后合并；GitHub 上的仓库只是镜像，只由同步任务推进。
-- **v0.1 还剩**：
-  - AT-053：GitHub 断连演练，随下一次合并进行；
-  - 部署前后的清点、公开发布预检、证据包，以及打 tag。
 
-  目前还没有 tag，也没有公开发布。
-
-负责人的规划活文档（阶段出口、关键路径、待决事项）见 [planning/ROADMAP.md](planning/ROADMAP.md)，任务与验收的权威状态在 [`planning/`](planning)。哪些功能已实现、哪些仍是规划，见 [架构说明](docs/ARCHITECTURE.md)（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。每次合入的变化见 [CHANGELOG](CHANGELOG.md)，v0.1 已知风险见 [known-risks-v0.1](docs/release/known-risks-v0.1.md)。
+负责人的规划活文档（阶段出口、关键路径、待决事项）见 [planning/ROADMAP.md](planning/ROADMAP.md)，任务与验收的权威状态在 [`planning/`](planning)。哪些功能已实现、哪些仍是规划，见 [架构说明](docs/ARCHITECTURE.md)（交接规格 [docs/handoff](docs/handoff/00_START_HERE.md) 是目标设计，不等于已实现）。每次合入的变化见 [CHANGELOG](CHANGELOG.md)。
 
 ## 快速开始
 
