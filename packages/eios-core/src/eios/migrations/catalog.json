@@ -1155,6 +1155,11 @@
       "version": "0231",
       "name": "0231_outreach_candidates.sql",
       "sha256": "42489231835aa1ae3794fb81e62c2ba69512e4f1452109090678dc5de0e43f48"
+    },
+    {
+      "version": "0232",
+      "name": "0232_outreach_controls.sql",
+      "sha256": "9dfbafb1e4e8fd1bea826f5eef0cae5b2e5cbda6ec97a2972542001976391496"
     }
   ]
 }

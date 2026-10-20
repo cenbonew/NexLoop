@@ -63,7 +63,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'publish_operator_persona':'operator_persona.publish','assign_operator_persona':'operator_persona.assign',
     'publish_persona_rules':'operator_persona.rules_publish','set_ai_disclosure':'ai_disclosure.set',
     # 0228: the owner declines or reinstates a consumer's communication preference (a Claim of the consumer).
-    'dismiss_contact_preference':'contact_preference.dismiss'}
+    'dismiss_contact_preference':'contact_preference.dismiss',
+    # 0232: the owner's tenant outreach controls; switching marketing on confirms the consent mode (O5, checked in SQL).
+    'set_outreach_controls':'outreach_controls.set'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -332,6 +334,13 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[0-9a-f]{64}',str(claim_id)) or type(dismissed) is not bool or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('claim, dismissed and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'dismiss_contact_preference','claim_id':claim_id,'dismissed':dismissed,'reason':reason})
+
+    # 0232: owner only; SQL validates the settings and requires the consent mode confirmation when marketing is switched on.
+    def set_outreach_controls(self,*,action_name,action_version,request_id,settings,reason,confirm_consent_mode=None):
+        if type(settings) is not dict or confirm_consent_mode not in (None,'opt_out','opt_in') or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('settings, reason and an optional consent mode confirmation required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_outreach_controls','settings':settings,'reason':reason,
+            **({'confirm_consent_mode':confirm_consent_mode} if confirm_consent_mode else {})})
 
     def send_staff_reply(self,*,action_name,action_version,request_id,conversation_id,reply_to,text):
         if not re.fullmatch(r'[a-f0-9]{64}',str(conversation_id)) or not re.fullmatch(r'[a-f0-9]{64}',str(reply_to)) or type(text) is not str or not 1<=len(text)<=8192:

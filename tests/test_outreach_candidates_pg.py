@@ -47,8 +47,9 @@ def test_candidates_come_from_the_triggers_and_every_gate_is_evaluated_without_w
     before = written(admin)
     view = candidates(admin)
     assert written(admin) == before  # a dry run: no intent, outbound record or effect event
-    assert view['defaults'] == {'time_zone': 'Asia/Shanghai', 'quiet_hours': '21:00-09:00', 'per_24h': 1, 'per_7d': 2,
-                                'source': 'owner P3 default (tenant configuration from slice 2)'}
+    # 0232: the tenant's settings, the owner's defaults while none are stored.
+    assert {k: view['settings'][k] for k in ('time_zone', 'quiet_hours', 'per_24h', 'per_7d', 'source', 'revision')} == {
+        'time_zone': 'Asia/Shanghai', 'quiet_hours': '21:00-09:00', 'per_24h': 1, 'per_7d': 2, 'source': 'default', 'revision': 0}
     by = {item['purpose']: item for item in view['candidates']}
     assert set(by) == {'commitment_followup', 'service_followup'} and len(view['candidates']) == 2
     assert by['commitment_followup']['origin_ref'] == 'commitment:' + commitment and by['commitment_followup']['dedupe_key'] == commitment + ':due_soon'
