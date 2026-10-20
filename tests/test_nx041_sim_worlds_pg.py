@@ -121,21 +121,31 @@ def test_a_sim_credential_reaches_only_its_own_world(db):
         db.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
                    (uuid.uuid4().hex * 2, tenant, 'k' + suffix, Jsonb(binding), worlds, row[3], 'active', row[4]))
     unregistered = 'sim:' + str(uuid.uuid4())
-    refusals = {
-        'two sim worlds': lambda: insert([a, b], '1', 'p1'),
-        'sim and test': lambda: insert([a, 'test'], '2', 'p2'),
-        'sim and real': lambda: insert(['real', a], '3', 'p3'),
-        'unregistered world': lambda: insert([unregistered], '4', 'p4'),
-        'registered for another tenant': lambda: insert([a], '5', 'p5', tenant=TENANT_B),
-        'a second active credential': lambda: insert([a], '6', 'p6'),
-        'the real principal carried into a sim world': lambda: insert([b], '7', TENANT_A + '-real-principal'),
-        'the sim principal given a real credential': lambda: insert(['real'], '8', TENANT_A + '-sim-a-principal'),
-        'the sim principal given a test credential': lambda: insert(['test'], '9', TENANT_A + '-sim-a-principal'),
-    }
-    for label, attempt in refusals.items():
-        with pytest.raises((psycopg.errors.InsufficientPrivilege, psycopg.errors.CheckViolation)), db.transaction():
+    empty = create(db)['world']  # registered, no credential yet: only the principal rule can refuse there
+    # Each refusal names its rule (review 5.2): a negative that fails for another reason does not pass.
+    refusals = (
+        ('exactly its one world', lambda: insert([a, b], '1', 'p1')),
+        ('exactly its one world', lambda: insert([a, 'test'], '2', 'p2')),
+        ('exactly its one world', lambda: insert(['real', a], '3', 'p3')),
+        ('not registered or not active', lambda: insert([unregistered], '4', 'p4')),
+        ('not registered or not active', lambda: insert([a], '5', 'p5', tenant=TENANT_B)),
+        ('has one active credential', lambda: insert([a], '6', 'p6')),
+        ('never carried into a simulation world', lambda: insert([empty], '7', TENANT_A + '-real-principal')),
+        ('never holds a real or test credential', lambda: insert(['real'], '8', TENANT_A + '-sim-a-principal')),
+        ('never holds a real or test credential', lambda: insert(['test'], '9', TENANT_A + '-sim-a-principal')),
+    )
+    for rule, attempt in refusals:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match=rule), db.transaction():
             attempt()
-        assert label
+    # A changed principal binding is checked like a new credential (review 2.2), in both directions.
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='never carried into a simulation world'), db.transaction():
+        db.execute("""update authz.nexloop_service_credentials set binding=binding||jsonb_build_object('principal_id',%s::text,'subject_principal_id',%s::text)
+            where worlds=%s""", (TENANT_A + '-real-principal', TENANT_A + '-real-principal', [b]))
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='never holds a real or test credential'), db.transaction():
+        db.execute("""update authz.nexloop_service_credentials set binding=binding||jsonb_build_object('principal_id',%s::text,'subject_principal_id',%s::text)
+            where worlds=array['real'] and credential_id=%s""", (TENANT_A + '-sim-a-principal', TENANT_A + '-sim-a-principal', row[1].replace('-sim-a', '-real')))
+    # Positive control: an unchanged binding still updates (revocation of the real credential, then nothing else).
+    assert db.execute("update authz.nexloop_service_credentials set expires_at=expires_at where worlds=%s", ([b],)).rowcount == 1
     # A sim credential's worlds never change; once revoked it never returns.
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match='never changed'), db.transaction():
         db.execute('update authz.nexloop_service_credentials set worlds=%s where worlds=%s', ([b], [a]))
@@ -192,7 +202,7 @@ def test_whole_deletion_keeps_a_summary_is_resumable_and_never_touches_real_or_t
     # The Action starts the deletion; simulate an interruption by running bounded passes of 4 rows from here on.
     db.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
     db.execute("update control.nexloop_sim_worlds set status='deleting' where world=%s", (a,))  # as the Action does before its first pass
-    db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s)', (TENANT_A, a))
+    assert db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s,100000)', (TENANT_A, a)).fetchone()[0] is True
     passes = []
     while True:
         r = db.execute('select runtime.nexloop_sim_world_purge(%s,%s,4)', (TENANT_A, a)).fetchone()[0]
@@ -226,7 +236,9 @@ def test_the_delete_action_runs_a_pass_and_retention_resumes_then_removes_the_su
     seed_rows(db, TENANT_A, 'real', 2, 'keep')
     kept = totals(db, ['real'])
     result = delete(db, a)
-    assert (result['status'], result['remaining'], result['deleted']) == ('deleted', 0, 8) and totals(db, ['real']) == kept
+    assert (result['status'], result['remaining'], result['deleted']) == ('deleted', 0, 8)
+    # Only the deletion ledger gained the world's entry in real (review 1.8); no real row left.
+    assert {t: n for t, n in totals(db, ['real']).items() if t != 'control.nexloop_deletion_ledger'} == {t: n for t, n in kept.items() if t != 'control.nexloop_deletion_ledger'}
     # Retention: within 30 days the summary stays; after, the sweep removes it (the registry row stays 'deleted').
     sweep = lambda: db.execute("select runtime.nexloop_retention_sweep(%s,'real','sim_world_summary',100,'sweep:t','service:retention_keeper')",  # noqa: E731
                                (TENANT_A,)).fetchone()[0]
@@ -239,7 +251,7 @@ def test_the_delete_action_runs_a_pass_and_retention_resumes_then_removes_the_su
     c = create(db)['world']
     seed_rows(db, TENANT_A, c, 2, 'gone')
     db.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
-    db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s)', (TENANT_A, c))
+    assert db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s,100000)', (TENANT_A, c)).fetchone()[0] is True
     db.execute("update control.nexloop_sim_worlds set status='deleting' where world=%s", (c,))
     assert sweep()['counts']['worlds_resumed'] == 1 and world_row(db, c)[1] == 'deleted'
     # No real row left; the retention pass only added its own tombstone (and its ledger entry) in the keeper's world.
@@ -268,3 +280,190 @@ def test_python_validators_mirror_the_sql_bodies():
         with pytest.raises(ValueError):
             bad()
     assert OPERATIONS['delete_sim_world']['world']('sim:' + str(uuid.uuid4()))
+
+
+# Review fixes ------------------------------------------------------------------------------------------------------------------
+
+def sweep_summaries(admin, batch):
+    return admin.execute("select runtime.nexloop_retention_sweep(%s,'real','sim_world_summary',%s,'sweep:t','service:retention_keeper')",
+                         (TENANT_A, batch)).fetchone()[0]
+
+
+def test_expired_summaries_leave_beyond_the_batch_of_deleted_worlds(db):
+    """Review 4.1: the limit applies to expired summaries, not to registry rows that stay forever."""
+    worlds = [create(db)['world'] for _ in range(3)]
+    for w in worlds:
+        assert delete(db, w)['status'] == 'deleted'
+    db.execute("update control.nexloop_sim_world_summaries set completed_at=completed_at-interval '31 days' where world=any(%s)", (worlds,))
+    assert sweep_summaries(db, 2)['processed'] == 2
+    assert sweep_summaries(db, 2)['processed'] == 1  # the third, beyond the first batch of deleted worlds
+    assert db.execute('select count(*) from control.nexloop_sim_world_summaries where world=any(%s)', (worlds,)).fetchone()[0] == 0
+
+
+def test_two_concurrent_inserts_give_one_active_credential_per_world(db, pg):
+    """Review 2.1: the trigger cannot see an uncommitted credential; the partial unique index makes the second insert wait and fail."""
+    a = create(db)['world']
+    seed_authority(db, TENANT_A, 'eios:artifact:' + 'd' * 32, world=a, identity_suffix='-sim-c')
+    row = db.execute('select tenant_id,binding,worlds,audience,expires_at from authz.nexloop_service_credentials where worlds=%s', ([a],)).fetchone()
+    db.execute("update authz.nexloop_service_credentials set status='revoked' where worlds=%s", ([a],))
+
+    def insert(conn, suffix):
+        conn.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
+                     (uuid.uuid4().hex * 2, row[0], 'c' + suffix, Jsonb({**row[1], 'credential_id': 'c' + suffix}), row[2], row[3], 'active', row[4]))
+    first, second = psycopg.connect(pg), psycopg.connect(pg)
+    try:
+        insert(first, '1')  # uncommitted
+        outcome = {}
+
+        def race():
+            try:
+                insert(second, '2'); second.commit(); outcome['ok'] = True
+            except psycopg.Error as e:
+                second.rollback(); outcome['error'] = e
+        thread = __import__('threading').Thread(target=race)
+        thread.start()
+        thread.join(1.0)
+        assert thread.is_alive()  # waits on the first, uncommitted insert
+        first.commit()
+        thread.join(10)
+        assert isinstance(outcome.get('error'), psycopg.errors.UniqueViolation) and 'ok' not in outcome
+    finally:
+        first.close(); second.close()
+    assert db.execute("select count(*) from authz.nexloop_service_credentials where worlds=%s and status='active'", ([a],)).fetchone()[0] == 1
+
+
+def test_deleting_the_world_refuses_its_run_credential(db):
+    """Review 2.4: a Run credential of the world authenticates before the deletion and is refused after it."""
+    a = create(db)['world']
+    token, _ = seed_authority(db, TENANT_A, 'eios:artifact:' + 'e' * 32, world=a, identity_suffix='-sim-run')
+    source = hashlib.sha256(token.encode()).hexdigest()
+    run_token = uuid.uuid4().hex
+    db.execute("""insert into authz.nexloop_run_credentials(token_digest,run_id,source_digest,source_directory_hash,world,audience,allowed_resources,status,issued_at,expires_at)
+        values(%s,%s,%s,(select authz.nexloop_root_identity_snapshot(%s,%s)->>'directory_hash'),%s,'nexloop-agent-host',%s,'active',clock_timestamp(),
+        clock_timestamp()+interval '200 seconds')""",
+               (hashlib.sha256(run_token.encode()).hexdigest(), uuid.uuid4(), source, source, a, a, ['eios:artifact:' + 'e' * 32]))
+    assert identity(db, run_token, a)['binding']['tenant_id'] == TENANT_A  # positive control
+    assert delete(db, a)['status'] == 'deleted'
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='Run authentication denied'), db.transaction():
+        identity(db, run_token, a)
+    assert denied(db, token, a)
+
+
+def test_every_foreign_key_into_a_world_table_is_covered(db):
+    """Review 1.1 guard: a table without a world column whose foreign key points at a table with one must be declared (deleted
+    before the world tables, or marked cascade). A new table that is not declared fails here."""
+    found = set(db.execute("""select c.conrelid::regclass::text,c.conname from pg_constraint c where c.contype='f'
+        and c.confrelid in (select * from runtime.nexloop_sim_world_tables())
+        and not exists(select 1 from pg_attribute a where a.attrelid=c.conrelid and a.attname='world' and not a.attisdropped)""").fetchall())
+    declared = set(db.execute('select child::text,constraint_name from control.nexloop_sim_world_dependents').fetchall())
+    assert found == declared and len(declared) == 9
+    # Every declared delete target has a condition, ordered before the world tables.
+    targets = db.execute('select target::text,ord from runtime.nexloop_sim_world_targets()').fetchall()
+    deps = [t for t, o in targets if o < 100000]
+    assert set(deps) == {c for c, _ in declared} - {'ontology.nexloop_recall_embeddings'} and [o for _, o in targets] == sorted(o for _, o in targets)
+
+
+def seed_event_rows(admin, tenant, world, tag):
+    """An object and its event: ontology.events has no world column and belongs to the world through its object."""
+    oid = tag + '-' + uuid.uuid4().hex
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute('''insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+            values(%s,%s,'Note',%s,1,'{}','test','synthetic',now(),now())''', (tenant, world, oid))
+        admin.execute("""insert into ontology.events(event_id,tenant_id,event_type,object_type,object_id,sequence,created_at)
+            values(%s,%s,'noted','Note',%s,1,now())""", (oid, tenant, oid))
+    return oid
+
+
+def test_dependent_rows_leave_with_the_world_and_real_ones_stay(db):
+    a = create(db)['world']
+    gone, kept = seed_event_rows(db, TENANT_A, a, 'gone'), seed_event_rows(db, TENANT_A, 'real', 'keep')
+    r = delete(db, a)
+    assert r['status'] == 'deleted' and r['blocked'] == {}, r
+    assert db.execute('select count(*) from ontology.events where event_id=%s', (gone,)).fetchone()[0] == 0
+    assert db.execute('select count(*) from ontology.events where event_id=%s', (kept,)).fetchone()[0] == 1
+    counts = db.execute('select counts from control.nexloop_sim_world_summaries where world=%s', (a,)).fetchone()[0]
+    assert counts['ontology.events'] == 1 and counts['ontology.objects'] == 1
+
+
+def test_a_failing_table_is_reported_and_the_deletion_continues_after_the_fix(db):
+    """Review 1.4 / 5.1: a table nexloop_owner cannot read or delete (a real failure inside the pass) is reported blocked with its
+    sqlstate, the other tables are still deleted and the world stays deleting; after the fix the next pass finishes."""
+    a = create(db)['world']
+    seed_rows(db, TENANT_A, a, 2, 'gone')
+    seed_rows(db, TENANT_A, 'real', 2, 'keep')
+    kept = totals(db, ['real'])
+    db.execute('create table runtime.zz_nx041_blocking(tenant_id text,world text)')  # owned by the test superuser, no grant
+    db.execute('insert into runtime.zz_nx041_blocking values(%s,%s),(%s,%s)', (TENANT_A, a, TENANT_A, 'real'))
+    r = delete(db, a)
+    assert r['status'] == 'deleting' and r['blocked'] == {'runtime.zz_nx041_blocking': '42501'} and r['remaining'] == 1, r
+    assert sum(n for t, n in totals(db, [a]).items() if t != 'runtime.zz_nx041_blocking') == 0  # everything else left
+    digests = db.execute('select digests from control.nexloop_sim_world_summaries where world=%s', (a,)).fetchone()[0]
+    assert digests['runtime.zz_nx041_blocking'] == 'unreadable:42501'
+    again = db.execute('select runtime.nexloop_sim_world_purge(%s,%s,100)', (TENANT_A, a)).fetchone()[0]
+    assert again['status'] == 'deleting' and again['blocked'] == {'runtime.zz_nx041_blocking': '42501'}
+    db.execute('grant select,delete on runtime.zz_nx041_blocking to nexloop_owner')  # the fix
+    done = db.execute('select runtime.nexloop_sim_world_purge(%s,%s,100)', (TENANT_A, a)).fetchone()[0]
+    assert (done['status'], done['remaining'], done['blocked']) == ('deleted', 0, {}) and world_row(db, a)[1] == 'deleted'
+    assert db.execute('select world from runtime.zz_nx041_blocking').fetchall() == [('real',)]
+    after = totals(db, ['real'])
+    assert {t: after[t] for t in kept if t != 'control.nexloop_deletion_ledger'} == {t: n for t, n in kept.items() if t != 'control.nexloop_deletion_ledger'}
+    db.execute('drop table runtime.zz_nx041_blocking')
+
+
+def test_the_snapshot_is_taken_in_bounded_steps(db):
+    """Review 1.5: with a budget of one row each call stops after the first non-empty table; the summary appears at the end."""
+    a = create(db)['world']
+    seed_rows(db, TENANT_A, a, 2, 'gone')
+    db.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
+    db.execute("update control.nexloop_sim_worlds set status='deleting' where world=%s", (a,))
+    steps = 0
+    while not db.execute('select runtime.nexloop_sim_world_snapshot(%s,%s,1)', (TENANT_A, a)).fetchone()[0]:
+        steps += 1
+        assert steps < 10
+    assert steps == 3  # three non-empty tables, one per call, the last call writes the summary
+    assert db.execute('select counts from control.nexloop_sim_world_summaries where world=%s', (a,)).fetchone()[0] == {
+        'runtime.nexloop_read_audit_daily': 2, 'runtime.nexloop_semantic_accesses': 2, 'runtime.nexloop_work_feed': 2}
+    assert db.execute('select count(*) from control.nexloop_sim_world_snapshot_parts where world=%s', (a,)).fetchone()[0] == 0
+
+
+def test_a_restore_from_before_the_deletion_replays_it(db):
+    """Review 1.8: the deletion enters the deletion ledger; after a restore that brought the world back (registry active, credential
+    active, rows present), replaying the ledger sets it deleting and revokes the credential; the keeper finishes the deletion."""
+    a = create(db)['world']
+    token, _ = seed_authority(db, TENANT_A, 'eios:artifact:' + '9' * 32, world=a, identity_suffix='-sim-restore')
+    seed_rows(db, TENANT_A, a, 2, 'gone')
+    start = db.execute('select coalesce(max(seq),0) from control.nexloop_deletion_ledger').fetchone()[0]
+    delete(db, a)
+    entries = db.execute('select runtime.nexloop_deletion_ledger_since(%s,1000)', (start,)).fetchone()[0]
+    mine = [e for e in entries if e['kind'] == 'sim_world']
+    assert [(e['tenant_id'], e['world'], e['subject_ref']) for e in mine] == [(TENANT_A, 'real', a)]
+    # The restored database as it was before the deletion (written as the restore does, triggers off).
+    with db.transaction():
+        db.execute('set local session_replication_role=replica')
+        db.execute("update control.nexloop_sim_worlds set status='active',deleted_at=null where world=%s", (a,))
+        db.execute("update authz.nexloop_service_credentials set status='active' where worlds=%s", ([a],))
+        db.execute('delete from control.nexloop_sim_world_summaries where world=%s', (a,))
+    seed_rows(db, TENANT_A, a, 2, 'back')
+    assert identity(db, token, a) is not None
+    db.execute("select runtime.nexloop_replay_begin('restore-t1',%s)", (start,))
+    out = db.execute("select runtime.nexloop_replay_deletions('restore-t1',%s)", (Jsonb(mine),)).fetchone()[0]
+    assert out['sim_worlds'] == 1 and world_row(db, a)[1] == 'deleting' and denied(db, token, a)
+    # Replaying again is already applied.
+    assert db.execute("select runtime.nexloop_replay_deletions('restore-t1',%s)", (Jsonb(mine),)).fetchone()[0]['already_applied'] == 1
+    assert sweep_summaries(db, 100)['counts']['worlds_resumed'] == 1 and world_row(db, a)[1] == 'deleted'
+    assert sum(totals(db, [a]).values()) == 0
+
+
+def test_row_security_never_hides_a_tenants_rows_from_the_deletion(db):
+    """Review 1.2 guard: the purge reads and deletes as nexloop_owner with row security on and eios.tenant_id set. Policies are
+    permissive (ored), so a target is fully visible when no policy is restrictive and every RLS target has one tenant (or open)
+    policy for nexloop_owner. A restrictive or principal-filtered policy added later fails here."""
+    rows = db.execute("""select c.oid::regclass::text,c.relrowsecurity,
+        coalesce(array_agg(p.polpermissive) filter (where p.polname is not null),'{}'),
+        coalesce(array_agg(pg_get_expr(p.polqual,p.polrelid)) filter (where p.polname is not null and (p.polroles='{0}' or 'nexloop_owner'::regrole=any(p.polroles))),'{}')
+        from runtime.nexloop_sim_world_targets() t join pg_class c on c.oid=t.target left join pg_policy p on p.polrelid=c.oid group by 1,2""").fetchall()
+    tenant = __import__('re').compile(r"tenant_id = current_setting\('eios\.tenant_id'::text, true\)")
+    assert rows and all(all(perm) for _, _, perm, _ in rows), [r for r in rows if not all(r[2])]
+    hidden = [t for t, rls, _, quals in rows if rls and not any(q == 'true' or tenant.search(q or '') for q in quals)]
+    assert hidden == []

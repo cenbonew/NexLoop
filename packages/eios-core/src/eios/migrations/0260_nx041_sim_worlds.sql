@@ -13,6 +13,9 @@
 --    control.nexloop_sim_world_summaries keeps per-table counts and digests (no content); retention class sim_world_summary (settings
 --    v8) removes it 30 days after the deletion completed and resumes worlds still deleting. Only rows whose world equals the
 --    registered sim or shadow world are touched; real and test rows never are.
+-- 6. Review fixes: declared dependent tables (no world column) deleted first, per-table failures reported without stopping the pass,
+--    a snapshot in bounded steps, one active credential per world by a unique index, binding changes checked, and the deletion in
+--    the NX-029 deletion ledger (kind sim_world) with its replay after a restore.
 -- 5. authz.nexloop_metrics_export (S1: real and test) also iterates the registered active simulation and shadow worlds.
 
 -- 1. The registry --------------------------------------------------------------------------------------------------------------
@@ -105,8 +108,13 @@ begin
  if tg_op='UPDATE' then
   if (old.worlds is distinct from new.worlds) and (exists(select 1 from unnest(old.worlds||new.worlds) w where runtime.nexloop_world_kind(w) in ('simulation','shadow'))) then
    raise exception 'a simulation world credential is registered, never changed' using errcode='42501';end if;
-  if cardinality(v_sim)=0 or new.status<>'active' or old.status='active' then return new;end if;
-  raise exception 'a revoked simulation world credential is never reactivated' using errcode='42501';
+  if (new.tenant_id,new.binding) is not distinct from (old.tenant_id,old.binding) then
+   if cardinality(v_sim)=0 or new.status<>'active' or old.status='active' then return new;end if;
+   raise exception 'a revoked simulation world credential is never reactivated' using errcode='42501';
+  end if;
+  if cardinality(v_sim)>0 and new.status='active' and old.status<>'active' then
+   raise exception 'a revoked simulation world credential is never reactivated' using errcode='42501';end if;
+  -- A changed principal binding (review 2.2) passes the same checks as a new credential below.
  end if;
  if cardinality(v_sim)=0 then
   -- A real or test credential never shares a principal with a simulation world credential.
@@ -133,15 +141,56 @@ alter function authz.nexloop_sim_world_credential_check() owner to nexloop_owner
 revoke all on function authz.nexloop_sim_world_credential_check() from public;
 create trigger nx041_sim_world_credential before insert or update on authz.nexloop_service_credentials
  for each row execute function authz.nexloop_sim_world_credential_check();
+-- One active credential per simulation world also under concurrent inserts (review 2.1): the trigger's check cannot see an
+-- uncommitted row; this index makes the second insert wait and then fail.
+create unique index nexloop_service_credentials_one_active_sim on authz.nexloop_service_credentials((worlds[1]))
+ where status='active' and cardinality(worlds)=1 and worlds[1]~'^(sim|shadow):';
 
 -- 4. Whole deletion (before the Actions, which call it) -------------------------------------------------------------------------
--- Every table with a world column, except the registry and the summary.
+-- Targets are every table with a world column (except the registry, the summary and the snapshot parts) and the declared dependent
+-- tables below. A dependent table has no world column of its own; its rows belong to a world through a foreign key to a table that
+-- has one (control.nexloop_sim_world_dependents names the constraint, so the parent columns come from the catalog). mode delete:
+-- its rows are deleted before the world tables, in position order; mode cascade: the foreign key cascades, nothing to do.
+-- A guard test (test_nx041_sim_worlds_pg) fails when a foreign key from a table without a world column to a world table is not
+-- declared here. Data outside the database (local Artifact object files, Pi Run directories) is out of scope; see the
+-- implementation document (S6).
+create table control.nexloop_sim_world_dependents (
+ child regclass not null,constraint_name text not null,mode text not null check(mode in ('delete','cascade')),position integer not null,
+ primary key(child,constraint_name));
+alter table control.nexloop_sim_world_dependents owner to nexloop_owner;
+revoke all on control.nexloop_sim_world_dependents from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
+ nexloop_identity,nexloop_configurator,nexloop_metrics;
+insert into control.nexloop_sim_world_dependents(child,constraint_name,mode,position)
+ select c.conrelid::regclass,c.conname,d.mode,d.position from (values
+  ('runtime.nexloop_effect_control_reservations','runtime.nexloop_effect_intents','delete',10),
+  ('runtime.nexloop_effect_control_reservations','control.nexloop_effect_control_ledger','delete',11),
+  ('runtime.nexloop_effect_submissions','runtime.nexloop_effect_intents','delete',20),
+  ('runtime.nexloop_effect_submissions','authz.nexloop_run_credentials','delete',21),
+  ('control.nexloop_effect_run_contexts','authz.nexloop_run_credentials','delete',30),
+  ('control.nexloop_effect_run_contexts','control.nexloop_effect_contexts','delete',31),
+  ('runtime.job_events','runtime.jobs','delete',40),
+  ('ontology.events','ontology.objects','delete',50),
+  ('ontology.nexloop_recall_embeddings','ontology.nexloop_recall_entries','cascade',60)) d(child,parent,mode,position)
+ join pg_constraint c on c.contype='f' and c.conrelid=d.child::regclass and c.confrelid=d.parent::regclass;
+-- Snapshot parts: per-table counts and digests taken in bounded steps before the summary is written (then they leave).
+create table control.nexloop_sim_world_snapshot_parts (
+ world text not null,tenant_id text not null references control.nexloop_tenants(tenant_id),target text not null,
+ n bigint,digest text,state text not null check(state='ok' or state~'^unreadable:[0-9A-Z]{5}$'),
+ primary key(world,target));
+alter table control.nexloop_sim_world_snapshot_parts owner to nexloop_owner;
+alter table control.nexloop_sim_world_snapshot_parts enable row level security;
+alter table control.nexloop_sim_world_snapshot_parts force row level security;
+create policy tenant_boundary on control.nexloop_sim_world_snapshot_parts to nexloop_owner using(tenant_id=current_setting('eios.tenant_id',true))
+ with check(tenant_id=current_setting('eios.tenant_id',true));
+revoke all on control.nexloop_sim_world_snapshot_parts from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,
+ nexloop_identity,nexloop_configurator,nexloop_metrics;
+
 create function runtime.nexloop_sim_world_tables() returns setof regclass
  language sql stable security definer set search_path=pg_catalog,pg_temp as $$
  select r.oid::regclass from pg_class r join pg_namespace n on n.oid=r.relnamespace join pg_attribute a on a.attrelid=r.oid
  where a.attname='world' and not a.attisdropped and r.relkind in ('r','p') and not r.relispartition
   and n.nspname in ('authz','control','ontology','runtime')
-  and r.oid not in ('control.nexloop_sim_worlds'::regclass,'control.nexloop_sim_world_summaries'::regclass)
+  and r.oid not in ('control.nexloop_sim_worlds'::regclass,'control.nexloop_sim_world_summaries'::regclass,'control.nexloop_sim_world_snapshot_parts'::regclass)
  order by n.nspname,r.relname
 $$;
 alter function runtime.nexloop_sim_world_tables() owner to nexloop_owner;
@@ -154,31 +203,69 @@ $$;
 alter function runtime.nexloop_sim_world_has_tenant(regclass) owner to nexloop_owner;
 revoke all on function runtime.nexloop_sim_world_has_tenant(regclass) from public;
 
--- Per-table counts and digests of the world's rows (digest of the sorted row digests; no row content is kept).
-create function runtime.nexloop_sim_world_snapshot(p_tenant text,p_world text) returns void
+-- Every target in deletion order with the condition (on alias x; $1 world, $2 tenant) selecting the world's rows. Dependents
+-- first (by position; one row per table, the conditions of its declared constraints joined by or), then the world tables.
+create function runtime.nexloop_sim_world_targets() returns table(target regclass,scope text,ord integer)
+ language sql stable security definer set search_path=pg_catalog,pg_temp as $$
+ select d.child,string_agg(format('exists(select 1 from %s p where p.world=$1%s and (%s)=(%s))',c.confrelid::regclass,
+   case when runtime.nexloop_sim_world_has_tenant(c.confrelid) then ' and p.tenant_id=$2' else '' end,
+   (select string_agg('p.'||quote_ident(a.attname),',' order by k.i) from unnest(c.confkey) with ordinality k(n,i) join pg_attribute a on a.attrelid=c.confrelid and a.attnum=k.n),
+   (select string_agg('x.'||quote_ident(a.attname),',' order by k.i) from unnest(c.conkey) with ordinality k(n,i) join pg_attribute a on a.attrelid=c.conrelid and a.attnum=k.n)),
+   ' or ' order by d.position),min(d.position)
+ from control.nexloop_sim_world_dependents d join pg_constraint c on c.conrelid=d.child and c.conname=d.constraint_name
+ where d.mode='delete' group by d.child
+ union all
+ select t,'x.world=$1'||case when runtime.nexloop_sim_world_has_tenant(t) then ' and x.tenant_id=$2' else '' end,100000 from runtime.nexloop_sim_world_tables() t
+ order by 3,1
+$$;
+alter function runtime.nexloop_sim_world_targets() owner to nexloop_owner;
+revoke all on function runtime.nexloop_sim_world_targets() from public;
+
+-- Snapshot in bounded steps (D2; review 1.5): targets are counted and digested until p_rows rows were read in this call (digest of the sorted row
+-- digests; no row content is kept); a target that cannot be read is recorded unreadable:<sqlstate> and the snapshot goes on
+-- (review 1.4). When every target has its part, the fixed summary is written and the parts leave. Returns true once the summary exists.
+create function runtime.nexloop_sim_world_snapshot(p_tenant text,p_world text,p_rows integer) returns boolean
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare t regclass;n bigint;d text;v_counts jsonb:='{}';v_digests jsonb:='{}';
+declare x record;n bigint;d text;v_done bigint:=0;v_state text;v_counts jsonb;v_digests jsonb;
 begin
  if coalesce(runtime.nexloop_world_kind(p_world),'') not in ('simulation','shadow') then raise exception 'sim world: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
- if exists(select 1 from control.nexloop_sim_world_summaries where world=p_world) then return;end if;
- for t in select * from runtime.nexloop_sim_world_tables() loop
-  execute format('select count(*),encode(sha256(convert_to(coalesce(string_agg(h,'','' order by h),''''),''UTF8'')),''hex'') from (select md5(x::text) h from %s x where x.world=$1%s) z',
-   t,case when runtime.nexloop_sim_world_has_tenant(t) then ' and x.tenant_id=$2' else '' end) into n,d using p_world,p_tenant;
-  if n>0 then v_counts:=v_counts||jsonb_build_object(t::text,n);v_digests:=v_digests||jsonb_build_object(t::text,d);end if;
+ if exists(select 1 from control.nexloop_sim_world_summaries where world=p_world) then return true;end if;
+ for x in select t.target,t.scope from runtime.nexloop_sim_world_targets() t
+   where not exists(select 1 from control.nexloop_sim_world_snapshot_parts p where p.world=p_world and p.target=t.target::text) loop
+  exit when v_done>=greatest(1,coalesce(p_rows,100000));
+  begin
+   execute format('select count(*),encode(sha256(convert_to(coalesce(string_agg(h,'','' order by h),''''),''UTF8'')),''hex'') from (select md5(x::text) h from %s x where %s) z',
+    x.target,x.scope) into n,d using p_world,p_tenant;
+   insert into control.nexloop_sim_world_snapshot_parts(world,tenant_id,target,n,digest,state) values(p_world,p_tenant,x.target::text,n,d,'ok');
+   v_done:=v_done+n;
+  exception when others then
+   get stacked diagnostics v_state=returned_sqlstate;
+   insert into control.nexloop_sim_world_snapshot_parts(world,tenant_id,target,state) values(p_world,p_tenant,x.target::text,'unreadable:'||v_state);
+  end;
  end loop;
+ if exists(select 1 from runtime.nexloop_sim_world_targets() t
+   where not exists(select 1 from control.nexloop_sim_world_snapshot_parts p where p.world=p_world and p.target=t.target::text)) then return false;end if;
+ select coalesce(jsonb_object_agg(p.target,p.n) filter (where p.state='ok' and p.n>0),'{}'),
+        coalesce(jsonb_object_agg(p.target,case when p.state='ok' then p.digest else p.state end) filter (where p.state<>'ok' or p.n>0),'{}')
+  into v_counts,v_digests from control.nexloop_sim_world_snapshot_parts p where p.world=p_world;
  insert into control.nexloop_sim_world_summaries(world,tenant_id,counts,digests,summary_digest)
   values(p_world,p_tenant,v_counts,v_digests,encode(sha256(convert_to(jsonb_build_object('world',p_world,'counts',v_counts,'digests',v_digests)::text,'UTF8')),'hex'));
+ delete from control.nexloop_sim_world_snapshot_parts where world=p_world;
+ return true;
 end $$;
-alter function runtime.nexloop_sim_world_snapshot(text,text) owner to nexloop_owner;
-revoke all on function runtime.nexloop_sim_world_snapshot(text,text) from public;
+alter function runtime.nexloop_sim_world_snapshot(text,text,integer) owner to nexloop_owner;
+revoke all on function runtime.nexloop_sim_world_snapshot(text,text,integer) from public;
 
--- One bounded pass: at most p_limit rows leave (per table at most what remains of the limit); a table whose guard or foreign key
--- refuses is retried on the next pass. When nothing of the world remains the world is deleted. Never touches another world.
+-- One bounded pass. The snapshot is finished first (a pass that only advances the snapshot deletes nothing). Then at most p_limit
+-- rows leave (per target at most what remains of the limit; a partitioned table is deleted whole, without the limit). A target
+-- whose guard, foreign key or privileges refuse its delete or its count is reported in blocked with the sqlstate, counts as
+-- remaining, and the pass goes on with the next target (review 1.4); it is retried on the next pass. When nothing of the world
+-- remains and nothing is blocked, the world is deleted. Never touches another world.
 create function runtime.nexloop_sim_world_purge(p_tenant text,p_world text,p_limit integer) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare w control.nexloop_sim_worlds;t regclass;v_left integer:=greatest(1,least(coalesce(p_limit,1000),100000));n integer;v_total integer:=0;
- v_remaining bigint:=0;v_blocked jsonb:='{}';v_state text;v_err text;r bigint;v_where text;
+declare w control.nexloop_sim_worlds;x record;v_left integer:=greatest(1,least(coalesce(p_limit,1000),100000));n integer;v_total integer:=0;
+ v_remaining bigint:=0;v_blocked jsonb:='{}';v_state text;r bigint;
 begin
  if coalesce(runtime.nexloop_world_kind(p_world),'') not in ('simulation','shadow') then raise exception 'sim world: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
@@ -187,33 +274,46 @@ begin
  if w.status='deleted' then
   return jsonb_build_object('world',p_world,'status','deleted','deleted',0,'remaining',0,'blocked','{}'::jsonb);end if;
  if w.status<>'deleting' then raise exception 'sim world: not_deleting' using errcode='22023';end if;
+ if not runtime.nexloop_sim_world_snapshot(p_tenant,p_world,100000) then
+  return jsonb_build_object('world',p_world,'status','deleting','snapshot','in_progress','deleted',0,'remaining',null,'blocked','{}'::jsonb);end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
  -- Tables guarded by their own purge flag (0234 semantic access records) open for this transaction; the rows deleted are this
  -- world's only. Append-only tables that consult the erasure scope (0129) are opened per table below; any other guard refuses and
  -- its table is reported as blocked (the world stays deleting).
  perform set_config('nexloop.semantic_access_purge','on',true);
- for t in select * from runtime.nexloop_sim_world_tables() loop
-  v_where:=' where x.world=$1'||case when runtime.nexloop_sim_world_has_tenant(t) then ' and x.tenant_id=$2' else '' end;
-  if v_left>0 then
-   begin
-    perform runtime.nexloop_erasure_open(t::text,'{}',true,'sim-world:'||p_world);
-    if (select relkind from pg_class where oid=t)='r' then
-     execute format('delete from %s d where d.ctid in (select x.ctid from %s x%s limit $3)',t,t,v_where) using p_world,p_tenant,v_left;
+ for x in select * from runtime.nexloop_sim_world_targets() loop
+  begin
+   if v_left>0 then
+    -- The 0129 erasure scope only names tables matching ^[a-z_]+\.[a-z_]+$ (append-only tables consult it by that name);
+    -- other tables are deleted without opening it.
+    if x.target::text~'^[a-z_]+\.[a-z_]+$' then perform runtime.nexloop_erasure_open(x.target::text,'{}',true,'sim-world:'||p_world);end if;
+    if (select relkind from pg_class where oid=x.target)='r' then
+     execute format('delete from %s d where d.ctid in (select x.ctid from %s x where %s limit $3)',x.target,x.target,x.scope) using p_world,p_tenant,v_left;
     else
-     execute format('delete from %s x%s',t,v_where) using p_world,p_tenant;
+     execute format('delete from %s x where %s',x.target,x.scope) using p_world,p_tenant;
     end if;
     get diagnostics n=row_count;
     perform runtime.nexloop_erasure_close();
     v_total:=v_total+n;v_left:=v_left-n;
-   exception when others then
-    get stacked diagnostics v_state=returned_sqlstate,v_err=message_text;
-    v_blocked:=v_blocked||jsonb_build_object(t::text,v_state);
-   end;
+   end if;
+   execute format('select count(*) from %s x where %s',x.target,x.scope) into r using p_world,p_tenant;
+  exception when others then
+   get stacked diagnostics v_state=returned_sqlstate;
+   v_blocked:=v_blocked||jsonb_build_object(x.target::text,v_state);
+   r:=null;
+  end;
+  if r is null then
+   -- The count again on its own: a table with none of the world's rows is not blocked; one that cannot be counted is assumed to
+   -- hold at least one row, so the world stays deleting.
+   begin
+    execute format('select count(*) from %s x where %s',x.target,x.scope) into r using p_world,p_tenant;
+   exception when others then r:=1;end;
+   if r=0 then v_blocked:=v_blocked-(x.target::text);end if;
   end if;
-  execute format('select count(*) from %s x%s',t,v_where) into r using p_world,p_tenant;
   v_remaining:=v_remaining+r;
-  if r=0 then v_blocked:=v_blocked-(t::text);end if;
  end loop;
  perform set_config('nexloop.semantic_access_purge','',true);
+ perform set_config('eios.tenant_id',p_tenant,true);
  update control.nexloop_sim_world_summaries set progress=jsonb_build_object('deleted',coalesce((progress->>'deleted')::bigint,0)+v_total,
    'remaining',v_remaining,'blocked',v_blocked,'at',runtime.nexloop_commercial_ts(clock_timestamp())),
    completed_at=case when v_remaining=0 then clock_timestamp() else null end
@@ -275,8 +375,9 @@ begin
  select * into w from control.nexloop_sim_worlds where world=v_target and tenant_id=p_tenant for update;
  if not found then raise exception 'sim world: not_registered' using errcode='22023';end if;
  if w.status='active' then
-  perform runtime.nexloop_sim_world_snapshot(p_tenant,v_target);
   update control.nexloop_sim_worlds set status='deleting' where world=v_target;
+  -- Deletion ledger (review 1.8): a restore from an earlier backup replays this entry and deletes the world again.
+  perform runtime.nexloop_deletion_ledger_add(p_tenant,'real','sim_world',v_target,'sim-world-delete:'||md5(coalesce(p_intent,'')||':'||v_target),null);
   insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
    values('sim-world:delete:'||v_target,'nexloop.sim_world.deleting',p_tenant,p_principal,'sim_world',p_intent,
     jsonb_build_object('world',v_target,'reason',btrim(body->>'reason')),clock_timestamp());
@@ -332,8 +433,10 @@ begin
   perform set_config('eios.tenant_id',p_tenant,true);
  end loop;
  perform set_config('nexloop.sim_summary_retention','on',true);
- delete from control.nexloop_sim_world_summaries s where s.tenant_id=p_tenant and s.completed_at<v_cut
-  and s.world in (select world from control.nexloop_sim_worlds where tenant_id=p_tenant and status='deleted' order by deleted_at limit p_batch);
+ -- The batch limit applies to the expired summaries themselves (review 4.1), never to registry rows, which stay forever.
+ delete from control.nexloop_sim_world_summaries s where s.ctid in (select s2.ctid from control.nexloop_sim_world_summaries s2
+   join control.nexloop_sim_worlds w on w.world=s2.world and w.tenant_id=s2.tenant_id and w.status='deleted'
+   where s2.tenant_id=p_tenant and s2.completed_at<v_cut order by s2.completed_at limit p_batch);
  get diagnostics n_summaries=row_count;
  perform set_config('nexloop.sim_summary_retention','',true);
  if n_summaries>0 then
@@ -392,4 +495,56 @@ begin
    select t.tenant_id,w.world from control.nexloop_tenants t cross join (values ('real'),('test')) w(world) where t.status='active'
    union all
    select t.tenant_id,s.world from control.nexloop_tenants t cross join lateral runtime.nexloop_sim_worlds_active(t.tenant_id) s(world) where t.status='active') x),'[]'::jsonb);
+end $$;
+
+-- 6. Deletion ledger and replay after a restore (review 1.8) -------------------------------------------------------------------
+-- A world deletion enters the NX-029 deletion ledger (kind sim_world, subject the world, in the owner's real world) when it starts;
+-- the NX-035 restore journal carries it like every ledger entry. Replay (0135 body, replaced in place with one more kind) sets a
+-- world the restored registry still holds active back to deleting and revokes its credentials; the keeper finishes the deletion.
+alter table control.nexloop_deletion_ledger drop constraint nexloop_deletion_ledger_kind_check;
+alter table control.nexloop_deletion_ledger add constraint nexloop_deletion_ledger_kind_check check(kind in ('consumer','message','item_class','sim_world'));
+create or replace function runtime.nexloop_replay_deletions(p_restore text,p_entries jsonb) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare x jsonb;n_consumer integer:=0;n_message integer:=0;n_class integer:=0;n_skipped integer:=0;n_world integer:=0;r jsonb;
+begin
+ if not exists(select 1 from control.nexloop_deletion_replays where restore_ref=p_restore and state='replaying') then
+  raise exception 'deletion replay not begun' using errcode='42501';end if;
+ if jsonb_typeof(p_entries) is distinct from 'array' or jsonb_array_length(p_entries)>1000 then raise exception 'deletion replay invalid' using errcode='22023';end if;
+ for x in select value from jsonb_array_elements(p_entries) loop
+  if jsonb_typeof(x) is distinct from 'object' or x->>'kind' not in ('consumer','message','item_class','sim_world') or coalesce(x->>'tenant_id','')=''
+   or coalesce(x->>'world','')='' or coalesce(x->>'subject_ref','')='' or coalesce(x->>'request_ref','')!~'^[A-Za-z0-9._:-]{1,200}$' then
+   raise exception 'deletion replay entry invalid' using errcode='22023';end if;
+  perform set_config('eios.tenant_id',x->>'tenant_id',true);
+  if x->>'kind'='consumer' then
+   if coalesce(x->>'subject_ref','')!~'^[a-f0-9]{64}$' then raise exception 'deletion replay entry invalid' using errcode='22023';end if;
+   if exists(select 1 from ontology.objects where tenant_id=x->>'tenant_id' and world=x->>'world' and type_name='Consumer' and object_id=x->>'subject_ref')
+    and not runtime.nexloop_consumer_erasing(x->>'tenant_id',x->>'world',x->>'subject_ref') then
+    -- The same governed handler as the owner's Action: blocking at once (contact, plans), then the keeper purges.
+    r:=control.nexloop_governed_erase_consumer(x->>'tenant_id',x->>'world','restore:'||p_restore,'service',x->>'request_ref',
+     jsonb_build_object('operation','erase_consumer','consumer_id',x->>'subject_ref','reason','deletion replayed after restore '||p_restore));
+    n_consumer:=n_consumer+1;
+   else n_skipped:=n_skipped+1;end if;
+  elsif x->>'kind'='message' then
+   if exists(select 1 from runtime.nexloop_conversation_messages where tenant_id=x->>'tenant_id' and world=x->>'world' and message_id=x->>'subject_ref' and record->>'body'<>'')
+    or exists(select 1 from ontology.objects where tenant_id=x->>'tenant_id' and world=x->>'world' and type_name='Message' and object_id=x->>'subject_ref') then
+    perform runtime.nexloop_erase_message(x->>'tenant_id',x->>'world',x->>'subject_ref',x->>'request_ref','message_erasure','restore:'||p_restore);
+    n_message:=n_message+1;
+   else n_skipped:=n_skipped+1;end if;
+  elsif x->>'kind'='sim_world' then
+   -- NX-041 (review 1.8): a world deleted after the backup is deleting again; its credentials are revoked at once and the
+   -- retention keeper finishes the deletion (summary first, as for the owner's Action). A world already deleting or deleted, or
+   -- not in the restored registry, is already applied.
+   if runtime.nexloop_world_kind(x->>'subject_ref') not in ('simulation','shadow') then raise exception 'deletion replay entry invalid' using errcode='22023';end if;
+   update authz.nexloop_service_credentials set status='revoked' where worlds=array[x->>'subject_ref'] and status='active';
+   update authz.nexloop_run_credentials set status='revoked' where world=x->>'subject_ref' and status='active';
+   update control.nexloop_sim_worlds set status='deleting' where world=x->>'subject_ref' and tenant_id=x->>'tenant_id' and status='active';
+   if found then n_world:=n_world+1;else n_skipped:=n_skipped+1;end if;
+  else
+   -- The class is due at once; its sweep recomputes the cutoff from now, which covers the journal's cutoff.
+   update runtime.nexloop_retention_sweeps set last_completed_at=null where tenant_id=x->>'tenant_id' and world=x->>'world' and item_class=x->>'subject_ref';
+   n_class:=n_class+1;
+  end if;
+ end loop;
+ update control.nexloop_deletion_replays set entries=entries+jsonb_array_length(p_entries) where restore_ref=p_restore;
+ return jsonb_build_object('restore_ref',p_restore,'consumers',n_consumer,'messages',n_message,'classes',n_class,'sim_worlds',n_world,'already_applied',n_skipped);
 end $$;
