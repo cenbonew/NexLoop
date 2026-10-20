@@ -202,10 +202,16 @@ def answer_gates(bundle: dict, c: _Context) -> list[dict]:
 # --- change class (§7.2, D39-7) ------------------------------------------------------------------------------------------------------
 
 def classify_change(dimension: str, patch: dict, accesses: list[dict], *, alias_index: dict | None = None,
-                    noted_refs: set | frozenset | None = None) -> str:
-    """patch | minor | major | refused, decided from the patch and the Parent's records only. Unknown or unprovable -> major."""
+                    noted_refs: set | frozenset | None = None, schema_parent: dict | None = None) -> str:
+    """patch | minor | major | refused, decided from the patch and the Parent's records only. Unknown or unprovable -> major.
+
+    NX-040 F1: an ontology_schema change is classified by nexloop_eios.evolution.schema_compat when the Schema Parent is given
+    (minor for the three whitelisted additions, refused for relation types, major otherwise); without it, major as before."""
+    if dimension == 'ontology_schema' and schema_parent is not None:
+        from nexloop_eios.evolution.schema_compat import classify
+        return classify(patch, schema_parent)
     if dimension != 'semantic_content':
-        return 'major'  # ontology_schema belongs to NX-040; semantic_tool is a code change proposal; neither is a semantic release
+        return 'major'  # ontology_schema without its Parent, and semantic_tool (a code change proposal): never a semantic release
     if not isinstance(patch, dict) or sorted(patch) != list(PATCH_KEYS):
         return 'refused'
     targets = patch.get('target_refs')
