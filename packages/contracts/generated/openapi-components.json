@@ -2520,7 +2520,8 @@
                 },
                 "content_hash": {
                   "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "sha256 (hex) of this item's content as PostgreSQL jsonb text."
                 },
                 "evidence_kind": {
                   "enum": [
@@ -2598,7 +2599,8 @@
                 },
                 "content_hash": {
                   "type": "string",
-                  "pattern": "^[0-9a-f]{64}$"
+                  "pattern": "^[0-9a-f]{64}$",
+                  "description": "sha256 (hex) of this item's content as PostgreSQL jsonb text (the canonical text of the content object given here)."
                 },
                 "evidence_kind": {
                   "const": "simulated_input"
@@ -8373,7 +8375,7 @@
     "consumer-port-event.schema.json": "b74c8b1b7e5b3386934405b201af8d1c5068f1b1e22f745b2990486dbea973c3",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
-    "context-pack-sim.schema.json": "057fd9c5df2e29b7aa1c61c6dca50a12ca220020cbd23c3e2280d63124455abe",
+    "context-pack-sim.schema.json": "a5089711dc4c6e6e63288450e3e8ba8b090514faae7dc90e65b949ec20271ea8",
     "context-pack-v6.schema.json": "9f50b585d8d5eb7d6e3a7fee9d7b273cd990aac5dc6e86080680f0cf2b354e0a",
     "conversation-message.schema.json": "a9111f209b0cf9aba8b843542ff70cc993b8d88e4c81d53946b49a93ce4a8839",
     "event-envelope.schema.json": "94c0bac723a093e70e0b2464a1e2018cffd2dd7b566f52ed99872854d4b292a7",
