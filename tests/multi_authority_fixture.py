@@ -7,10 +7,10 @@ from eios.authz.applications import ResourceRestriction,OperationRestriction
 from authority_fixture import authority_records
 from nexloop_eios.authorization import authenticate_service
 from support.tenants import TENANT_A
-from support.sim_worlds import register_sim_world
+from support.sim_worlds import register_sim_world,sim_use_of
 
 
-def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra_scopes=(),tenant=TENANT_A):
+def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra_scopes=(),tenant=TENANT_A,sim_use='api'):
     scopes=frozenset(kind.value+'.'+op.value for _,kind,op in targets)|frozenset(extra_scopes)
     records={}; apps=[]
     for target,kind,op in targets:
@@ -34,10 +34,10 @@ def seed_multi_authority(admin,pool,targets,*,identity_suffix,world='real',extra
         raw=fact.model_dump(mode='json');raw.pop('snapshot_digest',None)
         fact=type(fact).model_validate_json(__import__("json").dumps(raw))
         records[mapkey]=(kind,key,fact)
-    register_sim_world(admin,tenant,world)
+    register_sim_world(admin,tenant,world,use=sim_use)
     token=secrets.token_urlsafe(48)
-    admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-        (hashlib.sha256(token.encode()).hexdigest(),tenant,auth.credential_id,Jsonb(auth.model_dump(mode='json')),[world],'nexloop-core','active',expiry))
+    admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        (hashlib.sha256(token.encode()).hexdigest(),tenant,auth.credential_id,Jsonb(auth.model_dump(mode='json')),[world],'nexloop-core','active',expiry,sim_use_of(world,sim_use)))
     for kind,key,fact in records.values():
         admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
             (tenant,kind,key,Jsonb(fact.model_dump(mode='json'))))

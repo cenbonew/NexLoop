@@ -89,3 +89,10 @@ def publish_catalog_actions_like(admin, tenant, names, like):
         d = ActionDefinition.model_validate_json(json.dumps(d)).model_dump(mode='json')
         admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability) values(%s,%s,%s,%s,%s)',
                       (tenant, 'real', f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))
+
+
+def copy_catalog_to_world(admin, tenant, world):
+    """NX-041 D10: the tenant's published Actions of real, published for a simulation world too (trusted configuration of the
+    simulation process group publishes the same catalog per world)."""
+    admin.execute("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability)
+        select tenant_id,%s,resource_id,definition,capability from control.nexloop_action_definitions where tenant_id=%s and world='real'""", (world, tenant))

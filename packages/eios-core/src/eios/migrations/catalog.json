@@ -1360,6 +1360,11 @@
       "version": "0272",
       "name": "0272_nx041_sim_world_limits.sql",
       "sha256": "cd0a012f90ae09975ac5d5ce975f4b1ccfbed7aff11473ecd324f5b0b219e0b8"
+    },
+    {
+      "version": "0273",
+      "name": "0273_nx041_d10_credentials.sql",
+      "sha256": "c42c6ffb55f3aaa1237f7f03db7fe9e97446df177465d3db11dc1f34eccda65b"
     }
   ]
 }
