@@ -2,7 +2,7 @@
 dispatch dry run through the design's gates, read only. Clean catalog PostgreSQL; actual governed Run submissions, the
 independent effect Worker with a loopback provider, a registered Commitment; admin seeds the consumer's messages and Claims
 as in the commitment tests. Nothing is written or sent by the read; no outreach Action exists yet."""
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import pytest
 from psycopg.types.json import Jsonb
@@ -61,9 +61,12 @@ def test_candidates_come_from_the_triggers_and_every_gate_is_evaluated_without_w
         assert gate(item, 'budget') == {'gate': 'budget', 'result': 'refuse', 'detail': 'budget_unconfigured'}  # slice 4: the model budget
         assert gate(item, 'real_dispatch')['result'] == 'refuse' and item['would_dispatch'] is False and 'real_dispatch' in item['blocked_by']
         assert gate(item, 'contact_restricted')['result'] == gate(item, 'persona_excluded')['result'] == gate(item, 'control_paused')['result'] == 'pass'
-        local = datetime.now(timezone(timedelta(hours=8))).time()
-        quiet = local.hour >= 21 or local.hour < 9
-        assert gate(item, 'quiet_hours')['result'] == ('refuse' if quiet else 'pass')
+        assert gate(item, 'quiet_hours')['detail'] == '21:00-09:00'
+    # The default quiet hours at fixed instants (the gate function takes its time as a parameter), never the time the test runs.
+    for at, result in (('2026-10-20T22:07:00+08:00', 'refuse'), ('2026-10-21T08:59:00+08:00', 'refuse'), ('2026-10-21T09:00:00+08:00', 'pass'),
+                       ('2026-10-21T14:00:00+08:00', 'pass'), ('2026-10-21T20:59:00+08:00', 'pass'), ('2026-10-21T21:00:00+08:00', 'refuse')):
+        gates = admin.execute("select runtime.nexloop_outreach_gates(%s,'real',%s,'commitment_followup',%s::timestamptz)", (TENANT, c['consumer'], at)).fetchone()[0]
+        assert next(g for g in gates if g['gate'] == 'quiet_hours')['result'] == result, at
         assert gate(item, 'frequency') == {'gate': 'frequency', 'result': 'pass', 'detail': {'last_24h': 0, 'last_7d': 0, 'marketing_7d': 0}}  # replies and service work do not count
 
 
