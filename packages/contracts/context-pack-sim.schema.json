@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:context-pack-sim",
+  "title": "context-pack-sim",
+  "description": "NX-041 S7b: the Context of a Run in a simulation world. Context pack v6 is real-only (bindings.world_id is real and its supply, goal and relationship sections are real sources), so a simulation world has its own pack, assembled by its own entry from simulation sources only: the synthetic Consumer's generated profile and persona (S3) and the events the twin produced through the consumer port (S7). Items keep the v6 item shape (ref, revision, content, content_hash, at, tags) and every one says source simulated: nothing here is a fact, and no real conversation, Claim, object or memory is ever read.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "world", "tenant_id", "consumer_id", "data_mode", "world_time", "current_event", "consumer_state", "evidence", "budget_report", "insufficient"],
+  "properties": {
+    "schema_version": {"const": "nexloop.context-pack.sim.v1"},
+    "world": {"type": "string", "pattern": "^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "tenant_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "consumer_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "data_mode": {"const": "simulation"},
+    "world_time": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"},
+    "current_event": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "event_id", "sequence", "event_kind", "provenance", "source"],
+          "properties": {
+            "kind": {"const": "simulated_consumer_event"},
+            "event_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "sequence": {"type": "integer", "minimum": 1},
+            "event_kind": {"enum": ["message", "refuse_contact", "payment_intent", "visit"]},
+            "provenance": {"type": "string", "pattern": "^sim:event:[0-9a-f]{64}$"},
+            "source": {"const": "simulated"}
+          }
+        }
+      ]
+    },
+    "consumer_state": {
+      "type": "array", "maxItems": 16,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["subsection", "ref", "revision", "content", "content_hash", "evidence_kind", "source", "at", "tags"],
+        "properties": {
+          "subsection": {"enum": ["profile", "persona"]},
+          "ref": {"type": "string", "pattern": "^sim:(object|persona):[0-9a-f]{64}$"},
+          "revision": {"type": "string", "minLength": 1, "maxLength": 128},
+          "content": {"type": "object"},
+          "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "evidence_kind": {"enum": ["synthetic_profile", "synthetic_persona"]},
+          "source": {"const": "simulated"},
+          "at": {"type": "string", "maxLength": 64},
+          "tags": {"type": "array", "maxItems": 0}
+        }
+      }
+    },
+    "evidence": {
+      "type": "array", "maxItems": 256,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["subsection", "ref", "revision", "content", "content_hash", "evidence_kind", "source", "at", "tags"],
+        "properties": {
+          "subsection": {"const": "simulated_conversation"},
+          "ref": {"type": "string", "pattern": "^sim:event:[0-9a-f]{64}$"},
+          "revision": {"type": "string", "pattern": "^[0-9]{1,9}$"},
+          "content": {
+            "type": "object", "additionalProperties": false, "required": ["event_kind"],
+            "properties": {
+              "event_kind": {"enum": ["message", "refuse_contact", "payment_intent", "visit"]},
+              "text": {"type": "string", "maxLength": 2000},
+              "attributes": {"type": "object", "maxProperties": 16}
+            }
+          },
+          "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "evidence_kind": {"const": "simulated_input"},
+          "source": {"const": "simulated"},
+          "at": {"type": "string", "maxLength": 64},
+          "tags": {"type": "array", "uniqueItems": true, "maxItems": 2, "items": {"enum": ["latest_consumer_turn", "contact_limit"]}}
+        }
+      }
+    },
+    "budget_report": {
+      "type": "object", "additionalProperties": false,
+      "required": ["event_limit", "events_total", "events_included", "omitted"],
+      "properties": {
+        "event_limit": {"type": "integer", "minimum": 1, "maximum": 256},
+        "events_total": {"type": "integer", "minimum": 0},
+        "events_included": {"type": "integer", "minimum": 0, "maximum": 256},
+        "omitted": {"type": "integer", "minimum": 0}
+      }
+    },
+    "insufficient": {
+      "type": "array", "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["code", "section"],
+        "properties": {"code": {"enum": ["no_simulated_events", "older_events_omitted"]}, "section": {"enum": ["current_event", "evidence"]}}
+      }
+    }
+  }
+}
