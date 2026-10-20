@@ -1888,6 +1888,107 @@
           }
         }
       }
+    },
+    "outreach": {
+      "description": "Outreach slice 5 (docs/design/proactive-outreach.md §3.3): only in a plan reevaluation Run whose Role execution ceiling holds nexloop.outreach.send:1; the purposes this tenant has enabled in the current purpose list and the tenant's marketing state, re-derived and checked by SQL at bind. Whether to contact the customer at all is the Run's judgement (no_action is normal); every gate is rechecked at dispatch.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "list_version",
+        "purposes",
+        "marketing"
+      ],
+      "properties": {
+        "schema": {
+          "const": "nexloop-outreach-context/1"
+        },
+        "list_version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999999
+        },
+        "purposes": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "purpose_id",
+              "kind",
+              "topic",
+              "frequency_class",
+              "requires_approval",
+              "content_rules"
+            ],
+            "properties": {
+              "purpose_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+              },
+              "kind": {
+                "enum": [
+                  "commitment_followup",
+                  "service_followup",
+                  "plan_defined",
+                  "marketing"
+                ]
+              },
+              "topic": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+              },
+              "frequency_class": {
+                "enum": [
+                  "service",
+                  "marketing"
+                ]
+              },
+              "requires_approval": {
+                "type": "boolean"
+              },
+              "content_rules": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "max_chars",
+                  "unsubscribe_notice_required"
+                ],
+                "properties": {
+                  "max_chars": {
+                    "type": "integer",
+                    "minimum": 20,
+                    "maximum": 2000
+                  },
+                  "unsubscribe_notice_required": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "marketing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "consent_mode"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "consent_mode": {
+              "enum": [
+                "opt_out",
+                "opt_in"
+              ]
+            }
+          }
+        }
+      }
     }
   },
   "required": [
