@@ -52,7 +52,7 @@ def _arguments(argv):
 
 
 def run_child(arguments, stop):
-    from nexloop_eios.assembly import verify_application_role
+    from nexloop_eios.assembly import RUNTIME_GUARD_ROLES, verify_application_role
     from nexloop_eios.backend import open_backend
     from nexloop_eios.private_configuration import read_private_text
     from nexloop_eios.runtime_control import create_runtime_guard_server
@@ -65,7 +65,7 @@ def run_child(arguments, stop):
                           signing_key_file=arguments.signing_key_file, signing_key_id=arguments.signing_key_id,
                           pool_max_size=arguments.pool_max) as backend:
             with backend._pool.connection() as connection:
-                if verify_application_role(connection) not in {'nexloop_domain_worker', 'nexloop_scheduler'}:
+                if verify_application_role(connection) not in RUNTIME_GUARD_ROLES[arguments.world_group]:
                     raise ValueError('restricted Worker role required')
             guard = _FreshGuard(backend, arguments.service_credential_file, arguments.world)
             guard.service()  # current authentication before accepting any connection

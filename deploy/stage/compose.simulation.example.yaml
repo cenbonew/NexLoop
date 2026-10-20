@@ -8,8 +8,10 @@
 # the host firewall: docs/implementation/NX-041-S6-simulation.nft.example (table inet nexloop_simulation) admits those two from
 # NEXLOOP_SIM_SUBNET and drops every other new connection, including APP_HOST's own ports (the real Host, guard and gateway).
 # It is applied by the owner; the deployment sheet then probes a real Host port from a simulation container and expects a refusal.
-# Database roles (review 1.2): the stand-in executor connects as nexloop_stand_in_worker, the file purger as nexloop_sim_files;
-# each DSN file is that role's own. The runtime worker's role is still the application worker role (see the S6 note).
+# Database roles (review 1.2, S6c): every process connects as a simulation role of its own, none a member of a real role - the
+# runtime worker's dispatcher as nexloop_sim_worker, its guard children as nexloop_sim_guard, the stand-in executor as
+# nexloop_stand_in_worker, the file purger as nexloop_sim_files (nexloop_sim_api is for the simulation world's event intake, not
+# part of this project yet). Each DSN file is that role's own; the secret directory holds no real role's password.
 # Example only: every path, image, port and world comes from the private env file; nothing here is a real address.
 # What this group never holds: a real or test service credential, a channel or provider secret, a provider/routes configuration,
 # the real Host's model key or runtime root. Its secrets are the simulation world's own (S2 D10: worlds exactly that one world),
@@ -55,7 +57,7 @@ services:
     entrypoint: [nexloop-runtime-worker]
     command:
       - --database-url-file
-      - /run/secrets/sim_runtime_worker_dsn
+      - /run/secrets/sim_worker_dsn
       - --signing-key-file
       - /run/secrets/sim_signing_key
       - --signing-key-id
@@ -84,7 +86,12 @@ services:
       - /run/secrets/sim_guard_certificate
       - --guard-tls-key-file
       - /run/secrets/sim_guard_tls_key
-    secrets: [sim_runtime_worker_dsn, sim_signing_key, sim_world_credential, sim_host_transport_key, sim_host_ca, sim_host_guard_key,
+      # S6c: the guard serves from child processes connected as nexloop_sim_guard (its own DSN), never as the dispatcher's role.
+      - --guard-database-url-file
+      - /run/secrets/sim_guard_dsn
+      - --guard-workers
+      - '2'
+    secrets: [sim_worker_dsn, sim_guard_dsn, sim_signing_key, sim_world_credential, sim_host_transport_key, sim_host_ca, sim_host_guard_key,
               sim_guard_certificate, sim_guard_tls_key]
     volumes: ['${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/var/lib/nexloop/artifacts']
   sim-stand-in-executor:
@@ -124,7 +131,8 @@ secrets:
   sim_guard_tls_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_tls_key'}
   sim_host_runtime_config: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_runtime_config'}
   sim_host_model_configuration: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_model_configuration'}
-  sim_runtime_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_runtime_worker_dsn'}
+  sim_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_worker_dsn'}
+  sim_guard_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_dsn'}
   sim_signing_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_signing_key'}
   sim_world_credential: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_world_credential'}
   sim_host_purge_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_purge_key'}

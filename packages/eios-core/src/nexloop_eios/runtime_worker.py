@@ -17,7 +17,7 @@ import ssl
 import sys
 import threading
 
-from nexloop_eios.assembly import verify_application_role
+from nexloop_eios.assembly import RUNTIME_WORKER_ROLES,verify_application_role
 from nexloop_eios.backend import open_backend
 from nexloop_eios.host_control import HostControlConfiguration
 from nexloop_eios.private_configuration import read_private_text
@@ -111,6 +111,8 @@ def _arguments(argv):
     # AT-046 / NX-041 S6 (D3): real and test in the real group; one sim:/shadow: world only with --world-group simulation.
     parser.add_argument('--world',required=True);parser.add_argument('--world-group',default='real',choices=list(WORLD_GROUPS))
     parser.add_argument('--queue',required=True)
+    # NX-041 S6c: the simulation group's guard connects as its own role (nexloop_sim_guard) in child processes; the real group has none.
+    parser.add_argument('--guard-database-url-file',type=Path)
     parser.add_argument('--host-origin',required=True);parser.add_argument('--guard-port',type=int,required=True)
     parser.add_argument('--lease-seconds',type=int,default=30)
     parser.add_argument('--total-timeout',type=float,default=30)
@@ -124,6 +126,8 @@ def _arguments(argv):
         help='concurrent dispatch loops sharing the queue (NX-031; default 4 = the Agent Host default maximum_active_runs, ADR-022 §4)')
     args=parser.parse_args(argv)
     if not group_accepts(args.world_group,args.world):parser.error('world')
+    if (args.world_group=='simulation')!=(args.guard_database_url_file is not None) or (args.world_group=='simulation' and args.guard_workers<2):
+        parser.error('guard')
     if (not 1024<=args.guard_port<=65535 or re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}',args.queue) is None
         or not args.world or len(args.world)>255 or not args.signing_key_id or len(args.signing_key_id)>255
         or not math.isfinite(args.tick_seconds) or not 0<args.tick_seconds<=30 or not 1<=args.guard_workers<=16
@@ -168,7 +172,7 @@ def run(arguments,stop):
     with open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
         signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=backend_pool_max(arguments)) as backend:
         with backend._pool.connection() as connection:
-            if verify_application_role(connection) not in {'nexloop_domain_worker','nexloop_scheduler'}:
+            if verify_application_role(connection) not in RUNTIME_WORKER_ROLES[arguments.world_group]:
                 raise ValueError('restricted Worker role required')
         guard=_FreshGuard(backend,arguments.service_credential_file,arguments.world)
         # Preflight current authentication and dispatch config before binding.
@@ -183,7 +187,7 @@ def run(arguments,stop):
                 thread.start();thread_started=True
             else:
                 from nexloop_eios.runtime_guard_worker import GuardFiles,GuardWorkerPool
-                pool=GuardWorkerPool(GuardFiles(arguments.database_url_file,arguments.signing_key_file,arguments.signing_key_id,
+                pool=GuardWorkerPool(GuardFiles(arguments.guard_database_url_file or arguments.database_url_file,arguments.signing_key_file,arguments.signing_key_id,
                     arguments.service_credential_file,arguments.artifact_root,arguments.world,arguments.guard_key_file,
                     arguments.guard_certificate_file,arguments.guard_tls_key_file,arguments.world_group),port=arguments.guard_port,workers=arguments.guard_workers,
                     pool_max=arguments.guard_pool_max,on_failure=stop.set)
