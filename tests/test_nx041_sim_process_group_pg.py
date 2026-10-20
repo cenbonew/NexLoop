@@ -309,3 +309,28 @@ def test_the_stand_in_intent_records_the_wall_clock_and_carries_the_world_time_a
                                                  (body['intent_id'],)).fetchone()
     assert before <= submitted <= db.execute('select clock_timestamp()').fetchone()[0]  # the wall, not the world 400 days ahead
     assert sim_clock == world_now and (sim_clock - submitted).days >= 399
+
+
+def test_worlds_registered_before_s6_get_their_model_budget_by_the_backfill(db):
+    """L4 leftover: a world without its model budget row (registered before S6) gets it from the backfill - CNY, the monthly cap,
+    its lifetime - and the tenant's monthly simulation cap still applies; a repeat changes nothing; a world being deleted gets none."""
+    a, b = create_world(db), create_world(db)
+    expected = db.execute("""select tenant_id,unit,limit_amount,period_start,period_end,revision from control.nexloop_budget_limits
+        where world=%s and budget_kind='model'""", (a,)).fetchone()
+    with db.transaction():
+        db.execute('set local session_replication_role=replica')  # as before S6: no budget row for these worlds
+        db.execute("delete from control.nexloop_budget_limits where world=any(%s) and budget_kind='model'", ([a, b],))
+    db.execute("update control.nexloop_sim_worlds set status='deleting' where world=%s", (b,))
+    assert db.execute("select count(*) from control.nexloop_budget_limits where world=any(%s)", ([a, b],)).fetchone()[0] == 0
+    assert db.execute('select control.nexloop_sim_world_model_budget_backfill()').fetchone()[0] == 1
+    assert db.execute("""select tenant_id,unit,limit_amount,period_start,period_end,revision from control.nexloop_budget_limits
+        where world=%s and budget_kind='model'""", (a,)).fetchone() == expected
+    assert db.execute("select count(*) from control.nexloop_budget_limits where world=%s", (b,)).fetchone()[0] == 0  # leaving
+    assert db.execute('select control.nexloop_sim_world_model_budget_backfill()').fetchone()[0] == 0  # repeatable
+    assert db.execute("select count(*) from control.nexloop_budget_limits where world=%s and budget_kind='model'", (a,)).fetchone()[0] == 1
+    # The monthly simulation cap applies to the backfilled world as to any other.
+    consume(db, a, 100)
+    with pytest.raises(psycopg.Error, match='simulation model budget exhausted'):
+        consume(db, a, 0.01)
+    # No application role may run the backfill.
+    assert not db.execute("select has_function_privilege('nexloop_api','control.nexloop_sim_world_model_budget_backfill()','execute')").fetchone()[0]

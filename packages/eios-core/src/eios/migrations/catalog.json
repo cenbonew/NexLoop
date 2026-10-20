@@ -1350,6 +1350,11 @@
       "version": "0270",
       "name": "0270_nx041_sim_context_ref.sql",
       "sha256": "1139aa3c1fa0dd0d7f4f9883d0fbc285d1a6bdab6fd6532d02ee1af1dfd65826"
+    },
+    {
+      "version": "0271",
+      "name": "0271_nx041_sim_budget_backfill.sql",
+      "sha256": "48e6e61d85df600104470817acd7913ce348c827894b300d9aac6e76d5e79bbe"
     }
   ]
 }
