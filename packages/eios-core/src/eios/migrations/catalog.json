@@ -1275,6 +1275,11 @@
       "version": "0255",
       "name": "0255_nx039_workbench.sql",
       "sha256": "6fe4fa136824918c5f53e4f72424d6dbebbb3398f74f2b3c49c9c79b72517eed"
+    },
+    {
+      "version": "0256",
+      "name": "0256_object_views.sql",
+      "sha256": "3a38ab3a4c3e403b769a87524d034fb5e94df49a5487f39028c5a3e13734bc28"
     }
   ]
 }

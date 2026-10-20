@@ -655,6 +655,17 @@ export function objectNeighbors(value:unknown):ObjectNeighbors{
 }
 export const readObjects=(type:string,after?:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}${after?'?after='+encodeURIComponent(after):''}`,objectPage);
 export const readObjectValues=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,objectValues);
+// Capability gap P2: the Object View an object detail of one type uses (layout only), or null (the default layout stays).
+export type ObjectView={stable_name:string;version:number;object_type:string;title_property:string|null;sections:{name:string;title:string;fields:string[]}[];relations:string[]};
+export function objectView(value:unknown):ObjectView|null{
+  const v=object(value);if(v.view===null)return null;const o=object(v.view);
+  const name=(x:unknown)=>{const t=text(x);if(!PROPERTY_NAME.test(t))throw new WorkbenchError('invalid');return t;};
+  const sections=list(o.sections).map(x=>{const s=object(x);return {name:text(s.name),title:text(s.title),fields:list(s.fields).map(name)};});
+  if(!sections.length)throw new WorkbenchError('invalid');
+  return {stable_name:text(o.stable_name),version:count(o.version),object_type:typeName(o.object_type),title_property:o.title_property==null?null:name(o.title_property),
+    sections,relations:list(o.relations).map(x=>text(x))};
+}
+export const readObjectView=(type:string)=>get(`/api/v1/workbench/object-views/${encodeURIComponent(type)}`,objectView);
 export const readObjectNeighbors=(type:string,id:string)=>get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(id)}/neighbors`,objectNeighbors);
 
 // ---- NX-039 V4 semantic release (owner only): the current version, the history with rollback reports, the publishable candidates ----

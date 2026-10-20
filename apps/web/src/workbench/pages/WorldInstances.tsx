@@ -8,7 +8,7 @@
  * "折叠 N 个" (beyond the 25 checked a group). Type, page cursor and the open object live in the URL (deep links; Back walks pages).
  */
 import {useQuery} from '@tanstack/react-query';
-import {readObjectNeighbors,readObjectValues,readObjects,type NeighborGroup,type ObjectNeighbors,type PropertyValue,type WorldObjectType} from '../api';
+import {readObjectNeighbors,readObjectValues,readObjectView,readObjects,type NeighborGroup,type ObjectNeighbors,type ObjectView,type PropertyValue,type WorldObjectType} from '../api';
 import {routePath,type Route} from '../route';
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
@@ -81,15 +81,19 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
   onOpen:(type:string,id:string)=>void;onClose:()=>void}){
   const neighbors=useQuery({queryKey:['workbench','object-neighbors',type,id],queryFn:()=>readObjectNeighbors(type,id)});
   const values=useQuery({queryKey:['workbench','object-values',type,id],queryFn:()=>readObjectValues(type,id)});
+  // Capability gap P2: the type's Object View lays the detail out; without one (or while it loads or fails) the default layout stays.
+  const view=useQuery({queryKey:['workbench','object-view',type],queryFn:()=>readObjectView(type),retry:false});
+  const layout=view.data??null;
   const page=objectPage(type,id);
   return <aside className="world-panel world-object" aria-label={`${type} ${shortId(id)} 详情`}>
     <Card title={<>{type} <code className="id-code" title={id}>{shortId(id)}</code></>} label={`${type} 详情卡片`} footer={<button type="button" onClick={onClose}>关闭</button>}>
       <KeyValue label="Object 标识" items={[{key:'完整标识',value:<IdText value={id} kind={type} expandable/>},
         ...(row?[{key:'Schema 版本',value:`v${row.schema_version}`},{key:'修订',value:row.revision},{key:'更新时间',value:<Time value={row.updated_at}/>}]:[])]}/>
-      <h3>属性</h3>
+      {layout?null:<h3>属性</h3>}
       {values.isPending?<EmptyState kind="loading" subject="属性" compact/>
         :values.isError?(kindOf(values.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些属性" compact/>:kindOf(values.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
           :<EmptyState kind="unavailable" subject="Property 值" onRetry={()=>void values.refetch()}/>)
+        :layout?<ViewLayout view={layout} properties={values.data.properties}/>
         :values.data.properties.length?<div className="object-properties"><KeyValue label="属性值" items={values.data.properties.map(v=>({key:v.name,value:<PropertyCell p={v} expanded/>}))}/></div>
         :<EmptyState kind="empty" subject="Property" compact/>}
       {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:null}
@@ -97,9 +101,34 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
       {neighbors.isPending?<EmptyState kind="loading" subject="邻域" compact/>
         :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<EmptyState kind="forbidden" subject="邻域" compact/>:kindOf(neighbors.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
           :<EmptyState kind="unavailable" subject="邻域" onRetry={()=>void neighbors.refetch()}/>)
-        :<Neighborhood value={neighbors.data} onOpen={onOpen}/>}
+        :<Neighborhood value={layout?orderedByView(neighbors.data,layout):neighbors.data} onOpen={onOpen}/>}
     </Card>
   </aside>;
+}
+
+/** The Object View's sections in order, each property as the object read gave it (a restricted or unreadable one stays withheld:
+ * the View only places it); the title property's value above them; readable properties the View does not list under 其他 Property. */
+export function ViewLayout({view,properties}:{view:ObjectView;properties:PropertyValue[]}){
+  const by=new Map(properties.map(p=>[p.name,p]));
+  const listed=new Set(view.sections.flatMap(s=>s.fields));
+  const rest=properties.filter(p=>!listed.has(p.name));
+  const title=view.title_property?by.get(view.title_property):undefined;
+  return <div className="object-view" data-view={`${view.stable_name}@${view.version}`}>
+    {title?<p className="object-view-title" data-title-property={title.name}><PropertyCell p={title}/></p>:null}
+    {view.sections.map(s=><section key={s.name} className="object-view-section" aria-labelledby={`view-${s.name}`}>
+      <h3 id={`view-${s.name}`}>{s.title}</h3>
+      <dl className="object-properties">{s.fields.map(f=>{const p=by.get(f);return <div key={f}><dt>{f}</dt><dd>{p?<PropertyCell p={p} expanded/>
+        :<StatusBadge text="不在当前 Schema" tone="neutral" code="not_in_schema"/>}</dd></div>;})}</dl></section>)}
+    {rest.length?<details className="object-view-rest"><summary>其他 Property（{rest.length}）</summary>
+      <dl className="object-properties">{rest.map(v=><div key={v.name}><dt>{v.name}</dt><dd><PropertyCell p={v} expanded/></dd></div>)}</dl></details>:null}
+    <p className="note">按 Object View <code>{view.stable_name}</code> v{view.version} 排列；只决定位置和顺序，不改变谁能看到哪个 Property。</p>
+  </div>;
+}
+
+/** The View's Links first, in its order; the other neighbour groups after them (nothing is hidden by a View). */
+export function orderedByView(value:ObjectNeighbors,view:ObjectView):ObjectNeighbors{
+  const rank=(g:NeighborGroup)=>{const i=view.relations.indexOf(g.via);return i<0?view.relations.length:i;};
+  return {...value,groups:[...value.groups].sort((a,b)=>rank(a)-rank(b))};
 }
 
 /** Nodes of the neighbourhood graph: the centre, every listed neighbour, and one counted node per group for invisible/collapsed. */

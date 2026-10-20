@@ -472,6 +472,11 @@ class WorkbenchQueries:
         may publish (ids, class, report digest, refs and term-hash counts; never a message). Owner only (SQL)."""
         return self.reader.observe('semantic_releases')
 
+    def object_view(self, *, type_name):
+        """Capability gap P2: {'view': the Object View an object detail of this type uses (layout only: sections, title property, Links)
+        or None when the type has none}. The values keep their own reads (object_fields and the audited object read); a View never widens them."""
+        return {'view': self.reader.observe('object_view', type_name=type_name)['view']}
+
     def object_sets(self):
         """ADR-036: the latest version of each Object Set with its conditions and projection (definitions only, no object)."""
         return self.reader.observe('object_sets')
