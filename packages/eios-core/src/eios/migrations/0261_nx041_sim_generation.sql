@@ -41,7 +41,7 @@ create table runtime.nexloop_sim_objects (
  properties jsonb not null check(jsonb_typeof(properties)='object'),
  origin text not null default 'synthetic' check(origin='synthetic'),
  primary key(tenant_id,world,type_name,object_id),
- foreign key(tenant_id,world,generation_id) references control.nexloop_sim_generations(tenant_id,world,generation_id) on delete cascade);
+ foreign key(tenant_id,world,generation_id) references control.nexloop_sim_generations(tenant_id,world,generation_id));
 create table runtime.nexloop_sim_session_events (
  tenant_id text not null references control.nexloop_tenants(tenant_id),
  world text not null check(runtime.nexloop_world_kind(world)='simulation'),
@@ -53,7 +53,7 @@ create table runtime.nexloop_sim_session_events (
  attributes jsonb not null check(jsonb_typeof(attributes)='object'),
  origin text not null default 'synthetic' check(origin='synthetic'),
  primary key(tenant_id,world,consumer_id,sequence),
- foreign key(tenant_id,world,generation_id) references control.nexloop_sim_generations(tenant_id,world,generation_id) on delete cascade);
+ foreign key(tenant_id,world,generation_id) references control.nexloop_sim_generations(tenant_id,world,generation_id));
 create index nexloop_sim_objects_generation on runtime.nexloop_sim_objects(tenant_id,world,generation_id);
 create index nexloop_sim_session_events_generation on runtime.nexloop_sim_session_events(tenant_id,world,generation_id);
 do $$declare t text;begin
@@ -95,34 +95,30 @@ alter function runtime.nexloop_sim_value(text,text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_sim_value(text,text,text) from public;
 
 -- 3. The generator ------------------------------------------------------------------------------------------------------------
--- Consumers (persona synthetic) and their session events; the same code serves both kinds.
+-- Consumers (persona synthetic) and their session events; the same code serves both kinds. Set-based inserts (review 5.1).
+-- p_seed is the generation's seed qualified by its kind, so the two kinds never produce the same ids (review 3.3).
 create function runtime.nexloop_sim_generate_consumers(p_tenant text,p_world text,p_gen text,p_seed text,p_n integer,p_min integer,p_max integer,
  p_segments jsonb,p_by text) returns integer
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare i integer;j integer;c text;v_seg text;v_events integer;v_total integer:=0;v_weight numeric;v_sum numeric;v_u double precision;v_acc numeric;
- v_kinds text[]:=array['inbound_message','outbound_message','visit'];
+declare v_total integer;v_kinds text[]:=array['inbound_message','outbound_message','visit'];
 begin
- select sum(value::numeric) into v_sum from jsonb_each_text(p_segments);
- for i in 1..p_n loop
-  c:=runtime.nexloop_sim_id(p_seed,'consumer:'||i);
-  v_u:=runtime.nexloop_sim_draw(p_seed,'segment:'||i);v_acc:=0;v_seg:=null;
-  for v_seg,v_weight in select key,value::numeric from jsonb_each_text(p_segments) order by key loop
-   v_acc:=v_acc+v_weight/v_sum;exit when v_u<v_acc;
-  end loop;
-  insert into runtime.nexloop_sim_objects(tenant_id,world,generation_id,type_name,object_id,properties)
-   values(p_tenant,p_world,p_gen,'Consumer',c,jsonb_build_object('segment',v_seg,'persona','synthetic',
-    'joined_days_ago',floor(runtime.nexloop_sim_draw(p_seed,'joined:'||i)*365)::integer));
-  insert into control.nexloop_consumer_personas(tenant_id,world,consumer_id,persona,revision,updated_by)
-   values(p_tenant,p_world,c,'synthetic',1,p_by);
-  v_events:=p_min+floor(runtime.nexloop_sim_draw(p_seed,'events:'||i)*(p_max-p_min+1))::integer;
-  for j in 1..v_events loop
-   insert into runtime.nexloop_sim_session_events(tenant_id,world,generation_id,consumer_id,sequence,event_kind,offset_seconds,attributes)
-    values(p_tenant,p_world,p_gen,c,j,v_kinds[1+floor(runtime.nexloop_sim_draw(p_seed,'kind:'||i||':'||j)*3)::integer],
-     floor(runtime.nexloop_sim_draw(p_seed,'at:'||i||':'||j)*2592000)::integer,
-     jsonb_build_object('length',1+floor(runtime.nexloop_sim_draw(p_seed,'len:'||i||':'||j)*400)::integer));
-  end loop;
-  v_total:=v_total+v_events;
- end loop;
+ -- A segment by cumulative weight (keys in order); a draw beyond the last bound (float rounding) takes the last key.
+ insert into runtime.nexloop_sim_objects(tenant_id,world,generation_id,type_name,object_id,properties)
+  select p_tenant,p_world,p_gen,'Consumer',runtime.nexloop_sim_id(p_seed,'consumer:'||i),jsonb_build_object('segment',coalesce(
+    (select w.key from (select key,sum(value::numeric) over (order by key)/sum(value::numeric) over () cum from jsonb_each_text(p_segments)) w
+      where runtime.nexloop_sim_draw(p_seed,'segment:'||i)<w.cum order by w.key limit 1),
+    (select max(key) from jsonb_object_keys(p_segments) key)),
+   'persona','synthetic','joined_days_ago',floor(runtime.nexloop_sim_draw(p_seed,'joined:'||i)*365)::integer)
+  from generate_series(1,p_n) i;
+ insert into control.nexloop_consumer_personas(tenant_id,world,consumer_id,persona,revision,updated_by)
+  select p_tenant,p_world,runtime.nexloop_sim_id(p_seed,'consumer:'||i),'synthetic',1,p_by from generate_series(1,p_n) i;
+ insert into runtime.nexloop_sim_session_events(tenant_id,world,generation_id,consumer_id,sequence,event_kind,offset_seconds,attributes)
+  select p_tenant,p_world,p_gen,runtime.nexloop_sim_id(p_seed,'consumer:'||i),j,v_kinds[1+floor(runtime.nexloop_sim_draw(p_seed,'kind:'||i||':'||j)*3)::integer],
+   floor(runtime.nexloop_sim_draw(p_seed,'at:'||i||':'||j)*2592000)::integer,
+   jsonb_build_object('length',1+floor(runtime.nexloop_sim_draw(p_seed,'len:'||i||':'||j)*400)::integer)
+  from generate_series(1,p_n) i
+  cross join lateral generate_series(1,p_min+floor(runtime.nexloop_sim_draw(p_seed,'events:'||i)*(p_max-p_min+1))::integer) j;
+ get diagnostics v_total=row_count;
  return v_total;
 end $$;
 alter function runtime.nexloop_sim_generate_consumers(text,text,text,text,integer,integer,integer,jsonb,text) owner to nexloop_owner;
@@ -145,8 +141,8 @@ create function control.nexloop_governed_generate_sim_world_data(p_tenant text,p
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_target text:=body->>'world';v_kind text:=body->>'kind';v_seed text:=body->>'seed';w control.nexloop_sim_worlds;g control.nexloop_sim_generations;
  v_params jsonb;v_pdigest text;v_ddigest text;v_gen text;v_n integer;v_min integer;v_max integer;v_segments jsonb;v_max_objects integer;
- v_events integer;v_counts jsonb:='{}';v_real bigint;v_total bigint;v_scale numeric;r record;p record;i integer;v_props jsonb;v_k integer;v_objects integer:=0;
- v_version constant text:='nexloop-sim-generator/1';
+ v_events integer;v_counts jsonb:='{}';v_real bigint;v_total bigint;v_scale numeric;r record;v_objects integer:=0;
+ v_version constant text:='nexloop-sim-generator/2';v_sk text;v_alloc jsonb;
 begin
  if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k where k not in
    ('operation','request_id','world','kind','seed','consumers','events_per_consumer','segments','max_objects'))
@@ -177,6 +173,9 @@ begin
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into w from control.nexloop_sim_worlds where world=v_target and tenant_id=p_tenant for share;
  if not found then raise exception 'sim generation: not_registered' using errcode='22023';end if;
+ if w.status<>'active' then raise exception 'sim generation: world_not_active' using errcode='22023';end if;
+ -- One generation at a time per world (review 3.2): a concurrent duplicate waits and then replays, a reused seed gets seed_used.
+ perform pg_advisory_xact_lock(hashtextextended('nexloop:sim-generation:'||v_target,0));
  v_params:=body-'operation'-'request_id'-'world';
  v_pdigest:=encode(sha256(convert_to(v_params::text,'UTF8')),'hex');
  select * into g from control.nexloop_sim_generations where tenant_id=p_tenant and world=v_target and request_id=body->>'request_id';
@@ -185,9 +184,12 @@ begin
   return jsonb_build_object('world',g.world,'generation_id',g.generation_id,'generator_version',g.generator_version,'params_digest',g.params_digest,
    'definitions_digest',g.definitions_digest,'counts',g.counts,'output_digest',g.output_digest,'created',false);
  end if;
- if w.status<>'active' then raise exception 'sim generation: world_not_active' using errcode='22023';end if;
  if exists(select 1 from control.nexloop_sim_generations where tenant_id=p_tenant and world=v_target and kind=v_kind and seed=v_seed) then
   raise exception 'sim generation: seed_used' using errcode='22023';end if;
+ -- At most ten generations per world (review 5.2); each is bounded by its parameters (about 104 000 rows at most).
+ if (select count(*) from control.nexloop_sim_generations where tenant_id=p_tenant and world=v_target)>=10 then
+  raise exception 'sim generation: quota_exceeded' using errcode='22023';end if;
+ v_sk:=v_seed||':'||v_kind;
  v_gen:=runtime.nexloop_sim_id(v_target,'generation:'||(body->>'request_id'));
  v_n:=(body->>'consumers')::integer;v_min:=(body->'events_per_consumer'->>'min')::integer;v_max:=(body->'events_per_consumer'->>'max')::integer;
  -- The frozen input row first (objects and events reference it); digests and counts are completed below.
@@ -201,29 +203,39 @@ begin
   select encode(sha256(convert_to(coalesce(string_agg(x.type_name||'@'||x.version||':'||x.definition::text,',' order by x.type_name),''),'UTF8')),'hex')
    into v_ddigest from (select distinct on (type_name) type_name,version,definition from ontology.object_type_versions
     where tenant_id=p_tenant order by type_name,version desc) x;
-  select count(*) into v_total from ontology.objects where tenant_id=p_tenant and world='real';
-  v_scale:=case when v_total=0 then 0 else least(1,v_max_objects::numeric/v_total) end;
-  for r in select distinct on (type_name) type_name,version,definition from ontology.object_type_versions
-    where tenant_id=p_tenant and type_name<>'Consumer' order by type_name,version desc loop
-   select count(*) into v_real from ontology.objects where tenant_id=p_tenant and world='real' and type_name=r.type_name;
-   v_k:=round(v_real*v_scale)::integer;
-   continue when v_k=0;
-   for i in 1..v_k loop
-    v_props:='{}';
-    for p in select e->>'property_name' property_name,e->>'value_type' value_type from jsonb_array_elements(coalesce(r.definition->'properties','[]')) e loop
-     v_props:=v_props||jsonb_build_object(p.property_name,runtime.nexloop_sim_value(v_seed,r.type_name||':'||i||':'||p.property_name,p.value_type));
-    end loop;
-    insert into runtime.nexloop_sim_objects(tenant_id,world,generation_id,type_name,object_id,properties)
-     values(p_tenant,v_target,v_gen,r.type_name,runtime.nexloop_sim_id(v_seed,r.type_name||':'||i),v_props);
-   end loop;
-   v_objects:=v_objects+v_k;v_counts:=v_counts||jsonb_build_object(r.type_name,v_k);
+  -- Count-level structure (review 1.2, 5.3): per type the real count, a count of 1 to 4 taken as 5 (the order of magnitude, never
+  -- the exact small number), scaled to max_objects and allocated by largest remainder, so the total never exceeds max_objects.
+  with t as (select x.type_name,x.definition,(select count(*) from ontology.objects o where o.tenant_id=p_tenant and o.world='real' and o.type_name=x.type_name) real_n
+     from (select distinct on (type_name) type_name,definition from ontology.object_type_versions where tenant_id=p_tenant order by type_name,version desc) x
+     union all
+     select 'Consumer',null,(select count(*) from ontology.objects o where o.tenant_id=p_tenant and o.world='real' and o.type_name='Consumer')
+     where not exists(select 1 from ontology.object_type_versions where tenant_id=p_tenant and type_name='Consumer')),
+   b as (select type_name,definition,case when real_n between 1 and 4 then 5 else real_n end b from t),
+   q as (select type_name,definition,b*least(1,v_max_objects::numeric/nullif(sum(b) over (),0)) quota from b),
+   r as (select type_name,definition,quota,floor(coalesce(quota,0))::integer n0,
+     floor(coalesce(sum(quota) over (),0))::integer-sum(floor(coalesce(quota,0))::integer) over () rest,
+     row_number() over (order by coalesce(quota,0)-floor(coalesce(quota,0)) desc,type_name) rk from q)
+  select coalesce(jsonb_agg(jsonb_build_object('type_name',type_name,'definition',definition,'n',n0+case when rk<=rest then 1 else 0 end) order by type_name),'[]')
+   into v_alloc from r;
+  -- Only published properties a sim principal could see (review 1.3): visibility normal (never hidden by NX-040) and outside any
+  -- property group the tenant restricts (authority fact property_group_restriction). Values come from the value type only.
+  for r in select a->>'type_name' type_name,a->'definition' definition,(a->>'n')::integer n from jsonb_array_elements(v_alloc) a
+    where a->>'type_name'<>'Consumer' and (a->>'n')::integer>0 order by a->>'type_name' loop
+   insert into runtime.nexloop_sim_objects(tenant_id,world,generation_id,type_name,object_id,properties)
+    select p_tenant,v_target,v_gen,r.type_name,runtime.nexloop_sim_id(v_sk,r.type_name||':'||i),
+     coalesce((select jsonb_object_agg(e->>'property_name',runtime.nexloop_sim_value(v_sk,r.type_name||':'||i||':'||(e->>'property_name'),e->>'value_type'))
+       from jsonb_array_elements(coalesce(r.definition->'properties','[]')) e
+       where coalesce(e->>'visibility','normal')='normal'
+        and not coalesce((select f.payload->'restricted_groups' ? ontology.nexloop_property_group_of(r.definition,e->>'property_name')
+          from authz.nexloop_authority_facts f where f.tenant_id=p_tenant and f.fact_kind='property_group_restriction' and f.entity_key=array[r.type_name]),false)),'{}')
+    from generate_series(1,r.n) i;
+   v_objects:=v_objects+r.n;v_counts:=v_counts||jsonb_build_object(r.type_name,r.n);
   end loop;
-  -- Consumers follow the real Consumer count (scaled, at most the requested number); segments are not structure and stay one.
-  select count(*) into v_real from ontology.objects where tenant_id=p_tenant and world='real' and type_name='Consumer';
-  v_n:=least(v_n,round(v_real*v_scale)::integer);
+  -- Consumers follow the allocated Consumer count (at most the requested number); segments are not structure and stay one.
+  v_n:=least(v_n,coalesce((select (a->>'n')::integer from jsonb_array_elements(v_alloc) a where a->>'type_name'='Consumer'),0));
   v_segments:='{"structural":1}';
  end if;
- v_events:=case when v_n>0 then runtime.nexloop_sim_generate_consumers(p_tenant,v_target,v_gen,v_seed,v_n,v_min,v_max,v_segments,p_principal) else 0 end;
+ v_events:=case when v_n>0 then runtime.nexloop_sim_generate_consumers(p_tenant,v_target,v_gen,v_sk,v_n,v_min,v_max,v_segments,p_principal) else 0 end;
  v_counts:=v_counts||jsonb_build_object('Consumer',v_n,'session_events',v_events);
  update control.nexloop_sim_generations set definitions_digest=v_ddigest,counts=v_counts,output_digest=runtime.nexloop_sim_output_digest(p_tenant,v_target,v_gen)
   where tenant_id=p_tenant and world=v_target and generation_id=v_gen returning * into g;
@@ -238,3 +250,7 @@ revoke all on function control.nexloop_governed_generate_sim_world_data(text,tex
 
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
  ('sim_world.generate','generate_sim_world_data','human','control.nexloop_governed_generate_sim_world_data(text,text,text,text,text,jsonb)','NX-041');
+
+-- The persona table joins the one world check (review 2.2; S1 left it): a persona row names a valid world only.
+alter table control.nexloop_consumer_personas add constraint nexloop_consumer_personas_world_check check(runtime.nexloop_world_valid(world)) not valid;
+alter table control.nexloop_consumer_personas validate constraint nexloop_consumer_personas_world_check;
