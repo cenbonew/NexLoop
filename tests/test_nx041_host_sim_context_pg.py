@@ -16,7 +16,7 @@ import psycopg
 import pytest
 
 from nexloop_eios.sim_context import SIM_CONTEXT_PROTOCOL, assemble_sim_context
-from test_nx041_s7_pg import consumers, digest, port, s7  # noqa: F401
+from test_nx041_s7_pg import consumers, digest, port, s7, s7_raw  # noqa: F401
 from nexloop_eios import consumer_port as P
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,8 +44,8 @@ def command(world, tenant, mode='simulation', consumer='c' * 64):
                                                                 'currency': 'USD'}, 'not_after': '2099-01-01T00:00:00Z', 'runtime_owner_epoch': 1}
 
 
-def test_a_simulation_run_input_is_the_sim_pack_and_the_host_renders_it_marked_simulated(s7):
-    f = s7
+def test_a_simulation_run_input_is_the_sim_pack_and_the_host_renders_it_marked_simulated(s7_raw):
+    f = s7_raw
     c = consumers(f['admin'], f['a'])[0]
     twin = P.TwinStub(seed='host-ctx')
     for step in range(1, 4):
@@ -72,8 +72,8 @@ def test_a_simulation_run_input_is_the_sim_pack_and_the_host_renders_it_marked_s
     assert node_render(v6, command(f['a'], pack['tenant_id']))['error'] == 'runtime_context_invalid'
 
 
-def test_the_assembler_refuses_real_and_test_before_any_call(s7):
-    f = s7
+def test_the_assembler_refuses_real_and_test_before_any_call(s7_raw):
+    f = s7_raw
 
     class Refuse:
         def execute(self, *args):
@@ -85,10 +85,10 @@ def test_the_assembler_refuses_real_and_test_before_any_call(s7):
         assemble_sim_context(Refuse(), digest(f['token_a']), f['a'], '0' * 64, limit=0)
 
 
-def test_the_event_intake_entry_reads_app_role_and_the_migration_needs_s6c(s7):
+def test_the_event_intake_entry_reads_app_role_and_the_migration_needs_s6c(s7_raw):
     """Integration (L6): the migration is unconditional - the entry's role check reads app_role and nexloop_sim_api may execute it;
     without S6c's interface the migration fails instead of leaving the same revision with another schema."""
-    admin = s7['admin']
+    admin = s7_raw['admin']
     migration = next((ROOT / 'packages/eios-core/src/eios/migrations').glob('*_nx041_host_sim_context.sql')).read_text()
     assert 'to_regprocedure' in migration and 'is null then return' not in migration and 'requires S6c' in migration
     with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState, match='requires S6c'), admin.transaction(force_rollback=True):
@@ -102,8 +102,8 @@ def test_the_event_intake_entry_reads_app_role_and_the_migration_needs_s6c(s7):
     # the assembler directly (authz.nexloop_sim_context_register calls it as its owner, the role check still reading app_role).
     assert not admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
     assert admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_register(text,text,uuid,text,integer)','execute')").fetchone()[0]
-    c = consumers(admin, s7['a'])[0]
-    with s7['role']('nexloop_sim_api')() as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
-        db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c))
-    with s7['api']() as db:  # the real role still works exactly as before
-        assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7['token_a']), s7['a'], c)).fetchone()[0]['data_mode'] == 'simulation'
+    c = consumers(admin, s7_raw['a'])[0]
+    with s7_raw['role']('nexloop_sim_api')() as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7_raw['token_a']), s7_raw['a'], c))
+    with s7_raw['api']() as db:  # the real role still works exactly as before
+        assert db.execute('select authz.nexloop_sim_context_command(%s,%s,%s,5)', (digest(s7_raw['token_a']), s7_raw['a'], c)).fetchone()[0]['data_mode'] == 'simulation'

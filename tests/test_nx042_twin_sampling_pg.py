@@ -125,6 +125,8 @@ def test_a_retired_twin_and_a_model_generator_do_not_run(t2):
     d = copy.deepcopy(DEFINITION)
     d['twin_id'] = 'trial.model_text'
     d['generator_version'] = 'model-text/1'
+    # A generator that calls a model, listed as the slice adding it would (trusted configuration; test database only).
+    f['admin'].execute("insert into control.nexloop_twin_generators values('model-text/1',true,'simulation')")
     publish(f['admin'], d)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='model_budget_required'):  # D6: no model in T2
         sample(f, twin='trial.model_text')
@@ -148,3 +150,44 @@ def test_samples_are_never_facts_and_leave_with_the_world(t2):
     for table in ('runtime.nexloop_twin_sample_runs', 'runtime.nexloop_twin_samples'):
         assert admin.execute(f'select count(*) from {table} where world=%s', (f['a'],)).fetchone()[0] == 0, table
     assert admin.execute('select count(*) from control.nexloop_consumer_twins').fetchone()[0] == 1  # the twin stays (D5)
+
+
+def test_runs_and_rows_per_world_are_capped(t2):
+    f = t2
+    admin = f['admin']
+    assert admin.execute('select runtime.nexloop_twin_sample_run_limit(),runtime.nexloop_twin_sample_row_limit()').fetchone() == (100, 100000)
+    first = sample(f, seed='cap-0', count=1000)
+    with admin.transaction():  # fill the world's runs as earlier sampling would have (triggers off: trusted bulk seed)
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into runtime.nexloop_twin_sample_runs(tenant_id,world,run_id,twin_id,twin_version,twin_digest,seed,instances,generator_version,
+            calibration_status,output_digest,requested_by)
+            select %s,%s,encode(sha256(convert_to('bulk'||i,'UTF8')),'hex'),%s,1,repeat('0',64),'bulk'||i,1000,'twin-template/1','uncalibrated',repeat('0',64),'seed'
+            from generate_series(1,98) i""", (TENANT_A, f['a'], TWIN))
+    assert sample(f, seed='cap-last', count=1000)['instances'] == 1000  # the hundredth run, row 100 000: fits (positive control)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='quota_exceeded'):
+        sample(f, seed='cap-over', count=1)
+    assert sample(f, seed='cap-0', count=1000) == first  # a repeated run is answered
+    assert sample(f, world=f['b'], token=f['token_b'], seed='cap-0', count=10)['instances'] == 10  # another world is not affected
+
+
+def test_the_calibration_on_a_run_is_a_snapshot_and_downstream_rereads_the_latest_event(t2):
+    """L6 T2 review 5: a stored run keeps the status it was sampled with; the current status is the latest calibration event."""
+    f = t2
+    admin = f['admin']
+    run = sample(f, seed='snap')
+    assert run['calibration_status'] == 'uncalibrated'
+    with admin.transaction():  # what T5 will write after checking the report
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        admin.execute("""insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
+            values(%s,%s,1,%s,'passed','t5-test','cal-1')""", (TENANT_A, TWIN, 'twin-calibration:' + 'c' * 64))
+    current = lambda: admin.execute('select runtime.nexloop_consumer_twin_calibration(%s,%s,1),runtime.nexloop_consumer_twin_selectable(%s,%s,1)',  # noqa: E731
+                                    (TENANT_A, TWIN, TENANT_A, TWIN)).fetchone()
+    assert current() == ('calibrated', True)
+    assert sample(f, seed='snap')['calibration_status'] == 'uncalibrated'  # the stored run is a snapshot
+    assert sample(f, seed='snap-2')['calibration_status'] == 'calibrated'  # a new run reads the latest event
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        admin.execute("""insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
+            values(%s,%s,1,%s,'failed','t5-test','cal-2')""", (TENANT_A, TWIN, 'twin-calibration:' + 'd' * 64))
+    assert sample(f, seed='snap-2')['calibration_status'] == 'calibrated'  # stale on the run...
+    assert current() == ('uncalibrated', False)  # ...so downstream re-reads the latest event before use

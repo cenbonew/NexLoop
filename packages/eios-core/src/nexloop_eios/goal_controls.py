@@ -91,7 +91,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-041 S5 (D5): advance, pause, resume or set the rate of a simulation world's clock (forward only, checked in SQL).
     'control_sim_clock':'sim_clock.control',
     # NX-042 T1 (D7): publish or retire a consumer twin version (shape and rules checked in SQL).
-    'publish_consumer_twin':'consumer_twin.publish','retire_consumer_twin':'consumer_twin.retire'}
+    'publish_consumer_twin':'consumer_twin.publish','retire_consumer_twin':'consumer_twin.retire',
+    # NX-042 T1 (D5): erase a version's free texts (the hashes stay).
+    'erase_consumer_twin_text':'consumer_twin.erase_text'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -481,6 +483,13 @@ class GoalGovernedActions:
                 or type(reason) is not str or not 1<=len(reason.strip())<=500):
             raise ValueError('twin, version and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'retire_consumer_twin','twin_id':twin_id,'version':version,'reason':reason})
+
+    # NX-042 T1 (D5): owner only; the version's description and statements become unreadable, their hashes and the digest stay.
+    def erase_consumer_twin_text(self,*,action_name,action_version,request_id,twin_id,version,reason):
+        if (type(twin_id) is not str or re.fullmatch(r'[a-z][a-z0-9_.-]{0,63}',twin_id) is None or type(version) is not int or version<1
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('twin, version and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer_twin_text','twin_id':twin_id,'version':version,'reason':reason})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

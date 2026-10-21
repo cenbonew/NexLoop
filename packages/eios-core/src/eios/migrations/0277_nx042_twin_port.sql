@@ -2,8 +2,8 @@
 -- file name and the catalog; nothing below repeats it.
 -- The twin process connects as nexloop_twin_port with its simulation world's one credential (the port's, NX-041 S7); it holds no other
 -- credential and calls no Action. Real and test are refused before any lookup (authz.nexloop_sim_effect_tenant).
--- 1. authz.nexloop_twin_bind(digest, world, twin, version, seed): binds a published, not retired twin version with the template
---    generator (D6: a model generator is refused, model_budget_required) and a seed to the world; binding_id = sha256(world|twin|
+-- 1. authz.nexloop_twin_bind(digest, world, twin, version, seed): binds a published, not retired twin version whose listed generator
+--    calls no model (D6: otherwise model_budget_required) and a seed to the world; binding_id = sha256(world|twin|
 --    version|seed). A repeat returns the binding.
 -- 2. authz.nexloop_twin_observe(digest, world, binding, consumer, step, limit): what the twin's Consumer sees before its step - the
 --    world's simulation context pack assembled by the one assembler (S7b authz.nexloop_sim_context_command) and the observations
@@ -19,6 +19,7 @@
 --    digest. The decision never reads the observation, so the same seed and twin version reproduce byte for byte.
 -- 4. The S7b assembler admits the port role (a session of nexloop_twin_port; only the owner-run observe entry reaches it - the port role
 --    holds no execute on it). Everything else of its body is 0269's.
+-- 5. The port role no longer executes the raw S7 act (authz.nexloop_sim_consumer_act): a twin's events carry provenance.
 
 create or replace function authz.nexloop_sim_context_command(p_digest text,p_world text,p_consumer text,p_limit integer) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -152,7 +153,8 @@ begin
  select * into t from control.nexloop_consumer_twins where tenant_id=v_tenant and twin_id=p_twin and version=p_version;
  if not found then raise exception 'twin port: twin_unknown' using errcode='22023';end if;
  if runtime.nexloop_consumer_twin_status(v_tenant,p_twin,p_version) is distinct from 'published' then raise exception 'twin port: twin_retired' using errcode='22023';end if;
- if t.generator_version!~'^twin-template/[0-9]+$' then raise exception 'twin port: model_budget_required' using errcode='22023';end if;
+ if coalesce((select g.uses_model from control.nexloop_twin_generators g where g.generator_version=t.generator_version),true) then
+  raise exception 'twin port: model_budget_required' using errcode='22023';end if;
  v_id:=encode(sha256(convert_to(p_world||'|'||p_twin||'|'||p_version||'|'||p_seed,'UTF8')),'hex');
  perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-bind:'||v_id,0));
  select * into b from runtime.nexloop_twin_bindings where tenant_id=v_tenant and world=p_world and binding_id=v_id;
@@ -255,3 +257,6 @@ do $$declare f text;begin
   execute 'grant execute on function '||f||' to nexloop_twin_port';
  end loop;
 end $$;
+-- 5. The raw S7 entry is no longer the port role's (dispatcher decision on T3): a twin's event goes through authz.nexloop_twin_act and
+--    always has its provenance; nexloop_twin_act calls the raw entry as its owner.
+revoke execute on function authz.nexloop_sim_consumer_act(text,text,jsonb) from nexloop_twin_port;

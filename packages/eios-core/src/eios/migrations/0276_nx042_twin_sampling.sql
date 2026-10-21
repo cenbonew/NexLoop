@@ -6,10 +6,13 @@
 --    at its coverage (D4: never a single probability) and one simulated outcome: a probability drawn inside the interval and an
 --    outcome drawn against it, both from sha256(seed | twin digest | label) - the drawn probability is internal and never stored or
 --    returned. The same seed and twin version give byte-identical samples (NX-041 S3's draw); a repeated call returns the same run.
--- 2. D6: T2 runs the deterministic template generator only (generator twin-template/N); a twin whose generator needs a model is
---    refused (model_budget_required) - the simulation model budget (NX-041 D6) is checked by the slice that adds a model.
--- 3. D7: an uncalibrated twin runs; every run and sample carries the twin's calibration status at sampling time (from its latest
---    calibration event, T1; uncalibrated until T5), and NX-043
+-- 2. D6: T2 runs only a generator the controlled list (T1 control.nexloop_twin_generators) marks as calling no model; a generator that
+--    calls a model is refused (model_budget_required) - the simulation model budget (NX-041 D6) is checked by the slice that adds one.
+--    Ceilings per world: runtime.nexloop_twin_sample_run_limit() runs (100) and runtime.nexloop_twin_sample_row_limit() sample rows
+--    (100 000, the NX-041 S7 port's ceiling); beyond them a new run is refused (quota_exceeded), a repeated run is still answered.
+-- 3. D7: an uncalibrated twin runs; every run and sample carries the twin's calibration status AT SAMPLING TIME (from its latest
+--    calibration event, T1; uncalibrated until T5) - an audit record, not the current status: a later calibration event does not
+--    change a stored run, and downstream re-reads runtime.nexloop_consumer_twin_calibration / _selectable before use. NX-043
 --    selects only through runtime.nexloop_consumer_twin_selectable (T1).
 -- 4. Output lives in runtime.nexloop_twin_sample_runs / runtime.nexloop_twin_samples (sim:/shadow: only; data_mode simulation,
 --    output_kind simulated_output, origin twin; append-only; they leave with the world, NX-041 D2). Never a Claim or a fact.
@@ -53,6 +56,11 @@ do $$declare t text;begin
  end loop;
 end $$;
 
+create function runtime.nexloop_twin_sample_run_limit() returns integer language sql immutable set search_path=pg_catalog,pg_temp as $$ select 100 $$;
+alter function runtime.nexloop_twin_sample_run_limit() owner to nexloop_owner;
+create function runtime.nexloop_twin_sample_row_limit() returns integer language sql immutable set search_path=pg_catalog,pg_temp as $$ select 100000 $$;
+alter function runtime.nexloop_twin_sample_row_limit() owner to nexloop_owner;
+
 -- The decision layer of one instance: every behaviour's interval and one simulated outcome (the drawn probability stays inside).
 create function runtime.nexloop_twin_decide(p_base text,p_instance integer,p_behaviors jsonb) returns jsonb
  language sql immutable set search_path=pg_catalog,pg_temp as $$
@@ -79,12 +87,17 @@ begin
  if not found then raise exception 'twin sample: twin_unknown' using errcode='22023';end if;
  if runtime.nexloop_consumer_twin_status(v_tenant,p_twin,p_version) is distinct from 'published' then
   raise exception 'twin sample: twin_retired' using errcode='22023';end if;
- -- D6: no model in T2 - the deterministic template generator only.
- if t.generator_version!~'^twin-template/[0-9]+$' then raise exception 'twin sample: model_budget_required' using errcode='22023';end if;
+ -- D6: no model in T2 - a listed generator that calls no model only.
+ if coalesce((select g.uses_model from control.nexloop_twin_generators g where g.generator_version=t.generator_version),true) then
+  raise exception 'twin sample: model_budget_required' using errcode='22023';end if;
  v_run:=encode(sha256(convert_to(p_world||'|'||p_twin||'|'||p_version||'|'||t.definition_digest||'|'||p_seed||'|'||p_count,'UTF8')),'hex');
- perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-sample:'||v_run,0));
+ -- One run at a time per world: the ceilings are exact under this lock.
+ perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-sample:'||p_world,0));
  select * into r from runtime.nexloop_twin_sample_runs where tenant_id=v_tenant and world=p_world and run_id=v_run;
  if not found then
+  if (select count(*) from runtime.nexloop_twin_sample_runs where tenant_id=v_tenant and world=p_world)>=runtime.nexloop_twin_sample_run_limit()
+   or (select coalesce(sum(instances),0) from runtime.nexloop_twin_sample_runs where tenant_id=v_tenant and world=p_world)+p_count>runtime.nexloop_twin_sample_row_limit() then
+   raise exception 'twin sample: quota_exceeded' using errcode='22023';end if;
   select array_agg(o.object_id order by o.object_id) into v_consumers from runtime.nexloop_sim_objects o
    where o.tenant_id=v_tenant and o.world=p_world and o.type_name='Consumer';
   if coalesce(cardinality(v_consumers),0)=0 then raise exception 'twin sample: no_synthetic_consumers' using errcode='22023';end if;

@@ -144,6 +144,8 @@ def test_real_test_other_roles_and_unready_steps_are_refused(t3):
     d = copy.deepcopy(DEFINITION)
     d['twin_id'] = 'trial.model_text'
     d['generator_version'] = 'model-text/1'
+    # A generator that calls a model, listed as the slice adding it would (trusted configuration; test database only).
+    f['admin'].execute("insert into control.nexloop_twin_generators values('model-text/1',true,'simulation')")
     publish(f['admin'], d)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='model_budget_required'):
         port(f).bind(T.ConsumerTwin('trial.model_text', 1, 'x'))
