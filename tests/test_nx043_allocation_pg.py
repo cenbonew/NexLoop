@@ -10,6 +10,7 @@ import uuid
 
 import psycopg
 import pytest
+from psycopg.types.json import Jsonb
 
 from support.tenants import TENANT_A
 from test_nx042_consumer_twins_pg import calibrate
@@ -165,3 +166,55 @@ def test_no_application_role_runs_allocation_and_start_stop_stay_owner_only(db):
             assert db.execute('select has_function_privilege(%s,%s,%s)', (role, fn, 'execute')).fetchone()[0] is False, (role, fn)
     rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where capability in ('experiment.start','experiment.stop')").fetchall())
     assert rows == {'experiment.start': 'human', 'experiment.stop': 'human'}
+
+
+def test_a_growing_candidate_cluster_never_breaks_the_share_or_the_cap(ready, db):
+    """X4 review 3.1: members joining a cluster already in the candidate group are checked like a new cluster; one that would put
+    the candidate group above the control group or its cap is excluded (never moved to control: a cluster is never split)."""
+    register(db, registration(ready['world'], ready['twin'], sample_size={'candidate': 5, 'control': 10}))
+    start(db, EXPERIMENT)
+
+    def invariant():
+        c = counts(db)
+        assert c.get('candidate', 0) <= 5 and c.get('candidate', 0) <= c.get('control', 0), c
+
+    grown = None
+    for k in range(30):  # single-member clusters until one draws the candidate group
+        out = assign(db, consumer(f'single-{k}'), cluster=f'single-{k}')
+        invariant()
+        if out['arm'] == 'candidate':
+            grown = f'single-{k}'
+            break
+    assert grown is not None
+    joined = [assign(db, consumer(f'{grown}-member-{i}'), cluster=grown) for i in range(12)]
+    invariant()
+    assert {j['arm'] for j in joined if j['arm']} <= {'candidate'}  # never split into control
+    assert any(j['excluded_reason'] == 'candidate_cluster_full' for j in joined)
+    for k in range(20):  # more single clusters: the invariant keeps holding as the groups fill
+        assign(db, consumer(f'late-{k}'), cluster=f'late-{k}')
+        invariant()
+
+
+def test_a_consumer_being_erased_is_excluded(running, db):
+    erased = consumer('being-erased')
+    db.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
+        values(%s,%s,'erase-synthetic',%s,'owner','owner-principal','顾客要求删除','purging',1)""", (TENANT_A, running['world'], erased))
+    assert assign(db, erased)['excluded_reason'] == 'erasing'
+
+
+def test_a_retired_strategy_or_a_withdrawn_twin_falls_back_at_decision(running, db):
+    world = running['world']
+    decided = {n: strategy_for(db, world, consumer(n)) for n in range(15)}
+    candidate = next(n for n, d in decided.items() if d['arm'] == 'candidate')
+    control = next(n for n, d in decided.items() if d['arm'] == 'control')
+    calibrate(db, 1, 'failed')  # the twin is withdrawn: candidates take the control strategy
+    assert strategy_for(db, world, consumer(candidate))['strategy']['strategy_id'] == 'followup.default'
+    calibrate(db, 1, 'passed'), calibrate(db, 1, 'passed'), calibrate(db, 1, 'passed')
+    assert strategy_for(db, world, consumer(candidate))['strategy']['strategy_id'] == 'followup.later'
+    db.execute("select control.nexloop_governed_retire_strategy(%s,'real','owner-principal','owner-subject','intent-r',%s)",
+               (TENANT_A, Jsonb({'operation': 'retire_strategy', 'request_id': 'ret-cand', 'strategy_id': 'followup.later', 'version': 1, 'reason': '撤下'})))
+    d = strategy_for(db, world, consumer(candidate))
+    assert d['applied'] == 'control' and d['strategy']['strategy_id'] == 'followup.default'
+    db.execute("select control.nexloop_governed_retire_strategy(%s,'real','owner-principal','owner-subject','intent-r2',%s)",
+               (TENANT_A, Jsonb({'operation': 'retire_strategy', 'request_id': 'ret-ctrl', 'strategy_id': 'followup.default', 'version': 1, 'reason': '撤下'})))
+    assert strategy_for(db, world, consumer(control))['strategy'] is None  # the current policy

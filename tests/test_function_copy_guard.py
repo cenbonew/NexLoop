@@ -173,6 +173,13 @@ REGISTRY = [
     # NX-043 X1 review 2.1: start rechecks the purposes of both strategies against the current list.
     Allowed('nx043_start_purpose_recheck', 'control.nexloop_governed_start_experiment', 'X1 review 2.1: the purpose recheck at start; nothing else',
             ((r"\n   if exists\(select 1 from control\.nexloop_strategy_versions s,jsonb_object_keys[^\n]*'experiment: purpose_not_allowed' using errcode='22023';end if;", ''),)),
+    # NX-043 X4 review 3.1, 1.1, 4.1: the candidate cluster check, the erasing exclusion and the strategy state at decision.
+    Allowed('nx043_allocation_review', 'runtime.nexloop_experiment_assign', 'X4 review: a candidate cluster member checked against the control size; erasing excluded; nothing else',
+            ((r"\n elsif runtime\.nexloop_consumer_erasing\(p_tenant,r->>'world',p_consumer\) then v_reason:='erasing';", ''),
+             (r"\(v_cand\+1>v_cap_cand or v_cand\+1>v_ctrl\)", 'v_cand+1>v_cap_cand'))),
+    Allowed('nx043_allocation_review', 'runtime.nexloop_experiment_strategy_for', 'X4 review 4.1: retired strategies and a withdrawn twin fall back at decision; nothing else',
+            ((r" and runtime\.nexloop_strategy_status\(p_tenant,x\.registration->'candidate'->>'strategy_id',\(x\.registration->'candidate'->>'version'\)::integer\)='published' and \(x\.registration->'twin'='null'::jsonb or runtime\.nexloop_consumer_twin_selectable\([^\n]*?\)::integer\)\) then v_ref:=x\.registration->'candidate';", " then v_ref:=x.registration->'candidate';"),
+             (r"\n if v_ref<>'null'::jsonb and v_ref=x\.registration->'control' and runtime\.nexloop_strategy_status[^\n]*", ''))),
 ]
 
 

@@ -1460,6 +1460,11 @@
       "version": "0292",
       "name": "0292_nx043_guardrails_budget.sql",
       "sha256": "7f1d534bce38bb0638ce3fb54f69f2b3bb0bf613220e80770dd0b52521aa2224"
+    },
+    {
+      "version": "0293",
+      "name": "0293_nx043_allocation_review.sql",
+      "sha256": "7e0dbd03161b77e0cdc8a103d9d71c41dc735306c8b7ba26c1c2b47f97186db6"
     }
   ]
 }
