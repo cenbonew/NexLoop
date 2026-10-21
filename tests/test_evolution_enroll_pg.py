@@ -76,13 +76,14 @@ def test_dry_run_writes_nothing_then_enrollment_passes_its_self_check_and_a_reru
     before = state(admin)
     code, dry, _ = f['call']('--dry-run')
     assert code == 0 and dry['mode'] == 'dry_run' and sorted(dry['tokens_to_create']) == sorted(p['file'] for p in E.PRINCIPALS)
-    assert [c['credentials_to_create'] for c in dry['credentials']] == [['evolution_evaluator', 'evolution_writer'], ['evolution_evaluation']]
+    assert [c['credentials_to_create'] for c in dry['credentials']] == [['evolution_evaluator', 'evolution_reader', 'evolution_writer'], ['evolution_evaluation']]
     assert len(dry['registry']['planned']) == 3 and dry['registry']['written'] == []
     assert state(admin) == before and not f['secrets'].exists()  # no file, no row
     code, first, text = f['call']()
     assert code == 0 and first['ok'] is True and first['changed'] is True, first
-    assert first['checks'] == {'writer_evaluator_exclusive': True, 'evaluation_credential_test_only': True, 'no_effect_authority': True}
-    assert first['login_roles'] == {'nexloop_evo_writer': True, 'nexloop_evo_evaluator': True}
+    assert first['checks'] == {'writer_evaluator_exclusive': True, 'evaluation_credential_test_only': True, 'no_effect_authority': True,
+                               'reader_distinct_real_only': True}
+    assert first['login_roles'] == {'nexloop_evo_writer': True, 'nexloop_evo_evaluator': True, 'nexloop_evo_reader': True}
     assert sorted(first['tokens_created']) == sorted(p['file'] for p in E.PRINCIPALS)
     assert [c['grants_added'] for c in first['credentials']] == [0, 0]
     for p in E.PRINCIPALS:
@@ -144,7 +145,7 @@ def test_self_check_the_evaluation_credential_is_test_only(enroll):
 
 
 def test_self_check_no_principal_holds_any_grant_so_no_effect_authority(enroll):
-    """AT-046: none of the three holds a grant, scope or policy; a grant added by hand is caught by the self-check."""
+    """AT-046: none of the four holds a grant, scope or policy; a grant added by hand is caught by the self-check."""
     f = enroll
     admin = f['admin']
     assert f['call']()[0] == 0
@@ -201,3 +202,50 @@ def test_inputs_are_refused_without_touching_the_database(enroll, tmp_path):
     f['config'].chmod(0o644)
     assert f['call']()[0] == 2
     assert state(f['admin']) == before and not f['secrets'].exists()
+
+
+def test_an_enrollment_of_three_gains_the_reader_alone(enroll, monkeypatch):
+    """Dispatcher 2026-10-21: stage already holds the writer, evaluator and evaluation credentials (the tool before the reader); a
+    rerun adds the reader's token and credential only - the three existing ones, their facts and the registries stay as they are."""
+    f = enroll
+    admin = f['admin']
+    three = tuple(p for p in E.PRINCIPALS if p['role'] != 'evolution_reader')
+    with monkeypatch.context() as m:
+        m.setattr(E, 'PRINCIPALS', three)
+        m.setattr(E, 'LOGIN_ROLES', ('nexloop_evo_writer', 'nexloop_evo_evaluator'))
+        code, before_run, _ = f['call']()
+        # Only the reader's check is red then (it is not there yet); the three are enrolled and their checks hold.
+        assert code == 1 and {k: v for k, v in before_run['checks'].items() if k != 'reader_distinct_real_only'} == {
+            'writer_evaluator_exclusive': True, 'evaluation_credential_test_only': True, 'no_effect_authority': True}
+        assert before_run['checks']['reader_distinct_real_only'] is False
+    existing = {p['role']: token(f, p['role']) for p in three}
+    creds_before = admin.execute('select token_digest,binding,worlds,status from authz.nexloop_service_credentials order by token_digest').fetchall()
+    registries = [admin.execute(f'select count(*) from {t}').fetchone()[0] for t in ('authz.nexloop_evo_principals', 'authz.nexloop_evo_evaluation_credentials')]
+    code, dry, _ = f['call']('--dry-run')
+    assert dry['tokens_to_create'] == ['evolution-reader/service-credential'] and dry['registry']['planned'] == []
+    assert [c['credentials_to_create'] for c in dry['credentials']] == [['evolution_reader'], []]
+    code, out, _ = f['call']()
+    assert code == 0 and out['ok'] is True and out['changed'] is True and out['tokens_created'] == ['evolution-reader/service-credential']
+    assert out['checks']['reader_distinct_real_only'] is True and out['registry']['written'] == []
+    assert {p['role']: token(f, p['role']) for p in three} == existing  # the existing token files untouched
+    creds_after = admin.execute('select token_digest,binding,worlds,status from authz.nexloop_service_credentials order by token_digest').fetchall()
+    reader = hexid(token(f, 'evolution_reader'))
+    assert [c for c in creds_after if c[0] != reader] == creds_before and len(creds_after) == len(creds_before) + 1
+    assert [admin.execute(f'select count(*) from {t}').fetchone()[0] for t in ('authz.nexloop_evo_principals', 'authz.nexloop_evo_evaluation_credentials')] == registries
+    assert f['call']()[1]['changed'] is False  # and again: nothing
+
+
+def test_the_reader_credential_passes_the_trace_read_identity_check(enroll):
+    """roles.reader of the S6 stage script: session user nexloop_evo_reader with the reader's real service credential (no Run context)
+    reads traces; the test-only evaluation credential does not."""
+    f = enroll
+    assert f['call']()[0] == 0
+    since, until = NOW - timedelta(days=1), NOW + timedelta(hours=1)
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_evo_reader'), autocommit=True) as reader:
+        out = reader.execute("select authz.nexloop_evo_trace_runs(%s,%s,%s,null,10,array['real'])", (hexid(token(f, 'evolution_reader')), since, until)).fetchone()[0]
+        assert isinstance(out, dict)
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            reader.execute("select authz.nexloop_evo_trace_runs(%s,%s,%s,null,10,array['real'])", (hexid(token(f, 'evolution_evaluation')), since, until))
+    # Only the reader role may call the read at all.
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_evo_writer'), autocommit=True) as writer, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        writer.execute("select authz.nexloop_evo_trace_runs(%s,%s,%s,null,10,array['real'])", (hexid(token(f, 'evolution_reader')), since, until))
