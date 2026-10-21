@@ -304,6 +304,21 @@ def test_online_drain_fails_while_a_real_send_is_in_flight(stage):
     config['inputs'] = {**config['inputs'], 'drain_timeout_seconds': 1, 'drain_poll_seconds': 1}
     Path(f['config']).write_text(json.dumps(config))
     assert phase(f, 'prepare')[0] == 0 and phase(f, 'online')[0] == 0
-    send(f['admin'], sha('x7-in-flight'))  # accepted, never dispatched
+    send(f['admin'], sha('x7-not-a-member'))  # other real outreach of the tenant (L6 review 1.3): not counted
+    assert phase(f, 'online-drain')[0] == 0
+    member = sha('x7-in-flight')
+    inbound(f['admin'], member)  # allocated on first sight
+    send(f['admin'], member)  # accepted, never dispatched
     code, doc, _ = phase(f, 'online-drain')
     assert code == 1 and steps(doc)['online_nothing_in_flight']['observed'] == {'outreach_sends': 1, 'outreach_in_flight': 1, 'effects_in_flight': 0}
+
+
+def test_a_read_only_role_is_made_read_only_by_the_script(pg, tmp_path):
+    """L6 review 1.1: even a DSN without default_transaction_read_only connects read only, checked with show."""
+    dsn = tmp_path / 'dsn'
+    dsn.write_text(pg)
+    dsn.chmod(0o600)
+    with X.connect_read_only(str(dsn))() as db:
+        assert db.execute('show default_transaction_read_only').fetchone()[0] == 'on'
+        with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
+            db.execute('create temp table x7_write_probe(x int)')

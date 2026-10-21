@@ -84,7 +84,7 @@
 | 位置 | 配置文件 | 角色 | 连接 |
 |---|---|---|---|
 | 调度员机器 | `PRIVATE.json` | owner：`owner {origin, ca_file, username_file}`，口令从 Keychain 经 stdin 传入 | 工作台 HTTPS |
-| DATA_HOST | `DATA.json` | `inspector` 和 `probe`：bootstrap DSN，`default_transaction_read_only=on` | 本机 socket（local pg_hba），只读 |
+| DATA_HOST | `DATA.json` | `inspector` 和 `probe`：bootstrap DSN，`default_transaction_read_only=on` | 本机 socket（local pg_hba），只读；脚本连接后再设一次只读并 `show` 核对，不是只读就拒绝（L6 复核 1.1） |
 | APP_HOST | `APP.json` | `sim_worker {dsn_file, token_file}`：shadow world 的 worker 凭据 | hostssl |
 
 - 三份配置的 `tenant_id`、`inputs`、`results_dir` 相同。
@@ -117,7 +117,7 @@
 | O2 | 调度员机器 | 合成 webchat | 再注入 real 入站流量 | 首次分配；候选组的外联**真实发出**（替身端点、合成 webchat） |
 | O3 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-probe --config DATA.json` | 各组分配人数、`strategy_applied` 审计数 |
 | O4 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py online-stop --config PRIVATE.json` | 实验停止，所有人回到当前策略 |
-| O5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-drain --config DATA.json` | 开始以来 real 外联和效应没有在途的（`pending_approval`、`accepted`、`dispatching`、`unknown`、`observed_fulfilled` 都为 0）；默认等 900 秒 |
+| O5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-drain --config DATA.json` | 开始以来**实验成员**（有组别的分配）的 real 外联和效应没有在途的（L6 复核 1.3：其他 real 外联不影响判断）（`pending_approval`、`accepted`、`dispatching`、`unknown`、`observed_fulfilled` 都为 0）；默认等 900 秒 |
 | G | 任意 | 无连接 | `nx043_stage.py gaps --config ANY.json` | 阻塞项：实验预算 |
 
 ### 收尾

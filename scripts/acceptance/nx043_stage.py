@@ -407,30 +407,34 @@ def readiness(ports, config, r, prior=None):
            running=len(running), online_real=online, same_prefix=same)
 
 
+# L6 review 1.3: only the experiment's members (allocated with an arm), so other real outreach of the tenant does not hold the drain.
+MEMBERS = """with m as (select consumer_id from control.nexloop_experiment_allocations where tenant_id=%s and experiment_id=%s and arm is not null) """
 OUTREACH_IN_FLIGHT = ('pending_approval', 'accepted', 'dispatching', 'unknown')
 EFFECT_IN_FLIGHT = ('accepted', 'dispatching', 'unknown', 'observed_fulfilled')
 
 
 def online_drain(ports, config, r, prior=None):
     """After online-stop: with real dispatch open the candidate group's sends really ran; wait (drain_timeout_seconds, default 900) until
-    every real outreach send and effect of the tenant since the online start is final. Counts only."""
+    every real outreach send and effect of the experiment's members since the online start is final. Counts only."""
     state = load_state(config)
-    since = state.get('online_started_at')
-    if not since:
+    since, eid = state.get('online_started_at'), state['experiments'].get('online')
+    if not since or not eid:
         r.step('online_nothing_in_flight', 'an online experiment started (phase online)', {'started': False}, False)
         return
     tenant, inputs = config['tenant_id'], config.get('inputs') or {}
     deadline = time.monotonic() + int(inputs.get('drain_timeout_seconds') or 900)
     while True:
-        sends, effects = ports.read("""select (select count(*) from runtime.nexloop_outreach_sends where tenant_id=%s and world='real' and created_at>=%s
-              and state = any(%s)),
-            (select count(*) from runtime.nexloop_effect_intents where tenant_id=%s and world='real' and created_at>=%s and state = any(%s))""",
-                                    (tenant, since, list(OUTREACH_IN_FLIGHT), tenant, since, list(EFFECT_IN_FLIGHT)))[0]
+        sends, effects = ports.read(MEMBERS + """select (select count(*) from runtime.nexloop_outreach_sends s join m on m.consumer_id=s.consumer_id
+              where s.tenant_id=%s and s.world='real' and s.created_at>=%s and s.state = any(%s)),
+            (select count(*) from runtime.nexloop_effect_intents i join m on m.consumer_id=i.consumer_id
+              where i.tenant_id=%s and i.world='real' and i.created_at>=%s and i.state = any(%s))""",
+                                    (tenant, eid, tenant, since, list(OUTREACH_IN_FLIGHT), tenant, since, list(EFFECT_IN_FLIGHT)))[0]
         if (sends == 0 and effects == 0) or time.monotonic() >= deadline:
             break
         time.sleep(int(inputs.get('drain_poll_seconds') or 15))
-    total = ports.read("""select count(*) from runtime.nexloop_outreach_sends where tenant_id=%s and world='real' and created_at>=%s""", (tenant, since))[0][0]
-    r.step('online_nothing_in_flight', 'every real outreach send and effect since the online start is final (none accepted, dispatching or unknown)',
+    total = ports.read(MEMBERS + """select count(*) from runtime.nexloop_outreach_sends s join m on m.consumer_id=s.consumer_id
+        where s.tenant_id=%s and s.world='real' and s.created_at>=%s""", (tenant, eid, tenant, since))[0][0]
+    r.step('online_nothing_in_flight', 'every real outreach send and effect of the experiment members since the online start is final (none accepted, dispatching or unknown)',
            {'outreach_sends': total, 'outreach_in_flight': sends, 'effects_in_flight': effects}, sends == 0 and effects == 0)
 
 
@@ -479,6 +483,24 @@ def decide_from(roles):
     return decide
 
 
+def connect_read_only(path):
+    """L6 review 1.1: a read-only role is read only by the script, not only by its DSN file - after connecting, set
+    default_transaction_read_only=on and check it took effect; refuse the connection otherwise. (To reuse s6_common's when L5's lands.)"""
+    factory = connect_from(path)
+
+    def connect():
+        db = factory()
+        try:
+            db.execute('set default_transaction_read_only=on')
+            if db.execute('show default_transaction_read_only').fetchone()[0] != 'on':
+                raise Blocked('the read-only role could not be made read only')
+        except Exception:
+            db.close()
+            raise
+        return db
+    return connect
+
+
 def ports_from(config, password, phase=None):
     roles = config.get('roles') or {}
     owner = None
@@ -488,7 +510,7 @@ def ports_from(config, password, phase=None):
         owner = Workbench(HttpsTransport(o['origin'], o.get('ca_file')), o['origin'])
         owner.login(read_private(o['username_file'], 1024).strip(), password)
     probe = (roles.get('inspector') or roles.get('probe') or {}).get('dsn_file') if phase == 'readiness' else (roles.get('probe') or {}).get('dsn_file')
-    ports = Ports(owner=owner, probe=connect_from(probe) if probe else None)
+    ports = Ports(owner=owner, probe=connect_read_only(probe) if probe else None)
     ports.decide = decide_from(roles)
     return ports
 
