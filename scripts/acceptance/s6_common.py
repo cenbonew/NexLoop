@@ -178,7 +178,7 @@ def new_nonce() -> str:
 def load_chain(paths, *, prefix, order, nonce=None):
     """The earlier parts of one run (--from), checked as a chain (L6 AT-046 review 1.1 / NX-043 X7 review 3.1): each a result document
     of this script (check starting with prefix, never a dry run) with the same run_nonce (and the expected one when given), each part
-    once, in the given order of checks, executed in that order. Returns (steps, blocked, nonce) - the steps and blocks of all parts."""
+    once, exactly the checks of `order` (the caller passes the prefix of its chain it needs), executed in that order. Returns (steps, blocked, nonce) - the steps and blocks of all parts."""
     docs = []
     for path in paths or []:
         try:
@@ -196,8 +196,10 @@ def load_chain(paths, *, prefix, order, nonce=None):
     checks = [d['check'] for d in docs]
     if len(set(checks)) != len(checks):
         raise Refused('--from: each part once')
-    if any(c not in order for c in checks):
-        raise Refused('--from: parts of this chain only: ' + ', '.join(order))
+    # Exactly the parts the caller needs (L6 X7 fix verify): none outside `order` (a later part, say the caller's own earlier result,
+    # is never taken for one of its prior parts) and every one of them present.
+    if set(checks) != set(order):
+        raise Refused('--from: exactly the parts ' + ', '.join(order))
     by = {d['check']: d for d in docs}
     times = [by[c]['executed_at'] for c in order if c in by]  # in chain order, the executions must not go back in time
     if times != sorted(times):

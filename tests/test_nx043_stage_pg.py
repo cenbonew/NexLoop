@@ -205,6 +205,11 @@ def test_the_parts_must_be_one_run_each_once_in_order(stage):
         out = io.StringIO()
         assert X.main(['probe-after', '--config', f['config'], *sum((['--from', a] for a in args), [])], ports=f['ports'], out=out) == 2, args
         assert 'refused' in out.getvalue()
+    # A later part is never one of the prior parts (L6 X7 fix verify): a probe-after result offered in place of decide.
+    code, _, after = phase(f, 'probe-after', '--from', before, '--from', keys, '--from', decide)
+    out = io.StringIO()
+    assert X.main(['probe-after', '--config', f['config'], '--from', before, '--from', keys, '--from', after], ports=f['ports'], out=out) == 2
+    assert 'exactly the parts' in out.getvalue()
     # Out of order in time: the decide part dated before probe-before.
     late = json.loads(Path(before).read_text())
     late['executed_at'] = '2999-01-01T00:00:00+00:00'

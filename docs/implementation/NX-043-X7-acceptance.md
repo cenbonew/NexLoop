@@ -54,7 +54,7 @@
 - **3.1**：nonce 方案写成了共用函数，放在 `scripts/acceptance/s6_common.py`：
   - `Result(..., nonce=...)` 会在结果里写 `run_nonce`；没有设置时不写，所以其他脚本的输出不受影响；
   - `new_nonce()` 生成一个 nonce；
-  - `load_chain(paths, prefix=, order=, nonce=)` 核对同一个 nonce、每步只出现一次、只包含这条链里的步骤、执行时间按链的顺序，返回合并后的步骤和阻塞项。
+  - `load_chain(paths, prefix=, order=, nonce=)` 核对同一个 nonce、每步只出现一次、执行时间按顺序，返回合并后的步骤和阻塞项。`order` 由调用方传入它实际需要的那一段前序步骤，必须恰好是这几步：不能多出这段之外的步骤，也不能缺少任何一步（L6 复核 fca51f2d）。例如 probe-after 只接受 probe-before、shadow-keys、decide，把一份 probe-after 的结果当作前序传进来会被拒绝。
 
   AT-046 可以直接复用这套函数，由 L2 接入。
 - **1.1**：清单新增第 17 项 D8，并补了一条结构测试。
