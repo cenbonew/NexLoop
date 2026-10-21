@@ -1,0 +1,7 @@
+{
+  "schema": "nexloop-schema-proposal/1",
+  "proposal_id": "00000000-0000-4000-8000-000000000000",
+  "rationale": "<DATE> 负责人审核：新增可选属性（合成）",
+  "batch": false,
+  "expect_codes": []
+}
