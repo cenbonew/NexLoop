@@ -110,6 +110,9 @@ REGISTRY = [
              (r"if new\.sim_use is null then raise exception 'a simulation world credential names its use \(api, worker, agent\)' using errcode='42501';end if;\s*", ''),
              (r'c\.worlds=new\.worlds and c\.sim_use=new\.sim_use and', 'c.worlds=new.worlds and'),
              (r"'a simulation world has one active credential per use'", "'a simulation world has one active credential'"))),
+    # NX-042 T3: the twin's observe entry (owner-run, the port role's only way in) reaches the S7b assembler.
+    Allowed('nx042_twin_port', 'authz.nexloop_sim_context_command', 'NX-042 T3: the port role nexloop_twin_port passes the role check; nothing else',
+            ((r" and session_user is distinct from 'nexloop_twin_port'", ''),)),
 ]
 
 

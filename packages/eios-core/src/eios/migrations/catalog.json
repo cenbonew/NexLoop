@@ -1380,6 +1380,11 @@
       "version": "0276",
       "name": "0276_nx042_twin_sampling.sql",
       "sha256": "03d718fcbaae70e99bc7ab7405107c1b8e1ed60922923aef110b406ad76de37c"
+    },
+    {
+      "version": "0277",
+      "name": "0277_nx042_twin_port.sql",
+      "sha256": "f10eb7ea4a038e4a71fc05437e99f405f492d1e8f321f89716c7f3b483e4f2ca"
     }
   ]
 }

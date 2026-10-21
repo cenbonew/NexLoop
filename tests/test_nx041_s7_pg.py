@@ -149,7 +149,9 @@ def test_the_port_role_reaches_the_port_only(s7):
     port entries (and the public erasure helper, which answers false for anyone but nexloop_owner)."""
     reachable = {r[0].split('(')[0] for r in s7['admin'].execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname in ('authz','control','runtime','ontology','public') and p.prosecdef and has_function_privilege('nexloop_twin_port',p.oid,'execute')""").fetchall()}
-    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits'}, reachable
+    # NX-042 T3 adds the twin's own port entries (bind, observe, act), which go through the same two.
+    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits',
+                         'authz.nexloop_twin_bind', 'authz.nexloop_twin_observe', 'authz.nexloop_twin_act'}, reachable
     for table in ('runtime.nexloop_sim_consumer_events', 'runtime.nexloop_sim_consumer_observations', 'runtime.nexloop_outbound_messages'):
         assert not s7['admin'].execute("select has_table_privilege('nexloop_twin_port',%s,'select,insert,update,delete')", (table,)).fetchone()[0]
 
@@ -367,7 +369,9 @@ def test_an_existing_port_role_is_brought_to_its_shape(admin):
     assert admin.execute("select count(*) from pg_auth_members a join pg_roles m on m.oid=a.member where m.rolname='nexloop_twin_port'").fetchone()[0] == 0
     reachable = {x[0].split('(')[0] for x in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname in ('authz','control','runtime','ontology') and p.prosecdef and has_function_privilege('nexloop_twin_port',p.oid,'execute')""").fetchall()}
-    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits'}, reachable
+    # NX-042 T3 adds the twin's own port entries (bind, observe, act), which go through the same two.
+    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits',
+                         'authz.nexloop_twin_bind', 'authz.nexloop_twin_observe', 'authz.nexloop_twin_act'}, reachable
 
 
 def test_the_port_takes_at_most_its_event_limit_per_world(s7):
