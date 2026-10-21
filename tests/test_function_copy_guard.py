@@ -170,6 +170,9 @@ REGISTRY = [
              (r"\n -- X4 \(design §3\)[^\n]*\n if r \? 'eligibility'[^\n]*'eligibility_looser_than_default';end if;\n", "\n"))),
     Allowed('nx043_online_allocation', 'runtime.nexloop_experiment_registration_frozen', 'X4: the eligibility default is written into the frozen registration; nothing else',
             ((r"\n  'eligibility',runtime\.nexloop_experiment_eligibility_default\(\)\|\|coalesce\(r->'eligibility','\{\}'::jsonb\),", ''),)),
+    # NX-043 X1 review 2.1: start rechecks the purposes of both strategies against the current list.
+    Allowed('nx043_start_purpose_recheck', 'control.nexloop_governed_start_experiment', 'X1 review 2.1: the purpose recheck at start; nothing else',
+            ((r"\n   if exists\(select 1 from control\.nexloop_strategy_versions s,jsonb_object_keys[^\n]*'experiment: purpose_not_allowed' using errcode='22023';end if;", ''),)),
 ]
 
 

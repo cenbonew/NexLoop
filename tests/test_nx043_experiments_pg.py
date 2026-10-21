@@ -260,3 +260,16 @@ def test_the_five_actions_are_owner_only_governed_human_actions(db):
     # Tenant boundary: another tenant sees and starts nothing of this one.
     publish(db, request='a-only')
     assert db.execute("select runtime.nexloop_strategy_status(%s,'followup.later',1)", (TENANT_B,)).fetchone()[0] is None
+
+
+def test_start_rechecks_the_purpose_classification(ready, db):
+    """X1 review 2.1: a purpose reclassified as marketing after the strategy was published blocks the start."""
+    publish(db, strategy('purpose.service', outreach_purposes={'service_followup': True}), request='s-purpose')
+    register(db, registration(ready['world'], ready['twin'], experiment_id='purpose.run', candidate={'strategy_id': 'purpose.service', 'version': 1}))
+    v1 = db.execute('select definition from control.nexloop_outreach_purpose_lists where version=1').fetchone()[0]
+    v2 = {**v1, 'version': 2, 'purposes': [{**p, 'kind': 'marketing', 'frequency_class': 'marketing'} if p['purpose_id'] == 'service_followup' else p
+                                           for p in v1['purposes']]}
+    db.execute("insert into control.nexloop_outreach_purpose_lists(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic-config')",
+               (Jsonb(v2), 'e' * 64))
+    refused('purpose_not_allowed', start, db, 'purpose.run')
+    assert db.execute("select count(*) from control.nexloop_experiment_events where experiment_id='purpose.run'").fetchone() == (0,)

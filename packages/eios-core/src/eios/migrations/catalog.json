@@ -1445,6 +1445,11 @@
       "version": "0289",
       "name": "0289_nx043_online_allocation.sql",
       "sha256": "7e05dfd7947117c4bda1e547b2e1b045210a3a91887f2dd239aa3719a5da5cb0"
+    },
+    {
+      "version": "0290",
+      "name": "0290_nx043_start_purpose_recheck.sql",
+      "sha256": "913c6cd1d8712f7173253125ad2abce7de71f73b03aa97baf2e7352092146fe3"
     }
   ]
 }
