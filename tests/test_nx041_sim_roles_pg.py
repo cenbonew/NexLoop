@@ -25,7 +25,8 @@ COMMON = {'authz.nexloop_service_identity_snapshot(text,text)', 'authz.nexloop_l
           'authz.nexloop_record_process_sample(text,text,text,timestamp with time zone,integer,jsonb)',
           'runtime.nexloop_erasure_permits(text,text,text,jsonb,jsonb)'}  # granted to public (0129): true only for the owner's own transaction
 WHITELIST = {
-    'nexloop_sim_worker': COMMON | {'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
+    'nexloop_sim_worker': COMMON | {'authz.nexloop_shadow_decision_record(text,text,jsonb)',  # NX-043 X3: shadow decisions, recorded only
+                                    'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
                                     'authz.nexloop_runtime_activation_hint(text,text,text)', 'authz.nexloop_run_tool_timing(text,text,uuid)'},
     'nexloop_sim_guard': COMMON | {'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_hint(text,text,text)',
                                    'authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)', 'authz.nexloop_sim_effect_submit(text,text,jsonb)',

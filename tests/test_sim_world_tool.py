@@ -142,7 +142,8 @@ from test_browser_identity_reads import identity  # noqa: E402,F401
 from test_browser_session_creation import uow  # noqa: E402,F401
 from test_browser_http import ORIGIN  # noqa: E402
 
-SIM_ACTIONS = ('nexloop.sim_world.create', 'nexloop.sim_world.delete', 'nexloop.sim_world.generate', 'nexloop.sim_clock.control')
+SIM_ACTIONS = ('nexloop.sim_world.create', 'nexloop.sim_world.delete', 'nexloop.sim_world.generate', 'nexloop.sim_clock.control',
+               'nexloop.sim_world.publish_catalog')
 
 
 def test_the_owner_runs_all_four_actions_end_to_end_through_the_governed_workbench_entry(switching, admin, tmp_path, capsys, caplog):
@@ -205,6 +206,13 @@ def test_the_owner_runs_all_four_actions_end_to_end_through_the_governed_workben
     assert code == 1 and out['status'] == 409 and out.get('reason'), out
     code, out, requests = tool(owner, 'create', {**create, 'expires_in_days': 31})
     assert code == 2 and requests == []
+    # The world's Action catalog: the real Actions with a stand-in, definitions only; a rerun copies nothing.
+    code, out, _ = tool(owner, 'publish-catalog', {'world': world, 'reason': '模拟世界的 Action 目录'})
+    assert code == 0 and out['status'] == 200 and out['result']['copied'] >= 1, out
+    code, out, _ = tool(owner, 'publish-catalog', {'world': world, 'reason': '模拟世界的 Action 目录（重跑）'})
+    assert code == 0 and out['result']['copied'] == 0 and out['result']['already_present'] >= 1, out
+    code, out, _ = tool(operator, 'publish-catalog', {'world': world, 'reason': '操作员无权'})
+    assert code == 1 and out['status'] == 403
     # Delete: the whole world goes.
     code, out, _ = tool(owner, 'delete', {'world': world, 'reason': '实验结束'})
     assert code == 0 and out['result']['status'] == 'deleted' and world_status(world) == 'deleted', out

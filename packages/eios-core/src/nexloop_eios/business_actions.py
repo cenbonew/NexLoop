@@ -75,6 +75,8 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'sim_world.create':'human_owner','sim_world.delete':'human_owner',
     # NX-041 S3 (D8): the owner fills a simulation world with synthetic or structural data.
     'sim_world.generate':'human_owner',
+    # NX-041 D10 follow-up: the owner publishes a simulation world's Action catalog (the stand-in whitelist).
+    'sim_world.publish_catalog':'human_owner',
     # NX-041 S5 (D5): the owner moves a simulation world's clock forward.
     'sim_clock.control':'human_owner',
     # NX-042 T1 (D7): the owner publishes or retires a consumer twin version.
@@ -83,7 +85,11 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'consumer_twin.calibrate':'human_owner',
     # NX-043 X1 (D1, D3): the owner publishes or retires a strategy version, preregisters, starts and stops an experiment.
     'strategy.publish':'human_owner','strategy.retire':'human_owner','experiment.register':'human_owner',
-    'experiment.start':'human_owner','experiment.stop':'human_owner'}
+    'experiment.start':'human_owner','experiment.stop':'human_owner',
+    # NX-043 X3 (D7): the owner switches the shadow copy of a tenant.
+    'shadow_copy.set':'human_owner',
+    # NX-043 (X3 review 4.3, X6): the owner reads the frozen aggregate reports.
+    'experiment.report':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

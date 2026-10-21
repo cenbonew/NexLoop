@@ -144,9 +144,8 @@ REGISTRY = [
              (r"\s*\|\|case when v_text->>'text' is not null then jsonb_build_object\('text_template',v_text->>'template_id','text_generator',v_text->>'generator_version',\s*'text_marker','simulated'\) else '\{\}'::jsonb end\)",
               ')'))),
     # AT-048 (0286, L3, S6 stage finding): the evaluation opening also refuses when one Consumer has cases on both sides; nothing else.
-    Allowed('at048_consumer_leakage', 'authz.nexloop_evo_evaluation_open', 'AT-048: leakage_detected also when the cases of both sides share a Consumer',
-            ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or exists\(select 1 from unnest\(x\.design_case_ids\) dc join unnest\(x\.validation_case_ids\) vc\s*"
-              r"on runtime\.nexloop_evo_run_consumer\(v_tenant,'real',dc\)=runtime\.nexloop_evo_run_consumer\(v_tenant,'real',vc\)\)", ''),)),
+    Allowed('at048_consumer_leakage', 'authz.nexloop_evo_evaluation_open', 'AT-048: leakage_detected also when the cases of both sides share a Consumer (one linear helper)',
+            ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or runtime\.nexloop_evo_consumer_leak\(v_tenant,x\.design_case_ids,x\.validation_case_ids\)", ''),)),
     # NX-042 T5 (L6 nx042-t5-fix-verify 1.3, K = 3): calibrated also needs none of the last 3 verdicts failed.
     Allowed('nx042_twin_calibration', 'runtime.nexloop_consumer_twin_calibration', 'NX-042 T5: the last 3 verdicts without a failed one; nothing else',
             ((r'v text;v_recent_failed boolean;', 'v text;'),
@@ -165,6 +164,56 @@ REGISTRY = [
     # NX-043 X1 follow-up (dispatcher 2026-10-21): a role holds up to 128 Actions, as nexloop_eios.workbench_roles (owner 65).
     Allowed('nx043_workbench_role_cap', 'control.nexloop_configure_workbench', 'the per-role Action bound 64 -> 128; nothing else',
             ((r'jsonb_array_length\(r\.value\) not between 1 and 128', 'jsonb_array_length(r.value) not between 1 and 64'),)),
+    # NX-043 X4 (design §3): the eligibility rule joins the frozen preregistration (default only, never looser).
+    Allowed('nx043_online_allocation', 'runtime.nexloop_experiment_registration_problem', 'X4: eligibility is an allowed member, checked against its default; nothing else',
+            ((r",'eligibility'\)\) then return 'invalid'", ")) then return 'invalid'"),
+             (r"\n -- X4 \(design §3\)[^\n]*\n if r \? 'eligibility'[^\n]*'eligibility_looser_than_default';end if;\n", "\n"))),
+    Allowed('nx043_online_allocation', 'runtime.nexloop_experiment_registration_frozen', 'X4: the eligibility default is written into the frozen registration; nothing else',
+            ((r"\n  'eligibility',runtime\.nexloop_experiment_eligibility_default\(\)\|\|coalesce\(r->'eligibility','\{\}'::jsonb\),", ''),)),
+    # NX-043 X1 review 2.1: start rechecks the purposes of both strategies against the current list.
+    Allowed('nx043_start_purpose_recheck', 'control.nexloop_governed_start_experiment', 'X1 review 2.1: the purpose recheck at start; nothing else',
+            ((r"\n   if exists\(select 1 from control\.nexloop_strategy_versions s,jsonb_object_keys[^\n]*'experiment: purpose_not_allowed' using errcode='22023';end if;", ''),)),
+    # NX-043 X4 review 3.1, 1.1, 4.1: the candidate cluster check, the erasing exclusion and the strategy state at decision.
+    Allowed('nx043_allocation_review', 'runtime.nexloop_experiment_assign', 'X4 review: a candidate cluster member checked against the control size; erasing excluded; nothing else',
+            ((r"\n elsif runtime\.nexloop_consumer_erasing\(p_tenant,r->>'world',p_consumer\) then v_reason:='erasing';", ''),
+             (r"\(v_cand\+1>v_cap_cand or v_cand\+1>v_ctrl\)", 'v_cand+1>v_cap_cand'))),
+    Allowed('nx043_allocation_review', 'runtime.nexloop_experiment_strategy_for', 'X4 review 4.1: retired strategies and a withdrawn twin fall back at decision; nothing else',
+            ((r" and runtime\.nexloop_strategy_status\(p_tenant,x\.registration->'candidate'->>'strategy_id',\(x\.registration->'candidate'->>'version'\)::integer\)='published' and \(x\.registration->'twin'='null'::jsonb or runtime\.nexloop_consumer_twin_selectable\([^\n]*?\)::integer\)\) then v_ref:=x\.registration->'candidate';", " then v_ref:=x.registration->'candidate';"),
+             (r"\n if v_ref<>'null'::jsonb and v_ref=x\.registration->'control' and runtime\.nexloop_strategy_status[^\n]*", ''))),
+    # NX-041 D10 follow-up (0294): a simulation world's Action definitions do not advance the tenant's authority revision.
+    Allowed('nx041_sim_catalog_publish', 'authz.nexloop_authority_epoch_guard', 'sim catalog: simulation and shadow Action definitions skip the epoch; definer search_path gains pg_temp',
+            ((r"\s*if tg_table_name='nexloop_action_definitions' then\s*(--[^\n]*\s*)?if coalesce\(runtime\.nexloop_world_kind\(\(case when tg_op='DELETE' then to_jsonb\(old\) else to_jsonb\(new\) end\)->>'world'\),''\) in \('simulation','shadow'\)"
+              r"\s*and \(tg_op<>'UPDATE' or coalesce\(runtime\.nexloop_world_kind\(to_jsonb\(old\)->>'world'\),''\) in \('simulation','shadow'\)\) then\s*return null;end if;\s*end if;", ''),), PG_TEMP),
+    # NX-043 review of the L5 fixes and X5 (3.1, 3.3.b, 2.1.a, 2.1.c, 2.2.a): erasure and review changes only.
+    Allowed('nx043_erasure_and_review', 'control.nexloop_experiment_frozen', 'review 3.1: the erasure propagation update passes; nothing else',
+            ((r"\n if tg_op='UPDATE' and runtime\.nexloop_erasure_permits\([^\n]*", ''),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_assign', 'review 3.1: an erasing Consumer gets no row (early answer); nothing else',
+            ((r"\n -- Review 3\.1:[^\n]*\n if runtime\.nexloop_consumer_erasing\(p_tenant,r->>'world',p_consumer\) then[^\n]*", ''),
+             (r"(then v_reason:='in_takeover';)", "\\1\n elsif runtime.nexloop_consumer_erasing(p_tenant,r->>'world',p_consumer) then v_reason:='erasing';"))),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_strategy_for', 'review 3.3.b: an erasing Consumer gets no strategy; nothing else',
+            ((r"\n if runtime\.nexloop_consumer_erasing\(p_tenant,p_world,p_consumer\) then[^\n]*", ''),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_autostop', 'review 2.1.c: the stop request id cannot be an owner request id; nothing else',
+            ((r"'guard:'\|\|p_experiment\|\|':'\|\|gen_random_uuid\(\)\);", "'guard:'||p_experiment);"),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_guard', 'review 2.1.a: every guardrail hit goes with the stop metrics; nothing else',
+            ((r"m\|\|jsonb_build_object\('guardrails_hit',runtime\.nexloop_experiment_guardrails_hit\(p_tenant,p_experiment,m\)\)\);", 'm);'),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_spend', 'review 2.2.a: the amount is rounded to the ledger scale first; nothing else',
+            ((r"\n p_amount:=round\(p_amount,4\);[^\n]*", ''),)),
+    # NX-043 X5 wiring review (2.3, 1.2, 2.1 control arm): failure isolation, every cluster key on erasure, the cap on the candidate only.
+    Allowed('nx043_wiring_review', 'authz.nexloop_experiment_guard_tick', 'review 2.3: each experiment guarded apart, failures counted; nothing else',
+            ((r";v_failed integer:=0;", ';'),
+             (r"  begin v:=runtime\.nexloop_experiment_guard\(t,x\.experiment_id\);exception when others then v_failed:=v_failed\+1;continue;end;[^\n]*", '  v:=runtime.nexloop_experiment_guard(t,x.experiment_id);'),
+             (r",'failed',v_failed\);", ');'))),
+    Allowed('nx043_wiring_review', 'control.nexloop_experiment_erasure', 'review 1.2: every cluster key of the erased Consumer is replaced; nothing else',
+            ((r";v_keys text\[\];", ';'),
+             (r"\n select array_agg\(distinct a\.cluster_key\) into v_keys[^\n]*", ''),
+             (r"\(a\.cluster_key=new\.consumer_id or a\.cluster_key=any\(coalesce\(v_keys,'\{\}'\)\)\)", 'a.cluster_key=new.consumer_id'))),
+    Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_metrics', 'D5 (dispatcher): the cap counts the candidate increment, control spend reported apart; nothing else',
+            ((r" and s\.arm is distinct from 'control'\),\n   'control_model_cny',\(select[^\n]*\),", '),'),)),
+    Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_spend', 'D5 (dispatcher): control rows never count toward the cap; nothing else',
+            ((r" and arm is distinct from 'control';", ';'),)),
+    # NX-043 pooled results (owner 2026-10-21): the registration result carries a notice (a single round under the minimum sample).
+    Allowed('nx043_pooled_reports', 'control.nexloop_governed_register_experiment', 'NX-043: the result carries a notice; nothing else',
+            ((r",'notice',runtime\.nexloop_experiment_notice\(x\.registration\)\)", ')'),)),
 ]
 
 

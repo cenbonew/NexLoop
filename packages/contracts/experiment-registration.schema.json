@@ -214,6 +214,22 @@
       "minimum": 0,
       "maximum": 2147483647
     },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "X4 (design §3): who may enter an online experiment, frozen with the registration. A member left out takes the default (persona real, no active contact restriction, no active takeover); none can be loosened.",
+      "properties": {
+        "persona": {
+          "const": "real"
+        },
+        "exclude_contact_restricted": {
+          "const": true
+        },
+        "exclude_in_takeover": {
+          "const": true
+        }
+      }
+    },
     "frozen": {
       "type": "object",
       "additionalProperties": false,

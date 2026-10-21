@@ -13,7 +13,8 @@ Every path, DSN, token, host and tenant lives there; a DSN is read from its file
 Result (one JSON object per check, printed as one line and written 0600 to results_dir; evidence-ready), schema `nexloop-s6-stage-result/1`:
     {"schema", "check", "acceptance": [AT / S6-R ids], "release", "executor", "executed_at", "dry_run", "world": "test",
      "passed": bool | null, "blocked": [reasons], "steps": [{"name", "expected", "observed", "passed", "evidence": {...}}]}
-`passed` is null when a step is blocked (a prerequisite is missing): never counted as a pass. Observed values are codes, counts,
+`passed` is false when any step failed (a blocked step never hides a failure), else null when a step is blocked (a prerequisite is
+missing; never counted as a pass), else true. `world` is the check's world kind (test for the S6 checks, simulation for AT-046). Observed values are codes, counts,
 versions and digests; anything private is replaced by a marker. Exit: 0 passed, 1 failed or blocked, 2 input refused.
 """
 from __future__ import annotations
@@ -122,8 +123,8 @@ def refusal(error) -> dict:
 
 
 class Result:
-    def __init__(self, check, acceptance, config, *, dry_run=False, redact=None):
-        self.check, self.acceptance, self.config, self.dry_run = check, list(acceptance), config, dry_run
+    def __init__(self, check, acceptance, config, *, dry_run=False, redact=None, world='test'):
+        self.check, self.acceptance, self.config, self.dry_run, self.world = check, list(acceptance), config, dry_run, world
         self.steps, self.blocked = [], []
         self.redact = redact or Redactor(config)
 
@@ -136,10 +137,16 @@ class Result:
         self.steps.append({'name': name, 'expected': None, 'observed': {'blocked': reason}, 'passed': None, 'evidence': {}})
 
     def document(self):
-        passed = None if self.blocked or self.dry_run else all(s['passed'] for s in self.steps) and bool(self.steps)
+        # A failed step is a failure whatever else is blocked (L6 sim-stage-enable-review 5.3); blocked alone is not a pass (null).
+        if any(s['passed'] is False for s in self.steps):
+            passed = False
+        elif self.blocked or self.dry_run:
+            passed = None
+        else:
+            passed = bool(self.steps)
         return self.redact({'schema': RESULT_SCHEMA, 'check': self.check, 'acceptance': self.acceptance, 'release': self.config['release'],
                             'executor': self.config['executor'], 'executed_at': datetime.datetime.now(datetime.UTC).isoformat(),
-                            'dry_run': self.dry_run, 'world': 'test', 'passed': passed, 'blocked': self.blocked, 'steps': self.steps})
+                            'dry_run': self.dry_run, 'world': self.world, 'passed': passed, 'blocked': self.blocked, 'steps': self.steps})
 
     def write(self, out):
         doc = self.document()

@@ -1429,12 +1429,72 @@
     {
       "version": "0286",
       "name": "0286_at048_consumer_leakage.sql",
-      "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
+      "sha256": "d4228f83155d0cfdfca6b23e6539e35b584d1e38ebdd6cf5ecd81570dd4d9355"
     },
     {
       "version": "0287",
       "name": "0287_nx043_workbench_role_cap.sql",
       "sha256": "bd78bb6363578680b830dde83f48137c870e7d18140b788540a2f39a5a0fe5dc"
+    },
+    {
+      "version": "0288",
+      "name": "0288_nx043_shadow_world.sql",
+      "sha256": "b7c0e5b716d753d6e30c1d752615173a613b43417a23b8b28694ba3bf9e8f71a"
+    },
+    {
+      "version": "0289",
+      "name": "0289_nx043_online_allocation.sql",
+      "sha256": "0dfb45db41ee87c752a14784a2de53f3d7394d11f3723ef112dfbe94c98f9c2a"
+    },
+    {
+      "version": "0290",
+      "name": "0290_nx043_start_purpose_recheck.sql",
+      "sha256": "d45e1dd0a403540e88ecc22aa6c6652e91318ce1cf75d4d72c9ce285cfd645b1"
+    },
+    {
+      "version": "0291",
+      "name": "0291_nx043_experiment_reports.sql",
+      "sha256": "271b83ca7a5a1d8068dfe2aa41c054dcae1beaf10858dd38cf2d7958055fda55"
+    },
+    {
+      "version": "0292",
+      "name": "0292_nx043_guardrails_budget.sql",
+      "sha256": "7f1d534bce38bb0638ce3fb54f69f2b3bb0bf613220e80770dd0b52521aa2224"
+    },
+    {
+      "version": "0293",
+      "name": "0293_nx043_allocation_review.sql",
+      "sha256": "a67293a606a8c7fd8bbf7eefe066b3adc7b7396c969be7ad24839a6d0ecab22b"
+    },
+    {
+      "version": "0294",
+      "name": "0294_nx041_sim_catalog_publish.sql",
+      "sha256": "21e3750a830b8da89ce2c8e00a043fe4bfc2d3ca3f63decd30f014bec4fff798"
+    },
+    {
+      "version": "0295",
+      "name": "0295_nx043_erasure_and_review.sql",
+      "sha256": "5c8c00ef23a5738f7518495ec6a3d8cad6ffe12255893ba1018a5cc2ad6b118d"
+    },
+    {
+      "version": "0296",
+      "name": "0296_nx043_guard_wiring.sql",
+      "sha256": "0263a80f4d9ac7d7126869356925d71d5c81c166f797cebbb715344506ad79cc"
+    },
+    {
+      "version": "0297",
+      "name": "0297_nx043_wiring_review.sql",
+      "sha256": "2969c14fe599967497c359538adb82f344a26d4963f4ad17ada76debb5a502e3"
+    },
+    {
+      "version": "0298",
+      "name": "0298_nx043_report_action.sql",
+      "sha256": "4433247ef2e9d77a2fb42fad4b165bc66cb50f6414deee9ba02ccee15615a7ad"
+    },
+    {
+      "version": "0299",
+      "name": "0299_nx043_pooled_reports.sql",
+      "sha256": "d98e55b6a5bf3a3f0af625e204f3d52ab950a90d735c8b3b10c80f78832f91b7"
     }
   ]
 }
