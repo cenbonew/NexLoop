@@ -72,6 +72,8 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     # An unknown external result of this Consumer: erasure waits for reconciliation and never resends.
     intent=c.submit({'service':'后台退款'})['intent_id']
     fault(admin,"update runtime.nexloop_effect_intents set state='unknown' where intent_id=%s",(intent,))
+    # The Consumer's conversations, taken now: on completion their rows carry a pseudonym (0305, L6 erasure-coverage-1 review 1.1).
+    conversations=[r[0] for r in admin.execute('select conversation_id from runtime.nexloop_conversations where consumer_id=%s',(consumer,)).fetchall()]
     out=act(c['owner_actions'],'erase_consumer','erase-1',consumer_id=consumer,reason='顾客要求删除')
     assert out['state']=='settling' and out['plans_closed']==1 and out['replayed'] is False
     assert act(c['owner_actions'],'erase_consumer','erase-1',consumer_id=consumer,reason='顾客要求删除')['replayed'] is True
@@ -93,8 +95,9 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     assert state=='completed' and phase is None and counts['messages']>=3 and counts['claims']>=2 and counts['commitments']==1
     # Text and identity are gone everywhere they were kept.
     rows=admin.execute("""select m.record->>'body',m.record->>'erased' from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations v
-        on v.tenant_id=m.tenant_id and v.conversation_id=m.conversation_id where v.consumer_id=%s""",(consumer,)).fetchall()
+        on v.tenant_id=m.tenant_id and v.conversation_id=m.conversation_id where v.conversation_id=any(%s)""",(conversations,)).fetchall()
     assert rows and all(r==('','true') for r in rows)
+    assert admin.execute('select count(*) from runtime.nexloop_conversations where consumer_id=%s',(consumer,)).fetchone()==(0,)
     assert admin.execute("select count(*) from ontology.objects where type_name in ('Message','Consumer') and (object_id=%s or object_id=any(%s))",
         (consumer,[reply['message_id'],inbound,source['message_id']])).fetchone()==(0,)
     assert admin.execute("select count(*) from ontology.nexloop_claims where consumer_id=%s and (quote<>'' or not value ? 'erased')",(consumer,)).fetchone()==(0,)
@@ -105,7 +108,8 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     assert admin.execute("select count(*) from runtime.nexloop_commercial_events where customer_ref='cust-1'").fetchone()==(0,)
     assert admin.execute("select consumer_ref from runtime.nexloop_cost_entries where entry_id='discount:c1'").fetchone()==(None,)
     # The receipt is a tombstone without content; the contact restriction stays.
-    receipt=admin.execute("select action,counts from runtime.nexloop_erasure_tombstones where subject_kind='consumer' and subject_key=%s",(consumer,)).fetchone()
+    # Owner 2026-10-21 (0308): the receipt keeps a keyed HMAC of the Consumer id, looked up through runtime.nexloop_erasure_subject_key.
+    receipt=admin.execute("select action,counts from runtime.nexloop_erasure_tombstones where subject_kind='consumer' and subject_key=runtime.nexloop_erasure_subject_key(%s,%s)",(TENANT,consumer)).fetchone()
     assert receipt[0]=='deleted' and receipt[1]['consumer_object']==1
     text=json.dumps(admin.execute('select jsonb_agg(t) from runtime.nexloop_erasure_tombstones t').fetchone()[0],ensure_ascii=False)
     assert '13800000000' not in text and '已为您登记' not in text and 'cust-1' not in text

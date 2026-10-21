@@ -296,6 +296,13 @@ def test_two_real_same_name_consumers_preserve_ambiguous_candidates_and_session_
             with backend._pool.connection() as connection,connection.transaction():
                 prepared=connection.execute('select authz.nexloop_prepare_browser_identity_link(%s,%s,%s,%s)',(valid_session.token_digest,'real',valid_text,valid_signature)).fetchone()[0]
             assert prepared['object_id']==ids[0] and prepared['expected_revision']==1
+            # Owner 2026-10-21: the request_id is keyed with the tenant's erasure key (an unkeyed hash of the Consumer id could be recomputed).
+            import hashlib
+            tenant=valid_session.authentication.tenant_id
+            refs=[r for r in prepared['properties']['external_id_refs'] if r.startswith('nexloop:browser-local:')]
+            keyed={admin.execute("select 'identity-link-'||runtime.nexloop_tenant_hmac(%s,%s)",(tenant,f"{tenant}:real:{prepared['object_id']}:{r}")).fetchone()[0] for r in refs}
+            legacy={'identity-link-'+hashlib.sha256(f"{tenant}:real:{prepared['object_id']}:{r}".encode()).hexdigest() for r in refs}
+            assert prepared['request_id'] in keyed and prepared['request_id'] not in legacy
             digest=valid_session.token_digest;world='real'
             changed=None
             if boundary=='session':

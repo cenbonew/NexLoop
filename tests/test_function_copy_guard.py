@@ -244,6 +244,30 @@ REGISTRY = [
     # NX-043 report leave-out: the same comparison also in the same world (as X4's in_same_comparison).
     Allowed('nx043_leave_out_world', 'runtime.nexloop_experiment_leave_out', 'the same comparison is also the same world; nothing else',
             ((r"\n\s*and o\.registration->>'world'=e\.registration->>'world'[^\n]*", ''),)),
+    # NX-043 X4 wiring: the candidate strategy's levers (runtime.nexloop_experiment_levers) in the decision paths; nothing else.
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_operator_persona_section', 'the candidate strategy persona version (source unchanged)',
+            ((r";v_lever jsonb;", ';'),
+             (r"v_lever:=runtime\.nexloop_experiment_levers\(.*?else v_lever:=null;end if;", ''),
+             (r"coalesce\(\(v_lever->>'version'\)::integer,(runtime\.nexloop_operator_persona_usable\(p_tenant,d\.persona_id\))\)", r'\1'))),
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_outreach_gates', 'the candidate strategy outreach_purposes lever, with its gate entry',
+            ((r";v_lever jsonb;", ';'),
+             (r"v_lever:=runtime\.nexloop_experiment_levers\(.*?'@'\|\|\(v_lever->>'version'\)\);\s*end if;", ''))),
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_outreach_candidates', 'the candidate strategy follow_up_delay_hours; others keep 24 hours',
+            ((r";v_lever jsonb;", ';'),
+             (r"interval '336 hours'", "interval '24 hours'"),
+             (r"if x\.purpose='service_followup' then\s*v_lever:=.*?end if;\s*end if;", ''))),
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_outreach_accept', 'the decision\'s candidate strategy frozen in experiment_strategy',
+            ((r"\n v_lever jsonb;  -- NX-043 X4 wiring", ''),
+             (r"\n v_lever:=runtime\.nexloop_experiment_levers\(p_tenant,p_world,p_consumer\)-'levers';", ''),
+             (r",state,experiment_strategy\)", ',state)'),
+             (r" else 'accepted' end,v_lever\);", " else 'accepted' end);"))),
+    # NX-029 erasure, owner 2026-10-21: keyed deterministic ids from now on (the legacy outreach id kept for replay).
+    Allowed('erasure_keyed_ids', 'runtime.nexloop_outreach_accept', 'owner 2026-10-21: the outreach intent id through the keyed helper; nothing else',
+            ((r" v_id:=runtime\.nexloop_outreach_intent_id\(p_tenant,p_world,p_consumer,p_purpose,p_origin,v_day\);[^\n]*",
+              " v_id:='outreach:'||encode(sha256(convert_to(jsonb_build_array(p_tenant,p_consumer,p_purpose,p_origin,v_day)::text,'UTF8')),'hex');"),)),
+    Allowed('erasure_keyed_ids', 'authz.nexloop_prepare_browser_identity_link', 'owner 2026-10-21: the request_id keyed; definer search_path gains pg_temp',
+            ((r"'identity-link-'\|\|runtime\.nexloop_tenant_hmac\(owner\.tenant_id,owner\.tenant_id\|\|':'\|\|p_world\|\|':'\|\|owner\.consumer_id\|\|':'\|\|ref\),[^\n]*",
+              "'identity-link-'||encode(sha256(convert_to(owner.tenant_id||':'||p_world||':'||owner.consumer_id||':'||ref,'UTF8')),'hex'),"),), PG_TEMP),
 ]
 
 

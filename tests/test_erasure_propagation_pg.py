@@ -103,7 +103,7 @@ def test_consumer_erasure_reaches_plans_formal_objects_and_the_effect_ledger(era
     for table in ('control.nexloop_relay_enrollments','runtime.nexloop_relay_consumer_cursors','runtime.nexloop_relay_claims'):
         assert admin.execute(f'select count(*) from {table} where consumer_id=%s',(consumer,)).fetchone()==(0,)
     assert admin.execute("select subject_key,action,counts from runtime.nexloop_erasure_tombstones where item_class='relay_enrollment'").fetchall()==[
-        (consumer,'deleted',{'relay_enrollments':1,'relay_cursors':1,'relay_claims':1})]
+        (admin.execute('select runtime.nexloop_erasure_subject_key(%s,%s)',(TENANT,consumer)).fetchone()[0],'deleted',{'relay_enrollments':1,'relay_cursors':1,'relay_claims':1})]  # 0308: keyed
     deleted={k for (k,) in admin.execute("select split_part(subject_key,'/',1) from runtime.nexloop_erasure_tombstones where item_class='formal_object' and action='deleted'").fetchall()}
     assert {'RelationshipAssessment','ConsumerRoleLink','Goal','PlanStep','EffectControl','ConsumerServiceOffering'}<=deleted
     # Plans keep their status chain (codes, versions, digests) without text; the Commitment keeps D4 handling.
