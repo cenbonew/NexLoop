@@ -29,6 +29,7 @@ from nexloop_eios.object_edits import GovernedObjectEditor
 from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall,RecallIndexer
 from nexloop_eios.recall_index_worker import RecallInstanceIndexWorker
 from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied
+from support.tenants import SIM_WORLD
 from multi_authority_fixture import seed_multi_authority
 from test_claim_extraction_jobs_pg import EXTRACT_TARGET,QUEUE_TARGET,make_window,registered_provider
 from test_claim_matching_pg import decision,env,matcher,obj,publish_action,resolution  # noqa: F401
@@ -145,8 +146,8 @@ def test_other_tenant_and_world_never_see_or_drain_the_instance(env):
     f=env;admin=f['admin'];drain(index_worker(f))
     targets=instance_targets('Consumer',f['consumer'],('display_name',))
     assert instance_refs(reader(f,targets,suffix='-a-reader'),'张伟')[0]=='eios:object:Consumer/'+f['consumer']
-    # Same grants in the simulation world: real instances are invisible there.
-    assert instance_refs(reader(f,targets,suffix='-sim-reader',world='simulation'),'张伟')==[]
+    # Same grants in a simulation world (NX-041 S1: sim:<uuid>, 'simulation' is no world): real instances are invisible there.
+    assert instance_refs(reader(f,targets,suffix='-sim-reader',world=SIM_WORLD),'张伟')==[]
     # Another tenant holding grants on the same object id: nothing crosses the tenant boundary.
     other=TENANT_OTHER
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(other,))
@@ -157,7 +158,7 @@ def test_other_tenant_and_world_never_see_or_drain_the_instance(env):
     admin.execute("update ontology.objects set properties=properties||'{\"display_name\":\"张伟伟\"}' where object_id=%s",(f['consumer'],))
     pending=feed_rows(admin,'recall-instance')
     assert [(r[0],r[1],r[2]) for r in pending]==[(f['tenant'],'real','Consumer/'+f['consumer'])]
-    for kwargs in ({'tenant':other,'suffix':'-b-indexer'},{'world':'simulation','suffix':'-sim-indexer'}):
+    for kwargs in ({'tenant':other,'suffix':'-b-indexer'},{'world':SIM_WORLD,'suffix':'-sim-indexer'}):
         assert not any(index_worker(f,**kwargs)().run_once().values())
     assert feed_rows(admin,'recall-instance')==pending
 
