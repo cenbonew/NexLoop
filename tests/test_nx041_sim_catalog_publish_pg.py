@@ -147,3 +147,30 @@ def test_a_simulation_definition_does_not_advance_the_authority_revision_and_a_r
             select tenant_id,'test',resource_id,definition,capability,true from control.nexloop_action_definitions where tenant_id=%s and world='real' and resource_id=%s""",
                       (TENANT_A, SERVICE))
     assert revision() == before + 1
+
+
+WRITE = r'(insert\s+into|update|delete\s+from)\s+control\.nexloop_action_definitions\M'
+
+
+def test_a_simulation_definition_has_two_write_paths_only(db):
+    """L6 sim-catalog-publish review 1.3: a simulation world's definitions do not advance the authority revision, which is safe only while
+    they are written by the catalog publication (insert) and leave with the world (S2 whole deletion, after its credentials are revoked).
+    Every other function writing the table writes world 'real' only, and nothing updates the table at all (no deactivation path). A new
+    writer turns this red: it must then get a per-world revision (review §5) before it may touch a simulation world."""
+    admin = db
+    writers = dict(admin.execute(r"""select p.oid::regprocedure::text, p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~* %s""", (WRITE,)).fetchall())
+    assert sorted(writers) == ['authz.nexloop_review_decide_v0082(text,text,text,text,text)', 'authz.nexloop_schema_proposal_publish(text,text,text,text,text)',
+                               'control.nexloop_configure_manifest(text,text,text,text,bytea,jsonb)',
+                               'control.nexloop_governed_publish_sim_catalog(text,text,text,text,text,jsonb)']
+    import re
+    for name, source in writers.items():
+        statements = [m.group(0) for m in re.finditer(WRITE.replace(r'\M', r'\b') + r'[^;]*', source, re.I)]
+        assert statements and not any(s.lower().startswith('update') for s in statements), name  # no deactivation of any definition
+        if 'publish_sim_catalog' not in name:
+            assert all("'real'" in s for s in statements), (name, statements)
+    # The S2 deletion is the only dynamic writer of world rows (format over every table with a world column).
+    dynamic = [r[0] for r in admin.execute(r"""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~* %s""", (r"execute\s+format\('delete\s+from\s+%s",)).fetchall()]
+    assert len(dynamic) == 1 and 'sim_world' in dynamic[0], dynamic
+    assert admin.execute("select count(*) from pg_trigger where tgrelid='control.nexloop_action_definitions'::regclass and not tgisinternal").fetchone()[0] >= 1

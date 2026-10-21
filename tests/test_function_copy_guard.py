@@ -137,7 +137,8 @@ REGISTRY = [
             ((r"\s*when 'clock' then array\['skew_ms','skew_abs_ms','round_trip_ms'\]", ''),)),
     # NX-041 D10 follow-up (0278): a simulation world's Action definitions do not advance the tenant's authority revision.
     Allowed('nx041_sim_catalog_publish', 'authz.nexloop_authority_epoch_guard', 'sim catalog: simulation and shadow Action definitions skip the epoch; definer search_path gains pg_temp',
-            ((r"\s*if tg_table_name='nexloop_action_definitions' then\s*if coalesce\(runtime\.nexloop_world_kind\(\(case when tg_op='DELETE' then to_jsonb\(old\) else to_jsonb\(new\) end\)->>'world'\),''\) in \('simulation','shadow'\) then\s*return null;end if;\s*end if;", ''),), PG_TEMP),
+            ((r"\s*if tg_table_name='nexloop_action_definitions' then\s*(--[^\n]*\s*)?if coalesce\(runtime\.nexloop_world_kind\(\(case when tg_op='DELETE' then to_jsonb\(old\) else to_jsonb\(new\) end\)->>'world'\),''\) in \('simulation','shadow'\)"
+              r"\s*and \(tg_op<>'UPDATE' or coalesce\(runtime\.nexloop_world_kind\(to_jsonb\(old\)->>'world'\),''\) in \('simulation','shadow'\)\) then\s*return null;end if;\s*end if;", ''),), PG_TEMP),
 ]
 
 

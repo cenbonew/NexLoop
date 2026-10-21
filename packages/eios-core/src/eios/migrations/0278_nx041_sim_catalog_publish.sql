@@ -62,11 +62,16 @@ insert into control.nexloop_governed_capabilities(capability,operation,subject_r
 --    re-asserts it at its commit tail, so a governed Action writing definitions - the catalog publication above - would always end
 --    stale. A simulation world's definitions only ever serve that world's own credentials (bound to it alone, D10); they never enter a
 --    real or test decision, and the world's whole deletion revokes those credentials. Every other row keeps advancing the revision.
+--    Premise (L6 review): a simulation definition has two write paths only - this publication (insert) and the S2 whole deletion after
+--    its credentials are revoked; nothing deactivates or updates one (tests/test_nx041_sim_catalog_publish_pg.py guards the writer list).
+--    A path that deactivates a simulation definition must first give the world its own authority revision (review §5).
 create or replace function authz.nexloop_authority_epoch_guard() returns trigger language plpgsql security definer
  set search_path=pg_catalog,pg_temp as $$
 begin
  if tg_table_name='nexloop_action_definitions' then
-  if coalesce(runtime.nexloop_world_kind((case when tg_op='DELETE' then to_jsonb(old) else to_jsonb(new) end)->>'world'),'') in ('simulation','shadow') then
+  -- An update skips only when the old and the new row are both of a simulation world (defence in depth beside 0008's immutability).
+  if coalesce(runtime.nexloop_world_kind((case when tg_op='DELETE' then to_jsonb(old) else to_jsonb(new) end)->>'world'),'') in ('simulation','shadow')
+     and (tg_op<>'UPDATE' or coalesce(runtime.nexloop_world_kind(to_jsonb(old)->>'world'),'') in ('simulation','shadow')) then
    return null;end if;
  end if;
  update control.nexloop_tenants set authority_revision=authority_revision+1

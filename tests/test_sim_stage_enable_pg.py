@@ -166,3 +166,31 @@ def test_dsn_configuration_and_example(tmp_path):
     assert D.load_config((ROOT / 'deploy/examples/sim-dsn-files.example.json').read_text())['db_name'] == 'nexloop_stage'
     example = json.loads((ROOT / 'deploy/examples/sim-world-credentials.example.json').read_text())
     assert set(example) == C.KEYS | C.OPTIONAL and example['uses'] == ['api', 'worker', 'agent']
+
+
+def test_after_the_world_is_deleted_its_old_credentials_are_refused(deployment, admin, tmp_path):  # noqa: F811
+    """L6 sim-catalog-publish review: the whole deletion revokes the world's credentials before its definitions go, so a token issued for
+    the world is refused afterwards (42501), in the deleted world as everywhere else; and the revocation advanced the authority revision."""
+    d = deployment
+    d['apply']()
+    world = world_of(admin)
+    conf = credentials_config(d, tmp_path, world)
+    check = lambda: psycopg.connect(d['pg'], autocommit=True, options='-c default_transaction_read_only=on')  # noqa: E731
+    code, out = run(C.main, ['--config', str(conf)], check_connect=check)
+    assert code == 0 and out['check']['pass'] is True, out
+    import hashlib
+    digests = [hashlib.sha256(p.read_text().encode()).hexdigest() for p in (tmp_path / 'tokens').rglob('*-credential')]
+    revision = lambda: admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s', (TENANT,)).fetchone()[0]  # noqa: E731
+    before = revision()
+    gone = admin.execute("select control.nexloop_governed_delete_sim_world(%s,'real','owner-principal','owner-subject','i-delete',%s)",
+                         (TENANT, Jsonb({'operation': 'delete_sim_world', 'request_id': uuid.uuid4().hex, 'world': world, 'reason': '结束'}))).fetchone()[0]
+    assert gone['status'] == 'deleted', gone
+    assert revision() > before
+    with check() as db:
+        for digest in digests:
+            for w in (world, 'real', 'test'):
+                with pytest.raises(psycopg.Error) as refused, db.transaction():
+                    db.execute('select authz.nexloop_service_identity_snapshot(%s,%s)', (digest, w))
+                assert refused.value.sqlstate == '42501', (w, refused.value.sqlstate)
+    code, checked = run(C.main, ['--config', str(conf), '--check'], check_connect=check)
+    assert code == 1 and checked['ok'] is False
