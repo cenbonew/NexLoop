@@ -24,9 +24,12 @@ services:
     security_opt: [no-new-privileges:true]
     # The token directory, and the input directory the dispatcher filled (configs, DSN files, signing key): 0700 and 0600, NEXLOOP_PG_UID,
     # since the tool reads only private files of its own uid. Rerun after changing an input file. Regular files only, no links.
+    # CAP_CHOWN only (no FOWNER): root may chmod only what it owns. So each path is first given to root (chown, allowed), then
+    # chmod-ed, then given to the target uid - whoever owned it before (docker's bind mount creates a missing directory 0755 root;
+    # the dispatcher's input files are the deploy account's; a rerun finds the target uid's). Dispatcher 2026-10-22 stage finding.
     entrypoint: [python, -c, 'import os,stat,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
-      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,u,g),os.chmod(d,0o700)) for d in ("/sim-tokens","/sim-input")]
-      ;[(os.chown(p,u,g),os.chmod(p,0o600)) for p in (os.path.join("/sim-input",n) for n in os.listdir("/sim-input")) if stat.S_ISREG(os.lstat(p).st_mode)]',
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,0,0),os.chmod(d,0o700),os.chown(d,u,g)) for d in ("/sim-tokens","/sim-input")]
+      ;[(os.chown(p,0,0),os.chmod(p,0o600),os.chown(p,u,g)) for p in (os.path.join("/sim-input",n) for n in os.listdir("/sim-input")) if stat.S_ISREG(os.lstat(p).st_mode)]',
                  '${NEXLOOP_PG_UID:?uid owning the PostgreSQL socket directory required}', '${NEXLOOP_PG_GID:?its gid required}']
     volumes:
       - '${NEXLOOP_SIM_ISSUE_TOKEN_DIR:?private token directory on DATA_HOST required}:/sim-tokens'

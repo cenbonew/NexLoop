@@ -128,8 +128,11 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN]
     security_opt: [no-new-privileges:true]
+    # CAP_CHOWN only (no FOWNER): root may chmod only what it owns. So each path is first given to root (chown, allowed), then
+    # chmod-ed, then given to the target uid - whoever owned it before (docker's bind mount creates a missing directory 0755 root;
+    # the dispatcher's input files are the deploy account's; a rerun finds the target uid's). Dispatcher 2026-10-22 stage finding.
     entrypoint: [python, -c, 'import os,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
-      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,u,g),os.chmod(d,0o700)) for d in ("/sim-secrets","/sim-tokens")]',
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,0,0),os.chmod(d,0o700),os.chown(d,u,g)) for d in ("/sim-secrets","/sim-tokens")]',
                  '${NEXLOOP_SIM_UID:?simulation service uid required}', '${NEXLOOP_SIM_GID:?simulation service gid required}']
     volumes:
       - '${NEXLOOP_SIM_SECRET_DIR:?private simulation secret directory required}:/sim-secrets'
