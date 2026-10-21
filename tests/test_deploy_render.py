@@ -345,6 +345,18 @@ def test_the_metrics_role_authenticates_by_certificate_from_app_host_and_by_scra
     assert lines[-4:] == ['hostnossl all all 0.0.0.0/0 reject', 'hostnossl all all ::/0 reject', 'host all all 0.0.0.0/0 reject', 'host all all ::/0 reject']
 
 
+def test_the_evolution_roles_reach_the_stage_catalog_over_the_local_socket_only(env, tmp_path):
+    """Evolution stage enrollment: the three evolution login roles have one rule - the container-local socket, the stage catalog
+    alone, SCRAM - and no network rule; every address stays refused by the final rejects (the application roles never include them)."""
+    values = render.load_env(env)
+    rules, _ = render.render((STAGE / 'config' / 'pg_hba.conf.template').read_text(), values)
+    lines = [' '.join(l.split()) for l in rules.splitlines() if l.strip() and not l.lstrip().startswith('#')]
+    evolution = [l for l in lines if 'nexloop_evo_' in l]
+    assert evolution == [f"local {values['NEXLOOP_DB']} nexloop_evo_reader,nexloop_evo_writer,nexloop_evo_evaluator scram-sha-256"]
+    assert values['NEXLOOP_DB'] != 'all' and not any(r.startswith('nexloop_evo_') for r in values['APP_PG_ROLES'].split(','))
+    assert lines.index(evolution[0]) < len(lines) - 4 and all('reject' in l for l in lines[-4:])
+
+
 def test_the_claim_workers_reach_postgresql_and_the_model_allowlist_only(env, tmp_path):
     """G-CLAIM-EGRESS: the claim workers' namespace (CLAIM_EGRESS_CIDR, a whitelisted CIDR) reaches DATA_HOST's PostgreSQL and the
     model provider allowlist on 443 only, then its own default drop; the application namespace still never reaches a model address."""

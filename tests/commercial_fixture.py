@@ -81,7 +81,13 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.semantic_release.publish':('Consumer','semantic_release.publish'),'nexloop.semantic_release.rollback':('Consumer','semantic_release.rollback'),'nexloop.semantic_release.stop':('Consumer','semantic_release.stop'),'nexloop.object_view.publish':('Consumer','object_view.publish'),
     'nexloop.sim_world.create':('Consumer','sim_world.create'),'nexloop.sim_world.delete':('Consumer','sim_world.delete'),
     'nexloop.sim_world.generate':('Consumer','sim_world.generate'),  # 0228
-    'nexloop.sim_clock.control':('Consumer','sim_clock.control')}  # 0228
+    'nexloop.sim_clock.control':('Consumer','sim_clock.control'),
+    'nexloop.consumer_twin.publish':('Consumer','consumer_twin.publish'),'nexloop.consumer_twin.retire':('Consumer','consumer_twin.retire'),
+    'nexloop.consumer_twin.erase_text':('Consumer','consumer_twin.erase_text'),
+    'nexloop.consumer_twin.calibrate':('Consumer','consumer_twin.calibrate'),
+    'nexloop.strategy.publish':('Consumer','strategy.publish'),'nexloop.strategy.retire':('Consumer','strategy.retire'),
+    'nexloop.experiment.register':('Consumer','experiment.register'),'nexloop.experiment.start':('Consumer','experiment.start'),
+    'nexloop.experiment.stop':('Consumer','experiment.stop')}  # 0228
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

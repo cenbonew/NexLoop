@@ -159,3 +159,17 @@ P2 实测，每次单独收回一项授权：
 | sim_worker：`select control.schema_migrations` / `usage on schema control` | 打开后端：没有权限 |
 | sim_guard：`read_action_bundle` / `role_run_hint` | Host 启动 Run：guard 返回 `runtime_authorization_unavailable` |
 | sim_guard：`select control.schema_migrations` | guard 进程起不来：`guard worker unavailable` |
+
+## 负责人 2026-10-21 扩展 D10：新增 twin 用途（NX-042 T3）
+
+- **第 4 种用途 `twin`**：每个 sim world 新增一种凭据用途，供消费者孪生的端口使用。它只绑定这一个 world，只能调用孪生端口的三个入口：`authz.nexloop_twin_bind`、`_observe`、`_act`。
+- **迁移 `0284_nx042_twin_credential.sql`**（临时编号）：
+  - `sim_use` 的 CHECK 改为 `nexloop_service_credentials_sim_use_kind`，接受 api、worker、agent、twin 四种；
+  - 部分唯一索引不变，仍是每个 world、每种用途只能有一个 active；
+  - `authz.nexloop_sim_world_credential_check` 只改了报错文字，列出四种用途；
+  - 受信配置 manifest 的 `control.nexloop_configure_manifest`（0274 的函数体）接受 `twin`；
+  - 这两处重定义都已在复制件守护里登记；
+  - Python 侧 `trusted_configuration` 同步接受 `twin`。
+- **端口入口**：通过 `authz.nexloop_twin_port_tenant` 只接受本 world 的 twin 凭据；api、worker、agent 凭据一律报 `twin port: credential_use`。
+- **删除 world**：S2 的删除会吊销该 world 的全部凭据，所以四种一起吊销，删除测试的计数从 3 改为 4。
+- **测试**：manifest 测试覆盖四种用途；T3 测试补了 api、worker、agent 凭据被拒的负例，以及“每个 world 只能有一个 active 的 twin 凭据”；T7 的端到端测试改用 twin 凭据认证端口。

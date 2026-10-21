@@ -1,0 +1,37 @@
+{
+  "schema": "nexloop-s6-stage/1",
+  "executor": "<who runs it (dispatcher line)>",
+  "release": "<release id>",
+  "tenant_id": "<TENANT_ID>",
+  "results_dir": "<LOCAL_RESULTS_DIR>",
+  "roles": {
+    "writer": {"dsn_file": "<EVO_WRITER_DSN_FILE_0600>", "token_file": "<EVO_WRITER_TOKEN_FILE_0600>"},
+    "evaluator": {"dsn_file": "<EVO_EVALUATOR_DSN_FILE_0600>", "token_file": "<EVO_EVALUATOR_TOKEN_FILE_0600>"},
+    "reader": {"dsn_file": "<EVO_READER_DSN_FILE_0600>", "token_file": "<EVO_READER_TOKEN_FILE_0600>"},
+    "evaluation": {"token_file": "<TEST_ONLY_EVALUATION_TOKEN_FILE_0600>"},
+    "inspector": {"dsn_file": "<BOOTSTRAP_DSN_FILE_0600 (read-only probes only; set read only on connect)>"},
+    "verify": {"dsn_file": "<READ_ONLY_APPLICATION_DSN_FILE_0600>"}
+  },
+  "owner": {"origin": "https://<APP_HOST_NAME>:<PORT>", "ca_file": "<GATEWAY_CA_FILE>", "username_file": "<OWNER_USERNAME_FILE_0600>"},
+  "inputs": {
+    "candidate_template": "<CANDIDATE_TEMPLATE_JSON_0600 (written by s6_stage_evolution.py candidate-template)>",
+    "evolution": {
+      "window": {"since": "<ISO TIME WITH ZONE>", "until": "<ISO TIME WITH ZONE>"},
+      "personas": ["simulated_agent"],
+      "label": "<RUN LABEL, e.g. s6-stage-20261021-1>",
+      "parent_revision": "<PUBLISHED SEMANTIC REVISION>",
+      "evaluator_version": "l0-2",
+      "model_profile": "none",
+      "created_at": "<ISO TIME, frozen for the run>",
+      "l0_inputs": {"latency_ms": {"parent": [10.0, 10.0, 10.0], "candidate": [10.5, 10.5, 10.5]}},
+      "protected_refs": ["<A CONTACT-LIMIT OR REFUSAL DEFINITION REF>"],
+      "erasure_consumer_id": null
+    },
+    "schema_type": "Consumer",
+    "new_property": "s6_preferred_store",
+    "new_type": "S6Voucher",
+    "escalation_action": "eios:action:Grant.issue:1",
+    "reflow_amount": "0.01",
+    "semantic": {"candidate_id": "<ACCEPTED_SEMANTIC_CANDIDATE_ID (from s6_stage_evolution.py at023, the L0 candidate)>", "items": [{"kind": "alias", "ref": "<DEFINITION_REF>", "text": "<SYNTHETIC_ALIAS>"}], "reason": "S6-R6 发布（合成）"}
+  }
+}

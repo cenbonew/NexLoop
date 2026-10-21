@@ -9,6 +9,11 @@ local   all            nexloop_backup_recorder                             scram
 # NX-032 §3b: the configurator only over the container-local socket, only while `stage_secrets.py register --bootstrap-dsn-file`
 # holds its login window (the role is NOLOGIN without a password otherwise, so this line admits nobody).
 local   all            nexloop_configurator                                scram-sha-256
+# Evolution (NX-038/NX-039, stage enrollment 2026-10-21): the three evolution login roles over the container-local socket only, in
+# the stage catalog only, with their SCRAM passwords (set in the bootstrap window; without one the line admits nobody). The
+# enrollment tool and the S6 acceptance run in one-off DATA_HOST containers on the mounted socket directory, like the migration;
+# no network entry (no hostssl line), so APP_HOST and every other address stay refused below.
+local   __NEXLOOP_DB__ nexloop_evo_reader,nexloop_evo_writer,nexloop_evo_evaluator scram-sha-256
 # G-METRICS-DSN: the read-only metrics role (execute on the export, readiness and backup status functions only, 0131/0151/0161).
 # From APP_HOST (deploy gate, real_tenant_init verify) with its client certificate alone (CN nexloop_metrics, no password); this
 # line precedes the application line below, so the first match is certificate authentication. On DATA_HOST, `nexloop-doctor

@@ -1668,6 +1668,213 @@
       },
       "schema_hash": "e735e18d35d18f277095f35f210dd07271eaf8f5b4748db7ce15168ed12171eb",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_consumer_twin",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "f18955ac8b7da747e89cf8340a549b62d78e5b41ccfa322cea6f9cf137fe4aae",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.retire",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "retire_consumer_twin",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5dffa4e194b1babab2909caa3d3b1ef89664b641add6e971646abb04f7adcf42",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.erase_text",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "erase_consumer_twin_text",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "0452b2253e82b70643fa53ed9c50ccf0e4f8cee94e042d9d332fd451303f43e6",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.calibrate",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "calibrate_consumer_twin",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "190839b0f1a9549b76c9b3598e6e114d5fd137ab585816b160f9cf4c1f4cf60d",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "strategy.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_strategy",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "3049cdafdc2b8016edf31f8a4c380b7fcbfe41f464f1544c5eebba588f64660d",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "strategy.retire",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "retire_strategy",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5e0d0f8a9d657bfc551fa577b31c18b634342c117d8ca41fbaa4df060b7a0443",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "experiment.register",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "register_experiment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "399e2340fbee5d0ed86ba63ea93ec4182679e0b79dc00400de66fb6160e6f8a9",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "experiment.start",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "start_experiment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "482e3b0d488e51b0cfec2b4a8608f703d3a17b8f63e00889e1d2c22311b6db40",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "experiment.stop",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "stop_experiment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "3ac18edde32d4726a1f8e3f5e3d9c3491aa0432db1e356953b4c7cf6ee0ae262",
+      "side_effects_reason": null
     }
   ]
 }

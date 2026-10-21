@@ -518,12 +518,13 @@ def test_row_security_never_hides_a_tenants_rows_from_the_deletion(db):
     assert hidden == []
 
 
-def test_deleting_a_world_revokes_its_three_credentials(db):
-    """D10: the world's api, worker and agent credentials all stop at its deletion; another world's are untouched."""
+def test_deleting_a_world_revokes_its_four_credentials(db):
+    """D10 (extended by the owner 2026-10-21 with twin): the world's api, worker, agent and twin credentials all stop at its deletion;
+    another world's are untouched."""
     a, b = create(db)['world'], create(db)['world']
     tokens = {use: seed_authority(db, TENANT_A, 'eios:artifact:' + c * 32, world=a, identity_suffix=f'-d10-{use}', sim_use=use)[0]
-              for use, c in (('api', '1'), ('worker', '2'), ('agent', '3'))}
+              for use, c in (('api', '1'), ('worker', '2'), ('agent', '3'), ('twin', '5'))}
     other, _ = seed_authority(db, TENANT_A, 'eios:artifact:' + '4' * 32, world=b, identity_suffix='-d10-b', sim_use='worker')
-    assert all(identity(db, t, a)['binding']['tenant_id'] == TENANT_A for t in tokens.values())  # positive control: all three active
-    assert delete(db, a)['credentials_revoked'] == 3
+    assert all(identity(db, t, a)['binding']['tenant_id'] == TENANT_A for t in tokens.values())  # positive control: all four active
+    assert delete(db, a)['credentials_revoked'] == 4
     assert all(denied(db, t, a) for t in tokens.values()) and identity(db, other, b)['binding']['tenant_id'] == TENANT_A

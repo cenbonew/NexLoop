@@ -152,6 +152,14 @@ def create_app(config:ApiConfiguration):
             return review_workbench_ports(backend, inspected_session)
         app.include_router(workbench_review_router(config.workbench, ports_for_browser=workbench_review_ports,
             prefix='/api/v1/workbench/review-decisions', cookie=WORKBENCH_COOKIE, store_attribute='workbench_store'))
+        from nexloop_eios.schema_publication_http import SchemaPublicationPorts, router as schema_publication_router
+        def schema_publication_ports(request, inspected_session):
+            backend = getattr(request.app.state, 'backend', None)
+            if backend is None:
+                raise BackendClosed('backend is unavailable')
+            # NX-040 F3/F4: the existing SchemaPublicationPort for the member's Human workbench session (ontology.schema.review).
+            return SchemaPublicationPorts(backend, inspected_session)
+        app.include_router(schema_publication_router(config.workbench, ports_for_browser=schema_publication_ports, cookie=WORKBENCH_COOKIE))
     # NX-027 signed commercial webhook: the connector signature authenticates (no session).
     from nexloop_eios.commercial_http import router as commercial_router
     app.include_router(commercial_router())

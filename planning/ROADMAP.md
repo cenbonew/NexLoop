@@ -200,6 +200,7 @@ CI 主机就是规划中的 APP_HOST。下列占用互斥，同一时间只做�
 | 2026-10-18 | S5 收尾：“最终验收发布”在 AT-072 演练及其文档修订之后冻结，此后只接受修复；NX-033 主机切换定在 10/20 周二（10/19 先做只读可行性检查） | docs/implementation/s5-closeout-gaps.md；docs/release/run-nx033-switch-20261020.md |
 | 2026-10-18 | NX-033 切换走方案 L：用户隔离加按 UID 的 nft，AT-054 用主机层探测取证；方案 P（rootless Podman 运行器与 CI 镜像）改为 v0.1 之后的主机配置任务；CI 测试阶段没有独立网络命名空间这一点列为已知风险（中） | docs/release/run-nx033-switch-20261020.md §1.3；docs/release/known-risks-v0.1.md §4 |
 | 2026-10-21 | NX-041 D10 放宽（按推荐）：每个模拟世界三个凭据（api、worker、agent），每个只绑定这一个世界，删除世界时一并吊销；D2 补充：每租户最多 20 个 active 模拟世界，默认 30 天到期自动整体删除，期限不超过 30 天 | docs/implementation/NX-041-design.md §9.2；docs/implementation/NX-041-overview.md §2–§3 |
+| 2026-10-21 | NX-042 实现参数（调度员在 D 项框架内定，不是新的负责人决定）：孪生区间最小宽度 0.01（D4）；多窗口合并至少 20 个单元才给校准结论（D3）；端口角色对原始 act 的执行权已收回，孪生事件只经孪生端口写入 | docs/implementation/NX-042-overview.md §2–§5 |
 
 待决：见 §6“下一道关卡的决定”。
 

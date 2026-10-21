@@ -1,0 +1,18 @@
+{
+  "schema": "nexloop-experiment-registration/1",
+  "experiment_id": "followup.timing",
+  "stage": "screening",
+  "world": "sim:00000000-0000-4000-8000-000000000001",
+  "hypothesis": "服务回访延后到 48 小时，回复率不低于 24 小时",
+  "candidate": {"strategy_id": "followup.later", "version": 1},
+  "control": {"strategy_id": "followup.default", "version": 1},
+  "twin": {"twin_id": "trial.service_consumer", "version": 1},
+  "primary_metric": {"key": "reply_within_24h", "direction": "increase"},
+  "guardrails": {"refusal_or_unsubscribe_rate_delta": 0.02},
+  "sample_size": {"candidate": 20, "control": 20},
+  "maturity": {"window_days": 14},
+  "budget": {"model_cny": 10, "incentive_cny": 0},
+  "ends_at": "2026-12-31T00:00:00Z",
+  "allocation_seed": 20261021,
+  "frozen": {"registration_digest": "0000000000000000000000000000000000000000000000000000000000000000", "status": "registered"}
+}

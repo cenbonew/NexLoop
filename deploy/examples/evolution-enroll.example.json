@@ -1,0 +1,11 @@
+{
+  "schema": "nexloop-evolution-enroll/1",
+  "tenant_id": "<TENANT_ID>",
+  "secret_dir": "<STAGE_SECRET_DIR>/evolution",
+  "configurator_database_url_file": "<CONFIGURATOR_DSN_FILE>",
+  "registry_database_url_file": "<BOOTSTRAP_WINDOW_DSN_FILE>",
+  "signing_key_file": "<MANAGEMENT_SIGNING_KEY_HEX_FILE>",
+  "signing_key_id": "<SIGNING_KEY_ID>",
+  "credential_expires_at": "2027-01-31T00:00:00+00:00",
+  "registered_by": "owner-config:<DATE>"
+}

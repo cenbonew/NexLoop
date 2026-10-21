@@ -18,7 +18,7 @@ from nexloop_eios import consumer_port as P
 from nexloop_eios.sim_context import register_sim_context
 from support.tenants import TENANT_A, TENANT_B
 from test_nx041_host_sim_context_pg import command, node_render
-from test_nx041_s7_pg import consumers, digest, port, s7  # noqa: F401
+from test_nx041_s7_pg import consumers, digest, port, s7, s7_raw  # noqa: F401
 
 
 def run_credential(admin, world, token):
@@ -48,8 +48,8 @@ def bind_run(admin, world, run, input_digest, tenant=TENANT_A):
 
 
 @pytest.fixture
-def ctx(s7):
-    f = s7
+def ctx(s7_raw):
+    f = s7_raw
     c = consumers(f['admin'], f['a'])[0]
     twin = P.TwinStub(seed='ref-ctx')
     events = [port(f).act(twin.act(c, step)) for step in range(1, 5)]

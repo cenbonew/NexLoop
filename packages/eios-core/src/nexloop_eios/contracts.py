@@ -204,6 +204,28 @@ class ConsumerPortEventFrozen(BaseModel):
     output_kind: Literal['simulated_input']
     origin: Literal['twin']
 
+class ConsumerTwinHypothesesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    key: str
+    statement: str
+    kind: Literal['hypothesis']
+
+class ConsumerTwinParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    behaviors: dict[str, Any]
+
+class ConsumerTwinFrozenCalibration(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    report_ref: None | str
+    status: Literal['uncalibrated', 'calibrated']
+
+class ConsumerTwinFrozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    version: int
+    definition_digest: str
+    calibration: ConsumerTwinFrozenCalibration
+    status: Literal['published', 'retired']
+
 class ContactRestrictionViewRestrictionsItemHitsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     message_id: str
@@ -762,6 +784,52 @@ class EvolutionEvaluationReportCost(BaseModel):
     amount: str
     unit: str
 
+class ExperimentRegistrationCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    strategy_id: str
+    version: int
+
+class ExperimentRegistrationControl1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    strategy_id: str
+    version: int
+
+class ExperimentRegistrationTwin1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    twin_id: str
+    version: int
+
+class ExperimentRegistrationPrimaryMetric(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    key: str
+    direction: Literal['increase', 'decrease']
+
+class ExperimentRegistrationGuardrails(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    refusal_or_unsubscribe_rate_delta: float | int | None = None
+    reconciliation_anomalies: Literal[0] | None = None
+    stop_on_budget_exhausted: Literal[True] | None = None
+
+class ExperimentRegistrationSampleSize(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    candidate: int
+    control: int
+
+class ExperimentRegistrationMaturity(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    window_days: int | None = None
+    min_samples_per_group: int | None = None
+
+class ExperimentRegistrationBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    model_cny: float | int
+    incentive_cny: Literal[0]
+
+class ExperimentRegistrationFrozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    registration_digest: str
+    status: Literal['registered', 'started', 'stopped']
+
 class OntologyMutationOperationsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     op: Literal['create_object', 'set_property', 'invalidate_property', 'link_relation', 'end_relation', 'supersede_claim']
@@ -862,6 +930,17 @@ class SchemaProposalSource(BaseModel):
     candidate_definition_ids: list[str]
     claim_ids: list[str]
 
+class StrategyVersionLeversPersona(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    persona_id: str
+    version: int
+
+class StrategyVersionLevers(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    follow_up_delay_hours: int | None = None
+    persona: StrategyVersionLeversPersona | None = None
+    outreach_purposes: dict[str, Any] | None = None
+
 class TrajectorySampleModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     calls: int
@@ -879,6 +958,68 @@ class TrajectorySampleRecoveredToolErrorsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     tool: str
     code: str
+
+class TwinCalibrationReportWindowsItemGroupsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    group: str
+    consumers: int
+
+class TwinCalibrationReportWindowsItemExcluded(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    non_real_persona: int | str
+    erasing: int | str
+    in_reference_window: int | str
+
+class TwinCalibrationReportWindowsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    window: int
+    split_at: str
+    span_days: Literal[28, 56, 84]
+    reference: list[str]
+    calibration: list[str]
+    reference_consumers_excluded: int | str
+    input_digest: str
+    groups: list[TwinCalibrationReportWindowsItemGroupsItem]
+    suppressed: list[Literal['all', 'daypart']]
+    excluded: TwinCalibrationReportWindowsItemExcluded
+    cells: int
+
+class TwinCalibrationReportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source: Literal['authz.nexloop_twin_calibration_aggregates']
+    min_group_consumers: Literal[30]
+    input_digest: str
+
+class TwinCalibrationReportMetricsCellsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    behavior: str
+    window: int
+    group: str
+    consumers: int
+    observed_rate: float | int
+    low: float | int
+    high: float | int
+    nominal_coverage: float | int
+    covered: bool
+    brier: float | int
+
+class TwinCalibrationReportMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    cells: list[TwinCalibrationReportMetricsCellsItem]
+    cell_count: int
+    covered_cells: int
+    coverage: float | int | None
+    nominal_coverage: float | int | None
+    coverage_band: list[float | int] | None
+    min_cells: Literal[16]
+    brier: float | int | None
+    uncalibrated_behaviors: list[str]
+
+class TwinCalibrationReportAttempts(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    attempt: int
+    recent_verdicts: list[Literal['passed', 'failed']]
+    k: Literal[3]
 
 class WorkbenchArtifactsItemsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -1145,6 +1286,16 @@ class ConsumerPortEvent(_Contract):
     frozen: ConsumerPortEventFrozen | None = None
     replayed: bool | None = None
 
+class ConsumerTwin(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:consumer-twin","title":"consumer-twin","description":"NX-042 T1 (design §2, D1, D4, D5, D7): one version of a consumer twin - the explicit hypotheses, the decision-layer parameters and the generator version. Hypotheses are statements, never facts. Every behaviour parameter is an interval (D4: no single probability). A twin holds no real content (D5): parameters and hypotheses only; it is kept for good and is not deleted with a simulation world (its events in a world are, NX-041 D2). The owner publishes a version through a governed Action (D7); the server assigns the version, freezes it, keeps the publisher\'s calibration report reference (informational) and keeps its status as appended events (published, retired). Its calibration is a separate appended event (report reference, verdict, time; written by NX-042 T5 after checking the report); the frozen calibration status is derived from the latest event, uncalibrated without a passed one, and NX-043 cannot select an uncalibrated version. Hypothesis statements and the description must not look like real content (an email, 7+ digits, a member-style number, a 32+ hex identifier). They are stored apart in an erasable side table (D5): the frozen definition and its definition_digest hold only \'sha256:<hex>\' of each text and normalised numbers, so the owner can erase the texts (governed erase_consumer_twin_text) while the version and its digest stay traceable. generator_version must be on the server\'s controlled generator list (generator_unknown otherwise); whether a generator calls a model is the list\'s, never the publisher\'s.","type":"object","additionalProperties":false,"required":["schema","twin_id","hypotheses","parameters","generator_version"],"properties":{"schema":{"const":"nexloop-consumer-twin/1"},"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"description":{"type":"string","maxLength":500},"hypotheses":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["key","statement","kind"],"properties":{"key":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"statement":{"type":"string","minLength":1,"maxLength":500},"kind":{"const":"hypothesis"}}}},"parameters":{"type":"object","additionalProperties":false,"required":["behaviors"],"properties":{"behaviors":{"type":"object","minProperties":1,"maxProperties":32,"propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["low","high","coverage","hypotheses"],"description":"A behaviour\'s probability as an interval at its nominal coverage, and the hypotheses it rests on. D4: high - low >= 0.01 (low = high would be a single probability); JSON Schema cannot compare the two, so SQL (runtime.nexloop_twin_min_interval_width) and nexloop_eios.consumer_twins enforce it, and the bounds below keep both ends off the degenerate edges.","properties":{"low":{"type":"number","minimum":0,"maximum":0.99},"high":{"type":"number","minimum":0.01,"maximum":1},"coverage":{"type":"number","exclusiveMinimum":0.5,"exclusiveMaximum":1},"hypotheses":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}}}}}},"generator_version":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,39}/[0-9]+$"},"frozen":{"type":"object","additionalProperties":false,"description":"Server-derived at publication, never accepted from the publisher.","required":["version","definition_digest","calibration","status"],"properties":{"version":{"type":"integer","minimum":1},"definition_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"calibration":{"type":"object","additionalProperties":false,"required":["report_ref","status"],"properties":{"report_ref":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^twin-calibration:[0-9a-f]{64}$"}]},"status":{"enum":["uncalibrated","calibrated"]}}},"status":{"enum":["published","retired"]}}}}}')
+    schema: Literal['nexloop-consumer-twin/1']
+    twin_id: str
+    description: str | None = None
+    hypotheses: list[ConsumerTwinHypothesesItem]
+    parameters: ConsumerTwinParameters
+    generator_version: str
+    frozen: ConsumerTwinFrozen | None = None
+
 class ContactRestrictionView(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:contact-restriction-view","title":"contact-restriction-view","description":"NX-028 (D8). The owner workbench\'s read projection of contact restrictions and reply escalations (ADR-023, 0109). A refusal hit\'s `matched_text` is the customer\'s own words: it is present only when the reader also holds that Message\'s READ (`matched_text_status` ok), otherwise null with status restricted (shown as \\"rule <rule_id> matched; text needs authorization\\"). Only the owner can release a restriction (ADR-023 §2.4); a release never replays refused intents. Server-derived; grants nothing.","type":"object","additionalProperties":false,"properties":{"restrictions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["consumer_id","active","control_revision","message_id","conversation_id","rule_version","rule_id","certainty","matched_text","matched_text_status","restricted_at","released_at","released_by","release_reason","hits"],"properties":{"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"active":{"type":"boolean"},"control_revision":{"type":"integer","minimum":1},"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"restricted_at":{"type":"string","minLength":1,"maxLength":64},"released_at":{"type":["string","null"]},"released_by":{"type":["string","null"]},"release_reason":{"type":["string","null"]},"hits":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","rule_version","rule_id","certainty","matched_text","matched_text_status","recorded_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"rule_version":{"type":"integer","minimum":1},"rule_id":{"type":"string","minLength":1,"maxLength":128},"certainty":{"enum":["refuse","uncertain"]},"matched_text":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"matched_text_status":{"enum":["ok","restricted"]},"recorded_at":{"type":"string","minLength":1,"maxLength":64}}}}}}},"escalations":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["message_id","conversation_id","consumer_id","reason","detail","escalated_at"],"properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"reason":{"type":"string","pattern":"^[a-z_]{1,64}$"},"detail":{"type":"object"},"escalated_at":{"type":"string","minLength":1,"maxLength":64}}}}},"required":["restrictions","escalations"]}')
     restrictions: list[ContactRestrictionViewRestrictionsItem]
@@ -1311,6 +1462,25 @@ class EvolutionEvaluationReport(_Contract):
     change_class: Literal['patch', 'minor', 'major', 'refused'] | None = None
     reproduced: bool | None = None
 
+class ExperimentRegistration(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:experiment-registration","title":"experiment-registration","description":"NX-043 X1 (design §2-§5, D2-D6, D9): the preregistration of an experiment, frozen at registration (D3): hypothesis (a hypothesis, never a fact), the candidate and control strategy versions (control null: the current policy), the twin version a screening uses (null when none), the primary metric, the guardrails, the sample sizes, the maturity window, the budget, the end time and the allocation seed. Every field is required (registration_incomplete otherwise). Guardrail and maturity members left out take the defaults of D4 and D6 (refusal or unsubscribe rate at most 2 points above control, no reconciliation anomaly, stop when the budget is exhausted; 14-day maturity window, 30 matured samples per group); a given value may only be tighter. D2: at most 20 candidate consumers and a control group at least as large. D1/D5: no incentive budget in the first batch. The stage decides the world: screening in a simulation world with a twin, shadow in a shadow world, online in real. Starting checks the registration again: a selected twin must be calibrated now (D9). No field opens real dispatch, and a registration that mentions it is refused. The frozen part is server-derived.","type":"object","additionalProperties":false,"required":["schema","experiment_id","stage","world","hypothesis","candidate","control","twin","primary_metric","guardrails","sample_size","maturity","budget","ends_at","allocation_seed"],"properties":{"schema":{"const":"nexloop-experiment-registration/1"},"experiment_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"stage":{"enum":["screening","shadow","online"]},"world":{"type":"string","pattern":"^(real|sim:[0-9a-f-]{36}|shadow:[0-9a-f-]{36})$"},"hypothesis":{"type":"string","minLength":1,"maxLength":500},"candidate":{"type":"object","additionalProperties":false,"required":["strategy_id","version"],"properties":{"strategy_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1}}},"control":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["strategy_id","version"],"properties":{"strategy_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1}}}]},"twin":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["twin_id","version"],"properties":{"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1}}}]},"primary_metric":{"type":"object","additionalProperties":false,"required":["key","direction"],"properties":{"key":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"direction":{"enum":["increase","decrease"]}}},"guardrails":{"type":"object","additionalProperties":false,"properties":{"refusal_or_unsubscribe_rate_delta":{"type":"number","exclusiveMinimum":0,"maximum":0.02},"reconciliation_anomalies":{"const":0},"stop_on_budget_exhausted":{"const":true}}},"sample_size":{"type":"object","additionalProperties":false,"required":["candidate","control"],"properties":{"candidate":{"type":"integer","minimum":1,"maximum":20},"control":{"type":"integer","minimum":1,"maximum":99999}}},"maturity":{"type":"object","additionalProperties":false,"properties":{"window_days":{"type":"integer","minimum":14,"maximum":90},"min_samples_per_group":{"type":"integer","minimum":30,"maximum":99999}}},"budget":{"type":"object","additionalProperties":false,"required":["model_cny","incentive_cny"],"properties":{"model_cny":{"type":"number","minimum":0,"maximum":100},"incentive_cny":{"const":0}}},"ends_at":{"type":"string","format":"date-time"},"allocation_seed":{"type":"integer","minimum":0,"maximum":2147483647},"frozen":{"type":"object","additionalProperties":false,"description":"Server-derived at registration, never accepted from the owner.","required":["registration_digest","status"],"properties":{"registration_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"status":{"enum":["registered","started","stopped"]}}}}}')
+    schema: Literal['nexloop-experiment-registration/1']
+    experiment_id: str
+    stage: Literal['screening', 'shadow', 'online']
+    world: str
+    hypothesis: str
+    candidate: ExperimentRegistrationCandidate
+    control: None | ExperimentRegistrationControl1
+    twin: None | ExperimentRegistrationTwin1
+    primary_metric: ExperimentRegistrationPrimaryMetric
+    guardrails: ExperimentRegistrationGuardrails
+    sample_size: ExperimentRegistrationSampleSize
+    maturity: ExperimentRegistrationMaturity
+    budget: ExperimentRegistrationBudget
+    ends_at: str
+    allocation_seed: int
+    frozen: ExperimentRegistrationFrozen | None = None
+
 class OntologyMutation(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:ontology-mutation","title":"ontology-mutation","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"proposal_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"extraction_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"source_content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"extractor_version":{"type":"string","minLength":1},"ontology_schema_revision":{"type":"string","minLength":1},"business_intent_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"risk_class":{"enum":["low","medium","high"]},"rationale_summary":{"type":"string","minLength":1,"maxLength":2000},"epistemic_kind":{"enum":["user_statement","verified_fact","preference","constraint","intent","need_problem","commitment","hypothesis","correction"]},"operations":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"op":{"enum":["create_object","set_property","invalidate_property","link_relation","end_relation","supersede_claim"]},"target_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"type_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"expected_revision":{"type":["integer","null"],"minimum":1},"property_name":{"type":"string","minLength":1},"value":{},"relation_type_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"to_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"valid_from":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"valid_to":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"evidence_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"minItems":1,"maxItems":256}},"required":["op","target_ref","expected_revision","evidence_refs"],"allOf":[{"if":{"properties":{"op":{"const":"create_object"}}},"then":{"required":["type_ref","value"],"properties":{"expected_revision":{"type":"null"}}}},{"if":{"properties":{"op":{"const":"set_property"}}},"then":{"required":["property_name","value"],"properties":{"expected_revision":{"type":"integer","minimum":1}}}},{"if":{"properties":{"op":{"const":"invalidate_property"}}},"then":{"required":["property_name"],"properties":{"expected_revision":{"type":"integer","minimum":1}}}},{"if":{"properties":{"op":{"const":"link_relation"}}},"then":{"required":["relation_type_ref","to_ref"],"properties":{"expected_revision":{"type":"integer","minimum":1}}}},{"if":{"properties":{"op":{"enum":["end_relation","supersede_claim"]}}},"then":{"properties":{"expected_revision":{"type":"integer","minimum":1}}}}]},"minItems":1,"maxItems":256},"conflict_policy":{"const":"reject_and_reassess"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["schema_version","proposal_id","tenant_id","world_id","mode","extraction_ref","source_content_hash","extractor_version","ontology_schema_revision","business_intent_ref","risk_class","rationale_summary","epistemic_kind","operations","conflict_policy","created_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
@@ -1406,6 +1576,13 @@ class SchemaProposal(_Contract):
     permit_ref: str | None
     frozen_at: str
 
+class StrategyVersion(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:strategy-version","title":"strategy-version","description":"NX-043 X1 (design §3, D1): one version of a strategy an experiment compares. Only low-risk levers (D1): follow-up timing in hours, a choice among published operator persona versions, and switches of listed non-marketing outreach purposes. Price, incentives and marketing consent are no lever; any other lever is refused (lever_not_allowed). The persona version must be published and every purpose must be a listed purpose that is not marketing and needs no consent, checked by the server against the tenant. The owner publishes a version through a governed Action; the server assigns the version, freezes it and keeps its status as appended events (published, retired). A strategy decides nothing about real dispatch.","type":"object","additionalProperties":false,"required":["schema","strategy_id","levers"],"properties":{"schema":{"const":"nexloop-strategy-version/1"},"strategy_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"description":{"type":"string","minLength":1,"maxLength":500},"levers":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"follow_up_delay_hours":{"type":"integer","minimum":1,"maximum":336},"persona":{"type":"object","additionalProperties":false,"required":["persona_id","version"],"properties":{"persona_id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"},"version":{"type":"integer","minimum":1,"maximum":999999}}},"outreach_purposes":{"type":"object","minProperties":1,"maxProperties":16,"propertyNames":{"pattern":"^[a-z][a-z0-9_.]{0,63}$"},"additionalProperties":{"type":"boolean"}}}}}}')
+    schema: Literal['nexloop-strategy-version/1']
+    strategy_id: str
+    description: str | None = None
+    levers: StrategyVersionLevers
+
 class TrajectorySample(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:trajectory-sample","title":"trajectory-sample","description":"NX-038 E2 (design §11.2, D10/D11): one trajectory sample a diagnosis reads, from either route with one shape: the database route (authz.nexloop_evo_trace_runs as nexloop_evo_reader; one issued Run) or the evidence-pack route (one NX-037 interaction record). Identifiers, codes, counts and times only: never a message body, Claim value, prompt, quote or credential. `persona` is the served Consumer\'s ADR-034 persona (D12, always labelled; null when the Run serves no Consumer or the record carries none); test-stack records never reach a formal diagnosis (§11.3). A sample is input to diagnosis, never a business fact. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["schema_version","source","run_id","interaction_id","run_kind","scenario","issued_at","consumer_id","persona","test_stack","outcome","error_code","model","tool_calls","intents","intent_ids","refusals","failures","recovered_tool_errors","receipts","reconciliation"],"properties":{"schema_version":{"const":"1.0"},"source":{"enum":["database","evidence_pack"]},"run_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"interaction_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"run_kind":{"enum":["message","fallback","role","other",null]},"scenario":{"enum":["ordinary_reply","real_delivery","restricted_after_refusal","human_takeover","unknown_reconciliation",null]},"issued_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time"}]},"consumer_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"persona":{"enum":["real","simulated_agent","synthetic",null]},"test_stack":{"type":"boolean"},"outcome":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]},"error_code":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]},"model":{"type":"object","additionalProperties":false,"required":["calls","failed","unknown"],"properties":{"calls":{"type":"integer","minimum":0},"failed":{"type":"integer","minimum":0},"unknown":{"type":"integer","minimum":0}}},"tool_calls":{"type":"integer","minimum":0},"intents":{"type":"object","propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"integer","minimum":0}},"intent_ids":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}},"refusals":{"type":"object","propertyNames":{"pattern":"^[A-Za-z0-9_]{1,64}$"},"additionalProperties":{"type":"integer","minimum":0}},"failures":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_detail":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_tool":{"type":"string","pattern":"^(nexloop\\\\.[a-z][a-z_.]{0,63}|unregistered_tool)$"}}}},"recovered_tool_errors":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["tool","code"],"properties":{"tool":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z_.]{0,63}$"},"code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}}},"receipts":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}},"reconciliation":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]}}}')
     schema_version: Literal['1.0']
@@ -1429,6 +1606,40 @@ class TrajectorySample(_Contract):
     recovered_tool_errors: list[TrajectorySampleRecoveredToolErrorsItem]
     receipts: list[str]
     reconciliation: None | str
+
+class TwinCalibrationReport(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:twin-calibration-report","title":"twin-calibration-report","description":"NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): the frozen calibration report of one consumer twin version. Input: real aggregate metrics only (T4: world real, real personas, groups of at least 30 Consumers; counts and rates, never a per-Consumer value), 1 to 3 non-overlapping calibration windows after the version\'s publication, each split by time from its reference window and grouped by Consumer (a Consumer of the reference window is excluded). Metrics per (behaviour, window, group) cell: the twin\'s interval, the observed rate, whether the interval covered it and the Brier score of the interval midpoint; the coverage against the nominal (80% intervals: 70%-90%, D3). Conclusion: passed, failed, insufficient_sample (fewer than 16 cells; no verdict) or not_calibratable (a behaviour without real aggregate data, or a single calibratable behaviour, stays uncalibrated, D4). Only passed and failed append a calibration event; passed makes the version selectable by NX-043 (D7). Immutable once written. Exclusion counts below 30 are written as \\"<30\\". A window overlapping one an earlier report of the version used is refused. The report carries its attempt number and the last 3 verdicts; a version is calibrated only when the latest verdict passed and none of the last 3 failed (K = 3).","type":"object","additionalProperties":false,"required":["schema","twin_id","version","twin_digest","world","grouping","windows","input","metrics","conclusion","reason","attempts","requested_by","request_id","created_at"],"properties":{"schema":{"const":"nexloop-twin-calibration-report/1"},"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1},"twin_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"world":{"const":"real"},"grouping":{"const":"consumer"},"windows":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"required":["window","split_at","span_days","reference","calibration","reference_consumers_excluded","input_digest","groups","suppressed","excluded","cells"],"properties":{"window":{"type":"integer","minimum":1,"maximum":3},"split_at":{"type":"string"},"span_days":{"enum":[28,56,84]},"reference":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2},"calibration":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2},"reference_consumers_excluded":{"type":["integer","string"],"minimum":30,"pattern":"^<30$"},"input_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"groups":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["group","consumers"],"properties":{"group":{"type":"string"},"consumers":{"type":"integer","minimum":30}}}},"suppressed":{"type":"array","items":{"enum":["all","daypart"]}},"excluded":{"type":"object","additionalProperties":false,"required":["non_real_persona","erasing","in_reference_window"],"properties":{"non_real_persona":{"type":["integer","string"],"minimum":30,"pattern":"^<30$"},"erasing":{"type":["integer","string"],"minimum":30,"pattern":"^<30$"},"in_reference_window":{"type":["integer","string"],"minimum":30,"pattern":"^<30$"}}},"cells":{"type":"integer","minimum":0}}}},"input":{"type":"object","additionalProperties":false,"required":["source","min_group_consumers","input_digest"],"properties":{"source":{"const":"authz.nexloop_twin_calibration_aggregates"},"min_group_consumers":{"const":30},"input_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},"metrics":{"type":"object","additionalProperties":false,"required":["cells","cell_count","covered_cells","coverage","nominal_coverage","coverage_band","min_cells","brier","uncalibrated_behaviors"],"properties":{"cells":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["behavior","window","group","consumers","observed_rate","low","high","nominal_coverage","covered","brier"],"properties":{"behavior":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"window":{"type":"integer","minimum":1,"maximum":3},"group":{"type":"string"},"consumers":{"type":"integer","minimum":30},"observed_rate":{"type":"number","minimum":0,"maximum":1},"low":{"type":"number","minimum":0,"maximum":1},"high":{"type":"number","minimum":0,"maximum":1},"nominal_coverage":{"type":"number","exclusiveMinimum":0.5,"exclusiveMaximum":1},"covered":{"type":"boolean"},"brier":{"type":"number","minimum":0,"maximum":1}}}},"cell_count":{"type":"integer","minimum":0},"covered_cells":{"type":"integer","minimum":0},"coverage":{"type":["number","null"],"minimum":0,"maximum":1},"nominal_coverage":{"type":["number","null"]},"coverage_band":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2},"min_cells":{"const":16},"brier":{"type":["number","null"],"minimum":0,"maximum":1},"uncalibrated_behaviors":{"type":"array","items":{"type":"string"}}}},"conclusion":{"enum":["passed","failed","insufficient_sample","not_calibratable"]},"reason":{"type":["string","null"],"maxLength":500},"attempts":{"type":"object","additionalProperties":false,"required":["attempt","recent_verdicts","k"],"properties":{"attempt":{"type":"integer","minimum":0},"recent_verdicts":{"type":"array","maxItems":3,"items":{"enum":["passed","failed"]}},"k":{"const":3}}},"requested_by":{"type":"string","minLength":1,"maxLength":200},"request_id":{"type":"string","minLength":1,"maxLength":200},"created_at":{"type":"string"}}}')
+    schema: Literal['nexloop-twin-calibration-report/1']
+    twin_id: str
+    version: int
+    twin_digest: str
+    world: Literal['real']
+    grouping: Literal['consumer']
+    windows: list[TwinCalibrationReportWindowsItem]
+    input: TwinCalibrationReportInput
+    metrics: TwinCalibrationReportMetrics
+    conclusion: Literal['passed', 'failed', 'insufficient_sample', 'not_calibratable']
+    reason: str | None
+    attempts: TwinCalibrationReportAttempts
+    requested_by: str
+    request_id: str
+    created_at: str
+
+class TwinSample(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:twin-sample","title":"twin-sample","description":"NX-042 T2 (design §2, §5, D1, D4, D6, D7): one twin instance of a seeded population sample in a simulation world. The decision layer gives every behaviour as an interval at its coverage (D4: never a single probability) from the twin version\'s parameters, and one simulated outcome drawn inside it; the probability drawn is internal and never output. The same seed and twin version give byte-identical samples. Every sample is a simulated output (origin twin, data_mode simulation) carrying the twin version and its calibration status - an uncalibrated twin runs, its output says so, and NX-043 cannot select it (D7). Never a fact, a user statement or a Claim.","type":"object","additionalProperties":false,"required":["schema","world","run_id","twin_id","twin_version","seed","instance","consumer_id","behaviors","calibration_status","data_mode","output_kind","origin"],"properties":{"schema":{"const":"nexloop-twin-sample/1"},"world":{"type":"string","pattern":"^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"run_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"twin_version":{"type":"integer","minimum":1},"seed":{"type":"string","pattern":"^[A-Za-z0-9_.-]{1,64}$"},"instance":{"type":"integer","minimum":1},"consumer_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"behaviors":{"type":"object","minProperties":1,"maxProperties":32,"propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["low","high","coverage","simulated_outcome"],"properties":{"low":{"type":"number","minimum":0,"maximum":1},"high":{"type":"number","minimum":0,"maximum":1},"coverage":{"type":"number","exclusiveMinimum":0.5,"exclusiveMaximum":1},"simulated_outcome":{"type":"boolean"}}}},"calibration_status":{"enum":["uncalibrated","calibrated"]},"data_mode":{"const":"simulation"},"output_kind":{"const":"simulated_output"},"origin":{"const":"twin"}}}')
+    schema: Literal['nexloop-twin-sample/1']
+    world: str
+    run_id: str
+    twin_id: str
+    twin_version: int
+    seed: str
+    instance: int
+    consumer_id: str
+    behaviors: dict[str, Any]
+    calibration_status: Literal['uncalibrated', 'calibrated']
+    data_mode: Literal['simulation']
+    output_kind: Literal['simulated_output']
+    origin: Literal['twin']
 
 class WorkbenchArtifacts(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-artifacts","title":"workbench-artifacts","description":"Enterprise world model W4 (data assets): one page of a tenant\'s stored local Artifacts for the owner workbench, GET /api/v1/workbench/artifacts (workbench read verb `artifacts`; owners and operators, ADR-025 / ADR-035). Metadata only: id, purpose (from the binding that holds it), media type, size, the first 12 hex digits of its sha256, created and retention times, the source Run and the owning Consumer id; never content, storage keys or upload details. Newest first; `next_before` is the cursor \'<created_at>|<artifact_id>\' of the page\'s last item. An Artifact of a Consumer being erased, or one an erasure is deleting, is not listed and is counted in `hidden`. Each listed Artifact is audited. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["items","total","hidden","next_before"],"properties":{"items":{"type":"array","maxItems":100,"items":{"type":"object","additionalProperties":false,"required":["artifact_id","purpose","media_type","size_bytes","sha256_prefix","created_at","retention_until","run_id","consumer_id"],"properties":{"artifact_id":{"type":"string","pattern":"^[a-f0-9]{32}$"},"purpose":{"enum":["message_context","fallback_context","role_context","other"]},"media_type":{"type":"string","minLength":1,"maxLength":255},"size_bytes":{"type":"integer","minimum":0,"maximum":16777216},"sha256_prefix":{"type":"string","pattern":"^[a-f0-9]{12}$"},"created_at":{"type":"string","format":"date-time"},"retention_until":{"type":"string","format":"date-time"},"run_id":{"anyOf":[{"type":"null"},{"type":"string","format":"uuid"}]},"consumer_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]}}}},"total":{"type":"integer","minimum":0},"hidden":{"type":"integer","minimum":0},"next_before":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9][0-9T:. +-]{9,39}\\\\|[a-f0-9]{32}$"}]}}}')

@@ -110,14 +110,8 @@ def sim_host_configuration(tmp_path, port, guard_key):
     return path
 
 
-def test_at046_a_simulation_process_group_runs_a_complete_pi_run(sim_group, admin, tmp_path):
-    f = sim_group
-    node = shutil.which('node')
-    assert node and subprocess.run([node, '--version'], capture_output=True, text=True, check=True).stdout.startswith('v24.'), 'Node 24 required'
-    assert (ROOT / 'apps/agent-host/dist/main.js').is_file(), 'build the Agent Host first'
-    before = real_counts(admin)
-    admin.execute("select pg_stat_reset()")
-    admin.execute("do $$begin execute format('alter database %I set track_functions=''all''',current_database());end$$")
+def run_sim_pi_run(f, tmp_path):
+    """Steps 1-5 of the module docstring: one Pi Run of the simulation group for f's Consumer; returns what the checks need."""
     config = dict(signing_key_file=f['key'], signing_key_id='sim-run')
     with open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_api'), artifact_root=tmp_path / 'api-artifacts', **config) as api, \
             open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_worker'), artifact_root=tmp_path / 'worker-artifacts', **config) as backend_worker:
@@ -135,7 +129,7 @@ def test_at046_a_simulation_process_group_runs_a_complete_pi_run(sim_group, admi
                    'not_after': run.expires_at.isoformat(), 'runtime_owner_epoch': 1}
         # A pack the intake assembled itself is refused at the registration (positive control right after).
         forged = json.loads(pack_text)
-        forged['insufficient'] = []
+        forged['insufficient'] = forged['insufficient'] + [{'code': 'forged_by_the_intake', 'section': 'evidence'}]  # differs whatever the pack holds
         with pytest.raises(Exception) as refused:
             source.accept_runtime_event(queue='operations', source_id='sim-intake', event_id='forged', run_token=run.token, command=command,
                                         input=json.dumps(forged, ensure_ascii=False))
@@ -172,6 +166,19 @@ def test_at046_a_simulation_process_group_runs_a_complete_pi_run(sim_group, admi
             done = completed(client, headers, activation['activation_ref'], command)
     finally:
         pool.stop()
+    return dict(done=done, run=run, pack_text=pack_text, runtime=runtime, guard_key=guard_key)
+
+
+def test_at046_a_simulation_process_group_runs_a_complete_pi_run(sim_group, admin, tmp_path):
+    f = sim_group
+    node = shutil.which('node')
+    assert node and subprocess.run([node, '--version'], capture_output=True, text=True, check=True).stdout.startswith('v24.'), 'Node 24 required'
+    assert (ROOT / 'apps/agent-host/dist/main.js').is_file(), 'build the Agent Host first'
+    before = real_counts(admin)
+    admin.execute("select pg_stat_reset()")
+    admin.execute("do $$begin execute format('alter database %I set track_functions=''all''',current_database());end$$")
+    r = run_sim_pi_run(f, tmp_path)
+    done, run, runtime, guard_key = r['done'], r['run'], r['runtime'], r['guard_key']
     assert done['runtime_outcome'] == 'succeeded', done
     # The Run's state lives under its simulation world's directory; no credential or key reached it.
     world_dir = runtime / f['world'].replace(':', '-') / run.run_id
