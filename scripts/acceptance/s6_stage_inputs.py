@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """S6 stage acceptance: a read-only helper that finds the values of the private configuration's `inputs` on stage.
 
-    uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config PRIVATE.json [--days 14] [--personas simulated_agent,synthetic]
+    uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config PRIVATE.json [--days 14] [--personas simulated_agent,synthetic] [--only semantic]
 
 It connects only as roles.inspector (on stage the bootstrap DSN from the private configuration), sets the session read only before the
 first query and checks that it took, and reads:
@@ -9,7 +9,7 @@ first query and checks that it took, and reads:
                      Consumer derived per Run by runtime.nexloop_evo_run_consumer) and how many Runs / Consumers / misses fall in it
   parent_revision    the tenant's published semantic release (ontology.nexloop_semantic_release_pointers)
   protected_refs     a contact-limit or refusal definition ref the window's reads returned (R3 needs it in a read that fills the browse limit of 10)
-  erasure_consumer_id  a synthetic Consumer with Runs in the window (R7)
+  erasure_consumer_id  a simulated_agent / synthetic Consumer with Runs in the window (R7); never a real one, whatever --personas says
   candidate_template whether the configured file exists (written by s6_stage_evolution.py candidate-template; not read here)
   semantic.candidate_id  an accepted_for_release semantic candidate not yet published (at023's L0 candidate)
   schema_type / new_property / new_type / escalation_action  an existing Object Type, a free property and type name, a published Action
@@ -36,17 +36,8 @@ LABEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
 CONTACT_LIMIT = re.compile(r'contact|refus|opt.?out|consent|do.?not|quiet|suppress|unsubscrib|limit|block', re.I)
 DEFAULT_ACTION = 'eios:action:Grant.issue:1'
 NEW_PROPERTY, NEW_TYPE = 's6_preferred_store', 'S6Voucher'
+SYNTHETIC = ('simulated_agent', 'synthetic')  # the only personas R7 may erase, whatever --personas reads
 WIDE = 10  # R3: the protected ref is pushed past the browse limit (10) only in a read that fills it
-
-
-def connect_read_only(path):
-    import psycopg
-    conn = psycopg.connect(C.read_private(path, 8192).strip(), autocommit=True, connect_timeout=10)
-    conn.execute('set default_transaction_read_only=on')
-    if conn.execute('show default_transaction_read_only').fetchone()[0] != 'on':
-        conn.close()
-        raise C.Refused('inspector is not read only')
-    return conn
 
 
 def ok(value, source, **more):
@@ -74,11 +65,14 @@ def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic')
                  from runtime.nexloop_semantic_accesses a where a.tenant_id=%s and a.world='real' and a.run_id is not null and a.recorded_at>=%s
                  group by a.run_id),
                c as (select r.*,runtime.nexloop_evo_run_consumer(%s,'real',r.run_id::text) consumer from r)
-             select c.run_id::text,c.first_at,c.last_at,c.miss,c.widest,c.consumer from c
+             select c.run_id::text,c.first_at,c.last_at,c.miss,c.widest,c.consumer,p.persona from c
                join control.nexloop_consumer_personas p on p.tenant_id=%s and p.world='real' and p.consumer_id=c.consumer and p.persona=any(%s)
              order by c.first_at""", tenant, since, tenant, tenant, list(personas))
     consumers = {}
-    for _, _, _, miss, _, consumer in runs:
+    synthetic = set()
+    for _, _, _, miss, _, consumer, persona in runs:
+        if persona in SYNTHETIC:
+            synthetic.add(consumer)
         n = consumers.setdefault(consumer, [0, 0])
         n[0] += 1
         n[1] += bool(miss)
@@ -96,12 +90,14 @@ def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic')
                                     'add synthetic interactions from more simulated_agent Consumers', candidates=[window], evidence=stats)
         else:
             src['window'] = ok(window, 'runtime.nexloop_semantic_accesses x control.nexloop_consumer_personas (1 h margin each side)', evidence=stats)
-    if consumers:
-        ranked = sorted(consumers, key=lambda k: (-consumers[k][1], -consumers[k][0], k))
+    # R7 hands this Consumer to an irreversible erasure: only a simulated_agent / synthetic one is chosen or listed, never a real one
+    # (scripts/deploy/erase_synthetic_consumer.py and its SQL refuse persona real too).
+    if synthetic:
+        ranked = sorted(synthetic, key=lambda k: (-consumers[k][1], -consumers[k][0], k))
         src['erasure_consumer_id'] = ok(ranked[0], 'a synthetic Consumer with Runs in the window (the most misses); R7 erases it, so it runs last',
                                         candidates=ranked[:5])
     else:
-        src['erasure_consumer_id'] = blocked('no synthetic Consumer with Runs in the lookback', 'as for window')
+        src['erasure_consumer_id'] = blocked('no simulated_agent / synthetic Consumer with Runs in the lookback', 'as for window')
 
     # parent_revision --------------------------------------------------------------------------------------------------------------
     pointer = q("select version from ontology.nexloop_semantic_release_pointers where tenant_id=%s and world='real'", tenant)
@@ -144,7 +140,7 @@ def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic')
                     order by c.created_at desc""", tenant)
     if accepted:
         cid, scope = accepted[0]
-        src['semantic'] = ok({'candidate_id': cid, 'items': [{'kind': 'alias', 'ref': scope[0], 'text': '<SYNTHETIC_ALIAS>'}], 'reason': 'S6-R6 发布（合成）'},
+        src['semantic'] = ok({'candidate_id': cid, 'items': [{'kind': 'alias', 'ref': (scope or ['<DEFINITION_REF>'])[0], 'text': '<SYNTHETIC_ALIAS>'}], 'reason': 'S6-R6 发布（合成）'},
                              'runtime.nexloop_evo_candidates (accepted_for_release, semantic_content, not yet published)', candidates=[a[0] for a in accepted[:5]])
     else:
         src['semantic'] = blocked('no accepted_for_release semantic candidate that is not yet published',
@@ -172,10 +168,16 @@ def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic')
     return src
 
 
-def draft(src, config_inputs=None):
-    """The inputs draft: the values found, with the configuration's own values kept where nothing was found."""
+def draft(src, config_inputs=None, only=None):
+    """The inputs draft: the values found, with the configuration's own values kept where nothing was found. only='semantic' (the
+    second probe, after at023) changes semantic alone: the window, holdouts and refs the earlier checks ran on stay as configured."""
     v = lambda k: src[k]['value']  # noqa: E731
     old = dict(config_inputs or {})
+    if only == 'semantic':
+        out = {**old, **({'semantic': v('semantic')} if v('semantic') is not None else {})}
+        if out.get('candidate_template'):
+            out['candidate_template'] = '<keep the configured path>'
+        return out
     evo = dict(old.get('evolution') or {})
     for k in ('window', 'parent_revision', 'protected_refs', 'erasure_consumer_id'):
         if v(k) is not None:
@@ -196,6 +198,7 @@ def main(argv=None, out=sys.stdout, now=None):
     p.add_argument('--config', required=True)
     p.add_argument('--days', type=int, default=14)
     p.add_argument('--personas', default='simulated_agent,synthetic')
+    p.add_argument('--only', choices=['semantic'], help='the second probe (after at023): draft and report semantic alone')
     a = p.parse_args(argv)
     try:
         config = C.load_config(a.config)
@@ -206,7 +209,7 @@ def main(argv=None, out=sys.stdout, now=None):
         if not personas or not set(personas) <= {'simulated_agent', 'synthetic', 'real'} or not 1 <= a.days <= 90:
             raise C.Refused('--personas simulated_agent,synthetic[,real]; --days 1..90')
         inputs = config.get('inputs') if type(config.get('inputs')) is dict else {}
-        with connect_read_only(dsn_file) as db:
+        with C.connect_read_only(dsn_file) as db:
             src = probe(db, config['tenant_id'], now=now or datetime.datetime.now(datetime.UTC), days=a.days, personas=personas,
                         template=inputs.get('candidate_template'))
     except C.Refused as error:
@@ -214,8 +217,8 @@ def main(argv=None, out=sys.stdout, now=None):
         return 2
     redact = C.Redactor(config)
     doc = {'schema': SCHEMA, 'generated_at': _iso(now or datetime.datetime.now(datetime.UTC)), 'release': config['release'],
-           'blocked': sorted(k for k, s in src.items() if s['status'] == 'blocked'),
-           'inputs': draft(src, inputs), 'sources': src}
+           'blocked': sorted(k for k, s in src.items() if s['status'] == 'blocked' and (a.only is None or k == a.only)),
+           'inputs': draft(src, inputs, a.only), 'sources': src if a.only is None else {a.only: src[a.only]}}
     print(json.dumps(redact(doc), ensure_ascii=False, indent=2, default=str), file=out)
     return 1 if doc['blocked'] else 0
 

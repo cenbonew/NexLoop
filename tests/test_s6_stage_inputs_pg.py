@@ -20,9 +20,9 @@ import s6_stage_inputs as I  # noqa: E402
 LIMIT = 'eios:property:Consumer/contact_limit'
 
 
-def call(config):
+def call(config, *more):
     out = io.StringIO()
-    code = I.main(['--config', config], out=out, now=NOW + timedelta(minutes=5))
+    code = I.main(['--config', config, *more], out=out, now=NOW + timedelta(minutes=5))
     return code, out.getvalue(), json.loads(out.getvalue())
 
 
@@ -89,3 +89,57 @@ def test_the_inspector_must_be_configured(tmp_path):
     out = io.StringIO()
     assert I.main(['--config', str(path)], out=out) == 2
     assert 'inspector' in json.loads(out.getvalue())['refused']
+
+
+def test_a_real_consumer_is_never_offered_for_erasure_even_when_real_is_read(stage):  # noqa: F811 - the imported fixture
+    admin, real = stage['admin'], stage['consumers'][0]
+    admin.execute("update control.nexloop_consumer_personas set persona='real' where tenant_id=%s and consumer_id=%s", (TENANT_A, real))
+    _, text, doc = call(stage['config'], '--personas', 'simulated_agent,synthetic,real')
+    assert doc['sources']['window']['evidence']['consumers'] == 5  # real is read for the window counts
+    chosen = doc['sources']['erasure_consumer_id']
+    assert chosen['value'] in stage['consumers'][1:] and real not in chosen['candidates']
+    assert real not in text
+    # Only real Consumers in the window: nothing to erase (blocked), never a real one.
+    admin.execute("update control.nexloop_consumer_personas set persona='real' where tenant_id=%s", (TENANT_A,))
+    _, text, doc = call(stage['config'], '--personas', 'real')
+    assert doc['sources']['erasure_consumer_id']['status'] == 'blocked' and doc['inputs']['evolution']['erasure_consumer_id'] == stage['consumers'][2]
+    assert not any(c in text for c in stage['consumers'] if c != stage['consumers'][2])  # only the configuration's own value
+
+
+def test_the_second_probe_changes_semantic_alone(stage):  # noqa: F811 - the imported fixture
+    admin = stage['admin']
+    config = json.loads(Path(stage['config']).read_text())
+    _, _, doc = call(stage['config'], '--only', 'semantic')
+    assert doc['inputs']['evolution'] == config['inputs']['evolution']  # window, refs, erasure Consumer as configured
+    assert set(doc['sources']) == {'semantic'} and doc['blocked'] == ['semantic']
+    cid = uuid.uuid4()
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into runtime.nexloop_evo_candidates(tenant_id,world,candidate_id,diagnosis_id,category,dimension,parent_revision,candidate_revision,
+            primary_hypothesis,patch_id,input_snapshot_digest,design_case_ids,validation_case_ids,case_groups,evaluator_version,model_profile,maximum_rounds,
+            allowed_change_scope,status,cost_limit,unit) values(%s,'real',%s,%s,'retrieval_miss','semantic_content','sem-7','sem-7+s6','a synthetic hypothesis',%s,%s,
+            '{a}','{b}','{}','l0-1','none',1,'{eios:object_type:Product}','accepted_for_release',1,'CNY')""", (TENANT_A, cid, uuid.uuid4(), uuid.uuid4(), 'e' * 64))
+    code, _, doc = call(stage['config'], '--only', 'semantic')
+    assert code == 0 and doc['blocked'] == [] and doc['inputs']['semantic']['candidate_id'] == str(cid)
+    assert doc['inputs']['semantic']['items'][0]['ref'] == 'eios:object_type:Product'
+    assert doc['inputs']['evolution'] == config['inputs']['evolution']
+
+
+def test_connect_read_only_refuses_a_session_that_stays_writable(monkeypatch, tmp_path):
+    import psycopg
+    import s6_common as C
+
+    class Conn:
+        closed = False
+        def execute(self, sql, *a):
+            return type('R', (), {'fetchone': lambda self: ('off',)})()
+        def close(self):
+            Conn.closed = True
+    monkeypatch.setattr(psycopg, 'connect', lambda *a, **k: Conn())
+    dsn = tmp_path / 'dsn'
+    dsn.write_text('dbname=x')
+    dsn.chmod(0o600)
+    import pytest
+    with pytest.raises(C.Refused, match='nx043 reader is not read only'):
+        C.connect_read_only(str(dsn), who='nx043 reader')
+    assert Conn.closed
