@@ -1375,6 +1375,11 @@
       "version": "0275",
       "name": "0275_nx041_d10_grants_review.sql",
       "sha256": "afc8db107b1efe61a26609c8d155a0d07d4ff8ce22e55ac6a06c5e79186baac4"
+    },
+    {
+      "version": "0276",
+      "name": "0276_signature_denial_causes.sql",
+      "sha256": "d2c5a6bde8cce341423b7b711a4ff63a7153c6f298ece184784df19de3158478"
     }
   ]
 }
