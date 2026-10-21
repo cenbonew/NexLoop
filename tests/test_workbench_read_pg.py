@@ -248,3 +248,19 @@ def test_read_port_refuses_services_and_other_applications(workbench):
         WorkbenchReader(f['reader'].pool, f['human'], f['reader'].signer).call('goals')
     with psycopg.connect(make_conninfo(f['pg'], user='nexloop_domain_worker')) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
         db.execute("select authz.nexloop_workbench_read('x','real','{}','x','{}')")
+
+
+def test_a_role_of_65_actions_configures_and_129_is_refused_by_sql(workbench):
+    """NX-043 X1 follow-up (dispatcher 2026-10-21): the owner role holds 65 Actions (experiments scope); SQL allows up to 128 per role,
+    as nexloop_eios.workbench_roles does, so the deployed manifest configures and a 129-Action role is refused by the database itself."""
+    w = workbench
+    assert len(ROLES['roles']['owner']) == 65
+    assert configure(w, (w['owner'], 'owner'))['members'] == 1
+    forged = {**ROLES, 'manifest_version': ROLES['manifest_version'] + 1,
+              'roles': {**ROLES['roles'], 'owner': ROLES['roles']['owner'] + [f'eios:action:nexloop.synthetic_{i}.x:1' for i in range(64)]}}
+    assert len(forged['roles']['owner']) == 129
+    members = {'schema_version': 'nexloop-workbench-members/1', 'tenant_id': TENANT, 'application_id': WORKBENCH_APP,
+               'members': [{'principal_id': w['owner']['principal_id'], 'role': 'owner'}]}
+    with psycopg.connect(Path(w['configurator']).read_text().strip()) as db:
+        with pytest.raises(psycopg.errors.InvalidParameterValue, match='workbench role owner invalid'):
+            db.execute('select control.nexloop_configure_workbench(%s,%s,%s)', (TENANT, Jsonb(forged), Jsonb(members)))

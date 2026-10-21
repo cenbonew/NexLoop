@@ -1,0 +1,10 @@
+{
+  "schema": "nexloop-twin-calibrate/1",
+  "twin_id": "trial.service_consumer",
+  "version": 1,
+  "windows": [
+    {"split_at": "2026-07-01", "span_days": 28},
+    {"split_at": "2026-07-29", "span_days": 28},
+    {"split_at": "2026-08-26", "span_days": 28}
+  ]
+}

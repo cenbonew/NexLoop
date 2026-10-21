@@ -58,7 +58,9 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'outreach_controls.set':'set_outreach_controls','outreach_purposes.set':'set_outreach_purpose',
         'outreach.send':'send_outreach','outreach.approve':'decide_outreach_approval','marketing_consent.record':'record_marketing_consent','object_set.publish':'publish_object_set',
         'semantic_release.publish':'publish_semantic_release','semantic_release.rollback':'rollback_semantic_release','semantic_release.stop':'set_evolution_stop','object_view.publish':'publish_object_view',
-        'sim_world.create':'create_sim_world','sim_world.delete':'delete_sim_world','sim_world.generate':'generate_sim_world_data','sim_clock.control':'control_sim_clock'}  # 0228
+        'sim_world.create':'create_sim_world','sim_world.delete':'delete_sim_world','sim_world.generate':'generate_sim_world_data','sim_clock.control':'control_sim_clock','consumer_twin.publish':'publish_consumer_twin','consumer_twin.retire':'retire_consumer_twin','consumer_twin.erase_text':'erase_consumer_twin_text','consumer_twin.publish':'publish_consumer_twin','consumer_twin.retire':'retire_consumer_twin','consumer_twin.erase_text':'erase_consumer_twin_text','consumer_twin.calibrate':'calibrate_consumer_twin',
+        'strategy.publish':'publish_strategy','strategy.retire':'retire_strategy','experiment.register':'register_experiment',
+        'experiment.start':'start_experiment','experiment.stop':'stop_experiment'}  # 0228
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):
