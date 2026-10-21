@@ -37,6 +37,13 @@ def denial(name, message, header=()):
                      r"hint=(?:authz\.nexloop_signed_ahead_hint\([^)]*\)|'');", "raise exception '" + message + "' using errcode='42501';"),), header)
 
 
+# NX-043 online opened: the twin check of D9 through runtime.nexloop_experiment_twin_ok (negated or positive form of the copied body).
+TWIN_NEG = ((r"not runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
+            r"\1->'twin'<>'null'::jsonb and not runtime.nexloop_consumer_twin_selectable(p_tenant,\1->'twin'->>'twin_id',(\1->'twin'->>'version')::integer)"),)
+TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
+            r"(\1->'twin'='null'::jsonb or runtime.nexloop_consumer_twin_selectable(p_tenant,\1->'twin'->>'twin_id',(\1->'twin'->>'version')::integer))"),)
+
+
 REGISTRY = [
     # S1 (0259): one world check (D1, D9).
     Allowed('nx041_world_check', 'runtime.nexloop_cost_data_mode', 'S1: the data mode from runtime.nexloop_world_data_mode',
@@ -268,7 +275,22 @@ REGISTRY = [
     Allowed('erasure_keyed_ids', 'authz.nexloop_prepare_browser_identity_link', 'owner 2026-10-21: the request_id keyed; definer search_path gains pg_temp',
             ((r"'identity-link-'\|\|runtime\.nexloop_tenant_hmac\(owner\.tenant_id,owner\.tenant_id\|\|':'\|\|p_world\|\|':'\|\|owner\.consumer_id\|\|':'\|\|ref\),[^\n]*",
               "'identity-link-'||encode(sha256(convert_to(owner.tenant_id||':'||p_world||':'||owner.consumer_id||':'||ref,'UTF8')),'hex'),"),), PG_TEMP),
-]
+    # NX-043 online opened (owner 2026-10-21): start loses online_not_available; D9 waived online through one helper; nothing else.
+    Allowed('nx043_online_open', 'control.nexloop_governed_start_experiment', 'online_not_available removed; D9 waived online with notice calibration_waived',
+            ((r"v_persona jsonb;v_waived boolean;", 'v_persona jsonb;'),
+             (r"\n if not runtime\.nexloop_experiment_twin_ok\(p_tenant,r\) then raise exception 'experiment: twin_not_calibrated' using errcode='22023';end if;\n v_waived:=.*?::integer\);",
+              "\n if r->>'stage'='online' then raise exception 'experiment: online_not_available' using errcode='22023';end if;\n"
+              " if r->'twin'<>'null'::jsonb and not runtime.nexloop_consumer_twin_selectable(p_tenant,r->'twin'->>'twin_id',(r->'twin'->>'version')::integer) then\n"
+              "  raise exception 'experiment: twin_not_calibrated' using errcode='22023';end if;"),
+             (r"\s*\|\|case when v_waived then jsonb_build_object\('notice','calibration_waived'\) else '\{\}'::jsonb end", ''))),
+    Allowed('nx043_online_open', 'runtime.nexloop_experiment_allocate_on_inbound', 'a record with direction inbound is inbound too',
+            ((r"coalesce\(new\.record->>'direction','inbound'\)<>'inbound' then return null;end if;  -- inbound: no direction \(0046\) or 'inbound'",
+              "new.record ? 'direction' then return null;end if;  -- a Consumer's own message carries no direction (0046)"),)),
+] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
+     for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
+                           ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
+                           ('runtime.nexloop_experiment_levers', TWIN_POS))]
+
 
 
 def test_every_redefinition_from_0259_differs_only_by_its_registered_change():

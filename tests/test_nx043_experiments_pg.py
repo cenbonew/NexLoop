@@ -214,14 +214,14 @@ def test_start_and_stop_append_events_and_recheck_the_registration(ready, db):
     refused('not_registered_state', start, db, 'followup.timing')  # a stopped experiment never restarts
     refused('not_found', start, db, 'no.such')
     refused('owner_world_only', stop, db, 'followup.timing', world=ready['world'])
-    # A strategy retired after registration blocks the start; online waits for X4/X5.
+    # A strategy retired after registration blocks the start; online starts (owner 2026-10-21).
     register(db, registration(ready['world'], ready['twin'], experiment_id='retired.first'))
     retire(db, 'followup.later', 1)
     refused('strategy_not_published', start, db, 'retired.first')
     publish(db, strategy('followup.online', follow_up_delay_hours=12), request='s-online')
     register(db, registration('real', None, experiment_id='online.one', stage='online', candidate={'strategy_id': 'followup.online', 'version': 1}))
-    refused('online_not_available', start, db, 'online.one')
-    assert db.execute("select array_agg(status order by event_id) from control.nexloop_experiment_events").fetchone()[0] == ['started', 'stopped']
+    assert start(db, 'online.one')['started'] is True  # owner 2026-10-21: online open in the test stage
+    assert db.execute("select array_agg(status order by event_id) from control.nexloop_experiment_events").fetchone()[0] == ['started', 'stopped', 'started']
 
 
 def test_an_experiment_never_opens_real_dispatch(ready, db):

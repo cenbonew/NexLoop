@@ -1540,6 +1540,11 @@
       "version": "0308",
       "name": "0308_erasure_keyed_ids.sql",
       "sha256": "c8cf43050f5c9660f5c9f3483299f524e5db1fac2c3a32aa4dc60a8d8963291b"
+    },
+    {
+      "version": "0309",
+      "name": "0309_nx043_online_open.sql",
+      "sha256": "7276b0b7157f7274ef45ec4cf97fe1f0870b4c207b596b082622b20af4b5946f"
     }
   ]
 }
