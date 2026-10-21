@@ -81,3 +81,48 @@ select c.candidate_id from runtime.nexloop_evo_candidates c where c.world='real'
 ```
 
 - 第八批预演（c5b756b6）里这个迁移的编号是 0286。本分支修改了迁移的内容，合并时要以本分支为准，并更新复制件守护里的登记（见上面的 Allowed 条目）。
+
+## 输入辅助工具与执行顺序（stage）
+
+### `s6_stage_inputs.py`：查找 inputs 的取值（只读）
+
+```
+uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config <私有配置> [--days 14] [--personas simulated_agent,synthetic]
+```
+
+- 只用 `roles.inspector` 连接（stage 上是 bootstrap DSN）。连上后先设为只读，并确认设置已生效，然后才执行查询。不调用任何函数入口写数据。本地测试会核对运行前后整库 digest 没有变化。
+- 输出一份 JSON（`nexloop-s6-stage-inputs/1`），包含三部分：
+  - `inputs`：可以直接并入 `nexloop-s6-stage/1` 的 inputs 草稿。查不到的项保留配置里原来的值；`candidate_template` 的路径不回显。
+  - `sources`：逐项给出 `{status, value, source, candidates, reason, remedy}`。
+  - `blocked`：查不到的项。
+
+  输出里 id 照常给出，不含令牌、DSN、租户、路径或个人内容。
+- 退出码：0 表示全部找到；1 表示有 blocked；2 表示配置被拒。
+
+| 项 | 来源 | blocked 时怎么补 |
+| --- | --- | --- |
+| `evolution.window` | 回看期内（默认 14 天），合成 Consumer 的 Run 在 `runtime.nexloop_semantic_accesses` 里的读取记录。persona 来自 `control.nexloop_consumer_personas`；Consumer 由 `runtime.nexloop_evo_run_consumer` 按 Run 推导。窗口两侧各留 1 小时余量；`evidence` 给出 Run 数、有未命中的 Run 数、Consumer 数，以及占满浏览上限的读取数。 | 回看期内没有带未命中的合成 Run，或者这类 Consumer 少于 4 个（留出集至少要 4 个簇单元）：先跑一段合成交互，再查一次。 |
+| `evolution.parent_revision` | `ontology.nexloop_semantic_release_pointers`，即当前已发布的语义版本。 | 还没有发布过语义版本：由调度员定一个基线标签（例如 `sem-0`）并记录下来，或者先由负责人发布一个版本。 |
+| `evolution.protected_refs` | 窗口内读取结果里的联系限制或拒绝定义。按 ref 中的字样识别，例如 contact、refus、opt-out、consent、limit；优先选出现在占满浏览上限（10 条）的读取中的那个。 | 读取结果里没有这类定义，或者它没有出现在占满上限的读取中：让合成交互的浏览范围更宽，再查一次。`candidates` 会列出 ontology 里同类定义作为参考。 |
+| `evolution.erasure_consumer_id` | 窗口内未命中最多的那个合成 Consumer。 | 同 window。 |
+| `candidate_template` | 只检查配置的文件是否存在，不读取内容。 | 先配置一个 0600 的路径，再执行 `s6_stage_evolution.py candidate-template`。 |
+| `semantic` | `runtime.nexloop_evo_candidates` 中 accepted_for_release、semantic_content、尚未发布的候选；items 的 ref 取自它的变更范围，alias 文本是占位值。 | 先执行 `at023`，再查一次。 |
+| `schema_type` / `new_property` / `new_type` | `ontology.object_type_versions` 中各类型的最新版本：有 Consumer 就选 Consumer，并核对新属性名和新类型名都还不存在。 | 租户还没有 Object Type：先初始化租户的本体。 |
+| `escalation_action` | `control.nexloop_action_definitions` 中 active 的 Action；有 `eios:action:Grant.issue:1` 时优先用它。 | 先发布租户的 Action（`stage_secrets publish`）。 |
+
+### 执行顺序
+
+前一步的产物会被后一步用到。顺序不能打乱的原因写在各步里。
+
+1. **`s6_stage_inputs.py`**：把查到的值填进私有配置。`semantic` 这时通常是 blocked，正常。
+2. **`s6_stage_evolution.py all --dry-run`**：核对配置、连接角色和留出集规划。没有 blocked 之后再进入第 3 步。
+3. **`at046`、`r5`**：只依赖角色和凭据的登记。
+4. **`at048`、`r4`**：各自使用自己的留出集。r4 会故意用完它那份。
+5. **`at023`**：产出一个 L0 accepted_for_release 语义候选，它的 id 在 at023 的结果里。之后再执行一次第 1 步，`semantic.candidate_id` 就能取到这个 id，供第 9 步的 S6-R6 使用。
+6. **`r1`、`r3`**：r3 依赖 `protected_refs`。
+7. **`candidate-template`**：写入 `inputs.candidate_template`，供第 8 步的 NX-040 检查使用。
+8. **`s6_stage_schema.py at024`、`r10`、`r8`**：都从 candidate_template 开始。r8 的 `--publish` 是负责人的 B 类步骤。
+9. **`s6_stage_schema.py r6`**：依赖第 5 步产出的 `semantic.candidate_id`，会发布一个语义版本再回滚。发布会移动语义版本指针，所以 r6 要放在用到 `parent_revision` 的演进检查之后；配置里的 `parent_revision` 保持第 1 步取到的值，不要改。
+10. **`r7-prepare`**，然后负责人执行 `erase_synthetic_consumer.py erase`，再执行 **`r7-verify`**：必须放在最后。删除会让这个 Consumer 的 Run 离开窗口，前面各步的诊断输入会随之改变。
+
+重跑时：同一个 `label` 一律按重放处理；换新 `label` 就要换一批合成数据，因为旧的留出集已经用过。
