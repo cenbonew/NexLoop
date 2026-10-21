@@ -1,20 +1,22 @@
 -- NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): calibration runs and frozen calibration reports of a consumer twin version. The
 -- migration number lives only in the file name and the catalog; nothing below repeats it.
 -- 1. control.nexloop_twin_calibration_reports: one frozen report per run (contract nexloop-twin-calibration-report/1): the twin version
---    and its definition digest, the time split (split_at, span_days; calibration window [split_at, split_at + span), reference window
---    the span before it), the digest of the aggregate input (T4, real only, groups of at least 30 Consumers), per behaviour and group
---    the twin's interval, the observed rate and Consumers, whether the interval covered it and its Brier score, the coverage, the
---    conclusion and, when there is no verdict, why. Append only (no update, delete or truncate). report_ref = twin-calibration:<digest>.
--- 2. Calibration (D3): the cells are (behaviour, group) for each twin behaviour with real aggregate data - reply_within_24h (replied
---    within 24 hours of an agent contact) and refuse_contact (a real contact restriction after it) - and each output group (the four
---    UTC dayparts when all four reach 30 Consumers, else `all` alone). Coverage = cells whose observed rate lies in the interval / cells.
---    passed: at least 8 cells and |coverage - nominal| <= 0.10 (80% intervals: 70%-90%); failed: at least 8 cells otherwise;
---    insufficient_sample: fewer than 8 cells (fewer than 30 Consumers in a group, or dayparts suppressed); not_calibratable: a twin
---    behaviour has no real aggregate (e.g. payment_intent) - D4: an uncalibrated quantity is never passed as calibrated, so the version
---    stays uncalibrated. Brier score per cell and Consumer-weighted overall, with the interval midpoint as the forecast (computed from
---    counts: r(1-p)^2 + (1-r)p^2); reported, not a verdict.
--- 3. Independence (§3.2): the calibration window starts at or after the version's publication (its parameters cannot have seen it) and
---    has ended; Consumers of the reference window are excluded from it (T4), never per message.
+--    and its definition digest, the calibration windows (1 to 3, dispatcher 2026-10-21; each [split_at, split_at + span) with its
+--    reference window the span before it, its aggregate input digest, groups, exclusions and the cells it contributed), the digest of
+--    the whole input (T4, real only, groups of at least 30 Consumers), per behaviour, window and group the twin's interval, the observed
+--    rate and Consumers, whether the interval covered it and its Brier score, the coverage, the conclusion and, when there is no
+--    verdict, why. Append only (no update, delete or truncate). report_ref = twin-calibration:<digest>.
+-- 2. Calibration (D3): the cells are (behaviour, window, group) for each twin behaviour with real aggregate data - reply_within_24h
+--    (replied within 24 hours of an agent contact) and refuse_contact (a real contact restriction after it) - and each output group
+--    of each window (the four UTC dayparts when all four reach 30 Consumers, else `all` alone). Coverage = cells whose observed rate
+--    lies in the interval / cells. passed: at least 20 cells and |coverage - nominal| <= 0.10 (80% intervals: 70%-90%); failed: at
+--    least 20 cells otherwise; insufficient_sample: fewer than 20 cells (groups below 30 Consumers, suppressed dayparts, too few
+--    windows); not_calibratable: a twin behaviour has no real aggregate (e.g. payment_intent) - D4: an uncalibrated quantity is never
+--    passed as calibrated, so the version stays uncalibrated. Up to 3 windows may be combined (dispatcher 2026-10-21): they must not
+--    overlap. Brier score per cell and Consumer-weighted overall, with the interval midpoint as the forecast (computed from counts:
+--    r(1-p)^2 + (1-r)p^2); reported, not a verdict.
+-- 3. Independence (§3.2): every calibration window starts at or after the version's publication (its parameters cannot have seen it)
+--    and has ended; Consumers of a window's reference window are excluded from it (T4), never per message.
 -- 4. Events (T1 table, append-only): passed appends `passed` (the version becomes calibrated, so selectable by NX-043), failed appends
 --    `failed`; insufficient_sample and not_calibratable append nothing. A trigger lets a calibration event in only when it names a
 --    report of this version whose conclusion is its verdict and whose digest matches the version's definition.
@@ -25,7 +27,7 @@ create table control.nexloop_twin_calibration_reports (
  report_digest text not null check(report_digest~'^[0-9a-f]{64}$'),
  twin_id text not null,version integer not null,
  twin_digest text not null check(twin_digest~'^[0-9a-f]{64}$'),
- split_at timestamptz not null,span_days integer not null check(span_days in (28,56,84)),
+ windows jsonb not null check(jsonb_typeof(windows)='array' and jsonb_array_length(windows) between 1 and 3),
  input_digest text not null check(input_digest~'^[0-9a-f]{64}$'),
  coverage numeric check(coverage between 0 and 1),
  conclusion text not null check(conclusion in ('passed','failed','insufficient_sample','not_calibratable')),
@@ -73,23 +75,29 @@ revoke all on function control.nexloop_twin_calibration_event_check() from publi
 create trigger nx042_calibration_event_report before insert on control.nexloop_consumer_twin_calibrations
  for each row execute function control.nexloop_twin_calibration_event_check();
 
--- 2. The calibration of one version against one aggregate input (pure: no write). Behaviour -> aggregate count.
-create function runtime.nexloop_twin_calibration_evaluate(p_definition jsonb,p_aggregates jsonb) returns jsonb
+-- 2. The calibration of one version against the aggregate inputs of its windows (pure: no write). Behaviour -> aggregate count.
+--    p_windows: [{"window": n, "aggregates": <T4 output>}, ...].
+create function runtime.nexloop_twin_calibration_evaluate(p_definition jsonb,p_windows jsonb) returns jsonb
  language plpgsql immutable set search_path=pg_catalog,pg_temp as $$
-declare v_map constant jsonb:='{"reply_within_24h":"replied_24h","refuse_contact":"refused"}';b record;g jsonb;v_groups jsonb;cells jsonb:='[]';
- v_unmapped text[]:='{}';n_cells integer;n_cov integer;v_cov numeric;v_nominal numeric;v_brier numeric;v_weight numeric;v_conc text;v_why text;r numeric;p numeric;
+declare v_map constant jsonb:='{"reply_within_24h":"replied_24h","refuse_contact":"refused"}';c_min constant integer:=20;
+ b record;w jsonb;g jsonb;v_groups jsonb;cells jsonb:='[]';v_unmapped text[]:='{}';n_cells integer;n_cov integer;v_cov numeric;v_nominal numeric;
+ v_brier numeric;v_weight numeric;v_conc text;v_why text;r numeric;p numeric;
 begin
- v_groups:=coalesce((select jsonb_agg(x) from jsonb_array_elements(p_aggregates->'groups') x where x->>'group'<>'all'),'[]'::jsonb);
- if jsonb_array_length(v_groups)=0 then
-  v_groups:=coalesce((select jsonb_agg(x) from jsonb_array_elements(p_aggregates->'groups') x where x->>'group'='all'),'[]'::jsonb);end if;
- for b in select key,value from jsonb_each(p_definition->'parameters'->'behaviors') order by key loop
-  if not v_map ? b.key then v_unmapped:=v_unmapped||b.key;continue;end if;
-  for g in select x from jsonb_array_elements(v_groups) x order by x->>'group' loop
-   r:=(g->>(v_map->>b.key))::numeric/(g->>'consumers')::numeric;
-   p:=((b.value->>'low')::numeric+(b.value->>'high')::numeric)/2;
-   cells:=cells||jsonb_build_array(jsonb_build_object('behavior',b.key,'group',g->>'group','consumers',(g->>'consumers')::integer,
-    'observed_rate',round(r,4),'low',(b.value->>'low')::numeric,'high',(b.value->>'high')::numeric,'nominal_coverage',(b.value->>'coverage')::numeric,
-    'covered',r>=(b.value->>'low')::numeric and r<=(b.value->>'high')::numeric,'brier',round(r*(1-p)^2+(1-r)*p^2,6)));
+ for b in select key from jsonb_each(p_definition->'parameters'->'behaviors') order by key loop
+  if not v_map ? b.key then v_unmapped:=v_unmapped||b.key;end if;
+ end loop;
+ for w in select x from jsonb_array_elements(p_windows) x order by (x->>'window')::integer loop
+  v_groups:=coalesce((select jsonb_agg(x) from jsonb_array_elements(w->'aggregates'->'groups') x where x->>'group'<>'all'),'[]'::jsonb);
+  if jsonb_array_length(v_groups)=0 then
+   v_groups:=coalesce((select jsonb_agg(x) from jsonb_array_elements(w->'aggregates'->'groups') x where x->>'group'='all'),'[]'::jsonb);end if;
+  for b in select key,value from jsonb_each(p_definition->'parameters'->'behaviors') where v_map ? key order by key loop
+   for g in select x from jsonb_array_elements(v_groups) x order by x->>'group' loop
+    r:=(g->>(v_map->>b.key))::numeric/(g->>'consumers')::numeric;
+    p:=((b.value->>'low')::numeric+(b.value->>'high')::numeric)/2;
+    cells:=cells||jsonb_build_array(jsonb_build_object('behavior',b.key,'window',(w->>'window')::integer,'group',g->>'group','consumers',(g->>'consumers')::integer,
+     'observed_rate',round(r,4),'low',(b.value->>'low')::numeric,'high',(b.value->>'high')::numeric,'nominal_coverage',(b.value->>'coverage')::numeric,
+     'covered',r>=(b.value->>'low')::numeric and r<=(b.value->>'high')::numeric,'brier',round(r*(1-p)^2+(1-r)*p^2,6)));
+   end loop;
   end loop;
  end loop;
  n_cells:=jsonb_array_length(cells);
@@ -99,14 +107,14 @@ begin
  v_weight:=(select sum((c->>'consumers')::numeric) from jsonb_array_elements(cells) c);
  v_brier:=case when v_weight>0 then round((select sum((c->>'brier')::numeric*(c->>'consumers')::numeric) from jsonb_array_elements(cells) c)/v_weight,6) end;
  if cardinality(v_unmapped)>0 then v_conc:='not_calibratable';v_why:='behaviours without real aggregate data stay uncalibrated: '||array_to_string(v_unmapped,', ');
- elsif n_cells<8 then v_conc:='insufficient_sample';
-  v_why:=case when jsonb_array_length(coalesce(p_aggregates->'groups','[]'))=0 then 'fewer than 30 Consumers in the calibration window'
-   else 'fewer than 8 calibration cells (dayparts below 30 Consumers are suppressed)' end;
+ elsif n_cells<c_min then v_conc:='insufficient_sample';
+  v_why:=case when n_cells=0 then 'fewer than 30 Consumers in every calibration window'
+   else 'fewer than 20 calibration cells (combine up to 3 windows; dayparts below 30 Consumers are suppressed)' end;
  elsif abs(v_cov-v_nominal)<=0.10 then v_conc:='passed';
  else v_conc:='failed';v_why:=case when v_cov>v_nominal then 'intervals too wide (over-coverage)' else 'intervals miss the observed rates (under-coverage)' end;
  end if;
  return jsonb_build_object('cells',cells,'cell_count',n_cells,'covered_cells',n_cov,'coverage',v_cov,'nominal_coverage',v_nominal,
-  'coverage_band',case when v_nominal is not null then jsonb_build_array(v_nominal-0.10,v_nominal+0.10) end,'min_cells',8,
+  'coverage_band',case when v_nominal is not null then jsonb_build_array(v_nominal-0.10,v_nominal+0.10) end,'min_cells',c_min,
   'brier',v_brier,'uncalibrated_behaviors',to_jsonb(v_unmapped),'conclusion',v_conc,'reason',v_why);
 end $$;
 alter function runtime.nexloop_twin_calibration_evaluate(jsonb,jsonb) owner to nexloop_owner;
@@ -115,24 +123,29 @@ revoke all on function runtime.nexloop_twin_calibration_evaluate(jsonb,jsonb) fr
 -- 5. The governed owner Action ----------------------------------------------------------------------------------------------------------
 create function control.nexloop_governed_calibrate_consumer_twin(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on set timezone='UTC' as $$
-declare t control.nexloop_consumer_twins;rep control.nexloop_twin_calibration_reports;v_split timestamptz;v_span integer;v_agg jsonb;v_eval jsonb;
- v_report jsonb;v_digest text;v_status text;
+declare t control.nexloop_consumer_twins;rep control.nexloop_twin_calibration_reports;x jsonb;v_split timestamptz;v_span integer;v_prev_end timestamptz;
+ v_windows jsonb:='[]';v_inputs jsonb:='[]';v_norm jsonb;v_agg jsonb;v_eval jsonb;v_report jsonb;v_digest text;v_status text;n integer:=0;
 begin
- if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','twin_id','version','split_at','span_days'))
+ if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','twin_id','version','windows'))
   or jsonb_typeof(body->'request_id') is distinct from 'string' or char_length(body->>'request_id') not between 1 and 200
   or coalesce(body->>'twin_id','')!~'^[a-z][a-z0-9_.-]{0,63}$' or jsonb_typeof(body->'version') is distinct from 'number'
   or (body->>'version')!~'^[0-9]{1,9}$' or (body->>'version')::integer<1
-  or coalesce(body->>'split_at','')!~'^[0-9]{4}-[0-9]{2}-[0-9]{2}$' or jsonb_typeof(body->'span_days') is distinct from 'number'
-  or (body->>'span_days') not in ('28','56','84') then
+  or jsonb_typeof(body->'windows') is distinct from 'array' or jsonb_array_length(body->'windows') not between 1 and 3
+  or exists(select 1 from jsonb_array_elements(body->'windows') w where jsonb_typeof(w)<>'object'
+   or (select array_agg(k order by k) from jsonb_object_keys(w) k) is distinct from array['span_days','split_at']
+   or coalesce(w->>'split_at','')!~'^[0-9]{4}-[0-9]{2}-[0-9]{2}$' or jsonb_typeof(w->'span_days')<>'number' or (w->>'span_days') not in ('28','56','84')) then
   raise exception 'consumer twin: invalid' using errcode='22023';end if;
  if p_world is distinct from 'real' then raise exception 'consumer twin: owner_world_only' using errcode='22023';end if;
- begin v_split:=(body->>'split_at')::date::timestamptz;exception when others then raise exception 'consumer twin: invalid' using errcode='22023';end;
- v_span:=(body->>'span_days')::integer;
+ -- The windows in time order (dates checked; the same windows in another order are the same request).
+ begin
+  v_norm:=(select jsonb_agg(jsonb_build_object('split_at',(w->>'split_at')::date,'span_days',(w->>'span_days')::integer) order by (w->>'split_at')::date)
+   from jsonb_array_elements(body->'windows') w);
+ exception when others then raise exception 'consumer twin: invalid' using errcode='22023';end;
  perform set_config('eios.tenant_id',p_tenant,true);
  perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-calibration-request:'||p_tenant||':'||(body->>'request_id'),0));
  select * into rep from control.nexloop_twin_calibration_reports where tenant_id=p_tenant and request_id=body->>'request_id';
  if found then
-  if (rep.twin_id,rep.version,rep.split_at,rep.span_days) is distinct from (body->>'twin_id',(body->>'version')::integer,v_split,v_span) then
+  if (rep.twin_id,rep.version,rep.windows) is distinct from (body->>'twin_id',(body->>'version')::integer,v_norm) then
    raise exception 'consumer twin: request_reused' using errcode='22023';end if;
   return jsonb_build_object('report_ref','twin-calibration:'||rep.report_digest,'twin_id',rep.twin_id,'version',rep.version,'conclusion',rep.conclusion,
    'coverage',rep.coverage,'calibration',runtime.nexloop_consumer_twin_calibration(p_tenant,rep.twin_id,rep.version),'created',false);
@@ -141,26 +154,38 @@ begin
  if not found then raise exception 'consumer twin: not_found' using errcode='22023';end if;
  v_status:=runtime.nexloop_consumer_twin_status(p_tenant,t.twin_id,t.version);
  if v_status is distinct from 'published' then raise exception 'consumer twin: not_published' using errcode='22023';end if;
- -- Independence: the calibration window starts at or after publication (the parameters cannot have seen it) and has ended.
- if v_split<t.published_at then raise exception 'consumer twin: window_before_publication' using errcode='22023';end if;
- if v_split+make_interval(days=>v_span)>clock_timestamp() then raise exception 'consumer twin: window_open' using errcode='22023';end if;
- v_agg:=runtime.nexloop_twin_calibration_aggregates(p_tenant,v_split,v_split+make_interval(days=>v_span),v_split-make_interval(days=>v_span));
- perform set_config('eios.tenant_id',p_tenant,true);
- v_eval:=runtime.nexloop_twin_calibration_evaluate(t.definition,v_agg);
+ for x in select value from jsonb_array_elements(v_norm) loop
+  n:=n+1;v_split:=(x->>'split_at')::date::timestamptz;v_span:=(x->>'span_days')::integer;
+  -- Independence: every window starts at or after publication (the parameters cannot have seen it) and has ended; no overlap.
+  if v_split<t.published_at then raise exception 'consumer twin: window_before_publication' using errcode='22023';end if;
+  if v_split+make_interval(days=>v_span)>clock_timestamp() then raise exception 'consumer twin: window_open' using errcode='22023';end if;
+  if v_prev_end is not null and v_split<v_prev_end then raise exception 'consumer twin: windows_overlap' using errcode='22023';end if;
+  v_prev_end:=v_split+make_interval(days=>v_span);
+  v_agg:=runtime.nexloop_twin_calibration_aggregates(p_tenant,v_split,v_split+make_interval(days=>v_span),v_split-make_interval(days=>v_span));
+  perform set_config('eios.tenant_id',p_tenant,true);
+  v_inputs:=v_inputs||jsonb_build_array(jsonb_build_object('window',n,'aggregates',v_agg));
+  v_windows:=v_windows||jsonb_build_array(jsonb_build_object('window',n,'split_at',runtime.nexloop_commercial_ts(v_split),'span_days',v_span,
+   'reference',jsonb_build_array(runtime.nexloop_commercial_ts(v_split-make_interval(days=>v_span)),runtime.nexloop_commercial_ts(v_split)),
+   'calibration',jsonb_build_array(runtime.nexloop_commercial_ts(v_split),runtime.nexloop_commercial_ts(v_split+make_interval(days=>v_span))),
+   'reference_consumers_excluded',coalesce((v_agg->'excluded'->>'in_reference_window')::integer,0),
+   'input_digest',encode(sha256(convert_to(v_agg::text,'UTF8')),'hex'),
+   'groups',(select coalesce(jsonb_agg(jsonb_build_object('group',g->>'group','consumers',(g->>'consumers')::integer)),'[]') from jsonb_array_elements(v_agg->'groups') g),
+   'suppressed',coalesce(v_agg->'suppressed','[]'),'excluded',coalesce(v_agg->'excluded','{}')));
+ end loop;
+ v_eval:=runtime.nexloop_twin_calibration_evaluate(t.definition,v_inputs);
+ -- Each window's contribution in cells.
+ v_windows:=(select jsonb_agg(w||jsonb_build_object('cells',(select count(*) from jsonb_array_elements(v_eval->'cells') c where (c->>'window')::integer=(w->>'window')::integer))
+   order by (w->>'window')::integer) from jsonb_array_elements(v_windows) w);
  v_report:=jsonb_build_object('schema','nexloop-twin-calibration-report/1','twin_id',t.twin_id,'version',t.version,'twin_digest',t.definition_digest,
-   'world','real','split',jsonb_build_object('split_at',runtime.nexloop_commercial_ts(v_split),'span_days',v_span,
-     'reference',jsonb_build_array(runtime.nexloop_commercial_ts(v_split-make_interval(days=>v_span)),runtime.nexloop_commercial_ts(v_split)),
-     'calibration',jsonb_build_array(runtime.nexloop_commercial_ts(v_split),runtime.nexloop_commercial_ts(v_split+make_interval(days=>v_span))),
-     'grouping','consumer','reference_consumers_excluded',coalesce((v_agg->'excluded'->>'in_reference_window')::integer,0)),
+   'world','real','grouping','consumer','windows',v_windows,
    'input',jsonb_build_object('source','authz.nexloop_twin_calibration_aggregates','min_group_consumers',30,
-     'input_digest',encode(sha256(convert_to(v_agg::text,'UTF8')),'hex'),'groups',(select coalesce(jsonb_agg(jsonb_build_object('group',x->>'group','consumers',(x->>'consumers')::integer)),'[]') from jsonb_array_elements(v_agg->'groups') x),
-     'suppressed',coalesce(v_agg->'suppressed','[]'),'excluded',coalesce(v_agg->'excluded','{}')),
+     'input_digest',encode(sha256(convert_to(v_inputs::text,'UTF8')),'hex')),
    'metrics',v_eval-'conclusion'-'reason','conclusion',v_eval->>'conclusion','reason',v_eval->'reason',
    'requested_by',p_principal,'request_id',body->>'request_id','created_at',runtime.nexloop_commercial_ts(clock_timestamp()));
  v_digest:=encode(sha256(convert_to(v_report::text,'UTF8')),'hex');
- insert into control.nexloop_twin_calibration_reports(tenant_id,report_digest,twin_id,version,twin_digest,split_at,span_days,input_digest,coverage,conclusion,report,
+ insert into control.nexloop_twin_calibration_reports(tenant_id,report_digest,twin_id,version,twin_digest,windows,input_digest,coverage,conclusion,report,
    requested_by,request_id)
-  values(p_tenant,v_digest,t.twin_id,t.version,t.definition_digest,v_split,v_span,v_report->'input'->>'input_digest',(v_eval->>'coverage')::numeric,
+  values(p_tenant,v_digest,t.twin_id,t.version,t.definition_digest,v_norm,v_report->'input'->>'input_digest',(v_eval->>'coverage')::numeric,
    v_eval->>'conclusion',v_report,p_principal,body->>'request_id') returning * into rep;
  if rep.conclusion in ('passed','failed') then
   insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
@@ -168,7 +193,8 @@ begin
  end if;
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
   values('consumer-twin:calibrate:'||v_digest,'nexloop.consumer_twin.calibrated',p_tenant,p_principal,'consumer_twin',p_intent,
-   jsonb_build_object('twin_id',t.twin_id,'version',t.version,'report_ref','twin-calibration:'||v_digest,'conclusion',rep.conclusion,'coverage',rep.coverage),clock_timestamp());
+   jsonb_build_object('twin_id',t.twin_id,'version',t.version,'report_ref','twin-calibration:'||v_digest,'conclusion',rep.conclusion,'coverage',rep.coverage,
+    'windows',jsonb_array_length(v_norm)),clock_timestamp());
  return jsonb_build_object('report_ref','twin-calibration:'||v_digest,'twin_id',t.twin_id,'version',t.version,'conclusion',rep.conclusion,'coverage',rep.coverage,
   'calibration',runtime.nexloop_consumer_twin_calibration(p_tenant,t.twin_id,t.version),'created',true);
 end $$;
