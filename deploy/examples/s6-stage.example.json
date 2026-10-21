@@ -1,0 +1,22 @@
+{
+  "schema": "nexloop-s6-stage/1",
+  "executor": "<who runs it (dispatcher line)>",
+  "release": "<release id>",
+  "tenant_id": "<TENANT_ID>",
+  "results_dir": "<LOCAL_RESULTS_DIR>",
+  "roles": {
+    "writer": {"dsn_file": "<EVO_WRITER_DSN_FILE_0600>", "token_file": "<EVO_WRITER_TOKEN_FILE_0600>"},
+    "evaluator": {"dsn_file": "<EVO_EVALUATOR_DSN_FILE_0600>", "token_file": "<EVO_EVALUATOR_TOKEN_FILE_0600>"},
+    "verify": {"dsn_file": "<READ_ONLY_APPLICATION_DSN_FILE_0600>"}
+  },
+  "owner": {"origin": "https://<APP_HOST_NAME>:<PORT>", "ca_file": "<GATEWAY_CA_FILE>", "username_file": "<OWNER_USERNAME_FILE_0600>"},
+  "inputs": {
+    "candidate_template": "<CANDIDATE_TEMPLATE_JSON_0600 (from the NX-038 stage step)>",
+    "schema_type": "Consumer",
+    "new_property": "s6_preferred_store",
+    "new_type": "S6Voucher",
+    "escalation_action": "eios:action:Grant.issue:1",
+    "reflow_amount": "0.01",
+    "semantic": {"candidate_id": "<ACCEPTED_SEMANTIC_CANDIDATE_ID>", "items": [{"kind": "alias", "ref": "<DEFINITION_REF>", "text": "<SYNTHETIC_ALIAS>"}], "reason": "S6-R6 发布（合成）"}
+  }
+}
