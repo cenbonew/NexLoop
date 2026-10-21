@@ -157,3 +157,22 @@ def test_a_different_metric_direction_is_refused(rounds):
     online(admin, 'pool.down', primary_metric={'key': 'payment', 'direction': 'decrease'})
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='metric_mismatch'), admin.transaction():
         pooled(admin, ['pool.r1', 'pool.down'])
+
+
+def test_the_same_consumer_id_in_another_world_is_no_cross_allocation(ready, db):  # noqa: F811
+    """L6 review of bb876cb5: "the same comparison" is also the same world (as X4's in_same_comparison). A Consumer id met in an
+    experiment of another world with the same strategy pair is not left out; in the same world it is (positive control)."""
+    admin = db
+    worlds = [admin.execute("select control.nexloop_governed_create_sim_world(%s,'real','owner-principal','owner-subject',%s,%s)",
+                            (TENANT_A, 'i-' + uuid.uuid4().hex[:8], Jsonb({'operation': 'create_sim_world', 'request_id': uuid.uuid4().hex, 'kind': 'shadow',
+                                                                            'purpose': 'leave-out world', 'expires_in_days': 7}))).fetchone()[0]['world']
+              for _ in range(2)]
+    for exp, world in (('lw.a', worlds[0]), ('lw.b', worlds[1]), ('lw.c', worlds[0])):
+        register(admin, registration(world, None, experiment_id=exp, stage='shadow', primary_metric=PAYMENT, sample_size={'candidate': 20, 'control': 20}))
+    c = sha('lw-consumer')
+    allocate(admin, 'lw.a', 'candidate', [c])
+    allocate(admin, 'lw.b', 'control', [c])  # another world: no cross-allocation
+    leave = lambda exp, arm: admin.execute('select runtime.nexloop_experiment_leave_out(%s,%s,%s,%s)', (TENANT_A, exp, c, arm)).fetchone()[0]  # noqa: E731
+    assert leave('lw.a', 'candidate') is None and leave('lw.b', 'control') is None
+    allocate(admin, 'lw.c', 'control', [c])  # the same world, the other arm: left out
+    assert leave('lw.a', 'candidate') == 'cross_allocated'

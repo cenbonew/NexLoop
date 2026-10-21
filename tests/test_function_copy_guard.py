@@ -214,6 +214,9 @@ REGISTRY = [
     # NX-043 pooled results (owner 2026-10-21): the registration result carries a notice (a single round under the minimum sample).
     Allowed('nx043_pooled_reports', 'control.nexloop_governed_register_experiment', 'NX-043: the result carries a notice; nothing else',
             ((r",'notice',runtime\.nexloop_experiment_notice\(x\.registration\)\)", ')'),)),
+    # NX-043 report leave-out: the same comparison also in the same world (as X4's in_same_comparison).
+    Allowed('nx043_leave_out_world', 'runtime.nexloop_experiment_leave_out', 'the same comparison is also the same world; nothing else',
+            ((r"\n\s*and o\.registration->>'world'=e\.registration->>'world'[^\n]*", ''),)),
 ]
 
 
