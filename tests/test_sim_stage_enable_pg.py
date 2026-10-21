@@ -115,7 +115,8 @@ def test_the_twin_use_is_issued_since_the_eighth_batch_and_bad_input_is_refused(
     assert admin.execute("select worlds,status from authz.nexloop_service_credentials where sim_use='twin'").fetchall() == [([world], 'active')]
     before = admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0]
     assert run(C.main, ['--config', str(credentials_config(d, tmp_path, 'real'))])[0] == 2
-    for over in ({'uses': ['api', 'api']}, {'uses': ['api', 'oracle']}, {'credential_expires_at': '2020-01-01T00:00:00+00:00'}, {'extra': 1}):
+    for over in ({'uses': ['api', 'api']}, {'uses': ['api', 'oracle']}, {'credential_expires_at': '2020-01-01T00:00:00+00:00'}, {'extra': 1},
+                 {'token_dir': 'relative/tokens'}, {'token_dir': '/sim-tokens/../etc'}):
         assert run(C.main, ['--config', str(credentials_config(d, tmp_path, world, **over))])[0] == 2
     assert admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0] == before
 

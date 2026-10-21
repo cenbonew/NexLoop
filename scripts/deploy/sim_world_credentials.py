@@ -112,6 +112,9 @@ def load_config(text, mode='issue'):
         raise Refused('tenant_id invalid')
     if type(value['world']) is not str or not _WORLD.fullmatch(value['world']):
         raise Refused('world: sim:<uuid> or shadow:<uuid>')
+    # L6 batch-12 review (optional): the token directory is an absolute path without parent steps (it names where tokens are written).
+    if type(value.get('token_dir')) is not str or not value['token_dir'].startswith('/') or '..' in Path(value['token_dir']).parts:
+        raise Refused('token_dir: an absolute path')
     uses = value['uses']
     if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')
@@ -148,6 +151,9 @@ def load_install(text):
         raise Refused('install configuration fields: ' + ', '.join(sorted(INSTALL_KEYS - {'schema'})))
     if type(value['world']) is not str or not _WORLD.fullmatch(value['world']):
         raise Refused('world: sim:<uuid> or shadow:<uuid>')
+    # L6 batch-12 review (optional): the token directory is an absolute path without parent steps (it names where tokens are written).
+    if type(value.get('token_dir')) is not str or not value['token_dir'].startswith('/') or '..' in Path(value['token_dir']).parts:
+        raise Refused('token_dir: an absolute path')
     uses = value['uses']
     if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')

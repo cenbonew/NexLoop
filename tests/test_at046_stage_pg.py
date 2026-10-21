@@ -142,6 +142,9 @@ class FakeOwner:
             return 200, {'world': 'sim:' + str(uuid.UUID(int=5, version=4)), 'created': True}
         if path.endswith('publish_sim_catalog'):
             return 200, {'world': body['world'], 'actions': ['eios:action:nexloop.service.request:1'], 'copied': 1, 'already_present': 0}
+        if path.endswith('retire_consumer_twin'):
+            self.retired = (body, extra)
+            return 200, {'twin_id': body['twin_id'], 'version': body['version'], 'status': 'retired', 'retired': True}
         if path.endswith('publish_consumer_twin'):
             self.twin = (body, extra)
             return 200, {'twin_id': body['definition']['twin_id'], 'version': 1, 'status': 'published', 'published': True}
@@ -323,16 +326,61 @@ def test_prepare_can_publish_the_synthetic_twin_for_the_run_phase(tmp_path):
     names twin_id and version for inputs.twin. Without it nothing is published."""
     from nexloop_eios import consumer_twins
     owner = FakeOwner()
-    code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin={'twin_id': 'at046.synthetic'})
+    code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin={'twin_id': 'at046-synthetic-x'})
     assert code == 0 and owner.calls[-1] == '/api/v1/workbench/actions/publish_consumer_twin'
     body, headers = owner.twin
-    assert set(body) == {'definition'} and body['definition']['twin_id'] == 'at046.synthetic' and body['definition']['generator_version'] == 'twin-template/1'
+    assert set(body) == {'definition'} and body['definition']['twin_id'] == 'at046-synthetic-x' and body['definition']['generator_version'] == 'twin-template/1'
     assert body['definition']['schema'] == 'nexloop-consumer-twin/1' and not consumer_twins.definition_problems(body['definition'])
-    assert steps(doc)['twin_published']['observed'] == {'status': 200, 'twin_id': 'at046.synthetic', 'version': 1, 'twin_status': 'published'}
+    assert steps(doc)['twin_published']['observed'] == {'status': 200, 'twin_id': 'at046-synthetic-x', 'version': 1, 'twin_status': 'published'}
     first_key = headers['Idempotency-Key']
     again = FakeOwner()
-    run(tmp_path, 'prepare', A.Ports(owner=again), publish_twin={'twin_id': 'at046.synthetic'})
+    run(tmp_path, 'prepare', A.Ports(owner=again), publish_twin={'twin_id': 'at046-synthetic-x'})
     assert again.twin[1]['Idempotency-Key'] == first_key  # the same definition: the same request id, a replay
     plain = FakeOwner()
     code, doc = run(tmp_path, 'prepare', A.Ports(owner=plain))
     assert code == 0 and not any(c.endswith('publish_consumer_twin') for c in plain.calls) and 'twin_published' not in steps(doc)
+
+
+def test_the_synthetic_twin_has_its_prefix_and_cleanup_retires_it(tmp_path):
+    """L6 batch-12 review 4.1: the twin prepare publishes is the tenant's - it always carries the prefix at046-synthetic- (a name without
+    it is refused), and cleanup retires it after the acceptance (owner's retire_consumer_twin; only a prefixed twin; idempotent)."""
+    owner = FakeOwner()
+    code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin=True)
+    assert code == 0 and owner.twin[0]['definition']['twin_id'] == 'at046-synthetic-trial'
+    code, doc = run(tmp_path, 'prepare', A.Ports(owner=FakeOwner()), publish_twin={'twin_id': 'trial.service_consumer'})
+    assert code == 2 and 'at046-synthetic-' in doc['refused']
+    owner = FakeOwner()
+    code, doc = run(tmp_path, 'cleanup', A.Ports(owner=owner), twin={'twin_id': 'at046-synthetic-trial', 'version': 1})
+    assert code == 0 and owner.calls == ['/api/v1/workbench/actions/retire_consumer_twin']
+    body, headers = owner.retired
+    assert body['twin_id'] == 'at046-synthetic-trial' and body['version'] == 1 and steps(doc)['synthetic_twin_retired']['passed'] is True
+    again = FakeOwner()
+    run(tmp_path, 'cleanup', A.Ports(owner=again), twin={'twin_id': 'at046-synthetic-trial', 'version': 1})
+    assert again.retired[1]['Idempotency-Key'] == headers['Idempotency-Key']
+    for twin in ({'twin_id': 'trial.service_consumer', 'version': 1}, {'twin_id': 'at046-synthetic-trial'}, None):
+        code, doc = run(tmp_path, 'cleanup', A.Ports(owner=FakeOwner()), **({'twin': twin} if twin else {}))
+        assert code == 2, twin
+
+
+def test_a_retired_synthetic_twin_binds_no_more_and_no_staged_experiment_can_use_it(admin):
+    """On PostgreSQL: the synthetic twin (prefixed, contract example, no model) published and then retired as cleanup does is not
+    selectable, so no screening or shadow experiment can name it (D9); an uncalibrated one already was not. Real experiments never pick a
+    twin themselves - a registration names it. The online stage waives the twin check altogether (0309): there a twin decides nothing."""
+    from support.tenants import TENANT_A as T
+    bootstrap(admin)
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (T,))
+    definition = {k: v for k, v in json.loads(A.TWIN_EXAMPLE.read_text()).items() if k != 'frozen'}
+    definition['twin_id'] = A.SYNTHETIC_TWIN + 'trial'
+
+    def governed(fn, body):
+        return admin.execute(f"select control.{fn}(%s,'real','owner-principal','owner-subject',%s,%s)", (T, 'intent-' + uuid.uuid4().hex[:12], Jsonb(body))).fetchone()[0]
+    out = governed('nexloop_governed_publish_consumer_twin', {'operation': 'publish_consumer_twin', 'request_id': uuid.uuid4().hex, 'definition': definition})
+    assert out['status'] == 'published' and out['twin_id'].startswith(A.SYNTHETIC_TWIN)
+    selectable = lambda: admin.execute('select runtime.nexloop_consumer_twin_selectable(%s,%s,%s)', (T, out['twin_id'], out['version'])).fetchone()[0]  # noqa: E731
+    twin_ok = lambda stage: admin.execute('select runtime.nexloop_experiment_twin_ok(%s,%s)', (T, Jsonb({'stage': stage, 'twin': {'twin_id': out['twin_id'], 'version': out['version']}}))).fetchone()[0]  # noqa: E731
+    assert selectable() is False and twin_ok('screening') is False and twin_ok('shadow') is False  # uncalibrated: never in a staged experiment
+    governed('nexloop_governed_retire_consumer_twin', {'operation': 'retire_consumer_twin', 'request_id': uuid.uuid4().hex, 'twin_id': out['twin_id'],
+                                                       'version': out['version'], 'reason': 'AT-046 stage acceptance finished'})
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (T,))
+    assert admin.execute('select runtime.nexloop_consumer_twin_status(%s,%s,%s)', (T, out['twin_id'], out['version'])).fetchone()[0] == 'retired'
+    assert selectable() is False and twin_ok('screening') is False and twin_ok('shadow') is False

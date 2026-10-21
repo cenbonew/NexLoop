@@ -153,14 +153,16 @@ docker compose -p nexloop-simulation ps
 ## AT-046 实测现在会卡在哪
 
 - **孪生 observe/act**：孪生端口（`authz.nexloop_twin_*`、`nexloop_twin_port`）从第八批起具备。要跑这一步，需要先满足以下条件（缺任何一项，这一步都是 blocked，不算通过）：
-  1. **已发布的 consumer twin**：twin 属于租户，不属于某个 world，必须是 published 状态，并且生成器不调用模型（D6）。最简单的做法是 prepare 时加上 `inputs.publish_twin`（例如 `{"twin_id": "at046.synthetic"}`，`twin_id` 可省略）：prepare 会经负责人的受治理 Action `publish_consumer_twin`，发布契约示例中的合成 twin（`packages/contracts/examples/consumer-twin.valid.json`，生成器 `twin-template/1`）。结果里的 `twin_published` 步骤给出 `twin_id` 和 `version`。同一份定义重复执行时只会回放，不会发布第二个版本。也可以在工作台手工执行 `publish_consumer_twin`。校准（`twin_calibrate.py`，或 Action `calibrate_consumer_twin`）不是必需的，未校准的 twin 也能绑定，只是事件的 provenance 中会写 `uncalibrated`。
+  1. **已发布的 consumer twin**：twin 属于租户，不属于某个 world，必须是 published 状态，并且生成器不调用模型（D6）。最简单的做法是 prepare 时加上 `inputs.publish_twin`（`true`，或者 `{"twin_id": "at046-synthetic-<名字>"}`；默认 `at046-synthetic-trial`，名字必须带 `at046-synthetic-` 前缀，否则拒绝）：prepare 会经负责人的受治理 Action `publish_consumer_twin`，发布契约示例中的合成 twin（`packages/contracts/examples/consumer-twin.valid.json`，生成器 `twin-template/1`）。结果里的 `twin_published` 步骤给出 `twin_id` 和 `version`。同一份定义重复执行时只会回放，不会发布第二个版本。也可以在工作台手工执行 `publish_consumer_twin`。校准（`twin_calibrate.py`，或 Action `calibrate_consumer_twin`）不是必需的，未校准的 twin 也能绑定，只是事件的 provenance 中会写 `uncalibrated`。
+     **验收结束后**执行 `at046_stage.py cleanup --config …`（`inputs.twin` 填这个 twin 的 `twin_id` 和 `version`，负责人口令走 stdin），经负责人的 `retire_consumer_twin` 将它作废。cleanup 只会作废带前缀的 twin，重复执行只会回放。作废后它不能再被绑定（L6 第十二批复核 4.1）。
+     **会不会被 NX-043 的 real 实验选中**：不会自动选中。实验从不自己挑 twin，twin 由负责人在实验登记里显式写明。screening 和 shadow 阶段要求所写的 twin 已发布、未作废并且已校准（D9）。这个合成 twin 没有校准，作废后更不可用，所以这两个阶段都用不了它。online 阶段按 0309 不再检查 twin（连作废的也放行），但 online 阶段 twin 本来就不参与任何决定。这个“online 连作废也放行”的现象已作为后续事项报给调度员（NX-043 的范围）。
   2. **该 world 的 twin 凭据**：`sim_world_credentials.py` 的 `uses` 要包含 `twin`，并经第 8 步装到 APP_HOST。
   3. **twin 端口的 DSN**：`sim_dsn_files.py` 会写出 `sim_twin_port_dsn`；pg_hba 的模拟行从第九批起已包含 `nexloop_twin_port`；它的口令在 bootstrap 窗口设置。
   4. **intake 配置（第 13 步）**：
      - `roles.twin_port`：`{"dsn_file": "/run/secrets/sim_twin_port_dsn", "token_file": "/sim-tokens/<world uuid>/twin-credential"}`；
      - `inputs.twin`：`{"twin_id": <twin_published.twin_id>, "version": <twin_published.version>, "seed": <1–64 位的 [A-Za-z0-9_.-]，同一 seed 可完全重放>, "steps": <每个 Consumer 观察和行动的步数，默认 2>}`。
 - **模拟 Run**：Run Action 由 prepare 阶段发布到 world 里，不再卡在“未发布”。如果漏跑了 prepare，Run 这一步会判为失败。
-- **worker 权限（stage 2026-10-22 修复，迁移 0310）**：Run 在 worker 的 control 阶段失败（`runtime_control_unavailable` / `InsufficientPrivilege`），原因是 `nexloop_sim_worker` 不能执行派发前复核负责人控制的 4 个入口：`assert_task_dispatch_controls`、`bind_run_goal`、`budget_status`、`reserve_budget`。每个 sim world 创建时都有自己的模型预算，所以每个 sim Run 都会预留预算。本地测试之所以没发现，是因为它直接调用了 claim 和 activation，跳过了 worker 自己的派发路径；现在 `tests/test_nx041_sim_pi_run_pg.py` 改为走 `RuntimeDispatcher.run_once`。worker 遇到这类失败时，会在 stderr 输出一行 `runtime_dispatch_error`，只包含阶段、任务代码和异常类名。
+- **worker 权限（stage 2026-10-22 修复，迁移 0310）**：Run 在 worker 的 control 阶段失败（`runtime_control_unavailable` / `InsufficientPrivilege`），原因是 `nexloop_sim_worker` 不能执行派发前复核负责人控制的 4 个入口：`assert_task_dispatch_controls`、`bind_run_goal`、`budget_status`、`reserve_budget`。每个 sim world 创建时都有自己的模型预算，所以每个 sim Run 都会预留预算。本地测试之所以没发现，是因为它直接调用了 claim 和 activation，跳过了 worker 自己的派发路径；现在 `tests/test_nx041_sim_pi_run_pg.py` 改为走 `RuntimeDispatcher.run_once`。worker 遇到这类失败时，会在 stderr 输出一行 `runtime_dispatch_error`，只包含阶段、任务代码和异常类名。这 4 个入口还加了第二道防线，做法同 0275（L6 第十二批复核 2.1）：模拟角色在 real 或 test world 调用时直接拒绝（42501，`simulation role outside its world`），即使它拿到了 real 凭据的 digest 也一样。real 角色的 `app_role` 就是它自己，所以 real worker 的路径不变。
 
 第八批到位之后，同一个脚本无需修改就能完整跑通 AT-046。
 
