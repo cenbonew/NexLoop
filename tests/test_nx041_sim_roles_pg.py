@@ -32,7 +32,7 @@ WHITELIST = {
                                    'authz.nexloop_sim_effect_query(text,text,uuid)'},
     # review 1.3: the shared entries only, plus the Host's simulation context (its migration grants it after S6c).
     # sim context by reference (0270): register only; the assembler is no longer granted directly (least privilege).
-    'nexloop_sim_api': COMMON | {'authz.nexloop_twin_sample(text,text,text,integer,text,integer)',  # NX-042 T2 (0276)
+    'nexloop_sim_api': COMMON | {'authz.nexloop_twin_sample(text,text,text,integer,text,integer)',  # NX-042 T2 (0279)
                                  'authz.nexloop_sim_context_register(text,text,uuid,text,integer)',
                                  # D10 wiring (0273): the simulation intake issues, accepts and registers its world's Runs.
                                  'authz.nexloop_issue_run_credential(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)',

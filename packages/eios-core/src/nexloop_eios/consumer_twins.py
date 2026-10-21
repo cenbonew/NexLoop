@@ -1,4 +1,4 @@
-"""NX-042 T1: Python mirrors of the consumer twin rules in SQL (0275, temporary number): the minimum interval width (D4), the
+"""NX-042 T1: Python mirrors of the consumer twin rules in SQL (0278, temporary number): the minimum interval width (D4), the
 real-content guard (D5) and the definition digest (sha256 of the jsonb text form)."""
 from decimal import Decimal
 import hashlib

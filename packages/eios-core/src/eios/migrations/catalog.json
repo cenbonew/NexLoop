@@ -1372,13 +1372,13 @@
       "sha256": "bbf58437baa5ab6213a13bfb32bd51f487ac5929353b2424d5a0ff8a376ca299"
     },
     {
-      "version": "0275",
-      "name": "0275_nx042_consumer_twins.sql",
+      "version": "0278",
+      "name": "0278_nx042_consumer_twins.sql",
       "sha256": "6fc91e7c1fa7b33203381f5ceabbaeeebe8cec5084ec3ee4661eac42d72f7ed5"
     },
     {
-      "version": "0276",
-      "name": "0276_nx042_twin_sampling.sql",
+      "version": "0279",
+      "name": "0279_nx042_twin_sampling.sql",
       "sha256": "03d718fcbaae70e99bc7ab7405107c1b8e1ed60922923aef110b406ad76de37c"
     }
   ]
