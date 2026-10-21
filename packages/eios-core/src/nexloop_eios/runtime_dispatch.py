@@ -67,7 +67,13 @@ NO_REPLY_CODE='runtime_no_reply_submitted'
 
 def reply_settle(worker,run_id):
     """0200: whether this Run answers a message and submitted its reply; when not, the message's reply-due item becomes due now.
-    Best effort: the queue result never depends on it ({} when unavailable)."""
+    Best effort: the queue result never depends on it ({} when unavailable).
+    A simulation or shadow world has no reply guarantee: its Runs answer no conversation message (no message route or fallback binding
+    names them - their input is fixed by reference, NX-041 S7b), so it is not asked at all (stage 2026-10-22: the simulation worker,
+    which holds no grant on it, left a permission error in the PostgreSQL log after every simulation Run)."""
+    session=getattr(worker,'_session',None)
+    if str(getattr(session,'world','')).startswith(('sim:','shadow:')):
+        return {'reply_run':False}
     try:
         session=worker._session
         with worker._backend._pool.connection() as c,c.transaction():
