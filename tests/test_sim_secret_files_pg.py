@@ -240,6 +240,15 @@ def test_the_simulation_agent_host_starts_with_the_generated_files(setup, tmp_pa
                     pass
                 assert time.monotonic() < deadline
                 time.sleep(0.1)
+        # The compose healthcheck (stage finding 2026-10-22: dependents wait for it): healthy here, unhealthy on another port.
+        test = compose['services']['sim-agent-host']['healthcheck']['test']
+        assert test[0] == 'CMD' and test[-1] == '${NEXLOOP_SIM_HOST_PORT}'
+        probe_cmd = [shutil.which('node'), *test[2:-1]]
+        assert subprocess.run([*probe_cmd, str(port)], capture_output=True, timeout=20).returncode == 0
+        with socket.socket() as other:
+            other.bind(('127.0.0.1', 0))
+            closed = other.getsockname()[1]
+        assert subprocess.run([*probe_cmd, str(closed)], capture_output=True, timeout=20).returncode == 1
     finally:
         if child.poll() is None:
             child.terminate()

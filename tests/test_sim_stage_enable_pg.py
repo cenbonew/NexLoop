@@ -155,6 +155,14 @@ def test_the_dsn_files_are_written_0600_from_stdin_and_never_print_a_password(tm
     code, out = run(D.main, ['--config', str(conf), '--check'], stdin=io.StringIO(lines),
                     check=lambda dsns, required: seen.update(n=sorted(dsns), r=required) or {'pass': True})
     assert code == 0 and out['check'] == {'pass': True} and seen['n'] == sorted(D.SIM_DSN_ROLES) and 'password' not in json.dumps(out)
+    # --verify: the check alone on the files as they are - no password read (NoStdin), nothing written.
+    before = {p.name: p.read_bytes() for p in (tmp_path / 'sim-secrets').iterdir()}
+    code, out = run(D.main, ['--config', str(conf), '--verify'], stdin=NoStdin(),
+                    check=lambda dsns, required: {'pass': sorted(dsns) == sorted(required) == sorted(D.SIM_DSN_ROLES)})
+    assert code == 0 and out['verify'] is True and out['check'] == {'pass': True} and 'password' not in json.dumps(out)
+    assert {p.name: p.read_bytes() for p in (tmp_path / 'sim-secrets').iterdir()} == before
+    code, out = run(D.main, ['--config', str(conf), '--verify'], stdin=NoStdin(), check=lambda dsns, required: {'pass': False})
+    assert code == 1 and out['ok'] is False
     # Review 3.2: a check that raises reports its type only, never a message that may hold a value.
     def broken(dsns, required):
         raise psycopg.OperationalError('connection failed: password=' + passwords[ROLES[0]])
@@ -343,3 +351,45 @@ esac
         write(bad)
         log.write_text('')
         assert subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env).returncode == 1 and log.read_text() == ''
+
+
+def test_the_dsn_files_ca_path_is_mounted_in_the_sim_setup_container():
+    """Stage finding 2026-10-22: --check (and AT-046's intake) run in sim-setup, which mounted the secret directory at /sim-secrets
+    only, while each DSN names sslrootcert=/run/secrets/sim_pg_ca: every check was unreachable. The CA's directory in the DSN must be
+    a sim-setup mount of the secret directory (read only), so the files work there unchanged, as in the running services."""
+    import yaml
+    ca_dir = D.CA_IN_CONTAINER.rsplit('/', 1)[0]
+    setup = yaml.safe_load((ROOT / 'deploy/stage/compose.simulation.example.yaml').read_text())['services']['sim-setup']
+    mounts = {v.split(':')[1]: v for v in setup['volumes']}
+    assert ca_dir in mounts and mounts[ca_dir].startswith('${NEXLOOP_SIM_SECRET_DIR') and mounts[ca_dir].endswith(':ro')
+    services = yaml.safe_load((ROOT / 'deploy/stage/compose.simulation.example.yaml').read_text())['services']
+    assert any('sim_pg_ca' in (s.get('secrets') or []) for s in services.values())  # the running services get it at /run/secrets too
+
+
+def test_export_and_forget_read_only_the_fields_they_use(tmp_path, monkeypatch):
+    """Stage finding 2026-10-22: --export read the configurator DSN file - a window that exists only inside the issuing run - so the
+    issuing configuration could not serve the export. Each mode now requires and reads only its own fields: --export and --forget
+    need world, uses and token_dir; a stale window path or a past expiry in the same configuration does not matter to them, while
+    issuing still refuses it."""
+    world = 'sim:' + str(uuid.uuid4())
+    tokens = tmp_path / 'tokens' / world.split(':', 1)[1]
+    tokens.mkdir(parents=True, mode=0o700)
+    for use in ('api', 'worker'):
+        private(tokens / f'{use}-credential', use[0].upper() * 64)
+    conf = private(tmp_path / 'issue.json', {'schema': C.SCHEMA, 'tenant_id': TENANT, 'world': world, 'uses': ['api', 'worker'],
+                   'token_dir': str(tmp_path / 'tokens'), 'configurator_database_url_file': '/run/nexloop-configurator-WINDOW/dsn',
+                   'signing_key_file': '/nonexistent', 'signing_key_id': 'nx048-deploy', 'credential_expires_at': '2020-01-01T00:00:00+00:00',
+                   'check_database_url_file': '/nonexistent'})
+    monkeypatch.setenv('NEXLOOP_SIM_TRANSFER_PIPE', '1')
+    sink = io.StringIO()
+    assert C.main(['--config', str(conf), '--export'], out=sink) == 0
+    assert sorted(line.split(' ')[0] for line in sink.getvalue().splitlines()) == ['api', 'worker']
+    code, out = run(C.main, ['--config', str(conf), '--forget'])
+    assert code == 0 and out == {'ok': True, 'forgotten': ['api', 'worker']}
+    # Only the needed fields are required: an export configuration may be just these.
+    private(conf, {'schema': C.SCHEMA, 'world': world, 'uses': ['api'], 'token_dir': str(tmp_path / 'tokens')})
+    assert run(C.main, ['--config', str(conf), '--forget'])[0] == 0
+    code, out = run(C.main, ['--config', str(conf), '--check'])
+    assert code == 2 and 'check_database_url_file' in out['detail']  # --check needs its DSN (and the tenant)
+    code, out = run(C.main, ['--config', str(conf)])
+    assert code == 2 and 'configurator_database_url_file' in out['detail']  # issuing needs everything

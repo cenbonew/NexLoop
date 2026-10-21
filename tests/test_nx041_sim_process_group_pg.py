@@ -95,6 +95,10 @@ def test_the_simulation_compose_project_is_separate_off_by_default_and_holds_no_
     assert setup['sim-setup']['user'] == services['sim-agent-host']['user'] and setup['sim-setup']['networks'] == ['simulation']
     assert setup['sim-setup-dir']['cap_add'] == ['CHOWN'] and setup['sim-setup-dir']['network_mode'] == 'none'
     assert all(v.endswith(':ro') for v in setup['sim-setup']['volumes'][:2])
+    # Stage finding 2026-10-22: the DSN files name /run/secrets/sim_pg_ca, so sim-setup (its --check, AT-046's intake) mounts the
+    # secret directory there as well - read only, beside the writable /sim-secrets.
+    vols = setup['sim-setup']['volumes']
+    assert '${NEXLOOP_SIM_SECRET_DIR}:/run/secrets:ro' in vols and '${NEXLOOP_SIM_SECRET_DIR}:/sim-secrets' in vols
     for name, service in services.items():
         assert service.get('profiles') == ['simulation'], name  # nothing starts without --profile simulation
         assert service.get('network_mode') in (None, 'service:sim-agent-host'), name  # never the host's (real) namespace

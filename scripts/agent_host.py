@@ -17,14 +17,25 @@ ROOT = Path(__file__).resolve().parents[1]
 OWNER_HEADER = b'NexLoop runtime owner v1\n'
 
 
+class Refused(ValueError):
+    """A startup refusal whose reason names only uids, modes and kinds - never a path's content or a secret - and is printed."""
+
+
 def acquire_owner(root):
     root = Path(root).absolute()
     if root.is_symlink():
-        raise ValueError('runtime root refused')
-    root = root.resolve(strict=True)
-    info = root.stat()
+        raise Refused('runtime root refused: a symbolic link')
+    try:
+        root = root.resolve(strict=True)
+        info = root.stat()
+    except FileNotFoundError:
+        raise Refused('runtime root refused: missing') from None
+    except PermissionError:
+        raise Refused(f'runtime root refused: not accessible to uid {os.getuid()}') from None
+    # Stage finding 2026-10-22: a runtime root of another owner made the simulation Host restart without saying why.
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
-        raise ValueError('private runtime root required')
+        raise Refused(f'private runtime root required: a directory of uid {os.getuid()} with mode 0700 (found uid {info.st_uid}, mode '
+                      f'{stat.S_IMODE(info.st_mode):04o}{"" if stat.S_ISDIR(info.st_mode) else ", not a directory"})')
     fd = os.open(root / '.nexloop-owner.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         info = os.fstat(fd)
@@ -114,10 +125,11 @@ def main():
                         str(args.internal_key_file.absolute()), str(args.port),
                         str(args.tls_certificate_file.absolute()), str(args.tls_key_file.absolute()),
                         *([str(args.runtime_config_file.absolute())] if args.runtime_config_file else [])], env)
-    except Exception:
+    except Exception as error:
         if fd is not None:
             os.close(fd)
-        print('Agent Host startup refused or unavailable', file=sys.stderr)
+        # Only the launcher's own refusals carry a reason (uids, modes, kinds); any other error stays without detail.
+        print('Agent Host startup refused or unavailable' + (f': {error}' if isinstance(error, Refused) else ''), file=sys.stderr)
         return 1
 
 
