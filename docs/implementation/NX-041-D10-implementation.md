@@ -136,3 +136,26 @@ S7 原来那条 strict xfail 已经翻转，改成普通测试：先断言 `pi_r
 - 再签发一个已经存在的用途：被拒。
 - 缺少用途、用途非法、real 凭据带了用途、test 凭据带了用途：Python 校验和 SQL 都拒绝。阳性对照：带了合法用途的 sim 凭据，两条路径都能通过。
 - real 回归：service-grants 的真实 manifest 在前后各应用一次，结果不变；real 凭据都不带用途。
+
+## 授权复核（L2 `nx041-d10-grants-review.md`）
+
+| 项 | 处理 |
+| --- | --- |
+| **P1 第二道防线** | 迁移 `0275_nx041_d10_grants_review.sql` 重定义了 `authz.nexloop_read_action_bundle`（底稿是 0016）和 `authz.nexloop_role_run_hint`（底稿是 0063），开头各加一句判断：`authz.nexloop_app_role(p_world)='nexloop_sim_outside_its_world'` 时拒绝，也就是 sim 角色以 real 或 test world 调用会被挡住。real 角色的 `app_role` 就是它自己的 session_user，所以 real 路径逐字不变。两个函数的 search_path 都补上了 `pg_temp`，满足 definer 检查。两处重定义都已登记到复制件守护。负例：三个 sim 角色拿着 real 凭据的摘要，以 real 或 test 调用这两个函数，都报 `simulation role outside its world`；阳性对照：nexloop_api 做同样的调用能越过这道判断。 |
+| **P2 逐项必要性** | 用一次性探测逐项收回授权，每次串行重跑真实 Pi 的 sim 端到端（Node 24），共 13 项，**收回任何一项都会导致失败**，失败点也正好在用到这项授权的那一步。所以没有多余的授权，白名单不变。各项的失败情况见下表。 |
+| **P3 invoker 函数** | 选「断言」，没有统一 `revoke ... from public`。实测三个 sim 角色和 nexloop_api 在 authz、control、runtime、ontology 下可调用的 invoker 函数都是 0 个；而且 bootstrap 角色现在新建的函数，默认就不对 PUBLIC 开放执行。统一 revoke 要改一大批现有函数，还会波及 real 角色，换不来实际收益。断言能拦住将来的回归：测试要求每个 sim 角色在这些 schema 下能调用的 invoker 函数为空集。阳性对照：临时建一个函数并 `grant ... to public`，断言能发现它。 |
+
+P2 实测，每次单独收回一项授权：
+
+| 收回的授权 | 失败点 |
+| --- | --- |
+| sim_api：`read_action_bundle` | 签发 Run 凭据：`published Run Action unavailable` |
+| sim_api：`role_run_hint` | accept：没有执行权 |
+| sim_api：`select control.schema_migrations` | 打开后端：没有表权限 |
+| sim_api：`issue_run_credential` | 签发 Run 凭据：没有执行权 |
+| sim_api：`queue_command` | accept：没有执行权 |
+| sim_api：`runtime_activation_command` | accept 的登记步骤：没有执行权 |
+| sim_worker：`read_action_bundle` / `role_run_hint` | 创建激活：`runtime activation unavailable` |
+| sim_worker：`select control.schema_migrations` / `usage on schema control` | 打开后端：没有权限 |
+| sim_guard：`read_action_bundle` / `role_run_hint` | Host 启动 Run：guard 返回 `runtime_authorization_unavailable` |
+| sim_guard：`select control.schema_migrations` | guard 进程起不来：`guard worker unavailable` |

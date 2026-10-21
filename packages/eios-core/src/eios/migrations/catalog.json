@@ -1370,6 +1370,11 @@
       "version": "0274",
       "name": "0274_nx041_d10_manifest.sql",
       "sha256": "bbf58437baa5ab6213a13bfb32bd51f487ac5929353b2424d5a0ff8a376ca299"
+    },
+    {
+      "version": "0275",
+      "name": "0275_nx041_d10_grants_review.sql",
+      "sha256": "afc8db107b1efe61a26609c8d155a0d07d4ff8ce22e55ac6a06c5e79186baac4"
     }
   ]
 }

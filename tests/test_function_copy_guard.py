@@ -94,6 +94,13 @@ REGISTRY = [
               r"\s*exception when others then n_failed:=n_failed\+1;\s*end;",
               r" for x in select world from control.nexloop_sim_worlds where tenant_id=p_tenant and status='deleting' order by created_at limit 10 loop \1"),
              (r",'worlds_expired',n_expired,'worlds_failed',n_failed", ''))),
+    # D10 grants review P1 (0275): S6c's second defence on the two entries D10 granted to the simulation roles.
+    Allowed('nx041_d10_grants_review', 'authz.nexloop_read_action_bundle', 'D10 review P1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
+            ((r"if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),),
+            PG_TEMP),
+    Allowed('nx041_d10_grants_review', 'authz.nexloop_role_run_hint', 'D10 review P1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
+            ((r"if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),),
+            PG_TEMP),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
