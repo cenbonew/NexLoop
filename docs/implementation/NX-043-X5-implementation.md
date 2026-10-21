@@ -132,7 +132,7 @@
 
 ## 9. d4de09d2 复核（L6，2026-10-21）与部署说明
 
-迁移 `0299_nx043_lock_timeout_restore.sql`（临时编号）。
+迁移 `0301_nx043_lock_timeout_restore.sql`（临时编号）。
 
 - **2.1（确认，real）lock_timeout 没有恢复**：记账块把 `lock_timeout` 设为 200 ms 后没有恢复，会一直作用到 real 模型预留和 Run 签发事务的剩余部分。
   - 现在进块前先保存调用方原来的值，块正常结束时恢复。
