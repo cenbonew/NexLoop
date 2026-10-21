@@ -1429,7 +1429,7 @@
     {
       "version": "0286",
       "name": "0286_at048_consumer_leakage.sql",
-      "sha256": "d4228f83155d0cfdfca6b23e6539e35b584d1e38ebdd6cf5ecd81570dd4d9355"
+      "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
     },
     {
       "version": "0287",
@@ -1510,6 +1510,11 @@
       "version": "0302",
       "name": "0302_nx043_leave_out_world.sql",
       "sha256": "63f061d4c72efec5173d8c02770642c55c2161920eac92edb1dff69d8ce24c4a"
+    },
+    {
+      "version": "0303",
+      "name": "0303_at048_consumer_leak_perf.sql",
+      "sha256": "1e2f377f00a3d1af080297b4a4787fa6e1ff29a9583467cc8a68b8e64dc7ece1"
     }
   ]
 }

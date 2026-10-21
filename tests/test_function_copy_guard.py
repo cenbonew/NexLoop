@@ -144,8 +144,13 @@ REGISTRY = [
              (r"\s*\|\|case when v_text->>'text' is not null then jsonb_build_object\('text_template',v_text->>'template_id','text_generator',v_text->>'generator_version',\s*'text_marker','simulated'\) else '\{\}'::jsonb end\)",
               ')'))),
     # AT-048 (0286, L3, S6 stage finding): the evaluation opening also refuses when one Consumer has cases on both sides; nothing else.
-    Allowed('at048_consumer_leakage', 'authz.nexloop_evo_evaluation_open', 'AT-048: leakage_detected also when the cases of both sides share a Consumer (one linear helper)',
-            ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or runtime\.nexloop_evo_consumer_leak\(v_tenant,x\.design_case_ids,x\.validation_case_ids\)", ''),)),
+    Allowed('at048_consumer_leakage', 'authz.nexloop_evo_evaluation_open', 'AT-048: leakage_detected also when the cases of both sides share a Consumer',
+            ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or exists\(select 1 from unnest\(x\.design_case_ids\) dc join unnest\(x\.validation_case_ids\) vc\s*"
+              r"on runtime\.nexloop_evo_run_consumer\(v_tenant,'real',dc\)=runtime\.nexloop_evo_run_consumer\(v_tenant,'real',vc\)\)", ''),)),
+    # AT-048 performance (L3 4c1cf6b0) in its own migration: 0286's pairwise Consumer comparison becomes one linear helper.
+    Allowed('at048_consumer_leak_perf', 'authz.nexloop_evo_evaluation_open', 'AT-048 performance: the pairwise Consumer comparison as one linear helper; nothing else',
+            ((r"or runtime\.nexloop_evo_consumer_leak\(v_tenant,x\.design_case_ids,x\.validation_case_ids\)",
+              "or exists(select 1 from unnest(x.design_case_ids) dc join unnest(x.validation_case_ids) vc\n     on runtime.nexloop_evo_run_consumer(v_tenant,'real',dc)=runtime.nexloop_evo_run_consumer(v_tenant,'real',vc))"),)),
     # NX-042 T5 (L6 nx042-t5-fix-verify 1.3, K = 3): calibrated also needs none of the last 3 verdicts failed.
     Allowed('nx042_twin_calibration', 'runtime.nexloop_consumer_twin_calibration', 'NX-042 T5: the last 3 verdicts without a failed one; nothing else',
             ((r'v text;v_recent_failed boolean;', 'v text;'),

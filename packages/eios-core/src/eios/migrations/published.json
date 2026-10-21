@@ -1,0 +1,1444 @@
+{
+  "schema": "nexloop.published-migrations.v1",
+  "note": "Migrations already applied on stage. Their files and catalog checksums never change; a fix goes into a new migration. The dispatcher updates this record at each release.",
+  "published_through": "0287",
+  "release": "28",
+  "source_commit": "13087064",
+  "migrations": [
+    {
+      "version": "0001",
+      "name": "0001_durable_core.sql",
+      "sha256": "8a863fda0a2a8e6d7085e107445e09cce8633e0a1866844f87ea3bb42383ef13"
+    },
+    {
+      "version": "0002",
+      "name": "0002_roles_and_tenant_boundary.sql",
+      "sha256": "fe3509f7139ff86049306169dd2a0b69b83c384ce4560aefaac45f0bcc945f12"
+    },
+    {
+      "version": "0003",
+      "name": "0003_default_authority_hardening.sql",
+      "sha256": "6b31b0f801ba7dcc363a4a6bfa9757d69f8560df571d11059f16ca016bfd0cea"
+    },
+    {
+      "version": "0004",
+      "name": "0004_service_authority_facts.sql",
+      "sha256": "474869705bd0b4833184393f9dd816f9d09a9c557f3ce0e3df41adfa13405063"
+    },
+    {
+      "version": "0005",
+      "name": "0005_local_artifact_governance.sql",
+      "sha256": "657ecf256a7165d1fd3de4d2db0eccc86c80da41d7994d9add2c5b142fb6331a"
+    },
+    {
+      "version": "0006",
+      "name": "0006_local_artifact_retention.sql",
+      "sha256": "3b210483dbdabd431c67ad815a1dd6932437d1795d1254edb223c7634c900fc0"
+    },
+    {
+      "version": "0007",
+      "name": "0007_action_claims.sql",
+      "sha256": "77e4620ae04f4c633a9f23cad3f3a013b12a6fc3230619b6b4ee2dbdbd596498"
+    },
+    {
+      "version": "0008",
+      "name": "0008_action_definitions.sql",
+      "sha256": "6222969ea0888146acdd8f9784db1acae7122a97b1e33895cb1e54ec88ff9aa2"
+    },
+    {
+      "version": "0009",
+      "name": "0009_action_schema_bundle.sql",
+      "sha256": "5a03e3ed359241a57da22e5c5815d19ebbd0344703180acf4bf592c9b07425b4"
+    },
+    {
+      "version": "0010",
+      "name": "0010_governed_object_create.sql",
+      "sha256": "65217d09cf7a28fd8a73a550a7b002693759fd83d32c77612e2099177c2acb3a"
+    },
+    {
+      "version": "0011",
+      "name": "0011_authorized_object_read.sql",
+      "sha256": "96326d62c9b07141dba99a0025a9d527c59fae4f8a581141259b287c470d53ba"
+    },
+    {
+      "version": "0012",
+      "name": "0012_backend_signer_attestation.sql",
+      "sha256": "41a342e1d52d55acc9d4067fd0002b66531efacfb0802116148b12e4544e943f"
+    },
+    {
+      "version": "0013",
+      "name": "0013_expired_pending_artifacts.sql",
+      "sha256": "2e47ecb22de46dcfd4fab3ed8da0999188af8d299ef519c02eb7dcb9d1287a09"
+    },
+    {
+      "version": "0014",
+      "name": "0014_artifact_cleanup_candidates.sql",
+      "sha256": "66c9b24d64696a9e114ee83c9088c70b225a2ff25eda97f7cf04d8d62d3d645d"
+    },
+    {
+      "version": "0015",
+      "name": "0015_governed_object_edit.sql",
+      "sha256": "b61d9a23eff101db74b70c0969b3290a8e76aea9495e7dd8195cc1652ddebac0"
+    },
+    {
+      "version": "0016",
+      "name": "0016_governed_relation_link.sql",
+      "sha256": "b184e8d00c09bbf5a8c5ca8f214d07155ff3d495c2afedfb48b0ee142e81cf3f"
+    },
+    {
+      "version": "0017",
+      "name": "0017_temporary_artifact_cleanup.sql",
+      "sha256": "09d032b486e3e3c982d944e27de39afed65759fccadd68339adb29dc30ab0525"
+    },
+    {
+      "version": "0018",
+      "name": "0018_final_artifact_orphan_sweeps.sql",
+      "sha256": "45955fca3a58300495773d5c396d7d037d99b25fcb7e1cee26e71be950f2d561"
+    },
+    {
+      "version": "0019",
+      "name": "0019_browser_identity_rate_limits.sql",
+      "sha256": "3d39d00b72349f54da3555850e24b0d9916b8ca9e79bb5083f0dbbeb3fcad751"
+    },
+    {
+      "version": "0020",
+      "name": "0020_browser_identity_operator_binding.sql",
+      "sha256": "e99da5659d4f590e21ca914c141f44934b61bad3a568af00ba2df1e3094b6c49"
+    },
+    {
+      "version": "0021",
+      "name": "0021_browser_identity_canonical_reads.sql",
+      "sha256": "78b9a8ea2e538690bf171c0dadec4be497913951e1c844f64f426907cdcbc6b2"
+    },
+    {
+      "version": "0022",
+      "name": "0022_browser_account_failures.sql",
+      "sha256": "090ab560a7872e35b756910e03410708a17f767ada20271e1475883733fba690"
+    },
+    {
+      "version": "0023",
+      "name": "0023_browser_account_failure_receipts.sql",
+      "sha256": "d2db448a87d766a6fea3fc1a067f0fac4853807229c82483e39cafc35bd0da75"
+    },
+    {
+      "version": "0024",
+      "name": "0024_browser_account_password_save.sql",
+      "sha256": "5bd609e1fce8fdfd92598de7efa65f84aab80a8800c4046251858bf226feb8f4"
+    },
+    {
+      "version": "0025",
+      "name": "0025_browser_authentication_evidence.sql",
+      "sha256": "65b18316bcd314ec0b76cade68561ddd7d3bdb1ebcd70eb62a0b4809c5dee7b5"
+    },
+    {
+      "version": "0026",
+      "name": "0026_browser_session_creation.sql",
+      "sha256": "cab68a088526ff91c46291550d17ecdd8e017d0c1abf5aef66b03c3ab8e07dca"
+    },
+    {
+      "version": "0027",
+      "name": "0027_browser_session_reads.sql",
+      "sha256": "b7cf168e3004ffa97144e9767939f198c2f6b793aba41a7e8e34818e4ceadaaa"
+    },
+    {
+      "version": "0028",
+      "name": "0028_browser_session_touch.sql",
+      "sha256": "a5ac35da36ed6a43e53a8a54aecd1ac9b1081b0ab43fed5c87bb5ceea6dd487c"
+    },
+    {
+      "version": "0029",
+      "name": "0029_browser_session_revoke.sql",
+      "sha256": "b2f25a4ecf780d4374038a2eedb8cbaea966621a1b7746377f18fb28a06638d9"
+    },
+    {
+      "version": "0030",
+      "name": "0030_browser_login_session_replacement.sql",
+      "sha256": "a902a6ad9e6aebeebe8e302fd90706ce15fc3d7f3db014740026b596e16b99c4"
+    },
+    {
+      "version": "0031",
+      "name": "0031_browser_tenant_rotation.sql",
+      "sha256": "c1373145e760e8b233b974fa3346b9c33f90c0ed95b9402aa573f8d7e8cc861f"
+    },
+    {
+      "version": "0032",
+      "name": "0032_identity_browser_rate_operator.sql",
+      "sha256": "2ec5a01ab18baa7a997b89a9da3eebfaa55bd58f2b78e4512267edfeae904b7f"
+    },
+    {
+      "version": "0033",
+      "name": "0033_authenticated_agent_invocation.sql",
+      "sha256": "01a2fd7ace8339ba012aabb90ecdc8799047fb3725b4d269fb2e6dcaabb33405"
+    },
+    {
+      "version": "0034",
+      "name": "0034_run_bound_credentials.sql",
+      "sha256": "33c180bf49ffd1db5c6495000e969703a1f62e280239bd4bce9a51c70a0be592"
+    },
+    {
+      "version": "0035",
+      "name": "0035_durable_inbox_outbox_queue.sql",
+      "sha256": "4e4ee091dc2024820d53b684bb43ed05b2d367460eabfb6a7fc41a613ed18a55"
+    },
+    {
+      "version": "0036",
+      "name": "0036_runtime_task_lease_guard.sql",
+      "sha256": "b7323b730c677528bac5c15fd0f46f80b4a229d840bb2b772b837ad0aa61e381"
+    },
+    {
+      "version": "0037",
+      "name": "0037_runtime_activation_registry.sql",
+      "sha256": "8d408764e669345b896b9bf2ebf90925727dc6cd95d99c0f08138569e4b85d00"
+    },
+    {
+      "version": "0038",
+      "name": "0038_runtime_input_binding.sql",
+      "sha256": "d1835f89f682b1ef2d729e59b4205d64d24cfb7ad2894bc824fd7cb3686c33ca"
+    },
+    {
+      "version": "0039",
+      "name": "0039_runtime_execution_marker.sql",
+      "sha256": "6232b48223d4cbe1e0bfe26ef7fcfbc61a086a7f926d800b4f30688706d4c666"
+    },
+    {
+      "version": "0040",
+      "name": "0040_effect_intents.sql",
+      "sha256": "64a5e630269dc9946eee1c71cd5311c642a52ff7ab3a259f7309dea4db3cebb1"
+    },
+    {
+      "version": "0041",
+      "name": "0041_effect_context_registrar.sql",
+      "sha256": "5896ad202a2a08775c1daa5eda03abdc99d8a100443d57b4cd98189d0d4a8eef"
+    },
+    {
+      "version": "0042",
+      "name": "0042_effect_execution_ledger.sql",
+      "sha256": "7c2c015f0a905f3c5fb1fbe3de08abfbb97eacf500b89d3b5e050d615825595b"
+    },
+    {
+      "version": "0043",
+      "name": "0043_runtime_effect_context_binding.sql",
+      "sha256": "2719550a2c7befb37e76ae1e589f54072f49940e655e4bac8ce3447a2691b0cc"
+    },
+    {
+      "version": "0044",
+      "name": "0044_effect_provider_binding.sql",
+      "sha256": "04b88ecb763988adfc30f8fffa507c358f6d85e76ffe6ebf5e5e19a389647183"
+    },
+    {
+      "version": "0045",
+      "name": "0045_browser_business_authority.sql",
+      "sha256": "4b7a63137b2c7f8022d72c63ebf4f9cecce962e70be2ab545d56687481abde41"
+    },
+    {
+      "version": "0046",
+      "name": "0046_conversation_messages.sql",
+      "sha256": "2ccfcd410bbb364e8288cb0e082bcd687256c7d74a9c1d080ec5cf7e8240850b"
+    },
+    {
+      "version": "0047",
+      "name": "0047_message_runtime_bridge.sql",
+      "sha256": "006722783de8d07c0db6d15c574578de93b0a8da3448eef9f172a1cbc22b2106"
+    },
+    {
+      "version": "0048",
+      "name": "0048_conversation_effect_receipts.sql",
+      "sha256": "0c66a4cc67b35eefbb29a755cc6b2e6e3e7b827c2becd5d1b45dc172e96a1114"
+    },
+    {
+      "version": "0049",
+      "name": "0049_message_run_issuance.sql",
+      "sha256": "84f2b374fd5199e35c600b09e04a86f468d192a570f353a156ba618a4e1ef939"
+    },
+    {
+      "version": "0050",
+      "name": "0050_trusted_configuration.sql",
+      "sha256": "7dc93e59b7593ddfad90a8ef04fdf715366f9ca4c004b545297951dccbf8ba93"
+    },
+    {
+      "version": "0051",
+      "name": "0051_local_json_delivery.sql",
+      "sha256": "d475cadb8a165c4089d39394f7c18852c3efe18010afe2621ae66f6fc3d15849"
+    },
+    {
+      "version": "0052",
+      "name": "0052_context_artifact_binding.sql",
+      "sha256": "ab28e7be0f7ce7317ee2614df5bcb935c37555d5514fce3f8b74f02a18216491"
+    },
+    {
+      "version": "0053",
+      "name": "0053_service_offering_catalog.sql",
+      "sha256": "7f43cfbd5cf25da2572296cdb7ac82d2423a1010d4daab3edc6a51e580631df2"
+    },
+    {
+      "version": "0054",
+      "name": "0054_governed_edit_commit_tail.sql",
+      "sha256": "a207e912048306500812b20cf068a1f0a65056babaa21fdaa9503d8fddc33fc4"
+    },
+    {
+      "version": "0055",
+      "name": "0055_native_web_inbound.sql",
+      "sha256": "d7aa84ada8abcdf46f3a0b2f40e2ac468e24d2da295799b07d569810eeda0db2"
+    },
+    {
+      "version": "0056",
+      "name": "0056_scope_denials.sql",
+      "sha256": "15b306f0452fbf24d94b18fab013eda2ecf4f76906a5eb280de8501fcc05b8a4"
+    },
+    {
+      "version": "0057",
+      "name": "0057_role_mapping_and_create_tail.sql",
+      "sha256": "7d157de40a4ddc604fd517c9bb4995cf2bdae8657d2bfe13c4ee6faaa2f34c7c"
+    },
+    {
+      "version": "0058",
+      "name": "0058_relationship_assessment.sql",
+      "sha256": "2d94b04ebdf79992fd6117d8ce812f67f5b916eec6dc783eed86ff475c72f061"
+    },
+    {
+      "version": "0059",
+      "name": "0059_consumer_profile_guards.sql",
+      "sha256": "d33daa3f946ccb5561665e3fa73344d792b0d5f311cfd79c889539fdf79938f1"
+    },
+    {
+      "version": "0060",
+      "name": "0060_assessment_history.sql",
+      "sha256": "9546b8b04aba3d9f8f603c3745a6a4cfb3afc1d5e466dce5a1495c7f4017441e"
+    },
+    {
+      "version": "0061",
+      "name": "0061_consumer_identity_link.sql",
+      "sha256": "e5183d4319db024c0a5c19467e9f8b09af0856018840c0c11e450fb2f0cd4821"
+    },
+    {
+      "version": "0062",
+      "name": "0062_context_copy_read_dependencies.sql",
+      "sha256": "0a04799844e2d395c2f025fa66e2ed26c010d1d07c878a5dd7d4d417c91bcd20"
+    },
+    {
+      "version": "0063",
+      "name": "0063_role_runtime.sql",
+      "sha256": "13f1ea09c6d79c3d62b18b43c9d549139ff5d2b7787d70b0ee6bd0530405671d"
+    },
+    {
+      "version": "0064",
+      "name": "0064_role_authority_deadlines.sql",
+      "sha256": "6aeb62e555596f8ce51357033d2594793b4e0bf05809c02da2d49a462df49779"
+    },
+    {
+      "version": "0065",
+      "name": "0065_receipt_reconciliation.sql",
+      "sha256": "8ac8ee9071b6696ba0d2cd5d7267603f61583cb213282b7f39994c838ccecd39"
+    },
+    {
+      "version": "0066",
+      "name": "0066_nx019_claims.sql",
+      "sha256": "bf2c747ef39148fc3e1411b4b82a933498d1af8f6a2d2323e90937960e2cc4ae"
+    },
+    {
+      "version": "0067",
+      "name": "0067_nx021_recall_index.sql",
+      "sha256": "b49b3423d99a4ce49ce5ede09d5ecdfad20ba9528dab6baf3997d138e1f50665"
+    },
+    {
+      "version": "0068",
+      "name": "0068_nx022_goals_controls.sql",
+      "sha256": "0eee56ff6eb4de3bbb29cf4384b3145101b80decc48e5d4ba53c83750d4226aa"
+    },
+    {
+      "version": "0069",
+      "name": "0069_nx019_extraction_queue.sql",
+      "sha256": "27becf2184eb66ee5f7aa5715940e399c8ec744f4d6b4288e99fe8f83fe04431"
+    },
+    {
+      "version": "0070",
+      "name": "0070_nx020_claim_matching.sql",
+      "sha256": "51b85682175f9c024551a0bdacf5ee3da76f4e034a69eecf33ed44d1e0ea7261"
+    },
+    {
+      "version": "0071",
+      "name": "0071_nx048_service_grant_inventory.sql",
+      "sha256": "2bf3018205fa361d76c021d79490c3d1bb730a1bf4057c4fce88be127baea525"
+    },
+    {
+      "version": "0072",
+      "name": "0072_nx045_candidate_merge.sql",
+      "sha256": "e1e5367fac757bcac2d17baaa3cab354914bf0bbf86675994494efc2048a3830"
+    },
+    {
+      "version": "0073",
+      "name": "0073_nx019_claim_contract_view.sql",
+      "sha256": "b1682efc4c81266a9dda1fb2fb062660ff537fbbe70aa12c756ae90d5789f00d"
+    },
+    {
+      "version": "0074",
+      "name": "0074_nx046_review_workbench.sql",
+      "sha256": "5d1df70924c5ee7e482c571aaff94a43d3e21387943af89a48c3a41eeaf3eb02"
+    },
+    {
+      "version": "0075",
+      "name": "0075_nx018_formal_current.sql",
+      "sha256": "aa651a02155fa614afaa12b4242302878dbc6056bbb3b85f396d4a583857cca0"
+    },
+    {
+      "version": "0076",
+      "name": "0076_nx018_relationship_context_v4.sql",
+      "sha256": "f43278120c505fffb6c77891a40fa2456218f682edb759283499c0b66f9a6b8f"
+    },
+    {
+      "version": "0077",
+      "name": "0077_nx018_message_read_derivation.sql",
+      "sha256": "36c464e73bcfe770f75a272267ae0125549e69f7f2d96c804a17cd0fa038d444"
+    },
+    {
+      "version": "0078",
+      "name": "0078_nx046_cooldown_single_instant.sql",
+      "sha256": "822ccd68c32a920ac3230e76d27ab15ce57e2232f84cd0f496c811538ac982a5"
+    },
+    {
+      "version": "0079",
+      "name": "0079_nx047_outbound_messages.sql",
+      "sha256": "997c25142b659922fd6f61510568f374e717a3dbf9dd11a2b9a01ff45373f056"
+    },
+    {
+      "version": "0080",
+      "name": "0080_nx047_outbound_read_derivation.sql",
+      "sha256": "3aefa946e61a42a17c5cb659139c6f40835e80e28197c6eb89b31d3fd905141a"
+    },
+    {
+      "version": "0081",
+      "name": "0081_nx018_role_policy.sql",
+      "sha256": "d2f6278059ac5e78ddd1b6df6edd43ba2f34ca8960be654685e790decff14ad3"
+    },
+    {
+      "version": "0082",
+      "name": "0082_nx044_review_actions.sql",
+      "sha256": "683e7fa44bd231c9c568e0c217b42a10078e985447c3e8217e226d9cc181b87e"
+    },
+    {
+      "version": "0083",
+      "name": "0083_grants_follow_latest.sql",
+      "sha256": "71ae53049312abd840a332cb0b4d4bd8255b4352ac125bc883dd9de136537c1d"
+    },
+    {
+      "version": "0084",
+      "name": "0084_property_grant_derivation.sql",
+      "sha256": "e132017c6e52bdc98fba11ba68750c535ca6baa39532941a42d93e629f2b8245"
+    },
+    {
+      "version": "0085",
+      "name": "0085_nx018_role_policy_dispatch.sql",
+      "sha256": "bbad04498dc5d98e6d3b1d245d7c2712e9622f6d7b6574cf7eeba54e6cf2753d"
+    },
+    {
+      "version": "0086",
+      "name": "0086_nx018_evidence_read_derivation.sql",
+      "sha256": "240328e24daafe5a5be870dd3f941bfa8d92cab7429f78696ae8d4c8655514f4"
+    },
+    {
+      "version": "0087",
+      "name": "0087_nx018_role_policy_context_v5.sql",
+      "sha256": "de2bffcad89a6c4dfdf952966e948dcda72078233965105f3eb533c4fe997d1c"
+    },
+    {
+      "version": "0088",
+      "name": "0088_nx023_context_strategies.sql",
+      "sha256": "f4f7811d68c87de0d74f682ae227c083fca239aec6b705025a4d3966862b3c11"
+    },
+    {
+      "version": "0089",
+      "name": "0089_nx023_context_manifests.sql",
+      "sha256": "5aa2e290d23d5462c74acc09cbd170656834865578bdcd490d5a9d015585056f"
+    },
+    {
+      "version": "0090",
+      "name": "0090_nx023_context_reads.sql",
+      "sha256": "173d69668db224fabb4f17b77e2a6583b77ed0aef460f229c9f77b8a5e55637e"
+    },
+    {
+      "version": "0091",
+      "name": "0091_perf_o2b_batch_fact_load.sql",
+      "sha256": "cb502dc7beb29f530b9254360be9e9f1797c9b28c3bc5d4ca53dbedd8f180c1f"
+    },
+    {
+      "version": "0092",
+      "name": "0092_nx023_context_bind_v6.sql",
+      "sha256": "b8b3c0082dde812bd0c3042e172cddef04e17fe7c58a61539d8a4d8683829ffc"
+    },
+    {
+      "version": "0093",
+      "name": "0093_nx020_nx021_work_feeds.sql",
+      "sha256": "1ea0e98d4cb523f03de5f165a261effedcb297d56d3741ba1a11d8f01be22503"
+    },
+    {
+      "version": "0094",
+      "name": "0094_nx023_role_context_v6.sql",
+      "sha256": "053caa0304096b706acbe2e3332b36c36b049065891865fb27f797ee5cb2297e"
+    },
+    {
+      "version": "0095",
+      "name": "0095_nx023_context_audit_read.sql",
+      "sha256": "71c43c5178466baafb4950832fbe3eb9ed93fbd22df89a5067089dfae2eac7ef"
+    },
+    {
+      "version": "0096",
+      "name": "0096_perf_o5b_read_assert_memo.sql",
+      "sha256": "aec3e66ca3766780ebc7f3b2b9d441e5ff86fae8cdad349dbd99c873d9ae6913"
+    },
+    {
+      "version": "0097",
+      "name": "0097_nx022_dispatch_controls.sql",
+      "sha256": "9982ace4e52812f063900f7b97ba6a26f41d0d072fff99725ce3464363212109"
+    },
+    {
+      "version": "0098",
+      "name": "0098_tighten_function_search_path.sql",
+      "sha256": "32cd3db01e1eed1ac866ab58b6be7a395d7d002304d9188900c6c732e3f9b1d3"
+    },
+    {
+      "version": "0099",
+      "name": "0099_nx023_context_v6_relationships_copy.sql",
+      "sha256": "e3e0252ca99977f708b80d4ba608c4273e4c1dfae26b8da705d8a5c43e4a81c5"
+    },
+    {
+      "version": "0100",
+      "name": "0100_nx023_model_results.sql",
+      "sha256": "6f55223639773f4da183ae769eb85f33cb194569633cc469f10a072f86163185"
+    },
+    {
+      "version": "0101",
+      "name": "0101_nx044_type_actions.sql",
+      "sha256": "6cd66e698b6a4bc0d483b74f9035eb79613c4b2df2e7dc3ee8e61776fcadb9f7"
+    },
+    {
+      "version": "0102",
+      "name": "0102_nx019_nx020_message_purpose_reads.sql",
+      "sha256": "fa6e511bfb1c1749b5b3b175b72ab5606b3613ded8addad088209308f5acf6ac"
+    },
+    {
+      "version": "0103",
+      "name": "0103_nx050_instance_approval.sql",
+      "sha256": "ff07e687880aea3055f278eaf7d88fb4fd6a72e57eba331f3e734d46fb46b7bd"
+    },
+    {
+      "version": "0104",
+      "name": "0104_nx050_create_latest.sql",
+      "sha256": "be94919bd519aa34b071d57691b466209fa74d4523526167a40c1c4f4bbdb569"
+    },
+    {
+      "version": "0105",
+      "name": "0105_nx023_assemble_per_run.sql",
+      "sha256": "c52d6d2666a8c97eee94085f600b5003ac51cb1a92680a389957985db0c12718"
+    },
+    {
+      "version": "0106",
+      "name": "0106_nx024_plan_reevaluation.sql",
+      "sha256": "c9197d85bc3bbed9aa85d81dd8e280942f85ecc087b77dbb38b2c3480225a8b2"
+    },
+    {
+      "version": "0107",
+      "name": "0107_nx049_submit_sql.sql",
+      "sha256": "b7b3b79b6b04f9a4e9c11588e613e2b30df50db3a4192f33bbb8bd453c5afe2e"
+    },
+    {
+      "version": "0108",
+      "name": "0108_nx025_plan_context_and_wake.sql",
+      "sha256": "24b70831fcc4394b2b2cb45718ce9d70dc458a3d75da969223bb5e33f8c94d4b"
+    },
+    {
+      "version": "0109",
+      "name": "0109_nx025_contact_refusal_and_replies.sql",
+      "sha256": "e4baa561eaeb0126b7b76fd8442029a03c2cea0615908a36b15d5dbe12349688"
+    },
+    {
+      "version": "0110",
+      "name": "0110_nx025_reply_fallback_run.sql",
+      "sha256": "4a3c07c1a7ae31bb44f5cb9089fe1782f719a49cf5c8ae6194a31bac16a5c218"
+    },
+    {
+      "version": "0111",
+      "name": "0111_nx026_commitments.sql",
+      "sha256": "9cc2003c55d7400957eb639130462f01e20ee6ff8896ba897075eeafa75a8564"
+    },
+    {
+      "version": "0112",
+      "name": "0112_nx026_contact_effect_categories.sql",
+      "sha256": "9fcfda13858c59a8898a6918d86024f715121e1720e5131f4fc6a720fbe93ffd"
+    },
+    {
+      "version": "0113",
+      "name": "0113_nx026_commitment_context.sql",
+      "sha256": "4f518a0ac701a26a9c1fecff30f849e24b3abef19575212153194f4b6f133cdd"
+    },
+    {
+      "version": "0114",
+      "name": "0114_nx051_message_provider_facts.sql",
+      "sha256": "82b7a34b40baeba65f8a4e76e9234f97265cd471f96ec195c1acf92d90a6fe87"
+    },
+    {
+      "version": "0115",
+      "name": "0115_nx051_claim_correction_order.sql",
+      "sha256": "d9596270ff83b69c80acc4dceb8ea63dd1bcbb7a54e0520071ecbfe8120e148a"
+    },
+    {
+      "version": "0116",
+      "name": "0116_nx028_staff_identity.sql",
+      "sha256": "33143ccadd10831828a955653b76f55da1c93bdce52e2fa5c927139e24cc21e2"
+    },
+    {
+      "version": "0117",
+      "name": "0117_nx028_workbench_read.sql",
+      "sha256": "8c46f2fc0ecd1b682ca351e5a1306157518e74cfd736146ead23a9fb9b4e6ffa"
+    },
+    {
+      "version": "0118",
+      "name": "0118_nx027_commercial_intake.sql",
+      "sha256": "739d983dc8ad8863f3e432301daa72e8d4f2eb39887418df8c1edb24329fd1c3"
+    },
+    {
+      "version": "0119",
+      "name": "0119_nx027_metrics.sql",
+      "sha256": "c888378290b0bf5a758e6e4d05280c4bbfb7f85ffeeb6d01f562ac9bc0d637df"
+    },
+    {
+      "version": "0120",
+      "name": "0120_nx027_costs.sql",
+      "sha256": "6f40388c9ae72d786c7de7ff24679bf10a6a9d1e570cf5482b6ba13cf3c50735"
+    },
+    {
+      "version": "0121",
+      "name": "0121_nx027_commercial_links.sql",
+      "sha256": "b378e09e2746ef50ce83dd29ccd0155a61cf47e848110e2051564fd3c9e618b0"
+    },
+    {
+      "version": "0122",
+      "name": "0122_nx027_commercial_observe.sql",
+      "sha256": "5e2196c55f95250aea27cf604709a3e92e2304feba35831646c0c9bcea604d5b"
+    },
+    {
+      "version": "0123",
+      "name": "0123_nx028_workbench_member_read.sql",
+      "sha256": "515ecbb2e1a2e50bd8f7607849ea222cefccb6666b9c56239e19b4c04019b927"
+    },
+    {
+      "version": "0124",
+      "name": "0124_nx028_governed_entry.sql",
+      "sha256": "c6c329c42cd5c0df8d2db83c44ee45849e1e3bcd55c465acb5858d3188dc303e"
+    },
+    {
+      "version": "0125",
+      "name": "0125_nx028_workbench_actions.sql",
+      "sha256": "acc74ce30fa33b091dcaa9dc5a3fd251c261ec3295c44a9e08cea42f9d27ca4a"
+    },
+    {
+      "version": "0126",
+      "name": "0126_nx028_takeover.sql",
+      "sha256": "990cdf570a2ea2d6466ee946a904ccdf3a8480e907b0155a6d6f7e559f3f7ab8"
+    },
+    {
+      "version": "0127",
+      "name": "0127_nx028_staff_reply.sql",
+      "sha256": "25f1bb687a7761cbc46b23edc5214030d7227405e0563cd0f6ebb753e04aceba"
+    },
+    {
+      "version": "0128",
+      "name": "0128_nx027_governed_registry.sql",
+      "sha256": "30d7c49b9d04a38edd15889a9c117cd026e94c96687683a6f948b12ab0612c08"
+    },
+    {
+      "version": "0129",
+      "name": "0129_nx029_retention.sql",
+      "sha256": "90144dc82ae1ef1b5ccaae1a80d28b440a508e98cd8df64be88024d31bed728c"
+    },
+    {
+      "version": "0130",
+      "name": "0130_nx028_workbench_ui_reads.sql",
+      "sha256": "383c64694d52ec7d0a53b4415ac909482c18fc0a9e6f853afadbde3e79136524"
+    },
+    {
+      "version": "0131",
+      "name": "0131_nx030_observability.sql",
+      "sha256": "69b4e181d9371de6050104d658a90b02fd074d554d0287a6e5fa3f2fcbaafe75"
+    },
+    {
+      "version": "0132",
+      "name": "0132_nx029_erasure.sql",
+      "sha256": "2ddecf964655250c9ba2d6cae5566307144cd4a2093822a228b00bbdbe3e9e2c"
+    },
+    {
+      "version": "0133",
+      "name": "0133_nx030_ui.sql",
+      "sha256": "c7188a4ec91c085e814d65c0440b3c50c439e83a59580e33c3364b4ccc2298ab"
+    },
+    {
+      "version": "0134",
+      "name": "0134_nx029_erasing_perf.sql",
+      "sha256": "a284e32f53a5176839f59fb1120eba3980d17f197bfe902dc359319bc63df2bd"
+    },
+    {
+      "version": "0135",
+      "name": "0135_nx029_deletion_replay.sql",
+      "sha256": "4fba28a9ea056d0c1bd38111babf68853fcd6594b70184d20bfb47abb38167ba"
+    },
+    {
+      "version": "0136",
+      "name": "0136_nx029_export.sql",
+      "sha256": "57c6096f66374f242ef5125d6b9ff458725884f74f50cc05e58725de54696c88"
+    },
+    {
+      "version": "0137",
+      "name": "0137_nx029_summaries.sql",
+      "sha256": "802b705374fefe5c0ee415f77432e8d957d50f32c0c0e517314f8b6d4a76dbf0"
+    },
+    {
+      "version": "0138",
+      "name": "0138_nx029_erasure_propagation.sql",
+      "sha256": "0590eac99c8dd1ec8429762c2d501f04720d604f16f0466d14a512f24d1b9bf7"
+    },
+    {
+      "version": "0139",
+      "name": "0139_nx029_expiry_classes.sql",
+      "sha256": "8a3f1d2a563d3ab67ca0ce5e0d03f75576419102aa4c7f00f421a6ca1f9b3c22"
+    },
+    {
+      "version": "0140",
+      "name": "0140_nx029_retention_completion.sql",
+      "sha256": "ac1749753237f8b35c9203c0a3c8b6274c7e315c4c54467b489210d589ff8207"
+    },
+    {
+      "version": "0141",
+      "name": "0141_relay_multi_consumer.sql",
+      "sha256": "5d0ff1cbaab0bbe64cb480ad8da4fbb29b3631151930f522fd3d131d7623cc97"
+    },
+    {
+      "version": "0142",
+      "name": "0142_relay_source_read.sql",
+      "sha256": "d64e645e572aa4dc79d45c2a7e1873150f9624c3b962848ed91efdfbcae22f3a"
+    },
+    {
+      "version": "0143",
+      "name": "0143_relay_fallback_enrollment.sql",
+      "sha256": "a8e7865bed4e7a631965372a22603fc22b31d5c54bb1d914627622a75bf6be8a"
+    },
+    {
+      "version": "0144",
+      "name": "0144_relay_erasure.sql",
+      "sha256": "1349fa1b0feb6fb41f93e7f0e4be43a03ff31c95dad78498dcf71bdba75e0ce2"
+    },
+    {
+      "version": "0145",
+      "name": "0145_at043_incentives.sql",
+      "sha256": "d83303a708ae1abeffdc176766f762f576acea066bc46f1154602a523547d099"
+    },
+    {
+      "version": "0146",
+      "name": "0146_nx035_backup.sql",
+      "sha256": "c3ac1641f4565581acde2095eea0d1d88b604692488ed8be85a32fc0b99aa0b5"
+    },
+    {
+      "version": "0147",
+      "name": "0147_nx035_restore.sql",
+      "sha256": "ba974b854f652bc8163c29118a9b708ecf01499b836578b493c867be94bb123a"
+    },
+    {
+      "version": "0148",
+      "name": "0148_claim_match_settled.sql",
+      "sha256": "5287a8f792bd4f2068e50c9379eb3a35e30719c3ce9676511b79d8377a14be01"
+    },
+    {
+      "version": "0149",
+      "name": "0149_feed_due_counts.sql",
+      "sha256": "52d918b27e18b1c98685568ae130e05699748075965249c5f08cd2607ad93ba1"
+    },
+    {
+      "version": "0150",
+      "name": "0150_relay_handoff.sql",
+      "sha256": "0d12b24f0191fa5136d7c6c10ba8d2bdcce58f660892d095c16aeecec361ac08"
+    },
+    {
+      "version": "0151",
+      "name": "0151_service_readiness.sql",
+      "sha256": "cb9197a44cbdf0382f3cbc75c1771e42bdd7c36ee8fe738161058deef6782e78"
+    },
+    {
+      "version": "0152",
+      "name": "0152_reply_unknown_reconcile.sql",
+      "sha256": "d7a6c722ba5f98be6ff90a7a51f8737c1dae0795f968da1a53be7ea317088d97"
+    },
+    {
+      "version": "0153",
+      "name": "0153_real_dispatch_switch.sql",
+      "sha256": "81af27fe24af96112eb2eb1bb81a7c584e84e5db5b0e6f27cdc217e41dbe3337"
+    },
+    {
+      "version": "0154",
+      "name": "0154_nx053_erased_contact_keys.sql",
+      "sha256": "2849a1aefbdeb65f1d82927cb9108f6113bf1ec3a40708bf00d5298ccbce8c0f"
+    },
+    {
+      "version": "0155",
+      "name": "0155_nx052_nx019_claim_mode.sql",
+      "sha256": "e4331dff1e6c2ae914330b7d5c80195c975539855763ed80f188389691607009"
+    },
+    {
+      "version": "0156",
+      "name": "0156_nx035_journal_retention.sql",
+      "sha256": "2984f52e35f3d9dd3daee5b0c559d07595bcee2640529d4a1e0b8af1a209d3c0"
+    },
+    {
+      "version": "0157",
+      "name": "0157_nx052_tenant_id_uuid.sql",
+      "sha256": "9d1b51bbe6ca9ccd81ada30d21bb471742477b775e742d8aa033f6208d89c86d"
+    },
+    {
+      "version": "0158",
+      "name": "0158_nx052_tenant_fk_control_config.sql",
+      "sha256": "1c9df82ca6dcfd2ebde796038f29b3c96417bfe0d11d21d60a05c9f59c67f9cb"
+    },
+    {
+      "version": "0159",
+      "name": "0159_nx052_tenant_fk_ontology_definitions.sql",
+      "sha256": "3fb25e3b8db18bfb383e0823cd356b33fff9a7aca54c5d5eaf5dae65b992ed41"
+    },
+    {
+      "version": "0160",
+      "name": "0160_nx052_tenant_fk_claims_extraction.sql",
+      "sha256": "f715a3f10af3368f217ee06ed990c61f119e4c816abff8a3abb679714401e32c"
+    },
+    {
+      "version": "0161",
+      "name": "0161_nx037_trial_readiness.sql",
+      "sha256": "09764c81f52928146721361dfbc2d0125878cabbcfa5f3a5067fab2f3469403e"
+    },
+    {
+      "version": "0162",
+      "name": "0162_nx052_tenant_row_no_key_lock.sql",
+      "sha256": "052af25d58fdf1b34574b97a5812713eaf2588ab72164f4eb8e943b14803d9e0"
+    },
+    {
+      "version": "0163",
+      "name": "0163_nx037_open_switches.sql",
+      "sha256": "0b491640a17eeb7d5a4f793f658508894ba4acddc1c2bd6ec937dc1003c06494"
+    },
+    {
+      "version": "0164",
+      "name": "0164_nx052_tenant_fk_conversations.sql",
+      "sha256": "6ad6be9afb4fc6facaea90d8f934186410ffea9d948b6c82a01b00252d4f3901"
+    },
+    {
+      "version": "0165",
+      "name": "0165_at046_real_credential_alone.sql",
+      "sha256": "6140e93301a3607db1a6c56520c004379e817ae3ea8e259d8b36ccead5852c05"
+    },
+    {
+      "version": "0166",
+      "name": "0166_nx052_tenant_fk_run_effect.sql",
+      "sha256": "99288b3b4d17151cc0ea87c38fba0c222c7cd0be489212667821ca1f665d781f"
+    },
+    {
+      "version": "0167",
+      "name": "0167_nx052_tenant_fk_control_events.sql",
+      "sha256": "e30038085bd772eb3cc7f11a6159dd1703e45282e53169e427748ef693ccee4a"
+    },
+    {
+      "version": "0168",
+      "name": "0168_nx052_tenant_fk_commercial_erasure.sql",
+      "sha256": "5e7c8b2ba9646403de66fa8c660fe891d541b7c8384dcbdc760de7fc55e79f42"
+    },
+    {
+      "version": "0169",
+      "name": "0169_nx052_tenant_fk_durable_queue.sql",
+      "sha256": "b8fa31a1dc5c06ead1cf686af6b7529b985808cf115ed403e31595a4390ec477"
+    },
+    {
+      "version": "0170",
+      "name": "0170_nx052_tenant_fk_token_realms.sql",
+      "sha256": "504e889452e6ccec93d73c860e45f188649633985ef2e821dfed26195d454fa3"
+    },
+    {
+      "version": "0171",
+      "name": "0171_inspect_authz_scope.sql",
+      "sha256": "44fdade95d168512deef0f8790d3b52a013410582113f576bfdcbdb8bb7890da"
+    },
+    {
+      "version": "0172",
+      "name": "0172_nx037_interaction_observation.sql",
+      "sha256": "fde894af9eb27284d824aacc07a7381deff00b296200a255d49bed30de55406b"
+    },
+    {
+      "version": "0173",
+      "name": "0173_effect_final_recheck.sql",
+      "sha256": "fdedccf94d19dd412f3933d40f4205c6ec79b13113cbf8893dceb00502bbf76b"
+    },
+    {
+      "version": "0174",
+      "name": "0174_effect_origin_expired.sql",
+      "sha256": "fda826e11244606bd6ebefce5fa7df0f6efc73816750a5af40c7c9be23b4de5c"
+    },
+    {
+      "version": "0175",
+      "name": "0175_nx031_delivery_definition_share_lock.sql",
+      "sha256": "902485da05f024b3d65baa281a5b114820350c85c21bd9f19dda4dc916f8541a"
+    },
+    {
+      "version": "0176",
+      "name": "0176_context_claims_refusal.sql",
+      "sha256": "3fdd40dc582200ac774642e1113fb439d2ef41fdbc2f1ae0d86122347cef285d"
+    },
+    {
+      "version": "0177",
+      "name": "0177_nx031_one_reply_per_inbound_message.sql",
+      "sha256": "6300060b9f9231ba6166ccaf6f4f982c463bfd38dfdc433e28dc547fd2961a20"
+    },
+    {
+      "version": "0178",
+      "name": "0178_nx037_enterprise_deliver.sql",
+      "sha256": "1c142cfa1f7c00be8435c181f54d9d8e2399b64c2b726e65531c94046965ba75"
+    },
+    {
+      "version": "0179",
+      "name": "0179_nx037_run_effect_slots.sql",
+      "sha256": "c33208930fc81f6c070729638f99087ee624724b7035375cc6b12fca111f7252"
+    },
+    {
+      "version": "0180",
+      "name": "0180_nx037_enterprise_slot_issuance.sql",
+      "sha256": "60c04a372caaf9481358ed7c9ab2e887bfac947db4d70ae96f19ac9b835fe65e"
+    },
+    {
+      "version": "0181",
+      "name": "0181_nx037_context_effect_supplies.sql",
+      "sha256": "4333e18b2999f338252d242b73a05533ccecb8a09c9831b43b4c2cd0581012c6"
+    },
+    {
+      "version": "0182",
+      "name": "0182_nx037_enterprise_slot_source_read.sql",
+      "sha256": "2f04f46cdbaa4e351db3318c6af4df6bc87f3cad08a52cddcaf3a97cbdee1f37"
+    },
+    {
+      "version": "0183",
+      "name": "0183_nx037_effect_action_version_exact.sql",
+      "sha256": "23cc48f45971e27d9da7a605cf66493303f51ab059afe9759daeae7366321a73"
+    },
+    {
+      "version": "0184",
+      "name": "0184_nx037_effect_route_unconfigured.sql",
+      "sha256": "aa1d08216171b94f2bb7233b9fdf40c03d4fdb121a745074889b765d79737075"
+    },
+    {
+      "version": "0185",
+      "name": "0185_nx037_month_cost.sql",
+      "sha256": "82b732cc373916fe9467c5568258216ba629d0e5835c68281abe810993cb6147"
+    },
+    {
+      "version": "0186",
+      "name": "0186_guard_op_samples.sql",
+      "sha256": "2d20fa53ee68c4e0b09e8357a1d725a8eed3c0ccd13aba5ae0ed9eefcc6fd8b2"
+    },
+    {
+      "version": "0187",
+      "name": "0187_nx037_context_v6_effect_supplies.sql",
+      "sha256": "6b1d480b924d38723c6a0ddd63e9edae914c3aa8cf5bb9c1db9da05f83e611cc"
+    },
+    {
+      "version": "0188",
+      "name": "0188_relay_step_samples.sql",
+      "sha256": "488b3e8d2aa25f39b2ffaee0469d325661829e0074e9e7914fc78ac9c2cef1d4"
+    },
+    {
+      "version": "0189",
+      "name": "0189_nx037_observation_unknown_open.sql",
+      "sha256": "a4a0d507dbfadc44498f2e18dfb9b5c217bb67bb3e95a5d9936e3a40af98b467"
+    },
+    {
+      "version": "0190",
+      "name": "0190_nx037_contact_after_refusal_bound_replies.sql",
+      "sha256": "8743b5b78e2fda12efa93c443780efe74e060a82d8deae32045742bf6c6ecb08"
+    },
+    {
+      "version": "0191",
+      "name": "0191_adr031_read_derivation_once.sql",
+      "sha256": "a7264f44d7f870ceaab9ee0441120c5b9057d0bc21ac1cd37705058710deae12"
+    },
+    {
+      "version": "0192",
+      "name": "0192_adr032_identity_once_per_check.sql",
+      "sha256": "1494b2e5b99d9877457ec74f2efaadf21c8c1f2dacecfdf0d563530cf464d84c"
+    },
+    {
+      "version": "0193",
+      "name": "0193_nx035_backup_tool_verification.sql",
+      "sha256": "c44b094e6faba30813605e520f122eb9be7bfda64a384a8075f2bfc1c6005eb2"
+    },
+    {
+      "version": "0194",
+      "name": "0194_nx035_file_backup_inventory.sql",
+      "sha256": "0f021b1d3680e4061f4b121cdbbabb72fee95cb8668cf9635eab8b982b840901"
+    },
+    {
+      "version": "0195",
+      "name": "0195_nx037_outbound_backlog.sql",
+      "sha256": "3b45ea8a789471ea9c1f82967c3acb813800c9b1a6e7e638be99cd470f96dcfb"
+    },
+    {
+      "version": "0196",
+      "name": "0196_nx037_interaction_messages.sql",
+      "sha256": "064bbebc6ef3318672cab661d22d64efc7e262844b1b9aab91991c6dead0d093"
+    },
+    {
+      "version": "0197",
+      "name": "0197_nx035_backup_read_settings.sql",
+      "sha256": "813b263d1e4dfc1ebcaa05672cbce84b038564a342a8ad437267e78cd425f4d2"
+    },
+    {
+      "version": "0198",
+      "name": "0198_operator_password_reset.sql",
+      "sha256": "45c92625d2f35496a82680bb7ed67e2d42222c49e61f977692fcad174a879ace"
+    },
+    {
+      "version": "0199",
+      "name": "0199_effect_query_window.sql",
+      "sha256": "a80dfff456cb9e80e07df63e7292cdce965045f79f9f94ecaacdbd7ad643389d"
+    },
+    {
+      "version": "0200",
+      "name": "0200_message_run_reply_settle.sql",
+      "sha256": "8067a36ab854584ceeba3e6125d99237476ebe17dfb65bed1d2eb62c3f3d63f9"
+    },
+    {
+      "version": "0201",
+      "name": "0201_context_conversation_turns.sql",
+      "sha256": "dc7779b522eafd99e8d1ee2c8fa809d7dd6f5265a02ed2820b93cdadfb1bfa3f"
+    },
+    {
+      "version": "0202",
+      "name": "0202_context_latest_consumer_turn.sql",
+      "sha256": "5d5e28f2be677ab6ece7eb5c9483b82504f4bdac4eda6593b18d720ba49b4370"
+    },
+    {
+      "version": "0203",
+      "name": "0203_nx037_interaction_effects.sql",
+      "sha256": "dcb1c331a61778c581798de9a969359fa510a44d5ec93c383cca5ed2db7b921e"
+    },
+    {
+      "version": "0204",
+      "name": "0204_nx037_run_failure_evidence.sql",
+      "sha256": "293d2a2123b8a9ad027f330d4bd672308512790fdacd5378a1adc5751b8880e0"
+    },
+    {
+      "version": "0205",
+      "name": "0205_effect_stale_unknown_requery.sql",
+      "sha256": "5b7ef4817b5e0a716783bed2f5e2b61cc3cb4c722dbd786f0c672c08821f5350"
+    },
+    {
+      "version": "0206",
+      "name": "0206_effect_requery_without_dispatch_controls.sql",
+      "sha256": "d92287d91aea7ad895205d3d2f9d6faab9334e9b0c0e7b425555708685095547"
+    },
+    {
+      "version": "0207",
+      "name": "0207_nx037_interaction_message_sender.sql",
+      "sha256": "fe9de18fa54c105321d6b7a9cad8a57e78acf848a52b867275f11566fb569995"
+    },
+    {
+      "version": "0208",
+      "name": "0208_nx037_recovered_tool_errors.sql",
+      "sha256": "8f09751f82c8fa69d0874eb3d18a6c5d7153fb267e428f98c65947a0f1bc5409"
+    },
+    {
+      "version": "0209",
+      "name": "0209_queue_dead_letter_cause.sql",
+      "sha256": "16dbdc7a8466292e90e93773be48010bd95a8f211e7f22de1ddc16fac7352992"
+    },
+    {
+      "version": "0210",
+      "name": "0210_effect_confirm_not_delivered.sql",
+      "sha256": "4837db981b21549f928203c2a9bfc462d9cbd6653724d25583104e529f430274"
+    },
+    {
+      "version": "0211",
+      "name": "0211_nx032_role_source_read.sql",
+      "sha256": "070343328bd4a72daef3b23e78a328a158d415ad2c9a16b75c49d266e85ef20c"
+    },
+    {
+      "version": "0212",
+      "name": "0212_context_degraded_fallback.sql",
+      "sha256": "7300dd7f857c9819178871355c0420268b80aede83505e9dee5639b84e6effd6"
+    },
+    {
+      "version": "0213",
+      "name": "0213_nx046_owner_knowledge_read.sql",
+      "sha256": "8ecd491fba2a9dc66d6edac3848bb1f3e744580d27ae81e00641199db679ef8b"
+    },
+    {
+      "version": "0214",
+      "name": "0214_effect_not_found_observation.sql",
+      "sha256": "dfe8cdb50dbfc0f9c16296d10dfec349117a5bf81cdd30e8b6f3a62befa6162d"
+    },
+    {
+      "version": "0215",
+      "name": "0215_observability_rollup_incremental.sql",
+      "sha256": "492b4dfb77e777f4fe5872dc7ffb52d8b04a6a826284582aaea521630b412cac"
+    },
+    {
+      "version": "0216",
+      "name": "0216_candidates_merge_configuration_metric.sql",
+      "sha256": "afabbfc4a9fafb976a019d48c61a9e4ddb8634220252a4e9fd047681e0fca8f0"
+    },
+    {
+      "version": "0217",
+      "name": "0217_workbench_restricted_presence.sql",
+      "sha256": "785397778ca27a9793cf32bc8af57469d2f3d544cedba14def2b4b2f8296c62c"
+    },
+    {
+      "version": "0218",
+      "name": "0218_export_withheld_count.sql",
+      "sha256": "8649e377e40365ca6ddd2e920062ab346f617877a91dba9137372eb77127e251"
+    },
+    {
+      "version": "0219",
+      "name": "0219_recall_profile_backfill.sql",
+      "sha256": "2a1704f30ec988461e89be6675f67e86ad36e5929dada48c1235b3b355637015"
+    },
+    {
+      "version": "0220",
+      "name": "0220_consumer_persona.sql",
+      "sha256": "0fb717aa8cbdb0ba350841f6610a8ad5ffbb4aff8f124d8e38290255e4d5dc59"
+    },
+    {
+      "version": "0221",
+      "name": "0221_recall_quality_metric.sql",
+      "sha256": "c5a4f776440a83dbc131dd83eb8c48c2fa316e189956f9c128d11d96c84dce7f"
+    },
+    {
+      "version": "0222",
+      "name": "0222_workbench_capabilities.sql",
+      "sha256": "c0ad908ef8e54ba5c793d716b3ba393e9c66edd342608389ec591bfb43450ae1"
+    },
+    {
+      "version": "0223",
+      "name": "0223_workbench_objects.sql",
+      "sha256": "086e52d37ef97cb655033e2689b11b87c2cdb96543a8587a5b08ec2e1e126438"
+    },
+    {
+      "version": "0224",
+      "name": "0224_workbench_member_read_operations.sql",
+      "sha256": "de03d2d452086d4ffdc3ea407774e1ba55e5215849b62ce17b83991095956514"
+    },
+    {
+      "version": "0225",
+      "name": "0225_data_assets_metrics.sql",
+      "sha256": "cfd87626f0ddfdb41a29a3ab5350959bd4bca2cb0d386df3fd918c51be1eebf9"
+    },
+    {
+      "version": "0226",
+      "name": "0226_workbench_artifacts.sql",
+      "sha256": "fc6af21b8a0278f20fda44bbd09575d99b49ca49bc76e7ccc7affe5929ef72ab"
+    },
+    {
+      "version": "0227",
+      "name": "0227_operator_persona.sql",
+      "sha256": "a38d979d10babd25e127094d479a6dec5adbca0e300c521f58ae14438bb1f3ae"
+    },
+    {
+      "version": "0228",
+      "name": "0228_contact_preferences.sql",
+      "sha256": "c8cf884b14645e3c17d5c616f5370c4c7e2636d8dddc5aee1143eb2e0e098338"
+    },
+    {
+      "version": "0229",
+      "name": "0229_operator_persona_pages.sql",
+      "sha256": "38eba136718fa80f7a8801ef95ed1fa7cec068baef142462e1920b25b573f90a"
+    },
+    {
+      "version": "0230",
+      "name": "0230_world_model_read.sql",
+      "sha256": "8b2fe94368334d51d209850f98b1af11ad3f9e40bfc870e84b7b3b906b579f6a"
+    },
+    {
+      "version": "0231",
+      "name": "0231_outreach_candidates.sql",
+      "sha256": "42489231835aa1ae3794fb81e62c2ba69512e4f1452109090678dc5de0e43f48"
+    },
+    {
+      "version": "0232",
+      "name": "0232_outreach_controls.sql",
+      "sha256": "fb0b246eedb8b93be7ae057e2969470b7749f5164837252b743de02d7b94edc8"
+    },
+    {
+      "version": "0233",
+      "name": "0233_nx038_trace_reader.sql",
+      "sha256": "8715a5606be43491976603a8219ebafbcfe5b51dbdfee63a0bea16c70e543524"
+    },
+    {
+      "version": "0234",
+      "name": "0234_nx038_semantic_access.sql",
+      "sha256": "f1a5f5ae9e1590faf633844d0999e0a80ac359331c2cf37b709c9764e0e20315"
+    },
+    {
+      "version": "0235",
+      "name": "0235_nx038_attribution_candidates.sql",
+      "sha256": "016697f7fd76f59e521ca17e01714121cdec75675db4e4a868cd32b7636c8649"
+    },
+    {
+      "version": "0236",
+      "name": "0236_outreach_purposes.sql",
+      "sha256": "155aca0677cdd0a665993e296a13f22cfb1e934c273ab282575428f76585416e"
+    },
+    {
+      "version": "0237",
+      "name": "0237_nx038_isolation_handoff.sql",
+      "sha256": "c3aa618b58d3bd065db9a7542bff5d9bfd787aaf4bca28420f575390396fa218"
+    },
+    {
+      "version": "0238",
+      "name": "0238_outreach_send.sql",
+      "sha256": "c09e336beb06add54adfd628aa65c9cfea0a04616903850d8cf53344cbe679ca"
+    },
+    {
+      "version": "0239",
+      "name": "0239_outreach_run_entry.sql",
+      "sha256": "8aa731c3f4b7fea108bf3df3a76de44a857dba5e2c960f7ecfcf3c61d2def4db"
+    },
+    {
+      "version": "0240",
+      "name": "0240_outreach_approval.sql",
+      "sha256": "0c5774fb2c83ad1c9e4b7bc4776004299a21f8a21893a0c3d13523b322f19d92"
+    },
+    {
+      "version": "0241",
+      "name": "0241_nx039_evaluation_open.sql",
+      "sha256": "8e81c62d4d8d944a8ca765332c47a994a528332e800564d02ca4b240379783c7"
+    },
+    {
+      "version": "0242",
+      "name": "0242_nx039_gates_conclude.sql",
+      "sha256": "d7e986c7589fb4f944c01c61a3b1baae693481105585d350054d5d1ed37cd776"
+    },
+    {
+      "version": "0243",
+      "name": "0243_outreach_unsubscribe_consent.sql",
+      "sha256": "0e08781cde426354477cdaa6779dbfc4a273317a981c06652b9d64f7040f38c7"
+    },
+    {
+      "version": "0244",
+      "name": "0244_contact_refusal_rules_v2.sql",
+      "sha256": "038753e8153287ac31434c259922694d0fa2a62956204bccdc4ec18d6e5b0733"
+    },
+    {
+      "version": "0245",
+      "name": "0245_data_health.sql",
+      "sha256": "669e359338f4f80621a87b3e1995e41b36a9b393fa41fac3dd6d94870da705d8"
+    },
+    {
+      "version": "0246",
+      "name": "0246_workbench_object_fields.sql",
+      "sha256": "cc143689e1f32703fa5519b62f48bb055e5269d051a5461b89c0f97dd1d82262"
+    },
+    {
+      "version": "0247",
+      "name": "0247_object_sets.sql",
+      "sha256": "2cfab276c0594f169e12a71bfad8e2a61ca2a2ff9e89ad49ac53548c5d821bfd"
+    },
+    {
+      "version": "0248",
+      "name": "0248_nx039_l1_test_world.sql",
+      "sha256": "74adfb5f43c669ebc1ec22313772e184dcc49887738e88df0c61207d30a740db"
+    },
+    {
+      "version": "0249",
+      "name": "0249_semantic_release.sql",
+      "sha256": "c4a61d9a122b508e8acf0c7dedf6dde022821b7d9fc23e9aafe62f759c764ba0"
+    },
+    {
+      "version": "0250",
+      "name": "0250_nx039_erasure_watch.sql",
+      "sha256": "f86b38a2b3af2c38e4eea1dd58d744feefd6bbdbad8794067fb2916f001d8159"
+    },
+    {
+      "version": "0251",
+      "name": "0251_outreach_metrics_evidence.sql",
+      "sha256": "ef169ad1f4214c90cb5ee7c6e70e940717d4910974c9de045536aea2b27bb3e5"
+    },
+    {
+      "version": "0252",
+      "name": "0252_nx040_schema_proposals.sql",
+      "sha256": "de25b48ad3865ca7049c0416710a09c5d8590628ea812faa49d3d52190ed1c08"
+    },
+    {
+      "version": "0253",
+      "name": "0253_nx040_ontology_schema_input.sql",
+      "sha256": "2f8306d0b973ec42f69b297b75621b0c0553992f9af65f0586589388183874f0"
+    },
+    {
+      "version": "0254",
+      "name": "0254_nx040_schema_publication.sql",
+      "sha256": "94a9bb3843dd3edb8af07a3d27bd1f023f6207f9acee6dfc8c441cab34362fed"
+    },
+    {
+      "version": "0255",
+      "name": "0255_nx039_workbench.sql",
+      "sha256": "6fe4fa136824918c5f53e4f72424d6dbebbb3398f74f2b3c49c9c79b72517eed"
+    },
+    {
+      "version": "0256",
+      "name": "0256_object_views.sql",
+      "sha256": "3a38ab3a4c3e403b769a87524d034fb5e94df49a5487f39028c5a3e13734bc28"
+    },
+    {
+      "version": "0257",
+      "name": "0257_nx040_gates_permits_watch.sql",
+      "sha256": "cef78b74bbace4e12146ddba8c876e786cc3c4fcfdddb2171d88c10bb3d5e335"
+    },
+    {
+      "version": "0258",
+      "name": "0258_nx040_open_ontology_schema.sql",
+      "sha256": "3dd821c2b80e6b2e4d048df390ce83df257efc9034289d9293dc1536c1bab8c7"
+    },
+    {
+      "version": "0259",
+      "name": "0259_nx041_world_check.sql",
+      "sha256": "0ffcd3598e35a3f5ce13fbc6e52eabf6b1a5b9f994da5debd62ad4d65b1d4b6e"
+    },
+    {
+      "version": "0260",
+      "name": "0260_nx041_sim_worlds.sql",
+      "sha256": "5090abc5efb051e3bf30164eed7e296785bf3c34b1e9f6285cc4fc9e75bf7bed"
+    },
+    {
+      "version": "0261",
+      "name": "0261_nx041_sim_generation.sql",
+      "sha256": "8f462b522c2394ff52e06e381b442e5d09ddeaf31cc78a73e00e3b2c5a867258"
+    },
+    {
+      "version": "0262",
+      "name": "0262_nx041_stand_ins.sql",
+      "sha256": "4f408a0d808ef89313874b3b66a44ac35aa7a9c4711bab580425ee807f86b21e"
+    },
+    {
+      "version": "0263",
+      "name": "0263_nx041_sim_clock.sql",
+      "sha256": "ccebcbb701f0892a6dd2c65984728ba573f88b027fea60e7fcddf9bbf8079115"
+    },
+    {
+      "version": "0264",
+      "name": "0264_nx041_sim_process_group.sql",
+      "sha256": "64d4cc968e216e406b8f1a1b0da34866dc9aab637a4ad159810ead1ae4d4b2ae"
+    },
+    {
+      "version": "0265",
+      "name": "0265_nx041_sim_files_review.sql",
+      "sha256": "ed9b2d0031d64a2867d7517b22e1514e3120d8790310bb2a2d8a8085d7374931"
+    },
+    {
+      "version": "0266",
+      "name": "0266_nx041_consumer_port.sql",
+      "sha256": "d7b252969a6dd606cc0f000117bd6234094b17eb0428c117964b95d02b75dae8"
+    },
+    {
+      "version": "0267",
+      "name": "0267_nx041_sim_context.sql",
+      "sha256": "b655fca37b72a684d89f0fa4d1d8d0dd9d8581b7a4090331629b754eaf139751"
+    },
+    {
+      "version": "0268",
+      "name": "0268_nx041_sim_roles.sql",
+      "sha256": "244ff11f8bdeeb9d5bb9cd01283664781b5135d57471dcc484fafd3c79f1e362"
+    },
+    {
+      "version": "0269",
+      "name": "0269_nx041_host_sim_context.sql",
+      "sha256": "178d4af39d02973b2701c3f01aa443868bcf430f7821fdfa57b7174833117ab1"
+    },
+    {
+      "version": "0270",
+      "name": "0270_nx041_sim_context_ref.sql",
+      "sha256": "5c4e39dcf22728a6e57667ce03adc30c9a2ef93a416c34d779c568168a4b0f93"
+    },
+    {
+      "version": "0271",
+      "name": "0271_nx041_sim_budget_backfill.sql",
+      "sha256": "48e6e61d85df600104470817acd7913ce348c827894b300d9aac6e76d5e79bbe"
+    },
+    {
+      "version": "0272",
+      "name": "0272_nx041_sim_world_limits.sql",
+      "sha256": "cd0a012f90ae09975ac5d5ce975f4b1ccfbed7aff11473ecd324f5b0b219e0b8"
+    },
+    {
+      "version": "0273",
+      "name": "0273_nx041_d10_credentials.sql",
+      "sha256": "c42c6ffb55f3aaa1237f7f03db7fe9e97446df177465d3db11dc1f34eccda65b"
+    },
+    {
+      "version": "0274",
+      "name": "0274_nx041_d10_manifest.sql",
+      "sha256": "bbf58437baa5ab6213a13bfb32bd51f487ac5929353b2424d5a0ff8a376ca299"
+    },
+    {
+      "version": "0275",
+      "name": "0275_nx041_d10_grants_review.sql",
+      "sha256": "afc8db107b1efe61a26609c8d155a0d07d4ff8ce22e55ac6a06c5e79186baac4"
+    },
+    {
+      "version": "0276",
+      "name": "0276_signature_denial_causes.sql",
+      "sha256": "d2c5a6bde8cce341423b7b711a4ff63a7153c6f298ece184784df19de3158478"
+    },
+    {
+      "version": "0277",
+      "name": "0277_clock_skew_metric.sql",
+      "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
+    },
+    {
+      "version": "0278",
+      "name": "0278_nx042_consumer_twins.sql",
+      "sha256": "4ac32e578c66da06a473540f5148e12f37ddb2befe37300b13abfdc2fd9b9738"
+    },
+    {
+      "version": "0279",
+      "name": "0279_nx042_twin_sampling.sql",
+      "sha256": "cd1b58fdfcaca895d7041652fbcdba792e4b0c20e41c363bcac865641e570842"
+    },
+    {
+      "version": "0280",
+      "name": "0280_nx042_twin_port.sql",
+      "sha256": "6499c29c085b34c7867270e46cd0e6908dcc30615817de0c7b64b054447ca729"
+    },
+    {
+      "version": "0281",
+      "name": "0281_nx042_twin_calibration_read.sql",
+      "sha256": "f84a55d704e64a0b26779094c3c2a3c578b52130148ebe99709adfabda3c47fc"
+    },
+    {
+      "version": "0282",
+      "name": "0282_nx042_twin_calibration.sql",
+      "sha256": "c083899a998ffdc74a8657d319a854dac663f534f1d5192152d625060c9ea198"
+    },
+    {
+      "version": "0283",
+      "name": "0283_nx042_twin_text.sql",
+      "sha256": "1ea7e4fb52f5b4106b7532883b0ccce7fcaa8a13c6da9358dba04c647be17579"
+    },
+    {
+      "version": "0284",
+      "name": "0284_nx042_twin_credential.sql",
+      "sha256": "fdc5e365014491ea7bb7371536d33642d6308a307309c506b8b5243ee459c221"
+    },
+    {
+      "version": "0285",
+      "name": "0285_nx043_strategies_experiments.sql",
+      "sha256": "d7b613ad7edcb696978cadd08c766cb04b021390eb5c58fbd98166a1debe180c"
+    },
+    {
+      "version": "0286",
+      "name": "0286_at048_consumer_leakage.sql",
+      "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
+    },
+    {
+      "version": "0287",
+      "name": "0287_nx043_workbench_role_cap.sql",
+      "sha256": "bd78bb6363578680b830dde83f48137c870e7d18140b788540a2f39a5a0fe5dc"
+    }
+  ]
+}

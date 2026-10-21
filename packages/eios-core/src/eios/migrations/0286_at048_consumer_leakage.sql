@@ -3,50 +3,27 @@
 -- Until now check 3 (leakage_detected) compared only the writer's case_groups and near-duplicate term sets, so a writer grouping by
 -- Run could put one Consumer's Runs on both sides undetected. runtime.nexloop_evo_run_consumer derives a case Run's Consumer as the
 -- trace reader does (0233: message route, fallback binding or role binding); authz.nexloop_evo_evaluation_open is 0241's body with
--- one more condition in check 3: a Consumer with cases on both sides is leakage_detected (runtime.nexloop_evo_consumer_leak: each
--- case's Consumer once, then one join - linear in the cases, indexed lookups; L6 review 4). Everything else is unchanged.
--- Not re-checked: a candidate already evaluating before this migration replays its opening without checks (L6 review 1.1); the
--- deployment's read-only post-check lists such candidates (docs/implementation/S6-stage-acceptance.md).
+-- one more condition in check 3: a Consumer with cases on both sides is leakage_detected. Everything else is unchanged.
 
 create function runtime.nexloop_evo_run_consumer(p_tenant text,p_world text,p_run text) returns text
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v_prior text:=current_setting('eios.tenant_id',true);v text;v_run uuid;v_message text;v_conversation text;
+declare v_prior text:=current_setting('eios.tenant_id',true);v text;
 begin
- -- Case ids are Run uuids: compared as uuid, the unique run_id indexes answer (0047, 0110, 0063); anything else has no Consumer.
- if coalesce(p_run,'')!~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then return null;end if;
- v_run:=p_run::uuid;
  -- The conversation tables are tenant-bounded: the caller's tenant for the lookup, the prior setting restored after it.
  perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
- -- Step by step from the Run (each a unique-index lookup, whatever the statistics): its message route or fallback binding, the
- -- message's conversation (index 0134 on message_id), the conversation's Consumer; else its role binding.
- select mr.message_id into v_message from runtime.nexloop_message_routes mr where mr.run_id=v_run and mr.tenant_id=p_tenant and mr.world=p_world;
- if v_message is null then
-  select fb.message_id into v_message from runtime.nexloop_fallback_context_bindings fb where fb.run_id=v_run and fb.tenant_id=p_tenant and fb.world=p_world;
- end if;
- if v_message is not null then
-  select m.conversation_id into v_conversation from runtime.nexloop_conversation_messages m where m.tenant_id=p_tenant and m.world=p_world and m.message_id=v_message limit 1;
-  select cv.consumer_id into v from runtime.nexloop_conversations cv where cv.tenant_id=p_tenant and cv.world=p_world and cv.conversation_id=v_conversation;
- end if;
- if v is null then
-  select rb.consumer_id into v from authz.nexloop_role_run_bindings rb where rb.run_id=v_run and rb.tenant_id=p_tenant and rb.world=p_world;
- end if;
+ v:=coalesce(
+  (select cv.consumer_id from runtime.nexloop_message_routes mr join runtime.nexloop_conversation_messages m on m.tenant_id=mr.tenant_id and m.world=mr.world
+     and m.message_id=mr.message_id join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id
+    where mr.tenant_id=p_tenant and mr.world=p_world and mr.run_id::text=p_run limit 1),
+  (select cv.consumer_id from runtime.nexloop_fallback_context_bindings fb join runtime.nexloop_conversation_messages m on m.tenant_id=fb.tenant_id and m.world=fb.world
+     and m.message_id=fb.message_id join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id
+    where fb.tenant_id=p_tenant and fb.world=p_world and fb.run_id::text=p_run limit 1),
+  (select rb.consumer_id from authz.nexloop_role_run_bindings rb where rb.tenant_id=p_tenant and rb.world=p_world and rb.run_id::text=p_run limit 1));
  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
  return v;
 end $$;
 alter function runtime.nexloop_evo_run_consumer(text,text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_evo_run_consumer(text,text,text) from public;
-
--- One Consumer on both sides (L6 review 4: linear, not per pair): each case's Consumer is derived once, then the two sides' sets meet
--- in one hash join. At most 512 cases (256 a side, 0235): at most 512 indexed lookups.
-create function runtime.nexloop_evo_consumer_leak(p_tenant text,p_design text[],p_validation text[]) returns boolean
- language sql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
- with cases as (select 'design' side,c from unnest(p_design) c union all select 'validation',c from unnest(p_validation) c),
-  consumers as materialized (select side,runtime.nexloop_evo_run_consumer(p_tenant,'real',c) consumer from cases)
- select exists(select 1 from (select distinct consumer from consumers where side='design' and consumer is not null) d
-   join (select distinct consumer from consumers where side='validation' and consumer is not null) v using(consumer))
-$$;
-alter function runtime.nexloop_evo_consumer_leak(text,text[],text[]) owner to nexloop_owner;
-revoke all on function runtime.nexloop_evo_consumer_leak(text,text[],text[]) from public;
 
 create or replace function authz.nexloop_evo_evaluation_open(p_digest text,p_candidate uuid,p_bundle_digest text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -92,7 +69,8 @@ begin
   if exists(select 1 from unnest(x.design_case_ids||x.validation_case_ids) c where not (x.case_groups ? c))
    or exists(select 1 from unnest(x.design_case_ids) dc join unnest(x.validation_case_ids) vc on x.case_groups->>dc=x.case_groups->>vc)
    -- AT-048 (S6 stage finding): the Consumers of the cases, derived here - one Consumer on both sides leaks whatever the writer grouped.
-   or runtime.nexloop_evo_consumer_leak(v_tenant,x.design_case_ids,x.validation_case_ids)
+   or exists(select 1 from unnest(x.design_case_ids) dc join unnest(x.validation_case_ids) vc
+     on runtime.nexloop_evo_run_consumer(v_tenant,'real',dc)=runtime.nexloop_evo_run_consumer(v_tenant,'real',vc))
    or exists(
     with sets as (select s.run_id::text case_id,array_agg(distinct h order by h) terms from runtime.nexloop_semantic_accesses s,unnest(s.term_hashes) h
       where s.tenant_id=v_tenant and s.world='real' and s.kind='access' and s.run_id::text=any(x.design_case_ids||x.validation_case_ids) group by s.run_id)
