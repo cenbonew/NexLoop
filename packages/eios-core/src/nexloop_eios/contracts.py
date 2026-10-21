@@ -784,6 +784,52 @@ class EvolutionEvaluationReportCost(BaseModel):
     amount: str
     unit: str
 
+class ExperimentRegistrationCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    strategy_id: str
+    version: int
+
+class ExperimentRegistrationControl1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    strategy_id: str
+    version: int
+
+class ExperimentRegistrationTwin1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    twin_id: str
+    version: int
+
+class ExperimentRegistrationPrimaryMetric(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    key: str
+    direction: Literal['increase', 'decrease']
+
+class ExperimentRegistrationGuardrails(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    refusal_or_unsubscribe_rate_delta: float | int | None = None
+    reconciliation_anomalies: Literal[0] | None = None
+    stop_on_budget_exhausted: Literal[True] | None = None
+
+class ExperimentRegistrationSampleSize(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    candidate: int
+    control: int
+
+class ExperimentRegistrationMaturity(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    window_days: int | None = None
+    min_samples_per_group: int | None = None
+
+class ExperimentRegistrationBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    model_cny: float | int
+    incentive_cny: Literal[0]
+
+class ExperimentRegistrationFrozen(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    registration_digest: str
+    status: Literal['registered', 'started', 'stopped']
+
 class OntologyMutationOperationsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     op: Literal['create_object', 'set_property', 'invalidate_property', 'link_relation', 'end_relation', 'supersede_claim']
@@ -883,6 +929,17 @@ class SchemaProposalSource(BaseModel):
     input_snapshot_digest: str
     candidate_definition_ids: list[str]
     claim_ids: list[str]
+
+class StrategyVersionLeversPersona(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    persona_id: str
+    version: int
+
+class StrategyVersionLevers(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    follow_up_delay_hours: int | None = None
+    persona: StrategyVersionLeversPersona | None = None
+    outreach_purposes: dict[str, Any] | None = None
 
 class TrajectorySampleModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -1405,6 +1462,25 @@ class EvolutionEvaluationReport(_Contract):
     change_class: Literal['patch', 'minor', 'major', 'refused'] | None = None
     reproduced: bool | None = None
 
+class ExperimentRegistration(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:experiment-registration","title":"experiment-registration","description":"NX-043 X1 (design §2-§5, D2-D6, D9): the preregistration of an experiment, frozen at registration (D3): hypothesis (a hypothesis, never a fact), the candidate and control strategy versions (control null: the current policy), the twin version a screening uses (null when none), the primary metric, the guardrails, the sample sizes, the maturity window, the budget, the end time and the allocation seed. Every field is required (registration_incomplete otherwise). Guardrail and maturity members left out take the defaults of D4 and D6 (refusal or unsubscribe rate at most 2 points above control, no reconciliation anomaly, stop when the budget is exhausted; 14-day maturity window, 30 matured samples per group); a given value may only be tighter. D2: at most 20 candidate consumers and a control group at least as large. D1/D5: no incentive budget in the first batch. The stage decides the world: screening in a simulation world with a twin, shadow in a shadow world, online in real. Starting checks the registration again: a selected twin must be calibrated now (D9). No field opens real dispatch, and a registration that mentions it is refused. The frozen part is server-derived.","type":"object","additionalProperties":false,"required":["schema","experiment_id","stage","world","hypothesis","candidate","control","twin","primary_metric","guardrails","sample_size","maturity","budget","ends_at","allocation_seed"],"properties":{"schema":{"const":"nexloop-experiment-registration/1"},"experiment_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"stage":{"enum":["screening","shadow","online"]},"world":{"type":"string","pattern":"^(real|sim:[0-9a-f-]{36}|shadow:[0-9a-f-]{36})$"},"hypothesis":{"type":"string","minLength":1,"maxLength":500},"candidate":{"type":"object","additionalProperties":false,"required":["strategy_id","version"],"properties":{"strategy_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1}}},"control":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["strategy_id","version"],"properties":{"strategy_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1}}}]},"twin":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["twin_id","version"],"properties":{"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1}}}]},"primary_metric":{"type":"object","additionalProperties":false,"required":["key","direction"],"properties":{"key":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"direction":{"enum":["increase","decrease"]}}},"guardrails":{"type":"object","additionalProperties":false,"properties":{"refusal_or_unsubscribe_rate_delta":{"type":"number","exclusiveMinimum":0,"maximum":0.02},"reconciliation_anomalies":{"const":0},"stop_on_budget_exhausted":{"const":true}}},"sample_size":{"type":"object","additionalProperties":false,"required":["candidate","control"],"properties":{"candidate":{"type":"integer","minimum":1,"maximum":20},"control":{"type":"integer","minimum":1,"maximum":99999}}},"maturity":{"type":"object","additionalProperties":false,"properties":{"window_days":{"type":"integer","minimum":14,"maximum":90},"min_samples_per_group":{"type":"integer","minimum":30,"maximum":99999}}},"budget":{"type":"object","additionalProperties":false,"required":["model_cny","incentive_cny"],"properties":{"model_cny":{"type":"number","minimum":0,"maximum":100},"incentive_cny":{"const":0}}},"ends_at":{"type":"string","format":"date-time"},"allocation_seed":{"type":"integer","minimum":0,"maximum":2147483647},"frozen":{"type":"object","additionalProperties":false,"description":"Server-derived at registration, never accepted from the owner.","required":["registration_digest","status"],"properties":{"registration_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"status":{"enum":["registered","started","stopped"]}}}}}')
+    schema: Literal['nexloop-experiment-registration/1']
+    experiment_id: str
+    stage: Literal['screening', 'shadow', 'online']
+    world: str
+    hypothesis: str
+    candidate: ExperimentRegistrationCandidate
+    control: None | ExperimentRegistrationControl1
+    twin: None | ExperimentRegistrationTwin1
+    primary_metric: ExperimentRegistrationPrimaryMetric
+    guardrails: ExperimentRegistrationGuardrails
+    sample_size: ExperimentRegistrationSampleSize
+    maturity: ExperimentRegistrationMaturity
+    budget: ExperimentRegistrationBudget
+    ends_at: str
+    allocation_seed: int
+    frozen: ExperimentRegistrationFrozen | None = None
+
 class OntologyMutation(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:ontology-mutation","title":"ontology-mutation","description":"NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"proposal_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world_id":{"type":"string","minLength":1},"mode":{"type":"string","enum":["real","simulation","shadow","test"]},"extraction_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"source_content_hash":{"type":"string","pattern":"^[a-f0-9]{64}$"},"extractor_version":{"type":"string","minLength":1},"ontology_schema_revision":{"type":"string","minLength":1},"business_intent_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"risk_class":{"enum":["low","medium","high"]},"rationale_summary":{"type":"string","minLength":1,"maxLength":2000},"epistemic_kind":{"enum":["user_statement","verified_fact","preference","constraint","intent","need_problem","commitment","hypothesis","correction"]},"operations":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"op":{"enum":["create_object","set_property","invalidate_property","link_relation","end_relation","supersede_claim"]},"target_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"type_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"expected_revision":{"type":["integer","null"],"minimum":1},"property_name":{"type":"string","minLength":1},"value":{},"relation_type_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"to_ref":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"valid_from":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"valid_to":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"evidence_refs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"},"minItems":1,"maxItems":256}},"required":["op","target_ref","expected_revision","evidence_refs"],"allOf":[{"if":{"properties":{"op":{"const":"create_object"}}},"then":{"required":["type_ref","value"],"properties":{"expected_revision":{"type":"null"}}}},{"if":{"properties":{"op":{"const":"set_property"}}},"then":{"required":["property_name","value"],"properties":{"expected_revision":{"type":"integer","minimum":1}}}},{"if":{"properties":{"op":{"const":"invalidate_property"}}},"then":{"required":["property_name"],"properties":{"expected_revision":{"type":"integer","minimum":1}}}},{"if":{"properties":{"op":{"const":"link_relation"}}},"then":{"required":["relation_type_ref","to_ref"],"properties":{"expected_revision":{"type":"integer","minimum":1}}}},{"if":{"properties":{"op":{"enum":["end_relation","supersede_claim"]}}},"then":{"properties":{"expected_revision":{"type":"integer","minimum":1}}}}]},"minItems":1,"maxItems":256},"conflict_policy":{"const":"reject_and_reassess"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}},"required":["schema_version","proposal_id","tenant_id","world_id","mode","extraction_ref","source_content_hash","extractor_version","ontology_schema_revision","business_intent_ref","risk_class","rationale_summary","epistemic_kind","operations","conflict_policy","created_at"],"allOf":[{"if":{"properties":{"mode":{"const":"real"}},"required":["mode"]},"then":{"properties":{"world_id":{"const":"real"}}},"else":{"properties":{"world_id":{"not":{"const":"real"}}}}}]}')
     schema_version: Literal['1.0']
@@ -1499,6 +1575,13 @@ class SchemaProposal(_Contract):
     status: Literal['frozen', 'published', 'withdrawn']
     permit_ref: str | None
     frozen_at: str
+
+class StrategyVersion(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:strategy-version","title":"strategy-version","description":"NX-043 X1 (design §3, D1): one version of a strategy an experiment compares. Only low-risk levers (D1): follow-up timing in hours, a choice among published operator persona versions, and switches of listed non-marketing outreach purposes. Price, incentives and marketing consent are no lever; any other lever is refused (lever_not_allowed). The persona version must be published and every purpose must be a listed purpose that is not marketing and needs no consent, checked by the server against the tenant. The owner publishes a version through a governed Action; the server assigns the version, freezes it and keeps its status as appended events (published, retired). A strategy decides nothing about real dispatch.","type":"object","additionalProperties":false,"required":["schema","strategy_id","levers"],"properties":{"schema":{"const":"nexloop-strategy-version/1"},"strategy_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"description":{"type":"string","minLength":1,"maxLength":500},"levers":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"follow_up_delay_hours":{"type":"integer","minimum":1,"maximum":336},"persona":{"type":"object","additionalProperties":false,"required":["persona_id","version"],"properties":{"persona_id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"},"version":{"type":"integer","minimum":1,"maximum":999999}}},"outreach_purposes":{"type":"object","minProperties":1,"maxProperties":16,"propertyNames":{"pattern":"^[a-z][a-z0-9_.]{0,63}$"},"additionalProperties":{"type":"boolean"}}}}}}')
+    schema: Literal['nexloop-strategy-version/1']
+    strategy_id: str
+    description: str | None = None
+    levers: StrategyVersionLevers
 
 class TrajectorySample(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:trajectory-sample","title":"trajectory-sample","description":"NX-038 E2 (design §11.2, D10/D11): one trajectory sample a diagnosis reads, from either route with one shape: the database route (authz.nexloop_evo_trace_runs as nexloop_evo_reader; one issued Run) or the evidence-pack route (one NX-037 interaction record). Identifiers, codes, counts and times only: never a message body, Claim value, prompt, quote or credential. `persona` is the served Consumer\'s ADR-034 persona (D12, always labelled; null when the Run serves no Consumer or the record carries none); test-stack records never reach a formal diagnosis (§11.3). A sample is input to diagnosis, never a business fact. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["schema_version","source","run_id","interaction_id","run_kind","scenario","issued_at","consumer_id","persona","test_stack","outcome","error_code","model","tool_calls","intents","intent_ids","refusals","failures","recovered_tool_errors","receipts","reconciliation"],"properties":{"schema_version":{"const":"1.0"},"source":{"enum":["database","evidence_pack"]},"run_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"interaction_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"run_kind":{"enum":["message","fallback","role","other",null]},"scenario":{"enum":["ordinary_reply","real_delivery","restricted_after_refusal","human_takeover","unknown_reconciliation",null]},"issued_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time"}]},"consumer_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"persona":{"enum":["real","simulated_agent","synthetic",null]},"test_stack":{"type":"boolean"},"outcome":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]},"error_code":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]},"model":{"type":"object","additionalProperties":false,"required":["calls","failed","unknown"],"properties":{"calls":{"type":"integer","minimum":0},"failed":{"type":"integer","minimum":0},"unknown":{"type":"integer","minimum":0}}},"tool_calls":{"type":"integer","minimum":0},"intents":{"type":"object","propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"integer","minimum":0}},"intent_ids":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}},"refusals":{"type":"object","propertyNames":{"pattern":"^[A-Za-z0-9_]{1,64}$"},"additionalProperties":{"type":"integer","minimum":0}},"failures":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_detail":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"failure_tool":{"type":"string","pattern":"^(nexloop\\\\.[a-z][a-z_.]{0,63}|unregistered_tool)$"}}}},"recovered_tool_errors":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["tool","code"],"properties":{"tool":{"type":"string","pattern":"^nexloop\\\\.[a-z][a-z_.]{0,63}$"},"code":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}}}},"receipts":{"type":"array","maxItems":64,"items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}},"reconciliation":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"}]}}}')

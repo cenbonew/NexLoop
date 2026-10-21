@@ -84,7 +84,10 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.sim_clock.control':('Consumer','sim_clock.control'),
     'nexloop.consumer_twin.publish':('Consumer','consumer_twin.publish'),'nexloop.consumer_twin.retire':('Consumer','consumer_twin.retire'),
     'nexloop.consumer_twin.erase_text':('Consumer','consumer_twin.erase_text'),
-    'nexloop.consumer_twin.calibrate':('Consumer','consumer_twin.calibrate')}  # 0228
+    'nexloop.consumer_twin.calibrate':('Consumer','consumer_twin.calibrate'),
+    'nexloop.strategy.publish':('Consumer','strategy.publish'),'nexloop.strategy.retire':('Consumer','strategy.retire'),
+    'nexloop.experiment.register':('Consumer','experiment.register'),'nexloop.experiment.start':('Consumer','experiment.start'),
+    'nexloop.experiment.stop':('Consumer','experiment.stop')}  # 0228
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

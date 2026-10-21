@@ -1,0 +1,6 @@
+{
+  "schema": "nexloop-strategy-version/1",
+  "strategy_id": "followup.later",
+  "description": "服务回访延后到 48 小时，并只开启服务回访目的",
+  "levers": {"follow_up_delay_hours": 48, "outreach_purposes": {"service_followup": true}}
+}

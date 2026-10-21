@@ -5867,6 +5867,246 @@
           }
         }
       },
+      "ExperimentRegistration": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:experiment-registration",
+        "title": "experiment-registration",
+        "description": "NX-043 X1 (design §2-§5, D2-D6, D9): the preregistration of an experiment, frozen at registration (D3): hypothesis (a hypothesis, never a fact), the candidate and control strategy versions (control null: the current policy), the twin version a screening uses (null when none), the primary metric, the guardrails, the sample sizes, the maturity window, the budget, the end time and the allocation seed. Every field is required (registration_incomplete otherwise). Guardrail and maturity members left out take the defaults of D4 and D6 (refusal or unsubscribe rate at most 2 points above control, no reconciliation anomaly, stop when the budget is exhausted; 14-day maturity window, 30 matured samples per group); a given value may only be tighter. D2: at most 20 candidate consumers and a control group at least as large. D1/D5: no incentive budget in the first batch. The stage decides the world: screening in a simulation world with a twin, shadow in a shadow world, online in real. Starting checks the registration again: a selected twin must be calibrated now (D9). No field opens real dispatch, and a registration that mentions it is refused. The frozen part is server-derived.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "experiment_id",
+          "stage",
+          "world",
+          "hypothesis",
+          "candidate",
+          "control",
+          "twin",
+          "primary_metric",
+          "guardrails",
+          "sample_size",
+          "maturity",
+          "budget",
+          "ends_at",
+          "allocation_seed"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-experiment-registration/1"
+          },
+          "experiment_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+          },
+          "stage": {
+            "enum": [
+              "screening",
+              "shadow",
+              "online"
+            ]
+          },
+          "world": {
+            "type": "string",
+            "pattern": "^(real|sim:[0-9a-f-]{36}|shadow:[0-9a-f-]{36})$"
+          },
+          "hypothesis": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "candidate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "strategy_id",
+              "version"
+            ],
+            "properties": {
+              "strategy_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "control": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "strategy_id",
+                  "version"
+                ],
+                "properties": {
+                  "strategy_id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            ]
+          },
+          "twin": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "twin_id",
+                  "version"
+                ],
+                "properties": {
+                  "twin_id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            ]
+          },
+          "primary_metric": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "direction"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+              },
+              "direction": {
+                "enum": [
+                  "increase",
+                  "decrease"
+                ]
+              }
+            }
+          },
+          "guardrails": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "refusal_or_unsubscribe_rate_delta": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 0.02
+              },
+              "reconciliation_anomalies": {
+                "const": 0
+              },
+              "stop_on_budget_exhausted": {
+                "const": true
+              }
+            }
+          },
+          "sample_size": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "candidate",
+              "control"
+            ],
+            "properties": {
+              "candidate": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              "control": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 99999
+              }
+            }
+          },
+          "maturity": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "window_days": {
+                "type": "integer",
+                "minimum": 14,
+                "maximum": 90
+              },
+              "min_samples_per_group": {
+                "type": "integer",
+                "minimum": 30,
+                "maximum": 99999
+              }
+            }
+          },
+          "budget": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "model_cny",
+              "incentive_cny"
+            ],
+            "properties": {
+              "model_cny": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "incentive_cny": {
+                "const": 0
+              }
+            }
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "allocation_seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "frozen": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Server-derived at registration, never accepted from the owner.",
+            "required": [
+              "registration_digest",
+              "status"
+            ],
+            "properties": {
+              "registration_digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "status": {
+                "enum": [
+                  "registered",
+                  "started",
+                  "stopped"
+                ]
+              }
+            }
+          }
+        }
+      },
       "OntologyMutation": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:ontology-mutation",
@@ -7269,6 +7509,75 @@
           "frozen_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "StrategyVersion": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:strategy-version",
+        "title": "strategy-version",
+        "description": "NX-043 X1 (design §3, D1): one version of a strategy an experiment compares. Only low-risk levers (D1): follow-up timing in hours, a choice among published operator persona versions, and switches of listed non-marketing outreach purposes. Price, incentives and marketing consent are no lever; any other lever is refused (lever_not_allowed). The persona version must be published and every purpose must be a listed purpose that is not marketing and needs no consent, checked by the server against the tenant. The owner publishes a version through a governed Action; the server assigns the version, freezes it and keeps its status as appended events (published, retired). A strategy decides nothing about real dispatch.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "strategy_id",
+          "levers"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-strategy-version/1"
+          },
+          "strategy_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "levers": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "follow_up_delay_hours": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 336
+              },
+              "persona": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "persona_id",
+                  "version"
+                ],
+                "properties": {
+                  "persona_id": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 999999
+                  }
+                }
+              },
+              "outreach_purposes": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 16,
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "boolean"
+                }
+              }
+            }
           }
         }
       },
@@ -9052,6 +9361,7 @@
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "evolution-evaluation-bundle.schema.json": "2646c8f203bc67e6a7902b38e1987376127ecdb7ac9c92767c20a894f250851e",
     "evolution-evaluation-report.schema.json": "ba73327b1ee9d06d493543935c355764d90d893c71a8af791aff436d2cb6369e",
+    "experiment-registration.schema.json": "7d578b4023461332c86b26621ab10ab386caebd3671e7067a71dc7d52adac912",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",
@@ -9059,6 +9369,7 @@
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
     "schema-proposal.schema.json": "034fa3bf47735e115ef2ffbf86d281332790b9ccd5f43a927bd080187f1836df",
+    "strategy-version.schema.json": "edf78631c7f3676b81579e0ab364fb78f7c3cc7d372ce17156f43334a258ef9f",
     "trajectory-sample.schema.json": "0edf634efeb3811dbf267b4874ded44ccc2b35ad7bb8d8a7cc5dbb0f2a130d5c",
     "twin-calibration-report.schema.json": "084b286b41aa09d82beeab75927fc5823dc2c063e1eb3d9fa9763ffc8915d88a",
     "twin-sample.schema.json": "378b41be815e0027d03f2a90c253499d2406c19f03810e6c0e48be80776f6fd9",

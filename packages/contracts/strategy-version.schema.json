@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:strategy-version",
+  "title": "strategy-version",
+  "description": "NX-043 X1 (design §3, D1): one version of a strategy an experiment compares. Only low-risk levers (D1): follow-up timing in hours, a choice among published operator persona versions, and switches of listed non-marketing outreach purposes. Price, incentives and marketing consent are no lever; any other lever is refused (lever_not_allowed). The persona version must be published and every purpose must be a listed purpose that is not marketing and needs no consent, checked by the server against the tenant. The owner publishes a version through a governed Action; the server assigns the version, freezes it and keeps its status as appended events (published, retired). A strategy decides nothing about real dispatch.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "strategy_id", "levers"],
+  "properties": {
+    "schema": {"const": "nexloop-strategy-version/1"},
+    "strategy_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$"},
+    "description": {"type": "string", "minLength": 1, "maxLength": 500},
+    "levers": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": {
+        "follow_up_delay_hours": {"type": "integer", "minimum": 1, "maximum": 336},
+        "persona": {
+          "type": "object", "additionalProperties": false, "required": ["persona_id", "version"],
+          "properties": {
+            "persona_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+            "version": {"type": "integer", "minimum": 1, "maximum": 999999}
+          }
+        },
+        "outreach_purposes": {
+          "type": "object", "minProperties": 1, "maxProperties": 16,
+          "propertyNames": {"pattern": "^[a-z][a-z0-9_.]{0,63}$"},
+          "additionalProperties": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

@@ -96,7 +96,10 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-042 T1 (D5): erase a version's free texts (the hashes stay).
     'erase_consumer_twin_text':'consumer_twin.erase_text',
     # NX-042 T5 (D3, D7): calibrate a twin version over 1-3 windows.
-    'calibrate_consumer_twin':'consumer_twin.calibrate'}
+    'calibrate_consumer_twin':'consumer_twin.calibrate',
+    # NX-043 X1 (D1, D3): strategy versions and preregistered experiments (levers, registration and start checks in SQL).
+    'publish_strategy':'strategy.publish','retire_strategy':'strategy.retire','register_experiment':'experiment.register',
+    'start_experiment':'experiment.start','stop_experiment':'experiment.stop'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -501,6 +504,32 @@ class GoalGovernedActions:
             raise ValueError('twin, version and 1-3 calibration windows required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'calibrate_consumer_twin','twin_id':twin_id,'version':version,
             'windows':windows})
+
+    # NX-043 X1 (D1, D3): owner only; the levers, the registration and the start checks are SQL's (runtime.nexloop_strategy_problem,
+    # runtime.nexloop_experiment_registration_problem); here only the shape of the request.
+    def publish_strategy(self,*,action_name,action_version,request_id,definition):
+        if type(definition) is not dict or definition.get('schema')!='nexloop-strategy-version/1':raise ValueError('strategy definition required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_strategy','definition':definition})
+
+    def retire_strategy(self,*,action_name,action_version,request_id,strategy_id,version,reason):
+        if (type(strategy_id) is not str or re.fullmatch(r'[a-z][a-z0-9_.-]{0,63}',strategy_id) is None or type(version) is not int or version<1
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('strategy, version and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'retire_strategy','strategy_id':strategy_id,'version':version,'reason':reason})
+
+    def register_experiment(self,*,action_name,action_version,request_id,registration):
+        if type(registration) is not dict or registration.get('schema')!='nexloop-experiment-registration/1':raise ValueError('experiment registration required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'register_experiment','registration':registration})
+
+    def start_experiment(self,*,action_name,action_version,request_id,experiment_id):
+        if type(experiment_id) is not str or re.fullmatch(r'[a-z][a-z0-9_.-]{0,63}',experiment_id) is None:raise ValueError('experiment required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'start_experiment','experiment_id':experiment_id})
+
+    def stop_experiment(self,*,action_name,action_version,request_id,experiment_id,reason):
+        if (type(experiment_id) is not str or re.fullmatch(r'[a-z][a-z0-9_.-]{0,63}',experiment_id) is None
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('experiment and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'stop_experiment','experiment_id':experiment_id,'reason':reason})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

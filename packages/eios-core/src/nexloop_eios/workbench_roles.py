@@ -46,8 +46,9 @@ def validate_roles(value):
     if (type(value) is not dict or value.get('schema_version') != ROLES_SCHEMA or type(value.get('manifest_version')) is not int
             or value['manifest_version'] < 1 or type(value.get('roles')) is not dict or tuple(sorted(value['roles'])) != ROLE_NAMES):
         raise WorkbenchRolesRejected('roles manifest')
+    # NX-043 X1: the owner role passed 64 Actions (65 with the experiments scope); the bound is a sanity cap, not a grant-fact limit.
     for role, actions in value['roles'].items():
-        if (type(actions) is not list or not 1 <= len(actions) <= 64 or len(set(actions)) != len(actions)
+        if (type(actions) is not list or not 1 <= len(actions) <= 128 or len(set(actions)) != len(actions)
                 or any(type(a) is not str or not _ACTION.fullmatch(a) for a in actions)):
             raise WorkbenchRolesRejected('role ' + role)
     # D2 / ADR-023 §2.4: owner-only Actions never appear in another role.
@@ -80,6 +81,11 @@ def validate_roles(value):
                   'eios:action:nexloop.consumer_twin.retire:1',  # NX-042 D7: and so is retiring one
                   'eios:action:nexloop.consumer_twin.erase_text:1',  # NX-042 D5: and erasing a version's texts
                   'eios:action:nexloop.consumer_twin.calibrate:1',  # NX-042 T5 (D7): and calibrating one
+                  'eios:action:nexloop.strategy.publish:1',  # NX-043 D3: a strategy version is the owner's
+                  'eios:action:nexloop.strategy.retire:1',  # NX-043 D3: and so is retiring one
+                  'eios:action:nexloop.experiment.register:1',  # NX-043 D3: preregistering an experiment is the owner's
+                  'eios:action:nexloop.experiment.start:1',  # NX-043 D3: and so is starting one
+                  'eios:action:nexloop.experiment.stop:1',  # NX-043 D3: and stopping one
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
