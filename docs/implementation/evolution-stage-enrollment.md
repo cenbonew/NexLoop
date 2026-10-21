@@ -51,11 +51,47 @@ python3 scripts/deploy/evolution_enroll.py --config <私有配置> --check
 - **输出**：一个 JSON 对象，不包含 token、口令或 DSN。出现异常时只输出异常的类名。
 - **退出码**：0 表示完成；1 表示自检失败或被数据库拒绝；2 表示输入被拒绝。
 
+## pg_hba（调度员 2026-10-21）
+
+- **规则**：`deploy/stage/config/pg_hba.conf.template` 新增一行：
+
+  ```
+  local __NEXLOOP_DB__ nexloop_evo_reader,nexloop_evo_writer,nexloop_evo_evaluator scram-sha-256
+  ```
+
+  - 渲染后，库名是 stage 库（`NEXLOOP_DB`，例如 nexloop_stage）。
+  - 这三个角色只能通过容器本地的 socket 连接，只能连 stage 库，认证方式是 SCRAM。
+  - 角色没有设口令时，这一行不放行任何人。
+- **不加 hostssl 行**。登记工具和 S6 验收都在 DATA_HOST 的一次性容器中运行，挂载 postgres 的 socket 目录连接，与迁移的方式相同，不需要网络入口。
+  - 现有的 APP_HOST 应用规则里没有这三个角色（`APP_PG_ROLES` 不含 `nexloop_evo_*`），所以末尾的 reject 规则仍然覆盖所有网络地址。
+  - 测试 `test_the_evolution_roles_reach_the_stage_catalog_over_the_local_socket_only` 会检查这一点。
+- **模板如何渲染并放到 stage 上**：
+  - `scripts/deploy/render.py`（即 `nexloop_eios.stage_render`）按白名单变量，用 DATA_HOST 部署时的私有 `stage.env` 渲染模板。
+  - 渲染结果是 `$NEXLOOP_ROOT/config/pg_hba.conf`，由 root 所有。postgres 容器把这一个文件只读地绑定挂载为 `/etc/postgresql/pg_hba.conf`（见 `compose.data.example.yaml`）。
+  - **生效方式**：pg_hba 只需要重新加载（SIGHUP，与 `pg_reload_conf()` 效果相同），不需要重启容器。
+  - **前提**：文件必须**原地改写**，保持 inode 不变。如果换成一个新文件，单文件绑定挂载仍然指向旧的 inode，重新加载后读到的还是旧规则。这正是 2026-10-16 发生过的问题，见 `metrics_data_host.sh`。
+  - 完整部署中的 `install_configuration` 步骤（`deploy.py`）是用 scp 放置文件的，它是否会换 inode 取决于 scp 的实现。所以这一次的变更单独走下面的负责人命令。
+- **负责人命令**：只需执行一次，输入一次口令。
+
+  ```bash
+  sudo bash scripts/deploy/evolution_hba_data_host.sh <私有配置>
+  ```
+
+  - 私有配置是一个 0600 文件，只能包含 `NEXLOOP_ROOT=`、`STAGE_ENV=`、`RELEASE_CHECKOUT=` 三行。脚本按行读取，不会 source 这个文件，值必须是绝对路径。
+  - 执行步骤：
+    1. **预检**：用部署时的 stage.env 和 release 检出重新渲染模板，与已安装的文件比较。结果必须是**正好多出一条**演进 local 行，并且没有删除任何规则；否则不做任何修改就退出。如果这条规则已经存在，直接报告完成。
+    2. 原地改写文件，旧内容保存为 `config/pg_hba.conf.before-evolution`。
+    3. 确认容器里看到的文件已经是新内容。
+    4. 发送 HUP 让 PostgreSQL 重新加载，并检查重新加载是否干净。如果失败，就把旧内容原地写回并再次加载。
+  - 调度员唯一的免密 sudo 规则只能用来启动备份单元，所以这一步必须由负责人执行。
+
 ## 操作单（工具不做的部分）
 
-1. 在 bootstrap 窗口中为 `nexloop_evo_writer` 和 `nexloop_evo_evaluator` 设置口令。口令直接生成进钥匙串；DSN 分别写入 0600 文件，与凭据文件放在一起。
-2. pg_hba：两个角色只允许从执行演进命令的主机连接，使用 scram-sha-256 或 stage 的客户端证书规则，不允许 trust。具体写法由调度员确定。
-3. 凭据有效期由 `credential_expires_at` 指定。到期后需要轮换：换新 token，并签发新的 credential_id。这不在本工具的范围内。
+1. **口令**：由调度员在 bootstrap 窗口中为 `nexloop_evo_writer` 和 `nexloop_evo_evaluator` 执行 `ALTER ROLE … PASSWORD`，口令直接写进钥匙串。`nexloop_evo_reader` 只有在需要时才设口令。
+   - 每个角色的 DSN 都使用 socket 形式，例如 `host=/var/run/postgresql dbname=nexloop_stage user=nexloop_evo_writer`。
+   - 口令通过 passfile 或者一次性容器的 secret 提供，**不能写进 argv**。
+2. **pg_hba**：负责人执行上面的命令。
+3. **凭据轮换**：凭据有效期由 `credential_expires_at` 指定。到期后要换新 token，并签发新的 credential_id。这不在本工具的范围内。
 
 ## 测试（`tests/test_evolution_enroll_pg.py`，真实 PostgreSQL）
 
