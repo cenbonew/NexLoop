@@ -65,11 +65,7 @@
       "source_commit": "1e363db982daeca74058453ad12fc4a6cac333da",
       "provenance": "packages/eios-core/PROVENANCE.json",
       "lineage": "nexloop-eios-v1",
-<<<<<<< HEAD
       "bootstrap_revision": "0302",
-=======
-      "bootstrap_revision": "0302",
->>>>>>> tmp/l5-b9b
       "dependency_lock": "uv.lock"
     },
     "node": {
