@@ -249,3 +249,38 @@ def test_the_example_configuration_loads(tmp_path):
     copy.chmod(0o600)
     c = load_config(copy)
     assert set(c['roles']) == {'writer', 'evaluator', 'verify'} and c['owner']['origin'].startswith('https://<')
+
+
+def test_r6_through_the_workbench_http_entry(stage, tmp_path):
+    """The same r6 check through the production workbench entry (owner login, /api/v1/workbench/actions/*, semantic-releases,
+    semantic-review): candidates seeded accepted as trusted configuration (clone of the writer's own candidate)."""
+    from commercial_fixture import publish_registry_actions
+    s = stage
+    admin = s['admin']
+    publish_registry_actions(admin, ('nexloop.semantic_release.publish', 'nexloop.semantic_release.rollback'))
+    e = s['e']
+    proposed_body = body_of(e)
+    with psycopg.connect(make_conninfo(e['pg'], user='nexloop_evo_writer'), autocommit=True) as db:
+        cid = db.execute('select authz.nexloop_evo_candidate_propose(%s,%s)', (e['digest'], json.dumps(proposed_body))).fetchone()[0]['candidate']['candidate_id']
+    e['store'].freeze_bundle(cid, seed='0' * 32)
+    f = {'admin': admin, 'candidate': cid}
+    first = clone(f, conclusion='accept', change_class='minor')
+    later = clone(f, conclusion='accept', change_class='patch', change_kind='description', parent='release:0.1.0')
+    ports = s['ports']()
+    status, out = ports.owner_post('/api/v1/workbench/actions/publish_semantic_release',
+                                   {'candidate_id': first, 'items': [{'kind': 'alias', 'ref': REF['ref'], 'text': ALIAS}], 'reason': '先有一个版本'}, 's6-r6-http-first-0001')
+    assert status == 200 and out['version'] == '0.1.0', out
+    claims = lambda: admin.execute("select md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from ontology.nexloop_claims x").fetchone()  # noqa: E731
+    before = claims()
+    inputs = {'semantic': {'candidate_id': later, 'items': [{'kind': 'semantic_note', 'ref': REF['ref'], 'text': '只指实物商品'}], 'reason': 'S6-R6 合成'}}
+    code, doc = run(tmp_path, 'r6', ports, inputs)
+    assert code == 0 and doc['passed'] is True, json.dumps(doc, ensure_ascii=False)
+    st = steps(doc)
+    assert st['publish_a_semantic_release']['observed'] == {'status': 200, 'version': '0.1.1', 'previous': '0.1.0'}
+    back = st['rollback_is_a_new_higher_version_and_changes_no_claim']['observed']
+    assert (back['version'], back['rolled_back_to'], back['claims_changed']) == ('0.1.2', '0.1.0', 0)
+    assert st['the_watch_is_active']['observed']['active'] >= 1
+    assert claims() == before
+    # The operator cannot: 403 through the same entry.
+    status, _ = s['ports']('operator').owner_post('/api/v1/workbench/actions/rollback_semantic_release', {'target_version': '0.1.1', 'reason': 'x'}, 's6-r6-http-operator-01')
+    assert status == 403
