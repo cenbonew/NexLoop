@@ -1515,6 +1515,11 @@
       "version": "0303",
       "name": "0303_at048_consumer_leak_perf.sql",
       "sha256": "1e2f377f00a3d1af080297b4a4787fa6e1ff29a9583467cc8a68b8e64dc7ece1"
+    },
+    {
+      "version": "0304",
+      "name": "0304_nx043_x4_wiring.sql",
+      "sha256": "d9456e10b7a175e81336253429a6448bea7e563c6ac33c2daa1edd6ebe586e47"
     }
   ]
 }
