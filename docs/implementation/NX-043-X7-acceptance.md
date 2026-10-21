@@ -9,7 +9,7 @@
   - 配置、结果、阻塞语义、脱敏与 S6 和 AT-046 的 stage 脚本相同（`s6_common`，结果格式 `nexloop-s6-stage-result/1`）。
   - 写入只走 owner 的受治理工作台 Action（HTTPS，口令从 stdin 读取），或影子世界 worker 凭据的模拟 worker 入口；探针只读。
   - 世界、实验、策略的 id 只存在 `results_dir` 下的私有状态文件里（0600），输出只有代码、计数和摘要。
-- **范围**：online 阶段仍是 `online_not_available`，验收只覆盖 screening 和 shadow 两段。online 需要通过校准的孪生（NX-042 T5）和 X4 接线，列为后续项。
+- **范围**：screening、shadow 和 online 三段。负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置，online 段可验（`online`、`online-probe`、`online-stop` 三个阶段）。
 
 ## 验收清单
 
@@ -25,13 +25,13 @@
 | 8 | 停止规则：到结束时间由护栏自动停止 | D4、§5、§9 建议 2 | probe-after：`guard_stops_at_the_end`（等待告警评估服务的 tick，reason 为 `guardrail: ended`） | `test_nx043_guardrails_pg`、`test_nx043_guard_wiring_pg` | stage 可验 |
 | 9 | 其他护栏：拒绝率、对账异常、孪生被撤回 | D4 | — | 同上 | 只有本地覆盖（stage 上需要注入真实越界） |
 | 10 | 实验预算用尽即阻断新消耗 | D5、§9 建议 3 | gaps：`experiment_budget`（blocked） | `test_nx043_guard_wiring_pg` | **阻塞**：需要实验世界里的模拟 Run（AT-046 的 run 链路） |
-| 11 | 分配：按消费者，会话聚类同组，对照组至少一半 | D2、AT-048 | gaps：`allocation`（blocked） | `test_nx043_allocation_pg` | **阻塞**：X4 还没接到任何服务入口 |
+| 11 | 分配：按消费者，会话聚类同组，对照组至少一半 | D2、AT-048 | online-probe：`online_allocated` | `test_nx043_allocation_pg`、`test_nx043_x4_wiring_pg` | **可验**：X4 接线（0304）后 real 入站首次分配，经 online 段验证 |
 | 12 | 成熟窗口；窗口没到的样本不计；unknown 不算成功；样本不足不出结论 | D6、§6、§9 建议 4 | report：`experiment_result_reports_nothing_below_the_minimum` | `test_nx043_reports_pg`、`test_nx043_pooled_pg` | stage 只能验“不出结论”；按成熟窗口出统计需要 online 的分配 |
 | 13 | 报告只含聚合数，冻结后不可修改，不能反推个人；只有 owner 能取 | §6、X3 4.x、报告 Action | report：`shadow_report_aggregates_only` | `test_nx043_report_action_pg` | stage 可验 |
 | 14 | real 没有任何变化 | AT-046、§8 | probe-after：`real_side_unchanged`（每张带 world 列的表的 world-real 行摘要，外加 real 服务凭据和授权事实） | 本地测试 | stage 可验 |
 | 15 | 结论不写成因果 | §6 | report（报告的 statement 字段） | `test_nx043_reports_pg` | 本地覆盖 |
 | 17 | 胜出策略不自动推广；推广由负责人决定，作为新版本走正式发布链 | D8 | —（stage 上没有操作） | `test_no_path_from_a_report_or_the_guard_to_a_strategy_publication`：报告、报告 Action、护栏的函数体里，没有写策略版本或策略事件的语句，也没有调用任何发布 | 本地覆盖 |
-| 16 | online 阶段 | §2 | gaps：`online_stage`（blocked） | — | **后续**：等孪生校准（NX-042 T5）和 X4 接线 |
+| 16 | online 阶段：登记、开始、入站首次分配、候选组外发审计带策略版本、停止 | §2、D2、D3、D4 | online：`online_experiment_registered`、`online_experiment_started`；online-probe：`online_allocated`、`online_strategy_audited`；online-stop：`online_experiment_stopped` | `test_nx043_online_open_pg`、`test_nx043_stage_pg` | **可验**（负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置） |
 
 ## stage 上的执行顺序
 
@@ -46,7 +46,10 @@
 7. `report`（owner）：影子报告取**昨天**这一整天（L6 审查 4.1）。报告第一次读取就会冻结，所以不能取还没过完的当天。最后关掉影子复制。
 8. 等到 `ends_in_minutes` 之后，执行 `probe-after --from <probe-before> --from <shadow-keys> --from <decide>`（DATA_HOST）：等待护栏停止，核对决策已落库，并比较摘要。
 9. `merge --from` 以上四步：没有连接，合成一份 `nx043-shadow` 结果。
-10. `gaps`：阻塞项，由调度员登记。
+10. `online`（owner）：在 world real 登记一个 online 实验（不选孪生）并开始。必须在 `probe-after` **之后**执行：online 会写 real 侧的分配和审计，否则会被 real 摘要比较当成变化。
+11. 由调度员再让 real 入站流量进来，然后执行 `online-probe`（DATA_HOST，只读）：各组分配人数（候选组不超过上限）和 `strategy_applied` 审计数，只输出计数。
+12. `online-stop`（owner）：停止 online 实验，所有人回到当前策略。
+13. `gaps`：阻塞项（只剩实验预算），由调度员登记。
 
 ## 审查（L6 `nx043-x7-review.md`）的处理
 

@@ -1,7 +1,7 @@
 """NX-043 X4 wiring (dispatcher 2026-10-21): runtime.nexloop_experiment_strategy_for reaches the decision paths.
 
-A started online experiment (world real) is constructed here: start still refuses online (online_not_available) until the owner
-opens it, so the started event is seeded as start will write it then. A Consumer allocated to the candidate group gets the candidate
+A started online experiment (world real) is constructed here by seeding its started event (written before the owner opened online
+on 2026-10-21; tests/test_nx043_online_open_pg.py starts one through the governed Action). A Consumer allocated to the candidate group gets the candidate
 strategy - its persona version in the Context section (source unchanged: context-pack v6 is published), its outreach_purposes lever in the dispatch gates, its follow-up delay; every
 other Consumer, and an erasing one, one excluded by in_same_comparison, a retired strategy or a stopped experiment, gets the current
 policy. A real inbound message allocates on first sight; an accepted outreach send records the strategy version in audit. Nothing

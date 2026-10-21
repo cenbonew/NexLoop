@@ -44,7 +44,7 @@
 ## 4. 与 X1 的关系
 
 - 开始和停止仍然是 X1 的 `nexloop.experiment.start` / `stop`，只有负责人能执行。
-- online 阶段在 X5 的停止规则与预算阻断完成之前，仍然以 `online_not_available` 拒绝开始。online 的资格测试用直接写入的 started 事件模拟开始。
+- online 阶段原先以 `online_not_available` 拒绝开始；负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置，0309 起 online 可以开始，选用的孪生对 online 不再阻止分配（`runtime.nexloop_experiment_twin_ok`）。见 `tests/test_nx043_online_open_pg.py`。
 
 ## 5. 测试
 

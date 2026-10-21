@@ -170,7 +170,25 @@ def test_the_dry_run_calls_nothing_and_the_gaps_are_blocked_never_passed(stage):
     assert f['owner'].calls == [] and f['admin'].execute('select count(*) from control.nexloop_experiments').fetchone()[0] == before
     assert not (f['tmp'] / 'results').exists()
     code, doc, _ = phase(f, 'gaps')
-    assert code == 1 and doc['passed'] is None and len(doc['blocked']) == 3  # allocation wiring, experiment budget, online stage
+    assert code == 1 and doc['passed'] is None and len(doc['blocked']) == 1  # experiment budget (online opened by the owner 2026-10-21)
+
+
+def test_the_online_part_starts_allocates_on_inbound_and_stops(stage):
+    """Owner 2026-10-21: online is open in the test stage; real inbound traffic allocates, the owner stops it."""
+    f = stage
+    assert phase(f, 'prepare')[0] == 0
+    code, doc, _ = phase(f, 'online')
+    assert code == 0 and doc['passed'] is True, [x for x in doc['steps'] if x['passed'] is not True]
+    for i in range(4):
+        inbound(f['admin'], sha(f'x7-online-{i}'))
+    code, doc, _ = phase(f, 'online-probe')
+    assert code == 0 and doc['passed'] is True, doc
+    seen = steps(doc)['online_allocated']['observed']
+    assert seen['candidate'] + seen['control'] + seen['excluded'] == 4 and seen['candidate'] + seen['control'] >= 1
+    code, doc, _ = phase(f, 'online-stop')
+    assert code == 0 and doc['passed'] is True, doc
+    state = json.loads((f['tmp'] / 'results' / 'nx043-state.json').read_text())
+    assert f['admin'].execute('select runtime.nexloop_experiment_status(%s,%s)', (TENANT_A, state['experiments']['online'])).fetchone()[0] == 'stopped'
 
 
 def test_decide_without_the_worker_or_the_key_file_is_blocked(stage):
