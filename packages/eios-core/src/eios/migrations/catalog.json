@@ -1455,6 +1455,11 @@
       "version": "0291",
       "name": "0291_nx043_experiment_reports.sql",
       "sha256": "7e5e6eb0912ef5671c02c0332f70129df6e41368c5f39aad356a7c78a3f3ff90"
+    },
+    {
+      "version": "0292",
+      "name": "0292_nx043_guardrails_budget.sql",
+      "sha256": "7f1d534bce38bb0638ce3fb54f69f2b3bb0bf613220e80770dd0b52521aa2224"
     }
   ]
 }
