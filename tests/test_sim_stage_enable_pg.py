@@ -290,9 +290,10 @@ TRANSFER = ROOT / 'scripts/deploy/sim_credentials_transfer.sh'
 
 
 def test_the_transfer_moves_the_tokens_only_through_one_pipeline_then_forgets(tmp_path):
-    """L6 at046-split review 2.1: on APP_HOST, `ssh DATA_HOST ... --export | docker compose ... --install` (one pipeline), then --forget
-    on DATA_HOST. Stand-ins for ssh and docker record what each received: the tokens reach the installer's stdin and nothing else - not
-    the script's output, an argument, or a file the script writes; the export carries the marker; a failed install keeps DATA_HOST's copy."""
+    """L6 at046-split reviews 2.1 and 2.2: on the dispatcher's machine, `ssh DATA_HOST ... --export | ssh APP_HOST ... --install` (one
+    pipeline, two ssh sessions: the hosts never ssh to each other), then `ssh DATA_HOST ... --forget` once the install succeeded. A
+    stand-in ssh records each session's host and command: the tokens reach APP_HOST's installer stdin and nothing else - not the script's
+    output, an argument, or a file; the export carries the marker; a failed install keeps DATA_HOST's copy (no forget)."""
     import os
     import subprocess
     bin_dir, log = tmp_path / 'bin', tmp_path / 'log'
@@ -300,39 +301,45 @@ def test_the_transfer_moves_the_tokens_only_through_one_pipeline_then_forgets(tm
     tokens = 'api ' + 'A' * 64 + '\nworker ' + 'W' * 64 + '\n'
     (tmp_path / 'tokens').write_text(tokens)
     (bin_dir / 'ssh').write_text(f"""#!/bin/bash
-printf 'ssh %s\\n' "$*" >> {log}
-case "$*" in *--export*) cat {tmp_path / 'tokens'} ;; *--forget*) printf '{{"ok": true, "forgotten": ["api", "worker"]}}\\n' ;; esac
+host="${{@: -2:1}}"; cmd="${{@: -1}}"
+printf '%s | %s\\n' "$host" "$cmd" >> {log}
+case "$host:$cmd" in
+  data-stage:*--export*) cat {tmp_path / 'tokens'} ;;
+  data-stage:*--forget*) printf '{{"ok": true, "forgotten": ["api", "worker"]}}\\n' ;;
+  app-stage:*--install*) cat > {tmp_path / 'installer-stdin'}; [ -f {tmp_path / 'fail-install'} ] && exit 1
+                         printf '{{"ok": true, "installed": ["api", "worker"]}}\\n' ;;
+  *) exit 9 ;;
+esac
 """)
-    (bin_dir / 'docker').write_text(f"""#!/bin/bash
-printf 'docker %s\\n' "$*" >> {log}
-cat > {tmp_path / 'installer-stdin'}
-[ -f {tmp_path / 'fail-install'} ] && exit 1
-printf '{{"ok": true, "installed": ["api", "worker"]}}\\n'
-""")
-    for f in ('ssh', 'docker'):
-        (bin_dir / f).chmod(0o755)
+    (bin_dir / 'ssh').chmod(0o755)
+    (bin_dir / 'docker').write_text('#!/bin/bash\nexit 7\n')  # never called here: docker runs on the hosts only
+    (bin_dir / 'docker').chmod(0o755)
+    base = ('DATA_HOST_SSH=data-stage\nAPP_HOST_SSH=app-stage\nDATA_RELEASE=/srv/release\nDATA_ENV=/srv/private/sim-issue.env\n'
+            'ISSUE_CONFIG=/setup/issue.json\nAPP_RELEASE=/srv/release\nAPP_ENV=/srv/private/sim.env\nINSTALL_CONFIG=/setup/install.json\n')
     conf = tmp_path / 'transfer.conf'
-    conf.write_text('DATA_HOST_SSH=data-stage\nDATA_RELEASE=/srv/release\nDATA_ENV=/srv/private/sim-issue.env\nISSUE_CONFIG=/setup/issue.json\n'
-                    f'APP_RELEASE={tmp_path}\nAPP_ENV=/srv/private/sim.env\nINSTALL_CONFIG=/setup/install.json\n')
-    conf.chmod(0o600)
+
+    def write(text):
+        conf.write_text(text)
+        conf.chmod(0o600)
+    write(base)
     env = {**os.environ, 'PATH': f"{bin_dir}:{os.environ['PATH']}"}
     done = subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env)
     assert done.returncode == 0, done.stderr
-    assert (tmp_path / 'installer-stdin').read_text() == tokens  # through the pipe into the installer
-    assert 'A' * 64 not in done.stdout + done.stderr and 'A' * 64 not in log.read_text()  # never in the output or an argument
-    calls = log.read_text().splitlines()  # the two ends of the pipeline start together: only the ssh calls are ordered
-    ssh, docker = [c for c in calls if c.startswith('ssh ')], [c for c in calls if c.startswith('docker ')]
-    assert len(ssh) == 2 and 'NEXLOOP_SIM_TRANSFER_PIPE=1' in ssh[0] and ssh[0].endswith('--export') and ssh[1].endswith('--forget')
-    assert len(docker) == 1 and '--install /setup/install.json' in docker[0]
+    assert (tmp_path / 'installer-stdin').read_text() == tokens  # through the pipe into APP_HOST's installer
+    assert not any(t in done.stdout + done.stderr + log.read_text() for t in ('A' * 64, 'W' * 64))  # never in output or an argument
+    calls = log.read_text().splitlines()  # the two ends of the pipeline start together: the forget comes after both
+    data, app = [c for c in calls if c.startswith('data-stage |')], [c for c in calls if c.startswith('app-stage |')]
+    assert len(data) == 2 and 'NEXLOOP_SIM_TRANSFER_PIPE=1' in data[0] and data[0].endswith('--export') and data[1].endswith('--forget')
+    assert calls[-1] == data[1] and len(app) == 1 and app[0].endswith('--install /setup/install.json') and 'compose.simulation' in app[0]
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted(['bin', 'log', 'tokens', 'transfer.conf', 'installer-stdin'])  # no file between
     # A failed install: the pipeline fails and DATA_HOST keeps its copy (no forget).
     log.write_text('')
     (tmp_path / 'fail-install').write_text('')
     done = subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env)
-    assert done.returncode == 1 and 'keeps its copy' in done.stderr and sorted(c.split()[0] for c in log.read_text().splitlines()) == ['docker', 'ssh']
-    # Bad configuration is refused before any connection.
-    for bad in ('DATA_HOST_SSH=data;rm -rf /', 'DATA_RELEASE=relative/path', 'EXTRA=1'):
-        conf.write_text(conf.read_text().split('\n', 1)[1] + bad + '\n' if bad.startswith('DATA_HOST') else conf.read_text() + bad + '\n')
-        conf.chmod(0o600)
+    assert done.returncode == 1 and 'keeps its copy' in done.stderr and not any('--forget' in c for c in log.read_text().splitlines())
+    # Bad configuration is refused before any connection: shell characters, a relative path, an unknown key, one host for both, a host missing.
+    for bad in (base.replace('data-stage', 'data;rm -rf /'), base.replace('/srv/release\nDATA_ENV', 'srv/release\nDATA_ENV'), base + 'EXTRA=1\n',
+                base.replace('app-stage', 'data-stage'), base.replace('APP_HOST_SSH=app-stage\n', '')):
+        write(bad)
         log.write_text('')
         assert subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env).returncode == 1 and log.read_text() == ''
