@@ -327,3 +327,26 @@ def test_no_invoker_function_is_reachable_by_a_simulation_role(db):
             and has_function_privilege('nexloop_sim_api',p.oid,'execute') and has_schema_privilege('nexloop_sim_api','control','usage')""").fetchone()[0] == 1
     finally:
         admin.execute('drop function control.zz_p3_probe()')
+
+
+DISPATCH_CONTROLS = (('authz.nexloop_assert_task_dispatch_controls(%s,%s,%s)', ('task-1',)),
+                     ('authz.nexloop_bind_run_goal(%s,%s,%s,%s,%s)', ('00000000-0000-4000-8000-000000000001', 'goal-1', 1)),
+                     ('authz.nexloop_budget_status(%s,%s,%s)', ('model',)),
+                     ('authz.nexloop_reserve_budget(%s,%s,%s,%s,%s,%s,%s)', ('model', 'run:x', '1', 'CNY', 'run:x')))
+
+
+@pytest.mark.parametrize('world', ['real', 'test'])
+def test_the_dispatch_control_entries_refuse_the_simulation_worker_outside_its_world(db, world):
+    """L6 batch-12 review 2.1 (0310): the four entries the simulation worker may execute for its dispatch refuse it for a real or test
+    world before reading any credential - whatever digest it holds (a real credential's included) - while a real worker calling the
+    same entries for its own world never meets that refusal (its app_role is its session_user)."""
+    _, pg = db
+    digest = 'a' * 64
+    for sql, args in DISPATCH_CONTROLS:
+        with connect(pg, 'nexloop_sim_worker') as c:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege, match='simulation role outside its world'):
+                c.execute('select ' + sql, (digest, world, *args))
+        with connect(pg, 'nexloop_domain_worker') as c:
+            with pytest.raises(psycopg.Error) as other:
+                c.execute('select ' + sql, (digest, world, *args))
+            assert 'simulation role outside its world' not in str(other.value), sql  # refused later, for its unknown digest

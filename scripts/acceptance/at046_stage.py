@@ -53,6 +53,7 @@ def s6_nonce_ok(nonce):
 
 SCHEMAS = ('authz', 'control', 'runtime', 'ontology')
 TWIN_EXAMPLE = Path(__file__).resolve().parents[2] / 'packages/contracts/examples/consumer-twin.valid.json'
+SYNTHETIC_TWIN = 'at046-synthetic-'
 
 
 class Ports:
@@ -133,8 +134,11 @@ def prepare(ports, config, r):
     twin = inputs.get('publish_twin')
     if twin:
         definition = {k: v for k, v in json.loads(TWIN_EXAMPLE.read_text()).items() if k != 'frozen'}
-        if isinstance(twin, dict) and twin.get('twin_id'):
-            definition['twin_id'] = twin['twin_id']
+        # L6 batch-12 review 4.1: the twin is the tenant's, so it carries an unmistakable prefix and is retired after the acceptance
+        # (cleanup). Real experiments never pick a twin themselves: a registration names one, and a non-online stage needs it calibrated.
+        definition['twin_id'] = (twin.get('twin_id') if isinstance(twin, dict) and twin.get('twin_id') else SYNTHETIC_TWIN + 'trial')
+        if not definition['twin_id'].startswith(SYNTHETIC_TWIN):
+            raise Refused(f'inputs.publish_twin.twin_id: {SYNTHETIC_TWIN}<name> (the synthetic twin of the acceptance)')
         # The Idempotency-Key is the governed request id (workbench_actions_http): one per definition, so a rerun replays.
         request = 'at046-twin-' + hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()[:32]
         status, out = ports.act('publish_consumer_twin', {'definition': definition}, request)
@@ -142,6 +146,21 @@ def prepare(ports, config, r):
                {'status': status, 'twin_id': out.get('twin_id') if isinstance(out, dict) else None, 'version': out.get('version') if isinstance(out, dict) else None,
                 'twin_status': out.get('status') if isinstance(out, dict) else None},
                status == 200 and isinstance(out, dict) and out.get('status') == 'published')
+
+
+def cleanup(ports, config, r, prior=None):
+    """After the acceptance (L6 batch-12 review 4.1): retire the synthetic twin prepare published (inputs.twin: twin_id, version), through
+    the owner's governed Action retire_consumer_twin. Only a twin with the synthetic prefix is ever retired here; a retired twin binds no
+    more and no experiment can use it at a non-online stage. Idempotent per twin version."""
+    twin = (config.get('inputs') or {}).get('twin') or {}
+    twin_id, version = twin.get('twin_id'), twin.get('version')
+    if not isinstance(twin_id, str) or not twin_id.startswith(SYNTHETIC_TWIN) or type(version) is not int:
+        raise Refused(f'inputs.twin: the synthetic twin of the acceptance ({SYNTHETIC_TWIN}<name>, its version)')
+    status, out = ports.act('retire_consumer_twin', {'twin_id': twin_id, 'version': version, 'reason': 'AT-046 stage acceptance finished: synthetic twin retired'},
+                            'at046-twin-retire-' + hashlib.sha256(f'{twin_id}/{version}'.encode()).hexdigest()[:32])
+    r.step('synthetic_twin_retired', 'the acceptance\'s synthetic twin retired (no further binding)',
+           {'status': status, 'twin_id': twin_id, 'version': version, 'twin_status': out.get('status') if isinstance(out, dict) else None},
+           status == 200 and isinstance(out, dict) and out.get('status') == 'retired')
 
 
 def _world(config):
@@ -352,6 +371,7 @@ PLAN = {'probe-before': ['probe (read only, DATA_HOST socket): world-real row di
         'intake': ['twin port (APP_HOST hostssl): bind, observe, act (when configured)', 'sim_api (APP_HOST hostssl): issue_run_credential, sim context register, accept'],
         'probe-after': ['probe (read only, DATA_HOST socket): task status until it ends, the Run credential world, the world credentials, digests again'],
         'merge': ['no connection: the three result documents (--from) combined into at046-run'],
+        'cleanup': ['owner workbench: retire_consumer_twin (the synthetic twin of inputs.twin)'],
         'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog',
                     'owner workbench: publish_consumer_twin (only with inputs.publish_twin)'],
         'run': ['probe (read only): world-real row digests', 'twin port: bind, observe, act (when present)',
@@ -401,12 +421,14 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             return result.write(out)
         owner = None
         if ports is None:
-            password = (stdin or sys.stdin).readline().rstrip('\n') if args.phase == 'prepare' and (config.get('owner') or {}).get('origin') else None
+            password = (stdin or sys.stdin).readline().rstrip('\n') if args.phase in ('prepare', 'cleanup') and (config.get('owner') or {}).get('origin') else None
             ports = ports_from(config, password)
             owner = ports.owner
         try:
             if args.phase == 'prepare':
                 prepare(ports, config, result)
+            elif args.phase == 'cleanup':
+                cleanup(ports, config, result)
             else:
                 PHASES[args.phase](ports, config, result, prior)
         except Blocked as error:
