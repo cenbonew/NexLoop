@@ -89,7 +89,8 @@ def load_config(path):
         raise Refused('configuration is not JSON') from None
     keys = {'schema', 'connections', 'credentials', 'window', 'personas', 'label', 'parent_revision', 'evaluator_version', 'model_profile',
             'created_at', 'l0_inputs', 'protected_refs', 'erasure', 'state_dir'}
-    if type(value) is not dict or value.get('schema') != SCHEMA or set(value) != keys:
+    # Integration: one example file serves this script and s6_stage_schema (L2's shared s6_common keys may be present too).
+    if type(value) is not dict or value.get('schema') != SCHEMA or not keys <= set(value):
         raise Refused(f'configuration keys: {sorted(keys)}')
     c = value['connections']
     if type(c) is not dict or not {'reader', 'writer', 'evaluator', 'inspector'} <= set(c) <= {'reader', 'writer', 'evaluator', 'inspector', 'registrar'}:
