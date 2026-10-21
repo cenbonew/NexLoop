@@ -1,7 +1,7 @@
 -- NX-043 X1 review fix (L6 review 2.1, dispatcher 2026-10-21): start rechecks every outreach purpose of the candidate and control
 -- strategies against the current purpose list, as it does the persona: a purpose reclassified as marketing (or needing consent) after
 -- the strategy was published blocks the start (purpose_not_allowed). control.nexloop_governed_start_experiment is re-created from
--- its 0290 body with only that check added (registered in tests/test_function_copy_guard.py). The migration number lives only in the
+-- its 0285 body with only that check added (registered in tests/test_function_copy_guard.py). The migration number lives only in the
 -- file name and the catalog.
 
 create or replace function control.nexloop_governed_start_experiment(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb

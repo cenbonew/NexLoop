@@ -5,7 +5,7 @@
 -- 1.1: a Consumer being erased is excluded (erasing).
 -- 4.1: at decision a candidate gets the candidate strategy only while that version is still published and a selected twin still
 --     selectable, else the control strategy; a retired control strategy gives null (the current policy).
--- runtime.nexloop_experiment_assign and runtime.nexloop_experiment_strategy_for are re-created from 0292 with only these changes
+-- runtime.nexloop_experiment_assign and runtime.nexloop_experiment_strategy_for are re-created from 0289 with only these changes
 -- (registered in tests/test_function_copy_guard.py).
 
 alter table control.nexloop_experiment_allocations drop constraint nexloop_experiment_allocations_excluded_reason_check;

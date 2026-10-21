@@ -2,7 +2,7 @@
 -- 1. Eligibility is part of the preregistration (D3): runtime.nexloop_experiment_eligibility_default() is the rule of design §3
 --    (persona real, no active contact restriction, no active takeover), written into every frozen registration; a member may not be
 --    loosened (eligibility_looser_than_default). runtime.nexloop_experiment_registration_problem and _frozen are re-created from
---    0290 with only that change (registered in tests/test_function_copy_guard.py). A registration frozen before this migration has no
+--    0285 with only that change (registered in tests/test_function_copy_guard.py). A registration frozen before this migration has no
 --    eligibility member and is read with the default rule.
 -- 2. control.nexloop_experiment_allocations: one frozen row per (experiment, consumer): its cluster, its arm (candidate, control) or
 --    its exclusion reason. Written once, never changed (D2: a consumer stays in its group for the whole experiment).
