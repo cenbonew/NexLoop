@@ -9,7 +9,14 @@ Two phases, because the world's credentials, DSN files and the compose project (
         owner workbench: create_sim_world, generate_sim_world_data, publish_sim_catalog (the world's Action catalog: the real Actions
         with a stand-in, 0294) -> the world id (into the result's evidence)
     # dispatcher: sim_world_credentials.py (api, worker, agent[, twin]), sim_dsn_files.py, compose --profile simulation up -d
-    at046_stage.py run --config PRIVATE.json [--dry-run]
+    On stage the run is three parts on two hosts (L6 sim-issue-install review 1.1): the read-only probe reaches PostgreSQL only over
+    DATA_HOST's socket (bootstrap: local pg_hba rules) and the intake (nexloop_sim_api, nexloop_twin_port) only over APP_HOST's hostssl,
+    so no single process has both. Each part writes its result; the next takes the earlier ones with --from:
+    at046_stage.py probe-before --config DATA.json                                   DATA_HOST: digests, Consumers, the Run Action
+    at046_stage.py intake --config APP.json --from BEFORE                             APP_HOST: twin, Run credential, accept
+    at046_stage.py probe-after --config DATA.json --from BEFORE --from INTAKE         DATA_HOST: task end, Run world, digests again
+    at046_stage.py merge --config ANY.json --from BEFORE --from INTAKE --from AFTER   no connection: one at046-run result
+    at046_stage.py run --config PRIVATE.json [--dry-run]   (the three parts in one process: only where one host reaches both - local)
         probe (read only): a digest of every world-real row of the tenant (all tables with a world column) before
         twin: bind, observe, act through the twin port (nexloop_twin_port + the world's twin credential)       blocked before the eighth batch
         Run: the Run Action published for the world (prepare), the simulation intake (nexloop_sim_api + the world's api credential)
@@ -37,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
-from s6_common import Blocked, Redactor, Refused, Result, connect_from, read_private  # noqa: E402
+from s6_common import RESULT_SCHEMA, Blocked, Redactor, Refused, Result, connect_from, read_private  # noqa: E402
 
 SCHEMAS = ('authz', 'control', 'runtime', 'ontology')
 
@@ -106,22 +113,43 @@ def prepare(ports, config, r):
            status == 200 and bool(actions))
 
 
-def run(ports, config, r):
-    inputs = config.get('inputs') or {}
-    world = inputs.get('world')
+def _world(config):
+    world = (config.get('inputs') or {}).get('world')
     if not isinstance(world, str) or not world.startswith('sim:'):
         raise Refused('inputs.world: the sim:<uuid> world of the prepare phase')
-    tenant = config['tenant_id']
+    return world
+
+
+def _effect():
+    from nexloop_eios.effect_contexts import EFFECT
+    return 'eios:action:' + EFFECT + ':1'
+
+
+def probe_before(ports, config, r, prior=None):
+    """DATA_HOST, the read-only probe over the socket: the world's synthetic Consumers, the Run Action in its catalog, the real digest."""
+    world, tenant = _world(config), config['tenant_id']
     before = real_digest(ports, tenant)
     consumers = [row[0] for row in ports.read("select object_id from runtime.nexloop_sim_objects where tenant_id=%s and world=%s and type_name='Consumer' order by 1",
                                               (tenant, world))]
-    r.step('synthetic_consumers_present', 'at least one synthetic Consumer in the world', {'consumers': len(consumers)}, bool(consumers))
-    # The consumer twin (NX-042 T3/T7): through its port only.
+    r.step('synthetic_consumers_present', 'at least one synthetic Consumer in the world', {'consumers': len(consumers)}, bool(consumers),
+           consumers=consumers[:3])
+    published = ports.read('select count(*) from control.nexloop_action_definitions where tenant_id=%s and world=%s and resource_id=%s and active',
+                           (tenant, world, _effect()))[0][0]
+    r.step('run_action_published_for_the_world', 'the Run Action is in the world catalog (prepare: publish_sim_catalog)',
+           {'published': bool(published)}, bool(published))
+    r.step('real_digest_before', 'the world-real digests taken', {'tables': len(before)}, bool(before), digests=before, world=world)
+
+
+def intake_phase(ports, config, r, prior):
+    """APP_HOST, the simulation one-off container (sim_api and twin_port over hostssl): the twin through its port, then the Run accepted."""
+    world = _world(config)
+    inputs = config.get('inputs') or {}
+    consumers = evidence(prior, 'synthetic_consumers_present').get('consumers') or []
     twin = inputs.get('twin') or {}
-    if not ports.read("select to_regprocedure('authz.nexloop_twin_act(text,text,text,text,integer)') is not null")[0][0]:
-        r.block('twin_observe_act', 'the twin port is not in this release (NX-042 T3, eighth batch)')
-    elif ports.twin is None or not twin.get('twin_id'):
+    if ports.twin is None or not twin.get('twin_id'):
         r.block('twin_observe_act', 'roles.twin_port or inputs.twin not configured')
+    elif not consumers:
+        r.block('twin_observe_act', 'no synthetic Consumer (probe-before)')
     else:
         from nexloop_eios.twin_port import ConsumerTwin
         acts = ports.twin.run(ConsumerTwin(twin['twin_id'], int(twin.get('version') or 1), twin.get('seed') or 'at046-stage'), consumers[:3],
@@ -129,38 +157,75 @@ def run(ports, config, r):
         provenance = all(a['provenance']['origin'] == 'twin' and a['provenance']['data_mode'] == 'simulation' for a in acts)
         r.step('twin_observe_act', 'every step through the port, simulated, with the twin provenance',
                {'steps': len(acts), 'events': sum(1 for a in acts if a.get('event_id')), 'provenance': provenance}, bool(acts) and provenance)
-    # The simulation Run: the Run Action must be published for the world (D10).
-    from nexloop_eios.effect_contexts import EFFECT
-    effect = 'eios:action:' + EFFECT + ':1'
-    published = ports.read('select count(*) from control.nexloop_action_definitions where tenant_id=%s and world=%s and resource_id=%s and active',
-                           (tenant, world, effect))[0][0]
-    r.step('run_action_published_for_the_world', 'the Run Action is in the world catalog (prepare: publish_sim_catalog)',
-           {'published': bool(published)}, bool(published))
-    if not published:
-        pass
+    if not passed(prior, 'run_action_published_for_the_world') or not consumers:
+        r.block('simulation_run', 'probe-before did not find the Run Action published and a synthetic Consumer')
     elif ports.intake is None:
         r.block('simulation_run', 'roles.sim_api not configured')
     else:
-        task_id, run_id = ports.intake(world, consumers[0], effect)
+        task_id, run_id = ports.intake(world, consumers[0], _effect())
+        r.step('run_accepted', 'the simulation intake issued the Run credential and accepted the Run', {'accepted': bool(task_id)}, bool(task_id),
+               task_id=task_id, run_id=run_id)
+
+
+def probe_after(ports, config, r, prior):
+    """DATA_HOST again: the task until it ends, the Run credential's world, the world's credentials, the real digest unchanged."""
+    world, tenant = _world(config), config['tenant_id']
+    inputs = config.get('inputs') or {}
+    accepted = evidence(prior, 'run_accepted')
+    if accepted.get('task_id'):
         deadline = time.monotonic() + int(inputs.get('run_timeout_seconds') or 300)
         status = None
         while time.monotonic() < deadline:
-            status = ports.read('select status from runtime.jobs where job_id=%s', (task_id,))[0][0]
+            status = ports.read('select status from runtime.jobs where job_id=%s', (accepted['task_id'],))[0][0]
             if status in ('succeeded', 'failed', 'dead_letter', 'cancelled'):
                 break
             time.sleep(5)
-        run_world = ports.read('select world from authz.nexloop_run_credentials where run_id=%s', (run_id,))[0][0]
+        run_world = ports.read('select world from authz.nexloop_run_credentials where run_id=%s', (accepted['run_id'],))[0][0]
         r.step('simulation_run_completes', 'the task succeeded, its Run credential of the simulation world',
-               {'task_status': status, 'run_world_is_simulation': run_world == world}, status == 'succeeded' and run_world == world, run_id=run_id)
+               {'task_status': status, 'run_world_is_simulation': run_world == world}, status == 'succeeded' and run_world == world, run_id=accepted['run_id'])
     used = ports.read("""select array_agg(distinct w) from authz.nexloop_service_credentials c, unnest(c.worlds) w
         where c.tenant_id=%s and c.sim_use is not null and c.status='active' and %s = any(c.worlds)""", (tenant, world))[0][0] or []
     # Review 5.3: none found is not a pass - the Run path needs the world's own credentials.
     r.step('world_credentials_only_of_the_world', 'credentials with a simulation use exist for this world, every one bound to it alone',
            {'worlds': used}, used == [world])
+    before = evidence(prior, 'real_digest_before').get('digests') or {}
     after = real_digest(ports, tenant)
     changed = sorted(t for t in set(before) | set(after) if before.get(t) != after.get(t))
     r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (digests of all tables with a world column)',
            {'tables': len(before), 'changed': changed}, not changed and bool(before))
+
+
+def run(ports, config, r, prior=None):
+    """The three parts in one process: only where one host reaches both the probe and the intake (local tests). On stage they run apart
+    (probe-before and probe-after on DATA_HOST, intake on APP_HOST) and merge combines them (L6 sim-issue-install review 1.1)."""
+    for part in (probe_before, intake_phase, probe_after):
+        part(ports, config, r, r.steps)
+
+
+def evidence(prior, name):
+    found = [s for s in (prior or []) if s.get('name') == name]
+    return (found[-1].get('evidence') or {}) if found else {}
+
+
+def passed(prior, name):
+    return any(s.get('name') == name and s.get('passed') is True for s in (prior or []))
+
+
+def load_prior(paths, world):
+    """The steps of earlier parts' result documents (--from): this script's, the same world, never a dry run."""
+    steps, blocked = [], []
+    for path in paths or []:
+        try:
+            doc = json.loads(Path(path).read_text().strip().splitlines()[-1])
+        except (OSError, ValueError, IndexError):
+            raise Refused('--from: a result document of this script') from None
+        if doc.get('schema') != RESULT_SCHEMA or not str(doc.get('check', '')).startswith('at046-') or doc.get('dry_run'):
+            raise Refused('--from: a result document of this script (not a dry run)')
+        if any((st.get('evidence') or {}).get('world') not in (None, world) for st in doc.get('steps') or []):
+            raise Refused('--from: a result of another world')
+        steps += doc.get('steps') or []
+        blocked += doc.get('blocked') or []
+    return steps, blocked
 
 
 def intake_from(roles):
@@ -208,7 +273,13 @@ def ports_from(config, password):
     return Ports(owner=owner, probe=connect_from(probe) if probe else None, twin=twin, intake=intake_from(roles))
 
 
-PLAN = {'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog'],
+PHASES = {'probe-before': probe_before, 'intake': intake_phase, 'probe-after': probe_after, 'run': run}
+NEEDS = {'intake': ('probe-before',), 'probe-after': ('probe-before', 'intake'), 'merge': ('probe-before', 'intake', 'probe-after')}
+PLAN = {'probe-before': ['probe (read only, DATA_HOST socket): world-real row digests, synthetic Consumers, the Run Action in the world catalog'],
+        'intake': ['twin port (APP_HOST hostssl): bind, observe, act (when configured)', 'sim_api (APP_HOST hostssl): issue_run_credential, sim context register, accept'],
+        'probe-after': ['probe (read only, DATA_HOST socket): task status until it ends, the Run credential world, the world credentials, digests again'],
+        'merge': ['no connection: the three result documents (--from) combined into at046-run'],
+        'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog'],
         'run': ['probe (read only): world-real row digests', 'twin port: bind, observe, act (when present)',
                 'probe: the Run Action in the world catalog', 'sim_api: issue_run_credential, sim context register, accept',
                 'probe: task status until it ends, the Run credential world', 'probe: world-real row digests again']}
@@ -217,9 +288,10 @@ PLAN = {'prepare': ['owner workbench: create_sim_world', 'owner workbench: gener
 def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.error = lambda message: (_ for _ in ()).throw(SystemExit(2))  # never echo the arguments
-    parser.add_argument('phase', choices=sorted(PLAN))
+    parser.add_argument('phase', choices=sorted(PLAN))  # run: the three parts in one process (local only)
     parser.add_argument('--config', required=True)
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--from', dest='prior', action='append', default=[])
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -228,7 +300,19 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
     try:
         from s6_common import load_config
         config = load_config(args.config)
-        result = Result('at046-' + args.phase, ['AT-046'], config, dry_run=args.dry_run, world='simulation')
+        check = 'at046-run' if args.phase == 'merge' else 'at046-' + args.phase
+        result = Result(check, ['AT-046'], config, dry_run=args.dry_run, world='simulation')
+        if args.phase in NEEDS and len(args.prior) != len(NEEDS[args.phase]) and not args.dry_run:
+            raise Refused(f'{args.phase}: --from the result of ' + ', '.join(NEEDS[args.phase]))
+        prior, prior_blocked = load_prior(args.prior, (config.get('inputs') or {}).get('world')) if not args.dry_run else ([], [])
+        if args.phase == 'merge':
+            # The three parts as one result: every step and every block, the verdict recomputed (a failure is never masked).
+            if args.dry_run:
+                result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)
+                return result.write(out)
+            _world(config)
+            result.steps, result.blocked = list(prior), list(prior_blocked)
+            return result.write(out)
         if args.dry_run:
             result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)
             return result.write(out)
@@ -238,7 +322,10 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             ports = ports_from(config, password)
             owner = ports.owner
         try:
-            (prepare if args.phase == 'prepare' else run)(ports, config, result)
+            if args.phase == 'prepare':
+                prepare(ports, config, result)
+            else:
+                PHASES[args.phase](ports, config, result, prior)
         except Blocked as error:
             result.block(args.phase, str(error))
         except Refused:

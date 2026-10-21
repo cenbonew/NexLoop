@@ -43,7 +43,7 @@ def credentials_config(d, tmp_path, world, uses=('api', 'worker', 'agent'), **ov
     return private(tmp_path / 'sim-credentials.json', {'schema': C.SCHEMA, 'tenant_id': TENANT, 'world': world, 'uses': list(uses),
                    'token_dir': str(tmp_path / 'tokens'), 'configurator_database_url_file': str(d['paths']['dsn']),
                    'signing_key_file': str(d['paths']['signing']), 'signing_key_id': 'nx048-deploy',
-                   'credential_expires_at': (datetime.now(UTC) + timedelta(days=30)).isoformat(), 'check_database_url_file': str(tmp_path / 'unused'), **over})
+                   'credential_expires_at': (datetime.now(UTC) + timedelta(days=30)).isoformat(), 'check_database_url_file': str(private(tmp_path / 'check-dsn', d['pg'])), **over})
 
 
 def run(main, argv, **kw):
@@ -101,15 +101,23 @@ def test_the_world_credentials_are_issued_per_use_bound_to_the_world_and_self_ch
     assert code == 1 and checked['check']['credentials']['agent']['grants_minimal'] is False and checked['check']['credentials']['api']['grants_minimal'] is True
 
 
-def test_the_twin_use_is_refused_by_this_release_and_bad_input_too(deployment, admin, tmp_path):  # noqa: F811
+def test_the_twin_use_is_issued_since_the_eighth_batch_and_bad_input_is_refused(deployment, admin, tmp_path):  # noqa: F811
+    """The eighth batch accepts the twin use (NX-042 T3): its credential is bound to the world alone with sim_use twin and holds no
+    grant (the port checks the world credential); the self-check passes for all four uses. Bad input is refused before anything is written."""
     d = deployment
+    d['apply']()
     world = world_of(admin)
-    code, out = run(C.main, ['--config', str(credentials_config(d, tmp_path, world, uses=('api', 'twin')))])
-    assert code == 2 and 'twin' in out['detail'] and not (tmp_path / 'tokens').exists()
+    assert 'twin' in C.accepted_uses()
+    conf = credentials_config(d, tmp_path, world, uses=('api', 'worker', 'agent', 'twin'))
+    code, out = run(C.main, ['--config', str(conf)])
+    assert code == 0 and out['credentials_created'] == ['agent', 'api', 'twin', 'worker'] and out['check']['pass'] is True, out
+    assert out['check']['credentials']['twin']['grants_minimal'] is True and out['check']['credentials']['twin']['refused_in_real'] is True
+    assert admin.execute("select worlds,status from authz.nexloop_service_credentials where sim_use='twin'").fetchall() == [([world], 'active')]
+    before = admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0]
     assert run(C.main, ['--config', str(credentials_config(d, tmp_path, 'real'))])[0] == 2
-    for over in ({'uses': ['api', 'api']}, {'credential_expires_at': '2020-01-01T00:00:00+00:00'}, {'extra': 1}):
+    for over in ({'uses': ['api', 'api']}, {'uses': ['api', 'oracle']}, {'credential_expires_at': '2020-01-01T00:00:00+00:00'}, {'extra': 1}):
         assert run(C.main, ['--config', str(credentials_config(d, tmp_path, world, **over))])[0] == 2
-
+    assert admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0] == before
 
 ROLES = sorted(D.SIM_DSN_ROLES.values())
 
@@ -165,7 +173,10 @@ def test_dsn_configuration_and_example(tmp_path):
         assert run(D.main, ['--config', str(dsn_config(tmp_path, **over)), '--dry-run'])[0] == 2
     assert D.load_config((ROOT / 'deploy/examples/sim-dsn-files.example.json').read_text())['db_name'] == 'nexloop_stage'
     example = json.loads((ROOT / 'deploy/examples/sim-world-credentials.example.json').read_text())
-    assert set(example) == C.KEYS | C.OPTIONAL and example['uses'] == ['api', 'worker', 'agent']
+    assert set(example) == C.KEYS and example['uses'] == ['api', 'worker', 'agent']  # DATA_HOST issuing: no compose secret there
+    assert 'host=/var/run/postgresql' in example['configurator_database_url_file'] and 'host=/var/run/postgresql' in example['check_database_url_file']
+    install = C.load_install((ROOT / 'deploy/examples/sim-world-credentials-install.example.json').read_text())
+    assert install['token_dir'] == '/sim-tokens' and install['compose_secret_dir'] == '/sim-secrets'
 
 
 def test_after_the_world_is_deleted_its_old_credentials_are_refused(deployment, admin, tmp_path):  # noqa: F811
@@ -202,3 +213,74 @@ def test_after_the_world_is_deleted_its_old_credentials_are_refused(deployment, 
                 assert refused.value.sqlstate in ('42501', '22023'), (sql, refused.value.sqlstate)
     code, checked = run(C.main, ['--config', str(conf), '--check'], check_connect=check)
     assert code == 1 and checked['ok'] is False
+
+
+def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_by_pipe(deployment, admin, tmp_path):  # noqa: F811
+    """L6 review B2.1: the configurator and the bootstrap inspection role have local pg_hba rules only, so issuing and the self-check
+    run on DATA_HOST over the socket directory; a TCP DSN in either file is refused before any connection or write. --export writes
+    '<use> <token>' lines to a pipe only (never a terminal); --install on APP_HOST reads them on stdin and writes the token files and
+    the compose sim_world_credential without any database; a different token for an existing file is refused."""
+    d = deployment
+    d['apply']()
+    world = world_of(admin)
+    assert d['pg'].split('host=')[1].startswith('/')  # the test cluster listens on a socket only, as DATA_HOST's local rules
+    tcp = private(tmp_path / 'tcp-dsn', 'host=127.0.0.1 port=5432 dbname=nexloop_stage user=nexloop_configurator')
+    for key in ('configurator_database_url_file', 'check_database_url_file'):
+        conf = credentials_config(d, tmp_path, world, **{key: str(tcp)})
+        code, out = run(C.main, ['--config', str(conf)])
+        assert code == 2 and 'socket' in out['detail'], (key, out)
+    assert admin.execute('select count(*) from authz.nexloop_service_credentials where worlds=%s', ([world],)).fetchone()[0] == 0
+    conf = credentials_config(d, tmp_path, world)
+    code, out = run(C.main, ['--config', str(conf)])
+    assert code == 0 and out['check']['pass'] is True, out
+    # Export: a FIFO only (review 2.2) - a captured stream, a terminal or a file is refused; the tokens go into the pipe.
+    for sink in (io.StringIO(), open(tmp_path / 'export-file', 'w')):
+        with sink:
+            assert C.main(['--config', str(conf), '--export'], out=sink) == 2
+    assert 'agent ' not in (tmp_path / 'export-file').read_text()
+    import os
+    r, w = os.pipe()
+    with os.fdopen(w, 'w') as writer:
+        assert C.main(['--config', str(conf), '--export'], out=writer) == 0
+    with os.fdopen(r) as reader:
+        lines = reader.read()
+    assert sorted(line.split(' ')[0] for line in lines.splitlines()) == ['agent', 'api', 'worker']
+    # Install on the other host: no database, files 0600, the worker token as the compose secret; a rerun with the same tokens is fine.
+    (tmp_path / 'app-secrets').mkdir(mode=0o700)
+    inst = private(tmp_path / 'install.json', {'schema': C.INSTALL_SCHEMA, 'world': world, 'uses': ['api', 'worker', 'agent'],
+                                               'token_dir': str(tmp_path / 'app-tokens'), 'compose_secret_dir': str(tmp_path / 'app-secrets')})
+    code, out = run(C.main, ['--install', str(inst)], stdin=io.StringIO(lines))
+    assert code == 0 and out == {'ok': True, 'installed': ['agent', 'api', 'worker'], 'compose_sim_world_credential': True}
+    worker = dict(line.split(' ') for line in lines.splitlines())['worker']
+    assert (tmp_path / 'app-secrets' / 'sim_world_credential').read_text() == worker and worker not in json.dumps(out)
+    assert all(p.stat().st_mode & 0o777 == 0o600 for p in (tmp_path / 'app-tokens').rglob('*-credential'))
+    code, out = run(C.main, ['--install', str(inst)], stdin=io.StringIO(lines))
+    assert code == 0 and out['installed'] == []
+    other = lines.replace(worker, 'Z' * 64)
+    code, out = run(C.main, ['--install', str(inst)], stdin=io.StringIO(other))
+    assert code == 2 and 'another token' in out['detail'] and 'Z' * 64 not in json.dumps(out)
+    code, out = run(C.main, ['--install', str(inst)], stdin=io.StringIO('worker ' + worker + '\n'))
+    assert code == 2 and 'missing' in out['detail']
+    # Review 2.1: once installed, DATA_HOST forgets its copy; a later export has nothing to send.
+    code, out = run(C.main, ['--config', str(conf), '--forget'])
+    assert code == 0 and out == {'ok': True, 'forgotten': ['agent', 'api', 'worker']} and not list((tmp_path / 'tokens').rglob('*-credential'))
+    r, w = os.pipe()
+    with os.fdopen(w, 'w') as writer:
+        assert C.main(['--config', str(conf), '--export'], out=writer) == 2
+    os.close(r)
+
+
+def test_the_documented_steps_name_their_host_and_connection():
+    """Review B2.1: the step table names, for each step, the host and the connection; issuing is on DATA_HOST over the socket and
+    nothing in the table sends the configurator or the bootstrap role over hostssl."""
+    doc = (ROOT / 'docs/implementation/sim-stage-enable.md').read_text()
+    rows = [line for line in doc.splitlines() if line.startswith('| ') and line.split('|')[1].strip().isdigit()]
+    assert len(rows) >= 11 and all(('APP_HOST' in r or 'DATA_HOST' in r) and ('socket' in r or 'hostssl' in r or '不连数据库' in r) for r in rows), rows
+    issue = next(r for r in rows if 'sim_world_credentials.py' in r and '签发' in r)
+    assert 'DATA_HOST' in issue and 'socket' in issue and 'compose.sim-issue' in issue
+    compose = (ROOT / 'deploy/stage/compose.sim-issue.example.yaml').read_text()
+    assert '/var/run/postgresql' in compose and 'network_mode: none' in compose
+    assert "'999" not in compose and '${NEXLOOP_PG_UID}:${NEXLOOP_PG_GID}' in compose  # review 3.1: the socket owner's uid is a variable
+    for part in ('probe-before', 'probe-after'):  # review 1.1: the AT-046 probe parts on DATA_HOST, the intake on APP_HOST
+        assert 'DATA_HOST' in next(r for r in rows if part in r)
+    assert 'APP_HOST' in next(r for r in rows if ' intake ' in r) and '工作台 HTTPS' not in next(r for r in rows if ' intake ' in r)
