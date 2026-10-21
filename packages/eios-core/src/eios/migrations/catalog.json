@@ -1497,8 +1497,8 @@
       "sha256": "d98e55b6a5bf3a3f0af625e204f3d52ab950a90d735c8b3b10c80f78832f91b7"
     },
     {
-      "version": "0300",
-      "name": "0300_nx043_leave_out_world.sql",
+      "version": "0302",
+      "name": "0302_nx043_leave_out_world.sql",
       "sha256": "63f061d4c72efec5173d8c02770642c55c2161920eac92edb1dff69d8ce24c4a"
     }
   ]
