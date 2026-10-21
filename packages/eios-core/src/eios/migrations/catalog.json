@@ -1380,6 +1380,11 @@
       "version": "0276",
       "name": "0276_nx042_twin_sampling.sql",
       "sha256": "03d718fcbaae70e99bc7ab7405107c1b8e1ed60922923aef110b406ad76de37c"
+    },
+    {
+      "version": "0277",
+      "name": "0277_nx042_twin_calibration_read.sql",
+      "sha256": "f84a55d704e64a0b26779094c3c2a3c578b52130148ebe99709adfabda3c47fc"
     }
   ]
 }
