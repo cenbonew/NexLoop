@@ -176,7 +176,10 @@ def test_the_calibration_on_a_run_is_a_snapshot_and_downstream_rereads_the_lates
     admin = f['admin']
     run = sample(f, seed='snap')
     assert run['calibration_status'] == 'uncalibrated'
-    with admin.transaction():  # what T5 will write after checking the report
+    # What T5 writes after checking the report. Seeded as trusted configuration (triggers off): T5's report check
+    # (nx042_calibration_event_report) is tested with T5; here only the snapshot versus the latest event matters.
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
         admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
         admin.execute("""insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
             values(%s,%s,1,%s,'passed','t5-test','cal-1')""", (TENANT_A, TWIN, 'twin-calibration:' + 'c' * 64))
@@ -186,6 +189,7 @@ def test_the_calibration_on_a_run_is_a_snapshot_and_downstream_rereads_the_lates
     assert sample(f, seed='snap')['calibration_status'] == 'uncalibrated'  # the stored run is a snapshot
     assert sample(f, seed='snap-2')['calibration_status'] == 'calibrated'  # a new run reads the latest event
     with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
         admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
         admin.execute("""insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
             values(%s,%s,1,%s,'failed','t5-test','cal-2')""", (TENANT_A, TWIN, 'twin-calibration:' + 'd' * 64))
