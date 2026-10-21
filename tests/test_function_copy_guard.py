@@ -148,6 +148,17 @@ REGISTRY = [
             ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or exists\(select 1 from unnest\(x\.design_case_ids\) dc join unnest\(x\.validation_case_ids\) vc\s*"
               r"on runtime\.nexloop_evo_run_consumer\(v_tenant,'real',dc\)=runtime\.nexloop_evo_run_consumer\(v_tenant,'real',vc\)\)", ''),)),
     # AT-048 performance (L3 4c1cf6b0) in its own migration: 0286's pairwise Consumer comparison becomes one linear helper.
+    Allowed('at048_consumer_leak_perf', 'runtime.nexloop_evo_run_consumer',
+            "AT-048 performance: the same three sources in the same order (message route, fallback binding, role binding), looked up step by step by the Run's uuid; a non-uuid case has no Consumer; nothing else",
+            ((r"v text;v_run uuid;v_message text;v_conversation text;\s*begin.*?(?=\s*perform set_config\('eios\.tenant_id',coalesce\(v_prior)",
+              "v text;begin perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);v:=coalesce("
+              "(select cv.consumer_id from runtime.nexloop_message_routes mr join runtime.nexloop_conversation_messages m on m.tenant_id=mr.tenant_id and m.world=mr.world "
+              "and m.message_id=mr.message_id join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id "
+              "where mr.tenant_id=p_tenant and mr.world=p_world and mr.run_id::text=p_run limit 1),"
+              "(select cv.consumer_id from runtime.nexloop_fallback_context_bindings fb join runtime.nexloop_conversation_messages m on m.tenant_id=fb.tenant_id and m.world=fb.world "
+              "and m.message_id=fb.message_id join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id "
+              "where fb.tenant_id=p_tenant and fb.world=p_world and fb.run_id::text=p_run limit 1),"
+              "(select rb.consumer_id from authz.nexloop_role_run_bindings rb where rb.tenant_id=p_tenant and rb.world=p_world and rb.run_id::text=p_run limit 1));"),)),
     Allowed('at048_consumer_leak_perf', 'authz.nexloop_evo_evaluation_open', 'AT-048 performance: the pairwise Consumer comparison as one linear helper; nothing else',
             ((r"or runtime\.nexloop_evo_consumer_leak\(v_tenant,x\.design_case_ids,x\.validation_case_ids\)",
               "or exists(select 1 from unnest(x.design_case_ids) dc join unnest(x.validation_case_ids) vc\n     on runtime.nexloop_evo_run_consumer(v_tenant,'real',dc)=runtime.nexloop_evo_run_consumer(v_tenant,'real',vc))"),)),
