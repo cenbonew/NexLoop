@@ -66,7 +66,7 @@ def entrypoint(compose, service):
 
 
 CASES = {
-    'compose.simulation.example.yaml/sim-setup-dir': ('/sim-secrets', '/sim-tokens'),
+    'compose.simulation.example.yaml/sim-setup-dir': ('/sim-secrets', '/sim-tokens', '/sim-runtime', '/sim-artifacts'),  # runtime and artifact roots too
     'compose.sim-issue.example.yaml/sim-issue-dir': ('/sim-tokens', '/sim-input'),
 }
 
@@ -131,3 +131,91 @@ def test_the_tool_containers_check_that_the_release_export_is_readable_first(com
         (release / 'scripts/deploy').chmod(0o755)
     detail = json.loads(out.stdout)['detail']
     assert out.returncode == 2 and f'uid {os.getuid()}' in detail and 'scripts/deploy' in detail and 'git archive' in detail
+
+
+def test_the_runtime_and_artifact_directories_are_the_ones_the_services_mount():
+    """Stage finding 2026-10-22: the Host's runtime root (NEXLOOP_SIM_RUNTIME_DIR) and the worker's artifact root (NEXLOOP_SIM_ARTIFACT_DIR)
+    must be the simulation uid's 0700; sim-setup-dir prepares exactly the host directories those services mount."""
+    services = yaml.safe_load((ROOT / 'deploy/stage/compose.simulation.example.yaml').read_text())['services']
+    prepared = {v.split(':')[0] for v in services['sim-setup-dir']['volumes']}
+    for service, target in (('sim-agent-host', '/private/runtime'), ('sim-runtime-worker', '/var/lib/nexloop/artifacts')):
+        source = next(v.rsplit(':', 1)[0] for v in services[service]['volumes'] if v.endswith(':' + target))
+        assert source.split(':?')[0].removesuffix('}') in {p.split(':?')[0].removesuffix('}') for p in prepared}, (service, source)
+
+
+def test_the_host_launcher_names_why_a_runtime_root_is_refused(tmp_path):
+    """Stage finding 2026-10-22: with a runtime root of another owner the Host only said 'startup refused or unavailable' and restarted.
+    The launcher now names the reason - uids and modes only."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+    node = shutil.which('node')
+    if not node or not (ROOT / 'apps/agent-host/dist/main.js').is_file():
+        pytest.fail('Node and the built Agent Host are required')
+    def start(root):
+        return subprocess.run([sys.executable, str(ROOT / 'scripts/agent_host.py'), '--node', node, '--runtime-root', str(root), '--internal-key-file',
+                               str(tmp_path / 'k'), '--port', '18999', '--tls-certificate-file', str(tmp_path / 'c'), '--tls-key-file', str(tmp_path / 'k')],
+                              capture_output=True, text=True, timeout=30)
+    wrong = tmp_path / 'runtime'
+    wrong.mkdir(mode=0o755)
+    wrong.chmod(0o755)
+    out = start(wrong)
+    assert out.returncode == 1 and f'a directory of uid {os.getuid()} with mode 0700 (found uid {os.getuid()}, mode 0755)' in out.stderr
+    assert 'startup refused or unavailable' in out.stderr
+    assert 'missing' in start(tmp_path / 'absent').stderr
+
+
+def _tar(entries):
+    import io
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w') as archive:
+        for name, kind, data in entries:
+            info = tarfile.TarInfo(name)
+            if kind == 'file':
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+            elif kind == 'dir':
+                info.type = tarfile.DIRTYPE
+                archive.addfile(info)
+            else:
+                info.type, info.linkname = tarfile.SYMTYPE, '/etc/passwd'
+                archive.addfile(info)
+    buf.seek(0)
+    return buf
+
+
+def test_files_reach_the_pg_uid_input_directory_as_a_tar_stream(tmp_path):
+    """Stage finding 2026-10-22 (steps 7, 12, 14): DATA_HOST's input directory is NEXLOOP_PG_UID's 0700, so the dispatcher sends files
+    as a tar stream to sim_input_put.py in the sim-issue-input container (that uid, input directory writable, no network, no socket).
+    Regular files with plain names only, written 0600 and replaced atomically; anything else refuses the whole stream unwritten."""
+    import io
+    import json
+    import os
+    import sys
+    sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+    import sim_input_put as P
+    spec = yaml.safe_load((ROOT / 'deploy/stage/compose.sim-issue.example.yaml').read_text())['services']['sim-issue-input']
+    assert spec['network_mode'] == 'none' and spec['user'] == '${NEXLOOP_PG_UID}:${NEXLOOP_PG_GID}' and spec['cap_drop'] == ['ALL']
+    assert [v.split(':')[-1] for v in spec['volumes']] == ['ro', '/sim-input'] and not any('postgresql' in v or 'sim-tokens' in v for v in spec['volumes'])
+    d = tmp_path / 'input'
+    d.mkdir(mode=0o700)
+    (d / 'issue.json').write_text('old')
+
+    def put(entries, directory=d):
+        out = io.StringIO()
+        code = P.main(['--dir', str(directory)], stdin=_tar(entries), out=out)
+        return code, json.loads(out.getvalue())
+    code, out = put([('issue.json', 'file', b'{"new": 1}'), ('at046-probe-before.json', 'file', b'{}')])
+    assert code == 0 and out['written'] == ['at046-probe-before.json', 'issue.json'] and '"new"' not in json.dumps(out)
+    assert (d / 'issue.json').read_text() == '{"new": 1}' and all(p.stat().st_mode & 0o777 == 0o600 for p in d.iterdir())
+    for bad in ([('sub', 'dir', b'')], [('link', 'link', b'')], [('a/b.json', 'file', b'x')], [('../x', 'file', b'x')],
+                [('big', 'file', b'x' * (P.MAX_FILE + 1))], [('ok.json', 'file', b'x'), ('ok.json', 'file', b'y')], []):
+        before = sorted(p.name for p in d.iterdir())
+        code, out = put([('fresh.json', 'file', b'x'), *bad] if bad else [])
+        assert code == 2 and out['ok'] is False and sorted(p.name for p in d.iterdir()) == before, bad
+    loose = tmp_path / 'loose'
+    loose.mkdir(mode=0o755)
+    loose.chmod(0o755)
+    assert put([('a.json', 'file', b'x')], loose)[0] == 2 and not os.listdir(loose)

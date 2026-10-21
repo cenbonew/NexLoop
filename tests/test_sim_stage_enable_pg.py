@@ -364,3 +364,32 @@ def test_the_dsn_files_ca_path_is_mounted_in_the_sim_setup_container():
     assert ca_dir in mounts and mounts[ca_dir].startswith('${NEXLOOP_SIM_SECRET_DIR') and mounts[ca_dir].endswith(':ro')
     services = yaml.safe_load((ROOT / 'deploy/stage/compose.simulation.example.yaml').read_text())['services']
     assert any('sim_pg_ca' in (s.get('secrets') or []) for s in services.values())  # the running services get it at /run/secrets too
+
+
+def test_export_and_forget_read_only_the_fields_they_use(tmp_path, monkeypatch):
+    """Stage finding 2026-10-22: --export read the configurator DSN file - a window that exists only inside the issuing run - so the
+    issuing configuration could not serve the export. Each mode now requires and reads only its own fields: --export and --forget
+    need world, uses and token_dir; a stale window path or a past expiry in the same configuration does not matter to them, while
+    issuing still refuses it."""
+    world = 'sim:' + str(uuid.uuid4())
+    tokens = tmp_path / 'tokens' / world.split(':', 1)[1]
+    tokens.mkdir(parents=True, mode=0o700)
+    for use in ('api', 'worker'):
+        private(tokens / f'{use}-credential', use[0].upper() * 64)
+    conf = private(tmp_path / 'issue.json', {'schema': C.SCHEMA, 'tenant_id': TENANT, 'world': world, 'uses': ['api', 'worker'],
+                   'token_dir': str(tmp_path / 'tokens'), 'configurator_database_url_file': '/run/nexloop-configurator-WINDOW/dsn',
+                   'signing_key_file': '/nonexistent', 'signing_key_id': 'nx048-deploy', 'credential_expires_at': '2020-01-01T00:00:00+00:00',
+                   'check_database_url_file': '/nonexistent'})
+    monkeypatch.setenv('NEXLOOP_SIM_TRANSFER_PIPE', '1')
+    sink = io.StringIO()
+    assert C.main(['--config', str(conf), '--export'], out=sink) == 0
+    assert sorted(line.split(' ')[0] for line in sink.getvalue().splitlines()) == ['api', 'worker']
+    code, out = run(C.main, ['--config', str(conf), '--forget'])
+    assert code == 0 and out == {'ok': True, 'forgotten': ['api', 'worker']}
+    # Only the needed fields are required: an export configuration may be just these.
+    private(conf, {'schema': C.SCHEMA, 'world': world, 'uses': ['api'], 'token_dir': str(tmp_path / 'tokens')})
+    assert run(C.main, ['--config', str(conf), '--forget'])[0] == 0
+    code, out = run(C.main, ['--config', str(conf), '--check'])
+    assert code == 2 and 'check_database_url_file' in out['detail']  # --check needs its DSN (and the tenant)
+    code, out = run(C.main, ['--config', str(conf)])
+    assert code == 2 and 'configurator_database_url_file' in out['detail']  # issuing needs everything

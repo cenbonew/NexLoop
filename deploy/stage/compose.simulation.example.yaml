@@ -49,11 +49,23 @@ services:
     # world_purge_key_file (/run/secrets/sim_host_purge_key: the Host's purge key, held by this service and the database only).
     secrets: [sim_host_cert, sim_host_key, sim_host_transport_key, sim_guard_ca, sim_host_guard_key, sim_host_runtime_config,
               sim_host_model_configuration, sim_host_purge_key]
+    # Liveness on the loopback (stage finding 2026-10-22): the services sharing this network namespace start only once the Host is
+    # healthy, and restart with it. Certificate verification is off for this probe only: it sends nothing and reads a status code.
+    healthcheck:
+      test: [CMD, /usr/local/bin/node, -e, "const r=require('https').get({host:'127.0.0.1',port:Number(process.argv[1]),path:'/health/live',rejectUnauthorized:false,timeout:3000},s=>process.exit(s.statusCode===200?0:1));r.on('error',()=>process.exit(1));r.on('timeout',()=>process.exit(1))", '${NEXLOOP_SIM_HOST_PORT}']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     labels:
       nexloop.budget-service: none
   sim-runtime-worker:
     <<: *sim-service
     network_mode: service:sim-agent-host
+    # The shared namespace is the Host's: start once it is healthy and restart with it (a dependent started during a Host restart
+    # loop kept a broken namespace - Network is unreachable - until force-recreated; stage finding 2026-10-22).
+    depends_on:
+      sim-agent-host: {condition: service_healthy, restart: true}
     entrypoint: [nexloop-runtime-worker]
     command:
       - --database-url-file
@@ -98,6 +110,10 @@ services:
     # D4: database URL, the world's credential and the world - no provider, routes, channel or network client.
     <<: *sim-service
     network_mode: service:sim-agent-host
+    # The shared namespace is the Host's: start once it is healthy and restart with it (a dependent started during a Host restart
+    # loop kept a broken namespace - Network is unreachable - until force-recreated; stage finding 2026-10-22).
+    depends_on:
+      sim-agent-host: {condition: service_healthy, restart: true}
     entrypoint: [python, -m, nexloop_eios.stand_in_executor]
     command: [--database-url-file, /run/secrets/sim_stand_in_worker_dsn, --service-credential-file, /run/secrets/sim_world_credential,
               --world, '${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}']
@@ -107,6 +123,10 @@ services:
     # proof (no world credential, no Host key).
     <<: *sim-service
     network_mode: service:sim-agent-host
+    # The shared namespace is the Host's: start once it is healthy and restart with it (a dependent started during a Host restart
+    # loop kept a broken namespace - Network is unreachable - until force-recreated; stage finding 2026-10-22).
+    depends_on:
+      sim-agent-host: {condition: service_healthy, restart: true}
     entrypoint: [python, -m, nexloop_eios.sim_world_files]
     command: [--database-url-file, /run/secrets/sim_files_dsn, --host-port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}',
               --host-id, '${NEXLOOP_SIM_HOST_ID:?simulation Host id}',
@@ -132,11 +152,14 @@ services:
     # chmod-ed, then given to the target uid - whoever owned it before (docker's bind mount creates a missing directory 0755 root;
     # the dispatcher's input files are the deploy account's; a rerun finds the target uid's). Dispatcher 2026-10-22 stage finding.
     entrypoint: [python, -c, 'import os,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
-      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,0,0),os.chmod(d,0o700),os.chown(d,u,g)) for d in ("/sim-secrets","/sim-tokens")]',
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,0,0),os.chmod(d,0o700),os.chown(d,u,g)) for d in ("/sim-secrets","/sim-tokens","/sim-runtime","/sim-artifacts")]',
                  '${NEXLOOP_SIM_UID:?simulation service uid required}', '${NEXLOOP_SIM_GID:?simulation service gid required}']
     volumes:
       - '${NEXLOOP_SIM_SECRET_DIR:?private simulation secret directory required}:/sim-secrets'
       - '${NEXLOOP_SIM_TOKEN_DIR:?private simulation token directory required}:/sim-tokens'
+      # Stage finding 2026-10-22: the Host's runtime root and the worker's artifact root must be the simulation uid's (0700) too.
+      - '${NEXLOOP_SIM_RUNTIME_DIR:?private simulation runtime directory required}:/sim-runtime'
+      - '${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/sim-artifacts'
   sim-setup:
     image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
     profiles: [sim-setup]
