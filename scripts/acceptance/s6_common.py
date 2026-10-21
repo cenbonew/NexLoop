@@ -123,8 +123,9 @@ def refusal(error) -> dict:
 
 
 class Result:
-    def __init__(self, check, acceptance, config, *, dry_run=False, redact=None, world='test'):
+    def __init__(self, check, acceptance, config, *, dry_run=False, redact=None, world='test', nonce=None):
         self.check, self.acceptance, self.config, self.dry_run, self.world = check, list(acceptance), config, dry_run, world
+        self.nonce = nonce  # a run nonce (run_nonce): the parts of one run carry the same one (load_chain)
         self.steps, self.blocked = [], []
         self.redact = redact or Redactor(config)
 
@@ -144,9 +145,12 @@ class Result:
             passed = None
         else:
             passed = bool(self.steps)
-        return self.redact({'schema': RESULT_SCHEMA, 'check': self.check, 'acceptance': self.acceptance, 'release': self.config['release'],
-                            'executor': self.config['executor'], 'executed_at': datetime.datetime.now(datetime.UTC).isoformat(),
-                            'dry_run': self.dry_run, 'world': self.world, 'passed': passed, 'blocked': self.blocked, 'steps': self.steps})
+        doc = self.redact({'schema': RESULT_SCHEMA, 'check': self.check, 'acceptance': self.acceptance, 'release': self.config['release'],
+                           'executor': self.config['executor'], 'executed_at': datetime.datetime.now(datetime.UTC).isoformat(),
+                           'dry_run': self.dry_run, 'world': self.world, 'passed': passed, 'blocked': self.blocked, 'steps': self.steps})
+        if self.nonce is not None:
+            doc['run_nonce'] = self.nonce
+        return doc
 
     def write(self, out):
         doc = self.document()
@@ -160,3 +164,47 @@ class Result:
             with os.fdopen(fd, 'w') as f:
                 f.write(line + '\n')
         return 0 if doc['passed'] is True or (self.dry_run and not self.blocked) else 1
+
+
+NONCE = re.compile(r'[a-z0-9]{8,64}')
+
+
+def new_nonce() -> str:
+    """A run nonce: letters and digits only (no identifier, no secret); every part of one run writes it as run_nonce."""
+    import secrets
+    return secrets.token_hex(12)
+
+
+def load_chain(paths, *, prefix, order, nonce=None):
+    """The earlier parts of one run (--from), checked as a chain (L6 AT-046 review 1.1 / NX-043 X7 review 3.1): each a result document
+    of this script (check starting with prefix, never a dry run) with the same run_nonce (and the expected one when given), each part
+    once, in the given order of checks, executed in that order. Returns (steps, blocked, nonce) - the steps and blocks of all parts."""
+    docs = []
+    for path in paths or []:
+        try:
+            doc = json.loads(Path(path).read_text().strip().splitlines()[-1])
+        except (OSError, ValueError, IndexError):
+            raise Refused('--from: a result document of this script') from None
+        if doc.get('schema') != RESULT_SCHEMA or not str(doc.get('check', '')).startswith(prefix) or doc.get('dry_run'):
+            raise Refused('--from: a result document of this script (not a dry run)')
+        docs.append(doc)
+    nonces = {d.get('run_nonce') for d in docs}
+    if docs and (len(nonces) != 1 or not isinstance(next(iter(nonces)), str) or not NONCE.fullmatch(next(iter(nonces)))):
+        raise Refused('--from: the parts of one run (the same run_nonce)')
+    if docs and nonce is not None and next(iter(nonces)) != nonce:
+        raise Refused('--from: a result of another run (run_nonce)')
+    checks = [d['check'] for d in docs]
+    if len(set(checks)) != len(checks):
+        raise Refused('--from: each part once')
+    if any(c not in order for c in checks):
+        raise Refused('--from: parts of this chain only: ' + ', '.join(order))
+    by = {d['check']: d for d in docs}
+    times = [by[c]['executed_at'] for c in order if c in by]  # in chain order, the executions must not go back in time
+    if times != sorted(times):
+        raise Refused('--from: the parts out of order (executed_at)')
+    steps, blocked = [], []
+    for c in order:
+        if c in by:
+            steps += by[c].get('steps') or []
+            blocked += by[c].get('blocked') or []
+    return steps, blocked, (next(iter(nonces)) if docs else None)

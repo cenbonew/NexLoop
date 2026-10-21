@@ -46,11 +46,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
 from at046_stage import Ports, real_digest  # noqa: E402
-from s6_common import RESULT_SCHEMA, Blocked, Redactor, Refused, Result, connect_from, read_private  # noqa: E402
+from s6_common import Blocked, Redactor, Refused, Result, connect_from, load_chain, read_private  # noqa: E402
 
 IDS = re.compile(r'[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 ACCEPTANCE = {'prepare': ['NX-043 D1', 'NX-043 D3'], 'probe-before': ['AT-046'], 'run': ['NX-043 D3', 'NX-043 D7', 'NX-043 D9'],
-              'decide': ['NX-043 D7', 'AT-046'],
+              'shadow-keys': ['NX-043 D7'], 'decide': ['NX-043 D7', 'AT-046'], 'merge': ['NX-043 D7', 'AT-046', 'NX-043 D4', 'NX-043 §9'],
               'probe-after': ['AT-046', 'NX-043 D4', 'NX-043 §9'], 'report': ['NX-043 D6', 'NX-043 §6', 'NX-043 D7'],
               'gaps': ['NX-043 D2', 'NX-043 D5', 'NX-043 online']}
 
@@ -146,9 +146,29 @@ def prepare(ports, config, r):
     save_state(config, {'shadow_world': world, 'strategies': strategies, 'experiments': experiments, 'run': run, 'ends_at': ends})
 
 
+def _quiet_real(ports, tenant, inputs):
+    """L6 X7 review 3.2: the injected real inbound traffic makes real replies (relay, Run, reply guarantor). The probe waits until the
+    real side is quiet - no unfinished real job of the tenant and the world-real digests unchanged over quiet_seconds - so the replies
+    to that traffic are in the baseline, not in the difference."""
+    quiet = int(inputs.get('quiet_seconds') or 60)
+    deadline = time.monotonic() + int(inputs.get('quiet_timeout_seconds') or 900)
+    last = real_digest(ports, tenant)
+    while True:
+        time.sleep(quiet)
+        busy = ports.read("""select count(*) from runtime.jobs where tenant_id=%s and world='real' and status in ('pending','running','retry_wait')""", (tenant,))[0][0]
+        now = real_digest(ports, tenant)
+        if not busy and now == last:
+            return now, True
+        if time.monotonic() >= deadline:
+            return now, False
+        last = now
+
+
 def probe_before(ports, config, r, prior=None):
     tenant = config['tenant_id']
-    digests = real_digest(ports, tenant)
+    digests, quiet = _quiet_real(ports, tenant, config.get('inputs') or {})
+    r.step('real_side_quiet', 'no unfinished real job and the world-real digests unchanged over the quiet period (the replies to the injected traffic settled)',
+           {'quiet': quiet}, quiet)
     switches = ports.read("select md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from control.nexloop_real_dispatch_switches x")[0][0]
     r.step('real_digest_before', 'the world-real digests and the real dispatch switches taken', {'tables': len(digests)}, bool(digests),
            digests=digests, switches=switches)
@@ -174,20 +194,40 @@ def run_phase(ports, config, r, prior=None):
     r.step('shadow_copy_on', 'the tenant switch on for the shadow world (D7, default off)', {'status': status, 'reason': _reason(out)}, _ok(status))
 
 
-def decide(ports, config, r, prior=None):
-    """After real inbound traffic while the copy is on: the candidate strategy's decisions on the copied events, recorded only."""
+def _keys_path(config):
+    return Path(config['results_dir']) / 'nx043-shadow-keys.json'
+
+
+def shadow_keys(ports, config, r, prior=None):
+    """DATA_HOST, the read-only probe (L6 X7 review 2.1): the copied events' keys (hashes, no personal data) into a private file of
+    results_dir (0600) for the APP_HOST decide part; the output holds only the count."""
     state = load_state(config)
-    inputs = config.get('inputs') or {}
-    d = inputs.get('decisions') or {}
-    if ports.decide is None or ports.probe is None:
-        r.block('shadow_decisions_recorded', 'the simulation worker of the shadow world and the probe in one process (roles.sim_worker, roles.probe)')
-        return
+    d = (config.get('inputs') or {}).get('decisions') or {}
     keys = [k for (k,) in ports.read("""select event_key from runtime.nexloop_shadow_events where tenant_id=%s and world=%s order by copied_hour desc,event_key
         limit %s""", (config['tenant_id'], state['shadow_world'], int(d.get('limit') or 20)))]
-    if not keys:
-        r.block('shadow_decisions_recorded', 'no inbound real event copied into the shadow world yet (it needs real inbound traffic while on)')
-        return
-    outs = [ports.decide(state['shadow_world'], k, state['strategies']['candidate'], d.get('kind') or 'reply') for k in keys]
+    path = _keys_path(config)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump({'run_nonce': state['run'], 'keys': keys}, f)
+    r.step('shadow_events_copied', 'real inbound events copied into the shadow world while the switch was on (D7)', {'copied': len(keys)}, bool(keys))
+
+
+def decide(ports, config, r, prior=None):
+    """APP_HOST, the simulation worker of the shadow world (hostssl): the candidate's decision on each copied event, recorded only."""
+    state = load_state(config)
+    d = (config.get('inputs') or {}).get('decisions') or {}
+    if ports.decide is None:
+        raise Blocked('roles.sim_worker (the shadow world worker credential) not configured')
+    try:
+        keys_doc = json.loads(read_private(_keys_path(config), 1048576))
+    except Refused:
+        raise Blocked('no private key file: run shadow-keys on DATA_HOST and copy it here') from None
+    if keys_doc.get('run_nonce') != state['run']:
+        raise Refused('the key file of another run')
+    if not keys_doc.get('keys'):
+        raise Blocked('no inbound real event copied into the shadow world (it needs real inbound traffic while on)')
+    outs = [ports.decide(state['shadow_world'], k, state['strategies']['candidate'], d.get('kind') or 'reply') for k in keys_doc['keys']]
     r.step('shadow_decisions_recorded', 'recorded only, never sent (D7)',
            {'decisions': len(outs), 'sent': sum(1 for o in outs if o.get('sent'))}, bool(outs) and not any(o.get('sent') for o in outs))
 
@@ -214,8 +254,13 @@ def probe_after(ports, config, r, prior):
     simulated = ports.read('select count(*) from runtime.nexloop_sim_effect_intents where tenant_id=%s and world=%s', (tenant, world))[0][0]
     r.step('shadow_sends_nothing', 'no outbound message and no real effect intent in the shadow world (§9: zero provider requests)',
            {'real_sends': sent, 'stand_in_intents': 'some' if simulated else 'none'}, sent == 0)
-    copied = ports.read('select count(*) from runtime.nexloop_shadow_events where tenant_id=%s and world=%s', (tenant, world))[0][0]
-    r.step('shadow_copy_counts', 'redacted copies of real inbound events (counts only)', {'copied': 'some' if copied else 'none'}, True)
+    # (L6 X7 review 2.2: the zero above is guaranteed by the effect tables' CHECK; what shows the decisions stayed simulated is below.)
+    decided = ports.read('''select count(*),count(stand_in_intent) from runtime.nexloop_shadow_decisions where tenant_id=%s and world=%s and strategy_id=%s
+        and strategy_version=%s''', (tenant, world, state['strategies']['candidate']['strategy_id'], state['strategies']['candidate']['version']))[0]
+    expected = next(((s.get('observed') or {}).get('decisions') for s in (prior or []) if s.get('name') == 'shadow_decisions_recorded'), None)
+    r.step('shadow_decisions_landed', 'the decisions of the decide part are in the shadow world, any effect only as a stand-in intent',
+           {'decisions': 'some' if decided[0] else 'none', 'matches_decide': expected is not None and decided[0] >= expected,
+            'stand_in_only': decided[1] <= simulated}, expected is not None and decided[0] >= expected and decided[1] <= simulated)
     before = next((s.get('evidence') or {} for s in (prior or []) if s.get('name') == 'real_digest_before'), {})
     after = real_digest(ports, tenant)
     switches = ports.read("select md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from control.nexloop_real_dispatch_switches x")[0][0]
@@ -229,9 +274,11 @@ def probe_after(ports, config, r, prior):
 def report(ports, config, r, prior=None):
     state = load_state(config)
     today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    # L6 X7 review 4.1: a finished day (yesterday), never today's open window - a report is frozen on its first read.
+    yesterday = today - timedelta(days=1)
     status, out = ports.act('read_experiment_report', {'kind': 'shadow', 'world': state['shadow_world'], 'strategy_id': state['strategies']['candidate']['strategy_id'],
-                                                       'strategy_version': state['strategies']['candidate']['version'], 'since': today.isoformat(),
-                                                       'until': (today + timedelta(days=1)).isoformat()}, 'nx043-' + state['run'] + '-report-shadow')
+                                                       'strategy_version': state['strategies']['candidate']['version'], 'since': yesterday.isoformat(),
+                                                       'until': today.isoformat()}, 'nx043-' + state['run'] + '-report-shadow')
     # Individual identifiers (a Consumer, message or conversation): none. The report's own world, id, digest and strategy are its frame.
     body = {k: v for k, v in out.items() if k not in ('world', 'report_id', 'report_digest', 'strategy')} if isinstance(out, dict) else {}
     individual = bool(IDS.search(json.dumps(body, sort_keys=True)))
@@ -257,29 +304,24 @@ def gaps(ports, config, r, prior=None):
     r.block('online_stage', 'online_not_available until a calibrated twin (NX-042 T5) and the X4 wiring; follow-up')
 
 
-PHASES = {'prepare': prepare, 'probe-before': probe_before, 'run': run_phase, 'decide': decide, 'probe-after': probe_after, 'report': report, 'gaps': gaps}
-NEEDS = {'probe-after': ('probe-before',)}
+def merge(ports, config, r, prior=None):
+    """No connection: the shadow parts of one run (probe-before, shadow-keys, decide, probe-after) as one result; load_chain checked them."""
+
+
+PHASES = {'prepare': prepare, 'probe-before': probe_before, 'run': run_phase, 'shadow-keys': shadow_keys, 'decide': decide, 'probe-after': probe_after,
+          'report': report, 'merge': merge, 'gaps': gaps}
+CHAIN = ['nx043-probe-before', 'nx043-shadow-keys', 'nx043-decide', 'nx043-probe-after']
+NEEDS = {'probe-after': CHAIN[:3], 'merge': CHAIN}
 PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy (candidate, control)', 'owner: register_experiment (shadow; screening when configured)'],
-        'probe-before': ['probe (read only): world-real digests, real dispatch switches'],
+        'probe-before': ['probe (read only): wait for the real side to be quiet, then world-real digests, real dispatch switches'],
         'run': ['owner: start_experiment (screening: refused twin_not_calibrated; shadow: started)', 'owner: set_shadow_copy on'],
-        'decide': ['probe (read only): the copied events', 'sim worker (shadow world credential): the candidate decision on each, recorded only'],
+        'shadow-keys': ['probe (read only, DATA_HOST): the copied events\' keys into a private file'],
+        'decide': ['sim worker (shadow world credential, APP_HOST): the candidate decision on each key of the private file, recorded only'],
+        'merge': ['no connection: the four shadow parts of one run (run_nonce, each once, in order) as nx043-shadow'],
         'probe-after': ['probe (read only): guard stop at the end, nothing sent from the shadow world, switches and world-real digests unchanged'],
         'report': ['owner: read_experiment_report (shadow, experiment)', 'owner: set_shadow_copy off'],
         'gaps': ['no connection: the blocked items (allocation wiring, experiment budget, online stage)']}
 OWNER_PHASES = ('prepare', 'run', 'report')
-
-
-def load_prior(paths):
-    steps = []
-    for path in paths or []:
-        try:
-            doc = json.loads(Path(path).read_text().strip().splitlines()[-1])
-        except (OSError, ValueError, IndexError):
-            raise Refused('--from: a result document of this script') from None
-        if doc.get('schema') != RESULT_SCHEMA or not str(doc.get('check', '')).startswith('nx043-') or doc.get('dry_run'):
-            raise Refused('--from: a result document of this script (not a dry run)')
-        steps += doc.get('steps') or []
-    return steps
 
 
 def decide_from(roles):
@@ -326,12 +368,22 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
     try:
         from s6_common import load_config
         config = load_config(args.config)
-        result = Result('nx043-' + args.phase, ACCEPTANCE[args.phase], config, dry_run=args.dry_run, world='simulation')
-        if args.phase in NEEDS and len(args.prior) != len(NEEDS[args.phase]) and not args.dry_run:
-            raise Refused(f'{args.phase}: --from the result of ' + ', '.join(NEEDS[args.phase]))
-        prior = load_prior(args.prior) if not args.dry_run else []
+        check = 'nx043-shadow' if args.phase == 'merge' else 'nx043-' + args.phase
+        result = Result(check, ACCEPTANCE[args.phase], config, dry_run=args.dry_run, world='simulation')
         if args.dry_run:
             result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)
+            return result.write(out)
+        if args.phase in NEEDS and len(args.prior) != len(NEEDS[args.phase]):
+            raise Refused(f'{args.phase}: --from the results of ' + ', '.join(NEEDS[args.phase]))
+        if args.phase not in ('prepare', 'gaps'):
+            try:
+                result.nonce = load_state(config)['run']  # the run nonce (L6 X7 review 3.1)
+            except Blocked as error:
+                result.block(args.phase, str(error))
+                return result.write(out)
+        prior, prior_blocked, _ = load_chain(args.prior, prefix='nx043-', order=CHAIN, nonce=result.nonce) if args.phase in NEEDS else ([], [], None)
+        if args.phase == 'merge':
+            result.steps, result.blocked = list(prior), list(prior_blocked)
             return result.write(out)
         owner = None
         if ports is None and args.phase != 'gaps':
@@ -340,6 +392,11 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             owner = ports.owner
         try:
             PHASES[args.phase](ports, config, result, prior) if args.phase != 'prepare' else prepare(ports, config, result)
+            if args.phase == 'prepare':
+                try:
+                    result.nonce = load_state(config)['run']
+                except Blocked:
+                    pass
         except Blocked as error:
             result.block(args.phase, str(error))
         except Refused:
