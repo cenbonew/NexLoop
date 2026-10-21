@@ -1760,6 +1760,121 @@
       },
       "schema_hash": "190839b0f1a9549b76c9b3598e6e114d5fd137ab585816b160f9cf4c1f4cf60d",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "strategy.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_strategy",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "3049cdafdc2b8016edf31f8a4c380b7fcbfe41f464f1544c5eebba588f64660d",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "strategy.retire",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "retire_strategy",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5e0d0f8a9d657bfc551fa577b31c18b634342c117d8ca41fbaa4df060b7a0443",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "experiment.register",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "register_experiment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "399e2340fbee5d0ed86ba63ea93ec4182679e0b79dc00400de66fb6160e6f8a9",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "experiment.start",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "start_experiment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "482e3b0d488e51b0cfec2b4a8608f703d3a17b8f63e00889e1d2c22311b6db40",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "experiment.stop",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "stop_experiment",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "3ac18edde32d4726a1f8e3f5e3d9c3491aa0432db1e356953b4c7cf6ee0ae262",
+      "side_effects_reason": null
     }
   ]
 }

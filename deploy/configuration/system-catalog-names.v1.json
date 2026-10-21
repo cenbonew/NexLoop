@@ -769,6 +769,31 @@
    "stable_name": "nexloop.consumer_twin.calibrate",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.strategy.publish",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.strategy.retire",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.experiment.register",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.experiment.start",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.experiment.stop",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [
