@@ -168,3 +168,22 @@ def test_guardrails_and_the_budget_never_touch_real_dispatch(running, db):
     for role in ('nexloop_api', 'nexloop_runtime', 'nexloop_domain_worker', 'nexloop_action_worker'):
         assert db.execute("select has_function_privilege(%s,'runtime.nexloop_experiment_spend(text,text,text,numeric,text)','execute')", (role,)).fetchone()[0] is False
     assert json.dumps(stop_event(db))  # the budget hit stopped it
+
+
+def test_the_stop_records_every_guardrail_hit_and_spends_round_first(running, db):
+    """Review 2.1.a and 2.2.a: the audit of an automatic stop lists every guardrail hit; a spend is decided on its rounded amount."""
+    assert spend(db, 'model', 9.99996)['stopped'] is True  # rounds to 10.0000: the cap is reached exactly
+    assert db.execute("select amount_cny from control.nexloop_experiment_spend").fetchone()[0] == 10
+    payload = db.execute("select payload from runtime.audit_events where action='nexloop.experiment.auto_stopped'").fetchone()[0]
+    assert payload['guardrail'] == 'budget_exhausted'
+    register(db, registration(running['world'], running['twin'], experiment_id='two.hits'))
+    start(db, 'two.hits')
+    spend(db, 'model', 4, experiment='two.hits')
+    calibrate(db, 1, 'failed')
+    with db.transaction():
+        db.execute("set local session_replication_role=replica")  # age the end time for this test only
+        db.execute("""update control.nexloop_experiments set registration=jsonb_set(registration,'{ends_at}','"2020-01-01T00:00:00Z"') where experiment_id='two.hits'""")
+    assert guard(db, 'two.hits')['guardrail'] == 'ended'
+    hits = db.execute("select payload->'metrics'->'guardrails_hit' from runtime.audit_events where action='nexloop.experiment.auto_stopped' and payload->>'experiment_id'='two.hits'").fetchone()[0]
+    assert hits == ['ended', 'twin_withdrawn']
+    assert db.execute("select request_id like 'guard:two.hits:%%' from control.nexloop_experiment_events where experiment_id='two.hits' and status='stopped'").fetchone() == (True,)

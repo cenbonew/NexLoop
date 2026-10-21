@@ -199,7 +199,28 @@ def test_a_consumer_being_erased_is_excluded(running, db):
     erased = consumer('being-erased')
     db.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
         values(%s,%s,'erase-synthetic',%s,'owner','owner-principal','顾客要求删除','purging',1)""", (TENANT_A, running['world'], erased))
-    assert assign(db, erased)['excluded_reason'] == 'erasing'
+    assert assign(db, erased) == {'experiment_id': EXPERIMENT, 'status': 'started', 'arm': None, 'excluded_reason': 'erasing', 'allocated': False}
+    # Review 3.1: nothing new is kept about a Consumer being erased.
+    assert db.execute('select count(*) from control.nexloop_experiment_allocations where consumer_id=%s', (erased,)).fetchone() == (0,)
+    assert strategy_for(db, running['world'], erased) is None  # review 3.3.b
+
+
+def test_purging_a_consumer_pseudonymises_their_allocation(running, db):
+    """Review 3.1: the NX-029 erasure reaches the allocations - consumer and cluster become a pseudonym, arm and time stay."""
+    member, mate = consumer('to-erase'), consumer('cluster-mate')
+    first = assign(db, member)  # its cluster is its own id
+    assign(db, mate, cluster=member)  # a cluster keyed by that id
+    before = db.execute('select arm,allocated_at from control.nexloop_experiment_allocations where consumer_id=%s', (member,)).fetchone()
+    db.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
+        values(%s,%s,'erase-1',%s,'owner','owner-principal','顾客要求删除','blocking',1)""", (TENANT_A, running['world'], member))
+    db.execute("update control.nexloop_consumer_erasures set state='purging' where request_id='erase-1'")
+    assert db.execute('select count(*) from control.nexloop_experiment_allocations where consumer_id=%s or cluster_key=%s', (member, member)).fetchone() == (0,)
+    rows = db.execute("select consumer_id,cluster_key,arm,allocated_at from control.nexloop_experiment_allocations where consumer_id like 'pseudonym:%%'").fetchall()
+    assert len(rows) == 1 and rows[0][0] == rows[0][1] and (rows[0][2], rows[0][3]) == before and first['arm'] == before[0]
+    assert db.execute('select cluster_key like %s from control.nexloop_experiment_allocations where consumer_id=%s', ('pseudonym:%', mate)).fetchone() == (True,)
+    # Outside the erasure the rows stay frozen.
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='append-only'), db.transaction():
+        db.execute("update control.nexloop_experiment_allocations set cluster_key='x' where consumer_id=%s", (mate,))
 
 
 def test_a_retired_strategy_or_a_withdrawn_twin_falls_back_at_decision(running, db):
