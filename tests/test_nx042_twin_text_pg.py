@@ -29,7 +29,7 @@ def test_the_template_text_is_reproducible_byte_for_byte_and_marked_simulated(t3
     twin = T.ConsumerTwin(TWIN, 1, 'text-1')
     people = consumers(admin, f['a'])
     a = port(f).run(twin, people, steps=6)
-    b = port(f, world=f['b'], token=f['token_b']).run(twin, consumers(admin, f['b']), steps=6)
+    b = port(f, world=f['b'], token=f['token_twin_b']).run(twin, consumers(admin, f['b']), steps=6)  # D10 extended: the twin credential
     assert texts(a) == texts(b)  # another world, the same seed and version: the same texts
     spoken = [x for x in a if x['event_kind'] in ('message', 'refuse_contact', 'payment_intent')]
     assert spoken and {x['event_kind'] for x in spoken} >= {'message'}
@@ -92,5 +92,5 @@ def test_real_and_test_worlds_are_refused(t3):
         with pytest.raises(ValueError):
             port(f, world=world)  # the Python port refuses before any call
         with f['role']('nexloop_twin_port')() as db, pytest.raises(psycopg.Error):
-            db.execute('select authz.nexloop_twin_act(%s,%s,%s,%s,1)', (__import__('hashlib').sha256(f['token_a'].encode()).hexdigest(), world,
+            db.execute('select authz.nexloop_twin_act(%s,%s,%s,%s,1)', (__import__('hashlib').sha256(f['token_twin_a'].encode()).hexdigest(), world,
                                                                          'a' * 64, 'b' * 64))
