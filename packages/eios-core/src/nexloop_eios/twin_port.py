@@ -15,6 +15,26 @@ import hashlib
 from nexloop_eios.consumer_port import simulation_world
 
 
+# NX-042 T6 (D1): the text layer. The default generator is the deterministic template (rendered by the server in act); a generator
+# that calls a model is an interface only - an experiment's own approved budget is required and no slice provides one yet.
+TEMPLATE_GENERATOR = 'twin-template/1'
+SIMULATION_MARKER = '【模拟消息】'
+
+
+class ModelBudgetRequired(PermissionError):
+    """A model text generator needs an experiment's approved budget (D1); there is none."""
+
+
+class ModelTextGenerator:
+    """The model path of the text layer: interface only. render() always refuses (model_budget_required); it opens no connection."""
+
+    def __init__(self, generator_version: str):
+        self.generator_version = generator_version
+
+    def render(self, *, behavior: str, kind: str, seed: str, step: int) -> str:
+        raise ModelBudgetRequired('model_budget_required')
+
+
 @dataclass(frozen=True)
 class ConsumerTwin:
     twin_id: str

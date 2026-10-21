@@ -69,8 +69,9 @@ def test_a_bound_twin_runs_observe_and_act_with_provenance_on_every_event(t3):
             assert set(b) == {'low', 'high', 'coverage', 'simulated_outcome'}
     for a in events:
         attrs = a['event']['content']['attributes']
-        assert attrs == {'behavior': a['behavior'], 'twin_id': TWIN, 'twin_version': 1, 'twin_seed': 'run-1', 'twin_step': a['step'],
-                         'calibration_status': 'uncalibrated', 'origin': 'twin'}
+        text = {'text_template', 'text_generator', 'text_marker'} if 'text' in a['event']['content'] else set()  # T6: the text layer's attributes
+        assert {k: v for k, v in attrs.items() if k not in text} == {'behavior': a['behavior'], 'twin_id': TWIN, 'twin_version': 1, 'twin_seed': 'run-1',
+                                                                    'twin_step': a['step'], 'calibration_status': 'uncalibrated', 'origin': 'twin'}
         assert a['event']['port_version'].endswith('/1') and a['behaviors'][a['behavior']]['simulated_outcome'] is True
     # Every port event of this world came from a bound twin step (none without provenance).
     assert admin.execute("""select count(*) from runtime.nexloop_sim_consumer_events e where e.world=%s and not exists(

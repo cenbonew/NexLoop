@@ -138,6 +138,14 @@ REGISTRY = [
     # NX-042 T3: the twin's observe entry (owner-run, the port role's only way in) reaches the S7b assembler.
     Allowed('nx042_twin_port', 'authz.nexloop_sim_context_command', 'NX-042 T3: the port role nexloop_twin_port passes the role check; nothing else',
             ((r" and session_user is distinct from 'nexloop_twin_port'", ''),)),
+    # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
+    Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
+            ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),
+             (r"\s*-- T6 text layer \(D1\)[^\n]*\n\s*v_text:=runtime\.nexloop_twin_render_text\(t\.generator_version,b\.seed\|\|'\|'\|\|b\.twin_digest\|\|'\|'\|\|p_consumer,p_step,v_choice\.behavior,v_choice\.kind\);", ''),
+             (r"\(case when v_text->>'text' is not null then jsonb_build_object\('text',v_text->>'text'\) else '\{\}'::jsonb end\)",
+              "(case when v_choice.kind='message' then jsonb_build_object('text','合成消息（孪生行为 '||v_choice.behavior||'）') else '{}'::jsonb end)"),
+             (r"\s*\|\|case when v_text->>'text' is not null then jsonb_build_object\('text_template',v_text->>'template_id','text_generator',v_text->>'generator_version',\s*'text_marker','simulated'\) else '\{\}'::jsonb end\)",
+              ')'))),
 ]
 
 
