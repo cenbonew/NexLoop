@@ -177,3 +177,90 @@ def test_a_failure_is_classified_and_never_echoes_the_dsn(monkeypatch, failure, 
     out = P.check_sim_roles({'sim_worker_dsn': secret})
     assert out['pass'] is False and out['dsns']['sim_worker_dsn'] == {'pass': False, 'reason': reason, 'expected_role': 'nexloop_sim_worker'}
     assert 'SYNTHETIC_SECRET_SENTINEL' not in json.dumps(out)
+
+
+# Clock skew between APP_HOST and the database (stage incident 2026-10-21: past zero skew every signature was refused) -------------
+class SkewedDatabase:
+    """A fake connection on a virtual clock: each query takes `trips` seconds of round trip (one per call, cycling), the database's
+    clock_timestamp() is read halfway and is `skew` seconds ahead of this host's."""
+
+    def __init__(self, skew, trips=(0.002,)):
+        self.now, self.skew, self.trips, self.calls = 1_800_000_000.0, skew, list(trips), 0
+
+    def clock(self):
+        return self.now
+
+    def connect(self, dsn, **kw):
+        assert kw.get('autocommit') is True
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, *a):
+        trip = self.trips[self.calls % len(self.trips)]
+        self.calls += 1
+        self.now += trip / 2
+        self.value = self.now + self.skew
+        self.now += trip / 2
+        return self
+
+    def fetchone(self):
+        return (self.value,)
+
+
+def skew_check(monkeypatch, skew, trips=(0.002,), **kw):
+    import psycopg
+    fake = SkewedDatabase(skew, trips)
+    monkeypatch.setattr(psycopg, 'connect', fake.connect)
+    return P.check_clock_skew('postgresql://SYNTHETIC_SECRET_SENTINEL@db.invalid/x', clock=fake.clock, **kw)
+
+
+@pytest.mark.parametrize('skew,passed,warning', [(3.0, False, None), (-3.0, False, None), (0.7, True, 'clock_skew'), (-0.7, True, 'clock_skew'),
+                                                 (0.1, True, None), (0.0, True, None)])
+def test_clock_skew_fails_above_two_seconds_and_warns_above_half_a_second(monkeypatch, skew, passed, warning):
+    out = skew_check(monkeypatch, skew)
+    assert out['pass'] is passed and out.get('warning') == warning and out['skew_seconds'] == pytest.approx(skew, abs=0.002), out
+    assert set(out) <= {'pass', 'warning', 'skew_seconds', 'round_trip_seconds', 'warn_seconds', 'fail_seconds'}
+    assert 'SYNTHETIC_SECRET_SENTINEL' not in json.dumps(out) and 'db.invalid' not in json.dumps(out)
+
+
+def test_a_long_round_trip_is_read_at_its_midpoint_and_the_shortest_one_is_kept(monkeypatch):
+    # 0.7 s ahead behind a 1.6 s round trip: read at the send time it would look 1.5 s ahead; at the midpoint it is 0.7 (a warning).
+    out = skew_check(monkeypatch, 0.7, trips=(1.6,))
+    assert out['skew_seconds'] == pytest.approx(0.7, abs=0.001) and out['round_trip_seconds'] == pytest.approx(1.6) and out['warning'] == 'clock_skew'
+    # Round trips that vary: the shortest one is kept (its bound is the tightest); the estimate stays right.
+    out = skew_check(monkeypatch, -2.5, trips=(3.0, 0.9, 0.05, 2.0, 1.0, 4.0))
+    assert out['pass'] is False and out['skew_seconds'] == pytest.approx(-2.5, abs=0.001) and out['round_trip_seconds'] == pytest.approx(0.05)
+
+
+def test_the_thresholds_are_parameters_and_a_failure_never_echoes_the_dsn(monkeypatch, tmp_path, capsys):
+    assert skew_check(monkeypatch, 0.7, warn_seconds=1.0, fail_seconds=5.0).get('warning') is None
+    assert skew_check(monkeypatch, 3.0, warn_seconds=1.0, fail_seconds=5.0)['warning'] == 'clock_skew'
+    import psycopg
+
+    def refuse(dsn, **kw):
+        raise psycopg.OperationalError('connection refused SYNTHETIC_SECRET_SENTINEL')
+    monkeypatch.setattr(psycopg, 'connect', refuse)
+    assert P.check_clock_skew('postgresql://SYNTHETIC_SECRET_SENTINEL@db.invalid/x') == {'pass': False, 'reason': 'OperationalError'}
+    env = tmp_path / 'stage.env'
+    env.write_text('APP_HOST_NAME=app.example.invalid\nGATEWAY_HTTPS_PORT=8443\nGATEWAY_REDIRECT_PORT=8080\n')
+    assert P.main(['--stage-env', str(env), '--capture', str(tmp_path / 'none.json'), '--clock-skew-warn', '3', '--clock-skew-fail', '2']) == 2
+    assert 'clock skew thresholds' in capsys.readouterr().out
+
+
+def test_the_clock_skew_check_runs_with_the_database_check_and_its_warning_is_listed(monkeypatch):
+    monkeypatch.setattr(P, 'check_database', lambda url, rev: {'pass': True})
+    monkeypatch.setattr(P, 'check_clock_skew', lambda url, warn, fail: {'pass': True, 'warning': 'clock_skew', 'skew_seconds': 0.7, 'args': (warn, fail)})
+    out = run(capture(), database_url='x', expected_revision='0001', clock_skew=(0.4, 1.5))
+    assert out['pass'] is True and out['warnings'] == ['clock_skew'] and out['checks']['clock_skew']['args'] == (0.4, 1.5)
+    monkeypatch.setattr(P, 'check_clock_skew', lambda url, warn, fail: {'pass': False, 'skew_seconds': 3.0})
+    assert run(capture(), database_url='x', expected_revision='0001')['failed'] == ['clock_skew']
+
+
+def test_clock_skew_against_a_real_database_is_near_zero(pg):
+    out = P.check_clock_skew(pg)
+    assert out['pass'] is True and 'warning' not in out and abs(out['skew_seconds']) < 0.5 and out['round_trip_seconds'] < 1

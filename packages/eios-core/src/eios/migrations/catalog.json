@@ -1380,6 +1380,11 @@
       "version": "0276",
       "name": "0276_signature_denial_causes.sql",
       "sha256": "d2c5a6bde8cce341423b7b711a4ff63a7153c6f298ece184784df19de3158478"
+    },
+    {
+      "version": "0277",
+      "name": "0277_clock_skew_metric.sql",
+      "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
     }
   ]
 }

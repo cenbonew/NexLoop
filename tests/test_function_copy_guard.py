@@ -132,6 +132,9 @@ REGISTRY = [
     denial('authz.nexloop_runtime_activation_command_v0037', 'activation denied'),
     denial('authz.nexloop_effect_execution_command_v0052', 'effect provider authority unavailable', PG_TEMP),
     denial('authz.nexloop_context_v6_command', 'context v6 unavailable'),
+    # Clock skew metric (0277, L6): process sample kind 'clock' accepted; nothing else.
+    Allowed('clock_skew_metric', 'authz.nexloop_record_process_sample', "the process sample kind 'clock' (skew_ms, skew_abs_ms, round_trip_ms)",
+            ((r"\s*when 'clock' then array\['skew_ms','skew_abs_ms','round_trip_ms'\]", ''),)),
 ]
 
 
