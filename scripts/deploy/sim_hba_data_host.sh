@@ -36,7 +36,9 @@ read_config() {
 # The rules of a pg_hba file: comments and blank lines dropped, whitespace collapsed.
 rules() { grep -v '^[[:space:]]*#' "$1" | sed '/^[[:space:]]*$/d' | tr -s ' \t' ' '; }
 EVOLUTION='^local [a-z_][a-z0-9_]* nexloop_evo_reader,nexloop_evo_writer,nexloop_evo_evaluator scram-sha-256$'
-SIM='^hostssl [a-z_][a-z0-9_]* nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files [0-9.]+/32 scram-sha-256$'
+SIM='^hostssl [a-z_][a-z0-9_]* nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port [0-9.]+/32 scram-sha-256$'
+# The same line before the ninth batch (without nexloop_twin_port): the one rule the new line may replace.
+SIM_PRIOR='^hostssl [a-z_][a-z0-9_]* nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files [0-9.]+/32 scram-sha-256$'
 
 # The added rules: one simulation line, at most one evolution line, nothing else (review 1.2: two copies of one line are not two lines).
 check_added() {
@@ -47,6 +49,15 @@ check_added() {
   if [ "$(printf '%s\n' "$1" | sed '/^$/d' | grep -Evc "$SIM|$EVOLUTION" || true)" -ne 0 ]; then
     CHECK_ADDED="an added rule is neither the simulation nor the evolution line"; return 1; fi
   return 0
+}
+
+# The removed rules: none, or exactly the prior simulation line when the new one replaces it (the only variant allowed).
+check_removed() {
+  local count
+  count=$(printf '%s\n' "$1" | sed '/^$/d' | wc -l | tr -d ' ')
+  [ "$count" -eq 0 ] && return 0
+  if [ "$count" -eq 1 ] && printf '%s\n' "$1" | sed '/^$/d' | grep -Eq "$SIM_PRIOR" && printf '%s\n' "$2" | grep -Eq "$SIM"; then return 0; fi
+  CHECK_REMOVED="the rendered pg_hba removes $count rule line(s) other than the prior simulation line"; return 1
 }
 
 if [ "${SIM_HBA_LIB:-}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
@@ -62,9 +73,9 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT; chmod 0700 "$WORK"
 cp "$STAGE_ENV" "$WORK/stage.env"; chmod 0600 "$WORK/stage.env"
 python3 "$RELEASE_CHECKOUT/scripts/deploy/render.py" --env "$WORK/stage.env" --template "$RELEASE_CHECKOUT/deploy/stage/config/pg_hba.conf.template" \
   --out "$WORK/pg_hba.conf" >/dev/null || fail 1 "pg_hba render refused"
-removed=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | grep -c '^<' || true)
+removed=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^< //p')
 added=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^> //p')
-[ "$removed" -eq 0 ] || fail 1 "the rendered pg_hba removes $removed rule line(s); render with the deployed stage.env and a release checkout with the simulation line"
+check_removed "$removed" "$added" || fail 1 "$CHECK_REMOVED; render with the deployed stage.env and a release checkout with the simulation line"
 if [ -z "$added" ] && grep -Eq "$SIM" <(rules "$HBA"); then
   printf '%s\n' "done: the simulation line is already installed (nothing to do)"; exit 0; fi
 check_added "$added" || fail 1 "$CHECK_ADDED"
@@ -76,7 +87,7 @@ container_matches() { docker compose -p "$PROJECT" exec -T postgres cat /etc/pos
 reload() { since=$(date -u +%Y-%m-%dT%H:%M:%SZ); docker compose -p "$PROJECT" kill -s HUP postgres >/dev/null; sleep 3
   logs=$(docker compose -p "$PROJECT" logs --since "$since" postgres 2>&1)
   printf '%s' "$logs" | grep -q 'received SIGHUP' && ! printf '%s' "$logs" | grep -qiE 'pg_hba.conf.*(not reloaded|invalid)|could not load pg_hba'; }
-if ! container_matches "$HBA" || ! docker compose -p "$PROJECT" exec -T postgres grep -q nexloop_sim_worker /etc/postgresql/pg_hba.conf; then
+if ! container_matches "$HBA" || ! docker compose -p "$PROJECT" exec -T postgres grep -q nexloop_twin_port /etc/postgresql/pg_hba.conf; then
   write_in_place "$HBA.before-sim" "$HBA" || true
   fail 2 "the container does not see the new pg_hba (its bind mount holds another inode): the previous content is written back; restart the postgres container (docker compose -p $PROJECT restart postgres) and rerun"
 fi

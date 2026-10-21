@@ -1,7 +1,7 @@
 # 模拟进程组在 stage 上启用（发布 27 之后，AT-046 实测）
 
 - **依据**：负责人批准“发布 27 部署后，在 stage 上启用模拟进程组，实测 AT-046”。参考 L6 的演进登记做法（`evolution_enroll.py`、`evolution_hba_data_host.sh`）。
-- **适用发布**：第七批 r4（1bd26ba1，发布 27）。twin 用途和孪生端口属于第八批，见“第八批之后”；`nexloop_twin_port` 角色在 0266 已存在，但这次不放进 pg_hba。
+- **适用发布**：第七批 r4（1bd26ba1，发布 27）。twin 用途和孪生端口属于第八批，见“第八批之后”；`nexloop_twin_port` 角色在 0266 已存在，第九批起放进 pg_hba 的模拟行。
 - **原则**：
   - 模拟进程组只用模拟角色和该 world 自己的凭据；
   - 主机配置（root、防火墙、路由）只写成负责人命令；
@@ -15,10 +15,10 @@
   - 其余新建连接一律丢弃，包括访问 APP_HOST 本机的。
   - 模拟子网只有在 APP_HOST 上才看得到，所以这条限制只能放在这里。
 - **pg_hba 新增一行**：
-  `hostssl <stage 库> nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files <APP_HOST_ADDR>/32 scram-sha-256`
+  `hostssl <stage 库> nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port <APP_HOST_ADDR>/32 scram-sha-256`
   - 只走 TLS，只用 SCRAM，只能连 stage 库，不要客户端证书。
   - 这一行没有任何 real 角色；real 应用角色那一行里也没有模拟角色。
-  - 这一行不含 `nexloop_twin_port`。该角色在第七批的 0266 已经建好（没有口令，不能登录），等第八批的孪生端口和它的 DSN 到位时再加进这一行（L6 评审 2.1）。
+  - 从第九批起，这一行包含 `nexloop_twin_port`（角色在 0266 已建，第八批带来了孪生端口和它的 DSN），用于 AT-046 接收步骤中的孪生。它的口令在 bootstrap 窗口设置，没有口令就无法登录。如果 stage 上已经装过不含它的旧模拟行，`sim_hba_data_host.sh` 的预检只允许一种差异：删掉这条旧行、换成新行；其他任何删除都会拒绝。
 - **与你原先要求的差异**：你要求“只放行模拟子网”，我没有让 pg_hba 直接看到模拟子网的源地址。那样需要关闭该网段的 masquerade，并在 DATA_HOST 加回程路由，改动面大，也与现有容器网段的做法不一致。所以我把源地址限制放在 APP_HOST 防火墙，pg_hba 只按角色、库和 SCRAM 限制。如果仍要在 DATA_HOST 侧看到模拟子网，需要另外做一次网络改造（关闭该网段 masquerade、加 DATA_HOST 回程路由、DATA_HOST 防火墙放行模拟子网），这次没有做。
 
 ## 步骤与执行人
@@ -112,4 +112,4 @@ docker compose -p nexloop-simulation ps
 ## 第八批之后
 
 - 用 `sim_world_credentials.py` 再签发 twin 用途（发布 27 的数据库不接受，工具会在写入前拒绝）。
-- `nexloop_twin_port`（0266 已建）要在第八批加进 pg_hba 的模拟行：改模板、`sim_hba_data_host.sh` 的 SIM 正则和它的测试，负责人再执行一次脚本；它的口令在 bootstrap 窗口设置，DSN 文件加入 `sim_dsn_files.py` 的清单（`post_deploy_check.SIM_DSN_ROLES`）。
+- `nexloop_twin_port` 已在第九批加进 pg_hba 的模拟行（模板、`sim_hba_data_host.sh` 的 SIM 正则和预检、测试）。负责人在 release 29 上线后执行一次 `sim_hba_data_host.sh` 即可。它的口令在 bootstrap 窗口设置，DSN 文件需要加入 `sim_dsn_files.py` 的清单（`post_deploy_check.SIM_DSN_ROLES`）。
