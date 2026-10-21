@@ -30,8 +30,8 @@ Configuration (private JSON, 0600, owned by the caller; deploy/examples/evolutio
   {"schema": "nexloop-evolution-enroll/1", "tenant_id": ..., "secret_dir": ..., "configurator_database_url_file": ...,
    "registry_database_url_file": ..., "signing_key_file": ..., "signing_key_id": ..., "credential_expires_at": "<ISO, UTC>",
    "registered_by": "<who registers, e.g. owner-config:2026-10-21>"}
-The login roles' passwords and pg_hba lines are not set here: the output names what the operator still has to do
-(`operator_sheet`). Output: one JSON object; never a token, a password or a DSN. Exit 0 done, 1 self-check failed or refused by
+The login roles' passwords (bootstrap window) and the pg_hba line (template + scripts/deploy/evolution_hba_data_host.sh) are not
+set here: the output names them (`operator_sheet`). Output: one JSON object; never a token, a password or a DSN. Exit 0 done, 1 self-check failed or refused by
 the database, 2 input refused.
 """
 import argparse
@@ -267,8 +267,9 @@ def operator_sheet(config):
     return [
         'Set a password for nexloop_evo_writer and nexloop_evo_evaluator in the bootstrap window (generated straight into the Keychain); '
         'write each DSN to its own 0600 file next to the credential files (evolution-writer/database-url, evolution-evaluator/database-url).',
-        'pg_hba on DATA_HOST: allow nexloop_evo_writer and nexloop_evo_evaluator only from the host that runs the evolution commands, '
-        'scram-sha-256 (or the stage client-certificate rule), database of the stage catalog; no trust line.',
+        'pg_hba: deploy/stage/config/pg_hba.conf.template carries the evolution line (local socket, stage catalog, SCRAM); install it on '
+        'DATA_HOST with the owner command `sudo bash scripts/deploy/evolution_hba_data_host.sh <private config>` (render, rewrite in place, '
+        'reload); run this tool and the acceptance in a one-off DATA_HOST container on the mounted socket directory.',
         'The writer reads ' + PRINCIPALS[0]['file'] + ', the evaluator ' + PRINCIPALS[1]['file'] + ' and ' + PRINCIPALS[2]['file']
         + ' (the L1 session); no long-running service is needed: diagnosis, candidate and evaluation are one-off commands.',
     ]
