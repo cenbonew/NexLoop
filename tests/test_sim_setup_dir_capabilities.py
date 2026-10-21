@@ -93,3 +93,41 @@ def test_the_old_order_is_refused_by_the_model():
     kernel = Kernel({'/sim-secrets': (0, 0, 0o755, 'dir')})
     with pytest.raises(PermissionError):
         kernel.run(['python', '-c', 'import os,sys;u,g=int(sys.argv[1]),int(sys.argv[2]);os.chown("/sim-secrets",u,g);os.chmod("/sim-secrets",0o700)'])
+
+
+LAUNCHERS = {'compose.simulation.example.yaml': 'sim-setup', 'compose.sim-issue.example.yaml': 'sim-issue'}
+
+
+def launcher(compose, release):
+    spec = yaml.safe_load((ROOT / 'deploy/stage' / compose).read_text())['services'][LAUNCHERS[compose]]
+    assert spec['working_dir'] == '/' and spec['entrypoint'][:2] == ['python', '-c'] and len(spec['entrypoint']) == 3
+    return spec['entrypoint'][2].replace('/opt/nexloop-release', str(release))
+
+
+@pytest.mark.parametrize('compose', sorted(LAUNCHERS))
+def test_the_tool_containers_check_that_the_release_export_is_readable_first(compose, tmp_path):
+    """Stage finding 2026-10-22: the release checkout must be readable by the container's uid (NEXLOOP_SIM_UID for sim-setup,
+    NEXLOOP_PG_UID for sim-issue). The launcher checks it before anything runs and says how to fix it; a readable export runs the named
+    script of the checkout as __main__, in the checkout, with its arguments; a name outside scripts/ is refused."""
+    import json
+    import os
+    import subprocess
+    import sys
+    release = tmp_path / 'release'
+    for d in ('scripts/deploy', 'scripts/acceptance', 'packages/eios-core/src'):
+        (release / d).mkdir(parents=True)
+    (release / 'scripts/deploy/probe.py').write_text('import json,os,sys\nif __name__ == "__main__":\n    print(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}))\n    sys.exit(3)\n')
+    code = launcher(compose, release)
+    ran = subprocess.run([sys.executable, '-c', code, 'scripts/deploy/probe.py', '--config', '/setup/x.json'], capture_output=True, text=True, cwd='/')
+    assert ran.returncode == 3 and json.loads(ran.stdout) == {'argv': ['--config', '/setup/x.json'], 'cwd': os.path.realpath(release)}, ran.stderr
+    for bad in ([], ['../etc/passwd'], ['/etc/passwd'], ['scripts/../../x.py']):
+        out = subprocess.run([sys.executable, '-c', code, *bad], capture_output=True, text=True, cwd='/')
+        assert out.returncode == 2 and json.loads(out.stdout)['ok'] is False, bad
+    # The deployment's root-only checkout: not readable by this uid (modelled by removing the read and search bits).
+    (release / 'scripts/deploy').chmod(0)
+    try:
+        out = subprocess.run([sys.executable, '-c', code, 'scripts/deploy/probe.py'], capture_output=True, text=True, cwd='/')
+    finally:
+        (release / 'scripts/deploy').chmod(0o755)
+    detail = json.loads(out.stdout)['detail']
+    assert out.returncode == 2 and f'uid {os.getuid()}' in detail and 'scripts/deploy' in detail and 'git archive' in detail

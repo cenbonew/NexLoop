@@ -147,8 +147,17 @@ services:
     security_opt: [no-new-privileges:true]
     user: '${NEXLOOP_SIM_UID:?simulation service uid required}:${NEXLOOP_SIM_GID:?simulation service gid required}'
     networks: [simulation]
-    working_dir: /opt/nexloop-release
-    entrypoint: [python]
+    # Preflight (stage finding 2026-10-22): the release checkout must be readable by this uid - an export with git archive, made
+    # go+rX (docs/implementation/sim-stage-enable.md), not the deployment's root-only checkout. The launcher checks it before anything
+    # runs (working_dir is / so that an unreadable checkout reaches this check instead of failing docker's chdir), then runs the named
+    # script of the checkout (scripts/... only) as __main__.
+    working_dir: /
+    entrypoint: [python, -c, 'import os,sys,json,runpy;r="/opt/nexloop-release";a=sys.argv[1:];t=os.path.join(r,a[0]) if a else ""
+      ;ok=bool(a) and a[0].startswith("scripts/") and ".." not in a[0]
+      ;bad=[p for p in ("","scripts","scripts/deploy","scripts/acceptance","packages/eios-core/src") if not os.access(os.path.join(r,p),os.R_OK|os.X_OK)]
+      ;ok or sys.exit(print(json.dumps({"ok":False,"detail":"name a script of the release checkout: scripts/..."})) or 2)
+      ;(bad or not os.access(t,os.R_OK)) and sys.exit(print(json.dumps({"ok":False,"detail":"the release checkout is not readable by uid %d (%s): mount a git archive export made go+rX, see sim-stage-enable.md" % (os.getuid(),", ".join(p or "." for p in bad) or a[0])})) or 2)
+      ;os.chdir(r);sys.argv=[t]+a[1:];sys.path.insert(0,os.path.dirname(t));runpy.run_path(t,run_name="__main__")']
     volumes:
       - '${NEXLOOP_SIM_RELEASE_CHECKOUT:?release checkout required}:/opt/nexloop-release:ro'
       - '${NEXLOOP_SIM_SETUP_INPUT_DIR:?private setup input directory required}:/setup:ro'
