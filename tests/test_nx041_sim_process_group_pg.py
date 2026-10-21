@@ -104,8 +104,9 @@ def test_the_simulation_compose_project_is_separate_off_by_default_and_holds_no_
     assert all(v['file'].startswith('${NEXLOOP_SIM_SECRET_DIR') for v in secrets.values())
     assert 'network_mode: host' not in text
     # Review 1.2: each simulation database role has its own DSN file; review 1.3: a fixed subnet the firewall template matches.
-    assert services['sim-stand-in-executor']['secrets'] == ['sim_stand_in_worker_dsn', 'sim_world_credential']
-    assert services['sim-world-files']['secrets'][0] == 'sim_files_dsn' and '--host-id' in services['sim-world-files']['command']
+    # Stage enablement: every database client also mounts the PostgreSQL CA its DSN verifies against (sim_pg_ca).
+    assert services['sim-stand-in-executor']['secrets'] == ['sim_pg_ca', 'sim_stand_in_worker_dsn', 'sim_world_credential']
+    assert services['sim-world-files']['secrets'][:2] == ['sim_pg_ca', 'sim_files_dsn'] and '--host-id' in services['sim-world-files']['command']
     assert 'sim_host_purge_key' in services['sim-agent-host']['secrets']
     assert project['networks']['simulation']['ipam']['config'][0]['subnet'] == '${NEXLOOP_SIM_SUBNET:?simulation subnet required}'
     nft = (ROOT / 'docs/implementation/NX-041-S6-simulation.nft.example').read_text()
