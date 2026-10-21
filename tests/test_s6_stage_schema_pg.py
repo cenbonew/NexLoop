@@ -248,7 +248,10 @@ def test_the_example_configuration_loads(tmp_path):
     copy.write_text((ROOT / 'deploy/examples/s6-stage.example.json').read_text())
     copy.chmod(0o600)
     c = load_config(copy)
-    assert set(c['roles']) == {'writer', 'evaluator', 'verify'} and c['owner']['origin'].startswith('https://<')
+    # One example for both parts (L3 unified it): the NX-040 roles are there; the NX-038/039 roles and inputs.evolution are L3's
+    # (tests/test_s6_stage_evolution_pg.py loads the same example).
+    assert {'writer', 'evaluator', 'verify'} <= set(c['roles']) and c['owner']['origin'].startswith('https://<')
+    assert {'reader', 'inspector', 'evaluation'} <= set(c['roles']) and 'evolution' in c['inputs']
 
 
 def test_r6_through_the_workbench_http_entry(stage, tmp_path):

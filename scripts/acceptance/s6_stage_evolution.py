@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
-"""S6 closure: the stage acceptance runs of NX-038 / NX-039 (L5 closure checklist §2, "stage" column), one subcommand per AT.
+"""S6 closure: the stage acceptance runs of NX-038 / NX-039 (L5 closure checklist §2, "stage" column), one check per AT. The shared
+configuration, result format, blocked semantics and redaction are scripts/acceptance/s6_common.py's (with L2's NX-040 part,
+scripts/acceptance/s6_stage_schema.py).
 
 Every step goes through the services' own entry points, as the services connect - the read-only reader nexloop_evo_reader (E2/E3
 reads), the writer nexloop_evo_writer (diagnosis, candidates, bundles) and the evaluator nexloop_evo_evaluator (open, conclude, L1)
-- each with its own service credential read from a private file. A separate inspector connection (on stage the bootstrap DSN from the private configuration, set read only on connect) only probes (protected
-table digests, candidate and holdout states). Data: the synthetic Consumers' Runs in the configured window (personas from the
-configuration, never 'real' by default) and the world test for L1 (the registered test-only evaluation credential). Nothing here
-holds a model, channel or effect credential, publishes a definition or writes a formal object; L1 runs are the D16 synthetic
-stand-in (counts and flags only, no Run, no model). Registering principals and credentials is not done here (trusted
-configuration, the owner's); the script needs them registered.
+- each with its own service credential read from a private file. A separate inspector connection (on stage the bootstrap DSN from
+the private configuration, set read only on connect) only probes (protected-table digests, candidate and holdout states,
+credentials and role entries). Data: the synthetic Consumers' Runs in the configured window and the world test for L1 (the
+registered test-only evaluation credential). Nothing here holds a model, channel or effect credential, publishes a definition or
+writes a formal object; L1 runs are the D16 synthetic stand-in. Registering principals and credentials is not done here.
 
-    uv run --frozen python scripts/acceptance/s6_stage.py <command> --config F [--dry-run] [--out F]
+    uv run --frozen python scripts/acceptance/s6_stage_evolution.py <check> --config F [--dry-run]
 
-    commands: at046 r5 at048 r4 at023 r1 r3 r7-prepare r7-verify all
-    (r7: prepare, then the owner erases the configured synthetic Consumer with scripts/deploy/erase_synthetic_consumer.py, then verify)
+    checks: at046 r5 at048 r4 at023 r1 r3 r7-prepare r7-verify candidate-template all
+    (r7: prepare, then the owner erases the synthetic Consumer with scripts/deploy/erase_synthetic_consumer.py, then verify;
+     candidate-template writes inputs.candidate_template, the open candidate body L2's NX-040 checks start from)
 
-Configuration (private JSON, 0600; deploy/examples/s6-stage.example.json): schema nexloop-s6-stage/1 - connection-string files per
-role (reader, writer, evaluator, inspector; registrar optional), credential files (reader, writer, evaluator, evaluation), the
-window, personas, the frozen labels (label, parent_revision, evaluator_version, model_profile, created_at), the measured L0 inputs
-(D16 synthetic measurement), the protected refs for R3, the synthetic Consumer to erase for R7, and a private state directory.
+Configuration (s6_common, nexloop-s6-stage/1; deploy/examples/s6-stage.example.json): roles.writer / roles.evaluator
+{dsn_file, token_file}, roles.reader {dsn_file, token_file}, roles.inspector {dsn_file}, roles.evaluation {token_file} (the
+test-only evaluation credential), roles.registrar {dsn_file} (optional, R5's registration negative only); inputs.evolution {window
+{since, until}, personas, label, parent_revision, evaluator_version, model_profile, created_at, l0_inputs, protected_refs,
+erasure_consumer_id}; inputs.candidate_template (a path). Private state (R7) lives under results_dir/state.
 
---dry-run calls no writing entry: it checks the configuration, the roles of every connection (select current_user), reads the inputs
-(the reader's read functions), plans each candidate in memory and probes the holdout uses; the plan is the output.
-
-Output: one JSON object per AT (schema nexloop-s6-stage-result/1): steps, assertions, protected-table digests, passed, and an
-evidence entry for planning; executed_by and judged_by stay null (the dispatcher fills them). Never a token, a connection string or
-a message body. Exit: 0 every AT passed (or a dry run whose preconditions hold); 1 an AT failed or a precondition is missing;
-2 input refused.
+--dry-run calls no writing entry: it checks the configuration and the role of every connection, reads the inputs, plans each
+candidate in memory and probes the holdout uses. Output and exit: s6_common's (passed null when blocked or a dry run).
 """
 from __future__ import annotations
 
@@ -54,8 +52,9 @@ from nexloop_eios.evolution_store import CandidateStore, EvaluatorStore, diagnos
 from nexloop_eios.evolution_traces import DatabaseTraceSource  # noqa: E402
 from nexloop_eios.private_configuration import read_private_text  # noqa: E402
 
-SCHEMA = 'nexloop-s6-stage/1'
-RESULT = 'nexloop-s6-stage-result/1'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import s6_common as C  # noqa: E402
+
 ROLES = {'reader': 'nexloop_evo_reader', 'writer': 'nexloop_evo_writer', 'evaluator': 'nexloop_evo_evaluator'}
 # The protected tables of AT-023 (formal definitions and objects, Claims, candidate definitions, budget limits, authority facts and
 # grants): the same set as the E4 test's PROTECTED.
@@ -63,67 +62,70 @@ PROTECTED = ('ontology.object_type_versions', 'ontology.objects', 'ontology.nexl
              'control.nexloop_budget_limits', 'authz.nexloop_authority_facts', 'authz.nexloop_service_grants')
 # One holdout (validation set) per AT that opens evaluations: at most 5 candidates are decided per holdout (D39-3), so the ATs never
 # share one (R4 spends its own on purpose).
-HOLDOUT_ORDER = ('at023', 'r1', 'r3', 'r4', 'at048', 'r5', 'r7')
-AT_NAMES = {'at046': 'AT-046', 'r5': 'S6-R5', 'at048': 'AT-048', 'r4': 'S6-R4', 'at023': 'AT-023', 'r1': 'S6-R1', 'r3': 'S6-R3',
-            'r7-prepare': 'S6-R7', 'r7-verify': 'S6-R7'}
+HOLDOUT_ORDER = ('at023', 'r1', 'r3', 'r4', 'at048', 'r5', 'r7', 'template')
+ACCEPTANCE = {'at046': ['AT-046'], 'r5': ['S6-R5'], 'at048': ['AT-048'], 'r4': ['S6-R4'], 'at023': ['AT-023'], 'r1': ['S6-R1'], 'r3': ['S6-R3'],
+              'r7-prepare': ['S6-R7'], 'r7-verify': ['S6-R7'], 'candidate-template': ['AT-024', 'S6-R8', 'S6-R10']}
 HEX = re.compile(r'[0-9a-f]{64}')
 LABEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
+Refused = C.Refused
 
 
-class Refused(ValueError):
-    """The input is refused (exit 2)."""
-
-
-class Precondition(RuntimeError):
-    """The stage data or registration does not allow the AT (exit 1, never a pass)."""
+class Precondition(C.Blocked):
+    """The stage data or registration does not allow the AT (the check is blocked: passed null, never a pass)."""
 
 
 # --- configuration ----------------------------------------------------------------------------------------------------------------
 
 def load_config(path):
+    """s6_common's configuration plus this part's roles and inputs.evolution; returns (config, the evolution settings)."""
+    config = C.load_config(path)
+    roles, inputs = config.get('roles'), config.get('inputs')
+    if type(roles) is not dict or type(inputs) is not dict:
+        raise Refused('configuration: roles and inputs required')
+    def role(name, keys, optional=False):
+        v = roles.get(name)
+        if v is None and optional:
+            return None
+        if type(v) is not dict or set(v) != set(keys) or any(type(v[k]) is not str or not os.path.isabs(v[k]) for k in keys):
+            raise Refused(f'roles.{name}: {{{", ".join(keys)}}} (absolute paths of private files)')
+        return v
+    rw = {n: role(n, ('dsn_file', 'token_file')) for n in ('reader', 'writer', 'evaluator')}
+    inspector, evaluation = role('inspector', ('dsn_file',)), role('evaluation', ('token_file',))
+    registrar = role('registrar', ('dsn_file',), optional=True)
+    e = inputs.get('evolution')
+    keys = {'window', 'personas', 'label', 'parent_revision', 'evaluator_version', 'model_profile', 'created_at', 'l0_inputs', 'protected_refs',
+            'erasure_consumer_id'}
+    if type(e) is not dict or set(e) != keys:
+        raise Refused(f'inputs.evolution keys: {sorted(keys)}')
     try:
-        value = json.loads(read_private_text(path, maximum=65536))
-    except (OSError, PermissionError) as error:
-        raise Refused(f'configuration unreadable or not private: {type(error).__name__}') from None
-    except ValueError:
-        raise Refused('configuration is not JSON') from None
-    keys = {'schema', 'connections', 'credentials', 'window', 'personas', 'label', 'parent_revision', 'evaluator_version', 'model_profile',
-            'created_at', 'l0_inputs', 'protected_refs', 'erasure', 'state_dir'}
-    # Integration: one example file serves this script and s6_stage_schema (L2's shared s6_common keys may be present too).
-    if type(value) is not dict or value.get('schema') != SCHEMA or not keys <= set(value):
-        raise Refused(f'configuration keys: {sorted(keys)}')
-    c = value['connections']
-    if type(c) is not dict or not {'reader', 'writer', 'evaluator', 'inspector'} <= set(c) <= {'reader', 'writer', 'evaluator', 'inspector', 'registrar'}:
-        raise Refused('connections: reader, writer, evaluator, inspector (registrar optional) - files holding a connection string')
-    if type(value['credentials']) is not dict or set(value['credentials']) != {'reader', 'writer', 'evaluator', 'evaluation'}:
-        raise Refused('credentials: reader, writer, evaluator, evaluation - files holding a service credential')
-    for name, f in list(c.items()) + list(value['credentials'].items()):
-        if type(f) is not str or not os.path.isabs(f):
-            raise Refused(f'{name}: an absolute file path')
-    w = value['window']
-    try:
-        since, until = datetime.fromisoformat(w['since']), datetime.fromisoformat(w['until'])
-        created = datetime.fromisoformat(value['created_at'].replace('Z', '+00:00'))
-    except (TypeError, KeyError, ValueError):
-        raise Refused('window {since, until} and created_at: ISO times with zone') from None
+        since, until = datetime.fromisoformat(e['window']['since']), datetime.fromisoformat(e['window']['until'])
+        created = datetime.fromisoformat(e['created_at'].replace('Z', '+00:00'))
+    except (TypeError, KeyError, ValueError, AttributeError):
+        raise Refused('inputs.evolution: window {since, until} and created_at, ISO times with zone') from None
     if since.tzinfo is None or until.tzinfo is None or created.tzinfo is None or not since < until:
-        raise Refused('window: since < until, with zone')
-    if type(value['personas']) is not list or not value['personas'] or not set(value['personas']) <= {'simulated_agent', 'synthetic', 'real'}:
-        raise Refused('personas: simulated_agent / synthetic (real only for a deliberate run)')
+        raise Refused('inputs.evolution.window: since < until, with zone')
+    if type(e['personas']) is not list or not e['personas'] or not set(e['personas']) <= {'simulated_agent', 'synthetic', 'real'}:
+        raise Refused('inputs.evolution.personas: simulated_agent / synthetic (real only for a deliberate run)')
     for k in ('label', 'parent_revision', 'evaluator_version', 'model_profile'):
-        if type(value[k]) is not str or not LABEL.fullmatch(value[k]):
-            raise Refused(f'{k}: [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}')
-    if type(value['l0_inputs']) is not dict or set(value['l0_inputs']) - {'latency_ms', 'alias_counts', 'alias_index', 'noted_refs'}:
-        raise Refused('l0_inputs: the measured inputs of L0 (latency_ms, alias_counts, alias_index, noted_refs)')
-    if type(value['protected_refs']) is not list or any(type(r) is not str or len(r) > 512 for r in value['protected_refs']):
-        raise Refused('protected_refs: definition refs')
-    e = value['erasure']
-    if type(e) is not dict or set(e) != {'consumer_id'} or not (e['consumer_id'] is None or (type(e['consumer_id']) is str and HEX.fullmatch(e['consumer_id']))):
-        raise Refused('erasure: {consumer_id: 64 hex | null}')
-    if type(value['state_dir']) is not str or not os.path.isabs(value['state_dir']):
-        raise Refused('state_dir: an absolute directory path')
-    value['window'] = {'since': since, 'until': until}
-    return value
+        if type(e[k]) is not str or not LABEL.fullmatch(e[k]):
+            raise Refused(f'inputs.evolution.{k}: [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}')
+    if type(e['l0_inputs']) is not dict or set(e['l0_inputs']) - {'latency_ms', 'alias_counts', 'alias_index', 'noted_refs'}:
+        raise Refused('inputs.evolution.l0_inputs: the measured inputs of L0 (latency_ms, alias_counts, alias_index, noted_refs)')
+    if type(e['protected_refs']) is not list or any(type(r) is not str or len(r) > 512 for r in e['protected_refs']):
+        raise Refused('inputs.evolution.protected_refs: definition refs')
+    if not (e['erasure_consumer_id'] is None or (type(e['erasure_consumer_id']) is str and HEX.fullmatch(e['erasure_consumer_id']))):
+        raise Refused('inputs.evolution.erasure_consumer_id: 64 hex | null')
+    template = inputs.get('candidate_template')
+    if template is not None and (type(template) is not str or not os.path.isabs(template)):
+        raise Refused('inputs.candidate_template: an absolute path')
+    connections = {n: v['dsn_file'] for n, v in rw.items()} | {'inspector': inspector['dsn_file']} | ({'registrar': registrar['dsn_file']} if registrar else {})
+    credentials = {n: v['token_file'] for n, v in rw.items()} | {'evaluation': evaluation['token_file']}
+    ev = {'connections': connections, 'credentials': credentials, 'window': {'since': since, 'until': until}, 'personas': e['personas'],
+          'label': e['label'], 'parent_revision': e['parent_revision'], 'evaluator_version': e['evaluator_version'], 'model_profile': e['model_profile'],
+          'created_at': e['created_at'], 'l0_inputs': e['l0_inputs'], 'protected_refs': e['protected_refs'],
+          'erasure': {'consumer_id': e['erasure_consumer_id']}, 'state_dir': str(Path(config['results_dir']) / 'state'), 'tenant_id': config['tenant_id'],
+          'candidate_template': template}
+    return config, ev
 
 
 def _digest_of(path):
@@ -132,15 +134,11 @@ def _digest_of(path):
 
 def connector(path, *, read_only=False):
     def connect():
-        conn = psycopg.connect(read_private_text(path, maximum=4096), autocommit=True)
+        conn = psycopg.connect(read_private_text(path, maximum=4096), autocommit=True, connect_timeout=10)
         if read_only:
             conn.execute('set default_transaction_read_only=on')
         return conn
     return connect
-
-
-def now():
-    return datetime.now(UTC).isoformat().replace('+00:00', 'Z')
 
 
 def _uuid(*parts):
@@ -156,33 +154,33 @@ def refusal(error):
     return None
 
 
-# --- the result -------------------------------------------------------------------------------------------------------------------
+# --- the result: s6_common's, with this part's step helpers --------------------------------------------------------------------------
 
 class Result:
-    def __init__(self, command, dry_run):
-        self.command, self.dry_run = command, dry_run
-        self.steps, self.assertions, self.digests, self.notes = [], [], {}, []
+    def __init__(self, check, config, dry_run):
+        self.res = C.Result(check, ACCEPTANCE[check], config, dry_run=dry_run)
+        self.dry_run = dry_run
+        self.notes, self.digests = [], {}
 
     def step(self, name, ok=True, **detail):
-        self.steps.append({'step': name, 'ok': ok, 'detail': detail})
+        """A procedural step (planned, probed, done). A failed precondition in a dry run is a block (never a pass)."""
+        if not ok and self.dry_run:
+            self.res.block(name, json.dumps(detail, ensure_ascii=False, sort_keys=True, default=str))
+            return
+        self.res.step(name, 'ok', 'ok' if ok else 'not ok', ok, **detail)
 
     def check(self, name, expected, actual):
-        ok = expected == actual
-        self.assertions.append({'name': name, 'expected': expected, 'actual': actual, 'ok': ok})
-        return ok
+        return self.res.step(name, expected, actual, expected == actual)
 
-    def finish(self):
-        passed = None if self.dry_run else bool(self.assertions) and all(a['ok'] for a in self.assertions) and all(s['ok'] for s in self.steps)
-        if self.dry_run:
-            passed = None if all(s['ok'] for s in self.steps) else False
-        at = AT_NAMES.get(self.command, self.command)
-        summary = (f'{at} stage run ({self.command}{" dry run" if self.dry_run else ""}): '
-                   + (f'{sum(a["ok"] for a in self.assertions)}/{len(self.assertions)} assertions passed' if self.assertions else f'{len(self.steps)} steps planned'))
-        return {'schema': RESULT, 'at': at, 'command': self.command, 'dry_run': self.dry_run, 'steps': self.steps, 'assertions': self.assertions,
-                'digests': self.digests, 'notes': self.notes, 'passed': passed,
-                'evidence': {'type': 'command', 'ref': f'scripts/acceptance/s6_stage.py {self.command}' + (' --dry-run' if self.dry_run else ''),
-                             'summary': summary, 'recorded_at': now()},
-                'executed_by': None, 'judged_by': None}
+    def block(self, name, reason):
+        self.res.block(name, reason)
+
+    def write(self, out):
+        for note in self.notes:
+            self.res.step('note', None, None, True, note=note)
+        if self.digests:
+            self.res.steps.append({'name': 'protected table digests', 'expected': None, 'observed': None, 'passed': True, 'evidence': self.digests})
+        return self.res.write(out)
 
 
 # --- the stage ----------------------------------------------------------------------------------------------------------------------
@@ -250,9 +248,7 @@ class Stage:
         return self._inputs
 
     def _tenant(self):
-        with self.inspect() as db:
-            return db.execute("select authz.nexloop_service_identity_snapshot(%s,'real')->'binding'->>'tenant_id'",
-                              (_digest_of(self.cfg['credentials']['writer']),)).fetchone()[0]
+        return self.cfg['tenant_id']
 
     def holdout_units(self, at):
         """The validation clusters of an AT's holdout: the AT's own subset of the units (never all of them: design is not empty)."""
@@ -636,46 +632,58 @@ COMMANDS = {'at046': at046, 'r5': r5, 'at048': at048, 'r4': r4, 'at023': at023, 
 ALL = ('at046', 'r5', 'at048', 'r4', 'at023', 'r1', 'r3')  # the checklist's order (§4.3); r7 needs the owner's erasure in between
 
 
-def run_command(stage, command, dry_run):
-    r = Result(command, dry_run)
+def candidate_template(st, r):
+    """For L2's NX-040 checks: an open candidate body of this diagnosis (its own holdout), written 0600 to inputs.candidate_template."""
+    path = st.cfg.get('candidate_template')
+    if not path:
+        raise Precondition('inputs.candidate_template: the path to write is not configured')
+    draft = st.plan('template', st.holdout_units('template'))
+    body = {'diagnosis_id': diagnosis_id(st.inputs()['diagnosis'].snapshot_digest), 'candidate': draft.candidate, 'category': draft.category,
+            'patch': draft.patch, 'case_groups': draft.case_groups, 'regroups': draft.regroups, 'source_consumer_ids': draft.source_consumer_ids}
+    r.step('plan', True, candidate=draft.candidate['candidate_id'])
+    if r.dry_run:
+        return
+    st.writer.open_diagnosis(st.inputs()['diagnosis'], st.inputs()['samples'], parent_revision=st.cfg['parent_revision'],
+                             evaluator_version=st.cfg['evaluator_version'], model_profile=st.cfg['model_profile'])
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(body, stream)
+    r.check('candidate template written (the diagnosis is open)', True, os.path.isfile(path))
+
+
+COMMANDS['candidate-template'] = candidate_template
+
+
+def run_command(stage, config, command, dry_run, out):
+    r = Result(command, config, dry_run)
     try:
-        if command == 'at046' or command.startswith('r7'):
-            stage.roles(r)
-        else:
-            stage.roles(r)
+        stage.roles(r)
+        if command != 'at046' and not command.startswith('r7'):
             i = stage.inputs()
             r.step('inputs', True, runs=len(i['samples']), accesses=len(i['accesses']), clusters=len(set(i['clusters'].values())), units=len(i['units']),
                    excluded=i['excluded'])
         COMMANDS[command](stage, r)
     except Precondition as error:
-        r.step('precondition', False, missing=str(error))
+        r.block('precondition', str(error))
     except psycopg.Error as error:
-        r.step('database refusal', False, sqlstate=error.sqlstate, message=error.diag.message_primary)
-    return r.finish()
+        r.res.step('database refusal', None, C.refusal(error), False)
+    return r.write(out)
 
 
-def main(argv=None):
+def main(argv=None, out=sys.stdout):
     p = argparse.ArgumentParser(description='S6 stage acceptance runs (NX-038 / NX-039)')
-    p.add_argument('command', choices=sorted(COMMANDS) + ['all'])
+    p.add_argument('check', choices=sorted(COMMANDS) + ['all'])
     p.add_argument('--config', required=True)
     p.add_argument('--dry-run', action='store_true')
-    p.add_argument('--out')
     a = p.parse_args(argv)
     try:
-        cfg = load_config(a.config)
+        config, ev = load_config(a.config)
     except Refused as error:
-        print(json.dumps({'refused': str(error)}))
+        print(json.dumps({'refused': str(error)}), file=out)
         return 2
-    stage = Stage(cfg)
-    results = [run_command(stage, c, a.dry_run) for c in (ALL if a.command == 'all' else (a.command,))]
-    text = '\n'.join(json.dumps(x, ensure_ascii=False, sort_keys=True, default=str) for x in results)
-    print(text)
-    if a.out:
-        fd = os.open(a.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, 'w') as stream:
-            stream.write(text + '\n')
-    ok = all(x['passed'] is True for x in results) if not a.dry_run else all(x['passed'] is None for x in results)
-    return 0 if ok else 1
+    stage = Stage(ev)
+    codes = [run_command(stage, config, c, a.dry_run, out) for c in (ALL if a.check == 'all' else (a.check,))]
+    return max(codes)
 
 
 if __name__ == '__main__':

@@ -1,20 +1,29 @@
 # S6 收口：stage 实测脚本（NX-038 / NX-039）
 
-脚本：`scripts/acceptance/s6_stage.py`。示例配置：`deploy/examples/s6-stage.example.json`。本地阳性对照：`tests/test_s6_stage_acceptance_pg.py`。依据 L5 收口清单 §2 的 “stage 实测” 列。
+脚本：`scripts/acceptance/s6_stage_evolution.py`（NX-038/039 部分；NX-040 部分是 L2 的 `scripts/acceptance/s6_stage_schema.py`）。两边共用 `scripts/acceptance/s6_common.py`：配置加载、结果格式、blocked 语义和脱敏。示例配置只有一份：`deploy/examples/s6-stage.example.json`。本地阳性对照：`tests/test_s6_stage_evolution_pg.py`。依据 L5 收口清单 §2 的 “stage 实测” 列。
 
 ## 用法
 
 ```
-uv run --frozen python scripts/acceptance/s6_stage.py <命令> --config <私有配置> [--dry-run] [--out <结果文件>]
+uv run --frozen python scripts/acceptance/s6_stage_evolution.py <检查> --config <私有配置> [--dry-run]
 ```
 
-- 命令：`at046` `r5` `at048` `r4` `at023` `r1` `r3` `r7-prepare` `r7-verify` `all`。`all` 按清单 §4.3 的顺序执行前七项。
-- R7 分两步：先执行 `r7-prepare`；再由负责人用 `scripts/deploy/erase_synthetic_consumer.py erase` 删除配置里的合成顾客；最后执行 `r7-verify`。
-- 配置是私有 JSON（0600）。连接串和凭据都放在私有文件里，配置里只写这些文件的路径；仓库里只有 example。
-- **连接方式**：reader、writer、evaluator 三个连接分别以 `nexloop_evo_reader`、`nexloop_evo_writer`、`nexloop_evo_evaluator` 角色登录，各用自己的服务凭据，与服务本身的连接方式相同。inspector 连接只做只读探测（受保护表的 digest、候选与留出集的状态、凭据与角色权限）；stage 上用 bootstrap DSN，连上后设为只读，见下文。registrar 可选，只用于 R5 的“登记非 test 凭据被拒”这个负例。
-- **dry-run** 不调用任何写入口。它只做这些事：校验配置；确认每个连接的角色；用 reader 读取输入；在内存中规划每个候选；探测留出集的使用次数。本地测试核对了 dry-run 前后整库 digest 不变。
-- **输出**：每个 AT 一条 JSON（`nexloop-s6-stage-result/1`），包含步骤、断言、digest、是否通过，以及一条可直接用作 planning evidence 的条目；`executed_by` 和 `judged_by` 留空。输出里不出现令牌、连接串或消息正文。
-- **退出码**：0 表示全部通过（dry-run 时表示前提都满足）；1 表示某项失败或缺少前提；2 表示输入被拒。
+- **检查**：`at046` `r5` `at048` `r4` `at023` `r1` `r3` `r7-prepare` `r7-verify` `candidate-template` `all`。`all` 按清单 §4.3 的顺序执行前七项。
+- **R7 分两步**：先执行 `r7-prepare`；再由负责人用 `scripts/deploy/erase_synthetic_consumer.py erase` 删除合成顾客；最后执行 `r7-verify`。
+- **`candidate-template`**：把本诊断下一个打开的候选写进 `inputs.candidate_template`（权限 0600）。L2 的 NX-040 检查从这里开始。S6-R6 要用的已接受语义候选，就是 `at023` 的 L0 候选，它的 id 在 at023 的结果里。
+- **配置**：用 `s6_common` 的 `nexloop-s6-stage/1`，即私有 JSON（0600），顶层是 executor、release、tenant_id、results_dir。本部分用到的字段：
+  - `roles.writer` / `roles.evaluator` / `roles.reader`：各含 `{dsn_file, token_file}`；
+  - `roles.evaluation`：`{token_file}`，只含 test 的评估凭据；
+  - `roles.inspector`：`{dsn_file}`；
+  - `roles.registrar`：`{dsn_file}`，可选，只用于 R5 的登记负例；
+  - `inputs.evolution`：window、personas、label、parent_revision、evaluator_version、model_profile、created_at、l0_inputs、protected_refs、erasure_consumer_id；
+  - `inputs.candidate_template`：模板文件路径。
+
+  R7 的私有状态放在 `results_dir/state`。连接串和凭据都在私有文件里，配置只写路径；仓库里只有 example。
+- **连接方式**：reader、writer、evaluator 三个连接分别以 `nexloop_evo_reader`、`nexloop_evo_writer`、`nexloop_evo_evaluator` 角色登录，各用自己的服务凭据，与服务本身的连接方式相同。inspector 连接只做只读探测（受保护表的 digest、候选与留出集的状态、凭据与角色权限）；stage 上用 bootstrap DSN，连上后设为只读，见下文。
+- **dry-run** 不调用任何写入口。它只做这些事：校验配置；确认每个连接的角色；用 reader 读取输入；在内存中规划每个候选；探测留出集的使用次数。本地测试核对了 dry-run 前后整库 digest 不变，并且 dry-run 不写结果文件。
+- **输出**：用 `s6_common` 的 `nexloop-s6-stage-result/1`。每个检查一行 JSON，同时以 0600 写进 results_dir，字段有 check、acceptance、release、executor、executed_at、dry_run、world、passed、blocked、steps。steps 的每一项是 `{name, expected, observed, passed, evidence}`。前提不满足时按 blocked 记录，`passed=null`，绝不算通过。输出经过 `Redactor` 脱敏：配置里的路径、租户、DSN 都替换成标记，不出现令牌和消息正文。
+- **退出码**：0 表示通过（dry-run 时表示没有 blocked）；1 表示失败或 blocked；2 表示输入被拒。
 
 ## 每个 AT 做什么
 
