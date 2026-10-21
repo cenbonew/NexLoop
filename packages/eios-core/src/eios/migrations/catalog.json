@@ -1437,9 +1437,9 @@
       "sha256": "bd78bb6363578680b830dde83f48137c870e7d18140b788540a2f39a5a0fe5dc"
     },
     {
-      "version": "0292",
-      "name": "0292_nx043_shadow_world.sql",
-      "sha256": "9fa5c9ebcc6db8a53e5384641a42dc0f9d5928c4f89eadb1c4c98aad2896ad61"
+      "version": "0288",
+      "name": "0288_nx043_shadow_world.sql",
+      "sha256": "773c5a0e517f3d743fc1fbcf3ade141662c219d3c55f1a3373159afdc7d77704"
     }
   ]
 }

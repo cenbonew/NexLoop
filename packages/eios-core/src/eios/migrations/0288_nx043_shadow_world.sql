@@ -20,13 +20,18 @@
 --    reply, otherwise none). Aggregate cells only: (shadow decision, real decision) with event and distinct-Consumer counts; a cell, and
 --    the agreement rate, is output only with at least runtime.nexloop_shadow_minimum_consumers() distinct Consumers (NX-042 D3: 30),
 --    otherwise suppressed and only counted. The report is frozen (append-only).
--- 5. Every table has a world column (shadow only) and leaves with its world (NX-041 S2 whole deletion); append-only otherwise.
+-- 5. The copies, decisions and reports have a world column (shadow only) and leave with their world (NX-041 S2 whole deletion);
+--    append-only otherwise. The switch ledger has none (its target is target_world): it never leaves with a world, and a world leaving
+--    active appends an off event (L6 X3 review 1.1) - after a deletion nothing copies to any world.
+-- 6. L6 X3 review fixes: a copy failure never fails the real message (an exception block is a savepoint: the copy is rolled back, the
+--    real insert goes on, runtime.nexloop_shadow_copy_failures counts it); only direction = inbound is copied (a message without a
+--    direction is not); report windows are whole UTC days and the side counts say only none / some.
 
 -- 1. Switch ------------------------------------------------------------------------------------------------------------------------------
 create table control.nexloop_shadow_copy_events (
  event_id bigint generated always as identity primary key,
  tenant_id text not null references control.nexloop_tenants(tenant_id),
- world text not null check(runtime.nexloop_world_kind(world)='shadow'),
+ target_world text not null check(runtime.nexloop_world_kind(target_world)='shadow'),
  enabled boolean not null,
  reason text not null check(char_length(reason) between 1 and 500),
  changed_by text not null check(char_length(changed_by) between 1 and 200),
@@ -34,6 +39,16 @@ create table control.nexloop_shadow_copy_events (
  recorded_at timestamptz not null default clock_timestamp(),
  unique(tenant_id,request_id));
 create index nexloop_shadow_copy_events_tenant on control.nexloop_shadow_copy_events(tenant_id,event_id);
+-- Copy failures, counted per tenant, hour and SQLSTATE (no message, no id): the real message was written anyway.
+create table runtime.nexloop_shadow_copy_failures (
+ tenant_id text not null references control.nexloop_tenants(tenant_id),failed_hour timestamptz not null,sqlstate text not null check(sqlstate~'^[0-9A-Z]{5}$'),
+ failures integer not null check(failures>=1),
+ primary key(tenant_id,failed_hour,sqlstate));
+alter table runtime.nexloop_shadow_copy_failures owner to nexloop_owner;
+alter table runtime.nexloop_shadow_copy_failures enable row level security;
+alter table runtime.nexloop_shadow_copy_failures force row level security;
+create policy tenant_boundary on runtime.nexloop_shadow_copy_failures to nexloop_owner using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
+revoke all on runtime.nexloop_shadow_copy_failures from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator,nexloop_metrics,nexloop_stand_in_worker,nexloop_twin_port,nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api;
 
 -- 2. Copies ------------------------------------------------------------------------------------------------------------------------------
 create table runtime.nexloop_shadow_events (
@@ -103,8 +118,8 @@ begin
  perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
  select * into e from control.nexloop_shadow_copy_events where tenant_id=p_tenant order by event_id desc limit 1;
  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
- if not found or not e.enabled or control.nexloop_sim_world_status(p_tenant,e.world) is distinct from 'active' then return null;end if;
- return e.world;
+ if not found or not e.enabled or control.nexloop_sim_world_status(p_tenant,e.target_world) is distinct from 'active' then return null;end if;
+ return e.target_world;
 end $$;
 alter function runtime.nexloop_shadow_copy_target(text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_shadow_copy_target(text) from public;
@@ -115,19 +130,59 @@ $$;
 alter function runtime.nexloop_shadow_event_key(text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_shadow_event_key(text,text) from public;
 
+-- A copy failure, counted (never raised: the counter itself is in its own savepoint).
+create function runtime.nexloop_shadow_copy_failed(p_tenant text,p_sqlstate text) returns void
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v_prior text:=current_setting('eios.tenant_id',true);
+begin
+ begin
+  perform set_config('eios.tenant_id',p_tenant,true);
+  insert into runtime.nexloop_shadow_copy_failures(tenant_id,failed_hour,sqlstate,failures) values(p_tenant,date_trunc('hour',clock_timestamp()),coalesce(p_sqlstate,'XX000'),1)
+   on conflict(tenant_id,failed_hour,sqlstate) do update set failures=runtime.nexloop_shadow_copy_failures.failures+1;
+ exception when others then null;  -- the counter is best effort; the real write must go on
+ end;
+ perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
+end $$;
+alter function runtime.nexloop_shadow_copy_failed(text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_shadow_copy_failed(text,text) from public;
+
+-- A shadow world leaving active (deleting, deleted) appends an off event for every tenant whose switch points at it (L6 review 1.1).
+create function runtime.nexloop_shadow_world_left() returns trigger
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare e control.nexloop_shadow_copy_events;v_prior text:=current_setting('eios.tenant_id',true);
+begin
+ if runtime.nexloop_world_kind(new.world) is distinct from 'shadow' or old.status<>'active' or new.status='active' then return null;end if;
+ perform set_config('eios.tenant_id',new.tenant_id,true);
+ select * into e from control.nexloop_shadow_copy_events where tenant_id=new.tenant_id order by event_id desc limit 1;
+ if found and e.enabled and e.target_world=new.world then
+  insert into control.nexloop_shadow_copy_events(tenant_id,target_world,enabled,reason,changed_by,request_id)
+   values(new.tenant_id,new.world,false,'shadow world '||new.status,'system:sim_world_'||new.status,'world-left:'||new.world||':'||new.status);
+ end if;
+ perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
+ return null;
+end $$;
+alter function runtime.nexloop_shadow_world_left() owner to nexloop_owner;
+revoke all on function runtime.nexloop_shadow_world_left() from public;
+create trigger nx043_shadow_world_left after update of status on control.nexloop_sim_worlds for each row execute function runtime.nexloop_shadow_world_left();
+
 -- 2. The copy (real inbound messages and their Claims, while the switch is on) -------------------------------------------------------
 create function runtime.nexloop_shadow_copy_message() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_world text;v_prior text:=current_setting('eios.tenant_id',true);
 begin
- if new.world<>'real' or coalesce(new.record->>'direction','inbound')<>'inbound' then return null;end if;
- v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
- if v_world is null then return null;end if;  -- D7: off by default
- perform set_config('eios.tenant_id',new.tenant_id,true);
- insert into runtime.nexloop_shadow_events(tenant_id,world,event_key,content_hash,copied_hour)
-  values(new.tenant_id,v_world,runtime.nexloop_shadow_event_key(v_world,new.message_id),
-   encode(sha256(convert_to(v_world||'|'||new.payload_digest,'UTF8')),'hex'),date_trunc('hour',clock_timestamp()))
-  on conflict do nothing;
+ -- Only an explicitly inbound real message (L6 review 1.3: no direction is not inbound).
+ if new.world<>'real' or new.record->>'direction' is distinct from 'inbound' then return null;end if;
+ begin  -- a savepoint: whatever fails in the copy is rolled back here and never fails the real message (L6 review 1.2)
+  v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
+  if v_world is null then return null;end if;  -- D7: off by default
+  perform set_config('eios.tenant_id',new.tenant_id,true);
+  insert into runtime.nexloop_shadow_events(tenant_id,world,event_key,content_hash,copied_hour)
+   values(new.tenant_id,v_world,runtime.nexloop_shadow_event_key(v_world,new.message_id),
+    encode(sha256(convert_to(v_world||'|'||new.payload_digest,'UTF8')),'hex'),date_trunc('hour',clock_timestamp()))
+   on conflict do nothing;
+ exception when others then
+  perform runtime.nexloop_shadow_copy_failed(new.tenant_id,sqlstate);
+ end;
  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
  return null;
 end $$;
@@ -140,14 +195,18 @@ create function runtime.nexloop_shadow_copy_claim() returns trigger
 declare v_world text;v_key text;v_prior text:=current_setting('eios.tenant_id',true);
 begin
  if new.world<>'real' or new.source_message_id is null then return null;end if;
- v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
- if v_world is null then return null;end if;
- v_key:=runtime.nexloop_shadow_event_key(v_world,new.source_message_id);
- perform set_config('eios.tenant_id',new.tenant_id,true);
- insert into runtime.nexloop_shadow_event_claims(tenant_id,world,event_key,claim_type)
-  select new.tenant_id,v_world,v_key,new.epistemic_kind
-  where exists(select 1 from runtime.nexloop_shadow_events e where e.tenant_id=new.tenant_id and e.world=v_world and e.event_key=v_key)
-  on conflict do nothing;
+ begin  -- a savepoint, as for the message: the real Claim is written whatever happens to the copy
+  v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
+  if v_world is null then return null;end if;
+  v_key:=runtime.nexloop_shadow_event_key(v_world,new.source_message_id);
+  perform set_config('eios.tenant_id',new.tenant_id,true);
+  insert into runtime.nexloop_shadow_event_claims(tenant_id,world,event_key,claim_type)
+   select new.tenant_id,v_world,v_key,new.epistemic_kind
+   where exists(select 1 from runtime.nexloop_shadow_events e where e.tenant_id=new.tenant_id and e.world=v_world and e.event_key=v_key)
+   on conflict do nothing;
+ exception when others then
+  perform runtime.nexloop_shadow_copy_failed(new.tenant_id,sqlstate);
+ end;
  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
  return null;
 end $$;
@@ -170,17 +229,17 @@ begin
  perform pg_advisory_xact_lock(hashtextextended('nexloop:shadow-copy:'||p_tenant,0));
  select * into e from control.nexloop_shadow_copy_events where tenant_id=p_tenant and request_id=body->>'request_id';
  if found then
-  if (e.world,e.enabled) is distinct from (body->>'world',(body->>'enabled')::boolean) then raise exception 'shadow copy: request_reused' using errcode='22023';end if;
-  return jsonb_build_object('world',e.world,'enabled',e.enabled,'changed',false);
+  if (e.target_world,e.enabled) is distinct from (body->>'world',(body->>'enabled')::boolean) then raise exception 'shadow copy: request_reused' using errcode='22023';end if;
+  return jsonb_build_object('world',e.target_world,'enabled',e.enabled,'changed',false);
  end if;
  if (body->>'enabled')::boolean and control.nexloop_sim_world_status(p_tenant,body->>'world') is distinct from 'active' then
   raise exception 'shadow copy: world_not_active' using errcode='22023';end if;
- insert into control.nexloop_shadow_copy_events(tenant_id,world,enabled,reason,changed_by,request_id)
+ insert into control.nexloop_shadow_copy_events(tenant_id,target_world,enabled,reason,changed_by,request_id)
   values(p_tenant,body->>'world',(body->>'enabled')::boolean,btrim(body->>'reason'),p_principal,body->>'request_id') returning * into e;
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
   values('shadow-copy:'||e.event_id||':'||md5(p_tenant),'nexloop.shadow_copy.set',p_tenant,p_principal,'shadow_copy',p_intent,
-   jsonb_build_object('world',e.world,'enabled',e.enabled),clock_timestamp());
- return jsonb_build_object('world',e.world,'enabled',e.enabled,'changed',true);
+   jsonb_build_object('world',e.target_world,'enabled',e.enabled),clock_timestamp());
+ return jsonb_build_object('world',e.target_world,'enabled',e.enabled,'changed',true);
 end $$;
 alter function control.nexloop_governed_set_shadow_copy(text,text,text,text,text,jsonb) owner to nexloop_owner;
 revoke all on function control.nexloop_governed_set_shadow_copy(text,text,text,text,text,jsonb) from public;
@@ -246,6 +305,9 @@ begin
  if coalesce(runtime.nexloop_world_kind(p_world),'')<>'shadow' or control.nexloop_sim_world_status(p_tenant,p_world) is null then
   raise exception 'shadow report: world_unknown' using errcode='22023';end if;
  if p_since is null or p_until is null or p_since>=p_until or coalesce(p_by,'')='' then raise exception 'shadow report: invalid' using errcode='22023';end if;
+ -- L6 review 4.1 (as NX-042 T5): whole UTC days only, so two reports cannot differ by one hour's events; a window answers once (frozen).
+ if p_since<>date_trunc('day',p_since at time zone 'UTC') at time zone 'UTC' or p_until<>date_trunc('day',p_until at time zone 'UTC') at time zone 'UTC' then
+  raise exception 'shadow report: window_not_on_grid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  with dec as (
    select d.decision shadow,e.event_key from runtime.nexloop_shadow_decisions d join runtime.nexloop_shadow_events e
@@ -257,7 +319,7 @@ begin
     case when (select coalesce(n.record->>'direction','inbound') from runtime.nexloop_conversation_messages n where n.tenant_id=m.tenant_id and n.world=m.world
       and n.conversation_id=m.conversation_id and n.sequence>m.sequence order by n.sequence limit 1)='outbound' then 'reply' else 'none' end real
    from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id
-   where m.tenant_id=p_tenant and m.world='real' and coalesce(m.record->>'direction','inbound')='inbound'),
+   where m.tenant_id=p_tenant and m.world='real' and m.record->>'direction'='inbound'),
   joined as (select dec.shadow,i.real,i.consumer_id from dec join inbound i on i.event_key=dec.event_key),
   cells as (select shadow,real,count(*) events,count(distinct consumer_id) consumers from joined group by shadow,real)
  select jsonb_build_object(
@@ -266,11 +328,11 @@ begin
    'conclusion_scope','observed in the shadow world only; not a real effect, not a causal estimate',
    'cells',coalesce((select jsonb_agg(jsonb_build_object('shadow',shadow,'real',real,'events',events,'consumers',consumers) order by shadow,real)
      from cells where consumers>=v_min),'[]'::jsonb),
-   'suppressed_cells',(select count(*) from cells where consumers<v_min),
+   'suppressed_cells',case when exists(select 1 from cells where consumers<v_min) then 'some' else 'none' end,
    'total',case when (select count(distinct consumer_id) from joined)>=v_min then jsonb_build_object('events',(select count(*) from joined),
      'consumers',(select count(distinct consumer_id) from joined),
      'agreement_rate',round((select count(*) filter (where shadow=real)::numeric/nullif(count(*),0) from joined),4)) else null end,
-   'unmatched_events',(select count(*) from dec where not exists(select 1 from inbound i where i.event_key=dec.event_key))) into v_report;
+   'unmatched_events',case when exists(select 1 from dec where not exists(select 1 from inbound i where i.event_key=dec.event_key)) then 'some' else 'none' end) into v_report;
  v_id:=md5(p_world||'|'||p_strategy||'|'||p_version||'|'||p_since::text||'|'||p_until::text)::uuid;
  select * into r from runtime.nexloop_shadow_reports where tenant_id=p_tenant and world=p_world and report_id=v_id;
  if not found then

@@ -95,7 +95,8 @@ def x3(admin, pg):
 
 
 def rows(admin, world=None):
-    return {t: admin.execute(f'select count(*) from {t}' + (' where world=%s' if world else ''), ((world,) if world else ())).fetchone()[0] for t in TABLES}
+    col = lambda t: 'target_world' if t == 'control.nexloop_shadow_copy_events' else 'world'  # noqa: E731 - the switch ledger has no world column
+    return {t: admin.execute(f'select count(*) from {t}' + (f' where {col(t)}=%s' if world else ''), ((world,) if world else ())).fetchone()[0] for t in TABLES}
 
 
 def decide(f, event_key, decision, *, world=None, token=None, role='nexloop_sim_worker', strategy_version=1):
@@ -199,11 +200,12 @@ def test_the_difference_report_is_aggregate_suppressed_under_30_and_frozen(x3):
         conv, msg = inbound(admin, consumer, reply=i < 32)
         ids += [consumer, conv, msg]
         decide(f, key(f['shadow'], msg), 'reply')
-    since, until = datetime.now(UTC) - timedelta(hours=2), datetime.now(UTC) + timedelta(hours=1)
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    since, until = today, today + timedelta(days=1)  # whole UTC days (L6 review 4.1)
     report = admin.execute('select runtime.nexloop_shadow_report_freeze(%s,%s,%s,%s,%s,%s,%s)',
                            (TENANT_A, f['shadow'], 'followup.later', 1, since, until, 'owner-principal')).fetchone()[0]
     assert report['cells'] == [{'shadow': 'reply', 'real': 'reply', 'events': 32, 'consumers': 32}]
-    assert report['suppressed_cells'] == 1  # (reply, none): 8 Consumers < 30, not output
+    assert report['suppressed_cells'] == 'some'  # (reply, none): 8 Consumers < 30, not output, not even counted
     assert report['total'] == {'events': 40, 'consumers': 40, 'agreement_rate': 0.8} and report['minimum_consumers'] == 30
     assert report['data_mode'] == 'simulation' and 'not a causal estimate' in report['conclusion_scope'] and report['frozen'] is True
     text = json.dumps(report, ensure_ascii=False)
@@ -221,7 +223,7 @@ def test_the_difference_report_is_aggregate_suppressed_under_30_and_frozen(x3):
         decide(f, key(small, inbound(admin, sha(f'c-small-{i}'), reply=True)[1]), 'reply', world=small, token=small_worker)
     tiny = admin.execute('select runtime.nexloop_shadow_report_freeze(%s,%s,%s,%s,%s,%s,%s)',
                          (TENANT_A, small, 'followup.later', 1, since, until, 'owner-principal')).fetchone()[0]
-    assert (tiny['cells'], tiny['suppressed_cells'], tiny['total']) == ([], 1, None)
+    assert (tiny['cells'], tiny['suppressed_cells'], tiny['total'], tiny['unmatched_events']) == ([], 'some', None, 'none')
     for r in ('nexloop_api', 'nexloop_metrics', 'nexloop_sim_worker'):
         assert not admin.execute("select has_function_privilege(%s,'runtime.nexloop_shadow_report_freeze(text,text,text,integer,timestamptz,timestamptz,text)','execute')", (r,)).fetchone()[0]
 
@@ -233,9 +235,10 @@ def test_deleting_the_shadow_world_leaves_nothing_and_stops_the_copy(x3):
     conv, msg = inbound(admin, sha('c-del'), reply=True)
     claim(admin, conv, sha('c-del'), msg)
     decide(f, key(f['shadow'], msg), 'outreach')
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     admin.execute('select runtime.nexloop_shadow_report_freeze(%s,%s,%s,%s,%s,%s,%s)', (TENANT_A, f['shadow'], 'followup.later', 1,
-                  datetime.now(UTC) - timedelta(hours=1), datetime.now(UTC) + timedelta(hours=1), 'owner-principal'))
-    assert all(rows(admin, f['shadow']).values())
+                  today, today + timedelta(days=1), 'owner-principal'))
+    assert all(v for t, v in rows(admin, f['shadow']).items() if t != 'control.nexloop_shadow_copy_events')
     result = governed(admin, 'nexloop_governed_delete_sim_world', {'operation': 'delete_sim_world', 'request_id': uuid.uuid4().hex, 'world': f['shadow'],
                                                                    'reason': '影子实验结束'})
     for _ in range(10):
@@ -243,9 +246,71 @@ def test_deleting_the_shadow_world_leaves_nothing_and_stops_the_copy(x3):
             break
         result = admin.execute('select runtime.nexloop_sim_world_purge(%s,%s,1000)', (TENANT_A, f['shadow'])).fetchone()[0]
     assert result['status'] == 'deleted' and result['blocked'] == {}, result
-    assert rows(admin, f['shadow']) == dict.fromkeys(TABLES, 0)
+    assert {t: v for t, v in rows(admin, f['shadow']).items() if t != 'control.nexloop_shadow_copy_events'} == dict.fromkeys(TABLES[1:], 0)
     assert admin.execute('select count(*) from runtime.nexloop_sim_effect_intents where world=%s', (f['shadow'],)).fetchone()[0] == 0
     # The switch pointed at the deleted world: no copy any more.
     assert admin.execute('select runtime.nexloop_shadow_copy_target(%s)', (TENANT_A,)).fetchone()[0] is None
     inbound(admin, sha('c-after'))
     assert rows(admin)['runtime.nexloop_shadow_events'] == 0
+
+
+def test_deleting_the_target_never_falls_back_to_an_older_world(x3):
+    """L6 X3 review 1.1: on A, then on B, then B deleted - the copy goes nowhere (the switch ledger stays and an off event is appended)."""
+    f = x3
+    admin = f['admin']
+    a, b = f['other'], f['shadow']
+    switch(admin, a, True)
+    switch(admin, b, True)
+    inbound(admin, sha('c-before'))
+    assert rows(admin, b)['runtime.nexloop_shadow_events'] == 1 and rows(admin, a)['runtime.nexloop_shadow_events'] == 0
+    governed(admin, 'nexloop_governed_delete_sim_world', {'operation': 'delete_sim_world', 'request_id': uuid.uuid4().hex, 'world': b, 'reason': '影子实验结束'})
+    for _ in range(10):
+        if admin.execute('select status from control.nexloop_sim_worlds where world=%s', (b,)).fetchone()[0] == 'deleted':
+            break
+        admin.execute('select runtime.nexloop_sim_world_purge(%s,%s,1000)', (TENANT_A, b))
+    ledger = admin.execute('select target_world,enabled,changed_by from control.nexloop_shadow_copy_events order by event_id').fetchall()
+    assert [(w, e) for w, e, _ in ledger] == [(a, True), (b, True), (b, False)] and ledger[-1][2].startswith('system:sim_world_')
+    assert admin.execute('select runtime.nexloop_shadow_copy_target(%s)', (TENANT_A,)).fetchone()[0] is None
+    inbound(admin, sha('c-after-b'))
+    assert rows(admin, a)['runtime.nexloop_shadow_events'] == 0  # never silently back to A
+    assert admin.execute("select count(*) from information_schema.columns where table_schema='control' and table_name='nexloop_shadow_copy_events' and column_name='world'").fetchone()[0] == 0
+
+
+def test_a_failing_copy_never_fails_the_real_message(x3):
+    """L6 X3 review 1.2: the copy runs in a savepoint; a failure is counted and the real message (and Claim) are written."""
+    f = x3
+    admin = f['admin']
+    switch(admin, f['shadow'], True)
+    admin.execute("""create function pg_temp.boom() returns trigger language plpgsql as $$begin raise exception 'synthetic copy failure' using errcode='P0001';end $$""")
+    admin.execute('create trigger zz_boom before insert on runtime.nexloop_shadow_events for each row execute function pg_temp.boom()')
+    try:
+        consumer = sha('c-boom')
+        conv, msg = inbound(admin, consumer)
+        claim(admin, conv, consumer, msg)
+        assert admin.execute('select count(*) from runtime.nexloop_conversation_messages where message_id=%s', (msg,)).fetchone()[0] == 1  # written
+        assert admin.execute('select count(*) from ontology.nexloop_claims where source_message_id=%s', (msg,)).fetchone()[0] == 1
+        assert rows(admin)['runtime.nexloop_shadow_events'] == 0
+        assert admin.execute("select sqlstate,failures from runtime.nexloop_shadow_copy_failures").fetchall() == [('P0001', 1)]
+    finally:
+        admin.execute('drop trigger zz_boom on runtime.nexloop_shadow_events')
+    inbound(admin, sha('c-after-boom'))
+    assert rows(admin)['runtime.nexloop_shadow_events'] == 1  # copying again once the failure is gone
+
+
+def test_a_message_without_a_direction_is_not_copied_and_report_windows_are_whole_days(x3):
+    """L6 X3 review 1.3 and 4.1."""
+    f = x3
+    admin = f['admin']
+    switch(admin, f['shadow'], True)
+    conv = 'cv-' + uuid.uuid4().hex
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) values(%s,'real',%s,%s,'p',%s)",
+                      (TENANT_A, conv, sha('c-nodir'), conv))
+        admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
+            values(%s,'real',%s,1,%s,'k1',%s,'{}')""", (TENANT_A, conv, sha('m-nodir'), sha('x')))
+    assert rows(admin)['runtime.nexloop_shadow_events'] == 0
+    now = datetime.now(UTC)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='window_not_on_grid'):
+        admin.execute('select runtime.nexloop_shadow_report_freeze(%s,%s,%s,%s,%s,%s,%s)',
+                      (TENANT_A, f['shadow'], 'followup.later', 1, now - timedelta(hours=1), now, 'owner-principal'))

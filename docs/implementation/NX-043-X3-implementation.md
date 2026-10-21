@@ -2,7 +2,7 @@
 
 - **依据**：NX-043 设计稿 §2、§4、§6、§8、§9 和 D7；NX-041 D7、S2（世界登记与整体删除）、S4（Action 替身）。
 - **起点**：L5 的 `l5/nx043-x1`（c11313b9）。
-- **迁移**：`0292_nx043_shadow_world.sql`，临时编号，接在 X1 的 0291 后面。临时编号前面有空号，所以 `test_bootstrap.py` 的计数断言在重排之前会失败，这与 X1 的情况相同。
+- **迁移**：`0288_nx043_shadow_world.sql`（集成时由临时编号 0292 重排，接在 0287 之后）。临时编号前面有空号，所以 `test_bootstrap.py` 的计数断言在重排之前会失败，这与 X1 的情况相同。
 - **契约**：没有新增契约。报告用 `schema: nexloop-shadow-report/1` 自描述；正式契约等 X6 的报告切片统一处理。
 
 ## 1. 复制开关（D7，默认关闭）
@@ -73,3 +73,15 @@
 - 影子决策：reply 只记录；outreach 走替身，得到模拟回执；重放；`decision_reused`、`event_unknown`、`strategy_not_published`；real、test、其他世界、其他角色都被拒；real 外发入口和效应表的 CHECK 都拒绝 shadow；real 效应表行数不变。
 - 报告：40 个 Consumer 中 32 个在 real 被回复。(reply, reply) 这一格有 32 个 Consumer，输出；(reply, none) 只有 8 个，被抑制；总计的一致率为 0.8。报告里没有任何 id；冻结后不能修改，重复调用得到同一 digest。总数不足 30 的世界，单元格和总计都不输出。
 - 删除 shadow 世界：五张表和替身意图零残留，之后不再复制。
+
+## L6 审查修复（`nx043-x3-review.md`）
+
+| 编号 | 处理 |
+| --- | --- |
+| 1.1 确认：删除目标 world 后，复制悄悄回到旧 world | 两项都做了：(1) 开关账本改名为 `target_world`，不再有 world 列，因此不是 S2 整体删除的目标，不会随 world 一起删除；(2) 在 `control.nexloop_sim_worlds` 上加触发器 `nx043_shadow_world_left`：shadow 世界离开 active（deleting 或 deleted）时，如果租户最新的开关事件正指向它并且是开启的，就自动追加一条关闭事件（`changed_by` 为 `system:sim_world_<状态>`）。补了负例：先开 A、再开 B、删除 B。账本依次是 A 开、B 开、B 关，`copy_target` 返回 null，之后的入站消息不会复制到 A。 |
+| 1.2 复制失败连带真实消息写入失败 | 选用 **savepoint**，不用 outbox。理由：D7 要求实时复制；用 outbox 要多一个后台复制进程，还要处理积压和顺序。PL/pgSQL 的 `begin … exception` 本身就是一个 savepoint：复制里出任何错，只回滚复制这部分，真实消息照常写入。失败按（租户、整点、SQLSTATE）计数写入 `runtime.nexloop_shadow_copy_failures`，只记计数，不记消息或 id；计数本身也放在一个 savepoint 里，尽力而为。Claim 的复制触发器做了同样处理。补了测试：用一个会报错的触发器让复制失败，真实消息和 Claim 都写入了，失败计数为 1；拿掉这个触发器后复制恢复。 |
+| 1.3 缺少 direction 的消息被当成 inbound | 只复制 `direction = 'inbound'` 的消息；缺少 direction 的消息不复制。报告里 real 入站消息的判定也改成同一规则。补了测试。 |
+| 4.1 多份报告可以做差分 | 按 NX-042 T5 的做法：报告窗口只能是整 UTC 天，否则报 `window_not_on_grid`；同一窗口只出一份（冻结，重复调用返回同一份）。少于 30 个 Consumer 的格子既不输出，也不给具体数：`suppressed_cells` 只写 `none` 或 `some`。 |
+| 4.2 两个附带计数没有设门槛 | `suppressed_cells` 和 `unmatched_events` 都只写 `none` 或 `some`。 |
+| 4.3 报告没有受治理入口 | 这次没做，调度员的修复清单里没有这一项。报告函数仍然只有 owner 能调用；如果需要，由 X6 或后续切片包装成 owner 专用的受治理 Action。 |
+| 合并 | X3 和 X4 都用了 0292 这个临时编号，集成时要重排。 |
