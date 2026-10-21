@@ -6,6 +6,8 @@ formats as the S6 stage scripts (scripts/acceptance/s6_common.py; result schema 
 Two phases, because the world's credentials, DSN files and the compose project (NEXLOOP_SIM_WORLD) come in between:
 
     at046_stage.py prepare --config PRIVATE.json [--dry-run]     (owner password from stdin)
+    at046_stage.py publish-twin --config PRIVATE.json             only the synthetic twin (inputs.publish_twin), no world created
+    at046_stage.py cleanup --config PRIVATE.json                  after the acceptance: retire the synthetic twin (inputs.twin)
         owner workbench: create_sim_world, generate_sim_world_data, publish_sim_catalog (the world's Action catalog: the real Actions
         with a stand-in, 0294) -> the world id (into the result's evidence)
     # dispatcher: sim_world_credentials.py (api, worker, agent[, twin]), sim_dsn_files.py, compose --profile simulation up -d
@@ -109,6 +111,8 @@ def real_digest(ports, tenant):
 
 def prepare(ports, config, r):
     inputs = config.get('inputs') or {}
+    if 'publish_twin' in inputs:
+        twin_definition(inputs)  # a bad publish_twin is refused before anything is created (no empty world)
     key = 'at046-' + uuid.uuid4().hex[:24]
     status, out = ports.act('create_sim_world', {'kind': 'simulation', 'purpose': inputs.get('world_purpose') or 'AT-046 stage acceptance (synthetic)',
                                                  'expires_in_days': 7}, key + '-w')
@@ -131,22 +135,46 @@ def prepare(ports, config, r):
     # twin of the contract example (generator twin-template/1: no model, D6) through the owner's governed Action publish_consumer_twin;
     # its twin_id and version go into the run phase's inputs.twin. A twin is the tenant's (not the world's); publishing is idempotent
     # per request id, so a rerun of prepare publishes no second version.
-    twin = inputs.get('publish_twin')
-    if twin:
-        definition = {k: v for k, v in json.loads(TWIN_EXAMPLE.read_text()).items() if k != 'frozen'}
-        # L6 batch-12 review 4.1: the twin is the tenant's, so it carries an unmistakable prefix and is retired after the acceptance
-        # (cleanup). Real experiments never pick a twin themselves: a registration names one, and a non-online stage needs it calibrated.
-        definition['twin_id'] = (twin.get('twin_id') if isinstance(twin, dict) and twin.get('twin_id') else SYNTHETIC_TWIN + 'trial')
-        if not definition['twin_id'].startswith(SYNTHETIC_TWIN):
-            raise Refused(f'inputs.publish_twin.twin_id: {SYNTHETIC_TWIN}<name> (the synthetic twin of the acceptance)')
-        # The Idempotency-Key is the governed request id (workbench_actions_http): one per definition, so a rerun replays.
-        request = 'at046-twin-' + hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()[:32]
-        status, out = ports.act('publish_consumer_twin', {'definition': definition}, request)
-        r.step('twin_published', 'a published consumer twin without a model (inputs.twin of the run phase: twin_id, version)',
-               {'status': status, 'twin_id': out.get('twin_id') if isinstance(out, dict) else None, 'version': out.get('version') if isinstance(out, dict) else None,
-                'twin_status': out.get('status') if isinstance(out, dict) else None},
-               status == 200 and isinstance(out, dict) and out.get('status') == 'published')
+    if 'publish_twin' in inputs:  # the key enables it ({} and true included: dispatcher 2026-10-22)
+        publish_twin(ports, config, r, key)
 
+
+def twin_definition(inputs):
+    """The synthetic twin's definition: the contract example, its twin_id with the prefix (inputs.publish_twin: true, {} or {"twin_id"})."""
+    twin = inputs.get('publish_twin')
+    if twin is not True and not isinstance(twin, dict):
+        raise Refused('inputs.publish_twin: true, {} or {"twin_id": "at046-synthetic-<name>"}')
+    definition = {k: v for k, v in json.loads(TWIN_EXAMPLE.read_text()).items() if k != 'frozen'}
+    # L6 batch-12 review 4.1: the twin is the tenant's, so it carries an unmistakable prefix and is retired after the acceptance
+    # (cleanup). Real experiments never pick a twin themselves: a registration names one, and a non-online stage needs it calibrated.
+    definition['twin_id'] = twin.get('twin_id') if isinstance(twin, dict) and twin.get('twin_id') else SYNTHETIC_TWIN + 'trial'
+    if not isinstance(definition['twin_id'], str) or not definition['twin_id'].startswith(SYNTHETIC_TWIN):
+        raise Refused(f'inputs.publish_twin.twin_id: {SYNTHETIC_TWIN}<name> (the synthetic twin of the acceptance)')
+    return definition
+
+
+def publish_twin(ports, config, r, prior=None):
+    """The owner publishes the synthetic consumer twin (also alone: the publish-twin phase - no world is created; a twin is the
+    tenant's). Stage finding 2026-10-22: the workbench entry refused the body with 422 - its form fields are exactly definition and
+    calibration_report_ref (the key set must match: workbench_actions_http.OPERATIONS), and the body named definition only."""
+    definition = twin_definition(config.get('inputs') or {})
+    # The Idempotency-Key is the governed request id (workbench_actions_http): one per definition, so a rerun replays.
+    request = 'at046-twin-' + hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()[:32]
+    status, out = ports.act('publish_consumer_twin', twin_publish_body(definition), request)
+    out = out if isinstance(out, dict) else {}
+    if status == 200 and out.get('replayed') is True:
+        # A rerun with the same definition replays the first publish (the workbench answers outcome_id and replayed only): the same
+        # twin and version as then - its version is in the first publish's result (the workbench has no twin read).
+        r.step('twin_published', 'a published consumer twin without a model (replayed: twin_id and version as in the first publish result)',
+               {'status': status, 'twin_id': definition['twin_id'], 'version': None, 'twin_status': 'published', 'replayed': True}, True)
+        return
+    r.step('twin_published', 'a published consumer twin without a model (inputs.twin of the run phase: twin_id, version)',
+           {'status': status, 'twin_id': out.get('twin_id'), 'version': out.get('version'), 'twin_status': out.get('status')},
+           status == 200 and out.get('status') == 'published')
+
+
+def twin_publish_body(definition):
+    return {'definition': definition, 'calibration_report_ref': None}  # every field of the workbench form, none extra
 
 def cleanup(ports, config, r, prior=None):
     """After the acceptance (L6 batch-12 review 4.1): retire the synthetic twin prepare published (inputs.twin: twin_id, version), through
@@ -372,6 +400,7 @@ PLAN = {'probe-before': ['probe (read only, DATA_HOST socket): world-real row di
         'probe-after': ['probe (read only, DATA_HOST socket): task status until it ends, the Run credential world, the world credentials, digests again'],
         'merge': ['no connection: the three result documents (--from) combined into at046-run'],
         'cleanup': ['owner workbench: retire_consumer_twin (the synthetic twin of inputs.twin)'],
+        'publish-twin': ['owner workbench: publish_consumer_twin (the synthetic twin only; no world is created)'],
         'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog',
                     'owner workbench: publish_consumer_twin (only with inputs.publish_twin)'],
         'run': ['probe (read only): world-real row digests', 'twin port: bind, observe, act (when present)',
@@ -421,7 +450,7 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             return result.write(out)
         owner = None
         if ports is None:
-            password = (stdin or sys.stdin).readline().rstrip('\n') if args.phase in ('prepare', 'cleanup') and (config.get('owner') or {}).get('origin') else None
+            password = (stdin or sys.stdin).readline().rstrip('\n') if args.phase in ('prepare', 'cleanup', 'publish-twin') and (config.get('owner') or {}).get('origin') else None
             ports = ports_from(config, password)
             owner = ports.owner
         try:
@@ -429,6 +458,8 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
                 prepare(ports, config, result)
             elif args.phase == 'cleanup':
                 cleanup(ports, config, result)
+            elif args.phase == 'publish-twin':
+                publish_twin(ports, config, result)
             else:
                 PHASES[args.phase](ports, config, result, prior)
         except Blocked as error:

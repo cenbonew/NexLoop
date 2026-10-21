@@ -68,3 +68,60 @@
 
 - **X1 的“像真实内容”检查会拒绝带编号的假设文本**，比如 `NX-043` 会被当成会员号（字母-3 位以上数字）。工具里的假设文本因此不写编号，生成的 id 也只用字母。owner 自己写登记时也要避开这类写法，建议在工作台的提示里说明。
 - **`allocation_seed` 不能超过 2147483647**，工具里取哈希的前 7 位十六进制。
+
+## stage 执行单（release 32，调度员 2026-10-22）
+
+对齐的 stage 现状：
+- 模拟进程组已启用，4 个服务在运行；
+- 已有一个 sim world（3 个合成 Consumer，替身 Action 目录已发布）；
+- 真实外发三层开关全开（租户层、enterprise.deliver、outreach.send）；
+- online 已放开（0309）。
+
+**real 外发是开着的。** online 段里候选组的外联会**真实执行**。目前只会落到参考企业端点这个替身，以及合成 webchat。所以收尾时必须停止实验，并确认没有在途的外发（第 O4、O5 步）。
+
+### 主机、角色和配置
+
+| 位置 | 配置文件 | 角色 | 连接 |
+|---|---|---|---|
+| 调度员机器 | `PRIVATE.json` | owner：`owner {origin, ca_file, username_file}`，口令从 Keychain 经 stdin 传入 | 工作台 HTTPS |
+| DATA_HOST | `DATA.json` | `inspector` 和 `probe`：bootstrap DSN，`default_transaction_read_only=on` | 本机 socket（local pg_hba），只读；脚本连接后再设一次只读并 `show` 核对，不是只读就拒绝（L6 复核 1.1） |
+| APP_HOST | `APP.json` | `sim_worker {dsn_file, token_file}`：shadow world 的 worker 凭据 | hostssl |
+
+- 三份配置的 `tenant_id`、`inputs`、`results_dir` 相同。
+- `inputs.screening.world` 填已有的 sim world，`inputs.screening.twin` 填它的孪生版本。
+- 私有状态文件 `results_dir/nx043-state.json`（0600，只有 id）由 owner 阶段写出。每次 owner 阶段之后，调度员把它拷到 DATA_HOST 和 APP_HOST。
+- key 文件 `nx043-shadow-keys.json` 由 DATA_HOST 拷到 APP_HOST。
+- 各步结果（JSON）汇总到调度员机器，用于 merge。
+
+### 顺序约束
+
+1. **整个 X7 都排在 AT-046 的 `probe-after` 之后。** X7 第 S3 步注入的 real 入站流量会改变 real 侧数据，AT-046 的 real 摘要比较会把它当成变化。
+2. **online 段（O1–O5）排在 X7 的 `probe-after`（S8）之后。** online 会写 real 侧的分配、外联和审计。
+3. **O1 之前，就绪检查 R1 必须全部 ready。** 只有 `real_dispatch_state` 是信息项：它报告 open 或 closed，不构成阻塞。
+
+### 步骤
+
+| 步 | 主机 | 角色/连接 | 命令 | 产出 |
+|---|---|---|---|---|
+| R1 | DATA_HOST | inspector，socket 只读 | `nx043_stage.py readiness --config DATA.json` | `nx043-readiness`：sim world、screening 孪生未校准、两个策略可发布、shadow 复制关、real 入站分配触发器、real 派发层状态、无冲突实验，每项 ready 或 blocked 加原因 |
+| S1 | 调度员机器 | owner，HTTPS | `security find-generic-password … -w \| nx043_stage.py prepare --config PRIVATE.json` | shadow world、两个策略版本、shadow（和 screening）登记；私有状态文件 |
+| S2 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py run --config PRIVATE.json` | screening 被拒 `twin_not_calibrated`；shadow 开始；影子复制打开 |
+| S3 | 调度员机器 | 合成 webchat | 由调度员注入 real 入站流量（合成 Consumer） | 拷贝到 shadow world 的事件 |
+| S4 | DATA_HOST | probe，socket 只读 | `nx043_stage.py probe-before --config DATA.json` | 等 real 侧安静，取 real 摘要和开关摘要 |
+| S5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py shadow-keys --config DATA.json` | key 文件（拷到 APP_HOST） |
+| S6 | APP_HOST | sim_worker，hostssl | `nx043_stage.py decide --config APP.json` | 影子决策，只记录 |
+| S7 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py report --config PRIVATE.json` | 影子报告（昨天）、实验结果；影子复制关闭 |
+| S8 | DATA_HOST | probe，socket 只读 | 等 `ends_in_minutes` 之后：`nx043_stage.py probe-after --config DATA.json --from S4 --from S5 --from S6` | 护栏停止、决策落库、real 摘要不变 |
+| S9 | 调度员机器 | 无连接 | `nx043_stage.py merge --config PRIVATE.json --from S4 --from S5 --from S6 --from S8` | `nx043-shadow` |
+| O1 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py online --config PRIVATE.json` | world real 的 online 实验，登记并开始；状态文件里记下开始时间（拷到 DATA_HOST） |
+| O2 | 调度员机器 | 合成 webchat | 再注入 real 入站流量 | 首次分配；候选组的外联**真实发出**（替身端点、合成 webchat） |
+| O3 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-probe --config DATA.json` | 各组分配人数、`strategy_applied` 审计数 |
+| O4 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py online-stop --config PRIVATE.json` | 实验停止，所有人回到当前策略 |
+| O5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-drain --config DATA.json` | 开始以来**实验成员**（有组别的分配）的 real 外联和效应没有在途的（L6 复核 1.3：其他 real 外联不影响判断）（`pending_approval`、`accepted`、`dispatching`、`unknown`、`observed_fulfilled` 都为 0）；默认等 900 秒 |
+| G | 任意 | 无连接 | `nx043_stage.py gaps --config ANY.json` | 阻塞项：实验预算 |
+
+### 收尾
+
+- O4 之后实验必须是 stopped。O5 如果在超时内没有清零，**不要**重试外发。按“未知结果先查询或对账”的原则处理：在工作台查看对应 intent 的对账状态，由对账流程收口，再重跑 O5。
+- 三层派发开关是否关回，由负责人决定，这份执行单不改开关。
+- 用 R1 再跑一次就绪检查，确认 `no_conflicting_experiment` 为 ready（没有留下运行中的实验），并且 `shadow_copy_off` 为 ready。

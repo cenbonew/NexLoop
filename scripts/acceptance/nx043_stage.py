@@ -8,6 +8,8 @@ the simulation worker's own entry with the shadow world's credential; the probe 
 default_transaction_read_only=on, the dispatcher's). The identifiers the phases share (worlds, experiments, strategies) are kept in a
 private state file in results_dir (0600), never in the output, which holds codes, counts and digests only.
 
+    nx043_stage.py readiness --config INSPECT.json                 inspector (read only): is the stage ready for this run - sim world,
+                                                                     strategies, shadow copy, real inbound trigger, real dispatch, conflicts
     nx043_stage.py prepare --config PRIVATE.json [--dry-run]       owner: create_sim_world (shadow), publish_strategy x2, register_experiment
                                                                      (shadow; and screening when inputs.screening names a sim world and twin)
     nx043_stage.py run --config PRIVATE.json [--dry-run]           owner: start_experiment (screening refused twin_not_calibrated, D9; shadow
@@ -26,12 +28,14 @@ private state file in results_dir (0600), never in the output, which holds codes
     nx043_stage.py online-probe --config DATA.json                 probe: allocations by arm (first sight on inbound), strategy_applied
                                                                      audit of the candidate group's accepted outreach sends (counts only)
     nx043_stage.py online-stop --config PRIVATE.json               owner: stop_experiment (everyone back to the current policy)
+    nx043_stage.py online-drain --config DATA.json                 probe: the real outreach sends and effects since the online start reach
+                                                                     a final state (real dispatch is open: nothing left in flight)
     nx043_stage.py gaps --config ANY.json                          no connection: what the stage cannot show yet (blocked, never a pass)
 
 inputs: shadow_purpose, candidate_levers, control_levers (D1 levers), strategy_prefix, experiment_prefix, ends_in_minutes (shadow
     experiment end; the guard stops it there), screening {world, twin {twin_id, version}} (optional), decisions {kind, limit},
     guard_timeout_seconds (probe-after waits for the guard stop, default 900)
-roles: probe {dsn_file}; sim_worker {dsn_file, token_file} (the shadow world's worker credential; optional); owner {origin, ca_file,
+roles: inspector {dsn_file} (read only; readiness, falls back to probe); probe {dsn_file}; sim_worker {dsn_file, token_file} (the shadow world's worker credential; optional); owner {origin, ca_file,
     username_file}.
 Exit: 0 passed, 1 failed or blocked, 2 input refused.
 """
@@ -53,13 +57,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
 from at046_stage import Ports, real_digest  # noqa: E402
 from s6_common import Blocked, Redactor, Refused, Result, connect_from, load_chain, read_private  # noqa: E402
+from s6_common import connect_read_only as s6_connect_read_only  # noqa: E402
 
 IDS = re.compile(r'[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 ACCEPTANCE = {'prepare': ['NX-043 D1', 'NX-043 D3'], 'probe-before': ['AT-046'], 'run': ['NX-043 D3', 'NX-043 D7', 'NX-043 D9'],
               'shadow-keys': ['NX-043 D7'], 'decide': ['NX-043 D7', 'AT-046'], 'merge': ['NX-043 D7', 'AT-046', 'NX-043 D4', 'NX-043 §9'],
               'probe-after': ['AT-046', 'NX-043 D4', 'NX-043 §9'], 'report': ['NX-043 D6', 'NX-043 §6', 'NX-043 D7'],
               'online': ['NX-043 online', 'NX-043 D3'], 'online-probe': ['NX-043 online', 'NX-043 D2'], 'online-stop': ['NX-043 online', 'NX-043 D4'],
-              'gaps': ['NX-043 D5']}
+              'online-drain': ['NX-043 online', 'NX-043 §9'], 'gaps': ['NX-043 D5'], 'readiness': ['NX-043 D3', 'NX-043 D7', 'NX-043 online']}
 
 
 # --- private state (ids between phases, never in the output) ---------------------------------------------------------------------
@@ -320,7 +325,7 @@ def online(ports, config, r, prior=None):
     r.step('online_experiment_started', 'started (online open; no dispatch switch written)',
            {'status': status, 'reason': _reason(out), 'started': out.get('started') if isinstance(out, dict) else None}, _ok(status))
     if _ok(status):
-        save_state(config, {**state, 'experiments': {**state['experiments'], 'online': eid}})
+        save_state(config, {**state, 'experiments': {**state['experiments'], 'online': eid}, 'online_started_at': datetime.now(UTC).isoformat()})
 
 
 def online_probe(ports, config, r, prior=None):
@@ -349,6 +354,91 @@ def online_stop(ports, config, r, prior=None):
     r.step('online_experiment_stopped', 'stopped: everyone back to the current policy', {'status': status, 'reason': _reason(out)}, bool(eid) and _ok(status))
 
 
+DISPATCH = {'outreach.send': 'eios:action:nexloop.outreach.send:1', 'enterprise.deliver': 'eios:action:nexloop.enterprise.deliver:1'}
+
+
+def _ready(r, name, expected, ready, reason, **observed):
+    r.step(name, expected, {'status': 'ready' if ready else 'blocked', 'reason': reason, **observed}, ready)
+
+
+def readiness(ports, config, r, prior=None):
+    """Read only (the inspector DSN): whether this stage can run the acceptance now. Each item ready or blocked, with its reason; counts
+    and states only, no identifier in the output."""
+    tenant = config['tenant_id']
+    inputs = config.get('inputs') or {}
+    world = (inputs.get('screening') or {}).get('world')
+    if world:
+        row = ports.read("""select status,expires_at>clock_timestamp() from control.nexloop_sim_worlds where tenant_id=%s and world=%s""", (tenant, world))
+        active = bool(row) and row[0][0] == 'active' and row[0][1]
+        _ready(r, 'sim_world_active', 'the configured screening sim world exists, is active and not expired', active,
+               'ok' if active else ('not_found' if not row else 'not_active_or_expired'), exists=bool(row))
+    else:
+        r.block('sim_world_active', 'inputs.screening.world not configured (the screening part is skipped; prepare creates the shadow world)')
+    twin = (inputs.get('screening') or {}).get('twin') or {}
+    if twin.get('twin_id'):
+        row = ports.read('select runtime.nexloop_consumer_twin_selectable(%s,%s,%s)', (tenant, twin['twin_id'], int(twin.get('version') or 0)))
+        calibrated = bool(row) and row[0][0] is True
+        _ready(r, 'screening_twin_uncalibrated', 'the screening twin is not calibrated, as run expects (screening start refused twin_not_calibrated, D9)',
+               not calibrated, 'ok' if not calibrated else 'twin_calibrated_run_expects_refusal')
+    for arm, levers in (('candidate', inputs.get('candidate_levers') or {'follow_up_delay_hours': 48}),
+                        ('control', inputs.get('control_levers') or {'follow_up_delay_hours': 24})):
+        sid = f"{inputs.get('strategy_prefix') or 'x7'}.{arm}.readiness"
+        problem = ports.read('select runtime.nexloop_strategy_problem(%s,%s::jsonb)', (tenant, json.dumps(strategy_definition(sid, levers))))[0][0]
+        _ready(r, f'{arm}_strategy_publishable', 'the configured levers make a publishable strategy version (D1)', problem is None, problem or 'ok')
+    target = ports.read('select runtime.nexloop_shadow_copy_target(%s)', (tenant,))[0][0]
+    _ready(r, 'shadow_copy_off', 'the shadow copy switch is off before run turns it on for the new shadow world (D7)', target is None,
+           'ok' if target is None else 'on_for_another_world', on=target is not None)
+    trigger = ports.read("""select tgenabled from pg_trigger where tgname='nx043_experiment_allocate'
+        and tgrelid='runtime.nexloop_conversation_messages'::regclass""")
+    enabled = bool(trigger) and trigger[0][0] in ('O', 'A')
+    _ready(r, 'real_inbound_allocation', 'the real inbound allocation trigger (X4 wiring) is installed and enabled for the online part', enabled,
+           'ok' if enabled else ('missing' if not trigger else 'disabled'))
+    layers = {name: ports.read("select control.nexloop_real_dispatch_closed_layer(%s,'real',%s)", (tenant, res))[0][0] for name, res in DISPATCH.items()}
+    is_open = all(v is None for v in layers.values())
+    _ready(r, 'real_dispatch_state', 'the real dispatch layers read (open: the online candidate group really sends; closed: refused by real_dispatch)',
+           True, 'open_sends_execute' if is_open else 'closed_sends_refused', **{k: v or 'open' for k, v in layers.items()})
+    running = ports.read("""select e.registration->>'stage',e.registration->>'world'='real',
+          e.registration->'candidate'->>'strategy_id' like %s from control.nexloop_experiments e
+        where e.tenant_id=%s and runtime.nexloop_experiment_status(e.tenant_id,e.experiment_id)='started'
+          and (e.registration->>'ends_at')::timestamptz>clock_timestamp()""", ((inputs.get('strategy_prefix') or 'x7') + '.%', tenant))
+    online = sum(1 for stage, real, _ in running if stage == 'online' and real)
+    same = sum(1 for _, _, mine in running if mine)
+    _ready(r, 'no_conflicting_experiment', 'no running online experiment in world real (its members are in_other_experiment) and none of this prefix (in_same_comparison)',
+           online == 0 and same == 0, 'ok' if online == 0 and same == 0 else ('online_running' if online else 'same_prefix_running'),
+           running=len(running), online_real=online, same_prefix=same)
+
+
+# L6 review 1.3: only the experiment's members (allocated with an arm), so other real outreach of the tenant does not hold the drain.
+MEMBERS = """with m as (select consumer_id from control.nexloop_experiment_allocations where tenant_id=%s and experiment_id=%s and arm is not null) """
+OUTREACH_IN_FLIGHT = ('pending_approval', 'accepted', 'dispatching', 'unknown')
+EFFECT_IN_FLIGHT = ('accepted', 'dispatching', 'unknown', 'observed_fulfilled')
+
+
+def online_drain(ports, config, r, prior=None):
+    """After online-stop: with real dispatch open the candidate group's sends really ran; wait (drain_timeout_seconds, default 900) until
+    every real outreach send and effect of the experiment's members since the online start is final. Counts only."""
+    state = load_state(config)
+    since, eid = state.get('online_started_at'), state['experiments'].get('online')
+    if not since or not eid:
+        r.step('online_nothing_in_flight', 'an online experiment started (phase online)', {'started': False}, False)
+        return
+    tenant, inputs = config['tenant_id'], config.get('inputs') or {}
+    deadline = time.monotonic() + int(inputs.get('drain_timeout_seconds') or 900)
+    while True:
+        sends, effects = ports.read(MEMBERS + """select (select count(*) from runtime.nexloop_outreach_sends s join m on m.consumer_id=s.consumer_id
+              where s.tenant_id=%s and s.world='real' and s.created_at>=%s and s.state = any(%s)),
+            (select count(*) from runtime.nexloop_effect_intents i join m on m.consumer_id=i.consumer_id
+              where i.tenant_id=%s and i.world='real' and i.created_at>=%s and i.state = any(%s))""",
+                                    (tenant, eid, tenant, since, list(OUTREACH_IN_FLIGHT), tenant, since, list(EFFECT_IN_FLIGHT)))[0]
+        if (sends == 0 and effects == 0) or time.monotonic() >= deadline:
+            break
+        time.sleep(int(inputs.get('drain_poll_seconds') or 15))
+    total = ports.read(MEMBERS + """select count(*) from runtime.nexloop_outreach_sends s join m on m.consumer_id=s.consumer_id
+        where s.tenant_id=%s and s.world='real' and s.created_at>=%s""", (tenant, eid, tenant, since))[0][0]
+    r.step('online_nothing_in_flight', 'every real outreach send and effect of the experiment members since the online start is final (none accepted, dispatching or unknown)',
+           {'outreach_sends': total, 'outreach_in_flight': sends, 'effects_in_flight': effects}, sends == 0 and effects == 0)
+
+
 def gaps(ports, config, r, prior=None):
     """What the stage cannot show yet: blocked (passed null), with the slice that closes each gap."""
     r.block('experiment_budget', 'needs simulation Runs of the experiment world (the AT-046 run chain); local: tests/test_nx043_guard_wiring_pg.py')
@@ -359,7 +449,7 @@ def merge(ports, config, r, prior=None):
 
 
 PHASES = {'prepare': prepare, 'probe-before': probe_before, 'run': run_phase, 'shadow-keys': shadow_keys, 'decide': decide, 'probe-after': probe_after,
-          'report': report, 'merge': merge, 'online': online, 'online-probe': online_probe, 'online-stop': online_stop, 'gaps': gaps}
+          'report': report, 'merge': merge, 'readiness': readiness, 'online': online, 'online-probe': online_probe, 'online-stop': online_stop, 'online-drain': online_drain, 'gaps': gaps}
 CHAIN = ['nx043-probe-before', 'nx043-shadow-keys', 'nx043-decide', 'nx043-probe-after']
 NEEDS = {'probe-after': CHAIN[:3], 'merge': CHAIN}
 PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy (candidate, control)', 'owner: register_experiment (shadow; screening when configured)'],
@@ -373,7 +463,9 @@ PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy
         'online': ['owner: register_experiment (online, world real, no twin)', 'owner: start_experiment (online)'],
         'online-probe': ['probe (read only): allocations by arm, strategy_applied audit count'],
         'online-stop': ['owner: stop_experiment (online)'],
-        'gaps': ['no connection: the blocked item (experiment budget)']}
+        'online-drain': ['probe (read only): real outreach sends and effects since the online start, until none is in flight'],
+        'gaps': ['no connection: the blocked item (experiment budget)'],
+        'readiness': ['inspector (read only): sim world, strategy problems, shadow copy target, inbound trigger, real dispatch layers, running experiments']}
 OWNER_PHASES = ('prepare', 'run', 'report', 'online', 'online-stop')
 
 
@@ -392,7 +484,13 @@ def decide_from(roles):
     return decide
 
 
-def ports_from(config, password):
+def connect_read_only(path):
+    """L6 review 1.1: a read-only role is read only by the script, not only by its DSN file - a factory over s6_common's
+    connect_read_only (set default_transaction_read_only=on, check it with show, refuse otherwise)."""
+    return lambda: s6_connect_read_only(path, who='the read-only role')
+
+
+def ports_from(config, password, phase=None):
     roles = config.get('roles') or {}
     owner = None
     o = config.get('owner') or {}
@@ -400,8 +498,8 @@ def ports_from(config, password):
         from real_dispatch_switch import HttpsTransport, Workbench
         owner = Workbench(HttpsTransport(o['origin'], o.get('ca_file')), o['origin'])
         owner.login(read_private(o['username_file'], 1024).strip(), password)
-    probe = (roles.get('probe') or {}).get('dsn_file')
-    ports = Ports(owner=owner, probe=connect_from(probe) if probe else None)
+    probe = (roles.get('inspector') or roles.get('probe') or {}).get('dsn_file') if phase == 'readiness' else (roles.get('probe') or {}).get('dsn_file')
+    ports = Ports(owner=owner, probe=connect_read_only(probe) if probe else None)
     ports.decide = decide_from(roles)
     return ports
 
@@ -428,7 +526,7 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             return result.write(out)
         if args.phase in NEEDS and len(args.prior) != len(NEEDS[args.phase]):
             raise Refused(f'{args.phase}: --from the results of ' + ', '.join(NEEDS[args.phase]))
-        if args.phase not in ('prepare', 'gaps'):
+        if args.phase not in ('prepare', 'gaps', 'readiness'):
             try:
                 result.nonce = load_state(config)['run']  # the run nonce (L6 X7 review 3.1)
             except Blocked as error:
@@ -441,7 +539,7 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
         owner = None
         if ports is None and args.phase != 'gaps':
             password = (stdin or sys.stdin).readline().rstrip('\n') if args.phase in OWNER_PHASES and (config.get('owner') or {}).get('origin') else None
-            ports = ports_from(config, password)
+            ports = ports_from(config, password, args.phase)
             owner = ports.owner
         try:
             PHASES[args.phase](ports, config, result, prior) if args.phase != 'prepare' else prepare(ports, config, result)

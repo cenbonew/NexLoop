@@ -115,6 +115,23 @@ def connect_from(path):
     return lambda: psycopg.connect(dsn, autocommit=True, connect_timeout=10)
 
 
+def connect_read_only(path, *, who='inspector'):
+    """One connection from a private DSN file, read only before its first query: set default_transaction_read_only, then show it;
+    anything but on closes the connection and refuses (shared by the S6 and NX-043 stage scripts)."""
+    import psycopg
+    conn = psycopg.connect(read_private(path, 8192).strip(), autocommit=True, connect_timeout=10)
+    try:
+        conn.execute('set default_transaction_read_only=on')
+        ok = conn.execute('show default_transaction_read_only').fetchone()[0] == 'on'
+    except BaseException:
+        conn.close()
+        raise
+    if not ok:
+        conn.close()
+        raise Refused(f'{who} is not read only')
+    return conn
+
+
 def refusal(error) -> dict:
     """What a refused call says: SQLSTATE and the server's primary message (a fixed text of the governed function), never a context."""
     diag = getattr(error, 'diag', None)
