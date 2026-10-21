@@ -7537,7 +7537,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:twin-calibration-report",
         "title": "twin-calibration-report",
-        "description": "NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): the frozen calibration report of one consumer twin version. Input: real aggregate metrics only (T4: world real, real personas, groups of at least 30 Consumers; counts and rates, never a per-Consumer value), 1 to 3 non-overlapping calibration windows after the version's publication, each split by time from its reference window and grouped by Consumer (a Consumer of the reference window is excluded). Metrics per (behaviour, window, group) cell: the twin's interval, the observed rate, whether the interval covered it and the Brier score of the interval midpoint; the coverage against the nominal (80% intervals: 70%-90%, D3). Conclusion: passed, failed, insufficient_sample (fewer than 20 cells; no verdict) or not_calibratable (a behaviour without real aggregate data stays uncalibrated, D4). Only passed and failed append a calibration event; passed makes the version selectable by NX-043 (D7). Immutable once written.",
+        "description": "NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): the frozen calibration report of one consumer twin version. Input: real aggregate metrics only (T4: world real, real personas, groups of at least 30 Consumers; counts and rates, never a per-Consumer value), 1 to 3 non-overlapping calibration windows after the version's publication, each split by time from its reference window and grouped by Consumer (a Consumer of the reference window is excluded). Metrics per (behaviour, window, group) cell: the twin's interval, the observed rate, whether the interval covered it and the Brier score of the interval midpoint; the coverage against the nominal (80% intervals: 70%-90%, D3). Conclusion: passed, failed, insufficient_sample (fewer than 16 cells; no verdict) or not_calibratable (a behaviour without real aggregate data, or a single calibratable behaviour, stays uncalibrated, D4). Only passed and failed append a calibration event; passed makes the version selectable by NX-043 (D7). Immutable once written. Exclusion counts below 30 are written as \"<30\". A window overlapping one an earlier report of the version used is refused. The report carries its attempt number and the last 3 verdicts; a version is calibrated only when the latest verdict passed and none of the last 3 failed (K = 3).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7552,6 +7552,7 @@
           "metrics",
           "conclusion",
           "reason",
+          "attempts",
           "requested_by",
           "request_id",
           "created_at"
@@ -7631,8 +7632,12 @@
                   "maxItems": 2
                 },
                 "reference_consumers_excluded": {
-                  "type": "integer",
-                  "minimum": 0
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "minimum": 30,
+                  "pattern": "^<30$"
                 },
                 "input_digest": {
                   "type": "string",
@@ -7677,16 +7682,28 @@
                   ],
                   "properties": {
                     "non_real_persona": {
-                      "type": "integer",
-                      "minimum": 0
+                      "type": [
+                        "integer",
+                        "string"
+                      ],
+                      "minimum": 30,
+                      "pattern": "^<30$"
                     },
                     "erasing": {
-                      "type": "integer",
-                      "minimum": 0
+                      "type": [
+                        "integer",
+                        "string"
+                      ],
+                      "minimum": 30,
+                      "pattern": "^<30$"
                     },
                     "in_reference_window": {
-                      "type": "integer",
-                      "minimum": 0
+                      "type": [
+                        "integer",
+                        "string"
+                      ],
+                      "minimum": 30,
+                      "pattern": "^<30$"
                     }
                   }
                 },
@@ -7832,7 +7849,7 @@
                 "maxItems": 2
               },
               "min_cells": {
-                "const": 20
+                "const": 16
               },
               "brier": {
                 "type": [
@@ -7864,6 +7881,34 @@
               "null"
             ],
             "maxLength": 500
+          },
+          "attempts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attempt",
+              "recent_verdicts",
+              "k"
+            ],
+            "properties": {
+              "attempt": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "recent_verdicts": {
+                "type": "array",
+                "maxItems": 3,
+                "items": {
+                  "enum": [
+                    "passed",
+                    "failed"
+                  ]
+                }
+              },
+              "k": {
+                "const": 3
+              }
+            }
           },
           "requested_by": {
             "type": "string",
@@ -9015,7 +9060,7 @@
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
     "schema-proposal.schema.json": "034fa3bf47735e115ef2ffbf86d281332790b9ccd5f43a927bd080187f1836df",
     "trajectory-sample.schema.json": "0edf634efeb3811dbf267b4874ded44ccc2b35ad7bb8d8a7cc5dbb0f2a130d5c",
-    "twin-calibration-report.schema.json": "0f1bd72456f9c8e52e90e54f9ad2d8da9c8ff84d4e61c1425cf70cab1952d4cc",
+    "twin-calibration-report.schema.json": "084b286b41aa09d82beeab75927fc5823dc2c063e1eb3d9fa9763ffc8915d88a",
     "twin-sample.schema.json": "378b41be815e0027d03f2a90c253499d2406c19f03810e6c0e48be80776f6fd9",
     "workbench-artifacts.schema.json": "ee3e94da47800e7fea52d7dd58a7353382f8e46c4e5f6b5797fc4074e9d3d760",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",

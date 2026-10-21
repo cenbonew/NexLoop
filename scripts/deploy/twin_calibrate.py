@@ -4,7 +4,7 @@
 One governed owner Action through the workbench actions entry, after the owner's workbench login (logged out at the end):
     calibrate_consumer_twin   nexloop.consumer_twin.calibrate   NX-042 T5: a frozen calibration report of one twin version over 1-3
                                                                non-overlapping calibration windows against real aggregates (D3: 80%
-                                                               intervals covering 70%-90% of at least 20 cells, groups of 30+
+                                                               intervals covering 70%-90% of at least 16 cells, groups of 30+
                                                                Consumers); passed makes the version selectable by NX-043.
 It never connects to PostgreSQL and holds no credential beyond the owner's own workbench login for the duration of the run. The
 login, private file and transport rules are those of sim_world.py (same directory).
@@ -16,7 +16,8 @@ login, private file and transport rules are those of sim_world.py (same director
 Configuration (private JSON, 0600, owned by the caller; deploy/examples/twin-calibrate.example.json):
     {"schema": "nexloop-twin-calibrate/1", "twin_id": "trial.service_consumer", "version": 1,
      "windows": [{"split_at": "YYYY-MM-DD", "span_days": 28}, ...]}      1-3 windows, UTC days, span 28 | 56 | 84
-Every window must start at or after the version's publication, have ended, and not overlap another (checked by the server).
+Every window must start at or after the version's publication, have ended, and overlap neither another window nor a window an earlier
+report of the version used (checked by the server).
 
 --dry-run checks the configuration and prints the request; it reads no password and sends nothing. Rerunning the same configuration
 replays the request (its Idempotency-Key comes from the configuration): the answer is the governed outcome (outcome_id, replayed) and
@@ -65,7 +66,8 @@ def load_config(text):
             raise Refused('window: {split_at YYYY-MM-DD, span_days}')
         if type(w['span_days']) is not int or w['span_days'] not in (28, 56, 84):
             raise Refused('span_days: 28, 56 or 84')
-    return {'twin_id': value['twin_id'], 'version': value['version'], 'windows': windows}
+    # In time order (L6 nx042-t5-fix-verify 4): the same windows in another order are the same request and the same Idempotency-Key.
+    return {'twin_id': value['twin_id'], 'version': value['version'], 'windows': sorted(windows, key=lambda w: (w['split_at'], w['span_days']))}
 
 
 def idempotency_key(body):

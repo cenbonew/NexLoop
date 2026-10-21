@@ -73,6 +73,9 @@ def test_the_dry_run_prints_the_request_without_reading_a_password_or_sending(tm
     out = json.loads(capsys.readouterr().out)
     assert out['dry_run'] and out['operation'] == 'calibrate_consumer_twin' and out['request']['windows'] == WINDOWS
     assert out['idempotency_key'] == T.idempotency_key(T.load_config(cfg())) != T.idempotency_key(T.load_config(cfg(version=2)))
+    # The same windows in another order: the same request (L6 nx042-t5-fix-verify 4).
+    assert T.load_config(cfg(windows=WINDOWS[::-1])) == T.load_config(cfg())
+    assert T.idempotency_key(T.load_config(cfg(windows=WINDOWS[::-1]))) == T.idempotency_key(T.load_config(cfg()))
 
 
 def test_the_password_is_never_an_argument_and_never_echoed(tmp_path, capsys, caplog):

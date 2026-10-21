@@ -146,6 +146,11 @@ REGISTRY = [
               "(case when v_choice.kind='message' then jsonb_build_object('text','合成消息（孪生行为 '||v_choice.behavior||'）') else '{}'::jsonb end)"),
              (r"\s*\|\|case when v_text->>'text' is not null then jsonb_build_object\('text_template',v_text->>'template_id','text_generator',v_text->>'generator_version',\s*'text_marker','simulated'\) else '\{\}'::jsonb end\)",
               ')'))),
+    # NX-042 T5 (L6 nx042-t5-fix-verify 1.3, K = 3): calibrated also needs none of the last 3 verdicts failed.
+    Allowed('nx042_twin_calibration', 'runtime.nexloop_consumer_twin_calibration', 'NX-042 T5: the last 3 verdicts without a failed one; nothing else',
+            ((r'v text;v_recent_failed boolean;', 'v text;'),
+             (r"\s*select bool_or\(x\.verdict='failed'\) into v_recent_failed from \(select c\.verdict from control\.nexloop_consumer_twin_calibrations c\s*where c\.tenant_id=p_tenant and c\.twin_id=p_twin and c\.version=p_version order by c\.event_id desc limit 3\) x;", ''),
+             (r"v='passed' and not coalesce\(v_recent_failed,false\)", "v='passed'"))),
 ]
 
 

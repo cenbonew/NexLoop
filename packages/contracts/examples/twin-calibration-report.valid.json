@@ -18,7 +18,7 @@
     "2026-07-01T00:00:00.000000Z",
     "2026-07-29T00:00:00.000000Z"
    ],
-   "reference_consumers_excluded": 12,
+   "reference_consumers_excluded": "<30",
    "input_digest": "1111111111111111111111111111111111111111111111111111111111111111",
    "groups": [
     {
@@ -44,9 +44,9 @@
    ],
    "suppressed": [],
    "excluded": {
-    "non_real_persona": 5,
-    "erasing": 0,
-    "in_reference_window": 12
+    "non_real_persona": "<30",
+    "erasing": "<30",
+    "in_reference_window": "<30"
    },
    "cells": 8
   },
@@ -88,8 +88,8 @@
    ],
    "suppressed": [],
    "excluded": {
-    "non_real_persona": 5,
-    "erasing": 0,
+    "non_real_persona": "<30",
+    "erasing": "<30",
     "in_reference_window": 150
    },
    "cells": 8
@@ -132,8 +132,8 @@
    ],
    "suppressed": [],
    "excluded": {
-    "non_real_persona": 5,
-    "erasing": 0,
+    "non_real_persona": "<30",
+    "erasing": "<30",
     "in_reference_window": 140
    },
    "cells": 8
@@ -167,12 +167,19 @@
    0.7,
    0.9
   ],
-  "min_cells": 20,
+  "min_cells": 16,
   "brier": 0.121,
   "uncalibrated_behaviors": []
  },
  "conclusion": "passed",
  "reason": null,
+ "attempts": {
+  "attempt": 1,
+  "recent_verdicts": [
+   "passed"
+  ],
+  "k": 3
+ },
  "requested_by": "owner-principal",
  "request_id": "calibration-2026-07",
  "created_at": "2026-07-30T08:00:00.000000Z"

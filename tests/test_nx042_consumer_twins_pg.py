@@ -204,6 +204,10 @@ def test_calibration_is_an_appended_event_and_the_latest_one_decides(db):
     calibrate(db, 1, 'failed')  # a later failed calibration withdraws it
     assert status() == 'uncalibrated' and selectable(db, 'trial.service_consumer', 1) is False
     calibrate(db, 1, 'passed')
+    assert status() == 'uncalibrated'  # T5 K = 3: a failed verdict among the last 3 keeps it uncalibrated
+    calibrate(db, 1, 'passed')
+    calibrate(db, 1, 'passed')
+    assert status() == 'calibrated' and selectable(db, 'trial.service_consumer', 1) is True
     retire(db, 'trial.service_consumer', 1)
     assert status() == 'calibrated' and selectable(db, 'trial.service_consumer', 1) is False  # retired is never selectable
     assert selectable(db, 'trial.service_consumer', 1, tenant=TENANT_B) is False  # tenants are apart

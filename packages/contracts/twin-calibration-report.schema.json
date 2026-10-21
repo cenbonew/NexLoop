@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:twin-calibration-report",
   "title": "twin-calibration-report",
-  "description": "NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): the frozen calibration report of one consumer twin version. Input: real aggregate metrics only (T4: world real, real personas, groups of at least 30 Consumers; counts and rates, never a per-Consumer value), 1 to 3 non-overlapping calibration windows after the version's publication, each split by time from its reference window and grouped by Consumer (a Consumer of the reference window is excluded). Metrics per (behaviour, window, group) cell: the twin's interval, the observed rate, whether the interval covered it and the Brier score of the interval midpoint; the coverage against the nominal (80% intervals: 70%-90%, D3). Conclusion: passed, failed, insufficient_sample (fewer than 20 cells; no verdict) or not_calibratable (a behaviour without real aggregate data stays uncalibrated, D4). Only passed and failed append a calibration event; passed makes the version selectable by NX-043 (D7). Immutable once written.",
+  "description": "NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): the frozen calibration report of one consumer twin version. Input: real aggregate metrics only (T4: world real, real personas, groups of at least 30 Consumers; counts and rates, never a per-Consumer value), 1 to 3 non-overlapping calibration windows after the version's publication, each split by time from its reference window and grouped by Consumer (a Consumer of the reference window is excluded). Metrics per (behaviour, window, group) cell: the twin's interval, the observed rate, whether the interval covered it and the Brier score of the interval midpoint; the coverage against the nominal (80% intervals: 70%-90%, D3). Conclusion: passed, failed, insufficient_sample (fewer than 16 cells; no verdict) or not_calibratable (a behaviour without real aggregate data, or a single calibratable behaviour, stays uncalibrated, D4). Only passed and failed append a calibration event; passed makes the version selectable by NX-043 (D7). Immutable once written. Exclusion counts below 30 are written as \"<30\". A window overlapping one an earlier report of the version used is refused. The report carries its attempt number and the last 3 verdicts; a version is calibrated only when the latest verdict passed and none of the last 3 failed (K = 3).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,6 +17,7 @@
     "metrics",
     "conclusion",
     "reason",
+    "attempts",
     "requested_by",
     "request_id",
     "created_at"
@@ -96,8 +97,12 @@
             "maxItems": 2
           },
           "reference_consumers_excluded": {
-            "type": "integer",
-            "minimum": 0
+            "type": [
+              "integer",
+              "string"
+            ],
+            "minimum": 30,
+            "pattern": "^<30$"
           },
           "input_digest": {
             "type": "string",
@@ -142,16 +147,28 @@
             ],
             "properties": {
               "non_real_persona": {
-                "type": "integer",
-                "minimum": 0
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "minimum": 30,
+                "pattern": "^<30$"
               },
               "erasing": {
-                "type": "integer",
-                "minimum": 0
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "minimum": 30,
+                "pattern": "^<30$"
               },
               "in_reference_window": {
-                "type": "integer",
-                "minimum": 0
+                "type": [
+                  "integer",
+                  "string"
+                ],
+                "minimum": 30,
+                "pattern": "^<30$"
               }
             }
           },
@@ -297,7 +314,7 @@
           "maxItems": 2
         },
         "min_cells": {
-          "const": 20
+          "const": 16
         },
         "brier": {
           "type": [
@@ -329,6 +346,34 @@
         "null"
       ],
       "maxLength": 500
+    },
+    "attempts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt",
+        "recent_verdicts",
+        "k"
+      ],
+      "properties": {
+        "attempt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recent_verdicts": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          }
+        },
+        "k": {
+          "const": 3
+        }
+      }
     },
     "requested_by": {
       "type": "string",

@@ -19,7 +19,7 @@
 | context-pack-sim.schema.json | NX-041 S7b：模拟世界中 Run 的 Context。v6 只适用于 real（bindings.world_id 固定为 real），模拟世界用自己的包、自己的装配入口；来源只有合成 Consumer 的生成画像与人设（S3）和孪生经消费者端口写入的事件（S7）。条目沿用 v6 的条目形状，每条都标 source simulated，不是事实；不读取任何 real 的会话、Claim、对象或记忆 |
 | consumer-twin.schema.json | NX-042 T1：消费者孪生的一个版本——明确写出的假设（只是假设，不是事实）、决策层参数（每个行为都是区间，不给单个概率，D4）与生成器版本；不含任何真实内容（D5），长期保留、不随模拟世界删除；负责人经受治理 Action 发布（D7），版本号、摘要、校准（报告引用与状态）和状态（published / retired，只追加）由服务端冻结；没有通过校准报告的版本为“未校准”，NX-043 不能选用 |
 | twin-sample.schema.json | NX-042 T2：模拟世界中种子化群体抽样的一个孪生实例——每个行为给出区间与名义覆盖率（不给单一概率，D4）和在区间内抽出的一次模拟结果（抽到的概率不输出）；同一种子与孪生版本逐字节一致；一律为模拟输出（origin twin、data_mode simulation），带孪生版本与校准状态，未校准的孪生可以运行但输出标明“未校准”，NX-043 不能选用（D7）；永远不是事实、用户陈述或 Claim |
-| twin-calibration-report.schema.json | NX-042 T5：一个孪生版本的冻结校准报告——只用 real 的聚合指标（T4：real 世界、real 人设、每组至少 30 个消费者，只有计数和比率），1–3 个互不重叠、都在版本发布之后的校准窗口，各自按时间与参考窗口切分并按消费者分组，报告列出每个窗口贡献的单元数；每个（行为，窗口，分组）单元给出区间、观察比率、是否覆盖和 Brier；覆盖率对照名义值（80% 区间为 70%–90%，D3）；结论 passed / failed / insufficient_sample（少于 20 个单元，不下结论）/ not_calibratable（没有真实聚合数据的行为保持未校准，D4）；只有 passed / failed 追加校准事件，passed 才可被 NX-043 选用（D7）；写入后不可修改 |
+| twin-calibration-report.schema.json | NX-042 T5：一个孪生版本的冻结校准报告——只用 real 的聚合指标（T4：real 世界、real 人设、每组至少 30 个消费者，只有计数和比率），1–3 个互不重叠、都在版本发布之后的校准窗口，各自按时间与参考窗口切分并按消费者分组，报告列出每个窗口贡献的单元数；每个（行为，窗口，分组）单元给出区间、观察比率、是否覆盖和 Brier；覆盖率对照名义值（80% 区间为 70%–90%，D3）；结论 passed / failed / insufficient_sample（少于 16 个单元，不下结论）/ not_calibratable（没有真实聚合数据的行为、或只有一个可校准行为，保持未校准，D4）；小于 30 的排除计数记为“<30”；同一版本用过的窗口不能再用，报告记录尝试序号和最近 3 次结论，最近 3 次里有 failed 就不可选用（K=3）；只有 passed / failed 追加校准事件，passed 才可被 NX-043 选用（D7）；写入后不可修改 |
 
 ## Schema之外必须实现的语义检查
 
