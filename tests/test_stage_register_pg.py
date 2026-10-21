@@ -351,7 +351,7 @@ def test_publish_makes_every_granted_catalog_action_readable_by_its_grantee_and_
         assert planned['dry_run'] is True and len(planned['actions_to_publish']) == len(compiled['actions']) and not planned['conflicts']
         assert S.main(args) == 0
         first = json.loads(capsys.readouterr().out)
-        assert first['changed'] is True and (first['object_types'], first['actions'], first['functions']) == (20, 93, 2)
+        assert first['changed'] is True and (first['object_types'], first['actions'], first['functions']) == (20, 94, 2)
         assert admin.execute("select rolcanlogin from pg_roles where rolname='nexloop_configurator'").fetchone() == (False,)
         failures = []
         for role, name in reads:

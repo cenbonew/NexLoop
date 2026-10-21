@@ -902,6 +902,62 @@ class TrajectorySampleRecoveredToolErrorsItem(BaseModel):
     tool: str
     code: str
 
+class TwinCalibrationReportWindowsItemGroupsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    group: str
+    consumers: int
+
+class TwinCalibrationReportWindowsItemExcluded(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    non_real_persona: int
+    erasing: int
+    in_reference_window: int
+
+class TwinCalibrationReportWindowsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    window: int
+    split_at: str
+    span_days: Literal[28, 56, 84]
+    reference: list[str]
+    calibration: list[str]
+    reference_consumers_excluded: int
+    input_digest: str
+    groups: list[TwinCalibrationReportWindowsItemGroupsItem]
+    suppressed: list[Literal['all', 'daypart']]
+    excluded: TwinCalibrationReportWindowsItemExcluded
+    cells: int
+
+class TwinCalibrationReportInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source: Literal['authz.nexloop_twin_calibration_aggregates']
+    min_group_consumers: Literal[30]
+    input_digest: str
+
+class TwinCalibrationReportMetricsCellsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    behavior: str
+    window: int
+    group: str
+    consumers: int
+    observed_rate: float | int
+    low: float | int
+    high: float | int
+    nominal_coverage: float | int
+    covered: bool
+    brier: float | int
+
+class TwinCalibrationReportMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    cells: list[TwinCalibrationReportMetricsCellsItem]
+    cell_count: int
+    covered_cells: int
+    coverage: float | int | None
+    nominal_coverage: float | int | None
+    coverage_band: list[float | int] | None
+    min_cells: Literal[20]
+    brier: float | int | None
+    uncalibrated_behaviors: list[str]
+
 class WorkbenchArtifactsItemsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     artifact_id: str
@@ -1461,6 +1517,23 @@ class TrajectorySample(_Contract):
     recovered_tool_errors: list[TrajectorySampleRecoveredToolErrorsItem]
     receipts: list[str]
     reconciliation: None | str
+
+class TwinCalibrationReport(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:twin-calibration-report","title":"twin-calibration-report","description":"NX-042 T5 (design §3.2, §3.3, D2, D3, D4, D7): the frozen calibration report of one consumer twin version. Input: real aggregate metrics only (T4: world real, real personas, groups of at least 30 Consumers; counts and rates, never a per-Consumer value), 1 to 3 non-overlapping calibration windows after the version\'s publication, each split by time from its reference window and grouped by Consumer (a Consumer of the reference window is excluded). Metrics per (behaviour, window, group) cell: the twin\'s interval, the observed rate, whether the interval covered it and the Brier score of the interval midpoint; the coverage against the nominal (80% intervals: 70%-90%, D3). Conclusion: passed, failed, insufficient_sample (fewer than 20 cells; no verdict) or not_calibratable (a behaviour without real aggregate data stays uncalibrated, D4). Only passed and failed append a calibration event; passed makes the version selectable by NX-043 (D7). Immutable once written.","type":"object","additionalProperties":false,"required":["schema","twin_id","version","twin_digest","world","grouping","windows","input","metrics","conclusion","reason","requested_by","request_id","created_at"],"properties":{"schema":{"const":"nexloop-twin-calibration-report/1"},"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"version":{"type":"integer","minimum":1},"twin_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"world":{"const":"real"},"grouping":{"const":"consumer"},"windows":{"type":"array","minItems":1,"maxItems":3,"items":{"type":"object","additionalProperties":false,"required":["window","split_at","span_days","reference","calibration","reference_consumers_excluded","input_digest","groups","suppressed","excluded","cells"],"properties":{"window":{"type":"integer","minimum":1,"maximum":3},"split_at":{"type":"string"},"span_days":{"enum":[28,56,84]},"reference":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2},"calibration":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":2},"reference_consumers_excluded":{"type":"integer","minimum":0},"input_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"groups":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["group","consumers"],"properties":{"group":{"type":"string"},"consumers":{"type":"integer","minimum":30}}}},"suppressed":{"type":"array","items":{"enum":["all","daypart"]}},"excluded":{"type":"object","additionalProperties":false,"required":["non_real_persona","erasing","in_reference_window"],"properties":{"non_real_persona":{"type":"integer","minimum":0},"erasing":{"type":"integer","minimum":0},"in_reference_window":{"type":"integer","minimum":0}}},"cells":{"type":"integer","minimum":0}}}},"input":{"type":"object","additionalProperties":false,"required":["source","min_group_consumers","input_digest"],"properties":{"source":{"const":"authz.nexloop_twin_calibration_aggregates"},"min_group_consumers":{"const":30},"input_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},"metrics":{"type":"object","additionalProperties":false,"required":["cells","cell_count","covered_cells","coverage","nominal_coverage","coverage_band","min_cells","brier","uncalibrated_behaviors"],"properties":{"cells":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["behavior","window","group","consumers","observed_rate","low","high","nominal_coverage","covered","brier"],"properties":{"behavior":{"type":"string","pattern":"^[a-z][a-z0-9_]{0,63}$"},"window":{"type":"integer","minimum":1,"maximum":3},"group":{"type":"string"},"consumers":{"type":"integer","minimum":30},"observed_rate":{"type":"number","minimum":0,"maximum":1},"low":{"type":"number","minimum":0,"maximum":1},"high":{"type":"number","minimum":0,"maximum":1},"nominal_coverage":{"type":"number","exclusiveMinimum":0.5,"exclusiveMaximum":1},"covered":{"type":"boolean"},"brier":{"type":"number","minimum":0,"maximum":1}}}},"cell_count":{"type":"integer","minimum":0},"covered_cells":{"type":"integer","minimum":0},"coverage":{"type":["number","null"],"minimum":0,"maximum":1},"nominal_coverage":{"type":["number","null"]},"coverage_band":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2},"min_cells":{"const":20},"brier":{"type":["number","null"],"minimum":0,"maximum":1},"uncalibrated_behaviors":{"type":"array","items":{"type":"string"}}}},"conclusion":{"enum":["passed","failed","insufficient_sample","not_calibratable"]},"reason":{"type":["string","null"],"maxLength":500},"requested_by":{"type":"string","minLength":1,"maxLength":200},"request_id":{"type":"string","minLength":1,"maxLength":200},"created_at":{"type":"string"}}}')
+    schema: Literal['nexloop-twin-calibration-report/1']
+    twin_id: str
+    version: int
+    twin_digest: str
+    world: Literal['real']
+    grouping: Literal['consumer']
+    windows: list[TwinCalibrationReportWindowsItem]
+    input: TwinCalibrationReportInput
+    metrics: TwinCalibrationReportMetrics
+    conclusion: Literal['passed', 'failed', 'insufficient_sample', 'not_calibratable']
+    reason: str | None
+    requested_by: str
+    request_id: str
+    created_at: str
 
 class TwinSample(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:twin-sample","title":"twin-sample","description":"NX-042 T2 (design §2, §5, D1, D4, D6, D7): one twin instance of a seeded population sample in a simulation world. The decision layer gives every behaviour as an interval at its coverage (D4: never a single probability) from the twin version\'s parameters, and one simulated outcome drawn inside it; the probability drawn is internal and never output. The same seed and twin version give byte-identical samples. Every sample is a simulated output (origin twin, data_mode simulation) carrying the twin version and its calibration status - an uncalibrated twin runs, its output says so, and NX-043 cannot select it (D7). Never a fact, a user statement or a Claim.","type":"object","additionalProperties":false,"required":["schema","world","run_id","twin_id","twin_version","seed","instance","consumer_id","behaviors","calibration_status","data_mode","output_kind","origin"],"properties":{"schema":{"const":"nexloop-twin-sample/1"},"world":{"type":"string","pattern":"^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"run_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"twin_id":{"type":"string","pattern":"^[a-z][a-z0-9_.-]{0,63}$"},"twin_version":{"type":"integer","minimum":1},"seed":{"type":"string","pattern":"^[A-Za-z0-9_.-]{1,64}$"},"instance":{"type":"integer","minimum":1},"consumer_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"behaviors":{"type":"object","minProperties":1,"maxProperties":32,"propertyNames":{"pattern":"^[a-z][a-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["low","high","coverage","simulated_outcome"],"properties":{"low":{"type":"number","minimum":0,"maximum":1},"high":{"type":"number","minimum":0,"maximum":1},"coverage":{"type":"number","exclusiveMinimum":0.5,"exclusiveMaximum":1},"simulated_outcome":{"type":"boolean"}}}},"calibration_status":{"enum":["uncalibrated","calibrated"]},"data_mode":{"const":"simulation"},"output_kind":{"const":"simulated_output"},"origin":{"const":"twin"}}}')

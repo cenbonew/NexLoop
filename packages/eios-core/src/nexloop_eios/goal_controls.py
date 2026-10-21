@@ -94,7 +94,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-042 T1 (D7): publish or retire a consumer twin version (shape and rules checked in SQL).
     'publish_consumer_twin':'consumer_twin.publish','retire_consumer_twin':'consumer_twin.retire',
     # NX-042 T1 (D5): erase a version's free texts (the hashes stay).
-    'erase_consumer_twin_text':'consumer_twin.erase_text'}
+    'erase_consumer_twin_text':'consumer_twin.erase_text',
+    # NX-042 T5 (D3, D7): calibrate a twin version over 1-3 windows.
+    'calibrate_consumer_twin':'consumer_twin.calibrate'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -491,6 +493,14 @@ class GoalGovernedActions:
                 or type(reason) is not str or not 1<=len(reason.strip())<=500):
             raise ValueError('twin, version and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer_twin_text','twin_id':twin_id,'version':version,'reason':reason})
+
+    # NX-042 T5 (D3, D7): owner only; a frozen calibration report against real aggregates, and its calibration event when it has a verdict.
+    def calibrate_consumer_twin(self,*,action_name,action_version,request_id,twin_id,version,windows):
+        from nexloop_eios.workbench_actions_http import _calibration_windows
+        if type(twin_id) is not str or re.fullmatch(r'[a-z][a-z0-9_.-]{0,63}',twin_id) is None or type(version) is not int or version<1 or not _calibration_windows(windows):
+            raise ValueError('twin, version and 1-3 calibration windows required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'calibrate_consumer_twin','twin_id':twin_id,'version':version,
+            'windows':windows})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

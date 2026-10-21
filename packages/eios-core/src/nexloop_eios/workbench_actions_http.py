@@ -69,6 +69,12 @@ def _text(value):
 
 
 # operation → its fields (each with a validator); every operation is a registered human capability (0150).
+def _calibration_windows(v):
+    """NX-042 T5: 1-3 windows {split_at YYYY-MM-DD, span_days 28|56|84}; overlap and dates are checked in SQL."""
+    return (type(v) is list and 1<=len(v)<=3 and all(type(w) is dict and set(w)=={'split_at','span_days'} and type(w['split_at']) is str
+        and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}',w['split_at']) and type(w['span_days']) is int and w['span_days'] in (28,56,84) for w in v))
+
+
 OPERATIONS={
     'set_control':{'scope_kind':_scope,'scope_ref':_text,'paused':_bool,'reason':_reason},
     'release_contact_restriction':{'consumer_id':_id(_HEX),'reason':_reason},
@@ -162,6 +168,10 @@ OPERATIONS={
         'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
     'erase_consumer_twin_text':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
         'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
+    # NX-042 T5 (owner only): calibrate a twin version over 1-3 non-overlapping calibration windows [split_at, split_at + span_days) (UTC days).
+    'calibrate_consumer_twin':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
+        'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),
+        'windows':lambda v:v if _calibration_windows(v) else (_ for _ in ()).throw(ValueError('windows'))},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.

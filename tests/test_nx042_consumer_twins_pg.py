@@ -139,12 +139,12 @@ def test_retiring_appends_a_status_and_keeps_the_version(db):
 
 def test_only_the_owner_publishes_from_real(db):
     rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where source_task='NX-042'").fetchall())
-    assert rows == {'consumer_twin.publish': 'human', 'consumer_twin.retire': 'human', 'consumer_twin.erase_text': 'human'}
+    assert rows == {'consumer_twin.publish': 'human', 'consumer_twin.retire': 'human', 'consumer_twin.erase_text': 'human', 'consumer_twin.calibrate': 'human'}  # T3 erase_text, T5 calibrate
     roles = json.loads((ROOT / 'deploy/authorization/workbench-roles.v1.json').read_text())['roles']
-    for name in ('nexloop.consumer_twin.publish', 'nexloop.consumer_twin.retire', 'nexloop.consumer_twin.erase_text'):
+    for name in ('nexloop.consumer_twin.publish', 'nexloop.consumer_twin.retire', 'nexloop.consumer_twin.erase_text', 'nexloop.consumer_twin.calibrate'):
         assert sorted(r for r, grants in roles.items() if f'eios:action:{name}:1' in grants) == ['owner'], name
     from nexloop_eios.business_actions import PROFILES
-    assert PROFILES['consumer_twin.publish'] == PROFILES['consumer_twin.retire'] == PROFILES['consumer_twin.erase_text'] == 'human_owner'
+    assert PROFILES['consumer_twin.publish'] == PROFILES['consumer_twin.retire'] == PROFILES['consumer_twin.erase_text'] == PROFILES['consumer_twin.calibrate'] == 'human_owner'
     for world in ('test', 'sim:' + str(uuid.uuid4())):
         with pytest.raises(psycopg.errors.InvalidParameterValue, match='owner_world_only'), db.transaction():
             publish(db, world=world)
@@ -183,11 +183,14 @@ def test_python_validators_mirror_the_sql_bodies():
 
 
 def calibrate(admin, version, verdict, twin='trial.service_consumer', tenant=TENANT_A):
-    """What NX-042 T5 will write after checking the report (no writer exists yet: the owner role writes directly here)."""
+    """An event as NX-042 T5 writes it, seeded directly: T5's report check (trigger nx042_calibration_event_report) is off for this one
+    insert - the report path itself is tested in test_nx042_twin_calibration_pg - and every other constraint (foreign key) stays."""
     with admin.transaction():
         admin.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
+        admin.execute('alter table control.nexloop_consumer_twin_calibrations disable trigger nx042_calibration_event_report')
         admin.execute("""insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
             values(%s,%s,%s,%s,%s,'t5-test',%s)""", (tenant, twin, version, 'twin-calibration:' + 'c' * 64, verdict, uuid.uuid4().hex))
+        admin.execute('alter table control.nexloop_consumer_twin_calibrations enable trigger nx042_calibration_event_report')
 
 
 def test_calibration_is_an_appended_event_and_the_latest_one_decides(db):

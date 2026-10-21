@@ -1405,6 +1405,11 @@
       "version": "0281",
       "name": "0281_nx042_twin_calibration_read.sql",
       "sha256": "f84a55d704e64a0b26779094c3c2a3c578b52130148ebe99709adfabda3c47fc"
+    },
+    {
+      "version": "0282",
+      "name": "0282_nx042_twin_calibration.sql",
+      "sha256": "74be7848ea9755c289a8cebda267d614a3cced9e1b8b2fb8d42e2c56b7a937dd"
     }
   ]
 }
