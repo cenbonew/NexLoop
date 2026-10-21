@@ -381,7 +381,7 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             except Blocked as error:
                 result.block(args.phase, str(error))
                 return result.write(out)
-        prior, prior_blocked, _ = load_chain(args.prior, prefix='nx043-', order=CHAIN, nonce=result.nonce) if args.phase in NEEDS else ([], [], None)
+        prior, prior_blocked, _ = load_chain(args.prior, prefix='nx043-', order=list(NEEDS[args.phase]), nonce=result.nonce) if args.phase in NEEDS else ([], [], None)
         if args.phase == 'merge':
             result.steps, result.blocked = list(prior), list(prior_blocked)
             return result.write(out)
