@@ -1,0 +1,23 @@
+{
+  "schema": "nexloop-consumer-twin/1",
+  "twin_id": "trial.service_consumer",
+  "description": "试用期服务类消费者的最小孪生（合成参数，不含真实内容）",
+  "hypotheses": [
+    {"key": "evening_slower", "statement": "假设：晚间（20 点后）收到的消息，24 小时内回复的可能性较低。", "kind": "hypothesis"},
+    {"key": "discount_intent", "statement": "假设：附带折扣提示的外联提高付款意向。", "kind": "hypothesis"}
+  ],
+  "parameters": {
+    "behaviors": {
+      "reply_within_24h": {"low": 0.35, "high": 0.6, "coverage": 0.8, "hypotheses": ["evening_slower"]},
+      "refuse_contact": {"low": 0.02, "high": 0.08, "coverage": 0.8, "hypotheses": ["evening_slower"]},
+      "payment_intent": {"low": 0.05, "high": 0.15, "coverage": 0.8, "hypotheses": ["discount_intent"]}
+    }
+  },
+  "generator_version": "twin-template/1",
+  "frozen": {
+    "version": 1,
+    "definition_digest": "5b2f0c1e9d8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c",
+    "calibration": {"report_ref": null, "status": "uncalibrated"},
+    "status": "published"
+  }
+}

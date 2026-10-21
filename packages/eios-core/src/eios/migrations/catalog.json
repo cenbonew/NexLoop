@@ -1385,6 +1385,16 @@
       "version": "0277",
       "name": "0277_clock_skew_metric.sql",
       "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
+    },
+    {
+      "version": "0278",
+      "name": "0278_nx042_consumer_twins.sql",
+      "sha256": "6fc91e7c1fa7b33203381f5ceabbaeeebe8cec5084ec3ee4661eac42d72f7ed5"
+    },
+    {
+      "version": "0279",
+      "name": "0279_nx042_twin_sampling.sql",
+      "sha256": "03d718fcbaae70e99bc7ab7405107c1b8e1ed60922923aef110b406ad76de37c"
     }
   ]
 }

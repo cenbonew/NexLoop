@@ -17,6 +17,8 @@
 | workbench-world-model.schema.json | 企业世界模型 W1：工作台只读视图 `GET /api/v1/workbench/world-model`，即租户已发布模型的元数据（对象类型及属性、关系类型、事件类型、Action、Function、实例计数）。不含实例内容；负责人限制组的属性只给名字和 withheld；没有写入对应物 |
 | consumer-port-event.schema.json | NX-041 S7：消费者端口事件。孪生（NX-042）在模拟世界中产生入站事件的唯一入口；孪生只给合成 Consumer、事件种类、模拟内容和自身的版本、种子、步数，世界时间、事件 ID、序号由服务端给出；只接受已登记的 sim/shadow 世界，全部为 simulation 数据，不是事实，也不触发任何 Action |
 | context-pack-sim.schema.json | NX-041 S7b：模拟世界中 Run 的 Context。v6 只适用于 real（bindings.world_id 固定为 real），模拟世界用自己的包、自己的装配入口；来源只有合成 Consumer 的生成画像与人设（S3）和孪生经消费者端口写入的事件（S7）。条目沿用 v6 的条目形状，每条都标 source simulated，不是事实；不读取任何 real 的会话、Claim、对象或记忆 |
+| consumer-twin.schema.json | NX-042 T1：消费者孪生的一个版本——明确写出的假设（只是假设，不是事实）、决策层参数（每个行为都是区间，不给单个概率，D4）与生成器版本；不含任何真实内容（D5），长期保留、不随模拟世界删除；负责人经受治理 Action 发布（D7），版本号、摘要、校准（报告引用与状态）和状态（published / retired，只追加）由服务端冻结；没有通过校准报告的版本为“未校准”，NX-043 不能选用 |
+| twin-sample.schema.json | NX-042 T2：模拟世界中种子化群体抽样的一个孪生实例——每个行为给出区间与名义覆盖率（不给单一概率，D4）和在区间内抽出的一次模拟结果（抽到的概率不输出）；同一种子与孪生版本逐字节一致；一律为模拟输出（origin twin、data_mode simulation），带孪生版本与校准状态，未校准的孪生可以运行但输出标明“未校准”，NX-043 不能选用（D7）；永远不是事实、用户陈述或 Claim |
 
 ## Schema之外必须实现的语义检查
 
