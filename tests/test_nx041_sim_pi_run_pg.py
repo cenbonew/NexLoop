@@ -214,6 +214,7 @@ def test_at046_the_simulation_worker_dispatches_through_its_actual_path(sim_grou
     f = sim_group
     node = shutil.which('node')
     assert node and subprocess.run([node, '--version'], capture_output=True, text=True, check=True).stdout.startswith('v24.'), 'Node 24 required'
+    log_start = len(pg_log(f['pg']).read_text(errors='replace'))
     # A simulation world has its own model budget from its creation (S6, D6), so every simulation Run's dispatch reserves its maximum
     # cost: reserve_budget runs here as nexloop_sim_worker (asserted below).
     assert admin.execute("select count(*) from control.nexloop_budget_limits where world=%s and budget_kind='model'", (f['world'],)).fetchone()[0] == 1
@@ -260,6 +261,11 @@ def test_at046_the_simulation_worker_dispatches_through_its_actual_path(sim_grou
     reserved = admin.execute("select count(*) from control.nexloop_budget_consumption where tenant_id=%s and world=%s and consumption_id=%s",
                              (f['tenant'], f['world'], 'run:' + run.run_id)).fetchone()[0]
     assert reserved == 1
+    # Stage 2026-10-22: the simulation worker asked the message reply settlement after its Run and was refused - a PostgreSQL ERROR per
+    # Run, swallowed by the best-effort call (a refused call is not counted as a function call; the server log is where it shows). A
+    # simulation Run answers no conversation message: the worker no longer asks, and nothing of its path is refused.
+    logged = pg_log(f['pg']).read_text(errors='replace')[log_start:]
+    assert 'permission denied for function' not in logged, [l for l in logged.splitlines() if 'permission denied' in l]
 
 
 def test_a_dispatch_refused_by_the_database_is_logged_by_class_and_code_only(sim_group, admin, tmp_path, capfd):
@@ -296,3 +302,31 @@ def test_a_dispatch_refused_by_the_database_is_logged_by_class_and_code_only(sim
     assert lines == [{'event': 'runtime_dispatch_error', 'stage': 'control', 'code': 'runtime_control_unavailable',
                       'error_class': lines[0]['error_class'], 'error_cause_class': 'InsufficientPrivilege'}], err
     assert run.run_id not in err and run.token not in err and f['tenant'] not in err
+
+
+def pg_log(conninfo):
+    """The test cluster's server log (tests/conftest.py: <root>/postgres.log beside <root>/socket)."""
+    from psycopg.conninfo import conninfo_to_dict
+    return Path(conninfo_to_dict(conninfo)['host']).parent / 'postgres.log'
+
+
+def test_reply_settle_is_not_asked_for_a_simulation_or_shadow_world():
+    """The reply settlement concerns conversation messages only (0200: message routes, fallback bindings); a simulation or shadow world's
+    Run answers none, so the worker does not ask - no connection is taken. A real or test world is asked as before (best effort)."""
+    from types import SimpleNamespace
+    from nexloop_eios.runtime_dispatch import reply_settle
+
+    class NoPool:
+        def connection(self):
+            raise AssertionError('no database call for a simulation world')
+    for world in ('sim:' + str(uuid.uuid4()), 'shadow:' + str(uuid.uuid4())):
+        worker = SimpleNamespace(_session=SimpleNamespace(world=world, token_digest='a' * 64), _backend=SimpleNamespace(_pool=NoPool()))
+        assert reply_settle(worker, str(uuid.uuid4())) == {'reply_run': False}
+    asked = []
+
+    class Pool:
+        def connection(self):
+            asked.append(True)
+            raise RuntimeError('unavailable')
+    real = SimpleNamespace(_session=SimpleNamespace(world='real', token_digest='a' * 64), _backend=SimpleNamespace(_pool=Pool()))
+    assert reply_settle(real, str(uuid.uuid4())) == {} and asked == [True]  # real is still asked (best effort: {} when unavailable)
