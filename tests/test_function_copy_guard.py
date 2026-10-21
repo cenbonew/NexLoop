@@ -81,7 +81,7 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
-    # Clock skew metric (0290, L6): process sample kind 'clock' accepted; nothing else.
+    # Clock skew metric (0277, L6): process sample kind 'clock' accepted; nothing else.
     Allowed('clock_skew_metric', 'authz.nexloop_record_process_sample', "the process sample kind 'clock' (skew_ms, skew_abs_ms, round_trip_ms)",
             ((r"\s*when 'clock' then array\['skew_ms','skew_abs_ms','round_trip_ms'\]", ''),)),
 ]

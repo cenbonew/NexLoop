@@ -1,4 +1,4 @@
-"""Clock skew between APP_HOST and the database as a continuous metric (0290) and alert rules v10 (rule clock_skew, |skew| > 2 s).
+"""Clock skew between APP_HOST and the database as a continuous metric (0277) and alert rules v10 (rule clock_skew, |skew| > 2 s).
 
 The alert evaluator samples the skew (database clock minus its own clock at the midpoint of the shortest round trip) before every
 evaluation; the snapshot's clock block holds the 5-minute max per service; the rule fires above 2000 ms. The evaluator's clock is
