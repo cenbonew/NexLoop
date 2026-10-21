@@ -1,0 +1,5 @@
+{
+  "schema": "nexloop-sim-world/1",
+  "world": "sim:00000000-0000-4000-8000-000000000000",
+  "reason": "<DATE> 模拟世界的 Action 目录（替身白名单）"
+}

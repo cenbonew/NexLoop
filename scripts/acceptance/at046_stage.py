@@ -6,14 +6,15 @@ formats as the S6 stage scripts (scripts/acceptance/s6_common.py; result schema 
 Two phases, because the world's credentials, DSN files and the compose project (NEXLOOP_SIM_WORLD) come in between:
 
     at046_stage.py prepare --config PRIVATE.json [--dry-run]     (owner password from stdin)
-        owner workbench: create_sim_world, generate_sim_world_data -> the world id (into the result's evidence)
+        owner workbench: create_sim_world, generate_sim_world_data, publish_sim_catalog (the world's Action catalog: the real Actions
+        with a stand-in, 0278) -> the world id (into the result's evidence)
     # dispatcher: sim_world_credentials.py (api, worker, agent[, twin]), sim_dsn_files.py, compose --profile simulation up -d
     at046_stage.py run --config PRIVATE.json [--dry-run]
         probe (read only): the real tables' counts before
         twin: bind, observe, act through the twin port (nexloop_twin_port + the world's twin credential)       blocked before the eighth batch
-        Run: the simulation intake (nexloop_sim_api + the world's api credential) issues the Run credential, fixes the input by reference
-             and accepts the Run; the running simulation group (runtime worker, guard, simulation Host) claims and runs it; the probe
-             waits for the task to end                                                   blocked while the Run Action is not published for the world
+        Run: the Run Action published for the world (prepare), the simulation intake (nexloop_sim_api + the world's api credential)
+             issues the Run credential, fixes the input by reference and accepts the Run; the running simulation group (runtime worker,
+             guard, simulation Host) claims and runs it; the probe waits for the task to end
         probe: the Run credential's world is the simulation world, every credential of the tenant's Run path is of that world, and the
              real tables' counts are unchanged (AT-046: no real credential, channel or effect)
 
@@ -80,6 +81,11 @@ def prepare(ports, config, r):
     status, out = ports.act('generate_sim_world_data', {'world': world, **g, 'max_objects': None}, key + '-g')
     r.step('data_generated', 'a generation of synthetic Consumers', {'status': status, 'generation_id': out.get('generation_id') if isinstance(out, dict) else None,
            'counts': out.get('counts') if isinstance(out, dict) else None}, status == 200 and isinstance(out, dict) and bool(out.get('generation_id')))
+    status, out = ports.act('publish_sim_catalog', {'world': world, 'reason': 'AT-046: the world catalog (stand-in Actions)'}, key + '-c')
+    actions = out.get('actions') if isinstance(out, dict) else None
+    r.step('catalog_published', 'the stand-in Actions published for the world (definitions only)',
+           {'status': status, 'actions': actions, 'copied': out.get('copied') if isinstance(out, dict) else None},
+           status == 200 and bool(actions))
 
 
 def run(ports, config, r):
@@ -110,9 +116,10 @@ def run(ports, config, r):
     effect = 'eios:action:' + EFFECT + ':1'
     published = ports.read('select count(*) from control.nexloop_action_definitions where tenant_id=%s and world=%s and resource_id=%s and active',
                            (tenant, world, effect))[0][0]
+    r.step('run_action_published_for_the_world', 'the Run Action is in the world catalog (prepare: publish_sim_catalog)',
+           {'published': bool(published)}, bool(published))
     if not published:
-        r.block('simulation_run', 'the Run Action is not published for the simulation world (no product path publishes the catalog per '
-                'simulation world yet: D10 seeds it as trusted configuration in its tests)')
+        pass
     elif ports.intake is None:
         r.block('simulation_run', 'roles.sim_api not configured')
     else:
@@ -180,9 +187,9 @@ def ports_from(config, password):
     return Ports(owner=owner, probe=connect_from(probe) if probe else None, twin=twin, intake=intake_from(roles))
 
 
-PLAN = {'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data'],
+PLAN = {'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog'],
         'run': ['probe (read only): real table counts', 'twin port: bind, observe, act (when present)',
-                'sim_api: issue_run_credential, sim context register, accept (when the Run Action is published for the world)',
+                'probe: the Run Action in the world catalog', 'sim_api: issue_run_credential, sim context register, accept',
                 'probe: task status until it ends, the Run credential world', 'probe: real table counts again']}
 
 

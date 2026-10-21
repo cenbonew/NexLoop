@@ -1385,6 +1385,11 @@
       "version": "0277",
       "name": "0277_clock_skew_metric.sql",
       "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
+    },
+    {
+      "version": "0278",
+      "name": "0278_nx041_sim_catalog_publish.sql",
+      "sha256": "fb332e7224ce853583a6507a4aa33fbf2b88317f05e331064351d1c8ac8c053b"
     }
   ]
 }

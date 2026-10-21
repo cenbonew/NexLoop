@@ -30,7 +30,7 @@
 | 3 | 模拟角色的口令（bootstrap 窗口），口令存入钥匙串 | 调度员 | `ALTER ROLE … PASSWORD` 在 bootstrap 窗口执行，不经过任何工具 |
 | 4 | 模拟 secret 目录与 DSN 文件 | 调度员 | `sim_dsn_files.py --config <私有配置> --dry-run`，然后用钥匙串管道 `printf '%s %s\n' <角色> <口令>`（每个角色一行）喂给 `sim_dsn_files.py --config …`。会写 5 个 `*_dsn` 文件（0600），各自的 `sslrootcert=/run/secrets/sim_pg_ca` |
 | 5 | 其余 secret 文件 | 调度员 | 见下一节清单。`sim_pg_ca` 复制 real 的 pg CA 即可（同一套） |
-| 6 | 创建 sim world、生成合成数据 | 调度员（工具以负责人的工作台会话执行） | `at046_stage.py prepare --config …`，负责人口令走 stdin。输出里有 world id |
+| 6 | 创建 sim world、生成合成数据、发布该 world 的 Action 目录 | 调度员（工具以负责人的工作台会话执行） | `at046_stage.py prepare --config …`，负责人口令走 stdin。依次调用 create_sim_world、generate_sim_world_data、publish_sim_catalog（0278，见下），输出里有 world id。也可以单独用 `sim_world.py publish-catalog --config …` 发布目录 |
 | 7 | 该 world 的凭据 | 调度员（受信配置签发：configurator 登录窗口和签名密钥） | `sim_world_credentials.py --config … --dry-run`，再去掉 `--dry-run` 执行。会签发 api、worker、agent 三种用途，写 token 文件，并把 worker 凭据写成 compose 的 `sim_world_credential`，最后自检：每个凭据在本 world 能认证，在 real 和 test 被拒 |
 | 8 | 防火墙 | **负责人，APP_HOST root** | 见“防火墙”一节 |
 | 9 | 启动模拟进程组 | 调度员（APP_HOST 的部署账户，有 docker 权限） | 见“启动”一节 |
@@ -70,14 +70,22 @@ docker compose -p nexloop-simulation ps
 
 停止和清理用 `--profile simulation down`。world 的整体删除走 `sim_world.delete`，不靠 compose。
 
+## 模拟 world 的 Action 目录（0278，`sim_world.publish_catalog`）
+
+- **入口**：负责人的受治理 Action `nexloop.sim_world.publish_catalog`（operation `publish_sim_catalog`），只能从 real 发起；命令行是 `sim_world.py publish-catalog`。
+- **复制什么**：把 real 已发布、并且在 S4 替身目录（`control.nexloop_stand_ins`）里有替身的 Action 定义，复制到一个已登记、处于 active 的 sim world。没有替身的效应（例如 enterprise delivery）一律不复制，按 D11 失败关闭。
+- **不复制什么**：凭据、授权事实、效应类别声明、任何配置都不复制。
+- **可重复执行**：已存在的定义只计数，不重写；同一版本但内容不同，判为 `catalog_conflict`。
+- **随 world 删除**：这些行在 world 整体删除时一起删掉。
+- **真实执行被拦住**：在 sim world 里，效应只能走替身路径。real 的效应表由 0262 的 `nx041_real_effect_world` CHECK 拒绝任何模拟行。
+- **authority revision 的取舍**：受治理入口在提交前会复核租户的 authority revision。为此，模拟 world 的 Action 定义写入不再递增这个 revision（重定义了 0004 的 `authz.nexloop_authority_epoch_guard`，已在复制件守护登记）。这些定义只服务于该 world 自己的凭据；real、test 和其他所有授权行的变化仍然照常递增。
+
 ## AT-046 实测现在会卡在哪
 
-`at046_stage.py run` 遇到这两处会标为 blocked（passed 记为 null，不算通过）：
+- **孪生 observe/act**：孪生端口（`authz.nexloop_twin_*`、`nexloop_twin_port`）属于第八批。在发布 27 上这一步标为 blocked，不算通过。
+- **模拟 Run**：Run Action 由 prepare 阶段发布到 world 里，不再卡在“未发布”。如果漏跑了 prepare，Run 这一步会判为失败。
 
-1. **孪生 observe/act**：孪生端口（`authz.nexloop_twin_*`、`nexloop_twin_port`）属于第八批，发布 27 里没有。
-2. **模拟 Run**：Run 用的 Action（effect Action）需要发布到这个模拟 world（D10）。现在没有任何产品路径能把 catalog 发布到模拟 world：受信配置 `configure_manifest` 只写 real，D10 的测试是直接写库播种的。所以发布 27 上签发 Run 凭据会被拒（`published Run Action unavailable`）。这是产品缺口，要在开发线补一个受治理的“按 world 发布 catalog”入口；脚本不会用直接写库去绕过。
-
-其余步骤照常执行：world 创建、数据生成、凭据签发与自检、real 侧零变化的核对。补上第 2 项（以及第八批的孪生端口）之后，同一个脚本无需修改就能跑通 AT-046 全程。
+第八批到位之后，同一个脚本无需修改就能完整跑通 AT-046。
 
 ## 第八批之后
 

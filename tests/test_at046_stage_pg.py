@@ -1,6 +1,6 @@
 """scripts/acceptance/at046_stage.py: the AT-046 stage run, locally.
-- On PostgreSQL (a simulation world with synthetic data): the run phase probes read only, finds no twin port in this release and no Run
-  Action published for the world - both `blocked` (passed null, never a pass) - and confirms the real side unchanged.
+- On PostgreSQL (a simulation world with synthetic data): the run phase probes read only, finds no twin port in this release
+  (`blocked`, passed null, never a pass); without prepare's catalog publication the Run step fails; the real side is unchanged.
 - With the Run Action published for the world (as the D10 tests seed it) and an intake stand-in, the run phase waits for the task and
   checks the Run credential's world (fake ports: no host process here).
 - The dry run calls nothing; prepare goes through the owner's two Actions; no private value in a result.
@@ -60,7 +60,7 @@ def test_the_run_phase_blocks_what_this_release_lacks_and_keeps_real_unchanged(a
     st = steps(doc)
     assert st['synthetic_consumers_present']['observed']['consumers'] == 2
     assert 'eighth batch' in st['twin_observe_act']['observed']['blocked']
-    assert 'not published for the simulation world' in st['simulation_run']['observed']['blocked']
+    assert st['run_action_published_for_the_world']['passed'] is False  # prepare publishes it (publish_sim_catalog)
     assert st['real_side_unchanged']['passed'] is True and st['world_credentials_only_of_the_world']['passed'] is True
     assert TENANT_A not in json.dumps(doc)
 
@@ -130,13 +130,16 @@ class FakeOwner:
         self.calls.append(path)
         if path.endswith('create_sim_world'):
             return 200, {'world': 'sim:' + str(uuid.UUID(int=5, version=4)), 'created': True}
+        if path.endswith('publish_sim_catalog'):
+            return 200, {'world': body['world'], 'actions': ['eios:action:nexloop.service.request:1'], 'copied': 1, 'already_present': 0}
         return 200, {'generation_id': 'g-1', 'counts': {'consumers': 3}}
 
 
 def test_prepare_goes_through_the_owner_actions_and_the_dry_run_calls_nothing(tmp_path):
     owner = FakeOwner()
     code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner))
-    assert code == 0 and doc['passed'] is True and owner.calls == ['/api/v1/workbench/actions/create_sim_world', '/api/v1/workbench/actions/generate_sim_world_data']
+    assert code == 0 and doc['passed'] is True and owner.calls == ['/api/v1/workbench/actions/create_sim_world', '/api/v1/workbench/actions/generate_sim_world_data',
+                                                         '/api/v1/workbench/actions/publish_sim_catalog']
     assert steps(doc)['world_created']['evidence']['world'].startswith('sim:')
 
     class Nothing(A.Ports):
