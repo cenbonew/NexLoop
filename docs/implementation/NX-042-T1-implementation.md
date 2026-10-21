@@ -2,7 +2,7 @@
 
 **依据**：设计稿 `docs/implementation/NX-042-design.md`（分支 `l5/nx042-043-design`，提交 9154db7a）的 §2、§3.3、§7 T1 和 D1、D4、D5、D7，负责人已于 2026-10-20 按推荐定案。
 
-**迁移**：`0278_nx042_consumer_twins.sql`，临时编号。原定从 0280 起，但本分支基于 6ba7151e，迁移只排到 0274，而 bootstrap 要求编号连续，所以用 0278。集成时由调度员统一重排。
+**迁移**：`0278_nx042_consumer_twins.sql`，临时编号。原定从 0281 起，但本分支基于 6ba7151e，迁移只排到 0274，而 bootstrap 要求编号连续，所以用 0278。集成时由调度员统一重排。
 
 **契约**：`packages/contracts/consumer-twin.schema.json`（`nexloop-consumer-twin/1`），并附示例和 README 说明行。
 
