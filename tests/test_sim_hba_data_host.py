@@ -12,7 +12,8 @@ from nexloop_eios import stage_render as render  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/deploy/sim_hba_data_host.sh'
 TEMPLATE = ROOT / 'deploy/stage/config/pg_hba.conf.template'
-SIM = 'hostssl nexloop_stage nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files 192.0.2.10/32 scram-sha-256'
+PRIOR = 'hostssl nexloop_stage nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files 192.0.2.10/32 scram-sha-256'
+SIM = 'hostssl nexloop_stage nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port 192.0.2.10/32 scram-sha-256'
 EVO = 'local nexloop_stage nexloop_evo_reader,nexloop_evo_writer,nexloop_evo_evaluator scram-sha-256'
 
 
@@ -58,7 +59,7 @@ def test_the_rendered_rules_admit_the_simulation_roles_from_app_host_only(env): 
     rules, _ = render.render(TEMPLATE.read_text(), values)
     lines = [' '.join(l.split()) for l in rules.splitlines() if l.strip() and not l.lstrip().startswith('#')]
     sim = [l for l in lines if 'nexloop_sim_' in l]
-    assert sim == [f"hostssl {values['NEXLOOP_DB']} nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files "
+    assert sim == [f"hostssl {values['NEXLOOP_DB']} nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port "
                    f"{values['APP_HOST_ADDR']}/32 scram-sha-256"]
     assert not any(r.startswith(('nexloop_sim_', 'nexloop_stand_in', 'nexloop_twin')) for r in values['APP_PG_ROLES'].split(','))
     assert lines.index(sim[0]) < len(lines) - 4 and all('reject' in l for l in lines[-4:])
@@ -69,3 +70,12 @@ def test_the_added_rules_hold_the_simulation_line_exactly_once():
     check = lambda *rules: lib('check_added "$1"', '\n'.join(rules)).returncode == 0  # noqa: E731
     assert check(SIM) and check(EVO, SIM) and check(SIM, EVO)
     assert not check(SIM, SIM) and not check(EVO, EVO) and not check(EVO) and not check(SIM, 'local all all trust') and not check(SIM, EVO, EVO)
+
+
+def test_the_only_removal_allowed_is_the_prior_simulation_line_replaced_by_the_new_one():
+    """Ninth batch: nexloop_twin_port joins the line. A stage that installed the line before keeps working: the rendered file may drop
+    exactly that prior line when it adds the new one; any other removal (or the prior line dropped without the new one) is refused."""
+    check = lambda removed, *added: lib('check_removed "$1" "$2"', removed, '\n'.join(added)).returncode == 0  # noqa: E731
+    assert check('', SIM) and check(PRIOR, SIM) and check(PRIOR, EVO, SIM)
+    assert not check(PRIOR) and not check(PRIOR, EVO) and not check('local all all trust', SIM) and not check(PRIOR + '\n' + EVO, SIM)
+    assert not check(PRIOR.replace('192.0.2.10/32', '0.0.0.0/0'), SIM)
