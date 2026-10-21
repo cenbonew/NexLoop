@@ -2,7 +2,7 @@
 
 - **依据**：NX-043 设计稿 §3、§4、§10（D1–D9，负责人 2026-10-20 按推荐定案）；负责人 2026-10-21 定：NX-043 可以先做不依赖校准的切片（D9 局部提前），凡是选用孪生、进入线上验证的环节，仍然要等校准通过。
 - **起点**：第八批预演头 `a3214ccd`，里面已有 NX-042 T1–T7。
-- **迁移**：`0290_nx043_strategies_experiments.sql`。这是临时编号，以合入后的 catalog 为准。临时编号和前一个迁移之间空了号，所以 `test_bootstrap.py` 的两项计数断言（catalog 条数等于 revision 号）在重新编号之前会失败，迁移本身可以正常应用。
+- **迁移**：`0285_nx043_strategies_experiments.sql`。这是临时编号，以合入后的 catalog 为准。临时编号和前一个迁移之间空了号，所以 `test_bootstrap.py` 的两项计数断言（catalog 条数等于 revision 号）在重新编号之前会失败，迁移本身可以正常应用。
 - **契约**：`packages/contracts/strategy-version.schema.json`（`nexloop-strategy-version/1`）、`packages/contracts/experiment-registration.schema.json`（`nexloop-experiment-registration/1`），以及示例和生成的 TS、OpenAPI、Pydantic。
 
 ## 1. 策略版本（D1）

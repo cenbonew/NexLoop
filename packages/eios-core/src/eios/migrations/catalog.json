@@ -1422,8 +1422,8 @@
       "sha256": "fdc5e365014491ea7bb7371536d33642d6308a307309c506b8b5243ee459c221"
     },
     {
-      "version": "0290",
-      "name": "0290_nx043_strategies_experiments.sql",
+      "version": "0285",
+      "name": "0285_nx043_strategies_experiments.sql",
       "sha256": "d7b613ad7edcb696978cadd08c766cb04b021390eb5c58fbd98166a1debe180c"
     }
   ]
