@@ -18,4 +18,11 @@ Decision (dispatcher, 2026-10-21): the port role no longer executes the raw S7 e
 
 Generators: bind checks the controlled generator list (T1) instead of the name.
 
+Fix verify (L6 `nx042-t3-fix-verify.md`):
+- 1.2: steps are contiguous and alternate per (binding, consumer). Observe n needs act n-1 (step 1 first); act n needs observe n. A skipped or earlier new step is refused (`step_out_of_order`); a repeated step replays. Steps start at 1, as the S7 port contract's `twin.step` (minimum 1) does. bind no longer returns the seed, the twin digest or the port version, and act's provenance no longer carries the digest, so a port client cannot compute a step's outcome ahead of it. The seed stays in the act provenance and in the event attributes: it is the client's own input and a required provenance mark.
+- 4.2: the S7b assembler admits `nexloop_twin_port` for a sim:/shadow: world only (on top of `authz.nexloop_sim_effect_tenant`). The copy guard registration was updated.
+- 5.4 (picking results across several seeds): NX-043 freezes an experiment's seed before it runs. Nothing in T3 stops a client from binding many seeds and comparing; the outputs are simulated and never selectable or facts. Left to NX-043.
+
+Credential (owner 2026-10-21, extending D10 with a twin use): the port entries take only the world's `twin` credential (`authz.nexloop_twin_port_tenant`). The world's api, worker and agent credentials are refused with `twin port: credential_use`. The twin credential is revoked with the other three when the world is deleted. Migration `0284_nx042_twin_credential.sql`; details in `NX-041-D10-implementation.md`.
+
 Tests: `tests/test_nx042_twin_port_pg.py`.

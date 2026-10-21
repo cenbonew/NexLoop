@@ -27,7 +27,7 @@ def publish(admin, definition=None):
 
 
 def port(f, world=None, token=None, role='nexloop_twin_port'):
-    return T.TwinPort(f['role'](role), token or f['token_a'], world or f['a'])
+    return T.TwinPort(f['role'](role), token or f['token_twin_a'], world or f['a'])
 
 
 def real_rows(admin):
@@ -92,7 +92,7 @@ def test_the_same_seed_and_twin_version_reproduce_byte_for_byte(t3):
     one = port(f).run(twin, people, steps=3)
     again = port(f).run(twin, people, steps=3)  # a repeated run replays
     assert again == one
-    other = port(f, f['b'], f['token_b']).run(twin, people, steps=3)
+    other = port(f, f['b'], f['token_twin_b']).run(twin, people, steps=3)
     assert [said(a) for a in other] == [said(a) for a in one]
     assert [a['event_id'] for a in other if a['event_id']] != [a['event_id'] for a in one if a['event_id']]  # the worlds stay apart
     assert [said(a) for a in port(f).run(T.ConsumerTwin(TWIN, 1, 'repro-2'), people, steps=3)] != [said(a) for a in one]  # positive control
@@ -139,7 +139,7 @@ def test_real_test_other_roles_and_unready_steps_are_refused(t3):
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='step_not_observed'):
         port(f).act(binding, c, 1)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='binding_unknown'):
-        port(f, f['b'], f['token_b']).observe(binding, c, 1)  # a binding of another world
+        port(f, f['b'], f['token_twin_b']).observe(binding, c, 1)  # a binding of another world
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='twin_unknown'):
         port(f).bind(T.ConsumerTwin('no.such', 1, 'x'))
     d = copy.deepcopy(DEFINITION)
@@ -179,3 +179,63 @@ def test_twin_rows_leave_with_the_world(t3):
     for table in ('runtime.nexloop_twin_bindings', 'runtime.nexloop_twin_observations', 'runtime.nexloop_twin_event_provenance'):
         assert admin.execute(f'select count(*) from {table} where world=%s', (f['a'],)).fetchone()[0] == 0, table
 
+
+
+def test_steps_are_contiguous_and_alternate_and_the_client_never_gets_the_digest(t3):
+    """L6 T3 fix verify 1.2: a twin cannot pick which steps to run - observe n needs act n-1, act n needs observe n; skipped or earlier
+    new steps are refused, a repeated step replays. bind and act never hand the port client the twin digest (outcomes are unguessable
+    before a step); the seed is the client's own and stays a provenance mark of the event."""
+    f = t3
+    p = port(f)
+    bound = p.bind(T.ConsumerTwin(TWIN, 1, 'order'))
+    assert set(bound) == {'binding_id', 'world', 'twin_id', 'twin_version', 'calibration_status'}
+    b, c = bound['binding_id'], consumers(f['admin'], f['a'])[0]
+    for step in (2, 3):  # not the first step
+        with pytest.raises(psycopg.errors.InvalidParameterValue, match='step_out_of_order'):
+            p.observe(b, c, step)
+    first = p.observe(b, c, 1)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='step_out_of_order'):
+        p.observe(b, c, 2)  # act 1 first
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='step_not_observed'):
+        p.act(b, c, 2)
+    acted = p.act(b, c, 1)
+    assert 'twin_digest' not in acted['provenance'] and acted['provenance']['seed'] == 'order'
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='step_out_of_order'):
+        p.observe(b, c, 3)  # skipping step 2
+    assert p.observe(b, c, 1) == first and p.act(b, c, 1) == acted  # repeats replay
+    p.observe(b, c, 2)
+    assert p.act(b, c, 2)['step'] == 2
+    # Another Consumer has its own sequence.
+    other = consumers(f['admin'], f['a'])[1]
+    assert p.observe(b, other, 1)['step'] == 1
+
+
+def test_the_assembler_admits_the_port_role_for_simulation_worlds_only(t3):
+    """L6 T3 fix verify 4.2: the role check admits nexloop_twin_port only for a sim:/shadow: world (besides sim_effect_tenant)."""
+    src = t3['admin'].execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
+    assert "not (session_user='nexloop_twin_port' and coalesce(runtime.nexloop_world_kind(p_world),'') in ('simulation','shadow'))" in src
+    assert not t3['admin'].execute("select has_function_privilege('nexloop_twin_port','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]
+
+
+def test_only_the_worlds_twin_credential_reaches_the_port(t3):
+    """D10 extended (owner 2026-10-21): the twin port entries take the world's twin credential only; its api, worker and agent
+    credentials are refused (credential_use), as is another world's twin credential."""
+    from authority_fixture import seed_authority
+    f = t3
+    admin = f['admin']
+    assert port(f).bind(T.ConsumerTwin(TWIN, 1, 'use'))['twin_id'] == TWIN  # positive control: the twin credential
+    tokens = {'api': f['token_a']}
+    for use, c in (('worker', '7'), ('agent', '8')):
+        tokens[use], _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + c * 32, world=f['a'], identity_suffix=f'-t3-{use}', sim_use=use)
+    for use, token in tokens.items():
+        for call in (lambda p: p.bind(T.ConsumerTwin(TWIN, 1, 'use')), lambda p: p.observe('a' * 64, 'b' * 64, 1), lambda p: p.act('a' * 64, 'b' * 64, 1)):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege, match='credential_use'):
+                call(port(f, token=token))
+        assert use
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        port(f, world=f['a'], token=f['token_twin_b']).bind(T.ConsumerTwin(TWIN, 1, 'use'))  # B's twin credential in world A
+    # Revoked with its world's other credentials: one active twin credential per world.
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='one active credential per use'):
+        admin.execute("""insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use)
+            select repeat('9',64),tenant_id,credential_id||'-2',binding,worlds,audience,'active',expires_at,'twin' from authz.nexloop_service_credentials
+            where worlds=%s and sim_use='twin' and status='active'""", ([f['a']],))

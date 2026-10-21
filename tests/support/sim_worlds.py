@@ -7,7 +7,7 @@ SIM_WORLD = re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 
 def sim_use_of(world, use='api'):
-    """D10: the use column of a credential for this world - api, worker or agent for a simulation world, none for real and test."""
+    """D10: the use column of a credential for this world - api, worker, agent or twin for a simulation world, none for real and test."""
     return use if SIM_WORLD.fullmatch(str(world)) else None
 
 

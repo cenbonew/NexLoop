@@ -1,7 +1,8 @@
 -- NX-042 T3 (design §5, D1, D4, D6, D7; NX-041 S7, S7b): the consumer twin on the consumer port. The migration number lives only in the
 -- file name and the catalog; nothing below repeats it.
--- The twin process connects as nexloop_twin_port with its simulation world's one credential (the port's, NX-041 S7); it holds no other
--- credential and calls no Action. Real and test are refused before any lookup (authz.nexloop_sim_effect_tenant).
+-- The twin process connects as nexloop_twin_port with its simulation world's twin credential (NX-041 D10 extended by the owner on
+-- 2026-10-21: a fourth use, twin; an api, worker or agent credential is refused, credential_use); it holds no other credential and calls
+-- no Action. Real and test are refused before any lookup (authz.nexloop_sim_effect_tenant).
 -- 1. authz.nexloop_twin_bind(digest, world, twin, version, seed): binds a published, not retired twin version whose listed generator
 --    calls no model (D6: otherwise model_budget_required) and a seed to the world; binding_id = sha256(world|twin|
 --    version|seed). A repeat returns the binding.
@@ -17,8 +18,11 @@
 --    The event's port version is twin.<definition digest prefix>/<version>; its attributes and runtime.nexloop_twin_event_provenance
 --    carry the twin id, version, digest, seed, step, the calibration status at that step (uncalibrated until T5) and the observation
 --    digest. The decision never reads the observation, so the same seed and twin version reproduce byte for byte.
--- 4. The S7b assembler admits the port role (a session of nexloop_twin_port; only the owner-run observe entry reaches it - the port role
---    holds no execute on it). Everything else of its body is 0269's.
+--    Steps are contiguous per (binding, consumer) and alternate (L6 T3 fix verify 1.2): observe n needs act n-1 (n=1 first), act n
+--    needs observe n and is the next step; a skipped or earlier step is refused (step_out_of_order), a repeated one replays. The port
+--    client never gets the twin digest (bind and act do not return it), so it cannot compute outcomes ahead of a step.
+-- 4. The S7b assembler admits the port role (a session of nexloop_twin_port, for a sim:/shadow: world only; only the owner-run observe
+--    entry reaches it - the port role holds no execute on it). Everything else of its body is 0269's.
 -- 5. The port role no longer executes the raw S7 act (authz.nexloop_sim_consumer_act): a twin's events carry provenance.
 
 create or replace function authz.nexloop_sim_context_command(p_digest text,p_world text,p_consumer text,p_limit integer) returns jsonb
@@ -26,7 +30,7 @@ create or replace function authz.nexloop_sim_context_command(p_digest text,p_wor
 declare v_tenant text;v_limit integer;v_now text;v_total integer;v_profile jsonb;v_persona record;v_state jsonb:='[]';v_evidence jsonb;
  v_latest runtime.nexloop_sim_consumer_events;v_insufficient jsonb:='[]';
 begin
- if authz.nexloop_app_role(p_world) not in ('nexloop_api','nexloop_domain_worker') and session_user is distinct from 'nexloop_twin_port' then raise exception 'sim context: unavailable' using errcode='42501';end if;
+ if authz.nexloop_app_role(p_world) not in ('nexloop_api','nexloop_domain_worker') and not (session_user='nexloop_twin_port' and coalesce(runtime.nexloop_world_kind(p_world),'') in ('simulation','shadow')) then raise exception 'sim context: unavailable' using errcode='42501';end if;
  -- Parameters first (review 2.2): a malformed request gets the same answer whatever the credential.
  if coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_limit is null or p_limit not between 1 and 256 then
   raise exception 'sim context: invalid' using errcode='22023';end if;
@@ -140,13 +144,27 @@ end $$;
 alter function runtime.nexloop_twin_binding(text,text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_twin_binding(text,text,text) from public;
 
+-- The port's credential (D10 extended, owner 2026-10-21): the world's twin credential only - real and test refused before any lookup
+-- (authz.nexloop_sim_effect_tenant), then an api, worker or agent credential of the world refused (twin port: credential_use).
+create function authz.nexloop_twin_port_tenant(p_digest text,p_world text) returns text
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp as $$
+declare v_tenant text;
+begin
+ v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ if not exists(select 1 from authz.nexloop_service_credentials c where c.token_digest=p_digest and c.sim_use='twin' and c.status='active' and c.worlds=array[p_world]) then
+  raise exception 'twin port: credential_use' using errcode='42501';end if;
+ return v_tenant;
+end $$;
+alter function authz.nexloop_twin_port_tenant(text,text) owner to nexloop_owner;
+revoke all on function authz.nexloop_twin_port_tenant(text,text) from public;
+
 -- 1. bind ---------------------------------------------------------------------------------------------------------------------------
 create function authz.nexloop_twin_bind(p_digest text,p_world text,p_twin text,p_version integer,p_seed text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_tenant text;t control.nexloop_consumer_twins;b runtime.nexloop_twin_bindings;v_id text;
 begin
  if session_user is distinct from 'nexloop_twin_port' then raise exception 'twin port: unavailable' using errcode='42501';end if;
- v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ v_tenant:=authz.nexloop_twin_port_tenant(p_digest,p_world);
  if coalesce(p_twin,'')!~'^[a-z][a-z0-9_.-]{0,63}$' or p_version is null or p_version<1 or coalesce(p_seed,'')!~'^[A-Za-z0-9_.-]{1,64}$' then
   raise exception 'twin port: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',v_tenant,true);
@@ -164,8 +182,7 @@ begin
     coalesce(authz.nexloop_service_identity(p_digest,p_world)->'binding'->>'principal_id','service'))
    returning * into b;
  end if;
- return jsonb_build_object('binding_id',b.binding_id,'world',b.world,'twin_id',b.twin_id,'twin_version',b.twin_version,'twin_digest',b.twin_digest,
-  'seed',b.seed,'port_version',b.port_version,'calibration_status',runtime.nexloop_consumer_twin_calibration(v_tenant,b.twin_id,b.twin_version));
+ return jsonb_build_object('binding_id',b.binding_id,'world',b.world,'twin_id',b.twin_id,'twin_version',b.twin_version,'calibration_status',runtime.nexloop_consumer_twin_calibration(v_tenant,b.twin_id,b.twin_version));
 end $$;
 
 -- 2. observe ------------------------------------------------------------------------------------------------------------------------
@@ -174,7 +191,7 @@ create function authz.nexloop_twin_observe(p_digest text,p_world text,p_binding 
 declare v_tenant text;b runtime.nexloop_twin_bindings;o runtime.nexloop_twin_observations;v_pack jsonb;v_text text;v_seen jsonb;
 begin
  if session_user is distinct from 'nexloop_twin_port' then raise exception 'twin port: unavailable' using errcode='42501';end if;
- v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ v_tenant:=authz.nexloop_twin_port_tenant(p_digest,p_world);
  if coalesce(p_binding,'')!~'^[0-9a-f]{64}$' or coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_step is null or p_step not between 1 and 1000000
   or p_limit is null or p_limit not between 1 and 256 then raise exception 'twin port: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',v_tenant,true);
@@ -183,6 +200,12 @@ begin
  perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-observe:'||p_world||':'||p_binding||':'||p_consumer,0));
  select * into o from runtime.nexloop_twin_observations where tenant_id=v_tenant and world=p_world and binding_id=p_binding and consumer_id=p_consumer and step=p_step;
  if not found then
+  -- Contiguous, alternating steps: step 1 first, then step n only after act n-1.
+  if p_step<>coalesce((select max(step) from runtime.nexloop_twin_event_provenance where tenant_id=v_tenant and world=p_world and binding_id=p_binding
+    and consumer_id=p_consumer),0)+1
+   or exists(select 1 from runtime.nexloop_twin_observations where tenant_id=v_tenant and world=p_world and binding_id=p_binding and consumer_id=p_consumer
+    and step>=p_step) then
+   raise exception 'twin port: step_out_of_order' using errcode='22023';end if;
   -- The one assembler (S7b); the caller never gives the pack.
   v_pack:=authz.nexloop_sim_context_command(p_digest,p_world,p_consumer,p_limit);
   perform set_config('eios.tenant_id',v_tenant,true);
@@ -206,7 +229,7 @@ declare v_tenant text;b runtime.nexloop_twin_bindings;o runtime.nexloop_twin_obs
  v_behaviors jsonb;v_choice record;v_cal text;v_event jsonb;v_result jsonb;
 begin
  if session_user is distinct from 'nexloop_twin_port' then raise exception 'twin port: unavailable' using errcode='42501';end if;
- v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ v_tenant:=authz.nexloop_twin_port_tenant(p_digest,p_world);
  if coalesce(p_binding,'')!~'^[0-9a-f]{64}$' or coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_step is null or p_step not between 1 and 1000000 then
   raise exception 'twin port: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',v_tenant,true);
@@ -214,6 +237,7 @@ begin
  perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-observe:'||p_world||':'||p_binding||':'||p_consumer,0));
  select * into o from runtime.nexloop_twin_observations where tenant_id=v_tenant and world=p_world and binding_id=p_binding and consumer_id=p_consumer and step=p_step;
  if not found then raise exception 'twin port: step_not_observed' using errcode='22023';end if;
+ -- (observe n exists only after act n-1, so act n is the next step whenever its observation exists.)
  select * into p from runtime.nexloop_twin_event_provenance where tenant_id=v_tenant and world=p_world and binding_id=p_binding and consumer_id=p_consumer and step=p_step;
  if not found then
   select * into t from control.nexloop_consumer_twins where tenant_id=v_tenant and twin_id=b.twin_id and version=b.twin_version;
@@ -245,7 +269,7 @@ begin
   'event',(select jsonb_build_object('sequence',e.sequence,'content',e.content,'content_digest',e.content_digest,'port_version',e.twin_version,
      'sim_time',runtime.nexloop_commercial_ts(e.sim_time),'data_mode',e.data_mode,'output_kind',e.output_kind,'origin',e.origin)
     from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.event_id=p.event_id),
-  'provenance',jsonb_build_object('twin_id',p.twin_id,'twin_version',p.twin_version,'twin_digest',p.twin_digest,'seed',p.seed,'step',p.step,
+  'provenance',jsonb_build_object('twin_id',p.twin_id,'twin_version',p.twin_version,'seed',p.seed,'step',p.step,
     'calibration_status',p.calibration_status,'observation_digest',p.observation_digest,'data_mode',p.data_mode,'output_kind',p.output_kind,'origin',p.origin));
 end $$;
 

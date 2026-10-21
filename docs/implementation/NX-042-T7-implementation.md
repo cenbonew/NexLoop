@@ -19,4 +19,4 @@ NX-041 test touched: `test_nx041_sim_pi_run_pg.py`.
 - Steps 1–5 moved into `run_sim_pi_run(f, tmp_path)` so T7 reuses the chain. The original test keeps its checks.
 - The forged pack of the registration negative now always differs from the fixed one. Before, it emptied `insufficient`, which a pack with events already has empty.
 
-Open: D10 names three credential uses (api, worker, agent) and none for the twin port. The end-to-end test authenticates the port with the world's api credential. A dedicated `twin` use is the dispatcher's call.
+Credential: the owner extended D10 on 2026-10-21 with a fourth use, `twin`. The end-to-end test authenticates the port with the world's twin credential.

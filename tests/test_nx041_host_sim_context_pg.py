@@ -97,7 +97,7 @@ def test_the_event_intake_entry_reads_app_role_and_the_migration_needs_s6c(s7_ra
     src = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_sim_context_command(text,text,text,integer)'::regprocedure").fetchone()[0]
     # NX-042 T3 admits the port role (its owner-run observe entry) and nothing else besides app_role.
     assert 'authz.nexloop_app_role(p_world)' in src
-    assert src.replace(" and session_user is distinct from 'nexloop_twin_port'", '', 1).count('session_user') == 0
+    assert src.replace(" and not (session_user='nexloop_twin_port' and coalesce(runtime.nexloop_world_kind(p_world),'') in ('simulation','shadow'))", '', 1).count('session_user') == 0
     # Least privilege (0270, L6 sim-context-ref review): the simulation intake registers by reference only; it no longer executes
     # the assembler directly (authz.nexloop_sim_context_register calls it as its owner, the role check still reading app_role).
     assert not admin.execute("select has_function_privilege('nexloop_sim_api','authz.nexloop_sim_context_command(text,text,text,integer)','execute')").fetchone()[0]

@@ -19,6 +19,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
 from nexloop_eios import twin_port as T
+from authority_fixture import seed_authority
 from support.tenants import TENANT_A
 from test_nx041_s7_pg import consumers, digest, governed, s7  # noqa: F401
 from test_nx041_sim_pi_run_pg import real_counts, run_sim_pi_run, sim_group  # noqa: F401
@@ -69,7 +70,7 @@ def test_acceptance_twin_output_writes_nothing_to_real(t7):
     f = t7
     admin = f['admin']
     before = real_digest(admin)
-    acts = T.TwinPort(f['twin'], f['token_a'], f['a']).run(T.ConsumerTwin(TWIN, 1, 'zero-real'), consumers(admin, f['a']), steps=3)
+    acts = T.TwinPort(f['twin'], f['token_twin_a'], f['a']).run(T.ConsumerTwin(TWIN, 1, 'zero-real'), consumers(admin, f['a']), steps=3)
     assert any(a['event_id'] for a in acts)
     T_SAMPLE = 'select authz.nexloop_twin_sample(%s,%s,%s,1,%s,%s)'
     with f['role']('nexloop_sim_api')() as db:
@@ -126,7 +127,7 @@ def test_acceptance_no_disguised_probability(t7):
     admin = f['admin']
     with f['role']('nexloop_sim_api')() as db:
         run = db.execute('select authz.nexloop_twin_sample(%s,%s,%s,1,%s,%s)', (digest(f['token_a']), f['a'], TWIN, 'no-disguise', 10)).fetchone()[0]
-    acts = T.TwinPort(f['twin'], f['token_a'], f['a']).run(T.ConsumerTwin(TWIN, 1, 'no-disguise'), consumers(admin, f['a']), steps=2)
+    acts = T.TwinPort(f['twin'], f['token_twin_a'], f['a']).run(T.ConsumerTwin(TWIN, 1, 'no-disguise'), consumers(admin, f['a']), steps=2)
     marks = [run['calibration_status']] + [s['calibration_status'] for s in run['samples']] + [a['provenance']['calibration_status'] for a in acts]
     marks += [a['event']['content']['attributes']['calibration_status'] for a in acts if a['event_id']]
     assert set(marks) == {'uncalibrated'}
@@ -154,7 +155,7 @@ def test_twin_events_and_calibration_conclusions_are_never_facts_or_claims(t7):
     evidence = lambda: admin.execute('select count(*) from runtime.nexloop_commitment_evidence').fetchone()[0]  # noqa: E731
     before = (claims(), objects(), evidence())
     people = consumers(admin, f['a'])
-    port = T.TwinPort(f['twin'], f['token_a'], f['a'])
+    port = T.TwinPort(f['twin'], f['token_twin_a'], f['a'])
     acts = port.run(T.ConsumerTwin(TWIN, 1, 'not-fact'), people, steps=3)
     events = {a['event_id'] for a in acts if a['event_id']}
     assert events
@@ -192,9 +193,11 @@ def test_at046_the_twin_drives_a_complete_simulation_pi_run(sim_group, admin, tm
     the world's sim context, which carries the twin's events. Node 24, serial."""
     f = sim_group
     publish(admin, tenant=f['tenant'])
+    # D10 extended (owner 2026-10-21): the port authenticates with the world's fourth credential, its twin use.
+    twin_token, _ = seed_authority(admin, f['tenant'], 'eios:artifact:' + 'e' * 32, world=f['world'], identity_suffix='-sim-twin', sim_use='twin')  # no Action grant
+    # The snapshot after the setup (credentials are trusted configuration), before the twin and the Run.
     before_counts, before = real_counts(admin), real_digest(admin)
-    # D10 names three uses (api, worker, agent); the port authenticates with the world's api credential (the twin has no use of its own).
-    port = T.TwinPort(lambda: psycopg.connect(make_conninfo(f['pg'], user='nexloop_twin_port'), autocommit=True), f['api_token'], f['world'])
+    port = T.TwinPort(lambda: psycopg.connect(make_conninfo(f['pg'], user='nexloop_twin_port'), autocommit=True), twin_token, f['world'])
     acts = port.run(T.ConsumerTwin(TWIN, 1, 'at046'), [f['consumer']], steps=6)
     events = [a['event_id'] for a in acts if a['event_id']]
     assert events, 'the twin acted'

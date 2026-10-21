@@ -52,7 +52,7 @@ declare v_tenant text;b runtime.nexloop_twin_bindings;o runtime.nexloop_twin_obs
  v_behaviors jsonb;v_choice record;v_cal text;v_event jsonb;v_result jsonb;v_text jsonb;
 begin
  if session_user is distinct from 'nexloop_twin_port' then raise exception 'twin port: unavailable' using errcode='42501';end if;
- v_tenant:=authz.nexloop_sim_effect_tenant(p_digest,p_world);
+ v_tenant:=authz.nexloop_twin_port_tenant(p_digest,p_world);
  if coalesce(p_binding,'')!~'^[0-9a-f]{64}$' or coalesce(p_consumer,'')!~'^[0-9a-f]{64}$' or p_step is null or p_step not between 1 and 1000000 then
   raise exception 'twin port: invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',v_tenant,true);
@@ -60,6 +60,7 @@ begin
  perform pg_advisory_xact_lock(hashtextextended('nexloop:twin-observe:'||p_world||':'||p_binding||':'||p_consumer,0));
  select * into o from runtime.nexloop_twin_observations where tenant_id=v_tenant and world=p_world and binding_id=p_binding and consumer_id=p_consumer and step=p_step;
  if not found then raise exception 'twin port: step_not_observed' using errcode='22023';end if;
+ -- (observe n exists only after act n-1, so act n is the next step whenever its observation exists.)
  select * into p from runtime.nexloop_twin_event_provenance where tenant_id=v_tenant and world=p_world and binding_id=p_binding and consumer_id=p_consumer and step=p_step;
  if not found then
   select * into t from control.nexloop_consumer_twins where tenant_id=v_tenant and twin_id=b.twin_id and version=b.twin_version;
@@ -95,6 +96,6 @@ begin
   'event',(select jsonb_build_object('sequence',e.sequence,'content',e.content,'content_digest',e.content_digest,'port_version',e.twin_version,
      'sim_time',runtime.nexloop_commercial_ts(e.sim_time),'data_mode',e.data_mode,'output_kind',e.output_kind,'origin',e.origin)
     from runtime.nexloop_sim_consumer_events e where e.tenant_id=v_tenant and e.world=p_world and e.event_id=p.event_id),
-  'provenance',jsonb_build_object('twin_id',p.twin_id,'twin_version',p.twin_version,'twin_digest',p.twin_digest,'seed',p.seed,'step',p.step,
+  'provenance',jsonb_build_object('twin_id',p.twin_id,'twin_version',p.twin_version,'seed',p.seed,'step',p.step,
     'calibration_status',p.calibration_status,'observation_digest',p.observation_digest,'data_mode',p.data_mode,'output_kind',p.output_kind,'origin',p.origin));
 end $$;

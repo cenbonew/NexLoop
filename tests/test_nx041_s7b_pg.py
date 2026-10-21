@@ -119,6 +119,9 @@ HELPERS = {'runtime.nexloop_sim_consumer_known': 'runtime.nexloop_sim_consumer_k
            'runtime.nexloop_commercial_ts': 'runtime.nexloop_commercial_ts(timestamptz)',
            # Integration: the Host's sim context (after S6c) checks the caller with S6c's role helper.
            'authz.nexloop_app_role': 'authz.nexloop_app_role(text)'}
+# NX-042 T3 fix verify 4.2: the entry also names the world-kind classifier (a pure function of the world's name, no read) to admit the
+# port role for a sim:/shadow: world only.
+ENTRY_EXTRA = {'runtime.nexloop_world_kind'}
 # What the identity helpers read: the credential tables and the registry (never business data).
 IDENTITY = {'authz.nexloop_service_identity', 'control.nexloop_sim_world_status', 'runtime.nexloop_world_kind', 'runtime.nexloop_world_clock',
             'runtime.nexloop_sim_clock_at'}
@@ -137,7 +140,7 @@ def test_the_sim_entry_reads_no_real_source_and_the_real_entries_are_unchanged(s
     admin = s7_raw['admin']
     source = lambda sig: admin.execute('select prosrc from pg_proc where oid=%s::regprocedure', (sig,)).fetchone()[0]  # noqa: E731
     entry = source('authz.nexloop_sim_context_command(text,text,text,integer)')
-    assert names(entry) <= SIM_SOURCES | set(HELPERS), names(entry) - SIM_SOURCES - set(HELPERS)
+    assert names(entry) <= SIM_SOURCES | set(HELPERS) | ENTRY_EXTRA, names(entry) - SIM_SOURCES - set(HELPERS) - ENTRY_EXTRA
     bodies = {'entry': entry} | {name: source(sig) for name, sig in HELPERS.items()}
     for name, body in bodies.items():
         assert not re.search(r'\bexecute\b', body, re.I), name  # no dynamic SQL anywhere on the path

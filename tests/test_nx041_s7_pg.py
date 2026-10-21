@@ -64,9 +64,13 @@ def s7(admin, pg):
     token_b, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'b' * 32, world=b, identity_suffix='-s7-b')
     token_real, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'c' * 32, world='real', identity_suffix='-s7-real')
     token_test, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'd' * 32, world='test', identity_suffix='-s7-test')
+    # D10 extended (owner 2026-10-21): each world's twin credential, the only one the twin port entries (NX-042 T3) accept.
+    token_twin_a, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=a, identity_suffix='-s7-twin-a', sim_use='twin')
+    token_twin_b, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'f' * 32, world=b, identity_suffix='-s7-twin-b', sim_use='twin')
     generate(admin, a)
     role = lambda name: (lambda: psycopg.connect(make_conninfo(pg, user=name), autocommit=True))  # noqa: E731
     return {'admin': admin, 'pg': pg, 'a': a, 'b': b, 'token_a': token_a, 'token_b': token_b, 'token_real': token_real, 'token_test': token_test,
+            'token_twin_a': token_twin_a, 'token_twin_b': token_twin_b,
             'twin': role('nexloop_twin_port'), 'stand_in': role('nexloop_stand_in_worker'), 'api': role('nexloop_api'), 'role': role}
 
 

@@ -1399,7 +1399,7 @@
     {
       "version": "0280",
       "name": "0280_nx042_twin_port.sql",
-      "sha256": "59a8b0c2e3250d46b0f603195b0972bf79d364f9a1f63fe0262dfb5a90ce2e9e"
+      "sha256": "6499c29c085b34c7867270e46cd0e6908dcc30615817de0c7b64b054447ca729"
     },
     {
       "version": "0281",
@@ -1414,7 +1414,12 @@
     {
       "version": "0283",
       "name": "0283_nx042_twin_text.sql",
-      "sha256": "24040bcc5c3bd9e3bdf7b8775867bb47e6bf517eac41d9abcf16b52bf781d98a"
+      "sha256": "1ea7e4fb52f5b4106b7532883b0ccce7fcaa8a13c6da9358dba04c647be17579"
+    },
+    {
+      "version": "0284",
+      "name": "0284_nx042_twin_credential.sql",
+      "sha256": "fdc5e365014491ea7bb7371536d33642d6308a307309c506b8b5243ee459c221"
     }
   ]
 }
