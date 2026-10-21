@@ -1,4 +1,4 @@
-"""NX-041 D10 follow-up (0278): the owner's governed Action sim_world.publish_catalog / publish_sim_catalog.
+"""NX-041 D10 follow-up (0294): the owner's governed Action sim_world.publish_catalog / publish_sim_catalog.
 
 Real PostgreSQL on a clean catalog; the handler is called as the governed entry calls it; synthetic tenant and data.
 - The real Actions with a stand-in (S4) are copied into one registered, active simulation world: definitions and capabilities only;
@@ -132,7 +132,7 @@ def test_the_catalog_leaves_with_the_world(db):
 
 
 def test_a_simulation_definition_does_not_advance_the_authority_revision_and_a_real_one_does(db):
-    """0278 §5: the governed entry re-asserts the tenant's authority revision at its commit tail; a simulation world's definitions no
+    """0294 §5: the governed entry re-asserts the tenant's authority revision at its commit tail; a simulation world's definitions no
     longer advance it (they serve that world's credentials only), every other authority row still does."""
     admin = db
     world = new_world(admin)
@@ -177,7 +177,7 @@ def test_a_simulation_definition_has_two_write_paths_only(db):
 
 
 def test_the_database_refuses_any_update_delete_or_truncate_of_a_simulation_definition(db):
-    """Review A1 (0278 section 6): no update (deactivation included, whatever the SQL form), no delete outside the S2 whole deletion, no
+    """Review A1 (0294 section 6): no update (deactivation included, whatever the SQL form), no delete outside the S2 whole deletion, no
     truncate while such rows exist; a real definition is unaffected; the whole deletion still removes them (test_the_catalog_leaves_with_the_world)."""
     admin = db
     world = new_world(admin)

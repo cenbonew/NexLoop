@@ -30,7 +30,7 @@
 | 3 | 模拟角色的口令（bootstrap 窗口），口令存入钥匙串 | 调度员 | `ALTER ROLE … PASSWORD` 在 bootstrap 窗口执行，不经过任何工具 |
 | 4 | 模拟 secret 目录与 DSN 文件 | 调度员（APP_HOST 的部署账户，有 docker 权限，不用 sudo） | 先建目录：`docker compose -p nexloop-simulation … --profile sim-setup run --rm sim-setup-dir`，建出 secret 和 token 两个目录，0700，属主为 `NEXLOOP_SIM_UID`。再在一次性容器里以该 UID 运行工具：`… --profile sim-setup run --rm -T sim-setup scripts/deploy/sim_dsn_files.py --config /setup/<配置> --dry-run`；然后去掉 `--dry-run`，用钥匙串管道 `printf '%s %s\n' <角色> <口令>`（每个角色一行）从 stdin 喂进去。配置里的 `secret_dir` 写 `/sim-secrets`。会写 5 个 `*_dsn` 文件（0600），各自的 `sslrootcert=/run/secrets/sim_pg_ca`，文件从一开始就属于该 UID |
 | 5 | 其余 secret 文件 | 调度员 | 见下一节清单。`sim_pg_ca` 复制 real 的 pg CA 即可（同一套） |
-| 6 | 创建 sim world、生成合成数据、发布该 world 的 Action 目录 | 调度员（工具以负责人的工作台会话执行） | `at046_stage.py prepare --config …`，负责人口令走 stdin。依次调用 create_sim_world、generate_sim_world_data、publish_sim_catalog（0278，见下），输出里有 world id。也可以单独用 `sim_world.py publish-catalog --config …` 发布目录 |
+| 6 | 创建 sim world、生成合成数据、发布该 world 的 Action 目录 | 调度员（工具以负责人的工作台会话执行） | `at046_stage.py prepare --config …`，负责人口令走 stdin。依次调用 create_sim_world、generate_sim_world_data、publish_sim_catalog（0294，见下），输出里有 world id。也可以单独用 `sim_world.py publish-catalog --config …` 发布目录 |
 | 7 | 该 world 的凭据 | 调度员（受信配置签发：configurator 登录窗口和签名密钥） | 同样在 `sim-setup` 一次性容器里运行：`… run --rm -T sim-setup scripts/deploy/sim_world_credentials.py --config /setup/<配置> --dry-run`，再去掉 `--dry-run` 执行。配置中 `token_dir` 写 `/sim-tokens`，`compose_secret_dir` 写 `/sim-secrets`，DSN 和签名密钥文件放在私有输入目录（容器内的 `/setup`，只读）。会签发 api、worker、agent 三种用途，写 token 文件，并把 worker 凭据写成 compose 的 `sim_world_credential`，最后自检（见“凭据自检”）。`check_database_url_file` 是 bootstrap 窗口的只读检查 DSN（`default_transaction_read_only=on`），不是 configurator 或运行时 DSN。容器从模拟子网出站，防火墙只放行到 DATA_HOST 的 PG 端口；源地址仍是 `APP_HOST_ADDR`，configurator 和检查角色要能从这个地址登录（第一次执行前，用 `--dry-run` 确认） |
 | 8 | 防火墙 | **负责人，APP_HOST root** | 见“防火墙”一节 |
 | 9 | 启动模拟进程组 | 调度员（APP_HOST 的部署账户，有 docker 权限） | 见“启动”一节 |
@@ -87,7 +87,7 @@ docker compose -p nexloop-simulation ps
 
 停止和清理用 `--profile simulation down`。world 的整体删除走 `sim_world.delete`，不靠 compose。
 
-## 模拟 world 的 Action 目录（0278，`sim_world.publish_catalog`）
+## 模拟 world 的 Action 目录（0294，`sim_world.publish_catalog`）
 
 - **入口**：负责人的受治理 Action `nexloop.sim_world.publish_catalog`（operation `publish_sim_catalog`），只能从 real 发起；命令行是 `sim_world.py publish-catalog`。
 - **复制什么**：把 real 已发布、并且在 S4 替身目录（`control.nexloop_stand_ins`）里有替身的 Action 定义，复制到一个已登记、处于 active 的 sim world。没有替身的效应（例如 enterprise delivery）一律不复制，按 D11 失败关闭。

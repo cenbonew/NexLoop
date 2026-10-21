@@ -251,7 +251,7 @@ def test_at046_end_to_end_a_sim_credential_reaches_dispatch_only_through_the_sta
     assert {r.split('(')[0] for r in readers} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
                                                   'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure', 'runtime.nexloop_stand_in_configure_copy',
                                                   'runtime.nexloop_sim_ledger_guard',
-                                              # 0278: the catalog publication reads the stand-in catalog (control.nexloop_stand_ins) as its whitelist, never the ledger.
+                                              # 0294: the catalog publication reads the stand-in catalog (control.nexloop_stand_ins) as its whitelist, never the ledger.
                                               'control.nexloop_governed_publish_sim_catalog'}, readers
 
 
@@ -420,7 +420,7 @@ def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_l
     assert {r.split('(')[0] for r in own} <= {'authz.nexloop_sim_effect_submit', 'authz.nexloop_sim_effect_execute', 'authz.nexloop_sim_effect_query',
                                               'authz.nexloop_sim_effect_pending', 'authz.nexloop_sim_effect_tenant', 'runtime.nexloop_stand_in_configure', 'runtime.nexloop_stand_in_configure_copy',
                                               'runtime.nexloop_sim_ledger_guard',
-                                              # 0278: the catalog publication reads the stand-in catalog (control.nexloop_stand_ins) as its whitelist, never the ledger.
+                                              # 0294: the catalog publication reads the stand-in catalog (control.nexloop_stand_ins) as its whitelist, never the ledger.
                                               'control.nexloop_governed_publish_sim_catalog'}, own
     # Positive control: the pattern does find the readers (the S7 port only authenticates through nexloop_sim_effect_tenant and is
     # not a reader).

@@ -1387,8 +1387,8 @@
       "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
     },
     {
-      "version": "0278",
-      "name": "0278_nx041_sim_catalog_publish.sql",
+      "version": "0294",
+      "name": "0294_nx041_sim_catalog_publish.sql",
       "sha256": "21e3750a830b8da89ce2c8e00a043fe4bfc2d3ca3f63decd30f014bec4fff798"
     }
   ]

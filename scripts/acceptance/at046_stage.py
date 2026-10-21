@@ -7,7 +7,7 @@ Two phases, because the world's credentials, DSN files and the compose project (
 
     at046_stage.py prepare --config PRIVATE.json [--dry-run]     (owner password from stdin)
         owner workbench: create_sim_world, generate_sim_world_data, publish_sim_catalog (the world's Action catalog: the real Actions
-        with a stand-in, 0278) -> the world id (into the result's evidence)
+        with a stand-in, 0294) -> the world id (into the result's evidence)
     # dispatcher: sim_world_credentials.py (api, worker, agent[, twin]), sim_dsn_files.py, compose --profile simulation up -d
     at046_stage.py run --config PRIVATE.json [--dry-run]
         probe (read only): a digest of every world-real row of the tenant (all tables with a world column) before
