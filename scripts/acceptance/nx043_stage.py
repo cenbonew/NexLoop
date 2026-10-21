@@ -57,6 +57,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
 from at046_stage import Ports, real_digest  # noqa: E402
 from s6_common import Blocked, Redactor, Refused, Result, connect_from, load_chain, read_private  # noqa: E402
+from s6_common import connect_read_only as s6_connect_read_only  # noqa: E402
 
 IDS = re.compile(r'[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 ACCEPTANCE = {'prepare': ['NX-043 D1', 'NX-043 D3'], 'probe-before': ['AT-046'], 'run': ['NX-043 D3', 'NX-043 D7', 'NX-043 D9'],
@@ -484,21 +485,9 @@ def decide_from(roles):
 
 
 def connect_read_only(path):
-    """L6 review 1.1: a read-only role is read only by the script, not only by its DSN file - after connecting, set
-    default_transaction_read_only=on and check it took effect; refuse the connection otherwise. (To reuse s6_common's when L5's lands.)"""
-    factory = connect_from(path)
-
-    def connect():
-        db = factory()
-        try:
-            db.execute('set default_transaction_read_only=on')
-            if db.execute('show default_transaction_read_only').fetchone()[0] != 'on':
-                raise Blocked('the read-only role could not be made read only')
-        except Exception:
-            db.close()
-            raise
-        return db
-    return connect
+    """L6 review 1.1: a read-only role is read only by the script, not only by its DSN file - a factory over s6_common's
+    connect_read_only (set default_transaction_read_only=on, check it with show, refuse otherwise)."""
+    return lambda: s6_connect_read_only(path, who='the read-only role')
 
 
 def ports_from(config, password, phase=None):
