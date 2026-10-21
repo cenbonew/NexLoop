@@ -1,6 +1,6 @@
 # NX-042 T2 — decision layer and seeded population sampling
 
-Scope: design §2, §5, D1, D4, D6, D7. Migration `0276_nx042_twin_sampling.sql` (temporary number, contiguous after T1's 0275; the dispatcher renumbers at merge). Contract `nexloop-twin-sample/1` (`packages/contracts/twin-sample.schema.json`).
+Scope: design §2, §5, D1, D4, D6, D7. Migration `0279_nx042_twin_sampling.sql` (temporary number, contiguous after T1's 0278; the dispatcher renumbers at merge). Contract `nexloop-twin-sample/1` (`packages/contracts/twin-sample.schema.json`).
 
 - `authz.nexloop_twin_sample(digest, world, twin, version, seed, count)`, executable only by `nexloop_sim_api` with the world's api credential (S6c app_role); real and test are refused through `authz.nexloop_sim_effect_tenant`.
 - Decision layer `runtime.nexloop_twin_decide`: every behaviour returns the version's `low`/`high`/`coverage` and one boolean `simulated_outcome`. A probability is drawn inside the interval and the outcome against it, both from the S3 sha256 draw; the drawn probability is never stored or returned (D4).

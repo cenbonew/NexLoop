@@ -1,4 +1,4 @@
-"""NX-042 T1: Python mirrors of the consumer twin rules in SQL (0275, temporary number): the minimum interval width (D4), the
+"""NX-042 T1: Python mirrors of the consumer twin rules in SQL (0278, temporary number): the minimum interval width (D4), the
 real-content guard (D5) and the definition digest: sha256 of the frozen form's jsonb text - every free text replaced by
 'sha256:<hex>' (the erasable side table holds the text, D5) and the numbers normalised (SQL trim_scale), so the digest neither
 changes on erasure nor depends on how a number was written (0.10 and 0.1 are the same)."""

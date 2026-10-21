@@ -1,6 +1,6 @@
 # NX-042 T3 — the consumer twin on the consumer port
 
-Scope: design §5, D1, D4, D6, D7; builds on NX-041 S7 (port) and S7b (sim context), and on T1/T2. Migration `0277_nx042_twin_port.sql` (temporary number, contiguous after 0276; the dispatcher renumbers at merge). No contract change.
+Scope: design §5, D1, D4, D6, D7; builds on NX-041 S7 (port) and S7b (sim context), and on T1/T2. Migration `0280_nx042_twin_port.sql` (temporary number, contiguous after 0279; the dispatcher renumbers at merge). No contract change.
 
 | Item | Implementation |
 | --- | --- |
@@ -14,7 +14,7 @@ Scope: design §5, D1, D4, D6, D7; builds on NX-041 S7 (port) and S7b (sim conte
 | Redefinition | `authz.nexloop_sim_context_command`: the role check also admits a `nexloop_twin_port` session. The port role holds no execute on the assembler, so only the owner-run observe entry reaches it. Registered in `tests/test_function_copy_guard.py`. |
 | NX-041 tests touched | `test_nx041_s7_pg.py`: the port role's reachable entries add the three twin entries. `test_nx041_host_sim_context_pg.py`: the source assertion allows exactly the T3 port-role clause besides app_role. |
 
-Decision (dispatcher, 2026-10-21): the port role no longer executes the raw S7 entry `authz.nexloop_sim_consumer_act` (revoked in 0277); a twin's events go only through `authz.nexloop_twin_act` and always have provenance (`nexloop_twin_act` calls the raw entry as its owner). The S7 guard test asserts the port role cannot execute the raw act. The NX-041 tests that exercise the raw entry's own rules (validation, server time, ceiling, replay, backfill) or need the stub's exact content (S7b, sim context by reference, host sim context, whole deletion, frozen input) take the fixture `s7_raw`, which grants the raw act to the port role in that test's own database only.
+Decision (dispatcher, 2026-10-21): the port role no longer executes the raw S7 entry `authz.nexloop_sim_consumer_act` (revoked in 0280); a twin's events go only through `authz.nexloop_twin_act` and always have provenance (`nexloop_twin_act` calls the raw entry as its owner). The S7 guard test asserts the port role cannot execute the raw act. The NX-041 tests that exercise the raw entry's own rules (validation, server time, ceiling, replay, backfill) or need the stub's exact content (S7b, sim context by reference, host sim context, whole deletion, frozen input) take the fixture `s7_raw`, which grants the raw act to the port role in that test's own database only.
 
 Generators: bind checks the controlled generator list (T1) instead of the name.
 

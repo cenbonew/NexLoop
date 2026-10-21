@@ -1372,18 +1372,18 @@
       "sha256": "bbf58437baa5ab6213a13bfb32bd51f487ac5929353b2424d5a0ff8a376ca299"
     },
     {
-      "version": "0275",
-      "name": "0275_nx042_consumer_twins.sql",
+      "version": "0278",
+      "name": "0278_nx042_consumer_twins.sql",
       "sha256": "4ac32e578c66da06a473540f5148e12f37ddb2befe37300b13abfdc2fd9b9738"
     },
     {
-      "version": "0276",
-      "name": "0276_nx042_twin_sampling.sql",
+      "version": "0279",
+      "name": "0279_nx042_twin_sampling.sql",
       "sha256": "cd1b58fdfcaca895d7041652fbcdba792e4b0c20e41c363bcac865641e570842"
     },
     {
-      "version": "0277",
-      "name": "0277_nx042_twin_port.sql",
+      "version": "0280",
+      "name": "0280_nx042_twin_port.sql",
       "sha256": "59a8b0c2e3250d46b0f603195b0972bf79d364f9a1f63fe0262dfb5a90ce2e9e"
     }
   ]
