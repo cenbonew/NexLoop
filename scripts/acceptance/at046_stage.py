@@ -138,12 +138,14 @@ def probe_before(ports, config, r, prior=None):
     r.step('run_action_published_for_the_world', 'the Run Action is in the world catalog (prepare: publish_sim_catalog)',
            {'published': bool(published)}, bool(published))
     r.step('real_digest_before', 'the world-real digests taken', {'tables': len(before)}, bool(before), digests=before, world=world)
+    chain(r, config, prior, uuid.uuid4().hex)
 
 
 def intake_phase(ports, config, r, prior):
     """APP_HOST, the simulation one-off container (sim_api and twin_port over hostssl): the twin through its port, then the Run accepted."""
     world = _world(config)
     inputs = config.get('inputs') or {}
+    chain(r, config, prior)
     consumers = evidence(prior, 'synthetic_consumers_present').get('consumers') or []
     twin = inputs.get('twin') or {}
     if ports.twin is None or not twin.get('twin_id'):
@@ -171,6 +173,7 @@ def probe_after(ports, config, r, prior):
     """DATA_HOST again: the task until it ends, the Run credential's world, the world's credentials, the real digest unchanged."""
     world, tenant = _world(config), config['tenant_id']
     inputs = config.get('inputs') or {}
+    chain(r, config, prior)
     accepted = evidence(prior, 'run_accepted')
     if accepted.get('task_id'):
         deadline = time.monotonic() + int(inputs.get('run_timeout_seconds') or 300)
@@ -202,6 +205,23 @@ def run(ports, config, r, prior=None):
         part(ports, config, r, r.steps)
 
 
+def _tenant_ref(config):
+    import hashlib
+    return hashlib.sha256(('at046:' + config['tenant_id']).encode()).hexdigest()[:16]  # the tenant, never named in a result
+
+
+def chain(r, config, prior, nonce=None):
+    """L6 at046-split review 1.1: one run of the three parts. probe-before draws the run nonce; intake and probe-after carry the one of
+    their --from results. A part's own chain step records nonce, world and tenant reference (load_prior checks them)."""
+    if nonce is None:
+        nonce = evidence(prior, 'run_chain').get('nonce')
+        if not nonce:
+            raise Refused('--from: no run nonce (a probe-before result of this script)')
+    if not any(st.get('name') == 'run_chain' for st in r.steps):
+        r.step('run_chain', 'one run of the three parts', {'part': r.check.removeprefix('at046-')}, True,
+               nonce=nonce, world=_world(config), tenant_ref=_tenant_ref(config))
+
+
 def evidence(prior, name):
     found = [s for s in (prior or []) if s.get('name') == name]
     return (found[-1].get('evidence') or {}) if found else {}
@@ -211,21 +231,41 @@ def passed(prior, name):
     return any(s.get('name') == name and s.get('passed') is True for s in (prior or []))
 
 
-def load_prior(paths, world):
-    """The steps of earlier parts' result documents (--from): this script's, the same world, never a dry run."""
-    steps, blocked = [], []
+def load_prior(paths, config, parts):
+    """The earlier parts' result documents (--from), in order (L6 at046-split review 1.1): each the part expected at its position
+    (probe-before, intake, probe-after), never a dry run, all of one run (the same nonce), this world and tenant, executed in that
+    order. Returns their steps and blocks, or the reasons the chain is broken."""
+    steps, blocked, problems, docs = [], [], [], []
     for path in paths or []:
         try:
-            doc = json.loads(Path(path).read_text().strip().splitlines()[-1])
+            docs.append(json.loads(Path(path).read_text().strip().splitlines()[-1]))
         except (OSError, ValueError, IndexError):
             raise Refused('--from: a result document of this script') from None
-        if doc.get('schema') != RESULT_SCHEMA or not str(doc.get('check', '')).startswith('at046-') or doc.get('dry_run'):
-            raise Refused('--from: a result document of this script (not a dry run)')
-        if any((st.get('evidence') or {}).get('world') not in (None, world) for st in doc.get('steps') or []):
-            raise Refused('--from: a result of another world')
+    if len(docs) != len(parts):
+        problems.append(f'expected {len(parts)} result(s): ' + ', '.join(parts))
+    world, ref = _world(config), _tenant_ref(config)
+    nonces, times = set(), []
+    for i, doc in enumerate(docs):
+        want = 'at046-' + parts[i] if i < len(parts) else None
+        if doc.get('schema') != RESULT_SCHEMA or doc.get('dry_run') or doc.get('check') != want:
+            problems.append(f'--from #{i + 1}: not the {want} result (or a dry run)')
+            continue
+        link = next((st.get('evidence') or {} for st in doc.get('steps') or [] if st.get('name') == 'run_chain'), {})
+        nonces.add(link.get('nonce'))
+        if link.get('world') != world or link.get('tenant_ref') != ref:
+            problems.append(f'--from #{i + 1}: another world or tenant')
+        times.append(str(doc.get('executed_at') or ''))
         steps += doc.get('steps') or []
         blocked += doc.get('blocked') or []
-    return steps, blocked
+    if len(nonces) > 1 or None in nonces:
+        problems.append('the results are not of one run (run nonce)')
+    if any(not t for t in times) or times != sorted(times) or len(set(times)) != len(times):
+        problems.append('the results are not in the order probe-before < intake < probe-after')
+    return steps, blocked, problems
+
+
+REQUIRED = ('synthetic_consumers_present', 'run_action_published_for_the_world', 'real_digest_before', 'twin_observe_act',
+            'world_credentials_only_of_the_world', 'real_side_unchanged')
 
 
 def intake_from(roles):
@@ -302,16 +342,25 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
         config = load_config(args.config)
         check = 'at046-run' if args.phase == 'merge' else 'at046-' + args.phase
         result = Result(check, ['AT-046'], config, dry_run=args.dry_run, world='simulation')
-        if args.phase in NEEDS and len(args.prior) != len(NEEDS[args.phase]) and not args.dry_run:
-            raise Refused(f'{args.phase}: --from the result of ' + ', '.join(NEEDS[args.phase]))
-        prior, prior_blocked = load_prior(args.prior, (config.get('inputs') or {}).get('world')) if not args.dry_run else ([], [])
+        prior, prior_blocked, problems = [], [], []
+        if args.phase in NEEDS and not args.dry_run:
+            prior, prior_blocked, problems = load_prior(args.prior, config, NEEDS[args.phase])
+            if problems and args.phase != 'merge':
+                raise Refused(f'{args.phase}: ' + '; '.join(problems))
         if args.phase == 'merge':
-            # The three parts as one result: every step and every block, the verdict recomputed (a failure is never masked).
+            # The three parts as one result: every step and every block, the verdict recomputed (a failure is never masked). A broken
+            # chain or a required step missing fails it (a step blocked, e.g. the twin, stays null, never true).
             if args.dry_run:
                 result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)
                 return result.write(out)
             _world(config)
-            result.steps, result.blocked = list(prior), list(prior_blocked)
+            result.steps, result.blocked = [st for st in prior if st.get('name') != 'run_chain'], list(prior_blocked)
+            result.step('parts_of_one_run', 'probe-before, intake, probe-after: one run nonce, this world and tenant, in order', {'problems': problems}, not problems)
+            names = {st.get('name') for st in prior}
+            missing = [n for n in REQUIRED if n not in names]
+            if 'simulation_run' not in names:  # the Run ran (not blocked): its two steps must be there
+                missing += [n for n in ('run_accepted', 'simulation_run_completes') if n not in names]
+            result.step('required_steps_present', 'every step of AT-046 present (or blocked with its reason)', {'missing': missing}, not missing)
             return result.write(out)
         if args.dry_run:
             result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)

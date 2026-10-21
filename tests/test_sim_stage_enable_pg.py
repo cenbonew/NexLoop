@@ -120,6 +120,7 @@ def test_the_twin_use_is_issued_since_the_eighth_batch_and_bad_input_is_refused(
     assert admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0] == before
 
 ROLES = sorted(D.SIM_DSN_ROLES.values())
+assert 'nexloop_twin_port' in ROLES  # ninth batch: the twin port's DSN is written with the others
 
 
 def dsn_config(tmp_path, **over):
@@ -215,11 +216,11 @@ def test_after_the_world_is_deleted_its_old_credentials_are_refused(deployment, 
     assert code == 1 and checked['ok'] is False
 
 
-def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_by_pipe(deployment, admin, tmp_path):  # noqa: F811
+def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_by_pipe(deployment, admin, tmp_path, monkeypatch):  # noqa: F811
     """L6 review B2.1: the configurator and the bootstrap inspection role have local pg_hba rules only, so issuing and the self-check
-    run on DATA_HOST over the socket directory; a TCP DSN in either file is refused before any connection or write. --export writes
-    '<use> <token>' lines to a pipe only (never a terminal); --install on APP_HOST reads them on stdin and writes the token files and
-    the compose sim_world_credential without any database; a different token for an existing file is refused."""
+    run on DATA_HOST over the socket directory; a TCP DSN in either file is refused before any connection or write. --export runs only
+    under the transfer script's marker (L6 at046-split review 2.1); --install on APP_HOST reads its lines on stdin and writes the token
+    files and the compose sim_world_credential without any database; a different token for an existing file is refused."""
     d = deployment
     d['apply']()
     world = world_of(admin)
@@ -233,17 +234,19 @@ def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_b
     conf = credentials_config(d, tmp_path, world)
     code, out = run(C.main, ['--config', str(conf)])
     assert code == 0 and out['check']['pass'] is True, out
-    # Export: a FIFO only (review 2.2) - a captured stream, a terminal or a file is refused; the tokens go into the pipe.
-    for sink in (io.StringIO(), open(tmp_path / 'export-file', 'w')):
-        with sink:
-            assert C.main(['--config', str(conf), '--export'], out=sink) == 2
-    assert 'agent ' not in (tmp_path / 'export-file').read_text()
+    # Export: refused without the transfer script's marker, whatever the stdout (a pipe included: inside `docker compose run -T` it
+    # always is one); with it, the lines go to stdout (the script pipes them into --install).
     import os
+    monkeypatch.delenv('NEXLOOP_SIM_TRANSFER_PIPE', raising=False)
     r, w = os.pipe()
     with os.fdopen(w, 'w') as writer:
-        assert C.main(['--config', str(conf), '--export'], out=writer) == 0
+        assert C.main(['--config', str(conf), '--export'], out=writer) == 2
     with os.fdopen(r) as reader:
-        lines = reader.read()
+        assert 'agent ' not in reader.read()
+    monkeypatch.setenv('NEXLOOP_SIM_TRANSFER_PIPE', '1')
+    sink = io.StringIO()
+    assert C.main(['--config', str(conf), '--export'], out=sink) == 0
+    lines = sink.getvalue()
     assert sorted(line.split(' ')[0] for line in lines.splitlines()) == ['agent', 'api', 'worker']
     # Install on the other host: no database, files 0600, the worker token as the compose secret; a rerun with the same tokens is fine.
     (tmp_path / 'app-secrets').mkdir(mode=0o700)
@@ -264,10 +267,7 @@ def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_b
     # Review 2.1: once installed, DATA_HOST forgets its copy; a later export has nothing to send.
     code, out = run(C.main, ['--config', str(conf), '--forget'])
     assert code == 0 and out == {'ok': True, 'forgotten': ['agent', 'api', 'worker']} and not list((tmp_path / 'tokens').rglob('*-credential'))
-    r, w = os.pipe()
-    with os.fdopen(w, 'w') as writer:
-        assert C.main(['--config', str(conf), '--export'], out=writer) == 2
-    os.close(r)
+    assert C.main(['--config', str(conf), '--export'], out=io.StringIO()) == 2
 
 
 def test_the_documented_steps_name_their_host_and_connection():
@@ -284,3 +284,55 @@ def test_the_documented_steps_name_their_host_and_connection():
     for part in ('probe-before', 'probe-after'):  # review 1.1: the AT-046 probe parts on DATA_HOST, the intake on APP_HOST
         assert 'DATA_HOST' in next(r for r in rows if part in r)
     assert 'APP_HOST' in next(r for r in rows if ' intake ' in r) and '工作台 HTTPS' not in next(r for r in rows if ' intake ' in r)
+
+
+TRANSFER = ROOT / 'scripts/deploy/sim_credentials_transfer.sh'
+
+
+def test_the_transfer_moves_the_tokens_only_through_one_pipeline_then_forgets(tmp_path):
+    """L6 at046-split review 2.1: on APP_HOST, `ssh DATA_HOST ... --export | docker compose ... --install` (one pipeline), then --forget
+    on DATA_HOST. Stand-ins for ssh and docker record what each received: the tokens reach the installer's stdin and nothing else - not
+    the script's output, an argument, or a file the script writes; the export carries the marker; a failed install keeps DATA_HOST's copy."""
+    import os
+    import subprocess
+    bin_dir, log = tmp_path / 'bin', tmp_path / 'log'
+    bin_dir.mkdir()
+    tokens = 'api ' + 'A' * 64 + '\nworker ' + 'W' * 64 + '\n'
+    (tmp_path / 'tokens').write_text(tokens)
+    (bin_dir / 'ssh').write_text(f"""#!/bin/bash
+printf 'ssh %s\\n' "$*" >> {log}
+case "$*" in *--export*) cat {tmp_path / 'tokens'} ;; *--forget*) printf '{{"ok": true, "forgotten": ["api", "worker"]}}\\n' ;; esac
+""")
+    (bin_dir / 'docker').write_text(f"""#!/bin/bash
+printf 'docker %s\\n' "$*" >> {log}
+cat > {tmp_path / 'installer-stdin'}
+[ -f {tmp_path / 'fail-install'} ] && exit 1
+printf '{{"ok": true, "installed": ["api", "worker"]}}\\n'
+""")
+    for f in ('ssh', 'docker'):
+        (bin_dir / f).chmod(0o755)
+    conf = tmp_path / 'transfer.conf'
+    conf.write_text('DATA_HOST_SSH=data-stage\nDATA_RELEASE=/srv/release\nDATA_ENV=/srv/private/sim-issue.env\nISSUE_CONFIG=/setup/issue.json\n'
+                    f'APP_RELEASE={tmp_path}\nAPP_ENV=/srv/private/sim.env\nINSTALL_CONFIG=/setup/install.json\n')
+    conf.chmod(0o600)
+    env = {**os.environ, 'PATH': f"{bin_dir}:{os.environ['PATH']}"}
+    done = subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env)
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / 'installer-stdin').read_text() == tokens  # through the pipe into the installer
+    assert 'A' * 64 not in done.stdout + done.stderr and 'A' * 64 not in log.read_text()  # never in the output or an argument
+    calls = log.read_text().splitlines()  # the two ends of the pipeline start together: only the ssh calls are ordered
+    ssh, docker = [c for c in calls if c.startswith('ssh ')], [c for c in calls if c.startswith('docker ')]
+    assert len(ssh) == 2 and 'NEXLOOP_SIM_TRANSFER_PIPE=1' in ssh[0] and ssh[0].endswith('--export') and ssh[1].endswith('--forget')
+    assert len(docker) == 1 and '--install /setup/install.json' in docker[0]
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted(['bin', 'log', 'tokens', 'transfer.conf', 'installer-stdin'])  # no file between
+    # A failed install: the pipeline fails and DATA_HOST keeps its copy (no forget).
+    log.write_text('')
+    (tmp_path / 'fail-install').write_text('')
+    done = subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env)
+    assert done.returncode == 1 and 'keeps its copy' in done.stderr and sorted(c.split()[0] for c in log.read_text().splitlines()) == ['docker', 'ssh']
+    # Bad configuration is refused before any connection.
+    for bad in ('DATA_HOST_SSH=data;rm -rf /', 'DATA_RELEASE=relative/path', 'EXTRA=1'):
+        conf.write_text(conf.read_text().split('\n', 1)[1] + bad + '\n' if bad.startswith('DATA_HOST') else conf.read_text() + bad + '\n')
+        conf.chmod(0o600)
+        log.write_text('')
+        assert subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env).returncode == 1 and log.read_text() == ''

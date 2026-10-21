@@ -15,9 +15,9 @@ rerun writes nothing. A use the database does not accept yet (twin before the ei
     sim_world_credentials.py --config PRIVATE.json --dry-run    the plan (credentials to create, facts to write); writes nothing
     sim_world_credentials.py --config PRIVATE.json              issues, then self-checks
     sim_world_credentials.py --config PRIVATE.json --check      self-check only
-    sim_world_credentials.py --config PRIVATE.json --export     the tokens as '<use> <token>' lines on stdout - a FIFO only, never a
-                                                                terminal, file or socket; run only as the head of one pipeline into
-                                                                --install on APP_HOST, never alone (its output must not be captured)
+    sim_world_credentials.py --config PRIVATE.json --export     the tokens as '<use> <token>' lines on stdout: only as the DATA_HOST end of
+                                                                scripts/deploy/sim_credentials_transfer.sh (APP_HOST: ssh | --install,
+                                                                one pipeline), which sets NEXLOOP_SIM_TRANSFER_PIPE=1; refused otherwise
     sim_world_credentials.py --config PRIVATE.json --forget     removes DATA_HOST's token files once the install is confirmed
     sim_world_credentials.py --install INSTALL.json             reads those lines on stdin and writes the token files and the compose
                                                                 sim_world_credential (APP_HOST sim-setup container); no database
@@ -26,7 +26,8 @@ Where it runs (L6 review B2.1): issuing, --check and --export run on DATA_HOST i
 directory (deploy/stage/compose.sim-issue.example.yaml) - the configurator and the bootstrap inspection role have local pg_hba rules
 only, so both DSN files must name a socket directory (host=/...); a TCP DSN is refused before any connection. --install runs on
 APP_HOST (compose.simulation.example.yaml, sim-setup) as the simulation uid and connects to nothing. The tokens move only through the
-pipe between the two (never argv, never an intermediate file).
+pipeline sim_credentials_transfer.sh runs on APP_HOST (ssh DATA_HOST ... --export | ... --install): never argv, a terminal, a log or an
+intermediate file on APP_HOST.
 
 Self-check (check_database_url_file: the bootstrap window's inspection DSN, read only - it reads the credential rows and grants facts
 and calls the identity snapshot; never a configurator or runtime DSN): per use exactly one active credential, worlds exactly [world],
@@ -373,13 +374,11 @@ def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
                          'facts_to_write': len(result['writes']), 'findings': sorted({f['state'] for f in result['findings']}),
                          'tokens_present': {u: p.exists() for u, p in token_paths(config).items()}}, 0 if not blocking else 1)
         if args.export:
-            # Review 2.2: a pipe (FIFO) only - not a terminal, file or socket; and the documented use is one pipeline into --install.
-            try:
-                is_pipe = stat.S_ISFIFO(os.fstat(out.fileno()).st_mode)
-            except (AttributeError, OSError, ValueError):
-                is_pipe = False
-            if not is_pipe:
-                raise Refused('--export writes tokens to a pipe into --install only (never a terminal, file or captured stream)')
+            # L6 at046-split review 2.1: inside `docker compose run -T` the stdout is always a pipe, so this tool cannot tell where its
+            # output goes. --export runs only under scripts/deploy/sim_credentials_transfer.sh (APP_HOST: one pipeline, ssh into
+            # --install), which alone sets this marker - a guard against running it by hand, not a security boundary.
+            if os.environ.get('NEXLOOP_SIM_TRANSFER_PIPE') != '1':
+                raise Refused('--export runs only inside scripts/deploy/sim_credentials_transfer.sh (one pipeline into --install)')
             have = tokens(config, create=False)
             if not all(have.values()):
                 raise Refused('token files missing for ' + ', '.join(u for u, t in have.items() if not t))

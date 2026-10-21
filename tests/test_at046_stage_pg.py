@@ -235,15 +235,47 @@ def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp
     code, merged, _ = part('merge', A.Ports(), before_path, intake_path, after_path)
     assert merged['check'] == 'at046-run' and merged['passed'] is None and code == 1  # blocked on the twin only: never a pass
     assert {s['name'] for s in merged['steps']} >= {'synthetic_consumers_present', 'run_accepted', 'simulation_run_completes', 'real_side_unchanged'}
-    # A failed part fails the merge; a part missing, another world's part, or a dry run as input is refused.
+    assert steps(merged)['parts_of_one_run']['passed'] is True and steps(merged)['required_steps_present']['passed'] is True
+    assert len({steps(d)['run_chain']['evidence']['nonce'] for d in (before, accepted, after)}) == 1
+    # A failed part fails the merge.
     failed = json.loads(after_path.read_text())
     failed['steps'][-1]['passed'] = False
     bad = tmp_path / 'after-failed.json'
     bad.write_text(json.dumps(failed))
     assert part('merge', A.Ports(), before_path, intake_path, bad)[1]['passed'] is False
-    assert part('merge', A.Ports(), before_path, intake_path)[0] == 2
-    assert part('intake', NoProbe(), before_path)[0] == 1
-    other = json.loads(before_path.read_text())
-    other['steps'][-1]['evidence']['world'] = 'sim:' + str(uuid.uuid4())
-    (tmp_path / 'other.json').write_text(json.dumps(other))
-    assert part('intake', NoProbe(intake=lambda *a: ('t', 'r')), tmp_path / 'other.json')[0] == 2
+
+    def forged(name, change):
+        doc = json.loads(before_path.read_text() if name == 'before' else intake_path.read_text() if name == 'intake' else after_path.read_text())
+        change(doc)
+        path = tmp_path / f'forged-{name}-{uuid.uuid4().hex[:6]}.json'
+        path.write_text(json.dumps(doc))
+        return path
+
+    def chain_of(doc):
+        return next(st for st in doc['steps'] if st['name'] == 'run_chain')['evidence']
+    # L6 at046-split review 1.1: spliced chains never merge into a pass - each is a failed parts_of_one_run.
+    second_before = part('probe-before', NoIntake(FakeProbe(world)))[2]  # another run: its own nonce
+    spliced = {
+        'the same probe-before three times': (before_path, before_path, before_path),
+        'out of order': (intake_path, before_path, after_path),
+        'an older probe-before of another run': (second_before, intake_path, after_path),
+        'a part of another nonce': (before_path, intake_path, forged('after', lambda d: chain_of(d).update(nonce='f' * 32))),
+        'another world': (before_path, forged('intake', lambda d: chain_of(d).update(world='sim:' + str(uuid.uuid4()))), after_path),
+        'another tenant': (before_path, intake_path, forged('after', lambda d: chain_of(d).update(tenant_ref='0' * 16))),
+        'timestamps backwards': (before_path, forged('intake', lambda d: d.update(executed_at='2000-01-01T00:00:00+00:00')), after_path),
+        'a dry run': (before_path, intake_path, forged('after', lambda d: d.update(dry_run=True))),
+        'no chain step': (before_path, intake_path, forged('after', lambda d: d.update(steps=[st for st in d['steps'] if st['name'] != 'run_chain']))),
+    }
+    for why, files in spliced.items():
+        code, doc, _ = part('merge', A.Ports(), *files)
+        assert code == 1 and doc['passed'] is False and steps(doc)['parts_of_one_run']['passed'] is False, why
+    # A required step missing (its part's step removed) fails the merge too.
+    gone = forged('after', lambda d: d.update(steps=[st for st in d['steps'] if st['name'] != 'real_side_unchanged']))
+    code, doc, _ = part('merge', A.Ports(), before_path, intake_path, gone)
+    assert doc['passed'] is False and steps(doc)['required_steps_present']['observed'] == {'missing': ['real_side_unchanged']}
+    # Too few results, or a part fed the wrong one, is refused before anything runs.
+    assert part('merge', A.Ports(), before_path, intake_path)[1]['passed'] is False
+    assert part('probe-after', NoIntake(probe), before_path, before_path)[0] == 2
+    assert part('intake', NoProbe(intake=lambda *a: ('t', 'r')), intake_path)[0] == 2
+    assert part('intake', NoProbe(intake=lambda *a: ('t', 'r')), forged('before', lambda d: chain_of(d).update(world='sim:' + str(uuid.uuid4()))))[0] == 2
+    assert part('intake', NoProbe(), before_path)[0] == 1  # no intake port: the Run blocks

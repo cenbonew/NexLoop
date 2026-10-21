@@ -201,7 +201,9 @@ def check_clock_skew(database_url, warn_seconds=0.5, fail_seconds=2.0, samples=5
 
 # NX-041 S6c (L6 nx041-s6c-review 4.2): each simulation DSN file and the role it must log in as (never a real role).
 SIM_DSN_ROLES = {'sim_worker_dsn': 'nexloop_sim_worker', 'sim_guard_dsn': 'nexloop_sim_guard', 'sim_api_dsn': 'nexloop_sim_api',
-                 'sim_stand_in_worker_dsn': 'nexloop_stand_in_worker', 'sim_files_dsn': 'nexloop_sim_files'}
+                 'sim_stand_in_worker_dsn': 'nexloop_stand_in_worker', 'sim_files_dsn': 'nexloop_sim_files',
+                 # Ninth batch: the consumer twin port (NX-042 T3; pg_hba simulation line), used by AT-046's intake part.
+                 'sim_twin_port_dsn': 'nexloop_twin_port'}
 
 
 SIM_COMPOSE = Path(__file__).resolve().parents[2] / 'deploy/stage/compose.simulation.example.yaml'
