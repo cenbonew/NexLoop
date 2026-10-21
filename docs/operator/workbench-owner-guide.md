@@ -1,6 +1,6 @@
 # 工作台使用说明（负责人）：世界模型、数据、知识审核、运营人设与外联
 
-- **适用**：v0.1.0 之后第一至第三批新增的工作台页面（集成分支 `ca578721`）。
+- **适用**：v0.1.0 之后第一至第七批新增的工作台页面与负责人操作（第七批 `935aaf62`）。
 - **写法**：只用角色名；不含截图、凭据或地址。
 - **页面文字**：引号中的文字就是页面上显示的原文。
 - **术语**：按 [工作台术语表](../design/workbench-glossary.md)：实体名用 EIOS 英文（Object Type、Object、Property、Link、Function、Action、Object Set、Artifact、Claim），状态显示中文标签，原始码只在悬停提示或详情里出现。
@@ -177,10 +177,57 @@
 - **恢复营销**：只有在客户已退订时才能恢复，而且**不会自动恢复**，必须由负责人记录。
 - **怎么记录**：经负责人专属的受治理 Action `nexloop.marketing_consent.record`，种类有“同意”“撤回同意”和“恢复营销”。**工作台目前还没有这个操作的页面**，要等后续的 UI 批次补上。
 
-## 5. 相关文档
+## 5. 模拟世界
+
+> 模拟世界只用合成或结构生成的数据，效应只经 Action 替身执行，**不会触达任何真实客户或真实 provider**；真实派发开关对模拟世界恒为关闭。总体说明见 [NX-041 总说明](../implementation/NX-041-overview.md)。
+
+负责人用到四个 Action，都只有负责人能执行（操作员执行会得到 403）。建立、删除和时钟控制都要写目的或原因：
+
+| Action | 做什么 | 配置文件里的字段 |
+|---|---|---|
+| `nexloop.sim_world.create` | 建立一个模拟世界（`sim:`）或影子世界（`shadow:`）；同一请求重试得到同一个世界；时钟建立时是暂停的 | `kind`（`simulation` 或 `shadow`）、`purpose`（目的）、`expires_in_days`（1–30，默认 30） |
+| `nexloop.sim_world.generate` | 在 `sim:` 世界中生成数据：合成（按分组）或结构生成（按已发布定义）；同一（类型、种子）只生成一次，每个世界最多 10 次 | `world`、`kind`（`synthetic` 或 `structural`）、`seed`、`consumers`（1–2000）、`events_per_consumer`（`min`、`max`，0–50）、`segments`（合成时填，否则为空）、`max_objects`（结构生成时填，0–10000，否则为空） |
+| `nexloop.sim_clock.control` | 推进、暂停、恢复时钟或设置速率 | `world`、`action`（`advance`、`pause`、`resume`、`set_rate`）、`seconds`（推进时填）、`rate`（设置速率时填）、`reason` |
+| `nexloop.sim_world.delete` | 整体删除一个世界：分批清除，可以中断后继续；只保留 30 天摘要（计数与 digest），然后彻底删除 | `world`、`reason` |
+
+**用法：配置文件加一条命令**
+
+工具是 `scripts/deploy/sim_world.py`，子命令与 Action 一一对应：`create`、`delete`、`generate`、`clock`。
+
+1. **写配置文件**：从 `deploy/examples/sim-world-{create,delete,generate,clock}.example.json` 中复制对应的一份到私有目录，按上表填字段。
+   - 文件里必须有 `"schema": "nexloop-sim-world/1"`；可以为空的字段可以不写。
+   - 配置文件和用户名文件都必须**由你本人所有、权限 0600**，不进 git。
+2. **先预演**：只校验配置，打印将要发送的请求；不读口令，也不连服务器。
+
+   ```bash
+   scripts/deploy/sim_world.py create --config <配置文件> --dry-run
+   ```
+
+3. **正式执行**：工作台口令从钥匙串经管道输入，不出现在命令参数里。
+
+   ```bash
+   security find-generic-password -s <钥匙串服务名> -a <账户> -w | scripts/deploy/sim_world.py create --config <配置文件> --origin https://<APP_HOST_NAME>:<PORT> --ca-file <CA 文件> --username-file <用户名文件> --password-stdin
+   ```
+
+   `--ca-file` 可选，工作台证书不是由系统信任的 CA 签发时才需要。其他子命令把 `create` 换成 `delete`、`generate` 或 `clock`，配置文件换成对应的那一份。
+4. **看结果**：输出是一行 JSON 摘要，包括操作、HTTP 状态，以及世界 ID、状态、修订号和计数，**不含用户名、口令、cookie 或任何凭据**。退出码：0 成功；1 被拒或连不上；2 输入不合格（配置不对，或文件权限不对）。
+
+**重放与新请求**：同一份配置重跑，会被识别为**重放**，不会重复执行；例如重跑 `create` 得到的还是同一个世界。要发一个新的请求，改配置里的任意一个字段即可，例如 `purpose` 或 `reason`。
+
+**数量与期限**（负责人 2026-10-21 定）：每个租户最多同时有 20 个 active 的模拟世界；每个世界默认 30 天到期，最长 30 天，到期后自动整体删除，不需要再执行删除。需要更久的实验，到期前另建一个世界，用同样的种子重新生成。
+
+**常见问题**
+- **生成时报 `quota_exceeded`**：这个世界已经生成过 10 次，换一个新世界。
+- **同一种子再生成一次没有变化**：同一（类型、种子）只生成一次，这是有意的，保证可以复现。
+- **删除后还能看到这个世界**：删除分批进行，状态会依次显示删除中、已删除；之后 30 天内只剩摘要。
+- **建立时被拒，提示数量已满**：已经有 20 个 active 的世界，先删除不用的世界。
+- **模拟世界的费用**：每个世界的模型预算是 100 元，按租户每月合计不超过 100 元；超出时新的模型调用被拒绝。
+
+## 6. 相关文档
 
 - 设计：[世界模型工作台](../design/workbench-world-model-design.md)、[运营人设](../design/operator-persona-design.md)、[主动外联](../design/proactive-outreach.md)；
 - 实施计划：[外联实施计划](../implementation/outreach-impl-plan.md)；
 - 决定记录：[ADR-023](../../adr/ADR-023-explicit-refusal-hard-stop.md) §4（拒绝规则 v2）、[ADR-036](../../adr/ADR-036-object-set-read-only.md)（Object Set 只读）；
 - 术语：[工作台术语表](../design/workbench-glossary.md)；
+- 模拟世界：[NX-041 总说明](../implementation/NX-041-overview.md)；
 - 运维：[OPERATIONS](../OPERATIONS.md) §8（真实派发开关）。

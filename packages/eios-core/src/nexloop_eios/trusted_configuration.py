@@ -5,6 +5,7 @@ contracts and declared authority facts. Secrets arrive through private files,
 are hashed in memory, and never enter public manifests, summaries or logs.
 The pending 0050 configurator definer is required for --apply; no table fallback.
 """
+from nexloop_eios.worlds import world_kind
 import argparse,hashlib,json,re,sys,uuid
 from datetime import UTC,datetime
 from pathlib import Path
@@ -82,13 +83,17 @@ def validate_manifest(value):
             seen.add(key);out['authority_facts'].append({'kind':item['kind'],'key':item['key'],'payload':fact.model_dump(mode='json')})
         out['service_credentials']=[]
         for item in value['service_credentials']:
-            if type(item) is not dict or set(item)!={'reference','binding','worlds','expires_at','status'}:raise ValueError()
+            if type(item) is not dict or set(item)-{'sim_use'}!={'reference','binding','worlds','expires_at','status'}:raise ValueError()
             binding=F.CredentialAuthenticationBinding.model_validate_json(canonical_payload(item['binding']))
             if binding.tenant_id!=tenant or binding.credential_tenant_id!=tenant or binding.subject_kind.value not in ('service','agent') or binding.credential_kind!='api_key':raise ValueError()
             if type(item['reference']) is not str or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}',item['reference']) is None:raise ValueError()
             if item['reference'] in seen or ('credential',binding.credential_id) in seen:raise ValueError()
             seen.update([item['reference'],('credential',binding.credential_id)])
             if type(item['worlds']) is not list or not 1<=len(item['worlds'])<=16 or len(set(item['worlds']))!=len(item['worlds']) or any(type(w) is not str or not w or len(w)>80 for w in item['worlds']):raise ValueError()
+            # NX-041 D10: a credential of one simulation world names its use (api, worker, agent); real and test credentials name none.
+            if len(item['worlds'])==1 and world_kind(item['worlds'][0]) in ('simulation','shadow'):
+                if item.get('sim_use') not in ('api','worker','agent'):raise ValueError()
+            elif 'sim_use' in item:raise ValueError()
             expiry=datetime.fromisoformat(item['expires_at'])
             if expiry.tzinfo is None or expiry<=datetime.now(UTC) or item['status'] not in ('active','revoked'):raise ValueError()
             out['service_credentials'].append({**item,'binding':binding.model_dump(mode='json')})

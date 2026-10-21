@@ -4,6 +4,7 @@
     post_deploy_check.py --stage-env <private stage.env> [--compose deploy/stage/compose.app.example.yaml] [--project nexloop-app]
                          [--route /api/v1/workbench/x ... | --routes-file routes.txt] [--control-route /api/v1/<absent>]
                          [--log-minutes 30] [--database-url-file <read-only DSN file> --expected-revision NNNN] [--cacert <gateway CA>]
+                         [--clock-skew-warn 0.5] [--clock-skew-fail 2.0]
     post_deploy_check.py --capture capture.json ...      the same decisions on saved docker / curl outputs (tests, review)
 
 Checks (each pass or fail, with its evidence as counts, codes and container names):
@@ -16,6 +17,10 @@ Checks (each pass or fail, with its evidence as counts, codes and container name
                 dependency_unavailable (counts; any is a failure);
 6. database     (with --database-url-file) the lineage in a read-only transaction is exact and its revision is the expected one
                 (nexloop_eios.bootstrap.verify, the doctor's measure; default expectation: this checkout's catalog tail).
+7. clock_skew   (with --database-url-file) the database clock against this host's clock: a few round trips, each estimated at the
+                midpoint of its round trip (skew = clock_timestamp() - (sent + received) / 2), the sample with the shortest round trip
+                kept; |skew| above --clock-skew-fail (2 s) fails, above --clock-skew-warn (0.5 s) passes with a warning. Signed
+                requests between the hosts carry a few seconds of tolerance; a skew past it refuses every signature.
 It never writes, never prints a secret, a log line, an address or a credential: addresses and ports come from the stage env or the
 arguments. Reuses running_snapshot (docker CLI, Compose labels), deploy (stage env) and bootstrap (catalog, verify).
 Prints one JSON object. Exit 0 pass, 1 fail, 2 input error.
@@ -25,6 +30,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -160,7 +166,118 @@ def check_database(database_url, expected_revision):
             'expected_revision': expected_revision}
 
 
-def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None):
+def estimate_clock_skew(sample, samples=5):
+    """sample() -> (sent, db, received): this host's wall clock before and after one query and the database's clock in between
+    (epoch seconds). Each round trip is read at its midpoint; the shortest round trip is the tightest bound (|error| <= rtt / 2)."""
+    best = None
+    for _ in range(samples):
+        sent, db, received = sample()
+        rtt = max(0.0, received - sent)
+        if best is None or rtt < best[1]:
+            best = (db - (sent + received) / 2, rtt)
+    return best
+
+
+def check_clock_skew(database_url, warn_seconds=0.5, fail_seconds=2.0, samples=5, clock=time.time):
+    """The database clock minus this host's clock (seconds; positive: the database is ahead). Only the skew and round trip print."""
+    import psycopg
+    try:
+        with psycopg.connect(database_url, connect_timeout=5, autocommit=True) as db:
+            db.execute('select 1')  # the connection's first round trip is not a sample
+
+            def sample():
+                sent = clock()
+                value = db.execute('select extract(epoch from clock_timestamp())::float8').fetchone()[0]
+                return sent, float(value), clock()
+            skew, rtt = estimate_clock_skew(sample, samples)
+    except Exception as error:  # noqa: BLE001 - the class name only, never the message (it may hold a connection detail)
+        return {'pass': False, 'reason': type(error).__name__}
+    out = {'pass': abs(skew) <= fail_seconds, 'skew_seconds': round(skew, 3), 'round_trip_seconds': round(rtt, 3),
+           'warn_seconds': warn_seconds, 'fail_seconds': fail_seconds}
+    if out['pass'] and abs(skew) > warn_seconds:
+        out['warning'] = 'clock_skew'
+    return out
+
+
+# NX-041 S6c (L6 nx041-s6c-review 4.2): each simulation DSN file and the role it must log in as (never a real role).
+SIM_DSN_ROLES = {'sim_worker_dsn': 'nexloop_sim_worker', 'sim_guard_dsn': 'nexloop_sim_guard', 'sim_api_dsn': 'nexloop_sim_api',
+                 'sim_stand_in_worker_dsn': 'nexloop_stand_in_worker', 'sim_files_dsn': 'nexloop_sim_files'}
+
+
+SIM_COMPOSE = Path(__file__).resolve().parents[2] / 'deploy/stage/compose.simulation.example.yaml'
+
+
+def required_sim_dsns(compose_path=SIM_COMPOSE):
+    """The simulation DSN files the simulation project mounts (its *_dsn secrets): each must be present."""
+    import yaml
+    secrets = yaml.safe_load(Path(compose_path).read_text()).get('secrets') or {}
+    return sorted(name for name in secrets if name.endswith('_dsn'))
+
+
+def sim_dsn_files(directory):
+    """Every *_dsn file of the simulation secret directory (an unknown one then fails the check), read privately."""
+    from nexloop_eios.private_configuration import read_private_text
+    return {p.name: read_private_text(p, maximum=4096).strip() for p in sorted(Path(directory).iterdir()) if p.name.endswith('_dsn')}
+
+
+def _sim_role(dsn):
+    """(role row, None) or (None, reason): unreachable, authentication_failed, read_only_transaction_failed or role_query_failed -
+    a class of failure, never the DSN or a server message."""
+    import psycopg
+    try:
+        db = psycopg.connect(dsn, connect_timeout=5, autocommit=True)  # the read-only transaction below is explicit
+    except psycopg.OperationalError as error:
+        state = getattr(error, 'sqlstate', None) or getattr(getattr(error, 'diag', None), 'sqlstate', None)
+        text = str(error)
+        auth = state in ('28P01', '28000') or 'password authentication failed' in text or 'no pg_hba.conf entry' in text
+        return None, 'authentication_failed' if auth else 'unreachable'
+    except Exception:  # noqa: BLE001 - a malformed DSN and the like: nothing of it is echoed
+        return None, 'unreachable'
+    with db:
+        try:
+            db.execute('begin read only')
+        except Exception:  # noqa: BLE001
+            return None, 'read_only_transaction_failed'
+        try:
+            row = db.execute('''select current_user::text,session_user::text,r.rolsuper or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls,
+                exists(select 1 from pg_auth_members m where m.member=r.oid),
+                has_function_privilege(current_user,'authz.nexloop_real_dispatch_summary()','execute')
+                from pg_roles r where r.rolname=current_user''').fetchone()
+            db.execute('rollback')
+            return row, None
+        except Exception:  # noqa: BLE001
+            return None, 'role_query_failed'
+
+
+def check_sim_roles(dsns, required=None):
+    """{simulation DSN file name: DSN} -> every DSN logs in as exactly its simulation role: current_user = session_user = the role
+    of SIM_DSN_ROLES, no elevated attribute or role membership, and no execute right on the real dispatch summary. A required file
+    (the simulation project's DSN secrets) that is missing, and any *_dsn file that is not a known simulation DSN, fail the check.
+    Read only; a failure names the file, the role it got and a class of reason, never the DSN."""
+    if not dsns and not required:
+        return {'pass': False, 'reason': 'no simulation DSN given'}
+    out, ok = {}, True
+    for name in sorted(set(required or ()) - set(dsns)):
+        out[name], ok = {'pass': False, 'reason': 'missing', 'expected_role': SIM_DSN_ROLES.get(name)}, False
+    for name in sorted(dsns):
+        expected = SIM_DSN_ROLES.get(name)
+        if expected is None:
+            out[name], ok = {'pass': False, 'reason': 'unknown simulation DSN file'}, False
+            continue
+        row, reason = _sim_role(dsns[name])
+        if reason is not None:
+            out[name], ok = {'pass': False, 'reason': reason, 'expected_role': expected}, False
+            continue
+        good = row is not None and row[0] == row[1] == expected and not row[2] and not row[3] and not row[4]
+        out[name] = {'pass': good, 'role': row[0] if row else None, 'expected_role': expected}
+        if not good:
+            out[name]['reason'] = 'wrong_role' if row and row[0] != expected else 'elevated_or_real_access'
+        ok = ok and good
+    return {'pass': ok, 'dsns': out}
+
+
+def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None, sim_dsns=None,
+               sim_required=None, clock_skew=(0.5, 2.0)):
     results = {}
     try:
         rows = containers(run, project)
@@ -177,8 +294,12 @@ def run_checks(run, *, project, compose, https_base, http_base, routes, control,
         results['logs'] = {'pass': False, 'reason': str(error)}
     if database_url is not None:
         results['database'] = check_database(database_url, expected_revision)
+        results['clock_skew'] = check_clock_skew(database_url, *clock_skew)
+    if sim_dsns is not None:
+        results['sim_roles'] = check_sim_roles(sim_dsns, sim_required)
     failed = sorted(k for k, v in results.items() if not v['pass'])
-    return {'schema': 'nexloop-post-deploy-check/1', 'project': project, 'pass': not failed, 'failed': failed, 'checks': results}
+    warnings = sorted(k for k, v in results.items() if v.get('warning'))
+    return {'schema': 'nexloop-post-deploy-check/1', 'project': project, 'pass': not failed, 'failed': failed, 'warnings': warnings, 'checks': results}
 
 
 def _routes(args):
@@ -201,6 +322,9 @@ def main(argv=None):
     parser.add_argument('--log-minutes', type=int, default=30)
     parser.add_argument('--database-url-file')
     parser.add_argument('--expected-revision')
+    parser.add_argument('--clock-skew-warn', type=float, default=0.5, help='seconds of DB/APP_HOST clock skew that warn (with --database-url-file)')
+    parser.add_argument('--clock-skew-fail', type=float, default=2.0, help='seconds of DB/APP_HOST clock skew that fail')
+    parser.add_argument('--sim-secret-dir', help='NX-041: the simulation secret directory; each sim_*_dsn file in it must log in as its sim role')
     parser.add_argument('--cacert')
     parser.add_argument('--capture')
     args = parser.parse_args(argv)
@@ -212,6 +336,8 @@ def main(argv=None):
             raise InputError('the stage env names APP_HOST_NAME, GATEWAY_HTTPS_PORT and GATEWAY_REDIRECT_PORT')
         if not 1 <= args.log_minutes <= 1440:
             raise InputError('log minutes 1..1440')
+        if not 0 < args.clock_skew_warn <= args.clock_skew_fail <= 60:
+            raise InputError('clock skew thresholds: 0 < warn <= fail <= 60 seconds')
         routes = _routes(args)
         import yaml
         project = args.project or yaml.safe_load(Path(args.compose).read_text()).get('name')
@@ -223,13 +349,17 @@ def main(argv=None):
             from nexloop_eios.private_configuration import read_private_text
             database_url = read_private_text(args.database_url_file, maximum=4096).strip()
             expected = args.expected_revision or catalog()[-1].version
+        sim_dsns = sim_required = None
+        if args.sim_secret_dir:
+            sim_dsns, sim_required = sim_dsn_files(args.sim_secret_dir), required_sim_dsns()
         runner = Capture(json.loads(Path(args.capture).read_text())) if args.capture else Live(args.cacert)
     except (InputError, OSError, ValueError) as error:
         print(json.dumps({'schema': 'nexloop-post-deploy-check/1', 'pass': False, 'error': type(error).__name__,
                           'detail': str(error) if isinstance(error, InputError) else None}))
         return 2
     out = run_checks(runner, project=project, compose=args.compose, https_base=f'https://{host}:{https_port}', http_base=f'http://{host}:{http_port}',
-                     routes=routes, control=args.control_route, minutes=args.log_minutes, database_url=database_url, expected_revision=expected)
+                     routes=routes, control=args.control_route, minutes=args.log_minutes, database_url=database_url, expected_revision=expected,
+                     sim_dsns=sim_dsns, sim_required=sim_required, clock_skew=(args.clock_skew_warn, args.clock_skew_fail))
     print(json.dumps(out, ensure_ascii=False, sort_keys=True))
     return 0 if out['pass'] else 1
 

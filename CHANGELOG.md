@@ -8,15 +8,86 @@
 
 ## [未发布]
 
-> 第二至第四批按批次分节，对应的部署发布写在标题里。**行为变化**用“行为变化”标出。运维部署要点见 [内部发布说明：发布 24–25](docs/release/internal-release-notes-24-25.md)。
+> 第二至第七批按批次分节，标题写明批次的集成提交；部署发布号以调度员的部署记录为准。**行为变化**用“行为变化”标出。每批另列“受保护路径”（`deploy/` 等，合并需要维护者 ack-policy）与“需要负责人确认”。运维部署要点见 [内部发布说明：发布 24–25](docs/release/internal-release-notes-24-25.md)。
 
-### 第四批（进行中）
+### 第七批（`935aaf62`）：NX-041 模拟世界
 
-- NX-039 V3–V5：独立评估的后续切片。
-- 外联切片 8。
-- 工作台 UI 整理第 1–3 批：按 UI 规范和术语表，统一页面骨架、状态标签和实体名。
+#### 新增
+- **模拟世界**（NX-041 S1–S7b，[总说明](docs/implementation/NX-041-overview.md)）：
+  - 统一的 world 校验（`real`、`test`、`sim:<uuid>`、`shadow:<uuid>`），`simulation` 只作为数据模式；
+  - 模拟世界的建立、整体删除与 30 天摘要；每个世界一个凭据；
+  - 合成与结构生成（只读定义，不读 real 的业务数据）；
+  - Action 替身与模拟台账：替身回执标为模拟，real 的效应表拒绝模拟行；替身执行器没有网络出口；
+  - 每个世界的模拟时钟；
+  - 模拟进程组与 Host 隔离、模拟专用数据库角色；
+  - 消费者端口（孪生桩）与 AT-046 负例；模拟 Run 的上下文只来自模拟来源，按引用登记。
+- 负责人的四个模拟世界 Action：建立、删除、生成、时钟控制，经命令行工具 `scripts/deploy/sim_world.py` 以“配置文件加一条命令”执行（[操作指南 §5](docs/operator/workbench-owner-guide.md#5-模拟世界)）。
 
-### 第三批 → 发布 25
+#### 变更
+- 同一业务摘要同时只能有一个未完成的模拟意图；消费者端口事件数上限 100 000；不做模拟履约。
+
+#### 修复
+- 多轮评审修正：伪造路径、角色形态、计数器回填、不允许空 world 通过；外联测试在本地午夜前后的回放问题。
+
+#### 迁移
+0259–0277（世界校验、世界登记与删除、合成生成、替身与台账、模拟时钟、进程组、文件清除、消费者端口、上下文、模拟数据库角色、Host 模拟上下文、按引用登记、预算回填、世界上限、D10 三凭据与受信配置、D10 授权复核；另有本批一并下发的签名拒绝原因细分与时钟偏差指标）。0269 依赖 0268 的角色。
+
+#### 受保护路径
+- `deploy/authorization/workbench-roles.v1.json`：v26 → v29（四个模拟世界 Action，只给负责人）；
+- `deploy/configuration/business-actions.v1.json`、`capabilities.v1.json`、`system-catalog-names.v1.json`：登记四个新 Action；
+- `deploy/configuration/retention.v1.json`：v7 → v8，新增 `sim_world_summary`（只保留计数与摘要，30 天）；
+- 新增 `deploy/stage/compose.simulation.example.yaml`：模拟进程组（默认关闭，独立网络，出口受限）。
+
+#### 需要负责人确认
+- 四个新 Action 与角色清单 v29；保留配置 v8；
+- 模拟专用数据库角色与凭据的签发（B 类）；模拟进程组的出口规则（防火墙类，B 类）；
+- **D10 的放宽**（每个世界按用途三个凭据，负责人 2026-10-21 定案）已实现：受信配置按 `sim_use` 签发；“模拟进程组跑完一次完整 Pi Run”的验收已改为普通测试（真实 Pi，串行）。
+- 告警规则 v10（新增 `clock_skew`：应用主机与数据库的时钟偏差超过 2 秒）；部署后检查新增时钟偏差项（超过 0.5 秒警告、超过 2 秒失败）；签名拒绝在 DETAIL 中给出失败的条件。
+
+### 第五、六批（`5458a182`）：NX-040 与 Object View
+
+#### 新增
+- **NX-040 F1–F4**：Schema 兼容性库、Schema proposal 契约（创建时冻结）、Schema 发布门槛与权限证明（AT-024）、门槛注册、发布许可与观察窗；`ontology_schema` 维度正式开放。
+- **Object View**（只读）：负责人发布不可变的版本；Object 详情按类型的 View 排版，没有 View 时用默认布局；每个值仍按各自的读取权限显示。
+- **NX-039 V6 工作台**：评审队列显示每个候选的最新报告；按维度停止演进成为负责人的受治理 Action，并有 7 天观察与回退提示。
+- 部署后只读检查脚本 `scripts/deploy/post_deploy_check.py`。
+
+#### 修复
+- Schema proposal 的冻结规则与设计对齐：新类型不允许主键，Property 只允许标量类型。
+
+#### 迁移
+0252–0258（Schema proposal、`ontology_schema` 输入窗口、Schema 发布、NX-039 工作台与停止开关、Object View、门槛与许可与观察窗、开放 `ontology_schema`）。
+
+#### 受保护路径
+- 角色清单 v24 → v26；`business-actions`、`capabilities`：登记 `object_view.publish`、`semantic_release.stop`，调整 `semantic_release.rollback`；新增告警规则 v9；`system-catalog-names` 补充名称。
+
+#### 需要负责人确认
+- 新的负责人 Action：`nexloop.object_view.publish`、`nexloop.semantic_release.stop`；角色清单 v26；告警规则 v9。
+- **开放 `ontology_schema`**：Schema 演进从此可以经门槛与人工审核发布（D22：首批只能人工发布）。
+
+#### 行为变化
+- Schema 的演进可以经 proposal → 门槛 → 负责人审核发布；Object 详情的布局按 Object View 显示。
+
+### 第四批（`cdd87284`）
+
+#### 新增
+- **NX-039 V3–V5**：L1 test world 评估；语义版本的发布与回退（只有负责人能操作，回退只报告受影响的 Claim，不修改它们）；删除传播与观察窗。
+- **外联切片 8**：外联指标、证据链与负责人视图（演示使用合成名单）。
+- **工作台 UI 整理第 1–3 批**：统一的组件库（亮色与暗色）、表头吸顶的表格、中文状态标签、统一的表单与导航；真实派发面板、人设、规则等页面已迁移。
+
+#### 迁移
+0248–0251（L1 test world、语义发布与回退、删除传播与观察窗、外联指标与证据）。
+
+#### 受保护路径
+- 角色清单 v23 → v24；`business-actions`、`capabilities`：登记 `semantic_release.publish`、`semantic_release.rollback`；新增告警规则 v7、v8；`retention.v1.json` v5 → v7，新增 `semantic_release` 与 `evolution_records` 两个保留类别（365 天，当前与上一个版本始终保留）。
+
+#### 需要负责人确认
+- 新的负责人 Action：`nexloop.semantic_release.publish`、`nexloop.semantic_release.rollback`；角色清单 v24；告警规则 v7、v8；保留配置 v7（改变数据保留与删除行为）。
+
+#### 行为变化
+- 工作台整体视觉改版；语义版本的发布与回退只能由负责人操作。
+
+### 第三批（`2419ada6`）→ 发布 25
 
 #### 新增
 - **数据健康页**（“模型与资产”分组）：Claim 提取、召回索引与回填、审核重流、接入、Artifact、删除传播六张卡片，各项超过阈值时标为“需关注”，并触发告警规则 v6 中对应的数据健康规则。
@@ -26,9 +97,33 @@
 - **外联切片 7**：营销后的退订记录与营销同意记录。负责人经受治理 Action 记录同意、撤回同意或恢复营销；恢复不会自动发生。营销派发前增加“营销已退订”“缺少营销同意”的检查。
 - **工作台 UI 规范草案与术语表**：实体名统一用 EIOS 英文，状态显示中文标签。
 
+#### 运维
+- 试运行配置 v5：由租户初始化下发告警规则 v6（数据健康）。
+
+#### 迁移
+0242–0247（NX-039 门槛与结论、退订与营销同意、拒绝规则 v2、数据健康、Object 的 Property 值、Object Set）。
+
+#### 受保护路径
+- 角色清单 v20 → v23；`business-actions`、`capabilities`：登记 `marketing_consent.record`、`object_set.publish`；新增 `contact-refusal-rules.v2.json`、`alert-rules.v6.json`、`nx037-trial.v5.json`；`system-catalog-names` 补充名称。
+
+#### 需要负责人确认
+- 新的负责人 Action：`nexloop.object_set.publish`、`nexloop.marketing_consent.record`；角色清单 v23；拒绝规则 v2 与告警规则 v6；试运行配置 v5。
+
 #### 行为变化
 - **负责人现在可以审核知识候选**（负责人 2026-10-20）：在知识工作台选择通过、并入已有定义或拒绝，理由必填，写入审计。以后有审核员时，可以重新把审核职责分出去。
 - **营销后回“退订”只停营销**（拒绝规则 v2，ADR-023 §4）：最近一条已派发的主动消息是营销、而且在 30 天内时，客户回“退订”“取消订阅”“unsubscribe”、整句“TD”或“stop”，以及“怎么退订”这类问句，只停营销。其他拒绝说法，以及超出 30 天或不在营销之后的情况，仍然停止所有主动联系；客户想全部停掉时，再说一次“别联系我”即可。
+
+### 发布 24.1（热修复，`56d2eb22`）
+
+#### 修复
+- **签名命令因跨主机时钟偏差被全部拒绝**（stage，2026-10-20 21:31:53Z 起）：客户端签名的有效期取本机的 `now+25 秒`，而 SQL 按数据库主机的时钟要求不超过 `+25 秒`；应用主机的时钟只要比数据库主机快一点，所有签名就会被拒，Run 和回复都会停止。现在客户端的签名有效期统一为 `SIGNED_COMMAND_TTL = 20 秒`（32 个模块、40 处），留出 5 秒余量。复盘见 [2026-10-21 签名时钟偏差](docs/operations/incidents/2026-10-21-signing-clock-skew.md)。
+
+#### 部署
+- 只换镜像：SQL 的 25 秒上限不变，没有迁移，没有配置或角色清单变化。
+- 部署后核对：带签名的后台命令（队列、效应、Run 激活）恢复被接受，积压开始消化。
+
+#### 后续
+- 部署后检查将增加跨主机时钟偏差检查（进行中）；负责人决定不更换 NTP 源。
 
 ### 第二批 → 发布 24
 
@@ -45,7 +140,6 @@
 
 #### 行为变化
 - **外联派发前要过审批**：对设为“需要审批”的目的，发送请求必须先经负责人批准，拒绝或超时即终止。当前清单里没有任何目的需要审批。
-
 ### 2026-10-20（v0.1.0 之后，第一批）
 
 #### 新增
