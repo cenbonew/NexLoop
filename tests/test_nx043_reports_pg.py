@@ -18,6 +18,7 @@ from test_nx043_experiments_pg import db, publish, ready, register, registration
 
 EXPERIMENT = 'x6.payment'
 NOW = datetime.now(UTC)
+TODAY = NOW.replace(hour=0, minute=0, second=0, microsecond=0)  # report as_of: whole UTC days only
 
 
 def sha(text):
@@ -62,7 +63,7 @@ def unknown(admin, c, *, allocated_days_ago=20):
 
 
 def freeze(admin, as_of=None):
-    return admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, EXPERIMENT, as_of or NOW, 'owner-principal')).fetchone()[0]
+    return admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, EXPERIMENT, as_of or TODAY, 'owner-principal')).fetchone()[0]
 
 
 @pytest.fixture
@@ -80,7 +81,7 @@ def test_under_30_matured_in_an_arm_reports_insufficient_sample_and_nothing_narr
         pay(admin, consumer('candidate', i))
     r = freeze(admin)
     assert (r['conclusion'], r['reason']) == ('not_reported', 'insufficient_sample')
-    assert r['scores'] == {'candidate': {'matured': 20}, 'control': {'matured': 40}} and r['difference'] is None
+    assert r['scores'] == {'candidate': {'matured': 'some'}, 'control': {'matured': 40}} and r['difference'] is None  # under 30: none / some
     assert r['maturity'] == {'window_days': 14, 'min_samples_per_group': 30}
     assert r['hard_gates'] == [{'gate': 'minimum_sample', 'result': 'fail'}]
     text = json.dumps(r)
@@ -102,8 +103,8 @@ def test_the_rates_and_the_difference_come_with_intervals_and_unknown_is_never_a
     r = freeze(admin)
     assert (r['conclusion'], r['reason']) == ('reported', None)
     cand, ctrl = r['scores']['candidate'], r['scores']['control']
-    assert (cand['matured'], cand['successes'], cand['unknown'], cand['rate']) == (40, 18, 2, 0.45)
-    assert (ctrl['matured'], ctrl['successes'], ctrl['unknown'], ctrl['rate']) == (40, 10, 0, 0.25)
+    assert (cand['matured'], cand['successes'], cand['unknown'], cand['rate']) == (40, 18, 'some', 0.45)  # 2 unknown: under 30, only 'some'
+    assert (ctrl['matured'], ctrl['successes'], ctrl['unknown'], ctrl['rate']) == (40, 10, 'none', 0.25)
     for arm in (cand, ctrl):
         low, high = arm['interval']
         assert 0 <= low < arm['rate'] < high <= 1
@@ -121,8 +122,8 @@ def test_the_report_is_frozen_and_names_no_person(online):
     allocate(admin, 'control', 35)
     for i in range(7):
         pay(admin, consumer('control', i))
-    first = freeze(admin, NOW - timedelta(minutes=1))
-    again = freeze(admin, NOW - timedelta(minutes=1))
+    first = freeze(admin, TODAY)
+    again = freeze(admin, TODAY)
     assert again['report_digest'] == first['report_digest'] and again['replayed'] is True and first['replayed'] is False
     for sql in ("update control.nexloop_experiment_reports set report='{}'", 'delete from control.nexloop_experiment_reports',
                 'truncate control.nexloop_experiment_reports'):
@@ -133,9 +134,11 @@ def test_the_report_is_frozen_and_names_no_person(online):
         for i in range(35):
             assert consumer(arm, i) not in text and ('cust-' + consumer(arm, i)[:12]) not in text
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='invalid'):
-        freeze(admin, NOW + timedelta(days=1))  # no report of the future
+        freeze(admin, TODAY + timedelta(days=1))  # no report of the future
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='window_not_on_grid'):
+        freeze(admin, TODAY - timedelta(hours=1))  # whole UTC days only (no differencing by the hour)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='not_found'):
-        admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'no.such', NOW, 'owner-principal'))
+        admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'no.such', TODAY, 'owner-principal'))
     for role in ('nexloop_api', 'nexloop_metrics', 'nexloop_domain_worker', 'nexloop_sim_api'):
         assert not admin.execute("select has_function_privilege(%s,'runtime.nexloop_experiment_report_freeze(text,text,timestamptz,text)','execute')", (role,)).fetchone()[0]
 
@@ -149,5 +152,26 @@ def test_another_world_and_an_unsupported_metric_count_nothing(online, ready):  
     r = freeze(admin)
     assert r['scores']['candidate']['successes'] == 0 and r['data_mode'] == 'real'
     register(admin, registration('real', None, experiment_id='x6.reply', stage='online', primary_metric={'key': 'reply_within_24h', 'direction': 'increase'}))
-    out = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'x6.reply', NOW, 'owner-principal')).fetchone()[0]
+    out = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'x6.reply', TODAY, 'owner-principal')).fetchone()[0]
     assert (out['conclusion'], out['reason']) == ('not_reported', 'metric_not_supported') and out['difference'] is None
+
+
+def test_a_new_report_comes_later_and_after_at_least_ten_new_matured_per_arm(online):
+    """L6 X6 review 2.2: two reports of one experiment never differ by one person - a later as_of only, and each arm at least 10 more
+    matured Consumers than the last report; the same as_of answers the frozen report."""
+    admin = online
+    day = lambda n: TODAY - timedelta(days=n)  # noqa: E731
+    for arm in ('candidate', 'control'):
+        for n, (count, start) in {16: (35, 0), 15: (5, 100), 14: (10, 200)}.items():  # allocated n days before today 00:00 UTC
+            for i in range(start, start + count):
+                replica(admin, """insert into control.nexloop_experiment_allocations(tenant_id,experiment_id,consumer_id,cluster_key,arm,allocated_at)
+                    values(%s,%s,%s,%s,%s,%s)""", (TENANT_A, EXPERIMENT, consumer(arm, i), consumer(arm, i), arm, day(n)))
+    first = freeze(admin, day(2))                               # 35 matured per arm
+    assert first['scores']['candidate']['matured'] == 35 and first['scores']['control']['matured'] == 35
+    assert freeze(admin, day(2))['replayed'] is True             # the same as_of: the frozen report
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='as_of_not_after_last'):
+        freeze(admin, day(3))
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='too_few_new_matured'):
+        freeze(admin, day(1))                                    # only 5 more per arm
+    later = freeze(admin, TODAY)                                 # 15 more per arm
+    assert later['scores']['candidate']['matured'] == 50 and later['replayed'] is False

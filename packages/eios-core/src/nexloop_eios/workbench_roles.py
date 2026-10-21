@@ -88,6 +88,7 @@ def validate_roles(value):
                   'eios:action:nexloop.experiment.start:1',  # NX-043 D3: and so is starting one
                   'eios:action:nexloop.experiment.stop:1',  # NX-043 D3: and stopping one
                   'eios:action:nexloop.shadow_copy.set:1',  # NX-043 D7: and the shadow copy switch
+                  'eios:action:nexloop.experiment.report:1',  # NX-043: and reading the frozen reports
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record

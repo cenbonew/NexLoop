@@ -804,6 +804,11 @@
    "stable_name": "nexloop.shadow_copy.set",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.experiment.report",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

@@ -1439,7 +1439,7 @@
     {
       "version": "0288",
       "name": "0288_nx043_shadow_world.sql",
-      "sha256": "773c5a0e517f3d743fc1fbcf3ade141662c219d3c55f1a3373159afdc7d77704"
+      "sha256": "b7c0e5b716d753d6e30c1d752615173a613b43417a23b8b28694ba3bf9e8f71a"
     },
     {
       "version": "0289",
@@ -1454,7 +1454,7 @@
     {
       "version": "0291",
       "name": "0291_nx043_experiment_reports.sql",
-      "sha256": "7e5e6eb0912ef5671c02c0332f70129df6e41368c5f39aad356a7c78a3f3ff90"
+      "sha256": "271b83ca7a5a1d8068dfe2aa41c054dcae1beaf10858dd38cf2d7958055fda55"
     },
     {
       "version": "0292",
@@ -1485,6 +1485,16 @@
       "version": "0297",
       "name": "0297_nx043_wiring_review.sql",
       "sha256": "2969c14fe599967497c359538adb82f344a26d4963f4ad17ada76debb5a502e3"
+    },
+    {
+      "version": "0298",
+      "name": "0298_nx043_report_action.sql",
+      "sha256": "4433247ef2e9d77a2fb42fad4b165bc66cb50f6414deee9ba02ccee15615a7ad"
+    },
+    {
+      "version": "0299",
+      "name": "0299_nx043_pooled_reports.sql",
+      "sha256": "d98e55b6a5bf3a3f0af625e204f3d52ab950a90d735c8b3b10c80f78832f91b7"
     }
   ]
 }

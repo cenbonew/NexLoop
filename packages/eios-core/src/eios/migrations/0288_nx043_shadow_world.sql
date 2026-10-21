@@ -168,18 +168,24 @@ create trigger nx043_shadow_world_left after update of status on control.nexloop
 -- 2. The copy (real inbound messages and their Claims, while the switch is on) -------------------------------------------------------
 create function runtime.nexloop_shadow_copy_message() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v_world text;v_prior text:=current_setting('eios.tenant_id',true);
+declare v_world text;v_lock text;v_prior text:=current_setting('eios.tenant_id',true);
 begin
  -- Only an explicitly inbound real message (L6 review 1.3: no direction is not inbound).
  if new.world<>'real' or new.record->>'direction' is distinct from 'inbound' then return null;end if;
+ -- The switch first, outside any subtransaction (L6 fix review 2.2): with the copy off (D7 default) no savepoint is opened, so a bulk
+ -- import never piles up subtransactions (pg_subtrans overflow past 64 per transaction).
+ v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
+ if v_world is null then return null;end if;
+ v_lock:=current_setting('lock_timeout');
  begin  -- a savepoint: whatever fails in the copy is rolled back here and never fails the real message (L6 review 1.2)
-  v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
-  if v_world is null then return null;end if;  -- D7: off by default
+  -- A lock wait becomes a catchable 55P03 instead of running into the statement timeout (57014, which no handler catches).
+  perform set_config('lock_timeout','200ms',true);
   perform set_config('eios.tenant_id',new.tenant_id,true);
   insert into runtime.nexloop_shadow_events(tenant_id,world,event_key,content_hash,copied_hour)
    values(new.tenant_id,v_world,runtime.nexloop_shadow_event_key(v_world,new.message_id),
     encode(sha256(convert_to(v_world||'|'||new.payload_digest,'UTF8')),'hex'),date_trunc('hour',clock_timestamp()))
    on conflict do nothing;
+  perform set_config('lock_timeout',v_lock,true);  -- the real transaction's own lock timeout again (a failure rolls the setting back)
  exception when others then
   perform runtime.nexloop_shadow_copy_failed(new.tenant_id,sqlstate);
  end;
@@ -192,18 +198,21 @@ create trigger nx043_shadow_copy after insert on runtime.nexloop_conversation_me
 
 create function runtime.nexloop_shadow_copy_claim() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v_world text;v_key text;v_prior text:=current_setting('eios.tenant_id',true);
+declare v_world text;v_key text;v_lock text;v_prior text:=current_setting('eios.tenant_id',true);
 begin
  if new.world<>'real' or new.source_message_id is null then return null;end if;
+ v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);  -- the switch first, no subtransaction when off
+ if v_world is null then return null;end if;
+ v_lock:=current_setting('lock_timeout');
  begin  -- a savepoint, as for the message: the real Claim is written whatever happens to the copy
-  v_world:=runtime.nexloop_shadow_copy_target(new.tenant_id);
-  if v_world is null then return null;end if;
+  perform set_config('lock_timeout','200ms',true);
   v_key:=runtime.nexloop_shadow_event_key(v_world,new.source_message_id);
   perform set_config('eios.tenant_id',new.tenant_id,true);
   insert into runtime.nexloop_shadow_event_claims(tenant_id,world,event_key,claim_type)
    select new.tenant_id,v_world,v_key,new.epistemic_kind
    where exists(select 1 from runtime.nexloop_shadow_events e where e.tenant_id=new.tenant_id and e.world=v_world and e.event_key=v_key)
    on conflict do nothing;
+  perform set_config('lock_timeout',v_lock,true);
  exception when others then
   perform runtime.nexloop_shadow_copy_failed(new.tenant_id,sqlstate);
  end;

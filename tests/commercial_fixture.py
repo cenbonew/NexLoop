@@ -88,7 +88,8 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.strategy.publish':('Consumer','strategy.publish'),'nexloop.strategy.retire':('Consumer','strategy.retire'),
     'nexloop.experiment.register':('Consumer','experiment.register'),'nexloop.experiment.start':('Consumer','experiment.start'),
     'nexloop.experiment.stop':('Consumer','experiment.stop'),'nexloop.shadow_copy.set':('Consumer','shadow_copy.set'),
-    'nexloop.sim_world.publish_catalog':('Consumer','sim_world.publish_catalog')}  # 0228
+    'nexloop.sim_world.publish_catalog':('Consumer','sim_world.publish_catalog'),
+    'nexloop.experiment.report':('Consumer','experiment.report')}  # 0228
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

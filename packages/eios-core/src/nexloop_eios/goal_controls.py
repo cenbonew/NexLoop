@@ -102,7 +102,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'publish_strategy':'strategy.publish','retire_strategy':'strategy.retire','register_experiment':'experiment.register',
     'start_experiment':'experiment.start','stop_experiment':'experiment.stop',
     # NX-043 X3 (D7): the shadow copy switch (off by default).
-    'set_shadow_copy':'shadow_copy.set'}
+    'set_shadow_copy':'shadow_copy.set',
+    # NX-043 (X3 review 4.3, X6): the owner's read of the shadow and experiment reports.
+    'read_experiment_report':'experiment.report'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -546,6 +548,13 @@ class GoalGovernedActions:
                 or type(reason) is not str or not 1<=len(reason.strip())<=500):
             raise ValueError('shadow world, enabled and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_shadow_copy','world':world,'enabled':enabled,'reason':reason})
+
+    # NX-043 (X3 review 4.3, X6): owner only; kind shadow (world, strategy_id, strategy_version, since, until on whole UTC days) or
+    # kind experiment (experiment_id, as_of on a whole UTC day). The tenant and the actor are the server's.
+    def read_experiment_report(self,*,action_name,action_version,request_id,kind,**fields):
+        allowed={'shadow':{'world','strategy_id','strategy_version','since','until'},'experiment':{'experiment_id','as_of'},'pooled':{'experiment_ids','as_of'}}
+        if kind not in allowed or set(fields)!=allowed[kind]:raise ValueError('report kind and its fields required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'read_experiment_report','kind':kind,**fields})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

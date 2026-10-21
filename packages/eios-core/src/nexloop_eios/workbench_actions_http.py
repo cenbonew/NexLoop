@@ -184,6 +184,8 @@ OPERATIONS={
     'stop_experiment':{'experiment_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),'reason':_reason},
     # NX-043 X3 (owner only): the shadow copy switch of the tenant (D7, off by default).
     'set_shadow_copy':{'world':_id(re.compile(r'shadow:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'enabled':_bool,'reason':_reason},
+    # NX-043 (owner only): the frozen aggregate reports (shapes checked in SQL; the tenant and the actor are the server's).
+    'read_experiment_report':{'kind':lambda v:v if v in ('shadow','experiment','pooled') else (_ for _ in ()).throw(ValueError('kind'))},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
@@ -291,7 +293,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|shadow copy|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

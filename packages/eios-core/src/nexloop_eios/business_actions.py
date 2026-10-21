@@ -87,7 +87,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'strategy.publish':'human_owner','strategy.retire':'human_owner','experiment.register':'human_owner',
     'experiment.start':'human_owner','experiment.stop':'human_owner',
     # NX-043 X3 (D7): the owner switches the shadow copy of a tenant.
-    'shadow_copy.set':'human_owner'}
+    'shadow_copy.set':'human_owner',
+    # NX-043 (X3 review 4.3, X6): the owner reads the frozen aggregate reports.
+    'experiment.report':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

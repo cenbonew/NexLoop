@@ -314,3 +314,32 @@ def test_a_message_without_a_direction_is_not_copied_and_report_windows_are_whol
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='window_not_on_grid'):
         admin.execute('select runtime.nexloop_shadow_report_freeze(%s,%s,%s,%s,%s,%s,%s)',
                       (TENANT_A, f['shadow'], 'followup.later', 1, now - timedelta(hours=1), now, 'owner-principal'))
+
+
+def test_with_the_copy_off_a_bulk_import_opens_no_subtransaction(x3):
+    """L6 X3 fix review 2.2: the switch is read before any savepoint; off (the D7 default), 100 inbound messages in one transaction open
+    no subtransaction (no pg_subtrans overflow); on, each copy has its savepoint. The lock timeout of the real transaction is untouched."""
+    f = x3
+    admin = f['admin']
+
+    def bulk(n, label):
+        with admin.transaction():
+            admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+            admin.execute("set local lock_timeout='7s'")
+            for i in range(n):
+                conv = f'cv-{label}-{i}'
+                admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) values(%s,'real',%s,%s,'p',%s)",
+                              (TENANT_A, conv, sha(f'{label}-{i}'), conv))
+                admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
+                    values(%s,'real',%s,1,%s,'k1',%s,%s)""", (TENANT_A, conv, sha(f'm-{label}-{i}'), sha('x'), Jsonb({'direction': 'inbound'})))
+            subxacts = admin.execute("""select (pg_stat_get_backend_subxact(s.backendid)).subxact_count from pg_stat_get_backend_idset() s(backendid)
+                where pg_stat_get_backend_pid(s.backendid)=pg_backend_pid()""").fetchone()[0]
+            lock = admin.execute('show lock_timeout').fetchone()[0]
+        return subxacts, lock
+
+    off = bulk(100, 'off')
+    assert off == (0, '7s'), off  # never entered the savepoint block
+    switch(admin, f['shadow'], True)
+    on, lock_on = bulk(5, 'on')
+    assert on >= 5 and lock_on == '7s'  # one savepoint per copied message; the real lock timeout restored
+    assert rows(admin)['runtime.nexloop_shadow_events'] == 5

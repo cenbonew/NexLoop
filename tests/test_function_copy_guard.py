@@ -211,6 +211,9 @@ REGISTRY = [
             ((r" and s\.arm is distinct from 'control'\),\n   'control_model_cny',\(select[^\n]*\),", '),'),)),
     Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_spend', 'D5 (dispatcher): control rows never count toward the cap; nothing else',
             ((r" and arm is distinct from 'control';", ';'),)),
+    # NX-043 pooled results (owner 2026-10-21): the registration result carries a notice (a single round under the minimum sample).
+    Allowed('nx043_pooled_reports', 'control.nexloop_governed_register_experiment', 'NX-043: the result carries a notice; nothing else',
+            ((r",'notice',runtime\.nexloop_experiment_notice\(x\.registration\)\)", ')'),)),
 ]
 
 
