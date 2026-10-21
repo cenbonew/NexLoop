@@ -57,3 +57,26 @@ def test_runs_without_a_consumer_do_not_match_each_other(evaluation):
     run = d.candidate['design_case_ids'][0]
     assert admin.execute("select runtime.nexloop_evo_run_consumer(%s,'real',%s)", (d.candidate['tenant_id'], run)).fetchone()[0] == d.case_groups[run].removeprefix('consumer:')
 
+
+
+def test_the_consumer_check_is_linear_and_indexed_at_a_thousand_cases(evaluation):
+    """L6 review 4: each case's Consumer is derived once and the sides meet in one join; the lookups use the run_id indexes. A thousand
+    cases (beyond the 512 a candidate can hold) answer well within a second, both leaking and clean."""
+    import time
+    from datetime import UTC, datetime, timedelta
+    from test_evolution_traces_pg import hexid, run
+    admin = evaluation['admin']
+    tenant = evaluation['drafts'][0].candidate['tenant_id']
+    now = datetime.now(UTC)
+    runs = [run(admin, evaluation['digest'], now - timedelta(seconds=i), consumer=hexid(f'scale-{i // 2}'), link='message', tenant=tenant) for i in range(1000)]
+    clean = (runs[0:500], runs[500:1000])            # Consumers 0-249 | 250-499: no Consumer on both sides
+    leaking = (runs[0:500:2], runs[1:500:2] + runs[500:1000])  # each of Consumers 0-249 has one Run on each side
+    leak = lambda d, v: admin.execute('select runtime.nexloop_evo_consumer_leak(%s,%s,%s)', (tenant, d, v)).fetchone()[0]  # noqa: E731
+    for (d, v), expected in ((clean, False), (leaking, True)):
+        started = time.monotonic()
+        assert leak(d, v) is expected
+        assert time.monotonic() - started < 1.0
+    plan = '\n'.join(r[0] for r in admin.execute("""explain select 1 from runtime.nexloop_message_routes mr where mr.tenant_id=%s and mr.world='real' and mr.run_id=%s::uuid""",
+                                                  (tenant, runs[0])))
+    assert 'Index' in plan and 'Seq Scan' not in plan, plan
+    assert leak(['not-a-uuid'], ['also-not']) is False  # malformed case ids have no Consumer

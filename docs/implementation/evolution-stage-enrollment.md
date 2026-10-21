@@ -77,6 +77,8 @@ python3 scripts/deploy/evolution_enroll.py --config <私有配置> --check
   sudo bash scripts/deploy/evolution_hba_data_host.sh <私有配置>
   ```
 
+  - **从模拟进程组启用起（评审 1.1）**：release 检出的模板一旦含有模拟行，这个脚本的预检就会因为“多出两条”而拒绝。此后改用 `scripts/deploy/sim_hba_data_host.sh`，它接受模拟行加上（可选的）演进行，一次重新加载（见 `sim-stage-enable.md` 步骤 2）。
+
   - 私有配置是一个 0600 文件，只能包含 `NEXLOOP_ROOT=`、`STAGE_ENV=`、`RELEASE_CHECKOUT=` 三行。脚本按行读取，不会 source 这个文件，值必须是绝对路径。
   - 执行步骤：
     1. **预检**：用部署时的 stage.env 和 release 检出重新渲染模板，与已安装的文件比较。结果必须是**正好多出一条**演进 local 行，并且没有删除任何规则；否则不做任何修改就退出。如果这条规则已经存在，直接报告完成。

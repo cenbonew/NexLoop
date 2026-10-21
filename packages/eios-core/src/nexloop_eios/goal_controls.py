@@ -89,6 +89,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'create_sim_world':'sim_world.create','delete_sim_world':'sim_world.delete',
     # NX-041 S3 (D8): synthetic or structural data in a simulation world (checked in SQL).
     'generate_sim_world_data':'sim_world.generate',
+    'publish_sim_catalog':'sim_world.publish_catalog',
     # NX-041 S5 (D5): advance, pause, resume or set the rate of a simulation world's clock (forward only, checked in SQL).
     'control_sim_clock':'sim_clock.control',
     # NX-042 T1 (D7): publish or retire a consumer twin version (shape and rules checked in SQL).
@@ -99,7 +100,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'calibrate_consumer_twin':'consumer_twin.calibrate',
     # NX-043 X1 (D1, D3): strategy versions and preregistered experiments (levers, registration and start checks in SQL).
     'publish_strategy':'strategy.publish','retire_strategy':'strategy.retire','register_experiment':'experiment.register',
-    'start_experiment':'experiment.start','stop_experiment':'experiment.stop'}
+    'start_experiment':'experiment.start','stop_experiment':'experiment.stop',
+    # NX-043 X3 (D7): the shadow copy switch (off by default).
+    'set_shadow_copy':'shadow_copy.set'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -453,6 +456,12 @@ class GoalGovernedActions:
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'delete_sim_world','world':world,'reason':reason})
 
     # NX-041 S3 (D8): owner only; a simulation world receives synthetic or structural data, reproducible from seed and parameters.
+    # NX-041 D10 follow-up: owner only; the real Actions with a stand-in (S4) copied into one active simulation world - definitions only.
+    def publish_sim_catalog(self,*,action_name,action_version,request_id,world,reason):
+        if not valid_world(world) or world_kind(world) not in ('simulation','shadow') or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('simulation world and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_sim_catalog','world':world,'reason':reason})
+
     def generate_sim_world_data(self,*,action_name,action_version,request_id,world,kind,seed,consumers,events_per_consumer,segments=None,max_objects=None):
         if not valid_world(world) or world_kind(world)!='simulation' or kind not in ('synthetic','structural') or type(seed) is not str or not seed:
             raise ValueError('simulation world, kind and seed required')
@@ -530,6 +539,13 @@ class GoalGovernedActions:
                 or type(reason) is not str or not 1<=len(reason.strip())<=500):
             raise ValueError('experiment and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'stop_experiment','experiment_id':experiment_id,'reason':reason})
+
+    # NX-043 X3 (D7): owner only; turns the redacted copy of real inbound events into a shadow world on or off for the tenant.
+    def set_shadow_copy(self,*,action_name,action_version,request_id,world,enabled,reason):
+        if (type(world) is not str or re.fullmatch(r'shadow:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',world) is None or type(enabled) is not bool
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('shadow world, enabled and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_shadow_copy','world':world,'enabled':enabled,'reason':reason})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

@@ -60,7 +60,24 @@ uv run --frozen python scripts/acceptance/s6_stage_evolution.py <检查> --confi
 
 ```python
 Allowed('at048_consumer_leakage', 'authz.nexloop_evo_evaluation_open',
-        'AT-048: check 3 also refuses one Consumer on both sides (derived by runtime.nexloop_evo_run_consumer); nothing else',
-        ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or exists\(select 1 from unnest\(x\.design_case_ids\) dc join unnest\(x\.validation_case_ids\) vc"
-          r"\s*on runtime\.nexloop_evo_run_consumer\(v_tenant,'real',dc\)=runtime\.nexloop_evo_run_consumer\(v_tenant,'real',vc\)\)", ''),)),
+        'AT-048: check 3 also refuses one Consumer on both sides (runtime.nexloop_evo_consumer_leak); nothing else',
+        ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or runtime\.nexloop_evo_consumer_leak\(v_tenant,x\.design_case_ids,x\.validation_case_ids\)", ''),)),
 ```
+
+## AT-048 修复的性能与已开评候选（L6 `at048-fix-review.md`）
+
+- **性能（审查 4）**：
+  - 原来的写法是在每一对 case 上各调用两次推导函数，成本随 case 数平方增长；而且推导函数把 `run_id` 转成 text 再比较，用不上索引。
+  - 现在由 `runtime.nexloop_evo_consumer_leak` 对每个 case 只推导一次 Consumer，再用一次 hash join 求两侧的交集，复杂度是线性的。
+  - `runtime.nexloop_evo_run_consumer` 改为逐步查找，每一步都是一次索引查找：先用 uuid 查 Run 的 `run_id`（0047、0110、0063 的唯一索引），再按 message_id 找消息（0134 的索引），最后由会话得到 Consumer。这样不依赖统计信息：本地测试发现，刚写入、没有统计信息的数据会让一条 join 写法退化为全表扫描。
+  - 不需要新增索引。
+  - **规模测试**：1000 个 case（超过一个候选最多能容纳的 512 个），有泄漏和无泄漏两种情况都在 1 秒内完成；EXPLAIN 显示走的是索引扫描，没有顺序扫描。
+- **持锁时间**：这项检查仍然在开评函数的 `for update` 事务里执行，因为它要读取候选行。但现在最多只有 512 次索引查找，持锁时间是毫秒级，所以没有把它挪到加锁之前。
+- **审查 1.1：修复之前已经开评的候选不会被重新检查**。开评函数的重放路径会直接返回已经 evaluating 的候选。部署 0259 之后，由 owner 执行一次只读检查；如果有命中，就用 `candidate_stop` 终止对应的候选：
+
+```sql
+select c.candidate_id from runtime.nexloop_evo_candidates c where c.world='real' and c.status in ('evaluating','accepted_for_release')
+  and runtime.nexloop_evo_consumer_leak(c.tenant_id,c.design_case_ids,c.validation_case_ids);
+```
+
+- 第八批预演（c5b756b6）里这个迁移的编号是 0286。本分支修改了迁移的内容，合并时要以本分支为准，并更新复制件守护里的登记（见上面的 Allowed 条目）。

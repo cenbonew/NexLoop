@@ -1,0 +1,8 @@
+{
+  "schema": "nexloop-sim-dsn/1",
+  "secret_dir": "/srv/nexloop/sim-secrets",
+  "data_host_name": "data.stage.invalid",
+  "data_host_addr": "192.0.2.20",
+  "pg_port": 55432,
+  "db_name": "nexloop_stage"
+}

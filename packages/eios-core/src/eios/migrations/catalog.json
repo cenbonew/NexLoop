@@ -1429,12 +1429,47 @@
     {
       "version": "0286",
       "name": "0286_at048_consumer_leakage.sql",
-      "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
+      "sha256": "d4228f83155d0cfdfca6b23e6539e35b584d1e38ebdd6cf5ecd81570dd4d9355"
     },
     {
       "version": "0287",
       "name": "0287_nx043_workbench_role_cap.sql",
       "sha256": "bd78bb6363578680b830dde83f48137c870e7d18140b788540a2f39a5a0fe5dc"
+    },
+    {
+      "version": "0288",
+      "name": "0288_nx043_shadow_world.sql",
+      "sha256": "773c5a0e517f3d743fc1fbcf3ade141662c219d3c55f1a3373159afdc7d77704"
+    },
+    {
+      "version": "0289",
+      "name": "0289_nx043_online_allocation.sql",
+      "sha256": "0dfb45db41ee87c752a14784a2de53f3d7394d11f3723ef112dfbe94c98f9c2a"
+    },
+    {
+      "version": "0290",
+      "name": "0290_nx043_start_purpose_recheck.sql",
+      "sha256": "d45e1dd0a403540e88ecc22aa6c6652e91318ce1cf75d4d72c9ce285cfd645b1"
+    },
+    {
+      "version": "0291",
+      "name": "0291_nx043_experiment_reports.sql",
+      "sha256": "7e5e6eb0912ef5671c02c0332f70129df6e41368c5f39aad356a7c78a3f3ff90"
+    },
+    {
+      "version": "0292",
+      "name": "0292_nx043_guardrails_budget.sql",
+      "sha256": "7f1d534bce38bb0638ce3fb54f69f2b3bb0bf613220e80770dd0b52521aa2224"
+    },
+    {
+      "version": "0293",
+      "name": "0293_nx043_allocation_review.sql",
+      "sha256": "a67293a606a8c7fd8bbf7eefe066b3adc7b7396c969be7ad24839a6d0ecab22b"
+    },
+    {
+      "version": "0294",
+      "name": "0294_nx041_sim_catalog_publish.sql",
+      "sha256": "21e3750a830b8da89ce2c8e00a043fe4bfc2d3ca3f63decd30f014bec4fff798"
     }
   ]
 }

@@ -91,7 +91,7 @@ services:
       - /run/secrets/sim_guard_dsn
       - --guard-workers
       - '2'
-    secrets: [sim_worker_dsn, sim_guard_dsn, sim_signing_key, sim_world_credential, sim_host_transport_key, sim_host_ca, sim_host_guard_key,
+    secrets: [sim_pg_ca, sim_worker_dsn, sim_guard_dsn, sim_signing_key, sim_world_credential, sim_host_transport_key, sim_host_ca, sim_host_guard_key,
               sim_guard_certificate, sim_guard_tls_key]
     volumes: ['${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/var/lib/nexloop/artifacts']
   sim-stand-in-executor:
@@ -101,7 +101,7 @@ services:
     entrypoint: [python, -m, nexloop_eios.stand_in_executor]
     command: [--database-url-file, /run/secrets/sim_stand_in_worker_dsn, --service-credential-file, /run/secrets/sim_world_credential,
               --world, '${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}']
-    secrets: [sim_stand_in_worker_dsn, sim_world_credential]
+    secrets: [sim_pg_ca, sim_stand_in_worker_dsn, sim_world_credential]
   sim-world-files:
     # S2/S6: removes a deleted world's directory on the simulation Host with the database's permit and hands back the Host's signed
     # proof (no world credential, no Host key).
@@ -111,7 +111,46 @@ services:
     command: [--database-url-file, /run/secrets/sim_files_dsn, --host-port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}',
               --host-id, '${NEXLOOP_SIM_HOST_ID:?simulation Host id}',
               --host-control-key-file, /run/secrets/sim_host_transport_key, --host-ca-file, /run/secrets/sim_host_ca]
-    secrets: [sim_files_dsn, sim_host_transport_key, sim_host_ca]
+    secrets: [sim_pg_ca, sim_files_dsn, sim_host_transport_key, sim_host_ca]
+  # Stage enablement (L6 review B2): the one-off writers of the secret and token files, so the files belong to NEXLOOP_SIM_UID from
+  # the start and nobody runs sudo chown. Profile sim-setup only (never started by --profile simulation); run with
+  #   docker compose ... --profile sim-setup run --rm sim-setup-dir            (once: the two directories, 0700, owned by the uid)
+  #   docker compose ... --profile sim-setup run --rm -T sim-setup <tool> --config /setup/<config>   (passwords on stdin)
+  # The tools come read-only from the release checkout; their configurations, the configurator DSN and the signing key from a
+  # private read-only input directory; nothing here is kept in the image.
+  sim-setup-dir:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    profiles: [sim-setup]
+    restart: 'no'
+    read_only: true
+    network_mode: none
+    user: '0:0'
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [python, -c, 'import os,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,u,g),os.chmod(d,0o700)) for d in ("/sim-secrets","/sim-tokens")]',
+                 '${NEXLOOP_SIM_UID:?simulation service uid required}', '${NEXLOOP_SIM_GID:?simulation service gid required}']
+    volumes:
+      - '${NEXLOOP_SIM_SECRET_DIR:?private simulation secret directory required}:/sim-secrets'
+      - '${NEXLOOP_SIM_TOKEN_DIR:?private simulation token directory required}:/sim-tokens'
+  sim-setup:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    profiles: [sim-setup]
+    restart: 'no'
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    user: '${NEXLOOP_SIM_UID:?simulation service uid required}:${NEXLOOP_SIM_GID:?simulation service gid required}'
+    networks: [simulation]
+    working_dir: /opt/nexloop-release
+    entrypoint: [python]
+    volumes:
+      - '${NEXLOOP_SIM_RELEASE_CHECKOUT:?release checkout required}:/opt/nexloop-release:ro'
+      - '${NEXLOOP_SIM_SETUP_INPUT_DIR:?private setup input directory required}:/setup:ro'
+      - '${NEXLOOP_SIM_SECRET_DIR}:/sim-secrets'
+      - '${NEXLOOP_SIM_TOKEN_DIR}:/sim-tokens'
 networks:
   simulation:
     name: nexloop-simulation
@@ -131,6 +170,8 @@ secrets:
   sim_guard_tls_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_tls_key'}
   sim_host_runtime_config: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_runtime_config'}
   sim_host_model_configuration: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_host_model_configuration'}
+  # The DATA_HOST PostgreSQL CA (the same bundle as the real group's pg_ca): every simulation DSN verifies the server (verify-full).
+  sim_pg_ca: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_pg_ca'}
   sim_worker_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_worker_dsn'}
   sim_guard_dsn: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_guard_dsn'}
   sim_signing_key: {file: '${NEXLOOP_SIM_SECRET_DIR}/sim_signing_key'}
