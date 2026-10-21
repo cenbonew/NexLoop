@@ -23,6 +23,13 @@ hostssl __NEXLOOP_DB__ nexloop_metrics __APP_HOST_ADDR__/32 cert
 local   all            nexloop_metrics                                     scram-sha-256
 # Every application role from APP_HOST only: TLS, SCRAM and a client certificate whose CN is the role (clientcert=verify-full).
 hostssl __NEXLOOP_DB__ __APP_PG_ROLES__ __APP_HOST_ADDR__/32 scram-sha-256 clientcert=verify-full
+# NX-041 S6/S6c (simulation process group, stage enablement 2026-10-21): the simulation login roles, from APP_HOST only (the group's
+# containers leave APP_HOST masqueraded like every container namespace there), TLS, SCRAM, the stage catalog alone; no client
+# certificate. Which APP_HOST source may open these connections is the host's nexloop_simulation table
+# (docs/implementation/NX-041-S6-simulation.nft.example): only NEXLOOP_SIM_SUBNET, and only to this PostgreSQL port. No real role is
+# on this line; no simulation role is on the application line above. nexloop_twin_port is the eighth batch's (a role that does not
+# exist yet matches nobody). Passwords are set in the bootstrap window; without one the line admits nobody.
+hostssl __NEXLOOP_DB__ nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port __APP_HOST_ADDR__/32 scram-sha-256
 # Migration window only (§8 step 7): uncomment for the window, reload, and comment again afterwards.
 #hostssl __NEXLOOP_DB__ __MIGRATION_PG_ROLE__ __MGMT_SOURCE_CIDR__ scram-sha-256 clientcert=verify-full
 # Everything else is refused, plaintext first.
