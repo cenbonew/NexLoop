@@ -162,6 +162,9 @@ REGISTRY = [
     # NX-042 T3: the twin's observe entry (owner-run, the port role's only way in) reaches the S7b assembler.
     Allowed('nx042_twin_port', 'authz.nexloop_sim_context_command', 'NX-042 T3: the port role nexloop_twin_port passes the role check, for a sim:/shadow: world only; nothing else',
             ((r" and not \(session_user='nexloop_twin_port' and coalesce\(runtime\.nexloop_world_kind\(p_world\),''\) in \('simulation','shadow'\)\)", ''),)),
+    # NX-043 X1 follow-up (dispatcher 2026-10-21): a role holds up to 128 Actions, as nexloop_eios.workbench_roles (owner 65).
+    Allowed('nx043_workbench_role_cap', 'control.nexloop_configure_workbench', 'the per-role Action bound 64 -> 128; nothing else',
+            ((r'jsonb_array_length\(r\.value\) not between 1 and 128', 'jsonb_array_length(r.value) not between 1 and 64'),)),
 ]
 
 

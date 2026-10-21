@@ -1430,6 +1430,11 @@
       "version": "0286",
       "name": "0286_at048_consumer_leakage.sql",
       "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
+    },
+    {
+      "version": "0287",
+      "name": "0287_nx043_workbench_role_cap.sql",
+      "sha256": "bd78bb6363578680b830dde83f48137c870e7d18140b788540a2f39a5a0fe5dc"
     }
   ]
 }
