@@ -15,8 +15,10 @@ rerun writes nothing. A use the database does not accept yet (twin before the ei
     sim_world_credentials.py --config PRIVATE.json --dry-run    the plan (credentials to create, facts to write); writes nothing
     sim_world_credentials.py --config PRIVATE.json              issues, then self-checks
     sim_world_credentials.py --config PRIVATE.json --check      self-check only
-    sim_world_credentials.py --config PRIVATE.json --export     the tokens as '<use> <token>' lines on stdout - a pipe only, never a
-                                                                terminal (to --install on APP_HOST)
+    sim_world_credentials.py --config PRIVATE.json --export     the tokens as '<use> <token>' lines on stdout - a FIFO only, never a
+                                                                terminal, file or socket; run only as the head of one pipeline into
+                                                                --install on APP_HOST, never alone (its output must not be captured)
+    sim_world_credentials.py --config PRIVATE.json --forget     removes DATA_HOST's token files once the install is confirmed
     sim_world_credentials.py --install INSTALL.json             reads those lines on stdin and writes the token files and the compose
                                                                 sim_world_credential (APP_HOST sim-setup container); no database
 
@@ -340,6 +342,7 @@ def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
     mode.add_argument('--dry-run', action='store_true')
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--export', action='store_true')
+    mode.add_argument('--forget', action='store_true')
     mode.add_argument('--install')
     try:
         args = parser.parse_args(argv)
@@ -370,13 +373,28 @@ def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
                          'facts_to_write': len(result['writes']), 'findings': sorted({f['state'] for f in result['findings']}),
                          'tokens_present': {u: p.exists() for u, p in token_paths(config).items()}}, 0 if not blocking else 1)
         if args.export:
-            if out.isatty():
-                raise Refused('--export writes tokens to a pipe only, never a terminal')
+            # Review 2.2: a pipe (FIFO) only - not a terminal, file or socket; and the documented use is one pipeline into --install.
+            try:
+                is_pipe = stat.S_ISFIFO(os.fstat(out.fileno()).st_mode)
+            except (AttributeError, OSError, ValueError):
+                is_pipe = False
+            if not is_pipe:
+                raise Refused('--export writes tokens to a pipe into --install only (never a terminal, file or captured stream)')
             have = tokens(config, create=False)
             if not all(have.values()):
                 raise Refused('token files missing for ' + ', '.join(u for u, t in have.items() if not t))
             out.write(''.join(f'{u} {t}\n' for u, t in sorted(have.items())))
             return 0
+        if args.forget:
+            # Review 2.1: after the install on APP_HOST, DATA_HOST keeps no copy (a later --check or --export needs a new issue).
+            removed = []
+            for use, path in token_paths(config).items():
+                if path.is_symlink() or (path.exists() and not path.is_file()):
+                    raise Refused(f'{use}: the token path is not a regular file')
+                if path.exists():
+                    path.unlink()
+                    removed.append(use)
+            return emit({'ok': True, 'forgotten': sorted(removed)}, 0)
         if args.check:
             have = tokens(config, create=False)
             if not all(have.values()):

@@ -95,6 +95,7 @@ def test_refusals_and_conflicts(db):
     # A different definition of the same version already in the world (seeded as trusted configuration): a conflict, nothing written.
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')
+        # catalog-exception: a deliberate direct row (a conflicting definition, a real write advancing the epoch, or a write the sim guard must refuse)
         admin.execute("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active)
             select tenant_id,%s,resource_id,jsonb_set(definition,'{description}','"changed"'),capability,true from control.nexloop_action_definitions
             where tenant_id=%s and world='real' and resource_id=%s""", (world, TENANT_A, SERVICE))
@@ -143,6 +144,7 @@ def test_a_simulation_definition_does_not_advance_the_authority_revision_and_a_r
     with admin.transaction():  # a real definition (trusted configuration's write) still advances it
         admin.execute('set local role nexloop_owner')
         admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        # catalog-exception: a deliberate direct row (a conflicting definition, a real write advancing the epoch, or a write the sim guard must refuse)
         admin.execute("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active)
             select tenant_id,'test',resource_id,definition,capability,true from control.nexloop_action_definitions where tenant_id=%s and world='real' and resource_id=%s""",
                       (TENANT_A, SERVICE))
@@ -186,6 +188,7 @@ def test_the_database_refuses_any_update_delete_or_truncate_of_a_simulation_defi
                + "', 'control.nexloop_action_definitions');end$$")
     for sql, args in (("update control.nexloop_action_definitions set active=false where world=%s", (world,)),
                       ("delete from control.nexloop_action_definitions where world=%s", (world,)),
+                      # catalog-exception: a deliberate direct row (a conflicting definition, a real write advancing the epoch, or a write the sim guard must refuse)
                       ("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active)
                           select tenant_id,world,resource_id,definition,capability,true from control.nexloop_action_definitions where world=%s
                           on conflict (tenant_id,world,resource_id) do update set active=false""", (world,)),

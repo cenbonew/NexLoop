@@ -1,6 +1,6 @@
 """scripts/acceptance/at046_stage.py: the AT-046 stage run, locally.
-- On PostgreSQL (a simulation world with synthetic data): the run phase probes read only, finds no twin port in this release
-  (`blocked`); without prepare's catalog publication the Run step fails and without credentials the credential step fails, so the
+- On PostgreSQL (a simulation world with synthetic data): the run phase probes read only; the twin port is in the release (eighth
+  batch) but no twin role or input is configured here (`blocked`); without prepare's catalog publication the Run step fails and without credentials the credential step fails, so the
   run fails (a failure is never masked by blocked); the real side's digest is unchanged.
 - With the Run Action published for the world (as the D10 tests seed it) and an intake stand-in, the run phase waits for the task and
   checks the Run credential's world (fake ports: no host process here).
@@ -60,7 +60,8 @@ def test_the_run_phase_blocks_what_this_release_lacks_and_keeps_real_unchanged(a
     assert code == 1 and doc['passed'] is False, json.dumps(doc, ensure_ascii=False)  # failed steps below: never masked by blocked (5.3)
     st = steps(doc)
     assert st['synthetic_consumers_present']['observed']['consumers'] == 2
-    assert 'eighth batch' in st['twin_observe_act']['observed']['blocked']
+    # From the eighth batch on the twin port is in the release (NX-042 T3); here no twin role or input is configured, so it blocks on that.
+    assert st['twin_observe_act']['observed']['blocked'] == 'roles.twin_port or inputs.twin not configured'
     assert st['run_action_published_for_the_world']['passed'] is False  # prepare publishes it (publish_sim_catalog)
     assert st['real_side_unchanged']['passed'] is True and st['real_side_unchanged']['observed']['tables'] > 5
     assert st['world_credentials_only_of_the_world']['passed'] is False  # no credential issued yet: none found is not a pass (5.3)
@@ -124,7 +125,7 @@ def test_with_the_run_action_published_the_run_phase_waits_for_the_task(tmp_path
     code, doc = run(tmp_path, 'run', ports, world=world)
     st = steps(doc)
     assert st['simulation_run_completes']['passed'] is True and st['simulation_run_completes']['observed'] == {'task_status': 'succeeded', 'run_world_is_simulation': True}
-    assert seen['world'] == world and seen['effect'].startswith('eios:action:') and doc['blocked'] == ['twin_observe_act: the twin port is not in this release (NX-042 T3, eighth batch)']
+    assert seen['world'] == world and seen['effect'].startswith('eios:action:') and doc['blocked'] == ['twin_observe_act: roles.twin_port or inputs.twin not configured']
     assert code == 1 and doc['passed'] is None  # still blocked on the twin: never a pass
 
 
@@ -183,6 +184,7 @@ def test_a_failed_step_fails_the_run_even_with_a_blocked_step(tmp_path, monkeypa
 def test_the_real_digest_sees_an_update(admin, pg, tmp_path):
     """Review 5.2 positive control: a change to a world-real row of the tenant changes the digest (not only a count)."""
     world_with_data(admin)
+    # catalog-exception: a real definition changed directly, the positive control of the real-side digest
     admin.execute("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active)
         values(%s,'real','eios:action:at046.probe:1','{"stable_name":"at046.probe","version":1}','{}',true)""", (TENANT_A,))
     ports = A.Ports(probe=lambda: psycopg.connect(pg, autocommit=True, options='-c default_transaction_read_only=on'))
@@ -195,3 +197,53 @@ def test_the_real_digest_sees_an_update(admin, pg, tmp_path):
     admin.execute("""insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload)
         values(%s,'scope',array['at046-probe'],'{}')""", (TENANT_A,))
     assert [t for t in after if after[t] != A.real_digest(ports, TENANT_A)[t]] == ['authz.nexloop_authority_facts']
+
+
+def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp_path, monkeypatch):
+    """L6 sim-issue-install review 1.1: the read-only probe reaches PostgreSQL over DATA_HOST's socket and the intake (sim_api) over
+    APP_HOST's hostssl, so no single process has both. probe-before and probe-after run with the probe only, intake with the intake only
+    (each refuses to use the other's port), the parts pass their evidence through --from, and merge combines them into at046-run."""
+    world = 'sim:' + str(uuid.uuid4())
+    monkeypatch.setattr(A.time, 'sleep', lambda s: None)
+
+    def part(phase, ports, *prior, **inputs):
+        out = io.StringIO()
+        argv = [phase, '--config', str(config_file(tmp_path, world=world, **inputs))]
+        for p in prior:
+            argv += ['--from', str(p)]
+        code = A.main(argv, ports=ports, out=out)
+        path = tmp_path / f'{phase}.json'
+        path.write_text(out.getvalue())
+        return code, json.loads(out.getvalue()), path
+
+    class NoIntake(A.Ports):
+        def __init__(self, probe):
+            super().__init__(probe=probe)
+
+    class NoProbe(A.Ports):
+        def read(self, *a):
+            raise AssertionError('the intake part never reads through the probe')
+    probe = FakeProbe(world)
+    code, before, before_path = part('probe-before', NoIntake(probe))
+    assert code == 0 and before['passed'] is True and steps(before)['real_digest_before']['evidence']['world'] == world
+    seen = {}
+    code, accepted, intake_path = part('intake', NoProbe(intake=lambda w, c, e: seen.update(world=w, consumer=c) or ('task-1', 'run-1')), before_path)
+    assert seen == {'world': world, 'consumer': 'c' * 64} and steps(accepted)['run_accepted']['evidence'] == {'task_id': 'task-1', 'run_id': 'run-1'}
+    assert accepted['blocked'] == ['twin_observe_act: roles.twin_port or inputs.twin not configured'] and code == 1
+    code, after, after_path = part('probe-after', NoIntake(probe), before_path, intake_path)
+    assert steps(after)['simulation_run_completes']['passed'] is True and steps(after)['real_side_unchanged']['passed'] is True
+    code, merged, _ = part('merge', A.Ports(), before_path, intake_path, after_path)
+    assert merged['check'] == 'at046-run' and merged['passed'] is None and code == 1  # blocked on the twin only: never a pass
+    assert {s['name'] for s in merged['steps']} >= {'synthetic_consumers_present', 'run_accepted', 'simulation_run_completes', 'real_side_unchanged'}
+    # A failed part fails the merge; a part missing, another world's part, or a dry run as input is refused.
+    failed = json.loads(after_path.read_text())
+    failed['steps'][-1]['passed'] = False
+    bad = tmp_path / 'after-failed.json'
+    bad.write_text(json.dumps(failed))
+    assert part('merge', A.Ports(), before_path, intake_path, bad)[1]['passed'] is False
+    assert part('merge', A.Ports(), before_path, intake_path)[0] == 2
+    assert part('intake', NoProbe(), before_path)[0] == 1
+    other = json.loads(before_path.read_text())
+    other['steps'][-1]['evidence']['world'] = 'sim:' + str(uuid.uuid4())
+    (tmp_path / 'other.json').write_text(json.dumps(other))
+    assert part('intake', NoProbe(intake=lambda *a: ('t', 'r')), tmp_path / 'other.json')[0] == 2

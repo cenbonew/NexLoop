@@ -101,15 +101,23 @@ def test_the_world_credentials_are_issued_per_use_bound_to_the_world_and_self_ch
     assert code == 1 and checked['check']['credentials']['agent']['grants_minimal'] is False and checked['check']['credentials']['api']['grants_minimal'] is True
 
 
-def test_the_twin_use_is_refused_by_this_release_and_bad_input_too(deployment, admin, tmp_path):  # noqa: F811
+def test_the_twin_use_is_issued_since_the_eighth_batch_and_bad_input_is_refused(deployment, admin, tmp_path):  # noqa: F811
+    """The eighth batch accepts the twin use (NX-042 T3): its credential is bound to the world alone with sim_use twin and holds no
+    grant (the port checks the world credential); the self-check passes for all four uses. Bad input is refused before anything is written."""
     d = deployment
+    d['apply']()
     world = world_of(admin)
-    code, out = run(C.main, ['--config', str(credentials_config(d, tmp_path, world, uses=('api', 'twin')))])
-    assert code == 2 and 'twin' in out['detail'] and not (tmp_path / 'tokens').exists()
+    assert 'twin' in C.accepted_uses()
+    conf = credentials_config(d, tmp_path, world, uses=('api', 'worker', 'agent', 'twin'))
+    code, out = run(C.main, ['--config', str(conf)])
+    assert code == 0 and out['credentials_created'] == ['agent', 'api', 'twin', 'worker'] and out['check']['pass'] is True, out
+    assert out['check']['credentials']['twin']['grants_minimal'] is True and out['check']['credentials']['twin']['refused_in_real'] is True
+    assert admin.execute("select worlds,status from authz.nexloop_service_credentials where sim_use='twin'").fetchall() == [([world], 'active')]
+    before = admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0]
     assert run(C.main, ['--config', str(credentials_config(d, tmp_path, 'real'))])[0] == 2
-    for over in ({'uses': ['api', 'api']}, {'credential_expires_at': '2020-01-01T00:00:00+00:00'}, {'extra': 1}):
+    for over in ({'uses': ['api', 'api']}, {'uses': ['api', 'oracle']}, {'credential_expires_at': '2020-01-01T00:00:00+00:00'}, {'extra': 1}):
         assert run(C.main, ['--config', str(credentials_config(d, tmp_path, world, **over))])[0] == 2
-
+    assert admin.execute('select count(*) from authz.nexloop_service_credentials').fetchone()[0] == before
 
 ROLES = sorted(D.SIM_DSN_ROLES.values())
 
@@ -225,15 +233,17 @@ def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_b
     conf = credentials_config(d, tmp_path, world)
     code, out = run(C.main, ['--config', str(conf)])
     assert code == 0 and out['check']['pass'] is True, out
-    # Export: a pipe only.
-    class Tty(io.StringIO):
-        def isatty(self):
-            return True
-    tty = Tty()
-    assert C.main(['--config', str(conf), '--export'], out=tty) == 2 and ' ' * 0 + 'never a terminal' in tty.getvalue()
-    pipe = io.StringIO()
-    assert C.main(['--config', str(conf), '--export'], out=pipe) == 0
-    lines = pipe.getvalue()
+    # Export: a FIFO only (review 2.2) - a captured stream, a terminal or a file is refused; the tokens go into the pipe.
+    for sink in (io.StringIO(), open(tmp_path / 'export-file', 'w')):
+        with sink:
+            assert C.main(['--config', str(conf), '--export'], out=sink) == 2
+    assert 'agent ' not in (tmp_path / 'export-file').read_text()
+    import os
+    r, w = os.pipe()
+    with os.fdopen(w, 'w') as writer:
+        assert C.main(['--config', str(conf), '--export'], out=writer) == 0
+    with os.fdopen(r) as reader:
+        lines = reader.read()
     assert sorted(line.split(' ')[0] for line in lines.splitlines()) == ['agent', 'api', 'worker']
     # Install on the other host: no database, files 0600, the worker token as the compose secret; a rerun with the same tokens is fine.
     (tmp_path / 'app-secrets').mkdir(mode=0o700)
@@ -251,6 +261,13 @@ def test_issuing_reaches_the_database_over_the_socket_only_and_the_tokens_move_b
     assert code == 2 and 'another token' in out['detail'] and 'Z' * 64 not in json.dumps(out)
     code, out = run(C.main, ['--install', str(inst)], stdin=io.StringIO('worker ' + worker + '\n'))
     assert code == 2 and 'missing' in out['detail']
+    # Review 2.1: once installed, DATA_HOST forgets its copy; a later export has nothing to send.
+    code, out = run(C.main, ['--config', str(conf), '--forget'])
+    assert code == 0 and out == {'ok': True, 'forgotten': ['agent', 'api', 'worker']} and not list((tmp_path / 'tokens').rglob('*-credential'))
+    r, w = os.pipe()
+    with os.fdopen(w, 'w') as writer:
+        assert C.main(['--config', str(conf), '--export'], out=writer) == 2
+    os.close(r)
 
 
 def test_the_documented_steps_name_their_host_and_connection():
@@ -263,3 +280,7 @@ def test_the_documented_steps_name_their_host_and_connection():
     assert 'DATA_HOST' in issue and 'socket' in issue and 'compose.sim-issue' in issue
     compose = (ROOT / 'deploy/stage/compose.sim-issue.example.yaml').read_text()
     assert '/var/run/postgresql' in compose and 'network_mode: none' in compose
+    assert "'999" not in compose and '${NEXLOOP_PG_UID}:${NEXLOOP_PG_GID}' in compose  # review 3.1: the socket owner's uid is a variable
+    for part in ('probe-before', 'probe-after'):  # review 1.1: the AT-046 probe parts on DATA_HOST, the intake on APP_HOST
+        assert 'DATA_HOST' in next(r for r in rows if part in r)
+    assert 'APP_HOST' in next(r for r in rows if ' intake ' in r) and '工作台 HTTPS' not in next(r for r in rows if ' intake ' in r)
