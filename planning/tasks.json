@@ -3401,6 +3401,24 @@
         "ref": "00ae0080",
         "summary": "E4 归因与候选（迁移 0235：budget_kind evolution D15、确定性归因、候选与事件表、三层预算 D20、冻结与 AT-048 分组、删除失效 D17）与 E5 隔离与交接（0237：叠加层、L0 确定性回放、评估包与报告契约 evolution-evaluation-bundle/report、审核关联 D4）随第二批集成；E1–E5 全部完成，E4 的诊断窗口时钟偶发缺陷已修（只读一次时钟）。",
         "recorded_at": "2026-10-20T19:30:00+08:00"
+      },
+      {
+        "type": "command",
+        "ref": "CI seq 33、37、40、43",
+        "summary": "本地 CI 全量结果（调度员提供，执行人：本地 CI 队列）：seq 33 4949/0、seq 37 4985/0、seq 40 5124/0、seq 43 5261/0，对应发布 24（f77b7798）、24.1（56d2eb22）、25（533873a9）、26（927c1ba6）的合入提交；失败数均为 0。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "927c1ba6",
+        "summary": "发布 24、24.1、25、26 已在 stage 部署并 promote，迁移到 0258，相关 Action 已发布（执行人：调度员）；本地证据见私有附录。这只是部署证据，不是 S6 验收的 stage 实测。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "build/s6-closure-checklist.md（未入库）",
+        "summary": "状态保持 in_progress：实现 E1–E5 已合入并部署，CI 全量通过；还差 stage 实测（AT-023、AT-024、AT-048 与 S6-R1、R2、R5、R7），前提是负责人登记演进服务主体与评估凭据、设置 evolution 预算，这三项目前没有“配置文件加一条命令”的工具。判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
       }
     ]
   },
@@ -3423,6 +3441,54 @@
         "ref": "00ae0080",
         "summary": "NX-039 设计稿与决定 D39-1..14（负责人 2026-10-20 全部按推荐）；V1 评估器角色与开评（0241：nexloop_evo_evaluator，同一主体不能既写又评，开评前 7 项复查，留出集使用上限 5）随第二批集成。V2 门槛与指标在第三批。",
         "recorded_at": "2026-10-20T19:30:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "65dfbefe",
+        "summary": "V2 硬门槛、L0 指标与变更分类（G1–G8），随第三批合入，发布 25。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c66e2b5f",
+        "summary": "V3 L1 test world 评估，随第四批合入，发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7c464557",
+        "summary": "V4 语义版本发布与回退（只限负责人，回退生成新发布行、不改 Claim），随第四批合入，发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "0af19641",
+        "summary": "V5 删除传播与 7 天观察期，随第四批合入（合并 491d4c10），发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "5ec035ca",
+        "summary": "V6 工作台：审核队列、停止开关（负责人 Action）、观察期与回退提示（设计外新增切片），随第五批合入，发布 26；f88647ef 为第六批的测试修正。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "command",
+        "ref": "CI seq 33、37、40、43",
+        "summary": "本地 CI 全量结果（调度员提供，执行人：本地 CI 队列）：seq 33 4949/0、seq 37 4985/0、seq 40 5124/0、seq 43 5261/0，对应发布 24（f77b7798）、24.1（56d2eb22）、25（533873a9）、26（927c1ba6）的合入提交；失败数均为 0。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "927c1ba6",
+        "summary": "发布 24、24.1、25、26 已在 stage 部署并 promote，迁移到 0258，相关 Action 已发布（执行人：调度员）；本地证据见私有附录。这只是部署证据，不是 S6 验收的 stage 实测。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "build/s6-closure-checklist.md（未入库）",
+        "summary": "状态保持 in_progress：V1–V6 已合入并部署，CI 全量通过；还差 stage 实测（S6-R1、R3、R4、R6）；V5 留给 V4 的三个接口（发布项删除、保留报告、语义观察起点）未接上，影响回退与观察验收；语义版本发布与回退、按维度停止与恢复只有工作台入口，没有命令行工具。判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
       }
     ]
   },
@@ -3438,8 +3504,51 @@
       "M12"
     ],
     "deliverable": "迁移/索引/工具兼容、权限不变、破坏变更关闭",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "f6f9f8b4",
+        "summary": "F1 Schema 兼容库（D21–D27，破坏性变更的细分拒绝码），随第五批合入，发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7ceeb388",
+        "summary": "F2 Schema proposal 创建时冻结、ontology_schema 窗口只作 proposal 输入（契约 9cd1ae26，修正 a73773d4），随第五批合入，发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6b40dd6b",
+        "summary": "F3 Schema 发布门槛与权限证明（D22，AT-024 的 Schema 路径），随第五批合入，发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "f05ad22c",
+        "summary": "F4 门槛登记（G9–G13）、发布许可、观察期，开放 ontology_schema 维度，随第六批合入，发布 26。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "command",
+        "ref": "CI seq 33、37、40、43",
+        "summary": "本地 CI 全量结果（调度员提供，执行人：本地 CI 队列）：seq 33 4949/0、seq 37 4985/0、seq 40 5124/0、seq 43 5261/0，对应发布 24（f77b7798）、24.1（56d2eb22）、25（533873a9）、26（927c1ba6）的合入提交；失败数均为 0。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "927c1ba6",
+        "summary": "发布 24、24.1、25、26 已在 stage 部署并 promote，迁移到 0258，相关 Action 已发布（执行人：调度员）；本地证据见私有附录。这只是部署证据，不是 S6 验收的 stage 实测。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "build/s6-closure-checklist.md（未入库）",
+        "summary": "状态由 not_started 改为 in_progress（实现 F1–F4 已合入并部署），不标 done：还差 stage 实测（S6-R8、R9、R10 与 AT-024 的 Schema 路径）；Schema proposal 的审核与发布没有 UI 也没有命令行工具；已知限制：hide 之后抽取侧不停止匹配、别名没有向量回填、接受任意输入的 Action 一直被 G12 拦下。判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-041",
@@ -3453,8 +3562,27 @@
       "M22"
     ],
     "deliverable": "数据/凭据/效应强隔离与来源",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "935aaf62",
+        "summary": "S1–S7b（模拟世界、Action 替身、模拟时钟、进程组隔离、消费者端口、上下文来源，迁移 0259–0274 临时编号以 catalog 为准）随第七批集成，属发布 27，尚未部署到 stage。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "185c7029",
+        "summary": "D10 三凭据（负责人 2026-10-21 放宽）：每个模拟世界 api、worker、agent 三个凭据，模拟进程组在测试库中跑通完整 Pi Run（L3）。尚未进入 main。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-041-overview.md",
+        "summary": "状态保持 in_progress：发布 27 未部署；stage 实测（含 AT-046）要负责人启用模拟进程组。判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      }
+    ]
   },
   {
     "id": "NX-042",
