@@ -1475,6 +1475,11 @@
       "version": "0295",
       "name": "0295_nx043_erasure_and_review.sql",
       "sha256": "5c8c00ef23a5738f7518495ec6a3d8cad6ffe12255893ba1018a5cc2ad6b118d"
+    },
+    {
+      "version": "0296",
+      "name": "0296_nx043_guard_wiring.sql",
+      "sha256": "0263a80f4d9ac7d7126869356925d71d5c81c166f797cebbb715344506ad79cc"
     }
   ]
 }

@@ -64,9 +64,50 @@
 
 这些都只在测试里做，生产路径不会这样写入。
 
-## 5. 未完成项
+## 5. 接线（`0296_nx043_guard_wiring.sql`，临时编号）
 
-1. **定时评估**：护栏要有定时任务调用 `runtime.nexloop_experiment_guard`，比如由告警评估器每轮调用一次。模型花费和激励花费的路径也要在花费前调用 `runtime.nexloop_experiment_spend`。两者都还没有接线，函数也没有授予任何应用角色。
-2. **online 开始**：接线完成后，再解除 X1 中 online 的开始限制（`online_not_available`）。
-3. **停止告警**：停止时要给负责人发告警（设计 §5），目前只写了审计。
-4. **影子与筛选阶段的对账异常**：它们走替身台账，要在 X2、X3 中接入。
+- **定时评估**：没有另起常驻进程，接在现有的告警评估服务上（`nexloop-alert-evaluator`，数据库角色 `nexloop_domain_worker`，由 `background_services` 驱动）。
+  - 每个 tick 先调用 `authz.nexloop_experiment_guard_tick`，再评估告警，所以本轮告警已经能看到刚刚发生的自动停止。
+  - 这个 tick 用同一个服务凭据和同一项授权 `nexloop.alert.evaluate:1`，签名用独立的协议名 `nexloop-experiment-guard-v1`。
+  - 它对本租户每个处于 started 的实验调用一次护栏，只在 real 中执行。
+  - 重复执行是幂等的：已停止的实验不再被检查，也不会追加第二条停止事件。
+- **模型花费**：在 `control.nexloop_budget_consumption` 上加了一个插入前触发器 `nx043_experiment_budget`，与 NX-041 S6 的模拟预算触发器并列，不重定义 `authz.nexloop_reserve_budget`。
+  - **哪些 Run 算实验的**：Run 的模型预留（`run:<uuid>`）满足下面任一条件就计入实验：
+    - real 中，Run 的消费者（`authz.nexloop_role_run_bindings`）在某个进行中实验的候选组。对照组用的是平常的策略，不算实验花费。
+    - 模拟世界或影子世界中，实验所在世界的每个 Run。
+  - **在上限内**：记入实验台账；刚好达到上限时停止实验。
+  - **会超过上限**：这次预留不计入实验，实验立即停止，之后的决策都回到对照策略。这次 Run 本身不会被拒，只受租户自己的模型预算约束。这里不抛异常，是为了让停止事件能保留下来：在同一个事务里拒绝的话，停止事件会一起被回滚。
+  - 单位不是 CNY 的预留不计入实验。
+- **激励**：现在**有**激励路径，即 Agent 在 Run 中发起的激励（`authz.nexloop_run_incentive_command`），预算由激励发放服务在派发时预留。
+  - 一个消费者只要被分配进某个进行中的实验（两组都算，这样两组仍然可比），他的激励预留就以 NXB01 拒绝，激励端口会报 `budget_exhausted`。
+  - 激励是真实效应，模拟世界拒绝这类效应，所以这条规则对 online 实验起作用。
+- **授权**：
+  - `authz.nexloop_experiment_guard_tick` 只授予 `nexloop_domain_worker`，没有签名或协议不对的调用会被拒绝；
+  - 护栏、花费、指标和触发器函数不授予任何应用角色；
+  - 没有新表，tenant_fk 不需要登记；没有重定义函数：快照用的是改名包装，和 0277 的做法相同；definer 检查通过。
+- **停止告警**：`runtime.nexloop_metrics_snapshot` 新增 experiments 块，包含 `running` 和 `auto_stopped_24h`。新增 **alert-rules v11**（`deploy/configuration/alert-rules.v11.json`），在 v10 基础上加一条规则 `experiment_auto_stopped`：24 小时内有护栏停止，就发出 warning。
+  - 部署时要把 v11 作为告警规则应用（`observability.apply_rules`）。
+  - 试运行配置 `nx037-trial.v8.json` 仍然引用 v10，没有改动。
+- **测试**：`tests/test_nx043_guard_wiring_pg.py`（7 项），覆盖：
+  - v11 等于 v10 加这一条规则；
+  - 评估 tick 触发停止，只停一次，告警发出，停止后回到对照；
+  - 模型预留在上限内记账，超过上限不计入并停止，刚好达到上限也停止；
+  - real 中只有候选组的 Run 计入实验；
+  - 已分配消费者的激励被拒，实验外的消费者不受影响；
+  - 只有告警评估服务的角色能调用 tick。
+
+## 6. 未完成项
+
+1. **解除 online 的开始限制**（`online_not_available`）：等这次接线审核通过后，由调度员决定。
+2. **接入外联决策路径**：X4 的 `strategy_for` 还没有接到外联决策和 Context 装配上。
+3. **影子与筛选阶段的对账异常**：它们走替身台账，要在 X2、X3 中接入。
+
+## 7. 第二轮审查（L6，2026-10-21）
+
+| 项 | 处理（`0295`） |
+|---|---|
+| 2.1.a 停止原因只记第一项 | 自动停止的审计 metrics 中增加 `guardrails_hit`，列出当时命中的全部护栏；停止原因仍取第一项（`runtime.nexloop_experiment_guardrails_hit`） |
+| 2.1.b 护栏还没有接线 | 由本文 §5 的接线（0296）落实；解除 online 的开始限制要以这次接线为前提 |
+| 2.1.c guard 的 request_id 可能被 owner 占用 | 停止事件的 request_id 改为 `guard:<实验>:<随机 uuid>`，owner 的请求不可能与它相同；“每个实验最多停止一次”由状态检查保证 |
+| 2.2.a 判断用的是未舍入的金额 | 先把金额舍入到台账的 4 位小数，判断和写入都用舍入后的值（`experiment_spend` 与 0296 的预算触发器都是这样） |
+| 2.3.a determination 的口径 | 不需要改：`runtime.nexloop_effect_determinations` 的 kind 只允许 `confirmed_not_delivered`（0210 的检查约束），所以只会计入 unknown 和“确认未送达” |
