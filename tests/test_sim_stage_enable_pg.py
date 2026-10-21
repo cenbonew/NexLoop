@@ -155,6 +155,14 @@ def test_the_dsn_files_are_written_0600_from_stdin_and_never_print_a_password(tm
     code, out = run(D.main, ['--config', str(conf), '--check'], stdin=io.StringIO(lines),
                     check=lambda dsns, required: seen.update(n=sorted(dsns), r=required) or {'pass': True})
     assert code == 0 and out['check'] == {'pass': True} and seen['n'] == sorted(D.SIM_DSN_ROLES) and 'password' not in json.dumps(out)
+    # --verify: the check alone on the files as they are - no password read (NoStdin), nothing written.
+    before = {p.name: p.read_bytes() for p in (tmp_path / 'sim-secrets').iterdir()}
+    code, out = run(D.main, ['--config', str(conf), '--verify'], stdin=NoStdin(),
+                    check=lambda dsns, required: {'pass': sorted(dsns) == sorted(required) == sorted(D.SIM_DSN_ROLES)})
+    assert code == 0 and out['verify'] is True and out['check'] == {'pass': True} and 'password' not in json.dumps(out)
+    assert {p.name: p.read_bytes() for p in (tmp_path / 'sim-secrets').iterdir()} == before
+    code, out = run(D.main, ['--config', str(conf), '--verify'], stdin=NoStdin(), check=lambda dsns, required: {'pass': False})
+    assert code == 1 and out['ok'] is False
     # Review 3.2: a check that raises reports its type only, never a message that may hold a value.
     def broken(dsns, required):
         raise psycopg.OperationalError('connection failed: password=' + passwords[ROLES[0]])
@@ -343,3 +351,16 @@ esac
         write(bad)
         log.write_text('')
         assert subprocess.run(['bash', str(TRANSFER), str(conf)], capture_output=True, text=True, env=env).returncode == 1 and log.read_text() == ''
+
+
+def test_the_dsn_files_ca_path_is_mounted_in_the_sim_setup_container():
+    """Stage finding 2026-10-22: --check (and AT-046's intake) run in sim-setup, which mounted the secret directory at /sim-secrets
+    only, while each DSN names sslrootcert=/run/secrets/sim_pg_ca: every check was unreachable. The CA's directory in the DSN must be
+    a sim-setup mount of the secret directory (read only), so the files work there unchanged, as in the running services."""
+    import yaml
+    ca_dir = D.CA_IN_CONTAINER.rsplit('/', 1)[0]
+    setup = yaml.safe_load((ROOT / 'deploy/stage/compose.simulation.example.yaml').read_text())['services']['sim-setup']
+    mounts = {v.split(':')[1]: v for v in setup['volumes']}
+    assert ca_dir in mounts and mounts[ca_dir].startswith('${NEXLOOP_SIM_SECRET_DIR') and mounts[ca_dir].endswith(':ro')
+    services = yaml.safe_load((ROOT / 'deploy/stage/compose.simulation.example.yaml').read_text())['services']
+    assert any('sim_pg_ca' in (s.get('secrets') or []) for s in services.values())  # the running services get it at /run/secrets too

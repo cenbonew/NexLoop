@@ -163,6 +163,9 @@ services:
       - '${NEXLOOP_SIM_SETUP_INPUT_DIR:?private setup input directory required}:/setup:ro'
       - '${NEXLOOP_SIM_SECRET_DIR}:/sim-secrets'
       - '${NEXLOOP_SIM_TOKEN_DIR}:/sim-tokens'
+      # The same secret directory read only where the DSN files point (sslrootcert=/run/secrets/sim_pg_ca), as in the running
+      # services: sim_dsn_files.py --check and AT-046's intake connect with the DSN files unchanged (stage finding 2026-10-22).
+      - '${NEXLOOP_SIM_SECRET_DIR}:/run/secrets:ro'
 networks:
   simulation:
     name: nexloop-simulation
