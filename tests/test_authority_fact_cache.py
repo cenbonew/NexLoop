@@ -6,6 +6,7 @@ repeated JSON->model parse of the exact same text. Every authority change
 must reach a fresh parse or a fresh denial.
 """
 from concurrent.futures import ThreadPoolExecutor
+from support.tenants import SIM_WORLD
 import json,threading
 import psycopg
 import pytest
@@ -100,7 +101,7 @@ def test_other_principal_tenant_world_never_hit_foreign_entries(warm,admin,varia
     reader=warm
     if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     options={'principal':dict(identity_suffix='-cache-other'),'tenant':dict(identity_suffix='-cache-b',tenant=TENANT_B),
-        'world':dict(identity_suffix='-cache-sim',world='simulation')}[variant]
+        'world':dict(identity_suffix='-cache-sim',world=SIM_WORLD)}[variant]
     other,_=seed_multi_authority(admin,reader.pool,[(TARGET,ResourceType.ACTION,Operation.EXECUTE)],**options)
     owner=reader.session.authentication.subject_principal_id
     owner_texts=principal_texts(FACT_PARSE_CACHE,owner)
@@ -114,8 +115,8 @@ def test_other_principal_tenant_world_never_hit_foreign_entries(warm,admin,varia
     if variant=='tenant':
         assert {t for m,tenant,t in keys_for(FACT_PARSE_CACHE) if other_principal in t} <= {t for m,tenant,t in keys_for(FACT_PARSE_CACHE) if tenant==TENANT_B}
     if variant=='world':
-        # The world-bound policy (world == 'simulation') is a distinct parsed fact, not the real-world one.
-        assert any(m=='PolicyFacts' and '"simulation"' in t for m,_,t in keys_for(FACT_PARSE_CACHE))
+        # The world-bound policy (world == SIM_WORLD) is a distinct parsed fact, not the real-world one.
+        assert any(m=='PolicyFacts' and '"'+SIM_WORLD+'"' in t for m,_,t in keys_for(FACT_PARSE_CACHE))
         assert any(m=='PolicyFacts' and '"real"' in t for m,_,t in keys_for(FACT_PARSE_CACHE))
 
 

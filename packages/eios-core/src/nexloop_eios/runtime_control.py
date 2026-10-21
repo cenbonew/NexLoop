@@ -89,7 +89,8 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     self.send(401,{'authorized':False});return
                 if self.path not in ('/internal/v1/runtime/authorize','/internal/v1/runtime/effects/submit','/internal/v1/runtime/effects/find',
                                      '/internal/v1/runtime/outcomes/record','/internal/v1/runtime/incentives/issue',
-                                     '/internal/v1/runtime/outreach/send'):self.send(404,{'authorized':False});return
+                                     '/internal/v1/runtime/outreach/send','/internal/v1/runtime/stand-ins/submit',
+                                     '/internal/v1/runtime/stand-ins/find'):self.send(404,{'authorized':False});return
                 if (self.headers.get('Content-Type')!='application/json'
                     or self.headers.get('Transfer-Encoding') is not None
                     or self.headers.get('Content-Encoding') is not None
@@ -151,6 +152,26 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                         self.send(503,{'code':'outreach_unavailable'});return
                     self.send(200,{'run_id':result['run_id'],'intent_id':result['intent_id'],'state':result['state'],'replayed':result['replayed'] is True,
                         'business_action_success':False});return
+                if self.path.startswith('/internal/v1/runtime/stand-ins/'):
+                    # NX-041 S6b: a simulation Run's effect tool; the guard refuses it outside a simulation world (and SQL again).
+                    find=self.path.endswith('/find')
+                    fields={'activation_ref','command','intent_id'} if find else {'activation_ref','command','action','parameters'}
+                    if (type(body) is not dict or set(body)!=fields or type(body['command']) is not dict or type(body['activation_ref']) is not str
+                        or (find and type(body['intent_id']) is not str) or (not find and (type(body['action']) is not str or type(body['parameters']) is not dict))):
+                        self.send(400,{'code':'invalid_effect_request'});return
+                    import psycopg
+                    try:
+                        result=(worker.find_run_stand_in(activation_ref=body['activation_ref'],command=body['command'],intent_id=body['intent_id']) if find
+                                else worker.submit_run_stand_in(activation_ref=body['activation_ref'],command=body['command'],action=body['action'],parameters=body['parameters']))
+                    except ValueError:self.send(400,{'code':'invalid_effect_request'});return
+                    except PermissionError:self.send(403,{'code':'effect_intent_unavailable'});return
+                    except psycopg.errors.InvalidParameterValue as refused:
+                        self.send(409 if 'intent_conflict' in (refused.diag.message_primary or '') else 400,
+                                  {'code':'intent_payload_conflict' if 'intent_conflict' in (refused.diag.message_primary or '') else 'invalid_effect_request'});return
+                    except Exception:self.send(403,{'code':'effect_intent_unavailable'});return
+                    if type(result) is not dict or result.get('run_id')!=body['command'].get('run_id') or type(result.get('receipt')) is not dict:
+                        self.send(503,{'code':'runtime_effect_unavailable'});return
+                    self.send(200,result);return
                 if self.path.startswith('/internal/v1/runtime/effects/'):
                     operation=self.path.rsplit('/',1)[1]
                     field='parameters' if operation=='submit' else 'intent_id'

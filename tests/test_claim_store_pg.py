@@ -5,6 +5,7 @@ a separate service credential extracts under per-field Message READ and a
 Claim-extraction EXECUTE grant. Admin is used only for read-only assertions,
 fault injection and the RLS probe. Synthetic data only.
 """
+from support.tenants import SIM_WORLD
 import hashlib
 import json
 
@@ -285,7 +286,17 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         '_operator_persona',
         # Contact preferences 0228 read the consumer's own preference Claims (predicate vocabulary, polarity, short value) to refuse
         # a contact at dispatch and to show them to the model; never a formal value, nothing projected into business state.
-        '_contact_preferences')) for name in migrations)
+        '_contact_preferences',
+        # NX-041 S1 copies the 0155 Claim contract projection with only its mode expression changed (the world -> data mode mapping
+        # through the one world check); no Claim value is read beyond what 0155 already returns, nothing new is projected.
+        '_nx041_world_check',
+        # NX-041 S4 names ontology.nexloop_claims once, as a row of its declaration of the tables a simulation world must never reach
+        # through the real effect path (a table name in a list, with its reason); no Claim is read, written or projected.
+        '_nx041_stand_ins',
+        # NX-041 S5 copies the 0111 commitment command body with only its time expressions changed (test_nx041_sim_clock_pg guards
+        # that the body otherwise equals 0111's); its Claim lines - resolving the registered commitment Claim and the existence check
+        # on it - are 0111's unchanged; no new Claim value is read or projected.
+        '_nx041_sim_clock')) for name in migrations)
 
 
 def correction_window(conversations):
@@ -335,7 +346,7 @@ def test_concurrent_extraction_of_same_input_records_once(seeded,admin):
 
 def test_simulation_world_session_cannot_extract_or_record_real_conversation(window,admin):
     fixture,conversation_id,ids=window
-    session,_=seed_multi_authority(admin,fixture['reader'].pool,source_targets(conversation_id,ids),identity_suffix='-claim-simulation',world='simulation')
+    session,_=seed_multi_authority(admin,fixture['reader'].pool,source_targets(conversation_id,ids),identity_suffix='-claim-simulation',world=SIM_WORLD)
     extractor=ConversationClaimExtractor(fixture['reader'].pool,session,fixture['reader'].signer,DeterministicExtractionProvider({}))
     with pytest.raises(ClaimExtractionDenied):extractor.extract(conversation_id=conversation_id,message_ids=ids)
     assert admin.execute('select count(*) from ontology.nexloop_extraction_runs').fetchone()==(0,)

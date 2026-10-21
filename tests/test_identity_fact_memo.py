@@ -5,6 +5,7 @@ revocation/expiry/session change still deny, and no sharing across requests,
 principals, worlds or concurrent requests.
 """
 from datetime import UTC,datetime,timedelta
+from support.tenants import SIM_WORLD
 import hashlib,json,secrets,threading,time
 import pytest
 from eios.authz import facts as F
@@ -129,7 +130,7 @@ def test_identity_expiry_is_evaluated_per_decision_with_memoized_fact(published_
 def test_memo_never_shared_across_principal_world_tenant(published_action,admin,counted,variant):
     reader,_,_=published_action
     _,token_a=seed_multi_authority(admin,reader.pool,[(ALLOWED[0],ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-memo-a')
-    options={'principal':dict(identity_suffix='-memo-b'),'world':dict(identity_suffix='-memo-sim',world='simulation'),
+    options={'principal':dict(identity_suffix='-memo-b'),'world':dict(identity_suffix='-memo-sim',world=SIM_WORLD),
         'tenant':dict(identity_suffix='-memo-t',tenant=TENANT_B)}[variant]
     if variant=='tenant':admin.execute("insert into control.nexloop_tenants(tenant_id,status) values('00000000-0000-4000-8000-00000000000b','active') on conflict do nothing")
     _,token_b=seed_multi_authority(admin,reader.pool,[(ALLOWED[0],ResourceType.ACTION,Operation.EXECUTE)],**options)

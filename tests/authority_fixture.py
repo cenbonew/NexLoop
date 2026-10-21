@@ -13,6 +13,7 @@ from eios.authz.policy.canonical import canonicalize_policy_expression
 from eios.authz.policy.registry import PolicyEffect
 from eios.identity.models import SubjectKind,MembershipKind
 from nexloop_eios.authorization import WITNESS
+from support.sim_worlds import register_sim_world,sim_use_of
 
 
 # Validity of the synthetic service credentials seeded here. Tests keep one hour; the NX-031 load template build (which cells reuse
@@ -74,7 +75,7 @@ def authority_records(tenant,resource_id,world='real',operation=Operation.READ,o
     return binding,expiry,records
 
 
-def seed_authority(admin,tenant,resource_id,world='real',operation=Operation.READ,operations=None,resource_type=ResourceType.ARTIFACT,identity_suffix=""):
+def seed_authority(admin,tenant,resource_id,world='real',operation=Operation.READ,operations=None,resource_type=ResourceType.ARTIFACT,identity_suffix="",sim_use='api'):
     operations=tuple(operations or (operation,))
     all_records={}
     for op in operations:
@@ -82,9 +83,10 @@ def seed_authority(admin,tenant,resource_id,world='real',operation=Operation.REA
         for kind,key,fact in rows:all_records[(kind,tuple(key))]=(kind,key,fact)
     records=list(all_records.values())
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict(tenant_id) do nothing",(tenant,))
+    register_sim_world(admin,tenant,world,use=sim_use)
     token=secrets.token_urlsafe(48)
-    admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at) values(%s,%s,%s,%s,%s,%s,%s,%s)',
-        (hashlib.sha256(token.encode()).hexdigest(),tenant,binding.credential_id,Jsonb(binding.model_dump(mode='json')),[world],'nexloop-core','active',expiry))
+    admin.execute('insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,sim_use) values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        (hashlib.sha256(token.encode()).hexdigest(),tenant,binding.credential_id,Jsonb(binding.model_dump(mode='json')),[world],'nexloop-core','active',expiry,sim_use_of(world,sim_use)))
     for kind,key,fact in records:
         admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s) on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload',
             (tenant,kind,key,Jsonb(fact.model_dump(mode='json'))))
