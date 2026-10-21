@@ -24,9 +24,12 @@ services:
     security_opt: [no-new-privileges:true]
     # The token directory, and the input directory the dispatcher filled (configs, DSN files, signing key): 0700 and 0600, NEXLOOP_PG_UID,
     # since the tool reads only private files of its own uid. Rerun after changing an input file. Regular files only, no links.
+    # CAP_CHOWN only (no FOWNER): root may chmod only what it owns. So each path is first given to root (chown, allowed), then
+    # chmod-ed, then given to the target uid - whoever owned it before (docker's bind mount creates a missing directory 0755 root;
+    # the dispatcher's input files are the deploy account's; a rerun finds the target uid's). Dispatcher 2026-10-22 stage finding.
     entrypoint: [python, -c, 'import os,stat,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
-      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,u,g),os.chmod(d,0o700)) for d in ("/sim-tokens","/sim-input")]
-      ;[(os.chown(p,u,g),os.chmod(p,0o600)) for p in (os.path.join("/sim-input",n) for n in os.listdir("/sim-input")) if stat.S_ISREG(os.lstat(p).st_mode)]',
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,0,0),os.chmod(d,0o700),os.chown(d,u,g)) for d in ("/sim-tokens","/sim-input")]
+      ;[(os.chown(p,0,0),os.chmod(p,0o600),os.chown(p,u,g)) for p in (os.path.join("/sim-input",n) for n in os.listdir("/sim-input")) if stat.S_ISREG(os.lstat(p).st_mode)]',
                  '${NEXLOOP_PG_UID:?uid owning the PostgreSQL socket directory required}', '${NEXLOOP_PG_GID:?its gid required}']
     volumes:
       - '${NEXLOOP_SIM_ISSUE_TOKEN_DIR:?private token directory on DATA_HOST required}:/sim-tokens'
@@ -41,10 +44,46 @@ services:
     user: '${NEXLOOP_PG_UID}:${NEXLOOP_PG_GID}'
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    working_dir: /opt/nexloop-release
-    entrypoint: [python]
+    # Preflight (stage finding 2026-10-22): the release checkout must be readable by this uid - an export with git archive, made
+    # go+rX (docs/implementation/sim-stage-enable.md), not the deployment's root-only checkout. The launcher checks it before anything
+    # runs (working_dir is / so that an unreadable checkout reaches this check instead of failing docker's chdir), then runs the named
+    # script of the checkout (scripts/... only) as __main__.
+    working_dir: /
+    entrypoint: [python, -c, 'import os,sys,json,runpy;r="/opt/nexloop-release";a=sys.argv[1:];t=os.path.join(r,a[0]) if a else ""
+      ;ok=bool(a) and a[0].startswith("scripts/") and ".." not in a[0]
+      ;bad=[p for p in ("","scripts","scripts/deploy","scripts/acceptance","packages/eios-core/src") if not os.access(os.path.join(r,p),os.R_OK|os.X_OK)]
+      ;ok or sys.exit(print(json.dumps({"ok":False,"detail":"name a script of the release checkout: scripts/..."})) or 2)
+      ;(bad or not os.access(t,os.R_OK)) and sys.exit(print(json.dumps({"ok":False,"detail":"the release checkout is not readable by uid %d (%s): mount a git archive export made go+rX, see sim-stage-enable.md" % (os.getuid(),", ".join(p or "." for p in bad) or a[0])})) or 2)
+      ;os.chdir(r);sys.argv=[t]+a[1:];sys.path.insert(0,os.path.dirname(t));runpy.run_path(t,run_name="__main__")']
     volumes:
       - '${NEXLOOP_ROOT:?root}/run/postgresql:/var/run/postgresql'
       - '${NEXLOOP_SIM_RELEASE_CHECKOUT:?release checkout required}:/opt/nexloop-release:ro'
       - '${NEXLOOP_SIM_ISSUE_INPUT_DIR:?private input directory required}:/setup:ro'
       - '${NEXLOOP_SIM_ISSUE_TOKEN_DIR}:/sim-tokens'
+  sim-issue-input:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    profiles: [sim-issue]
+    restart: 'no'
+    read_only: true
+    tmpfs: [/tmp]
+    network_mode: none
+    user: '${NEXLOOP_PG_UID}:${NEXLOOP_PG_GID}'
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # Steps 7, 12, 14 (stage finding 2026-10-22): the input directory is this uid's 0700, so the dispatcher puts files into it as a
+    # tar stream on stdin - scripts/deploy/sim_input_put.py, run here with the input directory writable and nothing else mounted
+    # (no socket, no tokens, no network).
+    # Preflight (stage finding 2026-10-22): the release checkout must be readable by this uid - an export with git archive, made
+    # go+rX (docs/implementation/sim-stage-enable.md), not the deployment's root-only checkout. The launcher checks it before anything
+    # runs (working_dir is / so that an unreadable checkout reaches this check instead of failing docker's chdir), then runs the named
+    # script of the checkout (scripts/... only) as __main__.
+    working_dir: /
+    entrypoint: [python, -c, 'import os,sys,json,runpy;r="/opt/nexloop-release";a=sys.argv[1:];t=os.path.join(r,a[0]) if a else ""
+      ;ok=bool(a) and a[0].startswith("scripts/") and ".." not in a[0]
+      ;bad=[p for p in ("","scripts","scripts/deploy","scripts/acceptance","packages/eios-core/src") if not os.access(os.path.join(r,p),os.R_OK|os.X_OK)]
+      ;ok or sys.exit(print(json.dumps({"ok":False,"detail":"name a script of the release checkout: scripts/..."})) or 2)
+      ;(bad or not os.access(t,os.R_OK)) and sys.exit(print(json.dumps({"ok":False,"detail":"the release checkout is not readable by uid %d (%s): mount a git archive export made go+rX, see sim-stage-enable.md" % (os.getuid(),", ".join(p or "." for p in bad) or a[0])})) or 2)
+      ;os.chdir(r);sys.argv=[t]+a[1:];sys.path.insert(0,os.path.dirname(t));runpy.run_path(t,run_name="__main__")']
+    volumes:
+      - '${NEXLOOP_SIM_RELEASE_CHECKOUT:?release checkout required}:/opt/nexloop-release:ro'
+      - '${NEXLOOP_SIM_ISSUE_INPUT_DIR:?private input directory required}:/sim-input'

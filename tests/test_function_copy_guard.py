@@ -117,6 +117,25 @@ REGISTRY = [
     Allowed('nx041_d10_grants_review', 'authz.nexloop_role_run_hint', 'D10 review P1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
             ((r"if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),),
             PG_TEMP),
+    # 0310 (AT-046 stage fixes, L6 batch-12 review 2.1): the simulation worker's dispatch-control entries refuse it outside its world.
+    Allowed('sim_worker_dispatch_controls', 'authz.nexloop_assert_task_dispatch_controls', 'batch-12 review 2.1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
+            ((r"\s*-- L6 batch-12 review 2\.1[^\n]*\n\s*if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),), PG_TEMP),
+    # 0310 (AT-046 stage fixes, L6 batch-12 review 2.1): the simulation worker's dispatch-control entries refuse it outside its world.
+    Allowed('sim_worker_dispatch_controls', 'authz.nexloop_bind_run_goal', 'batch-12 review 2.1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
+            ((r"\s*-- L6 batch-12 review 2\.1[^\n]*\n\s*if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),), PG_TEMP),
+    # 0310 (AT-046 stage fixes, L6 batch-12 review 2.1): the simulation worker's dispatch-control entries refuse it outside its world.
+    Allowed('sim_worker_dispatch_controls', 'authz.nexloop_budget_status', 'batch-12 review 2.1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
+            ((r"\s*-- L6 batch-12 review 2\.1[^\n]*\n\s*if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),), PG_TEMP),
+    # 0310 (AT-046 stage fixes, L6 batch-12 review 2.1): the simulation worker's dispatch-control entries refuse it outside its world.
+    Allowed('sim_worker_dispatch_controls', 'authz.nexloop_reserve_budget', 'batch-12 review 2.1: a simulation role outside its world is refused (app_role); definer search_path gains pg_temp',
+            ((r"\s*-- L6 batch-12 review 2\.1[^\n]*\n\s*if authz\.nexloop_app_role\(p_world\)='nexloop_sim_outside_its_world' then raise exception 'simulation role outside its world' using errcode='42501';end if;\s*", ''),), PG_TEMP),
+    # 0311 (L6 AT-046 batch-12 fix review): online still waives the twin's calibration but not its withdrawal; the synthetic twin of the
+    # acceptance never backs an online or shadow registration.
+    Allowed('nx043_twin_withdrawn_online', 'runtime.nexloop_experiment_twin_ok', 'online: a selected twin must not be retired (calibration still waived)',
+            ((r"\(r->>'stage'='online' and runtime\.nexloop_consumer_twin_unretired\(p_tenant,r->'twin'->>'twin_id',\(r->'twin'->>'version'\)::integer\)\)",
+              "r->>'stage'='online'"),)),
+    Allowed('nx043_twin_withdrawn_online', 'control.nexloop_governed_register_experiment', 'online and shadow registrations refuse the synthetic twin (twin_synthetic)',
+            ((r"\s*-- L6 AT-046 batch-12 fix review[^\n]*\n\s*if r->>'stage' in \('online','shadow'\) and coalesce\(r->'twin'->>'twin_id',''\) like 'at046-synthetic-%' then\s*raise exception 'experiment: twin_synthetic' using errcode='22023';end if;", ''),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),

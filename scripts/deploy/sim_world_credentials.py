@@ -92,20 +92,34 @@ def read_private(path, maximum=65536):
     return data.decode('utf-8').strip()
 
 
-def load_config(text):
+# The fields each mode reads (stage finding 2026-10-22: --export read the configurator DSN file, which exists only inside the
+# issuing run's window): a mode requires and checks only these; the others may be present (one configuration for every mode).
+NEEDS = {'issue': KEYS, 'dry_run': KEYS,
+         'check': {'schema', 'tenant_id', 'world', 'uses', 'token_dir', 'check_database_url_file'},
+         'export': {'schema', 'world', 'uses', 'token_dir'}, 'forget': {'schema', 'world', 'uses', 'token_dir'}}
+
+
+def load_config(text, mode='issue'):
     try:
         value = json.loads(text)
     except ValueError:
         raise Refused('configuration is not JSON') from None
-    if type(value) is not dict or value.get('schema') != SCHEMA or not KEYS <= set(value) <= KEYS | OPTIONAL:
-        raise Refused('configuration fields: ' + ', '.join(sorted((KEYS | OPTIONAL) - {'schema'})))
-    if type(value['tenant_id']) is not str or not _TENANT.fullmatch(value['tenant_id']):
+    need = NEEDS[mode]
+    if type(value) is not dict or value.get('schema') != SCHEMA or not need <= set(value) <= KEYS | OPTIONAL:
+        raise Refused(f'configuration fields ({mode}): ' + ', '.join(sorted(need - {'schema'})) + ' (others allowed: '
+                      + ', '.join(sorted((KEYS | OPTIONAL) - need)) + ')')
+    if 'tenant_id' in need and (type(value['tenant_id']) is not str or not _TENANT.fullmatch(value['tenant_id'])):
         raise Refused('tenant_id invalid')
     if type(value['world']) is not str or not _WORLD.fullmatch(value['world']):
         raise Refused('world: sim:<uuid> or shadow:<uuid>')
+    # L6 batch-12 review (optional): the token directory is an absolute path without parent steps (it names where tokens are written).
+    if type(value.get('token_dir')) is not str or not value['token_dir'].startswith('/') or '..' in Path(value['token_dir']).parts:
+        raise Refused('token_dir: an absolute path')
     uses = value['uses']
     if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')
+    if 'credential_expires_at' not in need:
+        return value
     try:
         expires = datetime.fromisoformat(value['credential_expires_at'])
     except (TypeError, ValueError):
@@ -137,6 +151,9 @@ def load_install(text):
         raise Refused('install configuration fields: ' + ', '.join(sorted(INSTALL_KEYS - {'schema'})))
     if type(value['world']) is not str or not _WORLD.fullmatch(value['world']):
         raise Refused('world: sim:<uuid> or shadow:<uuid>')
+    # L6 batch-12 review (optional): the token directory is an absolute path without parent steps (it names where tokens are written).
+    if type(value.get('token_dir')) is not str or not value['token_dir'].startswith('/') or '..' in Path(value['token_dir']).parts:
+        raise Refused('token_dir: an absolute path')
     uses = value['uses']
     if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')
@@ -360,9 +377,11 @@ def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
         if args.install:
             config = load_install(read_private(args.install))
             return emit(install(config, read_token_lines(stdin or sys.stdin, config['uses'])), 0)
-        config = load_config(read_private(args.config))
-        socket_dsn(config['configurator_database_url_file'])  # review B2.1: refused before any token file or connection
-        if not (args.dry_run or args.export):
+        mode = 'dry_run' if args.dry_run else 'export' if args.export else 'forget' if args.forget else 'check' if args.check else 'issue'
+        config = load_config(read_private(args.config), mode)
+        if mode in ('issue', 'dry_run'):  # review B2.1: refused before any token file or connection
+            socket_dsn(config['configurator_database_url_file'])
+        if mode in ('issue', 'check'):
             socket_dsn(config['check_database_url_file'])
         unsupported = sorted(set(config['uses']) - accepted_uses())
         if unsupported:

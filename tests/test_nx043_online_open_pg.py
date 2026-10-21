@@ -103,3 +103,42 @@ def test_a_closed_real_dispatch_switch_still_refuses_the_candidate_group(opened,
         g = gate(gates(db, c, 'commitment_followup'), 'real_dispatch')
         assert g['result'] == 'refuse' and g['detail'] != 'open'
     assert switches() == before  # the experiment never writes a switch
+
+
+def _synthetic_twin(db):
+    """The AT-046 acceptance's synthetic twin, as at046_stage.py prepare publishes it (prefix at046-synthetic-, contract example)."""
+    from test_nx042_consumer_twins_pg import DEFINITION, publish as publish_twin
+    out = publish_twin(db, definition={**DEFINITION, 'twin_id': 'at046-synthetic-trial'}, request='twin-synthetic')
+    return {'twin_id': out['twin_id'], 'version': out['version']}
+
+
+@pytest.mark.parametrize('stage', ['online', 'shadow'])
+def test_an_online_or_shadow_registration_refuses_the_synthetic_twin(ready, db, stage):
+    """L6 AT-046 batch-12 fix review (0311): the acceptance's synthetic twin never backs a real experiment's online or shadow
+    registration - refused at register (twin_synthetic), published or retired - so no report can claim it as its evidence."""
+    publish(db, strategy('online.later', **LEVERS), request='s-online')
+    twin = _synthetic_twin(db)
+    world = 'real' if stage == 'online' else ready['world']
+    refused('twin_synthetic', register, db, registration(world, twin, experiment_id='synthetic.' + stage, stage=stage,
+                                                         candidate={'strategy_id': 'online.later', 'version': 1}))
+    assert db.execute("select count(*) from control.nexloop_experiments where experiment_id=%s", ('synthetic.' + stage,)).fetchone()[0] == 0
+
+
+def test_online_waives_the_calibration_but_not_the_withdrawal_of_a_twin(ready, db):
+    """L6 AT-046 batch-12 fix review (0311): online still starts with an uncalibrated twin (calibration_waived), but a retired twin
+    blocks the start - before 0311 the online branch passed a retired twin too, so retiring did not withdraw it."""
+    from test_nx042_consumer_twins_pg import retire
+    publish(db, strategy('online.later', **LEVERS), request='s-online')
+    calibrate(db, 1, 'failed')  # not selectable: calibration waived online
+    out = online(db, 'online.waived', twin=ready['twin'])
+    assert out['started'] is True and out['notice'] == 'calibration_waived'
+    register(db, registration('real', ready['twin'], experiment_id='online.retired', stage='online', candidate={'strategy_id': 'online.later', 'version': 1}))
+    retire(db, ready['twin']['twin_id'], ready['twin']['version'])
+    refused('twin_not_calibrated', start, db, 'online.retired')
+    # The started one now reports the twin withdrawn and allocates no one (the same gate).
+    assert db.execute("select runtime.nexloop_experiment_twin_ok(%s,registration) from control.nexloop_experiments where experiment_id='online.waived'",
+                      (TENANT_A,)).fetchone()[0] is False
+    # Never null, even without the tenant's context: an unknown twin is not unretired (a null would let `if not twin_ok` pass).
+    db.execute("select set_config('eios.tenant_id','',false)")
+    assert db.execute("select runtime.nexloop_consumer_twin_unretired(%s,'no.such.twin',1)", (TENANT_A,)).fetchone()[0] is False
+    assert db.execute("select runtime.nexloop_consumer_twin_unretired(%s,%s,%s)", (TENANT_A, ready['twin']['twin_id'], ready['twin']['version'])).fetchone()[0] is False

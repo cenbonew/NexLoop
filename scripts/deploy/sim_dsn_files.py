@@ -14,8 +14,10 @@ The files are the simulation project's DSN secrets (post_deploy_check.SIM_DSN_RO
 sim_stand_in_worker_dsn, sim_files_dsn, sim_twin_port_dsn), each `host=... hostaddr=... port=... dbname=... user=<role> password=... sslmode=verify-full
 sslrootcert=/run/secrets/sim_pg_ca` (the CA the compose project mounts as sim_pg_ca; the pg_hba simulation line needs no client
 certificate). A file is replaced atomically (0600, never through a link). --check then runs post_deploy_check.check_sim_roles on the
-written files (each logs in as exactly its simulation role): run it where the DSNs resolve - a one-off container of the simulation
-project, which mounts the CA at /run/secrets/sim_pg_ca and sits on the simulation subnet the APP_HOST firewall admits. Output: one JSON line of file
+written files (each logs in as exactly its simulation role); --verify runs that check alone on the files as they are (no password, no
+write). Run either where the DSNs resolve - the sim-setup one-off container, which mounts the secret directory read only at
+/run/secrets (so sslrootcert=/run/secrets/sim_pg_ca resolves, stage finding 2026-10-22) and sits on the simulation subnet the APP_HOST
+firewall admits. Output: one JSON line of file
 names, roles and counts; never a password or a DSN. Exit: 0 done, 1 check failed, 2 input refused.
 """
 import argparse
@@ -128,6 +130,7 @@ def main(argv=None, *, stdin=None, out=sys.stdout, check=None):
     parser.add_argument('--config', required=True)
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--verify', action='store_true')
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -142,6 +145,12 @@ def main(argv=None, *, stdin=None, out=sys.stdout, check=None):
         planned = [{'file': name, 'role': role} for name, role in sorted(SIM_DSN_ROLES.items())]
         if args.dry_run:
             return emit({'ok': True, 'dry_run': True, 'secret_dir_exists': directory.is_dir(), 'files': planned}, 0)
+        if args.verify:
+            # Step 11: the check alone on the files as they are - no password read, nothing written (the DSN files name
+            # /run/secrets/sim_pg_ca: sim-setup mounts the secret directory there read only, as the running services do).
+            from post_deploy_check import check_sim_roles, sim_dsn_files
+            verdict = (check or check_sim_roles)(sim_dsn_files(directory), sorted(SIM_DSN_ROLES))
+            return emit({'ok': bool(verdict.get('pass')), 'verify': True, 'files': planned, 'check': verdict}, 0 if verdict.get('pass') else 1)
         if not directory.is_dir() or directory.is_symlink() or directory.stat().st_mode & 0o077:
             raise Refused('secret_dir: an existing 0700 directory (not a link)')
         passwords = read_passwords(stdin or sys.stdin)

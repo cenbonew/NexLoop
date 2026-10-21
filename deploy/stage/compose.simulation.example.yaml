@@ -49,11 +49,23 @@ services:
     # world_purge_key_file (/run/secrets/sim_host_purge_key: the Host's purge key, held by this service and the database only).
     secrets: [sim_host_cert, sim_host_key, sim_host_transport_key, sim_guard_ca, sim_host_guard_key, sim_host_runtime_config,
               sim_host_model_configuration, sim_host_purge_key]
+    # Liveness on the loopback (stage finding 2026-10-22): the services sharing this network namespace start only once the Host is
+    # healthy, and restart with it. Certificate verification is off for this probe only: it sends nothing and reads a status code.
+    healthcheck:
+      test: [CMD, /usr/local/bin/node, -e, "const r=require('https').get({host:'127.0.0.1',port:Number(process.argv[1]),path:'/health/live',rejectUnauthorized:false,timeout:3000},s=>process.exit(s.statusCode===200?0:1));r.on('error',()=>process.exit(1));r.on('timeout',()=>process.exit(1))", '${NEXLOOP_SIM_HOST_PORT}']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     labels:
       nexloop.budget-service: none
   sim-runtime-worker:
     <<: *sim-service
     network_mode: service:sim-agent-host
+    # The shared namespace is the Host's: start once it is healthy and restart with it (a dependent started during a Host restart
+    # loop kept a broken namespace - Network is unreachable - until force-recreated; stage finding 2026-10-22).
+    depends_on:
+      sim-agent-host: {condition: service_healthy, restart: true}
     entrypoint: [nexloop-runtime-worker]
     command:
       - --database-url-file
@@ -98,6 +110,10 @@ services:
     # D4: database URL, the world's credential and the world - no provider, routes, channel or network client.
     <<: *sim-service
     network_mode: service:sim-agent-host
+    # The shared namespace is the Host's: start once it is healthy and restart with it (a dependent started during a Host restart
+    # loop kept a broken namespace - Network is unreachable - until force-recreated; stage finding 2026-10-22).
+    depends_on:
+      sim-agent-host: {condition: service_healthy, restart: true}
     entrypoint: [python, -m, nexloop_eios.stand_in_executor]
     command: [--database-url-file, /run/secrets/sim_stand_in_worker_dsn, --service-credential-file, /run/secrets/sim_world_credential,
               --world, '${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}']
@@ -107,6 +123,10 @@ services:
     # proof (no world credential, no Host key).
     <<: *sim-service
     network_mode: service:sim-agent-host
+    # The shared namespace is the Host's: start once it is healthy and restart with it (a dependent started during a Host restart
+    # loop kept a broken namespace - Network is unreachable - until force-recreated; stage finding 2026-10-22).
+    depends_on:
+      sim-agent-host: {condition: service_healthy, restart: true}
     entrypoint: [python, -m, nexloop_eios.sim_world_files]
     command: [--database-url-file, /run/secrets/sim_files_dsn, --host-port, '${NEXLOOP_SIM_HOST_PORT:?simulation Host port}',
               --host-id, '${NEXLOOP_SIM_HOST_ID:?simulation Host id}',
@@ -128,12 +148,18 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN]
     security_opt: [no-new-privileges:true]
+    # CAP_CHOWN only (no FOWNER): root may chmod only what it owns. So each path is first given to root (chown, allowed), then
+    # chmod-ed, then given to the target uid - whoever owned it before (docker's bind mount creates a missing directory 0755 root;
+    # the dispatcher's input files are the deploy account's; a rerun finds the target uid's). Dispatcher 2026-10-22 stage finding.
     entrypoint: [python, -c, 'import os,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
-      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,u,g),os.chmod(d,0o700)) for d in ("/sim-secrets","/sim-tokens")]',
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,0,0),os.chmod(d,0o700),os.chown(d,u,g)) for d in ("/sim-secrets","/sim-tokens","/sim-runtime","/sim-artifacts")]',
                  '${NEXLOOP_SIM_UID:?simulation service uid required}', '${NEXLOOP_SIM_GID:?simulation service gid required}']
     volumes:
       - '${NEXLOOP_SIM_SECRET_DIR:?private simulation secret directory required}:/sim-secrets'
       - '${NEXLOOP_SIM_TOKEN_DIR:?private simulation token directory required}:/sim-tokens'
+      # Stage finding 2026-10-22: the Host's runtime root and the worker's artifact root must be the simulation uid's (0700) too.
+      - '${NEXLOOP_SIM_RUNTIME_DIR:?private simulation runtime directory required}:/sim-runtime'
+      - '${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/sim-artifacts'
   sim-setup:
     image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
     profiles: [sim-setup]
@@ -144,13 +170,25 @@ services:
     security_opt: [no-new-privileges:true]
     user: '${NEXLOOP_SIM_UID:?simulation service uid required}:${NEXLOOP_SIM_GID:?simulation service gid required}'
     networks: [simulation]
-    working_dir: /opt/nexloop-release
-    entrypoint: [python]
+    # Preflight (stage finding 2026-10-22): the release checkout must be readable by this uid - an export with git archive, made
+    # go+rX (docs/implementation/sim-stage-enable.md), not the deployment's root-only checkout. The launcher checks it before anything
+    # runs (working_dir is / so that an unreadable checkout reaches this check instead of failing docker's chdir), then runs the named
+    # script of the checkout (scripts/... only) as __main__.
+    working_dir: /
+    entrypoint: [python, -c, 'import os,sys,json,runpy;r="/opt/nexloop-release";a=sys.argv[1:];t=os.path.join(r,a[0]) if a else ""
+      ;ok=bool(a) and a[0].startswith("scripts/") and ".." not in a[0]
+      ;bad=[p for p in ("","scripts","scripts/deploy","scripts/acceptance","packages/eios-core/src") if not os.access(os.path.join(r,p),os.R_OK|os.X_OK)]
+      ;ok or sys.exit(print(json.dumps({"ok":False,"detail":"name a script of the release checkout: scripts/..."})) or 2)
+      ;(bad or not os.access(t,os.R_OK)) and sys.exit(print(json.dumps({"ok":False,"detail":"the release checkout is not readable by uid %d (%s): mount a git archive export made go+rX, see sim-stage-enable.md" % (os.getuid(),", ".join(p or "." for p in bad) or a[0])})) or 2)
+      ;os.chdir(r);sys.argv=[t]+a[1:];sys.path.insert(0,os.path.dirname(t));runpy.run_path(t,run_name="__main__")']
     volumes:
       - '${NEXLOOP_SIM_RELEASE_CHECKOUT:?release checkout required}:/opt/nexloop-release:ro'
       - '${NEXLOOP_SIM_SETUP_INPUT_DIR:?private setup input directory required}:/setup:ro'
       - '${NEXLOOP_SIM_SECRET_DIR}:/sim-secrets'
       - '${NEXLOOP_SIM_TOKEN_DIR}:/sim-tokens'
+      # The same secret directory read only where the DSN files point (sslrootcert=/run/secrets/sim_pg_ca), as in the running
+      # services: sim_dsn_files.py --check and AT-046's intake connect with the DSN files unchanged (stage finding 2026-10-22).
+      - '${NEXLOOP_SIM_SECRET_DIR}:/run/secrets:ro'
 networks:
   simulation:
     name: nexloop-simulation
