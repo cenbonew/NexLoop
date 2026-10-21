@@ -78,7 +78,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-041 S5 (D5): the owner moves a simulation world's clock forward.
     'sim_clock.control':'human_owner',
     # NX-042 T1 (D7): the owner publishes or retires a consumer twin version.
-    'consumer_twin.publish':'human_owner','consumer_twin.retire':'human_owner'}
+    'consumer_twin.publish':'human_owner','consumer_twin.retire':'human_owner',
+    # NX-042 T5 (D3, D7): the owner runs a calibration of a twin version against real aggregates (a frozen report).
+    'consumer_twin.calibrate':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
