@@ -11,7 +11,7 @@ uv run --frozen python scripts/acceptance/s6_stage.py <命令> --config <私有�
 - 命令：`at046` `r5` `at048` `r4` `at023` `r1` `r3` `r7-prepare` `r7-verify` `all`。`all` 按清单 §4.3 的顺序执行前七项。
 - R7 分两步：先执行 `r7-prepare`；再由负责人用 `scripts/deploy/erase_synthetic_consumer.py erase` 删除配置里的合成顾客；最后执行 `r7-verify`。
 - 配置是私有 JSON（0600）。连接串和凭据都放在私有文件里，配置里只写这些文件的路径；仓库里只有 example。
-- **连接方式**：reader、writer、evaluator 三个连接分别以 `nexloop_evo_reader`、`nexloop_evo_writer`、`nexloop_evo_evaluator` 角色登录，各用自己的服务凭据，与服务本身的连接方式相同。inspector 是只读连接，只用来探测：受保护表的 digest、候选与留出集的状态、凭据与角色权限。registrar 可选，只用于 R5 的“登记非 test 凭据被拒”这个负例。
+- **连接方式**：reader、writer、evaluator 三个连接分别以 `nexloop_evo_reader`、`nexloop_evo_writer`、`nexloop_evo_evaluator` 角色登录，各用自己的服务凭据，与服务本身的连接方式相同。inspector 连接只做只读探测（受保护表的 digest、候选与留出集的状态、凭据与角色权限）；stage 上用 bootstrap DSN，连上后设为只读，见下文。registrar 可选，只用于 R5 的“登记非 test 凭据被拒”这个负例。
 - **dry-run** 不调用任何写入口。它只做这些事：校验配置；确认每个连接的角色；用 reader 读取输入；在内存中规划每个候选；探测留出集的使用次数。本地测试核对了 dry-run 前后整库 digest 不变。
 - **输出**：每个 AT 一条 JSON（`nexloop-s6-stage-result/1`），包含步骤、断言、digest、是否通过，以及一条可直接用作 planning evidence 的条目；`executed_by` 和 `judged_by` 留空。输出里不出现令牌、连接串或消息正文。
 - **退出码**：0 表示全部通过（dry-run 时表示前提都满足）；1 表示某项失败或缺少前提；2 表示输入被拒。
@@ -38,8 +38,20 @@ uv run --frozen python scripts/acceptance/s6_stage.py <命令> --config <私有�
 
 ## 本地发现与限制
 
-- **AT-048 的缺口**：开评时只检查 writer 给出的分组，以及近重复 Run。如果 writer 按 Run 分组，把同一消费者的 Run 放在两侧，候选能正常开评，不会报 `leakage_detected`。本地测试如实反映：(a) 路线失败，(b) 路线和重分组都通过，AT-048 结论为未通过。要关闭这个缺口，开评时需要按用例的消费者再查一遍，这是服务端的修改，不在本任务范围内。
-- **`dimension_closed`**：当前 main 上 semantic_content 和 ontology_schema 两个维度都已开放，而 propose 只接受这两个维度，所以服务无法让开评走到 `dimension_closed`（本地 v1 测试是靠 admin 删除开放维度来覆盖的）。R4 改为验证“未开放的维度在 propose 时被拒”。
+- **AT-048 的缺口（已修复，迁移 `0259_at048_consumer_leakage.sql`）**：原来开评时只检查 writer 给出的分组和近重复 Run，writer 按 Run 分组就能把同一消费者的 Run 放在两侧而不被发现。现在开评由服务端推导每个用例 Run 的消费者（`runtime.nexloop_evo_run_consumer`，与 trace reader 0233 的推导相同：消息路由、fallback 绑定或角色绑定）。同一消费者的 Run 同时落在两侧时，一律返回 `leakage_detected`；推导不出消费者（null）的 Run 不算同一消费者。`s6_stage.py` 的 AT-048 现在四条断言都要求通过：(a) 按 Run 分组的泄漏、(b) 近重复泄漏、按消费者分组、重分组。测试见 `tests/test_at048_consumer_leakage_pg.py`。
+- **`dimension_closed`（调度员 2026-10-21 认可）**：当前 main 上 semantic_content 和 ontology_schema 两个维度都已开放，而 propose 只接受这两个维度，所以开评的拒绝码 `dimension_closed` 在当前 main 上**无法触发**（本地 v1 测试是靠 admin 删除开放维度来覆盖的）。R4 改为验证“未开放的维度（`semantic_tool`）在 propose 阶段就被拒”。
 - **L1 是合成替身**（D16）：只返回计数和标记，不跑 Run，也不调用模型。仓库里没有生产的 L1 runner。
 - **L0 的测量输入**（延迟等）来自配置，是 D16 的合成测量。
-- **inspector 需要的权限**：对演进表和 authz 凭据表的只读权限，以及 `authz.nexloop_service_identity_snapshot`、`control.nexloop_real_dispatch_closed_layer`、`runtime.nexloop_evo_holdout_digest` 的执行权。stage 上需要一个只读审计角色，由调度员安排；本地用 superuser 加只读事务代替。
+- **inspector 连接**（调度员 2026-10-21 定）：不新增审计角色。stage 上 inspector 用 bootstrap DSN，由调度员放在私有配置里；脚本连上后先执行 `set default_transaction_read_only=on`，并在 dry-run 和每条命令里核对这个设置确实生效（“inspector is read only”）。inspector 只做只读探测，不写入任何东西。本地测试同样用 superuser 加只读事务。
+
+## 集成说明（0259）
+
+- 临时编号用 0259，没有用调度员给的 0295。原因是 main（927c1ba6）的迁移止于 0258，而 bootstrap 要求编号连续。集成时由调度员重排。
+- `authz.nexloop_evo_evaluation_open` 被重定义，与 0241 相比只多了检查 3 中的一个条件。main 上还没有复制件守护（`tests/test_function_copy_guard.py` 随 NX-041 一批进入），所以集成到含守护的分支时，要登记下面这一条：
+
+```python
+Allowed('at048_consumer_leakage', 'authz.nexloop_evo_evaluation_open',
+        'AT-048: check 3 also refuses one Consumer on both sides (derived by runtime.nexloop_evo_run_consumer); nothing else',
+        ((r"\s*-- AT-048 \(S6 stage finding\)[^\n]*\n\s*or exists\(select 1 from unnest\(x\.design_case_ids\) dc join unnest\(x\.validation_case_ids\) vc"
+          r"\s*on runtime\.nexloop_evo_run_consumer\(v_tenant,'real',dc\)=runtime\.nexloop_evo_run_consumer\(v_tenant,'real',vc\)\)", ''),)),
+```

@@ -3,7 +3,7 @@
 
 Every step goes through the services' own entry points, as the services connect - the read-only reader nexloop_evo_reader (E2/E3
 reads), the writer nexloop_evo_writer (diagnosis, candidates, bundles) and the evaluator nexloop_evo_evaluator (open, conclude, L1)
-- each with its own service credential read from a private file. A separate read-only inspector connection only probes (protected
+- each with its own service credential read from a private file. A separate inspector connection (on stage the bootstrap DSN from the private configuration, set read only on connect) only probes (protected
 table digests, candidate and holdout states). Data: the synthetic Consumers' Runs in the configured window (personas from the
 configuration, never 'real' by default) and the world test for L1 (the registered test-only evaluation credential). Nothing here
 holds a model, channel or effect credential, publishes a definition or writes a formal object; L1 runs are the D16 synthetic
@@ -427,10 +427,16 @@ def at048(st, r):
     i = st.inputs()
     units = st.holdout_units('at048')
     base = st.plan('at048-by-consumer', units)
-    v0 = base.candidate['validation_case_ids'][0]
-    same = [x for x in base.candidate['design_case_ids'] + base.candidate['validation_case_ids'] if i['clusters'][x] == i['clusters'][v0] and x != v0]
     plans = {}
     paired = {x for p in i['pairs'] for x in p}
+    every = base.candidate['design_case_ids'] + base.candidate['validation_case_ids']
+    # A validation Run (not a near duplicate) whose Consumer has another Run (not a near duplicate either): that one goes to design.
+    v0, same = None, []
+    for x in base.candidate['validation_case_ids']:
+        others = [y for y in every if i['clusters'][y] == i['clusters'][x] and y != x and y not in paired]
+        if x not in paired and others:
+            v0, same = x, others
+            break
     if same:
         # One Consumer's Runs on both sides, each Run its own group; the near duplicates are left out (only the Consumer leaks).
         runs = [x for x in base.candidate['design_case_ids'] + base.candidate['validation_case_ids'] if x not in paired]

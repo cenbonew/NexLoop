@@ -1290,6 +1290,11 @@
       "version": "0258",
       "name": "0258_nx040_open_ontology_schema.sql",
       "sha256": "3dd821c2b80e6b2e4d048df390ce83df257efc9034289d9293dc1536c1bab8c7"
+    },
+    {
+      "version": "0259",
+      "name": "0259_at048_consumer_leakage.sql",
+      "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
     }
   ]
 }
