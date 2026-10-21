@@ -1357,8 +1357,8 @@
       "sha256": "48e6e61d85df600104470817acd7913ce348c827894b300d9aac6e76d5e79bbe"
     },
     {
-      "version": "0274",
-      "name": "0274_signature_denial_causes.sql",
+      "version": "0276",
+      "name": "0276_signature_denial_causes.sql",
       "sha256": "d2c5a6bde8cce341423b7b711a4ff63a7153c6f298ece184784df19de3158478"
     }
   ]

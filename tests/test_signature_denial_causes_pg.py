@@ -1,4 +1,4 @@
-"""Signature denial causes (0274; stage 2026-10-20: one message stood for six different failures). Each signed-command gate keeps its
+"""Signature denial causes (0276; stage 2026-10-20: one message stood for six different failures). Each signed-command gate keeps its
 errcode 42501 and its message - clients still decide on the message - and gives the failed condition as DETAIL (key_unknown, protocol,
 resource, expired, too_far_ahead, digest, signature); for too_far_ahead the HINT gives the excess over the bound (0.1 s). No value of
 the request, no key and no parameter is in DETAIL or HINT.

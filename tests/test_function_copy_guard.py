@@ -90,7 +90,7 @@ REGISTRY = [
     Allowed('nx041_sim_roles', 'authz.nexloop_sim_effect_query', ROLE, (APP_ROLE,)),
     # Host simulation context (0269): S7b's entry for the simulation event intake's role.
     Allowed('nx041_host_sim_context', 'authz.nexloop_sim_context_command', ROLE, (APP_ROLE,)),
-    # Signature denial causes (0274, L6): the denial raise of each signed-command gate carries its cause as DETAIL (and the excess
+    # Signature denial causes (0276, L6): the denial raise of each signed-command gate carries its cause as DETAIL (and the excess
     # over the bound as HINT); errcode and message unchanged; nothing else.
     denial('authz.nexloop_queue_command_before_refusals_v0150', 'queue signature denied'),
     denial('authz.nexloop_runtime_activation_command_v0037', 'activation denied'),
