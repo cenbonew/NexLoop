@@ -1425,6 +1425,11 @@
       "version": "0285",
       "name": "0285_nx043_strategies_experiments.sql",
       "sha256": "d7b613ad7edcb696978cadd08c766cb04b021390eb5c58fbd98166a1debe180c"
+    },
+    {
+      "version": "0286",
+      "name": "0286_at048_consumer_leakage.sql",
+      "sha256": "bf13a471b4a86be30ee92ff4f3f2c324d5c3b7bd2172647452f37658f26a54f0"
     }
   ]
 }

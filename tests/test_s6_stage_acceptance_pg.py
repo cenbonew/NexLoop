@@ -127,8 +127,8 @@ def test_a_dry_run_writes_nothing_and_plans_every_at(stage, capsys):
 
 
 def test_every_at_passes_on_the_local_stage(stage, capsys):
-    """The positive control, in the checklist's order (§4.3). AT-048's by-run route is the known gap (see below)."""
-    expected = {'at046': True, 'r5': True, 'r4': True, 'at023': True, 'r1': True, 'r3': True}
+    """The positive control, in the checklist's order (§4.3)."""
+    expected = {'at046': True, 'r5': True, 'at048': True, 'r4': True, 'at023': True, 'r1': True, 'r3': True}
     for command, passed in expected.items():
         S.main([command, '--config', stage['config']])
         [r] = results(capsys)
@@ -140,17 +140,15 @@ def test_every_at_passes_on_the_local_stage(stage, capsys):
     assert r['digests']['before'] == r['digests']['after'] and len(r['digests']['before']) >= 6
 
 
-def test_at048_detects_near_duplicates_and_shows_the_by_run_gap(stage, capsys):
-    """AT-048: the near-duplicate route is detected (leakage_detected) and passes regrouped; a split grouped by Run that puts one
-    Consumer on both sides is NOT detected at the opening today - the server checks only the writer's case groups (finding for the
-    dispatcher; the AT stays failed until the opening checks the Consumers of the cases)."""
-    S.main(['at048', '--config', stage['config']])
+def test_at048_detects_both_leakage_routes_and_passes_regrouped(stage, capsys):
+    """AT-048: a split grouped by Run with one Consumer on both sides and a near-duplicate pair across the sides both return
+    leakage_detected (the opening derives the Consumers itself since the 0286 fix); regrouped by Consumer both open."""
+    assert S.main(['at048', '--config', stage['config']]) == 0
     [r] = results(capsys)
     got = by_name(r)
-    assert got['near_duplicate: opening returns leakage_detected']['ok'] is True
-    assert got['regrouped: opening passes']['ok'] is True and got['by_consumer: opening passes']['ok'] is True
-    assert got['by_run: opening returns leakage_detected']['actual'] == 'opened'  # the gap
-    assert r['passed'] is False
+    assert set(got) == {'by_run: opening returns leakage_detected', 'near_duplicate: opening returns leakage_detected', 'by_consumer: opening passes',
+                        'regrouped: opening passes'}
+    assert r['passed'] is True and all(a['ok'] for a in got.values())
 
 
 def test_r7_invalidates_the_holdout_and_the_snapshot_after_the_erasure(stage, capsys):
