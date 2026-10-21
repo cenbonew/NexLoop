@@ -23,6 +23,7 @@ from nexloop_eios.bootstrap import bootstrap
 from support.tenants import TENANT_A, TENANT_B
 from test_nx042_consumer_twins_pg import publish as publish_twin
 from test_nx043_shadow_pg import inbound, sha
+from test_nx043_x4_wiring_pg import send
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/acceptance'))
@@ -187,6 +188,8 @@ def test_the_online_part_starts_allocates_on_inbound_and_stops(stage):
     assert seen['candidate'] + seen['control'] + seen['excluded'] == 4 and seen['candidate'] + seen['control'] >= 1
     code, doc, _ = phase(f, 'online-stop')
     assert code == 0 and doc['passed'] is True, doc
+    code, doc, _ = phase(f, 'online-drain')  # nothing was sent: nothing in flight
+    assert code == 0 and steps(doc)['online_nothing_in_flight']['observed'] == {'outreach_sends': 0, 'outreach_in_flight': 0, 'effects_in_flight': 0}
     state = json.loads((f['tmp'] / 'results' / 'nx043-state.json').read_text())
     assert f['admin'].execute('select runtime.nexloop_experiment_status(%s,%s)', (TENANT_A, state['experiments']['online'])).fetchone()[0] == 'stopped'
 
@@ -264,3 +267,43 @@ def test_bad_input_is_refused(stage, tmp_path):
     out = io.StringIO()
     assert X.main(['probe-after', '--config', f['config']], ports=f['ports'], out=out) == 2  # --from probe-before required
     assert X.main(['no-such-phase', '--config', f['config']], ports=f['ports'], out=io.StringIO()) == 2
+
+
+def test_readiness_is_read_only_and_says_ready_or_blocked_with_a_reason(stage):
+    """Dispatcher 2026-10-22: before the stage run, one read-only check (the inspector DSN) of what this run needs."""
+    f = stage
+    admin = f['admin']
+    count = lambda: admin.execute('select (select count(*) from control.nexloop_experiments)+(select count(*) from control.nexloop_shadow_copy_events)').fetchone()[0]  # noqa: E731
+    before = count()
+    code, doc, _ = phase(f, 'readiness')
+    assert count() == before and f['owner'].calls == []  # read only, no owner login
+    s = steps(doc)
+    assert code == 0 and doc['passed'] is True, [x for x in doc['steps'] if x['passed'] is not True]
+    assert set(s) == {'sim_world_active', 'screening_twin_uncalibrated', 'candidate_strategy_publishable', 'control_strategy_publishable', 'shadow_copy_off', 'real_inbound_allocation',
+                      'real_dispatch_state', 'no_conflicting_experiment'}
+    assert all(x['observed']['status'] == 'ready' and x['observed']['reason'] for x in s.values())
+    assert s['real_dispatch_state']['observed']['reason'] in ('open_sends_execute', 'closed_sends_refused')
+    # Blocked, each with its reason: the shadow copy left on, a running online experiment, a lever that is no D1 lever, an unknown world.
+    assert phase(f, 'prepare')[0] == 0 and phase(f, 'run')[0] == 0 and phase(f, 'online')[0] == 0
+    config = json.loads(open(f['config']).read())
+    config['inputs'] = {**config['inputs'], 'candidate_levers': {'price': 1}, 'screening': {'world': 'sim:' + '0' * 32, 'twin': config['inputs']['screening']['twin']}}
+    Path(f['config']).write_text(json.dumps(config))
+    code, doc, _ = phase(f, 'readiness')
+    s = steps(doc)
+    assert code == 1 and doc['passed'] is False
+    assert {k: v['observed']['reason'] for k, v in s.items() if v['observed']['status'] == 'blocked'} == {
+        'sim_world_active': 'not_found', 'candidate_strategy_publishable': 'lever_not_allowed', 'shadow_copy_off': 'on_for_another_world',
+        'no_conflicting_experiment': 'online_running'}
+    text = json.dumps(doc)
+    assert config['inputs']['screening']['world'] not in text and TENANT_A not in text
+
+
+def test_online_drain_fails_while_a_real_send_is_in_flight(stage):
+    f = stage
+    config = json.loads(open(f['config']).read())
+    config['inputs'] = {**config['inputs'], 'drain_timeout_seconds': 1, 'drain_poll_seconds': 1}
+    Path(f['config']).write_text(json.dumps(config))
+    assert phase(f, 'prepare')[0] == 0 and phase(f, 'online')[0] == 0
+    send(f['admin'], sha('x7-in-flight'))  # accepted, never dispatched
+    code, doc, _ = phase(f, 'online-drain')
+    assert code == 1 and steps(doc)['online_nothing_in_flight']['observed'] == {'outreach_sends': 1, 'outreach_in_flight': 1, 'effects_in_flight': 0}
