@@ -74,7 +74,7 @@ X1 的 10 项测试也一起重跑，全部通过。
 
 | 项 | 处理 |
 |---|---|
-| 3.1（确认）候选簇后加入的成员没有检查“候选组不超过对照组” | 已修复（`0295_nx043_allocation_review.sql`，临时编号）：簇已经在候选组时，新成员也要满足候选组不超过上限、并且不超过对照组人数这两个条件，不满足就以 `candidate_cluster_full` 排除。这里不把新成员改分到对照组，因为那样会把一个会话簇拆到两边，造成泄漏（D2、AT-048）。测试 `test_a_growing_candidate_cluster_never_breaks_the_share_or_the_cap`：簇不断加入新成员，每一步都核对两个约束 |
+| 3.1（确认）候选簇后加入的成员没有检查“候选组不超过对照组” | 已修复（`0293_nx043_allocation_review.sql`，第九批预演编号）：簇已经在候选组时，新成员也要满足候选组不超过上限、并且不超过对照组人数这两个条件，不满足就以 `candidate_cluster_full` 排除。这里不把新成员改分到对照组，因为那样会把一个会话簇拆到两边，造成泄漏（D2、AT-048）。测试 `test_a_growing_candidate_cluster_never_breaks_the_share_or_the_cap`：簇不断加入新成员，每一步都核对两个约束 |
 | 1.1 正在被擦除的 Consumer | 已修复：以 `erasing` 排除（`runtime.nexloop_consumer_erasing`） |
 | 4.1 返回策略时不再检查策略状态 | 已修复：决策时，候选组只有在候选策略版本仍是已发布、并且选用的孪生仍可选用时，才取候选策略，否则取对照策略；对照策略已作废时返回 null，沿用当前策略 |
 | 1.2 资格只在首次分配时检查 | 不改：派发时仍然会检查联系约束、偏好与接管（AGENTS 不变量），所以分配之后出现的限制不会导致违规联系；分配之后的拒绝与退订是 X5 的护栏指标；这类消费者对实验结论的影响留给 X6 的统计层处理（排除计数） |
@@ -82,3 +82,23 @@ X1 的 10 项测试也一起重跑，全部通过。
 | 6.1 X4 之前的登记请求重试会失败 | 写明：只影响用原 request 重试，不影响已存储的数据；部署时没有尚未完成的登记请求，就没有影响 |
 
 两个函数 `runtime.nexloop_experiment_assign`、`runtime.nexloop_experiment_strategy_for` 按 0292 的函数体重定义，只做了上面这些改动，已在复制件守护登记。排除原因的检查约束增加了 `erasing`。
+
+## 8. 第二轮审查（L6，2026-10-21）：擦除义务与建议项
+
+迁移 `0295_nx043_erasure_and_review.sql`（临时编号）。重定义的函数都按最新版本的函数体，只做了下面这些改动，已在复制件守护登记。
+
+- **3.1（确认）分配表与擦除**：
+  - 正在被擦除的 Consumer 调用 `assign` 时**不写任何行**，直接返回 `{arm: null, excluded_reason: erasing, allocated: false}`；`strategy_for` 对他返回 null（3.3.b）。
+  - 分配表纳入 NX-029 的擦除传播：擦除进入 purging 时，由 `control.nexloop_consumer_erasures` 上的触发器把该世界里他的分配行改写为随机墓碑值：
+    - `consumer_id` 和 `cluster_key` 换成墓碑值，组别和时间保留，统计不受影响；
+    - 其他行中 `cluster_key` 等于他 ID 的，也一并替换。
+  - `nx043_frozen` 只对擦除路径放行（`runtime.nexloop_erasure_permits`，做法同 `sim_ledger_guard`）。触发器只关闭自己这张表的擦除授权，不影响擦除步骤在同一事务里打开的其他表。
+  - **`experiment_spend.spend_ref` 不含 Consumer**：它是 Run 的预留 ID（`run:<uuid>`），或调用方的引用（有格式检查），实验代码从不由 Consumer 推导它。
+- **结构测试** `tests/test_consumer_erasure_coverage_pg.py`：每张带 `consumer_id` 列的表，必须满足下面三者之一：
+  - 表名出现在某个擦除函数或擦除触发器的函数体里；
+  - 登记了不需要擦除的理由（目前 7 张：模拟世界与孪生表，只有合成 Consumer，随世界整体删除）；
+  - 在 **已知缺口清单** 里。
+- **已知缺口**：检查发现，real 中有 21 张表带 `consumer_id`，却不在 NX-029 擦除范围内。这是 NX-043 之前就存在的问题，不属于本切片。
+  - 其中 5 张存有顾客本人的文字：`contact_refusal_hits.matched_text`、`marketing_optouts.matched_text`、`outreach_sends.body`、`takeovers.reason`、`reply_escalations.detail`。
+  - 我没有把它们写成“不需要擦除”。这份清单只能缩小：哪张表被擦除覆盖了，测试就要求把它移出清单；新表不能加进来。
+  - 补齐这些表的擦除需要单独立项。

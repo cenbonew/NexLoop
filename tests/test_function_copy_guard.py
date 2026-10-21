@@ -184,6 +184,33 @@ REGISTRY = [
     Allowed('nx041_sim_catalog_publish', 'authz.nexloop_authority_epoch_guard', 'sim catalog: simulation and shadow Action definitions skip the epoch; definer search_path gains pg_temp',
             ((r"\s*if tg_table_name='nexloop_action_definitions' then\s*(--[^\n]*\s*)?if coalesce\(runtime\.nexloop_world_kind\(\(case when tg_op='DELETE' then to_jsonb\(old\) else to_jsonb\(new\) end\)->>'world'\),''\) in \('simulation','shadow'\)"
               r"\s*and \(tg_op<>'UPDATE' or coalesce\(runtime\.nexloop_world_kind\(to_jsonb\(old\)->>'world'\),''\) in \('simulation','shadow'\)\) then\s*return null;end if;\s*end if;", ''),), PG_TEMP),
+    # NX-043 review of the L5 fixes and X5 (3.1, 3.3.b, 2.1.a, 2.1.c, 2.2.a): erasure and review changes only.
+    Allowed('nx043_erasure_and_review', 'control.nexloop_experiment_frozen', 'review 3.1: the erasure propagation update passes; nothing else',
+            ((r"\n if tg_op='UPDATE' and runtime\.nexloop_erasure_permits\([^\n]*", ''),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_assign', 'review 3.1: an erasing Consumer gets no row (early answer); nothing else',
+            ((r"\n -- Review 3\.1:[^\n]*\n if runtime\.nexloop_consumer_erasing\(p_tenant,r->>'world',p_consumer\) then[^\n]*", ''),
+             (r"(then v_reason:='in_takeover';)", "\\1\n elsif runtime.nexloop_consumer_erasing(p_tenant,r->>'world',p_consumer) then v_reason:='erasing';"))),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_strategy_for', 'review 3.3.b: an erasing Consumer gets no strategy; nothing else',
+            ((r"\n if runtime\.nexloop_consumer_erasing\(p_tenant,p_world,p_consumer\) then[^\n]*", ''),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_autostop', 'review 2.1.c: the stop request id cannot be an owner request id; nothing else',
+            ((r"'guard:'\|\|p_experiment\|\|':'\|\|gen_random_uuid\(\)\);", "'guard:'||p_experiment);"),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_guard', 'review 2.1.a: every guardrail hit goes with the stop metrics; nothing else',
+            ((r"m\|\|jsonb_build_object\('guardrails_hit',runtime\.nexloop_experiment_guardrails_hit\(p_tenant,p_experiment,m\)\)\);", 'm);'),)),
+    Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_spend', 'review 2.2.a: the amount is rounded to the ledger scale first; nothing else',
+            ((r"\n p_amount:=round\(p_amount,4\);[^\n]*", ''),)),
+    # NX-043 X5 wiring review (2.3, 1.2, 2.1 control arm): failure isolation, every cluster key on erasure, the cap on the candidate only.
+    Allowed('nx043_wiring_review', 'authz.nexloop_experiment_guard_tick', 'review 2.3: each experiment guarded apart, failures counted; nothing else',
+            ((r";v_failed integer:=0;", ';'),
+             (r"  begin v:=runtime\.nexloop_experiment_guard\(t,x\.experiment_id\);exception when others then v_failed:=v_failed\+1;continue;end;[^\n]*", '  v:=runtime.nexloop_experiment_guard(t,x.experiment_id);'),
+             (r",'failed',v_failed\);", ');'))),
+    Allowed('nx043_wiring_review', 'control.nexloop_experiment_erasure', 'review 1.2: every cluster key of the erased Consumer is replaced; nothing else',
+            ((r";v_keys text\[\];", ';'),
+             (r"\n select array_agg\(distinct a\.cluster_key\) into v_keys[^\n]*", ''),
+             (r"\(a\.cluster_key=new\.consumer_id or a\.cluster_key=any\(coalesce\(v_keys,'\{\}'\)\)\)", 'a.cluster_key=new.consumer_id'))),
+    Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_metrics', 'D5 (dispatcher): the cap counts the candidate increment, control spend reported apart; nothing else',
+            ((r" and s\.arm is distinct from 'control'\),\n   'control_model_cny',\(select[^\n]*\),", '),'),)),
+    Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_spend', 'D5 (dispatcher): control rows never count toward the cap; nothing else',
+            ((r" and arm is distinct from 'control';", ';'),)),
 ]
 
 

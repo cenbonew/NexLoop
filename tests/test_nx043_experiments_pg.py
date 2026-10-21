@@ -135,7 +135,9 @@ def test_only_the_low_risk_levers_of_d1_are_accepted(db):
                                                            'version': 1, 'status': 'published', 'document': persona_document(), 'reason': '发布'})
     assert publish(db, strategy('persona.xiaohe', persona={'persona_id': 'xiaohe', 'version': 1}))['published'] is True
     # Only listed non-marketing purposes may be switched.
-    assert publish(db, strategy('purpose.service', outreach_purposes={'service_followup': True, 'renewal_reminder': False}))['published'] is True
+    assert publish(db, strategy('purpose.service', outreach_purposes={'service_followup': True}))['published'] is True
+    # Owner 2026-10-21: renewal_reminder is a marketing purpose (purpose list v2), so it is no experiment lever.
+    refused('purpose_not_allowed', publish, db, strategy('purpose.renewal', outreach_purposes={'renewal_reminder': False}))
     refused('purpose_not_allowed', publish, db, strategy('purpose.marketing', outreach_purposes={'marketing_general': True}))
     refused('purpose_not_allowed', publish, db, strategy('purpose.unknown', outreach_purposes={'no_such_purpose': True}))
     refused('looks_real', publish, db, {**strategy(), 'description': '给 13800000000 的客户延后跟进'})
@@ -266,10 +268,10 @@ def test_start_rechecks_the_purpose_classification(ready, db):
     """X1 review 2.1: a purpose reclassified as marketing after the strategy was published blocks the start."""
     publish(db, strategy('purpose.service', outreach_purposes={'service_followup': True}), request='s-purpose')
     register(db, registration(ready['world'], ready['twin'], experiment_id='purpose.run', candidate={'strategy_id': 'purpose.service', 'version': 1}))
-    v1 = db.execute('select definition from control.nexloop_outreach_purpose_lists where version=1').fetchone()[0]
-    v2 = {**v1, 'version': 2, 'purposes': [{**p, 'kind': 'marketing', 'frequency_class': 'marketing'} if p['purpose_id'] == 'service_followup' else p
+    v1 = db.execute('select definition from control.nexloop_outreach_purpose_lists order by version desc limit 1').fetchone()[0]
+    v2 = {**v1, 'version': v1['version'] + 1, 'purposes': [{**p, 'kind': 'marketing', 'frequency_class': 'marketing'} if p['purpose_id'] == 'service_followup' else p
                                            for p in v1['purposes']]}
-    db.execute("insert into control.nexloop_outreach_purpose_lists(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic-config')",
-               (Jsonb(v2), 'e' * 64))
+    db.execute("insert into control.nexloop_outreach_purpose_lists(version,definition,definition_digest,published_by) values(%s,%s,%s,'synthetic-config')",
+               (v2['version'], Jsonb(v2), 'e' * 64))
     refused('purpose_not_allowed', start, db, 'purpose.run')
     assert db.execute("select count(*) from control.nexloop_experiment_events where experiment_id='purpose.run'").fetchone() == (0,)

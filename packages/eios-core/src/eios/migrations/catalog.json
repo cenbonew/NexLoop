@@ -1470,6 +1470,21 @@
       "version": "0294",
       "name": "0294_nx041_sim_catalog_publish.sql",
       "sha256": "21e3750a830b8da89ce2c8e00a043fe4bfc2d3ca3f63decd30f014bec4fff798"
+    },
+    {
+      "version": "0295",
+      "name": "0295_nx043_erasure_and_review.sql",
+      "sha256": "5c8c00ef23a5738f7518495ec6a3d8cad6ffe12255893ba1018a5cc2ad6b118d"
+    },
+    {
+      "version": "0296",
+      "name": "0296_nx043_guard_wiring.sql",
+      "sha256": "0263a80f4d9ac7d7126869356925d71d5c81c166f797cebbb715344506ad79cc"
+    },
+    {
+      "version": "0297",
+      "name": "0297_nx043_wiring_review.sql",
+      "sha256": "2969c14fe599967497c359538adb82f344a26d4963f4ad17ada76debb5a502e3"
     }
   ]
 }

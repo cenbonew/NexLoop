@@ -25,6 +25,8 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 RULES_SCHEMA = 'nexloop-alert-rules/1'
 EVALUATE_ACTION = 'nexloop.alert.evaluate'
 EVALUATE_PROTOCOL = 'nexloop-alert-evaluate-v1'
+# NX-043 X5: the experiment guard runs on the same tick and grant, under its own protocol (0296).
+GUARD_PROTOCOL = 'nexloop-experiment-guard-v1'
 GUARD_DEADLINE_MS = 2000  # the Agent Host / provider guard deadline (runtime-host.ts, effect_provider.py)
 _RULE_ID = re.compile(r'[a-z][a-z0-9_]{0,63}')
 _METRIC = re.compile(r'[a-z_0-9]+(\.([a-z_0-9]+|\*))*')
@@ -90,11 +92,33 @@ class AlertEvaluator:
         signature = hmac.new(self.signer.material, (EVALUATE_PROTOCOL + ':' + text).encode(), 'sha256').hexdigest()
         # The skew between this host's clock and the database clock is sampled first, so this evaluation already sees it (rule clock_skew).
         record_clock_sample(self.pool, 'alert-evaluator')
+        # NX-043 X5: guardrails stop running experiments first, so this evaluation already sees an automatic stop (experiment_auto_stopped).
+        # Review 2.3: a failing guard never costs the tenant its alerts (backup, clock, ...); it is counted in the result.
+        try:
+            guard = self.guard_experiments()
+        except Exception:  # noqa: BLE001 - any failure of the guard pass; the evaluation below goes on
+            guard = {'checked': 0, 'stopped': 0, 'failed': 1, 'guard_error': True}
         with self.pool.connection() as db, db.transaction():
             verify_application_role(db)
             result = db.execute('select authz.nexloop_alert_evaluate(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
+        result = {**result, 'experiments_checked': guard.get('checked', 0), 'experiments_stopped': guard.get('stopped', 0),
+                  'experiments_guard_failed': guard.get('failed', 0)}
         record_pool_sample(self.pool, 'alert-evaluator')
         return {k: v for k, v in result.items() if type(v) in (int, str, bool)}
+
+
+    def guard_experiments(self):
+        """NX-043 X5: one guard pass over the tenant's started experiments (idempotent: a stopped experiment is not stopped again)."""
+        from nexloop_eios.assembly import verify_application_role
+        from nexloop_eios.context_engine.authority import action_claims
+        body = canonical_payload({'guard': True})
+        claims = {**action_claims(self.pool, self.session, EVALUATE_ACTION), 'protocol': GUARD_PROTOCOL, 'key_id': self.signer.key_id,
+                  'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
+        text = canonical_payload(claims)
+        signature = hmac.new(self.signer.material, (GUARD_PROTOCOL + ':' + text).encode(), 'sha256').hexdigest()
+        with self.pool.connection() as db, db.transaction():
+            verify_application_role(db)
+            return db.execute('select authz.nexloop_experiment_guard_tick(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
 
 
 # ---- process samples (M08–M10) ---------------------------------------------------------------------------------------------

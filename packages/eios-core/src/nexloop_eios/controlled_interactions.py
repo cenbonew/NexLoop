@@ -39,9 +39,10 @@ SCHEMA = 'nexloop.nx037-trial.v1'
 # v6 (owner 2026-10-21, release 25 with batches 3 and 4): v5 with alert rules v8 (evolution regression, outreach unsubscribe and approvals).
 # v7 (owner 2026-10-21, release 26 with batches 5 and 6): v6 with alert rules v9 (NX-040 F4 schema release regression).
 # v8 (L6 audit 2026-10-21, release 27 with batch 7): v7 with alert rules v10 (clock skew).
+# v9 (L6 review 2026-10-21, NX-043 X5 wiring): v8 with alert rules v11 (experiment_auto_stopped).
 SCHEMAS = ('nexloop.nx037-trial.v1', 'nexloop.nx037-trial.v2', 'nexloop.nx037-trial.v3', 'nexloop.nx037-trial.v4', 'nexloop.nx037-trial.v5',
            'nexloop.nx037-trial.v6', 'nexloop.nx037-trial.v7',
-           'nexloop.nx037-trial.v8')
+           'nexloop.nx037-trial.v8', 'nexloop.nx037-trial.v9')
 _VARIANT = re.compile(r'[a-z][a-z0-9_]{0,47}')
 
 
