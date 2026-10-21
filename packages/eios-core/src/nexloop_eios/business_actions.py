@@ -83,7 +83,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'consumer_twin.calibrate':'human_owner',
     # NX-043 X1 (D1, D3): the owner publishes or retires a strategy version, preregisters, starts and stops an experiment.
     'strategy.publish':'human_owner','strategy.retire':'human_owner','experiment.register':'human_owner',
-    'experiment.start':'human_owner','experiment.stop':'human_owner'}
+    'experiment.start':'human_owner','experiment.stop':'human_owner',
+    # NX-043 X3 (D7): the owner switches the shadow copy of a tenant.
+    'shadow_copy.set':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

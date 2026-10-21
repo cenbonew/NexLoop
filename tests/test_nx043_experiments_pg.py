@@ -242,7 +242,8 @@ def test_an_experiment_never_opens_real_dispatch(ready, db):
 
 def test_the_five_actions_are_owner_only_governed_human_actions(db):
     rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where source_task='NX-043'").fetchall())
-    assert rows == {a: 'human' for a in ACTIONS}
+    assert {k: v for k, v in rows.items() if k in ACTIONS} == {a: 'human' for a in ACTIONS}
+    assert set(rows) - set(ACTIONS) <= {'shadow_copy.set'}  # X3's owner switch (tests/test_nx043_shadow_pg.py)
     roles = json.loads((ROOT / 'deploy/authorization/workbench-roles.v1.json').read_text())
     for a in ACTIONS:
         holders = sorted(r for r, grants in roles['roles'].items() if f'eios:action:nexloop.{a}:1' in grants)

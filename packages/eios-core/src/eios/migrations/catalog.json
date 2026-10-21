@@ -1435,6 +1435,11 @@
       "version": "0287",
       "name": "0287_nx043_workbench_role_cap.sql",
       "sha256": "bd78bb6363578680b830dde83f48137c870e7d18140b788540a2f39a5a0fe5dc"
+    },
+    {
+      "version": "0292",
+      "name": "0292_nx043_shadow_world.sql",
+      "sha256": "9fa5c9ebcc6db8a53e5384641a42dc0f9d5928c4f89eadb1c4c98aad2896ad61"
     }
   ]
 }

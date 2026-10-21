@@ -51,7 +51,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.semantic_release.publish':'semantic_release.publish','nexloop.semantic_release.rollback':'semantic_release.rollback','nexloop.semantic_release.stop':'semantic_release.stop','nexloop.object_view.publish':'object_view.publish',
     'nexloop.sim_world.create':'sim_world.create','nexloop.sim_world.delete':'sim_world.delete','nexloop.sim_world.generate':'sim_world.generate','nexloop.sim_clock.control':'sim_clock.control','nexloop.consumer_twin.publish':'consumer_twin.publish','nexloop.consumer_twin.retire':'consumer_twin.retire','nexloop.consumer_twin.erase_text':'consumer_twin.erase_text','nexloop.consumer_twin.calibrate':'consumer_twin.calibrate',
     'nexloop.strategy.publish':'strategy.publish','nexloop.strategy.retire':'strategy.retire','nexloop.experiment.register':'experiment.register',
-    'nexloop.experiment.start':'experiment.start','nexloop.experiment.stop':'experiment.stop'}  # NX-053 (0154), 0210, 0220, 0227, 0228; owner only
+    'nexloop.experiment.start':'experiment.start','nexloop.experiment.stop':'experiment.stop','nexloop.shadow_copy.set':'shadow_copy.set'}  # NX-053 (0154), 0210, 0220, 0227, 0228; owner only
 
 
 def object_types():
