@@ -181,7 +181,7 @@
 
 > 模拟世界只用合成或结构生成的数据，效应只经 Action 替身执行，**不会触达任何真实客户或真实 provider**；真实派发开关对模拟世界恒为关闭。总体说明见 [NX-041 总说明](../implementation/NX-041-overview.md)。
 
-负责人用到四个 Action，都只有负责人能执行，每次都要写原因：
+负责人用到四个 Action，都只有负责人能执行（操作员执行会得到 403）。建立、删除和时钟控制都要写目的或原因：
 
 | Action | 做什么 | 配置文件里的字段 |
 |---|---|---|
@@ -190,13 +190,29 @@
 | `nexloop.sim_clock.control` | 推进、暂停、恢复时钟或设置速率 | `world`、`action`（`advance`、`pause`、`resume`、`set_rate`）、`seconds`（推进时填）、`rate`（设置速率时填）、`reason` |
 | `nexloop.sim_world.delete` | 整体删除一个世界：分批清除，可以中断后继续；只保留 30 天摘要（计数与 digest），然后彻底删除 | `world`、`reason` |
 
-**用法：配置文件加一条命令**（与“确认未送达”等负责人工具同一形态）：
+**用法：配置文件加一条命令**
 
-1. 在私有目录写一个配置文件（权限 0600，不进 git），内容是上表中对应 Action 的字段，外加一个稳定的请求 ID（重试时保持不变）。
-2. 执行一条命令，工作台口令从钥匙串经管道输入；先加 `--dry-run` 预查，结果无误后去掉 `--dry-run` 正式执行。
-3. 命令输出只含世界 ID、状态与原因码，不含口令或数据内容。
+工具是 `scripts/deploy/sim_world.py`，子命令与 Action 一一对应：`create`、`delete`、`generate`、`clock`。
 
-> **当前状态（`935aaf62`）**：这四个 Action 已经在工作台的写入口上（`create_sim_world`、`generate_sim_world_data`、`control_sim_clock`、`delete_sim_world`），但**工作台还没有页面，负责人用的命令行工具也还没有实现**。在工具合入之前，不要用其他方式代替；需要建立模拟世界时，请先让开发线补上这个工具。
+1. **写配置文件**：从 `deploy/examples/sim-world-{create,delete,generate,clock}.example.json` 中复制对应的一份到私有目录，按上表填字段。
+   - 文件里必须有 `"schema": "nexloop-sim-world/1"`；可以为空的字段可以不写。
+   - 配置文件和用户名文件都必须**由你本人所有、权限 0600**，不进 git。
+2. **先预演**：只校验配置，打印将要发送的请求；不读口令，也不连服务器。
+
+   ```bash
+   scripts/deploy/sim_world.py create --config <配置文件> --dry-run
+   ```
+
+3. **正式执行**：工作台口令从钥匙串经管道输入，不出现在命令参数里。
+
+   ```bash
+   security find-generic-password -s <钥匙串服务名> -a <账户> -w | scripts/deploy/sim_world.py create --config <配置文件> --origin https://<APP_HOST_NAME>:<PORT> --ca-file <CA 文件> --username-file <用户名文件> --password-stdin
+   ```
+
+   `--ca-file` 可选，工作台证书不是由系统信任的 CA 签发时才需要。其他子命令把 `create` 换成 `delete`、`generate` 或 `clock`，配置文件换成对应的那一份。
+4. **看结果**：输出是一行 JSON 摘要，包括操作、HTTP 状态，以及世界 ID、状态、修订号和计数，**不含用户名、口令、cookie 或任何凭据**。退出码：0 成功；1 被拒或连不上；2 输入不合格（配置不对，或文件权限不对）。
+
+**重放与新请求**：同一份配置重跑，会被识别为**重放**，不会重复执行；例如重跑 `create` 得到的还是同一个世界。要发一个新的请求，改配置里的任意一个字段即可，例如 `purpose` 或 `reason`。
 
 **数量与期限**（负责人 2026-10-21 定）：每个租户最多同时有 20 个 active 的模拟世界；每个世界默认 30 天到期，最长 30 天，到期后自动整体删除，不需要再执行删除。需要更久的实验，到期前另建一个世界，用同样的种子重新生成。
 
