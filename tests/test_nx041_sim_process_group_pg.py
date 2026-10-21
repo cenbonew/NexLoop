@@ -87,7 +87,14 @@ def test_the_simulation_compose_project_is_separate_off_by_default_and_holds_no_
     project = yaml.safe_load(COMPOSE.read_text())
     assert project['name'] == 'nexloop-simulation'
     services = project['services']
+    setup = {n: services.pop(n) for n in ('sim-setup-dir', 'sim-setup')}
     assert set(services) == {'sim-agent-host', 'sim-runtime-worker', 'sim-stand-in-executor', 'sim-world-files'}
+    # Stage enablement (review B2): the one-off file writers start only with --profile sim-setup; the writer runs as the simulation
+    # uid; the directory step alone is root, with CHOWN only and no network; neither holds a secret.
+    assert all(v['profiles'] == ['sim-setup'] and not v.get('secrets') and 'cap_drop' in v for v in setup.values())
+    assert setup['sim-setup']['user'] == services['sim-agent-host']['user'] and setup['sim-setup']['networks'] == ['simulation']
+    assert setup['sim-setup-dir']['cap_add'] == ['CHOWN'] and setup['sim-setup-dir']['network_mode'] == 'none'
+    assert all(v.endswith(':ro') for v in setup['sim-setup']['volumes'][:2])
     for name, service in services.items():
         assert service.get('profiles') == ['simulation'], name  # nothing starts without --profile simulation
         assert service.get('network_mode') in (None, 'service:sim-agent-host'), name  # never the host's (real) namespace

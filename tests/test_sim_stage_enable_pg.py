@@ -170,7 +170,9 @@ def test_dsn_configuration_and_example(tmp_path):
 
 def test_after_the_world_is_deleted_its_old_credentials_are_refused(deployment, admin, tmp_path):  # noqa: F811
     """L6 sim-catalog-publish review: the whole deletion revokes the world's credentials before its definitions go, so a token issued for
-    the world is refused afterwards (42501), in the deleted world as everywhere else; and the revocation advanced the authority revision."""
+    the world is refused afterwards: the identity snapshot with 42501 in the deleted world, real and test; the stand-in tenant entry and
+    the Action authority entry are refused as well (42501 or 22023). These are the entries covered here, not every entry. The revocation
+    advanced the authority revision."""
     d = deployment
     d['apply']()
     world = world_of(admin)
@@ -192,5 +194,11 @@ def test_after_the_world_is_deleted_its_old_credentials_are_refused(deployment, 
                 with pytest.raises(psycopg.Error) as refused, db.transaction():
                     db.execute('select authz.nexloop_service_identity_snapshot(%s,%s)', (digest, w))
                 assert refused.value.sqlstate == '42501', (w, refused.value.sqlstate)
+            # Review A2: the other entries tried here refuse too (42501, or 22023 where the world's state is checked first).
+            for sql, args in (('select authz.nexloop_sim_effect_tenant(%s,%s)', (digest, world)),
+                              ('select authz.nexloop_assert_action_authority(%s,%s,%s)', (digest, world, Jsonb({})))):
+                with pytest.raises(psycopg.Error) as refused, admin.transaction():  # a read-write session (the entries lock rows)
+                    admin.execute(sql, args)
+                assert refused.value.sqlstate in ('42501', '22023'), (sql, refused.value.sqlstate)
     code, checked = run(C.main, ['--config', str(conf), '--check'], check_connect=check)
     assert code == 1 and checked['ok'] is False

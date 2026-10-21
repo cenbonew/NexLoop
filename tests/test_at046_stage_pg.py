@@ -98,10 +98,11 @@ class FakeProbe:
             return []
         if s.startswith('select count(*) from control.nexloop_action_definitions'):
             return [(1,)]
+        if ' union all ' in s:
+            return [('runtime.some_table', 'd' * 32), ('authz.nexloop_service_credentials', 'e' * 32)]
         if 'information_schema' in s:
             return [('runtime.some_table', True)]
-        if s.startswith('select md5('):
-            return [('d' * 32,)]
+
         if 'to_regprocedure' in s:
             return [(False,)]
         if 'nexloop_sim_objects' in s:
@@ -190,3 +191,7 @@ def test_the_real_digest_sees_an_update(admin, pg, tmp_path):
     admin.execute("update control.nexloop_action_definitions set active=false where tenant_id=%s and resource_id='eios:action:at046.probe:1'", (TENANT_A,))
     after = A.real_digest(ports, TENANT_A)
     assert [t for t in before if before[t] != after[t]] == ['control.nexloop_action_definitions']
+    assert {'authz.nexloop_service_credentials', 'authz.nexloop_authority_facts'} <= set(before)
+    admin.execute("""insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload)
+        values(%s,'scope',array['at046-probe'],'{}')""", (TENANT_A,))
+    assert [t for t in after if after[t] != A.real_digest(ports, TENANT_A)[t]] == ['authz.nexloop_authority_facts']

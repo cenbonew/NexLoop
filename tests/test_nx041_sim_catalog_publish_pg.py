@@ -174,3 +174,26 @@ def test_a_simulation_definition_has_two_write_paths_only(db):
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~* %s""", (r"execute\s+format\('delete\s+from\s+%s",)).fetchall()]
     assert len(dynamic) == 1 and 'sim_world' in dynamic[0], dynamic
     assert admin.execute("select count(*) from pg_trigger where tgrelid='control.nexloop_action_definitions'::regclass and not tgisinternal").fetchone()[0] >= 1
+
+
+def test_the_database_refuses_any_update_delete_or_truncate_of_a_simulation_definition(db):
+    """Review A1 (0278 section 6): no update (deactivation included, whatever the SQL form), no delete outside the S2 whole deletion, no
+    truncate while such rows exist; a real definition is unaffected; the whole deletion still removes them (test_the_catalog_leaves_with_the_world)."""
+    admin = db
+    world = new_world(admin)
+    publish(admin, world)
+    dynamic = ("do $$begin execute format('update %s set active=false where world=" + "''" + world + "''"
+               + "', 'control.nexloop_action_definitions');end$$")
+    for sql, args in (("update control.nexloop_action_definitions set active=false where world=%s", (world,)),
+                      ("delete from control.nexloop_action_definitions where world=%s", (world,)),
+                      ("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active)
+                          select tenant_id,world,resource_id,definition,capability,true from control.nexloop_action_definitions where world=%s
+                          on conflict (tenant_id,world,resource_id) do update set active=false""", (world,)),
+                      (dynamic, None)):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='simulation Action definition'), admin.transaction():
+            admin.execute(sql, args)
+    with pytest.raises(psycopg.errors.InsufficientPrivilege), admin.transaction():
+        admin.execute('truncate control.nexloop_action_definitions cascade')
+    assert in_world(admin, world) == {SERVICE: True}
+    with admin.transaction():  # a real definition may still be deactivated
+        admin.execute("update control.nexloop_action_definitions set active=false where tenant_id=%s and world='real' and resource_id=%s", (TENANT_A, DELIVER))

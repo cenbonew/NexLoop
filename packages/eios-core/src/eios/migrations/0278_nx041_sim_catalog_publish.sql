@@ -65,6 +65,8 @@ insert into control.nexloop_governed_capabilities(capability,operation,subject_r
 --    Premise (L6 review): a simulation definition has two write paths only - this publication (insert) and the S2 whole deletion after
 --    its credentials are revoked; nothing deactivates or updates one (tests/test_nx041_sim_catalog_publish_pg.py guards the writer list).
 --    A path that deactivates a simulation definition must first give the world its own authority revision (review §5).
+--    The database holds it (6 below); the writer-list test is a supplement - it scans function bodies only, so a migration's own DML is
+--    its blind spot (as are dynamic SQL and merge), which is why 6 exists.
 create or replace function authz.nexloop_authority_epoch_guard() returns trigger language plpgsql security definer
  set search_path=pg_catalog,pg_temp as $$
 begin
@@ -78,3 +80,28 @@ begin
   where tenant_id=case when tg_op='DELETE' then old.tenant_id else new.tenant_id end;
  return null;
 end $$;
+
+-- 6. The premise of 5 held by the database (L6 review A1), not only by the writer-list test: a simulation or shadow world's Action
+--    definition is never updated (no deactivation path; old or new of that kind), and leaves only by the S2 whole deletion (the purge
+--    opens the table for that world through control.nexloop_erasure_scope, as 0262's sim_ledger_guard). A truncate is refused while any
+--    such row exists. This catches dynamic SQL, on conflict do update, merge and a later migration's DML alike (the scan test cannot).
+create function control.nexloop_sim_definition_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
+begin
+ if tg_op='TRUNCATE' then
+  if exists(select 1 from control.nexloop_action_definitions d where runtime.nexloop_world_kind(d.world) in ('simulation','shadow')) then
+   raise exception 'simulation Action definitions leave only with their world' using errcode='42501';end if;
+  return null;end if;
+ if tg_op='DELETE' then
+  if coalesce(runtime.nexloop_world_kind(old.world),'') not in ('simulation','shadow')
+     or runtime.nexloop_erasure_permits(current_user,'control.nexloop_action_definitions','DELETE',to_jsonb(old),null) then return old;end if;
+  raise exception 'simulation Action definitions leave only with their world' using errcode='42501';end if;
+ if coalesce(runtime.nexloop_world_kind(old.world),'') in ('simulation','shadow') or coalesce(runtime.nexloop_world_kind(new.world),'') in ('simulation','shadow') then
+  raise exception 'a simulation Action definition is never updated' using errcode='42501';end if;
+ return new;
+end $$;
+alter function control.nexloop_sim_definition_guard() owner to nexloop_owner;
+revoke all on function control.nexloop_sim_definition_guard() from public;
+create trigger nx041_sim_definition_guard before update or delete on control.nexloop_action_definitions
+ for each row execute function control.nexloop_sim_definition_guard();
+create trigger nx041_sim_definition_no_truncate before truncate on control.nexloop_action_definitions
+ for each statement execute function control.nexloop_sim_definition_guard();

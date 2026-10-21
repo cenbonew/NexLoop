@@ -28,10 +28,10 @@
 | 1 | 部署发布 27（含本分支的模板和工具） | 调度员 | 部署单 |
 | 2 | pg_hba：加模拟一行，可与演进 local 行一起，一次重新加载 | **负责人，DATA_HOST root，一次** | `sudo bash scripts/deploy/sim_hba_data_host.sh <私有配置>`。配置是 0600 的 KEY=VALUE：`NEXLOOP_ROOT`、`STAGE_ENV`、`RELEASE_CHECKOUT`。脚本要求新渲染的 pg_hba 只比现有的多出模拟行，而且恰好一条（可再多一条演进行，同一行出现两次不算两行），不能删任何行；原地改写后发 HUP，失败就写回原内容。之后不必再跑 `evolution_hba_data_host.sh` |
 | 3 | 模拟角色的口令（bootstrap 窗口），口令存入钥匙串 | 调度员 | `ALTER ROLE … PASSWORD` 在 bootstrap 窗口执行，不经过任何工具 |
-| 4 | 模拟 secret 目录与 DSN 文件 | 调度员 | `sim_dsn_files.py --config <私有配置> --dry-run`，然后用钥匙串管道 `printf '%s %s\n' <角色> <口令>`（每个角色一行）喂给 `sim_dsn_files.py --config …`。会写 5 个 `*_dsn` 文件（0600），各自的 `sslrootcert=/run/secrets/sim_pg_ca` |
+| 4 | 模拟 secret 目录与 DSN 文件 | 调度员（APP_HOST 的部署账户，有 docker 权限，不用 sudo） | 先建目录：`docker compose -p nexloop-simulation … --profile sim-setup run --rm sim-setup-dir`，建出 secret 和 token 两个目录，0700，属主为 `NEXLOOP_SIM_UID`。再在一次性容器里以该 UID 运行工具：`… --profile sim-setup run --rm -T sim-setup scripts/deploy/sim_dsn_files.py --config /setup/<配置> --dry-run`；然后去掉 `--dry-run`，用钥匙串管道 `printf '%s %s\n' <角色> <口令>`（每个角色一行）从 stdin 喂进去。配置里的 `secret_dir` 写 `/sim-secrets`。会写 5 个 `*_dsn` 文件（0600），各自的 `sslrootcert=/run/secrets/sim_pg_ca`，文件从一开始就属于该 UID |
 | 5 | 其余 secret 文件 | 调度员 | 见下一节清单。`sim_pg_ca` 复制 real 的 pg CA 即可（同一套） |
 | 6 | 创建 sim world、生成合成数据、发布该 world 的 Action 目录 | 调度员（工具以负责人的工作台会话执行） | `at046_stage.py prepare --config …`，负责人口令走 stdin。依次调用 create_sim_world、generate_sim_world_data、publish_sim_catalog（0278，见下），输出里有 world id。也可以单独用 `sim_world.py publish-catalog --config …` 发布目录 |
-| 7 | 该 world 的凭据 | 调度员（受信配置签发：configurator 登录窗口和签名密钥） | `sim_world_credentials.py --config … --dry-run`，再去掉 `--dry-run` 执行。会签发 api、worker、agent 三种用途，写 token 文件，并把 worker 凭据写成 compose 的 `sim_world_credential`，最后自检（见“凭据自检”）。`check_database_url_file` 是 bootstrap 窗口的只读检查 DSN（`default_transaction_read_only=on`），不是 configurator 或运行时 DSN |
+| 7 | 该 world 的凭据 | 调度员（受信配置签发：configurator 登录窗口和签名密钥） | 同样在 `sim-setup` 一次性容器里运行：`… run --rm -T sim-setup scripts/deploy/sim_world_credentials.py --config /setup/<配置> --dry-run`，再去掉 `--dry-run` 执行。配置中 `token_dir` 写 `/sim-tokens`，`compose_secret_dir` 写 `/sim-secrets`，DSN 和签名密钥文件放在私有输入目录（容器内的 `/setup`，只读）。会签发 api、worker、agent 三种用途，写 token 文件，并把 worker 凭据写成 compose 的 `sim_world_credential`，最后自检（见“凭据自检”）。`check_database_url_file` 是 bootstrap 窗口的只读检查 DSN（`default_transaction_read_only=on`），不是 configurator 或运行时 DSN。容器从模拟子网出站，防火墙只放行到 DATA_HOST 的 PG 端口；源地址仍是 `APP_HOST_ADDR`，configurator 和检查角色要能从这个地址登录（第一次执行前，用 `--dry-run` 确认） |
 | 8 | 防火墙 | **负责人，APP_HOST root** | 见“防火墙”一节 |
 | 9 | 启动模拟进程组 | 调度员（APP_HOST 的部署账户，有 docker 权限） | 见“启动”一节 |
 | 10 | 自检模拟角色 | 调度员 | `post_deploy_check.py … --sim-secret-dir <模拟 secret 目录>`，在模拟项目的一次性容器里执行，或者 `sim_dsn_files.py --check`。每个 DSN 必须以它自己的模拟角色登录 |
@@ -54,7 +54,7 @@
 
 ## compose 需要的 secret 文件（`NEXLOOP_SIM_SECRET_DIR`，全部 0600，属主为 `NEXLOOP_SIM_UID`）
 
-`sim_dsn_files.py` 和 `sim_world_credentials.py` 写出的文件属于执行它们的账户，工具不改属主（评审 3.1：不加 `--owner-uid`，因为工具不应以 root 运行）。写完之后，由 APP_HOST 的部署账户执行一次 `sudo chown <NEXLOOP_SIM_UID>:<NEXLOOP_SIM_GID>`，对象是 secret 目录和其中的文件，再用 `stat` 确认 0600 和属主。
+文件的属主（L6 评审 B2）：这两个工具都在 compose 的 `sim-setup` 一次性容器里以 `NEXLOOP_SIM_UID` 运行，所以写出的文件一开始就属于这个 UID，不需要 sudo chown。目录由 `sim-setup-dir` 建出：它是唯一以 root 身份运行的步骤，只有 CHOWN 一项能力，并且没有网络。这两个服务只属于 profile `sim-setup`，`--profile simulation` 不会启动它们。写完后用 `stat` 确认 0600 和属主。工具本身仍然不改属主，也不以 root 运行。
 
 | 文件 | 来源 |
 |---|---|
@@ -66,7 +66,7 @@
 | `sim_host_transport_key`、`sim_host_guard_key`、`sim_host_purge_key` | 随机密钥；purge key 同时登记给数据库（`authz.nexloop_sim_hosts`，见 S6） |
 | `sim_host_runtime_config`、`sim_host_model_configuration` | 运行时配置：`world_group: simulation`、`context_input_protocol: nexloop.context-pack.sim.v1`、`host_id`。模型配置用确定性档位或廉价模型（D6） |
 
-私有 env 还需要：`NEXLOOP_SIM_UID`、`NEXLOOP_SIM_GID`、`NEXLOOP_SIM_SUBNET`、`NEXLOOP_SIM_HOST_PORT`、`NEXLOOP_SIM_GUARD_PORT`、`NEXLOOP_SIM_HOST_ID`、`NEXLOOP_SIM_SIGNING_KEY_ID`、`NEXLOOP_SIM_RUNTIME_DIR`、`NEXLOOP_SIM_ARTIFACT_DIR`、`NEXLOOP_SIM_SECRET_DIR`、`NEXLOOP_SIM_WORLD`（步骤 6 得到的 world id），以及与 real 相同的镜像 digest。
+私有 env 还需要：`NEXLOOP_SIM_UID`、`NEXLOOP_SIM_GID`、`NEXLOOP_SIM_SUBNET`、`NEXLOOP_SIM_HOST_PORT`、`NEXLOOP_SIM_GUARD_PORT`、`NEXLOOP_SIM_HOST_ID`、`NEXLOOP_SIM_SIGNING_KEY_ID`、`NEXLOOP_SIM_RUNTIME_DIR`、`NEXLOOP_SIM_ARTIFACT_DIR`、`NEXLOOP_SIM_SECRET_DIR`、`NEXLOOP_SIM_TOKEN_DIR`、`NEXLOOP_SIM_RELEASE_CHECKOUT`、`NEXLOOP_SIM_SETUP_INPUT_DIR`（步骤 4 和 7 的私有输入，只读挂载）、`NEXLOOP_SIM_WORLD`（步骤 6 得到的 world id），以及与 real 相同的镜像 digest。
 
 ## 防火墙（负责人，APP_HOST root）
 
@@ -94,6 +94,7 @@ docker compose -p nexloop-simulation ps
 - **不复制什么**：凭据、授权事实、效应类别声明、任何配置都不复制。
 - **可重复执行**：已存在的定义只计数，不重写；同一版本但内容不同，判为 `catalog_conflict`。
 - **随 world 删除**：这些行在 world 整体删除时一起删掉。
+- **数据库拦截（L6 评审 A1）**：sim/shadow 的 Action 定义上有触发器 `nx041_sim_definition_guard`：任何 update 都拒绝（42501）；delete 只放行 S2 整体删除（经由擦除范围）；只要还有这类行，truncate 也拒绝。所以动态 SQL、`on conflict do update`、以后迁移里的 DML 都会在执行时被拒。写入点扫描测试保留，作为写入点清单的补充；它只扫函数体，迁移里的 DML 是它的盲区，这正是要加触发器的原因。
 - **真实执行被拦住**：在 sim world 里，效应只能走替身路径。real 的效应表由 0262 的 `nx041_real_effect_world` CHECK 拒绝任何模拟行。
 - **authority revision 的取舍**：受治理入口在提交前会复核租户的 authority revision。为此，模拟 world 的 Action 定义写入不再递增这个 revision（重定义了 0004 的 `authz.nexloop_authority_epoch_guard`，已在复制件守护登记）。这些定义只服务于该 world 自己的凭据；real、test 和其他所有授权行的变化仍然照常递增。
 

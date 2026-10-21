@@ -63,15 +63,24 @@ class Ports:
 
 def real_digest(ports, tenant):
     """Review 5.2 (as T7's real digest): every base table with a world column, its world='real' rows of this tenant (or of the table
-    when it has no tenant column) - a digest of the rows, so an update shows as well as an insert or a delete."""
+    when it has no tenant column) - a digest of the rows, so an update shows as well as an insert or a delete; plus the real service
+    credentials and the tenant's authority facts (review B1)."""
     tables = ports.read("""select c.table_schema||'.'||c.table_name, exists(select 1 from information_schema.columns t where t.table_schema=c.table_schema
           and t.table_name=c.table_name and t.column_name='tenant_id')
         from information_schema.columns c join information_schema.tables b on b.table_schema=c.table_schema and b.table_name=c.table_name
         where c.column_name='world' and b.table_type='BASE TABLE' and c.table_schema = any(%s) order by 1""", (list(SCHEMAS),))
-    out = {}
+    # One probe query for all digests (one connection, one snapshot), not one per table.
+    parts, params = [], []
     for table, tenanted in tables:
-        where = "world='real'" + (' and tenant_id=%s' if tenanted else '')
-        out[table] = ports.read(f"select md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from {table} x where {where}", (tenant,) if tenanted else ())[0][0]
+        parts.append(f"select '{table}', md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from {table} x where world='real'"
+                     + (' and tenant_id=%s' if tenanted else ''))
+        params += [tenant] if tenanted else []
+    # L6 review B1: two tables without a world column - the real service credentials and the tenant's authority facts. The tenant row
+    # (authority_revision) is left out: a credential revocation is expected to advance it.
+    for table, where in (('authz.nexloop_service_credentials', "'real' = any(x.worlds) and x.tenant_id=%s"), ('authz.nexloop_authority_facts', 'x.tenant_id=%s')):
+        parts.append(f"select '{table}', md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from {table} x where {where}")
+        params.append(tenant)
+    out = dict(ports.read(' union all '.join(parts), tuple(params)))
     return out
 
 
@@ -144,7 +153,7 @@ def run(ports, config, r):
         r.step('simulation_run_completes', 'the task succeeded, its Run credential of the simulation world',
                {'task_status': status, 'run_world_is_simulation': run_world == world}, status == 'succeeded' and run_world == world, run_id=run_id)
     used = ports.read("""select array_agg(distinct w) from authz.nexloop_service_credentials c, unnest(c.worlds) w
-        where c.tenant_id=%s and c.sim_use is not null and %s = any(c.worlds)""", (tenant, world))[0][0] or []
+        where c.tenant_id=%s and c.sim_use is not null and c.status='active' and %s = any(c.worlds)""", (tenant, world))[0][0] or []
     # Review 5.3: none found is not a pass - the Run path needs the world's own credentials.
     r.step('world_credentials_only_of_the_world', 'credentials with a simulation use exist for this world, every one bound to it alone',
            {'worlds': used}, used == [world])
