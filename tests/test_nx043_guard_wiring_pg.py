@@ -101,22 +101,95 @@ def test_reaching_the_model_cap_exactly_stops_the_experiment(running, db):
     assert stops(db) == [('guardrail: budget_exhausted', 'nexloop:experiment-guard')]
 
 
-def test_a_real_run_is_attributed_only_for_a_candidate_consumer(observed, ready, db):  # noqa: F811
+def bind_run(admin, path, member):
+    """A Run of `member` on one of the three paths runtime.nexloop_evo_run_consumer reads (message route, fallback binding, role
+    binding), seeded without its credential and context chain (replica, this seed only)."""
+    run, message, conversation = uuid.uuid4(), uuid.uuid4().hex, uuid.uuid4().hex
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        if path in ('message', 'fallback'):
+            admin.execute("""insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key)
+                values(%s,'real',%s,%s,'synthetic-principal',%s)""", (TENANT, conversation, member, conversation))
+            admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
+                values(%s,'real',%s,1,%s,%s,%s,'{}')""", (TENANT, conversation, message, message, 'a' * 64))
+        if path == 'message':
+            admin.execute("""insert into runtime.nexloop_message_routes(tenant_id,world,message_id,run_id,run_digest,queue,event_id,event_envelope,command,
+                command_digest,input_digest,bound_by,context_id) values(%s,'real',%s,%s,'d','q',%s,'{}','{}',%s,%s,'synthetic',%s)""",
+                          (TENANT, message, run, uuid.uuid4(), 'b' * 64, 'c' * 64, uuid.uuid4()))
+        elif path == 'fallback':
+            admin.execute("""insert into runtime.nexloop_fallback_context_bindings(tenant_id,world,message_id,run_id,source_principal,source_digest,context_id,
+                artifact_id,namespace,pack_text,pack_digest,command_binding,created_at) values(%s,'real',%s,%s,'synthetic','d',%s,'a1','ns','{}',%s,'{}',now())""",
+                          (TENANT, message, run, uuid.uuid4(), 'e' * 64))
+        else:
+            admin.execute("""insert into authz.nexloop_role_run_bindings(run_id,source_digest,tenant_id,world,consumer_id,link_id,role_id,step_id,link_revision,
+                role_revision,step_revision,role_ref,scope,expires_at) values(%s,%s,%s,'real',%s,'l','r','s',1,1,1,'role','scope',now()+interval '1 hour')""",
+                          (run, 'a' * 64, TENANT, member))
+    return run
+
+
+def online_members(admin):
+    decided = {i: strategy_for(admin, 'real', consumer(f'r{i}')) for i in range(6)}
+    candidate = next(f'r{i}' for i, d in decided.items() if d and d['arm'] == 'candidate')
+    control = next(f'r{i}' for i, d in decided.items() if d and d['arm'] == 'control')
+    return consumer(candidate), consumer(control)
+
+
+def ledger(admin):
+    return sorted(admin.execute("select spend_ref,arm,amount_cny from control.nexloop_experiment_spend where experiment_id='online.one'").fetchall())
+
+
+def test_a_real_run_is_attributed_on_every_path_and_the_cap_counts_the_candidate_only(observed, ready, db):  # noqa: F811
+    """Review 2.1: message, fallback and role Runs of a candidate count toward the cap; a control Run is written with arm control
+    (for the report) and never counts (D5, dispatcher 2026-10-21: the cap is the candidate strategy's increment)."""
     online(db)
     limits(db, 'model')
-    decided = {i: strategy_for(db, 'real', consumer(f'r{i}')) for i in range(6)}
-    arms = {d['arm']: f'r{i}' for i, d in decided.items() if d}
-    runs = {}
-    for arm, member in arms.items():
-        runs[arm] = uuid.uuid4()
-        with db.transaction():
-            db.execute('set local session_replication_role=replica')  # the binding without its credential chain, for this seed only
-            db.execute("""insert into authz.nexloop_role_run_bindings(run_id,source_digest,tenant_id,world,consumer_id,link_id,role_id,step_id,link_revision,
-                role_revision,step_revision,role_ref,scope,expires_at) values(%s,%s,%s,'real',%s,'l','r','s',1,1,1,'role','scope',now()+interval '1 hour')""",
-                       (runs[arm], 'a' * 64, TENANT, consumer(member)))
-        reserve(db, 'real', 'model', f'run:{runs[arm]}', 2)
-    refs = {r for (r,) in db.execute("select spend_ref from control.nexloop_experiment_spend where experiment_id='online.one'").fetchall()}
-    assert refs == {f"run:{runs['candidate']}"}
+    candidate, control = online_members(db)
+    runs = {path: bind_run(db, path, candidate) for path in ('message', 'fallback', 'role')}
+    for run in runs.values():
+        reserve(db, 'real', 'model', f'run:{run}', 2)
+    assert {(r, a) for r, a, _ in ledger(db)} == {(f'run:{run}', 'candidate') for run in runs.values()}
+    control_run = bind_run(db, 'message', control)
+    reserve(db, 'real', 'model', f'run:{control_run}', 9)  # far beyond the 10 CNY cap if it counted
+    assert (f'run:{control_run}', 'control', 9) in ledger(db) and stops(db, 'online.one') == []
+    metrics = db.execute("select runtime.nexloop_experiment_metrics(%s,'online.one')", (TENANT,)).fetchone()[0]
+    assert (float(metrics['model_cny']), float(metrics['control_model_cny'])) == (6.0, 9.0)
+    reserve(db, 'real', 'model', f"run:{bind_run(db, 'message', candidate)}", 4)  # 6 + 4 = 10: the candidate's cap, reached
+    assert stops(db, 'online.one') == [('guardrail: budget_exhausted', 'nexloop:experiment-guard')]
+
+
+def test_an_accounting_error_never_fails_the_real_reservation(observed, ready, db, pg):  # noqa: F811
+    """Review 2.2: the experiment accounting waits at most 200 ms for its lock; an error there is counted and the reservation stands."""
+    online(db)
+    limits(db, 'model')
+    candidate, _ = online_members(db)
+    run = bind_run(db, 'message', candidate)
+    with psycopg.connect(pg, autocommit=False) as holder:
+        holder.execute("select pg_advisory_xact_lock(hashtextextended('nexloop:experiment:'||%s||':online.one',0))", (TENANT,))
+        reserve(db, 'real', 'model', f'run:{run}', 2)  # the experiment lock is held elsewhere: lock_timeout inside the safe block
+        holder.rollback()
+    assert db.execute("select count(*) from control.nexloop_budget_consumption where consumption_id=%s", (f'run:{run}',)).fetchone() == (1,)
+    assert db.execute("select sqlstate from runtime.nexloop_experiment_accounting_failures").fetchall() == [('55P03',)]
+    assert ledger(db) == []
+    snapshot = db.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'experiments'", (TENANT,)).fetchone()[0]
+    assert snapshot['accounting_failures_24h'] == 1
+
+
+def test_a_failing_guard_never_costs_the_tenant_its_alerts(running, db, monkeypatch):
+    """Review 2.3: in SQL each experiment is guarded apart (a failing one is counted, the others are checked); in the evaluator a
+    failing guard pass is counted and the alerts are evaluated all the same."""
+    o = running['o']
+    assert apply_rules(load_rules(V11), TENANT, database_url_file=o['w']['configurator'])['configured'] is True
+    register(db, registration(running['world'], running['twin'], experiment_id='broken'))
+    start(db, 'broken')
+    with db.transaction():
+        db.execute('set local session_replication_role=replica')  # a registration the guard cannot read, for this test only
+        db.execute("""update control.nexloop_experiments set registration=jsonb_set(registration,'{ends_at}','"not a time"') where experiment_id='broken'""")
+    out = o['evaluate']()
+    assert (out['experiments_checked'], out['experiments_guard_failed'], out['rules_version']) == (1, 1, 11)
+    from nexloop_eios import observability
+    monkeypatch.setattr(observability.AlertEvaluator, 'guard_experiments', lambda self: (_ for _ in ()).throw(RuntimeError('guard down')))
+    out = o['evaluate']()
+    assert out['experiments_guard_failed'] == 1 and out['rules_version'] == 11  # the alerts still ran
 
 
 def test_an_incentive_for_an_allocated_consumer_is_refused(observed, ready, db):  # noqa: F811
@@ -142,7 +215,7 @@ def test_only_the_alert_evaluator_role_runs_the_guard_tick(observed, db):  # noq
         and not rolsuper and rolname<>'nexloop_owner'""", (fn,)).fetchall()}
     assert holders == {'nexloop_domain_worker'}
     for internal in ('runtime.nexloop_experiment_guard(text,text)', 'runtime.nexloop_experiment_spend(text,text,text,numeric,text)',
-                     'control.nexloop_experiment_budget_gate()'):
+                     'control.nexloop_experiment_budget_attribution()'):
         assert not db.execute("""select bool_or(has_function_privilege(rolname,%s,'execute')) from pg_roles where rolname in
             ('nexloop_api','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler','nexloop_runtime')""", (internal,)).fetchone()[0], internal
     # Unsigned or foreign-protocol calls are refused even on the granted role.

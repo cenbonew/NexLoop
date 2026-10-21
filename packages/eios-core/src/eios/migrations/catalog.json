@@ -1480,6 +1480,11 @@
       "version": "0296",
       "name": "0296_nx043_guard_wiring.sql",
       "sha256": "0263a80f4d9ac7d7126869356925d71d5c81c166f797cebbb715344506ad79cc"
+    },
+    {
+      "version": "0297",
+      "name": "0297_nx043_wiring_review.sql",
+      "sha256": "2969c14fe599967497c359538adb82f344a26d4963f4ad17ada76debb5a502e3"
     }
   ]
 }

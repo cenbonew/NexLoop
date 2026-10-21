@@ -143,11 +143,11 @@ def test_a_reclassified_purpose_stops_a_running_experiment(ready, db):
     publish(db, strategy('purpose.service', outreach_purposes={'service_followup': True}), request='s-purpose')
     register(db, registration(ready['world'], ready['twin'], experiment_id='purpose.run', candidate={'strategy_id': 'purpose.service', 'version': 1}))
     start(db, 'purpose.run')
-    v1 = db.execute('select definition from control.nexloop_outreach_purpose_lists where version=1').fetchone()[0]
-    v2 = {**v1, 'version': 2, 'purposes': [{**p, 'kind': 'marketing', 'frequency_class': 'marketing'} if p['purpose_id'] == 'service_followup' else p
+    v1 = db.execute('select definition from control.nexloop_outreach_purpose_lists order by version desc limit 1').fetchone()[0]
+    v2 = {**v1, 'version': v1['version'] + 1, 'purposes': [{**p, 'kind': 'marketing', 'frequency_class': 'marketing'} if p['purpose_id'] == 'service_followup' else p
                                            for p in v1['purposes']]}
-    db.execute("insert into control.nexloop_outreach_purpose_lists(version,definition,definition_digest,published_by) values(2,%s,%s,'synthetic-config')",
-               (Jsonb(v2), 'e' * 64))
+    db.execute("insert into control.nexloop_outreach_purpose_lists(version,definition,definition_digest,published_by) values(%s,%s,%s,'synthetic-config')",
+               (v2['version'], Jsonb(v2), 'e' * 64))
     assert guard(db, 'purpose.run')['guardrail'] == 'purpose_not_allowed'
 
 

@@ -111,3 +111,21 @@
 | 2.1.c guard 的 request_id 可能被 owner 占用 | 停止事件的 request_id 改为 `guard:<实验>:<随机 uuid>`，owner 的请求不可能与它相同；“每个实验最多停止一次”由状态检查保证 |
 | 2.2.a 判断用的是未舍入的金额 | 先把金额舍入到台账的 4 位小数，判断和写入都用舍入后的值（`experiment_spend` 与 0296 的预算触发器都是这样） |
 | 2.3.a determination 的口径 | 不需要改：`runtime.nexloop_effect_determinations` 的 kind 只允许 `confirmed_not_delivered`（0210 的检查约束），所以只会计入 unknown 和“确认未送达” |
+
+## 8. 接线审查（L6，2026-10-21）与 D5 的口径
+
+迁移 `0297_nx043_wiring_review.sql`（临时编号，第九批预演基准 `5d785078` 上的分支 `l5/nx043-x5b`）。
+
+- **D5 口径（调度员 2026-10-21 决定）**：实验上限（0–100 元）只计**候选策略带来的增量成本**。对照组属于正常业务，它的模型花费也写进实验台账，记 `arm = control`，只用于报告对比，**不计入上限**。
+  - 模拟世界与影子世界的 Run 都属于实验，`arm` 为空，计入上限。
+  - 指标里 `model_cny` 只算候选组（以及 `arm` 为空的行），另有 `control_model_cny` 单列对照组。
+- **2.1（确认，real）Run 归属到 Consumer**：改用 `runtime.nexloop_evo_run_consumer(tenant, 'real', run_id)`，覆盖 message route、fallback binding、role binding 三条路径；原先只看 role binding，会严重少算 message Run 的花费。
+- **2.2（real）**：
+  - 模型记账放在独立的异常块里，块内把 `lock_timeout` 设为 200 ms。出任何错都只写一条 `runtime.nexloop_experiment_accounting_failures`，快照里体现为 `experiments.accounting_failures_24h`，**real 的模型预留照常成功**。
+  - 激励的 NXB01 拒绝在块外，保持原样。
+  - 旧的触发器和函数换成新名字（`control.nexloop_experiment_budget_attribution`），没有重定义。
+- **2.3**：
+  - SQL 层：guard tick 对每个实验单独捕获异常，失败的计入 `failed`，其他实验照常检查。
+  - Python 层：告警评估器的 guard 调用失败时，只在结果里记 `experiments_guard_failed`，告警（备份、时钟等）照常评估。
+- **2.4**：新增 trial v9（`deploy/configuration/nx037-trial.v9.json`），它与 v8 只差告警规则：v9 指向 alert-rules v11。`controlled_interactions.SCHEMAS` 中加入了 v9。v8 保持原样，它的测试改为显式点名 v8。
+- **1.2（擦除）**：擦除时，先取出被擦除者各行原来的 cluster_key，再把所有带这些 key 的行（包括簇内其他成员）换成同一个假名，这样不会在别人的行上留下他的会话 key。

@@ -198,6 +198,19 @@ REGISTRY = [
             ((r"m\|\|jsonb_build_object\('guardrails_hit',runtime\.nexloop_experiment_guardrails_hit\(p_tenant,p_experiment,m\)\)\);", 'm);'),)),
     Allowed('nx043_erasure_and_review', 'runtime.nexloop_experiment_spend', 'review 2.2.a: the amount is rounded to the ledger scale first; nothing else',
             ((r"\n p_amount:=round\(p_amount,4\);[^\n]*", ''),)),
+    # NX-043 X5 wiring review (2.3, 1.2, 2.1 control arm): failure isolation, every cluster key on erasure, the cap on the candidate only.
+    Allowed('nx043_wiring_review', 'authz.nexloop_experiment_guard_tick', 'review 2.3: each experiment guarded apart, failures counted; nothing else',
+            ((r";v_failed integer:=0;", ';'),
+             (r"  begin v:=runtime\.nexloop_experiment_guard\(t,x\.experiment_id\);exception when others then v_failed:=v_failed\+1;continue;end;[^\n]*", '  v:=runtime.nexloop_experiment_guard(t,x.experiment_id);'),
+             (r",'failed',v_failed\);", ');'))),
+    Allowed('nx043_wiring_review', 'control.nexloop_experiment_erasure', 'review 1.2: every cluster key of the erased Consumer is replaced; nothing else',
+            ((r";v_keys text\[\];", ';'),
+             (r"\n select array_agg\(distinct a\.cluster_key\) into v_keys[^\n]*", ''),
+             (r"\(a\.cluster_key=new\.consumer_id or a\.cluster_key=any\(coalesce\(v_keys,'\{\}'\)\)\)", 'a.cluster_key=new.consumer_id'))),
+    Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_metrics', 'D5 (dispatcher): the cap counts the candidate increment, control spend reported apart; nothing else',
+            ((r" and s\.arm is distinct from 'control'\),\n   'control_model_cny',\(select[^\n]*\),", '),'),)),
+    Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_spend', 'D5 (dispatcher): control rows never count toward the cap; nothing else',
+            ((r" and arm is distinct from 'control';", ';'),)),
 ]
 
 
