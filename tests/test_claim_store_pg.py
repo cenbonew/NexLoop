@@ -300,7 +300,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # NX-043 X3 0288: an after-insert trigger on a real Claim from a copied inbound message adds only its Claim type (epistemic
         # kind) to runtime.nexloop_shadow_event_claims under the shadow event's hashed key (as 0224 counts Claims by epistemic kind);
         # no value, quote, subject, id or text is read or projected, and the real Claim is written whatever happens to the copy.
-        '_nx043_shadow_world')) for name in migrations)
+        '_nx043_shadow_world',
+        # NX-029 erasure coverage batch 4 (0307) only sets an erased Consumer's Claims' consumer_id to a pseudonym on completion (their quote
+        # and value were already erased); no Claim value is read or projected.
+        '_erasure_identity_residue')) for name in migrations)
 
 
 def correction_window(conversations):
