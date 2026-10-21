@@ -4,7 +4,7 @@
    observe/act -> the simulation process group runs one actual Pi Run from the world's sim context, which carries the twin's events
    (NX-041 D10's chain, test_nx041_sim_pi_run_pg.run_sim_pi_run). No real credential or channel; the real data does not change.
 2. §6 proposed acceptances: (a) twin output writes nothing to real - the digest of every real row is unchanged; (b) calibration
-   independence - pending T4/T5 (strict xfail on the missing calibration run); (c) no disguised probability - an uncalibrated twin's
+   independence - on T5's calibration run (integration: no longer a strict xfail); (c) no disguised probability - an uncalibrated twin's
    outputs say so and are never selectable (the report part pending T5, NX-043's refusal pending NX-043).
 3. §5: twin events and calibration conclusions are never facts or Claims.
 Real PostgreSQL; Host and real Pi under Node 24, serially.
@@ -23,6 +23,7 @@ from support.tenants import TENANT_A
 from test_nx041_s7_pg import consumers, digest, governed, s7  # noqa: F401
 from test_nx041_sim_pi_run_pg import real_counts, run_sim_pi_run, sim_group  # noqa: F401
 from test_nx042_consumer_twins_pg import DEFINITION
+from test_nx042_twin_calibration_read_pg import db  # noqa: F401  (T5 calibration fixture)
 
 TWIN = DEFINITION['twin_id']
 SCHEMAS = ('authz', 'control', 'runtime', 'ontology', 'public')
@@ -82,13 +83,39 @@ def test_acceptance_twin_output_writes_nothing_to_real(t7):
         assert changed(before, real_digest(admin)) == ['control.nexloop_consumer_personas']
 
 
-@pytest.mark.xfail(strict=True, raises=LookupError, reason='calibration independence needs NX-042 T4 (aggregate calibration read) and T5 (calibration run)')
-def test_acceptance_calibration_windows_are_independent_and_grouped_by_consumer(t7):
-    """§6 (b): the parameter reference window and the calibration window do not overlap, grouped by consumer. Written against T5's
-    calibration run; until it exists this strict xfail holds - it flips (XPASS fails CI) as soon as the entry appears."""
-    admin = t7['admin']
-    if admin.execute("select to_regproc('runtime.nexloop_twin_calibration_run')").fetchone()[0] is None:
-        raise LookupError('runtime.nexloop_twin_calibration_run (T5) is not there')
+def test_acceptance_calibration_windows_are_independent_and_grouped_by_consumer(db):
+    """§6 (b), on T5's calibration run (the governed calibrate_consumer_twin over T4's aggregates; integration: this was a strict xfail
+    until T5 was in): the reference window [split - span, split) and the calibration window [split, split + span) do not overlap, a
+    Consumer of the reference window never counts in the calibration window (grouped by Consumer, not by message), reference-window
+    data does not reach the verdict, and a window the version's parameters could have seen is refused."""
+    from datetime import timedelta
+    from test_nx042_twin_calibration_pg import INSIDE, calibrate, dayparts, events, publish, refused, report
+    from test_nx042_twin_calibration_read_pg import SPLIT, cid, seed
+    admin, _ = db
+    version = publish(admin)  # published before the first calibration window
+    dayparts(admin, INSIDE)  # the calibration windows alone: 18 of 24 cells covered (0.75, inside 70%-90%)
+    # Reference-window data that would change the verdict if it were read: 60 Consumers who all reply and all refuse...
+    seed(admin, 'ref-only', 60, SPLIT - timedelta(days=10), replied=60, refused=60)
+    # ...and 30 who were contacted in the reference window and again inside the first calibration window (daypart 00-06).
+    both = seed(admin, 'ref-and-cal', 30, SPLIT - timedelta(days=5), replied=30, refused=30)
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        for i, c in enumerate(both):
+            admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
+                values(%s,'real',%s,3,%s,'k-3',%s,%s)""", (TENANT_A, cid(f'conv-ref-and-cal-{i}'), cid(f'later-{i}'), 'd' * 64,
+                Jsonb({'direction': 'outbound', 'sender_kind': 'agent', 'accepted_at': (SPLIT + timedelta(days=6)).isoformat()})))
+    out = calibrate(admin, version)
+    assert out['conclusion'] == 'passed' and float(out['coverage']) == 0.75  # exactly the calibration windows' own verdict
+    body, _, _ = report(admin, out['report_ref'])
+    first = body['windows'][0]
+    assert first['reference'][1] == first['calibration'][0] == first['split_at']  # adjacent, never overlapping
+    assert first['reference'][0] < first['reference'][1] < first['calibration'][1]
+    assert first['excluded']['in_reference_window'] == 30 and first['reference_consumers_excluded'] == 30  # by Consumer
+    assert {g['group']: g['consumers'] for g in first['groups']}['all'] == 120  # the four dayparts' 30 each, none of the 30 excluded
+    assert body['grouping'] == 'consumer' and events(admin, version) == [('passed', out['report_ref'])]
+    # A version published inside a calibration window could have seen it: refused.
+    late = publish(admin, published_at=SPLIT + timedelta(days=1))
+    assert refused(admin, 'window_before_publication', late)
 
 
 def test_acceptance_no_disguised_probability(t7):
