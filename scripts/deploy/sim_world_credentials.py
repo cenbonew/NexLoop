@@ -15,6 +15,16 @@ rerun writes nothing. A use the database does not accept yet (twin before the ei
     sim_world_credentials.py --config PRIVATE.json --dry-run    the plan (credentials to create, facts to write); writes nothing
     sim_world_credentials.py --config PRIVATE.json              issues, then self-checks
     sim_world_credentials.py --config PRIVATE.json --check      self-check only
+    sim_world_credentials.py --config PRIVATE.json --export     the tokens as '<use> <token>' lines on stdout - a pipe only, never a
+                                                                terminal (to --install on APP_HOST)
+    sim_world_credentials.py --install INSTALL.json             reads those lines on stdin and writes the token files and the compose
+                                                                sim_world_credential (APP_HOST sim-setup container); no database
+
+Where it runs (L6 review B2.1): issuing, --check and --export run on DATA_HOST in a one-off container on the PostgreSQL socket
+directory (deploy/stage/compose.sim-issue.example.yaml) - the configurator and the bootstrap inspection role have local pg_hba rules
+only, so both DSN files must name a socket directory (host=/...); a TCP DSN is refused before any connection. --install runs on
+APP_HOST (compose.simulation.example.yaml, sim-setup) as the simulation uid and connects to nothing. The tokens move only through the
+pipe between the two (never argv, never an intermediate file).
 
 Self-check (check_database_url_file: the bootstrap window's inspection DSN, read only - it reads the credential rows and grants facts
 and calls the identity snapshot; never a configurator or runtime DSN): per use exactly one active credential, worlds exactly [world],
@@ -51,6 +61,9 @@ VALID_FROM = '2026-10-21T00:00:00+00:00'
 KEYS = {'schema', 'tenant_id', 'world', 'uses', 'token_dir', 'configurator_database_url_file', 'signing_key_file', 'signing_key_id',
         'credential_expires_at', 'check_database_url_file'}
 OPTIONAL = {'compose_secret_dir'}
+INSTALL_SCHEMA = 'nexloop-sim-credentials-install/1'
+INSTALL_KEYS = {'schema', 'world', 'uses', 'token_dir', 'compose_secret_dir'}
+_TOKEN = re.compile(r'[A-Za-z0-9_-]{64}')
 _WORLD = re.compile(r'(sim|shadow):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})')
 _TENANT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAMESPACE = uuid.UUID('7a2f2b8e-41c6-4d0a-9a8e-5c1f3e2d1b40')
@@ -96,6 +109,68 @@ def load_config(text):
     if expires.tzinfo is None or expires <= datetime.now(expires.tzinfo):
         raise Refused('credential_expires_at: a future time with its zone')
     return {**value, 'credential_expires_at': expires}
+
+
+def socket_dsn(path):
+    """The DSN in path, refused unless it names a socket directory (host=/...) and no network address (review B2.1)."""
+    from psycopg.conninfo import conninfo_to_dict
+    text = read_private(path, 16384)
+    try:
+        parts = conninfo_to_dict(text)
+    except Exception:  # noqa: BLE001 - never echo a DSN
+        raise Refused('DSN unreadable: ' + Path(str(path)).name) from None
+    if not str(parts.get('host') or '').startswith('/') or parts.get('hostaddr') or ',' in str(parts.get('host')):
+        raise Refused('DSN must use the local PostgreSQL socket (host=/...): ' + Path(str(path)).name)
+    return text
+
+
+def load_install(text):
+    try:
+        value = json.loads(text)
+    except ValueError:
+        raise Refused('configuration is not JSON') from None
+    if type(value) is not dict or value.get('schema') != INSTALL_SCHEMA or set(value) != INSTALL_KEYS:
+        raise Refused('install configuration fields: ' + ', '.join(sorted(INSTALL_KEYS - {'schema'})))
+    if type(value['world']) is not str or not _WORLD.fullmatch(value['world']):
+        raise Refused('world: sim:<uuid> or shadow:<uuid>')
+    uses = value['uses']
+    if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
+        raise Refused('uses: a list of api, worker, agent, twin (each once)')
+    return value
+
+
+def read_token_lines(stream, uses):
+    got = {}
+    for line in stream.read(65536).splitlines():
+        if not line.strip():
+            continue
+        use, _, token = line.strip().partition(' ')
+        if use not in uses or use in got or not _TOKEN.fullmatch(token):
+            raise Refused('token lines: one "<use> <token>" line per configured use')
+        got[use] = token
+    if set(got) != set(uses):
+        raise Refused('token lines missing for ' + ', '.join(sorted(set(uses) - set(got))))
+    return got
+
+
+def install(config, got):
+    """Write the token files (created once; an existing one must hold the same token) and the compose sim_world_credential."""
+    written = []
+    for use, path in token_paths(config).items():
+        if path.exists() or path.is_symlink():
+            if read_private(path, 4096) != got[use]:
+                raise Refused(f'{use}: the token file holds another token (remove it first)')
+        else:
+            write_private(path, got[use])
+            written.append(use)
+    if 'worker' in got:
+        target = Path(config['compose_secret_dir']) / 'sim_world_credential'
+        if target.exists() or target.is_symlink():
+            if read_private(target, 4096) != got['worker']:
+                raise Refused('compose sim_world_credential holds another token (remove it first)')
+        else:
+            write_private(target, got['worker'])
+    return {'ok': True, 'installed': sorted(written), 'compose_sim_world_credential': 'worker' in got}
 
 
 def accepted_uses():
@@ -163,6 +238,7 @@ def tokens(config, *, create):
 def plan(config):
     from nexloop_eios import service_grants as G
     people, world_manifest = principals(config)
+    socket_dsn(config['configurator_database_url_file'])  # review B2.1: the configurator over the DATA_HOST socket only
     current = G.inventory(config['configurator_database_url_file'], config['tenant_id'])
     result = G.plan(world_manifest, config['tenant_id'], current, credential_expires_at=config['credential_expires_at'])
     blocking = [f for f in result['findings'] if f['state'] in ('credential_rotation_required', 'world_mismatch')]
@@ -205,7 +281,8 @@ def self_check(config, tokens_by_use, connect=None):
       42501 (any other error is not a refusal); positive control: an active real credential of the tenant is accepted in real, so the
       refusals are the world binding's and not a broken call."""
     import psycopg
-    connect = connect or (lambda: psycopg.connect(read_private(config['check_database_url_file'], 16384), connect_timeout=5, autocommit=True))
+    dsn = socket_dsn(config['check_database_url_file'])  # review B2.1: the bootstrap inspection role over the DATA_HOST socket only
+    connect = connect or (lambda: psycopg.connect(dsn, connect_timeout=5, autocommit=True))
     people, _ = principals(config)
     by_credential = {p['credential_id']: p for p in people}
     out, ok = {}, True
@@ -255,13 +332,15 @@ def self_check(config, tokens_by_use, connect=None):
     return {'pass': ok, 'credentials': out}
 
 
-def main(argv=None, *, out=sys.stdout, check_connect=None):
+def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.error = lambda message: (_ for _ in ()).throw(SystemExit(2))  # never echo the arguments
-    parser.add_argument('--config', required=True)
+    parser.add_argument('--config')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--dry-run', action='store_true')
     mode.add_argument('--check', action='store_true')
+    mode.add_argument('--export', action='store_true')
+    mode.add_argument('--install')
     try:
         args = parser.parse_args(argv)
     except SystemExit:
@@ -270,8 +349,16 @@ def main(argv=None, *, out=sys.stdout, check_connect=None):
     def emit(value, code):
         print(json.dumps(value, sort_keys=True), file=out)
         return code
+    if bool(args.config) == bool(args.install):
+        return 2
     try:
+        if args.install:
+            config = load_install(read_private(args.install))
+            return emit(install(config, read_token_lines(stdin or sys.stdin, config['uses'])), 0)
         config = load_config(read_private(args.config))
+        socket_dsn(config['configurator_database_url_file'])  # review B2.1: refused before any token file or connection
+        if not (args.dry_run or args.export):
+            socket_dsn(config['check_database_url_file'])
         unsupported = sorted(set(config['uses']) - accepted_uses())
         if unsupported:
             raise Refused('this release does not accept the use(s) ' + ', '.join(unsupported) + ' (the twin use comes with the eighth batch)')
@@ -282,6 +369,14 @@ def main(argv=None, *, out=sys.stdout, check_connect=None):
                          'credentials_to_create': sorted(by_role[p['role']] for p, _, _ in result['new_credentials']),
                          'facts_to_write': len(result['writes']), 'findings': sorted({f['state'] for f in result['findings']}),
                          'tokens_present': {u: p.exists() for u, p in token_paths(config).items()}}, 0 if not blocking else 1)
+        if args.export:
+            if out.isatty():
+                raise Refused('--export writes tokens to a pipe only, never a terminal')
+            have = tokens(config, create=False)
+            if not all(have.values()):
+                raise Refused('token files missing for ' + ', '.join(u for u, t in have.items() if not t))
+            out.write(''.join(f'{u} {t}\n' for u, t in sorted(have.items())))
+            return 0
         if args.check:
             have = tokens(config, create=False)
             if not all(have.values()):
