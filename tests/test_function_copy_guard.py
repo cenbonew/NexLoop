@@ -225,6 +225,9 @@ REGISTRY = [
             ((r";v_states text\[\]:='\{\}';v_state text;", ';'),
              (r"get stacked diagnostics v_state=returned_sqlstate;v_failed:=v_failed\+1;v_states:=v_states\|\|v_state;", 'v_failed:=v_failed+1;'),
              (r",'failed_sqlstates',to_jsonb\(v_states\)\);", ');'))),
+    # NX-043 report leave-out: the same comparison also in the same world (as X4's in_same_comparison).
+    Allowed('nx043_leave_out_world', 'runtime.nexloop_experiment_leave_out', 'the same comparison is also the same world; nothing else',
+            ((r"\n\s*and o\.registration->>'world'=e\.registration->>'world'[^\n]*", ''),)),
 ]
 
 
