@@ -19,6 +19,7 @@ from eios.authz import facts as F
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
+from nexloop_eios import consumer_twins
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.action_governor import govern_published_action
 from nexloop_eios.assembly import verify_application_role
@@ -469,6 +470,7 @@ class GoalGovernedActions:
     # NX-042 T1 (D7): owner only; the server assigns the version, freezes it and records its calibration (uncalibrated until T5).
     def publish_consumer_twin(self,*,action_name,action_version,request_id,definition,calibration_report_ref=None):
         if type(definition) is not dict or definition.get('schema')!='nexloop-consumer-twin/1':raise ValueError('consumer twin definition required')
+        if consumer_twins.definition_problems(definition):raise ValueError('consumer twin definition: '+'; '.join(consumer_twins.definition_problems(definition)))
         if calibration_report_ref is not None and (type(calibration_report_ref) is not str or re.fullmatch(r'twin-calibration:[0-9a-f]{64}',calibration_report_ref) is None):
             raise ValueError('calibration report reference')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'publish_consumer_twin','definition':definition,

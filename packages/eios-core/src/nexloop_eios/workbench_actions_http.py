@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from eios.identity.errors import CredentialInvalid
 from eios.identity.ports import TrustedIdentityOperator
 from eios.identity.sessions import BrowserSessionService
+from nexloop_eios import consumer_twins
 from nexloop_eios.browser_http import WORKBENCH_COOKIE
 from nexloop_eios.goal_controls import CAPABILITIES
 
@@ -154,7 +155,8 @@ OPERATIONS={
         'seconds':lambda v:v if v is None or (type(v) is int and 1<=v<=315360000) else (_ for _ in ()).throw(ValueError('seconds')),
         'rate':lambda v:v if v is None or (type(v) in (int,float) and 0<v<=100000) else (_ for _ in ()).throw(ValueError('rate')),'reason':_reason},
     # NX-042 T1 (owner only): a consumer twin version (definition checked in SQL) or its retirement.
-    'publish_consumer_twin':{'definition':lambda v:v if type(v) is dict and v.get('schema')=='nexloop-consumer-twin/1' else (_ for _ in ()).throw(ValueError('definition')),
+    'publish_consumer_twin':{'definition':lambda v:v if type(v) is dict and v.get('schema')=='nexloop-consumer-twin/1' and not consumer_twins.definition_problems(v)
+        else (_ for _ in ()).throw(ValueError('definition')),
         'calibration_report_ref':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'twin-calibration:[0-9a-f]{64}',v)) else (_ for _ in ()).throw(ValueError('report'))},
     'retire_consumer_twin':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
         'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
