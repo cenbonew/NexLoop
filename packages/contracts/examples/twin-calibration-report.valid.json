@@ -1,27 +1,179 @@
 {
-  "schema": "nexloop-twin-calibration-report/1",
-  "twin_id": "trial.service_consumer",
-  "version": 1,
-  "twin_digest": "5b2f0c1e9d8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c",
-  "world": "real",
-  "split": {"split_at": "2026-07-01T00:00:00.000000Z", "span_days": 28,
-            "reference": ["2026-06-03T00:00:00.000000Z", "2026-07-01T00:00:00.000000Z"],
-            "calibration": ["2026-07-01T00:00:00.000000Z", "2026-07-29T00:00:00.000000Z"],
-            "grouping": "consumer", "reference_consumers_excluded": 12},
-  "input": {"source": "authz.nexloop_twin_calibration_aggregates", "min_group_consumers": 30,
-            "input_digest": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
-            "groups": [{"group": "all", "consumers": 160}, {"group": "daypart_utc_00_06", "consumers": 34}, {"group": "daypart_utc_06_12", "consumers": 48},
-                       {"group": "daypart_utc_12_18", "consumers": 41}, {"group": "daypart_utc_18_24", "consumers": 37}],
-            "suppressed": [], "excluded": {"non_real_persona": 5, "erasing": 0, "in_reference_window": 12}},
-  "metrics": {
-    "cells": [
-      {"behavior": "refuse_contact", "group": "daypart_utc_00_06", "consumers": 34, "observed_rate": 0.0294, "low": 0.02, "high": 0.08, "nominal_coverage": 0.8, "covered": true, "brier": 0.028716}
-    ],
-    "cell_count": 8, "covered_cells": 6, "coverage": 0.75, "nominal_coverage": 0.8, "coverage_band": [0.7, 0.9], "min_cells": 8, "brier": 0.121, "uncalibrated_behaviors": []
+ "schema": "nexloop-twin-calibration-report/1",
+ "twin_id": "trial.service_consumer",
+ "version": 1,
+ "twin_digest": "5b2f0c1e9d8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c",
+ "world": "real",
+ "grouping": "consumer",
+ "windows": [
+  {
+   "window": 1,
+   "split_at": "2026-07-01T00:00:00.000000Z",
+   "span_days": 28,
+   "reference": [
+    "2026-06-03T00:00:00.000000Z",
+    "2026-07-01T00:00:00.000000Z"
+   ],
+   "calibration": [
+    "2026-07-01T00:00:00.000000Z",
+    "2026-07-29T00:00:00.000000Z"
+   ],
+   "reference_consumers_excluded": 12,
+   "input_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+   "groups": [
+    {
+     "group": "all",
+     "consumers": 160
+    },
+    {
+     "group": "daypart_utc_00_06",
+     "consumers": 34
+    },
+    {
+     "group": "daypart_utc_06_12",
+     "consumers": 48
+    },
+    {
+     "group": "daypart_utc_12_18",
+     "consumers": 41
+    },
+    {
+     "group": "daypart_utc_18_24",
+     "consumers": 37
+    }
+   ],
+   "suppressed": [],
+   "excluded": {
+    "non_real_persona": 5,
+    "erasing": 0,
+    "in_reference_window": 12
+   },
+   "cells": 8
   },
-  "conclusion": "passed",
-  "reason": null,
-  "requested_by": "owner-principal",
-  "request_id": "calibration-2026-07",
-  "created_at": "2026-07-30T08:00:00.000000Z"
+  {
+   "window": 2,
+   "split_at": "2026-07-29T00:00:00.000000Z",
+   "span_days": 28,
+   "reference": [
+    "2026-07-01T00:00:00.000000Z",
+    "2026-07-29T00:00:00.000000Z"
+   ],
+   "calibration": [
+    "2026-07-29T00:00:00.000000Z",
+    "2026-08-26T00:00:00.000000Z"
+   ],
+   "reference_consumers_excluded": 150,
+   "input_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+   "groups": [
+    {
+     "group": "all",
+     "consumers": 160
+    },
+    {
+     "group": "daypart_utc_00_06",
+     "consumers": 34
+    },
+    {
+     "group": "daypart_utc_06_12",
+     "consumers": 48
+    },
+    {
+     "group": "daypart_utc_12_18",
+     "consumers": 41
+    },
+    {
+     "group": "daypart_utc_18_24",
+     "consumers": 37
+    }
+   ],
+   "suppressed": [],
+   "excluded": {
+    "non_real_persona": 5,
+    "erasing": 0,
+    "in_reference_window": 150
+   },
+   "cells": 8
+  },
+  {
+   "window": 3,
+   "split_at": "2026-08-26T00:00:00.000000Z",
+   "span_days": 28,
+   "reference": [
+    "2026-07-29T00:00:00.000000Z",
+    "2026-08-26T00:00:00.000000Z"
+   ],
+   "calibration": [
+    "2026-08-26T00:00:00.000000Z",
+    "2026-09-23T00:00:00.000000Z"
+   ],
+   "reference_consumers_excluded": 140,
+   "input_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+   "groups": [
+    {
+     "group": "all",
+     "consumers": 160
+    },
+    {
+     "group": "daypart_utc_00_06",
+     "consumers": 34
+    },
+    {
+     "group": "daypart_utc_06_12",
+     "consumers": 48
+    },
+    {
+     "group": "daypart_utc_12_18",
+     "consumers": 41
+    },
+    {
+     "group": "daypart_utc_18_24",
+     "consumers": 37
+    }
+   ],
+   "suppressed": [],
+   "excluded": {
+    "non_real_persona": 5,
+    "erasing": 0,
+    "in_reference_window": 140
+   },
+   "cells": 8
+  }
+ ],
+ "input": {
+  "source": "authz.nexloop_twin_calibration_aggregates",
+  "min_group_consumers": 30,
+  "input_digest": "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+ },
+ "metrics": {
+  "cells": [
+   {
+    "behavior": "refuse_contact",
+    "window": 1,
+    "group": "daypart_utc_00_06",
+    "consumers": 34,
+    "observed_rate": 0.0294,
+    "low": 0.02,
+    "high": 0.08,
+    "nominal_coverage": 0.8,
+    "covered": true,
+    "brier": 0.028716
+   }
+  ],
+  "cell_count": 24,
+  "covered_cells": 19,
+  "coverage": 0.7917,
+  "nominal_coverage": 0.8,
+  "coverage_band": [
+   0.7,
+   0.9
+  ],
+  "min_cells": 20,
+  "brier": 0.121,
+  "uncalibrated_behaviors": []
+ },
+ "conclusion": "passed",
+ "reason": null,
+ "requested_by": "owner-principal",
+ "request_id": "calibration-2026-07",
+ "created_at": "2026-07-30T08:00:00.000000Z"
 }
