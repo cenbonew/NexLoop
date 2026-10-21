@@ -27,7 +27,10 @@ COMMON = {'authz.nexloop_service_identity_snapshot(text,text)', 'authz.nexloop_l
 WHITELIST = {
     'nexloop_sim_worker': COMMON | {'authz.nexloop_shadow_decision_record(text,text,jsonb)',  # NX-043 X3: shadow decisions, recorded only
                                     'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_queue_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)',
-                                    'authz.nexloop_runtime_activation_hint(text,text,text)', 'authz.nexloop_run_tool_timing(text,text,uuid)'},
+                                    'authz.nexloop_runtime_activation_hint(text,text,text)', 'authz.nexloop_run_tool_timing(text,text,uuid)',
+                                    # 0310 (AT-046 stage 2026-10-22): the owner-control re-check of its dispatch (ControlPlane.prepare_run_dispatch).
+                                    'authz.nexloop_assert_task_dispatch_controls(text,text,text)', 'authz.nexloop_bind_run_goal(text,text,uuid,text,integer)',
+                                    'authz.nexloop_budget_status(text,text,text)', 'authz.nexloop_reserve_budget(text,text,text,text,text,text,text)'},
     'nexloop_sim_guard': COMMON | {'authz.nexloop_role_run_hint(text,text)', 'authz.nexloop_read_action_bundle(text,text,text,text)', 'authz.nexloop_runtime_activation_command(text,text,text,text,text)', 'authz.nexloop_runtime_activation_hint(text,text,text)',
                                    'authz.nexloop_record_run_tool_timing(text,text,uuid,numeric)', 'authz.nexloop_sim_effect_submit(text,text,jsonb)',
                                    'authz.nexloop_sim_effect_query(text,text,uuid)'},

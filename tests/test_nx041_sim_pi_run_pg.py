@@ -202,3 +202,97 @@ def test_at046_a_simulation_process_group_runs_a_complete_pi_run(sim_group, admi
     (ROOT / 'build/nx041-d10-track-functions.json').write_text(json.dumps(report, indent=1) + '\n')
     print('TRACK', json.dumps(report))
     admin.execute("do $$begin execute format('alter database %I reset track_functions',current_database());end$$")
+
+
+def test_at046_the_simulation_worker_dispatches_through_its_actual_path(sim_group, admin, tmp_path):
+    """Stage finding 2026-10-22 (AT-046 first stage run): the Run failed at the worker's control stage, runtime_control_unavailable /
+    InsufficientPrivilege - nexloop_sim_worker could not execute the owner-control re-check (assert_task_dispatch_controls, budget
+    status, budget reservation, goal binding). The test above calls claim and activation directly and so never ran that stage. Here the
+    worker's own RuntimeDispatcher.run_once (claim -> owner controls -> activation -> Host -> inspect) runs as nexloop_sim_worker, the
+    guard as nexloop_sim_guard, with the world's credentials only: the task succeeds."""
+    from nexloop_eios.runtime_dispatch import HostControlConfiguration, RuntimeDispatcher
+    f = sim_group
+    node = shutil.which('node')
+    assert node and subprocess.run([node, '--version'], capture_output=True, text=True, check=True).stdout.startswith('v24.'), 'Node 24 required'
+    # A simulation world has its own model budget from its creation (S6, D6), so every simulation Run's dispatch reserves its maximum
+    # cost: reserve_budget runs here as nexloop_sim_worker (asserted below).
+    assert admin.execute("select count(*) from control.nexloop_budget_limits where world=%s and budget_kind='model'", (f['world'],)).fetchone()[0] == 1
+    config = dict(signing_key_file=f['key'], signing_key_id='sim-run')
+    with open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_api'), artifact_root=tmp_path / 'api-artifacts', **config) as api, \
+            open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_worker'), artifact_root=tmp_path / 'worker-artifacts', **config) as backend_worker:
+        assert backend_worker._pool.connection().__enter__().execute('select current_user').fetchone()[0] == 'nexloop_sim_worker'
+        source = api.authenticate(f['api_token'], world=f['world'])
+        run = step(source.issue_run_credential, action_resources=['eios:action:' + EFFECT + ':1'])
+        pack_text = sim_run_input(source, run.run_id, f['consumer'], 8)
+        command = {'schema_version': '1.0', 'run_id': run.run_id, 'tenant_id': f['tenant'], 'world_id': f['world'], 'mode': 'simulation',
+                   'request_id': 'sim-run-' + str(uuid.uuid4()), 'trigger_event_id': str(uuid.uuid4()), 'role_ref': 'role:sim-consumer-reply',
+                   'consumer_ref': 'consumer:' + f['consumer'], 'goal_version_ref': 'goal:sim-at046', 'context_manifest_ref': 'artifact:sim-context',
+                   'runtime_profile': 'deterministic-test', 'credential_ref': 'run_credential:' + run.run_id,
+                   'budget': {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0', 'currency': 'CNY'},
+                   'not_after': run.expires_at.isoformat(), 'runtime_owner_epoch': 1}
+        accepted = step(source.accept_runtime_event, queue='operations', source_id='sim-intake', event_id='event-dispatch', run_token=run.token,
+                        command=command, input=pack_text)
+        worker = backend_worker.authenticate(f['worker_token'], world=f['world'])
+        runtime, key = files(tmp_path)
+        guard_key = tmp_path / 'guard-key'
+        guard_key.write_text(secrets.token_hex(32))
+        guard_key.chmod(0o600)
+        private = tmp_path / 'guard-private'
+        private.mkdir(mode=0o700)
+        dsn = private / 'database-url'
+        dsn.write_text(make_conninfo(f['pg'], user='nexloop_sim_guard'))
+        dsn.chmod(0o600)
+        credential = private / 'service-credential'
+        credential.write_text(f['worker_token'])
+        credential.chmod(0o600)
+        pool = GuardWorkerPool(GuardFiles(dsn, f['key'], 'sim-run', credential, tmp_path / 'guard-artifacts', f['world'], guard_key, tmp_path / 'host-cert.pem',
+                                          tmp_path / 'host-key.pem', world_group='simulation'), port=0, workers=2)
+        port = pool.start()
+        try:
+            with host(runtime, key, sim_host_configuration(tmp_path, port, guard_key)) as (child, client, headers):
+                host_config = HostControlConfiguration(str(client.base_url).rstrip('/'), key, tmp_path / 'host-cert.pem')
+                result = RuntimeDispatcher(worker, host_config, queue='operations', total_timeout=60).run_once()
+        finally:
+            pool.stop()
+    assert result['task_id'] == accepted['task_id'] and result['status'] == 'succeeded', result
+    assert admin.execute('select status from runtime.jobs where job_id=%s', (accepted['task_id'],)).fetchone()[0] == 'succeeded'
+    assert admin.execute('select world from authz.nexloop_run_credentials where run_id=%s', (run.run_id,)).fetchone()[0] == f['world']
+    reserved = admin.execute("select count(*) from control.nexloop_budget_consumption where tenant_id=%s and world=%s and consumption_id=%s",
+                             (f['tenant'], f['world'], 'run:' + run.run_id)).fetchone()[0]
+    assert reserved == 1
+
+
+def test_a_dispatch_refused_by_the_database_is_logged_by_class_and_code_only(sim_group, admin, tmp_path, capfd):
+    """Stage finding 2026-10-22: the simulation worker failed the Run and its log said only 'Runtime Worker ready'. Now one stderr line
+    names the stage, the task code and the exception classes - no message, payload, Run id or token. Here the worker lacks one control
+    entry (revoked for the test, restored after): the dispatch fails at its control stage, before any Host request."""
+    from nexloop_eios.runtime_dispatch import HostControlConfiguration, RuntimeDispatcher
+    f = sim_group
+    config = dict(signing_key_file=f['key'], signing_key_id='sim-run')
+    admin.execute('revoke execute on function authz.nexloop_assert_task_dispatch_controls(text,text,text) from nexloop_sim_worker')
+    try:
+        with open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_api'), artifact_root=tmp_path / 'api-artifacts', **config) as api, \
+                open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_worker'), artifact_root=tmp_path / 'worker-artifacts', **config) as backend_worker:
+            source = api.authenticate(f['api_token'], world=f['world'])
+            run = step(source.issue_run_credential, action_resources=['eios:action:' + EFFECT + ':1'])
+            pack_text = sim_run_input(source, run.run_id, f['consumer'], 8)
+            command = {'schema_version': '1.0', 'run_id': run.run_id, 'tenant_id': f['tenant'], 'world_id': f['world'], 'mode': 'simulation',
+                       'request_id': 'sim-run-' + str(uuid.uuid4()), 'trigger_event_id': str(uuid.uuid4()), 'role_ref': 'role:sim-consumer-reply',
+                       'consumer_ref': 'consumer:' + f['consumer'], 'goal_version_ref': 'goal:sim-at046', 'context_manifest_ref': 'artifact:sim-context',
+                       'runtime_profile': 'deterministic-test', 'credential_ref': 'run_credential:' + run.run_id,
+                       'budget': {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0', 'currency': 'CNY'},
+                       'not_after': run.expires_at.isoformat(), 'runtime_owner_epoch': 1}
+            step(source.accept_runtime_event, queue='operations', source_id='sim-intake', event_id='event-log', run_token=run.token, command=command, input=pack_text)
+            worker = backend_worker.authenticate(f['worker_token'], world=f['world'])
+            runtime, key = files(tmp_path)
+            capfd.readouterr()
+            result = RuntimeDispatcher(worker, HostControlConfiguration('https://127.0.0.1:65530', key, tmp_path / 'host-cert.pem'), queue='operations',
+                                       total_timeout=10).run_once()
+    finally:
+        admin.execute('grant execute on function authz.nexloop_assert_task_dispatch_controls(text,text,text) to nexloop_sim_worker')
+    assert result['status'] == 'failed' and result['result']['code'] == 'runtime_control_unavailable'
+    err = capfd.readouterr().err
+    lines = [json.loads(l) for l in err.splitlines() if l.startswith('{"event":"runtime_dispatch_error"')]
+    assert lines == [{'event': 'runtime_dispatch_error', 'stage': 'control', 'code': 'runtime_control_unavailable',
+                      'error_class': lines[0]['error_class'], 'error_cause_class': 'InsufficientPrivilege'}], err
+    assert run.run_id not in err and run.token not in err and f['tenant'] not in err

@@ -353,6 +353,11 @@ class RuntimeDispatcher:
             # Missing reclaimed state/conflict is terminal, never a new start.
             status='retry_wait' if code in _RETRYABLE or code.startswith('runtime_host_status_') else 'failed'
             error_classes=exception_classes(error)
+            # Stage finding 2026-10-22: a worker that failed every Run (InsufficientPrivilege at its control stage) logged nothing. One
+            # line per such failure: where, the task code and the exception classes - never a message, a payload or an identifier.
+            import sys
+            print(json.dumps({'event':'runtime_dispatch_error','stage':stage,'code':code,'error_class':error_classes[0] if error_classes else None,
+                              'error_cause_class':error_classes[-1] if error_classes else None},separators=(',',':')),file=sys.stderr,flush=True)
             # 10/18 stage (Run 13a9a048): a message Run that ended here, failed for good, never reached the reply settle above, so
             # its reply guarantee waited start_after_seconds. A definite failure settles it too: when that Run submitted no reply
             # its reply-due item is due now (0200 only moves it earlier, never creates a reply). A retry keeps the task as before.

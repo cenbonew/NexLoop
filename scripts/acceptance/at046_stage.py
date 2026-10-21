@@ -35,6 +35,7 @@ Exit: 0 passed, 1 failed or blocked, 2 input refused. Never a token, password or
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -51,6 +52,7 @@ def s6_nonce_ok(nonce):
     return isinstance(nonce, str) and bool(NONCE.fullmatch(nonce))
 
 SCHEMAS = ('authz', 'control', 'runtime', 'ontology')
+TWIN_EXAMPLE = Path(__file__).resolve().parents[2] / 'packages/contracts/examples/consumer-twin.valid.json'
 
 
 class Ports:
@@ -70,6 +72,15 @@ class Ports:
         with self.probe() as db, db.transaction():
             db.execute('set transaction read only')
             return db.execute(sql, params).fetchall()
+
+
+# Periodic system bookkeeping of the real side, written on a timer whether AT-046 runs or not (stage finding 2026-10-22: the first
+# stage run reported these two as changed while nothing of the Run touched them). They are left out of the comparison, by name and
+# with the reason, and the result lists them; anything else that changes still fails the step.
+EXCLUDED = {
+    'control.nexloop_alert_state': 'the alert evaluator rewrites each rule\'s state every evaluation tick (NX-030), whether AT-046 runs or not',
+    'runtime.nexloop_orphan_sweeps': 'the artifact orphan sweeper records each periodic sweep (0018), whether AT-046 runs or not',
+}
 
 
 def real_digest(ports, tenant):
@@ -92,7 +103,7 @@ def real_digest(ports, tenant):
         parts.append(f"select '{table}', md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from {table} x where {where}")
         params.append(tenant)
     out = dict(ports.read(' union all '.join(parts), tuple(params)))
-    return out
+    return {t: d for t, d in out.items() if t not in EXCLUDED}
 
 
 def prepare(ports, config, r):
@@ -115,6 +126,22 @@ def prepare(ports, config, r):
     r.step('catalog_published', 'the stand-in Actions published for the world (definitions only)',
            {'status': status, 'actions': actions, 'copied': out.get('copied') if isinstance(out, dict) else None},
            status == 200 and bool(actions))
+    # Optional (stage finding 2026-10-22: the twin step blocked - no published twin): inputs.publish_twin publishes the synthetic consumer
+    # twin of the contract example (generator twin-template/1: no model, D6) through the owner's governed Action publish_consumer_twin;
+    # its twin_id and version go into the run phase's inputs.twin. A twin is the tenant's (not the world's); publishing is idempotent
+    # per request id, so a rerun of prepare publishes no second version.
+    twin = inputs.get('publish_twin')
+    if twin:
+        definition = {k: v for k, v in json.loads(TWIN_EXAMPLE.read_text()).items() if k != 'frozen'}
+        if isinstance(twin, dict) and twin.get('twin_id'):
+            definition['twin_id'] = twin['twin_id']
+        # The Idempotency-Key is the governed request id (workbench_actions_http): one per definition, so a rerun replays.
+        request = 'at046-twin-' + hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()[:32]
+        status, out = ports.act('publish_consumer_twin', {'definition': definition}, request)
+        r.step('twin_published', 'a published consumer twin without a model (inputs.twin of the run phase: twin_id, version)',
+               {'status': status, 'twin_id': out.get('twin_id') if isinstance(out, dict) else None, 'version': out.get('version') if isinstance(out, dict) else None,
+                'twin_status': out.get('status') if isinstance(out, dict) else None},
+               status == 200 and isinstance(out, dict) and out.get('status') == 'published')
 
 
 def _world(config):
@@ -199,8 +226,8 @@ def probe_after(ports, config, r, prior):
     before = evidence(prior, 'real_digest_before').get('digests') or {}
     after = real_digest(ports, tenant)
     changed = sorted(t for t in set(before) | set(after) if before.get(t) != after.get(t))
-    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (digests of all tables with a world column)',
-           {'tables': len(before), 'changed': changed}, not changed and bool(before))
+    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (digests of all tables with a world column, the periodic system '
+           'bookkeeping excluded by name)', {'tables': len(before), 'changed': changed, 'excluded': EXCLUDED}, not changed and bool(before))
 
 
 def run(ports, config, r, prior=None):
@@ -325,7 +352,8 @@ PLAN = {'probe-before': ['probe (read only, DATA_HOST socket): world-real row di
         'intake': ['twin port (APP_HOST hostssl): bind, observe, act (when configured)', 'sim_api (APP_HOST hostssl): issue_run_credential, sim context register, accept'],
         'probe-after': ['probe (read only, DATA_HOST socket): task status until it ends, the Run credential world, the world credentials, digests again'],
         'merge': ['no connection: the three result documents (--from) combined into at046-run'],
-        'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog'],
+        'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog',
+                    'owner workbench: publish_consumer_twin (only with inputs.publish_twin)'],
         'run': ['probe (read only): world-real row digests', 'twin port: bind, observe, act (when present)',
                 'probe: the Run Action in the world catalog', 'sim_api: issue_run_credential, sim context register, accept',
                 'probe: task status until it ends, the Run credential world', 'probe: world-real row digests again']}
