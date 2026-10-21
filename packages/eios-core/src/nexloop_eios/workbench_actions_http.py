@@ -148,6 +148,8 @@ OPERATIONS={
         'expires_in_days':lambda v:v if type(v) is int and 1<=v<=30 else (_ for _ in ()).throw(ValueError('expires_in_days'))},
     'delete_sim_world':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
     # NX-041 S3 (owner only): synthetic (segments) or structural (max_objects) data in a simulation world; the other field is null.
+    # NX-041 D10 follow-up (owner only): the simulation world's Action catalog (the stand-in whitelist), definitions only.
+    'publish_sim_catalog':{'world':_id(re.compile(r'(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
     'generate_sim_world_data':{'world':_id(re.compile(r'sim:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
         'kind':lambda v:v if v in ('synthetic','structural') else (_ for _ in ()).throw(ValueError('kind')),
         'seed':_id(re.compile(r'[A-Za-z0-9_.-]{1,64}')),

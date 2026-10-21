@@ -7,11 +7,13 @@ owner only), after the owner's workbench login (its own login realm; logged out 
     delete    delete_sim_world         nexloop.sim_world.delete      the whole deletion of one world (a 30-day summary stays)
     generate  generate_sim_world_data  nexloop.sim_world.generate    synthetic or structural data in a simulation world
     clock     control_sim_clock        nexloop.sim_clock.control     advance, pause, resume or set the rate of a world's clock
+    publish-catalog  publish_sim_catalog  nexloop.sim_world.publish_catalog  the world's Action catalog: the real Actions with a stand-in
+                                                                   (S4), definitions only; repeatable
 It never connects to PostgreSQL and holds no credential beyond the owner's own workbench login for the duration of the run.
 
-    sim_world.py <create|delete|generate|clock> --config F --dry-run
+    sim_world.py <create|delete|generate|clock|publish-catalog> --config F --dry-run
     security find-generic-password -s <keychain service> -a <account> -w | \
-        sim_world.py <create|delete|generate|clock> --config F --origin https://<APP_HOST_NAME>:<PORT> [--ca-file CA] \
+        sim_world.py <create|delete|generate|clock|publish-catalog> --config F --origin https://<APP_HOST_NAME>:<PORT> [--ca-file CA] \
         --username-file F --password-stdin
 
 --dry-run checks the configuration and prints the request it would send; it reads no password and sends nothing. The password is
@@ -43,7 +45,7 @@ ANY_WORLD = re.compile(r'(sim|shadow):' + _UUID)
 SIM_WORLD = re.compile(r'sim:' + _UUID)
 SEED = re.compile(r'[A-Za-z0-9_.-]{1,64}')
 # Result keys printed (scalars only); anything else in the response is left out.
-SUMMARY = ('world', 'status', 'created', 'replayed', 'changed', 'expires_at', 'deleted', 'remaining', 'credentials_revoked',
+SUMMARY = ('copied', 'already_present', 'world', 'status', 'created', 'replayed', 'changed', 'expires_at', 'deleted', 'remaining', 'credentials_revoked',
            'generation_id', 'generator_version', 'counts', 'revision', 'action', 'world_time', 'paused', 'rate', 'requeued', 'operation', 'outcome_id')
 
 
@@ -126,6 +128,7 @@ OPERATIONS = {
     'create': ('create_sim_world', {'kind': (_one_of('kind', ('simulation', 'shadow')), False), 'purpose': (_text('purpose'), False),
                                     'expires_in_days': (_int('expires_in_days', 1, 30), False)}),
     'delete': ('delete_sim_world', {'world': (_match('world', ANY_WORLD), False), 'reason': (_text('reason'), False)}),
+    'publish-catalog': ('publish_sim_catalog', {'world': (_match('world', ANY_WORLD), False), 'reason': (_text('reason'), False)}),
     'generate': ('generate_sim_world_data', {'world': (_match('world', SIM_WORLD), False), 'kind': (_one_of('kind', ('synthetic', 'structural')), False),
                                              'seed': (_match('seed', SEED), False), 'consumers': (_int('consumers', 1, 2000), False),
                                              'events_per_consumer': (_events, False), 'segments': (_segments, True),

@@ -1647,6 +1647,29 @@
       "side_effects_reason": null
     },
     {
+      "capability_name": "sim_world.publish_catalog",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_sim_catalog",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "948e7a04bef37885b4bf011d8969741c478a82ec5d798ade06f2dffea403aba4",
+      "side_effects_reason": null
+    },
+    {
       "capability_name": "sim_clock.control",
       "capability_version": "1.0.0",
       "kind": "atomic",

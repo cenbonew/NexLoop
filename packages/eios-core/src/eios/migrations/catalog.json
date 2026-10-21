@@ -1465,6 +1465,11 @@
       "version": "0293",
       "name": "0293_nx043_allocation_review.sql",
       "sha256": "7e0dbd03161b77e0cdc8a103d9d71c41dc735306c8b7ba26c1c2b47f97186db6"
+    },
+    {
+      "version": "0294",
+      "name": "0294_nx041_sim_catalog_publish.sql",
+      "sha256": "21e3750a830b8da89ce2c8e00a043fe4bfc2d3ca3f63decd30f014bec4fff798"
     }
   ]
 }

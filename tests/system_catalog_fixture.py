@@ -92,7 +92,9 @@ def publish_catalog_actions_like(admin, tenant, names, like):
 
 
 def copy_catalog_to_world(admin, tenant, world):
-    """NX-041 D10: the tenant's published Actions of real, published for a simulation world too (trusted configuration of the
-    simulation process group publishes the same catalog per world)."""
-    admin.execute("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability)
-        select tenant_id,%s,resource_id,definition,capability from control.nexloop_action_definitions where tenant_id=%s and world='real'""", (world, tenant))
+    """NX-041 D10: the simulation world's Action catalog through the owner's governed Action sim_world.publish_catalog (0294: the real
+    Actions with a stand-in, definitions only) - the handler the governed entry calls; never a direct write."""
+    from psycopg.types.json import Jsonb
+    return admin.execute("select control.nexloop_governed_publish_sim_catalog(%s,'real','owner-principal','owner-subject','i-catalog',%s)",
+                         (tenant, Jsonb({'operation': 'publish_sim_catalog', 'request_id': 'catalog-' + world, 'world': world,
+                                         'reason': 'the simulation world catalog'}))).fetchone()[0]

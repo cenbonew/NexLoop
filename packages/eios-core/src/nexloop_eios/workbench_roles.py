@@ -76,6 +76,7 @@ def validate_roles(value):
                   'eios:action:nexloop.sim_world.create:1',  # NX-041 D10: which simulation worlds exist is the owner's
                   'eios:action:nexloop.sim_world.delete:1',  # NX-041 D2: and so is deleting one as a whole
                   'eios:action:nexloop.sim_world.generate:1',  # NX-041 D8: and filling one with generated data
+                  'eios:action:nexloop.sim_world.publish_catalog:1',  # NX-041 D10: and publishing its Action catalog
                   'eios:action:nexloop.sim_clock.control:1',  # NX-041 D5: and so is moving a simulation world's clock
                   'eios:action:nexloop.consumer_twin.publish:1',  # NX-042 D7: publishing a consumer twin version is the owner's
                   'eios:action:nexloop.consumer_twin.retire:1',  # NX-042 D7: and so is retiring one
