@@ -11,7 +11,7 @@ Configuration (private JSON, 0600, the caller's; deploy/examples/sim-dsn-files.e
     {"schema": "nexloop-sim-dsn/1", "secret_dir": "<NEXLOOP_SIM_SECRET_DIR>", "data_host_name": "<the certificate's name>",
      "data_host_addr": "<DATA_HOST address>", "pg_port": 55432, "db_name": "nexloop_stage"}
 The files are the simulation project's DSN secrets (post_deploy_check.SIM_DSN_ROLES: sim_worker_dsn, sim_guard_dsn, sim_api_dsn,
-sim_stand_in_worker_dsn, sim_files_dsn), each `host=... hostaddr=... port=... dbname=... user=<role> password=... sslmode=verify-full
+sim_stand_in_worker_dsn, sim_files_dsn, sim_twin_port_dsn), each `host=... hostaddr=... port=... dbname=... user=<role> password=... sslmode=verify-full
 sslrootcert=/run/secrets/sim_pg_ca` (the CA the compose project mounts as sim_pg_ca; the pg_hba simulation line needs no client
 certificate). A file is replaced atomically (0600, never through a link). --check then runs post_deploy_check.check_sim_roles on the
 written files (each logs in as exactly its simulation role): run it where the DSNs resolve - a one-off container of the simulation
