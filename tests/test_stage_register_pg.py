@@ -383,6 +383,6 @@ def test_publish_dry_run_without_a_database_compiles_and_emits_the_worker_config
     out = tmp_path / 'config'
     assert S.main(['publish', '--out', str(tmp_path), '--tenant', TENANT, '--dry-run', '--emit-config', str(out)]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 20, 93, 2)
+    assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 20, 94, 2)
     assert sorted(p.name for p in out.iterdir()) == sorted(result['emitted']) and all(oct(p.stat().st_mode)[-3:] == '600' for p in out.iterdir())
     assert json.loads((out / 'claim-match.json').read_text()) == {}
