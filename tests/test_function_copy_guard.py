@@ -164,6 +164,12 @@ REGISTRY = [
     # NX-043 X1 follow-up (dispatcher 2026-10-21): a role holds up to 128 Actions, as nexloop_eios.workbench_roles (owner 65).
     Allowed('nx043_workbench_role_cap', 'control.nexloop_configure_workbench', 'the per-role Action bound 64 -> 128; nothing else',
             ((r'jsonb_array_length\(r\.value\) not between 1 and 128', 'jsonb_array_length(r.value) not between 1 and 64'),)),
+    # NX-043 X4 (design §3): the eligibility rule joins the frozen preregistration (default only, never looser).
+    Allowed('nx043_online_allocation', 'runtime.nexloop_experiment_registration_problem', 'X4: eligibility is an allowed member, checked against its default; nothing else',
+            ((r",'eligibility'\)\) then return 'invalid'", ")) then return 'invalid'"),
+             (r"\n -- X4 \(design §3\)[^\n]*\n if r \? 'eligibility'[^\n]*'eligibility_looser_than_default';end if;\n", "\n"))),
+    Allowed('nx043_online_allocation', 'runtime.nexloop_experiment_registration_frozen', 'X4: the eligibility default is written into the frozen registration; nothing else',
+            ((r"\n  'eligibility',runtime\.nexloop_experiment_eligibility_default\(\)\|\|coalesce\(r->'eligibility','\{\}'::jsonb\),", ''),)),
 ]
 
 

@@ -1440,6 +1440,11 @@
       "version": "0288",
       "name": "0288_nx043_shadow_world.sql",
       "sha256": "773c5a0e517f3d743fc1fbcf3ade141662c219d3c55f1a3373159afdc7d77704"
+    },
+    {
+      "version": "0289",
+      "name": "0289_nx043_online_allocation.sql",
+      "sha256": "7e05dfd7947117c4bda1e547b2e1b045210a3a91887f2dd239aa3719a5da5cb0"
     }
   ]
 }
