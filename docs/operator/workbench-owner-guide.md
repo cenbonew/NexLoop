@@ -223,11 +223,62 @@
 - **建立时被拒，提示数量已满**：已经有 20 个 active 的世界，先删除不用的世界。
 - **模拟世界的费用**：每个世界的模型预算是 100 元，按租户每月合计不超过 100 元；超出时新的模型调用被拒绝。
 
-## 6. 相关文档
+## 6. 消费者孪生
+
+> 消费者孪生只在模拟世界中产生**模拟输出**，不会触达真实客户；只有校准结论为 `passed` 的版本才能被下游（NX-043）选用。总体说明见 [NX-042 总说明](../implementation/NX-042-overview.md)。以下 Action 都只有负责人能执行。
+
+### 6.1 发布孪生版本
+
+- Action：`nexloop.consumer_twin.publish`。定义文件按 `nexloop-consumer-twin/1` 写：只写假设与区间参数，不写真实客户的消息或 ID；每个区间宽度至少 0.01。
+- 新版本一律是“已发布、未校准”；同一请求重试得到同一版本。
+- **工具尚未实现**：负责人用的命令行工具还没有，在工具合入之前不要用其他方式代替。
+
+### 6.2 校准
+
+工具：`scripts/deploy/twin_calibrate.py`。配置文件加一条命令：
+
+1. 在私有目录写配置文件（权限 0600，不进 git），参照 `deploy/examples/twin-calibrate.example.json`：
+
+   ```json
+   {"schema": "nexloop-twin-calibrate/1",
+    "twin_id": "<twin_id>", "version": <版本号>,
+    "windows": [{"split_at": "YYYY-MM-DD", "span_days": 28}]}
+   ```
+
+   `windows` 写 1–3 个 UTC 日期窗口，`span_days` 只能是 28、56 或 84；每个窗口必须在该版本发布之后开始、并且已经结束，窗口之间不重叠。合并后至少 20 个单元才有结论。
+
+2. 先预查（不读口令、不发送任何请求）：
+
+   ```bash
+   scripts/deploy/twin_calibrate.py --config <配置文件> --dry-run
+   ```
+
+3. 预查无误后正式执行，口令从钥匙串经管道输入：
+
+   ```bash
+   security find-generic-password -s <钥匙串服务名> -a <账号> -w | scripts/deploy/twin_calibrate.py --config <配置文件> --origin https://<APP_HOST_NAME>:<PORT> --ca-file <CA 文件> --username-file <用户名文件> --password-stdin
+   ```
+
+- 输出一行 JSON：`report_ref`、`twin_id`、`version`、`conclusion`、`coverage`、`calibration`、`created`、`outcome_id`、`replayed`。退出码 0 表示已完成（不论结论是什么），1 表示被拒或无法连接，2 表示输入被拒。
+- 同一配置再执行一次是重放：返回原来的结果（`replayed` 为真），不会写第二份报告。
+- 结论：`passed`（可被选用）、`failed`、`insufficient_sample`（单元不足 20 个，等更多数据后换窗口再校准）、`not_calibratable`（含暂不能校准的行为）。
+
+### 6.3 擦除孪生文本
+
+- Action：`nexloop.consumer_twin.erase_text`（随 T3 评审修复合入），按孪生、版本和原因擦除描述或假设的正文；只留 hash，决策参数与校准结论不变。重复擦除返回 `already_erased`。
+- **工具尚未实现**。
+
+### 6.4 版本作废
+
+- Action：`nexloop.consumer_twin.retire`，写明原因；作废后该版本不再可选用，不可撤销。需要修改时发布新版本并重新校准。
+- **工具尚未实现**。
+
+## 7. 相关文档
 
 - 设计：[世界模型工作台](../design/workbench-world-model-design.md)、[运营人设](../design/operator-persona-design.md)、[主动外联](../design/proactive-outreach.md)；
 - 实施计划：[外联实施计划](../implementation/outreach-impl-plan.md)；
 - 决定记录：[ADR-023](../../adr/ADR-023-explicit-refusal-hard-stop.md) §4（拒绝规则 v2）、[ADR-036](../../adr/ADR-036-object-set-read-only.md)（Object Set 只读）；
 - 术语：[工作台术语表](../design/workbench-glossary.md)；
 - 模拟世界：[NX-041 总说明](../implementation/NX-041-overview.md)；
+- 消费者孪生：[NX-042 总说明](../implementation/NX-042-overview.md)；
 - 运维：[OPERATIONS](../OPERATIONS.md) §8（真实派发开关）。
