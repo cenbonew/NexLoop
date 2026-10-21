@@ -1,6 +1,6 @@
 """NX-041 D10 (trusted configuration): a manifest issues a simulation world's three credentials with their use.
 
-The Python validator (trusted_configuration.validate_manifest) and control.nexloop_configure_manifest (0273, the 0211 body with the use)
+The Python validator (trusted_configuration.validate_manifest) and control.nexloop_configure_manifest (0274, the 0211 body with the use)
 both require sim_use (api | worker | agent) on a credential of one sim:/shadow: world and refuse it on a real or test credential; the use
 is written to authz.nexloop_service_credentials.sim_use and compared on replay. The real manifest of the service grants is applied
 before and after, unchanged (regression). Real PostgreSQL through the configurator role; synthetic tenant and principals.

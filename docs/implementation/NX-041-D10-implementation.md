@@ -2,7 +2,7 @@
 
 **依据**：负责人定案 D10「按推荐」：每个 sim 或 shadow world 固定 3 个服务凭据，分别给 api、worker、agent 三种用途，每个只绑定这一个 world；删除 world 时三个一起吊销。
 
-**迁移**：`0272_nx041_d10_credentials.sql`，临时编号。0260 已经随第七批合进集成头，所以没有原地改它，新开迁移更安全；它和 L2 新开的数量上限迁移只会在 catalog 上冲突。
+**迁移**：`0273_nx041_d10_credentials.sql`，临时编号。0260 已经随第七批合进集成头，所以没有原地改它，新开迁移更安全；它和 L2 新开的数量上限迁移只会在 catalog 上冲突。
 
 ## 凭据规则
 
@@ -31,7 +31,7 @@
 
 S7 原来那条 strict xfail 已经翻转，改成普通测试：先断言 `pi_run_blockers` 返回为空，再指向上面这条端到端测试。另有一条探测的阳性对照：打桩一个阻塞项，仍然会抛出。
 
-### 为端到端补的授权（都写在 0272，S6c 白名单同步更新）
+### 为端到端补的授权（都写在 0273，S6c 白名单同步更新）
 
 | 角色 | 新增 | 原因 |
 | --- | --- | --- |
@@ -122,7 +122,7 @@ S7 原来那条 strict xfail 已经翻转，改成普通测试：先断言 `pi_r
 
 ## 受信配置 manifest 签发 sim 凭据（部署前必须补的一项）
 
-迁移：`0273_nx041_d10_manifest.sql`，临时编号。
+迁移：`0274_nx041_d10_manifest.sql`，临时编号。
 
 | 项 | 实现 |
 | --- | --- |
@@ -141,7 +141,7 @@ S7 原来那条 strict xfail 已经翻转，改成普通测试：先断言 `pi_r
 
 | 项 | 处理 |
 | --- | --- |
-| **P1 第二道防线** | 迁移 `0274_nx041_d10_grants_review.sql` 重定义了 `authz.nexloop_read_action_bundle`（底稿是 0016）和 `authz.nexloop_role_run_hint`（底稿是 0063），开头各加一句判断：`authz.nexloop_app_role(p_world)='nexloop_sim_outside_its_world'` 时拒绝，也就是 sim 角色以 real 或 test world 调用会被挡住。real 角色的 `app_role` 就是它自己的 session_user，所以 real 路径逐字不变。两个函数的 search_path 都补上了 `pg_temp`，满足 definer 检查。两处重定义都已登记到复制件守护。负例：三个 sim 角色拿着 real 凭据的摘要，以 real 或 test 调用这两个函数，都报 `simulation role outside its world`；阳性对照：nexloop_api 做同样的调用能越过这道判断。 |
+| **P1 第二道防线** | 迁移 `0275_nx041_d10_grants_review.sql` 重定义了 `authz.nexloop_read_action_bundle`（底稿是 0016）和 `authz.nexloop_role_run_hint`（底稿是 0063），开头各加一句判断：`authz.nexloop_app_role(p_world)='nexloop_sim_outside_its_world'` 时拒绝，也就是 sim 角色以 real 或 test world 调用会被挡住。real 角色的 `app_role` 就是它自己的 session_user，所以 real 路径逐字不变。两个函数的 search_path 都补上了 `pg_temp`，满足 definer 检查。两处重定义都已登记到复制件守护。负例：三个 sim 角色拿着 real 凭据的摘要，以 real 或 test 调用这两个函数，都报 `simulation role outside its world`；阳性对照：nexloop_api 做同样的调用能越过这道判断。 |
 | **P2 逐项必要性** | 用一次性探测逐项收回授权，每次串行重跑真实 Pi 的 sim 端到端（Node 24），共 13 项，**收回任何一项都会导致失败**，失败点也正好在用到这项授权的那一步。所以没有多余的授权，白名单不变。各项的失败情况见下表。 |
 | **P3 invoker 函数** | 选「断言」，没有统一 `revoke ... from public`。实测三个 sim 角色和 nexloop_api 在 authz、control、runtime、ontology 下可调用的 invoker 函数都是 0 个；而且 bootstrap 角色现在新建的函数，默认就不对 PUBLIC 开放执行。统一 revoke 要改一大批现有函数，还会波及 real 角色，换不来实际收益。断言能拦住将来的回归：测试要求每个 sim 角色在这些 schema 下能调用的 invoker 函数为空集。阳性对照：临时建一个函数并 `grant ... to public`，断言能发现它。 |
 

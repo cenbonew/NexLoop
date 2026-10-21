@@ -284,7 +284,7 @@ def complete_sim_pi_run(f, tmp_path, blockers=pi_run_blockers):
 
 
 def test_at046_every_prerequisite_of_a_simulation_pi_run_is_in_place(s7, tmp_path):
-    """The former strict xfail, flipped (D10 decided, 0272): pi_run_blockers finds nothing - three credentials per world, one per use;
+    """The former strict xfail, flipped (D10 decided, 0273): pi_run_blockers finds nothing - three credentials per world, one per use;
     S6c's roles; the Host's simulation Context protocol - and the simulation group's worker accepts its world. The complete Pi Run of
     the simulation process group is tests/test_nx041_sim_pi_run_pg.py::test_at046_a_simulation_process_group_runs_a_complete_pi_run."""
     assert pi_run_blockers(s7) == []
