@@ -70,14 +70,27 @@ def s7(admin, pg):
             'twin': role('nexloop_twin_port'), 'stand_in': role('nexloop_stand_in_worker'), 'api': role('nexloop_api'), 'role': role}
 
 
+def grant_raw_act(admin):
+    """Test database only (NX-042 T3 decision): the port role no longer executes the raw S7 entry - a twin's events go through
+    authz.nexloop_twin_act with provenance. Tests of the raw entry's own rules (validation, server time, ceiling, replay) and tests
+    that need the stub's exact content grant it here for their own database."""
+    admin.execute('grant execute on function authz.nexloop_sim_consumer_act(text,text,jsonb) to nexloop_twin_port')
+
+
+@pytest.fixture
+def s7_raw(s7):
+    grant_raw_act(s7['admin'])
+    return s7
+
+
 def port(f, world=None, token=None):
     return P.ConsumerPort(f['twin'], token or f['token_a'], world or f['a'])
 
 
 # 1. The consumer port --------------------------------------------------------------------------------------------------------------
 
-def test_the_twin_acts_through_the_port_only_with_server_time_and_simulation_marks(s7):
-    f = s7
+def test_the_twin_acts_through_the_port_only_with_server_time_and_simulation_marks(s7_raw):
+    f = s7_raw
     c = consumers(f['admin'], f['a'])[0]
     twin = P.TwinStub(seed='exp-1')
     event = port(f).act(twin.act(c, 1))
@@ -101,8 +114,8 @@ def test_the_twin_acts_through_the_port_only_with_server_time_and_simulation_mar
         assert f['admin'].execute(f'select count(*) from {table}').fetchone()[0] == 0, table
 
 
-def test_the_port_refuses_real_test_unknown_consumers_client_time_and_other_roles(s7):
-    f = s7
+def test_the_port_refuses_real_test_unknown_consumers_client_time_and_other_roles(s7_raw):
+    f = s7_raw
     c = consumers(f['admin'], f['a'])[0]
     request = P.TwinStub(seed='exp-2').act(c, 1)
     assert port(f).act(request)['frozen']['sequence'] == 1  # positive control
@@ -149,7 +162,12 @@ def test_the_port_role_reaches_the_port_only(s7):
     port entries (and the public erasure helper, which answers false for anyone but nexloop_owner)."""
     reachable = {r[0].split('(')[0] for r in s7['admin'].execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname in ('authz','control','runtime','ontology','public') and p.prosecdef and has_function_privilege('nexloop_twin_port',p.oid,'execute')""").fetchall()}
-    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits'}, reachable
+    # NX-042 T3: the twin's own entries (bind, observe, act); the raw act is revoked - a twin's event always has its provenance.
+    assert reachable == {'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits',
+                         'authz.nexloop_twin_bind', 'authz.nexloop_twin_observe', 'authz.nexloop_twin_act'}, reachable
+    assert not s7['admin'].execute("select has_function_privilege('nexloop_twin_port','authz.nexloop_sim_consumer_act(text,text,jsonb)','execute')").fetchone()[0]
+    with pytest.raises(psycopg.errors.InsufficientPrivilege), s7['twin']() as db:
+        db.execute('select authz.nexloop_sim_consumer_act(%s,%s,%s)', (digest(s7['token_a']), s7['a'], Jsonb(P.TwinStub(seed='x').act(consumers(s7['admin'], s7['a'])[0], 1))))
     for table in ('runtime.nexloop_sim_consumer_events', 'runtime.nexloop_sim_consumer_observations', 'runtime.nexloop_outbound_messages'):
         assert not s7['admin'].execute("select has_table_privilege('nexloop_twin_port',%s,'select,insert,update,delete')", (table,)).fetchone()[0]
 
@@ -356,7 +374,7 @@ def test_at046_forged_context_resume_guard_and_activation_paths(s7):
 
 def test_an_existing_port_role_is_brought_to_its_shape(admin):
     """S7 review 1.4 (as S4 N2): a role named nexloop_twin_port that exists before the migration with other attributes, a role
-    membership and a privilege leaves it with exactly the declared shape and the two port entries."""
+    membership and a privilege leaves it with exactly the declared shape and its port entries (NX-042 T3: the twin entries, no raw act)."""
     admin.execute('drop role if exists nexloop_twin_port')
     admin.execute('create role nexloop_twin_port nologin inherit createdb bypassrls')
     admin.execute('grant pg_read_all_data to nexloop_twin_port')
@@ -367,13 +385,16 @@ def test_an_existing_port_role_is_brought_to_its_shape(admin):
     assert admin.execute("select count(*) from pg_auth_members a join pg_roles m on m.oid=a.member where m.rolname='nexloop_twin_port'").fetchone()[0] == 0
     reachable = {x[0].split('(')[0] for x in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname in ('authz','control','runtime','ontology') and p.prosecdef and has_function_privilege('nexloop_twin_port',p.oid,'execute')""").fetchall()}
-    assert reachable == {'authz.nexloop_sim_consumer_act', 'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits'}, reachable
+    # NX-042 T3: the twin's own entries (bind, observe, act); the raw act is revoked - a twin's event always has its provenance.
+    assert reachable == {'authz.nexloop_sim_consumer_observe', 'runtime.nexloop_erasure_permits',
+                         'authz.nexloop_twin_bind', 'authz.nexloop_twin_observe', 'authz.nexloop_twin_act'}, reachable
+    assert not admin.execute("select has_function_privilege('nexloop_twin_port','authz.nexloop_sim_consumer_act(text,text,jsonb)','execute')").fetchone()[0]
 
 
-def test_the_port_takes_at_most_its_event_limit_per_world(s7):
+def test_the_port_takes_at_most_its_event_limit_per_world(s7_raw):
     """S7 review 1.5: a world takes at most runtime.nexloop_sim_port_event_limit() events (proposed 100 000); a replay is still
     answered; another world is not affected."""
-    f = s7
+    f = s7_raw
     admin = f['admin']
     limit = admin.execute('select runtime.nexloop_sim_port_event_limit()').fetchone()[0]
     assert limit == 100000
@@ -426,10 +447,10 @@ def world_rows(admin, world):
             for n in [admin.execute(f'select count(*) from {t} where world=%s', (world,)).fetchone()[0]] if n}
 
 
-def test_acceptance_whole_deletion_of_a_simulation_world(s7):
+def test_acceptance_whole_deletion_of_a_simulation_world(s7_raw):
     """§8 'simulation world whole deletion': generated data, port events and observations, stand-in intents and receipts all leave
     with the world; real and the other simulation world are untouched."""
-    f = s7
+    f = s7_raw
     admin = f['admin']
     generate(admin, f['b'], seed='other')
     twin = P.TwinStub(seed='exp-del')
@@ -481,11 +502,11 @@ def run_frozen_input(f, world, token, seed='frozen-x', configured_from=None):
                 from runtime.nexloop_sim_consumer_events where world=%s""", (world,)).fetchone()}
 
 
-def test_acceptance_a_frozen_input_reproduces(s7):
+def test_acceptance_a_frozen_input_reproduces(s7_raw):
     """§8 'frozen input reproducible': the same frozen input in two worlds gives byte-identical generated data, twin events and event
     metrics, and the same stand-in receipts: every field but the world, external reference included (S7 review 3), with the frozen
     stand-in configuration copied by the server (decision A, outcome_seed)."""
-    f = s7
+    f = s7_raw
     admin = f['admin']
     c, d = create_world(admin), create_world(admin)
     tc, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=c, identity_suffix='-s7-c')
@@ -514,10 +535,10 @@ def test_the_port_module_has_no_network_and_no_action():
     assert {e['event_kind'] for e in same} <= set(P.EVENT_KINDS) and all(PORT_CONTRACT.is_valid({'schema': 'nexloop-consumer-port-event/1', 'request': e}) for e in same)
 
 
-def test_acceptance_a_frozen_input_reproduces_the_stand_in_receipts_byte_for_byte(s7):
+def test_acceptance_a_frozen_input_reproduces_the_stand_in_receipts_byte_for_byte(s7_raw):
     """§8 'frozen input reproducible', decision A: with the frozen stand-in configuration copied by the server (outcome_seed included,
     never seen or given by the caller), the same intents give byte-identical receipts, external reference included."""
-    f = s7
+    f = s7_raw
     admin = f['admin']
     c, d = create_world(admin), create_world(admin)
     tc, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + '7' * 32, world=c, identity_suffix='-s7-ra')
@@ -540,10 +561,10 @@ def test_acceptance_a_frozen_input_reproduces_the_stand_in_receipts_byte_for_byt
     assert all(json.loads(r)['external_ref'].startswith('stand-in:') for r in receipts[c])
 
 
-def test_the_port_counter_is_backfilled_from_existing_events(s7):
+def test_the_port_counter_is_backfilled_from_existing_events(s7_raw):
     """Fix verify F2: events that exist before the counter (a split rollout) are counted by the backfill the migration runs; the
     count is exact and the ceiling then holds."""
-    f = s7
+    f = s7_raw
     admin = f['admin']
     c = consumers(admin, f['a'])[0]
     with admin.transaction():  # events written before any counter existed (triggers off: trusted seed, as a prior rollout)

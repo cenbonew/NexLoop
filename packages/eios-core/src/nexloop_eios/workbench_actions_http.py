@@ -160,6 +160,8 @@ OPERATIONS={
         'calibration_report_ref':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'twin-calibration:[0-9a-f]{64}',v)) else (_ for _ in ()).throw(ValueError('report'))},
     'retire_consumer_twin':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
         'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
+    'erase_consumer_twin_text':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
+        'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.

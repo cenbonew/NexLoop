@@ -139,12 +139,12 @@ def test_retiring_appends_a_status_and_keeps_the_version(db):
 
 def test_only_the_owner_publishes_from_real(db):
     rows = dict(db.execute("select capability,subject_rule from control.nexloop_governed_capabilities where source_task='NX-042'").fetchall())
-    assert rows == {'consumer_twin.publish': 'human', 'consumer_twin.retire': 'human'}
+    assert rows == {'consumer_twin.publish': 'human', 'consumer_twin.retire': 'human', 'consumer_twin.erase_text': 'human'}
     roles = json.loads((ROOT / 'deploy/authorization/workbench-roles.v1.json').read_text())['roles']
-    for name in ('nexloop.consumer_twin.publish', 'nexloop.consumer_twin.retire'):
+    for name in ('nexloop.consumer_twin.publish', 'nexloop.consumer_twin.retire', 'nexloop.consumer_twin.erase_text'):
         assert sorted(r for r, grants in roles.items() if f'eios:action:{name}:1' in grants) == ['owner'], name
     from nexloop_eios.business_actions import PROFILES
-    assert PROFILES['consumer_twin.publish'] == PROFILES['consumer_twin.retire'] == 'human_owner'
+    assert PROFILES['consumer_twin.publish'] == PROFILES['consumer_twin.retire'] == PROFILES['consumer_twin.erase_text'] == 'human_owner'
     for world in ('test', 'sim:' + str(uuid.uuid4())):
         with pytest.raises(psycopg.errors.InvalidParameterValue, match='owner_world_only'), db.transaction():
             publish(db, world=world)
@@ -218,3 +218,58 @@ def test_the_python_digest_mirrors_the_sql_digest(db):
     d = copy.deepcopy(DEFINITION)
     d['description'] = '晚上回复慢的服务型顾客'
     assert publish(db, d)['definition_digest'] == definition_digest(d)
+    # L6 fix verify: a number written 0.10 or 2.0e-2 freezes like 0.1 and 0.02 (trim_scale), and Python agrees.
+    text = json.dumps({'operation': 'publish_consumer_twin', 'request_id': 'num-1', 'definition': {**DEFINITION, 'twin_id': 'trial.numbers'}}, ensure_ascii=False)
+    text = text.replace('"low": 0.02', '"low": 2.0e-2').replace('"high": 0.08', '"high": 0.080')
+    assert '2.0e-2' in text and '0.080' in text
+    frozen = db.execute("select control.nexloop_governed_publish_consumer_twin(%s,'real','owner-principal','owner-subject','intent-num',%s::jsonb)",
+                        (TENANT_A, text)).fetchone()[0]
+    assert frozen['definition_digest'] == definition_digest({**DEFINITION, 'twin_id': 'trial.numbers'})
+
+
+def erase(admin, twin, version, request=None, reason='负责人要求清除文本'):
+    return call(admin, 'nexloop_governed_erase_consumer_twin_text', {'operation': 'erase_consumer_twin_text', 'request_id': request or uuid.uuid4().hex,
+                                                                      'twin_id': twin, 'version': version, 'reason': reason})
+
+
+def test_free_text_lives_in_an_erasable_side_table_and_the_digest_survives_erasure(db):
+    """L6 D5 (partly closed): the regex cannot catch a Chinese name, so the free text is erasable; the frozen definition keeps hashes."""
+    d = copy.deepcopy(DEFINITION)
+    d['description'] = '张伟说他晚上回复慢'  # passes the regex: what the side table exists for
+    v = publish(db, d)
+    frozen = db.execute("select definition from control.nexloop_consumer_twins where version=1").fetchone()[0]
+    assert frozen['description'].startswith('sha256:') and all(h['statement'].startswith('sha256:') for h in frozen['hypotheses'])
+    assert '张伟' not in json.dumps(frozen, ensure_ascii=False)
+    readable = lambda: db.execute("select runtime.nexloop_consumer_twin_definition(%s,'trial.service_consumer',1)", (TENANT_A,)).fetchone()[0]  # noqa: E731
+    assert readable() == d
+    # Direct writes are refused: no delete, no rewrite of a text or its hash.
+    for sql in ("update control.nexloop_consumer_twin_texts set text_body='改写'", "update control.nexloop_consumer_twin_texts set text_sha256=repeat('0',64)",
+                'delete from control.nexloop_consumer_twin_texts', 'truncate control.nexloop_consumer_twin_texts'):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege), db.transaction():
+            db.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+            db.execute(sql)
+    result = erase(db, 'trial.service_consumer', 1, request='e1')
+    assert result == {'twin_id': 'trial.service_consumer', 'version': 1, 'erased': 3, 'replayed': False}
+    assert erase(db, 'trial.service_consumer', 1, request='e1')['replayed'] is True
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='already_erased'), db.transaction():
+        erase(db, 'trial.service_consumer', 1)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='not_found'), db.transaction():
+        erase(db, 'trial.service_consumer', 9)
+    after = readable()
+    assert after['description'] is None and all(h['statement'] is None for h in after['hypotheses'])
+    assert after['parameters'] == d['parameters']  # the decision layer stays usable
+    row = db.execute("select definition,definition_digest from control.nexloop_consumer_twins where version=1").fetchone()
+    assert row == (frozen, v['definition_digest'])  # traceable: same frozen definition, same digest
+    hashes = db.execute("select count(*) from control.nexloop_consumer_twin_texts where text_body is null and erased_by='owner-principal' and text_sha256~'^[0-9a-f]{64}$'").fetchone()[0]
+    assert hashes == 3
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='owner_world_only'), db.transaction():
+        call(db, 'nexloop_governed_erase_consumer_twin_text', {'operation': 'erase_consumer_twin_text', 'request_id': 'e9', 'twin_id': 'trial.service_consumer',
+                                                                 'version': 1, 'reason': 'x'}, world='test')
+
+
+def test_a_generator_outside_the_controlled_list_is_refused(db):
+    d = copy.deepcopy(DEFINITION)
+    d['generator_version'] = 'twin-template/9'
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='generator_unknown'):
+        publish(db, d)
+    assert db.execute('select generator_version,uses_model from control.nexloop_twin_generators').fetchall() == [('twin-template/1', False)]

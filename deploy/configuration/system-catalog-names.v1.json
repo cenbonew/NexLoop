@@ -759,6 +759,11 @@
    "stable_name": "nexloop.consumer_twin.retire",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.consumer_twin.erase_text",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [

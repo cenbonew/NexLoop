@@ -1,5 +1,7 @@
 """NX-042 T1: Python mirrors of the consumer twin rules in SQL (0278, temporary number): the minimum interval width (D4), the
-real-content guard (D5) and the definition digest (sha256 of the jsonb text form)."""
+real-content guard (D5) and the definition digest: sha256 of the frozen form's jsonb text - every free text replaced by
+'sha256:<hex>' (the erasable side table holds the text, D5) and the numbers normalised (SQL trim_scale), so the digest neither
+changes on erasure nor depends on how a number was written (0.10 and 0.1 are the same)."""
 from decimal import Decimal
 import hashlib
 import json
@@ -33,8 +35,23 @@ def _jsonb_text(v):
         return '{' + ', '.join(json.dumps(k, ensure_ascii=False) + ': ' + _jsonb_text(v[k]) for k in keys) + '}'
     if type(v) is list:
         return '[' + ', '.join(_jsonb_text(x) for x in v) + ']'
+    if type(v) in (int, float, Decimal):
+        return format(Decimal(repr(v) if type(v) is float else v).normalize(), 'f')
     return json.dumps(v, ensure_ascii=False)
 
 
+def _hash(text):
+    return 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
+
+
+def frozen_form(d):
+    """runtime.nexloop_consumer_twin_redact: the texts as hashes (the numbers are normalised when written out)."""
+    f = dict(d)
+    if 'description' in f:
+        f['description'] = _hash(f['description'])
+    f['hypotheses'] = [{**h, 'statement': _hash(h['statement'])} for h in d['hypotheses']]
+    return f
+
+
 def definition_digest(d):
-    return hashlib.sha256(_jsonb_text(d).encode()).hexdigest()
+    return hashlib.sha256(_jsonb_text(frozen_form(d)).encode()).hexdigest()

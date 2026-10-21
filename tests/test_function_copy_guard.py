@@ -135,6 +135,9 @@ REGISTRY = [
     # Clock skew metric (0277, L6): process sample kind 'clock' accepted; nothing else.
     Allowed('clock_skew_metric', 'authz.nexloop_record_process_sample', "the process sample kind 'clock' (skew_ms, skew_abs_ms, round_trip_ms)",
             ((r"\s*when 'clock' then array\['skew_ms','skew_abs_ms','round_trip_ms'\]", ''),)),
+    # NX-042 T3: the twin's observe entry (owner-run, the port role's only way in) reaches the S7b assembler.
+    Allowed('nx042_twin_port', 'authz.nexloop_sim_context_command', 'NX-042 T3: the port role nexloop_twin_port passes the role check; nothing else',
+            ((r" and session_user is distinct from 'nexloop_twin_port'", ''),)),
 ]
 
 

@@ -82,7 +82,8 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.sim_world.create':('Consumer','sim_world.create'),'nexloop.sim_world.delete':('Consumer','sim_world.delete'),
     'nexloop.sim_world.generate':('Consumer','sim_world.generate'),  # 0228
     'nexloop.sim_clock.control':('Consumer','sim_clock.control'),
-    'nexloop.consumer_twin.publish':('Consumer','consumer_twin.publish'),'nexloop.consumer_twin.retire':('Consumer','consumer_twin.retire')}  # 0228
+    'nexloop.consumer_twin.publish':('Consumer','consumer_twin.publish'),'nexloop.consumer_twin.retire':('Consumer','consumer_twin.retire'),
+    'nexloop.consumer_twin.erase_text':('Consumer','consumer_twin.erase_text')}  # 0228
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

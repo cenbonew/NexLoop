@@ -15,7 +15,14 @@
 --    yet, so every version is uncalibrated. The version row never changes.
 -- 3. runtime.nexloop_consumer_twin_selectable(tenant, twin, version): what NX-043 may select - published, not retired and calibrated.
 -- 4. Governed owner Actions consumer_twin.publish / publish_consumer_twin and consumer_twin.retire / retire_consumer_twin (D7: owner only;
---    the server assigns the version and freezes the definition).
+--    the server assigns the version and freezes the definition), and consumer_twin.erase_text / erase_consumer_twin_text (D5).
+-- 5. D5 erasable text: the free text of a definition (description, hypothesis statements) lives in control.nexloop_consumer_twin_texts;
+--    the frozen definition holds only 'sha256:<hex>' of each text, so the definition digest never changes. The owner erases a
+--    version's texts through erase_consumer_twin_text: the text becomes unreadable, its hash and the version stay traceable.
+--    runtime.nexloop_consumer_twin_definition gives the readable definition (null for an erased text). The regex stays the first guard.
+-- 6. Generators are a controlled list (control.nexloop_twin_generators: whether a generator calls a model and its budget account);
+--    a definition naming an unlisted generator is refused (generator_unknown). Only the deterministic twin-template/1 is listed.
+--    Numbers of the frozen definition are normalised (trim_scale) so the digest does not depend on how a number was written.
 
 -- 1. Versions --------------------------------------------------------------------------------------------------------------------------
 create table control.nexloop_consumer_twins (
@@ -43,6 +50,26 @@ create table control.nexloop_consumer_twin_events (
  check((status='retired')=(reason is not null)),
  foreign key(tenant_id,twin_id,version) references control.nexloop_consumer_twins(tenant_id,twin_id,version));
 create index nexloop_consumer_twin_events_version on control.nexloop_consumer_twin_events(tenant_id,twin_id,version,event_id);
+create table control.nexloop_consumer_twin_texts (
+ tenant_id text not null,twin_id text not null,version integer not null,
+ path text not null check(path='description' or path~'^hypotheses/[a-z][a-z0-9_]{0,63}$'),
+ text_sha256 text not null check(text_sha256~'^[0-9a-f]{64}$'),
+ text_body text check(char_length(text_body) between 1 and 500),
+ erased_at timestamptz,erased_by text check(char_length(erased_by) between 1 and 200),
+ erase_reason text check(char_length(erase_reason) between 1 and 500),erase_request_id text check(char_length(erase_request_id) between 1 and 200),
+ primary key(tenant_id,twin_id,version,path),
+ check((text_body is null)=(erased_at is not null) and (erased_at is null)=(erased_by is null) and (erased_at is null)=(erase_reason is null)
+  and (erased_at is null)=(erase_request_id is null)),
+ foreign key(tenant_id,twin_id,version) references control.nexloop_consumer_twins(tenant_id,twin_id,version));
+create table control.nexloop_twin_generators (
+ generator_version text primary key check(generator_version~'^[a-z][a-z0-9_.-]{0,39}/[0-9]+$'),
+ uses_model boolean not null,
+ budget_account text check(budget_account in ('simulation')),
+ check(not uses_model or budget_account is not null));
+alter table control.nexloop_twin_generators owner to nexloop_owner;
+revoke all on control.nexloop_twin_generators from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator,nexloop_metrics,nexloop_stand_in_worker,nexloop_twin_port,nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api;
+-- The deterministic template generator only; a generator that calls a model is listed with its budget account by the slice adding it.
+insert into control.nexloop_twin_generators(generator_version,uses_model) values('twin-template/1',false);
 create table control.nexloop_consumer_twin_calibrations (
  event_id bigint generated always as identity primary key,
  tenant_id text not null,twin_id text not null,version integer not null,
@@ -55,7 +82,7 @@ create table control.nexloop_consumer_twin_calibrations (
  foreign key(tenant_id,twin_id,version) references control.nexloop_consumer_twins(tenant_id,twin_id,version));
 create index nexloop_consumer_twin_calibrations_version on control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,event_id);
 do $$declare t text;begin
- foreach t in array array['control.nexloop_consumer_twins','control.nexloop_consumer_twin_events','control.nexloop_consumer_twin_calibrations'] loop
+ foreach t in array array['control.nexloop_consumer_twins','control.nexloop_consumer_twin_events','control.nexloop_consumer_twin_calibrations','control.nexloop_consumer_twin_texts'] loop
   execute format('alter table %s owner to nexloop_owner',t);
   execute format('alter table %s enable row level security',t);
   execute format('alter table %s force row level security',t);
@@ -76,6 +103,18 @@ do $$declare t text;begin
   execute format('create trigger nx042_twin_no_truncate before truncate on %s for each statement execute function control.nexloop_consumer_twin_frozen()',t);
  end loop;
 end $$;
+-- D5: a twin text is written once and may only be erased (text to null, with who, why and which request); never deleted.
+create function control.nexloop_consumer_twin_text_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
+begin
+ if tg_op='UPDATE' and old.text_body is not null and new.text_body is null and new.erased_at is not null
+  and (new.tenant_id,new.twin_id,new.version,new.path,new.text_sha256) is not distinct from (old.tenant_id,old.twin_id,old.version,old.path,old.text_sha256) then
+  return new;end if;
+ raise exception '% only erases (a twin text is kept as its hash)',tg_table_name using errcode='42501';
+end $$;
+alter function control.nexloop_consumer_twin_text_guard() owner to nexloop_owner;
+revoke all on function control.nexloop_consumer_twin_text_guard() from public;
+create trigger nx042_twin_text_guard before update or delete on control.nexloop_consumer_twin_texts for each row execute function control.nexloop_consumer_twin_text_guard();
+create trigger nx042_twin_text_no_truncate before truncate on control.nexloop_consumer_twin_texts for each statement execute function control.nexloop_consumer_twin_frozen();
 
 -- D4: the narrowest interval a behaviour may have (contract, SQL and Python agree; nexloop_eios.consumer_twins).
 create function runtime.nexloop_twin_min_interval_width() returns numeric language sql immutable set search_path=pg_catalog,pg_temp as $$ select 0.01::numeric $$;
@@ -86,6 +125,16 @@ create function runtime.nexloop_twin_text_looks_real(p text) returns boolean lan
  select coalesce(p,'')~'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}|[0-9]{7,}|[A-Za-z]+-[0-9]{3,}|[0-9A-Fa-f]{32,}'
 $$;
 alter function runtime.nexloop_twin_text_looks_real(text) owner to nexloop_owner;
+
+-- D5: the frozen form of a valid definition - every free text replaced by 'sha256:<hex>', the numbers normalised (trim_scale).
+create function runtime.nexloop_consumer_twin_redact(d jsonb) returns jsonb language sql immutable set search_path=pg_catalog,pg_temp as $$
+ select d||(case when d ? 'description' then jsonb_build_object('description','sha256:'||encode(sha256(convert_to(d->>'description','UTF8')),'hex')) else '{}'::jsonb end)
+  ||jsonb_build_object('hypotheses',(select jsonb_agg(h||jsonb_build_object('statement','sha256:'||encode(sha256(convert_to(h->>'statement','UTF8')),'hex')) order by i)
+    from jsonb_array_elements(d->'hypotheses') with ordinality x(h,i)),
+   'parameters',jsonb_build_object('behaviors',(select jsonb_object_agg(b.key,b.value||jsonb_build_object('low',trim_scale((b.value->>'low')::numeric),
+     'high',trim_scale((b.value->>'high')::numeric),'coverage',trim_scale((b.value->>'coverage')::numeric))) from jsonb_each(d->'parameters'->'behaviors') b)))
+$$;
+alter function runtime.nexloop_consumer_twin_redact(jsonb) owner to nexloop_owner;
 
 -- The definition's shape (contract nexloop-consumer-twin/1 without its frozen part): true when valid.
 create function runtime.nexloop_consumer_twin_valid(d jsonb) returns boolean language sql immutable set search_path=pg_catalog,pg_temp as $$
@@ -144,6 +193,28 @@ end $$;
 alter function runtime.nexloop_consumer_twin_calibration(text,text,integer) owner to nexloop_owner;
 revoke all on function runtime.nexloop_consumer_twin_calibration(text,text,integer) from public;
 
+-- D5: the readable definition of a version - each text from the side table, null once erased.
+create function runtime.nexloop_consumer_twin_definition(p_tenant text,p_twin text,p_version integer) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v_prior text:=current_setting('eios.tenant_id',true);d jsonb;
+begin
+ perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
+ select t.definition into d from control.nexloop_consumer_twins t where t.tenant_id=p_tenant and t.twin_id=p_twin and t.version=p_version;
+ if d is not null then
+  if d ? 'description' then
+   d:=jsonb_set(d,'{description}',coalesce(to_jsonb((select x.text_body from control.nexloop_consumer_twin_texts x where x.tenant_id=p_tenant and x.twin_id=p_twin
+     and x.version=p_version and x.path='description')),'null'::jsonb));
+  end if;
+  d:=jsonb_set(d,'{hypotheses}',(select jsonb_agg(h||jsonb_build_object('statement',coalesce(to_jsonb((select x.text_body from control.nexloop_consumer_twin_texts x
+     where x.tenant_id=p_tenant and x.twin_id=p_twin and x.version=p_version and x.path='hypotheses/'||(h->>'key'))),'null'::jsonb)) order by i)
+   from jsonb_array_elements(d->'hypotheses') with ordinality y(h,i)));
+ end if;
+ perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
+ return d;
+end $$;
+alter function runtime.nexloop_consumer_twin_definition(text,text,integer) owner to nexloop_owner;
+revoke all on function runtime.nexloop_consumer_twin_definition(text,text,integer) from public;
+
 -- 3. What NX-043 may select: published, not retired, calibrated (D7).
 create function runtime.nexloop_consumer_twin_selectable(p_tenant text,p_twin text,p_version integer) returns boolean
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -161,7 +232,7 @@ revoke all on function runtime.nexloop_consumer_twin_selectable(text,text,intege
 -- 4. The governed owner Actions ------------------------------------------------------------------------------------------------------
 create function control.nexloop_governed_publish_consumer_twin(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare d jsonb:=body->'definition';v_ref text:=body->>'calibration_report_ref';t control.nexloop_consumer_twins;v_version integer;v_digest text;
+declare d jsonb:=body->'definition';v_ref text:=body->>'calibration_report_ref';t control.nexloop_consumer_twins;v_version integer;v_digest text;v_frozen jsonb;
 begin
  if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','definition','calibration_report_ref'))
   or jsonb_typeof(body->'request_id') is distinct from 'string' or char_length(body->>'request_id') not between 1 and 200
@@ -171,8 +242,11 @@ begin
   raise exception 'consumer twin: invalid' using errcode='22023';end if;
  if p_world is distinct from 'real' then raise exception 'consumer twin: owner_world_only' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
- -- The digest is sha256 of the jsonb text form (nexloop_eios.consumer_twins.definition_digest mirrors it).
- v_digest:=encode(sha256(convert_to(d::text,'UTF8')),'hex');
+ if not exists(select 1 from control.nexloop_twin_generators g where g.generator_version=d->>'generator_version') then
+  raise exception 'consumer twin: generator_unknown' using errcode='22023';end if;
+ -- The digest is sha256 of the frozen form's jsonb text (texts as hashes, numbers normalised; nexloop_eios.consumer_twins mirrors it).
+ v_frozen:=runtime.nexloop_consumer_twin_redact(d);
+ v_digest:=encode(sha256(convert_to(v_frozen::text,'UTF8')),'hex');
  -- Serialise the request first so that a concurrent retry replays instead of hitting the unique key.
  perform pg_advisory_xact_lock(hashtextextended('nexloop:consumer-twin-request:'||p_tenant||':'||(body->>'request_id'),0));
  -- Idempotent per request: the same request gives the same version; the same request with another definition is refused.
@@ -189,8 +263,14 @@ begin
  -- D7: a new version has no calibration event, so it is uncalibrated - with or without a report reference.
  insert into control.nexloop_consumer_twins(tenant_id,twin_id,version,definition,definition_digest,generator_version,calibration_report_ref,
    request_id,published_by)
-  values(p_tenant,d->>'twin_id',v_version,d,v_digest,d->>'generator_version',v_ref,body->>'request_id',p_principal)
+  values(p_tenant,d->>'twin_id',v_version,v_frozen,v_digest,d->>'generator_version',v_ref,body->>'request_id',p_principal)
   returning * into t;
+ -- D5: the texts, erasable; the frozen definition keeps their hashes.
+ insert into control.nexloop_consumer_twin_texts(tenant_id,twin_id,version,path,text_sha256,text_body)
+  select p_tenant,t.twin_id,t.version,'description',encode(sha256(convert_to(d->>'description','UTF8')),'hex'),d->>'description' where d ? 'description'
+  union all
+  select p_tenant,t.twin_id,t.version,'hypotheses/'||(h->>'key'),encode(sha256(convert_to(h->>'statement','UTF8')),'hex'),h->>'statement'
+   from jsonb_array_elements(d->'hypotheses') h;
  insert into control.nexloop_consumer_twin_events(tenant_id,twin_id,version,status,recorded_by,request_id)
   values(p_tenant,t.twin_id,t.version,'published',p_principal,body->>'request_id');
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
@@ -234,6 +314,44 @@ end $$;
 alter function control.nexloop_governed_retire_consumer_twin(text,text,text,text,text,jsonb) owner to nexloop_owner;
 revoke all on function control.nexloop_governed_retire_consumer_twin(text,text,text,text,text,jsonb) from public;
 
+-- D5: the owner erases a version's free texts (description, statements); the hashes, the frozen definition and its digest stay.
+create function control.nexloop_governed_erase_consumer_twin_text(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v_done integer;v_prior integer;
+begin
+ if jsonb_typeof(body) is distinct from 'object' or exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','twin_id','version','reason'))
+  or jsonb_typeof(body->'request_id') is distinct from 'string' or char_length(body->>'request_id') not between 1 and 200
+  or coalesce(body->>'twin_id','')!~'^[a-z][a-z0-9_.-]{0,63}$' or jsonb_typeof(body->'version') is distinct from 'number'
+  or (body->>'version')!~'^[0-9]{1,9}$' or (body->>'version')::integer<1
+  or jsonb_typeof(body->'reason') is distinct from 'string' or char_length(btrim(body->>'reason')) not between 1 and 500 then
+  raise exception 'consumer twin: invalid' using errcode='22023';end if;
+ if p_world is distinct from 'real' then raise exception 'consumer twin: owner_world_only' using errcode='22023';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ perform pg_advisory_xact_lock(hashtextextended('nexloop:consumer-twin-request:'||p_tenant||':'||(body->>'request_id'),0));
+ -- A retried request replays (its texts are erased under this request id).
+ select count(*) into v_prior from control.nexloop_consumer_twin_texts where tenant_id=p_tenant and erase_request_id=body->>'request_id';
+ if v_prior>0 then
+  if exists(select 1 from control.nexloop_consumer_twin_texts where tenant_id=p_tenant and erase_request_id=body->>'request_id'
+    and (twin_id,version) is distinct from (body->>'twin_id',(body->>'version')::integer)) then
+   raise exception 'consumer twin: request_reused' using errcode='22023';end if;
+  return jsonb_build_object('twin_id',body->>'twin_id','version',(body->>'version')::integer,'erased',v_prior,'replayed',true);
+ end if;
+ perform 1 from control.nexloop_consumer_twins where tenant_id=p_tenant and twin_id=body->>'twin_id' and version=(body->>'version')::integer for share;
+ if not found then raise exception 'consumer twin: not_found' using errcode='22023';end if;
+ update control.nexloop_consumer_twin_texts set text_body=null,erased_at=clock_timestamp(),erased_by=p_principal,erase_reason=btrim(body->>'reason'),
+   erase_request_id=body->>'request_id'
+  where tenant_id=p_tenant and twin_id=body->>'twin_id' and version=(body->>'version')::integer and text_body is not null;
+ get diagnostics v_done=row_count;
+ if v_done=0 then raise exception 'consumer twin: already_erased' using errcode='22023';end if;
+ insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
+  values('consumer-twin:erase-text:'||(body->>'twin_id')||':'||(body->>'version')||':'||md5(p_tenant||(body->>'request_id')),'nexloop.consumer_twin.text_erased',p_tenant,
+   p_principal,'consumer_twin',p_intent,jsonb_build_object('twin_id',body->>'twin_id','version',(body->>'version')::integer,'erased',v_done),clock_timestamp());
+ return jsonb_build_object('twin_id',body->>'twin_id','version',(body->>'version')::integer,'erased',v_done,'replayed',false);
+end $$;
+alter function control.nexloop_governed_erase_consumer_twin_text(text,text,text,text,text,jsonb) owner to nexloop_owner;
+revoke all on function control.nexloop_governed_erase_consumer_twin_text(text,text,text,text,text,jsonb) from public;
+
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
  ('consumer_twin.publish','publish_consumer_twin','human','control.nexloop_governed_publish_consumer_twin(text,text,text,text,text,jsonb)','NX-042'),
- ('consumer_twin.retire','retire_consumer_twin','human','control.nexloop_governed_retire_consumer_twin(text,text,text,text,text,jsonb)','NX-042');
+ ('consumer_twin.retire','retire_consumer_twin','human','control.nexloop_governed_retire_consumer_twin(text,text,text,text,text,jsonb)','NX-042'),
+ ('consumer_twin.erase_text','erase_consumer_twin_text','human','control.nexloop_governed_erase_consumer_twin_text(text,text,text,text,text,jsonb)','NX-042');

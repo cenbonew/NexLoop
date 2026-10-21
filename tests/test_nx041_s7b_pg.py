@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 
 from nexloop_eios import consumer_port as P
 from support.tenants import TENANT_A
-from test_nx041_s7_pg import consumers, digest, port, s7  # noqa: F401
+from test_nx041_s7_pg import consumers, digest, port, s7, s7_raw  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
 SIM_PACK = Draft202012Validator(json.loads((ROOT / 'packages/contracts/context-pack-sim.schema.json').read_text()), format_checker=FormatChecker())
@@ -48,8 +48,8 @@ def seed_real_marks(admin, consumer):
             values(%s,'real',%s,'real',7,'zz-real-persona-marker')''', (TENANT_A, consumer))
 
 
-def test_a_sim_run_gets_its_context_from_simulation_sources_only(s7):
-    f = s7
+def test_a_sim_run_gets_its_context_from_simulation_sources_only(s7_raw):
+    f = s7_raw
     c, other = consumers(f['admin'], f['a'])[:2]
     seed_real_marks(f['admin'], c)
     twin = P.TwinStub(seed='ctx-1')
@@ -81,8 +81,8 @@ def test_a_sim_run_gets_its_context_from_simulation_sources_only(s7):
     assert assemble(f, c, limit=3) == pack
 
 
-def test_a_consumer_without_events_gets_an_explicit_insufficient(s7):
-    f = s7
+def test_a_consumer_without_events_gets_an_explicit_insufficient(s7_raw):
+    f = s7_raw
     c = consumers(f['admin'], f['a'])[2]
     f = {**f, 'domain_worker': f['role']('nexloop_domain_worker')}
     pack = assemble(f, c, role='domain_worker')
@@ -90,8 +90,8 @@ def test_a_consumer_without_events_gets_an_explicit_insufficient(s7):
     assert pack['current_event'] is None and pack['evidence'] == [] and pack['insufficient'] == [{'code': 'no_simulated_events', 'section': 'current_event'}]
 
 
-def test_the_sim_entry_refuses_real_test_other_worlds_unknown_consumers_and_other_roles(s7):
-    f = s7
+def test_the_sim_entry_refuses_real_test_other_worlds_unknown_consumers_and_other_roles(s7_raw):
+    f = s7_raw
     c = consumers(f['admin'], f['a'])[0]
     assert assemble(f, c)['consumer_id'] == c  # positive control
     for world, token in (('real', f['token_real']), ('test', f['token_test']), ('real', f['token_a'])):
@@ -128,13 +128,13 @@ def names(src):
     return set(re.findall(r'\b(?:ontology|runtime|control|authz)\.(?:nexloop_)?[a-z0-9_]+', src))
 
 
-def test_the_sim_entry_reads_no_real_source_and_the_real_entries_are_unchanged(s7):
+def test_the_sim_entry_reads_no_real_source_and_the_real_entries_are_unchanged(s7_raw):
     """Guard (review 1.3), next to the behaviour test above: the sim entry and the helpers it calls (one level) have no dynamic SQL,
     name only simulation sources, identity helpers and each other, never a real conversation, message, Claim, object, memory, recall
     or relationship source; every read of the shared persona table carries the world condition. And no migration from this one on
     redefines a real assembly entry (their helpers were redefined in S1/S5, real/test equivalence checked there; see the golden
     regression test_nx041_s7b_v6_golden_pg)."""
-    admin = s7['admin']
+    admin = s7_raw['admin']
     source = lambda sig: admin.execute('select prosrc from pg_proc where oid=%s::regprocedure', (sig,)).fetchone()[0]  # noqa: E731
     entry = source('authz.nexloop_sim_context_command(text,text,text,integer)')
     assert names(entry) <= SIM_SOURCES | set(HELPERS), names(entry) - SIM_SOURCES - set(HELPERS)

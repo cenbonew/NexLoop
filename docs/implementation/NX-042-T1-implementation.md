@@ -2,7 +2,7 @@
 
 **依据**：设计稿 `docs/implementation/NX-042-design.md`（分支 `l5/nx042-043-design`，提交 9154db7a）的 §2、§3.3、§7 T1 和 D1、D4、D5、D7，负责人已于 2026-10-20 按推荐定案。
 
-**迁移**：`0278_nx042_consumer_twins.sql`，临时编号。原定从 0281 起，但本分支基于 6ba7151e，迁移只排到 0274，而 bootstrap 要求编号连续，所以用 0278。集成时由调度员统一重排。
+**迁移**：`0278_nx042_consumer_twins.sql`，临时编号。原定从 0280 起，但本分支基于 6ba7151e，迁移只排到 0274，而 bootstrap 要求编号连续，所以用 0278。集成时由调度员统一重排。
 
 **契约**：`packages/contracts/consumer-twin.schema.json`（`nexloop-consumer-twin/1`），并附示例和 README 说明行。
 
@@ -49,3 +49,15 @@
 - 可能：摘要镜像。`nexloop_eios.consumer_twins.definition_digest` 按 jsonb 的文本形式计算（键先按字节长度、再按字节排序；分隔符为 `, ` 和 `: `），测试核对它与 SQL 算出的结果一致。
 - 可能：replica 模式。冻结触发器能否生效，取决于“只有超级用户能设置 `session_replication_role=replica`”这一前提；冻结无法用 CHECK 表达，所以接受这个前提。
 - 可能：真实内容。只加了上面的粗粒度文本防护；擦除例外需要 ADR，不在本次修复范围内。
+
+## 复核修复（L6 `nx042-t1-fix-verify.md`，调度员 2026-10-21 定案）
+
+- **D5 可擦除文本**：description 和每条假设的 statement 存进旁表 `control.nexloop_consumer_twin_texts`（每条记录 path、文本 sha256、正文、擦除人/时间/原因/请求号）。
+  - 冻结的版本行只保存 `runtime.nexloop_consumer_twin_redact` 的结果：文本替换为 `sha256:<hex>`，数字用 `trim_scale` 规范化。`definition_digest` 对这个冻结形式计算，所以擦除前后摘要不变。
+  - 负责人通过新的受治理 Action `nexloop.consumer_twin.erase_text` / `erase_consumer_twin_text` 擦除某版本的全部自由文本（human、只授予 owner、只能从 real 发起、带审计、按 request 幂等）。旁表的守卫只允许“正文置空并记录擦除信息”这一种更新，不能删除、改写正文或哈希。
+  - `runtime.nexloop_consumer_twin_definition` 返回可读定义，已擦除的文本为 null；决策层参数不受影响。
+  - 正则仍保留，作为第一道拦截。
+  - 清单已同步：business-actions（manifest_version +1）、capabilities（hash 由 `write_hashes` 生成）、system-catalog-names、workbench-roles（owner，`consumer_twins` 分组，版本 +1）、`PROFILES`、`goal_controls`、`workbench_actions_http`、`workbench_roles`、`commercial_fixture`、`test_business_actions`、`test_governed_entry_pg`；register 计数从 92 改为 93。
+- **摘要的数字写法**：SQL 冻结时用 `trim_scale` 规范化数字，Python 镜像按同一规则输出（`Decimal.normalize`，不用科学计数法）。测试用 `2.0e-2` 和 `0.080` 这样的原始 JSON 文本核对两边摘要一致。
+- **生成器受控清单**：新增 `control.nexloop_twin_generators`（生成器名、是否调用模型、预算账号），只登记了 `twin-template/1`（不调用模型）。发布时生成器必须在清单里（否则 `generator_unknown`）；T2 和 T3 按清单判断是否需要模型预算，不再按名字匹配。清单只能由迁移维护。
+- **N1（作废版本仍可写校准事件）**：留给 T5 的写入函数检查；`selectable` 已要求 published，结果正确。
