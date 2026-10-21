@@ -489,6 +489,12 @@
         "ref": "tests/test_review_decisions_pg.py",
         "summary": "S3 人工审核路径的部分证据（合成环境，NX-044，合入 8f2ce3d）：门槛失败时候选保持 pending_review、Schema 不变（test_gate_failure_keeps_candidate_pending_with_reason_and_no_schema_change）。S6 自动演进路径（NX-040）未实现，状态保持 not_run。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "CI seq 43（927c1ba6）",
+        "summary": "状态保持 not_run：还没有 stage 实测；本地与 CI 证据：test_evolution_e4_pg、e5_pg、v1_pg、v2_pg、v3_pg、test_semantic_release_pg 中 real 受保护表 digest 不变的断言，在 927c1ba6 的 CI seq 43 全量通过（5261/0）。原记录中“S6 自动演进路径未实现”已过时：NX-038 E1–E5、NX-039 V1–V6、NX-040 F1–F4 已合入并部署。stage 实测要 test world 的 L0+L1 评估和一个被拒候选，执行人：调度员；判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
       }
     ]
   },
@@ -506,6 +512,12 @@
         "ref": "tests/test_review_type_actions_pg.py",
         "summary": "S3 人工审核路径的部分证据（合成环境，NX-044，合入 8f2ce3d）：定义发布与授权分离（租户授权指纹不变、新类型无授权事实），被篡改、多余或改名的新类型 Action 在 SQL 中被拒（test_non_canonical_new_type_actions_are_refused_by_sql）。S6 自动演进路径（NX-040）未实现，状态保持 not_run。",
         "recorded_at": "2026-10-11T10:15:47.044820+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "CI seq 43（927c1ba6）",
+        "summary": "状态保持 not_run：还没有 stage 实测；本地与 CI 证据：test_evolution_e4_pg、e5_pg 与 test_nx040_schema_publication_pg（F3 提权负例、定义与授权分开发布）、test_nx040_f4_pg，在 CI seq 43 全量通过。原记录中“S6 自动演进路径未实现”已过时。stage 实测要提交一个附带提权 Action 的 ontology_schema 候选，在候选写入、proposal 冻结、发布门槛三处都被拒；前提是补上 Schema proposal 审核与发布的命令行工具。执行人：调度员；判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
       }
     ]
   },
@@ -934,7 +946,14 @@
     "given": "Twin调用真实消息Action",
     "expected": "服务端拒绝，即使模型伪造mode",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "9be82fa0",
+        "summary": "部分证据（测试库，不是 stage）：NX-042 T7 中的 AT-046 完整端到端验收（含孪生），L3；以及 185c7029 的 D10 三凭据与模拟进程组完整 Pi Run（L3）。两者都不在 main（发布 26）中。状态保持 not_run：发布 27 未部署，stage 实测要负责人启用模拟进程组。执行人：调度员；判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-047",
@@ -961,7 +980,14 @@
     "given": "同消费者相关对话跨分组",
     "expected": "检测并重分组，冻结留出集",
     "status": "not_run",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "CI seq 43（927c1ba6）",
+        "summary": "状态保持 not_run：还没有 stage 实测；本地与 CI 证据：test_evolution_e4_pg（按消费者分组冻结）、test_evolution_v1_pg 与 v5_pg（开评前复查返回 leakage_detected），在 CI seq 43 全量通过。待负责人判定的解释：规格的“检测并重分组”在实现中是 NX-039 检测后返回 leakage_detected，由 NX-038 按消费者重新冻结，NX-039 本身不重分组。执行人：调度员；判定人：负责人。",
+        "recorded_at": "2026-10-21T12:00:00+08:00"
+      }
+    ]
   },
   {
     "id": "AT-049",
