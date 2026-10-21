@@ -155,7 +155,10 @@ docker compose -p nexloop-simulation ps
 - **孪生 observe/act**：孪生端口（`authz.nexloop_twin_*`、`nexloop_twin_port`）从第八批起具备。要跑这一步，需要先满足以下条件（缺任何一项，这一步都是 blocked，不算通过）：
   1. **已发布的 consumer twin**：twin 属于租户，不属于某个 world，必须是 published 状态，并且生成器不调用模型（D6）。最简单的做法是 prepare 时加上 `inputs.publish_twin`（`true`，或者 `{"twin_id": "at046-synthetic-<名字>"}`；默认 `at046-synthetic-trial`，名字必须带 `at046-synthetic-` 前缀，否则拒绝）：prepare 会经负责人的受治理 Action `publish_consumer_twin`，发布契约示例中的合成 twin（`packages/contracts/examples/consumer-twin.valid.json`，生成器 `twin-template/1`）。结果里的 `twin_published` 步骤给出 `twin_id` 和 `version`。同一份定义重复执行时只会回放，不会发布第二个版本。也可以在工作台手工执行 `publish_consumer_twin`。校准（`twin_calibrate.py`，或 Action `calibrate_consumer_twin`）不是必需的，未校准的 twin 也能绑定，只是事件的 provenance 中会写 `uncalibrated`。
      **验收结束后**执行 `at046_stage.py cleanup --config …`（`inputs.twin` 填这个 twin 的 `twin_id` 和 `version`，负责人口令走 stdin），经负责人的 `retire_consumer_twin` 将它作废。cleanup 只会作废带前缀的 twin，重复执行只会回放。作废后它不能再被绑定（L6 第十二批复核 4.1）。
-     **会不会被 NX-043 的 real 实验选中**：不会自动选中。实验从不自己挑 twin，twin 由负责人在实验登记里显式写明。screening 和 shadow 阶段要求所写的 twin 已发布、未作废并且已校准（D9）。这个合成 twin 没有校准，作废后更不可用，所以这两个阶段都用不了它。online 阶段按 0309 不再检查 twin（连作废的也放行），但 online 阶段 twin 本来就不参与任何决定。这个“online 连作废也放行”的现象已作为后续事项报给调度员（NX-043 的范围）。
+     **会不会被 NX-043 的 real 实验选中**：不会（0311 修复之后）。实验从不自己挑 twin，twin 由负责人在实验登记里写明；在此基础上还有三道限制：
+     - online 和 shadow 阶段的登记，只要 twin 名带 `at046-synthetic-` 前缀，就在 register 时直接拒绝（`twin_synthetic`），不管它是否已作废；
+     - screening 和 shadow 阶段要求 twin 已发布、未作废并且已校准（D9），这个合成 twin 没有校准；
+     - online 阶段仍然豁免校准，但从 0311 起要求 twin 未被作废，已作废的 twin 在 start、分配和 guard 时都会被拒（`twin_not_calibrated`）。0311 之前，online 连已作废的 twin 也放行，那时只作废并不能把它挡在 online 实验之外（L6 第十二批修复复核）。
   2. **该 world 的 twin 凭据**：`sim_world_credentials.py` 的 `uses` 要包含 `twin`，并经第 8 步装到 APP_HOST。
   3. **twin 端口的 DSN**：`sim_dsn_files.py` 会写出 `sim_twin_port_dsn`；pg_hba 的模拟行从第九批起已包含 `nexloop_twin_port`；它的口令在 bootstrap 窗口设置。
   4. **intake 配置（第 13 步）**：
