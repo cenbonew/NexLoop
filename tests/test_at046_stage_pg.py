@@ -142,6 +142,9 @@ class FakeOwner:
             return 200, {'world': 'sim:' + str(uuid.UUID(int=5, version=4)), 'created': True}
         if path.endswith('publish_sim_catalog'):
             return 200, {'world': body['world'], 'actions': ['eios:action:nexloop.service.request:1'], 'copied': 1, 'already_present': 0}
+        if path.endswith('publish_consumer_twin'):
+            self.twin = (body, extra)
+            return 200, {'twin_id': body['definition']['twin_id'], 'version': 1, 'status': 'published', 'published': True}
         return 200, {'generation_id': 'g-1', 'counts': {'consumers': 3}}
 
 
@@ -297,3 +300,39 @@ def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp
     assert part('intake', NoProbe(intake=lambda *a: ('t', 'r')), intake_path)[0] == 2
     assert part('intake', NoProbe(intake=lambda *a: ('t', 'r')), forged('before', lambda d: chain_of(d).update(world='sim:' + str(uuid.uuid4()))))[0] == 2
     assert part('intake', NoProbe(), before_path)[0] == 1  # no intake port: the Run blocks
+
+
+def test_the_periodic_system_bookkeeping_is_excluded_by_name_and_reported(admin, pg, tmp_path):
+    """Stage finding 2026-10-22: the first stage run reported control.nexloop_alert_state and runtime.nexloop_orphan_sweeps as changed -
+    tables the alert evaluator and the orphan sweeper write on a timer whether AT-046 runs or not. They leave the comparison by name,
+    each with its reason, and the result lists them; every other world-real table still counts."""
+    world_with_data(admin)
+    tables = {t for (t,) in admin.execute("""select table_schema||'.'||table_name from information_schema.columns where column_name='world'
+        and table_schema||'.'||table_name = any(%s)""", (list(A.EXCLUDED),)).fetchall()}
+    assert tables == set(A.EXCLUDED)  # both have a world column: without the exclusion they would be compared
+    assert all(len(reason) > 20 for reason in A.EXCLUDED.values())
+    ports = A.Ports(probe=lambda: psycopg.connect(pg, autocommit=True, options='-c default_transaction_read_only=on'))
+    digests = A.real_digest(ports, TENANT_A)
+    assert not set(A.EXCLUDED) & set(digests) and 'control.nexloop_action_definitions' in digests
+
+
+def test_prepare_can_publish_the_synthetic_twin_for_the_run_phase(tmp_path):
+    """Stage finding 2026-10-22: the twin step blocked - no published consumer twin for inputs.twin. With inputs.publish_twin, prepare
+    publishes the contract example's twin (generator twin-template/1, no model) through the owner's governed Action; the definition is
+    one the workbench accepts, the Idempotency-Key (the governed request id) is fixed per definition so a rerun replays, and the result
+    names twin_id and version for inputs.twin. Without it nothing is published."""
+    from nexloop_eios import consumer_twins
+    owner = FakeOwner()
+    code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin={'twin_id': 'at046.synthetic'})
+    assert code == 0 and owner.calls[-1] == '/api/v1/workbench/actions/publish_consumer_twin'
+    body, headers = owner.twin
+    assert set(body) == {'definition'} and body['definition']['twin_id'] == 'at046.synthetic' and body['definition']['generator_version'] == 'twin-template/1'
+    assert body['definition']['schema'] == 'nexloop-consumer-twin/1' and not consumer_twins.definition_problems(body['definition'])
+    assert steps(doc)['twin_published']['observed'] == {'status': 200, 'twin_id': 'at046.synthetic', 'version': 1, 'twin_status': 'published'}
+    first_key = headers['Idempotency-Key']
+    again = FakeOwner()
+    run(tmp_path, 'prepare', A.Ports(owner=again), publish_twin={'twin_id': 'at046.synthetic'})
+    assert again.twin[1]['Idempotency-Key'] == first_key  # the same definition: the same request id, a replay
+    plain = FakeOwner()
+    code, doc = run(tmp_path, 'prepare', A.Ports(owner=plain))
+    assert code == 0 and not any(c.endswith('publish_consumer_twin') for c in plain.calls) and 'twin_published' not in steps(doc)

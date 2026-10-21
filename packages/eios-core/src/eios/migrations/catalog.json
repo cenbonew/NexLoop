@@ -1545,6 +1545,11 @@
       "version": "0309",
       "name": "0309_nx043_online_open.sql",
       "sha256": "7276b0b7157f7274ef45ec4cf97fe1f0870b4c207b596b082622b20af4b5946f"
+    },
+    {
+      "version": "0310",
+      "name": "0310_sim_worker_dispatch_controls.sql",
+      "sha256": "60ae9d5678c87e4533355600b7eed1a47218ff3147204af8a3774e2df71de2be"
     }
   ]
 }
