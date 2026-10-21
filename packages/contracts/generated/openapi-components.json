@@ -7533,6 +7533,115 @@
           }
         }
       },
+      "TwinSample": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:twin-sample",
+        "title": "twin-sample",
+        "description": "NX-042 T2 (design §2, §5, D1, D4, D6, D7): one twin instance of a seeded population sample in a simulation world. The decision layer gives every behaviour as an interval at its coverage (D4: never a single probability) from the twin version's parameters, and one simulated outcome drawn inside it; the probability drawn is internal and never output. The same seed and twin version give byte-identical samples. Every sample is a simulated output (origin twin, data_mode simulation) carrying the twin version and its calibration status - an uncalibrated twin runs, its output says so, and NX-043 cannot select it (D7). Never a fact, a user statement or a Claim.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "world",
+          "run_id",
+          "twin_id",
+          "twin_version",
+          "seed",
+          "instance",
+          "consumer_id",
+          "behaviors",
+          "calibration_status",
+          "data_mode",
+          "output_kind",
+          "origin"
+        ],
+        "properties": {
+          "schema": {
+            "const": "nexloop-twin-sample/1"
+          },
+          "world": {
+            "type": "string",
+            "pattern": "^(sim|shadow):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "twin_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+          },
+          "twin_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seed": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+          },
+          "instance": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "behaviors": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 32,
+            "propertyNames": {
+              "pattern": "^[a-z][a-z0-9_]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "low",
+                "high",
+                "coverage",
+                "simulated_outcome"
+              ],
+              "properties": {
+                "low": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "high": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "coverage": {
+                  "type": "number",
+                  "exclusiveMinimum": 0.5,
+                  "exclusiveMaximum": 1
+                },
+                "simulated_outcome": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "calibration_status": {
+            "enum": [
+              "uncalibrated",
+              "calibrated"
+            ]
+          },
+          "data_mode": {
+            "const": "simulation"
+          },
+          "output_kind": {
+            "const": "simulated_output"
+          },
+          "origin": {
+            "const": "twin"
+          }
+        }
+      },
       "WorkbenchArtifacts": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:workbench-artifacts",
@@ -8559,6 +8668,7 @@
     "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
     "schema-proposal.schema.json": "034fa3bf47735e115ef2ffbf86d281332790b9ccd5f43a927bd080187f1836df",
     "trajectory-sample.schema.json": "0edf634efeb3811dbf267b4874ded44ccc2b35ad7bb8d8a7cc5dbb0f2a130d5c",
+    "twin-sample.schema.json": "378b41be815e0027d03f2a90c253499d2406c19f03810e6c0e48be80776f6fd9",
     "workbench-artifacts.schema.json": "ee3e94da47800e7fea52d7dd58a7353382f8e46c4e5f6b5797fc4074e9d3d760",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",
     "workbench-object-neighbors.schema.json": "658414b148404f7d62a16564eee47bdf32559b83b04a96a6d29a02e7c9959fc0",
