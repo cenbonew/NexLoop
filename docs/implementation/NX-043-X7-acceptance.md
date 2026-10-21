@@ -21,7 +21,7 @@
 | 4 | 选用的孪生未校准时，screening 不能开始 | D9 | run：`screening_start_needs_a_calibrated_twin`（期望 409 `twin_not_calibrated`） | 同上 | stage 可验，需要 `inputs.screening` |
 | 5 | 实验开始不打开真实派发，三层开关不变 | §4、§9 建议 1、D3 | run：`shadow_experiment_started`；probe-after：`real_dispatch_switches_unchanged` | `test_nx043_experiments_pg`、guard 测试 | stage 可验 |
 | 6 | 影子复制按租户开关，默认关闭，只复制入站事件的哈希和 Claim 类型 | D7 | run：`shadow_copy_on`；probe-after：`shadow_copy_counts`；report：`shadow_copy_off` | `test_nx043_shadow_pg` | stage 可验，需要 real 入站流量 |
-| 7 | 影子决策只记录、不发送；影子世界零 provider 请求 | D7、§9 建议 5、AT-046 | decide：`shadow_decisions_recorded`；probe-after：`shadow_sends_nothing` | 同上 | stage 可验，需要 sim_worker 角色和探针在同一进程 |
+| 7 | 影子决策只记录、不发送；影子世界零 provider 请求 | D7、§9 建议 5、AT-046 | 拆成跨主机的几步（按 AT-046 的做法）：shadow-keys（DATA_HOST 探针）：`shadow_events_copied`；decide（APP_HOST，只用 sim_worker）：`shadow_decisions_recorded`；probe-after（DATA_HOST）：`shadow_decisions_landed`、`shadow_sends_nothing`；merge：`nx043-shadow` | 同上 | stage 可验 |
 | 8 | 停止规则：到结束时间由护栏自动停止 | D4、§5、§9 建议 2 | probe-after：`guard_stops_at_the_end`（等待告警评估服务的 tick，reason 为 `guardrail: ended`） | `test_nx043_guardrails_pg`、`test_nx043_guard_wiring_pg` | stage 可验 |
 | 9 | 其他护栏：拒绝率、对账异常、孪生被撤回 | D4 | — | 同上 | 只有本地覆盖（stage 上需要注入真实越界） |
 | 10 | 实验预算用尽即阻断新消耗 | D5、§9 建议 3 | gaps：`experiment_budget`（blocked） | `test_nx043_guard_wiring_pg` | **阻塞**：需要实验世界里的模拟 Run（AT-046 的 run 链路） |
@@ -30,18 +30,36 @@
 | 13 | 报告只含聚合数，冻结后不可修改，不能反推个人；只有 owner 能取 | §6、X3 4.x、报告 Action | report：`shadow_report_aggregates_only` | `test_nx043_report_action_pg` | stage 可验 |
 | 14 | real 没有任何变化 | AT-046、§8 | probe-after：`real_side_unchanged`（每张带 world 列的表的 world-real 行摘要，外加 real 服务凭据和授权事实） | 本地测试 | stage 可验 |
 | 15 | 结论不写成因果 | §6 | report（报告的 statement 字段） | `test_nx043_reports_pg` | 本地覆盖 |
+| 17 | 胜出策略不自动推广；推广由负责人决定，作为新版本走正式发布链 | D8 | —（stage 上没有操作） | `test_no_path_from_a_report_or_the_guard_to_a_strategy_publication`：报告、报告 Action、护栏的函数体里，没有写策略版本或策略事件的语句，也没有调用任何发布 | 本地覆盖 |
 | 16 | online 阶段 | §2 | gaps：`online_stage`（blocked） | — | **后续**：等孪生校准（NX-042 T5）和 X4 接线 |
 
 ## stage 上的执行顺序
 
+每一步的结果都带同一个 `run_nonce`，取自私有状态文件里的 run 编号。`probe-after` 和 `merge` 用 `s6_common.load_chain` 核对 `--from` 给的各步：属于同一次运行（nonce 相同）、每步只出现一次、执行时间按链的顺序。私有状态文件和 key 文件需要由调度员在 DATA_HOST 和 APP_HOST 之间拷贝，两者都是 0600，里面只有 id 和哈希。
+
 1. `prepare`（owner）。
-2. `run`（owner）：screening 开始被拒，shadow 开始，影子复制打开。
+2. `run`（owner）：screening 开始被拒；shadow 实验开始；影子复制打开。
 3. 由调度员让 real 入站流量进来，例如合成 webchat 消费者。
-4. `probe-before`（DATA_HOST，只读）：要在这批流量之后取，因为这批 real 入站消息正是复制的来源，不能把它们算成“real 变了”。
-5. `decide`（sim worker 和探针在同一进程；做不到就记为 blocked）。
-6. `report`（owner；最后会把影子复制关掉）。
-7. 等到 `ends_in_minutes` 之后：`probe-after --from <probe-before 的结果>`，等待护栏停止。
-8. `gaps`：阻塞项，由调度员登记。
+4. `probe-before`（DATA_HOST，只读）：先等 real 侧安静下来，即该租户没有未结束的 real job，并且在 `quiet_seconds` 内 world-real 摘要不再变化，然后才取基准（L6 审查 3.2）。这批入站消息引起的 real 自动回复因此都包含在基准里，不会被误报为“real 变了”。选择等待而不是改用不触发回复的注入方式，理由是：webchat 入站会经过 relay 和 Run，如果用 synthetic persona 规避回复，与真实流量路径不一致，也取决于 relay 的行为；等待则不改变真实路径。
+5. `shadow-keys`（DATA_HOST，只读）：把已复制事件的 key 写进私有文件。key 是哈希，不含个人信息。
+6. `decide`（APP_HOST，只用 sim_worker）：读取拷贝过来的 key 文件，对每个 key 记录候选策略的决策。
+7. `report`（owner）：影子报告取**昨天**这一整天（L6 审查 4.1）。报告第一次读取就会冻结，所以不能取还没过完的当天。最后关掉影子复制。
+8. 等到 `ends_in_minutes` 之后，执行 `probe-after --from <probe-before> --from <shadow-keys> --from <decide>`（DATA_HOST）：等待护栏停止，核对决策已落库，并比较摘要。
+9. `merge --from` 以上四步：没有连接，合成一份 `nx043-shadow` 结果。
+10. `gaps`：阻塞项，由调度员登记。
+
+## 审查（L6 `nx043-x7-review.md`）的处理
+
+- **2.1（确认级）**：第 7 项按 AT-046 的拆法分成 shadow-keys（DATA_HOST）、decide（APP_HOST）、probe-after（DATA_HOST）三步，最后 merge。decide 不再需要探针。
+- **3.1**：nonce 方案写成了共用函数，放在 `scripts/acceptance/s6_common.py`：
+  - `Result(..., nonce=...)` 会在结果里写 `run_nonce`；没有设置时不写，所以其他脚本的输出不受影响；
+  - `new_nonce()` 生成一个 nonce；
+  - `load_chain(paths, prefix=, order=, nonce=)` 核对同一个 nonce、每步只出现一次、只包含这条链里的步骤、执行时间按链的顺序，返回合并后的步骤和阻塞项。
+
+  AT-046 可以直接复用这套函数，由 L2 接入。
+- **1.1**：清单新增第 17 项 D8，并补了一条结构测试。
+- **3.2、4.1**：见上面的执行顺序第 4 步和第 7 步。
+- **2.2（可选）**：`shadow_sends_nothing` 的 0 是由效应表的 CHECK 从结构上保证的。真正能说明决策只停在模拟里的，是新增的 `shadow_decisions_landed`：决策都在影子世界里，并且只有替身意图。
 
 ## 发现
 
