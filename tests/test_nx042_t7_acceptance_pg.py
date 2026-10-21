@@ -166,6 +166,7 @@ def test_twin_events_and_calibration_conclusions_are_never_facts_or_claims(t7):
     assert pack['data_mode'] == 'simulation' and pack['world'] == f['a']
     # A calibration conclusion (what T5 writes after checking its report) is a control record of the version.
     with admin.transaction():
+        admin.execute('set local session_replication_role=replica')  # a calibration event as T5 writes it; T5's report check is T5's test
         admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
         admin.execute("""insert into control.nexloop_consumer_twin_calibrations(tenant_id,twin_id,version,report_ref,verdict,recorded_by,request_id)
             values(%s,%s,1,%s,'passed','t5-test','cal-fact')""", (TENANT_A, TWIN, 'twin-calibration:' + 'c' * 64))
