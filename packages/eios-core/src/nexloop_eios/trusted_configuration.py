@@ -90,9 +90,10 @@ def validate_manifest(value):
             if item['reference'] in seen or ('credential',binding.credential_id) in seen:raise ValueError()
             seen.update([item['reference'],('credential',binding.credential_id)])
             if type(item['worlds']) is not list or not 1<=len(item['worlds'])<=16 or len(set(item['worlds']))!=len(item['worlds']) or any(type(w) is not str or not w or len(w)>80 for w in item['worlds']):raise ValueError()
-            # NX-041 D10: a credential of one simulation world names its use (api, worker, agent); real and test credentials name none.
+            # NX-041 D10: a credential of one simulation world names its use (api, worker, agent; twin since the owner's extension of
+            # 2026-10-21); real and test credentials name none.
             if len(item['worlds'])==1 and world_kind(item['worlds'][0]) in ('simulation','shadow'):
-                if item.get('sim_use') not in ('api','worker','agent'):raise ValueError()
+                if item.get('sim_use') not in ('api','worker','agent','twin'):raise ValueError()
             elif 'sim_use' in item:raise ValueError()
             expiry=datetime.fromisoformat(item['expires_at'])
             if expiry.tzinfo is None or expiry<=datetime.now(UTC) or item['status'] not in ('active','revoked'):raise ValueError()

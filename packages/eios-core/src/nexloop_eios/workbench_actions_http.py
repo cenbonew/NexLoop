@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from eios.identity.errors import CredentialInvalid
 from eios.identity.ports import TrustedIdentityOperator
 from eios.identity.sessions import BrowserSessionService
+from nexloop_eios import consumer_twins
 from nexloop_eios.browser_http import WORKBENCH_COOKIE
 from nexloop_eios.goal_controls import CAPABILITIES
 
@@ -68,6 +69,12 @@ def _text(value):
 
 
 # operation → its fields (each with a validator); every operation is a registered human capability (0150).
+def _calibration_windows(v):
+    """NX-042 T5: 1-3 windows {split_at YYYY-MM-DD, span_days 28|56|84}; overlap and dates are checked in SQL."""
+    return (type(v) is list and 1<=len(v)<=3 and all(type(w) is dict and set(w)=={'split_at','span_days'} and type(w['split_at']) is str
+        and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}',w['split_at']) and type(w['span_days']) is int and w['span_days'] in (28,56,84) for w in v))
+
+
 OPERATIONS={
     'set_control':{'scope_kind':_scope,'scope_ref':_text,'paused':_bool,'reason':_reason},
     'release_contact_restriction':{'consumer_id':_id(_HEX),'reason':_reason},
@@ -153,6 +160,18 @@ OPERATIONS={
         'action':lambda v:v if v in ('advance','pause','resume','set_rate') else (_ for _ in ()).throw(ValueError('action')),
         'seconds':lambda v:v if v is None or (type(v) is int and 1<=v<=315360000) else (_ for _ in ()).throw(ValueError('seconds')),
         'rate':lambda v:v if v is None or (type(v) in (int,float) and 0<v<=100000) else (_ for _ in ()).throw(ValueError('rate')),'reason':_reason},
+    # NX-042 T1 (owner only): a consumer twin version (definition checked in SQL) or its retirement.
+    'publish_consumer_twin':{'definition':lambda v:v if type(v) is dict and v.get('schema')=='nexloop-consumer-twin/1' and not consumer_twins.definition_problems(v)
+        else (_ for _ in ()).throw(ValueError('definition')),
+        'calibration_report_ref':lambda v:v if v is None or (type(v) is str and re.fullmatch(r'twin-calibration:[0-9a-f]{64}',v)) else (_ for _ in ()).throw(ValueError('report'))},
+    'retire_consumer_twin':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
+        'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
+    'erase_consumer_twin_text':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
+        'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),'reason':_reason},
+    # NX-042 T5 (owner only): calibrate a twin version over 1-3 non-overlapping calibration windows [split_at, split_at + span_days) (UTC days).
+    'calibrate_consumer_twin':{'twin_id':_id(re.compile(r'[a-z][a-z0-9_.-]{0,63}')),
+        'version':lambda v:v if type(v) is int and 1<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),
+        'windows':lambda v:v if _calibration_windows(v) else (_ for _ in ()).throw(ValueError('windows'))},
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
@@ -260,7 +279,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|consumer twin|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

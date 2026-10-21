@@ -1,0 +1,85 @@
+{
+  "schema": "nexloop-stage-release/1",
+  "release": {"sha": "0000000000000000000000000000000000000000", "release_id": null},
+  "hosts": {
+    "ci": {"ssh": "<CI_HOST_SSH_ALIAS>"},
+    "app": {"ssh": "<APP_HOST_SSH_ALIAS>"},
+    "data": {"ssh": "<DATA_HOST_SSH_ALIAS>"}
+  },
+  "users": {"ci": "<CI_USER>", "release": "<RELEASE_USER>", "deploy": "<DEPLOY_USER>"},
+  "vars": {
+    "ci_checkout": "<CI_CHECKOUT_DIR>",
+    "ci_queue": "<CI_QUEUE_DIR>",
+    "handoff_root": "<HANDOFF_ROOT>",
+    "release_root": "<RELEASE_ROOT>",
+    "release_tools": "<RELEASE_TOOLS_CHECKOUT_AT_SHA>",
+    "signing_key": "<RELEASE_SIGNING_KEY_PATH>",
+    "allowed_signers": "<ALLOWED_SIGNERS_PATH>",
+    "nexloop_root": "<NEXLOOP_ROOT_ON_APP_HOST>",
+    "app_checkout": "<APP_RELEASE_CHECKOUT>",
+    "stage_env": "<PRIVATE_STAGE_ENV_PATH>",
+    "compose_file": "<COMPOSE_FILE_PATH>",
+    "gate_dir": "<NEW_GATE_DIR>",
+    "planned_ports": "<P1,P2,...>",
+    "readonly_dsn_file": "<READ_ONLY_DSN_FILE>",
+    "migration_dsn_file": "<MIGRATION_DSN_FILE>",
+    "configurator_dsn_file": "<CONFIGURATOR_DSN_FILE>",
+    "members_file": "<WORKBENCH_MEMBERS_FILE>",
+    "tenant_id": "<TENANT_ID>"
+  },
+  "log": "<LOCAL_LOG_PATH>.jsonl",
+  "precheck_sql": "<AUDIT_PRECHECK_SQL_LIST>.json",
+  "expected_gate_failures": ["<doctor check name expected to fail>"],
+  "max_log_errors": 0,
+  "definer_ok_pattern": "\\b0 problems\\b",
+  "commands": {
+    "build": {
+      "ci_result_sha256": {"host": "ci", "user": "ci", "argv": ["sh", "-c", "sha256sum \"$(ls -d {ci_queue}/results/{sha}/attempt-* | sort -t- -k2 -n | tail -1)/result.json\""]},
+      "build": {"host": "ci", "user": "ci", "argv": ["sh", "-c", "cd {ci_checkout} && uv run --frozen python scripts/release/release.py build --sha {sha} --ci-result \"$(ls -d {ci_queue}/results/{sha}/attempt-* | sort -t- -k2 -n | tail -1)/result.json\" --release-root {handoff_root}"]}
+    },
+    "sign": {
+      "ci_result_sha256": {"host": "ci", "user": "ci", "argv": ["sh", "-c", "sha256sum \"$(ls -d {ci_queue}/results/{sha}/attempt-* | sort -t- -k2 -n | tail -1)/result.json\""]},
+      "on_main": {"host": "ci", "user": "ci", "argv": ["git", "-C", "{ci_checkout}", "merge-base", "--is-ancestor", "{sha}", "origin/main"]},
+      "sign": {"host": "ci", "user": "release", "argv": ["python3", "{release_tools}/scripts/release/release.py", "sign", "--release-dir", "{release_root}/releases/{release_id}", "--key", "{signing_key}"]},
+      "seal": {"host": "ci", "user": "release", "argv": ["python3", "{release_tools}/scripts/release/archive.py", "seal", "--root", "{release_root}", "--release-id", "{release_id}", "--allowed-signers", "{allowed_signers}"]},
+      "check": {"host": "ci", "user": "release", "argv": ["python3", "{release_tools}/scripts/release/archive.py", "check", "--root", "{release_root}", "--release-id", "{release_id}", "--allowed-signers", "{allowed_signers}"]}
+    },
+    "backup": {
+      "backup": {"host": "data", "argv": ["sudo", "-n", "systemctl", "start", "nexloop-pg-diff.service"]}
+    },
+    "precheck": {
+      "sql": {"host": "data", "user": "deploy", "argv": ["sh", "-c", "psql \"$(cat {readonly_dsn_file})\" -X -At -v ON_ERROR_STOP=1 -c \"$0\""]}
+    },
+    "migrate": {
+      "gate": {"host": "app", "user": "deploy", "argv": ["<migration gate command printing JSON with allowed>"]},
+      "migrate": {"host": "app", "user": "deploy", "argv": ["<migration command printing JSON with ok>"]},
+      "definer": {"host": "app", "user": "deploy", "argv": ["<definer check command printing '... 0 problems'>"]}
+    },
+    "publish": {
+      "dry_run": {"host": "app", "user": "deploy", "argv": ["python3", "{app_checkout}/scripts/deploy/stage_secrets.py", "publish", "--dry-run", "<arguments>"]},
+      "publish": {"host": "app", "user": "deploy", "argv": ["python3", "{app_checkout}/scripts/deploy/stage_secrets.py", "publish", "<arguments>"]}
+    },
+    "roles": {
+      "apply": {"host": "app", "user": "deploy", "argv": ["python3", "{app_checkout}/scripts/deploy/workbench_roles.py", "apply", "--members", "{members_file}", "--database-url-file", "{configurator_dsn_file}"]}
+    },
+    "rebuild": {
+      "load": {"host": "app", "user": "deploy", "argv": ["<docker load of the release images>"]},
+      "loaded_digests": {"host": "app", "user": "deploy", "argv": ["<command printing JSON {image: digest} of the loaded images>"]},
+      "manifest_digests": {"host": "app", "user": "deploy", "argv": ["<command printing JSON {image: digest} from the signed release manifest>"]},
+      "env_backup": {"host": "app", "user": "deploy", "argv": ["cp", "-p", "{stage_env}", "{stage_env}.bak-{release_id}"]},
+      "config_check": {"host": "app", "user": "deploy", "argv": ["docker", "compose", "-f", "{compose_file}", "--env-file", "{stage_env}", "config", "-q"]},
+      "up": {"host": "app", "user": "deploy", "argv": ["docker", "compose", "-f", "{compose_file}", "--env-file", "{stage_env}", "up", "-d"]}
+    },
+    "gate": {
+      "gate_dir": {"host": "app", "argv": ["sudo", "-n", "python3", "{app_checkout}/scripts/deploy/gate_dir.py", "--nexloop-root", "{nexloop_root}", "--release-checkout", "{app_checkout}", "--stage-env", "{stage_env}", "--gate-dir", "{gate_dir}", "--planned-ports", "{planned_ports}"]},
+      "doctor": {"host": "app", "user": "deploy", "argv": ["<nexloop-doctor --deploy-gate command printing JSON with checks>"]}
+    },
+    "promote": {
+      "promote": {"host": "app", "user": "deploy", "argv": ["python3", "{app_checkout}/scripts/deploy/deploy.py", "promote", "--release-root", "{release_root}", "--release-id", "{release_id}", "--allowed-signers", "{allowed_signers}"]}
+    },
+    "post": {
+      "post_deploy_check": {"host": "app", "user": "deploy", "argv": ["python3", "{app_checkout}/scripts/deploy/post_deploy_check.py", "--stage-env", "{stage_env}", "--database-url-file", "{readonly_dsn_file}"]},
+      "log_errors": {"host": "app", "user": "deploy", "argv": ["<command printing JSON {container: error count} for the last N minutes>"]}
+    }
+  }
+}

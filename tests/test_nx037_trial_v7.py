@@ -28,8 +28,9 @@ def test_v7_is_v6_with_alert_rules_v9_and_v6_is_unchanged():
 
 
 def test_init_and_driver_follow_the_newest_trial_configuration():
-    assert latest_trial(CONFIG) == V7 and I.TRIAL == V7 and R.TRIAL == V7
-    p = I.parameters(**ARGS)
+    # v8 is the newest since batch 7 (test_nx037_trial_v8); v7 is named explicitly here and stays valid.
+    assert latest_trial(CONFIG) != V7 and I.TRIAL == R.TRIAL == latest_trial(CONFIG)
+    p = I.parameters(**ARGS, trial=V7)
     rules = p['alert_rules']
     assert rules['version'] == 9 and load_rules(CONFIG / 'alert-rules.v9.json') == rules
     ids = {r['rule_id'] for r in rules['rules']}
@@ -42,7 +43,7 @@ def test_init_and_driver_follow_the_newest_trial_configuration():
 def test_the_dry_run_plan_names_alert_rules_v9(capsys):
     argv = ['plan', '--tenant', ARGS['tenant'], '--owner-principal', 'synthetic-owner', '--value-catalog', str(V7), '--channel-ref', 'synthetic-channel',
             '--period-start', ARGS['period_start'], '--period-end', ARGS['period_end']]
-    code = I.main(argv)
+    code = I.main(argv + ['--trial-config', str(V7)])
     out = capsys.readouterr().out
     assert code == 0 and '"alert_rules"' in out and '"version": 9' in out.replace('"version":9', '"version": 9')
     code = I.main(argv + ['--trial-config', str(V6)])

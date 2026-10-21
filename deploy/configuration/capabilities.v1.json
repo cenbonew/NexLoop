@@ -1668,6 +1668,98 @@
       },
       "schema_hash": "e735e18d35d18f277095f35f210dd07271eaf8f5b4748db7ce15168ed12171eb",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.publish",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "publish_consumer_twin",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "f18955ac8b7da747e89cf8340a549b62d78e5b41ccfa322cea6f9cf137fe4aae",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.retire",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "retire_consumer_twin",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5dffa4e194b1babab2909caa3d3b1ef89664b641add6e971646abb04f7adcf42",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.erase_text",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "erase_consumer_twin_text",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "0452b2253e82b70643fa53ed9c50ccf0e4f8cee94e042d9d332fd451303f43e6",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "consumer_twin.calibrate",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "calibrate_consumer_twin",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "190839b0f1a9549b76c9b3598e6e114d5fd137ab585816b160f9cf4c1f4cf60d",
+      "side_effects_reason": null
     }
   ]
 }

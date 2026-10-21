@@ -135,6 +135,29 @@ REGISTRY = [
     # Clock skew metric (0277, L6): process sample kind 'clock' accepted; nothing else.
     Allowed('clock_skew_metric', 'authz.nexloop_record_process_sample', "the process sample kind 'clock' (skew_ms, skew_abs_ms, round_trip_ms)",
             ((r"\s*when 'clock' then array\['skew_ms','skew_abs_ms','round_trip_ms'\]", ''),)),
+    # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
+    Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
+            ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),
+             (r"\s*-- T6 text layer \(D1\)[^\n]*\n\s*v_text:=runtime\.nexloop_twin_render_text\(t\.generator_version,b\.seed\|\|'\|'\|\|b\.twin_digest\|\|'\|'\|\|p_consumer,p_step,v_choice\.behavior,v_choice\.kind\);", ''),
+             (r"\(case when v_text->>'text' is not null then jsonb_build_object\('text',v_text->>'text'\) else '\{\}'::jsonb end\)",
+              "(case when v_choice.kind='message' then jsonb_build_object('text','合成消息（孪生行为 '||v_choice.behavior||'）') else '{}'::jsonb end)"),
+             (r"\s*\|\|case when v_text->>'text' is not null then jsonb_build_object\('text_template',v_text->>'template_id','text_generator',v_text->>'generator_version',\s*'text_marker','simulated'\) else '\{\}'::jsonb end\)",
+              ')'))),
+    # NX-042 T5 (L6 nx042-t5-fix-verify 1.3, K = 3): calibrated also needs none of the last 3 verdicts failed.
+    Allowed('nx042_twin_calibration', 'runtime.nexloop_consumer_twin_calibration', 'NX-042 T5: the last 3 verdicts without a failed one; nothing else',
+            ((r'v text;v_recent_failed boolean;', 'v text;'),
+             (r"\s*select bool_or\(x\.verdict='failed'\) into v_recent_failed from \(select c\.verdict from control\.nexloop_consumer_twin_calibrations c\s*where c\.tenant_id=p_tenant and c\.twin_id=p_twin and c\.version=p_version order by c\.event_id desc limit 3\) x;", ''),
+             (r"v='passed' and not coalesce\(v_recent_failed,false\)", "v='passed'"))),
+    # NX-042 T3 / D10 extended (owner 2026-10-21): a fourth credential use, twin.
+    Allowed('nx042_twin_credential', 'authz.nexloop_sim_world_credential_check', 'D10 extended: the message names the four uses (twin added); nothing else',
+            ((r'\(owner, as recommended; extended by the owner 2026-10-21 with twin\): one active credential per world and use \(api, worker, agent, twin\)',
+              '(owner, as recommended): one active credential per world and use (api, worker, agent)'),
+             (r"names its use \(api, worker, agent, twin\)'", "names its use (api, worker, agent)'"))),
+    Allowed('nx042_twin_credential', 'control.nexloop_configure_manifest', 'D10 extended: a simulation credential may name the use twin; nothing else',
+            ((r"not in \('api','worker','agent','twin'\)", "not in ('api','worker','agent')"),)),
+    # NX-042 T3: the twin's observe entry (owner-run, the port role's only way in) reaches the S7b assembler.
+    Allowed('nx042_twin_port', 'authz.nexloop_sim_context_command', 'NX-042 T3: the port role nexloop_twin_port passes the role check, for a sim:/shadow: world only; nothing else',
+            ((r" and not \(session_user='nexloop_twin_port' and coalesce\(runtime\.nexloop_world_kind\(p_world\),''\) in \('simulation','shadow'\)\)", ''),)),
 ]
 
 

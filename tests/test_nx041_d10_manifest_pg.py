@@ -21,7 +21,7 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.trusted_configuration import ConfigurationRejected, apply_manifest_with_secrets, validate_manifest
 from test_service_grants_pg import TENANT, deployment  # noqa: F401
 
-USES = ('api', 'worker', 'agent')
+USES = ('api', 'worker', 'agent', 'twin')  # twin: D10 extended by the owner 2026-10-21 (NX-042 T3)
 
 
 def sim_world(admin):
@@ -64,7 +64,7 @@ def real_rows(admin):
     return admin.execute("select credential_id,binding,worlds,status,sim_use from authz.nexloop_service_credentials where 'real'=any(worlds) order by credential_id").fetchall()
 
 
-def test_a_manifest_issues_the_three_uses_of_a_simulation_world(deployment, admin):  # noqa: F811
+def test_a_manifest_issues_the_four_uses_of_a_simulation_world(deployment, admin):  # noqa: F811
     d = deployment
     report = d['apply']()  # the real service-grants manifest first (regression below)
     assert report
@@ -81,7 +81,7 @@ def test_a_manifest_issues_the_three_uses_of_a_simulation_world(deployment, admi
     # Replaying the same manifest changes nothing (0050 replay), the use included.
     assert apply_manifest_with_secrets(body, database_url_file=d['paths']['dsn'], signing_key_file=d['paths']['signing'], signing_key_id='nx048-deploy',
                                        service_secrets=tokens)['configured'] is True
-    # A fourth credential of a use already held is refused (one per world and use).
+    # A further credential of a use already held is refused (one per world and use).
     with pytest.raises(ConfigurationRejected):
         apply(d, manifest(admin, [credential(world, 'worker', 'worker-2')]))
     # Real regression: the real manifest applies again unchanged and real credentials carry no use.

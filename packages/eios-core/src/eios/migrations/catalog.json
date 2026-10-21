@@ -1385,6 +1385,41 @@
       "version": "0277",
       "name": "0277_clock_skew_metric.sql",
       "sha256": "3ceb3fdc9632e18d65c6293057a548eefc3839f9c50eca4f52d4e0478ca687fc"
+    },
+    {
+      "version": "0278",
+      "name": "0278_nx042_consumer_twins.sql",
+      "sha256": "4ac32e578c66da06a473540f5148e12f37ddb2befe37300b13abfdc2fd9b9738"
+    },
+    {
+      "version": "0279",
+      "name": "0279_nx042_twin_sampling.sql",
+      "sha256": "cd1b58fdfcaca895d7041652fbcdba792e4b0c20e41c363bcac865641e570842"
+    },
+    {
+      "version": "0280",
+      "name": "0280_nx042_twin_port.sql",
+      "sha256": "6499c29c085b34c7867270e46cd0e6908dcc30615817de0c7b64b054447ca729"
+    },
+    {
+      "version": "0281",
+      "name": "0281_nx042_twin_calibration_read.sql",
+      "sha256": "f84a55d704e64a0b26779094c3c2a3c578b52130148ebe99709adfabda3c47fc"
+    },
+    {
+      "version": "0282",
+      "name": "0282_nx042_twin_calibration.sql",
+      "sha256": "c083899a998ffdc74a8657d319a854dac663f534f1d5192152d625060c9ea198"
+    },
+    {
+      "version": "0283",
+      "name": "0283_nx042_twin_text.sql",
+      "sha256": "1ea7e4fb52f5b4106b7532883b0ccce7fcaa8a13c6da9358dba04c647be17579"
+    },
+    {
+      "version": "0284",
+      "name": "0284_nx042_twin_credential.sql",
+      "sha256": "fdc5e365014491ea7bb7371536d33642d6308a307309c506b8b5243ee459c221"
     }
   ]
 }
