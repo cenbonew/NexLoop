@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:consumer-twin",
   "title": "consumer-twin",
-  "description": "NX-042 T1 (design §2, D1, D4, D5, D7): one version of a consumer twin - the explicit hypotheses, the decision-layer parameters and the generator version. Hypotheses are statements, never facts. Every behaviour parameter is an interval (D4: no single probability). A twin holds no real content (D5): parameters and hypotheses only; it is kept for good and is not deleted with a simulation world (its events in a world are, NX-041 D2). The owner publishes a version through a governed Action (D7); the server assigns the version, freezes it, records its calibration (a report reference and status) and keeps its status as appended events (published, retired). A version without a passed calibration report is 'uncalibrated' and NX-043 cannot select it.",
+  "description": "NX-042 T1 (design §2, D1, D4, D5, D7): one version of a consumer twin - the explicit hypotheses, the decision-layer parameters and the generator version. Hypotheses are statements, never facts. Every behaviour parameter is an interval (D4: no single probability). A twin holds no real content (D5): parameters and hypotheses only; it is kept for good and is not deleted with a simulation world (its events in a world are, NX-041 D2). The owner publishes a version through a governed Action (D7); the server assigns the version, freezes it, keeps the publisher's calibration report reference (informational) and keeps its status as appended events (published, retired). Its calibration is a separate appended event (report reference, verdict, time; written by NX-042 T5 after checking the report); the frozen calibration status is derived from the latest event, uncalibrated without a passed one, and NX-043 cannot select an uncalibrated version. Hypothesis statements and the description must not look like real content (an email, 7+ digits, a member-style number, a 32+ hex identifier).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "twin_id", "hypotheses", "parameters", "generator_version"],
@@ -29,10 +29,10 @@
           "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,63}$"},
           "additionalProperties": {
             "type": "object", "additionalProperties": false, "required": ["low", "high", "coverage", "hypotheses"],
-            "description": "A behaviour's probability as an interval at its nominal coverage, and the hypotheses it rests on.",
+            "description": "A behaviour's probability as an interval at its nominal coverage, and the hypotheses it rests on. D4: high - low >= 0.01 (low = high would be a single probability); JSON Schema cannot compare the two, so SQL (runtime.nexloop_twin_min_interval_width) and nexloop_eios.consumer_twins enforce it, and the bounds below keep both ends off the degenerate edges.",
             "properties": {
-              "low": {"type": "number", "minimum": 0, "maximum": 1},
-              "high": {"type": "number", "minimum": 0, "maximum": 1},
+              "low": {"type": "number", "minimum": 0, "maximum": 0.99},
+              "high": {"type": "number", "minimum": 0.01, "maximum": 1},
               "coverage": {"type": "number", "exclusiveMinimum": 0.5, "exclusiveMaximum": 1},
               "hypotheses": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}}
             }

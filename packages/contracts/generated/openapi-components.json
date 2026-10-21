@@ -1957,7 +1957,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:consumer-twin",
         "title": "consumer-twin",
-        "description": "NX-042 T1 (design §2, D1, D4, D5, D7): one version of a consumer twin - the explicit hypotheses, the decision-layer parameters and the generator version. Hypotheses are statements, never facts. Every behaviour parameter is an interval (D4: no single probability). A twin holds no real content (D5): parameters and hypotheses only; it is kept for good and is not deleted with a simulation world (its events in a world are, NX-041 D2). The owner publishes a version through a governed Action (D7); the server assigns the version, freezes it, records its calibration (a report reference and status) and keeps its status as appended events (published, retired). A version without a passed calibration report is 'uncalibrated' and NX-043 cannot select it.",
+        "description": "NX-042 T1 (design §2, D1, D4, D5, D7): one version of a consumer twin - the explicit hypotheses, the decision-layer parameters and the generator version. Hypotheses are statements, never facts. Every behaviour parameter is an interval (D4: no single probability). A twin holds no real content (D5): parameters and hypotheses only; it is kept for good and is not deleted with a simulation world (its events in a world are, NX-041 D2). The owner publishes a version through a governed Action (D7); the server assigns the version, freezes it, keeps the publisher's calibration report reference (informational) and keeps its status as appended events (published, retired). Its calibration is a separate appended event (report reference, verdict, time; written by NX-042 T5 after checking the report); the frozen calibration status is derived from the latest event, uncalibrated without a passed one, and NX-043 cannot select an uncalibrated version. Hypothesis statements and the description must not look like real content (an email, 7+ digits, a member-style number, a 32+ hex identifier).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -2030,16 +2030,16 @@
                     "coverage",
                     "hypotheses"
                   ],
-                  "description": "A behaviour's probability as an interval at its nominal coverage, and the hypotheses it rests on.",
+                  "description": "A behaviour's probability as an interval at its nominal coverage, and the hypotheses it rests on. D4: high - low >= 0.01 (low = high would be a single probability); JSON Schema cannot compare the two, so SQL (runtime.nexloop_twin_min_interval_width) and nexloop_eios.consumer_twins enforce it, and the bounds below keep both ends off the degenerate edges.",
                   "properties": {
                     "low": {
                       "type": "number",
                       "minimum": 0,
-                      "maximum": 1
+                      "maximum": 0.99
                     },
                     "high": {
                       "type": "number",
-                      "minimum": 0,
+                      "minimum": 0.01,
                       "maximum": 1
                     },
                     "coverage": {
@@ -8650,7 +8650,7 @@
     "claim.schema.json": "80bd9df31049ea74bab2187156b3c6e0297e00025153446edc91ab6cdbc85d48",
     "commitment-view.schema.json": "e0f9f5acc84268282e036e265d70393a95bebc8edf45982e13dab048a4ec9e82",
     "consumer-port-event.schema.json": "b74c8b1b7e5b3386934405b201af8d1c5068f1b1e22f745b2990486dbea973c3",
-    "consumer-twin.schema.json": "f71ec44a37a6af1b87847513f1ba1200e2b889e0f84a88d12206f7cd1b402999",
+    "consumer-twin.schema.json": "278748fd24ebaff580e40539bbc2355411d810414306fc3f3bd9a14f999447c9",
     "contact-restriction-view.schema.json": "668452a798ddb40a9f157a7ab121d4e3bce10189fcb0d0dbfd37742d8a744a4c",
     "context-manifest.schema.json": "e471f3b7fbfee864c620760a3dbd680b9566cb95e30f18a4badaa455a4cb5081",
     "context-pack-sim.schema.json": "a5089711dc4c6e6e63288450e3e8ba8b090514faae7dc90e65b949ec20271ea8",
