@@ -63,8 +63,8 @@
 
 - `nexloop.experiment.start` / `start_experiment`：只能从 registered 开始，否则 `not_registered_state`；停止后不能再开始。开始时把预登记重新核对一遍：
   - 已过结束时间：`ended`；
-  - online 阶段：`online_not_available`。X1 还没有分配（X4）和停止规则（X5），线上验证要等这两个切片；
-  - **选用的孪生必须当前可选用**（已发布、未作废、最近的校准结论为通过，即 `runtime.nexloop_consumer_twin_selectable`），否则 `twin_not_calibrated`。这是 D9 剩下的约束；登记之后校准被收回，也会被拒；
+  - online 阶段：原先以 `online_not_available` 拒绝；负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置（迁移 `0309_nx043_online_open.sql`），这一条已去掉，online 可以开始；
+  - **选用的孪生必须当前可选用**（已发布、未作废、最近的校准结论为通过，即 `runtime.nexloop_consumer_twin_selectable`），否则 `twin_not_calibrated`。这是 D9 剩下的约束；登记之后校准被收回，也会被拒。**online 例外**（负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置）：online 选用的孪生不要求校准，开始结果和审计中带 `notice: calibration_waived`；screening 和 shadow 仍按 D9；
   - 候选与对照策略仍然是已发布状态，人设杠杆指向的人设版本仍然是已发布状态；
   - 模拟世界或影子世界仍然是 active 且没有到期，否则 `world_not_active`。
 - `nexloop.experiment.stop` / `stop_experiment`：从 registered 或 started 停止，要写原因；重复停止返回 `already_stopped`。停止只追加一个事件，不发布任何东西，不撤回、不重发任何效应。

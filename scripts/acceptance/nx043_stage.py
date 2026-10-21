@@ -20,6 +20,12 @@ private state file in results_dir (0600), never in the output, which holds codes
                                                                      result) aggregates only; set_shadow_copy off
     nx043_stage.py probe-after --config DATA.json --from BEFORE    probe: the guard stopped the shadow experiment at its end (D4), nothing
                                                                      sent from the shadow world, the switches and every world-real row unchanged
+    nx043_stage.py online --config PRIVATE.json                    owner: register_experiment (online, world real, no twin) and start it
+                                                                     (owner 2026-10-21: online open in the test stage, D9 waived online)
+    # real inbound traffic of the tenant (the dispatcher's synthetic webchat Consumers), then:
+    nx043_stage.py online-probe --config DATA.json                 probe: allocations by arm (first sight on inbound), strategy_applied
+                                                                     audit of the candidate group's accepted outreach sends (counts only)
+    nx043_stage.py online-stop --config PRIVATE.json               owner: stop_experiment (everyone back to the current policy)
     nx043_stage.py gaps --config ANY.json                          no connection: what the stage cannot show yet (blocked, never a pass)
 
 inputs: shadow_purpose, candidate_levers, control_levers (D1 levers), strategy_prefix, experiment_prefix, ends_in_minutes (shadow
@@ -52,7 +58,8 @@ IDS = re.compile(r'[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 ACCEPTANCE = {'prepare': ['NX-043 D1', 'NX-043 D3'], 'probe-before': ['AT-046'], 'run': ['NX-043 D3', 'NX-043 D7', 'NX-043 D9'],
               'shadow-keys': ['NX-043 D7'], 'decide': ['NX-043 D7', 'AT-046'], 'merge': ['NX-043 D7', 'AT-046', 'NX-043 D4', 'NX-043 §9'],
               'probe-after': ['AT-046', 'NX-043 D4', 'NX-043 §9'], 'report': ['NX-043 D6', 'NX-043 §6', 'NX-043 D7'],
-              'gaps': ['NX-043 D2', 'NX-043 D5', 'NX-043 online']}
+              'online': ['NX-043 online', 'NX-043 D3'], 'online-probe': ['NX-043 online', 'NX-043 D2'], 'online-stop': ['NX-043 online', 'NX-043 D4'],
+              'gaps': ['NX-043 D5']}
 
 
 # --- private state (ids between phases, never in the output) ---------------------------------------------------------------------
@@ -297,11 +304,54 @@ def report(ports, config, r, prior=None):
     r.step('shadow_copy_off', 'the switch off again', {'status': status}, _ok(status))
 
 
+def online(ports, config, r, prior=None):
+    """Owner 2026-10-21: online is open in the test stage (D9 calibration waived online). An online experiment in world real, no twin,
+    with the strategies of prepare; the start keeps every other check (purposes, strategies, persona)."""
+    state = load_state(config)
+    inputs = config.get('inputs') or {}
+    eid = f"{inputs.get('experiment_prefix') or 'x7'}.online.{state['run']}"
+    ends = (datetime.now(UTC) + timedelta(minutes=int(inputs.get('online_ends_in_minutes') or 60))).strftime('%Y-%m-%dT%H:%M:%SZ')
+    status, out = ports.act('register_experiment', {'registration': registration(eid, 'online', 'real', state['strategies']['candidate'],
+                                                                                 state['strategies']['control'], None, ends)}, 'nx043-' + state['run'] + '-e-online')
+    r.step('online_experiment_registered', 'a frozen online preregistration in world real (D3)', {'status': status, 'reason': _reason(out)}, _ok(status))
+    if not _ok(status):
+        return
+    status, out = ports.act('start_experiment', {'experiment_id': eid}, 'nx043-' + state['run'] + '-start-online')
+    r.step('online_experiment_started', 'started (online open; no dispatch switch written)',
+           {'status': status, 'reason': _reason(out), 'started': out.get('started') if isinstance(out, dict) else None}, _ok(status))
+    if _ok(status):
+        save_state(config, {**state, 'experiments': {**state['experiments'], 'online': eid}})
+
+
+def online_probe(ports, config, r, prior=None):
+    state = load_state(config)
+    eid = state['experiments'].get('online')
+    if not eid:
+        r.step('online_allocated', 'an online experiment started (phase online)', {'started': False}, False)
+        return
+    tenant = config['tenant_id']
+    arms = dict(ports.read("""select coalesce(arm,'excluded'),count(*) from control.nexloop_experiment_allocations
+        where tenant_id=%s and experiment_id=%s group by 1""", (tenant, eid)))
+    r.step('online_allocated', 'the real inbound traffic allocated Consumers on first sight; the candidate group within its cap (D2)',
+           {'candidate': arms.get('candidate', 0), 'control': arms.get('control', 0), 'excluded': arms.get('excluded', 0)},
+           arms.get('candidate', 0) + arms.get('control', 0) > 0 and arms.get('candidate', 0) <= 20)
+    applied = ports.read("""select count(*) from runtime.audit_events where tenant_id=%s and action='nexloop.experiment.strategy_applied'
+        and payload->>'experiment_id'=%s""", (tenant, eid))[0][0]
+    r.step('online_strategy_audited', 'each accepted outreach send of the candidate group carries its strategy version in audit (counted)',
+           {'strategy_applied': applied}, True)
+
+
+def online_stop(ports, config, r, prior=None):
+    state = load_state(config)
+    eid = state['experiments'].get('online')
+    status, out = ports.act('stop_experiment', {'experiment_id': eid, 'reason': 'NX-043 X7 stage acceptance done'} if eid else {},
+                            'nx043-' + state['run'] + '-stop-online')
+    r.step('online_experiment_stopped', 'stopped: everyone back to the current policy', {'status': status, 'reason': _reason(out)}, bool(eid) and _ok(status))
+
+
 def gaps(ports, config, r, prior=None):
     """What the stage cannot show yet: blocked (passed null), with the slice that closes each gap."""
-    r.block('allocation', 'X4 allocation is not wired to any service entry (runtime.nexloop_experiment_assign is owner-only); local: tests/test_nx043_allocation_pg.py')
     r.block('experiment_budget', 'needs simulation Runs of the experiment world (the AT-046 run chain); local: tests/test_nx043_guard_wiring_pg.py')
-    r.block('online_stage', 'online_not_available until a calibrated twin (NX-042 T5) and the X4 wiring; follow-up')
 
 
 def merge(ports, config, r, prior=None):
@@ -309,7 +359,7 @@ def merge(ports, config, r, prior=None):
 
 
 PHASES = {'prepare': prepare, 'probe-before': probe_before, 'run': run_phase, 'shadow-keys': shadow_keys, 'decide': decide, 'probe-after': probe_after,
-          'report': report, 'merge': merge, 'gaps': gaps}
+          'report': report, 'merge': merge, 'online': online, 'online-probe': online_probe, 'online-stop': online_stop, 'gaps': gaps}
 CHAIN = ['nx043-probe-before', 'nx043-shadow-keys', 'nx043-decide', 'nx043-probe-after']
 NEEDS = {'probe-after': CHAIN[:3], 'merge': CHAIN}
 PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy (candidate, control)', 'owner: register_experiment (shadow; screening when configured)'],
@@ -320,8 +370,11 @@ PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy
         'merge': ['no connection: the four shadow parts of one run (run_nonce, each once, in order) as nx043-shadow'],
         'probe-after': ['probe (read only): guard stop at the end, nothing sent from the shadow world, switches and world-real digests unchanged'],
         'report': ['owner: read_experiment_report (shadow, experiment)', 'owner: set_shadow_copy off'],
-        'gaps': ['no connection: the blocked items (allocation wiring, experiment budget, online stage)']}
-OWNER_PHASES = ('prepare', 'run', 'report')
+        'online': ['owner: register_experiment (online, world real, no twin)', 'owner: start_experiment (online)'],
+        'online-probe': ['probe (read only): allocations by arm, strategy_applied audit count'],
+        'online-stop': ['owner: stop_experiment (online)'],
+        'gaps': ['no connection: the blocked item (experiment budget)']}
+OWNER_PHASES = ('prepare', 'run', 'report', 'online', 'online-stop')
 
 
 def decide_from(roles):

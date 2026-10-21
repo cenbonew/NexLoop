@@ -14,7 +14,7 @@
 
 否则一律回退到当前策略：对照组、被排除（erasing、`in_same_comparison` 等，arm 为空）、策略已作废、实验已停止、其他 world。
 
-start 对 online 仍然返回 `online_not_available`。所以在负责人打开之前，stage 和 real 的行为都不变。real 派发开关不读也不写，也没有新增任何外发路径。
+负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置（0309）：start 不再以 `online_not_available` 拒绝 online，接线随实验 started 立即生效。real 派发开关只读不写，也没有新增任何外发路径；开关关着时外发仍被挡住（`real_dispatch` 门）。
 
 ## 改动
 
@@ -48,7 +48,7 @@ start 对 online 仍然返回 `online_not_available`。所以在负责人打开�
 ## 限制
 
 - 跟进时间的杠杆**没有**单独的 PG 测试，因为构造 service_followup 候选需要完整的 effect 执行夹具。这部分逻辑由 copy-guard 锁定改动范围，并由现有的 outreach candidates 测试做回归。
-- online 实验仍然要等负责人打开（D9）。测试中直接写入 started 事件，与 X4 测试的做法相同。
+- 测试中直接写入 started 事件构造 online 实验，与 X4 测试的做法相同；负责人 2026-10-21 放开 online 后，经受理 Action 开始的测试见 `test_nx043_online_open_pg`。
 
 ## 为什么不扩 context-pack v6（调度员 2026-10-21，方案 B）
 
