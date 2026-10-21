@@ -102,7 +102,8 @@ class AlertEvaluator:
             verify_application_role(db)
             result = db.execute('select authz.nexloop_alert_evaluate(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
         result = {**result, 'experiments_checked': guard.get('checked', 0), 'experiments_stopped': guard.get('stopped', 0),
-                  'experiments_guard_failed': guard.get('failed', 0)}
+                  'experiments_guard_failed': guard.get('failed', 0),
+                  'experiments_guard_sqlstates': ','.join(guard.get('failed_sqlstates') or ([] if not guard.get('guard_error') else ['guard_call']))}
         record_pool_sample(self.pool, 'alert-evaluator')
         return {k: v for k, v in result.items() if type(v) in (int, str, bool)}
 

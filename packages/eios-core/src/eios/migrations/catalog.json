@@ -1490,6 +1490,11 @@
       "version": "0298",
       "name": "0298_nx043_same_comparison.sql",
       "sha256": "46952c67fa8bb2f981206fae5023584f8e0257873e40711c61fb21ff6dbb0dd9"
+    },
+    {
+      "version": "0299",
+      "name": "0299_nx043_lock_timeout_restore.sql",
+      "sha256": "036d3530aba0fbe4f3eeaba0a1d3bce3d886cbd49428d3490affb2db4cae0e14"
     }
   ]
 }
