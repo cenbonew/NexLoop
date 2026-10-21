@@ -13,7 +13,8 @@ Every path, DSN, token, host and tenant lives there; a DSN is read from its file
 Result (one JSON object per check, printed as one line and written 0600 to results_dir; evidence-ready), schema `nexloop-s6-stage-result/1`:
     {"schema", "check", "acceptance": [AT / S6-R ids], "release", "executor", "executed_at", "dry_run", "world": "test",
      "passed": bool | null, "blocked": [reasons], "steps": [{"name", "expected", "observed", "passed", "evidence": {...}}]}
-`passed` is null when a step is blocked (a prerequisite is missing): never counted as a pass. Observed values are codes, counts,
+`passed` is false when any step failed (a blocked step never hides a failure), else null when a step is blocked (a prerequisite is
+missing; never counted as a pass), else true. `world` is the check's world kind (test for the S6 checks, simulation for AT-046). Observed values are codes, counts,
 versions and digests; anything private is replaced by a marker. Exit: 0 passed, 1 failed or blocked, 2 input refused.
 """
 from __future__ import annotations
@@ -122,8 +123,9 @@ def refusal(error) -> dict:
 
 
 class Result:
-    def __init__(self, check, acceptance, config, *, dry_run=False, redact=None):
-        self.check, self.acceptance, self.config, self.dry_run = check, list(acceptance), config, dry_run
+    def __init__(self, check, acceptance, config, *, dry_run=False, redact=None, world='test', nonce=None):
+        self.check, self.acceptance, self.config, self.dry_run, self.world = check, list(acceptance), config, dry_run, world
+        self.nonce = nonce  # a run nonce (run_nonce): the parts of one run carry the same one (load_chain)
         self.steps, self.blocked = [], []
         self.redact = redact or Redactor(config)
 
@@ -136,10 +138,19 @@ class Result:
         self.steps.append({'name': name, 'expected': None, 'observed': {'blocked': reason}, 'passed': None, 'evidence': {}})
 
     def document(self):
-        passed = None if self.blocked or self.dry_run else all(s['passed'] for s in self.steps) and bool(self.steps)
-        return self.redact({'schema': RESULT_SCHEMA, 'check': self.check, 'acceptance': self.acceptance, 'release': self.config['release'],
-                            'executor': self.config['executor'], 'executed_at': datetime.datetime.now(datetime.UTC).isoformat(),
-                            'dry_run': self.dry_run, 'world': 'test', 'passed': passed, 'blocked': self.blocked, 'steps': self.steps})
+        # A failed step is a failure whatever else is blocked (L6 sim-stage-enable-review 5.3); blocked alone is not a pass (null).
+        if any(s['passed'] is False for s in self.steps):
+            passed = False
+        elif self.blocked or self.dry_run:
+            passed = None
+        else:
+            passed = bool(self.steps)
+        doc = self.redact({'schema': RESULT_SCHEMA, 'check': self.check, 'acceptance': self.acceptance, 'release': self.config['release'],
+                           'executor': self.config['executor'], 'executed_at': datetime.datetime.now(datetime.UTC).isoformat(),
+                           'dry_run': self.dry_run, 'world': self.world, 'passed': passed, 'blocked': self.blocked, 'steps': self.steps})
+        if self.nonce is not None:
+            doc['run_nonce'] = self.nonce
+        return doc
 
     def write(self, out):
         doc = self.document()
@@ -153,3 +164,49 @@ class Result:
             with os.fdopen(fd, 'w') as f:
                 f.write(line + '\n')
         return 0 if doc['passed'] is True or (self.dry_run and not self.blocked) else 1
+
+
+NONCE = re.compile(r'[a-z0-9]{8,64}')
+
+
+def new_nonce() -> str:
+    """A run nonce: letters and digits only (no identifier, no secret); every part of one run writes it as run_nonce."""
+    import secrets
+    return secrets.token_hex(12)
+
+
+def load_chain(paths, *, prefix, order, nonce=None):
+    """The earlier parts of one run (--from), checked as a chain (L6 AT-046 review 1.1 / NX-043 X7 review 3.1): each a result document
+    of this script (check starting with prefix, never a dry run) with the same run_nonce (and the expected one when given), each part
+    once, exactly the checks of `order` (the caller passes the prefix of its chain it needs), executed in that order. Returns (steps, blocked, nonce) - the steps and blocks of all parts."""
+    docs = []
+    for path in paths or []:
+        try:
+            doc = json.loads(Path(path).read_text().strip().splitlines()[-1])
+        except (OSError, ValueError, IndexError):
+            raise Refused('--from: a result document of this script') from None
+        if doc.get('schema') != RESULT_SCHEMA or not str(doc.get('check', '')).startswith(prefix) or doc.get('dry_run'):
+            raise Refused('--from: a result document of this script (not a dry run)')
+        docs.append(doc)
+    nonces = {d.get('run_nonce') for d in docs}
+    if docs and (len(nonces) != 1 or not isinstance(next(iter(nonces)), str) or not NONCE.fullmatch(next(iter(nonces)))):
+        raise Refused('--from: the parts of one run (the same run_nonce)')
+    if docs and nonce is not None and next(iter(nonces)) != nonce:
+        raise Refused('--from: a result of another run (run_nonce)')
+    checks = [d['check'] for d in docs]
+    if len(set(checks)) != len(checks):
+        raise Refused('--from: each part once')
+    # Exactly the parts the caller needs (L6 X7 fix verify): none outside `order` (a later part, say the caller's own earlier result,
+    # is never taken for one of its prior parts) and every one of them present.
+    if set(checks) != set(order):
+        raise Refused('--from: exactly the parts ' + ', '.join(order))
+    by = {d['check']: d for d in docs}
+    times = [by[c]['executed_at'] for c in order if c in by]  # in chain order, the executions must not go back in time
+    if times != sorted(times):
+        raise Refused('--from: the parts out of order (executed_at)')
+    steps, blocked = [], []
+    for c in order:
+        if c in by:
+            steps += by[c].get('steps') or []
+            blocked += by[c].get('blocked') or []
+    return steps, blocked, (next(iter(nonces)) if docs else None)

@@ -268,6 +268,7 @@ DIRECT_DEFINITION_WRITERS = {
     'tests/test_relation_actions.py': 'exception', 'tests/test_role_mapping.py': 'exception', 'tests/test_role_policy_binding.py': 'exception',
     'tests/test_role_policy_governance.py': 'exception', 'tests/test_role_runs_first.py': 'exception', 'tests/test_runtime_authority.py': 'exception',
     'tests/test_tenant_config_pg.py': 'exception',
+    'tests/test_nx041_sim_catalog_publish_pg.py': 'exception', 'tests/test_at046_stage_pg.py': 'exception',
 }
 
 

@@ -1,0 +1,50 @@
+# Simulation stage enablement, step 7 (L6 review B2.1): issuing a simulation world's credentials on DATA_HOST. The configurator and
+# the bootstrap inspection role have local pg_hba rules only, so the tool runs in a one-off container on the PostgreSQL socket
+# directory - no network at all, no hostssl rule for either role. Its own compose project, profile sim-issue only:
+#   docker compose -p nexloop-sim-issue -f deploy/stage/compose.sim-issue.example.yaml --env-file <private env> --profile sim-issue \
+#     run --rm sim-issue-dir                     (the token and input directories and the input files, owned by NEXLOOP_PG_UID)
+#   ... run --rm -T sim-issue scripts/deploy/sim_world_credentials.py --config /setup/<config> [--dry-run | --check | --export]
+# Both DSN files name the socket (host=/var/run/postgresql); the tool refuses any other. --export writes '<use> <token>' lines to
+# its stdout pipe only, which the dispatcher pipes over ssh into APP_HOST's sim-setup --install (never argv, never a file between).
+# NEXLOOP_PG_UID/GID (review 3.1): the uid owning the socket directory, 0700 (compose.data.example.yaml, NX-035 §4.1) - the postgres
+# image's (999 in the current image). Check it before the first run: `stat -c '%u:%g' $NEXLOOP_ROOT/run/postgresql` must print it, and
+# `getent passwd <uid>` on DATA_HOST shows which host account (if any) shares that uid and so could read the input directory.
+# Example only: every path and image comes from the private env file.
+name: nexloop-sim-issue
+services:
+  sim-issue-dir:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    profiles: [sim-issue]
+    restart: 'no'
+    read_only: true
+    network_mode: none
+    user: '0:0'
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    # The token directory, and the input directory the dispatcher filled (configs, DSN files, signing key): 0700 and 0600, NEXLOOP_PG_UID,
+    # since the tool reads only private files of its own uid. Rerun after changing an input file. Regular files only, no links.
+    entrypoint: [python, -c, 'import os,stat,sys;u,g=int(sys.argv[1]),int(sys.argv[2])
+      ;[(os.makedirs(d,mode=0o700,exist_ok=True),os.chown(d,u,g),os.chmod(d,0o700)) for d in ("/sim-tokens","/sim-input")]
+      ;[(os.chown(p,u,g),os.chmod(p,0o600)) for p in (os.path.join("/sim-input",n) for n in os.listdir("/sim-input")) if stat.S_ISREG(os.lstat(p).st_mode)]',
+                 '${NEXLOOP_PG_UID:?uid owning the PostgreSQL socket directory required}', '${NEXLOOP_PG_GID:?its gid required}']
+    volumes:
+      - '${NEXLOOP_SIM_ISSUE_TOKEN_DIR:?private token directory on DATA_HOST required}:/sim-tokens'
+      - '${NEXLOOP_SIM_ISSUE_INPUT_DIR:?private input directory on DATA_HOST required}:/sim-input'
+  sim-issue:
+    image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
+    profiles: [sim-issue]
+    restart: 'no'
+    read_only: true
+    tmpfs: [/tmp]
+    network_mode: none
+    user: '${NEXLOOP_PG_UID}:${NEXLOOP_PG_GID}'
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    working_dir: /opt/nexloop-release
+    entrypoint: [python]
+    volumes:
+      - '${NEXLOOP_ROOT:?root}/run/postgresql:/var/run/postgresql'
+      - '${NEXLOOP_SIM_RELEASE_CHECKOUT:?release checkout required}:/opt/nexloop-release:ro'
+      - '${NEXLOOP_SIM_ISSUE_INPUT_DIR:?private input directory required}:/setup:ro'
+      - '${NEXLOOP_SIM_ISSUE_TOKEN_DIR}:/sim-tokens'

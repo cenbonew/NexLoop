@@ -1,0 +1,23 @@
+{
+  "schema": "nexloop-s6-stage/1",
+  "executor": "<who runs it (dispatcher line)>",
+  "release": "<release id>",
+  "tenant_id": "<TENANT_ID>",
+  "results_dir": "<LOCAL_RESULTS_DIR (0700; the private state file lands here)>",
+  "roles": {
+    "probe": {"dsn_file": "<BOOTSTRAP_DSN_FILE_0600 (read-only probes only; DATA_HOST socket)>"},
+    "sim_worker": {"dsn_file": "<SIM_WORKER_DSN_FILE_0600>", "token_file": "<SHADOW_WORLD_WORKER_TOKEN_FILE_0600>"}
+  },
+  "owner": {"origin": "https://<APP_HOST_NAME>:<PORT>", "ca_file": "<GATEWAY_CA_FILE>", "username_file": "<OWNER_USERNAME_FILE_0600>"},
+  "inputs": {
+    "shadow_purpose": "NX-043 X7 stage acceptance (synthetic)",
+    "strategy_prefix": "x7",
+    "experiment_prefix": "x7",
+    "candidate_levers": {"follow_up_delay_hours": 48},
+    "control_levers": {"follow_up_delay_hours": 24},
+    "ends_in_minutes": 30,
+    "screening": {"world": "<sim:<uuid> of an active simulation world>", "twin": {"twin_id": "<PUBLISHED TWIN ID>", "version": 1}},
+    "decisions": {"kind": "reply", "limit": 20},
+    "guard_timeout_seconds": 900
+  }
+}

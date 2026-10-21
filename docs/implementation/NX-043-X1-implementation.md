@@ -109,3 +109,13 @@
 2. online 阶段在 X4、X5 之前不能开始。
 3. `primary_metric.key` 目前只检查格式，与已登记指标的对应由 X6 接上。
 4. 负责人用的命令行工具（配置文件加一条命令）还没有实现，目前只有工作台写入口。
+
+## 8. L6 审查的处理（2026-10-21）
+
+| 项 | 处理 |
+|---|---|
+| 2.1 目的分类只在发布时检查一次 | 已修复（`0293_nx043_start_purpose_recheck.sql`，临时编号）：start 时按当前的目的清单，重新检查候选与对照策略中的每个目的，做法与 persona 相同；一个目的在策略发布之后被改为营销类或需要同意，start 就以 `purpose_not_allowed` 拒绝。按 0290 的函数体重定义，已在复制件守护登记。测试 `test_start_rechecks_the_purpose_classification` |
+| 1 策略摘要没有规范化数字 | 不需要修：两个数值杠杆（`follow_up_delay_hours` 与 persona 的 `version`）在 SQL 中按 `^[0-9]{1,3}$` 或 `^[0-9]{1,6}$` 检查文本形式，`24.0` 本身就被拒（`invalid`），所以同一定义不会有两种数字写法 |
+| 2.2 persona 正文可能带入价格或优惠话术 | 写明约束：persona 正文不得包含价格或优惠承诺，由 persona 发布流程把关；X1 只保证引用的是已发布的 persona 版本 |
+| 2.3 `renewal_reminder` 是否算营销 | **负责人 2026-10-21 决定：按营销类处理，需要同意，不进入实验。** 用发布目的清单 v2 的方式落实（`deploy/configuration/outreach-purposes.v2.json`，迁移 `0297_nx043_wiring_review.sql`）：`renewal_reminder` 改为营销类（kind 为 marketing，topic 为 `marketing.renewal_reminder`，频率类别为 marketing，需要同意，附加退订提示），其余目的与 v1 相同，v1 保持原样。实验的目的检查按最新清单判定，所以它现在以 `purpose_not_allowed` 被拒。**部署注意**：v2 生效后，正在运行、并且策略用到 `renewal_reminder` 的实验，会被 guard 以 `purpose_not_allowed` 自动停止（见 X5 文档 §9） |
+| 4.1 start 之后孪生状态变化 | X4 每次新分配都检查孪生是否可选用；X5 把“孪生不再可选用”作为一项护栏，触发时自动停止实验（见 X5 文档） |

@@ -2,25 +2,28 @@
 """Stage enrollment of the evolution service principals (NX-038/NX-039; owner decision 2026-10-21 "as recommended": register the
 evolution writer and evaluator on stage for the S6 stage acceptance). Owner rule: a private configuration file and one command.
 
-Three service principals, each with its own token and NO grant at all (AT-046: no effect authority; the evolution entries check
+Four service principals, each with its own token and NO grant at all (AT-046: no effect authority; the evolution entries check
 the credential in SQL, they need no EIOS grant):
   evolution_writer      world real   authz.nexloop_evo_principals purpose writer     login role nexloop_evo_writer (0235)
   evolution_evaluator   world real   authz.nexloop_evo_principals purpose evaluator  login role nexloop_evo_evaluator (0241)
   evolution_evaluation  world test   authz.nexloop_evo_evaluation_credentials (D18)  used by the L1 session (0248) and the overlay (0237)
+  evolution_reader      world real   not registered (NX-038 D1: a real service credential only) login role nexloop_evo_reader (0233):
+                        the trace read authz.nexloop_evo_trace_runs (S6 stage script roles.reader; dispatcher 2026-10-21)
 One purpose per principal (S6-R5 / D39-1): the writer and the evaluator are different principals with different tokens, and the
-test-only evaluation credential is neither of them.
+test-only evaluation credential is neither of them; the reader is a fourth principal, distinct from all three.
 
 Steps (each idempotent; a second run changes nothing):
-  1. tokens      <secret_dir>/evolution-writer/service-credential, evolution-evaluator/service-credential and
-                 evolution-evaluation/test-credential (0600, created once, never printed; an existing file is reused as it is).
+  1. tokens      <secret_dir>/evolution-writer/service-credential, evolution-evaluator/service-credential,
+                 evolution-reader/service-credential and evolution-evaluation/test-credential (0600, created once, never printed; an existing file is reused as it is).
   2. credentials the subject, membership, actor, authentication and application facts and the service credential of each principal
                  through the trusted configuration (0050 configurator definer, nexloop_eios.service_grants.plan/apply; world real for
-                 writer and evaluator, world test for the evaluation credential). No grant, scope or policy fact is written.
+                 writer, evaluator and reader, world test for the evaluation credential). No grant, scope or policy fact is written.
+                 An enrollment that already holds the other credentials adds the reader alone (the existing ones stay as they are).
   3. registry    authz.nexloop_evo_principals (writer, evaluator) and authz.nexloop_evo_evaluation_credentials (the test credential).
                  These tables are revoked from every application and configurator role by design, so this step needs the owner's
                  bootstrap window (a superuser or nexloop_owner session: registry_database_url_file).
-  4. self-check  writer/evaluator exclusive, the evaluation credential test-only, no principal holding any grant (no effect
-                 authority); the two login roles exist. A failed check exits 1.
+  4. self-check  writer/evaluator exclusive, the evaluation credential test-only, the reader a distinct real-only principal,
+                 no principal holding any grant (no effect authority); the three login roles exist. A failed check exits 1.
 
     evolution_enroll.py --config PRIVATE.json --dry-run     reads the database, writes nothing, prints the plan
     evolution_enroll.py --config PRIVATE.json               enrolls (then self-checks)
@@ -60,8 +63,12 @@ PRINCIPALS = (
      'file': 'evolution-evaluator/service-credential'},
     {'role': 'evolution_evaluation', 'world': 'test', 'purpose': 'evaluation_credential', 'login_role': None,
      'file': 'evolution-evaluation/test-credential'},
+    # NX-038 D1: the trace reader - a real service credential on the login role nexloop_evo_reader, registered nowhere else.
+    {'role': 'evolution_reader', 'world': 'real', 'purpose': 'reader', 'login_role': 'nexloop_evo_reader',
+     'file': 'evolution-reader/service-credential'},
 )
-LOGIN_ROLES = ('nexloop_evo_writer', 'nexloop_evo_evaluator')
+LOGIN_ROLES = ('nexloop_evo_writer', 'nexloop_evo_evaluator', 'nexloop_evo_reader')
+READER_FILE = 'evolution-reader/service-credential'
 # A credential binding names 1-64 requested scopes (eios.authz.facts). This one is checked by no entry and matched by no scope
 # authority fact (those are written per grant, and there is none), so it grants nothing; it only labels the credential.
 LABEL_SCOPE = 'nexloop.evolution'
@@ -244,7 +251,7 @@ def self_check(config, tokens_by_role):
             and coalesce(binding->'requested_scopes','[]'::jsonb) <> %s::jsonb""", ([d for d in digests.values() if d], json.dumps([LABEL_SCOPE]))).fetchone()[0]
         roles = {r[0]: r[1] for r in db.execute('select rolname,rolcanlogin from pg_roles where rolname = any(%s)', (list(LOGIN_ROLES),)).fetchall()}
         db.rollback()
-    w, e, t = digests['evolution_writer'], digests['evolution_evaluator'], digests['evolution_evaluation']
+    w, e, t, rd = digests['evolution_writer'], digests['evolution_evaluator'], digests['evolution_evaluation'], digests.get('evolution_reader')
     checks = {
         # S6-R5 / D39-1: two principals, one purpose each, different tokens; neither is the test-only evaluation credential.
         'writer_evaluator_exclusive': (rows.get(ids['evolution_writer']) == (tenant, 'writer') and rows.get(ids['evolution_evaluator']) == (tenant, 'evaluator')
@@ -258,6 +265,11 @@ def self_check(config, tokens_by_role):
                                             and all(creds.get(x, (None, None))[1] == 'active' for x in (w, e, t))),
         # AT-046: no grant, scope, policy or rule for any of them and only the label scope, so no effect authority (and no Action at all).
         'no_effect_authority': authority == 0 and scopes == 0,
+        # NX-038 D1: the reader is its own principal (not the writer, the evaluator or the evaluation credential), real only, active,
+        # registered neither as an evolution principal nor as an evaluation credential.
+        'reader_distinct_real_only': (rd is not None and rd not in (w, e, t) and ids['evolution_reader'] not in rows and rd not in evaluation
+                                      and len({ids[r] for r in ids}) == len(ids)
+                                      and creds.get(rd, (None, None, None)) == (['real'], 'active', ids['evolution_reader'])),
     }
     return {'checks': checks, 'login_roles': {r: bool(roles.get(r)) for r in LOGIN_ROLES}, 'pass': all(checks.values()) and all(roles.get(r) for r in LOGIN_ROLES)}
 
@@ -265,13 +277,15 @@ def self_check(config, tokens_by_role):
 def operator_sheet(config):
     """What this tool does not do: the login roles' passwords (bootstrap window, Keychain) and pg_hba (host configuration)."""
     return [
-        'Set a password for nexloop_evo_writer and nexloop_evo_evaluator in the bootstrap window (generated straight into the Keychain); '
-        'write each DSN to its own 0600 file next to the credential files (evolution-writer/database-url, evolution-evaluator/database-url).',
+        'Set a password for nexloop_evo_writer, nexloop_evo_evaluator and nexloop_evo_reader in the bootstrap window (generated straight '
+        'into the Keychain); write each DSN to its own 0600 file next to the credential files (evolution-writer/database-url, '
+        'evolution-evaluator/database-url, evolution-reader/database-url).',
         'pg_hba: deploy/stage/config/pg_hba.conf.template carries the evolution line (local socket, stage catalog, SCRAM); install it on '
         'DATA_HOST with the owner command `sudo bash scripts/deploy/evolution_hba_data_host.sh <private config>` (render, rewrite in place, '
         'reload); run this tool and the acceptance in a one-off DATA_HOST container on the mounted socket directory.',
         'The writer reads ' + PRINCIPALS[0]['file'] + ', the evaluator ' + PRINCIPALS[1]['file'] + ' and ' + PRINCIPALS[2]['file']
-        + ' (the L1 session); no long-running service is needed: diagnosis, candidate and evaluation are one-off commands.',
+        + ' (the L1 session), the trace reader (S6 stage script roles.reader {dsn_file, token_file}) ' + READER_FILE
+        + ' with evolution-reader/database-url; no long-running service is needed: diagnosis, candidate and evaluation are one-off commands.',
     ]
 
 

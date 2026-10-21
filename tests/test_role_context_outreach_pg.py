@@ -73,7 +73,7 @@ def test_a_role_pack_with_persona_and_outreach_binds_completely_and_replays(role
     assert row[0] == bound['input'] and hashlib.sha256(row[0].encode()).hexdigest() == row[1] == bound['sha256']
     # Both sections are cited as role sources of the bound Context.
     cited = [(r[1], r[2], r[3]) for r in sources(admin, tenant, row[2]) if r[1] == 'role']
-    assert ('role', 'operator-persona:xiaohe@1', '1') in cited and ('role', 'outreach-purposes@1', '1') in cited
+    assert ('role', 'operator-persona:xiaohe@1', '1') in cited and ('role', 'outreach-purposes@2', '2') in cited
     with admin.transaction():
         owner(admin, tenant)
         assert admin.execute("select count(*) from runtime.nexloop_context_packs where run_id=%s and pack_digest=%s", (run.run_id, row[1])).fetchone() == (1,)

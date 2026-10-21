@@ -6083,6 +6083,22 @@
             "minimum": 0,
             "maximum": 2147483647
           },
+          "eligibility": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "X4 (design §3): who may enter an online experiment, frozen with the registration. A member left out takes the default (persona real, no active contact restriction, no active takeover); none can be loosened.",
+            "properties": {
+              "persona": {
+                "const": "real"
+              },
+              "exclude_contact_restricted": {
+                "const": true
+              },
+              "exclude_in_takeover": {
+                "const": true
+              }
+            }
+          },
           "frozen": {
             "type": "object",
             "additionalProperties": false,
@@ -9361,7 +9377,7 @@
     "evolution-candidate.schema.json": "6a3d08884809625f74c53d39eb0e5cb5b3f765aaa80468a273749f84f72b1e56",
     "evolution-evaluation-bundle.schema.json": "2646c8f203bc67e6a7902b38e1987376127ecdb7ac9c92767c20a894f250851e",
     "evolution-evaluation-report.schema.json": "ba73327b1ee9d06d493543935c355764d90d893c71a8af791aff436d2cb6369e",
-    "experiment-registration.schema.json": "7d578b4023461332c86b26621ab10ab386caebd3671e7067a71dc7d52adac912",
+    "experiment-registration.schema.json": "bc9c9ddd8902bf579f315f4cb53f8b49e46ce7d94c330bc0c6630560017faf4f",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",
