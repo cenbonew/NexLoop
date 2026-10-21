@@ -244,6 +244,23 @@ REGISTRY = [
     # NX-043 report leave-out: the same comparison also in the same world (as X4's in_same_comparison).
     Allowed('nx043_leave_out_world', 'runtime.nexloop_experiment_leave_out', 'the same comparison is also the same world; nothing else',
             ((r"\n\s*and o\.registration->>'world'=e\.registration->>'world'[^\n]*", ''),)),
+    # NX-043 X4 wiring: the candidate strategy's levers (runtime.nexloop_experiment_levers) in the decision paths; nothing else.
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_operator_persona_section', 'the candidate strategy persona version (source unchanged)',
+            ((r";v_lever jsonb;", ';'),
+             (r"v_lever:=runtime\.nexloop_experiment_levers\(.*?else v_lever:=null;end if;", ''),
+             (r"coalesce\(\(v_lever->>'version'\)::integer,(runtime\.nexloop_operator_persona_usable\(p_tenant,d\.persona_id\))\)", r'\1'))),
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_outreach_gates', 'the candidate strategy outreach_purposes lever, with its gate entry',
+            ((r";v_lever jsonb;", ';'),
+             (r"v_lever:=runtime\.nexloop_experiment_levers\(.*?'@'\|\|\(v_lever->>'version'\)\);\s*end if;", ''))),
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_outreach_candidates', 'the candidate strategy follow_up_delay_hours; others keep 24 hours',
+            ((r";v_lever jsonb;", ';'),
+             (r"interval '336 hours'", "interval '24 hours'"),
+             (r"if x\.purpose='service_followup' then\s*v_lever:=.*?end if;\s*end if;", ''))),
+    Allowed('nx043_x4_wiring', 'runtime.nexloop_outreach_accept', 'the decision\'s candidate strategy frozen in experiment_strategy',
+            ((r"\n v_lever jsonb;  -- NX-043 X4 wiring", ''),
+             (r"\n v_lever:=runtime\.nexloop_experiment_levers\(p_tenant,p_world,p_consumer\)-'levers';", ''),
+             (r",state,experiment_strategy\)", ',state)'),
+             (r" else 'accepted' end,v_lever\);", " else 'accepted' end);"))),
 ]
 
 

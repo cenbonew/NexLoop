@@ -1,0 +1,12 @@
+{
+  "schema": "nexloop.published-contracts.v1",
+  "note": "Contracts already released. Their bytes never change; a new field or value goes into a new contract version (for context-pack: v7, its own task). The dispatcher adds entries at each release.",
+  "release": "28",
+  "source_commit": "13087064",
+  "contracts": [
+    {
+      "path": "context-pack-v6.schema.json",
+      "sha256": "9f50b585d8d5eb7d6e3a7fee9d7b273cd990aac5dc6e86080680f0cf2b354e0a"
+    }
+  ]
+}
