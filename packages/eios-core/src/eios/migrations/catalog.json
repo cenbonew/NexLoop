@@ -1485,6 +1485,11 @@
       "version": "0297",
       "name": "0297_nx043_wiring_review.sql",
       "sha256": "2969c14fe599967497c359538adb82f344a26d4963f4ad17ada76debb5a502e3"
+    },
+    {
+      "version": "0298",
+      "name": "0298_nx043_same_comparison.sql",
+      "sha256": "46952c67fa8bb2f981206fae5023584f8e0257873e40711c61fb21ff6dbb0dd9"
     }
   ]
 }

@@ -239,3 +239,46 @@ def test_a_retired_strategy_or_a_withdrawn_twin_falls_back_at_decision(running, 
     db.execute("select control.nexloop_governed_retire_strategy(%s,'real','owner-principal','owner-subject','intent-r2',%s)",
                (TENANT_A, Jsonb({'operation': 'retire_strategy', 'request_id': 'ret-ctrl', 'strategy_id': 'followup.default', 'version': 1, 'reason': '撤下'})))
     assert strategy_for(db, world, consumer(control))['strategy'] is None  # the current policy
+
+
+def round_one_control(db):
+    """Round one: allocate until a control member appears, then stop the round."""
+    member = next(c for c in (consumer(f'round1-{i}') for i in range(10)) if assign(db, c)['arm'] == 'control')
+    stop(db, EXPERIMENT)
+    return member
+
+
+def test_a_round_one_member_is_left_out_of_round_two_of_the_same_comparison(running, db):
+    """X6 wiring (L3): same candidate and control versions, tenant and world - a member of any status's round is left out, no row."""
+    member = round_one_control(db)
+    register(db, registration(running['world'], running['twin'], experiment_id='round.two', sample_size={'candidate': 5, 'control': 10}))
+    start(db, 'round.two')
+    out = assign(db, member, experiment='round.two')
+    assert out == {'experiment_id': 'round.two', 'status': 'started', 'arm': None, 'excluded_reason': 'in_same_comparison', 'allocated': False}
+    assert db.execute("select count(*) from control.nexloop_experiment_allocations where experiment_id='round.two'").fetchone() == (0,)
+    assert assign(db, consumer('newcomer-round2'), experiment='round.two')['allocated'] is True
+
+
+def test_another_comparison_is_not_affected(running, db):
+    member = round_one_control(db)
+    publish(db, strategy('followup.other', follow_up_delay_hours=36), request='s-other')
+    register(db, registration(running['world'], running['twin'], experiment_id='other.comparison',
+                              candidate={'strategy_id': 'followup.other', 'version': 1}))
+    start(db, 'other.comparison')
+    assert assign(db, member, experiment='other.comparison')['allocated'] is True
+
+
+def test_an_erased_members_tombstone_leaves_nobody_out(running, db):
+    erased = consumer('round1-erased')
+    assign(db, erased)
+    db.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
+        values(%s,%s,'erase-r1',%s,'owner','owner-principal','顾客要求删除','blocking',1)""", (TENANT_A, running['world'], erased))
+    db.execute("update control.nexloop_consumer_erasures set state='purging' where request_id='erase-r1'")
+    stop(db, EXPERIMENT)
+    register(db, registration(running['world'], running['twin'], experiment_id='round.two'))
+    start(db, 'round.two')
+    tombstone = db.execute("select consumer_id from control.nexloop_experiment_allocations where experiment_id=%s and consumer_id like 'pseudonym:%%'", (EXPERIMENT,)).fetchone()[0]
+    assert tombstone.startswith('pseudonym:')
+    # The tombstone is nobody's id: every new member of round two is allocated; the erased Consumer stays out as erasing, never by comparison.
+    assert all(assign(db, consumer(f'round2-{i}'), experiment='round.two')['allocated'] for i in range(3))
+    assert assign(db, erased, experiment='round.two')['excluded_reason'] == 'erasing'

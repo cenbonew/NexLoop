@@ -211,6 +211,9 @@ REGISTRY = [
             ((r" and s\.arm is distinct from 'control'\),\n   'control_model_cny',\(select[^\n]*\),", '),'),)),
     Allowed('nx043_wiring_review', 'runtime.nexloop_experiment_spend', 'D5 (dispatcher): control rows never count toward the cap; nothing else',
             ((r" and arm is distinct from 'control';", ';'),)),
+    # NX-043 X6 wiring (L3): the same-comparison leave-out, no row written.
+    Allowed('nx043_same_comparison', 'runtime.nexloop_experiment_assign', 'X6 wiring: in_same_comparison left out without a row; nothing else',
+            ((r"\n -- X6 wiring \(L3\):[^\n]*\n if exists\(select 1 from control\.nexloop_experiment_allocations o join[^\n]*'in_same_comparison','allocated',false\);end if;", ''),)),
 ]
 
 
