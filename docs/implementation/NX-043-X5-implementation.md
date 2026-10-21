@@ -129,3 +129,17 @@
   - Python 层：告警评估器的 guard 调用失败时，只在结果里记 `experiments_guard_failed`，告警（备份、时钟等）照常评估。
 - **2.4**：新增 trial v9（`deploy/configuration/nx037-trial.v9.json`），它与 v8 只差告警规则：v9 指向 alert-rules v11。`controlled_interactions.SCHEMAS` 中加入了 v9。v8 保持原样，它的测试改为显式点名 v8。
 - **1.2（擦除）**：擦除时，先取出被擦除者各行原来的 cluster_key，再把所有带这些 key 的行（包括簇内其他成员）换成同一个假名，这样不会在别人的行上留下他的会话 key。
+
+## 9. d4de09d2 复核（L6，2026-10-21）与部署说明
+
+迁移 `0301_nx043_lock_timeout_restore.sql`（临时编号）。
+
+- **2.1（确认，real）lock_timeout 没有恢复**：记账块把 `lock_timeout` 设为 200 ms 后没有恢复，会一直作用到 real 模型预留和 Run 签发事务的剩余部分。
+  - 现在进块前先保存调用方原来的值，块正常结束时恢复。
+  - 出错时块的子事务会回滚，这个设置也随之回滚。
+  - 测试：记账成功后，同一事务里 `lock_timeout` 仍是调用方设的 5s，后续一次锁等待约 0.6 s 也不会失败。
+- **3.2 tick 记录 SQLSTATE**：guard tick 返回每个失败实验的 SQLSTATE（`failed_sqlstates`），评估器结果中写为 `experiments_guard_sqlstates`。
+- **2.3 不改**：激励分支自身的查询出错时，激励预留会失败。这是效应上安全的方向，保持原样。
+- **部署说明（4.2，purpose list v2）**：v2 生效后，`renewal_reminder` 成为营销类目的。
+  - 正在运行、并且候选或对照策略用到 `renewal_reminder` 的实验，会在下一次 guard tick 时以 `purpose_not_allowed` **自动停止**，所有参与者回到对照，并发出 `experiment_auto_stopped` 告警。
+  - 部署前请先确认有没有这样的实验。不想让它们被自动停止的话，可以先由负责人手动停止。

@@ -6,6 +6,8 @@ experiment's Run is written to the experiment ledger, stops it at the cap and is
 an allocated Consumer is refused. Real PostgreSQL through the NX-030 fixture; synthetic tenant and consumers only.
 """
 import json
+import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -186,6 +188,7 @@ def test_a_failing_guard_never_costs_the_tenant_its_alerts(running, db, monkeypa
         db.execute("""update control.nexloop_experiments set registration=jsonb_set(registration,'{ends_at}','"not a time"') where experiment_id='broken'""")
     out = o['evaluate']()
     assert (out['experiments_checked'], out['experiments_guard_failed'], out['rules_version']) == (1, 1, 11)
+    assert out['experiments_guard_sqlstates'] == '22007'  # review 3.2: the failing experiment's SQLSTATE (an invalid timestamp)
     from nexloop_eios import observability
     monkeypatch.setattr(observability.AlertEvaluator, 'guard_experiments', lambda self: (_ for _ in ()).throw(RuntimeError('guard down')))
     out = o['evaluate']()
@@ -221,3 +224,32 @@ def test_only_the_alert_evaluator_role_runs_the_guard_tick(observed, db):  # noq
     # Unsigned or foreign-protocol calls are refused even on the granted role.
     with psycopg.connect(make_conninfo(observed['pg'], user='nexloop_domain_worker')) as worker, pytest.raises(psycopg.errors.InsufficientPrivilege):
         worker.execute("select authz.nexloop_experiment_guard_tick('x','real','{}','x','{}')")
+
+
+def test_the_accounting_block_restores_the_callers_lock_timeout(observed, ready, db, pg):  # noqa: F811
+    """Review 2.1: after the experiment accounting succeeds, the rest of the caller's transaction runs on its own lock_timeout - a
+    later lock may wait well beyond the block's 200 ms."""
+    online(db)
+    limits(db, 'model')
+    candidate, _ = online_members(db)
+    run = bind_run(db, 'message', candidate)
+    key = 'nx043-lock-timeout-probe'
+    held = threading.Event()
+
+    def hold():
+        with psycopg.connect(pg) as other, other.transaction():
+            other.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))', (key,))
+            held.set()
+            time.sleep(0.6)
+    t = threading.Thread(target=hold)
+    with db.transaction():
+        db.execute("set local lock_timeout='5s'")
+        reserve(db, 'real', 'model', f'run:{run}', 2)
+        assert db.execute("select current_setting('lock_timeout')").fetchone() == ('5s',)
+        t.start()
+        held.wait(5)
+        started = time.monotonic()
+        db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))', (key,))  # waits ~0.6 s: no 200 ms timeout left behind
+        assert time.monotonic() - started > 0.3
+    t.join()
+    assert [r for r, *_ in ledger(db)] == [f'run:{run}']

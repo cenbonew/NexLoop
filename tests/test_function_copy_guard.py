@@ -214,6 +214,17 @@ REGISTRY = [
     # NX-043 pooled results (owner 2026-10-21): the registration result carries a notice (a single round under the minimum sample).
     Allowed('nx043_pooled_reports', 'control.nexloop_governed_register_experiment', 'NX-043: the result carries a notice; nothing else',
             ((r",'notice',runtime\.nexloop_experiment_notice\(x\.registration\)\)", ')'),)),
+    # NX-043 X6 wiring (L3): the same-comparison leave-out, no row written.
+    Allowed('nx043_same_comparison', 'runtime.nexloop_experiment_assign', 'X6 wiring: in_same_comparison left out without a row; nothing else',
+            ((r"\n -- X6 wiring \(L3\):[^\n]*\n if exists\(select 1 from control\.nexloop_experiment_allocations o join[^\n]*'in_same_comparison','allocated',false\);end if;", ''),)),
+    # NX-043 X5 review of d4de09d2: the caller's lock_timeout restored; the tick names the failing SQLSTATEs.
+    Allowed('nx043_lock_timeout_restore', 'control.nexloop_experiment_budget_attribution', "review 2.1: the caller's lock_timeout restored after the block; nothing else",
+            ((r";v_lock text:=current_setting\('lock_timeout'\);", ';'),
+             (r"\n  perform set_config\('lock_timeout',v_lock,true\);[^\n]*", ''))),
+    Allowed('nx043_lock_timeout_restore', 'authz.nexloop_experiment_guard_tick', 'review 3.2: the SQLSTATE of each failing experiment reported; nothing else',
+            ((r";v_states text\[\]:='\{\}';v_state text;", ';'),
+             (r"get stacked diagnostics v_state=returned_sqlstate;v_failed:=v_failed\+1;v_states:=v_states\|\|v_state;", 'v_failed:=v_failed+1;'),
+             (r",'failed_sqlstates',to_jsonb\(v_states\)\);", ');'))),
 ]
 
 
