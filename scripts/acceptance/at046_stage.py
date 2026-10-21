@@ -44,7 +44,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
-from s6_common import RESULT_SCHEMA, Blocked, Redactor, Refused, Result, connect_from, read_private  # noqa: E402
+from s6_common import NONCE, Blocked, Redactor, Refused, Result, connect_from, load_chain, new_nonce, read_private  # noqa: E402
+
+
+def s6_nonce_ok(nonce):
+    return isinstance(nonce, str) and bool(NONCE.fullmatch(nonce))
 
 SCHEMAS = ('authz', 'control', 'runtime', 'ontology')
 
@@ -138,14 +142,15 @@ def probe_before(ports, config, r, prior=None):
     r.step('run_action_published_for_the_world', 'the Run Action is in the world catalog (prepare: publish_sim_catalog)',
            {'published': bool(published)}, bool(published))
     r.step('real_digest_before', 'the world-real digests taken', {'tables': len(before)}, bool(before), digests=before, world=world)
-    chain(r, config, prior, uuid.uuid4().hex)
+    r.nonce = r.nonce or new_nonce()  # the run nonce (s6_common): probe-before draws it, the later parts carry it
+    chain(r, config)
 
 
 def intake_phase(ports, config, r, prior):
     """APP_HOST, the simulation one-off container (sim_api and twin_port over hostssl): the twin through its port, then the Run accepted."""
     world = _world(config)
     inputs = config.get('inputs') or {}
-    chain(r, config, prior)
+    chain(r, config)
     consumers = evidence(prior, 'synthetic_consumers_present').get('consumers') or []
     twin = inputs.get('twin') or {}
     if ports.twin is None or not twin.get('twin_id'):
@@ -173,7 +178,7 @@ def probe_after(ports, config, r, prior):
     """DATA_HOST again: the task until it ends, the Run credential's world, the world's credentials, the real digest unchanged."""
     world, tenant = _world(config), config['tenant_id']
     inputs = config.get('inputs') or {}
-    chain(r, config, prior)
+    chain(r, config)
     accepted = evidence(prior, 'run_accepted')
     if accepted.get('task_id'):
         deadline = time.monotonic() + int(inputs.get('run_timeout_seconds') or 300)
@@ -210,16 +215,14 @@ def _tenant_ref(config):
     return hashlib.sha256(('at046:' + config['tenant_id']).encode()).hexdigest()[:16]  # the tenant, never named in a result
 
 
-def chain(r, config, prior, nonce=None):
-    """L6 at046-split review 1.1: one run of the three parts. probe-before draws the run nonce; intake and probe-after carry the one of
-    their --from results. A part's own chain step records nonce, world and tenant reference (load_prior checks them)."""
-    if nonce is None:
-        nonce = evidence(prior, 'run_chain').get('nonce')
-        if not nonce:
-            raise Refused('--from: no run nonce (a probe-before result of this script)')
+def chain(r, config):
+    """L6 at046-split review 1.1: one run of the three parts. The run nonce is the result's run_nonce (s6_common Result/load_chain);
+    a part's own chain step records the world and the tenant reference, which load_chain does not check."""
+    if not r.nonce:
+        raise Refused('--from: no run nonce (a probe-before result of this script)')
     if not any(st.get('name') == 'run_chain' for st in r.steps):
         r.step('run_chain', 'one run of the three parts', {'part': r.check.removeprefix('at046-')}, True,
-               nonce=nonce, world=_world(config), tenant_ref=_tenant_ref(config))
+               world=_world(config), tenant_ref=_tenant_ref(config))
 
 
 def evidence(prior, name):
@@ -232,36 +235,39 @@ def passed(prior, name):
 
 
 def load_prior(paths, config, parts):
-    """The earlier parts' result documents (--from), in order (L6 at046-split review 1.1): each the part expected at its position
-    (probe-before, intake, probe-after), never a dry run, all of one run (the same nonce), this world and tenant, executed in that
-    order. Returns their steps and blocks, or the reasons the chain is broken."""
-    steps, blocked, problems, docs = [], [], [], []
+    """The earlier parts' result documents (--from), checked by s6_common.load_chain (L3 fca51f2d: this script's results, never a dry
+    run, exactly these parts, one run_nonce, executed in chain order) and here for what load_chain leaves to its caller (L2 note
+    l2-at046-nonce-vs-load_chain.md): each --from at its own position (load_chain takes them in any order), strictly increasing times
+    (load_chain allows equal ones), this world and tenant (run_chain). Returns (steps, blocked, problems, nonce): the merge records the
+    problems as a failed step, the other parts refuse them."""
+    problems, docs = [], []
+    order = ['at046-' + p for p in parts]
+    try:
+        steps, blocked, nonce = load_chain(paths, prefix='at046-', order=order)
+    except Refused as error:
+        steps, blocked, nonce = [], [], None
+        problems.append(str(error))
     for path in paths or []:
         try:
             docs.append(json.loads(Path(path).read_text().strip().splitlines()[-1]))
         except (OSError, ValueError, IndexError):
             raise Refused('--from: a result document of this script') from None
-    if len(docs) != len(parts):
-        problems.append(f'expected {len(parts)} result(s): ' + ', '.join(parts))
+    if [d.get('check') for d in docs] != order:
+        problems.append('--from: the results in the order ' + ', '.join(order))
+    times = [str(d.get('executed_at') or '') for d in docs]
+    if any(not t for t in times) or times != sorted(times) or len(set(times)) != len(times):
+        problems.append('the results are not in the order probe-before < intake < probe-after (strictly)')
     world, ref = _world(config), _tenant_ref(config)
-    nonces, times = set(), []
     for i, doc in enumerate(docs):
-        want = 'at046-' + parts[i] if i < len(parts) else None
-        if doc.get('schema') != RESULT_SCHEMA or doc.get('dry_run') or doc.get('check') != want:
-            problems.append(f'--from #{i + 1}: not the {want} result (or a dry run)')
-            continue
         link = next((st.get('evidence') or {} for st in doc.get('steps') or [] if st.get('name') == 'run_chain'), {})
-        nonces.add(link.get('nonce'))
         if link.get('world') != world or link.get('tenant_ref') != ref:
             problems.append(f'--from #{i + 1}: another world or tenant')
-        times.append(str(doc.get('executed_at') or ''))
-        steps += doc.get('steps') or []
-        blocked += doc.get('blocked') or []
-    if len(nonces) > 1 or None in nonces:
-        problems.append('the results are not of one run (run nonce)')
-    if any(not t for t in times) or times != sorted(times) or len(set(times)) != len(times):
-        problems.append('the results are not in the order probe-before < intake < probe-after')
-    return steps, blocked, problems
+    if problems:  # the steps of a broken chain are still shown in the merge, in the order given
+        steps, blocked = [], []
+        for doc in docs:
+            steps += doc.get('steps') or []
+            blocked += doc.get('blocked') or []
+    return steps, blocked, problems, nonce
 
 
 REQUIRED = ('synthetic_consumers_present', 'run_action_published_for_the_world', 'real_digest_before', 'twin_observe_act',
@@ -344,7 +350,7 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
         result = Result(check, ['AT-046'], config, dry_run=args.dry_run, world='simulation')
         prior, prior_blocked, problems = [], [], []
         if args.phase in NEEDS and not args.dry_run:
-            prior, prior_blocked, problems = load_prior(args.prior, config, NEEDS[args.phase])
+            prior, prior_blocked, problems, result.nonce = load_prior(args.prior, config, NEEDS[args.phase])
             if problems and args.phase != 'merge':
                 raise Refused(f'{args.phase}: ' + '; '.join(problems))
         if args.phase == 'merge':

@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 
 import psycopg
+import pytest
 from psycopg.types.json import Jsonb
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -236,7 +237,7 @@ def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp
     assert merged['check'] == 'at046-run' and merged['passed'] is None and code == 1  # blocked on the twin only: never a pass
     assert {s['name'] for s in merged['steps']} >= {'synthetic_consumers_present', 'run_accepted', 'simulation_run_completes', 'real_side_unchanged'}
     assert steps(merged)['parts_of_one_run']['passed'] is True and steps(merged)['required_steps_present']['passed'] is True
-    assert len({steps(d)['run_chain']['evidence']['nonce'] for d in (before, accepted, after)}) == 1
+    assert len({d['run_nonce'] for d in (before, accepted, after, merged)}) == 1 and A.s6_nonce_ok(before['run_nonce'])
     # A failed part fails the merge.
     failed = json.loads(after_path.read_text())
     failed['steps'][-1]['passed'] = False
@@ -254,12 +255,19 @@ def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp
     def chain_of(doc):
         return next(st for st in doc['steps'] if st['name'] == 'run_chain')['evidence']
     # L6 at046-split review 1.1: spliced chains never merge into a pass - each is a failed parts_of_one_run.
-    second_before = part('probe-before', NoIntake(FakeProbe(world)))[2]  # another run: its own nonce
+    # Another run's probe-before (its own nonce), kept apart: part() writes <phase>.json, so the first one is restored afterwards.
+    first = before_path.read_text()
+    second_before = tmp_path / 'second-probe-before.json'
+    second_before.write_text(part('probe-before', NoIntake(FakeProbe(world)))[2].read_text())
+    before_path.write_text(first)
+    assert json.loads(second_before.read_text())['run_nonce'] != before['run_nonce']
     spliced = {
         'the same probe-before three times': (before_path, before_path, before_path),
         'out of order': (intake_path, before_path, after_path),
         'an older probe-before of another run': (second_before, intake_path, after_path),
-        'a part of another nonce': (before_path, intake_path, forged('after', lambda d: chain_of(d).update(nonce='f' * 32))),
+        'a part of another nonce': (before_path, intake_path, forged('after', lambda d: d.update(run_nonce='f' * 24))),
+        'no run nonce': (before_path, intake_path, forged('after', lambda d: d.pop('run_nonce'))),
+        'equal timestamps': (before_path, forged('intake', lambda d: d.update(executed_at=json.loads(before_path.read_text())['executed_at'])), after_path),
         'another world': (before_path, forged('intake', lambda d: chain_of(d).update(world='sim:' + str(uuid.uuid4()))), after_path),
         'another tenant': (before_path, intake_path, forged('after', lambda d: chain_of(d).update(tenant_ref='0' * 16))),
         'timestamps backwards': (before_path, forged('intake', lambda d: d.update(executed_at='2000-01-01T00:00:00+00:00')), after_path),
@@ -269,6 +277,16 @@ def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp
     for why, files in spliced.items():
         code, doc, _ = part('merge', A.Ports(), *files)
         assert code == 1 and doc['passed'] is False and steps(doc)['parts_of_one_run']['passed'] is False, why
+    # The differences to s6_common.load_chain (L2 note l2-at046-nonce-vs-load_chain.md), each confirmed: load_chain alone accepts these
+    # (it orders the parts itself, allows equal times, and checks neither world nor tenant) - at046 refuses them on top of it.
+    order = ['at046-probe-before', 'at046-intake', 'at046-probe-after']
+    for why in ('out of order', 'equal timestamps', 'another world', 'another tenant', 'no chain step'):
+        assert A.load_chain(spliced[why], prefix='at046-', order=order)[2] == before['run_nonce'], why
+    # and these load_chain refuses itself (exactly the parts once, one run_nonce, never a dry run, chain-order times).
+    for why in ('the same probe-before three times', 'an older probe-before of another run', 'a part of another nonce', 'no run nonce',
+                'a dry run', 'timestamps backwards'):
+        with pytest.raises(A.Refused):
+            A.load_chain(spliced[why], prefix='at046-', order=order)
     # A required step missing (its part's step removed) fails the merge too.
     gone = forged('after', lambda d: d.update(steps=[st for st in d['steps'] if st['name'] != 'real_side_unchanged']))
     code, doc, _ = part('merge', A.Ports(), before_path, intake_path, gone)
