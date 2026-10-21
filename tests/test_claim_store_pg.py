@@ -296,7 +296,11 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # NX-041 S5 copies the 0111 commitment command body with only its time expressions changed (test_nx041_sim_clock_pg guards
         # that the body otherwise equals 0111's); its Claim lines - resolving the registered commitment Claim and the existence check
         # on it - are 0111's unchanged; no new Claim value is read or projected.
-        '_nx041_sim_clock')) for name in migrations)
+        '_nx041_sim_clock',
+        # NX-043 X3 0288: an after-insert trigger on a real Claim from a copied inbound message adds only its Claim type (epistemic
+        # kind) to runtime.nexloop_shadow_event_claims under the shadow event's hashed key (as 0224 counts Claims by epistemic kind);
+        # no value, quote, subject, id or text is read or projected, and the real Claim is written whatever happens to the copy.
+        '_nx043_shadow_world')) for name in migrations)
 
 
 def correction_window(conversations):
