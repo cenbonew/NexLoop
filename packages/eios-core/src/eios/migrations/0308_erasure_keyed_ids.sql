@@ -79,6 +79,7 @@ CREATE OR REPLACE FUNCTION runtime.nexloop_outreach_accept(p_tenant text, p_worl
 AS $function$
 declare v_purpose jsonb;v_id text;v_digest text;v_head bigint;old runtime.nexloop_outreach_sends;v_day text;
  v_approval boolean;  -- Outreach slice 6
+ v_lever jsonb;  -- NX-043 X4 wiring
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
  if not exists(select 1 from ontology.objects where tenant_id=p_tenant and world=p_world and type_name='Consumer' and object_id=p_consumer)
@@ -102,14 +103,16 @@ begin
   return jsonb_build_object('intent_id',old.intent_id,'state',old.state,'replayed',true);
  end if;
  select revision into v_head from control.nexloop_control_heads where tenant_id=p_tenant and world=p_world;
+ -- NX-043 X4 wiring: the candidate strategy this decision used, frozen in the intent (the strategy_applied audit reads it).
+ v_lever:=runtime.nexloop_experiment_levers(p_tenant,p_world,p_consumer)-'levers';
  insert into runtime.nexloop_outreach_sends(tenant_id,world,intent_id,consumer_id,purpose_id,purpose_version,topic,frequency_class,channel,origin_ref,conversation_id,
-   body,body_digest,initiator,principal_id,request_intent,control_snapshot,run_id,state)
+   body,body_digest,initiator,principal_id,request_intent,control_snapshot,run_id,state,experiment_strategy)
   values(p_tenant,p_world,v_id,p_consumer,p_purpose,(v_purpose->>'list_version')::integer,v_purpose->'definition'->>'topic',
    v_purpose->'definition'->>'frequency_class','native.webchat',p_origin,p_conversation,p_body,v_digest,p_initiator,p_principal,p_intent,
    jsonb_build_object('control_revision',coalesce(v_head,0),
     'scopes',jsonb_build_array(jsonb_build_object('kind','consumer','ref',p_consumer),jsonb_build_object('kind','consumer','ref','consumer:'||p_consumer),
       jsonb_build_object('kind','action_type','ref','nexloop.outreach.send')),'goals','[]'::jsonb,'objects','[]'::jsonb,'budgets','[]'::jsonb),p_run,
-   case when v_approval then 'pending_approval' else 'accepted' end);
+   case when v_approval then 'pending_approval' else 'accepted' end,v_lever);
  if v_approval then  -- Outreach slice 6: the approval window starts at acceptance
   insert into runtime.nexloop_outreach_approvals(tenant_id,world,intent_id,requested_by,expires_at)
    values(p_tenant,p_world,v_id,p_principal,runtime.nexloop_world_now(p_tenant,p_world)+runtime.nexloop_outreach_approval_window());
