@@ -1,7 +1,7 @@
 # 模拟进程组在 stage 上启用（发布 27 之后，AT-046 实测）
 
 - **依据**：负责人批准“发布 27 部署后，在 stage 上启用模拟进程组，实测 AT-046”。参考 L6 的演进登记做法（`evolution_enroll.py`、`evolution_hba_data_host.sh`）。
-- **适用发布**：第七批 r4（1bd26ba1，发布 27）。twin 用途和 `nexloop_twin_port` 角色属于第八批，见“第八批之后”。
+- **适用发布**：第七批 r4（1bd26ba1，发布 27）。twin 用途和孪生端口属于第八批，见“第八批之后”；`nexloop_twin_port` 角色在 0266 已存在，但这次不放进 pg_hba。
 - **原则**：
   - 模拟进程组只用模拟角色和该 world 自己的凭据；
   - 主机配置（root、防火墙、路由）只写成负责人命令；
@@ -15,10 +15,10 @@
   - 其余新建连接一律丢弃，包括访问 APP_HOST 本机的。
   - 模拟子网只有在 APP_HOST 上才看得到，所以这条限制只能放在这里。
 - **pg_hba 新增一行**：
-  `hostssl <stage 库> nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port <APP_HOST_ADDR>/32 scram-sha-256`
+  `hostssl <stage 库> nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files <APP_HOST_ADDR>/32 scram-sha-256`
   - 只走 TLS，只用 SCRAM，只能连 stage 库，不要客户端证书。
   - 这一行没有任何 real 角色；real 应用角色那一行里也没有模拟角色。
-  - `nexloop_twin_port` 在第八批之前不存在，不会匹配任何人。
+  - 这一行不含 `nexloop_twin_port`。该角色在第七批的 0266 已经建好（没有口令，不能登录），等第八批的孪生端口和它的 DSN 到位时再加进这一行（L6 评审 2.1）。
 - **与你原先要求的差异**：你要求“只放行模拟子网”，我没有让 pg_hba 直接看到模拟子网的源地址。那样需要关闭该网段的 masquerade，并在 DATA_HOST 加回程路由，改动面大，也与现有容器网段的做法不一致。所以我把源地址限制放在 APP_HOST 防火墙，pg_hba 只按角色、库和 SCRAM 限制。如果仍要在 DATA_HOST 侧看到模拟子网，需要另外做一次网络改造（关闭该网段 masquerade、加 DATA_HOST 回程路由、DATA_HOST 防火墙放行模拟子网），这次没有做。
 
 ## 步骤与执行人
@@ -26,18 +26,35 @@
 | # | 步骤 | 执行人 | 命令或工具 |
 |---|---|---|---|
 | 1 | 部署发布 27（含本分支的模板和工具） | 调度员 | 部署单 |
-| 2 | pg_hba：加模拟一行，可与演进 local 行一起，一次重新加载 | **负责人，DATA_HOST root，一次** | `sudo bash scripts/deploy/sim_hba_data_host.sh <私有配置>`。配置是 0600 的 KEY=VALUE：`NEXLOOP_ROOT`、`STAGE_ENV`、`RELEASE_CHECKOUT`。脚本要求新渲染的 pg_hba 只比现有的多出模拟行（可再多一条演进行），不能删任何行；原地改写后发 HUP，失败就写回原内容。之后不必再跑 `evolution_hba_data_host.sh` |
+| 2 | pg_hba：加模拟一行，可与演进 local 行一起，一次重新加载 | **负责人，DATA_HOST root，一次** | `sudo bash scripts/deploy/sim_hba_data_host.sh <私有配置>`。配置是 0600 的 KEY=VALUE：`NEXLOOP_ROOT`、`STAGE_ENV`、`RELEASE_CHECKOUT`。脚本要求新渲染的 pg_hba 只比现有的多出模拟行，而且恰好一条（可再多一条演进行，同一行出现两次不算两行），不能删任何行；原地改写后发 HUP，失败就写回原内容。之后不必再跑 `evolution_hba_data_host.sh` |
 | 3 | 模拟角色的口令（bootstrap 窗口），口令存入钥匙串 | 调度员 | `ALTER ROLE … PASSWORD` 在 bootstrap 窗口执行，不经过任何工具 |
 | 4 | 模拟 secret 目录与 DSN 文件 | 调度员 | `sim_dsn_files.py --config <私有配置> --dry-run`，然后用钥匙串管道 `printf '%s %s\n' <角色> <口令>`（每个角色一行）喂给 `sim_dsn_files.py --config …`。会写 5 个 `*_dsn` 文件（0600），各自的 `sslrootcert=/run/secrets/sim_pg_ca` |
 | 5 | 其余 secret 文件 | 调度员 | 见下一节清单。`sim_pg_ca` 复制 real 的 pg CA 即可（同一套） |
 | 6 | 创建 sim world、生成合成数据、发布该 world 的 Action 目录 | 调度员（工具以负责人的工作台会话执行） | `at046_stage.py prepare --config …`，负责人口令走 stdin。依次调用 create_sim_world、generate_sim_world_data、publish_sim_catalog（0278，见下），输出里有 world id。也可以单独用 `sim_world.py publish-catalog --config …` 发布目录 |
-| 7 | 该 world 的凭据 | 调度员（受信配置签发：configurator 登录窗口和签名密钥） | `sim_world_credentials.py --config … --dry-run`，再去掉 `--dry-run` 执行。会签发 api、worker、agent 三种用途，写 token 文件，并把 worker 凭据写成 compose 的 `sim_world_credential`，最后自检：每个凭据在本 world 能认证，在 real 和 test 被拒 |
+| 7 | 该 world 的凭据 | 调度员（受信配置签发：configurator 登录窗口和签名密钥） | `sim_world_credentials.py --config … --dry-run`，再去掉 `--dry-run` 执行。会签发 api、worker、agent 三种用途，写 token 文件，并把 worker 凭据写成 compose 的 `sim_world_credential`，最后自检（见“凭据自检”）。`check_database_url_file` 是 bootstrap 窗口的只读检查 DSN（`default_transaction_read_only=on`），不是 configurator 或运行时 DSN |
 | 8 | 防火墙 | **负责人，APP_HOST root** | 见“防火墙”一节 |
 | 9 | 启动模拟进程组 | 调度员（APP_HOST 的部署账户，有 docker 权限） | 见“启动”一节 |
 | 10 | 自检模拟角色 | 调度员 | `post_deploy_check.py … --sim-secret-dir <模拟 secret 目录>`，在模拟项目的一次性容器里执行，或者 `sim_dsn_files.py --check`。每个 DSN 必须以它自己的模拟角色登录 |
-| 11 | AT-046 | 调度员 | `at046_stage.py run --config …`（`inputs.world` 填步骤 6 得到的 world id），结果作为 evidence |
+| 11 | AT-046 | 调度员 | `at046_stage.py run --config …`（`inputs.world` 填步骤 6 得到的 world id），结果作为 evidence。任何一步失败，整体就是失败，不会被 blocked 掩盖；只有 blocked 而无失败时，整体为 null |
+
+## 凭据自检（`sim_world_credentials.py`，L6 评审 4.3）
+
+逐项输出，每项都要为真：
+
+- 本 world 的凭据：每个配置的用途恰好一个 active 凭据，没有其他凭据；
+- 每个凭据：`worlds` 恰好是 `[world]`，`sim_use` 等于该用途，状态 active，它的 principal 的授权集合等于最小清单（api：队列和效应 Action；worker：队列；agent：效应 Action；都只有 execute）；
+- 在本 world 能认证；在 real 和 test 被拒，并且 SQLSTATE 必须是 42501，其他错误不算“被拒”；
+- 正对照：该租户一个 active 的 real 凭据在 real 能认证。没有它，整体判失败（否则“被拒”可能只是调用本身坏了）。
+
+效应 Action 只授给模拟 world 的 principal，这是“效应 Action 不经 manifest 授权”的唯一例外（评审 4.2）。工具在生成任何授权之前断言 world 是 `sim:` 或 `shadow:`，数据库再把凭据绑定到这个 world。每个 world 的 principal 和凭据 id 由 world uuid 派生，所以不同 world 的凭据不会互相复用（评审 4.4，不改代码）。
+
+## AT-046 的 real 侧对照（评审 5.2）
+
+`real_side_unchanged` 不再只比几张表的行数。它对 `authz`、`control`、`runtime`、`ontology` 中所有带 `world` 列的基表，取该租户 world='real' 的全部行（没有 `tenant_id` 列的表取整表的 real 行）算摘要，前后对比；所以更新也能看出来。表的数量写在结果里，为 0 时判失败。测试里有正对照：改一行 real 定义，摘要就变。
 
 ## compose 需要的 secret 文件（`NEXLOOP_SIM_SECRET_DIR`，全部 0600，属主为 `NEXLOOP_SIM_UID`）
+
+`sim_dsn_files.py` 和 `sim_world_credentials.py` 写出的文件属于执行它们的账户，工具不改属主（评审 3.1：不加 `--owner-uid`，因为工具不应以 root 运行）。写完之后，由 APP_HOST 的部署账户执行一次 `sudo chown <NEXLOOP_SIM_UID>:<NEXLOOP_SIM_GID>`，对象是 secret 目录和其中的文件，再用 `stat` 确认 0600 和属主。
 
 | 文件 | 来源 |
 |---|---|
@@ -90,4 +107,4 @@ docker compose -p nexloop-simulation ps
 ## 第八批之后
 
 - 用 `sim_world_credentials.py` 再签发 twin 用途（发布 27 的数据库不接受，工具会在写入前拒绝）。
-- `nexloop_twin_port` 在第八批建角色。pg_hba 那一行已经包含它，不用再改；它的 DSN 文件要加入 `sim_dsn_files.py` 的清单（`post_deploy_check.SIM_DSN_ROLES`）。
+- `nexloop_twin_port`（0266 已建）要在第八批加进 pg_hba 的模拟行：改模板、`sim_hba_data_host.sh` 的 SIM 正则和它的测试，负责人再执行一次脚本；它的口令在 bootstrap 窗口设置，DSN 文件加入 `sim_dsn_files.py` 的清单（`post_deploy_check.SIM_DSN_ROLES`）。

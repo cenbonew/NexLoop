@@ -10,13 +10,13 @@ Two phases, because the world's credentials, DSN files and the compose project (
         with a stand-in, 0278) -> the world id (into the result's evidence)
     # dispatcher: sim_world_credentials.py (api, worker, agent[, twin]), sim_dsn_files.py, compose --profile simulation up -d
     at046_stage.py run --config PRIVATE.json [--dry-run]
-        probe (read only): the real tables' counts before
+        probe (read only): a digest of every world-real row of the tenant (all tables with a world column) before
         twin: bind, observe, act through the twin port (nexloop_twin_port + the world's twin credential)       blocked before the eighth batch
         Run: the Run Action published for the world (prepare), the simulation intake (nexloop_sim_api + the world's api credential)
              issues the Run credential, fixes the input by reference and accepts the Run; the running simulation group (runtime worker,
              guard, simulation Host) claims and runs it; the probe waits for the task to end
         probe: the Run credential's world is the simulation world, every credential of the tenant's Run path is of that world, and the
-             real tables' counts are unchanged (AT-046: no real credential, channel or effect)
+             digest of every world-real row is unchanged (AT-046: no real credential, channel or effect)
 
 inputs (configuration):
     world_purpose, generate: {kind, seed, consumers, events_per_consumer, segments}   (prepare)
@@ -39,8 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
 from s6_common import Blocked, Redactor, Refused, Result, connect_from, read_private  # noqa: E402
 
-REAL_TABLES = ('runtime.nexloop_effect_intents', 'runtime.nexloop_effect_outbox', 'runtime.nexloop_outbound_messages', 'runtime.nexloop_message_outbox',
-               'runtime.nexloop_incentive_issues', 'runtime.nexloop_outreach_sends', 'ontology.nexloop_claims', 'runtime.nexloop_conversation_messages')
+SCHEMAS = ('authz', 'control', 'runtime', 'ontology')
 
 
 class Ports:
@@ -62,8 +61,18 @@ class Ports:
             return db.execute(sql, params).fetchall()
 
 
-def real_counts(ports):
-    return {t: ports.read(f'select count(*) from {t}')[0][0] for t in REAL_TABLES}
+def real_digest(ports, tenant):
+    """Review 5.2 (as T7's real digest): every base table with a world column, its world='real' rows of this tenant (or of the table
+    when it has no tenant column) - a digest of the rows, so an update shows as well as an insert or a delete."""
+    tables = ports.read("""select c.table_schema||'.'||c.table_name, exists(select 1 from information_schema.columns t where t.table_schema=c.table_schema
+          and t.table_name=c.table_name and t.column_name='tenant_id')
+        from information_schema.columns c join information_schema.tables b on b.table_schema=c.table_schema and b.table_name=c.table_name
+        where c.column_name='world' and b.table_type='BASE TABLE' and c.table_schema = any(%s) order by 1""", (list(SCHEMAS),))
+    out = {}
+    for table, tenanted in tables:
+        where = "world='real'" + (' and tenant_id=%s' if tenanted else '')
+        out[table] = ports.read(f"select md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from {table} x where {where}", (tenant,) if tenanted else ())[0][0]
+    return out
 
 
 def prepare(ports, config, r):
@@ -94,7 +103,7 @@ def run(ports, config, r):
     if not isinstance(world, str) or not world.startswith('sim:'):
         raise Refused('inputs.world: the sim:<uuid> world of the prepare phase')
     tenant = config['tenant_id']
-    before = real_counts(ports)
+    before = real_digest(ports, tenant)
     consumers = [row[0] for row in ports.read("select object_id from runtime.nexloop_sim_objects where tenant_id=%s and world=%s and type_name='Consumer' order by 1",
                                               (tenant, world))]
     r.step('synthetic_consumers_present', 'at least one synthetic Consumer in the world', {'consumers': len(consumers)}, bool(consumers))
@@ -136,10 +145,13 @@ def run(ports, config, r):
                {'task_status': status, 'run_world_is_simulation': run_world == world}, status == 'succeeded' and run_world == world, run_id=run_id)
     used = ports.read("""select array_agg(distinct w) from authz.nexloop_service_credentials c, unnest(c.worlds) w
         where c.tenant_id=%s and c.sim_use is not null and %s = any(c.worlds)""", (tenant, world))[0][0] or []
-    r.step('world_credentials_only_of_the_world', 'every credential carrying a simulation use for this world is bound to it alone',
-           {'worlds': used}, used in ([], [world]))
-    after = real_counts(ports)
-    r.step('real_side_unchanged', 'the real tables have the same counts', {'changed': sorted(t for t in REAL_TABLES if before[t] != after[t])}, before == after)
+    # Review 5.3: none found is not a pass - the Run path needs the world's own credentials.
+    r.step('world_credentials_only_of_the_world', 'credentials with a simulation use exist for this world, every one bound to it alone',
+           {'worlds': used}, used == [world])
+    after = real_digest(ports, tenant)
+    changed = sorted(t for t in set(before) | set(after) if before.get(t) != after.get(t))
+    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (digests of all tables with a world column)',
+           {'tables': len(before), 'changed': changed}, not changed and bool(before))
 
 
 def intake_from(roles):
@@ -188,9 +200,9 @@ def ports_from(config, password):
 
 
 PLAN = {'prepare': ['owner workbench: create_sim_world', 'owner workbench: generate_sim_world_data', 'owner workbench: publish_sim_catalog'],
-        'run': ['probe (read only): real table counts', 'twin port: bind, observe, act (when present)',
+        'run': ['probe (read only): world-real row digests', 'twin port: bind, observe, act (when present)',
                 'probe: the Run Action in the world catalog', 'sim_api: issue_run_credential, sim context register, accept',
-                'probe: task status until it ends, the Run credential world', 'probe: real table counts again']}
+                'probe: task status until it ends, the Run credential world', 'probe: world-real row digests again']}
 
 
 def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
@@ -207,7 +219,7 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
     try:
         from s6_common import load_config
         config = load_config(args.config)
-        result = Result('at046-' + args.phase, ['AT-046'], config, dry_run=args.dry_run)
+        result = Result('at046-' + args.phase, ['AT-046'], config, dry_run=args.dry_run, world='simulation')
         if args.dry_run:
             result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)
             return result.write(out)

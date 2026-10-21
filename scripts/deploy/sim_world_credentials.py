@@ -16,9 +16,10 @@ rerun writes nothing. A use the database does not accept yet (twin before the ei
     sim_world_credentials.py --config PRIVATE.json              issues, then self-checks
     sim_world_credentials.py --config PRIVATE.json --check      self-check only
 
-Self-check (check_sim_roles rules for credentials, with check_database_url_file - a simulation role's DSN, e.g. sim_api): each
-credential authenticates in its world through authz.nexloop_service_identity_snapshot and is refused in real and test; every
-credential of the world has its use, one per use, active.
+Self-check (check_database_url_file: the bootstrap window's inspection DSN, read only - it reads the credential rows and grants facts
+and calls the identity snapshot; never a configurator or runtime DSN): per use exactly one active credential, worlds exactly [world],
+sim_use that use, its principal's grant set equal to the minimal list, no other credential of the world; it authenticates in its world
+and is refused in real and test with SQLSTATE 42501, and an active real credential of the tenant is accepted in real (positive control).
 
 Configuration (private JSON, 0600; deploy/examples/sim-world-credentials.example.json):
   {"schema": "nexloop-sim-credentials/1", "tenant_id", "world": "sim:<uuid>", "uses": ["api", "worker", "agent"], "token_dir",
@@ -106,6 +107,8 @@ def accepted_uses():
 
 
 def grants_of(use):
+    # The effect Action is granted to a simulation world's principals only (review 4.2: the one exception to "no effect Action through a
+    # manifest"); principals() asserts the world is sim:/shadow: before any grant is built, and the database binds the credential to it.
     from nexloop_eios.effect_contexts import EFFECT
     effect = 'eios:action:' + EFFECT + ':1'
     return {'api': [QUEUE, effect], 'worker': [QUEUE], 'agent': [effect], 'twin': []}[use]
@@ -113,7 +116,10 @@ def grants_of(use):
 
 def principals(config):
     """service_grants principal shapes and the world manifest compile_principal reads (world, valid_from, grants)."""
-    slug = _WORLD.fullmatch(config['world']).group(2)[:8]
+    found = _WORLD.fullmatch(config['world'])
+    if not found or found.group(1) not in ('sim', 'shadow'):  # review 4.2: never an effect grant outside a simulation or shadow world
+        raise Refused('world: sim:<uuid> or shadow:<uuid>')
+    slug = found.group(2)[:8]
     out, grants = [], []
     for use in config['uses']:
         role = f'sim_{use}_{slug}'
@@ -191,26 +197,61 @@ def issue(config, tokens_by_use):
 
 
 def self_check(config, tokens_by_use, connect=None):
+    """Review 4.3: every item, each one a named result.
+    Rows (authz.nexloop_service_credentials of the tenant naming this world, and the world principals' grants facts):
+      exactly one active credential per configured use and no other credential of the world; for each, worlds is exactly [world],
+      sim_use is that use, status active, its principal's grant set equals grants_of(use) (execute only).
+    Behaviour: the token authenticates in its world (identity snapshot, binding tenant); in real and test it is refused with SQLSTATE
+      42501 (any other error is not a refusal); positive control: an active real credential of the tenant is accepted in real, so the
+      refusals are the world binding's and not a broken call."""
     import psycopg
     connect = connect or (lambda: psycopg.connect(read_private(config['check_database_url_file'], 16384), connect_timeout=5, autocommit=True))
+    people, _ = principals(config)
+    by_credential = {p['credential_id']: p for p in people}
     out, ok = {}, True
     with connect() as db:
+        db.execute("select set_config('eios.tenant_id',%s,false)", (config['tenant_id'],))
+        rows = db.execute("""select token_digest,credential_id,worlds,sim_use,status from authz.nexloop_service_credentials
+            where tenant_id=%s and %s=any(worlds)""", (config['tenant_id'], config['world'])).fetchall()
+        facts = db.execute("""select entity_key[1],payload->'grants' from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants'""",
+                           (config['tenant_id'],)).fetchall()
+        grants = {}
+        for principal, items in facts:
+            grants.setdefault(principal, set()).update((g['resource']['resource_id'], tuple(sorted(g['operations']))) for g in items or [])
+        active = [r for r in rows if r[4] == 'active']
+        uses_found = sorted(r[3] or '' for r in active)
+        out['_world'] = {'one_active_per_use': uses_found == sorted(tokens_by_use), 'no_other_credential': all(r[1] in by_credential for r in rows)}
+        ok = all(out['_world'].values())
+
+        def snapshot(digest, world):
+            try:
+                with db.transaction():
+                    return db.execute('select authz.nexloop_service_identity_snapshot(%s,%s)', (digest, world)).fetchone()[0], None
+            except psycopg.Error as error:
+                return None, error.sqlstate
+
         for use, token in sorted(tokens_by_use.items()):
             digest = hashlib.sha256(token.encode()).hexdigest()
-            row = {}
-            try:
-                snap = db.execute('select authz.nexloop_service_identity_snapshot(%s,%s)', (digest, config['world'])).fetchone()[0]
-                row['own_world'] = (snap.get('binding') or {}).get('tenant_id') == config['tenant_id']
-            except psycopg.Error:
-                row['own_world'] = False
+            mine = [r for r in active if r[0] == digest]
+            row = mine[0] if len(mine) == 1 else None
+            person = by_credential.get(row[1]) if row else None
+            item = {'row_found': row is not None,
+                    'worlds_exactly_this_world': bool(row) and list(row[2]) == [config['world']],
+                    'sim_use': bool(row) and row[3] == use and bool(person) and person['use'] == use,
+                    'status_active': bool(row) and row[4] == 'active',
+                    'grants_minimal': bool(person) and grants.get(person['principal_id'], set()) == {(rid, ('execute',)) for rid in grants_of(use)}}
+            snap, _ = snapshot(digest, config['world'])
+            item['own_world'] = bool(snap) and (snap.get('binding') or {}).get('tenant_id') == config['tenant_id']
             for other in ('real', 'test'):
-                try:
-                    db.execute('select authz.nexloop_service_identity_snapshot(%s,%s)', (digest, other))
-                    row[f'refused_in_{other}'] = False
-                except psycopg.Error:
-                    row[f'refused_in_{other}'] = True
-            out[use] = row
-            ok = ok and all(row.values())
+                snap, state = snapshot(digest, other)
+                item[f'refused_in_{other}'] = snap is None and state == '42501'
+            out[use] = item
+            ok = ok and all(item.values())
+        control = db.execute("""select token_digest from authz.nexloop_service_credentials where tenant_id=%s and worlds=array['real'] and status='active'
+            and (expires_at is null or expires_at>clock_timestamp()) order by credential_id limit 1""", (config['tenant_id'],)).fetchone()
+        accepted = snapshot(control[0], 'real')[0] if control else None
+        out['_control'] = {'real_credential_accepted_in_real': bool(accepted)}
+        ok = ok and bool(accepted)
     return {'pass': ok, 'credentials': out}
 
 

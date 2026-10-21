@@ -156,6 +156,8 @@ def main(argv=None, *, stdin=None, out=sys.stdout, check=None):
         return emit(result, 0)
     except Refused as error:
         return emit({'ok': False, 'detail': str(error)}, 2)
+    except Exception as error:  # noqa: BLE001 - review 3.2: the type only (a message may hold a DSN or password)
+        return emit({'ok': False, 'error': type(error).__name__}, 1)
 
 
 if __name__ == '__main__':

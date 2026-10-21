@@ -36,7 +36,18 @@ read_config() {
 # The rules of a pg_hba file: comments and blank lines dropped, whitespace collapsed.
 rules() { grep -v '^[[:space:]]*#' "$1" | sed '/^[[:space:]]*$/d' | tr -s ' \t' ' '; }
 EVOLUTION='^local [a-z_][a-z0-9_]* nexloop_evo_reader,nexloop_evo_writer,nexloop_evo_evaluator scram-sha-256$'
-SIM='^hostssl [a-z_][a-z0-9_]* nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files,nexloop_twin_port [0-9.]+/32 scram-sha-256$'
+SIM='^hostssl [a-z_][a-z0-9_]* nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexloop_stand_in_worker,nexloop_sim_files [0-9.]+/32 scram-sha-256$'
+
+# The added rules: one simulation line, at most one evolution line, nothing else (review 1.2: two copies of one line are not two lines).
+check_added() {
+  local count
+  count=$(printf '%s\n' "$1" | sed '/^$/d' | wc -l | tr -d ' ')
+  if [ "$count" -lt 1 ] || [ "$count" -gt 2 ]; then CHECK_ADDED="expected the simulation line (and at most the evolution line) added, found $count"; return 1; fi
+  if [ "$(printf '%s\n' "$1" | grep -Ec "$SIM" || true)" -ne 1 ]; then CHECK_ADDED="the added rules must hold the simulation hostssl line exactly once"; return 1; fi
+  if [ "$(printf '%s\n' "$1" | sed '/^$/d' | grep -Evc "$SIM|$EVOLUTION" || true)" -ne 0 ]; then
+    CHECK_ADDED="an added rule is neither the simulation nor the evolution line"; return 1; fi
+  return 0
+}
 
 if [ "${SIM_HBA_LIB:-}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
 CONFIG=${1:?usage: sudo bash sim_hba_data_host.sh <private config>}
@@ -56,12 +67,7 @@ added=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^> //p')
 [ "$removed" -eq 0 ] || fail 1 "the rendered pg_hba removes $removed rule line(s); render with the deployed stage.env and a release checkout with the simulation line"
 if [ -z "$added" ] && grep -Eq "$SIM" <(rules "$HBA"); then
   printf '%s\n' "done: the simulation line is already installed (nothing to do)"; exit 0; fi
-count=$(printf '%s\n' "$added" | sed '/^$/d' | wc -l | tr -d ' ')
-[ "$count" -ge 1 ] && [ "$count" -le 2 ] || fail 1 "expected the simulation line (and at most the evolution line) added, found $count"
-printf '%s\n' "$added" | grep -Eq "$SIM" || fail 1 "the simulation hostssl line is not among the added rules"
-printf '%s\n' "$added" | sed '/^$/d' | while IFS= read -r rule; do
-  printf '%s\n' "$rule" | grep -Eq "$SIM|$EVOLUTION" || { printf '%s\n' "FAILED step 1: an added rule is neither the simulation nor the evolution line" >&2; exit 1; }
-done || exit 1
+check_added "$added" || fail 1 "$CHECK_ADDED"
 
 step 2 "write pg_hba in place and reload"
 cp -p "$HBA" "$HBA.before-sim"

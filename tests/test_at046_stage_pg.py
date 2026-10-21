@@ -1,6 +1,7 @@
 """scripts/acceptance/at046_stage.py: the AT-046 stage run, locally.
 - On PostgreSQL (a simulation world with synthetic data): the run phase probes read only, finds no twin port in this release
-  (`blocked`, passed null, never a pass); without prepare's catalog publication the Run step fails; the real side is unchanged.
+  (`blocked`); without prepare's catalog publication the Run step fails and without credentials the credential step fails, so the
+  run fails (a failure is never masked by blocked); the real side's digest is unchanged.
 - With the Run Action published for the world (as the D10 tests seed it) and an intake stand-in, the run phase waits for the task and
   checks the Run credential's world (fake ports: no host process here).
 - The dry run calls nothing; prepare goes through the owner's two Actions; no private value in a result.
@@ -56,20 +57,22 @@ def test_the_run_phase_blocks_what_this_release_lacks_and_keeps_real_unchanged(a
     world = world_with_data(admin)
     ports = A.Ports(probe=lambda: psycopg.connect(pg, autocommit=True, options='-c default_transaction_read_only=on'))
     code, doc = run(tmp_path, 'run', ports, world=world)
-    assert code == 1 and doc['passed'] is None, json.dumps(doc, ensure_ascii=False)
+    assert code == 1 and doc['passed'] is False, json.dumps(doc, ensure_ascii=False)  # failed steps below: never masked by blocked (5.3)
     st = steps(doc)
     assert st['synthetic_consumers_present']['observed']['consumers'] == 2
     assert 'eighth batch' in st['twin_observe_act']['observed']['blocked']
     assert st['run_action_published_for_the_world']['passed'] is False  # prepare publishes it (publish_sim_catalog)
-    assert st['real_side_unchanged']['passed'] is True and st['world_credentials_only_of_the_world']['passed'] is True
+    assert st['real_side_unchanged']['passed'] is True and st['real_side_unchanged']['observed']['tables'] > 5
+    assert st['world_credentials_only_of_the_world']['passed'] is False  # no credential issued yet: none found is not a pass (5.3)
     assert TENANT_A not in json.dumps(doc)
 
 
 class FakeProbe:
     """A read-only probe answering the run phase's queries from a dict (no database)."""
 
-    def __init__(self, world):
+    def __init__(self, world, run_credentials=None):
         self.world, self.calls = world, []
+        self.run_credentials = [world] if run_credentials is None else run_credentials
         self.status = iter(['queued', 'running', 'succeeded'])
 
     def __call__(self):
@@ -95,6 +98,10 @@ class FakeProbe:
             return []
         if s.startswith('select count(*) from control.nexloop_action_definitions'):
             return [(1,)]
+        if 'information_schema' in s:
+            return [('runtime.some_table', True)]
+        if s.startswith('select md5('):
+            return [('d' * 32,)]
         if 'to_regprocedure' in s:
             return [(False,)]
         if 'nexloop_sim_objects' in s:
@@ -104,7 +111,7 @@ class FakeProbe:
         if 'nexloop_run_credentials' in s:
             return [(self.world,)]
         if 'array_agg' in s:
-            return [([self.world],)]
+            return [(self.run_credentials,)]
         return [(0,)]
 
 
@@ -152,3 +159,34 @@ def test_prepare_goes_through_the_owner_actions_and_the_dry_run_calls_nothing(tm
     assert code == 0 and doc['dry_run'] is True and len(list((tmp_path / 'results').iterdir())) == 1  # only prepare wrote a result
     code, doc = run(tmp_path, 'run', A.Ports(), world='real')
     assert code == 2
+
+
+def test_a_failed_step_fails_the_run_even_with_a_blocked_step(tmp_path, monkeypatch):
+    """Review 5.3: blocked never masks a failure; and a credential step that finds no credential is not a pass."""
+    world = 'sim:' + str(uuid.uuid4())
+    monkeypatch.setattr(A.time, 'sleep', lambda s: None)
+    ports = A.Ports(probe=FakeProbe(world, run_credentials=[]), intake=lambda w, c, e: ('task-1', 'run-1'))
+    code, doc = run(tmp_path, 'run', ports, world=world)
+    st = steps(doc)
+    assert st['world_credentials_only_of_the_world']['passed'] is False  # none found
+    assert doc['blocked'] and code == 1 and doc['passed'] is False, json.dumps(doc, ensure_ascii=False)
+    # The same through the result document alone: blocked plus a failed step is a failure; blocked alone stays null.
+    r = A.Result('at046-run', ['AT-046'], {'release': 'local', 'executor': 'L2 local', 'tenant_id': TENANT_A}, world='simulation')
+    r.block('twin', 'eighth batch')
+    r.step('ok', 'fine', {}, True)
+    assert r.document()['passed'] is None
+    r.step('bad', 'broken', {}, False)
+    assert r.document()['passed'] is False and r.document()['world'] == 'simulation'
+
+
+def test_the_real_digest_sees_an_update(admin, pg, tmp_path):
+    """Review 5.2 positive control: a change to a world-real row of the tenant changes the digest (not only a count)."""
+    world_with_data(admin)
+    admin.execute("""insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active)
+        values(%s,'real','eios:action:at046.probe:1','{"stable_name":"at046.probe","version":1}','{}',true)""", (TENANT_A,))
+    ports = A.Ports(probe=lambda: psycopg.connect(pg, autocommit=True, options='-c default_transaction_read_only=on'))
+    before = A.real_digest(ports, TENANT_A)
+    assert 'control.nexloop_action_definitions' in before and len(before) > 5
+    admin.execute("update control.nexloop_action_definitions set active=false where tenant_id=%s and resource_id='eios:action:at046.probe:1'", (TENANT_A,))
+    after = A.real_digest(ports, TENANT_A)
+    assert [t for t in before if before[t] != after[t]] == ['control.nexloop_action_definitions']

@@ -14,7 +14,6 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,16 +54,19 @@ def run(main, argv, **kw):
 
 def test_the_world_credentials_are_issued_per_use_bound_to_the_world_and_self_checked(deployment, admin, tmp_path):  # noqa: F811
     d = deployment
-    admin.execute('alter role nexloop_sim_api login')
+    d['apply']()  # the tenant's real service credentials: the self-check's positive control
     world = world_of(admin)
     conf = credentials_config(d, tmp_path, world, compose_secret_dir=str((tmp_path / 'compose').mkdir(mode=0o700) or tmp_path / 'compose'))
-    check = lambda: psycopg.connect(make_conninfo(d['pg'], user='nexloop_sim_api'), autocommit=True)  # noqa: E731
+    check = lambda: psycopg.connect(d['pg'], autocommit=True, options='-c default_transaction_read_only=on')  # noqa: E731 - the read-only inspection DSN
     code, out = run(C.main, ['--config', str(conf), '--dry-run'], check_connect=check)
     assert code == 0 and out['credentials_to_create'] == ['agent', 'api', 'worker'] and not (tmp_path / 'tokens').exists()
     assert admin.execute('select count(*) from authz.nexloop_service_credentials where worlds=%s', ([world],)).fetchone()[0] == 0
     code, out = run(C.main, ['--config', str(conf)], check_connect=check)
     assert code == 0 and out['changed'] is True and out['credentials_created'] == ['agent', 'api', 'worker'], out
-    assert out['check']['pass'] is True and all(v == {'own_world': True, 'refused_in_real': True, 'refused_in_test': True} for v in out['check']['credentials'].values())
+    items = {'row_found', 'worlds_exactly_this_world', 'sim_use', 'status_active', 'grants_minimal', 'own_world', 'refused_in_real', 'refused_in_test'}
+    checked = out['check']['credentials']
+    assert out['check']['pass'] is True and all(checked[u] == dict.fromkeys(items, True) for u in ('api', 'worker', 'agent')), out
+    assert checked['_world'] == {'one_active_per_use': True, 'no_other_credential': True} and checked['_control'] == {'real_credential_accepted_in_real': True}
     rows = admin.execute('select sim_use,worlds,status from authz.nexloop_service_credentials where worlds=%s order by sim_use', ([world],)).fetchall()
     assert rows == [(u, [world], 'active') for u in ('agent', 'api', 'worker')]
     tokens = {p.name: p.read_text() for p in (tmp_path / 'tokens').rglob('*-credential')}
@@ -83,6 +85,20 @@ def test_the_world_credentials_are_issued_per_use_bound_to_the_world_and_self_ch
     assert code == 0 and checked['ok'] is True
     # Real credentials are untouched: none carries a use.
     assert admin.execute("select count(*) from authz.nexloop_service_credentials where 'real'=any(worlds) and sim_use is not null").fetchone()[0] == 0
+    # Without an active real credential the positive control fails, so the check fails (a refusal alone proves nothing).
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("update authz.nexloop_service_credentials set status='revoked' where worlds=array['real']")
+    code, checked = run(C.main, ['--config', str(conf), '--check'], check_connect=check)
+    assert code == 1 and checked['ok'] is False and checked['check']['credentials']['_control'] == {'real_credential_accepted_in_real': False}
+    # A credential whose grants differ from the minimal list fails its item.
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("update authz.nexloop_service_credentials set status='active' where worlds=array['real']")
+        admin.execute("""update authz.nexloop_authority_facts set payload=jsonb_set(payload,'{grants}','[]') where tenant_id=%s and fact_kind='grants'
+            and entity_key[1] like 'nexloop-sim-%%-agent-principal'""", (TENANT,))
+    code, checked = run(C.main, ['--config', str(conf), '--check'], check_connect=check)
+    assert code == 1 and checked['check']['credentials']['agent']['grants_minimal'] is False and checked['check']['credentials']['api']['grants_minimal'] is True
 
 
 def test_the_twin_use_is_refused_by_this_release_and_bad_input_too(deployment, admin, tmp_path):  # noqa: F811
@@ -130,6 +146,11 @@ def test_the_dsn_files_are_written_0600_from_stdin_and_never_print_a_password(tm
     code, out = run(D.main, ['--config', str(conf), '--check'], stdin=io.StringIO(lines),
                     check=lambda dsns, required: seen.update(n=sorted(dsns), r=required) or {'pass': True})
     assert code == 0 and out['check'] == {'pass': True} and seen['n'] == sorted(D.SIM_DSN_ROLES) and 'password' not in json.dumps(out)
+    # Review 3.2: a check that raises reports its type only, never a message that may hold a value.
+    def broken(dsns, required):
+        raise psycopg.OperationalError('connection failed: password=' + passwords[ROLES[0]])
+    code, out = run(D.main, ['--config', str(conf), '--check'], stdin=io.StringIO(lines), check=broken)
+    assert code == 1 and out == {'ok': False, 'error': 'OperationalError'}
 
 
 @pytest.mark.parametrize('lines,detail', [('', 'no password line'), ('nexloop_api ' + 'x' * 20 + '\n', 'each simulation role once'),
