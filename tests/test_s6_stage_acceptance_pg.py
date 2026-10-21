@@ -142,7 +142,7 @@ def test_every_at_passes_on_the_local_stage(stage, capsys):
 
 def test_at048_detects_both_leakage_routes_and_passes_regrouped(stage, capsys):
     """AT-048: a split grouped by Run with one Consumer on both sides and a near-duplicate pair across the sides both return
-    leakage_detected (the opening derives the Consumers itself since the 0259 fix); regrouped by Consumer both open."""
+    leakage_detected (the opening derives the Consumers itself since the 0286 fix); regrouped by Consumer both open."""
     assert S.main(['at048', '--config', stage['config']]) == 0
     [r] = results(capsys)
     got = by_name(r)
