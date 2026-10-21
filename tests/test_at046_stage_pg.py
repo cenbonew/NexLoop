@@ -329,7 +329,7 @@ def test_prepare_can_publish_the_synthetic_twin_for_the_run_phase(tmp_path):
     code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin={'twin_id': 'at046-synthetic-x'})
     assert code == 0 and owner.calls[-1] == '/api/v1/workbench/actions/publish_consumer_twin'
     body, headers = owner.twin
-    assert set(body) == {'definition'} and body['definition']['twin_id'] == 'at046-synthetic-x' and body['definition']['generator_version'] == 'twin-template/1'
+    assert set(body) == {'definition', 'calibration_report_ref'} and body['definition']['twin_id'] == 'at046-synthetic-x' and body['definition']['generator_version'] == 'twin-template/1'
     assert body['definition']['schema'] == 'nexloop-consumer-twin/1' and not consumer_twins.definition_problems(body['definition'])
     assert steps(doc)['twin_published']['observed'] == {'status': 200, 'twin_id': 'at046-synthetic-x', 'version': 1, 'twin_status': 'published'}
     first_key = headers['Idempotency-Key']
@@ -384,3 +384,40 @@ def test_a_retired_synthetic_twin_binds_no_more_and_no_staged_experiment_can_use
     admin.execute("select set_config('eios.tenant_id',%s,false)", (T,))
     assert admin.execute('select runtime.nexloop_consumer_twin_status(%s,%s,%s)', (T, out['twin_id'], out['version'])).fetchone()[0] == 'retired'
     assert selectable() is False and twin_ok('screening') is False and twin_ok('shadow') is False
+
+
+def _workbench_validates(operation, body):
+    """The workbench entry's own request validation (workbench_actions_http): the key set equals the form's, every field passes."""
+    from nexloop_eios.workbench_actions_http import OPERATIONS
+    spec = OPERATIONS[operation]
+    if type(body) is not dict or set(body) != set(spec):
+        raise ValueError('fields')
+    return {name: check(body[name]) for name, check in spec.items()}
+
+
+def test_the_twin_bodies_pass_the_workbench_validation_the_old_one_did_not():
+    """Stage finding 2026-10-22: publish_consumer_twin answered 422 - the body named definition only while the form's fields are exactly
+    definition and calibration_report_ref. The bodies at046 sends now pass the workbench's own validation; the old one is refused."""
+    definition = A.twin_definition({'publish_twin': {'twin_id': 'at046-synthetic-stage'}})
+    assert _workbench_validates('publish_consumer_twin', A.twin_publish_body(definition))['definition']['twin_id'] == 'at046-synthetic-stage'
+    with pytest.raises(ValueError):
+        _workbench_validates('publish_consumer_twin', {'definition': definition})  # the body of 0584f0a4 and before
+    owner = FakeOwner()
+    run(tmp_path := Path(__import__('tempfile').mkdtemp()), 'cleanup', A.Ports(owner=owner), twin={'twin_id': 'at046-synthetic-stage', 'version': 1})
+    assert _workbench_validates('retire_consumer_twin', owner.retired[0])['version'] == 1
+
+
+def test_publish_twin_is_on_with_the_key_and_publish_twin_alone_creates_no_world(tmp_path):
+    """Dispatcher 2026-10-22: publish_twin={} was taken as off (an empty world was created and no twin). The key enables it - true, {} or
+    {"twin_id"}; anything else is refused before anything is created. The publish-twin phase publishes the twin only."""
+    for value in ({}, True):
+        owner = FakeOwner()
+        code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin=value)
+        assert code == 0 and owner.calls[-1].endswith('publish_consumer_twin') and steps(doc)['twin_published']['passed'] is True, value
+    for value in (False, 'yes', {'twin_id': 'trial.service_consumer'}):
+        owner = FakeOwner()
+        code, doc = run(tmp_path, 'prepare', A.Ports(owner=owner), publish_twin=value)
+        assert code == 2 and owner.calls == [], value  # refused before any world is created
+    owner = FakeOwner()
+    code, doc = run(tmp_path, 'publish-twin', A.Ports(owner=owner), publish_twin={'twin_id': 'at046-synthetic-stage'})
+    assert code == 0 and owner.calls == ['/api/v1/workbench/actions/publish_consumer_twin'] and steps(doc)['twin_published']['passed'] is True
