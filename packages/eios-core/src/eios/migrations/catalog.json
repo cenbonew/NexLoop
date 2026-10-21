@@ -1515,6 +1515,26 @@
       "version": "0303",
       "name": "0303_at048_consumer_leak_perf.sql",
       "sha256": "1e2f377f00a3d1af080297b4a4787fa6e1ff29a9583467cc8a68b8e64dc7ece1"
+    },
+    {
+      "version": "0305",
+      "name": "0305_erasure_coverage_text.sql",
+      "sha256": "c8ef70f1f0c21c1779e56895151790b5ee4b55d9562115548c8055c5ecafa03b"
+    },
+    {
+      "version": "0306",
+      "name": "0306_erasure_coverage_references.sql",
+      "sha256": "fe9ab1f4a6cbe48cef2e16ca1362eb4f9f86689dda86d7b6ad7e0a50d5fa73ab"
+    },
+    {
+      "version": "0307",
+      "name": "0307_erasure_identity_residue.sql",
+      "sha256": "965bdc23f190dc57ee1e7cc814aef0002f2ccd68c9511c87f8ed6dd23ea3faf3"
+    },
+    {
+      "version": "0308",
+      "name": "0308_erasure_keyed_ids.sql",
+      "sha256": "fc20163f5bafca09634f036096e497732e6b9d6f8bfaf60c7f214de27936e71b"
     }
   ]
 }

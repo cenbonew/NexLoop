@@ -124,7 +124,7 @@ def test_consumer_erasure_deletes_the_records_of_its_runs(semantic):
     admin.execute("update control.nexloop_consumer_erasures set state='purging',phase='messages' where request_id='req-semantic'")
     assert rows(admin,erased)==[] and len(rows(admin,kept))==2
     stone=admin.execute("select reason,item_class,subject_key,action,counts from runtime.nexloop_erasure_tombstones where item_class='semantic_access'").fetchall()
-    assert stone==[('consumer_erasure','semantic_access',CONSUMER,'deleted',{'semantic_accesses':2})]
+    assert stone==[('consumer_erasure','semantic_access',admin.execute('select runtime.nexloop_erasure_subject_key(%s,%s)',(A,CONSUMER)).fetchone()[0],'deleted',{'semantic_accesses':2})]  # 0301: keyed
     # A record written while purging (a straggler) leaves when the request completes.
     recorder=SemanticAccessRecorder(f['worker'],session,signer,run_id=erased)
     adapter(f,session,signer,recorder).browse('防水');assert len(rows(admin,erased))==1

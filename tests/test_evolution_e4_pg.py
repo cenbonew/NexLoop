@@ -341,7 +341,7 @@ def test_erasure_deletes_patches_and_invalidates(evo):
     assert admin.execute('select count(*) from runtime.nexloop_evo_patch_sources').fetchone() == (0,)
     assert admin.execute('select status,end_reason from runtime.nexloop_evo_diagnoses').fetchone() == ('incomplete', 'missing_data')
     stone = admin.execute("select reason,item_class,subject_key,action,counts from runtime.nexloop_erasure_tombstones where item_class='evolution_candidate'").fetchall()
-    assert stone == [('consumer_erasure', 'evolution_candidate', f['consumers'][0], 'deleted',
+    assert stone == [('consumer_erasure', 'evolution_candidate', admin.execute('select runtime.nexloop_erasure_subject_key(%s,%s)',(TENANT_A,f['consumers'][0])).fetchone()[0], 'deleted',  # 0301: keyed
                       {'patches': 1, 'candidates_incomplete': 1, 'diagnoses_incomplete': 1})]
     kinds = admin.execute("select event_kind,from_status,to_status,reason from runtime.nexloop_evo_candidate_events where event_kind='invalidated' order by event_id").fetchall()
     assert kinds == [('invalidated', 'accepted_for_release', 'incomplete', 'missing_data'), ('invalidated', 'open', 'incomplete', 'missing_data')]
