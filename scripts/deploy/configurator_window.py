@@ -38,6 +38,11 @@ def write_private(path, data, mode=0o600):
 
 
 WINDOW_MINUTES = 10
+# One configurator window at a time (L6 window-hardening review 1.1): a session-level advisory lock on this fixed key is taken on the
+# window's bootstrap connection before anything is decided and held until the window is closed - a second window started meanwhile
+# is refused at once instead of overwriting the first one's password (and closing it from its own finally). The lock goes with the
+# session, so a window whose connection died holds nothing.
+WINDOW_LOCK = 0x6E786C77696E646F  # 'nxlwindo'
 
 
 class WindowNotClosed(RuntimeError):
@@ -93,8 +98,7 @@ def configurator_window(bootstrap_dsn_file, *, refused=ValueError):
     healing); one still valid is another window (or one left behind minutes ago) - refused, never taken over; so is one able to log
     in with no VALID UNTIL at all (no window ever opens one that way: someone opened it on purpose)."""
     import psycopg
-    from psycopg import sql
-    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    from psycopg.conninfo import conninfo_to_dict
     from nexloop_eios.trusted_configuration import read_private_text
     bootstrap = read_private_text(bootstrap_dsn_file, maximum=16384).strip()
     params = conninfo_to_dict(bootstrap)
@@ -102,25 +106,41 @@ def configurator_window(bootstrap_dsn_file, *, refused=ValueError):
         raise refused('--bootstrap-dsn-file: the nexloop_bootstrap DSN over the local socket (host=<socket directory>)')
     password = secrets.token_hex(24)
     with _sigterm_raises(), psycopg.connect(bootstrap, autocommit=True, connect_timeout=5) as admin:
-        login, lapsed = admin.execute(f"""select rolcanlogin, coalesce(rolvaliduntil<=clock_timestamp(),false) from pg_roles
-            where rolname='{CONFIGURATOR}'""").fetchone()
-        if login and not lapsed:
-            raise refused('a configurator window is open (or was left open minutes ago): retry after its VALID UNTIL')
-        if login:
-            _close(admin, bootstrap)  # a stale window whose password has lapsed: heal it before opening
-        until = admin.execute(f"select (clock_timestamp()+interval '{WINDOW_MINUTES} minutes')::text").fetchone()[0]
-        scratch = Path(tempfile.mkdtemp(prefix='nexloop-configurator-'))
-        dsn = scratch / 'configurator-dsn'
+        if not admin.execute('select pg_try_advisory_lock(%s)', (WINDOW_LOCK,)).fetchone()[0]:
+            raise refused('another configurator window is in use: retry when it has closed')
         try:
-            admin.execute(sql.SQL('alter role {} login password {} valid until {}').format(
-                sql.Identifier(CONFIGURATOR), sql.Literal(scram_verifier(password)), sql.Literal(until)))
-            write_private(dsn, make_conninfo(bootstrap, user=CONFIGURATOR, password=password))
-            yield dsn
+            yield from _window(admin, bootstrap, password, refused)
         finally:
-            try:
-                _close(admin, bootstrap)  # first: the window closes whatever happens to the files
-            finally:
-                dsn.unlink(missing_ok=True)
-                for leftover in scratch.iterdir():
-                    leftover.unlink(missing_ok=True)
-                scratch.rmdir()
+            if not admin.closed:
+                try:
+                    admin.execute('select pg_advisory_unlock(%s)', (WINDOW_LOCK,))
+                except psycopg.Error:
+                    pass  # the session's end releases it
+
+
+def _window(admin, bootstrap, password, refused):
+    """The window itself, on the locked bootstrap session: decide, open, yield the DSN file, close first, then remove the files."""
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    login, lapsed = admin.execute(f"""select rolcanlogin, coalesce(rolvaliduntil<=clock_timestamp(),false) from pg_roles
+        where rolname='{CONFIGURATOR}'""").fetchone()
+    if login and not lapsed:
+        raise refused('a configurator window is open (or was left open minutes ago): retry after its VALID UNTIL')
+    if login:
+        _close(admin, bootstrap)  # a stale window whose password has lapsed: heal it before opening
+    until = admin.execute(f"select (clock_timestamp()+interval '{WINDOW_MINUTES} minutes')::text").fetchone()[0]
+    scratch = Path(tempfile.mkdtemp(prefix='nexloop-configurator-'))
+    dsn = scratch / 'configurator-dsn'
+    try:
+        admin.execute(sql.SQL('alter role {} login password {} valid until {}').format(
+            sql.Identifier(CONFIGURATOR), sql.Literal(scram_verifier(password)), sql.Literal(until)))
+        write_private(dsn, make_conninfo(bootstrap, user=CONFIGURATOR, password=password))
+        yield dsn
+    finally:
+        try:
+            _close(admin, bootstrap)  # first: the window closes whatever happens to the files
+        finally:
+            dsn.unlink(missing_ok=True)
+            for leftover in scratch.iterdir():
+                leftover.unlink(missing_ok=True)
+            scratch.rmdir()

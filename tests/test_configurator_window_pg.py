@@ -101,3 +101,32 @@ def test_a_close_that_cannot_happen_is_reported_and_the_next_window_heals_the_la
     with W.configurator_window(window) as dsn:
         assert role(admin)[0] and Path(dsn).exists()
     assert closed(admin)
+
+
+def advisory_locks(admin):
+    return admin.execute("select count(*) from pg_locks where locktype='advisory'").fetchone()[0]
+
+
+def test_a_second_window_is_refused_at_once_and_the_first_is_untouched(window, admin):
+    """L6 window-hardening review 1.1: one window at a time (a session advisory lock held from the decision to the close). A second
+    window started meanwhile is refused at once - it neither overwrites the first one's password nor closes it from its own finally."""
+    with W.configurator_window(window) as dsn:
+        with pytest.raises(ValueError, match='another configurator window is in use'):
+            with W.configurator_window(window):
+                pass
+        assert role(admin)[0] and advisory_locks(admin) == 1
+        with psycopg.connect(Path(dsn).read_text(), autocommit=True) as c:  # the first window's login still works
+            assert c.execute('select session_user').fetchone()[0] == W.CONFIGURATOR
+    assert closed(admin) and advisory_locks(admin) == 0
+
+
+def test_the_lock_is_released_on_an_error_and_on_sigterm(window, admin, tmp_path):
+    with pytest.raises(RuntimeError):
+        with W.configurator_window(window):
+            raise RuntimeError('inside')
+    assert closed(admin) and advisory_locks(admin) == 0
+    test_sigterm_inside_the_window_closes_it(window, admin, tmp_path)  # a killed window's session ends: its lock with it
+    assert advisory_locks(admin) == 0
+    with W.configurator_window(window):  # the next window opens at once
+        assert advisory_locks(admin) == 1
+    assert closed(admin) and advisory_locks(admin) == 0
