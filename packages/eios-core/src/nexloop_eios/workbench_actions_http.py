@@ -75,6 +75,31 @@ def _calibration_windows(v):
         and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}',w['split_at']) and type(w['span_days']) is int and w['span_days'] in (28,56,84) for w in v))
 
 
+
+def _utc_text(value):
+    """A UTC instant passed on as the client's text (SQL casts it)."""
+    _utc(value)
+    return value
+
+
+def _kind(name):
+    return lambda v:v if v==name else (_ for _ in ()).throw(ValueError('kind'))
+
+
+_EXPERIMENT_ID=re.compile(r'[a-z][a-z0-9_.-]{0,63}')
+# NX-043 report kinds and their fields, as control.nexloop_governed_read_experiment_report (0298) accepts them.
+_REPORT_KINDS={
+    'shadow':{'kind':_kind('shadow'),'world':_id(re.compile(r'shadow:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
+        'strategy_id':_id(_EXPERIMENT_ID),
+        'strategy_version':lambda v:v if type(v) is int and 0<=v<=999999999 else (_ for _ in ()).throw(ValueError('version')),
+        'since':_utc_text,'until':_utc_text},
+    'experiment':{'kind':_kind('experiment'),'experiment_id':_id(_EXPERIMENT_ID),'as_of':_utc_text},
+    'pooled':{'kind':_kind('pooled'),
+        'experiment_ids':lambda v:v if type(v) is list and 2<=len(v)<=50 and all(type(x) is str and _EXPERIMENT_ID.fullmatch(x) for x in v)
+            else (_ for _ in ()).throw(ValueError('experiment ids')),
+        'as_of':_utc_text},
+}
+
 OPERATIONS={
     'set_control':{'scope_kind':_scope,'scope_ref':_text,'paused':_bool,'reason':_reason},
     'release_contact_restriction':{'consumer_id':_id(_HEX),'reason':_reason},
@@ -185,7 +210,8 @@ OPERATIONS={
     # NX-043 X3 (owner only): the shadow copy switch of the tenant (D7, off by default).
     'set_shadow_copy':{'world':_id(re.compile(r'shadow:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'enabled':_bool,'reason':_reason},
     # NX-043 (owner only): the frozen aggregate reports (shapes checked in SQL; the tenant and the actor are the server's).
-    'read_experiment_report':{'kind':lambda v:v if v in ('shadow','experiment','pooled') else (_ for _ in ()).throw(ValueError('kind'))},
+    # The fields depend on the kind (0298): the spec is chosen by the body's kind, then its key set must match exactly as for any operation.
+    'read_experiment_report':lambda body:_REPORT_KINDS[body.get('kind') if type(body.get('kind')) is str else None],
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
     # ADR-036 (owner only): the next version of a read-only Object Set; shapes and properties are checked in SQL.
@@ -216,6 +242,15 @@ OPERATIONS={
         'notification_text':lambda v:v if type(v) is str and len(v)<=2000 else (_ for _ in ()).throw(ValueError('notification'))},
 }
 
+
+def validate(operation,body):
+    """The request body of an operation → its checked fields (ValueError/TypeError/LookupError when refused): the key set equals the
+    operation's spec exactly and every field passes its check. A spec may be chosen by the body (read_experiment_report: by its kind)."""
+    spec=OPERATIONS[operation]
+    if type(body) is not dict:raise ValueError('body')
+    if callable(spec):spec=spec(body)
+    if set(body)!=set(spec):raise ValueError('fields')
+    return {name:check(body[name]) for name,check in spec.items()}
 
 class WorkbenchActions:
     """Governed human writes for one inspected workbench session (re-authenticated on every call)."""
@@ -277,12 +312,10 @@ def router(config,*,ports_for_browser):
                     result[name]=value
                 return result
             body=json.loads(data,object_pairs_hook=pairs)
-            spec=OPERATIONS[operation]
-            if type(body) is not dict or set(body)!=set(spec):raise ValueError()
-            fields={name:check(body[name]) for name,check in spec.items()}
+            fields=validate(operation,body)
         except TimeoutError:
             return error('request_timeout',408)
-        except (ValueError,UnicodeError,TypeError):
+        except (ValueError,UnicodeError,TypeError,KeyError):
             return error('invalid_request',422)
         try:
             result=await run_in_threadpool(lambda:bound(request).run(operation,'workbench-'+key,fields))
