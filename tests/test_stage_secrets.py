@@ -469,6 +469,35 @@ def test_metrics_adds_the_client_to_a_tree_generated_without_it(tree, tmp_path):
     assert S.main(['metrics', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params'])]) == 2
 
 
+def test_identity_token_key_is_generated_and_added_to_an_older_tree(tree, tmp_path, capsys):
+    """NX-058: a new tree holds app/secrets/api/identity-token.key (64 hex, 0600, generated, the api's own); `identity-token-key` adds it
+    to a tree generated before it existed, records it in the manifest (check passes), prints no value and never overwrites it."""
+    import shutil
+    from nexloop_eios.workbench_member_secrets import load_key
+    key = tree['out'] / 'app' / 'secrets' / 'api' / 'identity-token.key'
+    assert len(load_key(key)) == 32 and oct(key.stat().st_mode)[-3:] == '600'
+    entry = next(f for f in json.loads((tree['out'] / 'manifest.json').read_text())['files'] if f['path'] == 'api/identity-token.key')
+    assert (entry['kind'], entry['generated'], entry['secret']) == ('hex_key', True, 'api_identity_token_key')
+    old = tmp_path / 'old'
+    shutil.copytree(tree['out'], old)
+    (old / 'app' / 'secrets' / 'api' / 'identity-token.key').unlink()
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/identity-token.key']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    capsys.readouterr()
+    assert S.main(['identity-token-key', '--out', str(old)]) == 0
+    value = (old / 'app' / 'secrets' / 'api' / 'identity-token.key').read_text()
+    assert value not in capsys.readouterr().out and S.check(old)['ok']
+    assert S.main(['identity-token-key', '--out', str(old)]) == 2
+    assert (old / 'app' / 'secrets' / 'api' / 'identity-token.key').read_text() == value
+
+
+def test_the_browser_registration_carries_the_reset_completion_rate_policy():
+    entries = S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench', seal_digest='a' * 64)
+    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete']
+    assert all(p['operator_principal_id'] == 'nexloop_identity' and p['active'] for p in entries['browser_rate_policies'])
+
+
 def _accepted_roles():
     """The SQL login each stage entry point accepts, read from the code (verify_application_role checks)."""
     from nexloop_eios.background_services import SERVICES

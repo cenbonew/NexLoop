@@ -112,12 +112,12 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}", --tls-certificate-file,
               /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file, /run/secrets/api_identity_dsn,
-              --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
+              --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key, --identity-token-key-file, /run/secrets/api_identity_token_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
               --browser-application-id, "${BROWSER_APPLICATION_ID:?application}", --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}",
               --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, api_identity_token_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
     labels:
       nexloop.budget-service: "api,api-browser-identity"
   api-2:
@@ -130,12 +130,12 @@ services:
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT_2:?second API port}",
               --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file,
               /run/secrets/api_identity_dsn, --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key,
-              --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
+              --identity-token-key-file, /run/secrets/api_identity_token_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
               --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}", --browser-origin, "${BROWSER_ORIGIN:?https origin}",
               --web-root, /opt/nexloop/web]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, api_identity_token_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
     labels:
       nexloop.budget-service: "api,api-browser-identity"
   domain-worker:
@@ -483,6 +483,8 @@ secrets:
   api_identity_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-pg-client.crt"}
   api_identity_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-pg-client.key"}
   api_browser_rate_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/browser-rate.key"}
+  # NX-058: the HMAC key of one-time workbench secrets (reset codes, invitations); 64 hex characters, separate from browser-rate.key.
+  api_identity_token_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-token.key"}
   signing_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/signing.key"}
   pg_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/db-ca.crt"}
   host_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-ca.crt"}
