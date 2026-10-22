@@ -314,6 +314,14 @@ REGISTRY = [
     # NX-038 E3 wiring (owner 2026-10-22, failure basis A): reply_fallback per message Run in the trace read; nothing else.
     Allowed('nx038_e3_wiring', 'runtime.nexloop_evo_trace_runs', 'reply_fallback: the message got the fallback reply Run',
             ((r",\s*'reply_fallback',p\.kind='message' and exists\(.*?m2\.run_id=p\.run_id\)\)", ')'),)),
+    # One inbound rule (stage X7 S5, release 37): runtime.nexloop_message_is_inbound in the shadow copy and the inbound allocation.
+    Allowed('message_inbound_rule', 'runtime.nexloop_shadow_copy_message', 'the inbound test through runtime.nexloop_message_is_inbound',
+            ((r"not runtime\.nexloop_message_is_inbound\(new\.record\)", "new.record->>'direction' is distinct from 'inbound'"),)),
+    Allowed('message_inbound_rule', 'runtime.nexloop_experiment_allocate_on_inbound', 'the inbound test through runtime.nexloop_message_is_inbound',
+            ((r"not runtime\.nexloop_message_is_inbound\(new\.record\) then return null;end if;",
+              "coalesce(new.record->>'direction','inbound')<>'inbound' then return null;end if;  -- inbound: no direction (0046) or 'inbound'"),)),
+    Allowed('message_inbound_rule', 'runtime.nexloop_shadow_report_freeze', 'the report\'s real inbound set through runtime.nexloop_message_is_inbound',
+            ((r"runtime\.nexloop_message_is_inbound\(m\.record\)\),", "m.record->>'direction'='inbound'),"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

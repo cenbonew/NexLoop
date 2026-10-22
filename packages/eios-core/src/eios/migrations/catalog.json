@@ -1565,6 +1565,11 @@
       "version": "0313",
       "name": "0313_nx038_e3_wiring.sql",
       "sha256": "8e83170c85d8774d05de1ceac23a36d17590794d542923ebee4b25be81bee123"
+    },
+    {
+      "version": "0314",
+      "name": "0314_message_inbound_rule.sql",
+      "sha256": "f27d997423225c8c1e8cfd649d98e40ea07cb37967d14c3a354ab26fb20c3971"
     }
   ]
 }

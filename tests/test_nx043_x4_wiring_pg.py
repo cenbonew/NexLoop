@@ -170,7 +170,7 @@ def allocated(admin, c):
 
 def test_a_real_inbound_message_allocates_on_first_sight(ready, db):
     quiet = consumer('before-any-experiment')
-    message(db, conversation(db, quiet), 1, {'body': '你好', 'status': 'accepted'})
+    message(db, conversation(db, quiet), 1, {'body': '你好', 'actor': 'consumer-principal', 'status': 'accepted'})
     assert allocated(db, quiet) == 0  # no started online experiment: nothing runs
     persona(db, 1)
     persona(db, 2)
@@ -179,7 +179,7 @@ def test_a_real_inbound_message_allocates_on_first_sight(ready, db):
     seed_start(db, EXPERIMENT)
     c = consumer('inbound')
     cv = conversation(db, c)
-    message(db, cv, 1, {'body': '在吗', 'status': 'accepted'})
+    message(db, cv, 1, {'body': '在吗', 'actor': 'consumer-principal', 'status': 'accepted'})
     assert allocated(db, c) == 1
     message(db, cv, 2, {'body': '回复', 'status': 'accepted', 'direction': 'outbound'})  # our own words allocate nobody new
     assert allocated(db, c) == 1
@@ -189,7 +189,7 @@ def test_a_real_inbound_message_allocates_on_first_sight(ready, db):
     # A failing allocation never fails the real message: it is only counted.
     db.execute('alter table control.nexloop_experiment_allocations add constraint wiring_fail check(false) not valid')
     broken = consumer('broken')
-    message(db, conversation(db, broken), 1, {'body': '在吗', 'status': 'accepted'})
+    message(db, conversation(db, broken), 1, {'body': '在吗', 'actor': 'consumer-principal', 'status': 'accepted'})
     assert allocated(db, broken) == 0
     assert db.execute("""select count(*) from runtime.nexloop_experiment_accounting_failures
         where consumption_id='allocation:inbound'""").fetchone()[0] == 1
