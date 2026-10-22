@@ -363,7 +363,7 @@ def flush_guard(pool, service='runtime-guard'):
 
 
 # EIOS gap E4 (NX-061): API requests per class (read = GET/HEAD, write = any other method), per process and minute: calls, errors
-# (5xx), slow (>= 500 ms, the PRD 8 read target), p50/p95/max and the guard histogram (kind 'api', 0320). Per-route detail is the
+# (5xx), slow (>= 500 ms, the PRD 8 read target), p50/p95/max and the guard histogram (kind 'api', 0323). Per-route detail is the
 # vendored eios.api.metrics registry of the same process (optional loopback export).
 API_SLOW_MS = 500
 API_CLASSES = ('read', 'write')

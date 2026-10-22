@@ -1592,18 +1592,18 @@
       "sha256": "8dbae7b02a9795a9f205a62fe50f2fcea26c8fd6846e232ef144c90cdd133e4b"
     },
     {
-      "version": "0319",
-      "name": "0319_schema_impact_dependents.sql",
+      "version": "0322",
+      "name": "0322_schema_impact_dependents.sql",
       "sha256": "fdf1f851db3b70faeb4a4ca7728963aec891b33c221355c4d0cba88a550a7e1f"
     },
     {
-      "version": "0320",
-      "name": "0320_api_request_metrics.sql",
+      "version": "0323",
+      "name": "0323_api_request_metrics.sql",
       "sha256": "9ff70e8512a0407602fac3cf1820d9e9b2721a335ef4a859bbdcba73f3fab709"
     },
     {
-      "version": "0321",
-      "name": "0321_outcome_classes.sql",
+      "version": "0324",
+      "name": "0324_outcome_classes.sql",
       "sha256": "d3c0b97856d5f9a0f345ae0ced375208c4a38e6ff8d1f7e24fb923bc9cdab754"
     }
   ]

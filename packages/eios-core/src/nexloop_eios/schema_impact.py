@@ -1,6 +1,6 @@
 """EIOS gap A1 (NX-061): before a Schema proposal is published, the published Definitions it may affect.
 
-The reviewer's dependents (authz.nexloop_read_schema_dependents, 0319: the latest Object Sets and Object Views, the active Functions
+The reviewer's dependents (authz.nexloop_read_schema_dependents, 0322: the latest Object Sets and Object Views, the active Functions
 and Actions of the tenant that mention the proposal's type) are parsed into the vendored Definition contracts and assembled into
 the vendored static dependency graph (eios.ontology.impact, upstream 1e363db, unchanged). The answer lists every Definition that
 depends on the type, and separately those that depend on a property the proposal changes (the property a later `hide` would hide).

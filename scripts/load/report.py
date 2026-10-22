@@ -213,7 +213,7 @@ API_READ_TARGET_MS = 500  # PRD 8: an ordinary detail read answers within 0.5 s 
 
 
 def api_requests(samples, start, end):
-    """EIOS gap E4 (kind api, 0320): per request class (read, write) in [start, end): requests, server errors, slow (>= 500 ms) and
+    """EIOS gap E4 (kind api, 0323): per request class (read, write) in [start, end): requests, server errors, slow (>= 500 ms) and
     p50/p95 merged from the API processes' histograms (the guard_p95_ms caliber). The read p95 is compared with the PRD 8 target
     as an observation. Absent in older results: {}."""
     out = {}

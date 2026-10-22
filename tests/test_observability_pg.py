@@ -268,7 +268,7 @@ def test_staged_candidates_without_merge_configuration_block_and_rule_v5(observe
 
 
 def test_api_samples_and_the_snapshot_api_block_merge_every_process(observed):
-    """EIOS gap E4 (0320): kind 'api' per request class; the snapshot merges every API process's histogram (the load report's
+    """EIOS gap E4 (0323): kind 'api' per request class; the snapshot merges every API process's histogram (the load report's
     caliber) into p50/p95 per class with error and slow rates. Only read/write and the fixed keys are accepted."""
     import importlib.util
     import random

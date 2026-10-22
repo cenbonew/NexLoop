@@ -1,4 +1,4 @@
-"""EIOS gap B5 (NX-061, 0321): outcome classes, so that a failure rate counts real failures only. A refusal by rule (contact
+"""EIOS gap B5 (NX-061, 0324): outcome classes, so that a failure rate counts real failures only. A refusal by rule (contact
 restriction, the owner's pause, an exhausted budget) is the system working, never a failure; a refused one-reply intent that 0152
 fails is counted once, under its refusal's class; an effect whose result is unknown is neither (reconcile first); a code without a
 class counts as a failure until it is classified. Real PostgreSQL through the NX-030 fixture; admin seeds synthetic events as the

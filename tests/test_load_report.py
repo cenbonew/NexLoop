@@ -409,7 +409,7 @@ def test_the_caliber_paragraph_states_the_5_s_gate_and_the_2_s_v02_target(run_di
 
 
 def test_api_requests_per_class_with_the_read_target_as_an_observation():
-    """EIOS gap E4 (kind api, 0320): merged across API processes; the read p95 against the PRD 8 target is reported, never gated."""
+    """EIOS gap E4 (kind api, 0323): merged across API processes; the read p95 against the PRD 8 target is reported, never gated."""
     from nexloop_eios.observability import ApiTimings
     start = datetime(2026, 10, 22, 12, tzinfo=UTC)
     rows = []

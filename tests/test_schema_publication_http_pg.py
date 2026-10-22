@@ -107,7 +107,7 @@ def test_another_tenants_proposal_is_unknown(workbench):
 
 def test_check_lists_the_published_definitions_the_proposal_may_affect(workbench):
     """EIOS gap A1 (NX-061): the check answers, before publishing, which Object Sets / Views / Functions / Actions depend on the
-    proposal's type, and which of them on the property it changes (the vendored eios.ontology.impact graph over 0319's rows)."""
+    proposal's type, and which of them on the property it changes (the vendored eios.ontology.impact graph over 0322's rows)."""
     from psycopg.types.json import Jsonb
     from test_object_sets_pg import publish as publish_set, seed_type
     from test_object_views_pg import publish as publish_view

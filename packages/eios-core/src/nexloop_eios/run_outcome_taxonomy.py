@@ -2,7 +2,7 @@
 
 Rewritten from upstream src/eios/orchestration/run_outcome_taxonomy.py (frozen 1e363db, RunOutcomeClass and its rule "a failure
 rate counts transient, authorization and defect only"); the upstream code table is domain codes and is not carried over. The
-NexLoop table classifies the dispatch refusal codes (control.nexloop_dispatch_refusal_codes); migration 0321 seeds the same table in
+NexLoop table classifies the dispatch refusal codes (control.nexloop_dispatch_refusal_codes); migration 0324 seeds the same table in
 SQL (control.nexloop_outcome_code_classes) and the metrics snapshot's `outcomes` block counts by it. A refusal by rule (the owner's
 pause, a contact restriction, a takeover, an exhausted budget) is the system working as intended, never a failure; a code without a
 class is UNRESOLVED and counts as a failure (fail closed: a new code must be classified to leave the failure rate).

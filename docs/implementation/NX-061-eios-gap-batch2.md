@@ -2,7 +2,7 @@
 
 - **来源**：`docs/design/eios-capability-gap.md` §A.2 第二批。C1（审计哈希链）由 L2 在 NX-059 中完成，本任务不含。调度员 2026-10-22 派工，L7 执行。
 - **分支**：`l7/eios-gap-batch2`，基点 main `ab19278d`。三项分别提交：A1、E4、B5+B9。
-- **迁移**：临时编号从 0319 起（main 最高为 0318），合并时由调度员重新编号。
+- **迁移**：临时编号从 0322 起（main 最高为 0318），合并时由调度员重新编号。
 - **移植**：ADR-006，逐文件手工移植，记录 provenance；不引入对 NEX-EIOS 的运行时依赖。
 
 ## A1：Schema 变更发布前列出受影响的查询、视图和动作
@@ -11,7 +11,7 @@
 
 - **vendor**：`eios/ontology/impact.py`，即上游 `src/eios/ontology/impact.py` 的 `DefinitionDependencyGraph` 与 `build_dependency_graph`，**逐字一致**，登记在 `PROVENANCE.json`。它只依赖 `eios/ontology/definitions.py`，而 vendored 的那份与上游逐字一致。
 - **上游测试**：`tests/ontology/test_impact_analysis.py` 移植为 `tests/upstream/test_eios_impact_analysis.py`，登记在新建的 `UPSTREAM_ONTOLOGY_TESTS.json`，并把这份清单加入 `versions.lock.json` 的 `test_provenance`。唯一的改写：上游用的 `eios.composition.schema_contracts.object_type_reference` 没有 vendored，测试内用 vendored 的 `eios.ontology.semantics.schema_contract_digest` 定义了同样的函数。
-- **迁移 0319** `authz.nexloop_read_schema_dependents`：只读，守卫与发布 basis（0254）相同，即 `authz.nexloop_assert_review_read`：需要 `ontology.schema.review` 的 EXECUTE、当前的 Human 会话、调用者自己的租户。它返回：
+- **迁移 0322** `authz.nexloop_read_schema_dependents`：只读，守卫与发布 basis（0254）相同，即 `authz.nexloop_assert_review_read`：需要 `ontology.schema.review` 的 EXECUTE、当前的 Human 会话、调用者自己的租户。它返回：
   - 本租户每个 Object Set、Object View 的最新版本；
   - 生效中的 Function 与 Action；
   - 只取定义文本中出现了该类型名的那些（粗筛），每类最多 500 条，超出时 `truncated` 为 true。
@@ -31,7 +31,7 @@
 | `pytest tests/test_schema_impact.py`（新增，不需要 PG） | 3 passed：两种 `change` 形状；任意绑定版本；名称前缀相同的另一个类型（`ConsumerArchive`）不算；解析失败的定义列入 `unreadable`；未知提案返回 None |
 | `pytest tests/test_schema_publication_http_pg.py`（新增 `test_check_lists_the_published_definitions_the_proposal_may_affect`） | 真实 PG 与真实工作台登录。发布 2 个 Consumer 的 Object Set、1 个 Store 的 Object Set、1 个 Consumer 的 Object View（都经受治理的发布函数）。`level` 词表提案的 `/check`：列出两个 Consumer Object Set、Consumer Object View 以及夹具里的 Consumer Action；Store 的定义不在其中；`consumer.by_level` 和 `consumer.card` 标出 `changed_properties=['level']`，`consumer.by_sport` 为空列表；绑定版本为 97。新增属性的提案：`affected_by_changed_properties=0`。operator 拿到 403。读取不写任何数据 |
 | 同上，首次运行 | **首次失败**：所有定义都落进了 `unreadable`，因为用了 `model_validate`，而 vendored 契约是 strict 的，日期、枚举只能在 JSON 模式下解析。改为 `model_validate_json` 后通过。另外，开发机上 PG 启动需要 `LC_ALL=C.UTF-8` |
-| `pytest -n 3 tests/test_bootstrap.py tests/test_schema_publication_http_pg.py tests/test_nx040_schema_publication_pg.py tests/test_object_sets_pg.py tests/test_object_views_pg.py tests/test_schema_impact.py tests/test_vendor_imports.py tests/upstream/test_eios_impact_analysis.py` | 44 passed；fresh catalog 包含 0319 |
+| `pytest -n 3 tests/test_bootstrap.py tests/test_schema_publication_http_pg.py tests/test_nx040_schema_publication_pg.py tests/test_object_sets_pg.py tests/test_object_views_pg.py tests/test_schema_impact.py tests/test_vendor_imports.py tests/upstream/test_eios_impact_analysis.py` | 44 passed；fresh catalog 包含 0322 |
 | `LC_ALL=C.UTF-8 uv run --frozen python scripts/check_definer_search_path.py` | 0 problems |
 
 ### 限制
@@ -54,11 +54,11 @@
 - **中间件**（`http_api.create_app`）：每个请求按**路由模板**计数，未匹配的路径记为 `unmatched`，从不使用原始路径，因此标签有界，也不会带出 ID。
   - 同时记入两处：本进程的 registry（按路由的明细），以及 `observability.API`（按类汇总：GET/HEAD 记为 read，其它方法记为 write）。
   - 流式响应计到响应头发出为止；抛出异常的请求记为 500，然后重新抛出。
-- **按类的进程样本**（迁移 **0320**，kind `api`，service 只能是 `read`/`write`）：
+- **按类的进程样本**（迁移 **0323**，kind `api`，service 只能是 `read`/`write`）：
   - 每分钟写一次，内容是 calls、errors（5xx）、slow（≥500 ms）、p50/p95/max，以及与 guard 相同的对数直方图 `h_<i>`；只接受数字，其它键或其它 service 都被拒绝；
   - API 进程在后端打开后启动采样器，尽力而为，失败不影响请求；
   - 函数体沿用 0277，只加入 `api` 种类。
-- **指标快照**（0320，按 0277/0318 的包装模式）新增 `api` 段：
+- **指标快照**（0323，按 0277/0318 的包装模式）新增 `api` 段：
   - 最近 5 分钟的进程汇总；
   - `classes.read` / `classes.write` 各自的 `calls`、`p50_ms`、`p95_ms`（把所有 API 进程的直方图合并后再取分位数）、`error_rate`、`slow_rate`。
 
@@ -97,7 +97,7 @@
     - 三种版本过期：superseded；
     - 预算未配置、路由未配置：authorization；
     - 预算并发冲突：transient。
-- **迁移 0321**：
+- **迁移 0324**：
   - 新增 `control.nexloop_outcome_code_classes`：只追加，外键指向拒绝码表，应用角色无权访问；种子数据与 Python 表相同，由测试保证两边一致。
   - 指标快照（第三次包装）新增 `outcomes` 段，按**最近 1 小时内的事件**计数：
     - 每次派发拒绝（Run 路径与效应路径）按其码的类别计数，没有类别的记为 `unresolved`；
@@ -147,6 +147,6 @@
 ## 汇总回归（B5+B9 提交前）
 
 - `pytest -n 3`：所有读取指标快照、导出或告警评估的 23 个测试文件，加上 bootstrap、`test_outcome_classes_pg.py`、`test_host_health_probe.py`：**首次运行 211 passed、2 failed**。
-  1. `test_function_copy_guard.py`：0320 重定义了 `authz.nexloop_record_process_sample`，但没有在守卫中登记。这属于 E4，单独提交一个补充提交（`0be80b5b`）登记它：三条 revert 能把新函数体还原为 0277 的版本，守卫测试 46 passed。
+  1. `test_function_copy_guard.py`：0323 重定义了 `authz.nexloop_record_process_sample`，但没有在守卫中登记。这属于 E4，单独提交一个补充提交（`0be80b5b`）登记它：三条 revert 能把新函数体还原为 0277 的版本，守卫测试 46 passed。
   2. `test_relay_multi_consumer_pg.py::test_actual_pi_two_consumers_one_relay_each_run_acts_for_its_own_consumer`：这是真实 Pi 测试。那次并行运行前没有执行 `nvm use 24`，Pi 需要 Node 24。按线规用 Node 24 **串行重跑：1 passed**。与本任务的改动无关。
 - 测试结束后没有遗留 postgres 进程。
