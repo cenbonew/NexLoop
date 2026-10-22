@@ -31,8 +31,11 @@ class DeadlineTransportError(OSError):
         self.code = code
 
 
-def post(url, headers, body, *, deadline_seconds, maximum=MAXIMUM_BODY):
-    """POST `body` (bytes) to an https URL within `deadline_seconds` in total; returns (status, body bytes)."""
+def post(url, headers, body, *, deadline_seconds, ca, maximum=MAXIMUM_BODY):
+    """POST `body` (bytes) to an https URL within `deadline_seconds` in total; returns (status, body bytes). `ca` keeps each
+    caller's CA source ('system', 'certifi' or a CA file path); the environment (proxies, SSL_CERT_*) is never used."""
+    if ca not in ('system', 'certifi') and not (type(ca) is str and ca.startswith('/')):
+        raise ValueError('CA source required')
     parts = urlsplit(url)
     if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.fragment:
         raise ValueError('https URL required')
@@ -45,7 +48,7 @@ def post(url, headers, body, *, deadline_seconds, maximum=MAXIMUM_BODY):
     if parts.query:
         path += '?' + parts.query
     outcome = request_until({'base_url': base, 'client_headers': {}, 'method': 'POST', 'path': path, 'headers': dict(headers),
-                             'content': body, 'maximum': maximum, 'remaining': float(deadline_seconds)},
+                             'content': body, 'maximum': maximum, 'remaining': float(deadline_seconds), 'ca': ca},
                             deadline_monotonic=time.monotonic() + float(deadline_seconds))
     if outcome.kind == 'response':
         return outcome.status, outcome.body

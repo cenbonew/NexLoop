@@ -236,7 +236,7 @@ def https_transport(url, headers, body, timeout):
     returns (status, body bytes). A passed deadline is a TimeoutError; any other connection problem a TransportError."""
     from nexloop_eios.deadline_http import DeadlineExceeded, DeadlineTransportError, post
     try:
-        return post(url, headers, body, deadline_seconds=timeout, maximum=1 << 20)
+        return post(url, headers, body, deadline_seconds=timeout, ca='system', maximum=1 << 20)  # ssl.create_default_context() before
     except DeadlineExceeded:
         raise
     except DeadlineTransportError as error:
@@ -322,9 +322,13 @@ class DecisionEvalClient:
                     if answers is None:
                         result.reason = 'invalid_response'
                     else:
-                        result.status, result.answers, result.reason, result.usage = 'ok', answers, None, _usage(payload)
+                        result.status, result.answers, result.reason, result.usage = 'ok', answers, None, {**_usage(payload), **result.usage}
             except TimeoutError:
+                # L6 D2 review 2: a timed-out attempt may have been processed and billed; the result says how many and their input
+                # size, so the caller's accounting never undercounts a retry (no answer, so no output tokens).
                 result.reason, retry = 'timeout', True
+                result.usage['timed_out_attempts'] = result.usage.get('timed_out_attempts', 0) + 1
+                result.usage['timed_out_input_bytes'] = result.usage.get('timed_out_input_bytes', 0) + len(body)
             except TransportError as error:
                 result.reason, retry = ('timeout' if 'imeout' in str(error) else 'transport'), True
             except Exception:

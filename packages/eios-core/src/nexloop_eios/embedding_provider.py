@@ -62,7 +62,7 @@ def _deadline_transport(url,headers,body,timeout):
     """D2 (eios-capability-gap): `timeout` is the whole request's hard deadline (connect, TLS, write and read together) in a
     killable child process; a timeout is DeadlineExceeded (an OSError, retried within `attempts`: an embedding has no effect)."""
     from nexloop_eios.deadline_http import post
-    return post(url,headers,body,deadline_seconds=timeout)
+    return post(url,headers,body,deadline_seconds=timeout,ca='system')  # the CA store urllib used before
 
 
 class ArkMultimodalEmbeddingProvider:
@@ -99,6 +99,11 @@ class ArkMultimodalEmbeddingProvider:
             try:
                 status,raw=self._transport(self._profile.location,headers,body,self._timeout)
                 break
+            except TimeoutError:
+                # L6 D2 review 2: a request that ran out of time may still have been processed and billed: counted as a call at the
+                # budget's upper bound (one token per character), so a retry never makes the budget undercount.
+                self.transport_failures+=1;self.calls+=1;self.usage_tokens+=len(text)
+                if attempt+1==self._attempts:raise EmbeddingUnavailable('embedding transport unavailable') from None
             except OSError:
                 self.transport_failures+=1
                 if attempt+1==self._attempts:raise EmbeddingUnavailable('embedding transport unavailable') from None

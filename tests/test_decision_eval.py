@@ -418,3 +418,14 @@ def test_shadow_defaults_to_v2_and_can_reproduce_v1(items, capsys):
     assert [r['set'] for r in json.loads(capsys.readouterr().out)['requests']] == ['claim_review.v2', 'handoff.v2']
     assert shadow.main(['--input', str(items), '--questions-version', '1']) == 0
     assert [r['set'] for r in json.loads(capsys.readouterr().out)['requests']] == ['claim_review.v1', 'handoff.v1']
+
+
+def test_timed_out_attempts_are_counted_for_the_budget(credential):
+    """L6 D2 review 2: an attempt that ran out of time may have been billed; the result counts it and its input size, also when a
+    later attempt answers (no answer, so no output tokens)."""
+    body_size = None
+    transport = FakeTransport(TimeoutError('deadline'), (200, claim_answers()))
+    result = client(credential, transport).evaluate(CLAIM, STATE)
+    body_size = len(json.dumps(transport.calls[0]['body'], separators=(',', ':'), ensure_ascii=False, sort_keys=True).encode())
+    assert result.status == 'ok' and result.usage['timed_out_attempts'] == 1 and result.usage['input_tokens'] == 1012
+    assert result.usage['timed_out_input_bytes'] > 0 and abs(result.usage['timed_out_input_bytes'] - body_size) < 64

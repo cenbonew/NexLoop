@@ -115,7 +115,10 @@ async def _request(
             base_url=request["base_url"],
             headers=request["client_headers"],
             follow_redirects=False,
-            verify=True,
+            # NexLoop: never the environment (HTTPS_PROXY, ALL_PROXY, NO_PROXY, SSL_CERT_FILE, SSL_CERT_DIR, .netrc): no
+            # credential leaves through an environment proxy; the CA is the caller's own (_verify).
+            trust_env=False,
+            verify=_verify(request.get("ca", "certifi")),
             timeout=httpx.Timeout(
                 connect=request["remaining"],
                 read=request["remaining"],
@@ -187,6 +190,22 @@ async def _request(
                 observation_channel.send(("finished", None))
             except (BrokenPipeError, EOFError, OSError):
                 pass
+
+
+def _verify(ca: str) -> Any:
+    """NexLoop: the caller's CA source, built in the child (an SSL context does not cross the pipe). 'system': the OpenSSL default
+    store, as ssl.create_default_context() (urllib, http.client before); 'certifi': httpx's bundle; else a CA file path."""
+    import ssl
+
+    if ca == "system":
+        return ssl.create_default_context()
+    if ca == "certifi":
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    if type(ca) is not str or not ca.startswith("/"):
+        raise ValueError("CA source")
+    return ssl.create_default_context(cafile=ca)
 
 
 def request_until(

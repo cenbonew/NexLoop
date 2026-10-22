@@ -188,7 +188,7 @@ class OpenAICompatibleExtractionProvider:
             if self.client is not None:  # an injected client (tests)
                 response=self.client.post(url,json=body,headers=headers);status,raw=response.status_code,response.content
             else:  # D2: the whole call within `timeout` in a killable child process (inference has no external effect)
-                status,raw=post(url,headers,json.dumps(body,ensure_ascii=False).encode(),deadline_seconds=self.timeout)
+                status,raw=post(url,headers,json.dumps(body,ensure_ascii=False).encode(),deadline_seconds=self.timeout,ca='certifi')  # httpx's bundle, as before
             if status!=200:
                 code='http_429' if status==429 else 'http_5xx' if status>=500 else 'http_4xx'
                 raise ExtractionProviderUnavailable('provider status '+str(status),code)

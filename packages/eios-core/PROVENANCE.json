@@ -654,9 +654,10 @@
       "adaptations": [
         "a prepared request body (content bytes) besides json",
         "no 5 s cap per operation: a model completion may answer after 30 s; the parent hard deadline still ends the request",
-        "module docstring names the upstream source and the NexLoop use"
+        "module docstring names the upstream source and the NexLoop use",
+        "trust_env=False (no proxy, CA or netrc from the environment) and the CA source chosen by the caller (system store, certifi or a CA file), built in the child"
       ],
-      "nexloop_sha256": "24579f80c72b3352090454ec3c2a7ac1a90be4e9f62a4ec2b6dc2729b343f241"
+      "nexloop_sha256": "f3dfd6e4bd7f8896503ed23a92c279912e629acb4445c4627ad9d64ae2fbb59b"
     }
   ]
 }
