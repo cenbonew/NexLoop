@@ -14,7 +14,7 @@ from test_observability_pg import RULES, TENANT, observed  # noqa: F401
 from test_workbench_read_pg import browser_business, conversations, identity, published_action, uow, workbench  # noqa: F401
 
 V11, V12 = RULES.parent / 'alert-rules.v11.json', RULES.parent / 'alert-rules.v12.json'
-NEW = {'crash_loop', 'host_probe_stale', 'host_probe_blind', 'timer_scheduled_failure'}
+NEW = {'crash_loop', 'host_probe_stale', 'host_probe_blind', 'host_unit_missing', 'timer_scheduled_failure'}
 
 
 def test_rules_v12_are_v11_plus_the_host_health_rules():
@@ -28,9 +28,9 @@ def test_rules_v12_are_v11_plus_the_host_health_rules():
 
 
 def tick(pg, host='data_host', units=(), timers=(), expected_units=None, expected_timers=('pg-diff',), blind=False):
-    entry = {'host_role': host, 'blind': blind, 'expected_units': list(expected_units if expected_units is not None else [u['name'] for u in units]),
+    entry = {'blind': blind, 'expected_units': list(expected_units if expected_units is not None else [u['name'] for u in units]),
              'expected_timers': list(expected_timers), 'units': list(units), 'timers': list(timers)}
-    with psycopg.connect(make_conninfo(pg, user='nexloop_host_recorder'), autocommit=True) as db:
+    with psycopg.connect(make_conninfo(pg, user='nexloop_host_recorder_' + host), autocommit=True) as db:
         return db.execute('select authz.nexloop_record_host_observation(%s::jsonb)', (json.dumps(entry),)).fetchone()[0]
 
 
@@ -38,9 +38,9 @@ def unit(count, instance='c' * 12, name='api'):
     return {'name': name, 'kind': 'container', 'instance_id': instance, 'restart_count': count, 'running': True}
 
 
-def run(started, *, scheduled=True, result='success', name='pg-diff'):
+def run(started, *, scheduled=True, result='success', name='pg-diff', trigger=None):
     return {'name': name, 'run_started_at': started.isoformat(), 'run_finished_at': (started + timedelta(minutes=3)).isoformat(),
-            'result': result, 'scheduled': scheduled, 'last_trigger_at': started.isoformat() if scheduled else None}
+            'result': result, 'scheduled': scheduled, 'last_trigger_at': (trigger or started).isoformat() if scheduled or trigger else None}
 
 
 def state(admin):
@@ -123,19 +123,71 @@ def test_a_silent_or_blind_probe_alerts(observed):  # noqa: F811
     assert s[('host_probe_stale', 'app_host')] is False and s[('host_probe_blind', 'app_host')] is False
 
 
+def test_a_manual_rerun_inside_the_grace_is_not_the_scheduled_round(observed):  # noqa: F811
+    """L6 review C1: the scheduled round fails quickly; a manual rerun starts inside the probe's grace after the same trigger. SQL
+    keeps only the first run of a trigger as scheduled: the rerun is recorded as manual, the failure stays, freshness is not refreshed."""
+    o = observed
+    admin, pg = o['admin'], o['pg']
+    assert apply_rules(load_rules(V12), TENANT, database_url_file=o['w']['configurator'])['configured'] is True
+    trigger = datetime.now(UTC) - timedelta(days=3)
+    tick(pg, timers=[run(trigger, result='failure')])
+    tick(pg, timers=[run(trigger + timedelta(seconds=3), trigger=trigger)])  # offered as scheduled (inside the grace)
+    rows = admin.execute("select result,scheduled from runtime.nexloop_host_timer_runs order by run_started_at").fetchall()
+    assert rows == [('failure', True), ('success', False)]
+    # A run long after its trigger (the probe offered it as scheduled by mistake) is not scheduled either.
+    tick(pg, timers=[run(trigger + timedelta(hours=1), trigger=trigger + timedelta(minutes=50))])
+    assert admin.execute("select scheduled from runtime.nexloop_host_timer_runs order by run_started_at desc limit 1").fetchone() == (False,)
+    # No scheduled success at all: the age counts from the first tick that expected the timer (moved back to the trigger).
+    admin.execute("update runtime.nexloop_host_probe_ticks set observed_at=%s where tick_id=(select min(tick_id) from runtime.nexloop_host_probe_ticks)", (trigger,))
+    assert metrics(admin)['timer_success_age_seconds']['data_host:pg-diff'] > 3 * 86400 - 600
+    o['evaluate']()
+    s = state(admin)
+    assert s[('timer_stale_pg_diff', 'data_host:pg-diff')] is True
+
+
+def test_a_host_writes_only_its_own_ticks(observed):  # noqa: F811
+    """L6 review C2: the host is the recorder role's; an entry naming a host is refused; the app host cannot write data_host rows."""
+    o = observed
+    admin, pg = o['admin'], o['pg']
+    assert tick(pg, host='app_host', timers=[run(datetime.now(UTC))], expected_timers=('pg-diff',))['host_role'] == 'app_host'
+    assert admin.execute("select distinct host_role from runtime.nexloop_host_timer_runs").fetchall() == [('app_host',)]
+    forged = {'host_role': 'data_host', 'blind': False, 'expected_units': [], 'expected_timers': ['pg-diff'], 'units': [], 'timers': [run(datetime.now(UTC))]}
+    with pytest.raises(psycopg.errors.InvalidParameterValue), psycopg.connect(make_conninfo(pg, user='nexloop_host_recorder_app_host'), autocommit=True) as db:
+        db.execute('select authz.nexloop_record_host_observation(%s::jsonb)', (json.dumps(forged),))
+    assert admin.execute("select count(*) from runtime.nexloop_host_probe_ticks where host_role='data_host'").fetchone() == (0,)
+
+
+def test_a_missing_unit_alerts(observed):  # noqa: F811
+    o = observed
+    admin, pg = o['admin'], o['pg']
+    assert apply_rules(load_rules(V12), TENANT, database_url_file=o['w']['configurator'])['configured'] is True
+    tick(pg, units=[unit(0), unit(0, name='valkey')], expected_timers=())
+    assert metrics(admin)['missing_units'] == {'data_host:api': 0, 'data_host:valkey': 0}
+    tick(pg, units=[unit(0)], expected_units=['api', 'valkey'], expected_timers=())
+    assert metrics(admin)['missing_units'] == {'data_host:api': 0, 'data_host:valkey': 1}
+    o['evaluate']()
+    admin.execute("update control.nexloop_alert_state set breached_since=breached_since-interval '5 minutes' where rule_id='host_unit_missing'")
+    o['evaluate']()
+    assert state(admin)[('host_unit_missing', 'data_host:valkey')] is True
+    tick(pg, units=[unit(0), unit(0, name='valkey')], expected_timers=())
+    o['evaluate']()
+    assert state(admin)[('host_unit_missing', 'data_host:valkey')] is False
+
+
 def test_the_recorder_executes_one_function_takes_no_text_and_nothing_else_records(observed):  # noqa: F811
     o = observed
     admin, pg = o['admin'], o['pg']
     for table in ('runtime.nexloop_host_probe_ticks', 'runtime.nexloop_host_unit_samples', 'runtime.nexloop_host_timer_runs'):
-        assert admin.execute("select has_table_privilege('nexloop_host_recorder',%s,'select')", (table,)).fetchone() == (False,)
+        for recorder in ('nexloop_host_recorder_app_host', 'nexloop_host_recorder_data_host'):
+            assert admin.execute("select has_table_privilege(%s,%s,'select')", (recorder, table)).fetchone() == (False,)
         for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_runtime'):
             assert admin.execute("select has_table_privilege(%s,%s,'insert')", (role, table)).fetchone() == (False,)
     for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_runtime'):
         assert admin.execute("select has_function_privilege(%s,'authz.nexloop_record_host_observation(jsonb)','execute')", (role,)).fetchone() == (False,)
-    for bad in ({'units': [{**unit(0), 'note': 'free text'}]}, {'units': [{**unit(0), 'name': 'Has Space'}]}, {'host_role': 'App Host'},
+    for bad in ({'units': [{**unit(0), 'note': 'free text'}]}, {'units': [{**unit(0), 'name': 'Has Space'}]}, {'host_role': 'data_host'},
                 {'expected_timers': ['../etc']}, {'timers': [{**run(datetime.now(UTC)), 'result': 'ok'}]}):
-        entry = {'host_role': 'data_host', 'blind': False, 'expected_units': [], 'expected_timers': [], 'units': [], 'timers': [], **bad}
-        with pytest.raises(psycopg.Error), psycopg.connect(make_conninfo(pg, user='nexloop_host_recorder'), autocommit=True) as db:
+        entry = {'blind': False, 'expected_units': [], 'expected_timers': [], 'units': [], 'timers': [], **bad}
+        with pytest.raises(psycopg.Error), psycopg.connect(make_conninfo(pg, user='nexloop_host_recorder_data_host'), autocommit=True) as db:
             db.execute('select authz.nexloop_record_host_observation(%s::jsonb)', (json.dumps(entry),))
     with pytest.raises(psycopg.errors.InsufficientPrivilege), psycopg.connect(make_conninfo(pg, user='nexloop_domain_worker'), autocommit=True) as db:
         db.execute('select authz.nexloop_record_host_observation(%s::jsonb)', ('{}',))

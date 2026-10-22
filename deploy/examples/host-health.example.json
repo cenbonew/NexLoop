@@ -2,7 +2,10 @@
   "schema": "nexloop-host-health/1",
   "host_role": "data_host",
   "recorder_dsn_file": "<HOST_RECORDER_DSN_FILE_0600>",
-  "grace_seconds": 120,
+  "state_file": "/var/lib/nexloop-host-health/state.json",
+  "grace_seconds": 5,
+  "local_window_seconds": 900,
+  "local_min_restarts": 3,
   "containers": [{"name": "postgres", "container": "<POSTGRES_CONTAINER_NAME>"}, {"name": "valkey", "container": "<VALKEY_CONTAINER_NAME>"}],
   "services": [],
   "timers": [

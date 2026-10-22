@@ -474,6 +474,16 @@
       "purpose": "E2: the last probe tick saw none (or under half) of the units it expects: docker or systemd unreadable; zero restarts would not mean healthy."
     },
     {
+      "rule_id": "host_unit_missing",
+      "metric": "host_health.missing_units",
+      "selector": "*",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 120,
+      "severity": "warning",
+      "purpose": "E2 (L6 review I2): a configured container or service was not seen by the host probe's last tick (removed, renamed or unreadable); its restarts would otherwise silently disappear."
+    },
+    {
       "rule_id": "timer_scheduled_failure",
       "metric": "host_health.timer_scheduled_failures_24h",
       "selector": "*",

@@ -16,7 +16,8 @@ T0 = 1761100000  # a unix time standing for the timer's last trigger
 
 
 def config(tmp_path, **over):
-    value = {'schema': P.SCHEMA, 'host_role': 'data_host', 'recorder_dsn_file': str(tmp_path / 'dsn'), 'grace_seconds': 120,
+    value = {'schema': P.SCHEMA, 'host_role': 'data_host', 'recorder_dsn_file': str(tmp_path / 'dsn'), 'state_file': str(tmp_path / 'state.json'),
+             'grace_seconds': 5,
              'containers': [{'name': 'postgres', 'container': 'stage-postgres-1'}],
              'services': [{'name': 'runtime-worker', 'unit': 'nexloop-runtime-worker.service'}, {'name': 'once', 'unit': 'nexloop-once.service'}],
              'timers': [{'name': 'pg-diff', 'timer': 'nexloop-pg-diff.timer', 'service': 'nexloop-pg-diff.service'}], **over}
@@ -42,9 +43,9 @@ def runner(*, docker=None, services=None, timer=None, run=None):
     return answer
 
 
-def probe(path, run, *args, connect=None):
+def probe(path, run, *args, connect=None, err=None, clock=None):
     out = io.StringIO()
-    code = P.main(['--config', path, *args], runner=run, connect=connect, out=out)
+    code = P.main(['--config', path, *args], runner=run, connect=connect, out=out, err=err or io.StringIO(), clock=clock)
     return code, json.loads(out.getvalue())
 
 
@@ -103,15 +104,18 @@ def test_recording_and_its_failure(tmp_path):
         def fetchone(self):
             return ({'recorded': True, 'new_runs': 1},)
     code, doc = probe(path, runner(), connect=Db)
-    assert code == 0 and doc['recorded'] is True and doc['new_runs'] == 1 and calls[0]['host_role'] == 'data_host'
+    assert code == 0 and doc['recorded'] is True and doc['new_runs'] == 1 and 'host_role' not in calls[0]  # the database derives the host
 
     def broken():
         raise OSError('connection to host=db.example.invalid password=hunter2 refused')
-    code, doc = probe(path, runner(), connect=broken)
+    err = io.StringIO()
+    code, doc = probe(path, runner(), connect=broken, err=err)
     assert code == 1 and doc == {**doc, 'recorded': False, 'error': 'OSError'} and 'hunter2' not in json.dumps(doc)
+    # The local channel: a journal line of priority err, without the DSN.
+    assert err.getvalue() == '<3>nexloop-host-health record_failed host=data_host error=OSError\n'
 
 
-@pytest.mark.parametrize('over', [{'host_role': 'App Host'}, {'recorder_dsn_file': 'relative'}, {'grace_seconds': 1},
+@pytest.mark.parametrize('over', [{'host_role': 'App Host'}, {'host_role': 'third_host'}, {'state_file': 'relative'}, {'grace_seconds': 120}, {'recorder_dsn_file': 'relative'}, {'grace_seconds': 0},
                                   {'containers': [{'name': 'x', 'container': 'a b'}]}, {'timers': [{'name': 'x', 'timer': 'a.service', 'service': 'b.service'}]},
                                   {'services': [{'name': 'dup', 'unit': 'a.service'}, {'name': 'dup', 'unit': 'b.service'}]}])
 def test_configuration_is_refused(tmp_path, over):
@@ -124,3 +128,44 @@ def test_a_configuration_readable_by_others_is_refused(tmp_path):
     os.chmod(path, 0o644)
     code, doc = probe(path, runner())
     assert code == 2
+
+
+def test_a_crash_loop_is_alarmed_locally_without_the_database(tmp_path):
+    """L6 review I1: the database may be what loops. The probe anchors the restart count at the window's start (upstream), so a
+    loop faster than the probe ticks accumulates; it writes a priority err journal line; the database being down changes nothing."""
+    path, now = config(tmp_path), [1000.0]
+
+    def counted(n, instance='a' * 64):
+        return runner(docker=[{'Name': '/stage-postgres-1', 'Id': instance, 'RestartCount': n, 'State': {'Running': True}}])
+
+    def down():
+        raise OSError('database down')
+    lines = []
+    for n in (4, 5, 6):  # first sight is the baseline; +1, +2 within the window
+        err = io.StringIO()
+        probe(path, counted(n), connect=down, err=err, clock=lambda: now[0])
+        lines.append(err.getvalue())
+        now[0] += 60
+    assert 'crash_loop' not in ''.join(lines)
+    err = io.StringIO()
+    code, doc = probe(path, counted(7), connect=down, err=err, clock=lambda: now[0])
+    assert code == 1 and doc['local_crash_loops'] == ['postgres']
+    assert '<3>nexloop-host-health crash_loop host=data_host unit=postgres restarts=3\n' in err.getvalue()
+    # Reported once, then a new anchor: a recreated container counts one, a counter reset counts nothing.
+    now[0] += 60
+    err = io.StringIO()
+    probe(path, counted(0, instance='b' * 64), connect=down, err=err, clock=lambda: now[0])
+    assert 'crash_loop' not in err.getvalue()
+    # Damaged state starts again, never fails the probe.
+    Path(json.loads(Path(path).read_text())['state_file']).write_text('{not json')
+    code, doc = probe(path, counted(9), connect=down, clock=lambda: now[0] + 60)
+    assert code == 1 and doc['local_crash_loops'] == []
+
+
+def test_local_window_ends_without_a_loop(tmp_path):
+    loops, anchors = P.local_crash_loops({}, [{'name': 'x', 'instance_id': 'i', 'restart_count': 0}], 0, window=900, minimum=3)
+    for t, n in ((300, 1), (600, 2)):
+        loops, anchors = P.local_crash_loops(anchors, [{'name': 'x', 'instance_id': 'i', 'restart_count': n}], t, window=900, minimum=3)
+        assert loops == []
+    loops, anchors = P.local_crash_loops(anchors, [{'name': 'x', 'instance_id': 'i', 'restart_count': 2}], 1000, window=900, minimum=3)
+    assert loops == [] and anchors['x']['sampled_at'] == 1000  # the window ended below the threshold: a new anchor

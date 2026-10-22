@@ -8,21 +8,30 @@ Run by a systemd timer on each host (deploy/stage/systemd/nexloop-host-health.*.
   containers  docker inspect: RestartCount and the container Id (a recreated container is a new instance);
   services    systemctl show: NRestarts (a unit with Restart= keeps running while it loops - 'active' hides the loop);
   timers      systemctl show: the timer's LastTriggerUSec and its service's last run (InactiveExitTimestamp, StateChangeTimestamp,
-              Result). A run that started within grace_seconds after the last trigger is the scheduled round; any other run (a
-              manual `systemctl start`) is recorded as not scheduled, so it never refreshes the scheduled freshness.
-and records one tick through authz.nexloop_record_host_observation (role nexloop_host_recorder: that function only). Thresholds
-are alert rules (deploy/configuration/alert-rules.v12.json); the alert evaluator turns the recorded values into alerts.
+              Result). A run that started within grace_seconds (default 5: a timer starts its service within a second) after
+              the last trigger is offered as the scheduled round; SQL keeps only the first run of each trigger as scheduled, so a
+              manual `systemctl start` - even right after a failed round - never refreshes the scheduled freshness.
+and records one tick through authz.nexloop_record_host_observation as this host's recorder role (nexloop_host_recorder_<host
+role>: that function only; SQL derives the host from the role, the entry names none). Thresholds are alert rules
+(deploy/configuration/alert-rules.v12.json); the alert evaluator turns the recorded values into alerts.
 
-Ported from NEX-EIOS ops/systemd/detect_crash_loops.py (frozen commit, see versions.lock.json provenance): judge restart-count
-deltas, never the unit state; skip one-shot units for restarts; a probe that sees nothing is blind, not healthy (here: against the
-configured list, not the previous run). The window and threshold moved from the script to SQL and the alert rules; there is no
-state file. Standard library only, plus psycopg for the one recording call (imported late): detection works when the database or
-the application environment is broken, and says so.
+Local channel without PostgreSQL (L6 review I1): when the database itself loops, nothing can be recorded or evaluated. So the probe
+also judges crash loops locally (the upstream anchored-window delta, state in state_file) and writes every local finding - a crash
+loop, blindness, a failed recording - to stderr as a journal line of priority err (sd-daemon `<3>` prefix), for an external watcher
+of the host journal (`journalctl -p err -u nexloop-host-health`).
+
+Ported from NEX-EIOS ops/systemd/detect_crash_loops.py (frozen commit, provenance in docs/implementation/host-health.md §5): judge
+restart-count deltas, never the unit state; anchor the delta at the window's start; skip one-shot units for restarts; a probe that
+sees nothing is blind, not healthy (here: against the configured list); damaged local state starts again. Standard library only,
+plus psycopg for the one recording call (imported late): detection works when the database or the application environment is
+broken, and says so.
 
 Configuration (JSON, 0600, root): {"schema": "nexloop-host-health/1", "host_role": "app_host", "recorder_dsn_file": "<0600 file>",
-"grace_seconds": 120, "containers": [{"name": "api", "container": "<container name>"}], "services": [{"name": "runtime-worker",
-"unit": "<unit>.service"}], "timers": [{"name": "pg-diff", "timer": "<unit>.timer", "service": "<unit>.service"}]}
-Output: one JSON line (counts, names, flags; no DSN). Exit 0 recorded (or dry run); 1 the recording failed; 2 configuration refused.
+"state_file": "/var/lib/nexloop-host-health/state.json", "grace_seconds": 5, "local_window_seconds": 900, "local_min_restarts": 3,
+"containers": [{"name": "api", "container": "<container name>"}], "services": [{"name": "runtime-worker", "unit": "<unit>.service"}],
+"timers": [{"name": "pg-diff", "timer": "<unit>.timer", "service": "<unit>.service"}]}
+Output: one JSON line (counts, names, flags; no DSN); local findings on stderr. Exit 0 recorded (or dry run); 1 the recording
+failed; 2 configuration refused.
 """
 from __future__ import annotations
 
@@ -36,7 +45,7 @@ import sys
 from datetime import UTC, datetime
 
 SCHEMA = 'nexloop-host-health/1'
-HOST_ROLE = re.compile(r'[a-z][a-z0-9_]{0,31}')
+HOST_ROLES = ('app_host', 'data_host')  # one recorder role each (nexloop_host_recorder_<host role>, 0318)
 NAME = re.compile(r'[a-z0-9][a-z0-9_.-]{0,63}')
 UNIT = re.compile(r'[A-Za-z0-9@_.:-]{1,128}\.(service|timer)')
 CONTAINER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
@@ -64,17 +73,26 @@ def read_private(path, maximum=8192):
         return stream.read(maximum).decode('utf-8')
 
 
+def _int(config, key, default, low, high):
+    value = config.get(key, default)
+    if type(value) is not int or not low <= value <= high:
+        raise Refused(f'configuration: {key} {low}..{high}')
+    return value
+
+
 def load_config(path):
     try:
         config = json.loads(read_private(path, 65536))
     except (OSError, ValueError):
         raise Refused('configuration unreadable') from None
-    if type(config) is not dict or config.get('schema') != SCHEMA or not HOST_ROLE.fullmatch(str(config.get('host_role', ''))):
-        raise Refused(f'configuration: schema {SCHEMA}, host_role')
-    if type(config.get('recorder_dsn_file')) is not str or not os.path.isabs(config['recorder_dsn_file']):
-        raise Refused('configuration: recorder_dsn_file (absolute path)')
-    if type(config.get('grace_seconds', 120)) is not int or not 10 <= config.get('grace_seconds', 120) <= 3600:
-        raise Refused('configuration: grace_seconds 10..3600')
+    if type(config) is not dict or config.get('schema') != SCHEMA or config.get('host_role') not in HOST_ROLES:
+        raise Refused(f'configuration: schema {SCHEMA}, host_role app_host | data_host')
+    for key in ('recorder_dsn_file', 'state_file'):
+        if type(config.get(key)) is not str or not os.path.isabs(config[key]):
+            raise Refused(f'configuration: {key} (absolute path)')
+    _int(config, 'grace_seconds', 5, 1, 60)
+    _int(config, 'local_window_seconds', 900, 60, 86400)
+    _int(config, 'local_min_restarts', 3, 1, 100)
     names = set()
     for key, fields, patterns in (('containers', ('name', 'container'), (NAME, CONTAINER)), ('services', ('name', 'unit'), (NAME, UNIT)),
                                   ('timers', ('name', 'timer', 'service'), (NAME, UNIT, UNIT))):
@@ -178,13 +196,67 @@ def sample_timers(items, grace, runner=run):
 def observe(config, runner=run):
     containers, services, timers = config.get('containers', []), config.get('services', []), config.get('timers', [])
     units = sample_containers(containers, runner) + sample_services(services, runner)
-    seen_timers = sample_timers(timers, config.get('grace_seconds', 120), runner)
+    seen_timers = sample_timers(timers, config.get('grace_seconds', 5), runner)
     expected_units = [i['name'] for i in containers + services]
     # Blind (ported): what we expect to see and do not is not healthy. Under half of the expected units and timers seen.
     expected, seen = len(expected_units) + len(timers), len(units) + len(seen_timers)
     blind = expected > 0 and seen * 2 < expected
-    return {'host_role': config['host_role'], 'blind': blind, 'expected_units': expected_units, 'expected_timers': [i['name'] for i in timers],
+    return {'blind': blind, 'expected_units': expected_units, 'expected_timers': [i['name'] for i in timers],
             'units': units, 'timers': [r for r in seen_timers if r is not None]}
+
+
+def load_state(path):
+    """Local anchors {unit: {instance_id, restarts, changes, sampled_at}}; missing or damaged state starts again."""
+    try:
+        with open(path, encoding='utf-8') as stream:
+            value = json.load(stream)
+        return value if type(value) is dict else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(path, anchors):
+    try:
+        tmp = path + '.tmp'
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(anchors, stream)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def local_crash_loops(previous, units, now, *, window, minimum):
+    """Ported from upstream evaluate(): the anchor stays at the window's start until the window ends, a loop is reported or the
+    counter resets; otherwise a loop restarting faster than the probe ticks would never accumulate. An instance change (a
+    recreated container) counts one restart and moves the count base to the new instance. Returns ([(name, delta)], anchors)."""
+    loops, anchors = [], {}
+    for u in units:
+        entry = previous.get(u['name'])
+        fresh = {'instance_id': u['instance_id'], 'restarts': u['restart_count'], 'changes': 0, 'sampled_at': now}
+        if type(entry) is not dict or not isinstance(entry.get('sampled_at'), (int, float)) or now - entry['sampled_at'] <= 0:
+            anchors[u['name']] = fresh  # first sight, damaged entry or a clock step back: a new baseline
+            continue
+        same = entry.get('instance_id') == u['instance_id']
+        if same and u['restart_count'] < int(entry.get('restarts', 0)):
+            anchors[u['name']] = fresh  # counter reset: neither recovery nor loop
+            continue
+        changes = int(entry.get('changes', 0)) + (0 if same else 1)
+        base = int(entry.get('restarts', 0)) if same else 0
+        delta = changes + u['restart_count'] - base
+        if delta >= minimum:
+            loops.append((u['name'], delta))
+            anchors[u['name']] = fresh
+        elif now - entry['sampled_at'] >= window:
+            anchors[u['name']] = fresh
+        else:
+            anchors[u['name']] = {'instance_id': u['instance_id'], 'restarts': base, 'changes': changes, 'sampled_at': entry['sampled_at']}
+    return loops, anchors
+
+
+def local_alarm(err, message):
+    """One journal line of priority err (sd-daemon prefix; StandardError=journal): names and numbers only."""
+    print('<3>nexloop-host-health ' + message, file=err, flush=True)
 
 
 def record(config, entry, connect=None):
@@ -197,7 +269,7 @@ def record(config, entry, connect=None):
         return db.execute('select authz.nexloop_record_host_observation(%s::jsonb)', (json.dumps(entry),)).fetchone()[0]
 
 
-def main(argv=None, runner=run, connect=None, out=sys.stdout):
+def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, clock=None):
     p = argparse.ArgumentParser(description='Host health probe: crash loops and scheduled-run freshness (E2/E3)')
     p.add_argument('--config', required=True)
     p.add_argument('--dry-run', action='store_true')
@@ -207,9 +279,19 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout):
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2
+    host = config['host_role']
     entry = observe(config, runner)
-    summary = {'host_role': entry['host_role'], 'blind': entry['blind'], 'units': len(entry['units']), 'expected_units': len(entry['expected_units']),
-               'timer_runs': len(entry['timers']), 'expected_timers': len(entry['expected_timers'])}
+    now = (clock or (lambda: datetime.now(UTC).timestamp()))()
+    loops, anchors = local_crash_loops(load_state(config['state_file']), entry['units'], now,
+                                       window=config.get('local_window_seconds', 900), minimum=config.get('local_min_restarts', 3))
+    if not a.dry_run:
+        save_state(config['state_file'], anchors)
+    for name, delta in loops:
+        local_alarm(err, f'crash_loop host={host} unit={name} restarts={delta}')
+    if entry['blind']:
+        local_alarm(err, f'blind host={host} seen={len(entry["units"]) + len(entry["timers"])} expected={len(entry["expected_units"]) + len(entry["expected_timers"])}')
+    summary = {'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
+               'expected_units': len(entry['expected_units']), 'timer_runs': len(entry['timers']), 'expected_timers': len(entry['expected_timers'])}
     if a.dry_run:
         print(json.dumps({**summary, 'dry_run': True, 'entry': entry}, sort_keys=True), file=out)
         return 0
@@ -217,8 +299,9 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout):
         recorded = record(config, entry, connect)
     except Exception as error:  # noqa: BLE001 - the detection is printed; the recording failure is named by type only
         print(json.dumps({**summary, 'recorded': False, 'error': type(error).__name__}, sort_keys=True), file=out)
+        local_alarm(err, f'record_failed host={host} error={type(error).__name__}')
         return 1
-    print(json.dumps({**summary, 'recorded': True, 'new_runs': recorded.get('new_runs')}, sort_keys=True), file=out)
+    print(json.dumps({**summary, 'recorded': bool(recorded.get('recorded')), 'new_runs': recorded.get('new_runs')}, sort_keys=True), file=out)
     return 0
 
 
