@@ -1600,6 +1600,11 @@
       "version": "0320",
       "name": "0320_audit_hash_chain.sql",
       "sha256": "d955da5946ad9973238384e986ee7e4e45e946c778fcae07744373318a3708b7"
+    },
+    {
+      "version": "0321",
+      "name": "0321_relation_types_p2.sql",
+      "sha256": "51f5f2e86699a265eae65cb38d1b3520a1a02a17436e9a3077e17fa6d86684a6"
     }
   ]
 }
