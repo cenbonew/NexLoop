@@ -250,7 +250,8 @@ begin
  v_digest:=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,pol.version,p_body);
  -- NX-058 Z1, fail closed (L6 review 8): a policy naming the member the request acts on needs that member to exist in the tenant.
  if pol.target_subject_field is not null and not exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=p_tenant
-   and (m.principal_id=p_body->>pol.target_subject_field or m.subject_id=p_body->>pol.target_subject_field)) then
+   and (m.principal_id=p_body->>pol.target_subject_field or m.subject_id=p_body->>pol.target_subject_field)
+   and m.payload->>'status' in ('invited','active')) then  -- only an invited or active member (L6 review 9)
   raise exception 'approval: target_unresolved' using errcode='22023';end if;
  -- The same request id replays its own approval; the same digest while this person's one waits answers that one (no flooding, design
  -- §4 step 1). Dedupe and cooldown are per requester (subject): another person's request or rejection never answers or blocks this one.

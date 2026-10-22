@@ -47,11 +47,13 @@ begin
  perform runtime.nexloop_erasure_open('control.nexloop_approval_requests',array['body'],false,v_ref);
  -- Only where the id stands as a whole JSON string (the 0307 rule: never inside another value).
  update control.nexloop_approval_requests set body=replace(body::text,'"'||k||'"','"'||v_p||'"')::jsonb
-  where tenant_id=tn and world=w and strpos(body::text,'"'||k||'"')>0;
+  where tenant_id=tn and world=w and jsonb_path_exists(body,'$.** ? (@ == $id)',jsonb_build_object('id',k));
  get diagnostics n=row_count;
  delete from control.nexloop_erasure_scope where txid=txid_current() and table_name='control.nexloop_approval_requests';
- perform runtime.nexloop_erasure_tombstone(tn,w,'consumer_erasure',v_ref,'consumer_identity','approval_requests',k,'pseudonymized',
-  jsonb_build_object('approval_requests',n),'nexloop_owner');
+ if n>0 then  -- a tombstone only for what was changed (L6 review 9)
+  perform runtime.nexloop_erasure_tombstone(tn,w,'consumer_erasure',v_ref,'consumer_identity','approval_requests',k,'pseudonymized',
+   jsonb_build_object('approval_requests',n),'nexloop_owner');
+ end if;
  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
  return null;
 end $$;
@@ -68,7 +70,9 @@ begin
  if new.state<>'blocking' or (tg_op='UPDATE' and old.state='blocking') then return null;end if;
  perform set_config('eios.tenant_id',new.tenant_id,true);
  for a in select r.approval_id from control.nexloop_approval_requests r where r.tenant_id=new.tenant_id and r.world=new.world
-   and r.status in ('waiting_approval','approved') and strpos(r.body::text,'"'||new.consumer_id||'"')>0 and r.approval_id::text<>v_in_flight
+   and r.status in ('waiting_approval','approved') and r.approval_id::text<>v_in_flight
+   -- A value equal to the Consumer's id anywhere in the body (an exact JSON string match, never a substring; L6 review 9).
+   and jsonb_path_exists(r.body,'$.** ? (@ == $id)',jsonb_build_object('id',new.consumer_id))
    and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=r.tenant_id and c.world=r.world and c.approval_id=r.approval_id)
    order by r.approval_id loop
   perform control.nexloop_approval_terminate(new.tenant_id,new.world,a,'consumer_erased');

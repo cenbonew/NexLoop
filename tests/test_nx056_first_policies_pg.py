@@ -157,6 +157,8 @@ def test_a_completed_erasure_pseudonymises_the_consumer_in_every_request_body(he
     owner, consumer = c['owner_actions'], c['consumer']
     act(owner, 'erase_consumer', 'erase-1', consumer_id=consumer, reason='负责人发起删除')  # waits, its body names the Consumer
     [(cap, state, body, digest)] = bodies(admin)
+    # Another request whose body only contains the id inside a longer value: not the Consumer's (exact match; L6 review 9).
+    act(owner, 'release_retention_hold', 'release-x', hold_id='hold-' + consumer, reason='x')
     assert cap == 'consumer.erase' and body['consumer_id'] == consumer
     with admin.transaction():
         admin.execute('select runtime.nexloop_consumer_erasure_requested(%s,%s,%s,%s)', (TENANT, 'real', consumer, 'chat-1'))
@@ -164,7 +166,8 @@ def test_a_completed_erasure_pseudonymises_the_consumer_in_every_request_body(he
     for _ in range(4):
         keeper(c).run_once()
     assert request(admin, consumer)[1] == 'completed'
-    [(_, after_state, after, after_digest)] = bodies(admin)
+    [(_, after_state, after, after_digest), (_, other_state, other, _)] = bodies(admin)
+    assert other_state == 'waiting_approval' and other['hold_id'] == 'hold-' + consumer  # neither ended nor rewritten
     assert after['consumer_id'].startswith('pseudonym:') and consumer not in str(after) and after['reason'] == body['reason']
     # The erasure's start ended the owner's own waiting request for the same Consumer (L6 review 8); completion pseudonymised it.
     assert state == 'waiting_approval' and after_state == 'expired' and after_digest == digest
