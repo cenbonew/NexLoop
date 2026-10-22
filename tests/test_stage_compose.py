@@ -32,7 +32,7 @@ def compose():
 def test_budget_registers_the_identity_pool_and_stays_within_60():
     result = connection_budget.evaluate(BUDGET)
     assert result['passed'] and result['details']['application_pool_total'] == 59  # NX-037: + webchat-delivery 2
-    assert result['details']['services']['api-browser-identity'] == 6 and 'scheduler' not in result['details']['services']
+    assert result['details']['services']['api-browser-identity'] == 4 and 'scheduler' not in result['details']['services']
     missing = copy.deepcopy(BUDGET)
     missing['services'] = [s for s in missing['services'] if s['name'] != 'api-browser-identity']
     assert connection_budget.evaluate(missing)['details']['missing_services'] == ['api-browser-identity']
@@ -114,7 +114,7 @@ def test_every_command_is_accepted_by_its_real_parser_and_names_only_its_own_sec
             if value.startswith('/run/secrets/'):
                 assert value.split('/run/secrets/')[1] in services[name]['secrets'], (name, value)
     api = services['api-1']['command']
-    assert api[api.index('--identity-pool-max') + 1] == '3' and api[api.index('--mode') + 1] == 'stage'
+    assert api[api.index('--identity-pool-max') + 1] == '2' and api[api.index('--mode') + 1] == 'stage'
     assert 'python -m nexloop_eios.domain_worker' in services['domain-worker']['command'][0]
 
 

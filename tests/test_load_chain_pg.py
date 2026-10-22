@@ -176,9 +176,9 @@ def test_stage_compose_runs_two_relays_with_their_own_vaults_within_the_budget()
     assert [v for v in first['volumes'] if v not in vault(first)]==[v for v in second['volumes'] if v not in vault(second)]
     declared={s['name']:s for s in budget['services']}
     assert declared['message-relay']['processes']==2 and declared['message-relay']['pool_max']==2
-    assert declared['api-browser-identity']['pool_max']==3
+    assert declared['api-browser-identity']['pool_max']==2 and declared['message-relay']['semantic_read_pool_max']==1
     apis=[spec for name,spec in compose['services'].items() if spec.get('labels',{}).get('nexloop.budget-service','').startswith('api')]
-    assert apis and all(spec['command'][spec['command'].index('--identity-pool-max')+1]=='3' for spec in apis)
+    assert apis and all(spec['command'][spec['command'].index('--identity-pool-max')+1]=='2' for spec in apis)
     assert compose_budget(budget,compose)['checks']['compose_matches_budget']
     evaluated=connection_budget.evaluate(budget)
     assert evaluated['passed'] and evaluated['details']['application_pool_total']==59
