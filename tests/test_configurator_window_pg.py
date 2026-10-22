@@ -130,3 +130,22 @@ def test_the_lock_is_released_on_an_error_and_on_sigterm(window, admin, tmp_path
     with W.configurator_window(window):  # the next window opens at once
         assert advisory_locks(admin) == 1
     assert closed(admin) and advisory_locks(admin) == 0
+
+
+def test_a_failed_close_still_removes_the_dsn_file_and_releases_the_lock(window, admin, monkeypatch):
+    """L6 review of 1816cb4e, A.4: whatever _close raises, the password-bearing DSN file and its directory go, the lock is
+    released and the WindowNotClosed propagates unchanged."""
+    real_close = W._close
+
+    def failing(*a, **kw):
+        raise W.WindowNotClosed('simulated')
+    monkeypatch.setattr(W, '_close', failing)
+    with pytest.raises(W.WindowNotClosed, match='simulated'):
+        with W.configurator_window(window) as dsn:
+            dsn = Path(dsn)
+            assert dsn.exists()
+    assert not dsn.exists() and not dsn.parent.exists()
+    assert advisory_locks(admin) == 0
+    monkeypatch.undo()
+    real_close(admin, Path(window).read_text().strip())  # the window really is still open: close it for the next test
+    assert closed(admin)
