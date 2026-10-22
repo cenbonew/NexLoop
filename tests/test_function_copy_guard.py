@@ -139,6 +139,10 @@ REGISTRY = [
     # 0312 (AT-046 stage judgement): a Run command's mode must be the kind of the world it is presented in (server side, not only the client).
     Allowed('run_command_mode_is_world_kind', 'authz.nexloop_runtime_activation_command_v0037', 'the command mode must be the world kind',
             ((r"\s*or command->>'mode' is distinct from runtime\.nexloop_world_kind\(p_world\)", ''),)),
+    # 0314 (stage 2026-10-22, run retry errors): the v6 bind compares current_constraints without the ledger's reserved_units counter.
+    Allowed('context_v6_reserved_units_volatile', 'authz.nexloop_context_v6_command', 'current_constraints compared without reserved_units',
+            ((r"\(case when key='current_constraints' then \(pack->key\)-'reserved_units' else pack->key end\)\s*is distinct from \(case when key='current_constraints' then \(snapshot->key\)-'reserved_units' else snapshot->key end\)",
+              'pack->key is distinct from snapshot->key'),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),

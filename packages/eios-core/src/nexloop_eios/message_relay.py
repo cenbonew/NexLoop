@@ -329,10 +329,19 @@ class MessageRelay:
                 'runtime_owner_epoch':recipe['runtime_owner_epoch']}
             self._diagnostic_stage='context_prepare'
             if self.context_strategy is not None:
-                from nexloop_eios.context_artifacts import ContextV6ArtifactProducer
+                from nexloop_eios.context_artifacts import ContextArtifactUnavailable,ContextV6ArtifactProducer
                 formal=None if self.relationship_recipe is None else {'Consumer':recipe['consumer_id'],'Goal':goal,'PlanStep':step,'EffectControl':recipe['control_id']}
                 producer=ContextV6ArtifactProducer(self.source,self.context_strategy,self.relationship_recipe,formal)
                 try:context=producer.prepare(message_id=message_id,run_token=record.token,command=command,offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
+                except ContextArtifactUnavailable:
+                    # Stage 2026-10-22: an earlier attempt of this Run stored its Context Artifact and never bound it. The Artifact
+                    # is the Run's one Context (artifact_id from 'context:'+run_id) and holds that attempt's bytes - a new pack
+                    # carries new read decisions, so no retry of this Run can bind. End the message now (the reply guarantee answers
+                    # it) instead of spending the remaining attempts, each one a payload conflict.
+                    if (producer.last_diagnostic or (None,None))[1]=='artifact idempotency payload conflict':
+                        self._context_diagnostic=producer.last_diagnostic
+                        return self._handoff(message_id,fence,'binding_conflict')
+                    raise
                 finally:self._context_diagnostic=producer.last_diagnostic
             elif self.relationship_recipe is None:
                 context=self.source.prepare_message_context(message_id=message_id,run_token=record.token,command=command,offering_id=recipe['offering_id'],binding_id=recipe['offering_binding_id'])
