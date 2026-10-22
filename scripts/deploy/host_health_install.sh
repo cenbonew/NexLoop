@@ -5,4 +5,4 @@
 # The recorder password(s) come on stdin only; this wrapper checks root and hands everything to the Python installer (stdlib only).
 set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { printf '%s\n' 'FAILED: run with sudo' >&2; exit 2; }
-exec "${HOST_HEALTH_PYTHON:-python3}" -I "$(cd "$(dirname "$0")" && pwd)/host_health_install.py" "$@"
+exec "${HOST_HEALTH_PYTHON:-python3}" -I -B "$(cd "$(dirname "$0")" && pwd)/host_health_install.py" "$@"

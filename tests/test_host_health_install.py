@@ -159,14 +159,18 @@ def test_the_data_host_needs_the_socket_and_its_owner_steps(tmp_path):
     assert install(tmp_path, cfg, f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')[0] == 2
 
 
-def test_the_examples_match_the_alert_rules_v12_selectors():
-    rules = json.loads((ROOT / 'deploy/configuration/alert-rules.v12.json').read_text())['rules']
+def test_the_examples_match_the_alert_rules_v13_selectors():
+    rules = json.loads((ROOT / 'deploy/configuration/alert-rules.v13.json').read_text())['rules']
     stale = {r['selector'] for r in rules if r['rule_id'].startswith('timer_stale_')}
     names = set()
     for name, host in (('app-host', 'app_host'), ('data-host', 'data_host')):
         value = json.loads((ROOT / f'deploy/examples/host-health-install.{name}.example.json').read_text())
         names |= {f'{host}:{t["name"]}' for t in value['probe']['timers']}
     assert names == stale
+    # The same timers as L7's probe example (B9: the file backup's scheduled rounds).
+    l7 = json.loads((ROOT / 'deploy/examples/host-health.app-host.example.json').read_text())
+    app = json.loads((ROOT / 'deploy/examples/host-health-install.app-host.example.json').read_text())['probe']
+    assert app['timers'] == l7['timers'] and app['services'] == l7['services']
 
 
 class Db:

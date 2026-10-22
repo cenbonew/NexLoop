@@ -1,6 +1,6 @@
 # 主机健康：崩溃循环与定时任务新鲜度（EIOS 补齐 E2 + E3）
 
-依据：`docs/design/eios-capability-gap.md`（L7）的 E2、E3。迁移 `0318_host_health.sql`（临时编号，由调度员重排），告警规则 `deploy/configuration/alert-rules.v12.json`，探针 `scripts/deploy/host_health_probe.py`，unit 示例 `deploy/stage/systemd/nexloop-host-health.{service,timer}.example`，配置示例 `deploy/examples/host-health.example.json`。
+依据：`docs/design/eios-capability-gap.md`（L7）的 E2、E3。迁移 `0318_host_health.sql`（临时编号，由调度员重排），告警规则 `deploy/configuration/alert-rules.v12.json`（随第二十二批由 v13 取代，v13 包含它的全部主机规则），探针 `scripts/deploy/host_health_probe.py`，unit 示例 `deploy/stage/systemd/nexloop-host-health.{service,timer}.example`，配置示例 `deploy/examples/host-health.example.json`。
 
 ## 1. 要解决的问题
 
@@ -51,7 +51,7 @@
 
 ## 4. 部署（负责人 2026-10-23 决定启用）
 
-分两条命令：负责人在 DATA_HOST 跑一条（sudo），调度员在 APP_HOST 跑一条；然后调度员发布告警规则 v12，最后验收。工具：`scripts/deploy/host_health_install.sh`（root 包装，由 `host_health_install.py` 执行全部步骤）、`host_health_hba_data_host.sh`、`host_recorder_password.py`、`alert_rules_apply.py`。
+分两条命令：负责人在 DATA_HOST 跑一条（sudo），调度员在 APP_HOST 跑一条；然后调度员发布告警规则 v13，最后验收。工具：`scripts/deploy/host_health_install.sh`（root 包装，由 `host_health_install.py` 执行全部步骤）、`host_health_hba_data_host.sh`、`host_recorder_password.py`、`alert_rules_apply.py`。
 
 ### 4.1 取舍
 
@@ -111,12 +111,12 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
    - APP_HOST 一份：DATA_HOST 的 PG 地址与 CA 文件；
    - DATA_HOST 一份：bootstrap socket DSN 文件、`NEXLOOP_ROOT`、部署时的 stage.env。
 
-   容器与 timer 的名字已经与告警规则 v12 的 selector 一致（`test_the_examples_match_the_alert_rules_v12_selectors` 会核对）。两份配置拷到各自主机，`install -m 0600 -o root`。
+   容器与 timer 的名字已经与告警规则 v13 的 selector 一致，APP_HOST 的 timer 和服务与 L7 的探针示例 `deploy/examples/host-health.app-host.example.json` 一致（`test_the_examples_match_the_alert_rules_v13_selectors` 会核对）。两份配置拷到各自主机，`install -m 0600 -o root`。
 
 ### 4.3 DATA_HOST（负责人，一条命令）
 
 ```
-printf 'data_host\t%s\napp_host\t%s\n' "<data_host 口令>" "<app_host 口令>" | sudo bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
+printf 'data_host\t%s\napp_host\t%s\n' "<data_host 口令>" "<app_host 口令>" | sudo HOST_HEALTH_PYTHON=/opt/nexloop/python-3.12.15/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
 ```
 
 口令由调度员经钥匙串管道送入，不进入 argv。这条命令依次：
@@ -131,22 +131,38 @@ printf 'data_host\t%s\napp_host\t%s\n' "<data_host 口令>" "<app_host 口令>" 
 
 dry-run 的结果是 blind 时就停在这里，不启用 timer。
 
+`HOST_HEALTH_PYTHON` 必须写在 `sudo` **之后**（`sudo HOST_HEALTH_PYTHON=… bash …`）（N2）：sudo 默认清掉调用者的环境变量，写在 sudo 之前的赋值到不了 root 的进程，包装脚本就会退回到 `python3`（一个符号链接）。它必须是真实文件，并且属于 root。
+
 ### 4.4 APP_HOST（调度员，一条命令；在 4.3 之后）
 
 ```
-printf 'app_host\t%s\n' "<app_host 口令>" | sudo bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
+printf 'app_host\t%s\n' "<app_host 口令>" | sudo HOST_HEALTH_PYTHON=/opt/nexloop/python-3.12.15/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
 ```
 
 与 4.3 相同，但不动 pg_hba、不设口令；DSN 使用 hostssl + verify-full。
 
-### 4.5 告警规则 v12（调度员，DATA_HOST 一次性 backend 容器，与 run-41 §4.2 相同的形态）
+### 4.5 告警规则 v13（调度员，DATA_HOST 一次性 backend 容器，与 run-41 §4.2 相同的形态）
+
+v13（第二十二批，L7）包含 v12 的全部主机规则，另外加了 `timer_stale_file_backup`（`app_host:file-backup`，阈值 2700 秒，B9 文件备份的定时轮次）。发布 v13，不发布 v12：
 
 ```
-... "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v12.json \
+... "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v13.json \
     --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn
 ```
 
-先在任意地方执行 `--check`（不连库）。预期输出为 `{"applied": true, "version": 12, "rules": 60, ...}`。
+先在任意地方执行 `--check`（不连库）。预期输出为 `{"applied": true, "version": 13, "rules": 61, ...}`。
+
+**file-backup 与部署顺序**：
+
+- 如果 APP_HOST 还没有安装 `nexloop-file-backup.timer`，而探针配置里列了 `file-backup`：
+  - 探针看不到这个 timer，它的“首次被期望”时间就从第一个 tick 算起。由于 fail closed，45 分钟（2700 秒）后 `timer_stale_file_backup` 一定会触发 warning；不会立即触发。
+  - 看不到的 timer 也计入 blind 的分母。APP_HOST 有 29 个单元加 2 个 timer，少一个不会变成 blind，但这一项会一直告警，直到 timer 装好并跑出第一次定时成功。
+- 所以顺序是：
+  1. 先按 B9 在 APP_HOST 安装并启用 `nexloop-file-backup.timer`；
+  2. 再执行 4.4（配置中保留 `file-backup`）；
+  3. 最后发布 v13。
+- 如果 file-backup 暂时不上线：从 APP_HOST 的安装配置里删掉 `file-backup` 这一项，再执行 4.4。这时没有 tick 期望它，指标中就没有这个键，`timer_stale_file_backup` 不会触发。装好 timer 后，把这一项加回配置，重跑 4.4 即可（安装是幂等的，只会重写 `/etc/nexloop/host-health.json`）。
+- 发布 v13 放在两台主机都装好之后：先发布规则不会造成误报，因为没有 tick 就没有键；但两台主机都装好再发布，第一轮评估就是真实的状态。
 
 ### 4.6 验收
 

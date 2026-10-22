@@ -5,7 +5,7 @@
   "python": "/opt/nexloop/python-3.12.15/bin/python3.12",
   "pip_index_url": "https://<PYPI_MIRROR>/simple",
   "host_role": "app_host",
-  "_comment": "APP_HOST (dispatcher): printf \"app_host\\t%s\\n\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v12 selectors (app_host:<name>).",
+  "_comment": "APP_HOST (dispatcher): printf \"app_host\\t%s\\n\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v13 selectors (app_host:<name>). Leave file-backup out until nexloop-file-backup.timer is installed on APP_HOST (docs/implementation/host-health.md §4.5).",
   "database": {
     "host": "<DATA_HOST_PG_ADDRESS>",
     "port": 5432,
@@ -57,10 +57,6 @@
       {
         "name": "webchat-delivery",
         "container": "nexloop-app-webchat-delivery-1"
-      },
-      {
-        "name": "runtime-worker",
-        "container": "nexloop-app-runtime-worker-1"
       },
       {
         "name": "message-relay",
@@ -135,12 +131,22 @@
         "container": "nexloop-simulation-sim-world-files-1"
       }
     ],
-    "services": [],
+    "services": [
+      {
+        "name": "runtime-worker",
+        "unit": "nexloop-runtime-worker.service"
+      }
+    ],
     "timers": [
       {
         "name": "provider-drift",
         "timer": "nexloop-provider-drift.timer",
         "service": "nexloop-provider-drift.service"
+      },
+      {
+        "name": "file-backup",
+        "timer": "nexloop-file-backup.timer",
+        "service": "nexloop-file-backup.service"
       }
     ]
   }
