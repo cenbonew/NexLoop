@@ -171,8 +171,9 @@ def test_the_examples_match_the_alert_rules_v13_selectors():
     # nexloop-app-runtime-worker-1 on stage (C1, read-only check 2026-10-23), not as a systemd unit.
     l7 = json.loads((ROOT / 'deploy/examples/host-health.app-host.example.json').read_text())
     app = json.loads((ROOT / 'deploy/examples/host-health-install.app-host.example.json').read_text())['probe']
-    assert app['timers'] == l7['timers'] and app['services'] == []
-    assert {'name': 'runtime-worker', 'container': 'nexloop-app-runtime-worker-1'} in app['containers']
+    assert app['timers'] == l7['timers'] and app['services'] == l7['services'] == []
+    runtime_worker = {'name': 'runtime-worker', 'container': 'nexloop-app-runtime-worker-1'}
+    assert runtime_worker in app['containers'] and runtime_worker in l7['containers']
 
 
 class Db:

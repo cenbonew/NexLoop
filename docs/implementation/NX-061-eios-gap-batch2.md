@@ -131,7 +131,7 @@
 ### 做了什么
 
 - **`deploy/configuration/alert-rules.v13.json`** = v12 + `timer_stale_file_backup`：`host_health.timer_success_age_seconds`，selector 为 `app_host:file-backup`，阈值 2700 秒（3 个周期），warning。`decision` 中写明了 v13 的理由。`timer_scheduled_failure`（selector 为 `*`）本来就覆盖所有 timer。
-- **`deploy/examples/host-health.app-host.example.json`**：APP_HOST 的探针配置示例。此前只有 DATA_HOST 的示例。其中列出 provider-drift 与 file-backup 两个 timer。
+- **`deploy/examples/host-health.app-host.example.json`**：APP_HOST 的探针配置示例。此前只有 DATA_HOST 的示例。其中列出 provider-drift 与 file-backup 两个 timer。runtime-worker 按 stage 的实际运行方式写成容器 `nexloop-app-runtime-worker-1`（2026-10-23 只读核实，stage 上没有 `nexloop-runtime-worker.service`；L5 按调度员授权修改）。
 
 ### 测试
 

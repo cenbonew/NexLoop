@@ -118,7 +118,7 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
 
    容器与 timer 的名字已经与告警规则 v13 的 selector 一致，APP_HOST 的 timer 与 L7 的探针示例 `deploy/examples/host-health.app-host.example.json` 一致（`test_the_examples_match_the_alert_rules_v13_selectors` 会核对）。
 
-   - **runtime-worker 按实际运行方式二选一**（C1）：仓库同时支持 compose 容器（`compose.app.example.yaml` 的 `runtime-worker`）和 systemd unit（`deploy/stage/systemd/nexloop-runtime-worker.service.example`）。stage 上它是容器 `nexloop-app-runtime-worker-1`（2026-10-23 只读核实），所以示例写在 `containers`，`services` 为空；L7 的探针示例写成了 unit，与 stage 不符。只写实际存在的那一种：写错的那一项探针永远看不到，`host_unit_missing` 会一直报警。两份配置拷到各自主机，`install -m 0600 -o root`。
+   - **runtime-worker 按实际运行方式二选一**（C1）：仓库同时支持 compose 容器（`compose.app.example.yaml` 的 `runtime-worker`）和 systemd unit（`deploy/stage/systemd/nexloop-runtime-worker.service.example`）。stage 上它是容器 `nexloop-app-runtime-worker-1`（2026-10-23 只读核实），所以两份示例（安装配置，与探针配置 `host-health.app-host.example.json`）都写在 `containers`，`services` 为空。只写实际存在的那一种：写错的那一项探针永远看不到，`host_unit_missing` 会一直报警。两份配置拷到各自主机，`install -m 0600 -o root`。
 
 ### 4.3 DATA_HOST（负责人，一条命令）
 
