@@ -83,3 +83,70 @@
 - **告警规则没有改**。读请求 p95 超过 500 ms 是否要告警、阈值和持续时间多少，需要负责人决定；可以在 alert-rules v13 中引用 `api.classes.read.p95_ms`。
 - 回环导出默认关闭。stage 的 compose/systemd 没有改，开不开启由调度员决定。
 - 采样窗口是 1 分钟，快照取最近 5 分钟。进程刚启动时，最多要等 1 分钟才会出现第一个样本。
+
+## B5：运行结果分类（按规则主动拒绝不计为失败）
+
+### 做了什么
+
+- **`nexloop_eios/run_outcome_taxonomy.py`**：从上游 `src/eios/orchestration/run_outcome_taxonomy.py` **按语义重写**，不是逐字复制，所以不进 `PROVENANCE.json`。来源记在模块文档字符串和本节，做法与 L5 的 host health 相同。
+  - **保留**：结局类别 `RunOutcomeClass`（succeeded、no_op、superseded、conflict_protected、outcome_unknown、transient、authorization、defect、unresolved），以及“失败率只统计 transient、authorization、defect”这条规则。
+  - **增加**：未归类的码一律视为 unresolved，并计入失败（失败关闭）。
+  - **不带入**：上游码表全是领域码，一条也没有带入。
+  - **NexLoop 码表**：给全部 13 个派发拒绝码归类。
+    - 暂停、联系受限、人工接管、真实派发关闭、预算用尽、观察冲突、恢复未核验：conflict_protected；
+    - 三种版本过期：superseded；
+    - 预算未配置、路由未配置：authorization；
+    - 预算并发冲突：transient。
+- **迁移 0321**：
+  - 新增 `control.nexloop_outcome_code_classes`：只追加，外键指向拒绝码表，应用角色无权访问；种子数据与 Python 表相同，由测试保证两边一致。
+  - 指标快照（第三次包装）新增 `outcomes` 段，按**最近 1 小时内的事件**计数：
+    - 每次派发拒绝（Run 路径与效应路径）按其码的类别计数，没有类别的记为 `unresolved`；
+    - 1 小时内创建的效应意图：fulfilled/confirmed 记为 succeeded，unknown 记为 outcome_unknown（待核对，既不算成功也不算失败），failed 记为 defect。但**带有拒绝记录的 failed 意图不再计为 defect**：0152 会把被拒的一次性回复意图终结为 failed，而它已经按拒绝码归类计入，联系受限并不是失败；
+    - 运行时队列中 1 小时内的死信记为 defect。
+
+    最后给出 `failure_rate` = 失败数 / 已决数，以及作为对照的 `failure_rate_counting_refusals`（把拒绝也当作失败时会显示的值）和 `unresolved`。文本导出自动带出这些值。
+
+### 测试
+
+| 命令 | 结果 |
+|---|---|
+| `pytest tests/test_outcome_classes_pg.py`（新增 3 个） | 3 passed：各类别是否计入失败；SQL 种子、Python 表与全部拒绝码三方一致（新增拒绝码时必须同时归类）。快照中：3 次联系受限、1 次预算并发冲突、1 次路由未配置、1 个被人工接管拒绝后转为 failed 的意图、1 个真正失败、1 个 unknown、2 个成功、1 个仍在执行、1 个窗口外，结果为 `conflict_protected=4`（被拒的意图只计一次）、`defect=1`、`failure_rate=0.3`，而对照值为 0.7。再加一个未归类的新码：`unresolved=1`，计入失败 |
+| 同上，首次运行 | **首次失败**：合成的 fulfilled 意图违反了 `effect_governed_completion_state` 约束（fulfilled/confirmed 必须 `governed_claim_finalized=true`）。修正合成数据后通过 |
+
+### 限制
+
+- 统计窗口为 1 小时，按事件计数：同一个意图先被拒、后来又成功的，各计一次。
+- 运行时队列中成功完成的 Run 没有计入 succeeded：现有表中没有按时间统计完成 Run 的现成计数，Run 路径只统计了拒绝和死信。
+- 目前没有加告警规则。失败率阈值需要负责人决定。
+
+## B9：定时任务台账（手工补跑不掩盖定时轮次失败）
+
+### 结论：主体已由 L5 完成，这里只补一处遗漏并对齐口径
+
+- L5 的 host health（0318，alert-rules v12）已经在 systemd 层面区分定时轮次与手工补跑：同一次触发后的第一次运行才算定时轮次；手工补跑不刷新新鲜度，也不抵消失败计数；从未见过定时成功时失败关闭。
+  - 它比上游 `governance_timer_runs`（让任务自己写一行 trigger=timer/manual）更稳健：不依赖任务本身写库，任务在连库之前失败也能看到。
+  - 所以**不再另建一张台账**，避免两套口径。
+- **遗漏**：stage 上的 `nexloop-file-backup.timer`（APP_HOST，每 15 分钟一次）不在 L5 的 timer 规则和配置示例中。它的新鲜度只靠 `backup.file_backup_age_seconds`，而**手工运行一次 `nexloop-file-backup` 就会刷新这个值，掩盖定时轮次的失败**，这正是 B9 要防的情况。
+
+### 做了什么
+
+- **`deploy/configuration/alert-rules.v13.json`** = v12 + `timer_stale_file_backup`：`host_health.timer_success_age_seconds`，selector 为 `app_host:file-backup`，阈值 2700 秒（3 个周期），warning。`decision` 中写明了 v13 的理由。`timer_scheduled_failure`（selector 为 `*`）本来就覆盖所有 timer。
+- **`deploy/examples/host-health.app-host.example.json`**：APP_HOST 的探针配置示例。此前只有 DATA_HOST 的示例。其中列出 provider-drift 与 file-backup 两个 timer。
+
+### 测试
+
+| 命令 | 结果 |
+|---|---|
+| `pytest tests/test_host_health_pg.py -k "v13 or file_backup"`（新增 2 个） | 2 passed：v13 = v12 + 这一条规则，`validate_rules` 通过；两份示例都能通过探针自己的 `load_config`，并且**所有 `timer_stale_*` 的 selector 与两份示例中的 timer 名称一一对应**，双向都成立。真实 PG 中：定时成功是 50 分钟前，之后一次定时轮次失败，再之后手工补跑成功，结果新鲜度大于 45 分钟（手工补跑没有刷新），`timer_scheduled_failures_24h=1`，`timer_stale_file_backup` 与 `timer_scheduled_failure` 都触发；下一次定时轮次成功后，`timer_stale_file_backup` 恢复 |
+
+### 部署（B 类，负责人确认，调度员执行）
+
+1. 由 configurator 发布 alert-rules v13（`apply_rules`）。
+2. 文件备份启用之后，在 APP_HOST 的 `/etc/nexloop/host-health.json` 中加入 `file-backup` 这个 timer，名称必须是 `file-backup`，否则对不上规则的 selector。没有加入时，这条规则不会触发。
+
+## 汇总回归（B5+B9 提交前）
+
+- `pytest -n 3`：所有读取指标快照、导出或告警评估的 23 个测试文件，加上 bootstrap、`test_outcome_classes_pg.py`、`test_host_health_probe.py`：**首次运行 211 passed、2 failed**。
+  1. `test_function_copy_guard.py`：0320 重定义了 `authz.nexloop_record_process_sample`，但没有在守卫中登记。这属于 E4，单独提交一个补充提交（`0be80b5b`）登记它：三条 revert 能把新函数体还原为 0277 的版本，守卫测试 46 passed。
+  2. `test_relay_multi_consumer_pg.py::test_actual_pi_two_consumers_one_relay_each_run_acts_for_its_own_consumer`：这是真实 Pi 测试。那次并行运行前没有执行 `nvm use 24`，Pi 需要 Node 24。按线规用 Node 24 **串行重跑：1 passed**。与本任务的改动无关。
+- 测试结束后没有遗留 postgres 进程。

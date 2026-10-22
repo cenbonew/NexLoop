@@ -477,7 +477,7 @@ def render_prometheus(export):
     for snapshot in export:
         labels = {'tenant': snapshot['tenant_id'], 'world': snapshot['world']}
         rows = []
-        for section in ('refusals', 'effects', 'replies', 'commitments', 'queues', 'feeds', 'extraction', 'guard', 'host', 'pool', 'connections', 'cost', 'evaluator', 'api'):
+        for section in ('refusals', 'effects', 'replies', 'commitments', 'queues', 'feeds', 'extraction', 'guard', 'host', 'pool', 'connections', 'cost', 'evaluator', 'api', 'outcomes'):
             _flatten('nexloop_' + section, snapshot.get(section), labels, rows)
         for name, row_labels, number in rows:
             if name not in typed:

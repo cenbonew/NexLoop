@@ -1600,6 +1600,11 @@
       "version": "0320",
       "name": "0320_api_request_metrics.sql",
       "sha256": "9ff70e8512a0407602fac3cf1820d9e9b2721a335ef4a859bbdcba73f3fab709"
+    },
+    {
+      "version": "0321",
+      "name": "0321_outcome_classes.sql",
+      "sha256": "d3c0b97856d5f9a0f345ae0ced375208c4a38e6ff8d1f7e24fb923bc9cdab754"
     }
   ]
 }
