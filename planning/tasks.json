@@ -3596,8 +3596,15 @@
       "M21"
     ],
     "deliverable": "版本化行为模型、独立真实数据校准，不伪装概率",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "releases 28 (20261021-13087064b141-1) and 32-34",
+        "summary": "NX-042 T1-T7 (consumer twin: contract, publish/retire/erase_text, sample runs, calibration report, twin credential use) merged via batch 8 (main 13087064) and deployed to stage in release 28; the synthetic twin at046-synthetic-stage v1 was published on stage through the owner Action (release 33) and driven by AT-046 run 3 (twin_observe_act: 9 steps, simulation provenance). Calibration (D9) on real data not done: needs >= 28 days of real data. Executor: dispatcher.",
+        "recorded_at": "2026-10-22T03:15:00Z"
+      }
+    ]
   },
   {
     "id": "NX-043",
@@ -3611,8 +3618,15 @@
       "M22"
     ],
     "deliverable": "候选筛选、影子/holdout、真实商业结果和停止条件",
-    "status": "not_started",
-    "evidence": []
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "releases 28-35 (main up to 9d7f9df1 pending)",
+        "summary": "NX-043 X1-X7 implemented and deployed to stage (X1 strategies/registration, X3 shadow world, X4 allocation and wiring into outreach/Context, X5 guardrails and budget, X6 reports incl. pooled, X7 acceptance tool and readiness check); online opened by owner decision 2026-10-21 (D9 calibration waived for the test stage). Stage acceptance run (X7) not yet executed. Executor: dispatcher.",
+        "recorded_at": "2026-10-22T03:15:00Z"
+      }
+    ]
   },
   {
     "id": "NX-044",
