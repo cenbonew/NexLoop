@@ -314,6 +314,10 @@ REGISTRY = [
     # NX-038 E3 wiring (owner 2026-10-22, failure basis A): reply_fallback per message Run in the trace read; nothing else.
     Allowed('nx038_e3_wiring', 'runtime.nexloop_evo_trace_runs', 'reply_fallback: the message got the fallback reply Run',
             ((r",\s*'reply_fallback',p\.kind='message' and exists\(.*?m2\.run_id=p\.run_id\)\)", ')'),)),
+    # World model visibility (stage 2026-10-22): object_fields answers readable=false for an object whose Consumer is being erased.
+    Allowed('world_model_visibility', 'authz.nexloop_workbench_object_fields',
+            "NX-029: also not readable when the object's Consumer is being erased (runtime.nexloop_read_consumer); nothing else",
+            ((r"\n  -- World model visibility noise:[^\n]*\n  or runtime\.nexloop_consumer_erasing\(p_tenant,p_world,runtime\.nexloop_read_consumer\(.*?\)\)\) then", ' then'),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

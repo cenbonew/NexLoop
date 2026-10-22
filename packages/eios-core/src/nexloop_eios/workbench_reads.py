@@ -391,13 +391,32 @@ class WorkbenchQueries:
         value.pop('audited', None)
         return value
 
+    def _fields_of(self, type_name, object_id, cache=None):
+        """`object_fields` (0246) of one object, cached for one request: no value, no audit row, no exception (None when absent)."""
+        key = ('fields', type_name, object_id)
+        if cache is not None and key in cache:
+            return cache[key]
+        got = self.reader.call('object_fields', type_name=type_name, object_id=object_id)
+        if cache is not None:
+            cache[key] = got
+        return got
+
     def _readable_object(self, type_name, object_id, fields=(), cache=None):
         """World model W2: the ADR-025 member read of one object (and fields), audited with purpose 'world_model' by SQL; False when the
-        member's role does not derive it. Nothing is shown from the values read here: they only decide visibility."""
+        member's role does not derive it. Nothing is shown from the values read here: they only decide visibility.
+        Visibility is decided first through `object_fields` (the same derivation, authz.nexloop_workbench_member_may_read, without an
+        exception): an absent, erasing or underived object, or an unreadable or absent property, is invisible without a refused read, so
+        normal browsing leaves no PostgreSQL ERROR. Only a visible one is then read through the audited read, as before (its audit row
+        is unchanged; a race that refuses it is still invisible). A property the schema does not list keeps the audited read alone."""
         key = (type_name, object_id, tuple(fields))
         if cache is not None and key in cache:
             return cache[key]
-        visible = self.reader.read_object(type_name, object_id, list(fields), 'world_model') is not None
+        info = self._fields_of(type_name, object_id, cache)
+        listed = {f['name']: f for f in (info or {}).get('fields') or []}
+        if info is None or not info['readable'] or any(f in listed and not (listed[f]['readable'] and listed[f]['present']) for f in fields):
+            visible = False
+        else:
+            visible = self.reader.read_object(type_name, object_id, list(fields), 'world_model') is not None
         if cache is not None:
             cache[key] = visible
         return visible
@@ -494,7 +513,9 @@ class WorkbenchQueries:
         type_name, projection = value['object_type'], value['projection']
         items, invisible = [], 0
         for object_id in value['items']:
-            if self.reader.read_object(type_name, object_id, [], 'object_set') is None:
+            # Visibility first without a refused read (object_fields: no value, no exception), then the audited read as before.
+            info = self.reader.call('object_fields', type_name=type_name, object_id=object_id)
+            if info is None or not info['readable'] or self.reader.read_object(type_name, object_id, [], 'object_set') is None:
                 invisible += 1
                 continue
             values = self.reader.read_object(type_name, object_id, projection, 'object_set') if projection else {}
