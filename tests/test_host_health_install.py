@@ -61,9 +61,17 @@ class Runner:
         return ''
 
 
-def install(tmp_path, cfg, stdin, runner=None, *args):
+TRUSTED = []
+
+
+def trusting(path, *, what):
+    """The temporary root is not uid 0: record what the installer asks to trust (the real check is tested below)."""
+    TRUSTED.append((what, str(path)))
+
+
+def install(tmp_path, cfg, stdin, runner=None, *args, trust=trusting):
     out, runner = io.StringIO(), runner or Runner()
-    code = I.main([private(tmp_path / 'config.json', cfg), *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=tmp_path / 'root')
+    code = I.main([private(tmp_path / 'config.json', cfg), *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=tmp_path / 'root', trust=trust)
     return code, out.getvalue(), runner
 
 
@@ -248,3 +256,37 @@ def test_alert_rules_apply_opens_the_window_and_applies_v12():
     assert seen == {'bootstrap': '/b', 'version': 12, 'tenant': 't', 'dsn': '/tmp/configurator.dsn'}
     assert json.loads(out.getvalue())['applied'] is True and '/tmp/configurator.dsn' not in out.getvalue()
     assert A.main(['--manifest', manifest], out=io.StringIO()) == 2
+
+
+def test_root_executes_only_root_owned_code(tmp_path):
+    """L6 rollout review I1: the checkout, the interpreter and the installer's scripts are checked before anything runs; a
+    path (or a directory above it) that is not root's alone, or a symbolic link, is refused."""
+    TRUSTED.clear()
+    code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
+    assert code == 0, text
+    what = {w for w, _ in TRUSTED}
+    assert {'release_checkout', 'python', 'installer', 'render.py', 'release base'} <= what
+    assert ('release_checkout', '/srv/release') in TRUSTED and ('python', example('data-host')['python']) in TRUSTED
+    # The real check: this test's files are not uid 0 (refused); a symbolic link is refused too.
+    with pytest.raises(I.Refused, match='owned by root'):
+        I.root_owned(tmp_path / 'config.json', what='x')
+    (tmp_path / 'link').symlink_to(tmp_path / 'config.json')
+    with pytest.raises(I.Refused, match='symbolic link|owned by root'):
+        I.root_owned(tmp_path / 'link', what='x')
+    # Refused before anything runs.
+    def refuse(path, *, what):
+        if what == 'release_checkout':
+            raise I.Refused('release_checkout: must be owned by root')
+    (tmp_path / 'other').mkdir()
+    code, text, runner = install(tmp_path / 'other', example('app-host'), f'app_host\t{APP_PW}\n', None, trust=refuse)
+    assert code == 2 and 'release_checkout' in text and runner.calls == []
+
+
+def test_a_reused_release_is_checked_again(tmp_path):
+    """L6 rollout review I2: a release another account could have changed is never reused."""
+    assert install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n')[0] == 0
+    def refuse_release(path, *, what):
+        if what == 'release':
+            raise I.Refused('release: must be owned by root')
+    code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', None, trust=refuse_release)
+    assert code == 2 and 'release' in text and not any(c[0] == 'systemctl' for c in runner.calls)

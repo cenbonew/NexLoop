@@ -58,6 +58,34 @@ class Failed(RuntimeError):
     pass
 
 
+def root_owned(path, *, what):
+    """L6 rollout review I1/I2: root runs this code, so it and every directory above it must be root's alone - owner uid 0, nothing
+    group/other-writable, no symbolic link on the way (lstat, never followed). Anything else could let another account choose
+    what root executes."""
+    path = Path(os.path.abspath(path))
+    for part in [path, *path.parents]:
+        try:
+            info = os.lstat(part)
+        except OSError:
+            raise Refused(f'{what}: {part} unreadable') from None
+        if stat.S_ISLNK(info.st_mode):
+            raise Refused(f'{what}: {part} is a symbolic link (give the real path)')
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise Refused(f'{what}: {part} must be owned by root and not group/other-writable')
+
+
+def trusted_code(config, trust):
+    """Everything root will execute from outside the release it builds: the checkout (git show reads it; the DATA_HOST steps run its
+    scripts), the interpreter the venv is made from, and this installer's own directory with the scripts it calls."""
+    trust(config['release_checkout'], what='release_checkout')
+    trust(config['python'], what='python')
+    for name in ('host_health_install.py', 'host_health_hba_data_host.sh', 'host_recorder_password.py', 'configurator_window.py'):
+        trust(HERE / name, what='installer')
+    if config['host_role'] == 'data_host':
+        trust(Path(config['release_checkout']) / 'scripts/deploy/render.py', what='render.py')
+        trust(Path(config['release_checkout']) / 'packages/eios-core/src/nexloop_eios/private_configuration.py', what='private_configuration.py')
+
+
 def run(command, *, stdin=None, check=True):
     done = subprocess.run(command, input=stdin, capture_output=True, text=True, check=False)
     if check and done.returncode != 0:
@@ -159,16 +187,19 @@ def git_show(config, path, runner):
     return runner(['git', '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
 
 
-def release(root, config, runner):
+def release(root, config, runner, trust):
     base = root / 'opt/nexloop/host-health'
     target = base / config['release_sha']
+    base.mkdir(parents=True, exist_ok=True)
+    trust(base, what='release base')  # I2: a base another account created or can write is refused, never reused
     if (target / '.complete').exists():
+        for path in [target, *target.rglob('*')]:  # I2: the reused release, every file in it
+            trust(path, what='release') if not path.is_symlink() else trust(path.parent, what='release')
         reused = True
     else:
         reused = False
         if target.exists():
             shutil.rmtree(target)  # an interrupted build of the same sha
-        base.mkdir(parents=True, exist_ok=True)
         work = Path(tempfile.mkdtemp(dir=base, prefix='.build-'))
         (work / 'host_health_probe.py').write_text(git_show(config, PROBE, runner))
         (work / 'requirements.txt').write_text(git_show(config, REQUIREMENTS, runner))
@@ -201,10 +232,11 @@ def _read_only(directory):
         os.chmod(path, 0o755 if path.is_dir() or mode & 0o111 else 0o644)
 
 
-def install(root, config, passwords, runner, out):
+def install(root, config, passwords, runner, out, trust=root_owned):
     step = lambda n, text: print(f'step {n}: {text}', file=out, flush=True)  # noqa: E731
     host = config['host_role']
-    target, reused = release(root, config, runner)
+    trusted_code(config, trust)
+    target, reused = release(root, config, runner, trust)
     step(1, f'release {config["release_sha"][:12]} ' + ('reused' if reused else 'built (probe + psycopg venv, read-only)'))
     venv_python = str(root / 'opt/nexloop/host-health/current/venv/bin/python')
     if host == 'data_host':
@@ -264,18 +296,19 @@ def uninstall(root, runner, out):
     print('uninstalled: timer, units, configuration, recorder DSN, release and state removed (roles and pg_hba lines stay)', file=out)
 
 
-def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/')):
+def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned):
     p = argparse.ArgumentParser(description='Host health probe install (E2/E3), root, one command')
     p.add_argument('config')
     p.add_argument('--uninstall', action='store_true')
     a = p.parse_args(argv)
+    os.umask(0o022)  # I2: nothing this run creates is group/other-writable
     try:
         if a.uninstall:
             uninstall(root, runner, out)
             return 0
         config = load_config(a.config)
         passwords = read_passwords(stdin, config['host_role'])
-        install(root, config, passwords, runner, out)
+        install(root, config, passwords, runner, out, trust)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2

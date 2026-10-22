@@ -77,7 +77,21 @@ hostssl __NEXLOOP_DB__ nexloop_host_recorder_app_host __APP_HOST_ADDR__/32  scra
 
   DATA_HOST 走本地 socket，DSN 为 `host=/srv/nexloop/run/postgresql`。
 
-### 4.2 准备（调度员，Mac）
+### 4.2 前置条件：只执行 root 自己的代码（L6 复核 I1、I2）
+
+安装以 root 运行：它读取发布 checkout，执行其中的脚本，并用其中的解释器建 venv；timer 之后也以 root 执行 release 目录中的探针。所以 `host_health_install.py` 在动手之前会逐一核对以下路径，**连同它们上面的每一级目录**，必须属于 uid 0、组和其他用户不可写、途中没有符号链接（lstat，不跟随）。任何一项不满足，就拒绝执行，什么都不做：
+
+- 发布 checkout；
+- 配置中的 python 解释器；
+- 安装器所在目录及它调用的脚本（`host_health_hba_data_host.sh`、`host_recorder_password.py`、`configurator_window.py`）；
+- DATA_HOST 上还有 `render.py` 与 `private_configuration.py`；
+- `/opt/nexloop/host-health`。
+
+复用已有的 release 时，同样逐个文件核对。安装过程中的 umask 为 022。
+
+因此，**发布 checkout 必须是 root:root、只读的一份拷贝**，例如 `sudo git clone --branch <tag 或 sha> … /opt/nexloop/release-<sha>`，或者 `sudo git -C … archive <sha> | sudo tar -x -C /opt/nexloop/release-<sha>`（archive 没有 .git，安装器需要 git，所以用 clone），然后 `sudo chown -R root:root` 和 `sudo chmod -R go-w`。部署账号自己 checkout 的工作树会被拒绝。
+
+### 4.2b 准备（调度员，Mac）
 
 1. 两个口令各生成一个，长度至少 32、随机，放进钥匙串：`nexloop/stage/host-recorder-data-host` 和 `nexloop/stage/host-recorder-app-host`，并更新口令索引。
 2. 两份私有配置，以 `deploy/examples/host-health-install.{data-host,app-host}.example.json` 为模板，填入：
