@@ -26,3 +26,20 @@ def test_upstream_identity_suite_provenance():
     doc=json.loads((root/'packages/eios-core/UPSTREAM_IDENTITY_TESTS.json').read_text())
     for record in doc['tests']:
         assert hashlib.sha256((root/record['destination']).read_bytes()).hexdigest()==record['nexloop_sha256']
+
+
+def test_upstream_authz_suite_provenance():
+    root=Path(__file__).resolve().parents[1]
+    doc=json.loads((root/'packages/eios-core/UPSTREAM_AUTHZ_TESTS.json').read_text())
+    for record in doc['tests']:
+        assert hashlib.sha256((root/record['destination']).read_bytes()).hexdigest()==record['nexloop_sha256']
+        # An adapted copy says how; a verbatim copy has no adaptations.
+        assert (record['upstream_sha256']!=record['nexloop_sha256'])==bool(record['adaptations']), record['destination']
+
+
+def test_every_upstream_test_file_is_recorded():
+    root=Path(__file__).resolve().parents[1]
+    lock=json.loads((root/'versions.lock.json').read_text())['packages']['nexloop-eios-core']['test_provenance']
+    recorded={record['destination'] for manifest in lock for record in json.loads((root/manifest).read_text())['tests']}
+    present={str(p.relative_to(root)) for p in (*(root/'tests/upstream').glob('*.py'),*(root/'tests').glob('test_upstream_*.py'))}
+    assert present==recorded
