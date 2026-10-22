@@ -945,13 +945,25 @@
     "name": "模拟效应隔离",
     "given": "Twin调用真实消息Action",
     "expected": "服务端拒绝，即使模型伪造mode",
-    "status": "not_run",
+    "status": "passed",
     "evidence": [
       {
         "type": "commit",
         "ref": "9be82fa0",
         "summary": "部分证据（测试库，不是 stage）：NX-042 T7 中的 AT-046 完整端到端验收（含孪生），L3；以及 185c7029 的 D10 三凭据与模拟进程组完整 Pi Run（L3）。两者都不在 main（发布 26）中。状态保持 not_run：发布 27 未部署，stage 实测要负责人启用模拟进程组。执行人：调度员；判定人：负责人。",
         "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "stage AT-046 run 4 (release 20261022-9d7f9df16dc9-1, main 9d7f9df1): at046-run result, nonce-chained probe-before/intake/probe-after/merge",
+        "summary": "Stage acceptance on the real two-host deployment. Normal path: twin 9 steps/5 events with simulation provenance; simulation Run accepted and succeeded on the world credentials; credentials only of the sim world; real side unchanged (214 world-real tables, 2 periodic bookkeeping tables excluded with stated reasons). Core negatives: N1 a real session for the sim credential refused (42501 service authentication denied) and the twin bound to real refused (42501 stand-in real_world_refused); N2 a Run command forging mode real refused (42501 activation command denied, server check 0312) while the identical command with mode simulation was accepted (control, its task succeeded in the sim world at 04:12:22Z before probe-after at 04:12:39Z). PG log in the window: exactly the 3 expected refusals. Executor: dispatcher (scheduler session).",
+        "recorded_at": "2026-10-22T04:30:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "L6 independent judgement (build/at046-stage-judgement-2.md, L6 worktree)",
+        "summary": "Judge L6: passed with one condition (the N2 control task ended before probe-after); the dispatcher verified read-only on stage that the control job (NexLoop.event, sim world) succeeded at 04:12:22.8Z, before probe-after (04:12:39Z), so the condition holds. Earlier run 3 was judged not passed (negatives missing) and led to N1/N2 + 0312. Judge: L6; executor: dispatcher.",
+        "recorded_at": "2026-10-22T04:30:00Z"
       }
     ]
   },
