@@ -48,7 +48,9 @@ class Owner:
             return 200, out
         except psycopg.errors.InvalidParameterValue as refused:
             code = re.search(r': ([a-z_]{1,40})$', refused.diag.message_primary or '')
-            return 409, {'error': 'not_allowed_in_state', 'reason': code.group(1) if code else None}
+            # The workbench's actual error body (stage X7 S2, release 37): the code is in details.reason, never at the top level.
+            return 409, {'code': 'not_allowed_in_state', 'message': 'not allowed in this state', 'trace_id': uuid.uuid4().hex,
+                         'retryable': False, 'details': {'reason': code.group(1) if code else None}}
 
     def logout(self):
         pass
@@ -359,3 +361,10 @@ def test_the_dispatch_layers_are_read_from_the_switch_rows_in_a_read_only_sessio
     Path(f['config']).write_text(json.dumps(config))
     observed = steps(phase(f, 'readiness')[1])['real_dispatch_state']['observed']
     assert observed['reason'] == 'open_sends_execute' and observed['outreach.send'] == observed['enterprise.deliver'] == observed['deployment'] == 'open'
+
+
+def test_the_reason_is_read_from_the_error_bodys_details():
+    """Stage X7 S2 (release 37): a refusal's code is in details.reason; a top-level reason still counts; anything else is None."""
+    body = {'code': 'not_allowed_in_state', 'message': 'm', 'trace_id': 't', 'retryable': False, 'details': {'reason': 'twin_not_calibrated'}}
+    assert X._reason(body) == 'twin_not_calibrated'
+    assert X._reason({'reason': 'ended'}) == 'ended' and X._reason({'details': None}) is None and X._reason('text') is None
