@@ -16,6 +16,41 @@
       "upstream_sha256": "fe02bb941c8aa4a512d244679390b1dec60d6ac29c6885a5fa6678884327996c",
       "nexloop_sha256": "fe02bb941c8aa4a512d244679390b1dec60d6ac29c6885a5fa6678884327996c",
       "adaptations": []
+    },
+    {
+      "source_path": "tests/identity/test_admin_lifecycle.py",
+      "destination": "tests/test_upstream_identity_admin_lifecycle.py",
+      "upstream_sha256": "5f79446bd1652f97c0d92eea67f8d64737052dba20f12d18c3ce1e38c6c8e952",
+      "nexloop_sha256": "5f79446bd1652f97c0d92eea67f8d64737052dba20f12d18c3ce1e38c6c8e952",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/identity/test_identity_settings.py",
+      "destination": "tests/test_upstream_identity_settings.py",
+      "upstream_sha256": "7a85be1459b1d523e9aa4ef3a7b4ff0c2331ff71a75fa4a43bfff287d7167f27",
+      "nexloop_sha256": "7a85be1459b1d523e9aa4ef3a7b4ff0c2331ff71a75fa4a43bfff287d7167f27",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/identity/test_password_reset_delivery.py",
+      "destination": "tests/test_upstream_identity_password_reset_delivery.py",
+      "upstream_sha256": "4618e472af309c0bf6cd28def23716253e2a4fc2a5ac84437a23e30d0e23b8c2",
+      "nexloop_sha256": "4618e472af309c0bf6cd28def23716253e2a4fc2a5ac84437a23e30d0e23b8c2",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/identity/test_password_reset_request_inbox.py",
+      "destination": "tests/test_upstream_identity_password_reset_request_inbox.py",
+      "upstream_sha256": "a9817971ad7fc5e297f80c8ec7bf92ff1df30c6864810c6ef582631462d75ba3",
+      "nexloop_sha256": "a9817971ad7fc5e297f80c8ec7bf92ff1df30c6864810c6ef582631462d75ba3",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/identity/test_rate_limits.py",
+      "destination": "tests/test_upstream_identity_rate_limits.py",
+      "upstream_sha256": "c2f43b1db69a31c2d84b57cb1a3781d7c6069ea68879093be259f4ef3fbbef60",
+      "nexloop_sha256": "c2f43b1db69a31c2d84b57cb1a3781d7c6069ea68879093be259f4ef3fbbef60",
+      "adaptations": []
     }
   ]
 }

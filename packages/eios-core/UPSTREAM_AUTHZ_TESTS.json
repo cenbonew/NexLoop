@@ -1,0 +1,153 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT",
+  "scope": "Frozen pure authorization-kernel unit and adversarial tests (policy, intersection, facts, grants, resources, property security, decisions, audit records) run against the vendored eios.authz sources; in-memory providers are test-only, not PostgreSQL production authorization",
+  "not_applicable": [
+    {
+      "source_path": "tests/authz/test_architecture_boundaries.py",
+      "reason": "asserts the upstream repository layout and domain composition modules (tennis/sports8 materializers), not vendored"
+    },
+    {
+      "source_path": "tests/authz/test_resource_inventory.py",
+      "reason": "requires eios.authz.inventory, eios.api.scopes and eios.packs.core, not vendored (route/capability inventory gate is gap item C8)"
+    },
+    {
+      "source_path": "tests/authz/test_echo_authority_manifest.py",
+      "reason": "requires the upstream ops/ tree (echo publication), not vendored"
+    },
+    {
+      "source_path": "tests/authz/test_echo_publication_call_sequence_golden.py",
+      "reason": "requires upstream ops/ and golden call sequence, not vendored"
+    },
+    {
+      "source_path": "tests/authz/echo_publication_recording.py",
+      "reason": "helper of the two echo tests above"
+    }
+  ],
+  "tests": [
+    {
+      "source_path": "tests/authz/test_policy_domain.py",
+      "destination": "tests/upstream/test_eios_policy_domain.py",
+      "upstream_sha256": "7e1307f205ac52008cc96ed008c7cae0f902490918a3ecae2f2363508842c63d",
+      "nexloop_sha256": "7e1307f205ac52008cc96ed008c7cae0f902490918a3ecae2f2363508842c63d",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_policy_effects.py",
+      "destination": "tests/upstream/test_eios_policy_effects.py",
+      "upstream_sha256": "cb7d1b327df1db1288fa03b13633af24cd942c31f933ab9d4a9ae3cd82de2004",
+      "nexloop_sha256": "cb7d1b327df1db1288fa03b13633af24cd942c31f933ab9d4a9ae3cd82de2004",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_application_restrictions.py",
+      "destination": "tests/upstream/test_eios_application_restrictions.py",
+      "upstream_sha256": "46829200e673e344477c558ba3bc65aae2bf6d3a75b0288fa13674d985798dc6",
+      "nexloop_sha256": "c2d397f09ee5fb1004623d65b72abd6cab2d57729418ea74afa46096b51d328e",
+      "adaptations": [
+        "NexLoop adds object/property/relation to the frozen resource-type vocabulary (vendored authz/applications.py, grants.py); the frozen-values assertion includes them; intersection/ceiling semantics unchanged"
+      ]
+    },
+    {
+      "source_path": "tests/authz/test_audit.py",
+      "destination": "tests/upstream/test_eios_audit.py",
+      "upstream_sha256": "f922a3d998b598ede7a8807af4daf873d88552fff84373e6f44c0cc7c4327302",
+      "nexloop_sha256": "f922a3d998b598ede7a8807af4daf873d88552fff84373e6f44c0cc7c4327302",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_audited_resolution.py",
+      "destination": "tests/upstream/test_eios_audited_resolution.py",
+      "upstream_sha256": "a1c7e869c434abd7e8fe926ac9af99d60c40e159e9020df6b847560f0db4bb95",
+      "nexloop_sha256": "d6e70708827516acec10ea0c41b05c32caad7ca60f48b7adcd783f636439add7",
+      "adaptations": [
+        "Sibling helper import `from .test_facts`/`.test_intersection` rewritten to the flat module name test_eios_facts/test_eios_intersection (tests/upstream is not a package)"
+      ]
+    },
+    {
+      "source_path": "tests/authz/test_context.py",
+      "destination": "tests/upstream/test_eios_context.py",
+      "upstream_sha256": "a9027e82c6df0984cb41001e372b68ada1b1048d24d0397427160f6543bc1ef0",
+      "nexloop_sha256": "a9027e82c6df0984cb41001e372b68ada1b1048d24d0397427160f6543bc1ef0",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_decision_service_cache.py",
+      "destination": "tests/upstream/test_eios_decision_service_cache.py",
+      "upstream_sha256": "8dc43694ecf6c1dfaf01b660b40ca0cce22aa02f9253ddb265ea8647960e131c",
+      "nexloop_sha256": "61637d9bb752f56a52fa9579e5e6bc50b16c2d2a481efc1599f8a5776eea9ef2",
+      "adaptations": [
+        "Sibling helper import `from .test_facts`/`.test_intersection` rewritten to the flat module name test_eios_facts/test_eios_intersection (tests/upstream is not a package)"
+      ]
+    },
+    {
+      "source_path": "tests/authz/test_decisions.py",
+      "destination": "tests/upstream/test_eios_decisions.py",
+      "upstream_sha256": "5f37c3261814c1adfe1259db5bb42d215d2d3ff7496115dc17d86138f53554fc",
+      "nexloop_sha256": "5f37c3261814c1adfe1259db5bb42d215d2d3ff7496115dc17d86138f53554fc",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_facts.py",
+      "destination": "tests/upstream/test_eios_facts.py",
+      "upstream_sha256": "ca64fd325ef402888603aa7beccdd7e9410b724eaab4fdbc4d9a18ed39f52a40",
+      "nexloop_sha256": "e771131b14f9aa54c7f5659d0c516a40fa1cb26ba089973c465c7dd243affce7",
+      "adaptations": [
+        "test_large_grant_handle_property_reads_do_not_rehash_payload: projection spy forwards the optional reuse argument added by vendored NX-049 8c (_fact_resolver._project_authority_view) and counts payload projections separately (exactly once); per-fact cached-view projections are allowed during resolution, none after it",
+        "TestFactDenialCarriesTheDatabaseReason.test_database_message_is_redacted_and_single_line removed: it tests eios.adapters.postgres.authorization_facts, which is not vendored; NexLoop never builds AuthorizationFactDenied from a database message",
+        "Domain strings neutralized: requested scope tennis.court.block -> orders.refund.approve; denial detail without the upstream vendor name"
+      ]
+    },
+    {
+      "source_path": "tests/authz/test_grants.py",
+      "destination": "tests/upstream/test_eios_grants.py",
+      "upstream_sha256": "1c2660ca5193ae88feb1d200752acdd4a88a02c4c707dd65b57d6d7910c41927",
+      "nexloop_sha256": "1c2660ca5193ae88feb1d200752acdd4a88a02c4c707dd65b57d6d7910c41927",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_grants_adversarial.py",
+      "destination": "tests/upstream/test_eios_grants_adversarial.py",
+      "upstream_sha256": "4ec235e4c18f5e8f8ef62d6d979d623c1384759dcd49f918fc825ff96385aed8",
+      "nexloop_sha256": "4ec235e4c18f5e8f8ef62d6d979d623c1384759dcd49f918fc825ff96385aed8",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_intersection.py",
+      "destination": "tests/upstream/test_eios_intersection.py",
+      "upstream_sha256": "9f6b7793928212f1f45614e1a530f962c911614e9a2c560194a76e5c15005b9e",
+      "nexloop_sha256": "4bd2b2ea4ccf4894ec8445d5452173887955ba0732b9ba92d3f2b47f68e71b05",
+      "adaptations": [
+        "Sibling helper import `from .test_facts`/`.test_intersection` rewritten to the flat module name test_eios_facts/test_eios_intersection (tests/upstream is not a package)"
+      ]
+    },
+    {
+      "source_path": "tests/authz/test_policy_json_collections.py",
+      "destination": "tests/upstream/test_eios_policy_json_collections.py",
+      "upstream_sha256": "f423209dd1401aa58daad8de0e7721e2ff1f0929df6de415bb8e0b2824d95e03",
+      "nexloop_sha256": "f423209dd1401aa58daad8de0e7721e2ff1f0929df6de415bb8e0b2824d95e03",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_policy_registry.py",
+      "destination": "tests/upstream/test_eios_policy_registry.py",
+      "upstream_sha256": "6914d3e7c6662d770155ce7c764c628e2ceb39f9f6db29ee7409a50bb71abd79",
+      "nexloop_sha256": "6914d3e7c6662d770155ce7c764c628e2ceb39f9f6db29ee7409a50bb71abd79",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_property_security.py",
+      "destination": "tests/upstream/test_eios_property_security.py",
+      "upstream_sha256": "371dca6e87f198486696f9d741cf1a69aa032c345be770ae49dd347e49e3b3a9",
+      "nexloop_sha256": "371dca6e87f198486696f9d741cf1a69aa032c345be770ae49dd347e49e3b3a9",
+      "adaptations": []
+    },
+    {
+      "source_path": "tests/authz/test_resources.py",
+      "destination": "tests/upstream/test_eios_resources.py",
+      "upstream_sha256": "cf49d6a48330c83aeaa8fb9128a829f096d8612c9a6c5175c86b4fc1a881aaef",
+      "nexloop_sha256": "cf49d6a48330c83aeaa8fb9128a829f096d8612c9a6c5175c86b4fc1a881aaef",
+      "adaptations": []
+    }
+  ]
+}
