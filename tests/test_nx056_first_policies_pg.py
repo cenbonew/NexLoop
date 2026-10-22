@@ -20,7 +20,9 @@ from commitment_fixture import commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
-from test_erasure_pg import ACTIONS, act, keeper, request  # noqa: F401
+from multi_authority_fixture import seed_multi_authority
+from nexloop_eios.authorization import authenticate_service
+from test_erasure_pg import ACTIONS, KEEPER, act, keeper, request  # noqa: F401
 
 POLICIES = Path(__file__).resolve().parents[1] / 'deploy/configuration/approval-policies.v1.json'
 PLAN = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
@@ -84,7 +86,9 @@ def held(commitments, admin, pg, tmp_path, identity, uow):
         env.link('cust-1', c['consumer'])
         publish_registry_actions(admin, actions)
         c['extra_human_actions'] = actions
+        _, token = seed_multi_authority(admin, env['worker'], KEEPER, identity_suffix='-retention-keeper', tenant=TENANT)
         owner, human = c.owner(identity, uow)
+        c['keeper_session'] = lambda: authenticate_service(env['worker'], token, world='real')
         apply_policies(load_policies(POLICIES), database_url_file=configurator(admin, pg, tmp_path))
         c.update(env=env, owner_actions=owner, human=human)
         yield c
@@ -113,3 +117,28 @@ def test_an_owner_started_erasure_and_a_hold_release_wait_and_a_consumers_own_re
     confirmed = erase_on_request(owner, 'confirm-1', consumer_id=consumer, reason='负责人确认顾客请求')
     assert confirmed['state'] == 'settling' and 'approval' not in confirmed
     assert request(admin, consumer)[:2] == ('consumer-request:chat-1', 'settling')
+
+
+def bodies(admin):
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    return admin.execute('select capability,status,body,request_digest from control.nexloop_approval_requests order by requested_at').fetchall()
+
+
+@PLAN
+def test_a_completed_erasure_pseudonymises_the_consumer_in_every_request_body(held, admin):
+    c = held
+    owner, consumer = c['owner_actions'], c['consumer']
+    act(owner, 'erase_consumer', 'erase-1', consumer_id=consumer, reason='负责人发起删除')  # waits, its body names the Consumer
+    [(cap, state, body, digest)] = bodies(admin)
+    assert cap == 'consumer.erase' and body['consumer_id'] == consumer
+    with admin.transaction():
+        admin.execute('select runtime.nexloop_consumer_erasure_requested(%s,%s,%s,%s)', (TENANT, 'real', consumer, 'chat-1'))
+    erase_on_request(owner, 'confirm-1', consumer_id=consumer, reason='负责人确认顾客请求')
+    for _ in range(4):
+        keeper(c).run_once()
+    assert request(admin, consumer)[1] == 'completed'
+    [(_, after_state, after, after_digest)] = bodies(admin)
+    assert after['consumer_id'].startswith('pseudonym:') and consumer not in str(after) and after['reason'] == body['reason']
+    assert (after_state, after_digest) == (state, digest)  # only the body changed
+    counts = admin.execute("select counts from runtime.nexloop_erasure_tombstones where subject_kind='approval_requests'").fetchone()[0]
+    assert counts == {'approval_requests': 1}

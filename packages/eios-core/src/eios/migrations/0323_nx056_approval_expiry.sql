@@ -59,7 +59,8 @@ begin
   return v;
  elsif c->>'verb'='approvals_expire' then
   -- NX-056 A3: end waiting approvals past due_by (never executes one).
-  return control.nexloop_approval_expire_due(t,p_world,(s->'sweep'->>'batch')::integer);
+  return control.nexloop_approval_expire_due(t,p_world,(s->'sweep'->>'batch')::integer)
+   ||control.nexloop_approval_redact_due(t,p_world,(s->'sweep'->>'batch')::integer);  -- A5 (0326): frozen bodies past retention
  elsif c->>'verb'='status' then
   select coalesce(jsonb_agg(jsonb_build_object('item_class',k.item_class,'action',k.action,'tombstones',k.n) order by k.item_class,k.action),'[]'::jsonb) into v
    from (select item_class,action,count(*) n from runtime.nexloop_erasure_tombstones where tenant_id=t and world=p_world group by item_class,action) k;

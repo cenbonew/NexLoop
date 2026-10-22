@@ -64,7 +64,8 @@ class RetentionPort(_SignedPort):
 
     def due(self):return self._signed({'verb':'due'})
     def sweep(self,item_class,sweep_ref):return self._signed({'verb':'sweep','item_class':str(item_class),'sweep_ref':str(sweep_ref)})
-    def approvals_expire(self):return self._signed({'verb':'approvals_expire'})  # NX-056 A3: ends waiting approvals past due_by, never executes
+    # NX-056 A3/A5: ends approvals past due_by (never executes one), then redacts frozen bodies past their retention.
+    def approvals_expire(self):return self._signed({'verb':'approvals_expire'})
     def status(self):return self._signed({'verb':'status'})
 
 
@@ -125,7 +126,7 @@ class RetentionKeeper:
     def run_once(self):
         due=self.port.due();ref='sweep:'+str(uuid.uuid4())
         summary={'classes':0,'passes':0,'processed':0,'incomplete':0,'erasure_steps':0,'runs_purged':0,'runs_failed':0,
-            'artifacts_deleted':0,'artifacts_failed':0,'approvals_expired':0,'approvals_failed':0}
+            'artifacts_deleted':0,'artifacts_failed':0,'approvals_expired':0,'approvals_redacted':0,'approvals_failed':0}
         for item_class in due['due']:
             summary['classes']+=1
             for _ in range(due['max_passes']):
@@ -157,7 +158,9 @@ class RetentionKeeper:
                     continue
                 self.erasure.artifact_deleted(artifact_id,worker,claim['fence']);summary['artifacts_deleted']+=1
         # NX-056 A3: after erasure (deletion propagation comes first); a failure is counted, never stops the tick.
-        try:summary['approvals_expired']=self.port.approvals_expire()['expired']
+        try:
+            swept=self.port.approvals_expire()
+            summary['approvals_expired'],summary['approvals_redacted']=swept['expired'],swept.get('redacted',0)
         except Exception as error:
             summary['approvals_failed']=1
             _log.warning('approval expiry sweep failed: %s',type(error).__name__)

@@ -160,6 +160,7 @@ request_digest = sha256(canonical_v1({
   - 被拒的计数写入审计。
 - **审计事件**：`approval.requested`、`approval.decided`、`approval.expired`、`approval.cancelled`、`approval.consumed`（含执行结果代码）。效应意图和受治理调用的审计载荷同时记录 actor（请求人）和 `approved_by`（批准人 subject 集合）。审计里只有 ID、代码和 digest，没有请求体正文。
 - **冻结的请求体**：只存在 `control.nexloop_approval_requests` 中，受 RLS 保护，并纳入 NX-029 的保留期。涉及 Consumer 的请求，按现有删除传播规则处理（替换为假名，只保留计数）。决定表只追加。
+  - 实现（A5）：保留期沿用 `governance_audit` 类（默认 365 天），从请求的 `due_by` 起算，到期后请求体替换为 `{operation, redacted: true}`，ID、digest、状态、决定和消费记录保留，由保留期服务在审批清扫之后执行并留下墓碑；Consumer 擦除完成时（有保全则跳过，同 0307），所有请求体中作为完整 JSON 字符串出现的该 Consumer ID 替换为本次步骤的假名，墓碑记数。两者都只改请求体，并且只能在本事务为这张表开启的擦除作用域内进行。
 - **提醒**：新增告警 `approval_waiting`。
 
 ## 9. 与现有两套审批的关系（回应 I5）
@@ -175,6 +176,8 @@ request_digest = sha256(canonical_v1({
 |---|---|---|---|---|
 | ✔ 首批 | `real_dispatch.set` | `enabled = true`（只在打开时需要审批；关闭不需要，必须能立即生效） | 1 | 对外影响最大的一步 |
 | ✔ 首批 | `consumer.erase`（工作台 owner 发起的擦除，0132:358） | 无 | 1 | 不可逆。顾客本人请求的擦除走的是另一条入口（source `consumer_request`），不经过这个能力，所以不受影响。实现时会核实；如果两者共用同一个能力，就先拆出 `consumer.erase_on_request` |
+
+**A5 核实结果**：负责人确认顾客本人请求时，原来也走 `consumer.erase`（同一个处理函数，`confirm_request` 字段被忽略），请求体无法区分两者。因此已拆出 `consumer.erase_on_request`（只能确认该顾客处于 `pending_confirmation` 的本人请求，否则拒绝），它不挂审批策略；`consumer.erase` 的策略只拦负责人发起的擦除（以及仍经由它的确认）。
 | ✔ 首批 | `retention.release_hold` | 无 | 1 | 解除保全之后数据会被清理 |
 | 移出首批 | `goals.budget.set` | — | — | “只在提高上限时”需要与当前值比较，第 3 节不支持；以后如有需要，就拆分出 `goals.budget.raise` |
 | 可选 | `semantic_release.publish`、`strategy.publish` | 无 | 1 | 已有评估门 |

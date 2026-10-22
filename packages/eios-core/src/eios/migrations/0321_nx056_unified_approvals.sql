@@ -97,6 +97,17 @@ revoke all on control.nexloop_approval_requests from public,nexloop_api,nexloop_
 create function control.nexloop_approval_request_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if tg_op='DELETE' then raise exception 'approval requests are deleted only by retention' using errcode='42501';end if;
+ -- Erasure and retention (A5, 0326): only the body changes (pseudonymised or redacted), inside an erasure scope this transaction
+ -- opened for this table and column; nothing else, not even the revision.
+ if new.body is distinct from old.body and exists(select 1 from control.nexloop_erasure_scope s where s.txid=txid_current()
+   and s.table_name='control.nexloop_approval_requests' and 'body'=any(s.columns)) then
+  if (new.tenant_id,new.world,new.approval_id,new.capability,new.action_resource,new.policy_version,new.request_digest,new.request_id,
+      new.requester_subject,new.requester_principal,new.requested_at,new.due_by,new.status,new.revision)
+    is distinct from (old.tenant_id,old.world,old.approval_id,old.capability,old.action_resource,old.policy_version,old.request_digest,old.request_id,
+      old.requester_subject,old.requester_principal,old.requested_at,old.due_by,old.status,old.revision) then
+   raise exception 'approval request is immutable' using errcode='42501';end if;
+  return new;
+ end if;
  -- Only the status moves, once, out of waiting_approval (or back to it when a vote no longer counts, A2; or approved -> expired when it
  -- passed due_by or its policy changed before it was consumed), with the revision.
  if (new.tenant_id,new.world,new.approval_id,new.capability,new.action_resource,new.policy_version,new.request_digest,new.request_id,new.body,

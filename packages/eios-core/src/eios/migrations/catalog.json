@@ -1604,7 +1604,7 @@
     {
       "version": "0321",
       "name": "0321_nx056_unified_approvals.sql",
-      "sha256": "4dab3a275d48785e3b8efb25218c19ec333e14a77637d4db023c886781a188e1"
+      "sha256": "544a60e90c22d1928d765186c3a32b26747206c2201fe787932d889f39db450e"
     },
     {
       "version": "0322",
@@ -1614,7 +1614,7 @@
     {
       "version": "0323",
       "name": "0323_nx056_approval_expiry.sql",
-      "sha256": "ca25959a52d5f47571e5f36af99fcb5c512e121a0c6607f9e3267a0f7552b22c"
+      "sha256": "d6f0c69633b9819980200a77da50b1a1c4d51c42c96c09cf2287af1379c09250"
     },
     {
       "version": "0324",
@@ -1625,6 +1625,11 @@
       "version": "0325",
       "name": "0325_nx056_first_policies.sql",
       "sha256": "ccde72eff92f4a471c76a8a667c4a475a2b6793b677fb6f7da0a82e98cefa754"
+    },
+    {
+      "version": "0326",
+      "name": "0326_nx056_approval_erasure.sql",
+      "sha256": "a59e71c10e51189aa14621bec94b6f1b297a214ed43eeee3297ddf1af93e0d98"
     }
   ]
 }

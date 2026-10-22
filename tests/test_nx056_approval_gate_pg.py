@@ -239,3 +239,31 @@ def test_a_waiting_request_under_an_older_policy_ends_with_policy_changed_and_a_
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
     with pytest.raises(psycopg.Error, match='consumed'), admin.transaction():
         admin.execute("update control.nexloop_approval_requests set status='waiting_approval',revision=revision+1 where approval_id=%s", (current,))
+
+
+@PLAN
+def test_a_requester_who_lost_the_role_is_refused_by_the_entry_and_consumes_nothing(gated, admin):
+    c = gated
+    approval = c['request']().json()['approval_id']
+    c['decide'](approval)
+    demoted = members_file((c['owner_member'], 'operator'), (c['operator_member'], 'operator'), (c['second'], 'owner'))
+    facts = compile_members(ROLES, demoted)
+    keep = {tuple(f['key'] if isinstance(f, dict) else f[1]) for f in facts}
+    for kind, key in admin.execute('select fact_kind,entity_key from authz.nexloop_authority_facts where tenant_id=%s and payload::text like %s',
+                                   (TENANT, f"%{c['owner_member']['principal_id']}%")).fetchall():
+        if tuple(key) not in keep:
+            admin.execute('delete from authz.nexloop_authority_facts where tenant_id=%s and fact_kind=%s and entity_key=%s', (TENANT, kind, key))
+    write_facts(admin, facts)
+    apply_members(ROLES, demoted, database_url_file=c['configurator'])
+    assert c['request']().status_code == 403  # the normal entry refuses before any approval is looked at
+    assert status(admin, approval) == 'approved' and consumptions(admin) == [] and tenant_switch(admin) is None
+
+
+@PLAN
+def test_a_changed_body_never_consumes_the_approval_of_another(gated, admin):
+    c = gated
+    approval = c['request']().json()['approval_id']
+    c['decide'](approval)
+    other = c['request'](reason='another reason').json()  # one field differs: another digest
+    assert other['status'] == 'waiting_approval' and other['approval_id'] != approval
+    assert status(admin, approval) == 'approved' and consumptions(admin) == [] and tenant_switch(admin) is None
