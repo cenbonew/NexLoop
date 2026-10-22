@@ -2,7 +2,9 @@
 """E1 grant drift (docs/design/eios-capability-gap.md): a live database's privileges against the ones its migrations give.
 
   expected --out FILE        bootstrap a disposable cluster from this checkout's migration catalog (as check_definer_search_path.py
-                             does) and write its privilege snapshot (nexloop-grant-snapshot/1). Run it on the release's commit.
+                             does: initdb in a temporary directory, unix socket only, removed afterwards) and write its privilege
+                             snapshot (nexloop-grant-snapshot/1). Run it on the release's commit. There is deliberately no way to
+                             take the expected side from an existing database.
   check --database-url-file F --expected FILE [--json]
                              read the live database's privileges (one catalog query in a read-only transaction; any role can
                              read the catalog) and list what is missing and what is extra. Exit 0 = they match, 1 = drift, or the
@@ -21,7 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 
 
-def expected(out, dsn=None):
+def expected(out):
     import psycopg
     from check_definer_search_path import disposable
     from nexloop_eios import grant_drift as G
@@ -29,19 +31,20 @@ def expected(out, dsn=None):
 
     def run(url):
         with psycopg.connect(url, autocommit=True) as connection:
-            if dsn is None:
-                bootstrap(connection)
+            bootstrap(connection)
             return G.snapshot(connection)
-    entries = run(dsn) if dsn else disposable(run)
+    # Only ever a cluster this run creates and removes (L6 review (a)): an existing database is never the expected side.
+    entries = disposable(run)
     out.write_text(json.dumps(G.document(entries, catalog_revision=catalog()[-1].version), indent=0) + '\n')
     return len(entries)
 
 
 def live_revision(connection):
     import psycopg
+    from nexloop_eios import grant_drift as G
     try:
         with connection.transaction():
-            connection.execute('set transaction read only')
+            G.read_only(connection)
             return connection.execute('select max(version) from control.schema_migrations').fetchone()[0]
     except psycopg.errors.InsufficientPrivilege:
         return None  # the reading role may not see the migration ledger: the revision is then reported as unknown
@@ -68,7 +71,6 @@ def main(argv=None):
     commands = parser.add_subparsers(dest='command', required=True)
     e = commands.add_parser('expected')
     e.add_argument('--out', type=pathlib.Path, required=True)
-    e.add_argument('--dsn', help='an already bootstrapped disposable database (instead of a new cluster)')
     c = commands.add_parser('check')
     c.add_argument('--database-url-file', type=pathlib.Path, required=True)
     c.add_argument('--expected', type=pathlib.Path, required=True)
@@ -78,7 +80,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == 'expected':
-            print(f'grant snapshot written: {expected(args.out, args.dsn)} entries')
+            print(f'grant snapshot written: {expected(args.out)} entries')
             return 0
         result = check(args.database_url_file, args.expected, allow_unknown_revision=args.allow_unknown_revision)
     except Exception as error:
@@ -91,6 +93,8 @@ def main(argv=None):
             print('MISSING', item)
         for item in result['extra']:
             print('EXTRA', item)
+        for pattern in result['stale_ignores']:
+            print('STALE IGNORE', pattern)
         for item in result['ignored']:
             print('ignored', item['side'], item['entry'], '-', item['reason'])
         if not result['revision_match']:

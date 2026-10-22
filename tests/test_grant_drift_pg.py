@@ -26,7 +26,10 @@ def expected_file(tmp_path_factory):
 
 
 # The test cluster's own harness (tests/support/loopback_effects.py: an event trigger schema) is not part of any release.
-HARNESS = (('*|nexloop_test_harness*', 'test harness only (tests/support/loopback_effects.py)'),)
+WHY = 'test harness only (tests/support/loopback_effects.py)'
+HARNESS = tuple((p, WHY) for p in ('function|nexloop_test_harness.*|PUBLIC|*|*', 'function|nexloop_test_harness.*|<superuser>|*|*',
+                                   'schema|nexloop_test_harness|<superuser>|*|*', 'owner|function:nexloop_test_harness.*|<superuser>|*|*',
+                                   'owner|schema:nexloop_test_harness|<superuser>|*|*'))
 
 
 @pytest.fixture
@@ -48,9 +51,13 @@ def test_a_clean_database_matches_the_migrations_exactly(expected_file, live, ca
     snapshot = G.load(expected_file)
     assert snapshot['catalog_revision'] == catalog()[-1].version and len(snapshot['entries']) > 3000
     kinds = {e.split('|')[0] for e in snapshot['entries']}
-    assert kinds >= {'relation', 'function', 'schema', 'default'}
-    code, out = run(capsys, 'check', '--database-url-file', str(live), '--expected', str(expected_file))
-    assert code == 0 and f"grant drift: match (0 missing, 0 extra, 6 ignored; {len(snapshot['entries'])} expected, {len(snapshot['entries']) + 6} live; revision {catalog()[-1].version})" in out, out
+    assert kinds == set(G.KINDS) - {'column'}  # the migrations grant no column
+    code, out = run(capsys, 'check', '--database-url-file', str(live), '--expected', str(expected_file), '--json')
+    result = json.loads(out)
+    harness = len(result['ignored'])
+    assert code == 0 and result['passed'] and harness and all(i['reason'] == WHY for i in result['ignored']), result
+    assert result['counts'] == {'expected': len(snapshot['entries']), 'live': len(snapshot['entries']) + harness}
+    assert result['live_revision'] == catalog()[-1].version and result['stale_ignores'] == []
 
 
 def test_a_revoked_and_an_added_grant_are_both_reported(expected_file, live, admin, capsys):
@@ -76,8 +83,9 @@ def test_an_ignored_difference_is_listed_with_its_reason_and_not_counted(expecte
     admin.execute('grant execute on function runtime.nexloop_world_kind(text) to nexloop_twin_port')
     with psycopg.connect(live.read_text(), autocommit=True) as c:
         actual = G.snapshot(c)
-    ignore = (('function|runtime.nexloop_world_kind(text)|nexloop_twin_port|*', 'synthetic: reviewed difference'),)
+    ignore = (('function|runtime.nexloop_world_kind(text)|nexloop_twin_port|*|*', 'synthetic: reviewed difference'),)
     result = G.compare(G.load(expected_file)['entries'], actual, HARNESS + ignore)
+    assert result['stale_ignores'] == []
     assert result['match'] and [i for i in result['ignored'] if 'harness' not in i['entry']] == [{'side': 'extra', 'entry': 'function|runtime.nexloop_world_kind(text)|nexloop_twin_port|EXECUTE|plain',
                                                       'reason': 'synthetic: reviewed difference'}]
 
@@ -99,3 +107,47 @@ def test_a_role_that_cannot_read_the_ledger_needs_the_explicit_option(expected_f
     assert code == 1 and 'REVISION live None' in out and '0 missing, 0 extra' in out, out
     code, out = run(capsys, 'check', '--database-url-file', str(metrics), '--expected', str(expected_file), '--allow-unknown-revision')
     assert code == 0 and 'revision unknown' in out, out
+
+
+def test_roles_memberships_the_database_and_owners_are_compared(expected_file, live, admin, capsys):
+    admin.execute('alter role nexloop_metrics bypassrls')
+    admin.execute('grant nexloop_owner to nexloop_api')
+    admin.execute('grant pg_read_all_data to nexloop_metrics')
+    admin.execute('alter role nexloop_api set search_path = public')
+    admin.execute('grant temporary on database postgres to public')
+    admin.execute('alter table control.schema_migrations owner to nexloop_api')
+    admin.execute('create role nexloop_deploy_extra nologin')
+    code, out = run(capsys, 'check', '--database-url-file', str(live), '--expected', str(expected_file), '--json')
+    result = json.loads(out)
+    assert code == 1
+    assert {'role|nexloop_metrics|nexloop_metrics|BYPASSRLS|plain'} <= set(result['missing'])  # false expected ...
+    assert {'role|nexloop_metrics|nexloop_metrics|BYPASSRLS|grantable',                    # ... true found
+            'role|nexloop_api|nexloop_api|SET search_path=public|plain', 'database|<current>|PUBLIC|TEMPORARY|plain',
+            'owner|relation:control.schema_migrations|nexloop_api|OWNER|plain', 'role|nexloop_deploy_extra|nexloop_deploy_extra|SUPERUSER|plain'} \
+        <= set(result['extra']), result['extra']
+    for role, member in (('nexloop_owner', 'nexloop_api'), ('pg_read_all_data', 'nexloop_metrics')):  # options follow the member's INHERIT
+        assert any(e.startswith(f'member|{role}|{member}|MEMBER') for e in result['extra']), result['extra']
+    # The api role's own search_path (set above) changes no name: every function entry still matches.
+    assert not any(e.startswith(('function|', 'owner|function:')) for e in result['missing'] + result['extra'])
+
+
+def test_the_live_side_is_read_only(live, admin):
+    with psycopg.connect(live.read_text(), autocommit=True) as c:
+        with pytest.raises(psycopg.errors.ReadOnlySqlTransaction), c.transaction():
+            G.read_only(c)
+            c.execute("select set_config('search_path','pg_catalog',true)")
+            c.execute('create temporary table nexloop_probe(x int)')
+
+
+def test_an_ignore_pattern_must_name_kind_and_subject_and_a_stale_one_fails(expected_file, live):
+    for pattern in ('*|x|PUBLIC|*|*', 'relation|x|*|*|*', 'relation|x', 'relation||PUBLIC|*|*'):
+        with pytest.raises(ValueError):
+            G.check_ignore(((pattern, 'a reviewed reason'),))
+    with pytest.raises(ValueError):
+        G.check_ignore((('relation|x|PUBLIC|*|*', 'short'),))
+    with psycopg.connect(live.read_text(), autocommit=True) as c:
+        actual = G.snapshot(c)
+    stale = ('relation|runtime.no_such_table|PUBLIC|*|*', 'a pattern nothing matches any more')
+    result = G.compare(G.load(expected_file)['entries'], actual, HARNESS + (stale,))
+    assert not result['match'] and result['stale_ignores'] == [stale[0]]
+    assert G.IGNORED == () or G.check_ignore(G.IGNORED)
