@@ -405,6 +405,8 @@ export const OPERATION_ACTION={
   set_evolution_stop:'eios:action:nexloop.semantic_release.stop:1',
   // NX-056: approve or reject another person's request (never one's own), or withdraw one's own waiting request.
   decide_approval:'eios:action:nexloop.approvals.decide:1',cancel_approval:'eios:action:nexloop.approvals.cancel:1',
+  // NX-056 A5: the two other first-batch capabilities, executed from the approvals page after approval (owner only).
+  erase_consumer:'eios:action:nexloop.consumer.erase:1',release_retention_hold:'eios:action:nexloop.retention.release_hold:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}

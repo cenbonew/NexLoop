@@ -42,7 +42,7 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'conversation.takeover':'take_over_conversation','conversation.handback':'hand_back_conversation',  # 0152 (slice 3)
         'message.staff_send':'send_staff_reply',  # 0153 (ruling B)
         'commitment.bind_commercial':'bind_commitment_commercial','cost.record':'record_cost',  # NX-027 (0140)
-        'consumer.erase':'erase_consumer','message.erase':'erase_message','retention.hold':'hold_retention',
+        'consumer.erase':'erase_consumer','consumer.erase_on_request':'erase_consumer_on_request','message.erase':'erase_message','retention.hold':'hold_retention',
         'retention.release_hold':'release_retention_hold',  # NX-029 (0142)
         'consumer.export':'export_consumer',  # NX-029 slice 3
         'alert.silence':'silence_alert',  # NX-030 (0150)

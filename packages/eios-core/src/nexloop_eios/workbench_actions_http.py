@@ -121,6 +121,8 @@ OPERATIONS={
         'until':_utc,'reason':_reason},
     # NX-029 (0142): owner-only; erase one Consumer (blocking at once, purge by the keeper), with a reason.
     'erase_consumer':{'consumer_id':_id(_HEX),'reason':_reason},
+    # NX-056 A5: confirm a Consumer's own erasure request (owner; not held by the approval policy of erase_consumer).
+    'erase_consumer_on_request':{'consumer_id':_id(_HEX),'reason':_reason},
     # NX-035 (0147): owner-only; the restore reference names the restore being opened.
     'open_restore_scope':{'restore_ref':_id(re.compile(r'[A-Za-z0-9._:-]{1,64}'))},
     # NX-053 (0154): owner-only; one of the key digest or the erasure request (the other null), with a reason.

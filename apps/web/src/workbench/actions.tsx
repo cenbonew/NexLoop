@@ -44,6 +44,8 @@ export const DONE_TEXT:Record<Operation,string>={
   set_real_dispatch:'已提交；开关以重新读取的状态为准。部署层 REAL_DISPATCH_ENABLED 不在工作台控制范围内。',
   decide_approval:'已记录审批结论；批准后由发起人执行，执行时还会重查批准人资格、期限和暂停。',
   cancel_approval:'已撤回这条审批请求。',
+  erase_consumer:'已开始擦除：先阻断联系和计划，删除由保留期服务逐步完成，不可撤销。',
+  release_retention_hold:'已解除保全；保留期与擦除将按规则清理此前保全的数据。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the

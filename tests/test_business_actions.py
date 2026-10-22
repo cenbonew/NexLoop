@@ -36,7 +36,7 @@ COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'c
 
 
 NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial','nexloop.cost.record':'cost.record'}
-NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
+NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.consumer.erase_on_request':'consumer.erase_on_request','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
     'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_scope':'restore.open_scope'}  # + NX-035 (0147), owner only
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}

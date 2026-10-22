@@ -1620,6 +1620,11 @@
       "version": "0324",
       "name": "0324_nx056_approvals_view.sql",
       "sha256": "5bf50522043ae1dc2f48bb869b12ba5dad7f22f4b9092dba402ac23f34fa2fcd"
+    },
+    {
+      "version": "0325",
+      "name": "0325_nx056_first_policies.sql",
+      "sha256": "ccde72eff92f4a471c76a8a667c4a475a2b6793b677fb6f7da0a82e98cefa754"
     }
   ]
 }

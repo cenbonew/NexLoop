@@ -76,6 +76,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
     'decide_outreach_approval':'outreach.approve',
     'decide_approval':'approvals.decide','cancel_approval':'approvals.cancel',  # NX-056 A1
+    'erase_consumer_on_request':'consumer.erase_on_request',  # NX-056 A5
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
@@ -606,6 +607,12 @@ class GoalGovernedActions:
         return self._submit(action_name,action_version,payload)
 
     # NX-029 (0142): erase a Consumer (blocking at once, purge by the keeper) or one Message; register or release a hold.
+    def erase_consumer_on_request(self,*,action_name,action_version,request_id,consumer_id,reason):
+        # NX-056 A5: confirm a Consumer's own erasure request (SQL refuses without one); not held by the policy of erase_consumer.
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer_on_request','consumer_id':consumer_id,'reason':reason})
+
     def erase_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
         if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('consumer and reason required')
