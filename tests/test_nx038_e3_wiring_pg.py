@@ -158,3 +158,43 @@ def test_the_trace_read_says_reply_fallback_for_a_message_whose_fallback_ran(tra
     read = DatabaseTraceSource(t['evo'], t['credential']).read(t['now'] - timedelta(days=1), t['now'] + timedelta(minutes=1))
     outcome = {s['run_id']: s['outcome'] for s in read.samples}
     assert outcome[t['runs']['real']] == 'reply_fallback' and outcome[t['runs']['agent']] is None and outcome[fallback] is None
+
+
+def test_a_slow_database_never_holds_a_context_connection(v6, admin, monkeypatch):
+    """L6 review 2.1: reads stuck in a slow database run on their own pool, at most two at once; the rest are skipped and counted,
+    the assembly never waits longer than the bound and the Context pool keeps its connections."""
+    import threading
+    import time
+    from nexloop_eios.context_artifacts import ContextV6ArtifactProducer, _semantic_pool
+    f = v6
+    stuck = threading.Event()
+    running, peak = [0], [0]
+    guard = threading.Lock()
+
+    def slow(*a, **k):
+        with guard:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        stuck.wait(10)
+        with guard:
+            running[0] -= 1
+    monkeypatch.setattr('nexloop_eios.context_engine.semantic.SemanticAdapter.browse', slow)
+    producer = ContextV6ArtifactProducer(f['source'], 'recent_plus_required')
+    enabled = {'semantic': {'enabled': True, 'top_k': 5, 'ambiguity_margin': 0.05}}
+    try:
+        for n in range(5):
+            started = time.monotonic()
+            producer._semantic_read(enabled, {'body': 'synthetic statement'}, str(uuid.uuid4()))
+            assert time.monotonic() - started < context_artifacts.SEMANTIC_READ_TIMEOUT_SECONDS + 0.5
+            with producer.pool.connection(timeout=1) as db:  # the Context pool still gives a connection at once
+                assert db.execute('select 1').fetchone() == (1,)
+        assert producer.semantic['timeout'] == 2 and producer.semantic['skipped'] == 3 and peak[0] <= context_artifacts.SEMANTIC_READ_CONCURRENCY
+    finally:
+        stuck.set()
+    deadline = time.monotonic() + 10
+    while running[0] and time.monotonic() < deadline:
+        time.sleep(0.05)
+    # The slots come back once the stuck reads end; the database side ends a statement after 400 ms.
+    producer._semantic_run = None
+    with _semantic_pool(producer.pool).connection() as db:
+        assert db.execute('show statement_timeout').fetchone()[0] == context_artifacts.SEMANTIC_STATEMENT_TIMEOUT

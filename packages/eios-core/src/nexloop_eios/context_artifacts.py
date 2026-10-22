@@ -22,6 +22,38 @@ ACTION='nexloop.context.bind'
 MEDIA='application/vnd.nexloop.context+json'
 # NX-038 E3 wiring (option A, dispatcher 2026-10-22): the most the semantic read may add to a Context assembly.
 SEMANTIC_READ_TIMEOUT_SECONDS=0.5
+# L6 review 2.1: the read runs on its own small pool (never the Context pool), each statement ends in the database after
+# SEMANTIC_STATEMENT_TIMEOUT, and at most SEMANTIC_READ_CONCURRENCY reads run at once per process (more are skipped, counted).
+SEMANTIC_STATEMENT_TIMEOUT='400ms'
+SEMANTIC_READ_CONCURRENCY=2
+_semantic_lock=__import__('threading').Lock()
+_semantic_slots=__import__('threading').BoundedSemaphore(SEMANTIC_READ_CONCURRENCY)
+_semantic_executor=None
+_semantic_pools={}
+
+
+def _semantic_pool(pool):
+    """The process's semantic-read pool for this database: same conninfo and role as the Context pool, at most
+    SEMANTIC_READ_CONCURRENCY connections, statement_timeout set on each - so a slow database never holds a Context connection."""
+    from psycopg_pool import ConnectionPool
+    base=getattr(pool,'_pool',pool)
+    key=(base.conninfo,repr(sorted((base.kwargs or {}).items())))
+    with _semantic_lock:
+        if key not in _semantic_pools:
+            def configure(connection):
+                connection.execute('select set_config(%s,%s,false)',('statement_timeout',SEMANTIC_STATEMENT_TIMEOUT));connection.commit()
+            _semantic_pools[key]=ConnectionPool(base.conninfo,connection_class=base.connection_class,kwargs=dict(base.kwargs or {}),min_size=0,max_size=SEMANTIC_READ_CONCURRENCY,
+                configure=configure,timeout=SEMANTIC_READ_TIMEOUT_SECONDS,open=True,name='semantic-read')
+        return _semantic_pools[key]
+
+
+def _semantic_workers():
+    global _semantic_executor
+    import concurrent.futures
+    with _semantic_lock:
+        if _semantic_executor is None:
+            _semantic_executor=concurrent.futures.ThreadPoolExecutor(max_workers=SEMANTIC_READ_CONCURRENCY,thread_name_prefix='semantic-read')
+        return _semantic_executor
 
 def context_binding_schema():
     return {'type':'object','properties':{'message_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'run_id':{'type':'string','format':'uuid'}},'required':['message_id','run_id'],'additionalProperties':False}
@@ -222,7 +254,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         self.last_diagnostic=None;self.last_check=None;self.run=None;self.last_mismatch=None;self._sent_items=None
         self.degrade=False  # only the fallback reply Run may degrade (FallbackContextV6Producer)
         # NX-038 E3 wiring: per-producer counts of the semantic read (recorded, timed out, failed) and the Run it last read for.
-        self.semantic={'read':0,'timeout':0,'failed':0};self._semantic_run=None
+        self.semantic={'read':0,'timeout':0,'failed':0,'skipped':0};self._semantic_run=None
         # 0227 operator persona slice 1: the message Run bind (0227 copy of 0187) takes the section; the fallback bind does not yet.
         self.operator_persona=True
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
@@ -292,29 +324,39 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         service identity's, checked again by the SQL port). Its result is not put in the pack (the bind verifies no definition item;
         option B is a follow-up), so the model sees no definition and no use record is written; context_id stays empty (the Context
         is bound after this). Best effort and bounded: at most SEMANTIC_READ_TIMEOUT_SECONDS, once per Run; a timeout or an error is
-        counted here and never fails the assembly or the Run."""
+        counted here and never fails the assembly or the Run. L6 review 2.1: its own pool (statement_timeout in the database), one
+        process executor and at most SEMANTIC_READ_CONCURRENCY reads at once; a read beyond that is skipped and counted."""
         sem=strategy.get('semantic') or {}
         if sem.get('enabled') is not True or self._semantic_run==run_id or not (statement or {}).get('body'):return
         self._semantic_run=run_id
+        if not _semantic_slots.acquire(blocking=False):  # the process already runs its maximum of reads: skip, never wait
+            self.semantic['skipped']+=1;_log.warning('semantic read skipped: concurrency limit');return
         import concurrent.futures
         from nexloop_eios.context_engine.semantic import SemanticAccessRecorder,SemanticAdapter,SemanticConfig
         from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall
-        pool,session,signer,body=self.pool,self.session,self.signer,statement['body']
+        session,signer,body=self.session,self.signer,statement['body']  # ServiceSession is frozen (immutable): safe to share
+        try:pool=_semantic_pool(self.pool)
+        except Exception as error:
+            _semantic_slots.release();self.semantic['failed']+=1;_log.warning('semantic read failed: %s',type(error).__name__);return
         def read():
-            recall=OntologyRecall(pool,session,authorizer=EiosRecallAuthorizer(pool,session))  # full text only: no embedding call
-            recorder=SemanticAccessRecorder(pool,session,signer,run_id=run_id)
-            SemanticAdapter(pool,session,signer,recall,config=SemanticConfig(top_k=sem['top_k'],ambiguity_margin=sem['ambiguity_margin']),
-                recorder=recorder).browse(body,limit=sem['top_k'])
-            return recorder
-        worker=concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                recall=OntologyRecall(pool,session,authorizer=EiosRecallAuthorizer(pool,session))  # full text only: no embedding call
+                recorder=SemanticAccessRecorder(pool,session,signer,run_id=run_id)
+                SemanticAdapter(pool,session,signer,recall,config=SemanticConfig(top_k=sem['top_k'],ambiguity_margin=sem['ambiguity_margin']),
+                    recorder=recorder).browse(body,limit=sem['top_k'])
+                return recorder
+            finally:_semantic_slots.release()  # the slot is held until the read really ends, not until the caller stops waiting
         try:
-            recorder=worker.submit(read).result(timeout=SEMANTIC_READ_TIMEOUT_SECONDS)
+            future=_semantic_workers().submit(read)
+        except Exception as error:
+            _semantic_slots.release();self.semantic['failed']+=1;_log.warning('semantic read failed: %s',type(error).__name__);return
+        try:
+            recorder=future.result(timeout=SEMANTIC_READ_TIMEOUT_SECONDS)
             self.semantic['read' if recorder.written else 'failed']+=1
         except concurrent.futures.TimeoutError:
             self.semantic['timeout']+=1;_log.warning('semantic read timed out')
         except Exception as error:  # never the Run's failure (design D2); the type only, never content
             self.semantic['failed']+=1;_log.warning('semantic read failed: %s',type(error).__name__)
-        finally:worker.shutdown(wait=False)
 
     def _operator_persona(self,consumer):
         """0227: the tenant's operator persona section for this Consumer (persona@version, document, AI disclosure), or None.
