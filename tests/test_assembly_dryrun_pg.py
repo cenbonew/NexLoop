@@ -319,7 +319,9 @@ def webchat_message(st, admin, capsys):
         started = start_server(argv, env, port, servers)
         assert started == (0, 'listening'), started
         with httpx.Client(base_url=origin, verify=False, trust_env=False, timeout=10) as client:  # loopback test API, synthetic certificate
-            login = client.post('/api/v1/auth/login', headers={'Origin': origin},
+            # The stage API trusts the login rate limit's client address only from the gateway (--trusted-proxy-peer 127.0.0.1, L6 C11):
+            # this loopback client stands in for Caddy, which always writes X-NexLoop-Client-IP.
+            login = client.post('/api/v1/auth/login', headers={'Origin': origin, 'X-NexLoop-Client-IP': '127.0.0.1'},
                                 json={'username': 'dryrun-consumer', 'password': (st.root / 'human-password').read_text()})
             assert login.status_code == 200, login.text
             headers = {'Origin': origin, 'X-CSRF-Token': login.json()['csrf_token'], 'Idempotency-Key': 'dryrun-conversation-' + A.new_uuid()}
