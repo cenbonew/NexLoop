@@ -50,27 +50,30 @@ begin
   if jsonb_typeof(p) is distinct from 'object'
    or not (p ?& array['capability','version','action_version','condition','quorum','approver_roles','expires_after_seconds','summary_fields'])
    or exists(select 1 from jsonb_object_keys(p) k where k not in ('capability','version','action_version','condition','quorum','approver_roles',
-     'expires_after_seconds','summary_fields','purpose'))
+     'expires_after_seconds','summary_fields','target_subject_field','purpose'))
    or jsonb_typeof(p->'version') is distinct from 'number' or jsonb_typeof(p->'action_version') is distinct from 'number'
    or jsonb_typeof(p->'quorum') is distinct from 'number' or jsonb_typeof(p->'expires_after_seconds') is distinct from 'number'
    or jsonb_typeof(p->'approver_roles') is distinct from 'array' or jsonb_typeof(p->'summary_fields') is distinct from 'array'
-   or jsonb_typeof(p->'condition') not in ('object','null') then
+   or jsonb_typeof(p->'condition') not in ('object','null')
+   or (p ? 'target_subject_field' and jsonb_typeof(p->'target_subject_field') not in ('string','null')) then
    raise exception 'approval policy invalid: %',left(coalesce(p->>'capability',''),80) using errcode='22023';end if;
   cur:=control.nexloop_approval_policy(p->>'capability');
   if cur.capability is not null and (p->>'version')::integer=cur.version then
    -- The current version again: a replay only if every field is the same.
-   if (cur.action_version,cur.condition,cur.quorum,cur.approver_roles,cur.expires_after_seconds,cur.summary_fields)
+   if (cur.action_version,cur.condition,cur.quorum,cur.approver_roles,cur.expires_after_seconds,cur.summary_fields,cur.target_subject_field)
      is distinct from ((p->>'action_version')::integer,case when jsonb_typeof(p->'condition')='null' then null else p->'condition' end,(p->>'quorum')::integer,
-      array(select jsonb_array_elements_text(p->'approver_roles')),(p->>'expires_after_seconds')::integer,array(select jsonb_array_elements_text(p->'summary_fields'))) then
+      array(select jsonb_array_elements_text(p->'approver_roles')),(p->>'expires_after_seconds')::integer,array(select jsonb_array_elements_text(p->'summary_fields')),
+      p->>'target_subject_field') then
     raise exception 'approval policy: version % of % changed',cur.version,p->>'capability' using errcode='22023';end if;
    n_same:=n_same+1;
    continue;
   end if;
   -- A new version (the 0321 guard: human governed capability, not approvals.*, versions only grow, bounds).
-  insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,summary_fields,published_by)
+  insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,summary_fields,
+    target_subject_field,published_by)
    values(p->>'capability',(p->>'version')::integer,(p->>'action_version')::integer,case when jsonb_typeof(p->'condition')='null' then null else p->'condition' end,
     (p->>'quorum')::integer,array(select jsonb_array_elements_text(p->'approver_roles')),(p->>'expires_after_seconds')::integer,
-    array(select jsonb_array_elements_text(p->'summary_fields')),v_by);
+    array(select jsonb_array_elements_text(p->'summary_fields')),p->>'target_subject_field',v_by);
   n_new:=n_new+1;
  end loop;
  return jsonb_build_object('configured',true,'version',(p_manifest->>'version')::integer,'appended',n_new,'unchanged',n_same);

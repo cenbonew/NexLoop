@@ -37,7 +37,7 @@ def validate_policies(value):
         raise ApprovalPoliciesRejected('policies')
     seen = set()
     for p in policies:
-        if type(p) is not dict or not _KEYS <= set(p) or set(p) - _KEYS - {'purpose'}:
+        if type(p) is not dict or not _KEYS <= set(p) or set(p) - _KEYS - {'purpose', 'target_subject_field'}:
             raise ApprovalPoliciesRejected('policy shape')
         cap, condition = p['capability'], p['condition']
         if (type(cap) is not str or not _CAPABILITY.fullmatch(cap) or cap.startswith('approvals.') or cap in seen
@@ -50,6 +50,8 @@ def validate_policies(value):
                 or (condition is not None and (type(condition) is not dict or set(condition) != {'field', 'equals'}
                     or type(condition['field']) is not str or not _FIELD.fullmatch(condition['field'])
                     or type(condition['equals']) not in (str, int, bool)))
+                or ('target_subject_field' in p and p['target_subject_field'] is not None
+                    and (type(p['target_subject_field']) is not str or not _FIELD.fullmatch(p['target_subject_field'])))
                 or ('purpose' in p and (type(p['purpose']) is not str or not 1 <= len(p['purpose']) <= 500))):
             raise ApprovalPoliciesRejected('policy ' + str(cap))
         seen.add(cap)

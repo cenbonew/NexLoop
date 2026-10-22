@@ -1604,12 +1604,12 @@
     {
       "version": "0321",
       "name": "0321_nx056_unified_approvals.sql",
-      "sha256": "061828f3505f53f39c7064e92b89c14d364e397ce5bb2335745c547bd46f9d8b"
+      "sha256": "9b6b8b34f16c650e6ab20fd9001e46b9467b2b16b240de43e672f080ee7329cc"
     },
     {
       "version": "0322",
       "name": "0322_nx056_approval_gate.sql",
-      "sha256": "4e11a1e8ab9a907e0bc2891a3fdc3dd85342659cccd25fed03b6d5c13f4d2f25"
+      "sha256": "775d95b81e7c6ec92f9c239d6f82e20b5f84ba1b4562d3204c29069ab8796319"
     },
     {
       "version": "0323",
@@ -1619,12 +1619,12 @@
     {
       "version": "0324",
       "name": "0324_nx056_approvals_view.sql",
-      "sha256": "5bf50522043ae1dc2f48bb869b12ba5dad7f22f4b9092dba402ac23f34fa2fcd"
+      "sha256": "51baa287c7c8a7ca1892cff74a341207cb54ba5a453d9fb37bdefded3a20ab23"
     },
     {
       "version": "0325",
       "name": "0325_nx056_first_policies.sql",
-      "sha256": "ccde72eff92f4a471c76a8a667c4a475a2b6793b677fb6f7da0a82e98cefa754"
+      "sha256": "cb8217a2eb48072602b7713c8964e61dbae75dd226bbbeb15e8f400d7948fc6d"
     },
     {
       "version": "0326",

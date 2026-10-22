@@ -395,3 +395,9 @@ request_digest = sha256(canonical_v1({
 - **summary_fields 不得包含 Consumer 标识或自由文本**：所有有资格的批准人都看得到摘要。Python 校验和 0321 的策略守护都会拒绝名字里带 consumer、principal、subject、customer、identity，或 reason、basis、text、body、message、note、description、quote、comment、name、email、phone 的字段。批准人靠 digest 和这些字段判断，自由文本留在请求人自己的“我发起的”记录里。
 - **执行入口**：工作台只能执行它自己能构造的请求体。也就是说，操作必须在工作台的 OPERATIONS 中，而且冻结请求体的键不能超出这个操作的字段。不满足时，视图返回 `inputs: null`，页面提示改用发起时的入口执行，不会出现反复 422 的情况。例如 `retention.release_hold` 不是工作台操作，它的请求从受治理 API 客户端发起，执行也在那里完成（同一请求体，新的 request_id）。
 - **擦除和保留期改写请求体**：两者都只能在本事务为请求表开启的擦除作用域内进行，并且只改请求体。0321 的守护先判断这条路径，再检查“已消费不可改”，所以已消费的行同样可以被假名化或删去正文。
+
+- **N-1 补充（调度员 2026-10-23）**：消费事务也先取租户 advisory lock，再对审批行执行 `select … for update`，与上面的加锁顺序一致（A7 随单人模式一起加上这把锁；在此之前，行锁加消费表主键已能保证只执行一次）。
+- **目标成员不参与批准（NX-058 Z1）**：审批的对象是某位成员时（例如对 owner 降级、停用、撤销、签发重置码、恢复），这位成员不能参与批准。
+  - 策略可以声明 `target_subject_field`：请求体中指向目标成员的字段，取值可以是该租户的 principal，也可以是 subject ID。按 subject 比较，同一个人用另一个 principal 也一样。
+  - 决定时拒收这位成员的票（`target_cannot_approve`）；消费时重新计票也不算他；工作台“待我审批”里不出现这条请求，批准数也不算他的票。不限于三位及以上 owner 的情形。
+  - 首批三项策略都不涉及成员，不设这个字段；NX-058 的成员类 Action 接入时设置。

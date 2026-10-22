@@ -75,7 +75,9 @@ begin
  -- mode's self-approval here.
  select count(distinct d.actor_subject),coalesce(jsonb_agg(distinct d.actor_subject),'[]'::jsonb) into v_valid,v_by from control.nexloop_approval_decisions d
   where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id and d.outcome='approved'
-   and d.actor_subject<>r.requester_subject and control.nexloop_approval_approver_eligible(p_tenant,d.actor_principal,pol.approver_roles);
+   and d.actor_subject<>r.requester_subject and control.nexloop_approval_approver_eligible(p_tenant,d.actor_principal,pol.approver_roles)
+   -- NX-058 Z1: never the member the request acts on (counted again here whatever the decision did).
+   and d.actor_subject is distinct from control.nexloop_approval_target_subject(p_tenant,r.body,pol.target_subject_field);
  perform set_config('eios.tenant_id',p_tenant,true);
  if v_valid<pol.quorum then
   -- Back to waiting; if this person meanwhile has another waiting request of the same body, that one stands and this one ends.

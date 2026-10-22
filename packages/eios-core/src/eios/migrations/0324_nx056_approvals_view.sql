@@ -18,7 +18,8 @@ create function runtime.nexloop_approval_view_row(r control.nexloop_approval_req
   'requested_by',r.requester_principal,'requested_at',r.requested_at,'due_by',r.due_by,'status',r.status,'digest',left(r.request_digest,12),
   'policy_version',r.policy_version,'quorum',pol.quorum,
   'approvals',(select count(distinct d.actor_subject) from control.nexloop_approval_decisions d where d.tenant_id=r.tenant_id and d.world=r.world
-    and d.approval_id=r.approval_id and d.outcome='approved' and d.actor_subject<>r.requester_subject),
+    and d.approval_id=r.approval_id and d.outcome='approved' and d.actor_subject<>r.requester_subject
+    and d.actor_subject is distinct from control.nexloop_approval_target_subject(r.tenant_id,r.body,pol.target_subject_field)),
   'summary',coalesce((select jsonb_object_agg(f,r.body->f) from unnest(pol.summary_fields) f
     where r.body ? f and jsonb_typeof(r.body->f) in ('string','number','boolean','null')),'{}'::jsonb))
 $$;
@@ -38,6 +39,7 @@ begin
    and not exists(select 1 from control.nexloop_approval_decisions d where d.tenant_id=r.tenant_id and d.world=r.world and d.approval_id=r.approval_id
     and d.actor_subject=v_subject)
    and control.nexloop_approval_approver_eligible(p_tenant,p_principal,pol.approver_roles)
+   and v_subject is distinct from control.nexloop_approval_target_subject(p_tenant,r.body,pol.target_subject_field)  -- NX-058 Z1
   order by r.due_by,r.approval_id limit 50) x;
  perform set_config('eios.tenant_id',p_tenant,true);
  select coalesce(jsonb_agg(x.v order by x.requested_at desc,x.approval_id),'[]'::jsonb) into v_mine from (

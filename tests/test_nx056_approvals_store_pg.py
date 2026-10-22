@@ -180,3 +180,21 @@ def test_a_requester_holds_at_most_three_waiting_and_a_refused_digest_cools_down
     decide(f, 'approver', rejected, 'reject')
     refused('cooldown', open_request, f, request_id='w-4', reason='a')  # the same digest within an hour of its rejection
     assert open_request(f, request_id='w-5', reason='e')['status'] == 'waiting_approval'  # another body, a slot freed
+
+
+def test_the_member_a_request_acts_on_never_approves_it(store):
+    """NX-058 Z1: a policy names the body field of the member the request acts on; that person (by subject, under any principal)
+    is refused at the decision, whatever the number of owners."""
+    f = store
+    admin = f['admin']
+    admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
+        summary_fields,target_subject_field,published_by) values(%s,2,1,null,1,'{owner}',86400,'{}','member','synthetic-config')""", (CAP,))
+    by_principal = open_request(f, request_id='t-1', member=f['approver']['principal_id'])['approval_id']
+    refused('target_cannot_approve', decide, f, 'approver', by_principal)
+    assert decide(f, 'second', by_principal)['status'] == 'approved'
+    by_subject = open_request(f, request_id='t-2', member=f['second']['subject_id'])['approval_id']  # a subject id names the same person
+    refused('target_cannot_approve', decide, f, 'second', by_subject)
+    assert decide(f, 'approver', by_subject)['status'] == 'approved'
+    with pytest.raises(psycopg.Error), admin.transaction():
+        admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,quorum,approver_roles,expires_after_seconds,
+            target_subject_field,published_by) values(%s,3,1,1,'{owner}',86400,'Bad Field','x')""", (CAP,))

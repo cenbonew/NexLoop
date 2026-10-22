@@ -47,6 +47,8 @@ create table control.nexloop_approval_policies (
  approver_roles text[] not null check(cardinality(approver_roles) between 1 and 3 and approver_roles<@array['owner','operator','reviewer']),
  expires_after_seconds integer not null check(expires_after_seconds between 900 and 604800),
  summary_fields text[] not null default '{}' check(cardinality(summary_fields)<=16),
+ -- NX-058 Z1: the body field naming the member the request acts on (a principal or subject id); that person never approves it.
+ target_subject_field text check(target_subject_field~'^[a-z][a-z0-9_]{0,63}$'),
  published_by text not null,recorded_at timestamptz not null default clock_timestamp(),
  primary key(capability,version)
 );
@@ -77,6 +79,18 @@ create function control.nexloop_approval_policy(p_capability text) returns contr
 $$;
 alter function control.nexloop_approval_policy(text) owner to nexloop_owner;
 revoke all on function control.nexloop_approval_policy(text) from public;
+
+-- NX-058 Z1: the subject a request acts on, from the policy's target_subject_field (a principal of the tenant -> its subject; otherwise the
+-- value is taken as a subject id). Null without such a field or value.
+create function control.nexloop_approval_target_subject(p_tenant text,p_body jsonb,p_field text) returns text
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v text:=case when p_field is null then null else p_body->>p_field end;
+begin
+ if v is null then return null;end if;
+ return coalesce(control.nexloop_approval_subject_of(p_tenant,v),v);
+end $$;
+alter function control.nexloop_approval_target_subject(text,jsonb,text) owner to nexloop_owner;
+revoke all on function control.nexloop_approval_target_subject(text,jsonb,text) from public;
 
 -- 2. Requests ----------------------------------------------------------------------------------------------------------------------
 create table control.nexloop_approval_requests (
@@ -295,6 +309,9 @@ begin
  if v_subject is null or v_subject=r.requester_subject then raise exception 'approval: self_approval' using errcode='22023';end if;
  if not control.nexloop_approval_approver_eligible(p_tenant,p_principal,pol.approver_roles) then
   raise exception 'approval: approver_unauthorized' using errcode='42501';end if;
+ -- NX-058 Z1: the member the request acts on (demoted, disabled, revoked, given a reset code, restored) never approves it.
+ if v_subject=control.nexloop_approval_target_subject(p_tenant,r.body,pol.target_subject_field) then
+  raise exception 'approval: target_cannot_approve' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  insert into control.nexloop_approval_decisions(tenant_id,world,approval_id,outcome,actor_subject,actor_principal,reason,decision_intent)
   values(p_tenant,p_world,r.approval_id,v_outcome,v_subject,p_principal,body->>'reason',p_intent);

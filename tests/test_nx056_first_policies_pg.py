@@ -47,13 +47,17 @@ def test_the_file_is_the_owners_first_batch_and_bad_manifests_are_refused():
                    lambda p: p.update(extra=1), lambda p: p.update(summary_fields=['Body']),
                    # never a Consumer identifier or free text on every approver's screen (L6 review 7)
                    lambda p: p.update(summary_fields=['consumer_id']), lambda p: p.update(summary_fields=['reason']),
-                   lambda p: p.update(summary_fields=['notification_text']), lambda p: p.update(summary_fields=['principal_id'])):
+                   lambda p: p.update(summary_fields=['notification_text']), lambda p: p.update(summary_fields=['principal_id']),
+                   lambda p: p.update(target_subject_field='Bad Field'), lambda p: p.update(target_subject_field=3)):
         bad = copy.deepcopy(v1)
         change(bad['policies'][0])
         with pytest.raises(ApprovalPoliciesRejected):
             validate_policies(bad)
     with pytest.raises(ApprovalPoliciesRejected):
         validate_policies({**v1, 'policies': v1['policies'] + [v1['policies'][0]]})  # one entry per capability
+    targeted = copy.deepcopy(v1)
+    targeted['policies'][0]['target_subject_field'] = 'member_principal_id'  # NX-058 Z1: optional
+    validate_policies(targeted)
 
 
 @PLAN
