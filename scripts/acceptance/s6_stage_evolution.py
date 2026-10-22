@@ -350,6 +350,9 @@ def at046(st, r):
         except psycopg.Error as error:
             real_auth = 'refused' if error.sqlstate == '42501' else f'error:{error.sqlstate}'
         layers = []
+        # Safe only because the world here is test (never real): closed_layer is a read of the switch layers, and forcing the deployment
+        # switch on in this transaction cannot open a world that is not real (L6 nx043-readiness review, optional). Do not point this at
+        # world 'real': there the forced switch would be the only layer left between this probe and a real dispatch decision.
         for setting in ('', 'true'):  # the deployment switch off, then forced on: world test stays closed by the world itself
             with db.transaction():
                 db.execute("select set_config('nexloop.real_dispatch_enabled',%s,true)", (setting,))

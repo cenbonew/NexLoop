@@ -479,6 +479,17 @@ def compose_budget(budget, compose):
 
 
 SIMULATION_PROJECT = 'nexloop-simulation'
+# The services of deploy/stage/compose.simulation.example.yaml that only the simulation group runs (L6 sim-connection-budget review 1.1:
+# a project started with another -p name is still the simulation group when it runs any of them; images are shared with real, so they
+# do not tell the two apart).
+SIMULATION_SERVICES = frozenset({'sim-agent-host', 'sim-runtime-worker', 'sim-stand-in-executor', 'sim-world-files'})
+
+
+def simulation_projects(inventory):
+    """The running projects that are the simulation group: by name, or by any simulation service among their containers."""
+    named = {p for p in (inventory.get('compose_projects') or {}) if p == SIMULATION_PROJECT}
+    by_service = {p for p, services in (inventory.get('compose_services') or {}).items() if SIMULATION_SERVICES & set(services or ())}
+    return named | by_service
 
 
 def simulation_compose_budget(budget, compose):
@@ -639,15 +650,16 @@ def deploy_gate(spec):
     # ADR-037: the simulation project (off by default) is checked whenever its rendered Compose is given; L6 review 2.1: when the
     # inventory shows the project running (docker compose ls: nexloop-simulation) and no Compose of it was given, the gate fails.
     if role == 'app' and spec.get('connection_budget'):
-        running_projects = set()
+        running_simulation = set()
         for key in ('inventory_before', 'inventory_after'):
             if spec.get(key):
-                running_projects |= set((load(key).get('compose_projects') or {}))
+                running_simulation |= simulation_projects(load(key))
         if spec.get('simulation_compose_json'):
             merge(simulation_compose_budget(load('connection_budget'), load('simulation_compose_json')))
-        elif SIMULATION_PROJECT in running_projects:
+        elif running_simulation:
             checks['simulation_compose_matches_budget'] = False
             details['simulation_compose_budget'] = ['simulation_running_without_compose']
+            details['simulation_projects_running'] = sorted(running_simulation)
     if role == 'app':
         if spec.get('compose_json'):
             merge(delivery_provider_profile(load('compose_json'), spec.get('secret_uids')))

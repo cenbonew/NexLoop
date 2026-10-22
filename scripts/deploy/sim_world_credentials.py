@@ -130,6 +130,10 @@ def load_config(text, mode='issue'):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')
     if mode in ('issue', 'dry_run') and sum(k in value for k in ISSUING) != 1:
         raise Refused('exactly one of configurator_database_url_file, bootstrap_database_url_file (the issuing DSN)')
+    # X7 (NX-043 shadow decisions): a shadow world holds the simulation worker's credential only - its shadow decisions are recorded
+    # by that worker; no intake, Agent or twin credential is ever issued for it.
+    if value['world'].startswith('shadow:') and uses != ['worker']:
+        raise Refused('uses: a shadow world holds ["worker"] only (X7)')
     if 'credential_expires_at' not in need:
         return value
     try:
