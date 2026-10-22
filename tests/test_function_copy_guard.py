@@ -318,6 +318,17 @@ REGISTRY = [
     Allowed('world_model_visibility', 'authz.nexloop_workbench_object_fields',
             "NX-029: also not readable when the object's Consumer is being erased (runtime.nexloop_read_consumer); nothing else",
             ((r"\n  -- World model visibility noise:[^\n]*\n  or runtime\.nexloop_consumer_erasing\(p_tenant,p_world,runtime\.nexloop_read_consumer\(.*?\)\)\) then", ' then'),)),
+    # Erasing indirect read (L6 review 1-1): the guard and object_fields resolve an object's Consumers through one function.
+    Allowed('erasing_indirect_read', 'runtime.nexloop_assert_not_erasing',
+            'the target\'s Consumers through runtime.nexloop_object_consumers (any object, indirect links too); nothing else',
+            ((r"v:=substring\(r from '\^eios:\(\?:object\|property\):\(\[A-Z\].*?p_claims->>'object_id'\);", "c:=substring(r from '^eios:(?:object|property):Consumer/([a-f0-9]{64})');if c is null and p_claims->>'type_name'='Consumer' then c:=p_claims->>'object_id';end if;if c is null then v:=substring(r from '^eios:(?:object|property):Conversation/([a-f0-9]{64})');if v is not null then select cv.consumer_id into c from runtime.nexloop_conversations cv where cv.tenant_id=t and cv.world=p_world and cv.conversation_id=v;else v:=substring(r from '^eios:(?:object|property):Message/([a-f0-9]{64})');if v is not null then select cv.consumer_id into c from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id where m.tenant_id=t and m.world=p_world and m.message_id=v limit 1;end if;end if;end if;"),
+             (r"if v is not null and c is not null then\s*hit:=exists\(select 1 from control\.nexloop_consumer_erasures e where e\.tenant_id=t and e\.world=p_world "
+              r"and e\.state<>'pending_confirmation'\s*and e\.consumer_id=any\(runtime\.nexloop_object_consumers\(t,p_world,v,c\)\)\);",
+              "if c is not null then hit:=exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=t and e.world=p_world and e.consumer_id=c and e.state<>'pending_confirmation');"))),
+    Allowed('erasing_indirect_read', 'authz.nexloop_workbench_object_fields',
+            'the erasing check through runtime.nexloop_object_consumers (the read guard\'s resolution); nothing else',
+            ((r"or exists\(select 1 from control\.nexloop_consumer_erasures e where .*?runtime\.nexloop_object_consumers\(p_tenant,p_world,p_type,p_object\)\)\)",
+              "or runtime.nexloop_consumer_erasing(p_tenant,p_world,runtime.nexloop_read_consumer(p_world,jsonb_build_object('tenant_id',p_tenant,'type_name',p_type,'object_id',p_object,'target_resource','eios:object:'||p_type||'/'||p_object)))"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

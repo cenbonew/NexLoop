@@ -1570,6 +1570,11 @@
       "version": "0314",
       "name": "0314_world_model_visibility.sql",
       "sha256": "2868aa28d5e834f0966acccc695f74f2201bf17b1bc6bb8f0c87bd67afd066f1"
+    },
+    {
+      "version": "0315",
+      "name": "0315_erasing_indirect_read.sql",
+      "sha256": "0988db285f14839135baa6abdfe41a3ac6e86ea2a8c4d5c2905d0e672b0e2a05"
     }
   ]
 }
