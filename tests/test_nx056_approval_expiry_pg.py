@@ -53,7 +53,7 @@ def seed(admin, key):
         Jsonb({'operation': 'set_real_dispatch', 'request_id': request_id, 'scope_kind': 'tenant', 'enabled': True, 'reason': 'x', **body}))).fetchone()[0]
 
 
-def test_the_sweep_ends_only_waiting_requests_past_due_and_is_idempotent(store):
+def test_the_sweep_ends_waiting_and_unconsumed_approved_requests_past_due_and_is_idempotent(store):
     f = store
     admin = f['admin']
     late, fresh = open_request(f)['approval_id'], open_request(f, request_id='r-2', scope_kind='action_type')['approval_id']
@@ -61,14 +61,16 @@ def test_the_sweep_ends_only_waiting_requests_past_due_and_is_idempotent(store):
     decide(f, 'approver', approved)
     for approval in (late, approved):
         age(admin, approval, 25)
-    assert expire_due(admin) == {'scanned': 1, 'expired': 1}
-    assert [row(f, a)[0] for a in (late, fresh, approved)] == ['expired', 'waiting_approval', 'approved']  # an approved one is never re-decided
-    assert expire_due(admin) == {'scanned': 0, 'expired': 0}  # a terminal request has left the waiting set
-    decision = admin.execute("select outcome,actor_subject from control.nexloop_approval_decisions where approval_id=%s", (late,)).fetchall()
-    assert decision == [('expired', 'system:expiry')]
-    assert admin.execute("select count(*) from runtime.audit_events where action='approval.expired'").fetchone() == (1,)
-    # Past due_by an approved request is not counted as waiting for its requester (consumption refuses it, A2).
-    assert approvals(admin) == {'waiting': 1, 'oldest_waiting_age_seconds': approvals(admin)['oldest_waiting_age_seconds'], 'approved_unconsumed': 0}
+    # Before the sweep both past-due requests show as overdue (the sweep's heartbeat), not as waiting or executable.
+    assert {k: v for k, v in approvals(admin).items() if k != 'oldest_waiting_age_seconds'} == {'waiting': 1, 'approved_unconsumed': 0, 'overdue': 2}
+    assert expire_due(admin) == {'scanned': 2, 'expired': 2}
+    # An approved one past due_by can no longer be executed (A2): it ends too instead of lingering (L6 A3 review important 2).
+    assert [row(f, a)[0] for a in (late, fresh, approved)] == ['expired', 'waiting_approval', 'expired']
+    assert expire_due(admin) == {'scanned': 0, 'expired': 0}  # terminal requests have left the set
+    decision = admin.execute("select outcome,actor_subject,reason from control.nexloop_approval_decisions where approval_id=%s", (late,)).fetchall()
+    assert decision == [('expired', 'system:expiry', 'due_by_passed')]
+    assert admin.execute("select payload->>'from' from runtime.audit_events where action='approval.expired' order by 1").fetchall() == [('approved',), ('waiting_approval',)]
+    assert approvals(admin)['overdue'] == 0 and approvals(admin)['waiting'] == 1
 
 
 def test_the_sweep_is_bounded_and_oldest_first(store):
@@ -90,6 +92,11 @@ def test_the_retention_keeper_tick_runs_the_sweep(erasing, admin):
     age(admin, approval, 25)
     assert keeper(c).run_once()['approvals_expired'] == 1
     assert keeper(c).run_once()['approvals_expired'] == 0
+    # A failing sweep is counted and never stops the tick's erasure work (it runs last).
+    broken = keeper(c)
+    broken.port.approvals_expire = lambda: (_ for _ in ()).throw(RuntimeError('synthetic'))
+    summary = broken.run_once()
+    assert summary['approvals_failed'] == 1 and summary['approvals_expired'] == 0
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
     assert admin.execute('select status from control.nexloop_approval_requests where approval_id=%s', (approval,)).fetchone() == ('expired',)
     # The keeper's principal holds no approval table privilege: the port is its only way in.
@@ -100,7 +107,8 @@ def test_rules_v13_are_v12_plus_the_approval_rules():
     v12, v13 = json.loads(V12.read_text()), load_rules(V13)
     assert v13['version'] == 13 and v13['rules'][:len(v12['rules'])] == v12['rules']
     assert {r['rule_id']: r['metric'] for r in v13['rules'][len(v12['rules']):]} == {
-        'approval_waiting': 'approvals.oldest_waiting_age_seconds', 'approval_unconsumed': 'approvals.approved_unconsumed'}
+        'approval_waiting': 'approvals.oldest_waiting_age_seconds', 'approval_unconsumed': 'approvals.approved_unconsumed',
+        'approval_sweep_stale': 'approvals.overdue'}
     validate_rules(v13)
 
 

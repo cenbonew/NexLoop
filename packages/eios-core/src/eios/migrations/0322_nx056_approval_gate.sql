@@ -9,16 +9,23 @@
 --   behalf (L6 C2).
 -- * authz.nexloop_goal_governed_action (0124, re-created with only the gate added; tests/test_function_copy_guard.py): an approved call
 --   runs the handler in a savepoint; a refusal still consumes the Approval (execution_refused:<sqlstate>), a transient error
---   (40001, 40P01, 55P03, 57014) is re-raised and consumes nothing.
+--   (40001, 40P01, 55P03, 57014, classes 53 and 08, 57P0x) is re-raised and consumes nothing. The action claim ends permanent_failure
+--   when nothing was executed or the handler refused.
+-- * Past due_by an approved Approval ends expired and the body opens anew; within an hour of a consumption the same body answers
+--   approval_consumed; an Approval of an older policy version ends with policy_changed.
 -- * control.nexloop_approval_consume: the one consumption (primary key approval_id) with the audit approval.consumed naming the actor
 --   (requester) and approved_by (the approvers' subjects).
 
 create function control.nexloop_approval_gate(p_tenant text,p_world text,p_capability text,p_action text,p_principal text,p_body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare pol control.nexloop_approval_policies;v_subject text;v_digest text;r control.nexloop_approval_requests;v_valid integer;v_open jsonb;v_usable boolean;
+declare pol control.nexloop_approval_policies;v_subject text;v_digest text;r control.nexloop_approval_requests;v_valid integer;v_by jsonb;v_open jsonb;
+ v_result text;
 begin
  pol:=control.nexloop_approval_policy(p_capability);
- if pol.capability is null or (pol.condition is not null and p_body->(pol.condition->>'field') is distinct from pol.condition->'equals') then
+ -- Only a body that carries the condition's field with another value proceeds without approval; a missing field needs approval
+ -- (fail closed, L6 A2 review suggestion 3).
+ if pol.capability is null or (pol.condition is not null and p_body ? (pol.condition->>'field')
+   and p_body->(pol.condition->>'field') is distinct from pol.condition->'equals') then
   return jsonb_build_object('proceed',true);end if;
  v_subject:=control.nexloop_approval_subject_of(p_tenant,p_principal);
  if v_subject is null then raise exception 'approval: requester_unavailable' using errcode='42501';end if;
@@ -30,21 +37,54 @@ begin
   and q.request_digest=v_digest and q.requester_subject=v_subject and q.status='approved'
   and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id)
   order by q.requested_at limit 1 for update;
- v_usable:=found and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=r.tenant_id and c.world=r.world and c.approval_id=r.approval_id);
- if not v_usable then
+ -- Rechecked in a new statement (a new snapshot): a concurrent execution that held the lock may have consumed it meanwhile; then this
+ -- call answers that consumption below.
+ if found and exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=r.tenant_id and c.world=r.world and c.approval_id=r.approval_id) then
+  r:=null;
+ end if;
+ -- Past its due_by it ends expired here (and the request opens anew below), so it never blocks this body (L6 A2 review important 1).
+ if found and r.due_by<=clock_timestamp() then
+  perform control.nexloop_approval_terminate(p_tenant,p_world,r.approval_id,'due_by_passed');
+  perform set_config('eios.tenant_id',p_tenant,true);
+  r:=null;
+ end if;
+ if r.approval_id is null then
+  -- Executed already: the same body by the same person within an hour of its consumption answers that consumption (double click, the
+  -- loser of a concurrent execution), never a new request (design §4, L6 A2 review important 3). Later it is a new request.
+  select q.approval_id,c.result into r.approval_id,v_result from control.nexloop_approval_requests q join control.nexloop_approval_consumptions c
+    on c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id
+   where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability and q.request_digest=v_digest and q.requester_subject=v_subject
+    and c.consumed_at>clock_timestamp()-interval '1 hour' order by c.consumed_at desc limit 1;
+  if r.approval_id is not null then
+   return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','approval_consumed','result',v_result);end if;
+  -- Approved under an older policy version: the same body under that version's digest. It ends (policy_changed) and the person submits
+  -- again under the current policy (design :97, L6 A2 review important 2).
+  select * into r from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability
+   and q.requester_subject=v_subject and q.status='approved' and q.policy_version<>pol.version
+   and q.request_digest=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,q.policy_version,p_body)
+   and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id)
+   order by q.requested_at limit 1 for update;
+  if found then
+   perform control.nexloop_approval_terminate(p_tenant,p_world,r.approval_id,'policy_changed');
+   return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','policy_changed','policy_version',pol.version);
+  end if;
   v_open:=control.nexloop_approval_open(p_tenant,p_world,p_capability,p_action,p_principal,p_body);
   return v_open||jsonb_build_object('proceed',false,'approval','required');
  end if;
- if r.due_by<=clock_timestamp() then
-  return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','expired');end if;
  -- Every approver's standing now (L6 C3): an active human member in an approver role, never the requester. A7 adds the single-person
  -- mode's self-approval here.
- select count(distinct d.actor_subject) into v_valid from control.nexloop_approval_decisions d
+ select count(distinct d.actor_subject),coalesce(jsonb_agg(distinct d.actor_subject),'[]'::jsonb) into v_valid,v_by from control.nexloop_approval_decisions d
   where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id and d.outcome='approved'
    and d.actor_subject<>r.requester_subject and control.nexloop_approval_approver_eligible(p_tenant,d.actor_principal,pol.approver_roles);
  perform set_config('eios.tenant_id',p_tenant,true);
  if v_valid<pol.quorum then
-  update control.nexloop_approval_requests set status='waiting_approval',revision=revision+1 where tenant_id=p_tenant and world=p_world and approval_id=r.approval_id;
+  -- Back to waiting; if this person meanwhile has another waiting request of the same body, that one stands and this one ends.
+  if exists(select 1 from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.request_digest=v_digest
+    and q.requester_subject=v_subject and q.status='waiting_approval') then
+   perform control.nexloop_approval_terminate(p_tenant,p_world,r.approval_id,'superseded');
+  else
+   update control.nexloop_approval_requests set status='waiting_approval',revision=revision+1 where tenant_id=p_tenant and world=p_world and approval_id=r.approval_id;
+  end if;
   insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
    values('approval-reopened:'||r.approval_id||':'||(r.revision+1),'approval.reopened',p_tenant,p_principal,'approval',p_body->>'request_id',
     jsonb_build_object('approval_id',r.approval_id,'reason','approver_no_longer_eligible','approvals',v_valid,'quorum',pol.quorum),clock_timestamp());
@@ -52,27 +92,26 @@ begin
  end if;
  -- A paused control scope stops the execution itself, not only what it dispatches later (L6 I1).
  perform control.nexloop_nx022_assert_not_paused(p_tenant,p_world,jsonb_build_array(jsonb_build_object('kind','action_type','ref',p_action)));
- return jsonb_build_object('proceed',true,'approval_id',r.approval_id);
+ return jsonb_build_object('proceed',true,'approval_id',r.approval_id,'approved_by',v_by);
 end $$;
 alter function control.nexloop_approval_gate(text,text,text,text,text,jsonb) owner to nexloop_owner;
 revoke all on function control.nexloop_approval_gate(text,text,text,text,text,jsonb) from public;
 
-create function control.nexloop_approval_consume(p_tenant text,p_world text,p_approval uuid,p_principal text,p_result text) returns void
+-- The one consumption; approved_by is the votes the gate counted toward the quorum just now (L6 A2 review suggestion 2).
+create function control.nexloop_approval_consume(p_tenant text,p_world text,p_approval uuid,p_principal text,p_result text,p_approved_by jsonb) returns void
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare r control.nexloop_approval_requests;v_by jsonb;
+declare r control.nexloop_approval_requests;
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and approval_id=p_approval;
  insert into control.nexloop_approval_consumptions(tenant_id,world,approval_id,consumed_by_subject,consumed_by_principal,result)
   values(p_tenant,p_world,p_approval,r.requester_subject,p_principal,p_result);
- select coalesce(jsonb_agg(distinct d.actor_subject),'[]'::jsonb) into v_by from control.nexloop_approval_decisions d
-  where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=p_approval and d.outcome='approved';
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
   values('approval-consumed:'||p_approval,'approval.consumed',p_tenant,p_principal,'approval',r.request_id,
-   jsonb_build_object('approval_id',p_approval,'capability',r.capability,'result',p_result,'actor',r.requester_subject,'approved_by',v_by),clock_timestamp());
+   jsonb_build_object('approval_id',p_approval,'capability',r.capability,'result',p_result,'actor',r.requester_subject,'approved_by',p_approved_by),clock_timestamp());
 end $$;
-alter function control.nexloop_approval_consume(text,text,uuid,text,text) owner to nexloop_owner;
-revoke all on function control.nexloop_approval_consume(text,text,uuid,text,text) from public;
+alter function control.nexloop_approval_consume(text,text,uuid,text,text,jsonb) owner to nexloop_owner;
+revoke all on function control.nexloop_approval_consume(text,text,uuid,text,text,jsonb) from public;
 
 create or replace function authz.nexloop_goal_governed_action(p_digest text,p_world text,p_text text,p_signature text,p_payload text)
  returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -130,16 +169,19 @@ begin
    v_consumed:='executed';
   exception when others then
    -- A transient database error is no refusal: re-raised, nothing consumed, the requester may execute again (L6 N-2a).
-   if sqlstate in ('40001','40P01','55P03','57014') then raise;end if;
+   -- Also out-of-resources (53), connection (08) and administrator shutdown (57P0x) (L6 A2 review suggestion 3).
+   if sqlstate in ('40001','40P01','55P03','57014') or left(sqlstate,2) in ('53','08') or sqlstate like '57P0_' then raise;end if;
    v_consumed:='execution_refused:'||sqlstate;
    v_result:=jsonb_build_object('status','execution_refused','code',sqlstate);
   end;
   perform set_config('eios.tenant_id',v_tenant,true);
-  perform control.nexloop_approval_consume(v_tenant,p_world,(v_gate->>'approval_id')::uuid,v_principal,v_consumed);
+  perform control.nexloop_approval_consume(v_tenant,p_world,(v_gate->>'approval_id')::uuid,v_principal,v_consumed,v_gate->'approved_by');
   v_result:=v_result||jsonb_build_object('approval_id',v_gate->>'approval_id','approval','consumed');
  end if;
  v_id:=encode(sha256(convert_to(jsonb_build_array(v_tenant,p_world,body->>'operation',stored.intent_id)::text,'UTF8')),'hex');
- v_outcome:=jsonb_build_object('outcome_id',v_id,'outcome_revision',1,'status','succeeded','outcome_digest',v_claim->'binding'->>'request_digest','finalized_at',clock_timestamp());
+ v_outcome:=jsonb_build_object('outcome_id',v_id,'outcome_revision',1,
+  -- Not executed (waiting, expired, consumed, policy changed) or refused is no success (L6 A2 review important 4).
+  'status',case when v_gate->>'proceed'='false' or v_consumed like 'execution_refused:%' then 'permanent_failure' else 'succeeded' end,'outcome_digest',v_claim->'binding'->>'request_digest','finalized_at',clock_timestamp());
  update runtime.nexloop_action_claims set claim=stored.claim||jsonb_build_object('state','terminal','terminal_outcome',v_outcome)
   where tenant_id=stored.tenant_id and world=p_world and action_name=stored.action_name and intent_id=stored.intent_id;
  -- Commit tail: writes stay provisional until authority, contract and fences are still current.

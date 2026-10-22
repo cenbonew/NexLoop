@@ -580,6 +580,15 @@
       "for_seconds": 3600,
       "severity": "warning",
       "purpose": "NX-056 A3: an approved request has not been executed by its requester for an hour; it expires unexecuted at its due_by."
+    },
+    {
+      "rule_id": "approval_sweep_stale",
+      "metric": "approvals.overdue",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 900,
+      "severity": "warning",
+      "purpose": "NX-056 A3 (L6 review): a request past its due_by is still waiting or approved and unconsumed for 15 minutes; the expiry sweep in the retention keeper is not running."
     }
   ]
 }

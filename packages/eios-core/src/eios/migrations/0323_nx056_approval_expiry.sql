@@ -1,15 +1,17 @@
 -- NX-056 A3 (docs/design/unified-approvals.md v5 §7, §8): the expiry sweep and the approval_waiting alert. Temporary number;
 -- the dispatcher renumbers.
 --
--- 1. control.nexloop_approval_expire_due: the tenant's waiting requests past due_by, oldest first, bounded, each ended through
---    control.nexloop_approval_expire (0321: waiting -> expired, a system decision, audit approval.expired). It only ends a request;
---    nothing is ever executed (the upstream ApprovalExpirySweeper's contract: only waiting past due_by, idempotent, a request
---    locked by a concurrent decision is skipped and seen by the next tick).
+-- 1. control.nexloop_approval_expire_due: the tenant's requests past due_by that are still waiting, or approved and never consumed
+--    (L6 A3 review important 2: an approved one past due_by can no longer be executed and must not linger), oldest first, bounded,
+--    each ended through control.nexloop_approval_expire (0321: -> expired, a system decision, audit approval.expired). It only ends a
+--    request; nothing is ever executed (the upstream ApprovalExpirySweeper's contract: idempotent, a request locked by a concurrent
+--    decision or execution is skipped and seen by the next tick).
 -- 2. authz.nexloop_retention_command (0129) is redefined with one more verb, 'approvals_expire', so the retention keeper's
 --    existing signed port (domain worker, eios:action:nexloop.retention.execute:1) runs the sweep each tick. The other verbs
 --    are unchanged.
 -- 3. runtime.nexloop_metrics_snapshot is renamed once and wrapped: the wrapper adds the 'approvals' block (counts and ages only,
---    no body), only requests still before due_by: waiting, oldest_waiting_age_seconds, approved_unconsumed. Rule approval_waiting is in alert-rules.v13.json.
+--    no body): waiting, oldest_waiting_age_seconds and approved_unconsumed count requests still before due_by; overdue counts those past
+--    due_by still waiting or approved and unconsumed - the sweep's heartbeat (it should stay 0). Rules in alert-rules.v13.json.
 -- Published migrations are not edited.
 
 create function control.nexloop_approval_expire_due(p_tenant text,p_world text,p_limit integer) returns jsonb
@@ -18,8 +20,10 @@ declare a uuid;n integer:=0;e integer:=0;
 begin
  if p_limit is null or p_limit not between 1 and 1000 then raise exception 'approval expiry limit' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
- for a in select approval_id from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and status='waiting_approval'
-   and due_by<=clock_timestamp() order by due_by,approval_id limit p_limit for update skip locked loop
+ for a in select approval_id from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and status in ('waiting_approval','approved')
+   and due_by<=clock_timestamp() and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=p_tenant and c.world=p_world
+    and c.approval_id=nexloop_approval_requests.approval_id)
+   order by due_by,approval_id limit p_limit for update skip locked loop
   n:=n+1;
   if control.nexloop_approval_expire(p_tenant,p_world,a) then e:=e+1;end if;
  end loop;
@@ -79,7 +83,9 @@ begin
    'oldest_waiting_age_seconds',coalesce(floor(extract(epoch from clock_timestamp()-min(r.requested_at) filter(where r.status='waiting_approval'
      and r.due_by>clock_timestamp())))::bigint,0),
    'approved_unconsumed',count(*) filter(where r.status='approved' and r.due_by>clock_timestamp() and not exists(select 1 from control.nexloop_approval_consumptions k
-     where k.approval_id=r.approval_id)))
+     where k.approval_id=r.approval_id)),
+   'overdue',count(*) filter(where r.status in ('waiting_approval','approved') and r.due_by<=clock_timestamp() and not exists(
+     select 1 from control.nexloop_approval_consumptions k where k.approval_id=r.approval_id)))
   into v from control.nexloop_approval_requests r where r.tenant_id=p_tenant and r.world=p_world;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return v;

@@ -87,7 +87,7 @@ create table control.nexloop_approval_requests (
  foreign key(capability,policy_version) references control.nexloop_approval_policies(capability,version),check(due_by>requested_at)
 );
 create index nexloop_approval_requests_waiting on control.nexloop_approval_requests(tenant_id,world,status,due_by) where status='waiting_approval';
-create unique index nexloop_approval_requests_one_waiting_digest on control.nexloop_approval_requests(tenant_id,world,request_digest) where status='waiting_approval';
+create unique index nexloop_approval_requests_one_waiting_digest on control.nexloop_approval_requests(tenant_id,world,request_digest,requester_subject) where status='waiting_approval';
 alter table control.nexloop_approval_requests owner to nexloop_owner;
 alter table control.nexloop_approval_requests enable row level security;
 alter table control.nexloop_approval_requests force row level security;
@@ -97,13 +97,14 @@ revoke all on control.nexloop_approval_requests from public,nexloop_api,nexloop_
 create function control.nexloop_approval_request_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if tg_op='DELETE' then raise exception 'approval requests are deleted only by retention' using errcode='42501';end if;
- -- Only the status moves, once, out of waiting_approval (or back to it when a vote no longer counts, A2), with the revision.
+ -- Only the status moves, once, out of waiting_approval (or back to it when a vote no longer counts, A2; or approved -> expired when it
+ -- passed due_by or its policy changed before it was consumed), with the revision.
  if (new.tenant_id,new.world,new.approval_id,new.capability,new.action_resource,new.policy_version,new.request_digest,new.request_id,new.body,
      new.requester_subject,new.requester_principal,new.requested_at,new.due_by)
    is distinct from (old.tenant_id,old.world,old.approval_id,old.capability,old.action_resource,old.policy_version,old.request_digest,old.request_id,old.body,
      old.requester_subject,old.requester_principal,old.requested_at,old.due_by)
   or new.revision<>old.revision+1
-  or not (old.status='waiting_approval' or (old.status='approved' and new.status='waiting_approval')) then
+  or not (old.status='waiting_approval' or (old.status='approved' and new.status in ('waiting_approval','expired'))) then
   raise exception 'approval request is immutable' using errcode='42501';end if;
  return new;
 end $$;
@@ -165,13 +166,15 @@ begin
  if v_subject is null then raise exception 'approval: requester_unavailable' using errcode='42501';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  v_digest:=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,pol.version,p_body);
- -- The same request id replays its own approval; the same digest while one waits answers that one (no flooding, design §4 step 1).
+ -- The same request id replays its own approval; the same digest while this person's one waits answers that one (no flooding, design
+ -- §4 step 1). Dedupe and cooldown are per requester (subject): another person's request or rejection never answers or blocks this one.
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and capability=p_capability and request_id=p_body->>'request_id';
  if found then
   if r.request_digest is distinct from v_digest then raise exception 'approval: request_reused' using errcode='22023';end if;
   return jsonb_build_object('approval_id',r.approval_id,'status',r.status,'due_by',r.due_by,'replayed',true);
  end if;
- select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and request_digest=v_digest and status='waiting_approval';
+ select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and request_digest=v_digest and requester_subject=v_subject
+  and status='waiting_approval';
  if found then return jsonb_build_object('approval_id',r.approval_id,'status',r.status,'due_by',r.due_by,'replayed',true);end if;
  -- Limits (design §8, L6 S3): at most 3 waiting requests of one requester for one capability; the same digest waits 1 hour after a
  -- rejection or a withdrawal (no shopping for an approver).
@@ -180,7 +183,7 @@ begin
   raise exception 'approval: too_many_waiting' using errcode='22023';end if;
  if exists(select 1 from control.nexloop_approval_requests q join control.nexloop_approval_decisions d on d.tenant_id=q.tenant_id and d.world=q.world
      and d.approval_id=q.approval_id and d.outcome in ('rejected','cancelled')
-   where q.tenant_id=p_tenant and q.world=p_world and q.request_digest=v_digest and d.decided_at>clock_timestamp()-interval '1 hour') then
+   where q.tenant_id=p_tenant and q.world=p_world and q.request_digest=v_digest and q.requester_subject=v_subject and d.decided_at>clock_timestamp()-interval '1 hour') then
   raise exception 'approval: cooldown' using errcode='22023';end if;
  insert into control.nexloop_approval_requests(tenant_id,world,capability,action_resource,policy_version,request_digest,request_id,body,requester_subject,requester_principal,due_by)
   values(p_tenant,p_world,p_capability,p_action,pol.version,v_digest,p_body->>'request_id',p_body,v_subject,p_principal,clock_timestamp()+make_interval(secs=>pol.expires_after_seconds))
@@ -193,22 +196,34 @@ end $$;
 alter function control.nexloop_approval_open(text,text,text,text,text,jsonb) owner to nexloop_owner;
 revoke all on function control.nexloop_approval_open(text,text,text,text,text,jsonb) from public;
 
--- Expiry: a waiting request past due_by (database clock) ends expired, with a decision row by the system. Never executes anything.
-create function control.nexloop_approval_expire(p_tenant text,p_world text,p_approval uuid) returns boolean
+-- Ending a request by the system: a waiting request, or an approved one never consumed, ends expired with a decision row by the system
+-- and the audit approval.expired carrying the reason (due_by_passed, policy_changed, or superseded by the same person's waiting
+-- request of the same body). Never executes anything.
+create function control.nexloop_approval_terminate(p_tenant text,p_world text,p_approval uuid,p_reason text) returns boolean
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare r control.nexloop_approval_requests;
 begin
+ if p_reason not in ('due_by_passed','policy_changed','superseded') then raise exception 'approval: termination reason' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and approval_id=p_approval for update;
- if not found or r.status<>'waiting_approval' or r.due_by>clock_timestamp() then return false;end if;
+ if not found or r.status not in ('waiting_approval','approved') or (p_reason='due_by_passed' and r.due_by>clock_timestamp())
+  or exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=p_tenant and c.world=p_world and c.approval_id=p_approval) then
+  return false;end if;
  update control.nexloop_approval_requests set status='expired',revision=revision+1 where tenant_id=p_tenant and world=p_world and approval_id=p_approval;
  insert into control.nexloop_approval_decisions(tenant_id,world,approval_id,outcome,actor_subject,actor_principal,reason)
-  values(p_tenant,p_world,p_approval,'expired','system:expiry','system:expiry','due_by passed');
+  values(p_tenant,p_world,p_approval,'expired','system:expiry','system:expiry',p_reason);
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
   values('approval-expired:'||p_approval,'approval.expired',p_tenant,'system:expiry','approval',r.request_id,
-   jsonb_build_object('approval_id',p_approval,'capability',r.capability),clock_timestamp()) on conflict do nothing;
+   jsonb_build_object('approval_id',p_approval,'capability',r.capability,'from',r.status,'reason',p_reason),clock_timestamp()) on conflict do nothing;
  return true;
 end $$;
+alter function control.nexloop_approval_terminate(text,text,uuid,text) owner to nexloop_owner;
+revoke all on function control.nexloop_approval_terminate(text,text,uuid,text) from public;
+
+create function control.nexloop_approval_expire(p_tenant text,p_world text,p_approval uuid) returns boolean
+ language sql security definer set search_path=pg_catalog,pg_temp as $$
+ select control.nexloop_approval_terminate(p_tenant,p_world,p_approval,'due_by_passed')
+$$;
 alter function control.nexloop_approval_expire(text,text,uuid) owner to nexloop_owner;
 revoke all on function control.nexloop_approval_expire(text,text,uuid) from public;
 
