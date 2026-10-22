@@ -26,3 +26,11 @@ def test_upstream_identity_suite_provenance():
     doc=json.loads((root/'packages/eios-core/UPSTREAM_IDENTITY_TESTS.json').read_text())
     for record in doc['tests']:
         assert hashlib.sha256((root/record['destination']).read_bytes()).hexdigest()==record['nexloop_sha256']
+
+
+def test_upstream_adapter_suite_provenance():
+    root=Path(__file__).resolve().parents[1]
+    doc=json.loads((root/'packages/eios-core/UPSTREAM_ADAPTER_TESTS.json').read_text())
+    assert doc['commit']==json.loads((root/'packages/eios-core/PROVENANCE.json').read_text())['commit']
+    for record in doc['tests']:
+        assert hashlib.sha256((root/record['destination']).read_bytes()).hexdigest()==record['nexloop_sha256']

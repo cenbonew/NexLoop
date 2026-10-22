@@ -16,12 +16,10 @@ business object, and the caller decides through governed EIOS Actions.
 """
 from dataclasses import dataclass, field
 import hashlib
-import http.client
 import json
 import math
 import random
 import re
-import ssl
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -234,18 +232,15 @@ class TransportError(Exception):
 
 
 def https_transport(url, headers, body, timeout):
-    """POST over TLS with the system CA store; returns (status, body bytes). Raises TransportError on any connection problem."""
-    parts = urlsplit(url)
+    """POST over TLS with the system CA store within `timeout` in total (D2: a killable child process, nexloop_eios.deadline_http);
+    returns (status, body bytes). A passed deadline is a TimeoutError; any other connection problem a TransportError."""
+    from nexloop_eios.deadline_http import DeadlineExceeded, DeadlineTransportError, post
     try:
-        connection = http.client.HTTPSConnection(parts.hostname, parts.port or 443, timeout=timeout, context=ssl.create_default_context())
-        try:
-            connection.request('POST', parts.path or '/', body=body, headers=headers)
-            response = connection.getresponse()
-            return response.status, response.read(1 << 20)
-        finally:
-            connection.close()
-    except (OSError, http.client.HTTPException) as error:
-        raise TransportError(type(error).__name__) from None
+        return post(url, headers, body, deadline_seconds=timeout, maximum=1 << 20)
+    except DeadlineExceeded:
+        raise
+    except DeadlineTransportError as error:
+        raise TransportError(error.code) from None
 
 
 # Client ----------------------------------------------------------------------------------------------------------------

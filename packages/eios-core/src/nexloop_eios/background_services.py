@@ -301,6 +301,11 @@ def run(service,arguments,stop):
     from nexloop_eios.backend import open_backend
     from nexloop_eios.private_configuration import read_private_text
     label,role=SERVICES[service]
+    if service in ('claim-extraction-worker','claim-matcher','recall-indexer'):
+        # D2 (eios-capability-gap): their model and embedding calls run in forkserver children (nexloop_eios.deadline_http); the
+        # forkserver starts now, before this process reads a credential or opens a connection, so no child can inherit one.
+        from nexloop_eios.deadline_http import ensure_request_runtime_ready
+        ensure_request_runtime_ready()
     if service in ('claim-extraction-worker','claim-matcher'):
         # NX-031: the load-rules profile variant starts only for the extraction worker in --mode test; anywhere else it is
         # refused here, before any connection (a stage/real service never runs on it).

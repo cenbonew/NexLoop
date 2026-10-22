@@ -646,6 +646,17 @@
       "adaptations": [
         "Optional explicit durable failure-result verifier port; no timestamp fabrication or retry after an unverified committed outcome; default frozen in-package contract retained for upstream unit conformance"
       ]
+    },
+    {
+      "source_path": "src/eios/adapters/_deadline_http.py",
+      "destination": "packages/eios-core/src/eios/adapters/_deadline_http.py",
+      "upstream_sha256": "e54be6e23644e2d50609ac97bab22b3e32596ea93763ad6c0e3e942019484ab3",
+      "adaptations": [
+        "a prepared request body (content bytes) besides json",
+        "no 5 s cap per operation: a model completion may answer after 30 s; the parent hard deadline still ends the request",
+        "module docstring names the upstream source and the NexLoop use"
+      ],
+      "nexloop_sha256": "24579f80c72b3352090454ec3c2a7ac1a90be4e9f62a4ec2b6dc2729b343f241"
     }
   ]
 }
