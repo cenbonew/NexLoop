@@ -275,8 +275,10 @@
       "checksums_file": "gitleaks_8.30.1_checksums.txt",
       "archive_sha256_linux_amd64": null,
       "binary_sha256_linux_amd64": null,
-      "install": "scripts/ci/install-gitleaks.sh: the repository downloads nothing; the operator fetches the archive and the checksums file of this release from the source above, the script checks the archive against the published checksum (and against archive_sha256_* once recorded), installs the binary into the account's own directory without root and prints both digests, which are recorded here at the first CI host installation (B class, docs/implementation/NX-060-gitleaks.md). The gate then also checks binary_sha256_<platform> when it is recorded.",
-      "development_machine": "Homebrew bottle gitleaks 8.30.1 (formula-pinned source build; its binary digest differs from the release archive's, so no darwin binary digest is recorded and the gate checks the version there)"
+      "install": "scripts/ci/install-gitleaks.sh: the repository downloads nothing; the operator fetches the archive and the checksums file of this release from the source above, the script checks the archive against the published checksum (and against archive_sha256_* once recorded), installs the binary into the account's own directory without root and prints both digests. archive_sha256_linux_amd64 is to be computed independently on a second machine before the first CI host installation, and both digests are recorded here (B class, docs/implementation/NX-060-gitleaks.md §4).",
+      "development_machine": "Homebrew bottle gitleaks 8.30.1 (formula-pinned source build; its binary digest differs from the release archive's, so no darwin binary digest is recorded and the gate checks the version there)",
+      "distribution": "not distributed: installed on hosts from the official release, never committed or bundled (no THIRD_PARTY_NOTICES entry, as for syft and grype)",
+      "digest_policy": "linux_amd64 (CI and release hosts): prepush-scan.sh gate 4 fails while binary_sha256_linux_amd64 is null and runs only a binary with that digest once recorded. darwin_arm64 (development machine): version check only, see development_machine. Any other platform: the gate fails."
     },
     "ssh-keygen": {
       "minimum_openssh": "8.2",

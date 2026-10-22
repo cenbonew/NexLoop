@@ -1,39 +1,57 @@
 """NX-060: the gitleaks configuration keeps the default rules and only narrow, fully anchored allowlists.
 
-prepush-scan.sh gate 4 uses the configuration of the scanned commit, so loosening it would loosen its own gate; these
-limits make any loosening a visible test change. The gate itself (blocking, fail-closed, sentinel) is exercised by
-scripts/ci/test-prepush-scan.py.
+The rules live in scripts/ci/check_gitleaks_config.py, which prepush-scan.sh gate 4 also runs on the trusted configuration
+it is about to use; this test holds the repository's configuration to them and shows that each loosening is refused. The
+gate itself (blocking, trust, fail-closed, sentinel, ignore files) is exercised by scripts/ci/test-prepush-scan.py.
 """
+import copy
 import json
-import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts/ci'))
+import check_gitleaks_config as checker  # noqa: E402
+
 CONFIG = tomllib.loads((ROOT / '.gitleaks.toml').read_text())
+PINNED = json.loads((ROOT / 'versions.lock.json').read_text())['release_tools']['gitleaks']['version']
 
 
-def test_default_rules_are_kept_and_none_is_disabled_or_overridden():
-    assert CONFIG['extend'] == {'useDefault': True}
-    assert 'rules' not in CONFIG and 'allowlist' not in CONFIG
+def test_repository_configuration_conforms():
+    assert checker.problems(CONFIG, PINNED) == []
+    run = subprocess.run([sys.executable, str(ROOT / 'scripts/ci/check_gitleaks_config.py'), str(ROOT / '.gitleaks.toml'),
+                          str(ROOT / 'versions.lock.json')], capture_output=True, text=True)
+    assert run.returncode == 0 and run.stdout == ''
 
 
-def test_min_version_is_the_pinned_version():
-    pinned = json.loads((ROOT / 'versions.lock.json').read_text())['release_tools']['gitleaks']['version']
-    assert CONFIG['minVersion'] == pinned
+def loosen(change):
+    config = copy.deepcopy(CONFIG)
+    change(config)
+    return config
 
 
-def test_every_allowlist_is_one_rule_anchored_paths_and_anchored_values():
-    allowlists = CONFIG['allowlists']
-    assert 1 <= len(allowlists) <= 3
-    for entry in allowlists:
-        assert set(entry) == {'description', 'targetRules', 'condition', 'regexTarget', 'paths', 'regexes'}, entry
-        assert entry['targetRules'] == ['generic-api-key'] and entry['condition'] == 'AND'
-        assert entry['regexTarget'] in ('secret', 'match') and entry['description'].strip()
-        for pattern in entry['paths'] + entry['regexes']:
-            assert pattern.startswith('^') and pattern.endswith('$'), pattern
-            re.compile(pattern)
-            # No catch-all: every pattern needs literal text beyond anchors, classes and quantifiers.
-            assert re.sub(r'\[[^\]]*\]|\\.|[\^$.*+?(){}|0-9,]', '', pattern), pattern
-        for pattern in entry['paths']:
-            assert not pattern.startswith('^.*') and '/.*' not in pattern, pattern
+@pytest.mark.parametrize('change', [
+    lambda c: c['extend'].update(useDefault=False),
+    lambda c: c['extend'].update(disabledRules=['aws-access-token']),
+    lambda c: c.update(rules=[{'id': 'aws-access-token', 'regex': 'never'}]),
+    lambda c: c.update(allowlist={'regexes': ['.']}),
+    lambda c: c.update(minVersion='8.0.0'),
+    lambda c: c['allowlists'].append(copy.deepcopy(c['allowlists'][0])),
+    lambda c: c['allowlists'][0].update(targetRules=['github-pat']),
+    lambda c: c['allowlists'][0].update(condition='OR'),
+    lambda c: c['allowlists'][1].update(regexes=['.']),
+    lambda c: c['allowlists'][1].update(regexes=['^.*$']),
+    lambda c: c['allowlists'][1].update(paths=['^.*$']),
+    lambda c: c['allowlists'][1].update(paths=['^tests/.*$']),
+    lambda c: c['allowlists'][2].update(regexes=['nexloop-cjk-bigram-v1']),
+    lambda c: c['allowlists'][0].update(stopwords=['key']),
+    lambda c: c['allowlists'][0].pop('paths'),
+], ids=['default-off', 'disabled-rule', 'rule-override', 'global-allowlist', 'min-version', 'fourth-allowlist',
+        'other-rule', 'condition-or', 'dot-value', 'catch-all-value', 'catch-all-path', 'any-directory', 'unanchored',
+        'stopwords', 'value-only'])
+def test_every_loosening_is_refused(change):
+    assert checker.problems(loosen(change), PINNED)

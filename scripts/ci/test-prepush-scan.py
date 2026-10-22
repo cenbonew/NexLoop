@@ -19,9 +19,10 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     run('git', 'config', 'user.email', 'test@example.invalid', cwd=root)
     run('git', 'config', 'user.name', 'Publication test', cwd=root)
     (root / 'safe').write_text('baseline\n')
-    # Gate 4 reads the configuration from the scanned commit, so the disposable repository carries the real one.
+    # Gate 4 trusts the configuration and pin of the base commit, so the disposable repository's base carries the real ones.
     (root / '.gitleaks.toml').write_text((SCAN.parents[2] / '.gitleaks.toml').read_text())
-    run('git', 'add', 'safe', '.gitleaks.toml', cwd=root)
+    (root / 'versions.lock.json').write_text((SCAN.parents[2] / 'versions.lock.json').read_text())
+    run('git', 'add', 'safe', '.gitleaks.toml', 'versions.lock.json', cwd=root)
     run('git', 'commit', '-m', 'baseline', cwd=root)
     baseline = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
     run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
@@ -106,22 +107,74 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     check(True)
     assert 'FAIL gitleaks: ' in full(False)
     run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
-    # Fail closed: no tool, another version, no configuration in the scanned commit, a configuration that detects nothing.
+    # Fail closed: no tool, another version, a tool that detects nothing (sentinel; on linux_amd64 the digest pin stops it first).
     run('git', 'reset', '--hard', baseline, cwd=root)
     commit('safe', 'harmless again\n', 'harmless')
     check(True)
-    stub = pathlib.Path(temp) / 'stub-gitleaks'
-    stub.write_text('#!/bin/sh\necho 0.0.1\n')
-    stub.chmod(0o755)
-    for tool in (str(pathlib.Path(temp) / 'absent-gitleaks'), str(stub)):
+    def stub(name, body):
+        path = pathlib.Path(temp) / name
+        path.write_text('#!/bin/sh\n' + body)
+        path.chmod(0o755)
+        return str(path)
+    for tool in (str(pathlib.Path(temp) / 'absent-gitleaks'), stub('old-gitleaks', 'echo 0.0.1\n'),
+                 stub('blind-gitleaks', 'echo 8.30.1\nexit 0\n')):
         os.environ['NEXLOOP_GITLEAKS'] = tool
         check(False)
     del os.environ['NEXLOOP_GITLEAKS']
+    def scan_output():
+        return subprocess.run(['bash', str(SCAN)], cwd=root, capture_output=True, text=True)
+    aws = fakes['aws.cfg']
+    # The outgoing commits cannot loosen their own scan: a dropped, neutered or wide-open configuration in them is reported
+    # for owner ack and the base configuration still applies.
+    wide = ('minVersion = "8.30.1"\n[extend]\nuseDefault = true\n[[allowlists]]\ndescription = "everything"\n'
+            "regexes = ['" + "''.''" + "']\n")
+    loosened = {'drop': None, 'neutered': 'title = "detects nothing"\n[extend]\nuseDefault = false\n', 'wide': wide}
+    for name, text in loosened.items():
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        if text is None:
+            run('git', 'rm', '-q', '.gitleaks.toml', cwd=root)
+            run('git', 'commit', '-q', '-m', 'drop the configuration', cwd=root)
+        else:
+            commit('.gitleaks.toml', text, name + ' configuration')
+        commit('aws.cfg', aws, 'fake credential under a loosened configuration')
+        result = scan_output()
+        assert result.returncode != 0 and 'FAIL gitleaks: ' in result.stdout and 'owner ack required' in result.stdout, (name, result.stdout)
+    # A base whose own configuration breaks the structure rules is not trusted either.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('.gitleaks.toml', wide, 'wide configuration published')
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'harmless on a loosened base\n', 'harmless')
+    result = scan_output()
+    assert result.returncode != 0 and 'breaks the structure rules' in result.stdout, result.stdout
+    # A base without a configuration (first introduction) falls back to this checkout's configuration.
+    run('git', 'reset', '--hard', baseline, cwd=root)
     run('git', 'rm', '-q', '.gitleaks.toml', cwd=root)
-    run('git', 'commit', '-m', 'drop the configuration', cwd=root)
+    run('git', 'commit', '-q', '-m', 'base without configuration', cwd=root)
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'harmless again\n', 'harmless')
+    result = scan_output()
+    assert result.returncode == 0 and '(checkout configuration)' in result.stdout, result.stdout
+    commit('aws.cfg', aws, 'fake credential')
     check(False)
-    commit('.gitleaks.toml', 'title = "detects nothing"\n[extend]\nuseDefault = false\n', 'neutered configuration')
-    result = subprocess.run(['bash', str(SCAN)], cwd=root, capture_output=True, text=True)
-    assert result.returncode != 0 and 'no longer detects the sentinel' in result.stdout, result.stdout
-print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys, full mode sees old history, fails closed without tool/pinned version/configuration/sentinel')
+    run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
+    # Neither a .gitleaksignore (tracked or not) nor a gitleaks:allow comment hides a finding.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('aws.cfg', aws.rstrip('\n') + ' # gitleaks:' + 'allow\n', 'inline allow comment')
+    check(False)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('aws.cfg', aws, 'fake credential')
+    report = pathlib.Path(temp) / 'fingerprints.json'
+    subprocess.run(['gitleaks', 'git', '--no-banner', '--log-level', 'error', '--redact', '--log-opts', 'HEAD~1..HEAD',
+                    '--report-format', 'json', '--report-path', str(report), '.'], cwd=root, capture_output=True)
+    import json
+    fingerprints = ''.join(f['Fingerprint'] + '\n' for f in json.loads(report.read_text()))
+    assert fingerprints
+    (root / '.gitleaksignore').write_text(fingerprints)
+    result = scan_output()
+    assert result.returncode != 0 and 'a .gitleaksignore is present' in result.stdout, result.stdout
+    commit('.gitleaksignore', fingerprints, 'tracked ignore file')
+    check(False)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    (root / '.gitleaksignore').unlink(missing_ok=True)
+print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys only in tests, full mode sees old history, trusts only the base/checkout configuration (dropped, neutered, wide-open outgoing configurations still blocked; broken base refused), ignores .gitleaksignore and gitleaks:allow, fails closed without tool/pinned version/sentinel')
 print('PASS: missing list fails closed, clean/no-ahead, historical identifiers and credentials, feature hook, variable references, tracked private paths')

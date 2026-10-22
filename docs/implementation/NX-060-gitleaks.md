@@ -5,10 +5,13 @@
 - **受保护路径**：本任务修改了 `scripts/ci/`（owner ack-policy，由调度员 ack）。
 - **范围**：
   - `scripts/ci/prepush-scan.sh` 增加第四道门禁，原有三道不变；
-  - 新增 `.gitleaks.toml`、`scripts/ci/install-gitleaks.sh`；
+  - 新增 `.gitleaks.toml`、`scripts/ci/install-gitleaks.sh`、`scripts/ci/check_gitleaks_config.py`；
   - `versions.lock.json` 的 `release_tools.gitleaks`；
   - 测试与文档。
 - **不在范围内**：没有改写任何历史，没有在任何主机上安装，仓库也不下载任何东西。
+- **修订**：
+  - 第一稿 `0d2003e1`；
+  - 第二稿按 L6 复核修订：确认级 1（`.gitleaksignore`）、确认级 2（配置可信度与运行时结构检查）、重要 3（Linux 摘要策略）、建议 6（处置流程）、建议 7（lock 中注明不分发）、建议 9（`--full` 不能替代前三道门）。另外新发现并关闭了 `gitleaks:allow` 行内注释这一绕过途径。
 
 ## 1. 门禁行为
 
@@ -21,28 +24,71 @@
    - 用 `gitleaks git --log-opts=<base>..<ref>` 只扫描待推送提交的新增行；
    - 也可以用 `prepush-scan.sh --full [ref]`（默认 HEAD），扫描该 ref 可达的全部历史，只跑这一道门。
 
-第四道门在以下任何一种情况下都**失败关闭**：
+### 1.1 信任模型（第二稿，按 L6 复核确认级 1、2 修订）
+
+**配置和锁定条目从哪里来**：
+
+- `.gitleaks.toml` 和 `versions.lock.json` 的 `release_tools.gitleaks`，**都取自 base 提交**。base 是已经发布过的版本：
+  - `--hook` 下是 origin/main；
+  - `sync_github.py` 中是上次同步的 main；
+  - `release.py` 中是上一个公开版本。
+- 只有 base 里没有这两项时（首次引入），或在 `--full` 模式下，才回退到脚本所在的检出。
+- **永远不取被扫描的提交**。待推送提交如果删除、掏空或放宽了 `.gitleaks.toml`，这次扫描仍然用受信版本，并且会输出：
+
+  ```
+  NOTE .gitleaks.toml changes in the outgoing commits: owner ack required
+  ```
+
+  这一点与受保护路径一致；建议调度员把 `.gitleaks.toml` 加入 ack-policy 的受保护路径清单。
+
+  由此带来的工作流约束：新的 allowlist 必须先单独发布，需要它的值才能在之后的推送中通过。
+
+**结构约束在运行时执行**：`scripts/ci/check_gitleaks_config.py` 会对“即将使用的受信配置”执行检查，测试 `tests/test_gitleaks_config.py` 也调用同一个检查器。规则如下：
+
+- 必须保留默认规则，不允许覆盖或禁用规则，不允许全局 allowlist；
+- 最多 3 条 allowlist，每条只针对 `generic-api-key`、条件为 AND，字段固定；
+- 路径和值都必须首尾锚定，不能是通配，路径不能匹配任意目录；
+- `minVersion` 必须等于锁定版本。
+
+如果 base 本身的配置违反这些规则，同样会失败，不被信任。
+
+**忽略机制一律不生效**：
+
+- gitleaks 以 **git 目录**（`git rev-parse --absolute-git-dir`）为 source，在**私有空目录**中运行；
+- `--gitleaks-ignore-path` 指向这个空目录，并加 `--ignore-gitleaks-allow`；
+- 清除 `GITLEAKS_CONFIG` 和 `GITLEAKS_CONFIG_TOML` 两个环境变量。
+
+在 8.30.1 上实测：
+
+- 工作树里有一个未跟踪的 `.gitleaksignore` 时，原先的写法会漏报，exit 0；
+- **只加 `--gitleaks-ignore-path` 也挡不住**，因为 gitleaks 仍然会读 source 下的 `.gitleaksignore`；
+- 改为以 git 目录为 source 之后，两处假凭据都能报出；
+- 行内的 `gitleaks:allow` 注释原先会悄悄抑制一处命中，这是本轮新发现的同类绕过，已用 `--ignore-gitleaks-allow` 关闭。
+
+此外，只要被扫描的提交跟踪了任何 `.gitleaksignore`，或者工作树根目录、git 目录里有这个文件，就**直接失败**。
+
+### 1.2 失败关闭的情况
 
 | 情况 | 输出 |
 |---|---|
+| 平台不是 linux_amd64 或 darwin_arm64 | `FAIL gitleaks gate: platform … is not pinned` |
 | 找不到 gitleaks（`NEXLOOP_GITLEAKS` 或 PATH） | `FAIL gitleaks not installed (pinned 8.30.1)` |
 | `gitleaks version` 与锁定版本不同 | `FAIL gitleaks version … is not the pinned …` |
-| 本平台已记录 `binary_sha256_<platform>`，但二进制摘要不符 | `FAIL gitleaks binary digest is not the recorded one` |
-| 被扫描的提交里没有 `.gitleaks.toml` | `FAIL .gitleaks.toml missing in <ref>` |
-| 配置连一个合成哨兵 AWS 访问键都检测不到（被禁用或被掏空） | `FAIL gitleaks configuration no longer detects the sentinel key` |
+| **linux_amd64 上还没有记录 `binary_sha256_linux_amd64`** | `FAIL gitleaks binary digest not recorded for linux_amd64 …`（策略见 §4） |
+| 已记录的二进制摘要不符 | `FAIL gitleaks binary digest is not the recorded one` |
+| 受信的 `.gitleaks.toml` 缺失 | `FAIL trusted .gitleaks.toml missing` |
+| 受信配置违反结构约束 | `FAIL gitleaks configuration (base\|checkout) breaks the structure rules: <规则名>`，不打印规则内容 |
+| 被扫描的提交、工作树或 git 目录里有 `.gitleaksignore` | `FAIL a .gitleaksignore is present …` |
+| 配置或二进制连合成哨兵 AWS 访问键都检测不到（例如一个回显 8.30.1 却什么都不报的桩程序） | `FAIL gitleaks configuration no longer detects the sentinel key` |
 | 有命中 | `FAIL gitleaks: N finding(s) in … (content redacted)`，**只计数，不打印值** |
 | 扫描没有完成 | `FAIL gitleaks scan could not complete` |
 
-设计要点：
+其他实现细节：
 
-- **锁定版本**从脚本所在的检出读取，即 `versions.lock.json` 的 `release_tools.gitleaks.version`，而不是从被扫描的树读取；
-- **配置**取被扫描提交自身的 `.gitleaks.toml`（`git show <ref>:.gitleaks.toml`），这样放宽配置的改动会与需要它的提交一起被复核。为防止放宽到“什么都不报”，加了两层：
-  - 运行时的哨兵检查（借鉴上游 EIOS gate 的做法）；
-  - 结构测试 `tests/test_gitleaks_config.py`：必须保留默认规则，不允许覆盖或禁用规则，最多 3 条 allowlist，每条只针对 `generic-api-key`、条件为 AND，路径和值都必须首尾锚定且不能是通配；
 - 退出码用 `--exit-code 17` 区分“有命中”与“出错”；
 - 报告写在 `umask 077` 的私有临时目录里，由 trap 删除；
-- 用 `--redact` 打码；
-- 兼容 macOS 自带的 bash 3.2（第一次实现时“进程替换里嵌 heredoc”在 bash 3.2 下报 ambiguous redirect，已改写）。
+- 兼容 macOS 自带的 bash 3.2：第一稿中“进程替换里嵌 heredoc”在 bash 3.2 下报 ambiguous redirect，已改写；
+- `--full` 模式只跑第四道门，**不能替代普通模式下的前三道检查**。
 
 调用方不用改：`--hook` 模式、`sync_github.py`、`release.py` 的 `history_scan` 都会自动经过第四道门。
 
@@ -104,32 +150,57 @@ curl -fsSLO https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitle
 scripts/ci/install-gitleaks.sh gitleaks_8.30.1_linux_x64.tar.gz gitleaks_8.30.1_checksums.txt
 ```
 
-之后：
+**摘要策略（按 L6 重要 3 明确）**：
 
-1. 在开发机上取同一个 archive，独立计算一次摘要并比对，与 syft 的先例相同：双机校验；
-2. 把打印出的 `archive_sha256` 和 `binary_sha256` 写进 `versions.lock.json` 的 `archive_sha256_linux_amd64` 和 `binary_sha256_linux_amd64`，`status` 改为 `installed_ci_host`。此后门禁在 CI 主机上也会核对二进制摘要；
-3. 确认运行 `sync_github.py`、`release.py` 的服务账户，其 PATH 里有安装目录。`sync_github.py` 只把 PATH、HOME、LANG、LC_ALL、TMPDIR 传给扫描进程；也可以设置 `NEXLOOP_GITLEAKS` 指向二进制。
+- **linux_amd64（CI 主机与发版主机）：没有记录摘要就失败**。只要 `binary_sha256_linux_amd64` 还是 null，第四道门就失败；记录之后，只运行摘要与之一致的二进制。这样可以堵住“一个回显 8.30.1 的桩程序也能通过”的漏洞。
+- **darwin_arm64（开发机）**：只核对版本。Homebrew 构建的二进制没有官方摘要可以对照。桩程序即使冒充了版本号，也会被哨兵检查挡下，因为它报不出那个合成的 AWS 访问键（测试中有这个用例）。
+- **其他平台**：失败。
 
-说明：制品名按 gitleaks release 的命名规则填写，我**没有下载核对**。名字不对时，安装脚本会拒绝，不会悄悄通过。
+**首次安装顺序**（B 类，由负责人或调度员执行；我没有连接任何主机，也没有下载任何东西）：
+
+1. **安装之前**，先在另一台机器上独立取得同一个 archive，计算它的 sha256，与官方 checksums 文件比对，然后把结果先记入 `archive_sha256_linux_amd64`。这样 CI 主机安装时，就有一个与 checksums 文件来源无关的独立锚点。L6 的建议是装机前做双机校验，而不是装机后。
+2. 在 CI 主机上用上面三条命令安装。安装脚本会同时核对官方 checksums 和已记录的 `archive_sha256_linux_amd64`，任何一项不符都拒绝安装。
+3. 把打印出的 `binary_sha256` 记入 `binary_sha256_linux_amd64`，`status` 改为 `installed_ci_host`。
+4. 确认运行 `sync_github.py`、`release.py` 的服务账户能找到 gitleaks。`sync_github.py` 只把 PATH、HOME、LANG、LC_ALL、TMPDIR 传给扫描进程，而 `~/.local/bin` 通常不在服务账户的 PATH 里，所以需要调整 PATH，或者设置 `NEXLOOP_GITLEAKS`。
+
+说明：制品名按 gitleaks release 的命名规则填写，我**没有下载核对**（L6 重要 5）。调度员表示会在负责人同意后，于 CI 主机上实际下载核对。名字不对时，安装脚本会拒绝，不会悄悄通过。
 
 ## 5. 上线顺序与风险
 
-- **合并之前，必须先在运行 `sync_github.py` 和 `release.py` 的主机上装好 gitleaks**。否则第四道门失败关闭，GitHub 同步和发版的 `history_scan` 会被阻塞。这是设计上的有意行为：缺工具从不算通过。
-- `scripts/ci/check` 的各 stage 不调用 `prepush-scan.sh`。`test-prepush-scan.py` 只在 `make lint` 中运行。CI 的判定不会因此变化，但在没有 gitleaks 的机器上跑 `make lint` 会失败。
-- `.git/hooks/pre-push` 已经调用 `prepush-scan.sh --hook`，各开发线推送前也会经过第四道门，开发机已有 gitleaks。
+- **合并之前**，CI 主机必须完成 §4 的安装，并且两个摘要都已记录。否则会出现以下后果，这些都是缺工具即失败的有意行为：
+  - GitHub 同步和发版的 `history_scan` 被阻塞；
+  - **CI 全量 pytest 中的 `tests/test_github_sync.py` 会失败**：它在临时仓库中真实运行 `sync_github.py`，因而也会经过第四道门；
+  - CI 主机上的 `make lint`（`test-prepush-scan.py`）会失败。
+- `scripts/ci/` 是受保护路径，需要负责人的 ack-policy（由调度员 ack）。建议同时把 `.gitleaks.toml` 加入受保护路径清单。
+- `.git/hooks/pre-push` 调用的是 `prepush-scan.sh --hook`，各开发线推送前也会经过第四道门。开发机上已有 gitleaks。
+- 配置变更的节奏：调整 allowlist 的提交要先单独发布，因为本次扫描用的是 base 的受信配置。
 
-## 6. 测试与演示
+## 6. 发现命中时的处置流程（按 L6 建议 6 补充）
+
+1. **在待推送、尚未发布的提交里命中**：按 AGENTS.md 的规定，用交互式 rebase 或 filter-repo 把它从未推送的历史中移除，然后重扫。如果确认是误报，应当按 §2 的标准新增一条窄 allowlist：先单独提交，经 owner ack 并发布，而不是绕过门禁。
+2. **在已发布的历史（main 或 GitHub）里发现真实凭据**：
+   - **不改写已发布的历史，不 force push main**（AGENTS.md）；
+   - **立即轮换或吊销**该凭据，这是唯一有效的补救，因为公开仓库可能已被缓存或克隆；
+   - 立即报告调度员和负责人，只说明位置和类别，不转述凭据值；
+   - 用 ADR 或事件记录写明：影响范围、轮换时间、吊销确认，以及为什么此前的门禁没有拦住，并补上对应的规则或测试。
+
+   只有负责人另行决定时，才考虑改写历史。
+3. **全量扫描（`--full`）发现历史中的命中**：先分诊（误报还是真实凭据），真实凭据按第 2 条处理，误报按 §2 的标准评估是否新增窄 allowlist。
+
+## 7. 测试与演示
 
 环境：`PYTHONPATH=packages/eios-core/src:tests`，`uv run --frozen`，gitleaks 8.30.1（Homebrew）。没有 PG 测试。
 
 | 命令 | 结果 |
 |---|---|
-| `uv run --frozen python scripts/ci/test-prepush-scan.py` | 两行 PASS。新增的用例包括：(1) 合成的假 AWS 访问键、假 GitHub token 各提交一次又删除，普通模式、`--hook` 模式、`--full` 模式都被拦（FAIL gitleaks），输出中不含假值；(2) 测试路径下的合成幂等键放行，同一个值放在非测试路径被拦；(3) base 之前的旧泄露，普通模式放行（不在待推送范围内），`--full` 被拦；(4) 没有工具、版本不对（用桩程序）、提交里没有配置、配置被掏空（哨兵检测不到），全部失败关闭。假凭据在运行时拼接，源码里从不出现完整的值 |
-| `pytest tests/test_gitleaks_config.py tests/test_history_audit.py tests/test_release_compliance.py` | 39 passed |
+| `uv run --frozen python scripts/ci/test-prepush-scan.py`（第一稿） | 两行 PASS。用例包括：(1) 合成的假 AWS 访问键、假 GitHub token 各提交一次又删除，普通、`--hook`、`--full` 三种模式都被拦，输出中不含假值；(2) 测试路径下的合成幂等键放行，同一个值放在非测试路径被拦；(3) base 之前的旧泄露，普通模式放行，`--full` 被拦；(4) 没有工具、版本不对，失败关闭。假凭据都在运行时拼接 |
+| 同上（第二稿，确认级 1、2） | 两行 PASS。新增：(5) 待推送提交删除、掏空、或放成全放行（`regexes = ['''.''']`）的 `.gitleaks.toml`，再带一个假 AWS 键，三种情况都仍然被拦，并输出 `owner ack required`；(6) base 本身发布的是全放行配置时，报 `breaks the structure rules`；(7) base 没有配置时，回退到检出配置（输出 `(checkout configuration)`），假凭据仍被拦；(8) 行内带 `gitleaks:allow` 的假凭据被拦；(9) 用 gitleaks 自己算出的 fingerprint 写成 `.gitleaksignore`，未跟踪或已跟踪两种情况都失败；(10) 一个回显 8.30.1 却永远 exit 0 的桩程序，被哨兵挡下 |
+| `pytest tests/test_gitleaks_config.py`（第二稿） | 仓库配置通过检查器；15 种放宽方式（关闭默认规则、禁用或覆盖规则、全局 allowlist、改 minVersion、第 4 条 allowlist、换规则、条件改 OR、`.`、`^.*$`、任意目录、未锚定、stopwords、只有值没有路径等）**全部被拒** |
+| `pytest tests/test_gitleaks_config.py tests/test_github_sync.py tests/test_history_audit.py tests/test_release_compliance.py`（第二稿） | 62 passed |
 | `pytest tests/test_github_sync.py` | 首次 5 failed（临时仓库没有 `.gitleaks.toml`，新门禁按设计失败关闭）；在 lab 的 base 提交里带上真实配置后 10 passed |
 | `pytest tests/test_public_repository_checks.py tests/test_license_compliance.py` | 48 passed |
 | `bash scripts/ci/prepush-scan.sh HEAD 1892c9ac`（本分支首次提交后） | **首次失败**：`FAIL gitleaks: 1 finding(s) in outgoing added lines`。命中的是 `scripts/ci/test-prepush-scan.py` 中测试用的合成幂等键字面量：它不在 `tests/` 路径下，allowlist 2 不放行。改为运行时拼接后重扫 |
-| 同上（修正后） | 四道门全部 PASS |
+| 同上（修正后，以及第二稿） | 四道门全部 PASS；第二稿还输出 `NOTE .gitleaks.toml changes … owner ack required`，因为 base 中还没有这个文件，所以用的是检出配置 |
 | `bash scripts/ci/prepush-scan.sh --full HEAD` | PASS（全部历史 0 命中） |
 | `NEXLOOP_GITLEAKS=/nonexistent bash scripts/ci/prepush-scan.sh --full HEAD` | `FAIL gitleaks not installed (pinned 8.30.1)`，exit 1 |
 | `install-gitleaks.sh`：用本机二进制自制同名 darwin_arm64 archive 加 checksums，只在 scratch 目录中执行 | 正常路径：安装，并打印两个摘要。checksums 不符：`refused: archive digest differs from the published checksum`，exit 2。名字不对：`refused: archive must be …`，exit 2。被拒时都没有安装任何东西。这只验证脚本逻辑，不代替 CI 主机上用官方 archive 的首次安装 |
