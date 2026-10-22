@@ -46,9 +46,11 @@ def run(admin, label):
 def test_derivation_cost_against_the_p1_baseline(catalog, capsys):  # noqa: F811 - imported fixtures
     c = catalog
     admin = c['admin']
-    admin.execute('alter table ontology.objects disable trigger nexloop_relation_derive')
+    for t in ('nexloop_relation_derive', 'nexloop_relation_derive_update'):
+        admin.execute(f'alter table ontology.objects disable trigger {t}')
     base = run(admin, 'p1')
-    admin.execute('alter table ontology.objects enable trigger nexloop_relation_derive')
+    for t in ('nexloop_relation_derive', 'nexloop_relation_derive_update'):
+        admin.execute(f'alter table ontology.objects enable trigger {t}')
     idle = run(admin, 'idle')
     publish(c)
     derived = run(admin, 'p2')

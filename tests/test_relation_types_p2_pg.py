@@ -61,10 +61,10 @@ def test_derivation_follows_the_property(catalog):  # noqa: F811 - imported fixt
     assert edges(admin, source=g) == []  # cleared
     admin.execute("update ontology.objects set properties=jsonb_build_object('consumer_id',%s::text) where object_id=%s", (b, g))
     admin.execute("update ontology.objects set properties=jsonb_build_object('consumer_id','pseudonym:'||repeat('a',32)) where object_id=%s", (g,))
-    assert edges(admin, source=g) == [] and dangling(admin) == {'real:goal_of': 1}  # the erasure's pseudonym names nothing
+    assert edges(admin, source=g) == [] and dangling(admin) == {}  # the erasure's pseudonym: dropped, not counted (I-5)
     # Dangling: a value naming no object is counted, no relation.
     put(admin, 'Goal', hexid('goal-2'), {'consumer_id': hexid('nobody')})
-    assert edges(admin, source=hexid('goal-2')) == [] and dangling(admin) == {'real:goal_of': 2}
+    assert edges(admin, source=hexid('goal-2')) == [] and dangling(admin) == {'real:goal_of': 1}
     # Only the object's own relation names: a PlanStep with goal and consumer gets both, its control (absent) is dangling.
     s = hexid('step-1')
     put(admin, 'PlanStep', s, {'consumer_id': a, 'goal_id': g, 'control_id': hexid('no-control')})
@@ -125,6 +125,8 @@ def test_deleting_either_end_takes_its_relations(catalog):  # noqa: F811 - impor
     assert edges(admin, source=goal) == []
     put(admin, 'Consumer', consumer, {}, replica=True)
     admin.execute("update ontology.objects set updated_at=clock_timestamp(),properties=properties where object_id=%s", (goal,))
+    assert edges(admin, source=goal) == []  # P-1: an update that leaves the properties equal queues nothing
+    admin.execute("update ontology.objects set properties=properties||'{\"state\":\"active\"}' where object_id=%s", (goal,))
     assert len(edges(admin, source=goal)) == 1
     admin.execute("delete from ontology.objects where type_name='Goal' and object_id=%s", (goal,))  # the source end
     assert admin.execute('select count(*) from ontology.relations').fetchone() == (0,)
@@ -221,3 +223,54 @@ def test_the_financial_retention_deletes_a_record_that_has_a_relation(kept, admi
     assert result['incomplete'] == 0
     assert env.record('payment', 'pay-rel') is None
     assert admin.execute('select count(*) from ontology.relations where source_object_id=%s', (record['object_id'],)).fetchone() == (0,)
+
+
+def test_a_newer_version_without_source_property_stops_the_derivation(catalog):  # noqa: F811
+    """I-1: the latest version decides; v2 of goal_of without source_property drops the derived relations on the next change
+    and derives no new ones - it never falls back to v1."""
+    c = catalog
+    admin = c['admin']
+    publish(c)
+    consumer, goal = hexid('v-consumer'), hexid('v-goal')
+    put(admin, 'Consumer', consumer, {}, replica=True)
+    put(admin, 'Goal', goal, {'consumer_id': consumer})
+    assert len(edges(admin, source=goal)) == 1
+    v2 = R.manifest()
+    v2['version'] = 2
+    for r in v2['relation_types']:
+        if r['definition']['relation_name'] == 'goal_of':
+            r['definition']['version'], r['source_property'] = 2, None
+    publish(c, v2)
+    assert admin.execute("select version,source_property from control.nexloop_relation_derivations where relation_name='goal_of'").fetchone() == (2, None)
+    admin.execute("update ontology.objects set properties=properties||'{\"state\":\"x\"}' where object_id=%s", (goal,))
+    assert edges(admin, source=goal) == []
+    put(admin, 'Goal', hexid('v-goal-2'), {'consumer_id': consumer})
+    assert edges(admin, source=hexid('v-goal-2')) == []
+
+
+def test_derivation_leaves_governed_links_and_is_scoped(catalog):  # noqa: F811
+    """I-2: only relations marked derived are dropped by derivation. Plus: an object inserted and deleted in one transaction leaves
+    nothing (S-7); a replica write derives nothing; a target in another world is not a target."""
+    c = catalog
+    admin = c['admin']
+    publish(c)
+    a, b, goal = hexid('l-a'), hexid('l-b'), hexid('l-goal')
+    put(admin, 'Consumer', a, {}, replica=True)
+    put(admin, 'Consumer', b, {}, replica=True)
+    put(admin, 'Goal', goal, {'consumer_id': a})
+    assert admin.execute("select metadata from ontology.relations where source_object_id=%s", (goal,)).fetchone() == ({'derived': True},)
+    # A relation of the same name to b written through the link entry (stand-in: not marked derived) survives property changes.
+    admin.execute("""insert into ontology.relations(relation_id,tenant_id,world,relation_name,schema_version,source_type,source_object_id,target_type,target_object_id,metadata,created_at)
+        values(%s,%s,'real','goal_of',1,'Goal',%s,'Consumer',%s,'{}',clock_timestamp())""", (hexid('linked'), TENANT_A, goal, b))
+    admin.execute("update ontology.objects set properties=properties-'consumer_id' where object_id=%s", (goal,))
+    assert edges(admin, source=goal) == [(goal, b, 'real')]
+    with admin.transaction():
+        put(admin, 'Goal', hexid('s7'), {'consumer_id': a})
+        admin.execute("delete from ontology.objects where object_id=%s", (hexid('s7'),))
+    assert edges(admin, source=hexid('s7')) == []
+    put(admin, 'Goal', hexid('replica-goal'), {'consumer_id': a}, replica=True)
+    assert edges(admin, source=hexid('replica-goal')) == []
+    from test_nx041_sim_worlds_pg import create
+    world = create(admin)['world']
+    put(admin, 'Goal', hexid('other-world-goal'), {'consumer_id': a}, world=world)  # a is a real-world Consumer
+    assert edges(admin, source=hexid('other-world-goal')) == [] and dangling(admin) == {f'{world}:goal_of': 1}
