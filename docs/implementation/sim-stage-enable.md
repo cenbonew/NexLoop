@@ -132,7 +132,25 @@ docker compose -p nexloop-simulation -f deploy/stage/compose.simulation.example.
 docker compose -p nexloop-simulation ps
 ```
 
-停止和清理用 `--profile simulation down`。world 的整体删除走 `sim_world.delete`，不靠 compose。
+**默认关闭，只在验收时启动**（ADR-037，负责人 2026-10-22）：模拟组的连接算在自己的预算里（上限 10，现在登记的是 8），平时不运行。
+
+- 启动前，先用 doctor 核对两段预算和服务端容量：
+
+```bash
+nexloop-doctor --budget-only --connection-budget /etc/nexloop/connection-budget.v1.json --database-url-file <只读检查 DSN>
+```
+
+- 启动用上面的 `--profile simulation up -d`。
+- 验收结束后立即停掉：
+
+```bash
+docker compose -p nexloop-simulation -f deploy/stage/compose.simulation.example.yaml --env-file <私有模拟 env> --profile simulation down
+```
+
+- 下次验收再启动时，执行同一条 `up -d` 命令；secret 和 token 目录还在，不需要重做第 4–8 步，除非 world 的凭据已经过期或被吊销。
+- 部署门禁会在给出模拟组渲染后的 compose（`simulation_compose_json`）时，双向核对它和预算里 simulation 段：每个登记项都有对应的容器，每个容器都已登记或标为 `none`，sim-runtime-worker 的 `--guard-workers`、`--dispatcher-pool-max` 和 `NEX_EIOS_DB_POOL_MAX` 都与预算一致。
+
+world 的整体删除走 `sim_world.delete`，不靠 compose。
 
 **启动顺序与排错（stage 2026-10-22）**：
 - runtime worker、stand-in executor 和 world-files 三个服务共用 `sim-agent-host` 的网络命名空间。它们都设置了 `depends_on: sim-agent-host: {condition: service_healthy, restart: true}`：Host 的 healthcheck（loopback 上的 `/health/live`）通过之后，它们才会启动；Host 重启时，它们也跟着重启。以前 Host 处在重启循环时，这几个服务先起来，就会拿到一个坏掉的命名空间（报 `Network is unreachable`），之后不会自己恢复。

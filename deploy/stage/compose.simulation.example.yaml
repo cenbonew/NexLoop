@@ -103,6 +103,13 @@ services:
       - /run/secrets/sim_guard_dsn
       - --guard-workers
       - '2'
+      - --dispatcher-pool-max
+      - '2'
+    # ADR-037 (owner 2026-10-22): each guard child's pool is 2 (the default is 4): 2 + 2 x 2 = 6 of the simulation budget of 10.
+    environment:
+      NEX_EIOS_DB_POOL_MAX: '2'
+    labels:
+      nexloop.budget-service: sim-runtime-worker
     secrets: [sim_pg_ca, sim_worker_dsn, sim_guard_dsn, sim_signing_key, sim_world_credential, sim_host_transport_key, sim_host_ca, sim_host_guard_key,
               sim_guard_certificate, sim_guard_tls_key]
     volumes: ['${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/var/lib/nexloop/artifacts']
@@ -118,6 +125,8 @@ services:
     command: [--database-url-file, /run/secrets/sim_stand_in_worker_dsn, --service-credential-file, /run/secrets/sim_world_credential,
               --world, '${NEXLOOP_SIM_WORLD:?sim:<uuid> or shadow:<uuid> required}']
     secrets: [sim_pg_ca, sim_stand_in_worker_dsn, sim_world_credential]
+    labels:
+      nexloop.budget-service: sim-stand-in-executor  # one connection (ADR-037: counted as 1)
   sim-world-files:
     # S2/S6: removes a deleted world's directory on the simulation Host with the database's permit and hands back the Host's signed
     # proof (no world credential, no Host key).
@@ -132,6 +141,8 @@ services:
               --host-id, '${NEXLOOP_SIM_HOST_ID:?simulation Host id}',
               --host-control-key-file, /run/secrets/sim_host_transport_key, --host-ca-file, /run/secrets/sim_host_ca]
     secrets: [sim_pg_ca, sim_files_dsn, sim_host_transport_key, sim_host_ca]
+    labels:
+      nexloop.budget-service: sim-world-files  # one connection (ADR-037: counted as 1)
   # Stage enablement (L6 review B2): the one-off writers of the secret and token files, so the files belong to NEXLOOP_SIM_UID from
   # the start and nobody runs sudo chown. Profile sim-setup only (never started by --profile simulation); run with
   #   docker compose ... --profile sim-setup run --rm sim-setup-dir            (once: the two directories, 0700, owned by the uid)
@@ -139,6 +150,8 @@ services:
   # The tools come read-only from the release checkout; their configurations, the configurator DSN and the signing key from a
   # private read-only input directory; nothing here is kept in the image.
   sim-setup-dir:
+    labels:
+      nexloop.budget-service: none  # a one-off setup tool: the operations reserve of ADR-037, not the simulation budget
     image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
     profiles: [sim-setup]
     restart: 'no'
@@ -161,6 +174,8 @@ services:
       - '${NEXLOOP_SIM_RUNTIME_DIR:?private simulation runtime directory required}:/sim-runtime'
       - '${NEXLOOP_SIM_ARTIFACT_DIR:?private simulation artifact directory required}:/sim-artifacts'
   sim-setup:
+    labels:
+      nexloop.budget-service: none  # a one-off setup tool: the operations reserve of ADR-037, not the simulation budget
     image: ${NEXLOOP_BACKEND_IMAGE:?tested backend image digest required}
     profiles: [sim-setup]
     restart: 'no'

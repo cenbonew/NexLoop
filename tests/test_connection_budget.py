@@ -233,5 +233,56 @@ def test_a_missing_long_running_service_fails_the_budget():
     for name in budget.required_services():
         document=copy.deepcopy(DOCUMENT);document['services']=[s for s in document['services'] if s['name']!=name]
         result=budget.evaluate(document)
-        assert not result['passed'] and result['checks']=={'application_pool_total':True,'all_services_declared':False,'runtime_dispatch_loops':True}
+        assert not result['passed'] and result['checks']=={'application_pool_total':True,'all_services_declared':False,'runtime_dispatch_loops':True,'simulation_pool_total':True}
         assert result['details']['missing_services']==[name]
+
+
+# --- ADR-037: the simulation group's own budget (owner 2026-10-22) -------------------------------------------------------------------
+
+def simulation(document):return {s['name']:s for s in document['simulation']['services']}
+
+
+def test_the_application_and_simulation_budgets_are_summed_apart():
+    result=budget.evaluate(DOCUMENT,max_connections=80)
+    assert result['passed'] and result['details']['application_pool_total']==59 and result['details']['simulation_pool_total']==8
+    assert result['details']['simulation_services']=={'sim-runtime-worker':6,'sim-stand-in-executor':1,'sim-world-files':1}
+    assert 'sim-runtime-worker' not in result['details']['services']  # never in the application's 60
+    assert result['checks']['simulation_pool_total'] and result['checks']['server_capacity']  # 59 + 8 + 7 <= 80 - 3
+    assert (budget.APPLICATION_POOL_LIMIT,budget.SIMULATION_POOL_LIMIT,budget.OPERATIONS_RESERVE,budget.SUPERUSER_RESERVED)==(60,10,7,3)
+    assert budget.APPLICATION_POOL_LIMIT+budget.SIMULATION_POOL_LIMIT+budget.OPERATIONS_RESERVE+budget.SUPERUSER_RESERVED==budget.MIN_MAX_CONNECTIONS
+
+
+def test_a_simulation_group_over_ten_fails():
+    document=copy.deepcopy(DOCUMENT);simulation(document)['sim-runtime-worker']['guard_pool_max']=4  # 2 + 2*4 = 10 -> 12 total
+    result=budget.evaluate(document)
+    assert not result['passed'] and result['details']['simulation_pool_total']==12 and result['checks']['simulation_pool_total'] is False
+    assert result['checks']['application_pool_total']  # the application's sum is unchanged
+
+
+@pytest.mark.parametrize('mutate',[
+    lambda d:d.pop('simulation'),
+    lambda d:d.update(simulation={'services':[]}),
+    lambda d:d['simulation']['services'].append({'name':'runtime-worker-x','processes':1,'pool_max':1}),   # not sim-
+    lambda d:d['simulation']['services'].append({'name':'api','processes':1,'pool_max':1}),                # an application name
+    lambda d:d['simulation'].update(extra=1),
+    lambda d:d.update(extra=1),
+])
+def test_invalid_simulation_sections_are_refused(mutate):
+    document=copy.deepcopy(DOCUMENT);mutate(document)
+    with pytest.raises(budget.BudgetInvalid):budget.evaluate(document)
+
+
+def test_the_simulation_compose_matches_its_budget_both_ways():
+    from nexloop_eios.deploy_checks import simulation_compose_budget
+    compose=yaml.safe_load((STAGE/'compose.simulation.example.yaml').read_text())
+    result=simulation_compose_budget(DOCUMENT,compose)
+    assert result['checks']['simulation_compose_matches_budget'],result
+    worker=compose['services']['sim-runtime-worker']
+    assert worker['environment']['NEX_EIOS_DB_POOL_MAX']=='2' and flag(worker['command'],'--guard-workers')=='2' and flag(worker['command'],'--dispatcher-pool-max')=='2'
+    assert compose['services']['sim-agent-host']['labels']['nexloop.budget-service']=='none'  # opens no PostgreSQL connection
+    pools=copy.deepcopy(compose);pools['services']['sim-runtime-worker']['environment']['NEX_EIOS_DB_POOL_MAX']='4'
+    assert simulation_compose_budget(DOCUMENT,pools)['details']['simulation_compose_budget']==['simulation_runtime_pools_differ:sim-runtime-worker']
+    unlabelled=copy.deepcopy(compose);unlabelled['services']['sim-world-files']['labels']={'nexloop.budget-service':'none'}
+    assert 'budget_entry_without_service:sim-world-files' in simulation_compose_budget(DOCUMENT,unlabelled)['details']['simulation_compose_budget']
+    extra=copy.deepcopy(DOCUMENT);extra['simulation']['services'].append({'name':'sim-extra','processes':1,'pool_max':1})
+    assert 'budget_entry_without_service:sim-extra' in simulation_compose_budget(extra,compose)['details']['simulation_compose_budget']

@@ -59,6 +59,7 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
   - `api 2×4 + api-browser-identity 2×3 + domain-worker 2 + action-worker 2 + runtime-worker 18 + message-relay 2×2 + outbound-recorder 2`（2026-10-13 方案 B：两个 relay，identity 池每进程 3）；
   - 10 个后台服务各 1；
   - 两个 launcher 的 API 池各 2。
+- 模拟进程组单独设一份预算（ADR-037，负责人 2026-10-22）：预算文件的 `simulation` 段，上限 10，不计入应用的 60。现在登记的是 sim-runtime-worker 2 + 2×2、sim-stand-in-executor 1、sim-world-files 1，合计 8。给出服务器的 `max_connections` 时，doctor 还会核对：应用 + 模拟 + 运维余量 7 ≤ `max_connections` − superuser 预留 3。模拟组默认关闭，只在验收时启动（`docs/implementation/sim-stage-enable.md`）。
 - doctor 另外核对 Runtime Worker 的 `processes × dispatch_loops ≤ 4`（ADR-022 §4 的 Host 上限，检查项 `runtime_dispatch_loops`）；派发循环不计入连接数。
 - doctor 另外核对每个常驻服务都已登记（`connection_budget.required_services()`），漏登记一项就判不通过。
 - 预算中不再有 `scheduler`：它对应交接包 Compose 模板里的 `nexloop-scheduler`，现有代码没有这个进程。原先保留的 4 个连接已删除，改为登记 API 浏览器身份池（调度员 2026-10-11 裁定，取代 NX-031 D7 中保留它作为预留的说法）。
