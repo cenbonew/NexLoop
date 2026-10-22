@@ -52,7 +52,8 @@ def lab(tmp_path, monkeypatch):
             git('push', '-q', 'origin', 'HEAD:refs/heads/main', cwd=work)
         return sha
 
-    base = commit('base', {'README.md': 'synthetic\n'})
+    # The prepush scan's gitleaks gate (NX-060) reads the configuration from the scanned commit, as in the real repository.
+    base = commit('base', {'README.md': 'synthetic\n', '.gitleaks.toml': (ROOT / '.gitleaks.toml').read_text()})
     git('push', '-q', str(github), f'{base}:refs/heads/main', cwd=work)  # the remote before the first gated sync
 
     def sync(**kw):

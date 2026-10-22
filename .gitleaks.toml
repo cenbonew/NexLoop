@@ -1,0 +1,53 @@
+# NexLoop secret detection (NX-060): gitleaks default rules plus three narrow allowlists.
+#
+# Used by scripts/ci/prepush-scan.sh gate 4, taken from the scanned commit itself (`git show <ref>:.gitleaks.toml`), so a
+# change here is reviewed with the commit that needs it. Each allowlist below is limited to one rule, to the paths where
+# the value occurs and to the exact shape of the value (condition AND): a real key of any other shape, in any other file,
+# or caught by any other rule is still a finding. Never widen a rule or allow a whole file to silence a finding; the
+# classification of every allowed value is in docs/implementation/NX-060-gitleaks.md. tests/test_gitleaks_config.py
+# enforces these limits.
+title = "NexLoop gitleaks configuration"
+minVersion = "8.30.1"
+
+[extend]
+useDefault = true
+
+# 1. SHA-256 digests in evidence and parity files: a JSON map from a source file name to that file's digest, or the
+#    correlation_key/topic_key digests of the claim contract example. generic-api-key fires on the key text ("api",
+#    "credential", "key", "token" inside a file name); the value is a lowercase 64-hex digest, not a credential.
+[[allowlists]]
+description = "SHA-256 digests keyed by file name or by claim correlation/topic key in evidence, parity and contract-example files"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^docs/implementation/[^/]+\.(json|md)$''',
+  '''^docs/handoff/contracts/examples/claim\.valid\.json$''',
+  '''^packages/contracts/examples/claim\.valid\.json$''',
+  '''^vendor/pi/packages/ai/src/providers/data/\.manifest\.json$''',
+]
+regexes = [
+  '''^[A-Za-z0-9_./-]+\.(py|sql|ts|tsx|json|md)"\s*:\s*"[0-9a-f]{64}"$''',
+  '''^(correlation_key|topic_key)"\s*:\s*"[0-9a-f]{64}"$''',
+]
+
+# 2. Synthetic business idempotency keys in tests: readable literals that begin with synthetic-, wb- or an NX task tag.
+[[allowlists]]
+description = "Synthetic idempotency keys of the test suite (synthetic-*, wb-*, nx0NN-*)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^tests/[^/]+\.py$''']
+regexes = ['''^(synthetic|wb|nx0[0-9]{2})-[a-z0-9-]+$''']
+
+# 3. The recall tokenizer version identifier (NX-021), a fixed public name stored with every index row.
+[[allowlists]]
+description = "Recall tokenizer version identifier nexloop-cjk-bigram-vN"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "secret"
+paths = [
+  '''^packages/eios-core/src/nexloop_eios/recall\.py$''',
+  '''^packages/eios-core/src/eios/migrations/[0-9]{4}_[a-z0-9_]+\.sql$''',
+]
+regexes = ['''^nexloop-cjk-bigram-v[0-9]+$''']

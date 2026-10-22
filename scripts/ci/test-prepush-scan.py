@@ -19,7 +19,9 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     run('git', 'config', 'user.email', 'test@example.invalid', cwd=root)
     run('git', 'config', 'user.name', 'Publication test', cwd=root)
     (root / 'safe').write_text('baseline\n')
-    run('git', 'add', 'safe', cwd=root)
+    # Gate 4 reads the configuration from the scanned commit, so the disposable repository carries the real one.
+    (root / '.gitleaks.toml').write_text((SCAN.parents[2] / '.gitleaks.toml').read_text())
+    run('git', 'add', 'safe', '.gitleaks.toml', cwd=root)
     run('git', 'commit', '-m', 'baseline', cwd=root)
     baseline = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
     run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
@@ -64,4 +66,62 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     check(False)
     os.environ['NEXLOOP_RESTRICTED_IDENTIFIERS_FILE'] = str(identifiers)
     check(True)
+    # Gate 4 (NX-060), gitleaks. Synthetic credentials are assembled at run time so that this file never contains one.
+    def commit(path, text, message):
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        run('git', 'add', path, cwd=root)
+        run('git', 'commit', '-m', message, cwd=root)
+    def full(expected):
+        result = subprocess.run(['bash', str(SCAN), '--full', 'HEAD'], cwd=root, capture_output=True, text=True)
+        assert (result.returncode == 0) == expected, result.stdout
+        return result.stdout
+    fakes = {'aws.cfg': 'aws_access_key_id = ' + 'AKIA' + 'Q4RT7WX2' + 'ZV3PMN6Y' + '\n',
+             'deploy.env': 'GITHUB_TOKEN=' + 'ghp_' + 'r8Kq2Lm5Nv7Px3Tz9Wb4Yc6Hd1Fg0Js2Ae8U' + '\n'}
+    for path, text in fakes.items():
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        commit(path, text, 'fake credential')
+        commit(path, 'removed\n', 'remove it again')
+        result = subprocess.run(['bash', str(SCAN)], cwd=root, capture_output=True, text=True)
+        assert result.returncode != 0 and 'FAIL gitleaks: ' in result.stdout, result.stdout
+        assert text.split('=')[-1].strip() not in result.stdout + result.stderr  # counted, never printed
+        check(False, hook=True)
+        full(False)
+    # A synthetic idempotency key that the default generic rule does flag is allowed only in a test file: the allowlist
+    # is limited by path as well as by shape.
+    synthetic = "headers = {'Idempotency-Key': '" + 'synthetic-wb-' + "owner-reject-0001'}\n"
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('tests/test_demo.py', synthetic, 'synthetic key in a test')
+    check(True)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('service/demo.py', synthetic, 'same value outside tests')
+    check(False)
+    # The same leak only before the base passes the outgoing range but not the full mode.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('aws.cfg', fakes['aws.cfg'], 'old leak')
+    commit('aws.cfg', 'removed\n', 'removed long ago')
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'later\n', 'later change')
+    check(True)
+    assert 'FAIL gitleaks: ' in full(False)
+    run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
+    # Fail closed: no tool, another version, no configuration in the scanned commit, a configuration that detects nothing.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('safe', 'harmless again\n', 'harmless')
+    check(True)
+    stub = pathlib.Path(temp) / 'stub-gitleaks'
+    stub.write_text('#!/bin/sh\necho 0.0.1\n')
+    stub.chmod(0o755)
+    for tool in (str(pathlib.Path(temp) / 'absent-gitleaks'), str(stub)):
+        os.environ['NEXLOOP_GITLEAKS'] = tool
+        check(False)
+    del os.environ['NEXLOOP_GITLEAKS']
+    run('git', 'rm', '-q', '.gitleaks.toml', cwd=root)
+    run('git', 'commit', '-m', 'drop the configuration', cwd=root)
+    check(False)
+    commit('.gitleaks.toml', 'title = "detects nothing"\n[extend]\nuseDefault = false\n', 'neutered configuration')
+    result = subprocess.run(['bash', str(SCAN)], cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0 and 'no longer detects the sentinel' in result.stdout, result.stdout
+print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys, full mode sees old history, fails closed without tool/pinned version/configuration/sentinel')
 print('PASS: missing list fails closed, clean/no-ahead, historical identifiers and credentials, feature hook, variable references, tracked private paths')
