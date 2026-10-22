@@ -69,6 +69,12 @@ def test_the_run_phase_blocks_what_this_release_lacks_and_keeps_real_unchanged(a
     assert TENANT_A not in json.dumps(doc)
 
 
+def REFUSED(world, consumer, effect, twin):
+    """The two AT-046 refusal probes as the server answers them (tests/test_at046_negatives_pg.py runs them on PostgreSQL)."""
+    return {'n1': {'real_session': {'refused': True, 'sqlstate': '42501', 'reason': 'service authentication denied'}},
+            'n2': {'refused': True, 'sqlstate': '42501', 'reason': 'activation command denied', 'control': {'accepted': True, 'task_id': 'task-control'}}}
+
+
 class FakeProbe:
     """A read-only probe answering the run phase's queries from a dict (no database)."""
 
@@ -122,7 +128,7 @@ def test_with_the_run_action_published_the_run_phase_waits_for_the_task(tmp_path
     world = 'sim:' + str(uuid.uuid4())
     monkeypatch.setattr(A.time, 'sleep', lambda s: None)
     seen = {}
-    ports = A.Ports(probe=FakeProbe(world), intake=lambda w, c, e: seen.update(world=w, consumer=c, effect=e) or ('task-1', 'run-1'))
+    ports = A.Ports(probe=FakeProbe(world), intake=lambda w, c, e: seen.update(world=w, consumer=c, effect=e) or ('task-1', 'run-1'), negatives=REFUSED)
     code, doc = run(tmp_path, 'run', ports, world=world)
     st = steps(doc)
     assert st['simulation_run_completes']['passed'] is True and st['simulation_run_completes']['observed'] == {'task_status': 'succeeded', 'run_world_is_simulation': True}
@@ -234,7 +240,7 @@ def test_on_stage_the_run_is_three_parts_on_two_hosts_merged_into_one_result(tmp
     code, before, before_path = part('probe-before', NoIntake(probe))
     assert code == 0 and before['passed'] is True and steps(before)['real_digest_before']['evidence']['world'] == world
     seen = {}
-    code, accepted, intake_path = part('intake', NoProbe(intake=lambda w, c, e: seen.update(world=w, consumer=c) or ('task-1', 'run-1')), before_path)
+    code, accepted, intake_path = part('intake', NoProbe(intake=lambda w, c, e: seen.update(world=w, consumer=c) or ('task-1', 'run-1'), negatives=REFUSED), before_path)
     assert seen == {'world': world, 'consumer': 'c' * 64} and steps(accepted)['run_accepted']['evidence'] == {'task_id': 'task-1', 'run_id': 'run-1'}
     assert accepted['blocked'] == ['twin_observe_act: roles.twin_port or inputs.twin not configured'] and code == 1
     code, after, after_path = part('probe-after', NoIntake(probe), before_path, intake_path)

@@ -59,10 +59,11 @@ SYNTHETIC_TWIN = 'at046-synthetic-'
 
 
 class Ports:
-    """owner (workbench actions), probe (read only), twin (TwinPort or None), intake (a callable running the intake's three steps)."""
+    """owner (workbench actions), probe (read only), twin (TwinPort or None), intake (a callable running the intake's three steps),
+    negatives (a callable running AT-046's two refusal probes with the world's own api credential, or None)."""
 
-    def __init__(self, *, owner=None, probe=None, twin=None, intake=None):
-        self.owner, self.probe, self.twin, self.intake = owner, probe, twin, intake
+    def __init__(self, *, owner=None, probe=None, twin=None, intake=None, negatives=None):
+        self.owner, self.probe, self.twin, self.intake, self.negatives = owner, probe, twin, intake, negatives
 
     def act(self, operation, body, key):
         if self.owner is None:
@@ -246,6 +247,42 @@ def intake_phase(ports, config, r, prior):
         task_id, run_id = ports.intake(world, consumers[0], _effect())
         r.step('run_accepted', 'the simulation intake issued the Run credential and accepted the Run', {'accepted': bool(task_id)}, bool(task_id),
                task_id=task_id, run_id=run_id)
+    # AT-046's core (stage judgement 2026-10-22): the server refuses the simulation group a real message Action, even with a forged mode.
+    negatives(ports, r, world, consumers)
+
+def refusal(error):
+    """(refused by the server, SQLSTATE, the server's fixed refusal text) of an exception chain - a database refusal only; the text is
+    the server's own message (no value of the request), cut to 120 characters."""
+    import psycopg
+    seen = 0
+    while error is not None and seen < 8:
+        if isinstance(error, psycopg.Error):
+            state = getattr(error, 'sqlstate', None)
+            return state == '42501', state, (getattr(error.diag, 'message_primary', None) or '')[:120]
+        error, seen = error.__cause__ or error.__context__, seen + 1
+    return False, None, None
+
+
+def negatives(ports, r, world, consumers):
+    """N1 and N2 (AT-046: "Twin calls a real message Action -> the server refuses, even if the model forges mode").
+    Safety (stage: the real dispatch switches are open): neither probe can reach an outbound path even if it were let through. N1 only
+    asks the server for a real-world session for the world's api credential (the step every real Action, message Actions included,
+    starts with) and, when the twin port is configured, binds the twin in world real; neither submits an effect. N2 presents a Run
+    command naming mode 'real' in the simulation world (the client's own check bypassed for this one call, as a forging model would):
+    were it accepted, the task stays in the simulation world, whose effects only reach stand-ins. probe-after then shows the real side
+    unchanged, so refusal and absence of effect are proved together."""
+    if ports.negatives is None:
+        r.block('real_action_refused', 'roles.sim_api not configured')
+        r.block('forged_mode_refused', 'roles.sim_api not configured')
+        return
+    from nexloop_eios.effect_contexts import EFFECT
+    out = ports.negatives(world, consumers[0] if consumers else None, 'eios:action:' + EFFECT + ':1', ports.twin)
+    n1, n2 = out['n1'], out['n2']
+    r.step('real_action_refused', 'the world\'s own credential asks for a real session (any real message Action starts there; twin: bind in real): '
+           'refused by the server (42501)', n1, all(p['refused'] for p in n1.values()) and bool(n1))
+    r.step('forged_mode_refused', 'a Run command forging mode real in the simulation world, the client check bypassed: refused by the server (42501); '
+           'the identical command with mode simulation accepted (the control: the mode is the one difference)',
+           n2, n2.get('refused') is True and n2.get('sqlstate') == '42501' and (n2.get('control') or {}).get('accepted') is True)
 
 
 def probe_after(ports, config, r, prior):
@@ -345,7 +382,80 @@ def load_prior(paths, config, parts):
 
 
 REQUIRED = ('synthetic_consumers_present', 'run_action_published_for_the_world', 'real_digest_before', 'twin_observe_act',
+            'real_action_refused', 'forged_mode_refused',  # AT-046's core (stage judgement 2026-10-22)
             'world_credentials_only_of_the_world', 'real_side_unchanged')
+
+
+def negatives_from(roles):
+    """AT-046's refusal probes with the world's api credential (sim_api): N1 a real session, N2 a forged mode (see negatives())."""
+    s = roles.get('sim_api') or {}
+    if not all(s.get(k) for k in ('dsn_file', 'token_file', 'signing_key_file', 'signing_key_id')):
+        return None
+
+    def run(world, consumer, effect, twin):
+        import tempfile
+        from contextlib import contextmanager
+        from nexloop_eios import runtime_activation
+        from nexloop_eios.backend import open_backend
+        from nexloop_eios.sim_context import sim_run_input
+        token = read_private(s['token_file'], 4096).strip()
+
+        @contextmanager
+        def client_check_bypassed():
+            # The forging model's view: the Python client's own mode check is skipped for this one call; the server must refuse.
+            original = runtime_activation.world_kind
+            runtime_activation.world_kind = lambda w: 'real' if str(w).startswith(('sim:', 'shadow:')) else original(w)
+            try:
+                yield
+            finally:
+                runtime_activation.world_kind = original
+        n1, n2 = {}, {}
+        with tempfile.TemporaryDirectory(prefix='at046-neg-') as artifacts, open_backend(
+                database_url=read_private(s['dsn_file'], 8192).strip(), artifact_root=artifacts, signing_key_file=s['signing_key_file'],
+                signing_key_id=s['signing_key_id']) as api:
+            try:
+                api.authenticate(token, world='real')
+                n1['real_session'] = {'refused': False, 'sqlstate': None, 'reason': 'allowed'}
+            except Exception as error:  # noqa: BLE001 - classified below
+                refused, state, reason = refusal(error)
+                n1['real_session'] = {'refused': refused, 'sqlstate': state, 'reason': reason}
+            if twin is not None:
+                try:  # the port's server entry with world real (the client refuses real before any call: called directly here)
+                    twin._one('select authz.nexloop_twin_bind(%s,%s,%s,%s,%s)', (twin._digest, 'real', 'at046-synthetic-probe', 1, 'probe'))
+                    n1['twin_bind_real'] = {'refused': False, 'sqlstate': None, 'reason': 'allowed'}
+                except Exception as error:  # noqa: BLE001
+                    refused, state, reason = refusal(error)
+                    n1['twin_bind_real'] = {'refused': refused, 'sqlstate': state, 'reason': reason}
+            source = api.authenticate(token, world=world)
+            run = source.issue_run_credential(action_resources=[effect])
+            pack = sim_run_input(source, run.run_id, consumer, 8)
+            command = {'schema_version': '1.0', 'run_id': run.run_id, 'tenant_id': json.loads(pack)['tenant_id'], 'world_id': world, 'mode': 'real',
+                       'request_id': 'at046-forged-' + uuid.uuid4().hex, 'trigger_event_id': str(uuid.uuid4()), 'role_ref': 'role:sim-consumer-reply',
+                       'consumer_ref': 'consumer:' + consumer, 'goal_version_ref': 'goal:sim-at046', 'context_manifest_ref': 'artifact:sim-context',
+                       'runtime_profile': 'deterministic-test', 'credential_ref': 'run_credential:' + run.run_id,
+                       'budget': {'maximum_model_turns': 8, 'maximum_tool_calls': 8, 'active_timeout_seconds': 60, 'maximum_cost': '1.0', 'currency': 'CNY'},
+                       'not_after': run.expires_at.isoformat(), 'runtime_owner_epoch': 1}
+            try:
+                with client_check_bypassed():
+                    source.accept_runtime_event(queue='operations', source_id='at046-forged', event_id='at046-forged-' + run.run_id, run_token=run.token,
+                                                command=command, input=pack)
+                n2 = {'refused': False, 'sqlstate': None, 'reason': 'allowed'}
+            except Exception as error:  # noqa: BLE001
+                refused, state, reason = refusal(error)
+                n2 = {'refused': refused, 'sqlstate': state, 'reason': reason}
+            # Control (L6 review 3.1): the server's command check folds many conditions into one refusal, so the same command with only
+            # its mode set right must be accepted - the mode is then the one difference. The forged one went first and stored nothing,
+            # so this is the Run's first registration. The accepted control is an ordinary simulation Run of this world: the simulation
+            # worker runs it like the main one (deterministic profile, stand-ins only) and it ends by itself; its task id is recorded.
+            try:
+                accepted = source.accept_runtime_event(queue='operations', source_id='at046-forged', event_id='at046-control-' + run.run_id,
+                                                       run_token=run.token, command={**command, 'mode': 'simulation'}, input=pack)
+                n2['control'] = {'accepted': bool(accepted.get('accepted')), 'task_id': accepted.get('task_id')}
+            except Exception as error:  # noqa: BLE001
+                refused, state, reason = refusal(error)
+                n2['control'] = {'accepted': False, 'sqlstate': state, 'reason': reason}
+        return {'n1': n1, 'n2': n2}
+    return run
 
 
 def intake_from(roles):
@@ -390,7 +500,7 @@ def ports_from(config, password):
         from nexloop_eios.twin_port import TwinPort
         twin = TwinPort(connect_from(t['dsn_file']), read_private(t['token_file'], 4096).strip(), (config.get('inputs') or {}).get('world', 'sim:'))
     probe = (roles.get('probe') or {}).get('dsn_file')
-    return Ports(owner=owner, probe=connect_from(probe) if probe else None, twin=twin, intake=intake_from(roles))
+    return Ports(owner=owner, probe=connect_from(probe) if probe else None, twin=twin, intake=intake_from(roles), negatives=negatives_from(roles))
 
 
 PHASES = {'probe-before': probe_before, 'intake': intake_phase, 'probe-after': probe_after, 'run': run}
