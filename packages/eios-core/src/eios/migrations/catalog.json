@@ -1585,6 +1585,11 @@
       "version": "0317",
       "name": "0317_context_v6_reserved_units_volatile.sql",
       "sha256": "48db2669711351c4c9a92fd6cc5531898cf380e0585320fa3d3b5a817c936e14"
+    },
+    {
+      "version": "0318",
+      "name": "0318_host_health.sql",
+      "sha256": "01483fc55fb16d2d2d153e5f67e04ddd25de4684d9cbaa007cc5ba0847a9de35"
     }
   ]
 }

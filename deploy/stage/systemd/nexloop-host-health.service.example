@@ -1,0 +1,24 @@
+# EIOS gap E2/E3 (docs/implementation/host-health.md): the host health probe, on APP_HOST and DATA_HOST. Example only: copy to
+# /etc/systemd/system/ without the .example suffix, then `systemctl daemon-reload` and `systemctl enable --now
+# nexloop-host-health.timer` (B class, owner confirms).
+# It runs as root because it reads `docker inspect` and `systemctl show` of other units; it runs only those two fixed read-only
+# commands (no shell) and writes only through the recorder DSN (role nexloop_host_recorder: one function, no table). The runtime
+# services get nothing of it. The configuration and the DSN file are 0600 root (paths in /etc/nexloop; no secret in this unit).
+# The probe is installed from the release commit into the backup-only virtual environment (it needs psycopg only for recording).
+[Unit]
+Description=NexLoop host health probe (crash loops, scheduled-run freshness)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nexloop/backup-venv/bin/python /opt/nexloop/release/scripts/deploy/host_health_probe.py --config /etc/nexloop/host-health.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+TimeoutStartSec=60
