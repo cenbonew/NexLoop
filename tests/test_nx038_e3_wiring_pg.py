@@ -70,6 +70,12 @@ from test_context_v6_pg import STRATEGY, bound, owner, seed_strategy, v6  # noqa
 from test_evolution_traces_pg import traces  # noqa: E402,F401
 
 
+@pytest.fixture(autouse=True)
+def semantic_budget():
+    """The process's budgeted semantic-read pool (L6 review 5.1; message-relay --semantic-read-pool-max)."""
+    context_artifacts.configure_semantic_reads(2)
+
+
 def accesses(admin, tenant):
     with admin.transaction():
         owner(admin, tenant)
@@ -198,3 +204,30 @@ def test_a_slow_database_never_holds_a_context_connection(v6, admin, monkeypatch
     producer._semantic_run = None
     with _semantic_pool(producer.pool).connection() as db:
         assert db.execute('show statement_timeout').fetchone()[0] == context_artifacts.SEMANTIC_STATEMENT_TIMEOUT
+
+
+def test_without_a_budgeted_pool_nothing_is_read(v6, admin, monkeypatch):
+    """L6 review 5.1: a process whose budget declares no semantic-read pool (the default 0) reads nothing, counted skipped."""
+    from nexloop_eios.context_artifacts import ContextV6ArtifactProducer, FallbackContextV6Producer
+    called = []
+    monkeypatch.setattr('nexloop_eios.context_engine.semantic.SemanticAdapter.browse', lambda *a, **k: called.append(1))
+    monkeypatch.setattr(context_artifacts, '_semantic_slots', None)
+    producer = ContextV6ArtifactProducer(v6['source'], 'recent_plus_required')
+    enabled = {'semantic': {'enabled': True, 'top_k': 5, 'ambiguity_margin': 0.05}}
+    producer._semantic_read(enabled, {'body': 'synthetic statement'}, str(uuid.uuid4()))
+    assert called == [] and producer.semantic['skipped'] == 1
+    # The fallback reply Run never reads: its message Run already did, and the reply-guarantor needs no semantic connections.
+    fallback = FallbackContextV6Producer(v6['source'], 'recent_plus_required')
+    monkeypatch.setattr(context_artifacts, '_semantic_slots', __import__('threading').BoundedSemaphore(2))
+    fallback._semantic_read(enabled, {'body': 'synthetic statement'}, str(uuid.uuid4()))
+    assert called == [] and fallback.semantic == {'read': 0, 'timeout': 0, 'failed': 0, 'skipped': 0}
+
+
+def test_the_relay_takes_its_semantic_pool_from_the_command_line():
+    from nexloop_eios import message_relay_cli
+    base = [a for n in ('database-url-file', 'signing-key-file', 'route-credential-file', 'source-credential-file', 'planner-credential-file',
+                        'executor-credential-file', 'artifact-root', 'vault-root') for a in ('--' + n, 'x')] + ['--recipe-file', 'x']
+    assert message_relay_cli.arguments(base).semantic_read_pool_max == 0
+    assert message_relay_cli.arguments(base + ['--semantic-read-pool-max', '1']).semantic_read_pool_max == 1
+    with pytest.raises(SystemExit):
+        message_relay_cli.arguments(base + ['--semantic-read-pool-max', '5'])

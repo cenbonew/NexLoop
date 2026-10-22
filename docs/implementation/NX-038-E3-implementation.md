@@ -65,7 +65,14 @@ L5 准备 S6 stage 数据时发现缺口 G-S6-1：main 上只有测试调用 `br
   - 读取使用**进程级的专用小连接池**：conninfo、角色和连接类与 Context 连接池相同，最多 2 个连接，每个连接设 `statement_timeout = 400ms`。数据库变慢时，查询会在数据库那一侧被终止，Context 连接池的连接不会被占用。
   - 使用一个进程级 executor，同时最多 2 个读取（`SEMANTIC_READ_CONCURRENCY`）。名额要等读取真正结束才释放，不是在组装停止等待时释放；超过上限的读取直接跳过，计入 `skipped`，不排队。
   - `ServiceSession` 是不可变的 frozen dataclass，可以跨线程共用。请求连接作用域是 ContextVar，executor 线程不继承它，所以后台线程不会碰主线程固定的连接。
-  - **打开 `semantic.enabled` 的前提**：上面这些限制已经就位（本节）。打开后，用 `skipped`、`timeout`、`failed` 三个计数和 warning 日志观察。
+  - **连接预算**（L6 复核 5.1，ADR-024）：这个连接池算在进程的连接预算里。
+    - `connection-budget.v1.json` 的普通服务条目可以带 `semantic_read_pool_max`（0–4），`connection_budget.evaluate` 和 doctor 按“进程数 × 该值”计入总数；
+    - 连接池大小由进程配置决定：message-relay 用 `--semantic-read-pool-max`，默认 0。为 0 时不开连接池、不做读取，计入 `skipped`。所以没登记预算的进程，即使策略打开了 `semantic.enabled` 也不会读取；
+    - 兜底回复 Run 的组装（reply-guarantor）不做语义读取：同一条消息的消息 Run 已经记录过。所以它不需要这部分预算。
+  - **打开 `semantic.enabled` 的前提**：
+    1. 上面这些限制已经就位（本节）；
+    2. 在 `connection-budget.v1.json` 里给 message-relay 登记 `semantic_read_pool_max`，同时在部署配置里给它加上相同的 `--semantic-read-pool-max`，doctor 预算检查通过（总数不超过 60）。现在 stage 的总数是 59，名额从哪里来由调度员决定；
+    3. 打开后，用 `skipped`、`timeout`、`failed` 三个计数和 warning 日志观察。
 - **端口调整**（迁移 `0313_nx038_e3_wiring.sql`，临时编号）：Context 是在 Run 激活之前组装的，此时 Run 还不在 `authz.nexloop_runtime_run_bindings` 里。所以 `authz.nexloop_semantic_access_record` 也接受这样的 Run：它的有效 Run 凭据由调用方这个 Source 在同一个 world 下签发。这样仍然绑定在服务端推导出的租户和 world 上。
 - **局限**：
   - 结果**不放进 pack**，semantics 段保持为空，所以模型看不到定义，也不会写 `use` 记录；
