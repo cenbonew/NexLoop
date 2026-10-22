@@ -6,6 +6,8 @@ NexLoop table classifies the dispatch refusal codes (control.nexloop_dispatch_re
 SQL (control.nexloop_outcome_code_classes) and the metrics snapshot's `outcomes` block counts by it. A refusal by rule (the owner's
 pause, a contact restriction, a takeover, an exhausted budget) is the system working as intended, never a failure; a code without a
 class is UNRESOLVED and counts as a failure (fail closed: a new code must be classified to leave the failure rate).
+NX-057 R0 (migration 0325): the reason of a final effect failure (runtime.nexloop_effect_failures) has its class too; a refused
+one-reply intent is counted under its refusal's code, never a second time as a failure.
 """
 from __future__ import annotations
 
@@ -54,9 +56,26 @@ CODE_CLASSES = MappingProxyType({
 })
 
 
+#: NX-057 R0 (0325): the reason of a final effect failure (runtime.nexloop_effect_failures.reason_code). A refused one-reply intent
+#: ('refused_one_reply:<reason>') is counted under its refusal's code and has no class of its own here.
+FAILURE_REASON_CLASSES = MappingProxyType({
+    'origin_expired': RunOutcomeClass.DEFECT,           # 0174: the origin Run expired before any dispatch; nothing was sent
+    'confirmed_not_delivered': RunOutcomeClass.DEFECT,  # 0210: the owner confirmed with evidence that it was not delivered
+})
+REFUSED_ONE_REPLY = 'refused_one_reply:'
+
+
+def classify_failure(reason: str) -> RunOutcomeClass | None:
+    """The class a failure rate counts a final effect failure under; None when its refusal already counts it."""
+    if reason.startswith(REFUSED_ONE_REPLY):
+        return None
+    return FAILURE_REASON_CLASSES.get(reason, RunOutcomeClass.UNRESOLVED)
+
+
 def classify(code: str | None) -> RunOutcomeClass:
     return CODE_CLASSES.get(code, RunOutcomeClass.UNRESOLVED) if code else RunOutcomeClass.UNRESOLVED
 
 
 def counts_as_failure(outcome: RunOutcomeClass) -> bool:
     return outcome in FAILURE_CLASSES
+

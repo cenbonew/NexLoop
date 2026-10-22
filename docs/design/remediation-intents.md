@@ -406,8 +406,9 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 ## 10. 审计与证据
 
 - **R0**（第 3 版改为独立的表）：三条失败路径在原事务中各写一行 `runtime.nexloop_effect_failures`，**不改动** `runtime.nexloop_effect_events`。它的 `event_kind` 检查约束、`effect_fence` 和读取它的代码都保持原样。
-  - 列：`failure_id`、`intent_id`（唯一，一个意图最多一行）、`tenant_id`、`world`、`reason_code`（`origin_expired`、`confirmed_not_delivered`、`refused_one_reply:<拒绝码>`）、`evidence`（determination id 或 not_found observation id、拒绝码、来源 Run id，只含 id 与码）、`recorded_at`；
+  - 列：`failure_id`、`intent_id`（唯一，一个意图最多一行）、`tenant_id`、`world`、`reason_code`（`origin_expired`、`confirmed_not_delivered`、`refused_one_reply:<拒绝原因>`，原因即 0152 的 `already_answered` 等，拒绝码 NXC05 记在 evidence 中）、`evidence`（determination id 或 not_found observation id、拒绝码、来源 Run id，只含 id 与码）、`recorded_at`；
   - FORCE RLS，属主 `nexloop_owner`，从应用角色收回全部权限，只由三个 definer 函数写入；
+  - 一个延迟约束触发器在提交时检查：意图被置为 failed 而没有失败行，整个事务被拒绝。以后若出现第四条失败路径而忘了写失败行，会在测试中直接失败，而不是悄悄漏掉补救与统计；
   - 需要重定义 0152、0174、0210 中的函数（新迁移，复制件守卫登记），同时修正 0324 的口径（§8）。
   - **没有失败行就不生成补救。**
 - **每次状态变化**写一行 `runtime.nexloop_remediation_events`，同时写一条 `runtime.audit_events`（`nexloop.remediation.<to>`），只含 id、码和 digest。
