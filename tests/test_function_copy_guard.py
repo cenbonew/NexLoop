@@ -139,7 +139,7 @@ REGISTRY = [
     # 0312 (AT-046 stage judgement): a Run command's mode must be the kind of the world it is presented in (server side, not only the client).
     Allowed('run_command_mode_is_world_kind', 'authz.nexloop_runtime_activation_command_v0037', 'the command mode must be the world kind',
             ((r"\s*or command->>'mode' is distinct from runtime\.nexloop_world_kind\(p_world\)", ''),)),
-    # 0314 (stage 2026-10-22, run retry errors): the v6 bind compares current_constraints without the ledger's reserved_units counter.
+    # 0317 (stage 2026-10-22, run retry errors): the v6 bind compares current_constraints without the ledger's reserved_units counter.
     Allowed('context_v6_reserved_units_volatile', 'authz.nexloop_context_v6_command', 'current_constraints compared without reserved_units',
             ((r"\(case when key='current_constraints' then \(pack->key\)-'reserved_units' else pack->key end\)\s*is distinct from \(case when key='current_constraints' then \(snapshot->key\)-'reserved_units' else snapshot->key end\)",
               'pack->key is distinct from snapshot->key'),)),

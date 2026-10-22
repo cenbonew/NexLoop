@@ -2,7 +2,7 @@
 'artifact idempotency payload conflict' ERRORs although every message was answered.
 
 1. Another Run's reservation raises the shared EffectControl ledger's reserved_units between a message's Context snapshot and its
-   bind: the bind no longer refuses that (0314) - every other core field still has to match.
+   bind: the bind no longer refuses that (0317) - every other core field still has to match.
 2. A Run whose Context Artifact an earlier attempt stored but never bound cannot bind on a retry (the Artifact is the Run's one
    Context and a new pack carries new read decisions): the relay hands the message to the reply guarantee at once instead of
    spending its remaining attempts, each one a payload conflict.
