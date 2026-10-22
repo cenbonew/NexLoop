@@ -1,188 +1,267 @@
-# NX-056 统一审批机制（设计稿）
+# NX-056 统一审批机制（设计稿，第 2 版）
 
-- **状态**：设计稿，待 L6 复核，复核后再实现。
+- **状态**：设计稿第 2 版，按 L6 复核（`unified-approvals-review.md`，针对 611cc8f7）修订，待再次复核后实现。逐条回应见第 14 节。
 - **依据**：
-  - 负责人 2026-10-22 Q1 选 A：引入 EIOS 通用审批（多人中至少 N 人批准、超时作废、禁止自批），新的高风险动作统一使用；现有外联审批（0240 系列）和候选审批暂时保留，之后再评估是否并入。
-  - L7 盘点 `docs/design/eios-capability-gap.md` B1（L7 分支 6885a4fa）。
+  - 负责人 2026-10-22 Q1 选 A：引入 EIOS 通用审批（多人中至少 N 人批准、超时作废、禁止自批），新的高风险动作统一使用；现有外联审批（0240 系列）和候选审批暂时保留，之后再评估是否并入；
+  - L7 盘点 `docs/design/eios-capability-gap.md` B1（L7 分支 6885a4fa）；
   - 上游冻结提交 `1e363db` 的实现，按 ADR-006 移植并记录 provenance。
 - **基准**：main 1892c9ac。
 
 ## 1. 现状
 
-**已 vendored、但没有接上：**
+**已 vendored，但没有接上：**
 
-- `eios/approvals/{models,ports}.py`：审批主体 `ApprovalSubject`（`request_digest`、`requester_id`、`quorum`、`eligible_approver_scopes`、`require_distinct_requester`、`due_by`）、决定、记录和状态（`waiting_approval → approved | rejected | cancelled | expired`）；
-- `eios/composition/action_approval.py`：把一条已终结的审批记录解析成调用级的 `ApprovalEvidence`；
-- `eios/actions/governance.py`（`_validate_approval_evidence`）：`approval_mode=REQUIRED` 或风险等级不是 low 的 Action，必须带审批证据，Action governor 会对着存储再校验一遍。
+- `eios/approvals/{models,ports}.py`：审批主体、决定、记录、状态 `waiting_approval → approved | rejected | cancelled | expired`；
+- `eios/composition/action_approval.py`：把一条审批记录解析成调用级证据；
+- `eios/actions/governance.py:671-800`：`approval_mode=REQUIRED` 或风险等级不是 low 的 Action 必须带证据。Python governor 会核对审批主体、quorum 和 `require_distinct_requester`，并用 `assert_fresh` 重查批准人；同时它**认可 `is_policy_auto_approved`**，也就是不需要人类批准也能通过的证据。
 
-**NexLoop 的实际情况：**
+**NexLoop 把“无审批”写死在两层：**
 
-- `approval_mode` 被写死为 `NONE`（`business_actions.py`、`catalog_publish.py`）；
-- 运行时用的是 `UnavailableApprovalPort`（`effect_execution.py`）；
-- 每个功能各自实现一套审批：0240 外联审批，以及 0103 实例候选审批。
+- **Python**：
+  - `business_actions.py:155`、`catalog_publish.py:77` 把 `approval_mode` 写死为 NONE；
+  - `business_actions.py:115` 拒绝风险等级不是 low、或 `approval_mode` 不是 none 的 Action；
+  - 运行时用 `UnavailableApprovalPort`：`action_governor.py:13/32`（`create_action_governor`）、`effect_execution.py:218/499`、`conversation_messages.py:131`。
+- **SQL**：
+  - 受治理入口 `authz.nexloop_goal_governed_action`（0124）要求 `approval_mode='none'`；
+  - 效应意图和注册器的入口（0010:18、0015:63、0016:113、0040:137、0041:104）要求 `approval_mode='none'` 并且 `risk_level='low'`。
+
+**已有的两套专用审批：**0240 外联审批，0103 实例候选审批。
 
 **上游还没有搬过来的部分：**
 
-- `approvals/{state_machine,expiry,in_memory}.py`：纯逻辑，没有领域代码；
-- `adapters/postgres/approvals.py` 和 `approval_human_authority.py`；
-- `composition/{approval_expiry,approval_reads}.py`；
-- 迁移 0009、0014、0015、0023、0073、0089 等，其中有 `control.approvals` 表。
+- `approvals/{state_machine,expiry,in_memory}.py`；
+- `adapters/postgres/{approvals,approval_human_authority}.py`、`composition/{approval_expiry,approval_reads}.py`；
+- 迁移 0009、0014、0015、0023、0073、0089。
 
-上游的状态机语义（`state_machine.apply_decision`）：
+上游状态机的语义：一票拒绝即终结；不同批准人的批准数达到 quorum 时通过；同一个人只能批准一次；决定时间不能早于请求时间。
 
-- 一票拒绝就直接终结；
-- 不同批准人的批准数达到 quorum 时通过；
-- 同一个人只能批准一次；
-- 决定时间不能早于请求时间。
+## 2. 关键决定：只走 SQL 路径，并且不替换身份（回应 C1、C2、C4）
 
-## 2. 移植范围（ADR-006）
+**接合点只有一个：SQL 受治理入口 `authz.nexloop_goal_governed_action`。**这个入口会按 `control.nexloop_governed_capabilities` 分发到 human 能力的处理函数，首批要接审批的 Action 全都走这里，例如 `real_dispatch.set`，处理函数是 `control.nexloop_governed_set_real_dispatch`（0153:141）。
 
-| 上游 | 处理 |
-|---|---|
-| `approvals/state_machine.py`、`approvals/expiry.py` | **原样 vendored**，记录 provenance；上游的相关单测搬进 `tests/upstream/`，并记入 `UPSTREAM_*_TESTS.json` |
-| `approvals/in_memory.py` | 只给测试用（参考实现），不进运行路径 |
-| `adapters/postgres/approvals.py`、`approval_human_authority.py` 和上游迁移 | **不搬代码，按 NexLoop 的规则重写**：authz 签名入口、`world` 列、RLS、只追加、`nexloop_owner` 拥有、应用角色只拿 execute。只借用表结构和状态迁移的语义 |
-| `composition/approval_reads.py` | 参照它来实现工作台的只读视图 |
+**Python governor 和效应路径完全不参与：**
 
-## 3. 审批策略模型
+- 目录中的 `approval_mode` **保持 NONE**，风险等级保持 low；
+- SQL 的效应门（0010、0015、0016、0040、0041）和 0124 对 `approval_mode='none'` 的要求**一条都不放宽**，所以不存在“对 REQUIRED 的普遍豁免”；
+- Python 的 `ApprovalPort` 仍然是 `UnavailableApprovalPort`，所以 governor 那条认可 `is_policy_auto_approved` 的路径**根本不会被触达**。
 
-审批策略是**受信配置**，随发布版本下发，不在运行时由租户自行修改：
+**是否需要审批，只看审批策略表** `control.nexloop_approval_policies`。受治理入口在验完 permit、权限和身份之后，在调用处理函数之前查这张表。
 
-- 配置文件：`deploy/configuration/approval-policies.v1.json`；
-- 在 SQL 中存成带版本、不可改的行：`control.nexloop_approval_policies`。
+由此成立的不变式：
 
-每条策略：
+1. **不新增身份替换入口**：审批通过之后，**由请求人用自己当前的会话把同一个请求再提交一次**，正常走完受治理入口：签名 permit、`authz.nexloop_assert_action_authority` 重查请求人的现行权限、human 身份检查、请求摘要一致性检查。入口发现有一条“已批准、未消费、摘要相同、策略版本仍有效”的审批，就**一次性消费**它，然后调用处理函数。处理函数始终以**提交者本人**的身份执行，与今天完全相同；不存在任何“代他人调用 handler”的函数。
+2. **没有自动批准**：SQL 只有一条批准登记路径，就是 `approvals.decide`，它要求人类会话，并且不能是请求人。没有任何 auto-approve 分支。策略表的约束 `quorum between 1 and 5` 本身也排除了“0 人批准”。这些都用测试锁定。
+3. **效应类 Action 不能挂审批策略**：发布策略时校验，目标能力必须是登记在 `control.nexloop_governed_capabilities` 中、`subject_rule='human'` 的能力，否则拒绝。Run 和 Agent 发起的效应（例如 `outreach.send`）不在本期范围，它们的挂起点在效应意图上（第 9 节）。
+
+## 3. 审批策略模型（回应 I2）
+
+审批策略是受信配置：`deploy/configuration/approval-policies.v1.json`，在 SQL 中存成带版本、不可改的行，表为 `control.nexloop_approval_policies`。
 
 | 字段 | 含义 |
 |---|---|
-| `action` | `eios:action:<name>:<version>`，精确到版本 |
-| `condition` | 可选，只在请求体满足条件时才需要审批，例如 `real_dispatch.set` 只在 `enabled=true` 时需要。只允许“某个顶层字段等于某个常量”，不允许任意表达式 |
-| `quorum` | 至少需要几位**不同的**批准人，范围 1–5 |
-| `approver_roles` | 哪些工作台角色可以批准，例如 `owner`、`admin`。批准人必须**当前**还持有这个角色 |
-| `expires_after_seconds` | 从请求起算的期限，范围 15 分钟到 7 天；过期即作废 |
-| `risk_level` | 写回 Action 定义的 `risk_level`（medium 或 high），同时 `approval_mode=REQUIRED` |
+| `capability` | 受治理能力名，例如 `real_dispatch.set`，必须是 human 能力 |
+| `action_version` | Action 的版本，精确匹配。Action 发布新版本后，没有对应策略的新版本**拒绝执行**（fail closed），直到策略也随之更新 |
+| `condition` | 可选，形式只能是“请求体顶层的某个字段等于某个常量”，例如 `{"field": "enabled", "equals": true}`。**不支持**与当前值比较，也不支持按发起来源判断。凡是需要这类条件的需求，一律通过拆分 Action 来表达，以免引入表达式攻击面 |
+| `quorum` | 至少需要几位不同的批准人，范围 1–5。不允许 0：单人租户只做事后审计的方案，已在 ADR 中否决 |
+| `approver_roles` | 可以批准的工作台角色，批准人必须**现行**持有其中之一 |
+| `expires_after_seconds` | 期限，范围 900 秒到 7 天 |
+| `summary_fields` | 工作台上可以展示的请求体字段白名单，由服务端渲染 |
+| `version` | 策略版本 |
 
 固定不可配置的规则：
 
-- 请求人不能批准自己的请求（`require_distinct_requester` 恒为 true），按服务端推导出的 subject 判断；
-- 一票拒绝即终结。
+- 禁止自批，按 **subject** 比较；
+- 一票拒绝即终结；
+- 不允许自动批准。
 
-策略一旦变化，就成为一个新版本。审批主体会冻结请求那一刻的策略版本，之后修改策略不会影响已经发起的审批。
+## 4. 流程
 
-## 4. 与受治理 Action 的接合点
+1. **请求**：请求人调用一个有审批策略、并且命中条件的 Action：
+   - 入口照常验证 permit、权限和 human 身份，然后计算 `request_digest`（第 6 节）；
+   - **如果已经有同一个 digest 的 waiting 审批**，直接返回那一条，不新建，以免刷批；
+   - 否则写入 `control.nexloop_approval_requests`：冻结的请求体、`request_digest`、请求人的 subject 和 principal（来自服务端身份）、策略版本、`due_by`；
+   - 返回 `{approval_id, status: "waiting_approval", due_by}`，**不调用处理函数**，没有任何业务写入或效应意图。
+2. **决定**：受治理 Action `approvals.decide`，只能由人执行，在**批准人自己的会话**中：
+   - 入口照常重查批准人的现行权限：持有 `approvals.decide`、当前是成员、持有策略中的角色、是人类；
+   - 批准人不能是请求人（按 subject 比较），也不能对同一个审批批准两次；
+   - 用数据库时钟判断，过了 `due_by` 就拒绝本次决定，并把审批记为 `expired`；
+   - 决定只追加一行到 `control.nexloop_approval_decisions`；状态由上游状态机推导（一票拒绝即终结；凑够 quorum 就变成 `approved`）；
+   - **决定时只记录，不执行**。
+3. **执行（消费）**：请求人在工作台点“执行”，工作台用冻结的请求体和同一个 `request_id` 重新提交（第 8 节）：
+   - 受治理入口照常重查**请求人**的现行权限，接着在消费审批之前依次检查：
+     - 审批状态为 `approved`，并且**尚未消费**；
+     - 重新计算的 `request_digest` 与审批记录一致，策略版本仍是当前版本，否则 `policy_changed`；
+     - **重查全部批准人的现行资格**（回应 C3）：每一位投了批准票的人，当前仍是成员、仍持有策略角色、仍是人类、仍不是请求人。不再满足的票不计入；剩下的有效票达不到 quorum 时，审批退回 `waiting_approval` 并记录原因，本次不执行；
+     - 租户的控制暂停：如果相关范围处于暂停状态，就拒绝执行，原因是 `control_paused`（回应 I1）；
+     - 审批未过期：执行也必须在 `due_by` 之前，过期就不能再消费。
+   - 全部通过后：把审批标记为已消费（只能消费一次，后续再提交会被拒绝，原因是 `approval_consumed`），然后调用处理函数。
+   - 处理函数自身的全部校验照常进行；它产生的效应意图在**派发时**照常重查权限、联系约束（联系约束优先）、real 派发开关、控制和预算（ADR-023、0153、0263）。
+   - 如果处理函数拒绝（例如请求体中的 `expected_revision` 已经过期），审批仍然记为**已消费**，执行结果记为 `execution_refused:<code>`，**不会自动重新发起**。请求人只能重新发一个请求，从而得到一个新的审批。
+4. **撤回**：请求人可以撤回自己发起、仍在等待中的审批（`approvals.cancel`），审批记为 `cancelled`。
 
-流程：Action 声明需要审批 → 请求挂起 → 审批通过后，**同一个请求**继续执行 → 执行时照常重查一切。
+## 5. 审批人推导（回应 C3、C5）
 
-1. **请求**：工作台通过受治理入口（`control.nexloop_governed_<op>`）调用一个需要审批的 Action，并且命中策略条件：
-   - 服务端计算 `request_digest`：`sha256(canonical({tenant, world, action 引用, 规范化请求体}))`；请求体去掉 `request_id`，`operation` 保留；
-   - 写入 `control.nexloop_approval_requests`：冻结的请求体、`request_digest`、请求人（服务端身份，不取请求体里的任何值）、策略版本、`due_by`；
-   - 返回 202：`{approval_id, status: waiting_approval, due_by}`。**此时什么都不执行**，不产生任何业务写入或效应意图。
-   - 同一个 `request_id` 重放时返回同一个审批；同一个 `request_id` 换了请求体，按现有规则判为 `request_reused`。
-2. **决定**：受治理 Action `approvals.decide`（只能由人执行）：
-   - 批准人必须是浏览器会话中的人类成员，**当前**持有策略中的某个角色，不是请求人，并且没有批准过这个审批；
-   - 用数据库时钟判断，过了 `due_by` 一律拒绝，并把审批记为 `expired`；
-   - 决定只追加一行（`control.nexloop_approval_decisions`），审批的状态由状态机推导。
-3. **继续执行**：促成 quorum 的那一次批准，**在同一个事务里**执行冻结的请求：
-   - 先重新校验**请求人**：仍然是有效成员，**当前**仍然持有这个 Action（工作台角色）；租户和 world 仍然一致。批准人的权限只用来批准，不会借给执行；
-   - 再用冻结请求体重新计算 `request_digest`，必须与审批主体一致。请求体以任何方式变化都会使审批失效；
-   - 然后按请求人的身份调用 Action 原来的处理函数。这一步只改变“何时执行”，不提供任何绕过：
-     - 处理函数自己的全部校验照常进行；
-     - 产生的效应意图在**派发时**照常重查权限、联系约束（联系限制优先）、real 派发开关、控制暂停和预算（ADR-023、0153、0263）。
-   - 执行失败（例如请求人已失去权限，或校验不通过）时，审批记为 `approved`，执行结果记为 `execution_refused:<code>`；不会自动重试，也不会改由批准人执行。
-   - **为什么选在同一个事务里**：这样不需要额外的服务主体，也就没有“谁来代替请求人执行”的问题；批准和执行要么一起提交，要么一起回滚；执行用的是请求人身份，不会扩大权限。
-4. **撤回**：请求人可以撤回自己发起、仍在等待中的请求（`approvals.cancel`），审批记为 `cancelled`。
-5. **Action 定义**：发布目录时（`catalog_publish`、`business_actions`），有策略的 Action 写入 `approval_mode=REQUIRED` 和对应的 `risk_level`。Action governor 的审批证据校验会因此生效：执行时由 `action_approval.ApprovalEvidenceResolver` 从已通过的审批记录生成证据，governor 再对着存储核对一遍。
-6. **Run 和 Agent 发起的效应**（例如 `outreach.send` 由 Run 提交）**不在第一批**。它们的挂起点在效应意图上（像 0240 那样增加 `pending_approval` 状态），属于第 8 节第二步的合并工作。
+- 批准人只能是浏览器会话中的人类成员，身份由服务端推导：会话 → subject 和 principal → 当前的成员关系和工作台角色（ADR-025、ADR-035）。请求体里的任何身份字段一律忽略。
+- 禁止自批：**按 subject 比较**。同一个人换会话、换 principal，仍然算是本人。
+- 批准人的资格在两个时点按**现行**状态检查：决定时（在其本人的会话中）和执行消费时（在 SQL 中按当前的成员与角色状态检查，不用提交时的快照）。
+- 批准人只能是人：Agent、Run 和服务凭据都不能批准，SQL 中会再检查一次 subject 类型。
+- 审批不授予任何权限：执行始终是提交者本人在其现行权限内的一次正常调用，不会超出他的上限（ceiling）。
+- **0240 的自批口径**：0240 按 principal 比较（0240:29，`decided_by<>requested_by`；:314）。同一个人用两个 principal 就可以自批。**A1 中同时新增一个迁移**，重定义 0240 的决定函数，改为按 subject 比较，复制件守护会登记这项重定义，并同时补上测试。所以两套审批并存期间不存在这个缺口（回应 C5）。
 
-## 5. 审批人推导
+## 6. 请求摘要（回应 I3）
 
-- 批准人身份只来自服务端：浏览器会话 → subject 和 principal → 当前的工作台成员关系和角色（ADR-025、ADR-035）。请求体里的任何身份字段一律忽略。
-- 禁止自批：请求人和批准人按 subject 比较（同一个人换会话或换 principal 也算本人）。
-- 批准人必须是人：Agent、Run 凭据和服务凭据都不能批准（`approvals.decide` 是只给人类的 Action，在 SQL 中再校验一遍 subject 的类型）。
-- 批准不授予任何额外权限：审批只放行“请求人本来就有权做的事”（第 4 节第 3 点，执行时重查），不会超出请求人的上限（ceiling）。
-- **单人租户**：如果租户里只有 owner 一个人，quorum ≥ 1 且禁止自批意味着 owner 自己无法完成需要审批的 Action。这是这项规则的本意，但需要负责人确认首批 Action 是否接受这一点（见第 10 节 Q-A1）。
+```
+request_digest = sha256(canonical_v1({
+  "digest_version": "nexloop-approval-digest/1",
+  "tenant_id", "world",
+  "action": "eios:action:<name>:<version>",
+  "policy": "<capability>@<policy version>",
+  "body": 去掉 request_id 之后的请求体
+}))
+```
 
-## 6. 超时作废
+- `canonical_v1` 就是现有的 `canonical_payload` 规则：键排序、紧凑分隔符、UTF-8。版本号写进 digest，以后要改规范化规则只能用新版本。
+- 请求体只要有任何一处改变，digest 就会改变：既不能消费原来的审批，也不会复用它，只能新建审批。
+- 消费是一次性的：每个审批最多被消费一次，消费记录和执行结果一起写入。
+
+## 7. 超时作废（回应 I6）
 
 - `due_by = requested_at + expires_after_seconds`，在请求时冻结。
-- 过期处理有两条路径：
-  - 决定时用数据库时钟判断，过期就拒绝本次决定，并把审批记为 `expired`；
-  - 一个周期性的清扫：把到期仍在等待的审批记为 `expired`，并写审计。复用现有的 retention-keeper 定时任务，或另加一个检查，实现时再定；逻辑沿用上游 `expiry.py` 的 `ApprovalExpirySweeper`。
-- 过期之后冻结的请求永远不会执行。请求人只能重新发起，得到一个新的审批和新的期限。
+- 过期处理有三条路径：
+  - 决定时，数据库时钟超过 `due_by`，拒绝本次决定并记为 `expired`；
+  - 消费时，同样检查，过期就不能执行；
+  - 周期清扫：复用 retention-keeper 的定时任务，逻辑沿用上游 `ApprovalExpirySweeper`，**只把 waiting 改为 expired**，绝不触发执行。
+- 过期的请求永远不会执行。
 
-## 7. 审计、隐私与删除
+## 8. 工作台、审计、隐私
 
-- 审计事件写入 `runtime.audit_events`：`approval.requested`、`approval.decided`（含结果和原因代码）、`approval.expired`、`approval.cancelled`、`approval.executed`（含执行结果代码）。审计里只有 ID、代码、digest 和时间，**没有请求体正文**。
-- 冻结的请求体只存在 `control.nexloop_approval_requests` 里，受 RLS 保护，并纳入 NX-029 的保留期：执行或作废后按保留期删除，删除时留 tombstone。
-- 涉及 Consumer 的请求（例如 `consumer.erase`），在该 Consumer 被擦除时，按现有的删除传播规则处理：把 consumer_id 替换为假名，只保留计数。
-- 决定表只追加：任何角色都不能 UPDATE 或 DELETE，只有保留期删除这一条路径例外。
-
-## 8. 工作台入口
-
-- **观察视图 `approvals`**：
+- **观察视图 `approvals`**，分三栏：
   - “待我审批”：我有资格批准、不是我发起、仍在等待中的审批；
-  - “我发起的”：我发起的全部审批。
-  - 每条显示：Action 的显示名、请求人（显示名）、变更范围摘要（策略里白名单字段的值，不显示完整请求体）、`request_digest` 的前 12 位、期限、已有的批准数和 quorum。
-- **操作**：`approvals.decide`（批准或拒绝，必须填原因）；`approvals.cancel`（只有请求人可以撤回）。
-- **提醒**：沿用告警规则，新增一条 `approval_waiting`：有待审批项接近期限时提醒。
+  - “我发起的”；
+  - “待我执行”：我发起、已批准、尚未消费的审批。
+  - 每条显示：Action 的显示名、请求人、`summary_fields` 中各字段的值（由服务端渲染）、digest 的前 12 位、期限、批准数和 quorum。
+- **操作**：
+  - `approvals.decide`：批准或拒绝，必须填原因；
+  - `approvals.cancel`；
+  - “执行”：用冻结的请求体重新提交原来的 Action。
+- **限流与冷却**（回应 S3）：
+  - 每个请求人对同一个能力最多同时有 3 个 waiting 审批；
+  - 同一个 digest 在被拒绝或撤回后 1 小时内不能再次发起，以免反复发起来挑选批准人；
+  - 被拒的计数写入审计。
+- **审计事件**：`approval.requested`、`approval.decided`、`approval.expired`、`approval.cancelled`、`approval.consumed`（含执行结果代码）。效应意图和受治理调用的审计载荷同时记录 actor（请求人）和 `approved_by`（批准人 subject 集合）。审计里只有 ID、代码和 digest，没有请求体正文。
+- **冻结的请求体**：只存在 `control.nexloop_approval_requests` 中，受 RLS 保护，并纳入 NX-029 的保留期。涉及 Consumer 的请求，按现有删除传播规则处理（替换为假名，只保留计数）。决定表只追加。
+- **提醒**：新增告警 `approval_waiting`。
 
-## 9. 与现有两套审批的关系和迁移路径
+## 9. 与现有两套审批的关系（回应 I5）
 
-| 现有机制 | 语义 | 处理 |
-|---|---|---|
-| 0240 外联审批（`outreach_sends.state = pending_approval`，24 小时窗口，owner 角色，单人，不能是请求人） | **门控一次效应**（一次外发），挂起点在效应意图上 | 第一批保留不动。第二步合并：把 `outreach.send` 中 `requires_approval` 的 purpose 改成统一审批主体（策略 quorum 1、期限 24 小时、`approver_roles=[owner]`），`pending_approval` 状态改由统一审批记录驱动；过渡期两套并存，迁移完成前不改现有行为。约 2 天，另行立项 |
-| 0103 实例候选审批（`ontology.nexloop_instance_approvals`） | **审核一个候选是否成为正式对象**，是审核流程的决定，不门控某一次 Action 调用 | **不建议并入**。语义不同，硬并会让统一审批承担审核队列的职责。最多在工作台上合并成一个“待处理”入口 |
+| 现有机制 | 处理 |
+|---|---|
+| 0240 外联审批 | **门控一次效应**，挂起点在效应意图上（Run 也会发起）。本期保留不动，只在 A1 中把自批比较改为按 subject（第 5 节）。<br>**第二步合并时的唯一事实来源规则**：<br>• 每个 purpose 在任一时刻只受**一套**机制门控，切换是按 purpose 发布新的 purpose 列表版本时原子完成的；<br>• 切换后，这个 purpose 的新请求只写统一审批；<br>• `outreach_approvals` 中已有的记录**迁移为只读历史**，不再写入，也不从统一记录反向派生。<br>合并约 2 天，另行立项 |
+| 0103 实例候选审批 | 这是审核流程中的决定，不门控某一次调用，**不并入**。最多在工作台上合并成一个“待处理”入口 |
 
-## 10. 首批接入哪些 Action（建议，交负责人决定）
+## 10. 首批接入（建议，交负责人决定）
 
-| 建议 | Action | 条件 | quorum | 理由 |
+| 建议 | 能力 | 条件 | quorum | 说明 |
 |---|---|---|---|---|
-| ✔ 首批 | `real_dispatch.set` | 只在 `enabled=true` 时（打开真实外发）；关闭不需要审批，必须能立即生效 | 1 | 打开 real 外发是对外影响最大的一步 |
-| ✔ 首批 | `consumer.erase` | 只限 owner 主动发起的擦除；顾客本人请求的擦除不经审批，不能被拖延 | 1 | 不可逆 |
-| ✔ 首批 | `retention.release_hold` | 无 | 1 | 解除法律或业务保全后，数据会被清理 |
-| 可选 | `goals.budget.set` | 只在提高上限时 | 1 | 涉及花费 |
-| 可选 | `semantic_release.publish`、`strategy.publish` | 无 | 1 | 改变线上行为；已有评估门，审批是多出来的一层 |
-| 不建议 | `experiment.*`、`outreach_purposes.set` 等 | — | — | 已有各自的护栏，加审批只会增加摩擦 |
+| ✔ 首批 | `real_dispatch.set` | `enabled = true`（只在打开时需要审批；关闭不需要，必须能立即生效） | 1 | 对外影响最大的一步 |
+| ✔ 首批 | `consumer.erase`（工作台 owner 发起的擦除，0132:358） | 无 | 1 | 不可逆。顾客本人请求的擦除走的是另一条入口（source `consumer_request`），不经过这个能力，所以不受影响。实现时会核实；如果两者共用同一个能力，就先拆出 `consumer.erase_on_request` |
+| ✔ 首批 | `retention.release_hold` | 无 | 1 | 解除保全之后数据会被清理 |
+| 移出首批 | `goals.budget.set` | — | — | “只在提高上限时”需要与当前值比较，第 3 节不支持；以后如有需要，就拆分出 `goals.budget.raise` |
+| 可选 | `semantic_release.publish`、`strategy.publish` | 无 | 1 | 已有评估门 |
 
 **需要负责人决定：**
 
-- **Q-A1（单人租户）**：首批 Action 在只有 owner 一个人的租户里将无法执行。选项如下：
-  - (a) 接受这一点，这些租户要先添加第二位成员；
-  - (b) 允许策略声明 `quorum: 0`，即只做事后审计，用于单人租户；
-  - (c) 首批只做 `real_dispatch.set`。
+- **Q-A1 单人租户**：stage 当前只有一名成员（workbench-roles v23）。首批启用以后，owner 一个人无法打开 real 派发。建议：接受这个结果；**在启用策略之前**先准备第二个测试成员（第 13 节 A6 的顺序）。“quorum 为 0”的方案已在 ADR 中否决。
+- **Q-A2**：首批是否就是上表三项。
+- **Q-A3**：默认期限，建议 24 小时。
 
-  建议选 (a)，这正是禁止自批的意义；stage 上需要先准备第二个测试成员。
-- **Q-A2**：首批的 Action 清单和条件，上表“✔ 首批”三项，是否照此执行。
-- **Q-A3**：默认期限，建议 24 小时，与 0240 一致。
-
-## 11. ADR 草案
+## 11. ADR-038 草案
 
 ```
-# ADR-038｜统一 Action 审批（修订 0240 的定位）
+# ADR-038｜统一 Action 审批（人类受治理能力）
 
 状态：草案（负责人 2026-10-22 Q1 选 A）
 
 决定：
-1. 高风险的受治理 Action 统一使用一套审批：受信配置中的策略（Action 版本、可选的单字段条件、quorum、批准角色、期限）；
-   请求人不能批准自己的请求；一票拒绝即终结；超期作废；审批绑定请求摘要，请求体一变就失效。
-2. 审批只延后执行，不授予权限：最后一次批准在同一事务里，以请求人当时的身份执行冻结的请求；
-   执行时请求人的权限、Action 自身的校验，以及效应派发时的联系约束、real 派发开关、控制和预算都照常重查。
-3. 批准人只能是当前持有策略角色的人类成员；Agent、Run 和服务凭据都不能批准。
+1. 需要审批的范围由受信配置中的审批策略决定，只能针对 human 受治理能力。
+   策略包括：Action 版本、可选的单字段等值条件、quorum（1–5）、批准角色、期限、摘要字段白名单。
+   禁止自批（按 subject 比较），一票拒绝即终结，超期作废，不允许自动批准，quorum 不能为 0。
+2. 审批只决定“这次调用能否执行”，不授予任何权限。
+   执行时由请求人以自己当前的会话再提交一次同一请求，正常走完受治理入口，然后一次性消费已通过的审批。
+   执行时会重查请求人和全部批准人的现行资格、策略版本和控制暂停；之后效应派发时的各项重查照常进行。
+   系统中不存在“代他人执行”的函数。
+3. 接合点只在 SQL 受治理入口。目录中的 approval_mode 保持 none；
+   效应门、Python governor 和 ApprovalPort 都不改，也不放宽。
 4. 上游的状态机和到期逻辑按 ADR-006 vendored；持久化层按 NexLoop 的 authz 签名、world、RLS 和只追加规则重写。
-5. 现有的 0240 外联审批暂时保留，之后作为效应级审批并入；0103 候选审批属于审核流程，不并入。
-后果：需要审批的 Action 在单人租户中无法执行（Q-A1）；审计只记录 ID、代码和 digest。
+5. 0240 外联审批暂时保留，自批比较先改为按 subject；之后作为效应级审批按 purpose 切换并入。
+   0103 候选审批属于审核流程，不并入。
+
+备选方案与否决理由：
+- 批准人在决定时直接执行：执行身份会变成批准人，或者需要一个替换身份的函数，形成提权面（L6 C2）。
+- 由异步服务主体执行：需要一个能代表任意请求人执行的服务凭据，同样是提权面；而且请求人的现行权限难以等价重查。
+- 先统一到效应级挂起：首批都是不产生效应意图的 human 控制，放在效应级做不到；留到合并 0240 时再做。
+- 通过 Python governor 和 ApprovalEvidence：首批的能力不经过 governor；接上之后，会连带要求放宽效应门对 REQUIRED 的拒绝，
+  并且引入 governor 对 policy 自动批准的认可。
+
+风险：
+- 审批流程本身成为社会工程或刷批的入口：用限流、冷却，以及不同批准人的现行资格重查来缓解。
+- 审计里没有正文，复核困难：工作台只显示服务端渲染的白名单字段和 digest。
+- 单人租户无法执行需要审批的 Action：这是禁止自批的本意。
+- Action 发布新版本后，没有对应策略版本时拒绝执行（fail closed），所以发布流程中必须同步更新策略。
+
+后果：请求人在审批通过后需要回来点一次“执行”。审批不会自动产生任何写入。
 ```
 
-## 12. 实现切片与工作量
+## 12. 测试清单（回应 S5）
+
+- 自批被拒：同一个 subject 用另一个 principal 自批，统一审批和 0240 各测一次；
+- quorum 为 2 时，一个人重复批准被拒；
+- 一票拒绝即终结；
+- 期限：决定时过期、消费时过期、清扫只做终结而不执行；
+- 请求体或 digest 改变后不能消费；策略版本改变后执行被拒；
+- 批准人在执行前被撤销角色或移除：这一票不再计入，审批退回 waiting；
+- 请求人在执行前失去权限：正常入口拒绝，审批不被消费；
+- 已通过的审批再次消费被拒（`approval_consumed`）；
+- 处理函数拒绝时记为 `execution_refused`，并且不会自动重新发起；
+- 控制暂停时执行被拒；
+- 不存在自动批准：没有任何 SQL 路径能在没有人类决定的情况下得到 approved，quorum 为 0 的策略被拒；
+- 效应类能力不能挂策略；
+- 同一个 digest 在 waiting 时重复发起，返回同一条审批；冷却期内再次发起被拒；
+- 派发重查不被绕过：在 real 派发开关关闭的情况下，审批通过并执行之后，效应仍然被开关拒绝；
+- 删除传播：Consumer 被擦除后，审批请求中的 consumer_id 替换为假名。
+
+## 13. 实现切片与工作量（回应 S4）
 
 | 切片 | 内容 | 估计 |
 |---|---|---|
 | A0 | vendored `state_machine.py`、`expiry.py` 和上游测试，记录 provenance | 0.5 天 |
-| A1 | 迁移：策略、请求、决定三张表，RLS，只追加，签名入口 `approvals.request`、`approvals.decide`、`approvals.cancel`，审计 | 1.5 天 |
-| A2 | 受治理入口的接合：策略匹配、202 挂起、在同一事务中继续执行并重查请求人、执行结果记录；目录中的 `approval_mode` 和风险等级；接上 governor 的审批证据校验 | 1.5 天 |
-| A3 | 过期清扫（复用上游 sweeper）和告警 `approval_waiting` | 0.5 天 |
-| A4 | 工作台：观察视图、两个操作、前端列表和详情 | 1.5 天 |
-| A5 | 首批 Action 接入，加测试（禁止自批、quorum、期限、请求体变化后失效、执行时请求人失去权限、派发重查不被绕过、单人租户），保留与删除传播 | 1 天 |
-| A6 | ADR、运行手册、stage 验证（第二个测试成员） | 0.5 天 |
+| A1 | 迁移：策略、请求、决定、消费四张表，RLS，只追加；`approvals.decide`、`approvals.cancel` 两个能力和审计；0240 自批比较改为按 subject（新迁移，登记复制件守护） | 2 天 |
+| A2 | 重定义受治理入口 `authz.nexloop_goal_governed_action`（0124，登记复制件守护）：策略匹配、挂起、同 digest 去重、消费时的全部重查、一次性消费、执行结果；限流与冷却 | 2.5–3 天 |
+| A3 | 过期清扫和告警 `approval_waiting` | 0.5 天 |
+| A4 | 工作台：三栏观察视图、批准、拒绝、撤回、执行 | 1.5 天 |
+| A5 | 首批三个能力的策略、第 12 节的测试、保留期与删除传播 | 1.5 天 |
+| A6 | ADR、运行手册；stage 上**先准备第二个测试成员，再启用策略** | 0.5 天 |
 
-合计约 **7 天**，与 L7 估计的 6–8 天一致。把 0240 并入统一审批另计约 2 天。A1、A2 会改动受治理入口这条公共路径，需要 L6 深审。
+合计约 **9–9.5 天**，比上一版的 7 天多，原因是 A1 和 A2 的范围扩大了。A1 和 A2 改动的是受治理入口这条公共路径，需要 L6 深审。把 0240 并入统一审批另计约 2 天。
+
+## 14. 对 L6 复核（611cc8f7）的逐条回应
+
+| 条目 | 回应 |
+|---|---|
+| 一（遗漏） | 第 1 节补上了 SQL 层写死 none 的位置（0010、0015、0016、0040、0041、0124）。第 2 节决定这些门**都不改**：目录中的 `approval_mode` 保持 none，需要审批与否只由策略表决定 |
+| C1 | 只走 SQL 受治理入口（第 2 节）；Python governor、ApprovalPort 和效应门都不参与，也不放宽，所以没有普遍豁免 |
+| C2 | 取消“以请求人身份执行”的设计。改为请求人用自己的会话再提交一次，消费审批后执行（第 2、4 节），系统中不存在身份替换函数；审计同时记录 actor 和 `approved_by`（第 8 节） |
+| C3 | 消费时重查全部批准人的现行资格，无效票不计入，达不到 quorum 时审批退回 waiting（第 4.3、5 节）；决定时在批准人本人的会话中重查 |
+| C4 | 不允许自动批准：SQL 没有这条路径，quorum 不能为 0，governor 路径根本不会被触达，并用测试锁定（第 2 节第 2 条、第 12 节） |
+| C5 | A1 中新增迁移，把 0240 的自批比较改为按 subject，并补测试（第 5 节） |
+| I1 | 消费时重查策略版本和控制暂停（第 4.3 节）；Action 发布新版本后，没有对应策略时拒绝执行（第 3 节） |
+| I2 | 条件只支持单字段等值；`goals.budget.set` 移出首批，以后用拆分 Action 表达；`consumer.erase` 只针对工作台 owner 发起的能力，顾客本人请求的擦除走另一条入口，实现时核实，必要时拆分（第 3、10 节） |
+| I3 | digest 写入算法版本，绑定 Action 版本和策略版本；同 digest 在 waiting 时去重；执行被拒后审批仍算已消费，不会自动重新发起；只能消费一次（第 4、6 节） |
+| I4 | 第二个测试成员必须在启用策略之前就位（第 10、13 节）；“quorum 为 0”已在 ADR 中否决 |
+| I5 | 写明了按 purpose 原子切换、旧记录迁移为只读历史的规则（第 9 节） |
+| I6 | 清扫只做 waiting→expired，绝不执行；决定和消费都以数据库时钟为准（第 7 节） |
+| S1 | ADR 草案补上了“备选方案与否决理由”和“风险”两段（第 11 节） |
+| S2 | 现状清单补上了 `action_governor.py`、`conversation_messages.py` 和 SQL 层的硬约束（第 1 节） |
+| S3 | 限流与冷却：每个请求人对同一能力最多 3 个 waiting 审批；被拒绝或撤回后，同一 digest 冷却 1 小时（第 8 节） |
+| S4 | A2 调整为 2.5–3 天，A1 调整为 2 天，合计约 9–9.5 天（第 13 节） |
+| S5 | 测试清单补齐（第 12 节） |
