@@ -34,6 +34,7 @@ def test_each_section_4_check_fails_on_its_own(tmp_path):
     base = run(tmp_path, 'p4', 4, 100)
     cases = {
         'login_p95_growth_le_20pct': dict(login_p95=121),
+        'login_429_zero': dict(login_p95=100, login_statuses={'200': 999, '429': 1}),
         'login_503_zero': dict(login_p95=100, login_statuses={'200': 999, '503': 1}),
         'login_unanswered_zero': dict(login_p95=100, login_statuses={'200': 999, '0': 1}),
         'ack_p95_le_500ms': dict(login_p95=100, ack_p95=501),
@@ -55,3 +56,14 @@ def test_a_missing_cell_fails_and_missing_input_is_exit_2(tmp_path):
     assert C.main([base, cand]) == 1
     assert C.main([base, str(tmp_path / 'absent')]) == 2
     assert C.main([base]) == 2
+
+
+def test_the_ack_threshold_applies_to_the_gate_cell_c4_only(tmp_path):
+    """Retest 2026-10-23: C4-peak (3/s, an observe cell) had ACK p95 about 1.1 s in every run, the baseline included; the PRD's 500 ms
+    is a gate item of C4 / C4-low only (report.py GATES)."""
+    base = C.read_run(run(tmp_path, 'p4', 4, 100, ack_p95=1131))
+    cand = C.read_run(run(tmp_path, 'p2', 2, 100, ack_p95=1129))
+    _, verdicts = C.compare([base, cand])
+    by = {v['cell']: v for v in verdicts}
+    assert by['C4-peak']['passed'] and 'ack_p95_le_500ms' not in by['C4-peak']['checks']
+    assert not by['C4']['passed'] and by['C4']['checks']['ack_p95_le_500ms'] is False

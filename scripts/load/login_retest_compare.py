@@ -3,7 +3,7 @@
     uv run --frozen python scripts/load/login_retest_compare.py .ci-results/load/<pool4> .ci-results/load/<pool3> .ci-results/load/<pool2>
 
 The first run directory is the baseline (identity pool 4); every later one is judged against it, cell by cell (C4-peak, C4), by
-the §4 table: login p95 at most +20 % with no 503 and no unanswered login, steady ACK p95 at most 500 ms with no more 503 than the
+the §4 table: login p95 at most +20 % with no 429 (one rate bucket per customer), no 503 and no unanswered login, steady ACK p95 at most 500 ms on the gate cell C4 (C4-peak is an observe cell) with no more 503 than the
 baseline, every workbench event 200, and a connection peak of at most 60. Reads only cells/<cell>/cell.json and report.json
 (numbers only). Prints a Markdown table and a JSON verdict; exit 0 when every candidate passes, 1 otherwise, 2 on missing input.
 """
@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 CELLS = ('C4-peak', 'C4')
+GATES = ('C4',)  # of these two, only C4 is a gate cell (report.py GATES = C4, C4-low)
 LOGIN_P95_GROWTH = 0.20
 ACK_P95_MS = 500
 CONNECTIONS_PEAK = 60
@@ -62,7 +63,7 @@ def read_run(directory):
         cells[name] = {
             'identity_pool_max': cell.get('identity_pool_max'),
             'login_requests': logins.get('requests'), 'login_p95_ms': logins.get('p95_ms'), 'login_max_ms': logins.get('max_ms'),
-            'login_503': login_statuses.get('503', 0), 'login_unanswered': login_statuses.get('0', 0),
+            'login_429': login_statuses.get('429', 0), 'login_503': login_statuses.get('503', 0), 'login_unanswered': login_statuses.get('0', 0),
             'ack_p95_ms': metrics.get('ack_p95_ms'), 'ack_p99_ms': metrics.get('ack_p99_ms'),
             'ack_503': (by_cell[name].get('ack_statuses') or {}).get('503', 0),
             'workbench_not_200': workbench_not_200(cell.get('workbench_events')),
@@ -71,23 +72,25 @@ def read_run(directory):
     return {'run': directory.name, 'cells': cells}
 
 
-def judge(base, cand):
+def judge(base, cand, gate=True):
     """The §4 checks of one candidate cell against the baseline cell: {check: bool}."""
     checks = {}
     if base.get('login_p95_ms') and cand.get('login_p95_ms') is not None:
         checks['login_p95_growth_le_20pct'] = cand['login_p95_ms'] <= base['login_p95_ms'] * (1 + LOGIN_P95_GROWTH)
     else:
         checks['login_p95_growth_le_20pct'] = False
+    checks['login_429_zero'] = cand.get('login_429', 0) == 0  # a 429 means the customers did not get one bucket each
     checks['login_503_zero'] = cand.get('login_503', 0) == 0
     checks['login_unanswered_zero'] = cand.get('login_unanswered', 0) == 0
-    checks['ack_p95_le_500ms'] = cand.get('ack_p95_ms') is not None and cand['ack_p95_ms'] <= ACK_P95_MS
+    if gate:  # the PRD's ACK p95 <= 500 ms is a gate item of the gate cells only (report.py GATES); C4-peak is an observe cell
+        checks['ack_p95_le_500ms'] = cand.get('ack_p95_ms') is not None and cand['ack_p95_ms'] <= ACK_P95_MS
     checks['ack_503_not_more'] = cand.get('ack_503', 0) <= base.get('ack_503', 0)
     checks['workbench_all_200'] = cand.get('workbench_not_200', 0) == 0
     checks['connections_peak_le_60'] = cand.get('connections_peak') is not None and cand['connections_peak'] <= CONNECTIONS_PEAK
     return checks
 
 
-COLUMNS = ('identity_pool_max', 'login_requests', 'login_p95_ms', 'login_max_ms', 'login_503', 'login_unanswered',
+COLUMNS = ('identity_pool_max', 'login_requests', 'login_p95_ms', 'login_max_ms', 'login_429', 'login_503', 'login_unanswered',
            'ack_p95_ms', 'ack_p99_ms', 'ack_503', 'workbench_not_200', 'connections_peak')
 
 
@@ -106,7 +109,7 @@ def compare(runs):
             if index == 0:
                 verdict = 'baseline'
             else:
-                checks = judge(base['cells'].get(name, {}), cell)
+                checks = judge(base['cells'].get(name, {}), cell, gate=name in GATES)
                 passed = all(checks.values())
                 verdicts.append({'run': run['run'], 'cell': name, 'passed': passed, 'checks': checks})
                 verdict = 'pass' if passed else 'FAIL: ' + ', '.join(k for k, v in checks.items() if not v)

@@ -58,6 +58,17 @@ LOAD_IDENTITY_POOL_MAX=2 scripts/load/run_on_lane.sh
 - 每组结束都会打印 `<run_id>`，结果在 `.ci-results/load/<run_id>/`。核对 `cells/<格>/cell.json` 里的 `identity_pool_max`，应等于该组设置的值。
 - 中途失败时，可以用 `--resume <run_id>` 续跑，已完成的格会保留。
 
+**三组共用一个模板**（200 客户时推荐；2026-10-23 复测实际用的是三次 `run_on_lane.sh`）：
+
+- identity 池只是启动 API 的参数，与模板无关；模板中 fixture 凭据的有效期是 30 天。
+- 第一组照常用 `run_on_lane.sh`，记下它的运行目录 `R1`。后两组自己拿 CI 锁，直接运行 `matrix_cells.py` 和 `report.py`，复用 `R1/template`。
+- **路径必须是绝对路径**：各服务在自己的工作目录里启动，相对路径会让 API 读不到 TLS 文件，报 `private service-owned TLS files required`（`service_start_failed`）。包含修复的提交中，`matrix.py` 会自己把路径转成绝对路径；在较早的检出上，必须按下面的写法使用 `$PWD`。
+- 车道脚本会设置的环境变量，这里要显式设置（`REAL_DISPATCH_ENABLED=false`、`NEXLOOP_TEST_GUARD_WORKERS=4`）。这种方式不经过车道预检和失败收尾，失败时要手工检查 `$R/lane` 下是否有残留的进程和集群。
+
+```bash
+R1=$PWD/.ci-results/load/<池4的run_id>; for P in 3 2; do R=$PWD/.ci-results/load/$(date -u +%Y%m%dT%H%M%SZ)-pool$P; mkdir -m 700 -p $R/lane && flock -w 1800 "$NEXLOOP_CI_LOCK" env REAL_DISPATCH_ENABLED=false NEXLOOP_TEST_GUARD_WORKERS=4 LOAD_CI_COMMAND=scripts/ci/check NEXLOOP_LOAD_CELLS=C4-peak,C4 uv run --frozen python scripts/load/matrix_cells.py --template $R1/template --matrix $PWD/deploy/load/matrix.v2.json --out $R --lane-root $R/lane --relay-processes 2 --identity-pool-max $P && uv run --frozen python scripts/load/report.py $R --out $R; echo "pool $P -> $R exit $?"; done
+```
+
 **“identity=2 加 relay 语义池 1”这一组目前模拟不了：**
 - 负载栈 `scripts/load/stack.py` 不会把 `--semantic-read-pool-max` 传给 relay。
 - relay 的这个参数（89fcc48a）还在第十五批里，不在 main c58b6a33 上。
@@ -88,8 +99,8 @@ LOAD_IDENTITY_POOL_MAX=2 scripts/load/run_on_lane.sh
 | 指标 | 读取位置 | 判定 |
 |---|---|---|
 | 登录 p95 / max | `cells/<格>/cell.json` → `.logins.p95_ms`、`.logins.max_ms` | p95 比基线增加不超过 20% |
-| 登录 503、无应答 | `cell.json` → `.logins.statuses["503"]`、`.logins.statuses["0"]` | 都为 0 |
-| 稳态 ACK p95 / p99 | `report.json` → `.cells[].metrics.ack_p95_ms`、`.ack_p99_ms` | p95 不超过 500 ms |
+| 登录 429、503、无应答 | `cell.json` → `.logins.statuses["429"]`、`["503"]`、`["0"]` | 都为 0（429 不为 0 说明没有做到每个客户一个桶，这一组作废） |
+| 稳态 ACK p95 / p99 | `report.json` → `.cells[].metrics.ack_p95_ms`、`.ack_p99_ms` | 只对门槛格 C4：p95 不超过 500 ms（C4-peak 是观察格，只记录） |
 | ACK 503（BackendBusy） | `report.json` → `.cells[].ack_statuses["503"]` | 不比基线多 |
 | 工作台事件 | `cell.json` → `.workbench_events`（标签为 `<类型>:<状态>`） | 全部是 200 |
 | 连接峰值 | `report.json` → `.cells[].metrics.connections_peak` | 不超过 60 |
