@@ -2,6 +2,8 @@
 
 状态：设计稿，供 L6 复核与负责人拍板。基于 main 0a7d7eef。本阶段只写设计，不改代码。
 
+修订 2：处理 L6 小复核（8ab62298）的追加项 N-1 到 N-3，见 §3.4、§4.1、§7、§8。
+
 修订 1：处理 L6 复核 `relation-types-adr-review.md`（59552198）的 C-1、I-1 到 I-4 和 S-1 到 S-6，对应改动在各节标注。
 
 ## 1. 事实核对：现有的关系能力
@@ -45,7 +47,7 @@
 | Message | actor | principal | — | 同上 | B |
 | Commitment | made_to | Consumer | 多→一 | Commitment 创建 Action（commitment guard，conversation extraction） | A `commitment_to`（归属） |
 | Commitment | related_goal_ref | Goal | 多→一，可空 | 同上 | A `commitment_for_goal` |
-| Commitment | supersedes | Commitment | 一→一，可空 | 同上 | A `supersedes` |
+| Commitment | supersedes | Commitment | 多→一，可空（N-3：见下） | 同上 | A `supersedes`（many_to_one） |
 | Commitment | fulfillment_basis | （待核：证据 ref） | — | 同上 | B，待核实是否指向对象 |
 | CommercialRecord | consumer_ref | Consumer | 多→一，可空（unlinked） | 0118/0121 商务摄入与链接（configurator link/unlink） | A `commercial_record_of`（归属）；链接/解除链接时同时写/删关系 |
 | RelationshipAssessment | source_id / target_id | relation_type 定义的端点类型 | 由关系类型决定 | 0058 assessment create/correct | B：它**评估**一条关系，本身不是关联；但其 source/target 的 Consumer 计入归属（0315 已覆盖），改为经 `assesses_*` 关系表达见 §3.2 待核 |
@@ -139,7 +141,24 @@ group by 1,2,3,4 order by 1,2,4;
 | incentive_offering_of | ConsumerIncentiveOffering → Consumer | many_to_one | target |
 | scope_for_consumer | RoleAssignmentScope → Consumer | many_to_one | target |
 | assessment_evidence | RelationshipAssessment → Message | many_to_one | transitive |
-| step_in_goal、step_under_control、commitment_for_goal、supersedes、assignment_for_message、assignment_goal、assignment_step、assignment_control、role_link_role、service_offering_ref、incentive_offering_ref、scope_of_role、role_ceiling | 见 §2 | many_to_one（supersedes 为 one_to_one） | 无 |
+| step_in_goal、step_under_control、commitment_for_goal、supersedes、assignment_for_message、assignment_goal、assignment_step、assignment_control、role_link_role、service_offering_ref、incentive_offering_ref、scope_of_role、role_ceiling | 见 §2 | many_to_one | 无 |
+
+**supersedes 的基数**（N-3）：
+
+- 0111 的承诺登记会取同一 Consumer、同一 correlation_key 下最近一个仍为 open 状态的承诺作为被替代者；登记后，被替代的承诺会转为 superseded，正常情况下不会被再次替代。
+- 但这一点没有结构保证：`runtime.nexloop_commitments.supersedes` 上没有唯一约束；两条消息并发准备时，可能取到同一个被替代者。
+- 所以 `supersedes` 定义为 **many_to_one**。首批关系类型因此**全部是 many_to_one**，一个源对象只有一个属性值，派生永远不会产生基数冲突（见 §4.1）。
+- 只读核对 SQL（调度员在 stage 执行）：
+
+```sql
+select count(*) filter (where properties->>'supersedes' is not null) as with_supersedes,
+       count(distinct properties->>'supersedes') as distinct_superseded,
+       (select count(*) from (select supersedes from runtime.nexloop_commitments where supersedes is not null
+          group by tenant_id, world, supersedes having count(*) > 1) x) as superseded_more_than_once
+from ontology.objects where type_name = 'Commitment';
+```
+
+  如果 `superseded_more_than_once > 0`，说明确实发生过；many_to_one 能接受这种情况，one_to_one 则会让这两次写入中的第二次失败。
 
 **待核**：
 
@@ -184,12 +203,18 @@ group by 1,2,3,4 order by 1,2,4;
 ### 4.1 同事务派生（I-2；ADR-038 §3 第 5 点，推荐方案 a）
 
 - **方案 a（推荐）：由触发器派生。**
-  - 在 `ontology.objects` 上加 AFTER INSERT OR UPDATE OF properties 触发器 `ontology.nexloop_relation_derive`（security definer，nexloop_owner 所有，search_path 固定）。
-  - 对这个对象类型的每个关系类型（`source_type` 为该类型，并且带 `source_property`），比较新旧属性值：
-    - 新值有值、并且目标对象在同一 tenant、同一 world 存在 → put；
-    - 旧值与新值不同，或者新值被清空 → drop 旧的那条；
-    - 目标不存在（悬空引用）→ 不建关系，计入 `relation_dangling` 计数（不报错：今天的引用属性允许悬空，例如擦除后留下的引用）。
-  - **基数冲突时拒绝这次写入**（42501 `relation cardinality conflict`），不跳过。跳过会让关系缺失，在读守卫一侧造成漏读。存量冲突由回填的 dry-run 先列出来。
+  - 在 `ontology.objects` 上加一个 **DEFERRABLE INITIALLY DEFERRED 的约束触发器**（N-2）`ontology.nexloop_relation_derive`：AFTER INSERT OR UPDATE OF properties，FOR EACH ROW。security definer，nexloop_owner 所有，search_path 固定。
+    - 它**在事务提交时**执行，所以同一事务中稍后才写入的目标对象（例如先写 MessageAssignment、后写它引用的对象）也能被看到，不会被当成悬空而默默漏掉关系。
+    - 执行时读取该行的**当前**属性（而不是触发时的快照），同一事务内多次更新同一对象时，以最终值为准。
+  - 对这个对象类型的每个关系类型（`source_type` 为该类型，并且带 `source_property`），比较已有的关系与当前属性值：
+    - 当前值有值、并且目标对象在同一 tenant、同一 world 存在 → put；
+    - 已有关系的目标与当前值不同，或者当前值已被清空 → drop 旧的那条；
+    - 目标不存在（真正的悬空引用，例如擦除后留下的引用）→ 不建关系，计入 `relation_dangling` 计数，不报错，因为今天的引用属性允许悬空。
+  - **基数**：首批关系类型全部是 many_to_one（§3.2、N-3），一个源对象的一个属性只有一个值，所以派生**不会产生基数冲突**。保留冲突检查是为了以后可能出现的 one_to_one 类型：冲突时拒绝提交（42501 `relation cardinality conflict`），不跳过，因为跳过会让关系缺失，在读守卫一侧造成漏读。
+  - **会因此失败的现有写入**：首批没有。只有以后发布 one_to_one 或 one_to_many 类型时，在已有数据违反该基数的情况下，相应的对象写入才会在提交时失败。发布这类类型之前，必须先用 §2 的 `sharing_a_target` 计数确认存量为 0。
+  - **删除端点**（N-1）：
+    - `ontology.relations` 的两个外键指向 objects，都没有 ON DELETE CASCADE。所以只删对象、不删关系的语句会因外键失败。已知的一处是 0129 的 CommercialRecord 保留期清理（`0129_nx029_retention.sql:293`，只删 events 和对象）；sim、shadow world 的整体删除也要逐一核对。
+    - 修法（结构保证）：在 `ontology.objects` 上再加一个 BEFORE DELETE 触发器 `ontology.nexloop_relation_endpoint_delete`，删除以该对象为 source 或 target 的关系。这样任何删除对象的路径都不需要知道关系的存在；擦除中已有的“先删关系再删对象”的语句不受影响。
   - 幂等：同一对关系已存在时什么都不做；relation_id 的算法与 0016 相同。
   - 不变式：objects 只经受治理的定义函数写入，所以关系也只经受治理写入产生，这是结构保证；以后新增的写入路径也会自动派生关系。
   - **不改写任何已发布的定义函数**，复制件守护只需要登记 `nexloop_object_consumers` 的改写。
@@ -246,7 +271,7 @@ group by 1,2,3,4 order by 1,2,4;
 | --- | --- | --- | --- |
 | P0 | 本设计 + ADR 拍板；stage 计数 SQL 结果入档 | 负责人拍板 §3 各项；计数表 | 0.5 天（本文） |
 | P1 定义 | 系统目录 `relation_types()`；首批关系类型发布；`relation_world_guard` 触发器；`nexloop_relation_put/drop` 助手；unlink 入口（0016 模式）；`relation_action_bindings` 写入 | stage 发布后 `relation_type_versions` 有首批类型、`relations` 仍为 0；link/unlink 入口 PG 测试；跨 world 被拒；**结构测试**：每个带归属标记的类型都能解析到 Consumer，目录清单中的最长链 L 正确（C-1）；除 nexloop_owner 外没有角色能写这两张表（S-1） | 2–3 天 |
-| P2 双写（派生） | 推荐方案 a：objects 上的派生触发器、dangling 计数、基数冲突拒绝写入、change_scope 声明核对；逐项核对擦除中“改属性、不删对象”的步骤触发了 drop（0305–0307）。方案 b 则要在各定义函数中调用 put 并逐一登记复制件守护 | 新建对象后关系数等于属性推导数；verify 差异为 0；全库擦除与复制件守护测试通过；**修改 real 写入路径，要经 ack-policy 和 stage 验收** | a：2–3 天；b：4–6 天 |
+| P2 双写（派生） | 推荐方案 a：objects 上的派生触发器、dangling 计数、基数冲突拒绝写入、change_scope 声明核对；逐项核对擦除中“改属性、不删对象”的步骤触发了 drop（0305–0307）。方案 b 则要在各定义函数中调用 put 并逐一登记复制件守护 | 新建对象后关系数等于属性推导数；verify 差异为 0；**经生产写入路径（各定义函数，而不是直接插入）创建一组互相引用的对象后，`relation_dangling` 为 0**（N-2）；**有关系时，0129 的 CommercialRecord 保留期清理和 sim/shadow world 的删除仍然成功**（N-1）；全库擦除与复制件守护测试通过；**修改 real 写入路径，要经 ack-policy 和 stage 验收** | a：2–3 天；b：4–6 天 |
 | P3 回填 | `nexloop.relation.backfill:1` + `relation_backfill.py`（dry-run / run / verify / revert）；来源标记；跳过正在擦除的 Consumer；与 purge 互斥 | stage verify：前两数相等；悬空与跨 world 单独列出；revert 只删回填标记的关系（演练一次） | 2–3 天 |
 | P4 切读 | 读守卫和 `object_fields` 读关系（属性后备并计数）；邻居改读关系；purge 改为“关系 ∪ 属性”并集 | 后备计数为 0；0315 测试与全库擦除测试通过；世界模型邻居有关系分组；**修改 real 读取路径，要经 ack-policy 和 stage 验收** | 2–3 天 |
 | P5 收尾（单向） | 移除读侧的属性后备（新迁移）；purge 的并集保留不动 | 前置条件：后备计数持续 7 天为 0、stage 每日 verify 为 0、全库擦除测试在“读侧只读关系”模式下通过。回退：用新迁移恢复后备；回退的观察指标是 verify 差异与 `relation_dangling` 计数（S-5） | 0.5–1 天 |
@@ -257,13 +282,18 @@ group by 1,2,3,4 order by 1,2,4;
 
 ## 8. 风险与不做的事
 
-- **触发器带来的写入失败**（方案 a）：派生出错或基数冲突会让这次对象写入失败。缓解：P3 的 dry-run 先清点存量冲突；首批只有 `supersedes` 是 one_to_one；派生函数配单元测试和 PG 测试。如果采用方案 b，风险换成“改写多个定义函数、产生过期副本，以及新增写入路径漏 put”。
+- **触发器带来的写入失败**（方案 a）：派生出错会让这次提交失败。首批关系类型全部是 many_to_one，不会出现基数冲突（N-3）。删除对象时，由 BEFORE DELETE 触发器先删关系，外键不会再挡住删除（N-1）。缓解：派生函数配单元测试和 PG 测试，P3 的 dry-run 先清点存量数据。如果采用方案 b，风险换成“改写多个定义函数、产生过期副本，以及新增写入路径漏 put”。
 - **基数冲突暴露存量脏数据**：例如同一个 ConsumerOwnership 指向两个 Consumer。回填会报基数冲突。缓解：P3 先 dry-run 并列出冲突，由负责人决定先修数据（经受治理 Action）再回填。
 - **悬空引用**：被擦除删掉的目标留下了悬空属性。回填不建这些关系，单独列出；它们本身由擦除覆盖测试兜底。
 - **性能**（S-6）：
   - 读守卫保留 0134 的快速路径：租户和 world 中没有正在擦除的 Consumer 时，只做一次索引探测，不解析归属，所以没有擦除时 real 读取的性能不变。
   - 有擦除时，每跳一次查询，走已有的 `ontology_relations_source(tenant_id, source_type, source_object_id)` 索引（0001），最多 L 跳。
-  - 触发器在每次对象写入时多做一次按类型的关系类型查找；关系类型可以随会话缓存，P1 测量写入耗时。
+  - 触发器在每次对象写入时多做一次按类型的关系类型查找；关系类型可以随会话缓存。P1 的性能测量具体包括：
+    - NX-041 的 sim 数据生成，大批量对象写入，每一行都会触发派生；
+    - 擦除中的批量假名化（0305–0307），大批量属性更新，每一行都触发 drop；
+    - 一次普通的 real 对话写入。
+
+    每项测量写入耗时和提交耗时（约束触发器在提交时执行），并与没有触发器的基线比较。
 - **表层外键不含 world**：靠触发器补上；触发器加在已有表上，属于新迁移，不改 0001。
 - **RelationshipAssessment 已有的关系名**（S-6）：已有的评估中 version 0 的 relation_name 可能与首批关系类型重名。P1 发布前先只读统计 `select properties->>'relation_name', properties->>'relation_version', count(*) from ontology.objects where type_name='RelationshipAssessment' group by 1, 2`，有重名就改用不冲突的名字。
 - **不做**：

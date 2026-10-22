@@ -61,13 +61,19 @@ stage（release 36 前后，调度员只读）有 20 个 Object Type，但 `onto
    - 推荐：**(b)**。
    - 理由：configurator 是发布系统目录、签发凭据的受信配置主体，让它批量写业务关联会扩大它的权限面。(b) 的权限只有回填一项，可以在回填完成后吊销，而且不需要人工逐条操作。
 5. **关系怎样随对象写入产生**
-   - 选项：(a) 由 `ontology.objects` 上的 AFTER INSERT/UPDATE 触发器（security definer，nexloop_owner 所有），按关系类型的 `source_property` 在同一事务内派生：属性有值就 put，属性变化或清空就 drop；(b) 在每个写入的定义函数里各自调用 put/drop。
+   - 选项：
+     - (a) 由 `ontology.objects` 上的**提交时执行的约束触发器**（DEFERRABLE INITIALLY DEFERRED，security definer，nexloop_owner 所有）派生，规则是关系类型的 `source_property`：属性有值就 put，属性变化或清空就 drop。另加一个 BEFORE DELETE 触发器，删除对象之前先删以它为端点的关系。
+     - (b) 在每个写入的定义函数里各自调用 put/drop。
    - 推荐：**(a)**。
    - 理由：
      - objects 只经受治理的定义函数写入，所以“关系只经受治理写入产生”这一点由结构保证；以后新增写入路径也不会漏写关系。
      - 不改写已发布的定义函数，复制件守护的工作量几乎为零。
      - Action 合同里的 `change_scope.relation_types` 改为声明，由发布时核对。
-   - 代价：基数冲突时**拒绝这次对象写入**（42501），而不是跳过。跳过会留下缺失的关系，在读守卫一侧造成漏读；回填的 dry-run 会先把存量冲突列出来，由负责人处理。
+   - 代价：
+     - 派生出错会让提交失败。
+     - 基数冲突时拒绝提交（42501），不跳过，因为跳过会留下缺失的关系，在读守卫一侧造成漏读。首批关系类型全部是 many_to_one，`supersedes` 也已改为 many_to_one，所以**没有现有写入会因此失败**。只有以后发布 one_to_one 类型、而存量数据违反该基数时才会失败，所以发布前要先计数确认。
+     - 有删除触发器后，只删对象、不删关系的现有清理（例如 0129 的 CommercialRecord 保留期清理）不会再被外键挡住。
+     - 每次对象写入在提交时多做一次关系派生，P1 会测量 sim 数据生成和擦除批量假名化的开销。
 6. **RelationshipAssessment 的 source_id / target_id 首批是否建关系**
    - 推荐：**首批不建**。
    - 理由：这两个字段的端点类型取决于它所评估的关系类型，要按端点组合分别发布；这两个字段的归属仍按属性解析。证据消息改为经 `assessment_evidence` 关系，沿传递链走到 Consumer。
