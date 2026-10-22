@@ -11,7 +11,8 @@
 --    are unchanged.
 -- 3. runtime.nexloop_metrics_snapshot is renamed once and wrapped: the wrapper adds the 'approvals' block (counts and ages only,
 --    no body): waiting, oldest_waiting_age_seconds and approved_unconsumed count requests still before due_by; overdue counts those past
---    due_by still waiting or approved and unconsumed - the sweep's heartbeat (it should stay 0). Rules in alert-rules.v13.json.
+--    due_by still waiting or approved and unconsumed - the sweep's heartbeat (it should stay 0); and (A7, 0327) solo_mode_enabled,
+--    self_approvals_24h and eligibility_reductions_24h for the single-person mode's alerts. Rules in alert-rules.v13.json.
 -- Published migrations are not edited.
 
 create function control.nexloop_approval_expire_due(p_tenant text,p_world text,p_limit integer) returns jsonb
@@ -88,6 +89,12 @@ begin
    'overdue',count(*) filter(where r.status in ('waiting_approval','approved') and r.due_by<=clock_timestamp() and not exists(
      select 1 from control.nexloop_approval_consumptions k where k.approval_id=r.approval_id)))
   into v from control.nexloop_approval_requests r where r.tenant_id=p_tenant and r.world=p_world;
+ -- A7 (design §15, alert approval_solo_mode): the switch, self-approvals and reduced eligible counts of the last 24 hours.
+ v:=v||jsonb_build_object('solo_mode_enabled',case when control.nexloop_approval_solo_enabled(p_tenant,p_world) then 1 else 0 end,
+  'self_approvals_24h',(select count(*) from control.nexloop_approval_decisions d where d.tenant_id=p_tenant and d.world=p_world and d.self_approved
+    and d.decided_at>clock_timestamp()-interval '24 hours'),
+  'eligibility_reductions_24h',(select count(*) from runtime.audit_events a where a.tenant_id=p_tenant and a.action='approval.eligibility_reduced'
+    and a.created_at>clock_timestamp()-interval '24 hours'));
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return v;
 end $$;

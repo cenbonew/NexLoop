@@ -16,6 +16,32 @@
 -- * control.nexloop_approval_consume: the one consumption (primary key approval_id) with the audit approval.consumed naming the actor
 --   (requester) and approved_by (the approvers' subjects).
 
+-- The votes that count now (one rule for the gate and for a decision's replay): approvals of distinct subjects, each approver eligible
+-- now (L6 C3), never the member the request acts on (NX-058 Z1); the requester's own vote only while the single-person mode takes
+-- effect now (A7, S-I1; 0327). Returns the counted subjects.
+create function control.nexloop_approval_valid_votes(p_tenant text,p_world text,p_approval uuid) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare r control.nexloop_approval_requests;pol control.nexloop_approval_policies;v_by jsonb;
+begin
+ perform set_config('eios.tenant_id',p_tenant,true);
+ select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and approval_id=p_approval;
+ select * into pol from control.nexloop_approval_policies where capability=r.capability and version=r.policy_version;
+ select coalesce(jsonb_agg(distinct d.actor_subject),'[]'::jsonb) into v_by from control.nexloop_approval_decisions d
+  where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id and d.outcome='approved'
+   and d.actor_subject<>r.requester_subject and control.nexloop_approval_approver_eligible(p_tenant,d.actor_principal,pol.approver_roles)
+   and d.actor_subject is distinct from control.nexloop_approval_target_subject(p_tenant,r.body,pol.target_subject_field);
+ perform set_config('eios.tenant_id',p_tenant,true);
+ if exists(select 1 from control.nexloop_approval_decisions d where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id
+   and d.outcome='approved' and d.actor_subject=r.requester_subject and d.self_approved)
+  and control.nexloop_approval_solo_effective(p_tenant,p_world,r.capability,r.policy_version,r.requester_subject) then
+  v_by:=v_by||to_jsonb(r.requester_subject);
+ end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ return v_by;
+end $$;
+alter function control.nexloop_approval_valid_votes(text,text,uuid) owner to nexloop_owner;
+revoke all on function control.nexloop_approval_valid_votes(text,text,uuid) from public;
+
 create function control.nexloop_approval_gate(p_tenant text,p_world text,p_capability text,p_action text,p_principal text,p_body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare pol control.nexloop_approval_policies;v_subject text;v_digest text;r control.nexloop_approval_requests;v_valid integer;v_by jsonb;v_open jsonb;
@@ -30,6 +56,8 @@ begin
  v_subject:=control.nexloop_approval_subject_of(p_tenant,p_principal);
  if v_subject is null then raise exception 'approval: requester_unavailable' using errcode='42501';end if;
  v_digest:=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,pol.version,p_body);
+ -- Lock order (design §16, N-1): the tenant lock first (member changes take it too), then the approval row (A7, 0327).
+ perform control.nexloop_approval_tenant_lock(p_tenant);
  perform set_config('eios.tenant_id',p_tenant,true);
  -- An approved, unconsumed Approval of this very request by this person: locked, so a second concurrent execution waits and then sees
  -- the consumption (L6 N-1; the consumption's primary key is the second guard).
@@ -73,11 +101,7 @@ begin
  end if;
  -- Every approver's standing now (L6 C3): an active human member in an approver role, never the requester. A7 adds the single-person
  -- mode's self-approval here.
- select count(distinct d.actor_subject),coalesce(jsonb_agg(distinct d.actor_subject),'[]'::jsonb) into v_valid,v_by from control.nexloop_approval_decisions d
-  where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id and d.outcome='approved'
-   and d.actor_subject<>r.requester_subject and control.nexloop_approval_approver_eligible(p_tenant,d.actor_principal,pol.approver_roles)
-   -- NX-058 Z1: never the member the request acts on (counted again here whatever the decision did).
-   and d.actor_subject is distinct from control.nexloop_approval_target_subject(p_tenant,r.body,pol.target_subject_field);
+ v_by:=control.nexloop_approval_valid_votes(p_tenant,p_world,r.approval_id);v_valid:=jsonb_array_length(v_by);
  perform set_config('eios.tenant_id',p_tenant,true);
  if v_valid<pol.quorum then
   -- Back to waiting; if this person meanwhile has another waiting request of the same body, that one stands and this one ends.

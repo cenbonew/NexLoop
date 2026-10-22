@@ -3,14 +3,15 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {approvalOutcome,approvals,me} from '../src/workbench/api';
-import {Approvals,resultText} from '../src/workbench/pages/Approvals';
+import {Approvals,resultText,soloBanner} from '../src/workbench/pages/Approvals';
 
 const id='3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11';
 const base={approval_id:id,capability:'real_dispatch.set',operation:'set_real_dispatch',action:'eios:action:nexloop.real_dispatch.set:1',requested_by:'synthetic-owner',
   requested_at:'2026-10-23T01:00:00+00:00',due_by:'2026-10-24T01:00:00+00:00',status:'waiting_approval',digest:'0123456789ab',policy_version:1,quorum:1,approvals:0,
   summary:{scope_kind:'tenant',enabled:true}};
 const raw={to_decide:[base],mine:[{...base,approval_id:id.replace('3f','4f'),result:null}],
-  to_execute:[{...base,approval_id:id.replace('3f','5f'),status:'approved',approvals:1,inputs:{scope_kind:'tenant',enabled:true,data_mode:'real',action_type:null,reason:'季度上线'}}]};
+  to_execute:[{...base,approval_id:id.replace('3f','5f'),status:'approved',approvals:1,inputs:{scope_kind:'tenant',enabled:true,data_mode:'real',action_type:null,reason:'季度上线'}}],
+  solo_mode:{enabled:false,others_eligible:true}};
 const approver=me({principal_id:'synthetic-second',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.approvals.decide:1',
   'eios:action:nexloop.approvals.cancel:1','eios:action:nexloop.real_dispatch.set:1']});
 const operator=me({principal_id:'synthetic-operator',role:'operator',actions:['eios:action:nexloop.workbench.read:1']});
@@ -24,7 +25,8 @@ test('NX-056 A4: the three columns parse strictly; a decide row never carries a 
   expect(()=>approvals({...raw,to_decide:[{...base,body:{}}]})).toThrow();
   expect(()=>approvals({...raw,to_decide:[{...base,summary:{note:{nested:true}}}]})).toThrow();
   expect(()=>approvals({...raw,to_decide:[{...base,status:'consumed'}]})).toThrow();
-  expect(()=>approvals({to_decide:[],mine:[]})).toThrow();
+  expect(()=>approvals({to_decide:[],mine:[],to_execute:[]})).toThrow();  // the banner's facts are required (A7)
+  expect(()=>approvals({...raw,solo_mode:{enabled:true}})).toThrow();
 });
 
 test('NX-056 A4: the page offers approve and reject with a reason, execute and withdraw; an operator without the Actions gets no form', ()=>{
@@ -35,7 +37,7 @@ test('NX-056 A4: the page offers approve and reject with a reason, execute and w
   expect(html).not.toContain('季度上线');  // the frozen reason is not shown
   const asOperator=render(client([[['workbench','approvals'],parsed],[['workbench','me'],operator]]),h(Approvals,{}));
   expect(asOperator).toContain('待我审批');expect(asOperator).not.toContain('<form');
-  const empty=render(client([[['workbench','approvals'],{to_decide:[],mine:[],to_execute:[]}],[['workbench','me'],approver]]),h(Approvals,{}));
+  const empty=render(client([[['workbench','approvals'],{to_decide:[],mine:[],to_execute:[],solo_mode:{enabled:false,others_eligible:true}}],[['workbench','me'],approver]]),h(Approvals,{}));
   expect(empty).toContain('没有待你审批的请求');expect(empty).toContain('没有已批准待执行的请求');
 });
 
@@ -55,4 +57,16 @@ test('NX-056 A4 review 7: a frozen body the workbench cannot resubmit is listed 
   expect(notHere.to_execute[0].inputs).toBeNull();
   const html=render(client([[['workbench','approvals'],notHere],[['workbench','me'],approver]]),h(Approvals,{}));
   expect(html).toContain('工作台不能执行这条请求');expect(html).not.toContain('aria-label="执行"');
+});
+
+test('NX-056 A7: the single-person mode banner and the owner\'s switch', ()=>{
+  expect(soloBanner({enabled:false,others_eligible:false})).toBeNull();
+  expect(soloBanner({enabled:true,others_eligible:false})).toContain('单人模式已开启');
+  expect(soloBanner({enabled:true,others_eligible:true})).toContain('单人模式未生效');
+  const owner=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.approvals.solo_mode.set:1']});
+  const on=approvals({...raw,solo_mode:{enabled:true,others_eligible:false}});
+  const html=render(client([[['workbench','approvals'],on],[['workbench','me'],owner]]),h(Approvals,{}));
+  expect(html).toContain('单人模式已开启');expect(html).toContain('关闭单人模式');
+  const asOperator=render(client([[['workbench','approvals'],on],[['workbench','me'],operator]]),h(Approvals,{}));
+  expect(asOperator).not.toContain('关闭单人模式');
 });

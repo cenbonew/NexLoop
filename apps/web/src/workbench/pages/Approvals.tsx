@@ -48,12 +48,29 @@ function DecideForms({member,row}:{member:Me;row:ApprovalRow}){
   </>;
 }
 
+/** The single-person mode banner (design §15.5): shown while the switch is on, and says when it does not apply. */
+export function soloBanner(solo:{enabled:boolean;others_eligible:boolean}):string|null{
+  if(!solo.enabled)return null;
+  return solo.others_eligible?'单人模式未生效：已有其他成员可审批。':'单人模式已开启：审批可由本人批准（需要过去 24 小时内只有你一人有审批资格；每次自批都有审计和告警）。';
+}
+
+function SoloModeForm({member,enabled}:{member:Me;enabled:boolean}){
+  const [reason,setReason]=useState('');
+  return <Form operation="set_approval_solo_mode" member={member} title={enabled?'关闭单人模式':'开启单人模式'} disabled={!reason.trim()}
+    body={()=>reason.trim()?{enabled:!enabled,reason:reason.trim()}:null}>
+    <p className="impact-summary" role="note">{enabled?'关闭后，已有的自批票不再计入，需要另一位成员批准。':'开启后，只有在过去 24 小时内一直只有你一人有审批资格时，你才能批准自己的请求；出现第二位有资格的成员即自动失效。'}</p>
+    <div className="field"><label htmlFor="solo-reason">原因</label><textarea id="solo-reason" value={reason} onChange={e=>setReason(e.target.value)} required maxLength={500} rows={2}/></div>
+  </Form>;
+}
+
 export function Approvals(){
   const query=useQuery({queryKey:['workbench','approvals'],queryFn:readApprovals});
   if(query.isPending)return <section><h1>审批</h1><p role="status">正在加载…</p></section>;
   if(query.isError)return <section><h1>审批</h1><Empty kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'}/></section>;
-  const {to_decide,mine,to_execute}=query.data;
+  const {to_decide,mine,to_execute,solo_mode}=query.data;
+  const banner=soloBanner(solo_mode);
   return <section aria-labelledby="approvals-title"><h1 id="approvals-title">审批</h1>
+    {banner?<p className="impact-summary" role="status">{banner}</p>:null}
     <p className="note">需要审批的操作由另一位有资格的成员批准，再由发起人自己执行；发起人不能批准自己的请求。执行时还会重查批准人资格、期限和暂停；派发时照常检查全部闸门。</p>
     <h2>待我审批</h2>
     {to_decide.length===0?<Empty kind="none" title="没有待你审批的请求"/>:<DataTable label="待我审批" rows={to_decide} rowKey={r=>r.approval_id} columns={[
@@ -69,5 +86,6 @@ export function Approvals(){
       ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}<br/><span className="note">{resultText(r.result)}</span></>},
       {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><Form operation="cancel_approval" member={member} className="inline-action" title="撤回"
         body={()=>({approval_id:r.approval_id,reason:'发起人撤回'})}><span/></Form>}</WithMember>:null}]}/>}
+    <WithMember>{member=><SoloModeForm member={member} enabled={solo_mode.enabled}/>}</WithMember>
   </section>;
 }

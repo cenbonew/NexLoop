@@ -44,6 +44,7 @@ export const DONE_TEXT:Record<Operation,string>={
   set_real_dispatch:'已提交；开关以重新读取的状态为准。部署层 REAL_DISPATCH_ENABLED 不在工作台控制范围内。',
   decide_approval:'已记录审批结论；批准后由发起人执行，执行时还会重查批准人资格、期限和暂停。',
   cancel_approval:'已撤回这条审批请求。',
+  set_approval_solo_mode:'已保存单人模式开关；是否生效以页面顶部的提示为准（需要过去 24 小时内只有你一人有审批资格）。',
   erase_consumer:'已开始擦除：先阻断联系和计划，删除由保留期服务逐步完成，不可撤销。',
 };
 

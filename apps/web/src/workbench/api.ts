@@ -405,6 +405,8 @@ export const OPERATION_ACTION={
   set_evolution_stop:'eios:action:nexloop.semantic_release.stop:1',
   // NX-056: approve or reject another person's request (never one's own), or withdraw one's own waiting request.
   decide_approval:'eios:action:nexloop.approvals.decide:1',cancel_approval:'eios:action:nexloop.approvals.cancel:1',
+  // NX-056 A7: the owner's single-person mode switch (with a reason).
+  set_approval_solo_mode:'eios:action:nexloop.approvals.solo_mode.set:1',
   // NX-056 A5: an owner-started erasure, executed from the approvals page after approval (owner only). A hold release is not a
   // workbench operation: it is executed through the client it was requested from.
   erase_consumer:'eios:action:nexloop.consumer.erase:1',
@@ -990,7 +992,7 @@ export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
   result?:string|null;inputs?:Record<string,unknown>|null};
-export type Approvals={to_decide:ApprovalRow[];mine:ApprovalRow[];to_execute:ApprovalRow[]};
+export type Approvals={to_decide:ApprovalRow[];mine:ApprovalRow[];to_execute:ApprovalRow[];solo_mode:{enabled:boolean;others_eligible:boolean}};
 const APPROVAL_KEYS='action,approval_id,approvals,capability,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary';
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
 function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
@@ -1009,9 +1011,11 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
 }
 export function approvals(value:unknown):Approvals{
   const v=object(value);
-  if(Object.keys(v).sort().join()!=='mine,to_decide,to_execute')throw new WorkbenchError('invalid');
+  if(Object.keys(v).sort().join()!=='mine,solo_mode,to_decide,to_execute')throw new WorkbenchError('invalid');
+  const solo=object(v.solo_mode);
+  if(Object.keys(solo).sort().join()!=='enabled,others_eligible')throw new WorkbenchError('invalid');
   return {to_decide:list(v.to_decide).map(x=>approvalRow(x,'')),mine:list(v.mine).map(x=>approvalRow(x,'result')),
-    to_execute:list(v.to_execute).map(x=>approvalRow(x,'inputs'))};
+    to_execute:list(v.to_execute).map(x=>approvalRow(x,'inputs')),solo_mode:{enabled:flag(solo.enabled),others_eligible:flag(solo.others_eligible)}};
 }
 export function readApprovals(){return get('/api/v1/workbench/approvals',approvals);}
 /** What a governed write's answer says about its approval (design §4): waiting, executed with it, or why not. Null when no policy applied. */

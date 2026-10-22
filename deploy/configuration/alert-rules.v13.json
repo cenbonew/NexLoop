@@ -589,6 +589,33 @@
       "for_seconds": 900,
       "severity": "warning",
       "purpose": "NX-056 A3 (L6 review): a request past its due_by is still waiting or approved and unconsumed for 15 minutes; the expiry sweep in the retention keeper is not running."
+    },
+    {
+      "rule_id": "approval_solo_mode",
+      "metric": "approvals.solo_mode_enabled",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "NX-056 A7 (design §15): the single-person mode is on - the one eligible approver may approve their own requests; check it was meant (a stolen owner session could turn it on)."
+    },
+    {
+      "rule_id": "approval_solo_self_approved",
+      "metric": "approvals.self_approvals_24h",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "NX-056 A7: a request was approved by its own requester in the single-person mode within the last 24 hours (audit approval.decided with self_approved)."
+    },
+    {
+      "rule_id": "approval_solo_eligibility_reduced",
+      "metric": "approvals.eligibility_reductions_24h",
+      "condition": "gt",
+      "threshold": 0,
+      "for_seconds": 0,
+      "severity": "warning",
+      "purpose": "NX-056 A7: the number of eligible approvers of a policy went down within the last 24 hours (an approver role removed or a member disabled) - the first step of turning two-person control into one."
     }
   ]
 }

@@ -77,6 +77,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'decide_outreach_approval':'outreach.approve',
     'decide_approval':'approvals.decide','cancel_approval':'approvals.cancel',  # NX-056 A1
     'erase_consumer_on_request':'consumer.erase_on_request',  # NX-056 A5
+    'set_approval_solo_mode':'approvals.solo_mode.set',  # NX-056 A7
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
@@ -410,6 +411,12 @@ class GoalGovernedActions:
                 or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('approval, decision and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_approval','approval_id':approval_id,'decision':decision,'reason':reason})
+
+    def set_approval_solo_mode(self,*,action_name,action_version,request_id,enabled,reason):
+        # NX-056 A7: the owner's single-person mode switch (SQL: current workbench role owner; append-only events).
+        if type(enabled) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('state and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_approval_solo_mode','enabled':enabled,'reason':reason})
 
     def cancel_approval(self,*,action_name,action_version,request_id,approval_id,reason):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or type(reason) is not str or not 1<=len(reason)<=500:

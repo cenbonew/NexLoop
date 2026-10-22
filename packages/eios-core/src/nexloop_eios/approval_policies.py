@@ -19,7 +19,7 @@ _FIELD = re.compile(r'[a-z][a-z0-9_]{0,63}')
 _IDENTIFYING = re.compile(r'(^|.*_)(consumer|principal|subject|customer|identity)(_.*|$)')
 _FREE_TEXT = re.compile(r'(^|.*_)(reason|basis|text|body|message|note|notes|description|quote|comment|name|email|phone)(_.*|$)')
 # The fields each capability's policy may show to every approver (the same list as control.nexloop_approval_summary_allowed, 0321).
-SUMMARY_ALLOWED = {'real_dispatch.set': ('scope_kind', 'enabled', 'data_mode', 'action_type'), 'retention.release_hold': ('hold_id',),
+SUMMARY_ALLOWED = {'real_dispatch.set': ('scope_kind', 'enabled', 'data_mode', 'action_type'), 'retention.release_hold': (),
                    'consumer.erase': (), 'incentive.issue': ('amount_minor', 'currency', 'offering_revision')}
 _KEYS = {'capability', 'version', 'action_version', 'condition', 'quorum', 'approver_roles', 'expires_after_seconds', 'summary_fields'}
 
@@ -42,7 +42,7 @@ def validate_policies(value):
         raise ApprovalPoliciesRejected('policies')
     seen = set()
     for p in policies:
-        if type(p) is not dict or not _KEYS <= set(p) or set(p) - _KEYS - {'purpose', 'target_subject_field'}:
+        if type(p) is not dict or not _KEYS <= set(p) or set(p) - _KEYS - {'purpose', 'target_subject_field', 'solo_mode'}:
             raise ApprovalPoliciesRejected('policy shape')
         cap, condition = p['capability'], p['condition']
         if (type(cap) is not str or not _CAPABILITY.fullmatch(cap) or cap.startswith('approvals.') or cap in seen
@@ -58,6 +58,7 @@ def validate_policies(value):
                     or type(condition['equals']) not in (str, int, bool)))
                 or ('target_subject_field' in p and p['target_subject_field'] is not None
                     and (type(p['target_subject_field']) is not str or not _FIELD.fullmatch(p['target_subject_field'])))
+                or ('solo_mode' in p and p['solo_mode'] not in ('allowed', 'not_applicable'))
                 or ('purpose' in p and (type(p['purpose']) is not str or not 1 <= len(p['purpose']) <= 500))):
             raise ApprovalPoliciesRejected('policy ' + str(cap))
         seen.add(cap)

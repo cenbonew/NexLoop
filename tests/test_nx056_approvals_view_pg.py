@@ -21,7 +21,7 @@ from test_real_dispatch_switch_pg import switching  # noqa: F401
 from test_workbench_actions_http import act
 from test_workbench_read_pg import workbench_login
 
-COLUMNS = {'to_decide', 'mine', 'to_execute'}
+COLUMNS = {'to_decide', 'mine', 'to_execute', 'solo_mode'}
 ROW = {'approval_id', 'capability', 'operation', 'action', 'requested_by', 'requested_at', 'due_by', 'status', 'digest', 'policy_version', 'quorum',
        'approvals', 'summary'}
 
@@ -40,6 +40,7 @@ def test_each_member_sees_their_own_columns_and_never_anothers_body(gated, admin
     approval = c['request']().json()['approval_id']
     mine = view(c, c['owner_member'])
     assert set(mine) == COLUMNS and mine['to_decide'] == [] and mine['to_execute'] == []
+    assert mine['solo_mode'] == {'enabled': False, 'others_eligible': True}  # the banner's facts (A7)
     row = mine['mine'][0]
     assert set(row) == ROW | {'result'} and row['approval_id'] == approval and row['status'] == 'waiting_approval' and row['result'] is None
     assert row['summary'] == {'scope_kind': 'tenant', 'enabled': True} and len(row['digest']) == 12 and (row['approvals'], row['quorum']) == (0, 1)
@@ -132,7 +133,7 @@ def test_each_first_batch_capability_executes_from_the_views_inputs(first_batch,
                                                           'reason': 'synthetic release'}))).fetchone()[0]
     c['decide'](opened['approval_id'])
     [ready] = [r for r in view(c, c['owner_member'])['to_execute'] if r['approval_id'] == opened['approval_id']]
-    assert ready['inputs'] is None and ready['summary'] == {'hold_id': 'hold-roundtrip'}
+    assert ready['inputs'] is None and ready['summary'] == {}  # a hold id is never shown (it may carry a Consumer id)
 
 
 @PLAN

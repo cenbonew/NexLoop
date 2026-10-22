@@ -39,50 +39,86 @@
 
    预期输出：`{"applied": true, "version": 1, ..., "result": {"configured": true, "appended": 3, "unchanged": 0, "replayed": false, ...}}`。再执行一次应得到 `"replayed": true`。输出中不会出现 DSN。
 
-3. **核对来源**：以 owner 身份执行：
+3. **核对来源**（只读）。owner 会话的来源：DATA_HOST 上的 PG 容器里，用 bootstrap 角色经本地 socket 登录，然后 `set role nexloop_owner`。bootstrap 是唯一能切换到 owner 的登录角色；只读核对不需要配置员窗口。
 
-   ```sql
-   select manifest_version, manifest_sha256, expected_revision from control.nexloop_approval_policy_publications;
+   ```
+   docker exec -i <PG 容器> psql -h /var/run/postgresql -U nexloop_bootstrap -d <库名> -v ON_ERROR_STOP=1 <<'SQL'
+   begin read only;
+   set local role nexloop_owner;
+   select manifest_version, manifest_sha256, expected_revision, appended, unchanged, published_at from control.nexloop_approval_policy_publications order by 1;
+   select capability, version, quorum, approver_roles, expires_after_seconds, solo_mode from control.nexloop_approval_policies order by 1, 2;
+   rollback;
+   SQL
    ```
 
    `manifest_sha256` 应等于发布 checkout 中 `sha256sum deploy/configuration/approval-policies.v1.json` 的结果。
 
 4. **生效范围**：发布之后，首批三个能力立即受审批约束，包括 stage 上的 owner。所以在发布**之前**，要按 A6 运行手册准备好第二位有资格的成员，或者在 A7 上线后开启单人模式。
 
-**回退**：策略只追加，没有删除路径。要放宽，就发布一个新版本的清单，例如把期限改长、改批准角色。要整体停用，需要新增迁移（ADR-039 待定），本版本不提供。
+**回退与停用**（与 ADR-039 §2.1 的口径一致）：策略只追加，没有删除路径。
+- 要放宽，就发布一个新版本的清单，例如把期限改长、改批准角色。
+- 要停用某个能力的审批，就发布一个新版本：该策略的版本加 1，条件设成永远不会命中的常量（例如 `{"field": "enabled", "equals": "never"}`），并在 `decision` 中写明停用理由和批准人。这是 ADR-039 认定的受治理停用方式，发布同样记录 sha256。恢复时，再发布一个新版本，把条件改回来。
 
 ## 3. 待接（不在 NX-056 范围内）
 
 - **顾客本人的擦除请求入口**（NX-019 数据权利 Claim、WebChat）目前只生成 `pending_confirmation`。负责人确认时应调用 `nexloop.consumer.erase_on_request`，它不受审批约束。工作台还没有这个入口，需要另立任务接入。在接入之前，负责人如果改用 `consumer.erase` 确认，就会受审批约束。
 - NX-058 的成员类 Action 接入时，要为它们设置 `target_subject_field`（Z1）和 `summary_fields` 白名单。
 
-## 4. stage 启用顺序（A6 决定点：交调度员与负责人确认）
+## 4. stage 启用顺序（负责人 2026-10-23 选 A：先准备第二位测试 owner，再发布策略 v1，然后马上做双人演练）
 
-发布策略的那一刻起，首批三个能力就需要第二位有资格的成员批准。stage 当前只有负责人一位 owner。启用前二选一：
+上机由调度员执行。变量和两种一次性容器（`$COMMON`、`$WINDOW`、`$APPTOOL`、`$BACKEND_IMAGE`、`$TENANT_ID`、`$KEY_ID`、`$RUN`、`$APP_RUN`）沿用 `docs/release/run-assembly-20261015.md` §0.2、§0.3；源码树按 §0.4 分发本批的发布 checkout。账号的用户名和口令都由调度员生成，存入钥匙串（`nexloop/…` 条目，值不进仓库、不进文档、不进证据）。
 
-| 方案 | 做法 | 能否立即使用 | 取舍 |
-|---|---|---|---|
-| **A（推荐）：先准备第二位测试成员** | 用现有成员配置（受信配置的 members 文件加 `apply_members`），在合成租户里加一位测试 owner，账号口令存钥匙串。然后发布策略 v1 | 能，而且发布后立即可以做一次完整的双人演练 | 多维护一个测试账号；双人控制从第一天起就是真的 |
-| B：等 A7 后用单人模式 | 先上线 A7，负责人开启单人模式。时间线从部署起满 24 小时后自批才生效，然后发布策略 | 部署后至少 24 小时 | 单人模式本来就是给单人租户的退路；拿它来上线等于从一开始就不演练双人流程 |
+1. **备份**（DATA_HOST）：`sudo -n systemctl start nexloop-pg-diff.service`，确认这次运行成功（`systemctl status` 和备份目录的新时间戳）。没有经过验证的备份，不做迁移。
+2. **迁移**：本批的迁移（NX-056 的 0321–0327，组批时会重新编号）随发布一起执行，按该批的部署单进行。迁移之后，审批存储、闸门、视图和单人模式的表都在，但还没有策略，任何能力都不需要审批。
+3. **发布新的 Action**（DATA_HOST，配置员窗口；`docs/release/run-41-20261015.md` §3a.2 的形态）。本批新增 `nexloop.approvals.decide`、`nexloop.approvals.cancel`、`nexloop.consumer.erase_on_request`、`nexloop.approvals.solo_mode.set`。不发布的话，工作台调用会 404（`published action unavailable`）。
 
-**推荐 A**。理由：
+   ```
+   docker run $COMMON -e PYTHONPATH=/opt/release/packages/eios-core/src "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py publish \
+     --out /stage --tenant "$TENANT_ID" --dry-run
+   docker run $COMMON $WINDOW -e PYTHONPATH=/opt/release/packages/eios-core/src "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py publish \
+     --out /stage --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn --signing-key-id $KEY_ID --dry-run
+   # 核对 actions_to_publish 只包含上面 4 项、conflicts 为空，然后去掉 --dry-run 再执行一次；第三次执行应为 changed=false
+   ```
 
-- 它不依赖 A7；
-- 它可以完整验证三栏视图、执行往返和告警；
-- 单人模式保留给真实的单人租户使用。
+4. **第二位测试 owner 和角色清单**：
+   - 先建账号（APP_HOST，`initial_identity --create`，run-assembly §1 的形态）。清单由 `deploy/examples/nx037/identity-human.example.json` 填写，应用为 `$WORKBENCH_APPLICATION_ID`，ID 用合成值（例如 `stage-human-approver2`）。口令文件由调度员从钥匙串写入 `$APP_RUN/in/`，本步结束即删除。
 
-确认后的执行步骤（方案 A）：
+     ```
+     docker run $APPTOOL "$BACKEND_IMAGE" -m nexloop_eios.initial_identity --manifest /in/identity-approver2.json --create \
+       --identity-database-url-file /run/secrets/api_identity_dsn --password-file /in/password-approver2 --idempotency-key-file /in/identity-seal
+     ```
 
-1. 准备第二位测试 owner：members 文件加一行，用 `apply_members` 写入，写 authority facts；口令存入钥匙串的 `nexloop/…` 条目。
-2. 按 §2 发布策略 v1。
-3. 演练，全部在合成租户、synthetic 数据上进行：
-   - 负责人请求打开一个 test 模式的 action_type 开关；
-   - 测试 owner 在“待我审批”中批准；
-   - 负责人在“待我执行”中执行；
-   - 核对审计 `approval.requested`、`approval.decided`、`approval.consumed`，其中 actor 和 approved_by 都要正确；
-   - 再请求一次后撤回；
-   - 让一条请求等待超过 1 小时，确认 `approval_waiting` 告警出现，并在过期清扫后自动解除。
-4. 关闭开关：关闭不需要审批，应立即生效。
+   - 再在成员文件 `$RUN/workbench-members.json` 中加一行 `{"principal_id": <第二位的 principal>, "subject_id": <第二位的 subject>, "role": "owner"}`，并应用本批的角色清单（`workbench-roles.v1.json`：只含 A1–A6 时为 manifest v38，含 A7 时为 v39）。这一步在 DATA_HOST 上经配置员窗口执行（run-assembly §2 的形态）：
+
+     ```
+     docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbench_roles.py --roles /opt/release/deploy/authorization/workbench-roles.v1.json \
+       --members /stage/workbench-members.json --apply --bootstrap-dsn-file /run/bootstrap-dsn --signing-key-file /stage/management/signing.key.hex --signing-key-id $KEY_ID
+     ```
+
+   - 核对：两位 owner 各自登录工作台，审批页可以打开，三栏都为空。
+
+5. **发布告警规则 v14**（DATA_HOST，配置员窗口；host-health §4.5 的形态）。v14 是 L7 的 v13（61 条）加上 NX-056 的 6 条（本分支目前的文件名还是 `alert-rules.v13.json`，第二十二批进 main 后改名为 v14，并以 L7 的 v13 为前缀）：`approval_waiting`、`approval_unconsumed`、`approval_sweep_stale`、`approval_solo_mode`、`approval_solo_self_approved`、`approval_solo_eligibility_reduced`。
+
+   ```
+   docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v14.json \
+     --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn
+   ```
+
+6. **`--check`**（不连库）：
+
+   ```
+   docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/approval_policies_apply.py --manifest /opt/release/deploy/configuration/approval-policies.v1.json --check
+   ```
+
+   核对 `manifest_sha256` 与发布 checkout 中 `sha256sum` 的结果一致。
+7. **发布策略 v1**：按 §2 第 2 步执行，再按 §2 第 3 步做只读核对。从这一刻起，首批三个能力都需要另一位 owner 批准。
+8. **双人演练**，全部在合成租户、synthetic 数据上进行，真实派发保持关闭：
+   - **批准**：负责人在工作台请求打开一个 test 模式的 action_type 真实派发开关，页面提示“需要另一位成员批准”。第二位 owner 在“待我审批”中写理由批准。
+   - **执行**：负责人在“待我执行”中点“执行”，开关打开。核对审计里依次有 `approval.requested`、`approval.decided`、`approval.consumed`，并且 `approval.consumed` 中的 actor 是负责人、approved_by 是第二位 owner。
+   - **关闭**：负责人关闭这个开关。关闭不需要审批，应立即生效。
+   - **撤回**：负责人再请求一次，在“我发起的”中撤回，状态变为“已撤回”。同一请求 1 小时内再次发起，返回 `cooldown`。
+   - **等待告警**：负责人再发起一条请求，不审批，等超过 1 小时后，告警页出现 `approval_waiting`。然后由第二位 owner 拒绝，或者等它过期，告警解除。
+   - 证据：每一步的页面状态、审计事件 ID 和告警记录（不含口令和 DSN），记入任务证据。
 
 ## 5. 日常运行
 
@@ -109,3 +145,14 @@
 | `target_unresolved` | 策略声明了目标成员字段，但字段不指向本租户 invited 或 active 状态的成员 | 核对请求 |
 | `policy_unavailable` | Action 发布了新版本，但没有对应的策略版本 | 发布新版本的策略清单（§2） |
 | HTTP 503（暂停） | 执行时控制处于暂停状态 | 恢复控制后再执行，审批不会被消费 |
+
+## 7. 应急：批准人不可用
+
+当唯一的另一位批准人不可用（休假、离职、账号锁定），而某个受审批的操作必须执行时，按以下顺序选择，越靠前越好：
+
+1. **换一位批准人**：经成员文件和 `workbench_roles --apply`（§4 第 4 步的形态）给另一位可信成员 owner 角色。新成员立即可以批准（投票冷却等 NX-058 片 C 对接后才启用）。
+2. **账号锁定**：按 run-assembly §1a 重置口令，或按 §2a 撤出原成员、换新账号。
+3. **单人模式**（A7 上线后，只适合确实只有一个人的租户）：owner 在审批页开启，过去 24 小时内只有一人有资格时才生效。双人租户不能用它绕过另一个人：资格人数降到 1 之后要等满 24 小时，并且会触发 `approval_solo_eligibility_reduced` 告警。
+4. **受治理的停用**（§2 回退与停用）：发布一个新版本的策略清单，把该能力的条件设成永远不会命中的常量，`decision` 中写明理由和批准人。操作完成后，再发布一个版本恢复。
+
+不允许的做法：直接写 SQL 改审批表、用 superuser 插入 approved 记录、让别人代为登录批准人的账号。这些都违反 AGENTS.md 的安全不变式。

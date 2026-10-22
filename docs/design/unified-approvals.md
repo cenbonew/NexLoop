@@ -410,3 +410,13 @@ request_digest = sha256(canonical_v1({
 - **Z1 fail closed**：策略声明了 `target_subject_field` 时，发起审批时这个字段必须指向本租户的一位成员（principal 或 subject 均可），否则以 `target_unresolved` 拒绝。
 - **顾客擦除开始时**：这位顾客仍在等待或已批准、尚未消费的审批（请求体中出现其 ID 的）直接终结，记为 expired，原因 `consumer_erased`。正在执行的那条审批除外：例如经批准执行的 `consumer.erase` 本身，由 `nexloop.approval_in_flight` 标记。擦除完成时再按第 16 节把请求体中的 ID 替换为假名。
 - **顾客请求入口接入 `erase_on_request`** 不在本任务内，记为待接（实施文档第 3 节）。
+
+## 18. A7 实现说明（与第 15 节的差异和细化）
+
+- **时间线的 world**：成员和工作台配置都是租户级的，没有 world 维度。所以时间线按租户记录，world 一律写 `real`；单人模式只在 world `real` 中可能生效，其他 world 一律不生效（fail closed）。开关事件仍按 (tenant, world) 记录。
+- **时间线的写入点**：在第 15 节的三处之外，再加 `control.nexloop_browser_subjects` 的更新（subject 停用也会改变人数）。迁移执行时，为每个已有租户写一行初始记录；新策略版本发布时，为所有租户各写一行。窗口按策略版本计算：策略升版本后，单人模式要等新版本的时间线满 24 小时才生效（偏安全）。
+- **发起时的 `quorum_unreachable_in_solo_mode`**：只在单人模式开启，并且自批永远无法满足（quorum 大于 1，或策略 `solo_mode = not_applicable`），同时除请求人以外的现有资格人数少于 quorum 时返回。quorum 为 1 的请求照常挂起，等他人批准，或者等单人模式生效后自批。
+- **重新批准**：请求因为某一票不再计入而退回 waiting 后，同一个人再次批准时，按“现在计入的票”重新计票，达到 quorum 就恢复 approved，例如单人模式再次生效时。否则仍是重放。决定的重放和消费时的计票用同一个函数 `control.nexloop_approval_valid_votes`。
+- **加锁**：决定、消费（gate）、开关设置和时间线写入（成员变更的触发器）都先取 `control.nexloop_approval_tenant_lock`，再锁成员行或审批行。
+- **告警**：`approval_solo_mode`（单人模式已开启）、`approval_solo_self_approved`（24 小时内有自批）、`approval_solo_eligibility_reduced`（24 小时内某策略的批准人数减少，审计事件为 `approval.eligibility_reduced`）。这三条与 A3 的规则在同一份告警规则文件中，第二十二批合入后以 v14 发布。
+- **工作台**：审批视图返回 `solo_mode: {enabled, others_eligible}`，页面按第 15 节第 5 点显示常驻提示。owner 在审批页开启或关闭单人模式，必须写理由。单人模式生效时，请求人自己的请求也出现在他的“待我审批”里。

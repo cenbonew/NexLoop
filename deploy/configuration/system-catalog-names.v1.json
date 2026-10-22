@@ -711,6 +711,11 @@
    "source": "deploy/configuration/business-actions.v1.json"
   },
   {
+   "stable_name": "nexloop.approvals.solo_mode.set",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
    "stable_name": "nexloop.approvals.cancel",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"

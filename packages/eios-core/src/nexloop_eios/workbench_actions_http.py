@@ -162,6 +162,8 @@ OPERATIONS={
     # NX-056 A1: decide one waiting unified Approval, or withdraw one's own (every approver check in SQL).
     'decide_approval':{'approval_id':_id(re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
         'decision':lambda v:v if v in ('approve','reject') else (_ for _ in ()).throw(ValueError('decision')),'reason':_reason},
+    # NX-056 A7: the owner's single-person mode switch, with a reason.
+    'set_approval_solo_mode':{'enabled':lambda v:v if type(v) is bool else (_ for _ in ()).throw(ValueError('enabled')),'reason':_reason},
     'cancel_approval':{'approval_id':_id(re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
     # Outreach slice 7 (owner only): marketing consent granted / withdrawn, or marketing resumed after an unsubscribe, with evidence.
     'record_marketing_consent':{'consumer_id':_id(_HEX),'kind':lambda v:v if v in ('consent_granted','consent_withdrawn','marketing_resumed') else (_ for _ in ()).throw(ValueError('kind')),

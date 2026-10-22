@@ -18,7 +18,7 @@ create function runtime.nexloop_approval_view_row(r control.nexloop_approval_req
   'requested_by',r.requester_principal,'requested_at',r.requested_at,'due_by',r.due_by,'status',r.status,'digest',left(r.request_digest,12),
   'policy_version',r.policy_version,'quorum',pol.quorum,
   'approvals',(select count(distinct d.actor_subject) from control.nexloop_approval_decisions d where d.tenant_id=r.tenant_id and d.world=r.world
-    and d.approval_id=r.approval_id and d.outcome='approved' and d.actor_subject<>r.requester_subject
+    and d.approval_id=r.approval_id and d.outcome='approved' and (d.actor_subject<>r.requester_subject or d.self_approved)
     and d.actor_subject is distinct from control.nexloop_approval_target_subject(r.tenant_id,r.body,pol.target_subject_field)),
   'summary',coalesce((select jsonb_object_agg(f,r.body->f) from unnest(pol.summary_fields) f
     where r.body ? f and jsonb_typeof(r.body->f) in ('string','number','boolean','null')),'{}'::jsonb))
@@ -35,7 +35,9 @@ begin
  select coalesce(jsonb_agg(x.v order by x.due_by,x.approval_id),'[]'::jsonb) into v_decide from (
   select runtime.nexloop_approval_view_row(r,pol) v,r.due_by,r.approval_id from control.nexloop_approval_requests r
    join control.nexloop_approval_policies pol on pol.capability=r.capability and pol.version=r.policy_version
-  where r.tenant_id=p_tenant and r.world=p_world and r.status='waiting_approval' and r.due_by>clock_timestamp() and r.requester_subject<>v_subject
+  where r.tenant_id=p_tenant and r.world=p_world and r.status='waiting_approval' and r.due_by>clock_timestamp()
+   -- one's own only in the single-person mode while it takes effect (A7)
+   and (r.requester_subject<>v_subject or control.nexloop_approval_solo_effective(p_tenant,p_world,r.capability,r.policy_version,v_subject))
    and not exists(select 1 from control.nexloop_approval_decisions d where d.tenant_id=r.tenant_id and d.world=r.world and d.approval_id=r.approval_id
     and d.actor_subject=v_subject)
    and control.nexloop_approval_approver_eligible(p_tenant,p_principal,pol.approver_roles)
@@ -54,7 +56,11 @@ begin
   where r.tenant_id=p_tenant and r.world=p_world and r.requester_subject=v_subject and r.status='approved' and r.due_by>clock_timestamp()
    and not exists(select 1 from control.nexloop_approval_consumptions k where k.tenant_id=r.tenant_id and k.world=r.world and k.approval_id=r.approval_id)
   order by r.due_by,r.approval_id limit 50) x;
- return jsonb_build_object('to_decide',v_decide,'mine',v_mine,'to_execute',v_execute);
+ -- The banner (design §15.5): the switch, and whether anyone else is eligible under a current policy (then the mode does not apply).
+ return jsonb_build_object('to_decide',v_decide,'mine',v_mine,'to_execute',v_execute,
+  'solo_mode',jsonb_build_object('enabled',control.nexloop_approval_solo_enabled(p_tenant,p_world),
+   'others_eligible',exists(select 1 from (select distinct on (p.capability) p.approver_roles from control.nexloop_approval_policies p order by p.capability,p.version desc) q
+     where exists(select 1 from unnest(control.nexloop_approval_eligible_subjects(p_tenant,q.approver_roles)) s where s<>v_subject))));
 end $$;
 alter function runtime.nexloop_approval_view(text,text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_approval_view(text,text,text) from public;

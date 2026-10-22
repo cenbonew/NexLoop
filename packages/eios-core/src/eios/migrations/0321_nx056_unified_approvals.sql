@@ -49,6 +49,8 @@ create table control.nexloop_approval_policies (
  summary_fields text[] not null default '{}' check(cardinality(summary_fields)<=16),
  -- NX-058 Z1: the body field naming the member the request acts on (a principal or subject id); that person never approves it.
  target_subject_field text check(target_subject_field~'^[a-z][a-z0-9_]{0,63}$'),
+ -- A7 (design §15): not_applicable - no self-approval even in the single-person mode (owner powers: promote, reset, restore).
+ solo_mode text not null default 'allowed' check(solo_mode in ('allowed','not_applicable')),
  published_by text not null,recorded_at timestamptz not null default clock_timestamp(),
  primary key(capability,version)
 );
@@ -61,7 +63,7 @@ create function control.nexloop_approval_summary_allowed(p_capability text) retu
  language sql immutable set search_path=pg_catalog,pg_temp as $$
  select case p_capability
   when 'real_dispatch.set' then array['scope_kind','enabled','data_mode','action_type']
-  when 'retention.release_hold' then array['hold_id']
+  when 'retention.release_hold' then array[]::text[]  -- a hold id is the requester's own text and may carry a Consumer id (L6 review 10)
   when 'consumer.erase' then array[]::text[]
   when 'incentive.issue' then array['amount_minor','currency','offering_revision']
   else array[]::text[] end
@@ -272,6 +274,14 @@ begin
      and d.approval_id=q.approval_id and d.outcome in ('rejected','cancelled')
    where q.tenant_id=p_tenant and q.world=p_world and q.request_digest=v_digest and q.requester_subject=v_subject and d.decided_at>clock_timestamp()-interval '1 hour') then
   raise exception 'approval: cooldown' using errcode='22023';end if;
+ -- Single-person mode on (A7, design §15.4): a policy only others can satisfy needs that many others eligible now; never lowered.
+ if control.nexloop_approval_solo_enabled(p_tenant,p_world)
+   -- only what self-approval can never satisfy (quorum above 1, or a policy not applicable to the mode); a quorum-1 request waits
+   -- (for another approver, or until the mode takes effect)
+   and (pol.quorum>1 or pol.solo_mode<>'allowed')
+   and cardinality(array(select s from unnest(control.nexloop_approval_eligible_subjects(p_tenant,pol.approver_roles)) s where s<>v_subject))<pol.quorum then
+  raise exception 'approval: quorum_unreachable_in_solo_mode' using errcode='22023';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
  insert into control.nexloop_approval_requests(tenant_id,world,capability,action_resource,policy_version,request_digest,request_id,body,requester_subject,requester_principal,due_by)
   values(p_tenant,p_world,p_capability,p_action,pol.version,v_digest,p_body->>'request_id',p_body,v_subject,p_principal,clock_timestamp()+make_interval(secs=>pol.expires_after_seconds))
   returning * into r;
@@ -335,7 +345,7 @@ revoke all on function control.nexloop_approval_approver_eligible(text,text,text
 create function control.nexloop_governed_approval_decide(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare r control.nexloop_approval_requests;pol control.nexloop_approval_policies;v_subject text;v_outcome text;v_approvals integer;v_status text;
- prior control.nexloop_approval_decisions;v_approval uuid;
+ prior control.nexloop_approval_decisions;v_approval uuid;v_self boolean:=false;
 begin
  if jsonb_typeof(body) is distinct from 'object'
   or exists(select 1 from jsonb_object_keys(body) k where k not in ('operation','request_id','approval_id','decision','reason'))
@@ -345,6 +355,7 @@ begin
   raise exception 'approval: invalid' using errcode='22023';end if;
  if p_subject is distinct from 'human' then raise exception 'approval: approver_unauthorized' using errcode='42501';end if;
  v_approval:=(body->>'approval_id')::uuid;
+ perform control.nexloop_approval_tenant_lock(p_tenant);  -- lock order (design §16): the tenant lock, then the request row (A7, 0327)
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and approval_id=v_approval for update;
  if not found then raise exception 'approval: not_found' using errcode='22023';end if;
@@ -353,7 +364,20 @@ begin
  -- The same decision by the same approver replays.
  select * into prior from control.nexloop_approval_decisions d where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id
   and d.actor_subject=v_subject and d.outcome=v_outcome;
- if found then return jsonb_build_object('approval_id',r.approval_id,'status',r.status,'replayed',true);end if;
+ if found then
+  -- A request that went back to waiting (a vote stopped counting, 0322) is approved again when the votes that count now reach the
+  -- quorum - e.g. the single-person mode takes effect again (A7); otherwise the same decision replays.
+  if r.status='waiting_approval' and v_outcome='approved' and r.due_by>clock_timestamp() then
+   select * into pol from control.nexloop_approval_policies where capability=r.capability and version=r.policy_version;
+   v_approvals:=jsonb_array_length(control.nexloop_approval_valid_votes(p_tenant,p_world,r.approval_id));
+   perform set_config('eios.tenant_id',p_tenant,true);
+   if v_approvals>=pol.quorum then
+    update control.nexloop_approval_requests set status='approved',revision=revision+1 where tenant_id=p_tenant and world=p_world and approval_id=r.approval_id;
+    return jsonb_build_object('approval_id',r.approval_id,'status','approved','approvals',v_approvals,'quorum',pol.quorum,'replayed',true);
+   end if;
+  end if;
+  return jsonb_build_object('approval_id',r.approval_id,'status',r.status,'replayed',true);
+ end if;
  if r.status<>'waiting_approval' then raise exception 'approval: not_waiting' using errcode='22023';end if;
  if r.due_by<=clock_timestamp() then
   perform control.nexloop_approval_expire(p_tenant,p_world,r.approval_id);
@@ -361,15 +385,22 @@ begin
  end if;
  select * into pol from control.nexloop_approval_policies where capability=r.capability and version=r.policy_version;
  -- No self-approval, by subject (one person under two principals is still the requester; L6 C5). A7 opens the single-person mode here.
- if v_subject is null or v_subject=r.requester_subject then raise exception 'approval: self_approval' using errcode='22023';end if;
+ if v_subject is null then raise exception 'approval: self_approval' using errcode='22023';end if;
+ if v_subject=r.requester_subject then
+  -- The single-person mode (A7, design §15): only while it takes effect now for this policy and this requester.
+  if not control.nexloop_approval_solo_effective(p_tenant,p_world,r.capability,r.policy_version,v_subject) then
+   raise exception 'approval: self_approval' using errcode='22023';end if;
+  v_self:=true;
+ end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
  if not control.nexloop_approval_approver_eligible(p_tenant,p_principal,pol.approver_roles) then
   raise exception 'approval: approver_unauthorized' using errcode='42501';end if;
  -- NX-058 Z1: the member the request acts on (demoted, disabled, revoked, given a reset code, restored) never approves it.
  if v_subject=control.nexloop_approval_target_subject(p_tenant,r.body,pol.target_subject_field) then
   raise exception 'approval: target_cannot_approve' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
- insert into control.nexloop_approval_decisions(tenant_id,world,approval_id,outcome,actor_subject,actor_principal,reason,decision_intent)
-  values(p_tenant,p_world,r.approval_id,v_outcome,v_subject,p_principal,body->>'reason',p_intent);
+ insert into control.nexloop_approval_decisions(tenant_id,world,approval_id,outcome,actor_subject,actor_principal,reason,decision_intent,self_approved)
+  values(p_tenant,p_world,r.approval_id,v_outcome,v_subject,p_principal,body->>'reason',p_intent,v_self);
  -- The vendored state machine's rule: one rejection ends it; a quorum of distinct approvers approves it.
  select count(distinct d.actor_subject) into v_approvals from control.nexloop_approval_decisions d
   where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id and d.outcome='approved';
@@ -379,7 +410,7 @@ begin
  end if;
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
   values('approval-decided:'||r.approval_id||':'||v_subject||':'||v_outcome,'approval.decided',p_tenant,p_principal,'approval',p_intent,
-   jsonb_build_object('approval_id',r.approval_id,'capability',r.capability,'outcome',v_outcome,'status',v_status,'self_approved',false,
+   jsonb_build_object('approval_id',r.approval_id,'capability',r.capability,'outcome',v_outcome,'status',v_status,'self_approved',v_self,
     'approvals',v_approvals,'quorum',pol.quorum),clock_timestamp());
  return jsonb_build_object('approval_id',r.approval_id,'status',v_status,'approvals',v_approvals,'quorum',pol.quorum,'replayed',false);
 end $$;

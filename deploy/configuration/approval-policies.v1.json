@@ -48,9 +48,7 @@
         "owner"
       ],
       "expires_after_seconds": 86400,
-      "summary_fields": [
-        "hold_id"
-      ],
+      "summary_fields": [],
       "purpose": "Releasing a hold lets retention and erasure delete what it kept."
     }
   ]

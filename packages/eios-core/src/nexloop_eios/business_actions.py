@@ -63,6 +63,7 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'outreach.approve':'human_owner',
     'approvals.decide':'human_owner','approvals.cancel':'human_owner',  # NX-056 A1
     'consumer.erase_on_request':'human_owner',  # NX-056 A5
+    'approvals.solo_mode.set':'human_owner',  # NX-056 A7
     # Outreach slice 7: the owner records marketing consent or resumes marketing after an unsubscribe, with evidence.
     'marketing_consent.record':'human_owner',
     # ADR-036: the owner publishes the next version of a read-only Object Set.

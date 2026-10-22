@@ -351,7 +351,7 @@ def test_publish_makes_every_granted_catalog_action_readable_by_its_grantee_and_
         assert planned['dry_run'] is True and len(planned['actions_to_publish']) == len(compiled['actions']) and not planned['conflicts']
         assert S.main(args) == 0
         first = json.loads(capsys.readouterr().out)
-        assert first['changed'] is True and (first['object_types'], first['actions'], first['functions']) == (20, 105, 2)
+        assert first['changed'] is True and (first['object_types'], first['actions'], first['functions']) == (20, 106, 2)
         assert admin.execute("select rolcanlogin from pg_roles where rolname='nexloop_configurator'").fetchone() == (False,)
         failures = []
         for role, name in reads:
@@ -383,6 +383,6 @@ def test_publish_dry_run_without_a_database_compiles_and_emits_the_worker_config
     out = tmp_path / 'config'
     assert S.main(['publish', '--out', str(tmp_path), '--tenant', TENANT, '--dry-run', '--emit-config', str(out)]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 20, 105, 2)
+    assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 20, 106, 2)
     assert sorted(p.name for p in out.iterdir()) == sorted(result['emitted']) and all(oct(p.stat().st_mode)[-3:] == '600' for p in out.iterdir())
     assert json.loads((out / 'claim-match.json').read_text()) == {}
