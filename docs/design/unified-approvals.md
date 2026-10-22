@@ -390,7 +390,7 @@ request_digest = sha256(canonical_v1({
   - 首次进入批准角色的时间**跨策略版本**计算：策略升版本不重新计时。
   - 离开批准角色后再加入，**重新计时**。
   - NX-056 的资格时间线（第 15 节）仍然只记人数和 subject 集合摘要，不为此加字段。
-  - **接口约定**：NX-056 读取 `role_history` 中某个 subject 在某个租户当前这段连续持有批准角色（策略 `approver_roles` 中任一）的起点；NX-058 片 C 落地后对接。在此之前不启用投票冷却，现行资格检查不变。
+  - **接口约定**：NX-056 读取 `role_history` 中某个 subject 在某个 **(tenant, world)** 下当前这段连续持有批准角色（策略 `approver_roles` 中任一）的起点。参数为 `(tenant, world, subject, approver_roles)`，返回起点时间，从未持有或当前不持有时返回 null。与 role_history 的 (tenant, world) 划分一致（L6：原文缺 world）。NX-058 片 C 落地后对接。在此之前不启用投票冷却，现行资格检查不变。
 - **策略条件语法不扩展**：只支持“请求体字段 = 常量”。需要“与当前值比较”的场景，按 NX-058 的做法拆出专用 Action，由服务端在执行时重查当前状态；如果确实需要扩展条件语法，先交调度员，不直接做。
 - **summary_fields 不得包含 Consumer 标识或自由文本**：所有有资格的批准人都看得到摘要。Python 校验和 0321 的策略守护都会拒绝名字里带 consumer、principal、subject、customer、identity，或 reason、basis、text、body、message、note、description、quote、comment、name、email、phone 的字段。批准人靠 digest 和这些字段判断，自由文本留在请求人自己的“我发起的”记录里。
 - **执行入口**：工作台只能执行它自己能构造的请求体。也就是说，操作必须在工作台的 OPERATIONS 中，而且冻结请求体的键不能超出这个操作的字段。不满足时，视图返回 `inputs: null`，页面提示改用发起时的入口执行，不会出现反复 422 的情况。例如 `retention.release_hold` 不是工作台操作，它的请求从受治理 API 客户端发起，执行也在那里完成（同一请求体，新的 request_id）。
@@ -401,3 +401,12 @@ request_digest = sha256(canonical_v1({
   - 策略可以声明 `target_subject_field`：请求体中指向目标成员的字段，取值可以是该租户的 principal，也可以是 subject ID。按 subject 比较，同一个人用另一个 principal 也一样。
   - 决定时拒收这位成员的票（`target_cannot_approve`）；消费时重新计票也不算他；工作台“待我审批”里不出现这条请求，批准数也不算他的票。不限于三位及以上 owner 的情形。
   - 首批三项策略都不涉及成员，不设这个字段；NX-058 的成员类 Action 接入时设置。
+
+## 17. 补充（L6 追加 8）
+
+- **发布与来源**：发布策略用 `scripts/deploy/approval_policies_apply.py`（带 `--check`、`--tenant`、`--bootstrap-dsn-file`），发送文件原文。SQL 记录清单版本、原文 sha256 和 `expected_revision`，与 0050 的做法一致。步骤见 `docs/implementation/approval-policies.md`。
+- **summary_fields 改为按能力设白名单**（`control.nexloop_approval_summary_allowed`），取代第 16 节的禁止名单（禁止名单仍保留，作为第二道检查）。白名单之外的字段（例如 `scope_ref`、联系方式、地址）一律拒绝，不在白名单中的能力不显示任何摘要。SQL 同时拒绝重复的批准角色。
+- **擦除分支收窄**：只有 owner 的函数可以改冻结请求体，而且只允许两种形式：整体删去正文（`{operation, redacted: true}`），或者结构不变、只把某些完整字符串值替换为 `pseudonym:<32 位十六进制>`。
+- **Z1 fail closed**：策略声明了 `target_subject_field` 时，发起审批时这个字段必须指向本租户的一位成员（principal 或 subject 均可），否则以 `target_unresolved` 拒绝。
+- **顾客擦除开始时**：这位顾客仍在等待或已批准、尚未消费的审批（请求体中出现其 ID 的）直接终结，记为 expired，原因 `consumer_erased`。正在执行的那条审批除外：例如经批准执行的 `consumer.erase` 本身，由 `nexloop.approval_in_flight` 标记。擦除完成时再按第 16 节把请求体中的 ID 替换为假名。
+- **顾客请求入口接入 `erase_on_request`** 不在本任务内，记为待接（实施文档第 3 节）。

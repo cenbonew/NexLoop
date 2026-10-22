@@ -60,7 +60,16 @@ def test_the_body_changes_only_inside_an_erasure_scope_and_alone(store):
     with pytest.raises(psycopg.Error, match='immutable'), admin.transaction():
         admin.execute("select runtime.nexloop_erasure_open('control.nexloop_approval_requests',array['body'],false,'test')")
         admin.execute("""update control.nexloop_approval_requests set body=body||'{"x":1}',status='cancelled',revision=revision+1 where approval_id=%s""", (approval,))
-    with admin.transaction():
+    for change in ("""body||'{"x":1}'""", "jsonb_set(body,'{reason}','\"another text\"')"):  # neither redaction nor a pseudonym
+        with pytest.raises(psycopg.Error, match='immutable'), admin.transaction():
+            admin.execute('set local role nexloop_owner')
+            admin.execute("select runtime.nexloop_erasure_open('control.nexloop_approval_requests',array['body'],false,'test')")
+            admin.execute(f'update control.nexloop_approval_requests set body={change} where approval_id=%s', (approval,))
+    with pytest.raises(psycopg.Error, match='immutable'), admin.transaction():  # the right form, but not the owner's functions
         admin.execute("select runtime.nexloop_erasure_open('control.nexloop_approval_requests',array['body'],false,'test')")
-        admin.execute("""update control.nexloop_approval_requests set body=body||'{"x":1}' where approval_id=%s""", (approval,))
-    assert body(admin, approval)[0]['x'] == 1 and row(f, approval)[:2] == ('waiting_approval', 1)
+        admin.execute("update control.nexloop_approval_requests set body=jsonb_set(body,'{reason}','\"pseudonym:" + '0' * 32 + "\"') where approval_id=%s", (approval,))
+    with admin.transaction():
+        admin.execute('set local role nexloop_owner')
+        admin.execute("select runtime.nexloop_erasure_open('control.nexloop_approval_requests',array['body'],false,'test')")
+        admin.execute("update control.nexloop_approval_requests set body=jsonb_set(body,'{reason}','\"pseudonym:" + '0' * 32 + "\"') where approval_id=%s", (approval,))
+    assert body(admin, approval)[0]['reason'] == 'pseudonym:' + '0' * 32 and row(f, approval)[:2] == ('waiting_approval', 1)

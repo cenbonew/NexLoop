@@ -1,7 +1,8 @@
 {
   "schema_version": "nexloop-approval-policies/1",
   "version": 1,
-  "decision": "NX-056 (docs/design/unified-approvals.md v5 §3, §10; owner 2026-10-22 Q1 option A, ADR-039): the first three capabilities that need a second person's approval before they run - real_dispatch.set only when it opens (enabled=true; closing is never held), consumer.erase started by the owner (a Consumer's own request is confirmed through consumer.erase_on_request and is not held), and retention.release_hold. Quorum 1, approvers are owners, never the requester (by subject), 24 hours to decide and execute. A new Action version without a policy version for it is refused until this file follows. Applied by the technical configurator (control.nexloop_configure_approval_policies); policies are append-only. Summary fields name no Consumer identifier and no free text (the approver sees the digest and these fields only).",
+  "expected_revision": 0,
+  "decision": "NX-056 (docs/design/unified-approvals.md v5 §3, §10; owner 2026-10-22 Q1 option A, ADR-039): the first three capabilities that need a second person's approval before they run - real_dispatch.set only when it opens (enabled=true; closing is never held), consumer.erase started by the owner (a Consumer's own request is confirmed through consumer.erase_on_request and is not held), and retention.release_hold. Quorum 1, approvers are owners, never the requester (by subject), 24 hours to decide and execute. A new Action version without a policy version for it is refused until this file follows. Applied by the technical configurator (control.nexloop_configure_approval_policies); policies are append-only. Summary fields name no Consumer identifier and no free text (the approver sees the digest and these fields only). expected_revision is the last applied manifest version (0 before the first); the database records each applied file's sha256.",
   "policies": [
     {
       "capability": "real_dispatch.set",

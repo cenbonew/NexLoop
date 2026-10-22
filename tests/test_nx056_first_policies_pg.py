@@ -7,6 +7,7 @@ confirmation of a Consumer's own request (consumer.erase_on_request) runs at onc
 Synthetic data only.
 """
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -48,40 +49,56 @@ def test_the_file_is_the_owners_first_batch_and_bad_manifests_are_refused():
                    # never a Consumer identifier or free text on every approver's screen (L6 review 7)
                    lambda p: p.update(summary_fields=['consumer_id']), lambda p: p.update(summary_fields=['reason']),
                    lambda p: p.update(summary_fields=['notification_text']), lambda p: p.update(summary_fields=['principal_id']),
-                   lambda p: p.update(target_subject_field='Bad Field'), lambda p: p.update(target_subject_field=3)):
+                   lambda p: p.update(target_subject_field='Bad Field'), lambda p: p.update(target_subject_field=3),
+                   lambda p: p.update(summary_fields=['scope_ref']), lambda p: p.update(approver_roles=['owner', 'owner'])):
         bad = copy.deepcopy(v1)
         change(bad['policies'][0])
         with pytest.raises(ApprovalPoliciesRejected):
             validate_policies(bad)
     with pytest.raises(ApprovalPoliciesRejected):
         validate_policies({**v1, 'policies': v1['policies'] + [v1['policies'][0]]})  # one entry per capability
+    for top in ({'expected_revision': 1}, {'expected_revision': -1}):  # the revision a version 1 is applied over is 0
+        with pytest.raises(ApprovalPoliciesRejected):
+            validate_policies({**v1, **top})
     targeted = copy.deepcopy(v1)
     targeted['policies'][0]['target_subject_field'] = 'member_principal_id'  # NX-058 Z1: optional
     validate_policies(targeted)
 
 
 @PLAN
-def test_the_configurator_applies_replays_and_refuses_a_changed_version(commitments, admin, pg, tmp_path):
+def test_the_configurator_applies_records_the_files_sha256_and_refuses_conflicts(commitments, admin, pg, tmp_path):
     dsn = configurator(admin, pg, tmp_path)
-    v1 = load_policies(POLICIES)
-    assert apply_policies(v1, database_url_file=dsn) == {'configured': True, 'version': 1, 'appended': 3, 'unchanged': 0}
-    assert apply_policies(v1, database_url_file=dsn)['unchanged'] == 3  # a replay
+    text = POLICIES.read_text(encoding='utf-8')
+    digest = hashlib.sha256(text.encode()).hexdigest()  # what sha256sum of the file prints
+    first = apply_policies(text, database_url_file=dsn)
+    assert first == {'configured': True, 'version': 1, 'manifest_sha256': digest, 'appended': 3, 'unchanged': 0, 'replayed': False}
+    assert apply_policies(text, database_url_file=dsn) == {'configured': True, 'version': 1, 'manifest_sha256': digest, 'replayed': True}
+    assert admin.execute('select manifest_version,manifest_sha256,expected_revision,appended,published_by from control.nexloop_approval_policy_publications'
+                         ).fetchall() == [(1, digest, 0, 3, 'nexloop_configurator')]
+    v1 = json.loads(text)
+    with pytest.raises(psycopg.Error, match='another text'):  # the same version, another file
+        apply_policies(json.dumps({**v1, 'decision': v1['decision'] + ' edited'}), database_url_file=dsn)
     changed = copy.deepcopy(v1)
+    changed.update(version=2, expected_revision=0)
     changed['policies'][1]['expires_after_seconds'] = 3600
-    with pytest.raises(psycopg.Error, match='changed'):
-        apply_policies(changed, database_url_file=dsn)
-    changed['policies'][1]['version'] = 2  # a new version of the one policy
-    changed['version'] = 2
-    assert apply_policies(changed, database_url_file=dsn) == {'configured': True, 'version': 2, 'appended': 1, 'unchanged': 2}
+    with pytest.raises(psycopg.Error, match='expected revision'):  # applied over a revision that is no longer current
+        apply_policies(json.dumps(changed), database_url_file=dsn)
+    changed['expected_revision'] = 1
+    with pytest.raises(psycopg.Error, match='changed'):  # a changed policy under its current version
+        apply_policies(json.dumps(changed), database_url_file=dsn)
+    changed['policies'][1]['version'] = 2
+    assert apply_policies(json.dumps(changed), database_url_file=dsn)['appended'] == 1
     assert admin.execute("select version,expires_after_seconds,published_by from control.nexloop_approval_policies where capability='consumer.erase' order by version").fetchall() == [
         (1, 86400, 'configuration:approval-policies.v1'), (2, 3600, 'configuration:approval-policies.v2')]
-    with pytest.raises(psycopg.Error):
-        apply_policies(v1, database_url_file=dsn)  # version 1 again is older than the current 2
-    with pytest.raises(psycopg.Error, match='may not name a consumer or free text'), admin.transaction():
+    for bad in ({'summary_fields': '{scope_ref}', 'capability': 'real_dispatch.set'}, {'summary_fields': '{}', 'capability': 'real_dispatch.set', 'roles': '{owner,owner}'}):
+        with pytest.raises(psycopg.Error, match="outside the capability|roles repeat"), admin.transaction():  # per-capability list, distinct roles
+            admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,quorum,approver_roles,expires_after_seconds,
+                summary_fields,published_by) values(%s,9,1,1,%s,86400,%s,'x')""", (bad['capability'], bad.get('roles', '{owner}'), bad['summary_fields']))
+    with pytest.raises(psycopg.Error, match='outside the capability'), admin.transaction():
         admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,quorum,approver_roles,expires_after_seconds,
             summary_fields,published_by) values('consumer.erase',9,1,1,'{owner}',86400,'{consumer_id}','x')""")
     with pytest.raises(psycopg.Error, match='trusted configuration only'):
-        admin.execute('select control.nexloop_configure_approval_policies(%s::jsonb)', (json.dumps(v1),))
+        admin.execute('select control.nexloop_configure_approval_policies(%s,%s)', (text, digest))
 
 
 @pytest.fixture
@@ -99,7 +116,7 @@ def held(commitments, admin, pg, tmp_path, identity, uow):
         _, token = seed_multi_authority(admin, env['worker'], KEEPER, identity_suffix='-retention-keeper', tenant=TENANT)
         owner, human = c.owner(identity, uow)
         c['keeper_session'] = lambda: authenticate_service(env['worker'], token, world='real')
-        apply_policies(load_policies(POLICIES), database_url_file=configurator(admin, pg, tmp_path))
+        apply_policies(POLICIES.read_text(encoding='utf-8'), database_url_file=configurator(admin, pg, tmp_path))
         c.update(env=env, owner_actions=owner, human=human)
         yield c
 
@@ -149,7 +166,9 @@ def test_a_completed_erasure_pseudonymises_the_consumer_in_every_request_body(he
     assert request(admin, consumer)[1] == 'completed'
     [(_, after_state, after, after_digest)] = bodies(admin)
     assert after['consumer_id'].startswith('pseudonym:') and consumer not in str(after) and after['reason'] == body['reason']
-    assert (after_state, after_digest) == (state, digest)  # only the body changed
+    # The erasure's start ended the owner's own waiting request for the same Consumer (L6 review 8); completion pseudonymised it.
+    assert state == 'waiting_approval' and after_state == 'expired' and after_digest == digest
+    assert admin.execute("select reason from control.nexloop_approval_decisions where outcome='expired'").fetchall() == [('consumer_erased',)]
     counts = admin.execute("select counts from runtime.nexloop_erasure_tombstones where subject_kind='approval_requests'").fetchone()[0]
     assert counts == {'approval_requests': 1}
 

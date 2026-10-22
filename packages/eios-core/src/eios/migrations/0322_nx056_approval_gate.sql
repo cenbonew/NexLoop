@@ -166,6 +166,8 @@ begin
  elsif v_gate->'approval_id' is null then
   execute format('select %s($1,$2,$3,$4,$5,$6)',cap.handler::oid::regproc) into v_result using v_tenant,p_world,v_principal,v_subject,stored.intent_id,body;
  else
+  -- The approval being executed: a Consumer erasure that starts inside this handler does not end it (0326).
+  perform set_config('nexloop.approval_in_flight',v_gate->>'approval_id',true);
   begin  -- a savepoint: a refusal rolls back the handler's own writes only, and the approval is still consumed (L6 N-2)
    execute format('select %s($1,$2,$3,$4,$5,$6)',cap.handler::oid::regproc) into v_result using v_tenant,p_world,v_principal,v_subject,stored.intent_id,body;
    v_consumed:='executed';
@@ -176,6 +178,7 @@ begin
    v_consumed:='execution_refused:'||sqlstate;
    v_result:=jsonb_build_object('status','execution_refused','code',sqlstate);
   end;
+  perform set_config('nexloop.approval_in_flight','',true);
   perform set_config('eios.tenant_id',v_tenant,true);
   perform control.nexloop_approval_consume(v_tenant,p_world,(v_gate->>'approval_id')::uuid,v_principal,v_consumed,v_gate->'approved_by');
   v_result:=v_result||jsonb_build_object('approval_id',v_gate->>'approval_id','approval','consumed');

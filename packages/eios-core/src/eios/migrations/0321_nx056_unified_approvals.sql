@@ -54,8 +54,27 @@ create table control.nexloop_approval_policies (
 );
 alter table control.nexloop_approval_policies owner to nexloop_owner;
 revoke all on control.nexloop_approval_policies from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
+-- The body fields a capability's policy may show to every approver (L6 review 8: a whitelist per capability, not a deny list). A
+-- capability not listed shows none (the approver sees the Action, the requester, times and the digest). New entries come with the
+-- capability's integration (a new migration), after checking its fields name no Consumer and carry no free text.
+create function control.nexloop_approval_summary_allowed(p_capability text) returns text[]
+ language sql immutable set search_path=pg_catalog,pg_temp as $$
+ select case p_capability
+  when 'real_dispatch.set' then array['scope_kind','enabled','data_mode','action_type']
+  when 'retention.release_hold' then array['hold_id']
+  when 'consumer.erase' then array[]::text[]
+  when 'incentive.issue' then array['amount_minor','currency','offering_revision']
+  else array[]::text[] end
+$$;
+alter function control.nexloop_approval_summary_allowed(text) owner to nexloop_owner;
+revoke all on function control.nexloop_approval_summary_allowed(text) from public;
+
 create function control.nexloop_approval_policy_guard() returns trigger language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 begin
+ if cardinality(array(select distinct unnest(new.approver_roles)))<>cardinality(new.approver_roles) then
+  raise exception 'approval policy: approver roles repeat' using errcode='22023';end if;
+ if not (new.summary_fields<@control.nexloop_approval_summary_allowed(new.capability)) then
+  raise exception 'approval policy: summary fields outside the capability''s list' using errcode='22023';end if;
  if new.capability like 'approvals.%' or not exists(select 1 from control.nexloop_governed_capabilities c where c.capability=new.capability and c.subject_rule='human') then
   raise exception 'approval policy: a human governed capability required' using errcode='22023';end if;
  if exists(select 1 from control.nexloop_approval_policies p where p.capability=new.capability and p.version>=new.version) then
@@ -112,6 +131,32 @@ alter table control.nexloop_approval_requests force row level security;
 create policy tenant_boundary on control.nexloop_approval_requests to nexloop_owner
  using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
 revoke all on control.nexloop_approval_requests from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
+-- The same JSON value with some whole strings replaced by pseudonyms (the erasure's only change of a frozen body, 0326).
+create function control.nexloop_approval_pseudonymised(p_old jsonb,p_new jsonb) returns boolean
+ language plpgsql immutable set search_path=pg_catalog,pg_temp as $$
+declare k text;i integer;
+begin
+ if p_old=p_new then return true;end if;
+ if jsonb_typeof(p_new)='string' and p_new#>>'{}'~'^pseudonym:[0-9a-f]{32}$' then return jsonb_typeof(p_old)='string';end if;
+ if jsonb_typeof(p_old) is distinct from jsonb_typeof(p_new) then return false;end if;
+ if jsonb_typeof(p_old)='object' then
+  if array(select jsonb_object_keys(p_old) order by 1) is distinct from array(select jsonb_object_keys(p_new) order by 1) then return false;end if;
+  for k in select jsonb_object_keys(p_old) loop
+   if not control.nexloop_approval_pseudonymised(p_old->k,p_new->k) then return false;end if;
+  end loop;
+  return true;
+ elsif jsonb_typeof(p_old)='array' then
+  if jsonb_array_length(p_old)<>jsonb_array_length(p_new) then return false;end if;
+  for i in 0..jsonb_array_length(p_old)-1 loop
+   if not control.nexloop_approval_pseudonymised(p_old->i,p_new->i) then return false;end if;
+  end loop;
+  return true;
+ end if;
+ return false;
+end $$;
+alter function control.nexloop_approval_pseudonymised(jsonb,jsonb) owner to nexloop_owner;
+revoke all on function control.nexloop_approval_pseudonymised(jsonb,jsonb) from public;
+
 create function control.nexloop_approval_request_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if tg_op='DELETE' then raise exception 'approval requests are deleted only by retention' using errcode='42501';end if;
@@ -119,6 +164,11 @@ begin
  -- opened for this table and column; nothing else, not even the revision.
  if new.body is distinct from old.body and exists(select 1 from control.nexloop_erasure_scope s where s.txid=txid_current()
    and s.table_name='control.nexloop_approval_requests' and 'body'=any(s.columns)) then
+  -- Only the owner's functions, and only two forms (L6 review 8): the redacted body, or the same body with whole string values replaced
+  -- by pseudonyms.
+  if current_user<>'nexloop_owner' or not (new.body=jsonb_build_object('operation',old.body->'operation','redacted',true)
+    or control.nexloop_approval_pseudonymised(old.body,new.body)) then
+   raise exception 'approval request is immutable' using errcode='42501';end if;
   if (new.tenant_id,new.world,new.approval_id,new.capability,new.action_resource,new.policy_version,new.request_digest,new.request_id,
       new.requester_subject,new.requester_principal,new.requested_at,new.due_by,new.status,new.revision)
     is distinct from (old.tenant_id,old.world,old.approval_id,old.capability,old.action_resource,old.policy_version,old.request_digest,old.request_id,
@@ -198,6 +248,10 @@ begin
  if v_subject is null then raise exception 'approval: requester_unavailable' using errcode='42501';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  v_digest:=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,pol.version,p_body);
+ -- NX-058 Z1, fail closed (L6 review 8): a policy naming the member the request acts on needs that member to exist in the tenant.
+ if pol.target_subject_field is not null and not exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=p_tenant
+   and (m.principal_id=p_body->>pol.target_subject_field or m.subject_id=p_body->>pol.target_subject_field)) then
+  raise exception 'approval: target_unresolved' using errcode='22023';end if;
  -- The same request id replays its own approval; the same digest while this person's one waits answers that one (no flooding, design
  -- §4 step 1). Dedupe and cooldown are per requester (subject): another person's request or rejection never answers or blocks this one.
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and capability=p_capability and request_id=p_body->>'request_id';
@@ -235,7 +289,7 @@ create function control.nexloop_approval_terminate(p_tenant text,p_world text,p_
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare r control.nexloop_approval_requests;
 begin
- if p_reason not in ('due_by_passed','policy_changed','superseded') then raise exception 'approval: termination reason' using errcode='22023';end if;
+ if p_reason not in ('due_by_passed','policy_changed','superseded','consumer_erased') then raise exception 'approval: termination reason' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and approval_id=p_approval for update;
  if not found or r.status not in ('waiting_approval','approved') or (p_reason='due_by_passed' and r.due_by>clock_timestamp())

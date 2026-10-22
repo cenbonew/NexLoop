@@ -195,6 +195,8 @@ def test_the_member_a_request_acts_on_never_approves_it(store):
     by_subject = open_request(f, request_id='t-2', member=f['second']['subject_id'])['approval_id']  # a subject id names the same person
     refused('target_cannot_approve', decide, f, 'second', by_subject)
     assert decide(f, 'approver', by_subject)['status'] == 'approved'
+    refused('target_unresolved', open_request, f, request_id='t-3', member='synthetic-nobody')  # fail closed (L6 review 8)
+    refused('target_unresolved', open_request, f, request_id='t-4')  # the field missing
     with pytest.raises(psycopg.Error), admin.transaction():
         admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,quorum,approver_roles,expires_after_seconds,
             target_subject_field,published_by) values(%s,3,1,1,'{owner}',86400,'Bad Field','x')""", (CAP,))
