@@ -28,6 +28,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -511,19 +512,35 @@ PREPUSH_SCAN = Path(__file__).resolve().with_name('prepush-scan.sh')
 PREPUSH_SCAN_TIMEOUT = 900
 
 
+def run_process_group(argv, *, cwd, env, timeout):
+    """(returncode, stdout) of argv in its own process group; on the timeout the whole group is killed (the scan's git and
+    gitleaks children too, not only the shell) and the returncode is None."""
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                            start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+        return proc.returncode, out
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        return None, ''
+
+
 def prepush_scan(repo, sha, base, restricted_identifiers, *, timeout=PREPUSH_SCAN_TIMEOUT):
     if not restricted_identifiers or not Path(restricted_identifiers).is_file():
         return 'FAIL restricted identifier list missing'
     argv = ['bash', str(PREPUSH_SCAN), sha, base] if base else ['bash', str(PREPUSH_SCAN), '--root', sha]
     env = {**_stage_env({}), 'NEXLOOP_RESTRICTED_IDENTIFIERS_FILE': str(restricted_identifiers)}
-    try:
-        done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=timeout, env=env)
-    except subprocess.TimeoutExpired:
+    code, out = run_process_group(argv, cwd=repo, env=env, timeout=timeout)
+    if code is None:
         return 'FAIL prepush scan timed out'
-    if done.returncode == 0:
+    if code == 0:
         return None
-    failed = [line for line in done.stdout.splitlines() if line.startswith('FAIL')]
-    return failed[0][:300] if failed else f'FAIL prepush scan exited {done.returncode}'
+    failed = [line for line in out.splitlines() if line.startswith('FAIL')]
+    return failed[0][:300] if failed else f'FAIL prepush scan exited {code}'
 
 
 def merge(repo, queue, request, policy, identities, *, restricted_identifiers, gates=()):

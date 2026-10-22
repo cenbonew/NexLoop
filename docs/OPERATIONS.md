@@ -144,7 +144,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 首次启用的步骤，均为 B 类，需负责人确认，由调度员执行：
 
 1. **放置受限标识清单**：把负责人的私有清单（开发机上 `local-only/restricted-identifiers.txt` 的内容）放到主机的 `<GIT_ROOT>/private/restricted-identifiers.txt`，每行一个扩展正则。权限要保证 `nexloop-ci` 与 `nexloop-git` 能读、其他账户不能读。内容绝不进入仓库、日志或聊天记录。
-2. **升级受信安装**：按 §7.2，取包含本改动的 main SHA，使用上面新的展开清单。
+2. **升级受信安装**：按 §7.2，取包含本改动的 main SHA，**必须使用上面新的展开清单**。用旧清单展开时，受信安装中没有 `.gitleaks.toml` 与 `versions.lock.json`，从未同步过（或 base 中没有这两个文件）的扫描会一直失败。这是失败关闭，但同步会一直停在 blocked。
 3. **修改两个 unit**：两个 unit 的 `ExecStart` 末尾都加上 `--restricted-identifiers <GIT_ROOT>/private/restricted-identifiers.txt`，与 `deploy/stage/ci/` 中的模板一致。路径换成第 2 步的新受信安装，然后 `sudo systemctl daemon-reload`。
 4. **验证**：
    - 同步：`sudo systemctl start nexloop-ci-sync.service` 跑一轮，`status` 的 `sync` 应为 `synced` 或 `sync_pending`，不应出现 `blocked`；

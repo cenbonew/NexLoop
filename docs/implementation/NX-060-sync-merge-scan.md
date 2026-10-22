@@ -106,3 +106,91 @@
 - **tag 的附注文本不在扫描范围内**：tag 只有在其指向的提交属于 main 时才会推送，而 main 已经扫描过；但附注 tag 的消息文本没有经过第 2、4 道门。负责人签名的版本 tag 由负责人本人撰写，风险低，记为限制。
 - **首次同步的耗时**：`last_synced` 为空时需要扫描全部历史，约 1–2 分钟。主机上的 sync 状态已经有 `last_synced`，正常情况下不会走这条路径。
 - **blocked 不会自动解除**：泄露进入 main 之后，同步会一直阻塞。这是有意的：公开边界之前宁可停，也不推。处置流程见 OPERATIONS §7.2a 与 NX-060-gitleaks §6。
+
+## 5. 第二稿：按 L6 从严复核修订（`9279069c` 之后）
+
+### 5.1 确认级 1：第一道门可被非 ASCII 路径绕过（已修）
+
+- **原因**：`git ls-tree --name-only`、`git log --name-only`、`git ls-files` 在 `core.quotePath=true`（git 的默认值）时，会给含非 ASCII 字节、引号、反斜杠、控制字符的路径加引号，例如 `"local-only/n\303\251.txt"`。以 `^` 锚定的 `docs/tmp`、`local-only`、`\.env$` 于是全部匹配不到。开发机全局设置了 `core.quotePath=false`，所以本机测试测不出来；CI 主机与 bare 仓库用的都是默认值。
+- **修复**：三处列举一律改为 `git -c core.quotePath=false … -z`。路径按 NUL 分隔交给 `path_rule`（Python，`re.S`）逐条匹配，路径中含换行也按它本身匹配。`log --name-only` 同时加了 `-m`，见 5.2。`.gitleaksignore` 的检查也改为 `-z`。
+- **一并采纳建议 7**：`.env` 规则从“仅根目录”改为“任意目录下的 `.env`”，即 `(.*/)?\.env`。全部历史中没有命中，不会误报。
+- **测试**：`test-prepush-scan.py` 在整个运行过程中用 `GIT_CONFIG_COUNT` 强制 `core.quotePath=true`，不受本机配置影响。以下 9 个路径，在检出和 bare 两种方式下都被第一道门拦下：`local-only/né.txt`、`local-only/a b.txt`、`local-only/line⏎break.txt`、`local-only/q"uote.txt`、`local-only/back\slash.txt`、`docs/tmp/ü.md`、`sub/dir/.env`、`é/secrets/k.txt`、`cache/é.sqlite`。另做了对照：用上一版脚本跑同一测试，在 `local-only/né.txt` 上 PASS，证实缺陷可以复现。
+
+### 5.2 确认级 2：合并提交自己引入的内容不被看到（已修）
+
+- **原因**：默认的 `git log -p` 不输出合并提交的 diff。在冲突解决时加入、随后又被删除的值（evil merge），在范围内只剩下 `-` 行。
+- **锁定版本上的实测**（gitleaks 8.30.1，scratchpad 中构造的 evil merge）：
+
+  | 写法 | 第三道门命中 | gitleaks |
+  |---|---|---|
+  | 默认 | 0 | 不报（exit 0） |
+  | `-m` | 2 | 报出（exit 17） |
+  | `--diff-merges=first-parent` | 1 | 报出 |
+  | `--cc` | 1 | 不报（gitleaks 解析不了合并 diff 的格式） |
+
+  所以**第四道门原来也看不到 evil merge**。
+- **修复**：第一、三、四道门都改用 `-m`：第一道门是 `log -m --name-only`，第三道门是 `git log -p -m`，第四道门是 `--log-opts="-m <range>"`。`-m` 在各个 git 版本上都可用，而 `--diff-merges` 需要 git 2.31 以上。本仓库全部历史在 `-m` 下约 219 MB、2 秒，代价可以接受。第二道门本来就用 `git grep` 扫描每个提交（包括合并提交）的完整文件树，不受影响。
+- **测试**：构造三种 evil merge，在检出和 bare 两种方式下分别被各自的门禁拦下：
+  - 只含 `sk-…`：第三道门；
+  - 只含假 AWS 键：第四道门；
+  - 合并时加入 `local-only/merged.txt`、再由另一个合并删除：第一道门。
+
+  对照：上一版脚本对同一个 evil merge 四道门全部 PASS。
+
+### 5.3 当前 main（`1892c9ac`，三道门）是否也有这两个缺陷
+
+| 缺陷 | main 上的 prepush-scan | 结论 |
+|---|---|---|
+| quotePath | 第一道门用 `git ls-files`，即工作树的 index，同样受 quotePath 影响；它也从来不看待推送提交动过的路径 | **在 quotePath 为默认值的环境中是现存缺陷**。调度员与各开发线所在的开发机全局设置了 `core.quotePath=false`，在那里运行的扫描不受影响 |
+| evil merge | 第三道门 `git log -p` 不带 `-m` | **现存缺陷，在任何环境下都存在** |
+| — | 第二道门对每个提交（包括合并提交）的完整文件树执行 `git grep` | 不受影响 |
+
+**对已推送历史的复扫（只读）**：使用修复后的脚本，并强制 `core.quotePath=true`。
+
+- 全部历史中的路径（所有分支，含合并的 `-m` 视角），共 3183 个：**没有任何非 ASCII 路径**；新规则（含任意目录下的 `.env`）下 **0 命中**。也就是说，quotePath 这条绕过在历史中没有被利用过。
+- 调度员另行只读核实：github/main 的全部历史中没有非 ASCII 路径，也没有 `local-only/`、`docs/tmp/` 路径。
+- **结论（quotePath）**：当前 main 的第一道门在机制上同样受影响；但已推送的历史中没有任何会被它漏掉的路径，所以**没有实际发生过的绕过**，不需要因此复扫或补救。evil merge 的结论见 5.5。
+- 复扫结果：见 5.5。
+
+### 5.4 其余各条
+
+- **重要 3（`sync_github._prepush` 没有超时）**：已修，改用 `ci.run_process_group`，超时为 `PREPUSH_SCAN_TIMEOUT`（900 秒），超时记为 `scan_timeout`。测试：`test_a_scan_that_does_not_finish_blocks_with_scan_timeout`。
+- **重要 4（超时只杀 bash）**：已修。`run_process_group` 以 `start_new_session=True` 启动，超时后用 `os.killpg` 杀掉整个进程组；`prepush_scan` 与 `sync_github` 共用它。测试：`test_a_scan_timeout_kills_the_whole_process_group`，后台的孙进程 `sleep 60` 在超时后被杀掉。
+- **重要 5（`--root` 依赖新的展开清单）**：OPERATIONS §7.2a 第 2 步已写明必须使用新清单，否则会一直 blocked。
+- **重要 6**：只作记录，与本提交无关。
+- **建议 8**：第一道门的注释已写明，在检出中检查 index 可能因为“已暂存、但不在被扫描 ref 中”的路径而拒绝，属于失败关闭。
+- **建议 9（tag 附注文本）**：未改动，仍记为限制（§4）。
+- **建议 10（首次全量扫描的耗时）**：本仓库在开发机上 `--root` 的实测见 5.5。CI 主机上如果超过 900 秒，会一直 `sync_blocked`；处理方法是由维护者确认已公开的 main，写入 `last_synced` 作为基线，与 `sync_github --baseline` 相同。主机上已有 `last_synced`，正常情况下不会走 `--root`。
+
+### 5.5 已推送历史的复扫结果（2026-10-22，只读，修复后的脚本，强制 `core.quotePath=true`）
+
+范围：`refs/remotes/github/*`，即最近一次 fetch 时 GitHub 上的 main 与 17 个其它分支。只输出数量、路径和提交日期，不输出任何受限标识或命中内容。
+
+| 检查 | 结果 | 分类 |
+|---|---|---|
+| 当前 `github/main` 树：第二道门（受限标识） | **0 命中** | — |
+| 本分支 HEAD 的树：第二道门 | 0 命中 | — |
+| 17 个其它 GitHub 分支相对 `github/main` 的新提交：四道门 | 全部 PASS | — |
+| `github/main` 全历史（`--root`）：第一道门 | PASS | — |
+| `github/main` 全历史：第二道门 | FAIL | **历史遗留，已知**，见下文 |
+| `github/main` 全历史：第三道门（`-m`，单独运行） | 1 处，带不带 `-m` 都是 1 处，所以**不是合并引入的** | **误报**，见下文 |
+| 所有 GitHub 分支全历史：gitleaks（`-m`，带配置） | **0 处** | — |
+| 所有分支全部历史中的路径（`-m`），共 3183 个 | 没有非 ASCII 路径；新规则 0 命中 | — |
+
+**第二道门的全历史命中 = 2026-10-11 清理之前的旧提交（已知、负责人知情、未改写历史）**：
+
+- 2026-10-11 当天及之后，`github/main` 共有 1506 个提交，其中 43 个的树中有受限标识，**全部是 2026-10-11 当天、清理提交之前的提交**。
+- 最后一个命中的是 `1fbd2fe9`（2026-10-11 09:12:14 +0800）。紧接着的 `eb51df43`（09:17:00，“Publication hygiene: development machine host name in evidence files replaced…”）就是负责人批准的清理提交，从它开始的提交全部干净。
+- 命中所在的路径都是当时的交接与证据文档：`docs/handoff/CODEX_START_PROMPT.md`、`docs/implementation/` 下 140 余个 `*-ci.json`、`*-progress.md`、`*-evidence.json` 与设计说明，以及 `planning/tasks.json`。路径本身都不含受限标识。
+- 10-11 之前更早的提交也有命中，属于同一批已知的历史遗留。
+- **新增命中：0**。按 AGENTS.md，已推送的 main 不得 force push，所以这部分历史不改写。负责人在 2026-10-11 批准清理时已经知情。
+
+**第三道门全历史的 1 处是误报**：
+
+- 位置：提交 `3b2ead23`（2026-10-08），`apps/agent-host/test/runtime-host-model.test.ts`。
+- 匹配形式是 `process.env.MODEL_API_KEY=<8 个小写字母>`。核实发现，这 8 个字母是同一文件中由 `process.env.MODEL_API_KEY` 赋值而来的 JS 变量名：测试结束时把保存的旧值赋回环境变量，不是凭据字面量。
+- 当前 `github/main` 树中已经没有这一行。
+
+**对首次同步（`--root`）的影响**：同步状态一旦为空，`--root` 会因为上述历史遗留一直 `sync_blocked`。这是失败关闭，不会推出任何东西。CI 主机上的同步状态已经有 `last_synced`，正常情况下不会走 `--root`。如果将来需要从空状态开始，要由维护者确认已公开的 main，并把它写入 `last_synced` 作为基线（与 `sync_github --baseline` 相同），而不是放宽门禁。
+
+**耗时（建议 10）**：开发机负载约 7–12 时：`github/main` 的 `--root` 在第二道门命中后立即停止；17 个分支逐个扫描共约 7 分钟；逐个提交复核 1506 个提交约 6 分钟。

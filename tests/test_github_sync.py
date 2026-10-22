@@ -169,3 +169,10 @@ def test_cli_exit_codes(lab):
     assert synced.returncode == 0 and json.loads(synced.stdout)['status'] == 'synced'
     bad = subprocess.run(args[:-6] + ['--remote', 'nonexistent', '--restricted-identifiers', 'x'], capture_output=True, text=True)
     assert bad.returncode == 2
+
+
+def test_a_scan_that_does_not_finish_blocks_with_scan_timeout(lab, monkeypatch):
+    lab['commit']('feature', {'feature.txt': 'x\n'})
+    monkeypatch.setattr(sg.ci, 'PREPUSH_SCAN_TIMEOUT', 0.01)
+    state = lab['sync'](baseline=lab['base'])
+    assert state['status'] == 'sync_blocked' and state['failure'] == 'scan_timeout' and lab['remote_main']() == lab['base']

@@ -67,7 +67,7 @@ print(tool["version"], tool.get("binary_sha256_" + sys.argv[2]) or "-")' "$work/
     printf 'NOTE .gitleaks.toml changes in the outgoing commits: owner ack required; scanned with the %s configuration\n' "$source"
   fi
   gitdir=$(git rev-parse --absolute-git-dir)
-  if git ls-tree -r --name-only "$ref" | grep -qE '(^|/)\.gitleaksignore$' || [[ -e .gitleaksignore || -e "$gitdir/.gitleaksignore" ]]; then
+  if git -c core.quotePath=false ls-tree -r -z --name-only "$ref" | tr '\0' '\n' | grep -qE '(^|/)\.gitleaksignore$' || [[ -e .gitleaksignore || -e "$gitdir/.gitleaksignore" ]]; then
     printf 'FAIL a .gitleaksignore is present (tracked in %s, in the worktree or in the git directory)\n' "$ref"; exit 1
   fi
   run() { (cd "$work/run" && env -u GITLEAKS_CONFIG -u GITLEAKS_CONFIG_TOML "$bin" "$@" --config "$work/config.toml" \
@@ -77,7 +77,7 @@ print(tool["version"], tool.get("binary_sha256_" + sys.argv[2]) or "-")' "$work/
   printf 'aws_access_key_id = %s%s%s\n' AKIA Z7Q3XW2V Y6TR4PMN | run stdin >/dev/null 2>&1 || status=$?
   if [[ "$status" -ne 17 ]]; then printf 'FAIL gitleaks configuration no longer detects the sentinel key\n'; exit 1; fi
   status=0
-  run git --log-opts="$range" --report-format json --report-path "$work/report.json" "$gitdir" >/dev/null 2>&1 || status=$?
+  run git --log-opts="-m $range" --report-format json --report-path "$work/report.json" "$gitdir" >/dev/null 2>&1 || status=$?
   if [[ "$status" -eq 17 ]]; then
     count=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))))' "$work/report.json" 2>/dev/null || echo some)
     printf 'FAIL gitleaks: %s finding(s) in %s (content redacted)\n' "$count" "$label"; exit 1
@@ -85,6 +85,15 @@ print(tool["version"], tool.get("binary_sha256_" + sys.argv[2]) or "-")' "$work/
   if [[ "$status" -ne 0 ]]; then printf 'FAIL gitleaks scan could not complete\n'; exit 1; fi
   printf 'PASS gitleaks %s in %s (%s configuration)\n' "$version" "$label" "$source"
 )
+# Gate 1's rule over NUL-separated paths on stdin: exit 1 when any path is private or runtime data (docs/tmp, local-only, a
+# .env file in any directory, an SQLite file, anything under a secrets/ directory), 0 when none is. The caller's pipeline
+# (pipefail) turns a failed git listing into its own non-zero status.
+path_rule() {
+  python3 -c 'import re, sys
+rule = re.compile(r"(docs/tmp|local-only|(.*/)?\.env\Z|.*\.sqlite|.*secrets/)", re.S)
+paths = sys.stdin.buffer.read().decode("utf-8", "surrogateescape").split("\0")
+sys.exit(1 if any(rule.match(p) for p in paths if p) else 0)' || return $?
+}
 # git grep over the trees of many commits in batches of 200 (a whole history stays under the argument limit):
 # 0 a match in some tree, 1 none, 2 a git error.
 grep_revisions() {
@@ -117,17 +126,19 @@ scan_ref() {
     range="$ref"
     printf 'prepush-scan: %s from the root (whole history)\n' "$ref"
   fi
-  # Gate 1: no private or runtime path in the scanned commit's tree, among the paths any outgoing commit touches (a path
-  # added and removed again inside the range would still be published in history), or, in a checkout, in the index.
-  local paths index=''
-  if [[ "$(git rev-parse --is-bare-repository)" != true ]]; then
-    index=$(git ls-files) || { printf 'FAIL tracked path listing could not complete\n'; return 1; }
-  fi
-  paths=$( { git ls-tree -r --name-only "$ref" && git log --format= --name-only --no-renames "$range"; } ) \
-    || { printf 'FAIL tracked path listing could not complete\n'; return 1; }
-  paths="$paths"$'\n'"$index"
-  matches=$(printf '%s\n' "$paths" | grep -E '^(docs/tmp|local-only|\.env$|.*\.sqlite|.*secrets/)' || test "$?" -eq 1)
-  if [[ -n "$matches" ]]; then printf 'FAIL tracked private/runtime paths\n'; return 1; fi
+  # Gate 1: no private or runtime path in the scanned commit's tree, among the paths any outgoing commit touches, merges
+  # against each parent included (-m: a path added and removed again inside the range is still published in history), or,
+  # in a checkout, in the index (that can refuse for a staged path the scanned ref does not contain: fail-closed). Every
+  # listing is NUL-separated with core.quotePath=false, so a path with non-ASCII bytes, quotes, spaces or newlines is
+  # matched as itself, never as git's quoted form. Matching is in path_rule.
+  local status=0
+  {
+    git -c core.quotePath=false ls-tree -r -z --name-only "$ref" || exit 2
+    git -c core.quotePath=false log -z -m --format= --name-only --no-renames "$range" || exit 2
+    if [[ "$(git rev-parse --is-bare-repository)" != true ]]; then git -c core.quotePath=false ls-files -z || exit 2; fi
+  } | path_rule || status=$?
+  if [[ "$status" -eq 1 ]]; then printf 'FAIL tracked private/runtime paths\n'; return 1; fi
+  if [[ "$status" -ne 0 ]]; then printf 'FAIL tracked path listing could not complete\n'; return 1; fi
   printf 'PASS tracked private/runtime paths\n'
   revisions=$(git rev-list "$range") || { printf 'FAIL commit listing could not complete\n'; return 1; }
   if [[ -n "$revisions" ]]; then
@@ -146,10 +157,11 @@ scan_ref() {
     if [[ "$status" -ne 1 ]]; then printf 'FAIL history scan could not complete\n'; return 1; fi
   fi
   printf 'PASS restricted identifiers in every outgoing commit\n'
+  # -m: a merge's own changes (an "evil" conflict resolution) against each parent; plain git log -p shows no merge diff.
   # grep decides a match on its own (git may then end on SIGPIPE); with no match, git log itself must have succeeded.
   local codes
   set +e
-  git log -p "$range" | grep -qE '^\+.*(sk-[A-Za-z0-9]{20,}|xz[z]n|(MODEL|EMBEDDING)_API_KEY="?[A-Za-z0-9-]{8,})'
+  git log -p -m "$range" | grep -qE '^\+.*(sk-[A-Za-z0-9]{20,}|xz[z]n|(MODEL|EMBEDDING)_API_KEY="?[A-Za-z0-9-]{8,})'
   codes="${PIPESTATUS[0]} ${PIPESTATUS[1]}"
   set -e
   if [[ "${codes#* }" == 0 ]]; then printf 'FAIL credential values in outgoing added lines (content redacted)\n'; return 1; fi

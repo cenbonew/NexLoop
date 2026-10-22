@@ -4,9 +4,13 @@ import subprocess
 import tempfile
 
 SCAN = pathlib.Path(__file__).with_name('prepush-scan.sh').resolve()
+# git's defaults on the CI host and in a bare repository, whatever this machine's own configuration says: quoted path output
+# (core.quotePath=true) is what gate 1 has to see through.
+import os
+os.environ.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.quotePath', GIT_CONFIG_VALUE_0='true')
 
-def run(*args, cwd):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True)
+def run(*args, cwd, check=True):
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=check)
 
 with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     root = pathlib.Path(temp)
@@ -237,6 +241,57 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     result = bare_scan(clean, '1' * 40, repo=bare)
     assert result.returncode != 0 and 'base' in result.stdout and 'is not a commit' in result.stdout, result.stdout
     run('git', 'reset', '--hard', baseline, cwd=root)
+    # Gate 1 matches every path as itself under git's default core.quotePath=true (forced for every git call of this test):
+    # non-ASCII bytes, spaces, quotes, backslashes and newlines were printed in git's quoted form and slipped past the rule.
+    tricky = ['local-only/né.txt', 'local-only/a b.txt', 'local-only/line\nbreak.txt', 'local-only/q"uote.txt',
+              'local-only/back\\slash.txt', 'docs/tmp/ü.md', 'sub/dir/.env', 'é/secrets/k.txt', 'cache/é.sqlite']
+    for path in tricky:
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        commit(path, 'synthetic\n', 'tricky private path')
+        run('git', 'rm', '-q', '--', path, cwd=root)
+        run('git', 'commit', '-q', '-m', 'and removed again', cwd=root)
+        head = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+        result = bare_scan(head, baseline, repo=root)
+        assert result.returncode != 0 and 'FAIL tracked private/runtime paths' in result.stdout, (path, result.stdout)
+        bare = bare_clone('bare-tricky.git')
+        result = bare_scan(head, baseline, repo=bare)
+        assert result.returncode != 0 and 'FAIL tracked private/runtime paths' in result.stdout, (path, result.stdout)
+    # An "evil" merge: the conflict resolution itself adds the value, a later commit removes it. Plain `git log -p` shows no
+    # merge diff, so gates 3 and 4 never saw it; with -m they do. Gate 1 likewise sees a path added by a merge and removed by
+    # another merge.
+    def evil_merge(files, remove_by_merge=False):
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        run('git', 'checkout', '-q', '-b', 'side', cwd=root)
+        commit('side.txt', 'side\n', 'side work')
+        run('git', 'checkout', '-q', 'main', cwd=root)
+        commit('main.txt', 'main\n', 'main work')
+        run('git', 'merge', '-q', '--no-ff', '--no-commit', 'side', cwd=root, check=False)
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text)
+            run('git', 'add', '--', name, cwd=root)
+        run('git', 'commit', '-q', '-m', 'evil merge', cwd=root)
+        if remove_by_merge:
+            run('git', 'checkout', '-q', '-b', 'side2', 'HEAD~1', cwd=root)
+            commit('side2.txt', 'side2\n', 'more side work')
+            run('git', 'checkout', '-q', 'main', cwd=root)
+            run('git', 'merge', '-q', '--no-ff', '--no-commit', 'side2', cwd=root, check=False)
+        for name in files:
+            run('git', 'rm', '-q', '--', name, cwd=root)
+        run('git', 'commit', '-q', '-m', 'removed again', cwd=root)
+        head = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+        for branch in ('side', 'side2'):
+            run('git', 'branch', '-q', '-D', branch, cwd=root, check=False)
+        return head
+    for files, gate, by_merge in (({'cred.txt': 'token sk-' + 'b' * 24 + '\n'}, 'FAIL credential values', False),
+                                  ({'aws.cfg': aws}, 'FAIL gitleaks: ', False),
+                                  ({'local-only/merged.txt': 'synthetic\n'}, 'FAIL tracked private/runtime paths', True)):
+        head = evil_merge(files, remove_by_merge=by_merge)
+        for repo in (root, bare_clone('bare-evil.git')):
+            result = bare_scan(head, baseline, repo=repo)
+            assert result.returncode != 0 and gate in result.stdout, (files, repo, result.stdout)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+print('PASS: core.quotePath=true: non-ASCII, space, quote, backslash and newline paths, .env in any directory; evil merges seen by gates 1, 3 and 4 (-m), in a checkout and bare')
 print('PASS: bare repository (merge gate, sync) and --root scans: private paths and credentials added inside the range are blocked, preconditions fail with a message')
 print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys only in tests, full mode sees old history, trusts only the base/checkout configuration (dropped, neutered, wide-open outgoing configurations still blocked; broken base refused), ignores .gitleaksignore and gitleaks:allow, runs from a scripts/ci-only trusted installation, fails closed without tool/pinned version/sentinel')
 print('PASS: missing list fails closed, clean/no-ahead, historical identifiers and credentials, feature hook, variable references, tracked private paths')

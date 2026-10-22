@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -618,3 +619,20 @@ def test_the_unit_examples_scan_before_every_merge_and_sync():
     # sync cannot start without the list (argparse refuses; there is no unscanned sync).
     with pytest.raises(SystemExit):
         ci.main(['sync', '--repo', 'r', '--queue', 'q', '--remote', 'github'])
+
+
+def test_a_scan_timeout_kills_the_whole_process_group(tmp_path):
+    pidfile = tmp_path / 'child.pid'
+    code, _ = ci.run_process_group(['bash', '-c', f'sleep 60 & echo $! > {pidfile}; wait'], cwd=tmp_path, env=dict(os.environ),
+                                   timeout=1)
+    assert code is None
+    child = int(pidfile.read_text())
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError('the grandchild outlived the timeout')
