@@ -69,10 +69,11 @@
         "packages/eios-core/UPSTREAM_IDENTITY_TESTS.json",
         "packages/eios-core/UPSTREAM_AUTHZ_TESTS.json",
         "packages/eios-core/UPSTREAM_ADAPTER_TESTS.json",
-        "packages/eios-core/UPSTREAM_ONTOLOGY_TESTS.json"
+        "packages/eios-core/UPSTREAM_ONTOLOGY_TESTS.json",
+        "packages/eios-core/UPSTREAM_API_TESTS.json"
       ],
       "lineage": "nexloop-eios-v1",
-      "bootstrap_revision": "0319",
+      "bootstrap_revision": "0320",
       "dependency_lock": "uv.lock"
     },
     "node": {

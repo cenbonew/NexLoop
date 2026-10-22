@@ -676,6 +676,17 @@
       "upstream_sha256": "c86b2dcde8bd0d3987d06222e6cfe25a53ff70b6ae353aabc02633ab2ba4d290",
       "adaptations": [],
       "nexloop_sha256": "c86b2dcde8bd0d3987d06222e6cfe25a53ff70b6ae353aabc02633ab2ba4d290"
+    },
+    {
+      "source_path": "src/eios/api/metrics.py",
+      "destination": "packages/eios-core/src/eios/api/metrics.py",
+      "upstream_sha256": "97cebf5509c662f8b765d79d242afcec70879f7e338bda5183c37f69e3529be4",
+      "adaptations": [
+        "a 0.5 s duration bucket (the PRD 8 read target is a bucket boundary)",
+        "metric names prefixed nexloop_ instead of nex_eios_",
+        "eios/api/__init__.py is NexLoop's own one-line package marker: upstream eios.api (its FastAPI app) is not vendored"
+      ],
+      "nexloop_sha256": "3c6d09ea5c50dda5f566f81ad6e4503f810d6611535a6143fbf867a4dafa9d65"
     }
   ]
 }

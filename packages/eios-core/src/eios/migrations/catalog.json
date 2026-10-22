@@ -1595,6 +1595,11 @@
       "version": "0319",
       "name": "0319_schema_impact_dependents.sql",
       "sha256": "fdf1f851db3b70faeb4a4ca7728963aec891b33c221355c4d0cba88a550a7e1f"
+    },
+    {
+      "version": "0320",
+      "name": "0320_api_request_metrics.sql",
+      "sha256": "9ff70e8512a0407602fac3cf1820d9e9b2721a335ef4a859bbdcba73f3fab709"
     }
   ]
 }

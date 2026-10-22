@@ -406,3 +406,27 @@ def test_the_caliber_paragraph_states_the_5_s_gate_and_the_2_s_v02_target(run_di
     md = report.markdown(report.build(run_dir))
     assert 'v0.1 门槛 5 s 只适用于它（C4-low），2 s 是 v0.2 目标（观察项 idle_dispatch_v02_target，不判定）' in md
     assert '2 s 门槛只适用于它' not in md
+
+
+def test_api_requests_per_class_with_the_read_target_as_an_observation():
+    """EIOS gap E4 (kind api, 0320): merged across API processes; the read p95 against the PRD 8 target is reported, never gated."""
+    from nexloop_eios.observability import ApiTimings
+    start = datetime(2026, 10, 22, 12, tzinfo=UTC)
+    rows = []
+    for instance, values in (('api-1', [20] * 99 + [800]), ('api-2', [30] * 90 + [600] * 10)):
+        timings = ApiTimings()
+        for ms in values:
+            timings.observe('GET', 200, ms)
+        timings.observe('POST', 500, 50)
+        samples, _ = timings.drain()
+        rows += [{'kind': 'api', 'service': c, 'instance': instance, 'window_start': (start + timedelta(minutes=1)).isoformat(), 'sample': s}
+                 for c, s in samples.items()]
+    out = report.api_requests(rows, start, start + timedelta(minutes=5))
+    assert out['read']['count'] == 200 and out['read']['slow'] == 11 and out['read']['errors'] == 0
+    assert out['read']['p95_ms'] >= 500 and out['read']['target'] == {'limit_ms': 500, 'result': 'over'}
+    assert out['write'] == {'count': 2, 'errors': 2, 'slow': 0, 'p50_ms': out['write']['p50_ms'], 'p95_ms': out['write']['p95_ms']}
+    assert report.api_requests(rows, start + timedelta(hours=1), start + timedelta(hours=2)) == {}
+    fast = [dict(r, sample={**r['sample']}) for r in rows if r['instance'] == 'api-1']
+    for r in fast:
+        r['sample'] = {k: v for k, v in r['sample'].items() if not k.startswith('h_')} | {'h_31': r['sample']['calls']}  # all ~19 ms
+    assert report.api_requests(fast, start, start + timedelta(minutes=5))['read']['target']['result'] == 'within'
