@@ -4221,5 +4221,194 @@
         "recorded_at": "2026-10-11T15:51:10.641546+00:00"
       }
     ]
+  },
+  {
+    "id": "NX-054",
+    "stage": "S6",
+    "title": "对象间正式关系类型（ADR-038）",
+    "dependencies": [
+      "NX-029",
+      "NX-040"
+    ],
+    "modules": [
+      "M11",
+      "M23"
+    ],
+    "deliverable": "ADR-038 采用：系统目录发布首批关系类型（全部 many_to_one），objects 上延迟约束触发器在提交时派生关系、BEFORE DELETE 先删关系；归属解析单一来源（读守卫/object_fields 只读关系，purge 永久用关系∪属性）；受治理 unlink 入口；低权限回填身份与可撤销回填；切读后观察 7 天再移除属性后备；P1–P5 分阶段上线与验收",
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "adr/ADR-038-formal-relation-types.md",
+        "summary": "负责人 2026-10-22 定方向 C（关键关联改为 EIOS 正式关系类型），并对 ADR-038 的 7 个拍板点“都按推荐”：保留冗余引用属性；5 个连接对象保留为对象并加关系；授权范围 id 数组不改；回填用专用低权限 service principal、完成后吊销；触发器派生（提交时、BEFORE DELETE、首批全 many_to_one）；RelationshipAssessment 端点首批不建关系；切读观察 7 天。设计与复核：L5 59552198→8ab62298→d89d0dbe，L6 两轮从严复核无确认级。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-055",
+    "stage": "S6",
+    "title": "EIOS 能力补齐第一批（C3/E1/E2+E3/D2）",
+    "dependencies": [],
+    "modules": [
+      "M17",
+      "M23"
+    ],
+    "deliverable": "移植上游 authz/identity 测试（C3）；线上授权与干净 bootstrap 集群 ACL 的只读漂移检查（E1）；主机侧崩溃循环与定时产物新鲜度告警、每主机独立 recorder 身份（E2+E3）；无副作用外部调用的硬期限（D2，trust_env=False、CA 由调用方指定）",
+    "status": "in_progress",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "L7 EIOS 能力缺口盘点（docs/design/eios-capability-gap.md，eab221d9→6885a4fa，L6 复核）§A.1 第一批，无需拍板；负责人 2026-10-22 要求一并补齐。实现：L7 8ab83897、L3 814db636→de12fabc、L2 3ab39ce6→988482af、L5 5fd3ff2f→5816d8ac，均经 L6 复核无确认级，进第二十批。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-056",
+    "stage": "S6",
+    "title": "统一审批机制（EIOS Q1）",
+    "dependencies": [
+      "NX-055"
+    ],
+    "modules": [
+      "M17",
+      "M20"
+    ],
+    "deliverable": "引入 EIOS 通用审批（多人中至少 N 人批准、超时作废、禁止自批），新的高风险动作统一使用；现有外联审批与候选审批暂保留，之后评估并入",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "负责人 2026-10-22 Q1 按推荐 A：引入统一审批，避免第三、第四套审批；约 6–8 天。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-057",
+    "stage": "S6",
+    "title": "动作最终失败后的补救意图（EIOS Q2）",
+    "dependencies": [
+      "NX-056"
+    ],
+    "modules": [
+      "M17"
+    ],
+    "deliverable": "动作最终失败后生成“补救意图”，按规则决定直接执行或先走审批（如撤销预留、退回权益）；不一律自动执行",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "负责人 2026-10-22 Q2 按推荐 A：v0.2 引入，补救本身有对外效果，按规则决定执行或审批；依赖统一审批。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-058",
+    "stage": "S6",
+    "title": "账号自助：邀请、找回、重置，随后企业单点登录（EIOS Q4）",
+    "dependencies": [],
+    "modules": [
+      "M01"
+    ],
+    "deliverable": "工作台成员邀请、口令找回与重置的自助流程（替代运维 CLI 重置），之后接入企业单点登录",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "负责人 2026-10-22 Q4 按推荐 A：v0.2 先做邀请/找回/重置，再做单点登录；现在开户与重置需运维在主机上操作。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-059",
+    "stage": "S6",
+    "title": "审计防篡改与导出校验（EIOS Q6/C1）",
+    "dependencies": [
+      "NX-055"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "审计记录哈希链与校验、审计导出附带校验；不外送外部安全平台；校验密钥放私有配置；不改已发布审计表",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "负责人 2026-10-22 Q6 按推荐 A：防篡改 + 导出校验，不外送 SIEM。EIOS 补齐第二批首项。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-060",
+    "stage": "S6",
+    "title": "提交前泄密扫描改用 gitleaks（EIOS Q9）",
+    "dependencies": [],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "引入锁定版本的 gitleaks 作为 prepush/CI 泄密扫描，清理 EIOS 专用白名单，保留现有三项门槛",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "负责人 2026-10-22 Q9 按推荐 A：公开仓库，现有自定义规则覆盖面窄。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-061",
+    "stage": "S6",
+    "title": "EIOS 能力补齐第二批：运行结果分类、定时台账、接口速度指标、Schema 变更影响清单",
+    "dependencies": [
+      "NX-055"
+    ],
+    "modules": [
+      "M12",
+      "M23"
+    ],
+    "deliverable": "B5+B9 运行结果分类与定时任务台账（主动拒绝不计失败、手工补跑不掩盖定时失败）；E4 每接口请求量/慢请求/错误数；A1 结构变更发布前列出受影响的查询、视图与动作",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "L7 盘点 §A.2 第二批（除 C1 已单列 NX-059），不需新的大决定，第一批之后排期。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-062",
+    "stage": "S7",
+    "title": "企业自有 Agent / 程序的授权接入（EIOS Q3）",
+    "dependencies": [
+      "NX-056"
+    ],
+    "modules": [
+      "M01",
+      "M17"
+    ],
+    "deliverable": "API 密钥、MCP、SDK 的授权接入；先做“每个接口都登记了权限”的发布检查，S7 之后实施",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/design/eios-capability-gap.md",
+        "summary": "负责人 2026-10-22 Q3 按推荐 A：定为方向，S7 之后做；Q5 紧急提权/长期委托暂不引入（维持 ADR-033）、Q7 不引入固定流程执行器（只吸收“模型输出不能直接当动作参数”的检查）、Q8 Object Set 关联与统计按需再开放。",
+        "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      }
+    ]
   }
 ]
