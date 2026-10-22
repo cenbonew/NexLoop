@@ -106,6 +106,9 @@ begin
   or new.revision<>old.revision+1
   or not (old.status='waiting_approval' or (old.status='approved' and new.status in ('waiting_approval','expired'))) then
   raise exception 'approval request is immutable' using errcode='42501';end if;
+ -- A consumed Approval never changes status again (L6 review 6).
+ if exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=old.tenant_id and c.world=old.world and c.approval_id=old.approval_id) then
+  raise exception 'approval request is consumed' using errcode='42501';end if;
  return new;
 end $$;
 alter function control.nexloop_approval_request_guard() owner to nexloop_owner;

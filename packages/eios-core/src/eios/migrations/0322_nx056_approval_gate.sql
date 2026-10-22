@@ -57,10 +57,10 @@ begin
     and c.consumed_at>clock_timestamp()-interval '1 hour' order by c.consumed_at desc limit 1;
   if r.approval_id is not null then
    return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','approval_consumed','result',v_result);end if;
-  -- Approved under an older policy version: the same body under that version's digest. It ends (policy_changed) and the person submits
-  -- again under the current policy (design :97, L6 A2 review important 2).
+  -- Approved or still waiting under an older policy version: the same body under that version's digest. It ends (policy_changed) and
+  -- the person submits again under the current policy (design :97, L6 A2 review important 2; a waiting one too, review 6).
   select * into r from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability
-   and q.requester_subject=v_subject and q.status='approved' and q.policy_version<>pol.version
+   and q.requester_subject=v_subject and q.status in ('waiting_approval','approved') and q.policy_version<>pol.version
    and q.request_digest=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,q.policy_version,p_body)
    and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id)
    order by q.requested_at limit 1 for update;

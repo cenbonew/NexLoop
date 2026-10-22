@@ -223,3 +223,19 @@ def test_another_requesters_waiting_request_and_rejection_never_answer_or_block_
     assert c['request']().status_code == 409  # my own rejection: the hour's cooldown
     theirs = c['request'](member=c['second']).json()
     assert theirs['status'] == 'waiting_approval' and theirs['approval_id'] != mine  # another person, the same body: neither cooldown nor reuse
+
+
+@PLAN
+def test_a_waiting_request_under_an_older_policy_ends_with_policy_changed_and_a_consumed_one_never_moves(gated, admin):
+    c = gated
+    waiting = c['request']().json()['approval_id']
+    admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
+        summary_fields,published_by) values('real_dispatch.set',2,1,%s,1,'{owner}',86400,'{scope_kind,enabled}','synthetic-config')""",
+                  (Jsonb({'field': 'enabled', 'equals': True}),))
+    assert c['request']().json()['status'] == 'policy_changed' and status(admin, waiting) == 'expired'
+    current = c['request']().json()['approval_id']
+    c['decide'](current)
+    assert c['request']().json()['approval'] == 'consumed'
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    with pytest.raises(psycopg.Error, match='consumed'), admin.transaction():
+        admin.execute("update control.nexloop_approval_requests set status='waiting_approval',revision=revision+1 where approval_id=%s", (current,))

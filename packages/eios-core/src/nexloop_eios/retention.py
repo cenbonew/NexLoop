@@ -8,6 +8,7 @@ tombstone without content records it. The keeper holds no table privilege, never
 erasure scope: append-only rows are opened only inside the owner's sweep transaction (control.nexloop_erasure_scope).
 """
 import hashlib
+import logging
 import http.client
 import json
 from pathlib import Path
@@ -17,6 +18,7 @@ import uuid
 
 from nexloop_eios.plan_reevaluation import _SignedPort
 
+_log=logging.getLogger(__name__)
 ACTION='eios:action:nexloop.retention.execute:1'
 ERASURE_ACTION='eios:action:nexloop.erasure.execute:1'
 CLASSES=('message_text','claim_quote','prompt_text','job_input','commercial_receipt','metric_observation','run_files','commitment_closed','claim_superseded',
@@ -156,7 +158,9 @@ class RetentionKeeper:
                 self.erasure.artifact_deleted(artifact_id,worker,claim['fence']);summary['artifacts_deleted']+=1
         # NX-056 A3: after erasure (deletion propagation comes first); a failure is counted, never stops the tick.
         try:summary['approvals_expired']=self.port.approvals_expire()['expired']
-        except Exception:summary['approvals_failed']=1
+        except Exception as error:
+            summary['approvals_failed']=1
+            _log.warning('approval expiry sweep failed: %s',type(error).__name__)
         return summary
 
 
