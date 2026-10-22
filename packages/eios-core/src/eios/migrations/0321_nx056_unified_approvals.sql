@@ -59,6 +59,10 @@ begin
  if exists(select 1 from control.nexloop_approval_policies p where p.capability=new.capability and p.version>=new.version) then
   raise exception 'approval policy: versions only grow' using errcode='22023';end if;
  if exists(select 1 from unnest(new.summary_fields) f where f!~'^[a-z][a-z0-9_]{0,63}$') then raise exception 'approval policy: summary fields' using errcode='22023';end if;
+ -- The workbench shows summary fields to every approver: never a Consumer identifier or free text (L6 review 7).
+ if exists(select 1 from unnest(new.summary_fields) f where f~'(^|_)(consumer|principal|subject|customer|identity)(_|$)'
+   or f~'(^|_)(reason|basis|text|body|message|note|notes|description|quote|comment|name|email|phone)(_|$)') then
+  raise exception 'approval policy: summary fields may not name a consumer or free text' using errcode='22023';end if;
  return new;
 end $$;
 alter function control.nexloop_approval_policy_guard() owner to nexloop_owner;

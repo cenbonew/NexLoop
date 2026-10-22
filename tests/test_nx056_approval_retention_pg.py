@@ -40,8 +40,14 @@ def test_bodies_past_retention_are_redacted_once_and_nothing_else_changes(store)
     assert body(admin, old) == ({'operation': 'set_real_dispatch', 'redacted': True}, digest) and row(f, old)[0] == 'rejected'
     assert body(admin, fresh)[0]['reason'] == '打开'  # within retention
     assert redact(admin) == {'redacted': 0}
+    # A consumed request is redacted too (the 0321 guard lets the body change inside the scope whatever the request's state).
+    done = open_request(f, request_id='r-3', reason='另一个')['approval_id']
+    decide(f, 'approver', done)
+    admin.execute("select control.nexloop_approval_consume(%s,'real',%s,%s,'executed','[]'::jsonb)", (TENANT_A, done, f['requester']['principal_id']))
+    age(admin, done, 400)
+    assert redact(admin) == {'redacted': 1} and body(admin, done)[0] == {'operation': 'set_real_dispatch', 'redacted': True}
     assert admin.execute("select action,counts from runtime.nexloop_erasure_tombstones where subject_kind='approval_request'").fetchall() == [
-        ('redacted', {'approval_requests': 1})]
+        ('redacted', {'approval_requests': 1})] * 2  # one tombstone per pass that redacted
 
 
 def test_the_body_changes_only_inside_an_erasure_scope_and_alone(store):

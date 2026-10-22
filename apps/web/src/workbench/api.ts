@@ -405,8 +405,9 @@ export const OPERATION_ACTION={
   set_evolution_stop:'eios:action:nexloop.semantic_release.stop:1',
   // NX-056: approve or reject another person's request (never one's own), or withdraw one's own waiting request.
   decide_approval:'eios:action:nexloop.approvals.decide:1',cancel_approval:'eios:action:nexloop.approvals.cancel:1',
-  // NX-056 A5: the two other first-batch capabilities, executed from the approvals page after approval (owner only).
-  erase_consumer:'eios:action:nexloop.consumer.erase:1',release_retention_hold:'eios:action:nexloop.retention.release_hold:1',
+  // NX-056 A5: an owner-started erasure, executed from the approvals page after approval (owner only). A hold release is not a
+  // workbench operation: it is executed through the client it was requested from.
+  erase_consumer:'eios:action:nexloop.consumer.erase:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -988,7 +989,7 @@ export function readOutreachEvidence(intentId:string){return get('/api/v1/workbe
 export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|'expired';
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
-  result?:string|null;inputs?:Record<string,unknown>};
+  result?:string|null;inputs?:Record<string,unknown>|null};
 export type Approvals={to_decide:ApprovalRow[];mine:ApprovalRow[];to_execute:ApprovalRow[]};
 const APPROVAL_KEYS='action,approval_id,approvals,capability,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary';
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
@@ -1003,7 +1004,7 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
     requested_by:text(r.requested_by),requested_at:text(r.requested_at),due_by:text(r.due_by),status:text(r.status) as ApprovalStatus,digest:text(r.digest),
     policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary']};
   if(extra==='result')row.result=maybeText(r.result);
-  if(extra==='inputs')row.inputs=object(r.inputs);
+  if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
   return row;
 }
 export function approvals(value:unknown):Approvals{

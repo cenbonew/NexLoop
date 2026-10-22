@@ -44,7 +44,10 @@ def test_the_file_is_the_owners_first_batch_and_bad_manifests_are_refused():
     assert all(p['quorum'] == 1 and p['approver_roles'] == ['owner'] and p['expires_after_seconds'] == 86400 for p in v1['policies'])
     for change in (lambda p: p.update(quorum=0), lambda p: p.update(capability='approvals.decide'), lambda p: p.update(approver_roles=['admin']),
                    lambda p: p.update(expires_after_seconds=60), lambda p: p.update(condition={'field': 'enabled', 'op': 'gt'}),
-                   lambda p: p.update(extra=1), lambda p: p.update(summary_fields=['Body'])):
+                   lambda p: p.update(extra=1), lambda p: p.update(summary_fields=['Body']),
+                   # never a Consumer identifier or free text on every approver's screen (L6 review 7)
+                   lambda p: p.update(summary_fields=['consumer_id']), lambda p: p.update(summary_fields=['reason']),
+                   lambda p: p.update(summary_fields=['notification_text']), lambda p: p.update(summary_fields=['principal_id'])):
         bad = copy.deepcopy(v1)
         change(bad['policies'][0])
         with pytest.raises(ApprovalPoliciesRejected):
@@ -70,6 +73,9 @@ def test_the_configurator_applies_replays_and_refuses_a_changed_version(commitme
         (1, 86400, 'configuration:approval-policies.v1'), (2, 3600, 'configuration:approval-policies.v2')]
     with pytest.raises(psycopg.Error):
         apply_policies(v1, database_url_file=dsn)  # version 1 again is older than the current 2
+    with pytest.raises(psycopg.Error, match='may not name a consumer or free text'), admin.transaction():
+        admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,quorum,approver_roles,expires_after_seconds,
+            summary_fields,published_by) values('consumer.erase',9,1,1,'{owner}',86400,'{consumer_id}','x')""")
     with pytest.raises(psycopg.Error, match='trusted configuration only'):
         admin.execute('select control.nexloop_configure_approval_policies(%s::jsonb)', (json.dumps(v1),))
 
@@ -142,3 +148,16 @@ def test_a_completed_erasure_pseudonymises_the_consumer_in_every_request_body(he
     assert (after_state, after_digest) == (state, digest)  # only the body changed
     counts = admin.execute("select counts from runtime.nexloop_erasure_tombstones where subject_kind='approval_requests'").fetchone()[0]
     assert counts == {'approval_requests': 1}
+
+
+@PLAN
+def test_a_hold_release_runs_on_its_own_clients_resubmission_after_approval(held, admin):
+    from test_nx056_dispatch_recheck_pg import approve_as_second_owner
+    c = held
+    owner = c['owner_actions']
+    hold = act(owner, 'hold_retention', 'hold-1', scope_kind='item_class', scope_ref='message_text', basis='审计期间暂停清除')
+    waiting = act(owner, 'release_retention_hold', 'release-1', hold_id=hold['hold_id'], reason='审计结束')
+    assert approve_as_second_owner(admin, waiting['approval_id'])['status'] == 'approved'
+    released = act(owner, 'release_retention_hold', 'release-2', hold_id=hold['hold_id'], reason='审计结束')  # the same body, a new request id
+    assert released['released'] is True and released['approval'] == 'consumed' and released['approval_id'] == waiting['approval_id']
+    assert admin.execute('select released_at is not null from control.nexloop_retention_holds where hold_id=%s', (hold['hold_id'],)).fetchone() == (True,)

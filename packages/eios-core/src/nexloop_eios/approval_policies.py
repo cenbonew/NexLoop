@@ -14,6 +14,9 @@ SCHEMA = 'nexloop-approval-policies/1'
 ROLES = ('owner', 'operator', 'reviewer')
 _CAPABILITY = re.compile(r'[a-z][a-z0-9_]{0,63}(\.[a-z][a-z0-9_]{0,63}){1,3}')
 _FIELD = re.compile(r'[a-z][a-z0-9_]{0,63}')
+# Summary fields are shown to every approver: never a Consumer identifier or free text (L6 review 7; the same rule as the 0321 guard).
+_IDENTIFYING = re.compile(r'(^|.*_)(consumer|principal|subject|customer|identity)(_.*|$)')
+_FREE_TEXT = re.compile(r'(^|.*_)(reason|basis|text|body|message|note|notes|description|quote|comment|name|email|phone)(_.*|$)')
 _KEYS = {'capability', 'version', 'action_version', 'condition', 'quorum', 'approver_roles', 'expires_after_seconds', 'summary_fields'}
 
 
@@ -42,7 +45,8 @@ def validate_policies(value):
                 or not _int(p['expires_after_seconds'], 900, 604800)
                 or type(p['approver_roles']) is not list or not p['approver_roles'] or not set(p['approver_roles']) <= set(ROLES)
                 or len(set(p['approver_roles'])) != len(p['approver_roles'])
-                or type(p['summary_fields']) is not list or any(type(f) is not str or not _FIELD.fullmatch(f) for f in p['summary_fields'])
+                or type(p['summary_fields']) is not list or any(type(f) is not str or not _FIELD.fullmatch(f) or _IDENTIFYING.fullmatch(f) or _FREE_TEXT.fullmatch(f)
+                                                              for f in p['summary_fields'])
                 or (condition is not None and (type(condition) is not dict or set(condition) != {'field', 'equals'}
                     or type(condition['field']) is not str or not _FIELD.fullmatch(condition['field'])
                     or type(condition['equals']) not in (str, int, bool)))

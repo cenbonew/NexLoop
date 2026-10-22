@@ -172,11 +172,14 @@ def _section(load):
 def execution_inputs(operation, inputs):
     """NX-056 A4: the frozen body (without request_id and operation) as the workbench body of its operation. The governed client
     leaves an absent optional field out of the body (goal_controls); the workbench body names every field of the operation, so an
-    absent one is null when its check accepts null. Nothing else changes: the resubmission builds the same body, hence the same digest."""
+    absent one is null when its check accepts null (goal_controls leaves a null out again, so the digest is the same). A body with a key
+    outside the operation's fields, or of an operation the workbench does not offer, gives None: not executable here."""
     from nexloop_eios.workbench_actions_http import OPERATIONS
     spec = OPERATIONS.get(operation)
-    if type(inputs) is not dict or spec is None or callable(spec):
-        return inputs
+    if type(inputs) is not dict or spec is None or callable(spec) or set(inputs) - set(spec):
+        # Not a workbench body (another client's, with keys the workbench never sends): the workbench cannot resubmit it as it is,
+        # so it offers no execution instead of a request refused again and again (L6 review 7).
+        return None
     filled = dict(inputs)
     for name, check in spec.items():
         if name not in filled:

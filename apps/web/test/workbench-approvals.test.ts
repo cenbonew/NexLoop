@@ -10,7 +10,7 @@ const base={approval_id:id,capability:'real_dispatch.set',operation:'set_real_di
   requested_at:'2026-10-23T01:00:00+00:00',due_by:'2026-10-24T01:00:00+00:00',status:'waiting_approval',digest:'0123456789ab',policy_version:1,quorum:1,approvals:0,
   summary:{scope_kind:'tenant',enabled:true}};
 const raw={to_decide:[base],mine:[{...base,approval_id:id.replace('3f','4f'),result:null}],
-  to_execute:[{...base,approval_id:id.replace('3f','5f'),status:'approved',approvals:1,inputs:{scope_kind:'tenant',enabled:true,data_mode:'real',action_type:null,reason:'打开'}}]};
+  to_execute:[{...base,approval_id:id.replace('3f','5f'),status:'approved',approvals:1,inputs:{scope_kind:'tenant',enabled:true,data_mode:'real',action_type:null,reason:'季度上线'}}]};
 const approver=me({principal_id:'synthetic-second',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.approvals.decide:1',
   'eios:action:nexloop.approvals.cancel:1','eios:action:nexloop.real_dispatch.set:1']});
 const operator=me({principal_id:'synthetic-operator',role:'operator',actions:['eios:action:nexloop.workbench.read:1']});
@@ -30,8 +30,9 @@ test('NX-056 A4: the three columns parse strictly; a decide row never carries a 
 test('NX-056 A4: the page offers approve and reject with a reason, execute and withdraw; an operator without the Actions gets no form', ()=>{
   const parsed=approvals(raw);
   const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],approver]]),h(Approvals,{}));
-  for(const t of ['待我审批','待我执行','我发起的','批准','拒绝','执行','撤回','scope_kind=tenant','0123456789ab','0 / 1'])expect(html).toContain(t);
-  expect(html).not.toContain('打开');  // the frozen reason is not shown
+  for(const t of ['待我审批','待我执行','我发起的','批准','拒绝','执行','撤回','打开真实派发','scope_kind=tenant','0123456789ab','0 / 1'])expect(html).toContain(t);
+  expect(html).not.toContain('<code>set_real_dispatch</code>');  // the Action in words, not its operation code
+  expect(html).not.toContain('季度上线');  // the frozen reason is not shown
   const asOperator=render(client([[['workbench','approvals'],parsed],[['workbench','me'],operator]]),h(Approvals,{}));
   expect(asOperator).toContain('待我审批');expect(asOperator).not.toContain('<form');
   const empty=render(client([[['workbench','approvals'],{to_decide:[],mine:[],to_execute:[]}],[['workbench','me'],approver]]),h(Approvals,{}));
@@ -47,4 +48,11 @@ test('NX-056 A4: a governed write under an approval policy says what happened to
   expect(approvalOutcome({status:'policy_changed'})).toContain('重新提交');
   expect(approvalOutcome({control_revision:3})).toBeNull();
   expect(resultText('execution_refused:P0001')).toBe('执行被拒（P0001）');expect(resultText(null)).toBe('—');
+});
+
+test('NX-056 A4 review 7: a frozen body the workbench cannot resubmit is listed without an execute form', ()=>{
+  const notHere=approvals({...raw,to_decide:[],mine:[],to_execute:[{...raw.to_execute[0],inputs:null}]});
+  expect(notHere.to_execute[0].inputs).toBeNull();
+  const html=render(client([[['workbench','approvals'],notHere],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(html).toContain('工作台不能执行这条请求');expect(html).not.toContain('aria-label="执行"');
 });

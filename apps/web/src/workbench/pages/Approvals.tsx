@@ -23,10 +23,14 @@ function summaryText(row:ApprovalRow):string{
   const entries=Object.entries(row.summary);
   return entries.length?entries.map(([k,v])=>`${k}=${v===null?'空':String(v)}`).join('，'):'—';
 }
+/** The Action in business words (L6 review 7); the capability stays visible as secondary text. */
+export const APPROVAL_ACTION_TEXT:Record<string,string>={set_real_dispatch:'打开真实派发',erase_consumer:'擦除客户数据',release_retention_hold:'解除数据保全',
+  issue_incentive:'发放激励'};
+export function actionText(row:ApprovalRow):string{return APPROVAL_ACTION_TEXT[row.operation]??'其他操作';}
 const isOperation=(value:string):value is Operation=>Object.prototype.hasOwnProperty.call(OPERATION_ACTION,value);
 
 const common=[
-  {label:'操作',main:true,cell:(r:ApprovalRow)=><><code>{r.operation}</code><br/><span className="note">{r.capability} · 策略 v{r.policy_version}</span></>},
+  {label:'操作',main:true,cell:(r:ApprovalRow)=><>{actionText(r)}<br/><span className="note">{r.capability} · 策略 v{r.policy_version}</span></>},
   {label:'内容摘要',wide:true,cell:(r:ApprovalRow)=><>{summaryText(r)}<br/><span className="note">摘要 <code>{r.digest}</code></span></>},
   {label:'截止',cell:(r:ApprovalRow)=><Time value={r.due_by}/>},
   {label:'批准',cell:(r:ApprovalRow)=>`${r.approvals} / ${r.quorum}`},
@@ -59,7 +63,7 @@ export function Approvals(){
     {to_execute.length===0?<Empty kind="none" title="没有已批准待执行的请求"/>:<DataTable label="待我执行" rows={to_execute} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'执行',cell:r=>{const operation=r.operation;
         return isOperation(operation)&&r.inputs?<WithMember>{member=><Form operation={operation} member={member} className="inline-action" title="执行"
-          body={()=>r.inputs??null}><span/></Form>}</WithMember>:<span className="note">工作台不提供这个操作</span>;}}]}/>}
+          body={()=>r.inputs??null}><span/></Form>}</WithMember>:<span className="note">工作台不能执行这条请求（不是工作台发起的请求体），请用发起时的入口执行</span>;}}]}/>}
     <h2>我发起的</h2>
     {mine.length===0?<Empty kind="none" title="最近 30 天没有你发起的审批"/>:<DataTable label="我发起的" rows={mine} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}<br/><span className="note">{resultText(r.result)}</span></>},
