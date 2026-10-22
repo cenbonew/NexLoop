@@ -49,28 +49,92 @@
 - **多租户**（L6 复核 I4）：`host_health` 没有租户维度，但会拼进每个租户的快照。告警评估由持有 `nexloop.alert.evaluate` 凭据的评估器按它自己的租户执行；stage 只有一个评估器、一个租户，所以只产生一份告警。以后有多个租户各自运行评估器时，同一次崩溃循环会在每个租户各报一次，届时要把 `host_health` 只挂到部署级的运维租户上。
 - **写入量**（L6 复核 S1）：每台主机每分钟最多 10 个 tick（超出时返回 `rate_limited`，不报错），每个 tick 最多 100 个单元和 100 个 timer；样本与 tick 保留 8 天；运行台账保留 90 天，但每个 timer 最后一次定时成功的记录不删。
 
-## 4. 部署（B 类，负责人确认）
+## 4. 部署（负责人 2026-10-23 决定启用）
 
-1. **迁移 0318**：随下一批合入。
-2. **发布告警规则 v12**：由 configurator 执行 `apply_rules`。
-3. **签发两个 recorder 角色的凭据**（L6 复核 I3）。**尚未接入 `stage_secrets.py` 与 pg_hba**：这是部署路径的变更，部署时由调度员按 ack-policy 处理。需要的步骤：
-   - `stage_secrets.py`：为 `nexloop_host_recorder_data_host` 和 `nexloop_host_recorder_app_host` 各生成 SCRAM 口令，写成 0600 root 的 DSN 文件（`/etc/nexloop/host-recorder.dsn`），并登记到私有索引。
-   - **DATA_HOST 的连接方式**（PG 跑在容器里，二选一）：
-     - (a) 把 PG 的 unix socket 目录挂出到宿主机（例如 `/run/nexloop-pg`），DSN 用 `host=/run/nexloop-pg`，pg_hba 加一行 `local <stage 库> nexloop_host_recorder_data_host scram-sha-256`；不经网络，不需要证书。
-     - (b) 走 `127.0.0.1` 的 hostssl，pg_hba 加一行 `hostssl <stage 库> nexloop_host_recorder_data_host 127.0.0.1/32 scram-sha-256`，需要容器端口只绑回环。
-     - 推荐 (a)：现有 backup recorder 的 socket DSN 已经是这种方式，不新增监听面。
-   - **APP_HOST**：与 metrics 客户端相同，hostssl 加客户端证书（CN 为 `nexloop_host_recorder_app_host`），pg_hba 加一行 `hostssl <stage 库> nexloop_host_recorder_app_host <APP_HOST 地址>/32 cert`（地址由私有 env 渲染，不写进仓库）。
-   - 两个角色都不进任何应用服务的 secret 目录。
-4. **写配置**：每台主机各写一份 `/etc/nexloop/host-health.json`（0600 root）：
-   - DATA_HOST：postgres、valkey 容器，以及 pg-diff、pg-full、journal、journal-restic repo1/repo2、restic-maint 这些 timer；
-   - APP_HOST：应用容器、sim 组容器、`nexloop-runtime-worker.service`、provider-drift timer。
+分两条命令：负责人在 DATA_HOST 跑一条（sudo），调度员在 APP_HOST 跑一条；然后调度员发布告警规则 v12，最后验收。工具：`scripts/deploy/host_health_install.sh`（root 包装，由 `host_health_install.py` 执行全部步骤）、`host_health_hba_data_host.sh`、`host_recorder_password.py`、`alert_rules_apply.py`。
 
-   名称必须与规则中的 selector 一致（例如 `data_host:pg-diff`）。
-5. **启用探针**：安装 unit（`StateDirectory=nexloop-host-health` 保存本地锚点，`StandardError=journal` 送出 err 行），执行 `systemctl enable --now nexloop-host-health.timer`。先用 `--dry-run` 看一次输出。`/opt/nexloop/release` 与虚拟环境必须只有 root 可写，因为 unit 以 root 运行它们（L6 复核 S3）。
-   - **首次写入要确认**（L6 复核 S2）：从未写入过的主机不会触发 `host_probe_stale`，因为没有 tick 就没有键。启用后，在评估器的快照里确认两台主机的 `probe_age_seconds` 都已出现。
-6. **验收**：
-   - 人为制造一次重启循环，例如对一个 sim 容器连续 `docker restart` 3 次，`crash_loop` 应当触发；停止之后，1 小时内恢复。
-   - 手工 `systemctl start` 一个 timer 的服务，它不应刷新 `timer_success_age_seconds`。
+### 4.1 取舍
+
+- **探针的运行环境：在每台主机上建一个独立的 venv，不复用 backend 镜像。**
+  - 探针要读宿主机的 docker 与 systemd，必须作为宿主机进程运行；容器里看不到宿主机的 systemd unit。
+  - venv 只装 psycopg：`deploy/host-health/requirements.txt` 取自 `uv.lock` 的版本和哈希，用 `pip --require-hashes --no-deps` 从内网 PyPI 镜像安装。解释器用两台主机都已部署的 `/opt/nexloop/python-3.12.15`（与 backup-venv、restore-venv 的升级手册相同）。
+  - 与其他 venv 互不影响：升级 backup-venv 不会波及探针，反之亦然。
+  - 位置是 `/opt/nexloop/host-health/<发布 sha>/`，root:root，目录 0755，文件 0644 或 0755，不允许组和其他用户写入；`current` 指向当前 sha，旧 sha 的目录保留，便于回退。
+- **APP_HOST 的连接方式：hostssl + scram-sha-256，客户端校验服务端证书（`sslmode=verify-full`），不使用客户端证书。** 这一点需要 L6 复核。
+  - 设计原本写的是客户端证书（CN）。但在 stage 上签发新的客户端证书要动 CA，比本次上线本身的影响更大。
+  - 取舍：
+    - 少了一层“持有证书”的要求，连接只靠口令。口令只在 APP_HOST 的 `/etc/nexloop/host-recorder.dsn`（0600 root）中，不进任何服务的 secret 目录。
+    - pg_hba 只放行 APP_HOST 地址的 /32、只放行 stage 库；角色只能执行一个函数，不能读任何表，并且只能写 app_host 自己的数据（C2）。
+    - 泄露的最坏结果，是伪造 APP_HOST 的健康数据。它压不住 DATA_HOST 的备份新鲜度告警，也拿不到任何业务数据。
+    - 这与 sim 角色现有的接入方式相同（pg_hba 模板中的 sim 行）。
+  - 以后 CA 签发流程顺手时，可以改成 `scram-sha-256 clientcert=verify-full`（与应用角色相同），只需改模板的一行，并给 APP_HOST 发一张证书。
+- **pg_hba 两行**（`deploy/stage/config/pg_hba.conf.template`，放在 sim 行之后、末尾的 reject 行之前）：
+
+```
+local   __NEXLOOP_DB__ nexloop_host_recorder_data_host                     scram-sha-256
+hostssl __NEXLOOP_DB__ nexloop_host_recorder_app_host __APP_HOST_ADDR__/32  scram-sha-256
+```
+
+  DATA_HOST 走本地 socket，DSN 为 `host=/srv/nexloop/run/postgresql`。
+
+### 4.2 准备（调度员，Mac）
+
+1. 两个口令各生成一个，长度至少 32、随机，放进钥匙串：`nexloop/stage/host-recorder-data-host` 和 `nexloop/stage/host-recorder-app-host`，并更新口令索引。
+2. 两份私有配置，以 `deploy/examples/host-health-install.{data-host,app-host}.example.json` 为模板，填入：
+   - 发布 checkout 路径与 40 位发布 sha；
+   - PyPI 镜像；
+   - APP_HOST 一份：DATA_HOST 的 PG 地址与 CA 文件；
+   - DATA_HOST 一份：bootstrap socket DSN 文件、`NEXLOOP_ROOT`、部署时的 stage.env。
+
+   容器与 timer 的名字已经与告警规则 v12 的 selector 一致（`test_the_examples_match_the_alert_rules_v12_selectors` 会核对）。两份配置拷到各自主机，`install -m 0600 -o root`。
+
+### 4.3 DATA_HOST（负责人，一条命令）
+
+```
+printf 'data_host\t%s\napp_host\t%s\n' "<data_host 口令>" "<app_host 口令>" | sudo bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
+```
+
+口令由调度员经钥匙串管道送入，不进入 argv。这条命令依次：
+
+1. 建 release 目录与 venv；
+2. 写入 pg_hba 两行并 reload（与 `sim_hba_data_host.sh` 相同的保护：只允许新增这两行，删掉任何行都会被拒；容器看不到新文件或 reload 不干净时回滚；备份为 `config/pg_hba.conf.before-host-health`）；
+3. 以 bootstrap 身份设置**两个**角色的口令，只发送 SCRAM 校验值；
+4. 写 `/etc/nexloop/host-health.json` 和 `/etc/nexloop/host-recorder.dsn`；
+5. 安装 unit 与 timer；
+6. dry-run 一次并打印摘要；
+7. 启用 timer。
+
+dry-run 的结果是 blind 时就停在这里，不启用 timer。
+
+### 4.4 APP_HOST（调度员，一条命令；在 4.3 之后）
+
+```
+printf 'app_host\t%s\n' "<app_host 口令>" | sudo bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
+```
+
+与 4.3 相同，但不动 pg_hba、不设口令；DSN 使用 hostssl + verify-full。
+
+### 4.5 告警规则 v12（调度员，DATA_HOST 一次性 backend 容器，与 run-41 §4.2 相同的形态）
+
+```
+... "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v12.json \
+    --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn
+```
+
+先在任意地方执行 `--check`（不连库）。预期输出为 `{"applied": true, "version": 12, "rules": 60, ...}`。
+
+### 4.6 验收
+
+1. 两台主机都执行 `systemctl list-timers nexloop-host-health.timer`，下一次运行时间不超过 1 分钟；`journalctl -u nexloop-host-health -n 5` 中每分钟一行 `"recorded": true`，没有 `<3>` 行。
+2. 以 metrics 只读角色读快照的 `host_health` 块：`probe_age_seconds` 中 `app_host`、`data_host` 都在 120 秒以内；`blind` 都为 0；`missing_units` 都为 0。任何主机缺键，说明它从未写入（S2），要先排查再继续。
+3. **崩溃循环演练**：在 APP_HOST 对一个 sim 容器连续执行 3 次 `docker restart <sim 容器>`（sim 组，不影响 real）。
+   - 下一次评估后 `crash_loop`（`app_host:<名称>`）触发；
+   - 探针的 journal 中出现 `<3>nexloop-host-health crash_loop` 一行，这是不依赖 PG 的本地通道；
+   - 停止重启后 1 小时内恢复。
+4. **手工补跑不算定时**：在 DATA_HOST 执行一次 `systemctl start nexloop-restic-maint.service`。`timer_success_age_seconds` 中 `data_host:restic-maint` 不应因此变小；台账中这一行 `scheduled=false`。
+5. **fail closed**：首次启用后，没有定时成功记录的 timer，其 age 从首次期望时起算。例如每周一次的 pg-full 在下一个周日之前会一直增长，但不会超过它的阈值 7 天 2 小时；超过就说明该 timer 确实没有成功跑过。
+
+**回退**：在每台主机上执行 `sudo bash host_health_install.sh <配置> --uninstall`，它会删除 timer、unit、配置、DSN、release 目录和状态目录。数据库角色和 pg_hba 行保留：没有 DSN，就没有人能用它们连接。告警规则回退到 v11，用同一个 `alert_rules_apply.py`。
 
 ## 5. 来源与移植（ADR-006）
 

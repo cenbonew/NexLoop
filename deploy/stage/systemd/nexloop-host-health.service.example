@@ -5,7 +5,7 @@
 # commands (no shell) and writes only through this host's recorder DSN (role nexloop_host_recorder_<host role>: one function, no
 # table; the database derives the host from the role). The runtime
 # services get nothing of it. The configuration and the DSN file are 0600 root (paths in /etc/nexloop; no secret in this unit).
-# The probe is installed from the release commit into the backup-only virtual environment (it needs psycopg only for recording).
+# Installed by scripts/deploy/host_health_install.sh: /opt/nexloop/host-health/<release sha> (probe + a psycopg-only venv, root-owned), `current` points at it.
 [Unit]
 Description=NexLoop host health probe (crash loops, scheduled-run freshness)
 After=network-online.target docker.service
@@ -13,7 +13,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/nexloop/backup-venv/bin/python /opt/nexloop/release/scripts/deploy/host_health_probe.py --config /etc/nexloop/host-health.json
+ExecStart=/opt/nexloop/host-health/current/venv/bin/python /opt/nexloop/host-health/current/host_health_probe.py --config /etc/nexloop/host-health.json
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
