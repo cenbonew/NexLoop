@@ -61,7 +61,7 @@ class GovernedRelationLinker:
 
 
 class GovernedRelationUnlinker:
-    """NX-054 P1: the governed unlink (capability ontology.relation.unlink, 0318): relation authority with operation delete and
+    """NX-054 P1: the governed unlink (capability ontology.relation.unlink, 0319): relation authority with operation delete and
     both endpoints' edit proofs; the restricted SQL function is the only writer. A relation already absent is a successful no-op."""
     def __init__(self,pool,session,signer):self.pool,self.session,self.signer=pool,session,signer
 

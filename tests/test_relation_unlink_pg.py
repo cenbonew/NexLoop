@@ -1,4 +1,4 @@
-"""NX-054 P1: the governed unlink entry (0318, nexloop_eios.relation_actions.GovernedRelationUnlinker; the 0016 link pattern).
+"""NX-054 P1: the governed unlink entry (0319, nexloop_eios.relation_actions.GovernedRelationUnlinker; the 0016 link pattern).
 A linked pair is removed only through an Action of capability ontology.relation.unlink with the relation's delete authority and
 both endpoints' edit proofs; replay and an absent relation are successful no-ops; a link Action, a missing delete authority or a
 revoked endpoint is refused and nothing is removed. Synthetic relation type and Actions, as in test_relation_actions."""

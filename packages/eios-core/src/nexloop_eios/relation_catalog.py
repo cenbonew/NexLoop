@@ -2,7 +2,7 @@
 
 Pure and deterministic, like system_catalog: the definitions, the ownership chains computed from the type graph (acyclic, every
 ownership chain ends at Consumer, the longest one declared in the manifest) and the manifest the configurator publishes through
-control.nexloop_publish_relation_types (0318), which checks all of it again. P1 only defines: nothing derives, backfills or reads
+control.nexloop_publish_relation_types (0319), which checks all of it again. P1 only defines: nothing derives, backfills or reads
 relations yet (P2 derives them at commit from `source_property`).
 
 Every first-batch type is many_to_one (one source object names one target through one property). Not in the first batch
@@ -76,7 +76,7 @@ def definition(spec):
 
 def ownership_chains(specs=FIRST_BATCH):
     """{ownership relation name: hops to Consumer}. Refuses two ownership relations from one type, a chain that does not reach
-    Consumer, and a cycle (the same checks 0318 makes at publication)."""
+    Consumer, and a cycle (the same checks 0319 makes at publication)."""
     owners = {}
     for s in specs:
         if s.ownership is None:
@@ -129,7 +129,7 @@ def manifest_digest(value):
 
 
 def publish(db, tenant, value=None):
-    """As nexloop_configurator (0318 refuses any other session)."""
+    """As nexloop_configurator (0319 refuses any other session)."""
     value = value or manifest()
     return db.execute('select control.nexloop_publish_relation_types(%s,%s::jsonb)', (tenant, json.dumps(value))).fetchone()[0]
 

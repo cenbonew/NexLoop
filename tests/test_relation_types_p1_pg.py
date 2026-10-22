@@ -1,4 +1,4 @@
-"""NX-054 P1 (0318, nexloop_eios.relation_catalog; ADR-038 adopted 2026-10-22): the first batch of relation types is published as
+"""NX-054 P1 (0319, nexloop_eios.relation_catalog; ADR-038 adopted 2026-10-22): the first batch of relation types is published as
 trusted configuration only; every ownership chain reaches Consumer without a cycle and the published longest chain is the computed
 one (C-1); every ownership-marked type resolves to its Consumer through relations (the structural test: a new marked type without
 a working chain fails here); no role but the owner writes relations or relation types (S-1); a relation never crosses worlds.
