@@ -36,9 +36,15 @@ sim_use that use, its principal's grant set equal to the minimal list, no other 
 and is refused in real and test with SQLSTATE 42501, and an active real credential of the tenant is accepted in real (positive control).
 
 Configuration (private JSON, 0600; deploy/examples/sim-world-credentials.example.json):
-  {"schema": "nexloop-sim-credentials/1", "tenant_id", "world": "sim:<uuid>", "uses": ["api", "worker", "agent"], "token_dir",
-   "configurator_database_url_file", "signing_key_file", "signing_key_id", "credential_expires_at": "<ISO UTC>",
-   "check_database_url_file", "compose_secret_dir" (optional: writes sim_world_credential = the worker token for the compose project)}
+  {"schema": "nexloop-sim-credentials/1", "tenant_id", "world": "sim:<uuid>" | "shadow:<uuid>", "uses": ["api", "worker", "agent"],
+   "token_dir", exactly one issuing DSN - "bootstrap_database_url_file" (nexloop_bootstrap over the socket: the issuing run opens its own
+   configurator window, scripts/deploy/configurator_window.py, and closes it - NOLOGIN - on success, refusal or error; a dry run opens
+   none and plans offline) or "configurator_database_url_file" (a configurator DSN already open) -, "signing_key_file", "signing_key_id",
+   "credential_expires_at": "<ISO UTC>", "check_database_url_file", "compose_secret_dir" (optional: writes sim_world_credential = the
+   worker token for the compose project)}
+Install configuration: {"schema": "nexloop-sim-credentials-install/1", "world", "uses", "token_dir", "compose_secret_dir" (optional:
+   without it the tokens only - e.g. a shadow world's worker token beside the running simulation group, whose sim_world_credential
+   stays untouched)}
 Tokens: <token_dir>/<world uuid>/<use>-credential (0600, created once, never printed). Output: one JSON line; never a token or DSN.
 Exit: 0 done, 1 self-check failed or refused by the database, 2 input refused.
 """
@@ -62,11 +68,15 @@ SCHEMA = 'nexloop-sim-credentials/1'
 QUEUE = 'eios:action:NexLoop.queue.operations:1'
 USES = ('api', 'worker', 'agent', 'twin')
 VALID_FROM = '2026-10-21T00:00:00+00:00'
-KEYS = {'schema', 'tenant_id', 'world', 'uses', 'token_dir', 'configurator_database_url_file', 'signing_key_file', 'signing_key_id',
-        'credential_expires_at', 'check_database_url_file'}
-OPTIONAL = {'compose_secret_dir'}
+KEYS = {'schema', 'tenant_id', 'world', 'uses', 'token_dir', 'signing_key_file', 'signing_key_id', 'credential_expires_at', 'check_database_url_file'}
+# The issuing DSN, exactly one of the two (dispatcher 2026-10-23, X7): a configurator DSN file, or the bootstrap DSN over the socket with
+# which the issuing run opens its own configurator window (scripts/deploy/configurator_window.py, as stage_secrets.py register does) -
+# stage has no standing configurator login.
+ISSUING = ('configurator_database_url_file', 'bootstrap_database_url_file')
+OPTIONAL = {'compose_secret_dir', *ISSUING}
 INSTALL_SCHEMA = 'nexloop-sim-credentials-install/1'
-INSTALL_KEYS = {'schema', 'world', 'uses', 'token_dir', 'compose_secret_dir'}
+INSTALL_KEYS = {'schema', 'world', 'uses', 'token_dir'}
+INSTALL_OPTIONAL = {'compose_secret_dir'}  # absent: the tokens only (e.g. a shadow world beside the running simulation group)
 _TOKEN = re.compile(r'[A-Za-z0-9_-]{64}')
 _WORLD = re.compile(r'(sim|shadow):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})')
 _TENANT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
@@ -118,6 +128,8 @@ def load_config(text, mode='issue'):
     uses = value['uses']
     if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')
+    if mode in ('issue', 'dry_run') and sum(k in value for k in ISSUING) != 1:
+        raise Refused('exactly one of configurator_database_url_file, bootstrap_database_url_file (the issuing DSN)')
     if 'credential_expires_at' not in need:
         return value
     try:
@@ -147,8 +159,8 @@ def load_install(text):
         value = json.loads(text)
     except ValueError:
         raise Refused('configuration is not JSON') from None
-    if type(value) is not dict or value.get('schema') != INSTALL_SCHEMA or set(value) != INSTALL_KEYS:
-        raise Refused('install configuration fields: ' + ', '.join(sorted(INSTALL_KEYS - {'schema'})))
+    if type(value) is not dict or value.get('schema') != INSTALL_SCHEMA or not INSTALL_KEYS <= set(value) <= INSTALL_KEYS | INSTALL_OPTIONAL:
+        raise Refused('install configuration fields: ' + ', '.join(sorted(INSTALL_KEYS - {'schema'})) + ' (and compose_secret_dir, optional)')
     if type(value['world']) is not str or not _WORLD.fullmatch(value['world']):
         raise Refused('world: sim:<uuid> or shadow:<uuid>')
     # L6 batch-12 review (optional): the token directory is an absolute path without parent steps (it names where tokens are written).
@@ -184,14 +196,14 @@ def install(config, got):
         else:
             write_private(path, got[use])
             written.append(use)
-    if 'worker' in got:
+    if 'worker' in got and config.get('compose_secret_dir'):
         target = Path(config['compose_secret_dir']) / 'sim_world_credential'
         if target.exists() or target.is_symlink():
             if read_private(target, 4096) != got['worker']:
                 raise Refused('compose sim_world_credential holds another token (remove it first)')
         else:
             write_private(target, got['worker'])
-    return {'ok': True, 'installed': sorted(written), 'compose_sim_world_credential': 'worker' in got}
+    return {'ok': True, 'installed': sorted(written), 'compose_sim_world_credential': 'worker' in got and bool(config.get('compose_secret_dir'))}
 
 
 def accepted_uses():
@@ -379,13 +391,19 @@ def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
             return emit(install(config, read_token_lines(stdin or sys.stdin, config['uses'])), 0)
         mode = 'dry_run' if args.dry_run else 'export' if args.export else 'forget' if args.forget else 'check' if args.check else 'issue'
         config = load_config(read_private(args.config), mode)
+        window = mode in ('issue', 'dry_run') and 'bootstrap_database_url_file' in config
         if mode in ('issue', 'dry_run'):  # review B2.1: refused before any token file or connection
-            socket_dsn(config['configurator_database_url_file'])
+            socket_dsn(config['bootstrap_database_url_file' if window else 'configurator_database_url_file'])
         if mode in ('issue', 'check'):
             socket_dsn(config['check_database_url_file'])
         unsupported = sorted(set(config['uses']) - accepted_uses())
         if unsupported:
             raise Refused('this release does not accept the use(s) ' + ', '.join(unsupported) + ' (the twin use comes with the eighth batch)')
+        if args.dry_run and window:
+            # A dry run opens no configurator window, and the current credentials can be read only through one: the plan is offline.
+            return emit({'ok': True, 'dry_run': True, 'world': config['world'], 'uses': sorted(config['uses']), 'issuing': 'bootstrap window (opened by the issue run)',
+                         'inventory': 'not read (a dry run opens no configurator window)',
+                         'tokens_present': {u: p.exists() for u, p in token_paths(config).items()}}, 0)
         if args.dry_run:
             people, _, _, result, blocking = plan(config)
             by_role = {p['role']: p['use'] for p in people}
@@ -422,7 +440,14 @@ def main(argv=None, *, out=sys.stdout, check_connect=None, stdin=None):
             verdict = self_check(config, have, check_connect)
             return emit({'ok': verdict['pass'], 'check': verdict}, 0 if verdict['pass'] else 1)
         have = tokens(config, create=True)
-        report = issue(config, have)
+        if window:
+            # The issuing run's own configurator window: nexloop_configurator logs in for this publish only, and the window is closed
+            # again (NOLOGIN) on success, on a refusal and on any error (configurator_window's guarantee).
+            from configurator_window import configurator_window
+            with configurator_window(config['bootstrap_database_url_file'], refused=Refused) as configurator:
+                report = issue({**config, 'configurator_database_url_file': str(configurator)}, have)
+        else:
+            report = issue(config, have)
         if config.get('compose_secret_dir') and 'worker' in have:
             target = Path(config['compose_secret_dir']) / 'sim_world_credential'
             if target.exists():
