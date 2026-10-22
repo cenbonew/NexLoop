@@ -375,3 +375,25 @@ def test_the_reason_is_read_from_the_error_bodys_details():
     body = {'code': 'not_allowed_in_state', 'message': 'm', 'trace_id': 't', 'retryable': False, 'details': {'reason': 'twin_not_calibrated'}}
     assert X._reason(body) == 'twin_not_calibrated'
     assert X._reason({'reason': 'ended'}) == 'ended' and X._reason({'details': None}) is None and X._reason('text') is None
+
+
+def test_the_base_waits_for_live_real_claims_and_blocks_naming_them(monkeypatch):
+    """Third round S8 (release 38): the base was taken while the Runs of the S3 traffic still held Goal/PlanStep claims. The quiet
+    check now also waits for no live (active, lease not run out) world-real Action claim; on timeout the base is not taken and the
+    unfinished Actions are named (counts only)."""
+    monkeypatch.setattr(X.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(X, 'real_digest', lambda ports, tenant: {'t': 'same'})
+    live = {'claims': [('Goal.create', 2), ('PlanStep.create', 1)]}
+
+    class Ports:
+        def read(self, sql, params=()):
+            if 'runtime.jobs' in sql:
+                return [(0,)]
+            if 'nexloop_action_claims' in sql:
+                assert "claim->>'state'='active'" in sql and 'lease_expires_at' in sql
+                return live['claims']
+            raise AssertionError(sql)
+    digests, quiet, unfinished = X._quiet_real(Ports(), TENANT_A, {'quiet_seconds': 1, 'quiet_timeout_seconds': -1})
+    assert quiet is False and unfinished == {'unfinished_jobs': 0, 'unfinished_claims': {'Goal.create': 2, 'PlanStep.create': 1}}
+    live['claims'] = []
+    assert X._quiet_real(Ports(), TENANT_A, {'quiet_seconds': 1, 'quiet_timeout_seconds': -1})[1:] == (True, {})

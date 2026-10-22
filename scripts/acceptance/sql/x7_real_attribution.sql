@@ -41,4 +41,17 @@ where c.tenant_id = :'tenant' and c.world = 'real'
         'nexloop.consumer_twin.retire','nexloop.consumer_twin.calibrate','nexloop.consumer_twin.erase_text'])
        and exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id = c.tenant_id and m.principal_id = c.principal_id))
 group by 2 order by 2;
+-- 5. Orphan check: world-real claims still active. lease_state 'expired' = nobody renews them any more (an orphaned lease, a defect of
+--    its own); 'live' = still held by a running worker. Age buckets only.
+select 'active_claims' as source, c.action_name,
+       case when (c.claim->>'lease_expires_at')::timestamptz > clock_timestamp() then 'live' else 'expired' end as lease_state,
+       case when (c.claim->>'lease_expires_at')::timestamptz > clock_timestamp() then 'not_expired'
+            when (c.claim->>'lease_expires_at')::timestamptz > clock_timestamp() - interval '10 minutes' then 'under_10_min'
+            when (c.claim->>'lease_expires_at')::timestamptz > clock_timestamp() - interval '1 day' then 'under_1_day' else 'older' end as expired_for,
+       case when exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id = c.tenant_id and m.principal_id = c.principal_id)
+            then 'workbench_member' else 'service_or_run' end as principal_kind,
+       count(*), max((c.claim->>'claim_revision')::int) as max_revision
+from runtime.nexloop_action_claims c
+where c.tenant_id = :'tenant' and c.world = 'real' and c.claim->>'state' = 'active'
+group by 2, 3, 4, 5 order by 2, 3;
 rollback;

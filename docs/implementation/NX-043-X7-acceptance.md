@@ -142,4 +142,9 @@
 | `runtime.nexloop_retention_sweeps` | 整表排除 | retention-keeper 每清理一个类别记一行（0129/0140），不论实验是否在运行 |
 | `runtime.nexloop_action_claims` | **不整表排除**，只去掉一类行：动作属于 `OWNER_GOVERNANCE_ACTIONS`（策略、实验、报告、影子复制开关、模拟世界、孪生），**并且**认领人是该租户的工作台成员 | 这些是验收步骤中负责人自己的治理动作（例如 S7 的报告读取、影子复制开关），不是模拟对 real 的影响。其余认领一律比较，包括服务或 Run 认领人、任何其他动作、非成员发起的同名动作；测试证明这几类变化仍会被报告 |
 
+调度员归因的结果（release 39，窗口 09:56:00Z–11:56:30Z）是：没有任何变化可以归因到 shadow world。仍被比较的认领，即 3 条 Message.create、6 条 Goal.create、2 条 Commitment.create、1 条 PlanStep.create，全部来自 S3 注入的 real 入站，以及处理这些入站的 real Run。问题出在 S4：取基准时，这些 Run 的认领还没有收尾。所以对这类行的处理方式是改 S4 的安静条件，不是排除它们：
+
+- **S4 安静条件**：同时满足三条：该租户 real 世界没有未结束的 job；没有 active 且租约未过期的 action_claim；world-real 摘要在 `quiet_seconds` 内不再变化。满足后才取基准，并记下取基准的时刻 `taken_at`。超时则 `real_side_quiet` 记为 blocked，并列出未收尾的 Action 名称与计数，此时不取基准。租约已过期的 active 认领不会再变化，所以不阻塞取基准；它们是否为孤儿租约，用归因 SQL 的第 5 段检查。
+- **告警证据**：告警事件虽然被排除在摘要之外，probe-after 仍会输出 `real_alerts_in_window`，列出从 `taken_at` 到当前时刻触发或恢复过的告警规则（rule_id、kind、次数）。
+
 归因方法：调度员在 DATA_HOST 上只读运行归因 SQL，见 L2 的交付说明，输出只有计数、动作名、时间桶和认领人类别。如果归因发现窗口中有不属于上表的行，例如服务认领人发起的 `nexloop.service.request`，则不能用排除来消化，必须当作 real 变化处理。
