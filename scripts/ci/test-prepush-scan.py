@@ -176,5 +176,27 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     check(False)
     run('git', 'reset', '--hard', baseline, cwd=root)
     (root / '.gitleaksignore').unlink(missing_ok=True)
-print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys only in tests, full mode sees old history, trusts only the base/checkout configuration (dropped, neutered, wide-open outgoing configurations still blocked; broken base refused), ignores .gitleaksignore and gitleaks:allow, fails closed without tool/pinned version/sentinel')
+    # From a trusted CI installation (scripts/ci only, OPERATIONS §7.2: no versions.lock.json, no .gitleaks.toml) the pin and
+    # the configuration come from the base commit; without them in the base as well the gate fails closed with a message.
+    import shutil
+    trusted = pathlib.Path(temp) / 'trusted'
+    shutil.copytree(SCAN.parent, trusted / 'scripts' / 'ci')
+    trusted_scan = ['bash', str(trusted / 'scripts' / 'ci' / 'prepush-scan.sh')]
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('safe', 'harmless from the trusted installation\n', 'harmless')
+    result = subprocess.run(trusted_scan, cwd=root, capture_output=True, text=True)
+    assert result.returncode == 0 and '(base configuration)' in result.stdout, result.stdout
+    commit('aws.cfg', aws, 'fake credential')
+    result = subprocess.run(trusted_scan, cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0 and 'FAIL gitleaks: ' in result.stdout, result.stdout
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    run('git', 'rm', '-q', 'versions.lock.json', cwd=root)
+    run('git', 'commit', '-q', '-m', 'base without the pin', cwd=root)
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'harmless again\n', 'harmless')
+    result = subprocess.run(trusted_scan, cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0 and 'FAIL gitleaks pin unreadable' in result.stdout, result.stdout
+    run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys only in tests, full mode sees old history, trusts only the base/checkout configuration (dropped, neutered, wide-open outgoing configurations still blocked; broken base refused), ignores .gitleaksignore and gitleaks:allow, runs from a scripts/ci-only trusted installation, fails closed without tool/pinned version/sentinel')
 print('PASS: missing list fails closed, clean/no-ahead, historical identifiers and credentials, feature hook, variable references, tracked private paths')

@@ -21,7 +21,8 @@ gitleaks_gate() (
   trap 'rm -rf "$work"' EXIT
   mkdir "$work/run"
   # The trusted pin and configuration: the base commit's when it has them, else this checkout's.
-  cp "$script_root/versions.lock.json" "$work/lock.json"
+  # A trusted CI installation carries scripts/ci only (OPERATIONS §7.2): there both come from the base commit.
+  cp "$script_root/versions.lock.json" "$work/lock.json" 2>/dev/null || rm -f "$work/lock.json"
   cp "$script_root/.gitleaks.toml" "$work/config.toml" 2>/dev/null || rm -f "$work/config.toml"
   if [[ -n "$base" ]] && git show "$base:.gitleaks.toml" >"$work/base-config.toml" 2>/dev/null \
      && git show "$base:versions.lock.json" >"$work/base-lock.json" 2>/dev/null \
@@ -33,7 +34,7 @@ gitleaks_gate() (
   pin=$(python3 -c 'import json,sys
 tool = json.load(open(sys.argv[1]))["release_tools"]["gitleaks"]
 print(tool["version"], tool.get("binary_sha256_" + sys.argv[2]) or "-")' "$work/lock.json" "$platform"
-  ) || { printf 'FAIL gitleaks pin unreadable in versions.lock.json\n'; exit 1; }
+  ) || { printf 'FAIL gitleaks pin unreadable (no trusted versions.lock.json with release_tools.gitleaks)\n'; exit 1; }
   read -r pinned expected <<<"$pin"
   bin="${NEXLOOP_GITLEAKS:-$(command -v gitleaks || true)}"
   if [[ -z "$bin" || ! -x "$bin" ]]; then printf 'FAIL gitleaks not installed (pinned %s)\n' "$pinned"; exit 1; fi

@@ -8,10 +8,11 @@
   - 新增 `.gitleaks.toml`、`scripts/ci/install-gitleaks.sh`、`scripts/ci/check_gitleaks_config.py`；
   - `versions.lock.json` 的 `release_tools.gitleaks`；
   - 测试与文档。
-- **不在范围内**：没有改写任何历史，没有在任何主机上安装，仓库也不下载任何东西。
+- **不在范围内**：没有改写任何历史，仓库也不下载任何东西。L7 没有连接任何主机；CI 主机上的安装由调度员执行（§4）。
 - **修订**：
   - 第一稿 `0d2003e1`；
   - 第二稿按 L6 复核修订：确认级 1（`.gitleaksignore`）、确认级 2（配置可信度与运行时结构检查）、重要 3（Linux 摘要策略）、建议 6（处置流程）、建议 7（lock 中注明不分发）、建议 9（`--full` 不能替代前三道门）。另外新发现并关闭了 `gitleaks:allow` 行内注释这一绕过途径。
+  - 第三稿：回填 CI 主机的安装摘要；补充受信副本、各组件实际生效范围与需要核对的事项；修复检出中缺少 lock 时静默退出的问题。
 
 ## 1. 门禁行为
 
@@ -163,17 +164,61 @@ scripts/ci/install-gitleaks.sh gitleaks_8.30.1_linux_x64.tar.gz gitleaks_8.30.1_
 3. 把打印出的 `binary_sha256` 记入 `binary_sha256_linux_amd64`，`status` 改为 `installed_ci_host`。
 4. 确认运行 `sync_github.py`、`release.py` 的服务账户能找到 gitleaks。`sync_github.py` 只把 PATH、HOME、LANG、LC_ALL、TMPDIR 传给扫描进程，而 `~/.local/bin` 通常不在服务账户的 PATH 里，所以需要调整 PATH，或者设置 `NEXLOOP_GITLEAKS`。
 
-说明：制品名按 gitleaks release 的命名规则填写，我**没有下载核对**（L6 重要 5）。调度员表示会在负责人同意后，于 CI 主机上实际下载核对。名字不对时，安装脚本会拒绝，不会悄悄通过。
+**首次安装记录（2026-10-22，调度员执行，负责人当天同意；L7 未连接任何主机）**：
+
+| 步骤 | 结果 |
+|---|---|
+| ① 独立锚点：调度员在自己的 Mac 上下载官方 v8.30.1 archive | sha256 `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`，与官方 checksums 一致。两个制品名都真实存在：`gitleaks_8.30.1_linux_x64.tar.gz` 8,230,402 字节，`gitleaks_8.30.1_checksums.txt` 999 字节。L6 重要 5 由此关闭 |
+| ② CI 主机，非特权账户运行 `install-gitleaks.sh`，lock 副本预先填入 ① 的 archive 摘要作为独立锚点 | 通过。binary sha256 `88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509` |
+| ③ 用 sudo 安装为 `/usr/local/bin/gitleaks` | root:root 0755，CI、Git 托管、发版账户都不可写。复核摘要一致 |
+| ④ 可见性 | `nexloop-ci`、`nexloop-git`（同步服务，systemd 默认 PATH）、`nexloop-release` 三个账户都能找到 8.30.1，不需要设置 `NEXLOOP_GITLEAKS` |
+
+两个摘要已记入 `versions.lock.json`（`archive_sha256_linux_amd64`、`binary_sha256_linux_amd64`），`status` 为 `installed_ci_host`。从此在 linux_amd64 上，第四道门只运行摘要为 `88f9…5509` 的二进制。
 
 ## 5. 上线顺序与风险
 
-- **合并之前**，CI 主机必须完成 §4 的安装，并且两个摘要都已记录。否则会出现以下后果，这些都是缺工具即失败的有意行为：
-  - GitHub 同步和发版的 `history_scan` 被阻塞；
-  - **CI 全量 pytest 中的 `tests/test_github_sync.py` 会失败**：它在临时仓库中真实运行 `sync_github.py`，因而也会经过第四道门；
-  - CI 主机上的 `make lint`（`test-prepush-scan.py`）会失败。
-- `scripts/ci/` 是受保护路径，需要负责人的 ack-policy（由调度员 ack）。建议同时把 `.gitleaks.toml` 加入受保护路径清单。
-- `.git/hooks/pre-push` 调用的是 `prepush-scan.sh --hook`，各开发线推送前也会经过第四道门。开发机上已有 gitleaks。
-- 配置变更的节奏：调整 allowlist 的提交要先单独发布，因为本次扫描用的是 base 的受信配置。
+**受信副本**：
+
+- 控制器、两个 hook 和同步服务运行的都是受信副本 `<TRUSTED_CI_DIR>`（例如 `/opt/nexloop/ci-trusted/<sha12>`）中的程序，从不运行候选代码。
+- 合入本改动后，**要升级受信副本**，流程按 [OPERATIONS §7.2](../OPERATIONS.md)：
+  1. 用 `git archive` 展开新 SHA；
+  2. 重新派生车道策略并比较；
+  3. 备份 hook 和 unit；
+  4. 替换路径，执行 `daemon-reload`；
+  5. 验证；
+  6. 必要时回退。
+- 这是 **B 类步骤，由调度员在 CI 主机上执行，需负责人确认**。本改动修改了 `scripts/ci/`，属于必须升级的情形。
+
+**在现行部署中，第四道门实际作用于哪些组件**（以仓库中的代码和模板为准）：
+
+| 组件 | 是否调用 `prepush-scan.sh` | 结论 |
+|---|---|---|
+| 同步服务（`nexloop_ci.py sync`，`deploy/stage/ci/nexloop-ci-sync.service.example`） | **否**：只做 fast-forward 推送，不运行任何扫描 | 升级受信副本之后，**第四道门也不会作用于 GitHub 同步**。带 prepush-scan 门禁的同步是 NX-034 的 `scripts/release/sync_github.py`，`docs/release/run-release-tag.md` 写明它“目前没有部署” |
+| 控制器（`nexloop_ci.py run-once`） | 只有配置了 `--merge-gate` 才会调用；仓库中的 `nexloop-ci-controller.service.example` 没有配置 | 调度员的流程说明中写了“合并门槛包括 prepush-scan，由控制器的 `--merge-gate` 执行”。**需要调度员核对主机上的实际 unit**，见下文“需要核对” |
+| 发版（`release.py` 的 `history_scan`） | 是，运行候选检出中的 `scripts/ci/prepush-scan.sh <sha> <上一个公开版本>` | 生效。配置与锁定条目取自上一个公开版本；首次引入时回退到候选检出 |
+| 各开发线的 pre-push hook（`--hook`） | 是 | 生效，开发机已有 gitleaks |
+| CI 全量 pytest 中的 `tests/test_github_sync.py`，以及 `make lint` 中的 `test-prepush-scan.py` | 是，在临时仓库中运行 | CI 主机已安装 gitleaks 并记录了摘要，可以通过 |
+
+**需要核对**（L7 无法从仓库得知）：
+
+1. 控制器 unit 上是否配置了 `--merge-gate`，以及具体命令。
+2. 如果配置的是受信副本中的 `prepush-scan.sh`：
+   - 它在 bare 仓库中运行，因为 `merge()` 以 `cwd=repo` 执行门禁命令；
+   - 本次核对发现，在 bare 仓库中脚本开头的 `cd "$(git rev-parse --show-toplevel)"` 会失败，但脚本不会退出，于是**第一道门（`git ls-files`）拿不到任何文件，形同虚设**。这是原有行为，不是本次引入的；
+   - 第四道门在 bare 仓库中可以正常工作：它用的是 `git rev-parse --absolute-git-dir`、`git show <base>:…` 与 `git ls-tree`。
+
+   如果第一道门需要在 bare 仓库中生效，建议另开任务：改为对被扫描的 ref 执行 `git ls-tree`，或者在临时 worktree 中运行（与 `sync_github.py` 的做法相同）。
+
+**受信副本不含 `versions.lock.json` 与 `.gitleaks.toml`**（OPERATIONS §7.2 的展开清单只有 `scripts/ci .ci-policy deploy/stage/ci scripts/deploy/probe_isolation.py`）：
+
+- 这不影响普通模式：锁定条目与配置都取自 base 提交（合入后的 main 已经包含两者）。
+- 第三稿修复了一个问题：第二稿在检出中缺少 `versions.lock.json` 时，`cp` 会在 `set -e` 下静默退出。现在改为回退到 base；两处都没有时，明确输出 `FAIL gitleaks pin unreadable …`。`test-prepush-scan.py` 中有“只含 `scripts/ci` 的受信副本”这个用例。
+- 如果要在受信副本上运行 `--full`，建议把这两个文件加入 §7.2 的展开清单。
+
+**其他**：
+
+- `scripts/ci/` 是受保护路径，需要负责人的 ack-policy（由调度员 ack）。建议把 `.gitleaks.toml` 也加入受保护路径清单。
+- 配置变更的节奏：调整 allowlist 的提交要先单独发布，因为扫描用的是 base 的受信配置。
 
 ## 6. 发现命中时的处置流程（按 L6 建议 6 补充）
 
@@ -195,6 +240,7 @@ scripts/ci/install-gitleaks.sh gitleaks_8.30.1_linux_x64.tar.gz gitleaks_8.30.1_
 |---|---|
 | `uv run --frozen python scripts/ci/test-prepush-scan.py`（第一稿） | 两行 PASS。用例包括：(1) 合成的假 AWS 访问键、假 GitHub token 各提交一次又删除，普通、`--hook`、`--full` 三种模式都被拦，输出中不含假值；(2) 测试路径下的合成幂等键放行，同一个值放在非测试路径被拦；(3) base 之前的旧泄露，普通模式放行，`--full` 被拦；(4) 没有工具、版本不对，失败关闭。假凭据都在运行时拼接 |
 | 同上（第二稿，确认级 1、2） | 两行 PASS。新增：(5) 待推送提交删除、掏空、或放成全放行（`regexes = ['''.''']`）的 `.gitleaks.toml`，再带一个假 AWS 键，三种情况都仍然被拦，并输出 `owner ack required`；(6) base 本身发布的是全放行配置时，报 `breaks the structure rules`；(7) base 没有配置时，回退到检出配置（输出 `(checkout configuration)`），假凭据仍被拦；(8) 行内带 `gitleaks:allow` 的假凭据被拦；(9) 用 gitleaks 自己算出的 fingerprint 写成 `.gitleaksignore`，未跟踪或已跟踪两种情况都失败；(10) 一个回显 8.30.1 却永远 exit 0 的桩程序，被哨兵挡下 |
+| `uv run --frozen python scripts/ci/test-prepush-scan.py`（第三稿） | 两行 PASS。新增 (11)：从一个只含 `scripts/ci` 的模拟受信副本运行时，配置取自 base（输出 `(base configuration)`），干净提交通过、假凭据被拦；base 也没有 `versions.lock.json` 时，输出 `FAIL gitleaks pin unreadable …` |
 | `pytest tests/test_gitleaks_config.py`（第二稿） | 仓库配置通过检查器；15 种放宽方式（关闭默认规则、禁用或覆盖规则、全局 allowlist、改 minVersion、第 4 条 allowlist、换规则、条件改 OR、`.`、`^.*$`、任意目录、未锚定、stopwords、只有值没有路径等）**全部被拒** |
 | `pytest tests/test_gitleaks_config.py tests/test_github_sync.py tests/test_history_audit.py tests/test_release_compliance.py`（第二稿） | 62 passed |
 | `pytest tests/test_github_sync.py` | 首次 5 failed（临时仓库没有 `.gitleaks.toml`，新门禁按设计失败关闭）；在 lab 的 base 提交里带上真实配置后 10 passed |
