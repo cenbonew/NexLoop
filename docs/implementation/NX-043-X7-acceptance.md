@@ -103,7 +103,7 @@
 
 | 步 | 主机 | 角色/连接 | 命令 | 产出 |
 |---|---|---|---|---|
-| R1 | DATA_HOST | inspector，socket 只读 | `nx043_stage.py readiness --config DATA.json` | `nx043-readiness`：sim world、screening 孪生未校准、两个策略可发布、shadow 复制关、real 入站分配触发器、real 派发层状态、无冲突实验，每项 ready 或 blocked 加原因 |
+| R1 | DATA_HOST | inspector，socket 只读 | `nx043_stage.py readiness --config DATA.json` | `nx043-readiness`：sim world、screening 孪生未校准、两个策略可发布、shadow 复制关、real 入站分配触发器、real 派发层状态（tenant 层和 action 层只读取开关表；部署层在数据库里看不到，报 `not_observable_from_db`，可在 `inputs.deployment_real_dispatch` 填入操作员观察到的容器环境变量 `REAL_DISPATCH_ENABLED`）、无冲突实验，每项 ready 或 blocked 加原因 |
 | S1 | 调度员机器 | owner，HTTPS | `security find-generic-password … -w \| nx043_stage.py prepare --config PRIVATE.json` | shadow world、两个策略版本、shadow（和 screening）登记；私有状态文件 |
 | S2 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py run --config PRIVATE.json` | screening 被拒 `twin_not_calibrated`；shadow 开始；影子复制打开 |
 | S3 | 调度员机器 | 合成 webchat | 由调度员注入 real 入站流量（合成 Consumer） | 拷贝到 shadow world 的事件 |

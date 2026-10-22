@@ -282,7 +282,8 @@ def test_readiness_is_read_only_and_says_ready_or_blocked_with_a_reason(stage):
     assert set(s) == {'sim_world_active', 'screening_twin_uncalibrated', 'candidate_strategy_publishable', 'control_strategy_publishable', 'shadow_copy_off', 'real_inbound_allocation',
                       'real_dispatch_state', 'no_conflicting_experiment'}
     assert all(x['observed']['status'] == 'ready' and x['observed']['reason'] for x in s.values())
-    assert s['real_dispatch_state']['observed']['reason'] in ('open_sends_execute', 'closed_sends_refused')
+    assert s['real_dispatch_state']['observed']['reason'] == 'closed_sends_refused'  # no switch row: the tenant layer is closed
+    assert s['real_dispatch_state']['observed']['deployment'] == 'not_observable_from_db'
     # Blocked, each with its reason: the shadow copy left on, a running online experiment, a lever that is no D1 lever, an unknown world.
     assert phase(f, 'prepare')[0] == 0 and phase(f, 'run')[0] == 0 and phase(f, 'online')[0] == 0
     config = json.loads(open(f['config']).read())
@@ -322,3 +323,39 @@ def test_a_read_only_role_is_made_read_only_by_the_script(pg, tmp_path):
         assert db.execute('show default_transaction_read_only').fetchone()[0] == 'on'
         with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
             db.execute('create temp table x7_write_probe(x int)')
+
+
+def test_the_dispatch_layers_are_read_from_the_switch_rows_in_a_read_only_session(stage):
+    """Stage finding (release 35): readiness read 'deployment' from closed_layer in the inspector session. The tenant and Action
+    layers now come from the switch rows (read only, never the function); the deployment layer from the operator's observation."""
+    f = stage
+    admin = f['admin']
+    source = (Path(X.__file__)).read_text()
+    assert 'select control.nexloop_real_dispatch_closed_layer' not in source  # never called: it needs a worker's GUC and a row lock
+
+    def switch(kind, ref, enabled, mode='real'):
+        with admin.transaction():
+            admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+            admin.execute("""insert into control.nexloop_real_dispatch_switches(tenant_id,world,scope_kind,scope_ref,enabled,data_mode,revision,reason,changed_by,intent_id)
+                values(%s,'real',%s,%s,%s,%s,1,'synthetic','synthetic-owner','synthetic')
+                on conflict (tenant_id,world,scope_kind,scope_ref) do update set enabled=excluded.enabled,data_mode=excluded.data_mode""",
+                          (TENANT_A, kind, ref, enabled, mode if kind == 'tenant' else None))
+    state = lambda deployment=None: X.dispatch_state(f['ports'], TENANT_A, deployment)  # noqa: E731
+    assert state()['layers'] == {'outreach.send': 'tenant', 'enterprise.deliver': 'tenant', 'deployment': 'not_observable_from_db'}
+    switch('tenant', '*', True, 'test')
+    assert state()['layers']['outreach.send'] == 'tenant'  # data_mode test is not real
+    switch('tenant', '*', True)
+    switch('action_type', X.DISPATCH['outreach.send'], True)
+    assert state()['layers'] == {'outreach.send': 'open', 'enterprise.deliver': 'action', 'deployment': 'not_observable_from_db'}
+    assert state()['reason'] == 'closed_sends_refused'
+    switch('action_type', X.DISPATCH['enterprise.deliver'], True)
+    assert state() == {'layers': {'outreach.send': 'open', 'enterprise.deliver': 'open', 'deployment': 'not_observable_from_db'},
+                       'reason': 'open_in_database_deployment_not_observed'}
+    assert state(True)['reason'] == 'open_sends_execute' and state(True)['layers']['deployment'] == 'open'
+    assert state(False)['reason'] == 'closed_sends_refused' and state(False)['layers']['deployment'] == 'closed'
+    # The readiness item carries the same, with the operator's observation from the inputs.
+    config = json.loads(open(f['config']).read())
+    config['inputs'] = {**config['inputs'], 'deployment_real_dispatch': True}
+    Path(f['config']).write_text(json.dumps(config))
+    observed = steps(phase(f, 'readiness')[1])['real_dispatch_state']['observed']
+    assert observed['reason'] == 'open_sends_execute' and observed['outreach.send'] == observed['enterprise.deliver'] == observed['deployment'] == 'open'
