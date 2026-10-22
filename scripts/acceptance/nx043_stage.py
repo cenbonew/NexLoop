@@ -32,7 +32,8 @@ private state file in results_dir (0600), never in the output, which holds codes
                                                                      a final state (real dispatch is open: nothing left in flight)
     nx043_stage.py gaps --config ANY.json                          no connection: what the stage cannot show yet (blocked, never a pass)
 
-inputs: shadow_purpose, candidate_levers, control_levers (D1 levers), strategy_prefix, experiment_prefix, ends_in_minutes (shadow
+inputs: deployment_real_dispatch (true/false: the dispatching workers' REAL_DISPATCH_ENABLED as observed by the operator; optional),
+    shadow_purpose, candidate_levers, control_levers (D1 levers), strategy_prefix, experiment_prefix, ends_in_minutes (shadow
     experiment end; the guard stops it there), screening {world, twin {twin_id, version}} (optional), decisions {kind, limit},
     guard_timeout_seconds (probe-after waits for the guard stop, default 900)
 roles: inspector {dsn_file} (read only; readiness, falls back to probe); probe {dsn_file}; sim_worker {dsn_file, token_file} (the shadow world's worker credential; optional); owner {origin, ca_file,
@@ -361,6 +362,37 @@ def _ready(r, name, expected, ready, reason, **observed):
     r.step(name, expected, {'status': 'ready' if ready else 'blocked', 'reason': reason, **observed}, ready)
 
 
+def dispatch_state(ports, tenant, deployment=None):
+    """The three real dispatch layers without control.nexloop_real_dispatch_closed_layer (stage finding, release 35): its first layer
+    is the transaction GUC nexloop.real_dispatch_enabled that only a dispatching worker sets, so an inspector session always read
+    'deployment', and the function's row lock fails in a read-only transaction anyway. Here: the tenant row and each DISPATCH Action
+    row of control.nexloop_real_dispatch_switches, read only under the tenant (the same rules as the function: tenant enabled with
+    data_mode real, then the Action enabled). The deployment layer (REAL_DISPATCH_ENABLED of the dispatching workers) is not visible
+    in the database: inputs.deployment_real_dispatch (true/false, the operator's observation of the containers' env) decides it when
+    given; otherwise it is reported not_observable_from_db."""
+    if ports.probe is None:
+        raise Blocked('read-only probe DSN not configured')
+    with ports.probe() as db, db.transaction():
+        db.execute('set transaction read only')
+        db.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
+        rows = db.execute("""select scope_kind,scope_ref,enabled,data_mode from control.nexloop_real_dispatch_switches
+            where tenant_id=%s and world='real' and ((scope_kind='tenant' and scope_ref='*') or (scope_kind='action_type' and scope_ref=any(%s)))""",
+                          (tenant, list(DISPATCH.values()))).fetchall()
+    found = {(kind, ref): (enabled, mode) for kind, ref, enabled, mode in rows}
+    t = found.get(('tenant', '*'), (None, None))
+    tenant_open = t[0] is True and t[1] == 'real'
+    layers = {name: ('tenant' if not tenant_open else 'action' if found.get(('action_type', res), (None,))[0] is not True else 'open')
+              for name, res in DISPATCH.items()}
+    layers['deployment'] = {True: 'open', False: 'closed'}.get(deployment, 'not_observable_from_db')
+    if any(v != 'open' for k, v in layers.items() if k != 'deployment') or deployment is False:
+        reason = 'closed_sends_refused'
+    elif deployment is True:
+        reason = 'open_sends_execute'
+    else:
+        reason = 'open_in_database_deployment_not_observed'
+    return {'layers': layers, 'reason': reason}
+
+
 def readiness(ports, config, r, prior=None):
     """Read only (the inspector DSN): whether this stage can run the acceptance now. Each item ready or blocked, with its reason; counts
     and states only, no identifier in the output."""
@@ -393,10 +425,9 @@ def readiness(ports, config, r, prior=None):
     enabled = bool(trigger) and trigger[0][0] in ('O', 'A')
     _ready(r, 'real_inbound_allocation', 'the real inbound allocation trigger (X4 wiring) is installed and enabled for the online part', enabled,
            'ok' if enabled else ('missing' if not trigger else 'disabled'))
-    layers = {name: ports.read("select control.nexloop_real_dispatch_closed_layer(%s,'real',%s)", (tenant, res))[0][0] for name, res in DISPATCH.items()}
-    is_open = all(v is None for v in layers.values())
+    state = dispatch_state(ports, tenant, inputs.get('deployment_real_dispatch'))
     _ready(r, 'real_dispatch_state', 'the real dispatch layers read (open: the online candidate group really sends; closed: refused by real_dispatch)',
-           True, 'open_sends_execute' if is_open else 'closed_sends_refused', **{k: v or 'open' for k, v in layers.items()})
+           True, state['reason'], **state['layers'])
     running = ports.read("""select e.registration->>'stage',e.registration->>'world'='real',
           e.registration->'candidate'->>'strategy_id' like %s from control.nexloop_experiments e
         where e.tenant_id=%s and runtime.nexloop_experiment_status(e.tenant_id,e.experiment_id)='started'
