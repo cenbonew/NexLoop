@@ -196,7 +196,12 @@ KNOWN_EXCEPTIONS = ('ontology.objects', 'ontology.events', 'ontology.relations',
 # with its reason (and the reason reviewed): test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception.
 EXCEPTION_REASONS = {**{t: 'vendored EIOS core (0001); tenant consistency by the 0002 tenant_boundary RLS policy (dispatcher ruling 2026-10-12)'
                         for t in KNOWN_EXCEPTIONS},
-                     'control.nexloop_tenants': 'the tenant root itself'}
+                     'control.nexloop_tenants': 'the tenant root itself',
+                     # NX-059 (0318): the audit hash chain mirrors runtime.audit_events (a known exception above) row by row; a tenant key
+                     # would refuse the audit row of a tenant the core writes without one. Tenant consistency by its tenant_boundary policy.
+                     **{t: 'NX-059 audit chain of runtime.audit_events (no tenant key there either); tenant_boundary RLS policy'
+                        for t in ('runtime.nexloop_audit_chain_pending', 'runtime.nexloop_audit_chain', 'runtime.nexloop_audit_chain_heads',
+                                  'runtime.nexloop_audit_chain_seals')}}
 
 
 def test_batch4b_and_5_keys_are_validated(db):
