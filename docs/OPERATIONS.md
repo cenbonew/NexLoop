@@ -91,7 +91,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
   2. 它的第一父提交等于当前的 main，否则要在新的 main 上重新组装并重跑 CI；
   3. 合并门槛通过（publication 扫描、prepush 扫描）。
 - **受保护路径**：改动涉及 `scripts/ci/`、`.ci-policy/`、`deploy/`、`.githooks/` 时，结果会带 `policy_change` 标记。这时必须由维护者执行 `python3 "$CI_TRUSTED/scripts/ci/nexloop_ci.py" ack-policy --queue <QUEUE_DIR> --identities <IDENTITIES_FILE> --sha <SHA> --identity <maintainer>` 确认，否则合并被拒绝（`policy_change_not_acknowledged`）。
-- **GitHub 同步**：同步任务以 `nexloop-git` 身份只快进推送 main，不 force，也不 mirror。GitHub 不可达时，状态记为 `sync_pending`，积压等于上次同步之后 main 新增的提交数；不影响 CI 和合并，下一次同步成功后自动补推、积压清零，不需要人工处理。查看状态：`nexloop_ci.py status --queue <QUEUE_DIR>` 的 `sync` 字段。
+- **GitHub 同步**：同步任务以 `nexloop-git` 身份只快进推送 main，不 force，也不 mirror。GitHub 不可达时，状态记为 `sync_pending`，积压等于上次同步之后 main 新增的提交数；不影响 CI 和合并，下一次同步成功后自动补推、积压清零，不需要人工处理。查看状态：`nexloop_ci.py status --queue <QUEUE_DIR>` 的 `sync` 字段。推送前的发布扫描失败时记为 `sync_blocked`，这不是自愈状态，处理方法见 §7.2a。
 - **旧车道仓库**：切换后不再接受推送 main，只保留 `refs/ci/*`，作为过渡期发布 CI 结果的来源（[NX-034-release-ci-queue](implementation/NX-034-release-ci-queue.md)）。之后的发布直接取控制器结果目录中的 `result.json`。
 
 ### 7.2 升级 CI 受信安装
@@ -105,7 +105,7 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
    ```
 
    ```bash
-   git -C "<GIT_ROOT>/nexloop.git" archive "<SHA>" scripts/ci .ci-policy deploy/stage/ci scripts/deploy/probe_isolation.py | sudo tar -x -C "<TRUSTED_BASE>/<SHA>"
+   git -C "<GIT_ROOT>/nexloop.git" archive "<SHA>" scripts/ci .ci-policy deploy/stage/ci scripts/deploy/probe_isolation.py .gitleaks.toml versions.lock.json | sudo tar -x -C "<TRUSTED_BASE>/<SHA>"
    ```
 
 2. **重新派生车道策略**，然后和旧版比较：
@@ -129,7 +129,33 @@ doctor 只读、失败即非零退出、输出不含地址、路径或秘密。�
 
 - **同步服务必须有 `PrivateTmp=yes`**（见 `deploy/stage/ci/nexloop-ci-sync.service.example`）。同步服务用 `ProtectSystem=strict` 运行，这时 `/tmp` 是只读的；而 `git verify-tag` 需要写一个临时文件。缺了 `PrivateTmp=yes`，负责人签名的 tag 会在同步时验证失败：`status` 中显示 `tags_not_synced`，原因为 `tag_unverified`；单独复核时看到的是 `tag_signature_invalid`。tag 本身没有问题。v0.1.0 发布时就遇到了这种情况。补上这一行、`daemon-reload` 之后，下一轮同步就会推送这个 tag。
 
+`.gitleaks.toml` 与 `versions.lock.json` 从 NX-060 起展开：发布扫描的第四道门（gitleaks）以 base 提交中的这两个文件为准，base 没有时才用受信安装中的副本。
+
 2026-10-20 的升级把受信安装升到了 main `7537c5b8`：同步的超时改为 60 秒，`review/*` 的同步随之生效；车道策略重新派生后与旧版一致。
+
+### 7.2a 合入与同步前的发布扫描（NX-060 后续）
+
+控制器在每次合入 main 之前，对 main..候选运行 `scripts/ci/prepush-scan.sh` 的四道门禁：私有路径、负责人的受限标识、凭据值、gitleaks。失败记为 `merge_scan_failed`。
+
+同步服务在每次推送 GitHub 之前，对“上次已同步的 main..main”运行同样的四道门禁；每个 `review/*` 分支只扫描它自己的新提交；从未同步过时扫描全部历史。失败记为 `sync_blocked`，这一轮什么都不推，unit 以 1 退出，之后每一轮重新扫描。
+
+脚本都取自受信安装，从不使用候选代码中的副本。
+
+首次启用的步骤，均为 B 类，需负责人确认，由调度员执行：
+
+1. **放置受限标识清单**：把负责人的私有清单（开发机上 `local-only/restricted-identifiers.txt` 的内容）放到主机的 `<GIT_ROOT>/private/restricted-identifiers.txt`，每行一个扩展正则。权限要保证 `nexloop-ci` 与 `nexloop-git` 能读、其他账户不能读。内容绝不进入仓库、日志或聊天记录。
+2. **升级受信安装**：按 §7.2，取包含本改动的 main SHA，**必须使用上面新的展开清单**。用旧清单展开时，受信安装中没有 `.gitleaks.toml` 与 `versions.lock.json`，从未同步过（或 base 中没有这两个文件）的扫描会一直失败。这是失败关闭，但同步会一直停在 blocked。
+3. **修改两个 unit**：两个 unit 的 `ExecStart` 末尾都加上 `--restricted-identifiers <GIT_ROOT>/private/restricted-identifiers.txt`，与 `deploy/stage/ci/` 中的模板一致。路径换成第 2 步的新受信安装，然后 `sudo systemctl daemon-reload`。
+4. **验证**：
+   - 同步：`sudo systemctl start nexloop-ci-sync.service` 跑一轮，`status` 的 `sync` 应为 `synced` 或 `sync_pending`，不应出现 `blocked`；
+   - 控制器：下一次合入，结果中没有 `merge_scan_failed`；
+   - `journalctl` 中没有 `FAIL` 行。
+5. **回退**：同 §7.2 第 6 步，把 unit 改回旧路径、去掉新参数，然后 `daemon-reload`。
+
+出现 `sync_blocked` 时：`nexloop_ci.py status` 的 `blocked` 给出失败的门禁（只有代号，不含内容）。
+
+- 待推送的提交里真有泄露：**不得改写已发布的历史，不得 force push main**。先轮换或吊销泄露的凭据，再由负责人决定如何处理；在此之前同步一直保持 blocked。
+- 误报：按 `docs/implementation/NX-060-gitleaks.md` §2 的规则，先单独提交一条窄 allowlist，经 owner ack 合入。
 
 ### 7.3 防火墙：带计数重新渲染，以及用 CI 账户做阳性对照
 

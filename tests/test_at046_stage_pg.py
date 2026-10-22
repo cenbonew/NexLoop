@@ -325,6 +325,40 @@ def test_the_periodic_system_bookkeeping_is_excluded_by_name_and_reported(admin,
     assert not set(A.EXCLUDED) & set(digests) and 'control.nexloop_action_definitions' in digests
 
 
+def test_x7_bookkeeping_and_the_owners_own_governance_claims_leave_the_digest_and_nothing_else(admin, pg):
+    """X7 third round S8 (release 38): real_side_unchanged reported control.nexloop_alert_events, runtime.nexloop_action_claims and
+    runtime.nexloop_retention_sweeps. The two timer tables leave by name; in the claim table only the owner's own governance Actions by
+    a workbench member leave - the same Action by another principal, or another Action by the member, still changes the digest."""
+    world_with_data(admin)
+    ports = A.Ports(probe=lambda: psycopg.connect(pg, autocommit=True, options='-c default_transaction_read_only=on'))
+
+    def changed(sql, params):
+        before = A.real_digest(ports, TENANT_A)
+        with admin.transaction():
+            admin.execute('set local session_replication_role=replica')  # rows as the timers and the governed entry write them
+            admin.execute(sql, params)
+        after = A.real_digest(ports, TENANT_A)
+        return sorted(t for t in set(before) | set(after) if before.get(t) != after.get(t))
+
+    assert {'control.nexloop_alert_events', 'runtime.nexloop_retention_sweeps'} <= set(A.EXCLUDED)
+    assert changed("insert into control.nexloop_alert_events(tenant_id,world,dedupe_key,rule_id,severity,kind,selector,value,threshold,rules_version,recorded_at) "
+                   "values(%s,'real','k','r','warning','firing','s',1,1,1,now())", (TENANT_A,)) == []
+    assert changed("insert into runtime.nexloop_retention_sweeps(tenant_id,world,item_class,last_started_at,last_completed_at,last_counts) "
+                   "values(%s,'real','read_audit',now(),now(),'{}')", (TENANT_A,)) == []
+    admin.execute("""insert into control.nexloop_browser_subjects(subject_id,payload) values('x7-owner-subject','{"kind":"human","status":"active"}')
+        on conflict do nothing""")
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into control.nexloop_browser_memberships values(%s,'x7-owner','x7-owner-subject',%s)""",
+                      (TENANT_A, Jsonb({'tenant_id': TENANT_A, 'principal_id': 'x7-owner', 'subject_id': 'x7-owner-subject', 'status': 'active', 'revision': 1})))
+    claim = "insert into runtime.nexloop_action_claims(tenant_id,world,action_name,intent_id,principal_id,claim) values(%s,'real',%s,%s,%s,'{}')"
+    assert changed(claim, (TENANT_A, 'nexloop.experiment.report', 'x7-i1', 'x7-owner')) == []          # the owner's report read
+    assert changed(claim, (TENANT_A, 'nexloop.shadow_copy.set', 'x7-i2', 'x7-owner')) == []            # the owner's switch
+    assert changed(claim, (TENANT_A, 'nexloop.experiment.report', 'x7-i3', 'some-service')) == ['runtime.nexloop_action_claims']  # not a member
+    assert changed(claim, (TENANT_A, 'nexloop.service.request', 'x7-i4', 'x7-owner')) == ['runtime.nexloop_action_claims']  # another Action
+    assert all(len(f[2]) > 20 for f in A.FILTERED.values())
+
+
 def test_prepare_can_publish_the_synthetic_twin_for_the_run_phase(tmp_path):
     """Stage finding 2026-10-22: the twin step blocked - no published consumer twin for inputs.twin. With inputs.publish_twin, prepare
     publishes the contract example's twin (generator twin-template/1, no model) through the owner's governed Action; the definition is

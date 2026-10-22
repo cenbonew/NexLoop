@@ -88,8 +88,11 @@ def _prepush(repo, main, base, restricted):
         if _git(repo, 'worktree', 'add', '--detach', '-q', str(tree), main).returncode != 0:
             raise Blocked('scan_failed')
         env = {**ci._stage_env({}), 'NEXLOOP_RESTRICTED_IDENTIFIERS_FILE': str(restricted)}
-        scanned = subprocess.run(['bash', str(ROOT / 'scripts/ci/prepush-scan.sh'), main, base], cwd=tree, capture_output=True, text=True, env=env)
-        if scanned.returncode != 0:
+        code, _ = ci.run_process_group(['bash', str(ROOT / 'scripts/ci/prepush-scan.sh'), main, base], cwd=tree, env=env,
+                                       timeout=ci.PREPUSH_SCAN_TIMEOUT)
+        if code is None:
+            raise Blocked('scan_timeout')
+        if code != 0:
             raise Blocked('scan_failed')
     finally:
         _git(repo, 'worktree', 'remove', '--force', str(tree))
@@ -149,7 +152,9 @@ def sync_github(repo, queue, remote, *, restricted_identifiers, tags=(), tag_sig
     if not state.get('last_synced'):
         state['last_synced'] = base  # the baseline the maintainer confirmed: the remote main before the first gated sync
         ci.write_atomic(path, state)
-    state = ci.sync(repo, queue, remote, timeout=timeout)  # NX-033: main only, fast-forward, pending when unreachable
+    state = ci.sync(repo, queue, remote, restricted_identifiers=restricted_identifiers, timeout=timeout)  # NX-033: scanned again, main only, fast-forward
+    if state['status'] == 'sync_blocked':
+        return _block(queue, remote, state, 'scan_failed', now)
     stamp = now.isoformat().replace('+00:00', 'Z')
     if state['status'] != 'synced':
         failures = state.get('failures', 1)

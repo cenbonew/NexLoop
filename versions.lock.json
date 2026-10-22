@@ -71,7 +71,7 @@
         "packages/eios-core/UPSTREAM_ADAPTER_TESTS.json"
       ],
       "lineage": "nexloop-eios-v1",
-      "bootstrap_revision": "0318",
+      "bootstrap_revision": "0320",
       "dependency_lock": "uv.lock"
     },
     "node": {
@@ -266,6 +266,26 @@
         "binary_sha256_linux_amd64": "09654d92ae31ad3a07b04889cd2be00f174a9c1399ff485cf16bb587ce1aad3c",
         "database_schema": "v5"
       }
+    },
+    "gitleaks": {
+      "version": "8.30.1",
+      "license": "MIT",
+      "source": "https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1",
+      "purpose": "NX-060: gate 4 of scripts/ci/prepush-scan.sh (outgoing added lines; --full for the whole history), configuration .gitleaks.toml",
+      "status": "installed_ci_host",
+      "installed_at": "2026-10-22",
+      "archives": {
+        "linux_amd64": "gitleaks_8.30.1_linux_x64.tar.gz",
+        "darwin_arm64": "gitleaks_8.30.1_darwin_arm64.tar.gz"
+      },
+      "checksums_file": "gitleaks_8.30.1_checksums.txt",
+      "archive_sha256_linux_amd64": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binary_sha256_linux_amd64": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "installed_location_ci_host": "/usr/local/bin/gitleaks (root:root 0755, not writable by the CI, Git hosting or release accounts; found on the systemd default PATH)",
+      "install": "scripts/ci/install-gitleaks.sh: the repository downloads nothing; the operator fetches the archive and the checksums file of this release from the source above, the script checks the archive against the published checksum (and against archive_sha256_* once recorded), installs the binary into the account's own directory without root and prints both digests. archive_sha256_linux_amd64 is to be computed independently on a second machine before the first CI host installation, and both digests are recorded here (B class, docs/implementation/NX-060-gitleaks.md §4).",
+      "digest_policy": "linux_amd64 (CI and release hosts): prepush-scan.sh gate 4 fails while binary_sha256_linux_amd64 is null and runs only a binary with that digest once recorded. darwin_arm64 (development machine): version check only, see development_machine. Any other platform: the gate fails.",
+      "development_machine": "Homebrew bottle gitleaks 8.30.1 (formula-pinned source build; its binary digest differs from the release archive's, so no darwin binary digest is recorded and the gate checks the version there)",
+      "distribution": "not distributed: installed on hosts from the official release, never committed or bundled (no THIRD_PARTY_NOTICES entry, as for syft and grype)"
     },
     "ssh-keygen": {
       "minimum_openssh": "8.2",

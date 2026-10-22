@@ -4,6 +4,10 @@
 # nexloop-ci cannot write (<TRUSTED_CI_DIR>, e.g. /opt/nexloop/ci-trusted/<sha12>), never a candidate; the lane policy likewise.
 # The queue and the identities file are under <GIT_ROOT>, where the post-receive hook (nexloop-git) reaches them too. The
 # EnvironmentFile holds the lane's non-secret stage environment (release-lane.env.example), never a secret.
+# --restricted-identifiers (NX-060 follow-up): before main moves, every merge runs the four publication gates of this trusted
+# installation's prepush-scan.sh on main..candidate (private paths, the owner's restricted identifiers, credential values,
+# gitleaks); a failure is merge_scan_failed. Without the list every merge is refused. The list is private (same directory and
+# permissions as identities.json), one extended regular expression per line, never in the repository.
 [Unit]
 Description=NexLoop CI controller (one build at a time)
 
@@ -14,7 +18,7 @@ WorkingDirectory=/tmp
 EnvironmentFile=<CI_ROOT>/private/release-lane.env
 Environment=PATH=<CI_HOME>/.local/opt/node/bin:<CI_HOME>/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=LC_ALL=C.UTF-8 LANG=C.UTF-8
-ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --policy <CI_ROOT>/lane-policy/<sha12> --identities <GIT_ROOT>/private/identities.json --stages-version 4
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py run-once --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --policy <CI_ROOT>/lane-policy/<sha12> --identities <GIT_ROOT>/private/identities.json --stages-version 4 --restricted-identifiers <GIT_ROOT>/private/restricted-identifiers.txt
 CPUWeight=20
 MemoryMax=<CI_MEMORY_MAX>
 NoNewPrivileges=yes

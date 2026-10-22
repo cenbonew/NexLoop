@@ -84,6 +84,24 @@ class Ports:
 EXCLUDED = {
     'control.nexloop_alert_state': 'the alert evaluator rewrites each rule\'s state every evaluation tick (NX-030), whether AT-046 runs or not',
     'runtime.nexloop_orphan_sweeps': 'the artifact orphan sweeper records each periodic sweep (0018), whether AT-046 runs or not',
+    # X7 third round S8 (release 38): the two timers below wrote these in the window while nothing of the experiment touched them.
+    'control.nexloop_alert_events': 'the alert evaluator appends a fired or resolved rule event each tick (NX-030), whether an experiment runs or not',
+    'runtime.nexloop_retention_sweeps': 'the retention keeper records each class sweep it ran (0129/0140), whether an experiment runs or not',
+}
+# The owner's own governance Actions of AT-046 and X7 (strategies, experiments, reports, the shadow copy switch, simulation worlds and
+# twins) leave a governed Action claim in world real under the owner's human principal. Those claims are the acceptance's own steps,
+# not an effect of the simulation on the real side, so they are left out of the claim table's digest - only them: every other claim
+# (any service or Run principal, any other Action, the same Actions by a non-member principal) is still compared.
+OWNER_GOVERNANCE_ACTIONS = ('nexloop.strategy.publish', 'nexloop.strategy.retire', 'nexloop.experiment.register', 'nexloop.experiment.start',
+                            'nexloop.experiment.stop', 'nexloop.experiment.report', 'nexloop.shadow_copy.set', 'nexloop.sim_world.create',
+                            'nexloop.sim_world.delete', 'nexloop.sim_world.publish_catalog', 'nexloop.sim_world.generate', 'nexloop.sim_clock.control',
+                            'nexloop.consumer_twin.publish',
+                            'nexloop.consumer_twin.retire', 'nexloop.consumer_twin.calibrate', 'nexloop.consumer_twin.erase_text')
+FILTERED = {
+    'runtime.nexloop_action_claims': (
+        "not (x.action_name = any(%s) and exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=x.tenant_id "
+        "and m.principal_id=x.principal_id))", (list(OWNER_GOVERNANCE_ACTIONS),),
+        'claims of the owner\'s own governance Actions (OWNER_GOVERNANCE_ACTIONS) by a workbench member are the acceptance\'s steps; every other claim is compared'),
 }
 
 
@@ -99,8 +117,8 @@ def real_digest(ports, tenant):
     parts, params = [], []
     for table, tenanted in tables:
         parts.append(f"select '{table}', md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from {table} x where world='real'"
-                     + (' and tenant_id=%s' if tenanted else ''))
-        params += [tenant] if tenanted else []
+                     + (' and tenant_id=%s' if tenanted else '') + (f' and {FILTERED[table][0]}' if table in FILTERED else ''))
+        params += ([tenant] if tenanted else []) + (list(FILTERED[table][1]) if table in FILTERED else [])
     # L6 review B1: two tables without a world column - the real service credentials and the tenant's authority facts. The tenant row
     # (authority_revision) is left out: a credential revocation is expected to advance it.
     for table, where in (('authz.nexloop_service_credentials', "'real' = any(x.worlds) and x.tenant_id=%s"), ('authz.nexloop_authority_facts', 'x.tenant_id=%s')):
@@ -311,7 +329,8 @@ def probe_after(ports, config, r, prior):
     after = real_digest(ports, tenant)
     changed = sorted(t for t in set(before) | set(after) if before.get(t) != after.get(t))
     r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (digests of all tables with a world column, the periodic system '
-           'bookkeeping excluded by name)', {'tables': len(before), 'changed': changed, 'excluded': EXCLUDED}, not changed and bool(before))
+           'bookkeeping excluded by name)', {'tables': len(before), 'changed': changed, 'excluded': EXCLUDED,
+                                              'filtered': {t: f[2] for t, f in FILTERED.items()}}, not changed and bool(before))
 
 
 def run(ports, config, r, prior=None):

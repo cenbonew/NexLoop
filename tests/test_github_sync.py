@@ -52,7 +52,8 @@ def lab(tmp_path, monkeypatch):
             git('push', '-q', 'origin', 'HEAD:refs/heads/main', cwd=work)
         return sha
 
-    base = commit('base', {'README.md': 'synthetic\n'})
+    # The prepush scan's gitleaks gate (NX-060) reads the configuration from the scanned commit, as in the real repository.
+    base = commit('base', {'README.md': 'synthetic\n', '.gitleaks.toml': (ROOT / '.gitleaks.toml').read_text()})
     git('push', '-q', str(github), f'{base}:refs/heads/main', cwd=work)  # the remote before the first gated sync
 
     def sync(**kw):
@@ -168,3 +169,10 @@ def test_cli_exit_codes(lab):
     assert synced.returncode == 0 and json.loads(synced.stdout)['status'] == 'synced'
     bad = subprocess.run(args[:-6] + ['--remote', 'nonexistent', '--restricted-identifiers', 'x'], capture_output=True, text=True)
     assert bad.returncode == 2
+
+
+def test_a_scan_that_does_not_finish_blocks_with_scan_timeout(lab, monkeypatch):
+    lab['commit']('feature', {'feature.txt': 'x\n'})
+    monkeypatch.setattr(sg.ci, 'PREPUSH_SCAN_TIMEOUT', 0.01)
+    state = lab['sync'](baseline=lab['base'])
+    assert state['status'] == 'sync_blocked' and state['failure'] == 'scan_timeout' and lab['remote_main']() == lab['base']
