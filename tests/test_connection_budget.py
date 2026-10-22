@@ -254,3 +254,20 @@ def test_a_missing_long_running_service_fails_the_budget():
         result=budget.evaluate(document)
         assert not result['passed'] and result['checks']=={'application_pool_total':True,'all_services_declared':False,'runtime_dispatch_loops':True}
         assert result['details']['missing_services']==[name]
+
+
+def test_the_deploy_gate_requires_the_semantic_pool_flag_to_match_the_budget():
+    """NX-038 E3 wiring (L6 review 5.1): the relay's --semantic-read-pool-max equals its budget entry (absent = 0)."""
+    from nexloop_eios.deploy_checks import compose_budget
+    budget_doc = copy.deepcopy(DOCUMENT)
+    services = {'relay': {'labels': {'nexloop.budget-service': 'message-relay'}, 'command': ['--pool-max', '2']}}
+    compose = {'services': services}
+    entry = relay(budget_doc)
+    entry.pop('semantic_read_pool_max', None)
+    assert 'semantic_read_pool_differs:relay' not in compose_budget(budget_doc, compose)['details']['compose_budget']
+    entry['semantic_read_pool_max'] = 1
+    assert 'semantic_read_pool_differs:relay' in compose_budget(budget_doc, compose)['details']['compose_budget']
+    services['relay']['command'] += ['--semantic-read-pool-max', '1']
+    assert 'semantic_read_pool_differs:relay' not in compose_budget(budget_doc, compose)['details']['compose_budget']
+    entry.pop('semantic_read_pool_max')
+    assert 'semantic_read_pool_differs:relay' in compose_budget(budget_doc, compose)['details']['compose_budget']
