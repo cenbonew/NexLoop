@@ -62,7 +62,7 @@ for f in "$HBA" "$STAGE_ENV" "$RELEASE_CHECKOUT/scripts/deploy/render.py" "$RELE
   [ -f "$f" ] || fail 1 "missing $(basename "$f")"; done
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT; chmod 0700 "$WORK"
 cp "$STAGE_ENV" "$WORK/stage.env"; chmod 0600 "$WORK/stage.env"
-python3 "$RELEASE_CHECKOUT/scripts/deploy/render.py" --env "$WORK/stage.env" --template "$RELEASE_CHECKOUT/deploy/stage/config/pg_hba.conf.template" \
+"${HOST_HEALTH_PYTHON:-python3}" -I "$RELEASE_CHECKOUT/scripts/deploy/render.py" --env "$WORK/stage.env" --template "$RELEASE_CHECKOUT/deploy/stage/config/pg_hba.conf.template" \
   --out "$WORK/pg_hba.conf" >/dev/null || fail 1 "pg_hba render refused"
 removed=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^< //p')
 added=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^> //p')

@@ -79,11 +79,14 @@ def trusted_code(config, trust):
     scripts), the interpreter the venv is made from, and this installer's own directory with the scripts it calls."""
     trust(config['release_checkout'], what='release_checkout')
     trust(config['python'], what='python')
-    for name in ('host_health_install.py', 'host_health_hba_data_host.sh', 'host_recorder_password.py', 'configurator_window.py'):
-        trust(HERE / name, what='installer')
-    if config['host_role'] == 'data_host':
-        trust(Path(config['release_checkout']) / 'scripts/deploy/render.py', what='render.py')
-        trust(Path(config['release_checkout']) / 'packages/eios-core/src/nexloop_eios/private_configuration.py', what='private_configuration.py')
+    # R2: whole trees - root imports nexloop_eios (host_recorder_password.py, render.py) and runs scripts/deploy, on both hosts.
+    checkout = Path(config['release_checkout'])
+    for tree, what in ((HERE, 'installer'), (checkout / 'scripts/deploy', 'scripts/deploy'), (checkout / 'packages/eios-core/src', 'packages/eios-core/src')):
+        trust(tree, what=what)
+        for path in sorted(tree.rglob('*')):
+            if '__pycache__' in path.parts:
+                continue
+            trust(path, what=what)
 
 
 def run(command, *, stdin=None, check=True):
@@ -208,7 +211,7 @@ def release(root, config, runner, trust):
         runner([config['python'], '-m', 'venv', str(work / 'venv')])
         runner([str(work / 'venv/bin/pip'), 'install', '--require-hashes', '--no-deps', '--disable-pip-version-check', '--no-cache-dir',
                 '--index-url', config['pip_index_url'], '-r', str(work / 'requirements.txt')])
-        runner([str(work / 'venv/bin/python'), '-c', 'import psycopg'])
+        runner([str(work / 'venv/bin/python'), '-I', '-c', 'import psycopg'])
         (work / '.complete').write_text(config['release_sha'] + '\n')
         _read_only(work)
         os.rename(work, target)
@@ -245,9 +248,10 @@ def install(root, config, passwords, runner, out, trust=root_owned):
             conf = Path(tmp) / 'hba.conf'
             conf.write_text(f'NEXLOOP_ROOT={config["hba"]["nexloop_root"]}\nSTAGE_ENV={config["hba"]["stage_env"]}\nRELEASE_CHECKOUT={config["release_checkout"]}\n')
             os.chmod(conf, 0o600)
-            print(runner(['bash', str(HERE / 'host_health_hba_data_host.sh'), str(conf)]).strip(), file=out)
+            # S2: the hba script renders with the configured interpreter, isolated (-I).
+            print(runner(['env', f'HOST_HEALTH_PYTHON={config["python"]}', 'bash', str(HERE / 'host_health_hba_data_host.sh'), str(conf)]).strip(), file=out)
         lines = ''.join(f'{h}\t{p}\n' for h, p in sorted(passwords.items()))
-        set_out = runner([venv_python, str(HERE / 'host_recorder_password.py'), '--bootstrap-dsn-file', config['bootstrap_dsn_file']], stdin=lines).strip()
+        set_out = runner([venv_python, '-I', str(HERE / 'host_recorder_password.py'), '--bootstrap-dsn-file', config['bootstrap_dsn_file']], stdin=lines).strip()
         if '"set"' not in set_out:
             raise Failed('recorder passwords not set: ' + set_out[:200])
         print(set_out, file=out)
@@ -267,7 +271,7 @@ def install(root, config, passwords, runner, out, trust=root_owned):
     runner(['systemctl', 'daemon-reload'])
     step(5, 'units installed')
     probe = root / 'opt/nexloop/host-health/current'
-    summary = runner([str(probe / 'venv/bin/python'), str(probe / 'host_health_probe.py'), '--config', '/etc/nexloop/host-health.json', '--dry-run'])
+    summary = runner([str(probe / 'venv/bin/python'), '-I', str(probe / 'host_health_probe.py'), '--config', '/etc/nexloop/host-health.json', '--dry-run'])
     try:
         doc = json.loads(summary.splitlines()[-1])
         doc.pop('entry', None)

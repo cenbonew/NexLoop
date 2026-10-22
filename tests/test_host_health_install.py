@@ -56,7 +56,7 @@ class Runner:
             return json.dumps({'host_role': 'x', 'blind': self.blind, 'units': 3, 'entry': {'units': []}}) + '\n'
         if command[-1].endswith('hba.conf'):
             return 'done: host health lines installed and reloaded (2 rule(s) added)\n'
-        if command[1].endswith('host_recorder_password.py'):
+        if any(str(a).endswith('host_recorder_password.py') for a in command):
             return '{"set": ["nexloop_host_recorder_app_host", "nexloop_host_recorder_data_host"]}\n'
         return ''
 
@@ -102,7 +102,7 @@ def test_app_host_installs_reruns_unchanged_and_uninstalls(tmp_path):
     assert pip and '--require-hashes' in pip[0] and '--no-deps' in pip[0]
     order = [c[:3] for c in runner.calls if c[0] == 'systemctl' or c[-1] == '--dry-run']
     assert order[-2][-1] != 'enable' and runner.calls[-1] == ['systemctl', 'enable', '--now', 'nexloop-host-health.timer']  # dry run first
-    assert 'dry-run: {"blind": false' in text and not any(c[0] == 'bash' for c in runner.calls)  # no pg_hba on APP_HOST
+    assert 'dry-run: {"blind": false' in text and not any('host_health_hba_data_host.sh' in ' '.join(c) for c in runner.calls)  # no pg_hba on APP_HOST
     secrets_absent(text, runner)
     # Rerun: the release is reused (no pip), the files are unchanged.
     code, text, runner = install(tmp_path, cfg, f'app_host\t{APP_PW}\n')
@@ -121,9 +121,9 @@ def test_app_host_installs_reruns_unchanged_and_uninstalls(tmp_path):
 def test_data_host_sets_pg_hba_and_both_passwords_through_stdin(tmp_path):
     code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
     assert code == 0, text
-    hba = [c for c in runner.calls if c[0] == 'bash']
-    assert hba and hba[0][1].endswith('host_health_hba_data_host.sh')
-    password = [(c, s) for c, s in zip(runner.calls, runner.stdins) if c[1].endswith('host_recorder_password.py')]
+    hba = [c for c in runner.calls if 'host_health_hba_data_host.sh' in ' '.join(c)]
+    assert hba and hba[0][:2] == ['env', f'HOST_HEALTH_PYTHON={example("data-host")["python"]}']  # S2: the configured interpreter
+    password = [(c, s) for c, s in zip(runner.calls, runner.stdins) if any(str(a).endswith('host_recorder_password.py') for a in c)]
     assert password and password[0][0][0].endswith('host-health/current/venv/bin/python')  # the venv's psycopg, not the system python
     assert password[0][1] == f'app_host\t{APP_PW}\ndata_host\t{DATA_PW}\n'
     dsn = (tmp_path / 'root/etc/nexloop/host-recorder.dsn').read_text()
@@ -265,7 +265,7 @@ def test_root_executes_only_root_owned_code(tmp_path):
     code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
     assert code == 0, text
     what = {w for w, _ in TRUSTED}
-    assert {'release_checkout', 'python', 'installer', 'render.py', 'release base'} <= what
+    assert {'release_checkout', 'python', 'installer', 'release base'} <= what
     assert ('release_checkout', '/srv/release') in TRUSTED and ('python', example('data-host')['python']) in TRUSTED
     # The real check: this test's files are not uid 0 (refused); a symbolic link is refused too.
     with pytest.raises(I.Refused, match='owned by root'):
@@ -289,4 +289,44 @@ def test_a_reused_release_is_checked_again(tmp_path):
         if what == 'release':
             raise I.Refused('release: must be owned by root')
     code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', None, trust=refuse_release)
+    assert code == 2 and 'release' in text and not any(c[0] == 'systemctl' for c in runner.calls)
+
+
+class FakeStat:
+    def __init__(self, mode, uid=0):
+        self.st_mode, self.st_uid = mode, uid
+
+
+def test_the_real_check_refuses_a_link_a_writable_directory_or_another_owner_anywhere_on_the_path(monkeypatch):
+    """S5: the root_owned check over a whole path, with lstat answers standing for a root-owned tree except one level."""
+    def tree(bad=None, how=None):
+        def lstat(path):
+            path = str(path)
+            if path == bad:
+                return {'link': FakeStat(stat.S_IFLNK | 0o777), 'group': FakeStat(stat.S_IFDIR | 0o775), 'other': FakeStat(stat.S_IFDIR | 0o757),
+                        'owner': FakeStat(stat.S_IFDIR | 0o755, uid=1000)}[how]
+            return FakeStat(stat.S_IFDIR | 0o755)
+        return lstat
+    target = '/opt/nexloop/release-x/scripts/deploy/host_health_install.py'
+    monkeypatch.setattr(I.os, 'lstat', tree())
+    I.root_owned(target, what='x')  # all root's: accepted
+    for how, text in (('link', 'symbolic link'), ('group', 'not group/other-writable'), ('other', 'not group/other-writable'), ('owner', 'owned by root')):
+        monkeypatch.setattr(I.os, 'lstat', tree('/opt/nexloop/release-x', how))  # an intermediate level
+        with pytest.raises(I.Refused, match=text):
+            I.root_owned(target, what='x')
+
+
+def test_a_reused_release_with_a_file_of_another_owner_is_refused(tmp_path, monkeypatch):
+    """S5 / I2: the real check over a reused release - one file not root's stops the run before systemctl."""
+    assert install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n')[0] == 0
+    planted = next((tmp_path / 'root/opt/nexloop/host-health' / SHA).rglob('host_health_probe.py'))
+
+    def owner_check(path, *, what):
+        if what == 'release':
+            info = os.lstat(path)
+            if str(path) == str(planted):
+                raise I.Refused('release: must be owned by root')  # stands for a uid other than 0
+            return info
+        return None
+    code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', None, trust=owner_check)
     assert code == 2 and 'release' in text and not any(c[0] == 'systemctl' for c in runner.calls)

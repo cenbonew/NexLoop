@@ -89,7 +89,18 @@ hostssl __NEXLOOP_DB__ nexloop_host_recorder_app_host __APP_HOST_ADDR__/32  scra
 
 复用已有的 release 时，同样逐个文件核对。安装过程中的 umask 为 022。
 
-因此，**发布 checkout 必须是 root:root、只读的一份拷贝**，例如 `sudo git clone --branch <tag 或 sha> … /opt/nexloop/release-<sha>`，或者 `sudo git -C … archive <sha> | sudo tar -x -C /opt/nexloop/release-<sha>`（archive 没有 .git，安装器需要 git，所以用 clone），然后 `sudo chown -R root:root` 和 `sudo chmod -R go-w`。部署账号自己 checkout 的工作树会被拒绝。
+因此，**发布 checkout 必须是 root:root、只读的一份拷贝**，部署账号自己的工作树会被拒绝。做法（R1）：
+
+```
+sudo git clone <仓库> /opt/nexloop/release-<sha>
+sudo git -C /opt/nexloop/release-<sha> checkout --detach <sha>
+sudo chown -R root:root /opt/nexloop/release-<sha>
+sudo chmod -R go-w /opt/nexloop/release-<sha>
+```
+
+- 核对的范围（R2）：两台主机上都对 `scripts/deploy` 与 `packages/eios-core/src` **全树**逐个文件核对（root 以 `-I` 运行其中的脚本，并 import `nexloop_eios`）。
+- 解释器（S1）：配置中的 `python` 必须是真实文件的路径，不能是符号链接，例如 `/opt/nexloop/python-3.12.15/bin/python3.12` 或 `/usr/bin/python3.12`；`/usr/bin/python3` 是符号链接，会被拒绝。运行安装器本身的解释器用 `HOST_HEALTH_PYTHON` 指定（默认 `python3`）；所有 python 调用都加 `-I`，不读取环境变量和当前目录。
+- **真正的防线是这一条前置条件**（S4）：安装器的核对是在执行前确认它成立，而不是替代它。检查与执行之间仍有极短的时间窗；只要 checkout 和 `/opt/nexloop` 从一开始就只有 root 可写，这个窗口就无从利用。
 
 ### 4.2b 准备（调度员，Mac）
 

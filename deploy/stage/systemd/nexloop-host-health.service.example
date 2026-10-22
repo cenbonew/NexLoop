@@ -13,7 +13,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/nexloop/host-health/current/venv/bin/python /opt/nexloop/host-health/current/host_health_probe.py --config /etc/nexloop/host-health.json
+ExecStart=/opt/nexloop/host-health/current/venv/bin/python -I /opt/nexloop/host-health/current/host_health_probe.py --config /etc/nexloop/host-health.json
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
