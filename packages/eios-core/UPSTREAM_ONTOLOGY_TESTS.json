@@ -1,0 +1,16 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT",
+  "scope": "Frozen static Definition dependency graph tests (A1 impact analysis, eios-capability-gap); run against the vendored eios.ontology.impact",
+  "tests": [
+    {
+      "source_path": "tests/ontology/test_impact_analysis.py",
+      "destination": "tests/upstream/test_eios_impact_analysis.py",
+      "upstream_sha256": "058b8c57f381e85742bc1e33ed850155468e48cc7c1a7dd5ae0eca648b6f6e91",
+      "nexloop_sha256": "376f7a76ea753e5df5b7bff3c1a2643ed3177a511de0053b258b1eac4d926aa1",
+      "adaptations": [
+        "eios.composition.schema_contracts.object_type_reference is not vendored: the test defines the same function over the vendored eios.ontology.semantics.schema_contract_digest"
+      ]
+    }
+  ]
+}

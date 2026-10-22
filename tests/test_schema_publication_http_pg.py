@@ -103,3 +103,53 @@ def test_another_tenants_proposal_is_unknown(workbench):
         assert client.get(f'{BASE}/{other}/basis').status_code == 404 and client.get(f'{BASE}/{other}/check').status_code == 404
         assert post(client, f'{BASE}/{other}/publish', {'rationale': 'synthetic'}, 'synthetic-schema-0004').status_code == 404
     assert admin.execute('select status from ontology.nexloop_schema_proposals where proposal_id=%s', (other,)).fetchone()[0] == 'frozen'
+
+
+def test_check_lists_the_published_definitions_the_proposal_may_affect(workbench):
+    """EIOS gap A1 (NX-061): the check answers, before publishing, which Object Sets / Views / Functions / Actions depend on the
+    proposal's type, and which of them on the property it changes (the vendored eios.ontology.impact graph over 0319's rows)."""
+    from psycopg.types.json import Jsonb
+    from test_object_sets_pg import publish as publish_set, seed_type
+    from test_object_views_pg import publish as publish_view
+    w = workbench
+    admin = w['admin']
+    f = setup(w, (w['owner'], 'owner'))
+    seed_type(admin)  # Consumer v97: sport, level, income, note
+    admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Store',1,%s)",
+                  (TENANT, Jsonb({'type_name': 'Store', 'version': 1, 'properties': [{'property_name': 'city', 'value_type': 'string'}],
+                                  'property_groups': [{'group_name': 'place', 'property_names': ['city']}]})))
+    assert publish_set(admin, {'stable_name': 'consumer.by_level', 'object_type': 'Consumer', 'reason': '按等级',
+                               'filters': [{'property': 'level', 'operator': 'gte', 'value': 3}], 'projection': ['sport']})['version'] == 1
+    assert publish_set(admin, {'stable_name': 'consumer.by_sport', 'object_type': 'Consumer', 'reason': '按运动',
+                               'filters': [{'property': 'sport', 'operator': 'eq', 'value': '网球'}], 'projection': ['sport']})['version'] == 1
+    assert publish_set(admin, {'stable_name': 'store.by_city', 'object_type': 'Store', 'reason': '按城市',
+                               'filters': [{'property': 'city', 'operator': 'eq', 'value': '上海'}], 'projection': ['city']})['version'] == 1
+    assert publish_view(admin, {'stable_name': 'consumer.card', 'object_type': 'Consumer', 'title_property': 'sport', 'reason': '卡片',
+                                'sections': [{'name': 'main', 'title': '主要', 'fields': ['sport', 'level']}], 'relations': []})['version'] == 1
+    level = proposal(f, 'add_vocabulary_value', 'Consumer', {'property_name': 'level', 'value': '5'})
+    added = proposal(f, 'add_optional_property', 'Consumer', {'property_name': 'preferred_store', 'value_type': 'string'})
+    before = counts(admin)
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        out = client.get(f'{BASE}/{level}/check').json()['impact']
+        names = {(d['definition_type'], d['stable_name']): d for d in out['dependents']}
+        assert out['type_name'] == 'Consumer' and out['changed_properties'] == ['level'] and out['unreadable'] == []
+        assert ('object_set', 'store.by_city') not in names  # another type's Definition is not listed
+        assert any(k[0] == 'action' for k in names)  # the Consumer Actions of the fixture depend on the type too
+        assert {k for k in names if k[0] in ('object_set', 'object_view')} == {
+            ('object_set', 'consumer.by_level'), ('object_set', 'consumer.by_sport'), ('object_view', 'consumer.card')}
+        assert names[('object_set', 'consumer.by_level')]['changed_properties'] == ['level']
+        assert names[('object_view', 'consumer.card')]['changed_properties'] == ['level']
+        assert names[('object_set', 'consumer.by_sport')]['changed_properties'] == []  # depends on the type, not on `level`
+        assert names[('object_set', 'consumer.by_level')]['pinned_type_version'] == 97
+        assert out['affected_by_changed_properties'] == sum(1 for d in out['dependents'] if d['changed_properties']) >= 2
+        assert out['dependents'][0]['changed_properties']  # the property-affected ones come first
+        new = client.get(f'{BASE}/{added}/check').json()['impact']
+        assert new['changed_properties'] == ['preferred_store'] and new['affected_by_changed_properties'] == 0  # nothing reads it yet
+        assert {(d['definition_type'], d['stable_name']) for d in new['dependents']} >= {('object_set', 'consumer.by_level'), ('object_view', 'consumer.card')}
+    with w['client']() as client:  # the operator holds no ontology.schema.review: no check, so no impact either
+        configure(w, (w['owner'], 'owner'), (w['operator'], 'operator'))
+        write_facts(admin, compile_members(ROLES, members_file((w['owner'], 'owner'), (w['operator'], 'operator'))))
+        assert workbench_login(client, w['operator']).status_code == 200
+        assert client.get(f'{BASE}/{level}/check').status_code == 403
+    assert counts(admin) == before  # the check writes nothing

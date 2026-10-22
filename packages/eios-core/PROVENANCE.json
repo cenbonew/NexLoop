@@ -669,6 +669,13 @@
         "trust_env=False (no proxy, CA or netrc from the environment) and the CA source chosen by the caller (system store, certifi or a CA file), built in the child"
       ],
       "nexloop_sha256": "f3dfd6e4bd7f8896503ed23a92c279912e629acb4445c4627ad9d64ae2fbb59b"
+    },
+    {
+      "source_path": "src/eios/ontology/impact.py",
+      "destination": "packages/eios-core/src/eios/ontology/impact.py",
+      "upstream_sha256": "c86b2dcde8bd0d3987d06222e6cfe25a53ff70b6ae353aabc02633ab2ba4d290",
+      "adaptations": [],
+      "nexloop_sha256": "c86b2dcde8bd0d3987d06222e6cfe25a53ff70b6ae353aabc02633ab2ba4d290"
     }
   ]
 }
