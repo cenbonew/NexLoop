@@ -15,6 +15,8 @@ MIN_MAX_CONNECTIONS = 80
 SCHEMA = 'nexloop.connection-budget.v1'
 _NAME = re.compile('[a-z][a-z0-9-]{0,63}')
 _SERVICE_KEYS = {'name', 'processes', 'pool_max'}
+# NX-038 E3 wiring (L6 review 5.1): a process's semantic-read pool of the Context assembly (0..4 connections), counted per process.
+_OPTIONAL_KEYS = {'semantic_read_pool_max'}
 _RUNTIME_KEYS = {'name', 'processes', 'guard_workers', 'dispatcher_pool_max', 'guard_pool_max', 'dispatch_loops'}
 
 
@@ -58,9 +60,14 @@ def service_connections(service):
         _positive(service['dispatch_loops'], 'dispatch_loops', 16)
         per_process = guard if workers == 1 else dispatcher + workers * guard
     else:
-        if set(service) != _SERVICE_KEYS:
+        if not _SERVICE_KEYS <= set(service) <= _SERVICE_KEYS | _OPTIONAL_KEYS:
             raise BudgetInvalid('service entry has unexpected fields')
         per_process = _positive(service['pool_max'], 'pool_max', 32)
+        if 'semantic_read_pool_max' in service:
+            semantic = service['semantic_read_pool_max']
+            if type(semantic) is not int or not 0 <= semantic <= 4:
+                raise BudgetInvalid('semantic_read_pool_max must be an integer 0..4')
+            per_process += semantic
     return processes * per_process
 
 

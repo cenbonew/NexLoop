@@ -465,6 +465,16 @@ def compose_budget(budget, compose):
     for entry in seen:
         if entry not in declared:
             problems.append('service_not_in_budget:' + entry)
+    # NX-038 E3 wiring (L6 review 5.1): a container's --semantic-read-pool-max is exactly its budget entry's
+    # semantic_read_pool_max (absent = 0), so the semantic-read pool the process opens is the one the budget counts.
+    semantic = {s['name']: s.get('semantic_read_pool_max', 0) for s in budget.get('services', []) if type(s) is dict}
+    for name, spec in (compose.get('services') or {}).items():
+        label = ((spec.get('labels') or {}).get(BUDGET_LABEL) or '').strip()
+        command = [str(c) for c in (spec.get('command') or [])] if type(spec.get('command')) is list else []
+        flag = command[command.index('--semantic-read-pool-max') + 1] if '--semantic-read-pool-max' in command[:-1] else '0'
+        wanted = sum(semantic.get(e, 0) for e in label.split(',')) if label and label != 'none' else 0
+        if flag != str(wanted):
+            problems.append('semantic_read_pool_differs:' + name)
     return {'checks': {'compose_matches_budget': not problems}, 'details': {'compose_budget': sorted(problems)}}
 
 

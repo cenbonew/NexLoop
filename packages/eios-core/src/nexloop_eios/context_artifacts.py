@@ -16,8 +16,62 @@ from nexloop_eios.effect_contexts import EffectContextRegistrar
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.context_pack import command_binding,encode_pack
 
+import logging
+_log=logging.getLogger(__name__)
 ACTION='nexloop.context.bind'
 MEDIA='application/vnd.nexloop.context+json'
+# NX-038 E3 wiring (option A, dispatcher 2026-10-22): the most the semantic read may add to a Context assembly.
+SEMANTIC_READ_TIMEOUT_SECONDS=0.5
+# L6 review 2.1: the read runs on its own small pool (never the Context pool), each statement ends in the database after
+# SEMANTIC_STATEMENT_TIMEOUT, and at most SEMANTIC_READ_CONCURRENCY reads run at once per process (more are skipped, counted).
+# L6 review 5.1 (ADR-024): that pool is part of the process's declared connection budget (connection-budget.v1.json
+# semantic_read_pool_max), so its size is the process's configuration (configure_semantic_reads); 0, the default, opens no pool and
+# reads nothing (counted skipped) - a process reads semantics only with budgeted connections.
+SEMANTIC_STATEMENT_TIMEOUT='400ms'
+SEMANTIC_READ_CONCURRENCY=0
+SEMANTIC_READ_POOL_LIMIT=4
+_semantic_lock=__import__('threading').Lock()
+_semantic_slots=None
+_semantic_executor=None
+_semantic_pools={}
+
+
+def configure_semantic_reads(pool_max):
+    """The process's semantic-read pool size and concurrency, as its connection budget declares (0..SEMANTIC_READ_POOL_LIMIT). Set
+    once at process start, before any Context is assembled."""
+    global SEMANTIC_READ_CONCURRENCY,_semantic_slots,_semantic_executor
+    import threading
+    if type(pool_max) is not int or not 0<=pool_max<=SEMANTIC_READ_POOL_LIMIT:raise ValueError('semantic read pool size')
+    with _semantic_lock:
+        if _semantic_pools or _semantic_executor is not None:
+            if pool_max!=SEMANTIC_READ_CONCURRENCY:raise ValueError('semantic reads already configured')
+            return
+        SEMANTIC_READ_CONCURRENCY=pool_max
+        _semantic_slots=threading.BoundedSemaphore(pool_max) if pool_max else None
+
+
+def _semantic_pool(pool):
+    """The process's semantic-read pool for this database: same conninfo and role as the Context pool, at most
+    SEMANTIC_READ_CONCURRENCY connections, statement_timeout set on each - so a slow database never holds a Context connection."""
+    from psycopg_pool import ConnectionPool
+    base=getattr(pool,'_pool',pool)
+    key=(base.conninfo,repr(sorted((base.kwargs or {}).items())))
+    with _semantic_lock:
+        if key not in _semantic_pools:
+            def configure(connection):
+                connection.execute('select set_config(%s,%s,false)',('statement_timeout',SEMANTIC_STATEMENT_TIMEOUT));connection.commit()
+            _semantic_pools[key]=ConnectionPool(base.conninfo,connection_class=base.connection_class,kwargs=dict(base.kwargs or {}),min_size=0,max_size=SEMANTIC_READ_CONCURRENCY,
+                configure=configure,timeout=SEMANTIC_READ_TIMEOUT_SECONDS,open=True,name='semantic-read')
+        return _semantic_pools[key]
+
+
+def _semantic_workers():
+    global _semantic_executor
+    import concurrent.futures
+    with _semantic_lock:
+        if _semantic_executor is None:
+            _semantic_executor=concurrent.futures.ThreadPoolExecutor(max_workers=SEMANTIC_READ_CONCURRENCY,thread_name_prefix='semantic-read')
+        return _semantic_executor
 
 def context_binding_schema():
     return {'type':'object','properties':{'message_id':{'type':'string','pattern':'^[a-f0-9]{64}$'},'run_id':{'type':'string','format':'uuid'}},'required':['message_id','run_id'],'additionalProperties':False}
@@ -217,6 +271,9 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         super().__init__(services);self.strategy_id=strategy_id
         self.last_diagnostic=None;self.last_check=None;self.run=None;self.last_mismatch=None;self._sent_items=None
         self.degrade=False  # only the fallback reply Run may degrade (FallbackContextV6Producer)
+        # NX-038 E3 wiring: per-producer counts of the semantic read (recorded, timed out, failed) and the Run it last read for.
+        self.semantic={'read':0,'timeout':0,'failed':0,'skipped':0};self._semantic_run=None
+        self.semantic_reads=True  # the fallback reply Run does not read (L6 5.1: its message Run already recorded the read)
         # 0227 operator persona slice 1: the message Run bind (0227 copy of 0187) takes the section; the fallback bind does not yet.
         self.operator_persona=True
         # With relationship assessments the core is the frozen v4 chain (0076), not v2.
@@ -249,6 +306,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
         strategy=StrategyRegistry(self.pool,self.session,self.signer,run=self.run).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
         consumer=command['consumer_ref'].removeprefix('consumer:')
+        self._semantic_read(strategy.definition,core['user_statement'],command['run_id'])
         found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_ids=[core['user_statement']['conversation_id']],strategy=strategy.definition,
             current_message_id=core['user_statement']['message_id'],current_sequence=core['user_statement']['sequence'])
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
@@ -278,6 +336,49 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
             except ValueError as error:
                 if str(error)!='context_pack_too_large':raise
         raise ValueError('fallback_context_unsafe')
+
+    def _semantic_read(self,strategy,statement,run_id):
+        """NX-038 E3 wiring, option A (dispatcher 2026-10-22; design §2.2): while the strategy's semantic.enabled is on, one browse
+        of the current statement through SemanticAdapter with a SemanticAccessRecorder bound to this Run (tenant and world are the
+        service identity's, checked again by the SQL port). Its result is not put in the pack (the bind verifies no definition item;
+        option B is a follow-up), so the model sees no definition and no use record is written; context_id stays empty (the Context
+        is bound after this). Best effort and bounded: at most SEMANTIC_READ_TIMEOUT_SECONDS, once per Run; a timeout or an error is
+        counted here and never fails the assembly or the Run. L6 review 2.1: its own pool (statement_timeout in the database), one
+        process executor and at most SEMANTIC_READ_CONCURRENCY reads at once; a read beyond that is skipped and counted."""
+        sem=strategy.get('semantic') or {}
+        if not self.semantic_reads or sem.get('enabled') is not True or self._semantic_run==run_id or not (statement or {}).get('body'):return
+        self._semantic_run=run_id
+        slots=_semantic_slots
+        if slots is None:  # no budgeted semantic-read pool in this process (configure_semantic_reads)
+            self.semantic['skipped']+=1;_log.warning('semantic read skipped: no budgeted pool');return
+        if not slots.acquire(blocking=False):  # the process already runs its maximum of reads: skip, never wait
+            self.semantic['skipped']+=1;_log.warning('semantic read skipped: concurrency limit');return
+        import concurrent.futures
+        from nexloop_eios.context_engine.semantic import SemanticAccessRecorder,SemanticAdapter,SemanticConfig
+        from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall
+        session,signer,body=self.session,self.signer,statement['body']  # ServiceSession is frozen (immutable): safe to share
+        try:pool=_semantic_pool(self.pool)
+        except Exception as error:
+            slots.release();self.semantic['failed']+=1;_log.warning('semantic read failed: %s',type(error).__name__);return
+        def read():
+            try:
+                recall=OntologyRecall(pool,session,authorizer=EiosRecallAuthorizer(pool,session))  # full text only: no embedding call
+                recorder=SemanticAccessRecorder(pool,session,signer,run_id=run_id)
+                SemanticAdapter(pool,session,signer,recall,config=SemanticConfig(top_k=sem['top_k'],ambiguity_margin=sem['ambiguity_margin']),
+                    recorder=recorder).browse(body,limit=sem['top_k'])
+                return recorder
+            finally:slots.release()  # the slot is held until the read really ends, not until the caller stops waiting
+        try:
+            future=_semantic_workers().submit(read)
+        except Exception as error:
+            slots.release();self.semantic['failed']+=1;_log.warning('semantic read failed: %s',type(error).__name__);return
+        try:
+            recorder=future.result(timeout=SEMANTIC_READ_TIMEOUT_SECONDS)
+            self.semantic['read' if recorder.written else 'failed']+=1
+        except concurrent.futures.TimeoutError:
+            self.semantic['timeout']+=1;_log.warning('semantic read timed out')
+        except Exception as error:  # never the Run's failure (design D2); the type only, never content
+            self.semantic['failed']+=1;_log.warning('semantic read failed: %s',type(error).__name__)
 
     def _operator_persona(self,consumer):
         """0227: the tenant's operator persona section for this Consumer (persona@version, document, AI disclosure), or None.
@@ -366,6 +467,9 @@ class FallbackContextV6Producer(ContextV6ArtifactProducer):
         super().__init__(services,strategy_id)
         self.degrade=True
         self.operator_persona=False  # the fallback bind (0212) accepts no operator persona section yet
+        # NX-038 E3 wiring (L6 review 5.1): no semantic read - the message Run of the same message already recorded it, and the
+        # reply-guarantor process then needs no semantic-read connections in its budget.
+        self.semantic_reads=False
 
     def _call(self,db,parameters,run,definition,capability,claim_binding=None):
         text,signature,body=self._envelope(parameters,run,definition,capability,claim_binding)

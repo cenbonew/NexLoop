@@ -40,11 +40,13 @@ def arguments(argv):
     parser.add_argument('--tick-seconds',type=float,default=.25)
     parser.add_argument('--once',action='store_true')
     parser.add_argument('--pool-max',type=int,default=POOL_MAX)
+    # NX-038 E3 wiring (L6 review 5.1): the semantic-read pool as the budget declares it (semantic_read_pool_max); 0 reads nothing.
+    parser.add_argument('--semantic-read-pool-max',type=int,default=0)
     # NX-023: explicit published strategy selects Context v6; omitted keeps the v2 Context.
     parser.add_argument('--context-strategy')
     parser.add_argument('--max-backlog',type=int,help='stop claiming while the tenant has this many open message Run tasks (default: no bound)')
     result=parser.parse_args(argv)
-    if not math.isfinite(result.tick_seconds) or not .01<=result.tick_seconds<=30 or not re.fullmatch('[A-Za-z0-9_-]{1,64}',result.signing_key_id) or not 1<=result.pool_max<=8: parser.error('configuration')
+    if not math.isfinite(result.tick_seconds) or not .01<=result.tick_seconds<=30 or not re.fullmatch('[A-Za-z0-9_-]{1,64}',result.signing_key_id) or not 1<=result.pool_max<=8 or not 0<=result.semantic_read_pool_max<=4: parser.error('configuration')
     if result.context_strategy is not None and not re.fullmatch('[a-z][a-z0-9_]{0,63}',result.context_strategy): parser.error('configuration')
     if result.max_backlog is not None and not 1<=result.max_backlog<=10000: parser.error('configuration')
     return result
@@ -82,6 +84,8 @@ def run(config,stop):
             info=os.fstat(owner)
             if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1: raise ValueError()
             fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            from nexloop_eios.context_artifacts import configure_semantic_reads
+            configure_semantic_reads(config.semantic_read_pool_max)
             with open_backend(database_url=dsn,artifact_root=config.artifact_root,
                 signing_key_file=config.signing_key_file,signing_key_id=config.signing_key_id,pool_max_size=config.pool_max) as backend:
                 with backend._pool.connection() as db:

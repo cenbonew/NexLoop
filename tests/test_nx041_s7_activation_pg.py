@@ -16,7 +16,8 @@ import pytest
 import runtime_effect_fixture as fixture
 from runtime_effect_fixture import runtime_effect_plan  # noqa: F401
 
-WORLD_CHECK_FRAME = 'nexloop_runtime_activation_command_v0037(text,text,text,text,text) line 28 at RAISE'
+# The command check's RAISE (0312 added the mode line inside that condition: line 28 -> 29; the same refusal point).
+WORLD_CHECK_FRAME = 'nexloop_runtime_activation_command_v0037(text,text,text,text,text) line 29 at RAISE'
 
 
 def fresh_claimed_run(plan, label):

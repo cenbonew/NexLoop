@@ -52,7 +52,7 @@
 
 ### 2.2 缺口：语义访问没有逐次的持久记录
 
-- **现状**：browse/resolve 的结果只以 `context_sources` 中 `semantics` 条目的形式留下（被纳入或省略）。
+- **现状（2026-10-22 更正，原句与代码不符）**：生产路径上的 Context 组装（`sources.collect`）从未产出 `semantics` 条目，SQL 的 bind 核验（`authz.nexloop_context_v6_source_in`）也不接受定义类条目，所以 `context_sources` 里没有任何语义记录。E3 接线（方案 A，见 `NX-038-E3-implementation.md`）之后，语义读取改由逐次记录表承载，结果不进入 pack。让定义条目进入 pack（方案 B）是后续任务。
   - “查询无命中”“歧义未解”没有自己的记录；
   - 08 §6 v0.1 要求的“实际调用与缺口记录”目前只覆盖到 Context 侧。
 - **NX-038 实现时需要新增**：一张只追加的语义访问记录表，内容如下：

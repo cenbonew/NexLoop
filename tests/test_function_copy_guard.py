@@ -136,6 +136,9 @@ REGISTRY = [
               "r->>'stage'='online'"),)),
     Allowed('nx043_twin_withdrawn_online', 'control.nexloop_governed_register_experiment', 'online and shadow registrations refuse the synthetic twin (twin_synthetic)',
             ((r"\s*-- L6 AT-046 batch-12 fix review[^\n]*\n\s*if r->>'stage' in \('online','shadow'\) and coalesce\(r->'twin'->>'twin_id',''\) like 'at046-synthetic-%' then\s*raise exception 'experiment: twin_synthetic' using errcode='22023';end if;", ''),)),
+    # 0312 (AT-046 stage judgement): a Run command's mode must be the kind of the world it is presented in (server side, not only the client).
+    Allowed('run_command_mode_is_world_kind', 'authz.nexloop_runtime_activation_command_v0037', 'the command mode must be the world kind',
+            ((r"\s*or command->>'mode' is distinct from runtime\.nexloop_world_kind\(p_world\)", ''),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
@@ -305,6 +308,12 @@ REGISTRY = [
     Allowed('nx043_online_open', 'runtime.nexloop_experiment_allocate_on_inbound', 'a record with direction inbound is inbound too',
             ((r"coalesce\(new\.record->>'direction','inbound'\)<>'inbound' then return null;end if;  -- inbound: no direction \(0046\) or 'inbound'",
               "new.record ? 'direction' then return null;end if;  -- a Consumer's own message carries no direction (0046)"),)),
+    # NX-038 E3 wiring (option A): a Run is known to the record port by its Run credential from the same Source, too.
+    Allowed('nx038_e3_wiring', 'authz.nexloop_semantic_access_record', 'a Run credential issued by this Source in this world also binds the Run',
+            ((r"\n  and not exists\(select 1 from authz\.nexloop_run_credentials rc where .*?rc\.status='active'\) then", ' then'),)),
+    # NX-038 E3 wiring (owner 2026-10-22, failure basis A): reply_fallback per message Run in the trace read; nothing else.
+    Allowed('nx038_e3_wiring', 'runtime.nexloop_evo_trace_runs', 'reply_fallback: the message got the fallback reply Run',
+            ((r",\s*'reply_fallback',p\.kind='message' and exists\(.*?m2\.run_id=p\.run_id\)\)", ')'),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
