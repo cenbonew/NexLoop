@@ -9,7 +9,7 @@ ssl_cert_file = '/run/tls/server.crt'
 ssl_key_file = '/run/tls/server.key'
 ssl_ca_file = '/run/tls/ca.crt'
 password_encryption = 'scram-sha-256'
-max_connections = 80   # application pools total <= 60 (connection-budget.v1.json); 20 reserved for operations and recovery
+max_connections = 80   # application pools <= 60 + simulation group <= 10 (connection-budget.v1.json, ADR-037) + operations 7 + superuser_reserved_connections 3
 shared_buffers = '256MB'
 work_mem = '4MB'
 maintenance_work_mem = '64MB'

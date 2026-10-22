@@ -13,11 +13,11 @@ import re
 APPLICATION_POOL_LIMIT = 60
 MIN_MAX_CONNECTIONS = 80
 # ADR-037 (owner 2026-10-22): the simulation process group has its own budget, outside the application's 60; the application, the
-# simulation group and the operations reserve (administration, CI, backups) together fit max_connections minus the superuser
-# reserve: 60 + 10 + 7 <= 80 - 3.
+# simulation group and the operations reserve (administration, CI, backups) together fit max_connections minus the server's
+# superuser_reserved_connections (read from the server, never assumed): 60 + 10 + 7 <= 80 - 3 on the stage server. ADR-024's
+# 20 connections beyond the application are thereby split into simulation 10, operations 7 and superuser 3.
 SIMULATION_POOL_LIMIT = 10
 OPERATIONS_RESERVE = 7
-SUPERUSER_RESERVED = 3
 SCHEMA = 'nexloop.connection-budget.v1'
 _NAME = re.compile('[a-z][a-z0-9-]{0,63}')
 _SERVICE_KEYS = {'name', 'processes', 'pool_max'}
@@ -78,7 +78,8 @@ def dispatch_loops(document):
 def _simulation(document):
     """ADR-037: the simulation section (its own services, every process that connects - a single connection counts as 1)."""
     section = document.get('simulation')
-    if type(section) is not dict or set(section) != {'services'} or type(section['services']) is not list or not section['services']:
+    # L6 review 5.1: an environment without the simulation group declares {"services": []} (0 connections).
+    if type(section) is not dict or set(section) != {'services'} or type(section['services']) is not list:
         raise BudgetInvalid('connection budget simulation section is invalid')
     names = [service.get('name') if type(service) is dict else None for service in section['services']]
     if len(set(names)) != len(names) or set(names) & {s.get('name') for s in document['services'] if type(s) is dict}:
@@ -88,8 +89,8 @@ def _simulation(document):
     return {service['name']: service_connections(service) for service in section['services']}
 
 
-def evaluate(document, *, max_connections=None):
-    """Check a parsed budget document (and, when given, the server's max_connections)."""
+def evaluate(document, *, max_connections=None, superuser_reserved=None):
+    """Check a parsed budget document (and, when given, the server's max_connections and superuser_reserved_connections)."""
     if type(document) is not dict or document.get('schema') != SCHEMA or type(document.get('services')) is not list:
         raise BudgetInvalid('connection budget document is invalid')
     if set(document) - {'schema', 'decision', 'services', 'simulation'}:
@@ -112,16 +113,18 @@ def evaluate(document, *, max_connections=None):
               'runtime_dispatch_loops': loops <= MAXIMUM_HOST_ACTIVE_RUNS, 'simulation_pool_total': simulation_total <= SIMULATION_POOL_LIMIT}
     if max_connections is not None:
         checks['max_connections'] = type(max_connections) is int and max_connections >= MIN_MAX_CONNECTIONS
-        # ADR-037: both budgets and the operations reserve fit the server's capacity (max_connections minus the superuser reserve).
-        checks['server_capacity'] = (type(max_connections) is int
-                                     and total + simulation_total + OPERATIONS_RESERVE <= max_connections - SUPERUSER_RESERVED)
+    if max_connections is not None and superuser_reserved is not None:
+        # ADR-037: both budgets and the operations reserve fit the server's capacity (max_connections minus the server's own
+        # superuser_reserved_connections). The doctor reads both and counts a missing check as failed.
+        checks['server_capacity'] = (type(max_connections) is int and type(superuser_reserved) is int and superuser_reserved >= 0
+                                     and total + simulation_total + OPERATIONS_RESERVE <= max_connections - superuser_reserved)
     return {'checks': checks, 'passed': all(checks.values()),
             'details': {'services': per_service, 'application_pool_total': total, 'missing_services': missing,
                         'application_pool_limit': APPLICATION_POOL_LIMIT, 'max_connections': max_connections,
                         'min_max_connections': MIN_MAX_CONNECTIONS, 'runtime_dispatch_loops': loops,
                         'host_active_runs_limit': MAXIMUM_HOST_ACTIVE_RUNS, 'simulation_services': simulation,
                         'simulation_pool_total': simulation_total, 'simulation_pool_limit': SIMULATION_POOL_LIMIT,
-                        'operations_reserve': OPERATIONS_RESERVE, 'superuser_reserved': SUPERUSER_RESERVED}}
+                        'operations_reserve': OPERATIONS_RESERVE, 'superuser_reserved': superuser_reserved}}
 
 
 def load(path):

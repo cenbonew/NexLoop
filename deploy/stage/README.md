@@ -53,7 +53,7 @@ nexloop-doctor --budget-only --connection-budget deploy/stage/connection-budget.
 - doctor 按“每个服务的 pool max × 进程数”逐项求和。Runtime Worker 按第 1 节的公式计算：N=1 时是 `NEX_EIOS_DB_POOL_MAX`，N>1 时是 `dispatcher_pool_max + N × guard_pool_max`。
 - 两个上限写死在 `nexloop_eios/connection_budget.py`，不能由部署文件放宽：
   - 合计必须 **≤ 60**；
-  - 服务器的 `max_connections` 必须 **≥ 80**，差额留给运维和故障核对。
+  - 服务器的 `max_connections` 必须 **≥ 80**。超出应用 60 的那 20 个，按 ADR-037 分配为：模拟进程组 10、运维 7、superuser 3（doctor 读取服务端的 `superuser_reserved_connections`）。
 - 任一项不满足，或预算文件格式错误、连不上数据库，退出码都是 1，服务不启动。
 - 当前声明的合计是 52（NX-031 D7，实测的最小可用池，调度员 2026-10-11 批准）：
   - `api 2×4 + api-browser-identity 2×3 + domain-worker 2 + action-worker 2 + runtime-worker 18 + message-relay 2×2 + outbound-recorder 2`（2026-10-13 方案 B：两个 relay，identity 池每进程 3）；

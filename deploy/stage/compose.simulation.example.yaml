@@ -105,6 +105,9 @@ services:
       - '2'
       - --dispatcher-pool-max
       - '2'
+      # L6 review 4.2: as many dispatch loops as the guard children admit at once (2 children x pool 2 // 2).
+      - --dispatch-loops
+      - '2'
     # ADR-037 (owner 2026-10-22): each guard child's pool is 2 (the default is 4): 2 + 2 x 2 = 6 of the simulation budget of 10.
     environment:
       NEX_EIOS_DB_POOL_MAX: '2'

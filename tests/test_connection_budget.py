@@ -1,6 +1,7 @@
 """ADR-024 / 11_DEPLOYMENT §6: declared PG pools <= 60 and server max_connections >= 80, checked before start."""
 import copy,ipaddress,json,os,re,subprocess,sys
 from pathlib import Path
+import psycopg
 import pytest
 import yaml
 from nexloop_eios import connection_budget as budget
@@ -91,8 +92,14 @@ def test_doctor_budget_gate_against_real_postgres(pg,tmp_path):
     report=json.loads(passed.stdout)
     assert passed.returncode==0,report
     assert report['checks']=={'connection_budget_file':True,'connection_budget_total':True,'connection_budget_services':True,'runtime_dispatch_loops':True,
-                               'max_connections':True,'database_configuration':True}
+                               'max_connections':True,'database_configuration':True,'simulation_connection_budget_total':True,'server_capacity':True}
     assert report['details']['connection_budget']['max_connections']>=80 and pg not in passed.stdout+passed.stderr
+    # ADR-037 (L6 review 1.1): the superuser reserve is the server's own value, read by the doctor.
+    with psycopg.connect(pg) as c:
+        assert report['details']['connection_budget']['superuser_reserved']==int(c.execute('show superuser_reserved_connections').fetchone()[0])
+    sim=copy.deepcopy(DOCUMENT);simulation(sim)['sim-runtime-worker']['guard_pool_max']=4
+    report=json.loads(doctor('--budget-only','--connection-budget',str(private(tmp_path/'sim.json',json.dumps(sim))),'--database-url-file',str(dsn)).stdout)
+    assert report['checks']['simulation_connection_budget_total'] is False and report['checks']['connection_budget_total'] is True
     over=copy.deepcopy(DOCUMENT);runtime(over)['guard_workers']=10
     failed=doctor('--budget-only','--connection-budget',str(private(tmp_path/'over.json',json.dumps(over))),'--database-url-file',str(dsn))
     assert failed.returncode==1 and json.loads(failed.stdout)['checks']['connection_budget_total'] is False
@@ -243,13 +250,16 @@ def simulation(document):return {s['name']:s for s in document['simulation']['se
 
 
 def test_the_application_and_simulation_budgets_are_summed_apart():
-    result=budget.evaluate(DOCUMENT,max_connections=80)
+    result=budget.evaluate(DOCUMENT,max_connections=80,superuser_reserved=3)
     assert result['passed'] and result['details']['application_pool_total']==59 and result['details']['simulation_pool_total']==8
     assert result['details']['simulation_services']=={'sim-runtime-worker':6,'sim-stand-in-executor':1,'sim-world-files':1}
     assert 'sim-runtime-worker' not in result['details']['services']  # never in the application's 60
     assert result['checks']['simulation_pool_total'] and result['checks']['server_capacity']  # 59 + 8 + 7 <= 80 - 3
-    assert (budget.APPLICATION_POOL_LIMIT,budget.SIMULATION_POOL_LIMIT,budget.OPERATIONS_RESERVE,budget.SUPERUSER_RESERVED)==(60,10,7,3)
-    assert budget.APPLICATION_POOL_LIMIT+budget.SIMULATION_POOL_LIMIT+budget.OPERATIONS_RESERVE+budget.SUPERUSER_RESERVED==budget.MIN_MAX_CONNECTIONS
+    assert (budget.APPLICATION_POOL_LIMIT,budget.SIMULATION_POOL_LIMIT,budget.OPERATIONS_RESERVE)==(60,10,7)
+    # The capacity uses the server's own superuser reserve: a larger reserve on a minimal server does not fit at the limits.
+    assert budget.evaluate(DOCUMENT,max_connections=80,superuser_reserved=7)['checks']['server_capacity'] is False  # 59 + 8 + 7 = 74 > 80 - 7
+    assert 'server_capacity' not in budget.evaluate(DOCUMENT,max_connections=80)['checks']  # the doctor always gives both
+
 
 
 def test_a_simulation_group_over_ten_fails():
@@ -261,7 +271,6 @@ def test_a_simulation_group_over_ten_fails():
 
 @pytest.mark.parametrize('mutate',[
     lambda d:d.pop('simulation'),
-    lambda d:d.update(simulation={'services':[]}),
     lambda d:d['simulation']['services'].append({'name':'runtime-worker-x','processes':1,'pool_max':1}),   # not sim-
     lambda d:d['simulation']['services'].append({'name':'api','processes':1,'pool_max':1}),                # an application name
     lambda d:d['simulation'].update(extra=1),
@@ -279,6 +288,7 @@ def test_the_simulation_compose_matches_its_budget_both_ways():
     assert result['checks']['simulation_compose_matches_budget'],result
     worker=compose['services']['sim-runtime-worker']
     assert worker['environment']['NEX_EIOS_DB_POOL_MAX']=='2' and flag(worker['command'],'--guard-workers')=='2' and flag(worker['command'],'--dispatcher-pool-max')=='2'
+    assert flag(worker['command'],'--dispatch-loops')=='2'==str(simulation(DOCUMENT)['sim-runtime-worker']['dispatch_loops'])  # L6 review 4.2
     assert compose['services']['sim-agent-host']['labels']['nexloop.budget-service']=='none'  # opens no PostgreSQL connection
     pools=copy.deepcopy(compose);pools['services']['sim-runtime-worker']['environment']['NEX_EIOS_DB_POOL_MAX']='4'
     assert simulation_compose_budget(DOCUMENT,pools)['details']['simulation_compose_budget']==['simulation_runtime_pools_differ:sim-runtime-worker']
@@ -286,3 +296,24 @@ def test_the_simulation_compose_matches_its_budget_both_ways():
     assert 'budget_entry_without_service:sim-world-files' in simulation_compose_budget(DOCUMENT,unlabelled)['details']['simulation_compose_budget']
     extra=copy.deepcopy(DOCUMENT);extra['simulation']['services'].append({'name':'sim-extra','processes':1,'pool_max':1})
     assert 'budget_entry_without_service:sim-extra' in simulation_compose_budget(extra,compose)['details']['simulation_compose_budget']
+
+
+def test_an_environment_without_the_simulation_group_declares_an_empty_section():
+    """L6 review 5.1: {"services": []} is valid (0 connections), so a real deployment without the group is never refused for it."""
+    document=copy.deepcopy(DOCUMENT);document['simulation']={'services':[]}
+    result=budget.evaluate(document,max_connections=80,superuser_reserved=3)
+    assert result['passed'] and result['details']['simulation_pool_total']==0 and result['details']['simulation_services']=={}
+
+
+def test_the_deploy_gate_fails_when_the_simulation_project_runs_without_its_compose(tmp_path):
+    """L6 review 2.1: the inventory lists nexloop-simulation as running and no simulation Compose is given: the gate fails."""
+    from nexloop_eios.deploy_checks import deploy_gate
+    budget_file=tmp_path/'budget.json';budget_file.write_text(json.dumps(DOCUMENT))
+    def run(projects,**extra):
+        after=tmp_path/'after.json';after.write_text(json.dumps({'phase':'after','compose_projects':projects}))
+        return deploy_gate({'host_role':'app','connection_budget':str(budget_file),'inventory_after':str(after),**extra})
+    assert run({'nexloop-app':{},'nexloop-simulation':{}})['details']['simulation_compose_budget']==['simulation_running_without_compose']
+    assert run({'nexloop-app':{},'nexloop-simulation':{}})['checks']['simulation_compose_matches_budget'] is False
+    assert 'simulation_compose_matches_budget' not in run({'nexloop-app':{}})['checks']  # not running, not given: nothing to check
+    compose=tmp_path/'sim.json';compose.write_text(json.dumps(yaml.safe_load((STAGE/'compose.simulation.example.yaml').read_text())))
+    assert run({'nexloop-simulation':{}},simulation_compose_json=str(compose))['checks']['simulation_compose_matches_budget'] is True

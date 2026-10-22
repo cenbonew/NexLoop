@@ -10,6 +10,9 @@ section), the gate reads the files itself. Writes into a new directory (0700, fi
   after.json      `inventory.py --phase after`
   running.json    `running_snapshot.py`
   compose.json    `docker compose ... config --format json`
+  simulation-compose.json  only when NEXLOOP_ROOT/config/compose.simulation.yaml exists (ADR-037, L6 review 2.1): the simulation
+                  project rendered with --profile simulation; the gate then checks it against the budget's simulation section (and fails
+                  when the project runs without it)
   tls.json        deploy_checks.tls input: the service certificates (gateway, API loopback, Agent Host, guard, webchat delivery) with
                   the names their clients verify, every *_dsn secret, and valkey.conf rendered from the same stage.env
   valkey.conf     rendered deploy/stage/config/valkey.conf.template (DATA_HOST's file is rendered from the same template and env)
@@ -27,6 +30,7 @@ import sys
 from pathlib import Path
 
 PROJECT = 'nexloop-app'
+SIMULATION_PROJECT = 'nexloop-simulation'
 # Compose secret names (compose.app.example.yaml `secrets:`) of the service certificates the gate checks, with the names their clients
 # verify: the Gateway is reached by APP_HOST_NAME (stage.env); the others only on loopback (Caddy's tls_server_name 127.0.0.1, the
 # Host origin https://127.0.0.1:HOST_INTERNAL_PORT, the guard_url and the delivery origin on 127.0.0.1) - and the key owner.
@@ -140,9 +144,17 @@ def assemble(a):
     _run([sys.executable, str(checkout / 'scripts/deploy/running_snapshot.py'), '--project', PROJECT, '--out', str(gate / 'running.json')])
     compose_text = _run([*compose_cmd, 'config', '--format', 'json'])
     _write(gate / 'compose.json', compose_text)
+    simulation = root / 'config/compose.simulation.yaml'
+    if simulation.exists():
+        sim_env = root / 'config/compose.simulation.env'
+        _write(gate / 'simulation-compose.json', _run(['docker', 'compose', '-p', SIMULATION_PROJECT, '-f', str(simulation),
+                                                        *(['--env-file', str(sim_env)] if sim_env.exists() else []), '--profile', 'simulation',
+                                                        'config', '--format', 'json']))
     _run([sys.executable, str(checkout / 'scripts/deploy/render.py'), '--env', str(gate / 'stage.env'), '--template',
           str(checkout / 'deploy/stage/config/valkey.conf.template'), '--out', str(gate / 'valkey.conf')])
     spec = gate_spec(checkout / 'deploy/stage/deploy-gate.app.example.json', gate_dir=gate, nexloop_root=root, release_checkout=checkout)
+    if (gate / 'simulation-compose.json').exists():
+        spec['simulation_compose_json'] = str(gate / 'simulation-compose.json')
     tls = tls_spec(json.loads(compose_text), stage_env, gate / 'valkey.conf', spec['secret_uids'])
     _write(gate / 'tls.json', json.dumps(tls, indent=1))
     _write(gate / 'spec.json', json.dumps(spec, indent=1))
