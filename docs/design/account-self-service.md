@@ -1,6 +1,6 @@
 # 设计稿｜NX-058 工作台账号自助：邀请、找回、重置；随后企业单点登录
 
-状态：**草案，待 L6 复核**（l2/account-self-service，基于 main ab19278d）。负责人 2026-10-22 Q4 选推荐 A：v0.2 先做邀请、找回与重置，第二阶段再做单点登录（OIDC）。
+状态：**草案，待 L6 复核**（l2/account-self-service，基于 main 910f367f）。负责人 2026-10-22 Q4 选推荐 A：v0.2 先做邀请、找回与重置，第二阶段再做单点登录（OIDC）。
 
 ## 0. 现状（只读盘点）
 
@@ -14,7 +14,8 @@
 | 会话失效 | 会话读取时比较账号的 `credential_revision` 和 `session_epoch` | 0027 |
 | 邮件 | 没有任何 SMTP 或出站邮件实现；stage 上的邮箱多为 `.invalid` | — |
 | 擦除 | NX-029 只覆盖 Consumer，员工账号不在擦除范围 | 0132 及以后 |
-| 统一审批 NX-056 | 在 planning 和 docs 中都查不到；现有的“审批”只指 Action 的 approval resolver | — |
+| 统一审批 NX-056 | 第二十一批起已在 planning 中立项（状态 not_started），还没有设计和实现；现有的“审批”只指 Action 的 approval resolver | `planning/tasks.json` |
+| 审计链 NX-059 | 已在 stage 启用（release 41）：`runtime.audit_events` 进链并定时封印 | 0320 |
 | 上游（1e363db） | 有通用实现，没有领域耦合，都**没有 vendored**：`identity/invitations.py`（372 行，sha256 令牌、24 小时、一次性）、`identity/resets.py`（363 行，30 分钟、一次性、口令历史）、`identity/recovery_codes.py`（487 行，HMAC 存储、用后撤销会话）、`identity/oidc.py`（1187 行，PKCE、nonce、JWKS 白名单）、`adapters/identity_oidc.py`（863 行）、SMTP relay（`adapters/identity_delivery.py`、`identity_admin_delivery.py`）。已 vendored 的有 `identity/models.py`、`admin_lifecycle.py`、`delivery.py`、`rate_limits.py`、`sessions.py`、`local_accounts.py` | 上游 `src/eios/identity/` |
 
 ## 1. 成员邀请（owner 发起）
@@ -28,7 +29,7 @@
   - 校验：口令规则与 0198 相同（至少 12 位），口令只在 Python 中做 argon2id 哈希。
   - 在一个事务内完成：令牌失效、账号转为 active、成员转为 active、写入角色授权，并记一条 login event `invitation_accepted`。
   - 授权事实仍然走 0050 签名的路径：接受后由一个受治理的 configurator 步骤，或者一个新的 SQL 函数，在同一事务里调用现有的授权写入。实现时要先在 L6 核对：0140 要求 configurator 的 session 写成员，这条约束需要为“邀请接受”开一个受控入口，**不能**开放给 API 角色任意写入。
-- **审计**：签发、撤销、接受都写 `runtime.audit_events`。如果 NX-059 哈希链已合入，这些事件也会进链。审计里不含令牌，也不含口令。
+- **审计**：签发、撤销、接受都写 `runtime.audit_events`。NX-059 哈希链已经在 stage 启用，这些事件自动进链，防删改。审计里不含令牌，也不含口令。
 - **负责人可以撤销邀请**：Action `nexloop.workbench_member.revoke_invitation`。
 
 ## 2. 找回与重置（不依赖邮件）
@@ -84,7 +85,7 @@
 
 ## 7. 与统一审批（NX-056）的关系
 
-- NX-056 目前在仓库里没有任何记录（盘点结果）。本设计先**内建**一条最小规则：**邀请或提升为 owner** 需要另一位 owner 确认（双人原则）；只有一位 owner 时，只能走运维通道（0198 加 configurator），并在审计中注明。
+- NX-056 已立项，但还没有设计和实现。本设计先**内建**一条最小规则：**邀请或提升为 owner** 需要另一位 owner 确认（双人原则）；只有一位 owner 时，只能走运维通道（0198 加 configurator），并在审计中注明。
 - 等 NX-056 落地，“需要第二人确认”改为调用统一审批，接口保持为 `approval_required(action, subject, target) → pending/approved`。operator 和 reviewer 的邀请、重置码签发不需要审批。
 
 ## 8. 分片与工作量
