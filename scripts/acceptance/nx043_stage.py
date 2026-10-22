@@ -94,7 +94,12 @@ def _ok(status):
 
 
 def _reason(out):
-    return out.get('reason') if isinstance(out, dict) else None
+    """The refusal code: top-level reason, else the workbench error body's details.reason (stage X7 S2, release 37: a 409 is
+    {code, message, trace_id, retryable, details: {reason}})."""
+    if not isinstance(out, dict):
+        return None
+    details = out.get('details')
+    return out.get('reason') or (details.get('reason') if isinstance(details, dict) else None)
 
 
 # --- phases ----------------------------------------------------------------------------------------------------------------------
