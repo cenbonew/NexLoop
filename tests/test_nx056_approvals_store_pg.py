@@ -169,3 +169,14 @@ def test_outreach_approval_refuses_the_requesters_other_principal(store):
         admin.execute('select control.nexloop_governed_outreach_approve(%s,%s,%s,%s,%s,%s)',
                       (TENANT_A, 'real', f['alias']['principal_id'], 'human', 'intent-y',
                        Jsonb({'operation': 'decide_outreach_approval', 'request_id': 'q', 'intent_id': intent, 'decision': 'approve', 'reason': '可以'})))
+
+
+def test_a_requester_holds_at_most_three_waiting_and_a_refused_digest_cools_down(store):
+    f = store
+    for n, kind in enumerate(('a', 'b', 'c')):
+        open_request(f, request_id=f'w-{n}', reason=kind)
+    refused('too_many_waiting', open_request, f, request_id='w-3', reason='d')
+    rejected = open_request(f, request_id='w-0', reason='a')['approval_id']
+    decide(f, 'approver', rejected, 'reject')
+    refused('cooldown', open_request, f, request_id='w-4', reason='a')  # the same digest within an hour of its rejection
+    assert open_request(f, request_id='w-5', reason='e')['status'] == 'waiting_approval'  # another body, a slot freed

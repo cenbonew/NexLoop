@@ -173,6 +173,15 @@ begin
  end if;
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and request_digest=v_digest and status='waiting_approval';
  if found then return jsonb_build_object('approval_id',r.approval_id,'status',r.status,'due_by',r.due_by,'replayed',true);end if;
+ -- Limits (design §8, L6 S3): at most 3 waiting requests of one requester for one capability; the same digest waits 1 hour after a
+ -- rejection or a withdrawal (no shopping for an approver).
+ if (select count(*) from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability
+     and q.requester_subject=v_subject and q.status='waiting_approval')>=3 then
+  raise exception 'approval: too_many_waiting' using errcode='22023';end if;
+ if exists(select 1 from control.nexloop_approval_requests q join control.nexloop_approval_decisions d on d.tenant_id=q.tenant_id and d.world=q.world
+     and d.approval_id=q.approval_id and d.outcome in ('rejected','cancelled')
+   where q.tenant_id=p_tenant and q.world=p_world and q.request_digest=v_digest and d.decided_at>clock_timestamp()-interval '1 hour') then
+  raise exception 'approval: cooldown' using errcode='22023';end if;
  insert into control.nexloop_approval_requests(tenant_id,world,capability,action_resource,policy_version,request_digest,request_id,body,requester_subject,requester_principal,due_by)
   values(p_tenant,p_world,p_capability,p_action,pol.version,v_digest,p_body->>'request_id',p_body,v_subject,p_principal,clock_timestamp()+make_interval(secs=>pol.expires_after_seconds))
   returning * into r;

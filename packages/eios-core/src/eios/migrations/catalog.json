@@ -1604,7 +1604,12 @@
     {
       "version": "0321",
       "name": "0321_nx056_unified_approvals.sql",
-      "sha256": "467a71892a727a98dc6586f173695ca676cc1276e331adfbd80b8b570b4d7978"
+      "sha256": "56d421685fb02fddb054f3e3f77d88613ba2ed1d8fd427fdb2573b5275c9d963"
+    },
+    {
+      "version": "0322",
+      "name": "0322_nx056_approval_gate.sql",
+      "sha256": "cefa78f76eb5a9ae4b24c0116d2672f72b435ba08b5cb19548d2decc1f659026"
     }
   ]
 }
