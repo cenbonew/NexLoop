@@ -56,7 +56,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
-from at046_stage import Ports, real_digest  # noqa: E402
+from at046_stage import EXCLUDED, FILTERED, Ports, real_digest  # noqa: E402
 from s6_common import Blocked, Redactor, Refused, Result, connect_from, load_chain, read_private  # noqa: E402
 from s6_common import connect_read_only as s6_connect_read_only  # noqa: E402
 
@@ -164,32 +164,43 @@ def prepare(ports, config, r):
     save_state(config, {'shadow_world': world, 'strategies': strategies, 'experiments': experiments, 'run': run, 'ends_at': ends})
 
 
+UNFINISHED_CLAIMS = """select action_name,count(*) from runtime.nexloop_action_claims where tenant_id=%s and world='real' and claim->>'state'='active'
+    and (claim->>'lease_expires_at')::timestamptz>clock_timestamp() group by 1 order by 1"""
+
+
 def _quiet_real(ports, tenant, inputs):
     """L6 X7 review 3.2: the injected real inbound traffic makes real replies (relay, Run, reply guarantor). The probe waits until the
-    real side is quiet - no unfinished real job of the tenant and the world-real digests unchanged over quiet_seconds - so the replies
-    to that traffic are in the baseline, not in the difference."""
+    real side is quiet - no unfinished real job of the tenant, no live Action claim of world real (third round S8, release 38: the base
+    was taken while the Runs of the S3 traffic still held Goal/PlanStep claims, which finished after it), and the world-real digests
+    unchanged over quiet_seconds - so the replies to that traffic are in the baseline, not in the difference. An active claim whose
+    lease has run out no longer moves; it does not hold the probe (the orphan query in the X7 document finds those)."""
     quiet = int(inputs.get('quiet_seconds') or 60)
     deadline = time.monotonic() + int(inputs.get('quiet_timeout_seconds') or 900)
     last = real_digest(ports, tenant)
     while True:
         time.sleep(quiet)
         busy = ports.read("""select count(*) from runtime.jobs where tenant_id=%s and world='real' and status in ('pending','running','retry_wait')""", (tenant,))[0][0]
+        claims = dict(ports.read(UNFINISHED_CLAIMS, (tenant,)))
         now = real_digest(ports, tenant)
-        if not busy and now == last:
-            return now, True
+        if not busy and not claims and now == last:
+            return now, True, {}
         if time.monotonic() >= deadline:
-            return now, False
+            return now, False, {'unfinished_jobs': busy, 'unfinished_claims': claims}
         last = now
 
 
 def probe_before(ports, config, r, prior=None):
     tenant = config['tenant_id']
-    digests, quiet = _quiet_real(ports, tenant, config.get('inputs') or {})
-    r.step('real_side_quiet', 'no unfinished real job and the world-real digests unchanged over the quiet period (the replies to the injected traffic settled)',
-           {'quiet': quiet}, quiet)
+    digests, quiet, unfinished = _quiet_real(ports, tenant, config.get('inputs') or {})
+    if not quiet:  # the real side never settled: no base is taken, the Actions still running are named (counts only)
+        r.block('real_side_quiet', 'the real side did not settle within quiet_timeout_seconds: ' + json.dumps(unfinished, sort_keys=True))
+        return
+    r.step('real_side_quiet', 'no unfinished real job, no live Action claim of world real and the world-real digests unchanged over the quiet period '
+           '(the replies to the injected traffic settled)', {'quiet': quiet}, quiet)
     switches = ports.read("select md5(coalesce(string_agg(x::text,'|' order by x::text),'')) from control.nexloop_real_dispatch_switches x")[0][0]
+    taken_at = ports.read('select clock_timestamp()')[0][0].isoformat()
     r.step('real_digest_before', 'the world-real digests and the real dispatch switches taken', {'tables': len(digests)}, bool(digests),
-           digests=digests, switches=switches)
+           digests=digests, switches=switches, taken_at=taken_at)
 
 
 def run_phase(ports, config, r, prior=None):
@@ -285,7 +296,15 @@ def probe_after(ports, config, r, prior):
     changed = sorted(t for t in set(before.get('digests') or {}) | set(after) if (before.get('digests') or {}).get(t) != after.get(t))
     r.step('real_dispatch_switches_unchanged', 'the experiment opened no real dispatch switch (§9, D3)', {'unchanged': switches == before.get('switches')},
            bool(before) and switches == before.get('switches'))
-    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (AT-046 digests)', {'tables': len(after), 'changed': changed},
+    # The alert events left the comparison by name; which rules fired or resolved since the base is evidence (rule, kind, count only).
+    alerts = [{'rule_id': rule, 'kind': kind, 'events': n} for rule, kind, n in ports.read(
+        '''select rule_id,kind,count(*) from control.nexloop_alert_events where tenant_id=%s and world='real' and recorded_at>=%s::timestamptz
+           group by 1,2 order by 1,2''', (tenant, before.get('taken_at') or 'infinity'))]
+    r.step('real_alerts_in_window', 'the alert rules that fired or resolved between the base and now (alert events are excluded from the digest)',
+           {'rules': alerts}, before.get('taken_at') is not None)
+    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (AT-046 digests; periodic bookkeeping and the owner\'s own governance '
+           'claims left out, by name and with the reason)', {'tables': len(after), 'changed': changed, 'excluded': sorted(EXCLUDED),
+                                                             'filtered': {t: f[2] for t, f in FILTERED.items()}},
            bool(before.get('digests')) and not changed)
 
 
