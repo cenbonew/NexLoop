@@ -513,6 +513,7 @@ class Backend:
             'outreach_candidates',  # 0231: proactive outreach candidates and their dispatch dry run (owner, read only)
             'outreach_controls',  # 0232: the tenant's outreach controls for the owner's page (read only)
             'outreach_purposes',  # outreach slice 3: the purpose list with the tenant's states (owner, read only)
+            'approvals',  # NX-056 A4: the caller's approvals to decide, own requests and approved ones to execute (every member)
             'outreach_approvals',  # outreach slice 6: pending approvals, ids and times only (owner, read only)
             'data_health',  # D-G5: NexLoop's own data flows, counts, ratios, ages and codes only (owner, read only)
             'outreach_metrics', 'outreach_evidence',  # outreach slice 8: metrics and the evidence chain (owner, read only; never the body)

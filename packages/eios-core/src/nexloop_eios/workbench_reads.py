@@ -169,6 +169,25 @@ def _section(load):
         return {'status': 'unavailable', 'data': None}
 
 
+def execution_inputs(operation, inputs):
+    """NX-056 A4: the frozen body (without request_id and operation) as the workbench body of its operation. The governed client
+    leaves an absent optional field out of the body (goal_controls); the workbench body names every field of the operation, so an
+    absent one is null when its check accepts null. Nothing else changes: the resubmission builds the same body, hence the same digest."""
+    from nexloop_eios.workbench_actions_http import OPERATIONS
+    spec = OPERATIONS.get(operation)
+    if type(inputs) is not dict or spec is None or callable(spec):
+        return inputs
+    filled = dict(inputs)
+    for name, check in spec.items():
+        if name not in filled:
+            try:
+                check(None)
+            except (ValueError, TypeError, LookupError):
+                continue
+            filled[name] = None
+    return filled
+
+
 class WorkbenchQueries:
     """Read verbs with AT-003 content filtering; one instance per authenticated request."""
 
@@ -713,6 +732,13 @@ class WorkbenchQueries:
     def outreach_purposes(self):
         # Outreach slice 3: the current purpose list with each purpose's state for the tenant (owner, read only).
         return self.reader.observe('outreach_purposes')
+
+    def approvals(self):
+        # NX-056 A4: to decide (eligible now, not mine), mine, and mine to execute (with my own frozen inputs); others' bodies never.
+        view = self.reader.observe('approvals')
+        for row in view.get('to_execute', []):
+            row['inputs'] = execution_inputs(row.get('operation'), row.get('inputs'))
+        return view
 
     def outreach_approvals(self):
         # Outreach slice 6: pending approvals (intent id, purpose, times, requester; never the body) for the owner.

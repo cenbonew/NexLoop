@@ -1615,6 +1615,11 @@
       "version": "0323",
       "name": "0323_nx056_approval_expiry.sql",
       "sha256": "ca25959a52d5f47571e5f36af99fcb5c512e121a0c6607f9e3267a0f7552b22c"
+    },
+    {
+      "version": "0324",
+      "name": "0324_nx056_approvals_view.sql",
+      "sha256": "5bf50522043ae1dc2f48bb869b12ba5dad7f22f4b9092dba402ac23f34fa2fcd"
     }
   ]
 }
