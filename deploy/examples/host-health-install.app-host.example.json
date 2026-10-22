@@ -59,6 +59,10 @@
         "container": "nexloop-app-webchat-delivery-1"
       },
       {
+        "name": "runtime-worker",
+        "container": "nexloop-app-runtime-worker-1"
+      },
+      {
         "name": "message-relay",
         "container": "nexloop-app-message-relay-1"
       },
@@ -131,12 +135,7 @@
         "container": "nexloop-simulation-sim-world-files-1"
       }
     ],
-    "services": [
-      {
-        "name": "runtime-worker",
-        "unit": "nexloop-runtime-worker.service"
-      }
-    ],
+    "services": [],
     "timers": [
       {
         "name": "provider-drift",

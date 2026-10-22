@@ -167,10 +167,12 @@ def test_the_examples_match_the_alert_rules_v13_selectors():
         value = json.loads((ROOT / f'deploy/examples/host-health-install.{name}.example.json').read_text())
         names |= {f'{host}:{t["name"]}' for t in value['probe']['timers']}
     assert names == stale
-    # The same timers as L7's probe example (B9: the file backup's scheduled rounds).
+    # The same timers as L7's probe example (B9: the file backup's scheduled rounds). The runtime worker runs as the container
+    # nexloop-app-runtime-worker-1 on stage (C1, read-only check 2026-10-23), not as a systemd unit.
     l7 = json.loads((ROOT / 'deploy/examples/host-health.app-host.example.json').read_text())
     app = json.loads((ROOT / 'deploy/examples/host-health-install.app-host.example.json').read_text())['probe']
-    assert app['timers'] == l7['timers'] and app['services'] == l7['services']
+    assert app['timers'] == l7['timers'] and app['services'] == []
+    assert {'name': 'runtime-worker', 'container': 'nexloop-app-runtime-worker-1'} in app['containers']
 
 
 class Db:

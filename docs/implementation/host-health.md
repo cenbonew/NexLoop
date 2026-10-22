@@ -77,7 +77,12 @@ hostssl __NEXLOOP_DB__ nexloop_host_recorder_app_host __APP_HOST_ADDR__/32  scra
 
   DATA_HOST 走本地 socket，DSN 为 `host=/srv/nexloop/run/postgresql`。
 
-### 4.2 前置条件：只执行 root 自己的代码（L6 复核 I1、I2）
+### 4.2 前置条件
+
+- **迁移 0318 已经应用**（D1）：recorder 角色、三张表、记录函数和快照中的 `host_health` 块都来自 0318。没有应用时，口令步骤会因角色不存在而失败，探针也写不进去。可以用 metrics 只读角色核对：`select 1 from pg_roles where rolname='nexloop_host_recorder_data_host'`。
+- 只执行 root 自己的代码（L6 复核 I1、I2），见下文。
+
+#### 只执行 root 自己的代码
 
 安装以 root 运行：它读取发布 checkout，执行其中的脚本，并用其中的解释器建 venv；timer 之后也以 root 执行 release 目录中的探针。所以 `host_health_install.py` 在动手之前会逐一核对以下路径，**连同它们上面的每一级目录**，必须属于 uid 0、组和其他用户不可写、途中没有符号链接（lstat，不跟随）。任何一项不满足，就拒绝执行，什么都不做：
 
@@ -111,7 +116,9 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
    - APP_HOST 一份：DATA_HOST 的 PG 地址与 CA 文件；
    - DATA_HOST 一份：bootstrap socket DSN 文件、`NEXLOOP_ROOT`、部署时的 stage.env。
 
-   容器与 timer 的名字已经与告警规则 v13 的 selector 一致，APP_HOST 的 timer 和服务与 L7 的探针示例 `deploy/examples/host-health.app-host.example.json` 一致（`test_the_examples_match_the_alert_rules_v13_selectors` 会核对）。两份配置拷到各自主机，`install -m 0600 -o root`。
+   容器与 timer 的名字已经与告警规则 v13 的 selector 一致，APP_HOST 的 timer 与 L7 的探针示例 `deploy/examples/host-health.app-host.example.json` 一致（`test_the_examples_match_the_alert_rules_v13_selectors` 会核对）。
+
+   - **runtime-worker 按实际运行方式二选一**（C1）：仓库同时支持 compose 容器（`compose.app.example.yaml` 的 `runtime-worker`）和 systemd unit（`deploy/stage/systemd/nexloop-runtime-worker.service.example`）。stage 上它是容器 `nexloop-app-runtime-worker-1`（2026-10-23 只读核实），所以示例写在 `containers`，`services` 为空；L7 的探针示例写成了 unit，与 stage 不符。只写实际存在的那一种：写错的那一项探针永远看不到，`host_unit_missing` 会一直报警。两份配置拷到各自主机，`install -m 0600 -o root`。
 
 ### 4.3 DATA_HOST（负责人，一条命令）
 
@@ -161,7 +168,7 @@ v13（第二十二批，L7）包含 v12 的全部主机规则，另外加了 `ti
   1. 先按 B9 在 APP_HOST 安装并启用 `nexloop-file-backup.timer`；
   2. 再执行 4.4（配置中保留 `file-backup`）；
   3. 最后发布 v13。
-- 如果 file-backup 暂时不上线：从 APP_HOST 的安装配置里删掉 `file-backup` 这一项，再执行 4.4。这时没有 tick 期望它，指标中就没有这个键，`timer_stale_file_backup` 不会触发。装好 timer 后，把这一项加回配置，重跑 4.4 即可（安装是幂等的，只会重写 `/etc/nexloop/host-health.json`）。
+- 如果 file-backup 暂时不上线：从 APP_HOST 的安装配置里删掉 `file-backup` 这一项，再执行 4.4。这时没有 tick 期望它，指标中就没有这个键，`timer_stale_file_backup` 不会触发。**代价是 B9 文件备份的新鲜度在这段时间内不受任何监控**（C2）：即使 timer 后来装上了但一直失败，也不会有告警，直到把这一项加回配置。装好 timer 后，把这一项加回配置，重跑 4.4 即可（安装是幂等的，只会重写 `/etc/nexloop/host-health.json`）。
 - 发布 v13 放在两台主机都装好之后：先发布规则不会造成误报，因为没有 tick 就没有键；但两台主机都装好再发布，第一轮评估就是真实的状态。
 
 ### 4.6 验收
@@ -175,7 +182,10 @@ v13（第二十二批，L7）包含 v12 的全部主机规则，另外加了 `ti
 4. **手工补跑不算定时**：在 DATA_HOST 执行一次 `systemctl start nexloop-restic-maint.service`。`timer_success_age_seconds` 中 `data_host:restic-maint` 不应因此变小；台账中这一行 `scheduled=false`。
 5. **fail closed**：首次启用后，没有定时成功记录的 timer，其 age 从首次期望时起算。例如每周一次的 pg-full 在下一个周日之前会一直增长，但不会超过它的阈值 7 天 2 小时；超过就说明该 timer 确实没有成功跑过。
 
-**回退**：在每台主机上执行 `sudo bash host_health_install.sh <配置> --uninstall`，它会删除 timer、unit、配置、DSN、release 目录和状态目录。数据库角色和 pg_hba 行保留：没有 DSN，就没有人能用它们连接。告警规则回退到 v11，用同一个 `alert_rules_apply.py`。
+**回退**（D2：先回规则，再卸载）：
+
+1. 用同一个 `alert_rules_apply.py` 把告警规则发布回 v11。必须先做这一步：如果先卸载探针，v13 中的 `host_probe_stale` 会在 5 分钟后对两台主机报警。
+2. 在每台主机上执行 `sudo HOST_HEALTH_PYTHON=<真实解释器路径> bash host_health_install.sh <配置> --uninstall`，它会删除 timer、unit、配置、DSN、release 目录和状态目录。数据库角色和 pg_hba 行保留：没有 DSN，就没有人能用它们连接。
 
 ## 5. 来源与移植（ADR-006）
 
