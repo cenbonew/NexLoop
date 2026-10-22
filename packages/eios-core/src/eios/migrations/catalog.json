@@ -1590,6 +1590,11 @@
       "version": "0318",
       "name": "0318_relation_types_p1.sql",
       "sha256": "0ce4c1dd518cd35320c05b8a6e9074294a77f86c13eb07f91a496860bf5b2791"
+    },
+    {
+      "version": "0319",
+      "name": "0319_relation_types_p2.sql",
+      "sha256": "7cfbce9a93563e2e5549c069ca055d50fa654611ea46f365ab6ffc701ddf300a"
     }
   ]
 }
