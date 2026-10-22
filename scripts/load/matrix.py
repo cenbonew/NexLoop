@@ -412,6 +412,9 @@ def main(argv=None):
                         help='continue an interrupted run in --out: completed cells are kept, an incomplete cell directory is moved to '
                              'attempts/<cell>.<n> (kept, never overwritten) and the cell runs again')
     args = parser.parse_args(argv)
+    # Every service starts in its own working directory (stack.py), so the run's paths are made absolute here: a relative --out or
+    # --lane-root would leave the API's TLS files unreadable from its cwd (login retest 2026-10-23: service_start_failed).
+    args.template, args.out, args.lane_root = (str(Path(v).resolve()) for v in (args.template, args.out, args.lane_root))
     if os.environ.get('REAL_DISPATCH_ENABLED', 'false') != 'false':
         raise SystemExit('REAL_DISPATCH_ENABLED must be false')
     if not 0 < args.timing_scale <= 1:

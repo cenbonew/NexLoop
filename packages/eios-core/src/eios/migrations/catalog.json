@@ -1600,6 +1600,26 @@
       "version": "0320",
       "name": "0320_audit_hash_chain.sql",
       "sha256": "d955da5946ad9973238384e986ee7e4e45e946c778fcae07744373318a3708b7"
+    },
+    {
+      "version": "0321",
+      "name": "0321_relation_types_p2.sql",
+      "sha256": "51f5f2e86699a265eae65cb38d1b3520a1a02a17436e9a3077e17fa6d86684a6"
+    },
+    {
+      "version": "0322",
+      "name": "0322_schema_impact_dependents.sql",
+      "sha256": "fdf1f851db3b70faeb4a4ca7728963aec891b33c221355c4d0cba88a550a7e1f"
+    },
+    {
+      "version": "0323",
+      "name": "0323_api_request_metrics.sql",
+      "sha256": "9ff70e8512a0407602fac3cf1820d9e9b2721a335ef4a859bbdcba73f3fab709"
+    },
+    {
+      "version": "0324",
+      "name": "0324_outcome_classes.sql",
+      "sha256": "d3c0b97856d5f9a0f345ae0ced375208c4a38e6ff8d1f7e24fb923bc9cdab754"
     }
   ]
 }
