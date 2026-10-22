@@ -53,18 +53,21 @@ def diagnose(*,database_url,artifact_root,environment=None):
 def connection_budget(*,budget_file,database_url):
     """ADR-024 / 11_DEPLOYMENT §6: declared pools (sum <= 60) and the server's max_connections (>= 80)."""
     from nexloop_eios import connection_budget as budget
-    max_connections=None
+    max_connections=reserved=None
     try:
         with psycopg.connect(database_url,connect_timeout=5) as c:
             max_connections=int(c.execute('show max_connections').fetchone()[0])
+            reserved=int(c.execute('show superuser_reserved_connections').fetchone()[0])  # ADR-037: the server's own value
     except Exception:pass
     try:
-        result=budget.evaluate(budget.load(budget_file),max_connections=max_connections)
+        result=budget.evaluate(budget.load(budget_file),max_connections=max_connections,superuser_reserved=reserved)
     except budget.BudgetInvalid as error:
         return {'checks':{'connection_budget_file':False},'details':{'connection_budget_error':str(error)}}
     checks={'connection_budget_file':True,'connection_budget_total':result['checks']['application_pool_total'],
         'connection_budget_services':result['checks']['all_services_declared'],'runtime_dispatch_loops':result['checks']['runtime_dispatch_loops'],
-        'max_connections':result['checks'].get('max_connections',False)}
+        'max_connections':result['checks'].get('max_connections',False),
+        # ADR-037: the simulation group's own budget (<= 10) and both budgets plus the operations reserve within the server's capacity.
+        'simulation_connection_budget_total':result['checks']['simulation_pool_total'],'server_capacity':result['checks'].get('server_capacity',False)}
     return {'checks':checks,'details':{'connection_budget':result['details']}}
 
 

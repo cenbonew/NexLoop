@@ -218,9 +218,14 @@ def test_at046_the_simulation_worker_dispatches_through_its_actual_path(sim_grou
     # A simulation world has its own model budget from its creation (S6, D6), so every simulation Run's dispatch reserves its maximum
     # cost: reserve_budget runs here as nexloop_sim_worker (asserted below).
     assert admin.execute("select count(*) from control.nexloop_budget_limits where world=%s and budget_kind='model'", (f['world'],)).fetchone()[0] == 1
+    # ADR-037 (owner 2026-10-22): the deployed simulation budget - dispatcher 2, two guard children with pools of 2 (lowered from 4).
+    sim = next(e for e in json.loads((ROOT / 'deploy/stage/connection-budget.v1.json').read_text())['simulation']['services']
+               if e['name'] == 'sim-runtime-worker')
+    assert (sim['dispatcher_pool_max'], sim['guard_workers'], sim['guard_pool_max']) == (2, 2, 2)
     config = dict(signing_key_file=f['key'], signing_key_id='sim-run')
     with open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_api'), artifact_root=tmp_path / 'api-artifacts', **config) as api, \
-            open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_worker'), artifact_root=tmp_path / 'worker-artifacts', **config) as backend_worker:
+            open_backend(database_url=make_conninfo(f['pg'], user='nexloop_sim_worker'), artifact_root=tmp_path / 'worker-artifacts', pool_max_size=sim['dispatcher_pool_max'],
+                         **config) as backend_worker:
         assert backend_worker._pool.connection().__enter__().execute('select current_user').fetchone()[0] == 'nexloop_sim_worker'
         source = api.authenticate(f['api_token'], world=f['world'])
         run = step(source.issue_run_credential, action_resources=['eios:action:' + EFFECT + ':1'])
@@ -247,7 +252,8 @@ def test_at046_the_simulation_worker_dispatches_through_its_actual_path(sim_grou
         credential.write_text(f['worker_token'])
         credential.chmod(0o600)
         pool = GuardWorkerPool(GuardFiles(dsn, f['key'], 'sim-run', credential, tmp_path / 'guard-artifacts', f['world'], guard_key, tmp_path / 'host-cert.pem',
-                                          tmp_path / 'host-key.pem', world_group='simulation'), port=0, workers=2)
+                                          tmp_path / 'host-key.pem', world_group='simulation'), port=0, workers=sim['guard_workers'],
+                               pool_max=sim['guard_pool_max'])
         port = pool.start()
         try:
             with host(runtime, key, sim_host_configuration(tmp_path, port, guard_key)) as (child, client, headers):
