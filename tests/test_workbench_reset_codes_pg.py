@@ -141,3 +141,36 @@ def test_another_owner_is_refused_by_the_role_recheck(resets, admin):
         refused = act(client, csrf, 'issue_workbench_reset', {'target_principal': second['principal_id']})
         assert refused.status_code == 409 and refused.json()['details']['reason'] == 'target_role_changed'
     assert admin.execute('select count(*) from control.nexloop_workbench_reset_codes').fetchone() == (0,)
+
+
+def test_issuing_is_limited_per_owner(resets, admin):
+    """Review I-1 (design §4): at most 10 codes per issuing owner in 15 minutes; the eleventh is refused (rate_limited) and ends no
+    session - a stolen owner session cannot keep ending a member's sessions."""
+    c = resets
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = login(client, c['owner_member']).json()['csrf_token']
+        for _ in range(10):
+            assert act(client, csrf, 'issue_workbench_reset', {'target_principal': c['operator_member']['principal_id']}).status_code == 200
+        epoch = admin.execute("select payload->>'session_epoch' from control.nexloop_browser_accounts where username='staff-operator'").fetchone()[0]
+        refused = act(client, csrf, 'issue_workbench_reset', {'target_principal': c['operator_member']['principal_id']})
+        assert refused.status_code == 409 and refused.json()['details']['reason'] == 'rate_limited'
+        assert admin.execute("select payload->>'session_epoch' from control.nexloop_browser_accounts where username='staff-operator'").fetchone()[0] == epoch
+
+
+def test_an_operator_reset_ends_every_unused_code(resets, admin, tmp_path):
+    """Review I-2 (design §3, I4): the 0198 emergency reset (the identity tool, as nexloop_identity) shares the password write and ends
+    the account's unused codes at once (reason operator_reset): a code issued before it can no longer change the password."""
+    from nexloop_eios.identity_password_reset import reset_password
+    c = resets
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = login(client, c['owner_member']).json()['csrf_token']
+        code = act(client, csrf, 'issue_workbench_reset', {'target_principal': c['operator_member']['principal_id']}).json()['code']
+        password = tmp_path / 'operator-password'
+        password.write_text('an-operator-password-9')
+        password.chmod(0o600)
+        reset_password(identity_database_url_file=c['config'].workbench.identity_database_url_file, tenant=TENANT,
+                       application_id=c['config'].workbench.application_id, password_file=password, request_id='emergency-1',
+                       operator_label='synthetic-operator', username='staff-operator')
+        assert admin.execute('select state,revoked_reason from control.nexloop_workbench_reset_codes').fetchall() == [('revoked', 'operator_reset')]
+        assert reset(client, {'code': code, 'password': 'a-new-password-1'}).status_code == 400
+        assert login(client, c['operator_member'], 'an-operator-password-9').status_code == 200

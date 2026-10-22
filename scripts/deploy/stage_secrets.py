@@ -339,15 +339,23 @@ def _metrics_client(target, ca_dir, work, bundle, p):
            f"sslkey={installed}/metrics-pg-client.key\n")
 
 
-def add_identity_token_key(out):
+def add_identity_token_key(out, *, rotate=False):
     """NX-058: app/secrets/api/identity-token.key (32 random bytes as 64 hex) for a tree generated before it existed (generate writes it
-    for new trees, from the Compose secret). Nothing existing is overwritten; the manifest records the file; no value is printed."""
+    for new trees, from the Compose secret). Nothing existing is overwritten unless --rotate (review S-5): then the file gets a new
+    value and the manifest its new digest - every unused reset code and invitation stops working, and both api processes must restart
+    together with it (docs/implementation/NX-058-slice-B.md). The manifest records the file; no value is printed."""
     out = Path(out)
     manifest_path = out / 'manifest.json'
     manifest = json.loads(manifest_path.read_text())
     target = out / 'app' / 'secrets' / 'api' / 'identity-token.key'
-    if target.exists() or any(f['path'] == 'api/identity-token.key' for f in manifest['files']):
-        raise Refused('the tree already holds the identity token key')
+    present = target.exists() or any(f['path'] == 'api/identity-token.key' for f in manifest['files'])
+    if present and not rotate:
+        raise Refused('the tree already holds the identity token key (--rotate replaces it)')
+    if rotate and not present:
+        raise Refused('nothing to rotate: the tree holds no identity token key')
+    if rotate:
+        target.unlink(missing_ok=True)
+        manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/identity-token.key']
     _write(target, secrets.token_hex(32))
     entry = {'host': 'app', 'path': 'api/identity-token.key', 'secret': 'api_identity_token_key', 'service': 'api', 'owner': _owner('api')}
     entry['kind'], entry['phase'], entry['note'] = classify('app', 'api', 'identity-token.key')
@@ -355,7 +363,7 @@ def add_identity_token_key(out):
     manifest['files'].append(entry)
     manifest_path.chmod(0o600)
     manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
-    return {'added': ['app:api/identity-token.key']}
+    return {'rotated' if rotate else 'added': ['app:api/identity-token.key']}
 
 
 def add_metrics(out, ca_dir, params_file):
@@ -976,6 +984,7 @@ def main(argv=None):
     m.add_argument('--params', type=Path, required=True)
     itk = sub.add_parser('identity-token-key', help='NX-058: add the workbench one-time secret key to a tree generated before it existed')
     itk.add_argument('--out', type=Path, required=True)
+    itk.add_argument('--rotate', action='store_true', help='replace the key: every unused code and invitation stops working; restart api and api-2 together')
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -1008,7 +1017,7 @@ def main(argv=None):
         elif args.command == 'reissue-role':
             out, code = reissue_role(args.out, args.ca_dir, args.params, args.service), 0
         elif args.command == 'identity-token-key':
-            out, code = add_identity_token_key(args.out), 0
+            out, code = add_identity_token_key(args.out, rotate=args.rotate), 0
         elif args.command == 'metrics':
             out, code = add_metrics(args.out, args.ca_dir, args.params), 0
         elif args.command == 'generate':

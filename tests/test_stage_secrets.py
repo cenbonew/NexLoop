@@ -490,6 +490,12 @@ def test_identity_token_key_is_generated_and_added_to_an_older_tree(tree, tmp_pa
     assert value not in capsys.readouterr().out and S.check(old)['ok']
     assert S.main(['identity-token-key', '--out', str(old)]) == 2
     assert (old / 'app' / 'secrets' / 'api' / 'identity-token.key').read_text() == value
+    # Rotation (review S-5): a new value, the manifest's new digest, check still passes, nothing printed.
+    capsys.readouterr()
+    assert S.main(['identity-token-key', '--out', str(old), '--rotate']) == 0
+    rotated = (old / 'app' / 'secrets' / 'api' / 'identity-token.key').read_text()
+    assert rotated != value and rotated not in capsys.readouterr().out and S.check(old)['ok']
+    assert oct((old / 'app' / 'secrets' / 'api' / 'identity-token.key').stat().st_mode)[-3:] == '600'
 
 
 def test_the_browser_registration_carries_the_reset_completion_rate_policy():

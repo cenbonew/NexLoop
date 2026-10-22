@@ -143,6 +143,16 @@ REGISTRY = [
     Allowed('context_v6_reserved_units_volatile', 'authz.nexloop_context_v6_command', 'current_constraints compared without reserved_units',
             ((r"\(case when key='current_constraints' then \(pack->key\)-'reserved_units' else pack->key end\)\s*is distinct from \(case when key='current_constraints' then \(snapshot->key\)-'reserved_units' else snapshot->key end\)",
               'pack->key is distinct from snapshot->key'),)),
+    # 0326 (NX-058 slice B review I-2): the operator reset shares the password write of the owner-issued codes and ends their unused codes.
+    Allowed('operator_reset_revokes_codes', 'control.nexloop_operator_reset_browser_password',
+            'the password write through control.nexloop_browser_password_write (same effect) and every unused reset code revoked; nothing else',
+            ((r"body:=control\.nexloop_browser_password_write\(p_tenant,old,p_hash,now_at\);",
+              "history:=(case when old.password_hash is null then old.password_history else array[old.password_hash]||old.password_history end)[1:10];"
+              "body:=old.payload||jsonb_build_object('revision',p_expected+1,'session_epoch',(old.payload->>'session_epoch')::bigint+1,'failed_attempts',0,"
+              "'lockout_level',0,'locked_until',null,'updated_at',to_jsonb(now_at));"
+              "update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history "
+              "where a.tenant_id=p_tenant and a.local_account_id=p_account;"),
+             (r"\s*perform control\.nexloop_workbench_reset_revoke\(p_tenant,old\.subject_id,'operator_reset'\);", ''))),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),

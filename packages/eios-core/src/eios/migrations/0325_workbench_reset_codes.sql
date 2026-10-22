@@ -71,6 +71,26 @@ create function control.nexloop_workbench_kick(p_tenant text,p_account control.n
    'revision',(payload->>'revision')::bigint+1,'updated_at',to_jsonb(clock_timestamp()))
   where tenant_id=p_tenant and local_account_id=(p_account).local_account_id $$;
 
+-- The password write every reset shares (0198's operator reset since 0326, and the owner-issued code below; design §3, I-2): the new
+-- argon2id hash, the previous one first in the history (at most 10), revision and session_epoch + 1, failures and lockout cleared.
+create function control.nexloop_browser_password_write(p_tenant text,p_account control.nexloop_browser_accounts,p_hash text,p_at timestamptz) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare history text[];body jsonb;
+begin
+ history:=(case when (p_account).password_hash is null then (p_account).password_history else array[(p_account).password_hash]||(p_account).password_history end)[1:10];
+ body:=(p_account).payload||jsonb_build_object('revision',((p_account).payload->>'revision')::bigint+1,'session_epoch',((p_account).payload->>'session_epoch')::bigint+1,
+  'failed_attempts',0,'lockout_level',0,'locked_until',null,'updated_at',to_jsonb(p_at));
+ update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history
+  where a.tenant_id=p_tenant and a.local_account_id=(p_account).local_account_id;
+ return body;
+end $$;
+
+-- Every unused code of a subject's account ends (I4): an operator reset (0198, since 0326), a reissue, later a member change.
+create function control.nexloop_workbench_reset_revoke(p_tenant text,p_subject text,p_reason text) returns void
+ language sql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ update control.nexloop_workbench_reset_codes set state='revoked',revoked_reason=p_reason
+  where tenant_id=p_tenant and target_subject=p_subject and state='issued' $$;
+
 create function control.nexloop_governed_issue_workbench_reset(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare r control.nexloop_workbench_reset_codes;a control.nexloop_browser_accounts;target_subject text;
@@ -89,6 +109,11 @@ begin
    raise exception 'workbench member: request_reused' using errcode='22023';end if;
   return jsonb_build_object('reset_id',r.reset_id,'target_principal',r.target_principal,'expires_at',r.expires_at,'replayed',true);
  end if;
+ -- The issuer, rechecked under the lock (S-1): still an active owner of the tenant's workbench.
+ if not control.nexloop_workbench_member_active(p_tenant,p_principal,true) then raise exception 'workbench member: issuer_not_owner' using errcode='22023';end if;
+ -- Per issuing owner (design §4, I-1): at most 10 codes in 15 minutes, so a stolen owner session cannot keep ending a member's sessions.
+ if (select count(*) from control.nexloop_workbench_reset_codes where tenant_id=p_tenant and issued_by_principal=p_principal
+     and issued_at>clock_timestamp()-interval '15 minutes')>=10 then raise exception 'workbench member: rate_limited' using errcode='22023';end if;
  if body->>'target_principal'=p_principal then raise exception 'workbench member: target_is_requester' using errcode='22023';end if;
  -- The target's current role and status, rechecked under the lock (§1b, V1/Y5): an owner target is issue_owner_reset's.
  if control.nexloop_workbench_role(p_tenant,body->>'target_principal')='owner' then raise exception 'workbench member: target_role_changed' using errcode='22023';end if;
@@ -97,8 +122,7 @@ begin
  a:=control.nexloop_workbench_member_account(p_tenant,body->>'target_principal');
  if a.local_account_id is null or a.payload->>'status' is distinct from 'active' then raise exception 'workbench member: target_not_active' using errcode='22023';end if;
  target_subject:=a.subject_id;
- update control.nexloop_workbench_reset_codes set state='revoked',revoked_reason='reissued'
-  where tenant_id=p_tenant and target_principal=body->>'target_principal' and state='issued';
+ perform control.nexloop_workbench_reset_revoke(p_tenant,target_subject,'reissued');
  insert into control.nexloop_workbench_reset_codes(tenant_id,request_id,target_principal,target_subject,code_hmac,issued_by_principal,issued_by_subject,
    issued_at,expires_at,issuer_source,state)
   values(p_tenant,body->>'request_id',body->>'target_principal',target_subject,body->>'code_hmac',p_principal,p_subject,clock_timestamp(),
@@ -138,7 +162,7 @@ end $$;
 
 create function control.nexloop_complete_workbench_reset(p_tenant text,p_code_hmac text,p_expected bigint,p_hash text,p_source text,p_trace text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare r control.nexloop_workbench_reset_codes;a control.nexloop_browser_accounts;now_at timestamptz;body jsonb;history text[];
+declare r control.nexloop_workbench_reset_codes;a control.nexloop_browser_accounts;now_at timestamptz;body jsonb;
 begin
  if session_user<>'nexloop_identity' or coalesce(p_code_hmac,'')!~'^[0-9a-f]{64}$' or p_hash is null or length(p_hash)>1024
   or p_hash not like '$argon2id$%' or (p_source is not null and p_source!~'^[0-9a-f]{64}$') or p_trace is null or length(p_trace) not between 1 and 320 then
@@ -156,11 +180,7 @@ begin
  if not found or a.payload->>'status' is distinct from 'active' or (a.payload->>'revision')::bigint is distinct from p_expected then
   raise exception 'reset invalid' using errcode='22023';end if;
  now_at:=clock_timestamp();
- history:=(case when a.password_hash is null then a.password_history else array[a.password_hash]||a.password_history end)[1:10];
- body:=a.payload||jsonb_build_object('revision',p_expected+1,'session_epoch',(a.payload->>'session_epoch')::bigint+1,'failed_attempts',0,
-  'lockout_level',0,'locked_until',null,'updated_at',to_jsonb(now_at));
- update control.nexloop_browser_accounts set payload=body,password_hash=p_hash,password_history=history
-  where tenant_id=p_tenant and local_account_id=a.local_account_id;
+ body:=control.nexloop_browser_password_write(p_tenant,a,p_hash,now_at);
  update control.nexloop_workbench_reset_codes set state='completed',completed_at=now_at,completer_source=p_source where reset_id=r.reset_id;
  insert into control.nexloop_browser_login_events(tenant_id,subject_id,event_type,outcome,operator_principal_id,request_id,trace_id,details,created_at)
   values(p_tenant,a.subject_id,'owner_issued_password_reset','reset',r.issued_by_principal,'workbench-reset:'||r.reset_id,p_trace,
@@ -189,6 +209,7 @@ end $$;
 do $$ declare f text; begin
  foreach f in array array['control.nexloop_workbench_member_lock(text)','control.nexloop_workbench_member_account(text,text)',
    'control.nexloop_workbench_member_active(text,text,boolean)','control.nexloop_workbench_kick(text,control.nexloop_browser_accounts)',
+   'control.nexloop_browser_password_write(text,control.nexloop_browser_accounts,text,timestamptz)','control.nexloop_workbench_reset_revoke(text,text,text)',
    'control.nexloop_governed_issue_workbench_reset(text,text,text,text,text,jsonb)','control.nexloop_workbench_reset_lookup(text,text)',
    'control.nexloop_workbench_reset_failed(text,text)','control.nexloop_complete_workbench_reset(text,text,bigint,text,text,text)',
    'control.nexloop_workbench_reset_notices(text,text,integer)'] loop

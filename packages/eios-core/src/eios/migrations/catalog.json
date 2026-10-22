@@ -1624,7 +1624,12 @@
     {
       "version": "0325",
       "name": "0325_workbench_reset_codes.sql",
-      "sha256": "ae5ae686bf73a8f6a4f75c7c76c4754f2ee9eb62d272069b035d1d632adb012a"
+      "sha256": "4fe23271ae3286aea3dcf49f17fff5b89e677015d9ac00a3f23183229e4edc0e"
+    },
+    {
+      "version": "0326",
+      "name": "0326_operator_reset_revokes_codes.sql",
+      "sha256": "ca49afdfa870d4c6d6734e20093aecdf603e43ed0409cd6280b11b411acc2026"
     }
   ]
 }
