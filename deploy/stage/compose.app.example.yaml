@@ -112,7 +112,7 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}", --tls-certificate-file,
               /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file, /run/secrets/api_identity_dsn,
-              --identity-pool-max, "3", --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
+              --identity-pool-max, "3", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
               --browser-application-id, "${BROWSER_APPLICATION_ID:?application}", --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}",
               --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web]
     volumes:
@@ -129,7 +129,7 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT_2:?second API port}",
               --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file,
-              /run/secrets/api_identity_dsn, --identity-pool-max, "3", --browser-rate-key-file, /run/secrets/api_browser_rate_key,
+              /run/secrets/api_identity_dsn, --identity-pool-max, "3", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key,
               --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
               --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}", --browser-origin, "${BROWSER_ORIGIN:?https origin}",
               --web-root, /opt/nexloop/web]

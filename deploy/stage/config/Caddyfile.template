@@ -26,6 +26,9 @@ https://__APP_HOST_NAME__:8443 {
             # origin's host:port (browser_http.py session check), so the original Host is passed on (2026-10-15 first start: 403).
             header_up Host {http.request.hostport}
             header_up -X-Forwarded-For
+            # L6 C11: the login rate limit's client address. Overwritten with the TLS peer (a client's own header of this name is
+            # replaced, never passed on); the API trusts it only from this gateway on loopback (--trusted-proxy-peer 127.0.0.1).
+            header_up X-NexLoop-Client-IP {remote_host}
         }
     }
     header {
@@ -35,4 +38,5 @@ https://__APP_HOST_NAME__:8443 {
         Strict-Transport-Security "max-age=31536000"
     }
 }
-# Forwarded client addresses are not trusted (the API derives identity from its own session); /internal is never reachable.
+# Forwarded client addresses are not trusted (the API derives identity from its own session): the one exception is the login rate
+# limit's X-NexLoop-Client-IP, which this gateway always overwrites and the API trusts from loopback only. /internal is never reachable.

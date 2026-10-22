@@ -273,6 +273,8 @@ def parse(argv=None,environ=None):
     p.add_argument('--identity-database-url-file',type=Path);p.add_argument('--browser-rate-key-file',type=Path)
     p.add_argument('--browser-tenant-id');p.add_argument('--browser-application-id');p.add_argument('--browser-origin')
     p.add_argument('--workbench-application-id')
+    # L6 C11: the gateway peers (address or CIDR, repeatable) whose X-NexLoop-Client-IP the login rate limit trusts; none = the socket peer.
+    p.add_argument('--trusted-proxy-peer',action='append',default=[])
     # NX-032: the browser identity pool of this process (connection budget entry api-browser-identity, 4 per process).
     p.add_argument('--identity-pool-max',type=int,default=4)
     a=p.parse_args(argv)
@@ -290,17 +292,19 @@ def parse(argv=None,environ=None):
         except Exception:p.error('private service-owned TLS files required')
         tls={'ssl_certfile':str(a.tls_certificate_file),'ssl_keyfile':str(a.tls_key_file)}
     browser=None
+    if a.trusted_proxy_peer and not (a.identity_database_url_file or a.browser_origin):p.error('trusted proxy peers need the browser realm')
     browser_values=(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.browser_application_id,a.browser_origin)
     if any(v is not None for v in browser_values):
         if any(v is None for v in browser_values):p.error('complete private browser configuration required')
         from nexloop_eios.browser_http import BrowserConfiguration
-        try:browser=BrowserConfiguration(*browser_values)
+        try:browser=BrowserConfiguration(*browser_values,trusted_proxy_peers=tuple(a.trusted_proxy_peer))
         except ValueError:p.error('valid fixed HTTPS browser realm required')
     workbench=None
     if a.workbench_application_id is not None:
         if browser is None or a.workbench_application_id==a.browser_application_id:p.error('workbench needs the browser realm and its own application')
         from nexloop_eios.browser_http import BrowserConfiguration
-        workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin)
+        workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin,
+            trusted_proxy_peers=tuple(a.trusted_proxy_peer))
     host_control=None
     if any(v is not None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):
         if any(v is None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):p.error('complete Host control configuration required')
