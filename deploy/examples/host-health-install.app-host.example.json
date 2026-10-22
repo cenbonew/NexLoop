@@ -1,0 +1,147 @@
+{
+  "schema": "nexloop-host-health-install/1",
+  "release_checkout": "<RELEASE_CHECKOUT_ABSOLUTE_PATH>",
+  "release_sha": "<RELEASE_COMMIT_40_HEX>",
+  "python": "/opt/nexloop/python-3.12.15/bin/python3.12",
+  "pip_index_url": "https://<PYPI_MIRROR>/simple",
+  "host_role": "app_host",
+  "_comment": "APP_HOST (dispatcher): printf \"app_host\\t%s\\n\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v12 selectors (app_host:<name>).",
+  "database": {
+    "host": "<DATA_HOST_PG_ADDRESS>",
+    "port": 5432,
+    "dbname": "nexloop_stage",
+    "sslmode": "verify-full",
+    "sslrootcert": "<NEXLOOP_PG_CA_FILE>"
+  },
+  "probe": {
+    "grace_seconds": 5,
+    "local_window_seconds": 900,
+    "local_min_restarts": 3,
+    "containers": [
+      {
+        "name": "app-net",
+        "container": "nexloop-app-app-net-1"
+      },
+      {
+        "name": "app-link-relay",
+        "container": "nexloop-app-app-link-relay-1"
+      },
+      {
+        "name": "gateway",
+        "container": "nexloop-app-gateway-1"
+      },
+      {
+        "name": "agent-host",
+        "container": "nexloop-app-agent-host-1"
+      },
+      {
+        "name": "agent-link-relay",
+        "container": "nexloop-app-agent-link-relay-1"
+      },
+      {
+        "name": "api-1",
+        "container": "nexloop-app-api-1-1"
+      },
+      {
+        "name": "api-2",
+        "container": "nexloop-app-api-2-1"
+      },
+      {
+        "name": "domain-worker",
+        "container": "nexloop-app-domain-worker-1"
+      },
+      {
+        "name": "action-worker",
+        "container": "nexloop-app-action-worker-1"
+      },
+      {
+        "name": "webchat-delivery",
+        "container": "nexloop-app-webchat-delivery-1"
+      },
+      {
+        "name": "runtime-worker",
+        "container": "nexloop-app-runtime-worker-1"
+      },
+      {
+        "name": "message-relay",
+        "container": "nexloop-app-message-relay-1"
+      },
+      {
+        "name": "message-relay-2",
+        "container": "nexloop-app-message-relay-2-1"
+      },
+      {
+        "name": "outbound-recorder",
+        "container": "nexloop-app-outbound-recorder-1"
+      },
+      {
+        "name": "claim-extraction-scheduler",
+        "container": "nexloop-app-claim-extraction-scheduler-1"
+      },
+      {
+        "name": "claim-extraction-worker",
+        "container": "nexloop-app-claim-extraction-worker-1"
+      },
+      {
+        "name": "claim-matcher",
+        "container": "nexloop-app-claim-matcher-1"
+      },
+      {
+        "name": "recall-indexer",
+        "container": "nexloop-app-recall-indexer-1"
+      },
+      {
+        "name": "plan-reevaluator",
+        "container": "nexloop-app-plan-reevaluator-1"
+      },
+      {
+        "name": "reply-guarantor",
+        "container": "nexloop-app-reply-guarantor-1"
+      },
+      {
+        "name": "commitment-keeper",
+        "container": "nexloop-app-commitment-keeper-1"
+      },
+      {
+        "name": "commercial-recorder",
+        "container": "nexloop-app-commercial-recorder-1"
+      },
+      {
+        "name": "retention-keeper",
+        "container": "nexloop-app-retention-keeper-1"
+      },
+      {
+        "name": "alert-evaluator",
+        "container": "nexloop-app-alert-evaluator-1"
+      },
+      {
+        "name": "incentive-issuer",
+        "container": "nexloop-app-incentive-issuer-1"
+      },
+      {
+        "name": "sim-agent-host",
+        "container": "nexloop-simulation-sim-agent-host-1"
+      },
+      {
+        "name": "sim-runtime-worker",
+        "container": "nexloop-simulation-sim-runtime-worker-1"
+      },
+      {
+        "name": "sim-stand-in-executor",
+        "container": "nexloop-simulation-sim-stand-in-executor-1"
+      },
+      {
+        "name": "sim-world-files",
+        "container": "nexloop-simulation-sim-world-files-1"
+      }
+    ],
+    "services": [],
+    "timers": [
+      {
+        "name": "provider-drift",
+        "timer": "nexloop-provider-drift.timer",
+        "service": "nexloop-provider-drift.service"
+      }
+    ]
+  }
+}
