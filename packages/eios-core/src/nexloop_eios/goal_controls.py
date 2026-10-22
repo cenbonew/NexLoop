@@ -75,6 +75,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'send_outreach':'outreach.send',
     # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
     'decide_outreach_approval':'outreach.approve',
+    'decide_approval':'approvals.decide','cancel_approval':'approvals.cancel',  # NX-056 A1
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
@@ -401,6 +402,18 @@ class GoalGovernedActions:
         if not re.fullmatch(r'outreach:[0-9a-f]{64}',str(intent_id)) or decision not in ('approve','reject') or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('intent, decision and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_outreach_approval','intent_id':intent_id,'decision':decision,'reason':reason})
+
+    # NX-056 A1: decide one waiting unified Approval (approver checks in SQL) or withdraw one's own; nothing executes here.
+    def decide_approval(self,*,action_name,action_version,request_id,approval_id,decision,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or decision not in ('approve','reject') \
+                or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('approval, decision and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_approval','approval_id':approval_id,'decision':decision,'reason':reason})
+
+    def cancel_approval(self,*,action_name,action_version,request_id,approval_id,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('approval and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'cancel_approval','approval_id':approval_id,'reason':reason})
 
     # Outreach slice 7: owner only; evidence is the consumer's own inbound message or an offline reference (checked in SQL).
     def record_marketing_consent(self,*,action_name,action_version,request_id,consumer_id,kind,source,reason,message_id=None,evidence_ref=None):

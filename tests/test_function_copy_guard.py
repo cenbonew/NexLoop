@@ -341,6 +341,9 @@ REGISTRY = [
               "coalesce(new.record->>'direction','inbound')<>'inbound' then return null;end if;  -- inbound: no direction (0046) or 'inbound'"),)),
     Allowed('message_inbound_rule', 'runtime.nexloop_shadow_report_freeze', 'the report\'s real inbound set through runtime.nexloop_message_is_inbound',
             ((r"runtime\.nexloop_message_is_inbound\(m\.record\)\),", "m.record->>'direction'='inbound'),"),)),
+    # NX-056 A1 (L6 C5): 0240's self-approval is compared by subject too; nothing else.
+    Allowed('nx056_unified_approvals', 'control.nexloop_governed_outreach_approve', 'self-approval by subject as well as by principal',
+            ((r"\n  or control\.nexloop_approval_subject_of\(p_tenant,p_principal\) in \(.*?\)\)\n then", ' then'),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

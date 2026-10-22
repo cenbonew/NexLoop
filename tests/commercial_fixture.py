@@ -77,7 +77,7 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.operator_persona.rules_publish':('Consumer','operator_persona.rules_publish'),'nexloop.ai_disclosure.set':('Consumer','ai_disclosure.set'),  # 0227
     'nexloop.contact_preference.dismiss':('Consumer','contact_preference.dismiss'),
     'nexloop.outreach_controls.set':('Consumer','outreach_controls.set'),'nexloop.outreach_purposes.set':('Consumer','outreach_purposes.set'),
-    'nexloop.outreach.send':('Consumer','outreach.send'),'nexloop.outreach.approve':('Consumer','outreach.approve'),'nexloop.marketing_consent.record':('Consumer','marketing_consent.record'),'nexloop.object_set.publish':('Consumer','object_set.publish'),
+    'nexloop.outreach.send':('Consumer','outreach.send'),'nexloop.outreach.approve':('Consumer','outreach.approve'),'nexloop.approvals.decide':('Consumer','approvals.decide'),'nexloop.approvals.cancel':('Consumer','approvals.cancel'),'nexloop.marketing_consent.record':('Consumer','marketing_consent.record'),'nexloop.object_set.publish':('Consumer','object_set.publish'),
     'nexloop.semantic_release.publish':('Consumer','semantic_release.publish'),'nexloop.semantic_release.rollback':('Consumer','semantic_release.rollback'),'nexloop.semantic_release.stop':('Consumer','semantic_release.stop'),'nexloop.object_view.publish':('Consumer','object_view.publish'),
     'nexloop.sim_world.create':('Consumer','sim_world.create'),'nexloop.sim_world.delete':('Consumer','sim_world.delete'),
     'nexloop.sim_world.generate':('Consumer','sim_world.generate'),  # 0228

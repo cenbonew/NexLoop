@@ -701,6 +701,16 @@
    "source": "deploy/configuration/business-actions.v1.json"
   },
   {
+   "stable_name": "nexloop.approvals.decide",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.approvals.cancel",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
    "stable_name": "nexloop.marketing_consent.record",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"

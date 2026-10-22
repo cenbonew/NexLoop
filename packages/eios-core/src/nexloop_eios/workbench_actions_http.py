@@ -157,6 +157,10 @@ OPERATIONS={
     # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
     'decide_outreach_approval':{'intent_id':_id(re.compile(r'outreach:[0-9a-f]{64}')),
         'decision':lambda v:v if v in ('approve','reject') else (_ for _ in ()).throw(ValueError('decision')),'reason':_reason},
+    # NX-056 A1: decide one waiting unified Approval, or withdraw one's own (every approver check in SQL).
+    'decide_approval':{'approval_id':_id(re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),
+        'decision':lambda v:v if v in ('approve','reject') else (_ for _ in ()).throw(ValueError('decision')),'reason':_reason},
+    'cancel_approval':{'approval_id':_id(re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'reason':_reason},
     # Outreach slice 7 (owner only): marketing consent granted / withdrawn, or marketing resumed after an unsubscribe, with evidence.
     'record_marketing_consent':{'consumer_id':_id(_HEX),'kind':lambda v:v if v in ('consent_granted','consent_withdrawn','marketing_resumed') else (_ for _ in ()).throw(ValueError('kind')),
         'source':lambda v:v if v in ('consumer_message','offline') else (_ for _ in ()).throw(ValueError('source')),

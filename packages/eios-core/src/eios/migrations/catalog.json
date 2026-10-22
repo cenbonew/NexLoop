@@ -1600,6 +1600,11 @@
       "version": "0320",
       "name": "0320_audit_hash_chain.sql",
       "sha256": "d955da5946ad9973238384e986ee7e4e45e946c778fcae07744373318a3708b7"
+    },
+    {
+      "version": "0321",
+      "name": "0321_nx056_unified_approvals.sql",
+      "sha256": "467a71892a727a98dc6586f173695ca676cc1276e331adfbd80b8b570b4d7978"
     }
   ]
 }
