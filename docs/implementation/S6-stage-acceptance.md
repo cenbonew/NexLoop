@@ -126,3 +126,23 @@ uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config <私有配
 10. **`r7-prepare`**，然后负责人执行 `erase_synthetic_consumer.py erase`，再执行 **`r7-verify`**：必须放在最后。删除会让这个 Consumer 的 Run 离开窗口，前面各步的诊断输入会随之改变。
 
 重跑时：同一个 `label` 一律按重放处理；换新 `label` 就要换一批合成数据，因为旧的留出集已经用过。
+
+## 合成交互：合成顾客发言（`synthetic_customer.py`）
+
+合成交互数据执行单（分支 `l5/s6-stage-data`，ec9bf9a0，尚未进 main）第 2 步“执行”中的顾客发言改用本工具；合入后以本节为准。调度员在自己的 Mac 上发言；观察方仍是 APP_HOST 上的 run 入口。
+
+- **发言**：`scripts/acceptance/synthetic_customer.py` 代替操作员在合成 WebChat 中逐轮发言，走与真人相同的顾客路径（`nexloop_eios.consumer_channel`：登录、会话、带 CSRF 与 Idempotency-Key 的消息、登出），不经任何后门。
+  - 私有配置（0600）：`{"schema": "nexloop-synthetic-customer/1", "origin": "https://<APP_HOST_NAME>:<PORT>", "ca_file": "<GATEWAY_CA_FILE>", "reader_dsn_file": "<只读 DSN 文件>", "accounts": {"customer-1": "<用户名>", …}}`。
+  - 私有计划（0600）：`{"schema": "nexloop-synthetic-customer-plan/1", "plan_id": "s6-<日期>-1", "turns": [{"account": "customer-1", "body": "<顾客发言>", "wait_reply_seconds": 120}, …]}`（1–200 轮），按执行单第 1 步的 15 轮写。
+  - 口令只经 stdin，每个账号一行 `别名<TAB>口令`，由钥匙串管道送入；不进 argv、输出或日志。必须运行脚本文件，不要用 `python -`（stdin 是口令通道）：
+
+```
+( for a in customer-1 customer-2 customer-3 customer-5; do printf '%s\t%s\n' "$a" "$(security find-generic-password -s nexloop/<stage>/$a -w)"; done ) \
+  | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <CUSTOMERS.json> --plan <PLAN.json>
+```
+
+- **预检（任何发言之前）**：每个账号登录一次，并经只读 DSN（`s6_common.connect_read_only`：连接后设只读并核对）查它的 Consumer 的 persona（`control.nexloop_consumer_owners` → `control.nexloop_consumer_personas`）。任何一个不是 simulated_agent / synthetic，整次运行拒绝，什么都不发；已擦除或没有 Consumer 的（例如 customer-4）报 `conversation_unavailable` 并跳过，本工具不会替它新建。
+- **每轮**：登录（429 按 Retry-After 退避，最多 5 次）→ 该账号最近的会话，没有就新建（403 → `conversation_unavailable`，此后跳过该账号）→ 发言（Idempotency-Key = `<plan_id>-<轮次>-<别名>`，同一计划重跑只重放，不重复发言）→ 可选等待回复（轮询；超时报 `timeout`，不重发）→ 登出。
+- **输出**：每轮一行 JSON（轮次、账号别名、状态码、是否收到回复、耗时）和一行汇总；不含正文、标识、用户名、cookie、CSRF 或口令。退出码 0 = 全部已发或重放，1 = 有未发出的轮次，2 = 输入或预检被拒。
+- **与 `run_interactions.py --driver real` 配合**：run 入口照常在 APP_HOST 上以负责人 staff 的操作员身份运行，先 `--preflight`，退出码 0 后正式运行；它自己不发送，每轮由本工具发言，它通过 metrics 角色观察 Run 和效应，两者按同一份轮次顺序推进（每轮超时 900 秒会暂停）。前 3 轮校准后 run 入口暂停等负责人确认单次成本，所以发言计划分两份：前 3 轮一份，其余一份（不同 `plan_id`）。
+- **本地测试**：`tests/test_synthetic_customer.py`（无网络、无数据库）：429 退避、real persona 整次拒绝且不发、已擦除与 403 跳过、重跑只重放、等待超时不重发、口令格式错误（含把脚本当作 stdin 送入）被拒且不回显、口令/用户名/正文/标识不出现在输出中。
