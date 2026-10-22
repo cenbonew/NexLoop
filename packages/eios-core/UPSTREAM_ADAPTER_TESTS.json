@@ -1,0 +1,14 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT",
+  "scope": "Frozen hard-deadline HTTP process boundary tests (D2, eios-capability-gap); run against the vendored module",
+  "tests": [
+    {
+      "source_path": "tests/adapters/test_deadline_http.py",
+      "destination": "tests/upstream/test_eios_deadline_http.py",
+      "upstream_sha256": "adce9b573ac0ac553709e3f6c16bd363f7a969585b0cd1282e77cc29304d1134",
+      "nexloop_sha256": "adce9b573ac0ac553709e3f6c16bd363f7a969585b0cd1282e77cc29304d1134",
+      "adaptations": []
+    }
+  ]
+}

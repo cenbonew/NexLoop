@@ -182,21 +182,22 @@ class OpenAICompatibleExtractionProvider:
         body={'model':self.model_id,'temperature':0,'response_format':{'type':'json_object'},
               'messages':[{'role':'system','content':system_prompt},{'role':'user','content':user_payload}]}
         headers={'Authorization':'Bearer '+self.profile.credential_for_provider(),'Content-Type':'application/json'}
+        from nexloop_eios.deadline_http import DeadlineExceeded,post
+        url=self.profile.base_url.rstrip('/')+'/chat/completions'
         try:
-            client=self.client or httpx.Client(trust_env=False,timeout=self.timeout)
-            try:response=client.post(self.profile.base_url.rstrip('/')+'/chat/completions',json=body,headers=headers)
-            finally:
-                if self.client is None:client.close()
-            status=response.status_code
+            if self.client is not None:  # an injected client (tests)
+                response=self.client.post(url,json=body,headers=headers);status,raw=response.status_code,response.content
+            else:  # D2: the whole call within `timeout` in a killable child process (inference has no external effect)
+                status,raw=post(url,headers,json.dumps(body,ensure_ascii=False).encode(),deadline_seconds=self.timeout,ca='certifi')  # httpx's bundle, as before
             if status!=200:
                 code='http_429' if status==429 else 'http_5xx' if status>=500 else 'http_4xx'
                 raise ExtractionProviderUnavailable('provider status '+str(status),code)
-            try:content=response.json()['choices'][0]['message']['content']
+            try:content=json.loads(raw)['choices'][0]['message']['content']
             except Exception:raise ExtractionProviderUnavailable('provider response unparsable','response_parse') from None
             if type(content) is not str:raise ExtractionProviderUnavailable('provider response unparsable','response_parse')
             return content
         except ExtractionProviderUnavailable:raise
-        except httpx.TimeoutException:raise ExtractionProviderUnavailable('provider call timed out','timeout') from None
+        except (httpx.TimeoutException,DeadlineExceeded):raise ExtractionProviderUnavailable('provider call timed out','timeout') from None
         except Exception:raise ExtractionProviderUnavailable('provider call failed','transport') from None
 
 

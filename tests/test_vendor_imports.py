@@ -43,3 +43,9 @@ def test_every_upstream_test_file_is_recorded():
     recorded={record['destination'] for manifest in lock for record in json.loads((root/manifest).read_text())['tests']}
     present={str(p.relative_to(root)) for p in (*(root/'tests/upstream').glob('*.py'),*(root/'tests').glob('test_upstream_*.py'))}
     assert present==recorded
+def test_upstream_adapter_suite_provenance():
+    root=Path(__file__).resolve().parents[1]
+    doc=json.loads((root/'packages/eios-core/UPSTREAM_ADAPTER_TESTS.json').read_text())
+    assert doc['commit']==json.loads((root/'packages/eios-core/PROVENANCE.json').read_text())['commit']
+    for record in doc['tests']:
+        assert hashlib.sha256((root/record['destination']).read_bytes()).hexdigest()==record['nexloop_sha256']

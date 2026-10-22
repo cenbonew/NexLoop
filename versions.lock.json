@@ -67,7 +67,8 @@
       "test_provenance": [
         "packages/eios-core/UPSTREAM_ACTION_TESTS.json",
         "packages/eios-core/UPSTREAM_IDENTITY_TESTS.json",
-        "packages/eios-core/UPSTREAM_AUTHZ_TESTS.json"
+        "packages/eios-core/UPSTREAM_AUTHZ_TESTS.json",
+        "packages/eios-core/UPSTREAM_ADAPTER_TESTS.json"
       ],
       "lineage": "nexloop-eios-v1",
       "bootstrap_revision": "0317",
