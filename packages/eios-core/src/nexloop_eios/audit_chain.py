@@ -1,8 +1,8 @@
 """NX-059 audit hash chain (docs/design/audit-hash-chain.md): the parts that run outside the database.
 
-The database keeps one SHA-256 chain per tenant (0318 runtime.nexloop_audit_chain*). Here: the HMAC seal of a chain head (the key comes
+The database keeps one SHA-256 chain per tenant (0320 runtime.nexloop_audit_chain*). Here: the HMAC seal of a chain head (the key comes
 from private configuration and never reaches the database, a log or the output), the export of a tenant's chain with each surviving
-source row's text, and the offline verification of such an export. The link and digest formulas mirror 0318 exactly.
+source row's text, and the offline verification of such an export. The link and digest formulas mirror 0320 exactly.
 """
 import hashlib
 import hmac

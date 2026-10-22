@@ -1587,8 +1587,8 @@
       "sha256": "48db2669711351c4c9a92fd6cc5531898cf380e0585320fa3d3b5a817c936e14"
     },
     {
-      "version": "0318",
-      "name": "0318_audit_hash_chain.sql",
+      "version": "0320",
+      "name": "0320_audit_hash_chain.sql",
       "sha256": "f351d4139a2c8c7dd95b2d2e88f821ca0e3f9aa434acb7d44ad908b82701336b"
     }
   ]

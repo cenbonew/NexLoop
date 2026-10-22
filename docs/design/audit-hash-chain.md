@@ -1,6 +1,6 @@
 # 设计稿｜NX-059 审计防篡改与导出校验（审计哈希链）
 
-状态：**已实现，待复核**（l2/audit-hash-chain，迁移 0318 临时编号，`nexloop_eios/audit_chain.py`，`scripts/ops/audit_chain.py`，测试 `tests/test_audit_hash_chain_pg.py`）。负责人 2026-10-22 Q6 按推荐 A 拍板：做防篡改和导出校验，不外送外部安全平台（不做 SIEM），校验密钥放在私有配置中，已发布的审计表不改。
+状态：**已实现，待复核**（l2/audit-hash-chain，迁移 0320 临时编号，`nexloop_eios/audit_chain.py`，`scripts/ops/audit_chain.py`，测试 `tests/test_audit_hash_chain_pg.py`）。负责人 2026-10-22 Q6 按推荐 A 拍板：做防篡改和导出校验，不外送外部安全平台（不做 SIEM），校验密钥放在私有配置中，已发布的审计表不改。
 依据：docs/design/eios-capability-gap.md C1；上游 NEX-EIOS 1e363db `src/eios/migrations/0059_authorization_audit.sql`（sha256 `741b3f76…58501`）。只移植语义（链头、逐条摘要、前驱链接、校验函数、不可变触发器、HMAC），没有复制代码。上游的 SIEM outbox、假名化、保留策略表不搬，NexLoop 的保留与擦除已经由 0129/0132/0140 实现。
 
 ## 1. 哪些表进链
