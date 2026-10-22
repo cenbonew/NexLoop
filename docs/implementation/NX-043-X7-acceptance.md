@@ -106,7 +106,7 @@
 | R1 | DATA_HOST | inspector，socket 只读 | `nx043_stage.py readiness --config DATA.json` | `nx043-readiness`：sim world、screening 孪生未校准、两个策略可发布、shadow 复制关、real 入站分配触发器、real 派发层状态（tenant 层和 action 层只读取开关表；部署层在数据库里看不到，报 `not_observable_from_db`，可在 `inputs.deployment_real_dispatch` 填入操作员观察到的容器环境变量 `REAL_DISPATCH_ENABLED`）、无冲突实验，每项 ready 或 blocked 加原因 |
 | S1 | 调度员机器 | owner，HTTPS | `security find-generic-password … -w \| nx043_stage.py prepare --config PRIVATE.json` | shadow world、两个策略版本、shadow（和 screening）登记；私有状态文件 |
 | S2 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py run --config PRIVATE.json` | screening 被拒 `twin_not_calibrated`；shadow 开始；影子复制打开 |
-| S3 | 调度员机器 | 合成 webchat | 由调度员注入 real 入站流量（合成 Consumer） | 拷贝到 shadow world 的事件 |
+| S3 | 调度员机器 | 合成顾客，HTTPS（WebChat 顾客路径） | `security find-generic-password … -w`（每个账号一行 `别名<TAB>口令`）`\| uv run --frozen python scripts/acceptance/synthetic_customer.py --config CUSTOMERS.json --plan PLAN.json`：由合成 Consumer 注入 real 入站流量（见下文“合成顾客发言工具”） | 拷贝到 shadow world 的事件 |
 | S4 | DATA_HOST | probe，socket 只读 | `nx043_stage.py probe-before --config DATA.json` | 等 real 侧安静，取 real 摘要和开关摘要 |
 | S5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py shadow-keys --config DATA.json` | key 文件（拷到 APP_HOST） |
 | S6 | APP_HOST | sim_worker，hostssl | `nx043_stage.py decide --config APP.json` | 影子决策，只记录 |
@@ -114,7 +114,7 @@
 | S8 | DATA_HOST | probe，socket 只读 | 等 `ends_in_minutes` 之后：`nx043_stage.py probe-after --config DATA.json --from S4 --from S5 --from S6` | 护栏停止、决策落库、real 摘要不变 |
 | S9 | 调度员机器 | 无连接 | `nx043_stage.py merge --config PRIVATE.json --from S4 --from S5 --from S6 --from S8` | `nx043-shadow` |
 | O1 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py online --config PRIVATE.json` | world real 的 online 实验，登记并开始；状态文件里记下开始时间（拷到 DATA_HOST） |
-| O2 | 调度员机器 | 合成 webchat | 再注入 real 入站流量 | 首次分配；候选组的外联**真实发出**（替身端点、合成 webchat） |
+| O2 | 调度员机器 | 合成顾客，HTTPS（WebChat 顾客路径） | 同 S3，用新的 `plan_id`：再注入 real 入站流量 | 首次分配；候选组的外联**真实发出**（替身端点、合成 webchat） |
 | O3 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-probe --config DATA.json` | 各组分配人数、`strategy_applied` 审计数 |
 | O4 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py online-stop --config PRIVATE.json` | 实验停止，所有人回到当前策略 |
 | O5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-drain --config DATA.json` | 开始以来**实验成员**（有组别的分配）的 real 外联和效应没有在途的（L6 复核 1.3：其他 real 外联不影响判断）（`pending_approval`、`accepted`、`dispatching`、`unknown`、`observed_fulfilled` 都为 0）；默认等 900 秒 |
@@ -125,3 +125,7 @@
 - O4 之后实验必须是 stopped。O5 如果在超时内没有清零，**不要**重试外发。按“未知结果先查询或对账”的原则处理：在工作台查看对应 intent 的对账状态，由对账流程收口，再重跑 O5。
 - 三层派发开关是否关回，由负责人决定，这份执行单不改开关。
 - 用 R1 再跑一次就绪检查，确认 `no_conflicting_experiment` 为 ready（没有留下运行中的实验），并且 `shadow_copy_off` 为 ready。
+
+### 合成顾客发言工具（S3 / O2）
+
+`scripts/acceptance/synthetic_customer.py`，与 S6 共用，用法见 `docs/implementation/S6-stage-acceptance.md`“合成交互数据执行单”第 2 步。S3 与 O2 各用一份计划（不同的 `plan_id`），每轮 `wait_reply_seconds` 可设为 0：X7 只需要入站流量，回复与外联由 S4–S8 / O3–O5 观察。

@@ -394,11 +394,8 @@ def test_a_retired_synthetic_twin_binds_no_more_and_no_staged_experiment_can_use
 
 def _workbench_validates(operation, body):
     """The workbench entry's own request validation (workbench_actions_http): the key set equals the form's, every field passes."""
-    from nexloop_eios.workbench_actions_http import OPERATIONS
-    spec = OPERATIONS[operation]
-    if type(body) is not dict or set(body) != set(spec):
-        raise ValueError('fields')
-    return {name: check(body[name]) for name, check in spec.items()}
+    from nexloop_eios.workbench_actions_http import validate
+    return validate(operation, body)
 
 
 def test_the_twin_bodies_pass_the_workbench_validation_the_old_one_did_not():

@@ -646,6 +646,17 @@
       "adaptations": [
         "Optional explicit durable failure-result verifier port; no timestamp fabrication or retry after an unverified committed outcome; default frozen in-package contract retained for upstream unit conformance"
       ]
+    },
+    {
+      "source_path": "src/eios/api/identity_client_ip.py",
+      "destination": "packages/eios-core/src/eios/identity/client_ip.py",
+      "upstream_sha256": "4210a5c25f944ccd31acbac1d9e049b736475ad10e6fc433c9b50629b5ec151d",
+      "adaptations": [
+        "moved to eios.identity.client_ip (NexLoop vendors no eios.api package)",
+        "the private header is X-NexLoop-Client-IP, written by the NexLoop gateway",
+        "module docstring names the upstream source"
+      ],
+      "nexloop_sha256": "747768a8a9ede7b18b81052ee6efbab1e967bdb8a3edcd726db1144622871c1a"
     }
   ]
 }

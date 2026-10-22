@@ -40,6 +40,13 @@ class Owner:
     def _call(self, method, path, body=None, extra=None):
         op = path.rsplit('/', 1)[-1]
         self.calls.append(op)
+        # The workbench entry's own request validation first (stage X7 S7, release 38: read_experiment_report answered 422 there while
+        # this fake, calling the handler directly, accepted the body).
+        from nexloop_eios.workbench_actions_http import validate
+        try:
+            validate(op, body)
+        except (ValueError, TypeError, KeyError):
+            return 422, {'code': 'invalid_request', 'message': '请求未完成', 'trace_id': uuid.uuid4().hex, 'retryable': False, 'details': {}}
         handler = self.admin.execute('select handler from control.nexloop_governed_capabilities where operation=%s', (op,)).fetchone()[0].split('(')[0]
         try:
             with self.admin.transaction():
