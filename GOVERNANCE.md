@@ -20,7 +20,7 @@
 2. 集成者审阅分支：确认改动只在该任务范围内、事实有据可查、没有私有信息，并核对它与交接规格和 ADR 是否一致。
 3. 变更在**本地 CI** 上通过之后才能合入。本地 CI（[`scripts/ci/check`](scripts/ci/check)，以及 NX-033 的本地 Git 队列与受信判定）是发布依据，GitHub Actions 不是必需的（ADR-014）。
 4. `main` 只能快进合并，不得 force push。每次合入都在 [CHANGELOG.md](CHANGELOG.md) 记录用户可感知的变化，任务状态与证据在 `planning/` 中更新。
-5. 推送到 GitHub 之前，必须通过 `scripts/ci/prepush-scan.sh`（检查私有路径、受限标识、凭据值）。
+5. 推送到 GitHub 之前，必须通过 `scripts/ci/prepush-scan.sh`（检查私有路径、受限标识、凭据值，以及锁定版本的 gitleaks 扫描；`--full` 可扫描全部历史）。
 
 任务状态（`done` / `passed` 等）只能依据证据判定：占位实现、被跳过的关键测试、没有执行过的命令都不算完成。
 

@@ -3,6 +3,9 @@
 # run heals (the timer runs again 60 s after this one ends); a refused review branch is its own sync_refused. As used at the
 # cut-over, with placeholders; --timeout 60 because a slow GitHub SSH handshake once exceeded 30 s. --tag-signers (the owner's
 # allowed signers file, as in pre-receive): each v* release tag is re-verified and pushed by its own refspec, create only.
+# --restricted-identifiers (NX-060 follow-up, required): before anything is pushed, the four publication gates run on last synced
+# main..main (each review/* branch on its own new commits). A failure is sync_blocked: nothing is pushed that round, the unit
+# exits 1 (journal, `systemctl --failed`), every later round scans again. gitleaks is found on the default PATH (/usr/local/bin).
 [Unit]
 Description=NexLoop GitHub sync (never force, never mirror)
 
@@ -10,7 +13,7 @@ Description=NexLoop GitHub sync (never force, never mirror)
 Type=oneshot
 User=nexloop-git
 WorkingDirectory=/tmp
-ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py sync --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --remote github --timeout 60 --tag-signers <GIT_ROOT>/private/allowed_signers
+ExecStart=/usr/bin/python3 <TRUSTED_CI_DIR>/scripts/ci/nexloop_ci.py sync --repo <GIT_ROOT>/nexloop.git --queue <GIT_ROOT>/queue --remote github --timeout 60 --tag-signers <GIT_ROOT>/private/allowed_signers --restricted-identifiers <GIT_ROOT>/private/restricted-identifiers.txt
 NoNewPrivileges=yes
 ProtectSystem=strict
 # git verify-tag writes a temporary file; with ProtectSystem=strict /tmp is read-only, so give the unit its own writable tmp

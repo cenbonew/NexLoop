@@ -4,9 +4,13 @@ import subprocess
 import tempfile
 
 SCAN = pathlib.Path(__file__).with_name('prepush-scan.sh').resolve()
+# git's defaults on the CI host and in a bare repository, whatever this machine's own configuration says: quoted path output
+# (core.quotePath=true) is what gate 1 has to see through.
+import os
+os.environ.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.quotePath', GIT_CONFIG_VALUE_0='true')
 
-def run(*args, cwd):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True)
+def run(*args, cwd, check=True):
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=check)
 
 with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     root = pathlib.Path(temp)
@@ -19,7 +23,10 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     run('git', 'config', 'user.email', 'test@example.invalid', cwd=root)
     run('git', 'config', 'user.name', 'Publication test', cwd=root)
     (root / 'safe').write_text('baseline\n')
-    run('git', 'add', 'safe', cwd=root)
+    # Gate 4 trusts the configuration and pin of the base commit, so the disposable repository's base carries the real ones.
+    (root / '.gitleaks.toml').write_text((SCAN.parents[2] / '.gitleaks.toml').read_text())
+    (root / 'versions.lock.json').write_text((SCAN.parents[2] / 'versions.lock.json').read_text())
+    run('git', 'add', 'safe', '.gitleaks.toml', 'versions.lock.json', cwd=root)
     run('git', 'commit', '-m', 'baseline', cwd=root)
     baseline = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
     run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
@@ -64,4 +71,227 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     check(False)
     os.environ['NEXLOOP_RESTRICTED_IDENTIFIERS_FILE'] = str(identifiers)
     check(True)
+    # Gate 4 (NX-060), gitleaks. Synthetic credentials are assembled at run time so that this file never contains one.
+    def commit(path, text, message):
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+        run('git', 'add', path, cwd=root)
+        run('git', 'commit', '-m', message, cwd=root)
+    def full(expected):
+        result = subprocess.run(['bash', str(SCAN), '--full', 'HEAD'], cwd=root, capture_output=True, text=True)
+        assert (result.returncode == 0) == expected, result.stdout
+        return result.stdout
+    fakes = {'aws.cfg': 'aws_access_key_id = ' + 'AKIA' + 'Q4RT7WX2' + 'ZV3PMN6Y' + '\n',
+             'deploy.env': 'GITHUB_TOKEN=' + 'ghp_' + 'r8Kq2Lm5Nv7Px3Tz9Wb4Yc6Hd1Fg0Js2Ae8U' + '\n'}
+    for path, text in fakes.items():
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        commit(path, text, 'fake credential')
+        commit(path, 'removed\n', 'remove it again')
+        result = subprocess.run(['bash', str(SCAN)], cwd=root, capture_output=True, text=True)
+        assert result.returncode != 0 and 'FAIL gitleaks: ' in result.stdout, result.stdout
+        assert text.split('=')[-1].strip() not in result.stdout + result.stderr  # counted, never printed
+        check(False, hook=True)
+        full(False)
+    # A synthetic idempotency key that the default generic rule does flag is allowed only in a test file: the allowlist
+    # is limited by path as well as by shape.
+    synthetic = "headers = {'Idempotency-Key': '" + 'synthetic-wb-' + "owner-reject-0001'}\n"
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('tests/test_demo.py', synthetic, 'synthetic key in a test')
+    check(True)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('service/demo.py', synthetic, 'same value outside tests')
+    check(False)
+    # The same leak only before the base passes the outgoing range but not the full mode.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('aws.cfg', fakes['aws.cfg'], 'old leak')
+    commit('aws.cfg', 'removed\n', 'removed long ago')
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'later\n', 'later change')
+    check(True)
+    assert 'FAIL gitleaks: ' in full(False)
+    run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
+    # Fail closed: no tool, another version, a tool that detects nothing (sentinel; on linux_amd64 the digest pin stops it first).
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('safe', 'harmless again\n', 'harmless')
+    check(True)
+    def stub(name, body):
+        path = pathlib.Path(temp) / name
+        path.write_text('#!/bin/sh\n' + body)
+        path.chmod(0o755)
+        return str(path)
+    for tool in (str(pathlib.Path(temp) / 'absent-gitleaks'), stub('old-gitleaks', 'echo 0.0.1\n'),
+                 stub('blind-gitleaks', 'echo 8.30.1\nexit 0\n')):
+        os.environ['NEXLOOP_GITLEAKS'] = tool
+        check(False)
+    del os.environ['NEXLOOP_GITLEAKS']
+    def scan_output():
+        return subprocess.run(['bash', str(SCAN)], cwd=root, capture_output=True, text=True)
+    aws = fakes['aws.cfg']
+    # The outgoing commits cannot loosen their own scan: a dropped, neutered or wide-open configuration in them is reported
+    # for owner ack and the base configuration still applies.
+    wide = ('minVersion = "8.30.1"\n[extend]\nuseDefault = true\n[[allowlists]]\ndescription = "everything"\n'
+            "regexes = ['" + "''.''" + "']\n")
+    loosened = {'drop': None, 'neutered': 'title = "detects nothing"\n[extend]\nuseDefault = false\n', 'wide': wide}
+    for name, text in loosened.items():
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        if text is None:
+            run('git', 'rm', '-q', '.gitleaks.toml', cwd=root)
+            run('git', 'commit', '-q', '-m', 'drop the configuration', cwd=root)
+        else:
+            commit('.gitleaks.toml', text, name + ' configuration')
+        commit('aws.cfg', aws, 'fake credential under a loosened configuration')
+        result = scan_output()
+        assert result.returncode != 0 and 'FAIL gitleaks: ' in result.stdout and 'owner ack required' in result.stdout, (name, result.stdout)
+    # A base whose own configuration breaks the structure rules is not trusted either.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('.gitleaks.toml', wide, 'wide configuration published')
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'harmless on a loosened base\n', 'harmless')
+    result = scan_output()
+    assert result.returncode != 0 and 'breaks the structure rules' in result.stdout, result.stdout
+    # A base without a configuration (first introduction) falls back to this checkout's configuration.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    run('git', 'rm', '-q', '.gitleaks.toml', cwd=root)
+    run('git', 'commit', '-q', '-m', 'base without configuration', cwd=root)
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'harmless again\n', 'harmless')
+    result = scan_output()
+    assert result.returncode == 0 and '(checkout configuration)' in result.stdout, result.stdout
+    commit('aws.cfg', aws, 'fake credential')
+    check(False)
+    run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
+    # Neither a .gitleaksignore (tracked or not) nor a gitleaks:allow comment hides a finding.
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('aws.cfg', aws.rstrip('\n') + ' # gitleaks:' + 'allow\n', 'inline allow comment')
+    check(False)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('aws.cfg', aws, 'fake credential')
+    report = pathlib.Path(temp) / 'fingerprints.json'
+    subprocess.run(['gitleaks', 'git', '--no-banner', '--log-level', 'error', '--redact', '--log-opts', 'HEAD~1..HEAD',
+                    '--report-format', 'json', '--report-path', str(report), '.'], cwd=root, capture_output=True)
+    import json
+    fingerprints = ''.join(f['Fingerprint'] + '\n' for f in json.loads(report.read_text()))
+    assert fingerprints
+    (root / '.gitleaksignore').write_text(fingerprints)
+    result = scan_output()
+    assert result.returncode != 0 and 'a .gitleaksignore is present' in result.stdout, result.stdout
+    commit('.gitleaksignore', fingerprints, 'tracked ignore file')
+    check(False)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    (root / '.gitleaksignore').unlink(missing_ok=True)
+    # From a trusted CI installation (scripts/ci only, OPERATIONS §7.2: no versions.lock.json, no .gitleaks.toml) the pin and
+    # the configuration come from the base commit; without them in the base as well the gate fails closed with a message.
+    import shutil
+    trusted = pathlib.Path(temp) / 'trusted'
+    shutil.copytree(SCAN.parent, trusted / 'scripts' / 'ci')
+    trusted_scan = ['bash', str(trusted / 'scripts' / 'ci' / 'prepush-scan.sh')]
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('safe', 'harmless from the trusted installation\n', 'harmless')
+    result = subprocess.run(trusted_scan, cwd=root, capture_output=True, text=True)
+    assert result.returncode == 0 and '(base configuration)' in result.stdout, result.stdout
+    commit('aws.cfg', aws, 'fake credential')
+    result = subprocess.run(trusted_scan, cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0 and 'FAIL gitleaks: ' in result.stdout, result.stdout
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    run('git', 'rm', '-q', 'versions.lock.json', cwd=root)
+    run('git', 'commit', '-q', '-m', 'base without the pin', cwd=root)
+    run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+    commit('safe', 'harmless again\n', 'harmless')
+    result = subprocess.run(trusted_scan, cwd=root, capture_output=True, text=True)
+    assert result.returncode != 0 and 'FAIL gitleaks pin unreadable' in result.stdout, result.stdout
+    run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    # A bare repository (the CI controller's merge gate and the GitHub sync) is scanned like a checkout: every gate reads the
+    # commits through git. Before this, `cd` to the missing top level failed silently and gate 1 listed nothing.
+    def bare_scan(*args, repo):
+        return subprocess.run(['bash', str(SCAN), *args], cwd=repo, capture_output=True, text=True)
+    def bare_clone(name):
+        target = pathlib.Path(temp) / name
+        shutil.rmtree(target, ignore_errors=True)
+        run('git', 'clone', '-q', '--bare', str(root), str(target), cwd=temp)
+        return target
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('safe', 'harmless in bare\n', 'harmless')
+    clean = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+    bare = bare_clone('bare-clean.git')
+    result = bare_scan(clean, baseline, repo=bare)
+    assert result.returncode == 0 and result.stdout.count('PASS ') == 4, result.stdout
+    assert bare_scan('--root', clean, repo=bare).returncode == 0
+    for path, text, gate in (('local-only/notes.txt', 'synthetic\n', 'FAIL tracked private/runtime paths'),
+                             ('deploy/secrets/k.txt', 'synthetic\n', 'FAIL tracked private/runtime paths'),
+                             ('aws.cfg', aws, 'FAIL gitleaks: ')):
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        commit(path, text, 'added inside the range')
+        run('git', 'rm', '-q', path, cwd=root)
+        run('git', 'commit', '-q', '-m', 'and removed again', cwd=root)
+        head = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+        bare = bare_clone('bare-dirty.git')
+        result = bare_scan(head, baseline, repo=bare)
+        assert result.returncode != 0 and gate in result.stdout, (path, result.stdout)
+        # --root sees the same history from the first commit.
+        result = bare_scan('--root', head, repo=bare)
+        assert result.returncode != 0 and gate in result.stdout, (path, result.stdout)
+    # Preconditions fail with a message: not a repository, an unknown ref or base.
+    with tempfile.TemporaryDirectory(prefix='nexloop-not-a-repository-') as outside:
+        result = bare_scan('HEAD', 'HEAD', repo=outside)
+        assert result.returncode != 0 and 'FAIL prepush-scan: not inside a git repository' in result.stdout, result.stdout
+    result = bare_scan('0' * 40, baseline, repo=bare)
+    assert result.returncode != 0 and 'is not a commit' in result.stdout, result.stdout
+    result = bare_scan(clean, '1' * 40, repo=bare)
+    assert result.returncode != 0 and 'base' in result.stdout and 'is not a commit' in result.stdout, result.stdout
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    # Gate 1 matches every path as itself under git's default core.quotePath=true (forced for every git call of this test):
+    # non-ASCII bytes, spaces, quotes, backslashes and newlines were printed in git's quoted form and slipped past the rule.
+    tricky = ['local-only/né.txt', 'local-only/a b.txt', 'local-only/line\nbreak.txt', 'local-only/q"uote.txt',
+              'local-only/back\\slash.txt', 'docs/tmp/ü.md', 'sub/dir/.env', 'é/secrets/k.txt', 'cache/é.sqlite']
+    for path in tricky:
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        commit(path, 'synthetic\n', 'tricky private path')
+        run('git', 'rm', '-q', '--', path, cwd=root)
+        run('git', 'commit', '-q', '-m', 'and removed again', cwd=root)
+        head = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+        result = bare_scan(head, baseline, repo=root)
+        assert result.returncode != 0 and 'FAIL tracked private/runtime paths' in result.stdout, (path, result.stdout)
+        bare = bare_clone('bare-tricky.git')
+        result = bare_scan(head, baseline, repo=bare)
+        assert result.returncode != 0 and 'FAIL tracked private/runtime paths' in result.stdout, (path, result.stdout)
+    # An "evil" merge: the conflict resolution itself adds the value, a later commit removes it. Plain `git log -p` shows no
+    # merge diff, so gates 3 and 4 never saw it; with -m they do. Gate 1 likewise sees a path added by a merge and removed by
+    # another merge.
+    def evil_merge(files, remove_by_merge=False):
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        run('git', 'checkout', '-q', '-b', 'side', cwd=root)
+        commit('side.txt', 'side\n', 'side work')
+        run('git', 'checkout', '-q', 'main', cwd=root)
+        commit('main.txt', 'main\n', 'main work')
+        run('git', 'merge', '-q', '--no-ff', '--no-commit', 'side', cwd=root, check=False)
+        for name, text in files.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_text(text)
+            run('git', 'add', '--', name, cwd=root)
+        run('git', 'commit', '-q', '-m', 'evil merge', cwd=root)
+        if remove_by_merge:
+            run('git', 'checkout', '-q', '-b', 'side2', 'HEAD~1', cwd=root)
+            commit('side2.txt', 'side2\n', 'more side work')
+            run('git', 'checkout', '-q', 'main', cwd=root)
+            run('git', 'merge', '-q', '--no-ff', '--no-commit', 'side2', cwd=root, check=False)
+        for name in files:
+            run('git', 'rm', '-q', '--', name, cwd=root)
+        run('git', 'commit', '-q', '-m', 'removed again', cwd=root)
+        head = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+        for branch in ('side', 'side2'):
+            run('git', 'branch', '-q', '-D', branch, cwd=root, check=False)
+        return head
+    for files, gate, by_merge in (({'cred.txt': 'token sk-' + 'b' * 24 + '\n'}, 'FAIL credential values', False),
+                                  ({'aws.cfg': aws}, 'FAIL gitleaks: ', False),
+                                  ({'local-only/merged.txt': 'synthetic\n'}, 'FAIL tracked private/runtime paths', True)):
+        head = evil_merge(files, remove_by_merge=by_merge)
+        for repo in (root, bare_clone('bare-evil.git')):
+            result = bare_scan(head, baseline, repo=repo)
+            assert result.returncode != 0 and gate in result.stdout, (files, repo, result.stdout)
+    run('git', 'reset', '--hard', baseline, cwd=root)
+print('PASS: core.quotePath=true: non-ASCII, space, quote, backslash and newline paths, .env in any directory; evil merges seen by gates 1, 3 and 4 (-m), in a checkout and bare')
+print('PASS: bare repository (merge gate, sync) and --root scans: private paths and credentials added inside the range are blocked, preconditions fail with a message')
+print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys only in tests, full mode sees old history, trusts only the base/checkout configuration (dropped, neutered, wide-open outgoing configurations still blocked; broken base refused), ignores .gitleaksignore and gitleaks:allow, runs from a scripts/ci-only trusted installation, fails closed without tool/pinned version/sentinel')
 print('PASS: missing list fails closed, clean/no-ahead, historical identifiers and credentials, feature hook, variable references, tracked private paths')
