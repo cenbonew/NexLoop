@@ -132,3 +132,52 @@ def test_instance_pages_list_readable_ids_only_and_count_the_rest(workbench):
             assert workbench_login(client, human).status_code == 200
             assert client.get('/api/v1/workbench/objects/Consumer').status_code == 403
             assert client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').status_code == 403
+
+
+def refused_reads(monkeypatch):
+    """Every audited member read the database refused (each one is a PostgreSQL ERROR 'workbench member read denied' in the server log)."""
+    from nexloop_eios import workbench_reads
+    refused, original = [], workbench_reads.WorkbenchReader.read_object
+
+    def counted(self, type_name, object_id, fields, purpose):
+        value = original(self, type_name, object_id, fields, purpose)
+        if value is None:
+            refused.append((type_name, object_id, tuple(fields), purpose))
+        return value
+    monkeypatch.setattr(workbench_reads.WorkbenchReader, 'read_object', counted)
+    return refused
+
+
+def test_browsing_neighbours_and_pages_hides_without_a_refused_read(workbench, monkeypatch):
+    """Stage 2026-10-22: opening the world model raised 40 'workbench member read denied' ERRORs (visibility decided by refused audited
+    reads). The hidden candidates are all ones the owner must not see - a type no member derives (ADR-035 §4), a Consumer being erased
+    (NX-029), a property edge whose property is restricted - and they stay hidden; visibility is now decided through object_fields, so
+    no read is refused, and every visible object keeps its one audited read."""
+    from erasure_support import mark_erasing
+    w = workbench
+    provision(w)
+    admin = w['admin']
+    centre, referrers, related, goals = seed(w)
+    mark_erasing(admin, TENANT, referrers[0])
+    refused = refused_reads(monkeypatch)
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        before = audit(admin)
+        n = client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').json()
+        groups = {(g['direction'], g['via'], g['type_name']): g for g in n['groups']}
+        g = groups[('incoming', 'property:referrer', 'Consumer')]
+        assert sorted(x['object_id'] for x in g['items']) == sorted(referrers[1:]) and g['invisible'] == 1  # the erasing one: hidden
+        g = groups[('incoming', 'property:consumer_id', 'MessageAssignment')]
+        assert (g['items'], g['invisible'], g['collapsed']) == ([], 25, 5)
+        # Audited reads of the visible ones only: the centre, two referrers (each with its referrer property: one row per object
+        # and transaction, so two rows each at most), the related Consumer.
+        assert audit(admin) - before >= 4
+        page = client.get('/api/v1/workbench/objects/MessageAssignment').json()
+        assert (page['items'], page['invisible']) == ([], 30)
+        consumers = client.get('/api/v1/workbench/objects/Consumer').json()
+        assert referrers[0] not in {x['object_id'] for x in consumers['items']} and consumers['invisible'] == 1
+        admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',
+            (TENANT, 'property_group_restriction', ['Consumer'], Jsonb({'tenant_id': TENANT, 'type_name': 'Consumer', 'restricted_groups': ['preference'], 'decision': 'owner 2026-10-22 (synthetic)'})))
+        g = {(x['direction'], x['via'], x['type_name']): x for x in client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').json()['groups']}
+        assert g[('incoming', 'property:referrer', 'Consumer')]['items'] == [] and g[('incoming', 'property:referrer', 'Consumer')]['invisible'] == 3
+    assert refused == []
