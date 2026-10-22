@@ -54,7 +54,8 @@ def sample_from_run(run):
     failure = e.get('failure')
     return {'schema_version': SCHEMA, 'source': 'database', 'run_id': run['run_id'], 'interaction_id': None, 'run_kind': run['kind'], 'scenario': None,
             'issued_at': run['issued_at'], 'consumer_id': run.get('consumer_id'), 'persona': run.get('persona'), 'test_stack': False,
-            'outcome': None, 'error_code': None,
+            # Owner 2026-10-22 (NX-038 failure basis A): a message Run whose message got the fallback reply Run did not complete its reply.
+            'outcome': 'reply_fallback' if run.get('reply_fallback') is True else None, 'error_code': None,
             'model': {k: int((e.get('model') or {}).get(k, 0)) for k in ('calls', 'failed', 'unknown')},
             'tool_calls': int((e.get('tool') or {}).get('calls', 0)), 'intents': _counts(e.get('intents')),
             'intent_ids': list(e.get('intent_ids') or []), 'refusals': _counts(e.get('refusals')),

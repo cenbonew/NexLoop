@@ -51,3 +51,37 @@
 
 - 本切片只有一个迁移 `0234_nx038_semantic_access.sql`，迁移里不引用自己的编号（发布者写作 `migration:nx038-e3`）。
 - 合并时调度员可能重新编号，只需要改文件名和 catalog 中对应的条目。
+
+## Run 路径接线（方案 A，调度员 2026-10-22，G-S6-1）
+
+L5 准备 S6 stage 数据时发现缺口 G-S6-1：main 上只有测试调用 `browse/resolve`，真实 Run 不会留下任何语义读取记录。按设计（§2.2“只由 Context Engine 写入”），接入点放在 Context 组装，不放在 Host 工具。
+
+- **调用点**：`ContextV6ArtifactProducer.assemble`（`nexloop_eios/context_artifacts.py`），兜底回复 Run 的组装同样经过这里。
+  - 只在策略 `semantic.enabled` 打开时调用。内置的 `recent_plus_required` 是关闭的，所以默认不调用。
+  - 调用内容：对当前用户消息做一次 `SemanticAdapter.browse`，`limit` 取策略的 `top_k`。recall 只走全文检索，不调用 embedding，不产生模型费用。
+  - recorder 绑定当前 run_id；tenant 和 world 取自 Source 的服务身份，SQL 端口会再核对一次。
+- **延迟上限**：`SEMANTIC_READ_TIMEOUT_SECONDS = 0.5`。读取放在单独的线程里执行，超时或出错只计数，并记一条只含异常类型的 warning，不影响组装，也不影响 Run。每个 Run 只读一次，来源核对失败后重新组装时不会重复记录。
+- **资源上限**（L6 复核 2.1）：组装最多等 0.5 秒，但超时后后台的读取还会继续执行，所以另加了以下限制：
+  - 读取使用**进程级的专用小连接池**：conninfo、角色和连接类与 Context 连接池相同，最多 2 个连接，每个连接设 `statement_timeout = 400ms`。数据库变慢时，查询会在数据库那一侧被终止，Context 连接池的连接不会被占用。
+  - 使用一个进程级 executor，同时最多 2 个读取（`SEMANTIC_READ_CONCURRENCY`）。名额要等读取真正结束才释放，不是在组装停止等待时释放；超过上限的读取直接跳过，计入 `skipped`，不排队。
+  - `ServiceSession` 是不可变的 frozen dataclass，可以跨线程共用。请求连接作用域是 ContextVar，executor 线程不继承它，所以后台线程不会碰主线程固定的连接。
+  - **打开 `semantic.enabled` 的前提**：上面这些限制已经就位（本节）。打开后，用 `skipped`、`timeout`、`failed` 三个计数和 warning 日志观察。
+- **端口调整**（迁移 `0313_nx038_e3_wiring.sql`，临时编号）：Context 是在 Run 激活之前组装的，此时 Run 还不在 `authz.nexloop_runtime_run_bindings` 里。所以 `authz.nexloop_semantic_access_record` 也接受这样的 Run：它的有效 Run 凭据由调用方这个 Source 在同一个 world 下签发。这样仍然绑定在服务端推导出的租户和 world 上。
+- **局限**：
+  - 结果**不放进 pack**，semantics 段保持为空，所以模型看不到定义，也不会写 `use` 记录；
+  - access 记录的 `context_id` 为空，因为读取发生在 bind 之前。已核对 E4 归因（按 run_id 归组）和 `s6_stage_evolution.py`、`s6_stage_inputs.py`，都不依赖这个字段。
+- **方案 B（后续任务）**：让定义条目进入 pack 的 semantics 段，SQL 核验定义类来源，并把 `use` 记录绑定到实际放进 pack 的 ref 上。
+
+## 失败口径（负责人 2026-10-22，选 A）
+
+- 一个 Run 如果语义没有命中，回复也没能完成，就算失败，沿用现有的 `attribution._failed`，不另加 miss 信号。
+- **“回复没能完成”的判定**：这个消息 Run 的入站消息后来发起了兜底回复 Run（`authz.nexloop_message_fallback_issuances`，0110）。选它的理由：
+  - 兜底 Run 只在“到了兜底时间，回复仍未落定”时才会发起，模型失败、超时、没有给出回复，都会走到这一步；
+  - 每条消息最多发起一次，是现成可查的事实，不需要新增信号。
+  - **以兜底时间为准**：模型在兜底时间之后才给出回复，这个 Run 仍然算“回复没能完成”。
+  - 一条消息只对应一个消息 Run（`runtime.nexloop_message_routes` 的主键是 `(tenant_id, world, message_id)`），所以不会把同一条消息的多个 Run 都判为失败（L6 复核第 5 节）。
+- **实现**：
+  - `runtime.nexloop_evo_trace_runs`（0313，复制自 0233）给每个 Run 加上 `reply_fallback`；
+  - `sample_from_run` 把它映射到 sample 已有的 `outcome` 字段（值为 `reply_fallback`），trajectory-sample 契约不变；
+  - `_failed` 把 `outcome` 为 `error` 或 `reply_fallback` 的 sample 都算作失败。
+- **测试**：`tests/test_nx038_e3_wiring_pg.py`。

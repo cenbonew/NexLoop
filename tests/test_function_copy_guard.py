@@ -308,6 +308,12 @@ REGISTRY = [
     Allowed('nx043_online_open', 'runtime.nexloop_experiment_allocate_on_inbound', 'a record with direction inbound is inbound too',
             ((r"coalesce\(new\.record->>'direction','inbound'\)<>'inbound' then return null;end if;  -- inbound: no direction \(0046\) or 'inbound'",
               "new.record ? 'direction' then return null;end if;  -- a Consumer's own message carries no direction (0046)"),)),
+    # NX-038 E3 wiring (option A): a Run is known to the record port by its Run credential from the same Source, too.
+    Allowed('nx038_e3_wiring', 'authz.nexloop_semantic_access_record', 'a Run credential issued by this Source in this world also binds the Run',
+            ((r"\n  and not exists\(select 1 from authz\.nexloop_run_credentials rc where .*?rc\.status='active'\) then", ' then'),)),
+    # NX-038 E3 wiring (owner 2026-10-22, failure basis A): reply_fallback per message Run in the trace read; nothing else.
+    Allowed('nx038_e3_wiring', 'runtime.nexloop_evo_trace_runs', 'reply_fallback: the message got the fallback reply Run',
+            ((r",\s*'reply_fallback',p\.kind='message' and exists\(.*?m2\.run_id=p\.run_id\)\)", ')'),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
