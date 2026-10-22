@@ -60,13 +60,14 @@ def relay(document):return next(s for s in document['services'] if s['name']=='m
 
 def test_the_semantic_read_pool_is_counted_per_process():
     """NX-038 E3 wiring (L6 review 5.1): a declared semantic_read_pool_max adds processes x that to the service and the total; the
-    current stage budget declares none (no process reads semantics until its connections are budgeted)."""
-    assert 'semantic_read_pool_max' not in relay(DOCUMENT) and budget.evaluate(DOCUMENT)['details']['application_pool_total']==59
+    stage budget declares one per relay process (dispatcher 2026-10-22)."""
+    # Stage (dispatcher 2026-10-22): relay 2 x (2 + 1 semantic), api-browser-identity 2 x 2 -> 59.
+    assert relay(DOCUMENT)['semantic_read_pool_max']==1 and budget.evaluate(DOCUMENT)['details']['application_pool_total']==59
     document=copy.deepcopy(DOCUMENT);relay(document)['semantic_read_pool_max']=0
-    assert budget.evaluate(document)['details']['application_pool_total']==59
-    relay(document)['semantic_read_pool_max']=1  # two relay processes: +2 -> 61, over the limit
+    assert budget.evaluate(document)['details']['application_pool_total']==57
+    relay(document)['semantic_read_pool_max']=2  # two relay processes: +4 -> 61, over the limit
     result=budget.evaluate(document)
-    assert result['details']['services']['message-relay']==2*(2+1) and result['details']['application_pool_total']==61
+    assert result['details']['services']['message-relay']==2*(2+2) and result['details']['application_pool_total']==61
     assert not result['passed'] and result['checks']['application_pool_total'] is False
 
 
@@ -231,7 +232,9 @@ def test_every_background_service_is_budgeted_with_the_pool_it_opens():
     from nexloop_eios import effect_worker,message_relay_cli,outbound_messages
     for name,module in (('action-worker',effect_worker),('message-relay',message_relay_cli),('outbound-recorder',outbound_messages)):
         # Two relays (dispatcher 2026-10-13, budget option B: each with its own vault in the stage Compose).
-        assert declared[name]=={'name':name,'processes':2 if name=='message-relay' else 1,'pool_max':2} and module.POOL_MAX==2,name
+        # NX-038 E3 wiring (dispatcher 2026-10-22): each relay also budgets one semantic-read connection.
+        assert declared[name]=={'name':name,'processes':2 if name=='message-relay' else 1,'pool_max':2,
+                                **({'semantic_read_pool_max':1} if name=='message-relay' else {})} and module.POOL_MAX==2,name
     from nexloop_eios import domain_worker
     assert declared['domain-worker']['pool_max']==domain_worker.POOL_MAX==2
 
