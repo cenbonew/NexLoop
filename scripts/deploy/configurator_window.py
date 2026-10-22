@@ -37,26 +37,110 @@ def write_private(path, data, mode=0o600):
     os.chmod(path, mode)
 
 
+WINDOW_MINUTES = 10
+# One configurator window at a time (L6 window-hardening review 1.1): a session-level advisory lock on this fixed key is taken on the
+# window's bootstrap connection before anything is decided and held until the window is closed - a second window started meanwhile
+# is refused at once instead of overwriting the first one's password (and closing it from its own finally). The lock goes with the
+# session, so a window whose connection died holds nothing.
+WINDOW_LOCK = 0x6E786C77696E646F  # 'nxlwindo'
+
+
+class WindowNotClosed(RuntimeError):
+    """The configurator could not be set NOLOGIN again (even over a fresh bootstrap connection): its password still expires by itself
+    at the window's VALID UNTIL (at most WINDOW_MINUTES), and the next window heals it before opening."""
+
+
+def _close(admin_or_none, bootstrap):
+    """NOLOGIN, no password, no expiry; over the window's connection, else once over a fresh bootstrap connection."""
+    import psycopg
+    statement = f"alter role {CONFIGURATOR} nologin password null valid until 'infinity'"
+    try:
+        if admin_or_none is None or admin_or_none.closed:
+            raise psycopg.OperationalError('window connection gone')
+        admin_or_none.execute(statement)
+        return
+    except psycopg.Error:
+        pass
+    try:
+        with psycopg.connect(bootstrap, autocommit=True, connect_timeout=5) as fresh:
+            fresh.execute(statement)
+    except psycopg.Error:
+        raise WindowNotClosed('configurator window not closed: its password expires by itself within the window time') from None
+
+
+@contextlib.contextmanager
+def _sigterm_raises():
+    """SIGTERM (docker stop, a killed compose run, systemd) becomes an exception inside the window, so its finally closes it."""
+    import signal
+    import threading
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+    previous = signal.signal(signal.SIGTERM, terminate)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
 @contextlib.contextmanager
 def configurator_window(bootstrap_dsn_file, *, refused=ValueError):
     """Yields the path of a private configurator DSN file; `refused` is the exception raised for a DSN that is not the
-    nexloop_bootstrap DSN over the local socket."""
+    nexloop_bootstrap DSN over the local socket, or for a window already open.
+
+    Hardening (L6 sim-credentials-window review 1-1): the password is valid for WINDOW_MINUTES only (VALID UNTIL, server time), so a
+    window a killed process never closed lapses by itself; SIGTERM closes the window like any exception; the close comes first
+    (NOLOGIN, no password, no expiry - over a fresh bootstrap connection when the window's own is gone) and the temporary DSN file
+    goes after. Before opening: a configurator still able to log in with a lapsed VALID UNTIL is a stale window - closed first (self
+    healing); one still valid is another window (or one left behind minutes ago) - refused, never taken over; so is one able to log
+    in with no VALID UNTIL at all (no window ever opens one that way: someone opened it on purpose)."""
     import psycopg
-    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    from psycopg.conninfo import conninfo_to_dict
     from nexloop_eios.trusted_configuration import read_private_text
     bootstrap = read_private_text(bootstrap_dsn_file, maximum=16384).strip()
     params = conninfo_to_dict(bootstrap)
     if params.get('user') != 'nexloop_bootstrap' or not str(params.get('host', '')).startswith('/'):
         raise refused('--bootstrap-dsn-file: the nexloop_bootstrap DSN over the local socket (host=<socket directory>)')
     password = secrets.token_hex(24)
+    with _sigterm_raises(), psycopg.connect(bootstrap, autocommit=True, connect_timeout=5) as admin:
+        if not admin.execute('select pg_try_advisory_lock(%s)', (WINDOW_LOCK,)).fetchone()[0]:
+            raise refused('another configurator window is in use: retry when it has closed')
+        try:
+            yield from _window(admin, bootstrap, password, refused)
+        finally:
+            if not admin.closed:
+                try:
+                    admin.execute('select pg_advisory_unlock(%s)', (WINDOW_LOCK,))
+                except psycopg.Error:
+                    pass  # the session's end releases it
+
+
+def _window(admin, bootstrap, password, refused):
+    """The window itself, on the locked bootstrap session: decide, open, yield the DSN file, close first, then remove the files."""
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+    login, lapsed = admin.execute(f"""select rolcanlogin, coalesce(rolvaliduntil<=clock_timestamp(),false) from pg_roles
+        where rolname='{CONFIGURATOR}'""").fetchone()
+    if login and not lapsed:
+        raise refused('a configurator window is open (or was left open minutes ago): retry after its VALID UNTIL')
+    if login:
+        _close(admin, bootstrap)  # a stale window whose password has lapsed: heal it before opening
+    until = admin.execute(f"select (clock_timestamp()+interval '{WINDOW_MINUTES} minutes')::text").fetchone()[0]
     scratch = Path(tempfile.mkdtemp(prefix='nexloop-configurator-'))
     dsn = scratch / 'configurator-dsn'
-    with psycopg.connect(bootstrap, autocommit=True, connect_timeout=5) as admin:
-        admin.execute(f"alter role {CONFIGURATOR} login password '{scram_verifier(password)}'")
+    try:
+        admin.execute(sql.SQL('alter role {} login password {} valid until {}').format(
+            sql.Identifier(CONFIGURATOR), sql.Literal(scram_verifier(password)), sql.Literal(until)))
+        write_private(dsn, make_conninfo(bootstrap, user=CONFIGURATOR, password=password))
+        yield dsn
+    finally:
         try:
-            write_private(dsn, make_conninfo(bootstrap, user=CONFIGURATOR, password=password))
-            yield dsn
+            _close(admin, bootstrap)  # first: the window closes whatever happens to the files
         finally:
             dsn.unlink(missing_ok=True)
+            for leftover in scratch.iterdir():
+                leftover.unlink(missing_ok=True)
             scratch.rmdir()
-            admin.execute(f'alter role {CONFIGURATOR} nologin password null')

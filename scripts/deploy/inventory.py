@@ -55,6 +55,18 @@ def parse_docker_ps(text):
     return out
 
 
+def parse_compose_labels(text):
+    """`docker ps --format '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}'`: project → its running
+    services (sorted). The deploy gate recognises the simulation group by its services too, not only by its project name (L6
+    sim-connection-budget review 1.1: `-p` another name must not hide it). A container outside Compose (no project label) is skipped."""
+    out = {}
+    for line in text.splitlines():
+        project, _, service = line.partition('\t')
+        if project.strip():
+            out.setdefault(project.strip(), set()).add(service.strip())
+    return {project: sorted(s for s in services if s) for project, services in sorted(out.items())}
+
+
 def firewall_hash(ruleset):
     """Algorithm 1 (kept for inventories taken before 2026-10-16): the whole rule set without the NexLoop table."""
     return hashlib.sha256(NEXLOOP_TABLE.sub('', ruleset).encode()).hexdigest()
@@ -182,6 +194,7 @@ def collect(*, phase, planned, data_root):
     listening = parse_ss(_run('ss', '-H', '-ltn'), planned=planned, phase=phase)
     containers = parse_docker_ps(_run('docker', 'ps', '--format', '{{.Names}} {{.Image}}'))
     projects = {p['Name']: {} for p in json.loads(_run('docker', 'compose', 'ls', '--format', 'json') or '[]')}
+    compose_services = parse_compose_labels(_run('docker', 'ps', '--format', '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}'))
     units = parse_lines(_run('systemctl', 'list-units', '--type=service', '--state=running', '--no-legend', '--plain'))
     parent = os.path.dirname(data_root.rstrip('/')) or '/'
     data_dirs = {('nexloop:' + e if os.path.join(parent, e) == data_root.rstrip('/') else e): {} for e in sorted(os.listdir(parent))} if os.path.isdir(parent) else {}
@@ -191,7 +204,7 @@ def collect(*, phase, planned, data_root):
             for key, value in section.items():
                 if key.startswith('nexloop'):
                     value['owner'] = 'nexloop'
-    out = {'phase': phase, 'listening': listening, 'containers': containers, 'compose_projects': projects, 'units': units,
+    out = {'phase': phase, 'listening': listening, 'containers': containers, 'compose_projects': projects, 'compose_services': compose_services, 'units': units,
            'data_directories': data_dirs, 'on_demand_units': on_demand_units()}
     ruleset = _ruleset()
     if ruleset is None:

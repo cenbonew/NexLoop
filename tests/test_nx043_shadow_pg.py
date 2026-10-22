@@ -53,12 +53,17 @@ def inbound(admin, consumer, *, reply=False, tenant=TENANT_A, text='合成消息
         admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) values(%s,'real',%s,%s,'p',%s)",
                       (tenant, conv, consumer, conv))
         admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
-            values(%s,'real',%s,1,%s,'k1',%s,%s)""", (tenant, conv, msg, sha(text), Jsonb({'direction': 'inbound', 'text': text})))
+            values(%s,'real',%s,1,%s,'k1',%s,%s)""", (tenant, conv, msg, sha(text),
+                  # The Consumer channel's own shape (0046/0138 commit_message: no direction; stage X7 S5).
+                  Jsonb({'id': msg, 'conversation_id': conv, 'sequence': 1, 'actor': 'p', 'body': text, 'accepted_at': '2026-10-22T00:00:00Z',
+                         'status': 'accepted'})))
     if reply:
         with admin.transaction():  # the outbound record as the delivery path leaves it (its own triggers are not under test here)
             admin.execute('set local session_replication_role=replica')
             admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
-                values(%s,'real',%s,2,%s,'k2',%s,%s)""", (tenant, conv, sha('r-' + msg), sha('reply'), Jsonb({'direction': 'outbound', 'text': '合成回复'})))
+                values(%s,'real',%s,2,%s,'k2',%s,%s)""", (tenant, conv, sha('r-' + msg), sha('reply'),
+                      Jsonb({'id': sha('r-' + msg), 'conversation_id': conv, 'sequence': 2, 'actor': 'agent', 'body': '合成回复', 'direction': 'outbound',
+                             'sender_kind': 'agent'})))
     return conv, msg
 
 
@@ -297,8 +302,9 @@ def test_a_failing_copy_never_fails_the_real_message(x3):
     assert rows(admin)['runtime.nexloop_shadow_events'] == 1  # copying again once the failure is gone
 
 
-def test_a_message_without_a_direction_is_not_copied_and_report_windows_are_whole_days(x3):
-    """L6 X3 review 1.3 and 4.1."""
+def test_a_record_without_the_inbound_shape_is_not_copied_and_report_windows_are_whole_days(x3):
+    """L6 X3 review 4.1; 1.3 as revised by runtime.nexloop_message_is_inbound (stage X7 S5): a Consumer's own message carries no
+    direction and is copied (tests/test_message_inbound_rule_pg.py); a record without actor and body (none is written) is not."""
     f = x3
     admin = f['admin']
     switch(admin, f['shadow'], True)
@@ -331,7 +337,7 @@ def test_with_the_copy_off_a_bulk_import_opens_no_subtransaction(x3):
                 admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) values(%s,'real',%s,%s,'p',%s)",
                               (TENANT_A, conv, sha(f'{label}-{i}'), conv))
                 admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
-                    values(%s,'real',%s,1,%s,'k1',%s,%s)""", (TENANT_A, conv, sha(f'm-{label}-{i}'), sha('x'), Jsonb({'direction': 'inbound'})))
+                    values(%s,'real',%s,1,%s,'k1',%s,%s)""", (TENANT_A, conv, sha(f'm-{label}-{i}'), sha('x'), Jsonb({'actor': 'p', 'body': 'x'})))
             subxacts = admin.execute("""select (pg_stat_get_backend_subxact(s.backendid)).subxact_count from pg_stat_get_backend_idset() s(backendid)
                 where pg_stat_get_backend_pid(s.backendid)=pg_backend_pid()""").fetchone()[0]
             lock = admin.execute('show lock_timeout').fetchone()[0]

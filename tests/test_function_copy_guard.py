@@ -139,6 +139,10 @@ REGISTRY = [
     # 0312 (AT-046 stage judgement): a Run command's mode must be the kind of the world it is presented in (server side, not only the client).
     Allowed('run_command_mode_is_world_kind', 'authz.nexloop_runtime_activation_command_v0037', 'the command mode must be the world kind',
             ((r"\s*or command->>'mode' is distinct from runtime\.nexloop_world_kind\(p_world\)", ''),)),
+    # 0317 (stage 2026-10-22, run retry errors): the v6 bind compares current_constraints without the ledger's reserved_units counter.
+    Allowed('context_v6_reserved_units_volatile', 'authz.nexloop_context_v6_command', 'current_constraints compared without reserved_units',
+            ((r"\(case when key='current_constraints' then \(pack->key\)-'reserved_units' else pack->key end\)\s*is distinct from \(case when key='current_constraints' then \(snapshot->key\)-'reserved_units' else snapshot->key end\)",
+              'pack->key is distinct from snapshot->key'),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
@@ -314,6 +318,29 @@ REGISTRY = [
     # NX-038 E3 wiring (owner 2026-10-22, failure basis A): reply_fallback per message Run in the trace read; nothing else.
     Allowed('nx038_e3_wiring', 'runtime.nexloop_evo_trace_runs', 'reply_fallback: the message got the fallback reply Run',
             ((r",\s*'reply_fallback',p\.kind='message' and exists\(.*?m2\.run_id=p\.run_id\)\)", ')'),)),
+    # World model visibility (stage 2026-10-22): object_fields answers readable=false for an object whose Consumer is being erased.
+    Allowed('world_model_visibility', 'authz.nexloop_workbench_object_fields',
+            "NX-029: also not readable when the object's Consumer is being erased (runtime.nexloop_read_consumer); nothing else",
+            ((r"\n  -- World model visibility noise:[^\n]*\n  or runtime\.nexloop_consumer_erasing\(p_tenant,p_world,runtime\.nexloop_read_consumer\(.*?\)\)\) then", ' then'),)),
+    # Erasing indirect read (L6 review 1-1): the guard and object_fields resolve an object's Consumers through one function.
+    Allowed('erasing_indirect_read', 'runtime.nexloop_assert_not_erasing',
+            'the target\'s Consumers through runtime.nexloop_object_consumers (any object, indirect links too); nothing else',
+            ((r"v:=substring\(r from '\^eios:\(\?:object\|property\):\(\[A-Z\].*?p_claims->>'object_id'\);", "c:=substring(r from '^eios:(?:object|property):Consumer/([a-f0-9]{64})');if c is null and p_claims->>'type_name'='Consumer' then c:=p_claims->>'object_id';end if;if c is null then v:=substring(r from '^eios:(?:object|property):Conversation/([a-f0-9]{64})');if v is not null then select cv.consumer_id into c from runtime.nexloop_conversations cv where cv.tenant_id=t and cv.world=p_world and cv.conversation_id=v;else v:=substring(r from '^eios:(?:object|property):Message/([a-f0-9]{64})');if v is not null then select cv.consumer_id into c from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations cv on cv.tenant_id=m.tenant_id and cv.world=m.world and cv.conversation_id=m.conversation_id where m.tenant_id=t and m.world=p_world and m.message_id=v limit 1;end if;end if;end if;"),
+             (r"if v is not null and c is not null then\s*hit:=exists\(select 1 from control\.nexloop_consumer_erasures e where e\.tenant_id=t and e\.world=p_world "
+              r"and e\.state<>'pending_confirmation'\s*and e\.consumer_id=any\(runtime\.nexloop_object_consumers\(t,p_world,v,c\)\)\);",
+              "if c is not null then hit:=exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=t and e.world=p_world and e.consumer_id=c and e.state<>'pending_confirmation');"))),
+    Allowed('erasing_indirect_read', 'authz.nexloop_workbench_object_fields',
+            'the erasing check through runtime.nexloop_object_consumers (the read guard\'s resolution); nothing else',
+            ((r"or exists\(select 1 from control\.nexloop_consumer_erasures e where .*?runtime\.nexloop_object_consumers\(p_tenant,p_world,p_type,p_object\)\)\)",
+              "or runtime.nexloop_consumer_erasing(p_tenant,p_world,runtime.nexloop_read_consumer(p_world,jsonb_build_object('tenant_id',p_tenant,'type_name',p_type,'object_id',p_object,'target_resource','eios:object:'||p_type||'/'||p_object)))"),)),
+    # One inbound rule (stage X7 S5, release 37): runtime.nexloop_message_is_inbound in the shadow copy and the inbound allocation.
+    Allowed('message_inbound_rule', 'runtime.nexloop_shadow_copy_message', 'the inbound test through runtime.nexloop_message_is_inbound',
+            ((r"not runtime\.nexloop_message_is_inbound\(new\.record\)", "new.record->>'direction' is distinct from 'inbound'"),)),
+    Allowed('message_inbound_rule', 'runtime.nexloop_experiment_allocate_on_inbound', 'the inbound test through runtime.nexloop_message_is_inbound',
+            ((r"not runtime\.nexloop_message_is_inbound\(new\.record\) then return null;end if;",
+              "coalesce(new.record->>'direction','inbound')<>'inbound' then return null;end if;  -- inbound: no direction (0046) or 'inbound'"),)),
+    Allowed('message_inbound_rule', 'runtime.nexloop_shadow_report_freeze', 'the report\'s real inbound set through runtime.nexloop_message_is_inbound',
+            ((r"runtime\.nexloop_message_is_inbound\(m\.record\)\),", "m.record->>'direction'='inbound'),"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

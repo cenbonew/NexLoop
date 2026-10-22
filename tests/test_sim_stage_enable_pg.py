@@ -473,3 +473,14 @@ def test_a_shadow_world_install_without_compose_secret_dir_leaves_the_running_gr
     assert code == 0 and out == {'ok': True, 'installed': ['worker'], 'compose_sim_world_credential': False}
     assert Path(running).read_text() == 'R' * 64
     assert (tmp_path / 'tokens' / world.split(':', 1)[1] / 'worker-credential').read_text() == 'W' * 64
+
+
+@pytest.mark.parametrize('uses,ok', [(['worker'], True), (['api'], False), (['worker', 'agent'], False), (['agent', 'worker'], False), (['twin'], False)])
+def test_a_shadow_world_holds_the_worker_credential_only(tmp_path, uses, ok):
+    """X7: a shadow world's credentials are the simulation worker's only (uses == ["worker"]); a simulation world keeps its four uses."""
+    shadow = 'shadow:' + str(uuid.uuid4())
+    conf = private(tmp_path / 'c.json', {'schema': C.SCHEMA, 'world': shadow, 'uses': uses, 'token_dir': str(tmp_path / 'tokens')})
+    code, out = run(C.main, ['--config', str(conf), '--forget'])
+    assert (code == 0) is ok and (ok or 'shadow world holds' in out['detail']), (uses, out)
+    sim = private(tmp_path / 's.json', {'schema': C.SCHEMA, 'world': 'sim:' + str(uuid.uuid4()), 'uses': ['api', 'worker'], 'token_dir': str(tmp_path / 'tokens')})
+    assert run(C.main, ['--config', str(sim), '--forget'])[0] == 0
