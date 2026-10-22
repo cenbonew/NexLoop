@@ -657,6 +657,18 @@
         "module docstring names the upstream source"
       ],
       "nexloop_sha256": "747768a8a9ede7b18b81052ee6efbab1e967bdb8a3edcd726db1144622871c1a"
+    },
+    {
+      "source_path": "src/eios/adapters/_deadline_http.py",
+      "destination": "packages/eios-core/src/eios/adapters/_deadline_http.py",
+      "upstream_sha256": "e54be6e23644e2d50609ac97bab22b3e32596ea93763ad6c0e3e942019484ab3",
+      "adaptations": [
+        "a prepared request body (content bytes) besides json",
+        "no 5 s cap per operation: a model completion may answer after 30 s; the parent hard deadline still ends the request",
+        "module docstring names the upstream source and the NexLoop use",
+        "trust_env=False (no proxy, CA or netrc from the environment) and the CA source chosen by the caller (system store, certifi or a CA file), built in the child"
+      ],
+      "nexloop_sha256": "f3dfd6e4bd7f8896503ed23a92c279912e629acb4445c4627ad9d64ae2fbb59b"
     }
   ]
 }

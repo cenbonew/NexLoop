@@ -3,8 +3,6 @@ import hashlib
 import json
 import math
 import re
-import urllib.error
-import urllib.request
 from .embedding_profile import EmbeddingConfigurationError
 
 _CJK=re.compile('[㐀-䶿一-鿿豈-﫿]+')
@@ -60,13 +58,11 @@ class DeterministicTestEmbeddingProvider:
         return checked_vector([v/norm for v in vector],self.dimension)
 
 
-def _urllib_transport(url,headers,body,timeout):
-    request=urllib.request.Request(url,data=body,headers=headers,method='POST')
-    try:
-        with urllib.request.urlopen(request,timeout=timeout) as response:
-            return response.status,response.read(4*1024*1024)
-    except urllib.error.HTTPError as error:
-        return error.code,error.read(65536)
+def _deadline_transport(url,headers,body,timeout):
+    """D2 (eios-capability-gap): `timeout` is the whole request's hard deadline (connect, TLS, write and read together) in a
+    killable child process; a timeout is DeadlineExceeded (an OSError, retried within `attempts`: an embedding has no effect)."""
+    from nexloop_eios.deadline_http import post
+    return post(url,headers,body,deadline_seconds=timeout,ca='system')  # the CA store urllib used before
 
 
 class ArkMultimodalEmbeddingProvider:
@@ -85,7 +81,7 @@ class ArkMultimodalEmbeddingProvider:
         if profile.mode!='multimodal' or not profile.location.endswith('/embeddings/multimodal'):
             raise EmbeddingConfigurationError('only the verified multimodal text path is supported')
         if not 1<=attempts<=5 or not 0<timeout<=60:raise ValueError('bounded retry/timeout required')
-        self._profile=profile;self._transport=transport or _urllib_transport
+        self._profile=profile;self._transport=transport or _deadline_transport
         self.model,self.dimension=profile.model,profile.dimension
         self._timeout,self._attempts=timeout,attempts
         self.transport_failures=0
@@ -103,6 +99,11 @@ class ArkMultimodalEmbeddingProvider:
             try:
                 status,raw=self._transport(self._profile.location,headers,body,self._timeout)
                 break
+            except TimeoutError:
+                # L6 D2 review 2: a request that ran out of time may still have been processed and billed: counted as a call at the
+                # budget's upper bound (one token per character), so a retry never makes the budget undercount.
+                self.transport_failures+=1;self.calls+=1;self.usage_tokens+=len(text)
+                if attempt+1==self._attempts:raise EmbeddingUnavailable('embedding transport unavailable') from None
             except OSError:
                 self.transport_failures+=1
                 if attempt+1==self._attempts:raise EmbeddingUnavailable('embedding transport unavailable') from None
