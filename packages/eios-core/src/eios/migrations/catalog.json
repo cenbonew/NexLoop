@@ -1587,13 +1587,13 @@
       "sha256": "48db2669711351c4c9a92fd6cc5531898cf380e0585320fa3d3b5a817c936e14"
     },
     {
-      "version": "0318",
-      "name": "0318_relation_types_p1.sql",
+      "version": "0319",
+      "name": "0319_relation_types_p1.sql",
       "sha256": "0ce4c1dd518cd35320c05b8a6e9074294a77f86c13eb07f91a496860bf5b2791"
     },
     {
-      "version": "0319",
-      "name": "0319_relation_types_p2.sql",
+      "version": "0321",
+      "name": "0321_relation_types_p2.sql",
       "sha256": "51f5f2e86699a265eae65cb38d1b3520a1a02a17436e9a3077e17fa6d86684a6"
     }
   ]

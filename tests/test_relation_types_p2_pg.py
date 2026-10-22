@@ -1,4 +1,4 @@
-"""NX-054 P2 (0319; ADR-038 decision 5 option a): relations derived from the objects' reference properties at commit, and deleted
+"""NX-054 P2 (0321; ADR-038 decision 5 option a): relations derived from the objects' reference properties at commit, and deleted
 with either end. Derivation follows the property (put, change, clear, pseudonym), sees targets written later in the same
 transaction (N-2), counts dangling references, refuses a cardinality conflict at commit; deleting an object - 0129's financial
 retention, a whole simulation world - is never stopped by a relation (N-1); the production write paths leave relation_dangling at 0
