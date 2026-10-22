@@ -1,11 +1,12 @@
 # ADR-038｜对象之间的关键关联改为 EIOS 正式关系类型
 
-状态：**提议**。方向由负责人 2026-10-22 定为 C；本 ADR 的具体取舍（§3 标“待拍板”的各条）等负责人确认后改为“采用”。
+状态：**提议**。方向由负责人 2026-10-22 定为 C；本 ADR 的具体取舍（§3 的 7 个拍板点）等负责人确认后改为“采用”。
 
 关联：
 
 - 设计稿 `docs/design/relation-types-design.md`（事实核对、逐条清单、关系类型定义、写入/回填/读方、分阶段计划、风险）；
 - 安全不变式“只有受治理的 EIOS Action 可改正式业务对象”（AGENTS.md）；
+- L6 复核 `relation-types-adr-review.md`（59552198）的 C-1、I-1 到 I-4、S-1 到 S-6，已在本修订中处理；
 - ADR-025 / ADR-035（工作台成员读与审计）、NX-029（擦除）、NX-040 D24（Schema 演进首批不开放 `add_relation_type`）；
 - 迁移 0001（`ontology.relation_type_versions`、`ontology.relations`）、0016（关系 link 的受治理入口）、0223 / 0230（世界模型 W2 邻居）、0315（擦除期间的间接归属解析，分支 l5/erasing-indirect-read）。
 
@@ -26,22 +27,54 @@ stage（release 36 前后，调度员只读）有 20 个 Object Type，但 `onto
 ## 2. 决定（方向 C）
 
 1. **关键关联以正式关系表达**：在 `ontology.relation_type_versions` 发布关系类型，在 `ontology.relations` 存关系实例。关系类型是系统目录的一部分，与系统 Object Type 一样由受信配置（configurator）发布，**不**经 NX-040 的 Schema 演进入口（D24 维持不变）。
-2. **只有受治理的 Action 写关系**：
-   - 新建或修改一个带引用的对象时，**同一个受治理 Action、同一事务**内写对应的关系。具体做法是一个只供受治理定义函数内部调用的 SQL 助手 `ontology.nexloop_relation_put` / `ontology.nexloop_relation_drop`：不授予任何应用角色，只校验关系类型、端点类型、world 和基数。调用它的 Action 必须在其 `change_scope` 里声明该关系类型。
-   - 已有的独立入口 `authz.nexloop_link_relation_action`（0016，capability `ontology.relation.link`）保留，用于单独建立关系的 Action。NexLoop 目前没有 unlink 入口（上游 EIOS 有 `ontology.relation.unlink`，vendored 的 Python 适配器引用的 `ontology.app_relation_unlink` 在 NexLoop 迁移中不存在），按同样的模式补一个 `ontology.relation.unlink` 入口。
-3. **归属只有一个来源**：关系类型的定义带 `consumer_ownership: true` 标记的，就是“这个对象属于哪个 Consumer”的唯一依据。读守卫（`runtime.nexloop_assert_not_erasing`）、`object_fields` 和擦除 purge 都改为通过 `runtime.nexloop_object_consumers` 读这些关系。0315 的按属性解析只在双写期内作为后备，切读后删除。
+2. **关系只经受治理的写入产生**：
+   - `ontology.objects` 本身只能经受治理的定义函数写入。关系由这次对象写入在**同一事务**内派生，写入方式见 §3 第 5 点（推荐由 objects 上的触发器按关系类型定义的 `source_property` 派生）。
+   - 已有的独立入口 `authz.nexloop_link_relation_action`（0016，capability `ontology.relation.link`）保留，用于单独建立关系的 Action。
+   - NexLoop 目前没有 unlink 入口：上游 EIOS 有 `ontology.relation.unlink`，但 vendored 的 Python 适配器引用的 `ontology.app_relation_unlink` 在 NexLoop 迁移中不存在。按 0016 的模式补一个。
+   - P1 加一条结构测试：除 nexloop_owner 外，任何角色对 `ontology.relations` 和 `ontology.relation_type_versions` 都没有 INSERT、UPDATE、DELETE 权限。0001 对 `nex_eios_app`（如果这个角色存在）有一段条件授权，测试同样覆盖它。
+3. **归属只有一个定义来源，读守卫与 purge 的保守程度不同**：
+   - 关系类型定义里的 `consumer_ownership` 标记（`"target"`：源对象属于目标 Consumer；`"transitive"`：源对象属于目标对象所属的 Consumer）是“这个对象属于哪个 Consumer”的定义。
+   - **读守卫和 `object_fields`** 通过 `runtime.nexloop_object_consumers` 读这些关系，沿传递链一直走到 Consumer。链长由关系类型图计算，不设固定的小上限；首批最长的链是 RelationshipAssessment → Message → Conversation → Consumer，共 3 跳。
+   - **擦除 purge 永久使用“关系 ∪ 属性”的并集**，不随后备的移除而改变：关系缺失对读守卫意味着漏读，对 purge 意味着个人数据永久残留，所以 purge 必须保守。
+   - 0315 的按属性解析在读侧只作为双写期的后备，切读后移除。
 4. **不跨 world**：关系的两个端点与关系本身必须在同一 tenant、同一 world；在 SQL 助手和表约束两层强制（见设计稿 §3.4）。
 5. **分阶段**：先定义与双写，再回填，然后切读，最后（另行拍板）决定是否去掉冗余的引用属性。每一阶段可以独立上线、独立验收。
 
 ## 3. 待负责人拍板
 
-1. **冗余引用属性是否最终去掉。** 推荐**保留**，作为已发布 Schema 的一部分：去掉属于 NX-040 的 breaking change（major），而且已发布的 v1 不可变。读方切到关系以后，属性只作兼容输出，不再作为判断依据。
-2. **哪些连接对象保留为对象。** 推荐：
-   - MessageAssignment、ConsumerRoleLink、ConsumerServiceOffering、ConsumerIncentiveOffering **保留为对象**，并加关系。它们有自己的属性和生命周期（revision、active、valid_until、state）。
-   - ConsumerOwnership **保留为对象**，并加 `owned_by` 关系；principal 不是正式对象，所以 `principal_id` 仍然只是属性。
-3. **RoleExecutionCeiling / RoleAssignmentScope 的 id 数组**（consumer_ids、goal_ids、step_ids）**不改成关系**。它们是授权范围的取值集合，不是对象之间的关联；改成关系会让授权依赖关系表的完整性。
-4. **回填的执行身份。** 推荐由 configurator 以一个专门的受治理 Action `nexloop.relation.backfill:1` 执行：低风险、不需审批、可重放，只写关系，不写对象。不用直接 SQL。
+每一点：选项 → 推荐 → 理由。
 
+1. **冗余引用属性是否最终去掉**
+   - 选项：保留；或发布各类型的 v2 并去掉这些属性。
+   - 推荐：**保留**。
+   - 理由：已发布的 v1 不可变，去掉属性属于 NX-040 的 major 变更，而首批通道不开放 major；擦除 purge 永久需要属性作为并集的一半（§2.3）。切读后，属性只作兼容输出，不再作为判断依据。
+2. **哪些连接对象保留为对象**
+   - 选项：保留为对象并另加关系；或把连接对象改成关系后删除对象。
+   - 推荐：MessageAssignment、ConsumerRoleLink、ConsumerServiceOffering、ConsumerIncentiveOffering、ConsumerOwnership **五个都保留为对象**，并另加关系。
+   - 理由：它们各有自己的属性和生命周期（revision、active、valid_until、state）。ConsumerOwnership 的 principal 不是正式对象，只能作为属性。
+3. **id 数组字段是否改为关系**
+   - 涉及字段：RoleExecutionCeiling 和 RoleAssignmentScope 的 consumer_ids、goal_ids、step_ids。
+   - 推荐：**不改**。
+   - 理由：它们是授权范围的取值集合，不是对象之间的关联；改成关系会让授权的正确性依赖关系表的完整性。
+4. **回填的执行身份**
+   - 选项：(a) configurator 加专门的回填 Action；(b) 一个专门的低权限 service principal，只被授予回填这一个 Action；(c) 负责人本人执行。
+   - 推荐：**(b)**。
+   - 理由：configurator 是发布系统目录、签发凭据的受信配置主体，让它批量写业务关联会扩大它的权限面。(b) 的权限只有回填一项，可以在回填完成后吊销，而且不需要人工逐条操作。
+5. **关系怎样随对象写入产生**
+   - 选项：(a) 由 `ontology.objects` 上的 AFTER INSERT/UPDATE 触发器（security definer，nexloop_owner 所有），按关系类型的 `source_property` 在同一事务内派生：属性有值就 put，属性变化或清空就 drop；(b) 在每个写入的定义函数里各自调用 put/drop。
+   - 推荐：**(a)**。
+   - 理由：
+     - objects 只经受治理的定义函数写入，所以“关系只经受治理写入产生”这一点由结构保证；以后新增写入路径也不会漏写关系。
+     - 不改写已发布的定义函数，复制件守护的工作量几乎为零。
+     - Action 合同里的 `change_scope.relation_types` 改为声明，由发布时核对。
+   - 代价：基数冲突时**拒绝这次对象写入**（42501），而不是跳过。跳过会留下缺失的关系，在读守卫一侧造成漏读；回填的 dry-run 会先把存量冲突列出来，由负责人处理。
+6. **RelationshipAssessment 的 source_id / target_id 首批是否建关系**
+   - 推荐：**首批不建**。
+   - 理由：这两个字段的端点类型取决于它所评估的关系类型，要按端点组合分别发布；这两个字段的归属仍按属性解析。证据消息改为经 `assessment_evidence` 关系，沿传递链走到 Consumer。
+7. **切读后的观察期**
+   - 内容：读侧后备计数持续为 0 多少天后，才移除后备。
+   - 推荐：**7 天**，同时要求 stage 上每日 verify 为 0、全库擦除测试在只读关系的模式下通过。
+   - 理由：移除后备是单向的一步，回退要用新迁移恢复后备（设计稿 §7）。
 ## 4. 不做的事
 
 - 不开放 NX-040 的 `add_relation_type`（D24 不变）；关系类型只由系统目录发布。
