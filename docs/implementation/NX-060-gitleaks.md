@@ -193,8 +193,8 @@ scripts/ci/install-gitleaks.sh gitleaks_8.30.1_linux_x64.tar.gz gitleaks_8.30.1_
 
 | 组件 | 是否调用 `prepush-scan.sh` | 结论 |
 |---|---|---|
-| 同步服务（`nexloop_ci.py sync`，`deploy/stage/ci/nexloop-ci-sync.service.example`） | **否**：只做 fast-forward 推送，不运行任何扫描 | 升级受信副本之后，**第四道门也不会作用于 GitHub 同步**。带 prepush-scan 门禁的同步是 NX-034 的 `scripts/release/sync_github.py`，`docs/release/run-release-tag.md` 写明它“目前没有部署” |
-| 控制器（`nexloop_ci.py run-once`） | 只有配置了 `--merge-gate` 才会调用；仓库中的 `nexloop-ci-controller.service.example` 没有配置 | 调度员的流程说明中写了“合并门槛包括 prepush-scan，由控制器的 `--merge-gate` 执行”。**需要调度员核对主机上的实际 unit**，见下文“需要核对” |
+| 同步服务（`nexloop_ci.py sync`，`deploy/stage/ci/nexloop-ci-sync.service.example`） | 本稿写成时**否**：只做 fast-forward 推送，不运行任何扫描 | **已由后续任务 `l7/sync-scan-gate` 补上**：推送前对“上次已同步的 main..main”运行四道门禁，见 `NX-060-sync-merge-scan.md` 与 OPERATIONS §7.2a |
+| 控制器（`nexloop_ci.py run-once`） | 本稿写成时只有配置了 `--merge-gate` 才会调用，主机上没有配置（调度员 2026-10-22 核实） | **已由 `l7/sync-scan-gate` 补上**：每次合入前对 main..候选运行四道门禁，不再依赖 `--merge-gate` |
 | 发版（`release.py` 的 `history_scan`） | 是，运行候选检出中的 `scripts/ci/prepush-scan.sh <sha> <上一个公开版本>` | 生效。配置与锁定条目取自上一个公开版本；首次引入时回退到候选检出 |
 | 各开发线的 pre-push hook（`--hook`） | 是 | 生效，开发机已有 gitleaks |
 | CI 全量 pytest 中的 `tests/test_github_sync.py`，以及 `make lint` 中的 `test-prepush-scan.py` | 是，在临时仓库中运行 | CI 主机已安装 gitleaks 并记录了摘要，可以通过 |
@@ -204,7 +204,7 @@ scripts/ci/install-gitleaks.sh gitleaks_8.30.1_linux_x64.tar.gz gitleaks_8.30.1_
 1. 控制器 unit 上是否配置了 `--merge-gate`，以及具体命令。
 2. 如果配置的是受信副本中的 `prepush-scan.sh`：
    - 它在 bare 仓库中运行，因为 `merge()` 以 `cwd=repo` 执行门禁命令；
-   - 本次核对发现，在 bare 仓库中脚本开头的 `cd "$(git rev-parse --show-toplevel)"` 会失败，但脚本不会退出，于是**第一道门（`git ls-files`）拿不到任何文件，形同虚设**。这是原有行为，不是本次引入的；
+   - 本次核对发现，在 bare 仓库中脚本开头的 `cd "$(git rev-parse --show-toplevel)"` 会失败，但脚本不会退出，于是**第一道门（`git ls-files`）拿不到任何文件，形同虚设**。这是原有行为，不是本次引入的；**已在 `l7/sync-scan-gate` 中修复**：各道门都改为通过 git 读取被扫描的提交，在 bare 仓库中与在检出中一样生效；
    - 第四道门在 bare 仓库中可以正常工作：它用的是 `git rev-parse --absolute-git-dir`、`git show <base>:…` 与 `git ls-tree`。
 
    如果第一道门需要在 bare 仓库中生效，建议另开任务：改为对被扫描的 ref 执行 `git ls-tree`，或者在临时 worktree 中运行（与 `sync_github.py` 的做法相同）。

@@ -54,8 +54,8 @@ def git(*args, cwd=None, binary=False):
 
 
 def credential_expression(script=ROOT / 'scripts/ci/prepush-scan.sh'):
-    """The added-line credential expression of prepush-scan.sh (`grep -E '^\\+.*(<expression>)'`)."""
-    match = re.search(r"grep -E '\^\\\+\.\*(\(.*\))' \|\|", Path(script).read_text())
+    """The added-line credential expression of prepush-scan.sh (`grep -E '^\\+.*(<expression>)'`, or -qE)."""
+    match = re.search(r"grep -q?E '\^\\\+\.\*(\(.*\))'", Path(script).read_text())
     if not match:
         raise InputError('credential rule not found in prepush-scan.sh')
     return re.compile(match.group(1).encode())

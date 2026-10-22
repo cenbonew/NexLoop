@@ -503,9 +503,33 @@ def run_check(repo, queue, request, policy, identities, *, runner=None, workroot
     return result
 
 
-def merge(repo, queue, request, policy, identities, *, gates=()):
+# The four publication gates (scripts/ci/prepush-scan.sh of this trusted installation, never a candidate's copy) on what a merge
+# or a GitHub sync is about to add: base..sha, or the whole history of sha when there is no base yet. Runs on the bare
+# repository with the private restricted-identifier list; a missing list, a timeout or any failed gate is a refusal. Returns
+# None when every gate passes, else the first FAIL line (the scan prints codes only, never content).
+PREPUSH_SCAN = Path(__file__).resolve().with_name('prepush-scan.sh')
+PREPUSH_SCAN_TIMEOUT = 900
+
+
+def prepush_scan(repo, sha, base, restricted_identifiers, *, timeout=PREPUSH_SCAN_TIMEOUT):
+    if not restricted_identifiers or not Path(restricted_identifiers).is_file():
+        return 'FAIL restricted identifier list missing'
+    argv = ['bash', str(PREPUSH_SCAN), sha, base] if base else ['bash', str(PREPUSH_SCAN), '--root', sha]
+    env = {**_stage_env({}), 'NEXLOOP_RESTRICTED_IDENTIFIERS_FILE': str(restricted_identifiers)}
+    try:
+        done = subprocess.run(argv, cwd=repo, capture_output=True, text=True, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        return 'FAIL prepush scan timed out'
+    if done.returncode == 0:
+        return None
+    failed = [line for line in done.stdout.splitlines() if line.startswith('FAIL')]
+    return failed[0][:300] if failed else f'FAIL prepush scan exited {done.returncode}'
+
+
+def merge(repo, queue, request, policy, identities, *, restricted_identifiers, gates=()):
     """D4: main only moves by fast-forward to a SHA with a passed result whose first parent is the current main, with a
-    maintainer's acknowledgement when the candidate changes CI, policy, hooks or deployment."""
+    maintainer's acknowledgement when the candidate changes CI, policy, hooks or deployment, and only after the four publication
+    gates pass on main..candidate (prepush_scan; NX-060 follow-up: no unscanned commit enters main)."""
     sha = request['sha']
     reasons = []
     if identities.get(request['identity']) not in ('integrator', 'maintainer'):
@@ -519,11 +543,16 @@ def merge(repo, queue, request, policy, identities, *, gates=()):
         reasons.append('first_parent_is_not_main')
     if result and result.get('policy_change') and not (Path(queue) / 'acks' / f'{sha}.json').exists():
         reasons.append('policy_change_not_acknowledged')
+    scan = None
+    if not reasons:  # the scan is the slowest check; a request refused for another reason is not scanned
+        scan = prepush_scan(repo, sha, main, restricted_identifiers)
+        if scan:
+            reasons.append('merge_scan_failed')
     for gate in gates:
         if subprocess.run(gate, cwd=repo, capture_output=True).returncode != 0:
             reasons.append('merge_gate_failed:' + Path(gate[0]).name)
     if reasons:
-        return {'merged': False, 'sha': sha, 'reasons': reasons}
+        return {'merged': False, 'sha': sha, 'reasons': reasons, **({'scan': scan} if scan else {})}
     # Compare-and-swap on the ref: a concurrent move of main fails the update instead of being overwritten.
     git(repo, 'update-ref', '-m', f'nexloop-ci merge {sha}', 'refs/heads/main', sha, main)
     record = {'sha': sha, 'previous_main': main, 'identity': request['identity'], 'merged_at': now(),
@@ -540,7 +569,7 @@ def ack_policy(queue, sha, identity, identities):
     return {'acknowledged': True, 'sha': sha}
 
 
-def run_once(repo, queue, policy, identities, *, runner=None, workroot=None, gates=()):
+def run_once(repo, queue, policy, identities, *, restricted_identifiers=None, runner=None, workroot=None, gates=()):
     """Take the oldest pending request under the single-build lock (D5: one build at a time)."""
     queue = queue_dirs(queue)
     with open(queue / 'controller.lock', 'a+') as lock:
@@ -556,7 +585,7 @@ def run_once(repo, queue, policy, identities, *, runner=None, workroot=None, gat
         os.rename(path, running)
         request = json.loads(running.read_text())
         if request['kind'] == 'merge':
-            outcome = merge(repo, queue, request, policy, identities, gates=gates)
+            outcome = merge(repo, queue, request, policy, identities, restricted_identifiers=restricted_identifiers, gates=gates)
         else:
             existing = latest_result(queue, request['sha'])
             if existing is not None and existing['status'] == 'passed':
@@ -584,17 +613,33 @@ def _sync_push(repo, remote, sha, ref, *, timeout, env):
     return 'unreachable'
 
 
-def sync(repo, queue, remote, *, timeout=30, tag_signers=None):
+def sync(repo, queue, remote, *, restricted_identifiers, timeout=30, tag_signers=None):
     """Push main and every review/* branch to the sync remote: each as the exact SHA read once (a merge that lands meanwhile is
     the next round's), fast-forward only, never force, never mirror, never a delete. Unreachable: sync_pending with the backlog
     counted; CI results and merges are not affected and nothing blocks. A review branch the remote refuses (not a fast-forward)
     is that branch's sync_refused; main and the other branches go on. A review branch deleted here stays on the remote
-    (local_absent). State: main at the top level (as before), every review branch under 'review'."""
+    (local_absent). State: main at the top level (as before), every review branch under 'review'.
+
+    Nothing reaches the remote unscanned: before any push, the four publication gates (prepush_scan) run on last synced
+    main..main (the whole history when nothing was synced yet). A failure is sync_blocked with the failing gate: nothing is
+    pushed that round (no main, no review branch, no tag), the last synced main is kept, and every later round scans again, so
+    it stays blocked until main no longer fails (a published leak is never rewritten: rotate the credential). Each review
+    branch is scanned on its own outgoing commits (since its last synced SHA, or since main) and a failure blocks that branch
+    only."""
     queue = queue_dirs(queue)
     state_path = queue / 'sync' / f'{remote}.json'
     state = json.loads(state_path.read_text()) if state_path.exists() else {'remote': remote, 'last_synced': None}
     main = git(repo, 'rev-parse', 'refs/heads/main')  # the SHA pushed and recorded, never re-read after the push
     env = {**_stage_env({}), 'GIT_ALLOW_PROTOCOL': 'file:ssh:https'}
+    since = state.get('last_synced')
+    scan = None if since == main else prepush_scan(repo, main, since, restricted_identifiers)
+    if scan:
+        backlog = int(git(repo, 'rev-list', '--count', f'{since}..{main}' if since else main))
+        state.update(status='sync_blocked', blocked={'sha': main, 'gate': scan}, backlog=backlog, attempted_at=now(),
+                     failures=state.get('failures', 0) + 1)
+        write_atomic(state_path, state)
+        return state
+    state.pop('blocked', None)
     result = _sync_push(repo, remote, main, 'refs/heads/main', timeout=timeout, env=env)
     if result == 'synced':
         state.update(status='synced', last_synced=main, backlog=0, synced_at=now())
@@ -609,6 +654,13 @@ def sync(repo, queue, remote, *, timeout=30, tag_signers=None):
     for ref, sha in sorted(local.items()):
         name = ref.removeprefix('refs/heads/')
         entry = reviews.get(name, {'last_synced': None})
+        branch_scan = None if entry.get('last_synced') == sha else prepush_scan(repo, sha, entry.get('last_synced') or main,
+                                                                               restricted_identifiers)
+        if branch_scan:
+            entry.update(status='sync_blocked', sha=sha, gate=branch_scan, attempted_at=now(), failures=entry.get('failures', 0) + 1)
+            reviews[name] = entry
+            continue
+        entry.pop('gate', None)
         # The remote unreachable for main: the same for every branch this round (no second timeout per branch).
         outcome = 'unreachable' if result == 'unreachable' else _sync_push(repo, remote, sha, ref, timeout=timeout, env=env)
         if outcome == 'synced':
@@ -655,9 +707,14 @@ def status(queue):
         if r:results[sha_dir.name] = {'status': r['status'], 'attempt': r['attempt'], 'counts': r.get('counts')}
     def summary(state):
         out = {k: v for k, v in state.items() if k in ('status', 'backlog')}
+        if state.get('status') == 'sync_blocked':
+            out['blocked'] = (state.get('blocked') or {}).get('gate')
         refused = sorted(name for name, entry in (state.get('review') or {}).items() if entry.get('status') == 'sync_refused')
         if refused:
             out['review_refused'] = refused
+        blocked = sorted(name for name, entry in (state.get('review') or {}).items() if entry.get('status') == 'sync_blocked')
+        if blocked:
+            out['review_blocked'] = blocked
         held = sorted(name for name, entry in (state.get('tags') or {}).items() if entry.get('status') != 'synced')
         if held:
             out['tags_not_synced'] = held
@@ -720,6 +777,10 @@ def main(argv=None):
         if name == 'enqueue':
             p.add_argument('--ref', required=True)
             p.add_argument('--kind', choices=('check', 'merge'), default='check')
+        if name in ('run-once', 'sync'):
+            # sync: required. run-once: a lane that only runs checks may leave it out; every merge then fails its scan (refused).
+            p.add_argument('--restricted-identifiers', type=Path, required=name == 'sync',
+                           help='private restricted-identifier list for the publication scan before a merge or a sync push')
         if name == 'run-once':
             p.add_argument('--policy', type=Path, required=True)
             p.add_argument('--stages-version', type=int, choices=(1, 2, 3, 4), default=1)
@@ -756,14 +817,18 @@ def main(argv=None):
                     print(json.dumps({'ran': False, 'reason': 'runner_refused', 'violations': violations}))
                     return 2
             out = run_once(args.repo, args.queue, load_policy(args.policy, args.stages_version), load_identities(args.identities), runner=runner,
-                           gates=[g.split() for g in args.merge_gate])
+                           restricted_identifiers=args.restricted_identifiers, gates=[g.split() for g in args.merge_gate])
             o = out.get('outcome') or {}
             code = 0 if (not out['ran'] or o.get('status') == 'passed' or o.get('merged')) else 1
         elif args.command == 'ack-policy':
             out = ack_policy(args.queue, args.sha, args.identity, load_identities(args.identities))
             code = 0 if out['acknowledged'] else 1
         elif args.command == 'sync':
-            out, code = sync(args.repo, args.queue, args.remote, timeout=args.timeout, tag_signers=args.tag_signers), 0
+            out = sync(args.repo, args.queue, args.remote, restricted_identifiers=args.restricted_identifiers, timeout=args.timeout,
+                       tag_signers=args.tag_signers)
+            # A blocked scan fails the unit (journal, `systemctl --failed`); pending and refused stay normal states.
+            blocked = out.get('status') == 'sync_blocked' or any(e.get('status') == 'sync_blocked' for e in (out.get('review') or {}).values())
+            code = 1 if blocked else 0
         elif args.command == 'status':
             out, code = status(args.queue), 0
         elif args.command == 'result':

@@ -19,6 +19,7 @@ IDENTITIES = {'identities': {'line-a': 'developer', 'line-b': 'developer', 'inte
                              'merge-controller': 'controller', 'release-tool': 'release'}}
 GIT_ENV = {'GIT_AUTHOR_NAME': 'Synthetic', 'GIT_AUTHOR_EMAIL': 'synthetic@example.invalid', 'GIT_COMMITTER_NAME': 'Synthetic',
            'GIT_COMMITTER_EMAIL': 'synthetic@example.invalid', 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1'}
+RESTRICTED_MARKER = 'synthetic-restricted-marker-'
 # The candidate's own test script: writes one junit file with N passing tests (N from tests.count), or a failure/skip.
 CI_TEST = """#!/bin/sh
 set -e
@@ -43,6 +44,9 @@ def lab(tmp_path):
     run('git', 'init', '-q', '-b', 'main', str(work))
     identities = tmp_path / 'identities.json'
     identities.write_text(json.dumps(IDENTITIES))
+    # Synthetic restricted identifiers for the publication scan before every merge and sync push (the real list is private).
+    restricted = tmp_path / 'restricted-identifiers.txt'
+    restricted.write_text(RESTRICTED_MARKER + '[0-9]+\n')
     policy = tmp_path / 'trusted-policy'
     policy.mkdir()
     (policy / 'stages.v1.json').write_text(json.dumps({'schema': 'nexloop-ci-stages/1', 'version': 1, 'stages': [
@@ -72,7 +76,7 @@ def lab(tmp_path):
     base = commit('base', {'ci-test.sh': CI_TEST, 'tests.count': '3\n'})
     assert push('merge-controller', f'{base}:refs/heads/main').returncode == 0
     return dict(bare=bare, work=work, queue=queue, identities=ci.load_identities(identities), policy=ci.load_policy(policy), commit=commit,
-                push=push, base=base, tmp=tmp_path)
+                push=push, base=base, tmp=tmp_path, restricted=restricted)
 
 
 def pending(lab):
@@ -80,7 +84,12 @@ def pending(lab):
 
 
 def once(lab, **kw):
-    return ci.run_once(lab['bare'], lab['queue'], lab['policy'], lab['identities'], workroot=lab['tmp'] / 'builds', **kw)
+    return ci.run_once(lab['bare'], lab['queue'], lab['policy'], lab['identities'], workroot=lab['tmp'] / 'builds',
+                       restricted_identifiers=lab['restricted'], **kw)
+
+
+def sync(lab, **kw):
+    return ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, restricted_identifiers=lab['restricted'], **kw)
 
 
 def test_ref_namespaces_are_enforced_by_the_real_hooks_and_public_pr_refs_never_queue(lab):
@@ -200,7 +209,7 @@ def test_a_dependency_cache_miss_fails_explicitly(lab):
               {'name': 'suite', 'network': 'test', 'argv': ['sh', 'ci-test.sh'], 'junit': ['.ci-results/*.xml']}]}
     policy = {**lab['policy'], 'stages': stages}
     ci.enqueue(lab['bare'], lab['queue'], 'refs/heads/integration/dep', lab['base'], 'integrator-a')
-    r = ci.run_once(lab['bare'], lab['queue'], policy, lab['identities'], workroot=lab['tmp'] / 'builds')['outcome']
+    r = ci.run_once(lab['bare'], lab['queue'], policy, lab['identities'], workroot=lab['tmp'] / 'builds', restricted_identifiers=lab['restricted'])['outcome']
     assert r['status'] == 'failed' and r['stages'][0]['status'] == 'dependency_unavailable' and len(r['stages']) == 1
     assert 'stage_failed:dependency-python' in r['reasons'] and 'suite_missing:unit' in r['reasons']  # never a skipped pass
 
@@ -233,7 +242,7 @@ def test_at053_github_unreachable_leaves_ci_and_merge_working_and_sync_pending(l
     run('git', 'init', '-q', '--bare', '-b', 'main', str(github))
     # The sync remote is unreachable (no route: the URL leads nowhere).
     run('git', '-C', str(lab['bare']), 'remote', 'add', 'github', str(tmp_path / 'unreachable' / 'nexloop.git'))
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['status'] == 'sync_pending' and state['backlog'] == 1
     # Meanwhile local CI and merges proceed from the local repository only.
     cand = c('during outage', {'feature.txt': 'x'}, parent=lab['base'])
@@ -241,12 +250,12 @@ def test_at053_github_unreachable_leaves_ci_and_merge_working_and_sync_pending(l
     assert once(lab)['outcome']['status'] == 'passed'
     ci.enqueue(lab['bare'], lab['queue'], 'refs/heads/integration/outage', cand, 'integrator-a', 'merge', lab['identities'])
     assert once(lab)['outcome']['merged'] is True
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['status'] == 'sync_pending' and state['backlog'] == 2 and state['failures'] == 2
     assert ci.status(lab['queue'])['sync'] == {'github': {'status': 'sync_pending', 'backlog': 2}}
     # Reachable again: one fast-forward push, the backlog clears.
     run('git', '-C', str(lab['bare']), 'remote', 'set-url', 'github', str(github))
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['status'] == 'synced' and state['backlog'] == 0 and state['last_synced'] == cand
     assert run('git', '-C', str(github), 'rev-parse', 'main').stdout.strip() == cand
 
@@ -348,7 +357,7 @@ def test_review_branches_fast_forward_to_github_and_a_refused_one_affects_nothin
     assert push('maintainer-a', f'{one}:refs/heads/review/one').returncode == 0
     assert push('maintainer-a', f'{two}:refs/heads/review/two').returncode == 0
     assert push('line-a', f'{one}:refs/heads/review/three').returncode != 0  # review/* is the maintainer's
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['status'] == 'synced' and state['last_synced'] == lab['base']
     assert {n: e['status'] for n, e in state['review'].items()} == {'review/one': 'synced', 'review/two': 'synced'}
     assert _remote_ref(github, 'refs/heads/review/one') == one and _remote_ref(github, 'refs/heads/review/two') == two
@@ -359,7 +368,7 @@ def test_review_branches_fast_forward_to_github_and_a_refused_one_affects_nothin
     assert push('maintainer-a', f'{two_rewritten}:refs/heads/review/two', force=True).returncode == 0
     merged = c('main moves', {'m.txt': 'm'}, parent=lab['base'])
     assert push('merge-controller', f'{merged}:refs/heads/main').returncode == 0
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['status'] == 'synced' and state['last_synced'] == merged and _remote_ref(github, 'refs/heads/main') == merged
     assert state['review']['review/one']['status'] == 'synced' and _remote_ref(github, 'refs/heads/review/one') == one_next
     assert state['review']['review/two']['status'] == 'sync_refused' and _remote_ref(github, 'refs/heads/review/two') == two  # never forced
@@ -367,7 +376,7 @@ def test_review_branches_fast_forward_to_github_and_a_refused_one_affects_nothin
     assert ci.status(lab['queue'])['sync']['github'] == {'status': 'synced', 'backlog': 0, 'review_refused': ['review/two']}
     # A review branch deleted here stays on GitHub.
     assert push('maintainer-a', ':refs/heads/review/one').returncode == 0
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['review']['review/one']['status'] == 'local_absent' and _remote_ref(github, 'refs/heads/review/one') == one_next
 
 
@@ -376,7 +385,7 @@ def test_review_branches_wait_with_main_while_github_is_unreachable(lab, tmp_pat
     _github(lab, tmp_path, reachable=False)
     one = c('review one', {'r1.txt': '1'}, parent=lab['base'])
     assert push('maintainer-a', f'{one}:refs/heads/review/one').returncode == 0
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['status'] == 'sync_pending' and state['review']['review/one']['status'] == 'sync_pending'
     assert state['review']['review/one']['sha'] == one and state['review']['review/one']['last_synced'] is None
 
@@ -395,11 +404,11 @@ def test_a_merge_between_reading_and_pushing_main_is_the_next_rounds(lab, tmp_pa
             assert push('merge-controller', f'{merged}:refs/heads/main').returncode == 0
         return out
     monkeypatch.setattr(ci, 'git', git)
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     monkeypatch.setattr(ci, 'git', real)
     assert state['status'] == 'synced' and state['last_synced'] == lab['base'] == _remote_ref(github, 'refs/heads/main')
     assert run('git', '-C', str(lab['bare']), 'rev-parse', 'main').stdout.strip() == merged
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert state['last_synced'] == merged == _remote_ref(github, 'refs/heads/main') and state['backlog'] == 0
 
 
@@ -480,9 +489,9 @@ def test_the_sync_pushes_each_verified_release_tag_by_its_own_refspec_create_onl
         return real(argv, *a, **kw)
     monkeypatch.setattr(ci.subprocess, 'run', spy)
     # Without --tag-signers the sync pushes no tag (as before).
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10)
+    state = sync(lab)
     assert 'tags' not in state and _remote_ref(github, 'refs/tags/v0.1.0') is None
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=signers)
+    state = sync(lab, tag_signers=signers)
     assert state['tags'] == {'v0.1.0': {'status': 'synced', 'object': signed, 'synced_at': state['tags']['v0.1.0']['synced_at']}}
     assert _remote_ref(github, 'refs/tags/v0.1.0') == signed
     # Explicit refspecs only: never --tags, --force, --mirror, --all, never a deletion.
@@ -491,18 +500,121 @@ def test_the_sync_pushes_each_verified_release_tag_by_its_own_refspec_create_onl
     assert f'{signed}:refs/tags/v0.1.0' in flat and all(not a.startswith('+') and not a.startswith(':') for a in flat if ':' in a and 'refs/' in a)
     # Already synced: not pushed again. A GitHub tag with another object: that tag's sync_refused, never forced.
     before = len(commands)
-    ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=signers)
+    sync(lab, tag_signers=signers)
     assert not any('refs/tags/v0.1.0' in ' '.join(cmd) for cmd in commands[before:])
     rc = _tag(lab, 'v0.2.0-rc.1', lab['base'], key)
     assert push('maintainer-a', f'{rc}:refs/tags/v0.2.0-rc.1').returncode == 0
     run('git', '-C', str(github), 'tag', '-a', '-m', 'someone else', 'v0.2.0-rc.1', lab['base'])
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=signers)
+    state = sync(lab, tag_signers=signers)
     assert state['tags']['v0.2.0-rc.1']['status'] == 'sync_refused' and _remote_ref(github, 'refs/tags/v0.2.0-rc.1') != rc
     assert ci.status(lab['queue'])['sync']['github']['tags_not_synced'] == ['v0.2.0-rc.1']
     # A tag in the LAN repository that does not verify (e.g. the signers file was replaced) is held, not pushed.
     (tmp_path / 'third').mkdir()
     _, third = _owner_key(tmp_path / 'third')
     run('git', '-C', str(github), 'tag', '-d', 'v0.2.0-rc.1')
-    state = ci.sync(lab['bare'], lab['queue'], 'github', timeout=10, tag_signers=third)
+    state = sync(lab, tag_signers=third)
     assert state['tags']['v0.2.0-rc.1'] == {'status': 'tag_unverified', 'reason': 'tag_signature_invalid', 'object': rc}
     assert _remote_ref(github, 'refs/tags/v0.2.0-rc.1') is None
+
+
+# NX-060 follow-up: nothing reaches GitHub or main without the four publication gates (prepush-scan.sh of this installation).
+# Leaking values are assembled at run time so that this file never contains one whole.
+def _leaks():
+    return {'credential': {'aws.cfg': 'aws_access_key_id = ' + 'AKIA' + 'Q4RT7WX2' + 'ZV3PMN6Y' + '\n'},
+            'private path': {'local-only/notes.txt': 'synthetic\n'},
+            'restricted identifier': {'notes.txt': 'host ' + RESTRICTED_MARKER + '42\n'}}
+
+
+def test_the_sync_never_pushes_an_unscanned_leak_and_stays_blocked(lab, tmp_path, capsys):
+    c, push = lab['commit'], lab['push']
+    github = _github(lab, tmp_path)
+    # The first sync has no synced base: the whole history is scanned (--root) and passes.
+    assert sync(lab)['status'] == 'synced' and _remote_ref(github, 'refs/heads/main') == lab['base']
+    tip = lab['base']
+    for kind, files in _leaks().items():
+        # A leak that is in main already (as if merged before the merge scan) and removed again by the next commit.
+        leak = c(f'{kind} lands in main', files, parent=tip)
+        removed = c('removed again', {name: 'removed\n' for name in files}, parent=leak)
+        assert push('merge-controller', f'{removed}:refs/heads/main').returncode == 0
+        state = sync(lab)
+        assert state['status'] == 'sync_blocked' and state['blocked']['sha'] == removed, kind
+        assert state['blocked']['gate'].startswith('FAIL') and state['last_synced'] == tip, kind
+        assert _remote_ref(github, 'refs/heads/main') == tip, kind  # nothing pushed
+        # Every later round scans again and stays blocked; the CLI fails the unit.
+        assert ci.main(['sync', '--repo', str(lab['bare']), '--queue', str(lab['queue']), '--remote', 'github',
+                        '--restricted-identifiers', str(lab['restricted'])]) == 1
+        out = json.loads(capsys.readouterr().out)
+        assert out['status'] == 'sync_blocked' and _remote_ref(github, 'refs/heads/main') == tip
+        assert ci.status(lab['queue'])['sync']['github']['blocked'] == state['blocked']['gate']
+        assert RESTRICTED_MARKER not in json.dumps(out) and 'AKIA' not in json.dumps(out)  # gate codes only, never content
+        # Leave the leak out of main for the next kind (a test-only reset; main never moves backwards in operation).
+        run('git', '-C', str(lab['bare']), 'update-ref', 'refs/heads/main', tip)
+    # A clean main syncs and clears the block.
+    clean = c('clean change', {'clean.txt': 'ok'}, parent=tip)
+    assert push('merge-controller', f'{clean}:refs/heads/main').returncode == 0
+    state = sync(lab)
+    assert state['status'] == 'synced' and 'blocked' not in state and _remote_ref(github, 'refs/heads/main') == clean
+
+
+def test_a_review_branch_with_a_leak_is_blocked_alone(lab, tmp_path):
+    c, push = lab['commit'], lab['push']
+    github = _github(lab, tmp_path)
+    good = c('review good', {'g.txt': 'g'}, parent=lab['base'])
+    bad = c('review bad', _leaks()['credential'], parent=lab['base'])
+    assert push('maintainer-a', f'{good}:refs/heads/review/good').returncode == 0
+    assert push('maintainer-a', f'{bad}:refs/heads/review/bad').returncode == 0
+    state = sync(lab)
+    assert state['status'] == 'synced' and state['review']['review/good']['status'] == 'synced'
+    assert state['review']['review/bad']['status'] == 'sync_blocked' and _remote_ref(github, 'refs/heads/review/bad') is None
+    assert ci.status(lab['queue'])['sync']['github']['review_blocked'] == ['review/bad']
+
+
+def test_the_first_sync_scans_the_whole_history_and_a_missing_list_fails_closed(lab, tmp_path):
+    c, push = lab['commit'], lab['push']
+    github = _github(lab, tmp_path)
+    leak = c('old leak', _leaks()['credential'], parent=lab['base'])
+    removed = c('removed long ago', {'aws.cfg': 'removed\n'}, parent=leak)
+    assert push('merge-controller', f'{removed}:refs/heads/main').returncode == 0
+    state = sync(lab)  # nothing synced yet: --root sees the old leak
+    assert state['status'] == 'sync_blocked' and _remote_ref(github, 'refs/heads/main') is None
+    lab['restricted'].unlink()
+    run('git', '-C', str(lab['bare']), 'update-ref', 'refs/heads/main', lab['base'])
+    state = sync(lab)
+    assert state['status'] == 'sync_blocked' and state['blocked']['gate'] == 'FAIL restricted identifier list missing'
+    assert _remote_ref(github, 'refs/heads/main') is None
+
+
+def test_a_merge_needs_the_publication_scan_of_main_to_candidate(lab):
+    c, push = lab['commit'], lab['push']
+    main = lab['base']
+    for kind, files in _leaks().items():
+        cand = c(f'{kind} candidate', files, parent=main)
+        ref = 'refs/heads/integration/leak-' + kind.replace(' ', '-')
+        pushed = push('integrator-a', f'{cand}:{ref}')
+        assert pushed.returncode == 0, (kind, pushed.stderr)
+        assert once(lab)['outcome']['status'] == 'passed', kind  # the CI result alone does not open main
+        ci.enqueue(lab['bare'], lab['queue'], ref, cand, 'integrator-a', 'merge', lab['identities'])
+        outcome = once(lab)['outcome']
+        assert outcome['merged'] is False and outcome['reasons'] == ['merge_scan_failed'] and outcome['scan'].startswith('FAIL'), kind
+        assert run('git', '-C', str(lab['bare']), 'rev-parse', 'main').stdout.strip() == main, kind
+    # Without a restricted-identifier list a merge is refused too (a check-only lane may leave it out).
+    clean = c('clean candidate', {'clean.txt': 'ok'}, parent=main)
+    push('integrator-a', f'{clean}:refs/heads/integration/clean')
+    assert once(lab)['outcome']['status'] == 'passed'
+    ci.enqueue(lab['bare'], lab['queue'], 'refs/heads/integration/clean', clean, 'integrator-a', 'merge', lab['identities'])
+    outcome = ci.run_once(lab['bare'], lab['queue'], lab['policy'], lab['identities'], workroot=lab['tmp'] / 'builds')['outcome']
+    assert outcome['reasons'] == ['merge_scan_failed'] and outcome['scan'] == 'FAIL restricted identifier list missing'
+    ci.enqueue(lab['bare'], lab['queue'], 'refs/heads/integration/clean', clean, 'integrator-a', 'merge', lab['identities'])
+    assert once(lab)['outcome']['merged'] is True
+
+
+def test_the_unit_examples_scan_before_every_merge_and_sync():
+    for name, command in (('nexloop-ci-controller', 'run-once'), ('nexloop-ci-sync', 'sync')):
+        text = (ROOT / 'deploy/stage/ci' / f'{name}.service.example').read_text()
+        line = next(l for l in text.splitlines() if l.startswith('ExecStart='))
+        argv = line.split('nexloop_ci.py', 1)[1].split()
+        assert argv[0] == command and '--restricted-identifiers' in argv, name
+        assert argv[argv.index('--restricted-identifiers') + 1] == '<GIT_ROOT>/private/restricted-identifiers.txt'
+    # sync cannot start without the list (argparse refuses; there is no unscanned sync).
+    with pytest.raises(SystemExit):
+        ci.main(['sync', '--repo', 'r', '--queue', 'q', '--remote', 'github'])

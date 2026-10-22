@@ -149,7 +149,9 @@ def sync_github(repo, queue, remote, *, restricted_identifiers, tags=(), tag_sig
     if not state.get('last_synced'):
         state['last_synced'] = base  # the baseline the maintainer confirmed: the remote main before the first gated sync
         ci.write_atomic(path, state)
-    state = ci.sync(repo, queue, remote, timeout=timeout)  # NX-033: main only, fast-forward, pending when unreachable
+    state = ci.sync(repo, queue, remote, restricted_identifiers=restricted_identifiers, timeout=timeout)  # NX-033: scanned again, main only, fast-forward
+    if state['status'] == 'sync_blocked':
+        return _block(queue, remote, state, 'scan_failed', now)
     stamp = now.isoformat().replace('+00:00', 'Z')
     if state['status'] != 'synced':
         failures = state.get('failures', 1)

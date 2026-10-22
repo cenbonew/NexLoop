@@ -2,7 +2,16 @@
 set -euo pipefail
 # The pinned tool versions come from the checkout this script belongs to, not from the tree being scanned.
 script_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-cd "$(git rev-parse --show-toplevel)"
+# Work from the repository top level, or from the git directory of a bare repository (the CI controller's merge gate and the
+# GitHub sync run on the bare repository). No gate reads the working tree: every one reads the scanned commits through git
+# (ls-tree, log, grep, show), so a bare repository is scanned exactly like a checkout. Anything else fails.
+if [[ "$(git rev-parse --is-bare-repository 2>/dev/null || true)" == true ]]; then
+  cd "$(git rev-parse --absolute-git-dir)" || { printf 'FAIL prepush-scan: git directory unavailable\n'; exit 1; }
+elif top=$(git rev-parse --show-toplevel 2>/dev/null) && [[ -n "$top" ]]; then
+  cd "$top" || { printf 'FAIL prepush-scan: top level unavailable\n'; exit 1; }
+else
+  printf 'FAIL prepush-scan: not inside a git repository\n'; exit 1
+fi
 # Gate 4 (NX-060): gitleaks at exactly the pinned version over the outgoing commits (or, with --full, the whole history).
 # Trust: the configuration (.gitleaks.toml) and the pin (versions.lock.json release_tools.gitleaks) are taken from the base
 # commit, which is already published, and only where the base has none (first introduction, or --full) from the checkout
@@ -76,15 +85,51 @@ print(tool["version"], tool.get("binary_sha256_" + sys.argv[2]) or "-")' "$work/
   if [[ "$status" -ne 0 ]]; then printf 'FAIL gitleaks scan could not complete\n'; exit 1; fi
   printf 'PASS gitleaks %s in %s (%s configuration)\n' "$version" "$label" "$source"
 )
+# git grep over the trees of many commits in batches of 200 (a whole history stays under the argument limit):
+# 0 a match in some tree, 1 none, 2 a git error.
+grep_revisions() {
+  local pattern="$1" rev status n=0
+  local -a batch
+  while read -r rev; do
+    [[ -n "$rev" ]] || continue
+    batch[n]="$rev"; n=$((n + 1))
+    if [[ "$n" -eq 200 ]]; then
+      status=0; git grep -q -E "$pattern" "${batch[@]}" -- . || status=$?
+      [[ "$status" -eq 1 ]] || return $(( status == 0 ? 0 : 2 ))
+      batch=(); n=0
+    fi
+  done <<<"$2"
+  if [[ "$n" -gt 0 ]]; then
+    status=0; git grep -q -E "$pattern" "${batch[@]}" -- . || status=$?
+    [[ "$status" -eq 1 ]] || return $(( status == 0 ? 0 : 2 ))
+  fi
+  return 1
+}
+# One scan of the commits <base>..<ref>, or with an empty base of everything reachable from <ref> (--root, first publication).
 scan_ref() {
-  local ref="$1" base="$2" revisions matches
-  git rev-parse --verify "$ref^{commit}" >/dev/null
-  git rev-parse --verify "$base^{commit}" >/dev/null
-  printf 'prepush-scan: %s against %s\n' "$ref" "$base"
-  matches=$(git ls-files | grep -E '^(docs/tmp|local-only|\.env$|.*\.sqlite|.*secrets/)' || test "$?" -eq 1)
+  local ref="$1" base="$2" range revisions matches status=0
+  git rev-parse --verify -q "$ref^{commit}" >/dev/null || { printf 'FAIL prepush-scan: %s is not a commit\n' "$ref"; return 1; }
+  if [[ -n "$base" ]]; then
+    git rev-parse --verify -q "$base^{commit}" >/dev/null || { printf 'FAIL prepush-scan: base %s is not a commit\n' "$base"; return 1; }
+    range="$base..$ref"
+    printf 'prepush-scan: %s against %s\n' "$ref" "$base"
+  else
+    range="$ref"
+    printf 'prepush-scan: %s from the root (whole history)\n' "$ref"
+  fi
+  # Gate 1: no private or runtime path in the scanned commit's tree, among the paths any outgoing commit touches (a path
+  # added and removed again inside the range would still be published in history), or, in a checkout, in the index.
+  local paths index=''
+  if [[ "$(git rev-parse --is-bare-repository)" != true ]]; then
+    index=$(git ls-files) || { printf 'FAIL tracked path listing could not complete\n'; return 1; }
+  fi
+  paths=$( { git ls-tree -r --name-only "$ref" && git log --format= --name-only --no-renames "$range"; } ) \
+    || { printf 'FAIL tracked path listing could not complete\n'; return 1; }
+  paths="$paths"$'\n'"$index"
+  matches=$(printf '%s\n' "$paths" | grep -E '^(docs/tmp|local-only|\.env$|.*\.sqlite|.*secrets/)' || test "$?" -eq 1)
   if [[ -n "$matches" ]]; then printf 'FAIL tracked private/runtime paths\n'; return 1; fi
   printf 'PASS tracked private/runtime paths\n'
-  revisions=$(git rev-list "$base..$ref")
+  revisions=$(git rev-list "$range") || { printf 'FAIL commit listing could not complete\n'; return 1; }
   if [[ -n "$revisions" ]]; then
     # The restricted identifiers (private LAN addresses, host names and aliases, host key fingerprints, local user paths)
     # are kept out of the public repository: one extended regular expression per line in a private list, by default
@@ -95,16 +140,22 @@ scan_ref() {
     list="${NEXLOOP_RESTRICTED_IDENTIFIERS_FILE:-$(dirname "$common")/local-only/restricted-identifiers.txt}"
     identifiers=$( { grep -vE '^[[:space:]]*(#|$)' "$list" 2>/dev/null || true; } | paste -sd'|' -)
     if [[ -z "$identifiers" ]]; then printf 'FAIL restricted identifier list missing or empty (content redacted)\n'; return 1; fi
-    local status=0
-    git grep -q -E "$identifiers" $revisions -- . || status=$?
+    status=0
+    grep_revisions "$identifiers" "$revisions" || status=$?
     if [[ "$status" -eq 0 ]]; then printf 'FAIL restricted identifiers in outgoing commit trees (content redacted)\n'; return 1; fi
     if [[ "$status" -ne 1 ]]; then printf 'FAIL history scan could not complete\n'; return 1; fi
   fi
   printf 'PASS restricted identifiers in every outgoing commit\n'
-  matches=$(git log -p "$base..$ref" | grep -E '^\+.*(sk-[A-Za-z0-9]{20,}|xz[z]n|(MODEL|EMBEDDING)_API_KEY="?[A-Za-z0-9-]{8,})' || test "$?" -eq 1)
-  if [[ -n "$matches" ]]; then printf 'FAIL credential values in outgoing added lines (content redacted)\n'; return 1; fi
+  # grep decides a match on its own (git may then end on SIGPIPE); with no match, git log itself must have succeeded.
+  local codes
+  set +e
+  git log -p "$range" | grep -qE '^\+.*(sk-[A-Za-z0-9]{20,}|xz[z]n|(MODEL|EMBEDDING)_API_KEY="?[A-Za-z0-9-]{8,})'
+  codes="${PIPESTATUS[0]} ${PIPESTATUS[1]}"
+  set -e
+  if [[ "${codes#* }" == 0 ]]; then printf 'FAIL credential values in outgoing added lines (content redacted)\n'; return 1; fi
+  if [[ "$codes" != '0 1' ]]; then printf 'FAIL credential scan could not complete\n'; return 1; fi
   printf 'PASS credential values in outgoing added lines\n'
-  gitleaks_gate "$ref" "$base..$ref" 'outgoing added lines' "$base"
+  gitleaks_gate "$ref" "$range" 'outgoing added lines' "$base"
 }
 if [[ "${1:-}" == '--hook' ]]; then
   remote="${2:-}"
@@ -117,6 +168,9 @@ if [[ "${1:-}" == '--hook' ]]; then
     fi
     scan_ref "$local_sha" origin/main
   done
+elif [[ "${1:-}" == '--root' ]]; then
+  # All four gates over the whole history reachable from the ref (a first publication with no synced base).
+  scan_ref "${2:-HEAD}" ''
 elif [[ "${1:-}" == '--full' ]]; then
   # Optional full mode: gate 4 alone over every commit reachable from the ref (default HEAD), with this checkout's
   # configuration, for audits and first publication. It does not replace the three gates of the normal mode.

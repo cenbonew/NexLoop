@@ -198,5 +198,45 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     assert result.returncode != 0 and 'FAIL gitleaks pin unreadable' in result.stdout, result.stdout
     run('git', 'update-ref', 'refs/remotes/origin/main', baseline, cwd=root)
     run('git', 'reset', '--hard', baseline, cwd=root)
+    # A bare repository (the CI controller's merge gate and the GitHub sync) is scanned like a checkout: every gate reads the
+    # commits through git. Before this, `cd` to the missing top level failed silently and gate 1 listed nothing.
+    def bare_scan(*args, repo):
+        return subprocess.run(['bash', str(SCAN), *args], cwd=repo, capture_output=True, text=True)
+    def bare_clone(name):
+        target = pathlib.Path(temp) / name
+        shutil.rmtree(target, ignore_errors=True)
+        run('git', 'clone', '-q', '--bare', str(root), str(target), cwd=temp)
+        return target
+    run('git', 'reset', '--hard', baseline, cwd=root)
+    commit('safe', 'harmless in bare\n', 'harmless')
+    clean = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+    bare = bare_clone('bare-clean.git')
+    result = bare_scan(clean, baseline, repo=bare)
+    assert result.returncode == 0 and result.stdout.count('PASS ') == 4, result.stdout
+    assert bare_scan('--root', clean, repo=bare).returncode == 0
+    for path, text, gate in (('local-only/notes.txt', 'synthetic\n', 'FAIL tracked private/runtime paths'),
+                             ('deploy/secrets/k.txt', 'synthetic\n', 'FAIL tracked private/runtime paths'),
+                             ('aws.cfg', aws, 'FAIL gitleaks: ')):
+        run('git', 'reset', '--hard', baseline, cwd=root)
+        commit(path, text, 'added inside the range')
+        run('git', 'rm', '-q', path, cwd=root)
+        run('git', 'commit', '-q', '-m', 'and removed again', cwd=root)
+        head = run('git', 'rev-parse', 'HEAD', cwd=root).stdout.strip()
+        bare = bare_clone('bare-dirty.git')
+        result = bare_scan(head, baseline, repo=bare)
+        assert result.returncode != 0 and gate in result.stdout, (path, result.stdout)
+        # --root sees the same history from the first commit.
+        result = bare_scan('--root', head, repo=bare)
+        assert result.returncode != 0 and gate in result.stdout, (path, result.stdout)
+    # Preconditions fail with a message: not a repository, an unknown ref or base.
+    with tempfile.TemporaryDirectory(prefix='nexloop-not-a-repository-') as outside:
+        result = bare_scan('HEAD', 'HEAD', repo=outside)
+        assert result.returncode != 0 and 'FAIL prepush-scan: not inside a git repository' in result.stdout, result.stdout
+    result = bare_scan('0' * 40, baseline, repo=bare)
+    assert result.returncode != 0 and 'is not a commit' in result.stdout, result.stdout
+    result = bare_scan(clean, '1' * 40, repo=bare)
+    assert result.returncode != 0 and 'base' in result.stdout and 'is not a commit' in result.stdout, result.stdout
+    run('git', 'reset', '--hard', baseline, cwd=root)
+print('PASS: bare repository (merge gate, sync) and --root scans: private paths and credentials added inside the range are blocked, preconditions fail with a message')
 print('PASS: gitleaks gate blocks fake AWS/GitHub credentials (outgoing, hook, full), allows synthetic test keys only in tests, full mode sees old history, trusts only the base/checkout configuration (dropped, neutered, wide-open outgoing configurations still blocked; broken base refused), ignores .gitleaksignore and gitleaks:allow, runs from a scripts/ci-only trusted installation, fails closed without tool/pinned version/sentinel')
 print('PASS: missing list fails closed, clean/no-ahead, historical identifiers and credentials, feature hook, variable references, tracked private paths')
