@@ -1610,6 +1610,11 @@
       "version": "0322",
       "name": "0322_nx056_approval_gate.sql",
       "sha256": "cefa78f76eb5a9ae4b24c0116d2672f72b435ba08b5cb19548d2decc1f659026"
+    },
+    {
+      "version": "0323",
+      "name": "0323_nx056_approval_expiry.sql",
+      "sha256": "64e9848c508f6257664e318c71613759371af2e739ac6237119293532a53eae8"
     }
   ]
 }

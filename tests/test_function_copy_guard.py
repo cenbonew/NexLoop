@@ -348,6 +348,9 @@ REGISTRY = [
     Allowed('nx056_approval_gate', 'authz.nexloop_goal_governed_action', 'the Approval gate before the handler, the approved call in a savepoint',
             ((r"\n v_gate jsonb;v_consumed text;  -- NX-056 A2", ''),
              (r"v_gate:=control\.nexloop_approval_gate\(.*?\n end if;\n v_id:=", "execute format('select %s($1,$2,$3,$4,$5,$6)',cap.handler::oid::regproc) into v_result using v_tenant,p_world,v_principal,v_subject,stored.intent_id,body;\n v_id:="))),
+    # NX-056 A3: the retention keeper's port also ends waiting approvals past due_by; nothing else.
+    Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
+            ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

@@ -62,6 +62,7 @@ class RetentionPort(_SignedPort):
 
     def due(self):return self._signed({'verb':'due'})
     def sweep(self,item_class,sweep_ref):return self._signed({'verb':'sweep','item_class':str(item_class),'sweep_ref':str(sweep_ref)})
+    def approvals_expire(self):return self._signed({'verb':'approvals_expire'})  # NX-056 A3: ends waiting approvals past due_by, never executes
     def status(self):return self._signed({'verb':'status'})
 
 
@@ -109,7 +110,7 @@ class HostPurger:
 
 
 class RetentionKeeper:
-    """One tick: due expiry classes (bounded passes), confirmed erasures (bounded steps), then Run files and Artifacts.
+    """One tick: due expiry classes (bounded passes), waiting approvals past due_by (NX-056 A3), confirmed erasures (bounded steps), then Run files and Artifacts.
 
     ``host`` purges one Run directory (HostPurger; None: Run files stay queued); ``artifact_store`` is the service's
     LocalBlobStore (None: Artifacts stay queued). Nothing is reported as deleted that was not deleted."""
@@ -122,7 +123,7 @@ class RetentionKeeper:
     def run_once(self):
         due=self.port.due();ref='sweep:'+str(uuid.uuid4())
         summary={'classes':0,'passes':0,'processed':0,'incomplete':0,'erasure_steps':0,'runs_purged':0,'runs_failed':0,
-            'artifacts_deleted':0,'artifacts_failed':0}
+            'artifacts_deleted':0,'artifacts_failed':0,'approvals_expired':0}
         for item_class in due['due']:
             summary['classes']+=1
             for _ in range(due['max_passes']):
@@ -130,6 +131,7 @@ class RetentionKeeper:
                 if not result['more']:break
             else:
                 summary['incomplete']+=1  # the class stays due; the next tick continues
+        summary['approvals_expired']=self.port.approvals_expire()['expired']
         for request_id in self.erasure.requests():
             for _ in range(self.max_steps):
                 step=self.erasure.step(request_id)
