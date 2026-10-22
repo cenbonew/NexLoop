@@ -183,8 +183,9 @@ def test_dsn_configuration_and_example(tmp_path):
         assert run(D.main, ['--config', str(dsn_config(tmp_path, **over)), '--dry-run'])[0] == 2
     assert D.load_config((ROOT / 'deploy/examples/sim-dsn-files.example.json').read_text())['db_name'] == 'nexloop_stage'
     example = json.loads((ROOT / 'deploy/examples/sim-world-credentials.example.json').read_text())
-    assert set(example) == C.KEYS and example['uses'] == ['api', 'worker', 'agent']  # DATA_HOST issuing: no compose secret there
-    assert 'host=/var/run/postgresql' in example['configurator_database_url_file'] and 'host=/var/run/postgresql' in example['check_database_url_file']
+    # DATA_HOST issuing: no compose secret there; the issuing DSN is the bootstrap one (the run opens its own configurator window).
+    assert set(example) == C.KEYS | {'bootstrap_database_url_file'} and example['uses'] == ['api', 'worker', 'agent']
+    assert 'host=/var/run/postgresql' in example['bootstrap_database_url_file'] and 'host=/var/run/postgresql' in example['check_database_url_file']
     install = C.load_install((ROOT / 'deploy/examples/sim-world-credentials-install.example.json').read_text())
     assert install['token_dir'] == '/sim-tokens' and install['compose_secret_dir'] == '/sim-secrets'
 
@@ -394,3 +395,81 @@ def test_export_and_forget_read_only_the_fields_they_use(tmp_path, monkeypatch):
     assert code == 2 and 'check_database_url_file' in out['detail']  # --check needs its DSN (and the tenant)
     code, out = run(C.main, ['--config', str(conf)])
     assert code == 2 and 'configurator_database_url_file' in out['detail']  # issuing needs everything
+
+
+def window_config(d, tmp_path, world, **over):
+    """An issuing configuration with the bootstrap DSN instead of a configurator DSN (the issuing run opens its own window)."""
+    conf = json.loads(credentials_config(d, tmp_path, world, **over).read_text())
+    conf.pop('configurator_database_url_file')
+    conf['bootstrap_database_url_file'] = str(private(tmp_path / 'bootstrap-dsn', d['pg']))
+    return private(tmp_path / 'sim-credentials-window.json', conf)
+
+
+def configurator_can_log_in(admin):
+    return admin.execute("select rolcanlogin from pg_roles where rolname='nexloop_configurator'").fetchone()[0]
+
+
+def test_issuing_opens_its_own_configurator_window_and_closes_it(deployment, admin, tmp_path, monkeypatch):  # noqa: F811
+    """Dispatcher 2026-10-23 (X7: stage has no standing configurator login): with bootstrap_database_url_file the issuing run opens a
+    configurator window itself (configurator_window, as stage_secrets.py register) and publishes through it; the window is closed again
+    (NOLOGIN) after a success and after an error inside it. A dry run opens no window (its plan is offline)."""
+    d = deployment
+    d['apply']()  # the tenant's real credentials (the self-check's positive control), through the fixture's own configurator login
+    admin.execute('alter role nexloop_configurator nologin')  # as on stage: no standing configurator login
+    world = world_of(admin)
+    conf = window_config(d, tmp_path, world, uses=['worker'])
+    check = lambda: psycopg.connect(d['pg'], autocommit=True, options='-c default_transaction_read_only=on')  # noqa: E731
+    code, dry = run(C.main, ['--config', str(conf), '--dry-run'])
+    assert code == 0 and dry['inventory'].startswith('not read') and configurator_can_log_in(admin) is False
+    # An error inside the window: the window is closed all the same (and nothing was written).
+    inside = []
+
+    def failing(config, tokens_by_use):
+        inside.append(configurator_can_log_in(admin))
+        raise RuntimeError('issuing failed inside the window')
+    monkeypatch.setattr(C, 'issue', failing)
+    code, out = run(C.main, ['--config', str(conf)], check_connect=check)
+    assert code == 1 and out == {'ok': False, 'error': 'RuntimeError'} and inside == [True] and configurator_can_log_in(admin) is False
+    assert admin.execute('select count(*) from authz.nexloop_service_credentials where worlds=%s', ([world],)).fetchone()[0] == 0
+    monkeypatch.undo()
+    # The real issue through the window: published, self-checked, the window closed.
+    code, out = run(C.main, ['--config', str(conf)], check_connect=check)
+    assert code == 0 and out['credentials_created'] == ['worker'] and out['check']['pass'] is True, out
+    assert configurator_can_log_in(admin) is False
+    assert admin.execute('select sim_use,worlds,status from authz.nexloop_service_credentials where worlds=%s', ([world],)).fetchall() == [('worker', [world], 'active')]
+    # A rerun through the window writes nothing.
+    code, again = run(C.main, ['--config', str(conf)], check_connect=check)
+    assert code == 0 and again['changed'] is False and configurator_can_log_in(admin) is False
+
+
+def test_the_issuing_dsn_is_exactly_one_of_the_two(deployment, admin, tmp_path):  # noqa: F811
+    d = deployment
+    world = world_of(admin)
+    both = json.loads(window_config(d, tmp_path, world).read_text())
+    both['configurator_database_url_file'] = str(d['paths']['dsn'])
+    neither = {k: v for k, v in both.items() if k not in C.ISSUING}
+    for conf, mode in ((both, []), (neither, []), (both, ['--dry-run']), (neither, ['--dry-run'])):
+        code, out = run(C.main, ['--config', str(private(tmp_path / 'c.json', conf)), *mode])
+        assert code == 2 and 'exactly one of' in out['detail'], (sorted(conf), mode)
+    # A TCP bootstrap DSN is refused before any window or file.
+    tcp = json.loads(window_config(d, tmp_path, world).read_text())
+    tcp['bootstrap_database_url_file'] = str(private(tmp_path / 'tcp-bootstrap', 'host=127.0.0.1 port=5432 dbname=x user=nexloop_bootstrap'))
+    code, out = run(C.main, ['--config', str(private(tmp_path / 'c.json', tcp))])
+    assert code == 2 and 'socket' in out['detail'] and not (tmp_path / 'tokens').exists()
+    # The other modes do not care which issuing DSN is there (or whether either is).
+    example = json.loads((ROOT / 'deploy/examples/sim-world-credentials.example.json').read_text())
+    assert sum(k in example for k in C.ISSUING) == 1
+
+
+def test_a_shadow_world_install_without_compose_secret_dir_leaves_the_running_group_alone(tmp_path):
+    """Dispatcher 2026-10-23: a shadow world's worker token installed beside the running simulation group (compose_secret_dir left out)
+    writes the token files only - the group's sim_world_credential stays untouched."""
+    world = 'shadow:' + str(uuid.uuid4())
+    secrets_dir = tmp_path / 'sim-secrets'
+    secrets_dir.mkdir(mode=0o700)
+    running = private(secrets_dir / 'sim_world_credential', 'R' * 64)
+    inst = private(tmp_path / 'install.json', {'schema': C.INSTALL_SCHEMA, 'world': world, 'uses': ['worker'], 'token_dir': str(tmp_path / 'tokens')})
+    code, out = run(C.main, ['--install', str(inst)], stdin=io.StringIO('worker ' + 'W' * 64 + '\n'))
+    assert code == 0 and out == {'ok': True, 'installed': ['worker'], 'compose_sim_world_credential': False}
+    assert Path(running).read_text() == 'R' * 64
+    assert (tmp_path / 'tokens' / world.split(':', 1)[1] / 'worker-credential').read_text() == 'W' * 64
