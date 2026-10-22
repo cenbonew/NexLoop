@@ -478,6 +478,30 @@ def compose_budget(budget, compose):
     return {'checks': {'compose_matches_budget': not problems}, 'details': {'compose_budget': sorted(problems)}}
 
 
+SIMULATION_PROJECT = 'nexloop-simulation'
+
+
+def simulation_compose_budget(budget, compose):
+    """ADR-037: the simulation Compose against the budget's simulation section, both ways (every entry opened by its declared
+    containers, every container labelled with an entry or none), and the simulation runtime worker's pools exactly as declared."""
+    section = budget.get('simulation') if type(budget.get('simulation')) is dict else {}
+    result = compose_budget({'services': section.get('services') or []}, compose)
+    problems = list(result['details']['compose_budget'])
+    for entry in section.get('services') or []:
+        if type(entry) is not dict or 'guard_workers' not in entry:
+            continue
+        for name, spec in (compose.get('services') or {}).items():
+            if ((spec.get('labels') or {}).get(BUDGET_LABEL) or '').strip() != entry['name']:
+                continue
+            command = [str(c) for c in spec.get('command') or []] if type(spec.get('command')) is list else []
+            value = lambda flag: command[command.index(flag) + 1] if flag in command[:-1] else None  # noqa: E731
+            pool = str((spec.get('environment') or {}).get('NEX_EIOS_DB_POOL_MAX', '4'))
+            if (value('--guard-workers'), value('--dispatcher-pool-max') or '2', pool, value('--dispatch-loops') or '4') != (
+                    str(entry['guard_workers']), str(entry['dispatcher_pool_max']), str(entry['guard_pool_max']), str(entry['dispatch_loops'])):
+                problems.append('simulation_runtime_pools_differ:' + name)
+    return {'checks': {'simulation_compose_matches_budget': not problems}, 'details': {'simulation_compose_budget': sorted(problems)}}
+
+
 # Compose networks <-> firewall (G-APP-SUBNET, run sheet 4.2) -------------------------------------------------------------------
 # The APP_HOST nft rules (app-host.nft.template) match these Compose networks by source CIDR; each must have exactly that subnet,
 # declared (rendered Compose) and running (running_snapshot, docker network inspect). Names only in the details, never addresses.
@@ -612,6 +636,18 @@ def deploy_gate(spec):
         merge(guard_and_registration(load('connection_budget'), load('running') if spec.get('running') else None))
     if role == 'app' and spec.get('connection_budget') and spec.get('compose_json'):
         merge(compose_budget(load('connection_budget'), load('compose_json')))
+    # ADR-037: the simulation project (off by default) is checked whenever its rendered Compose is given; L6 review 2.1: when the
+    # inventory shows the project running (docker compose ls: nexloop-simulation) and no Compose of it was given, the gate fails.
+    if role == 'app' and spec.get('connection_budget'):
+        running_projects = set()
+        for key in ('inventory_before', 'inventory_after'):
+            if spec.get(key):
+                running_projects |= set((load(key).get('compose_projects') or {}))
+        if spec.get('simulation_compose_json'):
+            merge(simulation_compose_budget(load('connection_budget'), load('simulation_compose_json')))
+        elif SIMULATION_PROJECT in running_projects:
+            checks['simulation_compose_matches_budget'] = False
+            details['simulation_compose_budget'] = ['simulation_running_without_compose']
     if role == 'app':
         if spec.get('compose_json'):
             merge(delivery_provider_profile(load('compose_json'), spec.get('secret_uids')))

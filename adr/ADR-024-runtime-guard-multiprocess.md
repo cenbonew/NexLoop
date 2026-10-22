@@ -5,6 +5,7 @@
 关联：
 - docs/handoff/docs/11_DEPLOYMENT.md §6（连接预算：应用连接池总和不超过 60）、§7（Agent Host 全局并发 4）；
 - deploy/examples/postgresql.conf.template（`max_connections = 80`，其中 20 预留给运维和故障核对）；
+- **ADR-037（2026-10-22）修订**：这 20 个重新分配为模拟进程组 10、运维 7、superuser 3（服务端的 `superuser_reserved_connections`，由 doctor 读取）；
 - NX-049：
   - 设计稿 `docs/implementation/NX-049-multiprocess-guard.md`；
   - 原型 `docs/implementation/NX-049-mp-proto.md`（设计稿与原型随 integration-s4b `5a416ef` 合入，本分支的 BASE main `a9f4afb` 中还没有这两份文件）；
