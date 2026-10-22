@@ -120,6 +120,10 @@ class SchemaPublicationPort(ReviewQueueReader):
     def basis(self, proposal_id: str) -> dict | None:
         return self._call('nexloop_read_schema_publication_basis', {'proposal_id': proposal_id})
 
+    def dependents(self, proposal_id: str) -> dict | None:
+        """A1: the published Definitions that mention the proposal's type (0322), for nexloop_eios.schema_impact."""
+        return self._call('nexloop_read_schema_dependents', {'proposal_id': proposal_id})
+
     def _publish(self, proposal_id, kind, rationale, idempotency_key, property_name=None, batch=False):
         if type(rationale) is not str or not 1 <= len(rationale.strip()) <= 2000:
             raise ValueError('rationale')

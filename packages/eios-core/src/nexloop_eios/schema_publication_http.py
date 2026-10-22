@@ -9,7 +9,8 @@ permit_mismatch otherwise), the F1 verdict, the successor Actions and the permis
 
     GET  /api/v1/workbench/schema-proposals/{proposal_id}/basis      the publication basis (proposal, Parent version, Actions, counts)
     GET  /api/v1/workbench/schema-proposals/{proposal_id}/check      what a publication would be judged: the F1 report and the next version
-                                                                     (built by the port's own build(); nothing written)
+                                                                     (built by the port's own build(); nothing written), and the
+                                                                     published Definitions it may affect (A1, schema_impact)
     POST /api/v1/workbench/schema-proposals/{proposal_id}/publish    {rationale, batch?} + Idempotency-Key, CSRF
     POST /api/v1/workbench/schema-proposals/{proposal_id}/hide       {rationale} (the rollback: the next version, the property hidden)
     POST /api/v1/workbench/schema-publications/{publication_id}/migrate-batch   the next 10 000 objects of a batched publication
@@ -58,6 +59,7 @@ class SchemaPublicationPorts:
         return self._run(lambda p: p.basis(proposal_id))
 
     def check(self, proposal_id):
+        from nexloop_eios.schema_impact import impact
         from nexloop_eios.schema_publication import build
 
         def work(p):
@@ -67,7 +69,7 @@ class SchemaPublicationPorts:
             publication, report = build(basis, 'publish')
             return {'proposal_id': proposal_id, 'operation': basis.get('operation'), 'type_name': basis.get('type_name'),
                     'parent_version': (basis.get('schema') or {}).get('version'), 'next_version': publication['schema'].get('version'),
-                    'successor_actions': len(publication['actions']), 'compatibility': report}
+                    'successor_actions': len(publication['actions']), 'compatibility': report, 'impact': impact(p.dependents(proposal_id))}
         return self._run(work)
 
     def publish(self, proposal_id, *, rationale, idempotency_key, batch=False):

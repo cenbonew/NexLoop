@@ -362,6 +362,62 @@ def flush_guard(pool, service='runtime-guard'):
     record_pool_sample(pool, service)
 
 
+# EIOS gap E4 (NX-061): API requests per class (read = GET/HEAD, write = any other method), per process and minute: calls, errors
+# (5xx), slow (>= 500 ms, the PRD 8 read target), p50/p95/max and the guard histogram (kind 'api', 0323). Per-route detail is the
+# vendored eios.api.metrics registry of the same process (optional loopback export).
+API_SLOW_MS = 500
+API_CLASSES = ('read', 'write')
+
+
+class ApiTimings:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._started = time.time()
+        self._values = {c: [] for c in API_CLASSES}
+        self._errors = dict.fromkeys(API_CLASSES, 0)
+        self._slow = dict.fromkeys(API_CLASSES, 0)
+
+    @staticmethod
+    def request_class(method):
+        return 'read' if method in ('GET', 'HEAD') else 'write'
+
+    def observe(self, method, status, elapsed_ms):
+        c = self.request_class(method)
+        with self._lock:
+            self._values[c].append(float(elapsed_ms))
+            self._errors[c] += 1 if status >= 500 else 0
+            self._slow[c] += 1 if elapsed_ms >= API_SLOW_MS else 0
+
+    def drain(self):
+        """({class: sample} for the classes with calls, window start); the counters restart."""
+        with self._lock:
+            values, errors, slow, started = self._values, self._errors, self._slow, self._started
+            self._values, self._errors, self._slow = {c: [] for c in API_CLASSES}, dict.fromkeys(API_CLASSES, 0), dict.fromkeys(API_CLASSES, 0)
+            self._started = time.time()
+        out = {}
+        for c in API_CLASSES:
+            if values[c]:
+                sample = _latency_sample(sorted(values[c]), errors[c])
+                sample.pop('timeouts')  # the guard deadline means nothing here; slow is the API's own threshold
+                sample['slow'] = slow[c]
+                out[c] = sample
+        return out, started
+
+
+API = ApiTimings()
+
+
+def flush_api(pool, timings=None):
+    samples, started = (API if timings is None else timings).drain()
+    window = dict(window_start=datetime.fromtimestamp(started, UTC), window_seconds=max(1, min(3600, round(time.time() - started))))
+    for request_class, value in samples.items():
+        try:
+            record_sample(pool, 'api', request_class, value, **window)
+        except Exception:
+            pass
+    record_pool_sample(pool, 'api')
+
+
 class HostCounters:
     """Agent Host counters → one window's sample: gauges as read, cumulative counters as the increase since the last
     read (a Host restart resets them: the current value is the increase)."""
@@ -395,7 +451,7 @@ def flush_host(pool, config, counters, service='agent-host'):
 
 # ---- optional loopback text export (D1, off by default; read-only role D4) -------------------------------------------------
 # Snapshot levels whose keys are data (codes, states, reasons, queues, feeds, services, budget kinds): rendered as a label.
-MAPS = frozenset({'last_5m', 'last_hour', 'by_state', 'escalations_last_hour', 'exceptions', 'exceptions_last_hour', 'queues', 'feeds', 'by_service', 'budgets'})
+MAPS = frozenset({'last_5m', 'last_hour', 'by_state', 'escalations_last_hour', 'exceptions', 'exceptions_last_hour', 'queues', 'feeds', 'by_service', 'budgets', 'classes'})
 
 
 def _flatten(prefix, value, labels, out, *, keyed=False):
@@ -421,7 +477,7 @@ def render_prometheus(export):
     for snapshot in export:
         labels = {'tenant': snapshot['tenant_id'], 'world': snapshot['world']}
         rows = []
-        for section in ('refusals', 'effects', 'replies', 'commitments', 'queues', 'feeds', 'extraction', 'guard', 'host', 'pool', 'connections', 'cost', 'evaluator'):
+        for section in ('refusals', 'effects', 'replies', 'commitments', 'queues', 'feeds', 'extraction', 'guard', 'host', 'pool', 'connections', 'cost', 'evaluator', 'api', 'outcomes'):
             _flatten('nexloop_' + section, snapshot.get(section), labels, rows)
         for name, row_labels, number in rows:
             if name not in typed:

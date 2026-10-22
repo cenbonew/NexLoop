@@ -209,6 +209,29 @@ def relay_steps(samples, start, end):
     return out
 
 
+API_READ_TARGET_MS = 500  # PRD 8: an ordinary detail read answers within 0.5 s (p95); an observation here, not a gate (§7)
+
+
+def api_requests(samples, start, end):
+    """EIOS gap E4 (kind api, 0323): per request class (read, write) in [start, end): requests, server errors, slow (>= 500 ms) and
+    p50/p95 merged from the API processes' histograms (the guard_p95_ms caliber). The read p95 is compared with the PRD 8 target
+    as an observation. Absent in older results: {}."""
+    out = {}
+    for name in ('read', 'write'):
+        rows = [r for r in samples if r.get('kind') == 'api' and r.get('service') == name and start <= _time(r.get('window_start')) < end]
+        if not rows:
+            continue
+        total = lambda key: sum(_number((r.get('sample') or {}).get(key, 0), f'api.{key}') for r in rows)  # noqa: E731
+        counts, comparable = merged_histogram(samples, 'api', start, end, service=name)
+        entry = {'count': total('calls'), 'errors': total('errors'), 'slow': total('slow'),
+                 'p50_ms': histogram_quantile(counts, 0.5) if comparable else None, 'p95_ms': histogram_quantile(counts, 0.95) if comparable else None}
+        if name == 'read':
+            entry['target'] = {'limit_ms': API_READ_TARGET_MS, 'result': 'missing' if entry['p95_ms'] is None else
+                               'within' if entry['p95_ms'] <= API_READ_TARGET_MS else 'over'}
+        out[name] = entry
+    return out
+
+
 def merged_histogram(rows, kind, start, end, service=None):
     """(counts, comparable): the h_<i> counts of every sample of `kind` in [start, end) summed across processes; comparable is
     False when a sample with latency figures carries no histogram (a result from before 5A)."""
@@ -349,6 +372,7 @@ def cell_metrics(directory, expected_refusals):
         out['pool'] = pool_summary(samples, start, end)
         out['guard_operations'] = guard_operations(samples, start, end)
         out['relay_steps'] = relay_steps(samples, start, end)
+        out['api_requests'] = api_requests(samples, start, end)
     acks = _lines(directory / 'acks.jsonl')
     if acks is not None:
         ok = [_number(a.get('ack_ms'), 'ack_ms') for a in acks if a.get('status') == 202]
