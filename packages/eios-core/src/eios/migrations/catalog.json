@@ -1575,6 +1575,11 @@
       "version": "0315",
       "name": "0315_erasing_indirect_read.sql",
       "sha256": "0988db285f14839135baa6abdfe41a3ac6e86ea2a8c4d5c2905d0e672b0e2a05"
+    },
+    {
+      "version": "0316",
+      "name": "0316_message_inbound_rule.sql",
+      "sha256": "f27d997423225c8c1e8cfd649d98e40ea07cb37967d14c3a354ab26fb20c3971"
     }
   ]
 }
