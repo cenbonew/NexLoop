@@ -1,12 +1,12 @@
 # 设计稿｜NX-058 工作台账号自助：邀请、找回、重置；随后企业单点登录
 
-状态：**第 5 版**（L6 第四轮无确认级；片 B 已实现，见 `docs/implementation/NX-058-slice-B.md`；片 A 等待 Q-D；X1、X2、Y1–Y6 写入本版，片 C 之前生效）（l2/account-self-service，基于 main 910f367f）。第 2 版处理了 L6 第一轮复核的 C1–C3、I1–I5、S1–S6；第 3 版处理第二轮的 R1–R6、T1–T4；第 4 版处理第三轮的 V1–V6、W1–W5；第 5 版处理第四轮的 X1、X2、Y1–Y6。逐条关闭说明见 §10。负责人 2026-10-22 Q4 选推荐 A：v0.2 先做邀请、找回与重置，第二阶段再做单点登录（OIDC）。
+状态：**第 6 版**（片 B 已实现，见 `docs/implementation/NX-058-slice-B.md`；片 A、片 C 等待扩大后的 Q-D 由负责人决定；第 6 版处理 L6 第五轮的 Z0–Z4 和 Y2 残留）（l2/account-self-service，基于 main 910f367f）。第 2 版处理了 L6 第一轮复核的 C1–C3、I1–I5、S1–S6；第 3 版处理第二轮的 R1–R6、T1–T4；第 4 版处理第三轮的 V1–V6、W1–W5；第 5 版处理第四轮的 X1、X2、Y1–Y6。逐条关闭说明见 §10。负责人 2026-10-22 Q4 选推荐 A：v0.2 先做邀请、找回与重置，第二阶段再做单点登录（OIDC）。
 
 ## 0. 现状（只读盘点）
 
 | 能力 | 现状 | 位置 |
 |---|---|---|
-| 开户 | 没有自助。账号来自 `initial_identity.py`（argon2）；成员与授权只能由 configurator 通过受信配置写入（`workbench_roles.py apply`，0116/0140，manifest 用 0050 签名） | `nexloop_eios/workbench_roles.py:199-256`，`0116_nx028_staff_identity.sql` |
+| 开户 | 没有自助。账号来自 `initial_identity.py`（argon2）；成员与授权只能由 configurator 通过受信配置写入（`workbench_roles.py apply`，0116/0140；0050 manifest 认的是 `nexloop_configurator` 的数据库登录、正文 sha256 和 `expected_revision`，并不验证 manifest 签名，Z3） | `nexloop_eios/workbench_roles.py:199-256`，`0116_nx028_staff_identity.sql` |
 | 口令 | argon2id，只在 Python 中校验；SQL 拒收不以 `$argon2id$` 开头的哈希（0198:28）；历史保留 10 个。“至少 12 位”和“不与历史重复”在 Python：`identity_password_reset.py:17,32,70` | 0021、0024、0198 |
 | 重置 | 只有运维通道：`control.nexloop_operator_reset_browser_password`（0198），由 `nexloop_identity` 执行，CLI 为 `identity_password_reset.py`。重置会让 `session_epoch+1` 使所有会话失效、清除锁定，并记一条 login event | 0198 |
 | 状态值 | 成员 `invited\|active\|suspended\|revoked`，账号 `invited\|active\|disabled`：表里已有 invited，但没有任何代码路径签发邀请 | 0021 |
@@ -35,14 +35,12 @@
   - 口令规则：抽取 `identity_password_reset.py` 的 Python 校验（至少 12 位、不与历史重复）为共用函数（I5），口令只在 Python 中做 argon2id 哈希。
   - **在同一个事务里重查签发人**（I4）：签发人当前仍是该租户的 active owner；否则令牌作废，返回统一的失败响应。
   - **写入目标**（S2、R2）：新增 `control.nexloop_accept_workbench_invitation`，由 nexloop_owner 持有、security definer、只授权给 `nexloop_identity`，以邀请记录为唯一依据，登记到 copy guard。它在**同一个事务**里依次完成以下各步：
-    1. 取 advisory lock（Y1）：与 NX-056 现行文本相同，是**租户级**的同一把锁，也就是 NX-056 成员变更和审批消费共用的那把，所以不存在“新成员已提交、消费已计完人数”的窗口。加锁顺序固定为：先取这把 advisory lock，再 `select … for update` 成员、账号、邀请等行。NX-056 的消费事务也是先取锁、再锁审批行；处理函数在同一事务内再次取锁属于重入，不产生新的等待，所以不会与成员变更事务形成死锁。
+    1. 取 advisory lock（Y1）：与 NX-056 现行文本相同，是**租户级**的同一把锁，也就是 NX-056 成员变更和审批消费共用的那把，所以不存在“新成员已提交、消费已计完人数”的窗口。加锁顺序固定为：先取这把 advisory lock，再 `select … for update` 成员、账号、邀请等行。对 NX-056 的要求（N-1）：A7 实现时，消费事务也先取这把锁、再锁审批行；处理函数在同一事务内再次取锁属于重入，不产生新的等待，所以不会与成员变更事务形成死锁。片 B 已按这个锁键实现（`control.nexloop_workbench_member_lock`）。
     2. 重查邀请仍为 issued、未过期，签发人仍是 active owner；令牌改为 accepted。
     3. 账号转为 active（写入口令哈希），`nexloop_browser_memberships` 转为 active，`valid_from` 取接受时刻（`valid_from` 只用于登录，不用于投票冷却，见 V6）。
     4. **追加一版 `control.nexloop_workbench_configurations`**：内容是最新一版的 members 加上这名成员，角色取邀请时冻结的 role，roles 不变。0116/0140 的 `nexloop_configure_workbench` 本身不动，仍只接受 configurator 的 session。抽出一个内部函数 `control.nexloop_workbench_configuration_append(tenant, roles, members, source)`，**不授权给任何角色**，只由 owner 持有的函数调用；它做与 configure 相同的校验（角色表、`nexloop_workbench_grant_guard`、成员不能是顾客），`source` 记为 `invitation:<id>`。configurator 的公开入口改为调用它，行为不变。这样 0140 的“只有 configurator 能写成员”变为“只有 configurator，或者以一条有效邀请为依据，能追加成员”，不向 API 或 identity 角色开放任意写入。
     5. 第 3、4 步命中 NX-056 挂在这两张表上的触发器，**在同一事务内**向资格人数时间线追加一行（新成员立即计入，见 R1）。
-    6. **角色授权事实**：今天授权只经由 0050 签名 manifest 写入（`publish_human_authority`，密钥在 configurator 手里），SQL 无法签名。v0.2 在两条路里选一条，需要 L6 和负责人决定（§9 Q-D）：
-       - (A，推荐) 新增“由配置派生授权”：这个函数按冻结 role 的 Action 集合，为新成员写入与 `compile_member` 结果相同的 GrantFacts，范围受 `nexloop_workbench_grant_guard` 约束。这是一条新的授权写入路径，需要一份短 ADR。
-       - (B) 授权仍由 configurator 发布：接受后，成员处于 active 但没有任何授权，工作台显示“等待运维发布授权”，由 configurator 的定时对账任务发布 0050 manifest。不需要新的授权路径，但多了运维依赖和一段等待。
+    6. **角色授权事实**：今天 Human 的授权事实只由 0050 的 `nexloop_configure_manifest` 写入，也就是只有持有 configurator 数据库登录的人能决定授权（Z3）。受治理入口怎样**增加和撤销**授权，取决于 §9 的 Q-D（第 6 版已扩大到撤销，Z0），本步依决定而定。片 A 中依赖它的部分在决定之前不实现。
     7. 记一条 login event `invitation_accepted`。
   - **与 configurator 全量 apply 的关系**（V2、X1）。选“apply 发现冲突就拒绝”，不做自动合并：
     - 配置的每个版本记录 `source`，取值为 `configurator`、`invitation:<id>` 或 `action:<intent_id>`。`workbench_roles.py apply` 写入新版本前，先读最新一版，并找出自上一次 configurator 版本以来，由 `invitation:*` 或 `action:*` 版本造成的成员或角色变化（加入、提升、降级、停用、撤销）。
@@ -50,7 +48,8 @@
     - 这样，用一份旧成员文件 apply 一次，不会悄悄撤销一次已经批准的 promote 或 demote，也不会悄悄移除经邀请加入的成员。
     - apply 不会悄悄去掉经邀请加入的成员。要移除，只能用 §1b 的受治理 Action，或者先修改成员文件再 apply（运维通道，单独审计）。
     - 不做自动合并的理由：成员文件仍是 configurator 路径的唯一事实来源，“文件里没有但库里有”这种分歧必须让人看到。
-    - 测试：接受邀请之后，用不含该成员的文件 apply 会被拒绝；`promote_owner` 和 `demote_owner` 执行之后，用旧角色的文件 apply 会被拒绝；两种情况下成员、角色和授权都不变。把文件改成一致后 apply 成功，版本内容不变。
+    - **configurator 点名撤销不受 X1 限制**（Z2）：`workbench_roles.py apply_revocations`（`--revoke-member`）明确点名的 principal 算一次显式移除。即使该成员是经邀请或受治理 Action 加入或变更的，这次 apply 对它也不触发 X1，并在审计中单独列出；对未点名的其他成员，X1 照常检查。
+    - 测试：接受邀请之后，用不含该成员的文件 apply 会被拒绝；`promote_owner` 和 `demote_owner` 执行之后，用旧角色的文件 apply 会被拒绝；两种情况下成员、角色和授权都不变。把文件改成一致后 apply 成功，版本内容不变。经邀请加入的成员被 `--revoke-member` 点名撤销时成功，其他经邀请加入的成员不受影响。
   - 接受时记录来源摘要；与签发者签发时会话的来源相同，就在审计里标记 `same_source_as_issuer`（C2；只作信号，不阻断）。
 - **资格人数与投票资格分开**（C2、R1）：
   - **资格人数**（决定单人模式是否生效）：成员一转为 active 就计入，时间线在接受的同一事务里追加一行，单人模式**立即**失效，并写审计和 `approval_solo_mode` 告警。这与 NX-056 “人数只会偏大才安全”的口径一致。
@@ -71,7 +70,7 @@
 | `promote_owner` | 把 operator 或 reviewer 提升为 owner | 需要，单人模式不适用 |
 | `demote_owner` | 把 owner 降为 operator 或 reviewer | 需要，单人模式不适用 |
 | `suspend` / `resume` / `revoke` | 停用、恢复、撤销 operator 或 reviewer | 不需要 |
-| `suspend_owner` / `resume_owner` / `revoke_owner` | 停用、恢复、撤销 owner | 需要，单人模式不适用 |
+| `suspend_owner` / `resume_owner` / `revoke_owner` | 停用、恢复、撤销 owner | 需要，单人模式不适用（`resume_owner` 也需要，Z1） |
 | `issue_reset` | 对 operator 或 reviewer 签发重置码 | 不需要 |
 | `issue_owner_reset` | 对 owner 签发重置码 | 需要，单人模式不适用 |
 | `revoke_invitation` | 撤销未用的邀请 | 不需要 |
@@ -85,6 +84,7 @@
   
   以上都补测试。
 - 写入同样经由 §1 的内部 append 函数追加配置版本（`source` 记为 `action:<intent_id>`），并按 §4 的失效条件让会话失效、撤销未用的邀请和重置码。
+- **降权要先撤授权**（Z0）：`nexloop_configure_workbench` 写入新版本后，会检查每一条现行的 Human 授权是否仍在持有人的新角色之内，超出就整体拒绝（0116:112-118），append 做同样的检查。所以 `demote_owner`、`change_role`、`suspend(_owner)`、`revoke(_owner)` 必须在**同一事务**里：先写入超出新角色的授权的撤销集（与 `revoke_member` 相同的空集授权），再追加配置版本。不能跳过这项检查，否则被降级或撤销的人会保留原有授权，因为执行路径 `assert_action_authority` 不会按当前配置角色重查。具体怎样写入授权事实，由 Q-D 决定。
 - 最后一位 active owner 不能被降级、停用或撤销，一律直接拒绝。
 - **与 configurator 的关系**：configurator（修改成员文件后 apply、`revoke_member`）仍然可以直接降级或撤销任何成员，包括 owner。这是运维通道，与 0198 一样不受审批约束，但每次使用都在审计中单独列出（§3、§7）。
 
@@ -183,10 +183,13 @@
 
 对齐 NX-056 设计第 5 版（l3/unified-approvals-impl 1502005e 上的文档，§15 单人模式与资格人数时间线，A7 的 `solo_mode` 属性）。
 
-- **需要审批的动作**：§1b 中所有 owner 专用的 Action：`invite_owner`、`promote_owner`、`demote_owner`、`suspend_owner`、`revoke_owner`、`issue_owner_reset`，以及第二阶段的 `link_owner_external`。
+- **需要审批的动作**：§1b 中所有 owner 专用的 Action：`invite_owner`、`promote_owner`、`demote_owner`、`suspend_owner`、`resume_owner`、`revoke_owner`、`issue_owner_reset`，以及第二阶段的 `link_owner_external`（Z1 补上 `resume_owner`）。
   - 这些策略都**不带条件**：Action 本身就是 owner 专用的。目标角色由服务端在执行时重查，不依赖请求体（V1）。
   - quorum 都是 1，批准角色是 owner，由另一位 owner 批准；都标为 `solo_mode: not_applicable`，开启单人模式也不能自批。
-  - **目标本人不计入批准人**（Y4）：有三位及以上 owner 时，`issue_owner_reset`、`demote_owner`、`suspend_owner`、`resume_owner`、`revoke_owner` 的目标本人不能批准针对自己的请求。处理函数在消费时重查这一点，这与“请求人不能自批”同样按 subject 判断。
+  - **目标本人不计入批准人**（Y4、Z1）：`issue_owner_reset`、`demote_owner`、`suspend_owner`、`resume_owner`、`revoke_owner` 的目标本人不能批准针对自己的请求，不论有几位 owner。
+    - 这条规则放进 **NX-056 的计票**，与“请求人不能自批”放在一起：决定时拒收目标本人的票；消费时这一票不计入，有效票不够就退回 waiting。不放在处理函数里，因为处理函数在“已消费”之后才调用，目标本人抢先投一票，就能每次把针对自己的请求作废。
+    - 这需要 NX-056 的策略或 Action 声明如何解析目标 subject（N-1）。
+    - 只有两位 owner 时，唯一能批准的人就是目标本人，审批无法完成，统一按 W3 走运维通道。
   - 理由：新增、接管、移除一位 owner，改变的正是单人模式成立的前提，或者其他 owner 的否决能力，不应由单人模式自己批准（C1、R6）。
   - 只有一位 owner 的租户做这些事，一直只能走运维通道：0198 加 configurator 的成员 apply，并在审计中单独列出。NX-056 落地前后口径一致。
   - 最后一位 owner 不能被降级、停用或撤销。
@@ -194,11 +197,13 @@
   - 成员一转为 active，并在配置中持有某策略的批准角色，就计入该策略的资格人数，单人模式立即失效。人数仍取 NX-056 的时间线。
   - **投票资格**的唯一数据来源是本任务新建的 `control.nexloop_workbench_role_history`，**长期保留**：
     - 只追加，任何角色都不能改；
-    - 由 append 函数和 configurator 的入口写入，每行是 (tenant, subject, role, 进入或离开, 时间)。
+    - 由 append 函数和 configurator 的入口写入，每行是 (tenant, world, subject, role, 事件, 时间)。world 对工作台成员固定为 `real`，与 NX-056 按 (tenant, world) 计数对齐（Z4）。
+    - 事件只有两种（Z4）：**开始持有**一个角色、**停止持有**一个角色。停用（suspended）记为停止持有，恢复（resume）记为开始持有；撤销、降级记为停止持有原角色，并开始持有新角色（如有）。
   - NX-056 的时间线只记人数和集合摘要，查不出“某个 subject 首次进入的时间”，所以不用它判断投票资格。
-  - 投票资格起点 = 该 subject 最近一次**进入**该策略某个批准角色的时间，加 24 小时：
+  - 投票资格起点（Z4，统一口径）= 该 subject **当前这段连续持有该策略批准角色并集的起点**，加 24 小时：
+    - 在并集内换角色不中断，例如批准角色是 {owner, operator} 时，从 operator 升为 owner 不重新计时；
     - 跨策略版本计算：策略换版本，不重新计时；
-    - 离开所有批准角色后再进入，重新计时。
+    - 停止持有并集中的全部角色（包括被停用），之后再开始持有，就重新计时；所以停用很久的人恢复后，也要再等 24 小时。
     
     刚被提升为 owner 的老成员，对 owner 策略也要等 24 小时。
 - **新成员加入后 24 小时内**（W2、Y3）：这一条只针对“只有一位 owner、正在使用单人模式，又加入了第一位新成员”的场景。此时单人模式已经失效，而新成员还不能投票，所以 24 小时内所有需要审批的动作都**无法批准**，只能等待或走运维通道。这是安全方向。已有其他满 24 小时的批准人时，不受影响。这个场景下，工作台常驻提示“单人模式已失效，新成员将于某时起可以审批”，运行手册写明这一点。
@@ -225,12 +230,12 @@
 |---|---|---|
 | A | 邀请：表、HMAC 令牌、Action（invite / revoke_invitation）、接受端点、`nexloop_accept_workbench_invitation`（受控授权写入）、签发人重查、限速、审计关联、测试 | 3 天 |
 | B | 负责人签发重置码、只带码的完成端点、单码失败作废、不进入登录锁定、与 0198 共用 SQL 效果和 Python 口令校验、成员知情提示、运行手册 | 2.5 天 |
-| C | §1b 的成员管理 Action：`change_role`、`promote_owner`、`demote_owner`、`suspend(_owner)`、`revoke(_owner)`、`invite_owner`、`issue_owner_reset`；执行时重查目标角色；最后一位 owner 保护；角色历史表；失效条件全集（I4）；角色变更或撤销时让会话失效（先写测试固定现状，S4）；owner 专用 Action 的内建双人确认和 24 小时投票冷却（过渡规则）；apply 冲突拒绝（V2） | 3 天 |
+| C | §1b 的成员管理 Action：`change_role`、`promote_owner`、`demote_owner`、`suspend(_owner)`、`resume(_owner)`、`revoke(_owner)`、`invite_owner`、`issue_owner_reset`；降权时同事务先写撤销集（Z0，写法依 Q-D）；`--revoke-member` 例外（Z2）；执行时重查目标角色；最后一位 owner 保护；角色历史表；失效条件全集（I4）；角色变更或撤销时让会话失效（先写测试固定现状，S4）；owner 专用 Action 的内建双人确认和 24 小时投票冷却（过渡规则）；apply 冲突拒绝（V2） | 4 天 |
 | D | 工作台前端：成员页的邀请和重置入口、最近重置记录、接受邀请页（清 fragment、no-referrer）、重置页、登录后的重置提示 | 2 天 |
 | E | （待 Q-A）员工离职擦除 | 1 天 |
 | F | 第二阶段 OIDC：vendored 上游、关联 Action（owner 目标需审批）、回调、配置、测试 | 4–5 天 |
 
-v0.2（A–D）约 11 天：第 2 版的 C2、C3、I4 带来 +2 天，第 3 版的 R1、R2 带来 +0.5 天（T4），第 4 版的 V1、V2、V4 给片 C 带来 +1.5 天，主要是拆分后的成员管理 Action 和 apply 冲突拒绝；如果 Q-D 选 (A)，片 A 再加 0.5 天写 ADR。E 视负责人决定而定，F 另行排期。A 与 B 可以并行，C 依赖 A 的授权写入入口，D 依赖 A 和 B 的端点。NX-056 落地后，把 C 的内建规则迁移为策略，约 0.5 天，计入 NX-056 的接入。
+v0.2（A–D）约 11 天：第 2 版的 C2、C3、I4 带来 +2 天，第 3 版的 R1、R2 带来 +0.5 天（T4），第 4 版的 V1、V2、V4 给片 C 带来 +1.5 天，主要是拆分后的成员管理 Action 和 apply 冲突拒绝；第 6 版的 Z0、Z2、`resume` 给片 C 再加 1 天，合计约 12 天。Q-D 选 (C) 时，0050 新增角色模板一类内容、修订 ADR-020 §3、黄金测试，约 +1.5 天；选 (A) 约 +1 天。E 视负责人决定而定，F 另行排期。A 与 B 可以并行，C 依赖 A 的授权写入入口，D 依赖 A 和 B 的端点。NX-056 落地后，把 C 的内建规则迁移为策略，约 0.5 天，计入 NX-056 的接入。
 
 ## 9. 待负责人或 L6 确认
 
@@ -240,15 +245,20 @@ v0.2（A–D）约 11 天：第 2 版的 C2、C3、I4 带来 +2 天，第 3 版�
 - **N-1（对 NX-056 的需求，需转给 L3）**：
   - 策略模型支持 `solo_mode: not_applicable`；
   - 资格人数：成员一转为 active 就计入，时间线只记人数；
-  - 投票资格：判断时调用本任务提供的只读函数 `control.nexloop_workbench_vote_eligible_from(tenant, subject, roles)`，它取角色历史表中最近一次进入批准角色的时间加 24 小时。只作用于能否投票，不作用于人数；不使用 `valid_from`，也不使用 NX-056 时间线（R1、V6、X2）；
+  - 投票资格：调用本任务提供的只读函数 `control.nexloop_workbench_vote_eligible_from(tenant, world, subject, roles)`，它取角色历史表中“当前这段连续持有批准角色并集的起点”加 24 小时。**决定时和消费时都调用**。只作用于能否投票，不作用于人数；不使用 `valid_from`，也不使用 NX-056 时间线（R1、V6、X2、Z4）；
+  - 目标本人不计入批准人：策略或 Action 声明目标 subject 的解析方式，决定时拒收，消费时不计入（Z1）；
   - 工作台配置的追加入口 `nexloop_workbench_configuration_append` 也要触发时间线；
   - 成员变更与消费使用同一把 advisory lock，按 NX-056 现行文本为租户级；加锁顺序为先取 advisory lock、再锁行（R2、Y1）；
   - 一个成员第一次投批准票时告警一次（V5）。
-- **Q-D**：接受邀请时的角色授权，走 (A) 由配置派生授权（推荐，需要短 ADR），还是走 (B) 由 configurator 定时发布（§1 第 6 步）。
-  - 选 (B) 时的计数口径（W4）：成员 active 且在配置中持有角色，但还没有授权事实。NX-056 按配置中的角色计数，所以此时已经计入人数（安全方向）；但他投票时会在派发重查授权时失败，所以在授权发布之前，他事实上不能投票。
-  - 选 (A) 时，ADR 必须写明信任关系的变化：“由配置派生的授权不经 0050 签名”。授权事实的来源从“持有签名密钥的 configurator”扩大为“经受治理入口生成、又经 append 函数校验的配置版本”。
+- **Q-D（第 6 版扩大，Z0；由负责人决定）**：受治理入口怎样写入 Human 授权事实，包括**增加**（接受邀请、promote、change_role）和**撤销**（降级、停用、撤销）。今天只有 0050 能写，而 0050 认的是 configurator 的数据库登录（Z3）。真正的变化是“由谁决定授权”，不是完整性：SQL 写入的事实与 configurator 写入的事实效力相同。三种方案（L6 第五轮风险意见，排序 C < A < B）：
+  - **(C) 角色模板实例化（L6 推荐，我也推荐）**：configurator 经 0050 发布每个角色的授权模板，由 `compile_member` 用占位 principal 生成，是 manifest 新增的一类内容。受治理入口的 SQL 只把模板里的 principal 和 subject 换成目标成员的，并按写明的规范形式重算依赖 principal 的摘要。增加用模板，撤销写空集，都只能在受治理事务内、以邀请或 intent 为依据进行。“角色授予什么”仍然只由 configurator 编写，并且可以重放；受治理入口只决定“授予谁”。另加黄金测试：每个角色的 SQL 实例化结果与 `compile_member` 的输出逐字节相同。需要修订 ADR-020 §3“不得直写授权表”。约 +1.5 天。
+  - **(A) SQL 按冻结角色直接编写事实**：撤销同样即时。但在 SQL 中复刻 `compile_member`（pydantic 输出格式、摘要、策略 AST 的 sha256、WITNESS）很脆弱：任何一处字节不同，下一次 configurator 发布就会改写事实并让 epoch 加一。同样需要修订 ADR-020 §3。约 +1 天。
+  - **(B) 只由 configurator 发布**：不改不变量。但降权 Action 做不出来：要么失败，要么跳过检查而留下旧授权（Z0）。用“定时对账”实现时，configurator 的凭据要常驻在一台机器上，这是 B 最大的新风险。只有两位 owner、开着单人模式又加入第一位新成员时，审批停摆的时间是“直到发布、再加 24 小时”（W4）。
+  - 不建议在 v0.2 做的折中：ADR-025 式的“执行时按当前配置派生，不写事实”最干净，但要改 `assert_action_authority` 这条公共路径。
+  - 选 (B) 时的计数口径（W4）：成员在配置中持有角色，就已计入资格人数（安全方向）；但在授权发布之前，他投票时会在派发重查授权时失败，事实上不能投票。
+  - 选 (A) 或 (C) 时，ADR 要按 Z3 的口径写：授权的决定权从“持有 configurator 登录的人”扩大为“受治理入口，加冻结角色（C 方案下还加 configurator 发布的模板），并以邀请或 intent 为依据”；审计不能借用 `configuration_publications`，要另记来源：invitation_id 或 intent_id、配置版本、事实摘要。
 
-## 10. L6 复核关闭说明（第 2、3、4 版）
+## 10. L6 复核关闭说明（第 2–6 版）
 
 | 编号 | 处理 |
 |---|---|
@@ -277,11 +287,11 @@ v0.2（A–D）约 11 天：第 2 版的 C2、C3、I4 带来 +2 天，第 3 版�
 | T3 | 引用已改为 l3/unified-approvals-impl 1502005e 上的文档（§0、§7） |
 | T4 | 工作量改为约 9.5 天，Q-D 选 (A) 再加 0.5 天（§8） |
 | V1 | 凡是依赖目标当前角色的动作，都拆成 owner 专用和非 owner 两个 Action（§1b）；执行时在同一把锁下重查目标角色，不一致就拒绝；策略不带条件，过渡规则也按同样的方式判断（§1b、§2、§7） |
-| V2 | apply 发现最新一版里有经邀请加入、且不在成员文件中的成员时拒绝（`members_added_by_invitation`），不做自动合并；补了测试要求（§1、§3） |
+| V2 | apply 发现最新一版里有经邀请加入、且不在成员文件中的成员时拒绝（第 5 版起改为 X1 的 `members_changed_by_governed_actions`，覆盖所有受治理的成员和角色变化），不做自动合并；补了测试要求（§1、§3） |
 | V3 | 提示改为完成重置后 7 天内每次登录都显示，不能提前关闭；“账号安全”页长期显示 90 天的重置记录，本人不能删除；写明提示只是告知手段（§2） |
 | V4 | 定义了成员管理 Action（§1b），纳入片 C（+1.5 天）；configurator 路径写明为运维通道，单独审计（§1b、§3、§7） |
 | V5 | 残余风险按真实场景改写：第二身份可以作为其他策略的第二批准人；补充缓解措施，写入 ADR（§7） |
-| V6 | 投票资格起点统一为“首次进入批准角色集合的时间线记录加 24 小时”，不用 `valid_from`；过渡期用只追加的角色历史表，定义相同（§1、§7、N-1） |
+| V6 | 已由 X2、Z4 取代：投票资格起点是 `control.nexloop_workbench_role_history` 中“当前这段连续持有批准角色并集的起点”加 24 小时，不用 `valid_from`，也不用 NX-056 时间线（§1、§7、N-1） |
 | W1 | 已由 Y1 取代：与 NX-056 现行文本一致，用租户级的同一把锁（§1） |
 | W2 | 写明新成员加入后 24 小时内所有审批都批不了，并提示（§7） |
 | W3 | 只有两位 owner 时，重置另一位 owner 走运维通道（§2） |
@@ -292,6 +302,12 @@ v0.2（A–D）约 11 天：第 2 版的 C2、C3、I4 带来 +2 天，第 3 版�
 | Y1 | 锁与 NX-056 现行文本一致，用租户级的同一把锁；写明加锁顺序：先 advisory lock，后行锁（§1） |
 | Y2 | §10 的 C2、R3、T2、T3、W1 行按正文更新，删去旧句 |
 | Y3 | “24 小时内都批不了”只针对单 owner 加第一位新成员的场景（§7） |
-| Y4 | 有三位及以上 owner 时，目标本人不计入批准人，消费时重查（§7） |
+| Y4 | 已由 Z1 取代：目标本人不计入批准人，放进 NX-056 的计票，不限 owner 人数（§7、N-1） |
 | Y5 | 执行时同时重查目标的成员状态：提升和重置要求 active；suspended 的 owner 仍按 owner 处理；revoked 的成员不能作为目标；补测试（§1b） |
 | Y6 | 运行手册写明部署后 24 小时内 owner 专用 Action 都批不了（§7） |
+| Z0 | Q-D 扩大为“受治理入口怎样增加和撤销授权”，交负责人决定；§1b 写明降权要在同一事务里先写撤销集，再追加配置版本，不能跳过检查；片 A 和片 C 中依赖它的部分等待决定（§1、§1b、§9） |
+| Z1 | 目标本人不计入批准人，移到 NX-056 计票（决定时拒收、消费时不计入），不限 owner 人数；只有两位 owner 时走运维通道；需审批列表补上 `resume_owner`；列入 N-1（§1b、§7、§9） |
+| Z2 | configurator `--revoke-member` 点名的 principal 算显式移除，不触发 X1，单独审计；补测试（§1） |
+| Z3 | 改正说法：0050 认的是 configurator 的数据库登录、正文 sha256 和 `expected_revision`，不验证 manifest 签名；真正变化的是由谁决定授权（§0、§1、§9） |
+| Z4 | 角色历史统一为“开始持有、停止持有”两种事件；停用算停止持有，恢复算开始持有；加 world 列；起点为“当前这段连续持有批准角色并集的起点”；资格函数在决定和消费两个时点都调用（§7、N-1） |
+| Y2 残留 | §10 标题、V2 行的旧错误码、V6 行“首次……时间线记录”的说法都已改为现行口径 |
