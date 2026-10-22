@@ -118,6 +118,8 @@ def test_the_registration_export_runs_only_in_the_pipeline_and_bad_input_is_refu
 def test_the_keys_are_registered_from_the_pipe_and_self_checked(setup, deployment, admin, monkeypatch):  # noqa: F811
     s, d = setup, deployment
     d['apply']()  # the tenant and its trusted configuration
+    # As on stage: no standing configurator login (the fixture's permanent one would be another window: never taken over).
+    admin.execute('alter role nexloop_configurator nologin password null')
     code, generated, _ = run(F.main, ['--config', str(s['conf'])])
     reg = generated['registration']
     monkeypatch.setenv('NEXLOOP_SIM_TRANSFER_PIPE', '1')

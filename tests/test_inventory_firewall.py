@@ -213,3 +213,13 @@ def test_d_bus_activated_units_are_on_demand_but_enabled_d_bus_services_are_not(
     monkeypatch.setattr(I, '_run', lambda *argv: outputs[argv[1]])
     assert I.on_demand_units() == ['fwupd.service', 'user@1000.service', 'uuidd.service']
     assert [u['Id'] for u in I.parse_show(SHOW)] == ['fwupd.service', 'NetworkManager.service', 'uuidd.service', 'ssh.service']
+
+
+def test_compose_labels_give_each_projects_running_services():
+    """L6 sim-connection-budget review 1.1: the services of each running Compose project (the deploy gate recognises the simulation
+    group by them); a container outside Compose is skipped, a project's services are listed once, sorted."""
+    text = ('nexloop-simulation\tsim-agent-host\nnexloop-simulation\tsim-runtime-worker\nsim-renamed\tsim-world-files\n'
+            '\t\nnexloop-app\tapi\nnexloop-app\tapi\n')
+    assert I.parse_compose_labels(text) == {'nexloop-app': ['api'], 'nexloop-simulation': ['sim-agent-host', 'sim-runtime-worker'],
+                                            'sim-renamed': ['sim-world-files']}
+    assert I.parse_compose_labels('') == {}

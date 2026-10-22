@@ -118,6 +118,10 @@ def load_config(text, mode='issue'):
     uses = value['uses']
     if type(uses) is not list or not uses or len(set(uses)) != len(uses) or any(u not in USES for u in uses):
         raise Refused('uses: a list of api, worker, agent, twin (each once)')
+    # X7 (NX-043 shadow decisions): a shadow world holds the simulation worker's credential only - its shadow decisions are recorded
+    # by that worker; no intake, Agent or twin credential is ever issued for it.
+    if value['world'].startswith('shadow:') and uses != ['worker']:
+        raise Refused('uses: a shadow world holds ["worker"] only (X7)')
     if 'credential_expires_at' not in need:
         return value
     try:

@@ -394,3 +394,14 @@ def test_export_and_forget_read_only_the_fields_they_use(tmp_path, monkeypatch):
     assert code == 2 and 'check_database_url_file' in out['detail']  # --check needs its DSN (and the tenant)
     code, out = run(C.main, ['--config', str(conf)])
     assert code == 2 and 'configurator_database_url_file' in out['detail']  # issuing needs everything
+
+
+@pytest.mark.parametrize('uses,ok', [(['worker'], True), (['api'], False), (['worker', 'agent'], False), (['agent', 'worker'], False), (['twin'], False)])
+def test_a_shadow_world_holds_the_worker_credential_only(tmp_path, uses, ok):
+    """X7: a shadow world's credentials are the simulation worker's only (uses == ["worker"]); a simulation world keeps its four uses."""
+    shadow = 'shadow:' + str(uuid.uuid4())
+    conf = private(tmp_path / 'c.json', {'schema': C.SCHEMA, 'world': shadow, 'uses': uses, 'token_dir': str(tmp_path / 'tokens')})
+    code, out = run(C.main, ['--config', str(conf), '--forget'])
+    assert (code == 0) is ok and (ok or 'shadow world holds' in out['detail']), (uses, out)
+    sim = private(tmp_path / 's.json', {'schema': C.SCHEMA, 'world': 'sim:' + str(uuid.uuid4()), 'uses': ['api', 'worker'], 'token_dir': str(tmp_path / 'tokens')})
+    assert run(C.main, ['--config', str(sim), '--forget'])[0] == 0

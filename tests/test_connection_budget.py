@@ -353,3 +353,25 @@ def test_the_deploy_gate_fails_when_the_simulation_project_runs_without_its_comp
     assert 'simulation_compose_matches_budget' not in run({'nexloop-app':{}})['checks']  # not running, not given: nothing to check
     compose=tmp_path/'sim.json';compose.write_text(json.dumps(yaml.safe_load((STAGE/'compose.simulation.example.yaml').read_text())))
     assert run({'nexloop-simulation':{}},simulation_compose_json=str(compose))['checks']['simulation_compose_matches_budget'] is True
+
+
+def test_the_simulation_group_is_recognised_by_its_services_under_another_project_name(tmp_path):
+    """L6 sim-connection-budget review 1.1: a simulation group started with another -p name runs the same services (compose labels): the
+    gate still fails without its Compose. A real project, whatever its name, runs none of them."""
+    from nexloop_eios.deploy_checks import deploy_gate, simulation_projects
+    budget_file=tmp_path/'budget.json';budget_file.write_text(json.dumps(DOCUMENT))
+    def run(projects,services,**extra):
+        after=tmp_path/'after.json';after.write_text(json.dumps({'phase':'after','compose_projects':projects,'compose_services':services}))
+        return deploy_gate({'host_role':'app','connection_budget':str(budget_file),'inventory_after':str(after),**extra})
+    renamed=run({'nexloop-app':{},'sim-renamed':{}},{'nexloop-app':['api','agent-host'],'sim-renamed':['sim-agent-host','sim-runtime-worker']})
+    assert renamed['checks']['simulation_compose_matches_budget'] is False and renamed['details']['simulation_projects_running']==['sim-renamed']
+    assert 'simulation_compose_matches_budget' not in run({'nexloop-app':{}},{'nexloop-app':['api','agent-host','runtime-worker']})['checks']
+    assert simulation_projects({'compose_projects':{'nexloop-simulation':{}},'compose_services':{}})=={'nexloop-simulation'}
+    assert simulation_projects({'compose_projects':{'x':{}},'compose_services':{'x':['sim-world-files']}})=={'x'}
+    assert simulation_projects({'compose_projects':{'x':{}}})==set()  # an inventory before 10-23 (no compose_services): by name only
+
+
+def test_the_simulation_services_are_those_of_the_simulation_compose():
+    from nexloop_eios.deploy_checks import SIMULATION_SERVICES
+    services=yaml.safe_load((STAGE/'compose.simulation.example.yaml').read_text())['services']
+    assert SIMULATION_SERVICES=={n for n,s in services.items() if s.get('profiles')==['simulation']}
