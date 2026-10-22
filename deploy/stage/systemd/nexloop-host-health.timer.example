@@ -1,0 +1,10 @@
+[Unit]
+Description=NexLoop host health probe (crash loops, scheduled-run freshness)
+
+[Timer]
+OnCalendar=*-*-* *:*:15
+AccuracySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

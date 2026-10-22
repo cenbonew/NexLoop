@@ -1,0 +1,19 @@
+{
+  "schema": "nexloop-host-health/1",
+  "host_role": "data_host",
+  "recorder_dsn_file": "<HOST_RECORDER_DSN_FILE_0600>",
+  "state_file": "/var/lib/nexloop-host-health/state.json",
+  "grace_seconds": 5,
+  "local_window_seconds": 900,
+  "local_min_restarts": 3,
+  "containers": [{"name": "postgres", "container": "<POSTGRES_CONTAINER_NAME>"}, {"name": "valkey", "container": "<VALKEY_CONTAINER_NAME>"}],
+  "services": [],
+  "timers": [
+    {"name": "pg-diff", "timer": "nexloop-pg-diff.timer", "service": "nexloop-pg-diff.service"},
+    {"name": "pg-full", "timer": "nexloop-pg-full.timer", "service": "nexloop-pg-full.service"},
+    {"name": "journal", "timer": "nexloop-journal.timer", "service": "nexloop-journal.service"},
+    {"name": "journal-restic-repo1", "timer": "nexloop-journal-restic@repo1.timer", "service": "nexloop-journal-restic@repo1.service"},
+    {"name": "journal-restic-repo2", "timer": "nexloop-journal-restic@repo2.timer", "service": "nexloop-journal-restic@repo2.service"},
+    {"name": "restic-maint", "timer": "nexloop-restic-maint.timer", "service": "nexloop-restic-maint.service"}
+  ]
+}
