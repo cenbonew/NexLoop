@@ -171,7 +171,8 @@ def create_app(config:ApiConfiguration):
         # NX-028 slice 1: workbench login realm (own cookie) and governed human reads.
         from nexloop_eios.browser_http import WORKBENCH_COOKIE, router as auth_router
         from nexloop_eios.workbench_http import router as workbench_router
-        app.include_router(auth_router(config.workbench, prefix='/api/v1/workbench/auth', cookie=WORKBENCH_COOKIE, store_attribute='workbench_store'))
+        app.include_router(auth_router(config.workbench, prefix='/api/v1/workbench/auth', cookie=WORKBENCH_COOKIE, store_attribute='workbench_store',
+                                    member_resets=True))
         def workbench_ports(request, inspected_session):
             backend = getattr(request.app.state, 'backend', None)
             if backend is None:
@@ -324,6 +325,7 @@ def parse(argv=None,environ=None):
     p.add_argument('--host-origin');p.add_argument('--host-control-key-file',type=Path);p.add_argument('--host-ca-file',type=Path)
     p.add_argument('--tls-certificate-file',type=Path);p.add_argument('--tls-key-file',type=Path)
     p.add_argument('--identity-database-url-file',type=Path);p.add_argument('--browser-rate-key-file',type=Path)
+    p.add_argument('--identity-token-key-file',type=Path,help='NX-058: private key of one-time workbench secrets (reset codes, invitations)')
     p.add_argument('--browser-tenant-id');p.add_argument('--browser-application-id');p.add_argument('--browser-origin')
     p.add_argument('--workbench-application-id')
     # L6 C11: the gateway peers (address or CIDR, repeatable) whose X-NexLoop-Client-IP the login rate limit trusts; none = the socket peer.
@@ -360,7 +362,7 @@ def parse(argv=None,environ=None):
         if browser is None or a.workbench_application_id==a.browser_application_id:p.error('workbench needs the browser realm and its own application')
         from nexloop_eios.browser_http import BrowserConfiguration
         workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin,
-            trusted_proxy_peers=tuple(a.trusted_proxy_peer))
+            trusted_proxy_peers=tuple(a.trusted_proxy_peer),identity_token_key_file=a.identity_token_key_file)
     host_control=None
     if any(v is not None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):
         if any(v is None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):p.error('complete Host control configuration required')

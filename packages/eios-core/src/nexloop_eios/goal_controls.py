@@ -104,7 +104,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-043 X3 (D7): the shadow copy switch (off by default).
     'set_shadow_copy':'shadow_copy.set',
     # NX-043 (X3 review 4.3, X6): the owner's read of the shadow and experiment reports.
-    'read_experiment_report':'experiment.report'}
+    'read_experiment_report':'experiment.report',
+    # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer (owners: issue_owner_reset, with approval).
+    'issue_workbench_reset':'workbench_member.issue_reset'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -555,6 +557,14 @@ class GoalGovernedActions:
         allowed={'shadow':{'world','strategy_id','strategy_version','since','until'},'experiment':{'experiment_id','as_of'},'pooled':{'experiment_ids','as_of'}}
         if kind not in allowed or set(fields)!=allowed[kind]:raise ValueError('report kind and its fields required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'read_experiment_report','kind':kind,**fields})
+
+    # NX-058 slice B: the code itself never comes here - only its HMAC (and the issuer's source digest), drawn by the workbench entry.
+    def issue_workbench_reset(self,*,action_name,action_version,request_id,target_principal,code_hmac,issuer_source):
+        if (type(target_principal) is not str or not 1<=len(target_principal)<=320 or not re.fullmatch(r'[0-9a-f]{64}',str(code_hmac))
+                or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source))):
+            raise ValueError('target principal, code HMAC and issuer source required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'issue_workbench_reset','target_principal':target_principal,
+                                                        'code_hmac':code_hmac,'issuer_source':issuer_source})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

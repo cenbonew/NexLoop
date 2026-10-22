@@ -56,6 +56,16 @@ def _matches(encoded, password):
         return False
 
 
+def password_problem(password, current_hash, history_hashes):
+    """The rules every password reset shares (0198 tool, NX-058 owner-issued codes): 12 to 1024 characters, not the current password
+    and none of the history. Returns a problem code, or None."""
+    if type(password) is not str or len(password) < MINIMUM_LENGTH or len(password) > 1024:
+        return 'password_length'
+    if (current_hash is not None and _matches(current_hash, password)) or any(_matches(h, password) for h in history_hashes):
+        return 'password_reuse'
+    return None
+
+
 def reset_password(*, identity_database_url_file, tenant, application_id, password_file, request_id, operator_label, username=None,
                    local_account_id=None):
     from argon2 import PasswordHasher

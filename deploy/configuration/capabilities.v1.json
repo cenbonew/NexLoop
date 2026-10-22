@@ -1944,6 +1944,29 @@
       },
       "schema_hash": "e158a28c011607954d33dd56593559b08e169b00d49b57c9ae196a2564aac68b",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "workbench_member.issue_reset",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "issue_workbench_reset",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "8d28c37f319e08cee2eec5225a2e4265eabd68a439362686e0ff3a80fe79ed42",
+      "side_effects_reason": null
     }
   ]
 }
