@@ -28,7 +28,7 @@
 | 11 | 分配：按消费者，会话聚类同组，对照组至少一半 | D2、AT-048 | online-probe：`online_allocated` | `test_nx043_allocation_pg`、`test_nx043_x4_wiring_pg` | **可验**：X4 接线（0304）后 real 入站首次分配，经 online 段验证 |
 | 12 | 成熟窗口；窗口没到的样本不计；unknown 不算成功；样本不足不出结论 | D6、§6、§9 建议 4 | report：`experiment_result_reports_nothing_below_the_minimum` | `test_nx043_reports_pg`、`test_nx043_pooled_pg` | stage 只能验“不出结论”；按成熟窗口出统计需要 online 的分配 |
 | 13 | 报告只含聚合数，冻结后不可修改，不能反推个人；只有 owner 能取 | §6、X3 4.x、报告 Action | report：`shadow_report_aggregates_only` | `test_nx043_report_action_pg` | stage 可验 |
-| 14 | real 没有任何变化 | AT-046、§8 | probe-after：`real_side_unchanged`（每张带 world 列的表的 world-real 行摘要，外加 real 服务凭据和授权事实） | 本地测试 | stage 可验 |
+| 14 | real 没有任何变化 | AT-046、§8 | probe-after：`real_side_unchanged`（每张带 world 列的表的 world-real 行摘要，外加 real 服务凭据和授权事实；口径见下文“real 摘要的排除口径”） | 本地测试 | stage 可验 |
 | 15 | 结论不写成因果 | §6 | report（报告的 statement 字段） | `test_nx043_reports_pg` | 本地覆盖 |
 | 17 | 胜出策略不自动推广；推广由负责人决定，作为新版本走正式发布链 | D8 | —（stage 上没有操作） | `test_no_path_from_a_report_or_the_guard_to_a_strategy_publication`：报告、报告 Action、护栏的函数体里，没有写策略版本或策略事件的语句，也没有调用任何发布 | 本地覆盖 |
 | 16 | online 阶段：登记、开始、入站首次分配、候选组外发审计带策略版本、停止 | §2、D2、D3、D4 | online：`online_experiment_registered`、`online_experiment_started`；online-probe：`online_allocated`、`online_strategy_audited`；online-stop：`online_experiment_stopped` | `test_nx043_online_open_pg`、`test_nx043_stage_pg` | **可验**（负责人 2026-10-21：测试阶段放开 online，D9 校准暂不作为前置） |
@@ -129,3 +129,17 @@
 ### 合成顾客发言工具（S3 / O2）
 
 `scripts/acceptance/synthetic_customer.py`，与 S6 共用，用法见 `docs/implementation/S6-stage-acceptance.md`“合成交互数据执行单”第 2 步。S3 与 O2 各用一份计划（不同的 `plan_id`），每轮 `wait_reply_seconds` 可设为 0：X7 只需要入站流量，回复与外联由 S4–S8 / O3–O5 观察。
+
+
+## real 摘要的排除口径（第三轮 S8 之后，release 38）
+
+第三轮 S8 的 `real_side_unchanged` 报告 `control.nexloop_alert_events`、`runtime.nexloop_action_claims`、`runtime.nexloop_retention_sweeps` 有变化。窗口是 S4（09:56Z）到 S8（11:56Z）。口径实现在 `scripts/acceptance/at046_stage.py` 的 `EXCLUDED` 和 `FILTERED` 中，AT-046 与 X7 共用；结果文档会列出被排除的表、被过滤的条件以及各自的理由。测试：`tests/test_at046_stage_pg.py::test_x7_bookkeeping_and_the_owners_own_governance_claims_leave_the_digest_and_nothing_else`。
+
+| 表 | 口径 | 理由 |
+|---|---|---|
+| `control.nexloop_alert_state`、`runtime.nexloop_orphan_sweeps` | 整表排除（AT-046 已有） | 告警评估器和孤儿清理器按时写入，与实验无关 |
+| `control.nexloop_alert_events` | 整表排除 | 告警评估器每个周期都会追加 firing/resolved 事件（NX-030），不论实验是否在运行 |
+| `runtime.nexloop_retention_sweeps` | 整表排除 | retention-keeper 每清理一个类别记一行（0129/0140），不论实验是否在运行 |
+| `runtime.nexloop_action_claims` | **不整表排除**，只去掉一类行：动作属于 `OWNER_GOVERNANCE_ACTIONS`（策略、实验、报告、影子复制开关、模拟世界、孪生），**并且**认领人是该租户的工作台成员 | 这些是验收步骤中负责人自己的治理动作（例如 S7 的报告读取、影子复制开关），不是模拟对 real 的影响。其余认领一律比较，包括服务或 Run 认领人、任何其他动作、非成员发起的同名动作；测试证明这几类变化仍会被报告 |
+
+归因方法：调度员在 DATA_HOST 上只读运行归因 SQL，见 L2 的交付说明，输出只有计数、动作名、时间桶和认领人类别。如果归因发现窗口中有不属于上表的行，例如服务认领人发起的 `nexloop.service.request`，则不能用排除来消化，必须当作 real 变化处理。

@@ -56,7 +56,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
-from at046_stage import Ports, real_digest  # noqa: E402
+from at046_stage import EXCLUDED, FILTERED, Ports, real_digest  # noqa: E402
 from s6_common import Blocked, Redactor, Refused, Result, connect_from, load_chain, read_private  # noqa: E402
 from s6_common import connect_read_only as s6_connect_read_only  # noqa: E402
 
@@ -285,7 +285,9 @@ def probe_after(ports, config, r, prior):
     changed = sorted(t for t in set(before.get('digests') or {}) | set(after) if (before.get('digests') or {}).get(t) != after.get(t))
     r.step('real_dispatch_switches_unchanged', 'the experiment opened no real dispatch switch (§9, D3)', {'unchanged': switches == before.get('switches')},
            bool(before) and switches == before.get('switches'))
-    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (AT-046 digests)', {'tables': len(after), 'changed': changed},
+    r.step('real_side_unchanged', 'every world-real row of the tenant unchanged (AT-046 digests; periodic bookkeeping and the owner\'s own governance '
+           'claims left out, by name and with the reason)', {'tables': len(after), 'changed': changed, 'excluded': sorted(EXCLUDED),
+                                                             'filtered': {t: f[2] for t, f in FILTERED.items()}},
            bool(before.get('digests')) and not changed)
 
 
