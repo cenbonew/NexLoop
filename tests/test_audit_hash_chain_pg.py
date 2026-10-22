@@ -219,3 +219,29 @@ def test_the_cli_verifies_and_reports_problems_by_code(chained, tmp_path, capsys
     as_tenant(c, TENANT_A, "update runtime.audit_events set actor_id='someone-else' where event_id=%s", (chained['events'][0],))
     assert tool.main(args) == 1
     assert json.loads(capsys.readouterr().out)['problems'][0]['code'] == 'record_altered'
+
+
+@pytest.mark.parametrize('context', ['no_tenant', 'other_tenant', 'same_tenant'])
+def test_an_audit_write_never_fails_because_of_its_chain(db, context):
+    """21st batch CI (test_retention_expiry_pg, commitment-service): the capture trigger wrote its queue row under the writer's
+    eios.tenant_id and RLS refused it when the session carried none or another tenant - the audit write itself failed. The queue row
+    (and a prune mark) is written under the audit row's own tenant; the writer's setting is left as it was; the chain stays whole."""
+    c = db['admin']
+    setting = {'no_tenant': '', 'other_tenant': TENANT_B, 'same_tenant': TENANT_A}[context]
+    events = []
+    with c.transaction():
+        c.execute("select set_config('eios.tenant_id',%s,true)", (setting,))
+        for source in ('a', 'b'):
+            event = f'ctx-{context}-{source}-' + uuid.uuid4().hex[:8]
+            c.execute("insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at) values(%s,'x',%s,'a','t','r','{}',now())",
+                      (event, TENANT_A))
+            events.append(event)
+        assert c.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == setting
+    with c.transaction():  # a governed retention batch running under no tenant removes one of them: marked pruned, not refused
+        c.execute("select runtime.nexloop_erasure_open('control.nexloop_control_events',null,true,'retention:ctx')")
+        c.execute("select set_config('eios.tenant_id',%s,true)", (setting,))
+        c.execute('delete from runtime.audit_events where event_id=%s', (events[0],))
+        assert c.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == setting
+    c.execute('select runtime.nexloop_audit_chain_append(100)')
+    result = verify(c)
+    assert result['valid'] and result['entries'] == 2 and result['pruned'] == 1, result

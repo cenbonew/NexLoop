@@ -62,26 +62,32 @@ create function runtime.nexloop_audit_chain_digest(p_row jsonb) returns text lan
 -- AFTER INSERT on a source table: TG_ARGV[0] the source, TG_ARGV[1] the key column. No lock, no head read.
 create function runtime.nexloop_audit_chain_capture() returns trigger language plpgsql security definer
  set search_path=pg_catalog,pg_temp set timezone='UTC' as $$
-declare r jsonb:=to_jsonb(new);
+declare r jsonb:=to_jsonb(new);prior text:=current_setting('eios.tenant_id',true);
 begin
+ -- The queue row is written under the audit row's own tenant, whatever the writer's session carries (a superuser, a batch over
+ -- several tenants, no tenant at all): the audit write never fails because of its chain. The caller's setting is restored.
+ perform set_config('eios.tenant_id',r->>'tenant_id',true);
  insert into runtime.nexloop_audit_chain_pending(tenant_id,source,event_key,record_digest)
   values(r->>'tenant_id',tg_argv[0],r->>tg_argv[1],runtime.nexloop_audit_chain_digest(r));
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return null;
 end $$;
 -- AFTER DELETE on a source table: only a governed retention or erasure transaction (control.nexloop_erasure_scope, 0129) removes an
 -- audit row; its chain entry (or pending row) keeps the digest and is marked pruned with that request.
 create function runtime.nexloop_audit_chain_prune() returns trigger language plpgsql security definer
  set search_path=pg_catalog,pg_temp as $$
-declare ref text;k text:=to_jsonb(old)->>tg_argv[1];
+declare ref text;k text:=to_jsonb(old)->>tg_argv[1];prior text:=current_setting('eios.tenant_id',true);
 begin
  select request_ref into ref from control.nexloop_erasure_scope where txid=txid_current() order by table_name limit 1;
  if not found then raise exception 'audit rows leave only through governed retention or erasure' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',to_jsonb(old)->>'tenant_id',true);  -- the entry is marked under the row's own tenant
  perform set_config('nexloop.audit_chain_prune','on',true);
  update runtime.nexloop_audit_chain set pruned_at=clock_timestamp(),pruned_ref=ref where source=tg_argv[0] and event_key=k and pruned_at is null;
  if not found then
   update runtime.nexloop_audit_chain_pending set pruned_at=clock_timestamp(),pruned_ref=ref where source=tg_argv[0] and event_key=k and pruned_at is null;
  end if;
  perform set_config('nexloop.audit_chain_prune','',true);
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return null;
 end $$;
 -- The chain tables are append only: the one UPDATE is marking an entry pruned (inside the prune trigger); a pending row leaves only
