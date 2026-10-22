@@ -1555,6 +1555,11 @@
       "version": "0311",
       "name": "0311_nx043_twin_withdrawn_online.sql",
       "sha256": "8c755ffe90dcb288cf14da863f86dca139a256f3388b8695e9644c0591391cb0"
+    },
+    {
+      "version": "0313",
+      "name": "0313_nx038_e3_wiring.sql",
+      "sha256": "8e83170c85d8774d05de1ceac23a36d17590794d542923ebee4b25be81bee123"
     }
   ]
 }

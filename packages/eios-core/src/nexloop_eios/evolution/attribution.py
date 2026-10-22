@@ -85,8 +85,12 @@ def freeze_digest(samples: list[dict], accesses: list[dict]) -> str:
     return _sha(blob)
 
 
+# Owner 2026-10-22 (failure basis A): a reply not completed is a failure - outcome reply_fallback (the message got the fallback reply Run).
+FAILED_OUTCOMES = frozenset({'error', 'reply_fallback'})
+
+
 def _failed(sample: dict) -> bool:
-    return bool(sample.get('failures')) or sample.get('outcome') == 'error' or (sample.get('model') or {}).get('failed', 0) > 0
+    return bool(sample.get('failures')) or sample.get('outcome') in FAILED_OUTCOMES or (sample.get('model') or {}).get('failed', 0) > 0
 
 
 def _sent(sample: dict) -> bool:
