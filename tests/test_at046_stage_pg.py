@@ -72,7 +72,7 @@ def test_the_run_phase_blocks_what_this_release_lacks_and_keeps_real_unchanged(a
 def REFUSED(world, consumer, effect, twin):
     """The two AT-046 refusal probes as the server answers them (tests/test_at046_negatives_pg.py runs them on PostgreSQL)."""
     return {'n1': {'real_session': {'refused': True, 'sqlstate': '42501', 'reason': 'service authentication denied'}},
-            'n2': {'refused': True, 'sqlstate': '42501', 'reason': 'activation command denied'}}
+            'n2': {'refused': True, 'sqlstate': '42501', 'reason': 'activation command denied', 'control': {'accepted': True, 'task_id': 'task-control'}}}
 
 
 class FakeProbe:

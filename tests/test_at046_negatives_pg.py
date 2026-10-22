@@ -43,9 +43,13 @@ def test_both_probes_are_refused_by_the_server_and_leave_nothing(sim_group, admi
     out = A.negatives_from(roles)(f['world'], f['consumer'], 'eios:action:' + A_effect() + ':1', twin)
     assert out['n1']['real_session'] == {'refused': True, 'sqlstate': '42501', 'reason': 'service authentication denied'}, out
     assert out['n1']['twin_bind_real']['refused'] is True and out['n1']['twin_bind_real']['sqlstate'] == '42501', out
+    control = out['n2'].pop('control')
     assert out['n2'] == {'refused': True, 'sqlstate': '42501', 'reason': 'activation command denied'}, out
+    # L6 review 3.1: the identical command with mode simulation is accepted - the mode is the one difference that refused N2.
+    assert control['accepted'] is True and control['task_id'].startswith('task_'), control
     after = (real_rows(), sim_jobs(), admin.execute("select count(*) from authz.nexloop_run_credentials where world='real'").fetchone()[0])
-    assert after == before  # no task queued (the forged command was not accepted), nothing real
+    assert after == (before[0], before[1] + 1, before[2])  # only the control's task, in the simulation world; nothing real
+    assert admin.execute('select world from runtime.jobs where job_id=%s', (control['task_id'],)).fetchone()[0] == f['world']
     # The client's own check is back in place after the probe (the bypass was scoped to that one call).
     from nexloop_eios import runtime_activation
     assert runtime_activation.world_kind(f['world']) == 'simulation'
@@ -75,14 +79,19 @@ def test_a_probe_let_through_fails_the_run_and_a_missing_one_never_passes(tmp_pa
 
     def allowed_n2(*a):
         out = REFUSED(*a)
-        out['n2'] = {'refused': False, 'sqlstate': None, 'reason': 'allowed'}
+        out['n2'] = {'refused': False, 'sqlstate': None, 'reason': 'allowed', 'control': {'accepted': True, 'task_id': 't'}}
+        return out
+
+    def control_refused(*a):  # refused for some other reason: the control is refused too, so the refusal proves nothing about mode
+        out = REFUSED(*a)
+        out['n2']['control'] = {'accepted': False, 'sqlstate': '42501', 'reason': 'activation command denied'}
         return out
 
     def allowed_n1(*a):
         out = REFUSED(*a)
         out['n1']['twin_bind_real'] = {'refused': False, 'sqlstate': None, 'reason': 'allowed'}
         return out
-    for fake, name in ((allowed_n2, 'forged_mode_refused'), (allowed_n1, 'real_action_refused')):
+    for fake, name in ((allowed_n2, 'forged_mode_refused'), (control_refused, 'forged_mode_refused'), (allowed_n1, 'real_action_refused')):
         code, doc = _intake(tmp_path, fake, world)
         assert code == 1 and doc['passed'] is False and steps(doc)[name]['passed'] is False, name
     # Without the probes (no sim_api role) the steps are blocked: the merge can then never be true.

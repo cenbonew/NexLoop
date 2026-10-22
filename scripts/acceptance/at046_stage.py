@@ -280,8 +280,9 @@ def negatives(ports, r, world, consumers):
     n1, n2 = out['n1'], out['n2']
     r.step('real_action_refused', 'the world\'s own credential asks for a real session (any real message Action starts there; twin: bind in real): '
            'refused by the server (42501)', n1, all(p['refused'] for p in n1.values()) and bool(n1))
-    r.step('forged_mode_refused', 'a Run command forging mode real in the simulation world, the client check bypassed: refused by the server (42501)',
-           n2, n2.get('refused') is True)
+    r.step('forged_mode_refused', 'a Run command forging mode real in the simulation world, the client check bypassed: refused by the server (42501); '
+           'the identical command with mode simulation accepted (the control: the mode is the one difference)',
+           n2, n2.get('refused') is True and n2.get('sqlstate') == '42501' and (n2.get('control') or {}).get('accepted') is True)
 
 
 def probe_after(ports, config, r, prior):
@@ -442,6 +443,17 @@ def negatives_from(roles):
             except Exception as error:  # noqa: BLE001
                 refused, state, reason = refusal(error)
                 n2 = {'refused': refused, 'sqlstate': state, 'reason': reason}
+            # Control (L6 review 3.1): the server's command check folds many conditions into one refusal, so the same command with only
+            # its mode set right must be accepted - the mode is then the one difference. The forged one went first and stored nothing,
+            # so this is the Run's first registration. The accepted control is an ordinary simulation Run of this world: the simulation
+            # worker runs it like the main one (deterministic profile, stand-ins only) and it ends by itself; its task id is recorded.
+            try:
+                accepted = source.accept_runtime_event(queue='operations', source_id='at046-forged', event_id='at046-control-' + run.run_id,
+                                                       run_token=run.token, command={**command, 'mode': 'simulation'}, input=pack)
+                n2['control'] = {'accepted': bool(accepted.get('accepted')), 'task_id': accepted.get('task_id')}
+            except Exception as error:  # noqa: BLE001
+                refused, state, reason = refusal(error)
+                n2['control'] = {'accepted': False, 'sqlstate': state, 'reason': reason}
         return {'n1': n1, 'n2': n2}
     return run
 

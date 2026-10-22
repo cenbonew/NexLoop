@@ -167,6 +167,13 @@ docker compose -p nexloop-simulation ps
 - **AT-046 的核心反例（N1、N2，stage 判定 2026-10-22）**：stage 第三次实跑只证明了正常路径下的隔离，没有执行 AT-046 的核心断言——“Twin 调用真实消息 Action，服务端拒绝，即使模型伪造 mode”。现在 intake 在同一个 run nonce 下多执行两步，两步都加入了 merge 的 `REQUIRED`：缺少任一步，结果就不能是 true；任一步被放行，就判失败。
   - **N1 `real_action_refused`**：用该 world 自己的 api 凭据向服务端请求 real world 的会话。任何 real 消息 Action（例如 `nexloop.service.request`、`nexloop.outreach.send`）都要先经过这一步；期望 42501（`service authentication denied`）。配置了孪生端口时，再以 `nexloop_twin_port` 角色调用端口的服务端入口，world 填 real（客户端在调用前就会拒绝 real，所以这里直接调用服务端入口）；期望 42501。
   - **N2 `forged_mode_refused`**：模拟 intake 在模拟 world 中提交一条 `mode:'real'` 的 Run 命令，并且只针对这一次调用跳过 Python 客户端自己的 mode 检查，模拟一个伪造 mode 的模型；期望服务端拒绝（42501，`activation command denied`）。
+    - **对照（L6 复核 3.1）**：服务端的命令检查把十几个条件合并成同一个拒绝（`activation command denied`），光看“被拒”无法证明原因是 mode。所以 N2 接着提交**完全相同**的命令，只把 mode 改成 `simulation`，这一条必须被接受，这样两条之间唯一的差别就是 mode；两条都满足，这一步才算通过。伪造的那条先提交，被拒时什么都不会写入，所以对照命令是这个 Run 的第一次登记。被接受的对照是该 world 的一个普通模拟 Run，模拟 worker 会像主 Run 一样执行它（确定性档位，只到替身），它会自行结束，结果里记录它的 task id。
+  - **0312 部署前的只读检查（L6 复核建议 2，调度员在部署时执行）**：0312 会拒绝 mode 与 world 类型不一致的命令。客户端从 cd81d0d1（10-20）起就强制这条规则，在那之前 test world 的命令可能用过 `simulation` 或 `shadow`。部署前执行下面的查询，结果必须是 0；如果不是 0，这些仍在排队的任务在 resolve 或 authorize 时会被拒绝：
+    ```sql
+    select count(*) from runtime.jobs
+     where status in ('pending','retry_wait','running')
+       and normalized_input->'run_command'->>'mode' is distinct from runtime.nexloop_world_kind(world);
+    ```
   - **0312 修复**：在本地复现时发现，**服务端原先并不检查 mode**。只有 Python 客户端要求 mode 等于 world 的类型；绕过客户端之后，服务端会接受并保存一条伪造 mode 的命令。0312 让服务端的命令检查（register、create、resolve、authorize 共用同一处）也要求 `mode` 等于 world 的类型。real 命令本来就是 mode real、world real，所以 real 路径不变。
   - **安全性（stage 上真实外发的三层开关是开着的）**：两步都不可能走到任何外发路径，即使被意外放行也一样。N1 只请求会话、只做绑定，不提交任何效应；N2 即使被接受，task 也留在模拟 world 中，那里的效应只会到替身。probe-after 中 real 侧摘要不变，证明“被拒绝”和“没有效应”同时成立。结果中只记录 SQLSTATE 和服务端固定的拒绝文字，不记录请求内容。
 - **模拟 Run**：Run Action 由 prepare 阶段发布到 world 里，不再卡在“未发布”。如果漏跑了 prepare，Run 这一步会判为失败。
