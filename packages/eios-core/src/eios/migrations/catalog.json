@@ -1590,6 +1590,11 @@
       "version": "0318",
       "name": "0318_host_health.sql",
       "sha256": "8dbae7b02a9795a9f205a62fe50f2fcea26c8fd6846e232ef144c90cdd133e4b"
+    },
+    {
+      "version": "0319",
+      "name": "0319_relation_types_p1.sql",
+      "sha256": "0ce4c1dd518cd35320c05b8a6e9074294a77f86c13eb07f91a496860bf5b2791"
     }
   ]
 }

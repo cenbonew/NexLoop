@@ -265,6 +265,7 @@ DIRECT_DEFINITION_WRITERS = {
     'tests/test_goal_controls.py': 'exception',
     'tests/test_instance_approval_pg.py': 'exception', 'tests/test_ladder_deadlock_pg.py': 'exception',
     'tests/test_message_purpose_reads_pg.py': 'exception', 'tests/test_object_edits.py': 'exception', 'tests/test_receipt_tail.py': 'exception',
+    'tests/test_relation_unlink_pg.py': 'exception',  # NX-054 P1: the synthetic Peer link/unlink Actions, as test_relation_actions
     'tests/test_relation_actions.py': 'exception', 'tests/test_role_mapping.py': 'exception', 'tests/test_role_policy_binding.py': 'exception',
     'tests/test_role_policy_governance.py': 'exception', 'tests/test_role_runs_first.py': 'exception', 'tests/test_runtime_authority.py': 'exception',
     'tests/test_tenant_config_pg.py': 'exception',
