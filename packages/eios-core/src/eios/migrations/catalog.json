@@ -1675,6 +1675,11 @@
       "version": "0335",
       "name": "0335_workbench_invitations.sql",
       "sha256": "cea7e6db5c3c7fd46ef7877bea3c3fe790946f3ca8ecbdccfc92fbeba949a828"
+    },
+    {
+      "version": "0336",
+      "name": "0336_relation_publish_reads.sql",
+      "sha256": "acd1ce37c2092f17b9851ea61a6661746c2951f3762e8060aeb998cc2abb78d0"
     }
   ]
 }
