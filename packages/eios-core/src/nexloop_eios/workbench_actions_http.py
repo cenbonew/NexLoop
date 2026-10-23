@@ -219,6 +219,13 @@ OPERATIONS={
     'set_shadow_copy':{'world':_id(re.compile(r'shadow:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')),'enabled':_bool,'reason':_reason},
     # NX-043 (owner only): the frozen aggregate reports (shapes checked in SQL; the tenant and the actor are the server's).
     # The fields depend on the kind (0298): the spec is chosen by the body's kind, then its key set must match exactly as for any operation.
+    # NX-058 slice B (owner only): a one-time reset code for an operator or reviewer; the entry draws the code (below), never the body.
+    'issue_workbench_reset':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
+    # NX-058 slice A (owner only): invite an operator or reviewer; the entry draws the token (below). Revoke an unused invitation.
+    'invite_workbench_member':{'username':_id(re.compile(r'[a-z0-9][a-z0-9._-]{2,63}')),
+        'role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role')),
+        'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
+    'revoke_workbench_invitation':{'invitation_id':_id(_UUID)},
     'read_experiment_report':lambda body:_REPORT_KINDS[body.get('kind') if type(body.get('kind')) is str else None],
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
@@ -326,7 +333,28 @@ def router(config,*,ports_for_browser):
         except (ValueError,UnicodeError,TypeError,KeyError):
             return error('invalid_request',422)
         try:
+            code=None
+            if operation=='invite_workbench_member':
+                # The token is drawn here and shown once in this response; the handler stores its HMAC only (design §1).
+                from nexloop_eios import workbench_member_secrets as W
+                from nexloop_eios.browser_http import client_ip_resolver
+                try:secret_key=W.load_key(config.identity_token_key_file)
+                except Exception:return error('unavailable',503)
+                code=W.new_token()
+                fields={**fields,'token_hmac':W.digest(secret_key,W.INVITE,config.tenant_id,code),
+                        'issuer_source':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
+            if operation=='issue_workbench_reset':
+                # The code is drawn here and shown once in this response; the handler stores its HMAC only (design §2, I2).
+                from nexloop_eios import workbench_member_secrets as W
+                from nexloop_eios.browser_http import client_ip_resolver
+                try:secret_key=W.load_key(config.identity_token_key_file)
+                except Exception:return error('unavailable',503)
+                code=W.new_code()
+                fields={**fields,'code_hmac':W.digest(secret_key,W.RESET,config.tenant_id,code),
+                        'issuer_source':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
             result=await run_in_threadpool(lambda:bound(request).run(operation,'workbench-'+key,fields))
+            if code is not None and isinstance(result,dict) and result.get('replayed') is False:
+                result={**result,('token' if operation=='invite_workbench_member' else 'code'):code}
             return JSONResponse(json.loads(json.dumps(result,default=str)),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
         except CredentialInvalid:
             return error('unauthenticated',401)
@@ -334,7 +362,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

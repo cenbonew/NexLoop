@@ -1660,6 +1660,21 @@
       "version": "0332",
       "name": "0332_nx056_solo_mode.sql",
       "sha256": "4b86c82166daa80799100ab359b720c6eaffe5194a6ccc5ba01a40a678f661fa"
+    },
+    {
+      "version": "0333",
+      "name": "0333_workbench_reset_codes.sql",
+      "sha256": "167597fda022aed9e6cdcaecdcd8bd7730976ad5d7d9e3e53ee74e1257661ae7"
+    },
+    {
+      "version": "0334",
+      "name": "0334_operator_reset_revokes_codes.sql",
+      "sha256": "ca49afdfa870d4c6d6734e20093aecdf603e43ed0409cd6280b11b411acc2026"
+    },
+    {
+      "version": "0335",
+      "name": "0335_workbench_invitations.sql",
+      "sha256": "cea7e6db5c3c7fd46ef7877bea3c3fe790946f3ca8ecbdccfc92fbeba949a828"
     }
   ]
 }
