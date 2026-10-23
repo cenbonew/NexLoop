@@ -420,3 +420,8 @@ request_digest = sha256(canonical_v1({
 - **加锁**：决定、消费（gate）、开关设置和时间线写入（成员变更的触发器）都先取 `control.nexloop_approval_tenant_lock`，再锁成员行或审批行。
 - **告警**：`approval_solo_mode`（单人模式已开启）、`approval_solo_self_approved`（24 小时内有自批）、`approval_solo_eligibility_reduced`（24 小时内某策略的批准人数减少，审计事件为 `approval.eligibility_reduced`）。这三条与 A3 的规则都在告警规则 v14 中（L7 的 v13 加上 NX-056 的 6 条）。
 - **工作台**：审批视图返回 `solo_mode: {enabled, others_eligible}`，页面按第 15 节第 5 点显示常驻提示。owner 在审批页开启或关闭单人模式，必须写理由。单人模式生效时，请求人自己的请求也出现在他的“待我审批”里。
+- **L6 追加 11**：
+  - 判定时，资格 subject 集合的摘要也参与：窗口起点之前最近一条，以及窗口内的每一条，摘要都必须等于“只有请求人本人”的摘要。所以唯一的批准人从 A 换成 B，即使人数始终是 1，B 也要满 24 小时才能自批。
+  - 直接改成员和工作台配置的语句，先由 `BEFORE STATEMENT` 触发器取会话租户（`eios.tenant_id`）的租户锁，再锁行，与受审批的成员 Action 的顺序一致，不会出现反向等待（有真实 PG 双连接测试）。subject 没有租户维度，它的变更只在 AFTER 触发器里取锁；租户锁之下没有任何路径会锁 subject 行，所以不会成环。
+  - 关闭单人模式时，依赖自批票的已批准、未消费审批立即退回 waiting（`approval.reopened`，原因 `solo_mode_off`）。
+  - 调用 `set_config` 的函数一律声明为 VOLATILE。

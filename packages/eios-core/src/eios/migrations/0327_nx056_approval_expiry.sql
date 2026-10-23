@@ -77,7 +77,7 @@ revoke all on function authz.nexloop_retention_command(text,text,text,text,text)
 grant execute on function authz.nexloop_retention_command(text,text,text,text,text) to nexloop_domain_worker;
 
 create function runtime.nexloop_approval_metrics(p_tenant text,p_world text) returns jsonb
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);v jsonb;
 begin
  perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
@@ -104,7 +104,7 @@ revoke all on function runtime.nexloop_approval_metrics(text,text) from public;
 alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_approvals;
 revoke all on function runtime.nexloop_metrics_snapshot_before_approvals(text,text) from public;
 create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 begin
  return runtime.nexloop_metrics_snapshot_before_approvals(p_tenant,p_world)||jsonb_build_object('approvals',runtime.nexloop_approval_metrics(p_tenant,p_world));
 end $$;

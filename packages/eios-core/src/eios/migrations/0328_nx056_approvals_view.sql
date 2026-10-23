@@ -13,7 +13,7 @@
 -- never returned. At most 50 rows per column.
 
 create function runtime.nexloop_approval_view_row(r control.nexloop_approval_requests,pol control.nexloop_approval_policies) returns jsonb
- language sql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language sql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
  select jsonb_build_object('approval_id',r.approval_id,'capability',r.capability,'operation',r.body->>'operation','action',r.action_resource,
   'requested_by',r.requester_principal,'requested_at',r.requested_at,'due_by',r.due_by,'status',r.status,'digest',left(r.request_digest,12),
   'policy_version',r.policy_version,'quorum',pol.quorum,
@@ -27,7 +27,7 @@ alter function runtime.nexloop_approval_view_row(control.nexloop_approval_reques
 revoke all on function runtime.nexloop_approval_view_row(control.nexloop_approval_requests,control.nexloop_approval_policies) from public;
 
 create function runtime.nexloop_approval_view(p_tenant text,p_world text,p_principal text) returns jsonb
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_subject text:=control.nexloop_approval_subject_of(p_tenant,p_principal);v_decide jsonb;v_mine jsonb;v_execute jsonb;
 begin
  if v_subject is null then raise exception 'workbench observe forbidden' using errcode='42501';end if;

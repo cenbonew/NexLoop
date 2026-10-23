@@ -117,7 +117,7 @@ grant execute on function control.nexloop_configure_approval_policies(text,text)
 
 -- The publication command's tenant check (scripts/deploy/approval_policies_apply.py --tenant): the configurator reads no table.
 create function control.nexloop_configurator_tenant_exists(p_tenant text) returns boolean
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 begin
  if session_user<>'nexloop_configurator' then raise exception 'trusted configuration only' using errcode='42501';end if;
  return exists(select 1 from control.nexloop_tenants where tenant_id=p_tenant);

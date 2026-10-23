@@ -116,9 +116,9 @@ def test_switching_off_or_a_second_approver_ends_the_self_vote_at_consumption(so
     age_timeline(f, 25)
     first = open_request(f)['approval_id']
     decide(f, first)
-    switch(f, False)  # S-I1: the self vote no longer counts
+    switch(f, False)  # S-I1: the self vote no longer counts - the request is back to waiting at once (L6 review 11)
     off = gate(f)
-    assert off.get('reason') == 'approver_no_longer_eligible', off
+    assert off['proceed'] is False and off['approval_id'] == first and off['status'] == 'waiting_approval', off
     refused('self_approval', decide, f, open_request(f, request_id='r-3', reason='另一个')['approval_id'])  # nor can a new one be made
     switch(f, True)
     decide(f, first)  # the mode takes effect again: the same person approves once more
@@ -190,3 +190,66 @@ def test_a_decision_waits_for_the_tenant_lock_a_member_change_holds(solo, pg):
             f['admin'].execute("set local lock_timeout='200ms'")
             decide(f, approval, who='operator')
         other.rollback()
+
+
+def test_a_new_sole_approver_waits_24_hours_even_when_the_count_never_exceeded_one(solo):
+    """L6 review 11: the only approver A is removed and B (the requester) becomes the only one - the count stays 1, the subject changes;
+    B approves alone only after 24 hours of being that one approver."""
+    f = solo
+    reconfigure(f, (f['other'], 'owner'), (f['owner'], 'operator'), (f['operator'], 'operator'))  # A (other) alone for two days
+    age_timeline(f, 48)
+    reconfigure(f, (f['owner'], 'owner'), (f['operator'], 'operator'))  # A removed, B (owner) the one approver now
+    assert [count for _, count in timeline(f)][-2:] == [1, 1]  # the count never went above one; the digest changed
+    switch(f, True)
+    approval = open_request(f)['approval_id']
+    refused('self_approval', decide, f, approval)
+    age_timeline(f, 23)
+    refused('self_approval', decide, f, approval)
+    age_timeline(f, 2)
+    assert decide(f, approval)['status'] == 'approved'
+
+
+def test_switching_off_reopens_self_approved_requests_at_once(solo):
+    f = solo
+    switch(f, True)
+    age_timeline(f, 25)
+    approval = open_request(f)['approval_id']
+    decide(f, approval)
+    switch(f, False)
+    f['admin'].execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
+    assert f['admin'].execute('select status from control.nexloop_approval_requests where approval_id=%s', (approval,)).fetchone() == ('waiting_approval',)
+    reopened = f['admin'].execute("select payload->>'reason' from runtime.audit_events where action='approval.reopened'").fetchone()
+    assert reopened == ('solo_mode_off',)
+
+
+def test_a_direct_member_change_and_a_member_action_in_opposite_order_never_deadlock(solo, pg):
+    """L6 review 11: an approved member Action holds the tenant lock and then changes a member row; a direct change (trusted
+    configuration, restore) of that row takes the tenant lock before the row (BEFORE STATEMENT), so the two only queue."""
+    import threading
+    import time
+    f = solo
+    member = f['operator']['principal_id']
+    errors, done = [], []
+    change = """update control.nexloop_browser_memberships set payload=jsonb_set(payload,'{revision}',to_jsonb((payload->>'revision')::integer+1))
+        where tenant_id=%s and principal_id=%s"""
+    with psycopg.connect(pg, autocommit=False) as action, psycopg.connect(pg, autocommit=False) as direct:
+        action.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        action.execute('select control.nexloop_approval_tenant_lock(%s)', (TENANT_A,))  # the Action path: tenant lock first
+
+        def direct_change():
+            try:
+                direct.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+                direct.execute(change, (TENANT_A, member))  # waits for the tenant lock before it locks the row
+                direct.commit()
+                done.append('direct')
+            except psycopg.Error as error:
+                errors.append(error.sqlstate)
+                direct.rollback()
+        thread = threading.Thread(target=direct_change)
+        thread.start()
+        time.sleep(1.5)  # longer than deadlock_timeout: a cycle would have been detected by now
+        action.execute(change, (TENANT_A, member))  # then its row: never held by the waiting direct change
+        action.commit()
+        done.append('action')
+        thread.join(10)
+    assert errors == [] and sorted(done) == ['action', 'direct']  # no 40P01, both committed

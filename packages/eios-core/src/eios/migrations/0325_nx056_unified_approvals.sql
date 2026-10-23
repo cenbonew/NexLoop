@@ -20,7 +20,7 @@
 
 -- 0. The subject of a principal (a member's browser subject; null for a principal that is no member) -----------------------------------
 create function control.nexloop_approval_subject_of(p_tenant text,p_principal text) returns text
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);v text;
 begin
  perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
@@ -104,7 +104,7 @@ revoke all on function control.nexloop_approval_policy(text) from public;
 -- NX-058 Z1: the subject a request acts on, from the policy's target_subject_field (a principal of the tenant -> its subject; otherwise the
 -- value is taken as a subject id). Null without such a field or value.
 create function control.nexloop_approval_target_subject(p_tenant text,p_body jsonb,p_field text) returns text
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v text:=case when p_field is null then null else p_body->>p_field end;
 begin
  if v is null then return null;end if;
@@ -327,7 +327,7 @@ revoke all on function control.nexloop_approval_expire(text,text,uuid) from publ
 -- An approver's standing now: an active membership of an active human subject whose current workbench role is one of the policy's
 -- approver roles. Used at a decision and again at consumption (A2, L6 C3).
 create function control.nexloop_approval_approver_eligible(p_tenant text,p_principal text,p_roles text[]) returns boolean
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare cfg control.nexloop_workbench_configurations;prior text:=current_setting('eios.tenant_id',true);v boolean;
 begin
  cfg:=control.nexloop_workbench_current(p_tenant);
