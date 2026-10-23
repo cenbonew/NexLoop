@@ -11,8 +11,8 @@ control.nexloop_publish_relation_types accepts the configurator alone).
 version without source_property. The derivation map follows the latest version, so from its commit no new relation is derived
 and, on an object's next change of properties, its derived relations of those types are dropped; relations already derived stay
 until then (no reader uses them before P4). Published versions are immutable: derivation comes back only with a later version
-(N+2) that names the properties again (--resume-derivation --from-version N+1). N is the catalog version the precheck reports
-(relation_types_precheck.py: catalog.versions, every type at that version).
+(N+2) that names the properties again (--resume-derivation --from-version N+1). N must be the latest published catalog version
+(control.nexloop_relation_catalog_head, read in the window before publishing; anything older is refused - L6 review R-1).
 Output: one JSON line (counts, versions, the manifest digest; never a DSN). Exit 0 done, 2 refused.
 """
 import argparse
@@ -42,6 +42,17 @@ def versioned(from_version, *, derive):
         if not derive:
             r['source_property'] = None
     return value
+
+
+def check_head(head, version):
+    """L6 review R-1: a rollback or resume is built on the latest published catalog version, never on an older one (an older
+    --from-version would rebuild a version already published and come back as a replay - a rollback that did nothing). Accepted:
+    the next version of the head, or the head itself again (the same command rerun; the database refuses other content, 40001)."""
+    if version == 1:
+        if head not in (None, 1):
+            raise Refused(f'the catalog is at version {head}: the first batch is published already - stop or resume from {head}')
+    elif head is None or version not in (head, head + 1):
+        raise Refused(f'--from-version must be the latest published catalog version ({head}), not {version - 1}')
 
 
 def summary(value):
@@ -76,6 +87,8 @@ def main(argv=None, out=sys.stdout, window=configurator_window, connect=None):
             db = connect(dsn)
             with db, db.transaction():
                 db.execute("set local statement_timeout='30000ms'; set local lock_timeout='3000ms'")
+                head = db.execute('select control.nexloop_relation_catalog_head(%s)', (a.tenant,)).fetchone()[0]
+                check_head(head, value['version'])
                 result = R.publish(db, a.tenant, value)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
