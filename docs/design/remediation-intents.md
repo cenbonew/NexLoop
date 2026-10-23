@@ -1,25 +1,32 @@
-# NX-057 动作最终失败后的补救意图（设计稿，第 3 版）
+# NX-057 动作最终失败后的补救意图（设计稿，第 4 版）
 
 - **状态**：设计稿与 ADR 草案，**不含实现**。
 - **修订记录**：
   - 第 1 版 `8be2f9c4`。
   - 第 2 版按 L6 复核（`remediation-intent-review.md`）修订，逐条回应见 §18。主要改动：
     - **C-1**：去掉 `remediation.execute`，不做任何嵌套调用；
-    - **C-2**：查明 0324 的窗口缺陷，在 R0 中修正；
+    - **C-2**：查明 `outcome_classes` 的窗口缺陷，在 R0 中修正；
     - **I-1**：生成条件改用 R0 的失败原因码；
     - **I-2 至 I-8**：链条与 origin 规则、自触发计数、熔断口径、两级紧急开关、definer 包装、审批可见性、与认领终态的边界；
     - **S-1 至 S-5**：一并写入。
   - 第 3 版按 L6 第二轮复核（针对 `2c9e7d81`，没有确认级问题，R0 至 R2 可以推进）修订：
     - **J-1**：R3 需要自己的摘要和调用回执（§6.3）；
     - **J-2**：如实写明 NX-024 自触发节流的实际行为，真正的上限由规划器自己执行（§6.2、§9.2）；
-    - **建议**：统计口径统一按事件时间，删除 0324 中按意图计 failed 的分支（§8）；origin 不依赖 feed 中会被截断的 trigger 列表（§9.1）；写明 awaiting_approval 到期的处理（§4.2）；request_id 改为符合格式的 `rem.<id>.<n>`（§6.3）；
+    - **建议**：统计口径统一按事件时间，删除 `outcome_classes` 中按意图计 failed 的分支（§8）；origin 不依赖 feed 中会被截断的 trigger 列表（§9.1）；写明 awaiting_approval 到期的处理（§4.2）；request_id 改为符合格式的 `rem.<id>.<n>`（§6.3）；
     - **R0 落地方式**：失败证据另建 `runtime.nexloop_effect_failures`，不改动效应事件表（§10）。
-- **编号约定**：本文中的“0324”一律指**第二十二批的 `0324_outcome_classes`**（L7，NX-061 B5）。NX-056 分支上另有一个临时的 0324，组批时由调度员重新编号，与本文无关。
-- **作者**：L7，2026-10-23；基点 main `76a9ab00`（第二十二批，含 NX-061 的 0324）。
+  - 第 4 版按 L6 对 `073c9c55` 与 R0 `03ce1f1b` 的复核修订：
+    - **L-1**：`refused` 回执改为方案 (a)，`rem.*` 请求被处理函数拒绝时**返回** `execution_refused` 而不抛出，回执与拒绝在同一事务中提交；比较与理由见 §6.3（R3 立项前定下）；
+    - **L-2**：审批之后的执行以 NX-056 的消费记录为准，不依赖执行请求的 request_id 前缀（§4.2、§6.3）；
+    - **L-3**：暂时性错误的退避只适用于 reevaluate 与 escalate（§4.2）；
+    - **M-1、M-3**：R0 实现中处理同一小时内先 unknown 后 fulfilled 的重复计数，并给效应事件加时间索引（§8）；
+    - **M-4**：迁移一律按文件名中编号之后的部分指代，不写数字；
+    - **M-5**：新口径只对迁移之后的失败生效，写入 §17。
+- **编号约定**（第 4 版改）：迁移一律按文件名中编号之后的部分指代，例如 `outcome_classes`（第二十二批，NX-061 B5）、`effect_failures`（NX-057 R0）、`nx056_approval_gate`（NX-056 A2）。数字编号由调度员组批时确定，本文不写。`outcome_classes:37-41` 这类行号指基点 `76a9ab00` 中的文件。已发布的旧迁移（0106、0152、0174、0210 等）仍用编号。
+- **作者**：L7，2026-10-23；基点 main `76a9ab00`（第二十二批，含 NX-061 的 `outcome_classes`）。
 - **依据**：
   - 负责人在 EIOS 能力缺口 Q2 中选了推荐项 A：v0.2 引入补救，先生成补救意图，再按规则决定直接执行还是先审批（L7 盘点 `6885a4fa` §A.5）；
   - 交接包 `docs/handoff/docs/06_ACTION_RUNTIME_AND_RECOVERY.md` §3：补偿是关联的另一项受治理 Action，可以标记 compensated，但不删除已发生的事实；
-  - NX-056 统一审批（L3，`l3/unified-approvals-impl` 上的 `docs/design/unified-approvals.md` 与 0322，ADR-039 草案）。补救中凡需要人批准的步骤，**一律复用它**；
+  - NX-056 统一审批（L3，`l3/unified-approvals-impl` 上的 `docs/design/unified-approvals.md` 与 `nx056_approval_gate`，ADR-039 草案）。补救中凡需要人批准的步骤，**一律复用它**；
   - 上游冻结提交 `1e363db` 的补偿机制，只读对照（§2），不复制领域代码。
 
 ## 0. 先读这里：一页结论
@@ -33,7 +40,7 @@
 2. **生成条件只看失败记录的原因码**（R0 新增的 `runtime.nexloop_effect_failures`）：`origin_expired`（来源 Run 过期且从未派发）和 `confirmed_not_delivered`（负责人带证据确认未送达）。
    - unknown 先对账；一次性回复被拒（`refused_one_reply:*`）以及一切按规则的拒绝都不生成补救；
    - 动作认领的 `permanent_failure`（例如 NX-056 的等待审批）也不生成补救（§3.4）；
-   - 0324 的统计口径**只用于统计**，不作为生成条件（I-1）。
+   - `outcome_classes` 的统计口径**只用于统计**，不作为生成条件（I-1）。
 3. **三种补救**：
    - `reevaluate`：经 definer 包装函数唤醒原计划，触发原因为 `final_failure`，`cause='self'`；次数上限由规划器按补救表执行，NX-024 的自触发节流只起平滑作用（J-2）；
    - `escalate`：交给负责人；
@@ -46,9 +53,9 @@
    - 另有按 plan 和 consumer 计的链条上限，覆盖之后由别的 trigger 唤醒的 Run；
    - 熔断按“补救来源的失败”计数；
    - 有租户级和全局两级紧急开关。
-5. **统计口径的缺陷**：0324 按意图的 `created_at` 取 1 小时窗口，路径③的失败（首条 unknown 必须已过 24 小时）**永远计不进失败率**，路径②大概率也计不进去。这是 NX-061 B5 的缺陷，**R0 中修正**：分子分母都改按事件时间计数，删除按意图计 failed 的那一支（C-2）。
+5. **统计口径的缺陷**：`outcome_classes` 按意图的 `created_at` 取 1 小时窗口，路径③的失败（首条 unknown 必须已过 24 小时）**永远计不进失败率**，路径②大概率也计不进去。这是 NX-061 B5 的缺陷，**R0 中修正**：分子分母都改按事件时间计数，删除按意图计 failed 的那一支（C-2）。
 6. **切片**：
-   - R0：补齐失败记录，并修正 0324 的口径；
+   - R0：补齐失败记录，并修正 `outcome_classes` 的口径；
    - R1：只生成建议；
    - R2：自动唤醒计划；
    - R3：预填目标能力（依赖 NX-056 合入）；
@@ -66,7 +73,7 @@
 | ② 来源 Run 过期且从未派发 | `authz.nexloop_effect_origin_expired`（0174:14-50，置 failed 在 :36；先查派发控制 :30-32，被控制拒绝时返回 none，不置 failed），调用方 `settle_expired_origin` | 意图是 accepted 且没有尝试；已经在 dispatching 或 unknown 的只停止自动查询，不置 failed | **不写任何事件或原因** | `origin_expired` |
 | ③ 负责人确认未送达 | `runtime.nexloop_governed_confirm_not_delivered`（0210:80-120，置 failed 在 :109） | 从 unknown 置为 failed；要求有 not_found 证据、首条 unknown 已过 24 小时、not_found 后再过 10 分钟（0214） | `runtime.nexloop_effect_determinations`（只追加） | `confirmed_not_delivered` |
 
-还有一种常见情况（I-1）：路径②的意图在过期之前被 NXB02、NXC06 或 real 开关拒绝过，后来控制解除，来源凭据才过期，意图置为 failed。0324 因为这个意图“有过拒绝”而不把它计为 defect，**但它是真失败**。所以生成条件必须看原因码，而不是看 0324 的类别。
+还有一种常见情况（I-1）：路径②的意图在过期之前被 NXB02、NXC06 或 real 开关拒绝过，后来控制解除，来源凭据才过期，意图置为 failed。`outcome_classes` 因为这个意图“有过拒绝”而不把它计为 defect，**但它是真失败**。所以生成条件必须看原因码，而不是看 `outcome_classes` 的类别。
 
 外联（0238）和激励（0145）各有独立台账和 `failed` 终态。激励的 failed 在同一事务中结算为 `released`，并写入负数的费用条目（0145:30、345-353）。
 
@@ -82,7 +89,7 @@
   - 基点中**只有两处终结效应认领，都用 SUCCEEDED**：`effect_execution.py:420-425`（finalize 命令）和 `effect_contexts.py:153`。
   - 三条失败路径都不碰认领：0152 没有任何认领语句；0174 只在注释中提到认领（:3、:23）；0210:3 写明 “never touches an Action claim”。
   - 所以失败意图的认领一直停在 active，直到它自己的有效期结束。
-- NX-056（L3 分支的 0322）**会**把认领终结为 `permanent_failure`：在等待审批时（:12），以及处理函数拒绝时（:184）。§3.4 写明它与补救的边界。
+- NX-056（L3 分支的 `nx056_approval_gate`）**会**把认领终结为 `permanent_failure`：在等待审批时（:12），以及处理函数拒绝时（:184）。§3.4 写明它与补救的边界。
 
 ### 1.4 会产生外部效应的 Action
 
@@ -92,13 +99,13 @@
 - `nexloop.incentive.issue:1`：non_contact_service；
 - `nexloop.enterprise.deliver:1`：customer_contact，external=true。
 
-### 1.5 0324 的统计窗口缺陷（C-2）
+### 1.5 `outcome_classes` 的统计窗口缺陷（C-2）
 
-- 0324:37-41 统计 `runtime.nexloop_effect_intents` 时，条件是 `created_at > now() - 1 hour`。
+- `outcome_classes`:37-41 统计 `runtime.nexloop_effect_intents` 时，条件是 `created_at > now() - 1 hour`。
 - 路径③要求首条 unknown 已过 24 小时，所以被确认失败的意图，创建时间必然早于 24 小时之前，**永远不进窗口**。
 - 路径②的意图要等到来源 Run 凭据过期才会失败，也大多早于 1 小时之前创建。
-- 结论：0324 的 `failure_rate` **低估**了这两类真失败。
-- 修正放在 R0：重定义 0324 的快照包装函数，defect 按失败记录的 `recorded_at` 计，成功与 unknown 也改按各自事件的时间计（§8，第 3 版）。这是 L7 在 NX-061 B5 中留下的缺陷，记入本稿。
+- 结论：`outcome_classes` 的 `failure_rate` **低估**了这两类真失败。
+- 修正放在 R0：重定义 `outcome_classes` 的快照包装函数，defect 按失败记录的 `recorded_at` 计，成功与 unknown 也改按各自事件的时间计（§8，第 3 版）。这是 L7 在 NX-061 B5 中留下的缺陷，记入本稿。
 
 ## 2. 上游的对照（只读，不复制）
 
@@ -148,7 +155,7 @@
 
 ### 3.4 与认领终态、审批等待的边界（I-8，写死为不变式）
 
-1. 动作认领的 `permanent_failure`（NX-056 0322 的等待审批、处理函数拒绝，以及 R4 将来写入的失败认领）**不是**补救的生成条件，**不计入** 0324 的失败率，也**不计入**补救的熔断或速率统计。补救只看 R0 的失败记录。
+1. 动作认领的 `permanent_failure`（NX-056 `nx056_approval_gate` 的等待审批、处理函数拒绝，以及 R4 将来写入的失败认领）**不是**补救的生成条件，**不计入** `outcome_classes` 的失败率，也**不计入**补救的熔断或速率统计。补救只看 R0 的失败记录。
 2. `awaiting_approval` 和 `approval_required` 都不是失败，不计入熔断，也不计入速率上限中的失败计数。
 3. `governed_action` 的目标能力被提交后，如果返回 `waiting_approval`，补救停在 `awaiting_approval`。**规划器从不重试，也从不重新提交**，人的提交是唯一入口（§6.3）。
 
@@ -188,12 +195,13 @@
 proposed ──(reevaluate/escalate, automatic)──────────────────────▶ executing
 proposed ──(governed_action：负责人提交预填的目标能力)──────────▶ awaiting_approval   （目标能力有 NX-056 策略时）
 proposed ──(同上，目标能力没有审批策略)────────────────────────▶ executing
-awaiting_approval ──目标审批被消费并执行─────────────────────────▶ executing
+awaiting_approval ──NX-056 消费记录为 executed──────────────────▶ succeeded           （终态，L-2）
+awaiting_approval ──NX-056 消费记录为 execution_refused:<码>────▶ proposed            （审批已用掉，人可修正后再提交，L-2）
 awaiting_approval ──目标审批被拒、过期或撤回─────────────────────▶ declined            （终态）
 proposed ──(escalate，或 manual 中负责人选“标记已处理”)─────────▶ escalated           （终态：交给人）
 executing ──完成，见 4.3────────────────────────────────────────▶ succeeded           （终态）
 executing ──按规则被拒（conflict_protected）────────────────────▶ refused             （终态）
-executing ──暂时性错误，attempts < 3────────────────────────────▶ proposed（退避 1、5、30 分钟）
+executing ──暂时性错误，attempts < 3────────────────────────────▶ proposed（退避 1、5、30 分钟；只适用于 reevaluate 与 escalate，L-3）
 executing ──其他失败，或 attempts 已达 3───────────────────────▶ failed → escalated   （终态）
 executing ──结果 unknown 超过对账期限（48 小时，S-1）──────────▶ escalated            （原因 outcome_unknown_timeout，终态）
 proposed / awaiting_approval ──到达 due_by，或不再适用──────────▶ expired / not_applicable（终态）
@@ -201,9 +209,10 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 - **不适用**：consumer 删除中或已删除、计划已关闭或被取代、目标已结束、规则已撤下、开关关闭（§9.4，记为 `not_applicable:paused`）。进入 `executing` 之前每次都检查。
 - 终态不可回退；原意图的 `failed` 不改。
+- **governed_action 没有自动重试**（L-3）：它的每一次提交都由人发起，规划器从不代人提交或重试（§6.3 第 4 条），所以上图中“暂时性错误退避”一行不适用于它。暂时性数据库错误时整个调用回滚、不留回执，补救保持 proposed，由人再提交一次。
 - **awaiting_approval 的到期**（第 3 版）：
   - 补救停在 awaiting_approval 时，它的去向**只由目标审批决定**。规划器每轮按回执中的 `approval_id` 读取 NX-056 审批的状态（§6.3）：
-    - 审批 approved 并被消费执行，补救进入 executing；
+    - 审批被消费（L-2，第 4 版）：以 NX-056 的消费记录 `control.nexloop_approval_consumptions.result` 为准，**不看**执行那次调用的 request_id。`executed` 记为 succeeded；`execution_refused:<码>` 回到 proposed，记下 `last_code`，这次审批已经用掉，人可以修正后再提交（n 加 1），从而得到新的审批；
     - 审批 rejected、cancelled 或 expired，补救记为 `declined`，原因带上审批的终态。
   - NX-056 的审批有自己的 `due_by`（默认 24 小时），最终总会到达终态，所以 awaiting_approval 不会无限期挂着。
   - 补救自己的 `due_by` 在 awaiting_approval 期间**不生效**：审批一旦在进行中，就不能因为补救的期限而被跳过。
@@ -316,11 +325,31 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
      - **由受治理入口 `authz.nexloop_goal_governed_action` 写入**，而且只对 request_id 以 `rem.` 开头的调用写：
        - 处理函数成功，与业务写入同一事务写 `succeeded`；
        - NX-056 判定需要审批，写 `waiting_approval` 并带上 `approval_id`；
-       - 处理函数拒绝时，入口在 **savepoint** 中调用处理函数，捕获拒绝后回滚到 savepoint，写 `refused` 与拒绝码，再把同一个拒绝原样抛给调用方。这是对 `rem.*` 调用的**唯一行为变化**：业务写入照样全部回滚，只多留一行回执。由于拒绝仍然抛出，外层事务若整体回滚，回执也会一起消失，所以入口要在**自己的**事务边界内完成“写回执、再抛出”，具体做法在 R3 立项时请 L6 专门复核；
+       - 处理函数拒绝时，见下面的 **L-1 决定**：返回 `execution_refused`，不抛出，回执与拒绝在同一事务中提交；
      - 回执里的 `remediation_id` 只从 request_id 解析，入口不信任请求体中的任何补救字段；解析出的补救不存在或不属于本租户时，照常执行调用、**不写回执**。
+   - **L-1 决定（第 4 版）：方案 (a)，`rem.*` 请求被拒时返回结果、不抛出。**
+     - **问题**：受治理入口是调用方事务中的一个函数，函数里不能 COMMIT。第 3 版写的“写回执、再原样抛出”做不到：一抛出，调用方的事务就中止，回执随之回滚。
+     - **做法**：只对**能解析为本租户一条 proposed 补救**的 `rem.*` 请求（`^rem\.[0-9a-f]{32}\.[1-9][0-9]{0,2}$`，并在行锁下查到补救），无审批分支中把处理函数放进 savepoint（`begin … exception when others … end`），与 NX-056 `nx056_approval_gate` 已批准分支的写法完全相同：
+       - 业务拒绝：只回滚处理函数自己的写入；返回 `{status:'execution_refused', code:<sqlstate>}`；认领终结为 `permanent_failure`；写 `refused` 回执。这几件事在同一事务中提交；
+       - 暂时性数据库错误（40001、40P01、55P03、57014，以及 53、08、57P0x 类，与 NX-056 N-2a 同一份清单）：原样重新抛出，什么都不写，人可以再提交；
+       - 提交尾部的权限、合同与期限复查（0124 的 commit tail）不变，失败照常抛出。
+     - **不改变的语义**：
+       - 非 `rem.*` 请求，以及解析不出本租户 proposed 补救的 `rem.*` 请求：与基点逐字相同，拒绝照常抛出；
+       - 处理函数成功时的行为不变；
+       - 已经走 NX-056 已批准分支的请求，本来就返回 `execution_refused`，不受影响。
+     - **调用方看到的变化**：`rem.*` 请求被拒时，HTTP 返回 200 和 `status: execution_refused`，而不是原来的 4xx。这与 NX-056 已批准分支的返回形状相同；工作台已经能显示 `execution_refused`（`apps/web/src/workbench/api.ts` 的审批结果文案），R3 只为补救一栏补一条文案。
+     - **为什么不选 (b)**：HTTP 层在第二个短事务里写回执。
+       - 回执要靠 API 进程转述“刚才被拒、拒绝码是什么”，数据库无法核对，这条审计依据的是调用方的说法；
+       - 两个事务之间进程崩溃，就没有回执；
+       - 还要新增一个接受拒绝码参数的 definer 函数，扩大了可写面。
+     - **为什么不选 (c)**：不记录 refused。
+       - 被拒的提交在补救一栏里看不到任何痕迹，人不知道为什么补救还停在 proposed；
+       - 熔断（§9.3）也无法统计 governed_action 的失败。
+     - **代价**：受治理入口要在 NX-056 的版本之上再重定义一次，并在复制件守卫中登记“只多了 `rem.*` 分支”。R3 立项时请 L6 专门复核这一处。
    - 规划器的 `link` 动词只读回执，只有**目标能力与版本一致、回执的 `prefill_digest` 等于补救的 `prefill_digest`、租户与 world 一致、提交者是人类**时，才推进补救：
      - `succeeded`：按 §4.3 判定；
-     - `waiting_approval`：进入 `awaiting_approval`，记下 `approval_id`，之后按 §4.2 跟随审批终态；
+     - `waiting_approval`：进入 `awaiting_approval`，记下 `approval_id`，之后按 §4.2 跟随审批终态与消费记录；
+     - **审批之后的执行**（L-2）：NX-056 要求请求人用新的 request_id 重新提交同一请求体。补救一栏的“执行”按钮会用 `rem.<id>.<n+1>`，这次调用因此也会留下一行回执，但**只作为证据**：补救的去向以 `approval_id` 对应的消费记录为准。即使人从审批页面直接执行、request_id 不带 `rem.` 前缀，补救也能按消费记录推进，不会卡在 executing；
      - `refused`：留在 proposed，记下 `last_code`，人可以修正后再提交（n 加 1）。
    - 如果人改动了预填字段，摘要就不一致，补救不会被这次调用推进，仍停在 proposed，由人选择“标记已处理”；
    - request_id 由调用方提供，但伪造它不会带来任何权限：回执只记录真实发生的受治理调用，状态只依据回执推进。
@@ -340,22 +369,23 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 - 状态对应：目标审批 waiting 时，补救是 `awaiting_approval`；目标审批被拒、过期或撤回时，补救是 `declined`；目标审批被消费执行后，补救按 4.3 判定。
 - 依赖：NX-056 A4（执行与消费）合入后，R3 才能上线。本设计只依赖“审批通过后由请求人本人提交，目标能力自己的权限与策略生效”这一条，不改 NX-056 的任何语义。
 
-## 8. 与 0324 运行结果分类的衔接
+## 8. 与 `outcome_classes` 运行结果分类的衔接
 
-- **生成条件与 0324 解耦**（I-1）：补救只看 R0 的原因码。
-- **R0 修正 0324 的效应计数**（C-2）。R0 的迁移 `create or replace` 0324 的快照包装函数（复制件守卫登记），**分子和分母一律按事件时间**（第 3 版）：
+- **生成条件与 `outcome_classes` 解耦**（I-1）：补救只看 R0 的原因码。
+- **R0 修正 `outcome_classes` 的效应计数**（C-2）。R0 的迁移 `create or replace` `outcome_classes` 的快照包装函数（复制件守卫登记），**分子和分母一律按事件时间**（第 3 版）：
   - **succeeded**：1 小时内有 `fulfilled` 事件（`runtime.nexloop_effect_events.created_at`）的不同意图数；
-  - **outcome_unknown**：**首条** `unknown` 事件落在 1 小时内的意图数；
+  - **outcome_unknown**：**首条** `unknown` 事件落在 1 小时内、而且同一小时内**没有** `fulfilled` 的意图数。同一小时内先 unknown、后 fulfilled 的意图只计 succeeded（L6 M-1，R0 实现）；
+  - 查询都以窗口为界，并用效应事件表的两个新索引 `(tenant_id, world, event_kind, created_at)` 与 `(intent_id, event_kind, created_at)`，不扫描全部历史（L6 M-3，R0 实现）；
   - **defect**：1 小时内 `runtime.nexloop_effect_failures` 中原因码为 `origin_expired` 或 `confirmed_not_delivered` 的行数，按 `recorded_at` 计；
   - `refused_one_reply:*` 的失败行**不计**，它已经按拒绝码计入拒绝类别；
-  - **删除 0324 的 `intents` CTE**，也就是按意图 `created_at` 取窗口、按“是否有过拒绝”排除 failed 的那一支。不删的话，同一个失败会按意图计一次、又按失败行计一次。
+  - **删除 `outcome_classes` 的 `intents` CTE**，也就是按意图 `created_at` 取窗口、按“是否有过拒绝”排除 failed 的那一支。不删的话，同一个失败会按意图计一次、又按失败行计一次。
   - 拒绝部分（`refusals` CTE）与死信部分不变。
   - 这样路径③的失败在被确认的那一小时内计入失败率；路径②曾被 NXB02 拒绝过的意图，过期时也计为 defect（I-1）。
 - **失败率保持如实**：补救成功不抵扣原来的失败。R4 在 `outcomes` 中新增 `remediation` 子块：
   - 各状态的 1 小时计数；
   - `unremediated_defects`：1 小时内的 defect 事件中，既没有补救、也不在规则范围内的数量。依据修正后的口径，它不再恒为 0。
 - 动作认领的 `permanent_failure` 不进入以上任何计数（§3.4）。
-- 新的码（R0 的原因码）必须先在 0324 的分类表或新的事件分类中归类，守卫测试会报出来。
+- 新的码（R0 的原因码）必须先在 `outcome_classes` 的分类表或新的事件分类中归类，守卫测试会报出来。
 
 ## 9. 上限、防循环与刹车
 
@@ -409,7 +439,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
   - 列：`failure_id`、`intent_id`（唯一，一个意图最多一行）、`tenant_id`、`world`、`reason_code`（`origin_expired`、`confirmed_not_delivered`、`refused_one_reply:<拒绝原因>`，原因即 0152 的 `already_answered` 等，拒绝码 NXC05 记在 evidence 中）、`evidence`（determination id 或 not_found observation id、拒绝码、来源 Run id，只含 id 与码）、`recorded_at`；
   - FORCE RLS，属主 `nexloop_owner`，从应用角色收回全部权限，只由三个 definer 函数写入；
   - 一个延迟约束触发器在提交时检查：意图被置为 failed 而没有失败行，整个事务被拒绝。以后若出现第四条失败路径而忘了写失败行，会在测试中直接失败，而不是悄悄漏掉补救与统计；
-  - 需要重定义 0152、0174、0210 中的函数（新迁移，复制件守卫登记），同时修正 0324 的口径（§8）。
+  - 需要重定义 0152、0174、0210 中的函数（新迁移，复制件守卫登记），同时修正 `outcome_classes` 的口径（§8）。
   - **没有失败行就不生成补救。**
 - **每次状态变化**写一行 `runtime.nexloop_remediation_events`，同时写一条 `runtime.audit_events`（`nexloop.remediation.<to>`），只含 id、码和 digest。
 - **证据链**：原意图 → 失败记录及其依据（determination、not_found observation）→ 规则版本与 digest → 唤醒的 plan 与重评估 Run（Context Manifest 能还原它看到了什么）或目标调用（request_id、审批 id、approved_by、回执）。
@@ -444,7 +474,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 | 切片 | 内容 | 依赖 | 估计 | 迁移 |
 |---|---|---|---|---|
-| **R0 证据与口径** | 新表 `runtime.nexloop_effect_failures`，三条失败路径写失败记录与原因码；**修正 0324 的效应计数**，分子分母都按事件时间，删除按意图计 failed 的分支（C-2）；复制件守卫登记 | 无 | 1.5–2 天 | 1 |
+| **R0 证据与口径** | 新表 `runtime.nexloop_effect_failures`，三条失败路径写失败记录与原因码；**修正 `outcome_classes` 的效应计数**，分子分母都按事件时间，删除按意图计 failed 的分支（C-2）；复制件守卫登记 | 无 | 1.5–2 天 | 1 |
 | **R1 只生成建议** | 规则配置与发布校验（先只开放 escalate）；补救意图表与事件表；规划器包装函数（propose、escalate、expire）；唯一约束、速率聚合、链条上限、不适用判定；两级开关；工作台“补救”一栏只读加“标记已处理”和取消；告警 | R0 | 2.5–3 天 | 1 |
 | **R2 自动唤醒计划** | reevaluate 的 automatic；`wake` 动词与 `final_failure`（`cause='self'`）；规划器执行的唤醒上限；启动器按补救表消费唤醒并派生 origin，Run 凭据加意图的不可变列；熔断 | R1 | 2 天 | 1 |
 | **R3 预填目标能力** | 规则的 governed_action（target、prefill_map）及发布校验；补救自己的预填摘要；受治理入口为 `rem.*` 写调用回执（含 savepoint 中捕获的拒绝，需 L6 专门复核）；工作台“按补救预填”；`link` 动词按回执关联；awaiting_approval 跟随审批终态；首批目标由负责人定（Q-2） | R1、**NX-056 A4 合入** | 2–2.5 天 | 1 |
@@ -468,7 +498,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 > **ADR-040｜最终失败后的补救意图**
 >
-> 状态：草案（L7，2026-10-23，第 3 版），待 L6 复核与负责人决定。
+> 状态：草案（L7，2026-10-23，第 4 版），待 L6 复核与负责人决定。
 >
 > 背景：负责人在 Q2 中决定引入补救。NexLoop 的效应只有三条路径会终结为 failed，预留类副作用在失败时已经原子退回；上游的“同一适配器逆操作”不适合 NexLoop 的 provider 协议。
 >
@@ -477,12 +507,12 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 > 2. 补救有三种：
 >    - `reevaluate`：经规划器的 definer 包装函数唤醒原计划，触发原因为 `final_failure`，`cause='self'`；
 >    - `escalate`：交给负责人；
->    - `governed_action`：工作台用冻结参数预填**目标能力自己的请求**，由负责人本人直接提交，目标能力自己的权限检查与 NX-056 审批策略照常生效；补救意图按自己定义的预填摘要，经受治理入口为 `rem.*` 请求写下的调用回执关联结果。
+>    - `governed_action`：工作台用冻结参数预填**目标能力自己的请求**，由负责人本人直接提交，目标能力自己的权限检查与 NX-056 审批策略照常生效；补救意图按自己定义的预填摘要，经受治理入口为 `rem.*` 请求写下的调用回执关联结果；`rem.*` 请求被处理函数拒绝时返回 `execution_refused` 而不抛出，回执与拒绝在同一事务中提交；审批之后的执行以 NX-056 的消费记录为准。
 >
 >    不存在逆操作，不重放原意图，也不存在嵌套调用处理函数的入口。
 > 3. 规划器只持有 `remediation.plan`，只调用 definer 包装函数，租户从服务身份得出；不新增直接 SQL，也不替换身份。
 > 4. 每次失败、每条规则最多一条补救；补救 Run 的 origin 由启动器按补救表中未消费的唤醒在服务端派生（不读会被截断的 feed trigger 列表）并由意图继承，带 origin 的意图再失败只升级；按 plan 和 consumer 设链条上限，由规划器自己执行，不依赖 NX-024 的自触发节流；熔断按补救来源的失败计数；速率超限时每小时聚合一次升级；有全局与租户两级紧急开关。数值都在受信配置中。
-> 5. 原意图的 failed 与失败率不因补救而改变；失败率的分子分母都按事件时间计入（修正 0324）；补救结果单独统计。
+> 5. 原意图的 failed 与失败率不因补救而改变；失败率的分子分母都按事件时间计入（修正 `outcome_classes`）；补救结果单独统计。
 > 6. 补救规则是受信配置，精确到 Action 版本；没有规则的版本不生成补救。
 >
 > 后果：计划不再一直等待已经失败的意图；负责人能看到每一次真失败及其处理情况；面向客户的后续动作仍受联系约束、real 开关、预算和目标能力的审批约束。代价是新增四张表（失败记录、补救意图、补救事件、调用回执）、一份配置、一个规划器包装函数和一个 tick，受治理入口对 `rem.*` 请求多写一行回执；`governed_action` 依赖 NX-056。
@@ -493,9 +523,11 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 > - 补救成功后把原失败从失败率中扣除；
 > - 允许补救的补救；
 > - **补救能力在自己的处理函数中嵌套调用目标能力的处理函数**（第 1 版的 `remediation.execute`）：会绕过请求人对目标能力的权限检查，以及目标能力自己的审批策略；
-> - 以 0324 的 defect 类别作为生成条件：会漏掉曾被拒绝、后来才失败的真失败；
+> - 以 `outcome_classes` 的 defect 类别作为生成条件：会漏掉曾被拒绝、后来才失败的真失败；
 > - 用认领摘要或 NX-056 审批摘要关联预填：前者含 request_id，后者含策略版本，都对不上；
-> - 依赖 NX-024 的自触发节流作为上限：它只在全部 trigger 为 self 时生效，而且只延后。
+> - 依赖 NX-024 的自触发节流作为上限：它只在全部 trigger 为 self 时生效，而且只延后；
+> - 拒绝后由 HTTP 层在第二个事务里写回执：回执依据的是调用方的转述，进程崩溃时会丢失；
+> - 不记录被拒的提交：补救一栏看不到原因，熔断也无法统计。
 
 ## 16. 测试清单（随各切片实现）
 
@@ -506,7 +538,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
   - 两小时前创建、刚才 fulfilled 的意图计入 succeeded；一小时内创建、尚未 fulfilled 的不计入；首条 unknown 在窗口外的不再计入 outcome_unknown。
 - **R1**：
   - `origin_expired` 与 `confirmed_not_delivered` 各生成恰好一条，重复检测返回同一条；
-  - unknown、`refused_one_reply`、NXE01、NXB02、模拟世界、认领 permanent_failure（模拟 0322 的等待审批）都不生成；
+  - unknown、`refused_one_reply`、NXE01、NXB02、模拟世界、认领 permanent_failure（模拟 `nx056_approval_gate` 的等待审批）都不生成；
   - 没有规则的 Action 版本不生成；
   - 速率超限时一小时只有一条聚合升级；
   - 链条上限生效；
@@ -528,7 +560,10 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
   - 请求人对目标能力没有权限时被拒；
   - 改动预填字段后，摘要不一致，补救不被推进；改动 NX-056 策略版本后，未改字段的提交仍能关联；
   - request_id 为 `rem.<32 位十六进制>.<n>`，通过 HTTP 层幂等键校验；
-  - 无审批路径下处理函数拒绝时，业务写入全部回滚，但留下一行 `refused` 回执，拒绝原样返回调用方；非 `rem.*` 请求的行为与基点完全一致；
+  - 无审批路径下处理函数拒绝 `rem.*` 请求时：处理函数的写入回滚；返回 `execution_refused` 与 sqlstate；认领为 `permanent_failure`；`refused` 回执已提交（L-1）；
+  - 暂时性错误（模拟 40001）时原样抛出，没有回执，认领不终结；
+  - 非 `rem.*` 请求，以及 id 不属于本租户、或补救不在 proposed 的 `rem.*` 请求，被拒时照常抛出，与基点逐字相同；复制件守卫证明入口只多了 `rem.*` 分支；
+  - 审批之后，消费记录为 executed 时补救记为 succeeded；为 `execution_refused` 时回到 proposed；执行请求的 request_id 不带 `rem.` 前缀时同样推进（L-2）；
   - 返回 `waiting_approval` 时补救停在 `awaiting_approval`，规划器不重试也不重提交；审批 rejected、cancelled、expired 时补救记为 declined；补救自己的 due_by 在等待审批期间不生效；
   - 效应类 Action 作为目标时发布被拒；
   - 伪造 request_id 不推进补救。
@@ -539,7 +574,10 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 ## 17. 风险
 
 - R2 会提高重评估 Run 的频率。受规划器的唤醒上限与链条上限、NX-024 的自触发平滑（`cause='self'`）与 Run 预算约束；上线后要观察重评估队列与成本。
-- R0 是硬前置，同时修正已经上线的 0324 口径。修正后失败率**会升高**，因为以前漏计的真失败计进来了。上线说明里要写明这是口径修正，而不是退化。
+- R0 是硬前置，同时修正已经上线的 `outcome_classes` 口径。修正后失败率**会升高**，因为以前漏计的真失败计进来了。上线说明里要写明这是口径修正，而不是退化。
+- **新口径只对迁移之后的失败生效**（L6 M-5）：`effect_failures` 迁移不回填历史。迁移之前已经 failed 的意图没有失败行，不计入新口径的失败率，也不会生成补救。上线说明里要写明。
+- **同一小时内先 unknown 后 fulfilled**：R0 实现中只计 succeeded（M-1）。跨小时的仍然先计一次 outcome_unknown、后计一次 succeeded，这是按事件计数的固有结果。
+- **组批顺序**（L6 M-2）：`effect_failures` 重定义快照包装函数，必须排在 NX-056 包装快照的 `nx056_approval_expiry` **之前**，否则会覆盖 approvals 那一层。复制件守卫会在合并时报出这种情况。
 - R3 依赖 NX-056 A4；如果消费语义变化，R3 只需要调整关联判定（§6.3）。
 - 新增的人类能力：`remediation.pause`、`remediation.resume`、`remediation.rule_release`、标记已处理与取消。工作台成员读取要把补救表纳入 ADR-025、ADR-035 的派生规则。
 
@@ -547,12 +585,17 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 | 编号 | 处理 | 位置 |
 |---|---|---|
+| L-1（第 4 版） | 选方案 (a)：可解析的 `rem.*` 请求被拒时返回 `execution_refused`，savepoint 写法与 NX-056 已批准分支相同；回执、认领终态与拒绝同一事务提交；暂时性错误重新抛出；非 `rem.*` 请求不变。比较了 (b)、(c) 并写明不选的理由 | §6.3、§15、§16 R3 |
+| L-2（第 4 版） | 审批之后的执行以 NX-056 的消费记录为准；执行请求带 `rem.` 前缀时多一行回执，只作证据 | §4.2、§6.3、§16 R3 |
+| L-3（第 4 版） | 暂时性错误退避只适用于 reevaluate 与 escalate；governed_action 由人再提交 | §4.2 |
+| M-1、M-3（第 4 版） | R0 实现：同一小时内先 unknown 后 fulfilled 只计 succeeded；窗口有下界，加两个事件索引 | §8、§17 |
+| M-2、M-4、M-5（第 4 版） | 写明组批顺序；迁移按文件名后缀指代；新口径只对迁移后的失败生效 | 文首、§17 |
 | J-1（第 3 版） | 补救自己定义预填摘要 `nexloop-remediation-prefill/1`（不含 request_id 和策略版本）；R3 新增调用回执，由受治理入口为 `rem.*` 请求写入，拒绝在 savepoint 中捕获后留回执；request_id 改为 `rem.<id>.<n>` | §4.1、§6.3、§13 R3、§15、§16 R3 |
 | J-2（第 3 版） | 如实写明 0106:350-358 只在全部 trigger 为 self 时生效、只延后；删除 `self_trigger_capped`；真正的上限由规划器按补救表执行，并发经咨询锁串行 | §4.3、§6.2、§9.2、§15、§16 R2 |
-| 建议（第 3 版） | 分子分母统一按事件时间并删除 0324 的 `intents` 分支；origin 改按补救表中未消费的唤醒派生，不受 limit 16 影响；awaiting_approval 跟随审批终态；R0 另建失败表，不改效应事件表 | §8、§9.1、§4.2、§10 |
+| 建议（第 3 版） | 分子分母统一按事件时间并删除 `outcome_classes` 的 `intents` 分支；origin 改按补救表中未消费的唤醒派生，不受 limit 16 影响；awaiting_approval 跟随审批终态；R0 另建失败表，不改效应事件表 | §8、§9.1、§4.2、§10 |
 | C-1 | 去掉 `remediation.execute`；预填目标能力的表单，由请求人直接提交目标能力；关联只读、只按摘要匹配；ADR 被否决方案中加入“嵌套调用” | §0、§6.3、§7、§15、§16 R3 |
-| C-2 | 查明 0324:37-41 按意图 `created_at` 取窗口的缺陷；R0 改为按失败事件时间计数；补测试 | §1.5、§8、§13 R0、§16 R0、§17 |
-| I-1 | 生成条件改为 R0 原因码；0324 只用于统计；ADR 决定 1 改写 | §1.1、§3.1、§8、§15 |
+| C-2 | 查明 `outcome_classes`:37-41 按意图 `created_at` 取窗口的缺陷；R0 改为按失败事件时间计数；补测试 | §1.5、§8、§13 R0、§16 R0、§17 |
+| I-1 | 生成条件改为 R0 原因码；`outcome_classes` 只用于统计；ADR 决定 1 改写 | §1.1、§3.1、§8、§15 |
 | I-2 | origin 由服务端派生（第 3 版改为按补救表的未消费唤醒），经 Run 凭据由意图继承；按 plan 和 consumer 设链条上限 | §9.1、§9.2 |
 | I-3 | `final_failure` 的 `cause='self'`；第 3 版写明 NX-024 节流只起平滑作用，上限见 J-2 | §6.2、§16 R2 |
 | I-4 | reevaluate 的“成功”只表示已唤醒；熔断改为按补救来源的失败和链条升级计数 | §4.3、§9.3 |
