@@ -92,7 +92,8 @@ def test_an_invited_operator_joins_with_the_role_template_grants(invites, admin)
     # A configurator apply from a member file without the invitee is refused (0116's grant check; X1 names it in slice C).
     from nexloop_eios.workbench_roles import apply_members
     from test_workbench_read_pg import members_file
-    with pytest.raises(Exception):
+    import psycopg
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='a current Human grant is outside the workbench role of ' + principal):
         apply_members(ROLES, members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator')), database_url_file=c['configurator'])
 
 
@@ -132,3 +133,36 @@ def test_without_the_key_and_for_an_operator(invites, switching, admin):
         csrf = owner_session(client, c)
         assert invite(client, csrf).status_code == 503
         assert accept(client, {'token': 'A' * 43, 'password': 'a-good-password-1'}).status_code == 503
+
+
+def test_an_expired_token_a_demoted_issuer_and_a_concurrent_acceptance(invites, admin):
+    """L6 slice A review A-6: a token past its expiry is refused; a token whose issuer is no longer an owner (demoted, not only
+    suspended) is refused; the same token accepted twice at once creates one Human."""
+    import threading
+    c = invites
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = owner_session(client, c)
+        expired = invite(client, csrf, username='late-person', hours=1).json()['token']
+        demoted = invite(client, csrf, username='orphan-person').json()['token']
+        racing = invite(client, csrf, username='raced-person').json()['token']
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    admin.execute("update control.nexloop_workbench_invitations set issued_at=issued_at-interval '2 hours',expires_at=expires_at-interval '2 hours' where username='late-person'")
+    results = []
+    def go():
+        with TestClient(create_app(c['config']), base_url=ORIGIN) as other:
+            results.append(accept(other, {'token': racing, 'password': 'a-good-password-1'}).status_code)
+    threads = [threading.Thread(target=go) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == [200, 400]
+    assert admin.execute("select count(*) from control.nexloop_browser_accounts where username='raced-person'").fetchone() == (1,)
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        assert accept(client, {'token': expired, 'password': 'a-good-password-1'}).status_code == 400
+        # The issuer demoted to operator (a configuration version from a governed change, as slice C's demote_owner will append it).
+        cur = admin.execute('select members from control.nexloop_workbench_configurations order by manifest_version desc limit 1').fetchone()[0]
+        admin.execute("select control.nexloop_workbench_configuration_append(%s,%s,'action:test-demotion')",
+                      (TENANT, json.dumps({**cur, c['owner_member']['principal_id']: 'operator'})))
+        assert accept(client, {'token': demoted, 'password': 'a-good-password-1'}).status_code == 400
+    assert admin.execute("select count(*) from control.nexloop_browser_accounts where username in ('late-person','orphan-person')").fetchone() == (0,)

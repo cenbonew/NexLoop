@@ -31,7 +31,7 @@ create table control.nexloop_workbench_grant_instances (
  tenant_id text not null references control.nexloop_tenants(tenant_id),instance_id bigint generated always as identity primary key,
  principal_id text not null,subject_id text not null,role text not null check(role in ('owner','operator','reviewer')),
  direction text not null check(direction in ('grant','revoke')),template_version integer not null,template_digest text not null,
- facts_digest text not null check(facts_digest~'^[0-9a-f]{64}$'),source text not null check(source~'^(invitation|action|template):[A-Za-z0-9._:-]{1,200}$'),
+ facts_digest text not null check(facts_digest~'^[0-9a-f]{64}$'),source text not null check(source~'^(invitation|action|template|template-pending):[A-Za-z0-9._:-]{1,200}$'),
  recorded_at timestamptz not null default clock_timestamp()
 );
 create index nexloop_workbench_grant_instances_principal on control.nexloop_workbench_grant_instances(tenant_id,principal_id,instance_id desc);
@@ -80,12 +80,36 @@ create trigger nx058_append_only before update or delete on control.nexloop_work
 create function control.nexloop_authority_digest(p_value jsonb) returns text language sql immutable
  set search_path=pg_catalog,pg_temp as $$ select encode(sha256(convert_to(runtime.nexloop_canonical_json(p_value),'UTF8')),'hex') $$;
 
+-- Every JSON string value equal to a placeholder becomes the member's value; nothing else changes (a value, never text spliced into
+-- JSON: L6 slice A review A-1).
+create function control.nexloop_workbench_json_substitute(p_value jsonb,p_principal text,p_subject text) returns jsonb
+ language plpgsql immutable set search_path=pg_catalog,pg_temp as $$
+begin
+ case jsonb_typeof(p_value)
+  when 'string' then
+   return case p_value#>>'{}' when 'nexloop-template-principal' then to_jsonb(p_principal) when 'nexloop-template-subject' then to_jsonb(p_subject) else p_value end;
+  when 'array' then
+   return coalesce((select jsonb_agg(control.nexloop_workbench_json_substitute(e,p_principal,p_subject) order by n)
+                    from jsonb_array_elements(p_value) with ordinality x(e,n)),'[]'::jsonb);
+  when 'object' then
+   return coalesce((select jsonb_object_agg(k,control.nexloop_workbench_json_substitute(e,p_principal,p_subject)) from jsonb_each(p_value) x(k,e)),'{}'::jsonb);
+  else return p_value;
+ end case;
+end $$;
+
+-- A member identifier an instance may carry: the identity directory's id characters only (no quote, backslash, space or JSON).
+create function control.nexloop_workbench_member_id_valid(p_value text) returns boolean language sql immutable
+ set search_path=pg_catalog,pg_temp as $$ select coalesce(p_value~'^[A-Za-z0-9][A-Za-z0-9._:@-]*$' and length(p_value)<=320,false) $$;
+
 -- One template entry with the member in place of the placeholders and every member-dependent digest recomputed.
 create function control.nexloop_workbench_fact_instance(p_fact jsonb,p_principal text,p_subject text) returns jsonb
  language plpgsql immutable set search_path=pg_catalog,pg_temp as $$
 declare v jsonb;p jsonb;g jsonb;grants jsonb:='[]';
 begin
- v:=replace(replace(p_fact::text,'nexloop-template-principal',p_principal),'nexloop-template-subject',p_subject)::jsonb;
+ if not control.nexloop_workbench_member_id_valid(p_principal) or not control.nexloop_workbench_member_id_valid(p_subject)
+  or p_principal like 'nexloop-template-%' or p_subject like 'nexloop-template-%' then
+  raise exception 'workbench member: invalid' using errcode='22023';end if;
+ v:=control.nexloop_workbench_json_substitute(p_fact,p_principal,p_subject);
  -- A payload that does not mention the member (resource graph, policies: only their key does): the template's own bytes, snapshot included.
  if v->'payload'=p_fact->'payload' then return v;end if;
  p:=v->'payload';
@@ -101,12 +125,14 @@ begin
 end $$;
 
 -- Write a role's grant or revoke form for one member (internal; granted to no role). Returns the facts digest.
-create function control.nexloop_workbench_grants_write(p_tenant text,p_principal text,p_subject text,p_role text,p_direction text,p_source text) returns text
+create function control.nexloop_workbench_grants_write(p_tenant text,p_principal text,p_subject text,p_role text,p_direction text,p_source text,
+  p_version integer default null) returns text
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare t control.nexloop_workbench_role_templates;f jsonb;facts jsonb:='[]';v_key text[];inst jsonb;
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
- select * into t from control.nexloop_workbench_role_templates where tenant_id=p_tenant and role=p_role order by version desc limit 1;
+ select * into t from control.nexloop_workbench_role_templates where tenant_id=p_tenant and role=p_role and (p_version is null or version=p_version)
+  order by version desc limit 1;
  if not found then raise exception 'workbench member: role_template_missing' using errcode='22023';end if;
  for f in select value from jsonb_array_elements(case p_direction when 'grant' then t.grant_facts else t.revoke_facts end) loop
   inst:=control.nexloop_workbench_fact_instance(f,p_principal,p_subject);
@@ -117,24 +143,71 @@ begin
  end loop;
  insert into control.nexloop_workbench_grant_instances(tenant_id,principal_id,subject_id,role,direction,template_version,template_digest,facts_digest,source)
   values(p_tenant,p_principal,p_subject,p_role,p_direction,t.version,t.digest,control.nexloop_authority_digest(facts),p_source);
+ -- (source check below admits template-pending:<version>, the first half of a re-publication.)
  return control.nexloop_authority_digest(facts);
 end $$;
 
--- The configurator publishes the role templates (workbench_roles.apply, after the member configuration). A changed role gets a new version
--- and every member holding it through an instantiation is rewritten from it in the same transaction (AA4).
-create function control.nexloop_publish_workbench_role_templates(p_tenant text,p_templates jsonb) returns jsonb
- language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare r text;e jsonb;t control.nexloop_workbench_role_templates;v_digest text;f jsonb;changed jsonb:='[]';i record;prior text:=current_setting('eios.tenant_id',true);
+-- Publications of the role templates, as 0050 and the NX-056 policy publication record theirs (L6 review D-1): the roles manifest version
+-- they come from, the sha256 of the text sent, the expected revision (the last published roles manifest version, 0 before the first).
+create table control.nexloop_workbench_template_publications (
+ tenant_id text not null references control.nexloop_tenants(tenant_id),roles_manifest_version integer not null check(roles_manifest_version>=1),
+ manifest_sha256 text not null check(manifest_sha256~'^[0-9a-f]{64}$'),expected_revision integer not null check(expected_revision>=0),
+ changed jsonb not null,published_by text not null,published_at timestamptz not null default clock_timestamp(),
+ primary key(tenant_id,roles_manifest_version),check(expected_revision<roles_manifest_version)
+);
+alter table control.nexloop_workbench_template_publications owner to nexloop_owner;
+alter table control.nexloop_workbench_template_publications enable row level security;
+alter table control.nexloop_workbench_template_publications force row level security;
+create policy tenant_boundary on control.nexloop_workbench_template_publications to nexloop_owner
+ using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
+revoke all on control.nexloop_workbench_template_publications from public;
+create trigger nx058_append_only before update or delete on control.nexloop_workbench_template_publications for each row execute function control.nexloop_nx022_append_only();
+
+-- The last published roles manifest version of the tenant's templates (0 before the first): the configurator's expected revision.
+create function control.nexloop_workbench_template_revision(p_tenant text) returns integer
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v integer;prior text:=current_setting('eios.tenant_id',true);
 begin
  if session_user<>'nexloop_configurator' then raise exception 'workbench role templates are trusted configuration only' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ select coalesce(max(roles_manifest_version),0) into v from control.nexloop_workbench_template_publications where tenant_id=p_tenant;
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return v;
+end $$;
+
+-- The configurator publishes the role templates (workbench_roles.apply_members, step 1 of 3, one transaction): the text as sent, its
+-- sha256 and the expected revision are checked and recorded; a replay of the recorded publication changes nothing. A changed role gets a
+-- new version, and every member who holds it through an instantiation first loses the previous version's grants (its revoke form,
+-- source template-pending:<new version>) - so a narrower role passes the member configuration's grant check (step 2) - and gets the new
+-- version's grants in step 3 (control.nexloop_workbench_templates_settle) once the configuration names the new role content (AA4, A-3).
+create function control.nexloop_publish_workbench_role_templates(p_tenant text,p_text text,p_expected_revision integer) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare p_templates jsonb;v_sha text;v_manifest integer;pub control.nexloop_workbench_template_publications;cur integer;
+ r text;e jsonb;t control.nexloop_workbench_role_templates;v_digest text;f jsonb;changed jsonb:='[]';i record;prior text:=current_setting('eios.tenant_id',true);
+begin
+ if session_user<>'nexloop_configurator' then raise exception 'workbench role templates are trusted configuration only' using errcode='42501';end if;
+ if p_text is null or octet_length(p_text)>8388608 or p_expected_revision is null or p_expected_revision<0 then
+  raise exception 'workbench role templates invalid' using errcode='22023';end if;
+ p_templates:=p_text::jsonb;v_sha:=encode(sha256(convert_to(p_text,'UTF8')),'hex');
  if jsonb_typeof(p_templates) is distinct from 'object' or (select array_agg(k order by k) from jsonb_object_keys(p_templates) k) is distinct from array['operator','owner','reviewer'] then
   raise exception 'workbench role templates invalid' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  perform control.nexloop_workbench_member_lock(p_tenant);
+ v_manifest:=(p_templates->'owner'->>'roles_manifest_version')::integer;
+ if exists(select 1 from jsonb_each(p_templates) x where (x.value->>'roles_manifest_version')::integer is distinct from v_manifest) then
+  raise exception 'workbench role templates invalid' using errcode='22023';end if;
+ select * into pub from control.nexloop_workbench_template_publications where tenant_id=p_tenant and roles_manifest_version=v_manifest;
+ if found then
+  if pub.manifest_sha256 is distinct from v_sha then raise exception 'workbench role templates: manifest_conflict' using errcode='22023';end if;
+  perform set_config('eios.tenant_id',coalesce(prior,''),true);
+  return jsonb_build_object('published','[]'::jsonb,'replayed',true,'roles_manifest_version',v_manifest);
+ end if;
+ select coalesce(max(roles_manifest_version),0) into cur from control.nexloop_workbench_template_publications where tenant_id=p_tenant;
+ if p_expected_revision<>cur or v_manifest<=cur then raise exception 'workbench role templates: expected_revision_mismatch' using errcode='40001';end if;
  foreach r in array array['operator','owner','reviewer'] loop
   e:=p_templates->r;
   if jsonb_typeof(e) is distinct from 'object' or (select array_agg(k order by k) from jsonb_object_keys(e) k) is distinct from array['grant_facts','revoke_facts','roles_manifest_version']
-   or jsonb_typeof(e->'grant_facts') is distinct from 'array' or jsonb_typeof(e->'revoke_facts') is distinct from 'array' or jsonb_typeof(e->'roles_manifest_version') is distinct from 'number' then
+   or jsonb_typeof(e->'grant_facts') is distinct from 'array' or jsonb_typeof(e->'revoke_facts') is distinct from 'array' then
    raise exception 'workbench role templates invalid' using errcode='22023';end if;
   for f in select value from jsonb_array_elements((e->'grant_facts')||(e->'revoke_facts')) loop
    if f->>'kind' is null or f->>'kind' not in ('actor','subject_authority','resource_graph','grants','scope','controls','policies')
@@ -142,22 +215,46 @@ begin
     raise exception 'workbench role templates invalid' using errcode='22023';end if;
   end loop;
   if exists(select 1 from jsonb_array_elements(e->'revoke_facts') x where x->>'kind'<>'grants') then raise exception 'workbench role templates invalid' using errcode='22023';end if;
-  v_digest:=control.nexloop_authority_digest(e);
+  v_digest:=control.nexloop_authority_digest(e-'roles_manifest_version');
   select * into t from control.nexloop_workbench_role_templates where tenant_id=p_tenant and role=r order by version desc limit 1;
   if found and t.digest=v_digest then continue;end if;
+  -- Step 1 for every member holding the role through an instantiation: the previous version's revoke form.
+  if found then
+   for i in select distinct on (g.principal_id) g.principal_id,g.subject_id,g.direction from control.nexloop_workbench_grant_instances g
+     where g.tenant_id=p_tenant and g.role=r order by g.principal_id,g.instance_id desc loop
+    if i.direction='grant' and control.nexloop_workbench_role(p_tenant,i.principal_id)=r then
+     perform control.nexloop_workbench_grants_write(p_tenant,i.principal_id,i.subject_id,r,'revoke','template-pending:'||(t.version+1),t.version);
+    end if;
+   end loop;
+  end if;
   insert into control.nexloop_workbench_role_templates(tenant_id,role,version,roles_manifest_version,grant_facts,revoke_facts,digest,published_by)
-   values(p_tenant,r,coalesce(t.version,0)+1,(e->>'roles_manifest_version')::integer,e->'grant_facts',e->'revoke_facts',v_digest,session_user) returning * into t;
+   values(p_tenant,r,coalesce(t.version,0)+1,v_manifest,e->'grant_facts',e->'revoke_facts',v_digest,session_user) returning * into t;
   changed:=changed||jsonb_build_array(jsonb_build_object('role',r,'version',t.version));
-  -- AA4: every member whose latest instance of this role is a grant, and who still holds the role, is rewritten from the new version.
-  for i in select distinct on (g.principal_id) g.principal_id,g.subject_id,g.direction from control.nexloop_workbench_grant_instances g
-    where g.tenant_id=p_tenant and g.role=r order by g.principal_id,g.instance_id desc loop
-   if i.direction='grant' and control.nexloop_workbench_role(p_tenant,i.principal_id)=r then
-    perform control.nexloop_workbench_grants_write(p_tenant,i.principal_id,i.subject_id,r,'grant','template:'||t.version);
-   end if;
-  end loop;
+ end loop;
+ insert into control.nexloop_workbench_template_publications(tenant_id,roles_manifest_version,manifest_sha256,expected_revision,changed,published_by)
+  values(p_tenant,v_manifest,v_sha,p_expected_revision,changed,session_user);
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return jsonb_build_object('published',changed,'replayed',false,'roles_manifest_version',v_manifest);
+end $$;
+
+-- Step 3 (after the member configuration): every member whose latest instance is a pending revoke of a re-publication, and who still
+-- holds that role, gets the role's current version.
+create function control.nexloop_workbench_templates_settle(p_tenant text) returns integer
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare i record;n integer:=0;prior text:=current_setting('eios.tenant_id',true);
+begin
+ if session_user<>'nexloop_configurator' then raise exception 'workbench role templates are trusted configuration only' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ perform control.nexloop_workbench_member_lock(p_tenant);
+ for i in select distinct on (g.principal_id) g.principal_id,g.subject_id,g.role,g.direction,g.source from control.nexloop_workbench_grant_instances g
+   where g.tenant_id=p_tenant order by g.principal_id,g.instance_id desc loop
+  if i.direction='revoke' and i.source like 'template-pending:%' and control.nexloop_workbench_role(p_tenant,i.principal_id)=i.role then
+   perform control.nexloop_workbench_grants_write(p_tenant,i.principal_id,i.subject_id,i.role,'grant','template:'||substr(i.source,18));
+   n:=n+1;
+  end if;
  end loop;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
- return jsonb_build_object('published',changed);
+ return n;
 end $$;
 
 -- One more workbench configuration version from a governed member change (invitation:<id> or action:<intent>): the latest version's
@@ -272,7 +369,8 @@ begin
   raise exception 'invitation invalid' using errcode='22023';end if;
  -- The Human the identity process built: the shapes 0050's initial identity checks, active, for this tenant and this invitation's username.
  v_subject:=p_subject->>'subject_id';v_principal:=p_membership->>'principal_id';v_account:=p_account->>'local_account_id';
- if v_subject is null or v_principal is null or v_account is null
+ if not control.nexloop_workbench_member_id_valid(v_subject) or not control.nexloop_workbench_member_id_valid(v_principal)
+  or not control.nexloop_workbench_member_id_valid(v_account)
   or p_subject->>'kind' is distinct from 'human' or p_subject->>'status' is distinct from 'active' or p_subject->'revision' is distinct from '1'::jsonb
   or p_membership->>'tenant_id' is distinct from p_tenant or p_membership->>'subject_id' is distinct from v_subject
   or p_membership->'trusted_attributes' is distinct from '{}'::jsonb or p_membership->>'status' is distinct from 'active'
@@ -310,7 +408,9 @@ end $$;
 
 do $$ declare f text; begin
  foreach f in array array['control.nexloop_authority_digest(jsonb)','control.nexloop_workbench_fact_instance(jsonb,text,text)',
-   'control.nexloop_workbench_grants_write(text,text,text,text,text,text)','control.nexloop_publish_workbench_role_templates(text,jsonb)',
+   'control.nexloop_workbench_grants_write(text,text,text,text,text,text,integer)','control.nexloop_publish_workbench_role_templates(text,text,integer)',
+   'control.nexloop_workbench_json_substitute(jsonb,text,text)','control.nexloop_workbench_member_id_valid(text)',
+   'control.nexloop_workbench_template_revision(text)','control.nexloop_workbench_templates_settle(text)',
    'control.nexloop_workbench_configuration_append(text,jsonb,text)','control.nexloop_governed_invite_workbench_member(text,text,text,text,text,jsonb)',
    'control.nexloop_governed_revoke_workbench_invitation(text,text,text,text,text,jsonb)','control.nexloop_workbench_invitation_lookup(text,text)',
    'control.nexloop_workbench_invitation_failed(text,text)',
@@ -319,7 +419,8 @@ do $$ declare f text; begin
   execute format('revoke all on function %s from public',f);
  end loop;
 end $$;
-grant execute on function control.nexloop_publish_workbench_role_templates(text,jsonb) to nexloop_configurator;
+grant execute on function control.nexloop_publish_workbench_role_templates(text,text,integer),control.nexloop_workbench_template_revision(text),
+ control.nexloop_workbench_templates_settle(text) to nexloop_configurator;
 grant execute on function control.nexloop_workbench_invitation_lookup(text,text),control.nexloop_workbench_invitation_failed(text,text),
  control.nexloop_accept_workbench_invitation(text,text,jsonb,jsonb,jsonb,text,text,text) to nexloop_identity;
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
