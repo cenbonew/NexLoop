@@ -1,4 +1,4 @@
-"""NX-056 A3 (docs/design/unified-approvals.md v5 §7, §8; 0323, alert rules v13): the expiry sweep and the approval alerts.
+"""NX-056 A3 (docs/design/unified-approvals.md v5 §7, §8; 0323, alert rules v14): the expiry sweep and the approval alerts.
 
 The sweep only ends waiting requests past due_by (never executes one; idempotent; the upstream ApprovalExpirySweeper's contract),
 it runs in the retention keeper's tick through its signed port, and the 'approvals' metrics block (counts and ages only) drives
@@ -20,7 +20,7 @@ from test_erasure_pg import erasing, keeper  # noqa: F401
 from commitment_fixture import commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 
-V12, V13 = RULES.parent / 'alert-rules.v12.json', RULES.parent / 'alert-rules.v13.json'
+V13, V14 = RULES.parent / 'alert-rules.v13.json', RULES.parent / 'alert-rules.v14.json'
 CAP = 'real_dispatch.set'
 ACTION = 'eios:action:nexloop.real_dispatch.set:1'
 
@@ -104,20 +104,20 @@ def test_the_retention_keeper_tick_runs_the_sweep(erasing, admin):
     assert not admin.execute("select has_function_privilege('nexloop_domain_worker','control.nexloop_approval_expire_due(text,text,integer)','execute')").fetchone()[0]
 
 
-def test_rules_v13_are_v12_plus_the_approval_rules():
-    v12, v13 = json.loads(V12.read_text()), load_rules(V13)
-    assert v13['version'] == 13 and v13['rules'][:len(v12['rules'])] == v12['rules']
-    assert {r['rule_id']: r['metric'] for r in v13['rules'][len(v12['rules']):]} == {
+def test_rules_v14_are_v13_plus_the_approval_rules():
+    v13, v14 = json.loads(V13.read_text()), load_rules(V14)
+    assert v14['version'] == 14 and len(v13['rules']) == 61 and v14['rules'][:len(v13['rules'])] == v13['rules']  # L7's v13 is the prefix
+    assert {r['rule_id']: r['metric'] for r in v14['rules'][len(v13['rules']):]} == {
         'approval_waiting': 'approvals.oldest_waiting_age_seconds', 'approval_unconsumed': 'approvals.approved_unconsumed',
         'approval_sweep_stale': 'approvals.overdue', 'approval_solo_mode': 'approvals.solo_mode_enabled',
         'approval_solo_self_approved': 'approvals.self_approvals_24h', 'approval_solo_eligibility_reduced': 'approvals.eligibility_reductions_24h'}
-    validate_rules(v13)
+    validate_rules(v14)
 
 
 def test_a_long_wait_raises_approval_waiting_and_the_expiry_clears_it(observed):  # noqa: F811
     o = observed
     admin = o['admin']
-    assert apply_rules(load_rules(V13), TENANT, database_url_file=o['w']['configurator'])['configured'] is True
+    assert apply_rules(load_rules(V14), TENANT, database_url_file=o['w']['configurator'])['configured'] is True
     open_ = seed(admin, 'alert-requester')
     approval = open_('a-' + uuid.uuid4().hex[:8])['approval_id']
     o['evaluate']()
@@ -125,7 +125,7 @@ def test_a_long_wait_raises_approval_waiting_and_the_expiry_clears_it(observed):
     assert firing() in (None, (False,))
     age(admin, approval, 2)
     assert approvals(admin)['waiting'] == 1 and approvals(admin)['oldest_waiting_age_seconds'] >= 7200
-    assert o['evaluate']()['rules_version'] == 13 and firing() == (True,)
+    assert o['evaluate']()['rules_version'] == 14 and firing() == (True,)
     age(admin, approval, 23)
     expire_due(admin)
     o['evaluate']()

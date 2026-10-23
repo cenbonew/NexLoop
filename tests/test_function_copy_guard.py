@@ -168,6 +168,11 @@ REGISTRY = [
     # Clock skew metric (0277, L6): process sample kind 'clock' accepted; nothing else.
     Allowed('clock_skew_metric', 'authz.nexloop_record_process_sample', "the process sample kind 'clock' (skew_ms, skew_abs_ms, round_trip_ms)",
             ((r"\s*when 'clock' then array\['skew_ms','skew_abs_ms','round_trip_ms'\]", ''),)),
+    # EIOS gap E4 (NX-061, 0323): the process sample kind 'api' (read/write; calls, errors, slow, latency, histogram); nothing else.
+    Allowed('api_request_metrics', 'authz.nexloop_record_process_sample', "the process sample kind 'api' (service read or write, the guard histogram)",
+            ((r"\s*when 'api' then array\['calls','errors','slow','p50_ms','p95_ms','max_ms'\]", ''),
+             (r"\s*or \(p_kind='api' and p_service not in \('read','write'\)\)", ''),
+             (r"\('guard','guard_op','relay_step','api'\)", "('guard','guard_op','relay_step')"))),
     # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
     Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
             ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),

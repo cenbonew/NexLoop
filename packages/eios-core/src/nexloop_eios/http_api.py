@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import argparse
 import os
+import threading
+import time
 import uuid
 import psycopg
 from eios.adapters.postgres.database import StorageUnavailable
@@ -32,12 +34,37 @@ class ApiConfiguration:
     cache_wakeup:object|None=None
     # NX-028: the owner workbench's own browser application (same identity store, realm and origin; own login and cookie).
     workbench:object|None=None
+    # EIOS gap E4: a loopback port for this process's per-route request metrics (eios.api.metrics); None = no export (default).
+    api_metrics_port:int|None=None
     # 'test' (the foundation console and container tests; readiness stays 503 with diagnostics) or 'stage' (deployment:
     # /health/ready is the real readiness of nexloop_eios.deployment_readiness, fixed reason codes only).
     mode:str='test'
 
 
+def serve_route_metrics(registry,port):
+    """E4: GET /internal/api-metrics on 127.0.0.1 only, this process's per-route counters and histograms (no tenant data, no IDs)."""
+    from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+    from nexloop_eios.bootstrap import catalog
+    if type(port) is not int or not 1024<=port<=65535:raise ValueError('unprivileged loopback port required')
+    revision=catalog()[-1].version  # the catalog this code expects (the database is verified separately at readiness)
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,*args):pass
+
+        def do_GET(self):
+            if self.path!='/internal/api-metrics' or self.client_address[0]!='127.0.0.1':
+                self.send_response(404);self.end_headers();return
+            body=registry.render(storage_mode='postgresql',revision=revision).encode()
+            self.send_response(200);self.send_header('Content-Type','text/plain; version=0.0.4');self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+    return ThreadingHTTPServer(('127.0.0.1',port),Handler)
+
+
 def create_app(config:ApiConfiguration):
+    from eios.api.metrics import ApiMetricsRegistry
+    from nexloop_eios.observability import API,flush_api,start_sampler
+    routes_metrics=ApiMetricsRegistry()
+
     @asynccontextmanager
     async def lifespan(app):
         with ExitStack() as stack:
@@ -62,6 +89,16 @@ def create_app(config:ApiConfiguration):
                     if config.workbench is not None:
                         app.state.workbench_store=PostgresBrowserSessionUnitOfWork(pool,tenant_id=config.workbench.tenant_id,application_id=config.workbench.application_id)
                 except Exception:pass
+            # E4: one 'api' process sample per request class a minute (best effort, never breaks a request); per-route detail on
+            # an optional loopback port.
+            stop=threading.Event();stack.callback(stop.set)
+            if app.state.backend is not None:
+                backend=app.state.backend
+                start_sampler(stop,60,lambda:flush_api(backend._pool))
+            if config.api_metrics_port is not None:
+                server=serve_route_metrics(routes_metrics,config.api_metrics_port)
+                threading.Thread(target=server.serve_forever,name='nexloop-api-route-metrics',daemon=True).start()
+                stack.callback(server.server_close);stack.callback(server.shutdown)
             try:yield
             finally:
                 app.state.backend=None
@@ -69,6 +106,22 @@ def create_app(config:ApiConfiguration):
                 app.state.workbench_store=None
                 app.state.browser_rate_key=None
     app=FastAPI(title='NexLoop API',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None)
+    app.state.route_metrics=routes_metrics
+
+    @app.middleware('http')
+    async def request_metrics(request:Request,call_next):
+        # E4: every request, by its route template (never the raw path: bounded labels), method and status. A streaming response
+        # counts until its headers are sent; an exception counts as 500 and is re-raised.
+        started,status=time.perf_counter(),500
+        try:
+            response=await call_next(request);status=response.status_code
+            return response
+        finally:
+            elapsed=time.perf_counter()-started
+            route=getattr(request.scope.get('route'),'path',None)
+            template=route if route else ('/' if route=='' else 'unmatched')
+            routes_metrics.observe(method=request.method,route=template,status=status,duration_seconds=elapsed)
+            API.observe(request.method,status,elapsed*1000)
     if config.browser is not None:
         from nexloop_eios.browser_http import router
         app.include_router(router(config.browser))
@@ -277,6 +330,8 @@ def parse(argv=None,environ=None):
     p.add_argument('--trusted-proxy-peer',action='append',default=[])
     # NX-032: the browser identity pool of this process (connection budget entry api-browser-identity, 4 per process).
     p.add_argument('--identity-pool-max',type=int,default=4)
+    # EIOS gap E4: the loopback port of this process's per-route request metrics (off by default; one port per API process).
+    p.add_argument('--api-metrics-port',type=int)
     a=p.parse_args(argv)
     if a.mode=='test' and a.signing_key_id is None:p.error('--signing-key-id required')
     if a.mode=='stage':
@@ -284,6 +339,7 @@ def parse(argv=None,environ=None):
         if refusals:p.error('stage configuration refused: '+'; '.join(refusals))
     if not 1024<=a.port<=65535:p.error('unprivileged local port required')
     if not 1<=a.identity_pool_max<=8:p.error('identity pool size 1..8')
+    if a.api_metrics_port is not None and (not 1024<=a.api_metrics_port<=65535 or a.api_metrics_port==a.port):p.error('separate unprivileged metrics port required')
     tls={}
     if a.tls_certificate_file is not None or a.tls_key_file is not None:
         if a.tls_certificate_file is None or a.tls_key_file is None:p.error('both private TLS files required')
@@ -316,7 +372,8 @@ def parse(argv=None,environ=None):
         try:cache=ValkeyWakeup.from_file(a.cache_configuration_file)
         except Exception:p.error('private cache configuration unavailable')
     return ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,
-        execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench,mode=a.mode,identity_pool_max=a.identity_pool_max),a.port,tls
+        execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench,mode=a.mode,identity_pool_max=a.identity_pool_max,
+        api_metrics_port=a.api_metrics_port),a.port,tls
 
 
 def main():

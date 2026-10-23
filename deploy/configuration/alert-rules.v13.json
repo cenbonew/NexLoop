@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-alert-rules/1",
   "version": 13,
-  "decision": "NX-030 D3 (owner 2026-10-10, all as recommended): default thresholds of design §2. Evaluated once a minute on the SQL snapshot, world 'real' only (D6); one alert per rule and selector, resolved when the condition clears; shown to the owner in the workbench (D2). metric is a dotted path into runtime.nexloop_metrics_snapshot; one '*' segment iterates its children (the child key becomes the selector); selector picks one key of a map. A new version is a new file. v2 (relay multi-consumer, 0160): relay_unenrolled_pending — inbound messages of a consumer that no relay is enrolled to serve would never get a message Run (critical after 5 minutes, so an enrollment in progress does not fire); relay_backlog_age — the oldest inbound message still waiting for a relay (warning, same 10 minutes as the queue backlog). v3 (NX-035 local part, 0146): the M12 backup block is wired to the backup manifest — backup_age reads backup.age_seconds (the latest verified PG backup, unchanged rule); new: wal_archive_lag and wal_archive_failing (RPO ≤ 5 minutes, D2), offsite_backup_age (repo2, once enabled, D3), file_backup_age (D2 file RPO 15 minutes, alert at 1 hour), restore_journal_lag (§6.2), restore_drill_overdue (35 days, D6; counted from the first verified backup while no drill has passed) and backup_verify_failed (§3.2). A metric without an observation is absent, never zero. v4 (NX-037 provider routing): effect_route_unconfigured, a warning when an effect intent of an Action without a provider route was refused (NXE01). v5 (dispatcher 2026-10-18, claim-matcher idle): candidates_without_merge_configuration, a warning when staged candidate definitions wait for 10 minutes while the tenant has no active merge configuration (0216 candidates block; apply deploy/ontology/merge-config.v1.json through nexloop_eios.merge_configuration --apply). v6 (data health, D-G5): thresholds on the snapshot block data_health (NexLoop's own data flows: extraction, recall index, review reflow, ingestion, Artifacts, erasure propagation); counts and ages only. v7 (NX-039 V5, owner D39-10 2026-10-20): evolution_release_regressing, a warning when a semantic release in its 7-day watch window shows a miss rate or an ambiguity rate more than 2 points above the week before publication (at least 20 accesses on each side; evolution.release_watch in the snapshot). It suggests a rollback in the workbench; nothing rolls back automatically. v8 (outreach slice 8): thresholds on the snapshot block outreach (proactive outreach metrics; counts and ratios only). v9 (NX-040 F4, owner D27 2026-10-20): schema_release_regressing, a warning when a Schema publication in its 7-day watch shows a claim-extraction failure rate more than 2 points above the week before (at least 20 tasks a side) or a Context volume above 105% (at least 20 packs a side) (evolution.schema_watch). It suggests the next, hidden version; nothing rolls back automatically. v10 (L6, stage clock skew 2026-10-20): clock_skew - the APP_HOST clock against the database clock, measured by the alert evaluator before each evaluation; above 2 s (signed commands tolerate 5 s) the hosts must be brought back in sync. v11 (NX-043 X5, dispatcher 2026-10-21): v10 plus experiment_auto_stopped - a guardrail stopped an experiment in the last 24 hours (warning); the owner reads the stop reason in the experiment record.",
+  "decision": "NX-030 D3 (owner 2026-10-10, all as recommended): default thresholds of design §2. Evaluated once a minute on the SQL snapshot, world 'real' only (D6); one alert per rule and selector, resolved when the condition clears; shown to the owner in the workbench (D2). metric is a dotted path into runtime.nexloop_metrics_snapshot; one '*' segment iterates its children (the child key becomes the selector); selector picks one key of a map. A new version is a new file. v2 (relay multi-consumer, 0160): relay_unenrolled_pending — inbound messages of a consumer that no relay is enrolled to serve would never get a message Run (critical after 5 minutes, so an enrollment in progress does not fire); relay_backlog_age — the oldest inbound message still waiting for a relay (warning, same 10 minutes as the queue backlog). v3 (NX-035 local part, 0146): the M12 backup block is wired to the backup manifest — backup_age reads backup.age_seconds (the latest verified PG backup, unchanged rule); new: wal_archive_lag and wal_archive_failing (RPO ≤ 5 minutes, D2), offsite_backup_age (repo2, once enabled, D3), file_backup_age (D2 file RPO 15 minutes, alert at 1 hour), restore_journal_lag (§6.2), restore_drill_overdue (35 days, D6; counted from the first verified backup while no drill has passed) and backup_verify_failed (§3.2). A metric without an observation is absent, never zero. v4 (NX-037 provider routing): effect_route_unconfigured, a warning when an effect intent of an Action without a provider route was refused (NXE01). v5 (dispatcher 2026-10-18, claim-matcher idle): candidates_without_merge_configuration, a warning when staged candidate definitions wait for 10 minutes while the tenant has no active merge configuration (0216 candidates block; apply deploy/ontology/merge-config.v1.json through nexloop_eios.merge_configuration --apply). v6 (data health, D-G5): thresholds on the snapshot block data_health (NexLoop's own data flows: extraction, recall index, review reflow, ingestion, Artifacts, erasure propagation); counts and ages only. v7 (NX-039 V5, owner D39-10 2026-10-20): evolution_release_regressing, a warning when a semantic release in its 7-day watch window shows a miss rate or an ambiguity rate more than 2 points above the week before publication (at least 20 accesses on each side; evolution.release_watch in the snapshot). It suggests a rollback in the workbench; nothing rolls back automatically. v8 (outreach slice 8): thresholds on the snapshot block outreach (proactive outreach metrics; counts and ratios only). v9 (NX-040 F4, owner D27 2026-10-20): schema_release_regressing, a warning when a Schema publication in its 7-day watch shows a claim-extraction failure rate more than 2 points above the week before (at least 20 tasks a side) or a Context volume above 105% (at least 20 packs a side) (evolution.schema_watch). It suggests the next, hidden version; nothing rolls back automatically. v10 (L6, stage clock skew 2026-10-20): clock_skew - the APP_HOST clock against the database clock, measured by the alert evaluator before each evaluation; above 2 s (signed commands tolerate 5 s) the hosts must be brought back in sync. v11 (NX-043 X5, dispatcher 2026-10-21): v10 plus experiment_auto_stopped - a guardrail stopped an experiment in the last 24 hours (warning); the owner reads the stop reason in the experiment record. v13 (NX-061 B9, aligned with the host health scheduled-run caliber of v12): timer_stale_file_backup - no scheduled successful run of the APP_HOST file backup (every 15 minutes) for 45 minutes; a manual nexloop-file-backup run refreshes backup.file_backup_age_seconds but not this, so a failing scheduled round stays visible. It needs the timer in APP_HOST's host-health configuration (name file-backup); without that key it never fires.",
   "rules": [
     {
       "rule_id": "refusal_budget_exhausted",
@@ -564,58 +564,14 @@
       "purpose": "E3: no scheduled successful run of the provider drift check (hourly) for longer than its period plus margin; a manual rerun does not count; fail closed when none was ever seen."
     },
     {
-      "rule_id": "approval_waiting",
-      "metric": "approvals.oldest_waiting_age_seconds",
+      "rule_id": "timer_stale_file_backup",
+      "metric": "host_health.timer_success_age_seconds",
+      "selector": "app_host:file-backup",
       "condition": "gt",
-      "threshold": 3600,
+      "threshold": 2700,
       "for_seconds": 0,
       "severity": "warning",
-      "purpose": "NX-056 A3: an approval has waited for a decision for more than an hour (it expires at its due_by, 24 hours by default); the eligible approvers see it under the workbench approvals view."
-    },
-    {
-      "rule_id": "approval_unconsumed",
-      "metric": "approvals.approved_unconsumed",
-      "condition": "gt",
-      "threshold": 0,
-      "for_seconds": 3600,
-      "severity": "warning",
-      "purpose": "NX-056 A3: an approved request has not been executed by its requester for an hour; it expires unexecuted at its due_by."
-    },
-    {
-      "rule_id": "approval_sweep_stale",
-      "metric": "approvals.overdue",
-      "condition": "gt",
-      "threshold": 0,
-      "for_seconds": 900,
-      "severity": "warning",
-      "purpose": "NX-056 A3 (L6 review): a request past its due_by is still waiting or approved and unconsumed for 15 minutes; the expiry sweep in the retention keeper is not running."
-    },
-    {
-      "rule_id": "approval_solo_mode",
-      "metric": "approvals.solo_mode_enabled",
-      "condition": "gt",
-      "threshold": 0,
-      "for_seconds": 0,
-      "severity": "warning",
-      "purpose": "NX-056 A7 (design §15): the single-person mode is on - the one eligible approver may approve their own requests; check it was meant (a stolen owner session could turn it on)."
-    },
-    {
-      "rule_id": "approval_solo_self_approved",
-      "metric": "approvals.self_approvals_24h",
-      "condition": "gt",
-      "threshold": 0,
-      "for_seconds": 0,
-      "severity": "warning",
-      "purpose": "NX-056 A7: a request was approved by its own requester in the single-person mode within the last 24 hours (audit approval.decided with self_approved)."
-    },
-    {
-      "rule_id": "approval_solo_eligibility_reduced",
-      "metric": "approvals.eligibility_reductions_24h",
-      "condition": "gt",
-      "threshold": 0,
-      "for_seconds": 0,
-      "severity": "warning",
-      "purpose": "NX-056 A7: the number of eligible approvers of a policy went down within the last 24 hours (an approver role removed or a member disabled) - the first step of turning two-person control into one."
+      "purpose": "B9: no scheduled successful run of the file backup (every 15 minutes) for three periods; a manual rerun does not count; fail closed when none was ever seen."
     }
   ]
 }

@@ -265,3 +265,54 @@ def test_staged_candidates_without_merge_configuration_block_and_rule_v5(observe
     report = observability(dsn, v5)
     assert report['checks']['candidates_glueable'] is False and report['details']['observability']['merge_configuration_missing'] == [TENANT]
     assert o['evaluate']()['rules_version'] == 5
+
+
+def test_api_samples_and_the_snapshot_api_block_merge_every_process(observed):
+    """EIOS gap E4 (0323): kind 'api' per request class; the snapshot merges every API process's histogram (the load report's
+    caliber) into p50/p95 per class with error and slow rates. Only read/write and the fixed keys are accepted."""
+    import importlib.util
+    import random
+    from nexloop_eios.observability import API_SLOW_MS, ApiTimings
+    spec = importlib.util.spec_from_file_location('load_report', Path(__file__).resolve().parents[1] / 'scripts/load/report.py')
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    pool, admin = observed['w']['f']['reader'].pool, observed['admin']
+    one, two = ApiTimings(), ApiTimings()
+    for ms in [20] * 99 + [800]:
+        one.observe('GET', 200, ms)
+    for ms in [30] * 50 + [700] * 49:
+        two.observe('GET', 200, ms)
+    two.observe('HEAD', 503, 40)
+    one.observe('POST', 201, 120)
+    samples = {}
+    for instance, timings in (('api-1:1', one), ('api-2:2', two)):
+        drained, _ = timings.drain()
+        for request_class, sample in drained.items():
+            record_sample(pool, 'api', request_class, sample, instance=instance)
+            samples.setdefault(request_class, []).append(sample)
+    assert 'timeouts' not in samples['read'][0] and samples['read'][1]['slow'] == 49 and samples['read'][1]['errors'] == 1
+    api = admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'api'", (TENANT,)).fetchone()[0]
+    assert api['status'] == 'ok' and set(api['classes']) == {'read', 'write'}
+    merged = {}
+    for sample in samples['read']:
+        for key, value in sample.items():
+            if key.startswith('h_'):
+                merged[int(key[2:])] = merged.get(int(key[2:]), 0) + value
+    read = api['classes']['read']
+    assert read['calls'] == 200 and float(read['p95_ms']) == report.histogram_quantile(merged, 0.95) and float(read['p95_ms']) >= API_SLOW_MS
+    assert float(read['p50_ms']) == report.histogram_quantile(merged, 0.5)
+    assert float(read['slow_rate']) == round(50 / 200, 4) and float(read['error_rate']) == round(1 / 200, 4)
+    assert api['classes']['write']['calls'] == 1 and float(api['classes']['write']['slow_rate']) == 0
+    # The SQL quantile is the report's, on any histogram.
+    rng = random.Random(61)
+    for _ in range(20):
+        counts = {rng.randrange(0, 117): rng.randrange(1, 50) for _ in range(rng.randrange(1, 12))}
+        for q in (0.5, 0.95, 0.99):
+            got = admin.execute('select runtime.nexloop_histogram_quantile(%s,%s::numeric)', (Jsonb({f'h_{i}': n for i, n in counts.items()}), q)).fetchone()[0]
+            assert float(got) == report.histogram_quantile(counts, q), (counts, q)
+    assert admin.execute("select runtime.nexloop_histogram_quantile('{}'::jsonb,0.95)").fetchone()[0] is None
+    text = render_prometheus([admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,)).fetchone()[0]])
+    assert 'nexloop_api_classes_p95_ms{key="read"' in text and 'nexloop_api_classes_slow_rate{key="write"' in text
+    for service, sample in [('admin', {'calls': 1}), ('read', {'timeouts': 1}), ('read', {'calls': 'many'}), ('read', {'route': 1})]:
+        with pytest.raises(psycopg.errors.InvalidParameterValue):
+            record_sample(pool, 'api', service, sample)

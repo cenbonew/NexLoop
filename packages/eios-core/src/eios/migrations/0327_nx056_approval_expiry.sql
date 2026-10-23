@@ -12,7 +12,7 @@
 -- 3. runtime.nexloop_metrics_snapshot is renamed once and wrapped: the wrapper adds the 'approvals' block (counts and ages only,
 --    no body): waiting, oldest_waiting_age_seconds and approved_unconsumed count requests still before due_by; overdue counts those past
 --    due_by still waiting or approved and unconsumed - the sweep's heartbeat (it should stay 0); and (A7, 0327) solo_mode_enabled,
---    self_approvals_24h and eligibility_reductions_24h for the single-person mode's alerts. Rules in alert-rules.v13.json.
+--    self_approvals_24h and eligibility_reductions_24h for the single-person mode's alerts. Rules in alert-rules.v14.json.
 -- Published migrations are not edited.
 
 create function control.nexloop_approval_expire_due(p_tenant text,p_world text,p_limit integer) returns jsonb

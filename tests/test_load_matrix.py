@@ -195,7 +195,7 @@ def test_the_load_api_identity_pool_follows_the_deployment_budget_unless_given(t
     sys.path.insert(0, str(ROOT / 'scripts/load'))
     import stack as St
     budget = json.loads((ROOT / 'deploy/stage/connection-budget.v1.json').read_text())
-    assert St.budget_identity_pool() == next(s['pool_max'] for s in budget['services'] if s['name'] == 'api-browser-identity') == 3
+    assert St.budget_identity_pool() == next(s['pool_max'] for s in budget['services'] if s['name'] == 'api-browser-identity') == 2
     for bad in (0, 9, '3'):
         with pytest.raises(St.StackFailed):
             St.Stack.start_api(object(), identity_pool_max=bad)  # refused before anything starts

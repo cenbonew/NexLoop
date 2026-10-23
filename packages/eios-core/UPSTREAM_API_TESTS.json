@@ -1,0 +1,17 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT",
+  "scope": "Frozen API metrics registry tests (E4, eios-capability-gap); run against the vendored eios.api.metrics",
+  "tests": [
+    {
+      "source_path": "tests/api/test_metrics.py",
+      "destination": "tests/upstream/test_eios_api_metrics.py",
+      "upstream_sha256": "a80f945a34ff366a54bbf0e3d8ffa06391aed0d446dfad2f6169ea48d9ef684b",
+      "nexloop_sha256": "cd06f4221f6bbed5f8144564a1202e651e38eb6a0389ab1b0f5f0d4a6e604dcd",
+      "adaptations": [
+        "the two endpoint tests are removed: they need the upstream eios.api.app, which is not vendored (the NexLoop middleware and loopback export are tests/test_api_request_metrics.py)",
+        "imports of eios.api.app and the upstream authenticated test client removed"
+      ]
+    }
+  ]
+}

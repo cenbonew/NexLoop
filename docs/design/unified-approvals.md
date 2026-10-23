@@ -418,5 +418,5 @@ request_digest = sha256(canonical_v1({
 - **发起时的 `quorum_unreachable_in_solo_mode`**：只在单人模式开启，并且自批永远无法满足（quorum 大于 1，或策略 `solo_mode = not_applicable`），同时除请求人以外的现有资格人数少于 quorum 时返回。quorum 为 1 的请求照常挂起，等他人批准，或者等单人模式生效后自批。
 - **重新批准**：请求因为某一票不再计入而退回 waiting 后，同一个人再次批准时，按“现在计入的票”重新计票，达到 quorum 就恢复 approved，例如单人模式再次生效时。否则仍是重放。决定的重放和消费时的计票用同一个函数 `control.nexloop_approval_valid_votes`。
 - **加锁**：决定、消费（gate）、开关设置和时间线写入（成员变更的触发器）都先取 `control.nexloop_approval_tenant_lock`，再锁成员行或审批行。
-- **告警**：`approval_solo_mode`（单人模式已开启）、`approval_solo_self_approved`（24 小时内有自批）、`approval_solo_eligibility_reduced`（24 小时内某策略的批准人数减少，审计事件为 `approval.eligibility_reduced`）。这三条与 A3 的规则在同一份告警规则文件中，第二十二批合入后以 v14 发布。
+- **告警**：`approval_solo_mode`（单人模式已开启）、`approval_solo_self_approved`（24 小时内有自批）、`approval_solo_eligibility_reduced`（24 小时内某策略的批准人数减少，审计事件为 `approval.eligibility_reduced`）。这三条与 A3 的规则都在告警规则 v14 中（L7 的 v13 加上 NX-056 的 6 条）。
 - **工作台**：审批视图返回 `solo_mode: {enabled, others_eligible}`，页面按第 15 节第 5 点显示常驻提示。owner 在审批页开启或关闭单人模式，必须写理由。单人模式生效时，请求人自己的请求也出现在他的“待我审批”里。

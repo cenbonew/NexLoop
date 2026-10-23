@@ -112,7 +112,7 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT:?API port}", --tls-certificate-file,
               /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file, /run/secrets/api_identity_dsn,
-              --identity-pool-max, "3", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
+              --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
               --browser-application-id, "${BROWSER_APPLICATION_ID:?application}", --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}",
               --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web]
     volumes:
@@ -129,7 +129,7 @@ services:
               /var/lib/nexloop/artifacts, --host-ca-file, /run/secrets/host_ca, --host-control-key-file, /run/secrets/host_control_key,
               --host-origin, "https://127.0.0.1:${HOST_INTERNAL_PORT:?Host port}", --port, "${API_INTERNAL_PORT_2:?second API port}",
               --tls-certificate-file, /run/secrets/api_loopback_cert, --tls-key-file, /run/secrets/api_loopback_key, --identity-database-url-file,
-              /run/secrets/api_identity_dsn, --identity-pool-max, "3", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key,
+              /run/secrets/api_identity_dsn, --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key,
               --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
               --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}", --browser-origin, "${BROWSER_ORIGIN:?https origin}",
               --web-root, /opt/nexloop/web]
@@ -229,7 +229,8 @@ services:
               "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
               --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
               --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
-              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required]
+              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required,
+              --semantic-read-pool-max, "1"]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/data/relay-vault:/var/lib/nexloop/relay-vault
@@ -245,7 +246,8 @@ services:
               "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
               --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
               --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
-              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required]
+              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required,
+              --semantic-read-pool-max, "1"]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
       - ${NEXLOOP_ROOT:?root}/data/relay-vault-2:/var/lib/nexloop/relay-vault
