@@ -75,6 +75,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'send_outreach':'outreach.send',
     # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
     'decide_outreach_approval':'outreach.approve',
+    'decide_approval':'approvals.decide','cancel_approval':'approvals.cancel',  # NX-056 A1
+    'erase_consumer_on_request':'consumer.erase_on_request',  # NX-056 A5
+    'set_approval_solo_mode':'approvals.solo_mode.set',  # NX-056 A7
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
@@ -402,6 +405,24 @@ class GoalGovernedActions:
             raise ValueError('intent, decision and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_outreach_approval','intent_id':intent_id,'decision':decision,'reason':reason})
 
+    # NX-056 A1: decide one waiting unified Approval (approver checks in SQL) or withdraw one's own; nothing executes here.
+    def decide_approval(self,*,action_name,action_version,request_id,approval_id,decision,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or decision not in ('approve','reject') \
+                or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('approval, decision and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_approval','approval_id':approval_id,'decision':decision,'reason':reason})
+
+    def set_approval_solo_mode(self,*,action_name,action_version,request_id,enabled,reason):
+        # NX-056 A7: the owner's single-person mode switch (SQL: current workbench role owner; append-only events).
+        if type(enabled) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('state and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_approval_solo_mode','enabled':enabled,'reason':reason})
+
+    def cancel_approval(self,*,action_name,action_version,request_id,approval_id,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('approval and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'cancel_approval','approval_id':approval_id,'reason':reason})
+
     # Outreach slice 7: owner only; evidence is the consumer's own inbound message or an offline reference (checked in SQL).
     def record_marketing_consent(self,*,action_name,action_version,request_id,consumer_id,kind,source,reason,message_id=None,evidence_ref=None):
         if (not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or kind not in ('consent_granted','consent_withdrawn','marketing_resumed')
@@ -593,6 +614,12 @@ class GoalGovernedActions:
         return self._submit(action_name,action_version,payload)
 
     # NX-029 (0142): erase a Consumer (blocking at once, purge by the keeper) or one Message; register or release a hold.
+    def erase_consumer_on_request(self,*,action_name,action_version,request_id,consumer_id,reason):
+        # NX-056 A5: confirm a Consumer's own erasure request (SQL refuses without one); not held by the policy of erase_consumer.
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer_on_request','consumer_id':consumer_id,'reason':reason})
+
     def erase_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
         if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('consumer and reason required')

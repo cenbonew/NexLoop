@@ -596,6 +596,11 @@
    "source": "deploy/configuration/business-actions.v1.json"
   },
   {
+   "stable_name": "nexloop.consumer.erase_on_request",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
    "stable_name": "nexloop.message.erase",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
@@ -697,6 +702,21 @@
   },
   {
    "stable_name": "nexloop.outreach.approve",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.approvals.decide",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.approvals.solo_mode.set",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.approvals.cancel",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
   },

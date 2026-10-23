@@ -36,7 +36,7 @@ COMMITMENT_HUMAN={'Commitment.cancel':'commitment.cancel','Commitment.extend':'c
 
 
 NX027_REGISTRY={'nexloop.commitment.bind_commercial':'commitment.bind_commercial','nexloop.cost.record':'cost.record'}
-NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
+NX029_ERASURE={'nexloop.consumer.erase':'consumer.erase','nexloop.consumer.erase_on_request':'consumer.erase_on_request','nexloop.message.erase':'message.erase','nexloop.retention.hold':'retention.hold',
     'nexloop.retention.release_hold':'retention.release_hold','nexloop.consumer.export':'consumer.export'}
 NX030_SILENCE={'nexloop.alert.silence':'alert.silence','nexloop.restore.open_scope':'restore.open_scope'}  # + NX-035 (0147), owner only
 AT043_INCENTIVE={'nexloop.incentive.issue':'incentive.issue'}
@@ -47,7 +47,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.operator_persona.rules_publish':'operator_persona.rules_publish','nexloop.ai_disclosure.set':'ai_disclosure.set',
     'nexloop.contact_preference.dismiss':'contact_preference.dismiss',
     'nexloop.outreach_controls.set':'outreach_controls.set','nexloop.outreach_purposes.set':'outreach_purposes.set',
-    'nexloop.outreach.send':'outreach.send','nexloop.outreach.approve':'outreach.approve','nexloop.marketing_consent.record':'marketing_consent.record','nexloop.object_set.publish':'object_set.publish',
+    'nexloop.outreach.send':'outreach.send','nexloop.outreach.approve':'outreach.approve','nexloop.approvals.decide':'approvals.decide','nexloop.approvals.cancel':'approvals.cancel','nexloop.approvals.solo_mode.set':'approvals.solo_mode.set','nexloop.marketing_consent.record':'marketing_consent.record','nexloop.object_set.publish':'object_set.publish',
     'nexloop.semantic_release.publish':'semantic_release.publish','nexloop.semantic_release.rollback':'semantic_release.rollback','nexloop.semantic_release.stop':'semantic_release.stop','nexloop.object_view.publish':'object_view.publish',
     'nexloop.sim_world.create':'sim_world.create','nexloop.sim_world.delete':'sim_world.delete','nexloop.sim_world.generate':'sim_world.generate','nexloop.sim_clock.control':'sim_clock.control','nexloop.consumer_twin.publish':'consumer_twin.publish','nexloop.consumer_twin.retire':'consumer_twin.retire','nexloop.consumer_twin.erase_text':'consumer_twin.erase_text','nexloop.consumer_twin.calibrate':'consumer_twin.calibrate',
     'nexloop.strategy.publish':'strategy.publish','nexloop.strategy.retire':'strategy.retire','nexloop.experiment.register':'experiment.register',

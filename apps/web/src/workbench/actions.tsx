@@ -9,7 +9,7 @@ import {statusLabel} from './status-labels';
 import {shorten} from './kit';
 import {useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
-import {COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
+import {approvalOutcome,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
 import {Short} from './pages/Page';
@@ -42,6 +42,10 @@ export const DONE_TEXT:Record<Operation,string>={
   send_staff_reply:'已发送给顾客；不代表问题已解决或承诺已兑现。',
   silence_alert:'已静默：期间仍会评估和记录，只是不再提示；到期自动结束。',
   set_real_dispatch:'已提交；开关以重新读取的状态为准。部署层 REAL_DISPATCH_ENABLED 不在工作台控制范围内。',
+  decide_approval:'已记录审批结论；批准后由发起人执行，执行时还会重查批准人资格、期限和暂停。',
+  cancel_approval:'已撤回这条审批请求。',
+  set_approval_solo_mode:'已保存单人模式开关；是否生效以页面顶部的提示为准（需要过去 24 小时内只有你一人有审批资格）。',
+  erase_consumer:'已开始擦除：先阻断联系和计划，删除由保留期服务逐步完成，不可撤销。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -72,7 +76,8 @@ function useWrite(operation:Operation,onDone?:()=>void){
 
 function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof useWrite>}){
   if(write.isPending)return <p role="status">正在提交…</p>;
-  if(write.isSuccess)return <p className="note" role="status">{DONE_TEXT[operation]}</p>;
+  // NX-056: an operation under an approval policy answers with its approval state instead of the plain success text.
+  if(write.isSuccess)return <p className="note" role="status">{approvalOutcome(write.data)??DONE_TEXT[operation]}</p>;
   if(write.isError){const kind=writeKindOf(write.error);
     return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}</p>;}
   return null;

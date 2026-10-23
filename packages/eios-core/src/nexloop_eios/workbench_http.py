@@ -411,6 +411,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'outreach_purposes')
 
+    @routes.get('/approvals')
+    async def approvals(request: Request):
+        # NX-056 A4: the unified approvals of the caller (every workbench member; the rows are their own).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'approvals')
+
     @routes.get('/outreach-approvals')
     async def outreach_approvals(request: Request):
         # Outreach slice 6: the owner's pending approvals (ids, purpose, times, requester).
