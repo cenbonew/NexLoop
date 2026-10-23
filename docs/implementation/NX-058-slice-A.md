@@ -1,6 +1,6 @@
 # NX-058 片 A：负责人邀请成员，以及角色模板实例化（Q-D = C）
 
-依据 `docs/design/account-self-service.md` 第 7 版的 §1、§1c，以及 ADR-020 §3 修订稿。迁移 `0327_workbench_invitations.sql` 用的是临时编号，组批时由调度员重排。
+依据 `docs/design/account-self-service.md` 第 7 版的 §1、§1c，以及 ADR-020 §3 修订稿。迁移 `0335_workbench_invitations.sql` 用的是临时编号，组批时由调度员重排。
 
 ## 做了什么
 
@@ -18,7 +18,7 @@
 
 ## 部署（调度员接手）
 
-1. 迁移 0327（临时编号）。
+1. 迁移 0335（临时编号）。
 2. `stage_secrets.py browser` 注册时，同时带上 `invitation_accept` 限速策略（每个来源 300 秒内 10 次）。
 3. 再执行一次工作台 apply（`workbench_roles.py apply`）：它会在 configure 之后发布三份角色模板。没有模板时，接受邀请会因为 `role_template_missing` 而失败。
 4. 发布新 Action：Action 数 103 → 105；工作台角色 manifest v38，owner 角色 71 个 Action。

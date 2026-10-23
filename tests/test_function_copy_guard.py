@@ -143,7 +143,7 @@ REGISTRY = [
     Allowed('context_v6_reserved_units_volatile', 'authz.nexloop_context_v6_command', 'current_constraints compared without reserved_units',
             ((r"\(case when key='current_constraints' then \(pack->key\)-'reserved_units' else pack->key end\)\s*is distinct from \(case when key='current_constraints' then \(snapshot->key\)-'reserved_units' else snapshot->key end\)",
               'pack->key is distinct from snapshot->key'),)),
-    # 0326 (NX-058 slice B review I-2): the operator reset shares the password write of the owner-issued codes and ends their unused codes.
+    # 0334 (NX-058 slice B review I-2): the operator reset shares the password write of the owner-issued codes and ends their unused codes.
     Allowed('operator_reset_revokes_codes', 'control.nexloop_operator_reset_browser_password',
             'the password write through control.nexloop_browser_password_write (same effect) and every unused reset code revoked; nothing else',
             ((r"body:=control\.nexloop_browser_password_write\(p_tenant,old,p_hash,now_at\);",

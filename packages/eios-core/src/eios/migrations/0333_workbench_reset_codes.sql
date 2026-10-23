@@ -71,7 +71,7 @@ create function control.nexloop_workbench_kick(p_tenant text,p_account control.n
    'revision',(payload->>'revision')::bigint+1,'updated_at',to_jsonb(clock_timestamp()))
   where tenant_id=p_tenant and local_account_id=(p_account).local_account_id $$;
 
--- The password write every reset shares (0198's operator reset since 0326, and the owner-issued code below; design §3, I-2): the new
+-- The password write every reset shares (0198's operator reset since 0334, and the owner-issued code below; design §3, I-2): the new
 -- argon2id hash, the previous one first in the history (at most 10), revision and session_epoch + 1, failures and lockout cleared.
 create function control.nexloop_browser_password_write(p_tenant text,p_account control.nexloop_browser_accounts,p_hash text,p_at timestamptz) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -85,7 +85,7 @@ begin
  return body;
 end $$;
 
--- Every unused code of a subject's account ends (I4): an operator reset (0198, since 0326), a reissue, later a member change.
+-- Every unused code of a subject's account ends (I4): an operator reset (0198, since 0334), a reissue, later a member change.
 create function control.nexloop_workbench_reset_revoke(p_tenant text,p_subject text,p_reason text) returns void
  language sql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
  update control.nexloop_workbench_reset_codes set state='revoked',revoked_reason=p_reason

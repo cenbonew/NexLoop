@@ -1,6 +1,6 @@
 # NX-058 片 B：负责人签发重置码（不依赖邮件）
 
-依据 `docs/design/account-self-service.md` 第 5 版的 §2、§1b、§4。迁移 `0325_workbench_reset_codes.sql` 用的是临时编号，组批时由调度员重排。
+依据 `docs/design/account-self-service.md` 第 5 版的 §2、§1b、§4。迁移 `0333_workbench_reset_codes.sql` 用的是临时编号，组批时由调度员重排。
 
 ## 做了什么
 
@@ -10,12 +10,12 @@
 | 签发时的重查 | 在租户成员锁（`nexloop-approval-eligibility:<tenant>`，与 NX-056 同一把）下重查：签发人仍是 active owner（`issuer_not_owner`，L6 S-1）；同一签发人 15 分钟内最多签发 10 张（`rate_limited`，L6 I-1：被盗的 owner 会话无法反复把成员踢下线）；目标是该租户工作台的 active 成员、不是 owner（否则返回 `target_role_changed`，owner 要用片 C 的 `issue_owner_reset`）、不是请求人本人；同一目标未用的旧码一律撤销；目标账号 `session_epoch+1`，所有会话立即失效；写审计（不含码） |
 | 完成 | `POST /api/v1/workbench/auth/password/reset`，请求体只有 `code` 和 `password`，不需要会话，tenant 取服务端配置。限速：`password_reset_complete` 只按来源计数；口令规则复用 `identity_password_reset.password_problem`，单张码失败 5 次即作废；所有拒绝一律返回 400 `reset_invalid`，用 argon2 假哈希对齐时间；不进入登录锁定计数 |
 | 完成时的重查 | 签发人仍是 active owner，目标仍是 active 非 owner 成员，账号 revision 未变；口令写入与 0198 **共用同一个 SQL 函数** `control.nexloop_browser_password_write`（新哈希、口令历史、`session_epoch+1`、清除锁定）；记一条 login event `owner_issued_password_reset`（含 `same_source_as_issuer`）和一条审计，审计关联签发人与完成人 |
-| 0198 运维重置 | 迁移 `0326_operator_reset_revokes_codes.sql`（临时编号）用 create or replace 重定义 0198 的函数，签名和授权都不变，已登记到 copy guard：改为调用同一个口令写入函数，并撤销该账号所有未用的重置码（原因 `operator_reset`），紧急重置之后旧码立即失效（L6 I-2） |
+| 0198 运维重置 | 迁移 `0334_operator_reset_revokes_codes.sql`（临时编号）用 create or replace 重定义 0198 的函数，签名和授权都不变，已登记到 copy guard：改为调用同一个口令写入函数，并撤销该账号所有未用的重置码（原因 `operator_reset`），紧急重置之后旧码立即失效（L6 I-2） |
 | 告知 | 完成重置后 7 天内，`GET /api/v1/workbench/auth/session` 都带 `reset_notices`，不能关闭；`GET /api/v1/workbench/auth/reset-history` 返回本人最近 90 天的记录 |
 
 ## 部署（调度员 ack 部署路径并上机）
 
-1. 迁移 0325（临时编号）。
+1. 迁移 0333（临时编号）。
 2. 私有密钥 `identity-token.key`：
    - 新生成的密钥树由 `stage_secrets.py generate` 直接写出：`app/secrets/api/identity-token.key`，32 字节随机数写成 64 位十六进制，0600，属于 api；
    - 已有的密钥树用 `stage_secrets.py identity-token-key --out <树>` 补加，不覆盖已有文件，不打印值，并记入 manifest，`check` 通过；
