@@ -48,7 +48,7 @@ revoke all on function control.nexloop_approval_eligible_subjects(text,text[]) f
 
 -- 3. The eligibility timeline ---------------------------------------------------------------------------------------------------
 create table control.nexloop_approval_eligibility_events (
- event_id bigint generated always as identity primary key,tenant_id text not null,world text not null,
+ event_id bigint generated always as identity primary key,tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,
  capability text not null,policy_version integer not null,eligible_count integer not null check(eligible_count>=0),
  subjects_digest text not null check(subjects_digest~'^[0-9a-f]{64}$'),recorded_at timestamptz not null default clock_timestamp(),
  foreign key(capability,policy_version) references control.nexloop_approval_policies(capability,version)
