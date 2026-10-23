@@ -173,11 +173,11 @@ REGISTRY = [
             ((r"\s*when 'api' then array\['calls','errors','slow','p50_ms','p95_ms','max_ms'\]", ''),
              (r"\s*or \(p_kind='api' and p_service not in \('read','write'\)\)", ''),
              (r"\('guard','guard_op','relay_step','api'\)", "('guard','guard_op','relay_step')"))),
-    # NX-057 R0 (0325): the three paths that fail an effect intent write its failure row; nothing else.
+    # NX-057 R0 (effect_failures): the three paths that fail an effect intent write its failure row; nothing else.
     *[Allowed('effect_failures', name, 'NX-057 R0: the failure row (reason and evidence ids) in the same transaction; nothing else',
               ((r'\s*insert into runtime\.nexloop_effect_failures\(.*?\);', ''),))
       for name in ('authz.nexloop_fail_refused_effect', 'authz.nexloop_effect_origin_expired', 'runtime.nexloop_governed_confirm_not_delivered')],
-    # NX-057 R0 (0325): the 0324 snapshot counts the effect outcomes by event time and reads them with the tenant set; nothing else.
+    # NX-057 R0 (effect_failures): the outcome_classes snapshot counts the effect outcomes by event time and reads them with the tenant set; nothing else.
     Allowed('effect_failures', 'runtime.nexloop_metrics_snapshot', 'NX-057 R0: effect outcomes by event time (fulfilled, first unknown, '
             'failure rows), read with the tenant set; refusals and dead letters unchanged',
             ((r"\n prior text:=current_setting\('eios\.tenant_id',true\);", ''),

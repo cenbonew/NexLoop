@@ -1,4 +1,4 @@
-"""EIOS gap B5 (NX-061, 0324) and NX-057 R0 (0325): outcome classes, so that a failure rate counts real failures only. A refusal by
+"""EIOS gap B5 (NX-061, outcome_classes) and NX-057 R0 (effect_failures): outcome classes, so that a failure rate counts real failures only. A refusal by
 rule (contact restriction, the owner's pause, an exhausted budget) is the system working, never a failure; a refused one-reply intent
 that 0152 fails is counted once, under its refusal's class; an effect whose result is unknown is neither (reconcile first); a code
 without a class counts as a failure until it is classified. Since R0 the effect outcomes are counted by the time of their event:
@@ -95,7 +95,7 @@ def test_the_snapshot_counts_by_event_time_and_only_real_failures_in_the_rate(ob
     refused = intent(admin, 'failed')                                # 0152: a refused one-reply intent ends failed ...
     refusal(admin, 'NXC06', intent_id=refused)                       # ... counted once, as the takeover that refused it
     failure(admin, refused, 'refused_one_reply:already_answered', now)
-    expired = intent(admin, 'failed', created=ago(2))                # 0174, made two hours ago: a defect now (0324 missed it)
+    expired = intent(admin, 'failed', created=ago(2))                # 0174, made two hours ago: a defect now (outcome_classes missed it)
     failure(admin, expired, 'origin_expired', now)
     confirmed = intent(admin, 'failed', created=ago(30))             # 0210: unknown for a day, confirmed not delivered now
     event(admin, confirmed, 'unknown', ago(26))
@@ -107,6 +107,8 @@ def test_the_snapshot_counts_by_event_time_and_only_real_failures_in_the_rate(ob
     event(admin, pending, 'unknown', now)
     late = intent(admin, 'unknown', created=ago(3))                  # its first unknown was counted two hours ago, not again
     event(admin, late, 'unknown', ago(2)), event(admin, late, 'unknown', now)
+    quick = intent(admin, 'fulfilled')                               # unknown, then fulfilled within the hour: succeeded only (L6 M-1)
+    event(admin, quick, 'unknown', ago(0.5)), event(admin, quick, 'fulfilled', now)
     for created in (ago(2), now):                                    # fulfilled in the hour, whenever made: succeeded
         event(admin, intent(admin, 'fulfilled', created=created), 'fulfilled', now)
     event(admin, intent(admin, 'fulfilled', created=ago(3)), 'fulfilled', ago(2))  # fulfilled outside the hour
@@ -116,14 +118,14 @@ def test_the_snapshot_counts_by_event_time_and_only_real_failures_in_the_rate(ob
     out = outcomes(admin)
     assert admin.execute("select current_setting('eios.tenant_id',true)").fetchone() == ('',)  # restored
     classes = {k: int(v) for k, v in out['classes'].items()}
-    assert classes == {'conflict_protected': 4, 'transient': 2, 'authorization': 1, 'defect': 3, 'outcome_unknown': 1, 'succeeded': 2}
-    assert int(out['decided']) == 13 and int(out['failures']) == 6
-    assert float(out['failure_rate']) == round(6 / 13, 4) and float(out['failure_rate_counting_refusals']) == round(10 / 13, 4)
+    assert classes == {'conflict_protected': 4, 'transient': 2, 'authorization': 1, 'defect': 3, 'outcome_unknown': 1, 'succeeded': 3}
+    assert int(out['decided']) == 14 and int(out['failures']) == 6
+    assert float(out['failure_rate']) == round(6 / 14, 4) and float(out['failure_rate_counting_refusals']) == round(10 / 14, 4)
     # A new code nobody classified counts as a failure (fail closed) and is shown as unresolved.
     admin.execute("insert into control.nexloop_dispatch_refusal_codes values ('NXZ99','synthetic_unclassified')")
     refusal(admin, 'NXZ99')
     out = outcomes(admin)
-    assert int(out['unresolved']) == 1 and int(out['failures']) == 7 and float(out['failure_rate']) == 0.5
+    assert int(out['unresolved']) == 1 and int(out['failures']) == 7 and float(out['failure_rate']) == round(7 / 15, 4)
 
 
 def test_an_intent_failed_without_its_failure_row_is_refused_at_commit(observed):  # noqa: F811

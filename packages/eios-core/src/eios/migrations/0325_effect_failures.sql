@@ -9,8 +9,8 @@
 --    The effect event table is unchanged. A deferred constraint trigger holds the rule at commit: an intent set failed without its
 --    failure row is refused, so a later fourth path cannot fail an intent silently. A failure is a fact of a real effect intent:
 --    declared guarded in control.nexloop_real_effect_tables (no simulation or shadow row).
--- 2. The 0324 snapshot wrapper re-created: the effect part of `outcomes` is counted by event time, numerator and denominator alike
---    (succeeded = fulfilled in the hour, outcome_unknown = first unknown in the hour, defect = a failure row of reason
+-- 2. The outcome_classes snapshot wrapper re-created: the effect part of `outcomes` is counted by event time, numerator and denominator alike
+--    (succeeded = fulfilled in the hour, outcome_unknown = first unknown in the hour and not fulfilled in it, defect = a failure row of reason
 --    origin_expired or confirmed_not_delivered recorded in the hour); the count of intents by created_at is gone. Refusals and
 --    dead letters unchanged. The effect tables are read with the tenant set (FORCE RLS), restored afterwards.
 create table runtime.nexloop_effect_failures (
@@ -36,6 +36,10 @@ insert into control.nexloop_real_effect_tables(table_name,guarded,reason) values
  ('runtime.nexloop_effect_failures',true,'the final failure of a real effect intent and its evidence (NX-057 R0)');
 alter table runtime.nexloop_effect_failures add constraint nx041_real_effect_world
  check(coalesce(runtime.nexloop_world_kind(world),'') not in ('simulation','shadow'));
+
+-- The snapshot reads effect events by kind in a window and per intent (L6 M-3); the table had only its primary key.
+create index nexloop_effect_events_recent on runtime.nexloop_effect_events(tenant_id,world,event_kind,created_at);
+create index nexloop_effect_events_intent on runtime.nexloop_effect_events(intent_id,event_kind,created_at);
 
 create function runtime.nexloop_effect_failure_required() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -162,7 +166,7 @@ begin
   'reply_followup',v_followup,'outbound_state',v_state);
 end $$;
 
--- The snapshot wrapper of 0324 (registered in the copy guard).
+-- The snapshot wrapper of outcome_classes (registered in the copy guard).
 create or replace function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare s jsonb:=runtime.nexloop_metrics_snapshot_before_outcomes(p_tenant,p_world);now_at timestamptz:=clock_timestamp();
@@ -174,7 +178,7 @@ begin
    select coalesce(c.outcome_class,'unresolved') k,count(*) n from runtime.nexloop_dispatch_refusals r
     left join control.nexloop_outcome_code_classes c on c.code=r.code
     where r.tenant_id=p_tenant and r.world=p_world and r.recorded_at>now_at-interval '1 hour' group by 1),
-  -- NX-057 R0: the effect outcomes by the time of their event, numerator and denominator alike (the 0324 count by the intent's
+  -- NX-057 R0: the effect outcomes by the time of their event, numerator and denominator alike (the outcome_classes count by the intent's
   -- created_at missed every failure decided later than an hour after the intent was made, and counted a failed intent with a
   -- refusal of its own once more): an intent fulfilled in the hour, an intent whose first unknown came in the hour, and a final
   -- failure recorded in the hour whose reason is a defect (a refused one-reply intent is already counted under its refusal).
@@ -182,9 +186,13 @@ begin
    select 'succeeded' k,count(distinct e.intent_id) n from runtime.nexloop_effect_events e
     where e.tenant_id=p_tenant and e.world=p_world and e.event_kind='fulfilled' and e.created_at>now_at-interval '1 hour'
    union all
-   select 'outcome_unknown',count(*) from (select e.intent_id from runtime.nexloop_effect_events e
-     where e.tenant_id=p_tenant and e.world=p_world and e.event_kind='unknown' group by e.intent_id
-     having min(e.created_at)>now_at-interval '1 hour') u
+   -- The first unknown of an intent (no earlier one), in the hour, unless it was fulfilled in the same hour: counted once (L6 M-1);
+   -- bounded by the window and served by the two event indexes of this migration (L6 M-3).
+   select 'outcome_unknown',count(distinct e.intent_id) from runtime.nexloop_effect_events e
+    where e.tenant_id=p_tenant and e.world=p_world and e.event_kind='unknown' and e.created_at>now_at-interval '1 hour'
+     and not exists(select 1 from runtime.nexloop_effect_events x where x.intent_id=e.intent_id and x.event_kind='unknown' and x.created_at<e.created_at)
+     and not exists(select 1 from runtime.nexloop_effect_events x where x.intent_id=e.intent_id and x.event_kind='fulfilled'
+      and x.created_at>now_at-interval '1 hour')
    union all
    select 'defect',count(*) from runtime.nexloop_effect_failures f
     where f.tenant_id=p_tenant and f.world=p_world and f.reason_code in ('origin_expired','confirmed_not_delivered')
