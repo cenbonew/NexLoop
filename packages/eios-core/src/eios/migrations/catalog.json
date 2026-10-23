@@ -1622,8 +1622,8 @@
       "sha256": "d3c0b97856d5f9a0f345ae0ced375208c4a38e6ff8d1f7e24fb923bc9cdab754"
     },
     {
-      "version": "0325",
-      "name": "0325_relation_publish_reads.sql",
+      "version": "0336",
+      "name": "0336_relation_publish_reads.sql",
       "sha256": "acd1ce37c2092f17b9851ea61a6661746c2951f3762e8060aeb998cc2abb78d0"
     }
   ]

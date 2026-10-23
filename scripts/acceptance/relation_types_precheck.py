@@ -4,7 +4,7 @@
     python3 scripts/acceptance/relation_types_precheck.py --dsn-file <nexloop_metrics DSN, 0600> --tenant <TENANT_ID>
 
 As the read-only metrics login (relation_reads.connect_metrics: role checked, statement timeout 60 s), one call of
-authz.nexloop_relation_precheck (0325) with the first batch (nexloop_eios.relation_catalog.FIRST_BATCH). Counts only - no id,
+authz.nexloop_relation_precheck (0336) with the first batch (nexloop_eios.relation_catalog.FIRST_BATCH). Counts only - no id,
 property value or business content:
   fields      per first-batch relation type and world: objects, with the property, 64-hex values, erasure pseudonyms, targets in
               the same world, in another world, dangling, distinct targets, values shared by several sources

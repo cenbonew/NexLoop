@@ -1,5 +1,5 @@
 """NX-054 stage publication runbook tools (docs/implementation/NX-054-stage-publish.md), on the P1/P2 fixture: the read-only
-precheck and timings as the read-only metrics login (0325 functions; L6 review R-2), the publication through the configurator
+precheck and timings as the read-only metrics login (0336 functions; L6 review R-2), the publication through the configurator
 window with its rollback - a new version without source_property stops the derivation, a later one resumes it, an older
 --from-version is refused (R-1) - and the timing of a real erasure run to completion by the keeper (R-3)."""
 import contextlib
@@ -122,7 +122,7 @@ def test_the_precheck_reports_counts_and_what_blocks(catalog):  # noqa: F811
 
 
 def test_the_reads_run_as_the_read_only_metrics_login_only(catalog):  # noqa: F811
-    """R-2: the server's read-only identity - the metrics login executes the 0325 functions and nothing else; another login is
+    """R-2: the server's read-only identity - the metrics login executes the 0336 functions and nothing else; another login is
     refused by the tools; every query runs under a statement timeout."""
     c = catalog
     admin = c['admin']

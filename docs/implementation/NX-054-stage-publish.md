@@ -6,8 +6,8 @@
 
 | 用途 | 脚本 | 连接 |
 | --- | --- | --- |
-| 只读预检 | `scripts/acceptance/relation_types_precheck.py` → `authz.nexloop_relation_precheck`（0325） | 只读的 metrics 登录 `nexloop_metrics`：服务端强制只读，只能执行函数、对任何表都没有权限；工具核对会话身份，并设 statement_timeout 60s、lock_timeout 3s |
-| 基线测量 | `scripts/acceptance/relation_derive_timing.py` → `authz.nexloop_relation_erasure_timing` / `authz.nexloop_relation_relay_p95`（0325）；`scripts/deploy/sim_world.py generate`；`scripts/acceptance/synthetic_customer.py`；`scripts/deploy/erase_synthetic_consumer.py` | 计时用 `nexloop_metrics`（同上）；后三个是负责人工作台与合成顾客的既有入口 |
+| 只读预检 | `scripts/acceptance/relation_types_precheck.py` → `authz.nexloop_relation_precheck`（0336） | 只读的 metrics 登录 `nexloop_metrics`：服务端强制只读，只能执行函数、对任何表都没有权限；工具核对会话身份，并设 statement_timeout 60s、lock_timeout 3s |
+| 基线测量 | `scripts/acceptance/relation_derive_timing.py` → `authz.nexloop_relation_erasure_timing` / `authz.nexloop_relation_relay_p95`（0336）；`scripts/deploy/sim_world.py generate`；`scripts/acceptance/synthetic_customer.py`；`scripts/deploy/erase_synthetic_consumer.py` | 计时用 `nexloop_metrics`（同上）；后三个是负责人工作台与合成顾客的既有入口 |
 | 发布与回退 | `scripts/deploy/relation_types_publish.py` | configurator 登录窗口（由 bootstrap socket DSN 打开，只在这一次调用期间可登录） |
 
 ## 0. 准备（DATA_HOST，私有临时目录 `$RUN`，与 run-34 §1.4 相同的形态）
@@ -30,7 +30,7 @@ COMMON="--rm --network none --read-only --user 999:999 --cap-drop ALL --security
 
   如果 M9 已经把 bootstrap 设为 NOLOGIN，按 M9 的窗口规则临时恢复，执行完再恢复 NOLOGIN。
 
-前提：迁移 0325（这几个只读函数）已经应用。预检和计时不使用 bootstrap 口令（L6 复核 R-2）。
+前提：迁移 0336（这几个只读函数）已经应用。预检和计时不使用 bootstrap 口令（L6 复核 R-2）。
 
 ## 1. 只读预检（P1 §3）
 
