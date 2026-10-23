@@ -145,6 +145,9 @@ def test_the_owner_confirms_not_delivered_only_on_evidence_after_the_wait(owner_
     body = done.json()
     assert body['intent_state'] == 'failed' and body['kind'] == 'confirmed_not_delivered' and body['reply_followup'] == 'none'
     assert states(admin, intent) == ('failed', 'failed')
+    # NX-057 R0: the failure row in the same transaction, with the determination as its evidence.
+    assert admin.execute("select reason_code,evidence->>'determination_id' from runtime.nexloop_effect_failures where intent_id=%s",
+                         (intent,)).fetchall() == [('confirmed_not_delivered', str(body['determination_id']))]
     assert admin.execute(over_24h, (tenant,)).fetchone()[0] == before - 1
     assert admin.execute('select count(*),max(attempt_revision) from runtime.nexloop_effect_attempts where intent_id=%s', (intent,)).fetchone() == attempts  # nothing sent
     row = admin.execute('select kind,confirmation_ref,reason,provider_retention_checked,decided_by is not null from runtime.nexloop_effect_determinations where intent_id=%s',
@@ -162,6 +165,7 @@ def test_the_owner_confirms_not_delivered_only_on_evidence_after_the_wait(owner_
         admin.execute("update runtime.nexloop_effect_determinations set reason='x' where intent_id=%s", (intent,))
     for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_configurator'):
         assert admin.execute("select has_table_privilege(%s,'runtime.nexloop_effect_determinations','select')", (role,)).fetchone() == (False,)
+        assert admin.execute("select has_table_privilege(%s,'runtime.nexloop_effect_failures','select')", (role,)).fetchone() == (False,)
         assert admin.execute("select has_function_privilege(%s,'runtime.nexloop_governed_confirm_not_delivered(text,text,text,text,text,jsonb)','execute')",
                              (role,)).fetchone() == (False,)
 

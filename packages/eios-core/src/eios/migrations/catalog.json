@@ -1620,6 +1620,11 @@
       "version": "0324",
       "name": "0324_outcome_classes.sql",
       "sha256": "d3c0b97856d5f9a0f345ae0ced375208c4a38e6ff8d1f7e24fb923bc9cdab754"
+    },
+    {
+      "version": "0325",
+      "name": "0325_effect_failures.sql",
+      "sha256": "6c56e52d869aaf14158c079b2a1fc30865de74b61fc4e33bc82a984135b8a4a7"
     }
   ]
 }

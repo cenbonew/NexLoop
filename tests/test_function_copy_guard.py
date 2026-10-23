@@ -173,6 +173,23 @@ REGISTRY = [
             ((r"\s*when 'api' then array\['calls','errors','slow','p50_ms','p95_ms','max_ms'\]", ''),
              (r"\s*or \(p_kind='api' and p_service not in \('read','write'\)\)", ''),
              (r"\('guard','guard_op','relay_step','api'\)", "('guard','guard_op','relay_step')"))),
+    # NX-057 R0 (effect_failures): the three paths that fail an effect intent write its failure row; nothing else.
+    *[Allowed('effect_failures', name, 'NX-057 R0: the failure row (reason and evidence ids) in the same transaction; nothing else',
+              ((r'\s*insert into runtime\.nexloop_effect_failures\(.*?\);', ''),))
+      for name in ('authz.nexloop_fail_refused_effect', 'authz.nexloop_effect_origin_expired', 'runtime.nexloop_governed_confirm_not_delivered')],
+    # NX-057 R0 (effect_failures): the outcome_classes snapshot counts the effect outcomes by event time and reads them with the tenant set; nothing else.
+    Allowed('effect_failures', 'runtime.nexloop_metrics_snapshot', 'NX-057 R0: effect outcomes by event time (fulfilled, first unknown, '
+            'failure rows), read with the tenant set; refusals and dead letters unchanged',
+            ((r"\n prior text:=current_setting\('eios\.tenant_id',true\);", ''),
+             (r"\n perform set_config\('eios\.tenant_id',p_tenant,true\);", ''),
+             (r"\n perform set_config\('eios\.tenant_id',coalesce\(prior,''\),true\);", ''),
+             (r"intents as \(\s*select 'succeeded' k,count\(distinct e\.intent_id\) n from runtime\.nexloop_effect_events e.*?"
+              r"f\.recorded_at>now_at-interval '1 hour'\),",
+              "intents as (select case i.state when 'fulfilled' then 'succeeded' when 'confirmed' then 'succeeded' when 'unknown' then "
+              "'outcome_unknown' when 'failed' then 'defect' end k,count(*) n from runtime.nexloop_effect_intents i where i.tenant_id=p_tenant "
+              "and i.world=p_world and i.created_at>now_at-interval '1 hour' and i.state in ('fulfilled','confirmed','unknown','failed') and not "
+              "(i.state='failed' and exists(select 1 from runtime.nexloop_dispatch_refusals r where r.tenant_id=i.tenant_id and r.world=i.world "
+              "and r.intent_id=i.intent_id)) group by 1),"))),
     # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
     Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
             ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),

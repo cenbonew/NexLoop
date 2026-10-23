@@ -119,6 +119,10 @@ def test_explicitly_failed_reply_gets_the_fallback(assembled_message, admin, tmp
         agent_intent = c['receipts'][0]['intent_id']
         with admin.transaction():  # ledger state injection: the provider reported a definite failure for the reply
             admin.execute("update runtime.nexloop_effect_outbox set state='failed' where intent_id=%s", (agent_intent,))
+            # NX-057 R0: a failed intent carries its failure row (the deferred check refuses one without it at commit).
+            admin.execute("""insert into runtime.nexloop_effect_failures(intent_id,tenant_id,world,reason_code,evidence)
+                select intent_id,tenant_id,world,'confirmed_not_delivered','{"injected":"ledger state"}' from runtime.nexloop_effect_intents
+                where intent_id=%s""", (agent_intent,))
             admin.execute("update runtime.nexloop_effect_intents set state='failed' where intent_id=%s", (agent_intent,))
         assert outbound(admin, c['tenant'])[0][1] == 'failed'
         with guarantor(c, admin, tmp_path, token, policy=POLICY) as g:
