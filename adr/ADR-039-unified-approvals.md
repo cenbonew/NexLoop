@@ -7,7 +7,7 @@
 - 设计稿 `docs/design/unified-approvals.md` 第 5 版及其补充（第 15–17 节）；L6 复核 `build/unified-approvals-review.md` 追加 1–9，以及 A2 的深审；
 - 安全不变式“只有受治理的 EIOS Action 可改正式业务对象”“权限在派发时按现行状态重查”（AGENTS.md）；
 - ADR-006（上游 vendored）、ADR-020（受信配置发布 Action）、NX-022（受治理入口 0124）、NX-029（保留期与擦除）、NX-058（成员与角色历史：Z1、`role_history`）；
-- 迁移（临时编号，组批时重编；本分支合并第二十二批后为 0325–0331）：审批存储、受治理入口的审批闸门、过期清扫与指标、工作台视图、首批策略的前提与受信配置、保留期与擦除、单人模式；
+- 迁移（临时编号，组批时重编；本分支合并第二十二批后为 0331–0332）：审批存储、受治理入口的审批闸门、过期清扫与指标、工作台视图、首批策略的前提与受信配置、保留期与擦除、单人模式；
 - 受信配置 `deploy/configuration/approval-policies.v1.json`，发布命令 `scripts/deploy/approval_policies_apply.py`，运行手册 `docs/implementation/approval-policies.md`。
 
 ## 1. 背景
@@ -48,7 +48,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
    - 之后效应派发时的各项重查照常进行，包括 real 派发开关、联系约束和预算。
    - 系统中不存在“代他人执行”的函数。
 
-3. **接合点只在 SQL 受治理入口（0124 → 0322）。** 目录中的 `approval_mode` 保持 none；效应门、Python governor 和 ApprovalPort 都不改，也不放宽。
+3. **接合点只在 SQL 受治理入口（0124 → 0327）。** 目录中的 `approval_mode` 保持 none；效应门、Python governor 和 ApprovalPort 都不改，也不放宽。
 
 4. **执行语义**：
    - 处理函数在保存点中执行。处理函数拒绝时审批仍算已消费，结果记为 `execution_refused:<sqlstate>`，不自动重新发起。暂时性错误（40001、40P01、55P03、57014、53xxx、08xxx、57P0x）重新抛出，审批不被消费。

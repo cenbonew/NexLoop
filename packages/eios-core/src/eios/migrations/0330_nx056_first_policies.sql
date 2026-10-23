@@ -9,7 +9,7 @@
 --    is unchanged (it still confirms a pending request too - under its policy).
 -- 2. control.nexloop_configure_approval_policies: trusted configuration (session nexloop_configurator only) of
 --    deploy/configuration/approval-policies.v<N>.json, given as its exact text and sha256 (scripts/deploy/approval_policies_apply.py).
---    Per policy: a new version is appended (the 0321 guard checks it); the current version given again must be identical; an older
+--    Per policy: a new version is appended (the 0326 guard checks it); the current version given again must be identical; an older
 --    version is refused. A capability absent from the manifest keeps its current policy (append-only; no removal in this version).
 --    Each applied manifest is recorded with its sha256 and expected revision (the 0050 rule), so a policy traces to its file.
 
@@ -99,7 +99,7 @@ begin
    n_same:=n_same+1;
    continue;
   end if;
-  -- A new version (the 0321 guard: human governed capability, not approvals.*, versions only grow, the capability's summary list).
+  -- A new version (the 0326 guard: human governed capability, not approvals.*, versions only grow, the capability's summary list).
   insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,summary_fields,
     target_subject_field,solo_mode,published_by)
    values(p->>'capability',(p->>'version')::integer,(p->>'action_version')::integer,case when jsonb_typeof(p->'condition')='null' then null else p->'condition' end,

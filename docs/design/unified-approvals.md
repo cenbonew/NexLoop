@@ -392,9 +392,9 @@ request_digest = sha256(canonical_v1({
   - NX-056 的资格时间线（第 15 节）仍然只记人数和 subject 集合摘要，不为此加字段。
   - **接口约定**：NX-056 读取 `role_history` 中某个 subject 在某个 **(tenant, world)** 下当前这段连续持有批准角色（策略 `approver_roles` 中任一）的起点。参数为 `(tenant, world, subject, approver_roles)`，返回起点时间，从未持有或当前不持有时返回 null。与 role_history 的 (tenant, world) 划分一致（L6：原文缺 world）。NX-058 片 C 落地后对接。在此之前不启用投票冷却，现行资格检查不变。
 - **策略条件语法不扩展**：只支持“请求体字段 = 常量”。需要“与当前值比较”的场景，按 NX-058 的做法拆出专用 Action，由服务端在执行时重查当前状态；如果确实需要扩展条件语法，先交调度员，不直接做。
-- **summary_fields 不得包含 Consumer 标识或自由文本**：所有有资格的批准人都看得到摘要。Python 校验和 0321 的策略守护都会拒绝名字里带 consumer、principal、subject、customer、identity，或 reason、basis、text、body、message、note、description、quote、comment、name、email、phone 的字段。批准人靠 digest 和这些字段判断，自由文本留在请求人自己的“我发起的”记录里。
+- **summary_fields 不得包含 Consumer 标识或自由文本**：所有有资格的批准人都看得到摘要。Python 校验和 0326 的策略守护都会拒绝名字里带 consumer、principal、subject、customer、identity，或 reason、basis、text、body、message、note、description、quote、comment、name、email、phone 的字段。批准人靠 digest 和这些字段判断，自由文本留在请求人自己的“我发起的”记录里。
 - **执行入口**：工作台只能执行它自己能构造的请求体。也就是说，操作必须在工作台的 OPERATIONS 中，而且冻结请求体的键不能超出这个操作的字段。不满足时，视图返回 `inputs: null`，页面提示改用发起时的入口执行，不会出现反复 422 的情况。例如 `retention.release_hold` 不是工作台操作，它的请求从受治理 API 客户端发起，执行也在那里完成（同一请求体，新的 request_id）。
-- **擦除和保留期改写请求体**：两者都只能在本事务为请求表开启的擦除作用域内进行，并且只改请求体。0321 的守护先判断这条路径，再检查“已消费不可改”，所以已消费的行同样可以被假名化或删去正文。
+- **擦除和保留期改写请求体**：两者都只能在本事务为请求表开启的擦除作用域内进行，并且只改请求体。0326 的守护先判断这条路径，再检查“已消费不可改”，所以已消费的行同样可以被假名化或删去正文。
 
 - **N-1 补充（调度员 2026-10-23）**：消费事务也先取租户 advisory lock，再对审批行执行 `select … for update`，与上面的加锁顺序一致（A7 随单人模式一起加上这把锁；在此之前，行锁加消费表主键已能保证只执行一次）。
 - **目标成员不参与批准（NX-058 Z1）**：审批的对象是某位成员时（例如对 owner 降级、停用、撤销、签发重置码、恢复），这位成员不能参与批准。

@@ -70,7 +70,7 @@
 上机由调度员执行。变量和两种一次性容器（`$COMMON`、`$WINDOW`、`$APPTOOL`、`$BACKEND_IMAGE`、`$TENANT_ID`、`$KEY_ID`、`$RUN`、`$APP_RUN`）沿用 `docs/release/run-assembly-20261015.md` §0.2、§0.3；源码树按 §0.4 分发本批的发布 checkout。账号的用户名和口令都由调度员生成，存入钥匙串（`nexloop/…` 条目，值不进仓库、不进文档、不进证据）。
 
 1. **备份**（DATA_HOST）：`sudo -n systemctl start nexloop-pg-diff.service`，确认这次运行成功（`systemctl status` 和备份目录的新时间戳）。没有经过验证的备份，不做迁移。
-2. **迁移**：本批的迁移（NX-056 的临时 0325–0331，组批时会重新编号）随发布一起执行，按该批的部署单进行。迁移之后，审批存储、闸门、视图和单人模式的表都在，但还没有策略，任何能力都不需要审批。
+2. **迁移**：本批的迁移（NX-056 的临时 0331–0332，组批时会重新编号）随发布一起执行，按该批的部署单进行。迁移之后，审批存储、闸门、视图和单人模式的表都在，但还没有策略，任何能力都不需要审批。
 3. **发布新的 Action**（DATA_HOST，配置员窗口；`docs/release/run-41-20261015.md` §3a.2 的形态）。本批新增 `nexloop.approvals.decide`、`nexloop.approvals.cancel`、`nexloop.consumer.erase_on_request`、`nexloop.approvals.solo_mode.set`。不发布的话，工作台调用会 404（`published action unavailable`）。
 
    ```

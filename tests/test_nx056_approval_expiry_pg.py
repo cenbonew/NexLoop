@@ -1,4 +1,4 @@
-"""NX-056 A3 (docs/design/unified-approvals.md v5 §7, §8; 0323, alert rules v14): the expiry sweep and the approval alerts.
+"""NX-056 A3 (docs/design/unified-approvals.md v5 §7, §8; 0328, alert rules v14): the expiry sweep and the approval alerts.
 
 The sweep only ends waiting requests past due_by (never executes one; idempotent; the upstream ApprovalExpirySweeper's contract),
 it runs in the retention keeper's tick through its signed port, and the 'approvals' metrics block (counts and ages only) drives

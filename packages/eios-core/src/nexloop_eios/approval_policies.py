@@ -1,7 +1,7 @@
 """NX-056 A5 (docs/design/unified-approvals.md v5 §3): the approval policies as trusted configuration.
 
 deploy/configuration/approval-policies.v<N>.json is checked here before connecting (the same constraints SQL enforces again:
-control.nexloop_configure_approval_policies and the 0321 policy guard) and applied by the technical configurator only, as the file's
+control.nexloop_configure_approval_policies and the 0326 policy guard) and applied by the technical configurator only, as the file's
 exact text: SQL records its sha256 (equal to sha256sum of the file) and the expected revision (the last applied manifest version,
 0 before the first). A policy is append-only: a changed policy is a new version of it; the current version given again is unchanged.
 """
@@ -15,10 +15,10 @@ SCHEMA = 'nexloop-approval-policies/1'
 ROLES = ('owner', 'operator', 'reviewer')
 _CAPABILITY = re.compile(r'[a-z][a-z0-9_]{0,63}(\.[a-z][a-z0-9_]{0,63}){1,3}')
 _FIELD = re.compile(r'[a-z][a-z0-9_]{0,63}')
-# Summary fields are shown to every approver: never a Consumer identifier or free text (L6 review 7; the same rule as the 0321 guard).
+# Summary fields are shown to every approver: never a Consumer identifier or free text (L6 review 7; the same rule as the 0326 guard).
 _IDENTIFYING = re.compile(r'(^|.*_)(consumer|principal|subject|customer|identity)(_.*|$)')
 _FREE_TEXT = re.compile(r'(^|.*_)(reason|basis|text|body|message|note|notes|description|quote|comment|name|email|phone)(_.*|$)')
-# The fields each capability's policy may show to every approver (the same list as control.nexloop_approval_summary_allowed, 0321).
+# The fields each capability's policy may show to every approver (the same list as control.nexloop_approval_summary_allowed, 0326).
 SUMMARY_ALLOWED = {'real_dispatch.set': ('scope_kind', 'enabled', 'data_mode', 'action_type'), 'retention.release_hold': (),
                    'consumer.erase': (), 'incentive.issue': ('amount_minor', 'currency', 'offering_revision')}
 _KEYS = {'capability', 'version', 'action_version', 'condition', 'quorum', 'approver_roles', 'expires_after_seconds', 'summary_fields'}

@@ -14,13 +14,13 @@
 --    (approval.eligibility_reduced) for the alert approval_solo_mode (design §15: a removed approver role is part of the sequence).
 -- 4. control.nexloop_approval_solo_mode_events (append-only): the owner's switch per (tenant, world), with a reason; the latest row
 --    decides. Governed human capability approvals.solo_mode.set (operation set_approval_solo_mode; the caller's current workbench role
---    must be owner; not under any approval policy - 0321 refuses approvals.*).
+--    must be owner; not under any approval policy - 0326 refuses approvals.*).
 -- 5. control.nexloop_approval_solo_effective(tenant, world, policy, requester): the mode is on, the policy allows it (solo_mode allowed),
 --    the eligible subjects now are exactly the requester, and the policy's timeline covers the last 24 hours with the requester alone
 --    throughout - one subjects digest, the requester's, in the last record at or before the window start and in every record inside it
 --    (no record that old: not effective; L6 review 11: removing A and adding B does not let B approve alone before 24 hours).
 --    Computed now, server time, under the tenant lock, at each self-approval and at each consumption (S-I1: a self vote counts only
---    while the mode is effective at consumption). 0321 (decide, open) and 0322 (gate) call it.
+--    while the mode is effective at consumption). 0326 (decide, open) and 0327 (gate) call it.
 
 create function control.nexloop_approval_tenant_lock(p_tenant text) returns void
  language sql security definer set search_path=pg_catalog,pg_temp as $$

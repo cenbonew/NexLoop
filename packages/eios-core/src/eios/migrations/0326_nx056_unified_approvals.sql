@@ -133,7 +133,7 @@ alter table control.nexloop_approval_requests force row level security;
 create policy tenant_boundary on control.nexloop_approval_requests to nexloop_owner
  using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
 revoke all on control.nexloop_approval_requests from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
--- The same JSON value with some whole strings replaced by pseudonyms (the erasure's only change of a frozen body, 0326).
+-- The same JSON value with some whole strings replaced by pseudonyms (the erasure's only change of a frozen body, 0331).
 create function control.nexloop_approval_pseudonymised(p_old jsonb,p_new jsonb) returns boolean
  language plpgsql immutable set search_path=pg_catalog,pg_temp as $$
 declare k text;i integer;
@@ -162,7 +162,7 @@ revoke all on function control.nexloop_approval_pseudonymised(jsonb,jsonb) from 
 create function control.nexloop_approval_request_guard() returns trigger language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if tg_op='DELETE' then raise exception 'approval requests are deleted only by retention' using errcode='42501';end if;
- -- Erasure and retention (A5, 0326): only the body changes (pseudonymised or redacted), inside an erasure scope this transaction
+ -- Erasure and retention (A5, 0331): only the body changes (pseudonymised or redacted), inside an erasure scope this transaction
  -- opened for this table and column; nothing else, not even the revision.
  if new.body is distinct from old.body and exists(select 1 from control.nexloop_erasure_scope s where s.txid=txid_current()
    and s.table_name='control.nexloop_approval_requests' and 'body'=any(s.columns)) then
@@ -355,7 +355,7 @@ begin
   raise exception 'approval: invalid' using errcode='22023';end if;
  if p_subject is distinct from 'human' then raise exception 'approval: approver_unauthorized' using errcode='42501';end if;
  v_approval:=(body->>'approval_id')::uuid;
- perform control.nexloop_approval_tenant_lock(p_tenant);  -- lock order (design §16): the tenant lock, then the request row (A7, 0327)
+ perform control.nexloop_approval_tenant_lock(p_tenant);  -- lock order (design §16): the tenant lock, then the request row (A7, 0332)
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into r from control.nexloop_approval_requests where tenant_id=p_tenant and world=p_world and approval_id=v_approval for update;
  if not found then raise exception 'approval: not_found' using errcode='22023';end if;
@@ -365,7 +365,7 @@ begin
  select * into prior from control.nexloop_approval_decisions d where d.tenant_id=p_tenant and d.world=p_world and d.approval_id=r.approval_id
   and d.actor_subject=v_subject and d.outcome=v_outcome;
  if found then
-  -- A request that went back to waiting (a vote stopped counting, 0322) is approved again when the votes that count now reach the
+  -- A request that went back to waiting (a vote stopped counting, 0327) is approved again when the votes that count now reach the
   -- quorum - e.g. the single-person mode takes effect again (A7); otherwise the same decision replays.
   if r.status='waiting_approval' and v_outcome='approved' and r.due_by>clock_timestamp() then
    select * into pol from control.nexloop_approval_policies where capability=r.capability and version=r.policy_version;

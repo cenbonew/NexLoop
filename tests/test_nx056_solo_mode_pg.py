@@ -1,4 +1,4 @@
-"""NX-056 A7 (docs/design/unified-approvals.md v5 §15-17; 0327): the single-person mode on a clean catalog.
+"""NX-056 A7 (docs/design/unified-approvals.md v5 §15-17; 0332): the single-person mode on a clean catalog.
 
 A tenant whose only eligible approver is the requester: the owner switches the mode on (append-only events), and a self vote counts
 only while the mode takes effect - the switch on, exactly the requester eligible now, and the policy's eligibility timeline covering

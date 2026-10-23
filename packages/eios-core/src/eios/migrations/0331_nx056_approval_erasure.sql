@@ -4,14 +4,14 @@
 -- 1. Retention: a request's frozen body lives as long as governance audit records (retention class governance_audit, 365 days by
 --    default) after the request ended (its due_by; every request is terminal or consumed by then). control.nexloop_approval_redact_due
 --    replaces the body by {operation, redacted: true} - ids, digest, status, decisions and the consumption stay - bounded, oldest first,
---    with a tombstone per pass. The retention keeper's 'approvals_expire' verb (0323) runs it after the expiry sweep.
+--    with a tombstone per pass. The retention keeper's 'approvals_expire' verb (0328) runs it after the expiry sweep.
 -- 2. Erasure: when a Consumer's erasure completes (not with a retention hold; the same rule as 0307), every request body that names
 --    the Consumer's id as a whole JSON string has it replaced by one pseudonym of this step (consumer.erase bodies and any other
 --    capability's), whatever the request's status; a tombstone records the count (its subject key is the keyed HMAC, 0308).
 -- 3. Erasure start (L6 review 8): when a Consumer's erasure starts blocking, the requests still waiting or approved and unconsumed
 --    whose body names the Consumer end (expired, reason consumer_erased) - except the one being executed right now (the approved
---    consumer.erase whose handler starts this erasure; nexloop.approval_in_flight, 0322).
--- 1 and 2 write the body only, inside an erasure scope for this table, as the owner (the 0321 guard allows nothing else).
+--    consumer.erase whose handler starts this erasure; nexloop.approval_in_flight, 0327).
+-- 1 and 2 write the body only, inside an erasure scope for this table, as the owner (the 0326 guard allows nothing else).
 
 create function control.nexloop_approval_redact_due(p_tenant text,p_world text,p_limit integer) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$

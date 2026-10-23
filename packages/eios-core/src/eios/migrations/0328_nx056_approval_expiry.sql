@@ -3,7 +3,7 @@
 --
 -- 1. control.nexloop_approval_expire_due: the tenant's requests past due_by that are still waiting, or approved and never consumed
 --    (L6 A3 review important 2: an approved one past due_by can no longer be executed and must not linger), oldest first, bounded,
---    each ended through control.nexloop_approval_expire (0321: -> expired, a system decision, audit approval.expired). It only ends a
+--    each ended through control.nexloop_approval_expire (0326: -> expired, a system decision, audit approval.expired). It only ends a
 --    request; nothing is ever executed (the upstream ApprovalExpirySweeper's contract: idempotent, a request locked by a concurrent
 --    decision or execution is skipped and seen by the next tick).
 -- 2. authz.nexloop_retention_command (0129) is redefined with one more verb, 'approvals_expire', so the retention keeper's
@@ -11,7 +11,7 @@
 --    are unchanged.
 -- 3. runtime.nexloop_metrics_snapshot is renamed once and wrapped: the wrapper adds the 'approvals' block (counts and ages only,
 --    no body): waiting, oldest_waiting_age_seconds and approved_unconsumed count requests still before due_by; overdue counts those past
---    due_by still waiting or approved and unconsumed - the sweep's heartbeat (it should stay 0); and (A7, 0327) solo_mode_enabled,
+--    due_by still waiting or approved and unconsumed - the sweep's heartbeat (it should stay 0); and (A7, 0332) solo_mode_enabled,
 --    self_approvals_24h and eligibility_reductions_24h for the single-person mode's alerts. Rules in alert-rules.v14.json.
 -- Published migrations are not edited.
 
@@ -61,7 +61,7 @@ begin
  elsif c->>'verb'='approvals_expire' then
   -- NX-056 A3: end waiting approvals past due_by (never executes one).
   return control.nexloop_approval_expire_due(t,p_world,(s->'sweep'->>'batch')::integer)
-   ||control.nexloop_approval_redact_due(t,p_world,(s->'sweep'->>'batch')::integer);  -- A5 (0326): frozen bodies past retention
+   ||control.nexloop_approval_redact_due(t,p_world,(s->'sweep'->>'batch')::integer);  -- A5 (0331): frozen bodies past retention
  elsif c->>'verb'='status' then
   select coalesce(jsonb_agg(jsonb_build_object('item_class',k.item_class,'action',k.action,'tombstones',k.n) order by k.item_class,k.action),'[]'::jsonb) into v
    from (select item_class,action,count(*) n from runtime.nexloop_erasure_tombstones where tenant_id=t and world=p_world group by item_class,action) k;

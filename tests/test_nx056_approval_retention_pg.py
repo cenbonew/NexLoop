@@ -1,4 +1,4 @@
-"""NX-056 A5 (docs/design/unified-approvals.md v5 §8; 0326): frozen request bodies under retention, and the guard around them.
+"""NX-056 A5 (docs/design/unified-approvals.md v5 §8; 0331): frozen request bodies under retention, and the guard around them.
 
 A request's body is redacted to {operation, redacted} once its due_by is older than the governance_audit retention (365 days by
 default); ids, digest, status and decisions stay, a tombstone records the pass, and a second pass finds nothing. Outside an erasure
@@ -40,7 +40,7 @@ def test_bodies_past_retention_are_redacted_once_and_nothing_else_changes(store)
     assert body(admin, old) == ({'operation': 'set_real_dispatch', 'redacted': True}, digest) and row(f, old)[0] == 'rejected'
     assert body(admin, fresh)[0]['reason'] == '打开'  # within retention
     assert redact(admin) == {'redacted': 0}
-    # A consumed request is redacted too (the 0321 guard lets the body change inside the scope whatever the request's state).
+    # A consumed request is redacted too (the 0326 guard lets the body change inside the scope whatever the request's state).
     done = open_request(f, request_id='r-3', reason='另一个')['approval_id']
     decide(f, 'approver', done)
     admin.execute("select control.nexloop_approval_consume(%s,'real',%s,%s,'executed','[]'::jsonb)", (TENANT_A, done, f['requester']['principal_id']))

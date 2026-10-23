@@ -1622,39 +1622,39 @@
       "sha256": "d3c0b97856d5f9a0f345ae0ced375208c4a38e6ff8d1f7e24fb923bc9cdab754"
     },
     {
-      "version": "0325",
-      "name": "0325_nx056_unified_approvals.sql",
-      "sha256": "8d869d06b76e9d66cf8f48ff6b3c8235d496c725b62e90e283340482c8e364d5"
-    },
-    {
       "version": "0326",
-      "name": "0326_nx056_approval_gate.sql",
-      "sha256": "eef977d98fde2354e8d6895b9aded9bf39a7919e14b088792be3a20c66774d5d"
+      "name": "0326_nx056_unified_approvals.sql",
+      "sha256": "06f638b7f00240a613ce7a4bf5b7667fddfce0da1bd9ecde3b9730a221acde98"
     },
     {
       "version": "0327",
-      "name": "0327_nx056_approval_expiry.sql",
-      "sha256": "4f418b912b0714bafd0cdd54def99dc773b756ec4089c5fa14d57339fe9604e7"
+      "name": "0327_nx056_approval_gate.sql",
+      "sha256": "7c2b5042bdb00198e40993a2ebb3d3cb08dae549ea486aa1e9a721daf7e0a86a"
     },
     {
       "version": "0328",
-      "name": "0328_nx056_approvals_view.sql",
-      "sha256": "1dd6b055b923c94c143997c50004771eed175ceb84d14fa520231e23a9afcf44"
+      "name": "0328_nx056_approval_expiry.sql",
+      "sha256": "1815ab60b12226c7468b8272a7aa5bd2d2a4ae6410312a4f0a36a95b91835344"
     },
     {
       "version": "0329",
-      "name": "0329_nx056_first_policies.sql",
-      "sha256": "8d2b3fa2edb10c9e3c681159fba0951a4823405650260b39941de9738029b361"
+      "name": "0329_nx056_approvals_view.sql",
+      "sha256": "1dd6b055b923c94c143997c50004771eed175ceb84d14fa520231e23a9afcf44"
     },
     {
       "version": "0330",
-      "name": "0330_nx056_approval_erasure.sql",
-      "sha256": "c16eb209403c470c9d3bc014fae91be739a4a4dd31b67f3eeba241e75623025c"
+      "name": "0330_nx056_first_policies.sql",
+      "sha256": "d01022e56e475faede4eb894c62b0e4cd565b737c2947392b37a42ed34478894"
     },
     {
       "version": "0331",
-      "name": "0331_nx056_solo_mode.sql",
-      "sha256": "1d4acca593f6cd3e088108809d9da4b14f77eb346da486a2a585da64044c6024"
+      "name": "0331_nx056_approval_erasure.sql",
+      "sha256": "27fab824ed86d4799ff2044c3b7e53f8fd38021b6d5fa75cd2734520bb08fb5b"
+    },
+    {
+      "version": "0332",
+      "name": "0332_nx056_solo_mode.sql",
+      "sha256": "4b86c82166daa80799100ab359b720c6eaffe5194a6ccc5ba01a40a678f661fa"
     }
   ]
 }

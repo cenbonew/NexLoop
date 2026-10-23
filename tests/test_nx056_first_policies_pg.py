@@ -1,4 +1,4 @@
-"""NX-056 A5 (docs/design/unified-approvals.md v5 §3, §10; 0325): the first three policies as trusted configuration, and what they hold.
+"""NX-056 A5 (docs/design/unified-approvals.md v5 §3, §10; 0330): the first three policies as trusted configuration, and what they hold.
 
 deploy/configuration/approval-policies.v1.json is checked, applied by the real technical configurator and replayed; a changed policy
 under the same version, an older version and any other session are refused. On the NX-029 erasure fixture (real Consumer, owner

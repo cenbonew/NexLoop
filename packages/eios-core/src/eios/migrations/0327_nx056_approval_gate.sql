@@ -18,7 +18,7 @@
 
 -- The votes that count now (one rule for the gate and for a decision's replay): approvals of distinct subjects, each approver eligible
 -- now (L6 C3), never the member the request acts on (NX-058 Z1); the requester's own vote only while the single-person mode takes
--- effect now (A7, S-I1; 0327). Returns the counted subjects.
+-- effect now (A7, S-I1; 0332). Returns the counted subjects.
 create function control.nexloop_approval_valid_votes(p_tenant text,p_world text,p_approval uuid) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare r control.nexloop_approval_requests;pol control.nexloop_approval_policies;v_by jsonb;
@@ -56,7 +56,7 @@ begin
  v_subject:=control.nexloop_approval_subject_of(p_tenant,p_principal);
  if v_subject is null then raise exception 'approval: requester_unavailable' using errcode='42501';end if;
  v_digest:=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,pol.version,p_body);
- -- Lock order (design §16, N-1): the tenant lock first (member changes take it too), then the approval row (A7, 0327).
+ -- Lock order (design §16, N-1): the tenant lock first (member changes take it too), then the approval row (A7, 0332).
  perform control.nexloop_approval_tenant_lock(p_tenant);
  perform set_config('eios.tenant_id',p_tenant,true);
  -- An approved, unconsumed Approval of this very request by this person: locked, so a second concurrent execution waits and then sees
@@ -190,7 +190,7 @@ begin
  elsif v_gate->'approval_id' is null then
   execute format('select %s($1,$2,$3,$4,$5,$6)',cap.handler::oid::regproc) into v_result using v_tenant,p_world,v_principal,v_subject,stored.intent_id,body;
  else
-  -- The approval being executed: a Consumer erasure that starts inside this handler does not end it (0326).
+  -- The approval being executed: a Consumer erasure that starts inside this handler does not end it (0331).
   perform set_config('nexloop.approval_in_flight',v_gate->>'approval_id',true);
   begin  -- a savepoint: a refusal rolls back the handler's own writes only, and the approval is still consumed (L6 N-2)
    execute format('select %s($1,$2,$3,$4,$5,$6)',cap.handler::oid::regproc) into v_result using v_tenant,p_world,v_principal,v_subject,stored.intent_id,body;
