@@ -250,14 +250,14 @@ def test_read_port_refuses_services_and_other_applications(workbench):
         db.execute("select authz.nexloop_workbench_read('x','real','{}','x','{}')")
 
 
-def test_a_role_of_69_actions_configures_and_129_is_refused_by_sql(workbench):
-    """NX-043 X1 follow-up (dispatcher 2026-10-21): the owner role holds 69 Actions (experiments scope, with the X3 shadow copy switch and the report read and the report Action; NX-058 the member reset code); SQL allows up to 128 per role,
+def test_a_role_of_71_actions_configures_and_129_is_refused_by_sql(workbench):
+    """NX-043 X1 follow-up (dispatcher 2026-10-21): the owner role holds 71 Actions (experiments scope, with the X3 shadow copy switch and the report read and the report Action; NX-058 the member reset code, invitations and their revocation); SQL allows up to 128 per role,
     as nexloop_eios.workbench_roles does, so the deployed manifest configures and a 129-Action role is refused by the database itself."""
     w = workbench
-    assert len(ROLES['roles']['owner']) == 69
+    assert len(ROLES['roles']['owner']) == 71
     assert configure(w, (w['owner'], 'owner'))['members'] == 1
     forged = {**ROLES, 'manifest_version': ROLES['manifest_version'] + 1,
-              'roles': {**ROLES['roles'], 'owner': ROLES['roles']['owner'] + [f'eios:action:nexloop.synthetic_{i}.x:1' for i in range(60)]}}
+              'roles': {**ROLES['roles'], 'owner': ROLES['roles']['owner'] + [f'eios:action:nexloop.synthetic_{i}.x:1' for i in range(58)]}}
     assert len(forged['roles']['owner']) == 129
     members = {'schema_version': 'nexloop-workbench-members/1', 'tenant_id': TENANT, 'application_id': WORKBENCH_APP,
                'members': [{'principal_id': w['owner']['principal_id'], 'role': 'owner'}]}

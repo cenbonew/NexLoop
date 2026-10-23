@@ -60,6 +60,8 @@
 
 ## 1b. 成员管理 Action（V1、V4）
 
+**实施顺序（调度员 2026-10-23）**：owner 专用 Action（`invite_owner`、`promote_owner`、`demote_owner`、`suspend_owner`、`resume_owner`、`revoke_owner`、`issue_owner_reset`）在接上 NX-056 审批之前**不开放**。在此之前如果提前注册 Action 规格，handler 一律返回 `approval_unavailable`（fail closed）。§7 中“NX-056 落地前的过渡内建规则”不实现，不另造一套审批机制。片 C 先做不需要审批的部分。
+
 现状：成员的降级、停用和撤销只能由 configurator 完成（`workbench_roles.py revoke_member`，以及修改成员文件后 apply）。本任务新增受治理 Action，并**按目标角色拆分**。NX-056 的策略条件只能是“请求体字段等于常量”，不能拿目标成员当前的角色作条件；所以凡是取决于目标当前角色的动作，都拆成 owner 专用和非 owner 两个 Action，执行时由服务端重查目标当前的角色（V1）。
 
 | Action（`nexloop.workbench_member.*`） | 用途 | 审批 |

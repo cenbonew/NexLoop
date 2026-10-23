@@ -91,7 +91,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-043 (X3 review 4.3, X6): the owner reads the frozen aggregate reports.
     'experiment.report':'human_owner',
     # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer.
-    'workbench_member.issue_reset':'human_owner'}
+    'workbench_member.issue_reset':'human_owner',
+    # NX-058 slice A: owner invitations of operators and reviewers, and their revocation.
+    'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

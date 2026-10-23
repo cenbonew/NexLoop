@@ -187,6 +187,74 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
                     if getattr(error,'sqlstate',None)=='22023':return invalid()
                     raise
             return response('password_reset',200)
+        def accept_work(request,body):
+            # NX-058 slice A §1 (R4, I3): no session; the tenant is the server's. The body is the token and the password only. One answer
+            # for every refusal; the source bucket of invitation_accept; a token's own failures void it at five. The Human is built here
+            # (the identity directory's models, as the initial identity does) and written by SQL with the configuration version and the
+            # role template's grants, in one transaction.
+            import uuid as _uuid
+            from argon2 import PasswordHasher
+            from psycopg.types.json import Jsonb
+            from eios.identity.models import EncodedPasswordHash,LocalAccount,MembershipKind,Subject,SubjectKind,TenantMembership
+            from nexloop_eios import workbench_member_secrets as W
+            from nexloop_eios.browser_identity import verify_identity_role
+            from nexloop_eios.identity_password_reset import password_problem
+            invalid=lambda:response('invitation_invalid',400)  # noqa: E731
+            try:key=W.load_key(config.identity_token_key_file)
+            except Exception:return response('dependency_unavailable',503)
+            store,op,sessions=services(request)
+            address=resolver.resolve(request)
+            limiter=PostgresBrowserRateLimiter(store.pool,identity_operator=True)
+            decision=limiter.consume(config.tenant_id,'invitation_accept',client_digest(request.app.state.browser_rate_key,
+                canonical_origin=config.origin,client_identifier='ip:'+address),operator=op)
+            if not decision.allowed:
+                result=response('rate_limited',429);result.headers['Retry-After']=str(decision.retry_after_seconds);return result
+            if type(body) is not dict or set(body)!={'token','password'} or not W.valid_token(body['token']) or type(body['password']) is not str:
+                PasswordHasher().hash('nexloop-timing-equaliser');return invalid()
+            token=W.digest(key,W.INVITE,config.tenant_id,body['token'])
+            with store.pool.connection() as c:
+                with c.transaction():
+                    verify_identity_role(c)
+                    found=c.execute('select control.nexloop_workbench_invitation_lookup(%s,%s)',(config.tenant_id,token)).fetchone()[0]
+                if found is None:
+                    PasswordHasher().hash('nexloop-timing-equaliser');return invalid()
+                if password_problem(body['password'],None,[]) is not None:
+                    with c.transaction():
+                        c.execute('select control.nexloop_workbench_invitation_failed(%s,%s)',(config.tenant_id,token))
+                    return invalid()
+                now=store.current_time();ident=_uuid.uuid4().hex
+                subject=Subject(subject_id=f'workbench-subject-{ident}',kind=SubjectKind.HUMAN,status='active',created_at=now,updated_at=now,revision=1)
+                membership=TenantMembership(tenant_id=config.tenant_id,principal_id=f'workbench-{ident}',subject_id=subject.subject_id,kind=MembershipKind.HOME,
+                    status='active',valid_from=now,valid_until=None,revision=1)
+                encoded=PasswordHasher().hash(body['password'])
+                account=LocalAccount(local_account_id=f'workbench-account-{ident}',tenant_id=config.tenant_id,subject_id=subject.subject_id,
+                    username=found['username'],verified_email=found['username']+'@workbench.invalid',password_hash=EncodedPasswordHash(encoded),status='active',failed_attempts=0,lockout_level=0,locked_until=None,
+                    must_change_password=False,session_epoch=1,created_at=now,updated_at=now,revision=1).model_dump(mode='json')
+                account.pop('password_hash');account.pop('password_history',None)
+                try:
+                    with c.transaction():
+                        c.execute('select control.nexloop_accept_workbench_invitation(%s,%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,token,
+                            Jsonb(subject.model_dump(mode='json')),Jsonb(membership.model_dump(mode='json')),Jsonb(account),encoded,
+                            W.source_digest(key,config.tenant_id,address),op.trace_id))
+                except Exception as error:
+                    if getattr(error,'sqlstate',None)=='22023':return invalid()
+                    raise
+            return response('invitation_accepted',200)
+        @routes.post('/invitation/accept')
+        async def invitation_accept(request:Request):
+            if not same_origin(request):return response('forbidden',403)
+            try:
+                if request.headers.get('content-type','').split(';')[0]!='application/json':return response('invitation_invalid',400)
+                data=b''
+                async for part in request.stream():
+                    data+=part
+                    if len(data)>4096:return response('invitation_invalid',400)
+                import json
+                body=json.loads(data)
+                from starlette.concurrency import run_in_threadpool
+                return await run_in_threadpool(accept_work,request,body)
+            except (ValueError,UnicodeError):return response('invitation_invalid',400)
+            except Exception:return response('dependency_unavailable',503)
         @routes.post('/password/reset')
         async def password_reset(request:Request):
             if not same_origin(request):return response('forbidden',403)

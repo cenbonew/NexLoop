@@ -12,6 +12,7 @@ RESET = 'nexloop-reset/1'
 INVITE = 'nexloop-invite/1'
 SOURCE = 'nexloop-source/1'
 _CODE = re.compile(r'[A-Za-z0-9_-]{22}')  # 128 bits, base64url without padding
+_TOKEN = re.compile(r'[A-Za-z0-9_-]{43}')  # 256 bits
 
 
 class SecretsUnavailable(RuntimeError):
@@ -34,6 +35,15 @@ def new_code():
 
 def valid_code(value):
     return type(value) is str and _CODE.fullmatch(value) is not None
+
+
+def new_token():
+    """An invitation token: 256 bits, base64url without padding (design §1)."""
+    return secrets.token_urlsafe(32)
+
+
+def valid_token(value):
+    return type(value) is str and _TOKEN.fullmatch(value) is not None
 
 
 def digest(key, purpose, tenant, secret):

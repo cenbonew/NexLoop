@@ -500,7 +500,7 @@ def test_identity_token_key_is_generated_and_added_to_an_older_tree(tree, tmp_pa
 
 def test_the_browser_registration_carries_the_reset_completion_rate_policy():
     entries = S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench', seal_digest='a' * 64)
-    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete']
+    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete', 'invitation_accept']
     assert all(p['operator_principal_id'] == 'nexloop_identity' and p['active'] for p in entries['browser_rate_policies'])
 
 

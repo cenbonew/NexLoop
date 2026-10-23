@@ -106,7 +106,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-043 (X3 review 4.3, X6): the owner's read of the shadow and experiment reports.
     'read_experiment_report':'experiment.report',
     # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer (owners: issue_owner_reset, with approval).
-    'issue_workbench_reset':'workbench_member.issue_reset'}
+    'issue_workbench_reset':'workbench_member.issue_reset',
+    # NX-058 slice A: the owner invites an operator or reviewer (owners: invite_owner, with approval) and revokes an unused invitation.
+    'invite_workbench_member':'workbench_member.invite','revoke_workbench_invitation':'workbench_member.revoke_invitation'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -565,6 +567,19 @@ class GoalGovernedActions:
             raise ValueError('target principal, code HMAC and issuer source required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'issue_workbench_reset','target_principal':target_principal,
                                                         'code_hmac':code_hmac,'issuer_source':issuer_source})
+
+    # NX-058 slice A: the token never comes here - only its HMAC (and the issuer's source digest), drawn by the workbench entry.
+    def invite_workbench_member(self,*,action_name,action_version,request_id,username,role,expires_in_hours,token_hmac,issuer_source):
+        if (type(username) is not str or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{2,63}',username) or role not in ('operator','reviewer')
+                or type(expires_in_hours) is not int or not 1<=expires_in_hours<=72
+                or not re.fullmatch(r'[0-9a-f]{64}',str(token_hmac)) or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source))):
+            raise ValueError('username, operator or reviewer role, 1-72 hours, token HMAC and issuer source required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'invite_workbench_member','username':username,'role':role,
+                                                        'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source':issuer_source})
+
+    def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'revoke_workbench_invitation','invitation_id':invitation_id})
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
