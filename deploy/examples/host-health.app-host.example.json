@@ -7,8 +7,9 @@
   "local_window_seconds": 900,
   "local_min_restarts": 3,
   "containers": [{"name": "api", "container": "<API_CONTAINER_NAME>"}, {"name": "agent-host", "container": "<AGENT_HOST_CONTAINER_NAME>"},
-                 {"name": "gateway", "container": "<GATEWAY_CONTAINER_NAME>"}],
-  "services": [{"name": "runtime-worker", "unit": "nexloop-runtime-worker.service"}],
+                 {"name": "gateway", "container": "<GATEWAY_CONTAINER_NAME>"},
+                 {"name": "runtime-worker", "container": "nexloop-app-runtime-worker-1"}],
+  "services": [],
   "timers": [
     {"name": "provider-drift", "timer": "nexloop-provider-drift.timer", "service": "nexloop-provider-drift.service"},
     {"name": "file-backup", "timer": "nexloop-file-backup.timer", "service": "nexloop-file-backup.service"}

@@ -1,0 +1,67 @@
+{
+  "schema": "nexloop-host-health-install/1",
+  "release_checkout": "<RELEASE_CHECKOUT_ABSOLUTE_PATH>",
+  "release_sha": "<RELEASE_COMMIT_40_HEX>",
+  "python": "/opt/nexloop/python-3.12.15/bin/python3.12",
+  "pip_index_url": "https://<PYPI_MIRROR>/simple",
+  "host_role": "data_host",
+  "_comment": "DATA_HOST (owner): printf \"data_host\\t%s\\napp_host\\t%s\\n\" \"$DATA_PW\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v13 selectors (data_host:<name>).",
+  "database": {
+    "host": "/srv/nexloop/run/postgresql",
+    "port": 5432,
+    "dbname": "nexloop_stage"
+  },
+  "bootstrap_dsn_file": "<BOOTSTRAP_SOCKET_DSN_FILE_0600>",
+  "hba": {
+    "nexloop_root": "/srv/nexloop",
+    "stage_env": "<DEPLOYED_STAGE_ENV_FILE>"
+  },
+  "probe": {
+    "grace_seconds": 5,
+    "local_window_seconds": 900,
+    "local_min_restarts": 3,
+    "containers": [
+      {
+        "name": "postgres",
+        "container": "nexloop-data-postgres-1"
+      },
+      {
+        "name": "valkey",
+        "container": "nexloop-data-valkey-1"
+      }
+    ],
+    "services": [],
+    "timers": [
+      {
+        "name": "pg-diff",
+        "timer": "nexloop-pg-diff.timer",
+        "service": "nexloop-pg-diff.service"
+      },
+      {
+        "name": "pg-full",
+        "timer": "nexloop-pg-full.timer",
+        "service": "nexloop-pg-full.service"
+      },
+      {
+        "name": "journal",
+        "timer": "nexloop-journal.timer",
+        "service": "nexloop-journal.service"
+      },
+      {
+        "name": "journal-restic-repo1",
+        "timer": "nexloop-journal-restic@repo1.timer",
+        "service": "nexloop-journal-restic@repo1.service"
+      },
+      {
+        "name": "journal-restic-repo2",
+        "timer": "nexloop-journal-restic@repo2.timer",
+        "service": "nexloop-journal-restic@repo2.service"
+      },
+      {
+        "name": "restic-maint",
+        "timer": "nexloop-restic-maint.timer",
+        "service": "nexloop-restic-maint.service"
+      }
+    ]
+  }
+}

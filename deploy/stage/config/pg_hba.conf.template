@@ -33,6 +33,11 @@ hostssl __NEXLOOP_DB__ nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexl
 # Migration window only (§8 step 7): uncomment for the window, reload, and comment again afterwards.
 #hostssl __NEXLOOP_DB__ __MIGRATION_PG_ROLE__ __MGMT_SOURCE_CIDR__ scram-sha-256 clientcert=verify-full
 # Everything else is refused, plaintext first.
+# Host health (E2/E3, docs/implementation/host-health.md): one recorder role per host, each executes one function only. DATA_HOST's
+# probe uses the local socket; APP_HOST's comes over hostssl with SCRAM (server certificate verify-full on the client; no client
+# certificate, like the simulation roles).
+local   __NEXLOOP_DB__ nexloop_host_recorder_data_host                     scram-sha-256
+hostssl __NEXLOOP_DB__ nexloop_host_recorder_app_host __APP_HOST_ADDR__/32  scram-sha-256
 hostnossl all          all             0.0.0.0/0                           reject
 hostnossl all          all             ::/0                                reject
 host      all          all             0.0.0.0/0                           reject
