@@ -130,6 +130,16 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
 
    - **runtime-worker 按实际运行方式二选一**（C1）：仓库同时支持 compose 容器（`compose.app.example.yaml` 的 `runtime-worker`）和 systemd unit（`deploy/stage/systemd/nexloop-runtime-worker.service.example`）。stage 上它是容器 `nexloop-app-runtime-worker-1`（2026-10-23 只读核实），所以两份示例（安装配置，与探针配置 `host-health.app-host.example.json`）都写在 `containers`，`services` 为空。只写实际存在的那一种：写错的那一项探针永远看不到，`host_unit_missing` 会一直报警。两份配置拷到各自主机，`install -m 0600 -o root`。
 
+### 4.2c unit 沙箱（stage 2026-10-25 的两处现场问题）
+
+- **`HOME`**：unit 设 `Environment=HOME=/var/lib/nexloop-host-health`（即 StateDirectory）。原因是 `ProtectHome=true` 让 `/root` 返回 EACCES，而 APP_HOST 走 hostssl，libpq 会查找 `~/.postgresql/postgresql.crt`，把 EACCES 当成错误，报 `OperationalError`。DATA_HOST 走 socket、不用 SSL，所以不受影响。
+- **`MemoryDenyWriteExecute` 按主机配置**：安装配置中的 `memory_deny_write_execute`，默认 false。
+  - APP_HOST 的 venv 用的是 standalone CPython 3.12，在这项限制下会 SIGSEGV（用 `systemd-run` 复现过：设 yes 就崩，设 no 就正常），所以示例中为 false。
+  - DATA_HOST 用发行版自带的 python3.12，没有这个问题，示例中为 true。
+  - 设为 true 时，安装器写入 `nexloop-host-health.service.d/50-installer-mdwe.conf`；设为 false 时删除这个文件。
+- **dry-run 在同一个沙箱里执行**：安装器读取已安装 unit 的 `[Service]` 段和 `.service.d` 下的全部 drop-in（按 systemd 的顺序），把它们作为属性传给 `systemd-run --wait --pipe --collect`，再在其中执行探针的 dry-run。这样 timer 会遇到的失败，在启用 timer 之前就会暴露。
+- **现场的临时 drop-in**（`10-mdwe.conf`、`20-home.conf`）：装上这个版本以后，它们与 unit 和配置的设定重复，可以删除后再重跑安装。保留也无害：它们同样会被纳入 dry-run 的沙箱。`--uninstall` 会删除整个 `.service.d` 目录。
+
 ### 4.3 DATA_HOST（负责人，一条命令）
 
 ```

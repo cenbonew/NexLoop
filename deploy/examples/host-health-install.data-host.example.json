@@ -3,6 +3,7 @@
   "release_checkout": "<RELEASE_CHECKOUT_ABSOLUTE_PATH>",
   "release_sha": "<RELEASE_COMMIT_40_HEX>",
   "python": "/opt/nexloop/python-3.12.15/bin/python3.12",
+  "memory_deny_write_execute": true,
   "pip_index_url": "https://<PYPI_MIRROR>/simple",
   "host_role": "data_host",
   "_comment": "DATA_HOST (owner): printf \"data_host\\t%s\\napp_host\\t%s\\n\" \"$DATA_PW\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v13 selectors (data_host:<name>).",

@@ -25,12 +25,17 @@ UMask=0077
 TimeoutStartSec=60
 StateDirectory=nexloop-host-health
 StateDirectoryMode=0700
+# ProtectHome=true makes /root unreadable; libpq looks for ~/.postgresql/postgresql.crt on the hostssl path (APP_HOST) and takes
+# that EACCES as an error. HOME is the state directory (stage 2026-10-25).
+Environment=HOME=/var/lib/nexloop-host-health
 StandardError=journal
 CapabilityBoundingSet=
 ProtectKernelModules=true
 PrivateDevices=true
 RestrictSUIDSGID=true
-MemoryDenyWriteExecute=true
+# MemoryDenyWriteExecute is per host (host_health_install.py: memory_deny_write_execute, default off): the standalone CPython 3.12
+# of APP_HOST's venv dies with SIGSEGV under it (stage 2026-10-25); the distribution's python of DATA_HOST does not. When the
+# configuration turns it on, the installer writes nexloop-host-health.service.d/50-installer-mdwe.conf.
 LockPersonality=true
 # Local findings (crash loop, blindness, a failed recording) are journal lines of priority err: watch them with
 # `journalctl -p err -u nexloop-host-health` from outside PostgreSQL (the database may be what loops).

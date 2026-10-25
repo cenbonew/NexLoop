@@ -21,8 +21,10 @@ Steps (each idempotent; a rerun converges, nothing done twice):
   3 /etc/nexloop/host-health.json (0600 root) from the configuration's probe block
   4 /etc/nexloop/host-recorder.dsn (0600 root): this host's role and password - written only when it changed
   5 the unit and timer from the release's deploy/stage/systemd/nexloop-host-health.*.example; daemon-reload
-  6 one --dry-run of the probe (its summary printed), then `systemctl enable --now nexloop-host-health.timer`
---uninstall: timer disabled and stopped, units, /etc/nexloop/host-health.json and host-recorder.dsn, /opt/nexloop/host-health and
+  5b memory_deny_write_execute (default false): true writes nexloop-host-health.service.d/50-installer-mdwe.conf, false removes it
+  6 one --dry-run of the probe inside the unit's own sandbox (systemd-run with the unit's [Service] settings and drop-ins as
+    properties; its summary printed), then `systemctl enable --now nexloop-host-health.timer`
+--uninstall: timer disabled and stopped, units and their drop-in directory, /etc/nexloop/host-health.json and host-recorder.dsn, /opt/nexloop/host-health and
 the state directory removed (the database roles and pg_hba lines stay: without a DSN nobody connects).
 Output: step lines and the probe's dry-run summary; never a password or the DSN. Exit 0 done, 1 a step failed, 2 refused.
 """
@@ -146,6 +148,8 @@ def load_config(path):
     else:
         if db['host'].startswith('/') or db.get('sslmode') != 'verify-full' or type(db.get('sslrootcert')) is not str or not PATH.fullmatch(db['sslrootcert']):
             raise Refused('configuration: APP_HOST connects over hostssl with sslmode verify-full and sslrootcert (the server CA)')
+    if type(c.get('memory_deny_write_execute', False)) is not bool:
+        raise Refused('configuration: memory_deny_write_execute true | false (default false)')
     probe = c.get('probe')
     if type(probe) is not dict or set(probe) - {'containers', 'services', 'timers', 'grace_seconds', 'local_window_seconds', 'local_min_restarts'}:
         raise Refused('configuration: probe {containers, services, timers, ...}')
@@ -280,10 +284,22 @@ def install(root, config, passwords, runner, out, trust=root_owned):
         if not (units / unit).exists() or (units / unit).read_text() != text:
             (units / unit).write_text(text)
             os.chmod(units / unit, 0o644)
+    dropins = units / 'nexloop-host-health.service.d'
+    mdwe = dropins / MDWE_DROPIN
+    if config.get('memory_deny_write_execute', False):
+        dropins.mkdir(exist_ok=True)
+        mdwe.write_text('[Service]\nMemoryDenyWriteExecute=yes\n')
+        os.chmod(mdwe, 0o644)
+    elif mdwe.exists():
+        mdwe.unlink()
     runner(['systemctl', 'daemon-reload'])
-    step(5, 'units installed')
+    step(5, 'units installed' + (' (MemoryDenyWriteExecute on)' if config.get('memory_deny_write_execute', False) else ''))
     probe = root / 'opt/nexloop/host-health/current'
-    summary = runner([str(probe / 'venv/bin/python'), '-I', '-B', str(probe / 'host_health_probe.py'), '--config', '/etc/nexloop/host-health.json', '--dry-run'])
+    # The dry run in the unit's own sandbox (its [Service] settings and every drop-in, in order, as transient properties): what
+    # fails under the timer - a hardening the interpreter does not survive, an unreadable HOME - fails here, before enabling it.
+    summary = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec',
+                      *[a for key, value in sandbox(units) for a in ('-p', f'{key}={value}')],
+                      str(probe / 'venv/bin/python'), '-I', '-B', str(probe / 'host_health_probe.py'), '--config', '/etc/nexloop/host-health.json', '--dry-run'])
     try:
         doc = json.loads(summary.splitlines()[-1])
         doc.pop('entry', None)
@@ -296,8 +312,37 @@ def install(root, config, passwords, runner, out, trust=root_owned):
     step(6, 'timer enabled')
 
 
+MDWE_DROPIN = '50-installer-mdwe.conf'
+SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'TimeoutStartSec'}
+
+
+def sandbox(units):
+    """(key, value) of the installed service's [Service] section and of its drop-ins (sorted, as systemd applies them), in order."""
+    texts = [(units / 'nexloop-host-health.service').read_text()]
+    dropins = units / 'nexloop-host-health.service.d'
+    if dropins.is_dir():
+        texts += [p.read_text() for p in sorted(dropins.glob('*.conf'))]
+    out = []
+    for text in texts:
+        section = None
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith(('#', ';')):
+                continue
+            if line.startswith('[') and line.endswith(']'):
+                section = line[1:-1]
+                continue
+            key, sep, value = line.partition('=')
+            if section == 'Service' and sep and key.strip() not in SANDBOX_SKIP:
+                out.append((key.strip(), value.strip()))
+    return out
+
+
 def uninstall(root, runner, out):
     runner(['systemctl', 'disable', '--now', 'nexloop-host-health.timer'], check=False)
+    dropins = root / 'etc/systemd/system/nexloop-host-health.service.d'
+    if dropins.is_dir():
+        shutil.rmtree(dropins)  # the installer's and any hand-made drop-in of this unit
     for path in (root / 'etc/systemd/system/nexloop-host-health.timer', root / 'etc/systemd/system/nexloop-host-health.service',
                  root / 'etc/nexloop/host-health.json', root / 'etc/nexloop/host-recorder.dsn'):
         if path.exists() or path.is_symlink():
@@ -309,7 +354,7 @@ def uninstall(root, runner, out):
                     os.chmod(path, 0o700 if path.is_dir() else 0o600)
             shutil.rmtree(directory)
     runner(['systemctl', 'daemon-reload'], check=False)
-    print('uninstalled: timer, units, configuration, recorder DSN, release and state removed (roles and pg_hba lines stay)', file=out)
+    print('uninstalled: timer, units and their drop-ins, configuration, recorder DSN, release and state removed (roles and pg_hba lines stay)', file=out)
 
 
 def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned):
