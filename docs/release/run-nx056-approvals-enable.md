@@ -19,7 +19,7 @@
 
 | # | 前提 | 怎么核对 |
 |---|---|---|
-| P0 | 第二十四批部署时已经做过**迁移前备份**：DATA_HOST 执行 `sudo -n systemctl start nexloop-pg-diff.service`，并记下备份标签（`BACKUP_LABEL`） | 第 1 步核对 |
+| P0 | 第二十四批部署时已经做过**迁移前备份**：DATA_HOST 执行 `sudo -n systemctl start nexloop-pg-diff.service`，并记下备份标签（`BACKUP_LABEL`）和**备份开始时间**（第 1 步 `journalctl --since` 要用）。部署单必须记录这两项 | 第 1 步核对 |
 | P1 | 第二十四批（含 NX-056 A0–A7 及 review 11）已合入 main，并且已按该批的部署单部署到 stage | `git log --oneline -1 $MAIN` 为部署单记录的提交；`/health/ready` 正常 |
 | P2 | stage 的真实派发保持关闭 | 部署层 `REAL_DISPATCH_ENABLED` 不是 `true`；工作台“真实派发”面板中租户开关为关闭 |
 | P3 | 保留期服务和告警评估服务都在运行 | `docker compose -p nexloop-app ps` 中 `retention-keeper`、`alert-evaluator` 都是 running |
@@ -206,6 +206,7 @@ ro "select capability, eligible_count from control.nexloop_approval_eligibility_
 | R1 | `演练一：批准与执行` | 8.1–8.4 |
 | R2 | `演练二：撤回与冷却` | 8.5 |
 | R3 | `演练三：等待告警` | 8.6–8.7 |
+| W | `演练二撤回：不再需要` | 8.5 撤回时填写的原因（撤回必须写原因，1–500 字；不填会返回 `approval: invalid`） |
 
 操作者一列：“负责人”指负责人本人用自己的账号操作；“测试 owner”指调度员用第二位测试 owner 的测试账号操作。
 
@@ -215,14 +216,14 @@ ro "select capability, eligible_count from control.nexloop_approval_eligibility_
 | 8.2 | 测试 owner | 审批页“待我审批”：看到这条，写批准原因后批准 | 状态变为“已批准”；负责人自己的“待我审批”里没有这条（禁止自批） |
 | 8.3 | 负责人 | 审批页“待我执行”：点“执行” | 提示“已按批准执行；这次批准已用掉”；真实派发面板中这个 Action 开关为打开 |
 | 8.4 | 负责人 | 真实派发面板：关闭这个开关 | 立即生效，不需要审批（关闭不在策略条件内） |
-| 8.5 | 负责人 | 8.4 之后立即：再次打开同一开关，原因 R2；在“我发起的”中撤回；然后立即再次以原因 R2 打开 | 第一次：状态变为“已撤回”。第二次：被拒绝，返回 `cooldown`（同一请求撤回后 1 小时冷却）。冷却只针对 R2，不影响下一步 |
-| 8.6 | 负责人 | 8.5 之后立即：以原因 R3 打开同一开关，不审批 | 进入“等待审批”。超过 1 小时后，告警页出现 `approval_waiting`（“审批请求等待超过 1 小时”） |
+| 8.5 | 负责人 | 8.4 之后立即：再次打开同一开关，原因 R2；在“我发起的”中撤回，撤回原因 W；然后立即再次以原因 R2 打开 | 第一次：状态变为“已撤回”。第二次：被拒绝，返回 `cooldown`（同一请求撤回后 1 小时冷却）。冷却只针对 R2，不影响下一步 |
+| 8.6 | 负责人 | 8.5 之后立即：以原因 R3 打开同一开关，不审批 | 进入“等待审批”。超过 1 小时后，告警页出现 `approval_waiting`（“审批请求等待超过 1 小时”）。如果拖过 24 小时，请求会过期（`approval.expired`），这一段作废：换一段新的原因（例如 `演练三（重做）：等待告警`）从 8.6 重做 |
 | 8.7 | 测试 owner | 告警出现后，拒绝 8.6 的请求 | 状态变为“已拒绝”；下一轮评估后 `approval_waiting` 解除 |
 
 **审计核对**（8.3 之后，A）：
 
 ```
-ro "select action, payload->>'approval_id', payload->>'actor', payload->'approved_by' from runtime.audit_events where tenant_id='$TENANT_ID' and action like 'approval.%' order by created_at"
+ro "select action, payload->>'approval_id', payload->>'outcome', payload->>'actor', payload->'approved_by' from runtime.audit_events where tenant_id='$TENANT_ID' and action like 'approval.%' order by created_at"
 ```
 
 - **预期**：依次有 `approval.requested`、`approval.decided`、`approval.consumed`。其中 `approval.consumed` 的 actor 是负责人的 subject，`approved_by` 是 `["stage-human-approver2"]`。
