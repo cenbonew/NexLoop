@@ -12,6 +12,7 @@ from nexloop_eios.load_rules import LoadRulesExtractionProvider
 from nexloop_eios.model_profile import ModelConfigurationError, load_model_profile
 from test_background_services_pg import argv
 from test_service_grants_pg import deployment, private  # noqa: F401
+from support.service_stderr import service_stderr
 
 VARIANT={'MODEL_PROVIDER':'test','MODEL_TEST_VARIANT':'load-rules'}
 
@@ -48,7 +49,7 @@ def test_background_services_refuse_the_variant_outside_test_mode(deployment,tmp
     if started:
         assert code==0 and out.startswith(B.SERVICES[service][0]+' ready') and json.loads(out.splitlines()[1])=={'status':'idle'}
     else:
-        assert code==1 and out=='' and err==B.SERVICES[service][0]+' unavailable\n'
+        assert code==1 and out=='' and service_stderr(err)==B.SERVICES[service][0]+' unavailable\n'
 
 
 def test_stage_doctor_fails_the_variant(pg,tmp_path):
