@@ -194,8 +194,9 @@ begin
   perform control.nexloop_workbench_grants_write_v2(p_tenant,t->>'principal',t->>'subject',t->>'role','grant',v_source,p_principal,p_intent);
   insert into control.nexloop_workbench_role_history(tenant_id,subject_id,principal_id,role,event,source) values(p_tenant,t->>'subject',t->>'principal',t->>'role','start',v_source);
  else  -- revoke
+  -- Review S-b: the revocation instance always (idempotent): a suspended member may hold grants a configurator run wrote again.
+  perform control.nexloop_workbench_grants_write_v2(p_tenant,t->>'principal',t->>'subject',t->>'role','revoke',v_source,p_principal,p_intent);
   if t->>'status'='active' then
-   perform control.nexloop_workbench_grants_write_v2(p_tenant,t->>'principal',t->>'subject',t->>'role','revoke',v_source,p_principal,p_intent);
    insert into control.nexloop_workbench_role_history(tenant_id,subject_id,principal_id,role,event,source) values(p_tenant,t->>'subject',t->>'principal',t->>'role','stop',v_source);
   end if;
   v_version:=control.nexloop_workbench_configuration_append(p_tenant,cur.members-(t->>'principal'),v_source);
@@ -218,6 +219,9 @@ create function control.nexloop_workbench_governed_drift(p_tenant text,p_members
 declare last_conf integer;cur control.nexloop_workbench_configurations;base jsonb;p text;out jsonb:='[]';prior text:=current_setting('eios.tenant_id',true);
 begin
  if session_user<>'nexloop_configurator' then raise exception 'workbench members are trusted configuration only' using errcode='42501';end if;
+ -- Review N-1: the member lock (the tenant approval lock) first and held to the end of the configurator's one transaction, so no governed
+ -- change commits between this check and the configurator's writes.
+ perform control.nexloop_workbench_member_lock(p_tenant);
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into cur from control.nexloop_workbench_configurations where tenant_id=p_tenant order by manifest_version desc limit 1;
  select max(manifest_version) into last_conf from control.nexloop_workbench_configurations where tenant_id=p_tenant and recorded_by='nexloop_configurator';

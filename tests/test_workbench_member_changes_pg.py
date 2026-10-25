@@ -64,14 +64,16 @@ def test_a_role_change_suspension_resumption_and_revocation(changes, admin):
         csrf = workbench_login(client, owner).json()['csrf_token']
         assert workbench_login(member, operator).status_code == 200
         code = act(client, csrf, 'issue_workbench_reset', {'target_principal': p}).json()['code']
-        assert workbench_login(member, operator).status_code == 200
+        relogin = workbench_login(member, operator)
+        assert relogin.status_code == 200
+        old_csrf = relogin.json()['csrf_token']
         before = history(admin, p)
         # operator -> reviewer
         changed = act(client, csrf, 'change_workbench_member_role', {'target_principal': p, 'new_role': 'reviewer'})
         assert changed.status_code == 200 and changed.json()['role'] == 'reviewer', changed.json()
         assert member.get('/api/v1/workbench/auth/session').status_code == 401  # sessions ended
-        # L6 slice C review S-5: the changed member's old session is refused for an Action too, in another transaction.
-        assert act(member, 'stale-csrf-of-the-old-session', 'issue_workbench_reset', {'target_principal': owner['principal_id']}).status_code in (401, 403)
+        # L6 slice C review S-5/S-a: the changed member's old session, with its own real CSRF token, is refused for an Action too.
+        assert act(member, old_csrf, 'issue_workbench_reset', {'target_principal': owner['principal_id']}).status_code in (401, 403)
         assert admin.execute('select state,revoked_reason from control.nexloop_workbench_reset_codes').fetchone() == ('revoked', 'member_changed')
         assert W.valid_code(code)
         grants_match(admin, operator, 'reviewer')
@@ -192,3 +194,59 @@ def test_a_change_through_the_nx056_gate_runs_its_handler_in_the_savepoint_and_p
     assert admin.execute("select result from control.nexloop_approval_consumptions").fetchall() == [('executed',)]
     assert admin.execute("select payload->>'status' from control.nexloop_browser_memberships where principal_id=%s", (c['operator_member']['principal_id'],)).fetchone() == ('suspended',)
     assert granted(admin, c['operator_member']['principal_id']) == set()
+
+
+def test_a_governed_change_committed_while_the_configurator_waits_is_seen_by_its_check(changes, admin):
+    """L6 slice C review N-1: the X1 check runs in the configurator's writing transaction under the member lock. A governed change that
+    holds the lock while the configurator starts commits first; the check then sees it and refuses the stale member file (before, the
+    check ran in its own transaction without the lock, and the write overwrote the change)."""
+    import threading
+    import time
+    import psycopg
+    c = changes
+    p = c['operator_member']['principal_id']
+    stale = members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator'))
+    outcome = {}
+
+    def run():
+        try:
+            outcome['result'] = apply_members(ROLES, stale, database_url_file=c['configurator'])
+        except Exception as refused:  # noqa: BLE001 - the assertion below names the expected refusal
+            outcome['result'] = refused
+    with psycopg.connect(admin.info.dsn) as holder:  # what a governed member change holds: the tenant's approval lock
+        holder.execute('select control.nexloop_approval_tenant_lock(%s)', (TENANT,))
+        worker = threading.Thread(target=run)
+        worker.start()
+        for _ in range(100):
+            if admin.execute("select count(*) from pg_stat_activity where usename='nexloop_configurator' and wait_event_type='Lock' and wait_event='advisory'").fetchone()[0]:
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError('the configurator never waited for the member lock')
+        # The governed change's configuration version (as nexloop_workbench_configuration_append writes it), committed while it waits.
+        holder.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        holder.execute("""insert into control.nexloop_workbench_configurations(tenant_id,manifest_version,roles_version,application_id,roles,members,roles_digest,recorded_by)
+            select tenant_id,manifest_version+1,roles_version,application_id,roles,jsonb_set(members,array[%s],'"reviewer"'),roles_digest,'action:synthetic-change'
+            from control.nexloop_workbench_configurations where tenant_id=%s order by manifest_version desc limit 1""", (p, TENANT))
+        holder.commit()
+    worker.join(15)
+    assert isinstance(outcome.get('result'), WorkbenchRolesRejected) and f'{p}=reviewer' in str(outcome['result']), outcome
+    assert admin.execute('select members->>%s,recorded_by from control.nexloop_workbench_configurations order by manifest_version desc limit 1', (p,)).fetchone() == ('reviewer', 'action:synthetic-change')
+
+
+def test_revoking_a_suspended_member_also_revokes_grants_written_again(changes, admin):
+    """L6 slice C review S-b: a configurator run may write a suspended member's grants again (it compiles every member of the file);
+    revoking that member writes the revocation instance all the same, so no grant facts remain."""
+    from test_workbench_read_pg import write_facts
+    from nexloop_eios.workbench_roles import compile_member as compile_one
+    c = changes
+    operator = c['operator_member']
+    p = operator['principal_id']
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
+        assert act(client, csrf, 'suspend_workbench_member', {'target_principal': p, 'reason': 'synthetic leave'}).status_code == 200
+        write_facts(admin, compile_one(ROLES, TENANT, {**operator, 'role': 'operator'}, valid_from=datetime(2026, 10, 10, tzinfo=UTC)))
+        assert granted(admin, p) == set(ROLES['roles']['operator'])
+        assert act(client, csrf, 'revoke_workbench_member', {'target_principal': p, 'reason': 'synthetic departure'}).status_code == 200
+    assert granted(admin, p) == set()
+    assert history(admin, p)[-1] == ('operator', 'stop')  # one stop, at the suspension

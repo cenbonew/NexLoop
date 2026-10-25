@@ -153,7 +153,7 @@ REGISTRY = [
               "update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history "
               "where a.tenant_id=p_tenant and a.local_account_id=p_account;"),
              (r"\s*perform control\.nexloop_workbench_reset_revoke\(p_tenant,old\.subject_id,'operator_reset'\);", ''))),
-    # 0329 (NX-058 slice C, dispatcher option 1): the browser directory hash takes the tenant revision through
+    # 0338 (NX-058 slice C, dispatcher option 1): the browser directory hash takes the tenant revision through
     # authz.nexloop_effective_tenant_revision (the revision before a governed handler's own authority change in this transaction).
     Allowed('governed_authority_change', 'authz.nexloop_browser_identity_snapshot',
             'the tenant revision of the directory hash through authz.nexloop_effective_tenant_revision; definer search_path gains pg_temp; nothing else',

@@ -8,7 +8,9 @@
 --   (txid, tenant, revision before). One mark per transaction: a second call refuses (L6 slice C review I-3 - a transaction carries one
 --   governed handler's authority change, never a second write riding on the first). No caller can write the mark table or call the
 --   function; there is no session flag to set. Marks of finished transactions older than a day are deleted at the next mark.
---   Lock order as NX-056 (L6 slice C review I-2): the tenant's approval lock (control.nexloop_approval_tenant_lock, 0331) first, then the
+--   The mark turns the read memo (0096) off for the rest of the transaction (L6 slice C review N-2): the tail recheck of the requester
+--   always runs in full (0045's record hashes of its facts), never a memo hit on the directory hash the effective revision keeps.
+--   Lock order as NX-056 (L6 slice C review I-2): the tenant's approval lock (control.nexloop_approval_tenant_lock, 0332) first, then the
 --   tenant row. The workbench member lock (0333) becomes that same approval lock, so a member change through the NX-056 gate (approval
 --   lock, then the handler) and one without approval take the locks in one order.
 -- * authz.nexloop_effective_tenant_revision(tenant, current): the revision before, only when a mark of this very transaction exists for
@@ -35,9 +37,10 @@ create function control.nexloop_authority_handler_mark(p_tenant text) returns vo
 declare v bigint;prior text:=current_setting('eios.tenant_id',true);
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
+ perform control.nexloop_approval_tenant_lock(p_tenant);  -- the lock first (review S-d)
  if exists(select 1 from control.nexloop_authority_handler_marks where txid=txid_current()) then
   raise exception 'governed authority change: one per transaction' using errcode='42501';end if;
- perform control.nexloop_approval_tenant_lock(p_tenant);
+ perform set_config('nexloop.read_memo','off',true);  -- N-2: the tail rechecks the requester in full
  select authority_revision into v from control.nexloop_tenants where tenant_id=p_tenant for update;
  if not found then raise exception 'governed authority change: tenant unavailable' using errcode='42501';end if;
  insert into control.nexloop_authority_handler_marks(txid,tenant_id,prior_revision) values(txid_current(),p_tenant,v);

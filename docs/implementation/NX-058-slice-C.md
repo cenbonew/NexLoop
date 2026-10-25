@@ -38,3 +38,9 @@
 - owner 专用 Action（`invite_owner`、`promote_owner`、`demote_owner`、`suspend_owner`、`resume_owner`、`revoke_owner`、`issue_owner_reset`）：等 NX-056 合入 main 后接审批，在此之前不开放。
 - 账号自行改口令时撤销码（`password_changed`）：现有的改口令路径不在本片范围内，留作后续。
 - 前端（片 D）。
+
+## L6 deep review follow-up (N-1, N-2, S-a to S-d)
+
+- N-1: `control.nexloop_workbench_governed_drift` takes the member lock (the tenant approval lock) first; `apply_members` runs the X1 check as the first statement of its writing transaction, so the lock is held from the check to the commit and a governed change either commits before the check (and is seen) or waits for the configurator. Test: a governed configuration version committed while the configurator waits for the lock is refused by name (with the old two-transaction code the stale file overwrote it).
+- N-2: the mark turns the read memo off (`nexloop.read_memo=off`, local) after its lock; the requester's tail recheck always runs in full. Test: under an approval lock held before the mark, the memo is ready before it and off after it; a savepoint that rolls the mark back restores it.
+- S-a: the old session's Action is submitted with that session's own CSRF token. S-b: revoking a member always writes the revocation instance (a suspended member's grants written again by a configurator run go too). S-c: comment numbers. S-d: the mark takes its lock before the one-per-transaction check.

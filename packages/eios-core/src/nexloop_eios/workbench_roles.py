@@ -248,9 +248,9 @@ def apply_members(roles, members, *, database_url_file, named_revocations=()):
     A-3): (1) the role templates, published as text with its sha256 and the expected revision (the last published roles manifest version,
     read before the transaction; a concurrent publication fails the check) - a changed role first revokes the previous version from
     every member holding it through an instantiation; (2) the member configuration; (3) those members get the role's new version.
-    Before it (X1): a member whose role or presence a governed change (an accepted invitation, a member Action) set since the last
-    configurator version, and that this member file would set differently, refuses the run - except the principals --revoke-member
-    names (Z2). After it: the role history of what the configuration changed, and the sessions of a member it removed or moved end."""
+    First in that transaction, under the member lock held to its commit (X1, review N-1): a member whose role or presence a governed
+    change (an accepted invitation, a member Action) set since the last configurator version, and that this member file would set
+    differently, refuses the run - except the principals --revoke-member names (Z2). After it: the role history of what the configuration changed, and the sessions of a member it removed or moved end."""
     from nexloop_eios.trusted_configuration import configurator_connection
     roles_payload, members_payload = configuration_payloads(roles, members)
     tenant = members['tenant_id']
@@ -258,12 +258,13 @@ def apply_members(roles, members, *, database_url_file, named_revocations=()):
     with db:
         with db.transaction():
             expected = db.execute('select control.nexloop_workbench_template_revision(%s)', (tenant,)).fetchone()[0]
-            drift = db.execute('select control.nexloop_workbench_governed_drift(%s,%s::jsonb,%s)',
-                (tenant, canonical_payload({m['principal_id']: m['role'] for m in members['members']}), list(named_revocations))).fetchone()[0]
-        if drift:
-            raise WorkbenchRolesRejected('members_changed_by_governed_actions: ' + ', '.join(f"{d['principal_id']}={d['role']}" for d in drift))
         with db.transaction():
             db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
+            # L6 slice C review N-1: the X1 check in the writing transaction; it takes the member lock first and holds it to the commit.
+            drift = db.execute('select control.nexloop_workbench_governed_drift(%s,%s::jsonb,%s)',
+                (tenant, canonical_payload({m['principal_id']: m['role'] for m in members['members']}), list(named_revocations))).fetchone()[0]
+            if drift:
+                raise WorkbenchRolesRejected('members_changed_by_governed_actions: ' + ', '.join(f"{d['principal_id']}={d['role']}" for d in drift))
             templates = db.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)',
                 (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
             configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',

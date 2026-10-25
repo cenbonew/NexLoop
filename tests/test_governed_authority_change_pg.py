@@ -149,3 +149,22 @@ def test_old_marks_are_cleaned_at_the_next_mark(db):
     with c.transaction():
         c.execute('select control.nexloop_authority_handler_mark(%s)', (TENANT_A,))
     assert c.execute('select count(*) from control.nexloop_authority_handler_marks').fetchone() == (1,)
+
+
+def test_a_mark_turns_the_read_memo_off_even_under_a_lock_held_before_it(db):
+    """L6 slice C review N-2: the requester's tail recheck must run in full. Before, only the extra advisory lock (part of the memo key)
+    happened to force it; an entry already holding the approval lock before its first assertion would have hit the memo. The mark now
+    turns the memo off for the rest of the transaction; a savepoint that rolls the mark back restores it."""
+    c = db
+    c.execute('update authz.nexloop_read_memo_settings set enabled=true where singleton')
+    with c.transaction():
+        c.execute('select control.nexloop_approval_tenant_lock(%s)', (TENANT_A,))  # held before, as a gate does
+        assert c.execute('select authz.nexloop_read_memo_ready()').fetchone()[0] is True
+        c.execute('select control.nexloop_authority_handler_mark(%s)', (TENANT_A,))
+        assert c.execute("select current_setting('nexloop.read_memo',true)").fetchone()[0] == 'off'
+        assert c.execute('select authz.nexloop_read_memo_ready()').fetchone()[0] is False
+    with c.transaction():
+        with pytest.raises(psycopg.errors.DivisionByZero), c.transaction():
+            c.execute('select control.nexloop_authority_handler_mark(%s)', (TENANT_A,))
+            c.execute('select 1/0')
+        assert c.execute('select authz.nexloop_read_memo_ready()').fetchone()[0] is True
