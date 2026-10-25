@@ -8,7 +8,8 @@ export type FailureKind='unauthenticated'|'forbidden'|'not_found'|'invalid_reque
 export class WorkbenchError extends Error{constructor(readonly kind:FailureKind){super(kind);}}
 export type SectionStatus='ok'|'forbidden'|'unavailable';
 export type Section<T>={status:'ok';data:T}|{status:'forbidden'|'unavailable';data:null};
-export type WorkbenchSession={authenticated:true;tenant_id:string;principal_id:string;restricted:boolean};
+export type ResetNotice={reset_id:string;issued_by:string;completed_at:string};
+export type WorkbenchSession={authenticated:true;tenant_id:string;principal_id:string;restricted:boolean;reset_notices:ResetNotice[]};
 
 export const STATE_TEXT:Record<FailureKind|'loading'|'empty',string>={
   loading:'正在加载…',
@@ -57,7 +58,28 @@ async function get<T>(path:string,validate:(value:unknown)=>T):Promise<T>{
 
 // ---- auth (own realm) ----
 function session(value:unknown):WorkbenchSession{const v=object(value);if(v.authenticated!==true)throw new WorkbenchError('invalid');
-  return {authenticated:true,tenant_id:text(v.tenant_id),principal_id:text(v.principal_id),restricted:flag(v.restricted)};}
+  return {authenticated:true,tenant_id:text(v.tenant_id),principal_id:text(v.principal_id),restricted:flag(v.restricted),
+    reset_notices:v.reset_notices===undefined?[]:resetNotices(v.reset_notices)};}
+/** NX-058 V3: the member's own completed owner-issued resets (7 days in the session, 90 days on the account page). */
+export function resetNotices(value:unknown):ResetNotice[]{
+  return list(value).map(x=>{const o=exactKeys(object(x),['reset_id','issued_by','completed_at']);return {reset_id:text(o.reset_id),issued_by:text(o.issued_by),completed_at:text(o.completed_at)};});}
+export const readResetHistory=()=>get('/api/v1/workbench/auth/reset-history',v=>resetNotices(object(v).resets));
+/** The outcome of a public account form: done, refused (one answer for every refusal, never which part was wrong), limited, or unknown. */
+export type AccountFormResult='done'|'invalid'|'rate_limited'|'unavailable';
+async function accountPost(path:string,body:Record<string,string>,done:string,invalid:string):Promise<AccountFormResult>{
+  try{
+    const response=await fetch(path,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(response.status===429)return 'rate_limited';
+    const code=(await response.json().catch(()=>({})) as {code?:unknown}).code;
+    if(response.ok&&code===done)return 'done';
+    if(response.status===400&&code===invalid)return 'invalid';
+    return 'unavailable';
+  }catch{return 'unavailable';}
+}
+/** NX-058 §1: accept an invitation with its token and a new password (no username: the invitation names it). */
+export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
+/** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
+export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
 export async function readWorkbenchSession():Promise<WorkbenchSession|null>{
   try{return await get('/api/v1/workbench/auth/session',session);}catch(error){if(kindOf(error)==='unauthenticated')return null;throw error;}
 }
@@ -359,6 +381,36 @@ export function settings(value:unknown):Settings{
     roles:Object.fromEntries(Object.entries(r).map(([k,a])=>[k,list(a).map(text)]))};
 }
 export const readSettings=()=>get('/api/v1/workbench/settings',settings);
+/** NX-058: the owner's members view - labels, usernames, roles, statuses, the vote cooldown's end; unexpired invitations; the last 90
+ * days of reset codes. Never a token, code, digest or email (the server leaves them out; a row that carried one is refused here). */
+export type MemberStatus='invited'|'active'|'suspended'|'revoked';
+export type MemberRow={principal_id:string;label:string;username:string|null;role:string|null;member_status:MemberStatus;account_status:string|null;
+  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean};
+export type InvitationRow={invitation_id:string;username:string;role:string;issued_by:string;issued_at:string;expires_at:string};
+export type ResetRow={reset_id:string;target_principal:string;issued_by:string;issued_at:string;expires_at:string;state:string;completed_at:string|null;kind:'member'|'owner'};
+export type Members={members:MemberRow[];invitations:InvitationRow[];resets:ResetRow[]};
+function exactKeys(o:Record<string,unknown>,keys:string[]){if(Object.keys(o).sort().join()!==[...keys].sort().join())throw new WorkbenchError('invalid');return o;}
+const memberStatus=(v:unknown):MemberStatus=>{const t=text(v);if(!['invited','active','suspended','revoked'].includes(t))throw new WorkbenchError('invalid');return t as MemberStatus;};
+export function members(value:unknown):Members{const v=exactKeys(object(value),['members','invitations','resets']);
+  return {members:list(v.members).map(x=>{const o=exactKeys(object(x),['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked']);
+      const label=text(o.label);if(!/^p-[0-9a-f]{8}$/.test(label))throw new WorkbenchError('invalid');
+      return {principal_id:text(o.principal_id),label,username:maybeText(o.username),role:maybeText(o.role),member_status:memberStatus(o.member_status),
+        account_status:maybeText(o.account_status),vote_eligible_from:maybeText(o.vote_eligible_from),erased:flag(o.erased),person_all_revoked:flag(o.person_all_revoked)};}),
+    invitations:list(v.invitations).map(x=>{const o=exactKeys(object(x),['invitation_id','username','role','issued_by','issued_at','expires_at']);
+      return {invitation_id:text(o.invitation_id),username:text(o.username),role:text(o.role),issued_by:text(o.issued_by),issued_at:text(o.issued_at),expires_at:text(o.expires_at)};}),
+    resets:list(v.resets).map(x=>{const o=exactKeys(object(x),['reset_id','target_principal','issued_by','issued_at','expires_at','state','completed_at','kind']);
+      const kind=text(o.kind);if(kind!=='member'&&kind!=='owner')throw new WorkbenchError('invalid');
+      return {reset_id:text(o.reset_id),target_principal:text(o.target_principal),issued_by:text(o.issued_by),issued_at:text(o.issued_at),expires_at:text(o.expires_at),
+        state:text(o.state),completed_at:maybeText(o.completed_at),kind};})};}
+export const readMembers=()=>get('/api/v1/workbench/members',members);
+/** A one-time secret in a write's result (a reset code or an invitation token): shown once to the issuer, never stored by the page. */
+export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string}|null{
+  // Only the execution that drew it: never a replay, a waiting request or a refusal (those carry no secret anyway).
+  if(!result||result.replayed!==false||'status' in result||(result.approval!==undefined&&result.approval!=='consumed'))return null;
+  if(typeof result.code==='string'&&result.code.length>=16)return {kind:'code',value:result.code};
+  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token};
+  return null;
+}
 
 // ---- member-read audit (ADR-025, owner only) ----
 export type AuditRow={audit_id:number;principal_id:string;role:string;object_kind:'message'|'consumer';target_resource:string;read_purpose:string;read_at:string};
@@ -460,6 +512,16 @@ export const OPERATION_ACTION={
   release_remediation_rule:'eios:action:nexloop.remediation.rule_release:1',
   // Extraction dead letters (0355): requeue or dismiss one dead-lettered claim-extraction job (owner only).
   resolve_extraction_dead_letter:'eios:action:nexloop.claim_extraction.dead_letter_resolve:1',
+  // NX-058 (owner only): workbench members. Operators and reviewers directly; owner targets, owner invitations, owner reset codes and the
+  // erasure of a departed member under NX-056 approval (executed from the approvals page after another owner approves).
+  invite_workbench_member:'eios:action:nexloop.workbench_member.invite:1',revoke_workbench_invitation:'eios:action:nexloop.workbench_member.revoke_invitation:1',
+  issue_workbench_reset:'eios:action:nexloop.workbench_member.issue_reset:1',change_workbench_member_role:'eios:action:nexloop.workbench_member.change_role:1',
+  suspend_workbench_member:'eios:action:nexloop.workbench_member.suspend:1',resume_workbench_member:'eios:action:nexloop.workbench_member.resume:1',
+  revoke_workbench_member:'eios:action:nexloop.workbench_member.revoke:1',promote_workbench_member:'eios:action:nexloop.workbench_member.promote_owner:1',
+  demote_workbench_owner:'eios:action:nexloop.workbench_member.demote_owner:1',suspend_workbench_owner:'eios:action:nexloop.workbench_member.suspend_owner:1',
+  resume_workbench_owner:'eios:action:nexloop.workbench_member.resume_owner:1',revoke_workbench_owner:'eios:action:nexloop.workbench_member.revoke_owner:1',
+  issue_workbench_owner_reset:'eios:action:nexloop.workbench_member.issue_owner_reset:1',invite_workbench_owner:'eios:action:nexloop.workbench_member.invite_owner:1',
+  erase_workbench_member:'eios:action:nexloop.workbench_member.erase_member:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}

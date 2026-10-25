@@ -440,6 +440,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'approvals')
 
+    @routes.get('/members')
+    async def members(request: Request):
+        # NX-058 workbench UI: the owner's members view (members, unexpired invitations, the last 90 days of reset codes).
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'members')
+
     @routes.get('/outreach-approvals')
     async def outreach_approvals(request: Request):
         # Outreach slice 6: the owner's pending approvals (ids, purpose, times, requester).

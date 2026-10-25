@@ -15,7 +15,7 @@ export function Settings({actions}:{actions?:ReactNode}){
     <h2>成员与角色（只读）</h2>
     <DataTable label="成员与角色" empty={{subject:'成员'}} rows={data.members} rowKey={m=>m.principal_id} columns={[{label:'成员',main:true,cell:m=><IdText kind="成员" value={m.principal_id} head={12} tail={4}/>},
       {label:'角色',cell:m=><StatusBadge domain="member_role" code={m.role}/>}]}/>
-    <p className="note">成员与角色只能经可信配置变更，工作台内不能自助注册或改角色。</p>
+    <p className="note">成员的邀请、改角色、停用与撤销在“成员与账号”页；可信配置的成员文件仍可直接改任何成员（运维通道，审计单列）。</p>
     <RealDispatchPanel/>
     <ReadAudit/>
   </>}</Page>;
