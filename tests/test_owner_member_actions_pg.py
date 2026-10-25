@@ -116,7 +116,7 @@ def test_a_suspended_owner_demoted_holds_nothing_and_a_changed_target_consumes_t
     assert c['decide'](c['second'], first.json()['approval_id']).json()['status'] == 'approved'
     spent = c['call'](c['owner_member'], 'revoke_workbench_owner', body)
     assert spent.json()['status'] == 'execution_refused' and spent.json()['approval'] == 'consumed', spent.json()
-    assert admin.execute('select result from control.nexloop_approval_consumptions where approval_id=%s', (first.json()['approval_id'],)).fetchone() == ('execution_refused:22023',)
+    assert admin.execute('select result from control.nexloop_approval_consumptions where approval_id=%s', (first.json()['approval_id'],)).fetchone() == ('execution_refused:22023:target_role_changed',)  # the handler's code (ADR-039 §7.4, NX-056 B2)
 
 
 def test_resume_and_revoke_an_owner_and_the_target_never_approves(owners, admin):

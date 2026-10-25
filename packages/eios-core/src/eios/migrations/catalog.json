@@ -1720,6 +1720,11 @@
       "version": "0344",
       "name": "0344_owner_member_actions.sql",
       "sha256": "0916f644fa22d133da9e7d509876f92a5eb3a5fd5d3796ec48a8ddb484c65473"
+    },
+    {
+      "version": "0345",
+      "name": "0345_nx056_execution_fields.sql",
+      "sha256": "5d7efd1dc41c456f874dca0a8b42c0f72959fc68c959f1879004783dd7f99d88"
     }
   ]
 }

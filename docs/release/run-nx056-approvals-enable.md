@@ -15,7 +15,7 @@
 - **时长**：第 0 天约 1 小时；第 1 天的演练（第 8 步）至少需要 2 小时，因为 8.6 要等待超过 1 小时才能看到告警，加上第 7 步，第 1 天约 2.5 小时。
 - **镜像**：需要 94baecc3 或更新的发布（含 NX-056 B1 `0342_nx056_target_member` 与 NX-058 D1 `0343_vote_cooldown`），其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
 - 每一步标注 **A**（只读，可以随时执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
-- **按 94baecc3 核对过**：迁移尾 0343（NX-056 主体 0326–0332，B1 为 0342，D1 投票冷却为 0343），角色清单 manifest 40，告警规则 v14（67 条），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果发布又前进了，再核对一次这几项。
+- **按 94baecc3 核对过**：迁移尾 0343（NX-056 主体 0326–0332，跟进修正 0339，B1 为 0342，D1 投票冷却为 0343），角色清单 manifest 40，告警规则 v14（67 条），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果发布又前进了，再核对一次这几项。
 
 ## 0. 前提与变量
 
@@ -88,7 +88,7 @@ ro "select to_regclass('control.nexloop_approval_policies') is not null, to_regc
 ro "select count(*) from control.nexloop_approval_policies"
 ```
 
-- **预期**：迁移尾是 0343（其中 NX-056 为 0326–0332 和 0342，D1 为 0343）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
+- **预期**：迁移尾是 0343（其中 NX-056 为 0326–0332、0339 和 0342，D1 为 0343）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
 
 ## 3. 发布新的 Action（DATA_HOST，配置员窗口，B）
 

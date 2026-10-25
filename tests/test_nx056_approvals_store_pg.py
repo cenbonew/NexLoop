@@ -202,8 +202,9 @@ def test_the_member_a_request_acts_on_never_approves_it(store):
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
     admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"suspended"}' where principal_id=%s""",
                   (f['operator']['principal_id'],))
-    # NX-058 slice D2: a suspended member opens too (resume_owner, demoting a suspended owner act on one); a revoked one never does
-    assert open_request(f, request_id='t-5', member=f['operator']['principal_id'])['status'] == 'waiting_approval'
+    # ADR-039 R3 §8.1: the statuses are the capability's own (resume_owner and the like declare suspended); one without settings
+    # accepts an active target only
+    refused('target_unresolved', open_request, f, request_id='t-5', member=f['operator']['principal_id'])
     admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"revoked"}' where principal_id=%s""",
                   (f['operator']['principal_id'],))
     refused('target_unresolved', open_request, f, request_id='t-6', member=f['operator']['principal_id'])
