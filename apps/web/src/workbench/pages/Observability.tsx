@@ -89,7 +89,7 @@ export function Operations({actions}:{actions?:ReactNode}){
         <Counts values={m.commitments.exceptions} domain="commitment_exception" subject="承诺异常"/></Card>
       <Card title="队列">{Object.keys(m.queues).length?<ul>{Object.entries(m.queues).map(([q,v])=><li key={q}>{statusLabel('queue',q)}：待处理 {v.pending??0} 个，重试 {v.retry_wait??0} 个，
         <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}</li>)}</ul>:<EmptyState kind="empty" subject="队列任务" compact/>}</Card>
-      <Card title="后台任务与提取">{Object.keys(m.feeds).length?<ul>{Object.entries(m.feeds).map(([f,v])=><li key={f}>{statusLabel('feed',f)}：待处理 {v.pending??0} 个，
+      <Card title="后台任务与提取">{Object.keys(m.feeds).length?<ul>{Object.entries(m.feeds).map(([f,v])=><li key={f}>{statusLabel('feed',f)}：待处理 {v.due??v.pending??0} 个{v.scheduled?`（另有 ${v.scheduled} 个定时未到期）`:''}，
         <span className={v.dead_lettered?'warning':undefined}>死信 {v.dead_lettered??0} 个</span>，最久待处理 {age(v.oldest_pending_seconds??null)}{(v.oldest_pending_seconds??0)>600?<span className="warning">（超过告警阈值 10 分钟）</span>:null}</li>)}</ul>:<EmptyState kind="empty" subject="后台任务积压" compact/>}
         <p>待提取消息 {m.extraction.pending_messages} 条，最久 {age(m.extraction.oldest_pending_seconds)}</p></Card>
       <ProcessBlock title={`守卫时延（2 秒截止）${m.guard.status==='ok'&&m.guard.timeout_rate!==undefined?` · 超时率 ${(m.guard.timeout_rate*100).toFixed(2)}%`:''}`} section={m.guard}

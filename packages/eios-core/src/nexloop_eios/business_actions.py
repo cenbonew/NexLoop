@@ -110,7 +110,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-058 slice D3: an owner's reset code and an owner invitation, under NX-056 approval.
     'workbench_member.issue_owner_reset':'human_owner','workbench_member.invite_owner':'human_owner',
     # NX-058 slice E: the staff offboarding erasure, under NX-056 approval.
-    'workbench_member.erase_member':'human_owner'}
+    'workbench_member.erase_member':'human_owner',
+    # Extraction dead letters (2026-10-26): the owner requeues or dismisses one dead-lettered claim-extraction job.
+    'claim_extraction.dead_letter_resolve':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

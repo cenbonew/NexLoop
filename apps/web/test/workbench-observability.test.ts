@@ -44,6 +44,15 @@ test('operations: unavailable process sections and backups are labelled, never z
   expect(()=>metrics({...metricsBody,guard:{status:'ok',by_service:{x:{sum:{calls:'many'},max:{}}}}})).toThrow(WorkbenchError);
 });
 
+test('operations: a feed that splits due and scheduled counts only the due items and names the scheduled ones apart',()=>{
+  const m=metrics({...metricsBody,feeds:{'commitment-monitor':{pending:10,due:2,scheduled:8,dead_lettered:0,dead_lettered_last_hour:0,
+    oldest_pending_seconds:1200,oldest_due_seconds:1200,max_pending_attempts:1}}});
+  const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
+  expect(html).toContain('：待处理 2 个（另有 8 个定时未到期），');expect(html).toContain('超过告警阈值 10 分钟');
+  const unsplit=render(client([[['workbench','metrics'],metrics({...metricsBody,feeds:{'recall-instance':{pending:5,dead_lettered:0,dead_lettered_last_hour:0,oldest_pending_seconds:30}}})]]),h(Operations,{}));
+  expect(unsplit).toContain('：待处理 5 个，');expect(unsplit).not.toContain('定时未到期');
+});
+
 test('operations: the backup block shows numbers and states, “无” for a metric without an observation, and parses strictly',()=>{
   const backup={status:'ok',age_seconds:1800,full_backup_age_seconds:86400,repo_backup_age_seconds:{repo1:1800},verify_failed:0,wal_last_archived_age_seconds:30,
     wal_archive_failing:1,journal_export_lag_seconds:0,drill_age_seconds:3600};  // no file snapshot, no drill RPO/RTO observed
@@ -96,6 +105,11 @@ test('overview backlog block renders the NX-030 shape: feed name, pending count 
   const html=render(client([[['workbench','overview'],overview(body)]]),h(Overview,{onOpen:()=>{}}));
   const block=html.slice(html.indexOf('aria-label="队列积压"'));
   expect(block).toContain('实例召回：待处理 5，死信 0，最久等待 3 小时');expect(block).not.toContain('recall-instance');
+  // Feed backlog fix: a feed that splits due and scheduled counts only the due items as pending and names the scheduled ones apart.
+  const split={...body,backlog:{status:'ok',data:{queues:{},feeds:{'commitment-monitor':{pending:10,due:0,scheduled:10,dead_lettered:0,dead_lettered_last_hour:0,
+    oldest_pending_seconds:null,oldest_due_seconds:null,max_pending_attempts:0}},extraction:{pending_messages:0,oldest_pending_seconds:null}}}};
+  const splitBlock=render(client([[['workbench','overview'],overview(split)]]),h(Overview,{onOpen:()=>{}}));
+  expect(splitBlock).toContain('：待处理 0（另有 10 个定时未到期），死信 0，');
   expect(block).toContain('队列</h3><div class="state state-empty state-compact" role="status" data-state="empty"><p class="state-title"><span class="state-mark" aria-hidden="true">○</span>暂无排队中的任务</p>');
   expect(block).toContain('待提取消息 2 条，最久等待 3 小时');
   // A malformed backlog is refused, never rendered as an empty success.
