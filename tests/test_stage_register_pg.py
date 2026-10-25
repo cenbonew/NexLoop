@@ -40,7 +40,7 @@ def test_every_compose_credential_file_has_exactly_one_principal_and_the_merge_h
     assert {f for f in stage['credential_files'] if not f.startswith(S.SETUP_PREFIX)} == credential_files_of_compose()
     assert sorted(f for f in stage['credential_files'] if f.startswith(S.SETUP_PREFIX)) == [
         'setup/business-executor-credential', 'setup/business-owner-credential', 'setup/catalog-maintainer-credential', 'setup/catalog-source-credential',
-        'setup/role-assembler-credential']
+        'setup/relation-backfiller-credential', 'setup/role-assembler-credential']
     roles = [p['role'] for p in manifest['principals']]
     assert len(roles) == len(set(roles)) and set(stage['credential_files'].values()) == set(roles)
     keys = [(g['principal'], g['resource_id']) for g in manifest['grants']]
@@ -126,7 +126,7 @@ def test_register_is_idempotent_and_dry_run_writes_nothing(registered):
     assert again == {**again, 'changed': False, 'message_read_rules_written': 0, 'credentials_created': [], 'grants_added': 0, 'grants_revoked': 0}
     count = r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0]
     dry = r['register'](dry_run=True)
-    assert dry['dry_run'] is True and len(dry['principals']) == 24 and dry['credential_files'] == 33
+    assert dry['dry_run'] is True and len(dry['principals']) == 25 and dry['credential_files'] == 34
     assert r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0] == count
 
 
