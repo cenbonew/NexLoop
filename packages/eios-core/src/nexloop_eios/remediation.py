@@ -124,17 +124,20 @@ _LAST_ROUND = {}
 
 
 class RemediationPlanner:
-    def __init__(self, pool, session, signer, *, interval_seconds=ROUND_SECONDS, environ=None, clock=time.monotonic):
+    def __init__(self, pool, session, signer, *, interval_seconds=ROUND_SECONDS, environ=None, clock=time.monotonic, rounds=None):
+        # rounds: the last round per (tenant, world). The process keeps one (the worker builds a planner per tick); a caller with
+        # its own clock passes its own, so no earlier planner of the process decides whether this one is due.
+        self.rounds = _LAST_ROUND if rounds is None else rounds
         self.port = RemediationPort(pool, session, signer, environ=environ)
         self.key = (session.authentication.tenant_id, session.world)
         self.interval_seconds, self.clock = interval_seconds, clock
 
     def run_once(self):
         now = self.clock()
-        last = _LAST_ROUND.get(self.key)
+        last = self.rounds.get(self.key)
         if last is not None and now - last < self.interval_seconds:
             return {'status': 'not_due'}
-        _LAST_ROUND[self.key] = now
+        self.rounds[self.key] = now
         try:
             return self.port.round()
         except PlanUnavailable:
