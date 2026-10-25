@@ -1,0 +1,14 @@
+{
+  "commit": "1e363db982daeca74058453ad12fc4a6cac333da",
+  "license": "MIT",
+  "scope": "Frozen Approval expiry tests (NX-056 A0) over the vendored state machine, expiry sweeper and the test-only in-memory store",
+  "tests": [
+    {
+      "source_path": "tests/domain_expansion/test_approval_expiry.py",
+      "destination": "tests/upstream/test_eios_approval_expiry.py",
+      "upstream_sha256": "8195bb570b47361eb9fa1281ca13a0909ceb88f73732270f85baebc827b5a247",
+      "nexloop_sha256": "8195bb570b47361eb9fa1281ca13a0909ceb88f73732270f85baebc827b5a247",
+      "adaptations": []
+    }
+  ]
+}

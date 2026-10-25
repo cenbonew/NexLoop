@@ -38,6 +38,9 @@ def settled(admin, tenant, delivered, refused):
     assert states == {delivered: 'delivered', refused: 'failed'}, states
     assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s', (refused,)).fetchone() == ('failed',)
     assert admin.execute('select code from runtime.nexloop_dispatch_refusals where intent_id=%s', (refused,)).fetchall() == [('NXC05',)]
+    # NX-057 R0: one failure row, reason refused_one_reply:<reason>, the refusal code as evidence.
+    rows = admin.execute("select reason_code,evidence->>'refusal_code' from runtime.nexloop_effect_failures where intent_id=%s", (refused,)).fetchall()
+    assert len(rows) == 1 and rows[0][0].startswith('refused_one_reply:') and rows[0][1] == 'NXC05', rows
 
 
 def test_the_original_reply_is_refused_once_the_fallback_reply_was_delivered(assembled_message, admin, tmp_path):

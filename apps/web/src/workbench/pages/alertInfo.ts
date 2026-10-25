@@ -11,6 +11,12 @@ export type AlertInfo={name:string;unit:Unit;window?:string;page:PageKey;help:st
 const I=(name:string,unit:Unit,page:PageKey,help:string,window?:string):AlertInfo=>({name,unit,page,help,window});
 export const ALERT_INFO:Record<string,AlertInfo>={
   // v6 (D-G5): NexLoop's own data flows; details on the data health page.
+  approval_waiting:I('审批请求等待超过 1 小时','seconds','approvals','在审批页查看待审批的请求；到期（默认 24 小时）未批即作废。'),
+  approval_unconsumed:I('已批准的请求 1 小时未执行','count','approvals','发起人在审批页的“待我执行”中执行；到期未执行即作废。'),
+  approval_solo_mode:I('单人模式已开启','count','approvals','唯一有资格的成员可以批准自己的请求；确认这是有意开启的。'),
+  approval_solo_self_approved:I('出现自批','count','audit','在审计中筛选 approval.decided（self_approved）核对。','最近 24 小时'),
+  approval_solo_eligibility_reduced:I('批准人数减少','count','audit','有成员的批准角色被移除或被停用；核对是否有意为之。','最近 24 小时'),
+  approval_sweep_stale:I('过期审批未被清理','count','operations','查看保留期服务（retention keeper）是否在运行；它负责终结过期的审批。'),
   data_health_extraction_dead_letters:I('提取任务进入死信','count','data_health','在数据健康页查看 Claim 提取；这些消息在处理前不会产生 Claim。'),
   data_health_extraction_backlog:I('消息等待提取超过 1 小时','seconds','data_health','查看提取服务是否在运行。'),
   data_health_recall_missing_embeddings:I('召回条目缺少 embedding','count','data_health','运行一次回填；缺少向量的条目召回不到。'),

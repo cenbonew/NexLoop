@@ -61,6 +61,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'outreach.send':'human_owner',
     # Outreach slice 6: approve or reject a send waiting for approval (never the requester's own).
     'outreach.approve':'human_owner',
+    'approvals.decide':'human_owner','approvals.cancel':'human_owner',  # NX-056 A1
+    'consumer.erase_on_request':'human_owner',  # NX-056 A5
+    'approvals.solo_mode.set':'human_owner',  # NX-056 A7
     # Outreach slice 7: the owner records marketing consent or resumes marketing after an unsubscribe, with evidence.
     'marketing_consent.record':'human_owner',
     # ADR-036: the owner publishes the next version of a read-only Object Set.
@@ -89,7 +92,11 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-043 X3 (D7): the owner switches the shadow copy of a tenant.
     'shadow_copy.set':'human_owner',
     # NX-043 (X3 review 4.3, X6): the owner reads the frozen aggregate reports.
-    'experiment.report':'human_owner'}
+    'experiment.report':'human_owner',
+    # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer.
+    'workbench_member.issue_reset':'human_owner',
+    # NX-058 slice A: owner invitations of operators and reviewers, and their revocation.
+    'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

@@ -37,6 +37,9 @@ def test_settle_needs_an_expired_origin_and_fails_only_a_never_dispatched_intent
         assert executor.settle_expired_origin(intent_id=intent) == 'failed'
     assert admin.execute('select state from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone() == ('failed',)
     assert outbox(admin, intent)[0] == 'failed'
+    # NX-057 R0: one failure row, reason origin_expired, the expired origin Run as evidence.
+    rows = admin.execute("select reason_code,evidence->>'origin_run_id' from runtime.nexloop_effect_failures where intent_id=%s", (intent,)).fetchall()
+    assert len(rows) == 1 and rows[0][0] == 'origin_expired' and rows[0][1] in {str(run.run_id) for run in fixture.runs}, rows
 
 
 def test_a_dispatched_unknown_intent_stops_requery_and_unknown_backs_off(governed_effect_executor, admin):
@@ -55,6 +58,7 @@ def test_a_dispatched_unknown_intent_stops_requery_and_unknown_backs_off(governe
         expire(admin, fixture)
         assert executor.settle_expired_origin(intent_id=intent) == 'stopped'
         assert outbox(admin, intent)[:2] == ('unknown', True)
+        assert admin.execute('select 1 from runtime.nexloop_effect_failures where intent_id=%s', (intent,)).fetchone() is None  # stopped, not failed
         assert executor.back_off_unknown(intent_id=intent) == 4 and outbox(admin, intent)[1] is True  # never brought back from infinity
 
 

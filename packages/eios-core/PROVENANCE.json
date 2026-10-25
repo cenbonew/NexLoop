@@ -687,6 +687,29 @@
         "eios/api/__init__.py is NexLoop's own one-line package marker: upstream eios.api (its FastAPI app) is not vendored"
       ],
       "nexloop_sha256": "3c6d09ea5c50dda5f566f81ad6e4503f810d6611535a6143fbf867a4dafa9d65"
+    },
+    {
+      "source_path": "src/eios/approvals/state_machine.py",
+      "destination": "packages/eios-core/src/eios/approvals/state_machine.py",
+      "upstream_sha256": "21ee9ebd26ddc2d40a79ab4b0049be617111a0ce6958f22bff060955f95b0ca2",
+      "adaptations": [],
+      "nexloop_sha256": "21ee9ebd26ddc2d40a79ab4b0049be617111a0ce6958f22bff060955f95b0ca2"
+    },
+    {
+      "source_path": "src/eios/approvals/expiry.py",
+      "destination": "packages/eios-core/src/eios/approvals/expiry.py",
+      "upstream_sha256": "4db3053ad13ad715c8c3b99358226ea606f79d89bc91b9476eea542a6ccd7934",
+      "adaptations": [],
+      "nexloop_sha256": "4db3053ad13ad715c8c3b99358226ea606f79d89bc91b9476eea542a6ccd7934"
+    },
+    {
+      "source_path": "src/eios/approvals/in_memory.py",
+      "destination": "packages/eios-core/src/eios/approvals/in_memory.py",
+      "upstream_sha256": "f07b9bf80118bffab21c520d3baae97c71b51fcd1d7cf2e5a2c582b5a9224f34",
+      "adaptations": [
+        "test-only reference store (NX-056 design §2): never on a NexLoop runtime path; the PostgreSQL store is NexLoop's own"
+      ],
+      "nexloop_sha256": "f07b9bf80118bffab21c520d3baae97c71b51fcd1d7cf2e5a2c582b5a9224f34"
     }
   ]
 }

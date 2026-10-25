@@ -143,6 +143,16 @@ REGISTRY = [
     Allowed('context_v6_reserved_units_volatile', 'authz.nexloop_context_v6_command', 'current_constraints compared without reserved_units',
             ((r"\(case when key='current_constraints' then \(pack->key\)-'reserved_units' else pack->key end\)\s*is distinct from \(case when key='current_constraints' then \(snapshot->key\)-'reserved_units' else snapshot->key end\)",
               'pack->key is distinct from snapshot->key'),)),
+    # 0334 (NX-058 slice B review I-2): the operator reset shares the password write of the owner-issued codes and ends their unused codes.
+    Allowed('operator_reset_revokes_codes', 'control.nexloop_operator_reset_browser_password',
+            'the password write through control.nexloop_browser_password_write (same effect) and every unused reset code revoked; nothing else',
+            ((r"body:=control\.nexloop_browser_password_write\(p_tenant,old,p_hash,now_at\);",
+              "history:=(case when old.password_hash is null then old.password_history else array[old.password_hash]||old.password_history end)[1:10];"
+              "body:=old.payload||jsonb_build_object('revision',p_expected+1,'session_epoch',(old.payload->>'session_epoch')::bigint+1,'failed_attempts',0,"
+              "'lockout_level',0,'locked_until',null,'updated_at',to_jsonb(now_at));"
+              "update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history "
+              "where a.tenant_id=p_tenant and a.local_account_id=p_account;"),
+             (r"\s*perform control\.nexloop_workbench_reset_revoke\(p_tenant,old\.subject_id,'operator_reset'\);", ''))),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
@@ -173,6 +183,23 @@ REGISTRY = [
             ((r"\s*when 'api' then array\['calls','errors','slow','p50_ms','p95_ms','max_ms'\]", ''),
              (r"\s*or \(p_kind='api' and p_service not in \('read','write'\)\)", ''),
              (r"\('guard','guard_op','relay_step','api'\)", "('guard','guard_op','relay_step')"))),
+    # NX-057 R0 (effect_failures): the three paths that fail an effect intent write its failure row; nothing else.
+    *[Allowed('effect_failures', name, 'NX-057 R0: the failure row (reason and evidence ids) in the same transaction; nothing else',
+              ((r'\s*insert into runtime\.nexloop_effect_failures\(.*?\);', ''),))
+      for name in ('authz.nexloop_fail_refused_effect', 'authz.nexloop_effect_origin_expired', 'runtime.nexloop_governed_confirm_not_delivered')],
+    # NX-057 R0 (effect_failures): the outcome_classes snapshot counts the effect outcomes by event time and reads them with the tenant set; nothing else.
+    Allowed('effect_failures', 'runtime.nexloop_metrics_snapshot', 'NX-057 R0: effect outcomes by event time (fulfilled, first unknown, '
+            'failure rows), read with the tenant set; refusals and dead letters unchanged',
+            ((r"\n prior text:=current_setting\('eios\.tenant_id',true\);", ''),
+             (r"\n perform set_config\('eios\.tenant_id',p_tenant,true\);", ''),
+             (r"\n perform set_config\('eios\.tenant_id',coalesce\(prior,''\),true\);", ''),
+             (r"intents as \(\s*select 'succeeded' k,count\(distinct e\.intent_id\) n from runtime\.nexloop_effect_events e.*?"
+              r"f\.recorded_at>now_at-interval '1 hour'\),",
+              "intents as (select case i.state when 'fulfilled' then 'succeeded' when 'confirmed' then 'succeeded' when 'unknown' then "
+              "'outcome_unknown' when 'failed' then 'defect' end k,count(*) n from runtime.nexloop_effect_intents i where i.tenant_id=p_tenant "
+              "and i.world=p_world and i.created_at>now_at-interval '1 hour' and i.state in ('fulfilled','confirmed','unknown','failed') and not "
+              "(i.state='failed' and exists(select 1 from runtime.nexloop_dispatch_refusals r where r.tenant_id=i.tenant_id and r.world=i.world "
+              "and r.intent_id=i.intent_id)) group by 1),"))),
     # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
     Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
             ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),
@@ -346,6 +373,18 @@ REGISTRY = [
               "coalesce(new.record->>'direction','inbound')<>'inbound' then return null;end if;  -- inbound: no direction (0046) or 'inbound'"),)),
     Allowed('message_inbound_rule', 'runtime.nexloop_shadow_report_freeze', 'the report\'s real inbound set through runtime.nexloop_message_is_inbound',
             ((r"runtime\.nexloop_message_is_inbound\(m\.record\)\),", "m.record->>'direction'='inbound'),"),)),
+    # NX-056 A1 (L6 C5): 0240's self-approval is compared by subject too; nothing else.
+    Allowed('nx056_unified_approvals', 'control.nexloop_governed_outreach_approve', 'self-approval by subject as well as by principal',
+            ((r"\n  or control\.nexloop_approval_subject_of\(p_tenant,p_principal\) in \(.*?\)\)\n then", ' then'),)),
+    # NX-056 A2: the governed entry asks the unified Approval store before it calls the handler; nothing else.
+    Allowed('nx056_approval_gate', 'authz.nexloop_goal_governed_action', 'the Approval gate before the handler, the approved call in a savepoint',
+            ((r"\n v_gate jsonb;v_consumed text;  -- NX-056 A2", ''),
+             (r"v_gate:=control\.nexloop_approval_gate\(.*?\n end if;\n v_id:=", "execute format('select %s($1,$2,$3,$4,$5,$6)',cap.handler::oid::regproc) into v_result using v_tenant,p_world,v_principal,v_subject,stored.intent_id,body;\n v_id:="),
+             # the action claim ends permanent_failure when nothing ran or the handler refused (L6 A2 review important 4)
+             (r"'outcome_revision',1,\n  -- Not executed.*?\n  'status',case when .*? end,", "'outcome_revision',1,'status','succeeded',"))),
+    # NX-056 A3: the retention keeper's port also ends waiting approvals past due_by; nothing else.
+    Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
+            ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

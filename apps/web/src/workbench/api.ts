@@ -403,6 +403,13 @@ export const OPERATION_ACTION={
   publish_semantic_release:'eios:action:nexloop.semantic_release.publish:1',rollback_semantic_release:'eios:action:nexloop.semantic_release.rollback:1',
   // NX-039 V6: the release scope's stop switch for one evolution dimension (owner only).
   set_evolution_stop:'eios:action:nexloop.semantic_release.stop:1',
+  // NX-056: approve or reject another person's request (never one's own), or withdraw one's own waiting request.
+  decide_approval:'eios:action:nexloop.approvals.decide:1',cancel_approval:'eios:action:nexloop.approvals.cancel:1',
+  // NX-056 A7: the owner's single-person mode switch (with a reason).
+  set_approval_solo_mode:'eios:action:nexloop.approvals.solo_mode.set:1',
+  // NX-056 A5: an owner-started erasure, executed from the approvals page after approval (owner only). A hold release is not a
+  // workbench operation: it is executed through the client it was requested from.
+  erase_consumer:'eios:action:nexloop.consumer.erase:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -978,3 +985,48 @@ export function outreachEvidence(value:unknown):OutreachEvidence{
       consents:list(r.consents).map(x=>{const o=object(x);return {kind:code(o.kind),source:code(o.source),at:text(o.at)};}),contact_restricted:flag(r.contact_restricted)}};
 }
 export function readOutreachEvidence(intentId:string){return get('/api/v1/workbench/outreach-evidence?intent_id='+encodeURIComponent(intentId),outreachEvidence);}
+
+
+// ---- unified approvals (NX-056 A4: every member; the rows are the caller's own, never another person's body) ----
+export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|'expired';
+export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
+  status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
+  result?:string|null;inputs?:Record<string,unknown>|null};
+export type Approvals={to_decide:ApprovalRow[];mine:ApprovalRow[];to_execute:ApprovalRow[];solo_mode:{enabled:boolean;others_eligible:boolean}};
+const APPROVAL_KEYS='action,approval_id,approvals,capability,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary';
+const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
+function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
+  const r=object(value);
+  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[])].sort().join()
+    ||!/^[0-9a-f-]{36}$/.test(text(r.approval_id))||!/^[0-9a-f]{12}$/.test(text(r.digest))||!APPROVAL_STATUS.includes(text(r.status) as ApprovalStatus))
+    throw new WorkbenchError('invalid');
+  const summary=object(r.summary);
+  for(const v of Object.values(summary))if(v!==null&&!['string','number','boolean'].includes(typeof v))throw new WorkbenchError('invalid');
+  const row:ApprovalRow={approval_id:text(r.approval_id),capability:text(r.capability),operation:text(r.operation),action:text(r.action),
+    requested_by:text(r.requested_by),requested_at:text(r.requested_at),due_by:text(r.due_by),status:text(r.status) as ApprovalStatus,digest:text(r.digest),
+    policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary']};
+  if(extra==='result')row.result=maybeText(r.result);
+  if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
+  return row;
+}
+export function approvals(value:unknown):Approvals{
+  const v=object(value);
+  if(Object.keys(v).sort().join()!=='mine,solo_mode,to_decide,to_execute')throw new WorkbenchError('invalid');
+  const solo=object(v.solo_mode);
+  if(Object.keys(solo).sort().join()!=='enabled,others_eligible')throw new WorkbenchError('invalid');
+  return {to_decide:list(v.to_decide).map(x=>approvalRow(x,'')),mine:list(v.mine).map(x=>approvalRow(x,'result')),
+    to_execute:list(v.to_execute).map(x=>approvalRow(x,'inputs')),solo_mode:{enabled:flag(solo.enabled),others_eligible:flag(solo.others_eligible)}};
+}
+export function readApprovals(){return get('/api/v1/workbench/approvals',approvals);}
+/** What a governed write's answer says about its approval (design §4): waiting, executed with it, or why not. Null when no policy applied. */
+export function approvalOutcome(result:Record<string,unknown>|undefined):string|null{
+  if(!result)return null;
+  if(result.approval==='required'||(result.status==='waiting_approval'&&result.approval_id))
+    return result.reason==='approver_no_longer_eligible'?'批准人已不再具备审批资格，这条请求回到等待审批。':'这个操作需要另一位成员批准：已提交审批，可在“审批”页查看；批准后由你在那里执行。';
+  if(result.status==='execution_refused')return '已按批准执行，但被拒绝（'+String(result.code??'')+'）；这次批准已用掉，需要重新发起。';
+  if(result.approval==='consumed')return '已按批准执行；这次批准已用掉。';
+  if(result.status==='approval_consumed')return '这条请求已经按批准执行过（结果 '+String(result.result??'')+'），没有再次执行。';
+  if(result.status==='policy_changed')return '审批策略已更新，原批准作废；请重新提交，按新策略审批。';
+  return null;
+}
+

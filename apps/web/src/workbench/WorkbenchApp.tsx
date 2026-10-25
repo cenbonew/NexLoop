@@ -18,6 +18,7 @@ import {WorldModel} from './pages/WorldModel';
 import {Capabilities} from './pages/Capabilities';
 import {DataAssets} from './pages/DataAssets';
 import {DataHealth} from './pages/DataHealth';
+import {Approvals} from './pages/Approvals';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -54,6 +55,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'commitments':return route.id?<CommitmentDetail commitmentId={route.id} actions={a} onContext={onContext} onConsumer={id=>go({page:'consumers',id})}/>
       :<Commitments actions={a} query={route.query??{}} onQuery={setQuery} onOpen={id=>go({page:'commitments',id})} onConsumer={id=>go({page:'consumers',id})}/>;
     case 'contact':return <Contact actions={a}/>;
+    case 'approvals':return <Approvals/>;
     case 'personas':return <Personas actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
@@ -73,7 +75,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
 /** Navigation in four groups (walkthrough F08; world model design §5: 模型与资产 next to 运营); the next-stage page last, marked "未启用".
  * 企业世界模型 is an expandable entry (EIOS navigation, owner review 2026-10-20): its summary page and one page per concept. */
 export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
-  {title:'运营',pages:['overview','consumers','commitments','actions','plans','goals','contact']},
+  {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
   {title:'管理',pages:['settings','personas','capabilities','experiments']}];

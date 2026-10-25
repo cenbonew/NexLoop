@@ -42,7 +42,7 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'conversation.takeover':'take_over_conversation','conversation.handback':'hand_back_conversation',  # 0152 (slice 3)
         'message.staff_send':'send_staff_reply',  # 0153 (ruling B)
         'commitment.bind_commercial':'bind_commitment_commercial','cost.record':'record_cost',  # NX-027 (0140)
-        'consumer.erase':'erase_consumer','message.erase':'erase_message','retention.hold':'hold_retention',
+        'consumer.erase':'erase_consumer','consumer.erase_on_request':'erase_consumer_on_request','message.erase':'erase_message','retention.hold':'hold_retention',
         'retention.release_hold':'release_retention_hold',  # NX-029 (0142)
         'consumer.export':'export_consumer',  # NX-029 slice 3
         'alert.silence':'silence_alert',  # NX-030 (0150)
@@ -56,11 +56,11 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'operator_persona.rules_publish':'publish_persona_rules','ai_disclosure.set':'set_ai_disclosure',  # 0227
         'contact_preference.dismiss':'dismiss_contact_preference',
         'outreach_controls.set':'set_outreach_controls','outreach_purposes.set':'set_outreach_purpose',
-        'outreach.send':'send_outreach','outreach.approve':'decide_outreach_approval','marketing_consent.record':'record_marketing_consent','object_set.publish':'publish_object_set',
+        'outreach.send':'send_outreach','outreach.approve':'decide_outreach_approval','approvals.decide':'decide_approval','approvals.cancel':'cancel_approval','approvals.solo_mode.set':'set_approval_solo_mode','marketing_consent.record':'record_marketing_consent','object_set.publish':'publish_object_set',
         'semantic_release.publish':'publish_semantic_release','semantic_release.rollback':'rollback_semantic_release','semantic_release.stop':'set_evolution_stop','object_view.publish':'publish_object_view',
         'sim_world.create':'create_sim_world','sim_world.delete':'delete_sim_world','sim_world.generate':'generate_sim_world_data','sim_clock.control':'control_sim_clock','consumer_twin.publish':'publish_consumer_twin','consumer_twin.retire':'retire_consumer_twin','consumer_twin.erase_text':'erase_consumer_twin_text','consumer_twin.publish':'publish_consumer_twin','consumer_twin.retire':'retire_consumer_twin','consumer_twin.erase_text':'erase_consumer_twin_text','consumer_twin.calibrate':'calibrate_consumer_twin',
         'strategy.publish':'publish_strategy','strategy.retire':'retire_strategy','experiment.register':'register_experiment',
-        'experiment.start':'start_experiment','experiment.stop':'stop_experiment','shadow_copy.set':'set_shadow_copy','sim_world.publish_catalog':'publish_sim_catalog','experiment.report':'read_experiment_report'}  # 0228
+        'experiment.start':'start_experiment','experiment.stop':'stop_experiment','shadow_copy.set':'set_shadow_copy','sim_world.publish_catalog':'publish_sim_catalog','experiment.report':'read_experiment_report','workbench_member.issue_reset':'issue_workbench_reset','workbench_member.invite':'invite_workbench_member','workbench_member.revoke_invitation':'revoke_workbench_invitation'}  # 0228
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):

@@ -89,6 +89,9 @@ def validate_roles(value):
                   'eios:action:nexloop.experiment.stop:1',  # NX-043 D3: and stopping one
                   'eios:action:nexloop.shadow_copy.set:1',  # NX-043 D7: and the shadow copy switch
                   'eios:action:nexloop.experiment.report:1',  # NX-043: and reading the frozen reports
+                  'eios:action:nexloop.workbench_member.issue_reset:1',  # NX-058: a member's reset code is the owner's to issue
+                  'eios:action:nexloop.workbench_member.invite:1',  # NX-058: and so is inviting a member
+                  'eios:action:nexloop.workbench_member.revoke_invitation:1',  # NX-058: and revoking an unused invitation
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
@@ -217,15 +220,46 @@ def configuration_payloads(roles, members):
                    'members': [{'principal_id': m['principal_id'], 'role': m['role']} for m in members['members']]}
 
 
+# NX-058 (design v7 §1c, ADR-020 §3 amendment): the placeholders of a role template; the governed SQL replaces them with one member.
+TEMPLATE_PRINCIPAL = 'nexloop-template-principal'
+TEMPLATE_SUBJECT = 'nexloop-template-subject'
+
+
+def role_templates(roles, tenant, *, valid_from=None):
+    """Per workbench role, the Human authority facts compile_member writes and the revoke form revoke_member writes, for the template
+    placeholders (control.nexloop_publish_workbench_role_templates). What a role grants is written here only, by the configurator."""
+    validate_roles(roles)
+    valid_from = valid_from or datetime(2026, 10, 10, tzinfo=UTC)
+    def rows(facts):
+        return [{'kind': kind, 'key': list(key), 'payload': fact.model_dump(mode='json')} for kind, key, fact in facts]
+    member = lambda role: {'principal_id': TEMPLATE_PRINCIPAL, 'subject_id': TEMPLATE_SUBJECT, 'role': role}  # noqa: E731
+    return {role: {'roles_manifest_version': roles['manifest_version'],
+                   'grant_facts': rows(compile_member(roles, tenant, member(role), valid_from=valid_from)),
+                   'revoke_facts': rows(revoke_member(roles, tenant, TEMPLATE_PRINCIPAL, roles['roles'][role]))}
+            for role in sorted(roles['roles'])}
+
+
 def apply_members(roles, members, *, database_url_file):
-    """Technical configurator only (0140 refuses any other session)."""
+    """Technical configurator only (0140 refuses any other session). One transaction, three steps (NX-058 §1c, L6 slice A review D-1,
+    A-3): (1) the role templates, published as text with its sha256 and the expected revision (the last published roles manifest version,
+    read before the transaction; a concurrent publication fails the check) - a changed role first revokes the previous version from
+    every member holding it through an instantiation; (2) the member configuration; (3) those members get the role's new version."""
     from nexloop_eios.trusted_configuration import configurator_connection
     roles_payload, members_payload = configuration_payloads(roles, members)
+    tenant = members['tenant_id']
     db = configurator_connection(database_url_file)
-    with db, db.transaction():
-        db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
-        return db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
-            (members['tenant_id'], canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
+    with db:
+        with db.transaction():
+            expected = db.execute('select control.nexloop_workbench_template_revision(%s)', (tenant,)).fetchone()[0]
+        with db.transaction():
+            db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
+            templates = db.execute('select control.nexloop_publish_workbench_role_templates(%s,%s,%s)',
+                (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
+            configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
+                (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
+            settled = db.execute('select control.nexloop_workbench_templates_settle(%s)', (tenant,)).fetchone()[0]
+            return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],
+                    'instances_rewritten': settled}
 
 
 def publish_human_authority(tenant, *, authority_facts, business_application, humans, label, database_url_file, signing_key_file, signing_key_id,

@@ -339,6 +339,33 @@ def _metrics_client(target, ca_dir, work, bundle, p):
            f"sslkey={installed}/metrics-pg-client.key\n")
 
 
+def add_identity_token_key(out, *, rotate=False):
+    """NX-058: app/secrets/api/identity-token.key (32 random bytes as 64 hex) for a tree generated before it existed (generate writes it
+    for new trees, from the Compose secret). Nothing existing is overwritten unless --rotate (review S-5): then the file gets a new
+    value and the manifest its new digest - every unused reset code and invitation stops working, and both api processes must restart
+    together with it (docs/implementation/NX-058-slice-B.md). The manifest records the file; no value is printed."""
+    out = Path(out)
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    target = out / 'app' / 'secrets' / 'api' / 'identity-token.key'
+    present = target.exists() or any(f['path'] == 'api/identity-token.key' for f in manifest['files'])
+    if present and not rotate:
+        raise Refused('the tree already holds the identity token key (--rotate replaces it)')
+    if rotate and not present:
+        raise Refused('nothing to rotate: the tree holds no identity token key')
+    if rotate:
+        target.unlink(missing_ok=True)
+        manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/identity-token.key']
+    _write(target, secrets.token_hex(32))
+    entry = {'host': 'app', 'path': 'api/identity-token.key', 'secret': 'api_identity_token_key', 'service': 'api', 'owner': _owner('api')}
+    entry['kind'], entry['phase'], entry['note'] = classify('app', 'api', 'identity-token.key')
+    entry.update(generated=True, sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+    manifest['files'].append(entry)
+    manifest_path.chmod(0o600)
+    manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    return {'rotated' if rotate else 'added': ['app:api/identity-token.key']}
+
+
 def add_metrics(out, ca_dir, params_file):
     """G-METRICS-DSN for a tree generated before the metrics client existed (generate writes it for new trees): management/metrics
     (APP_HOST, certificate only), data/secrets/backup/metrics.dsn (DATA_HOST socket, SCRAM) and management/metrics-role-password.sql,
@@ -538,6 +565,10 @@ def _apply_extra_facts(facts, tenant, *, database_url_file, signing_key_file, si
 # - control.nexloop_initial_identity_create (0162) needs an enabled allowance per application for initial_identity --create.
 # browser_business_applications is read only by the business authority snapshot (0045), not by login: not registered here.
 LOGIN_RATE = {'action': 'local_login', 'maximum_attempts': 20, 'window_seconds': 60}
+# NX-058 slice B: the workbench reset-code completion (browser_http password/reset) consumes 'password_reset_complete' per source.
+RESET_RATE = {'action': 'password_reset_complete', 'maximum_attempts': 10, 'window_seconds': 300}
+# NX-058 slice A: the workbench invitation acceptance (browser_http invitation/accept) consumes 'invitation_accept' per source.
+INVITE_RATE = {'action': 'invitation_accept', 'maximum_attempts': 10, 'window_seconds': 300}
 _APP_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 
 
@@ -552,7 +583,7 @@ def browser_entries(*, browser_application_id, workbench_application_id, seal_di
         raise Refused('maximum accounts per application: 1..100')
     apps = [(browser_application_id, webchat_accounts), (workbench_application_id, workbench_accounts)]
     return {'browser_applications': [{'application_id': a, 'active': True} for a, _ in apps],
-            'browser_rate_policies': [{**LOGIN_RATE, 'operator_principal_id': 'nexloop_identity', 'active': True}],
+            'browser_rate_policies': [{**rate, 'operator_principal_id': 'nexloop_identity', 'active': True} for rate in (LOGIN_RATE, RESET_RATE, INVITE_RATE)],
             'identity_allowances': [{'application_id': a, 'enabled': True, 'maximum_accounts': n, 'operator_label': operator_label,
                                      'idempotency_key_digest': seal_digest} for a, n in apps]}
 
@@ -953,6 +984,9 @@ def main(argv=None):
     m.add_argument('--out', type=Path, required=True)
     m.add_argument('--ca-dir', type=Path, required=True)
     m.add_argument('--params', type=Path, required=True)
+    itk = sub.add_parser('identity-token-key', help='NX-058: add the workbench one-time secret key to a tree generated before it existed')
+    itk.add_argument('--out', type=Path, required=True)
+    itk.add_argument('--rotate', action='store_true', help='replace the key: every unused code and invitation stops working; restart api and api-2 together')
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -984,6 +1018,8 @@ def main(argv=None):
             out, code = publish_main(args), 0
         elif args.command == 'reissue-role':
             out, code = reissue_role(args.out, args.ca_dir, args.params, args.service), 0
+        elif args.command == 'identity-token-key':
+            out, code = add_identity_token_key(args.out, rotate=args.rotate), 0
         elif args.command == 'metrics':
             out, code = add_metrics(args.out, args.ca_dir, args.params), 0
         elif args.command == 'generate':

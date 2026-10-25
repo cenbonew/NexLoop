@@ -32,6 +32,24 @@
 
 **边界。** 该授权仅限 NexLoop 服务主体运行所需的最小 Action/队列权限，不包括人类主体权限、审核权限（`ontology.schema.review`）、真实外发渠道开通和 `REAL_DISPATCH_ENABLED`；这些仍需负责人本人确认。
 
+
+### §3 修订（2026-10-23，NX-058，负责人定 Q-D 为 C）
+
+状态：**修订稿，待 L6 复核**。依据：`docs/design/account-self-service.md` 第 7 版 §1c。
+
+**修订内容。** 原文“授权写入必须走部署时的可信配置脚本……不得直写授权表”增加一个例外，范围只限**工作台成员（人类主体）的角色授权**：
+
+1. **“授予什么”仍只由可信配置决定。** configurator 经 0050 发布每个工作台角色的授权模板（`workbench_role_templates`，由 `compile_member` 用占位主体生成，带版本号和 sha256，只追加、可重放）。SQL 不编写任何授权内容。
+2. **“授予谁”可以由受治理入口决定。** 只在以下受治理 Action 的事务内，以一条有效邀请或一个 intent 为依据，由不授权给任何角色的内部函数把模板实例化给一名成员：只替换主体，并重算依赖主体的那一个摘要。
+   - 增加：接受邀请、`promote_owner`、`change_role`、`resume`、`resume_owner`；
+   - 撤销：`demote_owner`、`change_role`、`suspend(_owner)`、`revoke(_owner)`，写入与 `revoke_member` 相同的空集。
+   
+   涉及 owner 的这些动作需要另一位 owner 经 NX-056 批准，单人模式不适用。
+3. **完整性不变。** 0050 认的是 `nexloop_configurator` 的数据库登录、正文 sha256 和 `expected_revision`，不验证 manifest 签名；permit 按请求时库里的授权事实签名。所以实例化写入的事实与 configurator 写入的效力相同。变化的是**决定权**：从“只有持有 configurator 登录的人”扩大为“受治理入口 + configurator 发布的模板 + 邀请或 intent 依据”。
+4. **可审计、可重放。** 每次实例化或撤销都写一条只追加的实例化记录（主体、角色、模板版本与摘要、事实摘要、来源），并写一条 audit_event（进入审计哈希链）；不借用 `configuration_publications`。模板换版时，同一次 0050 发布按新模板重写所有已实例化的成员。
+5. **验证。** 黄金测试：每个角色的 SQL 实例化结果与 `compile_member` 的输出逐字节相同，换版重写的结果与撤销形式也同样比对。
+6. **不变的部分。** 服务主体的授权、审核权限、真实外发渠道开通和 `REAL_DISPATCH_ENABLED` 仍按本节原文，只走可信配置；工作台成员的其他授权，以及模板之外的任何事实，同样不在例外之内。
+
 ## 4. 合并标准：相对基线不新增失败
 
 **背景。** 在第 1 节修复落地前，main 的全量 CI 不可能全绿。

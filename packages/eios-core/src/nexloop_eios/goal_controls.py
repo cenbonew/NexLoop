@@ -75,6 +75,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'send_outreach':'outreach.send',
     # Outreach slice 6: approve or reject one pending send (four eyes and the window checked in SQL).
     'decide_outreach_approval':'outreach.approve',
+    'decide_approval':'approvals.decide','cancel_approval':'approvals.cancel',  # NX-056 A1
+    'erase_consumer_on_request':'consumer.erase_on_request',  # NX-056 A5
+    'set_approval_solo_mode':'approvals.solo_mode.set',  # NX-056 A7
     # Outreach slice 7: marketing consent granted / withdrawn, or marketing resumed after an unsubscribe (append-only, with evidence).
     'record_marketing_consent':'marketing_consent.record',
     # ADR-036: the next version of a read-only Object Set (filters and sort on open property groups, checked in SQL).
@@ -104,7 +107,11 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-043 X3 (D7): the shadow copy switch (off by default).
     'set_shadow_copy':'shadow_copy.set',
     # NX-043 (X3 review 4.3, X6): the owner's read of the shadow and experiment reports.
-    'read_experiment_report':'experiment.report'}
+    'read_experiment_report':'experiment.report',
+    # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer (owners: issue_owner_reset, with approval).
+    'issue_workbench_reset':'workbench_member.issue_reset',
+    # NX-058 slice A: the owner invites an operator or reviewer (owners: invite_owner, with approval) and revokes an unused invitation.
+    'invite_workbench_member':'workbench_member.invite','revoke_workbench_invitation':'workbench_member.revoke_invitation'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -402,6 +409,24 @@ class GoalGovernedActions:
             raise ValueError('intent, decision and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_outreach_approval','intent_id':intent_id,'decision':decision,'reason':reason})
 
+    # NX-056 A1: decide one waiting unified Approval (approver checks in SQL) or withdraw one's own; nothing executes here.
+    def decide_approval(self,*,action_name,action_version,request_id,approval_id,decision,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or decision not in ('approve','reject') \
+                or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('approval, decision and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'decide_approval','approval_id':approval_id,'decision':decision,'reason':reason})
+
+    def set_approval_solo_mode(self,*,action_name,action_version,request_id,enabled,reason):
+        # NX-056 A7: the owner's single-person mode switch (SQL: current workbench role owner; append-only events).
+        if type(enabled) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('state and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_approval_solo_mode','enabled':enabled,'reason':reason})
+
+    def cancel_approval(self,*,action_name,action_version,request_id,approval_id,reason):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(approval_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('approval and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'cancel_approval','approval_id':approval_id,'reason':reason})
+
     # Outreach slice 7: owner only; evidence is the consumer's own inbound message or an offline reference (checked in SQL).
     def record_marketing_consent(self,*,action_name,action_version,request_id,consumer_id,kind,source,reason,message_id=None,evidence_ref=None):
         if (not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or kind not in ('consent_granted','consent_withdrawn','marketing_resumed')
@@ -556,6 +581,27 @@ class GoalGovernedActions:
         if kind not in allowed or set(fields)!=allowed[kind]:raise ValueError('report kind and its fields required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'read_experiment_report','kind':kind,**fields})
 
+    # NX-058 slice B: the code itself never comes here - only its HMAC (and the issuer's source digest), drawn by the workbench entry.
+    def issue_workbench_reset(self,*,action_name,action_version,request_id,target_principal,code_hmac,issuer_source):
+        if (type(target_principal) is not str or not 1<=len(target_principal)<=320 or not re.fullmatch(r'[0-9a-f]{64}',str(code_hmac))
+                or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source))):
+            raise ValueError('target principal, code HMAC and issuer source required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'issue_workbench_reset','target_principal':target_principal,
+                                                        'code_hmac':code_hmac,'issuer_source':issuer_source})
+
+    # NX-058 slice A: the token never comes here - only its HMAC (and the issuer's source digest), drawn by the workbench entry.
+    def invite_workbench_member(self,*,action_name,action_version,request_id,username,role,expires_in_hours,token_hmac,issuer_source):
+        if (type(username) is not str or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{2,63}',username) or role not in ('operator','reviewer')
+                or type(expires_in_hours) is not int or not 1<=expires_in_hours<=72
+                or not re.fullmatch(r'[0-9a-f]{64}',str(token_hmac)) or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source))):
+            raise ValueError('username, operator or reviewer role, 1-72 hours, token HMAC and issuer source required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'invite_workbench_member','username':username,'role':role,
+                                                        'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source':issuer_source})
+
+    def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
+        if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'revoke_workbench_invitation','invitation_id':invitation_id})
+
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:
             raise ValueError('dimension, stopped and reason required')
@@ -593,6 +639,12 @@ class GoalGovernedActions:
         return self._submit(action_name,action_version,payload)
 
     # NX-029 (0142): erase a Consumer (blocking at once, purge by the keeper) or one Message; register or release a hold.
+    def erase_consumer_on_request(self,*,action_name,action_version,request_id,consumer_id,reason):
+        # NX-056 A5: confirm a Consumer's own erasure request (SQL refuses without one); not held by the policy of erase_consumer.
+        if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('consumer and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_consumer_on_request','consumer_id':consumer_id,'reason':reason})
+
     def erase_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):
         if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('consumer and reason required')
