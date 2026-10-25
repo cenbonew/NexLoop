@@ -201,6 +201,7 @@ def test_an_unreadable_trigger_is_alarmed_not_recorded_as_manual_silently(tmp_pa
     err = io.StringIO()
     code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer=DATA_HOST_TIMER, run=DATA_HOST_RUN, bus=''), '--dry-run', err=err)
     assert code == 0 and doc['trigger_unparsed'] == ['journal']
+    assert doc['entry']['timers'] == [] and doc['timer_runs'] == 0  # not recorded as a manual run
     assert '<3>nexloop-host-health trigger_unparsed host=data_host timer=journal' in err.getvalue()
 
 

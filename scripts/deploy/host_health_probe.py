@@ -214,8 +214,12 @@ def sample_timers(items, grace, runner=run, unparsed=None):
             continue
         started, finished = _unix(s.get('InactiveExitTimestamp')), _unix(s.get('StateChangeTimestamp'))
         parsed, trigger = last_trigger(item['timer'], t.get('LastTriggerUSec'), runner)
-        if not parsed and unparsed is not None:
-            unparsed.append(item['name'])
+        if not parsed:
+            # Not recorded: a run with no readable trigger would count as manual and leave the timer stale (L6 R-1).
+            if unparsed is not None:
+                unparsed.append(item['name'])
+            out.append(None)
+            continue
         if s.get('ActiveState') not in ('inactive', 'failed') or started is None or finished is None or finished < started:
             out.append(None)  # seen, no finished run to record (running now, or never ran)
             continue
