@@ -1,6 +1,6 @@
 /** Workbench routes live in the URL (/workbench/<page>[/<id>][?filters]) so a page, its object and its list filters can be linked,
  * reloaded and restored on Back (walkthrough F09). Only the query keys a page declares are kept, each with its own check. */
-export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'消费者',plans:'计划与运行',actions:'Action / 异常',approvals:'审批',commitments:'承诺 / 交付',contact:'联系限制',
+export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'消费者',plans:'计划与运行',actions:'Action / 异常',approvals:'审批',members:'成员与账号',commitments:'承诺 / 交付',contact:'联系限制',
   knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',personas:'运营人设',capabilities:'能力目录',ontology:'企业世界模型',data_assets:'数据资产',data_health:'数据健康',experiments:'实验空间'} as const;
 export type PageKey=keyof typeof PAGES;
 export type Query=Record<string,string>;

@@ -19,6 +19,7 @@ import {Capabilities} from './pages/Capabilities';
 import {DataAssets} from './pages/DataAssets';
 import {DataHealth} from './pages/DataHealth';
 import {Approvals} from './pages/Approvals';
+import {Members} from './pages/Members';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -56,6 +57,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
       :<Commitments actions={a} query={route.query??{}} onQuery={setQuery} onOpen={id=>go({page:'commitments',id})} onConsumer={id=>go({page:'consumers',id})}/>;
     case 'contact':return <Contact actions={a}/>;
     case 'approvals':return <Approvals/>;
+    case 'members':return <Members/>;
     case 'personas':return <Personas actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
@@ -78,7 +80,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','personas','capabilities','experiments']}];
+  {title:'管理',pages:['settings','members','personas','capabilities','experiments']}];
 const NOT_ENABLED:PageKey[]=['experiments'];
 /** Pages with sub-entries in the sidebar: the world model's concept pages (WORLD_SECTIONS, in EIOS order). */
 export const NAV_CHILDREN:Partial<Record<PageKey,{label:string;route:Route}[]>>={
