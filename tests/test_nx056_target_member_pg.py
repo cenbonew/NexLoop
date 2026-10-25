@@ -127,6 +127,8 @@ def test_no_target_field_is_null_and_invite_owner_shows_the_invitee_to_owners_on
     assert row(view(f, 'approver')['to_decide'], invited)['target_member'] == {'kind': 'invitee', 'username': 'new-owner', 'same_username_exists': False}
     clash = invite(f, 'requester', 'invite-2', f['operator']['username'])  # a request that bypassed the HTTP refusal
     assert row(view(f, 'approver')['to_decide'], clash)['target_member']['same_username_exists'] is True
+    not_text = invite(f, 'requester', 'invite-4', 42)  # a username that is not a string: unresolved, never the value
+    assert row(view(f, 'approver')['to_decide'], not_text)['target_member'] == {'kind': 'unresolved'}
     by_operator = invite(f, 'operator', 'invite-3', 'another-owner')
     mine = row(view(f, 'operator')['mine'], by_operator)
     assert mine['target_member'] == {'kind': 'hidden'} and 'another-owner' not in str(mine)  # non-owners: hidden, no username

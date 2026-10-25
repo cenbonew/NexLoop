@@ -65,7 +65,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 
 6. **工作台**：审批页分“待我审批”“待我执行”“我发起的”三栏，每位成员只看到自己的行，别人的请求体不会返回。执行就是把冻结的请求体原样再提交一次；工作台无法构造的请求体不提供执行按钮。
 
-6a. **目标成员块 `target_member`（修订草案 R1，2026-10-25，NX-056 B1；接口以 §6 为准）**：策略声明了 `target_subject_field`（或者能力是 `invite_owner`）时，审批视图由服务端在读取时解析目标，在已有的可见范围内按调用人的角色裁剪后展示。它不进 `summary_fields`，不写审计，不改冻结请求体和 digest。
+6a. **目标成员块 `target_member`（修订草案 R1，2026-10-25，NX-056 B1；接口以 §6 为准）**：策略声明了 `target_subject_field`（或者能力是 `workbench_member.invite_owner`）时，审批视图由服务端在读取时解析目标，在已有的可见范围内按调用人的角色裁剪后展示。它不进 `summary_fields`，不写审计，不改冻结请求体和 digest。
 
 7. **上游**：状态机和到期逻辑按 ADR-006 vendored；持久化层按 NexLoop 的 authz 签名、world、RLS 和只追加规则重写。
 
@@ -126,11 +126,11 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 ### 6.1 字段与固定键集合
 
 - 字段名 **`target_member`**。审批视图（`runtime.nexloop_approval_view`）三栏中的**每一行都有这个键**：
-  - 策略没有 `target_subject_field`，并且能力不是 `invite_owner` 时，取值为 `null`；
+  - 策略没有 `target_subject_field`，并且能力不是 `workbench_member.invite_owner` 时，取值为 `null`；
   - 否则取值为下面五种对象之一，用 `kind` 区分。
 - 前端严格解析：键集合固定，每种 `kind` 的键集合也固定，出现未知形态一律拒绝。
 - **判定顺序（写死）**，依次检查，命中即停：
-  1. 策略没有 `target_subject_field`，并且能力不是 `invite_owner` → `null`；
+  1. 策略没有 `target_subject_field`，并且能力不是 `workbench_member.invite_owner` → `null`；
   2. 调用人当前的工作台角色不是 owner → `hidden`，**不做任何解析**。这样非 owner 看不出目标存在不存在、是否被擦除：所有有目标的行对他都一样；
   3. 审批记录的能力是 `workbench_member.invite_owner` → `invitee`（§6.4；出错时为 `unresolved`）；
   4. 目标身份已被擦除 → `erased`；
@@ -140,10 +140,10 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 | `kind` | 键（全部必有） | 何时出现 |
 |---|---|---|
 | `member` | `kind`、`label`、`username`、`account_status`、`member_status`、`role` | 目标解析到本租户成员，并且调用人当前的工作台角色是 owner |
-| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人），这时不做任何解析，所以目标存在、不存在、已擦除对他看起来都一样；`invite_owner` 对非 owner 同样是 `hidden` |
+| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人），这时不做任何解析，所以目标存在、不存在、已擦除对他看起来都一样；`workbench_member.invite_owner` 对非 owner 同样是 `hidden` |
 | `unresolved` | `kind` | 有目标字段，但解析不到本租户成员，包括请求体中的值不是任何成员的 principal 或 subject |
 | `erased` | `kind` | 目标成员的身份已被擦除（§6.5） |
-| `invitee` | `kind`、`username`、`same_username_exists` | 能力为 `invite_owner`，并且调用人是 owner（D7，负责人 2026-10-25 定为 A：展示） |
+| `invitee` | `kind`、`username`、`same_username_exists` | 能力为 `workbench_member.invite_owner`，并且调用人是 owner（D7，负责人 2026-10-25 定为 A：展示） |
 
 ### 6.2 解析规则（只用实际存在的列）
 
