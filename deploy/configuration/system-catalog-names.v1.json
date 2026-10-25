@@ -904,6 +904,16 @@
       "stable_name": "nexloop.workbench_member.revoke_owner",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.issue_owner_reset",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.invite_owner",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
     }
   ],
   "functions": [

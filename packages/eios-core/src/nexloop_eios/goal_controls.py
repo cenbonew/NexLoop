@@ -122,7 +122,13 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-058 slice D2: owner targets (promote: an operator or reviewer to owner), each with another owner's approval (NX-056).
     'promote_workbench_member':'workbench_member.promote_owner','demote_workbench_owner':'workbench_member.demote_owner',
     'suspend_workbench_owner':'workbench_member.suspend_owner','resume_workbench_owner':'workbench_member.resume_owner',
-    'revoke_workbench_owner':'workbench_member.revoke_owner'}
+    'revoke_workbench_owner':'workbench_member.revoke_owner',
+    # NX-058 slice D3: an owner's reset code and an owner invitation, each with another owner's approval (NX-056).
+    'issue_workbench_owner_reset':'workbench_member.issue_owner_reset','invite_workbench_owner':'workbench_member.invite_owner'}
+# ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0346; tests compare the two).
+# The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
+EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
+                  'workbench_member.invite_owner':('token_hmac','issuer_source_hmac')}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -628,6 +634,21 @@ class GoalGovernedActions:
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'invite_workbench_member','username':username,'role':role,
                                                         'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source':issuer_source})
 
+    # NX-058 slice D3: owners, with another owner's approval; the HMACs are execution-time fields (never in the digest nor the frozen body).
+    def issue_workbench_owner_reset(self,*,action_name,action_version,request_id,target_principal,code_hmac,issuer_source_hmac):
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or not re.fullmatch(r'[0-9a-f]{64}',str(code_hmac))
+                or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source_hmac))):
+            raise ValueError('target principal, code HMAC and issuer source HMAC required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'issue_workbench_owner_reset','target_principal':target_principal,
+                                                        'code_hmac':code_hmac,'issuer_source_hmac':issuer_source_hmac})
+
+    def invite_workbench_owner(self,*,action_name,action_version,request_id,username,expires_in_hours,token_hmac,issuer_source_hmac):
+        if (type(username) is not str or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{2,63}',username) or type(expires_in_hours) is not int
+                or not 1<=expires_in_hours<=72 or not re.fullmatch(r'[0-9a-f]{64}',str(token_hmac)) or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source_hmac))):
+            raise ValueError('username, 1-72 hours, token HMAC and issuer source HMAC required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'invite_workbench_owner','username':username,
+                                                        'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source_hmac':issuer_source_hmac})
+
     def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'revoke_workbench_invitation','invitation_id':invitation_id})
@@ -757,10 +778,12 @@ class GoalGovernedActions:
         if capability.capability_name!=CAPABILITIES[payload['operation']]:
             raise ActionAuthorizationDenied('Action capability does not match goal operation')
         now=datetime.now(UTC);ref=definition.reference();intent=payload['request_id']
+        # The claim binds the request without its execution-time fields (ADR-039 R3 §8.4 option a); SQL still receives the whole payload.
+        claimed={k:v for k,v in payload.items() if k not in EXECUTION_FIELDS.get(capability.capability_name,())}
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=action_name,idempotency_key=intent),
-          binding=M.ClaimBindingPayload(invocation_id=intent,action_reference=ref,request_digest=M.canonical_request_digest(payload),
+          binding=M.ClaimBindingPayload(invocation_id=intent,action_reference=ref,request_digest=M.canonical_request_digest(claimed),
             capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),requested_at=now,lease_expires_at=now+timedelta(seconds=20))
-        permit=govern_published_action(self.pool,self.session,self.signer,claim_request=command,request=payload)
+        permit=govern_published_action(self.pool,self.session,self.signer,claim_request=command,request=claimed)
         if type(permit) is M.TerminalOutcomeReference:
             if permit.status is not M.TerminalOutcomeStatus.SUCCEEDED:raise ActionAuthorizationDenied('Action has a non-success terminal outcome')
             return {'outcome_id':permit.outcome_id,'operation':payload['operation'],'replayed':True}

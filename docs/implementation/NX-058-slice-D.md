@@ -43,3 +43,17 @@ Runbook order: publish the five Actions, then apply approval policies version 2 
 - `approval_open`: promote_owner never opens for a suspended member (the suspended exception is for the other owner-only Actions).
 - Ending an owner's unused invitations writes one audit event per invitation (`nexloop.workbench_member.invitation_ended`, id and reason only).
 - New tests: two approved suspensions of one owner executed on two connections (one executes, the other is refused after the lock or retries a transient error and is then refused); promotion ends the target's reset codes; a demoted active owner takes the new role's grants and history; a suspended owner's invitations end with audit; the last-owner count (active owners but the target).
+
+## D3 — issue_owner_reset, invite_owner, acceptance v3
+
+Migration `0346_owner_reset_and_invite.sql` (temporary number), on l2/nx058-owner-d3 from l3/nx056-b2 3ac3aa42 (0344 D2, 0345 B2):
+
+- Registered with their approval settings in the same migration (ADR-039 R3 §8.3): `workbench_member.issue_owner_reset` (`issue_workbench_owner_reset`; execution fields `{code_hmac, issuer_source_hmac}`, targets `{active}`) and `workbench_member.invite_owner` (`invite_workbench_owner`; `{token_hmac, issuer_source_hmac}`, no target field).
+- Handlers fail closed like D2 (`control.nexloop_workbench_owner_approval_v2`, which also takes the policy's target field - none for invite_owner), then follow slice B's issue and slice A's invite. Owner invitations record `approval_id`. The reset code is drawn at every submission, shown only when the submission executed the approved request, and the target's sessions end only then (R5).
+- `authz.nexloop_workbench_invitee_free`: the workbench HTTP layer refuses an owner invitation of a username the tenant holds before any approval opens (ADR-039 §6.4); tenant from the session.
+- `control.nexloop_accept_workbench_invitation_v3` (identity's entry; v2 revoked from it): an owner invitation needs its approval consumed as `executed`; an acceptance from the issuer's source writes `approval.same_person_flagged` (ids and the reason code only; counted by the v16 alert rule of B1).
+- **L6 I-C2, option a**: the claim's request digest leaves out the capability's execution-time fields (`goal_controls.EXECUTION_FIELDS`, mirrored from the settings and tested), and `authz.nexloop_goal_governed_action` accepts the digest with or without them (canonical JSON). A retry of the execution with the same Idempotency-Key replays the claim (`replayed: true`, no second code). The HTTP layer also maps a remaining reservation conflict to 409 (option b as a safety net). Done before the policies are published.
+- **L6 I-C1**: an owner demoted, suspended or revoked through the D2 handler loses its approved, unconsumed requests at once (`requester_no_longer_eligible`, B2's triggers); tested for all three, and the test fails with the triggers dropped.
+- Approval policies version 3 (`expected_revision: 2`): the two policies added; version 2 kept as `deploy/configuration/history/approval-policies.version2.json`. Manifests: business-actions and workbench-roles +1 each (owner 89 Actions), Actions 123.
+
+Runbook (lost response, R3 §8.4): a retry replays without the code or token; check "my requests" for `executed`, then revoke the code (the next issue voids it) or the invitation, and request again.

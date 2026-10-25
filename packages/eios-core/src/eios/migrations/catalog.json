@@ -1725,6 +1725,11 @@
       "version": "0345",
       "name": "0345_nx056_execution_fields.sql",
       "sha256": "103ac8621d2ae261490f96ff0830b08c42983b46febdc2954b04031d373a9c7b"
+    },
+    {
+      "version": "0346",
+      "name": "0346_owner_reset_and_invite.sql",
+      "sha256": "dfc5fbe9813c9e12f4d8d40113742968591e7eb03f4449779d66b634c327d25f"
     }
   ]
 }

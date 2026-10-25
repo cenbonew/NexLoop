@@ -447,6 +447,12 @@ REGISTRY = [
              (r"\n   v_reason:=substring\(sqlerrm from '.*?'\);", ""),
              (r"\|\|coalesce\(':'\|\|v_reason,''\);", ";"),
              (r",'reason',v_reason\);", ");"))),
+    # owner_reset_and_invite (NX-058 slice D3, ADR-039 R3 §8.4 option a): the claim's request digest may leave out the capability's
+    # execution-time fields, checked after the capability is known instead of with the permit.
+    Allowed('owner_reset_and_invite', 'authz.nexloop_goal_governed_action', "the claim digest over the body with or without the execution-time fields; nothing else",
+            ((r"  or \(a->>'expires_at'\)::timestamptz>clock_timestamp\(\)\+interval '30 seconds' then\n",
+              "  or (a->>'expires_at')::timestamptz>clock_timestamp()+interval '30 seconds'\n  or v_claim->'binding'->>'request_digest' is distinct from encode(sha256(convert_to(p_payload,'UTF8')),'hex') then\n"),
+             (r"\n -- NX-058 slice D3 \(ADR-039 R3 §8\.4 option a.*?'goal permit rejected' using errcode='42501';end if;", ""))),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

@@ -226,6 +226,10 @@ OPERATIONS={
         'role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role')),
         'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
     'revoke_workbench_invitation':{'invitation_id':_id(_UUID)},
+    # NX-058 slice D3 (owner only, NX-056 approval): the entry draws the code or token at every submission (below).
+    'issue_workbench_owner_reset':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
+    'invite_workbench_owner':{'username':_id(re.compile(r'[a-z0-9][a-z0-9._-]{2,63}')),
+        'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
     # NX-058 slice C (owner only): member changes of operators and reviewers; the target is target_principal only (AA2).
     'change_workbench_member_role':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),
         'new_role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role'))},
@@ -303,6 +307,8 @@ class WorkbenchActions:
                 action=db.execute('select authz.nexloop_workbench_action_for(%s,%s,%s)',(human.token_digest,human.world,CAPABILITIES[operation])).fetchone()[0]
             if action is None:raise LookupError('Action not published')
             if action.get('granted') is not True:raise PermissionError('no grant on the Action')
+            if operation=='invite_workbench_owner':  # ADR-039 §6.4: a username the tenant holds never reaches an approval
+                with pool.connection() as db:db.execute('select authz.nexloop_workbench_invitee_free(%s,%s,%s)',(human.token_digest,human.world,fields['username']))
             method=getattr(GoalGovernedActions(pool,human,self.backend._signer),operation)
             return method(action_name=action['stable_name'],action_version=action['version'],request_id=request_id,**fields)
 
@@ -371,8 +377,22 @@ def router(config,*,ports_for_browser):
                 code=W.new_code()
                 fields={**fields,'code_hmac':W.digest(secret_key,W.RESET,config.tenant_id,code),
                         'issuer_source':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
+            if operation in ('issue_workbench_owner_reset','invite_workbench_owner'):
+                # NX-058 slice D3 (ADR-039 R3 §8.1): drawn at every submission as execution-time fields (*_hmac), never in the digest or the
+                # frozen body; shown only when this submission executed the approved request (a waiting one's code is discarded, I6).
+                from nexloop_eios import workbench_member_secrets as W
+                from nexloop_eios.browser_http import client_ip_resolver
+                try:secret_key=W.load_key(config.identity_token_key_file)
+                except Exception:return error('unavailable',503)
+                invite=operation=='invite_workbench_owner'
+                code=W.new_token() if invite else W.new_code()
+                fields={**fields,('token_hmac' if invite else 'code_hmac'):W.digest(secret_key,W.INVITE if invite else W.RESET,config.tenant_id,code),
+                        'issuer_source_hmac':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
             result=await run_in_threadpool(lambda:bound(request).run(operation,'workbench-'+key,fields))
-            if code is not None and isinstance(result,dict) and result.get('replayed') is False:
+            if operation in ('issue_workbench_owner_reset','invite_workbench_owner'):
+                if (isinstance(result,dict) and result.get('approval')=='consumed' and result.get('status') is None and result.get('replayed') is False):
+                    result={**result,('token' if operation=='invite_workbench_owner' else 'code'):code}
+            elif code is not None and isinstance(result,dict) and result.get('replayed') is False:
                 result={**result,('token' if operation=='invite_workbench_member' else 'code'):code}
             return JSONResponse(json.loads(json.dumps(result,default=str)),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
         except CredentialInvalid:
@@ -392,6 +412,9 @@ def router(config,*,ports_for_browser):
             return error('forbidden',403)
         except Exception as failure:
             if type(failure).__name__ in ('ActionAuthorizationDenied','AuthorizationFactDenied'):return error('forbidden',403)
+            # ADR-039 R3 §8.4 (option b as the safety net under option a): a reservation conflict - the same request id with another body -
+            # is no retryable outage.
+            if type(failure).__name__=='ActionGovernanceError' and 'conflicts with immutable binding' in str(failure):return error('conflict',409)
             # AuthorizationUnavailable and dependencies: cannot be verified now (same label as NX-046), never a silent success.
             return error('unavailable',503)
     return routes

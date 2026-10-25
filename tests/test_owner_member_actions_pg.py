@@ -24,13 +24,14 @@ from support.vote_cooldown import ripen_approvers
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
-from test_nx056_first_policies_pg import CURRENT, POLICIES, configurator
+from test_nx056_first_policies_pg import CURRENT, HISTORY, configurator
 from test_real_dispatch_switch_pg import switching  # noqa: F401
 from test_workbench_actions_http import act
 from test_workbench_member_changes_pg import grants_match, granted, history
 from test_workbench_read_pg import ROLES, add_human, members_file, workbench_login, write_facts
 
-ACTIONS = tuple(f'nexloop.workbench_member.{a}' for a in ('promote_owner', 'demote_owner', 'suspend_owner', 'resume_owner', 'revoke_owner')) + (
+ACTIONS = tuple(f'nexloop.workbench_member.{a}' for a in ('promote_owner', 'demote_owner', 'suspend_owner', 'resume_owner', 'revoke_owner',
+                                                             'issue_owner_reset', 'invite_owner')) + (
     'nexloop.approvals.decide', 'nexloop.approvals.cancel')
 
 
@@ -43,6 +44,7 @@ def owners(switching, admin, pg, tmp_path):
     write_facts(admin, compile_members(ROLES, members))
     ripen_approvers(admin, TENANT)
     publish_registry_actions(admin, ACTIONS + ('nexloop.workbench_member.invite', 'nexloop.workbench_member.issue_reset'))
+    admin.execute("insert into control.nexloop_browser_rate_policies values(%s,'invitation_accept','nexloop_identity',50,60,true) on conflict do nothing", (TENANT,))
     key = tmp_path / 'identity-token-key'
     key.write_text(secrets.token_hex(32))
     key.chmod(0o600)
@@ -60,7 +62,8 @@ def owners(switching, admin, pg, tmp_path):
 
 
 def with_policies(c):
-    apply_policies(POLICIES.read_text(encoding='utf-8'), database_url_file=c['dsn'])
+    for older in HISTORY:
+        apply_policies(older.read_text(encoding='utf-8'), database_url_file=c['dsn'])
     return apply_policies(CURRENT.read_text(encoding='utf-8'), database_url_file=c['dsn'])
 
 
@@ -75,7 +78,7 @@ def approved_run(c, requester, approver, operation, body):
 def test_promotion_runs_once_after_another_owners_approval(owners, admin):
     c = owners
     applied = with_policies(c)
-    assert applied['version'] == 2 and applied['appended'] == 5 and applied['unchanged'] == 3
+    assert applied['version'] == 3 and applied['appended'] == 2 and applied['unchanged'] == 8
     p = c['operator_member']['principal_id']
     body = {'target_principal': p, 'reason': 'synthetic promotion'}
     executed = approved_run(c, c['owner_member'], c['second'], 'promote_workbench_member', body)
@@ -158,11 +161,12 @@ def test_approval_open_refuses_a_body_of_another_capabilitys_operation(owners, a
 
 
 def test_the_registry_matches_the_design(admin):
-    """The five capabilities as registered (and as B1's hand-inserted rows would have to match; L6 review of B1)."""
+    """The seven capabilities as registered (and as B1's hand-inserted rows would have to match; L6 review of B1)."""
     from nexloop_eios.bootstrap import bootstrap
     bootstrap(admin)
-    rows = admin.execute("select capability,operation,subject_rule from control.nexloop_governed_capabilities where capability like 'workbench_member.%%_owner' order by 1").fetchall()
-    assert rows == [('workbench_member.demote_owner', 'demote_workbench_owner', 'human'), ('workbench_member.promote_owner', 'promote_workbench_member', 'human'),
+    rows = admin.execute("select capability,operation,subject_rule from control.nexloop_governed_capabilities where capability like 'workbench_member.%%owner%%' order by 1").fetchall()
+    assert rows == [('workbench_member.demote_owner', 'demote_workbench_owner', 'human'), ('workbench_member.invite_owner', 'invite_workbench_owner', 'human'),
+                    ('workbench_member.issue_owner_reset', 'issue_workbench_owner_reset', 'human'), ('workbench_member.promote_owner', 'promote_workbench_member', 'human'),
                     ('workbench_member.resume_owner', 'resume_workbench_owner', 'human'), ('workbench_member.revoke_owner', 'revoke_workbench_owner', 'human'),
                     ('workbench_member.suspend_owner', 'suspend_workbench_owner', 'human')]
 
