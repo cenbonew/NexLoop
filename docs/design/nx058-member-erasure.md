@@ -1,88 +1,152 @@
 # 设计增补｜NX-058 片 E：员工离职擦除
 
-第 1 版，2026-10-25，L2。负责人 Q-A 定为「A+90天」：员工离职擦除纳入 v0.2，作为 NX-058 片 E，排在片 D 之后。上位设计是 `docs/design/account-self-service.md` 第 7 版 §4（S3 擦除传播），审批接法照片 D 设计（`docs/design/nx058-owner-actions.md` v2.8），目标展示照 ADR-039 R1 §6.5。本稿先送 L6；实现等片 D 合入 main 后开始，迁移用临时编号。
+第 2 版，2026-10-25，L2。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
+
+负责人 Q-A 定为「A+90天」：员工离职擦除纳入 v0.2，作为 NX-058 片 E，排在片 D 之后。上位设计是 `docs/design/account-self-service.md` 第 7 版 §4（S3 擦除传播），审批接法照片 D 设计（`docs/design/nx058-owner-actions.md` v2.8），目标展示照 ADR-039 R1 §6（本稿需要修订 §6.1 与 §6.5，见 §5）。实现等片 D 合入 main 后开始，迁移用临时编号。
 
 ## 0. 范围
 
-一个 owner 专用 Action `nexloop.workbench_member.erase_member`（能力 `workbench_member.erase_member`，handler 操作名 `erase_workbench_member`），请求体 `target_principal`、`reason`。走 NX-056 统一审批，策略形态与片 D 相同：无条件、quorum 1、批准人恰好是 `{owner}`、`target_subject_field: target_principal`、`solo_mode: not_applicable`、24 小时；`summary_fields` 为空，目标经审批视图 `target_member` 展示。**被擦除的人不能参与批准**：NX-056 已按 `target_subject_field` 在决定时拒收、消费时不计目标本人的票（AA2）；另外擦除前提要求目标已撤销（§1），撤销者不是 active 成员，本来也没有投票资格。
+一个 owner 专用 Action `nexloop.workbench_member.erase_member`（能力 `workbench_member.erase_member`，handler 操作名 `erase_workbench_member`），请求体 `target_principal`、`reason`。`reason` 是枚举 `offboarding | member_request | other`（S1），不写入审计。
 
-不在范围：Consumer 擦除（NX-029，另有路径）；owner 的自我擦除（请求人不能是目标）；把 principal 本身假名化（负责人口径：保留 principal）。
+**作用单位是 subject**（C1，选 (a)）：一个人（subject）在本租户可以有多个 principal；擦除的是这个人在本租户的账号与残留数据，所以前提是该 subject 在本租户的**所有** membership 都已 revoked（§1）。请求体只给 principal，handler 由它解析 subject。
 
-## 1. 前提与时机
+不在范围：Consumer 擦除（NX-029）；owner 的自我擦除；principal 本身的假名化（负责人口径：保留 principal）；运维通道的擦除——**不提供**：AGENTS 要求正式数据只由受治理 Action 改动，0198 和 configurator 都不做擦除（§7）。
 
-- **目标必须已经 revoked**（经片 C 的 `revoke`、片 D 的 `revoke_owner`，或 configurator 的 `--revoke-member`）。擦除只清离职者的残留数据，不兼做撤销：撤销牵涉授权、配置和最后一位 owner 的判断，已有各自的审批口径。目标仍是 invited/active/suspended 时拒绝 `target_not_revoked`。
-  - 这要求 `approval_open` 的目标检查对**这一个能力**接受 revoked 成员（片 D2 起只接受 invited/active/suspended）。按能力写死，与 B1 对 `invite_owner` 的写法同理，copy guard 登记，需 L3 同意。
-- 同一成员只擦除一次：handler 以 `control.nexloop_workbench_member_erasures`（新表，只追加）判定，已擦除返回 `already_erased`。
-- 期限：离职后的 90 天由**保留期服务**执行登录事件中两项摘要的清除（§2.3）；擦除 Action 本身随时可做，不等 90 天。
+## 1. 审批、前提与可批准条件
 
-## 2. 擦除内容（S3，按负责人原话）
+- **策略**与片 D 相同：无条件、quorum 1、批准人恰好是 `{owner}`、`target_subject_field: target_principal`、`solo_mode: not_applicable`、24 小时、`summary_fields` 为空；目标经审批视图 `target_member` 展示。handler 的两层 fail closed 自查（策略形态、`approval_in_flight` 回查）照片 D2。
+- **投票冷却**（片 D1）同样适用；**可批准条件**照片 D §0：排除请求人和目标后，至少 1 位 active、冷却已满的 owner。L3 的发起时 `quorum_unreachable`（片 D 的 D8）落地后同样适用，否则请求挂起至过期。
+- **单 owner 租户**（I2）：无法经审批擦除，也没有运维通道替代；只能等第二位 owner 加入并满 24 小时。运行手册写明；这是禁止自批的直接后果，负责人知情。
+- **被擦除的人不能参与批准**：NX-056 按 `target_subject_field` 在决定时拒收、消费时不计目标本人的票（AA2）；且前提要求其 membership 全部 revoked，没有投票资格。
+- **发起时的目标检查**：`approval_open` 对**这一个能力**接受 revoked 的目标（片 D2 起其余能力接受 invited/active/suspended，revoked 一律拒绝）。按能力写死，copy guard 登记，需 L3 同意（E3）。
+- **锁内重查**（I1）：handler 在成员锁内重新确认：目标 principal 解析出的 subject 在本租户的全部 membership 都是 `revoked`，否则 `target_not_revoked`；该 subject 已在擦除台账中则 `already_erased`。这与片 D handler 的“revoked 不能再作目标”不冲突：那是片 D 的 5 个 Action 各自的规则，擦除是唯一以 revoked 为前提的能力。
+- **竞态**（I1，测试）：审批期间目标被 configurator 重新配置或另一 principal 被重新邀请并接受 → 执行时 `target_not_revoked`，审批作废；两份擦除审批先后执行 → 第二份 `already_erased`。
 
-handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 → 策略自查与审批回查 → 目标重查 → 写入），执行：
+## 2. 擦除内容（S3，按负责人原话，作用于 subject）
 
-### 2.1 账号
+handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 → 策略自查与审批回查 → 锁内重查 → 写入）执行：
 
-- `control.nexloop_browser_accounts`：状态改为 `disabled`；`password_hash` 置空，`password_history` 置空数组；`session_epoch+1`、`revision+1`。
-- `username` 列有唯一约束且非空，原样保留会留下可识别的登录名：改为 `erased-` 加 `sha256(tenant|local_account_id)` 前 16 位（不可逆，且在租户内唯一），`verified_email` 改为同一假名加 `@erased.invalid`。**这一条超出负责人原话**（原话是“停用账号、清除口令哈希和口令历史”），作为待确认项 E1 列出；不做的话，账号表会长期保留离职者的登录名和邮箱。
-- 账号行本身保留（principal、subject 的外键和审计追溯需要）。
+### 2.1 账号与主体
+
+- `control.nexloop_browser_accounts`（按 subject 一行）：状态 `disabled`；`password_hash` 置空、`password_history` 置空数组；`session_epoch+1`、`revision+1`。
+- 用户名与邮箱（**E1，待负责人**；建议做）：列 `username` 与 `payload->>'username'` 同步改为 `erased-` 加 `sha256(tenant|local_account_id)` 前 16 位（0021 的 check 要求两者相等）；`verified_email` 在 payload 里（不是列），改为同一假名加 `@erased.invalid`。不做的话，账号表长期保留离职者的登录名和邮箱。
+- `erased-` 前缀保留给系统（I5）：工作台邀请在 HTTP 与 SQL 两层拒绝以 `erased-` 开头的用户名（0335 的正则本身允许它）。
+- 原用户名释放后，同名的新员工可以被邀请；ADR §6.4 的 `same_username_exists` 对这种重新入职为 false，这是预期。
+- `control.nexloop_browser_subjects` 的 payload status 置为 `disabled`（S5，0021:12 允许）：0198 与 0334 都要求 subject 与账号均 active，这是第二道保险。
+- `control.nexloop_browser_sessions`：删除该 subject 的会话行（S2；epoch+1 已让它们失效，删除是清残留）。
+- 账号行、subject 行、membership 行本身保留（principal、subject 的外键与审计追溯需要）。
 
 ### 2.2 邀请与重置记录
 
-- `control.nexloop_workbench_invitations`：删除该成员**被邀请**的记录（`accepted_principal` 等于目标，或 `accepting_subject` 等于目标 subject），以及其中的 `username`（上位设计称 `username_key`，实际列名 `username`）、`token_hmac`、`acceptor_source`、`issuer_source`。目标**签发**的邀请：撤销时已全部终结；删除其中目标为签发人的已终结记录，或只清 `issuer_source`（E2，见 §8）。
-- `control.nexloop_workbench_reset_codes`：删除目标为 `target_subject` 的全部记录；目标签发的记录同 E2。
-- 这两张表的删除写入 `control.nexloop_deletion_ledger`（计数，不含值），与 Consumer 擦除同一口径。
+- `control.nexloop_workbench_invitations`：删除该 subject **被邀请**的记录（`accepting_subject` 等于该 subject，或 `accepted_principal` 属于它），连同其中的 `username`（上位设计称 `username_key`，实际列名 `username`）、`token_hmac`、`acceptor_source`。该 subject **签发**的记录保留，只清 `issuer_source`（E2 采纳 L6 建议：记录的是对他人的操作，属于他人的审计上下文）。
+- `control.nexloop_workbench_reset_codes`：删除 `target_subject` 等于该 subject 的全部记录；它签发的记录只清 `issuer_source`。删除后目标本人的 90 天安全通知随之消失，这是预期（S6）。
+- 已核对 main 上没有外键引用 `invitation_id` 或 `reset_id`（S6）。
 
-### 2.3 登录事件的两项摘要（保留 90 天）
+### 2.3 删除台账与恢复重放（C2）
 
-- `control.nexloop_browser_login_events` 的 `details` 中，**来源摘要**和**用户名摘要**两类键（实现前逐条核对 0023、0024、0050、0162、0198 以及工作台 HTTP 写入的键名，盘点结果写进实现说明），离职擦除后**保留 90 天**再清除，由保留期服务按期执行：
-  - 擦除时在 `control.nexloop_workbench_member_erasures` 记下 `login_digests_due_at = erased_at + 90 days`；
-  - 保留期服务（`nexloop_eios.retention`）新增一个步骤：对到期且未清除的记录，把该 subject 的登录事件 `details` 中这两类键置为 `null`（只改这两类键，事件行和其余字段保留），记 `login_digests_cleared_at`。
-  - 保留期冻结（retention hold）对员工数据不适用（holds 针对 Consumer），不做联动；如需要，作为后续项。
-- 理由：90 天内保留来源摘要，供安全调查（例如离职前的异常登录）；之后清除。
+- `control.nexloop_deletion_ledger` 是 NX-035 恢复后重放删除的日志，不是计数器。新迁移扩展其 `kind` 约束，加入 `workbench_member`；每次擦除写一行：`kind='workbench_member'`、`subject_ref`=subject、`request_ref`=approval_id。
+- 新增重放函数 `control.nexloop_workbench_member_erase_replay(tenant, subject)`：幂等地重做 §2.1、§2.2、§2.4（C3）的写入，并在缺失时补回擦除台账行。NX-035 的重放流程按 kind 调用它（实现时接入现有重放入口，copy guard 登记）。
+- 恢复演练测试：恢复到擦除之前的备份（含哈希、邀请、原用户名），重放后哈希为空、邀请已删除、用户名为假名、`erased` 判定成立。
 
-### 2.4 保留的部分
+### 2.4 `invite_owner` 冻结请求体中的明文用户名（C3）
 
-- principal、subject、membership 行（状态已是 revoked）、授权实例与角色历史（只含 principal）、审批记录（冻结请求体中的目标 principal）、`runtime.audit_events` 与 NX-059 审计链。审计链里本来就只有 principal 和动作，不含用户名或其摘要（上位设计 §4）。
+- 经 `invite_owner`（片 D3）入职的成员，其原用户名留在那份审批的冻结请求体里。擦除时定点假名化：由被删除的邀请记录上的 `approval_id`（片 D3 记录）找到审批请求，把冻结体中的 `username` 改为与账号相同的 `erased-` 假名。
+  - 冻结体改写后 digest 对不上，这是有意的（与 0331 的 Consumer 假名化同一口径：该审批早已消费，digest 只作审计记录）。改写只经 owner 持有的函数，审批表的追加保护对这一列开一个定点例外，copy guard 登记，需 L3 同意（E3）。
+  - 重放（§2.3）同样重做这一步。
+- 视图：`invite_owner` 行的 `username` 以 `erased-` 开头时输出 `{"kind":"erased"}`（见 §5 的 ADR 修订）。
+- E1 若定为不假名化，这一节改为“登记为有理由的保留”，由负责人在 E1 里一并确认。
 
-## 3. 两张员工表接入员工擦除（erasure-coverage）
+### 2.5 登录事件的两项摘要（保留 90 天，I4）
 
-`docs/implementation/erasure-coverage.md` 与 `tests/test_consumer_erasure_coverage_pg.py` 中，`control.nexloop_workbench_grant_instances` 与 `control.nexloop_workbench_role_history` 目前登记为“保留的员工身份”（有理由的例外）。改为**接入员工擦除**：
+- **只清两类键**：`control.nexloop_browser_login_events.details` 中的来源摘要与用户名摘要。**不碰** `result_snapshot`（0023:62 失败回执重放读它）和 `account_id`（0198:33-35、0334 判定请求冲突读它）。实现前逐条盘点 0023、0024、0050、0162、0198、0334 与工作台 HTTP 写入的键和嵌套路径（摘要若嵌在 `result_snapshot` 内，只置空该嵌套键，结构与其余字段保留），盘点结果写进实现说明。
+- **接线**：保留期是签名命令通道。新增 verb `clear_member_login_digests`（`authz.nexloop_retention_command`，0328:76-77 的当前定义上扩展，copy guard 与 definer 检查登记）；`RetentionPort` 新方法；`RetentionKeeper.run_once` 新步骤与 summary 键 `member_login_digests_cleared`；失败只计数、不中断本轮（A3 惯例）。
+- **到期与幂等**：擦除时在擦除台账记 `erased_at`；到期条件 `erased_at + 90 days <= now`。清除结果写入**另一张只追加表** `control.nexloop_workbench_member_login_clearances`（subject、清除时间、行数），以“已有清除记录”判定幂等，不更新擦除台账（解决“只追加”与事后写入的矛盾）。每轮批量上限，按 subject 用 `for update skip locked` 处理，与擦除并发时不漏行。
+- 测试：未到 90 天不清；到期只清两类键；`result_snapshot` 与 `account_id` 不变；清除后重放旧的失败回执和 0198 请求仍返回原结果。
 
-- 新增员工擦除的覆盖测试 `tests/test_member_erasure_coverage_pg.py`，口径照 Consumer 覆盖测试：凡带员工身份列（`principal_id`、`subject_id`、`issued_by_*`、`target_subject`、`accepted_principal`、`username`、`*_source` 等）的员工相关表，要么员工擦除函数中有对它的写入，要么登记理由；新表默认要求登记。
-- 两张表的处理：
-  - `grant_instances`：擦除时为目标写一条撤销实例（幂等，片 C 的 S-b 口径），保证不留现行授权；历史实例只含 principal 与摘要，保留，理由登记为“授权审计”。
-  - `role_history`：若仍有未结束的持有，补 `stop`（来源 `erasure`）；历史行保留，理由“投票资格与审计”。
-  - 覆盖测试把这两张表列在“员工擦除有写入”一侧，Consumer 覆盖测试里的登记理由同步改为“员工擦除见 NX-058 片 E”。
-- 登记新表 `control.nexloop_workbench_member_erasures`（只追加、只含 principal、时间和计数）为保留，理由“擦除台账”。
+### 2.6 受治理命令日志与全库兜底（S3）
 
-## 4. 审批视图：`erased` 占位
+- 作业、Action claims、幂等回执、`browser_evidence.facts` 中保存的邀请与重置 Action 请求体可能含 username。实现前盘点；凡含该 subject 原用户名的位置，或纳入 §2 的写入，或登记理由。
+- 补员工版的全库搜索兜底测试（仿 `test_erasure_whole_database_pg.py`）：擦除后，全库文本列与 jsonb 中不再出现原用户名、原邮箱、口令哈希（登记为保留的位置除外）。
 
-ADR-039 §6.5 约定：成员身份被擦除时 `target_member` 显示 `{"kind":"erased"}`，不回退到请求体原值。判定以 `control.nexloop_workbench_member_erasures` 中有该 subject 的记录为准（比“username 以 pseudonym: 开头”更直接，不依赖 E1 的结论）。这需要 B1 的 `runtime.nexloop_approval_target_member` 读这张表——NX-056 读模型的改动，需 L3 同意；判定顺序仍按 §6.1（非 owner 先得到 `hidden`，不暴露是否被擦除）。
+### 2.7 保留的部分
 
-## 5. 与 0198 运维通道、NX-059 审计链的关系
+principal、subject、membership 行（全部 revoked）、授权实例与角色历史（只含 principal）、除 §2.4 外的审批记录（冻结体中的目标 principal）、`runtime.audit_events` 与 NX-059 审计链。审计链里只有 principal 和动作，没有用户名或其摘要（上位设计 §4；0333:131-133、0335:305-307 的 payload 已核对）。
 
-- **0198 运维重置**：被擦除的账号已停用、口令哈希为空，0198 重置对它拒绝（重置要求账号存在且可用）；实现时补测试，确认 0198 不能把已擦除的账号“复活”。运维若确需恢复，只能重新邀请一个新账号（新的 principal）。
-- **configurator**：成员文件里出现已擦除的 principal 时，apply 拒绝（`member_erased`），防止把已擦除的人重新配置进来；X1 的 drift 检查不受影响。
-- **NX-059 审计链**：擦除 Action 写一条审计事件（principal、动作、`approval_id`、删除计数，不含用户名或摘要），自然进链。擦除**不改、不删**任何既有审计事件，所以链的哈希不受影响；这正是上位设计把用户名摘要排除在审计之外的原因。保留期服务清除登录事件摘要时也写一条审计事件（计数）。
+## 3. erasure-coverage（I3）
 
-## 6. 清单与计数
+- `control.nexloop_workbench_grant_instances` 与 `control.nexloop_workbench_role_history`：目标前提是全部 revoked，撤销实例与角色 stop 早已写过，擦除再写只会是空写入。所以**继续登记为保留**，理由改为“授权审计与投票资格（只含 principal）；员工擦除见 NX-058 片 E”，不伪造写入。（调度员原要求“改为接入员工擦除”，按 L6 I3 改为此口径，请确认。）
+- 现状更正：这两张表目前只在 `tests/test_consumer_erasure_coverage_pg.py` 中登记，`docs/implementation/erasure-coverage.md` 里没有。本片在文档中补登记，并新增员工擦除一节。
+- 新增 `tests/test_member_erasure_coverage_pg.py`：凡带员工身份列（`principal_id`、`subject_id`、`issued_by_*`、`target_subject`、`accepting_subject`、`accepted_principal`、`username`、`*_source` 等）的员工相关表，要么员工擦除或其重放中有对它的写入，要么登记理由；新表默认要求登记。
+- 新表：擦除台账与登录摘要清除记录登记为保留（只含 subject、principal、时间、计数），理由“擦除台账”。
 
-- 新能力 1 个：business-actions、capabilities、catalog names 各 +1；workbench-roles owner +1（片 D 后的计数再 +1）、owner-only 集合。
-- 审批策略：`approval-policies` 下一版（片 D 的 v2 之后为 v3）加 `workbench_member.erase_member`。
-- 发布顺序同片 D：先发布 Action，再 apply 策略；B1 的 `erased` 判定先上线。
+## 4. 回滚与恢复（I6）
 
-## 7. 测试
+- **擦除不可回滚**：哈希、邀请、重置码被物理删除，用户名不可逆假名化。误擦除只能重新邀请一个新账号（新的 principal）。
+- **关闭功能**：发布策略新版本让 handler 自查失败（例如 quorum 设为超大值），或撤销 Action 注册；已执行的擦除不受影响。
+- **从备份恢复**：按 §2.3 的删除台账重放；重放完成前，被恢复的账号已是 revoked（membership），无法登录、无法投票，但哈希和原用户名短暂可见于数据库，运行手册要求恢复后立即执行重放。
 
-1. 撤销后的成员经审批擦除：账号 disabled、口令与历史为空、会话失效；邀请与重置记录删除、台账计数正确；principal、审计、审批记录保留；`target_member` 对 owner 显示 `erased`，对非 owner 仍是 `hidden`。
-2. 目标未撤销：`target_not_revoked`；已擦除：`already_erased`；请求人即目标：拒绝。
-3. 被擦除的人（ripe owner 被撤销后）不能批准任何请求；目标本人的票不计（AA2）。
-4. 保留期服务：未到 90 天不清；到期后只清两类摘要键，其余字段与行保留，记录清除时间与审计。
-5. 0198 对已擦除账号拒绝；configurator apply 含已擦除 principal 被拒。
-6. 覆盖测试：员工擦除覆盖全部员工身份表；Consumer 覆盖测试的登记同步。
-7. 回归：片 C/D、NX-056（含 B1 视图）、Consumer 擦除覆盖、copy guard、definer。
+## 5. 审批视图与 ADR-039 修订（I5、C1、C3）
 
-## 8. 待确认
+需要以 ADR 修订的形式写入（L3）：
 
-- **E1**（负责人）：用户名与邮箱是否一并假名化（建议是；否则账号表长期保留离职者登录名和邮箱）。
-- **E2**（负责人/L6）：目标**签发**的已终结邀请和重置记录，是删除，还是只清 `issuer_source`（建议只清摘要、保留记录：它们记录的是对他人的操作，属于他人的审计上下文）。
-- **E3**（L3）：`approval_open` 对 `erase_member` 接受 revoked 目标；`target_member` 以擦除台账判定 `erased`。
-- **E4**：保留期冻结是否需要覆盖员工登录事件（建议暂不，作为后续项）。
+- **§6.5 判定口径**：由“username 以 `pseudonym:` 开头，或 subject 带擦除标记”改为“擦除台账中有该 subject”（请求体给 principal 时按其 subject 判定；给 subject 时直接判定）。以台账判定不依赖 E1 的结论。
+- **§6.1 判定顺序第 3 步**：`invite_owner` 行的 `username` 以 `erased-` 开头时输出 `erased`，否则按 D7=A 输出 `invitee`。仍在第 2 步（非 owner 一律 `hidden`）之后，非 owner 看不出是否被擦除。
+- C1 的粒度：前提是 subject 的全部 membership 已 revoked，所以“按 subject 判定 erased”不会误伤同一 subject 仍 active 的身份——那种情况下擦除根本不会发生。
+
+## 6. 0198、configurator 与 NX-059 审计链
+
+- **0198 运维重置**：被擦除的账号与 subject 都已 disabled，0198:45-47 与 0334:32-33 都要求二者 active，重置被拒。用擦除前的 0198 请求 ID 重放时（0198:33-37 的路径不查状态）只返回原 payload，不改变任何状态——补测试（S5）。
+- **configurator**：成员文件中出现已擦除 subject 的 principal 时，apply 拒绝 `member_erased`。
+- **NX-059 审计链**：擦除写一条审计事件（principal、动作、`approval_id`、删除计数，不含 reason、用户名或摘要）。擦除不改、不删既有审计事件，链的哈希不受影响；§2.4 改写的是审批冻结体，不是审计事件。保留期清除登录摘要时也写一条审计事件（计数）。
+
+## 7. 清单与计数（S4）
+
+- 新能力 1 个：business-actions、capabilities、catalog names 各 +1；workbench-roles owner +1、owner-only 集合测试；`test_stage_register_pg` 的 `(20, N, 2)` 按片 D 之后的数 +1。
+- 审批策略：片 D 的 v2 之后为 v3，加 `workbench_member.erase_member`。
+- 发布顺序与自检：B1 读擦除台账的版本先上线 → 发布 Action（自检：策略 apply 前返回 `approval_unavailable`）→ apply 策略 v3（dry-run、apply、核对 sha256；自检：返回 `waiting_approval` 或 `quorum_unreachable`）。
+
+## 8. 测试
+
+1. 全部 membership 已 revoked 的成员经审批擦除：账号与 subject disabled、口令与历史为空、会话行删除；邀请与重置记录删除、签发记录只清摘要；删除台账一行；principal、审计、其他审批记录保留；`target_member` 对 owner 为 `erased`，对非 owner 为 `hidden`。
+2. 同一 subject 另有 active principal：`target_not_revoked`，该身份不受影响、视图不显示 `erased`（C1）。
+3. 竞态：审批期间被重新配置或另一身份被邀请接受 → 执行时拒绝、审批作废；两份擦除先后执行 → `already_erased`。
+4. 单 owner 租户无法擦除；冷却未满的 owner 不能批准；已撤销并擦除的前 owner 不能批准任何请求（S7）。
+5. `invite_owner` 入职者：冻结体用户名被假名化，视图输出 `erased`（C3）。
+6. 恢复演练：恢复到擦除前的备份，重放后状态与擦除后一致（C2）。
+7. 保留期：90 天边界、只清两类键、`result_snapshot` 与 `account_id` 不变、重放旧请求仍正确、清除记录幂等（I4）。
+8. 0198 对已擦除账号拒绝，按旧请求 ID 重放不改状态；configurator apply 含已擦除 principal 被拒；邀请 `erased-` 前缀被拒（I5、S5）。
+9. 覆盖：员工擦除覆盖测试、员工版全库兜底、Consumer 覆盖测试的登记同步（I3、S3）。
+10. 回归：片 C/D、NX-056（含 B1 视图）、Consumer 擦除覆盖、retention、copy guard、definer。
+
+## 9. 残余风险
+
+- 恢复后到重放完成之间，哈希与原用户名在数据库中短暂可见（§4）。
+- 单 owner 租户无法擦除离职员工，直到第二位 owner 加入并满 24 小时（§1）。
+- 擦除不可回滚，误擦除只能以新 principal 重新入职（§4）。
+
+## 10. 待确认
+
+- **E1**（负责人）：用户名与邮箱一并假名化（建议是）；不做则 §2.4 改为有理由的保留。
+- **E3**（L3）：`approval_open` 对 `erase_member` 接受 revoked 目标；审批冻结体对 `invite_owner` 用户名的定点改写例外；ADR §6.1/§6.5 修订（§5）。
+- **E4**：保留期冻结是否覆盖员工登录事件（建议暂不，后续项）。
+- **E5**（调度员）：两张员工表按 L6 I3 继续登记为保留，不做空写入（§3）。
+- E2 已按 L6 建议定为“签发记录只清摘要、保留记录”。
+
+## 11. 与片 D3 的依赖
+
+§2.4 依赖片 D3 在 owner 邀请记录上存 `approval_id`；D3 又等 NX-056 的“执行期参数”机制（调度员决定：秘密与其 HMAC 不进冻结体和 digest，由 HTTP 在执行那次提交时生成，只在执行事务中使用）。片 E 实现排在 D3 之后。
+
+## 12. L6 复核关闭说明（第 1 版）
+
+| 编号 | 处理 |
+|---|---|
+| C1 | 作用单位为 subject，前提是其全部 membership 已 revoked，锁内重查；台账记 principal 与 subject；`erased` 按 subject 判定不会误伤（§0、§1、§5；测试 2） |
+| C2 | 删除台账新增 kind `workbench_member`，写一行（subject、approval_id）；重放函数幂等重做擦除；恢复演练测试（§2.3；测试 6） |
+| C3 | `invite_owner` 冻结体用户名定点假名化（需 L3 例外），视图对 `erased-` 前缀输出 `erased`（ADR §6.1 修订）；E1 否决时改为有理由的保留（§2.4、§5；测试 5） |
+| I1 | 锁内重查全部 revoked；与片 D 的规则关系写明；三种竞态测试（§1；测试 3） |
+| I2 | 冷却与可批准条件适用；单 owner 租户无法擦除；运维通道不提供擦除（§0、§1；测试 4） |
+| I3 | 两张表继续登记为保留，不做空写入；更正文档现状（§3） |
+| I4 | verb、RetentionPort、run_once、summary 键接线；不碰 `result_snapshot`、`account_id`；清除记录另表只追加；并发与重放测试（§2.5；测试 7） |
+| I5 | ADR §6.5 修订为台账判定；`erased-` 前缀在 HTTP 与 SQL 两层拒绝；列与 payload 同步、邮箱在 payload；重新入职的 `same_username_exists` 说明（§2.1、§5） |
+| I6 | 不可回滚、误擦除重新邀请、关闭方式、与恢复重放的关系（§4） |
+| S1–S7 | reason 枚举且不进审计（§0、§6）；删除会话行与盘点 evidence（§2.1、§2.6）；命令日志盘点与全库兜底（§2.6）；计数与自检（§7）；subject disabled 与 0198 重放测试（§2.1、§6）；E2 采纳（§2.2）；测试表述（§8 第 4 条） |
