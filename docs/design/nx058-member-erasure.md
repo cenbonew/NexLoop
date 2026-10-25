@@ -1,6 +1,6 @@
 # 设计增补｜NX-058 片 E：员工离职擦除
 
-第 2.3 版，2026-10-25，L2（E1 已定为 A；按 ADR-039 R3 §8，L3 b1661a7d，同步目标状态、erased 判定与冻结体改写）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
+第 2.4 版，2026-10-25，L2（I-E4、I-E5 与 S-E5～S-E8 已处理；E1 已定为 A；按 ADR-039 R3 §8，L3 b1661a7d，同步目标状态、erased 判定与冻结体改写）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
 
 负责人 Q-A 定为「A+90天」：员工离职擦除纳入 v0.2，作为 NX-058 片 E，排在片 D 之后。上位设计是 `docs/design/account-self-service.md` 第 7 版 §4（S3 擦除传播），审批接法照片 D 设计（`docs/design/nx058-owner-actions.md` v2.8），目标展示照 ADR-039 R1 §6（本稿需要修订 §6.1 与 §6.5，见 §5）。实现等片 D 合入 main 后开始，迁移用临时编号。
 
@@ -48,17 +48,18 @@ handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 →
 两张表各管一件事：
 
 - **擦除台账**（判定依据，永久保留）：新表 `control.nexloop_workbench_member_erasures`
-  - 列：`tenant_id`、`subject_id`、`principals text[]`（擦除时该 subject 在本租户的全部 principal）、`approval_id uuid`、`erased_by_principal`、`erased_at`、`world text not null default 'real' check(world='real')`；主键 `(tenant_id, subject_id)`（一人一次）。
-  - 只追加（update/delete 触发器拒绝）、owner 持有、强制 RLS（按 `eios.tenant_id`），不授给任何角色读写；只含 ID 与时间，没有用户名或摘要。
+  - 列：`tenant_id`、`subject_id`、`principals text[]`（擦除时该 subject 在本租户的全部 principal）、`approval_id uuid`、`erased_by_principal`、`erased_at`、`world text not null default 'real' check(world='real')`；主键 `(tenant_id, subject_id)`（一人一次）。`tenant_id` 外键引用 `control.nexloop_tenants`（`on delete restrict`：租户删除走 NX-029/NX-035 的租户清理流程，由它显式处理本表，不级联、不留孤儿）。
+  - 只追加（update/delete 触发器拒绝）、owner 持有、强制 RLS（按 `eios.tenant_id`），不授给任何角色读写；只含 ID 与时间，没有用户名或摘要。 读取一律经 owner 持有的 security definer 函数（视图、handler、configurator、保留期服务），任何角色不直接读表。
   - **保留策略：永久**。不进任何保留期清理；`erased`、`already_erased`、configurator 的 `member_erased` 与保留期服务的 90 天到期都以它为准。erasure coverage 登记为“擦除台账（只含 ID 与时间）”。
-- **删除台账**（恢复重放日志，365 天后清理）：`control.nexloop_deletion_ledger`。新迁移扩展其 `kind` 约束加入 `workbench_member`（0260:514-515 的写法）；每次擦除经 `runtime.nexloop_deletion_ledger_add` 写一行：`world='real'`、`kind='workbench_member'`、`subject_ref`=subject、`request_ref`=approval_id。它照旧在 `deletion_ledger_days`（365 天）后被保留期删除——它只服务于“从不超过 35 天的备份恢复后重放”，不是判定依据。
-- **重放**：NX-035 恢复后经 `runtime.nexloop_replay_deletions(p_restore, p_entries)`（0135，0260 已原地替换为按 kind 分派）重放日志条目。本片再原地替换该函数，加一个 `workbench_member` 分支，调用新的 `control.nexloop_workbench_member_erase_replay(tenant, subject, approval_id)`：幂等地重做 §2.1、§2.2、§2.4 的写入，并在缺失时补回擦除台账行（恢复会把擦除台账一起带回擦除前的状态）。copy guard 登记该函数的替换。
-- 恢复演练测试：恢复到擦除之前的备份（含哈希、邀请、原用户名，擦除台账无此行），按日志重放后哈希为空、邀请已删除、用户名为假名、擦除台账补回、`erased` 判定成立。
+- **删除台账**（恢复重放日志，365 天后清理）：`control.nexloop_deletion_ledger`。新迁移扩展其 `kind` 约束加入 `workbench_member`（0260:514-515 的写法）；每次擦除经 `runtime.nexloop_deletion_ledger_add` 写一行：`world='real'`、`kind='workbench_member'`、`subject_ref`=subject、`request_ref`=approval_id。它照旧在 `deletion_ledger_days`（365 天）后被保留期删除——它只服务于“从不超过 35 天的备份恢复后重放”，不是判定依据。 写入方式参照 0135 的 `nexloop_ledger_on_erasure`：擦除台账的 `after insert` 触发器调用 `runtime.nexloop_deletion_ledger_add`（S-E6），handler 不直接写删除台账；重放补回擦除台账行时触发器不再写一次（以删除台账的唯一键去重）。
+- **重放**：NX-035 恢复后经 `runtime.nexloop_replay_deletions(p_restore, p_entries)`（0135，0260 已原地替换为按 kind 分派）重放日志条目。本片再原地替换该函数，加一个 `workbench_member` 分支，调用新的 `control.nexloop_workbench_member_erase_replay(tenant, subject, approval_id)`：幂等地重做 §2.1、§2.2、§2.4 的写入，并在缺失时补回擦除台账行（恢复会把擦除台账一起带回擦除前的状态）。copy guard 登记该函数的替换。 补回的擦除台账行：`erased_at` 取恢复日志中该条目的原始时间（`nexloop_deletion_ledger` 条目的 cutoff），`approval_id` 取条目的 `request_ref`，`erased_by_principal` 从该审批的消费记录（`approval_consumptions.consumed_by_principal`）回查（I-E4）；`principals` 取重放时该 subject 在本租户的全部 principal。
+- 恢复演练测试：恢复到擦除之前的备份（含哈希、邀请、原用户名，擦除台账无此行），按日志重放后哈希为空、邀请已删除、用户名为假名、擦除台账补回、`erased` 判定成立。 另断言补回行的 `erased_at` 等于擦除时的原值、`erased_by_principal` 等于原执行人（I-E4）。
 
 ### 2.4 `invite_owner` 冻结请求体中的明文用户名（C3）
 
-- 经 `invite_owner`（片 D3）入职的成员，其原用户名留在那份审批的冻结请求体里。擦除时定点假名化。**查找直接以审批表为准**（I-E3），不经邀请记录（它们在同一事务里被删除，也可能更早被其他路径清理）：`control.nexloop_approval_requests` 中 `capability='workbench_member.invite_owner'`、消费结果为 `executed`，并且被邀请人接受后成为这个 subject——片 D3 的 `accept_v3` 在接受时把 `approval_id` 记在该 subject 的接受审计与成员行上，查找走这条关联。把这些冻结体中的 `username` 改为与账号相同的 `erased-` 假名。
-  - 冻结体改写后 digest 对不上，这是有意的（与 0331 的 Consumer 假名化同一口径：该审批早已消费，digest 只作审计记录）。改写只经 owner 持有的函数，审批表的追加保护对这一列开一个定点例外，copy guard 登记，需 L3 同意（E3）。
+- 经 `invite_owner`（片 D3）入职的成员，其原用户名留在审批冻结请求体里。按 ADR-039 R3 §8.7 定点改写：只改 `invite_owner` 请求体中的 `username` 这一个字符串为与账号相同的 `erased-` 假名，在本事务开启的擦除作用域内、经 owner 函数执行。**查找直接以审批表为准**（I-E3），不经邀请记录：`capability='workbench_member.invite_owner'`、请求体 `username` 等于该 subject 擦除前的用户名（擦除事务内先读出原用户名再假名化账号），以及 D3 的 `accept_v3` 记下的 approval_id 关联（两条取并集）。
+  - **哪些请求改写**（S-E7）：已消费（executed 或 execution_refused）、已拒绝、已撤回、已过期的 `invite_owner` 请求都改写；**仍在等待或已批准未消费**的请求不改写——同名的新邀请可能正等待审批，不属于被擦除者（同名重新入职，E1）。
+  - 冻结体改写后 digest 对不上，这是有意的（与 0331 的 Consumer 假名化同一口径：这些审批都已终结，digest 只作审计记录）。改写只经 owner 持有的函数，审批表的追加保护对这一列开一个定点例外，copy guard 登记，需 L3 同意（E3）。
   - 重放（§2.3）同样重做这一步。
 - 视图（ADR-039 R3 §8.6）：`invite_owner` 行的被邀请人 `username` 以 `erased-` 开头时输出 `{"kind":"erased"}`；冻结体由本节改写为该前缀，所以判定成立。片 E 之前已有的真实 `erased-…` 用户名（S-E1）由迁移自检排除：现存邀请、账号与 `invite_owner` 冻结体中没有以 `erased-` 开头的用户名，有则迁移失败、人工处理；片 E 起邀请在 HTTP 与 SQL 两层拒绝该前缀。
 - 冻结体改写按 R3 §8.7：只改 `invite_owner` 请求体中的 `username` 这一个字符串，在本事务开启的擦除作用域内、经 owner 函数，由片 E 迁移重定义请求表守护并登记 copy guard。
@@ -115,7 +116,7 @@ principal、subject、membership 行（全部 revoked）、授权实例与角色
 
 ## 8. 测试
 
-1. 全部 membership 已 revoked 的成员经审批擦除：账号与 subject disabled、口令与历史为空、会话行删除；邀请与重置记录删除、签发记录只清摘要；删除台账一行；principal、审计、其他审批记录保留；`target_member` 对 owner 为 `erased`，对非 owner 为 `hidden`。
+1. 全部 membership 已 revoked 的成员经审批擦除：账号与 subject disabled、口令与历史为空、会话行删除；邀请与重置记录删除、签发记录只清摘要；删除台账一行；principal、审计、其他审批记录保留；`target_member` 对 owner 为 `erased`，对非 owner 为 `hidden`。 擦除台账恰好一行（tenant、subject、全部 principal、approval_id、执行人），删除台账一行（world real）（S-E8）。
 2. 同一 subject 另有 active principal：`target_not_revoked`，该身份不受影响、视图不显示 `erased`（C1）。
 3. 竞态：审批期间被重新配置或另一身份被邀请接受 → 执行时拒绝、审批作废；两份擦除先后执行 → `already_erased`。
 4. 单 owner 租户无法擦除；冷却未满的 owner 不能批准；已撤销并擦除的前 owner 不能批准任何请求（S7）。
@@ -143,7 +144,7 @@ principal、subject、membership 行（全部 revoked）、授权实例与角色
 
 ## 11. 与片 D3 的依赖
 
-§2.4 依赖片 D3 在 owner 邀请记录上存 `approval_id`；D3 又等 NX-056 的“执行期参数”机制（调度员决定：秘密与其 HMAC 不进冻结体和 digest，由 HTTP 在执行那次提交时生成，只在执行事务中使用）。片 E 实现排在 D3 之后。
+§2.4 依赖片 D3 的 `accept_v3` 把 `approval_id` 记进接受审计或成员行（具体位置做 D3 时确定），以及 D3 的 owner 邀请；D3 又等 NX-056 B2 的执行期字段机制（ADR-039 R3 §8，L3 b1661a7d）。片 E 实现排在 D3 之后。
 
 ## 12. L6 复核关闭说明（第 1 版）
 
