@@ -16,7 +16,6 @@ import pytest
 from effect_execution_fixture import governed_effect_executor,execution_plan
 from support.effect_provider import effect_provider
 from test_agent_host import files
-from support.service_stderr import service_stderr
 
 
 def private(path,value):
@@ -86,7 +85,7 @@ def test_once_actual_governed_pg_dispatch_persistent_provider(governed_effect_ex
         args,sentinels,_=cli_arguments(fixture,tmp_path,configuration)
         process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         code,out,err=safe_result(process,sentinels+[credential.read_text(),'private synthetic effect input'])
-        assert code==0 and service_stderr(err)==''
+        assert code==0 and err==''
         assert out=='Effect Worker ready\n'+json.dumps({'claimed':True,'status':'dispatching'},separators=(',',':'))+'\n'
         assert provider.control('snapshot')['requests']==[('POST',receipt['intent_id'],202)]
         assert provider.control('snapshot')['effects']==1
@@ -107,7 +106,7 @@ def test_cli_sigkill_after_provider_commit_reopen_queries_original(governed_effe
         provider.control('release');time.sleep(3.1)
         new=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         code,out,err=safe_result(new,sentinels+[credential.read_text()])
-        assert code==0 and '"status":"dispatching"' in out and service_stderr(err)==''
+        assert code==0 and '"status":"dispatching"' in out and err==''
         assert provider.control('snapshot')['requests']==[('POST',receipt['intent_id'],202),('GET',receipt['intent_id'],200)]
         assert provider.control('snapshot')['effects']==1
 
@@ -124,7 +123,7 @@ def test_private_config_failure_before_any_claim(governed_effect_executor,admin,
             private(tmp_path/'database-url',make_conninfo(fixture.pg,user='nexloop_api'))
         process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         code,out,err=safe_result(process,sentinels)
-        assert code==1 and out=='' and service_stderr(err)=='Effect Worker unavailable\n'
+        assert code==1 and out=='' and err=='Effect Worker unavailable\n'
         assert provider.control('snapshot')['requests']==[]
         assert admin.execute('select fence from runtime.nexloop_effect_outbox where intent_id=%s',(receipt['intent_id'],)).fetchone()==(0,)
 
@@ -156,7 +155,7 @@ def test_idle_sigterm_and_fresh_authority_never_claim(governed_effect_executor,a
             receipt=source.submit_effect_intent(parameters={'message':'rotated service cannot send'})
             time.sleep(.3);process.terminate()
             code,out,err=safe_result(process,sentinels+[credential.read_text(),'synthetic-invalid-rotated-service-credential'])
-            assert code==0 and out=='' and service_stderr(err)==''
+            assert code==0 and out=='' and err==''
             assert provider.control('snapshot')['requests']==[]
             assert admin.execute('select fence from runtime.nexloop_effect_outbox where intent_id=%s',(receipt['intent_id'],)).fetchone()==(0,)
         finally:

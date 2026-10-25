@@ -51,7 +51,13 @@ def test_a_record_after_stderr_was_swapped_goes_to_the_current_stderr(monkeypatc
         configure('claim-extraction-worker')
         first.close()  # the finished test's capture
         monkeypatch.setattr(sys, 'stderr', second)
-        logging.getLogger('psycopg.pool').warning('error connecting in %r: %s', 'pool-1', 'timeout')
+        pool = logging.getLogger('psycopg.pool')
+        quiet = pool.level
+        pool.setLevel(logging.NOTSET)  # the session fixture keeps only its errors; this test needs the warning
+        try:
+            pool.warning('error connecting in %r: %s', 'pool-1', 'timeout')
+        finally:
+            pool.setLevel(quiet)
         out = second.getvalue()
         assert 'Logging error' not in out and '"logger":"psycopg.pool"' in out and 'timeout' not in out
     finally:
