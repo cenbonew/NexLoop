@@ -1682,18 +1682,18 @@
       "sha256": "acd1ce37c2092f17b9851ea61a6661746c2951f3762e8060aeb998cc2abb78d0"
     },
     {
-      "version": "0337",
-      "name": "0337_workbench_member_changes.sql",
+      "version": "0340",
+      "name": "0340_workbench_member_changes.sql",
       "sha256": "4d0aa840065f95417cab57faf6b71bc500f8283a53ddf0cbd66252ce5d1b041b"
     },
     {
-      "version": "0338",
-      "name": "0338_governed_authority_change.sql",
+      "version": "0341",
+      "name": "0341_governed_authority_change.sql",
       "sha256": "210a3ed93fee10a9b87350428c6f10f3463cbf49046c5a1815517d865ffd660f"
     },
     {
-      "version": "0339",
-      "name": "0339_vote_cooldown.sql",
+      "version": "0343",
+      "name": "0343_vote_cooldown.sql",
       "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
     }
   ]

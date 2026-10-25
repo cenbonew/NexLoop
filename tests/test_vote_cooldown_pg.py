@@ -86,7 +86,7 @@ def test_no_application_role_calls_the_eligibility_function(store, pg):
 
 
 def test_the_backfill_starts_configured_active_members_once(store):
-    """The deployment start (0339 calls it once): a configured active member without an open holding gets one start; an open holding, a
+    """The deployment start (0343 calls it once): a configured active member without an open holding gets one start; an open holding, a
     suspended membership and a second call write nothing."""
     from psycopg.types.json import Jsonb
     f = store

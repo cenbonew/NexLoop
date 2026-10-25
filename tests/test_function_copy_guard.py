@@ -153,13 +153,13 @@ REGISTRY = [
               "update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history "
               "where a.tenant_id=p_tenant and a.local_account_id=p_account;"),
              (r"\s*perform control\.nexloop_workbench_reset_revoke\(p_tenant,old\.subject_id,'operator_reset'\);", ''))),
-    # 0338 (NX-058 slice C, dispatcher option 1): the browser directory hash takes the tenant revision through
+    # 0341 (NX-058 slice C, dispatcher option 1): the browser directory hash takes the tenant revision through
     # authz.nexloop_effective_tenant_revision (the revision before a governed handler's own authority change in this transaction).
     Allowed('governed_authority_change', 'authz.nexloop_browser_identity_snapshot',
             'the tenant revision of the directory hash through authz.nexloop_effective_tenant_revision; definer search_path gains pg_temp; nothing else',
             ((r"'tenant_revision',authz\.nexloop_effective_tenant_revision\(realm\.tenant_id,realm\.authority_revision\)", "'tenant_revision',realm.authority_revision"),),
             PG_TEMP),
-    # 0338 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
+    # 0341 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
     Allowed('governed_authority_change', 'control.nexloop_workbench_member_lock', 'the tenant approval lock of NX-056 instead of its own key; nothing else',
             ((r"select control\.nexloop_approval_tenant_lock\(p_tenant\)", "select pg_advisory_xact_lock(hashtextextended('nexloop-approval-eligibility:'||p_tenant,0))"),)),
     # vote_cooldown (NX-058 slice D §2, ADR-039 R1 §6.7): an approver's vote counts 24 hours after its current holding of an approver role began.
