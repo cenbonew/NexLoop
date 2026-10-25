@@ -438,6 +438,8 @@ REGISTRY = [
              (r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;", ""),
              (r"\n if pol\.target_subject_field is not null or pol\.solo_mode='not_applicable' then.*?\n  end if;\n end if;", ""),
              (r"p_body-control\.nexloop_approval_execution_fields_of\(p_capability\),", "p_body,"))),
+    Allowed('nx056_execution_fields', 'control.nexloop_approval_gate', 'the execution-time HMACs checked before the handler',
+            ((r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;\n return jsonb_build_object\('proceed',true", "\n return jsonb_build_object('proceed',true"),)),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_terminate', 'one more reason, requester_no_longer_eligible',
             ((r",'requester_no_longer_eligible'\)", ")"),)),
     Allowed('nx056_execution_fields', 'authz.nexloop_goal_governed_action', 'the handler\'s refusal code in the consumption result',

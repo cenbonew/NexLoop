@@ -142,3 +142,49 @@ def test_an_execution_refusal_records_the_handlers_fixed_code(store):
     code = "select substring(%s from '^[a-z][a-z _]{0,63}: ([a-z_]{1,64})$')"
     assert admin.execute(code, ('workbench member: target_not_active',)).fetchone()[0] == 'target_not_active'
     assert admin.execute(code, ('value 42 is wrong',)).fetchone()[0] is None  # no fixed code: the sqlstate only
+
+
+def test_a_requester_who_loses_the_role_has_old_approvals_ended_without_any_explicit_call(store):
+    """C-B1 (L6 review of B2): a demotion or revocation (a role's stop in the role history, as the D2 handlers and the configurator
+    write it) and a suspension (the membership leaving active) end the principal's open requests; an old approval never executes."""
+    f = store
+    admin = f['admin']
+    approved = open_as(f, 'requester', body('c-1'))['approval_id']
+    decide(f, 'approver', approved)
+    admin.execute("""insert into control.nexloop_workbench_role_history(tenant_id,subject_id,principal_id,role,event,source)
+        values(%s,%s,%s,'owner','stop','synthetic-demotion')""", (TENANT_A, f['requester']['subject_id'], f['requester']['principal_id']))
+    assert row(f, approved)[0] == 'expired'
+    assert admin.execute("select payload->>'reason' from runtime.audit_events where action='approval.expired'").fetchone() == ('requester_no_longer_eligible',)
+    ended = admin.execute("select actor_id,payload->>'ended' from runtime.audit_events where action='approval.requester_ended'").fetchone()
+    assert ended == ('system:member_change', '1')
+    # The old approval is gone: the resubmission does not proceed (it opens a new request; the entry refuses executing it anyway).
+    assert gate(f, 'requester', body('c-2'))['proceed'] is False
+    # A suspension (membership leaving active) ends requests too.
+    waiting = open_as(f, 'second', body('c-3'))['approval_id']
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
+    admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"suspended"}' where principal_id=%s""",
+                  (f['second']['principal_id'],))
+    assert row(f, waiting)[0] == 'expired'
+
+
+def test_settings_check_published_policies_and_keep_revoked_alone(store):
+    f = store
+    admin = f['admin']
+    # I-B1: a policy published before the settings already uses the field as its condition: the settings are refused.
+    admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
+        summary_fields,published_by) values('consumer.erase',1,1,%s,1,'{owner}',86400,'{}','x')""", (Jsonb({'field': 'code_hmac', 'equals': 'x'}),))
+    with pytest.raises(psycopg.Error, match='published policy uses an execution-time field'), admin.transaction():
+        register_fields(admin, 'consumer.erase', ['code_hmac'])
+    # I-B2: revoked never mixes with another status.
+    with pytest.raises(psycopg.Error, match='invalid'), admin.transaction():
+        admin.execute("insert into control.nexloop_approval_capability_settings(capability,target_statuses) values('retention.release_hold','{active,revoked}')")
+
+
+def test_the_gate_checks_the_execution_hmacs_before_the_handler(store):
+    """I-B3: a malformed execution-time HMAC at the execution refuses the call before the handler and consumes nothing."""
+    f = store
+    register_fields(f['admin'])
+    approval = open_as(f, 'requester', body('g-1'))['approval_id']
+    decide(f, 'approver', approval)
+    refused('execution_field_invalid', gate, f, 'requester', body('g-2', code_hmac='not-a-hmac'))
+    assert row(f, approval)[0] == 'approved'

@@ -16,6 +16,10 @@
 --    the waiting and approved-unconsumed requests of one requester principal that lost its standing (the one in flight excepted; another
 --    principal of the same subject is untouched). Owner functions call it (NX-058 handlers, the configurator's member apply).
 -- 5. authz.nexloop_goal_governed_action (§7.4): execution_refused:<sqlstate>:<code>, the code from the handler's '<prefix>: <code>'.
+-- 6. (L6 review of B2) C-B1: requester_no_longer_eligible wired by triggers on the role history (a role's stop) and on memberships
+--    (leaving active), so the D2 handlers and the configurator's member apply end the requests without calling it themselves.
+--    I-B1/I-B2: the settings guard checks published policies and keeps revoked alone. I-B3: control.nexloop_approval_gate (0327)
+--    checks the execution-time HMACs before the handler.
 
 create table control.nexloop_approval_capability_settings (
  capability text primary key,execution_fields text[] not null default '{}' check(cardinality(execution_fields)<=8),
@@ -30,8 +34,14 @@ begin
  -- R3 §8.2: only HMAC fields, never repeated.
  if exists(select 1 from unnest(new.execution_fields) f where f!~'^[a-z][a-z0-9_]{0,59}_hmac$')
   or cardinality(array(select distinct unnest(new.execution_fields)))<>cardinality(new.execution_fields)
-  or cardinality(array(select distinct unnest(new.target_statuses)))<>cardinality(new.target_statuses) then
+  or cardinality(array(select distinct unnest(new.target_statuses)))<>cardinality(new.target_statuses)
+  -- L6 review of B2 (I-B2): revoked stands alone (only an erasure acts on a revoked member; nothing else may)
+  or ('revoked'=any(new.target_statuses) and cardinality(new.target_statuses)>1) then
   raise exception 'approval capability settings: invalid' using errcode='22023';end if;
+ -- I-B1: a policy already published for the capability never uses one of these fields as a summary, target or condition field.
+ if exists(select 1 from control.nexloop_approval_policies p where p.capability=new.capability
+   and new.execution_fields&&(p.summary_fields||array[p.target_subject_field,p.condition->>'field'])) then
+  raise exception 'approval capability settings: a published policy uses an execution-time field' using errcode='22023';end if;
  if not exists(select 1 from control.nexloop_governed_capabilities c where c.capability=new.capability and c.subject_rule='human') then
   raise exception 'approval capability settings: a human governed capability required' using errcode='22023';end if;
  -- R3 §8.3: registered before any request of the capability exists (those were frozen and digested without these settings).
@@ -218,6 +228,11 @@ begin
   if control.nexloop_approval_terminate(p_tenant,p_world,a,'requester_no_longer_eligible') then n:=n+1;end if;
   perform set_config('eios.tenant_id',p_tenant,true);
  end loop;
+ if n>0 then  -- who and what ended them (the member change), besides each request's approval.expired
+  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
+   values('approval-requester-ended:'||gen_random_uuid(),'approval.requester_ended',p_tenant,p_actor,'approval',p_intent,
+    jsonb_build_object('requester_principal',p_requester_principal,'ended',n,'reason','requester_no_longer_eligible'),clock_timestamp());
+ end if;
  return n;
 end $$;
 alter function control.nexloop_approval_end_for_requester(text,text,text,text,text) owner to nexloop_owner;
@@ -308,4 +323,112 @@ begin
   or not exists(select 1 from authz.nexloop_authority_signing_keys where key_id=a->>'key_id' and active and key_material=k) then
   raise exception 'goal authority expired at commit' using errcode='42501';end if;
  return v_result||jsonb_build_object('outcome_id',v_id,'operation',body->>'operation');
+end $$;
+
+-- C-B1 (L6 review of B2): wired where standing is lost, whatever writes it - a role's stop in the role history (NX-058 slice C: the D2
+-- handlers' demotions and revocations, the configurator's member apply) and a membership leaving active (suspension, revocation). The
+-- request in flight (the approved member Action itself) is skipped by end_for_requester.
+create function control.nexloop_approval_requester_standing() returns trigger
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare prior text:=current_setting('eios.tenant_id',true);
+begin
+ if tg_table_name='nexloop_workbench_role_history' then
+  if new.event='stop' then
+   perform control.nexloop_approval_end_for_requester(new.tenant_id,new.world,new.principal_id,'system:member_change','role-history:'||new.entry_id);
+  end if;
+ elsif old.payload->>'status'='active' and new.payload->>'status' is distinct from 'active' then
+  perform control.nexloop_approval_end_for_requester(new.tenant_id,'real',new.principal_id,'system:member_change','membership:'||(new.payload->>'status'));
+ end if;
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return null;
+end $$;
+alter function control.nexloop_approval_requester_standing() owner to nexloop_owner;
+revoke all on function control.nexloop_approval_requester_standing() from public;
+create trigger nx056_approval_requester_standing after insert on control.nexloop_workbench_role_history
+ for each row execute function control.nexloop_approval_requester_standing();
+create trigger nx056_approval_requester_standing after update of payload on control.nexloop_browser_memberships
+ for each row execute function control.nexloop_approval_requester_standing();
+
+create or replace function control.nexloop_approval_gate(p_tenant text,p_world text,p_capability text,p_action text,p_principal text,p_body jsonb) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare pol control.nexloop_approval_policies;v_subject text;v_digest text;r control.nexloop_approval_requests;v_valid integer;v_by jsonb;v_open jsonb;
+ v_result text;
+begin
+ pol:=control.nexloop_approval_policy(p_capability);
+ -- Only a body that carries the condition's field with another value proceeds without approval; a missing field needs approval
+ -- (fail closed, L6 A2 review suggestion 3).
+ if pol.capability is null or (pol.condition is not null and p_body ? (pol.condition->>'field')
+   and p_body->(pol.condition->>'field') is distinct from pol.condition->'equals') then
+  return jsonb_build_object('proceed',true);end if;
+ v_subject:=control.nexloop_approval_subject_of(p_tenant,p_principal);
+ if v_subject is null then raise exception 'approval: requester_unavailable' using errcode='42501';end if;
+ v_digest:=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,pol.version,p_body);
+ -- Lock order (design §16, N-1): the tenant lock first (member changes take it too), then the approval row (A7, 0332).
+ perform control.nexloop_approval_tenant_lock(p_tenant);
+ perform set_config('eios.tenant_id',p_tenant,true);
+ -- An approved, unconsumed Approval of this very request by this person: locked, so a second concurrent execution waits and then sees
+ -- the consumption (L6 N-1; the consumption's primary key is the second guard).
+ select * into r from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability
+  and q.request_digest=v_digest and q.requester_subject=v_subject and q.status='approved'
+  and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id)
+  order by q.requested_at limit 1 for update;
+ -- Rechecked in a new statement (a new snapshot): a concurrent execution that held the lock may have consumed it meanwhile; then this
+ -- call answers that consumption below.
+ if found and exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=r.tenant_id and c.world=r.world and c.approval_id=r.approval_id) then
+  r:=null;
+ end if;
+ -- Past its due_by it ends expired here (and the request opens anew below), so it never blocks this body (L6 A2 review important 1).
+ if found and r.due_by<=clock_timestamp() then
+  perform control.nexloop_approval_terminate(p_tenant,p_world,r.approval_id,'due_by_passed');
+  perform set_config('eios.tenant_id',p_tenant,true);
+  r:=null;
+ end if;
+ if r.approval_id is null then
+  -- Executed already: the same body by the same person within an hour of its consumption answers that consumption (double click, the
+  -- loser of a concurrent execution), never a new request (design §4, L6 A2 review important 3). Later it is a new request.
+  select q.approval_id,c.result into r.approval_id,v_result from control.nexloop_approval_requests q join control.nexloop_approval_consumptions c
+    on c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id
+   where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability and q.request_digest=v_digest and q.requester_subject=v_subject
+    and c.consumed_at>clock_timestamp()-interval '1 hour' order by c.consumed_at desc limit 1;
+  if r.approval_id is not null then
+   return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','approval_consumed','result',v_result);end if;
+  -- Approved or still waiting under an older policy version: the same body under that version's digest. It ends (policy_changed) and
+  -- the person submits again under the current policy (design :97, L6 A2 review important 2; a waiting one too, review 6).
+  select * into r from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.capability=p_capability
+   and q.requester_subject=v_subject and q.status in ('waiting_approval','approved') and q.policy_version<>pol.version
+   and q.request_digest=control.nexloop_approval_digest(p_tenant,p_world,p_action,p_capability,q.policy_version,p_body)
+   and not exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=q.tenant_id and c.world=q.world and c.approval_id=q.approval_id)
+   order by q.requested_at limit 1 for update;
+  if found then
+   perform control.nexloop_approval_terminate(p_tenant,p_world,r.approval_id,'policy_changed');
+   return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','policy_changed','policy_version',pol.version);
+  end if;
+  v_open:=control.nexloop_approval_open(p_tenant,p_world,p_capability,p_action,p_principal,p_body);
+  return v_open||jsonb_build_object('proceed',false,'approval','required');
+ end if;
+ -- Every approver's standing now (L6 C3): an active human member in an approver role, never the requester. A7 adds the single-person
+ -- mode's self-approval here.
+ v_by:=control.nexloop_approval_valid_votes(p_tenant,p_world,r.approval_id);v_valid:=jsonb_array_length(v_by);
+ perform set_config('eios.tenant_id',p_tenant,true);
+ if v_valid<pol.quorum then
+  -- Back to waiting; if this person meanwhile has another waiting request of the same body, that one stands and this one ends.
+  if exists(select 1 from control.nexloop_approval_requests q where q.tenant_id=p_tenant and q.world=p_world and q.request_digest=v_digest
+    and q.requester_subject=v_subject and q.status='waiting_approval') then
+   perform control.nexloop_approval_terminate(p_tenant,p_world,r.approval_id,'superseded');
+  else
+   update control.nexloop_approval_requests set status='waiting_approval',revision=revision+1 where tenant_id=p_tenant and world=p_world and approval_id=r.approval_id;
+  end if;
+  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
+   values('approval-reopened:'||r.approval_id||':'||(r.revision+1),'approval.reopened',p_tenant,p_principal,'approval',p_body->>'request_id',
+    jsonb_build_object('approval_id',r.approval_id,'reason','approver_no_longer_eligible','approvals',v_valid,'quorum',pol.quorum),clock_timestamp());
+  return jsonb_build_object('proceed',false,'approval_id',r.approval_id,'status','waiting_approval','reason','approver_no_longer_eligible');
+ end if;
+ -- A paused control scope stops the execution itself, not only what it dispatches later (L6 I1).
+ perform control.nexloop_nx022_assert_not_paused(p_tenant,p_world,jsonb_build_array(jsonb_build_object('kind','action_type','ref',p_action)));
+ -- I-B3 (L6 review of B2): the execution's own HMACs checked once here for every capability, besides the handler's check; a bad one
+ -- refuses the call before the handler and consumes nothing.
+ if exists(select 1 from unnest(control.nexloop_approval_execution_fields_of(p_capability)) f
+   where p_body ? f and (jsonb_typeof(p_body->f) is distinct from 'string' or p_body->>f!~'^[0-9a-f]{64}$')) then
+  raise exception 'approval: execution_field_invalid' using errcode='22023';end if;
+ return jsonb_build_object('proceed',true,'approval_id',r.approval_id,'approved_by',v_by);
 end $$;

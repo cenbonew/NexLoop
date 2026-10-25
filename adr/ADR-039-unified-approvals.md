@@ -337,11 +337,21 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
   2. 撤销那次生成的码或 token（重置码由下一次签发自动作废，或者按 NX-058 的撤销路径处理；邀请撤销邀请）；
   3. 重新发起一次审批。
 - 这与 AGENTS.md“结果不明时先查询、对账，不盲目重试”的原则一致。
+- **实测：同一个 request_id、带新的 HMAC 重试**（`tests/test_nx056_first_policies_pg.py::test_a_retry_with_the_same_request_id_and_a_new_hmac_is_measured`，L6 对 B2 的复核要求实测）：
+  - **既不是重放，也不是新的审批请求**：Python 治理层抛出 `ActionGovernanceError`（“Action reservation conflicts with immutable binding”）。原因是动作认领（claim）的请求摘要覆盖整个请求体，包括 HMAC；同一个幂等键配上不同的请求体，与已保留的绑定冲突。审批层没有第二条请求，也没有任何写入。
+  - **工作台 HTTP 层目前没有映射这个错误**，落到兜底分支，返回 **503 `unavailable`**（可重试）。工作台的 HMAC 是服务端每次请求都重新生成的，所以 `issue_owner_reset` 和 `invite_owner` 在响应丢失后，用同一个 Idempotency-Key 重试，一定会走到这里。
+  - **交 NX-058 片 D3 选一**（推荐 a）：
+    a. 让动作认领的请求摘要也去掉该能力的执行期字段（`goal_controls._submit` 计算 `canonical_request_digest` 时按 `execution_fields_of` 去掉），这样同一个 request_id 的重试按认领终态重放（`replayed: true`，不再生成码），符合上面“同一个 request_id 重放”的口径；
+    b. 至少在 HTTP 层把这个冲突映射为 409 `conflict`（不可重试），并提示按本节先对账、撤销后重新审批。
+  - 在 D3 落地之前，这两个能力的响应丢失按上面的对账流程处理，不要重试。
 
 ### 8.5 终结请求按 principal（C-R2；取代 §7.3 的范围）
 
-- `control.nexloop_approval_end_for_requester(tenant, world, requester_principal, actor_principal, intent)` 按**请求人的 principal** 终结请求，而不是按 subject。同一个人（subject）可能有另一个仍然有效的 owner principal，那个 principal 发起的请求不应被连带终结。
-- 调用方不变：片 D 的 handler（降级、停用、撤销某个 principal 之后）和 configurator 的成员 apply，传入失去资格的那个 principal。
+- `control.nexloop_approval_end_for_requester(tenant, world, requester_principal, actor, intent)` 按**请求人的 principal** 终结请求，而不是按 subject。同一个人（subject）可能有另一个仍然有效的 owner principal，那个 principal 发起的请求不应被连带终结。`actor` 和 `intent` 写进一条审计事件 `approval.requester_ended`（谁、因为哪次成员变更，终结了几条）。
+- **接线（按现状，L6 对 B2 的 C-B1）**：不靠各调用方自己调用，而由 B2 的触发器统一接上：
+  - 角色历史中某个角色的 `stop`：片 D2 handler 的降级和撤销、configurator 的成员 apply 都经片 C 写这一条；
+  - 成员状态离开 active：停用、撤销。
+  - 所以 D2、D3 的 handler 和 configurator 都不需要再调用；正在执行的那条审批（成员 Action 本身）由函数跳过。端到端测试见 `test_a_requester_who_loses_the_role_has_old_approvals_ended_without_any_explicit_call`。
 
 ### 8.6 员工擦除台账与 erased 判定（取代 §6.5 的判定与 §7.7 第 3 点）
 
@@ -384,7 +394,8 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
   - digest 去掉执行期字段（函数改为 stable）；
   - 策略守护拒绝把执行期字段用作摘要、目标或条件；
   - `approval_open`：按能力的目标状态检查目标、校验执行期字段的值（`execution_field_invalid`）、`quorum_unreachable`（放在单人模式检查之后，所以单人模式下仍然返回更具体的 `quorum_unreachable_in_solo_mode`）、冻结请求体去掉执行期字段；
-  - 终结原因 `requester_no_longer_eligible`，以及按 principal 终结的 `end_for_requester`；
+  - 终结原因 `requester_no_longer_eligible`，以及按 principal 终结的 `end_for_requester`，由角色历史和成员表上的触发器接线（C-B1）；
+  - 设置表守护还检查已发布的策略（I-B1），并且 `revoked` 不能与其他状态混用（I-B2）；gate 在执行时统一校验执行期字段的 HMAC 格式（I-B3）；
   - 入口的执行被拒原因码。
 - 重定义的函数都登记了复制件守护。
 - **动到的 L2 测试**（B2 改变了行为，测试随 B2 一起改）：
@@ -392,5 +403,6 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
   - `tests/test_nx056_approvals_store_pg.py` 中没有登记设置的能力，现在拒绝 suspended 目标。
 - **交给 L2（片 D3、片 E）**：
   - 执行期字段改名为 `issuer_source_hmac`，登记在设置表中（不是 §7.1 原先写的 `execution_fields` 表）；
-  - `end_for_requester` 的第三个参数是 principal；
+  - `end_for_requester` 已由触发器接线，D3 不需要调用；
+  - 响应丢失后的同 request_id 重试目前返回 503，请按 §8.4 选 a 或 b；
   - `erase_member` 登记 `{revoked}`。
