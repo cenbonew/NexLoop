@@ -1685,6 +1685,11 @@
       "version": "0337",
       "name": "0337_nx056_followup.sql",
       "sha256": "3696bc8417094edb569c8451b0e890ae5d5a9cef286ee87d4c70731699f63979"
+    },
+    {
+      "version": "0338",
+      "name": "0338_nx056_target_member.sql",
+      "sha256": "adf94240dd0ad5bb31400fad870cb1ddf897c3808ead28c748d74b9db547e571"
     }
   ]
 }

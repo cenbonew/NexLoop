@@ -390,6 +390,14 @@ REGISTRY = [
     Allowed('nx056_followup', 'runtime.nexloop_approval_view_row', 'a self vote counts in the list only while the mode takes effect',
             ((r"and \(d\.actor_subject<>r\.requester_subject\n.*?\n     or \(d\.self_approved and control\.nexloop_approval_solo_effective\(r\.tenant_id,r\.world,r\.capability,r\.policy_version,r\.requester_subject\)\)\)",
               "and (d.actor_subject<>r.requester_subject or d.self_approved)"),)),
+    # NX-056 B1 (ADR-039 §6): target policies approved by owners only; every view row carries target_member; two alert metrics.
+    Allowed('nx056_target_member', 'control.nexloop_approval_policy_guard', 'a target policy is approved by owners only',
+            ((r" -- ADR-039 §6\.7 \(R1, B1\).*?\n  raise exception 'approval policy: a target policy is approved by owners only' using errcode='22023';end if;\n", "\n"),)),
+    Allowed('nx056_target_member', 'runtime.nexloop_approval_view', 'each row carries target_member',
+            ((r"\|\|jsonb_build_object\('target_member',runtime\.nexloop_approval_target_member\(p_tenant,r,pol,p_principal\)\) v,\n   r\.due_by", " v,r.due_by"),
+             (r",\n    'target_member',runtime\.nexloop_approval_target_member\(p_tenant,r,pol,p_principal\)\) v,", ") v,"))),
+    Allowed('nx056_target_member', 'runtime.nexloop_approval_metrics', 'first_time_approvers_24h and same_person_flags_24h',
+            ((r"\n -- ADR-039 §6\.6 \(R1, B1\).*?'same_person_flags_24h',\(select count\(\*\) from runtime\.audit_events a where a\.tenant_id=p_tenant and a\.action='approval\.same_person_flagged'\n    and a\.created_at>clock_timestamp\(\)-interval '24 hours'\)\);", ""),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

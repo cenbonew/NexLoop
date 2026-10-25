@@ -23,7 +23,7 @@ from test_workbench_read_pg import workbench_login
 
 COLUMNS = {'to_decide', 'mine', 'to_execute', 'solo_mode'}
 ROW = {'approval_id', 'capability', 'operation', 'action', 'requested_by', 'requested_at', 'due_by', 'status', 'digest', 'policy_version', 'quorum',
-       'approvals', 'summary'}
+       'approvals', 'summary', 'target_member'}
 
 
 def view(c, member):

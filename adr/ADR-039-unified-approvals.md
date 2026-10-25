@@ -88,7 +88,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
     - quorum 大于 1 的策略在单人模式下不可满足，直接报错。
     - 策略属性 `solo_mode = not_applicable` 的能力在单人模式下也不能自批，例如对 owner 的提升或重置。
     - 加锁顺序：先取租户 advisory lock，再锁成员或审批行。
-    - 投票资格起点读取 NX-058 的 `role_history`，按 (tenant, world)，等 NX-058 片 C 落地后对接。
+    - 投票资格起点读取 NX-058 的 `role_history`（片 C 提供），按 (tenant, world)；投票冷却由 NX-058 片 D §2 实现。
 
 ## 3. 备选方案与否决理由
 
@@ -110,7 +110,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 - **假名化之后 digest 对不上**：擦除把冻结请求体中的顾客 ID 换成假名后，请求体重新计算的 digest 与记录中的不再一致。这是有意的：被擦除顾客的请求已经在擦除开始时终结，不会再被执行；digest 只作为审计记录保留。
 - **过期清扫依赖保留期服务**：保留期服务停止运行时，过期的审批不会被终结。消费时仍会检查期限，过期的审批照样不能执行。指标 `overdue` 和告警 `approval_sweep_stale` 用来发现这种情况。
 - **`permanent_failure` 不只代表一种结果**：动作认领的终态 `permanent_failure` 同时覆盖“未执行”（等待、过期、已消费、策略已变）和“处理函数拒绝”。下游要分辨时，看受治理入口返回的 `status`、`approval` 字段，以及消费记录的 `result`，不能只看 outcome。
-- **SQL 里还没有带 world 参数的投票资格接口**：读取 NX-058 `role_history` 的接口约定为 `(tenant, world, subject, approver_roles)`，等 NX-058 片 C 落地后在 SQL 实现。在此之前不启用投票冷却。
+- **SQL 里还没有带 world 参数的投票资格接口**：读取 NX-058 `role_history` 的接口约定为 `(tenant, world, subject, approver_roles)`，由 NX-058 片 D §2 在 SQL 实现（数据来自片 C 的 role_history）。片 D 合入之前不启用投票冷却。
 - **单人模式的残余风险（修法 A）**：如果 owner 账户被盗用，而租户本来就长期只有一人，攻击者可以开启单人模式并自批。这时审批只能留下审计和告警，不能阻止。这是负责人知情接受的取舍。
 
 ## 5. 后果
@@ -140,7 +140,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 | `kind` | 键（全部必有） | 何时出现 |
 |---|---|---|
 | `member` | `kind`、`label`、`username`、`account_status`、`member_status`、`role` | 目标解析到本租户成员，并且调用人当前的工作台角色是 owner |
-| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人）；以及 D7 未定或选“不展示”时的 `invite_owner` |
+| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人），这时不做任何解析，所以目标存在、不存在、已擦除对他看起来都一样；以及 D7 未定或选“不展示”时的 `invite_owner`（这时对 owner 也是 `hidden`） |
 | `unresolved` | `kind` | 有目标字段，但解析不到本租户成员，包括请求体中的值不是任何成员的 principal 或 subject |
 | `erased` | `kind` | 目标成员的身份已被擦除（§6.5） |
 | `invitee` | `kind`、`username`、`same_username_exists` | 能力为 `invite_owner`，调用人是 owner，**并且负责人 D7 选择“展示”**。D7 未定时不出现 |

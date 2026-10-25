@@ -991,9 +991,20 @@ export function readOutreachEvidence(intentId:string){return get('/api/v1/workbe
 export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|'expired';
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
-  result?:string|null;inputs?:Record<string,unknown>|null};
+  result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null};
+/** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
+export type TargetMember={kind:'member';label:string;username:string|null;account_status:string|null;member_status:string;role:string|null}
+  |{kind:'hidden'}|{kind:'unresolved'}|{kind:'erased'};
+function targetMember(value:unknown):TargetMember|null{
+  if(value===null)return null;
+  const t=object(value);const keys=Object.keys(t).sort().join();
+  if(t.kind==='member'&&keys==='account_status,kind,label,member_status,role,username'&&/^p-[0-9a-f]{8}$/.test(text(t.label)))
+    return {kind:'member',label:text(t.label),username:maybeText(t.username),account_status:maybeText(t.account_status),member_status:text(t.member_status),role:maybeText(t.role)};
+  if((t.kind==='hidden'||t.kind==='unresolved'||t.kind==='erased')&&keys==='kind')return {kind:t.kind};
+  throw new WorkbenchError('invalid');
+}
 export type Approvals={to_decide:ApprovalRow[];mine:ApprovalRow[];to_execute:ApprovalRow[];solo_mode:{enabled:boolean;others_eligible:boolean}};
-const APPROVAL_KEYS='action,approval_id,approvals,capability,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary';
+const APPROVAL_KEYS='action,approval_id,approvals,capability,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary,target_member';
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
 function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   const r=object(value);
@@ -1004,7 +1015,8 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   for(const v of Object.values(summary))if(v!==null&&!['string','number','boolean'].includes(typeof v))throw new WorkbenchError('invalid');
   const row:ApprovalRow={approval_id:text(r.approval_id),capability:text(r.capability),operation:text(r.operation),action:text(r.action),
     requested_by:text(r.requested_by),requested_at:text(r.requested_at),due_by:text(r.due_by),status:text(r.status) as ApprovalStatus,digest:text(r.digest),
-    policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary']};
+    policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary'],
+    target_member:targetMember(r.target_member)};
   if(extra==='result')row.result=maybeText(r.result);
   if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
   return row;
