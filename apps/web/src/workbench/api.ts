@@ -458,6 +458,8 @@ export const OPERATION_ACTION={
   resolve_remediation:'eios:action:nexloop.remediation.resolve:1',switch_remediation:'eios:action:nexloop.remediation.switch:1',
   // NX-057 R2 (remediation_wake): release a rule the breaker held (owner only).
   release_remediation_rule:'eios:action:nexloop.remediation.rule_release:1',
+  // Extraction dead letters (0355): requeue or dismiss one dead-lettered claim-extraction job (owner only).
+  resolve_extraction_dead_letter:'eios:action:nexloop.claim_extraction.dead_letter_resolve:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -944,8 +946,18 @@ function healthStatus(o:Record<string,unknown>):HealthStatus{
   const reasons=list(o.reasons).map(text);if(reasons.some(r=>!/^[a-z_]{1,64}$/.test(r))||(s==='ok')!==(reasons.length===0))throw new WorkbenchError('invalid');
   return {status:s,reasons};
 }
+/** 0355: an unresolved dead letter (no owner decision, not fully covered by a later success of its conversation); ids and codes only. */
+export type DeadLetterItem={task_id:string;code:string|null;attempts:number;max_attempts:number;conversation_id:string|null;message_count:number;created_at:string;dead_lettered_at:string};
+function deadLetterItem(value:unknown):DeadLetterItem{
+  const o=object(value);
+  if(Object.keys(o).sort().join()!=='attempts,code,conversation_id,created_at,dead_lettered_at,max_attempts,message_count,task_id')throw new WorkbenchError('invalid');
+  const code=maybeText(o.code);if(code!==null&&!/^[a-z0-9_]{1,64}$/.test(code))throw new WorkbenchError('invalid');
+  return {task_id:text(o.task_id),code,attempts:count(o.attempts),max_attempts:count(o.max_attempts),conversation_id:maybeText(o.conversation_id),
+    message_count:count(o.message_count),created_at:text(o.created_at),dead_lettered_at:text(o.dead_lettered_at)};
+}
 export type DataHealth={computed_at:string;attention:number;
-  extraction:HealthStatus&{feed_pending:number;oldest_pending_seconds:number;jobs:Record<string,number>;dead_lettered:number;failed_24h:number;finished_24h:number;failure_ratio_24h:number|null};
+  extraction:HealthStatus&{feed_pending:number;oldest_pending_seconds:number;jobs:Record<string,number>;dead_lettered:number;dead_lettered_total:number;
+    unresolved_dead_letters:number;dead_letter_items:DeadLetterItem[];failed_24h:number;finished_24h:number;failure_ratio_24h:number|null};
   recall:HealthStatus&{active_profile:string|null;entries:number;missing_embeddings:number;other_profile_vectors:number;coverage_ratio:number|null;last_backfill_at:string|null};
   reflow:HealthStatus&{pending:number;waiting:number;oldest_seconds:number};
   ingestion:HealthStatus&{outbox_pending:number;commercial_receipts_24h:Record<string,number>;commercial_rejected_24h:number;commercial_rejected_ratio_24h:number|null;
@@ -958,6 +970,7 @@ export function dataHealth(value:unknown):DataHealth{
   const x=object(v.extraction),r=object(v.recall),f=object(v.reflow),i=object(v.ingestion),a=object(v.artifacts),e=object(v.erasure);
   return {computed_at:text(v.computed_at),attention:count(v.attention),
     extraction:{...healthStatus(x),feed_pending:count(x.feed_pending),oldest_pending_seconds:count(x.oldest_pending_seconds),jobs:counts(x.jobs),dead_lettered:count(x.dead_lettered),
+      dead_lettered_total:count(x.dead_lettered_total),unresolved_dead_letters:count(x.unresolved_dead_letters),dead_letter_items:list(x.dead_letter_items).map(deadLetterItem),
       failed_24h:count(x.failed_24h),finished_24h:count(x.finished_24h),failure_ratio_24h:ratio(x.failure_ratio_24h)},
     recall:{...healthStatus(r),active_profile:maybeText(r.active_profile),entries:count(r.entries),missing_embeddings:count(r.missing_embeddings),
       other_profile_vectors:count(r.other_profile_vectors),coverage_ratio:ratio(r.coverage_ratio),last_backfill_at:maybeText(r.last_backfill_at)},

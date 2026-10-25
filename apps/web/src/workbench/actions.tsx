@@ -49,6 +49,7 @@ export const DONE_TEXT:Record<Operation,string>={
   resolve_remediation:'已记录；只改变这条补救的状态，失败的 Action 与失败率不变，也不会重发。',
   switch_remediation:'已提交；补救开关以重新读取的状态为准。部署层 REMEDIATION_ENABLED 不在工作台控制范围内。',
   release_remediation_rule:'已解除熔断；这条规则从下一个失败起重新生成补救，已升级的补救不变。',
+  resolve_extraction_dead_letter:'已记录；重新入队的消息由下一轮提取窗口处理，死信记录本身保留不变。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -124,6 +125,21 @@ export function RemediationResolveForm({member,remediationId,kind}:{member:Me;re
     <p className="impact-summary" role="note">{outcome==='wake'?'影响：唤醒等待它的计划，由新的重评估 Run 决定下一步；不会重发原来的 Action。':
       '影响：只改变这条补救的状态；失败的 Action、它的失败记录和失败率都不变，也不会重发。'}</p>
     <Reason id={'remediation-reason-'+remediationId} value={reason} onChange={setReason}/>
+  </Form>;
+}
+
+// ---- extraction dead letters (0355, owner) ----
+/** Resolve one dead-lettered claim-extraction job: requeue its Messages for the next extraction window, or dismiss it with a reason. */
+export function ExtractionDeadLetterForm({member,taskId}:{member:Me;taskId:string}){
+  const [disposition,setDisposition]=useState<'requeue'|'dismiss'|''>('');const [reason,setReason]=useState('');
+  return <Form operation="resolve_extraction_dead_letter" title="处理这条死信" member={member} disabled={!disposition}
+    body={()=>disposition?{task_id:taskId,disposition,reason}:null}>
+    <fieldset className="choices"><legend>处理方式</legend>
+      <label className="choice"><input type="radio" name={'dead-letter-'+taskId} checked={disposition==='requeue'} onChange={()=>setDisposition('requeue')}/>重新入队</label>
+      <label className="choice"><input type="radio" name={'dead-letter-'+taskId} checked={disposition==='dismiss'} onChange={()=>setDisposition('dismiss')}/>不再处理</label></fieldset>
+    <p className="impact-summary" role="note">{disposition==='requeue'?'影响：这条任务覆盖的消息回到待提取，由调度器的下一轮窗口重新提取；死信记录保留。':
+      '影响：只记录处理结论和原因，这些消息不会重新提取；死信记录保留。每条死信只能处理一次。'}</p>
+    <Reason id={'dead-letter-reason-'+taskId} value={reason} onChange={setReason}/>
   </Form>;
 }
 

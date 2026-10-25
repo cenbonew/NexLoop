@@ -103,6 +103,7 @@ def validate_roles(value):
                   'eios:action:nexloop.remediation.resolve:1',  # NX-057 R1: resolving a remediation is the owner's
                   'eios:action:nexloop.remediation.switch:1',  # NX-057 R1: and so is pausing or resuming remediation
                   'eios:action:nexloop.remediation.rule_release:1',  # NX-057 R2: and releasing a held rule
+                  'eios:action:nexloop.claim_extraction.dead_letter_resolve:1',  # extraction dead letters: requeue or dismiss is the owner's
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')

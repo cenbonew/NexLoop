@@ -31,7 +31,7 @@ ro "select j.job_id, j.created_at, j.updated_at, j.attempts, j.max_attempts,
      from runtime.job_events e where e.tenant_id=j.tenant_id and e.job_id=j.job_id) as events,
   (select count(*) from runtime.jobs s where s.tenant_id=j.tenant_id and s.world=j.world and s.queue='claim-extraction' and s.status='succeeded'
      and s.normalized_input->>'conversation_id'=j.normalized_input->>'conversation_id' and s.created_at>j.created_at
-     and s.normalized_input->'message_ids' @> j.normalized_input->'message_ids') as later_success_covering_all,
+     and (s.normalized_input->'message_ids') @> (j.normalized_input->'message_ids')) as later_success_covering_all,
   (select count(*) from ontology.nexloop_claims c where c.tenant_id=j.tenant_id
      and c.source_message_id in (select jsonb_array_elements_text(j.normalized_input->'message_ids'))) as claims_from_these_messages
  from runtime.jobs j where j.tenant_id='$TENANT_ID' and j.world='real' and j.queue='claim-extraction' and j.status='dead_lettered'
@@ -57,6 +57,8 @@ ro "select status, result->>'code' as code, count(*) from runtime.jobs
  group by 1,2 order by 1,2"
 ```
 
+- **括号必须保留**（stage 2026-10-26 首次执行时缺括号报 `operator does not exist: boolean -> unknown`）：`@>` 与 `->` 的优先级相同、从左到右结合，不加括号会先算 `... -> 'message_ids' @> j.normalized_input`，再对布尔值取 `->`。
+
 所用的列都已核对（`runtime.jobs` 的 `world`、`queue`、`attempts`、`max_attempts` 由 0035 加入；`runtime.job_events`、`ontology.nexloop_claims.source_message_id` 见 0001、0066）。
 
 ## 3. 按结果判断
@@ -77,7 +79,7 @@ ro "select status, result->>'code' as code, count(*) from runtime.jobs
   - 现在的 5 条与 10-21 02:17Z 起一直报警、数值不再变化的现象一致：故障之后没有新的死信，旧的也没人处理。
 - 根因（依赖故障、输出不合格还是租约耗尽）要看 Q1 的 `result_code`、`events` 和 Q2 的时段分布。
 
-## 5. 修法建议（待诊断结果确认后实施；迁移临时编号从 0354 起）
+## 5. 修法建议（stage 结果确认后已实施：迁移临时编号 0355，告警规则 v17，测试 `tests/test_extraction_dead_letters_pg.py`）
 
 1. **处理入口**：新的受治理人类 Action `claim_extraction.dead_letter_resolve`（owner），对一条死信二选一：
    - `requeue`：把这条任务覆盖的 feed 行放回待处理（`task_id` 置空），调度器按正常窗口重新入队提取；
@@ -86,4 +88,4 @@ ro "select status, result->>'code' as code, count(*) from runtime.jobs
    - 工作台数据健康页的提取一栏增加列表和这两个按钮。
 2. **告警口径**：`dead_lettered` 改为只数“没有处理记录，并且没有被同一会话之后的成功任务完整覆盖”的死信（`unresolved_dead_letters`），原值保留为 `dead_lettered_total` 供参考。规则改用新指标，告警规则加一个版本。
 3. **过渡处理**（不需要等代码）：如果 Q1 显示五条都已被后续任务覆盖（`later_success_covering_all > 0`），那么这次告警本身就是口径问题，内容不缺；可以先在告警页静默它（`silence_alert`，带期限），等第 1、2 点上线。
-4. **迁移**：0354 新表、Action 与 handler、指标重定义（`runtime.nexloop_data_health` 的重新包装，登记复制件守护）；随新 Action 的整套同步（business-actions、capabilities、catalog names、workbench-roles、PROFILES、goal_controls、OPERATIONS 与相关测试计数）。
+4. **迁移**：0355 新表、Action 与 handler、指标重定义（`runtime.nexloop_data_health` 的重新包装，登记复制件守护）；随新 Action 的整套同步（business-actions、capabilities、catalog names、workbench-roles、PROFILES、goal_controls、OPERATIONS 与相关测试计数）。

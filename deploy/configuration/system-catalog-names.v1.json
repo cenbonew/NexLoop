@@ -861,6 +861,11 @@
       "source": "deploy/configuration/business-actions.v1.json"
     },
     {
+      "stable_name": "nexloop.claim_extraction.dead_letter_resolve",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
       "stable_name": "nexloop.workbench_member.change_role",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
