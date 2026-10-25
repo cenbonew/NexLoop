@@ -13,6 +13,10 @@
 -- control.nexloop_relation_backfill_rescan(tenant, run, limit)    the skipped objects (design §4.1)
 -- control.nexloop_relation_backfill_verify(tenant)                A, B, dangling, extra per (relation, world) (design §5); no write
 -- control.nexloop_relation_backfill_revert_batch(tenant, run, limit), _abort(tenant, run, reason), _status(tenant, run)
+-- L6 review of f2021ae9: batch, rescan and complete act on a running run only (reverting is revert_batch's alone, C-1); batch,
+-- rescan and revert_batch refuse a statement_timeout outside (0, 1000 ms] (I-1: the signed entry sets it, this checks it);
+-- aborted is final, a new run starts over and finds what exists (I-3, dispatcher); a skipped object's relations already counted
+-- are not counted again by the rescan (S-1).
 -- A created relation carries {"derived":true,"backfill":"<run>"}: the P2 triggers keep maintaining it (design §4.2). Derivation is
 -- ontology.nexloop_relation_derive_one (P2.1) on the row as locked, with the tenant set (L6 D-2). Temporary number; the dispatcher
 -- renumbers.
@@ -20,11 +24,11 @@
 create table control.nexloop_relation_backfill_runs (
  tenant_id text not null references control.nexloop_tenants(tenant_id),run_id text not null check(run_id~'^[A-Za-z0-9._-]{1,80}$'),
  derivations_digest text not null check(derivations_digest~'^[0-9a-f]{64}$'),
- state text not null check(state in ('running','paused','aborted','completed','reverting','reverted')),reason text,
+ state text not null check(state in ('running','aborted','completed','reverting','reverted')),reason text,
  started_by text not null check(char_length(started_by) between 1 and 200),
  started_at timestamptz not null default clock_timestamp(),updated_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,run_id));
-create unique index nexloop_relation_backfill_one_active on control.nexloop_relation_backfill_runs(tenant_id) where state in ('running','paused','reverting');
+create unique index nexloop_relation_backfill_one_active on control.nexloop_relation_backfill_runs(tenant_id) where state in ('running','reverting');
 create table control.nexloop_relation_backfill_cursors (
  tenant_id text not null,run_id text not null,source_type text not null,world text not null,ordinal integer not null,
  last_object_id text not null default '',done boolean not null default false,batches integer not null default 0,
@@ -41,6 +45,7 @@ create table control.nexloop_relation_backfill_created (
 create table control.nexloop_relation_backfill_skipped (
  tenant_id text not null,run_id text not null,source_type text not null,world text not null,object_id text not null,
  reason text not null check(reason in ('source_locked','target_locked')),attempts integer not null default 0,
+ counted text[] not null default '{}',
  first_seen_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,run_id,source_type,world,object_id),foreign key(tenant_id,run_id) references control.nexloop_relation_backfill_runs(tenant_id,run_id));
 do $$declare t text;begin
@@ -81,7 +86,7 @@ begin
      and t.tgname in ('nexloop_relation_derive','nexloop_relation_derive_update') and p.proname='nexloop_relation_derive_each' and t.tgenabled<>'D')<>2
   or to_regprocedure('ontology.nexloop_relation_derive_one(ontology.objects,text,jsonb,boolean)') is null then
   b:=b||jsonb_build_object('item','derivation_missing_or_disabled');end if;
- if exists(select 1 from control.nexloop_relation_backfill_runs where tenant_id=p_tenant and state in ('running','paused','reverting')) then
+ if exists(select 1 from control.nexloop_relation_backfill_runs where tenant_id=p_tenant and state in ('running','reverting')) then
   b:=b||jsonb_build_object('item','active_run');end if;
  select array_agg(x order by x) into known from (select (regexp_matches(pg_get_constraintdef(c.oid),'''([a-z_]+)''','g'))[1] x
    from pg_constraint c where c.conrelid='control.nexloop_consumer_erasures'::regclass and c.contype='c' and pg_get_constraintdef(c.oid) like '%state%pending_confirmation%') s;
@@ -97,8 +102,8 @@ begin
    if n>0 then b:=b||jsonb_build_object('item','target_in_other_world','relation',m.relation_name,'count',n);end if;
   end loop;
   if m.cardinality in ('one_to_one','one_to_many') then
-   select count(*)-count(distinct o.properties->>m.source_property) into n from ontology.objects o
-    where o.tenant_id=p_tenant and o.type_name=m.source_type and o.properties->>m.source_property~'^[a-f0-9]{64}$';
+   select coalesce(sum(x.n),0) into n from (select count(*)-count(distinct o.properties->>m.source_property) n from ontology.objects o
+    where o.tenant_id=p_tenant and o.type_name=m.source_type and o.properties->>m.source_property~'^[a-f0-9]{64}$' group by o.world) x;
    if n>0 then b:=b||jsonb_build_object('item','sharing_a_target','relation',m.relation_name,'count',n);end if;
   end if;
   rep:=rep||(select coalesce(jsonb_agg(jsonb_build_object('relation',m.relation_name,'world',x.world,'with_value',x.with_value,'hex',x.hex,
@@ -142,6 +147,14 @@ begin
  return pre;
 end $$;
 
+-- I-1: the R-1 bound is the caller's statement_timeout (a function cannot re-time its own statement); refuse anything else.
+create function control.nexloop_relation_backfill_assert_timeout() returns void
+ language plpgsql stable set search_path=pg_catalog,pg_temp as $$
+declare v integer:=(select setting::integer from pg_settings where name='statement_timeout');
+begin
+ if v<=0 or v>1000 then raise exception 'relation backfill needs statement_timeout in (0, 1000 ms]' using errcode='22023',detail=v::text;end if;
+end $$;
+
 -- Common checks of batch, rescan and revert (design §3.2 step 2, N-5): the run's state, the derivation map (not for revert), a
 -- simulation world being purged. Returns null to go on, else the answer. Aborting on a changed map is written and returned (the
 -- caller commits it).
@@ -151,8 +164,11 @@ declare r control.nexloop_relation_backfill_runs;
 begin
  select * into r from control.nexloop_relation_backfill_runs where tenant_id=p_tenant and run_id=p_run for update;
  if not found then raise exception 'relation backfill run unknown' using errcode='42501';end if;
- if r.state not in ('running','reverting') then return jsonb_build_object('stopped',r.state,'reason',r.reason);end if;
- if p_check_map and r.state='running' and control.nexloop_relation_backfill_digest(p_tenant) is distinct from r.derivations_digest then
+ if r.state<>'running' then return jsonb_build_object('stopped',r.state,'reason',r.reason);end if;  -- C-1: reverting is revert_batch's
+ -- S-5: the map rows under FOR SHARE until this batch commits: a publication waits (at most the batch's second) instead of
+ -- changing the map under the batch.
+ perform 1 from control.nexloop_relation_derivations m where m.tenant_id=p_tenant for share;
+ if p_check_map and control.nexloop_relation_backfill_digest(p_tenant) is distinct from r.derivations_digest then
   update control.nexloop_relation_backfill_runs set state='aborted',reason='catalog_changed',updated_at=clock_timestamp() where tenant_id=p_tenant and run_id=p_run;
   return jsonb_build_object('stopped','aborted','reason','catalog_changed');
  end if;
@@ -231,9 +247,10 @@ create function control.nexloop_relation_backfill_batch(p_tenant text,p_run text
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);g jsonb;c control.nexloop_relation_backfill_cursors;props text[];ids text[];hi text;upto text;
  o ontology.objects;erasing text[];locked text[]:='{}';skipped text[]:='{}';res jsonb;tally jsonb:='{}'::jsonb;busy text[]:='{}';n integer:=0;
- early boolean:=false;waiters integer;
+ early boolean:=false;waiters integer;counted_rows jsonb:='{}'::jsonb;
 begin
  if p_batch not between 1 and 1000 then raise exception 'relation backfill batch size' using errcode='22023';end if;
+ perform control.nexloop_relation_backfill_assert_timeout();
  perform set_config('eios.tenant_id',p_tenant,true);  -- L6 D-2: the tenant before any derivation
  perform set_config('lock_timeout','200ms',true);
  g:=control.nexloop_relation_backfill_gate(p_tenant,p_run,true);
@@ -271,14 +288,19 @@ begin
   locked:=locked||o.object_id;upto:=o.object_id;n:=n+1;
   res:=control.nexloop_relation_backfill_object(o,p_run,erasing);
   tally:=control.nexloop_relation_backfill_tally(tally,res->'outcome');
-  if (res->>'busy')::boolean then busy:=busy||o.object_id;end if;
+  if (res->>'busy')::boolean then
+   busy:=busy||o.object_id;
+   counted_rows:=counted_rows||jsonb_build_object(o.object_id,(select coalesce(jsonb_agg(k),'[]'::jsonb) from jsonb_object_keys(res->'outcome') k));
+  end if;
  end loop;
  if not early then upto:=hi;end if;
  -- C-2 / N-3: the range up to where the batch stopped, less what it locked, is skipped (persisted with this batch).
  skipped:=array(select x from unnest(ids) x where x<=upto and not x=any(locked));
  insert into control.nexloop_relation_backfill_skipped(tenant_id,run_id,source_type,world,object_id,reason)
   select p_tenant,p_run,p_type,p_world,x,'source_locked' from unnest(skipped) x
-  union all select p_tenant,p_run,p_type,p_world,x,'target_locked' from unnest(busy) x
+  on conflict do nothing;
+ insert into control.nexloop_relation_backfill_skipped(tenant_id,run_id,source_type,world,object_id,reason,counted)
+  select p_tenant,p_run,p_type,p_world,x,'target_locked',array(select jsonb_array_elements_text(counted_rows->x)) from unnest(busy) x
   on conflict do nothing;
  perform control.nexloop_relation_backfill_count(p_tenant,p_run,p_world,tally);
  update control.nexloop_relation_backfill_cursors set last_object_id=upto,batches=batches+1,last_batch_size=p_batch,
@@ -294,8 +316,9 @@ end $$;
 create function control.nexloop_relation_backfill_rescan(p_tenant text,p_run text,p_limit integer) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);g jsonb;s record;o ontology.objects;erasing text[];v_world text:=null;res jsonb;
- cleared integer:=0;kept integer:=0;tally jsonb;
+ cleared integer:=0;kept integer:=0;tally jsonb;fresh jsonb;
 begin
+ perform control.nexloop_relation_backfill_assert_timeout();
  perform set_config('eios.tenant_id',p_tenant,true);
  perform set_config('lock_timeout','200ms',true);
  g:=control.nexloop_relation_backfill_gate(p_tenant,p_run,true);
@@ -320,13 +343,16 @@ begin
      where tenant_id=p_tenant and source_type=s.source_type and source_property is not null);
    else
     res:=control.nexloop_relation_backfill_object(o,p_run,erasing);
+    -- S-1: only the relations not counted at an earlier attempt.
+    fresh:=coalesce((select jsonb_object_agg(e.key,e.value) from jsonb_each(res->'outcome') e where not e.key=any(s.counted)),'{}'::jsonb);
     if (res->>'busy')::boolean then
-     update control.nexloop_relation_backfill_skipped set attempts=attempts+1,reason='target_locked' where tenant_id=p_tenant and run_id=p_run and source_type=s.source_type and world=s.world and object_id=s.object_id;
+     update control.nexloop_relation_backfill_skipped set attempts=attempts+1,reason='target_locked',counted=counted||array(select jsonb_object_keys(fresh))
+      where tenant_id=p_tenant and run_id=p_run and source_type=s.source_type and world=s.world and object_id=s.object_id;
      kept:=kept+1;
-     perform control.nexloop_relation_backfill_count(p_tenant,p_run,s.world,control.nexloop_relation_backfill_tally('{}'::jsonb,res->'outcome'));
+     perform control.nexloop_relation_backfill_count(p_tenant,p_run,s.world,control.nexloop_relation_backfill_tally('{}'::jsonb,fresh));
      continue;
     end if;
-    tally:=control.nexloop_relation_backfill_tally('{}'::jsonb,res->'outcome');
+    tally:=control.nexloop_relation_backfill_tally('{}'::jsonb,fresh);
    end if;
   end if;
   perform control.nexloop_relation_backfill_count(p_tenant,p_run,s.world,coalesce(tally,'{}'::jsonb));
@@ -363,7 +389,7 @@ declare prior text:=current_setting('eios.tenant_id',true);v text;
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
  update control.nexloop_relation_backfill_runs set state='aborted',reason=left(coalesce(p_reason,'operator'),200),updated_at=clock_timestamp()
-  where tenant_id=p_tenant and run_id=p_run and state in ('running','paused') returning state into v;
+  where tenant_id=p_tenant and run_id=p_run and state='running' returning state into v;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return jsonb_build_object('run_id',p_run,'aborted',v is not null);
 end $$;
@@ -373,11 +399,12 @@ create function control.nexloop_relation_backfill_revert_batch(p_tenant text,p_r
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);r control.nexloop_relation_backfill_runs;ids text[];v_deleted integer;v_state text;
 begin
+ perform control.nexloop_relation_backfill_assert_timeout();
  perform set_config('eios.tenant_id',p_tenant,true);
  perform set_config('lock_timeout','200ms',true);
  select * into r from control.nexloop_relation_backfill_runs where tenant_id=p_tenant and run_id=p_run for update;
  if not found then raise exception 'relation backfill run unknown' using errcode='42501';end if;
- if r.state in ('running','paused') then raise exception 'relation backfill run active: abort it first' using errcode='42501';end if;
+ if r.state='running' then raise exception 'relation backfill run active: abort it first' using errcode='42501';end if;
  if r.state='reverted' then perform set_config('eios.tenant_id',coalesce(prior,''),true);return jsonb_build_object('state','reverted','deleted',0);end if;
  if r.state<>'reverting' then
   update control.nexloop_relation_backfill_runs set state='reverting',updated_at=clock_timestamp() where tenant_id=p_tenant and run_id=p_run;
@@ -392,7 +419,8 @@ begin
  end if;
  select state into v_state from control.nexloop_relation_backfill_runs where tenant_id=p_tenant and run_id=p_run;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
- return jsonb_build_object('state',v_state,'deleted',v_deleted);
+ return jsonb_build_object('state',v_state,'deleted',v_deleted,
+  'catalog_changed',control.nexloop_relation_backfill_digest(p_tenant) is distinct from r.derivations_digest);  -- S-3: noted, never stops a revert
 end $$;
 
 create function control.nexloop_relation_backfill_status(p_tenant text,p_run text) returns jsonb
@@ -416,7 +444,7 @@ end $$;
 -- belonging to an erasing Consumer), B (of these, with the relation), dangling, extra derived relations that no property gives.
 create function control.nexloop_relation_backfill_verify(p_tenant text) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare prior text:=current_setting('eios.tenant_id',true);m record;out jsonb:='[]'::jsonb;
+declare prior text:=current_setting('eios.tenant_id',true);m record;out jsonb:='[]'::jsonb;v_skipped bigint;
 begin
  perform set_config('eios.tenant_id',p_tenant,true);
  for m in select * from control.nexloop_relation_derivations where tenant_id=p_tenant and source_property is not null order by relation_name loop
@@ -436,16 +464,20 @@ begin
       and ce.state=any(control.nexloop_relation_backfill_erasing_states())
       and ce.consumer_id=any(runtime.nexloop_object_consumers(o.tenant_id,o.world,o.type_name,o.object_id))) erasing) e
    where o.tenant_id=p_tenant and o.type_name=m.source_type and o.properties->>m.source_property~'^[a-f0-9]{64}$'
+    and not control.nexloop_relation_backfill_world_purging(p_tenant,o.world)  -- N-2: a world being purged is not counted
    group by o.world) x),'[]'::jsonb);
  end loop;
+ -- I-2: what the runs still have to look at again (acceptance needs 0).
+ select count(*) into v_skipped from control.nexloop_relation_backfill_skipped s join control.nexloop_relation_backfill_runs r
+  on r.tenant_id=s.tenant_id and r.run_id=s.run_id where s.tenant_id=p_tenant and r.state in ('running','completed');
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
- return out;
+ return jsonb_build_object('relations',out,'skipped_remaining',v_skipped);
 end $$;
 
 do $$declare f text;begin
  foreach f in array array['control.nexloop_relation_backfill_digest(text)','control.nexloop_relation_backfill_erasing_states()',
    'control.nexloop_relation_backfill_preflight(text)','control.nexloop_relation_backfill_start(text,text,text,text)',
-   'control.nexloop_relation_backfill_gate(text,text,boolean)','control.nexloop_relation_backfill_count(text,text,text,jsonb)',
+   'control.nexloop_relation_backfill_gate(text,text,boolean)','control.nexloop_relation_backfill_assert_timeout()','control.nexloop_relation_backfill_count(text,text,text,jsonb)',
    'control.nexloop_relation_backfill_object(ontology.objects,text,text[])','control.nexloop_relation_backfill_tally(jsonb,jsonb)',
    'control.nexloop_relation_backfill_erasing(text,text)','control.nexloop_relation_backfill_world_purging(text,text)',
    'control.nexloop_relation_backfill_batch(text,text,text,text,text,integer)','control.nexloop_relation_backfill_rescan(text,text,integer)',

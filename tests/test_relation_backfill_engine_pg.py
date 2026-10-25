@@ -76,7 +76,8 @@ def drive(admin, run='run-1', batch=200):
 
 
 def verify(admin):
-    return {(v['relation'], v['world']): v for v in call(admin, 'verify')}
+    got = call(admin, 'verify')
+    return {(v['relation'], v['world']): v for v in got['relations']} | {'skipped_remaining': got['skipped_remaining']}
 
 
 def relation(admin, source, name='goal_of'):
@@ -147,18 +148,26 @@ def test_a_locked_source_is_persisted_and_the_rescan_fills_it(seeded):
 def test_a_busy_target_is_target_locked_and_the_run_goes_on(seeded):
     """C-1 / N-1: the Consumer held FOR UPDATE (as delivery does) and another being deleted: no 23503, no abort."""
     admin = seeded['admin']
+    # A PlanStep with a busy Consumer and a free Goal: its step_in_goal is derived at the batch and counted once (S-1).
+    step = hexid('bf-step')
+    stock(admin, 'PlanStep', step, {'consumer_id': seeded['a'], 'goal_id': seeded['goals'][0]})
     start(admin)
     with psycopg.connect(seeded['pg']) as other:
         other.execute('select 1 from ontology.objects where object_id=%s for update', (seeded['a'],))
+        assert call(admin, 'batch', 'run-1', 'PlanStep', 'real', '', 200)['target_locked'] == 1
         got = call(admin, 'batch', 'run-1', 'Goal', 'real', '', 200)
         assert got['target_locked'] == 3 and 'stopped' not in got
         other.rollback()
         # The other Consumer is deleted while the rescan runs: its Goals lose the target; they are dangling, the run goes on.
         other.execute('delete from ontology.objects where object_id=%s', (seeded['a'],))
-        assert call(admin, 'rescan', 'run-1', 100)['kept'] == 3  # still busy (the delete is not committed)
+        assert call(admin, 'rescan', 'run-1', 100)['kept'] == 4  # still busy (the delete is not committed): 3 Goals, the PlanStep
         other.commit()
     assert call(admin, 'rescan', 'run-1', 100)['remaining'] == 0
     assert call(admin, 'status', 'run-1')['state'] == 'running'
+    # S-1: each Goal counted once: b's created at the batch; a's (busy, then their Consumer deleted) dangling at the rescan.
+    counts = {x['relation_name']: x for x in call(admin, 'status', 'run-1')['counts'] if x['world'] == 'real'}
+    assert counts['goal_of']['created'] == 3 and counts['goal_of']['existing'] == 0 and counts['step_in_goal']['created'] == 1 and counts['step_in_goal']['existing'] == 0
+    assert counts['step_in_goal']['scanned'] == 1 and counts['goal_of']['dangling'] == 1 + 3  # the seeded dangling one, the three whose Consumer went
 
 
 def test_waiters_on_the_batch_are_counted(seeded):
@@ -192,7 +201,7 @@ def test_the_batch_commits_early_after_750_ms(seeded):
     admin, goals = seeded['admin'], seeded['goals']
     start(admin)
     with admin.transaction():
-        admin.execute("set local statement_timeout='2s'")
+        admin.execute("set local statement_timeout='1s'")  # per statement: the sleep and the batch each under 1 s
         admin.execute('select pg_sleep(0.8)')
         got = admin.execute("select control.nexloop_relation_backfill_batch(%s,'run-1','Goal','real','',200)", (TENANT_A,)).fetchone()[0]
     assert got['early'] is True and got['locked'] == 1 and got['after'] == goals[0] and got['skipped'] == 0
@@ -259,8 +268,9 @@ def test_erasing_consumers_and_a_purging_world_are_skipped(seeded):
     counts = {(x['relation_name'], x['world']): x for x in call(admin, 'status', 'run-1')['counts']}
     assert counts[('goal_of', 'real')]['skipped_erasure'] == 3 and counts[('goal_of', 'real')]['created'] == 3
     assert counts[('goal_of', 'sim:0000bf01-0000-4000-8000-000000000001')]['skipped_world_purge'] == 1
-    v = verify(admin)[('goal_of', 'real')]
-    assert v['a'] == v['b'] == 3 and v['erasing'] == 3
+    v = verify(admin)
+    assert v[('goal_of', 'real')]['a'] == v[('goal_of', 'real')]['b'] == 3 and v[('goal_of', 'real')]['erasing'] == 3
+    assert ('goal_of', sim) not in v  # N-2 / L6 I-2: a world being purged is not counted
 
 
 def test_revert_removes_only_this_runs_relations(seeded):
@@ -285,3 +295,93 @@ def test_revert_removes_only_this_runs_relations(seeded):
     assert relation(admin, goals[0]) == [(target, {'derived': True})]
     assert relation(admin, derived) == [(seeded['a'], {'derived': True})]  # derived by the trigger: untouched
     assert call(admin, 'status', 'run-1')['state'] == 'reverted'
+
+
+def test_a_reverting_run_takes_only_revert_batch(seeded):
+    """L6 C-1: complete, batch and rescan stop on a reverting run; the revert finishes."""
+    admin = seeded['admin']
+    start(admin)
+    walk(admin)
+    call(admin, 'abort', 'run-1', 'test')
+    assert call(admin, 'revert_batch', 'run-1', 1)['state'] == 'reverting'
+    stopped = {'stopped': 'reverting', 'reason': 'test'}
+    assert call(admin, 'complete', 'run-1') == stopped
+    assert call(admin, 'batch', 'run-1', 'Goal', 'real', cursors(admin)[0]['after'], 2) == stopped
+    assert call(admin, 'rescan', 'run-1', 10) == stopped
+    while call(admin, 'revert_batch', 'run-1', 100)['state'] != 'reverted':
+        pass
+    assert call(admin, 'status', 'run-1')['state'] == 'reverted'
+
+
+@pytest.mark.parametrize('timeout', ['0', '1001ms', '5s'])
+def test_the_one_second_bound_is_checked(seeded, timeout):
+    """L6 I-1: batch, rescan and revert_batch refuse a statement_timeout outside (0, 1000 ms]."""
+    admin = seeded['admin']
+    start(admin)
+    for fn, args in (('batch', ("'run-1'", "'Goal'", "'real'", "''", '2')), ('rescan', ("'run-1'", '10')), ('revert_batch', ("'run-1'", '10'))):
+        with pytest.raises(psycopg.errors.InvalidParameterValue), admin.transaction():
+            admin.execute(f"set local statement_timeout='{timeout}'")
+            admin.execute(f"select control.nexloop_relation_backfill_{fn}(%s,{','.join(args)})", (TENANT_A,))
+
+
+def test_a_lock_timeout_and_a_statement_timeout_give_up_the_batch_and_the_retry_succeeds(seeded):
+    """L6 I-4 / design N-6: 55P03 and 57014 roll the batch back (cursor unmoved); the same range succeeds after."""
+    admin = seeded['admin']
+    start(admin)
+    with psycopg.connect(seeded['pg']) as other:
+        other.execute('lock table control.nexloop_consumer_erasures in row exclusive mode')  # an erasure step in flight
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            call(admin, 'batch', 'run-1', 'Goal', 'real', '', 200)
+        other.rollback()
+    with pytest.raises(psycopg.errors.QueryCanceled), admin.transaction():
+        admin.execute("set local statement_timeout='1ms'")
+        admin.execute("select control.nexloop_relation_backfill_batch(%s,'run-1','Goal','real','',200)", (TENANT_A,))
+    assert [c['after'] for c in cursors(admin) if c['source_type'] == 'Goal' and c['world'] == 'real'] == ['']
+    assert call(admin, 'batch', 'run-1', 'Goal', 'real', '', 200)['locked'] == 7
+    assert drive(admin)[-1]['completed'] is True and verify(admin)['skipped_remaining'] == 0
+
+
+def test_a_source_deleted_before_the_lock_is_vanished_at_the_rescan(seeded):
+    """L6 I-4: a source being deleted is skipped by the batch (its row is locked) and counted vanished once the delete commits."""
+    admin, goals = seeded['admin'], seeded['goals']
+    start(admin)
+    with psycopg.connect(seeded['pg']) as other:
+        other.execute('delete from ontology.objects where object_id=%s', (goals[2],))
+        assert call(admin, 'batch', 'run-1', 'Goal', 'real', '', 200)['skipped'] == 1
+        other.commit()
+    walk(admin)
+    assert call(admin, 'rescan', 'run-1', 100)['remaining'] == 0
+    counts = {x['relation_name']: x for x in call(admin, 'status', 'run-1')['counts'] if x['world'] == 'real'}
+    assert counts['goal_of']['skipped_vanished'] == 1 and call(admin, 'complete', 'run-1')['completed'] is True
+
+
+def test_the_batch_reports_a_waiter_of_another_role(seeded):
+    """L6 I-4 / design V-2: during a batch, a session of another login role waits for the batch's lock on the erasure table;
+    the batch (running as nexloop_owner) counts it in its waiters field."""
+    admin = seeded['admin']
+    admin.execute("""do $$begin if not exists(select 1 from pg_roles where rolname='nexloop_bf_waiter') then
+        create role nexloop_bf_waiter login nosuperuser; end if; end $$""")
+    admin.execute('grant usage on schema control to nexloop_bf_waiter')
+    admin.execute('grant insert on control.nexloop_consumer_erasures to nexloop_bf_waiter')
+    # Stretch the batch by half a second after it took its locks: a test trigger on the counts it writes at the end.
+    admin.execute("""create function pg_temp.nexloop_bf_slow() returns trigger language plpgsql as $$begin perform pg_sleep(0.5);return null;end $$""")
+    admin.execute("""create trigger nexloop_bf_slow after insert on control.nexloop_relation_backfill_counts for each statement
+        execute function pg_temp.nexloop_bf_slow()""")
+    start(admin)
+    waited = {}
+
+    def wait_for_the_batch():
+        time.sleep(0.2)
+        with psycopg.connect(psycopg.conninfo.make_conninfo(seeded['pg'], user='nexloop_bf_waiter')) as other:
+            t0 = time.monotonic()
+            other.execute('lock table control.nexloop_consumer_erasures in row exclusive mode')
+            waited['s'] = time.monotonic() - t0
+
+    worker = threading.Thread(target=wait_for_the_batch)
+    try:
+        worker.start()
+        got = call(admin, 'batch', 'run-1', 'Goal', 'real', '', 200)
+        worker.join(5)
+    finally:
+        admin.execute('drop trigger nexloop_bf_slow on control.nexloop_relation_backfill_counts')
+    assert got['waiters'] == 1 and got['elapsed_ms'] < 1000 and waited['s'] > 0.1
