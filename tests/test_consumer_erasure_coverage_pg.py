@@ -86,6 +86,9 @@ IDENTITY_KEPT = {
     'runtime.nexloop_commitment_events': 'subject_ref is a commitment or Claim reference; principal_id the staff member who acted',
     'runtime.nexloop_native_web_transports': 'principal_id follows runtime.nexloop_native_web_events through ON UPDATE CASCADE (0306)',
     'control.nexloop_deletion_ledger': _KEPT, 'runtime.nexloop_erasure_tombstones': _KEPT,
+    # NX-058: workbench members' role grants and role history - staff, never a Consumer (staff erasure is the owner's open Q-A).
+    'control.nexloop_workbench_grant_instances': _STAFF + ' (a workbench member\'s instantiated role grants)',
+    'control.nexloop_workbench_role_history': _STAFF + ' (when a workbench member held a role)',
 }
 # Known JSON paths that name the Consumer or their principal, and how the erasure treats each (a table of IDENTITY_KEPT or one the
 # erasure writes; the whole-database search proves the values are gone).
