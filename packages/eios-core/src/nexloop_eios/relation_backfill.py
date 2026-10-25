@@ -8,13 +8,18 @@ verify, status, sample); the port sets lock_timeout 200 ms itself and the engine
 300 ms, halved above it, raised after 5 fast ones; 100 and 150 ms for source types whose relations reach Consumer; 200 ms between
 batches); 55P03 / 40001 / 40P01 give the batch up and retry it, 57014 halves it (a new intent, design N-6); then the rescan with
 backoff and complete. It pauses (no state change, design I-3) while the background shows table lock waits or 2 of the last 5
-batches had more than 3 waiters. Output: one JSON line per batch, counts and ids only.
+batches had more than 3 waiters. A lost connection (OperationalError: the batch's result is unknown) sends the same intent again,
+which replays the stored answer if the batch had committed (design N-6). SIGTERM / SIGINT stop it between calls: one
+event=interrupted line, exit code 3 (the run stays running; run again to go on). Output: one JSON line per batch, counts and ids
+only.
 """
 import argparse
 from contextlib import ExitStack
 import json
 from pathlib import Path
+import signal
 import sys
+import threading
 import time
 
 import psycopg
@@ -24,6 +29,8 @@ from nexloop_eios.plan_reevaluation import _SignedPort
 ACTION='eios:action:nexloop.relation.backfill:1'
 LOCKING=('batch','rescan','revert_batch','complete','abort','start')
 RETRY=(psycopg.errors.LockNotAvailable,psycopg.errors.SerializationFailure,psycopg.errors.DeadlockDetected)
+INTERRUPTED=3
+UNKNOWN_RESULT_RETRIES=5
 
 
 class RelationBackfillPort(_SignedPort):
@@ -57,19 +64,20 @@ def consumer_target_types():
 
 class RelationBackfill:
     def __init__(self,port,*,out=sys.stdout,sleep=time.sleep,clock=time.monotonic,batch=200,target_ms=300,pause_ms=200,
-                 consumer_batch=100,consumer_target_ms=150,max_batches=None,rescan_rounds=10,sample_seconds=30):
+                 consumer_batch=100,consumer_target_ms=150,max_batches=None,rescan_rounds=10,sample_seconds=30,stop=None):
         if not 50<=batch<=1000 or not 100<=target_ms<=2000 or not 50<=pause_ms<=10000:raise ValueError('relation backfill pacing')
         self.port,self.out,self.sleep,self.clock=port,out,sleep,clock
         self.batch,self.target_ms,self.pause_ms=batch,target_ms,pause_ms
         self.consumer_batch,self.consumer_target_ms=min(consumer_batch,batch),min(consumer_target_ms,target_ms)
         self.max_batches,self.rescan_rounds,self.sample_seconds=max_batches,rescan_rounds,sample_seconds
         self.consumer_types=consumer_target_types();self.batches=0;self.waiters=[];self.sampled=None
+        self.stop=stop or threading.Event()
 
     def emit(self,**fields):print(json.dumps(fields,sort_keys=True,separators=(',',':')),file=self.out,flush=True)
 
     def quiet(self):
         """Pause while the background is not quiet: table lock waits, or 2 of the last 5 batches waited on by more than 3."""
-        while True:
+        while not self.stop.is_set():
             now=self.clock()
             if self.sampled is None or now-self.sampled>=self.sample_seconds:
                 self.background=self.port.sample();self.sampled=now
@@ -80,12 +88,18 @@ class RelationBackfill:
 
     def cursor(self,run_id,source_type,world,after):
         limit,target=(self.consumer_batch,self.consumer_target_ms) if source_type in self.consumer_types else (self.batch,self.target_ms)
-        size,fast=limit,0
+        size,fast,unknown=limit,0,0
         while True:
+            if self.stop.is_set():return 'interrupted'
             if self.max_batches is not None and self.batches>=self.max_batches:return 'limit'
             self.quiet()
             try:
                 got=self.port.batch(run_id,source_type,world,after,size)
+            except psycopg.OperationalError as error:
+                # S-10: the result is unknown; the same intent again replays it if the batch committed, or runs it if it did not.
+                unknown+=1
+                if unknown>UNKNOWN_RESULT_RETRIES:raise
+                self.emit(event='retry',source_type=source_type,world=world,code=getattr(error,'sqlstate',None) or 'connection');self.sleep(2*self.pause_ms/1000);continue
             except RETRY as error:
                 self.emit(event='retry',source_type=source_type,world=world,code=error.sqlstate);self.sleep(2*self.pause_ms/1000);continue
             except psycopg.errors.QueryCanceled:
@@ -93,6 +107,7 @@ class RelationBackfill:
                 self.sleep(2*self.pause_ms/1000);continue
             if 'stopped' in got:
                 self.emit(event='stopped',state=got['stopped'],reason=got.get('reason'));return 'stopped'
+            unknown=0
             if got.get('done'):return 'done'
             self.batches+=1;self.waiters.append(got['waiters'])
             self.emit(event='batch',source_type=source_type,world=world,batch=size,locked=got['locked'],skipped=got['skipped'],
@@ -111,9 +126,11 @@ class RelationBackfill:
         for c in status['cursors']:
             if c['done']:continue
             ended=self.cursor(run_id,c['source_type'],c['world'],c['after'])
+            if ended=='interrupted':self.emit(event='interrupted');return INTERRUPTED
             if ended!='done':return 0 if ended=='limit' else 1
         delay=1
         for _ in range(self.rescan_rounds):
+            if self.stop.is_set():self.emit(event='interrupted');return INTERRUPTED
             got=self.port.rescan(run_id)
             if 'stopped' in got:self.emit(event='stopped',state=got['stopped'],reason=got.get('reason'));return 1
             self.emit(event='rescan',cleared=got['cleared'],kept=got['kept'],remaining=got['remaining'])
@@ -125,6 +142,7 @@ class RelationBackfill:
 
     def revert(self,run_id):
         while True:
+            if self.stop.is_set():self.emit(event='interrupted');return INTERRUPTED
             try:got=self.port.revert_batch(run_id)
             except RETRY:self.sleep(2*self.pause_ms/1000);continue
             self.emit(event='revert',**got)
@@ -169,8 +187,13 @@ def main(argv=None):
             pre=fresh.preflight()
             if pre['blocking']:show({'blocking':pre['blocking']});return 1
             show(fresh.start(a.run_id,pre['digest']));return 0
-        runner=RelationBackfill(fresh,batch=a.batch,max_batches=a.max_batches)
-        return runner.run(a.run_id) if a.command=='run' else runner.revert(a.run_id)
+        stop=threading.Event();previous={}
+        for signum in (signal.SIGTERM,signal.SIGINT):previous[signum]=signal.signal(signum,lambda *_:stop.set())
+        try:
+            runner=RelationBackfill(fresh,batch=a.batch,max_batches=a.max_batches,stop=stop,sleep=lambda s:stop.wait(s))
+            return runner.run(a.run_id) if a.command=='run' else runner.revert(a.run_id)
+        finally:
+            for signum,handler in previous.items():signal.signal(signum,handler)
 
 
 if __name__=='__main__':

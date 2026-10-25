@@ -1,14 +1,16 @@
 -- NX-054 P3 slice 2 (docs/design/relation-backfill-p3.md §2): the signed port of the relation backfill,
 -- authz.nexloop_relation_backfill_command (eios:action:nexloop.relation.backfill:1; protocol nexloop-relation-backfill-v1; the
 -- domain worker role, like the retention keeper's port). The service principal's signed command is verified by
--- authz.nexloop_plan_port_tenant (signature, 30 s expiry, an active service credential, the Action authority), which also yields
+-- authz.nexloop_plan_port_tenant (signature; an expiry the signer sets at most 20 s ahead, SIGNED_COMMAND_TTL, and SQL accepts
+-- at most 30 s ahead; an active service credential; the Action authority), which also yields
 -- the tenant: nothing here takes a tenant from the payload. The world of the command is the authority's world (real); the engine
 -- walks every world of the tenant (design §1 S-4: relation rows only, no effect, no credential).
 -- Every verb runs with lock_timeout 200 ms set here; batch, rescan and revert_batch need the caller's statement_timeout in
 -- (0, 1000 ms] (the engine checks it; nexloop_eios.relation_backfill sets it), complete and abort run under the same caller setting.
 -- A batch is idempotent by its business intent run:type:world:after:batch (design N-6): the answer is stored with the batch in
 -- its transaction; the same intent replays the stored answer (after the cursor moved on, instead of the engine's 40001). A batch
--- given up (55P03, 57014) rolls back with its intent: the retry runs anew. Temporary number; the dispatcher renumbers.
+-- given up (55P03, 57014) rolls back with its intent: the retry runs anew. A run's intents go when it ends (completed, aborted,
+-- reverted: nothing replays a batch of a finished run). Temporary number; the dispatcher renumbers.
 
 create table control.nexloop_relation_backfill_intents (
  tenant_id text not null,run_id text not null,intent_id text not null check(char_length(intent_id) between 1 and 400),
@@ -56,16 +58,24 @@ begin
   return control.nexloop_relation_backfill_start(t,v_run,c->>'digest','service:'||v_principal);
  elsif v_verb in ('status','complete') then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['run_id','verb'] then raise exception 'relation backfill command invalid' using errcode='22023';end if;
-  return case v_verb when 'status' then control.nexloop_relation_backfill_status(t,v_run) else control.nexloop_relation_backfill_complete(t,v_run) end;
+  if v_verb='status' then return control.nexloop_relation_backfill_status(t,v_run);end if;
+  v:=control.nexloop_relation_backfill_complete(t,v_run);
+  if (v->>'completed')::boolean then delete from control.nexloop_relation_backfill_intents where tenant_id=t and run_id=v_run;end if;
+  return v;
  elsif v_verb='abort' then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['reason','run_id','verb']
    or coalesce(c->>'reason','')!~'^[a-z][a-z0-9_]{0,63}$' then raise exception 'relation backfill command invalid' using errcode='22023';end if;
-  return control.nexloop_relation_backfill_abort(t,v_run,c->>'reason');
+  v:=control.nexloop_relation_backfill_abort(t,v_run,c->>'reason');
+  delete from control.nexloop_relation_backfill_intents where tenant_id=t and run_id=v_run;
+  return v;
  elsif v_verb in ('rescan','revert_batch') then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['limit','run_id','verb']
    or jsonb_typeof(c->'limit') is distinct from 'number' or (c->>'limit')!~'^[0-9]{1,4}$' then raise exception 'relation backfill command invalid' using errcode='22023';end if;
   v_limit:=(c->>'limit')::integer;
-  return case v_verb when 'rescan' then control.nexloop_relation_backfill_rescan(t,v_run,v_limit) else control.nexloop_relation_backfill_revert_batch(t,v_run,v_limit) end;
+  if v_verb='rescan' then return control.nexloop_relation_backfill_rescan(t,v_run,v_limit);end if;
+  v:=control.nexloop_relation_backfill_revert_batch(t,v_run,v_limit);
+  if v->>'state'='reverted' then delete from control.nexloop_relation_backfill_intents where tenant_id=t and run_id=v_run;end if;
+  return v;
  elsif v_verb='batch' then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['after','batch','run_id','source_type','verb','world']
    or coalesce(c->>'source_type','')!~'^[A-Z][A-Za-z0-9_]{0,63}$' or not runtime.nexloop_world_valid(c->>'world')

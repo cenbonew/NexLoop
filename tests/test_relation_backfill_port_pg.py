@@ -3,9 +3,11 @@ its own service principal (nexloop_domain_worker, eios:action:nexloop.relation.b
 and verify balances; a batch replays by its intent; the port sets the 1 s bound and the engine refuses another; other roles and
 malformed commands are refused. V-1 / V-4 (design §8): while a batch stretched by a slow derivation holds a Consumer's KEY SHARE,
 a write that takes that Consumer FOR UPDATE under the real paths' default lock_timeout of 3000 ms (as the governed edit commit of
-0015 does) waits and succeeds, and the whole batch stays under 1 s; the control group - the same lock held 3.5 s, as a batch
-without the 750 ms early commit and the 1 s statement_timeout would - makes that write fail with 55P03. The write stands for the
-edit's lock, not the whole edit Action."""
+0015 does) is blocked by the backfill session (pg_blocking_pids), waits and succeeds, and the whole batch stays under 1 s; the
+control group runs the same batch through the signed port with both bounds lifted (statement_timeout 5 s, no 750 ms early
+commit; test-only redefinitions, restored after) and the write fails with 55P03. The write stands for the edit's lock, not the
+whole edit Action. Also (L6 I-6): a payload naming a tenant is refused, a non-real world is refused, the port runs the batch
+under lock_timeout 200 ms, and another tenant's objects are not touched."""
 import io
 import json
 import secrets
@@ -24,7 +26,7 @@ from nexloop_eios.assembly import open_core
 from nexloop_eios.authorization import authenticate_service
 from nexloop_eios.plan_reevaluation import PlanUnavailable
 from nexloop_eios.postgres_artifacts import AuthoritySigner
-from support.tenants import TENANT_A
+from support.tenants import TENANT_A, TENANT_B
 from test_relation_backfill_engine_pg import seeded, verify  # noqa: F401 - stock objects on the P1 catalog
 from test_relation_types_p1_pg import catalog  # noqa: F401
 
@@ -95,17 +97,36 @@ def test_the_port_refuses_what_it_must(port, pg):
 
 
 def slow_derivation(admin, seconds):
-    admin.execute(f"""create or replace function pg_temp.nexloop_bf_slow_row() returns trigger language plpgsql as
-        $$begin perform pg_sleep({seconds});return null;end $$""")
+    """Each relation the batch creates takes `seconds` more; the lock_timeout the batch runs under is recorded (I-6)."""
+    admin.execute('create table if not exists public.nexloop_bf_seen(lock_timeout text)')
+    admin.execute('grant insert on public.nexloop_bf_seen to nexloop_owner')
+    admin.execute(f"""create or replace function public.nexloop_bf_slow_row() returns trigger language plpgsql as
+        $$begin insert into public.nexloop_bf_seen values(current_setting('lock_timeout'));perform pg_sleep({seconds});return null;end $$""")
+    admin.execute('grant execute on function public.nexloop_bf_slow_row() to nexloop_owner')
     admin.execute("""create trigger nexloop_bf_slow_row after insert on control.nexloop_relation_backfill_created for each row
-        execute function pg_temp.nexloop_bf_slow_row()""")
+        execute function public.nexloop_bf_slow_row()""")
 
 
-def edit_lock(pg, consumer, result, delay=0.15):
-    """The governed edit's commit takes the edited object FOR UPDATE under the real paths' lock_timeout (3000 ms default)."""
+def no_slow_derivation(admin):
+    admin.execute('drop trigger if exists nexloop_bf_slow_row on control.nexloop_relation_backfill_created')
+
+
+def edit_lock(pg, consumer, result, delay):
+    """The governed edit's commit takes the edited object FOR UPDATE under the real paths' lock_timeout (3000 ms default). A
+    monitor records whether the backfill session blocked it (pg_blocking_pids), not inferred from the wait."""
     time.sleep(delay)
-    with psycopg.connect(pg) as db:
+    with psycopg.connect(pg) as db, psycopg.connect(pg, autocommit=True) as monitor:
         db.execute("set lock_timeout='3000ms'")
+        pid, blockers = db.info.backend_pid, set()
+        watching = threading.Event()
+
+        def watch():
+            while not watching.is_set():
+                blockers.update(monitor.execute('select pg_blocking_pids(%s)', (pid,)).fetchone()[0])
+                time.sleep(0.02)
+
+        watcher = threading.Thread(target=watch)
+        watcher.start()
         t0 = time.monotonic()
         try:
             db.execute('select 1 from ontology.objects where object_id=%s for update', (consumer,))
@@ -113,33 +134,154 @@ def edit_lock(pg, consumer, result, delay=0.15):
         except psycopg.errors.LockNotAvailable:
             result['ok'] = False
         result['waited'] = time.monotonic() - t0
+        watching.set()
+        watcher.join()
+        result['blockers'] = blockers
 
 
-def test_v1_a_bounded_batch_never_fails_an_edit_and_v4_stays_under_one_second(port, admin, pg):
+def backfill_pids(pg):
+    with psycopg.connect(pg, autocommit=True) as db:
+        return {r[0] for r in db.execute("select pid from pg_stat_activity where usename='nexloop_domain_worker'").fetchall()}
+
+
+def b_first(port):
+    """Every Goal of the seed names b, so the batch takes b's KEY SHARE at its first object (well before the edit starts)."""
+    port['admin'].execute("update ontology.objects set properties=jsonb_build_object('consumer_id',%s::text) where type_name='Goal' and properties->>'consumer_id'=%s",
+                          (port['b'], port['a']))
+    port['admin'].execute("delete from ontology.relations")  # the trigger derived them on that update: stock again
+
+
+def test_v1_a_bounded_batch_blocks_an_edit_briefly_and_v4_stays_under_one_second(port, admin, pg):
     p = port['port']
+    b_first(port)
     p.start('run-1', p.preflight()['digest'])
     slow_derivation(admin, 0.2)  # each relation the batch creates: 0.2 s more, so the batch meets the 750 ms early commit
     try:
         result = {}
-        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result))
+        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result, 0.3))
         worker.start()
         got = p.batch('run-1', 'Goal', 'real', '', 200)
         worker.join(10)
+        seen = {r[0] for r in admin.execute('select lock_timeout from public.nexloop_bf_seen').fetchall()}
     finally:
-        admin.execute('drop trigger nexloop_bf_slow_row on control.nexloop_relation_backfill_created')
-    assert got['early'] is True and got['elapsed_ms'] < 1000  # V-4: the whole batch, from its transaction's start
-    assert result['ok'] is True and result['waited'] < 1.0  # the edit waited for the batch, then went through
+        no_slow_derivation(admin)
+    assert got['early'] is True and got['elapsed_ms'] < 1000 and got['target_locked'] == 0  # V-4: the whole batch, from its start
+    assert result['ok'] is True and result['waited'] < 1.0  # the edit went through
+    assert result['blockers'] and result['blockers'] <= backfill_pids(pg)  # blocked, and only by the backfill's own session
+    assert seen == {'200ms'}  # I-6: the port's lock_timeout inside the batch
+    assert admin.execute('select count(*) from ontology.relations where target_object_id=%s', (port['b'],)).fetchone()[0] >= 1
 
 
-def test_v1_control_group_an_unbounded_hold_fails_the_edit(port, admin, pg):
-    """Without the early commit and with a statement_timeout above 3 s, a batch could hold the Consumer's KEY SHARE 3.5 s: the
-    edit then fails with 55P03. So the experiment above passes because the bound holds, not because nothing conflicts."""
-    result = {}
-    worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result))
-    with psycopg.connect(pg) as holder:
-        holder.execute('select 1 from ontology.objects where object_id=%s for key share', (port['b'],))
+def test_v1_control_group_both_bounds_lifted_fails_the_edit(port, admin, pg):
+    """The same batch through the signed port with statement_timeout 5 s and no 750 ms early commit (test-only redefinitions of
+    the engine's bound and early commit, restored after): it holds b's KEY SHARE over 3 s and the edit fails with 55P03."""
+    p = port['port']
+    b_first(port)
+    p.start('run-1', p.preflight()['digest'])
+    originals = {f: admin.execute(f"select pg_get_functiondef('{f}'::regprocedure)").fetchone()[0] for f in
+                 ('control.nexloop_relation_backfill_assert_timeout()', 'control.nexloop_relation_backfill_batch(text,text,text,text,text,integer)')}
+    lifted = {f: d.replace('v>1000', 'v>5000').replace("interval '750 milliseconds'", "interval '1 hour'") for f, d in originals.items()}
+    assert all(lifted[f] != originals[f] for f in originals)
+    for d in lifted.values():
+        admin.execute(d)
+    slow_derivation(admin, 0.6)
+    loose = B.RelationBackfillPort(port['pool'], authenticate_service(port['pool'], port['token'], world='real'), port['signer'])
+    loose._prepare = lambda db, payload: db.execute("select set_config('statement_timeout','5s',true)")
+    try:
+        result = {}
+        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result, 0.3))
         worker.start()
-        time.sleep(3.5)
-        holder.rollback()
-    worker.join(10)
-    assert result['ok'] is False and result['waited'] >= 2.9
+        got = loose.batch('run-1', 'Goal', 'real', '', 200)
+        worker.join(10)
+    finally:
+        no_slow_derivation(admin)
+        for d in originals.values():
+            admin.execute(d)
+    assert got['early'] is False and got['elapsed_ms'] > 3000
+    assert result['ok'] is False and result['waited'] >= 2.9 and result['blockers']
+
+
+def test_the_port_refuses_a_tenant_in_the_payload_and_a_non_real_world(port, admin):
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    with pytest.raises(psycopg.errors.InvalidParameterValue):  # M4: the tenant is the service identity's only
+        p._signed({'verb': 'batch', 'run_id': 'run-1', 'source_type': 'Goal', 'world': 'real', 'after': '', 'batch': 2, 'tenant_id': TENANT_B})
+    with pytest.raises(psycopg.errors.InvalidParameterValue):
+        p._signed({'verb': 'status', 'run_id': 'run-1', 'tenant_id': TENANT_B})
+    # M6: a service credential with the backfill authority in the test world is refused by the port.
+    _, test_token = seed_multi_authority(admin, port['pool'], [(B.ACTION, ResourceType.ACTION, Operation.EXECUTE)],
+                                         identity_suffix='-relation-backfill-test', world='test')
+    other = B.RelationBackfillPort(port['pool'], authenticate_service(port['pool'], test_token, world='test'), port['signer'])
+    with pytest.raises((PlanUnavailable, psycopg.errors.InsufficientPrivilege)):
+        other.status('run-1')
+
+
+def test_another_tenants_objects_are_not_touched(port, admin):
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (TENANT_B,))
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+            values(%s,'real','Consumer',%s,1,'{}','synthetic','p3',clock_timestamp()-interval '1 minute',clock_timestamp()-interval '1 minute'),
+                  (%s,'real','Goal',%s,1,jsonb_build_object('consumer_id',%s::text),'synthetic','p3',clock_timestamp()-interval '1 minute',clock_timestamp()-interval '1 minute')""",
+                      (TENANT_B, '1' * 64, TENANT_B, '2' * 64, '1' * 64))
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    assert B.RelationBackfill(p, out=io.StringIO(), sleep=lambda s: None).run('run-1') == 0
+    assert admin.execute('select count(*) from ontology.relations where tenant_id=%s', (TENANT_B,)).fetchone()[0] == 0
+    counts = {x['relation_name']: x for x in p.status('run-1')['counts'] if x['world'] == 'real'}
+    assert counts['goal_of']['scanned'] == 7  # A's six Goals and its dangling one; B's Goal is not A's
+    assert admin.execute('select count(*) from control.nexloop_relation_backfill_intents').fetchone()[0] == 0  # S-13: gone at completion
+
+
+def test_an_unknown_result_resends_the_same_intent(port):
+    """S-10: the connection drops after the batch committed; the runner sends the same intent and gets the stored answer."""
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    calls = []
+
+    class Flaky:
+        def __getattr__(self, name):
+            real = getattr(p, name)
+            if name != 'batch':
+                return real
+
+            def batch(*args):
+                calls.append(args)
+                got = real(*args)
+                if len(calls) == 1:
+                    raise psycopg.OperationalError('connection lost')
+                return got
+            return batch
+
+    out = io.StringIO()
+    assert B.RelationBackfill(Flaky(), out=out, sleep=lambda s: None).run('run-1') == 0
+    assert calls[0] == calls[1]
+    lines = [json.loads(x) for x in out.getvalue().splitlines()]
+    assert lines[0] == {'event': 'retry', 'source_type': calls[0][1], 'world': 'real', 'code': 'connection'}
+
+
+def test_a_stop_signal_ends_the_run_between_calls(port):
+    """S-12: SIGTERM / SIGINT set the stop event: one interrupted line, exit code 3, the run stays running."""
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    stop = threading.Event()
+    stop.set()
+    out = io.StringIO()
+    assert B.RelationBackfill(p, out=out, sleep=lambda s: None, stop=stop).run('run-1') == B.INTERRUPTED
+    assert json.loads(out.getvalue().splitlines()[-1]) == {'event': 'interrupted'} and p.status('run-1')['state'] == 'running'
+
+
+def test_complete_and_abort_give_up_on_a_held_lock_within_the_ports_lock_timeout(port, pg):
+    """L6 I-6 (M5): the port sets lock_timeout 200 ms for every verb; complete and abort, which the engine does not time
+    themselves, give up with 55P03 instead of waiting into their 1 s statement_timeout."""
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    with psycopg.connect(pg) as other:
+        other.execute("select 1 from control.nexloop_relation_backfill_runs where run_id='run-1' for update")
+        for call in (lambda: p.complete('run-1'), lambda: p.abort('run-1')):
+            t0 = time.monotonic()
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                call()
+            assert time.monotonic() - t0 < 0.9
+        other.rollback()
+    assert p.status('run-1')['state'] == 'running'
