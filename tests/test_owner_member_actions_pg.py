@@ -31,7 +31,7 @@ from test_workbench_member_changes_pg import grants_match, granted, history
 from test_workbench_read_pg import ROLES, add_human, members_file, workbench_login, write_facts
 
 ACTIONS = tuple(f'nexloop.workbench_member.{a}' for a in ('promote_owner', 'demote_owner', 'suspend_owner', 'resume_owner', 'revoke_owner',
-                                                             'issue_owner_reset', 'invite_owner')) + (
+                                                             'issue_owner_reset', 'invite_owner', 'erase_member')) + (
     'nexloop.approvals.decide', 'nexloop.approvals.cancel')
 
 
@@ -79,7 +79,7 @@ def approved_run(c, requester, approver, operation, body):
 def test_promotion_runs_once_after_another_owners_approval(owners, admin):
     c = owners
     applied = with_policies(c)
-    assert applied['version'] == 3 and applied['appended'] == 2 and applied['unchanged'] == 8
+    assert applied['version'] == 4 and applied['appended'] == 1 and applied['unchanged'] == 10
     p = c['operator_member']['principal_id']
     body = {'target_principal': p, 'reason': 'synthetic promotion'}
     executed = approved_run(c, c['owner_member'], c['second'], 'promote_workbench_member', body)

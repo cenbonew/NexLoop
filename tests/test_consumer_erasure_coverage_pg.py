@@ -79,14 +79,16 @@ IDENTITY_KEPT = {
     'runtime.nexloop_fallback_context_bindings': _STAFF + ' (the relay that bound the context)',
     'runtime.nexloop_role_context_artifacts': _STAFF + ' (the role runtime)', 'runtime.nexloop_role_trigger_events': _STAFF + ' (the role runtime)',
     'runtime.nexloop_orphan_sweeps': _STAFF + ' (the artifact sweeper)',
-    'control.nexloop_initial_identity_receipts': 'trusted-configuration initial accounts (staff and owner), never a customer',
+    # control.nexloop_initial_identity_receipts: staff and owner initial accounts, never a customer; written by the staff erasure
+    # (NX-058 slice E: its password fingerprint), so no reason here.
     'control.nexloop_browser_memberships': 'identity layer: the customer account itself is not this erasure\'s (owner decision 5: deactivate on erasure, delete by the identity layer)',
     'control.nexloop_real_dispatch_switches': 'scope_ref names the tenant or an Action type, never a person',
     'runtime.nexloop_commercial_exceptions': 'subject_ref is a commercial record or event reference, never a person',
     'runtime.nexloop_commitment_events': 'subject_ref is a commitment or Claim reference; principal_id the staff member who acted',
     'runtime.nexloop_native_web_transports': 'principal_id follows runtime.nexloop_native_web_events through ON UPDATE CASCADE (0306)',
     'control.nexloop_deletion_ledger': _KEPT, 'runtime.nexloop_erasure_tombstones': _KEPT,
-    # NX-058: workbench members' role grants and role history - staff, never a Consumer (staff erasure is the owner's open Q-A).
+    # NX-058: workbench members' role grants and role history - staff, never a Consumer (staff erasure: NX-058 slice E,
+    # tests/test_member_erasure_coverage_pg.py; kept there with their reason, E5).
     'control.nexloop_workbench_grant_instances': _STAFF + ' (a workbench member\'s instantiated role grants)',
     'control.nexloop_workbench_role_history': _STAFF + ' (when a workbench member held a role)',
     # NX-057: who switched or resolved a remediation (the owner or the planner's service principal); the remediation holds no consumer id.

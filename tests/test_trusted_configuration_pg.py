@@ -173,3 +173,25 @@ def test_ordinary_identity_role_cannot_insert_subject_or_forge_initial_receipt(c
     with psycopg.connect(make_conninfo(configured['pg'],user='nexloop_identity')) as db:
         for statement in ("insert into control.nexloop_browser_subjects values('forged','{}')",'select * from control.nexloop_initial_identity_receipts'):
             with pytest.raises(psycopg.errors.InsufficientPrivilege),db.transaction():db.execute(statement)
+
+
+def test_an_erased_members_initial_identity_receipt_is_refused_with_42501(configured,admin):
+    """NX-058 slice E (L6 review of E1): the same request id run again for a subject the staff erasure took is refused outright
+    (42501 'initial identity erased'), never answered with the old ids and never the retryable 40001 conflict."""
+    import hmac
+    from argon2 import PasswordHasher
+    from nexloop_eios.initial_identity import validate_identity_manifest
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    f=configured;body=identity_manifest(f);created=create_human(f,body);assert created['created'] is True
+    admin.execute("select set_config('eios.tenant_id',%s,false)",(f['tenant'],))
+    admin.execute("insert into control.nexloop_workbench_member_erasures(tenant_id,subject_id,principals,erased_at) values(%s,%s,%s,clock_timestamp())",
+                  (f['tenant'],created['subject_id'],[created['principal_id']]))
+    with pytest.raises(ConfigurationRejected):create_human(f,body)  # the operator's tool: refused
+    value=validate_identity_manifest(body);password=f['paths']['password'].read_text();seal=bytes.fromhex(f['paths']['seal'].read_text().strip())
+    fingerprint=hmac.new(seal,canonical_payload({'domain':'nexloop-initial-password-v1','tenant_id':value['tenant_id'],'application_id':value['application_id'],
+        'request_id':value['request_id'],'password':password}).encode(),'sha256').hexdigest()
+    with psycopg.connect(make_conninfo(f['pg'],user='nexloop_identity')) as db:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege,match='initial identity erased'),db.transaction():
+            db.execute('select control.nexloop_initial_identity_create(%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s)',
+             (value['tenant_id'],value['application_id'],'nexloop_identity',value['request_id'],value['operator_label'],canonical_payload(value['subject']),
+              canonical_payload(value['membership']),canonical_payload(value['account']),PasswordHasher().hash(password),fingerprint,seal))

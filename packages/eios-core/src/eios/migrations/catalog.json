@@ -1755,6 +1755,16 @@
       "version": "0351",
       "name": "0351_remediation_rule_publications.sql",
       "sha256": "080fbd326dd4172d4f2142bbb9c2a6c17aab4d80fecc44a454b4f78bd7f260d3"
+    },
+    {
+      "version": "0352",
+      "name": "0352_member_erasure.sql",
+      "sha256": "2f0b714a1940e6c9b20115c2e7e76373362f5f09cbe46ee0f8c8e43133056b04"
+    },
+    {
+      "version": "0353",
+      "name": "0353_member_login_clearing.sql",
+      "sha256": "1722f610d911e772ad4d9182e5d7cf00d6783cd964366f410d8ec54beea1354a"
     }
   ]
 }
