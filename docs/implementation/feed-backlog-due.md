@@ -62,16 +62,43 @@ ro "select count(*) filter (where available_at>clock_timestamp()) scheduled, cou
   - job 队列的 `queues.*.oldest_pending_seconds` 一直就是这个口径（0131、0141：只算已到期的，从 `available_at` 起算），feed 与它对齐。
 - **排除有效租约**：
   - 被领取的项正在处理，不算在等待。派工要求的“到期后未被领取”，指的就是这一点。
-  - 租约最长 600 s。worker 卡住或退出、租约过期之后，这一项重新计入，并且仍然从它最初到期的 `available_at` 算，不会漏报。
-  - 反复失败的项由 retry 推后 `available_at`，最终进入死信，由 `feed_dead_lettered` 报告，不靠这条规则。
+  - 租约最长 600 s。worker 卡住、租约过期之后，在下一次被领取之前，这一项重新计入，仍然从它最初到期的 `available_at` 算。
+  - **但这个口径看不到崩溃循环**（L6 复核）：
+    - 租约只在领取时写入（0093:103），是否进死信只在 retry 时判定（0093:128）；
+    - worker 领取后崩溃，没来得及调 retry 或 complete，这一项就会在每次租约过期后被再次领取。attempts 一直涨，却永远进不了死信；
+    - 它几乎一直处在有效租约中，所以 `feed_backlog_age` 不报。旧口径反而能报出来。
+    - 这一类由下面的 `max_pending_attempts` 和告警规则 v17 报告。
+  - 正常失败的项：worker 调 retry，`available_at` 被推后；达到它的重试上限时进入死信，由 `feed_dead_letter` 报告。
 - **`pending`、`due`、`scheduled` 三个计数含义不变**（0149）。`due` 仍然包含正被处理的项。
-- **告警规则文件不需要改**，`feed_backlog_age` 仍读 `feeds.*.oldest_pending_seconds`，不涉及新版本的告警规则。
+- **`feed_backlog_age` 本身不用改**，它仍读 `feeds.*.oldest_pending_seconds`。
+
+### 崩溃循环：`max_pending_attempts` 与告警规则 v17
+
+- **指标** `feeds.<feed>.max_pending_attempts`：该 feed 中 pending 项（不论有没有租约）的最大 attempts；没有 pending 项时为 0。
+- **规则** `feed_attempts_over_ceiling`（v17 = v16 + 这一条）：`max_pending_attempts > 20`，critical，与 `feed_dead_letter` 同级。
+- **为什么阈值是 20，而且所有 feed 共用一个**：
+  - 每一份 claim/retry 的 SQL（0093、0106、0109、0111、0118、0126）都把 retry 的上限限制在 1..20，并在 `attempts >= 上限` 时进死信；
+  - 领取一次加 1；touch，或者处理中途来了新的改动，都会把 attempts 清零；
+  - 所以 pending 项的 attempts 最多是 20，这是第 20 次领取还在处理中的情况。超过 20，说明至少有一次领取既没有 retry 也没有 complete；
+  - 各 feed 的上限不在库里：它在 worker 的设置里，而且因拒绝原因而不同，从 1 到 20 都有。例如 reply-due 是 `min(20, fallback+5)`，plan-reevaluate 节流时是 20，takeover-expiry 是 20；
+  - 规则的 metric 路径里写不了带连字符的 feed 名，没法按 feed 设阈值；
+  - 低于 20 时，无法区分“这个 feed 的上限”和“正常的重试”。
+- **代价**：上限低的 feed（例如上限 5、租约 300 s），要第 21 次领取后才告警，最长约 21 × 租约时长，也就是 1.75 小时左右。换来的是不会误报，也不依赖各 worker 的设置。
+- **发布**：v17 按 run-nx057 §1 的形态用 `alert_rules_apply.py` 发布（v16 之后）。L3 的死信口径改动用 v18，组批时合并。
+
+### 工作台（可选项 5，已做）
+
+- “总览 → 队列积压 → 后台任务”和“运行观测 → 后台任务与提取”两张卡：
+  - 改动在 `apps/web/src/workbench/pages/Overview.tsx`、`Observability.tsx`；
+  - “待处理 N”改为已到期的数量（`due`，没有拆分时退回 `pending`）；
+  - 有定时项时另外写出“（另有 M 个定时未到期）”；
+  - “最久等待”读的就是新的 `oldest_pending_seconds`。
 
 **部署之后**：stage 上这 10 条在 10-29 07:17Z 之前都是 scheduled，指标为 null，告警在下一轮评估时解除，产生一条 `resolved` 事件。到期之后，如果承诺监视器在 10 分钟内领取，就不会再报警。
 
 ## 测试
 
-`tests/test_feed_backlog_due_pg.py`，真实 PG，NX-030 夹具，规则 v1，真实告警评估：
+`tests/test_feed_backlog_due_pg.py`，真实 PG，NX-030 夹具，规则 v1（崩溃循环一项用 v17），真实告警评估：
 
 - **定时项不计入**：
   - 按 stage 的形态造 3 条：`changed_at` 是 3 天前，`available_at` 在 3.6 天后；
@@ -80,6 +107,13 @@ ro "select count(*) filter (where available_at>clock_timestamp()) scheduled, cou
   - 一条一周前创建、20 分钟前到期的项，计为约 1200 s，不是一周；评估后 firing，值约 1200；
   - 一条 2 小时前到期、但租约有效的项不计入；租约过期后计为约 7200 s；
   - 删掉所有已到期的项之后，值为 null，评估后告警解除。
+- **崩溃循环**：
+  - 经 feed 真实的签名端口领取，不调 retry/complete，每次领取后让租约过期，再领取；
+  - 每一轮，`max_pending_attempts` 都等于领取次数，等待时长为 null（有效租约）；
+  - 第 1–20 轮评估不 firing，第 21 轮 `feed_attempts_over_ceiling` firing（critical，值 21）；`feed_backlog_age` 始终不 firing；
+  - 最后正常 retry（上限 20）后进入死信，指标回到 0，告警解除。
+- **v17 = v16 + 一条**，规则形状校验通过。
+- **工作台**：`apps/web/test/workbench-observability.test.ts` 新增断言：拆分后的 feed 显示“待处理 0（另有 10 个定时未到期）”。
 
 ## 回归
 

@@ -96,6 +96,11 @@ test('overview backlog block renders the NX-030 shape: feed name, pending count 
   const html=render(client([[['workbench','overview'],overview(body)]]),h(Overview,{onOpen:()=>{}}));
   const block=html.slice(html.indexOf('aria-label="队列积压"'));
   expect(block).toContain('实例召回：待处理 5，死信 0，最久等待 3 小时');expect(block).not.toContain('recall-instance');
+  // Feed backlog fix: a feed that splits due and scheduled counts only the due items as pending and names the scheduled ones apart.
+  const split={...body,backlog:{status:'ok',data:{queues:{},feeds:{'commitment-monitor':{pending:10,due:0,scheduled:10,dead_lettered:0,dead_lettered_last_hour:0,
+    oldest_pending_seconds:null,oldest_due_seconds:null,max_pending_attempts:0}},extraction:{pending_messages:0,oldest_pending_seconds:null}}}};
+  const splitBlock=render(client([[['workbench','overview'],overview(split)]]),h(Overview,{onOpen:()=>{}}));
+  expect(splitBlock).toContain('：待处理 0（另有 10 个定时未到期），死信 0，');
   expect(block).toContain('队列</h3><div class="state state-empty state-compact" role="status" data-state="empty"><p class="state-title"><span class="state-mark" aria-hidden="true">○</span>暂无排队中的任务</p>');
   expect(block).toContain('待提取消息 2 条，最久等待 3 小时');
   // A malformed backlog is refused, never rendered as an empty success.

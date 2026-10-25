@@ -37,7 +37,7 @@ export function BacklogView({backlog}:{backlog:Backlog}){
     {queues.length?<ul>{queues.map(([q,v])=><li key={q}>{statusLabel('queue',q)}：待处理 {v.pending??0}，重试 {v.retry_wait??0}，死信 {v.dead_lettered??0}，最久等待 {ageText(v.oldest_pending_seconds)}</li>)}</ul>
       :<EmptyState kind="empty" subject="排队中的任务" compact/>}
     <h3>后台任务</h3>
-    {feeds.length?<ul>{feeds.map(([f,v])=><li key={f}>{statusLabel('feed',f)}：待处理 {v.pending??0}，死信 {v.dead_lettered??0}，最久等待 {ageText(v.oldest_pending_seconds)}</li>)}</ul>
+    {feeds.length?<ul>{feeds.map(([f,v])=><li key={f}>{statusLabel('feed',f)}：待处理 {v.due??v.pending??0}{v.scheduled?`（另有 ${v.scheduled} 个定时未到期）`:''}，死信 {v.dead_lettered??0}，最久等待 {ageText(v.oldest_pending_seconds)}</li>)}</ul>
       :<EmptyState kind="empty" subject="积压" compact/>}
     <p>待提取消息 {backlog.extraction.pending_messages} 条，最久等待 {ageText(backlog.extraction.oldest_pending_seconds)}</p>
   </>;
