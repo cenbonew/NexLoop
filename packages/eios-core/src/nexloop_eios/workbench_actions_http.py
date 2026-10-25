@@ -232,6 +232,13 @@ OPERATIONS={
     'suspend_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'resume_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'revoke_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    # NX-058 slice D2 (owner only, NX-056 approval): owner targets; demote's new role is operator or reviewer (S2, SQL checks it again).
+    'promote_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    'demote_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason,
+        'new_role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role'))},
+    'suspend_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    'resume_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    'revoke_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'read_experiment_report':lambda body:_REPORT_KINDS[body.get('kind') if type(body.get('kind')) is str else None],
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},

@@ -164,6 +164,14 @@ REGISTRY = [
     # 0341 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
     Allowed('governed_authority_change', 'control.nexloop_workbench_member_lock', 'the tenant approval lock of NX-056 instead of its own key; nothing else',
             ((r"select control\.nexloop_approval_tenant_lock\(p_tenant\)", "select pg_advisory_xact_lock(hashtextextended('nexloop-approval-eligibility:'||p_tenant,0))"),)),
+    # owner_member_actions (NX-058 slice D2): approval_open checks the body's operation against the capability's registered one (L6 review
+    # of B1); demote_owner's policy may show new_role.
+    Allowed('owner_member_actions', 'control.nexloop_approval_open', "the body's operation is the capability's registered operation; a suspended target opens too; nothing else",
+            ((r"\s*-- only an invited, active or suspended member[^\n]*\n\s*--[^\n]*\n\s*and m\.payload->>'status' in \('invited','active','suspended'\)\) then",
+              "\n   and m.payload->>'status' in ('invited','active')) then  -- only an invited or active member (L6 review 9)"),
+             (r"\s*-- NX-058 slice D \(L6 review of B1\)[^\n]*\n\s*if p_body->>'operation' is distinct from \(select c\.operation from control\.nexloop_governed_capabilities c where c\.capability=p_capability\) then\n\s*raise exception 'approval: operation_mismatch' using errcode='22023';end if;", ''),)),
+    Allowed('owner_member_actions', 'control.nexloop_approval_summary_allowed', 'demote_owner shows new_role; nothing else',
+            ((r"\s*when 'workbench_member\.demote_owner' then array\['new_role'\][^\n]*", ''),)),
     # vote_cooldown (NX-058 slice D §2, ADR-039 R1 §6.7): an approver's vote counts 24 hours after its current holding of an approver role began.
     Allowed('vote_cooldown', 'control.nexloop_approval_approver_eligible', 'the 24-hour vote cooldown from the role history; nothing else',
             ((r"\s*and coalesce\(control\.nexloop_workbench_vote_eligible_from\(p_tenant,'real',control\.nexloop_approval_subject_of\(p_tenant,p_principal\),p_roles\)<=clock_timestamp\(\),false\)", ''),)),

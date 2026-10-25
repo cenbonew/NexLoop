@@ -118,7 +118,11 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'invite_workbench_member':'workbench_member.invite','revoke_workbench_invitation':'workbench_member.revoke_invitation',
     # NX-058 slice C (no approval; operators and reviewers only - owners through the owner-only Actions once NX-056 is merged).
     'change_workbench_member_role':'workbench_member.change_role','suspend_workbench_member':'workbench_member.suspend',
-    'resume_workbench_member':'workbench_member.resume','revoke_workbench_member':'workbench_member.revoke'}
+    'resume_workbench_member':'workbench_member.resume','revoke_workbench_member':'workbench_member.revoke',
+    # NX-058 slice D2: owner targets (promote: an operator or reviewer to owner), each with another owner's approval (NX-056).
+    'promote_workbench_member':'workbench_member.promote_owner','demote_workbench_owner':'workbench_member.demote_owner',
+    'suspend_workbench_owner':'workbench_member.suspend_owner','resume_workbench_owner':'workbench_member.resume_owner',
+    'revoke_workbench_owner':'workbench_member.revoke_owner'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -647,6 +651,26 @@ class GoalGovernedActions:
 
     def revoke_workbench_member(self,*,action_name,action_version,request_id,target_principal,reason):
         return self._member_change('revoke_workbench_member',action_name,action_version,request_id,target_principal,reason)
+
+    # NX-058 slice D2: the owner-only member Actions (NX-056 approval; the handler rechecks the policy and the approval being executed).
+    def promote_workbench_member(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('promote_workbench_member',action_name,action_version,request_id,target_principal,reason)
+
+    def demote_workbench_owner(self,*,action_name,action_version,request_id,target_principal,new_role,reason):
+        if new_role not in ('operator','reviewer'):raise ValueError('operator or reviewer role required')
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('target principal and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'demote_workbench_owner','target_principal':target_principal,
+                                                         'new_role':new_role,'reason':reason})
+
+    def suspend_workbench_owner(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('suspend_workbench_owner',action_name,action_version,request_id,target_principal,reason)
+
+    def resume_workbench_owner(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('resume_workbench_owner',action_name,action_version,request_id,target_principal,reason)
+
+    def revoke_workbench_owner(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('revoke_workbench_owner',action_name,action_version,request_id,target_principal,reason)
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

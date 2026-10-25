@@ -25,7 +25,10 @@ from multi_authority_fixture import seed_multi_authority
 from nexloop_eios.authorization import authenticate_service
 from test_erasure_pg import ACTIONS, KEEPER, act, keeper, request  # noqa: F401
 
-POLICIES = Path(__file__).resolve().parents[1] / 'deploy/configuration/approval-policies.v1.json'
+# The first applied version (version 1), kept as deployment history: a new database applies it before the current file (version 2,
+# NX-058 slice D2, expected_revision 1).
+POLICIES = Path(__file__).resolve().parents[1] / 'deploy/configuration/history/approval-policies.version1.json'
+CURRENT = Path(__file__).resolve().parents[1] / 'deploy/configuration/approval-policies.v1.json'
 PLAN = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
 
 
