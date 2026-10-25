@@ -13,9 +13,9 @@
 -- reverted: nothing replays a batch of a finished run). Temporary number; the dispatcher renumbers.
 
 create table control.nexloop_relation_backfill_intents (
- tenant_id text not null,run_id text not null,intent_id text not null check(char_length(intent_id) between 1 and 400),
+ tenant_id text not null,backfill_run text not null,intent_id text not null check(char_length(intent_id) between 1 and 400),
  payload_digest text not null check(payload_digest~'^[0-9a-f]{64}$'),answer jsonb not null,recorded_at timestamptz not null default clock_timestamp(),
- primary key(tenant_id,intent_id),foreign key(tenant_id,run_id) references control.nexloop_relation_backfill_runs(tenant_id,run_id));
+ primary key(tenant_id,intent_id),foreign key(tenant_id,backfill_run) references control.nexloop_relation_backfill_runs(tenant_id,backfill_run));
 alter table control.nexloop_relation_backfill_intents owner to nexloop_owner;
 alter table control.nexloop_relation_backfill_intents enable row level security;
 alter table control.nexloop_relation_backfill_intents force row level security;
@@ -60,13 +60,13 @@ begin
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['run_id','verb'] then raise exception 'relation backfill command invalid' using errcode='22023';end if;
   if v_verb='status' then return control.nexloop_relation_backfill_status(t,v_run);end if;
   v:=control.nexloop_relation_backfill_complete(t,v_run);
-  if (v->>'completed')::boolean then delete from control.nexloop_relation_backfill_intents where tenant_id=t and run_id=v_run;end if;
+  if (v->>'completed')::boolean then delete from control.nexloop_relation_backfill_intents where tenant_id=t and backfill_run=v_run;end if;
   return v;
  elsif v_verb='abort' then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['reason','run_id','verb']
    or coalesce(c->>'reason','')!~'^[a-z][a-z0-9_]{0,63}$' then raise exception 'relation backfill command invalid' using errcode='22023';end if;
   v:=control.nexloop_relation_backfill_abort(t,v_run,c->>'reason');
-  delete from control.nexloop_relation_backfill_intents where tenant_id=t and run_id=v_run;
+  delete from control.nexloop_relation_backfill_intents where tenant_id=t and backfill_run=v_run;
   return v;
  elsif v_verb in ('rescan','revert_batch') then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['limit','run_id','verb']
@@ -74,7 +74,7 @@ begin
   v_limit:=(c->>'limit')::integer;
   if v_verb='rescan' then return control.nexloop_relation_backfill_rescan(t,v_run,v_limit);end if;
   v:=control.nexloop_relation_backfill_revert_batch(t,v_run,v_limit);
-  if v->>'state'='reverted' then delete from control.nexloop_relation_backfill_intents where tenant_id=t and run_id=v_run;end if;
+  if v->>'state'='reverted' then delete from control.nexloop_relation_backfill_intents where tenant_id=t and backfill_run=v_run;end if;
   return v;
  elsif v_verb='batch' then
   if (select array_agg(k order by k) from jsonb_object_keys(c) k) is distinct from array['after','batch','run_id','source_type','verb','world']
@@ -89,7 +89,7 @@ begin
    return stored.answer||jsonb_build_object('replayed',true);
   end if;
   v:=control.nexloop_relation_backfill_batch(t,v_run,c->>'source_type',c->>'world',c->>'after',(c->>'batch')::integer);
-  insert into control.nexloop_relation_backfill_intents(tenant_id,run_id,intent_id,payload_digest,answer) values(t,v_run,v_intent,v_digest,v);
+  insert into control.nexloop_relation_backfill_intents(tenant_id,backfill_run,intent_id,payload_digest,answer) values(t,v_run,v_intent,v_digest,v);
   return v;
  end if;
  raise exception 'relation backfill command invalid' using errcode='22023';
