@@ -2105,6 +2105,75 @@
       },
       "schema_hash": "ca57c708c81a25ec3088e6625d9549027f4fb434b87186110bd9698abdf209ec",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "remediation.resolve",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "resolve_remediation",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "cbaf0d6dcb3297923f7e68d70356a521433a98b2634870050e35c65b22b255d9",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "remediation.switch",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "switch_remediation",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "5c144e75f9530f81d6c236cf90fbd18434b472da701e7a091e62805f913bed21",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "remediation.rule_release",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "release_remediation_rule",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "d70d293bf19e288725e599a172323d0008ff242a796fe90cc8a1c88a4fb1fe35",
+      "side_effects_reason": null
     }
   ]
 }

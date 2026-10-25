@@ -1680,6 +1680,16 @@
       "version": "0336",
       "name": "0336_relation_publish_reads.sql",
       "sha256": "acd1ce37c2092f17b9851ea61a6661746c2951f3762e8060aeb998cc2abb78d0"
+    },
+    {
+      "version": "0337",
+      "name": "0337_remediation_intents.sql",
+      "sha256": "1f01f08c6cee37541a271fd8f1da13baf4be0b04f43427e792a367a28d6024f5"
+    },
+    {
+      "version": "0338",
+      "name": "0338_remediation_wake.sql",
+      "sha256": "06fc43e0ed0d862d67308ebdbb6758b792e604af4dad6d3843e694541fdf60d5"
     }
   ]
 }

@@ -844,6 +844,21 @@
    "stable_name": "nexloop.workbench_member.revoke_invitation",
    "version": 1,
    "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.remediation.resolve",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.remediation.switch",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
+  },
+  {
+   "stable_name": "nexloop.remediation.rule_release",
+   "version": 1,
+   "source": "deploy/configuration/business-actions.v1.json"
   }
  ],
  "functions": [
