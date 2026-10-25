@@ -9,6 +9,8 @@ NX-057 R1/R2 随 release 44（main 94baecc3）上 stage。部署单只做迁移�
 
 最后一节是回退。
 
+第 1 步（告警规则）和第 2 步（授权）互不依赖，可以互换顺序：新增告警读的指标在规划器生效前都是 0（§1.1）。第 3 步必须在第 4 步之前（§3、§4.1 的停止条件）。
+
 - **依据**：
   - 设计稿 `docs/design/remediation-intents.md` 第 4 版（§6.1 规划器、§9.4 开关、§14 负责人决定 Q-1..Q-7）；
   - 实现说明 `docs/implementation/NX-057-R1-remediation-suggestions.md`、`NX-057-R2-plan-wake.md`；
@@ -17,19 +19,20 @@ NX-057 R1/R2 随 release 44（main 94baecc3）上 stage。部署单只做迁移�
   - 迁移：`remediation_intents`（0337）、`remediation_wake`（0338）；
   - 授权：`service-grants.v1.json` manifest 19；
   - 规则：`remediation-rules.v1.json` manifest 1，只有一条规则 `deliver_final_failure`；
-  - 告警规则：v14 67 条，v15 71 条，v16 73 条。
+  - 告警规则：v14 67 条，v15 71 条，v16 73 条；
+  - G1、G2 按分支 `l7/nx057-g1-g2` 核对：迁移 `remediation_rule_publications`（临时编号 0344，与 R4 的临时编号相同，合入时由调度员重排）、`scripts/deploy/remediation_rules_apply.py`、compose 中 `plan-reevaluator` 的 `REMEDIATION_ENABLED`。
   - 执行前如果 main 又前进了，重新核对这几项。
 - 每一步标 **A**（只读，随时可以执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
-- **两个缺口**（§0.4）：本单第 3 步和第 4 步各缺一个部署件，main 94baecc3 上还没有。这两步写成补齐之后的形态，补齐之前在那里停下。第 1、2 步现在就能执行。
+- **G1、G2 已就绪**（§0.4）：第 3 步和第 4 步原先各缺一个部署件，已在分支 `l7/nx057-g1-g2` 补齐，随下一批（与 R4 一起）进 main。第 1、2 步用 release 44 就能执行；第 3、4 步要等含 G1、G2 的 release 部署之后执行。
 
-## 0. 前提、变量、缺口
+## 0. 前提、变量、G1/G2
 
 ### 0.1 前提（不满足就不开始）
 
 | # | 前提 | 怎么核对 |
 |---|---|---|
 | P1 | release 44 已经按部署单部署，部署单记录了迁移前备份 | 部署单；`ro "select version from control.schema_migrations order by version desc limit 12"` 中有 0337、0338 |
-| P2 | 本批的 Action 已经发布：`nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release` | `ro "select resource_id from control.nexloop_action_definitions where active and resource_id like 'eios:action:nexloop.remediation.%' order by 1"`，应为 3 行。规划器的 `nexloop.remediation.plan:1` 是服务端口，不在业务 Action 清单里，这里查不到是正常的 |
+| P2 | 本批的 Action 已经发布（先在只读会话里试跑一次这条查询，确认能执行，再看结果）：`nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release` | `ro "select resource_id from control.nexloop_action_definitions where active and resource_id like 'eios:action:nexloop.remediation.%' order by 1"`，应为 3 行。规划器的 `nexloop.remediation.plan:1` 是服务端口，不在业务 Action 清单里，这里查不到是正常的 |
 | P3 | 本批的角色清单（`workbench-roles.v1.json` manifest 42）已经应用，owner 能看到工作台“运营 → Action / 异常”页的“补救”一栏 | 负责人登录后打开该页，“补救”一栏显示“当前没有待处理的补救” |
 | P4 | 效应类别 v3 已经在本租户生效：`nexloop.enterprise.deliver:1` 被声明为外部效应 | `ro "select external_effect from control.nexloop_action_effect_externality where tenant_id='$TENANT_ID' and world='real' and resource_id='eios:action:nexloop.enterprise.deliver:1'"`，至少一行 `t`。没有就停下：第 3 步会以 `source_not_effect` 被拒 |
 | P5 | stage 的真实派发保持关闭 | 部署层 `REAL_DISPATCH_ENABLED` 不是 `true`；工作台“真实派发”面板中租户开关为关闭 |
@@ -45,7 +48,7 @@ NX-057 R1/R2 随 release 44（main 94baecc3）上 stage。部署单只做迁移�
 | `LAST_REGISTER` | 上一次在 stage 执行 `stage_secrets.py register` 时用的 main 提交（部署单记录） |
 | `RELEASE_CHECKOUT` | 管理机上的 release 检出（run-release7 §3.1 的同名变量），用于 2.1 的 diff |
 
-变量值只在 shell 中设置，不进仓库、不进证据。
+变量值只在 shell 中设置，不进仓库、不进证据。例外：`$LAST_REGISTER` 是一个公开的 main 提交哈希，要记进证据（2.1 的 diff 预期依赖它不早于第二十四批）。
 
 ### 0.3 一次性容器、配置员窗口、只读会话
 
@@ -73,14 +76,16 @@ ro() { docker exec -i "$PG_CONTAINER" psql -h /var/run/postgresql -U nexloop_boo
   -c "begin read only" -c "set local role nexloop_owner" -c "select set_config('eios.tenant_id','$TENANT_ID',true)" -c "$1" -c "rollback"; }
 ```
 
-### 0.4 两个缺口（main 94baecc3）
+### 0.4 G1、G2（已就绪，分支 `l7/nx057-g1-g2`）
 
-| # | 缺口 | 影响 | 需要的补件 |
+main 94baecc3 上缺这两个部署件；现在已补齐，随下一批进 main。下表的“补件”列就是该分支的内容。
+
+| # | 原来的缺口 | 影响 | 补件（已就绪） |
 |---|---|---|---|
-| G1 | **补救规则没有配置员窗口入口**。`python -m nexloop_eios.remediation rules --apply` 只接受 `--database-url-file`（配置员 DSN）。stage 上没有常驻的配置员登录，窗口只能由工具自己打开；`scripts/deploy/` 里没有补救规则的包装脚本 | 第 3 步不能执行 | 一个与 `alert_rules_apply.py` 同形的 `scripts/deploy/remediation_rules_apply.py`：`--bootstrap-dsn-file` 开窗口，调用 `nexloop_eios.remediation.apply_rules`，加 `--check`，输出一行 JSON，不打印 DSN。属于代码改动，另行派工 |
-| G2 | **`REMEDIATION_ENABLED` 还没有接入 compose**。`plan-reevaluator` 的环境变量只有公共锚点里的 `REAL_DISPATCH_ENABLED`，进程里读不到 `REMEDIATION_ENABLED`，部署层开关恒为关 | 第 4 步不能执行 | `deploy/stage/compose.app.example.yaml` 的 `plan-reevaluator` 增加 `REMEDIATION_ENABLED: "${REMEDIATION_ENABLED:-false}"`（只给这一个服务）；`compose.app.env.example` 增加 `REMEDIATION_ENABLED=false`；同时跑所有涉及 compose 文件的测试（含 `test_stage_compose`）。属于部署配置变更，按特性分支走，需要负责人确认 |
+| G1 | **补救规则没有配置员窗口入口**。`python -m nexloop_eios.remediation rules --apply` 只接受 `--database-url-file`（配置员 DSN）。stage 上没有常驻的配置员登录，窗口只能由工具自己打开；`scripts/deploy/` 里没有补救规则的包装脚本 | 没有它，第 3 步不能执行 | `scripts/deploy/remediation_rules_apply.py`，与 `alert_rules_apply.py` 同形：`--bootstrap-dsn-file` 开窗口，`--check` 不连库，输出一行 JSON，不打印 DSN。迁移 `remediation_rule_publications`（临时编号 0344）：按文件原文发布，库里记录文件的 sha256 和 `expected_revision`（发布前本租户的规则版本，第一次为 0；不符就拒绝，什么也不写）；配置员不能再绕过这条记录直接写规则。`python -m nexloop_eios.remediation rules --apply` 也改走这条路径，需要 `--expected-revision` |
+| G2 | **`REMEDIATION_ENABLED` 还没有接入 compose**。`plan-reevaluator` 的环境变量只有公共锚点里的 `REAL_DISPATCH_ENABLED`，进程里读不到 `REMEDIATION_ENABLED`，部署层开关恒为关 | 没有它，第 4 步不能执行 | `deploy/stage/compose.app.example.yaml` 的 `plan-reevaluator` 增加 `REMEDIATION_ENABLED: "${REMEDIATION_ENABLED:-false}"`，只给这一个服务，公共锚点里的 `REAL_DISPATCH_ENABLED` 照旧；env 示例 `deploy/stage/compose.app.env.example` 增加 `REMEDIATION_ENABLED=false`。默认值 false 由 `tests/test_stage_compose.py::test_the_remediation_switch_is_one_compose_variable_of_the_plan_reevaluator_closed_by_default` 锁住：租户开关默认是开的，部署层必须默认关（L6 I-3）。属于部署配置变更，合并时由调度员确认 |
 
-**补救规则 `--doctor`、服务授权 `--doctor` 也受 G1 同样的限制**：`python -m nexloop_eios.service_grants --doctor` 读库也要配置员 DSN（`configurator_connection`）。所以本单的只读核对用 `ro` 查询代替 `--doctor`，见 2.1。
+**服务授权 `--doctor` 仍然没有窗口入口**（不在 G1 范围内）：`python -m nexloop_eios.service_grants --doctor` 读库也要配置员 DSN（`configurator_connection`）。所以本单的只读核对用 `ro` 查询代替 `--doctor`，见 2.1。
 
 ## 1. 告警规则 v15 → v16（DATA_HOST，配置员窗口，B）
 
@@ -176,7 +181,7 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_se
 ### 2.3 授权生效之后会发生什么（A，观察）
 
 - 规划器和重评估在同一个进程里，每分钟最多一轮，每轮最多处理 50 条失败。
-- 部署层开关此时还是关的（G2 补齐前恒为关），所以每一条还没扫描过的最终失败都会被记为 `switch_closed`，**包括授权之前就存在的历史失败**。
+- 部署层开关此时还是关的（含 G2 的 release 部署之前恒为关，部署之后默认也是关），所以每一条还没扫描过的最终失败都会被记为 `switch_closed`，**包括授权之前就存在的历史失败**。
   - 这是有意的设计（设计稿 §9.4，L6 M-5）：开关关着期间的失败，以后开了也不补生成。
   - 打开开关之前先把积压清空，打开之后只处理新的失败，不会一下子为历史失败生成一批补救。
 - **核对**：等待（2.1 记下的数 ÷ 50）分钟以上，然后：
@@ -191,7 +196,7 @@ ro "select count(*) from runtime.nexloop_remediation_intents where tenant_id='$T
 - 没有失败记录时，第一条查询为空，也是正常的。
 - 授权之前，规划器每轮返回 `unavailable`，什么也不写；重评估照常进行。后台服务的日志只打印整数和字符串字段，看不到规划器的结果，所以用上面的查询判断。
 
-## 3. 补救规则 v1（DATA_HOST，配置员窗口，B；**G1 补齐后才能执行**）
+## 3. 补救规则 v1（DATA_HOST，配置员窗口，B；**需要含 G1 的 release**）
 
 - **内容**：
   - 一条规则 `deliver_final_failure`：源 Action `nexloop.enterprise.deliver:1`；两种失败（`origin_expired`、`confirmed_not_delivered`）；方式 `reevaluate`，`automatic`；期限 7 天。
@@ -201,29 +206,39 @@ ro "select count(*) from runtime.nexloop_remediation_intents where tenant_id='$T
 - **为什么必须在第 4 步之前**：规划器打开以后，没有规则时，每条失败都会被**永久**记为 `no_rule`，规则发布后也不会再处理。
 
 ```
-docker run $COMMON "$BACKEND_IMAGE" -m nexloop_eios.remediation rules --manifest /opt/release/deploy/configuration/remediation-rules.v1.json --check   # A
-sha256sum "$RUN/src/deploy/configuration/remediation-rules.v1.json"                                                                                    # A
-# G1 补齐后（形态同 alert_rules_apply.py）：
+ro "select coalesce(max(manifest_version),0) from control.nexloop_remediation_rules where tenant_id='$TENANT_ID' and world='real'"   # A：当前版本，第一次为 0
+docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/remediation_rules_apply.py \
+  --manifest /opt/release/deploy/configuration/remediation-rules.v1.json --check                                                     # A
+sha256sum "$RUN/src/deploy/configuration/remediation-rules.v1.json"                                                                  # A
 docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/remediation_rules_apply.py \
-  --manifest /opt/release/deploy/configuration/remediation-rules.v1.json --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn          # B
+  --manifest /opt/release/deploy/configuration/remediation-rules.v1.json --tenant "$TENANT_ID" --expected-revision 0 \
+  --bootstrap-dsn-file /run/bootstrap-dsn                                                                                            # B
+# 再执行一次（B，经配置员窗口，标为写入）：result.replay 应为 true
 ```
 
-- `$COMMON` 的 entrypoint 是 `python`，所以 `-m` 可以直接跟在镜像后面。
-- **`--check` 预期**：`{"valid": true, "manifest_version": 1, "rules": 1}`。把 sha256 记入证据。
-- **应用预期**：`configured: true`，`manifest_version: 1`，`replay: false`，`rules: 1`。重跑是 `replay: true`。
-- **被拒时**：
+- `--expected-revision` 填第一条查询的结果。stage 第一次发布时为 0。
+- **`--check` 预期**：`{"valid": true, "manifest_version": 1, "rules": 1, "manifest_sha256": "<与 sha256sum 相同>"}`。把 sha256 记入证据。
+- **应用预期**：
+  - 外层：`applied: true`，`manifest_version: 1`，`expected_revision: 0`；
+  - `result`：`configured: true`，`replay: false`，`rules: 1`，`manifest_sha256` 与 sha256sum 相同，`expected_revision: 0`。
+- **重跑预期**：`result.replay: true`，`result.expected_revision` 仍是第一次记录的 0，什么也不写。
+- **被拒时**（输出 `applied: false`，`reason` 是数据库的拒绝原文；不打印 DSN）：
+  - `expected revision 0, current N`：库里已经有版本 N，用第一条查询核对，弄清楚是谁发布的，不要直接改成 N 重发；
+  - `version 1 published with another text`：库里的 v1 来自另一份文件，对照 sha256 核对，不要改版本号重发；
   - `source_not_effect`：回到 P4；
-  - `version_must_increase`：库里已有不同内容的 v1 或更高版本，用下面的查询核对，不要改版本号重发；
+  - `version_must_increase`：文件版本不大于库里的当前版本；
   - `remediation rules are trusted configuration only`：连接身份不是配置员，检查是否经窗口执行。
 - **核对**：
 
 ```
 ro "select manifest_version, digest, configured_by from control.nexloop_remediation_rules where tenant_id='$TENANT_ID' and world='real'"
+ro "select manifest_version, manifest_sha256, expected_revision, published_by from control.nexloop_remediation_rule_publications where tenant_id='$TENANT_ID' and world='real'"
 ```
 
-  预期为一行：`1|<digest>|nexloop_configurator`。
+  - 第一条预期为一行：`1|<digest>|nexloop_configurator`。`digest` 是库对规范化 JSON 求的值，与文件的 sha256 不同；
+  - 第二条预期为一行：`1|<与 sha256sum 相同>|0|nexloop_configurator`。
 
-## 4. 打开开关（B；部署层开关**在 G2 补齐后才能执行**）
+## 4. 打开开关（B；部署层开关**需要含 G2 的 release**）
 
 一共有三道开关，全部打开时规划器才生成补救（设计稿 §9.4）：
 
@@ -245,10 +260,15 @@ ro "select paused from control.nexloop_control_scopes where tenant_id='$TENANT_I
 
 - 第三条为空，或者最新一条 `paused=f`：租户开关是开的。最新一条是 `paused=t`：在 4.3 恢复。
 - 第四条为空，或者为 `f`：没有租户级控制暂停。如果是 `t`，说明整个租户被暂停了，先弄清楚原因，不要为了补救去解除。
+- **停止条件**（L6 I-2）：
+  - 第一条不是 0：积压还没清空，等 2.3 完成；
+  - 第二条不是恰好一行 `1`：规则 v1 没有发布（或不是本单的版本）。
+  - 这两种情况都**不打开**部署层开关，回到第 2 步或第 3 步。开关打开之后，没有规则的失败会被永久记为 `no_rule`，以后发布规则也不会补生成。
 
 ### 4.2 部署层开关（APP_HOST，B）
 
-1. 在 APP_HOST 的私有 compose env 中，把 `REMEDIATION_ENABLED=false` 改为 `REMEDIATION_ENABLED=true`。这一行由 G2 加入，值只能是小写的 `true`。
+0. **前提**：APP_HOST 上的 `$NEXLOOP_ROOT/compose.app.yaml` 来自含 G2 的 release（按那一批的部署单更新）。核对：`grep -n 'REMEDIATION_ENABLED:' $NEXLOOP_ROOT/compose.app.yaml` 只有一行，在 `plan-reevaluator` 下。旧文件里没有这一行，改 env 也不会生效。
+1. 在 APP_HOST 的私有 compose env（`$NEXLOOP_ROOT/config/compose.app.env`，由仓库中的示例 `deploy/stage/compose.app.env.example` 填写而来）中，把 `REMEDIATION_ENABLED=false` 改为 `REMEDIATION_ENABLED=true`。G2 的 env 示例有这一行；部署时如果没有加，就在这里加。值只能是小写的 `true`，其他值都等于关。
 2. 只重建这一个服务：
 
 ```
@@ -264,8 +284,11 @@ sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$(sudo
 
 ### 4.3 租户开关（工作台，owner，B）
 
-- 4.1 显示租户开关是开的：什么都不用做。
+- **执行者**：负责人本人，用自己的 owner 账号在工作台操作。调度员不代操作。
+- **判定者**：调度员，用 4.1 的第三条查询和 4.4 的查询判定，不参与操作。
+- 4.1 显示租户开关是开的：什么都不用做，判定者记下查询结果即可。
 - 显示是暂停的：负责人在“运营 → Action / 异常 → 补救”点“恢复补救”，填原因后提交。页面摘要不再显示“补救已暂停”，下一轮评估后 `remediation_paused` 告警解除。
+- 判定：4.1 的第三条查询，最新一条为 `paused=f`，`revision` 加 1。
 
 ### 4.4 打开后的核对（A）
 
@@ -287,7 +310,7 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 **证据**（记入 NX-057 任务证据，不含 DSN、令牌和口令；每条写明执行者和判定者）：
 
 - 第 1–3 步每条命令的输出（JSON 行）；
-- 2.1 的 diff 摘要、2.2 的计数；
+- `$LAST_REGISTER` 的实际值、2.1 的 diff 摘要、2.2 的计数；
 - 第 3 步规则文件的 sha256；
 - 2.3、4.1、4.4 查询的结果；
 - 4.2 的时间。
@@ -300,7 +323,7 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 | 关掉部署层 | 私有 compose env 改回 `REMEDIATION_ENABLED=false`，执行 4.2 的两条命令，`grep` 应为 `=false` | 只停规划器；负责人手动唤醒仍然可以用（它只看租户开关和控制暂停） |
 | 关着期间的失败 | 不处理 | 被记为 `switch_closed`，重新打开后**不会补生成**。需要跟进的，由负责人按失败记录手动处理 |
 | 已经生成的补救 | 负责人在“补救”一栏逐条“标记已处理”或“取消” | 关开关不会改变已有补救。`proposed` 状态的补救到期（7 天）后自动变为 `expired` |
-| 某条规则不该生效 | 发布 `remediation-rules.v2.json`：`manifest_version: 2`，去掉这条规则（`rules` 可以为空），`decision` 写明理由。命令同第 3 步 | 规则只追加不删除，版本只能增加；v1 的记录保留。需要先评审 v2 文件 |
+| 某条规则不该生效 | 发布 `remediation-rules.v2.json`：`manifest_version: 2`，去掉这条规则（`rules` 可以为空），`decision` 写明理由。命令同第 3 步，`--expected-revision 1` | 规则只追加不删除，版本只能增加；v1 的记录保留。需要先评审 v2 文件 |
 | 规则被熔断 | 负责人确认原因后，在“补救”一栏“解除熔断” | 解除后，从下一个失败开始重新生成 |
 | 撤销规划器的授权 | 不在本单范围 | 要改清单（v20 去掉这条授权），然后重跑 register。plan 会把这条授权清空。开关已经足够停用，一般不需要撤销 |
 | 告警规则 | 不回退 | 告警只写告警状态，没有外部效应。版本只能增加；如果确实要去掉某条，发布 v17 并另行评审 |

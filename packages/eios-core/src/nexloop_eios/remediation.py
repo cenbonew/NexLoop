@@ -9,6 +9,7 @@ failure, which rule, the limits and the switches); this module only signs the ca
 the planner's own process: only the exact value 'true' opens it.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -87,15 +88,25 @@ def load_rules(path):
     return validate_rules(json.loads(Path(path).read_text(encoding='utf-8')))
 
 
-def apply_rules(manifest, tenant, *, world='real', database_url_file):
-    """Technical configurator only (SQL refuses any other session)."""
+def publish_rules(text, tenant, *, world='real', expected_revision, database_url_file):
+    """Technical configurator only (SQL refuses any other session). The file's exact text: SQL records its sha256 (equal to sha256sum
+    of the file) and the expected revision (the tenant's current rules version, 0 before the first), G1 (migration
+    remediation_rule_publications)."""
     from nexloop_eios.trusted_configuration import configurator_connection
-    validate_rules(manifest)
+    validate_rules(json.loads(text))
+    if type(expected_revision) is not int or expected_revision < 0:
+        raise RemediationRulesRejected('expected revision')
     db = configurator_connection(database_url_file)
     with db, db.transaction():
         db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
-        return db.execute('select control.nexloop_configure_remediation_rules(%s,%s,%s::jsonb)',
-                          (tenant, world, canonical_payload(manifest))).fetchone()[0]
+        return db.execute('select control.nexloop_publish_remediation_rules(%s,%s,%s,%s,%s)',
+                          (tenant, world, text, hashlib.sha256(text.encode('utf-8')).hexdigest(), expected_revision)).fetchone()[0]
+
+
+def apply_rules(manifest, tenant, *, world='real', expected_revision, database_url_file):
+    """publish_rules for a manifest held in memory (its canonical text)."""
+    return publish_rules(canonical_payload(validate_rules(manifest)), tenant, world=world, expected_revision=expected_revision,
+                         database_url_file=database_url_file)
 
 
 def deployment_open(environ=None):
@@ -157,18 +168,21 @@ def main(argv=None):
     rules.add_argument('--tenant')
     rules.add_argument('--world', default='real')
     rules.add_argument('--database-url-file', type=Path)
+    rules.add_argument('--expected-revision', type=int, help='the tenant\'s current rules version (0 before the first); required with --apply')
     mode = rules.add_mutually_exclusive_group(required=True)
     mode.add_argument('--check', action='store_true')
     mode.add_argument('--apply', action='store_true')
     a = p.parse_args(argv)
     try:
-        manifest = load_rules(a.manifest)
+        text = a.manifest.read_text(encoding='utf-8')
+        manifest = validate_rules(json.loads(text))
         if a.check:
-            print(json.dumps({'valid': True, 'manifest_version': manifest['manifest_version'], 'rules': len(manifest['rules'])}))
+            print(json.dumps({'valid': True, 'manifest_version': manifest['manifest_version'], 'rules': len(manifest['rules']),
+                              'manifest_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest()}))
             return 0
-        if a.tenant is None or a.database_url_file is None:
-            raise RemediationRulesRejected('tenant and database url file required')
-        print(json.dumps(apply_rules(manifest, a.tenant, world=a.world, database_url_file=a.database_url_file)))
+        if a.tenant is None or a.database_url_file is None or a.expected_revision is None:
+            raise RemediationRulesRejected('tenant, database url file and expected revision required')
+        print(json.dumps(publish_rules(text, a.tenant, world=a.world, expected_revision=a.expected_revision, database_url_file=a.database_url_file)))
         return 0
     except Exception as error:
         print(json.dumps({'valid': False, 'reason': str(error) if isinstance(error, RemediationRulesRejected) else 'unavailable'}), file=sys.stderr)

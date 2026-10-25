@@ -367,7 +367,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 - 开关关闭期间的失败也会被扫描，记为 `switch_closed`，以后不再补生成（与 L6 M-5 一致）。
 - 补救表不存 consumer id，经源效应意图读取，删除传播不需要另接。
 - `remediation_paused` 告警用 warning，因为告警路径不支持 info。
-- 部署层 `REMEDIATION_ENABLED` 尚未接入 compose，默认关闭，按部署变更流程另行接入。
+- 部署层 `REMEDIATION_ENABLED` 默认关闭；G2 把它接入 compose，只给 `plan-reevaluator`（执行单 `docs/release/run-nx057-remediation-stage.md` §4）。
 
 ### 6.3c R2 实现与本设计的差异（2026-10-23，`docs/implementation/NX-057-R2-plan-wake.md`）
 
