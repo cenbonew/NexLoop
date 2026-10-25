@@ -15,7 +15,10 @@ begin
  select coalesce(jsonb_agg(x.v order by x.sort,x.principal_id),'[]'::jsonb) into v_members from (
   select m.principal_id,case m.payload->>'status' when 'active' then 0 when 'suspended' then 1 when 'invited' then 2 else 3 end sort,
    jsonb_build_object('principal_id',m.principal_id,'label','p-'||left(encode(sha256(convert_to(m.principal_id,'UTF8')),'hex'),8),
-    'username',a.username,'role',cfg.members->>m.principal_id,'member_status',m.payload->>'status','account_status',a.payload->>'status',
+    'username',a.username,'role',cfg.members->>m.principal_id,
+    -- the person (an opaque label of the subject, as the approvers are counted by subject) and whether it is an active human (NX-056)
+    'person','s-'||left(encode(sha256(convert_to(m.subject_id,'UTF8')),'hex'),8),
+    'human_active',coalesce((select b.payload->>'kind'='human' and b.payload->>'status'='active' from control.nexloop_browser_subjects b where b.subject_id=m.subject_id),false),'member_status',m.payload->>'status','account_status',a.payload->>'status',
     'vote_eligible_from',runtime.nexloop_commercial_ts(control.nexloop_workbench_vote_eligible_from(p_tenant,'real',m.subject_id,array['owner'])),
     'erased',exists(select 1 from control.nexloop_workbench_member_erasures e where e.tenant_id=p_tenant and e.subject_id=m.subject_id),
     -- the staff erasure needs every membership of the person revoked (slice E, C1): the page offers it on that condition

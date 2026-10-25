@@ -97,22 +97,28 @@ function useWrite(operation:Operation,onDone?:()=>void){
 function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof useWrite>}){
   if(write.isPending)return <p role="status">正在提交…</p>;
   // NX-056: an operation under an approval policy answers with its approval state instead of the plain success text.
-  if(write.isSuccess){const secret=oneTimeSecret(write.data);
-    // ADR-039 R3 §8.4: a replay never shows the code or token again.
-    const replay=write.data?.secret==='not_shown_again'?<p className="impact-summary" role="alert">这次请求已经执行过，重置码或邀请令牌不会再次显示。
-      如果没有拿到：先撤销这份邀请（重置码再签发时旧码自动作废），再重新签发。</p>:null;
-    return <><p className="note" role="status">{approvalOutcome(write.data)??DONE_TEXT[operation]}</p>{replay}
-      {secret?<OneTimeSecret {...secret} onHide={()=>write.reset()}/>:null}</>;}
+  if(write.isSuccess)return <WriteResult operation={operation} data={write.data} onHide={()=>write.reset()}/>;
   if(write.isError){const kind=writeKindOf(write.error);
     return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}</p>;}
   return null;
 }
 
+/** The success view of one write (also the approvals page's execution): the approval state or the success text; a replay's hint; a
+ * fresh execution's one-time code or token (ADR-039 R3 §8.4). */
+export function WriteResult({operation,data,onHide}:{operation:Operation;data:Record<string,unknown>|undefined;onHide?:()=>void}){
+  const secret=oneTimeSecret(data);
+  const replay=data?.secret==='not_shown_again'?<p className="impact-summary" role="alert">这次请求已经执行过，重置码或邀请令牌不会再次显示。
+    如果没有拿到：先撤销这份邀请（重置码再签发时旧码自动作废），再重新签发。</p>:null;
+  return <><p className="note" role="status">{approvalOutcome(data)??DONE_TEXT[operation]}</p>{replay}{secret?<OneTimeSecret {...secret} onHide={onHide}/>:null}</>;
+}
+
 /** NX-058: a reset code or an invitation token, shown once to the issuer (it is in no read, list or log; the page keeps it only while
  * this form is on screen). The invitation link carries the token in the fragment, which the accept page clears at once. */
 export function OneTimeSecret({kind,value,onHide}:{kind:'code'|'token';value:string;onHide?:()=>void}){
-  // Cleared after 2 minutes (or at once with the button): the secret leaves the component state and the mutation result.
-  useEffect(()=>{if(!onHide)return;const timer=setTimeout(onHide,120_000);return ()=>clearTimeout(timer);},[onHide]);
+  // Cleared 2 minutes after it was first shown (or at once with the button): the secret leaves the component state and the mutation
+  // result. The deadline is fixed at the first render and the callback held in a ref, so a re-render or refetch never restarts it.
+  const [shownAt]=useState(()=>Date.now());const hide=useRef(onHide);hide.current=onHide;
+  useEffect(()=>{const timer=setTimeout(()=>hide.current?.(),Math.max(0,shownAt+120_000-Date.now()));return ()=>clearTimeout(timer);},[shownAt]);
   const origin=globalThis.location?.origin??'';
   const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value):null;
   return <div className="one-time-secret" role="alert"><p><strong>{kind==='code'?'重置码':'邀请令牌'}（只显示这一次）</strong></p>
