@@ -1765,6 +1765,11 @@
       "version": "0353",
       "name": "0353_member_login_clearing.sql",
       "sha256": "1722f610d911e772ad4d9182e5d7cf00d6783cd964366f410d8ec54beea1354a"
+    },
+    {
+      "version": "0354",
+      "name": "0354_feed_backlog_due.sql",
+      "sha256": "07d482029714b5d012196579ef3c2e3e2e54eb9813619d732f0cce4db3b04e29"
     }
   ]
 }
