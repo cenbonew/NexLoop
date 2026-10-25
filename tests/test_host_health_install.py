@@ -164,8 +164,9 @@ def test_the_data_host_needs_the_socket_and_its_owner_steps(tmp_path):
     assert install(tmp_path, cfg, f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')[0] == 2
 
 
-def test_the_examples_match_the_alert_rules_v13_selectors():
-    rules = json.loads((ROOT / 'deploy/configuration/alert-rules.v13.json').read_text())['rules']
+def test_the_examples_match_the_newest_alert_rules_selectors():
+    # v13 named the timers of E3; v19 adds data_host:relation-read-gaps (NX-054 P4a). The newest rules, both ways.
+    rules = json.loads((ROOT / 'deploy/configuration/alert-rules.v19.json').read_text())['rules']
     stale = {r['selector'] for r in rules if r['rule_id'].startswith('timer_stale_')}
     names = set()
     for name, host in (('app-host', 'app_host'), ('data-host', 'data_host')):
