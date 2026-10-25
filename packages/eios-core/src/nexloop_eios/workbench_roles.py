@@ -254,6 +254,7 @@ def apply_members(roles, members, *, database_url_file, named_revocations=()):
     First in that transaction, under the member lock held to its commit (X1, review N-1): a member whose role or presence a governed
     change (an accepted invitation, a member Action) set since the last configurator version, and that this member file would set
     differently, refuses the run - except the principals --revoke-member names (Z2). After it: the role history of what the configuration changed, and the sessions of a member it removed or moved end."""
+    import psycopg
     from nexloop_eios.trusted_configuration import configurator_connection
     roles_payload, members_payload = configuration_payloads(roles, members)
     tenant = members['tenant_id']
@@ -261,21 +262,30 @@ def apply_members(roles, members, *, database_url_file, named_revocations=()):
     with db:
         with db.transaction():
             expected = db.execute('select control.nexloop_workbench_template_revision(%s)', (tenant,)).fetchone()[0]
-        with db.transaction():
-            db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
-            # L6 slice C review N-1: the X1 check in the writing transaction; it takes the member lock first and holds it to the commit.
-            drift = db.execute('select control.nexloop_workbench_governed_drift(%s,%s::jsonb,%s)',
-                (tenant, canonical_payload({m['principal_id']: m['role'] for m in members['members']}), list(named_revocations))).fetchone()[0]
-            if drift:
-                raise WorkbenchRolesRejected('members_changed_by_governed_actions: ' + ', '.join(f"{d['principal_id']}={d['role']}" for d in drift))
-            templates = db.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)',
-                (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
-            configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
-                (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
-            settled = db.execute('select control.nexloop_workbench_templates_settle_v2(%s)', (tenant,)).fetchone()[0]
-            history = db.execute('select control.nexloop_workbench_role_history_sync(%s)', (tenant,)).fetchone()[0]
-            return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],
-                    'instances_rewritten': settled, 'role_history_entries': history}
+        try:
+            return _apply_members_locked(db, roles, members, roles_payload, members_payload, tenant, expected, named_revocations)
+        except psycopg.errors.LockNotAvailable:
+            # L6 slice C review S-g: a governed member change (or another configurator run) held the member lock past lock_timeout.
+            raise WorkbenchRolesRejected('workbench_members_locked: a member change is in progress; retry the configuration') from None
+
+
+def _apply_members_locked(db, roles, members, roles_payload, members_payload, tenant, expected, named_revocations):
+    """The one writing transaction of apply_members (X1 check first, under the member lock held to the commit)."""
+    with db.transaction():
+        db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
+        # L6 slice C review N-1: the X1 check in the writing transaction; it takes the member lock first and holds it to the commit.
+        drift = db.execute('select control.nexloop_workbench_governed_drift(%s,%s::jsonb,%s)',
+            (tenant, canonical_payload({m['principal_id']: m['role'] for m in members['members']}), list(named_revocations))).fetchone()[0]
+        if drift:
+            raise WorkbenchRolesRejected('members_changed_by_governed_actions: ' + ', '.join(f"{d['principal_id']}={d['role']}" for d in drift))
+        templates = db.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)',
+            (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
+        configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
+            (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
+        settled = db.execute('select control.nexloop_workbench_templates_settle_v2(%s)', (tenant,)).fetchone()[0]
+        history = db.execute('select control.nexloop_workbench_role_history_sync(%s)', (tenant,)).fetchone()[0]
+        return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],
+                'instances_rewritten': settled, 'role_history_entries': history}
 
 
 def publish_human_authority(tenant, *, authority_facts, business_application, humans, label, database_url_file, signing_key_file, signing_key_id,

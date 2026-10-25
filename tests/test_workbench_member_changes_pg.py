@@ -250,3 +250,47 @@ def test_revoking_a_suspended_member_also_revokes_grants_written_again(changes, 
         assert act(client, csrf, 'revoke_workbench_member', {'target_principal': p, 'reason': 'synthetic departure'}).status_code == 200
     assert granted(admin, p) == set()
     assert history(admin, p)[-1] == ('operator', 'stop')  # one stop, at the suspension
+
+
+def test_the_x1_check_and_the_configuration_share_one_transaction(changes, admin, monkeypatch):
+    """L6 slice C review S-f: the SQL lock alone also holds for a check in a transaction of its own, so this pins the Python side: the
+    drift check and every write of apply_members run in one transaction (one transaction id), and the member lock is held at the write."""
+    from nexloop_eios import trusted_configuration as T
+    c = changes
+    real_connect = T.configurator_connection
+    seen = []
+
+    class Spy:
+        def __init__(self, db):
+            self.db = db
+
+        def __getattr__(self, name):
+            return getattr(self.db, name)
+
+        def __enter__(self):
+            self.db.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self.db.__exit__(*exc)
+
+        def execute(self, sql, params=None):
+            result = self.db.execute(sql, params)
+            if 'governed_drift' in sql or 'nexloop_configure_workbench(' in sql:
+                seen.append(self.db.execute("select pg_current_xact_id()::text,(select count(*) from pg_locks where pid=pg_backend_pid() "
+                                            "and locktype='advisory' and granted)").fetchone())
+            return result
+    monkeypatch.setattr(T, 'configurator_connection', lambda path: Spy(real_connect(path)))
+    apply_members(ROLES, members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator')), database_url_file=c['configurator'])
+    assert len(seen) == 2 and seen[0][0] == seen[1][0] and all(locks >= 1 for _, locks in seen), seen
+
+
+def test_a_held_member_lock_past_the_timeout_is_a_named_refusal(changes, admin):
+    """L6 slice C review S-g: a governed change holding the member lock past lock_timeout ends the configurator run with a named
+    refusal, not a bare LockNotAvailable."""
+    import psycopg
+    c = changes
+    with psycopg.connect(admin.info.dsn) as holder:
+        holder.execute('select control.nexloop_approval_tenant_lock(%s)', (TENANT,))
+        with pytest.raises(WorkbenchRolesRejected, match='workbench_members_locked'):
+            apply_members(ROLES, members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator')), database_url_file=c['configurator'])
