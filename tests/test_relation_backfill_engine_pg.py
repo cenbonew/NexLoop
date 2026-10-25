@@ -385,3 +385,20 @@ def test_the_batch_reports_a_waiter_of_another_role(seeded):
     finally:
         admin.execute('drop trigger nexloop_bf_slow on control.nexloop_relation_backfill_counts')
     assert got['waiters'] == 1 and got['elapsed_ms'] < 1000 and waited['s'] > 0.1
+
+
+def test_a_completed_run_that_reverts_is_still_the_active_one(seeded):
+    """L6 (8a19592a review): completed -> reverting; while it reverts, complete, batch and rescan stop and start(run-2) is refused
+    (the one-active-run index holds reverting)."""
+    admin = seeded['admin']
+    start(admin)
+    assert drive(admin)[-1]['completed'] is True
+    assert call(admin, 'revert_batch', 'run-1', 1)['state'] == 'reverting'
+    stopped = {'stopped': 'reverting', 'reason': None}
+    assert call(admin, 'complete', 'run-1') == stopped and call(admin, 'rescan', 'run-1', 10) == stopped
+    assert call(admin, 'batch', 'run-1', 'Goal', 'real', cursors(admin)[0]['after'], 2) == stopped
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):  # preflight: active_run
+        start(admin, 'run-2')
+    while call(admin, 'revert_batch', 'run-1', 100)['state'] != 'reverted':
+        pass
+    assert start(admin, 'run-2')['state'] == 'running'
