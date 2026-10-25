@@ -55,6 +55,23 @@
 
 Agent Host 的 dist 跑测试前重新构建过（工作树里原来的是旧版本）。
 
+## L6 复核 288da38f 之后（2026-10-25）
+
+- **R-1（重要）**：新增 `tests/test_remediation_claim_race_pg.py`，用双连接在真实 PG 上覆盖“完成”与“失败写入”同时发生的两种顺序。
+  - **屏障**：第三个会话先持有认领命令的 advisory lock（`nexloop-action:` 键，与 0007 相同）。两侧依次启动，每启动一侧，都要等 `pg_locks` 显示它已在这把锁上排队，才启动下一侧；然后释放锁，两侧按队列顺序执行。没有用 sleep 定先后，轮询只是读 `pg_locks` 的节奏。
+  - **完成先提交**：真实的 finalize（`PostgresActionClaimPort` 经 `authz.nexloop_action_claim_command`）先得到锁并提交，触发器随后重查已提交的行，看到 terminal 就跳过。认领保持 succeeded，失败行照常写入。
+  - **失败先提交**：认领被终结为 `permanent_failure`。之后的 finalize 报 `action_claim_outcome_conflict`，retryable 报 `action_claim_transition_invalid`，两个分支都覆盖到了。
+- **S-1**：触发器在更新认领之前，先取同一把 `nexloop-action:` advisory lock，加锁顺序与 0007 一致（先这把锁，再认领行）。失败路径在此之前已经锁住意图行，与并发的认领命令之间仍可能出现 40P01，这种情况会被重新抛出，失败事务可以重跑。迁移注释里写明了这一点。上面的竞态测试也验证了 S-1：触发器如果不取这把锁，失败一侧不会进入锁队列，屏障会超时。
+- **S-2（不采纳，写明理由）**：
+  - EIOS 的 `TerminalOutcomeReference` 是 `extra="forbid"` 的冻结契约，在 `terminal_outcome` 里加来源字段，会让之后的 reserve 重放无法通过校验。
+  - 如果把 `claim_revision` 加 1，迟到的 finalize 或 retryable 会先因为 revision 不符被拒，R-1 要求覆盖的两个分支就测不到了。
+  - 因此来源由 `outcome_id` 标识，它等于 `runtime.nexloop_effect_failures.failure_id`，可以直接关联。测试断言 revision 和 fence 都不变，并且 reserve 重放能把这个终态当作合法的 terminal outcome 读回（`REPLAY` 加 `PERMANENT_FAILURE`）。
+- **S-3**：竞态测试里的认领是真实认领，经生产的认领端口与 SQL 函数完成 reserve、finalize、retryable，键与效应执行器相同：Action 的 stable name 加意图 id。执行器使用的键已由 `tests/test_effect_dispatch.py` 断言（`action_name='nexloop.service.request'`、`intent_id=<意图>`）。触发器按 `effect_intents.action_name` 找认领，与之对得上。
+- **测试**（负载门控后 `-n 3`）：
+  - `test_remediation_claim_race_pg.py`、`test_remediation_pg.py`、复制件守卫、已发布迁移：连跑 4 轮，每轮 82 passed；
+  - `test_effect_origin_expired_pg.py`、`test_effect_confirm_not_delivered_pg.py`、`test_effect_dispatch.py`、`test_postgres_action_claims.py`、`test_nx041_stand_ins_pg.py`：51 passed；
+  - 真实链路 `test_one_reply_per_message_pg.py`（串行）：3 passed。
+
 ## 没有覆盖的
 
 - R3（governed_action 预填、调用回执、`execution_refused`）按 Q-2 暂缓，§6.3a 的 P-1 至 P-3 留给 R3。

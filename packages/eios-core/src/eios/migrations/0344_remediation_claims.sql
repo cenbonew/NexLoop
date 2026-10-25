@@ -21,6 +21,14 @@ declare prior text:=current_setting('eios.tenant_id',true);v_action text;
 begin
  perform set_config('eios.tenant_id',new.tenant_id,true);
  select i.action_name into v_action from runtime.nexloop_effect_intents i where i.intent_id=new.intent_id and i.tenant_id=new.tenant_id and i.world=new.world;
+ -- The claim command's own lock first (0007: this advisory lock, then the claim row), so a finalize or retryable of the same claim and
+ -- this close are serialized the same way (L6 R4 review S-1). Whoever commits first wins: a finalize first leaves the claim terminal
+ -- and this update skips it (state already terminal, re-checked on the committed row); this close first makes a later finalize end with
+ -- action_claim_outcome_conflict and a later retryable with action_claim_transition_invalid. claim_revision and the fence stay: the
+ -- frozen claim contract has no field for the closer (extra fields are forbidden), and the outcome id (the failure row) names it.
+ -- The failure paths lock the intent row before this (0152, 0174, 0210); a deadlock with a concurrent claim command is re-raised (40P01)
+ -- and the failing transaction can be run again.
+ perform pg_advisory_xact_lock(hashtextextended('nexloop-action:'||new.tenant_id||':'||new.world||':'||v_action||':'||new.intent_id::text,0));
  update runtime.nexloop_action_claims c set claim=c.claim||jsonb_build_object('state','terminal','terminal_outcome',jsonb_build_object(
     'outcome_id',new.failure_id::text,'outcome_revision',1,'status','permanent_failure',
     'outcome_digest',encode(sha256(convert_to(jsonb_build_object('intent_id',new.intent_id,'failure_id',new.failure_id,'reason_code',new.reason_code)::text,'UTF8')),'hex'),
