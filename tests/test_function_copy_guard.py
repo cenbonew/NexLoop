@@ -153,6 +153,15 @@ REGISTRY = [
               "update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history "
               "where a.tenant_id=p_tenant and a.local_account_id=p_account;"),
              (r"\s*perform control\.nexloop_workbench_reset_revoke\(p_tenant,old\.subject_id,'operator_reset'\);", ''))),
+    # 0329 (NX-058 slice C, dispatcher option 1): the browser directory hash takes the tenant revision through
+    # authz.nexloop_effective_tenant_revision (the revision before a governed handler's own authority change in this transaction).
+    Allowed('governed_authority_change', 'authz.nexloop_browser_identity_snapshot',
+            'the tenant revision of the directory hash through authz.nexloop_effective_tenant_revision; definer search_path gains pg_temp; nothing else',
+            ((r"'tenant_revision',authz\.nexloop_effective_tenant_revision\(realm\.tenant_id,realm\.authority_revision\)", "'tenant_revision',realm.authority_revision"),),
+            PG_TEMP),
+    # 0338 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
+    Allowed('governed_authority_change', 'control.nexloop_workbench_member_lock', 'the tenant approval lock of NX-056 instead of its own key; nothing else',
+            ((r"select control\.nexloop_approval_tenant_lock\(p_tenant\)", "select pg_advisory_xact_lock(hashtextextended('nexloop-approval-eligibility:'||p_tenant,0))"),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),

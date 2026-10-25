@@ -1680,6 +1680,16 @@
       "version": "0336",
       "name": "0336_relation_publish_reads.sql",
       "sha256": "acd1ce37c2092f17b9851ea61a6661746c2951f3762e8060aeb998cc2abb78d0"
+    },
+    {
+      "version": "0337",
+      "name": "0337_workbench_member_changes.sql",
+      "sha256": "65a48b48f0f991de7535d57f708654e4e37044f218f6f736f7f8abf27ad20620"
+    },
+    {
+      "version": "0338",
+      "name": "0338_governed_authority_change.sql",
+      "sha256": "17fbdfa2af4773e8a5b158589470c7a13aa2826be3250ae0681b2d4de02b1bd3"
     }
   ]
 }

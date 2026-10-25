@@ -105,13 +105,24 @@ def test_the_publication_is_recorded_replayed_and_checked_against_the_expected_r
     text = canonical_payload(role_templates(ROLES, TENANT))
     assert rows == [(ROLES['manifest_version'], hashlib.sha256(text.encode()).hexdigest(), 0)]
     with psycopg.connect(make_conninfo(pg, user='nexloop_configurator'), autocommit=True) as c:
-        with pytest.raises(psycopg.errors.SerializationFailure, match='expected_revision_mismatch'):
+        # E-2: a stale expected revision is a business conflict (P0001), never the retryable 40001.
+        with pytest.raises(psycopg.errors.RaiseException, match='expected_revision_mismatch'):
             other = {**ROLES, 'manifest_version': ROLES['manifest_version'] + 1}
-            c.execute('select control.nexloop_publish_workbench_role_templates(%s,%s,%s)', (TENANT, canonical_payload(role_templates(other, TENANT)), 0))
+            c.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)', (TENANT, canonical_payload(role_templates(other, TENANT)), 0))
         forged = json.loads(text)
         forged['operator']['grant_facts'] = forged['operator']['grant_facts'][:-1]
         with pytest.raises(psycopg.errors.InvalidParameterValue, match='manifest_conflict'):
-            c.execute('select control.nexloop_publish_workbench_role_templates(%s,%s,%s)', (TENANT, canonical_payload(forged), ROLES['manifest_version'] - 1))
+            c.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)', (TENANT, canonical_payload(forged), ROLES['manifest_version'] - 1))
+        # E-1: the roles manifest version is a positive integer, refused as invalid (22023) otherwise.
+        for bad in (None, 1.5, '7', 0, -1):
+            broken = json.loads(text)
+            for role in broken:
+                broken[role]['roles_manifest_version'] = bad
+            with pytest.raises(psycopg.errors.InvalidParameterValue, match='workbench role templates invalid'):
+                c.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)', (TENANT, canonical_payload(broken), ROLES['manifest_version']))
+        # The 0327 entry points are no longer the configurator's.
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            c.execute('select control.nexloop_publish_workbench_role_templates(%s,%s,%s)', (TENANT, text, ROLES['manifest_version']))
 
 
 @pytest.mark.parametrize('bad', ['x","grants":[{"evil":1}],"y":"', 'a"b', 'a\\b', 'a b', '', 'nexloop-template-principal', '{"a":1}', 'a' * 321])
@@ -182,7 +193,7 @@ def test_only_the_configurator_publishes_templates_and_nobody_calls_the_instanti
     for role in ('nexloop_api', 'nexloop_identity'):
         with psycopg.connect(make_conninfo(pg, user=role), autocommit=True) as c:
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
-                c.execute('select control.nexloop_publish_workbench_role_templates(%s,%s,%s)', (TENANT, canonical_payload(role_templates(ROLES, TENANT)), 0))
+                c.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)', (TENANT, canonical_payload(role_templates(ROLES, TENANT)), 0))
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 c.execute("select control.nexloop_workbench_grants_write(%s,'x','y','operator','grant','action:x',null)", (TENANT,))
     versions = admin.execute("select role,version from control.nexloop_workbench_role_templates order by 1").fetchall()
