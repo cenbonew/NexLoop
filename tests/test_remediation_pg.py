@@ -49,7 +49,7 @@ def declare_source(admin, version=1):
         values(%s,'real',%s,%s,true,1)""", (TENANT, f'eios:action:{SOURCE}:{version}', secrets.token_hex(32)))
 
 
-def failed(admin, reason='origin_expired', *, consumer='consumer-synthetic', action_version=1, state='failed'):
+def failed(admin, reason='origin_expired', *, consumer='consumer-synthetic', action_version=1, state='failed', claim=None):
     intent_id = uuid.uuid4()
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')  # synthetic row: its context and Run are not seeded
@@ -59,6 +59,9 @@ def failed(admin, reason='origin_expired', *, consumer='consumer-synthetic', act
             %s,%s,%s,%s,%s,%s,%s,'executor-synthetic',1,clock_timestamp(),%s,false)""",
             (intent_id, uuid.uuid4(), uuid.uuid4(), TENANT, consumer, 'goal-' + intent_id.hex[:8], 'step-' + intent_id.hex[:8], 'slot-' + intent_id.hex[:8],
              SOURCE, action_version, 'a' * 64, 'b' * 64, Jsonb({}), Jsonb({}), Jsonb({}), state))
+        if claim is not None:  # the intent's action claim as the effect executor's reservation leaves it (key: Action + intent id)
+            admin.execute('insert into runtime.nexloop_action_claims(tenant_id,world,action_name,intent_id,principal_id,claim) values(%s,%s,%s,%s,%s,%s)',
+                          (TENANT, 'real', SOURCE, str(intent_id), 'executor-synthetic', Jsonb(claim)))
     admin.execute("insert into runtime.nexloop_effect_failures(intent_id,tenant_id,world,reason_code,evidence) values(%s,%s,'real',%s,'{}')",
                   (intent_id, TENANT, reason))
     return intent_id
@@ -460,3 +463,78 @@ def test_the_port_bounds_the_round_at_5_seconds_and_the_planner_reports_it(remed
         assert planner.run_once() == {'status': 'error', 'code': '57014'}  # the round ends, the reevaluator's tick does not
     finally:
         admin.execute('drop function authz.nexloop_synthetic_slow_plan(text,text,text,text,text)')
+
+
+# ---- R4: the action claim of a final failure, outcomes.remediation, the evidence chain ------------------------------------------------
+ACTIVE = {'state': 'active', 'claim_revision': 2, 'fencing_token': 'f' * 48, 'lease_expires_at': '2026-10-25T00:00:00+00:00', 'terminal_outcome': None}
+
+
+def claim_of(admin, intent):
+    return admin.execute('select claim from runtime.nexloop_action_claims where intent_id=%s', (str(intent),)).fetchone()[0]
+
+
+def test_a_final_failure_ends_its_action_claim_permanent_failure_and_a_remediation_does_not_change_it(remediating):
+    """Design §10 R4 and owner Q-4 A: in the failure's own transaction the claim ends terminal permanent_failure (outcome = the failure
+    row); a remediation that wakes the plan afterwards leaves it so (no compensated); an intent never reserved has no claim."""
+    r, admin = remediating, remediating['admin']
+    r['rules'](manifest(rule(kind='reevaluate', mode='automatic')))
+    intent = failed(admin, claim=ACTIVE)
+    failure = admin.execute('select failure_id::text,recorded_at from runtime.nexloop_effect_failures where intent_id=%s', (intent,)).fetchone()
+    c = claim_of(admin, intent)
+    assert c['state'] == 'terminal' and c['claim_revision'] == 2 and c['fencing_token'] == 'f' * 48
+    assert c['terminal_outcome']['status'] == 'permanent_failure' and c['terminal_outcome']['outcome_id'] == failure[0]
+    assert c['terminal_outcome']['outcome_revision'] == 1 and len(c['terminal_outcome']['outcome_digest']) == 64
+    plan_for(admin, intent)
+    assert r['plan']()['decisions'] == {'generated': 1}
+    assert [x[4:] for x in remediations(admin, intent)] == [('succeeded', 'woken')]
+    assert claim_of(admin, intent) == c                                      # still permanent_failure: never compensated
+    # A terminal claim stays as it is; an intent without a claim fails as before.
+    done = {**ACTIVE, 'state': 'terminal', 'terminal_outcome': {'outcome_id': 'x', 'outcome_revision': 1, 'status': 'succeeded',
+                                                                 'outcome_digest': 'e' * 64, 'finalized_at': '2026-10-25T00:00:00+00:00'}}
+    kept = failed(admin, claim=done)
+    assert claim_of(admin, kept) == done
+    bare = failed(admin)
+    assert admin.execute('select count(*) from runtime.nexloop_action_claims where intent_id=%s', (str(bare),)).fetchone() == (0,)
+
+
+def test_outcomes_report_remediation_changes_and_the_defects_left_unremediated(remediating):
+    r, admin = remediating, remediating['admin']
+    r['rules'](manifest(rule(kinds=('confirmed_not_delivered',))))
+    covered = failed(admin, 'confirmed_not_delivered')                       # a rule: proposed
+    uncovered = failed(admin, 'origin_expired')                              # no rule for this kind
+    failed(admin, 'refused_one_reply:already_answered')                      # no defect: counted under its refusal
+    r['plan']()
+    waiting = failed(admin, 'confirmed_not_delivered')                       # not considered yet (no round since)
+    block = admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'outcomes'->'remediation'", (TENANT,)).fetchone()[0]
+    assert block['window_seconds'] == 3600 and block['changes'] == {'proposed': 1}
+    assert block['unremediated_defects'] == 2 and block['unremediated_by_decision'] == {'no_rule': 1, 'not_considered': 1}
+    assert remediations(admin, covered) and not remediations(admin, uncovered) and not remediations(admin, waiting)
+    # The failure rate is untouched by remediation (design §8): all three defects of the hour count, remediated or not; the refused
+    # one-reply does not (it counts under its refusal).
+    outcomes = admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'outcomes'->'classes'", (TENANT,)).fetchone()[0]
+    assert int(outcomes['defect']) == 3
+
+
+def test_the_workbench_shows_a_remediation_evidence_chain_without_reason_text(remediating):
+    r, admin, w = remediating, remediating['admin'], remediating['w']
+    r['rules'](manifest(rule(kind='reevaluate', mode='automatic')))
+    intent = failed(admin, claim=ACTIVE)
+    plan = plan_for(admin, intent)
+    r['plan']()
+    rid = admin.execute('select remediation_id from runtime.nexloop_remediation_intents where source_intent_id=%s', (intent,)).fetchone()[0]
+    with w['client']() as client:
+        assert workbench_login(client, w['operator']).status_code == 200    # every member reads
+        got = client.get(f'/api/v1/workbench/remediations/{rid}', headers={'Origin': ORIGIN})
+        assert got.status_code == 200, got.text
+        e = got.json()
+        assert e['source_intent']['intent_id'] == str(intent) and e['source_intent']['consumer_id'] is None  # not a readable Consumer
+        assert e['failure']['reason_code'] == 'origin_expired' and e['claim'] == {'state': 'terminal', 'status': 'permanent_failure',
+                                                                                  'finalized_at': e['claim']['finalized_at']}
+        assert e['rule']['rule_id'] == 'synthetic_escalate' and e['plan']['plan_id'] == str(plan) and e['plan']['consumed_by_run'] is None
+        assert [(x['from_state'], x['to_state'], x['code']) for x in e['events']] == [(None, 'proposed', 'proposed'), ('proposed', 'succeeded', 'woken')]
+        assert 'reason' not in {k for x in e['events'] for k in x}
+        assert client.get(f'/api/v1/workbench/remediations/{uuid.uuid4()}', headers={'Origin': ORIGIN}).status_code == 404
+        assert client.get('/api/v1/workbench/remediations/not-an-id', headers={'Origin': ORIGIN}).status_code == 422
+    with w['client']() as client:
+        assert workbench_login(client, w['customer']).status_code == 200
+        assert client.get(f'/api/v1/workbench/remediations/{rid}', headers={'Origin': ORIGIN}).status_code == 403

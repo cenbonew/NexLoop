@@ -1715,6 +1715,11 @@
       "version": "0343",
       "name": "0343_vote_cooldown.sql",
       "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
+    },
+    {
+      "version": "0344",
+      "name": "0344_remediation_claims.sql",
+      "sha256": "9050c58be89c931cef4c7844bc8789ee356df9977b75ceadd4d2cc92c3d8f76a"
     }
   ]
 }
