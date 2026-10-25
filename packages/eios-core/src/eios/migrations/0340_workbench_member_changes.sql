@@ -169,7 +169,7 @@ begin
   return jsonb_build_object('target_principal',body->>'target_principal','operation',op,'replayed',true);
  end if;
  t:=control.nexloop_workbench_change_target(p_tenant,body->>'target_principal',p_principal);
- -- Before the first authority write: the governed entry's recheck of the requester keeps its revision (0338).
+ -- Before the first authority write: the governed entry's recheck of the requester keeps its revision (0341).
  perform control.nexloop_authority_handler_mark(p_tenant);
  select * into cur from control.nexloop_workbench_configurations where tenant_id=p_tenant order by manifest_version desc limit 1;
  if op='change_workbench_member_role' then
