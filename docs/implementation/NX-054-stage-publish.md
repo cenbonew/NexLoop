@@ -167,12 +167,12 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 
 | 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 | 不通过或要撤回时 |
 | --- | --- | --- | --- | --- | --- |
-| 0 | DATA_HOST | 调度员 | 只读确认迁移头：`select max(version) from <迁移记录表>` 不低于 0350；`ontology.nexloop_relation_derive_one` 存在；两个派生触发器都指向 `nexloop_relation_derive_each` 且启用 | 三项都成立 | 停止，报 L5（不需要回退，什么都没改） |
+| 0 | DATA_HOST | 调度员 | 只读确认迁移头：`select max(version) from <迁移记录表>` 不低于 0350；`ontology.nexloop_relation_derive_one` 存在；两个派生触发器都指向 `nexloop_relation_derive_each` 且启用；记下关系目录的头版本（预检输出的 `catalog.versions` 最大值，首次为空） | 三项都成立 | 停止，报 L5（不需要回退，什么都没改） |
 | 1 | DATA_HOST | 调度员 | §0 准备 `$RUN`（`boot.dsn` 需要 bootstrap 口令：从负责人的 Keychain 经管道写入，口令不进命令行和日志） | 文件 0600，属主 999 | 删除 `$RUN` |
 | 2 | DATA_HOST | 调度员 | §1 只读预检 → `precheck-before.json` | 退出码 0，`blocking` 为空 | 按 `blocking` 处理后重跑（只读，无需回退） |
 | 3 | CI 主机（负责人工作台会话）+ DATA_HOST | **负责人**（sim 生成、合成顾客擦除要用负责人工作台的凭据）；调度员计时 | §2 空闲基线：sim N=200、擦除 perf-1、real p95 24 h | 数字记入证据 | 只是测量；sim world 用完由 `sim_world.py` 删除 |
 | 4a | DATA_HOST | 调度员 | **备份**：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，再 `systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不发布；查备份失败的原因 |
-| 4 | DATA_HOST | 调度员 | §3 发布：先 `--dry-run`，再正式发布（configurator 窗口经 bootstrap DSN 自动开关）；再跑一次预检 | `relation_types: 26`、`deriving: 26`；预检 `derivation_map_rows: 26` | §5 回退：`--stop-derivation --from-version 1`（版本 2，停止派生） |
+| 4 | DATA_HOST | 调度员 | §3 发布：先 `--dry-run`，再正式发布（configurator 窗口经 bootstrap DSN 自动开关）；再跑一次预检 | `relation_types: 26`、`deriving: 26`；预检 `derivation_map_rows: 26` | §5 回退：`--stop-derivation --from-version <当前头版本>`。头版本在第 0 步用 `control.nexloop_relation_catalog_head` 读出并记下（stage 首次发布后是 1）；脚本会拒绝比头版本旧的值 |
 | 5 | CI 主机（负责人工作台会话）+ DATA_HOST | **负责人** + 调度员 | §4 派生基线（新 world、perf-2、发布后 24 h），对照门槛 | 三项都在门槛内 | 超标：执行 §5 回退，P3 不开始 |
 | 6 | 管理机 | 调度员 | §7 第 1 步：`setup-credentials`，再 `register`（v20 只给 `relation_backfiller` 一条授权；register 是幂等的，其他主体 `changed: false`） | register 输出中 `grants_added` 为 1，`credentials_created` 只有这个主体 | 撤回授权：service-grants v21 去掉这个主体后再 register（L5 准备） |
 | 7 | APP_HOST | 调度员 | §7 第 2 步：`BF=$(mktemp -d /dev/shm/nexloop-backfill.XXXXXX)`，放入凭据、DSN、证书、私钥、签名密钥的副本，DSN 中的证书路径指向 `$BF` | 文件全部 0600 | `rm -rf -- "$BF"` |

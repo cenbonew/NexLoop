@@ -79,10 +79,21 @@
 
 - **谁、在哪、怎么调度**：DATA_HOST 上一个 systemd timer `nexloop-relation-read-gaps.timer`（每天 03:40，`Persistent=true`），服务单元以本机非特权用户执行 `relation_read_gaps.py`，经本机 socket 以 `nexloop_metrics` 登录（与 G-METRICS-DSN 相同的 DSN 文件，0600）。模板放在 `deploy/stage/systemd/`，由调度员在 P4a 上线时安装（与 host-health 的 timer 相同的安装方式），不需要负责人操作。
 - **证据**：每次输出一个 JSON 文件，写到 DATA_HOST 的 `$NEXLOOP_ROOT/evidence/relation-read-gaps/<UTC 日期>.json`（0640，保留 30 天），只有计数。调度员在第 7 天把这 7 个文件的摘要（每天的 `gaps` 总和、`gaps_erasing` 总和、`relation_only` 总和）记入 NX-054 的证据，作为 P5 的前提依据。
-- **告警**：
-  - 脚本在 `gaps > 0` 时退出码为 1，并向 journal 写一行 `<3>nexloop-relation-read-gaps gaps=<n> worlds=<n>`（与 host-health 的本机告警同一个方式和同一条转发路径）；timer 失败或当天没有生成证据文件，也由 host-health 的 timer 新鲜度规则发现（把这个 timer 加进 DATA_HOST 的 host-health 配置，阈值 26 小时）。
-  - **P5 的前提之一就是这条告警已经在线**；P5 之后 timer 与告警继续保留，作为“只读关系”之后的长期守护。
-  - 接入告警规则（alert-rules v19，基于指标快照）不在 P4a 中：快照每分钟计算，不能承担这个全量核对；需要时另行设计一个由 timer 写入、快照读取的计数。
+- **证据写入失败也是失败**：证据文件写不成（目录不存在、磁盘满、权限），脚本以非零退出（退出码 2），不能只在 stdout 上打印结果后以 0 结束。
+- **告警链路**（L6 复审第 1、2 点；不经 journal 转发）：
+  1. `gaps > 0`（退出码 1）或证据写入失败（退出码 2）→ 服务单元以非零退出，systemd 记为 `Result` 不是 `success`；
+  2. host-health 探针把这一轮记为 `result='failure'`（`host_health_probe.py` 按 `Result` 判断，与其他 timer 相同）；
+  3. 0318 把它计入 `timer_scheduled_failures_24h`；
+  4. v18 已有的 `timer_scheduled_failure` 规则（selector `*`，`gt 0`）触发告警；修复后下一轮成功，24 小时窗口过去后告警清除。
+  - 前提：这个 timer 要加进 DATA_HOST 的 host-health 配置（`timers` 中一项 `relation-read-gaps`，timer 与 service 两个单元名），并且每一轮都要被探针认作**定时**运行：timer 拉起服务，运行开始时间在最近一次触发之后的 `grace_seconds` 之内。手工补跑（`systemctl start`）不算定时，不会刷新新鲜度，也不会抵消失败。
+  - journal 中的 `<3>nexloop-relation-read-gaps gaps=<n> worlds=<n>` 只是给值守人员看的说明（`journalctl -p err`），**没有任何组件把它转发成告警**。
+- **timer 新鲜度**：新增告警规则 **alert-rules v19 = v18 加一条 `timer_stale_relation_read_gaps`**（selector `data_host:relation-read-gaps`，阈值 93600 秒即 26 小时，`gt`），由 P4a 实现时加入，与 v18 中其他 `timer_stale_*` 的写法一致（v18 中这类规则都是逐个 selector 写的，没有 `*`）。timer 没有运行、没有被认作定时、或者一直失败，都会在 26 小时后触发。
+- **stage 演练**（P4a 上线后，调度员执行）：
+  1. 以 replica 模式写入一个不派生的测试对象，或者对一个测试对象删掉它的派生关系，造出 `gaps = 1`；
+  2. 手动触发一次 timer（`systemctl start nexloop-relation-read-gaps.timer` 不会立即运行，用 `systemd-run --on-active=5s` 或临时改时间触发一次定时运行），确认这一轮 `Result` 不是 `success`，并在下一次告警评估后看到 `timer_scheduled_failure`（selector `data_host:relation-read-gaps`）触发；
+  3. 删除测试对象或回填它，再触发一次定时运行，确认 `gaps = 0`、`Result=success`；24 小时窗口过去后告警清除（或者记录清除时刻）；
+  4. 结果记入 NX-054 的证据。
+- **P5 的前提之一就是这条链路已经在线**（两条规则都已发布，演练做过）；P5 之后 timer 与告警继续保留，作为“只读关系”之后的长期守护。
 
 ## 3. 风险
 
@@ -95,5 +106,5 @@
 
 1. 后备计数改为离线的缺口核对，而不是在读路径里写计数（§0）。
 2. P4a 的读侧用并集，而不是“有关系时用关系、没有时用属性”（§0）。
-3. 告警走 journal 本机告警与 host-health 的 timer 新鲜度（§2.5），不新增 alert-rules 版本。
+3. 告警走退出码 → host-health 探针 → `timer_scheduled_failure`；新鲜度由新增的 alert-rules v19 `timer_stale_relation_read_gaps`（26 h）负责（§2.5）。
 4. P4a 与 P4c 同一批上 real（§3 [R4]）。
