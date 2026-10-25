@@ -11,7 +11,7 @@
 - **时长**：演练（第 8 步）至少需要 2 小时，因为 8.6 要等待超过 1 小时才能看到告警；加上第 1–7 步，整单约 3 小时。
 - **镜像**：需要 main 9779abb6（第二十四批）或之后的 backend 镜像，其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
 - 每一步标注 **A**（只读，可以随时执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
-- **按 main 9779abb6 核对过**：NX-056 的迁移是 0326–0332（跟进修正 0337 随下一批），角色清单 manifest 40，告警规则 v14（67 条，最新版本），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果 main 又前进了，再核对一次这几项。
+- **按 main 9779abb6 核对过**：NX-056 的迁移是 0326–0332（跟进修正 0339 随下一批），角色清单 manifest 40，告警规则 v14（67 条，最新版本），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果 main 又前进了，再核对一次这几项。
 
 ## 0. 前提与变量
 
@@ -79,7 +79,7 @@ ro "select to_regclass('control.nexloop_approval_policies') is not null, to_regc
 ro "select count(*) from control.nexloop_approval_policies"
 ```
 
-- **预期**：迁移尾是 0336（main 9779abb6 的 catalog 尾，其中 NX-056 为 0326–0332；跟进修正 0337 随下一批部署时才会出现）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
+- **预期**：迁移尾是 0336（main 9779abb6 的 catalog 尾，其中 NX-056 为 0326–0332；跟进修正 0339 随下一批部署时才会出现）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
 
 ## 3. 发布新的 Action（DATA_HOST，配置员窗口，B）
 
