@@ -51,8 +51,11 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT; chmod 0700 "$WORK"
 cp "$STAGE_ENV" "$WORK/stage.env"; chmod 0600 "$WORK/stage.env"
 python3 "$RELEASE_CHECKOUT/scripts/deploy/render.py" --env "$WORK/stage.env" --template "$RELEASE_CHECKOUT/deploy/stage/config/pg_hba.conf.template" \
   --out "$WORK/pg_hba.conf" >/dev/null || fail 1 "pg_hba render refused"
-removed=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | grep -c '^<' || true)
-added=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^> //p')
+# diff exits 1 when the files differ - the normal path here; only 2 (trouble) fails (pipefail would otherwise end the run silently).
+delta=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf")) && rc=0 || rc=$?
+[ "$rc" -le 1 ] || fail 1 "diff of the installed and the rendered pg_hba failed (exit $rc)"
+removed=$(printf '%s\n' "$delta" | grep -c '^<' || true)
+added=$(printf '%s\n' "$delta" | sed -n 's/^> //p')
 [ "$removed" -eq 0 ] || fail 1 "the rendered pg_hba removes $removed rule line(s); render with the deployed stage.env and a release checkout with the evolution line"
 if [ -z "$added" ] && grep -Eq "$EVOLUTION" <(rules "$HBA"); then
   printf '%s\n' "done: the evolution line is already installed (nothing to do)"; exit 0; fi

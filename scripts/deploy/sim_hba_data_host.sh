@@ -73,12 +73,16 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT; chmod 0700 "$WORK"
 cp "$STAGE_ENV" "$WORK/stage.env"; chmod 0600 "$WORK/stage.env"
 python3 "$RELEASE_CHECKOUT/scripts/deploy/render.py" --env "$WORK/stage.env" --template "$RELEASE_CHECKOUT/deploy/stage/config/pg_hba.conf.template" \
   --out "$WORK/pg_hba.conf" >/dev/null || fail 1 "pg_hba render refused"
-removed=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^< //p')
-added=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf") | sed -n 's/^> //p')
+# diff exits 1 when the files differ - the normal path here; only 2 (trouble) fails (pipefail would otherwise end the run silently).
+delta=$(diff <(rules "$HBA") <(rules "$WORK/pg_hba.conf")) && rc=0 || rc=$?
+[ "$rc" -le 1 ] || fail 1 "diff of the installed and the rendered pg_hba failed (exit $rc)"
+removed=$(printf '%s\n' "$delta" | sed -n 's/^< //p')
+added=$(printf '%s\n' "$delta" | sed -n 's/^> //p')
 check_removed "$removed" "$added" || fail 1 "$CHECK_REMOVED; render with the deployed stage.env and a release checkout with the simulation line"
 if [ -z "$added" ] && grep -Eq "$SIM" <(rules "$HBA"); then
   printf '%s\n' "done: the simulation line is already installed (nothing to do)"; exit 0; fi
 check_added "$added" || fail 1 "$CHECK_ADDED"
+count=$(printf '%s\n' "$added" | sed '/^$/d' | wc -l | tr -d ' ')  # check_added's count is local (set -u)
 
 step 2 "write pg_hba in place and reload"
 cp -p "$HBA" "$HBA.before-sim"
