@@ -57,6 +57,7 @@ def test_an_owner_reset_code_appears_only_at_execution_and_a_retry_replays(owner
         # The response was lost: the same Idempotency-Key again (a new HMAC is drawn) replays the claim - no second code, no conflict.
         again = act(client, csrf, 'issue_workbench_owner_reset', {'target_principal': t}, key=key)
         assert again.status_code == 200 and again.json().get('replayed') is True and 'code' not in again.json(), again.json()
+        assert (again.json()['secret'], again.json()['next']) == ('not_shown_again', 'revoke_and_request_again')
         assert admin.execute('select count(*) from control.nexloop_workbench_reset_codes').fetchone() == (1,)
     dump = str(admin.execute('select body from control.nexloop_approval_requests').fetchall()) + str(
         admin.execute("select payload from runtime.audit_events where action like 'nexloop.workbench_member.%' or action like 'approval.%'").fetchall())
@@ -115,6 +116,10 @@ def test_an_owner_who_loses_standing_loses_its_approved_requests_at_once(owners,
     assert admin.execute('select status from control.nexloop_approval_requests where approval_id=%s', (approval,)).fetchone() == ('expired',)
     ended = [p for (p,) in admin.execute("select payload from runtime.audit_events where action='approval.expired'").fetchall() if p['approval_id'] == approval]
     assert [p['reason'] for p in ended] == ['requester_no_longer_eligible']
+    if change == 'demote_workbench_owner':  # promoted again: its old request still never executes - a resubmission opens a new request
+        approved_run(c, c['owner_member'], c['second'], 'promote_workbench_member', {'target_principal': c['third']['principal_id'], 'reason': 'synthetic'})
+        again = c['call'](c['third'], 'promote_workbench_member', {'target_principal': c['operator_member']['principal_id'], 'reason': 'synthetic'})
+        assert again.json()['status'] == 'waiting_approval' and again.json()['approval_id'] != approval, again.json()
 
 
 def test_the_claim_digest_leaves_out_exactly_the_registered_execution_time_fields(admin):
@@ -124,3 +129,72 @@ def test_the_claim_digest_leaves_out_exactly_the_registered_execution_time_field
     bootstrap(admin)
     rows = admin.execute("select capability,execution_fields from control.nexloop_approval_capability_settings where cardinality(execution_fields)>0").fetchall()
     assert {cap: tuple(fields) for cap, fields in rows} == EXECUTION_FIELDS
+
+
+def test_an_owner_redeems_the_owner_reset_code_once_and_a_suspended_owners_code_ends(owners, admin):
+    """L6 C-D3-1: the code issue_owner_reset hands out redeems for the owner (one-time, a new session epoch); I-D3-2: suspending that owner
+    afterwards would end an unused code (member_changed), and a code's origin - never the target's role now - decides redemption."""
+    from test_workbench_reset_codes_pg import reset
+    c = owners
+    with_policies(c)
+    t = c['third']['principal_id']
+    code = approved_run(c, c['owner_member'], c['second'], 'issue_workbench_owner_reset', {'target_principal': t}).json()['code']
+    epoch = admin.execute("select (payload->>'session_epoch')::int from control.nexloop_browser_accounts where subject_id=%s", (c['third']['subject_id'],)).fetchone()[0]
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        done = reset(client, {'code': code, 'password': 'a-new-owner-password-1'})
+        assert (done.status_code, done.json()) == (200, {'code': 'password_reset'})
+        assert reset(client, {'code': code, 'password': 'another-password-2'}).status_code == 400  # one-time
+        assert workbench_login(client, {'username': c['third']['username'], 'password': 'a-new-owner-password-1'}).status_code == 200
+    c['third']['password'] = 'a-new-owner-password-1'
+    assert admin.execute("select (payload->>'session_epoch')::int from control.nexloop_browser_accounts where subject_id=%s", (c['third']['subject_id'],)).fetchone()[0] == epoch + 1
+    # Another owner's unused code, then that owner is suspended: the code ends with the member change. (The same body by the same
+    # requester within an hour answers the earlier consumption - NX-056 - so a second code for the third owner would wait an hour.)
+    s = c['second']['principal_id']
+    approved_run(c, c['owner_member'], c['third'], 'issue_workbench_owner_reset', {'target_principal': s})
+    approved_run(c, c['owner_member'], c['third'], 'suspend_workbench_owner', {'target_principal': s, 'reason': 'synthetic leave'})
+    assert admin.execute("select state,revoked_reason from control.nexloop_workbench_reset_codes where state<>'completed'").fetchall() == [('revoked', 'member_changed')]
+
+
+def test_an_owner_code_never_redeems_for_a_member_who_is_no_owner_now(owners, admin):
+    """The code's origin decides (C-D3-1): an owner code whose target became an operator by other means is refused."""
+    from test_workbench_reset_codes_pg import reset
+    c = owners
+    with_policies(c)
+    code = approved_run(c, c['owner_member'], c['second'], 'issue_workbench_owner_reset', {'target_principal': c['third']['principal_id']}).json()['code']
+    admin.execute("""insert into control.nexloop_workbench_configurations(tenant_id,manifest_version,roles_version,application_id,roles,members,roles_digest,recorded_by)
+        select tenant_id,manifest_version+1,roles_version,application_id,roles,jsonb_set(members,array[%s],'"operator"'),roles_digest,'synthetic-configurator'
+        from control.nexloop_workbench_configurations where tenant_id=%s order by manifest_version desc limit 1""", (c['third']['principal_id'], TENANT))
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        assert reset(client, {'code': code, 'password': 'a-new-owner-password-1'}).status_code == 400
+
+
+def test_acceptance_v3_needs_the_approval_executed_not_only_consumed(owners, admin):
+    """L6 I-D3-1: an owner invitation tied to an approval consumed as execution_refused is refused; tied to an executed one, accepted."""
+    c = owners
+    with_policies(c)
+    body = {'target_principal': c['operator_member']['principal_id'], 'reason': 'synthetic'}  # an owner-only Action refused at execution
+    refused_run = c['call'](c['owner_member'], 'revoke_workbench_owner', body)
+    assert c['decide'](c['second'], refused_run.json()['approval_id']).json()['status'] == 'approved'
+    assert c['call'](c['owner_member'], 'revoke_workbench_owner', body).json()['status'] == 'execution_refused'
+    executed = approved_run(c, c['owner_member'], c['second'], 'suspend_workbench_owner', {'target_principal': c['third']['principal_id'], 'reason': 'x'})
+    tokens = {}
+    for name, approval in (('refused-owner', refused_run.json()['approval_id']), ('executed-owner', executed.json()['approval_id'])):
+        tokens[name] = W.new_token()
+        admin.execute("""insert into control.nexloop_workbench_invitations(tenant_id,request_id,username,role,token_hmac,issued_by_principal,issued_by_subject,
+            issued_at,expires_at,state,approval_id) values(%s,%s,%s,'owner',%s,%s,%s,clock_timestamp(),clock_timestamp()+interval '1 hour','issued',%s)""",
+                      (TENANT, name, name, W.digest(key_of(c), W.INVITE, TENANT, tokens[name]), c['owner_member']['principal_id'], c['owner_member']['subject_id'], approval))
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        refused = accept(client, {'token': tokens['refused-owner'], 'password': 'a-good-password-1'})
+        assert (refused.status_code, refused.json()) == (400, {'code': 'invitation_invalid'})
+        assert accept(client, {'token': tokens['executed-owner'], 'password': 'a-good-password-1'}).status_code == 200
+
+
+@pytest.mark.parametrize('change', ['demote_workbench_owner', 'revoke_workbench_owner'])
+def test_a_demoted_or_revoked_owners_unaccepted_invitations_end(owners, admin, change):
+    """L6 I-D3-2: as for a suspension (slice D2), demoting or revoking an owner ends the invitations it issued and nobody accepted."""
+    c = owners
+    with_policies(c)
+    assert c['call'](c['third'], 'invite_workbench_member', {'username': 'pending-member', 'role': 'reviewer', 'expires_in_hours': 24}).status_code == 200
+    body = {'target_principal': c['third']['principal_id'], 'reason': 'synthetic', **({'new_role': 'operator'} if change == 'demote_workbench_owner' else {})}
+    approved_run(c, c['owner_member'], c['second'], change, body)
+    assert admin.execute("select state,revoked_reason from control.nexloop_workbench_invitations where username='pending-member'").fetchall() == [('revoked', 'member_changed')]

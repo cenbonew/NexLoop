@@ -44,7 +44,8 @@ def owners(switching, admin, pg, tmp_path):
     write_facts(admin, compile_members(ROLES, members))
     ripen_approvers(admin, TENANT)
     publish_registry_actions(admin, ACTIONS + ('nexloop.workbench_member.invite', 'nexloop.workbench_member.issue_reset'))
-    admin.execute("insert into control.nexloop_browser_rate_policies values(%s,'invitation_accept','nexloop_identity',50,60,true) on conflict do nothing", (TENANT,))
+    for limiter in ('invitation_accept', 'password_reset_complete'):
+        admin.execute("insert into control.nexloop_browser_rate_policies values(%s,%s,'nexloop_identity',50,60,true) on conflict do nothing", (TENANT, limiter))
     key = tmp_path / 'identity-token-key'
     key.write_text(secrets.token_hex(32))
     key.chmod(0o600)

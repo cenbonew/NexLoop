@@ -57,3 +57,12 @@ Migration `0346_owner_reset_and_invite.sql` (temporary number), on l2/nx058-owne
 - Approval policies version 3 (`expected_revision: 2`): the two policies added; version 2 kept as `deploy/configuration/history/approval-policies.version2.json`. Manifests: business-actions and workbench-roles +1 each (owner 89 Actions), Actions 123.
 
 Runbook (lost response, R3 §8.4): a retry replays without the code or token; check "my requests" for `executed`, then revoke the code (the next issue voids it) or the invitation, and request again.
+
+### D3 review follow-up (L6)
+
+- **C-D3-1**: an owner's reset code redeems. `control.nexloop_workbench_reset_codes.approval_id` (new) records the approval issue_owner_reset ran under; `control.nexloop_complete_workbench_reset` (re-created in 0346, copy guard) decides the target's required standing by that origin - an active owner for an owner code, an active operator or reviewer otherwise - never by the target's role now. Tested end to end (redeemed once, new session epoch, login with the new password) and a code refused once its target is no owner.
+- **I-D3-1**: acceptance v3's `executed` condition tested (an owner invitation tied to an approval consumed as `execution_refused` is refused, one tied to an executed approval accepted); removing the condition fails the test.
+- **I-D3-2**: the D2 handler's member settle ends the target's unused codes (tested: a suspended owner's code ends, `member_changed`); its unaccepted invitations end on demotion and revocation as on suspension (tested).
+- Replays of issue_owner_reset and invite_owner answer `secret: not_shown_again`, `next: revoke_and_request_again`. invite_owner's target statuses are not registered (it has no target field). Handler replay branches commented. I-C1 also asserts a re-promoted owner's old request never executes.
+- Known: the same body by the same requester within an hour answers the earlier consumption (NX-056), so a second owner reset code for the same target waits an hour (the HMAC is outside the digest).
+- Username case: slice D3 compares `lower(username)` like slice A; the approval view's `same_username_exists` (0342, B1) compares exactly - left to L3.

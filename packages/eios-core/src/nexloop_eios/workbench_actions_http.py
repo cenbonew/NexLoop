@@ -392,6 +392,9 @@ def router(config,*,ports_for_browser):
             if operation in ('issue_workbench_owner_reset','invite_workbench_owner'):
                 if (isinstance(result,dict) and result.get('approval')=='consumed' and result.get('status') is None and result.get('replayed') is False):
                     result={**result,('token' if operation=='invite_workbench_owner' else 'code'):code}
+                elif isinstance(result,dict) and result.get('replayed') is True:
+                    # ADR-039 R3 §8.4: a replay never shows the code or token again; the client revokes it and requests anew (new request id).
+                    result={**result,'secret':'not_shown_again','next':'revoke_and_request_again'}
             elif code is not None and isinstance(result,dict) and result.get('replayed') is False:
                 result={**result,('token' if operation=='invite_workbench_member' else 'code'):code}
             return JSONResponse(json.loads(json.dumps(result,default=str)),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})

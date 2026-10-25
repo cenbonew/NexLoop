@@ -453,6 +453,9 @@ REGISTRY = [
             ((r"  or \(a->>'expires_at'\)::timestamptz>clock_timestamp\(\)\+interval '30 seconds' then\n",
               "  or (a->>'expires_at')::timestamptz>clock_timestamp()+interval '30 seconds'\n  or v_claim->'binding'->>'request_digest' is distinct from encode(sha256(convert_to(p_payload,'UTF8')),'hex') then\n"),
              (r"\n -- NX-058 slice D3 \(ADR-039 R3 §8\.4 option a.*?'goal permit rejected' using errcode='42501';end if;", ""))),
+    Allowed('owner_reset_and_invite', 'control.nexloop_complete_workbench_reset', "the code's origin decides the target's standing (C-D3-1); nothing else",
+            ((r"\s*-- NX-058 slice D3 \(L6 C-D3-1\)[^\n]*\n\s*--[^\n]*\n\s*or not control\.nexloop_workbench_member_active\(p_tenant,r\.target_principal,r\.approval_id is not null\) then",
+              "\n  or not control.nexloop_workbench_member_active(p_tenant,r.target_principal,false) then"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

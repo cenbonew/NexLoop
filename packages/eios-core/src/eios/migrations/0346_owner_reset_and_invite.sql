@@ -12,12 +12,16 @@
 -- * control.nexloop_accept_workbench_invitation_v3 (replaces v2 for nexloop_identity): an owner invitation is accepted only when its
 --   approval's consumption is 'executed' (design I6); every acceptance from the issuer's source writes approval.same_person_flagged (ADR-039
 --   R1 §6.6; ids and the reason code only).
+-- * control.nexloop_complete_workbench_reset (0333; L6 C-D3-1): the code's origin decides the target's required standing - an owner for a
+--   code issued under an approval (control.nexloop_workbench_reset_codes.approval_id, new), an operator or reviewer otherwise. Copy guard.
 -- * authz.nexloop_goal_governed_action (0345): the claim's request digest may be over the body without the capability's execution-time
 --   fields (canonical JSON, as goal_controls computes it), so a retry with the same request id and a new HMAC replays the claim's terminal
 --   outcome (no second code) instead of conflicting with it (L6 I-C2). Copy guard.
 set local timezone = 'UTC';
 
 alter table control.nexloop_workbench_invitations add column approval_id uuid;
+-- The approval an owner's reset code was issued under (issue_owner_reset); null for issue_reset's codes. Redemption reads it (C-D3-1).
+alter table control.nexloop_workbench_reset_codes add column approval_id uuid;
 
 -- §1, two layers, for an owner-only Action with or without a target field (invite_owner has none).
 create function control.nexloop_workbench_owner_approval_v2(p_tenant text,p_world text,p_capability text,p_principal text,body jsonb,p_target_field text) returns uuid
@@ -43,7 +47,7 @@ end $$;
 
 create function control.nexloop_governed_issue_workbench_owner_reset(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare r control.nexloop_workbench_reset_codes;a control.nexloop_browser_accounts;target_subject text;
+declare r control.nexloop_workbench_reset_codes;a control.nexloop_browser_accounts;target_subject text;v_approval uuid;
 begin
  if jsonb_typeof(body) is distinct from 'object'
   or (select array_agg(k order by k) from jsonb_object_keys(body) k) is distinct from array['code_hmac','issuer_source_hmac','operation','request_id','target_principal']
@@ -57,11 +61,13 @@ begin
  perform control.nexloop_workbench_member_lock(p_tenant);
  select * into r from control.nexloop_workbench_reset_codes where tenant_id=p_tenant and request_id=body->>'request_id';
  if found then
+  -- A replay of this handler's own earlier execution in the same request (the governed entry replays a finished claim before it
+  -- gets here; this guards the handler on its own): the same code only, never a second one.
   if r.target_principal is distinct from body->>'target_principal' or r.code_hmac is distinct from body->>'code_hmac' then
    raise exception 'workbench member: request_reused' using errcode='22023';end if;
   return jsonb_build_object('reset_id',r.reset_id,'target_principal',r.target_principal,'expires_at',r.expires_at,'replayed',true);
  end if;
- perform control.nexloop_workbench_owner_approval_v2(p_tenant,p_world,'workbench_member.issue_owner_reset',p_principal,body,'target_principal');
+ v_approval:=control.nexloop_workbench_owner_approval_v2(p_tenant,p_world,'workbench_member.issue_owner_reset',p_principal,body,'target_principal');
  if not control.nexloop_workbench_member_active(p_tenant,p_principal,true) then raise exception 'workbench member: issuer_not_owner' using errcode='22023';end if;
  -- The issuing owner's limit, shared with issue_reset (design §5).
  if (select count(*) from control.nexloop_workbench_reset_codes where tenant_id=p_tenant and issued_by_principal=p_principal
@@ -77,9 +83,9 @@ begin
  target_subject:=a.subject_id;
  perform control.nexloop_workbench_reset_revoke(p_tenant,target_subject,'reissued');
  insert into control.nexloop_workbench_reset_codes(tenant_id,request_id,target_principal,target_subject,code_hmac,issued_by_principal,issued_by_subject,
-   issued_at,expires_at,issuer_source,state)
+   issued_at,expires_at,issuer_source,state,approval_id)
   values(p_tenant,body->>'request_id',body->>'target_principal',target_subject,body->>'code_hmac',p_principal,p_subject,clock_timestamp(),
-   clock_timestamp()+interval '30 minutes',body->>'issuer_source_hmac','issued') returning * into r;
+   clock_timestamp()+interval '30 minutes',body->>'issuer_source_hmac','issued',v_approval) returning * into r;
  -- R5: only now (the approval consumed by this execution) do the target's sessions end.
  perform control.nexloop_workbench_kick(p_tenant,a);
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
@@ -106,6 +112,7 @@ begin
  perform control.nexloop_workbench_member_lock(p_tenant);
  select * into r from control.nexloop_workbench_invitations where tenant_id=p_tenant and request_id=body->>'request_id';
  if found then
+  -- A replay of this handler's own earlier execution (as above): the same invitation, never a second token.
   if (r.username,r.role,r.token_hmac) is distinct from (body->>'username','owner',body->>'token_hmac') then raise exception 'workbench member: request_reused' using errcode='22023';end if;
   return jsonb_build_object('invitation_id',r.invitation_id,'username',r.username,'role',r.role,'expires_at',r.expires_at,'replayed',true);
  end if;
@@ -271,6 +278,43 @@ grant execute on function authz.nexloop_workbench_invitee_free(text,text,text) t
 insert into control.nexloop_governed_capabilities(capability,operation,subject_rule,handler,source_task) values
  ('workbench_member.issue_owner_reset','issue_workbench_owner_reset','human','control.nexloop_governed_issue_workbench_owner_reset(text,text,text,text,text,jsonb)','NX-058'),
  ('workbench_member.invite_owner','invite_workbench_owner','human','control.nexloop_governed_invite_workbench_owner(text,text,text,text,text,jsonb)','NX-058');
+-- invite_owner has no target field: its target statuses are never consulted (the column's default is recorded, nothing more).
 insert into control.nexloop_approval_capability_settings(capability,execution_fields,target_statuses) values
- ('workbench_member.issue_owner_reset','{code_hmac,issuer_source_hmac}','{active}'),
- ('workbench_member.invite_owner','{token_hmac,issuer_source_hmac}','{active}');
+ ('workbench_member.issue_owner_reset','{code_hmac,issuer_source_hmac}','{active}');
+insert into control.nexloop_approval_capability_settings(capability,execution_fields) values
+ ('workbench_member.invite_owner','{token_hmac,issuer_source_hmac}');
+
+create or replace function control.nexloop_complete_workbench_reset(p_tenant text,p_code_hmac text,p_expected bigint,p_hash text,p_source text,p_trace text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare r control.nexloop_workbench_reset_codes;a control.nexloop_browser_accounts;now_at timestamptz;body jsonb;
+begin
+ if session_user<>'nexloop_identity' or coalesce(p_code_hmac,'')!~'^[0-9a-f]{64}$' or p_hash is null or length(p_hash)>1024
+  or p_hash not like '$argon2id$%' or (p_source is not null and p_source!~'^[0-9a-f]{64}$') or p_trace is null or length(p_trace) not between 1 and 320 then
+  raise exception 'identity unavailable' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ perform control.nexloop_workbench_member_lock(p_tenant);
+ select * into r from control.nexloop_workbench_reset_codes where tenant_id=p_tenant and code_hmac=p_code_hmac for update;
+ -- Every refusal is the same: no such code, not issued, expired, issuer no longer an active owner, target no longer an active
+ -- non-owner member, or the account changed since the lookup.
+ if not found or r.state<>'issued' or r.expires_at<=clock_timestamp()
+  or not control.nexloop_workbench_member_active(p_tenant,r.issued_by_principal,true)
+  -- NX-058 slice D3 (L6 C-D3-1): the code's origin decides, never the target's role now - issue_owner_reset's code (its approval
+  -- recorded) needs an active owner, issue_reset's an active operator or reviewer; a code of a member changed since is refused.
+  or not control.nexloop_workbench_member_active(p_tenant,r.target_principal,r.approval_id is not null) then
+  raise exception 'reset invalid' using errcode='22023';end if;
+ select * into a from control.nexloop_browser_accounts where tenant_id=p_tenant and subject_id=r.target_subject for update;
+ if not found or a.payload->>'status' is distinct from 'active' or (a.payload->>'revision')::bigint is distinct from p_expected then
+  raise exception 'reset invalid' using errcode='22023';end if;
+ now_at:=clock_timestamp();
+ body:=control.nexloop_browser_password_write(p_tenant,a,p_hash,now_at);
+ update control.nexloop_workbench_reset_codes set state='completed',completed_at=now_at,completer_source=p_source where reset_id=r.reset_id;
+ insert into control.nexloop_browser_login_events(tenant_id,subject_id,event_type,outcome,operator_principal_id,request_id,trace_id,details,created_at)
+  values(p_tenant,a.subject_id,'owner_issued_password_reset','reset',r.issued_by_principal,'workbench-reset:'||r.reset_id,p_trace,
+   jsonb_build_object('reset_id',r.reset_id,'account_id',a.local_account_id,'account_revision',p_expected+1,'session_epoch',(body->>'session_epoch')::bigint,
+    'same_source_as_issuer',r.issuer_source is not null and r.issuer_source=p_source),now_at);
+ insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
+  values('workbench-reset-complete:'||r.reset_id,'nexloop.workbench_member.reset_completed',p_tenant,r.target_principal,'workbench_member','workbench-reset:'||r.reset_id,
+   jsonb_build_object('reset_id',r.reset_id,'issued_by',r.issued_by_principal,'target_principal',r.target_principal,
+    'same_source_as_issuer',r.issuer_source is not null and r.issuer_source=p_source),now_at);
+ return jsonb_build_object('reset_id',r.reset_id,'completed_at',now_at);
+end $$;
