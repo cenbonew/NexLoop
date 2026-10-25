@@ -36,6 +36,9 @@ def test_derive_one_results_and_marker(catalog):  # noqa: F811 - imported fixtur
     assert derive(admin, lost, 'goal_of', BACKFILL) == 'dangling'
     assert derive(admin, bare, 'goal_of', BACKFILL) == 'none'
     assert derive(admin, g, 'conversation_of', BACKFILL) == 'unknown'  # not a relation of Goal
+    before = admin.execute('select count(*) from ontology.relations').fetchone()[0]
+    assert derive(admin, g, 'conversation_of', BACKFILL, drop=True) == 'unknown'  # D-3: an unknown name deletes nothing
+    assert admin.execute('select count(*) from ontology.relations').fetchone()[0] == before and edges(admin, source=g) == [(g, a, 'real')]
     with pytest.raises(psycopg.errors.InvalidParameterValue):
         derive(admin, g, 'goal_of', {'backfill': 'run-1'})  # without derived:true derivation could never drop it
     # A backfilled relation is maintained by the trigger like a derived one: the property changes, it goes.
