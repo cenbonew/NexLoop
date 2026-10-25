@@ -132,7 +132,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 - **判定顺序（写死）**，依次检查，命中即停：
   1. 策略没有 `target_subject_field`，并且能力不是 `invite_owner` → `null`；
   2. 调用人当前的工作台角色不是 owner → `hidden`，**不做任何解析**。这样非 owner 看不出目标存在不存在、是否被擦除：所有有目标的行对他都一样；
-  3. 能力是 `invite_owner` → 按 §6.4（D7 未定时为 `hidden`）；
+  3. 能力是 `invite_owner` → `invitee`（§6.4）；
   4. 目标身份已被擦除 → `erased`；
   5. 解析不到本租户成员 → `unresolved`；
   6. 否则 → `member`。
@@ -140,10 +140,10 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 | `kind` | 键（全部必有） | 何时出现 |
 |---|---|---|
 | `member` | `kind`、`label`、`username`、`account_status`、`member_status`、`role` | 目标解析到本租户成员，并且调用人当前的工作台角色是 owner |
-| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人），这时不做任何解析，所以目标存在、不存在、已擦除对他看起来都一样；以及 D7 未定或选“不展示”时的 `invite_owner`（这时对 owner 也是 `hidden`） |
+| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人），这时不做任何解析，所以目标存在、不存在、已擦除对他看起来都一样；`invite_owner` 对非 owner 同样是 `hidden` |
 | `unresolved` | `kind` | 有目标字段，但解析不到本租户成员，包括请求体中的值不是任何成员的 principal 或 subject |
 | `erased` | `kind` | 目标成员的身份已被擦除（§6.5） |
-| `invitee` | `kind`、`username`、`same_username_exists` | 能力为 `invite_owner`，调用人是 owner，**并且负责人 D7 选择“展示”**。D7 未定时不出现 |
+| `invitee` | `kind`、`username`、`same_username_exists` | 能力为 `invite_owner`，并且调用人是 owner（D7，负责人 2026-10-25 定为 A：展示） |
 
 ### 6.2 解析规则（只用实际存在的列）
 
@@ -170,17 +170,17 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
   - 请求人与批准人适用同一规则。理由：请求体由请求人任意填写，只按“自己提交的”放行，就能借构造的请求体把 principal 或 subject 换成用户名、角色和状态，从而枚举成员（L6 B-I1）。
 - NX-058 片 D 的“非 owner 读者”口径与本节一致：取 `hidden`，而不是整块 `null`。`null` 只表示“这条策略没有目标”。
 
-### 6.4 `invite_owner`（D7：待负责人定）
+### 6.4 `invite_owner`（D7：负责人 2026-10-25 定为 A，展示）
 
-被邀请人还不是成员，`target_subject_field` 为 `null`。是否在审批行里展示被邀请人的用户名，**待负责人定（D7）**。
+被邀请人还不是成员，`target_subject_field` 为 `null`。负责人 2026-10-25 定 D7 为 **A：展示**，即对 owner 调用人输出 `invitee` 变体；非 owner 仍为 `hidden`。下面保留“不展示”分支的说明，仅作记录。
 
-- **定下来之前，实现默认不展示**：`invite_owner` 的行对所有调用人都是 `{"kind":"hidden"}`。
-- **不展示时，owner 批准人怎么核对**（线下）：
+- （已不适用）定下来之前的默认是不展示，即 `invite_owner` 的行对所有调用人都是 `{"kind":"hidden"}`。
+- （记录）**不展示时，owner 批准人怎么核对**（线下）：
   1. 批准前，通过系统以外的渠道（当面或电话）向请求人确认被邀请人的用户名；
   2. 在工作台的成员列表里确认没有同名或近似名的现有成员；
   3. 执行并接受之后，在成员列表中核对新成员的用户名与线下确认的一致；不一致时，按 NX-058 的路径立即停用或撤销这个成员，并留下记录。
   - 局限：批准时无法在系统里看到用户名，只能靠线下确认，以及事后核对和撤销。
-- **选“展示”时**：视图对**这一个能力**写死，从请求体取 `username`，输出 `{"kind":"invitee","username":…,"same_username_exists":…}`。
+- **展示（现行）**：视图对**这一个能力**写死（按请求体的 `operation = invite_workbench_owner` 识别），从请求体取 `username`（不是字符串时为 `unresolved`），输出 `{"kind":"invitee","username":…,"same_username_exists":…}`。
   - `same_username_exists` 由服务端判断：同租户 `nexloop_browser_accounts` 中是否已有**完全相同**的 username（`unique(tenant_id, username)`）。
   - **HTTP 层**（NX-058 片 D 实现）拒绝与本租户现有账户同名的邀请，所以正常流程下它为 `false`；为 `true` 时，说明请求绕过了 HTTP 层，批准人应当拒绝。
   - 这不是通用的“展示任意字段”机制，其他能力不得仿照。

@@ -100,7 +100,7 @@ def test_unresolved_and_erased_never_return_the_bodys_value(store):
     assert row(view(f, 'approver')['to_decide'], erased)['target_member'] == {'kind': 'erased'}
 
 
-def test_no_target_field_is_null_and_invite_owner_is_hidden_while_d7_is_pending(store):
+def test_no_target_field_is_null_and_invite_owner_shows_the_invitee_to_owners_only(store):
     f = store
     approval = f['admin'].execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (
         TENANT_A, 'real', CAP, ACTION, f['requester']['principal_id'],
@@ -109,8 +109,20 @@ def test_no_target_field_is_null_and_invite_owner_is_hidden_while_d7_is_pending(
     invited = f['admin'].execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (
         TENANT_A, 'real', CAP, ACTION, f['requester']['principal_id'],
         Jsonb({'operation': 'invite_workbench_owner', 'request_id': 'invite', 'username': 'new-owner', 'scope_kind': 'tenant', 'enabled': True}))).fetchone()[0]['approval_id']
-    shown = row(view(f, 'approver')['to_decide'], invited)
-    assert shown['target_member'] == {'kind': 'hidden'} and 'new-owner' not in str(shown)
+    # D7 (owner 2026-10-25: A): owners see the invitee's username and whether an account already has exactly that name.
+    assert row(view(f, 'approver')['to_decide'], invited)['target_member'] == {'kind': 'invitee', 'username': 'new-owner', 'same_username_exists': False}
+    clash = f['admin'].execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (
+        TENANT_A, 'real', CAP, ACTION, f['requester']['principal_id'],
+        Jsonb({'operation': 'invite_workbench_owner', 'request_id': 'invite-2', 'username': f['operator']['username'], 'scope_kind': 'tenant',
+               'enabled': True}))).fetchone()[0]['approval_id']  # a request that bypassed the HTTP refusal
+    assert row(view(f, 'approver')['to_decide'], clash)['target_member']['same_username_exists'] is True
+    # A non-owner reader sees hidden and no username.
+    by_operator = f['admin'].execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (
+        TENANT_A, 'real', CAP, ACTION, f['operator']['principal_id'],
+        Jsonb({'operation': 'invite_workbench_owner', 'request_id': 'invite-3', 'username': 'another-owner', 'scope_kind': 'tenant',
+               'enabled': True}))).fetchone()[0]['approval_id']
+    mine = row(view(f, 'operator')['mine'], by_operator)
+    assert mine['target_member'] == {'kind': 'hidden'} and 'another-owner' not in str(mine)
 
 
 def test_a_target_policy_is_approved_by_owners_only_and_first_votes_are_counted(store):

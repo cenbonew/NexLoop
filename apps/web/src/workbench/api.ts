@@ -994,12 +994,13 @@ export type ApprovalRow={approval_id:string;capability:string;operation:string;a
   result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null};
 /** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
 export type TargetMember={kind:'member';label:string;username:string|null;account_status:string|null;member_status:string;role:string|null}
-  |{kind:'hidden'}|{kind:'unresolved'}|{kind:'erased'};
+  |{kind:'invitee';username:string;same_username_exists:boolean}|{kind:'hidden'}|{kind:'unresolved'}|{kind:'erased'};
 function targetMember(value:unknown):TargetMember|null{
   if(value===null)return null;
   const t=object(value);const keys=Object.keys(t).sort().join();
   if(t.kind==='member'&&keys==='account_status,kind,label,member_status,role,username'&&/^p-[0-9a-f]{8}$/.test(text(t.label)))
     return {kind:'member',label:text(t.label),username:maybeText(t.username),account_status:maybeText(t.account_status),member_status:text(t.member_status),role:maybeText(t.role)};
+  if(t.kind==='invitee'&&keys==='kind,same_username_exists,username')return {kind:'invitee',username:text(t.username),same_username_exists:flag(t.same_username_exists)};
   if((t.kind==='hidden'||t.kind==='unresolved'||t.kind==='erased')&&keys==='kind')return {kind:t.kind};
   throw new WorkbenchError('invalid');
 }

@@ -78,6 +78,9 @@ test('NX-056 B1: target_member parses strictly in its kinds and renders who the 
   expect(targetText(parsed.to_decide[0].target_member)).toBe('staff-ops p-0a1b2c3d（operator，active）');
   for(const kind of ['hidden','unresolved','erased'])expect(approvals({...raw,to_decide:[{...base,target_member:{kind}}]}).to_decide[0].target_member).toEqual({kind});
   expect(targetText({kind:'hidden'})).toContain('仅 owner');expect(targetText({kind:'erased'})).toBe('已擦除');expect(targetText(null)).toBe('—');
+  const invitee={kind:'invitee',username:'new-owner',same_username_exists:false};
+  expect(approvals({...raw,to_decide:[{...base,target_member:invitee}]}).to_decide[0].target_member).toEqual(invitee);
+  expect(targetText(invitee)).toBe('邀请：new-owner');expect(targetText({...invitee,same_username_exists:true})).toContain('应拒绝');
   for(const bad of [{...member,principal_id:'x'},{...member,label:'full-principal-id'},{kind:'hidden',username:'x'},{kind:'invitee',username:'x'}])
     expect(()=>approvals({...raw,to_decide:[{...base,target_member:bad}]})).toThrow();
   const {target_member:_,...without}=base;

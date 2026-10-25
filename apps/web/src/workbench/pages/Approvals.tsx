@@ -33,6 +33,7 @@ export function targetText(t:ApprovalRow['target_member']):string{
   if(t.kind==='hidden')return '（仅 owner 可见）';
   if(t.kind==='unresolved')return '目标已不在租户中';
   if(t.kind==='erased')return '已擦除';
+  if(t.kind==='invitee')return t.same_username_exists?`邀请：${t.username}（已有同名账户，应拒绝）`:`邀请：${t.username}`;
   const status=[t.role??'无角色',t.member_status,t.account_status&&t.account_status!=='active'?'账户 '+t.account_status:null].filter(Boolean).join('，');
   return `${t.username??'（无账户）'} ${t.label}（${status}）`;
 }
