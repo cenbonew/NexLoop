@@ -1,6 +1,6 @@
 # 设计稿｜NX-058 片 D：owner 专用成员 Action（接 NX-056 审批）
 
-第 2.4 版，2026-10-25，L2（D7 已定为 A）。目标成员接口按 ADR-039 修订 R1 §6（L3 010d312e）同步；本文与该节不一致处一律以 ADR 为准。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
+第 2.5 版，2026-10-25，L2（D7 已定为 A）。目标成员接口按 ADR-039 修订 R1 §6（L3 fdc06ef2）同步；本文与该节不一致处一律以 ADR 为准。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
 
 上位设计是 `docs/design/account-self-service.md` 第 7 版（下称“自助设计”）的 §1b、§2、§7、§9（AA6）；这里只写落地方式和需要确认的点，不重复上位设计已确定的规则。实现基线：第二十六批合入后的 main。届时片 C 的迁移编号为 0340（`workbench_member_changes`）、0341（`governed_authority_change`），NX-056 为 0326–0332，L3 的跟进为 0339；本文所说的 0340/0341 都指这一编号，并以片 C 的 X1 修复（a80c77aa、fc012e6e：drift 检查在写事务内、先取成员锁）为**前置条件**（I7）。**启用前置条件（ADR-039 §6.7）**：NX-056 B1（审批视图的 `target_member` 与告警 v15）必须先于本片的 owner Action 在 stage 上启用合入，否则批准人看不到目标；本片代码可以先于 B1 合入，但运行手册的启用步骤以 B1 已上线为第一项检查。迁移号临时，由 L4 组批时重编。
 
@@ -42,7 +42,7 @@
 - `label` 是 `p-` 加 `sha256(principal_id)` 十六进制的前 8 位，不输出完整 principal 或 subject；仓库里没有显示名列，批准人靠用户名和标签认人。
 - 裁剪按调用人当前的工作台角色：owner 给完整键；**不是 owner 的调用人（批准人或请求人）一律 `hidden`**。行本身只出现在调用人自己的三栏里，不新增可见范围。
 - 本片的 6 条目标类策略设 `target_subject_field: "target_principal"`，视图按 ADR §6.2 解析；解析不到为 `unresolved`，不回显请求体原值。
-- **`invite_owner`** 用 ADR §6.4 写死的 `invitee` 变体：从请求体取 `username`，`same_username_exists` 由服务端判断（同租户账户中是否已有完全相同的 username）。**HTTP 层（本片实现）拒绝与本租户现有账户同名的邀请**（409 `username_taken`），所以正常流程下 `same_username_exists` 恒为 `false`，为 `true` 即说明请求绕过了 HTTP 层，批准人应拒绝。**D7 已定为 A（负责人 2026-10-25）**：owner 调用人看到 `invitee`（被邀请人的用户名与 `same_username_exists`），非 owner 照判定顺序第 ② 步得到 `hidden`。
+- **`invite_owner`** 用 ADR §6.4 写死的 `invitee` 变体：按请求体的 `operation = invite_workbench_owner` 识别，从请求体取 `username`（不是字符串时为 `unresolved`），输出严格只有 `kind`、`username`、`same_username_exists` 三个键；`same_username_exists` 由服务端判断（同租户账户中是否已有完全相同的 username）。**HTTP 层（本片实现）拒绝与本租户现有账户同名的邀请**（409 `username_taken`），所以正常流程下 `same_username_exists` 恒为 `false`，为 `true` 即说明请求绕过了 HTTP 层，批准人应拒绝。**D7 已定为 A（负责人 2026-10-25）**：owner 调用人看到 `invitee`（被邀请人的用户名与 `same_username_exists`），非 owner 照判定顺序第 ② 步得到 `hidden`。
 
 **handler 自查（fail closed）**：每个 owner handler 第一步读当前策略 `control.nexloop_approval_policy(capability)`，要求存在且 `condition is null`、`quorum>=1`、`solo_mode='not_applicable'`、`approver_roles` 恰好是 `{owner}`、目标类的 `target_subject_field='target_principal'`；任何一条不满足就拒绝 `approval_unavailable`（22023，HTTP 409）。未发布策略之前，这 7 个 Action 即使已注册也只会返回 `approval_unavailable`（自助设计 §1b 过渡要求）。
 
@@ -115,7 +115,7 @@
 - 重定义并登记 copy guard：`nexloop_approval_summary_allowed`（K1）、`nexloop_approval_approver_eligible`（§2）、gate/open 的 `quorum_unreachable` 判断（§0）、0327 入口的原因码（§1）。后两项属 NX-056，需 L3 同意；审批视图的 `target_member` 由 NX-056 B1 实现（ADR-039 §6），不在本片。
 - **告警 v15**（ADR-039 §6.6，由 NX-056 B1 发布）：v15 = v14 + `approval_first_time_approver`（`approvals.first_time_approvers_24h` > 0）+ `approval_same_person_flag`（`approvals.same_person_flags_24h` > 0）。本片只负责写入后者计数的审计事件 `approval.same_person_flagged`（§4 S1），不改告警规则文件；`approval_solo_eligibility_reduced` 因 owner 降级、停用而触发，保持不变。
 - **擦除覆盖**：审批请求体里的 `target_principal`、`username` 是成员标识，不是 Consumer。核对 0331 的 Consumer 擦除扫描不会替换它们（测试）；`docs/implementation/erasure-coverage.md` 按 ADR-039 §6.5 登记：冻结请求体中的目标 principal 属于保留的员工身份（原因：审批的审计需要），与片 C 的 workbench 授权实例同一口径；`target_member` 是读时渲染、不保存副本，成员身份将来被擦除时显示 `erased`。
-- **发布顺序**（写进运行手册“启用 owner Action”一节，S5）：前置条件（NX-056 B1 已上线、X1 修复已上线、冷却起点已过 24 小时、确认可批准条件）→ **Action publish 先于策略 apply**（否则 guard 报“需要 human governed capability”；新 Action 发布前返回 404）→ 策略 v2：`approval_policies_apply.py` dry-run → apply → 核对 sha256 → 自检（策略 apply 前 7 个 Action 返回 `approval_unavailable`，apply 后返回 `waiting_approval` 或 `quorum_unreachable`）→ 回滚（策略只追加，不能回退；要关闭，发布 v3 让 handler 自查失败，例如 quorum 设为超大值，或撤销 Action 注册）。
+- **发布顺序**（写进运行手册“启用 owner Action”一节，S5）：前置条件（NX-056 B1 已上线，且 B1 已包含 `invitee` 渲染；X1 修复已上线、冷却起点已过 24 小时、确认可批准条件）→ **Action publish 先于策略 apply**（否则 guard 报“需要 human governed capability”；新 Action 发布前返回 404）→ 策略 v2：`approval_policies_apply.py` dry-run → apply → 核对 sha256 → 自检（策略 apply 前 7 个 Action 返回 `approval_unavailable`，apply 后返回 `waiting_approval` 或 `quorum_unreachable`）→ 回滚（策略只追加，不能回退；要关闭，发布 v3 让 handler 自查失败，例如 quorum 设为超大值，或撤销 Action 注册）。
 - **运行手册（备用说明，仅当视图暂不可用、例如 B1 回退时）：owner 批准 `invite_owner` 的线下核验三步**（ADR §6.4）：① 批准前经系统以外的渠道（当面或电话）向请求人确认被邀请人的用户名；② 在工作台成员列表里确认没有同名或近似名的现有成员；③ 执行并接受之后，在成员列表中核对新成员的用户名与线下确认的一致，不一致时立即用 `suspend_owner`/`revoke_owner`（或运维通道）处置并留下记录。局限：批准时系统里看不到用户名；近似名冒充靠第 ②、③ 步发现。
 - HTTP：`workbench_actions_http.OPERATIONS` 加 7 个校验（`invite_owner` 另查同名账户，见 §1）；审批结果沿用 NX-056 的 `waiting_approval` / `approval_consumed` / `policy_changed`，新增 `quorum_unreachable` 与执行被拒的原因码映射。
 
@@ -125,21 +125,22 @@
 2. 清单 v2 经 `approval_policies_apply.py` 实际 apply 成功；guard 拒绝 summary 里的 `target_principal`（K1）。
 3. 三位冷却已满的 owner + 一位 operator：promote 走完“请求 → 另一 owner 批准 → 请求人重提执行”；批准人在审批视图里看到 `target_member` 为 `member`；非 owner 的请求人看到 `hidden`（视图本身属 B1，本片只做与 B1 合并后的联测）。联测补两点：判定顺序——非 owner 对已擦除或不存在的目标同样只得到 `hidden`；principal 不替换——目标 subject 另有一个 active principal 时，`label` 仍是请求体里那个 principal 的标签。
 4. **invite_owner 同名**：用户名与本租户现有账户相同时，HTTP 返回 409 `username_taken`，不开审批。
-5. **单 owner 租户**（I2）：promote_owner 发起即 `quorum_unreachable`，handler 未被调用。
-6. **双 owner 租户**（I1）：suspend_owner 另一位 owner 发起即 `quorum_unreachable`；promote_owner 可批准。
-7. 目标本人投票被拒（`target_cannot_approve`），目标换用自己的另一个 principal 同样被拒（AA2）。
-8. 冷却：刚提升的 owner 24 小时内投票被拒；首批策略在部署起点后 24 小时内批不了（用历史行的时间推进，不改系统时钟）。
-9. 单人模式开启时自批无效（`not_applicable`）。
-10. **消费时重新计票**（I4）：B 批准后被 C 的 suspend_owner 停用，A 再执行时有效票不足，回到 waiting。
-11. **反向**（I4）：owner 版本对已被降级的目标返回 `target_role_changed`，审批记为 execution_refused 并作废，HTTP 显示原因码。
-12. 最后一位 owner 不能被 demote/suspend/revoke；三位 owner 并发互相 suspend 时串行，最后剩一位（I8）；suspended owner 只能用 owner 版本处理。
-13. **第二层**（I5）：伪造 `nexloop.approval_in_flight` 指向另一请求体或另一能力的已批准审批，handler 拒绝；策略在 gate 与 handler 之间换版本时 handler 拒绝。
-14. **秘密不重放**（I6）：issue_owner_reset、invite_owner 执行后，同一请求体重提得到 `approval_consumed`，响应、consumptions、claim、审计里都没有码或 token。accept_v3 拒绝审批结果不是 executed 的 owner 邀请；用 operator 邀请伪造 owner 接受被拒。
-15. **mark 与 tail**（I7）：handler 拒绝后 savepoint 回滚掉 mark，同一事务中请求人的 tail 复核仍通过；被降级的 owner 拿旧 permit 调用 owner-only Action 被拒（端到端，补片 C S-5 的缺口）。
-16. **X1 与并发**（I7、I9）：promote 执行中 configurator apply 旧成员文件——不死锁，X1 拒绝 apply；demote 之后 apply 想恢复其 owner 角色被 X1 拒绝。
-17. **悬挂审批**（I7）：被降级目标作为请求人的未消费审批被终结为 `requester_no_longer_eligible`。
-18. 擦除：Consumer 擦除不改审批请求体里的成员标识；erasure coverage 登记通过。
-19. 回归：片 C 的成员变更、NX-056 gate 与首批策略、copy guard、definer、erasure coverage、告警规则。
+5. **invitee 分支**（与 B1 合并后联测）：① owner 调用人看到 `invitee`，`username` 等于请求体中的用户名；② 非 owner 调用人得到 `hidden`；③ 绕过 HTTP 层直接造出同名邀请的审批时，`same_username_exists` 为 `true`；④ 输出对象的键集合严格等于 {`kind`、`username`、`same_username_exists`}；另：请求体 `username` 不是字符串时为 `unresolved`。
+6. **单 owner 租户**（I2）：promote_owner 发起即 `quorum_unreachable`，handler 未被调用。
+7. **双 owner 租户**（I1）：suspend_owner 另一位 owner 发起即 `quorum_unreachable`；promote_owner 可批准。
+8. 目标本人投票被拒（`target_cannot_approve`），目标换用自己的另一个 principal 同样被拒（AA2）。
+9. 冷却：刚提升的 owner 24 小时内投票被拒；首批策略在部署起点后 24 小时内批不了（用历史行的时间推进，不改系统时钟）。
+10. 单人模式开启时自批无效（`not_applicable`）。
+11. **消费时重新计票**（I4）：B 批准后被 C 的 suspend_owner 停用，A 再执行时有效票不足，回到 waiting。
+12. **反向**（I4）：owner 版本对已被降级的目标返回 `target_role_changed`，审批记为 execution_refused 并作废，HTTP 显示原因码。
+13. 最后一位 owner 不能被 demote/suspend/revoke；三位 owner 并发互相 suspend 时串行，最后剩一位（I8）；suspended owner 只能用 owner 版本处理。
+14. **第二层**（I5）：伪造 `nexloop.approval_in_flight` 指向另一请求体或另一能力的已批准审批，handler 拒绝；策略在 gate 与 handler 之间换版本时 handler 拒绝。
+15. **秘密不重放**（I6）：issue_owner_reset、invite_owner 执行后，同一请求体重提得到 `approval_consumed`，响应、consumptions、claim、审计里都没有码或 token。accept_v3 拒绝审批结果不是 executed 的 owner 邀请；用 operator 邀请伪造 owner 接受被拒。
+16. **mark 与 tail**（I7）：handler 拒绝后 savepoint 回滚掉 mark，同一事务中请求人的 tail 复核仍通过；被降级的 owner 拿旧 permit 调用 owner-only Action 被拒（端到端，补片 C S-5 的缺口）。
+17. **X1 与并发**（I7、I9）：promote 执行中 configurator apply 旧成员文件——不死锁，X1 拒绝 apply；demote 之后 apply 想恢复其 owner 角色被 X1 拒绝。
+18. **悬挂审批**（I7）：被降级目标作为请求人的未消费审批被终结为 `requester_no_longer_eligible`。
+19. 擦除：Consumer 擦除不改审批请求体里的成员标识；erasure coverage 登记通过。
+20. 回归：片 C 的成员变更、NX-056 gate 与首批策略、copy guard、definer、erasure coverage、告警规则。
 
 ## 8. 合入前可先做的部分（不依赖新迁移）
 
@@ -165,16 +166,16 @@
 
 | 编号 | 处理 |
 |---|---|
-| K1 | summary 只留 `new_role`（仅 demote_owner）；白名单重定义；目标由审批视图读时解析为 `target_member`，只给 owner 批准人看（接口约定，需 L3/ADR-039）；username 二选一（D7）；测试 2、3（§1、§7） |
-| I1 | 写明可批准条件；双 owner 时处置另一位 owner 不可批准，发起即 `quorum_unreachable`；运行手册首选运维通道；测试 6（§0） |
-| I2 | 单 owner 租户只能走运维通道；测试 5（§0、§7） |
+| K1 | summary 只留 `new_role`（仅 demote_owner）；白名单重定义；目标由审批视图读时解析为 `target_member`，只给 owner 批准人看（接口约定，需 L3/ADR-039）；invite_owner 按 D7=A 展示 `invitee`（三个键，按 operation 识别）；测试 2、3、4、5（§1、§7） |
+| I1 | 写明可批准条件；双 owner 时处置另一位 owner 不可批准，发起即 `quorum_unreachable`；运行手册首选运维通道；测试 7（§0） |
+| I2 | 单 owner 租户只能走运维通道；测试 6（§0、§7） |
 | I3 | 冷却对所有策略统一；上线手册写明部署后 24 小时首批策略也批不了（§2） |
-| I4 | 消费时复用 gate 重新计票；handler 拒绝即 execution_refused 并作废，HTTP 显示原因码；测试 10、11（§1、§7） |
-| I5 | in_flight + 回查 capability、digest、请求人、状态、策略版本；测试 13（§1） |
-| I6 | token 与码只在当次响应；accept_v3 要求 `result='executed'`；测试 14（§4、§5） |
-| I7 | X1 修复列为前置条件；mark 位置；悬挂审批终结为 `requester_no_longer_eligible`；测试 15、16、17（§3、§7） |
+| I4 | 消费时复用 gate 重新计票；handler 拒绝即 execution_refused 并作废，HTTP 显示原因码；测试 11、12（§1、§7） |
+| I5 | in_flight + 回查 capability、digest、请求人、状态、策略版本；测试 14（§1） |
+| I6 | token 与码只在当次响应；accept_v3 要求 `result='executed'`；测试 15（§4、§5） |
+| I7 | X1 修复列为前置条件；mark 位置；悬挂审批终结为 `requester_no_longer_eligible`；测试 16、17、18（§3、§7） |
 | I8 | 只数 active 的 owner，冷却未满也算；并发互相处置写明（§3） |
-| I9 | 已核对策略发布只取全局锁、不取租户锁，由 I5 的版本核对兜住；锁顺序写明；promote 与 apply 并发测试 16（§1、§3） |
+| I9 | 已核对策略发布只取全局锁、不取租户锁，由 I5 的版本核对兜住；锁顺序写明；promote 与 apply 并发测试 17（§1、§3） |
 | I10 | 白名单与其他重定义登记 copy guard；告警 v15 按 ADR-039 §6.6（B1 发布，本片写 `approval.same_person_flagged`）；擦除覆盖登记；发布顺序先 Action 后策略 v2（§6） |
 | S1–S5 | 同一人标记（§4）、new_role 两层校验（§0）、v3 与降级 suspended owner（§0、§4）、参照实现覆盖情形（§2）、运行手册启用一节（§6） |
 | S6 | 残余风险 (a)–(e)（§9） |
