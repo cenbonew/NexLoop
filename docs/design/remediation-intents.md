@@ -355,6 +355,29 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
    - request_id 由调用方提供，但伪造它不会带来任何权限：回执只记录真实发生的受治理调用，状态只依据回执推进。
 4. 规划器**从不**代人提交，也不重试或重新提交（§3.4 第 3 条）。
 
+### 6.3a R3 立项时一并处理（L6 对第 4 版的建议，2026-10-23 记下）
+
+- **P-1**：除工作台外，Python HTTP 层、SDK 和 MCP 也要能识别 `execution_refused` 返回值，不能把它当成功。工作台为补救的 `execution_refused` 单独写一段文案，不沿用 NX-056 的“这次批准已用掉”，因为无审批路径上并没有审批被用掉。
+- **P-2**：同一小时内先 unknown、后被确认未送达的意图，会在 outcome_unknown 和 defect 中各计一次。路径③要求首条 unknown 已过 24 小时，所以按现行规则不会发生；但 R3 要把 outcome_unknown 的排除条件扩展到同一小时内的失败行，并补一条测试，使口径不依赖这条等待规则。
+- **P-3**：熔断计数和 `last_code` **只采用摘要一致的回执**（回执的 `prefill_digest` 等于补救的 `prefill_digest`）。否则有人可以抢用后续序号 `rem.<id>.<n>`，提交改过字段、注定被拒的请求，把熔断打满，或者用无关的拒绝码覆盖 `last_code`。摘要不一致的回执只进证据抽屉。
+
+### 6.3b R1 实现与本设计的差异（2026-10-23，`docs/implementation/NX-057-R1-remediation-suggestions.md`）
+
+- §11 的四项操作合并为两项人类 Action：`remediation.resolve`（outcome 为 handled 或 cancelled）与 `remediation.switch`（paused 为 true 或 false）。Q-6 如果要求 resume 审批，给 `remediation.switch` 挂一条 NX-056 条件策略（`paused` 等于 false）即可。
+- 开关关闭期间的失败也会被扫描，记为 `switch_closed`，以后不再补生成（与 L6 M-5 一致）。
+- 补救表不存 consumer id，经源效应意图读取，删除传播不需要另接。
+- `remediation_paused` 告警用 warning，因为告警路径不支持 info。
+- 部署层 `REMEDIATION_ENABLED` 尚未接入 compose，默认关闭，按部署变更流程另行接入。
+
+### 6.3c R2 实现与本设计的差异（2026-10-23，`docs/implementation/NX-057-R2-plan-wake.md`）
+
+- origin 不写进效应意图的新列：失败时由服务端从“意图的 origin Run”与“哪条补救被这个 Run 消费（`consumed_by_run`）”两项不可变事实派生，效果同 §9.1，工具参数影响不到。
+- 部署层 `REMEDIATION_ENABLED` 只约束规划器；负责人手动唤醒（`remediation.resolve` 的 outcome `wake`）只看租户开关与控制暂停。
+- 熔断的“governed_action failed 3 次”随 R3 加入。
+- 熔断计数窗口：最近 24 小时，但不早于负责人上一次解除这条规则的时间；`chain_capped` 按补救事件计数，不看行上的 `last_code`（L6 对 R2 的复核）。
+- 唤醒时如果开关刚好关闭（部署层、租户开关或控制暂停），补救停在 proposed，之后每轮都不会唤醒，直到开关重新打开或到期记为 expired。
+- **消费的口径**：消费触发器把为这个 plan 启动的**任何** Run 都算作补救来源，即使这个 Run 是由别的原因（例如 reassess_due、外部结果）启动的，只要它启动时这个 plan 有已唤醒、未消费的补救。这是有意的保守选择：那个 Run 看到的 Context 中就有这次失败，它提出的意图再失败也只升级，不会再唤醒。
+
 ### 6.4 明确禁止
 
 - 规划器直接 insert 或 update 任何业务表或效应意图表；
@@ -484,6 +507,15 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 ## 14. 需要负责人拍板
 
+**负责人决定（2026-10-25）：Q-1 至 Q-7 都按推荐。**落实情况：
+
+- Q-1 A、Q-3 A：`deploy/configuration/remediation-rules.v1.json` 写入唯一一条规则 `deliver_final_failure`，源 Action 为 `nexloop.enterprise.deliver:1`，覆盖两种失败，kind 为 reevaluate，mode 为 automatic。选它是因为 `action-effect-categories.v3.json` 中只有它声明为外部效应；`nexloop.service.request:1` 声明为本地效应，发布时会被拒（`source_not_effect`）。
+- Q-2：暂缓，R3 不设首批目标能力。
+- Q-4 A：补救成功后，原认领不标 compensated（R4）。
+- Q-5：默认上限写进同一份规则文件的 `limits`；其余数值（暂时性重试 3 次、unknown 对账 48 小时、建议有效期 7 天）在规则或后续切片的配置中。
+- Q-6 A：`remediation.switch` 不挂审批策略，pause 与 resume 都不需要审批。
+- Q-7：部署层 `REMEDIATION_ENABLED` 默认关闭，上线时由调度员打开。
+
 | 编号 | 问题 | 选项 | 推荐 |
 |---|---|---|---|
 | Q-1 | 首批覆盖范围 | A. 效应意图的 `origin_expired` 与 `confirmed_not_delivered`<br>B. A 加上外联和激励台账的 failed | **A** |
@@ -585,6 +617,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 | 编号 | 处理 | 位置 |
 |---|---|---|
+| P-1 至 P-3（第 4 版之后） | 记入 §6.3a，R3 立项时处理 | §6.3a |
 | L-1（第 4 版） | 选方案 (a)：可解析的 `rem.*` 请求被拒时返回 `execution_refused`，savepoint 写法与 NX-056 已批准分支相同；回执、认领终态与拒绝同一事务提交；暂时性错误重新抛出；非 `rem.*` 请求不变。比较了 (b)、(c) 并写明不选的理由 | §6.3、§15、§16 R3 |
 | L-2（第 4 版） | 审批之后的执行以 NX-056 的消费记录为准；执行请求带 `rem.` 前缀时多一行回执，只作证据 | §4.2、§6.3、§16 R3 |
 | L-3（第 4 版） | 暂时性错误退避只适用于 reevaluate 与 escalate；governed_action 由人再提交 | §4.2 |

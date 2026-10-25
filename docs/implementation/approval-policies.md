@@ -70,7 +70,7 @@
 上机由调度员执行。变量和两种一次性容器（`$COMMON`、`$WINDOW`、`$APPTOOL`、`$BACKEND_IMAGE`、`$TENANT_ID`、`$KEY_ID`、`$RUN`、`$APP_RUN`）沿用 `docs/release/run-assembly-20261015.md` §0.2、§0.3；源码树按 §0.4 分发本批的发布 checkout。账号的用户名和口令都由调度员生成，存入钥匙串（`nexloop/…` 条目，值不进仓库、不进文档、不进证据）。
 
 1. **备份**（DATA_HOST）：`sudo -n systemctl start nexloop-pg-diff.service`，确认这次运行成功（`systemctl status` 和备份目录的新时间戳）。没有经过验证的备份，不做迁移。
-2. **迁移**：本批的迁移（NX-056 的临时 0331–0332，组批时会重新编号）随发布一起执行，按该批的部署单进行。迁移之后，审批存储、闸门、视图和单人模式的表都在，但还没有策略，任何能力都不需要审批。
+2. **迁移**：本批的迁移（NX-056 在 main 上为 0326–0332，随后的修正为临时 0339，组批时重新编号）随发布一起执行，按该批的部署单进行。迁移之后，审批存储、闸门、视图和单人模式的表都在，但还没有策略，任何能力都不需要审批。
 3. **发布新的 Action**（DATA_HOST，配置员窗口；`docs/release/run-41-20261015.md` §3a.2 的形态）。本批新增 `nexloop.approvals.decide`、`nexloop.approvals.cancel`、`nexloop.consumer.erase_on_request`、`nexloop.approvals.solo_mode.set`。不发布的话，工作台调用会 404（`published action unavailable`）。
 
    ```
@@ -89,7 +89,7 @@
        --identity-database-url-file /run/secrets/api_identity_dsn --password-file /in/password-approver2 --idempotency-key-file /in/identity-seal
      ```
 
-   - 再在成员文件 `$RUN/workbench-members.json` 中加一行 `{"principal_id": <第二位的 principal>, "subject_id": <第二位的 subject>, "role": "owner"}`，并应用本批的角色清单（`workbench-roles.v1.json`：只含 A1–A6 时为 manifest v38，含 A7 时为 v39）。这一步在 DATA_HOST 上经配置员窗口执行（run-assembly §2 的形态）：
+   - 再在成员文件 `$RUN/workbench-members.json` 中加一行 `{"principal_id": <第二位的 principal>, "subject_id": <第二位的 subject>, "role": "owner"}`，并应用本批的角色清单（`workbench-roles.v1.json`：以 main 为准，第二十四批合入后为 manifest v40）。这一步在 DATA_HOST 上经配置员窗口执行（run-assembly §2 的形态）：
 
      ```
      docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbench_roles.py --roles /opt/release/deploy/authorization/workbench-roles.v1.json \

@@ -3,12 +3,12 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {approvalOutcome,approvals,me} from '../src/workbench/api';
-import {Approvals,resultText,soloBanner} from '../src/workbench/pages/Approvals';
+import {Approvals,resultText,soloBanner,targetText} from '../src/workbench/pages/Approvals';
 
 const id='3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11';
 const base={approval_id:id,capability:'real_dispatch.set',operation:'set_real_dispatch',action:'eios:action:nexloop.real_dispatch.set:1',requested_by:'synthetic-owner',
   requested_at:'2026-10-23T01:00:00+00:00',due_by:'2026-10-24T01:00:00+00:00',status:'waiting_approval',digest:'0123456789ab',policy_version:1,quorum:1,approvals:0,
-  summary:{scope_kind:'tenant',enabled:true}};
+  summary:{scope_kind:'tenant',enabled:true},target_member:null};
 const raw={to_decide:[base],mine:[{...base,approval_id:id.replace('3f','4f'),result:null}],
   to_execute:[{...base,approval_id:id.replace('3f','5f'),status:'approved',approvals:1,inputs:{scope_kind:'tenant',enabled:true,data_mode:'real',action_type:null,reason:'季度上线'}}],
   solo_mode:{enabled:false,others_eligible:true}};
@@ -69,4 +69,20 @@ test('NX-056 A7: the single-person mode banner and the owner\'s switch', ()=>{
   expect(html).toContain('单人模式已开启');expect(html).toContain('关闭单人模式');
   const asOperator=render(client([[['workbench','approvals'],on],[['workbench','me'],operator]]),h(Approvals,{}));
   expect(asOperator).not.toContain('关闭单人模式');
+});
+
+test('NX-056 B1: target_member parses strictly in its kinds and renders who the request acts on', ()=>{
+  const member={kind:'member',label:'p-0a1b2c3d',username:'staff-ops',account_status:'active',member_status:'active',role:'operator'};
+  const parsed=approvals({...raw,to_decide:[{...base,target_member:member}]});
+  expect(parsed.to_decide[0].target_member).toEqual(member);
+  expect(targetText(parsed.to_decide[0].target_member)).toBe('staff-ops p-0a1b2c3d（operator，active）');
+  for(const kind of ['hidden','unresolved','erased'])expect(approvals({...raw,to_decide:[{...base,target_member:{kind}}]}).to_decide[0].target_member).toEqual({kind});
+  expect(targetText({kind:'hidden'})).toContain('仅 owner');expect(targetText({kind:'erased'})).toBe('已擦除');expect(targetText(null)).toBe('—');
+  const invitee={kind:'invitee',username:'new-owner',same_username_exists:false};
+  expect(approvals({...raw,to_decide:[{...base,target_member:invitee}]}).to_decide[0].target_member).toEqual(invitee);
+  expect(targetText(invitee)).toBe('邀请：new-owner');expect(targetText({...invitee,same_username_exists:true})).toContain('应拒绝');
+  for(const bad of [{...member,principal_id:'x'},{...member,label:'full-principal-id'},{kind:'hidden',username:'x'},{kind:'invitee',username:'x'}])
+    expect(()=>approvals({...raw,to_decide:[{...base,target_member:bad}]})).toThrow();
+  const {target_member:_,...without}=base;
+  expect(()=>approvals({...raw,to_decide:[without]})).toThrow();  // the key is always there
 });

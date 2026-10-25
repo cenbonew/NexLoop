@@ -106,6 +106,10 @@
 | 渠道观测 provider_state（建议） | accepted 渠道已接收 · fulfilled 渠道已完成 · not_found 渠道查无此单 |
 | 出站投递 delivery_state（建议） | persisted 已保存 · dispatching 发送中 · provider_accepted 渠道已接收 · delivered 已送达 · unknown 待核对 · failed 发送失败 |
 | 确认未送达（建议） | confirmed_not_delivered 已确认未送达 |
+| 补救状态（NX-057 R1） | proposed 待处理 · awaiting_approval 等待审批 · executing 执行中 · succeeded 已完成 · refused 被拒 · failed 失败 · escalated 已升级（待人处理） · handled 已处理 · declined 已取消 · expired 已过期 · not_applicable 不适用 |
+| 补救方式（NX-057 R1） | reevaluate 唤醒计划 · escalate 交给负责人 · governed_action 预填 Action |
+| 补救熔断原因（NX-057 R2） | origin_failures 补救后的 Action 又失败 · chain_capped 达到链条上限 |
+| 最终失败原因（NX-057 R0） | origin_expired 来源 Run 已过期 · confirmed_not_delivered 已确认未送达 |
 | 回复跟进（建议） | owner_follow_up 负责人跟进 · fallback_reply 兜底回复 · none 无 |
 | 确认前检查（建议） | eligible 可以确认 · intent_unknown 意图不存在 · already_determined 已确认过 · not_unknown 不是待核对状态 · effect_busy 正在处理中 · no_attempt 没有发送记录 · no_not_found_evidence 缺少查无证据 · wait_period 仍在等待期 · retention_unconfirmed 未确认渠道保留期 · fallback_unavailable 兜底回复不可用 · invalid 填写无效 |
 | 效应类别（建议） | customer_contact 客户联系 · non_contact_service 非联系服务 |

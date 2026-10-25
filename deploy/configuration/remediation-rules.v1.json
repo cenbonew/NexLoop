@@ -1,0 +1,28 @@
+{
+  "schema_version": "nexloop-remediation-rules/1",
+  "manifest_version": 1,
+  "decision": "NX-057 (docs/design/remediation-intents.md v4 §14, ADR-040 draft). Owner 2026-10-25, all as recommended: Q-1 A - the first batch covers final failures of effect intents only (origin_expired and confirmed_not_delivered); Q-3 A - both reevaluate the waiting plan automatically; Q-5 - the default limits below (20 remediations per tenant and hour, then one aggregated escalation per hour; 3 per Consumer in 24 hours, then escalation only; 2 final_failure wakes of one plan in 7 days, then escalation only; a rule held after 3 remediation-origin failures or 3 capped escalations in 24 hours); Q-7 - the deployment switch REMEDIATION_ENABLED stays off until the rollout opens it. The only Action that action-effect-categories v3 declares external is nexloop.enterprise.deliver:1, so it is the one source; nexloop.service.request:1 is declared local (external_effect false) and the publication would refuse it (source_not_effect). A remediation proposes a wake only: the reevaluation Run decides, and its own intents meet every dispatch check.",
+  "limits": {
+    "tenant_per_hour": 20,
+    "consumer_per_day": 3,
+    "plan_wakes_per_week": 2,
+    "breaker_per_day": 3
+  },
+  "rules": [
+    {
+      "rule_id": "deliver_final_failure",
+      "source": {
+        "stable_name": "nexloop.enterprise.deliver",
+        "version": 1
+      },
+      "failure_kinds": [
+        "origin_expired",
+        "confirmed_not_delivered"
+      ],
+      "kind": "reevaluate",
+      "mode": "automatic",
+      "due_after_seconds": 604800,
+      "purpose": "After a delivery ends failed for good (its origin Run expired before dispatch, or the owner confirmed it was not delivered), wake the plan that waits for it; a new Run decides to retry, tell the customer or escalate."
+    }
+  ]
+}

@@ -189,3 +189,11 @@
    - 推荐：删除。Formal 承诺对象保留，并已去掉原 id；登记行只是 dedupe 和 intent 的副本。
    - 风险：如果以后某个读取方依赖“已擦除 Consumer 的承诺登记行”，它会读不到。现有测试没有发现这样的读取方。
 7. **确定性哈希与墓碑 subject_key**：负责人 2026-10-21 已决定，见上一节“擦除后残留与决策”。
+
+## NX-056：审批记录中的身份（ADR-039 §6.5，B1）
+
+| 位置 | 内容 | 结论 | 说明 |
+|---|---|---|---|
+| `control.nexloop_approval_requests.body`（冻结请求体） | Consumer ID（例如 `consumer.erase` 的 `consumer_id`） | C | 擦除开始时，终结仍在等待或已批准、尚未消费的请求；完成时，把完整字符串值替换为本次擦除的假名（0331），只改 body |
+| 同上 | 目标成员的 principal（`target_subject_field`，员工身份）、`invite_owner` 的被邀请人用户名 | D | 保留的员工身份：审批的审计需要知道处置的是谁。与 NX-058 片 D 的员工身份保留口径相同。目前没有员工身份的擦除路径 |
+| 审批视图的 `target_member` 块 | 目标成员的用户名、标签、角色、状态；被邀请人用户名 | 不存储 | 读时渲染，不保存副本，也不写审计。将来员工身份被擦除或假名化（`pseudonym:` 开头的 principal、subject 或 username）时显示 `{"kind":"erased"}`，不回退到请求体原值 |

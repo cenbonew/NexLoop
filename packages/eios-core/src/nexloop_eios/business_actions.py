@@ -76,6 +76,10 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'object_view.publish':'human_owner',
     # NX-041 S2 (D2, D10): the owner creates or deletes a simulation or shadow world.
     'sim_world.create':'human_owner','sim_world.delete':'human_owner',
+    # NX-057 R1 (remediation_intents): the owner resolves an open remediation intent and pauses or resumes the tenant's remediation.
+    'remediation.resolve':'human_owner','remediation.switch':'human_owner',
+    # NX-057 R2 (remediation_wake): the owner releases a rule the breaker held.
+    'remediation.rule_release':'human_owner',
     # NX-041 S3 (D8): the owner fills a simulation world with synthetic or structural data.
     'sim_world.generate':'human_owner',
     # NX-041 D10 follow-up: the owner publishes a simulation world's Action catalog (the stand-in whitelist).
@@ -96,7 +100,10 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer.
     'workbench_member.issue_reset':'human_owner',
     # NX-058 slice A: owner invitations of operators and reviewers, and their revocation.
-    'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner'}
+    'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner',
+    # NX-058 slice C: member changes of operators and reviewers.
+    'workbench_member.change_role':'human_owner','workbench_member.suspend':'human_owner','workbench_member.resume':'human_owner',
+    'workbench_member.revoke':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

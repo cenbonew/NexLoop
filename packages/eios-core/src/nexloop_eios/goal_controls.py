@@ -60,6 +60,10 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'revoke_contact_key':'contact_key.revoke',
     # 0210: the owner confirms an unknown effect did not happen (evidence and wait checked in SQL; nothing is sent).
     'confirm_effect_not_delivered':'service.confirm_not_delivered',
+    # NX-057 R1 (remediation_intents): the owner resolves an open remediation intent, and pauses or resumes the tenant's remediation.
+    'resolve_remediation':'remediation.resolve','switch_remediation':'remediation.switch',
+    # NX-057 R2 (remediation_wake): the owner releases a rule the breaker held.
+    'release_remediation_rule':'remediation.rule_release',
     # 0220 (ADR-034 first step): persona marking and the erasure of a synthetic Consumer (persona checked in SQL).
     'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic',
     # 0227 operator persona slice 1 (document, rules and settings checked in SQL).
@@ -111,7 +115,10 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer (owners: issue_owner_reset, with approval).
     'issue_workbench_reset':'workbench_member.issue_reset',
     # NX-058 slice A: the owner invites an operator or reviewer (owners: invite_owner, with approval) and revokes an unused invitation.
-    'invite_workbench_member':'workbench_member.invite','revoke_workbench_invitation':'workbench_member.revoke_invitation'}
+    'invite_workbench_member':'workbench_member.invite','revoke_workbench_invitation':'workbench_member.revoke_invitation',
+    # NX-058 slice C (no approval; operators and reviewers only - owners through the owner-only Actions once NX-056 is merged).
+    'change_workbench_member_role':'workbench_member.change_role','suspend_workbench_member':'workbench_member.suspend',
+    'resume_workbench_member':'workbench_member.resume','revoke_workbench_member':'workbench_member.revoke'}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
@@ -334,6 +341,25 @@ class GoalGovernedActions:
             raise ValueError('intent, confirmation reference, reason, retention confirmation and reply follow-up required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'confirm_effect_not_delivered','intent_id':str(intent_id),
             'confirmation_ref':confirmation_ref,'reason':reason,'provider_retention_checked':provider_retention_checked,'reply_followup':reply_followup})
+
+    # NX-057 R1 (remediation_intents): owner only; the handler (SQL) checks the remediation is still open.
+    def resolve_remediation(self,*,action_name,action_version,request_id,remediation_id,outcome,reason):
+        if (not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(remediation_id)) or outcome not in ('handled','cancelled','wake')
+                or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('remediation, outcome and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'resolve_remediation','remediation_id':str(remediation_id),
+            'outcome':outcome,'reason':reason})
+
+    # NX-057 R1 (remediation_intents): owner only; pausing takes effect at once, every change is a new revision.
+    def switch_remediation(self,*,action_name,action_version,request_id,paused,reason):
+        if type(paused) is not bool or type(reason) is not str or not 1<=len(reason)<=500:raise ValueError('paused and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'switch_remediation','paused':paused,'reason':reason})
+
+    # NX-057 R2 (remediation_wake): owner only; the handler ends the rule's active breaker hold.
+    def release_remediation_rule(self,*,action_name,action_version,request_id,rule_id,reason):
+        if type(rule_id) is not str or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',rule_id) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('rule and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_remediation_rule','rule_id':rule_id,'reason':reason})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):
@@ -601,6 +627,26 @@ class GoalGovernedActions:
     def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'revoke_workbench_invitation','invitation_id':invitation_id})
+
+    # NX-058 slice C: the target is target_principal only (AA2); its current role and status are rechecked in SQL under the member lock.
+    def change_workbench_member_role(self,*,action_name,action_version,request_id,target_principal,new_role):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or new_role not in ('operator','reviewer'):
+            raise ValueError('target principal and operator or reviewer role required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'change_workbench_member_role','target_principal':target_principal,'new_role':new_role})
+
+    def _member_change(self,operation,action_name,action_version,request_id,target_principal,reason):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('target principal and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':operation,'target_principal':target_principal,'reason':reason})
+
+    def suspend_workbench_member(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('suspend_workbench_member',action_name,action_version,request_id,target_principal,reason)
+
+    def resume_workbench_member(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('resume_workbench_member',action_name,action_version,request_id,target_principal,reason)
+
+    def revoke_workbench_member(self,*,action_name,action_version,request_id,target_principal,reason):
+        return self._member_change('revoke_workbench_member',action_name,action_version,request_id,target_principal,reason)
 
     def set_evolution_stop(self,*,action_name,action_version,request_id,dimension,stopped,reason):
         if dimension not in ('semantic_content','semantic_tool','ontology_schema') or type(stopped) is not bool or type(reason) is not str or not 1<=len(reason.strip())<=500:

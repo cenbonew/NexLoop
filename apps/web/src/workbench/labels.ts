@@ -305,6 +305,37 @@ export const INTENT_STATE: LabelMap = {
   "observed_fulfilled": "观察到已完成",
 };
 
+/** NX-057 R1: remediation intents of final effect failures (glossary §2.6). */
+export const REMEDIATION_STATE: LabelMap = {
+  "proposed": "待处理",
+  "awaiting_approval": "等待审批",
+  "executing": "执行中",
+  "succeeded": "已完成",
+  "refused": "被拒",
+  "failed": "失败",
+  "escalated": "已升级（待人处理）",
+  "handled": "已处理",
+  "declined": "已取消",
+  "expired": "已过期",
+  "not_applicable": "不适用",
+};
+
+export const REMEDIATION_KIND: LabelMap = {
+  "reevaluate": "唤醒计划",
+  "escalate": "交给负责人",
+  "governed_action": "预填 Action",
+};
+
+export const REMEDIATION_HOLD: LabelMap = {
+  "origin_failures": "补救后的 Action 又失败",
+  "chain_capped": "达到链条上限",
+};
+
+export const FAILURE_REASON: LabelMap = {
+  "origin_expired": "来源 Run 已过期",
+  "confirmed_not_delivered": "已确认未送达",
+};
+
 export const OUTBOX_STATE: LabelMap = {
   "pending": "待派发",
   "leased": "处理中",

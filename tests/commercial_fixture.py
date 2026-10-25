@@ -92,7 +92,11 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.experiment.report':('Consumer','experiment.report'),
     'nexloop.workbench_member.issue_reset':('Consumer','workbench_member.issue_reset'),
     'nexloop.workbench_member.invite':('Consumer','workbench_member.invite'),
-    'nexloop.workbench_member.revoke_invitation':('Consumer','workbench_member.revoke_invitation')}  # 0228
+    'nexloop.workbench_member.revoke_invitation':('Consumer','workbench_member.revoke_invitation'),  # 0228
+    'nexloop.workbench_member.change_role':('Consumer','workbench_member.change_role'),'nexloop.workbench_member.suspend':('Consumer','workbench_member.suspend'),
+    'nexloop.workbench_member.resume':('Consumer','workbench_member.resume'),'nexloop.workbench_member.revoke':('Consumer','workbench_member.revoke'),  # NX-058 slice C
+    'nexloop.remediation.resolve':('Consumer','remediation.resolve'),'nexloop.remediation.switch':('Consumer','remediation.switch'),  # NX-057 R1
+    'nexloop.remediation.rule_release':('Consumer','remediation.rule_release')}  # NX-057 R2
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):
