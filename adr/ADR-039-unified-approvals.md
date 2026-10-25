@@ -65,6 +65,8 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 
 6. **工作台**：审批页分“待我审批”“待我执行”“我发起的”三栏，每位成员只看到自己的行，别人的请求体不会返回。执行就是把冻结的请求体原样再提交一次；工作台无法构造的请求体不提供执行按钮。
 
+6a. **目标成员块 `target_member`（修订 R1，2026-10-25，NX-056 B1；接口以 §6 为准）**：策略声明了 `target_subject_field`（或者能力是 `invite_owner`）时，审批视图由服务端在读取时解析目标，在已有的可见范围内按调用人的角色裁剪后展示。它不进 `summary_fields`，不写审计，不改冻结请求体和 digest。
+
 7. **上游**：状态机和到期逻辑按 ADR-006 vendored；持久化层按 NexLoop 的 authz 签名、world、RLS 和只追加规则重写。
 
 8. **与现有审批的关系**：
@@ -88,6 +90,75 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
     - 加锁顺序：先取租户 advisory lock，再锁成员或审批行。
     - 投票资格起点读取 NX-058 的 `role_history`，按 (tenant, world)，等 NX-058 片 C 落地后对接。
 
+## 6. 修订 R1：审批视图的目标成员接口（权威版本，NX-056 B1 实现，NX-058 片 D 照此同步）
+
+本节是这个接口唯一的权威定义；设计稿 `docs/design/approval-target-display.md` 和 NX-058 片 D 设计中与本节不一致的地方，一律以本节为准。
+
+### 6.1 字段与固定键集合
+
+- 字段名 **`target_member`**。审批视图（`runtime.nexloop_approval_view`）三栏中的**每一行都有这个键**：
+  - 策略没有 `target_subject_field`，并且能力不是 `invite_owner` 时，取值为 `null`；
+  - 否则取值为下面五种对象之一，用 `kind` 区分。
+- 前端严格解析：键集合固定，每种 `kind` 的键集合也固定，出现未知形态一律拒绝。
+
+| `kind` | 键（全部必有） | 何时出现 |
+|---|---|---|
+| `member` | `kind`、`label`、`username`、`account_status`、`member_status`、`role` | 目标解析到本租户成员，并且调用人当前的工作台角色是 owner |
+| `hidden` | `kind` | 有目标，但调用人当前不是 owner（无论是批准人还是请求人） |
+| `unresolved` | `kind` | 有目标字段，但解析不到本租户成员，包括请求体中的值不是任何成员的 principal 或 subject |
+| `erased` | `kind` | 目标成员的身份已被擦除（§6.5） |
+| `invitee` | `kind`、`username`、`already_member` | 能力为 `invite_owner`，并且调用人是 owner（形态依负责人 D7 的结论；选“不展示”时，这一种改为 `hidden`） |
+
+### 6.2 解析规则（只用实际存在的列）
+
+1. **取目标**：用 `control.nexloop_approval_target_subject(tenant, frozen_body, target_subject_field)`（0326）得到候选 subject：请求体的值如果是本租户的 principal，就取它的 subject；否则把原值当作 subject。
+2. **确认是成员**：候选 subject 在本租户的 `control.nexloop_browser_memberships` 中至少有一行，否则为 `unresolved`。这一步不可省略：`target_subject` 的回退路径会原样返回请求体中的字符串，**不得回显**。
+3. **用于展示的成员行**：在这个 subject 本租户的 membership 中取一行，按状态排序 `active`、`invited`、`suspended`、`revoked`，再按 `principal_id` 升序，取第一行。
+   - `member_status` 就是这一行的状态；
+   - `role` 是最新工作台配置中这一行 principal 的角色，没有时为 `null`。
+   - 请求体填的是 subject ID 时，也按这条规则映射到 principal。
+4. **`label`**：上一步那个 principal 的**脱敏形式**，即前 4 个字符加 `…`。不输出完整的 principal，也不输出 subject。0021 中没有“显示名”列，所以不存在显示名。
+5. **`username`**：在 `control.nexloop_browser_accounts` 中取同租户、同 subject 的一行，按账户状态排序 `active`、`invited`、`disabled`，再按 `local_account_id` 升序，取第一行的 `username`；没有账户时为 `null`。`account_status` 是这一行的账户状态（没有账户时为 `null`）。成员状态与账户状态是两个独立字段。
+6. **revoked 成员**的 membership 行仍在，所以仍然解析为 `member`，并显示用户名。这是为了审计：批准人要看清楚处置的是谁。
+7. **fail closed**：读取中出现任何异常或空结果（包括行级安全返回空），一律为 `unresolved`。
+
+### 6.3 可见范围与裁剪（批准人和请求人同一规则）
+
+- 行本身只出现在调用人自己的三栏里（“待我审批”为有资格的批准人，目标本人按 Z1 已排除；“我发起的”“待我执行”为请求人本人），不新增可见范围。
+- **裁剪按调用人当前的工作台角色**：
+  - 是 owner（有成员读取权，ADR-035）：给出 `member` 或 `invitee` 的完整键；
+  - 不是 owner：一律 `hidden`，不给用户名、标签、角色或状态。
+  - 请求人与批准人适用同一规则。理由：请求体由请求人任意填写，只按“自己提交的”放行，就能借构造的请求体把 principal 或 subject 换成用户名、角色和状态，从而枚举成员（L6 B-I1）。
+- NX-058 片 D 的“非 owner 读者”口径与本节一致：取 `hidden`，而不是整块 `null`。`null` 只表示“这条策略没有目标”。
+
+### 6.4 `invite_owner`（依 D7）
+
+- 被邀请人还不是成员，`target_subject_field` 为 `null`。视图对**这一个能力**写死：从请求体取 `username`，输出 `{"kind":"invitee","username":…,"already_member":…}`。
+  - `already_member` 由服务端判断：同租户 `nexloop_browser_accounts` 中是否已有这个 username（`unique(tenant_id, username)`）。
+  - 这不是通用的“展示任意字段”机制，其他能力不得仿照。
+- **HTTP 层**（NX-058 片 D 实现）拒绝与本租户现有账户同名的邀请。所以正常流程下 `already_member` 为 `false`；它为 `true` 时，说明请求是绕过 HTTP 层构造的，批准人应当拒绝。
+- 负责人 D7 如果选“不展示”，这一种改为 `{"kind":"hidden"}`，`already_member` 不再输出。
+
+### 6.5 擦除
+
+- 目标是工作台成员（员工），Consumer 擦除（0331）不会触及成员的 principal。
+- 目前仓库没有员工身份的擦除路径。将来成员身份被擦除或假名化（username 或 principal 换成 `pseudonym:` 开头的值，或者 subject 带擦除标记）时，块显示 `{"kind":"erased"}`，不回退到请求体的原值。
+- **登记 erasure coverage**（`docs/implementation/erasure-coverage.md`）：“审批视图的目标成员块是读时渲染，不保存副本；冻结请求体中的目标 principal 属于保留的员工身份（原因：审批的审计需要），与 NX-058 片 D 的员工身份保留口径相同。”
+
+### 6.6 告警规则 v15（NX-056 B1 发布，两边统一）
+
+v15 等于 v14 加上两条规则；指标都在 `approvals` 块中，由 B1 实现：
+
+| 规则 | 指标 | 条件 | 来源 |
+|---|---|---|---|
+| `approval_first_time_approver` | `approvals.first_time_approvers_24h` | 大于 0，warning，`for_seconds: 0` | 最近 24 小时内投出本租户**第一张批准票**的不同 subject 数（自批票也算；只数 `outcome='approved'`） |
+| `approval_same_person_flag` | `approvals.same_person_flags_24h` | 大于 0，warning，`for_seconds: 0` | 最近 24 小时内审计事件 `approval.same_person_flagged` 的条数。这个事件由 NX-058 片 D 写入：邀请的接受者与签发者为同一个人（S1，`same_source_as_issuer`）。payload 只有 ID 和原因码。片 D 合入之前，这个指标恒为 0 |
+
+### 6.7 其他口径
+
+- **投票冷却**由 NX-058 **片 D §2** 实现（读取 role_history 的接口 `(tenant, world, subject, approver_roles)`，§2 第 10 点），不是片 C。片 C 提供的是 role_history 本身。
+- **先后**：B1 可以先于片 D 合入。片 D 的 owner 成员类 Action 在 stage 上启用之前，B1 必须已经合入（否则批准人看不到目标）。片 D 的设计应把这一条列为启用前置条件。
+
 ## 3. 备选方案与否决理由
 
 - **批准人在决定时直接执行**：执行身份会变成批准人，或者需要一个替换身份的函数，形成提权面（L6 C2）。
@@ -104,7 +175,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 - **单人租户在 A7 上线前无法执行受审批的 Action**：这是禁止自批的本意。stage 启用前，要先准备第二位有资格的成员（运行手册 §4）。
 - **发布 Action 新版本时必须同步发布策略**：否则按 fail closed 拒绝执行。
 - **策略不能删除**：要放宽就发布新版本；整体停用需要新增迁移。
-- **owner 自造的第二身份**：owner 可以经成员配置再加入一个自己控制的身份。它满 24 小时后（以及在单人模式之外随时）都可以作为“另一位”批准人。这在 NexLoop 内无法区分；靠成员变更的审计和告警（`approval_solo_eligibility_reduced` 以及成员配置的发布记录）事后发现。
+- **owner 自造的第二身份**（缓解：首次投票告警 `approval_first_time_approver`，以及投票冷却，后者由 NX-058 片 D §2 实现，均见 §6）：owner 可以经成员配置再加入一个自己控制的身份。它满 24 小时后（以及在单人模式之外随时）都可以作为“另一位”批准人。这在 NexLoop 内无法区分；靠成员变更的审计和告警（`approval_solo_eligibility_reduced` 以及成员配置的发布记录）事后发现。
 - **假名化之后 digest 对不上**：擦除把冻结请求体中的顾客 ID 换成假名后，请求体重新计算的 digest 与记录中的不再一致。这是有意的：被擦除顾客的请求已经在擦除开始时终结，不会再被执行；digest 只作为审计记录保留。
 - **过期清扫依赖保留期服务**：保留期服务停止运行时，过期的审批不会被终结。消费时仍会检查期限，过期的审批照样不能执行。指标 `overdue` 和告警 `approval_sweep_stale` 用来发现这种情况。
 - **`permanent_failure` 不只代表一种结果**：动作认领的终态 `permanent_failure` 同时覆盖“未执行”（等待、过期、已消费、策略已变）和“处理函数拒绝”。下游要分辨时，看受治理入口返回的 `status`、`approval` 字段，以及消费记录的 `result`，不能只看 outcome。

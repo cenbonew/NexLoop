@@ -1,6 +1,8 @@
-# NX-056 B1（设计稿，送 L6 复核）：审批视图展示目标成员；首次投票告警（NX-058 D6）
+# NX-056 B1（设计稿）：审批视图展示目标成员；首次投票告警（NX-058 D6）
 
-起因：NX-058 片 D 的设计复核（`docs/design/nx058-owner-actions.md`）。owner 专用的成员类 Action（提升、降级、停用、撤销、签发重置码、恢复）接入 NX-056 审批后，批准人必须看得到“要改的是谁”。但 ADR-039 和 0329 白名单规定 `summary_fields` 不能放身份标识。本稿评估调度员转来的提议，并给出 D6 的意见。
+> **接口以 ADR-039 §6（修订 R1）为准。** 本稿保留评估过程。其中的字段名 `target`、键集合、非 owner 裁剪、`invitee_username` 形状，以及“冷却由片 C 提供”的说法，都已被 ADR-039 §6 取代：字段名为 `target_member`，`kind` 分五种，请求人与批准人同一裁剪规则，投票冷却在片 D §2 实现。
+
+起因：NX-058 片 D 的设计复核（`docs/design/nx058-owner-actions.md`）。owner 专用的成员类 Action（提升、降级、停用、撤销、签发重置码、恢复）接入 NX-056 审批后，批准人必须看得到“要改的是谁”。但 ADR-039 和 0326 的白名单规定 `summary_fields` 不能放身份标识。本稿评估调度员转来的提议，并给出 D6 的意见。
 
 ## 1. 结论
 
@@ -8,7 +10,7 @@
 2. **改动**：视图函数增加 `target` 块；HTTP 透传，不新增端点；前端增加一列和严格解析。不涉及新 Action、新策略字段，也不涉及迁移以外的写入。见 §3。
 3. **切片**：作为 **NX-056 B1**，在 NX-058 片 D 之前或与它同批合入。它只依赖已有的 `target_subject_field`（Z1），不依赖片 D 的代码；片 D 的策略一发布就能用。见 §4。
 4. **D6 首次投票告警：同意做**，放在 B1 一起做，用一个计数指标和一条告警规则。它针对的是 ADR-039 §4 中“owner 自造的第二身份”这项残余风险。见 §5。
-5. **对片 D 设计的一处修正建议**：片 D 想把 `target_principal`（principal ID）和 `invite_owner` 的 `username` 放进 `summary_fields`。这与 0329 的白名单原则冲突：名字里带 principal 的字段会被禁止名单拒绝；username 是身份标识。建议改为：
+5. **对片 D 设计的一处修正建议**：片 D 想把 `target_principal`（principal ID）和 `invite_owner` 的 `username` 放进 `summary_fields`。这与 0326 的白名单原则冲突：名字里带 principal 的字段会被禁止名单拒绝；username 是身份标识。建议改为：
    - `summary_fields` 只放 `new_role`；
    - 目标通过本稿的 `target` 块展示；
    - `invite_owner` 没有已存在的目标成员，被邀请人的 username 放进它的 `target` 块（§3.1 第 4 点）。
