@@ -233,7 +233,7 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
                 account.pop('password_hash');account.pop('password_history',None)
                 try:
                     with c.transaction():
-                        c.execute('select control.nexloop_accept_workbench_invitation(%s,%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,token,
+                        c.execute('select control.nexloop_accept_workbench_invitation_v2(%s,%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,token,
                             Jsonb(subject.model_dump(mode='json')),Jsonb(membership.model_dump(mode='json')),Jsonb(account),encoded,
                             W.source_digest(key,config.tenant_id,address),op.trace_id))
                 except Exception as error:

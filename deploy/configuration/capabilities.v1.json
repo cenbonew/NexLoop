@@ -2174,6 +2174,98 @@
       },
       "schema_hash": "d70d293bf19e288725e599a172323d0008ff242a796fe90cc8a1c88a4fb1fe35",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "workbench_member.change_role",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "change_workbench_member_role",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "7e52a1cee0da0a00a4f2938e3426812551a5486479f14d0b87c255a5c1184904",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "workbench_member.suspend",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "suspend_workbench_member",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "c048c1e684b07c9a89597f7f196c6d41a2e37f1b6f90dab80bcf0ce68bd55631",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "workbench_member.resume",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "resume_workbench_member",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "d3acee98027f97689f4908c48114d5918d9fea961634f8ad435868293b0eb5d1",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "workbench_member.revoke",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "revoke_workbench_member",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "fa926dcb55c9b867b63ca1fe9a153aff50d182df2272d3aa7ce9e08857f2f13c",
+      "side_effects_reason": null
     }
   ]
 }

@@ -1695,6 +1695,16 @@
       "version": "0339",
       "name": "0339_nx056_followup.sql",
       "sha256": "3696bc8417094edb569c8451b0e890ae5d5a9cef286ee87d4c70731699f63979"
+    },
+    {
+      "version": "0340",
+      "name": "0340_workbench_member_changes.sql",
+      "sha256": "f9cc27fdf58840fce5956d9a5278af755315584c7a2b2f526faad28406b1e075"
+    },
+    {
+      "version": "0341",
+      "name": "0341_governed_authority_change.sql",
+      "sha256": "210a3ed93fee10a9b87350428c6f10f3463cbf49046c5a1815517d865ffd660f"
     }
   ]
 }

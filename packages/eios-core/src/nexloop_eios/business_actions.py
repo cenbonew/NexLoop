@@ -100,7 +100,10 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # NX-058 slice B: the owner issues a one-time reset code for an operator or reviewer.
     'workbench_member.issue_reset':'human_owner',
     # NX-058 slice A: owner invitations of operators and reviewers, and their revocation.
-    'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner'}
+    'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner',
+    # NX-058 slice C: member changes of operators and reviewers.
+    'workbench_member.change_role':'human_owner','workbench_member.suspend':'human_owner','workbench_member.resume':'human_owner',
+    'workbench_member.revoke':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

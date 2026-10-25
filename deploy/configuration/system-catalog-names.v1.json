@@ -1,888 +1,908 @@
 {
- "schema_version": "nexloop-system-catalog-names/1",
- "status": "draft list for T2 cross-check (T1); every entry version 1; capability names and workbench-goal object types marked to confirm are not final",
- "object_types": [
-  {
-   "type_name": "Consumer",
-   "version": 1,
-   "source": "nexloop_eios.consumer_profile / consumer_resolution (to unify)"
-  },
-  {
-   "type_name": "Goal",
-   "version": 1,
-   "source": "effect_contexts.effect_plan_schemas"
-  },
-  {
-   "type_name": "PlanStep",
-   "version": 1,
-   "source": "effect_contexts.effect_plan_schemas"
-  },
-  {
-   "type_name": "EffectControl",
-   "version": 1,
-   "source": "effect_contexts.effect_plan_schemas"
-  },
-  {
-   "type_name": "Conversation",
-   "version": 1,
-   "source": "conversation_messages.conversation_schemas"
-  },
-  {
-   "type_name": "Message",
-   "version": 1,
-   "source": "conversation_messages.conversation_schemas"
-  },
-  {
-   "type_name": "ConsumerOwnership",
-   "version": 1,
-   "source": "conversation_messages.conversation_schemas"
-  },
-  {
-   "type_name": "MessageAssignment",
-   "version": 1,
-   "source": "message_relay.message_assignment_schema"
-  },
-  {
-   "type_name": "ServiceOffering",
-   "version": 1,
-   "source": "service_offerings.offering_schemas"
-  },
-  {
-   "type_name": "ConsumerServiceOffering",
-   "version": 1,
-   "source": "service_offerings.offering_schemas"
-  },
-  {
-   "type_name": "IncentiveOffering",
-   "version": 1,
-   "source": "incentives.offering_schemas"
-  },
-  {
-   "type_name": "ConsumerIncentiveOffering",
-   "version": 1,
-   "source": "incentives.offering_schemas"
-  },
-  {
-   "type_name": "RoleDefinition",
-   "version": 1,
-   "source": "role_mapping"
-  },
-  {
-   "type_name": "ConsumerRoleLink",
-   "version": 1,
-   "source": "role_mapping"
-  },
-  {
-   "type_name": "RoleExecutionCeiling",
-   "version": 1,
-   "source": "role_policies"
-  },
-  {
-   "type_name": "RoleAssignmentScope",
-   "version": 1,
-   "source": "role_policies"
-  },
-  {
-   "type_name": "ContextStrategy",
-   "version": 1,
-   "source": "deploy/ontology/system-object-types.v1.json"
-  },
-  {
-   "type_name": "ContextManifest",
-   "version": 1,
-   "source": "deploy/ontology/system-object-types.v1.json"
-  },
-  {
-   "type_name": "Commitment",
-   "version": 1,
-   "source": "deploy/ontology/business-object-types.v1.json"
-  },
-  {
-   "type_name": "CommercialRecord",
-   "version": 1,
-   "source": "deploy/ontology/business-object-types.v1.json"
-  }
- ],
- "system_actions": [
-  {
-   "stable_name": "nexloop.conversation.route",
-   "version": 1,
-   "object_types": [
-    "Conversation"
-   ],
-   "capability": "nexloop.conversation.route",
-   "group": "relay",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "nexloop.service.request",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "nexloop.service.request",
-   "group": "relay",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "Goal.create",
-   "version": 1,
-   "object_types": [
-    "Goal"
-   ],
-   "capability": "ontology.object.create",
-   "group": "relay",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "PlanStep.create",
-   "version": 1,
-   "object_types": [
-    "PlanStep"
-   ],
-   "capability": "ontology.object.create",
-   "group": "relay",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "MessageAssignment.create",
-   "version": 1,
-   "object_types": [
-    "MessageAssignment"
-   ],
-   "capability": "ontology.object.create",
-   "group": "relay",
-   "fixture": "nexloop_eios.message_assignment_contract:message_assignment_action"
-  },
-  {
-   "stable_name": "nexloop.plan.bind_effect_context",
-   "version": 1,
-   "object_types": [
-    "Consumer",
-    "Goal",
-    "PlanStep",
-    "EffectControl"
-   ],
-   "capability": "nexloop.plan.bind_effect_context",
-   "group": "relay",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "nexloop.context.bind",
-   "version": 1,
-   "object_types": [
-    "Consumer",
-    "Goal",
-    "PlanStep",
-    "EffectControl"
-   ],
-   "capability": "nexloop.context.bind",
-   "group": "relay",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "NexLoop.queue.operations",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "NexLoop.queue.operations",
-   "group": "relay",
-   "fixture": "tests/local_message_assembly_fixture.py:assembled_message"
-  },
-  {
-   "stable_name": "nexloop.service.scope_denial.record",
-   "version": 1,
-   "object_types": [
-    "Consumer",
-    "Goal",
-    "PlanStep",
-    "EffectControl"
-   ],
-   "capability": "nexloop.service.scope_denial.record",
-   "group": "relay",
-   "fixture": "tests/test_scope_denials.py:denial_plan"
-  },
-  {
-   "stable_name": "Conversation.create",
-   "version": 1,
-   "object_types": [
-    "Conversation"
-   ],
-   "capability": "ontology.object.create",
-   "group": "conversation",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "Message.create",
-   "version": 1,
-   "object_types": [
-    "Message"
-   ],
-   "capability": "ontology.object.create",
-   "group": "conversation",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "ConsumerOwnership.create",
-   "version": 1,
-   "object_types": [
-    "ConsumerOwnership"
-   ],
-   "capability": "ontology.object.create",
-   "group": "conversation",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "nexloop.conversation.read",
-   "version": 1,
-   "object_types": [
-    "Conversation"
-   ],
-   "capability": "nexloop.conversation.read",
-   "group": "conversation",
-   "fixture": "tests/message_runtime_fixture.py:message_plan"
-  },
-  {
-   "stable_name": "EffectControl.create",
-   "version": 1,
-   "object_types": [
-    "EffectControl"
-   ],
-   "capability": "ontology.object.create",
-   "group": "effect",
-   "fixture": "tests/runtime_effect_fixture.py:runtime_effect_plan"
-  },
-  {
-   "stable_name": "nexloop.effect.configure_control",
-   "version": 1,
-   "object_types": [
-    "EffectControl"
-   ],
-   "capability": "nexloop.effect.configure_control",
-   "group": "effect",
-   "fixture": "tests/runtime_effect_fixture.py:runtime_effect_plan"
-  },
-  {
-   "stable_name": "nexloop.service.query",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "nexloop.service.query",
-   "group": "effect",
-   "fixture": "tests/effect_execution_fixture.py:execution_plan"
-  },
-  {
-   "stable_name": "nexloop.service.receipt_reconcile",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "nexloop.service.receipt_reconcile",
-   "group": "effect",
-   "fixture": "tests/effect_execution_fixture.py:execution_plan"
-  },
-  {
-   "stable_name": "Goal.edit",
-   "version": 1,
-   "object_types": [
-    "Goal"
-   ],
-   "capability": "ontology.object.edit",
-   "group": "effect",
-   "fixture": "tests/effect_execution_fixture.py:execution_plan"
-  },
-  {
-   "stable_name": "EffectControl.edit",
-   "version": 1,
-   "object_types": [
-    "EffectControl"
-   ],
-   "capability": "ontology.object.edit",
-   "group": "effect",
-   "fixture": "tests/effect_execution_fixture.py:execution_plan"
-  },
-  {
-   "stable_name": "nexloop.enterprise.deliver",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "nexloop.enterprise.deliver",
-   "group": "effect",
-   "fixture": "tests/test_enterprise_slot_relay_pg.py:publish_enterprise_action"
-  },
-  {
-   "stable_name": "Consumer.create",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "ontology.object.create",
-   "group": "setup",
-   "fixture": "tests/test_postgres_action_claims.py:governance_inputs"
-  },
-  {
-   "stable_name": "ServiceOffering.create",
-   "version": 1,
-   "object_types": [
-    "ServiceOffering"
-   ],
-   "capability": "ontology.object.create",
-   "group": "setup",
-   "fixture": "tests/runtime_effect_fixture.py:install_runtime_catalog"
-  },
-  {
-   "stable_name": "ConsumerServiceOffering.create",
-   "version": 1,
-   "object_types": [
-    "ConsumerServiceOffering"
-   ],
-   "capability": "ontology.object.create",
-   "group": "setup",
-   "fixture": "tests/runtime_effect_fixture.py:install_runtime_catalog"
-  },
-  {
-   "stable_name": "RoleDefinition.create",
-   "version": 1,
-   "object_types": [
-    "RoleDefinition"
-   ],
-   "capability": "ontology.object.create",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "ConsumerRoleLink.create",
-   "version": 1,
-   "object_types": [
-    "ConsumerRoleLink"
-   ],
-   "capability": "ontology.object.create",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "RoleExecutionCeiling.create",
-   "version": 1,
-   "object_types": [
-    "RoleExecutionCeiling"
-   ],
-   "capability": "ontology.object.create",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "RoleAssignmentScope.create",
-   "version": 1,
-   "object_types": [
-    "RoleAssignmentScope"
-   ],
-   "capability": "ontology.object.create",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "ConsumerRoleLink.edit",
-   "version": 1,
-   "object_types": [
-    "ConsumerRoleLink"
-   ],
-   "capability": "consumer.edit",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "RoleExecutionCeiling.edit",
-   "version": 1,
-   "object_types": [
-    "RoleExecutionCeiling"
-   ],
-   "capability": "ontology.object.edit",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "RoleAssignmentScope.edit",
-   "version": 1,
-   "object_types": [
-    "RoleAssignmentScope"
-   ],
-   "capability": "ontology.object.edit",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "nexloop.context.bind_role",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "nexloop.context.bind_role",
-   "group": "role_run",
-   "fixture": "tests/role_run_fixture.py:role_runtime_plan"
-  },
-  {
-   "stable_name": "Metric.approve",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "goals.metric.approve",
-   "group": "workbench_goals",
-   "fixture": "tests/goal_fixture.py:register_goal_actions"
-  },
-  {
-   "stable_name": "Goal.publish",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "goals.version.publish",
-   "group": "workbench_goals",
-   "fixture": "tests/goal_fixture.py:register_goal_actions"
-  },
-  {
-   "stable_name": "Goal.propose",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "goals.agent.propose",
-   "group": "workbench_goals",
-   "fixture": "tests/goal_fixture.py:register_goal_actions"
-  },
-  {
-   "stable_name": "Control.set",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "goals.control.set",
-   "group": "workbench_goals",
-   "fixture": "tests/goal_fixture.py:register_goal_actions"
-  },
-  {
-   "stable_name": "Budget.set",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "goals.budget.set",
-   "group": "workbench_goals",
-   "fixture": "tests/goal_fixture.py:register_goal_actions"
-  },
-  {
-   "stable_name": "Contact.release",
-   "version": 1,
-   "object_types": [
-    "Consumer"
-   ],
-   "capability": "goals.contact.release",
-   "group": "workbench_goals",
-   "fixture": "tests/goal_fixture.py:register_goal_actions"
-  }
- ],
- "business_actions": [
-  {
-   "stable_name": "Consumer.edit",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Message.agent_create",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.context.strategy.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.context.audit",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.create",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.edit",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.cancel",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.extend",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.attest",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.condition_met",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "Commitment.mark_communication",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "CommercialRecord.create",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "CommercialRecord.edit",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "CommercialRecord.observe",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.plan.request_reevaluation",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.service.query_request",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.conversation.takeover",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.conversation.handback",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.message.staff_send",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.commitment.bind_commercial",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.cost.record",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer.erase",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer.erase_on_request",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.message.erase",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.retention.hold",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.retention.release_hold",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.alert.silence",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer.export",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.incentive.issue",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.restore.open_scope",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.real_dispatch.set",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.contact_key.revoke",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.effect.confirm_not_delivered",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer.set_persona",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer.erase_synthetic",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.operator_persona.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.operator_persona.assign",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.operator_persona.rules_publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.ai_disclosure.set",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.contact_preference.dismiss",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.outreach_controls.set",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.outreach_purposes.set",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.outreach.send",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.outreach.approve",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.approvals.decide",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.approvals.solo_mode.set",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.approvals.cancel",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.marketing_consent.record",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.object_set.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.semantic_release.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.semantic_release.rollback",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.semantic_release.stop",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.object_view.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.sim_world.create",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.sim_world.delete",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.sim_world.generate",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.sim_world.publish_catalog",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.sim_clock.control",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer_twin.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer_twin.retire",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer_twin.erase_text",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.consumer_twin.calibrate",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.strategy.publish",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.strategy.retire",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.experiment.register",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.experiment.start",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.experiment.stop",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.shadow_copy.set",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.experiment.report",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.workbench_member.issue_reset",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.workbench_member.invite",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.workbench_member.revoke_invitation",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.remediation.resolve",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.remediation.switch",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  },
-  {
-   "stable_name": "nexloop.remediation.rule_release",
-   "version": 1,
-   "source": "deploy/configuration/business-actions.v1.json"
-  }
- ],
- "functions": [
-  {
-   "stable_name": "nexloop.conversation.service_receipt",
-   "version": 1,
-   "object_types": [
-    "Consumer",
-    "Conversation",
-    "Message"
-   ],
-   "capability": "nexloop.conversation.receipts.read",
-   "fixture": "tests/test_conversation_effect_receipts.py:receipt_plan"
-  },
-  {
-   "stable_name": "nexloop.conversation.scope_denial",
-   "version": 1,
-   "object_types": [
-    "Consumer",
-    "Conversation",
-    "Message"
-   ],
-   "capability": "nexloop.conversation.scope_denials.read",
-   "fixture": "tests/test_scope_denials.py:denial_plan"
-  }
- ]
+  "schema_version": "nexloop-system-catalog-names/1",
+  "status": "draft list for T2 cross-check (T1); every entry version 1; capability names and workbench-goal object types marked to confirm are not final",
+  "object_types": [
+    {
+      "type_name": "Consumer",
+      "version": 1,
+      "source": "nexloop_eios.consumer_profile / consumer_resolution (to unify)"
+    },
+    {
+      "type_name": "Goal",
+      "version": 1,
+      "source": "effect_contexts.effect_plan_schemas"
+    },
+    {
+      "type_name": "PlanStep",
+      "version": 1,
+      "source": "effect_contexts.effect_plan_schemas"
+    },
+    {
+      "type_name": "EffectControl",
+      "version": 1,
+      "source": "effect_contexts.effect_plan_schemas"
+    },
+    {
+      "type_name": "Conversation",
+      "version": 1,
+      "source": "conversation_messages.conversation_schemas"
+    },
+    {
+      "type_name": "Message",
+      "version": 1,
+      "source": "conversation_messages.conversation_schemas"
+    },
+    {
+      "type_name": "ConsumerOwnership",
+      "version": 1,
+      "source": "conversation_messages.conversation_schemas"
+    },
+    {
+      "type_name": "MessageAssignment",
+      "version": 1,
+      "source": "message_relay.message_assignment_schema"
+    },
+    {
+      "type_name": "ServiceOffering",
+      "version": 1,
+      "source": "service_offerings.offering_schemas"
+    },
+    {
+      "type_name": "ConsumerServiceOffering",
+      "version": 1,
+      "source": "service_offerings.offering_schemas"
+    },
+    {
+      "type_name": "IncentiveOffering",
+      "version": 1,
+      "source": "incentives.offering_schemas"
+    },
+    {
+      "type_name": "ConsumerIncentiveOffering",
+      "version": 1,
+      "source": "incentives.offering_schemas"
+    },
+    {
+      "type_name": "RoleDefinition",
+      "version": 1,
+      "source": "role_mapping"
+    },
+    {
+      "type_name": "ConsumerRoleLink",
+      "version": 1,
+      "source": "role_mapping"
+    },
+    {
+      "type_name": "RoleExecutionCeiling",
+      "version": 1,
+      "source": "role_policies"
+    },
+    {
+      "type_name": "RoleAssignmentScope",
+      "version": 1,
+      "source": "role_policies"
+    },
+    {
+      "type_name": "ContextStrategy",
+      "version": 1,
+      "source": "deploy/ontology/system-object-types.v1.json"
+    },
+    {
+      "type_name": "ContextManifest",
+      "version": 1,
+      "source": "deploy/ontology/system-object-types.v1.json"
+    },
+    {
+      "type_name": "Commitment",
+      "version": 1,
+      "source": "deploy/ontology/business-object-types.v1.json"
+    },
+    {
+      "type_name": "CommercialRecord",
+      "version": 1,
+      "source": "deploy/ontology/business-object-types.v1.json"
+    }
+  ],
+  "system_actions": [
+    {
+      "stable_name": "nexloop.conversation.route",
+      "version": 1,
+      "object_types": [
+        "Conversation"
+      ],
+      "capability": "nexloop.conversation.route",
+      "group": "relay",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "nexloop.service.request",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "nexloop.service.request",
+      "group": "relay",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "Goal.create",
+      "version": 1,
+      "object_types": [
+        "Goal"
+      ],
+      "capability": "ontology.object.create",
+      "group": "relay",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "PlanStep.create",
+      "version": 1,
+      "object_types": [
+        "PlanStep"
+      ],
+      "capability": "ontology.object.create",
+      "group": "relay",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "MessageAssignment.create",
+      "version": 1,
+      "object_types": [
+        "MessageAssignment"
+      ],
+      "capability": "ontology.object.create",
+      "group": "relay",
+      "fixture": "nexloop_eios.message_assignment_contract:message_assignment_action"
+    },
+    {
+      "stable_name": "nexloop.plan.bind_effect_context",
+      "version": 1,
+      "object_types": [
+        "Consumer",
+        "Goal",
+        "PlanStep",
+        "EffectControl"
+      ],
+      "capability": "nexloop.plan.bind_effect_context",
+      "group": "relay",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "nexloop.context.bind",
+      "version": 1,
+      "object_types": [
+        "Consumer",
+        "Goal",
+        "PlanStep",
+        "EffectControl"
+      ],
+      "capability": "nexloop.context.bind",
+      "group": "relay",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "NexLoop.queue.operations",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "NexLoop.queue.operations",
+      "group": "relay",
+      "fixture": "tests/local_message_assembly_fixture.py:assembled_message"
+    },
+    {
+      "stable_name": "nexloop.service.scope_denial.record",
+      "version": 1,
+      "object_types": [
+        "Consumer",
+        "Goal",
+        "PlanStep",
+        "EffectControl"
+      ],
+      "capability": "nexloop.service.scope_denial.record",
+      "group": "relay",
+      "fixture": "tests/test_scope_denials.py:denial_plan"
+    },
+    {
+      "stable_name": "Conversation.create",
+      "version": 1,
+      "object_types": [
+        "Conversation"
+      ],
+      "capability": "ontology.object.create",
+      "group": "conversation",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "Message.create",
+      "version": 1,
+      "object_types": [
+        "Message"
+      ],
+      "capability": "ontology.object.create",
+      "group": "conversation",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "ConsumerOwnership.create",
+      "version": 1,
+      "object_types": [
+        "ConsumerOwnership"
+      ],
+      "capability": "ontology.object.create",
+      "group": "conversation",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "nexloop.conversation.read",
+      "version": 1,
+      "object_types": [
+        "Conversation"
+      ],
+      "capability": "nexloop.conversation.read",
+      "group": "conversation",
+      "fixture": "tests/message_runtime_fixture.py:message_plan"
+    },
+    {
+      "stable_name": "EffectControl.create",
+      "version": 1,
+      "object_types": [
+        "EffectControl"
+      ],
+      "capability": "ontology.object.create",
+      "group": "effect",
+      "fixture": "tests/runtime_effect_fixture.py:runtime_effect_plan"
+    },
+    {
+      "stable_name": "nexloop.effect.configure_control",
+      "version": 1,
+      "object_types": [
+        "EffectControl"
+      ],
+      "capability": "nexloop.effect.configure_control",
+      "group": "effect",
+      "fixture": "tests/runtime_effect_fixture.py:runtime_effect_plan"
+    },
+    {
+      "stable_name": "nexloop.service.query",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "nexloop.service.query",
+      "group": "effect",
+      "fixture": "tests/effect_execution_fixture.py:execution_plan"
+    },
+    {
+      "stable_name": "nexloop.service.receipt_reconcile",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "nexloop.service.receipt_reconcile",
+      "group": "effect",
+      "fixture": "tests/effect_execution_fixture.py:execution_plan"
+    },
+    {
+      "stable_name": "Goal.edit",
+      "version": 1,
+      "object_types": [
+        "Goal"
+      ],
+      "capability": "ontology.object.edit",
+      "group": "effect",
+      "fixture": "tests/effect_execution_fixture.py:execution_plan"
+    },
+    {
+      "stable_name": "EffectControl.edit",
+      "version": 1,
+      "object_types": [
+        "EffectControl"
+      ],
+      "capability": "ontology.object.edit",
+      "group": "effect",
+      "fixture": "tests/effect_execution_fixture.py:execution_plan"
+    },
+    {
+      "stable_name": "nexloop.enterprise.deliver",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "nexloop.enterprise.deliver",
+      "group": "effect",
+      "fixture": "tests/test_enterprise_slot_relay_pg.py:publish_enterprise_action"
+    },
+    {
+      "stable_name": "Consumer.create",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "ontology.object.create",
+      "group": "setup",
+      "fixture": "tests/test_postgres_action_claims.py:governance_inputs"
+    },
+    {
+      "stable_name": "ServiceOffering.create",
+      "version": 1,
+      "object_types": [
+        "ServiceOffering"
+      ],
+      "capability": "ontology.object.create",
+      "group": "setup",
+      "fixture": "tests/runtime_effect_fixture.py:install_runtime_catalog"
+    },
+    {
+      "stable_name": "ConsumerServiceOffering.create",
+      "version": 1,
+      "object_types": [
+        "ConsumerServiceOffering"
+      ],
+      "capability": "ontology.object.create",
+      "group": "setup",
+      "fixture": "tests/runtime_effect_fixture.py:install_runtime_catalog"
+    },
+    {
+      "stable_name": "RoleDefinition.create",
+      "version": 1,
+      "object_types": [
+        "RoleDefinition"
+      ],
+      "capability": "ontology.object.create",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "ConsumerRoleLink.create",
+      "version": 1,
+      "object_types": [
+        "ConsumerRoleLink"
+      ],
+      "capability": "ontology.object.create",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "RoleExecutionCeiling.create",
+      "version": 1,
+      "object_types": [
+        "RoleExecutionCeiling"
+      ],
+      "capability": "ontology.object.create",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "RoleAssignmentScope.create",
+      "version": 1,
+      "object_types": [
+        "RoleAssignmentScope"
+      ],
+      "capability": "ontology.object.create",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "ConsumerRoleLink.edit",
+      "version": 1,
+      "object_types": [
+        "ConsumerRoleLink"
+      ],
+      "capability": "consumer.edit",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "RoleExecutionCeiling.edit",
+      "version": 1,
+      "object_types": [
+        "RoleExecutionCeiling"
+      ],
+      "capability": "ontology.object.edit",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "RoleAssignmentScope.edit",
+      "version": 1,
+      "object_types": [
+        "RoleAssignmentScope"
+      ],
+      "capability": "ontology.object.edit",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "nexloop.context.bind_role",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "nexloop.context.bind_role",
+      "group": "role_run",
+      "fixture": "tests/role_run_fixture.py:role_runtime_plan"
+    },
+    {
+      "stable_name": "Metric.approve",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "goals.metric.approve",
+      "group": "workbench_goals",
+      "fixture": "tests/goal_fixture.py:register_goal_actions"
+    },
+    {
+      "stable_name": "Goal.publish",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "goals.version.publish",
+      "group": "workbench_goals",
+      "fixture": "tests/goal_fixture.py:register_goal_actions"
+    },
+    {
+      "stable_name": "Goal.propose",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "goals.agent.propose",
+      "group": "workbench_goals",
+      "fixture": "tests/goal_fixture.py:register_goal_actions"
+    },
+    {
+      "stable_name": "Control.set",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "goals.control.set",
+      "group": "workbench_goals",
+      "fixture": "tests/goal_fixture.py:register_goal_actions"
+    },
+    {
+      "stable_name": "Budget.set",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "goals.budget.set",
+      "group": "workbench_goals",
+      "fixture": "tests/goal_fixture.py:register_goal_actions"
+    },
+    {
+      "stable_name": "Contact.release",
+      "version": 1,
+      "object_types": [
+        "Consumer"
+      ],
+      "capability": "goals.contact.release",
+      "group": "workbench_goals",
+      "fixture": "tests/goal_fixture.py:register_goal_actions"
+    }
+  ],
+  "business_actions": [
+    {
+      "stable_name": "Consumer.edit",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Message.agent_create",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.context.strategy.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.context.audit",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.create",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.edit",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.cancel",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.extend",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.attest",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.condition_met",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "Commitment.mark_communication",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "CommercialRecord.create",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "CommercialRecord.edit",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "CommercialRecord.observe",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.plan.request_reevaluation",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.service.query_request",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.conversation.takeover",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.conversation.handback",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.message.staff_send",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.commitment.bind_commercial",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.cost.record",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer.erase",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer.erase_on_request",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.message.erase",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.retention.hold",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.retention.release_hold",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.alert.silence",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer.export",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.incentive.issue",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.restore.open_scope",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.real_dispatch.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.contact_key.revoke",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.effect.confirm_not_delivered",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer.set_persona",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer.erase_synthetic",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.operator_persona.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.operator_persona.assign",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.operator_persona.rules_publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.ai_disclosure.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.contact_preference.dismiss",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.outreach_controls.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.outreach_purposes.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.outreach.send",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.outreach.approve",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.approvals.decide",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.approvals.solo_mode.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.approvals.cancel",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.marketing_consent.record",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.object_set.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.semantic_release.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.semantic_release.rollback",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.semantic_release.stop",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.object_view.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.sim_world.create",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.sim_world.delete",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.sim_world.generate",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.sim_world.publish_catalog",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.sim_clock.control",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer_twin.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer_twin.retire",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer_twin.erase_text",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.consumer_twin.calibrate",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.strategy.publish",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.strategy.retire",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.experiment.register",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.experiment.start",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.experiment.stop",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.shadow_copy.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.experiment.report",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.issue_reset",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.invite",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.revoke_invitation",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.remediation.resolve",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.remediation.switch",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.remediation.rule_release",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.change_role",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.suspend",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.resume",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.revoke",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    }
+  ],
+  "functions": [
+    {
+      "stable_name": "nexloop.conversation.service_receipt",
+      "version": 1,
+      "object_types": [
+        "Consumer",
+        "Conversation",
+        "Message"
+      ],
+      "capability": "nexloop.conversation.receipts.read",
+      "fixture": "tests/test_conversation_effect_receipts.py:receipt_plan"
+    },
+    {
+      "stable_name": "nexloop.conversation.scope_denial",
+      "version": 1,
+      "object_types": [
+        "Consumer",
+        "Conversation",
+        "Message"
+      ],
+      "capability": "nexloop.conversation.scope_denials.read",
+      "fixture": "tests/test_scope_denials.py:denial_plan"
+    }
+  ]
 }
