@@ -119,13 +119,24 @@ def _trigger_sample(db, table, tenant):
 
 
 def _lock_probe(dsn, db, table, tenant, hold_seconds, lock='update'):
+    """How long the tenant-scoped insert waits while another transaction holds the tenant row, and whether it was blocked by
+    that transaction: observed with pg_blocking_pids from the holder (not inferred from the wait's length, which a loaded machine
+    stretches or shortens - test_tenant_fk_pg flaked on the 0.8 x hold threshold)."""
     holder = psycopg.connect(dsn)
-    ready = threading.Event()
+    ready, done = threading.Event(), threading.Event()
+    seen = {'blocked': False}
+    inserter = db.info.backend_pid
 
     def hold():
         with holder.transaction():
             holder.execute('select 1 from control.nexloop_tenants where tenant_id=%s for ' + {'update': 'update', 'no_key_update': 'no key update'}[lock], (tenant,))
             ready.set()
+            deadline = time.monotonic() + max(hold_seconds, 10.0)
+            while not done.is_set() and time.monotonic() < deadline:
+                if holder.execute('select pg_backend_pid()=any(pg_blocking_pids(%s))', (inserter,)).fetchone()[0]:
+                    seen['blocked'] = True
+                    break
+                time.sleep(0.01)
             time.sleep(hold_seconds)
 
     thread = threading.Thread(target=hold)
@@ -134,10 +145,11 @@ def _lock_probe(dsn, db, table, tenant, hold_seconds, lock='update'):
     start = time.perf_counter()
     db.execute(TABLES[table]['insert'], (TABLES[table]['key'](), tenant))
     waited = time.perf_counter() - start
+    done.set()
     thread.join()
     holder.close()
     db.execute(TABLES[table]['cleanup'])
-    return waited
+    return waited, seen['blocked']
 
 
 def measure(dsn, table, tenant, rows=2000, rounds=3, hold_seconds=0.3):
@@ -155,17 +167,18 @@ def measure(dsn, table, tenant, rows=2000, rounds=3, hold_seconds=0.3):
             report['rounds_detail'].append(detail)
         report['fk_trigger_sample'] = _trigger_sample(db, table, tenant)
         _set_fk(db, table, False)
-        no_fk_wait = _lock_probe(dsn, db, table, tenant, hold_seconds)
+        no_fk_wait, no_fk_blocked = _lock_probe(dsn, db, table, tenant, hold_seconds)
         _set_fk(db, table, True)
-        fk_wait = _lock_probe(dsn, db, table, tenant, hold_seconds)
+        fk_wait, fk_blocked = _lock_probe(dsn, db, table, tenant, hold_seconds)
         # The proposed 0050 change: FOR NO KEY UPDATE does not conflict with the foreign key check's FOR KEY SHARE.
-        no_key_wait = _lock_probe(dsn, db, table, tenant, hold_seconds, lock='no_key_update')
+        no_key_wait, no_key_blocked = _lock_probe(dsn, db, table, tenant, hold_seconds, lock='no_key_update')
         for statement in spec.get('teardown', ()):
             db.execute(statement, (tenant,))
         report['lock_probe'] = {'tenant_row_lock_held_s': hold_seconds, 'insert_wait_without_fk_s': round(no_fk_wait, 4),
-                                'insert_wait_with_fk_s': round(fk_wait, 4), 'blocked_by_for_update': fk_wait >= hold_seconds * 0.8,
+                                'insert_wait_with_fk_s': round(fk_wait, 4), 'blocked_by_for_update': fk_blocked,
                                 'insert_wait_with_fk_under_no_key_update_s': round(no_key_wait, 4),
-                                'blocked_by_for_no_key_update': no_key_wait >= hold_seconds * 0.8}
+                                'blocked_by_for_no_key_update': no_key_blocked,
+                                'blocked_without_fk': no_fk_blocked}
     for variant in ('without_fk', 'with_fk'):
         report[variant] = {k: statistics.median(r[variant][k] for r in report['rounds_detail']) for k in ('median_us', 'p95_us')}
     ratio = {k: report['with_fk'][k] / report['without_fk'][k] for k in ('median_us', 'p95_us')}
