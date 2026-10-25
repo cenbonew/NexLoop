@@ -195,10 +195,32 @@ v13（第二十二批，L7）包含 v12 的全部主机规则，另外加了 `ti
 
 1. 两台主机都执行 `systemctl list-timers nexloop-host-health.timer`，下一次运行时间不超过 1 分钟；`journalctl -u nexloop-host-health -n 5` 中每分钟一行 `"recorded": true`，没有 `<3>` 行。
 2. 以 metrics 只读角色读快照的 `host_health` 块：`probe_age_seconds` 中 `app_host`、`data_host` 都在 120 秒以内；`blind` 都为 0；`missing_units` 都为 0。任何主机缺键，说明它从未写入（S2），要先排查再继续。
-3. **崩溃循环演练**：在 APP_HOST 对一个 sim 容器连续执行 3 次 `docker restart <sim 容器>`（sim 组，不影响 real）。
-   - 下一次评估后 `crash_loop`（`app_host:<名称>`）触发；
-   - 探针的 journal 中出现 `<3>nexloop-host-health crash_loop` 一行，这是不依赖 PG 的本地通道；
-   - 停止重启后 1 小时内恢复。
+3. **崩溃循环演练**（APP_HOST，调度员）：用一个一次性的演练容器，不碰任何现有服务。
+   - 为什么不能用现有容器：
+     - `docker restart` 是手动重启，RestartCount 不增加，容器 Id 也不变，探针看不到任何重启；
+     - `docker kill` 被 docker 当成手动停止，重启策略为 on-failure 的容器（sim 组）会停在 exited，不会自动拉起（stage 2026-10-25 试过：sim-world-files 因此停了约 40 秒）。
+
+     只有容器自己以非零码退出、再由 docker 按重启策略拉起，RestartCount 才会增加。
+   - **a. 起演练容器**：用本机已有的 backend 镜像，不需要拉取；不联网、只读、去掉全部 capability、无挂载。每次运行 50 秒后以退出码 1 结束，最多重启 5 次，跨越约 5 个探针周期，这样探针能看到 RestartCount 逐次增加。如果所有重启都发生在第一次采样之前，基线里已经包含了它们，增量为 0，告警不会触发。
+
+     ```
+     docker run -d --name nexloop-hh-drill --label nexloop.drill=host-health --restart=on-failure:5 \
+       --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 \
+       --entrypoint sh "$BACKEND_IMAGE" -c 'sleep 50; exit 1'
+     ```
+   - **b. 让探针看到它**（紧接着 a，在第一次退出之前完成）：
+     1. 复制一份 APP_HOST 的安装配置，在 `probe.containers` 中加入 `{"name": "hh-drill", "container": "nexloop-hh-drill"}`；
+     2. 用这份配置重跑 4.4 的安装命令。安装是幂等的，只会重写 `/etc/nexloop/host-health.json`，并在 unit 沙箱里做一次 dry-run，dry-run 摘要中的 `units` 会多 1。
+   - **c. 预期**（约 3–5 分钟内）：
+     - 快照 `host_health.restarts_1h` 中 `app_host:hh-drill` 增长到 3 以上，并且 `missing_units` 中 `app_host:hh-drill` 为 0；
+     - 下一次评估后，`crash_loop`（critical，selector `app_host:hh-drill`）触发；
+     - 不依赖 PG 的本地通道：`journalctl -p err -u nexloop-host-health` 中出现 `<3>nexloop-host-health crash_loop host=app_host unit=hh-drill restarts=3`（窗口 900 秒，阈值 3）；
+     - 5 次重启之后，容器停在 exited（`docker inspect -f '{{.RestartCount}} {{.State.Status}}' nexloop-hh-drill` 显示 `5 exited`），之后不再增长。
+   - **d. 收尾**（顺序不能反）：
+     1. 用原来的安装配置重跑 4.4，把 `hh-drill` 从探针配置中撤掉。必须先做这一步，否则探针还在期望这个容器，删掉容器会触发 `host_unit_missing`。
+     2. `docker rm -f nexloop-hh-drill`。
+     3. `crash_loop` 的恢复：最近一小时的样本过期后，`restarts_1h` 中 `app_host:hh-drill` 就会消失，告警在这之后恢复，最长约 1 小时。这是演练的正常尾巴，不用处理。
+     4. 核对：`docker ps -a --filter label=nexloop.drill=host-health` 为空；下一次 tick 中，`missing_units` 不再含 `hh-drill`。
 4. **手工补跑不算定时**：在 DATA_HOST 执行一次 `systemctl start nexloop-restic-maint.service`。`timer_success_age_seconds` 中 `data_host:restic-maint` 不应因此变小；台账中这一行 `scheduled=false`。
 5. **fail closed**：首次启用后，没有定时成功记录的 timer，其 age 从首次期望时起算。例如每周一次的 pg-full 在下一个周日之前会一直增长，但不会超过它的阈值 7 天 2 小时；超过就说明该 timer 确实没有成功跑过。
 
