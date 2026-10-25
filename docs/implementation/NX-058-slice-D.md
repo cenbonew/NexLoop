@@ -68,9 +68,9 @@ Runbook (lost response, R3 §8.4): a retry replays without the code or token; ch
 - Username case: slice D3 compares `lower(username)` like slice A; the approval view's `same_username_exists` (0342, B1) compares exactly - left to L3.
 - **S-D3b-1**: `control.nexloop_approval_executed_for(tenant, approval, capability)`: an owner code redeems only on an executed `issue_owner_reset` approval, an owner invitation is accepted only on an executed `invite_owner` approval (tested: another capability's executed approval, an approved one never executed, one refused at execution).
 
-## Slice E1 — staff offboarding erasure (0349)
+## Slice E1 — staff offboarding erasure (0352)
 
-See `docs/design/nx058-member-erasure.md` v2.4 and `docs/implementation/erasure-coverage.md` (NX-058 片 E). Migration `0349_member_erasure.sql` (temporary number) on the batch 28 rehearsal 01e08d0c: capability `workbench_member.erase_member` (target statuses `{revoked}`), the permanent erasure ledger, the deletion ledger kind and its replay, the shared erase write, the handler, the approval view's erased (ledger and the erased- invitee) and the request guard's invite_owner username rewrite (copy guard), the erased- username guard and the configuration guard; approval policies version 4 (version 3 kept as history). Manifests: Actions 124, owner 90. The 90-day login digest clearing (retention verb) is slice E2.
+See `docs/design/nx058-member-erasure.md` v2.4 and `docs/implementation/erasure-coverage.md` (NX-058 片 E). Migration `0352_member_erasure.sql` (renumbered from the temporary 0349 at the rebase onto main e8a22d72): capability `workbench_member.erase_member` (target statuses `{revoked}`), the permanent erasure ledger, the deletion ledger kind and its replay, the shared erase write, the handler, the approval view's erased (ledger and the erased- invitee) and the request guard's invite_owner username rewrite (copy guard), the erased- username guard and the configuration guard; approval policies version 4 (version 3 kept as history). Manifests: Actions 124, owner 90. The 90-day login digest clearing (retention verb) is slice E2.
 
 ### E1 review follow-up (L6)
 
@@ -81,7 +81,7 @@ See `docs/design/nx058-member-erasure.md` v2.4 and `docs/implementation/erasure-
 - `sessions` counts deleted sessions (not token realm rows). New accounts with an `erased-` username are refused too (trusted configuration's initial accounts, acceptance).
 - New tests: replay without a consumption record, replay before the revocation, target_is_requester, a waiting namesake invite_owner request left as is, the account-insert guard.
 
-**Read-only check for stage before applying 0349** (the migration's own self-check; every column must be 0):
+**Read-only check for stage before applying 0352** (the migration's own self-check; every column must be 0):
 
 ```sql
 begin transaction read only;
@@ -95,10 +95,10 @@ rollback;
 ```
 
 Run it as a role that bypasses row-level security (these tables force RLS per tenant); with an ordinary owner role, `set local eios.tenant_id` per tenant first.
-- (Follow-up) The real restore path keeps the executor too: the restore tool calls `runtime.nexloop_restore_replay` (0154's wrapper), whose inner `runtime.nexloop_restore_replay_before_contact_keys_v0240` (0147's body, never redefined since) rebuilt deletion entries from a fixed field list; 0349 re-creates it with `actor` added (copy guard). Tested end to end through `restore_begin` and `restore_replay` with the erasure row and the consumption gone; removing the key fails the test.
+- (Follow-up) The real restore path keeps the executor too: the restore tool calls `runtime.nexloop_restore_replay` (0154's wrapper), whose inner `runtime.nexloop_restore_replay_before_contact_keys_v0240` (0147's body, never redefined since) rebuilt deletion entries from a fixed field list; 0352 re-creates it with `actor` added (copy guard). Tested end to end through `restore_begin` and `restore_replay` with the erasure row and the consumption gone; removing the key fails the test.
 - (Follow-up) `control.nexloop_initial_identity_create` (0162's body) refuses a receipt of an erased subject with 42501 (`initial identity erased`), not the retryable 40001 conflict; the comment on the fingerprint overwrite now says what changed (a silent return of the old ids became a refusal).
 
-## Slice E2 — 90-day clearing of failed-login snapshots (0350)
+## Slice E2 — 90-day clearing of failed-login snapshots (0353)
 
 Inventory (design §2.5): login events hold no source or username digests; the identifying values are the plaintext `username` and `verified_email` copied into failed-login events' `result_snapshot` (0023). E6 = A: `control.nexloop_workbench_member_login_clear(tenant, limit)` pseudonymises those two keys for members erased 90 days ago or more, oldest first, skip locked, once per subject (`control.nexloop_workbench_member_login_clearances`, append-only); the retention keeper runs it (`authz.nexloop_retention_command` verb `member_login_clear`, copy guard; `RetentionPort.member_login_clear`; `run_once` summary `member_logins_cleared`, `member_login_events`, `member_login_failed` - a failure is counted). Cost: 0023's failure receipt comparison does not depend on when the request was made - once the clearing has run, a replay of the same request id of those events no longer matches; the clearing runs only once the erasure is 90 days old. After a restore the erasure replay restores the ledger's time and the next run redoes a lost clearance.
 

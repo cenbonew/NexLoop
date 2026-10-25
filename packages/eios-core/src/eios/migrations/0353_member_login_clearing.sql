@@ -10,7 +10,7 @@
 -- * authz.nexloop_retention_command (0328): verb member_login_clear (the retention keeper's run_once step). Copy guard.
 -- * Cost (design §2.5, erasure-coverage.md): 0023's failure receipt comparison no longer matches those events - only a replay of the same
 --   request id 90 days or more later.
--- * After a restore: the erasure replay (0349) brings the erasure ledger back with its original time; a clearance missing from the restored
+-- * After a restore: the erasure replay (0352) brings the erasure ledger back with its original time; a clearance missing from the restored
 --   database is simply redone by the next run (no deletion ledger entry needed).
 set local timezone = 'UTC';
 
