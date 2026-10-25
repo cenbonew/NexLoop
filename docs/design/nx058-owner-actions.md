@@ -1,8 +1,8 @@
 # 设计稿｜NX-058 片 D：owner 专用成员 Action（接 NX-056 审批）
 
-第 2 版，2026-10-25，L2。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
+第 2.1 版，2026-10-25，L2（目标展示接口以 L3 起草的 ADR-039 修订稿为唯一来源，通过后按它同步本文 §1、§6）。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
 
-上位设计是 `docs/design/account-self-service.md` 第 7 版（下称“自助设计”）的 §1b、§2、§7、§9（AA6）；这里只写落地方式和需要确认的点，不重复上位设计已确定的规则。实现基于第二十六批合入后的 main（片 C 为 0340/0341，NX-056 为 0326–0332，L3 为 0339），并以片 C 的 X1 修复（a80c77aa、fc012e6e：drift 检查在写事务内、先取成员锁）为**前置条件**（I7）。迁移号临时，由 L4 组批时重编。
+上位设计是 `docs/design/account-self-service.md` 第 7 版（下称“自助设计”）的 §1b、§2、§7、§9（AA6）；这里只写落地方式和需要确认的点，不重复上位设计已确定的规则。实现基线：第二十六批合入后的 main。届时片 C 的迁移编号为 0340（`workbench_member_changes`）、0341（`governed_authority_change`），NX-056 为 0326–0332，L3 的跟进为 0339；本文所说的 0340/0341 都指这一编号，并以片 C 的 X1 修复（a80c77aa、fc012e6e：drift 检查在写事务内、先取成员锁）为**前置条件**（I7）。迁移号临时，由 L4 组批时重编。
 
 ## 0. 范围与可批准条件
 
@@ -36,7 +36,7 @@
 **目标的展示（K1，接口约定，需 L3 同意并补入 ADR-039）**：批准人必须看清要变更的是谁，但目标不进 summary、不进审计正文。约定 NX-056 审批视图（`runtime.nexloop_approval_view_row` 及其列表/详情读口）新增字段 `target_member`：
 
 - 只对声明了 `target_subject_field` 的策略输出；值由服务端在读取时解析：`control.nexloop_approval_target_subject` → 该 subject 在本租户的成员显示标签（工作台显示名；无显示名时 principal 的脱敏形式，前 4 位 + `…`）与当前角色、状态。
-- 只对“当前持有该策略批准角色的 active 成员”（即 owner）输出；请求人本人看自己的请求时也输出；其他读者为 null。
+- 只对“当前持有该策略批准角色的 active 成员”（即 owner）输出；请求人本人看自己的请求时也输出。
 - 读时解析，不落库：成员被擦除或改名后，视图跟着变（I10 擦除）。
 - `invite_owner` 的 username：**负责人二选一**（D7）。建议同样经 `target_member` 式的读时字段只给 owner 批准人看（`invitee_username`）；备选是不展示，批准人线下与请求人核对。
 
@@ -62,7 +62,7 @@
 
 自助设计 §9 AA6 已定：`vote_eligible_from` 由 NX-056 在决定时和消费时都调用，不限于 owner 策略。第 1 版的 D1 不再是开放问题。
 
-- 新增只读函数 `control.nexloop_workbench_vote_eligible_from(tenant, subject, roles[]) returns timestamptz`：按 `control.nexloop_workbench_role_history`，取该 subject **当前这段连续持有 roles 并集**的起点加 24 小时；当前不持有并集内任何角色返回 null。并集内换角色不中断，全部停止（含停用）后再开始就重新计时（Z4）。owner 策略的并集只有 owner，所以被提升的成员对 owner 策略从提升时刻起算。
+- 新增只读函数 `control.nexloop_workbench_vote_eligible_from(tenant, world, subject, roles[]) returns timestamptz`（world 对工作台成员固定为 `real`，与 NX-056 按 (tenant, world) 计数对齐，Z4）：按 `control.nexloop_workbench_role_history`，取该 subject **当前这段连续持有 roles 并集**的起点加 24 小时；当前不持有并集内任何角色返回 null。并集内换角色不中断，全部停止（含停用）后再开始就重新计时（Z4）。owner 策略的并集只有 owner，所以被提升的成员对 owner 策略从提升时刻起算。
 - `nexloop_approval_approver_eligible` 重定义（copy guard 登记）：原条件之外加 `vote_eligible_from(...) <= clock_timestamp()`。决定时（decide 拒收）和消费时（valid_votes 不计入）都经过它。
 - **上线影响（I3，写入上线手册和告警说明）**：存量成员的历史起点是片 A `role_history_sync` 在部署时补的 `start`，所以**部署后 24 小时内所有审批策略都批不了**，包括首批三条（`real_dispatch.set` 开启、`consumer.erase`、`retention.release_hold`）。上线时间点需与负责人确认，避开需要审批的时段；期间只能走运维通道。新加入的批准人同样 24 小时后才能投票。
 - §8 的 Python 参照实现覆盖：并集内切换、中途停用后恢复、存量 start 行、多次进出（S4）。
