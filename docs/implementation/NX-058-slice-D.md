@@ -37,3 +37,9 @@ Migration `0344_owner_member_actions.sql` (temporary number), on the batch 26+27
 Known gaps (next slice): `issue_owner_reset` and `invite_owner` — the workbench HTTP layer draws the code or token and puts its HMAC in the body, which becomes part of the approval digest, so the resubmission (a new code) never matches the approved request; needs an NX-056 decision (digest without those fields, or the code drawn at execution). A demoted owner's own waiting requests are not ended at once (the entry refuses executing them: the grant is gone); `requester_no_longer_eligible`, `quorum_unreachable` at open and the refusal reason codes wait for L3 (design D8). The last-owner check cannot fire through the handler today (the requester is itself an active owner other than the target); it stays as a guard.
 
 Runbook order: publish the five Actions, then apply approval policies version 2 (dry-run, apply, compare sha256); before that the Actions answer `approval_unavailable`. NX-056 B1 must be live before enabling (design §0).
+
+### D2 review follow-up (L6)
+
+- `approval_open`: promote_owner never opens for a suspended member (the suspended exception is for the other owner-only Actions).
+- Ending an owner's unused invitations writes one audit event per invitation (`nexloop.workbench_member.invitation_ended`, id and reason only).
+- New tests: two approved suspensions of one owner executed on two connections (one executes, the other is refused after the lock or retries a transient error and is then refused); promotion ends the target's reset codes; a demoted active owner takes the new role's grants and history; a suspended owner's invitations end with audit; the last-owner count (active owners but the target).
