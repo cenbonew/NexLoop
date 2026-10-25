@@ -95,16 +95,17 @@ class RelationBackfill:
             self.quiet()
             try:
                 got=self.port.batch(run_id,source_type,world,after,size)
-            except psycopg.OperationalError as error:
-                # S-10: the result is unknown; the same intent again replays it if the batch committed, or runs it if it did not.
-                unknown+=1
-                if unknown>UNKNOWN_RESULT_RETRIES:raise
-                self.emit(event='retry',source_type=source_type,world=world,code=getattr(error,'sqlstate',None) or 'connection');self.sleep(2*self.pause_ms/1000);continue
             except RETRY as error:
                 self.emit(event='retry',source_type=source_type,world=world,code=error.sqlstate);self.sleep(2*self.pause_ms/1000);continue
             except psycopg.errors.QueryCanceled:
                 size=max(50 if limit>=50 else limit,size//2);self.emit(event='retry',source_type=source_type,world=world,code='57014',batch=size)
                 self.sleep(2*self.pause_ms/1000);continue
+            except psycopg.OperationalError as error:
+                # S-10, after the subclasses above (L6 C-2: 55P03, 40001, 40P01 and 57014 are OperationalErrors too): the result
+                # is unknown; the same intent again replays it if the batch committed, or runs it if it did not.
+                unknown+=1
+                if unknown>UNKNOWN_RESULT_RETRIES:raise
+                self.emit(event='retry',source_type=source_type,world=world,code=getattr(error,'sqlstate',None) or 'connection');self.sleep(2*self.pause_ms/1000);continue
             if 'stopped' in got:
                 self.emit(event='stopped',state=got['stopped'],reason=got.get('reason'));return 'stopped'
             unknown=0

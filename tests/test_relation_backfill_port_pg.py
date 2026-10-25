@@ -111,11 +111,23 @@ def no_slow_derivation(admin):
     admin.execute('drop trigger if exists nexloop_bf_slow_row on control.nexloop_relation_backfill_created')
 
 
-def edit_lock(pg, consumer, result, delay):
-    """The governed edit's commit takes the edited object FOR UPDATE under the real paths' lock_timeout (3000 ms default). A
-    monitor records whether the backfill session blocked it (pg_blocking_pids), not inferred from the wait."""
-    time.sleep(delay)
+def held_by_backfill(monitor, consumer):
+    """L6 I-7: the backfill session holds the Consumer's row lock now (pgrowlocks: KEY SHARE by a nexloop_domain_worker pid)."""
+    return monitor.execute("""select exists(select 1 from pgrowlocks('ontology.objects') l join ontology.objects o on o.ctid=l.locked_row
+        where o.object_id=%s and l.pids && array(select pid from pg_stat_activity where usename='nexloop_domain_worker'))""", (consumer,)).fetchone()[0]
+
+
+def edit_lock(pg, consumer, result):
+    """The governed edit's commit takes the edited object FOR UPDATE under the real paths' lock_timeout (3000 ms default), once
+    the backfill holds the Consumer (polled, not slept). A monitor records whether the backfill session blocked it
+    (pg_blocking_pids), not inferred from the wait."""
     with psycopg.connect(pg) as db, psycopg.connect(pg, autocommit=True) as monitor:
+        deadline = time.monotonic() + 5
+        while not held_by_backfill(monitor, consumer):
+            if time.monotonic() > deadline:
+                result['never_held'] = True
+                return
+            time.sleep(0.01)
         db.execute("set lock_timeout='3000ms'")
         pid, blockers = db.info.backend_pid, set()
         watching = threading.Event()
@@ -145,6 +157,7 @@ def backfill_pids(pg):
 
 
 def b_first(port):
+    port['admin'].execute('create extension if not exists pgrowlocks')
     """Every Goal of the seed names b, so the batch takes b's KEY SHARE at its first object (well before the edit starts)."""
     port['admin'].execute("update ontology.objects set properties=jsonb_build_object('consumer_id',%s::text) where type_name='Goal' and properties->>'consumer_id'=%s",
                           (port['b'], port['a']))
@@ -158,7 +171,7 @@ def test_v1_a_bounded_batch_blocks_an_edit_briefly_and_v4_stays_under_one_second
     slow_derivation(admin, 0.2)  # each relation the batch creates: 0.2 s more, so the batch meets the 750 ms early commit
     try:
         result = {}
-        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result, 0.3))
+        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result))
         worker.start()
         got = p.batch('run-1', 'Goal', 'real', '', 200)
         worker.join(10)
@@ -189,7 +202,7 @@ def test_v1_control_group_both_bounds_lifted_fails_the_edit(port, admin, pg):
     loose._prepare = lambda db, payload: db.execute("select set_config('statement_timeout','5s',true)")
     try:
         result = {}
-        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result, 0.3))
+        worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result))
         worker.start()
         got = loose.batch('run-1', 'Goal', 'real', '', 200)
         worker.join(10)
@@ -197,6 +210,8 @@ def test_v1_control_group_both_bounds_lifted_fails_the_edit(port, admin, pg):
         no_slow_derivation(admin)
         for d in originals.values():
             admin.execute(d)
+    restored = {f: admin.execute(f"select pg_get_functiondef('{f}'::regprocedure)").fetchone()[0] for f in originals}
+    assert restored == originals  # the test-only redefinitions are gone
     assert got['early'] is False and got['elapsed_ms'] > 3000
     assert result['ok'] is False and result['waited'] >= 2.9 and result['blockers']
 
@@ -285,3 +300,45 @@ def test_complete_and_abort_give_up_on_a_held_lock_within_the_ports_lock_timeout
             assert time.monotonic() - t0 < 0.9
         other.rollback()
     assert p.status('run-1')['state'] == 'running'
+
+
+def flaky(p, errors):
+    """A port whose batch raises the given errors, one per call, before it calls the real batch; the sizes asked are kept."""
+    sizes = []
+
+    class Flaky:
+        def __getattr__(self, name):
+            real = getattr(p, name)
+            if name != 'batch':
+                return real
+
+            def batch(*args):
+                sizes.append(args[4])
+                if errors:
+                    raise errors.pop(0)
+                return real(*args)
+            return batch
+    return Flaky(), sizes
+
+
+def test_a_statement_timeout_halves_the_next_batch(port):
+    """L6 C-2: 57014 is an OperationalError; it halves the batch (it is not taken for an unknown result)."""
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    f, sizes = flaky(p, [psycopg.errors.QueryCanceled('canceling statement due to statement timeout')])
+    out = io.StringIO()
+    assert B.RelationBackfill(f, out=out, sleep=lambda s: None, consumer_batch=100).run('run-1') == 0
+    assert sizes[1] == sizes[0] // 2
+    assert json.loads(out.getvalue().splitlines()[0])['code'] == '57014'
+
+
+def test_retryable_errors_go_on_past_the_unknown_result_limit(port):
+    """L6 C-2: 55P03 / 40001 / 40P01 retry the batch however often; they never count as unknown results."""
+    p = port['port']
+    p.start('run-1', p.preflight()['digest'])
+    errors = [psycopg.errors.LockNotAvailable('x'), psycopg.errors.SerializationFailure('x'), psycopg.errors.DeadlockDetected('x')] * 3
+    f, sizes = flaky(p, errors)
+    out = io.StringIO()
+    assert B.RelationBackfill(f, out=out, sleep=lambda s: None).run('run-1') == 0  # 9 > UNKNOWN_RESULT_RETRIES, still done
+    assert len({s for s in sizes[:10]}) == 1  # same size: never halved
+    assert [json.loads(x)['code'] for x in out.getvalue().splitlines()[:9]] == ['55P03', '40001', '40P01'] * 3
