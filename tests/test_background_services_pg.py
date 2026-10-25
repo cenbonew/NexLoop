@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
 from nexloop_eios import background_services as B
 from test_service_grants_pg import TENANT,deployment,private  # noqa: F401
+from support.service_stderr import service_stderr
 
 ROOT=Path(__file__).resolve().parents[1]
 SYNTHETIC_RECIPE={'consumer_id':'a'*64,'control_id':'b'*64,'control_revision':1,'consumer_revision':1,'valid_until':'2099-01-01T00:00:00+00:00',
@@ -87,7 +88,7 @@ def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,
     assert B.main_for(service,argv(d,tmp_path,service))==0
     out,err=capsys.readouterr()
     lines=out.strip().splitlines()
-    assert lines[0]==B.SERVICES[service][0]+' ready' and json.loads(lines[1])==expected and err==''
+    assert lines[0]==B.SERVICES[service][0]+' ready' and json.loads(lines[1])==expected and service_stderr(err)==''
     assert not any(secret in out+err for secret in hidden(d))
 
 
@@ -110,7 +111,7 @@ def test_wrong_role_or_revoked_credential_fails_closed_with_fixed_text(deploymen
     # A domain-worker service process given the API role DSN refuses to start.
     assert B.main_for('recall-indexer',argv(d,tmp_path,'recall-indexer',role='nexloop_api'))==1
     out,err=capsys.readouterr()
-    assert out=='' and err=='Recall Indexer unavailable\n'
+    assert out=='' and service_stderr(err)=='Recall Indexer unavailable\n'
     # The scheduler principal holds no recall-instance feed authority: the tick fails, nothing leaks.
     args=argv(d,tmp_path,'recall-indexer')
     scheduler=next(p for p in d['manifest']['principals'] if p['role']=='claim_extraction_scheduler')['credential_reference']
@@ -124,7 +125,7 @@ def test_invalid_arguments_never_echo(capsys):
     with pytest.raises(SystemExit) as exit_:B.main_for('claim-matcher',['--database-url-file','postgresql://user:secret-password@host/db','--world','shadow'])
     assert exit_.value.code==2
     out,err=capsys.readouterr()
-    assert err=='Claim Matcher configuration unavailable\n' and 'secret-password' not in out+err
+    assert service_stderr(err)=='Claim Matcher configuration unavailable\n' and 'secret-password' not in out+err
 
 
 def test_plan_reevaluator_launch_backend_must_be_the_api_role(deployment,tmp_path,capsys):
@@ -134,7 +135,7 @@ def test_plan_reevaluator_launch_backend_must_be_the_api_role(deployment,tmp_pat
     (tmp_path/'plan-reevaluator'/'api_database_url').write_text(make_conninfo(d['pg'],user='nexloop_domain_worker'))
     assert B.main_for('plan-reevaluator',args)==1
     out,err=capsys.readouterr()
-    assert out=='' and err=='Plan Reevaluator unavailable\n'
+    assert out=='' and service_stderr(err)=='Plan Reevaluator unavailable\n'
     with pytest.raises(SystemExit) as exit_:B.main_for('plan-reevaluator',argv(d,tmp_path,'plan-reevaluator')[:-2]+['--effect-action','not an action'])
     assert exit_.value.code==2
 
@@ -149,7 +150,7 @@ def test_reply_guarantor_refuses_to_start_when_the_fallback_cannot_finish_inside
     with pytest.raises(ValueError,match='reply window'):load_reply_policy(bad)
     assert B.main_for('reply-guarantor',argv(d,tmp_path,'reply-guarantor',policy=bad))==1
     out,err=capsys.readouterr()
-    assert out=='' and err=='Reply Guarantor unavailable\n'
+    assert out=='' and service_stderr(err)=='Reply Guarantor unavailable\n'
 
 
 def publish_loopback_incentive(admin,d):
@@ -195,7 +196,7 @@ def test_incentive_issuer_entry_admits_an_accepted_intent_and_issues_it_once(dep
             (TENANT,consumer,offering,binding))
     assert B.main_for('incentive-issuer',argv(d,tmp_path,'incentive-issuer'))==0
     out,err=capsys.readouterr();lines=out.strip().splitlines()
-    assert lines[0]=='Incentive Issuer ready' and json.loads(lines[1])=={'admitted':1,'failed':0,'fulfilled':1,'refused':0,'unknown':0} and err==''
+    assert lines[0]=='Incentive Issuer ready' and json.loads(lines[1])=={'admitted':1,'failed':0,'fulfilled':1,'refused':0,'unknown':0} and service_stderr(err)==''
     assert admin.execute("select state from runtime.nexloop_incentive_issues where intent_id='incentive-wiring-1'").fetchone()==('fulfilled',)
     assert admin.execute("select amount::text from control.nexloop_budget_consumption where consumption_id='incentive:incentive-wiring-1'").fetchone()==('300',)
     assert len(list((tmp_path/'incentive-ledger').glob('*.json')))==1
