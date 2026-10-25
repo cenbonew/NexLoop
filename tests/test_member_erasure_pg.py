@@ -262,3 +262,48 @@ def test_the_real_restore_path_keeps_the_executor(owners, admin):
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
     assert admin.execute('select erased_by_principal,approval_id::text from control.nexloop_workbench_member_erasures where subject_id=%s', (c['third']['subject_id'],)).fetchone() == (
         c['owner_member']['principal_id'], approval)
+
+
+def test_no_column_of_the_database_keeps_an_erased_members_username_email_or_password_hash(owners, admin):
+    """Design §2.6 (the staff version of tests/test_erasure_whole_database_pg.py): a member who joined by invitation (the username went
+    through the governed command path), failed a login, was revoked and erased. Every text column of the whole database is searched for the
+    original username (as a whole value or a JSON string), email and password hash: only the failed-login snapshots hold them, until the
+    90-day clearing (slice E2), after which nothing does."""
+    import re
+    from commercial_fixture import publish_registry_actions
+    from test_erasure_whole_database_pg import CANNOT_HOLD, COLUMNS, SEARCHED
+    c = owners
+    with_policies(c)
+    publish_registry_actions(admin, ('nexloop.workbench_member.revoke',))
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
+        token = act(client, csrf, 'invite_workbench_member', {'username': 'leaving-joiner', 'role': 'operator', 'expires_in_hours': 24}).json()['token']
+        assert accept(client, {'token': token, 'password': 'a-good-password-1'}).status_code == 200
+        assert workbench_login(client, {'username': 'leaving-joiner', 'password': 'not-the-password-1'}).status_code == 401  # a failed login
+    principal, subject, hashed, email = admin.execute("""select m.principal_id,m.subject_id,a.password_hash,a.payload->>'verified_email'
+        from control.nexloop_browser_accounts a join control.nexloop_browser_memberships m using (subject_id) where a.username='leaving-joiner'""").fetchone()
+    member = {'principal_id': principal, 'subject_id': subject}
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
+        assert act(client, csrf, 'revoke_workbench_member', {'target_principal': principal, 'reason': 'synthetic departure'}).status_code == 200
+    assert erase(c, member).json()['erased'] is True
+    patterns = ['leaving-joiner', '%"leaving-joiner"%', '%' + email + '%', '%' + hashed + '%']
+
+    def hits():
+        found = {}
+        for schema, table, column, kind in admin.execute(COLUMNS).fetchall():
+            if not re.match(SEARCHED, kind):
+                assert re.match(CANNOT_HOLD, kind), (schema, table, column, kind)
+                continue
+            text = f"encode(x.\"{column}\",'escape')" if kind == 'bytea' else f'x."{column}"::text'
+            n = admin.execute(f'select count(*) from "{schema}"."{table}" x where {text} like any(%s)', (patterns,)).fetchone()[0]
+            if n:
+                found[(f'{schema}.{table}', column)] = n
+        return found
+    assert hits() == {('control.nexloop_browser_login_events', 'details'): 1}  # the failed login's snapshot, until the 90-day clearing
+    with admin.transaction():  # 90 days later (replica mode moves the append-only ledger's time; test only)
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("update control.nexloop_workbench_member_erasures set erased_at=erased_at-interval '91 days' where subject_id=%s", (subject,))
+    assert admin.execute('select control.nexloop_workbench_member_login_clear(%s,100)', (TENANT,)).fetchone()[0] == {'subjects': 1, 'events': 1}
+    assert hits() == {}

@@ -474,6 +474,8 @@ REGISTRY = [
             ((r",'actor',e->'actor'\)\);  -- NX-058 slice E: the executor", "));"),)),
     Allowed('member_erasure', 'control.nexloop_initial_identity_create', "an erased member's receipt is refused (42501); nothing else",
             ((r"\n  -- NX-058 slice E: an erased member's initial account[^\n]*\n  if exists\(select 1 from control\.nexloop_workbench_member_erasures e[^\n]*\n   raise exception 'initial identity erased' using errcode='42501';end if;", ""),)),
+    Allowed('member_login_clearing', 'authz.nexloop_retention_command', 'one more verb, member_login_clear (NX-058 slice E2)',
+            ((r" elsif c->>'verb'='member_login_clear' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

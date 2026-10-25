@@ -66,6 +66,8 @@ class RetentionPort(_SignedPort):
     def sweep(self,item_class,sweep_ref):return self._signed({'verb':'sweep','item_class':str(item_class),'sweep_ref':str(sweep_ref)})
     # NX-056 A3/A5: ends approvals past due_by (never executes one), then redacts frozen bodies past their retention.
     def approvals_expire(self):return self._signed({'verb':'approvals_expire'})
+    # NX-058 slice E2: the failed-login snapshots of members erased 90 days ago or more (username and email become the pseudonym).
+    def member_login_clear(self):return self._signed({'verb':'member_login_clear'})
     def status(self):return self._signed({'verb':'status'})
 
 
@@ -126,7 +128,8 @@ class RetentionKeeper:
     def run_once(self):
         due=self.port.due();ref='sweep:'+str(uuid.uuid4())
         summary={'classes':0,'passes':0,'processed':0,'incomplete':0,'erasure_steps':0,'runs_purged':0,'runs_failed':0,
-            'artifacts_deleted':0,'artifacts_failed':0,'approvals_expired':0,'approvals_redacted':0,'approvals_failed':0}
+            'artifacts_deleted':0,'artifacts_failed':0,'approvals_expired':0,'approvals_redacted':0,'approvals_failed':0,
+            'member_logins_cleared':0,'member_login_events':0,'member_login_failed':0}
         for item_class in due['due']:
             summary['classes']+=1
             for _ in range(due['max_passes']):
@@ -164,6 +167,13 @@ class RetentionKeeper:
         except Exception as error:
             summary['approvals_failed']=1
             _log.warning('approval expiry sweep failed: %s',type(error).__name__)
+        # NX-058 slice E2: counted like the expiry, never stops the tick.
+        try:
+            cleared=self.port.member_login_clear()
+            summary['member_logins_cleared'],summary['member_login_events']=cleared['subjects'],cleared['events']
+        except Exception as error:
+            summary['member_login_failed']=1
+            _log.warning('member login clearing failed: %s',type(error).__name__)
         return summary
 
 

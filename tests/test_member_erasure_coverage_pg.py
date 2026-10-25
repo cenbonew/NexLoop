@@ -11,7 +11,8 @@ STAFF_COLUMNS = ('principal_id', 'subject_id', 'issued_by_principal', 'issued_by
                  'accepted_principal', 'username', 'issuer_source', 'acceptor_source', 'completer_source', 'requester_principal', 'requester_subject',
                  'actor_principal', 'actor_subject', 'consumed_by_principal', 'consumed_by_subject', 'erased_by_principal', 'operator_principal_id')
 STAFF_ERASURE_BODIES = """select string_agg(p.prosrc,' ') from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-    where n.nspname='control' and p.proname in ('nexloop_workbench_member_erase','nexloop_governed_erase_workbench_member')"""
+    where n.nspname='control' and p.proname in ('nexloop_workbench_member_erase','nexloop_governed_erase_workbench_member',
+    'nexloop_workbench_member_login_clear')"""
 _ACT = 'who did what: the principal of a staff or service action, kept for audit traceability (design §2.7); no username or digest'
 _CUSTOMER = 'a customer principal (NX-029 Consumer erasure), never a workbench member'
 _SERVICE = 'a service or runtime principal, never a workbench member'
@@ -29,7 +30,6 @@ STAFF_KEPT = {
     'control.nexloop_browser_rate_policies': 'the identity operator (a service) per limiter; no member',
     'control.nexloop_browser_rate_counters': 'client digests in short rate windows (minutes); no username',
     'control.nexloop_browser_memberships': 'the revoked membership rows stay: principal and subject kept for audit (design §2.7)',
-    'control.nexloop_browser_login_events': 'the subject stays; the source and username digests are cleared 90 days after the erasure by the retention service (slice E2)',
     'control.nexloop_workbench_grant_instances': 'grant audit (principal and digests only); revoked members hold none current - staff erasure: NX-058 slice E (E5)',
     'control.nexloop_workbench_role_history': 'vote eligibility and audit (principal only); its stop is written at revocation - staff erasure: NX-058 slice E (E5)',
 }
@@ -62,4 +62,4 @@ def test_every_staff_identity_table_is_erased_or_has_a_reason(db):
     # bodies and its own ledger.
     assert {'control.nexloop_browser_accounts', 'control.nexloop_browser_subjects', 'control.nexloop_browser_sessions', 'control.nexloop_workbench_invitations',
             'control.nexloop_workbench_reset_codes', 'control.nexloop_approval_requests', 'control.nexloop_workbench_member_erasures',
-            'control.nexloop_initial_identity_receipts'} <= reached  # the receipt's password fingerprint is overwritten
+            'control.nexloop_initial_identity_receipts', 'control.nexloop_browser_login_events'} <= reached  # login events: the 90-day clearing  # the receipt's password fingerprint is overwritten

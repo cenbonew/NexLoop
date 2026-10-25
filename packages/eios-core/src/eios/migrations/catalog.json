@@ -1760,6 +1760,11 @@
       "version": "0349",
       "name": "0349_member_erasure.sql",
       "sha256": "2f0b714a1940e6c9b20115c2e7e76373362f5f09cbe46ee0f8c8e43133056b04"
+    },
+    {
+      "version": "0350",
+      "name": "0350_member_login_clearing.sql",
+      "sha256": "4a419614edacad1c185b1056f2e539987984b8ea44e22c2d8c096f33f297e4c9"
     }
   ]
 }
