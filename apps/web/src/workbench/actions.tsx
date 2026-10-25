@@ -7,7 +7,7 @@
  */
 import {statusLabel} from './status-labels';
 import {shorten} from './kit';
-import {useRef,useState,type FormEvent,type ReactNode} from 'react';
+import {useEffect,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
 import {oneTimeSecret,approvalOutcome,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
@@ -90,14 +90,19 @@ function useWrite(operation:Operation,onDone?:()=>void){
   // onDone is a mutation-level callback: it still runs when the refetch after the write has already replaced this form
   // (take-over → hand-back), which a per-call mutate() callback would not.
   const done=useRef(onDone);done.current=onDone;
-  return useMutation({mutationFn:(body:Record<string,unknown>)=>governedWrite(cache,operation,body,pending),onSuccess:()=>done.current?.()});
+  // gcTime 0: a result (which may hold a one-time code or token) is not kept in the mutation cache once the form is gone.
+  return useMutation({mutationFn:(body:Record<string,unknown>)=>governedWrite(cache,operation,body,pending),onSuccess:()=>done.current?.(),gcTime:0});
 }
 
 function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof useWrite>}){
   if(write.isPending)return <p role="status">正在提交…</p>;
   // NX-056: an operation under an approval policy answers with its approval state instead of the plain success text.
   if(write.isSuccess){const secret=oneTimeSecret(write.data);
-    return <><p className="note" role="status">{approvalOutcome(write.data)??DONE_TEXT[operation]}</p>{secret?<OneTimeSecret {...secret}/>:null}</>;}
+    // ADR-039 R3 §8.4: a replay never shows the code or token again.
+    const replay=write.data?.secret==='not_shown_again'?<p className="impact-summary" role="alert">这次请求已经执行过，重置码或邀请令牌不会再次显示。
+      如果没有拿到：先撤销这份邀请（重置码再签发时旧码自动作废），再重新签发。</p>:null;
+    return <><p className="note" role="status">{approvalOutcome(write.data)??DONE_TEXT[operation]}</p>{replay}
+      {secret?<OneTimeSecret {...secret} onHide={()=>write.reset()}/>:null}</>;}
   if(write.isError){const kind=writeKindOf(write.error);
     return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}</p>;}
   return null;
@@ -105,13 +110,16 @@ function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof 
 
 /** NX-058: a reset code or an invitation token, shown once to the issuer (it is in no read, list or log; the page keeps it only while
  * this form is on screen). The invitation link carries the token in the fragment, which the accept page clears at once. */
-export function OneTimeSecret({kind,value}:{kind:'code'|'token';value:string}){
+export function OneTimeSecret({kind,value,onHide}:{kind:'code'|'token';value:string;onHide?:()=>void}){
+  // Cleared after 2 minutes (or at once with the button): the secret leaves the component state and the mutation result.
+  useEffect(()=>{if(!onHide)return;const timer=setTimeout(onHide,120_000);return ()=>clearTimeout(timer);},[onHide]);
   const origin=globalThis.location?.origin??'';
   const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value):null;
   return <div className="one-time-secret" role="alert"><p><strong>{kind==='code'?'重置码':'邀请令牌'}（只显示这一次）</strong></p>
     <p><code className="id-code">{value}</code></p>
     {link?<p>邀请链接：<code className="id-code">{link}</code></p>:<p>重置页：<code className="id-code">{origin}/workbench/reset</code></p>}
-    <p className="note">请线下（当面或电话）交给本人；离开这一页后无法再次查看。</p></div>;
+    <p className="note">请线下（当面或电话）交给本人；离开这一页或 2 分钟后无法再次查看。</p>
+    {onHide?<button type="button" onClick={onHide}>我已记下，隐藏</button>:null}</div>;
 }
 
 function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onChange:(v:string)=>void;label?:string}){

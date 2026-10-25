@@ -33,6 +33,7 @@ test('NX-058 UI: the reset notice has no close button; the account page lists th
   const html=renderToStaticMarkup(h(ResetNotice,{notices}));
   expect(html).toContain('7 天内每次登录都会显示');expect(html).not.toContain('<button');
   expect(renderToStaticMarkup(h(ResetNotice,{notices:[]}))).toBe('');
+  expect(()=>resetNotices([{reset_id:'r-1',issued_by:'x',completed_at:'2026-10-25T01:00:00+00:00',code:'leak'}])).toThrow();  // strict keys
   const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});c.setQueryData(['workbench','reset-history'],notices);
   const page=renderToStaticMarkup(h(QueryClientProvider,{client:c},h(AccountSecurity,{})) as ReactNode);
   expect(page).toContain('账号安全');expect(page).toContain('你不能删除');

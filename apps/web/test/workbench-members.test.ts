@@ -6,11 +6,12 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {me,members,oneTimeSecret,OPERATION_ACTION} from '../src/workbench/api';
 import {OneTimeSecret} from '../src/workbench/actions';
-import {Members,memberControls} from '../src/workbench/pages/Members';
+import {Members,approversFor,memberControls} from '../src/workbench/pages/Members';
 import {APPROVAL_ACTION_TEXT} from '../src/workbench/pages/Approvals';
 
 const row=(principal:string,role:string|null,status:string,extra:Record<string,unknown>={})=>({principal_id:principal,label:'p-0123abcd',username:principal.replace('synthetic-',''),
-  role,member_status:status,account_status:'active',vote_eligible_from:role==='owner'?'2026-10-20T00:00:00+00:00':null,erased:false,...extra});
+  role,member_status:status,account_status:'active',vote_eligible_from:role==='owner'?'2026-10-20T00:00:00+00:00':null,erased:false,
+  person_all_revoked:status==='revoked',...extra});
 const raw={members:[row('synthetic-owner','owner','active'),row('synthetic-second','owner','active'),row('synthetic-op','operator','active'),
     row('synthetic-paused','reviewer','suspended'),row('synthetic-gone','operator','revoked',{role:null})],
   invitations:[{invitation_id:'3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11',username:'new-reviewer',role:'reviewer',issued_by:'synthetic-owner',issued_at:'2026-10-25T01:00:00+00:00',expires_at:'2026-10-26T01:00:00+00:00'}],
@@ -37,6 +38,10 @@ test('NX-058 UI: each row offers only what its role and status allow; never the 
   expect(memberControls(m[3],'synthetic-owner')).toEqual(['resume','revoke']);
   expect(memberControls(m[4],'synthetic-owner')).toEqual(['erase']);
   expect(memberControls({...m[4],erased:true},'synthetic-owner')).toEqual([]);
+  // R2: no reset code for an account that is not active; the erasure only when every membership of the person is revoked
+  expect(memberControls({...m[2],account_status:'disabled'},'synthetic-owner')).toEqual(['change_role','suspend','revoke','promote']);
+  expect(memberControls({...m[1],account_status:'invited'},'synthetic-owner')).toEqual(['demote','suspend_owner','revoke_owner']);
+  expect(memberControls({...m[4],person_all_revoked:false},'synthetic-owner')).toEqual([]);
 });
 
 test('NX-058 UI: the owner sees facts then controls; an operator gets no form', ()=>{
@@ -50,8 +55,12 @@ test('NX-058 UI: the owner sees facts then controls; an operator gets no form', 
 
 test('NX-058 UI: a reset code or invitation token is shown once, with the link; a sqlstate code is no secret', ()=>{
   expect(oneTimeSecret({code:'ABCD-EFGH-IJKL-MNOP-QRST',replayed:false})).toEqual({kind:'code',value:'ABCD-EFGH-IJKL-MNOP-QRST'});
-  expect(oneTimeSecret({token:'t'.repeat(43)})?.kind).toBe('token');
+
   expect(oneTimeSecret({status:'execution_refused',code:'22023'})).toBeNull();
+  expect(oneTimeSecret({token:'t'.repeat(43)})).toBeNull();  // not a fresh execution (no replayed:false)
+  expect(oneTimeSecret({code:'ABCD-EFGH-IJKL-MNOP-QRST',replayed:true})).toBeNull();
+  expect(oneTimeSecret({code:'ABCD-EFGH-IJKL-MNOP-QRST',replayed:false,approval:'required'})).toBeNull();
+  expect(oneTimeSecret({token:'t'.repeat(43),replayed:false,approval:'consumed'})?.kind).toBe('token');
   const html=renderToStaticMarkup(h(OneTimeSecret,{kind:'token',value:'t'.repeat(43)}));
   expect(html).toContain('只显示这一次');expect(html).toContain('/workbench/invitation#token=');
 });
@@ -59,4 +68,26 @@ test('NX-058 UI: a reset code or invitation token is shown once, with the link; 
 test('NX-058 UI: the approvals page names every owner-only member Action', ()=>{
   for(const op of ['promote_workbench_member','demote_workbench_owner','suspend_workbench_owner','resume_workbench_owner','revoke_workbench_owner',
     'issue_workbench_owner_reset','invite_workbench_owner','erase_workbench_member'])expect(APPROVAL_ACTION_TEXT[op]).toBeTruthy();
+});
+
+
+test('R3: approval-gated controls are disabled with the reason and the operations channel when nobody could approve now', ()=>{
+  const now=Date.parse('2026-10-26T00:00:00+00:00');
+  const m=members(raw).members;
+  expect(approversFor(m,'synthetic-owner','synthetic-op',now)).toBe(1);  // the second owner
+  expect(approversFor(m,'synthetic-owner','synthetic-second',now)).toBe(0);  // two owners: the target never approves its own request
+  expect(approversFor(m.map(x=>x.principal_id==='synthetic-second'?{...x,vote_eligible_from:'2026-10-27T00:00:00+00:00'}:x),'synthetic-owner','synthetic-op',now)).toBe(0);  // cooldown
+  const html=render(owner,members(raw));
+  expect(html).toContain('现在没有能批准的 owner');expect(html).toContain('运维通道');
+  // the demotion of the only other owner: disabled (no approver), and in any case a new role is required (R1)
+  const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
+  expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit" disabled=""/);
+});
+
+test('R1: a demotion cannot be submitted without a new role, even with an approver', ()=>{
+  const three=members({...raw,members:[...raw.members,row('synthetic-third','owner','active')]});
+  const html=render(owner,three);
+  const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
+  expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit" disabled=""/);
+  expect(html).not.toContain('现在没有能批准的 owner（除你和被处置的 owner 之外');
 });

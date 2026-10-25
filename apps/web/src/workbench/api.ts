@@ -62,7 +62,7 @@ function session(value:unknown):WorkbenchSession{const v=object(value);if(v.auth
     reset_notices:v.reset_notices===undefined?[]:resetNotices(v.reset_notices)};}
 /** NX-058 V3: the member's own completed owner-issued resets (7 days in the session, 90 days on the account page). */
 export function resetNotices(value:unknown):ResetNotice[]{
-  return list(value).map(x=>{const o=object(x);return {reset_id:text(o.reset_id),issued_by:text(o.issued_by),completed_at:text(o.completed_at)};});}
+  return list(value).map(x=>{const o=exactKeys(object(x),['reset_id','issued_by','completed_at']);return {reset_id:text(o.reset_id),issued_by:text(o.issued_by),completed_at:text(o.completed_at)};});}
 export const readResetHistory=()=>get('/api/v1/workbench/auth/reset-history',v=>resetNotices(object(v).resets));
 /** The outcome of a public account form: done, refused (one answer for every refusal, never which part was wrong), limited, or unknown. */
 export type AccountFormResult='done'|'invalid'|'rate_limited'|'unavailable';
@@ -385,17 +385,17 @@ export const readSettings=()=>get('/api/v1/workbench/settings',settings);
  * days of reset codes. Never a token, code, digest or email (the server leaves them out; a row that carried one is refused here). */
 export type MemberStatus='invited'|'active'|'suspended'|'revoked';
 export type MemberRow={principal_id:string;label:string;username:string|null;role:string|null;member_status:MemberStatus;account_status:string|null;
-  vote_eligible_from:string|null;erased:boolean};
+  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean};
 export type InvitationRow={invitation_id:string;username:string;role:string;issued_by:string;issued_at:string;expires_at:string};
 export type ResetRow={reset_id:string;target_principal:string;issued_by:string;issued_at:string;expires_at:string;state:string;completed_at:string|null;kind:'member'|'owner'};
 export type Members={members:MemberRow[];invitations:InvitationRow[];resets:ResetRow[]};
-const exactKeys=(o:Record<string,unknown>,keys:string[])=>{if(Object.keys(o).sort().join()!==[...keys].sort().join())throw new WorkbenchError('invalid');return o;};
+function exactKeys(o:Record<string,unknown>,keys:string[]){if(Object.keys(o).sort().join()!==[...keys].sort().join())throw new WorkbenchError('invalid');return o;}
 const memberStatus=(v:unknown):MemberStatus=>{const t=text(v);if(!['invited','active','suspended','revoked'].includes(t))throw new WorkbenchError('invalid');return t as MemberStatus;};
 export function members(value:unknown):Members{const v=exactKeys(object(value),['members','invitations','resets']);
-  return {members:list(v.members).map(x=>{const o=exactKeys(object(x),['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased']);
+  return {members:list(v.members).map(x=>{const o=exactKeys(object(x),['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked']);
       const label=text(o.label);if(!/^p-[0-9a-f]{8}$/.test(label))throw new WorkbenchError('invalid');
       return {principal_id:text(o.principal_id),label,username:maybeText(o.username),role:maybeText(o.role),member_status:memberStatus(o.member_status),
-        account_status:maybeText(o.account_status),vote_eligible_from:maybeText(o.vote_eligible_from),erased:flag(o.erased)};}),
+        account_status:maybeText(o.account_status),vote_eligible_from:maybeText(o.vote_eligible_from),erased:flag(o.erased),person_all_revoked:flag(o.person_all_revoked)};}),
     invitations:list(v.invitations).map(x=>{const o=exactKeys(object(x),['invitation_id','username','role','issued_by','issued_at','expires_at']);
       return {invitation_id:text(o.invitation_id),username:text(o.username),role:text(o.role),issued_by:text(o.issued_by),issued_at:text(o.issued_at),expires_at:text(o.expires_at)};}),
     resets:list(v.resets).map(x=>{const o=exactKeys(object(x),['reset_id','target_principal','issued_by','issued_at','expires_at','state','completed_at','kind']);
@@ -405,7 +405,8 @@ export function members(value:unknown):Members{const v=exactKeys(object(value),[
 export const readMembers=()=>get('/api/v1/workbench/members',members);
 /** A one-time secret in a write's result (a reset code or an invitation token): shown once to the issuer, never stored by the page. */
 export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string}|null{
-  if(!result)return null;
+  // Only the execution that drew it: never a replay, a waiting request or a refusal (those carry no secret anyway).
+  if(!result||result.replayed!==false||'status' in result||(result.approval!==undefined&&result.approval!=='consumed'))return null;
   if(typeof result.code==='string'&&result.code.length>=16)return {kind:'code',value:result.code};
   if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token};
   return null;

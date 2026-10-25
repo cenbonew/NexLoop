@@ -3,7 +3,7 @@
 -- authz.nexloop_workbench_observe_read gains the verb 'members' (every other verb unchanged, as 0329 added 'approvals'), for the owner only.
 -- runtime.nexloop_workbench_members_view(tenant): the tenant's workbench members (from the latest configuration and the role history), with
 -- the display label (p- and 8 hex of sha256(principal), ADR-039 §6.2), username, role, membership and account status, the vote cooldown's
--- end and whether the subject was erased; the issued, unexpired invitations; and the reset codes of the last 90 days (target, issuer,
+-- end, whether the subject was erased and whether every membership of that person is revoked; the issued, unexpired invitations; and the reset codes of the last 90 days (target, issuer,
 -- times, state, owner or member code). Never a token, code, HMAC, source digest, email or password.
 set local timezone = 'UTC';
 
@@ -17,7 +17,10 @@ begin
    jsonb_build_object('principal_id',m.principal_id,'label','p-'||left(encode(sha256(convert_to(m.principal_id,'UTF8')),'hex'),8),
     'username',a.username,'role',cfg.members->>m.principal_id,'member_status',m.payload->>'status','account_status',a.payload->>'status',
     'vote_eligible_from',runtime.nexloop_commercial_ts(control.nexloop_workbench_vote_eligible_from(p_tenant,'real',m.subject_id,array['owner'])),
-    'erased',exists(select 1 from control.nexloop_workbench_member_erasures e where e.tenant_id=p_tenant and e.subject_id=m.subject_id)) v
+    'erased',exists(select 1 from control.nexloop_workbench_member_erasures e where e.tenant_id=p_tenant and e.subject_id=m.subject_id),
+    -- the staff erasure needs every membership of the person revoked (slice E, C1): the page offers it on that condition
+    'person_all_revoked',not exists(select 1 from control.nexloop_browser_memberships o where o.tenant_id=p_tenant and o.subject_id=m.subject_id
+      and o.payload->>'status'<>'revoked')) v
   from control.nexloop_browser_memberships m
   left join lateral (select x.username,x.payload from control.nexloop_browser_accounts x where x.tenant_id=p_tenant and x.subject_id=m.subject_id
     order by array_position(array['active','invited','disabled'],x.payload->>'status'),x.local_account_id limit 1) a on true
