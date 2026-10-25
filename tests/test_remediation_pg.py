@@ -208,16 +208,23 @@ def test_a_due_proposal_expires_whatever_the_switches(remediating):
     assert [x[4:] for x in remediations(admin, intent)] == [('expired', 'due_by_passed')]
 
 
-def test_the_planner_runs_once_a_minute_and_is_off_without_its_grant(remediating):
+def test_the_planner_runs_once_a_minute_and_is_off_without_its_grant(remediating, monkeypatch):
+    from nexloop_eios import remediation
     r = remediating
     clock = iter([1000.0, 1010.0, 1061.0])
     session = authenticate_service(r['domain'], r['token'], world='real')
-    make = lambda: RemediationPlanner(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN, clock=lambda: next(clock))  # noqa: E731
+    # What the 26th batch CI met: an earlier test of the same process left a later round in the process-wide state for this tenant
+    # (planners of other tests, other clocks). A planner with its own state is not decided by it.
+    monkeypatch.setitem(remediation._LAST_ROUND, (TENANT, 'real'), 10.0 ** 9)
+    rounds = {}  # this test's own round state; the process-wide one belongs to the worker
+    make = lambda: RemediationPlanner(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN, clock=lambda: next(clock), rounds=rounds)  # noqa: E731
     assert make().run_once()['status'] == 'open' and make().run_once() == {'status': 'not_due'} and make().run_once()['status'] == 'open'
     other, token = seed_multi_authority(r['admin'], r['domain'], [('eios:action:nexloop.alert.evaluate:1', ResourceType.ACTION, Operation.EXECUTE)],
                                         identity_suffix='-not-a-planner')
     assert RemediationPlanner(r['domain'], authenticate_service(r['domain'], token, world='real'), r['w']['f']['reader'].signer,
-                              environ=OPEN, clock=lambda: 5000.0).run_once() == {'status': 'unavailable'}
+                              environ=OPEN, clock=lambda: 5000.0, rounds={}).run_once() == {'status': 'unavailable'}
+    # Without its own state a planner uses the process's (the worker builds a new planner every tick).
+    assert RemediationPlanner(r['domain'], session, r['w']['f']['reader'].signer).rounds is remediation._LAST_ROUND
 
 
 def test_the_owner_resolves_and_switches_from_the_workbench_and_every_member_reads(remediating):
@@ -454,7 +461,7 @@ def test_the_port_bounds_the_round_at_5_seconds_and_the_planner_reports_it(remed
     with pytest.raises(psycopg.errors.QueryCanceled):
         Slow(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN).round()
     assert 4.5 < time.monotonic() - started < 7.5
-    planner = RemediationPlanner(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN, clock=lambda: 9000.0)
+    planner = RemediationPlanner(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN, clock=lambda: 9000.0, rounds={})
     planner.port = Slow(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN)
     try:
         assert planner.run_once() == {'status': 'error', 'code': '57014'}  # the round ends, the reevaluator's tick does not

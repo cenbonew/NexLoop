@@ -134,6 +134,19 @@
   - 第一次运行 196 passed，1 failed：`test_nx042_t7_acceptance_pg.py` 中真实 Pi 的 twin Run 启动 Agent Host 时退出。原因是本工作树的 `apps/agent-host/dist` 还是 10-18 的构建，与本次修改无关。重新 `npm run build` 后，该文件 5 passed。
   - definer 检查 0 problems。
 
+## 规划器节拍的测试隔离（第二十六批 CI，2026-10-25）
+
+- **现象**：`test_the_planner_runs_once_a_minute_and_is_off_without_its_grant` 拿到 `not_due`，期望是 `open`；`test_the_port_bounds_the_round_at_5_seconds_and_the_planner_reports_it` 拿到 `{'status': 'not_due'}`，期望是 `error 57014`。
+- **原因**：“每分钟一轮”的节拍状态 `_LAST_ROUND` 是进程级字典，键为（租户, world）。worker 每个 tick 都新建规划器，所以生产环境需要它。但同一个 pytest 进程里，各测试用的是同一个租户和各自的假时钟：前一条测试的规划器留下一个更大的时间值，后一条测试的规划器就被判为未到时。结果取决于 xdist 把哪些测试分到同一个进程、以什么顺序执行，与墙钟无关。
+- **修法**：`RemediationPlanner` 新增参数 `rounds`，即节拍状态：
+  - 不传时仍用进程级状态，生产行为不变，测试断言了这一点；
+  - 带自己时钟的调用方传入自己的状态。测试里的三处规划器都改成各自独立的状态；
+  - 每分钟一轮的测试还用 `monkeypatch` 在进程级状态里预置一个“更晚的一轮”，证明它不再受进程级状态影响。没有放宽断言，也没有加重试。
+- **证据**（负载门控后）：
+  - **确定性对照**：按“5 秒测试在前、每分钟一轮测试在后”的顺序在单进程跑。修复前的 `fb1e03ae`：后一条失败，`'not_due' == 'open'`，与 CI 相同；修复后：2 passed。
+  - **连跑**：`pytest -n 3 tests/test_remediation_pg.py` 连跑 6 轮，默认分发、`--dist load`、`--dist loadfile`（整个文件在同一进程）各两轮，负载 3.2 至 7.1，每轮 18 passed。
+- **连接失败（PostgreSQL connection failed）**：修复前后共 11 轮 `-n 3`，负载不超过 7，都没有重现，见调度员另一条报告。
+
 ## 上线说明（L6 对 R2 复核的建议）
 
 - 开关关闭期间发生的最终失败会**永久**记为 `switch_closed`，开关打开后也不补生成。打开开关之前的失败不会有补救，这是有意的（M-5）。
