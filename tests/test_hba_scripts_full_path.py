@@ -87,5 +87,5 @@ def test_the_normal_path_adds_the_lines_and_reloads(tmp_path, script):
     # Rerun: nothing to add - the already-installed exit, no second reload.
     reloads = log.read_text().count('kill -s HUP')
     again = subprocess.run(['bash', str(ROOT / 'scripts/deploy' / script), str(config)], capture_output=True, text=True, env=env, timeout=60)
-    assert again.returncode == 0 and 'already installed' in again.stdout or 'nothing to do' in again.stdout, again.stdout + again.stderr
+    assert again.returncode == 0 and ('already installed' in again.stdout or 'nothing to do' in again.stdout), again.stdout + again.stderr
     assert log.read_text().count('kill -s HUP') == reloads
