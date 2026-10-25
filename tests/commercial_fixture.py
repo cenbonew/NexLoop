@@ -96,7 +96,9 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.workbench_member.change_role':('Consumer','workbench_member.change_role'),'nexloop.workbench_member.suspend':('Consumer','workbench_member.suspend'),
     'nexloop.workbench_member.resume':('Consumer','workbench_member.resume'),'nexloop.workbench_member.revoke':('Consumer','workbench_member.revoke'),  # NX-058 slice C
     'nexloop.remediation.resolve':('Consumer','remediation.resolve'),'nexloop.remediation.switch':('Consumer','remediation.switch'),  # NX-057 R1
-    'nexloop.remediation.rule_release':('Consumer','remediation.rule_release')}  # NX-057 R2
+    'nexloop.remediation.rule_release':('Consumer','remediation.rule_release'),  # NX-057 R2
+    'nexloop.workbench_member.promote_owner':('Consumer','workbench_member.promote_owner'),'nexloop.workbench_member.demote_owner':('Consumer','workbench_member.demote_owner'),'nexloop.workbench_member.suspend_owner':('Consumer','workbench_member.suspend_owner'),'nexloop.workbench_member.resume_owner':('Consumer','workbench_member.resume_owner'),'nexloop.workbench_member.revoke_owner':('Consumer','workbench_member.revoke_owner'),
+    'nexloop.workbench_member.issue_owner_reset':('Consumer','workbench_member.issue_owner_reset'),'nexloop.workbench_member.invite_owner':('Consumer','workbench_member.invite_owner')}  # NX-058 slices D2, D3
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

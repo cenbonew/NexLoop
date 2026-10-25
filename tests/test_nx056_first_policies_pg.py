@@ -25,7 +25,11 @@ from multi_authority_fixture import seed_multi_authority
 from nexloop_eios.authorization import authenticate_service
 from test_erasure_pg import ACTIONS, KEEPER, act, keeper, request  # noqa: F401
 
-POLICIES = Path(__file__).resolve().parents[1] / 'deploy/configuration/approval-policies.v1.json'
+# The first applied version (version 1), kept as deployment history: a new database applies it before the current file (version 2,
+# NX-058 slice D2, expected_revision 1).
+POLICIES = Path(__file__).resolve().parents[1] / 'deploy/configuration/history/approval-policies.version1.json'
+CURRENT = Path(__file__).resolve().parents[1] / 'deploy/configuration/approval-policies.v1.json'
+HISTORY = [POLICIES, Path(__file__).resolve().parents[1] / 'deploy/configuration/history/approval-policies.version2.json']  # applied before CURRENT
 PLAN = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
 
 
@@ -189,3 +193,27 @@ def test_a_hold_release_runs_on_its_own_clients_resubmission_after_approval(held
     released = act(owner, 'release_retention_hold', 'release-2', hold_id=hold['hold_id'], reason='审计结束')  # the same body, a new request id
     assert released['released'] is True and released['approval'] == 'consumed' and released['approval_id'] == waiting['approval_id']
     assert admin.execute('select released_at is not null from control.nexloop_retention_holds where hold_id=%s', (hold['hold_id'],)).fetchone() == (True,)
+
+
+@PLAN
+def test_a_retry_with_the_same_request_id_and_a_new_hmac_is_measured(held, admin):
+    """ADR-039 R3 §8.4 (L6 review of B2): what the governed entry does when the same request id comes again with another execution-time
+    HMAC (the workbench draws a new code on every request, so a retry after a lost response is exactly this)."""
+    c = held
+    owner = c['owner_actions']
+    admin.execute("insert into control.nexloop_approval_capability_settings(capability,execution_fields) values('retention.release_hold','{code_hmac}')")
+    hold = act(owner, 'hold_retention', 'hold-r', scope_kind='item_class', scope_ref='message_text', basis='审计期间暂停清除')
+    payload = {'request_id': 'retry-1', 'operation': 'release_retention_hold', 'hold_id': hold['hold_id'], 'reason': '审计结束'}
+    first = owner._submit('nexloop.retention.release_hold', 1, {**payload, 'code_hmac': 'a' * 64})
+    assert first['status'] == 'waiting_approval'
+    outcome = {}
+    try:
+        outcome['value'] = owner._submit('nexloop.retention.release_hold', 1, {**payload, 'code_hmac': 'b' * 64})
+    except Exception as error:  # noqa: BLE001 - recorded as observed
+        outcome['error'] = type(error).__name__
+        outcome['message'] = str(error)[:120]
+    # Observed (ADR-039 R3 §8.4): neither a replay nor a new request - the action claim's request digest covers the whole body, HMAC
+    # included, so the same key with another body conflicts with the reserved binding. The workbench HTTP layer has no mapping for this
+    # error and answers 503 unavailable today (NX-058 D3 to map it, or to keep execution-time fields out of the claim's digest).
+    assert outcome == {'error': 'ActionGovernanceError', 'message': 'Action reservation conflicts with immutable binding'}
+    assert admin.execute("select count(*) from runtime.audit_events where action='approval.requested'").fetchone() == (1,)  # no second request

@@ -20,7 +20,8 @@ _IDENTIFYING = re.compile(r'(^|.*_)(consumer|principal|subject|customer|identity
 _FREE_TEXT = re.compile(r'(^|.*_)(reason|basis|text|body|message|note|notes|description|quote|comment|name|email|phone)(_.*|$)')
 # The fields each capability's policy may show to every approver (the same list as control.nexloop_approval_summary_allowed, 0326).
 SUMMARY_ALLOWED = {'real_dispatch.set': ('scope_kind', 'enabled', 'data_mode', 'action_type'), 'retention.release_hold': (),
-                   'consumer.erase': (), 'incentive.issue': ('amount_minor', 'currency', 'offering_revision')}
+                   'consumer.erase': (), 'incentive.issue': ('amount_minor', 'currency', 'offering_revision'),
+                   'workbench_member.demote_owner': ('new_role',)}
 _KEYS = {'capability', 'version', 'action_version', 'condition', 'quorum', 'approver_roles', 'expires_after_seconds', 'summary_fields'}
 
 

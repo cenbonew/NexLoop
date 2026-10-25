@@ -103,7 +103,12 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'workbench_member.invite':'human_owner','workbench_member.revoke_invitation':'human_owner',
     # NX-058 slice C: member changes of operators and reviewers.
     'workbench_member.change_role':'human_owner','workbench_member.suspend':'human_owner','workbench_member.resume':'human_owner',
-    'workbench_member.revoke':'human_owner'}
+    'workbench_member.revoke':'human_owner',
+    # NX-058 slice D2: the owner-only member Actions, each under an NX-056 approval policy.
+    'workbench_member.promote_owner':'human_owner','workbench_member.demote_owner':'human_owner','workbench_member.suspend_owner':'human_owner',
+    'workbench_member.resume_owner':'human_owner','workbench_member.revoke_owner':'human_owner',
+    # NX-058 slice D3: an owner's reset code and an owner invitation, under NX-056 approval.
+    'workbench_member.issue_owner_reset':'human_owner','workbench_member.invite_owner':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

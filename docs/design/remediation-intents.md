@@ -367,7 +367,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 - 开关关闭期间的失败也会被扫描，记为 `switch_closed`，以后不再补生成（与 L6 M-5 一致）。
 - 补救表不存 consumer id，经源效应意图读取，删除传播不需要另接。
 - `remediation_paused` 告警用 warning，因为告警路径不支持 info。
-- 部署层 `REMEDIATION_ENABLED` 尚未接入 compose，默认关闭，按部署变更流程另行接入。
+- 部署层 `REMEDIATION_ENABLED` 默认关闭；G2 把它接入 compose，只给 `plan-reevaluator`（执行单 `docs/release/run-nx057-remediation-stage.md` §4）。
 
 ### 6.3c R2 实现与本设计的差异（2026-10-23，`docs/implementation/NX-057-R2-plan-wake.md`）
 
@@ -377,6 +377,12 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 - 熔断计数窗口：最近 24 小时，但不早于负责人上一次解除这条规则的时间；`chain_capped` 按补救事件计数，不看行上的 `last_code`（L6 对 R2 的复核）。
 - 唤醒时如果开关刚好关闭（部署层、租户开关或控制暂停），补救停在 proposed，之后每轮都不会唤醒，直到开关重新打开或到期记为 expired。
 - **消费的口径**：消费触发器把为这个 plan 启动的**任何** Run 都算作补救来源，即使这个 Run 是由别的原因（例如 reassess_due、外部结果）启动的，只要它启动时这个 plan 有已唤醒、未消费的补救。这是有意的保守选择：那个 Run 看到的 Context 中就有这次失败，它提出的意图再失败也只升级，不会再唤醒。
+
+### 6.3d R4 实现（2026-10-25，`docs/implementation/NX-057-R4-claims-and-evidence.md`）
+
+- 认领终态由 `effect_failures` 上的 AFTER INSERT 触发器在同一事务中写入（`permanent_failure`，outcome 为失败记录），三条失败路径的函数不用重定义；补救成功后不改为 compensated（Q-4 A）。
+- `outcomes.remediation` 给出最近 1 小时的状态变化，以及没有补救的 defect 失败按规划器扫描结果的分类。
+- 证据抽屉是工作台读取动词 `remediation_evidence`，只有 id、码和时间，不含原因文本。
 
 ### 6.4 明确禁止
 

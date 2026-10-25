@@ -258,7 +258,8 @@ def test_a_requester_who_lost_the_role_is_refused_by_the_entry_and_consumes_noth
     write_facts(admin, facts)
     apply_members(ROLES, demoted, database_url_file=c['configurator'])
     assert c['request']().status_code == 403  # the normal entry refuses before any approval is looked at
-    assert status(admin, approval) == 'approved' and consumptions(admin) == [] and tenant_switch(admin) is None
+    # C-B1 (ADR-039 R3 §8.5): the configurator's member apply (a role's stop) ended the old approval at once - it can never execute
+    assert status(admin, approval) == 'expired' and consumptions(admin) == [] and tenant_switch(admin) is None
 
 
 @PLAN
