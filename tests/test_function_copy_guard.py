@@ -9,11 +9,13 @@ The S5 (clock) and S6c (role check) guards of their own test files check the sam
 Pure file reading: no database.
 """
 import json
+import re
 import shutil
 
 import pytest
 
 from support.copy_guard import Allowed, MIGRATIONS, check, migrations, normalize, redefinitions
+from support.remediation_r2_edits import EDITS as R2_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -153,6 +155,18 @@ REGISTRY = [
               "update control.nexloop_browser_accounts a set payload=body,password_hash=p_hash,password_history=history "
               "where a.tenant_id=p_tenant and a.local_account_id=p_account;"),
              (r"\s*perform control\.nexloop_workbench_reset_revoke\(p_tenant,old\.subject_id,'operator_reset'\);", ''))),
+    # 0341 (NX-058 slice C, dispatcher option 1): the browser directory hash takes the tenant revision through
+    # authz.nexloop_effective_tenant_revision (the revision before a governed handler's own authority change in this transaction).
+    Allowed('governed_authority_change', 'authz.nexloop_browser_identity_snapshot',
+            'the tenant revision of the directory hash through authz.nexloop_effective_tenant_revision; definer search_path gains pg_temp; nothing else',
+            ((r"'tenant_revision',authz\.nexloop_effective_tenant_revision\(realm\.tenant_id,realm\.authority_revision\)", "'tenant_revision',realm.authority_revision"),),
+            PG_TEMP),
+    # 0341 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
+    Allowed('governed_authority_change', 'control.nexloop_workbench_member_lock', 'the tenant approval lock of NX-056 instead of its own key; nothing else',
+            ((r"select control\.nexloop_approval_tenant_lock\(p_tenant\)", "select pg_advisory_xact_lock(hashtextextended('nexloop-approval-eligibility:'||p_tenant,0))"),)),
+    # vote_cooldown (NX-058 slice D §2, ADR-039 R1 §6.7): an approver's vote counts 24 hours after its current holding of an approver role began.
+    Allowed('vote_cooldown', 'control.nexloop_approval_approver_eligible', 'the 24-hour vote cooldown from the role history; nothing else',
+            ((r"\s*and coalesce\(control\.nexloop_workbench_vote_eligible_from\(p_tenant,'real',control\.nexloop_approval_subject_of\(p_tenant,p_principal\),p_roles\)<=clock_timestamp\(\),false\)", ''),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
@@ -200,6 +214,10 @@ REGISTRY = [
               "and i.world=p_world and i.created_at>now_at-interval '1 hour' and i.state in ('fulfilled','confirmed','unknown','failed') and not "
               "(i.state='failed' and exists(select 1 from runtime.nexloop_dispatch_refusals r where r.tenant_id=i.tenant_id and r.world=i.world "
               "and r.intent_id=i.intent_id)) group by 1),"))),
+    # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
+    *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in R2_EDITS.items()],
     # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
     Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
             ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),
@@ -383,6 +401,21 @@ REGISTRY = [
              # the action claim ends permanent_failure when nothing ran or the handler refused (L6 A2 review important 4)
              (r"'outcome_revision',1,\n  -- Not executed.*?\n  'status',case when .*? end,", "'outcome_revision',1,'status','succeeded',"))),
     # NX-056 A3: the retention keeper's port also ends waiting approvals past due_by; nothing else.
+    # NX-056 follow-up (L6 reviews 11-14): subject tenant locks in order; the list's count
+    # leaves out a self vote that does not count now.
+    Allowed('nx056_followup', 'control.nexloop_approval_eligibility_trigger', 'several tenant locks in tenant order',
+            ((r"\n    order by m\.tenant_id loop  -- one order for several tenant locks", " loop"),)),
+    Allowed('nx056_followup', 'runtime.nexloop_approval_view_row', 'a self vote counts in the list only while the mode takes effect',
+            ((r"and \(d\.actor_subject<>r\.requester_subject\n.*?\n     or \(d\.self_approved and control\.nexloop_approval_solo_effective\(r\.tenant_id,r\.world,r\.capability,r\.policy_version,r\.requester_subject\)\)\)",
+              "and (d.actor_subject<>r.requester_subject or d.self_approved)"),)),
+    # NX-056 B1 (ADR-039 §6): target policies approved by owners only; every view row carries target_member; two alert metrics.
+    Allowed('nx056_target_member', 'control.nexloop_approval_policy_guard', 'a target policy is approved by owners only',
+            ((r" -- ADR-039 §6\.7 \(R1, B1\).*?\n  raise exception 'approval policy: a target policy is approved by owners only' using errcode='22023';end if;\n", "\n"),)),
+    Allowed('nx056_target_member', 'runtime.nexloop_approval_view', 'each row carries target_member',
+            ((r"\|\|jsonb_build_object\('target_member',runtime\.nexloop_approval_target_member\(p_tenant,r,pol,p_principal\)\) v,\n   r\.due_by", " v,r.due_by"),
+             (r",\n    'target_member',runtime\.nexloop_approval_target_member\(p_tenant,r,pol,p_principal\)\) v,", ") v,"))),
+    Allowed('nx056_target_member', 'runtime.nexloop_approval_metrics', 'first_time_approvers_24h and same_person_flags_24h',
+            ((r"\n -- ADR-039 §6\.6 \(R1, B1\).*?'same_person_flags_24h',\(select count\(\*\) from runtime\.audit_events a where a\.tenant_id=p_tenant and a\.action='approval\.same_person_flagged'\n    and a\.created_at>clock_timestamp\(\)-interval '24 hours'\)\);", ""),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

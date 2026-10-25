@@ -22,6 +22,8 @@ from nexloop_eios.browser_http import WORKBENCH_COOKIE
 _ID = re.compile(r'[a-f0-9]{64}')
 _CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{64}')
 _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirmed')
+_REMEDIATION_STATES = ('proposed', 'awaiting_approval', 'executing', 'succeeded', 'refused', 'failed', 'escalated', 'handled', 'declined', 'expired',
+                       'not_applicable')
 _TYPE = re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')
 _OBJECT_SET = re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')  # ADR-036
 _OBJECT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
@@ -176,6 +178,18 @@ def router(config, *, ports_for_workbench):
         except ValueError:
             return error('invalid_request', 422)
         return await invoke(request, 'actions', **arguments)
+
+    @routes.get('/remediations')
+    async def remediations(request: Request):
+        # NX-057 R1: remediation intents (state filter, limit); counts and codes only, no reason text.
+        try:
+            q = query(request, ('state', 'limit'))
+            if 'state' in q and q['state'] not in _REMEDIATION_STATES:
+                raise ValueError()
+            arguments = {'state': q.get('state'), 'limit': limit_of(q['limit']) if 'limit' in q else 50}
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'remediations', **arguments)
 
     @routes.get('/commitments')
     async def commitments(request: Request):

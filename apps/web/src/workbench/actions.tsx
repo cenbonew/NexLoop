@@ -46,6 +46,9 @@ export const DONE_TEXT:Record<Operation,string>={
   cancel_approval:'已撤回这条审批请求。',
   set_approval_solo_mode:'已保存单人模式开关；是否生效以页面顶部的提示为准（需要过去 24 小时内只有你一人有审批资格）。',
   erase_consumer:'已开始擦除：先阻断联系和计划，删除由保留期服务逐步完成，不可撤销。',
+  resolve_remediation:'已记录；只改变这条补救的状态，失败的 Action 与失败率不变，也不会重发。',
+  switch_remediation:'已提交；补救开关以重新读取的状态为准。部署层 REMEDIATION_ENABLED 不在工作台控制范围内。',
+  release_remediation_rule:'已解除熔断；这条规则从下一个失败起重新生成补救，已升级的补救不变。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -107,6 +110,40 @@ export function WithMember({children}:{children:(member:Me)=>ReactNode}){
 }
 
 function utc(local:string):string|null{const d=new Date(local);return Number.isNaN(d.getTime())?null:d.toISOString();}
+
+// ---- remediation intents (NX-057 R1, owner) ----
+/** Resolve one open remediation: handled (a person took it) or cancelled. Nothing else changes, nothing is sent again. */
+export function RemediationResolveForm({member,remediationId,kind}:{member:Me;remediationId:string;kind?:string}){
+  const [outcome,setOutcome]=useState<'handled'|'cancelled'|'wake'|''>('');const [reason,setReason]=useState('');
+  return <Form operation="resolve_remediation" title="处理这条补救" member={member} disabled={!outcome}
+    body={()=>outcome?{remediation_id:remediationId,outcome,reason}:null}>
+    <fieldset className="choices"><legend>结论</legend>
+      <label className="choice"><input type="radio" name={'remediation-'+remediationId} checked={outcome==='handled'} onChange={()=>setOutcome('handled')}/>标记已处理</label>
+      {kind==='reevaluate'?<label className="choice"><input type="radio" name={'remediation-'+remediationId} checked={outcome==='wake'} onChange={()=>setOutcome('wake')}/>唤醒计划</label>:null}
+      <label className="choice"><input type="radio" name={'remediation-'+remediationId} checked={outcome==='cancelled'} onChange={()=>setOutcome('cancelled')}/>取消</label></fieldset>
+    <p className="impact-summary" role="note">{outcome==='wake'?'影响：唤醒等待它的计划，由新的重评估 Run 决定下一步；不会重发原来的 Action。':
+      '影响：只改变这条补救的状态；失败的 Action、它的失败记录和失败率都不变，也不会重发。'}</p>
+    <Reason id={'remediation-reason-'+remediationId} value={reason} onChange={setReason}/>
+  </Form>;
+}
+
+/** Release a rule the breaker held (design §9.3): it generates remediations again from the next failure. */
+export function RemediationRuleReleaseForm({member,ruleId}:{member:Me;ruleId:string}){
+  const [reason,setReason]=useState('');
+  return <Form operation="release_remediation_rule" title="解除熔断" member={member} body={()=>({rule_id:ruleId,reason})}>
+    <p className="impact-summary" role="note">影响：规则 <code className="id-code">{ruleId}</code> 从下一个失败起重新生成补救；熔断期间的失败不会补生成。</p>
+    <Reason id={'remediation-release-'+ruleId} value={reason} onChange={setReason}/>
+  </Form>;
+}
+
+/** The tenant's remediation switch: pausing takes effect at once; failures while paused get no remediation, now or later. */
+export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}){
+  const [reason,setReason]=useState('');
+  return <Form operation="switch_remediation" title={paused?'恢复补救':'暂停补救'} member={member} body={()=>({paused:!paused,reason})}>
+    <p className="impact-summary" role="note">影响：{paused?'之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}</p>
+    <Reason id="remediation-switch-reason" value={reason} onChange={setReason}/>
+  </Form>;
+}
 
 // ---- pause / resume (owner, Control.set) ----
 const SCOPES={tenant:'整个租户',consumer:'客户',role:'角色',strategy:'策略',action_type:'Action 类型'} as const;

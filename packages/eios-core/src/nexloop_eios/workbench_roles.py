@@ -92,10 +92,17 @@ def validate_roles(value):
                   'eios:action:nexloop.workbench_member.issue_reset:1',  # NX-058: a member's reset code is the owner's to issue
                   'eios:action:nexloop.workbench_member.invite:1',  # NX-058: and so is inviting a member
                   'eios:action:nexloop.workbench_member.revoke_invitation:1',  # NX-058: and revoking an unused invitation
+                  'eios:action:nexloop.workbench_member.change_role:1',  # NX-058 slice C: and every member change
+                  'eios:action:nexloop.workbench_member.suspend:1',
+                  'eios:action:nexloop.workbench_member.resume:1',
+                  'eios:action:nexloop.workbench_member.revoke:1',
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's
+                  'eios:action:nexloop.remediation.resolve:1',  # NX-057 R1: resolving a remediation is the owner's
+                  'eios:action:nexloop.remediation.switch:1',  # NX-057 R1: and so is pausing or resuming remediation
+                  'eios:action:nexloop.remediation.rule_release:1',  # NX-057 R2: and releasing a held rule
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')
@@ -239,11 +246,15 @@ def role_templates(roles, tenant, *, valid_from=None):
             for role in sorted(roles['roles'])}
 
 
-def apply_members(roles, members, *, database_url_file):
+def apply_members(roles, members, *, database_url_file, named_revocations=()):
     """Technical configurator only (0140 refuses any other session). One transaction, three steps (NX-058 §1c, L6 slice A review D-1,
     A-3): (1) the role templates, published as text with its sha256 and the expected revision (the last published roles manifest version,
     read before the transaction; a concurrent publication fails the check) - a changed role first revokes the previous version from
-    every member holding it through an instantiation; (2) the member configuration; (3) those members get the role's new version."""
+    every member holding it through an instantiation; (2) the member configuration; (3) those members get the role's new version.
+    First in that transaction, under the member lock held to its commit (X1, review N-1): a member whose role or presence a governed
+    change (an accepted invitation, a member Action) set since the last configurator version, and that this member file would set
+    differently, refuses the run - except the principals --revoke-member names (Z2). After it: the role history of what the configuration changed, and the sessions of a member it removed or moved end."""
+    import psycopg
     from nexloop_eios.trusted_configuration import configurator_connection
     roles_payload, members_payload = configuration_payloads(roles, members)
     tenant = members['tenant_id']
@@ -251,15 +262,30 @@ def apply_members(roles, members, *, database_url_file):
     with db:
         with db.transaction():
             expected = db.execute('select control.nexloop_workbench_template_revision(%s)', (tenant,)).fetchone()[0]
-        with db.transaction():
-            db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
-            templates = db.execute('select control.nexloop_publish_workbench_role_templates(%s,%s,%s)',
-                (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
-            configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
-                (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
-            settled = db.execute('select control.nexloop_workbench_templates_settle(%s)', (tenant,)).fetchone()[0]
-            return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],
-                    'instances_rewritten': settled}
+        try:
+            return _apply_members_locked(db, roles, members, roles_payload, members_payload, tenant, expected, named_revocations)
+        except psycopg.errors.LockNotAvailable:
+            # L6 slice C review S-g: a governed member change (or another configurator run) held the member lock past lock_timeout.
+            raise WorkbenchRolesRejected('workbench_members_locked: a member change is in progress; retry the configuration') from None
+
+
+def _apply_members_locked(db, roles, members, roles_payload, members_payload, tenant, expected, named_revocations):
+    """The one writing transaction of apply_members (X1 check first, under the member lock held to the commit)."""
+    with db.transaction():
+        db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
+        # L6 slice C review N-1: the X1 check in the writing transaction; it takes the member lock first and holds it to the commit.
+        drift = db.execute('select control.nexloop_workbench_governed_drift(%s,%s::jsonb,%s)',
+            (tenant, canonical_payload({m['principal_id']: m['role'] for m in members['members']}), list(named_revocations))).fetchone()[0]
+        if drift:
+            raise WorkbenchRolesRejected('members_changed_by_governed_actions: ' + ', '.join(f"{d['principal_id']}={d['role']}" for d in drift))
+        templates = db.execute('select control.nexloop_publish_workbench_role_templates_v2(%s,%s,%s)',
+            (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
+        configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
+            (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
+        settled = db.execute('select control.nexloop_workbench_templates_settle_v2(%s)', (tenant,)).fetchone()[0]
+        history = db.execute('select control.nexloop_workbench_role_history_sync(%s)', (tenant,)).fetchone()[0]
+        return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],
+                'instances_rewritten': settled, 'role_history_entries': history}
 
 
 def publish_human_authority(tenant, *, authority_facts, business_application, humans, label, database_url_file, signing_key_file, signing_key_id,
@@ -286,7 +312,7 @@ def publish_human_authority(tenant, *, authority_facts, business_application, hu
     return result['authority_revision']
 
 
-def apply(roles, members, *, database_url_file, signing_key_file, signing_key_id):
+def apply(roles, members, *, database_url_file, signing_key_file, signing_key_id, named_revocations=()):
     """G-WORKBENCH-AUTH: the whole workbench configuration in one run, in the order the SQL requires: the workbench caller application
     fact and its 0045 business row (0050; control.nexloop_configure_workbench refuses an application that is not a published browser
     business application), then the members (configure_workbench), then the members' grant facts (0050, 0140: grants follow the
@@ -299,7 +325,7 @@ def apply(roles, members, *, database_url_file, signing_key_file, signing_key_id
                                         'application_version': '1', 'requested_scopes': ['action.execute']},
                   database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
     publish_human_authority(members['tenant_id'], authority_facts=application, humans=[], label='workbench-application', **common)
-    configured = apply_members(roles, members, database_url_file=database_url_file)
+    configured = apply_members(roles, members, database_url_file=database_url_file, named_revocations=named_revocations)
     revision = publish_human_authority(members['tenant_id'], authority_facts=facts, humans=[m['principal_id'] for m in members['members']],
                                        label='workbench-roles', **common)
     return {'configured': True, 'workbench': configured, 'authority_revision': revision, 'members': len(members['members']),
@@ -324,7 +350,8 @@ def apply_revocations(roles, members, revoked, *, database_url_file, signing_key
                 'requested_scopes': ['action.execute']}
     revision = publish_human_authority(tenant, authority_facts=facts, business_application=business, humans=sorted(revoked), label='workbench-revoke',
                                        database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
-    applied = apply(roles, members, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id)
+    applied = apply(roles, members, database_url_file=database_url_file, signing_key_file=signing_key_file, signing_key_id=signing_key_id,
+                    named_revocations=sorted(revoked))
     return {**applied, 'revoked': sorted(revoked), 'revoked_grant_sets': len(facts), 'revocation_revision': revision}
 
 

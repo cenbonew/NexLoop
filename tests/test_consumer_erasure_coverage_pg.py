@@ -89,6 +89,9 @@ IDENTITY_KEPT = {
     # NX-058: workbench members' role grants and role history - staff, never a Consumer (staff erasure is the owner's open Q-A).
     'control.nexloop_workbench_grant_instances': _STAFF + ' (a workbench member\'s instantiated role grants)',
     'control.nexloop_workbench_role_history': _STAFF + ' (when a workbench member held a role)',
+    # NX-057: who switched or resolved a remediation (the owner or the planner's service principal); the remediation holds no consumer id.
+    'control.nexloop_remediation_switches': _STAFF + ' (the owner who paused or resumed remediation)',
+    'runtime.nexloop_remediation_events': _STAFF + ' (the planner service or the owner who moved a remediation)',
 }
 # Known JSON paths that name the Consumer or their principal, and how the erasure treats each (a table of IDENTITY_KEPT or one the
 # erasure writes; the whole-database search proves the values are gone).

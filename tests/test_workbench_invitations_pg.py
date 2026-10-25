@@ -41,6 +41,10 @@ def invites(switching, admin, tmp_path):
     return c
 
 
+def members_version(admin):
+    return admin.execute('select max(manifest_version) from control.nexloop_workbench_configurations').fetchone()[0]
+
+
 def accept(client, body):
     return client.post('/api/v1/workbench/auth/invitation/accept', headers={'Origin': ORIGIN}, json=body)
 
@@ -87,13 +91,19 @@ def test_an_invited_operator_joins_with_the_role_template_grants(invites, admin)
         assert row and canonical_payload(row[0]) == canonical_payload(fact.model_dump(mode='json')), (kind, key)
     assert admin.execute('select role,event from control.nexloop_workbench_role_history where principal_id=%s', (principal,)).fetchall() == [('operator', 'start')]
     assert admin.execute('select direction,source from control.nexloop_workbench_grant_instances where principal_id=%s', (principal,)).fetchone()[0] == 'grant'
-    audits = admin.execute("select action,payload->>'issued_by' from runtime.audit_events where action like 'nexloop.workbench_member.%' order by created_at").fetchall()
+    audits = admin.execute("select action,payload->>'issued_by' from runtime.audit_events where action in (%s,'nexloop.workbench_member.invitation_accepted') order by created_at",
+                           (INVITE,)).fetchall()
     assert audits == [(INVITE, None), ('nexloop.workbench_member.invitation_accepted', c['owner_member']['principal_id'])]
-    # A configurator apply from a member file without the invitee is refused (0116's grant check; X1 names it in slice C).
-    from nexloop_eios.workbench_roles import apply_members
+    # A-8: the acceptance's detail and the instantiation's own event name the instance record and the configuration version.
+    instance = admin.execute('select instance_id from control.nexloop_workbench_grant_instances where principal_id=%s', (principal,)).fetchone()[0]
+    detail = admin.execute("select payload from runtime.audit_events where action='nexloop.workbench_member.invitation_accepted_detail'").fetchone()[0]
+    assert detail['instance_id'] == instance and detail['configuration_version'] == members_version(admin)
+    assert admin.execute("select count(*) from runtime.audit_events where action='nexloop.workbench_member.grants_written' and (payload->>'instance_id')::bigint=%s",
+                         (instance,)).fetchone() == (1,)
+    # X1 (slice C): a configurator apply from a member file without the invitee is refused, naming the member and its role.
+    from nexloop_eios.workbench_roles import WorkbenchRolesRejected, apply_members
     from test_workbench_read_pg import members_file
-    import psycopg
-    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='a current Human grant is outside the workbench role of ' + principal):
+    with pytest.raises(WorkbenchRolesRejected, match='members_changed_by_governed_actions: ' + principal + '=operator'):
         apply_members(ROLES, members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator')), database_url_file=c['configurator'])
 
 
@@ -116,7 +126,7 @@ def test_reissue_revoke_failures_owner_role_issuer_and_limits(invites, admin):
         for i in range(6):  # 4 issued so far in this window; the limit is 10 per 15 minutes
             invite(client, csrf, username=f'filler-{i}x')
         limited = invite(client, csrf, username='one-too-many')
-        assert limited.status_code == 409 and limited.json()['details']['reason'] == 'rate_limited'
+        assert (limited.status_code, limited.headers['Retry-After'], limited.json()['code']) == (429, '900', 'rate_limited')
     admin.execute("""update control.nexloop_browser_memberships set payload=jsonb_set(payload,'{status}','"suspended"') where principal_id=%s""", (c['owner_member']['principal_id'],))
     with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
         assert accept(client, {'token': fourth, 'password': 'a-good-password-1'}).status_code == 400  # its issuer is no longer an active owner
@@ -151,9 +161,19 @@ def test_an_expired_token_a_demoted_issuer_and_a_concurrent_acceptance(invites, 
     def go():
         with TestClient(create_app(c['config']), base_url=ORIGIN) as other:
             results.append(accept(other, {'token': racing, 'password': 'a-good-password-1'}).status_code)
-    threads = [threading.Thread(target=go) for _ in range(2)]
-    for t in threads:
-        t.start()
+    # E-4: a barrier - the test holds the tenant's member lock until both acceptances wait on it, so they really meet inside the lock.
+    import time
+    import psycopg
+    with psycopg.connect(admin.info.dsn, autocommit=True) as gate:
+        with gate.transaction():
+            gate.execute('select control.nexloop_approval_tenant_lock(%s)', (TENANT,))
+            threads = [threading.Thread(target=go) for _ in range(2)]
+            for t in threads:
+                t.start()
+            deadline = time.monotonic() + 30
+            while admin.execute("select count(*) from pg_stat_activity where wait_event_type='Lock' and wait_event='advisory'").fetchone()[0] < 2:
+                assert time.monotonic() < deadline, 'both acceptances never reached the member lock'
+                time.sleep(0.05)
     for t in threads:
         t.join()
     assert sorted(results) == [200, 400]

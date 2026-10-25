@@ -319,6 +319,8 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, cl
         return 2
     host = config['host_role']
     entry = observe(config, runner)
+    # Journal and summary only: the recorder (0318) refuses fields it does not know (22023) - stage 2026-10-25.
+    unparsed = entry.pop('trigger_unparsed')
     now = (clock or (lambda: datetime.now(UTC).timestamp()))()
     loops, anchors = local_crash_loops(load_state(config['state_file']), entry['units'], now,
                                        window=config.get('local_window_seconds', 900), minimum=config.get('local_min_restarts', 3))
@@ -328,9 +330,9 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, cl
         local_alarm(err, f'crash_loop host={host} unit={name} restarts={delta}')
     if entry['blind']:
         local_alarm(err, f'blind host={host} seen={len(entry["units"]) + len(entry["timers"])} expected={len(entry["expected_units"]) + len(entry["expected_timers"])}')
-    for name in entry['trigger_unparsed']:
+    for name in unparsed:
         local_alarm(err, f'trigger_unparsed host={host} timer={name}')
-    summary = {'trigger_unparsed': entry['trigger_unparsed'], 'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
+    summary = {'trigger_unparsed': unparsed, 'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
                'expected_units': len(entry['expected_units']), 'timer_runs': len(entry['timers']), 'expected_timers': len(entry['expected_timers'])}
     if a.dry_run:
         print(json.dumps({**summary, 'dry_run': True, 'entry': entry}, sort_keys=True), file=out)

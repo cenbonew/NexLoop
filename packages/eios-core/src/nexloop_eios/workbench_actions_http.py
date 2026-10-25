@@ -226,6 +226,12 @@ OPERATIONS={
         'role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role')),
         'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
     'revoke_workbench_invitation':{'invitation_id':_id(_UUID)},
+    # NX-058 slice C (owner only): member changes of operators and reviewers; the target is target_principal only (AA2).
+    'change_workbench_member_role':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),
+        'new_role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role'))},
+    'suspend_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    'resume_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    'revoke_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'read_experiment_report':lambda body:_REPORT_KINDS[body.get('kind') if type(body.get('kind')) is str else None],
     'set_evolution_stop':{'dimension':lambda v:v if v in ('semantic_content','semantic_tool','ontology_schema') else (_ for _ in ()).throw(ValueError('dimension')),
         'stopped':_bool,'reason':_reason},
@@ -244,6 +250,12 @@ OPERATIONS={
     # 0210: owner-only; the owner confirms an unknown effect did not happen (evidence and wait checked in SQL).
     'confirm_effect_not_delivered':{'intent_id':_id(_UUID),'confirmation_ref':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')),'reason':_reason,
         'provider_retention_checked':_bool,'reply_followup':lambda v:v if v in ('owner_follow_up','fallback_reply') else (_ for _ in ()).throw(ValueError('follow-up'))},
+    # NX-057 R1 (remediation_intents): owner-only; an open remediation is marked handled or cancelled, and the tenant's remediation paused or resumed.
+    'resolve_remediation':{'remediation_id':_id(_UUID),'outcome':lambda v:v if v in ('handled','cancelled','wake') else (_ for _ in ()).throw(ValueError('outcome')),
+        'reason':_reason},
+    'switch_remediation':{'paused':_bool,'reason':_reason},
+    # NX-057 R2: owner-only; a rule the breaker held is released (it generates again from the next failure).
+    'release_remediation_rule':{'rule_id':_id(re.compile(r'[a-z][a-z0-9_]{0,63}')),'reason':_reason},
     # 0220: owner-only real dispatch switch; the tenant scope names its data mode, the action scope one resource id.
     'set_real_dispatch':{'scope_kind':lambda v:v if v in ('tenant','action_type') else (_ for _ in ()).throw(ValueError('scope')),
         'enabled':lambda v:v if type(v) is bool else (_ for _ in ()).throw(ValueError('enabled')),'reason':_reason,
@@ -362,7 +374,10 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            if code and code.group(1)=='rate_limited':
+                # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
+                limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)

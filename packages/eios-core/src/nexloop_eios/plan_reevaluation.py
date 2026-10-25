@@ -86,6 +86,9 @@ class _SignedPort:
         if session.run_context is not None:raise PlanUnavailable()
         self.pool,self.session,self.signer=pool,session,signer
 
+    def _prepare(self,db):
+        """Transaction-local settings a port passes to its SQL (NX-057: the remediation deployment switch)."""
+
     def _signed(self,payload):
         entries=[]
         query=self.session.query(resource_id=self.ACTION,resource_type=ResourceType.ACTION,operation=Operation.EXECUTE)
@@ -105,6 +108,7 @@ class _SignedPort:
                 if self.REAL_DISPATCH:
                     from nexloop_eios import real_dispatch
                     real_dispatch.apply(db)
+                self._prepare(db)
                 return db.execute(f'select authz.{self.FUNCTION}(%s,%s,%s,%s,%s)',(self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
         except psycopg.errors.InsufficientPrivilege:raise PlanUnavailable() from None
 

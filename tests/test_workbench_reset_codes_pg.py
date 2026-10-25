@@ -153,7 +153,7 @@ def test_issuing_is_limited_per_owner(resets, admin):
             assert act(client, csrf, 'issue_workbench_reset', {'target_principal': c['operator_member']['principal_id']}).status_code == 200
         epoch = admin.execute("select payload->>'session_epoch' from control.nexloop_browser_accounts where username='staff-operator'").fetchone()[0]
         refused = act(client, csrf, 'issue_workbench_reset', {'target_principal': c['operator_member']['principal_id']})
-        assert refused.status_code == 409 and refused.json()['details']['reason'] == 'rate_limited'
+        assert (refused.status_code, refused.headers['Retry-After'], refused.json()['code']) == (429, '900', 'rate_limited')
         assert admin.execute("select payload->>'session_epoch' from control.nexloop_browser_accounts where username='staff-operator'").fetchone()[0] == epoch
 
 

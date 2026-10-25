@@ -17,6 +17,7 @@ from commitment_fixture import TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from nexloop_eios.http_api import create_app
 from nexloop_eios.workbench_roles import apply_members, compile_members
+from support.vote_cooldown import ripen_approvers
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
@@ -35,6 +36,7 @@ def gated(switching, admin):
     members = members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator'), (second, 'owner'))
     apply_members(ROLES, members, database_url_file=c['configurator'])
     write_facts(admin, compile_members(ROLES, members))
+    ripen_approvers(admin, TENANT)  # NX-058 slice D §2: these members vote at once
     publish_registry_actions(admin, ('nexloop.approvals.decide', 'nexloop.approvals.cancel'))
     admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
         summary_fields,published_by) values('real_dispatch.set',1,1,%s,1,'{owner}',86400,'{scope_kind,enabled}','synthetic-config')""",

@@ -236,7 +236,11 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         return summary
     if service=='plan-reevaluator':
         from nexloop_eios.plan_reevaluation import PlanReevaluationWorker,load_settings
-        return PlanReevaluationWorker(pool,session,signer,settings=load_settings(arguments.settings_file),launcher=launcher).run_once()
+        summary=PlanReevaluationWorker(pool,session,signer,settings=load_settings(arguments.settings_file),launcher=launcher).run_once()
+        # NX-057 R1: the same process proposes remediations of final effect failures (once a minute; REMEDIATION_ENABLED gates it).
+        from nexloop_eios.remediation import RemediationPlanner
+        summary['remediation']=RemediationPlanner(pool,session,signer).run_once()
+        return summary
     if service=='claim-extraction-scheduler':
         from nexloop_eios.claim_extraction_jobs import ClaimExtractionScheduler
         return {'enqueued':len(ClaimExtractionScheduler(pool,session,signer,quiet_seconds=arguments.quiet_seconds,window=arguments.window,

@@ -27,10 +27,21 @@ function summaryText(row:ApprovalRow):string{
 export const APPROVAL_ACTION_TEXT:Record<string,string>={set_real_dispatch:'打开真实派发',erase_consumer:'擦除客户数据',release_retention_hold:'解除数据保全',
   issue_incentive:'发放激励'};
 export function actionText(row:ApprovalRow):string{return APPROVAL_ACTION_TEXT[row.operation]??'其他操作';}
+/** The target member in words (ADR-039 §6): who the request acts on, as the server rendered it for this reader. */
+export function targetText(t:ApprovalRow['target_member']):string{
+  if(t===null)return '—';
+  if(t.kind==='hidden')return '（仅 owner 可见）';
+  if(t.kind==='unresolved')return '目标已不在租户中';
+  if(t.kind==='erased')return '已擦除';
+  if(t.kind==='invitee')return t.same_username_exists?`邀请：${t.username}（已有同名账户，应拒绝）`:`邀请：${t.username}`;
+  const status=[t.role??'无角色',t.member_status,t.account_status&&t.account_status!=='active'?'账户 '+t.account_status:null].filter(Boolean).join('，');
+  return `${t.username??'（无账户）'} ${t.label}（${status}）`;
+}
 const isOperation=(value:string):value is Operation=>Object.prototype.hasOwnProperty.call(OPERATION_ACTION,value);
 
 const common=[
   {label:'操作',main:true,cell:(r:ApprovalRow)=><>{actionText(r)}<br/><span className="note">{r.capability} · 策略 v{r.policy_version}</span></>},
+  {label:'目标',cell:(r:ApprovalRow)=>targetText(r.target_member)},
   {label:'内容摘要',wide:true,cell:(r:ApprovalRow)=><>{summaryText(r)}<br/><span className="note">摘要 <code>{r.digest}</code></span></>},
   {label:'截止',cell:(r:ApprovalRow)=><Time value={r.due_by}/>},
   {label:'批准',cell:(r:ApprovalRow)=>`${r.approvals} / ${r.quorum}`},
