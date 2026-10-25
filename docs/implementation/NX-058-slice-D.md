@@ -14,3 +14,10 @@ Migration `0339_vote_cooldown.sql` (temporary number):
 **Runbook (deployment)**: for 24 hours after this migration no approval of any policy can be decided — including the first three (`real_dispatch.set` opening, `consumer.erase`, `retention.release_hold`). Choose the deployment time with the owner; during the window only the operations channel applies. A member who starts holding an approver role (joins, is promoted across the union, is resumed) votes 24 hours later.
 
 Tests: `tests/test_vote_cooldown_pg.py` (the function's semantics; a vote within the cooldown refused; a voter who stopped holding the role no longer counted). NX-056 tests whose synthetic members vote at once record the holding as begun 25 hours ago (`tests/support/vote_cooldown.py`); the solo-mode test now shows a newly joined approver refused until ripe.
+
+### D1 review follow-up (L6)
+
+- The deployment start moved into `control.nexloop_workbench_role_history_backfill(source)` (owner-held, called once by 0339) and is tested on its own: configured active members without an open holding get one start; open holdings, suspended memberships and a second call write nothing.
+- Worlds: approvals in simulation or shadow worlds count votes under the real-world cooldown (workbench members exist in real only).
+- Known limitation: disabling and re-enabling a local account writes no role history, so it does not restart the clock (a disabled account cannot vote meanwhile); membership suspension and resumption do restart it.
+- New tests: a member suspended and resumed by the slice C handler can neither approve nor reject for 24 hours, then approves and the requester's resubmission executes (end to end); an owner added by the configurator is refused until ripe.

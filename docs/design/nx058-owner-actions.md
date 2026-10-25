@@ -1,6 +1,6 @@
 # 设计稿｜NX-058 片 D：owner 专用成员 Action（接 NX-056 审批）
 
-第 2.7 版，2026-10-25，L2（D7 已定为 A；invitee 按能力判定）。目标成员接口按 ADR-039 修订 R1 §6（L3 fdc06ef2）同步；本文与该节不一致处一律以 ADR 为准。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
+第 2.8 版，2026-10-25，L2（D7 已定为 A；invitee 按能力判定）。目标成员接口按 ADR-039 修订 R1 §6（L3 fdc06ef2）同步；本文与该节不一致处一律以 ADR 为准。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
 
 上位设计是 `docs/design/account-self-service.md` 第 7 版（下称“自助设计”）的 §1b、§2、§7、§9（AA6）；这里只写落地方式和需要确认的点，不重复上位设计已确定的规则。实现基线：第二十六批合入后的 main。届时片 C 的迁移编号为 0340（`workbench_member_changes`）、0341（`governed_authority_change`），NX-056 为 0326–0332，L3 的跟进为 0339；本文所说的 0340/0341 都指这一编号，并以片 C 的 X1 修复（a80c77aa、fc012e6e：drift 检查在写事务内、先取成员锁）为**前置条件**（I7）。**启用前置条件（ADR-039 §6.7）**：NX-056 B1（审批视图的 `target_member` 与告警 v15）必须先于本片的 owner Action 在 stage 上启用合入，否则批准人看不到目标；本片代码可以先于 B1 合入，但运行手册的启用步骤以 B1 已上线为第一项检查。迁移号临时，由 L4 组批时重编。
 
@@ -68,7 +68,9 @@
 
 - 新增只读函数 `control.nexloop_workbench_vote_eligible_from(tenant, world, subject, roles[]) returns timestamptz`（world 对工作台成员固定为 `real`，与 NX-056 按 (tenant, world) 计数对齐，Z4）：按 `control.nexloop_workbench_role_history`，取该 subject **当前这段连续持有 roles 并集**的起点加 24 小时；当前不持有并集内任何角色返回 null。并集内换角色不中断，全部停止（含停用）后再开始就重新计时（Z4）。owner 策略的并集只有 owner，所以被提升的成员对 owner 策略从提升时刻起算。
 - `nexloop_approval_approver_eligible` 重定义（copy guard 登记）：原条件之外加 `vote_eligible_from(...) <= clock_timestamp()`。决定时（decide 拒收）和消费时（valid_votes 不计入）都经过它。
-- **上线影响（I3，写入上线手册和告警说明）**：存量成员的历史起点是片 A `role_history_sync` 在部署时补的 `start`，所以**部署后 24 小时内所有审批策略都批不了**，包括首批三条（`real_dispatch.set` 开启、`consumer.erase`、`retention.release_hold`）。上线时间点需与负责人确认，避开需要审批的时段；期间只能走运维通道。新加入的批准人同样 24 小时后才能投票。
+- **上线影响（I3，写入上线手册和告警说明）**：存量成员的历史起点是 0339（临时编号）在部署时由 `control.nexloop_workbench_role_history_backfill` 补的 `start`，所以**部署后 24 小时内所有审批策略都批不了**，包括首批三条（`real_dispatch.set` 开启、`consumer.erase`、`retention.release_hold`）。上线时间点需与负责人确认，避开需要审批的时段；期间只能走运维通道。新加入的批准人同样 24 小时后才能投票。
+- **世界**：工作台成员只存在于 real 世界，`approver_eligible` 一律按 real 世界的冷却判断，所以 sim/shadow 世界里的审批也按 real 世界的冷却计票。
+- **已知限制**：账户层面的停用与启用（`control.nexloop_browser_accounts` 的本地账户状态）不写角色历史，因此**不重新计时**；停用期间该账户无法投票（`approver_eligible` 要求 subject 与 membership 为 active，浏览器会话也需要账户）。membership 的停用与恢复（片 C 的 suspend/resume）会重新计时。
 - §8 的 Python 参照实现覆盖：并集内切换、中途停用后恢复、存量 start 行、多次进出（S4）。
 
 ## 3. handler 公共步骤

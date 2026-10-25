@@ -8,9 +8,14 @@
 -- * control.nexloop_approval_approver_eligible (0326) also requires that time to have passed. The decision (decide refuses the vote) and
 --   the consumption (valid_votes does not count it) both go through it, so a vote of an approver demoted or suspended after deciding,
 --   or of one who joined less than 24 hours ago, never counts. Registered in tests/test_function_copy_guard.py.
+-- * Worlds: approver_eligible asks for the real world's cooldown whatever the approval's world - workbench members exist in real only, so
+--   an approval in a simulation or shadow world counts votes under the real-world cooldown.
+-- * Known limitation: an account disabled and enabled again (control.nexloop_browser_accounts, a local account's own status) writes no
+--   role history, so it does not restart the clock; a disabled account cannot vote meanwhile (approver_eligible needs an active subject
+--   and membership, and the browser session needs the account). Suspension and resumption of the membership do restart it.
 -- * Deployment (design §2, Y6): a configured active member without an open holding of its role gets a start now, so every policy waits
 --   24 hours after this migration (the runbook says so); members configured later start when the configurator or a governed change
---   records them.
+--   records them. control.nexloop_workbench_role_history_backfill writes it (owner-held, called once here; tested on its own).
 set local timezone = 'UTC';
 
 -- The transaction that wrote a history row: a handler's stop of one role and start of another (operator -> owner) are one change, so
@@ -64,7 +69,12 @@ begin
  return v;
 end $$;
 
-do $$ declare t text;m record; begin
+-- The deployment start (design §2, Y6), also the one place that writes it: every configured active member of the tenant's latest workbench
+-- configuration without an open holding of its role gets a start now. Owner-held, granted to no role; called once below.
+create function control.nexloop_workbench_role_history_backfill(p_source text) returns integer
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare t text;m record;n integer:=0;prior text:=current_setting('eios.tenant_id',true);
+begin
  for t in select tenant_id from control.nexloop_tenants order by tenant_id loop
   perform set_config('eios.tenant_id',t,true);
   for m in select c.key principal_id,c.value role,bm.subject_id
@@ -72,9 +82,14 @@ do $$ declare t text;m record; begin
     join control.nexloop_browser_memberships bm on bm.tenant_id=t and bm.principal_id=c.key and bm.payload->>'status'='active' loop
    if coalesce((select r.event from control.nexloop_workbench_role_history r where r.tenant_id=t and r.principal_id=m.principal_id and r.role=m.role
        order by r.entry_id desc limit 1),'stop')<>'start' then
-    insert into control.nexloop_workbench_role_history(tenant_id,subject_id,principal_id,role,event,source) values(t,m.subject_id,m.principal_id,m.role,'start','deployment');
+    insert into control.nexloop_workbench_role_history(tenant_id,subject_id,principal_id,role,event,source) values(t,m.subject_id,m.principal_id,m.role,'start',p_source);
+    n:=n+1;
    end if;
   end loop;
  end loop;
- perform set_config('eios.tenant_id','',true);
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return n;
 end $$;
+alter function control.nexloop_workbench_role_history_backfill(text) owner to nexloop_owner;
+revoke all on function control.nexloop_workbench_role_history_backfill(text) from public;
+select control.nexloop_workbench_role_history_backfill('deployment');

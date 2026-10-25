@@ -11,6 +11,12 @@ import pytest
 from support.tenants import TENANT_A
 from test_nx056_approvals_store_pg import decide, open_request, refused, store  # noqa: F401
 from test_workbench_read_pg import add_human
+from test_nx056_approval_gate_pg import gated  # noqa: F401
+from commitment_fixture import commitments  # noqa: F401
+from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
+from test_browser_identity_reads import identity  # noqa: F401
+from test_browser_session_creation import uow  # noqa: F401
+from test_real_dispatch_switch_pg import switching  # noqa: F401
 
 
 def history(admin, person, role, event, hours_ago, principal=None):
@@ -77,3 +83,84 @@ def test_no_application_role_calls_the_eligibility_function(store, pg):
     for role in ('nexloop_api', 'nexloop_identity'):
         with psycopg.connect(make_conninfo(pg, user=role)) as db, pytest.raises(psycopg.errors.InsufficientPrivilege):
             db.execute("select control.nexloop_workbench_vote_eligible_from('t','real','s','{owner}')")
+
+
+def test_the_backfill_starts_configured_active_members_once(store):
+    """The deployment start (0339 calls it once): a configured active member without an open holding gets one start; an open holding, a
+    suspended membership and a second call write nothing."""
+    from psycopg.types.json import Jsonb
+    f = store
+    admin = f['admin']
+    fresh, paused = add_human(admin, 'backfill-fresh'), add_human(admin, 'backfill-paused')
+    admin.execute("update control.nexloop_browser_memberships set payload=jsonb_set(payload,'{status}','\"suspended\"') where principal_id=%s", (paused['principal_id'],))
+    admin.execute("""insert into control.nexloop_workbench_configurations(tenant_id,manifest_version,roles_version,application_id,roles,members,roles_digest,recorded_by)
+        select tenant_id,manifest_version+1,roles_version,application_id,roles,members||%s,roles_digest,'synthetic-configurator'
+        from control.nexloop_workbench_configurations where tenant_id=%s order by manifest_version desc limit 1""",
+                  (Jsonb({fresh['principal_id']: 'owner', paused['principal_id']: 'owner'}), TENANT_A))
+    rows = lambda person: admin.execute("select role,event,source from control.nexloop_workbench_role_history where subject_id=%s order by entry_id",  # noqa: E731
+                                        (person['subject_id'],)).fetchall()
+    assert admin.execute("select control.nexloop_workbench_role_history_backfill('deployment')").fetchone()[0] == 1
+    assert rows(fresh) == [('owner', 'start', 'deployment')] and rows(paused) == []
+    assert rows(f['approver'])[-1][2] == 'synthetic-ripened'  # an open holding: untouched
+    assert admin.execute("select control.nexloop_workbench_role_history_backfill('deployment')").fetchone()[0] == 0
+    assert 22 <= eligible_from_hours(admin, fresh, ['owner']) <= 24  # 24 hours from now
+
+
+def age_history(admin, person, hours):
+    """Move every role history row of a person back (the append-only trigger is a replica-mode exception for the test only)."""
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("update control.nexloop_workbench_role_history set recorded_at=recorded_at-make_interval(hours=>%s) where subject_id=%s",
+                      (hours, person['subject_id']))
+
+
+def sql_decide(admin, member, approval, decision='approve'):
+    import uuid
+    from psycopg.types.json import Jsonb
+    from commitment_fixture import TENANT
+    return admin.execute('select control.nexloop_governed_approval_decide(%s,%s,%s,%s,%s,%s)', (
+        TENANT, 'real', member['principal_id'], 'human', 'intent-' + uuid.uuid4().hex[:12],
+        Jsonb({'operation': 'decide_approval', 'request_id': uuid.uuid4().hex, 'approval_id': approval, 'decision': decision, 'reason': '核对过'}))).fetchone()[0]
+
+
+def test_a_member_suspended_and_resumed_by_the_handler_votes_24_hours_later_and_then_the_request_runs(gated, admin):
+    """Through the actual app: an operator (an approver role of this policy version) suspended and resumed by the slice C handler cannot
+    approve nor reject within 24 hours; once the holding is 24 hours old its approval counts and the requester's resubmission executes."""
+    from commercial_fixture import publish_registry_actions
+    from test_nx056_approval_gate_pg import consumptions, tenant_switch
+    from test_workbench_actions_http import act
+    from test_workbench_read_pg import workbench_login
+    from test_browser_http import ORIGIN
+    from fastapi.testclient import TestClient
+    from nexloop_eios.http_api import create_app
+    c = gated
+    publish_registry_actions(admin, ('nexloop.workbench_member.suspend', 'nexloop.workbench_member.resume'))
+    admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
+        summary_fields,published_by) values('real_dispatch.set',2,1,%s,1,'{owner,operator}',86400,'{scope_kind,enabled}','synthetic-config')""",
+                  (__import__('psycopg').types.json.Jsonb({'field': 'enabled', 'equals': True}),))
+    operator = c['operator_member']
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
+        body = {'target_principal': operator['principal_id'], 'reason': 'synthetic leave'}
+        assert act(client, csrf, 'suspend_workbench_member', body).status_code == 200
+        assert act(client, csrf, 'resume_workbench_member', body).status_code == 200
+    approval = c['request']().json()['approval_id']
+    refused('approver_unauthorized', sql_decide, admin, operator, approval)
+    refused('approver_unauthorized', sql_decide, admin, operator, approval, 'reject')  # rejecting is a vote too
+    age_history(admin, operator, 25)
+    assert sql_decide(admin, operator, approval)['status'] == 'approved'
+    executed = c['request']()
+    assert executed.json()['approval'] == 'consumed' and tenant_switch(admin) is True and consumptions(admin) == [('executed',)], executed.json()
+
+
+def test_an_owner_added_by_the_configurator_votes_24_hours_later(gated, admin):
+    from nexloop_eios.workbench_roles import apply_members, compile_members
+    from test_workbench_read_pg import ROLES, members_file, write_facts
+    c = gated
+    third = add_human(admin, 'third-owner')
+    members = members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator'), (c['second'], 'owner'), (third, 'owner'))
+    apply_members(ROLES, members, database_url_file=c['configurator'])
+    write_facts(admin, compile_members(ROLES, members))
+    approval = c['request']().json()['approval_id']
+    refused('approver_unauthorized', sql_decide, admin, third, approval)
+    assert sql_decide(admin, c['second'], approval)['status'] == 'approved'  # the ripe owner decides
