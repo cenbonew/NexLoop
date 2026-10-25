@@ -126,26 +126,74 @@ def test_an_invite_owner_members_frozen_username_is_rewritten_and_shown_erased(o
     assert row[0]['target_member'] == {'kind': 'invitee', 'username': 'joined-owner', 'same_username_exists': False}
 
 
+def replay(admin, restore, *entries):
+    admin.execute('select runtime.nexloop_replay_begin(%s,0)', (restore,))
+    return admin.execute('select runtime.nexloop_replay_deletions(%s,%s)', (restore, Jsonb(list(entries)))).fetchone()[0]
+
+
 def test_a_replay_after_a_restore_erases_again_with_the_original_time_and_executor(owners, admin):
-    """C2, I-E4: the deletion ledger's entry replays the erasure on a restored directory - here a revoked member never erased in this
-    database, with the entry of an earlier erasure's approval - and the ledger row carries the entry's time and that approval's executor."""
+    """C2, I-E4; L6 review of E1 (1): the deletion ledger's entry carries its actor, so a directory restored from before the erasure - no
+    consumption to look the executor up in - gets the ledger row back with the entry's time and executor. Replaying twice changes nothing."""
     c = owners
     with_policies(c)
     revoke(c, c['third'])
     first = erase(c, c['third'])
-    approval = first.json()['approval_id']
+    entry = admin.execute("select request_ref,cutoff,actor from control.nexloop_deletion_ledger where kind='workbench_member'").fetchone()
+    assert entry[0] == first.json()['approval_id'] and entry[2] == c['owner_member']['principal_id']  # the executor is in the entry
+    journal = admin.execute("select entry from control.nexloop_restore_journal where kind='deletion' and entry->>'kind'='workbench_member'").fetchone()[0]
+    assert journal['actor'] == c['owner_member']['principal_id']
     admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"revoked"}' where principal_id=%s""", (c['operator_member']['principal_id'],))
     at = '2026-10-01T08:00:00+00:00'
-    admin.execute("select runtime.nexloop_replay_begin('synthetic-restore',0)")
-    out = admin.execute('select runtime.nexloop_replay_deletions(%s,%s)', ('synthetic-restore', Jsonb([
-        {'kind': 'workbench_member', 'tenant_id': TENANT, 'world': 'real', 'subject_ref': c['operator_member']['subject_id'], 'request_ref': approval, 'cutoff': at},
-        {'kind': 'workbench_member', 'tenant_id': TENANT, 'world': 'real', 'subject_ref': c['third']['subject_id'], 'request_ref': approval, 'cutoff': at}]))).fetchone()[0]
+    unknown = str(uuid.uuid4())  # an approval this database never saw (the backup predates it)
+    out = replay(admin, 'synthetic-restore', {'kind': 'workbench_member', 'tenant_id': TENANT, 'world': 'real', 'subject_ref': c['operator_member']['subject_id'],
+                                              'request_ref': unknown, 'cutoff': at, 'actor': c['second']['principal_id']},
+                 {'kind': 'workbench_member', 'tenant_id': TENANT, 'world': 'real', 'subject_ref': c['third']['subject_id'], 'request_ref': entry[0], 'cutoff': at,
+                  'actor': entry[2]})
     assert out['workbench_members'] == 2
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
-    assert admin.execute("select erased_at,erased_by_principal from control.nexloop_workbench_member_erasures where subject_id=%s", (c['operator_member']['subject_id'],)).fetchone() == (
-        __import__('datetime').datetime.fromisoformat(at), c['owner_member']['principal_id'])
+    assert admin.execute("select erased_at,erased_by_principal,approval_id::text from control.nexloop_workbench_member_erasures where subject_id=%s",
+                         (c['operator_member']['subject_id'],)).fetchone() == (__import__('datetime').datetime.fromisoformat(at), c['second']['principal_id'], unknown)
     assert account(admin, c['operator_member'])[0].startswith('erased-') and account(admin, c['operator_member'])[1] is None
     assert admin.execute('select count(*) from control.nexloop_workbench_member_erasures where subject_id=%s', (c['third']['subject_id'],)).fetchone() == (1,)  # idempotent
+
+
+def test_a_replay_on_a_backup_older_than_the_revocation_revokes_first(owners, admin):
+    """L6 review of E1 (2): the restored directory still has the member active and configured; the replay revokes every membership,
+    takes the principal out of the configuration and revokes its grants before erasing."""
+    from test_workbench_member_changes_pg import granted
+    c = owners
+    with_policies(c)
+    op = c['operator_member']
+    assert granted(admin, op['principal_id'])  # active, configured, granted
+    out = replay(admin, 'synthetic-restore-2', {'kind': 'workbench_member', 'tenant_id': TENANT, 'world': 'real', 'subject_ref': op['subject_id'],
+                                                'request_ref': str(uuid.uuid4()), 'cutoff': '2026-10-02T08:00:00+00:00', 'actor': c['owner_member']['principal_id']})
+    assert out['workbench_members'] == 1
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    assert admin.execute("select payload->>'status' from control.nexloop_browser_memberships where principal_id=%s", (op['principal_id'],)).fetchone() == ('revoked',)
+    assert admin.execute('select members ? %s from control.nexloop_workbench_configurations order by manifest_version desc limit 1', (op['principal_id'],)).fetchone() == (False,)
+    assert granted(admin, op['principal_id']) == set()
+    assert account(admin, op)[0].startswith('erased-') and account(admin, op)[3]['status'] == 'disabled'
+
+
+def test_the_requesters_own_revoked_principal_and_a_waiting_namesake_request(owners, admin):
+    """target_is_requester (another, revoked principal of the requester's subject); S-E7: a waiting invite_owner request carrying the erased
+    member's original username - a namesake's, opened before the erasure - is not rewritten."""
+    c = owners
+    with_policies(c)
+    me = c['owner_member']
+    payload = admin.execute('select payload from control.nexloop_browser_memberships where principal_id=%s', (me['principal_id'],)).fetchone()[0]
+    alias = me['principal_id'] + '-old'
+    admin.execute('insert into control.nexloop_browser_memberships values(%s,%s,%s,%s)',
+                  (TENANT, alias, me['subject_id'], Jsonb({**payload, 'principal_id': alias, 'status': 'revoked'})))
+    mine = erase(c, {'principal_id': alias})
+    assert mine.json()['status'] == 'execution_refused' and mine.json()['reason'] == 'target_is_requester', mine.json()
+    revoke(c, c['third'])
+    original = account(admin, c['third'])[0]
+    waiting = admin.execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (
+        TENANT, 'real', 'workbench_member.invite_owner', 'eios:action:nexloop.workbench_member.invite_owner:1', c['second']['principal_id'],
+        Jsonb({'operation': 'invite_workbench_owner', 'request_id': uuid.uuid4().hex, 'username': original, 'expires_in_hours': 24}))).fetchone()[0]['approval_id']
+    erase(c, c['third'])
+    assert admin.execute("select body->>'username' from control.nexloop_approval_requests where approval_id=%s", (waiting,)).fetchone() == (original,)
 
 
 def test_no_channel_brings_an_erased_member_back(owners, admin, pg):
@@ -172,6 +220,9 @@ def test_no_channel_brings_an_erased_member_back(owners, admin, pg):
     with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
         csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
         assert act(client, csrf, 'invite_workbench_member', {'username': 'erased-0123456789abcdef', 'role': 'operator', 'expires_in_hours': 24}).status_code == 422
+    with pytest.raises(psycopg.Error, match='username_reserved'):  # nor an account (trusted configuration's initial accounts, 0050/0162)
+        admin.execute("""insert into control.nexloop_browser_accounts select tenant_id,'erased-account',subject_id,'erased-0123456789abcdef',null,'{}',
+            payload||'{"local_account_id":"erased-account","username":"erased-0123456789abcdef"}' from control.nexloop_browser_accounts where subject_id=%s""", (c['second']['subject_id'],))
     with pytest.raises(psycopg.Error, match='username_reserved'):
         admin.execute("""insert into control.nexloop_workbench_invitations(tenant_id,request_id,username,role,token_hmac,issued_by_principal,issued_by_subject,
             issued_at,expires_at,state) values(%s,'reserved','erased-0123456789abcdef','operator',repeat('a',64),'x','x',clock_timestamp(),clock_timestamp()+interval '1 hour','issued')""", (TENANT,))

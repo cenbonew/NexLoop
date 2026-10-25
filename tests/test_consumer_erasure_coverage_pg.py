@@ -79,7 +79,8 @@ IDENTITY_KEPT = {
     'runtime.nexloop_fallback_context_bindings': _STAFF + ' (the relay that bound the context)',
     'runtime.nexloop_role_context_artifacts': _STAFF + ' (the role runtime)', 'runtime.nexloop_role_trigger_events': _STAFF + ' (the role runtime)',
     'runtime.nexloop_orphan_sweeps': _STAFF + ' (the artifact sweeper)',
-    'control.nexloop_initial_identity_receipts': 'trusted-configuration initial accounts (staff and owner), never a customer',
+    # control.nexloop_initial_identity_receipts: staff and owner initial accounts, never a customer; written by the staff erasure
+    # (NX-058 slice E: its password fingerprint), so no reason here.
     'control.nexloop_browser_memberships': 'identity layer: the customer account itself is not this erasure\'s (owner decision 5: deactivate on erasure, delete by the identity layer)',
     'control.nexloop_real_dispatch_switches': 'scope_ref names the tenant or an Action type, never a person',
     'runtime.nexloop_commercial_exceptions': 'subject_ref is a commercial record or event reference, never a person',

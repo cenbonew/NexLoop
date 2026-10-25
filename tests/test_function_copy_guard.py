@@ -467,7 +467,9 @@ REGISTRY = [
              (r"   -- 4\. Erased \(ADR-039 R3 §8\.6, NX-058 slice E\)[^\n]*\n   if exists\(select 1 from control\.nexloop_workbench_member_erasures e where e\.tenant_id=p_tenant and e\.subject_id=m\.subject_id\) then",
               "   -- 4. Erased (a pseudonymised member identity; no staff erasure path exists yet, §6.5).\n   if m.principal_id like 'pseudonym:%' or m.subject_id like 'pseudonym:%' or coalesce(a.username,'') like 'pseudonym:%' then"))),
     Allowed('member_erasure', 'control.nexloop_approval_request_guard', "the staff erasure's invite_owner username rewrite; nothing else",
-            ((r"\n    -- NX-058 slice E \(ADR-039 R3 §8\.7\)[^\n]*\n    or \(old\.capability='workbench_member\.invite_owner'.*?\^erased-\[0-9a-f\]\{16\}\$'\)\) then", ") then"),)),
+            ((r"\n    -- NX-058 slice E \(ADR-039 R3 §8\.7\)[^\n]*\n    or \(old\.capability='workbench_member\.invite_owner'.*?like 'workbench-erasure:%'\)\)\) then", ") then"),)),
+    Allowed('member_erasure', 'control.nexloop_journal_on_deletion', 'the deletion entry carries its actor (the staff erasure executor)',
+            ((r",'actor',new\.actor\)\);", "));"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

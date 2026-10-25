@@ -55,15 +55,49 @@ do $$ declare c text; begin
 end $$;
 alter table control.nexloop_deletion_ledger add constraint nexloop_deletion_ledger_cutoff_check
  check(case when kind in ('item_class','workbench_member') then cutoff is not null else cutoff is null end);
+-- L6 review of E1 (1): the executor travels with the entry - a backup older than the erasure has no consumption to look it up in.
+alter table control.nexloop_deletion_ledger add column actor text check(actor is null or char_length(actor) between 1 and 320);
+create or replace function control.nexloop_journal_on_deletion() returns trigger
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set timezone='UTC' as $$
+begin
+ perform control.nexloop_restore_journal_append('deletion',jsonb_build_object('subject','deletion_ledger','seq',new.seq,'tenant_id',new.tenant_id,
+  'world',new.world,'kind',new.kind,'subject_ref',new.subject_ref,'request_ref',new.request_ref,'cutoff',new.cutoff,'actor',new.actor));
+ return null;
+end $$;
 
 create function control.nexloop_workbench_member_erasure_ledger() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 begin
- perform runtime.nexloop_deletion_ledger_add(new.tenant_id,'real','workbench_member',new.subject_id,coalesce(new.approval_id::text,'replay'),new.erased_at);
+ insert into control.nexloop_deletion_ledger(seq,tenant_id,world,kind,subject_ref,request_ref,cutoff,actor)
+  values(nextval('control.nexloop_deletion_watermark'),new.tenant_id,'real','workbench_member',new.subject_id,coalesce(new.approval_id::text,'replay'),
+   new.erased_at,new.erased_by_principal) on conflict do nothing;
  return null;
 end $$;
 create trigger nx058_erasure_ledger after insert on control.nexloop_workbench_member_erasures
  for each row execute function control.nexloop_workbench_member_erasure_ledger();
+
+-- The replay after a restore older than the revocation (L6 review of E1, 2): every membership of the subject revoked, its principals out of
+-- the workbench configuration, their role grants revoked and their holdings stopped - before the erasure.
+create function control.nexloop_workbench_member_revoke_for_replay(p_tenant text,p_subject text,p_source text) returns integer
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare m record;cur control.nexloop_workbench_configurations;n integer:=0;
+begin
+ perform set_config('eios.tenant_id',p_tenant,true);
+ perform control.nexloop_workbench_member_lock(p_tenant);
+ select * into cur from control.nexloop_workbench_configurations where tenant_id=p_tenant order by manifest_version desc limit 1;
+ for m in select principal_id,payload->>'status' status from control.nexloop_browser_memberships where tenant_id=p_tenant and subject_id=p_subject order by principal_id loop
+  if cur.tenant_id is not null and cur.members ? m.principal_id then
+   if m.status='active' then
+    perform control.nexloop_workbench_grants_write_v2(p_tenant,m.principal_id,p_subject,cur.members->>m.principal_id,'revoke',p_source,'system:replay',p_source);
+    insert into control.nexloop_workbench_role_history(tenant_id,subject_id,principal_id,role,event,source) values(p_tenant,p_subject,m.principal_id,cur.members->>m.principal_id,'stop',p_source);
+   end if;
+   perform control.nexloop_workbench_configuration_append(p_tenant,cur.members-m.principal_id,p_source);
+   select * into cur from control.nexloop_workbench_configurations where tenant_id=p_tenant order by manifest_version desc limit 1;
+  end if;
+  if m.status<>'revoked' then perform control.nexloop_workbench_membership_status(p_tenant,m.principal_id,'revoked');n:=n+1;end if;
+ end loop;
+ return n;
+end $$;
 
 -- The one write (handler and replay). Idempotent: every step is a no-op the second time.
 create function control.nexloop_workbench_member_erase(p_tenant text,p_subject text,p_approval uuid,p_actor text,p_at timestamptz) returns jsonb
@@ -87,9 +121,14 @@ begin
  end if;
  update control.nexloop_browser_subjects set payload=payload||jsonb_build_object('status','disabled','revision',(payload->>'revision')::bigint+1)
   where subject_id=p_subject and payload->>'status'<>'disabled';
- with gone as (delete from control.nexloop_browser_sessions where tenant_id=p_tenant and payload->>'subject_id'=p_subject returning session_id)
-  delete from authz.nexloop_browser_token_realms t using gone where t.session_id=gone.session_id;
+ delete from authz.nexloop_browser_token_realms t using control.nexloop_browser_sessions s
+  where s.tenant_id=p_tenant and s.payload->>'subject_id'=p_subject and t.session_id=s.session_id;
+ delete from control.nexloop_browser_sessions where tenant_id=p_tenant and payload->>'subject_id'=p_subject;
  get diagnostics n_sessions=row_count;
+ -- The initial-account receipt (0050) keeps ids but its password fingerprint is overwritten: a replay of the initial manifest then
+ -- mismatches and is refused, so trusted configuration never recreates the account (L6 review of E1).
+ update control.nexloop_initial_identity_receipts set password_fingerprint=encode(sha256(convert_to('nexloop-erased|'||p_subject,'UTF8')),'hex')
+  where tenant_id=p_tenant and subject_id=p_subject;
  -- The finished invite_owner requests of the invitation this subject accepted (found through the approval table and the original username;
  -- a waiting or approved-unconsumed request may be a new namesake's and stays, S-E7).
  select array_agg(distinct r.approval_id) into rewrite from control.nexloop_approval_requests r
@@ -169,6 +208,9 @@ begin
 end $$;
 create trigger nx058_username_reserved before insert on control.nexloop_workbench_invitations
  for each row execute function control.nexloop_workbench_invitation_username_guard();
+-- ... nor any new account (trusted configuration's initial accounts, 0050/0162; acceptance): only the erasure's update writes one.
+create trigger nx058_username_reserved before insert on control.nexloop_browser_accounts
+ for each row execute function control.nexloop_workbench_invitation_username_guard();
 
 -- The configurator never configures an erased member again (design §6).
 create function control.nexloop_workbench_configuration_erased_guard() returns trigger
@@ -216,8 +258,10 @@ begin
    -- NX-058 slice E (design §2.3): a staff erasure after the backup is erased again, idempotently, with its original time and executor;
    -- the erasure ledger row comes back with it. A subject unknown to the restored directory is already applied.
    if exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=x->>'tenant_id' and m.subject_id=x->>'subject_ref') then
+    perform control.nexloop_workbench_member_revoke_for_replay(x->>'tenant_id',x->>'subject_ref','action:erasure-replay:'||p_restore);
     perform control.nexloop_workbench_member_erase(x->>'tenant_id',x->>'subject_ref',
-     case when x->>'request_ref'~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then (x->>'request_ref')::uuid end,null,(x->>'cutoff')::timestamptz);
+     case when x->>'request_ref'~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then (x->>'request_ref')::uuid end,
+     nullif(x->>'actor',''),(x->>'cutoff')::timestamptz);
     n_member:=n_member+1;
    else n_skipped:=n_skipped+1;end if;
   elsif x->>'kind'='sim_world' then
@@ -312,7 +356,12 @@ begin
     or control.nexloop_approval_pseudonymised(old.body,new.body)
     -- NX-058 slice E (ADR-039 R3 §8.7): the staff erasure rewrites invite_owner's invitee username, that one string, to an erased- pseudonym.
     or (old.capability='workbench_member.invite_owner' and jsonb_typeof(old.body->'username')='string'
-        and new.body=jsonb_set(old.body,'{username}',new.body->'username') and new.body->>'username'~'^erased-[0-9a-f]{16}$')) then
+        and new.body=jsonb_set(old.body,'{username}',new.body->'username') and new.body->>'username'~'^erased-[0-9a-f]{16}$'
+        -- only a finished request, inside the staff erasure's own scope (L6 review of E1)
+        and (old.status not in ('waiting_approval','approved') or exists(select 1 from control.nexloop_approval_consumptions c
+          where c.tenant_id=old.tenant_id and c.world=old.world and c.approval_id=old.approval_id))
+        and exists(select 1 from control.nexloop_erasure_scope s where s.txid=txid_current() and s.table_name='control.nexloop_approval_requests'
+          and s.request_ref like 'workbench-erasure:%'))) then
    raise exception 'approval request is immutable' using errcode='42501';end if;
   if (new.tenant_id,new.world,new.approval_id,new.capability,new.action_resource,new.policy_version,new.request_digest,new.request_id,
       new.requester_subject,new.requester_principal,new.requested_at,new.due_by,new.status,new.revision)
@@ -339,7 +388,7 @@ end $$;
 do $$ declare f text; begin
  foreach f in array array['control.nexloop_workbench_member_erasure_ledger()','control.nexloop_workbench_member_erase(text,text,uuid,text,timestamptz)',
    'control.nexloop_governed_erase_workbench_member(text,text,text,text,text,jsonb)','control.nexloop_workbench_invitation_username_guard()',
-   'control.nexloop_workbench_configuration_erased_guard()'] loop
+   'control.nexloop_workbench_configuration_erased_guard()','control.nexloop_workbench_member_revoke_for_replay(text,text,text)'] loop
   execute format('alter function %s owner to nexloop_owner',f);
   execute format('revoke all on function %s from public',f);
  end loop;

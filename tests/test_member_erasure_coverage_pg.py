@@ -29,7 +29,6 @@ STAFF_KEPT = {
     'control.nexloop_browser_rate_policies': 'the identity operator (a service) per limiter; no member',
     'control.nexloop_browser_rate_counters': 'client digests in short rate windows (minutes); no username',
     'control.nexloop_browser_memberships': 'the revoked membership rows stay: principal and subject kept for audit (design §2.7)',
-    'control.nexloop_initial_identity_receipts': 'trusted-configuration receipts of initial accounts (ids); the staff whole-database search covers values (slice E2)',
     'control.nexloop_browser_login_events': 'the subject stays; the source and username digests are cleared 90 days after the erasure by the retention service (slice E2)',
     'control.nexloop_workbench_grant_instances': 'grant audit (principal and digests only); revoked members hold none current - staff erasure: NX-058 slice E (E5)',
     'control.nexloop_workbench_role_history': 'vote eligibility and audit (principal only); its stop is written at revocation - staff erasure: NX-058 slice E (E5)',
@@ -62,4 +61,5 @@ def test_every_staff_identity_table_is_erased_or_has_a_reason(db):
     # What the erasure writes (design §2): the account, the subject, sessions and token realms, invitations, reset codes, invite_owner
     # bodies and its own ledger.
     assert {'control.nexloop_browser_accounts', 'control.nexloop_browser_subjects', 'control.nexloop_browser_sessions', 'control.nexloop_workbench_invitations',
-            'control.nexloop_workbench_reset_codes', 'control.nexloop_approval_requests', 'control.nexloop_workbench_member_erasures'} <= reached
+            'control.nexloop_workbench_reset_codes', 'control.nexloop_approval_requests', 'control.nexloop_workbench_member_erasures',
+            'control.nexloop_initial_identity_receipts'} <= reached  # the receipt's password fingerprint is overwritten
