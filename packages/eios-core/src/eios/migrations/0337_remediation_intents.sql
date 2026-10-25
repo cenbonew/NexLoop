@@ -23,7 +23,7 @@
 
 -- 1. Rules ----------------------------------------------------------------------------------------------------------------------
 create table control.nexloop_remediation_rules (
- tenant_id text not null,world text not null,manifest_version integer not null check(manifest_version>=1),manifest jsonb not null,
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,manifest_version integer not null check(manifest_version>=1),manifest jsonb not null,
  digest text not null check(digest~'^[0-9a-f]{64}$'),configured_by text not null default session_user,
  configured_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,world,manifest_version)
@@ -121,7 +121,8 @@ create index nexloop_remediation_intents_state on runtime.nexloop_remediation_in
 create index nexloop_remediation_intents_recent on runtime.nexloop_remediation_intents(tenant_id,world,created_at);
 create table runtime.nexloop_remediation_events (
  event_id uuid primary key default gen_random_uuid(),
- remediation_id uuid not null references runtime.nexloop_remediation_intents(remediation_id),tenant_id text not null,world text not null,
+ remediation_id uuid not null references runtime.nexloop_remediation_intents(remediation_id),
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,
  from_state text,to_state text not null,code text not null check(code~'^[a-z][a-z0-9_:]{0,63}$'),
  actor_kind text not null check(actor_kind in ('service','human')),actor text not null,
  reason text check(reason is null or length(reason) between 1 and 500),
@@ -129,16 +130,17 @@ create table runtime.nexloop_remediation_events (
 );
 create index nexloop_remediation_events_of on runtime.nexloop_remediation_events(remediation_id,recorded_at);
 create table runtime.nexloop_remediation_scans (
- failure_id uuid primary key references runtime.nexloop_effect_failures(failure_id),tenant_id text not null,world text not null,
+ failure_id uuid primary key references runtime.nexloop_effect_failures(failure_id),
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,
  decision text not null check(decision in ('generated','no_rule','not_eligible','not_real','not_failed','bound_reply','rate_capped','switch_closed')),
  rules integer not null default 0 check(rules>=0),scanned_at timestamptz not null default clock_timestamp()
 );
 create table runtime.nexloop_remediation_rate_caps (
- tenant_id text not null,world text not null,hour timestamptz not null,over_count integer not null check(over_count>=1),
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,hour timestamptz not null,over_count integer not null check(over_count>=1),
  updated_at timestamptz not null default clock_timestamp(),primary key(tenant_id,world,hour)
 );
 create table control.nexloop_remediation_switches (
- tenant_id text not null,world text not null,revision integer not null check(revision>=1),paused boolean not null,
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,revision integer not null check(revision>=1),paused boolean not null,
  reason text not null check(length(reason) between 1 and 500),principal_id text not null,
  recorded_at timestamptz not null default clock_timestamp(),primary key(tenant_id,world,revision)
 );

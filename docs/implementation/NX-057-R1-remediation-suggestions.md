@@ -122,6 +122,18 @@
   - **第一次运行**：287 passed，1 failed。`test_stage_register_pg.py` 的第二处动作数断言仍是 109：它不在冲突块里，合并时保留了 main 的值。改为 112 后，该文件 9 passed。
 - vitest 33 个文件、184 passed；`tsc` 无错误；definer 检查 0 problems；`check_publication` 0 violations。
 
+## 租户外键（第二十六批回归，2026-10-25）
+
+- **缺陷**：`test_tenant_fk_pg.py::test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception` 失败。R1、R2 新增的 6 张带 tenant_id 的表，既没有通向 `control.nexloop_tenants` 的外键，也没有登记为例外：
+  - `remediation_rules`、`remediation_events`、`remediation_scans`、`remediation_rate_caps`、`remediation_switches`；
+  - `remediation_rule_holds`。
+- 补救意图表本身经 `(source_intent_id, tenant_id, world)` 指向效应意图的外键已有租户路径。R1 交付时没有跑这个测试。
+- **修法**：6 张表的 `tenant_id` 直接 `references control.nexloop_tenants(tenant_id)`，做法与 NX-056 的审批表相同；没有登记例外。0337、0338 未发布，直接改原文件并重算 sha。
+- **全库结构性测试**（负载门控后 `pytest -n 2`）：
+  - 范围：租户外键、R1 至 R2、复制件守卫、已发布迁移、引导、删除覆盖（4 个文件）、全库删除搜索、应用角色权限边界、函数 search_path、授权漂移、NX-041 的世界、替身与角色检查、NX-042 T7 验收、S6 阶段演进，共 18 个文件。
+  - 第一次运行 196 passed，1 failed：`test_nx042_t7_acceptance_pg.py` 中真实 Pi 的 twin Run 启动 Agent Host 时退出。原因是本工作树的 `apps/agent-host/dist` 还是 10-18 的构建，与本次修改无关。重新 `npm run build` 后，该文件 5 passed。
+  - definer 检查 0 problems。
+
 ## 上线说明（L6 对 R2 复核的建议）
 
 - 开关关闭期间发生的最终失败会**永久**记为 `switch_closed`，开关打开后也不补生成。打开开关之前的失败不会有补救，这是有意的（M-5）。
