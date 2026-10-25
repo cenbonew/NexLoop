@@ -58,7 +58,7 @@ def validate_policies(value):
                     or type(condition['equals']) not in (str, int, bool)))
                 or ('target_subject_field' in p and p['target_subject_field'] is not None
                     and (type(p['target_subject_field']) is not str or not _FIELD.fullmatch(p['target_subject_field'])
-                         # ADR-039 §6.7: a policy naming the member a request acts on is approved by owners only (as the 0338 guard)
+                         # ADR-039 §6.7: a policy naming the member a request acts on is approved by owners only (as the 0342 guard)
                          or p['approver_roles'] != ['owner']))
                 or ('solo_mode' in p and p['solo_mode'] not in ('allowed', 'not_applicable'))
                 or ('purpose' in p and (type(p['purpose']) is not str or not 1 <= len(p['purpose']) <= 500))):
