@@ -337,6 +337,8 @@ begin
    perform control.nexloop_approval_end_for_requester(new.tenant_id,new.world,new.principal_id,'system:member_change','role-history:'||new.entry_id);
   end if;
  elsif old.payload->>'status'='active' and new.payload->>'status' is distinct from 'active' then
+  -- world 'real' (S-C4): memberships are the tenant's, without a world, and the workbench, its members and every approval of a
+  -- member Action live in world 'real' (the role history is 'real' only too, 0335); other worlds have no member approvals to end.
   perform control.nexloop_approval_end_for_requester(new.tenant_id,'real',new.principal_id,'system:member_change','membership:'||(new.payload->>'status'));
  end if;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);

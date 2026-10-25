@@ -241,7 +241,7 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 ### 7.3 终结原因：`requester_no_longer_eligible`（D8）
 
 - **新增终结原因** `requester_no_longer_eligible`，与 `due_by_passed`、`policy_changed`、`superseded`、`consumer_erased` 并列：请求人已经不能执行自己的请求了（被降级、停用或撤销），这时他名下仍在等待，或者已批准但尚未消费的请求，立即终结（记为 expired，写 `approval.expired`，payload 的 reason 为这个原因）。
-- **入口**：新函数 `control.nexloop_approval_end_for_requester(tenant, world, requester_subject, actor_principal, intent)`，只有 owner 函数能调用。
+- **入口**（**已被 §8.5 取代**：现行签名的第三个参数是 requester_principal，按 principal 终结，由触发器接线）：新函数 `control.nexloop_approval_end_for_requester(tenant, world, requester_subject, actor_principal, intent)`，只有 owner 函数能调用。
   - 由 NX-058 片 D 的 handler 在降级、停用、撤销成员之后，在同一事务里调用；
   - configurator 的成员 apply（`role_history_sync` 把某个 owner 移出或降级时）同样调用，经同一个 owner 函数，在 configurator 会话中也可以调用（L2 在 D3 中接线）；
   - 跳过正在执行的那条审批（`nexloop.approval_in_flight`）；
@@ -309,6 +309,9 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 
   - 片 D3 登记 `issue_owner_reset`（`{active}`）和 `invite_owner`（没有目标成员）的执行期字段。
   - 片 E 登记 `erase_member`（`{revoked}`）。
+- **为什么由 B2 为 D2 的五个能力登记，以及为什么不含 `invited`**（S-B3）：
+  1. 设置表由 B2 引入，而“登记必须先于请求”（§8.3）。D2 的五个能力在 B2 合入时可能已经发布、但还没有请求；如果等 D3 再登记，B2 与 D3 之间这段时间里，`resume_owner` 这类以 suspended 成员为目标的操作会被默认的 `{active}` 拒绝，所以由 B2 在同一个迁移里登记；
+  2. `invited` 不在可选状态里：还没有接受邀请的人既没有角色也没有权限，不是处置对象；要撤回一份邀请，走撤销邀请，邀请本身也没有目标成员（`invite_owner` 用 §6.4 的 invitee 变体）。
 - **为什么允许 suspended 是安全的**（I-R4）：
   - 被停用的 owner 什么都不持有：没有授权，也不能登录或投票。对他降级或撤销，只会进一步减少权限；
   - 恢复（resume）本身就需要另一位 owner 批准；
@@ -317,7 +320,8 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 ### 8.2 执行期字段只能是 HMAC（I-R1；补充 §7.1）
 
 - 字段名必须匹配 `^[a-z][a-z0-9_]{0,59}_hmac$`。所以片 D3 要把 `issuer_source` 改名为 `issuer_source_hmac`：它本来就是来源地址的 HMAC，改名之后才能登记。
-- 值的格式严格校验：请求体中出现这些字段时，值必须是 64 位小写十六进制。`approval_open` 在冻结前校验，不符合就拒绝 `approval: execution_field_invalid`；handler 在执行时再校验一次。字段可以不出现（挂起的那次提交可以不带）。
+- 值的格式严格校验：请求体中出现这些字段时，值必须是 64 位小写十六进制。`approval_open` 在冻结前校验，不符合就拒绝 `approval: execution_field_invalid`；gate 在执行时统一再校验一次（I-B3）；handler 自己也校验。字段可以不出现（挂起的那次提交可以不带）。
+- **gate 只检查请求体中出现了的执行期字段（S-C3）**：字段缺失时 gate 不拒绝，因为挂起和执行都走同一个 gate，而挂起的那次可以不带。执行时字段必须齐全，这一点由 handler 负责：handler 发现缺失就拒绝（消费结果为 `execution_refused`）。
 
 ### 8.3 登记先于请求（I-R3）
 
@@ -351,6 +355,7 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 - **接线（按现状，L6 对 B2 的 C-B1）**：不靠各调用方自己调用，而由 B2 的触发器统一接上：
   - 角色历史中某个角色的 `stop`：片 D2 handler 的降级和撤销、configurator 的成员 apply 都经片 C 写这一条；
   - 成员状态离开 active：停用、撤销。
+  - **范围（S-C1）**：任何一个角色写入 `stop`（不论 owner、operator 还是 reviewer，也不论这个角色是否是该请求能力的批准或执行角色），都会终结这个 principal 名下**所有**待处理的请求（等待中，以及已批准尚未消费的）。这是有意从严：角色变化之后，旧的请求一律重新发起，不去逐条判断它是否仍然可以执行。
   - 所以 D2、D3 的 handler 和 configurator 都不需要再调用；正在执行的那条审批（成员 Action 本身）由函数跳过。端到端测试见 `test_a_requester_who_loses_the_role_has_old_approvals_ended_without_any_explicit_call`。
 
 ### 8.6 员工擦除台账与 erased 判定（取代 §6.5 的判定与 §7.7 第 3 点）

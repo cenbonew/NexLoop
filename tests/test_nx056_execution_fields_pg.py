@@ -116,7 +116,10 @@ def test_quorum_unreachable_at_open_with_eligible_from_when_only_cooldowns_fall_
         values(%s,%s,%s,'owner','start','synthetic-now',clock_timestamp())""", (TENANT_A, newbie['subject_id'], newbie['principal_id']))
     with pytest.raises(psycopg.Error, match='quorum_unreachable') as caught:
         open_as(f, 'requester', body('q-3', target_principal=f['approver']['principal_id']))
-    assert 'eligible_from' in json.loads(caught.value.diag.message_detail)
+    detail = json.loads(caught.value.diag.message_detail)
+    # S-B1: the quorum-th earliest vote_eligible_from of the others (second is eligible already; newbie's comes 24 hours from now).
+    expected = admin.execute("select control.nexloop_workbench_vote_eligible_from(%s,'real',%s,'{owner}')", (TENANT_A, newbie['subject_id'])).fetchone()[0]
+    assert set(detail) == {'eligible_from'} and detail['eligible_from'] == expected.isoformat()
 
 
 def test_a_requester_principal_that_lost_standing_has_its_open_requests_ended(store):
