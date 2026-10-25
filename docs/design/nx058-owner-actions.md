@@ -1,6 +1,6 @@
 # 设计稿｜NX-058 片 D：owner 专用成员 Action（接 NX-056 审批）
 
-第 2.6 版，2026-10-25，L2（D7 已定为 A；invitee 按能力判定）。目标成员接口按 ADR-039 修订 R1 §6（L3 fdc06ef2）同步；本文与该节不一致处一律以 ADR 为准。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
+第 2.7 版，2026-10-25，L2（D7 已定为 A；invitee 按能力判定）。目标成员接口按 ADR-039 修订 R1 §6（L3 fdc06ef2）同步；本文与该节不一致处一律以 ADR 为准。第 1 版（5393d205）经 L6 复核（`build/nx058-slice-d-design-review.md`，K1、I1–I10、S1–S6），本版逐条吸收，关闭说明见 §11。
 
 上位设计是 `docs/design/account-self-service.md` 第 7 版（下称“自助设计”）的 §1b、§2、§7、§9（AA6）；这里只写落地方式和需要确认的点，不重复上位设计已确定的规则。实现基线：第二十六批合入后的 main。届时片 C 的迁移编号为 0340（`workbench_member_changes`）、0341（`governed_authority_change`），NX-056 为 0326–0332，L3 的跟进为 0339；本文所说的 0340/0341 都指这一编号，并以片 C 的 X1 修复（a80c77aa、fc012e6e：drift 检查在写事务内、先取成员锁）为**前置条件**（I7）。**启用前置条件（ADR-039 §6.7）**：NX-056 B1（审批视图的 `target_member` 与告警 v15）必须先于本片的 owner Action 在 stage 上启用合入，否则批准人看不到目标；本片代码可以先于 B1 合入，但运行手册的启用步骤以 B1 已上线为第一项检查。迁移号临时，由 L4 组批时重编。
 
@@ -118,6 +118,8 @@
 - **发布顺序**（写进运行手册“启用 owner Action”一节，S5）：前置条件（NX-056 B1 已上线，且 B1 已包含 `invitee` 渲染；X1 修复已上线、冷却起点已过 24 小时、确认可批准条件）→ **Action publish 先于策略 apply**（否则 guard 报“需要 human governed capability”；新 Action 发布前返回 404）→ 策略 v2：`approval_policies_apply.py` dry-run → apply → 核对 sha256 → 自检（策略 apply 前 7 个 Action 返回 `approval_unavailable`，apply 后返回 `waiting_approval` 或 `quorum_unreachable`）→ 回滚（策略只追加，不能回退；要关闭，发布 v3 让 handler 自查失败，例如 quorum 设为超大值，或撤销 Action 注册）。
 - **运行手册（备用说明，仅当视图暂不可用、例如 B1 回退时）：owner 批准 `invite_owner` 的线下核验三步**（ADR §6.4）：① 批准前经系统以外的渠道（当面或电话）向请求人确认被邀请人的用户名；② 在工作台成员列表里确认没有同名或近似名的现有成员；③ 执行并接受之后，在成员列表中核对新成员的用户名与线下确认的一致，不一致时立即用 `suspend_owner`/`revoke_owner`（或运维通道）处置并留下记录。局限：批准时系统里看不到用户名；近似名冒充靠第 ②、③ 步发现。
 - HTTP：`workbench_actions_http.OPERATIONS` 加 7 个校验（`invite_owner` 另查同名账户，见 §1）；审批结果沿用 NX-056 的 `waiting_approval` / `approval_consumed` / `policy_changed`，新增 `quorum_unreachable` 与执行被拒的原因码映射。
+- **operation 与能力一致（L6 复核 B1 时的遗留，片 D 实现）**：`control.nexloop_approval_open` 校验请求体的 `operation` 与审批能力在注册表 `control.nexloop_governed_capabilities` 中登记的 handler 操作名一致；不一致直接拒绝（22023 `operation_mismatch`），不开审批。至少覆盖本片 7 个能力，`workbench_member.invite_owner` 下 operation 不是 `invite_workbench_owner` 必须拒绝。0326 重定义，copy guard 登记，需 L3 同意。测试：invite_owner 能力配错误 operation 被拒；demote_owner 能力配 `invite_workbench_owner` 被拒。
+- **与 B1 测试中手工插入的能力核对（L6 遗留）**：B1 的测试用 `on conflict do nothing` 手工插入 `workbench_member.invite_owner` 等能力；片 D 正式注册时，能力名、handler 操作名、subject_rule 必须与那些测试一字不差，否则 on conflict 会掩盖差异。实现时逐项对照 B1 测试的插入语句，并加一条测试：读取注册表中这 7 个能力的 (capability, operation, subject_rule)，断言等于本表 §0 的值；与 B1 合并后，再跑一遍 B1 的测试确认不受影响。
 
 ## 7. 测试（PostgreSQL，经实际 app）
 
