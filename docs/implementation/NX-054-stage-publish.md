@@ -138,6 +138,10 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
   - **已经派生出的关系**：源对象的属性下一次变化时删除；源对象如果从此不再变化，它的派生关系会一直保留。P4 之前没有读方使用关系，所以不影响业务。
   - **擦除会清理它们**：擦除假名化属性时，对象的属性发生变化，按最新版本（没有 `source_property`）删除派生关系；擦除删除对象时，BEFORE DELETE 触发器删除它的所有关系。所以擦除之后，不会留下指向已擦除 Consumer 的关系。
 
+## 6. 证据
+
+把 `precheck-before.json`、发布输出、发布后的预检、两轮基线的数字，以及判定结论记入 NX-054 的证据。**执行人与判定人分开写**。
+
 ## 7. P3 回填的执行身份与凭据
 
 回填（`docs/design/relation-backfill-p3.md`）以专门的服务主体 `relation_backfiller` 执行。它在 `service-grants.v1.json` 第 19 版中登记，只授权 `eios:action:nexloop.relation.backfill:1`，数据库角色为 `nexloop_domain_worker`。它是一次性的主体：stage 上的回填跑完、verify 核对平衡之后，用第 20 版把它撤销。
@@ -156,7 +160,3 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 3. **执行**：`python scripts/deploy/relation_backfill.py --database-url-file $BF/dsn --signing-key-file $BF/signing.key --service-credential-file $BF/service-credential --artifact-root <临时空目录> <命令> [--run-id <run>]`。命令依次为 `preflight` → `start` → `run --max-batches 1`（校准）→ `run` → `verify` → `revert`（演练）→ 新的 `start` 与 `run` → `verify`（设计稿 §8）。
    - 工具只开一条连接，计入 ADR-037 中运维预留的 7 个连接；不在 APP_HOST 应用的连接预算中登记。
 4. **收尾**：回填完成并核对之后，删除 `$BF`；`service-grants` 第 20 版去掉 `relation_backfiller`，register 时撤销它的授权和凭据。
-
-## 6. 证据
-
-把 `precheck-before.json`、发布输出、发布后的预检、两轮基线的数字，以及判定结论记入 NX-054 的证据。**执行人与判定人分开写**。
