@@ -1690,6 +1690,11 @@
       "version": "0338",
       "name": "0338_remediation_wake.sql",
       "sha256": "06fc43e0ed0d862d67308ebdbb6758b792e604af4dad6d3843e694541fdf60d5"
+    },
+    {
+      "version": "0339",
+      "name": "0339_nx056_followup.sql",
+      "sha256": "3696bc8417094edb569c8451b0e890ae5d5a9cef286ee87d4c70731699f63979"
     }
   ]
 }

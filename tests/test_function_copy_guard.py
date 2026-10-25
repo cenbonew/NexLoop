@@ -389,6 +389,13 @@ REGISTRY = [
              # the action claim ends permanent_failure when nothing ran or the handler refused (L6 A2 review important 4)
              (r"'outcome_revision',1,\n  -- Not executed.*?\n  'status',case when .*? end,", "'outcome_revision',1,'status','succeeded',"))),
     # NX-056 A3: the retention keeper's port also ends waiting approvals past due_by; nothing else.
+    # NX-056 follow-up (L6 reviews 11-14): subject tenant locks in order; the list's count
+    # leaves out a self vote that does not count now.
+    Allowed('nx056_followup', 'control.nexloop_approval_eligibility_trigger', 'several tenant locks in tenant order',
+            ((r"\n    order by m\.tenant_id loop  -- one order for several tenant locks", " loop"),)),
+    Allowed('nx056_followup', 'runtime.nexloop_approval_view_row', 'a self vote counts in the list only while the mode takes effect',
+            ((r"and \(d\.actor_subject<>r\.requester_subject\n.*?\n     or \(d\.self_approved and control\.nexloop_approval_solo_effective\(r\.tenant_id,r\.world,r\.capability,r\.policy_version,r\.requester_subject\)\)\)",
+              "and (d.actor_subject<>r.requester_subject or d.self_approved)"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
