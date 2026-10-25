@@ -1717,8 +1717,8 @@
       "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
     },
     {
-      "version": "0344",
-      "name": "0344_remediation_claims.sql",
+      "version": "0345",
+      "name": "0345_remediation_claims.sql",
       "sha256": "dba4a1f98d936d3cb3e8b9def4f77e6b731a218c729dfc8c4701966e7590aef0"
     }
   ]
