@@ -14,6 +14,7 @@ from psycopg.types.json import Jsonb
 
 from nexloop_eios.bootstrap import bootstrap
 from support.tenants import TENANT_A, TENANT_OTHER
+from support.vote_cooldown import ripen_approvers
 from test_workbench_read_pg import add_human
 
 CAP = 'real_dispatch.set'
@@ -39,6 +40,7 @@ def solo(admin):
     people = {k: add_human(admin, 'solo-' + k) for k in ('owner', 'other', 'operator')}
     f = {'admin': admin, **people, 'config': 1}
     configure(admin, 1, [(people['owner'], 'owner'), (people['operator'], 'operator')])  # the owner is the only eligible approver
+    ripen_approvers(admin, TENANT_A)  # NX-058 slice D §2: the vote cooldown is not what these tests are about
     policy(admin, 1)
     return f
 
@@ -124,6 +126,8 @@ def test_switching_off_or_a_second_approver_ends_the_self_vote_at_consumption(so
     decide(f, first)  # the mode takes effect again: the same person approves once more
     reconfigure(f, (f['owner'], 'owner'), (f['other'], 'owner'), (f['operator'], 'operator'))  # a second eligible approver joins
     assert gate(f, 'r-5')['reason'] == 'approver_no_longer_eligible'  # the self vote does not count any more
+    refused('approver_unauthorized', decide, f, first, who='other')  # NX-058 slice D §2: the new approver votes 24 hours after joining
+    ripen_approvers(f['admin'], TENANT_A)
     assert decide(f, first, who='other')['status'] == 'approved' and gate(f, 'r-6')['proceed'] is True  # the other person decides
 
 

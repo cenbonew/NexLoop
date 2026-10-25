@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 
 from nexloop_eios.bootstrap import bootstrap
 from support.tenants import TENANT_A
+from support.vote_cooldown import ripen_approvers
 from test_workbench_read_pg import add_human
 
 CAP = 'real_dispatch.set'
@@ -35,6 +36,7 @@ def store(admin):
     admin.execute("""insert into control.nexloop_workbench_configurations(tenant_id,manifest_version,roles_version,application_id,roles,members,roles_digest,recorded_by)
         values(%s,1,1,'synthetic-workbench-app',%s,%s,%s,'synthetic-configurator')""",
                   (TENANT_A, Jsonb({'owner': [ACTION, 'eios:action:nexloop.approvals.decide:1'], 'operator': []}), Jsonb(members), 'c' * 64))
+    ripen_approvers(admin, TENANT_A)  # NX-058 slice D §2: these members vote at once
     policy(admin, 1)
     return {'admin': admin, **people}
 

@@ -1710,6 +1710,11 @@
       "version": "0342",
       "name": "0342_nx056_target_member.sql",
       "sha256": "e192b629b6fb289065c35602e3036643c0f578478e458f09f29f70dec8cf1d92"
+    },
+    {
+      "version": "0343",
+      "name": "0343_vote_cooldown.sql",
+      "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
     }
   ]
 }

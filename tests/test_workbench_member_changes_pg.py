@@ -16,6 +16,7 @@ from nexloop_eios.http_api import create_app
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.workbench_roles import WorkbenchRolesRejected, apply_members, compile_member
 from commercial_fixture import publish_registry_actions
+from support.vote_cooldown import ripen_approvers
 from commitment_fixture import TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
@@ -177,6 +178,7 @@ def test_a_change_through_the_nx056_gate_runs_its_handler_in_the_savepoint_and_p
     members = members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator'), (second, 'owner'))
     apply_members(ROLES, members, database_url_file=c['configurator'])
     write_facts(admin, compile_members(ROLES, members))
+    ripen_approvers(admin, TENANT)  # NX-058 slice D §2: the second owner votes at once
     publish_registry_actions(admin, ('nexloop.approvals.decide', 'nexloop.approvals.cancel'))
     admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
         summary_fields,target_subject_field,published_by) values('workbench_member.suspend',1,1,null,1,'{owner}',86400,'{}','target_principal','synthetic-config')""")
