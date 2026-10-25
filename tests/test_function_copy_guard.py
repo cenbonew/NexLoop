@@ -478,6 +478,11 @@ REGISTRY = [
             ((r" elsif c->>'verb'='member_login_clear' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
+    # NX-054 P4a: the erasing readers resolve an object's Consumers as relations united with the property rule.
+    Allowed('relation_read_union', 'runtime.nexloop_assert_not_erasing', 'Consumers through relations united with the property rule; nothing else',
+            ((r"runtime\.nexloop_object_consumers_read\(", "runtime.nexloop_object_consumers("),)),
+    Allowed('relation_read_union', 'authz.nexloop_workbench_object_fields', 'Consumers through relations united with the property rule; nothing else',
+            ((r"runtime\.nexloop_object_consumers_read\(", "runtime.nexloop_object_consumers("),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

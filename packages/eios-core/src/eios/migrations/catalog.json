@@ -1775,6 +1775,11 @@
       "version": "0355",
       "name": "0355_extraction_dead_letter_resolve.sql",
       "sha256": "91372bdd9e55c55b161e4f2d5cc286c86ee7fa4e8ee642f4ce35b6d285370ecd"
+    },
+    {
+      "version": "0360",
+      "name": "0360_relation_read_union.sql",
+      "sha256": "b1294e95f612514f3d38fe649057e9319955d3320fbcc04befcc5ec50eb9ae65"
     }
   ]
 }
