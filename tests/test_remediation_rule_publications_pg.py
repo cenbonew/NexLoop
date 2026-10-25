@@ -49,7 +49,8 @@ def test_the_file_is_published_once_with_its_sha256_and_expected_revision(remedi
     assert code == 2 and out == {'applied': False, 'reason': 'SerializationFailure: remediation rules: expected revision 1, current 0'}
     assert publications(admin) == [] and admin.execute('select count(*) from control.nexloop_remediation_rules').fetchone()[0] == 0
     code, out = run(configurator, '--expected-revision', '0')
-    assert code == 0 and out['applied'] is True and out['manifest_sha256'] == digest and out['expected_revision'] == 0
+    assert code == 0 and out['applied'] is True and out['manifest_sha256'] == digest
+    assert (out['expected_revision_passed'], out['expected_revision_recorded']) == (0, 0)
     assert out['result'] == {'configured': True, 'manifest_version': 1, 'replay': False, 'rules': 1, 'manifest_sha256': digest, 'expected_revision': 0}
     assert publications(admin) == [(1, digest, 0, 'nexloop_configurator')]
     stored = admin.execute("select manifest from control.nexloop_remediation_rules where tenant_id=%s", (TENANT,)).fetchone()[0]
@@ -57,7 +58,8 @@ def test_the_file_is_published_once_with_its_sha256_and_expected_revision(remedi
     # The same file again is a replay, whatever revision it names (the run sheet's second run); nothing new is written.
     for expected in ('0', '1'):
         code, out = run(configurator, '--expected-revision', expected)
-        assert code == 0 and out['result']['replay'] is True and out['result']['expected_revision'] == 0
+        assert code == 0 and out['result']['replay'] is True
+        assert (out['expected_revision_passed'], out['expected_revision_recorded']) == (int(expected), 0)
     assert len(publications(admin)) == 1
     # Version 1 with another text: refused, the first publication stays.
     with pytest.raises(psycopg.errors.SerializationFailure, match='version 1 published with another text'):
@@ -85,3 +87,22 @@ def test_only_the_recording_entry_publishes_and_the_record_is_append_only(remedi
     for statement in ('delete from control.nexloop_remediation_rule_publications', "update control.nexloop_remediation_rule_publications set expected_revision=0"):
         with pytest.raises(psycopg.Error), admin.transaction():
             admin.execute(statement)
+
+
+def test_a_version_configured_before_the_record_existed_replays_without_a_recorded_revision(remediating):
+    # L6 S-1: rules written before this migration (no publication row; seeded as admin, the way 0338 alone would have stored them).
+    admin, configurator = remediating['admin'], remediating['w']['configurator']
+    m = manifest(rule())
+    admin.execute("insert into control.nexloop_remediation_rules(tenant_id,world,manifest_version,manifest,digest) values(%s,'real',1,%s,%s)",
+                  (TENANT, Jsonb(m), 'd' * 64))
+    text = json.dumps(m)
+    out = publish_expected(configurator, text, 1)
+    assert out['replay'] is True and out['expected_revision'] is None and publications(admin) == []
+    with pytest.raises(psycopg.errors.SerializationFailure, match='expected revision 0, current 1'):
+        publish_expected(configurator, text, 0)                       # and the stated revision is still checked first
+
+
+def publish_expected(configurator, text, expected):
+    with configurator_connection(configurator) as db:
+        return db.execute("select control.nexloop_publish_remediation_rules(%s,'real',%s,%s,%s)",
+                          (TENANT, text, hashlib.sha256(text.encode()).hexdigest(), expected)).fetchone()[0]

@@ -50,9 +50,13 @@ def test_apply_publishes_the_files_exact_text_with_the_revision_and_reports_with
     calls = []
     def publish(text, tenant, *, world, expected_revision, database_url_file):
         calls.append((text, tenant, world, expected_revision, database_url_file))
-        return {'configured': True, 'manifest_version': 1, 'replay': False}
+        return {'configured': True, 'manifest_version': 1, 'replay': False, 'expected_revision': 0}
     code, out = run(*APPLY, '--expected-revision', '0', window=window, publish=publish)
-    assert code == 0 and out['applied'] is True and out['expected_revision'] == 0 and out['result']['replay'] is False
+    assert code == 0 and out['applied'] is True and out['result']['replay'] is False
+    assert out['expected_revision_passed'] == 0 and out['expected_revision_recorded'] == 0 and 'expected_revision' not in out
+    # A replay passed another value: both are shown, named apart (the database keeps the first publication's).
+    code, out = run(*APPLY, '--expected-revision', '1', window=window, publish=lambda *a, **k: {'configured': True, 'replay': True, 'expected_revision': 0})
+    assert code == 0 and (out['expected_revision_passed'], out['expected_revision_recorded']) == (1, 0)
     assert calls == [(MANIFEST.read_text(encoding='utf-8'), 'synthetic-tenant', 'real', 0, 'synthetic-dsn-file')]
     def leaks(*a, **k):
         raise RuntimeError('postgresql://secret')

@@ -10,7 +10,8 @@ database records its sha256 and the expected revision.
 
 --expected-revision is the tenant's current rules version (0 before the first publication); another current version is refused
 (40001) and nothing is written. --check validates the manifest only (no connection). Output: one JSON line (the version, rule count
-and sha256, or what the database answered); never the DSN. Exit 0 applied or valid, 2 refused.
+and sha256, or what the database answered; expected_revision_passed is this run's argument, expected_revision_recorded the value the
+database holds for this version, the first publication's on a replay); never the DSN. Exit 0 applied or valid, 2 refused.
 """
 import argparse
 import hashlib
@@ -56,7 +57,11 @@ def main(argv=None, out=sys.stdout, window=configurator_window, publish=publish_
             reason += ': ' + diag.message_primary
         print(json.dumps({'applied': False, 'reason': reason}), file=out)
         return 2
-    print(json.dumps({'applied': True, **summary, 'expected_revision': a.expected_revision, 'result': result}, default=str), file=out)
+    # Two values, named apart (L6 S-2): what this run passed, and what the database recorded for this version - on a replay that is the
+    # first publication's, whatever this run passed.
+    recorded = result.get('expected_revision') if isinstance(result, dict) else None
+    print(json.dumps({'applied': True, **summary, 'expected_revision_passed': a.expected_revision, 'expected_revision_recorded': recorded,
+                      'result': result}, default=str), file=out)
     return 0
 
 

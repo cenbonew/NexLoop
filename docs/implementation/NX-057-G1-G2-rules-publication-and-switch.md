@@ -1,6 +1,6 @@
 # NX-057 G1、G2：补救规则的窗口发布与部署层开关接入
 
-- **来源**：执行单 `docs/release/run-nx057-remediation-stage.md` §0.4 列出的两个缺口。调度员 2026-10-25 派工：G1、G2 放在一个分支上，基于 main 94baecc3；随 R4 进下一批；G2 属于部署配置变更，合并时由调度员确认。
+- **来源**：执行单 `docs/release/run-nx057-remediation-stage.md` §0.4 列出的两个缺口。调度员 2026-10-25 派工：G1、G2 放在一个分支上，基于 main 94baecc3；随 R4 进下一批；G2 属于部署配置变更，合并时按 NX-033 走 ack-policy。
 - **分支**：`l7/nx057-g1-g2`。它的第一个提交就是执行单本身（96b047dd，父提交 94baecc3）。
 - **迁移**：`remediation_rule_publications`，临时编号 0351，接在 main 尾部 0343 之后。R4 的 `remediation_claims` 也用了临时编号 0351（两条分支都基于 main 的尾部），由调度员合入时一起重排。编号必须连续：`test_42_actual_bootstrap_and_publication_checksum` 要求迁移数等于锁定的 bootstrap_revision，所以这里不能跳到 0345。
 
@@ -9,7 +9,7 @@
 - **新命令** `scripts/deploy/remediation_rules_apply.py`，与 `alert_rules_apply.py`、`approval_policies_apply.py` 同形：
   - `--bootstrap-dsn-file` 在进程内打开配置员窗口（`configurator_window.py`），发布后关闭；
   - `--check` 只校验，不连库，输出版本、规则数和文件的 sha256；
-  - 输出一行 JSON，返回码 0 或 2；
+  - 输出一行 JSON，返回码 0 或 2；`expected_revision_passed` 是本次传入的值，`expected_revision_recorded` 是库里为这个版本记录的值（重放时是第一次发布的值），两者分开标明（L6 S-2）；
   - 失败时只输出异常类型。数据库的拒绝（SQLSTATE 22023、40001、42501）附上数据库自己的拒绝原文。不打印 DSN。
 - **按文件原文发布**：`nexloop_eios.remediation.publish_rules(text, tenant, world, expected_revision, database_url_file)` 把文件的原文和它的 sha256 一起交给 SQL。
   - `apply_rules(manifest, …)` 仍然保留，给内存中的清单用（发布它的规范化文本），同样要求 `expected_revision`。
@@ -68,3 +68,15 @@
 - S-2：P2 的查询列（`resource_id`、`active`）已对照 0008 核对，执行单要求先只读试跑一次。
 - S-3：证据中记下 `$LAST_REGISTER` 的实际值。
 - S-4：§4.3 由负责人在工作台执行，调度员用查询判定。
+
+## L6 对 16686822 的复核（跟进提交）
+
+- I-2：执行单和本说明的措辞改为“合并时按 NX-033 走 ack-policy”。
+- I-3：签名变更后的调用方。第二十八批（含 R4）还没有进 main（origin/main 仍是 94baecc3），所以先在它的组批演练提交 01e08d0c 上，用 `git merge-tree` 与本分支合成一棵树，再 grep：
+  - `nexloop_eios.remediation` 的 `apply_rules`/`publish_rules` 只有 `tests/test_remediation_pg.py` 的夹具一个调用方，已传 `expected_revision`；R4 新增的测试都经这个夹具；
+  - 其余 `apply_rules` 都是 `nexloop_eios.observability`（告警规则），与本改动无关；
+  - 没有其他代码直接调用 `rules --apply` 或原配置函数。只有两处测试直接调用原配置函数，而且是有意的：一处断言非配置员会话被拒，另一处断言配置员不能再直接调用；
+  - 合成树中只有 `catalog.json`、`versions.lock.json` 两处冲突（临时编号 0344），由调度员重排。
+  - 第二十八批真正合入 main 后，再按同样的 grep 复核一次。
+- S-1：执行单 §3 加一条：规则表已有 v1 而发布记录为空时的处置。
+- S-2：脚本输出把本次传入的值（`expected_revision_passed`）与库里记录的值（`expected_revision_recorded`）分开；`result` 原样保留。
