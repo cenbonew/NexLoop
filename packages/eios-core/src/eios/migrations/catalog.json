@@ -1690,6 +1690,11 @@
       "version": "0338",
       "name": "0338_governed_authority_change.sql",
       "sha256": "210a3ed93fee10a9b87350428c6f10f3463cbf49046c5a1815517d865ffd660f"
+    },
+    {
+      "version": "0339",
+      "name": "0339_vote_cooldown.sql",
+      "sha256": "7e20f29b1f517ef9e11de9dc9cc6dfa86056fb132a0de49b31c9b9e9f686b4ba"
     }
   ]
 }

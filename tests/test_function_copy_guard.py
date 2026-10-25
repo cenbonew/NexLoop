@@ -162,6 +162,9 @@ REGISTRY = [
     # 0338 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
     Allowed('governed_authority_change', 'control.nexloop_workbench_member_lock', 'the tenant approval lock of NX-056 instead of its own key; nothing else',
             ((r"select control\.nexloop_approval_tenant_lock\(p_tenant\)", "select pg_advisory_xact_lock(hashtextextended('nexloop-approval-eligibility:'||p_tenant,0))"),)),
+    # vote_cooldown (NX-058 slice D §2, ADR-039 R1 §6.7): an approver's vote counts 24 hours after its current holding of an approver role began.
+    Allowed('vote_cooldown', 'control.nexloop_approval_approver_eligible', 'the 24-hour vote cooldown from the role history; nothing else',
+            ((r"\s*and coalesce\(control\.nexloop_workbench_vote_eligible_from\(p_tenant,'real',control\.nexloop_approval_subject_of\(p_tenant,p_principal\),p_roles\)<=clock_timestamp\(\),false\)", ''),)),
     # D10 trusted configuration (0274): a manifest names a simulation credential's use; real and test name none.
     Allowed('nx041_d10_manifest', 'control.nexloop_configure_manifest', 'D10: a sim credential of the manifest names its use (checked, written, compared on replay)',
             ((r"\s*--[^\n]*\n\s*or \(case when jsonb_array_length\(item->'worlds'\)=1 and item->'worlds'->>0~'\^\(sim\|shadow\):'\s*then coalesce\(item->>'sim_use',''\) not in \('api','worker','agent'\) else item \? 'sim_use' end\)", ''),
