@@ -1715,6 +1715,21 @@
       "version": "0343",
       "name": "0343_vote_cooldown.sql",
       "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
+    },
+    {
+      "version": "0344",
+      "name": "0344_relation_derive_one.sql",
+      "sha256": "24363b595acfeee529e3e0424892ec0692440840e76b95194a7fa8528b65642a"
+    },
+    {
+      "version": "0345",
+      "name": "0345_relation_backfill.sql",
+      "sha256": "383552fb8e4fc485ad343e37a99c812e123f04ba174358ae2754349e30e0ee37"
+    },
+    {
+      "version": "0346",
+      "name": "0346_relation_backfill_port.sql",
+      "sha256": "a553b47367dfbc27e8f854de92674dbf0bfc6e79fd52d604997d035a7690f82a"
     }
   ]
 }

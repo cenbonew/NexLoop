@@ -86,7 +86,7 @@ def test_the_port_refuses_what_it_must(port, pg):
     p.start('run-1', p.preflight()['digest'])
     # The engine's bound: a port that set no 1 s statement_timeout is refused (I-1).
     loose = B.RelationBackfillPort(port['pool'], authenticate_service(port['pool'], port['token'], world='real'), port['signer'])
-    loose._prepare = lambda db, payload: db.execute("select set_config('statement_timeout','5s',true)")
+    loose._prepare = lambda db: db.execute("select set_config('statement_timeout','5s',true)")
     with pytest.raises(psycopg.errors.InvalidParameterValue):
         loose.batch('run-1', 'Goal', 'real', '', 2)
     # Another role holds no execute on the port.
@@ -199,7 +199,7 @@ def test_v1_control_group_both_bounds_lifted_fails_the_edit(port, admin, pg):
         admin.execute(d)
     slow_derivation(admin, 0.6)
     loose = B.RelationBackfillPort(port['pool'], authenticate_service(port['pool'], port['token'], world='real'), port['signer'])
-    loose._prepare = lambda db, payload: db.execute("select set_config('statement_timeout','5s',true)")
+    loose._prepare = lambda db: db.execute("select set_config('statement_timeout','5s',true)")
     try:
         result = {}
         worker = threading.Thread(target=edit_lock, args=(pg, port['b'], result))
