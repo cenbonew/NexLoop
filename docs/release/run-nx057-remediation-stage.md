@@ -20,7 +20,7 @@ NX-057 R1/R2 随 release 44（main 94baecc3）上 stage。部署单只做迁移�
   - 授权：`service-grants.v1.json` manifest 19；
   - 规则：`remediation-rules.v1.json` manifest 1，只有一条规则 `deliver_final_failure`；
   - 告警规则：v14 67 条，v15 71 条，v16 73 条；
-  - G1、G2 按分支 `l7/nx057-g1-g2` 核对：迁移 `remediation_rule_publications`（临时编号 0344，与 R4 的临时编号相同，合入时由调度员重排）、`scripts/deploy/remediation_rules_apply.py`、compose 中 `plan-reevaluator` 的 `REMEDIATION_ENABLED`。
+  - G1、G2 按分支 `l7/nx057-g1-g2` 核对：迁移 `remediation_rule_publications`（临时编号 0351，与 R4 的临时编号相同，合入时由调度员重排）、`scripts/deploy/remediation_rules_apply.py`、compose 中 `plan-reevaluator` 的 `REMEDIATION_ENABLED`。
   - 执行前如果 main 又前进了，重新核对这几项。
 - 每一步标 **A**（只读，随时可以执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
 - **G1、G2 已就绪**（§0.4）：第 3 步和第 4 步原先各缺一个部署件，已在分支 `l7/nx057-g1-g2` 补齐，随下一批（与 R4 一起）进 main。第 1、2 步用 release 44 就能执行；第 3、4 步要等含 G1、G2 的 release 部署之后执行。
@@ -82,7 +82,7 @@ main 94baecc3 上缺这两个部署件；现在已补齐，随下一批进 main�
 
 | # | 原来的缺口 | 影响 | 补件（已就绪） |
 |---|---|---|---|
-| G1 | **补救规则没有配置员窗口入口**。`python -m nexloop_eios.remediation rules --apply` 只接受 `--database-url-file`（配置员 DSN）。stage 上没有常驻的配置员登录，窗口只能由工具自己打开；`scripts/deploy/` 里没有补救规则的包装脚本 | 没有它，第 3 步不能执行 | `scripts/deploy/remediation_rules_apply.py`，与 `alert_rules_apply.py` 同形：`--bootstrap-dsn-file` 开窗口，`--check` 不连库，输出一行 JSON，不打印 DSN。迁移 `remediation_rule_publications`（临时编号 0344）：按文件原文发布，库里记录文件的 sha256 和 `expected_revision`（发布前本租户的规则版本，第一次为 0；不符就拒绝，什么也不写）；配置员不能再绕过这条记录直接写规则。`python -m nexloop_eios.remediation rules --apply` 也改走这条路径，需要 `--expected-revision` |
+| G1 | **补救规则没有配置员窗口入口**。`python -m nexloop_eios.remediation rules --apply` 只接受 `--database-url-file`（配置员 DSN）。stage 上没有常驻的配置员登录，窗口只能由工具自己打开；`scripts/deploy/` 里没有补救规则的包装脚本 | 没有它，第 3 步不能执行 | `scripts/deploy/remediation_rules_apply.py`，与 `alert_rules_apply.py` 同形：`--bootstrap-dsn-file` 开窗口，`--check` 不连库，输出一行 JSON，不打印 DSN。迁移 `remediation_rule_publications`（临时编号 0351）：按文件原文发布，库里记录文件的 sha256 和 `expected_revision`（发布前本租户的规则版本，第一次为 0；不符就拒绝，什么也不写）；配置员不能再绕过这条记录直接写规则。`python -m nexloop_eios.remediation rules --apply` 也改走这条路径，需要 `--expected-revision` |
 | G2 | **`REMEDIATION_ENABLED` 还没有接入 compose**。`plan-reevaluator` 的环境变量只有公共锚点里的 `REAL_DISPATCH_ENABLED`，进程里读不到 `REMEDIATION_ENABLED`，部署层开关恒为关 | 没有它，第 4 步不能执行 | `deploy/stage/compose.app.example.yaml` 的 `plan-reevaluator` 增加 `REMEDIATION_ENABLED: "${REMEDIATION_ENABLED:-false}"`，只给这一个服务，公共锚点里的 `REAL_DISPATCH_ENABLED` 照旧；env 示例 `deploy/stage/compose.app.env.example` 增加 `REMEDIATION_ENABLED=false`。默认值 false 由 `tests/test_stage_compose.py::test_the_remediation_switch_is_one_compose_variable_of_the_plan_reevaluator_closed_by_default` 锁住：租户开关默认是开的，部署层必须默认关（L6 I-3）。属于部署配置变更，合并时由调度员确认 |
 
 **服务授权 `--doctor` 仍然没有窗口入口**（不在 G1 范围内）：`python -m nexloop_eios.service_grants --doctor` 读库也要配置员 DSN（`configurator_connection`）。所以本单的只读核对用 `ro` 查询代替 `--doctor`，见 2.1。

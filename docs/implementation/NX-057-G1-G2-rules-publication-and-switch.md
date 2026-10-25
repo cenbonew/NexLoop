@@ -2,7 +2,7 @@
 
 - **来源**：执行单 `docs/release/run-nx057-remediation-stage.md` §0.4 列出的两个缺口。调度员 2026-10-25 派工：G1、G2 放在一个分支上，基于 main 94baecc3；随 R4 进下一批；G2 属于部署配置变更，合并时由调度员确认。
 - **分支**：`l7/nx057-g1-g2`。它的第一个提交就是执行单本身（96b047dd，父提交 94baecc3）。
-- **迁移**：`remediation_rule_publications`，临时编号 0344，接在 main 尾部 0343 之后。R4 的 `remediation_claims` 也用了临时编号 0344（两条分支都基于 main 的尾部），由调度员合入时一起重排。编号必须连续：`test_42_actual_bootstrap_and_publication_checksum` 要求迁移数等于锁定的 bootstrap_revision，所以这里不能跳到 0345。
+- **迁移**：`remediation_rule_publications`，临时编号 0351，接在 main 尾部 0343 之后。R4 的 `remediation_claims` 也用了临时编号 0351（两条分支都基于 main 的尾部），由调度员合入时一起重排。编号必须连续：`test_42_actual_bootstrap_and_publication_checksum` 要求迁移数等于锁定的 bootstrap_revision，所以这里不能跳到 0345。
 
 ## G1：补救规则经配置员窗口发布，并记录 sha256 与 expected_revision
 
