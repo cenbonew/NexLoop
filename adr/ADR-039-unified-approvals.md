@@ -29,7 +29,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
    - 一票拒绝即终结；
    - 超期作废；
    - 不允许自动批准，quorum 不能为 0；
-   - 审批的对象是某位成员时，这位成员不参与批准（Z1）。发起审批时，目标必须是本租户 invited 或 active 状态的成员。
+   - 审批的对象是某位成员时，这位成员不参与批准（Z1）。发起审批时，目标必须是本租户 invited、active 或 suspended 状态的成员，revoked 一律拒绝（修订草案 R2 §7.2：resume_owner 和对已停用 owner 的降级都以 suspended 成员为目标）。
 
    策略由技术配置员用文件原文发布。数据库记录清单版本、原文 sha256 和 `expected_revision`（0050 的做法），事后可以证明策略来自哪个文件。
 
@@ -212,3 +212,63 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 
 - **投票冷却**由 NX-058 **片 D §2** 实现（读取 role_history 的接口 `(tenant, world, subject, approver_roles)`，§2 第 10 点），不是片 C。片 C 提供的是 role_history 本身。
 - **先后**：B1 可以先于片 D 合入。片 D 的 owner 成员类 Action 在 stage 上启用之前，B1 必须已经合入（否则批准人看不到目标）。片 D 的设计应把这一条列为启用前置条件。
+
+## 7. 修订草案 R2：执行期字段、发起时的检查、终结原因与拒绝原因码（2026-10-25，NX-056 B2；NX-058 片 D2/D3 照此对接）
+
+本节是这几项接口唯一的权威定义，待 L6 复核。实现（NX-056 B2）叠在 NX-058 片 D2 的 0344 之后：它也重新定义 `control.nexloop_approval_open`，两条线不能各自改同一个函数，见 §7.6。
+
+### 7.1 执行期字段（调度员定的方向：秘密不进 digest）
+
+- **问题**：`issue_owner_reset` 和 `invite_owner` 的码或 token 由 HTTP 层在每次提交时生成，它的 HMAC 现在放在请求体里，也就进了冻结请求体和 digest。请求人重新提交执行时会生成新的码，digest 对不上，审批永远消费不了；而且秘密的派生值也不应该进冻结请求体。
+- **定义**：一个能力可以声明一组**执行期字段**，登记在新表 `control.nexloop_approval_execution_fields(capability primary key, fields text[])` 中。这张表只追加、只有 owner 可写，由该能力的迁移登记（NX-058 片 D3 为 `workbench_member.issue_owner_reset` 和 `workbench_member.invite_owner` 登记各自的 HMAC 字段名）。
+- **规则**：
+  1. **不进 digest**：`control.nexloop_approval_digest` 在去掉 `request_id` 的同时，去掉该能力的执行期字段（函数由 immutable 改为 stable，因为要读这张表）。gate、`policy_changed` 的旧版本比对、“1 小时内已消费”的查找，以及片 D handler 对“正在执行的审批”的 digest 回查，都经过这个函数，所以自然一致。
+  2. **不进冻结请求体**：`control.nexloop_approval_open` 冻结的是去掉执行期字段之后的请求体。审批视图、“待我执行”的 `inputs`、保留期和擦除看到的都是没有这些字段的请求体。工作台执行时，由 HTTP 层重新生成码，再加上这些字段。
+  3. **只在执行事务里用**：执行那一次重新提交时，完整请求体（含执行期字段）照常交给 handler。handler 自己校验这些字段的格式（例如 64 位十六进制的 HMAC）。它们不写入消费记录、审批记录或执行结果，审计也不记它们的值。码本身只出现在这一次 HTTP 响应里（片 D 的 I6）。
+  4. **动作认领**（claim）里只有整个请求的 `request_digest`，即完整请求体的哈希，不含字段值；这是受治理入口的既有机制，不受这一节影响。
+  5. **第一次提交**（挂起）时生成的码不会被使用：请求挂起后，这个码随之作废，HTTP 层也不返回它。
+- **校验**：执行期字段不得同时出现在策略的 `summary_fields`、`target_subject_field` 或条件字段中。策略守护和 Python 校验都拒绝这种组合。
+
+### 7.2 发起时的检查（确认 NX-058 片 D2 的 0344）
+
+- **`operation_mismatch`**：请求体的 `operation` 必须是该能力在 `control.nexloop_governed_capabilities` 中登记的 operation，否则拒绝（22023）。这正是 L6 对 B1 的建议，与 ADR-039 一致（视图也已按审批记录的能力判断类型，§6.4）。
+- **目标的成员状态**：invited、active、suspended 可以发起，revoked 拒绝（`target_unresolved`）。§2 第 1 点已同步修改。
+- **`quorum_unreachable`**（D8 的一部分）：对声明了 `target_subject_field` 的策略，以及 `solo_mode = not_applicable` 的策略，发起时计算“除请求人和目标本人之外，现在有资格、并且投票冷却已满（`control.nexloop_workbench_vote_eligible_from(tenant, world, subject, approver_roles) <= now()`）的人数”。少于 quorum 就当场拒绝 `approval: quorum_unreachable`（22023，HTTP 409），不挂起等到 24 小时过期。
+  - 如果只是冷却未满导致不够，错误的 detail 带 `eligible_from`，即最早能凑够 quorum 的时刻，供工作台提示。
+  - 已有的 `quorum_unreachable_in_solo_mode` 保持不变，只用于单人模式。
+- 这几项都在 `control.nexloop_approval_open` 中，由 B2 统一实现（§7.6）。
+
+### 7.3 终结原因：`requester_no_longer_eligible`（D8）
+
+- **新增终结原因** `requester_no_longer_eligible`，与 `due_by_passed`、`policy_changed`、`superseded`、`consumer_erased` 并列：请求人已经不能执行自己的请求了（被降级、停用或撤销），这时他名下仍在等待，或者已批准但尚未消费的请求，立即终结（记为 expired，写 `approval.expired`，payload 的 reason 为这个原因）。
+- **入口**：新函数 `control.nexloop_approval_end_for_requester(tenant, world, requester_subject, actor_principal, intent)`，只有 owner 函数能调用。
+  - 由 NX-058 片 D 的 handler 在降级、停用、撤销成员之后，在同一事务里调用；
+  - 跳过正在执行的那条审批（`nexloop.approval_in_flight`）；
+  - 遵守加锁顺序：handler 在 gate 之内，已经持有租户锁。
+- **为什么不自动按授权判断**：请求人能否执行，取决于他在执行那一刻的授权，受治理入口本来就会拒绝。终结只是为了让这些请求不再占用批准人的注意力和 3 条等待的配额，所以由成员变更的 handler 显式调用，不在每次读取时推断。
+
+### 7.4 执行被拒的原因码（D8）
+
+- 消费结果的形式保持为 `execution_refused:<sqlstate>(:<code>)`（0326 的约束早已允许可选的 code）。
+- **code 的来源**：handler 抛出的异常消息，形如 `<前缀>: <code>`，其中 code 匹配 `^[a-z_]{1,64}$`（例如 `workbench member: target_not_active`）。gate 只取这个 code，不取消息的其余部分，也不取任何值。消息不是这个形式时，只记 sqlstate。
+- 入口返回 `{"status":"execution_refused","code":<sqlstate>,"reason":<code 或 null>}`，工作台据此显示。
+- 这样，片 D 的 handler 只要按这个约定写异常消息（现有的 `workbench member: …` 已经符合），不需要另外的接口。
+
+### 7.5 原因码总表（D8 定案）
+
+| 码 | 出现在 | 含义 |
+|---|---|---|
+| `quorum_unreachable` | 发起时拒绝 | 除请求人和目标外，有资格并且冷却已满的人数不够 quorum；可能带 `eligible_from` |
+| `quorum_unreachable_in_solo_mode` | 发起时拒绝 | 单人模式下，自批永远无法满足这条策略 |
+| `operation_mismatch` | 发起时拒绝 | 请求体的 operation 与能力不符 |
+| `target_unresolved` | 发起时拒绝 | 目标不是本租户 invited、active 或 suspended 的成员 |
+| `requester_no_longer_eligible` | 终结原因（`approval.expired` 的 reason） | 请求人已被降级、停用或撤销 |
+| `execution_refused:<sqlstate>:<code>` | 消费结果 | 已按批准执行，handler 拒绝了；code 取自 handler 的异常消息 |
+
+### 7.6 由谁实现（与 L2 的分工建议）
+
+- **NX-056 B2（L3）**：执行期字段表、digest 与冻结请求体的处理、`approval_open` 中的 `quorum_unreachable`、`requester_no_longer_eligible` 及其函数、gate 的原因码，以及相应的测试与复制件守护。
+  - B2 叠在片 D2 的 0344 之后：`approval_open` 以 0344 的版本为基础，保留其中的 `operation_mismatch` 和 suspended 放宽，只增加本节的检查。
+  - 0344 中这两项改动与本 ADR 一致，L3 确认，不需要 L2 再改。
+- **NX-058 片 D3（L2）**：为 `issue_owner_reset` 和 `invite_owner` 登记执行期字段；HTTP 层每次提交都重新生成码，并且只在执行成功的那次响应中返回；handler 降级、停用、撤销成员后，调用 `control.nexloop_approval_end_for_requester`；handler 的异常消息遵守 §7.4 的形式。
+- **合入顺序**：片 D2（0344）先于 B2，B2 先于片 D3。
