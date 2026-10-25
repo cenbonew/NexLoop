@@ -1,6 +1,6 @@
 # 设计增补｜NX-058 片 E：员工离职擦除
 
-第 2.2 版，2026-10-25，L2（E1 已定为 A；I-E2、I-E3 已改，目标状态与冻结体改写等 ADR R3 统一后同步）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
+第 2.3 版，2026-10-25，L2（E1 已定为 A；按 ADR-039 R3 §8，L3 b1661a7d，同步目标状态、erased 判定与冻结体改写）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
 
 负责人 Q-A 定为「A+90天」：员工离职擦除纳入 v0.2，作为 NX-058 片 E，排在片 D 之后。上位设计是 `docs/design/account-self-service.md` 第 7 版 §4（S3 擦除传播），审批接法照片 D 设计（`docs/design/nx058-owner-actions.md` v2.8），目标展示照 ADR-039 R1 §6（本稿需要修订 §6.1 与 §6.5，见 §5）。实现等片 D 合入 main 后开始，迁移用临时编号。
 
@@ -18,7 +18,7 @@
 - **投票冷却**（片 D1）同样适用；**可批准条件**照片 D §0：排除请求人和目标后，至少 1 位 active、冷却已满的 owner。L3 的发起时 `quorum_unreachable`（片 D 的 D8）落地后同样适用，否则请求挂起至过期。
 - **单 owner 租户**（I2）：无法经审批擦除，也没有运维通道替代；只能等第二位 owner 加入并满 24 小时。运行手册写明；这是禁止自批的直接后果，负责人知情。
 - **被擦除的人不能参与批准**：NX-056 按 `target_subject_field` 在决定时拒收、消费时不计目标本人的票（AA2）；且前提要求其 membership 全部 revoked，没有投票资格。
-- **发起时的目标检查**：`approval_open` 对**这一个能力**接受 revoked 的目标（片 D2 起其余能力接受 invited/active/suspended，revoked 一律拒绝）。按能力写死，copy guard 登记，需 L3 同意（E3）。
+- **发起时的目标检查**（ADR-039 R3 §8.1）：在同一迁移里为 `workbench_member.erase_member` 登记 `control.nexloop_approval_capability_settings`，`target_statuses = {revoked}`、无执行期字段——必须与能力注册同一迁移、在任何请求之前。`approval_open` 按能力声明检查目标状态（B2 已把写死的列表换成这个机制），其余能力不受影响。
 - **目标解析**（S-E2）：另写解析函数，由 principal 得到 subject 并锁定该 subject 在本租户的全部 membership；不复用片 D 的 `nexloop_workbench_owner_target`（它对 revoked 报 `target_not_active`，并按 owner 区分角色）。策略与审批回查直接复用 `nexloop_workbench_owner_approval`。拒绝都写成 `workbench member: <code>` 形式（`target_not_revoked`、`already_erased`），以便 R2 §7.4 的 gate 取到原因码（S-E4）。
 - **锁内重查**（I1）：handler 在成员锁内重新确认：目标 principal 解析出的 subject 在本租户的全部 membership 都是 `revoked`，否则 `target_not_revoked`；该 subject 已在擦除台账中则 `already_erased`。这与片 D handler 的“revoked 不能再作目标”不冲突：那是片 D 的 5 个 Action 各自的规则，擦除是唯一以 revoked 为前提的能力。
 - **竞态**（I1，测试）：审批期间目标被 configurator 重新配置或另一 principal 被重新邀请并接受 → 执行时 `target_not_revoked`，审批作废；两份擦除审批先后执行 → 第二份 `already_erased`。
@@ -60,7 +60,8 @@ handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 →
 - 经 `invite_owner`（片 D3）入职的成员，其原用户名留在那份审批的冻结请求体里。擦除时定点假名化。**查找直接以审批表为准**（I-E3），不经邀请记录（它们在同一事务里被删除，也可能更早被其他路径清理）：`control.nexloop_approval_requests` 中 `capability='workbench_member.invite_owner'`、消费结果为 `executed`，并且被邀请人接受后成为这个 subject——片 D3 的 `accept_v3` 在接受时把 `approval_id` 记在该 subject 的接受审计与成员行上，查找走这条关联。把这些冻结体中的 `username` 改为与账号相同的 `erased-` 假名。
   - 冻结体改写后 digest 对不上，这是有意的（与 0331 的 Consumer 假名化同一口径：该审批早已消费，digest 只作审计记录）。改写只经 owner 持有的函数，审批表的追加保护对这一列开一个定点例外，copy guard 登记，需 L3 同意（E3）。
   - 重放（§2.3）同样重做这一步。
-- 视图：`invite_owner` 行按擦除台账判定——被邀请人接受后成为的 subject 在擦除台账中时输出 `{"kind":"erased"}`（S-E1：不按 `erased-` 前缀判定，片 E 上线前已有的真实 `erased-…` 用户名不会被误显示；迁移另自检现存邀请和账号中没有 `erased-` 开头的用户名）。见 §5 的 ADR 修订。
+- 视图（ADR-039 R3 §8.6）：`invite_owner` 行的被邀请人 `username` 以 `erased-` 开头时输出 `{"kind":"erased"}`；冻结体由本节改写为该前缀，所以判定成立。片 E 之前已有的真实 `erased-…` 用户名（S-E1）由迁移自检排除：现存邀请、账号与 `invite_owner` 冻结体中没有以 `erased-` 开头的用户名，有则迁移失败、人工处理；片 E 起邀请在 HTTP 与 SQL 两层拒绝该前缀。
+- 冻结体改写按 R3 §8.7：只改 `invite_owner` 请求体中的 `username` 这一个字符串，在本事务开启的擦除作用域内、经 owner 函数，由片 E 迁移重定义请求表守护并登记 copy guard。
 - 测试：邀请记录在擦除前已不存在时，冻结体仍被假名化（I-E3）。
 
 ### 2.5 登录事件的两项摘要（保留 90 天，I4）
@@ -96,8 +97,8 @@ principal、subject、membership 行（全部 revoked）、授权实例与角色
 
 需要以 ADR 修订的形式写入（L3）：
 
-- **§6.5 判定口径**：由“username 以 `pseudonym:` 开头，或 subject 带擦除标记”改为“擦除台账中有该 subject”（请求体给 principal 时按其 subject 判定；给 subject 时直接判定）。以台账判定不依赖 E1 的结论。
-- **§6.1 判定顺序第 3 步**：`invite_owner` 行的被邀请人接受后成为的 subject 在擦除台账中时输出 `erased`（不按用户名前缀，S-E1），否则按 D7=A 输出 `invitee`。仍在第 2 步（非 owner 一律 `hidden`）之后，非 owner 看不出是否被擦除。
+- **erased 判定**（ADR-039 R3 §8.6 已定，取代 §6.5）：目标成员的 subject 在擦除台账（§2.3，按 (tenant, subject) 查询）中 → `erased`；`invite_owner` 被邀请人用户名以 `erased-` 开头 → `erased`；都在第 2 步（非 owner 一律 `hidden`）之后。片 E 的迁移重定义 `runtime.nexloop_approval_target_member`，改为按台账判定并去掉 B1 过渡用的 `pseudonym:` 前缀判断（copy guard 登记）。
+- 本节原先提出的 §6.1/§6.5 修订意见由 R3 §8.6、§8.7 定案，按上一条实现。
 - C1 的粒度：前提是 subject 的全部 membership 已 revoked，所以“按 subject 判定 erased”不会误伤同一 subject 仍 active 的身份——那种情况下擦除根本不会发生。
 
 ## 6. 0198、configurator 与 NX-059 审计链
@@ -135,7 +136,7 @@ principal、subject、membership 行（全部 revoked）、授权实例与角色
 ## 10. 待确认
 
 - **E1** 已定为 A（负责人 2026-10-25）：用户名与邮箱一并假名化，列与 payload 同步，前缀 `erased-`。
-- **E3**（L3）：`approval_open` 对 `erase_member` 接受 revoked 目标；审批冻结体对 `invite_owner` 用户名的定点改写例外；ADR §6.1/§6.5 修订（§5）。
+- **E3**（L3）已由 ADR-039 R3 §8.1、§8.6、§8.7 定案（b1661a7d）；原列：`approval_open` 对 `erase_member` 接受 revoked 目标；审批冻结体对 `invite_owner` 用户名的定点改写例外；ADR §6.1/§6.5 修订（§5）。
 - **E4**：保留期冻结是否覆盖员工登录事件（建议暂不，后续项）。
 - **E5**（调度员）：两张员工表按 L6 I3 继续登记为保留，不做空写入（§3）。
 - E2 已按 L6 建议定为“签发记录只清摘要、保留记录”。
