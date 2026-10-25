@@ -90,8 +90,8 @@
 - **timer 新鲜度**：新增告警规则 **alert-rules v19 = v18 加一条 `timer_stale_relation_read_gaps`**（selector `data_host:relation-read-gaps`，阈值 93600 秒即 26 小时，`gt`），由 P4a 实现时加入，与 v18 中其他 `timer_stale_*` 的写法一致（v18 中这类规则都是逐个 selector 写的，没有 `*`）。timer 没有运行、没有被认作定时、或者一直失败，都会在 26 小时后触发。
 - **stage 演练**（P4a 上线后，调度员执行）：
   1. 以 replica 模式写入一个不派生的测试对象，或者对一个测试对象删掉它的派生关系，造出 `gaps = 1`；
-  2. 手动触发一次 timer（`systemctl start nexloop-relation-read-gaps.timer` 不会立即运行，用 `systemd-run --on-active=5s` 或临时改时间触发一次定时运行），确认这一轮 `Result` 不是 `success`，并在下一次告警评估后看到 `timer_scheduled_failure`（selector `data_host:relation-read-gaps`）触发；
-  3. 删除测试对象或回填它，再触发一次定时运行，确认 `gaps = 0`、`Result=success`；24 小时窗口过去后告警清除（或者记录清除时刻）；
+  2. 让**这个 timer 自己**触发一次运行：用一个临时 drop-in 给 `nexloop-relation-read-gaps.timer` 加一个几分钟后的 `OnCalendar`，`daemon-reload` 后等它触发，演练结束删除 drop-in（`systemd-run --on-active` 建的是另一个临时 timer，`systemctl start` 服务是手工运行，这两种都不会被探针认作这个 timer 的定时运行）；确认这一轮 `Result` 不是 `success`，并在下一次告警评估后看到 `timer_scheduled_failure`（selector `data_host:relation-read-gaps`）触发；
+  3. 删除测试对象或回填它，再用同样的方式触发一次定时运行，确认 `gaps = 0`、`Result=success`；24 小时窗口过去后告警清除（或者记录清除时刻）；
   4. 结果记入 NX-054 的证据。
 - **P5 的前提之一就是这条链路已经在线**（两条规则都已发布，演练做过）；P5 之后 timer 与告警继续保留，作为“只读关系”之后的长期守护。
 
