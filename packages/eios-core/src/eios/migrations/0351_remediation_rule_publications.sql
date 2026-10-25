@@ -62,10 +62,11 @@ begin
   perform set_config('eios.tenant_id',coalesce(prior,''),true);
   raise exception 'remediation rules: expected revision %, current %',p_expected,cur using errcode='40001';end if;
  r:=control.nexloop_configure_remediation_rules(p_tenant,p_world,v_manifest);
- -- A version configured before this entry existed (no publication row) replays there: nothing to record.
+ -- A version configured before this entry existed (no publication row) replays there: nothing to record, and no recorded expected
+ -- revision to report (null, L6 S-1/S-2).
  if (r->>'replay')::boolean then
   perform set_config('eios.tenant_id',coalesce(prior,''),true);
-  return r||jsonb_build_object('manifest_sha256',p_digest,'expected_revision',p_expected);
+  return r||jsonb_build_object('manifest_sha256',p_digest,'expected_revision',null);
  end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  insert into control.nexloop_remediation_rule_publications(tenant_id,world,manifest_version,manifest_sha256,expected_revision)
