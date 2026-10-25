@@ -13,9 +13,9 @@
   - **第 1 天**：先做 §6b 的前提检查，全部满足才执行第 7 步（发布策略 v1）和第 8 步（双人演练）。
   - 两天之间至少隔 24 小时：第二位 owner 在第 0 天第 4 步才获得 owner 角色，冷却从那时起算；D1 本身也要部署满 24 小时。
 - **时长**：第 0 天约 1 小时；第 1 天的演练（第 8 步）至少需要 2 小时，因为 8.6 要等待超过 1 小时才能看到告警，加上第 7 步，第 1 天约 2.5 小时。
-- **镜像**：需要 main 9779abb6（第二十四批）或之后的 backend 镜像，其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
+- **镜像**：需要 94baecc3 或更新的发布（含 NX-056 B1 `0342_nx056_target_member` 与 NX-058 D1 `0343_vote_cooldown`），其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
 - 每一步标注 **A**（只读，可以随时执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
-- **按 main 9779abb6 核对过**：NX-056 的迁移是 0326–0332（跟进修正 0339 随下一批），角色清单 manifest 40，告警规则 v14（67 条，最新版本），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果 main 又前进了，再核对一次这几项。
+- **按 94baecc3 核对过**：迁移尾 0343（NX-056 主体 0326–0332，B1 为 0342，D1 投票冷却为 0343），角色清单 manifest 40，告警规则 v14（67 条），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果发布又前进了，再核对一次这几项。
 
 ## 0. 前提与变量
 
@@ -24,11 +24,12 @@
 | # | 前提 | 怎么核对 |
 |---|---|---|
 | P0 | 第二十四批部署时已经做过**迁移前备份**：DATA_HOST 执行 `sudo -n systemctl start nexloop-pg-diff.service`，并记下备份标签（`BACKUP_LABEL`）和**备份开始时间**（第 1 步 `journalctl --since` 要用）。部署单必须记录这两项 | 第 1 步核对 |
-| P1 | 第二十四批（含 NX-056 A0–A7 及 review 11）已合入 main，并且已按该批的部署单部署到 stage | `git log --oneline -1 $MAIN` 为部署单记录的提交；`/health/ready` 正常 |
+| P1 | 94baecc3 或更新的发布已部署到 stage（含 NX-056 A0–A7、follow-up、B1） | `git log --oneline -1 $MAIN` 为部署单记录的提交；`/health/ready` 正常 |
 | P2 | stage 的真实派发保持关闭 | 部署层 `REAL_DISPATCH_ENABLED` 不是 `true`；工作台“真实派发”面板中租户开关为关闭 |
 | P3 | 保留期服务和告警评估服务都在运行 | `docker compose -p nexloop-app ps` 中 `retention-keeper`、`alert-evaluator` 都是 running |
 | P4 | 负责人能登录工作台，并且是 owner | 负责人登录后，审批页可以打开 |
 | P5 | 钥匙串里已经有第二位测试 owner 的口令条目（调度员生成，`nexloop/stage/approver2`） | `security find-generic-password -s nexloop/stage/approver2 >/dev/null`，只检查是否存在，不打印值 |
+| P6 | **第 0 天开始之前**，D1（`0343_vote_cooldown`）已经部署到 stage。这样负责人的冷却从 D1 部署时刻起算，第二位 owner 的冷却从第 4 步起算 | `ro "select applied_at from control.schema_migrations where version='0343'"` 有值，并且早于第 0 天开始的时刻 |
 
 ### 0.2 变量
 
@@ -87,7 +88,7 @@ ro "select to_regclass('control.nexloop_approval_policies') is not null, to_regc
 ro "select count(*) from control.nexloop_approval_policies"
 ```
 
-- **预期**：迁移尾是 0336（main 9779abb6 的 catalog 尾，其中 NX-056 为 0326–0332；跟进修正 0339 随下一批部署时才会出现）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
+- **预期**：迁移尾是 0343（其中 NX-056 为 0326–0332 和 0342，D1 为 0343）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
 
 ## 3. 发布新的 Action（DATA_HOST，配置员窗口，B）
 
@@ -144,7 +145,7 @@ sudo shred -u "$APP_RUN/in/password-approver2"
 {"principal_id": "stage-principal-approver2", "subject_id": "stage-human-approver2", "role": "owner"}
 ```
 
-2. 应用本批的角色清单（`workbench-roles.v1.json`，main 9779abb6 上为 manifest 40（含 NX-056 A7 和 NX-058 片 A、B 的角色））：
+2. 应用本批的角色清单（`workbench-roles.v1.json`，94baecc3 上为 manifest 40（含 NX-056 A7 和 NX-058 片 A、B 的角色））：
 
 ```
 docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbench_roles.py --roles /opt/release/deploy/authorization/workbench-roles.v1.json \
@@ -166,7 +167,7 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_ru
 
 - **预期**：`--check` 输出 `{"valid": true, "version": 14, "rules": 67}`；应用后 `applied: true`。
 - 下一轮告警评估之后（约 1 分钟），`nexloop-doctor --observability` 的 `alert_rules_current` 为 true。
-- **前提**：镜像必须是 main 9779abb6 或之后的版本（含 `alert_rules_apply.py`）。没有就停下，不另找写入规则的办法。
+- **前提**：镜像必须是 94baecc3 或更新的发布（含 `alert_rules_apply.py`）。没有就停下，不另找写入规则的办法。
 
 ## 6. 策略清单 `--check`（不连库，A）
 
@@ -185,7 +186,7 @@ D1（NX-058 片 D 的投票冷却）规定：一位成员只有在“当前这�
 ro "select now()"
 ro "select m.principal_id, m.subject_id, control.nexloop_workbench_vote_eligible_from('$TENANT_ID','real',m.subject_id,array['owner']) \
     from control.nexloop_browser_memberships m where m.tenant_id='$TENANT_ID' and m.principal_id in ('<负责人的 principal>','stage-principal-approver2') order by 1"
-ro "select version, applied_at from control.schema_migrations where version='<D1 的迁移版本，以该批部署单为准>'"
+ro "select min(recorded_at) from control.nexloop_workbench_role_history where tenant_id='$TENANT_ID' and source='deployment'"
 ```
 
 **记入证据**（UTC 时间，不含口令和用户名）：
@@ -194,8 +195,8 @@ ro "select version, applied_at from control.schema_migrations where version='<D1
 |---|---|
 | 核对时刻 | `select now()` |
 | 负责人的 `vote_eligible_from` | 第二条查询中负责人那一行 |
-| 第二位测试 owner 的 `vote_eligible_from` | 第二条查询中 `stage-principal-approver2` 那一行（应为第 4 步完成时刻加约 24 小时） |
-| D1 部署时刻 | 第三条查询的 `applied_at` |
+| 第二位测试 owner 的 `vote_eligible_from` | 第二条查询中 `stage-principal-approver2` 那一行。以 P6 为前提（D1 在第 0 天之前已部署），它约等于第 4 步完成时刻加 24 小时；如果 D1 是在第 4 步之后才部署的，则为 D1 部署时刻加 24 小时 |
+| D1 部署时刻 | 第三条查询：0343 部署时回填角色历史的那批行（`source='deployment'`）的 `recorded_at` |
 | 第 1 天最早可开始的时刻 | 以上三个时刻（D1 部署时刻按加 24 小时计）中最晚的一个 |
 
 - 任何一行的 `vote_eligible_from` 为空，说明这位成员在角色历史里没有当前的 owner 记录，回到第 4 步核对成员文件和角色清单是否已应用。
@@ -209,7 +210,7 @@ ro "select version, applied_at from control.schema_migrations where version='<D1
 ro "select now()"
 ro "select m.principal_id, control.nexloop_workbench_vote_eligible_from('$TENANT_ID','real',m.subject_id,array['owner']) <= now() \
     from control.nexloop_browser_memberships m where m.tenant_id='$TENANT_ID' and m.principal_id in ('<负责人的 principal>','stage-principal-approver2') order by 1"
-ro "select now()-applied_at>=interval '24 hours' from control.schema_migrations where version='<D1 的迁移版本>'"
+ro "select now()-min(recorded_at)>=interval '24 hours' from control.nexloop_workbench_role_history where tenant_id='$TENANT_ID' and source='deployment'"
 ro "select count(*) from control.nexloop_approval_policies"
 ```
 
@@ -219,7 +220,7 @@ ro "select count(*) from control.nexloop_approval_policies"
 | Q2 | D1 部署已超过 24 小时 | 第三条查询为 `t` |
 | Q3 | 第 0 天之后成员没有变化 | 两位都仍是 active 的 owner（§4.2 的核对查询）；`vote_eligible_from` 与第 0 天记录的一致。如果变了，说明角色有过中断，冷却已重新计时 |
 | Q4 | 还没有发布任何策略 | 第四条查询为 0 |
-| Q5 | 第 0 天的前提 P2、P3 仍然成立 | 同 §0.1 |
+| Q5 | 第 0 天的前提 P2、P3 仍然成立，并且第 0 天第 3–5 步的结果仍在 | 同 §0.1；第 3 步 Action 已发布（§3 的核对查询为 3）；告警规则仍为 v14、67 条（`nexloop-doctor --observability` 的 `alert_rules_current` 为 true）；角色 manifest 为 40（§4.2 的核对） |
 
 全部满足才继续第 7 步。
 
@@ -303,7 +304,7 @@ ro "select action, payload->>'approval_id', payload->>'outcome', payload->>'acto
 | 第 1 天发现冷却未满（Q1 或 Q2 不满足） | 不发布策略，停下。此时没有任何能力需要审批，stage 不受影响。按 §6b 的查询算出最早可开始的时刻，到时再从 §6b 开始。如果 `vote_eligible_from` 比第 0 天记录的更晚（Q3），说明角色有过中断，先查清原因（成员文件是否被重新应用、是否有人降级后又提升），再按新的时刻等待。不要为了赶时间去改成员数据或角色历史 |
 | 第二位 owner 不再需要 | 先停用策略（上一行），再按 run-assembly §2a `--revoke-member` 撤出。策略生效期间，不要让 owner 只剩一位（运行手册 §7） |
 | 演练中真实派发开关状态异常 | 负责人关闭开关（关闭不需要审批），然后按 `docs/OPERATIONS.md` §8 核对 |
-| 策略已发布、演练失败 | 按顺序：① 负责人关闭演练中打开过的开关（关闭不需要审批，立即生效）；② 测试 owner 拒绝、负责人撤回所有仍在等待的演练请求；③ 记录失败点和返回码（运行手册 §6），交 L6；④ 如果问题出在审批本身、短期修不好，按上面“取消审批”发布 v2。策略保持生效本身不影响业务，因为首批三个能力都是低频的 owner 操作 |
+| 策略已发布、演练失败 | 按顺序：① 负责人关闭演练中打开过的开关（关闭不需要审批，立即生效）；② 测试 owner 拒绝、负责人撤回所有仍在等待的演练请求（如果测试 owner 的冷却还没满，他投的票不会计入，拒绝也无法生效，这时只能由负责人撤回）；③ 记录失败点和返回码（运行手册 §6），交 L6；④ 如果问题出在审批本身、短期修不好，按上面“取消审批”发布 v2。策略保持生效本身不影响业务，因为首批三个能力都是低频的 owner 操作 |
 | 能不能撤回发布 | 第 3 步发布的 Action 和第 4 步写入的角色**不能撤回发布**：定义只追加（0050）。能做的只是撤销授权（`--revoke-member`）、停用策略（v2）。所以第 3、4 步执行前，要按 3.2 的 dry-run 和组批记录逐项核对 |
 
 不允许的做法：直接写 SQL 改审批表、用 superuser 插入 approved 记录、代他人登录批准人账号（AGENTS.md 安全不变式）。
