@@ -215,7 +215,7 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 
 ## 7. 修订草案 R2：执行期字段、发起时的检查、终结原因与拒绝原因码（2026-10-25，NX-056 B2；NX-058 片 D2/D3 照此对接）
 
-本节是这几项接口唯一的权威定义，待 L6 复核。实现（NX-056 B2）叠在 NX-058 片 D2 的 0344 之后：它也重新定义 `control.nexloop_approval_open`，两条线不能各自改同一个函数，见 §7.6。
+本节是这几项接口唯一的权威定义，待 L6 复核。实现（NX-056 B2）叠在 NX-058 片 D2 的 0346 之后：它也重新定义 `control.nexloop_approval_open`，两条线不能各自改同一个函数，见 §7.6。
 
 ### 7.1 执行期字段（调度员定的方向：秘密不进 digest）
 
@@ -229,7 +229,7 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
   5. **第一次提交**（挂起）时生成的码不会被使用：请求挂起后，这个码随之作废，HTTP 层也不返回它。
 - **校验**：执行期字段不得同时出现在策略的 `summary_fields`、`target_subject_field` 或条件字段中。策略守护和 Python 校验都拒绝这种组合。
 
-### 7.2 发起时的检查（确认 NX-058 片 D2 的 0344）
+### 7.2 发起时的检查（确认 NX-058 片 D2 的 0346）
 
 - **`operation_mismatch`**：请求体的 `operation` 必须是该能力在 `control.nexloop_governed_capabilities` 中登记的 operation，否则拒绝（22023）。这正是 L6 对 B1 的建议，与 ADR-039 一致（视图也已按审批记录的能力判断类型，§6.4）。
 - **目标的成员状态**：invited、active、suspended 可以发起，revoked 拒绝（`target_unresolved`）。§2 第 1 点已同步修改。
@@ -269,10 +269,10 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 ### 7.6 由谁实现（与 L2 的分工建议）
 
 - **NX-056 B2（L3）**：执行期字段表、digest 与冻结请求体的处理、`approval_open` 中的 `quorum_unreachable`、`requester_no_longer_eligible` 及其函数、gate 的原因码，以及相应的测试与复制件守护。
-  - B2 叠在片 D2 的 0344 之后：`approval_open` 以 0344 的版本为基础，保留其中的 `operation_mismatch` 和 suspended 放宽，只增加本节的检查。
-  - 0344 中这两项改动与本 ADR 一致，L3 确认，不需要 L2 再改。
+  - B2 叠在片 D2 的 0346 之后：`approval_open` 以 0346 的版本为基础，保留其中的 `operation_mismatch` 和 suspended 放宽，只增加本节的检查。
+  - 0346 中这两项改动与本 ADR 一致，L3 确认，不需要 L2 再改。
 - **NX-058 片 D3（L2）**：为 `issue_owner_reset` 和 `invite_owner` 登记执行期字段；HTTP 层每次提交都重新生成码，并且只在执行成功的那次响应中返回；handler 降级、停用、撤销成员后，调用 `control.nexloop_approval_end_for_requester`；handler 的异常消息遵守 §7.4 的形式。
-- **合入顺序**：片 D2（0344）先于 B2，B2 先于片 D3。
+- **合入顺序**：片 D2（0346）先于 B2，B2 先于片 D3。
 
 ### 7.7 NX-058 片 E（员工擦除，E3）需要的三处配合（预留，片 E 实现时启用）
 
@@ -371,7 +371,7 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 
 ### 8.8 对片 D2 改动的书面确认，以及 operation 一致性的核对（调度员 2026-10-25）
 
-- **确认**：0344 在 `approval_open` 中加的 `operation_mismatch` 与本 ADR 一致。它对 suspended 目标的放宽由本节 §8.1 的按能力声明取代：B2 以 0344 的 `approval_open` 为基础，把写死的状态列表换成 `target_statuses`，并为 D2 的五个能力登记 §8.1 表中的状态。
+- **确认**：0346 在 `approval_open` 中加的 `operation_mismatch` 与本 ADR 一致。它对 suspended 目标的放宽由本节 §8.1 的按能力声明取代：B2 以 0346 的 `approval_open` 为基础，把写死的状态列表换成 `target_statuses`，并为 D2 的五个能力登记 §8.1 表中的状态。
 - **核对 operation**（防止 `operation_mismatch` 误拒已有能力）：现有接入审批的能力，注册表登记的 operation 与 `goal_controls` 构造请求体时写入的 operation 逐一一致：
 
   | 能力 | operation |
@@ -385,7 +385,7 @@ v16 等于 v15（v14 加上 NX-057 的修复类规则）再加上两条规则；
 
   更根本的是，受治理入口本身（0124 起）就要求请求体的 operation 等于能力登记的 operation，否则拒绝。所以经入口发起的请求不会被 `operation_mismatch` 误拒；这个检查只会挡住绕过入口、直接构造的调用。
 
-### 8.9 B2 实现说明（L3，叠在 0344 之上，临时迁移 `0345_nx056_execution_fields.sql`）
+### 8.9 B2 实现说明（L3，叠在 0346 之上，临时迁移 `0347_nx056_execution_fields.sql`）
 
 - 按 §7 与本节实现：
   - `control.nexloop_approval_capability_settings` 及其守护（只许 `*_hmac` 字段；状态只能取 active、suspended、revoked；能力已有请求时拒绝登记）；

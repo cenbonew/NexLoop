@@ -1717,18 +1717,18 @@
       "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
     },
     {
-      "version": "0344",
-      "name": "0344_owner_member_actions.sql",
+      "version": "0346",
+      "name": "0346_owner_member_actions.sql",
       "sha256": "ce9240af5818722885e20fcc06c69d81ad398ba2433d4ca7f5ff1f48196baf20"
     },
     {
-      "version": "0345",
-      "name": "0345_nx056_execution_fields.sql",
+      "version": "0347",
+      "name": "0347_nx056_execution_fields.sql",
       "sha256": "103ac8621d2ae261490f96ff0830b08c42983b46febdc2954b04031d373a9c7b"
     },
     {
-      "version": "0346",
-      "name": "0346_owner_reset_and_invite.sql",
+      "version": "0348",
+      "name": "0348_owner_reset_and_invite.sql",
       "sha256": "31b1a78d4fa565e199bc05a8d463afc59c4c1236b22224229ff97a6a9b60cd9b"
     }
   ]

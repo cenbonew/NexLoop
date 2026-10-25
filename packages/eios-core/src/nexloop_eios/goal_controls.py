@@ -125,7 +125,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'revoke_workbench_owner':'workbench_member.revoke_owner',
     # NX-058 slice D3: an owner's reset code and an owner invitation, each with another owner's approval (NX-056).
     'issue_workbench_owner_reset':'workbench_member.issue_owner_reset','invite_workbench_owner':'workbench_member.invite_owner'}
-# ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0346; tests compare the two).
+# ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
                   'workbench_member.invite_owner':('token_hmac','issuer_source_hmac')}
