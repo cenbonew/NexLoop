@@ -4,6 +4,7 @@ fixture of test_nx056_approvals_store_pg: four owners and an operator, votes rip
 the gate are called as the governed entry calls them. Synthetic ids only.
 """
 import json
+from datetime import datetime
 
 import psycopg
 import pytest
@@ -119,7 +120,7 @@ def test_quorum_unreachable_at_open_with_eligible_from_when_only_cooldowns_fall_
     detail = json.loads(caught.value.diag.message_detail)
     # S-B1: the quorum-th earliest vote_eligible_from of the others (second is eligible already; newbie's comes 24 hours from now).
     expected = admin.execute("select control.nexloop_workbench_vote_eligible_from(%s,'real',%s,'{owner}')", (TENANT_A, newbie['subject_id'])).fetchone()[0]
-    assert set(detail) == {'eligible_from'} and detail['eligible_from'] == expected.isoformat()
+    assert set(detail) == {'eligible_from'} and datetime.fromisoformat(detail['eligible_from']) == expected  # as instants, not strings (PG trims trailing zeros)
 
 
 def test_a_requester_principal_that_lost_standing_has_its_open_requests_ended(store):
