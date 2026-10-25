@@ -79,7 +79,7 @@ ro "select status, result->>'code' as code, count(*) from runtime.jobs
   - 现在的 5 条与 10-21 02:17Z 起一直报警、数值不再变化的现象一致：故障之后没有新的死信，旧的也没人处理。
 - 根因（依赖故障、输出不合格还是租约耗尽）要看 Q1 的 `result_code`、`events` 和 Q2 的时段分布。
 
-## 5. 修法建议（stage 结果确认后已实施：迁移临时编号 0355，告警规则 v17，测试 `tests/test_extraction_dead_letters_pg.py`）
+## 5. 修法建议（stage 结果确认后已实施：迁移临时编号 0355，告警规则 v18，测试 `tests/test_extraction_dead_letters_pg.py`）
 
 1. **处理入口**：新的受治理人类 Action `claim_extraction.dead_letter_resolve`（owner），对一条死信二选一：
    - `requeue`：把这条任务覆盖的 feed 行放回待处理（`task_id` 置空），调度器按正常窗口重新入队提取；

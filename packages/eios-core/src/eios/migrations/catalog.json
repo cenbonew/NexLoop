@@ -1759,7 +1759,7 @@
     {
       "version": "0355",
       "name": "0355_extraction_dead_letter_resolve.sql",
-      "sha256": "80f1a5a84a417b8420850c450fbc1cd4b189d968349d62bcdfd3ab740049f819"
+      "sha256": "4f90ec84f7fc4096fc4e60445fe30758098c76b380c3fbec3887cecb237d36b5"
     }
   ]
 }

@@ -16,7 +16,7 @@
 --      unresolved_dead_letters   dead letters with no decision and not fully covered by a later succeeded job of the same conversation
 --                                (its message_ids contain all of them - parenthesised: (s.normalized_input->'message_ids') @> ...)
 --      dead_letter_items         those unresolved ones, at most 20, ids and codes only (no Message text), for the workbench list
---    and the reason dead_letters follows unresolved_dead_letters. Alert rules v17 move the rule to unresolved_dead_letters.
+--    and the reason dead_letters follows unresolved_dead_letters. Alert rules v18 move the rule to unresolved_dead_letters.
 
 create table runtime.nexloop_claim_extraction_dispositions (
  tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,job_id text not null,

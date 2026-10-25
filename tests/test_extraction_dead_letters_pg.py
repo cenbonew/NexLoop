@@ -1,7 +1,7 @@
 """Extraction dead letters (migration 0355, temporary number; docs/release/run-extraction-dead-letters-diagnosis.md): the data health
 extraction block counts only the dead letters still needing attention (unresolved_dead_letters: no owner decision and not fully covered
 by a later succeeded job of the same conversation), keeps every one as dead_lettered_total, lists the unresolved ones (ids and codes
-only), and alert rules v17 move the rule to the new metric. The owner resolves one through the governed Action
+only), and alert rules v18 move the rule to the new metric. The owner resolves one through the governed Action
 claim_extraction.dead_letter_resolve from the real workbench: requeue puts its feed rows back as pending, dismiss records the reason;
 one decision per job, the dead-letter row is never changed. Real PostgreSQL with the NX-030 observability fixture; admin seeds the
 synthetic jobs and feed rows in replica mode."""
@@ -74,10 +74,10 @@ def test_only_uncovered_unresolved_dead_letters_count_and_the_list_carries_ids_a
     assert items[s['alone']]['code'] == 'runtime_lease_exhausted' and items[s['alone']]['message_count'] == 2
     assert set(items[s['partly']]) == {'task_id', 'code', 'attempts', 'max_attempts', 'conversation_id', 'message_count', 'created_at', 'dead_lettered_at'}
     # The alert rule reads the new metric; nothing else changes from v16.
-    v16, v17 = json.loads((ROOT / 'alert-rules.v16.json').read_text()), load_rules(ROOT / 'alert-rules.v17.json')
-    rule = next(r for r in v17['rules'] if r['rule_id'] == 'data_health_extraction_dead_letters')
-    assert v17['version'] == 17 and rule['metric'] == 'data_health.extraction.unresolved_dead_letters'
-    assert [r for r in v17['rules'] if r is not rule] == [r for r in v16['rules'] if r['rule_id'] != rule['rule_id']]
+    v16, v18 = json.loads((ROOT / 'alert-rules.v16.json').read_text()), load_rules(ROOT / 'alert-rules.v18.json')
+    rule = next(r for r in v18['rules'] if r['rule_id'] == 'data_health_extraction_dead_letters')
+    assert v18['version'] == 18 and rule['metric'] == 'data_health.extraction.unresolved_dead_letters'
+    assert [r for r in v18['rules'] if r is not rule] == [r for r in v16['rules'] if r['rule_id'] != rule['rule_id']]
 
 
 def test_the_owner_requeues_and_dismisses_from_the_workbench_and_resolved_ones_stop_counting(seeded):
