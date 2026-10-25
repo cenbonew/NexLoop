@@ -27,8 +27,10 @@ def config(tmp_path, **over):
     return str(path)
 
 
-def runner(*, docker=None, services=None, timer=None, run=None):
+def runner(*, docker=None, services=None, timer=None, run=None, bus=None):
     def answer(command):
+        if command[0] == 'busctl':
+            return bus(command) if callable(bus) else (bus or '')
         if command[0] == 'docker':
             return json.dumps(docker if docker is not None else [{'Name': '/stage-postgres-1', 'Id': 'a' * 64, 'RestartCount': 4, 'State': {'Running': True}}])
         if '--timestamp=unix' in command:
@@ -169,3 +171,42 @@ def test_local_window_ends_without_a_loop(tmp_path):
         assert loops == []
     loops, anchors = P.local_crash_loops(anchors, [{'name': 'x', 'instance_id': 'i', 'restart_count': 2}], 1000, window=900, minimum=3)
     assert loops == [] and anchors['x']['sampled_at'] == 1000  # the window ended below the threshold: a new anchor
+
+
+# DATA_HOST 2026-10-25 (Ubuntu systemd): --timestamp=unix turns the service's timestamps into '@<s>' but leaves the timer's
+# LastTriggerUSec readable - the same command, the real lines. busctl gives the trigger as microseconds.
+DATA_HOST_TIMER = {'Id': 'nexloop-journal.timer', 'LastTriggerUSec': 'Sun 2026-10-25 11:38:00 CST'}
+TRIGGER = 1792899480  # 2026-10-25 11:38:00 +08:00
+DATA_HOST_RUN = {'Id': 'nexloop-journal.service', 'ActiveState': 'inactive', 'Result': 'success',
+                 'InactiveExitTimestamp': f'@{TRIGGER}', 'StateChangeTimestamp': f'@{TRIGGER + 2}'}
+JOURNAL = [{'name': 'journal', 'timer': 'nexloop-journal.timer', 'service': 'nexloop-journal.service'}]
+
+
+def test_bus_path_escapes_like_systemd():
+    assert P.bus_path('nexloop-restic@repo1.timer') == '/org/freedesktop/systemd1/unit/nexloop_2drestic_40repo1_2etimer'
+    assert P.bus_path('1x.timer') == '/org/freedesktop/systemd1/unit/_31x_2etimer'
+
+
+def test_the_readable_last_trigger_is_read_from_the_bus_as_scheduled(tmp_path):
+    asked = []
+    bus = lambda c: asked.append(c) or f't {TRIGGER}000000\n'
+    code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer=DATA_HOST_TIMER, run=DATA_HOST_RUN, bus=bus), '--dry-run')
+    assert code == 0 and doc['trigger_unparsed'] == []
+    assert asked == [['busctl', 'get-property', 'org.freedesktop.systemd1', '/org/freedesktop/systemd1/unit/nexloop_2djournal_2etimer',
+                      'org.freedesktop.systemd1.Timer', 'LastTriggerUSec']]
+    assert doc['entry']['timers'][0]['scheduled'] is True and doc['entry']['timers'][0]['last_trigger_at'] == '2026-10-25T03:38:00+00:00'
+
+
+def test_an_unreadable_trigger_is_alarmed_not_recorded_as_manual_silently(tmp_path):
+    err = io.StringIO()
+    code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer=DATA_HOST_TIMER, run=DATA_HOST_RUN, bus=''), '--dry-run', err=err)
+    assert code == 0 and doc['trigger_unparsed'] == ['journal']
+    assert doc['entry']['timers'] == [] and doc['timer_runs'] == 0  # not recorded as a manual run
+    assert '<3>nexloop-host-health trigger_unparsed host=data_host timer=journal' in err.getvalue()
+
+
+def test_a_never_triggered_timer_is_parsed_not_alarmed(tmp_path):
+    err = io.StringIO()
+    code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer={**DATA_HOST_TIMER, 'LastTriggerUSec': 'n/a'}, run=DATA_HOST_RUN, bus='t 0\n'),
+                      '--dry-run', err=err)
+    assert doc['trigger_unparsed'] == [] and 'trigger_unparsed' not in err.getvalue()

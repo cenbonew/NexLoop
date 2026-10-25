@@ -17,6 +17,18 @@ if _compare.enabled():
         return result
     _bootstrap.apply_migrations = _apply_and_wrap
 
+@pytest.fixture(scope='session',autouse=True)
+def _quiet_fixture_pools():
+    """The connection pools the fixtures hold open retry a connection under parallel load and log a warning from their
+    background threads into whatever capture is current (load-rules flake, batch 23 CI seq 99). Only errors of the
+    psycopg.pool logger are kept for the session; a service under test that disables that logger itself is unaffected."""
+    import logging
+    logger=logging.getLogger('psycopg.pool');level=logger.level
+    logger.setLevel(logging.ERROR)
+    yield
+    logger.setLevel(level)
+
+
 @pytest.fixture
 def pg(request):
     bindir=pathlib.Path(os.environ.get('NEXLOOP_TEST_PG_BIN',DEFAULT_PG_BIN))
