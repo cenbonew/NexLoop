@@ -46,9 +46,15 @@ def test_a_scheduled_item_is_no_backlog_however_old_its_last_change(observed):
     # The stage case: commitment monitor items written 3.4 days ago (in place, the last pass), due again in 3.6 days.
     for n in range(3):
         seed(admin, 'commitment-monitor', f'commitment:scheduled-{n}', available='3 days 14 hours', changed='-3 days -10 hours')
-    f = feeds(admin)['commitment-monitor']
+    seed(admin, 'reply-due', 'reply:dead', available='-1 minute', changed='-1 minute')
+    admin.execute("update runtime.nexloop_work_feed set status='dead_lettered' where tenant_id=%s and item_key='reply:dead'", (TENANT,))
+    snapshot = feeds(admin)
+    f = snapshot['commitment-monitor']
     assert (f['pending'], f['due'], f['scheduled']) == (3, 0, 3)
     assert f['oldest_pending_seconds'] is None and f['oldest_due_seconds'] is None
+    # Every feed of the snapshot carries max_pending_attempts, a number (0 for a feed with no pending item, here only a dead letter).
+    assert snapshot and all(type(x.get('max_pending_attempts')) is int for x in snapshot.values())
+    assert (f['max_pending_attempts'], snapshot['reply-due']['max_pending_attempts']) == (0, 0)
     observed['evaluate']()
     assert backlog_alert(admin, 'commitment-monitor') in (None, (False, None))
 

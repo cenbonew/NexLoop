@@ -83,7 +83,10 @@ ro "select count(*) filter (where available_at>clock_timestamp()) scheduled, cou
   - 各 feed 的上限不在库里：它在 worker 的设置里，而且因拒绝原因而不同，从 1 到 20 都有。例如 reply-due 是 `min(20, fallback+5)`，plan-reevaluate 节流时是 20，takeover-expiry 是 20；
   - 规则的 metric 路径里写不了带连字符的 feed 名，没法按 feed 设阈值；
   - 低于 20 时，无法区分“这个 feed 的上限”和“正常的重试”。
-- **代价**：上限低的 feed（例如上限 5、租约 300 s），要第 21 次领取后才告警，最长约 21 × 租约时长，也就是 1.75 小时左右。换来的是不会误报，也不依赖各 worker 的设置。
+- **代价**：不论 feed 的上限是多少，都要第 21 次领取后才告警，延迟约为 21 × 租约时长。
+  - 最坏情况：租约取上限 600 s（每份 claim SQL 都把租约限制在 1..600 s），约 21 × 600 s = 12600 s，也就是 3.5 小时左右；
+  - 租约 300 s 时约 1.75 小时；
+  - 换来的是不会误报，也不依赖各 worker 的设置。
 - **发布**：v17 按 run-nx057 §1 的形态用 `alert_rules_apply.py` 发布（v16 之后）。L3 的死信口径改动用 v18，组批时合并。
 
 ### 工作台（可选项 5，已做）
