@@ -171,7 +171,37 @@ def sample_services(items, runner=run):
     return out
 
 
-def sample_timers(items, grace, runner=run):
+def bus_path(unit):
+    """systemd's D-Bus object path of a unit: every byte outside [A-Za-z0-9] (and a leading digit) as _xx."""
+    escaped = ''.join(c if c.isascii() and c.isalnum() and not (n == 0 and c.isdigit()) else f'_{ord(c):02x}' for n, c in enumerate(unit))
+    return '/org/freedesktop/systemd1/unit/' + escaped
+
+
+def _bus_usec(output):
+    """busctl get-property of a 't' property: 't <microseconds>'; 0 is never."""
+    parts = output.split()
+    if len(parts) != 2 or parts[0] != 't' or not parts[1].isdigit():
+        return False, None
+    usec = int(parts[1])
+    return True, (datetime.fromtimestamp(usec // 1_000_000, UTC) if usec > 0 else None)
+
+
+def last_trigger(timer, shown, runner):
+    """(parsed, when). Stage 2026-10-25 (DATA_HOST, Ubuntu): `systemctl show --timestamp=unix` gives '@<s>' for the service's
+    timestamps but leaves LastTriggerUSec readable ('Sun 2026-10-25 11:38:00 CST'), so it is read from the bus as microseconds -
+    no local time, zone abbreviation or locale. '@<s>' from systemctl is the fallback; anything else is unparsed, never a manual run."""
+    parsed, when = _bus_usec(runner(['busctl', 'get-property', 'org.freedesktop.systemd1', bus_path(timer),
+                                     'org.freedesktop.systemd1.Timer', 'LastTriggerUSec']))
+    if parsed:
+        return True, when
+    value = (shown or '').strip()
+    if value in ('', 'n/a', '0', '@0'):
+        return True, None
+    when = _unix(value)
+    return when is not None, when
+
+
+def sample_timers(items, grace, runner=run, unparsed=None):
     if not items:
         return []
     units = [u for i in items for u in (i['timer'], i['service'])]
@@ -182,7 +212,14 @@ def sample_timers(items, grace, runner=run):
         t, s = shown.get(item['timer']), shown.get(item['service'])
         if not t or not s:
             continue
-        started, finished, trigger = _unix(s.get('InactiveExitTimestamp')), _unix(s.get('StateChangeTimestamp')), _unix(t.get('LastTriggerUSec'))
+        started, finished = _unix(s.get('InactiveExitTimestamp')), _unix(s.get('StateChangeTimestamp'))
+        parsed, trigger = last_trigger(item['timer'], t.get('LastTriggerUSec'), runner)
+        if not parsed:
+            # Not recorded: a run with no readable trigger would count as manual and leave the timer stale (L6 R-1).
+            if unparsed is not None:
+                unparsed.append(item['name'])
+            out.append(None)
+            continue
         if s.get('ActiveState') not in ('inactive', 'failed') or started is None or finished is None or finished < started:
             out.append(None)  # seen, no finished run to record (running now, or never ran)
             continue
@@ -196,13 +233,14 @@ def sample_timers(items, grace, runner=run):
 def observe(config, runner=run):
     containers, services, timers = config.get('containers', []), config.get('services', []), config.get('timers', [])
     units = sample_containers(containers, runner) + sample_services(services, runner)
-    seen_timers = sample_timers(timers, config.get('grace_seconds', 5), runner)
+    unparsed = []
+    seen_timers = sample_timers(timers, config.get('grace_seconds', 5), runner, unparsed)
     expected_units = [i['name'] for i in containers + services]
     # Blind (ported): what we expect to see and do not is not healthy. Under half of the expected units and timers seen.
     expected, seen = len(expected_units) + len(timers), len(units) + len(seen_timers)
     blind = expected > 0 and seen * 2 < expected
     return {'blind': blind, 'expected_units': expected_units, 'expected_timers': [i['name'] for i in timers],
-            'units': units, 'timers': [r for r in seen_timers if r is not None]}
+            'units': units, 'timers': [r for r in seen_timers if r is not None], 'trigger_unparsed': unparsed}
 
 
 def load_state(path):
@@ -281,6 +319,8 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, cl
         return 2
     host = config['host_role']
     entry = observe(config, runner)
+    # Journal and summary only: the recorder (0318) refuses fields it does not know (22023) - stage 2026-10-25.
+    unparsed = entry.pop('trigger_unparsed')
     now = (clock or (lambda: datetime.now(UTC).timestamp()))()
     loops, anchors = local_crash_loops(load_state(config['state_file']), entry['units'], now,
                                        window=config.get('local_window_seconds', 900), minimum=config.get('local_min_restarts', 3))
@@ -290,7 +330,9 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, cl
         local_alarm(err, f'crash_loop host={host} unit={name} restarts={delta}')
     if entry['blind']:
         local_alarm(err, f'blind host={host} seen={len(entry["units"]) + len(entry["timers"])} expected={len(entry["expected_units"]) + len(entry["expected_timers"])}')
-    summary = {'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
+    for name in unparsed:
+        local_alarm(err, f'trigger_unparsed host={host} timer={name}')
+    summary = {'trigger_unparsed': unparsed, 'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
                'expected_units': len(entry['expected_units']), 'timer_runs': len(entry['timers']), 'expected_timers': len(entry['expected_timers'])}
     if a.dry_run:
         print(json.dumps({**summary, 'dry_run': True, 'entry': entry}, sort_keys=True), file=out)

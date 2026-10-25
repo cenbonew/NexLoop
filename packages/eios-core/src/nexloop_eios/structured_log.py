@@ -59,9 +59,29 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(line, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
+class _CurrentStderrHandler(logging.StreamHandler):
+    """Writes to whatever sys.stderr is when a record is emitted, not the stream it was at configure time: a background thread (a
+    connection pool's) that logs after the process swapped its stderr - pytest's capture of a finished test, in particular - writes
+    to the current one instead of failing on a closed stream (logging then printed '--- Logging error ---' with a traceback into
+    whichever stderr was current, another test's output under parallel load). setStream() and assigning `stream` have no effect:
+    the stream is always the current sys.stderr (pass an explicit stream to configure() for a fixed one)."""
+
+    def __init__(self):
+        super().__init__(sys.stderr)
+
+    @property
+    def stream(self):
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value):
+        pass
+
+
 def configure(service, *, stream=None, level=logging.WARNING):
-    """Replace every root handler with the structured one (idempotent); uvicorn's loggers propagate to it."""
-    handler = logging.StreamHandler(stream or sys.stderr)
+    """Replace every root handler with the structured one (idempotent); uvicorn's loggers propagate to it. Without a stream it
+    writes to the current sys.stderr at each record."""
+    handler = logging.StreamHandler(stream) if stream is not None else _CurrentStderrHandler()
     handler.setFormatter(StructuredFormatter(service))
     root = logging.getLogger()
     for existing in list(root.handlers):

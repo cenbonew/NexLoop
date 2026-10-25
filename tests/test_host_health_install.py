@@ -38,8 +38,8 @@ def example(name, **over):
 
 
 class Runner:
-    def __init__(self, blind=False):
-        self.calls, self.stdins, self.blind = [], [], blind
+    def __init__(self, blind=False, unparsed=()):
+        self.calls, self.stdins, self.blind, self.unparsed = [], [], blind, list(unparsed)
 
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
@@ -53,7 +53,7 @@ class Runner:
                 os.chmod(Path(command[3]) / 'bin' / name, 0o755)
             return ''
         if command[-1] == '--dry-run':
-            return json.dumps({'host_role': 'x', 'blind': self.blind, 'units': 3, 'entry': {'units': []}}) + '\n'
+            return json.dumps({'host_role': 'x', 'blind': self.blind, 'trigger_unparsed': self.unparsed, 'units': 3, 'entry': {'units': []}}) + '\n'
         if command[-1].endswith('hba.conf'):
             return 'done: host health lines installed and reloaded (2 rule(s) added)\n'
         if any(str(a).endswith('host_recorder_password.py') for a in command):
@@ -136,6 +136,11 @@ def test_a_blind_dry_run_stops_before_the_timer(tmp_path):
     assert code == 1 and 'blind' in text and ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls
 
 
+def test_a_dry_run_without_readable_triggers_stops_before_the_timer(tmp_path):
+    code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', Runner(unparsed=['provider-drift']))
+    assert code == 1 and 'last trigger of provider-drift' in text and ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls
+
+
 @pytest.mark.parametrize('stdin', ['', f'app_host {APP_PW}\n', f'data_host\t{DATA_PW}\n', 'app_host\tshort\n', f'app_host\t{APP_PW}\napp_host\t{APP_PW}\n'])
 def test_wrong_passwords_on_stdin_are_refused_unechoed(tmp_path, stdin):
     code, text, runner = install(tmp_path, example('app-host'), stdin)
@@ -202,9 +207,12 @@ def test_the_password_tool_sends_verifiers_only(tmp_path):
 
 
 def test_the_password_tool_takes_the_bootstrap_socket_dsn_only(tmp_path):
-    for dsn, ok in (('host=/srv/nexloop/run/postgresql user=nexloop_bootstrap dbname=nexloop_stage', True),
+    sockets = tmp_path / 'run-postgresql'
+    sockets.mkdir()
+    (sockets / '.s.PGSQL.5432').write_text('')  # stands for the server's socket
+    for dsn, ok in ((f'host={sockets} user=nexloop_bootstrap dbname=nexloop_stage', True),
                     ('host=pg.example.invalid user=nexloop_bootstrap dbname=nexloop_stage', False),
-                    ('host=/srv/nexloop/run/postgresql user=nexloop_api dbname=nexloop_stage', False)):
+                    (f'host={sockets} user=nexloop_api dbname=nexloop_stage', False)):
         path = tmp_path / 'dsn'
         path.write_text(dsn)
         os.chmod(path, 0o600)
@@ -213,6 +221,35 @@ def test_the_password_tool_takes_the_bootstrap_socket_dsn_only(tmp_path):
         else:
             with pytest.raises(P.Refused):
                 P.bootstrap_dsn(str(path))
+
+
+def test_a_socket_directory_without_the_server_socket_is_named(tmp_path):
+    """The container's DSN (host=/var/run/postgresql) used on the host: refused before connecting, saying which socket is missing;
+    another port's socket in the directory is not the one."""
+    sockets = tmp_path / 'var-run-postgresql'
+    sockets.mkdir()
+    (sockets / '.s.PGSQL.5433').write_text('')
+    path = tmp_path / 'dsn'
+    path.write_text(f'host={sockets} port=5432 user=nexloop_bootstrap dbname=nexloop_stage password=not-printed-0123')
+    os.chmod(path, 0o600)
+    with pytest.raises(P.Refused, match=r'no PostgreSQL socket \.s\.PGSQL\.5432 in the socket directory') as refused:
+        P.bootstrap_dsn(str(path))
+    assert 'not-printed' not in str(refused.value)
+    out = io.StringIO()
+    assert P.main(['--bootstrap-dsn-file', str(path)], stdin=io.StringIO(f'data_host\t{DATA_PW}\n'), out=out) == 2
+    assert 'socket directory' in json.loads(out.getvalue())['refused'] and DATA_PW not in out.getvalue()
+
+
+def test_a_failed_step_carries_the_tools_refusal(tmp_path):
+    """The installer's step failure names the called tool's refusal (its last JSON line), not only its exit code."""
+    tool = tmp_path / 'tool.py'
+    tool.write_text('import json,sys\nprint(json.dumps({"refused": "--bootstrap-dsn-file: no PostgreSQL socket .s.PGSQL.5432"}))\nsys.exit(2)\n')
+    with pytest.raises(I.Failed, match=r'exited 2: --bootstrap-dsn-file: no PostgreSQL socket'):
+        I.run([sys.executable, str(tool)])
+    tool.write_text('print("plain text, not json")\nraise SystemExit(1)\n')
+    with pytest.raises(I.Failed) as failed:
+        I.run([sys.executable, str(tool)])
+    assert str(failed.value).endswith('exited 1')
 
 
 HBA = ROOT / 'scripts/deploy/host_health_hba_data_host.sh'
@@ -337,3 +374,57 @@ def test_a_reused_release_with_a_file_of_another_owner_is_refused(tmp_path, monk
         return None
     code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', None, trust=owner_check)
     assert code == 2 and 'release' in text and not any(c[0] == 'systemctl' for c in runner.calls)
+
+
+def dry_run(runner):
+    return next(c for c in runner.calls if c[-1] == '--dry-run')
+
+
+def test_the_dry_run_runs_in_the_units_sandbox(tmp_path):
+    """Stage 2026-10-25: the dry run ran outside the unit and missed two failures of the timer (MemoryDenyWriteExecute crashing the
+    standalone CPython; ProtectHome hiding HOME from libpq). It now runs through systemd-run with the unit's settings."""
+    code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
+    assert code == 0, text
+    command = dry_run(runner)
+    assert command[:6] == ['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec']
+    props = [command[i + 1] for i, a in enumerate(command) if a == '-p']
+    assert {'ProtectHome=true', 'Environment=HOME=/var/lib/nexloop-host-health', 'StateDirectory=nexloop-host-health', 'NoNewPrivileges=true',
+            'CapabilityBoundingSet=', 'MemoryDenyWriteExecute=true'} <= set(props)  # W^X on by default (L6 review 1)
+    assert not any(p.startswith(('ExecStart=', 'Type=')) for p in props) and 'MemoryDenyWriteExecute=no' not in props
+    assert command[-7:-1] == [str(tmp_path / 'root/opt/nexloop/host-health/current/venv/bin/python'), '-I', '-B',
+                              str(tmp_path / 'root/opt/nexloop/host-health/current/host_health_probe.py'), '--config', '/etc/nexloop/host-health.json']
+    unit = (tmp_path / 'root/etc/systemd/system/nexloop-host-health.service').read_text()
+    assert 'Environment=HOME=/var/lib/nexloop-host-health' in unit and 'MemoryDenyWriteExecute=true' in unit
+    assert not (tmp_path / 'root/etc/systemd/system/nexloop-host-health.service.d/50-installer-mdwe.conf').exists()
+
+
+def test_only_an_explicit_false_turns_w_x_off_and_the_drop_ins_go_with_uninstall(tmp_path):
+    cfg = example('app-host')  # the standalone CPython host: memory_deny_write_execute false
+    assert cfg['memory_deny_write_execute'] is False and example('data-host')['memory_deny_write_execute'] is True
+    code, text, runner = install(tmp_path, cfg, f'app_host\t{APP_PW}\n')
+    assert code == 0 and 'MemoryDenyWriteExecute OFF for this host' in text
+    dropins = tmp_path / 'root/etc/systemd/system/nexloop-host-health.service.d'
+    assert (dropins / '50-installer-mdwe.conf').read_text() == '[Service]\nMemoryDenyWriteExecute=no\n'
+    props = [c for c in dry_run(runner) if c.startswith('MemoryDenyWriteExecute=')]
+    assert props == ['MemoryDenyWriteExecute=true', 'MemoryDenyWriteExecute=no']  # the drop-in applies after the unit, as systemd does
+    # A hand-made drop-in (the site workaround) is part of the sandbox too.
+    (dropins / '20-home.conf').write_text('[Service]\nEnvironment=HOME=/var/lib/elsewhere\n')
+    del cfg['memory_deny_write_execute']  # absent: the default, W^X on
+    code, text, runner = install(tmp_path, cfg, f'app_host\t{APP_PW}\n')
+    assert code == 0 and not (dropins / '50-installer-mdwe.conf').exists() and 'OFF' not in text
+    assert [c for c in dry_run(runner) if c.startswith('Environment=')] == ['Environment=HOME=/var/lib/nexloop-host-health', 'Environment=HOME=/var/lib/elsewhere']
+    assert install(tmp_path, {**cfg, 'memory_deny_write_execute': 'no'}, f'app_host\t{APP_PW}\n')[0] == 2
+    code, text, _ = install(tmp_path, cfg, '', None, '--uninstall')
+    assert code == 0 and not dropins.exists()
+
+
+@pytest.mark.parametrize('line', ['Environment="HOME=/var/lib/x"', "Environment='A=1 B=2'", 'ReadWritePaths=/a \\'])
+def test_a_drop_in_the_sandbox_cannot_mirror_stops_the_install(tmp_path, line):
+    """Continuation lines and quoted values: systemd reads them differently from a key=value split - refused, timer not enabled."""
+    assert install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')[0] == 0
+    dropins = tmp_path / 'root/etc/systemd/system/nexloop-host-health.service.d'
+    dropins.mkdir(exist_ok=True)
+    (dropins / '30-site.conf').write_text('[Service]\n' + line + '\n')
+    code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
+    assert code == 1 and 'continuation line or a quoted value' in text
+    assert ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls

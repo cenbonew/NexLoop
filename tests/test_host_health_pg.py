@@ -2,6 +2,7 @@
 the alerts they raise and clear - crash loop, timer freshness (a manual rerun never refreshes it; fail closed when no scheduled
 success was ever seen), scheduled failures, probe staleness and blindness. Real PostgreSQL through the NX-030 fixture (the real
 evaluator credential and configurator); admin only moves recorded times back to stand for elapsed time."""
+import io
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -10,6 +11,7 @@ import pytest
 from psycopg.conninfo import make_conninfo
 
 from nexloop_eios.observability import apply_rules, load_rules, validate_rules
+from test_host_health_probe import DATA_HOST_RUN, DATA_HOST_TIMER, JOURNAL, TRIGGER, P, config, runner
 from test_observability_pg import RULES, TENANT, observed  # noqa: F401
 from test_workbench_read_pg import browser_business, conversations, identity, published_action, uow, workbench  # noqa: F401
 
@@ -242,3 +244,18 @@ def test_a_manual_file_backup_does_not_hide_a_failing_scheduled_round(observed):
     tick(pg, host='app_host', timers=[run(now - timedelta(minutes=2), name='file-backup')], expected_timers=expected)
     o['evaluate']()
     assert state(admin)[('timer_stale_file_backup', 'app_host:file-backup')] is False
+
+
+@pytest.mark.parametrize('bus', [f't {TRIGGER}000000', ''], ids=['trigger-read', 'trigger-unparsed'])
+def test_the_probe_entry_as_observed_is_accepted_by_the_recorder(observed, tmp_path, bus):  # noqa: F811
+    """Stage 2026-10-25: a field added to the probe's entry made every write fail (22023) and no offline test passed it to 0318.
+    The probe's main, unchanged, writes through the real recorder role - both with a readable trigger and with an unreadable one."""
+    pg, err, out = observed['pg'], io.StringIO(), io.StringIO()
+    connect = lambda: psycopg.connect(make_conninfo(pg, user='nexloop_host_recorder_data_host'), autocommit=True)  # noqa: E731
+    code = P.main(['--config', config(tmp_path, timers=JOURNAL)], runner=runner(timer=DATA_HOST_TIMER, run=DATA_HOST_RUN, bus=bus),
+                  connect=connect, out=out, err=err)
+    assert code == 0 and 'record_failed' not in err.getvalue(), err.getvalue()
+    summary = json.loads(out.getvalue().splitlines()[-1])
+    assert summary['trigger_unparsed'] == ([] if bus else ['journal'])
+    runs = observed['admin'].execute("select count(*) from runtime.nexloop_host_timer_runs where timer_name='journal'").fetchone()[0]
+    assert runs == (1 if bus else 0)
