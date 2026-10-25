@@ -4,6 +4,9 @@ NX-056 approval - promote_owner, demote_owner, suspend_owner, resume_owner, revo
 owner's approval -> the requester's resubmission executes once; the handler's fail-closed layers (no policy; an in-flight approval of
 another body); the target's role and status rechecked at execution (a refusal consumes the approval as execution_refused); a suspended
 owner demoted keeps nothing; approval_open's operation check; the target never approves its own request. Synthetic members only."""
+import dataclasses
+import secrets
+import threading
 import uuid
 
 import psycopg
@@ -39,7 +42,11 @@ def owners(switching, admin, pg, tmp_path):
     apply_members(ROLES, members, database_url_file=c['configurator'])
     write_facts(admin, compile_members(ROLES, members))
     ripen_approvers(admin, TENANT)
-    publish_registry_actions(admin, ACTIONS)
+    publish_registry_actions(admin, ACTIONS + ('nexloop.workbench_member.invite', 'nexloop.workbench_member.issue_reset'))
+    key = tmp_path / 'identity-token-key'
+    key.write_text(secrets.token_hex(32))
+    key.chmod(0o600)
+    c['config'] = dataclasses.replace(c['config'], workbench=dataclasses.replace(c['config'].workbench, identity_token_key_file=key))
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
     c['dsn'] = configurator(admin, pg, tmp_path)
 
@@ -158,3 +165,80 @@ def test_the_registry_matches_the_design(admin):
     assert rows == [('workbench_member.demote_owner', 'demote_workbench_owner', 'human'), ('workbench_member.promote_owner', 'promote_workbench_member', 'human'),
                     ('workbench_member.resume_owner', 'resume_workbench_owner', 'human'), ('workbench_member.revoke_owner', 'revoke_workbench_owner', 'human'),
                     ('workbench_member.suspend_owner', 'suspend_workbench_owner', 'human')]
+
+
+def test_promotion_ends_the_targets_reset_codes_and_a_demoted_active_owner_takes_the_new_role(owners, admin):
+    c = owners
+    with_policies(c)
+    p = c['operator_member']['principal_id']
+    assert c['call'](c['owner_member'], 'issue_workbench_reset', {'target_principal': p}).status_code == 200
+    approved_run(c, c['owner_member'], c['second'], 'promote_workbench_member', {'target_principal': p, 'reason': 'synthetic promotion'})
+    assert admin.execute('select state,revoked_reason from control.nexloop_workbench_reset_codes where target_principal=%s', (p,)).fetchall() == [('revoked', 'member_changed')]
+    t = c['third']['principal_id']
+    demoted = approved_run(c, c['owner_member'], c['second'], 'demote_workbench_owner', {'target_principal': t, 'new_role': 'operator', 'reason': 'synthetic'})
+    assert demoted.json()['role'] == 'operator', demoted.json()
+    grants_match(admin, c['third'], 'operator')
+    assert history(admin, t)[-2:] == [('owner', 'stop'), ('operator', 'start')]
+    assert admin.execute("select payload->>'status' from control.nexloop_browser_memberships where principal_id=%s", (t,)).fetchone() == ('active',)
+
+
+def test_a_suspended_owners_invitations_end_with_an_audit_event_each(owners, admin):
+    c = owners
+    with_policies(c)
+    issued = c['call'](c['third'], 'invite_workbench_member', {'username': 'pending-reviewer', 'role': 'reviewer', 'expires_in_hours': 24})
+    assert issued.status_code == 200, issued.json()
+    approved_run(c, c['owner_member'], c['second'], 'suspend_workbench_owner', {'target_principal': c['third']['principal_id'], 'reason': 'synthetic leave'})
+    assert admin.execute("select state,revoked_reason from control.nexloop_workbench_invitations where username='pending-reviewer'").fetchall() == [('revoked', 'member_changed')]
+    audit = admin.execute("select payload from runtime.audit_events where action='nexloop.workbench_member.invitation_ended'").fetchall()
+    assert [a['reason'] for (a,) in audit] == ['member_changed'] and audit[0][0]['issuer_principal'] == c['third']['principal_id']
+
+
+def test_promotion_never_opens_for_a_suspended_member(owners, admin):
+    c = owners
+    with_policies(c)
+    p = c['operator_member']['principal_id']
+    admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"suspended"}' where principal_id=%s""", (p,))
+    refused = c['call'](c['owner_member'], 'promote_workbench_member', {'target_principal': p, 'reason': 'synthetic'})
+    assert refused.status_code == 409 and admin.execute("select count(*) from control.nexloop_approval_requests where capability='workbench_member.promote_owner'").fetchone() == (0,)
+
+
+def test_the_last_owner_guard_counts_active_owners_but_the_target(owners, admin):
+    """Through the handler the guard cannot fire (the requester is itself an active owner other than the target); its count is checked here."""
+    c = owners
+    count = lambda principal: admin.execute('select control.nexloop_workbench_other_active_owners(%s,%s)', (TENANT, principal)).fetchone()[0]  # noqa: E731
+    assert count(c['third']['principal_id']) == 2 and count(c['operator_member']['principal_id']) == 3
+    admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"suspended"}' where principal_id=%s""", (c['second']['principal_id'],))
+    assert count(c['third']['principal_id']) == 1  # active owners only; the vote cooldown does not matter
+
+
+def test_two_approved_suspensions_of_one_owner_run_once_on_two_connections(owners, admin):
+    """Two owners hold approved requests to suspend the same owner and execute at the same time: the member lock serialises them; the
+    second sees the owner suspended and is refused, its approval spent as execution_refused."""
+    c = owners
+    with_policies(c)
+    t = c['third']['principal_id']
+    bodies = {'a': (c['owner_member'], c['second'], {'target_principal': t, 'reason': 'synthetic leave a'}),
+              'b': (c['second'], c['owner_member'], {'target_principal': t, 'reason': 'synthetic leave b'})}
+    for requester, approver, body in bodies.values():
+        first = c['call'](requester, 'suspend_workbench_owner', body)
+        assert c['decide'](approver, first.json()['approval_id']).json()['status'] == 'approved'
+    results, barrier = {}, threading.Barrier(2)
+
+    def run(key):
+        requester, _, body = bodies[key]
+        with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+            csrf = workbench_login(client, requester).json()['csrf_token']
+            barrier.wait()
+            results[key] = act(client, csrf, 'suspend_workbench_owner', body).json()
+    threads = [threading.Thread(target=run, args=(k,)) for k in bodies]
+    [t_.start() for t_ in threads]
+    [t_.join(60) for t_ in threads]
+    # The loser either waits for the lock and is refused, or hits a transient lock or serialization error first: retryable, nothing
+    # consumed (0327), and its retry is refused.
+    for key, r in results.items():
+        if r.get('code') == 'unavailable' and r.get('retryable') is True:
+            assert admin.execute('select count(*) from control.nexloop_approval_consumptions').fetchone() == (1,)
+            results[key] = c['call'](bodies[key][0], 'suspend_workbench_owner', bodies[key][2]).json()
+    statuses = sorted(r.get('status', 'executed') for r in results.values())
+    assert statuses == ['executed', 'execution_refused'] and all(r['approval'] == 'consumed' for r in results.values()), results
+    assert sorted(r for (r,) in admin.execute("select result from control.nexloop_approval_consumptions").fetchall()) == ['executed', 'execution_refused:22023']

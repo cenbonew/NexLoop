@@ -167,7 +167,7 @@ REGISTRY = [
     # owner_member_actions (NX-058 slice D2): approval_open checks the body's operation against the capability's registered one (L6 review
     # of B1); demote_owner's policy may show new_role.
     Allowed('owner_member_actions', 'control.nexloop_approval_open', "the body's operation is the capability's registered operation; a suspended target opens too; nothing else",
-            ((r"\s*-- only an invited, active or suspended member[^\n]*\n\s*--[^\n]*\n\s*and m\.payload->>'status' in \('invited','active','suspended'\)\) then",
+            ((r"\s*-- only an invited, active or suspended member[^\n]*\n\s*--[^\n]*\n\s*and \(m\.payload->>'status' in \('invited','active'\) or \(m\.payload->>'status'='suspended' and p_capability<>'workbench_member\.promote_owner'\)\)\) then",
               "\n   and m.payload->>'status' in ('invited','active')) then  -- only an invited or active member (L6 review 9)"),
              (r"\s*-- NX-058 slice D \(L6 review of B1\)[^\n]*\n\s*if p_body->>'operation' is distinct from \(select c\.operation from control\.nexloop_governed_capabilities c where c\.capability=p_capability\) then\n\s*raise exception 'approval: operation_mismatch' using errcode='22023';end if;", ''),)),
     Allowed('owner_member_actions', 'control.nexloop_approval_summary_allowed', 'demote_owner shows new_role; nothing else',

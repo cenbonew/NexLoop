@@ -54,8 +54,8 @@ begin
  if pol.target_subject_field is not null and not exists(select 1 from control.nexloop_browser_memberships m where m.tenant_id=p_tenant
    and (m.principal_id=p_body->>pol.target_subject_field or m.subject_id=p_body->>pol.target_subject_field)
    -- only an invited, active or suspended member (L6 review 9; NX-058 slice D2: resume_owner and demoting a suspended owner act on a
-   -- suspended member); never a revoked one
-   and m.payload->>'status' in ('invited','active','suspended')) then
+   -- suspended member; promote_owner never does); never a revoked one
+   and (m.payload->>'status' in ('invited','active') or (m.payload->>'status'='suspended' and p_capability<>'workbench_member.promote_owner'))) then
   raise exception 'approval: target_unresolved' using errcode='22023';end if;
  -- The same request id replays its own approval; the same digest while this person's one waits answers that one (no flooding, design
  -- §4 step 1). Dedupe and cooldown are per requester (subject): another person's request or rejection never answers or blocks this one.
@@ -206,8 +206,12 @@ begin
   perform control.nexloop_workbench_member_settle(p_tenant,t,'member_changed');
   -- An owner no longer active as an owner: its unused invitations end (§3 step 9).
   if op<>'promote_workbench_member' then
-   update control.nexloop_workbench_invitations set state='revoked',revoked_reason='member_changed'
-    where tenant_id=p_tenant and issued_by_principal=t->>'principal' and state='issued';
+   with ended as (update control.nexloop_workbench_invitations set state='revoked',revoked_reason='member_changed'
+     where tenant_id=p_tenant and issued_by_principal=t->>'principal' and state='issued' returning invitation_id)
+   -- One audit event per ended invitation (its id only; L6 review of D2).
+   insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
+    select 'workbench-invite-ended:'||e.invitation_id,'nexloop.workbench_member.invitation_ended',p_tenant,p_principal,'workbench_member',p_intent,
+     jsonb_build_object('invitation_id',e.invitation_id,'reason','member_changed','issuer_principal',t->>'principal'),clock_timestamp() from ended e;
   end if;
  end if;
  insert into runtime.audit_events(event_id,action,tenant_id,actor_id,trace_id,request_id,payload,created_at)
