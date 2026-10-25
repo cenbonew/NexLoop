@@ -53,6 +53,12 @@ def bootstrap_dsn(path):
     params = conninfo_to_dict(dsn)
     if params.get('user') != 'nexloop_bootstrap' or not str(params.get('host', '')).startswith('/'):
         raise Refused('--bootstrap-dsn-file: the nexloop_bootstrap DSN over the local socket (host=<socket directory>)')
+    # The DSN of the container (host=/var/run/postgresql) is not the host's socket directory (/srv/nexloop/run/postgresql on stage):
+    # say so before connecting instead of a bare OperationalError.
+    socket = Path(params['host']) / f'.s.PGSQL.{params.get("port") or 5432}'
+    if not socket.exists():
+        raise Refused(f'--bootstrap-dsn-file: no PostgreSQL socket {socket.name} in the socket directory {params["host"]} '
+                      '(on the host it is the mounted directory, e.g. /srv/nexloop/run/postgresql, not the container\'s /var/run/postgresql)')
     return dsn
 
 

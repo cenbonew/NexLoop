@@ -202,9 +202,12 @@ def test_the_password_tool_sends_verifiers_only(tmp_path):
 
 
 def test_the_password_tool_takes_the_bootstrap_socket_dsn_only(tmp_path):
-    for dsn, ok in (('host=/srv/nexloop/run/postgresql user=nexloop_bootstrap dbname=nexloop_stage', True),
+    sockets = tmp_path / 'run-postgresql'
+    sockets.mkdir()
+    (sockets / '.s.PGSQL.5432').write_text('')  # stands for the server's socket
+    for dsn, ok in ((f'host={sockets} user=nexloop_bootstrap dbname=nexloop_stage', True),
                     ('host=pg.example.invalid user=nexloop_bootstrap dbname=nexloop_stage', False),
-                    ('host=/srv/nexloop/run/postgresql user=nexloop_api dbname=nexloop_stage', False)):
+                    (f'host={sockets} user=nexloop_api dbname=nexloop_stage', False)):
         path = tmp_path / 'dsn'
         path.write_text(dsn)
         os.chmod(path, 0o600)
@@ -213,6 +216,35 @@ def test_the_password_tool_takes_the_bootstrap_socket_dsn_only(tmp_path):
         else:
             with pytest.raises(P.Refused):
                 P.bootstrap_dsn(str(path))
+
+
+def test_a_socket_directory_without_the_server_socket_is_named(tmp_path):
+    """The container's DSN (host=/var/run/postgresql) used on the host: refused before connecting, saying which socket is missing;
+    another port's socket in the directory is not the one."""
+    sockets = tmp_path / 'var-run-postgresql'
+    sockets.mkdir()
+    (sockets / '.s.PGSQL.5433').write_text('')
+    path = tmp_path / 'dsn'
+    path.write_text(f'host={sockets} port=5432 user=nexloop_bootstrap dbname=nexloop_stage password=not-printed-0123')
+    os.chmod(path, 0o600)
+    with pytest.raises(P.Refused, match=r'no PostgreSQL socket \.s\.PGSQL\.5432 in the socket directory') as refused:
+        P.bootstrap_dsn(str(path))
+    assert 'not-printed' not in str(refused.value)
+    out = io.StringIO()
+    assert P.main(['--bootstrap-dsn-file', str(path)], stdin=io.StringIO(f'data_host\t{DATA_PW}\n'), out=out) == 2
+    assert 'socket directory' in json.loads(out.getvalue())['refused'] and DATA_PW not in out.getvalue()
+
+
+def test_a_failed_step_carries_the_tools_refusal(tmp_path):
+    """The installer's step failure names the called tool's refusal (its last JSON line), not only its exit code."""
+    tool = tmp_path / 'tool.py'
+    tool.write_text('import json,sys\nprint(json.dumps({"refused": "--bootstrap-dsn-file: no PostgreSQL socket .s.PGSQL.5432"}))\nsys.exit(2)\n')
+    with pytest.raises(I.Failed, match=r'exited 2: --bootstrap-dsn-file: no PostgreSQL socket'):
+        I.run([sys.executable, str(tool)])
+    tool.write_text('print("plain text, not json")\nraise SystemExit(1)\n')
+    with pytest.raises(I.Failed) as failed:
+        I.run([sys.executable, str(tool)])
+    assert str(failed.value).endswith('exited 1')
 
 
 HBA = ROOT / 'scripts/deploy/host_health_hba_data_host.sh'

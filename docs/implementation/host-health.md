@@ -115,6 +115,16 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
    - PyPI 镜像；
    - APP_HOST 一份：DATA_HOST 的 PG 地址与 CA 文件；
    - DATA_HOST 一份：bootstrap socket DSN 文件、`NEXLOOP_ROOT`、部署时的 stage.env。
+   - **`bootstrap_dsn_file` 必须指向宿主机上的 socket 目录**。stage 现有的 bootstrap DSN（例如 run-34 的 `boot.dsn`）是给一次性容器用的，写的是 `host=/var/run/postgresql`，即容器内的挂载点；安装器在宿主机上以 root 运行，要用挂载源 `/srv/nexloop/run/postgresql`。准备方法：
+
+     ```
+     sudo install -m 0600 -o root -g root /dev/null /etc/nexloop/host-health-bootstrap.dsn
+     sudo sed 's#host=/var/run/postgresql#host=/srv/nexloop/run/postgresql#' <现有 boot.dsn> | sudo tee /etc/nexloop/host-health-bootstrap.dsn >/dev/null
+     # 在配置中把 bootstrap_dsn_file 指向它；4.3 跑完后：
+     sudo shred -u /etc/nexloop/host-health-bootstrap.dsn
+     ```
+
+     `host_recorder_password.py` 在连接之前会检查该目录下是否有 `.s.PGSQL.<port>`。不存在时，它明确报出“socket 目录不存在”这一原因并拒绝执行，安装器会把这个原因带到第 2 步的失败信息里。
 
    容器与 timer 的名字已经与告警规则 v13 的 selector 一致，APP_HOST 的 timer 与 L7 的探针示例 `deploy/examples/host-health.app-host.example.json` 一致（`test_the_examples_match_the_alert_rules_v13_selectors` 会核对）。
 

@@ -90,8 +90,22 @@ def trusted_code(config, trust):
 def run(command, *, stdin=None, check=True):
     done = subprocess.run(command, input=stdin, capture_output=True, text=True, check=False)
     if check and done.returncode != 0:
-        raise Failed(f'{Path(command[0]).name} exited {done.returncode}')
+        raise Failed(f'{Path(command[0]).name} exited {done.returncode}' + _refusal(done.stdout))
     return done.stdout
+
+
+def _refusal(stdout):
+    """The refusal a called tool printed as its last line ({"refused": ...} or {"failed": ...}: codes and reasons, never a secret -
+    host_recorder_password.py and the probe print no DSN or password), so a failed step says why."""
+    lines = (stdout or '').strip().splitlines()
+    try:
+        doc = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        return ''
+    if type(doc) is not dict:
+        return ''
+    reason = doc.get('refused') or doc.get('failed')
+    return f': {reason}'[:400] if type(reason) is str else ''
 
 
 def read_private_json(path, *, owner_root=True):
