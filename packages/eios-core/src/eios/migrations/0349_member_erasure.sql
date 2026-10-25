@@ -125,8 +125,9 @@ begin
   where s.tenant_id=p_tenant and s.payload->>'subject_id'=p_subject and t.session_id=s.session_id;
  delete from control.nexloop_browser_sessions where tenant_id=p_tenant and payload->>'subject_id'=p_subject;
  get diagnostics n_sessions=row_count;
- -- The initial-account receipt (0050) keeps ids but its password fingerprint is overwritten: a replay of the initial manifest then
- -- mismatches and is refused, so trusted configuration never recreates the account (L6 review of E1).
+ -- The initial-account receipt (0050) keeps its ids; its password fingerprint (a value derived from the password) is overwritten. A replay
+ -- of the initial manifest used to return the old ids silently; for an erased subject it is now refused outright
+ -- (control.nexloop_initial_identity_create below), never answered with the account.
  update control.nexloop_initial_identity_receipts set password_fingerprint=encode(sha256(convert_to('nexloop-erased|'||p_subject,'UTF8')),'hex')
   where tenant_id=p_tenant and subject_id=p_subject;
  -- The finished invite_owner requests of the invitation this subject accepted (found through the approval table and the original username;
@@ -383,6 +384,127 @@ begin
  if exists(select 1 from control.nexloop_approval_consumptions c where c.tenant_id=old.tenant_id and c.world=old.world and c.approval_id=old.approval_id) then
   raise exception 'approval request is consumed' using errcode='42501';end if;
  return new;
+end $$;
+
+-- The actual restore path (backup.py -> runtime.nexloop_restore_replay, 0154 -> this inner function, 0147's body): the deletion entry keeps
+-- its actor (L6 review of E1, follow-up).
+create or replace function runtime.nexloop_restore_replay_before_contact_keys_v0240(p_ref text,p_entries jsonb) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on set timezone='UTC' as $$
+declare s control.nexloop_restore_state;x jsonb;e jsonb;deletions jsonb:='[]'::jsonb;n_contact integer:=0;n_keys integer:=0;n_cred integer:=0;n_member integer:=0;
+ r jsonb:='{}'::jsonb;v_max bigint;
+begin
+ s:=runtime.nexloop_restore_require(p_ref,'restored');
+ if jsonb_typeof(p_entries) is distinct from 'array' then raise exception 'restore replay invalid' using errcode='22023';end if;
+ for x in select value from jsonb_array_elements(p_entries) order by (value->>'seq')::bigint loop
+  e:=x->'entry';
+  if jsonb_typeof(e) is distinct from 'object' or coalesce(x->>'seq','')!~'^[1-9][0-9]{0,18}$' or (x->>'seq')::bigint<=s.journal_from then
+   raise exception 'restore replay entry invalid' using errcode='22023';end if;
+  v_max:=greatest(coalesce(v_max,0),(x->>'seq')::bigint);
+  perform set_config('eios.tenant_id',e->>'tenant_id',true);
+  if x->>'kind'='deletion' and e->>'subject'='deletion_ledger' then
+   deletions:=deletions||jsonb_build_array(jsonb_build_object('seq',e->'seq','tenant_id',e->'tenant_id','world',e->'world','kind',e->'kind',
+    'subject_ref',e->'subject_ref','request_ref',e->'request_ref','cutoff',e->'cutoff','actor',e->'actor'));  -- NX-058 slice E: the executor
+  elsif x->>'kind'='contact_restriction' and e->>'subject'='contact_restriction' then
+   -- Without the customer's words (the journal never carries them); the newer control revision wins.
+   insert into control.nexloop_contact_restrictions(tenant_id,world,consumer_id,active,control_revision,message_id,conversation_id,rule_version,rule_id,
+     certainty,matched_text,restricted_at,released_at,released_by,release_intent,release_reason)
+    values(e->>'tenant_id',e->>'world',e->>'consumer_id',(e->>'active')::boolean,(e->>'control_revision')::bigint,e->>'message_id',e->>'conversation_id',
+     (e->>'rule_version')::integer,e->>'rule_id',e->>'certainty','',(e->>'restricted_at')::timestamptz,(e->>'released_at')::timestamptz,e->>'released_by',
+     e->>'release_intent',case when (e->>'active')::boolean then null else 'restored from journal '||p_ref end)
+    on conflict(tenant_id,world,consumer_id) do update set active=excluded.active,control_revision=excluded.control_revision,released_at=excluded.released_at,
+     released_by=excluded.released_by,release_intent=excluded.release_intent,release_reason=excluded.release_reason
+    where control.nexloop_contact_restrictions.control_revision<excluded.control_revision;
+   n_contact:=n_contact+1;
+  elsif x->>'kind'='contact_restriction' and e->>'subject'='erased_contact_key' then
+   insert into control.nexloop_erased_contact_keys(tenant_id,world,key_digest,request_id,created_at,revoked_at,revoked_by)
+    values(e->>'tenant_id',e->>'world',e->>'key_digest',e->>'request_id',(e->>'created_at')::timestamptz,(e->>'revoked_at')::timestamptz,e->>'revoked_by')
+    on conflict(tenant_id,world,key_digest) do update set revoked_at=excluded.revoked_at,revoked_by=excluded.revoked_by
+    where control.nexloop_erased_contact_keys.revoked_at is null and excluded.revoked_at is not null;
+   n_keys:=n_keys+1;
+  elsif x->>'kind'='revocation' and e->>'subject'='service_credential' then
+   update authz.nexloop_service_credentials set status='revoked' where credential_id=e->>'credential_id' and tenant_id=e->>'tenant_id' and status<>'revoked';
+   n_cred:=n_cred+1;
+  elsif x->>'kind'='revocation' and e->>'subject'='browser_membership' then
+   update control.nexloop_browser_memberships set payload=payload||jsonb_build_object('status',e->>'status','revision',greatest((payload->>'revision')::integer+1,(e->>'revision')::integer))
+    where tenant_id=e->>'tenant_id' and principal_id=e->>'principal_id' and (payload->>'revision')::integer<(e->>'revision')::integer;
+   n_member:=n_member+1;
+  else raise exception 'restore replay entry invalid' using errcode='22023';end if;
+ end loop;
+ if jsonb_array_length(deletions)>0 then
+  perform runtime.nexloop_replay_begin(p_ref,s.journal_from);
+  for i in 0..(jsonb_array_length(deletions)-1)/1000 loop
+   r:=runtime.nexloop_replay_deletions(p_ref,(select jsonb_agg(value order by ord) from jsonb_array_elements(deletions) with ordinality d(value,ord)
+    where ord>i*1000 and ord<=(i+1)*1000));
+  end loop;
+ end if;
+ update control.nexloop_restore_state set journal_to=greatest(coalesce(journal_to,journal_from),coalesce(v_max,0));
+ return jsonb_build_object('deletions',jsonb_array_length(deletions),'deletion_result',r,'contact_restrictions',n_contact,'erased_contact_keys',n_keys,
+  'service_credentials',n_cred,'memberships',n_member);
+end $$;
+
+-- A receipt of an erased member's initial account (0162): a definite refusal.
+create or replace function control.nexloop_initial_identity_create(p_tenant text,p_application text,p_operator text,p_request text,p_operator_label text,
+ p_subject jsonb,p_membership jsonb,p_account jsonb,p_hash text,p_password_fingerprint text,p_seal_key bytea)
+returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on set timezone='UTC' as $$
+declare allowance control.nexloop_initial_identity_allowances;prior control.nexloop_initial_identity_receipts;
+ v_request uuid;v_public_digest text;v_now timestamptz:=clock_timestamp();v_subject text;v_principal text;v_account text;
+begin
+ if session_user<>'nexloop_identity' or p_operator is distinct from session_user or p_request is null
+  or p_tenant is null or p_application is null or p_operator_label is null
+  or jsonb_typeof(p_subject) is distinct from 'object' or jsonb_typeof(p_membership) is distinct from 'object' or jsonb_typeof(p_account) is distinct from 'object'
+  or octet_length(p_subject::text)+octet_length(p_membership::text)+octet_length(p_account::text)>1048576
+  or p_password_fingerprint is null or p_password_fingerprint !~ '^[a-f0-9]{64}$'
+  or p_seal_key is null or octet_length(p_seal_key)<>32
+  or p_hash is null or p_hash not like '$argon2id$%' or octet_length(p_hash)>1024
+ then raise exception 'initial identity rejected' using errcode='42501';end if;
+ v_request:=p_request::uuid;
+ v_public_digest:=encode(sha256(convert_to(jsonb_build_object('tenant',p_tenant,'application',p_application,'operator',p_operator_label,
+  'subject',p_subject,'membership',p_membership,'account',p_account)::text,'UTF8')),'hex');
+ perform set_config('eios.tenant_id',p_tenant,true);
+ perform 1 from control.nexloop_tenants where tenant_id=p_tenant and status='active' for no key update;
+ if not found then raise exception 'initial identity rejected' using errcode='42501';end if;
+ perform 1 from control.nexloop_browser_applications where tenant_id=p_tenant and application_id=p_application and active for share;
+ if not found then raise exception 'initial identity rejected' using errcode='42501';end if;
+ select * into allowance from control.nexloop_initial_identity_allowances where tenant_id=p_tenant and application_id=p_application for update;
+ if not found or allowance.operator_label is distinct from p_operator_label or allowance.idempotency_key_digest is distinct from encode(sha256(p_seal_key),'hex') then raise exception 'initial identity rejected' using errcode='42501';end if;
+ select * into prior from control.nexloop_initial_identity_receipts where tenant_id=p_tenant and application_id=p_application and request_id=v_request;
+ if found then
+  -- NX-058 slice E: an erased member's initial account is never returned again - a definite refusal, not the conflict a retry could clear.
+  if exists(select 1 from control.nexloop_workbench_member_erasures e where e.tenant_id=p_tenant and e.subject_id=prior.subject_id) then
+   raise exception 'initial identity erased' using errcode='42501';end if;
+  if prior.public_digest is distinct from v_public_digest or prior.password_fingerprint is distinct from p_password_fingerprint then
+   raise exception 'initial identity conflict' using errcode='40001';end if;
+  -- Replay after closed allowance does not create/account/grant/session again.
+  return jsonb_build_object('created',false,'subject_id',prior.subject_id,'principal_id',prior.principal_id,'account_id',prior.account_id);
+ end if;
+ if not allowance.enabled or allowance.created_accounts>=allowance.maximum_accounts then raise exception 'initial identity closed' using errcode='42501';end if;
+ v_subject:=p_subject->>'subject_id';v_principal:=p_membership->>'principal_id';v_account:=p_account->>'local_account_id';
+ if v_subject is null or v_principal is null or v_account is null
+  or p_subject->>'kind' is distinct from 'human' or p_subject->>'status' is distinct from 'active' or p_subject->'revision' is distinct from '1'::jsonb
+  or p_membership->>'tenant_id' is distinct from p_tenant or p_membership->>'subject_id' is distinct from v_subject
+  or p_membership->'trusted_attributes' is distinct from '{}'::jsonb or p_membership->'valid_until' is null
+  or p_membership->>'status' is distinct from 'active' or p_membership->'revision' is distinct from '1'::jsonb
+  or p_membership->>'valid_from' is null or (p_membership->>'valid_from')::timestamptz>clock_timestamp()
+  or p_membership->'valid_until' is distinct from 'null'::jsonb and (p_membership->>'valid_until')::timestamptz<=clock_timestamp()
+  or p_account->>'tenant_id' is distinct from p_tenant or p_account->>'subject_id' is distinct from v_subject
+  or p_account->>'username' is null or p_account->>'status' is distinct from 'active'
+  or p_account->'revision' is distinct from '1'::jsonb or p_account->'session_epoch' is distinct from '1'::jsonb
+  or p_account->'failed_attempts' is distinct from '0'::jsonb or p_account->'lockout_level' is distinct from '0'::jsonb
+  or p_account->'locked_until' is distinct from 'null'::jsonb or p_account ? 'password_hash' or p_account ? 'password_history'
+  or p_account->>'created_at' is null or p_account->>'updated_at' is null
+  or (p_account->>'created_at')::timestamptz>clock_timestamp() or (p_account->>'updated_at')::timestamptz>clock_timestamp()
+ then raise exception 'initial identity rejected' using errcode='42501';end if;
+ insert into control.nexloop_initial_identity_receipts values(p_tenant,p_application,v_request,v_public_digest,p_password_fingerprint,v_subject,v_principal,v_account,p_operator_label,clock_timestamp());
+ insert into control.nexloop_browser_subjects values(v_subject,p_subject);
+ insert into control.nexloop_browser_memberships values(p_tenant,v_principal,v_subject,p_membership);
+ insert into control.nexloop_browser_accounts values(p_tenant,v_account,v_subject,p_account->>'username',p_hash,'{}',p_account);
+ update control.nexloop_initial_identity_allowances set created_accounts=created_accounts+1,
+  enabled=case when created_accounts+1>=maximum_accounts then false else enabled end where tenant_id=p_tenant and application_id=p_application;
+ insert into control.nexloop_browser_login_events(tenant_id,subject_id,event_type,outcome,operator_principal_id,request_id,trace_id,details,created_at)
+  values(p_tenant,v_subject,'initial_identity','created',session_user,p_request,p_request,
+   jsonb_build_object('account_id',v_account,'principal_id',v_principal,'operator_label',p_operator_label,'business_grant_created',false),clock_timestamp());
+ update control.nexloop_tenants set authority_revision=authority_revision+1 where tenant_id=p_tenant;
+ return jsonb_build_object('created',true,'subject_id',v_subject,'principal_id',v_principal,'account_id',v_account);
 end $$;
 
 do $$ declare f text; begin

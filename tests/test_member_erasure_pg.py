@@ -238,3 +238,27 @@ def test_the_configuration_guard_refuses_an_erased_subjects_principal(owners, ad
         admin.execute("""insert into control.nexloop_workbench_configurations(tenant_id,manifest_version,roles_version,application_id,roles,members,roles_digest,recorded_by)
             select tenant_id,manifest_version+1,roles_version,application_id,roles,members||jsonb_build_object(%s::text,'operator'),roles_digest,'synthetic-configurator'
             from control.nexloop_workbench_configurations where tenant_id=%s order by manifest_version desc limit 1""", (c['third']['principal_id'], TENANT))
+
+
+def test_the_real_restore_path_keeps_the_executor(owners, admin):
+    """L6 review of E1 (follow-up): through runtime.nexloop_restore_replay (the restore tool's entry: 0154's wrapper, then the inner
+    function with 0147's body) the deletion entry keeps its actor. The erasure row and the approval's consumption are gone, as in a database
+    restored from before the erasure; the journal entry alone brings the executor back."""
+    from test_real_dispatch_switch_pg import owner_sql
+    c = owners
+    with_policies(c)
+    revoke(c, c['third'])
+    approval = erase(c, c['third']).json()['approval_id']
+    journal = admin.execute("select entry from control.nexloop_restore_journal where kind='deletion' and entry->>'kind'='workbench_member'").fetchone()[0]
+    with admin.transaction():  # the restored state: no erasure row, no consumption (replica mode skips the append-only triggers; test only)
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute('delete from control.nexloop_workbench_member_erasures')
+        admin.execute('delete from control.nexloop_approval_consumptions where approval_id=%s', (approval,))
+    started = admin.execute('select clock_timestamp()').fetchone()[0]
+    owner_sql(admin, 'select runtime.nexloop_restore_begin(%s,%s,%s,%s,1)', ('erasure-restore', Jsonb({'backup_id': '20261020-010000F'}), started, started))
+    base = admin.execute('select journal_from from control.nexloop_restore_state').fetchone()[0]
+    owner_sql(admin, 'select runtime.nexloop_restore_replay(%s,%s)', ('erasure-restore', Jsonb([{'seq': base + 1, 'kind': 'deletion', 'entry': journal}])))
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    assert admin.execute('select erased_by_principal,approval_id::text from control.nexloop_workbench_member_erasures where subject_id=%s', (c['third']['subject_id'],)).fetchone() == (
+        c['owner_member']['principal_id'], approval)

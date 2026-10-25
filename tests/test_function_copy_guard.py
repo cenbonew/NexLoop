@@ -470,6 +470,10 @@ REGISTRY = [
             ((r"\n    -- NX-058 slice E \(ADR-039 R3 §8\.7\)[^\n]*\n    or \(old\.capability='workbench_member\.invite_owner'.*?like 'workbench-erasure:%'\)\)\) then", ") then"),)),
     Allowed('member_erasure', 'control.nexloop_journal_on_deletion', 'the deletion entry carries its actor (the staff erasure executor)',
             ((r",'actor',new\.actor\)\);", "));"),)),
+    Allowed('member_erasure', 'runtime.nexloop_restore_replay_before_contact_keys_v0240', 'the deletion entry keeps its actor; nothing else',
+            ((r",'actor',e->'actor'\)\);  -- NX-058 slice E: the executor", "));"),)),
+    Allowed('member_erasure', 'control.nexloop_initial_identity_create', "an erased member's receipt is refused (42501); nothing else",
+            ((r"\n  -- NX-058 slice E: an erased member's initial account[^\n]*\n  if exists\(select 1 from control\.nexloop_workbench_member_erasures e[^\n]*\n   raise exception 'initial identity erased' using errcode='42501';end if;", ""),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

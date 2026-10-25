@@ -95,3 +95,5 @@ rollback;
 ```
 
 Run it as a role that bypasses row-level security (these tables force RLS per tenant); with an ordinary owner role, `set local eios.tenant_id` per tenant first.
+- (Follow-up) The real restore path keeps the executor too: the restore tool calls `runtime.nexloop_restore_replay` (0154's wrapper), whose inner `runtime.nexloop_restore_replay_before_contact_keys_v0240` (0147's body, never redefined since) rebuilt deletion entries from a fixed field list; 0349 re-creates it with `actor` added (copy guard). Tested end to end through `restore_begin` and `restore_replay` with the erasure row and the consumption gone; removing the key fails the test.
+- (Follow-up) `control.nexloop_initial_identity_create` (0162's body) refuses a receipt of an erased subject with 42501 (`initial identity erased`), not the retryable 40001 conflict; the comment on the fingerprint overwrite now says what changed (a silent return of the old ids became a refusal).
