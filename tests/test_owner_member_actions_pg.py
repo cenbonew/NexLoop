@@ -238,10 +238,11 @@ def test_two_approved_suspensions_of_one_owner_run_once_on_two_connections(owner
     threads = [threading.Thread(target=run, args=(k,)) for k in bodies]
     [t_.start() for t_ in threads]
     [t_.join(60) for t_ in threads]
-    # The loser either waits for the lock and is refused, or hits a transient lock or serialization error first: retryable, nothing
-    # consumed (0327), and its retry is refused.
+    # The loser either waits for the lock and is refused, or hits a transient lock or serialization error first (retryable), or its
+    # tail authority recheck fails because the winner's member change raised the tenant revision (403): nothing consumed (0327) in
+    # the last two, and its retry is refused.
     for key, r in results.items():
-        if r.get('code') == 'unavailable' and r.get('retryable') is True:
+        if (r.get('code') == 'unavailable' and r.get('retryable') is True) or r.get('code') == 'forbidden':
             assert admin.execute('select count(*) from control.nexloop_approval_consumptions').fetchone() == (1,)
             results[key] = c['call'](bodies[key][0], 'suspend_workbench_owner', bodies[key][2]).json()
     statuses = sorted(r.get('status', 'executed') for r in results.values())
