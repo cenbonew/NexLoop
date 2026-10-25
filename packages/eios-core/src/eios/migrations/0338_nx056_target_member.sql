@@ -3,7 +3,8 @@
 -- functions below are re-created with only these changes (tests/test_function_copy_guard.py).
 -- 1. control.nexloop_approval_policy_guard (0326): a policy with target_subject_field is approved by owners only (§6.7); the published
 --    policies are checked once here, and the migration fails if one does not comply.
--- 2. runtime.nexloop_approval_target_member: the target_member block of one row for one caller, in the fixed order of §6.1:
+-- 2. runtime.nexloop_approval_target_member: the target_member block of one row for one caller, in the fixed order of §6.1 (the
+--    request's capability decides what kind of target it has - workbench_member.invite_owner for an invitation - never the body):
 --    null (no target field, not invite_owner) -> hidden (the caller is not an owner now: nothing is resolved) -> invite_owner (D7,
 --    owner 2026-10-25: A - invitee with the username and same_username_exists) -> erased -> unresolved -> member. Resolution (§6.2) from existing columns only: the body's principal itself, or
 --    for a subject id the first membership by status then principal; the label is p- and the first 8 hex digits of sha256(principal);
@@ -44,19 +45,25 @@ declare prior text:=current_setting('eios.tenant_id',true);cfg control.nexloop_w
  m control.nexloop_browser_memberships;a control.nexloop_browser_accounts;v jsonb;
 begin
  -- 1. No target.
- if pol.target_subject_field is null and r.body->>'operation' is distinct from 'invite_workbench_owner' then return null;end if;
+ -- The capability decides, never the body's operation (the requester writes the body; L6 review of fdc06ef2).
+ if pol.target_subject_field is null and r.capability is distinct from 'workbench_member.invite_owner' then return null;end if;
  -- 2. Not an owner now: hidden, nothing resolved (a non-owner cannot tell a target that exists from one that does not).
  cfg:=control.nexloop_workbench_current(p_tenant);
  if cfg.tenant_id is null or coalesce(cfg.members->>p_caller,'')<>'owner' then return jsonb_build_object('kind','hidden');end if;
  -- 3. invite_owner (D7, owner 2026-10-25: A): the invitee's username as the body gives it, and whether an account of this tenant already
  -- has exactly that username (the HTTP layer refuses such an invitation, so true means a request that bypassed it; §6.4).
- if r.body->>'operation'='invite_workbench_owner' then
-  if jsonb_typeof(r.body->'username') is distinct from 'string' then return jsonb_build_object('kind','unresolved');end if;
-  perform set_config('eios.tenant_id',p_tenant,true);
-  v:=jsonb_build_object('kind','invitee','username',r.body->>'username',
-   'same_username_exists',exists(select 1 from control.nexloop_browser_accounts x where x.tenant_id=p_tenant and x.username=r.body->>'username'));
+ if r.capability='workbench_member.invite_owner' then
+  begin  -- fail closed: any error is unresolved, never a failed view
+   if jsonb_typeof(r.body->'username')='string' then
+    perform set_config('eios.tenant_id',p_tenant,true);
+    v:=jsonb_build_object('kind','invitee','username',r.body->>'username',
+     'same_username_exists',exists(select 1 from control.nexloop_browser_accounts x where x.tenant_id=p_tenant and x.username=r.body->>'username'));
+   end if;
+  exception when others then
+   v:=null;
+  end;
   perform set_config('eios.tenant_id',coalesce(prior,''),true);
-  return v;
+  return coalesce(v,jsonb_build_object('kind','unresolved'));
  end if;
  begin
   v_value:=r.body->>pol.target_subject_field;

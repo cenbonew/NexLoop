@@ -50,7 +50,9 @@ def test_the_file_is_the_owners_first_batch_and_bad_manifests_are_refused():
                    lambda p: p.update(summary_fields=['consumer_id']), lambda p: p.update(summary_fields=['reason']),
                    lambda p: p.update(summary_fields=['notification_text']), lambda p: p.update(summary_fields=['principal_id']),
                    lambda p: p.update(target_subject_field='Bad Field'), lambda p: p.update(target_subject_field=3),
-                   lambda p: p.update(summary_fields=['scope_ref']), lambda p: p.update(approver_roles=['owner', 'owner'])):
+                   lambda p: p.update(summary_fields=['scope_ref']), lambda p: p.update(approver_roles=['owner', 'owner']),
+                   # ADR-039 §6.7: a target policy is approved by owners only (as the SQL guard)
+                   lambda p: p.update(target_subject_field='target_principal', approver_roles=['owner', 'operator'])):
         bad = copy.deepcopy(v1)
         change(bad['policies'][0])
         with pytest.raises(ApprovalPoliciesRejected):

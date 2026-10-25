@@ -132,7 +132,7 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
 - **判定顺序（写死）**，依次检查，命中即停：
   1. 策略没有 `target_subject_field`，并且能力不是 `invite_owner` → `null`；
   2. 调用人当前的工作台角色不是 owner → `hidden`，**不做任何解析**。这样非 owner 看不出目标存在不存在、是否被擦除：所有有目标的行对他都一样；
-  3. 能力是 `invite_owner` → `invitee`（§6.4）；
+  3. 审批记录的能力是 `workbench_member.invite_owner` → `invitee`（§6.4；出错时为 `unresolved`）；
   4. 目标身份已被擦除 → `erased`；
   5. 解析不到本租户成员 → `unresolved`；
   6. 否则 → `member`。
@@ -180,12 +180,13 @@ NexLoop 已有两套局部审批：0240 外联审批（门控一次效应）、0
   2. 在工作台的成员列表里确认没有同名或近似名的现有成员；
   3. 执行并接受之后，在成员列表中核对新成员的用户名与线下确认的一致；不一致时，按 NX-058 的路径立即停用或撤销这个成员，并留下记录。
   - 局限：批准时无法在系统里看到用户名，只能靠线下确认，以及事后核对和撤销。
-- **展示（现行）**：视图对**这一个能力**写死（按请求体的 `operation = invite_workbench_owner` 识别），从请求体取 `username`（不是字符串时为 `unresolved`），输出 `{"kind":"invitee","username":…,"same_username_exists":…}`。
+- **展示（现行）**：视图对**这一个能力**写死（按审批记录的能力 `workbench_member.invite_owner` 识别，**不看**请求体的 `operation`：请求体由请求人填写，按它判断会让任何能力的请求伪装成邀请，从而遮住真实的目标），从请求体取 `username`（不是字符串时为 `unresolved`），输出 `{"kind":"invitee","username":…,"same_username_exists":…}`。
   - `same_username_exists` 由服务端判断：同租户 `nexloop_browser_accounts` 中是否已有**完全相同**的 username（`unique(tenant_id, username)`）。
   - **HTTP 层**（NX-058 片 D 实现）拒绝与本租户现有账户同名的邀请，所以正常流程下它为 `false`；为 `true` 时，说明请求绕过了 HTTP 层，批准人应当拒绝。
   - 这不是通用的“展示任意字段”机制，其他能力不得仿照。
 - **测试点**：
-  - 默认（不展示）：owner 与非 owner 调用人看到的都是 `{"kind":"hidden"}`；行的其他字段与请求体中都不出现 username。
+  - ~~默认（不展示）：owner 与非 owner 调用人看到的都是 `{"kind":"hidden"}`~~（作废：D7 已定为展示）。
+  - 伪造：其他能力的请求体即使写了 `operation: invite_workbench_owner`，也不会得到 `invitee`。
   - 展示：owner 看到 `invitee` 和正确的用户名；同名时 `same_username_exists` 为 `true`；非 owner 看到 `hidden`；HTTP 层拒绝同名邀请。
 - **残余风险**：近似名冒充（例如与现有成员只差一个字符）既拦不住，也不会被 `same_username_exists` 标出。靠批准人在成员列表中核对，以及接受之后的核对。
 
