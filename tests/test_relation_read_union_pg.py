@@ -19,14 +19,14 @@ from test_workbench_read_pg import (browser_business, conversations, identity, p
     workbench_login)
 
 
-def relation(admin, name, source_type, source, target_type, target, world='real'):
+def relation(admin, name, source_type, source, target_type, target, world='real', tenant=TENANT):
     """A relation written as the governed link entry would (not derived): its 0016 id, metadata empty."""
-    rid = hashlib.sha256(f'["{TENANT}", "{world}", "{name}", "{source_type}", "{source}", "{target_type}", "{target}"]'.encode()).hexdigest()
+    rid = hashlib.sha256(f'["{tenant}", "{world}", "{name}", "{source_type}", "{source}", "{target_type}", "{target}"]'.encode()).hexdigest()
     with admin.transaction():
-        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
         admin.execute("""insert into ontology.relations(relation_id,tenant_id,world,relation_name,schema_version,source_type,source_object_id,
             target_type,target_object_id,metadata,created_at) values(%s,%s,%s,%s,1,%s,%s,%s,%s,'{}',clock_timestamp())""",
-                      (rid, TENANT, world, name, source_type, source, target_type, target))
+                      (rid, tenant, world, name, source_type, source, target_type, target))
 
 
 @pytest.fixture

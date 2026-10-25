@@ -483,6 +483,11 @@ REGISTRY = [
             ((r"runtime\.nexloop_object_consumers_read\(", "runtime.nexloop_object_consumers("),)),
     Allowed('relation_read_union', 'authz.nexloop_workbench_object_fields', 'Consumers through relations united with the property rule; nothing else',
             ((r"runtime\.nexloop_object_consumers_read\(", "runtime.nexloop_object_consumers("),)),
+    # NX-054 P4c: the purge also follows the Consumer's ownership relations (references and commitments phases).
+    Allowed('relation_purge_union', 'runtime.nexloop_erasure_step', 'the references and commitments phases also take the objects the ownership relations reach; nothing else',
+            ((r"\n     or \(o\.type_name,o\.object_id\) in \(select r\.type_name,r\.object_id from runtime\.nexloop_relation_consumer_objects\(p_tenant,p_world,e\.consumer_id\) r\)", ""),
+             (r"\(properties->>'made_to'=e\.consumer_id\n    or object_id in \(select r\.object_id from runtime\.nexloop_relation_consumer_objects\(p_tenant,p_world,e\.consumer_id\) r where r\.type_name='Commitment'\)\);",
+              "properties->>'made_to'=e.consumer_id;"))),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
