@@ -94,13 +94,16 @@ def test_a_refused_login_exits_2(tmp_path):
     assert code == 2 and 'refused' in json.loads(out.getvalue())
 
 
-def test_rules_v19_are_v18_plus_the_relation_read_gaps_timer():
+def test_rules_v19_are_v18_plus_the_relation_read_gaps_timer_and_the_api_read_p95():
     rules = ROOT / 'deploy/configuration'
     v18, v19 = json.loads((rules / 'alert-rules.v18.json').read_text()), load_rules(rules / 'alert-rules.v19.json')
-    assert v19['version'] == 19 and v19['rules'][:len(v18['rules'])] == v18['rules'] and len(v19['rules']) == len(v18['rules']) + 1
-    added = v19['rules'][-1]
+    assert v19['version'] == 19 and v19['rules'][:len(v18['rules'])] == v18['rules'] and len(v19['rules']) == len(v18['rules']) + 2 == 76
+    added, p95 = v19['rules'][-2:]
     assert (added['rule_id'], added['metric'], added['selector'], added['condition'], added['threshold']) == (
         'timer_stale_relation_read_gaps', 'host_health.timer_success_age_seconds', 'data_host:relation-read-gaps', 'gt', 93600)
+    # NX-061 E4 (owner decision): the read p95, in the same version so the rules do not fork.
+    assert (p95['rule_id'], p95['metric'], p95['condition'], p95['threshold'], p95['for_seconds'], p95['severity']) == (
+        'api_read_p95_high', 'api.classes.read.p95_ms', 'gt', 500, 600, 'warning') and 'selector' not in p95 and 'NX-061 E4' in p95['purpose']
     validate_rules(v19)
     failure = next(r for r in v19['rules'] if r['rule_id'] == 'timer_scheduled_failure')
     assert failure['selector'] == '*' and failure['condition'] == 'gt' and failure['threshold'] == 0  # the gaps alarm (exit 1)
