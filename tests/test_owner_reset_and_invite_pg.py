@@ -168,25 +168,52 @@ def test_an_owner_code_never_redeems_for_a_member_who_is_no_owner_now(owners, ad
         assert reset(client, {'code': code, 'password': 'a-new-owner-password-1'}).status_code == 400
 
 
-def test_acceptance_v3_needs_the_approval_executed_not_only_consumed(owners, admin):
-    """L6 I-D3-1: an owner invitation tied to an approval consumed as execution_refused is refused; tied to an executed one, accepted."""
+def test_acceptance_v3_needs_an_executed_invite_owner_approval(owners, admin):
+    """L6 I-D3-1, S-D3b-1: an owner invitation is accepted only when it hangs on an executed approval of invite_owner - not one consumed
+    as execution_refused, not an approved one never executed, not an executed approval of another capability."""
     c = owners
     with_policies(c)
     body = {'target_principal': c['operator_member']['principal_id'], 'reason': 'synthetic'}  # an owner-only Action refused at execution
     refused_run = c['call'](c['owner_member'], 'revoke_workbench_owner', body)
     assert c['decide'](c['second'], refused_run.json()['approval_id']).json()['status'] == 'approved'
     assert c['call'](c['owner_member'], 'revoke_workbench_owner', body).json()['status'] == 'execution_refused'
-    executed = approved_run(c, c['owner_member'], c['second'], 'suspend_workbench_owner', {'target_principal': c['third']['principal_id'], 'reason': 'x'})
+    other_cap = approved_run(c, c['owner_member'], c['second'], 'suspend_workbench_owner', {'target_principal': c['third']['principal_id'], 'reason': 'x'})
+    unexecuted = c['call'](c['owner_member'], 'invite_workbench_owner', {'username': 'approved-owner', 'expires_in_hours': 24})
+    assert c['decide'](c['second'], unexecuted.json()['approval_id']).json()['status'] == 'approved'  # approved, never executed
     tokens = {}
-    for name, approval in (('refused-owner', refused_run.json()['approval_id']), ('executed-owner', executed.json()['approval_id'])):
+    for name, approval in (('refused-owner', refused_run.json()['approval_id']), ('other-cap-owner', other_cap.json()['approval_id']),
+                           ('unexecuted-owner', unexecuted.json()['approval_id'])):
         tokens[name] = W.new_token()
         admin.execute("""insert into control.nexloop_workbench_invitations(tenant_id,request_id,username,role,token_hmac,issued_by_principal,issued_by_subject,
             issued_at,expires_at,state,approval_id) values(%s,%s,%s,'owner',%s,%s,%s,clock_timestamp(),clock_timestamp()+interval '1 hour','issued',%s)""",
                       (TENANT, name, name, W.digest(key_of(c), W.INVITE, TENANT, tokens[name]), c['owner_member']['principal_id'], c['owner_member']['subject_id'], approval))
     with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
-        refused = accept(client, {'token': tokens['refused-owner'], 'password': 'a-good-password-1'})
-        assert (refused.status_code, refused.json()) == (400, {'code': 'invitation_invalid'})
-        assert accept(client, {'token': tokens['executed-owner'], 'password': 'a-good-password-1'}).status_code == 200
+        for name in tokens:
+            refused = accept(client, {'token': tokens[name], 'password': 'a-good-password-1'})
+            assert (refused.status_code, refused.json()) == (400, {'code': 'invitation_invalid'}), name
+        executed = act(client, workbench_login(client, c['owner_member']).json()['csrf_token'], 'invite_workbench_owner',
+                       {'username': 'approved-owner', 'expires_in_hours': 24})
+        assert accept(client, {'token': executed.json()['token'], 'password': 'a-good-password-1'}).status_code == 200  # the executed invite_owner
+
+
+def test_an_owner_code_needs_an_executed_issue_owner_reset_approval(owners, admin):
+    """S-D3b-1: an owner code (approval recorded) redeems only when that approval is an executed issue_owner_reset - not another
+    capability's executed approval, not an approved one never executed."""
+    from test_workbench_reset_codes_pg import reset
+    c = owners
+    with_policies(c)
+    other_cap = approved_run(c, c['owner_member'], c['second'], 'promote_workbench_member', {'target_principal': c['operator_member']['principal_id'], 'reason': 'x'})
+    unexecuted = c['call'](c['owner_member'], 'issue_workbench_owner_reset', {'target_principal': c['third']['principal_id']})
+    assert c['decide'](c['second'], unexecuted.json()['approval_id']).json()['status'] == 'approved'
+    with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+        for name, approval in (('other-cap', other_cap.json()['approval_id']), ('unexecuted', unexecuted.json()['approval_id'])):
+            code = W.new_code()
+            admin.execute("""insert into control.nexloop_workbench_reset_codes(tenant_id,request_id,target_principal,target_subject,code_hmac,issued_by_principal,
+                issued_by_subject,issued_at,expires_at,state,approval_id) values(%s,%s,%s,%s,%s,%s,%s,clock_timestamp(),clock_timestamp()+interval '30 minutes','issued',%s)""",
+                          (TENANT, 'forged-' + name, c['third']['principal_id'], c['third']['subject_id'], W.digest(key_of(c), W.RESET, TENANT, code),
+                           c['owner_member']['principal_id'], c['owner_member']['subject_id'], approval))
+            assert reset(client, {'code': code, 'password': 'a-new-owner-password-1'}).status_code == 400, name
+            admin.execute("update control.nexloop_workbench_reset_codes set state='revoked',revoked_reason='reissued' where request_id=%s", ('forged-' + name,))
 
 
 @pytest.mark.parametrize('change', ['demote_workbench_owner', 'revoke_workbench_owner'])

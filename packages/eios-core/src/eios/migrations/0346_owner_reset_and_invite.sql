@@ -23,6 +23,13 @@ alter table control.nexloop_workbench_invitations add column approval_id uuid;
 -- The approval an owner's reset code was issued under (issue_owner_reset); null for issue_reset's codes. Redemption reads it (C-D3-1).
 alter table control.nexloop_workbench_reset_codes add column approval_id uuid;
 
+-- S-D3b-1: an approval of this capability whose consumption is 'executed' (what an owner code or invitation was issued under).
+create function control.nexloop_approval_executed_for(p_tenant text,p_approval uuid,p_capability text) returns boolean
+ language sql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ select p_approval is not null and exists(select 1 from control.nexloop_approval_requests r join control.nexloop_approval_consumptions c
+   on c.tenant_id=r.tenant_id and c.world=r.world and c.approval_id=r.approval_id
+  where r.tenant_id=p_tenant and r.world='real' and r.approval_id=p_approval and r.capability=p_capability and c.result='executed') $$;
+
 -- §1, two layers, for an owner-only Action with or without a target field (invite_owner has none).
 create function control.nexloop_workbench_owner_approval_v2(p_tenant text,p_world text,p_capability text,p_principal text,body jsonb,p_target_field text) returns uuid
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -156,8 +163,8 @@ begin
  perform set_config('eios.tenant_id',p_tenant,true);
  perform control.nexloop_workbench_member_lock(p_tenant);
  select * into inv from control.nexloop_workbench_invitations where tenant_id=p_tenant and token_hmac=p_token_hmac for update;
- if found and inv.role='owner' and (inv.approval_id is null or not exists(select 1 from control.nexloop_approval_consumptions c
-   where c.tenant_id=p_tenant and c.world='real' and c.approval_id=inv.approval_id and c.result='executed')) then
+ -- An owner invitation needs its invite_owner approval executed (I6; S-D3b-1: of that capability).
+ if found and inv.role='owner' and not control.nexloop_approval_executed_for(p_tenant,inv.approval_id,'workbench_member.invite_owner') then
   raise exception 'invitation invalid' using errcode='22023';end if;
  r:=control.nexloop_accept_workbench_invitation_v2(p_tenant,p_token_hmac,p_subject,p_membership,p_account,p_hash,p_source,p_trace);
  perform set_config('eios.tenant_id',p_tenant,true);
@@ -266,7 +273,8 @@ end $$;
 do $$ declare f text; begin
  foreach f in array array['control.nexloop_workbench_owner_approval_v2(text,text,text,text,jsonb,text)',
    'control.nexloop_governed_issue_workbench_owner_reset(text,text,text,text,text,jsonb)','control.nexloop_governed_invite_workbench_owner(text,text,text,text,text,jsonb)',
-   'control.nexloop_accept_workbench_invitation_v3(text,text,jsonb,jsonb,jsonb,text,text,text)','authz.nexloop_workbench_invitee_free(text,text,text)'] loop
+   'control.nexloop_accept_workbench_invitation_v3(text,text,jsonb,jsonb,jsonb,text,text,text)','authz.nexloop_workbench_invitee_free(text,text,text)',
+   'control.nexloop_approval_executed_for(text,uuid,text)'] loop
   execute format('alter function %s owner to nexloop_owner',f);
   execute format('revoke all on function %s from public',f);
  end loop;
@@ -298,9 +306,10 @@ begin
  -- non-owner member, or the account changed since the lookup.
  if not found or r.state<>'issued' or r.expires_at<=clock_timestamp()
   or not control.nexloop_workbench_member_active(p_tenant,r.issued_by_principal,true)
-  -- NX-058 slice D3 (L6 C-D3-1): the code's origin decides, never the target's role now - issue_owner_reset's code (its approval
-  -- recorded) needs an active owner, issue_reset's an active operator or reviewer; a code of a member changed since is refused.
-  or not control.nexloop_workbench_member_active(p_tenant,r.target_principal,r.approval_id is not null) then
+  -- NX-058 slice D3 (L6 C-D3-1, S-D3b-1): the code's origin decides, never the target's role now - issue_owner_reset's code (its
+  -- approval recorded, of that capability and executed) needs an active owner, issue_reset's an active operator or reviewer.
+  or not control.nexloop_workbench_member_active(p_tenant,r.target_principal,r.approval_id is not null)
+  or (r.approval_id is not null and not control.nexloop_approval_executed_for(p_tenant,r.approval_id,'workbench_member.issue_owner_reset')) then
   raise exception 'reset invalid' using errcode='22023';end if;
  select * into a from control.nexloop_browser_accounts where tenant_id=p_tenant and subject_id=r.target_subject for update;
  if not found or a.payload->>'status' is distinct from 'active' or (a.payload->>'revision')::bigint is distinct from p_expected then
