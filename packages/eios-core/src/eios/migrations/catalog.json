@@ -1705,6 +1705,11 @@
       "version": "0341",
       "name": "0341_governed_authority_change.sql",
       "sha256": "210a3ed93fee10a9b87350428c6f10f3463cbf49046c5a1815517d865ffd660f"
+    },
+    {
+      "version": "0342",
+      "name": "0342_nx056_target_member.sql",
+      "sha256": "e192b629b6fb289065c35602e3036643c0f578478e458f09f29f70dec8cf1d92"
     }
   ]
 }

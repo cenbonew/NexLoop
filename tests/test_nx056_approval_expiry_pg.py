@@ -63,7 +63,7 @@ def test_the_sweep_ends_waiting_and_unconsumed_approved_requests_past_due_and_is
         age(admin, approval, 25)
     # Before the sweep both past-due requests show as overdue (the sweep's heartbeat), not as waiting or executable.
     assert {k: v for k, v in approvals(admin).items() if k != 'oldest_waiting_age_seconds'} == {'waiting': 1, 'approved_unconsumed': 0, 'overdue': 2,
-        'solo_mode_enabled': 0, 'self_approvals_24h': 0, 'eligibility_reductions_24h': 0}
+        'solo_mode_enabled': 0, 'self_approvals_24h': 0, 'eligibility_reductions_24h': 0, 'first_time_approvers_24h': 1, 'same_person_flags_24h': 0}
     assert expire_due(admin) == {'scanned': 2, 'expired': 2}
     # An approved one past due_by can no longer be executed (A2): it ends too instead of lingering (L6 A3 review important 2).
     assert [row(f, a)[0] for a in (late, fresh, approved)] == ['expired', 'waiting_approval', 'expired']

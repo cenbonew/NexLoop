@@ -13,7 +13,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from nexloop_eios.bootstrap import bootstrap
-from support.tenants import TENANT_A
+from support.tenants import TENANT_A, TENANT_OTHER
 from test_workbench_read_pg import add_human
 
 CAP = 'real_dispatch.set'
@@ -272,7 +272,7 @@ def test_a_member_change_of_another_tenant_than_the_session_never_reaches_the_ro
     member = f['operator']['principal_id']
     with admin.transaction():
         admin.execute('set local session authorization nexloop_owner')
-        admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-0000000000ff',true)")  # another tenant
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_OTHER,))  # another tenant (the registered foreign one)
         # Forced RLS hides another tenant's member rows from an application role: the change reaches no row (the row trigger's refusal
         # is the second guard, for a role that bypasses RLS without being a superuser).
         assert admin.execute("""update control.nexloop_browser_memberships set payload=payload where principal_id=%s""", (member,)).rowcount == 0
