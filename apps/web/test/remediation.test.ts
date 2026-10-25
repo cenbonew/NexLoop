@@ -1,5 +1,5 @@
 import {expect,test} from 'vitest';
-import {remediations} from '../src/workbench/api';
+import {remediationEvidence,remediations} from '../src/workbench/api';
 import {statusLabel,statusTone} from '../src/workbench/status-labels';
 // NX-057 R1: the remediation list as the workbench read returns it (no reason text; the Consumer may be withheld), and its labels.
 
@@ -26,4 +26,18 @@ test('remediation states, kinds and failure reasons read as their glossary label
   expect(statusLabel('remediation_kind','escalate')).toBe('交给负责人');
   expect(statusLabel('failure_reason','origin_expired')).toBe('来源 Run 已过期');
   expect(statusLabel('remediation_hold','origin_failures')).toBe('补救后的 Action 又失败');
+});
+
+test('the evidence chain is parsed strictly: ids, codes and times, a claim or plan may be absent',()=>{
+  const chain={remediation:{remediation_id:row.remediation_id,kind:'reevaluate',mode:'automatic',state:'succeeded',last_code:'woken',due_by:row.due_by,
+      created_at:row.created_at,updated_at:row.created_at,origin_remediation_id:null},
+    source_intent:{intent_id:row.source_intent_id,action_name:'nexloop.enterprise.deliver',action_version:1,state:'failed',created_at:row.created_at,consumer_id:null},
+    failure:{failure_id:'0b0c6c57-0000-4000-8000-000000000003',reason_code:'origin_expired',recorded_at:row.failed_at,evidence:{origin_run_id:'0b0c6c57-0000-4000-8000-000000000004'}},
+    claim:{state:'terminal',status:'permanent_failure',finalized_at:row.failed_at},rule:{rule_id:'deliver_final_failure',manifest_version:1,digest:'a'.repeat(64),kind:'reevaluate'},
+    plan:{plan_id:'0b0c6c57-0000-4000-8000-000000000005',woken_at:row.failed_at,consumed_by_run:null},
+    events:[{from_state:null,to_state:'proposed',code:'proposed',actor_kind:'service',recorded_at:row.created_at}]};
+  const e=remediationEvidence(chain);
+  expect(e.claim?.status).toBe('permanent_failure');expect(e.plan?.consumed_by_run).toBeNull();expect(e.failure.evidence.origin_run_id).toContain('0b0c6c57');
+  expect(remediationEvidence({...chain,claim:null,plan:null}).claim).toBeNull();
+  expect(()=>remediationEvidence({...chain,events:[{to_state:'proposed'}]})).toThrow();
 });

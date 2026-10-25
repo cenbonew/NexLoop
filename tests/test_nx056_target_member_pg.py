@@ -138,11 +138,18 @@ def test_a_body_claiming_to_be_an_invitation_never_hides_the_real_target(store):
     """L6 review of fdc06ef2: the request's capability decides, never the operation the requester wrote into the body."""
     f = store
     target_policy(f['admin'])
-    forged = f['admin'].execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (
-        TENANT_A, 'real', CAP, ACTION, f['requester']['principal_id'],
-        Jsonb({'operation': 'invite_workbench_owner', 'request_id': 'forged', 'username': 'decoy', 'scope_kind': 'tenant', 'enabled': True,
-               'target_principal': f['operator']['principal_id']}))).fetchone()[0]['approval_id']
-    block = row(view(f, 'approver')['to_decide'], forged)['target_member']
+    body = {'operation': 'invite_workbench_owner', 'request_id': 'forged', 'username': 'decoy', 'scope_kind': 'tenant', 'enabled': True,
+            'target_principal': f['operator']['principal_id']}
+    # NX-058 slice D2: approval_open refuses a body whose operation is not the capability's own, so such a request never opens ...
+    with pytest.raises(psycopg.Error, match='operation_mismatch'):
+        f['admin'].execute('select control.nexloop_approval_open(%s,%s,%s,%s,%s,%s)', (TENANT_A, 'real', CAP, ACTION, f['requester']['principal_id'], Jsonb(body)))
+    # ... and a row that holds one anyway (written directly here) still shows the real target: the capability decides.
+    f['admin'].execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
+    forged = f['admin'].execute("""insert into control.nexloop_approval_requests(tenant_id,world,capability,action_resource,policy_version,request_digest,request_id,body,
+        requester_subject,requester_principal,due_by) select %s,'real',%s,%s,max(version),repeat('d',64),'forged',%s,%s,%s,clock_timestamp()+interval '1 hour'
+        from control.nexloop_approval_policies where capability=%s returning approval_id""",
+        (TENANT_A, CAP, ACTION, Jsonb(body), f['requester']['subject_id'], f['requester']['principal_id'], CAP)).fetchone()[0]
+    block = row(view(f, 'approver')['to_decide'], str(forged))['target_member']
     assert block['kind'] == 'member' and block['username'] == f['operator']['username'] and 'decoy' not in str(block)
 
 

@@ -47,7 +47,7 @@ def test_cost_method_reports_quantiles_trigger_and_lock_conflict(db, pg):
     assert set(report['with_fk']) == {'median_us', 'p95_us'} and set(report['ratio']) == {'median_us', 'p95_us'}
     assert report['fk_trigger_sample'] and report['fk_trigger_sample'][0]['calls'] == 1
     # 0050's explicit FOR UPDATE on the tenant row blocks a foreign key check (FOR KEY SHARE); without the key it does not.
-    assert report['lock_probe']['blocked_by_for_update'] and report['lock_probe']['insert_wait_without_fk_s'] < 0.2
+    assert report['lock_probe']['blocked_by_for_update'] and not report['lock_probe']['blocked_without_fk']
     assert not report['lock_probe']['blocked_by_for_no_key_update']  # the proposed 0050 lock no longer blocks the check
     assert db.execute("select convalidated from pg_constraint where conname='nexloop_commercial_connectors_tenant_fk'").fetchone() == (True,)
     assert db.execute("select count(*) from control.nexloop_commercial_connectors where connector_id like 'fk-cost-%'").fetchone() == (0,)

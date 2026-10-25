@@ -25,6 +25,7 @@ _STATES = ('accepted', 'dispatching', 'unknown', 'fulfilled', 'failed', 'confirm
 _REMEDIATION_STATES = ('proposed', 'awaiting_approval', 'executing', 'succeeded', 'refused', 'failed', 'escalated', 'handled', 'declined', 'expired',
                        'not_applicable')
 _TYPE = re.compile(r'[A-Z][A-Za-z0-9_]{0,63}')
+_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 _OBJECT_SET = re.compile(r'[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31}){0,3}')  # ADR-036
 _OBJECT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ARTIFACT_CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{32}')
@@ -190,6 +191,13 @@ def router(config, *, ports_for_workbench):
         except ValueError:
             return error('invalid_request', 422)
         return await invoke(request, 'remediations', **arguments)
+
+    @routes.get('/remediations/{remediation_id}')
+    async def remediation_evidence(remediation_id: str, request: Request):
+        # NX-057 R4: the evidence chain of one remediation (404 when unknown or of a Consumer being erased).
+        if not _UUID.fullmatch(remediation_id):
+            return error('invalid_request', 422)
+        return await invoke(request, 'remediation_evidence', remediation_id=remediation_id)
 
     @routes.get('/commitments')
     async def commitments(request: Request):

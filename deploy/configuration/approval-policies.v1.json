@@ -1,8 +1,8 @@
 {
   "schema_version": "nexloop-approval-policies/1",
-  "version": 1,
-  "expected_revision": 0,
-  "decision": "NX-056 (docs/design/unified-approvals.md v5 §3, §10; owner 2026-10-22 Q1 option A, ADR-039): the first three capabilities that need a second person's approval before they run - real_dispatch.set only when it opens (enabled=true; closing is never held), consumer.erase started by the owner (a Consumer's own request is confirmed through consumer.erase_on_request and is not held), and retention.release_hold. Quorum 1, approvers are owners, never the requester (by subject), 24 hours to decide and execute. A new Action version without a policy version for it is refused until this file follows. Applied by the technical configurator (control.nexloop_configure_approval_policies); policies are append-only. Summary fields name no Consumer identifier and no free text (the approver sees the digest and these fields only). expected_revision is the last applied manifest version (0 before the first); the database records each applied file's sha256.",
+  "version": 3,
+  "expected_revision": 2,
+  "decision": "NX-056 (docs/design/unified-approvals.md v5 §3, §10; owner 2026-10-22 Q1 option A, ADR-039): the first three capabilities that need a second person's approval before they run - real_dispatch.set only when it opens (enabled=true; closing is never held), consumer.erase started by the owner (a Consumer's own request is confirmed through consumer.erase_on_request and is not held), and retention.release_hold. Quorum 1, approvers are owners, never the requester (by subject), 24 hours to decide and execute. A new Action version without a policy version for it is refused until this file follows. Applied by the technical configurator (control.nexloop_configure_approval_policies); policies are append-only. Summary fields name no Consumer identifier and no free text (the approver sees the digest and these fields only). expected_revision is the last applied manifest version (0 before the first); the database records each applied file's sha256. v2 (NX-058 slice D2, docs/design/nx058-owner-actions.md §1): the owner-only member Actions promote_owner, demote_owner, suspend_owner, resume_owner and revoke_owner - no condition, quorum 1, approved by another owner (never the requester, never the member the request acts on: target_subject_field target_principal), single-person mode not applicable, 24 hours. The approver sees the member through the approval view's target_member (ADR-039 R1 §6), never a summary field; demote_owner shows new_role. Each handler refuses unless its policy has exactly this shape. Publish the Actions before applying this file. v3 (NX-058 slice D3): issue_owner_reset (target_subject_field target_principal) and invite_owner (no target field: the invitee is not a member yet; the approval view shows the invitee, ADR-039 §6.4) - no condition, quorum 1, approved by another owner, single-person mode not applicable, 24 hours, no summary fields. Their code or token HMACs are execution-time fields (ADR-039 R3 §8.1), registered with the capabilities; never a summary, target or condition field. Publish the Actions before applying this file.",
   "policies": [
     {
       "capability": "real_dispatch.set",
@@ -50,6 +50,112 @@
       "expires_after_seconds": 86400,
       "summary_fields": [],
       "purpose": "Releasing a hold lets retention and erasure delete what it kept."
+    },
+    {
+      "capability": "workbench_member.promote_owner",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [],
+      "target_subject_field": "target_principal",
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: an owner-only member change; another owner approves it."
+    },
+    {
+      "capability": "workbench_member.demote_owner",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [
+        "new_role"
+      ],
+      "target_subject_field": "target_principal",
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: an owner-only member change; another owner approves it."
+    },
+    {
+      "capability": "workbench_member.suspend_owner",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [],
+      "target_subject_field": "target_principal",
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: an owner-only member change; another owner approves it."
+    },
+    {
+      "capability": "workbench_member.resume_owner",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [],
+      "target_subject_field": "target_principal",
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: an owner-only member change; another owner approves it."
+    },
+    {
+      "capability": "workbench_member.revoke_owner",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [],
+      "target_subject_field": "target_principal",
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: an owner-only member change; another owner approves it."
+    },
+    {
+      "capability": "workbench_member.issue_owner_reset",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [],
+      "target_subject_field": "target_principal",
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: an owner's reset code; another owner approves it."
+    },
+    {
+      "capability": "workbench_member.invite_owner",
+      "version": 1,
+      "action_version": 1,
+      "condition": null,
+      "quorum": 1,
+      "approver_roles": [
+        "owner"
+      ],
+      "expires_after_seconds": 86400,
+      "summary_fields": [],
+      "solo_mode": "not_applicable",
+      "purpose": "NX-058 slice D: inviting an owner; another owner approves it."
     }
   ]
 }

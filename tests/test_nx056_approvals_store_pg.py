@@ -202,7 +202,12 @@ def test_the_member_a_request_acts_on_never_approves_it(store):
     admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_A,))
     admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"suspended"}' where principal_id=%s""",
                   (f['operator']['principal_id'],))
-    refused('target_unresolved', open_request, f, request_id='t-5', member=f['operator']['principal_id'])  # only invited or active members
+    # ADR-039 R3 §8.1: the statuses are the capability's own (resume_owner and the like declare suspended); one without settings
+    # accepts an active target only
+    refused('target_unresolved', open_request, f, request_id='t-5', member=f['operator']['principal_id'])
+    admin.execute("""update control.nexloop_browser_memberships set payload=payload||'{"status":"revoked"}' where principal_id=%s""",
+                  (f['operator']['principal_id'],))
+    refused('target_unresolved', open_request, f, request_id='t-6', member=f['operator']['principal_id'])
     with pytest.raises(psycopg.Error), admin.transaction():
         admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,quorum,approver_roles,expires_after_seconds,
             target_subject_field,published_by) values(%s,3,1,1,'{owner}',86400,'Bad Field','x')""", (CAP,))

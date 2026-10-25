@@ -258,6 +258,31 @@ export function remediations(value:unknown):Remediations{
     rate_capped:list(v.rate_capped).map(x=>{const o=object(x);return {hour:text(o.hour),over_count:count(o.over_count)};}),
     held_rules:list(v.held_rules).map(x=>{const o=object(x);return {rule_id:text(o.rule_id),reason_code:text(o.reason_code),observed:count(o.observed),held_at:text(o.held_at)};})};
 }
+/** NX-057 R4: one remediation's evidence chain (ids, codes and times only; the Consumer may be withheld). */
+export type RemediationEvidence={remediation:{remediation_id:string;kind:string;mode:string;state:string;last_code:string|null;due_by:string;created_at:string;
+    origin_remediation_id:string|null};
+  source_intent:{intent_id:string;action_name:string;action_version:number;state:string;created_at:string;consumer_id:string|null};
+  failure:{failure_id:string;reason_code:string;recorded_at:string;evidence:Record<string,string>};
+  claim:{state:string;status:string|null;finalized_at:string|null}|null;
+  rule:{rule_id:string;manifest_version:number;digest:string};
+  plan:{plan_id:string;woken_at:string|null;consumed_by_run:string|null}|null;
+  events:{from_state:string|null;to_state:string;code:string;actor_kind:string;recorded_at:string}[]};
+export function remediationEvidence(value:unknown):RemediationEvidence{
+  const v=object(value);const q=object(v.remediation);const i=object(v.source_intent);const f=object(v.failure);const r=object(v.rule);
+  const evidence=object(f.evidence);
+  return {remediation:{remediation_id:text(q.remediation_id),kind:text(q.kind),mode:text(q.mode),state:text(q.state),last_code:maybeText(q.last_code),
+      due_by:text(q.due_by),created_at:text(q.created_at),origin_remediation_id:maybeText(q.origin_remediation_id)},
+    source_intent:{intent_id:text(i.intent_id),action_name:text(i.action_name),action_version:count(i.action_version),state:text(i.state),
+      created_at:text(i.created_at),consumer_id:maybeText(i.consumer_id)},
+    failure:{failure_id:text(f.failure_id),reason_code:text(f.reason_code),recorded_at:text(f.recorded_at),
+      evidence:Object.fromEntries(Object.entries(evidence).map(([k,x])=>[k,String(x)]))},
+    claim:v.claim===null?null:(()=>{const c=object(v.claim);return {state:text(c.state),status:maybeText(c.status),finalized_at:maybeText(c.finalized_at)};})(),
+    rule:{rule_id:text(r.rule_id),manifest_version:count(r.manifest_version),digest:text(r.digest)},
+    plan:v.plan===null?null:(()=>{const p=object(v.plan);return {plan_id:text(p.plan_id),woken_at:maybeText(p.woken_at),consumed_by_run:maybeText(p.consumed_by_run)};})(),
+    events:list(v.events).map(x=>{const e=object(x);return {from_state:maybeText(e.from_state),to_state:text(e.to_state),code:text(e.code),
+      actor_kind:text(e.actor_kind),recorded_at:text(e.recorded_at)};})};
+}
+export const readRemediationEvidence=(id:string)=>get('/api/v1/workbench/remediations/'+encodeURIComponent(id),remediationEvidence);
 export const readRemediations=(state?:string)=>get('/api/v1/workbench/remediations'+(state?'?state='+encodeURIComponent(state):''),remediations);
 /** One customer's most recent governed Actions (orders, deliveries, queries), for the customer summary. */
 export const readConsumerActions=(consumerId:string,limit=5)=>get('/api/v1/workbench/actions?consumer_id='+consumerId+'&limit='+limit,actions);
