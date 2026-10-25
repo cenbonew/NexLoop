@@ -1,6 +1,6 @@
 import {useState,type ReactNode} from 'react';
 import {keepPreviousData,useQuery} from '@tanstack/react-query';
-import {INTENT_STATE_TEXT,readActions,readRemediations,type Dispatch,type Remediation} from '../api';
+import {INTENT_STATE_TEXT,readActions,readRemediationEvidence,readRemediations,type Dispatch,type Remediation} from '../api';
 import {RemediationResolveForm,RemediationRuleReleaseForm,RemediationSwitchForm,WithMember} from '../actions';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
@@ -45,6 +45,7 @@ export function Remediations(){
   const query=useQuery({queryKey:['workbench','remediations'],queryFn:()=>readRemediations()});
   if(query.isPending)return <section aria-label="补救"><h2>补救</h2><p role="status">正在读取…</p></section>;
   if(query.isError)return <section aria-label="补救"><h2>补救</h2><p className="note" role="status">补救暂不可读。</p></section>;
+  const [selected,setSelected]=useState<string|null>(null);
   const data=query.data;const open=data.remediations.filter(r=>r.state==='proposed'||r.state==='escalated');
   return <section aria-label="补救"><h2>补救</h2>
     <p className="workbench-summary" role="status">{data.paused?'补救已暂停：新的最终失败不会生成补救。':open.length?`待处理 ${open.length} 条：最终失败的 Action 需要人跟进。`:'当前没有待处理的补救。'}
@@ -54,11 +55,38 @@ export function Remediations(){
       {label:'失败原因',cell:(r:Remediation)=><StatusBadge domain="failure_reason" code={r.failure_kind}/>},{label:'失败时间',cell:(r:Remediation)=><Time value={r.failed_at}/>},
       {label:'方式',cell:(r:Remediation)=><StatusBadge domain="remediation_kind" code={r.kind}/>},{label:'状态',cell:(r:Remediation)=><StatusBadge domain="remediation_state" code={r.state}/>},
       {label:'客户',cell:(r:Remediation)=>r.consumer_id?<IdText kind="客户" value={r.consumer_id}/>:'—'},{label:'期限',cell:(r:Remediation)=><Time value={r.due_by}/>},
-      {label:'规则',cell:(r:Remediation)=><><code className="id-code">{r.rule_id}</code> <span className="kv-hint">v{r.rule_version}</span></>}]}/>
+      {label:'规则',cell:(r:Remediation)=><><code className="id-code">{r.rule_id}</code> <span className="kv-hint">v{r.rule_version}</span></>},
+      {label:'证据',cell:(r:Remediation)=><button type="button" className="link" aria-expanded={selected===r.remediation_id}
+        onClick={()=>setSelected(selected===r.remediation_id?null:r.remediation_id)}>{selected===r.remediation_id?'收起':'查看'}</button>}]}/>
       :<EmptyState kind="empty" subject="补救"/>}
+    {selected?<RemediationEvidencePanel id={selected}/>:null}
     {data.held_rules.length?<p className="note" role="status">熔断中的规则：{data.held_rules.map(h=><span key={h.rule_id}><code className="id-code">{h.rule_id}</code> <StatusBadge domain="remediation_hold" code={h.reason_code}/> </span>)}</p>:null}
     <WithMember>{member=><>{open.map(r=><RemediationResolveForm key={r.remediation_id} member={member} remediationId={r.remediation_id} kind={r.kind}/>)}
       {data.held_rules.map(h=><RemediationRuleReleaseForm key={h.rule_id} member={member} ruleId={h.rule_id}/>)}
       <RemediationSwitchForm member={member} paused={data.paused}/></>}</WithMember>
+  </section>;
+}
+
+/** NX-057 R4: the evidence chain of one remediation (design §10), ids, codes and times only; the reason a person gave is not shown. */
+export function RemediationEvidencePanel({id}:{id:string}){
+  const query=useQuery({queryKey:['workbench','remediation-evidence',id],queryFn:()=>readRemediationEvidence(id)});
+  if(query.isPending)return <section aria-label="补救证据"><p role="status">正在读取证据…</p></section>;
+  if(query.isError)return <section aria-label="补救证据"><p className="note" role="status">证据暂不可读。</p></section>;
+  const e=query.data;
+  return <section aria-label="补救证据" className="evidence-drawer"><h3>证据链</h3>
+    <ol>
+      <li>源意图 <IdText kind="意图" value={e.source_intent.intent_id}/> <code className="id-code">{e.source_intent.action_name}</code> v{e.source_intent.action_version}{' '}
+        <StatusBadge domain="intent_state" code={e.source_intent.state}/>{e.source_intent.consumer_id?<> 客户 <IdText kind="客户" value={e.source_intent.consumer_id}/></>:null}</li>
+      <li>最终失败 <StatusBadge domain="failure_reason" code={e.failure.reason_code}/> <Time value={e.failure.recorded_at}/>
+        {Object.entries(e.failure.evidence).map(([k,v])=><span key={k} className="kv-hint"> {k}: <code className="id-code">{v}</code></span>)}</li>
+      <li>动作认领 {e.claim?<>{e.claim.status==='permanent_failure'?'已终结为永久失败':e.claim.status??e.claim.state}{e.claim.finalized_at?<> <Time value={e.claim.finalized_at}/></>:null}</>:'没有认领（从未派发）'}</li>
+      <li>规则 <code className="id-code">{e.rule.rule_id}</code> v{e.rule.manifest_version} <span className="kv-hint">摘要 {e.rule.digest.slice(0,12)}…</span></li>
+      {e.plan?<li>唤醒计划 <IdText kind="计划" value={e.plan.plan_id}/>{e.plan.woken_at?<> <Time value={e.plan.woken_at}/></>:null}
+        {e.plan.consumed_by_run?<> 由 Run <code className="id-code">{e.plan.consumed_by_run}</code> 处理</>:' 尚未开 Run'}</li>:null}
+      {e.remediation.origin_remediation_id?<li>来源补救 <code className="id-code">{e.remediation.origin_remediation_id}</code>（补救 Run 提出的意图又失败，只升级）</li>:null}
+    </ol>
+    <h3>状态变化</h3>
+    <ol>{e.events.map((x,n)=><li key={n}><Time value={x.recorded_at}/> {x.from_state?<StatusBadge domain="remediation_state" code={x.from_state}/>:'—'} →{' '}
+      <StatusBadge domain="remediation_state" code={x.to_state}/> <code className="id-code">{x.code}</code> <span className="kv-hint">{x.actor_kind==='human'?'人':'服务'}</span></li>)}</ol>
   </section>;
 }

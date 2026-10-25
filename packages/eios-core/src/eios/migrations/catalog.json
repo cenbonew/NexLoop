@@ -1720,6 +1720,11 @@
       "version": "0344",
       "name": "0344_relation_derive_one.sql",
       "sha256": "24363b595acfeee529e3e0424892ec0692440840e76b95194a7fa8528b65642a"
+    },
+    {
+      "version": "0345",
+      "name": "0345_remediation_claims.sql",
+      "sha256": "dba4a1f98d936d3cb3e8b9def4f77e6b731a218c729dfc8c4701966e7590aef0"
     }
   ]
 }
