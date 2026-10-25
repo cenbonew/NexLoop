@@ -1,6 +1,7 @@
 import {useState,type ReactNode} from 'react';
 import {keepPreviousData,useQuery} from '@tanstack/react-query';
-import {INTENT_STATE_TEXT,readActions,type Dispatch} from '../api';
+import {INTENT_STATE_TEXT,readActions,readRemediations,type Dispatch,type Remediation} from '../api';
+import {RemediationResolveForm,RemediationRuleReleaseForm,RemediationSwitchForm,WithMember} from '../actions';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
 import {EmptyState,IdText} from '../kit';
@@ -34,5 +35,30 @@ export function Actions({actions}:{actions?:ReactNode}){
       :state?<EmptyState kind="filtered" subject={`“${INTENT_STATE_TEXT[state]??state}”的 Action`} next={<button type="button" className="link" onClick={()=>setState('')}>查看全部</button>}/>
       :<EmptyState kind="empty" subject="Action 意图"/>}
     {data.unknown.count?<Operations actions={actions}/>:null}
+    <Remediations/>
   </>}</Page>;
+}
+
+/** NX-057 R1: remediation intents of final failures (suggestions only). Read for every member; resolving and the switch are the
+ * owner's (offered only when the role carries them; the governed entry still decides). */
+export function Remediations(){
+  const query=useQuery({queryKey:['workbench','remediations'],queryFn:()=>readRemediations()});
+  if(query.isPending)return <section aria-label="补救"><h2>补救</h2><p role="status">正在读取…</p></section>;
+  if(query.isError)return <section aria-label="补救"><h2>补救</h2><p className="note" role="status">补救暂不可读。</p></section>;
+  const data=query.data;const open=data.remediations.filter(r=>r.state==='proposed'||r.state==='escalated');
+  return <section aria-label="补救"><h2>补救</h2>
+    <p className="workbench-summary" role="status">{data.paused?'补救已暂停：新的最终失败不会生成补救。':open.length?`待处理 ${open.length} 条：最终失败的 Action 需要人跟进。`:'当前没有待处理的补救。'}
+      {data.hidden?` 另有 ${data.hidden} 条因客户删除中未显示。`:''}{data.rate_capped.length?` 最近 24 小时有 ${data.rate_capped.reduce((n,x)=>n+x.over_count,0)} 次失败超过速率上限，已汇总升级。`:''}</p>
+    {data.remediations.length?<DataTable label="补救" rows={data.remediations} rowKey={(r:Remediation)=>r.remediation_id} columns={[
+      {label:'源 Action',main:true,cell:(r:Remediation)=><><code className="id-code">{r.source_action}</code> <span className="kv-hint">v{r.source_action_version}</span></>},
+      {label:'失败原因',cell:(r:Remediation)=><StatusBadge domain="failure_reason" code={r.failure_kind}/>},{label:'失败时间',cell:(r:Remediation)=><Time value={r.failed_at}/>},
+      {label:'方式',cell:(r:Remediation)=><StatusBadge domain="remediation_kind" code={r.kind}/>},{label:'状态',cell:(r:Remediation)=><StatusBadge domain="remediation_state" code={r.state}/>},
+      {label:'客户',cell:(r:Remediation)=>r.consumer_id?<IdText kind="客户" value={r.consumer_id}/>:'—'},{label:'期限',cell:(r:Remediation)=><Time value={r.due_by}/>},
+      {label:'规则',cell:(r:Remediation)=><><code className="id-code">{r.rule_id}</code> <span className="kv-hint">v{r.rule_version}</span></>}]}/>
+      :<EmptyState kind="empty" subject="补救"/>}
+    {data.held_rules.length?<p className="note" role="status">熔断中的规则：{data.held_rules.map(h=><span key={h.rule_id}><code className="id-code">{h.rule_id}</code> <StatusBadge domain="remediation_hold" code={h.reason_code}/> </span>)}</p>:null}
+    <WithMember>{member=><>{open.map(r=><RemediationResolveForm key={r.remediation_id} member={member} remediationId={r.remediation_id} kind={r.kind}/>)}
+      {data.held_rules.map(h=><RemediationRuleReleaseForm key={h.rule_id} member={member} ruleId={h.rule_id}/>)}
+      <RemediationSwitchForm member={member} paused={data.paused}/></>}</WithMember>
+  </section>;
 }

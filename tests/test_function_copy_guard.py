@@ -9,11 +9,13 @@ The S5 (clock) and S6c (role check) guards of their own test files check the sam
 Pure file reading: no database.
 """
 import json
+import re
 import shutil
 
 import pytest
 
 from support.copy_guard import Allowed, MIGRATIONS, check, migrations, normalize, redefinitions
+from support.remediation_r2_edits import EDITS as R2_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -200,6 +202,10 @@ REGISTRY = [
               "and i.world=p_world and i.created_at>now_at-interval '1 hour' and i.state in ('fulfilled','confirmed','unknown','failed') and not "
               "(i.state='failed' and exists(select 1 from runtime.nexloop_dispatch_refusals r where r.tenant_id=i.tenant_id and r.world=i.world "
               "and r.intent_id=i.intent_id)) group by 1),"))),
+    # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
+    *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in R2_EDITS.items()],
     # NX-042 T6 (D1): the twin's step text from the text layer (default deterministic template) instead of T3's fixed placeholder.
     Allowed('nx042_twin_text', 'authz.nexloop_twin_act', 'NX-042 T6: the step text from runtime.nexloop_twin_render_text and three text attributes; nothing else',
             ((r'v_result jsonb;v_text jsonb;', 'v_result jsonb;'),

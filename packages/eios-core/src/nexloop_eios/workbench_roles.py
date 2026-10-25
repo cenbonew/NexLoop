@@ -96,6 +96,9 @@ def validate_roles(value):
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
                   'eios:action:nexloop.context.strategy.publish:1',  # how Context is assembled is the owner's
+                  'eios:action:nexloop.remediation.resolve:1',  # NX-057 R1: resolving a remediation is the owner's
+                  'eios:action:nexloop.remediation.switch:1',  # NX-057 R1: and so is pausing or resuming remediation
+                  'eios:action:nexloop.remediation.rule_release:1',  # NX-057 R2: and releasing a held rule
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')

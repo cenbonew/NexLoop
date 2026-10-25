@@ -60,6 +60,10 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'revoke_contact_key':'contact_key.revoke',
     # 0210: the owner confirms an unknown effect did not happen (evidence and wait checked in SQL; nothing is sent).
     'confirm_effect_not_delivered':'service.confirm_not_delivered',
+    # NX-057 R1 (remediation_intents): the owner resolves an open remediation intent, and pauses or resumes the tenant's remediation.
+    'resolve_remediation':'remediation.resolve','switch_remediation':'remediation.switch',
+    # NX-057 R2 (remediation_wake): the owner releases a rule the breaker held.
+    'release_remediation_rule':'remediation.rule_release',
     # 0220 (ADR-034 first step): persona marking and the erasure of a synthetic Consumer (persona checked in SQL).
     'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic',
     # 0227 operator persona slice 1 (document, rules and settings checked in SQL).
@@ -334,6 +338,25 @@ class GoalGovernedActions:
             raise ValueError('intent, confirmation reference, reason, retention confirmation and reply follow-up required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'confirm_effect_not_delivered','intent_id':str(intent_id),
             'confirmation_ref':confirmation_ref,'reason':reason,'provider_retention_checked':provider_retention_checked,'reply_followup':reply_followup})
+
+    # NX-057 R1 (remediation_intents): owner only; the handler (SQL) checks the remediation is still open.
+    def resolve_remediation(self,*,action_name,action_version,request_id,remediation_id,outcome,reason):
+        if (not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(remediation_id)) or outcome not in ('handled','cancelled','wake')
+                or type(reason) is not str or not 1<=len(reason)<=500):
+            raise ValueError('remediation, outcome and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'resolve_remediation','remediation_id':str(remediation_id),
+            'outcome':outcome,'reason':reason})
+
+    # NX-057 R1 (remediation_intents): owner only; pausing takes effect at once, every change is a new revision.
+    def switch_remediation(self,*,action_name,action_version,request_id,paused,reason):
+        if type(paused) is not bool or type(reason) is not str or not 1<=len(reason)<=500:raise ValueError('paused and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'switch_remediation','paused':paused,'reason':reason})
+
+    # NX-057 R2 (remediation_wake): owner only; the handler ends the rule's active breaker hold.
+    def release_remediation_rule(self,*,action_name,action_version,request_id,rule_id,reason):
+        if type(rule_id) is not str or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',rule_id) or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('rule and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_remediation_rule','rule_id':rule_id,'reason':reason})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):

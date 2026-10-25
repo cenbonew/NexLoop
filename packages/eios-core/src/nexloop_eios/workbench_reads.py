@@ -30,6 +30,7 @@ VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKB
          'world_model': WORKBENCH_READ,
          'capabilities': WORKBENCH_READ, 'objects': WORKBENCH_READ, 'object_neighbors': WORKBENCH_READ, 'artifacts': WORKBENCH_READ,
          'object_fields': WORKBENCH_READ,
+         'remediations': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -390,6 +391,10 @@ class WorkbenchQueries:
 
     def takeovers(self):
         return self.reader.call('takeovers')
+
+    def remediations(self, *, state=None, limit=50):
+        # NX-057 R1 (remediation_intents): remediation intents for the Actions page; the Consumer only where the role derives READ.
+        return self.reader.call('remediations', limit=limit, **({'state': state} if state else {}))
 
     def me(self):
         # NX-028 page integration (0160): role and role Actions, for showing only the controls the role carries.

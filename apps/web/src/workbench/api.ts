@@ -240,6 +240,25 @@ export function actions(value:unknown):Actions{
     unknown:{count:count(u.count),oldest_age_seconds:u.oldest_age_seconds===null?null:count(u.oldest_age_seconds)}};
 }
 export const readActions=(state?:string)=>get('/api/v1/workbench/actions'+(state?'?state='+encodeURIComponent(state):''),actions);
+// ---- remediation intents (NX-057 R1, remediation_intents) ----
+export type Remediation={remediation_id:string;source_intent_id:string;source_action:string;source_action_version:number;consumer_id:string|null;
+  failure_kind:string;failed_at:string;rule_id:string;rule_version:number;kind:string;mode:string;state:string;due_by:string;attempts:number;
+  last_code:string|null;created_at:string;plan_id:string|null};
+export type HeldRule={rule_id:string;reason_code:string;observed:number;held_at:string};
+export type Remediations={remediations:Remediation[];hidden:number;paused:boolean;switch_revision:number;rate_capped:{hour:string;over_count:number}[];
+  held_rules:HeldRule[]};
+export function remediations(value:unknown):Remediations{
+  const v=object(value);
+  return {remediations:list(v.remediations).map(x=>{const o=object(x);
+    return {remediation_id:text(o.remediation_id),source_intent_id:text(o.source_intent_id),source_action:text(o.source_action),
+      source_action_version:count(o.source_action_version),consumer_id:maybeText(o.consumer_id),failure_kind:text(o.failure_kind),failed_at:text(o.failed_at),
+      rule_id:text(o.rule_id),rule_version:count(o.rule_version),kind:text(o.kind),mode:text(o.mode),state:text(o.state),due_by:text(o.due_by),
+      attempts:count(o.attempts),last_code:maybeText(o.last_code),created_at:text(o.created_at),plan_id:maybeText(o.plan_id)};}),
+    hidden:count(v.hidden),paused:flag(v.paused),switch_revision:count(v.switch_revision),
+    rate_capped:list(v.rate_capped).map(x=>{const o=object(x);return {hour:text(o.hour),over_count:count(o.over_count)};}),
+    held_rules:list(v.held_rules).map(x=>{const o=object(x);return {rule_id:text(o.rule_id),reason_code:text(o.reason_code),observed:count(o.observed),held_at:text(o.held_at)};})};
+}
+export const readRemediations=(state?:string)=>get('/api/v1/workbench/remediations'+(state?'?state='+encodeURIComponent(state):''),remediations);
 /** One customer's most recent governed Actions (orders, deliveries, queries), for the customer summary. */
 export const readConsumerActions=(consumerId:string,limit=5)=>get('/api/v1/workbench/actions?consumer_id='+consumerId+'&limit='+limit,actions);
 
@@ -410,6 +429,10 @@ export const OPERATION_ACTION={
   // NX-056 A5: an owner-started erasure, executed from the approvals page after approval (owner only). A hold release is not a
   // workbench operation: it is executed through the client it was requested from.
   erase_consumer:'eios:action:nexloop.consumer.erase:1',
+  // NX-057 R1 (remediation_intents): resolve an open remediation intent, and pause or resume the tenant's remediation (owner only).
+  resolve_remediation:'eios:action:nexloop.remediation.resolve:1',switch_remediation:'eios:action:nexloop.remediation.switch:1',
+  // NX-057 R2 (remediation_wake): release a rule the breaker held (owner only).
+  release_remediation_rule:'eios:action:nexloop.remediation.rule_release:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
