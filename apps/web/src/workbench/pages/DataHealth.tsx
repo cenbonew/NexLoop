@@ -7,14 +7,15 @@
  */
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {ageText,readDataHealth,type DataHealth as Health,type HealthStatus} from '../api';
+import {ageText,readDataHealth,type DataHealth as Health,type DeadLetterItem,type HealthStatus} from '../api';
 import {Page} from './Page';
 import {StatusBadge} from '../ui';
 import {Card as KitCard} from '../kit';
 import {when} from './Consumers';
+import {ExtractionDeadLetterForm,WithMember} from '../actions';
 
 export const REASON_TEXT:Record<string,string>={
-  dead_letters:'有提取任务进入死信',failed_jobs:'有提取任务失败',backlog_stale:'待提取消息等待超过 1 小时',failure_ratio_high:'24 小时提取失败率超过 20%',
+  dead_letters:'有未处理的提取死信',failed_jobs:'有提取任务失败',backlog_stale:'待提取消息等待超过 1 小时',failure_ratio_high:'24 小时提取失败率超过 20%',
   no_active_profile:'召回索引没有启用的 embedding profile',missing_embeddings:'有条目缺少 embedding，需要回填',profile_drift:'存在旧 profile 的向量（profile 漂移）',
   reflow_stale:'审核决定等待重流超过 1 小时',
   signature_rejections:'有商业事件因签名被拒',rejected_ratio_high:'24 小时商业事件拒收率超过 10%',outbox_backlog:'消息发件箱积压超过 50 条',
@@ -55,9 +56,10 @@ function Body({h}:{h:Health}){
     <div className="workbench-grid">
       <Card title="Claim 提取" s={x}>
         <Row k="待入队消息" v={x.feed_pending}/><Row k="最久等待" v={x.feed_pending?ageText(x.oldest_pending_seconds):'—'}/>
-        <Row k="死信" v={x.dead_lettered}/><Row k="24 小时失败率" v={x.finished_24h?`${percent(x.failure_ratio_24h)}（${x.failed_24h}/${x.finished_24h}）`:'—'}/>
+        <Row k="未处理死信" v={x.unresolved_dead_letters}/><Row k="死信总数" v={x.dead_lettered_total}/><Row k="24 小时失败率" v={x.finished_24h?`${percent(x.failure_ratio_24h)}（${x.failed_24h}/${x.finished_24h}）`:'—'}/>
         <Row k="队列" v={<Counts values={x.jobs} labels={JOB_TEXT}/>}/>
       </Card>
+      {x.dead_letter_items.length?<DeadLetters items={x.dead_letter_items} total={x.unresolved_dead_letters}/>:null}
       <Card title="召回索引与回填" s={r}>
         <Row k="启用的 profile" v={r.active_profile?<code>{r.active_profile}</code>:'未设置'}/><Row k="条目" v={r.entries}/>
         <Row k="缺少 embedding" v={r.missing_embeddings}/><Row k="覆盖率" v={percent(r.coverage_ratio)}/>
@@ -81,4 +83,17 @@ function Body({h}:{h:Health}){
       </Card>
     </div>
   </>;
+}
+
+/** 0355: the unresolved dead letters (ids and codes only, at most 20) with the owner's two choices; a dead letter fully covered by a
+ * later extraction of its conversation is not listed. */
+function DeadLetters({items,total}:{items:DeadLetterItem[];total:number}){
+  return <div className="health-card dead-letter-list"><KitCard title="未处理的提取死信" label="未处理的提取死信">
+    {total>items.length?<p className="note">共 {total} 条，显示最近 {items.length} 条。</p>:null}
+    <ul className="dead-letters">{items.map(d=><li key={d.task_id}>
+      <dl className="kv"><Row k="任务" v={<code className="id-code">{d.task_id}</code>}/><Row k="原因" v={d.code?<code>{d.code}</code>:'—'}/>
+        <Row k="尝试" v={`${d.attempts}/${d.max_attempts}`}/><Row k="消息数" v={d.message_count}/><Row k="已有 Claim" v={d.existing_claims}/><Row k="进入死信" v={when(d.dead_lettered_at)}/></dl>
+      <WithMember>{member=><ExtractionDeadLetterForm member={member} taskId={d.task_id} existingClaims={d.existing_claims}/>}</WithMember>
+    </li>)}</ul>
+  </KitCard></div>;
 }

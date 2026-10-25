@@ -1770,6 +1770,11 @@
       "version": "0354",
       "name": "0354_feed_backlog_due.sql",
       "sha256": "07d482029714b5d012196579ef3c2e3e2e54eb9813619d732f0cce4db3b04e29"
+    },
+    {
+      "version": "0355",
+      "name": "0355_extraction_dead_letter_resolve.sql",
+      "sha256": "dabc7b536c15fac00f9f29a1ffa8f7d7713c6f6d9b3a45c06923e8ba92dbd88a"
     }
   ]
 }

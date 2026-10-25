@@ -126,7 +126,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-058 slice D3: an owner's reset code and an owner invitation, each with another owner's approval (NX-056).
     'issue_workbench_owner_reset':'workbench_member.issue_owner_reset','invite_workbench_owner':'workbench_member.invite_owner',
     # NX-058 slice E: the staff offboarding erasure of a revoked member, with another owner's approval (NX-056).
-    'erase_workbench_member':'workbench_member.erase_member'}
+    'erase_workbench_member':'workbench_member.erase_member',
+    # Extraction dead letters (2026-10-26): requeue or dismiss one dead-lettered claim-extraction job (owner only).
+    'resolve_extraction_dead_letter':'claim_extraction.dead_letter_resolve'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -372,6 +374,14 @@ class GoalGovernedActions:
         if type(rule_id) is not str or not re.fullmatch(r'[a-z][a-z0-9_]{0,63}',rule_id) or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('rule and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'release_remediation_rule','rule_id':rule_id,'reason':reason})
+
+    # Extraction dead letters (0355): owner only; requeue puts the job's feed rows back as pending, dismiss records the reason only.
+    def resolve_extraction_dead_letter(self,*,action_name,action_version,request_id,task_id,disposition,reason):
+        if (type(task_id) is not str or not 1<=len(task_id)<=200 or disposition not in ('requeue','dismiss')
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('task, disposition and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'resolve_extraction_dead_letter','task_id':task_id,
+                                                        'disposition':disposition,'reason':reason})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):
