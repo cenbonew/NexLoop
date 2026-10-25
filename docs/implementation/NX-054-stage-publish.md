@@ -165,26 +165,32 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 
 按顺序执行；每一步的输出都存进 `$RUN`（DATA_HOST）或 `$BF`（APP_HOST）旁边的证据目录。**执行人与判定人分开写**。
 
-| 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 |
-| --- | --- | --- | --- | --- |
-| 0 | DATA_HOST | 调度员 | 只读确认迁移头：`select max(version) from <迁移记录表>` 不低于 0350；`ontology.nexloop_relation_derive_one` 存在；两个派生触发器都指向 `nexloop_relation_derive_each` 且启用 | 三项都成立 |
-| 1 | DATA_HOST | 调度员 | §0 准备 `$RUN`（`boot.dsn` 需要 bootstrap 口令：从负责人的 Keychain 经管道写入，口令不进命令行和日志） | 文件 0600，属主 999 |
-| 2 | DATA_HOST | 调度员 | §1 只读预检 → `precheck-before.json` | 退出码 0，`blocking` 为空 |
-| 3 | 负责人 Mac + DATA_HOST | **负责人**（sim 生成、合成顾客擦除要用负责人工作台的凭据）；调度员计时 | §2 空闲基线：sim N=200、擦除 perf-1、real p95 24 h | 数字记入证据 |
-| 4 | DATA_HOST | 调度员 | §3 发布：先 `--dry-run`，再正式发布（configurator 窗口经 bootstrap DSN 自动开关）；再跑一次预检 | `relation_types: 26`、`deriving: 26`；预检 `derivation_map_rows: 26` |
-| 5 | 负责人 Mac + DATA_HOST | **负责人** + 调度员 | §4 派生基线（新 world、perf-2、发布后 24 h），对照门槛 | 三项都在门槛内；超标就执行 §5 回退，P3 不开始 |
-| 6 | 管理机 | 调度员 | §7 第 1 步：`setup-credentials`，再 `register`（v20 只给 `relation_backfiller` 一条授权；register 是幂等的，其他主体 `changed: false`） | register 输出中 `grants_added` 为 1，`credentials_created` 只有这个主体 |
-| 7 | APP_HOST | 调度员 | §7 第 2 步：`BF=$(mktemp -d /dev/shm/nexloop-backfill.XXXXXX)`，放入凭据、DSN、证书、私钥、签名密钥的副本，DSN 中的证书路径指向 `$BF` | 文件全部 0600 |
-| 8 | APP_HOST | 调度员 | `relation_backfill.py ... preflight` | `blocking` 为空；`digest` 记下 |
-| 9 | APP_HOST | 调度员 | `... start --run-id p3-1`，然后 `... run --run-id p3-1 --max-batches 1` | 一行 `event=batch`：`elapsed_ms` < 300、`waiters` 为 0；不满足就停下，把这一行交给 L5 校准 |
-| 10 | APP_HOST | 调度员 | `... run --run-id p3-1`（前台；中途可以 Ctrl-C，退出码 3，再执行同一命令继续） | 最后一行 `event=complete`、`completed: true`；运行期间对照 0323 的写请求 p95（自动暂停暂不看 p95） |
-| 11 | APP_HOST | 调度员 | `... verify` | 每一行 `a == b`、`extra == 0`，`skipped_remaining == 0`；悬空和擦除中的数量照实记录 |
-| 12 | APP_HOST | 调度员 | revert 演练：`... revert --run-id p3-1`，再 `verify` | 状态 `reverted`；`b` 回到回填前的值（只剩派生出的关系） |
-| 13 | APP_HOST | 调度员 | 正式回填：`... start --run-id p3-2`、`... run --run-id p3-2`、`... verify` | 同第 11 步 |
-| 14 | APP_HOST、管理机 | 调度员 | 收尾：`rm -rf -- "$BF"`；L5 准备 service-grants v21（去掉 `relation_backfiller`），合入后 register 撤销 | `$BF` 不存在；register 输出 `grants_revoked` 为 1 |
+| 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 | 不通过或要撤回时 |
+| --- | --- | --- | --- | --- | --- |
+| 0 | DATA_HOST | 调度员 | 只读确认迁移头：`select max(version) from <迁移记录表>` 不低于 0350；`ontology.nexloop_relation_derive_one` 存在；两个派生触发器都指向 `nexloop_relation_derive_each` 且启用 | 三项都成立 | 停止，报 L5（不需要回退，什么都没改） |
+| 1 | DATA_HOST | 调度员 | §0 准备 `$RUN`（`boot.dsn` 需要 bootstrap 口令：从负责人的 Keychain 经管道写入，口令不进命令行和日志） | 文件 0600，属主 999 | 删除 `$RUN` |
+| 2 | DATA_HOST | 调度员 | §1 只读预检 → `precheck-before.json` | 退出码 0，`blocking` 为空 | 按 `blocking` 处理后重跑（只读，无需回退） |
+| 3 | CI 主机（负责人工作台会话）+ DATA_HOST | **负责人**（sim 生成、合成顾客擦除要用负责人工作台的凭据）；调度员计时 | §2 空闲基线：sim N=200、擦除 perf-1、real p95 24 h | 数字记入证据 | 只是测量；sim world 用完由 `sim_world.py` 删除 |
+| 4a | DATA_HOST | 调度员 | **备份**：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，再 `systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不发布；查备份失败的原因 |
+| 4 | DATA_HOST | 调度员 | §3 发布：先 `--dry-run`，再正式发布（configurator 窗口经 bootstrap DSN 自动开关）；再跑一次预检 | `relation_types: 26`、`deriving: 26`；预检 `derivation_map_rows: 26` | §5 回退：`--stop-derivation --from-version 1`（版本 2，停止派生） |
+| 5 | CI 主机（负责人工作台会话）+ DATA_HOST | **负责人** + 调度员 | §4 派生基线（新 world、perf-2、发布后 24 h），对照门槛 | 三项都在门槛内 | 超标：执行 §5 回退，P3 不开始 |
+| 6 | 管理机 | 调度员 | §7 第 1 步：`setup-credentials`，再 `register`（v20 只给 `relation_backfiller` 一条授权；register 是幂等的，其他主体 `changed: false`） | register 输出中 `grants_added` 为 1，`credentials_created` 只有这个主体 | 撤回授权：service-grants v21 去掉这个主体后再 register（L5 准备） |
+| 7 | APP_HOST | 调度员 | §7 第 2 步：`BF=$(mktemp -d /dev/shm/nexloop-backfill.XXXXXX)`，放入凭据、DSN、证书、私钥、签名密钥的副本，DSN 中的证书路径指向 `$BF` | 文件全部 0600 | `rm -rf -- "$BF"` |
+| 8 | APP_HOST | 调度员 | `relation_backfill.py ... preflight` | `blocking` 为空；`digest` 记下 | 只读；按 `blocking` 处理 |
+| 9a | DATA_HOST | 调度员 | **备份**：同 4a | `Result=success`、`ExecMainStatus=0` | 不开始回填 |
+| 9 | APP_HOST | 调度员 | `... start --run-id p3-1`，然后 `... run --run-id p3-1 --max-batches 1` | 一行 `event=batch`：`elapsed_ms` < 300、`waiters` 为 0；不满足就停下，把这一行交给 L5 校准 | `... abort --run-id p3-1`，再 `... revert --run-id p3-1` |
+| 10 | APP_HOST | 调度员 | `... run --run-id p3-1`（前台；中途可以 Ctrl-C，退出码 3，再执行同一命令继续） | 最后一行 `event=complete`、`completed: true`；运行期间对照 0323 的写请求 p95（自动暂停暂不看 p95） | 见下面的中止条件；`abort` 后 `revert` |
+| 11 | APP_HOST | 调度员 | `... verify` | 每一行 `a == b`、`extra == 0`，`skipped_remaining == 0`；悬空和擦除中的数量照实记录 | 不平：不进入第 13 步，`revert`，把 verify 输出交给 L5 |
+| 12 | APP_HOST | 调度员 | revert 演练：`... revert --run-id p3-1`，再 `verify` | 状态 `reverted`；`b` 回到回填前的值（只剩派生出的关系）。如果回填之后有 sim world 被清除，revert 输出的 `deleted` 会小于 created 的行数，差额就是随 world 一起删除的关系（设计稿 §3.1 的 B-1），不是错误 | 重跑 `revert`（幂等）；仍不到 `reverted` 就停下报 L5 |
+| 13 | APP_HOST | 调度员 | 正式回填：`... start --run-id p3-2`、`... run --run-id p3-2`、`... verify` | 同第 11 步 | 同第 10、11 步 |
+| 14 | APP_HOST、管理机 | 调度员 | 收尾：`rm -rf -- "$BF"`；L5 准备 service-grants v21（去掉 `relation_backfiller`），合入后 register 撤销 | `$BF` 不存在；register 输出 `grants_revoked` 为 1 | — |
 
-- **必须由负责人执行的**：第 3、5 步中用到负责人工作台凭据的操作（sim 生成、合成顾客的标记与擦除）。其余步骤按 2026-10-21 的口径由调度员执行（dev/test 环境、没有真实用户）。
+- **必须由负责人执行的**：第 3、5 步中用到负责人工作台凭据的操作（在 CI 主机上的负责人工作台会话中：sim 生成、合成顾客的标记与擦除）。其余步骤按 2026-10-21 的口径由调度员执行（dev/test 环境、没有真实用户）。
 - **前置条件**：release 45/46 已上线（含 0344、0349、0350 与 `relation_backfill.py`）；第 5 步通过；第 6 步的 register 之后，`relation_backfiller` 的凭据有效。
-- **中止**：任何一步不满足通过条件就停下。回填运行中想停止：`... abort --run-id <run>`（终态，之后 revert 或开新运行）。
+- **中止**：任何一步不满足通过条件就停下。回填运行中想停止：`... abort --run-id <run>`（终态，之后 revert 或开新运行）。回填运行中出现下列任一情况也要中止（Ctrl-C，然后 abort）：
+  - 连续 5 批的 `waiters` 大于 3，或者 runner 输出 `event=paused` 持续超过 10 分钟；
+  - 同一个 cursor 上 `event=retry` 的 55P03 / 40001 / 40P01 累计超过 20 次（说明与 real 写入或擦除持续冲突）；
+  - 出现 `code=connection` 的重试 5 次之后 runner 退出（结果不明的批已经按意图 id 对账，重新 `run` 前先看 `status`）；
+  - 0323 的写请求 p95 比回填前高出 25% 以上，或者超过 500 ms。
 - **运行容器**：第 8–13 步在 APP_HOST 上用发布镜像执行（与服务相同的镜像、只读根文件系统、`--user` 非 root、`--cap-drop ALL`），网络与 domain worker 服务相同（它要经 TLS 连 DATA_HOST 的 PostgreSQL）；`$BF` 只读挂载。
 
