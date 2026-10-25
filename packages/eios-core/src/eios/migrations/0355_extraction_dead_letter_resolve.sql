@@ -68,12 +68,16 @@ begin
    and i.event_id=coalesce(j.normalized_input->>'conversation_id','')||':'||coalesce(j.normalized_input->>'through_sequence','')||':requeue:'||j.job_id;
   return jsonb_build_object('task_id',j.job_id,'disposition',prior.disposition,'requeued_feed_rows',prior.requeued_feed_rows,'requeued_task_id',jid,'replayed',true);
  end if;
- select count(*) into existing from ontology.nexloop_claims c where c.tenant_id=p_tenant
+ select count(*) into existing from ontology.nexloop_claims c where c.tenant_id=p_tenant and c.world=p_world
   and c.source_message_id in (select jsonb_array_elements_text(coalesce(j.normalized_input->'message_ids','[]'::jsonb)));
  if body->>'disposition'='requeue' then
   if jsonb_typeof(j.normalized_input->'message_ids') is distinct from 'array' or jsonb_array_length(j.normalized_input->'message_ids')=0
    or j.normalized_input->>'conversation_id' is null then raise exception 'extraction dead letter: no_window' using errcode='22023';end if;
   -- A new job of the same window under its own inbox event (as the queue's accept writes one, 0276), in this transaction.
+  -- payload_digest / input_digest: accept (0276) hashes the whole signed command text, which this handler has no copy of (no signed
+  -- command reaches it); here they hash normalized_input. Not unified on purpose, and idempotency is unaffected: the digest is only
+  -- compared when accept meets an existing event id, and the ':requeue:<job id>' event ids are written only here (the scheduler's are
+  -- '<conversation>:<through>'), once per dead letter under the disposition's primary key; a replayed decision returns before this.
   ev:=(j.normalized_input->>'conversation_id')||':'||coalesce(j.normalized_input->>'through_sequence','')||':requeue:'||j.job_id;
   jid:='task_'||pg_catalog.gen_random_uuid()::text;iid:='inv_'||pg_catalog.gen_random_uuid()::text;ts:=clock_timestamp();
   insert into runtime.invocations(invocation_id,tenant_id,capability_name,capability_version,actor_id,trace_id,request_id,correlation_id,input_digest,status,job_id,created_at,updated_at)
@@ -110,7 +114,7 @@ begin
  with dead as (
   select j.job_id,j.attempts,j.max_attempts,j.result->>'code' code,j.normalized_input->>'conversation_id' conversation_id,
    jsonb_array_length(coalesce(j.normalized_input->'message_ids','[]'::jsonb)) message_count,j.created_at,j.updated_at,
-   (select count(*) from ontology.nexloop_claims c where c.tenant_id=j.tenant_id
+   (select count(*) from ontology.nexloop_claims c where c.tenant_id=j.tenant_id and c.world=j.world
      and c.source_message_id in (select jsonb_array_elements_text(coalesce(j.normalized_input->'message_ids','[]'::jsonb)))) existing_claims
   from runtime.jobs j where j.tenant_id=p_tenant and j.world=p_world and j.queue='claim-extraction' and j.status='dead_lettered'
    and not exists(select 1 from runtime.nexloop_claim_extraction_dispositions d where d.tenant_id=j.tenant_id and d.world=j.world and d.job_id=j.job_id)
