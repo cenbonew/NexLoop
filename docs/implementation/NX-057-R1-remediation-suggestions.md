@@ -150,18 +150,20 @@
 ## 上线说明（L6 对 R2 复核的建议）
 
 - 开关关闭期间发生的最终失败会**永久**记为 `switch_closed`，开关打开后也不补生成。打开开关之前的失败不会有补救，这是有意的（M-5）。
-- 规则文件 `deploy/configuration/remediation-rules.v1.json` 不会自动生效，要由 configurator 手动 apply：
+- 规则文件 `deploy/configuration/remediation-rules.v1.json` 不会自动生效，要由 configurator 手动发布。stage 上用配置员窗口（G1，`docs/release/run-nx057-remediation-stage.md` §3）：
 
   ```
-  python -m nexloop_eios.remediation rules --manifest deploy/configuration/remediation-rules.v1.json --tenant <租户> --apply --database-url-file <configurator DSN 文件>
+  python3 scripts/deploy/remediation_rules_apply.py --manifest deploy/configuration/remediation-rules.v1.json --tenant <租户> --expected-revision 0 --bootstrap-dsn-file <bootstrap socket DSN 文件>
   ```
+
+  已有 configurator DSN 文件时，也可以用 `python -m nexloop_eios.remediation rules --manifest … --tenant <租户> --apply --expected-revision 0 --database-url-file <configurator DSN 文件>`。两者都按文件原文发布，库里记录文件的 sha256 和 expected_revision（迁移 `remediation_rule_publications`）。
 
   它要求本租户已经发布效应类别 v3（`nexloop.enterprise.deliver:1` 声明为外部效应），否则会以 `source_not_effect` 拒绝。
-- 部署层 `REMEDIATION_ENABLED` 默认关闭（Q-7），由调度员在组批时接入 compose。
+- 部署层 `REMEDIATION_ENABLED` 默认关闭（Q-7）。G2 已把它接入 compose：只给 `plan-reevaluator`，私有 compose env 中默认 `false`。
 
 ## 没有做的（有意留给后续）
 
-- **部署层开关还没有接入 compose**：`REMEDIATION_ENABLED` 默认关闭，在 stage 上打开属于部署配置变更，按流程由调度员接入。在那之前，规划器把每条失败都记为 `switch_closed`。
+- **部署层开关**：G2（分支 `l7/nx057-g1-g2`）之前没有接入 compose。现在已接入，默认关闭；在 stage 上打开按执行单 `docs/release/run-nx057-remediation-stage.md` §4。关闭期间，规划器把每条失败都记为 `switch_closed`。
 - **熔断与 `remediation.rule_release`**：属于 R2。
 - **规划器在每次推进状态之前重读开关**：设计稿 §9.4 要求的这一点，R1 只在每轮开始时读取一次。R1 的每次推进都发生在同一个事务里，这个事务就是一轮，所以没有区别；R2 有了跨事务的唤醒之后要补上。
 

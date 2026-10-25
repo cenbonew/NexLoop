@@ -1750,6 +1750,11 @@
       "version": "0350",
       "name": "0350_relation_backfill_port.sql",
       "sha256": "a553b47367dfbc27e8f854de92674dbf0bfc6e79fd52d604997d035a7690f82a"
+    },
+    {
+      "version": "0351",
+      "name": "0351_remediation_rule_publications.sql",
+      "sha256": "9eee88a1fd699b96c2502ad73c3d394a6559e7de3abc8c8161a53c8172d666ec"
     }
   ]
 }
