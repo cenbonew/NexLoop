@@ -1,6 +1,6 @@
 # 设计增补｜NX-058 片 E：员工离职擦除
 
-第 2.4 版，2026-10-25，L2（I-E4、I-E5 与 S-E5～S-E8 已处理；E1 已定为 A；按 ADR-039 R3 §8，L3 b1661a7d，同步目标状态、erased 判定与冻结体改写）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
+第 2.5 版，2026-10-26，L2（§2.5 按登录事件盘点结果改写，待 E6；I-E4、I-E5 与 S-E5～S-E8 已处理；E1 已定为 A；按 ADR-039 R3 §8，L3 b1661a7d，同步目标状态、erased 判定与冻结体改写）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
 
 负责人 Q-A 定为「A+90天」：员工离职擦除纳入 v0.2，作为 NX-058 片 E，排在片 D 之后。上位设计是 `docs/design/account-self-service.md` 第 7 版 §4（S3 擦除传播），审批接法照片 D 设计（`docs/design/nx058-owner-actions.md` v2.8），目标展示照 ADR-039 R1 §6（本稿需要修订 §6.1 与 §6.5，见 §5）。实现等片 D 合入 main 后开始，迁移用临时编号。
 
@@ -65,12 +65,27 @@ handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 →
 - 冻结体改写按 R3 §8.7：只改 `invite_owner` 请求体中的 `username` 这一个字符串，在本事务开启的擦除作用域内、经 owner 函数，由片 E 迁移重定义请求表守护并登记 copy guard。
 - 测试：邀请记录在擦除前已不存在时，冻结体仍被假名化（I-E3）。
 
-### 2.5 登录事件的两项摘要（保留 90 天，I4）
+### 2.5 登录事件（片 E2；第 2.5 版按盘点结果改写，待确认 E6）
 
-- **只清两类键**：`control.nexloop_browser_login_events.details` 中的来源摘要与用户名摘要。**不碰** `result_snapshot`（0023:62 失败回执重放读它）和 `account_id`（0198:33-35、0334 判定请求冲突读它）。实现前逐条盘点 0023、0024、0050、0162、0198、0334 与工作台 HTTP 写入的键和嵌套路径（摘要若嵌在 `result_snapshot` 内，只置空该嵌套键，结构与其余字段保留），盘点结果写进实现说明。
-- **接线**：保留期是签名命令通道。新增 verb `clear_member_login_digests`（`authz.nexloop_retention_command`，0328:76-77 的当前定义上扩展，copy guard 与 definer 检查登记）；`RetentionPort` 新方法；`RetentionKeeper.run_once` 新步骤与 summary 键 `member_login_digests_cleared`；失败只计数、不中断本轮（A3 惯例）。
-- **到期与幂等**：以擦除台账（§2.3）的 `erased_at` 为准；到期条件 `erased_at + 90 days <= now`。清除结果写入**另一张只追加表** `control.nexloop_workbench_member_login_clearances`（subject、清除时间、行数），以“已有清除记录”判定幂等，不更新擦除台账（解决“只追加”与事后写入的矛盾）。每轮批量上限，按 subject 用 `for update skip locked` 处理，与擦除并发时不漏行。
-- 测试：未到 90 天不清；到期只清两类键；`result_snapshot` 与 `account_id` 不变；清除后重放旧的失败回执和 0198 请求仍返回原结果。
+**盘点结果（2026-10-26，0022、0023、0024、0050、0162、0198、0334 及工作台 HTTP 的全部写入）**：`control.nexloop_browser_login_events.details` 里**没有**来源摘要或用户名摘要。设计前几版的前提不成立。实际情况：
+
+| 事件 | details 的键 | 可识别个人的内容 |
+|---|---|---|
+| `local_authentication` / failure（0022） | failed_attempts、lockout_level | 无 |
+| `local_authentication` / failure（0023） | failed_attempts、lockout_level、account_id、account_revision、**result_snapshot** | `result_snapshot` 是当时整份账号 payload，含**明文** `username` 与 `verified_email` |
+| `local_password_state` / saved（0024） | account_id、account_revision、rehash | 无 |
+| `initial_identity` / created（0050、0162） | account_id、principal_id、operator_label、business_grant_created | 无（operator_label 是运维标签） |
+| `operator_password_reset`（0198、0334） | account_id、application_id、account_revision、session_epoch、operator_label | 无 |
+| `owner_issued_password_reset`（0333）、`invitation_accepted`（0335） | reset_id / invitation_id、account_id、…、same_source_as_issuer（布尔） | 无 |
+
+来源摘要只存在于邀请与重置码的 `issuer_source`、`acceptor_source`、`completer_source` 列，片 E1 擦除时已经删除或清空（§2.2），不在登录事件里。
+
+**需要确认（E6）**：负责人“90 天后清除”的对象，按实际应理解为失败登录事件 `result_snapshot` 里的明文用户名与邮箱。两种做法：
+
+- **A（建议）：90 天后假名化**。保留期服务新增 verb `clear_member_login_details`：对擦除满 90 天、尚无清除记录的 subject，把它的失败登录事件 `result_snapshot` 中的 `username`、`verified_email` 两个字符串改为账号上的同一 `erased-` 假名（结构和其余键不变；`account_id`、`account_revision` 不动）。0023 的回执比对（:62-66）对这些事件随之不再命中，只影响 90 天前同一 request_id 的重放，客户端的重试窗口早已过去。清除记录写入只追加的 `control.nexloop_workbench_member_login_clearances`（subject、时间、行数），以它判定幂等。接线照 I4：`authz.nexloop_retention_command` 加 verb，`RetentionPort` 方法，`RetentionKeeper.run_once` 步骤和 summary 键，失败只计数；按 subject `for update skip locked`、每轮上限。
+- **B：擦除时立即假名化**，不接保留期服务。理由：调查需要的 subject、时间、结果都保留，明文用户名对调查不是必需。但这与负责人“保留 90 天”的原话不一致。
+
+两种做法都**不**动 `result_snapshot` 以外的键。实现等 E6 确认后进行；片 E1 已经让账号、会话、邀请、重置码在擦除当时生效，与此无关。
 
 ### 2.6 受治理命令日志与全库兜底（S3）
 
