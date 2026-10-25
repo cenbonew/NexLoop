@@ -1725,6 +1725,16 @@
       "version": "0345",
       "name": "0345_remediation_claims.sql",
       "sha256": "dba4a1f98d936d3cb3e8b9def4f77e6b731a218c729dfc8c4701966e7590aef0"
+    },
+    {
+      "version": "0346",
+      "name": "0346_owner_member_actions.sql",
+      "sha256": "ce9240af5818722885e20fcc06c69d81ad398ba2433d4ca7f5ff1f48196baf20"
+    },
+    {
+      "version": "0347",
+      "name": "0347_nx056_execution_fields.sql",
+      "sha256": "6bd3625d2e6ec6a365b434f1a411af2c30c275579637d2e413053e8384087e64"
     }
   ]
 }

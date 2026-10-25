@@ -164,6 +164,14 @@ REGISTRY = [
     # 0341 (NX-058 slice C review I-2): the workbench member lock is NX-056's tenant approval lock.
     Allowed('governed_authority_change', 'control.nexloop_workbench_member_lock', 'the tenant approval lock of NX-056 instead of its own key; nothing else',
             ((r"select control\.nexloop_approval_tenant_lock\(p_tenant\)", "select pg_advisory_xact_lock(hashtextextended('nexloop-approval-eligibility:'||p_tenant,0))"),)),
+    # owner_member_actions (NX-058 slice D2): approval_open checks the body's operation against the capability's registered one (L6 review
+    # of B1); demote_owner's policy may show new_role.
+    Allowed('owner_member_actions', 'control.nexloop_approval_open', "the body's operation is the capability's registered operation; a suspended target opens too; nothing else",
+            ((r"\s*-- only an invited, active or suspended member[^\n]*\n\s*--[^\n]*\n\s*and \(m\.payload->>'status' in \('invited','active'\) or \(m\.payload->>'status'='suspended' and p_capability<>'workbench_member\.promote_owner'\)\)\) then",
+              "\n   and m.payload->>'status' in ('invited','active')) then  -- only an invited or active member (L6 review 9)"),
+             (r"\s*-- NX-058 slice D \(L6 review of B1\)[^\n]*\n\s*if p_body->>'operation' is distinct from \(select c\.operation from control\.nexloop_governed_capabilities c where c\.capability=p_capability\) then\n\s*raise exception 'approval: operation_mismatch' using errcode='22023';end if;", ''),)),
+    Allowed('owner_member_actions', 'control.nexloop_approval_summary_allowed', 'demote_owner shows new_role; nothing else',
+            ((r"\s*when 'workbench_member\.demote_owner' then array\['new_role'\][^\n]*", ''),)),
     # vote_cooldown (NX-058 slice D §2, ADR-039 R1 §6.7): an approver's vote counts 24 hours after its current holding of an approver role began.
     Allowed('vote_cooldown', 'control.nexloop_approval_approver_eligible', 'the 24-hour vote cooldown from the role history; nothing else',
             ((r"\s*and coalesce\(control\.nexloop_workbench_vote_eligible_from\(p_tenant,'real',control\.nexloop_approval_subject_of\(p_tenant,p_principal\),p_roles\)<=clock_timestamp\(\),false\)", ''),)),
@@ -416,6 +424,29 @@ REGISTRY = [
              (r",\n    'target_member',runtime\.nexloop_approval_target_member\(p_tenant,r,pol,p_principal\)\) v,", ") v,"))),
     Allowed('nx056_target_member', 'runtime.nexloop_approval_metrics', 'first_time_approvers_24h and same_person_flags_24h',
             ((r"\n -- ADR-039 §6\.6 \(R1, B1\).*?'same_person_flags_24h',\(select count\(\*\) from runtime\.audit_events a where a\.tenant_id=p_tenant and a\.action='approval\.same_person_flagged'\n    and a\.created_at>clock_timestamp\(\)-interval '24 hours'\)\);", ""),)),
+    # NX-056 B2 (ADR-039 §7): execution-time fields out of the digest and the frozen body; open-time quorum_unreachable; the reserved
+    # erase_member branch; requester_no_longer_eligible; execution refusal codes.
+    Allowed('nx056_execution_fields', 'control.nexloop_approval_digest', 'execution-time fields are not part of the digest',
+            ((r"-control\.nexloop_approval_execution_fields_of\(p_capability\)\)", ")"),),
+            (('volatility', 'immutable', 'stable'), ('security_definer', False, True))),
+    Allowed('nx056_execution_fields', 'control.nexloop_approval_policy_guard', 'an execution-time field is never a summary, target or condition',
+            ((r"\n if control\.nexloop_approval_execution_fields_of\(new\.capability\)&&.*?using errcode='22023';end if;", ""),)),
+    Allowed('nx056_execution_fields', 'control.nexloop_approval_open', 'target statuses per capability, execution field check, quorum_unreachable at open, frozen body without execution-time fields',
+            ((r";v_target text;v_from timestamptz\[\];", ";"),
+             (r"and m\.payload->>'status'=any\(control\.nexloop_approval_target_statuses_of\(p_capability\)\)\) then",
+              "and (m.payload->>'status' in ('invited','active') or (m.payload->>'status'='suspended' and p_capability<>'workbench_member.promote_owner'))) then"),
+             (r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;", ""),
+             (r"\n if pol\.target_subject_field is not null or pol\.solo_mode='not_applicable' then.*?\n  end if;\n end if;", ""),
+             (r"p_body-control\.nexloop_approval_execution_fields_of\(p_capability\),", "p_body,"))),
+    Allowed('nx056_execution_fields', 'control.nexloop_approval_gate', 'the execution-time HMACs checked before the handler',
+            ((r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;\n return jsonb_build_object\('proceed',true", "\n return jsonb_build_object('proceed',true"),)),
+    Allowed('nx056_execution_fields', 'control.nexloop_approval_terminate', 'one more reason, requester_no_longer_eligible',
+            ((r",'requester_no_longer_eligible'\)", ")"),)),
+    Allowed('nx056_execution_fields', 'authz.nexloop_goal_governed_action', 'the handler\'s refusal code in the consumption result',
+            ((r";v_reason text;", ";"),
+             (r"\n   v_reason:=substring\(sqlerrm from '.*?'\);", ""),
+             (r"\|\|coalesce\(':'\|\|v_reason,''\);", ";"),
+             (r",'reason',v_reason\);", ");"))),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
