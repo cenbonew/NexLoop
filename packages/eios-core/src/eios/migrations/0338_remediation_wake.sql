@@ -27,7 +27,7 @@ alter table runtime.nexloop_remediation_scans drop constraint nexloop_remediatio
 alter table runtime.nexloop_remediation_scans add constraint nexloop_remediation_scans_decision_check
  check(decision in ('generated','no_rule','not_eligible','not_real','not_failed','bound_reply','rate_capped','switch_closed','rule_held'));
 create table control.nexloop_remediation_rule_holds (
- hold_id uuid primary key default gen_random_uuid(),tenant_id text not null,world text not null,
+ hold_id uuid primary key default gen_random_uuid(),tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,
  rule_id text not null check(rule_id~'^[a-z][a-z0-9_]{0,63}$'),reason_code text not null check(reason_code in ('origin_failures','chain_capped')),
  observed integer not null check(observed>=1),held_at timestamptz not null default clock_timestamp(),
  released_at timestamptz,released_by text,release_reason text check(release_reason is null or length(release_reason) between 1 and 500),

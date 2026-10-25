@@ -1684,12 +1684,12 @@
     {
       "version": "0337",
       "name": "0337_remediation_intents.sql",
-      "sha256": "1f01f08c6cee37541a271fd8f1da13baf4be0b04f43427e792a367a28d6024f5"
+      "sha256": "1347d2fcf0096af58fcb7217122602aa922dd6c7b318bffe985f62f8bc1ff749"
     },
     {
       "version": "0338",
       "name": "0338_remediation_wake.sql",
-      "sha256": "06fc43e0ed0d862d67308ebdbb6758b792e604af4dad6d3843e694541fdf60d5"
+      "sha256": "81583dd0403d086c97928903e048c64512580468a04e24f28ac533a21368da19"
     }
   ]
 }
