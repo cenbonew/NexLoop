@@ -20,6 +20,7 @@ import {DataAssets} from './pages/DataAssets';
 import {DataHealth} from './pages/DataHealth';
 import {Approvals} from './pages/Approvals';
 import {Members} from './pages/Members';
+import {ACCOUNT_PATHS,AccountSecurity,InvitationPage,ResetNotice,ResetPage} from './AccountPages';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
@@ -33,7 +34,8 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
     <form onSubmit={submit}><div className="field"><label htmlFor="wb-username">账号</label><input id="wb-username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     <div className="field"><label htmlFor="wb-password">密码</label><input id="wb-password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     {mutation.isError?<p className="error" role="alert">{kindOf(mutation.error)==='unauthenticated'?'账号或密码不正确。':STATE_TEXT[kindOf(mutation.error)]}</p>:null}
-    <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form></section>;
+    <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form>
+    <p className="note">忘记口令？请 owner 为你签发重置码，然后<a href="/workbench/reset">用重置码设置新口令</a>。</p></section>;
 }
 
 /** What the shown object belongs to (F10): a detail page names its customer so the breadcrumb can lead back to that customer. */
@@ -58,6 +60,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'contact':return <Contact actions={a}/>;
     case 'approvals':return <Approvals/>;
     case 'members':return <Members/>;
+    case 'account':return <AccountSecurity/>;
     case 'personas':return <Personas actions={a}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
@@ -80,7 +83,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','members','personas','capabilities','experiments']}];
+  {title:'管理',pages:['settings','members','account','personas','capabilities','experiments']}];
 const NOT_ENABLED:PageKey[]=['experiments'];
 /** Pages with sub-entries in the sidebar: the world model's concept pages (WORLD_SECTIONS, in EIOS order). */
 export const NAV_CHILDREN:Partial<Record<PageKey,{label:string;route:Route}[]>>={
@@ -125,7 +128,9 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   }
   const logout=useMutation({mutationFn:workbenchLogout,onSettled:()=>{cache.removeQueries({queryKey:['workbench']});void session.refetch();}});
   return <div className="shell workbench"><header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span><span className="brand-tz">时间均为北京时间</span></header><main>
-    {session.isPending?<p role="status">{STATE_TEXT.loading}</p>
+    {/* NX-058: the public account pages need no session (the invitation token or reset code is the credential). */}
+    {window.location.pathname===ACCOUNT_PATHS.invitation?<InvitationPage/>:window.location.pathname===ACCOUNT_PATHS.reset?<ResetPage/>
+      :session.isPending?<p role="status">{STATE_TEXT.loading}</p>
       :session.isError?<section><h1>暂时无法连接</h1><p role="alert">{STATE_TEXT[kindOf(session.error)]}</p><button type="button" onClick={()=>void session.refetch()}>重试</button></section>
       :!session.data?<WorkbenchLogin onLogin={()=>void session.refetch()}/>
       :<div className="workbench-layout">
@@ -145,6 +150,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
             :link}</li>;})}</ul></div>)}
           <button type="button" onClick={()=>logout.mutate()} disabled={logout.isPending}>退出</button></nav>
         <div className="workbench-main">
+          <ResetNotice notices={session.data.reset_notices}/>
           {crumbs(route,context).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route,context).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
             onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
           <WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></div>

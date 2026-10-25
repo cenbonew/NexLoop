@@ -8,7 +8,8 @@ export type FailureKind='unauthenticated'|'forbidden'|'not_found'|'invalid_reque
 export class WorkbenchError extends Error{constructor(readonly kind:FailureKind){super(kind);}}
 export type SectionStatus='ok'|'forbidden'|'unavailable';
 export type Section<T>={status:'ok';data:T}|{status:'forbidden'|'unavailable';data:null};
-export type WorkbenchSession={authenticated:true;tenant_id:string;principal_id:string;restricted:boolean};
+export type ResetNotice={reset_id:string;issued_by:string;completed_at:string};
+export type WorkbenchSession={authenticated:true;tenant_id:string;principal_id:string;restricted:boolean;reset_notices:ResetNotice[]};
 
 export const STATE_TEXT:Record<FailureKind|'loading'|'empty',string>={
   loading:'正在加载…',
@@ -57,7 +58,28 @@ async function get<T>(path:string,validate:(value:unknown)=>T):Promise<T>{
 
 // ---- auth (own realm) ----
 function session(value:unknown):WorkbenchSession{const v=object(value);if(v.authenticated!==true)throw new WorkbenchError('invalid');
-  return {authenticated:true,tenant_id:text(v.tenant_id),principal_id:text(v.principal_id),restricted:flag(v.restricted)};}
+  return {authenticated:true,tenant_id:text(v.tenant_id),principal_id:text(v.principal_id),restricted:flag(v.restricted),
+    reset_notices:v.reset_notices===undefined?[]:resetNotices(v.reset_notices)};}
+/** NX-058 V3: the member's own completed owner-issued resets (7 days in the session, 90 days on the account page). */
+export function resetNotices(value:unknown):ResetNotice[]{
+  return list(value).map(x=>{const o=object(x);return {reset_id:text(o.reset_id),issued_by:text(o.issued_by),completed_at:text(o.completed_at)};});}
+export const readResetHistory=()=>get('/api/v1/workbench/auth/reset-history',v=>resetNotices(object(v).resets));
+/** The outcome of a public account form: done, refused (one answer for every refusal, never which part was wrong), limited, or unknown. */
+export type AccountFormResult='done'|'invalid'|'rate_limited'|'unavailable';
+async function accountPost(path:string,body:Record<string,string>,done:string,invalid:string):Promise<AccountFormResult>{
+  try{
+    const response=await fetch(path,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(response.status===429)return 'rate_limited';
+    const code=(await response.json().catch(()=>({})) as {code?:unknown}).code;
+    if(response.ok&&code===done)return 'done';
+    if(response.status===400&&code===invalid)return 'invalid';
+    return 'unavailable';
+  }catch{return 'unavailable';}
+}
+/** NX-058 §1: accept an invitation with its token and a new password (no username: the invitation names it). */
+export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
+/** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
+export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
 export async function readWorkbenchSession():Promise<WorkbenchSession|null>{
   try{return await get('/api/v1/workbench/auth/session',session);}catch(error){if(kindOf(error)==='unauthenticated')return null;throw error;}
 }
