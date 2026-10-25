@@ -363,15 +363,20 @@ def test_the_batch_reports_a_waiter_of_another_role(seeded):
         create role nexloop_bf_waiter login nosuperuser; end if; end $$""")
     admin.execute('grant usage on schema control to nexloop_bf_waiter')
     admin.execute('grant insert on control.nexloop_consumer_erasures to nexloop_bf_waiter')
-    # Stretch the batch by half a second after it took its locks: a test trigger on the counts it writes at the end.
-    admin.execute("""create function pg_temp.nexloop_bf_slow() returns trigger language plpgsql as $$begin perform pg_sleep(0.5);return null;end $$""")
+    # Stretch the batch by 0.3 s after it took its locks: a test trigger on the counts it writes at the end.
+    admin.execute("""create function pg_temp.nexloop_bf_slow() returns trigger language plpgsql as $$begin perform pg_sleep(0.3);return null;end $$""")
     admin.execute("""create trigger nexloop_bf_slow after insert on control.nexloop_relation_backfill_counts for each statement
         execute function pg_temp.nexloop_bf_slow()""")
     start(admin)
     waited = {}
 
     def wait_for_the_batch():
-        time.sleep(0.2)
+        # Once the batch holds the erasure table's SHARE lock (polled, not slept: a loaded machine shifts any fixed delay).
+        with psycopg.connect(seeded['pg'], autocommit=True) as monitor:
+            deadline = time.monotonic() + 5
+            while not monitor.execute("""select exists(select 1 from pg_locks where locktype='relation' and granted and mode='ShareLock'
+                    and relation='control.nexloop_consumer_erasures'::regclass)""").fetchone()[0] and time.monotonic() < deadline:
+                time.sleep(0.005)
         with psycopg.connect(psycopg.conninfo.make_conninfo(seeded['pg'], user='nexloop_bf_waiter')) as other:
             t0 = time.monotonic()
             other.execute('lock table control.nexloop_consumer_erasures in row exclusive mode')

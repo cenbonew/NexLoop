@@ -60,7 +60,7 @@ def test_a_run_through_the_signed_port(port):
     v = verify(admin)[('goal_of', 'real')]
     assert v['a'] == v['b'] == 6
     assert p.verify()['skipped_remaining'] == 0
-    started_by = admin.execute("select started_by from control.nexloop_relation_backfill_runs where run_id='run-1'").fetchone()[0]
+    started_by = admin.execute("select started_by from control.nexloop_relation_backfill_runs where backfill_run='run-1'").fetchone()[0]
     assert started_by.startswith('service:') and 'relation-backfill' in started_by
     # Revert through the port: only this run's relations go.
     assert B.RelationBackfill(p, out=io.StringIO(), sleep=slept.append).revert('run-1') == 0
@@ -292,7 +292,7 @@ def test_complete_and_abort_give_up_on_a_held_lock_within_the_ports_lock_timeout
     p = port['port']
     p.start('run-1', p.preflight()['digest'])
     with psycopg.connect(pg) as other:
-        other.execute("select 1 from control.nexloop_relation_backfill_runs where run_id='run-1' for update")
+        other.execute("select 1 from control.nexloop_relation_backfill_runs where backfill_run='run-1' for update")
         for call in (lambda: p.complete('run-1'), lambda: p.abort('run-1')):
             t0 = time.monotonic()
             with pytest.raises(psycopg.errors.LockNotAvailable):
