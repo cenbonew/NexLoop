@@ -260,6 +260,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # from the evidence view; 0141 (expiry) stamps superseded_at and erases a superseded Claim's value after a year.
         # NX-052 0160 only adds a tenant foreign key to the Claim tables; no Claim value is read or projected.
         '_nx052_tenant_fk_claims_extraction',
+        # Extraction dead letters 0355 only counts the Claims already recorded from a dead letter's Messages (existing_claims, a
+        # count for the owner's requeue-or-dismiss choice); no Claim value is read, returned or projected.
+        '_extraction_dead_letter_resolve',
         '_nx026_commitments','_nx026_commitment_context','_nx051_claim_correction_order','_nx028_staff_reply','_nx028_workbench_member_read',
         # Relay multi-consumer 0144 copies the latest NX-029 erasure step (Claim erasure unchanged) and adds the enrollment
         # withdrawal; no Claim value is read or projected.

@@ -20,7 +20,7 @@ const clean={computed_at:'2026-10-20T11:00:00+00:00',attention:0,
   erasure:{...ok,open:0,oldest_open_seconds:0,waiting_unknown_effects:0,purge_items_retrying:0,completed_with_holds:0}};
 const faulty={...clean,attention:2,
   extraction:{...clean.extraction,status:'attention',reasons:['dead_letters'],dead_lettered:2,dead_lettered_total:2,unresolved_dead_letters:1,jobs:{dead_lettered:2},
-    dead_letter_items:[{task_id:'job-synthetic-1',code:'provider_timeout',attempts:3,max_attempts:3,conversation_id:'conversation-synthetic',message_count:4,
+    dead_letter_items:[{task_id:'job-synthetic-1',code:'provider_timeout',attempts:3,max_attempts:3,conversation_id:'conversation-synthetic',message_count:4,existing_claims:39,
       created_at:'2026-10-17T01:00:00+00:00',dead_lettered_at:'2026-10-17T01:05:00+00:00'}]},
   recall:{...clean.recall,status:'attention',reasons:['missing_embeddings'],missing_embeddings:1,coverage_ratio:0.5}};
 function render(body?:unknown){
@@ -53,7 +53,8 @@ test('0355: the owner gets requeue and dismiss on each unresolved dead letter; a
     c.setQueryData(['workbench','data-health'],dataHealth(faulty));c.setQueryData(['workbench','me'],me({principal_id:'synthetic-owner',role:'owner',actions}));
     return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(DataHealth)));};
   const owner=with_([...base,'eios:action:nexloop.claim_extraction.dead_letter_resolve:1']);
-  expect(owner).toContain('aria-label="处理这条死信"');expect(owner).toContain('重新入队');expect(owner).toContain('不再处理');
+  expect(owner).toContain('aria-label="处理这条死信"');expect(owner).toContain('已经提取出 39 条 Claim');expect(owner).toContain('请选择处理方式');
+  expect(owner).not.toContain('这些消息不会重新提取');expect(owner).toContain('重新入队');expect(owner).toContain('不再处理');
   expect(with_(base)).not.toMatch(/<form/);
   expect(()=>dataHealth({...faulty,extraction:{...faulty.extraction,dead_letter_items:[{...faulty.extraction.dead_letter_items[0],body:'x'}]}})).toThrow(WorkbenchError);
 });

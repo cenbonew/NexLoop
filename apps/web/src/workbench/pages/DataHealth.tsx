@@ -92,8 +92,8 @@ function DeadLetters({items,total}:{items:DeadLetterItem[];total:number}){
     {total>items.length?<p className="note">共 {total} 条，显示最近 {items.length} 条。</p>:null}
     <ul className="dead-letters">{items.map(d=><li key={d.task_id}>
       <dl className="kv"><Row k="任务" v={<code className="id-code">{d.task_id}</code>}/><Row k="原因" v={d.code?<code>{d.code}</code>:'—'}/>
-        <Row k="尝试" v={`${d.attempts}/${d.max_attempts}`}/><Row k="消息数" v={d.message_count}/><Row k="进入死信" v={when(d.dead_lettered_at)}/></dl>
-      <WithMember>{member=><ExtractionDeadLetterForm member={member} taskId={d.task_id}/>}</WithMember>
+        <Row k="尝试" v={`${d.attempts}/${d.max_attempts}`}/><Row k="消息数" v={d.message_count}/><Row k="已有 Claim" v={d.existing_claims}/><Row k="进入死信" v={when(d.dead_lettered_at)}/></dl>
+      <WithMember>{member=><ExtractionDeadLetterForm member={member} taskId={d.task_id} existingClaims={d.existing_claims}/>}</WithMember>
     </li>)}</ul>
   </KitCard></div>;
 }

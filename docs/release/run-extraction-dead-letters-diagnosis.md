@@ -82,7 +82,10 @@ ro "select status, result->>'code' as code, count(*) from runtime.jobs
 ## 5. 修法建议（stage 结果确认后已实施：迁移临时编号 0355，告警规则 v18，测试 `tests/test_extraction_dead_letters_pg.py`）
 
 1. **处理入口**：新的受治理人类 Action `claim_extraction.dead_letter_resolve`（owner），对一条死信二选一：
-   - `requeue`：把这条任务覆盖的 feed 行放回待处理（`task_id` 置空），调度器按正常窗口重新入队提取；
+   - `requeue`：在同一个事务里为死信的同一批消息（`normalized_input` 原样）直接入队一条新任务，inbox 事件 id 为 `<会话>:<through>:requeue:<死信任务 id>`，并把 feed 行指向新任务。
+     - 不能只把 feed 行置空交给调度器（L6 复核 C1）：调度器的事件 id 是 `<会话>:<through>`，队列遇到已有事件 id 且摘要相同时返回原任务，会话没有新消息时会落回那条死信，什么都不提取。直接入队还保证提取的是原来那批消息，不受“最近 50 条”窗口的限制。
+     - 事件 id 每条死信唯一，重复提交 requeue 只重放，不会入队两次；新任务如果又进入死信，是一条新的死信，需要重新处理。
+     - 已有部分 Claim 的死信（之前的窗口部分成功过）重新入队会整窗重提，可能产生重复 Claim（去重只按输入摘要）。列表和处理结果都给出 `existing_claims`，这类死信一般选 `dismiss`。
    - `dismiss`：写明原因，标记为不再处理。
    - 处理记录写入一张只追加的新表 `runtime.nexloop_claim_extraction_dispositions(job_id, disposition, reason, decided_by, decided_at)`。死信行本身不改，保持原样作为证据。
    - 工作台数据健康页的提取一栏增加列表和这两个按钮。
