@@ -1,6 +1,6 @@
 # 设计增补｜NX-058 片 E：员工离职擦除
 
-第 2 版，2026-10-25，L2。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
+第 2.1 版，2026-10-25，L2（E1 已定为 A）。第 1 版（8af58ba4）经 L6 复核（`build/nx058-slice-e-design-review.md`：C1–C3、I1–I6、S1–S7），本版逐条吸收，关闭说明见 §12。
 
 负责人 Q-A 定为「A+90天」：员工离职擦除纳入 v0.2，作为 NX-058 片 E，排在片 D 之后。上位设计是 `docs/design/account-self-service.md` 第 7 版 §4（S3 擦除传播），审批接法照片 D 设计（`docs/design/nx058-owner-actions.md` v2.8），目标展示照 ADR-039 R1 §6（本稿需要修订 §6.1 与 §6.5，见 §5）。实现等片 D 合入 main 后开始，迁移用临时编号。
 
@@ -29,9 +29,9 @@ handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 →
 ### 2.1 账号与主体
 
 - `control.nexloop_browser_accounts`（按 subject 一行）：状态 `disabled`；`password_hash` 置空、`password_history` 置空数组；`session_epoch+1`、`revision+1`。
-- 用户名与邮箱（**E1，待负责人**；建议做）：列 `username` 与 `payload->>'username'` 同步改为 `erased-` 加 `sha256(tenant|local_account_id)` 前 16 位（0021 的 check 要求两者相等）；`verified_email` 在 payload 里（不是列），改为同一假名加 `@erased.invalid`。不做的话，账号表长期保留离职者的登录名和邮箱。
+- 用户名与邮箱（**E1 已定为 A，负责人 2026-10-25**）：列 `username` 与 `payload->>'username'` 同步改为 `erased-` 加 `sha256(tenant|local_account_id)` 前 16 位（0021 的 check 要求两者相等）；`verified_email` 在 payload 里（不是列），改为同一假名加 `@erased.invalid`。
 - `erased-` 前缀保留给系统（I5）：工作台邀请在 HTTP 与 SQL 两层拒绝以 `erased-` 开头的用户名（0335 的正则本身允许它）。
-- 原用户名释放后，同名的新员工可以被邀请；ADR §6.4 的 `same_username_exists` 对这种重新入职为 false，这是预期。
+- 原用户名释放后，同名的新员工可以被邀请：HTTP 层的同名拒绝（片 D3）与 ADR §6.4 的 `same_username_exists` 都只比对现存账号，被擦除者的账号已是假名，所以对同名重新入职都放行、标记为 false。这是预期：新员工是新的 principal 和账号，与离职者无关联；批准人如需核对是否“回聘”，看审计链与成员列表，不靠这个标记。
 - `control.nexloop_browser_subjects` 的 payload status 置为 `disabled`（S5，0021:12 允许）：0198 与 0334 都要求 subject 与账号均 active，这是第二道保险。
 - `control.nexloop_browser_sessions`：删除该 subject 的会话行（S2；epoch+1 已让它们失效，删除是清残留）。
 - 账号行、subject 行、membership 行本身保留（principal、subject 的外键与审计追溯需要）。
@@ -54,7 +54,6 @@ handler 在同一事务内，按片 D 的顺序（租户设置 → 成员锁 →
   - 冻结体改写后 digest 对不上，这是有意的（与 0331 的 Consumer 假名化同一口径：该审批早已消费，digest 只作审计记录）。改写只经 owner 持有的函数，审批表的追加保护对这一列开一个定点例外，copy guard 登记，需 L3 同意（E3）。
   - 重放（§2.3）同样重做这一步。
 - 视图：`invite_owner` 行的 `username` 以 `erased-` 开头时输出 `{"kind":"erased"}`（见 §5 的 ADR 修订）。
-- E1 若定为不假名化，这一节改为“登记为有理由的保留”，由负责人在 E1 里一并确认。
 
 ### 2.5 登录事件的两项摘要（保留 90 天，I4）
 
@@ -111,7 +110,8 @@ principal、subject、membership 行（全部 revoked）、授权实例与角色
 2. 同一 subject 另有 active principal：`target_not_revoked`，该身份不受影响、视图不显示 `erased`（C1）。
 3. 竞态：审批期间被重新配置或另一身份被邀请接受 → 执行时拒绝、审批作废；两份擦除先后执行 → `already_erased`。
 4. 单 owner 租户无法擦除；冷却未满的 owner 不能批准；已撤销并擦除的前 owner 不能批准任何请求（S7）。
-5. `invite_owner` 入职者：冻结体用户名被假名化，视图输出 `erased`（C3）。
+5. `invite_owner` 入职者：冻结体用户名被假名化，视图输出 `erased`（C3）；账号列与 payload 的用户名、payload 的邮箱都是同一假名（E1）。
+5a. 同名重新入职：擦除后以原用户名邀请新员工，HTTP 不拒绝；该 `invite_owner` 审批的 `target_member` 为 `invitee` 且 `same_username_exists` 为 false；接受后是新的 principal 与账号，被擦除者的台账与视图不受影响。
 6. 恢复演练：恢复到擦除前的备份，重放后状态与擦除后一致（C2）。
 7. 保留期：90 天边界、只清两类键、`result_snapshot` 与 `account_id` 不变、重放旧请求仍正确、清除记录幂等（I4）。
 8. 0198 对已擦除账号拒绝，按旧请求 ID 重放不改状态；configurator apply 含已擦除 principal 被拒；邀请 `erased-` 前缀被拒（I5、S5）。
@@ -126,7 +126,7 @@ principal、subject、membership 行（全部 revoked）、授权实例与角色
 
 ## 10. 待确认
 
-- **E1**（负责人）：用户名与邮箱一并假名化（建议是）；不做则 §2.4 改为有理由的保留。
+- **E1** 已定为 A（负责人 2026-10-25）：用户名与邮箱一并假名化，列与 payload 同步，前缀 `erased-`。
 - **E3**（L3）：`approval_open` 对 `erase_member` 接受 revoked 目标；审批冻结体对 `invite_owner` 用户名的定点改写例外；ADR §6.1/§6.5 修订（§5）。
 - **E4**：保留期冻结是否覆盖员工登录事件（建议暂不，后续项）。
 - **E5**（调度员）：两张员工表按 L6 I3 继续登记为保留，不做空写入（§3）。
