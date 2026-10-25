@@ -4,6 +4,7 @@ trigger, blindness against the configured list, configuration refusal, and a fai
 import io
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -210,3 +211,41 @@ def test_a_never_triggered_timer_is_parsed_not_alarmed(tmp_path):
     code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer={**DATA_HOST_TIMER, 'LastTriggerUSec': 'n/a'}, run=DATA_HOST_RUN, bus='t 0\n'),
                       '--dry-run', err=err)
     assert doc['trigger_unparsed'] == [] and 'trigger_unparsed' not in err.getvalue()
+
+
+def recorder_fields():
+    """The keys authz.nexloop_record_host_observation accepts, from the one migration that defines it (0318): its three
+    `jsonb_object_keys(...) k where k not in (...)` checks, in order - entry, unit, timer run. Anything else is 22023."""
+    sql = (Path(__file__).resolve().parents[1] / 'packages/eios-core/src/eios/migrations/0318_host_health.sql').read_text()
+    lists = re.findall(r"jsonb_object_keys\((\w+)\) k where k not in \(([^)]*)\)", sql)
+    assert [v for v, _ in lists] == ['p_entry', 'u', 'r'], lists
+    return [set(re.findall(r"'(\w+)'", keys)) for _, keys in lists]
+
+
+@pytest.mark.parametrize('bus', [f't {TRIGGER}000000', ''], ids=['trigger-read', 'trigger-unparsed'])
+def test_the_recorded_entry_uses_only_the_fields_the_recorder_accepts(tmp_path, bus):
+    """Offline guard for stage 2026-10-25 (a probe-only field in the entry, every write refused): what main hands to record()."""
+    entry_keys, unit_keys, run_keys = recorder_fields()
+    sent = []
+
+    class Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, sql, params):
+            sent.append(json.loads(params[0]))
+            return self
+
+        def fetchone(self):
+            return [{'recorded': True}]
+
+    code = P.main(['--config', config(tmp_path, timers=JOURNAL)], runner=runner(timer=DATA_HOST_TIMER, run=DATA_HOST_RUN, bus=bus),
+                  connect=Db, out=io.StringIO(), err=io.StringIO())
+    assert code == 0 and len(sent) == 1
+    entry = sent[0]
+    assert set(entry) <= entry_keys, set(entry) - entry_keys
+    assert entry['units'] and all(set(u) <= unit_keys for u in entry['units'])
+    assert all(set(r) <= run_keys for r in entry['timers']) and len(entry['timers']) == (1 if bus else 0)
