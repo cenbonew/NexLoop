@@ -245,11 +245,51 @@ def test_a_direct_member_change_and_a_member_action_in_opposite_order_never_dead
             except psycopg.Error as error:
                 errors.append(error.sqlstate)
                 direct.rollback()
+        pid = direct.info.backend_pid
         thread = threading.Thread(target=direct_change)
         thread.start()
-        time.sleep(1.5)  # longer than deadlock_timeout: a cycle would have been detected by now
+        # Barrier: the direct change is really waiting - on the tenant's advisory lock, not on the row (L6 review 13).
+        with psycopg.connect(pg, autocommit=True) as watch:
+            for _ in range(100):
+                waiting = watch.execute("select l.locktype from pg_locks l where l.pid=%s and not l.granted", (pid,)).fetchone()
+                if waiting:
+                    break
+                time.sleep(0.05)
+        assert waiting == ('advisory',)
+        time.sleep(1.2)  # past deadlock_timeout: a cycle would have been detected by now
         action.execute(change, (TENANT_A, member))  # then its row: never held by the waiting direct change
         action.commit()
         done.append('action')
         thread.join(10)
     assert errors == [] and sorted(done) == ['action', 'direct']  # no 40P01, both committed
+
+
+def test_a_member_change_of_another_tenant_than_the_session_never_reaches_the_row(solo):
+    """L6 review 11 follow-up: an update of a member row outside the session\'s tenant never reaches the row for an application role (forced
+    RLS; the row trigger refuses it besides); the session\'s own tenant is allowed."""
+    f = solo
+    admin = f['admin']
+    member = f['operator']['principal_id']
+    with admin.transaction():
+        admin.execute('set local session authorization nexloop_owner')
+        admin.execute("select set_config('eios.tenant_id','00000000-0000-4000-8000-0000000000ff',true)")  # another tenant
+        # Forced RLS hides another tenant's member rows from an application role: the change reaches no row (the row trigger's refusal
+        # is the second guard, for a role that bypasses RLS without being a superuser).
+        assert admin.execute("""update control.nexloop_browser_memberships set payload=payload where principal_id=%s""", (member,)).rowcount == 0
+    with admin.transaction():  # the session's own tenant: allowed
+        admin.execute('set local session authorization nexloop_owner')
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        admin.execute("update control.nexloop_browser_memberships set payload=jsonb_set(payload,'{revision}',to_jsonb((payload->>'revision')::integer+1)) "
+                      "where tenant_id=%s and principal_id=%s", (TENANT_A, member))
+
+
+def test_the_list_leaves_out_a_self_vote_that_no_longer_counts(solo):
+    f = solo
+    switch(f, True)
+    age_timeline(f, 25)
+    approval = open_request(f)['approval_id']
+    decide(f, approval)
+    view = lambda: f['admin'].execute("select runtime.nexloop_approval_view(%s,'real',%s)", (TENANT_A, f['owner']['principal_id'])).fetchone()[0]
+    assert [r['approvals'] for r in view()['mine']] == [1]
+    switch(f, False)
+    assert [(r['status'], r['approvals']) for r in view()['mine']] == [('waiting_approval', 0)]

@@ -9,9 +9,9 @@
   - 判定由 L6 或负责人做（看证据，不参与操作）。
   - 调度员操作测试账号，不违反“不得代他人登录批准人账号”：这个账号本来就是为演练设立的测试身份，没有“他人”。真实成员的账号始终只由本人使用。
 - **时长**：演练（第 8 步）至少需要 2 小时，因为 8.6 要等待超过 1 小时才能看到告警；加上第 1–7 步，整单约 3 小时。
-- **镜像**：需要 8843cca2 之后的 backend 镜像，其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
+- **镜像**：需要 main 9779abb6（第二十四批）或之后的 backend 镜像，其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
 - 每一步标注 **A**（只读，可以随时执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
-- **草稿状态**：迁移编号和角色清单版本，以第二十四批合入 main 后的实际值为准。表中凡是写“组批后”的地方，执行前都要按 main 核对一次。
+- **按 main 9779abb6 核对过**：NX-056 的迁移是 0326–0332（跟进修正 0337 随下一批），角色清单 manifest 40，告警规则 v14（67 条，最新版本），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果 main 又前进了，再核对一次这几项。
 
 ## 0. 前提与变量
 
@@ -79,7 +79,7 @@ ro "select to_regclass('control.nexloop_approval_policies') is not null, to_regc
 ro "select count(*) from control.nexloop_approval_policies"
 ```
 
-- **预期**：迁移尾是组批后 NX-056 的最后一个编号；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
+- **预期**：迁移尾是 0336（main 9779abb6 的 catalog 尾，其中 NX-056 为 0326–0332；跟进修正 0337 随下一批部署时才会出现）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
 
 ## 3. 发布新的 Action（DATA_HOST，配置员窗口，B）
 
@@ -136,7 +136,7 @@ sudo shred -u "$APP_RUN/in/password-approver2"
 {"principal_id": "stage-principal-approver2", "subject_id": "stage-human-approver2", "role": "owner"}
 ```
 
-2. 应用本批的角色清单（`workbench-roles.v1.json`，manifest 以组批后为准：含 A7 时为 39）：
+2. 应用本批的角色清单（`workbench-roles.v1.json`，main 9779abb6 上为 manifest 40（含 NX-056 A7 和 NX-058 片 A、B 的角色））：
 
 ```
 docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbench_roles.py --roles /opt/release/deploy/authorization/workbench-roles.v1.json \
@@ -158,7 +158,7 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_ru
 
 - **预期**：`--check` 输出 `{"valid": true, "version": 14, "rules": 67}`；应用后 `applied: true`。
 - 下一轮告警评估之后（约 1 分钟），`nexloop-doctor --observability` 的 `alert_rules_current` 为 true。
-- **前提**：镜像必须是 8843cca2 之后的版本（含 `alert_rules_apply.py`）。没有就停下，不另找写入规则的办法。
+- **前提**：镜像必须是 main 9779abb6 或之后的版本（含 `alert_rules_apply.py`）。没有就停下，不另找写入规则的办法。
 
 ## 6. 策略清单 `--check`（不连库，A）
 
