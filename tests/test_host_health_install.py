@@ -38,8 +38,8 @@ def example(name, **over):
 
 
 class Runner:
-    def __init__(self, blind=False):
-        self.calls, self.stdins, self.blind = [], [], blind
+    def __init__(self, blind=False, unparsed=()):
+        self.calls, self.stdins, self.blind, self.unparsed = [], [], blind, list(unparsed)
 
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
@@ -53,7 +53,7 @@ class Runner:
                 os.chmod(Path(command[3]) / 'bin' / name, 0o755)
             return ''
         if command[-1] == '--dry-run':
-            return json.dumps({'host_role': 'x', 'blind': self.blind, 'units': 3, 'entry': {'units': []}}) + '\n'
+            return json.dumps({'host_role': 'x', 'blind': self.blind, 'trigger_unparsed': self.unparsed, 'units': 3, 'entry': {'units': []}}) + '\n'
         if command[-1].endswith('hba.conf'):
             return 'done: host health lines installed and reloaded (2 rule(s) added)\n'
         if any(str(a).endswith('host_recorder_password.py') for a in command):
@@ -134,6 +134,11 @@ def test_data_host_sets_pg_hba_and_both_passwords_through_stdin(tmp_path):
 def test_a_blind_dry_run_stops_before_the_timer(tmp_path):
     code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', Runner(blind=True))
     assert code == 1 and 'blind' in text and ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls
+
+
+def test_a_dry_run_without_readable_triggers_stops_before_the_timer(tmp_path):
+    code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n', Runner(unparsed=['provider-drift']))
+    assert code == 1 and 'last trigger of provider-drift' in text and ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls
 
 
 @pytest.mark.parametrize('stdin', ['', f'app_host {APP_PW}\n', f'data_host\t{DATA_PW}\n', 'app_host\tshort\n', f'app_host\t{APP_PW}\napp_host\t{APP_PW}\n'])

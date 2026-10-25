@@ -310,6 +310,9 @@ def install(root, config, passwords, runner, out, trust=root_owned):
     print('dry-run: ' + json.dumps(doc, sort_keys=True), file=out)
     if doc.get('blind'):
         raise Failed('probe dry run is blind (docker or systemd unreadable, or the configuration names other units): timer not enabled')
+    if doc.get('trigger_unparsed'):
+        # Unreadable LastTriggerUSec counts every run as manual and the timers as stale: a false alarm per round, not health.
+        raise Failed('probe dry run could not read the last trigger of ' + ', '.join(doc['trigger_unparsed']) + ': timer not enabled')
     runner(['systemctl', 'enable', '--now', 'nexloop-host-health.timer'])
     step(6, 'timer enabled')
 
