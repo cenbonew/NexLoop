@@ -1717,13 +1717,13 @@
       "sha256": "7bcd2037d332155743c1162d12e3b5f49fef7016d25ca3cc4709afd942624da2"
     },
     {
-      "version": "0344",
-      "name": "0344_owner_member_actions.sql",
+      "version": "0346",
+      "name": "0346_owner_member_actions.sql",
       "sha256": "ce9240af5818722885e20fcc06c69d81ad398ba2433d4ca7f5ff1f48196baf20"
     },
     {
-      "version": "0345",
-      "name": "0345_nx056_execution_fields.sql",
+      "version": "0347",
+      "name": "0347_nx056_execution_fields.sql",
       "sha256": "6bd3625d2e6ec6a365b434f1a411af2c30c275579637d2e413053e8384087e64"
     }
   ]

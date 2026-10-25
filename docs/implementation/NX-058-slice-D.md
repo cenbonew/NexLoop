@@ -24,7 +24,7 @@ Tests: `tests/test_vote_cooldown_pg.py` (the function's semantics; a vote within
 
 ## D2 — owner-only member Actions and approval policies v2
 
-Migration `0344_owner_member_actions.sql` (temporary number), on the batch 26+27 rehearsal ecc926f9:
+Migration `0346_owner_member_actions.sql` (temporary number), on the batch 26+27 rehearsal ecc926f9:
 
 - Registered: `workbench_member.promote_owner` (`promote_workbench_member`), `demote_owner` (`demote_workbench_owner`), `suspend_owner`, `resume_owner`, `revoke_owner` (`*_workbench_owner`), all `human`, one handler `control.nexloop_governed_change_workbench_owner`.
 - Fail closed, two layers (design §1): the current policy must be exactly the owner-only shape, else `approval_unavailable`; the approval being executed (`nexloop.approval_in_flight`) must be this capability's, approved and unconsumed, this requester's, under the policy version just read, with this body's digest.
