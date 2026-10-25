@@ -21,7 +21,8 @@ Steps (each idempotent; a rerun converges, nothing done twice):
   3 /etc/nexloop/host-health.json (0600 root) from the configuration's probe block
   4 /etc/nexloop/host-recorder.dsn (0600 root): this host's role and password - written only when it changed
   5 the unit and timer from the release's deploy/stage/systemd/nexloop-host-health.*.example; daemon-reload
-  5b memory_deny_write_execute (default false): true writes nexloop-host-health.service.d/50-installer-mdwe.conf, false removes it
+  5b memory_deny_write_execute (default true, the unit's W^X): only an explicit false writes
+     nexloop-host-health.service.d/50-installer-mdwe.conf (MemoryDenyWriteExecute=no); true removes it
   6 one --dry-run of the probe inside the unit's own sandbox (systemd-run with the unit's [Service] settings and drop-ins as
     properties; its summary printed), then `systemctl enable --now nexloop-host-health.timer`
 --uninstall: timer disabled and stopped, units and their drop-in directory, /etc/nexloop/host-health.json and host-recorder.dsn, /opt/nexloop/host-health and
@@ -148,8 +149,8 @@ def load_config(path):
     else:
         if db['host'].startswith('/') or db.get('sslmode') != 'verify-full' or type(db.get('sslrootcert')) is not str or not PATH.fullmatch(db['sslrootcert']):
             raise Refused('configuration: APP_HOST connects over hostssl with sslmode verify-full and sslrootcert (the server CA)')
-    if type(c.get('memory_deny_write_execute', False)) is not bool:
-        raise Refused('configuration: memory_deny_write_execute true | false (default false)')
+    if type(c.get('memory_deny_write_execute', True)) is not bool:
+        raise Refused('configuration: memory_deny_write_execute true | false (default true)')
     probe = c.get('probe')
     if type(probe) is not dict or set(probe) - {'containers', 'services', 'timers', 'grace_seconds', 'local_window_seconds', 'local_min_restarts'}:
         raise Refused('configuration: probe {containers, services, timers, ...}')
@@ -286,14 +287,15 @@ def install(root, config, passwords, runner, out, trust=root_owned):
             os.chmod(units / unit, 0o644)
     dropins = units / 'nexloop-host-health.service.d'
     mdwe = dropins / MDWE_DROPIN
-    if config.get('memory_deny_write_execute', False):
+    # W^X on unless the configuration says false explicitly (a standalone CPython that dies under it): then the drop-in turns it off.
+    if config.get('memory_deny_write_execute', True) is False:
         dropins.mkdir(exist_ok=True)
-        mdwe.write_text('[Service]\nMemoryDenyWriteExecute=yes\n')
+        mdwe.write_text('[Service]\nMemoryDenyWriteExecute=no\n')
         os.chmod(mdwe, 0o644)
     elif mdwe.exists():
         mdwe.unlink()
     runner(['systemctl', 'daemon-reload'])
-    step(5, 'units installed' + (' (MemoryDenyWriteExecute on)' if config.get('memory_deny_write_execute', False) else ''))
+    step(5, 'units installed' + (' (MemoryDenyWriteExecute OFF for this host)' if config.get('memory_deny_write_execute', True) is False else ''))
     probe = root / 'opt/nexloop/host-health/current'
     # The dry run in the unit's own sandbox (its [Service] settings and every drop-in, in order, as transient properties): what
     # fails under the timer - a hardening the interpreter does not survive, an unreadable HOME - fails here, before enabling it.
@@ -329,6 +331,9 @@ def sandbox(units):
             line = line.strip()
             if not line or line.startswith(('#', ';')):
                 continue
+            if line.endswith('\\') or '"' in line or "'" in line:
+                # Continuation lines and quoted values change what systemd reads; the sandbox would differ from the unit.
+                raise Failed('the unit or a drop-in uses a continuation line or a quoted value: the dry-run sandbox cannot mirror it')
             if line.startswith('[') and line.endswith(']'):
                 section = line[1:-1]
                 continue

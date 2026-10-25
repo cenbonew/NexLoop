@@ -378,33 +378,48 @@ def dry_run(runner):
 def test_the_dry_run_runs_in_the_units_sandbox(tmp_path):
     """Stage 2026-10-25: the dry run ran outside the unit and missed two failures of the timer (MemoryDenyWriteExecute crashing the
     standalone CPython; ProtectHome hiding HOME from libpq). It now runs through systemd-run with the unit's settings."""
-    code, text, runner = install(tmp_path, example('app-host'), f'app_host\t{APP_PW}\n')
+    code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
     assert code == 0, text
     command = dry_run(runner)
     assert command[:6] == ['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec']
     props = [command[i + 1] for i, a in enumerate(command) if a == '-p']
     assert {'ProtectHome=true', 'Environment=HOME=/var/lib/nexloop-host-health', 'StateDirectory=nexloop-host-health', 'NoNewPrivileges=true',
-            'CapabilityBoundingSet='} <= set(props)
-    assert not any(p.startswith(('ExecStart=', 'Type=', 'MemoryDenyWriteExecute=')) for p in props)  # MDWE off by default
+            'CapabilityBoundingSet=', 'MemoryDenyWriteExecute=true'} <= set(props)  # W^X on by default (L6 review 1)
+    assert not any(p.startswith(('ExecStart=', 'Type=')) for p in props) and 'MemoryDenyWriteExecute=no' not in props
     assert command[-7:-1] == [str(tmp_path / 'root/opt/nexloop/host-health/current/venv/bin/python'), '-I', '-B',
-                            str(tmp_path / 'root/opt/nexloop/host-health/current/host_health_probe.py'), '--config', '/etc/nexloop/host-health.json']
+                              str(tmp_path / 'root/opt/nexloop/host-health/current/host_health_probe.py'), '--config', '/etc/nexloop/host-health.json']
     unit = (tmp_path / 'root/etc/systemd/system/nexloop-host-health.service').read_text()
-    assert 'Environment=HOME=/var/lib/nexloop-host-health' in unit and 'MemoryDenyWriteExecute=true' not in unit
+    assert 'Environment=HOME=/var/lib/nexloop-host-health' in unit and 'MemoryDenyWriteExecute=true' in unit
+    assert not (tmp_path / 'root/etc/systemd/system/nexloop-host-health.service.d/50-installer-mdwe.conf').exists()
 
 
-def test_memory_deny_write_execute_is_per_host_and_the_drop_ins_go_with_uninstall(tmp_path):
-    cfg = example('data-host', memory_deny_write_execute=True)
-    code, text, runner = install(tmp_path, cfg, f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
-    assert code == 0 and 'MemoryDenyWriteExecute on' in text
+def test_only_an_explicit_false_turns_w_x_off_and_the_drop_ins_go_with_uninstall(tmp_path):
+    cfg = example('app-host')  # the standalone CPython host: memory_deny_write_execute false
+    assert cfg['memory_deny_write_execute'] is False and example('data-host')['memory_deny_write_execute'] is True
+    code, text, runner = install(tmp_path, cfg, f'app_host\t{APP_PW}\n')
+    assert code == 0 and 'MemoryDenyWriteExecute OFF for this host' in text
     dropins = tmp_path / 'root/etc/systemd/system/nexloop-host-health.service.d'
-    assert (dropins / '50-installer-mdwe.conf').read_text() == '[Service]\nMemoryDenyWriteExecute=yes\n'
-    assert 'MemoryDenyWriteExecute=yes' in dry_run(runner)  # the drop-in is part of the sandbox
-    # A hand-made drop-in (the site workaround) is part of the sandbox too, after the unit, as systemd applies it.
+    assert (dropins / '50-installer-mdwe.conf').read_text() == '[Service]\nMemoryDenyWriteExecute=no\n'
+    props = [c for c in dry_run(runner) if c.startswith('MemoryDenyWriteExecute=')]
+    assert props == ['MemoryDenyWriteExecute=true', 'MemoryDenyWriteExecute=no']  # the drop-in applies after the unit, as systemd does
+    # A hand-made drop-in (the site workaround) is part of the sandbox too.
     (dropins / '20-home.conf').write_text('[Service]\nEnvironment=HOME=/var/lib/elsewhere\n')
-    code, text, runner = install(tmp_path, {**cfg, 'memory_deny_write_execute': False}, f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
-    assert code == 0 and not (dropins / '50-installer-mdwe.conf').exists()
-    props = [c for c in dry_run(runner) if c.startswith('Environment=')]
-    assert props == ['Environment=HOME=/var/lib/nexloop-host-health', 'Environment=HOME=/var/lib/elsewhere']
-    assert install(tmp_path, {**cfg, 'memory_deny_write_execute': 'yes'}, f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')[0] == 2
+    del cfg['memory_deny_write_execute']  # absent: the default, W^X on
+    code, text, runner = install(tmp_path, cfg, f'app_host\t{APP_PW}\n')
+    assert code == 0 and not (dropins / '50-installer-mdwe.conf').exists() and 'OFF' not in text
+    assert [c for c in dry_run(runner) if c.startswith('Environment=')] == ['Environment=HOME=/var/lib/nexloop-host-health', 'Environment=HOME=/var/lib/elsewhere']
+    assert install(tmp_path, {**cfg, 'memory_deny_write_execute': 'no'}, f'app_host\t{APP_PW}\n')[0] == 2
     code, text, _ = install(tmp_path, cfg, '', None, '--uninstall')
     assert code == 0 and not dropins.exists()
+
+
+@pytest.mark.parametrize('line', ['Environment="HOME=/var/lib/x"', "Environment='A=1 B=2'", 'ReadWritePaths=/a \\'])
+def test_a_drop_in_the_sandbox_cannot_mirror_stops_the_install(tmp_path, line):
+    """Continuation lines and quoted values: systemd reads them differently from a key=value split - refused, timer not enabled."""
+    assert install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')[0] == 0
+    dropins = tmp_path / 'root/etc/systemd/system/nexloop-host-health.service.d'
+    dropins.mkdir(exist_ok=True)
+    (dropins / '30-site.conf').write_text('[Service]\n' + line + '\n')
+    code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
+    assert code == 1 and 'continuation line or a quoted value' in text
+    assert ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls

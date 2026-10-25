@@ -57,7 +57,7 @@
 
 - **探针的运行环境：在每台主机上建一个独立的 venv，不复用 backend 镜像。**
   - 探针要读宿主机的 docker 与 systemd，必须作为宿主机进程运行；容器里看不到宿主机的 systemd unit。
-  - venv 只装 psycopg：`deploy/host-health/requirements.txt` 取自 `uv.lock` 的版本和哈希，用 `pip --require-hashes --no-deps` 从内网 PyPI 镜像安装。解释器用两台主机都已部署的 `/opt/nexloop/python-3.12.15`（与 backup-venv、restore-venv 的升级手册相同）。
+  - venv 只装 psycopg：`deploy/host-health/requirements.txt` 取自 `uv.lock` 的版本和哈希，用 `pip --require-hashes --no-deps` 从内网 PyPI 镜像安装。解释器按主机取真实路径：DATA_HOST 用发行版的 `/usr/bin/python3.12`（3.12.3，backup-venv 也基于它）；APP_HOST 用 standalone CPython `/opt/nexloop/python-3.12/bin/python3.12`（与 restore-venv 相同）。
   - 与其他 venv 互不影响：升级 backup-venv 不会波及探针，反之亦然。
   - 位置是 `/opt/nexloop/host-health/<发布 sha>/`，root:root，目录 0755，文件 0644 或 0755，不允许组和其他用户写入；`current` 指向当前 sha，旧 sha 的目录保留，便于回退。
 - **APP_HOST 的连接方式：hostssl + scram-sha-256，客户端校验服务端证书（`sslmode=verify-full`），不使用客户端证书。** 这一点需要 L6 复核。
@@ -104,7 +104,7 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
 ```
 
 - 核对的范围（R2）：两台主机上都对 `scripts/deploy` 与 `packages/eios-core/src` **全树**逐个文件核对（root 以 `-I` 运行其中的脚本，并 import `nexloop_eios`）。
-- 解释器（S1）：配置中的 `python` 必须是真实文件的路径，不能是符号链接，例如 `/opt/nexloop/python-3.12.15/bin/python3.12` 或 `/usr/bin/python3.12`；`/usr/bin/python3` 是符号链接，会被拒绝。运行安装器本身的解释器用 `HOST_HEALTH_PYTHON` 指定（默认 `python3`）；所有 python 调用都加 `-I`，不读取环境变量和当前目录。
+- 解释器（S1）：配置中的 `python` 必须是真实文件的路径，不能是符号链接，例如 APP_HOST 的 `/opt/nexloop/python-3.12/bin/python3.12`、DATA_HOST 的 `/usr/bin/python3.12`；`/usr/bin/python3` 是符号链接，会被拒绝。运行安装器本身的解释器用 `HOST_HEALTH_PYTHON` 指定（默认 `python3`）；所有 python 调用都加 `-I`，不读取环境变量和当前目录。
 - **真正的防线是这一条前置条件**（S4）：安装器的核对是在执行前确认它成立，而不是替代它。检查与执行之间仍有极短的时间窗；只要 checkout 和 `/opt/nexloop` 从一开始就只有 root 可写，这个窗口就无从利用。
 
 ### 4.2b 准备（调度员，Mac）
@@ -133,17 +133,18 @@ sudo chmod -R go-w /opt/nexloop/release-<sha>
 ### 4.2c unit 沙箱（stage 2026-10-25 的两处现场问题）
 
 - **`HOME`**：unit 设 `Environment=HOME=/var/lib/nexloop-host-health`（即 StateDirectory）。原因是 `ProtectHome=true` 让 `/root` 返回 EACCES，而 APP_HOST 走 hostssl，libpq 会查找 `~/.postgresql/postgresql.crt`，把 EACCES 当成错误，报 `OperationalError`。DATA_HOST 走 socket、不用 SSL，所以不受影响。
-- **`MemoryDenyWriteExecute` 按主机配置**：安装配置中的 `memory_deny_write_execute`，默认 false。
-  - APP_HOST 的 venv 用的是 standalone CPython 3.12，在这项限制下会 SIGSEGV（用 `systemd-run` 复现过：设 yes 就崩，设 no 就正常），所以示例中为 false。
-  - DATA_HOST 用发行版自带的 python3.12，没有这个问题，示例中为 true。
-  - 设为 true 时，安装器写入 `nexloop-host-health.service.d/50-installer-mdwe.conf`；设为 false 时删除这个文件。
+- **`MemoryDenyWriteExecute` 默认开启**：unit 模板保留 `MemoryDenyWriteExecute=true`，安装配置 `memory_deny_write_execute` 缺省为 true。
+  - **只有 standalone CPython 才允许关闭**：APP_HOST 的 venv 基于 `/opt/nexloop/python-3.12`，在这项限制下会 SIGSEGV（用 `systemd-run` 复现过：设 yes 就崩，设 no 就正常），所以 APP_HOST 的示例明确写 false。
+  - 只有在配置中明确写了 false，安装器才会写入 `nexloop-host-health.service.d/50-installer-mdwe.conf`（`MemoryDenyWriteExecute=no`）；为 true 或不写时删除这个文件。
+  - **关闭的代价是失去 W^X 防护**：进程可以创建既可写又可执行的内存，一个以 root 运行的进程被注入代码的门槛因此降低。其余加固项（`NoNewPrivileges`、`CapabilityBoundingSet=`、`ProtectSystem=strict` 等）不受影响。
+  - DATA_HOST 用发行版的 `/usr/bin/python3.12`，在开启状态下运行正常（stage 只读核实），示例为 true。不要为了统一而关掉它。
 - **dry-run 在同一个沙箱里执行**：安装器读取已安装 unit 的 `[Service]` 段和 `.service.d` 下的全部 drop-in（按 systemd 的顺序），把它们作为属性传给 `systemd-run --wait --pipe --collect`，再在其中执行探针的 dry-run。这样 timer 会遇到的失败，在启用 timer 之前就会暴露。
 - **现场的临时 drop-in**（`10-mdwe.conf`、`20-home.conf`）：装上这个版本以后，它们与 unit 和配置的设定重复，可以删除后再重跑安装。保留也无害：它们同样会被纳入 dry-run 的沙箱。`--uninstall` 会删除整个 `.service.d` 目录。
 
 ### 4.3 DATA_HOST（负责人，一条命令）
 
 ```
-printf 'data_host\t%s\napp_host\t%s\n' "<data_host 口令>" "<app_host 口令>" | sudo HOST_HEALTH_PYTHON=/opt/nexloop/python-3.12.15/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
+printf 'data_host\t%s\napp_host\t%s\n' "<data_host 口令>" "<app_host 口令>" | sudo HOST_HEALTH_PYTHON=/usr/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
 ```
 
 口令由调度员经钥匙串管道送入，不进入 argv。这条命令依次：
@@ -163,12 +164,14 @@ dry-run 的结果是 blind 时就停在这里，不启用 timer。
 ### 4.4 APP_HOST（调度员，一条命令；在 4.3 之后）
 
 ```
-printf 'app_host\t%s\n' "<app_host 口令>" | sudo HOST_HEALTH_PYTHON=/opt/nexloop/python-3.12.15/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
+printf 'app_host\t%s\n' "<app_host 口令>" | sudo HOST_HEALTH_PYTHON=/opt/nexloop/python-3.12/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.json
 ```
 
 与 4.3 相同，但不动 pg_hba、不设口令；DSN 使用 hostssl + verify-full。
 
 ### 4.5 告警规则 v13（调度员，DATA_HOST 一次性 backend 容器，与 run-41 §4.2 相同的形态）
+
+`$BACKEND_IMAGE` 必须写 digest，不能写 tag：`nexloop/backend@sha256:<完整 digest>`，取自当前发布清单（release manifest）中 backend 镜像那一项。这样运行的镜像就是经过 CI 测试的那一个。用 `docker image inspect --format '{{index .RepoDigests 0}}' <镜像>` 核对本机确有这个 digest。4.6 的演练容器也用同一个值。
 
 v13（第二十二批，L7）包含 v12 的全部主机规则，另外加了 `timer_stale_file_backup`（`app_host:file-backup`，阈值 2700 秒，B9 文件备份的定时轮次）。发布 v13，不发布 v12：
 
@@ -201,17 +204,17 @@ v13（第二十二批，L7）包含 v12 的全部主机规则，另外加了 `ti
      - `docker kill` 被 docker 当成手动停止，重启策略为 on-failure 的容器（sim 组）会停在 exited，不会自动拉起（stage 2026-10-25 试过：sim-world-files 因此停了约 40 秒）。
 
      只有容器自己以非零码退出、再由 docker 按重启策略拉起，RestartCount 才会增加。
-   - **a. 起演练容器**：用本机已有的 backend 镜像，不需要拉取；不联网、只读、去掉全部 capability、无挂载。每次运行 50 秒后以退出码 1 结束，最多重启 5 次，跨越约 5 个探针周期，这样探针能看到 RestartCount 逐次增加。如果所有重启都发生在第一次采样之前，基线里已经包含了它们，增量为 0，告警不会触发。
+   - **a. 让探针先期望它**：
+     1. 复制一份 APP_HOST 的安装配置，在 `probe.containers` 中加入 `{"name": "hh-drill", "container": "nexloop-hh-drill"}`；
+     2. 用这份配置重跑 4.4 的安装命令。安装是幂等的，只会重写 `/etc/nexloop/host-health.json`，并在 unit 沙箱里做一次 dry-run，dry-run 摘要中 `expected_units` 会多 1。此时容器还不存在，少看到 1 个单元不会使探针 blind。
+   - **b. 紧接着起演练容器**（与 a 相隔不超过 1 分钟，短于 `host_unit_missing` 的 120 秒）：用本机已有的 backend 镜像（`$BACKEND_IMAGE`，digest 形式，见 4.5），不需要拉取；不联网、只读、去掉全部 capability、无挂载。每次运行 90 秒后以退出码 1 结束，最多重启 5 次，跨越约 8 个探针周期。探针在容器第一次退出之前就已经采到 RestartCount 为 0 的基线，之后每次重启都会被看到。
 
      ```
      docker run -d --name nexloop-hh-drill --label nexloop.drill=host-health --restart=on-failure:5 \
        --network none --read-only --cap-drop ALL --security-opt no-new-privileges --user 65534:65534 \
-       --entrypoint sh "$BACKEND_IMAGE" -c 'sleep 50; exit 1'
+       --entrypoint sh "$BACKEND_IMAGE" -c 'sleep 90; exit 1'
      ```
-   - **b. 让探针看到它**（紧接着 a，在第一次退出之前完成）：
-     1. 复制一份 APP_HOST 的安装配置，在 `probe.containers` 中加入 `{"name": "hh-drill", "container": "nexloop-hh-drill"}`；
-     2. 用这份配置重跑 4.4 的安装命令。安装是幂等的，只会重写 `/etc/nexloop/host-health.json`，并在 unit 沙箱里做一次 dry-run，dry-run 摘要中的 `units` 会多 1。
-   - **c. 预期**（约 3–5 分钟内）：
+   - **c. 预期**（启动后约 5–8 分钟内）：
      - 快照 `host_health.restarts_1h` 中 `app_host:hh-drill` 增长到 3 以上，并且 `missing_units` 中 `app_host:hh-drill` 为 0；
      - 下一次评估后，`crash_loop`（critical，selector `app_host:hh-drill`）触发；
      - 不依赖 PG 的本地通道：`journalctl -p err -u nexloop-host-health` 中出现 `<3>nexloop-host-health crash_loop host=app_host unit=hh-drill restarts=3`（窗口 900 秒，阈值 3）；

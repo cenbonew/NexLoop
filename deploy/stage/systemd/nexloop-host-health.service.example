@@ -33,9 +33,10 @@ CapabilityBoundingSet=
 ProtectKernelModules=true
 PrivateDevices=true
 RestrictSUIDSGID=true
-# MemoryDenyWriteExecute is per host (host_health_install.py: memory_deny_write_execute, default off): the standalone CPython 3.12
-# of APP_HOST's venv dies with SIGSEGV under it (stage 2026-10-25); the distribution's python of DATA_HOST does not. When the
-# configuration turns it on, the installer writes nexloop-host-health.service.d/50-installer-mdwe.conf.
+MemoryDenyWriteExecute=true
+# W^X stays on by default. Only a host whose venv is a standalone CPython (APP_HOST's /opt/nexloop/python-3.12, which dies with
+# SIGSEGV under it - stage 2026-10-25) turns it off, explicitly: memory_deny_write_execute=false in the install configuration
+# makes the installer write nexloop-host-health.service.d/50-installer-mdwe.conf with MemoryDenyWriteExecute=no.
 LockPersonality=true
 # Local findings (crash loop, blindness, a failed recording) are journal lines of priority err: watch them with
 # `journalctl -p err -u nexloop-host-health` from outside PostgreSQL (the database may be what loops).

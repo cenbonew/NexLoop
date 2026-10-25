@@ -2,7 +2,7 @@
   "schema": "nexloop-host-health-install/1",
   "release_checkout": "<RELEASE_CHECKOUT_ABSOLUTE_PATH>",
   "release_sha": "<RELEASE_COMMIT_40_HEX>",
-  "python": "/opt/nexloop/python-3.12.15/bin/python3.12",
+  "python": "/opt/nexloop/python-3.12/bin/python3.12",
   "memory_deny_write_execute": false,
   "pip_index_url": "https://<PYPI_MIRROR>/simple",
   "host_role": "app_host",
