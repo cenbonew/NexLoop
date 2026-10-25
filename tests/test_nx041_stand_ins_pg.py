@@ -319,7 +319,11 @@ def test_every_outbound_table_is_declared(sim):
 # The durable job queue outbox (0035) is not guarded: simulation Runs use the job queue (S6). Its rows reach outside only through a
 # worker that takes a governed effect intent; this guard fixes that: the outbox is written by the queue entry alone, and no function
 # that writes it also writes a declared outbound table or reaches a provider.
-OUTBOX_WRITERS = ('authz.nexloop_queue_command',)  # and its renamed predecessors (rename and wrap: <name>_before_*)
+OUTBOX_WRITERS = ('authz.nexloop_queue_command',  # and its renamed predecessors (rename and wrap: <name>_before_*)
+                  # Extraction dead letters (0355): the owner's requeue writes the same internal 'task.accepted' hand-off as the queue's
+                  # accept (0276) for a new claim-extraction job of the dead letter's own window; the worker takes it like any extraction
+                  # job (no destination, address or body in the outbox) and records only Claims, no external effect.
+                  'runtime.nexloop_governed_resolve_extraction_dead_letter')
 
 
 def test_the_job_outbox_reaches_outside_only_through_an_effect_intent(sim):
