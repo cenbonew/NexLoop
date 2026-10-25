@@ -141,3 +141,22 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 ## 6. 证据
 
 把 `precheck-before.json`、发布输出、发布后的预检、两轮基线的数字，以及判定结论记入 NX-054 的证据。**执行人与判定人分开写**。
+
+## 7. P3 回填的执行身份与凭据
+
+回填（`docs/design/relation-backfill-p3.md`）以专门的服务主体 `relation_backfiller` 执行。它在 `service-grants.v1.json` 第 20 版中登记，只授权 `eios:action:nexloop.relation.backfill:1`，数据库角色为 `nexloop_domain_worker`。它是一次性的主体：stage 上的回填跑完、verify 核对平衡之后，用下一版把它撤销。
+
+1. **生成凭据**（管理机，私有的 stage secrets 树）：
+   1. `stage_secrets.py setup-credentials --out <树>`：按 `stage-principals.v1.json` 第 5 版，在 `setup/relation-backfiller-credential` 生成这个主体的凭据文件（0600），并加入 `management/service-secrets.json`；重复执行不会再新增。
+   2. `stage_secrets.py register --tree <树> ...`：按 v20 注册这个主体，写入它的唯一一条授权（与其他主体的 register 相同，经 configurator 窗口）。
+2. **放到私有配置里**（APP_HOST，私有临时目录 `$BF`，在 tmpfs 上新建：`BF=$(mktemp -d /dev/shm/nexloop-backfill.XXXXXX)`，mktemp 建出的目录就是 0700；凭据和签名密钥的副本不落盘）：
+
+   | 文件 | 来源 | 权限 |
+   | --- | --- | --- |
+   | `$BF/service-credential` | 树中 `setup/relation-backfiller-credential` 的副本 | 0600 |
+   | `$BF/dsn` 与 `$BF/pg-client.crt`、`$BF/pg-client.key` | 一个现有 `nexloop_domain_worker` 服务的 DSN 文件和客户端证书、私钥（例如 retention keeper 的那一组）的副本：回填与它们使用同一个数据库角色，身份由服务凭据区分。**DSN 中的 `sslcert`、`sslkey`（以及 `sslrootcert`，如有）改为指向 `$BF` 中的副本**，不引用原服务的 secrets 目录 | 0600 |
+   | `$BF/signing.key` | 服务进程使用的签名密钥文件的副本 | 0600 |
+
+3. **执行**：`python scripts/deploy/relation_backfill.py --database-url-file $BF/dsn --signing-key-file $BF/signing.key --service-credential-file $BF/service-credential --artifact-root <临时空目录> <命令> [--run-id <run>]`。命令依次为 `preflight` → `start` → `run --max-batches 1`（校准）→ `run` → `verify` → `revert`（演练）→ 新的 `start` 与 `run` → `verify`（设计稿 §8）。
+   - 工具只开一条连接，计入 ADR-037 中运维预留的 7 个连接；不在 APP_HOST 应用的连接预算中登记。
+4. **收尾**：回填完成并核对之后，`rm -rf -- "$BF"`。`$BF` 在 tmpfs 上，内容只在内存中，删除即释放，不需要 shred；`service-grants` 的下一版（v21）去掉 `relation_backfiller`，register 时撤销它的授权和凭据。

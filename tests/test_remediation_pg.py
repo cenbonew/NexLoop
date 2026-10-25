@@ -4,6 +4,7 @@ service credential with eios:action:nexloop.remediation.plan:1 runs the planner'
 real workbench for the reads and the two owner Actions. Admin seeds synthetic effect intents (replica mode: the context and Run they
 would reference are not seeded) and their R0 failure rows, and the effect category of the synthetic Action, as trusted configuration.
 """
+import hashlib
 import json
 import secrets
 import time
@@ -79,7 +80,10 @@ def remediating(observed):  # noqa: F811
         return RemediationPort(o['domain'], authenticate_service(o['domain'], token, world='real'), w['f']['reader'].signer, environ=environ).round()
 
     def rules(m):
-        return apply_rules(m, TENANT, database_url_file=w['configurator'])
+        # G1: a publication names the revision it expects (the tenant's current rules version; test_remediation_rule_publications_pg).
+        current = admin.execute("select coalesce(max(manifest_version),0) from control.nexloop_remediation_rules where tenant_id=%s and world='real'",
+                                (TENANT,)).fetchone()[0]
+        return apply_rules(m, TENANT, expected_revision=current, database_url_file=w['configurator'])
     yield dict(o, plan=plan, rules=rules, token=token)
 
 
@@ -120,8 +124,11 @@ def test_sql_publishes_rules_only_for_declared_effect_sources_and_versions_only_
         r['rules'](manifest(rule(version=2)))                                 # version 2 was never declared external
     assert r['rules'](manifest(rule()))['replay'] is False
     assert r['rules'](manifest(rule()))['replay'] is True                    # the same manifest again: a replay
+    with pytest.raises(psycopg.errors.SerializationFailure, match='published with another text'):
+        r['rules'](manifest(rule(mode='automatic')))                          # version 1 again with another text
+    assert r['rules'](manifest(rule(), version=3))['replay'] is False        # versions may skip
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='version_must_increase'):
-        r['rules'](manifest(rule(mode='automatic')))
+        r['rules'](manifest(rule(), version=2))                              # the current version is 3: 2 does not increase
     with pytest.raises(psycopg.Error, match='trusted configuration only'):
         admin.execute("select control.nexloop_configure_remediation_rules(%s,'real',%s)", (TENANT, Jsonb(manifest(rule(), version=9))))
     with pytest.raises(psycopg.Error), admin.transaction():                  # append-only
@@ -272,7 +279,7 @@ def test_application_roles_hold_nothing_on_the_remediation_tables(remediating):
     admin = remediating['admin']
     tables = ('runtime.nexloop_remediation_intents', 'runtime.nexloop_remediation_events', 'runtime.nexloop_remediation_scans',
               'runtime.nexloop_remediation_rate_caps', 'control.nexloop_remediation_switches', 'control.nexloop_remediation_rules',
-              'control.nexloop_remediation_rule_holds')
+              'control.nexloop_remediation_rule_holds', 'control.nexloop_remediation_rule_publications')
     for table in tables:
         assert admin.execute('select relforcerowsecurity from pg_class where oid=%s::regclass', (table,)).fetchone() == (True,)
         for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_runtime', 'nexloop_metrics'):
@@ -286,7 +293,7 @@ def test_application_roles_hold_nothing_on_the_remediation_tables(remediating):
     append_only = {r[0] for r in admin.execute("""select c.oid::regclass::text from pg_trigger g join pg_class c on c.oid=g.tgrelid
         where g.tgfoid='control.nexloop_nx022_append_only()'::regprocedure and c.relname like 'nexloop_remediation_%%'""").fetchall()}
     assert append_only == {'runtime.nexloop_remediation_events', 'runtime.nexloop_remediation_scans', 'control.nexloop_remediation_switches',
-                           'control.nexloop_remediation_rules'}
+                           'control.nexloop_remediation_rules', 'control.nexloop_remediation_rule_publications'}
 
 
 APPROVAL_RULES = ['approval_waiting', 'approval_unconsumed', 'approval_sweep_stale', 'approval_solo_mode', 'approval_solo_self_approved',
@@ -335,8 +342,9 @@ def test_rules_open_reevaluate_and_still_refuse_governed_action(remediating):
     assert r['rules'](manifest(rule(kind='reevaluate', mode='automatic')))['replay'] is False
     with pytest.raises(RemediationRulesRejected, match='not available yet'):
         validate_rules(manifest(rule(kind='governed_action')))
+    text = json.dumps(manifest(rule(kind='governed_action'), version=2))   # past the Python check: SQL refuses it too (G1 entry)
     with psycopg.connect(Path(r['w']['configurator']).read_text().strip()) as db, pytest.raises(psycopg.errors.InvalidParameterValue, match='kind_unavailable'):
-        db.execute("select control.nexloop_configure_remediation_rules(%s,'real',%s)", (TENANT, Jsonb(manifest(rule(kind='governed_action'), version=2))))
+        db.execute("select control.nexloop_publish_remediation_rules(%s,'real',%s,%s,1)", (TENANT, text, hashlib.sha256(text.encode()).hexdigest()))
 
 
 def test_an_automatic_reevaluate_wakes_the_waiting_plan_once_as_a_self_trigger(remediating):

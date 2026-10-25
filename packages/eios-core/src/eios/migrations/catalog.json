@@ -1740,6 +1740,21 @@
       "version": "0348",
       "name": "0348_owner_reset_and_invite.sql",
       "sha256": "31b1a78d4fa565e199bc05a8d463afc59c4c1236b22224229ff97a6a9b60cd9b"
+    },
+    {
+      "version": "0349",
+      "name": "0349_relation_backfill.sql",
+      "sha256": "83de923de6c12405a600ba1cebf6e325885745688f2e362e352e3c1efd61043d"
+    },
+    {
+      "version": "0350",
+      "name": "0350_relation_backfill_port.sql",
+      "sha256": "1cddc23c1c8dd8c7d95cb84483df1a52e43fe5b50981f64a427701e78203667e"
+    },
+    {
+      "version": "0351",
+      "name": "0351_remediation_rule_publications.sql",
+      "sha256": "080fbd326dd4172d4f2142bbb9c2a6c17aab4d80fecc44a454b4f78bd7f260d3"
     }
   ]
 }

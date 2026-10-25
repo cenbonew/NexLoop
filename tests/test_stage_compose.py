@@ -228,6 +228,31 @@ def test_the_real_dispatch_switch_is_one_compose_variable_closed_by_default_and_
             assert config(value).returncode != 0, value
 
 
+def test_the_remediation_switch_is_one_compose_variable_of_the_plan_reevaluator_closed_by_default():
+    """NX-057 G2 (run-nx057-remediation-stage §4.2): the deployment layer REMEDIATION_ENABLED comes from the private compose env, default
+    false, and only the plan reevaluator (the planner's process) gets it, beside the real dispatch switch it keeps from the anchor."""
+    text = (STAGE / 'compose.app.example.yaml').read_text()
+    raw = yaml.safe_load(text)
+    reference = '${REMEDIATION_ENABLED:-false}'
+    assert sorted(n for n, s in raw['services'].items() if 'REMEDIATION_ENABLED' in (s.get('environment') or {})) == ['plan-reevaluator']
+    assert raw['services']['plan-reevaluator']['environment'] == {'REAL_DISPATCH_ENABLED': '${REAL_DISPATCH_ENABLED:-false}', 'REMEDIATION_ENABLED': reference}
+    assert 'REMEDIATION_ENABLED' not in raw['x-service']['environment'] and text.count(reference) == 1
+    env = STAGE / 'compose.app.env.example'
+    assert 'REMEDIATION_ENABLED=false' in env.read_text().splitlines()
+    for overrides, want in (({}, 'false'), ({'REMEDIATION_ENABLED': ''}, 'false'), ({'REMEDIATION_ENABLED': 'true'}, 'true')):
+        rendered = yaml.safe_load(interpolate(text, env, overrides))
+        assert rendered['services']['plan-reevaluator']['environment'] == {'REAL_DISPATCH_ENABLED': 'false', 'REMEDIATION_ENABLED': want}
+        assert all('REMEDIATION_ENABLED' not in (s.get('environment') or {}) for n, s in rendered['services'].items() if n != 'plan-reevaluator')
+    docker = shutil.which('docker')
+    if docker:
+        run = subprocess.run([docker, 'compose', '-f', 'compose.app.example.yaml', '--env-file', 'compose.app.env.example', 'config', '--format', 'json'],
+                             cwd=STAGE, capture_output=True, text=True, timeout=60, env={**os.environ, 'REMEDIATION_ENABLED': 'true'})
+        assert run.returncode == 0, run.stderr[-2000:]
+        services = json.loads(run.stdout)['services']
+        assert {n for n, s in services.items() if (s.get('environment') or {}).get('REMEDIATION_ENABLED') == 'true'} == {'plan-reevaluator'}
+        assert services['plan-reevaluator']['environment']['REAL_DISPATCH_ENABLED'] == 'false'
+
+
 def test_the_calibration_run_entry_form_gets_what_it_reads_from_the_action_worker():
     """Calibration gap 2 (run-calibration-20261017 §2.1): the run entry runs in a one-off container with --network container:<action
     worker>, --volumes-from <action worker>:ro and --user 10001. That form holds only if the rendered Compose gives the action worker

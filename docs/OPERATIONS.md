@@ -195,6 +195,7 @@ CI 账户的出站规则（模板 `deploy/stage/firewall/app-host.nft.template`�
 | 删除客户或消息、保留例外、数据导出 | 只有负责人，经工作台受治理 Action（NX-029） |
 | 知识工作台 | 审核员审核候选与证据；发布 17 起负责人可只读查看（`nexloop.knowledge.read`，0213，角色清单 v13）。角色清单 v18 起（NX-028 D2 修订 2，负责人 2026-10-20）负责人也持有 `ontology.schema.review`，可以直接做审核决定（理由必填，审计记录负责人本人）；以后有审核员时可以重新分离。无权限时页面说明需要的角色 |
 | 服务授权清单 | `python -m nexloop_eios.service_grants --check|--doctor|--apply`（configurator 连接；`--doctor` 只读报告漂移）。服务凭据的 worlds 只要含 `real` 就只能是 `real`，不能同时含 real 与其他 world（AT-046，写入时拒绝） |
+| 补救规则与补救开关（NX-057） | 规则用 `scripts/deploy/remediation_rules_apply.py` 经配置员窗口发布（先 `--check`；`--expected-revision` 写本租户当前规则版本，库里记录文件 sha256）。部署层 `REMEDIATION_ENABLED` 只给 `plan-reevaluator`，默认 false；租户开关由负责人在工作台暂停/恢复。stage 启用顺序与回退见[执行单](release/run-nx057-remediation-stage.md) |
 | 服务进程的 `--world` | runtime worker 与 guard 只接受 `real` 或 `test`；effect worker、出站记录、优惠执行者只接受 `real`；其他值在读取凭据之前退出（码 2） |
 | Runtime Worker 的进程形态与回退 | [deploy/stage/README.md](../deploy/stage/README.md)（`--guard-workers 4`、`--dispatch-loops 4`，回退改回 1 并重启） |
 | 连接器开发 | [CONNECTORS.md](CONNECTORS.md) |
