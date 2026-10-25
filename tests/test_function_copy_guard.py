@@ -456,6 +456,18 @@ REGISTRY = [
     Allowed('owner_reset_and_invite', 'control.nexloop_complete_workbench_reset', "the code's origin decides the target's standing (C-D3-1); nothing else",
             ((r"\s*-- NX-058 slice D3 \(L6 C-D3-1, S-D3b-1\)[^\n]*\n\s*--[^\n]*\n\s*or not control\.nexloop_workbench_member_active\(p_tenant,r\.target_principal,r\.approval_id is not null\)\n\s*or \(r\.approval_id is not null and not control\.nexloop_approval_executed_for\(p_tenant,r\.approval_id,'workbench_member\.issue_owner_reset'\)\) then",
               "\n  or not control.nexloop_workbench_member_active(p_tenant,r.target_principal,false) then"),)),
+    # member_erasure (NX-058 slice E1): the deletion replay learns workbench_member; the approval view's erased (the staff erasure ledger,
+    # an erased- invitee); the request guard's invite_owner username rewrite (ADR-039 R3 §8.6, §8.7).
+    Allowed('member_erasure', 'runtime.nexloop_replay_deletions', 'one more kind, workbench_member (the staff erasure replayed)',
+            ((r";n_member integer:=0;", ";"), (r",'sim_world','workbench_member'\)", ",'sim_world')"),
+             (r"\n  elsif x->>'kind'='workbench_member' then\n.*?else n_skipped:=n_skipped\+1;end if;\n  elsif x->>'kind'='sim_world' then", "\n  elsif x->>'kind'='sim_world' then"),
+             (r",'workbench_members',n_member", ""))),
+    Allowed('member_erasure', 'runtime.nexloop_approval_target_member', 'erased by the staff erasure ledger and the erased- invitee; the pseudonym: placeholder dropped',
+            ((r"\n   -- NX-058 slice E \(ADR-039 R3 §8\.6\): an invitee username the staff erasure rewrote is erased\.\n   if jsonb_typeof\(r\.body->'username'\)='string' and r\.body->>'username' like 'erased-%' then\n    v:=jsonb_build_object\('kind','erased'\);\n   elsif jsonb_typeof", "\n   if jsonb_typeof"),
+             (r"   -- 4\. Erased \(ADR-039 R3 §8\.6, NX-058 slice E\)[^\n]*\n   if exists\(select 1 from control\.nexloop_workbench_member_erasures e where e\.tenant_id=p_tenant and e\.subject_id=m\.subject_id\) then",
+              "   -- 4. Erased (a pseudonymised member identity; no staff erasure path exists yet, §6.5).\n   if m.principal_id like 'pseudonym:%' or m.subject_id like 'pseudonym:%' or coalesce(a.username,'') like 'pseudonym:%' then"))),
+    Allowed('member_erasure', 'control.nexloop_approval_request_guard', "the staff erasure's invite_owner username rewrite; nothing else",
+            ((r"\n    -- NX-058 slice E \(ADR-039 R3 §8\.7\)[^\n]*\n    or \(old\.capability='workbench_member\.invite_owner'.*?\^erased-\[0-9a-f\]\{16\}\$'\)\) then", ") then"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)

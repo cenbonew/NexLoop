@@ -35,12 +35,12 @@ def test_the_current_file_is_version_2_over_version_1():
     """NX-058 slices D2/D3: the deployed file adds the seven owner-only member Actions (version 3, applied over versions 1 and 2, deployment history)."""
     current = ROOT / 'deploy/configuration/approval-policies.v1.json'
     code, out = run('--manifest', str(current), '--check')
-    assert code == 0 and (out['version'], out['expected_revision'], out['policies']) == (3, 2, 10)
+    assert code == 0 and (out['version'], out['expected_revision'], out['policies']) == (4, 3, 11)
     policies = {p['capability']: p for p in json.loads(current.read_text())['policies']}
     v1 = {p['capability']: p for p in json.loads(MANIFEST.read_text())['policies']}
     assert all(policies[k] == v for k, v in v1.items())  # version 1's policies unchanged
     owner = [p for k, p in policies.items() if k.startswith('workbench_member.')]
-    assert len(owner) == 7 and all(p['condition'] is None and p['quorum'] == 1 and p['approver_roles'] == ['owner'] and p['solo_mode'] == 'not_applicable'
+    assert len(owner) == 8 and all(p['condition'] is None and p['quorum'] == 1 and p['approver_roles'] == ['owner'] and p['solo_mode'] == 'not_applicable'
                                    and p.get('target_subject_field') == ('target_principal' if p['capability'] != 'workbench_member.invite_owner' else None) for p in owner)
     v2 = {p['capability']: p for p in json.loads((ROOT / 'deploy/configuration/history/approval-policies.version2.json').read_text())['policies']}
     assert len(v2) == 8 and all(policies[k] == v for k, v in v2.items())  # version 2's policies unchanged

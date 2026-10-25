@@ -197,3 +197,21 @@
 | `control.nexloop_approval_requests.body`（冻结请求体） | Consumer ID（例如 `consumer.erase` 的 `consumer_id`） | C | 擦除开始时，终结仍在等待或已批准、尚未消费的请求；完成时，把完整字符串值替换为本次擦除的假名（0331），只改 body |
 | 同上 | 目标成员的 principal（`target_subject_field`，员工身份）、`invite_owner` 的被邀请人用户名 | D | 保留的员工身份：审批的审计需要知道处置的是谁。与 NX-058 片 D 的员工身份保留口径相同。目前没有员工身份的擦除路径 |
 | 审批视图的 `target_member` 块 | 目标成员的用户名、标签、角色、状态；被邀请人用户名 | 不存储 | 读时渲染，不保存副本，也不写审计。将来员工身份被擦除或假名化（`pseudonym:` 开头的 principal、subject 或 username）时显示 `{"kind":"erased"}`，不回退到请求体原值 |
+
+## NX-058 片 E：员工离职擦除（0349，片 E1）
+
+设计：`docs/design/nx058-member-erasure.md` v2.4。owner 经 NX-056 审批（`workbench_member.erase_member`，目标状态 `{revoked}`）擦除全部 membership 都已撤销的成员（按 subject）。结构检查：`tests/test_member_erasure_coverage_pg.py`（凡带员工身份列的表，要么擦除写入，要么登记理由）。
+
+| 表 | 处理 | 说明 |
+|---|---|---|
+| `control.nexloop_browser_accounts` | 改写 | 停用；口令哈希与历史清空；用户名（列与 payload）与邮箱（payload）改为 `erased-` 假名（E1=A）；会话 epoch +1 |
+| `control.nexloop_browser_subjects` | 改写 | payload status 置为 disabled（0198、0334 的第二道保险） |
+| `control.nexloop_browser_sessions`、`authz.nexloop_browser_token_realms` | 删除 | 该 subject 的会话及其令牌定位行 |
+| `control.nexloop_workbench_invitations` | 删除 / 改写 | 该 subject 接受的邀请删除；它签发的保留，只清 `issuer_source`（E2） |
+| `control.nexloop_workbench_reset_codes` | 删除 / 改写 | 指向该 subject 的码删除；它签发的只清 `issuer_source` |
+| `control.nexloop_approval_requests` | 定点改写 | 它入职那份 `invite_owner` 的冻结体 `username` 改为同一假名（已终结的请求；ADR-039 R3 §8.7） |
+| `control.nexloop_workbench_member_erasures` | 新表，永久 | 擦除台账（tenant、subject、principals、approval_id、执行人、时间）；只追加，判定 erased、already_erased、member_erased |
+| `control.nexloop_deletion_ledger` | kind `workbench_member` | 恢复重放日志，cutoff 为擦除时间；365 天后照常清理；`runtime.nexloop_replay_deletions` 幂等重放 |
+| `control.nexloop_browser_login_events` | 片 E2 | 来源摘要与用户名摘要在擦除 90 天后由保留期服务清除 |
+| `control.nexloop_workbench_grant_instances`、`control.nexloop_workbench_role_history` | 保留（E5） | 只含 principal 与摘要；撤销时已写撤销实例与 stop，擦除不做空写入 |
+| 其余带员工身份列的表 | 保留 | 动作者的 principal（审计可追溯）、客户或服务的 principal，理由见覆盖测试 `STAFF_KEPT` |

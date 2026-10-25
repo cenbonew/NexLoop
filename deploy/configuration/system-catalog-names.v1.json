@@ -914,6 +914,11 @@
       "stable_name": "nexloop.workbench_member.invite_owner",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.workbench_member.erase_member",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
     }
   ],
   "functions": [

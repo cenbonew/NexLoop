@@ -67,3 +67,7 @@ Runbook (lost response, R3 §8.4): a retry replays without the code or token; ch
 - Known: the same body by the same requester within an hour answers the earlier consumption (NX-056), so a second owner reset code for the same target waits an hour (the HMAC is outside the digest).
 - Username case: slice D3 compares `lower(username)` like slice A; the approval view's `same_username_exists` (0342, B1) compares exactly - left to L3.
 - **S-D3b-1**: `control.nexloop_approval_executed_for(tenant, approval, capability)`: an owner code redeems only on an executed `issue_owner_reset` approval, an owner invitation is accepted only on an executed `invite_owner` approval (tested: another capability's executed approval, an approved one never executed, one refused at execution).
+
+## Slice E1 — staff offboarding erasure (0349)
+
+See `docs/design/nx058-member-erasure.md` v2.4 and `docs/implementation/erasure-coverage.md` (NX-058 片 E). Migration `0349_member_erasure.sql` (temporary number) on the batch 28 rehearsal 01e08d0c: capability `workbench_member.erase_member` (target statuses `{revoked}`), the permanent erasure ledger, the deletion ledger kind and its replay, the shared erase write, the handler, the approval view's erased (ledger and the erased- invitee) and the request guard's invite_owner username rewrite (copy guard), the erased- username guard and the configuration guard; approval policies version 4 (version 3 kept as history). Manifests: Actions 124, owner 90. The 90-day login digest clearing (retention verb) is slice E2.

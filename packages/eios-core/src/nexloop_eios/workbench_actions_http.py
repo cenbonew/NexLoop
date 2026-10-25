@@ -222,13 +222,16 @@ OPERATIONS={
     # NX-058 slice B (owner only): a one-time reset code for an operator or reviewer; the entry draws the code (below), never the body.
     'issue_workbench_reset':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
     # NX-058 slice A (owner only): invite an operator or reviewer; the entry draws the token (below). Revoke an unused invitation.
-    'invite_workbench_member':{'username':_id(re.compile(r'[a-z0-9][a-z0-9._-]{2,63}')),
+    'invite_workbench_member':{'username':_id(re.compile(r'(?!erased-)[a-z0-9][a-z0-9._-]{2,63}')),
         'role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role')),
         'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
     'revoke_workbench_invitation':{'invitation_id':_id(_UUID)},
     # NX-058 slice D3 (owner only, NX-056 approval): the entry draws the code or token at every submission (below).
     'issue_workbench_owner_reset':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
-    'invite_workbench_owner':{'username':_id(re.compile(r'[a-z0-9][a-z0-9._-]{2,63}')),
+    # NX-058 slice E (owner only, NX-056 approval): erase a revoked member; the reason is an enumeration.
+    'erase_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),
+        'reason':lambda v:v if v in ('offboarding','member_request','other') else (_ for _ in ()).throw(ValueError('reason'))},
+    'invite_workbench_owner':{'username':_id(re.compile(r'(?!erased-)[a-z0-9][a-z0-9._-]{2,63}')),
         'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
     # NX-058 slice C (owner only): member changes of operators and reviewers; the target is target_principal only (AA2).
     'change_workbench_member_role':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),

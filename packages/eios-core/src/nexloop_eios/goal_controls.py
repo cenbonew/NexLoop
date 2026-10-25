@@ -124,7 +124,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'suspend_workbench_owner':'workbench_member.suspend_owner','resume_workbench_owner':'workbench_member.resume_owner',
     'revoke_workbench_owner':'workbench_member.revoke_owner',
     # NX-058 slice D3: an owner's reset code and an owner invitation, each with another owner's approval (NX-056).
-    'issue_workbench_owner_reset':'workbench_member.issue_owner_reset','invite_workbench_owner':'workbench_member.invite_owner'}
+    'issue_workbench_owner_reset':'workbench_member.issue_owner_reset','invite_workbench_owner':'workbench_member.invite_owner',
+    # NX-058 slice E: the staff offboarding erasure of a revoked member, with another owner's approval (NX-056).
+    'erase_workbench_member':'workbench_member.erase_member'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -648,6 +650,12 @@ class GoalGovernedActions:
             raise ValueError('username, 1-72 hours, token HMAC and issuer source HMAC required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'invite_workbench_owner','username':username,
                                                         'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source_hmac':issuer_source_hmac})
+
+    # NX-058 slice E: the reason is an enumeration (never free text; not audited).
+    def erase_workbench_member(self,*,action_name,action_version,request_id,target_principal,reason):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or reason not in ('offboarding','member_request','other'):
+            raise ValueError('target principal and reason offboarding, member_request or other required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_workbench_member','target_principal':target_principal,'reason':reason})
 
     def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')

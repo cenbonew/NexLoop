@@ -108,7 +108,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'workbench_member.promote_owner':'human_owner','workbench_member.demote_owner':'human_owner','workbench_member.suspend_owner':'human_owner',
     'workbench_member.resume_owner':'human_owner','workbench_member.revoke_owner':'human_owner',
     # NX-058 slice D3: an owner's reset code and an owner invitation, under NX-056 approval.
-    'workbench_member.issue_owner_reset':'human_owner','workbench_member.invite_owner':'human_owner'}
+    'workbench_member.issue_owner_reset':'human_owner','workbench_member.invite_owner':'human_owner',
+    # NX-058 slice E: the staff offboarding erasure, under NX-056 approval.
+    'workbench_member.erase_member':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

@@ -92,11 +92,10 @@ def test_unresolved_and_erased_never_return_the_bodys_value(store):
     admin.execute('delete from control.nexloop_browser_memberships where principal_id=%s', (f['second']['principal_id'],))
     block = row(view(f, 'approver')['to_decide'], gone)['target_member']
     assert block == {'kind': 'unresolved'} and f['second']['principal_id'] not in str(view(f, 'approver'))
-    pseudonym = 'pseudonym:' + 'a' * 32
-    payload = admin.execute('select payload from control.nexloop_browser_memberships where principal_id=%s', (f['operator']['principal_id'],)).fetchone()[0]
-    admin.execute('insert into control.nexloop_browser_memberships values(%s,%s,%s,%s)',
-                  (TENANT_A, pseudonym, f['operator']['subject_id'], Jsonb({**payload, 'principal_id': pseudonym})))
-    erased = open_for(f, 'requester', pseudonym)
+    # NX-058 slice E (ADR-039 R3 §8.6): erased is the staff erasure ledger's subject (the transitional pseudonym: marker is gone).
+    erased = open_for(f, 'requester', f['operator']['principal_id'])
+    admin.execute("insert into control.nexloop_workbench_member_erasures(tenant_id,subject_id,principals,erased_at) values(%s,%s,%s,clock_timestamp())",
+                  (TENANT_A, f['operator']['subject_id'], [f['operator']['principal_id']]))
     assert row(view(f, 'approver')['to_decide'], erased)['target_member'] == {'kind': 'erased'}
 
 

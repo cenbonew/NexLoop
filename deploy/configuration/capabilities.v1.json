@@ -2427,6 +2427,29 @@
       },
       "schema_hash": "1b4f9bbb673bf4859acc3c12ff7a4274b7e17518a56ef2d15b2f5411a166b037",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "workbench_member.erase_member",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "erase_workbench_member",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "d6ba65793f09b31f35ca593382fa74909ae0324a6c048f7adfd15e30f8fa0579",
+      "side_effects_reason": null
     }
   ]
 }

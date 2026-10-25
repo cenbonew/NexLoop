@@ -29,7 +29,7 @@ from test_erasure_pg import ACTIONS, KEEPER, act, keeper, request  # noqa: F401
 # NX-058 slice D2, expected_revision 1).
 POLICIES = Path(__file__).resolve().parents[1] / 'deploy/configuration/history/approval-policies.version1.json'
 CURRENT = Path(__file__).resolve().parents[1] / 'deploy/configuration/approval-policies.v1.json'
-HISTORY = [POLICIES, Path(__file__).resolve().parents[1] / 'deploy/configuration/history/approval-policies.version2.json']  # applied before CURRENT
+HISTORY = [POLICIES] + [Path(__file__).resolve().parents[1] / f'deploy/configuration/history/approval-policies.version{v}.json' for v in (2, 3)]  # applied before CURRENT
 PLAN = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
 
 

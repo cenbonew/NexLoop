@@ -1755,6 +1755,11 @@
       "version": "0351",
       "name": "0351_remediation_rule_publications.sql",
       "sha256": "080fbd326dd4172d4f2142bbb9c2a6c17aab4d80fecc44a454b4f78bd7f260d3"
+    },
+    {
+      "version": "0349",
+      "name": "0349_member_erasure.sql",
+      "sha256": "b88bab784007be40ba0e4ba11fe87e890f5ba6fd98e0d0e2c066747f51df2e12"
     }
   ]
 }

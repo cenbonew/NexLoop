@@ -86,7 +86,8 @@ IDENTITY_KEPT = {
     'runtime.nexloop_commitment_events': 'subject_ref is a commitment or Claim reference; principal_id the staff member who acted',
     'runtime.nexloop_native_web_transports': 'principal_id follows runtime.nexloop_native_web_events through ON UPDATE CASCADE (0306)',
     'control.nexloop_deletion_ledger': _KEPT, 'runtime.nexloop_erasure_tombstones': _KEPT,
-    # NX-058: workbench members' role grants and role history - staff, never a Consumer (staff erasure is the owner's open Q-A).
+    # NX-058: workbench members' role grants and role history - staff, never a Consumer (staff erasure: NX-058 slice E,
+    # tests/test_member_erasure_coverage_pg.py; kept there with their reason, E5).
     'control.nexloop_workbench_grant_instances': _STAFF + ' (a workbench member\'s instantiated role grants)',
     'control.nexloop_workbench_role_history': _STAFF + ' (when a workbench member held a role)',
     # NX-057: who switched or resolved a remediation (the owner or the planner's service principal); the remediation holds no consumer id.
