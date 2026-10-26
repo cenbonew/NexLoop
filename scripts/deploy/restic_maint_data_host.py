@@ -7,16 +7,18 @@
 
 The installed unit is the deploy days' copy of deploy/stage/systemd/nexloop-restic-maint.service.example (its paths may be the host's
 own), so it is not replaced: in its forget lines, and only there, `forget --keep-within 14d --keep-monthly 1 --prune` becomes
-`forget --group-by host,tags --keep-within 14d --keep-monthly 1 --prune`. Under restic's default grouping (host,paths) every file
+`forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune` (L6 S2: prune's exclusive lock waits for a
+backup's shared one instead of failing the run). Under restic's default grouping (host,paths) every file
 snapshot of the APP_HOST file backup is a group of its own (each comes from a new staging directory) and is never forgotten; grouped
 by tag the restore journal (journal) and the two file kinds (files_artifact, files_runtime) each keep D4's window.
 
 Steps:
   1 preflight: the unit a regular file, it and every directory above it root's and not group/other-writable (lstat, no link); exactly
     the expected forget lines (one per repository, at least repo1), nothing else changed
-  2 preview: each forget line, with --dry-run --json and --retry-lock instead of --prune, run in the unit's own sandbox (systemd-run
-    with its [Service] settings: its user, its EnvironmentFile); per group its host, tags, kept and removed counts. A preview that fails
-    stops the run before anything is written
+  2 preview: each forget line, with --dry-run --json instead of --prune, run in the unit's own sandbox (systemd-run with its [Service]
+    settings: its user, its EnvironmentFile; --expand-environment=yes, so its ${VAR} paths are expanded as in the unit - systemd 254 or
+    later, an older systemd-run refuses the option and the preview fails); per group its host, tags, kept and removed counts. A preview
+    that exits non-zero or whose last line is not restic's JSON stops the run before anything is written (L6 S1, S3)
   3 the unit rewritten atomically (the previous text kept as <unit>.before-groupby, 0644 root), then `systemctl daemon-reload`
 Output: step lines and the preview's counts (snapshot ids, tags and counts; never a password or a repository location). Exit 0 done,
 1 a step failed, 2 refused.
@@ -34,7 +36,7 @@ from pathlib import Path
 
 UNIT = '/etc/systemd/system/nexloop-restic-maint.service'
 OLD = 'forget --keep-within 14d --keep-monthly 1 --prune'
-NEW = 'forget --group-by host,tags --keep-within 14d --keep-monthly 1 --prune'
+NEW = 'forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune'
 SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'TimeoutStartSec'}
 
 
@@ -105,8 +107,14 @@ def sandbox(text):
 def preview(text, lines, runner, out):
     properties = [a for key, value in sandbox(text) for a in ('-p', f'{key}={value}')]
     for line in lines:
-        argv = line.replace(NEW, NEW.replace('--prune', '--dry-run --json --retry-lock 10m')).split()
-        answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec', *properties, *argv], check=False)
+        argv = line.replace(NEW, NEW.replace('--prune', '--dry-run --json')).split()
+        try:
+            # L6 S1: the unit's ${VAR} paths expanded explicitly, not by a systemd-run default (systemd 254+); S3: exit 0 required.
+            answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec', '--expand-environment=yes',
+                             *properties, *argv])
+        except Failed as error:
+            raise Failed(f'the forget preview failed ({error}; a lock held for 10 minutes, the repository, its password, or a systemd older '
+                         'than 254 refusing --expand-environment): nothing written') from None
         try:
             groups = json.loads(answer.strip().splitlines()[-1])
             assert type(groups) is list

@@ -36,12 +36,14 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
 
 
 class Runner:
-    def __init__(self, answer=None):
-        self.calls, self.answer = [], answer
+    def __init__(self, answer=None, exit_code=0):
+        self.calls, self.answer, self.exit_code = [], answer, exit_code
 
     def __call__(self, command, *, check=True):
         self.calls.append(list(command))
         if command[0] == 'systemd-run':
+            if self.exit_code and check:  # as R.run: a non-zero exit is a failure when checked
+                raise R.Failed(f'systemd-run exited {self.exit_code}')
             return self.answer if self.answer is not None else json.dumps(GROUPS) + '\n'
         return ''
 
@@ -71,10 +73,11 @@ def test_previews_in_the_units_sandbox_then_rewrites_only_the_forget_lines(tmp_p
     previews = [c for c in runner.calls if c[0] == 'systemd-run']
     assert len(previews) == 2 and runner.calls.index(previews[-1]) < runner.calls.index(['systemctl', 'daemon-reload'])
     for command in previews:
+        assert '--expand-environment=yes' in command[:command.index('-p')]  # L6 S1: the ${VAR} paths expanded explicitly
         props = [command[i + 1] for i, a in enumerate(command) if a == '-p']
         assert {'User=nexloop-backup', 'Group=nexloop-backup', 'EnvironmentFile=/etc/nexloop/restic.env', 'ProtectSystem=strict'} <= set(props)
         line = ' '.join(command[command.index('/usr/local/bin/restic'):])
-        assert 'forget --group-by host,tags --keep-within 14d --keep-monthly 1 --dry-run --json --retry-lock 10m' in line and '--prune' not in line
+        assert 'forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --dry-run --json' in line and '--prune' not in line and line.count('--retry-lock') == 1
     assert '$RESTIC_REPO2_OPTIONS' in previews[1] and '${RESTIC_REPO2_REPOSITORY_FILE}' in previews[1]
     assert 'preview repo1: {"host": "nexloop", "keep": 3, "remove": 1, "tags": ["journal"]}' in text
     assert 'preview repo2: {"host": "nexloop", "keep": 2, "remove": 0, "tags": ["files_artifact"]}' in text
@@ -93,6 +96,15 @@ def test_revert_puts_restic_default_grouping_back_without_a_preview(tmp_path):
 def test_a_failed_preview_writes_nothing(tmp_path, answer):
     path = unit(tmp_path)
     code, text, runner = main(path, runner=Runner(answer))
+    assert code == 1 and 'nothing written' in text and path.read_text() == DEPLOYED
+    assert not (path.parent / 'nexloop-restic-maint.service.before-groupby').exists() and ['systemctl', 'daemon-reload'] not in runner.calls
+
+
+def test_a_preview_exiting_non_zero_writes_nothing_even_with_a_json_last_line(tmp_path):
+    """L6 S3: restic printed its groups, then failed (or systemd-run refused --expand-environment): the exit code decides."""
+    path = unit(tmp_path)
+    code, text, runner = main(path, runner=Runner(exit_code=1))
+    assert 'systemd-run exited 1' in text and 'older than 254' in text
     assert code == 1 and 'nothing written' in text and path.read_text() == DEPLOYED
     assert not (path.parent / 'nexloop-restic-maint.service.before-groupby').exists() and ['systemctl', 'daemon-reload'] not in runner.calls
 
