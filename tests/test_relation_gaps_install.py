@@ -23,6 +23,11 @@ DSN = "host='/var/run/postgresql' dbname='nexloop_stage' user='nexloop_metrics' 
 OWNERS = (0, os.getuid())
 
 
+def tempfile_dir():
+    import tempfile
+    return tempfile.gettempdir()
+
+
 def private(path, value, text=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text if text is not None else json.dumps(value))
@@ -36,8 +41,8 @@ class Runner:
 
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
-        if command[0] == 'git':
-            assert command[1] == '--no-replace-objects'  # L6 I2
+        if command[:2] == ['env', '-i']:
+            assert command[:command.index('git') + 2] == [*I.GIT] and not any(a.startswith('GIT_DIR') for a in command)  # minimal env, I2
             return (ROOT / command[-1].split(':', 1)[1]).read_text()
         if command[:2] == ['id', '-u']:
             return '998\n' if self.user_exists else ''
@@ -112,7 +117,9 @@ def test_installs_reruns_and_never_shows_the_dsn(tmp_path):
     props = [dry[i + 1] for i, a in enumerate(dry) if a == '-p']
     assert 'User=nexloop-relation-gaps' in props and 'Group=nexloop-relation-gaps' in props and 'PrivateTmp=true' in props
     rw = [p for p in props if p.startswith('ReadWritePaths=')]
-    assert len(rw) == 1 and 'relation-gaps-dry-' in rw[0] and '/srv/nexloop/evidence' not in rw[0]
+    # L6 C2: the unit's PrivateTmp hides the host /tmp, so the scratch directory is under /var/lib, never /tmp.
+    assert 'PrivateTmp=true' in props and len(rw) == 1 and rw[0].startswith('ReadWritePaths=' + str(root / 'var/lib/nexloop/relation-gaps-dry/run-'))
+    assert '/srv/nexloop/evidence' not in rw[0] and not rw[0].split('=', 1)[1].startswith(('/tmp', '/private/tmp', tempfile_dir()))
     for path, nested in ((root / 'etc/nexloop/host-health.json', False), (root / 'root/host-health-install.data-host.json', True)):
         value = json.loads(path.read_text())
         assert I.ENTRY in (value['probe'] if nested else value)['timers'] and path.stat().st_mode & 0o777 == 0o600
@@ -191,3 +198,75 @@ def test_a_malformed_configuration_is_refused(tmp_path):
     assert main(root, config)[0] == 2
     root, config = setup(tmp_path / 'b', evidence_dir='relative/path')
     assert main(root, config)[0] == 2
+
+
+def test_every_hop_of_the_interpreter_link_chain_is_checked(tmp_path, monkeypatch):
+    """L6 I3: python -> <a 0777 directory>/py3 -> the real file is refused; a group-writable real file is refused; a link not root's
+    is refused (its owner faked: this test cannot chown)."""
+    real = tmp_path / 'usr/bin/python3.12'
+    real.parent.mkdir(parents=True)
+    real.write_text('#!/bin/sh\n')
+    os.chmod(real, 0o755)
+    loose = tmp_path / 'loose'
+    loose.mkdir()
+    os.chmod(loose, 0o777)
+    os.symlink(real, loose / 'py3')
+    good = tmp_path / 'good'
+    good.mkdir()
+    os.symlink(loose / 'py3', good / 'python')
+    check = functools.partial(I.interpreter_owned, what='python', owners=OWNERS)
+    with pytest.raises(I.Refused, match='loose'):
+        check(str(good / 'python'))
+    os.chmod(loose, 0o755)
+    check(str(good / 'python'))  # every hop root's (here: this user's) and not writable
+    os.chmod(real, 0o775)
+    with pytest.raises(I.Refused, match='python3.12'):
+        check(str(good / 'python'))
+    os.chmod(real, 0o755)
+    lstat = os.lstat
+
+    def foreign(path, *a, **k):
+        info = lstat(path, *a, **k)
+        if str(path) == str(good / 'python'):
+            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, 4242, info.st_gid, info.st_size,
+                                   int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+        return info
+    monkeypatch.setattr(os, 'lstat', foreign)
+    with pytest.raises(I.Refused, match='a link'):
+        check(str(good / 'python'))
+
+
+def test_a_git_pointer_file_or_alternates_are_refused(tmp_path):
+    root, config = setup(tmp_path)
+    (tmp_path / 'release/.git/objects/info').mkdir(parents=True)
+    (tmp_path / 'release/.git/objects/info/alternates').write_text('/elsewhere/objects\n')
+    assert main(root, config)[0] == 2
+    root, config = setup(tmp_path / 'w')
+    import shutil
+    shutil.rmtree(tmp_path / 'w/release/.git')
+    (tmp_path / 'w/release/.git').write_text('gitdir: /elsewhere/.git/worktrees/x\n')
+    code, text, _ = main(root, config)
+    assert code == 2 and 'worktree pointer' in text
+
+
+def test_the_second_host_health_write_failing_restores_the_first(tmp_path, monkeypatch):
+    root, config = setup(tmp_path)
+    first = root / 'etc/nexloop/host-health.json'
+    before = first.read_text()
+    real = I.write_private
+
+    def failing(path, text, mode=0o600):
+        if path.name == 'host-health-install.data-host.json':
+            raise OSError('disk full')
+        return real(path, text, mode)
+    monkeypatch.setattr(I, 'write_private', failing)
+    code, text, runner = main(root, config)
+    assert code == 1 and first.read_text() == before and not any(c[:2] == ['systemctl', 'enable'] for c in runner.calls)
+
+
+def test_uninstall_refuses_a_malformed_host_health_file_before_removing_anything(tmp_path):
+    root, config = setup(tmp_path)
+    assert main(root, config)[0] == 0
+    private(root / 'root/host-health-install.data-host.json', {'schema': 'x', 'probe': {'timers': 'not a list'}})
+    code, text, runner = main(root, config, '--uninstall')
+    assert code == 2 and (root / 'etc/systemd/system/nexloop-relation-read-gaps.service').exists() and runner.calls == []

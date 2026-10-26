@@ -15,6 +15,7 @@ User=nexloop-relation-gaps
 Group=nexloop-relation-gaps
 ExecStart=@PYTHON@ -I -B /opt/nexloop/relation-gaps/current/scripts/acceptance/relation_read_gaps.py --dsn-file /etc/nexloop/relation-gaps/metrics.dsn --tenant @TENANT_ID@ --evidence-dir @EVIDENCE_DIR@
 NoNewPrivileges=true
+RestrictSUIDSGID=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict

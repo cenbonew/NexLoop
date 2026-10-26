@@ -16,8 +16,9 @@ host_health_config (the probe's /etc/nexloop/host-health.json) and host_health_i
 configuration, so a later host-health reinstall keeps the timer).
 
 Trust (root runs this code; L6 review of 861be53e): stdlib only, nothing imported from outside it. Before anything, the release
-checkout and its .git (every directory, and every file outside objects/) must be root's alone; `git show` runs with
---no-replace-objects. Root never executes the unit's interpreter (the service user does, in the sandbox), so `python` may be a link
+checkout and its .git (every directory, and every file outside objects/) must be root's alone, and .git a directory without
+objects/info/alternates or commondir; `git show` runs with --no-replace-objects in a minimal environment (no GIT_* variable, no
+system or global configuration). Root never executes the unit's interpreter (the service user does, in the sandbox), so `python` may be a link
 chain: its real file must be root's and not group/other-writable, and so must every directory on its path and on the real path.
 
 Steps (each idempotent):
@@ -29,7 +30,8 @@ Steps (each idempotent):
   4 the evidence directory (0750, the service user)
   5 the unit and timer from the release's deploy/stage/systemd/nexloop-relation-read-gaps.*.example (tokens filled); daemon-reload
   6 relation-read-gaps in the host-health timers (both files above; 0600 kept; the second write failing restores the first)
-  7 one dry run in the unit's own sandbox (its [Service] settings as systemd-run properties, the evidence in a scratch directory):
+  7 one dry run in the unit's own sandbox (its [Service] settings as systemd-run properties, the evidence in a scratch directory
+    under /var/lib/nexloop/relation-gaps-dry - not /tmp, which the unit's PrivateTmp hides):
     exit 0 or 1 (gaps) go on, 2 (refused, unwritten evidence) stops; then `systemctl enable --now nexloop-relation-read-gaps.timer`
 --drill-arm N: a drop-in nexloop-relation-read-gaps.timer.d/50-drill.conf adds one OnCalendar N minutes from now (the timer itself
 fires, so host-health sees a scheduled run); --drill-clear removes it. --uninstall: timer, units, drop-ins, DSN and release removed,
@@ -98,27 +100,45 @@ def root_owned(path, *, what, owners=(0,)):
 
 
 def interpreter_owned(path, *, what, owners=(0,)):
-    """L6 C1: the unit's interpreter, run by the service user and never by root, may be a link chain (the host-health venv's
-    bin/python -> python3 -> /usr/bin/python3.12, current -> <sha>). Every directory on the written path (followed) and every link on
-    it (the link itself) must be root's and not group/other-writable, and the real file and its directories too."""
-    path = Path(os.path.abspath(path))
-    for part in reversed(path.parents):
+    """L6 C1 / I3: the unit's interpreter, run by the service user and never by root, may be a link chain (the host-health venv's
+    bin/python -> python3 -> /usr/bin/python3.12, current -> <sha>). The path is resolved hop by hop: every directory entered must be
+    root's and not group/other-writable, every link on the way must be root's (and lies in such a directory), and the real file must
+    be a regular file, root's, not group/other-writable."""
+    parts = [x for x in Path(os.path.abspath(path)).parts[1:]]
+    current, hops = Path('/'), 0
+    if not _owned(os.lstat(current), owners):
+        raise Refused(f'{what}: / must be owned by root and not group/other-writable')
+    while parts:
+        name = parts.pop(0)
+        if name in ('', '.'):
+            continue
+        if name == '..':
+            current = current.parent
+            continue
+        entry = current / name
         try:
-            followed, link = os.stat(part), os.lstat(part)
+            info = os.lstat(entry)
         except OSError:
-            raise Refused(f'{what}: {part} unreadable') from None
-        if not _owned(followed, owners) or (stat.S_ISLNK(link.st_mode) and link.st_uid not in owners):
-            raise Refused(f'{what}: {part} must be owned by root and not group/other-writable')
-    try:
-        link = os.lstat(path)
-    except OSError:
-        raise Refused(f'{what}: {path} unreadable') from None
-    if stat.S_ISLNK(link.st_mode) and link.st_uid not in owners:
-        raise Refused(f'{what}: {path} must be owned by root')
-    real = Path(os.path.realpath(path))
-    root_owned(real, what=what, owners=owners)
-    if not stat.S_ISREG(os.stat(real).st_mode):
-        raise Refused(f'{what}: {real} is not a regular file')
+            raise Refused(f'{what}: {entry} unreadable') from None
+        if stat.S_ISLNK(info.st_mode):
+            hops += 1
+            if hops > 40 or info.st_uid not in owners:
+                raise Refused(f'{what}: {entry} (a link) must be owned by root')
+            target = Path(os.readlink(entry))
+            if target.is_absolute():
+                current = Path('/')
+                parts = list(target.parts[1:]) + parts
+            else:
+                parts = list(target.parts) + parts
+            continue
+        if not _owned(info, owners):
+            raise Refused(f'{what}: {entry} must be owned by root and not group/other-writable')
+        if parts:
+            if not stat.S_ISDIR(info.st_mode):
+                raise Refused(f'{what}: {entry} is not a directory')
+            current = entry
+        elif not stat.S_ISREG(info.st_mode):
+            raise Refused(f'{what}: {entry} is not a regular file')
 
 
 def trust_release(config, trust):
@@ -126,6 +146,10 @@ def trust_release(config, trust):
     checkout = Path(config['release_checkout'])
     trust(checkout, what='release_checkout')
     git = checkout / '.git'
+    if os.path.islink(git) or not os.path.isdir(git):
+        raise Refused('release .git: a directory (a worktree pointer file or a link is refused)')
+    if os.path.lexists(git / 'objects/info/alternates') or os.path.lexists(git / 'commondir'):
+        raise Refused('release .git: objects from elsewhere (objects/info/alternates, commondir) are refused')
     trust(git, what='release .git')
     for path in sorted(git.rglob('*')):
         if path.is_dir() or not str(path.relative_to(git)).startswith('objects/'):
@@ -194,8 +218,12 @@ def read_dsn(config, dsn_stdin, stdin):
     return lines[0].strip() + '\n'
 
 
+GIT = ['env', '-i', 'PATH=/usr/bin:/bin', 'HOME=/nonexistent', 'GIT_CONFIG_NOSYSTEM=1', 'GIT_CONFIG_GLOBAL=/dev/null', 'git', '--no-replace-objects']
+
+
 def git_show(config, path, runner):
-    return runner(['git', '--no-replace-objects', '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
+    # A minimal environment: no GIT_* variable of root's session, no system or global configuration (L6 review of e446f673).
+    return runner([*GIT, '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
 
 
 def release(root, config, runner, trust):
@@ -339,7 +367,11 @@ def install(root, config, dsn, runner, out, trust, trust_python):
     step(5, 'units installed')
     added = rewrite_timers(host_health_files(root, config), add_entry)
     step(6, 'host-health timers: ' + ('added to ' + ', '.join(p.name for p in added) if added else 'already listed'))
-    scratch = Path(tempfile.mkdtemp(prefix='relation-gaps-dry-'))
+    # L6 C2: outside /tmp - the sandbox has the unit's PrivateTmp, a host /tmp directory would not be there.
+    dry = root / 'var/lib/nexloop/relation-gaps-dry'
+    dry.mkdir(parents=True, exist_ok=True)
+    os.chmod(dry, 0o755)
+    scratch = Path(tempfile.mkdtemp(dir=dry, prefix='run-'))
     runner(['chown', f'{USER}:{USER}', str(scratch)])
     try:
         answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec',
@@ -381,6 +413,9 @@ def drill_clear(root, runner, out):
 
 
 def uninstall(root, config, runner, out):
+    files = [(p, n) for p, n in host_health_files(root, config) if p.exists()]
+    for path, nested in files:  # a malformed host-health file is refused before anything is removed
+        timers_of(read_private_json(path), nested, path)
     runner(['systemctl', 'disable', '--now', 'nexloop-relation-read-gaps.timer'], check=False)
     systemd = root / 'etc/systemd/system'
     for d in ('nexloop-relation-read-gaps.timer.d', 'nexloop-relation-read-gaps.service.d'):
@@ -389,13 +424,14 @@ def uninstall(root, config, runner, out):
     for path in (systemd / 'nexloop-relation-read-gaps.timer', systemd / 'nexloop-relation-read-gaps.service', root / 'etc/nexloop/relation-gaps/metrics.dsn'):
         if path.exists() or path.is_symlink():
             path.unlink()
+    shutil.rmtree(root / 'var/lib/nexloop/relation-gaps-dry', ignore_errors=True)
     base = root / 'opt/nexloop/relation-gaps'
     if base.exists():
         for path in [base, *base.rglob('*')]:
             if not path.is_symlink():
                 os.chmod(path, 0o700 if path.is_dir() else 0o600)
         shutil.rmtree(base)
-    rewrite_timers([(p, n) for p, n in host_health_files(root, config) if p.exists()], remove_entry)
+    rewrite_timers(files, remove_entry)
     runner(['systemctl', 'daemon-reload'], check=False)
     print(f'uninstalled: timer, units, drop-ins, DSN and release removed; host-health entries taken out; the evidence and the user {USER} stay', file=out)
 
