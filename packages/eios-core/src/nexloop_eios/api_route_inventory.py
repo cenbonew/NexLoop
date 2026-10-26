@@ -4,7 +4,8 @@ deploy/authorization/api-routes.v1.json lists each (method, path) the complete c
 web root, the way the stage serves the workbench - with its realm (which credential is checked before anything else: none, the built
 pages, a consumer or workbench cookie session, a Bearer service token, the connector signature, or an entry before a session exists)
 and what authorizes it past that (a port operation the handler delegates to, the workbench write dispatch, or nothing more).
-Mounts (the static web root) are one entry each, never expanded. The inventory is written and reviewed by hand; this module only
+Mounts (the static web root) are one entry each, never expanded. A route mounted in some deployment modes only lists them
+(`modes`; F-2: the test-world Artifact read exists in --mode test alone); without `modes` a route is mounted in every mode. The inventory is written and reviewed by hand; this module only
 loads and checks it and lists the routes an application actually mounts, so a route nobody reviewed fails the release gate
 (tests/test_api_route_inventory.py, tests/test_api_route_inventory_pg.py) instead of being bound automatically.
 
@@ -28,6 +29,7 @@ MANIFEST = ROOT / 'deploy/authorization/api-routes.v1.json'
 SCHEMA = ROOT / 'deploy/authorization/api-routes.schema.json'
 SOURCE = Path(__file__).resolve().parent
 MOUNT = 'MOUNT'
+MODES = ('test', 'stage')  # http_api --mode
 
 # realm -> the authorization kinds it may carry (design §3.2).
 REALM_KINDS = {
@@ -69,8 +71,9 @@ def load(path=MANIFEST, schema_path=SCHEMA):
     return value
 
 
-def complete_app(directory):
-    """create_app in the complete configuration (design §4): both browser realms, workbench member secrets and a built web root."""
+def complete_app(directory, mode='test'):
+    """create_app in the complete configuration (design §4) of one mode: both browser realms, workbench member secrets and a built
+    web root."""
     from nexloop_eios.browser_http import BrowserConfiguration
     from nexloop_eios.http_api import ApiConfiguration, create_app
     directory = Path(directory)
@@ -81,7 +84,7 @@ def complete_app(directory):
     browser = BrowserConfiguration(directory / 'identity-dsn', directory / 'rate-key', 'tenant-synthetic', 'app-browser', origin)
     workbench = BrowserConfiguration(directory / 'identity-dsn', directory / 'rate-key', 'tenant-synthetic', 'app-workbench', origin,
                                      identity_token_key_file=directory / 'token-key')
-    return create_app(ApiConfiguration(directory / 'dsn', directory / 'key', directory / 'artifacts', 'absent',
+    return create_app(ApiConfiguration(directory / 'dsn', directory / 'key', directory / 'artifacts', 'absent', mode=mode,
                                        browser=browser, workbench=workbench, web_root=web))
 
 
@@ -110,12 +113,17 @@ def routes(app):
     return found
 
 
-def diff(inventory, mounted):
-    listed = {(r['method'], r['path']): r['handler'] for r in inventory['routes']}
-    return {'unlisted': sorted(f'{m} {p}' for m, p in set(mounted) - set(listed)),
-            'not_mounted': sorted(f'{m} {p}' for m, p in set(listed) - set(mounted)),
-            'handler_differs': sorted(f'{m} {p}: listed {listed[(m, p)]}, mounted {mounted[(m, p)]}'
-                                      for m, p in set(listed) & set(mounted) if listed[(m, p)] != mounted[(m, p)])}
+def listed(inventory, mode='test'):
+    """The inventory's routes of one mode."""
+    return [r for r in inventory['routes'] if mode in r.get('modes', MODES)]
+
+
+def diff(inventory, mounted, mode='test'):
+    expected = {(r['method'], r['path']): r['handler'] for r in listed(inventory, mode)}
+    return {'unlisted': sorted(f'{m} {p}' for m, p in set(mounted) - set(expected)),
+            'not_mounted': sorted(f'{m} {p}' for m, p in set(expected) - set(mounted)),
+            'handler_differs': sorted(f'{m} {p}: listed {expected[(m, p)]}, mounted {mounted[(m, p)]}'
+                                      for m, p in set(expected) & set(mounted) if expected[(m, p)] != mounted[(m, p)])}
 
 
 def backend_operations():
@@ -206,10 +214,12 @@ def main(argv=None):
     p.add_argument('--diff', action='store_true', required=True)
     p.parse_args(argv)
     inventory = load()
-    with tempfile.TemporaryDirectory(prefix='nexloop-routes-') as directory:
-        result = diff(inventory, routes(complete_app(directory)))
+    result = {}
+    for mode in MODES:
+        with tempfile.TemporaryDirectory(prefix='nexloop-routes-') as directory:
+            result[mode] = diff(inventory, routes(complete_app(directory, mode)), mode)
     print(json.dumps(result, indent=1))
-    return 1 if any(result.values()) else 0
+    return 1 if any(v for r in result.values() for v in r.values()) else 0
 
 
 if __name__ == '__main__':

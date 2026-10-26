@@ -1,7 +1,7 @@
 {
  "schema_version": "nexloop-api-routes/1",
- "manifest_version": 1,
- "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version.",
+ "manifest_version": 2,
+ "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version. v2 (dispatcher 2026-10-26, F-2 option 1): GET /api/v1/artifacts/{artifact_id}, the test-world service-token read, is mounted in --mode test only; routes without modes are mounted in every mode.",
  "routes": [
   {
    "method": "MOUNT",
@@ -25,8 +25,11 @@
     "world": "test",
     "port": "nexloop_eios.backend.Backend.authenticate"
    },
-   "purpose": "S1 HTTP foundation: one Artifact by a Bearer service token of the fixed test world (design §7 F-2, reported apart)",
-   "source_task": "NX-011"
+   "purpose": "S1 HTTP foundation: one Artifact by a Bearer service token of the fixed test world; mounted in --mode test only (F-2)",
+   "source_task": "NX-011",
+   "modes": [
+    "test"
+   ]
   },
   {
    "method": "POST",

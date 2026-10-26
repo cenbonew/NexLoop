@@ -38,6 +38,7 @@
             {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "webhook_signature"}, "port": {"$ref": "#/$defs/port"}}}
           ]
         },
+        "modes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["test", "stage"]}},
         "purpose": {"$ref": "#/$defs/text"},
         "source_task": {"type": "string", "pattern": "^(NX|AT|ADR)-[0-9]{3}[A-Za-z0-9 .-]*$"}
       }

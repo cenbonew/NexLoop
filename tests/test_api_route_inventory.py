@@ -23,16 +23,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import check_web_build as W  # noqa: E402
 
-# G-2: every realm that does not check a cookie session, written out here as well as in the inventory (design §6: two places).
-FIXED = {
+# G-2: every realm that does not check a cookie session, per deployment mode, written out here as well as in the inventory
+# (design §6: two places). F-2 (dispatcher 2026-10-26): the test-world service-token read exists in --mode test alone.
+_SHARED = {
     'public': {('GET', '/health/live'), ('GET', '/health/ready')},
     'public_static': {('GET', '/workbench'), ('GET', '/workbench/{rest:path}'), ('MOUNT', '/')},
-    'service_bearer': {('GET', '/api/v1/artifacts/{artifact_id}')},
     'webhook_signature': {('POST', '/api/v1/webhooks/commercial/{connector_id}')},
     'pre_session': {('POST', '/api/v1/auth/login'), ('POST', '/api/v1/auth/csrf'), ('POST', '/api/v1/workbench/auth/login'),
                     ('POST', '/api/v1/workbench/auth/csrf'), ('POST', '/api/v1/workbench/auth/invitation/accept'),
                     ('POST', '/api/v1/workbench/auth/password/reset')},
 }
+FIXED = {'test': {**_SHARED, 'service_bearer': {('GET', '/api/v1/artifacts/{artifact_id}')}},
+         'stage': {**_SHARED, 'service_bearer': set()}}
 
 
 @pytest.fixture(scope='module')
@@ -63,7 +65,16 @@ def test_the_inventory_follows_its_schema_and_refuses_what_the_schema_cannot_say
     refused(lambda d: d['routes'][1].pop('purpose'))
 
 
-def test_g1_the_mounted_routes_are_exactly_the_inventory_and_no_openapi(inventory, app):
+@pytest.mark.parametrize('mode', I.MODES)
+def test_g1_each_mode_mounts_exactly_its_inventory_and_no_openapi(inventory, mode, tmp_path):
+    mounted = I.routes(I.complete_app(tmp_path, mode))
+    assert I.diff(inventory, mounted, mode) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
+    assert (('GET', '/api/v1/artifacts/{artifact_id}') in mounted) is (mode == 'test')                    # F-2
+    assert len(mounted) == {'test': 94, 'stage': 93}[mode]
+    assert not {p for _, p in mounted} & {'/openapi.json', '/docs', '/redoc', '/docs/oauth2-redirect'}
+
+
+def test_g1_reports_every_direction_of_a_difference(inventory, app):
     mounted = I.routes(app)
     assert I.diff(inventory, mounted) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
     paths = {p for _, p in mounted}
@@ -99,22 +110,29 @@ def test_g1_every_route_registration_of_create_app_takes_part_in_the_complete_co
     monkeypatch.setattr(FastAPI, 'include_router', lambda self, router, **kw: (calls['include_router'].append(len(router.routes)),
                                                                                 original_include(self, router, **kw))[1])
     monkeypatch.setattr(FastAPI, 'mount', lambda self, *a, **kw: (calls.__setitem__('mount', calls['mount'] + 1), original_mount(self, *a, **kw))[1])
-    mounted = I.routes(I.complete_app(tmp_path))
+    mounted = I.routes(I.complete_app(tmp_path))   # --mode test: the one mode in which every registration runs (F-2's route included)
     assert len(calls['include_router']) == sites['include_router'] and all(n > 0 for n in calls['include_router'])
     assert calls['mount'] == sites['mount'] == 1 and sites['add_api_route'] == 0
     direct = [k for k, h in mounted.items() if h.startswith('nexloop_eios.http_api:')]
     assert len(direct) == sites['decorator']                       # health x2, artifacts, the two workbench page routes
 
 
-def test_g2_realms_without_a_cookie_session_are_fixed_sets(inventory):
-    by_realm = {}
-    for r in inventory['routes']:
-        by_realm.setdefault(r['realm'], set()).add((r['method'], r['path']))
-    for realm, expected in FIXED.items():
-        assert by_realm.get(realm, set()) == expected, realm
-    assert set(by_realm) == set(FIXED) | {'consumer_session', 'workbench_session'}
+@pytest.mark.parametrize('mode', I.MODES)
+def test_g2_realms_without_a_cookie_session_are_fixed_sets(inventory, mode):
+    by_realm = {realm: set() for realm in I.REALM_KINDS}
+    for r in I.listed(inventory, mode):
+        by_realm[r['realm']].add((r['method'], r['path']))
+    for realm, expected in FIXED[mode].items():
+        assert by_realm[realm] == expected, (mode, realm)
+    assert set(FIXED[mode]) | {'consumer_session', 'workbench_session'} == set(I.REALM_KINDS)
     bearer = next(r for r in inventory['routes'] if r['realm'] == 'service_bearer')
-    assert bearer['authorization']['world'] == 'test'              # design §7 F-2: written down, reported apart
+    assert bearer['authorization']['world'] == 'test' and bearer['modes'] == ['test']   # design §7 F-2
+
+
+def test_f2_the_test_world_artifact_read_is_not_mounted_outside_test_mode(tmp_path):
+    with TestClient(I.complete_app(tmp_path, 'stage'), base_url='https://app.invalid') as client:
+        response = client.get('/api/v1/artifacts/' + 'd' * 32, headers={'Authorization': 'Bearer not-a-service-token'})
+    assert response.status_code == 404 and response.json()['code'] == 'not_found'      # no route: never authenticated
 
 
 def test_g3_every_port_exists_and_every_handler_is_bound_to_its_port(inventory):

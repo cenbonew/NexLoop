@@ -251,23 +251,26 @@ def create_app(config:ApiConfiguration):
             'host':probe_host(config.host_control) if config.host_control else None,
             'missing_capabilities':missing,
             'cache':config.cache_wakeup.health(probe=True) if config.cache_wakeup is not None else {'configured':False,'available':False,'degraded':False,'authoritative':False}},headers={'Cache-Control':'no-store'})
-    @app.get('/api/v1/artifacts/{artifact_id}')
-    def artifact(artifact_id:str,request:Request):
-        def error(code,status):
-            return JSONResponse(status_code=status,content={'code':code,'message':'Resource unavailable',
-                'trace_id':str(uuid.uuid4()),'retryable':status==503,'details':{}},headers={'Cache-Control':'no-store'})
-        header=request.headers.get('authorization','')
-        if not header.startswith('Bearer ') or len(header)>2048:return error('unauthenticated',401)
-        backend=getattr(app.state,'backend',None)
-        if backend is None:return error('dependency_unavailable',503)
-        try:service=backend.authenticate(header[7:],world='test')
-        except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
-        except Exception:return error('unauthenticated',401)
-        try:payload=service.read_artifact(artifact_id)
-        except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
-        except Exception:return error('resource_unavailable',404)
-        return Response(payload,media_type='application/octet-stream',headers={'Cache-Control':'no-store',
-            'X-Content-Type-Options':'nosniff','Content-Disposition':'attachment'})
+    # S1 HTTP foundation: one Artifact by a Bearer service token of the fixed test world (the community container's smoke check).
+    # NX-062 C8 F-2 (dispatcher 2026-10-26): mounted in --mode test only, never on a stage or any other deployment mode.
+    if config.mode=='test':
+        @app.get('/api/v1/artifacts/{artifact_id}')
+        def artifact(artifact_id:str,request:Request):
+            def error(code,status):
+                return JSONResponse(status_code=status,content={'code':code,'message':'Resource unavailable',
+                    'trace_id':str(uuid.uuid4()),'retryable':status==503,'details':{}},headers={'Cache-Control':'no-store'})
+            header=request.headers.get('authorization','')
+            if not header.startswith('Bearer ') or len(header)>2048:return error('unauthenticated',401)
+            backend=getattr(app.state,'backend',None)
+            if backend is None:return error('dependency_unavailable',503)
+            try:service=backend.authenticate(header[7:],world='test')
+            except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
+            except Exception:return error('unauthenticated',401)
+            try:payload=service.read_artifact(artifact_id)
+            except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
+            except Exception:return error('resource_unavailable',404)
+            return Response(payload,media_type='application/octet-stream',headers={'Cache-Control':'no-store',
+                'X-Content-Type-Options':'nosniff','Content-Disposition':'attachment'})
     @app.exception_handler(404)
     async def unknown(request,exc):
         return JSONResponse(status_code=404,content={'code':'not_found','message':'Resource unavailable',

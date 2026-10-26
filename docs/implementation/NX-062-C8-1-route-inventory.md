@@ -61,7 +61,7 @@
 
 ## 调查中发现、另行报告的事项（C8 不修）
 
-- **F-2**：Artifact 读取写死了 `world='test'`，并且对外可达。单独报告给调度员。
+- **F-2**：Artifact 读取写死了 `world='test'`，并且对外可达。已按调度员选定的方案 1 修复，见下一节。
 - **7 项受治理能力没有生产调用方**：
   - 能力：`commitment.bind_commercial`、`consumer.export`、`cost.record`、`goals.agent.propose`、`message.erase`、`retention.hold`、`retention.release_hold`；
   - 它们都登记在注册表里，只经 `GoalGovernedActions` 的 Python 方法调用，而这些方法在 packages、scripts、apps 中，除测试外都没有调用方。清单的 `capabilities_not_on_http` 如实写明了这一点；
@@ -72,3 +72,25 @@
 
 - 新增、删除或修改路由，在同一提交中修改清单并把 `manifest_version` 加 1；`--diff` 只打印差异，不写文件。
 - 改不检查 cookie 会话的 realm 集合时，要同时改 `tests/test_api_route_inventory.py` 中的 `FIXED`。
+
+## F-2 修复：test world 的 Artifact 读取只在 `--mode test` 下挂载（调度员 2026-10-26，方案 1）
+
+- **`http_api.create_app`**：`GET /api/v1/artifacts/{artifact_id}` 只在 `config.mode == 'test'` 时注册。stage 以及以后的任何其他模式都不挂载，请求落到 404（`not_found`），不会做任何认证。社区镜像的冒烟检查跑在 test 模式下，不受影响。
+- **清单 v2**：
+  - 这一条加上 `modes: ["test"]`；没有 `modes` 的路由在每种模式下都挂载；
+  - Schema 增加可选的 `modes` 字段。
+- **检查按模式区分**：
+  - G-1 对 test 和 stage 两种完整配置分别比对：test 为 94 项，stage 为 93 项；
+  - G-2 的写死集合也按模式区分：stage 下 `service_bearer` 为空集；
+  - G-5 的工作台夹具是 test 模式，照旧探测这条路由；
+  - 新增测试：stage 模式下请求这条路由，返回 404 `not_found`；
+  - 漏挂检查用 test 模式，因为只有在 test 模式下，每一处路由注册都会执行。
+- **stage 上那个 test world 凭据**（`nexloop-service-evolution-evaluation-key`，活动状态，requested_scopes 为 `nexloop.evolution`）：
+  - **结论：经这条路由读不到任何 Artifact**；
+  - 读取要先拿到 `eios:artifact:local_test` 的 READ 许可（`PostgresArtifactRepository.issue_permit`），这需要该主体在这个资源上的授权事实，以及对应的作用域事实；
+  - 这个凭据由 `scripts/deploy/evolution_enroll.py` 登记，清单中 `grants: []`，作用域只有 `nexloop.evolution`；登记工具的自检 `no_effect_authority` 还要求这些主体没有任何 grants、scope、policies、controls 事实；
+  - 所以许可在查找 Artifact 之前就失败关闭；路由把所有读取失败都映射为 404，与未知 id 的回答相同，不能用来探测 Artifact 是否存在；
+  - 证据：`tests/test_evolution_enroll_pg.py::test_the_test_world_evaluation_credential_gets_no_artifact_read`。用真实 PG 和真实的登记工具登记之后，这个凭据能在 test world 通过认证，但许可失败关闭（缺授权事实），并且库中没有该主体的任何 grants、scope、policies、controls 事实；
+  - 因此，在修复上线之前，没有经这条路由的实际数据暴露面；
+  - 残余情况：持有这个令牌的人请求时，会得到 404 而不是 401，可以借此判断令牌有效，但前提是已经拿到了令牌。另外，每次请求都会触发一次认证查询。方案 1 上线后，这两点都不存在了。
+

@@ -172,7 +172,7 @@
   - **做法**：C8-1 中设 `FastAPI(..., openapi_url=None)`，在代码层关闭。不加 Gateway 的 deny（改 deploy 要走 ack-policy）；部署后由调度员从公开地址 curl 一次取证。现有用法都不经这条路由，不受影响：`tests/test_commercial_observe_pg.py` 直接调用 `app.openapi()`；`scripts/generate_contracts.py` 从契约的 JSON Schema 生成 `openapi-components.json`，不经应用。
   - **测试**：GET 和 HEAD `/openapi.json`、`/docs`、`/redoc` 都返回 404；`app.openapi()` 仍能正常生成；G-1 的路由集合中不得出现 `/openapi.json`。
   - 关掉之后，`public` 白名单只剩两个健康检查。
-- **F-2 写死 `world='test'` 的 Artifact 读取对外可达**（L6 R-1；C8 不修，单独报告调度员）：
+- **F-2 写死 `world='test'` 的 Artifact 读取对外可达**（L6 R-1；调度员 2026-10-26 定按方案 1 修：只在 `--mode test` 下挂载，见 `docs/implementation/NX-062-C8-1-route-inventory.md` 的 F-2 一节）：
   - `GET /api/v1/artifacts/{artifact_id}` 用 `backend.authenticate(<令牌>, world='test')` 认证服务令牌，再读 Artifact。它来自 S1 的 HTTP 基础（`docs/implementation/http-foundation-progress.md`），由 `container_entrypoint.py` 的冒烟检查使用。
   - stage 上它同样经 Gateway 对外可达。只有 test world 的服务令牌能通过认证，real world 的令牌会被拒绝（401）。
   - C8 把它登记为 `service_bearer`，写明 world，并由 G-2、G-5 锁住；它是否应在 stage 上挂载（例如只在非 stage 模式挂载），由调度员另行决定。
