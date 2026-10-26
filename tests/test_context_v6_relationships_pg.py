@@ -94,7 +94,7 @@ def dispatch_v6(f,tmp_path,admin):
             body.update(effect_tools=True,deterministic_message_from_input=True,deterministic_relationship_from_context=True,context_input_protocol='nexloop.context-pack.v6');cfg.write_text(json.dumps(body))
             with actual_host(runtime,key,cfg) as (_,client,headers):
                 result=RuntimeDispatcher(worker,HostControlConfiguration(str(client.base_url).rstrip('/'),key,tmp_path/'host-cert.pem'),queue='operations',lease_seconds=60,total_timeout=45,request_timeout=10).run_once()
-                assert result['claimed'] is True and result['status']=='succeeded',result.get('result',{}).get('code')
+                assert result['claimed'] is True and result['status']=='succeeded',json.dumps({k:v for k,v in result.get('result',{}).items() if k not in ('runtime_receipt',)})
                 payload=admin.execute('select normalized_input from runtime.jobs where job_id=%s',(result['task_id'],)).fetchone()[0]
     run=payload['run_command']['run_id']
     calls,_=tool_evidence(runtime/run/'runtime.sqlite')

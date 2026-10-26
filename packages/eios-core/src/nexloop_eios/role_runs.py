@@ -66,6 +66,8 @@ def request_envelope_scope():
 # keyed by the Run's digest (never shared across Runs, tenants or worlds), bounded, never caching a failure.
 RUN_ENVELOPE_MARGIN=5.0
 RUN_ENVELOPE_LIMIT=512
+# ADR-029b: the Context envelope kinds a guarded effect tool request may take from its Run's entries.
+EFFECT_REUSE_KINDS=frozenset({'relationship','context_formal','catalog'})
 _run_envelopes=collections.OrderedDict()
 _run_envelopes_lock=threading.Lock()
 _run_scope=contextvars.ContextVar('nexloop_run_envelope_scope',default=None)
@@ -94,10 +96,11 @@ def envelope_valid_until(value):
 
 
 @contextlib.contextmanager
-def run_envelope_scope(run_digest,*,reuse=True):
-    """Authorizations of this Run may reuse its still-valid envelopes; yields a list that records whether one was reused."""
+def run_envelope_scope(run_digest,*,reuse=True,kinds=None):
+    """Authorizations of this Run may reuse its still-valid envelopes; yields a list that records whether one was reused.
+    kinds (ADR-029b): only these envelope kinds use the Run's entries; inside a guarded tool request the others stay request-only."""
     used=[]
-    token=_run_scope.set((run_digest,reuse,used))
+    token=_run_scope.set((run_digest,reuse,used,None if kinds is None else frozenset(kinds)))
     try:yield used
     finally:_run_scope.reset(token)
 
@@ -108,15 +111,22 @@ def forget_run_envelopes(run_digest):
 
 
 def scoped_envelope(key,compute):
-    """Reuse within the current guarded tool request; within a Run scope (ADR-029) across that Run's authorizations while
-    still valid; otherwise compute fresh."""
+    """Reuse within the current guarded tool request; within a Run scope (ADR-029, effect tool requests ADR-029b) across that
+    Run's authorizations while still valid; otherwise compute fresh."""
     cache=_request_envelopes.get()
     if cache is not None:
-        if key not in cache:cache[key]=compute()
+        # ADR-029b (owner 2026-10-26): a guarded effect tool request that opened a Run scope fills a miss of an allowed kind from
+        # that Run's entries; every other kind is built for this request only, as before.
+        if key not in cache:cache[key]=_run_envelope(key,compute)
         return cache[key]
+    return _run_envelope(key,compute)
+
+
+def _run_envelope(key,compute):
     scope=_run_scope.get()
     if scope is None:return compute()
-    run_digest,reuse,used=scope
+    run_digest,reuse,used,kinds=scope
+    if kinds is not None and key[0] not in kinds:return compute()
     full=(run_digest,)+tuple(key)
     now=datetime.now(UTC)
     if reuse:

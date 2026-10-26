@@ -56,7 +56,9 @@ export function runOutcome(value:unknown):RunOutcome{
 export type EffectReceipt={intent_id:string;receipt_id:string;state:string;payload_digest:string;provider_payload_digest:string;scope:'effect_intent';business_action_success:boolean};
 type Configuration={guardURL:URL;caPath:string;keyPath:string;privateMaterial:Material;activationForRun:(runId:string)=>string|undefined;
   /** NX-041 S6b: a simulation Host (world_group simulation): every effect tool records a stand-in intent instead. */
-  simulation?:boolean};
+  simulation?:boolean;
+  /** ADR-029b: the per-request effect limit (runtime configuration effect_timeout_ms); EFFECT_TIMEOUT_MS when absent. */
+  effectTimeoutMs?:number};
 /** NX-041 S6b: a stand-in's answer as the guard returns it - a simulated outcome, never a fact. */
 export type SimulatedReceipt={intent_id:string;world:string;state:string;stand_in_id:string;stand_in_version:string;simulated:true;output_kind:'simulated_output'};
 const STAND_IN_ACTIONS=['nexloop.service.request','nexloop.incentive.issue','nexloop.outreach.send'] as const;
@@ -76,8 +78,16 @@ function exact(value:unknown,keys:readonly string[]):Record<string,unknown>{
   if(Object.keys(row).sort().join(',')!==[...keys].sort().join(','))throw new RuntimeError('runtime_effect_unavailable');
   return row;
 }
-/** ADR-022 §4: each effect request keeps the 2 s limit. */
+/** ADR-022 §4: each effect request keeps the 2 s limit by default. ADR-029b: a Host may configure it up to EFFECT_TIMEOUT_MAX_MS. */
 export const EFFECT_TIMEOUT_MS=2000;
+export const EFFECT_TIMEOUT_MIN_MS=1000;
+export const EFFECT_TIMEOUT_MAX_MS=5000;
+/** ADR-029b: an absent value is the default; anything else must be an integer within the bounds (a Host refuses to start otherwise). */
+export function effectTimeoutMs(value:unknown):number{
+  if(value===undefined)return EFFECT_TIMEOUT_MS;
+  if(typeof value!=='number'||!Number.isInteger(value)||value<EFFECT_TIMEOUT_MIN_MS||value>EFFECT_TIMEOUT_MAX_MS)throw new RuntimeError('runtime_effect_configuration_invalid');
+  return value;
+}
 /** Instructions every real-model Run starts with (10/16 stage smoke: the model answered in plain text, which is never
  * delivered, and the Run "succeeded" without a reply). The input is the JSON context pack; tools are the only way to act. */
 export const RUN_INSTRUCTIONS=[
@@ -106,6 +116,12 @@ export function presentEnterpriseReceipt(receipt:EffectReceipt){
   return {request_id:receipt.intent_id,request_status:status,enterprise_result:'pending_enterprise' as const,next_step:NEXT_STEP[status]};
 }
 
+function effectUnavailableLine(command:RunCommand,operation:string,limit:number,elapsed:number){
+  try{
+    const run=typeof command?.run_id==='string'&&uuid.test(command.run_id)?command.run_id:null;
+    process.stderr.write(JSON.stringify({event:'runtime_effect_unavailable',run_id:run,operation,effect_timeout_ms:limit,elapsed_ms:elapsed})+'\n');
+  }catch{/* a diagnosis never changes the outcome */}
+}
 export class RuntimeEffectClient{
   private readonly origin:URL;
   private readonly configuration:Configuration;
@@ -113,9 +129,12 @@ export class RuntimeEffectClient{
     const origin=new URL(configuration.guardURL);
     if(origin.protocol!=='https:'||origin.hostname!=='127.0.0.1'||!origin.port||Number(origin.port)<1024||Number(origin.port)>65535||origin.username||origin.password||origin.search||origin.hash||origin.pathname!=='/internal/v1/runtime/authorize')throw new RuntimeError('runtime_effect_configuration_invalid');
     if(typeof configuration.activationForRun!=='function'||typeof configuration.privateMaterial!=='function')throw new RuntimeError('runtime_effect_configuration_invalid');
-    this.origin=origin;this.configuration={...configuration};
+    this.origin=origin;this.configuration={...configuration};this.timeoutMs=effectTimeoutMs(configuration.effectTimeoutMs);
   }
+  /** The effect limit this client actually uses (ADR-029b). */
+  readonly timeoutMs:number;
   async call(command:RunCommand,operation:'submit'|'find',arguments_:unknown,action?:typeof ENTERPRISE):Promise<EffectReceipt>{
+    const began=Date.now();
     try{
       const valid=validateRunCommand(command);
       const ref=this.configuration.activationForRun(valid.run_id);
@@ -155,11 +174,13 @@ export class RuntimeEffectClient{
       // keeps the 2 s limit (ADR-022 §4). Still ambiguous: runtime_effect_unavailable.
       try{return await this.once(url,ca,key,body,valid,operation,arguments_);}
       catch(error){
-        if(!(error instanceof RuntimeError)||error.code!=='runtime_effect_ambiguous'||Date.parse(valid.not_after)<=Date.now()+EFFECT_TIMEOUT_MS)throw error;
+        if(!(error instanceof RuntimeError)||error.code!=='runtime_effect_ambiguous'||Date.parse(valid.not_after)<=Date.now()+this.timeoutMs)throw error;
         return await this.once(url,ca,key,body,valid,operation,arguments_);
       }
     }catch(error){
       if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms','invalid_effect_request','effect_intent_unavailable'].includes(error.code))throw error;
+      // ADR-029b diagnosis: one line per unavailable effect request - the limit in use and the time spent (numbers and codes only).
+      effectUnavailableLine(command,operation,this.timeoutMs,Date.now()-began);
       throw new RuntimeError('runtime_effect_unavailable');
     }
   }
@@ -168,7 +189,7 @@ export class RuntimeEffectClient{
       return new Promise<EffectReceipt>((resolve,reject)=>{
         const fail=()=>reject(new RuntimeError('runtime_effect_unavailable'));
         const ambiguous=()=>reject(new RuntimeError('runtime_effect_ambiguous'));
-        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(EFFECT_TIMEOUT_MS),
+        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(this.timeoutMs),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
           let size=0;const chunks:Buffer[]=[];
           if(response.statusCode===503){response.resume();ambiguous();return;}
@@ -201,7 +222,7 @@ export class RuntimeEffectClient{
             resolve(receipt as EffectReceipt);
           }catch{fail();}});
         });
-        request.setTimeout(EFFECT_TIMEOUT_MS,()=>request.destroy());request.on('error',ambiguous);request.end(body);
+        request.setTimeout(this.timeoutMs,()=>request.destroy());request.on('error',ambiguous);request.end(body);
       });
     }
   }
@@ -222,7 +243,7 @@ export class RuntimeEffectClient{
       const url=new URL('/internal/v1/runtime/stand-ins/'+(find?'find':'submit'),this.origin);
       return await new Promise<SimulatedReceipt>((resolve,reject)=>{
         const fail=(code='runtime_effect_unavailable')=>reject(new RuntimeError(code));
-        const request_=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(EFFECT_TIMEOUT_MS),
+        const request_=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(this.timeoutMs),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
           let size=0;const chunks:Buffer[]=[];
           if(response.headers['content-type']!=='application/json'||response.headers['content-encoding']!==undefined){response.destroy();fail();return;}
@@ -241,7 +262,7 @@ export class RuntimeEffectClient{
             resolve(receipt as SimulatedReceipt);
           }catch{fail();}});
         });
-        request_.setTimeout(EFFECT_TIMEOUT_MS,()=>request_.destroy());request_.on('error',()=>fail());request_.end(body);
+        request_.setTimeout(this.timeoutMs,()=>request_.destroy());request_.on('error',()=>fail());request_.end(body);
       });
     }catch(error){
       if(error instanceof RuntimeError&&['invalid_effect_request','effect_intent_unavailable','intent_payload_conflict'].includes(error.code))throw error;

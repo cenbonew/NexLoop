@@ -340,7 +340,14 @@ class RuntimeActivationPort:
                     result=self._execute(db,envelope)
                     if result.get('authorized') is not True or result.get('ever_execution_authorized') is not True:raise ValueError()
                 stage='guard_before'
-                guard()
+                # ADR-029b (owner 2026-10-26): the Run's still-valid relationship, formal fact and catalog envelopes may be reused
+                # (SQL re-verifies them now, as new ones); a refused guard drops that Run's entries. Limits, lock order and scope unchanged.
+                from nexloop_eios.role_runs import EFFECT_REUSE_KINDS,forget_run_envelopes,run_envelope_scope
+                with run_envelope_scope(resolved['_run_digest'],kinds=EFFECT_REUSE_KINDS) as reused:
+                    try:guard()
+                    except Exception:
+                        if reused:forget_run_envelopes(resolved['_run_digest'])
+                        raise
                 stage='intent'
                 receipt=EffectIntentPort(self.pool,run,self.signer,action=action)._execute_in_transaction(
                     db,tool_operation,action_version=1,runtime_refs={'consumer_ref':command['consumer_ref'],
