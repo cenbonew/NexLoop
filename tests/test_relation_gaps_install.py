@@ -23,6 +23,24 @@ DSN = "host='/var/run/postgresql' dbname='nexloop_stage' user='nexloop_metrics' 
 OWNERS = (0, os.getuid())
 
 
+@pytest.fixture(autouse=True)
+def trust_root_at_tmp_path(tmp_path, monkeypatch):
+    """Test only: the directories above this test's tmp_path (a CI host puts it under /tmp, root's 1777; macOS under a per-user
+    folder reached through the /var link) stand for root's own directories - lstat reports them as root's 0755 directories.
+    Everything at or below tmp_path is checked as it really is. The production checks have no such stop."""
+    import stat as st
+    above = {str(p) for p in Path(tmp_path).parents} | {str(p) for p in Path(os.path.realpath(tmp_path)).parents}
+    lstat = os.lstat
+
+    def fake(path, *a, **k):
+        info = lstat(path, *a, **k)
+        if str(path) in above:
+            return os.stat_result((st.S_IFDIR | 0o755, info.st_ino, info.st_dev, info.st_nlink, 0, 0, info.st_size,
+                                   int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+        return info
+    monkeypatch.setattr(os, 'lstat', fake)
+
+
 def tempfile_dir():
     import tempfile
     return tempfile.gettempdir()
@@ -120,7 +138,8 @@ def test_installs_reruns_and_never_shows_the_dsn(tmp_path):
     rw = [p for p in props if p.startswith('ReadWritePaths=')]
     # L6 C2: the unit's PrivateTmp hides the host /tmp, so the scratch directory is under /var/lib, never /tmp.
     assert 'PrivateTmp=true' in props and len(rw) == 1 and rw[0].startswith('ReadWritePaths=' + str(root / 'var/lib/nexloop/relation-gaps-dry/run-'))
-    assert '/srv/nexloop/evidence' not in rw[0] and not rw[0].split('=', 1)[1].startswith(('/tmp', '/private/tmp', tempfile_dir()))
+    # Under the root's /var/lib (asserted above), so never the host's /tmp - checked against the root, which may itself lie in /tmp.
+    assert '/srv/nexloop/evidence' not in rw[0] and not rw[0].split('=', 1)[1].startswith(str(root / 'tmp'))
     dry_dir = root / 'var/lib/nexloop/relation-gaps-dry'
     assert list(dry_dir.iterdir()) == [] and dry_dir.stat().st_mode & 0o777 == 0o711  # the scratch removed; 0711 (I4)
     for path, nested in ((root / 'etc/nexloop/host-health.json', False), (root / 'root/host-health-install.data-host.json', True)):
