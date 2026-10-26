@@ -105,7 +105,8 @@ def create_app(config:ApiConfiguration):
                 app.state.browser_store=None
                 app.state.workbench_store=None
                 app.state.browser_rate_key=None
-    app=FastAPI(title='NexLoop API',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None)
+    # NX-062 C8 F-1: no runtime OpenAPI document (the contracts are published from packages/contracts; app.openapi() still works).
+    app=FastAPI(title='NexLoop API',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.route_metrics=routes_metrics
 
     @app.middleware('http')
