@@ -20,6 +20,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 import file_backup_install as I  # noqa: E402
+from support.writable_tree import make_writable  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def tmp_tree_writable_after(tmp_path):
+    """Teardown: the release trees this test made read-only become removable again (support.writable_tree)."""
+    yield
+    make_writable(tmp_path)
+
 
 SHA = 'b' * 40
 RECORDER_PW = 'recorder-Pw-synthetic-0123456789'
