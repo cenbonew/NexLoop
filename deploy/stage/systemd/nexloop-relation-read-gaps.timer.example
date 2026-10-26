@@ -1,0 +1,9 @@
+[Unit]
+Description=NexLoop relation read gap check (NX-054 P4a, read only), daily
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

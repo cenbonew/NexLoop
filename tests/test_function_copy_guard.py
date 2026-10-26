@@ -478,6 +478,19 @@ REGISTRY = [
             ((r" elsif c->>'verb'='member_login_clear' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
     Allowed('nx056_approval_expiry', 'authz.nexloop_retention_command', 'one more verb, approvals_expire (the expiry sweep)',
             ((r" elsif c->>'verb'='approvals_expire' then\n.*?\n elsif c->>'verb'='status'", " elsif c->>'verb'='status'"),)),
+    # NX-054 P4a: the erasing readers resolve an object's Consumers as relations united with the property rule.
+    Allowed('relation_read_union', 'runtime.nexloop_assert_not_erasing', 'Consumers through relations united with the property rule; nothing else',
+            ((r"runtime\.nexloop_object_consumers_read\(", "runtime.nexloop_object_consumers("),)),
+    Allowed('relation_read_union', 'authz.nexloop_workbench_object_fields', 'Consumers through relations united with the property rule; nothing else',
+            ((r"runtime\.nexloop_object_consumers_read\(", "runtime.nexloop_object_consumers("),)),
+    # NX-054 P4c: the purge also takes the objects the Consumer's ownership relations reach, frozen when the purge starts (L6 C-1).
+    Allowed('relation_purge_union', 'runtime.nexloop_erasure_step',
+            'the relation targets frozen before the first phase; references and commitments also take them; the consumer phase drops them; nothing else',
+            ((r"\n -- NX-054 P4c \(L6 C-1\): the relation targets frozen[^\n]*\n perform runtime\.nexloop_erasure_freeze_relation_targets\(p_tenant,p_world,e\.request_id,e\.consumer_id\);", ""),
+             (r"\n     or \(o\.type_name,o\.object_id\) in \(select r\.type_name,r\.object_id from control\.nexloop_erasure_relation_targets r\n      where r\.tenant_id=p_tenant and r\.world=p_world and r\.request_id=e\.request_id\)", ""),
+             (r"\(properties->>'made_to'=e\.consumer_id\n    or object_id in \(select r\.object_id from control\.nexloop_erasure_relation_targets r\n     where r\.tenant_id=p_tenant and r\.world=p_world and r\.request_id=e\.request_id and r\.type_name='Commitment'\)\);",
+              "properties->>'made_to'=e.consumer_id;"),
+             (r"\n  delete from control\.nexloop_erasure_relation_targets where tenant_id=p_tenant and world=p_world and request_id=e\.request_id;", ""))),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

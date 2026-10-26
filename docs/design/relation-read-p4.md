@@ -56,7 +56,9 @@
   - [R6] 反方向也输出一列 `relation_only`：关系能解析到、属性规则解析不到的对象数。它对应 P3 verify 的 `extra`（多出来的派生关系）加上经 link 写入的关系，只报告，不作为前提；不为 0 时，说明 P4a 会比以前多拒读这些对象（§3）。
   - 只统计首批关系覆盖的类型（有带归属标记关系的源类型），以及 Message、Conversation（0315 经会话表解析的那两个类型，它们由 `message_in`、`conversation_of` 覆盖）；
   - RelationshipAssessment 只核对 `evidence_message_id` 那一半，`source_id` / `target_id` 不计入（首批没有关系）。
-- 输出只有计数：`{world, type_name, objects, gaps, gaps_erasing, relation_only}`；不输出 id、属性值或业务内容。
+- [实现复核 I-1] 属性指向的 Consumer 在这个 world 中不存在（被删除，或者从未存在）时，不可能有关系，这类对象计入 `dangling`，不计入 `gaps`（与 P3 verify 把悬空单独列出相同）；正在删除的 sim world（`deleting` / `deleted`）整体不计。P5 的前提只看 `gaps`。
+- 输出只有计数：`{world, type_name, objects, gaps, gaps_erasing, dangling, relation_only}`；不输出 id、属性值或业务内容。
+- **性能边界**（实现复核 S-4）：函数对每个带归属关系的源类型做一次全表扫描，每个对象调用两个 plpgsql 解析函数（属性规则、关系走链，后者最多 L 跳），总代价约为“这些类型的对象数 × (一次属性解析 + L 次索引探测)”。stage 是万级对象，在 60 s 的 statement_timeout 内有很大余量。当这些类型的对象超过约 50 万个，或者单次核对超过 30 s 时，改为按 world、按类型分批调用（函数加 world 与类型参数，脚本逐个调用并合并结果），或者改成集合化的写法（一次递归 CTE 求出全部对象的关系归属，再与属性归属做 anti-join），不再逐个对象调用函数。
 - 函数声明为 STABLE，开头检查 `session_user='nexloop_metrics'`，否则 42501；只授权给 `nexloop_metrics`。脚本核对会话身份，执行 `set transaction read only`，设置 statement_timeout 60 s（[R1]）。
 - 规模：stage 上是万级对象，每个对象两次解析；放在低峰期每天执行一次，几十秒以内。实现时在 stage 数据上实测。
 - `scripts/acceptance/relation_read_gaps.py --dsn-file <metrics DSN> --tenant <TENANT_ID>`：输出 JSON，有缺口时退出码 1。
@@ -89,7 +91,7 @@
   - journal 中的 `<3>nexloop-relation-read-gaps gaps=<n> worlds=<n>` 只是给值守人员看的说明（`journalctl -p err`），**没有任何组件把它转发成告警**。
 - **timer 新鲜度**：新增告警规则 **alert-rules v19 = v18 加一条 `timer_stale_relation_read_gaps`**（selector `data_host:relation-read-gaps`，阈值 93600 秒即 26 小时，`gt`），由 P4a 实现时加入，与 v18 中其他 `timer_stale_*` 的写法一致（v18 中这类规则都是逐个 selector 写的，没有 `*`）。timer 没有运行、没有被认作定时、或者一直失败，都会在 26 小时后触发。
 - **stage 演练**（P4a 上线后，调度员执行）：
-  1. 以 replica 模式写入一个不派生的测试对象，或者对一个测试对象删掉它的派生关系，造出 `gaps = 1`；
+  1. 造出 `gaps = 1`：在 **stage 的 test world**（不碰 real）写入一个 Consumer 和一个指向它的 Goal，然后删掉这个 Goal 的派生关系。直接写 `ontology.objects` / `ontology.relations` 需要 owner 级身份，没有任何应用角色能做到，所以这一步由**调度员**在 **DATA_HOST** 上经 **bootstrap 窗口**（§0 的 `boot.dsn`，口令从负责人的 Keychain 经管道写入）执行一个只做这三条语句的事务，执行后关闭窗口；第 3 步同样经 bootstrap 窗口删除这两个测试对象（BEFORE DELETE 触发器会带走关系）。
   2. 让**这个 timer 自己**触发一次运行：用一个临时 drop-in 给 `nexloop-relation-read-gaps.timer` 加一个几分钟后的 `OnCalendar`，`daemon-reload` 后等它触发，演练结束删除 drop-in（`systemd-run --on-active` 建的是另一个临时 timer，`systemctl start` 服务是手工运行，这两种都不会被探针认作这个 timer 的定时运行）；确认这一轮 `Result` 不是 `success`，并在下一次告警评估后看到 `timer_scheduled_failure`（selector `data_host:relation-read-gaps`）触发；
   3. 删除测试对象或回填它，再用同样的方式触发一次定时运行，确认 `gaps = 0`、`Result=success`；24 小时窗口过去后告警清除（或者记录清除时刻）；
   4. 结果记入 NX-054 的证据。

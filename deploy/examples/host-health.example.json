@@ -14,6 +14,7 @@
     {"name": "journal", "timer": "nexloop-journal.timer", "service": "nexloop-journal.service"},
     {"name": "journal-restic-repo1", "timer": "nexloop-journal-restic@repo1.timer", "service": "nexloop-journal-restic@repo1.service"},
     {"name": "journal-restic-repo2", "timer": "nexloop-journal-restic@repo2.timer", "service": "nexloop-journal-restic@repo2.service"},
-    {"name": "restic-maint", "timer": "nexloop-restic-maint.timer", "service": "nexloop-restic-maint.service"}
+    {"name": "restic-maint", "timer": "nexloop-restic-maint.timer", "service": "nexloop-restic-maint.service"},
+    {"name": "relation-read-gaps", "timer": "nexloop-relation-read-gaps.timer", "service": "nexloop-relation-read-gaps.service"}
   ]
 }

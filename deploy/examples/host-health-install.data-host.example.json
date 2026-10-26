@@ -62,6 +62,11 @@
         "name": "restic-maint",
         "timer": "nexloop-restic-maint.timer",
         "service": "nexloop-restic-maint.service"
+      },
+      {
+        "name": "relation-read-gaps",
+        "timer": "nexloop-relation-read-gaps.timer",
+        "service": "nexloop-relation-read-gaps.service"
       }
     ]
   }
