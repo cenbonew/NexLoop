@@ -15,9 +15,9 @@ unit 文件里不写任何秘密：私有值都是 `EnvironmentFile=` 中的路�
 | `nexloop-journal` | DATA_HOST | `nexloop-backup` | 每分钟 | `nexloop-backup journal` |
 | `nexloop-journal-restic@repo1` / `@repo2` | DATA_HOST | `nexloop-backup` | repo1 每 5 分钟，repo2 每 15 分钟 | 恢复日志目录 → restic；`/etc/nexloop/restic-<实例>.env` 中放 `RESTIC_REPOSITORY_FILE` 与 `RESTIC_PASSWORD_FILE`（都是路径，restic 自己读取），repo2 另放 AWS 键 |
 | `nexloop-restic-maint` | DATA_HOST | `nexloop-backup` | 每天 03:30 | `forget --keep-within 14d --keep-monthly 1 --prune` 与 `check`；周日加做 `check --read-data-subset 1/10` |
-| `nexloop-file-backup` | APP_HOST | `nexloop-file-backup` | 每 15 分钟 | `nexloop-file-backup --kind artifact` 与 `--kind runtime`，repo1 与 repo2 各一次。**10/15–16 不启用（M12）**：这两天只备份恢复日志；启用前须解决 recorder 的连接位置与读权限（[文件备份说明](../../../docs/implementation/NX-035-file-backup.md) §5） |
+| `nexloop-file-backup` | APP_HOST | `nexloop-file-backup` | 每 15 分钟 | `--kind artifact` 与 `--kind runtime`，repo1 与 repo2 各一次（unit 入口 `file_backup_run.py`）。负责人 2026-10-26 定为现在启用（D1–D6）：由 `scripts/deploy/file_backup_install.sh` 安装（填入 `@PYTHON@`、`@RESTIC@`、`@MDWE@`），只有 `CAP_DAC_READ_SEARCH`，`/srv/nexloop` 只露出两个数据目录和 `secrets/backup`，启用前在 unit 自己的沙箱里自检（[文件备份说明](../../../docs/implementation/NX-035-file-backup.md) §6） |
 
-- **执行者**：`nexloop-backup` 与 `nexloop-file-backup` 来自只给备份身份用的 Python 虚拟环境，从发布 commit 的源码安装 `packages/eios-core`，安装的版本记入证据（M13/M14）。
+- **执行者**：`nexloop-backup` 来自只给备份身份用的 Python 虚拟环境，从发布 commit 的源码安装 `packages/eios-core`，安装的版本记入证据（M13/M14）。`nexloop-file-backup` 用 host-health venv 的解释器（它有 psycopg），运行安装器从发布 commit 复制到 `/opt/nexloop/file-backup/<sha>/` 的四个模块。
 - **pgBackRest**：在 `nexloop/postgres` 镜像内运行，命令前缀写在 `pgbackrest-command.json` 中（`docker exec … pgbackrest`）。因此 `nexloop-backup` 身份需要能访问 docker；docker 组等同 root 权限，这是已知风险，要在证据中记录。
 
 ## pgBackRest TLS 服务器（M8，负责人定案：TLS 服务器模式）
