@@ -39,6 +39,22 @@
 - 依赖图是**静态**的，来自定义的契约字段，不包括运行时的读写关系（运行时血缘 A7 已推迟）。
 - 只列出受影响的定义，不阻止发布。是否把影响清单接进 F4 的发布许可门，需要改动 `evolution-evaluation-report` 契约，留给负责人决定。
 - 工作台前端目前还没有调用 `/check`。页面展示另开任务。
+- **CLI 展示**（负责人 2026-10-26：A1 不接 F4，只展示；调度员派工，分支 `l7/nx061-a1-cli`）：
+  - `scripts/deploy/schema_proposal.py check` 输出摘要中的 `result.impact`，就是 `/check` 列出的影响清单；
+  - 字段：`type_name`、`changed_properties`、`affected`、`affected_by_changed_properties`、`truncated`、`unreadable`，以及 `dependents`；
+  - `dependents` 的每一项都有 `definition_type`、`stable_name`、`version`、`pinned_type_version` 和 `changed_properties`；
+  - 依赖被改动属性的定义排在前面，排序沿用 `/check`；
+  - 只有名称、版本和属性名，没有数据；
+  - **`affected` 是已列出的条数**，等于 `dependents` 的长度，不一定是全部受影响的定义：
+    - 0322 的读取每类最多返回 500 条；
+    - `truncated` 为 true 时，表示有一类被截断，此时要把 `affected`（以及 `affected_by_changed_properties`）理解为“至少 N 条”；
+    - `unreadable` 中的定义解析失败，没有计入 `affected`，需要另看；
+    - 字段名保持不变（L6 复核 e9452c1d 的建议）；
+  - API 没有返回 impact 时，`impact` 为 null；
+  - `--verify-reject` 走的也是 check，所以同样带上这份清单；
+  - 测试：
+    - `tests/test_schema_proposal_tool.py::test_check_summary_shows_the_impact_list`，不连库；
+    - 同一文件的端到端测试，用真实 PG 和真实工作台登录，核对 `check` 输出的 `impact`。
 
 ## E4：每个接口的请求量、慢请求与错误数（验证“读取 0.5 秒内返回”）
 
@@ -127,7 +143,13 @@
 - L5 的 host health（0318，alert-rules v12）已经在 systemd 层面区分定时轮次与手工补跑：同一次触发后的第一次运行才算定时轮次；手工补跑不刷新新鲜度，也不抵消失败计数；从未见过定时成功时失败关闭。
   - 它比上游 `governance_timer_runs`（让任务自己写一行 trigger=timer/manual）更稳健：不依赖任务本身写库，任务在连库之前失败也能看到。
   - 所以**不再另建一张台账**，避免两套口径。
-- **遗漏**：stage 上的 `nexloop-file-backup.timer`（APP_HOST，每 15 分钟一次）不在 L5 的 timer 规则和配置示例中。它的新鲜度只靠 `backup.file_backup_age_seconds`，而**手工运行一次 `nexloop-file-backup` 就会刷新这个值，掩盖定时轮次的失败**，这正是 B9 要防的情况。
+- **遗漏**：文件备份 `nexloop-file-backup.timer`（APP_HOST，设计为每 15 分钟一次；unit 和 timer 的示例在 `deploy/stage/systemd/`）不在 L5 的 timer 规则和配置示例中。它的新鲜度只靠 `backup.file_backup_age_seconds`，而**手工运行一次 `nexloop-file-backup` 就会刷新这个值，掩盖定时轮次的失败**，这正是 B9 要防的情况。
+- **更正（2026-10-26，调度员在 stage 只读核对）**：本节原来写的是“stage 上的 `nexloop-file-backup.timer`”，**这是错的**。
+  - 文件备份在 stage 上**未启用（M12）**：部署日评审 M12 由负责人决定暂不启用（`docs/release/deploy-days-20261015-review.md`），之后也没有启用过；
+  - APP_HOST 上没有这个 unit，也没有执行者用户；`runtime.nexloop_backup_manifests` 里没有任何 `files_*` 行；
+  - 所以 v13 起的 `timer_stale_file_backup` 在 stage 上没有可以监视的对象；
+  - `file_backup_age` 在没有文件类记录时取值为 null，不会触发，doctor 的 `file_backup_recent` 一直为 false；
+  - 启用前需要先解决 `NX-035-file-backup.md` §5 的待定项；部署方案和需要负责人决定的点（D1–D6）已交调度员。
 
 ### 做了什么
 
@@ -143,7 +165,7 @@
 ### 部署（B 类，负责人确认，调度员执行）
 
 1. 由 configurator 发布 alert-rules v13（`apply_rules`）。
-2. 文件备份启用之后，在 APP_HOST 的 `/etc/nexloop/host-health.json` 中加入 `file-backup` 这个 timer，名称必须是 `file-backup`，否则对不上规则的 selector。没有加入时，这条规则不会触发。
+2. 文件备份启用之后（stage 上目前**未启用**，见上文更正），在 APP_HOST 的 `/etc/nexloop/host-health.json` 中加入 `file-backup` 这个 timer，名称必须是 `file-backup`，否则对不上规则的 selector。没有加入时，这条规则不会触发。
 
 ## 汇总回归（B5+B9 提交前）
 

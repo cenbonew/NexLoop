@@ -27,7 +27,7 @@
 | 片 | 内容 | 依赖 | 规模 | 上线条件 |
 | --- | --- | --- | --- | --- |
 | **P4a** | `nexloop_object_consumers_read`（关系 ∪ 属性）；读守卫与 `object_fields` 改用它（新迁移重定义，登记复制件守护）；只读核对函数 `authz.nexloop_relation_read_gaps(tenant)`，授权给 `nexloop_metrics`；`scripts/acceptance/relation_read_gaps.py` 与 DATA_HOST 的每日 timer（§2.5） | P1、P2；**stage 上线要等 P3 回填 verify 平衡**；[R4] **与 P4c 同一批上 real** | 1.5–2 天 | real 读路径的变更：ack-policy；stage 验收：0315 测试、全库擦除测试通过，非擦除部分的缺口为 0 |
-| P4b | 世界模型邻居（0223 / `workbench_reads.object_neighbors`）改读关系：有方向、类型、基数；去掉“值像 id”的启发式分组。可见性仍是两端各自的成员读（ADR-025/035），25 上限与不可见计数不变 | P4a 的缺口为 0（否则邻居会少） | 1.5–2 天 | 工作台读路径：ack-policy；世界模型测试改写 |
+| P4b | 世界模型邻居（0223 / `workbench_reads.object_neighbors`）：已有关系类型覆盖的链接只以关系分组显示，去掉对它们“值像 id”的属性分组；没有类型覆盖的链接（id 数组、RelationshipAssessment 的 source/target、principal）仍是属性分组。保险：只有同方向、同邻居类型的关系分组存在并且 total 不小于属性分组时才去掉属性分组（实现复核 I-1 b）。可见性仍是两端各自的成员读（ADR-025/035），25 上限与不可见计数不变 | **P3 verify 对全部 26 个 derivation 都平衡**（不只归属类：P4a 的 gaps 只统计带归属标记的类型）**并且 P4a 的 gaps = 0**（实现复核 I-1 a） | 1.5–2 天 | 工作台读路径：ack-policy；执行单 §10 |
 | P4c | 擦除 purge 的“找这个 Consumer 的对象”改为关系 ∪ 属性（0138、0144、0145、0227、0307 的步骤）；只增不减 | P4a；[R4] **与 P4a 同一批上 real**（可以分开开发、分开复核，但不单独上线） | 1–1.5 天 | real 擦除路径：ack-policy；全库擦除测试 |
 | P5 | 读侧去掉属性部分，只读关系（RelationshipAssessment 的 source/target 除外）；回退用新迁移恢复 | P4a 上线后**非擦除部分**的缺口（`gaps`）**连续 7 天为 0**（`gaps_erasing` 单独记录，不计入，见 §2.3）；stage 每日 verify 为 0；全库擦除测试在“只读关系”模式下通过（ADR-038 §3 第 7 点）；[R5] **缺口核对已接上告警**（§2.5），并在这 7 天中一直在线 | 0.5–1 天 | 负责人确认（单向一步）；[R5] P5 之后每日核对与告警**继续保留** |
 | 撤销回填主体 | `service-grants` v21 去掉 `relation_backfiller` | P3 在 stage 上 verify 平衡 | 0.2 天 | 部署配置：调度员 ack |
@@ -110,3 +110,10 @@
 2. P4a 的读侧用并集，而不是“有关系时用关系、没有时用属性”（§0）。
 3. 告警走退出码 → host-health 探针 → `timer_scheduled_failure`；新鲜度由新增的 alert-rules v19 `timer_stale_relation_read_gaps`（26 h）负责（§2.5）。
 4. P4a 与 P4c 同一批上 real（§3 [R4]）。
+
+## 5. P4b 补充说明（实现复核 S-3）
+
+- **关系分组的 READ**：关系分组只检查每个邻居对象自己的 READ（以及中心对象的 READ），**不检查派生出这条关系的那个属性的 READ**。这是 0226 起关系分组就有的行为（ADR-025/035 的成员读只针对对象与属性，关系边本身不带值）。P4b 之后，已被关系覆盖的链接只通过关系分组显示，所以“属性 READ 被限制、但对象 READ 仍在”的成员，现在能看到这条链接指向的邻居 id；以前它出现在属性分组里时会被算作不可见。邻居对象本身仍要通过自己的 READ，链接上不带任何属性值。
+- 如果负责人认为“受限属性组派生出的链接也应隐藏”，需要在 P4b 之外另加一条规则：关系分组的可见性同时检查 `relation_type_profiles.source_property` 在源对象上的 READ。这一条不在本片中。
+- **负责人 2026-10-26 决定：不隐藏**，维持现状；P4b 之后不追加这一片。
+

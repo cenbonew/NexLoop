@@ -3419,6 +3419,12 @@
         "ref": "build/s6-closure-checklist.md（未入库）",
         "summary": "状态保持 in_progress：实现 E1–E5 已合入并部署，CI 全量通过；还差 stage 实测（AT-023、AT-024、AT-048 与 S6-R1、R2、R5、R7），前提是负责人登记演进服务主体与评估凭据、设置 evolution 预算，这三项目前没有“配置文件加一条命令”的工具。判定人：负责人。",
         "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "91233ea5",
+        "summary": "No new deliveries after E3 semantic pool wiring; AT-023, AT-024, AT-048 and S6-R1/R2/R5/R7 stage runs still missing. Checked by L2, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -3489,6 +3495,12 @@
         "ref": "build/s6-closure-checklist.md（未入库）",
         "summary": "状态保持 in_progress：V1–V6 已合入并部署，CI 全量通过；还差 stage 实测（S6-R1、R3、R4、R6）；V5 留给 V4 的三个接口（发布项删除、保留报告、语义观察起点）未接上，影响回退与观察验收；语义版本发布与回退、按维度停止与恢复只有工作台入口，没有命令行工具。判定人：负责人。",
         "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "91233ea5",
+        "summary": "V1-V6 on main; V5 still leaves three V4 hooks unconnected (release item delete, retention report, semantic observation start); S6-R1/R3/R4/R6 stage runs missing. Checked by L2, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -3547,6 +3559,12 @@
         "ref": "build/s6-closure-checklist.md（未入库）",
         "summary": "状态由 not_started 改为 in_progress（实现 F1–F4 已合入并部署），不标 done：还差 stage 实测（S6-R8、R9、R10 与 AT-024 的 Schema 路径）；Schema proposal 的审核与发布没有 UI 也没有命令行工具；已知限制：hide 之后抽取侧不停止匹配、别名没有向量回填、接受任意输入的 Action 一直被 G12 拦下。判定人：负责人。",
         "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "32b5667b",
+        "summary": "Schema publication via the workbench domain (SchemaPublicationPort) and the owner CLI schema_proposal.py; corrects the 10-21 note: CLI and HTTP exist, no web page. Remaining: s6_stage_schema.py at024/r6/r8/r10 on stage. Checked by L7, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -3562,7 +3580,7 @@
       "M22"
     ],
     "deliverable": "数据/凭据/效应强隔离与来源",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "commit",
@@ -3581,6 +3599,18 @@
         "ref": "docs/implementation/NX-041-overview.md",
         "summary": "状态保持 in_progress：发布 27 未部署；stage 实测（含 AT-046）要负责人启用模拟进程组。判定人：负责人。",
         "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1bd26ba1",
+        "summary": "Batch 7: S1-S7b and the D10 three credentials (935aaf62, 185c7029) on main; deployed to stage (release 27); full Pi Run test is a regular test, no longer xfail",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "AT-046",
+        "summary": "AT-046 passed on stage run 4 (release 20261022-9d7f9df1); executor dispatcher, judge L6. Overview doc sections 8-9 still say xfail/in progress - documentation follow-up only. Checked by L3, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -3603,6 +3633,12 @@
         "ref": "releases 28 (20261021-13087064b141-1) and 32-34",
         "summary": "NX-042 T1-T7 (consumer twin: contract, publish/retire/erase_text, sample runs, calibration report, twin credential use) merged via batch 8 (main 13087064) and deployed to stage in release 28; the synthetic twin at046-synthetic-stage v1 was published on stage through the owner Action (release 33) and driven by AT-046 run 3 (twin_observe_act: 9 steps, simulation provenance). Calibration (D9) on real data not done: needs >= 28 days of real data. Executor: dispatcher.",
         "recorded_at": "2026-10-22T03:15:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "91233ea5",
+        "summary": "T1-T7 on main and deployed (release 28); D9 real-data calibration needs at least 28 days of real data and is blocked until a real launch. Checked by L3, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -3625,6 +3661,12 @@
         "ref": "releases 28-35 (main up to 9d7f9df1 pending)",
         "summary": "NX-043 X1-X7 implemented and deployed to stage (X1 strategies/registration, X3 shadow world, X4 allocation and wiring into outreach/Context, X5 guardrails and budget, X6 reports incl. pooled, X7 acceptance tool and readiness check); online opened by owner decision 2026-10-21 (D9 calibration waived for the test stage). Stage acceptance run (X7) not yet executed. Executor: dispatcher.",
         "recorded_at": "2026-10-22T03:15:00Z"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-043-X7-acceptance.md",
+        "summary": "X7 stage segments S2/S4/S5/S7 had follow-ups; full result chain not in the repository; checklist item 10 (budget block) still blocked. Checked by L7, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4242,6 +4284,36 @@
         "ref": "adr/ADR-038-formal-relation-types.md",
         "summary": "负责人 2026-10-22 定方向 C（关键关联改为 EIOS 正式关系类型），并对 ADR-038 的 7 个拍板点“都按推荐”：保留冗余引用属性；5 个连接对象保留为对象并加关系；授权范围 id 数组不改；回填用专用低权限 service principal、完成后吊销；触发器派生（提交时、BEFORE DELETE、首批全 many_to_one）；RelationshipAssessment 端点首批不建关系；切读观察 7 天。设计与复核：L5 59552198→8ab62298→d89d0dbe，L6 两轮从严复核无确认级。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ab5c5e5c",
+        "summary": "P1: first 26 relation types, publication function, world guard, unlink entry (0319)",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "321948ad",
+        "summary": "P2: relations derived from reference properties at commit time, removed with either end (0321); review fix 164f3b9c",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "f50bbc74",
+        "summary": "P2.1 derive_one + P3 backfill engine, signed entry, runner and CLI, relation_backfiller principal (main 0344, 0349/0350; service-grants v20); release 45 (e8a22d72)",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6fc23596",
+        "summary": "Batch 33: P4a read union and P4c purge union with frozen targets (0357/0358), daily gap check, alert rules v19; release 47 deployed to stage 2026-10-26 (sheet section 9 steps 0-2 by the dispatcher: in-flight erasures 0, backups before/after, 0356-0358 and v19 applied)",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-054-stage-publish.md",
+        "summary": "Remaining: section 8 publication and backfill on stage not run; gap check installer (batch 34, L6 PASS 26e96533) and drill pending; P4b on real needs P3 verify balanced for all 26 derivations and 7 days of zero gaps; P5 needs owner confirmation; service-grants v21 revokes relation_backfiller after verify. Checked by L5, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4262,6 +4334,18 @@
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "L7 EIOS 能力缺口盘点（docs/design/eios-capability-gap.md，eab221d9→6885a4fa，L6 复核）§A.1 第一批，无需拍板；负责人 2026-10-22 要求一并补齐。实现：L7 8ab83897、L3 814db636→de12fabc、L2 3ab39ce6→988482af、L5 5fd3ff2f→5816d8ac，均经 L6 复核无确认级，进第二十批。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "814db636",
+        "summary": "D2 hard deadline for side-effect-free outbound HTTP (forkserver child), review de12fabc (trust_env=False, caller CA); C3 upstream authz/identity tests 8ab83897; E1 read-only grant drift check 3ab39ce6 / 988482af",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "dispatcher deployment record (private)",
+        "summary": "E2+E3 host health enabled on stage: APP_HOST and DATA_HOST probes recording (release 44/94baecc3 installer, busctl LastTriggerUSec fix), alert rules v13+ published, DATA_HOST timer_stale false alarms cleared 2026-10-25. Remaining for done: E1 stage run output and judgement, crash-loop drill record. Executor: dispatcher; judge: L6.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4277,13 +4361,31 @@
       "M20"
     ],
     "deliverable": "引入 EIOS 通用审批（多人中至少 N 人批准、超时作废、禁止自批），新的高风险动作统一使用；现有外联审批与候选审批暂保留，之后评估并入",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "负责人 2026-10-22 Q1 按推荐 A：引入统一审批，避免第三、第四套审批；约 6–8 天。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "9779abb6",
+        "summary": "Batch 24: A0-A7 (approval store, governed-entry gate, expiry sweep, workbench view, first three policies, ADR-039, solo mode); release 43",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e8a22d72",
+        "summary": "Batches 26-29: follow-up, B1 target member (0342), B2 and ADR-039 R3 (capability settings, execution-time fields, requester_no_longer_eligible); releases 44-45",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx056-approvals-enable.md",
+        "summary": "Stage enablement day 0 done 2026-10-26 by the dispatcher (second synthetic test owner, alert rules v18, four policy manifests checked, none published); day 1 on 2026-10-27 08:15 +0800 with synthetic owners approver2/approver3, owner account not used, judged by L6. Owner deferred: erase_on_request customer entry and merging 0240.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4298,13 +4400,25 @@
       "M17"
     ],
     "deliverable": "动作最终失败后生成“补救意图”，按规则决定直接执行或先走审批（如撤销预留、退回权益）；不一律自动执行",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "负责人 2026-10-22 Q2 按推荐 A：v0.2 引入，补救本身有对外效果，按规则决定执行或审批；依赖统一审批。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "03ce1f1b",
+        "summary": "R0 final failure record and event-time counting (0325); R1/R2 e20207cb (0337/0338); R4 24325e66 (0345); G1 rule publications 16686822 (0351) and G2 REMEDIATION_ENABLED default false; releases 43-45",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "file",
+        "ref": "adr/ADR-040-remediation-intents.md",
+        "summary": "ADR-040 adopted by the owner 2026-10-26 (6501d97a); R3 deferred (Q-2). Remaining: stage remediation run sheet (83bfd645) not yet executed. Checked by L7, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4317,13 +4431,31 @@
       "M01"
     ],
     "deliverable": "工作台成员邀请、口令找回与重置的自助流程（替代运维 CLI 重置），之后接入企业单点登录",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "负责人 2026-10-22 Q4 按推荐 A：v0.2 先做邀请/找回/重置，再做单点登录；现在开户与重置需运维在主机上操作。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4d1fc262",
+        "summary": "Slices A-E: invitations, reset codes, member management and owner Actions (D1-D3), member erasure E1 (0352) and 90-day login clearing E2 (0353); releases 43-46",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "558f04e7",
+        "summary": "Batch 32: workbench members view (0356) and member/invitation/reset/account-security pages; release 47 deployed to stage 2026-10-26",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/design/account-self-service.md",
+        "summary": "Remaining: SSO slice F deferred by the owner (OIDC when scheduled); real-browser walk of invitation/reset/member changes on stage. Checked by L2, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4338,13 +4470,25 @@
       "M23"
     ],
     "deliverable": "审计记录哈希链与校验、审计导出附带校验；不外送外部安全平台；校验密钥放私有配置；不改已发布审计表",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "负责人 2026-10-22 Q6 按推荐 A：防篡改 + 导出校验，不外送 SIEM。EIOS 补齐第二批首项。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "910f367f",
+        "summary": "Batch 21: per-tenant SHA-256 audit hash chain, out-of-database HMAC head seal, SQL and keyed verification, export and offline export verification (tests/test_audit_hash_chain_pg.py)",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "dispatcher deployment record (private)",
+        "summary": "Stage: seal key in the private keychain, DATA_HOST seal cron every 15 minutes since 2026-10-23. Remaining for done: a recorded keyed verification and export verification run on stage. Checked by L2, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4357,13 +4501,25 @@
       "M23"
     ],
     "deliverable": "引入锁定版本的 gitleaks 作为 prepush/CI 泄密扫描，清理 EIOS 专用白名单，保留现有三项门槛",
-    "status": "not_started",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "负责人 2026-10-22 Q9 按推荐 A：公开仓库，现有自定义规则覆盖面窄。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "910f367f",
+        "summary": "Batch 21: gitleaks 8.30.1 as the fourth prepush gate (0d2003e1), base-side configuration only (74921eef), CI host install record (19b3ef19), merge and GitHub sync require all four gates (9279069c, b53caf1e)",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "command",
+        "ref": "scripts/ci/prepush-scan.sh",
+        "summary": "Every delivery and batch since reports four PASS lines including gitleaks (e.g. batch 34 91233ea5 base 6fc23596). Checked by L3, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4379,13 +4535,25 @@
       "M23"
     ],
     "deliverable": "B5+B9 运行结果分类与定时任务台账（主动拒绝不计失败、手工补跑不掩盖定时失败）；E4 每接口请求量/慢请求/错误数；A1 结构变更发布前列出受影响的查询、视图与动作",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "L7 盘点 §A.2 第二批（除 C1 已单列 NX-059），不需新的大决定，第一批之后排期。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "13e10c32",
+        "summary": "A1 schema impact list on /check (0322); E4 per-route API metrics 5c8ae7b9 (0323); B5 run outcome classes and B9 file-backup timer rule 8cd5b074 (0324, alert v13)",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "owner 2026-10-26",
+        "summary": "A1 not wired into F4, display only; E4 p95 alert in rules v19 (deployed release 47); B5 thresholds after one week of observation. Remaining: CLI check summary lacks the impact list; B9 file-backup timer not yet in APP_HOST host-health configuration. Checked by L7, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   },
@@ -4401,13 +4569,25 @@
       "M17"
     ],
     "deliverable": "API 密钥、MCP、SDK 的授权接入；先做“每个接口都登记了权限”的发布检查，S7 之后实施",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "docs/design/eios-capability-gap.md",
         "summary": "负责人 2026-10-22 Q3 按推荐 A：定为方向，S7 之后做；Q5 紧急提权/长期委托暂不引入（维持 ADR-033）、Q7 不引入固定流程执行器（只吸收“模型输出不能直接当动作参数”的检查）、Q8 Object Set 关联与统计按需再开放。",
         "recorded_at": "2026-10-22T10:58:55.812431+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6fc23596",
+        "summary": "Batch 33: C8-1 route inventory and gate (api-routes.v1.json + schema, G-1..G-6, openapi_url=None, artifacts read only in test mode, mode required); release 47 on stage: public /openapi.json, /docs and the artifacts route return 404",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "owner 2026-10-26",
+        "summary": "F1-F3 (API key, MCP, gateway, SDK) after S7 with a threat review and a new ADR. Checked by L7, judged by the dispatcher.",
+        "recorded_at": "2026-10-26T05:25:18.970711+00:00"
       }
     ]
   }

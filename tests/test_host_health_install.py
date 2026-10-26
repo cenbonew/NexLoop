@@ -44,7 +44,9 @@ class Runner:
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
         self.stdins.append(stdin)
-        if command[0] == 'git':
+        if command[:2] == ['env', '-i']:
+            assert command[:8] == ['env', '-i', 'PATH=/usr/bin:/bin', 'HOME=/nonexistent', 'GIT_CONFIG_NOSYSTEM=1', 'GIT_CONFIG_GLOBAL=/dev/null',
+                                   'git', '--no-replace-objects']  # the minimal environment, spelled out
             return (ROOT / command[-1].split(':', 1)[1]).read_text()
         if command[1:3] == ['-m', 'venv']:
             (Path(command[3]) / 'bin').mkdir(parents=True)
@@ -69,8 +71,18 @@ def trusting(path, *, what):
     TRUSTED.append((what, str(path)))
 
 
+def checkout(tmp_path):
+    """A release checkout with a .git directory (the installer refuses a missing, linked or pointer .git)."""
+    path = tmp_path / 'release'
+    (path / '.git/refs/heads').mkdir(parents=True, exist_ok=True)
+    (path / '.git/HEAD').write_text('ref: refs/heads/main\n')
+    return path
+
+
 def install(tmp_path, cfg, stdin, runner=None, *args, trust=trusting):
     out, runner = io.StringIO(), runner or Runner()
+    if cfg.get('release_checkout') == '/srv/release':
+        cfg = {**cfg, 'release_checkout': str(checkout(tmp_path))}
     code = I.main([private(tmp_path / 'config.json', cfg), *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=tmp_path / 'root', trust=trust)
     return code, out.getvalue(), runner
 
@@ -310,8 +322,9 @@ def test_root_executes_only_root_owned_code(tmp_path):
     code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
     assert code == 0, text
     what = {w for w, _ in TRUSTED}
-    assert {'release_checkout', 'python', 'installer', 'release base'} <= what
-    assert ('release_checkout', '/srv/release') in TRUSTED and ('python', example('data-host')['python']) in TRUSTED
+    assert {'release_checkout', 'release .git', 'python', 'installer', 'release base'} <= what
+    assert ('release_checkout', str(tmp_path / 'release')) in TRUSTED and ('python', example('data-host')['python']) in TRUSTED
+    assert ('release .git', str(tmp_path / 'release/.git/HEAD')) in TRUSTED
     # The real check: this test's files are not uid 0 (refused); a symbolic link is refused too.
     with pytest.raises(I.Refused, match='owned by root'):
         I.root_owned(tmp_path / 'config.json', what='x')
@@ -429,3 +442,27 @@ def test_a_drop_in_the_sandbox_cannot_mirror_stops_the_install(tmp_path, line):
     code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
     assert code == 1 and 'continuation line or a quoted value' in text
     assert ['systemctl', 'enable', '--now', 'nexloop-host-health.timer'] not in runner.calls
+
+
+@pytest.mark.parametrize('case', ['alternates', 'commondir', 'pointer', 'link', 'missing'])
+def test_a_git_directory_from_elsewhere_is_refused(tmp_path, case):
+    """The relation gaps installer's rule, here too: .git a directory of its own - no objects/info/alternates, no commondir, not a
+    worktree pointer file or a link - checked before git runs."""
+    import shutil
+    git = checkout(tmp_path) / '.git'
+    if case == 'alternates':
+        (git / 'objects/info').mkdir(parents=True)
+        (git / 'objects/info/alternates').write_text('/elsewhere/objects\n')
+    elif case == 'commondir':
+        (git / 'commondir').write_text('../elsewhere\n')
+    elif case == 'pointer':
+        shutil.rmtree(git)
+        git.write_text('gitdir: /elsewhere/.git/worktrees/x\n')
+    elif case == 'link':
+        shutil.rmtree(git)
+        (tmp_path / 'other.git').mkdir()
+        git.symlink_to(tmp_path / 'other.git')
+    else:
+        shutil.rmtree(git)
+    code, text, runner = install(tmp_path, example('app-host', release_checkout=str(tmp_path / 'release')), f'app_host\t{APP_PW}\n')
+    assert code == 2 and 'release .git' in text and not any(c[:2] == ['env', '-i'] for c in runner.calls)

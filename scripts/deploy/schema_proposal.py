@@ -9,7 +9,8 @@ session (ontology.schema.review: owner and reviewer; the operator gets 403), aft
         --username-file F --password-stdin [--verify-reject]
 
     basis          the publication basis of the proposal (proposal, Parent version, Actions, object count) - summarized
-    check          what a publication would be judged now: the F1 report (allowed, class, codes) and the next version; writes nothing
+    check          what a publication would be judged now: the F1 report (allowed, class, codes), the next version and the published
+                   Definitions it may affect (NX-061 A1: impact - names, versions, changed properties; no data); writes nothing
     publish        the publication: SQL re-checks the F4 release permit (an accepted nx040-gates-1 report: G9-G13), F1, the successor
                    Actions and the permission proof; refused codes come back and nothing is written
     hide           the rollback of a published optional property: the next Schema version with it hidden
@@ -103,8 +104,23 @@ def summarize(command, value):
         c = value['compatibility'] or {}
         return {'operation': value.get('operation'), 'type_name': value.get('type_name'), 'parent_version': value.get('parent_version'),
                 'next_version': value.get('next_version'), 'successor_actions': value.get('successor_actions'),
-                'allowed': c.get('allowed'), 'change_class': c.get('change_class'), 'codes': c.get('codes') or []}
+                'allowed': c.get('allowed'), 'change_class': c.get('change_class'), 'codes': c.get('codes') or [],
+                'impact': impact_of(value.get('impact'))}
     return {k: value[k] for k in SUMMARY if k in value}
+
+
+IMPACT_ENTRY = ('definition_type', 'stable_name', 'version', 'pinned_type_version', 'changed_properties')
+
+
+def impact_of(value):
+    """NX-061 A1 (owner 2026-10-26: shown, not a release gate): the Definitions the /check answer lists, those depending on a changed
+    property first - names, versions and property names only, as /check returns them (schema_impact.impact); None when absent."""
+    if not isinstance(value, dict):
+        return None
+    listed = [{k: e.get(k) for k in IMPACT_ENTRY} for e in value.get('dependents') or () if isinstance(e, dict)]
+    return {'type_name': value.get('type_name'), 'changed_properties': value.get('changed_properties') or [], 'affected': len(listed),
+            'affected_by_changed_properties': value.get('affected_by_changed_properties', 0), 'dependents': listed,
+            'truncated': bool(value.get('truncated')), 'unreadable': value.get('unreadable') or []}
 
 
 def main(argv=None, *, stdin=None, transport=None):

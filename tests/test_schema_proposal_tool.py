@@ -53,6 +53,28 @@ def test_each_subcommand_sends_one_request_and_verify_reject_only_checks():
     assert T.idempotency_key('publish', c) == T.idempotency_key('publish', dict(c)) != T.idempotency_key('hide', c)
 
 
+def test_check_summary_shows_the_impact_list():
+    """NX-061 A1 (owner 2026-10-26: shown, not a gate): the CLI's check summary carries what /check lists, names and versions only."""
+    answer = {'proposal_id': PID, 'operation': 'add_vocabulary_value', 'type_name': 'Consumer', 'parent_version': 3, 'next_version': 4,
+              'successor_actions': 2, 'compatibility': {'allowed': True, 'change_class': 'compatible', 'codes': []},
+              'impact': {'type_name': 'Consumer', 'changed_properties': ['level'], 'affected_by_changed_properties': 1, 'truncated': False,
+                         'unreadable': [{'kind': 'functions', 'stable_name': 'consumer.broken'}],
+                         'dependents': [{'definition_type': 'object_set', 'stable_name': 'consumer.by_level', 'version': 2, 'pinned_type_version': 3,
+                                         'hops': 1, 'changed_properties': ['level']},
+                                        {'definition_type': 'action', 'stable_name': 'Consumer.edit', 'version': 1, 'pinned_type_version': 3,
+                                         'hops': 2, 'changed_properties': []}]}}
+    out = T.summarize('check', answer)
+    assert out['allowed'] is True and out['next_version'] == 4
+    assert out['impact'] == {'type_name': 'Consumer', 'changed_properties': ['level'], 'affected': 2, 'affected_by_changed_properties': 1,
+                             'dependents': [{'definition_type': 'object_set', 'stable_name': 'consumer.by_level', 'version': 2,
+                                             'pinned_type_version': 3, 'changed_properties': ['level']},
+                                            {'definition_type': 'action', 'stable_name': 'Consumer.edit', 'version': 1,
+                                             'pinned_type_version': 3, 'changed_properties': []}],
+                             'truncated': False, 'unreadable': [{'kind': 'functions', 'stable_name': 'consumer.broken'}]}
+    assert T.summarize('check', {**answer, 'impact': None})['impact'] is None      # an older API without impact: shown as absent
+    assert 'impact' not in T.summarize('basis', {'operation': 'x', 'schema': {'version': 3}})
+
+
 class NoNetwork:
     def request(self, *unused):
         raise AssertionError('no request')
@@ -119,6 +141,10 @@ def test_check_verify_reject_and_publish_end_to_end(workbench, tmp_path, capsys,
 
     code, out, _ = tool(w['owner'], 'check', cfg(proposal_id=good))
     assert code == 0 and out['result']['allowed'] is True and out['result']['next_version'] == out['result']['parent_version'] + 1
+    # NX-061 A1: the impact list of the actual /check, as the CLI shows it (the fixture's Consumer Actions depend on the type).
+    shown = out['result']['impact']
+    assert shown['type_name'] == 'Consumer' and shown['changed_properties'] == ['preferred_store'] and shown['affected'] == len(shown['dependents']) >= 1
+    assert all(set(e) == set(T.IMPACT_ENTRY) for e in shown['dependents'])
     # --verify-reject: the refused change, with its expected code; only the check runs.
     code, out, requests = tool(w['owner'], 'publish', cfg(proposal_id=bad, expect_codes=['value_type_not_allowed']), '--verify-reject')
     assert code == 0 and out['rejected'] is True and 'value_type_not_allowed' in out['result']['codes']
