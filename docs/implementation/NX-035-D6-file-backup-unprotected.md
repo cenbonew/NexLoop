@@ -20,9 +20,15 @@
 - **已覆盖**：同类（files_artifact / files_runtime）最近一次 verified 快照的 `started_at` 晚于这个对象变为可备份的时间。
   - 快照是在开始时读的清单，所以用开始时间作为界线。在快照运行期间才变为可备份的对象不算已覆盖。
   - failed 的快照不覆盖任何对象。
-- **变为可备份的时间**：
-  - Artifact 取 `updated_at`，也就是变为 available 时写入的时间；available 之后，只有转入 deleting 或 deleted 才会再改这个字段。
-  - Run 取所绑任务的 `updated_at`，也就是任务进入终态时写入的时间。
+- **变为可备份的时间**：必须是之后的更新改不动的时刻（L6 S5）。如果用 `updated_at`，一个已覆盖的对象在终态之后又被改写，比如延长保留期、补写 result，就会被重新算作未保护而误报。
+  - **Artifact** 取 `least(updated_at, lease_until)`。
+    - 理由：finalize（0005）只有在上传租约有效时才能把 pending 变为 available，而 reservation 每次最多把租约设到 30 秒之后。所以 `lease_until` 落在"变为 available"之后 30 秒以内。
+    - 对象保持 available 期间，没有任何路径改动 `lease_until`；今天唯一的后续写入是转入 deleting。
+    - 只要没有别的写入，`updated_at` 就恰好是变为 available 的那一刻。以后即使有写入改了它，`least()` 也会被 `lease_until` 限住，误差不超过 30 秒。
+    - 不用 `created_at`：一个 pending 的 Artifact 可以被反复重新 reservation，`created_at` 可能早于真正 available 很久。拿它判断"已覆盖"，会漏掉那段时间里开始的快照并未包含它这种情况。
+  - **Run** 取所绑任务最近一次终态事件的时间（`runtime.job_events` 只插入、每次状态转换一行）。
+    - 被重新排队后再次结束的任务，确实是新数据，所以取最近一次。
+    - 没有终态事件的任务（某条路径没写事件），回落到任务的 `created_at`。这个值固定不变，只会让结果偏旧，不会被后续更新推后。
 - **取值**：未覆盖的可备份对象中最旧那个距今的秒数。每个对象都已覆盖，或者根本没有可备份对象时，这个键不存在（缺省，不记为 0）。
 - PG 备份尚未登记（backup 块的 `status` 为 `unavailable`）时，这个键也照样计算。文件备份自身的缺口不会因此被掩盖。
 
@@ -51,7 +57,8 @@
   - 按类覆盖；
   - 快照运行期间才变为可备份的对象不算已覆盖；
   - failed 快照不覆盖；
+  - 终态之后又被更新（延长保留期、改写 result、`updated_at` 被推到将来、后续的非终态事件）都不会误报；任务重新排队后再次结束则算作新数据（L6 S5）；
   - v20 = v19 加一条。
 - `tests/test_file_backup_unprotected_alert_pg.py`：用真实的告警评估器。Artifact 已可备份 2 小时、从未备份时，这条规则触发，`file_backup_age` 不触发；回到 1 小时以内后解除。
 - 两个 host-health 测试中"最新规则"的引用改为 v20（v20 不涉及 timer）。
-- 变异验证：迁移和规则共 15 个变异，存活 1 个，是等价变异：去掉 Artifact 查询里的 `a.tenant_id=p_tenant` 后，FORCE RLS 的 `local_artifact_tenant` 策略仍按 `eios.tenant_id` 只返回本租户的行。这个条件保留，作为双重保险。
+- 变异验证：迁移和规则共 15 个变异，S5 修改后又加 7 个，只存活 1 个，是等价变异：去掉 Artifact 查询里的 `a.tenant_id=p_tenant` 后，FORCE RLS 的 `local_artifact_tenant` 策略仍按 `eios.tenant_id` 只返回本租户的行。这个条件保留，作为双重保险。

@@ -22,11 +22,27 @@ def unprotected(admin, tenant, world='real'):
 
 
 def became_backupable(admin, *, artifact_key=None, run_id=None, ago):
+    """As the real paths leave it: an Artifact finalized `ago` (updated_at then, its upload lease ending within 30 s of it); a Run whose
+    task's terminal event was written `ago` (runtime.job_events, one row per transition)."""
     if artifact_key:
-        inject(admin, "update runtime.nexloop_local_artifacts set updated_at=clock_timestamp()-%s::interval where object_key=%s", (ago, artifact_key))
+        inject(admin, """update runtime.nexloop_local_artifacts set updated_at=clock_timestamp()-%s::interval,
+            lease_until=clock_timestamp()-%s::interval+interval '20 seconds' where object_key=%s""", (ago, ago, artifact_key))
     if run_id:
-        inject(admin, """update runtime.jobs j set updated_at=clock_timestamp()-%s::interval from authz.nexloop_runtime_run_bindings b
-            where b.run_id=%s::uuid and j.tenant_id=b.tenant_id and j.job_id=b.task_id""", (ago, run_id))
+        inject(admin, """insert into runtime.job_events(tenant_id,job_id,sequence,status,message,created_at)
+            select j.tenant_id,j.job_id,coalesce((select max(sequence) from runtime.job_events e where e.job_id=j.job_id),0)+1,j.status,
+                   'synthetic terminal',clock_timestamp()-%s::interval
+            from authz.nexloop_runtime_run_bindings b join runtime.jobs j on j.tenant_id=b.tenant_id and j.job_id=b.task_id where b.run_id=%s::uuid""",
+               (ago, run_id))
+
+
+def rewritten_later(admin, *, artifact_key=None, run_id=None):
+    """L6 S5: a later write that is no new data - a retention change on the Artifact, a result or status echo on the task row."""
+    if artifact_key:
+        inject(admin, """update runtime.nexloop_local_artifacts set retention_until=retention_until+interval '30 days',updated_at=clock_timestamp()
+            where object_key=%s""", (artifact_key,))
+    if run_id:
+        inject(admin, """update runtime.jobs j set updated_at=clock_timestamp(),result='{"rewritten":true}' from authz.nexloop_runtime_run_bindings b
+            where b.run_id=%s::uuid and j.tenant_id=b.tenant_id and j.job_id=b.task_id""", (run_id,))
 
 
 def verified(cluster, kind, started_ago_minutes):
@@ -98,6 +114,37 @@ def test_a_verified_snapshot_covers_what_was_backupable_when_it_started_per_kind
         'backup_id': 'a' * 64, 'repo': 'repo1', 'kind': 'files_artifact', 'verify_status': 'verified', 'started_at': verified_now,
         'completed_at': backup._now(), 'file_manifest_digest': 'e' * 64, 'file_count': 2, 'bytes': 2})
     assert unprotected(db, TENANT_A) is None
+
+
+def test_a_later_write_after_the_end_does_not_make_a_covered_object_unprotected_again(cluster, db):
+    """L6 S5: the moment an object became backupable is one no later update moves."""
+    key, _ = artifact(db, TENANT_A)
+    became_backupable(db, artifact_key=key, ago='2 hours')
+    finished = run(db, TENANT_A)
+    became_backupable(db, run_id=finished, ago='2 hours')
+    verified(cluster, 'files_artifact', started_ago_minutes=40)
+    verified(cluster, 'files_runtime', started_ago_minutes=40)
+    assert unprotected(db, TENANT_A) is None
+    rewritten_later(db, artifact_key=key, run_id=finished)
+    assert unprotected(db, TENANT_A) is None
+    # Not even with the Artifact's updated_at alone far in the past or the future: its lease bounds the moment.
+    inject(db, "update runtime.nexloop_local_artifacts set updated_at=clock_timestamp()+interval '1 day' where object_key=%s", (key,))
+    assert unprotected(db, TENANT_A) is None
+    # Only terminal transitions count: a later non-terminal event row of the finished task moves nothing.
+    inject(db, """insert into runtime.job_events(tenant_id,job_id,sequence,status,message,created_at)
+        select j.tenant_id,j.job_id,100,'running','synthetic echo',clock_timestamp() from authz.nexloop_runtime_run_bindings b
+        join runtime.jobs j on j.tenant_id=b.tenant_id and j.job_id=b.task_id where b.run_id=%s::uuid""", (finished,))
+    assert unprotected(db, TENANT_A) is None
+    # A task without any terminal event counts from its creation (fixed): created 10 minutes ago, after the snapshot started; its
+    # updated_at, rewritten later, moves nothing.
+    bare = run(db, TENANT_A)
+    inject(db, "update runtime.jobs j set created_at=clock_timestamp()-interval '10 minutes',updated_at=clock_timestamp()+interval '1 hour' "
+               "from authz.nexloop_runtime_run_bindings b where b.run_id=%s::uuid and j.tenant_id=b.tenant_id and j.job_id=b.task_id", (bare,))
+    assert 590 <= unprotected(db, TENANT_A) <= 660
+    inject(db, "delete from authz.nexloop_runtime_run_bindings where run_id=%s::uuid", (bare,))
+    # A requeued task that ends again is new data: its new terminal event, after the snapshot started, counts.
+    became_backupable(db, run_id=finished, ago='5 minutes')
+    assert 290 <= unprotected(db, TENANT_A) <= 360
 
 
 def test_rules_v20_are_v19_plus_the_unprotected_rule():
