@@ -1790,6 +1790,11 @@
       "version": "0358",
       "name": "0358_relation_purge_union.sql",
       "sha256": "53f318e2573ffb9b68cdbf73bf2174ecdb911e45b563f2b13fa0832b37eaf1ed"
+    },
+    {
+      "version": "0362",
+      "name": "0362_relation_neighbors.sql",
+      "sha256": "eef1bc075c48470edea8f2000020b7f5d6808cdc39e417cdd070d290f604884f"
     }
   ]
 }
