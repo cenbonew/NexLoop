@@ -1795,6 +1795,11 @@
       "version": "0359",
       "name": "0359_relation_neighbors.sql",
       "sha256": "09402e38e049f149bfefbe42b44723a8cf34f84cd90de3744c5ce945e51d6ad4"
+    },
+    {
+      "version": "0360",
+      "name": "0360_file_backup_unprotected.sql",
+      "sha256": "d1f2c7f0a97d076f71b2d0aaa2160b31ad20296c4884a2b03edf63ad9e5274bc"
     }
   ]
 }
