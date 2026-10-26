@@ -68,6 +68,15 @@ def test_g1_the_mounted_routes_are_exactly_the_inventory_and_no_openapi(inventor
     assert I.diff(inventory, mounted) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
     paths = {p for _, p in mounted}
     assert not paths & {'/openapi.json', '/docs', '/redoc', '/docs/oauth2-redirect'}
+    # An inventory entry deleted while its route is still mounted: the route is unlisted again (L6 S-2).
+    trimmed = {**inventory, 'routes': [r for r in inventory['routes'] if (r['method'], r['path']) != ('GET', '/api/v1/workbench/metrics')]}
+    assert I.diff(trimmed, mounted) == {'unlisted': ['GET /api/v1/workbench/metrics'], 'not_mounted': [], 'handler_differs': []}
+    # A route deleted from the code but still listed is reported (the other direction).
+    listed_only = {k: v for k, v in mounted.items() if k != ('GET', '/api/v1/workbench/metrics')}
+    assert I.diff(inventory, listed_only)['not_mounted'] == ['GET /api/v1/workbench/metrics']
+    # A handler swapped behind a listed route is reported.
+    swapped = {**mounted, ('GET', '/api/v1/workbench/metrics'): 'nexloop_eios.workbench_http:alerts'}
+    assert I.diff(inventory, swapped)['handler_differs'] == ['GET /api/v1/workbench/metrics: listed nexloop_eios.workbench_http:metrics, mounted nexloop_eios.workbench_http:alerts']
     # A new route nobody reviewed is never bound automatically.
     assert I.diff(inventory, {**mounted, ('GET', '/api/v1/invented'): 'nexloop_eios.http_api:live'})['unlisted'] == ['GET /api/v1/invented']
 
@@ -163,6 +172,7 @@ def test_g6_the_served_web_build_holds_only_publishable_files(tmp_path):
     assert build({**good, 'assets/index-abc.js.map': b'{}'}) == ['assets/index-abc.js.map: source map']
     assert build({**good, 'assets/index-abc.js': b'x\n//# sourceMappingURL=index-abc.js.map'}) == ['assets/index-abc.js: sourceMappingURL comment']
     assert build({**good, 'assets/index-abc.css': b'a{}/*# sourceMappingURL=x.css.map */'}) == ['assets/index-abc.css: sourceMappingURL comment']
+    assert build({**good, 'index.html': b'<script>//# sourceMappingURL=inline.js.map\n</script>'}) == ['index.html: sourceMappingURL comment']
     assert build({**good, '.env': b'X=1'}) == ['.env: dotfile']
     assert build({**good, 'src/main.tsx': b'x'}) == ['src/main.tsx: suffix not in the build list']
     assert build({k: v for k, v in good.items() if k != 'index.html'}) == ['index.html missing']

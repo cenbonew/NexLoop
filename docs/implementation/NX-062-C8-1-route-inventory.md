@@ -33,7 +33,7 @@
   - 后端两张允许表与路由之间也做了双向核对：允许表中的每个操作，要么有路由到达，要么列在 `port_operations_not_on_http`。
 - **G-6 依据的构建清单**（L6 建议，复审时要求写明）：用**固定的允许后缀表** `{.html, .js, .css, .png}`，不用 Vite manifest。
   - 理由：这次构建没有开启 `build.manifest`，没有 manifest 可比；而这张后缀表就是发布镜像构建上下文原本使用的规则（`prepare_community_build.py`），现在两处共用一份。
-  - 另外还检查：没有 `*.map`；`.js`、`.css` 中没有 `sourceMappingURL` 注释；没有点文件和符号链接；顶层有 `index.html`。
+  - 另外还检查：没有 `*.map`；`.js`、`.css`、`.html` 中没有 `sourceMappingURL` 注释（`.html` 由 L6 S-1 加入）；没有点文件和符号链接；顶层有 `index.html`。
 - **工作台页面与 Mount**：kind 为 `static`（`source: web_root`），realm 为 `public_static`；Mount 的 handler 写作 `static`。这与设计稿一致，只是把写法定了下来。
 
 ## 枚举结果（完整配置，关闭 OpenAPI 之后）

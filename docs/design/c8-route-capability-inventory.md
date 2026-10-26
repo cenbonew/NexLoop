@@ -118,7 +118,7 @@
 | `workbench_read` | `verbs` | 每个都在 `workbench_reads.VERBS` 中，且 SQL 端接受（G-5 一并验证） |
 | `workbench_operation` | 无（见 `operations`） | `operations` 与 `OPERATIONS` 完全相等 |
 | `session_only` | `reason` | 只读本人会话信息（例如 `GET …/auth/session`），不读业务数据；数量受 L6 审 |
-| `pre_session` | `reason` | 只能是登录、CSRF、邀请接受、口令重置及其历史；不得读业务数据 |
+| `pre_session` | `reason` | 只能是登录、CSRF、邀请接受、口令重置；不得读业务数据。口令重置的历史（`GET …/auth/reset-history`）要求工作台会话，属于 `workbench_session` 的 `session_only` |
 | `static` | `source` | 只能出现在 `public_static`；页面路由只返回 `index.html`，挂载只提供 `web_root` 下的文件 |
 
 清单中的 Mount 写成 `{"method": "MOUNT", "path": "/", "realm": "public_static", …}`。JSON Schema 放在清单旁边：`deploy/authorization/api-routes.schema.json`。它是部署侧的授权清单格式，不是运行时 API 契约，所以不放在 `packages/contracts/`（那里的 Schema 是运行时契约，按线规不由本线修改）。如果 L6 认为应放在 `packages/contracts/`，需要调度员另行批准。
@@ -134,7 +134,7 @@
 | # | 检查 | 失败的例子 |
 |---|---|---|
 | **G-1** | 完整配置（含 `web_root`）下的应用路由集合 = 清单 `routes` 的（方法，路径）集合，双向；Mount 记为（`MOUNT`，路径），也在比较之内；`/openapi.json`、`/docs`、`/redoc` 不得出现在集合中 | 新增路由没登记；路由删了清单没删；路径模板改名；新加了挂载 |
-| **G-2** | 每个不检查 cookie 会话的 realm，路由集合都由测试写死，必须精确相等：`public` = 两个健康检查；`public_static` = `GET /workbench`、`GET /workbench/{rest:path}`、`MOUNT /`；`service_bearer` = `GET /api/v1/artifacts/{artifact_id}`；`webhook_signature` = 商业 webhook；`pre_session` = 两个领域的登录、CSRF、邀请接受、口令重置及其历史 | 新增一条不检查会话的路由；把业务读取标成 public；新增一条服务令牌路由 |
+| **G-2** | 每个不检查 cookie 会话的 realm，路由集合都由测试写死，必须精确相等：`public` = 两个健康检查；`public_static` = `GET /workbench`、`GET /workbench/{rest:path}`、`MOUNT /`；`service_bearer` = `GET /api/v1/artifacts/{artifact_id}`；`webhook_signature` = 商业 webhook；`pre_session` = 两个领域的登录和 CSRF，以及工作台的邀请接受和口令重置，共 6 条（`reset-history` 要求会话，不在其中） | 新增一条不检查会话的路由；把业务读取标成 public；新增一条服务令牌路由 |
 | **G-3** | 每个 `action` 资源存在；每个 `workbench_read` 动词在 `VERBS` 中；`operations` 与 `OPERATIONS` 完全相等，且每个能力都在注册表中（`catalog_manifests.governed_capabilities()`） | 引用了不存在或已改版本的 Action；新加读取动词没登记 |
 | **G-4** | 注册表中的每个人类能力，要么出现在 `operations` 或某条路由的 `action` 中，要么出现在 `capabilities_not_on_http` 中（写明到达路径和理由）；三者不重叠 | 新增能力既没有入口也没有说明；一个能力同时声称“经 HTTP”和“不经 HTTP” |
 | **G-5** | 真实 PG（工作台夹具）上，对每条非 `public`、非 `public_static`、非 `pre_session` 的路由，按路径模板填合法形状的占位参数，不带凭据请求一次：cookie 会话路由不带 cookie，状态码必须是 401 或 403；`service_bearer` 路由不带 `Authorization`，必须是 401，带一个无效令牌也必须是 401；webhook 路由不带签名，必须被拒绝。只断言“不是 2xx 且不是 5xx”和具体拒绝码，不断言正文 | 处理函数漏了会话检查；会话检查放在了数据库读取之后 |
