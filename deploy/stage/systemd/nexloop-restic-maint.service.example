@@ -7,6 +7,10 @@
 # equal to the private env), so the unit never starts on an unmounted, unencrypted directory.
 # /etc/nexloop/restic.env (0600) holds the paths RESTIC_REPO1_/RESTIC_REPO2_REPOSITORY_FILE and _PASSWORD_FILE and repo2's
 # AWS_* keys, and optionally RESTIC_REPO2_OPTIONS="-o s3.bucket-lookup=dns" (repo2 on TOS; unset or empty adds nothing). Retention as D4 (14 days, one monthly, at most 35 days); `check` daily, `check --read-data-subset 1/10` weekly.
+# Retention per tag (--group-by host,tags; L7 2026-10-26): repo1 holds the restore journal (tag journal, one fixed path) and the APP_HOST
+# file snapshots (tags files_artifact / files_runtime, each from a new staging directory). restic's default grouping is host,paths,
+# under which every file snapshot is a group of one and is never forgotten; grouped by tag, each kind keeps D4's window of its own
+# snapshots. Applied to an installed copy by scripts/deploy/restic_maint_data_host.sh (owner, root).
 [Unit]
 Description=NexLoop restic retention and checks (daily; deep check on Sundays)
 After=network-online.target docker.service
@@ -18,10 +22,10 @@ Type=oneshot
 User=nexloop-backup
 Group=nexloop-backup
 EnvironmentFile=/etc/nexloop/restic.env
-ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} forget --keep-within 14d --keep-monthly 1 --prune
+ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} forget --group-by host,tags --keep-within 14d --keep-monthly 1 --prune
 ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check
 ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check --read-data-subset 1/10; fi'
-ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} forget --keep-within 14d --keep-monthly 1 --prune
+ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} forget --group-by host,tags --keep-within 14d --keep-monthly 1 --prune
 ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check
 ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache ${RESTIC_REPO2_OPTIONS} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check --read-data-subset 1/10; fi'
 NoNewPrivileges=true

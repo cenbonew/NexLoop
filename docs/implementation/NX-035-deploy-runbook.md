@@ -312,7 +312,7 @@ ssh "$SSH_ALIAS_DATA" sudo -u "$FILE_BACKUP_USER" env $(cat "$OFFSITE_CREDENTIAL
 | 恢复日志 → repo1 | 每 5 分钟 | `restic -r "$FILE_BACKUP_REPO/restic" --password-file … backup "$JOURNAL_DIR" --tag journal` |
 | 恢复日志 → repo2 | 每 15 分钟 | 同上，`-r s3:…` |
 | Artifact、已终态 Run 目录（APP_HOST）→ DATA_HOST 文件 repo1 和 repo2 | 每 15 分钟 | `nexloop-file-backup --kind artifact --recorder-dsn-file "$RECORDER_DSN_FILE" --source-root "$ARTIFACT_ROOT" --staging-root "$FILE_BACKUP_STAGING" --repository-file "$FILE_BACKUP_REPO_FILE" --password-file "$FILE_BACKUP_PASS_FILE" --key-ref <标签>`；Run 目录用 `--kind runtime --source-root "$RUN_ROOT"`；repo2 再各跑一次（`--repo repo2`，仓库文件指向 S3，加 `--environment-file "$OFFSITE_CREDENTIAL_ENV"`）。它按 owner 侧清单复制并重算 sha256，调用 restic 与 `restic check`，结果写入清单的 `files_*` 行 |
-| 保留 | 每天 | `restic forget --keep-within 14d --keep-monthly 1 --prune`（与 D4 一致，最长 35 天） |
+| 保留 | 每天 | `restic forget --group-by host,tags --keep-within 14d --keep-monthly 1 --prune`（与 D4 一致，最长 35 天）。按 tag 分组：恢复日志（`journal`）和两类文件快照（`files_artifact`、`files_runtime`）各自保留 D4 的窗口。不能用 restic 默认的 host,paths 分组：文件快照每次都来自新的暂存目录，每个快照自成一组，永远不会被清理 |
 | 校验 | 每天 / 每周 | 每天执行 `restic check`；每周执行 `restic check --read-data-subset 1/10` |
 
 - **预期**：
