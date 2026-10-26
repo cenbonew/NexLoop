@@ -118,7 +118,7 @@ def context_message(assembled_message,admin,tmp_path):
     origin='https://context.invalid';dsn=private(tmp_path,'context-api-dsn',make_conninfo(o['pg'],user='nexloop_api'))
     rate=private(tmp_path,'context-rate-key','a'*64)
     config=ApiConfiguration(dsn,o['paths']['backend_signing'],tmp_path/'context-api-artifacts','explicit-configuration',
-     BrowserConfiguration(o['paths']['identity'],rate,tenant,o['application'],origin),execution_profile='deterministic-test')
+     BrowserConfiguration(o['paths']['identity'],rate,tenant,o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(config),base_url=origin) as client:
         logged=client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()});assert logged.status_code==200
         headers={'Origin':origin,'X-CSRF-Token':logged.json()['csrf_token'],'Idempotency-Key':'context-conversation-key'}

@@ -1,0 +1,1508 @@
+{
+ "schema_version": "nexloop-api-routes/1",
+ "manifest_version": 2,
+ "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version. v2 (dispatcher 2026-10-26, F-2 option 1): GET /api/v1/artifacts/{artifact_id}, the test-world service-token read, is mounted in --mode test only; routes without modes are mounted in every mode.",
+ "routes": [
+  {
+   "method": "MOUNT",
+   "path": "/",
+   "handler": "static",
+   "realm": "public_static",
+   "authorization": {
+    "kind": "static",
+    "source": "web_root"
+   },
+   "purpose": "The built web front end (G-6 checks the build output)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/artifacts/{artifact_id}",
+   "handler": "nexloop_eios.http_api:artifact",
+   "realm": "service_bearer",
+   "authorization": {
+    "kind": "service_bearer",
+    "world": "test",
+    "port": "nexloop_eios.backend.Backend.authenticate"
+   },
+   "purpose": "S1 HTTP foundation: one Artifact by a Bearer service token of the fixed test world; mounted in --mode test only (F-2)",
+   "source_task": "NX-011",
+   "modes": [
+    "test"
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/auth/csrf",
+   "handler": "nexloop_eios.browser_http:csrf",
+   "realm": "pre_session",
+   "authorization": {
+    "kind": "pre_session",
+    "reason": "CSRF token for the next write; no business data"
+   },
+   "purpose": "Consumer realm: csrf",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/auth/login",
+   "handler": "nexloop_eios.browser_http:login",
+   "realm": "pre_session",
+   "authorization": {
+    "kind": "pre_session",
+    "reason": "Password login; rate limited by account and client (browser_rate_limits); creates the session"
+   },
+   "purpose": "Consumer realm: login",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/auth/logout",
+   "handler": "nexloop_eios.browser_http:logout",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "session_only",
+    "reason": "Ends the caller's own session"
+   },
+   "purpose": "Consumer realm: logout",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/auth/session",
+   "handler": "nexloop_eios.browser_http:session",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "session_only",
+    "reason": "The caller's own session view"
+   },
+   "purpose": "Consumer realm: session",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/commercial-observations",
+   "handler": "nexloop_eios.commercial_observe_http:records",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.commercial.CommercialObserver.records"
+   },
+   "purpose": "Commercial records (NX-027, human read)",
+   "source_task": "NX-027"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/commercial-observations/{record_id}",
+   "handler": "nexloop_eios.commercial_observe_http:record",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.commercial.CommercialObserver.record"
+   },
+   "purpose": "One commercial record (NX-027, human read)",
+   "source_task": "NX-027"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/context/manifests/{run_id}/{call_sequence}",
+   "handler": "nexloop_eios.context_audit_http:manifest",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.context_audit_http.ContextAuditPorts.manifest"
+   },
+   "purpose": "Context Manifest of one Run call (NX-023, human only)",
+   "source_task": "NX-023"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversations",
+   "handler": "nexloop_eios.web_chat_http:conversations",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:list_conversations"
+   },
+   "purpose": "The consumer's own conversations",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversations",
+   "handler": "nexloop_eios.web_chat_http:create",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:create_conversation"
+   },
+   "purpose": "Create a conversation (governed Conversation Action)",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversations/{conversation_id}/events",
+   "handler": "nexloop_eios.web_chat_http:events",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:read_events"
+   },
+   "purpose": "Conversation events (SSE)",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversations/{conversation_id}/handling",
+   "handler": "nexloop_eios.conversation_takeover_http:handling",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "sql:authz.nexloop_conversation_takeover_state"
+   },
+   "purpose": "Whether a person handles this conversation (NX-028 D4)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/conversations/{conversation_id}/messages",
+   "handler": "nexloop_eios.web_chat_http:messages",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:read_messages"
+   },
+   "purpose": "Conversation messages",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversations/{conversation_id}/messages",
+   "handler": "nexloop_eios.web_chat_http:send",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:accept_message"
+   },
+   "purpose": "Send a message (governed Conversation Action)",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/conversations/{conversation_id}/native-messages",
+   "handler": "nexloop_eios.web_chat_http:native_send",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:accept_native_message"
+   },
+   "purpose": "Native WebChat inbound message",
+   "source_task": "NX-037"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/costs",
+   "handler": "nexloop_eios.commercial_observe_http:costs",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.commercial.CommercialObserver.costs"
+   },
+   "purpose": "Cost summary and settlements (NX-027, human read)",
+   "source_task": "NX-027"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/costs/entries",
+   "handler": "nexloop_eios.commercial_observe_http:entries",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.commercial.CommercialObserver.cost_entries"
+   },
+   "purpose": "Cost entries (NX-027, human read)",
+   "source_task": "NX-027"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/messages/{message_id}/receipt",
+   "handler": "nexloop_eios.web_chat_http:message_receipt",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:read_message_service_receipt"
+   },
+   "purpose": "Service receipt of one message",
+   "source_task": "NX-037"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/messages/{message_id}/run",
+   "handler": "nexloop_eios.web_chat_http:message_run",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:read_message_run"
+   },
+   "purpose": "Run state of one message",
+   "source_task": "NX-014"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/messages/{message_id}/scope-denial",
+   "handler": "nexloop_eios.web_chat_http:scope_denial",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.browser:read_message_scope_denial"
+   },
+   "purpose": "Scope denial of one message",
+   "source_task": "NX-014"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/metrics/{goal_id}/{goal_version}/{kr_key}",
+   "handler": "nexloop_eios.commercial_observe_http:metric",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.commercial.CommercialObserver.metric"
+   },
+   "purpose": "One key result value (NX-027, human read)",
+   "source_task": "NX-027"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/review/awaiting",
+   "handler": "nexloop_eios.review_http:awaiting",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.review_awaiting"
+   },
+   "purpose": "Review decisions awaiting (NX-044)",
+   "source_task": "NX-044"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/review/candidates/{candidate_id}",
+   "handler": "nexloop_eios.review_http:candidate",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.review_candidate"
+   },
+   "purpose": "One review candidate (NX-046)",
+   "source_task": "NX-046"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/review/candidates/{candidate_id}/decisions",
+   "handler": "nexloop_eios.review_http:decide",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.decide"
+   },
+   "purpose": "Governed human review decision (NX-044)",
+   "source_task": "NX-044"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/review/queue",
+   "handler": "nexloop_eios.review_http:queue",
+   "realm": "consumer_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.review_queue"
+   },
+   "purpose": "Review queue (NX-046)",
+   "source_task": "NX-046"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/webhooks/commercial/{connector_id}",
+   "handler": "nexloop_eios.commercial_http:commercial_event",
+   "realm": "webhook_signature",
+   "authorization": {
+    "kind": "webhook_signature",
+    "port": "nexloop_eios.commercial.ingest"
+   },
+   "purpose": "Signed commercial event of a connector (timestamp and HMAC); rate limited",
+   "source_task": "NX-027"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/actions",
+   "handler": "nexloop_eios.workbench_http:actions",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:actions"
+   },
+   "purpose": "Workbench read: actions (WorkbenchQueries.actions)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/actions/{operation}",
+   "handler": "nexloop_eios.workbench_actions_http:act",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "workbench_operation"
+   },
+   "purpose": "Governed workbench writes: one registered capability per operation (see operations)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/alerts",
+   "handler": "nexloop_eios.workbench_http:alerts",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:alerts"
+   },
+   "purpose": "Workbench read: alerts (WorkbenchQueries.alerts)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/approvals",
+   "handler": "nexloop_eios.workbench_http:approvals",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:approvals"
+   },
+   "purpose": "Workbench read: approvals (WorkbenchQueries.approvals)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/artifacts",
+   "handler": "nexloop_eios.workbench_http:artifacts",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:artifacts"
+   },
+   "purpose": "Workbench read: artifacts (WorkbenchQueries.artifacts)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/audit",
+   "handler": "nexloop_eios.workbench_http:audit",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:audit"
+   },
+   "purpose": "Workbench read: audit (WorkbenchQueries.audit)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/auth/csrf",
+   "handler": "nexloop_eios.browser_http:csrf",
+   "realm": "pre_session",
+   "authorization": {
+    "kind": "pre_session",
+    "reason": "CSRF token for the next write; no business data"
+   },
+   "purpose": "Workbench realm: csrf",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/auth/invitation/accept",
+   "handler": "nexloop_eios.browser_http:invitation_accept",
+   "realm": "pre_session",
+   "authorization": {
+    "kind": "pre_session",
+    "reason": "Accept a workbench invitation with its one-time token (NX-058); the tenant is the server's"
+   },
+   "purpose": "Workbench realm: invitation/accept",
+   "source_task": "NX-058"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/auth/login",
+   "handler": "nexloop_eios.browser_http:login",
+   "realm": "pre_session",
+   "authorization": {
+    "kind": "pre_session",
+    "reason": "Password login; rate limited by account and client (browser_rate_limits); creates the session"
+   },
+   "purpose": "Workbench realm: login",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/auth/logout",
+   "handler": "nexloop_eios.browser_http:logout",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "session_only",
+    "reason": "Ends the caller's own session"
+   },
+   "purpose": "Workbench realm: logout",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/auth/password/reset",
+   "handler": "nexloop_eios.browser_http:password_reset",
+   "realm": "pre_session",
+   "authorization": {
+    "kind": "pre_session",
+    "reason": "Reset a password with a one-time code (NX-058); the tenant is the server's"
+   },
+   "purpose": "Workbench realm: password/reset",
+   "source_task": "NX-058"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/auth/reset-history",
+   "handler": "nexloop_eios.browser_http:reset_history",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "session_only",
+    "reason": "The member's own 90-day password reset notices (NX-058)"
+   },
+   "purpose": "Workbench realm: reset-history",
+   "source_task": "NX-058"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/auth/session",
+   "handler": "nexloop_eios.browser_http:session",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "session_only",
+    "reason": "The caller's own session view"
+   },
+   "purpose": "Workbench realm: session",
+   "source_task": "NX-012"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/capabilities",
+   "handler": "nexloop_eios.workbench_http:capabilities",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:capabilities"
+   },
+   "purpose": "Workbench read: capabilities (WorkbenchQueries.capabilities)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/commitments",
+   "handler": "nexloop_eios.workbench_http:commitments",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:commitments"
+   },
+   "purpose": "Workbench read: commitments (WorkbenchQueries.commitments)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/commitments/{commitment_id}",
+   "handler": "nexloop_eios.workbench_http:commitment",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:commitment"
+   },
+   "purpose": "Workbench read: commitment (WorkbenchQueries.commitment)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/consumers",
+   "handler": "nexloop_eios.workbench_http:consumers",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:consumers"
+   },
+   "purpose": "Workbench read: consumers (WorkbenchQueries.consumers)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/consumers/{consumer_id}",
+   "handler": "nexloop_eios.workbench_http:consumer",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:consumer"
+   },
+   "purpose": "Workbench read: consumer (WorkbenchQueries.consumer)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/consumers/{consumer_id}/contact-preferences",
+   "handler": "nexloop_eios.workbench_http:contact_preferences",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:contact_preferences"
+   },
+   "purpose": "Workbench read: contact preferences (WorkbenchQueries.contact_preferences)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/consumers/{consumer_id}/history",
+   "handler": "nexloop_eios.workbench_http:consumer_history",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:consumer_history"
+   },
+   "purpose": "Workbench read: consumer history (WorkbenchQueries.consumer_history)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/contact",
+   "handler": "nexloop_eios.workbench_http:contact",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:contact"
+   },
+   "purpose": "Workbench read: contact (WorkbenchQueries.contact)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/conversations/{conversation_id}",
+   "handler": "nexloop_eios.workbench_http:conversation",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:conversation"
+   },
+   "purpose": "Workbench read: conversation (WorkbenchQueries.conversation)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/data-exports/{export_id}",
+   "handler": "nexloop_eios.data_export_http:download",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.data_export.DataExporter.export"
+   },
+   "purpose": "Download the requester's own data export (NX-029 slice 3)",
+   "source_task": "NX-029"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/data-health",
+   "handler": "nexloop_eios.workbench_http:data_health",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:data_health"
+   },
+   "purpose": "Workbench read: data health (WorkbenchQueries.data_health)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/effect-determination/{intent_id}",
+   "handler": "nexloop_eios.workbench_http:effect_determination",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:effect_determination"
+   },
+   "purpose": "Workbench read: effect determination (WorkbenchQueries.effect_determination)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/erasure-precheck/{consumer_id}",
+   "handler": "nexloop_eios.workbench_http:erasure_precheck",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:erasure_precheck"
+   },
+   "purpose": "Workbench read: erasure precheck (WorkbenchQueries.erasure_precheck)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/goals",
+   "handler": "nexloop_eios.workbench_http:goals",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:goals"
+   },
+   "purpose": "Workbench read: goals (WorkbenchQueries.goals)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/human-actions",
+   "handler": "nexloop_eios.workbench_http:human_actions",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:human_actions"
+   },
+   "purpose": "Workbench read: human actions (WorkbenchQueries.human_actions)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/me",
+   "handler": "nexloop_eios.workbench_http:me",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:me"
+   },
+   "purpose": "Workbench read: me (WorkbenchQueries.me)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/members",
+   "handler": "nexloop_eios.workbench_http:members",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:members"
+   },
+   "purpose": "Workbench read: members (WorkbenchQueries.members)",
+   "source_task": "NX-058"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/metrics",
+   "handler": "nexloop_eios.workbench_http:metrics",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:metrics"
+   },
+   "purpose": "Workbench read: metrics (WorkbenchQueries.metrics)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/object-sets",
+   "handler": "nexloop_eios.workbench_http:object_sets",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:object_sets"
+   },
+   "purpose": "Workbench read: object sets (WorkbenchQueries.object_sets)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/object-sets/{stable_name}/members",
+   "handler": "nexloop_eios.workbench_http:object_set_members",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:object_set_members"
+   },
+   "purpose": "Workbench read: object set members (WorkbenchQueries.object_set_members)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/object-views/{type_name}",
+   "handler": "nexloop_eios.workbench_http:object_view",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:object_view"
+   },
+   "purpose": "Workbench read: object view (WorkbenchQueries.object_view)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/objects/{type_name}",
+   "handler": "nexloop_eios.workbench_http:objects",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:objects"
+   },
+   "purpose": "Workbench read: objects (WorkbenchQueries.objects)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/objects/{type_name}/{object_id}",
+   "handler": "nexloop_eios.workbench_http:object_values",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:object_values"
+   },
+   "purpose": "Workbench read: object values (WorkbenchQueries.object_values)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/objects/{type_name}/{object_id}/neighbors",
+   "handler": "nexloop_eios.workbench_http:object_neighbors",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:object_neighbors"
+   },
+   "purpose": "Workbench read: object neighbors (WorkbenchQueries.object_neighbors)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/operator-personas",
+   "handler": "nexloop_eios.workbench_http:operator_personas",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:operator_personas"
+   },
+   "purpose": "Workbench read: operator personas (WorkbenchQueries.operator_personas)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/outreach-approvals",
+   "handler": "nexloop_eios.workbench_http:outreach_approvals",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:outreach_approvals"
+   },
+   "purpose": "Workbench read: outreach approvals (WorkbenchQueries.outreach_approvals)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/outreach-candidates",
+   "handler": "nexloop_eios.workbench_http:outreach_candidates",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:outreach_candidates"
+   },
+   "purpose": "Workbench read: outreach candidates (WorkbenchQueries.outreach_candidates)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/outreach-controls",
+   "handler": "nexloop_eios.workbench_http:outreach_controls",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:outreach_controls"
+   },
+   "purpose": "Workbench read: outreach controls (WorkbenchQueries.outreach_controls)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/outreach-evidence",
+   "handler": "nexloop_eios.workbench_http:outreach_evidence",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:outreach_evidence"
+   },
+   "purpose": "Workbench read: outreach evidence (WorkbenchQueries.outreach_evidence)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/outreach-metrics",
+   "handler": "nexloop_eios.workbench_http:outreach_metrics",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:outreach_metrics"
+   },
+   "purpose": "Workbench read: outreach metrics (WorkbenchQueries.outreach_metrics)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/outreach-purposes",
+   "handler": "nexloop_eios.workbench_http:outreach_purposes",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:outreach_purposes"
+   },
+   "purpose": "Workbench read: outreach purposes (WorkbenchQueries.outreach_purposes)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/overview",
+   "handler": "nexloop_eios.workbench_http:overview",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:overview"
+   },
+   "purpose": "Workbench read: overview (WorkbenchQueries.overview)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/plans",
+   "handler": "nexloop_eios.workbench_http:plans",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:plans"
+   },
+   "purpose": "Workbench read: plans (WorkbenchQueries.plans)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/remediations",
+   "handler": "nexloop_eios.workbench_http:remediations",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:remediations"
+   },
+   "purpose": "Workbench read: remediations (WorkbenchQueries.remediations)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/remediations/{remediation_id}",
+   "handler": "nexloop_eios.workbench_http:remediation_evidence",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:remediation_evidence"
+   },
+   "purpose": "Workbench read: remediation evidence (WorkbenchQueries.remediation_evidence)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/review",
+   "handler": "nexloop_eios.workbench_http:review_queue",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:review_queue"
+   },
+   "purpose": "Workbench read: review queue (WorkbenchQueries.review_queue)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/review-decisions/awaiting",
+   "handler": "nexloop_eios.review_http:awaiting",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.review_awaiting"
+   },
+   "purpose": "Review decisions awaiting, workbench realm",
+   "source_task": "NX-044"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/review-decisions/candidates/{candidate_id}",
+   "handler": "nexloop_eios.review_http:candidate",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.review_candidate"
+   },
+   "purpose": "One review candidate, workbench realm",
+   "source_task": "NX-046"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/review-decisions/candidates/{candidate_id}/decisions",
+   "handler": "nexloop_eios.review_http:decide",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.decide"
+   },
+   "purpose": "Governed human review decision, workbench realm (reviewer)",
+   "source_task": "NX-044"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/review-decisions/queue",
+   "handler": "nexloop_eios.review_http:queue",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.review_actions.ReviewWorkbenchPorts.review_queue"
+   },
+   "purpose": "Review queue, workbench realm",
+   "source_task": "NX-046"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/review/{candidate_id}",
+   "handler": "nexloop_eios.workbench_http:review_evidence",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:review_evidence"
+   },
+   "purpose": "Workbench read: review evidence (WorkbenchQueries.review_evidence)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/schema-proposals/{proposal_id}/basis",
+   "handler": "nexloop_eios.schema_publication_http:basis",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.schema_publication_http.SchemaPublicationPorts.basis"
+   },
+   "purpose": "Schema proposal publication basis (NX-040 F3)",
+   "source_task": "NX-040"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/schema-proposals/{proposal_id}/check",
+   "handler": "nexloop_eios.schema_publication_http:check",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.schema_publication_http.SchemaPublicationPorts.check"
+   },
+   "purpose": "Schema proposal check and impact list (NX-040, NX-061 A1)",
+   "source_task": "NX-061"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/schema-proposals/{proposal_id}/hide",
+   "handler": "nexloop_eios.schema_publication_http:hide",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.schema_publication_http.SchemaPublicationPorts.hide"
+   },
+   "purpose": "Hide a schema proposal value (NX-040 F4)",
+   "source_task": "NX-040"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/schema-proposals/{proposal_id}/publish",
+   "handler": "nexloop_eios.schema_publication_http:publish",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.schema_publication_http.SchemaPublicationPorts.publish"
+   },
+   "purpose": "Publish a schema proposal (NX-040 F4)",
+   "source_task": "NX-040"
+  },
+  {
+   "method": "POST",
+   "path": "/api/v1/workbench/schema-publications/{publication_id}/migrate-batch",
+   "handler": "nexloop_eios.schema_publication_http:migrate_batch",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "nexloop_eios.schema_publication_http.SchemaPublicationPorts.migrate_batch"
+   },
+   "purpose": "One migration batch of a schema publication (NX-040)",
+   "source_task": "NX-040"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/semantic-releases",
+   "handler": "nexloop_eios.workbench_http:semantic_releases",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:semantic_releases"
+   },
+   "purpose": "Workbench read: semantic releases (WorkbenchQueries.semantic_releases)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/semantic-review",
+   "handler": "nexloop_eios.workbench_http:semantic_review",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:semantic_review"
+   },
+   "purpose": "Workbench read: semantic review (WorkbenchQueries.semantic_review)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/settings",
+   "handler": "nexloop_eios.workbench_http:settings",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:settings"
+   },
+   "purpose": "Workbench read: settings (WorkbenchQueries.settings)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/takeovers",
+   "handler": "nexloop_eios.workbench_http:takeovers",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:takeovers"
+   },
+   "purpose": "Workbench read: takeovers (WorkbenchQueries.takeovers)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/api/v1/workbench/world-model",
+   "handler": "nexloop_eios.workbench_http:world_model",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:world_model"
+   },
+   "purpose": "Workbench read: world model (WorkbenchQueries.world_model)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/health/live",
+   "handler": "nexloop_eios.http_api:live",
+   "realm": "public",
+   "authorization": {
+    "kind": "public"
+   },
+   "purpose": "Liveness, no data",
+   "source_task": "NX-011"
+  },
+  {
+   "method": "GET",
+   "path": "/health/ready",
+   "handler": "nexloop_eios.http_api:ready",
+   "realm": "public",
+   "authorization": {
+    "kind": "public"
+   },
+   "purpose": "Readiness: foundation checks, Host probe, dispatch switch and cache state (deployment state; trimming is a C8 follow-up, design §9)",
+   "source_task": "NX-011"
+  },
+  {
+   "method": "GET",
+   "path": "/workbench",
+   "handler": "nexloop_eios.http_api:workbench_page",
+   "realm": "public_static",
+   "authorization": {
+    "kind": "static",
+    "source": "web_root"
+   },
+   "purpose": "The workbench single page (index.html of the built web root)",
+   "source_task": "NX-028"
+  },
+  {
+   "method": "GET",
+   "path": "/workbench/{rest:path}",
+   "handler": "nexloop_eios.http_api:workbench_page",
+   "realm": "public_static",
+   "authorization": {
+    "kind": "static",
+    "source": "web_root"
+   },
+   "purpose": "The workbench single page (index.html of the built web root)",
+   "source_task": "NX-028"
+  }
+ ],
+ "operations": [
+  {
+   "operation": "assign_operator_persona",
+   "capability": "operator_persona.assign"
+  },
+  {
+   "operation": "attest_commitment",
+   "capability": "commitment.attest"
+  },
+  {
+   "operation": "calibrate_consumer_twin",
+   "capability": "consumer_twin.calibrate"
+  },
+  {
+   "operation": "cancel_approval",
+   "capability": "approvals.cancel"
+  },
+  {
+   "operation": "cancel_commitment",
+   "capability": "commitment.cancel"
+  },
+  {
+   "operation": "change_workbench_member_role",
+   "capability": "workbench_member.change_role"
+  },
+  {
+   "operation": "commitment_condition_met",
+   "capability": "commitment.condition_met"
+  },
+  {
+   "operation": "confirm_effect_not_delivered",
+   "capability": "service.confirm_not_delivered"
+  },
+  {
+   "operation": "control_sim_clock",
+   "capability": "sim_clock.control"
+  },
+  {
+   "operation": "create_sim_world",
+   "capability": "sim_world.create"
+  },
+  {
+   "operation": "decide_approval",
+   "capability": "approvals.decide"
+  },
+  {
+   "operation": "decide_outreach_approval",
+   "capability": "outreach.approve"
+  },
+  {
+   "operation": "delete_sim_world",
+   "capability": "sim_world.delete"
+  },
+  {
+   "operation": "demote_workbench_owner",
+   "capability": "workbench_member.demote_owner"
+  },
+  {
+   "operation": "dismiss_contact_preference",
+   "capability": "contact_preference.dismiss"
+  },
+  {
+   "operation": "erase_consumer",
+   "capability": "consumer.erase"
+  },
+  {
+   "operation": "erase_consumer_on_request",
+   "capability": "consumer.erase_on_request"
+  },
+  {
+   "operation": "erase_consumer_twin_text",
+   "capability": "consumer_twin.erase_text"
+  },
+  {
+   "operation": "erase_synthetic_consumer",
+   "capability": "consumer.erase_synthetic"
+  },
+  {
+   "operation": "erase_workbench_member",
+   "capability": "workbench_member.erase_member"
+  },
+  {
+   "operation": "extend_commitment",
+   "capability": "commitment.extend"
+  },
+  {
+   "operation": "generate_sim_world_data",
+   "capability": "sim_world.generate"
+  },
+  {
+   "operation": "hand_back_conversation",
+   "capability": "conversation.handback"
+  },
+  {
+   "operation": "invite_workbench_member",
+   "capability": "workbench_member.invite"
+  },
+  {
+   "operation": "invite_workbench_owner",
+   "capability": "workbench_member.invite_owner"
+  },
+  {
+   "operation": "issue_incentive",
+   "capability": "incentive.issue"
+  },
+  {
+   "operation": "issue_workbench_owner_reset",
+   "capability": "workbench_member.issue_owner_reset"
+  },
+  {
+   "operation": "issue_workbench_reset",
+   "capability": "workbench_member.issue_reset"
+  },
+  {
+   "operation": "mark_commitment_communication",
+   "capability": "commitment.mark_communication"
+  },
+  {
+   "operation": "open_restore_scope",
+   "capability": "restore.open_scope"
+  },
+  {
+   "operation": "promote_workbench_member",
+   "capability": "workbench_member.promote_owner"
+  },
+  {
+   "operation": "publish_consumer_twin",
+   "capability": "consumer_twin.publish"
+  },
+  {
+   "operation": "publish_object_set",
+   "capability": "object_set.publish"
+  },
+  {
+   "operation": "publish_object_view",
+   "capability": "object_view.publish"
+  },
+  {
+   "operation": "publish_operator_persona",
+   "capability": "operator_persona.publish"
+  },
+  {
+   "operation": "publish_persona_rules",
+   "capability": "operator_persona.rules_publish"
+  },
+  {
+   "operation": "publish_semantic_release",
+   "capability": "semantic_release.publish"
+  },
+  {
+   "operation": "publish_sim_catalog",
+   "capability": "sim_world.publish_catalog"
+  },
+  {
+   "operation": "publish_strategy",
+   "capability": "strategy.publish"
+  },
+  {
+   "operation": "read_experiment_report",
+   "capability": "experiment.report"
+  },
+  {
+   "operation": "record_marketing_consent",
+   "capability": "marketing_consent.record"
+  },
+  {
+   "operation": "register_experiment",
+   "capability": "experiment.register"
+  },
+  {
+   "operation": "release_contact_restriction",
+   "capability": "goals.contact.release"
+  },
+  {
+   "operation": "release_remediation_rule",
+   "capability": "remediation.rule_release"
+  },
+  {
+   "operation": "request_effect_query",
+   "capability": "service.query_request"
+  },
+  {
+   "operation": "request_plan_reevaluation",
+   "capability": "plan.request_reevaluation"
+  },
+  {
+   "operation": "resolve_extraction_dead_letter",
+   "capability": "claim_extraction.dead_letter_resolve"
+  },
+  {
+   "operation": "resolve_remediation",
+   "capability": "remediation.resolve"
+  },
+  {
+   "operation": "resume_workbench_member",
+   "capability": "workbench_member.resume"
+  },
+  {
+   "operation": "resume_workbench_owner",
+   "capability": "workbench_member.resume_owner"
+  },
+  {
+   "operation": "retire_consumer_twin",
+   "capability": "consumer_twin.retire"
+  },
+  {
+   "operation": "retire_strategy",
+   "capability": "strategy.retire"
+  },
+  {
+   "operation": "revoke_contact_key",
+   "capability": "contact_key.revoke"
+  },
+  {
+   "operation": "revoke_workbench_invitation",
+   "capability": "workbench_member.revoke_invitation"
+  },
+  {
+   "operation": "revoke_workbench_member",
+   "capability": "workbench_member.revoke"
+  },
+  {
+   "operation": "revoke_workbench_owner",
+   "capability": "workbench_member.revoke_owner"
+  },
+  {
+   "operation": "rollback_semantic_release",
+   "capability": "semantic_release.rollback"
+  },
+  {
+   "operation": "send_outreach",
+   "capability": "outreach.send"
+  },
+  {
+   "operation": "send_staff_reply",
+   "capability": "message.staff_send"
+  },
+  {
+   "operation": "set_ai_disclosure",
+   "capability": "ai_disclosure.set"
+  },
+  {
+   "operation": "set_approval_solo_mode",
+   "capability": "approvals.solo_mode.set"
+  },
+  {
+   "operation": "set_consumer_persona",
+   "capability": "consumer.set_persona"
+  },
+  {
+   "operation": "set_control",
+   "capability": "goals.control.set"
+  },
+  {
+   "operation": "set_evolution_stop",
+   "capability": "semantic_release.stop"
+  },
+  {
+   "operation": "set_outreach_controls",
+   "capability": "outreach_controls.set"
+  },
+  {
+   "operation": "set_outreach_purpose",
+   "capability": "outreach_purposes.set"
+  },
+  {
+   "operation": "set_real_dispatch",
+   "capability": "real_dispatch.set"
+  },
+  {
+   "operation": "set_shadow_copy",
+   "capability": "shadow_copy.set"
+  },
+  {
+   "operation": "silence_alert",
+   "capability": "alert.silence"
+  },
+  {
+   "operation": "start_experiment",
+   "capability": "experiment.start"
+  },
+  {
+   "operation": "stop_experiment",
+   "capability": "experiment.stop"
+  },
+  {
+   "operation": "suspend_workbench_member",
+   "capability": "workbench_member.suspend"
+  },
+  {
+   "operation": "suspend_workbench_owner",
+   "capability": "workbench_member.suspend_owner"
+  },
+  {
+   "operation": "switch_remediation",
+   "capability": "remediation.switch"
+  },
+  {
+   "operation": "take_over_conversation",
+   "capability": "conversation.takeover"
+  }
+ ],
+ "capabilities_not_on_http": [
+  {
+   "capability": "commitment.bind_commercial",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.bind_commitment_commercial only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "consumer.export",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.export_consumer only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "cost.record",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.record_cost only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "goals.agent.propose",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.propose_agent_goal only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "goals.budget.set",
+   "reached_by": "scripts/nx037/real_tenant_init.py through GoalGovernedActions.set_budget",
+   "reason": "Budgets are set by the tenant initialisation tool; no HTTP entry"
+  },
+  {
+   "capability": "goals.metric.approve",
+   "reached_by": "nexloop_eios.goal_setup (goal setup tool) through GoalGovernedActions.approve_metric",
+   "reason": "Goal metrics are approved when a tenant is set up; no HTTP entry"
+  },
+  {
+   "capability": "goals.version.publish",
+   "reached_by": "nexloop_eios.goal_setup (goal setup tool) through GoalGovernedActions.publish_goal",
+   "reason": "Goal versions are published when a tenant is set up; no HTTP entry"
+  },
+  {
+   "capability": "message.erase",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.erase_message only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "retention.hold",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.hold_retention only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "retention.release_hold",
+   "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.release_retention_hold only (exercised by tests)",
+   "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  }
+ ],
+ "port_operations_not_on_http": [
+  {
+   "port": "backend.browser:link_authenticated_identity",
+   "reason": "Consumer identity link (0061, nexloop.consumer.link_authenticated_identity): in the browser allow-list, but no route of this release calls it"
+  }
+ ]
+}

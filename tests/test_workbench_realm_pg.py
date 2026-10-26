@@ -49,7 +49,7 @@ def test_one_workbench_cookie_reads_and_writes_and_the_customer_cookie_is_refuse
     config = ApiConfiguration(private('business-dsn', make_conninfo(pg, user='nexloop_api')), private('authority-key', signer.material),
         tmp_path / 'app-artifacts', signer.key_id, BrowserConfiguration(private('identity-dsn', identity[0]), private('rate-key', secrets.token_hex(32)),
         TENANT, 'synthetic-browser-app', ORIGIN), execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, ORIGIN))
+        workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, ORIGIN),mode='test')
     pause = {'scope_kind': 'consumer', 'scope_ref': c['consumer'], 'paused': True, 'reason': '暂停'}
 
     def paused(client):

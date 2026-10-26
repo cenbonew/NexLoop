@@ -230,7 +230,7 @@ def test_http_current_cookie_projects_actual_function_receipt_and_rechecks_revok
         path=tmp_path/name;path.write_text(value);path.chmod(0o600);return path
     config=ApiConfiguration(private('http-api-dsn',make_conninfo(f['pg'],user='nexloop_api')),f['signing_key'],tmp_path/'http-artifacts','runtime-effect',
         BrowserConfiguration(private('http-identity-dsn',make_conninfo(f['pg'],user='nexloop_identity')),private('http-rate-key',secrets.token_hex(32)),f['tenant'],'synthetic-webchat',origin),
-        execution_profile='deterministic-test',conversation_stream_seconds=1)
+        execution_profile='deterministic-test',conversation_stream_seconds=1,mode='test')
     path='/api/v1/messages/'+f['message']['id']+'/receipt'
     with TestClient(create_app(config),base_url=origin) as client:
         assert client.get(path).status_code==401

@@ -99,10 +99,10 @@ def workbench(conversations, admin, pg, tmp_path):
         tmp_path / 'artifacts', reader.signer.key_id,
         BrowserConfiguration(private(tmp_path, 'identity-dsn', f['base']['identity'][0]), private(tmp_path, 'rate-key', secrets.token_hex(32)), TENANT, 'synthetic-browser-app', ORIGIN),
         execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, ORIGIN))
+        workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, ORIGIN),mode='test')
     (tmp_path / 'artifacts').mkdir(mode=0o700)
     return dict(f=f, admin=admin, owner=owner, operator=operator, outsider=outsider, customer=customer, configurator=configurator,
-                conversation=conversation, refusal=refusal, client=lambda: TestClient(create_app(config), base_url=ORIGIN))
+                conversation=conversation, refusal=refusal, config=config, client=lambda: TestClient(create_app(config), base_url=ORIGIN))
 
 
 def configure(w, *members):

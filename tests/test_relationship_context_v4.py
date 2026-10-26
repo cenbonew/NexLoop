@@ -316,7 +316,7 @@ def accept_new_human_message(f,tmp_path,body):
     from psycopg.conninfo import make_conninfo
     o=f['original'];origin='https://context.invalid'
     dsn=private(tmp_path,'relationship-human-dsn',make_conninfo(o['pg'],user='nexloop_api'));rate=private(tmp_path,'relationship-human-rate','b'*64)
-    cfg=ApiConfiguration(dsn,o['paths']['backend_signing'],tmp_path/'relationship-api-artifacts','explicit-configuration',BrowserConfiguration(o['paths']['identity'],rate,o['tenant'],o['application'],origin),execution_profile='deterministic-test')
+    cfg=ApiConfiguration(dsn,o['paths']['backend_signing'],tmp_path/'relationship-api-artifacts','explicit-configuration',BrowserConfiguration(o['paths']['identity'],rate,o['tenant'],o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(cfg),base_url=origin) as client:
         login=client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()});assert login.status_code==200
         headers={'Origin':origin,'X-CSRF-Token':login.json()['csrf_token'],'Idempotency-Key':'relationship-correction-conversation'}

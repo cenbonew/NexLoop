@@ -249,3 +249,34 @@ def test_the_reader_credential_passes_the_trace_read_identity_check(enroll):
     # Only the reader role may call the read at all.
     with psycopg.connect(make_conninfo(f['pg'], user='nexloop_evo_writer'), autocommit=True) as writer, pytest.raises(psycopg.errors.InsufficientPrivilege):
         writer.execute("select authz.nexloop_evo_trace_runs(%s,%s,%s,null,10,array['real'])", (hexid(token(f, 'evolution_reader')), since, until))
+
+
+def test_the_test_world_evaluation_credential_gets_no_artifact_read(enroll):
+    """NX-062 C8 F-2 (dispatcher 2026-10-26): the stage holds this active test-world credential (requested scope nexloop.evolution, no
+    grant). The test-world Artifact read (GET /api/v1/artifacts/{id}, now mounted in --mode test only) authorizes a READ permit on
+    eios:artifact:local_test; this credential authenticates in world test but no authority fact names that resource for it (no
+    resource graph, grant, scope or policy), so the permit fails closed before any Artifact is looked up - whatever the id - and the
+    route answers 404 like an unknown id (it maps every read failure to resource_unavailable)."""
+    from types import SimpleNamespace
+    from eios.authz.errors import AuthorizationUnavailable
+    from eios.authz.operations import Operation
+    from nexloop_eios.assembly import open_core
+    from nexloop_eios.authorization import authenticate_service
+    from nexloop_eios.local_artifacts import ArtifactAccessDenied
+    from nexloop_eios.postgres_artifacts import PostgresArtifactRepository
+    f = enroll
+    assert f['call']()[0] == 0
+    signer = SimpleNamespace(key_id='synthetic', material=b'0' * 32, signature=lambda text: '0' * 64)
+    with open_core(make_conninfo(f['pg'], user='nexloop_api')) as pool:
+        session = authenticate_service(pool, token(f, 'evolution_evaluation'), world='test')   # it does authenticate in world test
+        assert session.authentication.requested_scopes == frozenset({E.LABEL_SCOPE})
+        with pytest.raises((ArtifactAccessDenied, AuthorizationUnavailable)) as refused:
+            PostgresArtifactRepository(pool, session, signer).issue_permit(Operation.READ, {'artifact_id': 'd' * 32})
+        # Fail closed on the missing facts themselves. Here the first one resolved is the resource graph of eios:artifact:local_test
+        # (no principal of this database holds it); where another principal holds it, the next one is this principal's grant.
+        assert 'ResourceGraphFacts is unavailable' in str(refused.value.__context__)
+    principal = E.identifiers('evolution_evaluation')['principal_id']
+    assert f['admin'].execute("select count(*) from authz.nexloop_authority_facts where entity_key[1]=%s and entity_key @> array['eios:artifact:local_test']",
+                              (principal,)).fetchone()[0] == 0
+    assert f['admin'].execute("select count(*) from authz.nexloop_authority_facts where fact_kind in ('grants','scope','policies','controls') and entity_key[1]=%s",
+                              (principal,)).fetchone()[0] == 0

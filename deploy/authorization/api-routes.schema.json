@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexloop-api-routes/1",
+  "title": "NexLoop API route inventory (NX-062 C8)",
+  "description": "Every HTTP route nexloop-api mounts in its complete configuration and how it is authorized; reviewed by hand, checked by tests/test_api_route_inventory.py. Cross-field rules (realm and kind, mount and handler, duplicates) are in nexloop_eios.api_route_inventory.load.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_version", "decision", "routes", "operations", "capabilities_not_on_http", "port_operations_not_on_http"],
+  "properties": {
+    "schema_version": {"const": "nexloop-api-routes/1"},
+    "manifest_version": {"type": "integer", "minimum": 1},
+    "decision": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "routes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/route"}},
+    "operations": {"type": "array", "items": {"$ref": "#/$defs/operation"}},
+    "capabilities_not_on_http": {"type": "array", "items": {"$ref": "#/$defs/offline_capability"}},
+    "port_operations_not_on_http": {"type": "array", "items": {"$ref": "#/$defs/offline_port"}}
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 500},
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path", "handler", "realm", "authorization", "purpose"],
+      "properties": {
+        "method": {"enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "MOUNT"]},
+        "path": {"type": "string", "pattern": "^/([A-Za-z0-9_.{}:-]+(/[A-Za-z0-9_.{}:-]+)*)?$"},
+        "handler": {"type": "string", "pattern": "^(static|[a-z_][a-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*)$"},
+        "realm": {"enum": ["public", "public_static", "pre_session", "consumer_session", "workbench_session", "service_bearer", "webhook_signature"]},
+        "authorization": {
+          "oneOf": [
+            {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "public"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "source"], "properties": {"kind": {"const": "static"}, "source": {"const": "web_root"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "reason"], "properties": {"kind": {"const": "pre_session"}, "reason": {"$ref": "#/$defs/text"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "reason"], "properties": {"kind": {"const": "session_only"}, "reason": {"$ref": "#/$defs/text"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "port"}, "port": {"$ref": "#/$defs/port"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "workbench_operation"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "world", "port"], "properties": {"kind": {"const": "service_bearer"}, "world": {"enum": ["test", "real"]}, "port": {"$ref": "#/$defs/port"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "webhook_signature"}, "port": {"$ref": "#/$defs/port"}}}
+          ]
+        },
+        "modes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["test", "stage"]}},
+        "purpose": {"$ref": "#/$defs/text"},
+        "source_task": {"type": "string", "pattern": "^(NX|AT|ADR)-[0-9]{3}[A-Za-z0-9 .-]*$"}
+      }
+    },
+    "port": {"type": "string", "pattern": "^(backend\\.(workbench|browser):[a-z_]+|sql:[a-z_]+\\.[a-z0-9_]+|nexloop_eios(\\.[A-Za-z_][A-Za-z0-9_]*)+)$"},
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "capability"],
+      "properties": {"operation": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"}, "capability": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"}}
+    },
+    "offline_capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "reached_by", "reason"],
+      "properties": {"capability": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"}, "reached_by": {"$ref": "#/$defs/text"}, "reason": {"$ref": "#/$defs/text"}}
+    },
+    "offline_port": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port", "reason"],
+      "properties": {"port": {"$ref": "#/$defs/port"}, "reason": {"$ref": "#/$defs/text"}}
+    }
+  }
+}

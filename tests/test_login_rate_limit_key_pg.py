@@ -34,7 +34,7 @@ def apps(identity, admin, tmp_path):  # noqa: F811
 
     def app(peers=()):
         browser = BrowserConfiguration(dsn, key, TENANT_A, 'synthetic-browser-app', ORIGIN, trusted_proxy_peers=tuple(peers))
-        return create_app(ApiConfiguration(tmp_path / 'missing', tmp_path / 'missing-key', tmp_path / 'unused', 'missing', browser))
+        return create_app(ApiConfiguration(tmp_path / 'missing', tmp_path / 'missing-key', tmp_path / 'unused', 'missing', browser,mode='test'))
     return {'proxied': app(('127.0.0.1',)), 'direct': app(), 'identity': identity}
 
 

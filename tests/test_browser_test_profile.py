@@ -29,7 +29,7 @@ def test_fresh_canonical_test_identity_actual_pg_login_no_business_grants(admin,
     assert set(p.name for p in client.iterdir())=={'realm.json','credentials.json'}
     assert 'identity_dsn' not in json.dumps(report) and opt['password'] not in json.dumps(report)
     conf=ApiConfiguration(core['config_root']/'api_dsn',core['config_root']/'artifact_key',core['artifact_root'],KEY_ID,
-        BrowserConfiguration(server/'identity_dsn',server/'rate.key',TENANT,APPLICATION,opt['origin']))
+        BrowserConfiguration(server/'identity_dsn',server/'rate.key',TENANT,APPLICATION,opt['origin']),mode='test')
     with TestClient(create_app(conf),base_url=opt['origin']) as http:
         ready=http.get('/health/ready')
         assert ready.status_code==503 and ready.json()['browser_session_available']

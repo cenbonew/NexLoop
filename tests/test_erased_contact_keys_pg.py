@@ -179,7 +179,7 @@ def workbench(commitments, identity, uow, admin, pg, tmp_path):
     config = ApiConfiguration(private(tmp_path, 'business-dsn', make_conninfo(pg, user='nexloop_api')), private(tmp_path, 'authority-key', signer.material),
         tmp_path / 'app-artifacts', signer.key_id, BrowserConfiguration(private(tmp_path, 'identity-dsn', identity[0]), private(tmp_path, 'rate-key', secrets.token_hex(32)),
         TENANT, 'synthetic-browser-app', ORIGIN), execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, ORIGIN))
+        workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, ORIGIN),mode='test')
 
     def revoke(member, **body):
         with TestClient(create_app(config), base_url=ORIGIN) as client:

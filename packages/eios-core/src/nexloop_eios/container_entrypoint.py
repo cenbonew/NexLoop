@@ -57,7 +57,7 @@ def serve_test_api():
     browser=BrowserConfiguration(browser_root/'identity_dsn',browser_root/'rate.key',realm['tenant_id'],realm['application_id'],realm['origin'])
     read_private_text(browser_root/'server.crt',maximum=32768);read_private_text(browser_root/'server.key',maximum=32768)
     app=create_app(ApiConfiguration(config/'api_dsn',config/'artifact_key',
-        Path('/var/lib/nexloop/artifacts'),KEY_ID,browser=browser,web_root=Path('/opt/nexloop/web'),host_control=test_control_configuration()))
+        Path('/var/lib/nexloop/artifacts'),KEY_ID,browser=browser,web_root=Path('/opt/nexloop/web'),host_control=test_control_configuration(),mode='test'))
     uvicorn.run(app,host='0.0.0.0',port=8443,access_log=False,log_level='warning',ssl_certfile=str(browser_root/'server.crt'),ssl_keyfile=str(browser_root/'server.key'))
     return {'passed':True,'mode':'test','product_ready':False,'stopped':True}
 

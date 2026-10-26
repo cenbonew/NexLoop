@@ -221,8 +221,10 @@ def test_rules_v13_are_v12_plus_the_file_backup_timer_and_the_app_host_example_n
         path.chmod(0o600)
         config = probe.load_config(path)
         examples[config['host_role']] = {t['name'] for t in config['timers']}
-    selectors = {r['selector'] for r in v13['rules'] if r['rule_id'].startswith('timer_stale_')}
-    assert selectors == {f'{host}:{name}' for host, names in examples.items() for name in names}  # every timer has its rule and back
+    # Every timer of the examples has its rule and back, in the newest rules (v19 adds data_host:relation-read-gaps, NX-054 P4a).
+    newest = load_rules(RULES.parent / 'alert-rules.v19.json')
+    selectors = {r['selector'] for r in newest['rules'] if r['rule_id'].startswith('timer_stale_')}
+    assert selectors == {f'{host}:{name}' for host, names in examples.items() for name in names}
 
 
 def test_a_manual_file_backup_does_not_hide_a_failing_scheduled_round(observed):  # noqa: F811

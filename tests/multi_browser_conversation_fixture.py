@@ -86,7 +86,7 @@ def two_browser_consumers(receipt_plan,admin,tmp_path):
         clients=[];headers=[];messages=[];conversations=[]
         for index,human in enumerate(humans):
             config=ApiConfiguration(database_dsn,f['signing_key'],tmp_path/('api-artifacts-'+str(index)),'runtime-effect',browser_config,
-                execution_profile='deterministic-test',conversation_stream_seconds=1)
+                execution_profile='deterministic-test',conversation_stream_seconds=1,mode='test')
             client=stack.enter_context(TestClient(create_app(config),base_url=ORIGIN))
             store=client.app.state.browser_store
             assert PostgresBrowserIdentityReader(store.pool,tenant_id=tenant,application_id=application).get_subject(human['subject'].subject_id)==human['subject']
