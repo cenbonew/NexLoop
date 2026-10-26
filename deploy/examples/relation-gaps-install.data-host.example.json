@@ -1,0 +1,12 @@
+{
+  "schema": "nexloop-relation-gaps-install/1",
+  "_comment": "NX-054 P4a: scripts/deploy/relation_gaps_install.sh on DATA_HOST (root). Copy to a private 0600 root file and fill in. metrics_dsn_file is the existing G-METRICS-DSN file (nexloop_metrics over the host's socket); leave it out and pass --dsn-stdin to pipe the DSN from the owner's Keychain instead. python is the host-health venv (it has psycopg).",
+  "release_checkout": "/srv/nexloop/release",
+  "release_sha": "<40-hex release commit>",
+  "python": "/opt/nexloop/host-health/current/venv/bin/python",
+  "tenant_id": "<TENANT_ID>",
+  "evidence_dir": "/srv/nexloop/evidence/relation-read-gaps",
+  "metrics_dsn_file": "/srv/nexloop/secrets/backup/metrics.dsn",
+  "host_health_config": "/etc/nexloop/host-health.json",
+  "host_health_install_config": "/root/host-health-install.data-host.json"
+}

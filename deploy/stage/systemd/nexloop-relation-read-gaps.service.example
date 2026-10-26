@@ -1,10 +1,10 @@
-# NX-054 P4a (docs/design/relation-read-p4.md §2.5): the daily relation read gap check on DATA_HOST. Example only: copy to
-# /etc/systemd/system/ without the .example suffix, fill in the paths, then `systemctl daemon-reload` and
-# `systemctl enable --now nexloop-relation-read-gaps.timer` (the dispatcher installs it with P4a). As the metrics login over the
-# host's socket (the G-METRICS-DSN file, 0600, owned by the unit's user), in a read-only transaction; counts only. The answer goes
-# to the evidence directory, one file per UTC day. Gaps (exit 1) or unwritten evidence (exit 2) fail the unit: host-health records
-# the failed scheduled run and timer_scheduled_failure fires (alert rules v18+); a timer that stops running is timer_stale_relation_read_gaps
-# (v19). The <3> stderr line is for `journalctl -p err` only, nothing forwards it.
+# NX-054 P4a (docs/design/relation-read-p4.md §2.5): the daily relation read gap check on DATA_HOST. Installed by
+# scripts/deploy/relation_gaps_install.sh (one private configuration, one command, root), which fills the @...@ tokens; do not copy it
+# by hand. As the metrics login over the host's socket (/etc/nexloop/relation-gaps/metrics.dsn, 0600, the unit's user), in a
+# read-only transaction; counts only. The answer goes to the evidence directory, one file per UTC day (kept 30 days). Gaps (exit 1)
+# or unwritten evidence (exit 2) fail the unit: host-health records the failed scheduled run and timer_scheduled_failure fires (alert
+# rules v18+); a timer that stops running is timer_stale_relation_read_gaps (v19). The <3> stderr line is for `journalctl -p err`
+# only, nothing forwards it.
 [Unit]
 Description=NexLoop relation read gap check (read only)
 After=network-online.target
@@ -12,12 +12,10 @@ After=network-online.target
 [Service]
 Type=oneshot
 User=nexloop-relation-gaps
-Environment=NEXLOOP_ROOT=/srv/nexloop
-Environment=TENANT_ID=<TENANT_ID>
-ExecStart=/opt/nexloop/host-health/current/venv/bin/python -I -B /srv/nexloop/release/scripts/acceptance/relation_read_gaps.py \
-  --dsn-file /srv/nexloop/secrets/relation-gaps/metrics.dsn --tenant ${TENANT_ID} --evidence-dir /srv/nexloop/evidence/relation-read-gaps
+Group=nexloop-relation-gaps
+ExecStart=@PYTHON@ -I -B /opt/nexloop/relation-gaps/current/scripts/acceptance/relation_read_gaps.py --dsn-file /etc/nexloop/relation-gaps/metrics.dsn --tenant @TENANT_ID@ --evidence-dir @EVIDENCE_DIR@
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/nexloop/evidence/relation-read-gaps
+ReadWritePaths=@EVIDENCE_DIR@

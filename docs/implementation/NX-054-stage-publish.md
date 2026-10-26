@@ -204,4 +204,20 @@ P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，
 | 0 | DATA_HOST | 调度员 | 只读：`select count(*) from control.nexloop_consumer_erasures where state not in ('pending_confirmation','completed','completed_with_holds')` | 结果为 **0**：没有进行中的擦除（0358 在下一步开始时才固定关系目标，已经过了 messages 阶段的擦除补不回被切断的链） | 不部署；等这些擦除跑到 completed（keeper 正常推进），再重新执行第 0 步 |
 | 1 | DATA_HOST | 调度员 | 备份：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，`systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不部署 |
 | 2 | — | 调度员 | 按 ack-policy 部署这一批（迁移 0357、0358，告警规则 v19） | 迁移头含 0358；`alert_rules` 已应用 v19 | 按发布手册回退该批 |
-| 3 | DATA_HOST | 调度员 | 安装 `nexloop-relation-read-gaps` 的 timer 与 service（示例在 `deploy/stage/systemd/`），把 `relation-read-gaps` 加进 DATA_HOST 的 host-health 配置，再执行设计稿 §2.5 的演练 | 演练两轮都符合预期 | 停用 timer，报 L5 |
+| 3 | DATA_HOST | **负责人**（root） | 一个配置文件 + 一条命令安装每日缺口核对（见下面的 §9.1） | 输出最后是 `step 7: timer enabled`，`dry-run` 一行只有计数 | `sudo bash .../relation_gaps_install.sh <配置> --uninstall`，报 L5 |
+| 4 | DATA_HOST | 调度员（第 4.2 步需要负责人 root 一条命令） | §9.2 的演练 | 两轮都符合预期 | 负责人执行 `--drill-clear`；报 L5 |
+
+### 9.1 安装（负责人，DATA_HOST，root）
+
+1. **前置的只读核对**（调度员，经 metrics DSN 本身）：`psql "$(cat <G-METRICS-DSN 文件>)" -Atc "select session_user, pg_is_in_recovery()"`，预期第一列是 `nexloop_metrics`。能连上就说明这个登录角色存在、凭据有效；DSN 文件本身不打印。
+2. **配置文件**：把 `deploy/examples/relation-gaps-install.data-host.example.json` 复制成 root 的 0600 私有文件，填入 `release_sha`（release 47 的提交）、`tenant_id`、`host_health_install_config`（DATA_HOST 上 host-health 安装配置的实际路径）。`metrics_dsn_file` 指向已有的 G-METRICS-DSN 文件；安装器以 root 读取它，复制成 `/etc/nexloop/relation-gaps/metrics.dsn`（0600，属主为单元用户），**不打印、不进 argv**。如果 DATA_HOST 上没有这个文件，就去掉这一项，改用 `--dsn-stdin`，由负责人从 Keychain 经管道传入：`security find-generic-password -s nexloop -a <metrics 条目> -w | sudo bash ... --dsn-stdin`（管道传入的是一整行 DSN）。
+3. **一条命令**：`sudo bash <release>/scripts/deploy/relation_gaps_install.sh <配置>`。七步：系统用户 `nexloop-relation-gaps`；`/opt/nexloop/relation-gaps/<sha>/`（只读）；DSN；证据目录；unit 与 timer；把 `relation-read-gaps` 加进 `/etc/nexloop/host-health.json` 与 host-health 安装配置的 timers（下次重装 host-health 也会保留）；以单元用户、在单元的沙箱里先跑一次，再 `enable --now` timer。重复执行不会重复写入。
+
+### 9.2 演练（设计稿 §2.5）
+
+1. **造出 gaps = 1**（调度员，DATA_HOST，bootstrap 窗口，只在 test world）：在一个事务中写入一个 Consumer 和一个 `consumer_id` 指向它的 Goal，然后删除这个 Goal 的派生关系 `goal_of`；执行后关闭窗口。三条语句之外不做别的。
+2. **让 timer 自己触发一次**（负责人，root 一条命令）：`sudo bash .../relation_gaps_install.sh <配置> --drill-arm 3`。安装器加一个 drop-in（`nexloop-relation-read-gaps.timer.d/50-drill.conf`，3 分钟后的一个 `OnCalendar`），重载并重启 timer；不能用 `systemctl start` 或 `systemd-run --on-active`，那两种都不算这个 timer 的定时运行。
+3. **核对**（调度员，不需要 root）：`systemctl show -p Result,ExecMainStatus nexloop-relation-read-gaps.service` 为 `Result=exit-code`、`ExecMainStatus=1`；当天的证据文件 `gaps` 为 1；下一次告警评估后 `timer_scheduled_failure`（selector `data_host:relation-read-gaps`）在工作台出现。
+4. **修复**（调度员，bootstrap 窗口）：删除这两个测试对象（BEFORE DELETE 触发器带走关系）。再请负责人执行一次 `--drill-arm 3`，核对 `Result=success`、`gaps` 为 0；记录告警清除的时刻（`timer_scheduled_failures_24h` 是 24 小时窗口，清除会晚于修复）。
+5. **收尾**（负责人）：`sudo bash .../relation_gaps_install.sh <配置> --drill-clear`。结果记入 NX-054 的证据。
+
