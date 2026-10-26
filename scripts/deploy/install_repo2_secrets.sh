@@ -12,7 +12,8 @@
 #   journal     DATA_HOST  restic repo2 of the restore journal: /etc/nexloop/restic-repo2.env, its repository and password files,
 #                          and the repo2 lines of /etc/nexloop/restic.env (nexloop-restic-maint) (passphrase = restic-repo2-journal)
 #   files       APP_HOST   restic repo2 of the file backup: the repository, password and object storage environment files named
-#                          in /etc/nexloop/file-backup.env (passphrase = restic-repo2-files)
+#                          in /etc/nexloop/file-backup.env (passphrase = restic-repo2-files); run after
+#                          `file_backup_install.sh <config> --prepare` wrote that file and the user, before the install itself
 # Optional BUCKET_LOOKUP=dns (journal, files): restic's -o s3.bucket-lookup=dns, for a TOS that refuses path-style requests.
 #
 # Secrets arrive on stdin only: never as arguments, never echoed or logged. Every file is written with install (owner and mode in

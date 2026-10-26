@@ -27,6 +27,8 @@ text=open(a.template).read()
 for k,v in %r.items():text=text.replace(k,v)
 open(a.out,'w').write(text)
 ''' % VALUES
+# stat: the configuration counted as 0600 root ('%a %u'), a directory as root's 0755 ('%u %a', the config/ check).
+STAT = "#!/usr/bin/env bash\ncase \"$2\" in '%u %a') echo \"${FAKE_DIR_OWNER_MODE:-0 755}\" ;; *) echo '600 0' ;; esac\n"
 DOCKER = '''#!/usr/bin/env bash
 # docker compose -p PROJECT <sub> ...: the container's /etc/postgresql/pg_hba.conf is the installed file.
 printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
@@ -49,7 +51,7 @@ def rendered():
 def stand_ins(tmp_path):
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
-    for name, body in (('id', '#!/usr/bin/env bash\necho 0\n'), ('stat', "#!/usr/bin/env bash\necho '600 0'\n"), ('docker', DOCKER), ('sleep', '#!/usr/bin/env bash\n:\n')):
+    for name, body in (('id', '#!/usr/bin/env bash\necho 0\n'), ('stat', STAT), ('docker', DOCKER), ('sleep', '#!/usr/bin/env bash\n:\n')):
         (bin_dir / name).write_text(body)
         os.chmod(bin_dir / name, 0o755)
     return bin_dir
@@ -89,3 +91,50 @@ def test_the_normal_path_adds_the_lines_and_reloads(tmp_path, script):
     again = subprocess.run(['bash', str(ROOT / 'scripts/deploy' / script), str(config)], capture_output=True, text=True, env=env, timeout=60)
     assert again.returncode == 0 and ('already installed' in again.stdout or 'nothing to do' in again.stdout), again.stdout + again.stderr
     assert log.read_text().count('kill -s HUP') == reloads
+
+
+def prepared(tmp_path):
+    """The host health normal path's files (the installed pg_hba without its lines) and the environment of the stand-ins."""
+    root = tmp_path / 'nexloop'
+    (root / 'config').mkdir(parents=True)
+    hba = root / 'config/pg_hba.conf'
+    hba.write_text('\n'.join(l for l in rendered().splitlines() if 'nexloop_host_recorder' not in l or l.lstrip().startswith('#')) + '\n')
+    checkout = tmp_path / 'release'
+    (checkout / 'scripts/deploy').mkdir(parents=True)
+    (checkout / 'deploy/stage/config').mkdir(parents=True)
+    (checkout / 'scripts/deploy/render.py').write_text(RENDER)
+    (checkout / 'deploy/stage/config/pg_hba.conf.template').write_text(TEMPLATE.read_text())
+    (tmp_path / 'stage.env').write_text('NEXLOOP_DB=nexloop_stage\n')
+    config = tmp_path / 'config'
+    config.write_text(f'NEXLOOP_ROOT={root}\nSTAGE_ENV={tmp_path / "stage.env"}\nRELEASE_CHECKOUT={checkout}\n')
+    os.chmod(config, 0o600)
+    env = {**os.environ, 'PATH': f'{stand_ins(tmp_path)}:{os.environ["PATH"]}', 'FAKE_HBA': str(hba), 'FAKE_DOCKER_LOG': str(tmp_path / 'docker.log')}
+    return hba, config, env
+
+
+def test_host_health_hba_refuses_a_linked_backup_and_a_writable_config_directory(tmp_path):
+    """L6 file-backup review I2: cp -p into config/ writes through a link put there; config/ must be root's alone."""
+    script = str(ROOT / 'scripts/deploy/host_health_hba_data_host.sh')
+    hba, config, env = prepared(tmp_path)
+    before = hba.read_text()
+    target = tmp_path / 'target'
+    target.write_text('not pg_hba\n')
+    os.symlink(target, hba.parent / 'pg_hba.conf.before-host-health')
+    done = subprocess.run(['bash', script, str(config)], capture_output=True, text=True, env=env, timeout=60)
+    assert done.returncode == 1 and 'before-host-health is a symbolic link' in done.stderr
+    assert target.read_text() == 'not pg_hba\n' and hba.read_text() == before
+    os.unlink(hba.parent / 'pg_hba.conf.before-host-health')
+    os.rename(hba, tmp_path / 'pg_hba.real')
+    os.symlink(tmp_path / 'pg_hba.real', hba)
+    done = subprocess.run(['bash', script, str(config)], capture_output=True, text=True, env=env, timeout=60)
+    assert done.returncode == 1 and 'pg_hba.conf is a symbolic link' in done.stderr
+    os.unlink(hba)
+    os.rename(tmp_path / 'pg_hba.real', hba)
+    for owner_mode in ('0 777', '0 775', '1000 755'):
+        done = subprocess.run(['bash', script, str(config)], capture_output=True, text=True, env={**env, 'FAKE_DIR_OWNER_MODE': owner_mode}, timeout=60)
+        assert done.returncode == 1 and "config/ must be root's" in done.stderr and hba.read_text() == before, owner_mode
+    real = hba.parent.parent / 'config-real'
+    os.rename(hba.parent, real)
+    os.symlink(real, hba.parent)
+    done = subprocess.run(['bash', script, str(config)], capture_output=True, text=True, env=env, timeout=60)
+    assert done.returncode == 1 and 'config/: a directory, not a link' in done.stderr

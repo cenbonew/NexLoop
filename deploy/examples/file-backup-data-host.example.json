@@ -1,0 +1,10 @@
+{
+  "schema": "nexloop-file-backup-data-host/1",
+  "_comment": "NX-035 slice 3, step 1: scripts/deploy/file_backup_data_host.sh on DATA_HOST (owner, root; NX-035-file-backup.md §6.2). Copy to a private 0600 root file and fill in. python runs the release's render.py as root: a real interpreter file, root's (no link). stage_env is the deployed private stage.env (its APP_HOST_ADDR is the one address the pg_hba line and the authorized key admit). repo_path is the restore journal's restic repository (the directory holding its config file, owned by nexloop-backup). app_host_public_key is the line file_backup_install.sh --prepare printed on APP_HOST. Nothing secret is in this file.",
+  "release_checkout": "/srv/nexloop/release",
+  "python": "/usr/bin/python3.12",
+  "nexloop_root": "<the deployment root of DATA_HOST>",
+  "stage_env": "<the deployed private stage.env>",
+  "repo_path": "/srv/nexloop-backup/files/restic",
+  "app_host_public_key": "<ssh-ed25519 AAAA... nexloop-file-backup>"
+}

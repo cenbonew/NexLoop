@@ -50,7 +50,8 @@ def test_every_backup_service_is_a_private_oneshot_behind_the_encrypted_volumes(
         assert service['EnvironmentFile'][0].startswith('/etc/nexloop/') and service['EnvironmentFile'][0].endswith('.env'), name
         assert service['UMask'] == ['0077'] and service['NoNewPrivileges'] == ['true'] and service['ProtectSystem'] == ['strict'], name
         for command in service['ExecStart']:
-            assert command.split()[0].startswith(('/opt/nexloop/backup-venv/bin/', '/usr/local/bin/restic', '/bin/sh')), (name, command)
+            # @PYTHON@: the file backup's interpreter, filled by scripts/deploy/file_backup_install.py (the host-health venv's).
+            assert command.split()[0].startswith(('/opt/nexloop/backup-venv/bin/', '/usr/local/bin/restic', '/bin/sh', '@PYTHON@')), (name, command)
             # Only paths reach a command: no password, key or DSN value, no repository location on the command line.
             literal = re.sub(r'\$\{[A-Z0-9_]+\}', '', command)  # variable references hold paths from the private env file
             assert not re.search(r'password(?!-file)|sk-|postgres(ql)?://|s3:|sftp:|aws_', literal, re.I), (name, command)
@@ -81,13 +82,29 @@ def test_schedules_match_the_backup_plan():
     assert '$$(date +%%u)' in maint  # systemd escapes: the shell sees $(date +%u)
 
 
-def test_the_file_backup_unit_is_marked_not_enabled_for_the_deploy_days():
+def test_the_file_backup_unit_is_the_installers_and_sandboxed_as_d3():
+    """Owner 2026-10-26 (D1-D6): enabled now through scripts/deploy/file_backup_install.py (no longer the M12 "not enabled" of the
+    deploy days); D3: one capability, read only, and of /srv/nexloop only the two data roots and its own secrets/backup."""
     text = (UNITS / 'nexloop-file-backup.service.example').read_text()
-    assert 'NOT ENABLED' in text and 'M12' in text
-    commands = unit('nexloop-file-backup.service.example')['Service']['ExecStart']
-    assert sorted(re.search(r'--kind (\w+)', c).group(1) + '/' + re.search(r'--repo (repo\d)', c).group(1) for c in commands) == [
-        'artifact/repo1', 'artifact/repo2', 'runtime/repo1', 'runtime/repo2']
+    assert 'NOT ENABLED' not in text and 'file_backup_install' in text
+    service = unit('nexloop-file-backup.service.example')['Service']
+    commands = service['ExecStart']
+    assert [re.search(r'--kind (\w+)', c).group(1) + '/' + re.search(r'--repo (repo\d)', c).group(1) for c in commands] == [
+        'artifact/repo1', 'artifact/repo2', 'runtime/repo1', 'runtime/repo2']  # the installer reads the results in this order
     assert all(('--environment-file' in c) == ('repo2' in c) for c in commands)
+    assert all(c.startswith('@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py ') and c.count('--restic @RESTIC@') == 1
+               for c in commands)
+    assert service['AmbientCapabilities'] == service['CapabilityBoundingSet'] == ['CAP_DAC_READ_SEARCH']
+    assert service['TemporaryFileSystem'] == ['/srv/nexloop:ro'] and 'ReadOnlyPaths' not in service
+    assert service['BindReadOnlyPaths'][0].split() == ['/srv/nexloop/data/artifacts', '/srv/nexloop/data/runtime', '/srv/nexloop/secrets/backup']
+    assert service['ReadWritePaths'] == ['/var/lib/nexloop-file-backup/staging'] and service['MemoryDenyWriteExecute'] == ['@MDWE@']
+    hidden = service['InaccessiblePaths'][0].split()
+    # /etc/nexloop must exist (no "-"): the host-health DSN and every other private configuration of this host are under it.
+    assert '/etc/nexloop' in hidden and {'-/etc/shadow', '-/srv/nexloop-backup', '-/var/lib/docker', '-/etc/ssh/ssh_host_ed25519_key'} <= set(hidden)
+    assert service['ProtectHome'] == ['true'] and service['ProtectProc'] == ['invisible'] and service['RestrictSUIDSGID'] == ['true']
+    # L6 F1: with CAP_DAC_READ_SEARCH, open_by_handle_at would open any inode past the hidden mounts; both handle calls are filtered.
+    assert service['SystemCallFilter'] == ['~open_by_handle_at name_to_handle_at'] and service['SystemCallErrorNumber'] == ['EPERM']
+    assert service['SystemCallArchitectures'] == ['native']
 
 
 def test_the_pgbackrest_tls_server_serves_repo1_to_the_data_host_client_only():
@@ -109,7 +126,9 @@ def test_the_pgbackrest_tls_server_serves_repo1_to_the_data_host_client_only():
 def test_systemd_analyze_verify_accepts_the_units(tmp_path):
     for path in UNITS.glob('*.example'):
         if path.name.endswith(('.service.example', '.timer.example')):
-            (tmp_path / path.name.removesuffix('.example')).write_text(path.read_text())
+            # Installer tokens (@PYTHON@, @RESTIC@, @MDWE@, ...) take plausible values, as the installers fill them.
+            text = re.sub(r'@MDWE@', 'true', path.read_text())
+            (tmp_path / path.name.removesuffix('.example')).write_text(re.sub(r'@[A-Z_]+@', '/usr/bin/true', text))
     run = subprocess.run(['systemd-analyze', 'verify', '--man=no', *sorted(str(p) for p in tmp_path.glob('nexloop-*'))],
                          capture_output=True, text=True, timeout=60)
     errors = [l for l in run.stderr.splitlines() if 'Unknown' in l or 'Invalid' in l or 'Failed to parse' in l]

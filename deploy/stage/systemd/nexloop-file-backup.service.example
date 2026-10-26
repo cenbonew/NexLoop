@@ -1,10 +1,15 @@
-# NX-035 slice 3 (deploy runbook step 5.1): APP_HOST file backup executor (Artifacts and finished Run stores into restic).
-# NOT ENABLED on the 2026-10-15/16 deploy days (owner decision M12): those days back up only the restore journal
-# (nexloop-journal-restic on DATA_HOST); Artifacts and Run directories are still empty. Enable it only after the recorder may
-# connect from APP_HOST (NX-035-file-backup.md §5 item 1) and the executor user can read both roots read-only (§5 item 2).
-# Example only; executors from the backup-only virtual environment installed from the release commit (M14).
-# FILE_BACKUP_REPO2_OPTIONS (optional, /etc/nexloop/file-backup.env): "--s3-bucket-lookup dns" when TOS refuses restic's path-style
-# requests (repo2 activation run sheet); unset or empty adds nothing ($VAR without braces: systemd drops an empty one).
+# NX-035 slice 3 (deploy runbook step 5.1; docs/implementation/NX-035-file-backup.md §6): the APP_HOST file backup - the Artifacts
+# and the finished Run stores of world real into restic, repo1 (DATA_HOST over the restricted sftp account, the repository the
+# restore journal uses) then repo2 (S3). Owner 2026-10-26 (D1-D6, all as recommended): enabled now (no longer the M12 "not enabled"
+# of the deploy days). Installed by scripts/deploy/file_backup_install.sh (one private configuration, one command, root), which
+# fills the @...@ tokens and writes /etc/nexloop/file-backup.env; do not copy it by hand. The repo2 files named in that env file come
+# from scripts/deploy/install_repo2_secrets.sh files (it also sets FILE_BACKUP_REPO2_OPTIONS, "--s3-bucket-lookup dns" when TOS
+# refuses restic's path-style requests; $VAR without braces: systemd drops an empty one).
+# D3: the only privilege is CAP_DAC_READ_SEARCH (read past the 0700/0600 modes the API and the Agent Host keep; never write), and the
+# sandbox shows nothing of /srv/nexloop but the two data directories and this unit's own secrets/backup (read-only); the installer's
+# step 5 checks that from inside this very sandbox before the timer is enabled. Each run prints one JSON line of counts, labels and
+# hashes, never a secret. InaccessiblePaths= is a list of what to hide (L6 S1): a new secret location on APP_HOST outside /srv/nexloop
+# must be added to it (step 5 then checks it too).
 [Unit]
 Description=NexLoop file backup (Artifacts and finished Run stores, repo1 then repo2)
 After=network-online.target
@@ -16,14 +21,32 @@ Type=oneshot
 User=nexloop-file-backup
 Group=nexloop-file-backup
 EnvironmentFile=/etc/nexloop/file-backup.env
-ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF}
-ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
-ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF}
-ExecStart=/opt/nexloop/backup-venv/bin/nexloop-file-backup --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder_dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@ --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@ --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 NoNewPrivileges=true
+RestrictSUIDSGID=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
-ReadOnlyPaths=/srv/nexloop/data/artifacts /srv/nexloop/data/runtime
-ReadWritePaths=/srv/nexloop-backup/staging
+ProtectProc=invisible
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+# L6 F1: CAP_DAC_READ_SEARCH lets open_by_handle_at(2) open any inode of a file system from any visible fd of it, past every
+# mount this sandbox hides (the shocker escape): both handle calls are filtered (EPERM), and step 5 calls one to see that.
+SystemCallFilter=~open_by_handle_at name_to_handle_at
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=@MDWE@
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TemporaryFileSystem=/srv/nexloop:ro
+BindReadOnlyPaths=/srv/nexloop/data/artifacts /srv/nexloop/data/runtime /srv/nexloop/secrets/backup
+InaccessiblePaths=/etc/nexloop -/etc/pgbackrest -/etc/ssl/private -/var/log -/var/lib/nexloop -/srv/nexloop-backup -/var/lib/docker -/var/lib/containerd -/var/lib/nexloop-host-health -/etc/shadow -/etc/gshadow -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_ecdsa_key -/etc/ssh/ssh_host_rsa_key
+ReadWritePaths=/var/lib/nexloop-file-backup/staging
 UMask=0077
