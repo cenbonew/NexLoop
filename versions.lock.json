@@ -319,6 +319,16 @@
       "archive_sha256": "98f6dd8bf5b59058d04bfd8dab58e196cc2a680666ccee90275a3b722374438e",
       "archive": "restic_0.18.0_linux_amd64.bz2",
       "archive_verified": "2026-10-14 on the administration machine: SHA256SUMS signed by CF8F18F2844575973F79D4E191A6868BD3F7A907 (gpg Good signature), archive sha256 equal to its SHA256SUMS line"
+    },
+    "rest_server": {
+      "version": "0.13.0",
+      "source": "https://github.com/restic/rest-server/releases/tag/v0.13.0",
+      "license": "BSD-2-Clause",
+      "status": "pending_download",
+      "archive": "rest-server_0.13.0_linux_amd64.tar.gz",
+      "archive_sha256": "",
+      "archive_verified": "",
+      "purpose": "NX-035 repo1 append-only (owner 2026-10-27): DATA_HOST serves the restore journal's restic repository to APP_HOST's file backup over TLS with --append-only (scripts/deploy/rest_server_data_host.sh). archive_sha256 and archive_verified are filled once the dispatcher has downloaded the official archive and checked it against the release's SHA256SUMS (and its signature) on the administration machine; until then the installer refuses."
     }
   }
 }

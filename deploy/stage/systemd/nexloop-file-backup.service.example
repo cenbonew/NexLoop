@@ -4,7 +4,8 @@
 # of the deploy days). Installed by scripts/deploy/file_backup_install.sh (one private configuration, one command, root), which
 # fills the @...@ tokens and writes /etc/nexloop/file-backup.env; do not copy it by hand. The repo2 files named in that env file come
 # from scripts/deploy/install_repo2_secrets.sh files (it also sets FILE_BACKUP_REPO2_OPTIONS, "--s3-bucket-lookup dns" when TOS
-# refuses restic's path-style requests; $VAR without braces: systemd drops an empty one).
+# refuses restic's path-style requests; $VAR without braces: systemd drops an empty one). FILE_BACKUP_REPO1_OPTIONS (the installer's):
+# empty while repo1 is reached over the D4 sftp account, "--cacert <stage CA bundle>" once it is DATA_HOST's rest-server (owner 2026-10-27).
 # D3: the only privilege is CAP_DAC_READ_SEARCH (read past the 0700/0600 modes the API and the Agent Host keep; never write), and the
 # sandbox shows nothing of /srv/nexloop but the two data directories and this unit's own secrets/backup (read-only); the installer's
 # step 5 checks that from inside this very sandbox before the timer is enabled. Each run prints one JSON line of counts, labels and
@@ -21,9 +22,9 @@ Type=oneshot
 User=nexloop-file-backup
 Group=nexloop-file-backup
 EnvironmentFile=/etc/nexloop/file-backup.env
-ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@ $FILE_BACKUP_REPO1_OPTIONS
 ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind artifact --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/artifacts --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@ --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
-ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} --repo repo1 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@ $FILE_BACKUP_REPO1_OPTIONS
 ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py --kind runtime --recorder-dsn-file ${BACKUP_SECRETS}/recorder.dsn --source-root /srv/nexloop/data/runtime --staging-root ${FILE_BACKUP_STAGING} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --repo repo2 --key-ref ${FILE_BACKUP_KEY_REF} --restic @RESTIC@ --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
 AmbientCapabilities=CAP_DAC_READ_SEARCH
 CapabilityBoundingSet=CAP_DAC_READ_SEARCH

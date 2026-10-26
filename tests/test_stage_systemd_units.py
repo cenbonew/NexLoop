@@ -100,6 +100,8 @@ def test_the_file_backup_unit_is_the_installers_and_sandboxed_as_d3():
     assert [re.search(r'--kind (\w+)', c).group(1) + '/' + re.search(r'--repo (repo\d)', c).group(1) for c in commands] == [
         'artifact/repo1', 'artifact/repo2', 'runtime/repo1', 'runtime/repo2']  # the installer reads the results in this order
     assert all(('--environment-file' in c) == ('repo2' in c) for c in commands)
+    # repo1's options (the installer's env file: --cacert <stage CA bundle> once repo1 is DATA_HOST's rest-server), on repo1 lines only.
+    assert all(c.endswith(' $FILE_BACKUP_REPO1_OPTIONS') == ('repo1' in c) for c in commands)
     assert all(c.startswith('@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py ') and c.count('--restic @RESTIC@') == 1
                for c in commands)
     assert service['AmbientCapabilities'] == service['CapabilityBoundingSet'] == ['CAP_DAC_READ_SEARCH']

@@ -245,3 +245,79 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 按每 GB 1 元以内的量级估算，现在每周不到 0.01 元。
 - **随数据增长**：每周下载量随 pack 总量线性增长。例如 pack 总量到 10 GB 时，每周约 1 GB，费用按同一单价乘 1 GB。
   - 如果以后觉得太贵，可以把深度 check 改为每月一次，或者改成 `--read-data-subset 1/20`。属于运维取舍，需要负责人决定。
+
+### 6.5 repo1 只追加：DATA_HOST 的 rest-server `--append-only`（负责人 2026-10-27 决定现在就做）
+
+D4 的 sftp 账户对 repo1 有完整的读、写、删除权限。APP_HOST 一旦被攻破，就能删掉 repo1 的全部快照，包括恢复日志的快照（L6 S3）。现在改为由 restic 的 rest-server 以 `--append-only` 提供 repo1：可以写入新数据和新快照，已有的对象都不能删除或覆盖（锁文件除外）。forget/prune 仍由 DATA_HOST 的 `nexloop-restic-maint` 直接对目录执行，不经过 rest-server，所以不受影响。
+
+**DATA_HOST：`scripts/deploy/rest_server_data_host.sh`**（新的 root 脚本，**安装时要负责人本人确认**，不在已给出的 root 授权范围内）
+
+- **为什么单独做一个入口**：`file_backup_data_host.sh` 还保留第 1a 步（recorder 的 pg_hba 行），而它的 `--uninstall` 正好是切换之后撤掉 sftp 账户、chroot 和 sshd drop-in 的命令。rest-server 有自己的二进制、证书、口令和生命周期。分成两个入口，撤 sftp 和装 rest-server 互不牵连，各自可以回滚。
+- **R1 二进制**：rest-server 来自发布提交里 `versions.lock.json` 的 `deployment_tools.rest_server` 所指的官方归档。归档的 sha256 必须一致；摘要还没填时直接拒绝。解出唯一的 `rest-server_<版本>_linux_amd64/rest-server`，装到 `/opt/nexloop/rest-server/<版本>/rest-server`（root，0555），再读回 `--version` 核对版本。
+- **R2 秘密**：`/srv/nexloop/secrets/rest-server`（root，0711）下放三个文件：
+  - `server.key`：0600，属 `nexloop-backup`；
+  - `server.chain.crt`：0644，它的 SAN 必须写着 DATA_HOST_ADDR，公钥必须与私钥一致（openssl 读回核对）；
+  - `htpasswd`：0600，属 `nexloop-backup`。只有一个用户 `nexloop-file-backup`，用 bcrypt（`htpasswd -niB`，apache2-utils）。口令只经 stdin 传入，只以哈希形式落盘；重跑时不给口令就保留原文件。
+- **R3 服务目录**：`/srv/nexloop-rest`（root，0755），里面只有一个 mount unit 绑定进来的 `restic/`（来自 repo_path）。
+  - **`--private-repos` 不需要**：服务目录归 root 所有，服务用户无法在里面新建别的仓库，能访问到的只有 `restic/`；htpasswd 里也只有一个用户。如果用了 `--private-repos`，仓库就必须放在 `<path>/<用户名>/` 下，反而要改变恢复日志仓库的位置。
+  - 服务目录里出现 `restic/` 以外的任何东西，都会拒绝。
+- **R4 防火墙**：`/etc/nexloop/rest-server.nft`（0600 root）定义一张单独的表 `inet nexloop_rest_server`：
+  - 对这个端口，IPv6 全部丢弃；IPv4 只放行 APP_HOST_ADDR；
+  - 写入后先用 `nft -c` 检查；
+  - unit 在启动前（`ExecStartPre=+`，在沙箱之外执行）加载它，停止后（`ExecStopPost=-+`）删除它。端口开着的时候，这条规则一定在。表的写法是"声明、删除、定义"，重新加载不会让规则重复。
+  - 不改 `data-host.nft.template`，所以不必重新渲染、重新应用整个 stage 防火墙。
+- **R5 unit**：`nexloop-rest-server.service`。
+  - 参数：`--path /srv/nexloop-rest --listen <DATA_HOST_ADDR>:<port> --append-only --tls --tls-cert … --tls-key … --htpasswd-file … --max-size <max_size_bytes>`。
+  - 以 `nexloop-backup` 身份运行。必须是这个用户：恢复日志在本机写的也是这个仓库，属主要一致。
+  - 沙箱与安装器同一标准：没有任何能力；`NoNewPrivileges`；`ProtectSystem=strict`；只有 `restic/` 可写；`TemporaryFileSystem=/srv/nexloop:ro`，只露出自己的 secrets；`InaccessiblePaths` 遮住 `/etc/nexloop`、备份卷本身（`/srv/nexloop-backup`）、sftp 的 chroot 和其他密钥；`SystemCallFilter=@system-service`，并禁掉两个句柄调用；`MemoryDenyWriteExecute`。
+  - 安装后读回两件事：服务是 active，防火墙表已加载。
+- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、mount unit、secrets 和二进制；服务目录为空时一并删除。repo1 本身不动。
+
+**签发证书**（运行单，在负责人的管理机上执行）：
+
+```bash
+python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> --name rest-server --san IP:<DATA_HOST_ADDR>
+```
+
+- 生成 `rest-server.key`（0600）和 `rest-server.chain.crt`（叶证书加中间 CA），有效期 90 天，到期前 30 天轮换。
+- 私钥只以文件形式传到 DATA_HOST（例如 `scp` 到 root 的 0700 目录），不经过命令行，也不经过管道打印。
+- 配置里的 `tls_key_file` 和 `tls_cert_file` 指向这两个文件。安装器把它们复制到 secrets 之后，源文件可以删掉。
+- APP_HOST 要钉住的 CA，用 `<CA_DIR>/bundle.crt`（中间 CA 加根 CA）。
+
+**APP_HOST：`file_backup_install.sh`**
+
+- 配置里 `repo1` 改为 `{"transport": "rest", "host": "<DATA_HOST_ADDR>", "port": <port>, "cacert": "<bundle.crt 在 APP_HOST 上的路径>"}`。`transport` 不写时仍是 `sftp`（D4）。
+- stdin 增加一行 `repo1_rest<TAB>password`：就是 htpasswd 那个口令，24–128 个 `A-Z a-z 0-9 _ -`。repo1 的 restic 口令（`repo1` 那一行）不变。
+- **仓库文件**：`rest:https://nexloop-file-backup:<口令>@<host>:<port>/restic/`，0600，属服务用户。只有文件路径会交给 restic。重跑时不给口令，就保留已经写好的同一 host:port 的位置。
+- **钉住 CA**：
+  - `rest-ca.crt` 复制进 `secrets/backup`；
+  - env 文件写入 `FILE_BACKUP_REPO1_OPTIONS=--cacert /srv/nexloop/secrets/backup/rest-ca.crt`；
+  - unit 的两条 repo1 行带上它，执行者把它原样交给 restic 的 `--cacert`，restic 于是只信任这个 bundle，不用系统根证书。
+  - CA 文件不存在时，这一轮不运行，也不记行。
+- **SSH**：`~/.ssh/config` 和 `known_hosts` 删除。密钥保留，与 `--uninstall` 的口径一致。
+- **第 5 步的门槛改为"能写新快照，但删不掉"**：
+  1. 沙箱检查在 repo1 上用一个只有一个文件的目录做一次新快照（tag `nexloop-append-only-probe`，放在 staging 下）；
+  2. 对这个快照执行 `restic forget <id>`，必须被拒绝（退出码非 0）；
+  3. 随后列快照，它必须还在。
+  
+  三条任一不满足，timer 不启用；重跑时已启用的 timer 一并停用（§6.4 S2）。探针快照留在 repo1 里，由 DATA_HOST 的 restic-maint 按 tag 分组的保留规则清理。
+
+**迁移路径**：
+
+1. 今天先按 D4 用 sftp 装上（§6.1、§6.2）。
+2. 调度员下载 rest-server 归档并核验，把 sha256 填进 `versions.lock.json`，见下文"版本锁"。
+3. 负责人签发证书（见上），在 DATA_HOST 执行 `rest_server_data_host.sh`，需要本人确认。
+4. APP_HOST 配置改为 `transport: rest`，口令行经 stdin 传入，重跑 `file_backup_install.sh`；第 5 步验证只追加，通过后才启用 timer。
+5. 负责人在 DATA_HOST 执行 `file_backup_data_host.sh <配置> --uninstall`：撤掉 sftp 账户、chroot、sshd drop-in 和 mount unit（pg_hba 那一行保留）。
+
+**版本锁**：
+- `versions.lock.json` 的 `deployment_tools.rest_server`：版本 `0.13.0`，归档 `rest-server_0.13.0_linux_amd64.tar.gz`，来源 `https://github.com/restic/rest-server/releases/tag/v0.13.0`，许可证 BSD-2-Clause。
+- `status` 目前是 `pending_download`，`archive_sha256` 和 `archive_verified` 留空，安装器会拒绝。
+- 调度员下载归档后，用该 release 的 `SHA256SUMS` 及其签名核验，再把摘要、`verified_not_installed` 和核验记录填进去。如果届时有更新的版本，三个字段一起改，安装器和测试都从锁里读，不需要改代码。
+- `THIRD_PARTY_NOTICES.md` 已重新生成。
+
+**残余风险**：
+- APP_HOST 被攻破时，攻击者仍然可以读取全部快照（restic 口令本来就在 APP_HOST）、写入垃圾数据或伪造快照。体量由 `--max-size` 限制；恢复时按 FILE-MANIFEST 和库中的清单行核对。
+- 不能删除或覆盖已有对象。
+- rest-server 是一个新的对外端口，有四道限制：TLS、认证、只放行 APP_HOST 的防火墙表、unit 沙箱。
+- 后续项：把 `nexloop-rest-server.service` 加进 DATA_HOST 的 host-health services。`crash_loop` 和 `host_unit_missing` 是通配规则，加进去就会覆盖它。

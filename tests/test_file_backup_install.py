@@ -72,7 +72,8 @@ def good_check(command):
     expected = {'/srv/nexloop': ['data', 'secrets'], '/srv/nexloop/secrets': ['backup'], '/srv/nexloop/data': ['artifacts', 'runtime']}
     return {'listing': {d: expected[d] for d in pick('--list')}, 'read': {p: True for p in pick('--read')}, 'hidden': {p: True for p in pick('--hidden')},
             'restic': 'restic 0.18.0', 'handles': {'open_by_handle_at': 'EPERM', 'name_to_handle_at': 'EPERM'},
-            'repos': {r.split(',')[0]: 0 for r in pick('--repo')}, 'init': {}}
+            'repos': {r.split(',')[0]: 0 for r in pick('--repo')}, 'init': {},
+            'append_only': {r: {'backup': 0, 'forget': 1, 'still_listed': True} for r in pick('--append-only-probe')}}
 
 
 RESULT = {'ok': True, 'kind': 'files_artifact', 'backup_id': 'c' * 64, 'verify_status': 'verified', 'file_count': 0, 'bytes': 0,
@@ -630,3 +631,132 @@ def test_the_check_reports_each_handle_call_errno():
 def test_the_unit_entry_imports_the_executor_under_isolated_mode():
     done = subprocess.run([sys.executable, '-I', '-B', str(ROOT / 'scripts/deploy/file_backup_run.py')], capture_output=True, text=True, timeout=60)
     assert done.returncode == 2 and 'configuration unavailable' in done.stderr, done.stderr
+
+
+# repo1 over DATA_HOST's rest-server --append-only (owner 2026-10-27): the switch from the D4 sftp account.
+
+REST_PW = 'Rest-Pw_synthetic_0123456789abcdef'
+
+
+def to_rest(tmp_path, config, **over):
+    bundle = tmp_path / 'pki/bundle.crt'
+    bundle.write_text('-----BEGIN CERTIFICATE-----\nsynthetic intermediate\n-----END CERTIFICATE-----\n'
+                      '-----BEGIN CERTIFICATE-----\nsynthetic root\n-----END CERTIFICATE-----\n')
+    cfg = json.loads(Path(config).read_text())
+    cfg['repo1'] = {'transport': 'rest', 'host': 'data-host.example', 'port': 8000, 'cacert': str(bundle), **over}
+    return private(Path(config), cfg)
+
+
+def test_the_switch_to_the_rest_server_pins_the_ca_drops_sftp_and_proves_append_only(tmp_path):
+    root, config = setup(tmp_path)
+    assert main(root, config)[0] == 0
+    ssh = root / 'var/lib/nexloop-file-backup/.ssh'
+    assert (ssh / 'config').exists()
+    to_rest(tmp_path, config)
+    code, text, runner = main(root, config, stdin='')
+    assert code == 2 and 'repo1_rest<TAB>password' in text  # the sftp location is not taken for a rest one
+    code, text, runner = main(root, config, stdin=f'repo1_rest\t{REST_PW}\n')
+    assert code == 0, text
+    secrets = root / SECRETS
+    assert (secrets / 'restic-files-repo1.repository').read_text() == f'rest:https://nexloop-file-backup:{REST_PW}@data-host.example:8000/restic/\n'
+    assert st.S_IMODE((secrets / 'restic-files-repo1.repository').stat().st_mode) == 0o600
+    assert 'synthetic root' in (secrets / 'rest-ca.crt').read_text() and st.S_IMODE((secrets / 'rest-ca.crt').stat().st_mode) == 0o644
+    assert not any(c[0] == 'chown' and c[-1] == str(secrets / 'rest-ca.crt') for c in runner.calls)
+    env = (root / 'etc/nexloop/file-backup.env').read_text()
+    assert 'FILE_BACKUP_REPO1_OPTIONS=--cacert /srv/nexloop/secrets/backup/rest-ca.crt' in env
+    assert not (ssh / 'config').exists() and not (ssh / 'known_hosts').exists() and (ssh / 'id_ed25519').exists()
+    assert REST_PW not in text and not any(REST_PW in ' '.join(c) for c in runner.calls)
+    check = next(c for c in runner.calls if c[0] == 'systemd-run' and any(a.endswith('/file_backup_sandbox_check.py') for a in c))
+    repos = [check[i + 1] for i, a in enumerate(check) if a == '--repo']
+    assert repos[0] == 'repo1,/srv/nexloop/secrets/backup/restic-files-repo1.repository,/srv/nexloop/secrets/backup/restic-files-repo1.pass,,,' \
+                       '/srv/nexloop/secrets/backup/rest-ca.crt'
+    assert check[check.index('--append-only-probe') + 1] == 'repo1' and check[check.index('--probe-dir') + 1] == '/var/lib/nexloop-file-backup/staging'
+    reads = [check[i + 1] for i, a in enumerate(check) if a == '--read']
+    assert '/srv/nexloop/secrets/backup/rest-ca.crt' in reads and '/var/lib/nexloop-file-backup/.ssh/id_ed25519' not in reads
+    assert '"append_only": {"repo1": {"backup": 0, "forget": 1, "still_listed": true}}' in text
+    code, text, _ = main(root, config, stdin='', runner=Runner(tmp_path, user_exists=True))
+    assert code == 0 and 'restic-files-repo1.repository kept' in text, text
+
+
+@pytest.mark.parametrize('probe, why', [
+    ({'backup': 0, 'forget': 0, 'still_listed': False}, 'not append-only'),   # forget succeeded: APP_HOST can delete
+    ({'backup': 0, 'forget': 1, 'still_listed': False}, 'not append-only'),   # refused, yet the snapshot is gone
+    ({'backup': 1}, 'not append-only'),                                        # no snapshot could be written
+    (None, 'not append-only'),                                                 # no probe answer at all
+])
+def test_repo1_over_the_rest_server_must_refuse_a_forget(tmp_path, probe, why):
+    root, config = setup(tmp_path)
+    to_rest(tmp_path, config)
+    change = lambda d: {**d, 'append_only': {} if probe is None else {'repo1': probe}}  # noqa: E731
+    code, text, runner = main(root, config, stdin=STDIN + f'repo1_rest\t{REST_PW}\n', runner=Runner(tmp_path, check=change))
+    assert code == 1 and why in text and 'timer not enabled' in text, text
+    assert not any(c[:2] in (['systemctl', 'start'], ['systemctl', 'enable']) for c in runner.calls)
+
+
+def test_the_rest_configuration_and_password_are_checked(tmp_path):
+    root, config = setup(tmp_path)
+    for n, over in enumerate(({'port': 80}, {'cacert': 'relative'}, {'host_key': HOST_KEY}, {'transport': 'https'})):
+        to_rest(tmp_path, config, **over)
+        code, text, _ = main(root, config, stdin=STDIN + f'repo1_rest\t{REST_PW}\n')
+        assert code == 2 and 'configuration' in text, over
+    to_rest(tmp_path, config)
+    for bad in (REST_PW + '@x', 'short-but-plain', REST_PW + ':y'):
+        code, text, _ = main(root, config, stdin=STDIN + f'repo1_rest\t{bad}\n')
+        assert code == 2 and 'repo1_rest' in text and bad not in text, bad
+
+
+def probe_restic(tmp_path, *, forget_code, keep):
+    """A stand-in for the append-only probe: backup prints a summary with a snapshot id, forget exits forget_code, snapshots lists
+    the snapshot when keep."""
+    snapshot = 'e' * 64
+    script = tmp_path / 'probe-restic'
+    log = tmp_path / 'probe-calls.jsonl'
+    script.write_text(f'#!{sys.executable}\nimport json,os,sys\na=sys.argv[1:]\nopen({str(log)!r},"a").write(json.dumps({{"args":a,"cwd":os.getcwd()}})+"\\n")\n'
+                      'sub=a[a.index("--password-file")+2]\n'
+                      f'if sub=="backup":print(json.dumps({{"message_type":"summary","snapshot_id":{snapshot!r}}}));sys.exit(0)\n'
+                      f'if sub=="forget":sys.exit({forget_code})\n'
+                      f'if sub=="snapshots":print(json.dumps([{{"id":{snapshot!r}}}] if {keep!r} else []));sys.exit(0)\n'
+                      'sys.exit(2)\n')
+    script.chmod(0o755)
+    return str(script), log, snapshot
+
+
+@pytest.mark.parametrize('forget_code, keep, expected', [
+    (1, True, {'backup': 0, 'forget': 1, 'still_listed': True}),
+    (0, False, {'backup': 0, 'forget': 0, 'still_listed': False}),
+])
+def test_the_append_only_probe_takes_a_snapshot_tries_to_forget_it_and_looks_again(tmp_path, forget_code, keep, expected):
+    import file_backup_sandbox_check as C
+    restic, log, snapshot = probe_restic(tmp_path, forget_code=forget_code, keep=keep)
+    staging = tmp_path / 'staging'
+    staging.mkdir(mode=0o700)
+    common = {'repository_file': tmp_path / 'r', 'password_file': tmp_path / 'p', 'environment': {'PATH': os.environ['PATH']}, 'timeout': 60,
+              'options': ('--cacert', str(tmp_path / 'ca.crt'))}
+    assert C.append_only(restic, common, staging) == expected
+    calls = [json.loads(l) for l in log.read_text().splitlines()]
+    subs = [c['args'][c['args'].index('--password-file') + 2:] for c in calls]
+    assert subs[0][:5] == ['backup', '--json', '--tag', 'nexloop-append-only-probe', '--host'] and subs[1] == ['forget', '--retry-lock', '1m', snapshot]
+    assert subs[2] == ['snapshots', '--json', '--tag', 'nexloop-append-only-probe'] and all(c['args'][1:3] == ['--cacert', str(tmp_path / 'ca.crt')] for c in calls)
+    assert Path(calls[0]['cwd']).parent == staging and list(staging.iterdir()) == []  # the probe directory removed afterwards
+    assert C.append_only(restic, common, None) == {'error': 'no --probe-dir'}
+
+
+def test_a_cacert_that_is_no_certificate_is_refused(tmp_path):
+    root, config = setup(tmp_path)
+    to_rest(tmp_path, config)
+    (tmp_path / 'pki/bundle.crt').write_text('not a certificate\n')
+    code, text, _ = main(root, config, stdin=STDIN + f'repo1_rest\t{REST_PW}\n')
+    assert code == 2 and 'repo1.cacert' in text and not (root / SECRETS / 'rest-ca.crt').exists()
+
+
+def test_the_check_pins_the_ca_for_the_repository_that_names_one(tmp_path, capsys):
+    import file_backup_sandbox_check as C
+    restic, log, _ = probe_restic(tmp_path, forget_code=1, keep=True)
+    for name in ('r1', 'p1', 'r2', 'p2'):
+        (tmp_path / name).write_text(name)
+    C.main(['--restic', restic, '--repo', f'repo1,{tmp_path}/r1,{tmp_path}/p1,,,{tmp_path}/ca.crt', '--repo', f'repo2,{tmp_path}/r2,{tmp_path}/p2'])
+    capsys.readouterr()
+    calls = [json.loads(l)['args'] for l in log.read_text().splitlines()]
+    repo1 = [c for c in calls if f'{tmp_path}/r1' in c]
+    repo2 = [c for c in calls if f'{tmp_path}/r2' in c]
+    assert repo1 and all(c[1:3] == ['--cacert', f'{tmp_path}/ca.crt'] for c in repo1) and repo2 and not any('--cacert' in c for c in repo2)

@@ -229,3 +229,20 @@ def test_repo2_bucket_lookup_reaches_restic_as_an_extended_option_only_when_aske
     capsys.readouterr()
     with pytest.raises(SystemExit):
         fb.main([*base, '--s3-bucket-lookup', 'virtual'])
+
+
+def test_repo1_over_the_rest_server_pins_the_stage_ca_with_cacert(env, tmp_path, capsys):
+    """Owner 2026-10-27: repo1 behind DATA_HOST's rest-server; --cacert reaches restic (it then trusts that bundle alone)."""
+    e = env
+    artifact(e, b'x')
+    dsn = private(tmp_path / 'recorder.dsn', 'dbname=unused')
+    ca = tmp_path / 'rest-ca.crt'
+    ca.write_text('-----BEGIN CERTIFICATE-----\nsynthetic\n-----END CERTIFICATE-----\n')
+    base = ['--kind', 'artifact', '--recorder-dsn-file', str(dsn), '--source-root', str(e['source']), '--staging-root', str(e['staging']),
+            '--repository-file', str(e['repository_file']), '--password-file', str(e['password_file']), '--restic', e['restic'], '--repo', 'repo1']
+    assert fb.main([*base, '--cacert', str(ca)]) == 0
+    calls = [json.loads(line) for line in (e['repo'] / 'calls.jsonl').read_text().splitlines()]
+    assert [c['options'] for c in calls] == [[f'cacert={ca}']] * 2
+    capsys.readouterr()
+    assert fb.main([*base, '--cacert', str(tmp_path / 'absent.crt')]) == 1  # a CA file that is not there: no run, no row
+    assert 'BackupUnavailable' in capsys.readouterr().out
