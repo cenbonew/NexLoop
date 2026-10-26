@@ -71,3 +71,13 @@ test('the page sits in 模型与资产 after 数据资产, and every v6 data hea
   const ours=rules.filter(r=>r.rule_id.startsWith('data_health_'));
   expect(ours.length).toBe(10);for(const r of ours)expect(ALERT_INFO[r.rule_id]?.page).toBe('data_health');
 });
+
+test('a long dead-letter task id is shown short, with the full id in its title and a copy button; ids wrap instead of overflowing',()=>{
+  const long='task_3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11';
+  const body={...faulty,extraction:{...faulty.extraction,dead_letter_items:[{...faulty.extraction.dead_letter_items[0],task_id:long}]}};
+  const html=render(body);
+  expect(html).toContain(`title="${long}"`);expect(html).toContain(`data-id="${long}"`);expect(html).toContain('复制完整 ID');
+  expect(html).toMatch(/>task_3f2b6a52…7c11</);  // the visible text is the short form
+  expect(html).not.toMatch(new RegExp(`>${long}<`));
+  expect(readFileSync(new URL('../src/styles.css',import.meta.url),'utf8')).toMatch(/\.workbench \.id-code\{[^}]*overflow-wrap:anywhere/);
+});
