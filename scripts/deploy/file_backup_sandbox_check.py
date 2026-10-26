@@ -10,6 +10,8 @@ timer run could read. It prints one JSON line and nothing else:
   read     for each --read path: true when its content can be read (the two data roots and this unit's own files)
   hidden   for each --hidden path: true when nothing of it can be seen - absent, refused, an empty directory or a file that reads
            empty (InaccessiblePaths= mounts an empty node over it; the capability opens that node, but there is nothing in it)
+  handles  the errno of open_by_handle_at and name_to_handle_at (L6 F1): the unit filters both, so EPERM; anything else (EINVAL,
+           ESTALE, a success) means the capability could open inodes past the sandbox's mounts
   restic   the first line of `restic version`; repos: restic's exit code of `cat config` per --repo (0 the repository opens with
            its password, 10 it does not exist, 12 the password is wrong); init: the exit code of `restic init` for --init repos that
            did not exist (then `cat config` again)
@@ -17,6 +19,8 @@ timer run could read. It prints one JSON line and nothing else:
 Paths and exit codes only: nothing read from a file, nor restic's output past its version line, is printed.
 """
 import argparse
+import ctypes
+import errno
 import json
 import os
 import stat
@@ -52,6 +56,35 @@ def hidden(path):
         return True
 
 
+def handle_calls(libc=None):
+    """Each handle system call once, with a harmless argument; its errno's name ('EPERM' when the filter holds)."""
+    try:
+        libc = libc or ctypes.CDLL(None, use_errno=True)
+        functions = {name: getattr(libc, name) for name in ('open_by_handle_at', 'name_to_handle_at')}
+    except (OSError, AttributeError):
+        return {'open_by_handle_at': 'unavailable', 'name_to_handle_at': 'unavailable'}
+    out = {}
+    # struct file_handle { unsigned int handle_bytes; int handle_type; unsigned char f_handle[]; }: 8 bytes of a zero handle.
+    handle = ctypes.create_string_buffer(8 + 128)
+    ctypes.c_uint.from_buffer(handle).value = 8
+    mount_id = ctypes.c_int(0)
+    directory = os.open('/', os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+    try:
+        for name, call in (('open_by_handle_at', lambda: functions['open_by_handle_at'](directory, handle, os.O_RDONLY)),
+                           ('name_to_handle_at', lambda: functions['name_to_handle_at'](-100, b'/', handle, ctypes.byref(mount_id), 0))):
+            ctypes.set_errno(0)
+            result = call()
+            if result >= 0:
+                if name == 'open_by_handle_at':
+                    os.close(result)
+                out[name] = 'succeeded'
+            else:
+                out[name] = errno.errorcode.get(ctypes.get_errno(), str(ctypes.get_errno()))
+    finally:
+        os.close(directory)
+    return out
+
+
 def listing(path):
     try:
         return sorted(os.listdir(path))
@@ -76,7 +109,7 @@ def main(argv=None):
     p.add_argument('--init', action='append', default=[])
     a = p.parse_args(argv)
     out = {'listing': {d: listing(d) for d in a.list}, 'read': {f: readable(f) for f in a.read}, 'hidden': {f: hidden(f) for f in a.hidden},
-           'repos': {}, 'init': {}}
+           'handles': handle_calls(), 'repos': {}, 'init': {}}
     try:
         version = subprocess.run([a.restic, 'version'], env=_environment(None), capture_output=True, text=True, timeout=60)
         out['restic'] = ' '.join(version.stdout.split()[:2]) if version.returncode == 0 else f'exit {version.returncode}'

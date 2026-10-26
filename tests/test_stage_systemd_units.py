@@ -102,6 +102,9 @@ def test_the_file_backup_unit_is_the_installers_and_sandboxed_as_d3():
     # /etc/nexloop must exist (no "-"): the host-health DSN and every other private configuration of this host are under it.
     assert '/etc/nexloop' in hidden and {'-/etc/shadow', '-/srv/nexloop-backup', '-/var/lib/docker', '-/etc/ssh/ssh_host_ed25519_key'} <= set(hidden)
     assert service['ProtectHome'] == ['true'] and service['ProtectProc'] == ['invisible'] and service['RestrictSUIDSGID'] == ['true']
+    # L6 F1: with CAP_DAC_READ_SEARCH, open_by_handle_at would open any inode past the hidden mounts; both handle calls are filtered.
+    assert service['SystemCallFilter'] == ['~open_by_handle_at name_to_handle_at'] and service['SystemCallErrorNumber'] == ['EPERM']
+    assert service['SystemCallArchitectures'] == ['native']
 
 
 def test_the_pgbackrest_tls_server_serves_repo1_to_the_data_host_client_only():

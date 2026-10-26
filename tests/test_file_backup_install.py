@@ -62,7 +62,8 @@ def good_check(command):
     pick = lambda flag: [args[i + 1] for i, a in enumerate(args) if a == flag]  # noqa: E731
     expected = {'/srv/nexloop': ['data', 'secrets'], '/srv/nexloop/secrets': ['backup'], '/srv/nexloop/data': ['artifacts', 'runtime']}
     return {'listing': {d: expected[d] for d in pick('--list')}, 'read': {p: True for p in pick('--read')}, 'hidden': {p: True for p in pick('--hidden')},
-            'restic': 'restic 0.18.0', 'repos': {r.split(',')[0]: 0 for r in pick('--repo')}, 'init': {}}
+            'restic': 'restic 0.18.0', 'handles': {'open_by_handle_at': 'EPERM', 'name_to_handle_at': 'EPERM'},
+            'repos': {r.split(',')[0]: 0 for r in pick('--repo')}, 'init': {}}
 
 
 RESULT = {'ok': True, 'kind': 'files_artifact', 'backup_id': 'c' * 64, 'verify_status': 'verified', 'file_count': 0, 'bytes': 0,
@@ -202,7 +203,8 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     # Step 5: the check in the unit's own sandbox, every other secret listed as hidden.
     dry = next(c for c in runner.calls if c[0] == 'systemd-run')
     props = [dry[i + 1] for i, a in enumerate(dry) if a == '-p']
-    for p in ('User=nexloop-file-backup', 'AmbientCapabilities=CAP_DAC_READ_SEARCH', 'CapabilityBoundingSet=CAP_DAC_READ_SEARCH',
+    for p in ('User=nexloop-file-backup', 'AmbientCapabilities=CAP_DAC_READ_SEARCH', 'SystemCallFilter=~open_by_handle_at name_to_handle_at',
+              'SystemCallErrorNumber=EPERM', 'SystemCallArchitectures=native', 'CapabilityBoundingSet=CAP_DAC_READ_SEARCH',
               'TemporaryFileSystem=/srv/nexloop:ro', 'EnvironmentFile=/etc/nexloop/file-backup.env', 'ReadWritePaths=/var/lib/nexloop-file-backup/staging',
               'BindReadOnlyPaths=/srv/nexloop/data/artifacts /srv/nexloop/data/runtime /srv/nexloop/secrets/backup'):
         assert p in props, p
@@ -258,6 +260,10 @@ def test_the_restic_archive_must_be_the_one_the_lock_names(tmp_path):
     (lambda d: {**d, 'repos': {'repo1': 10, 'repo2': 0}}, 'repo1: does not exist'),
     (lambda d: {**d, 'repos': {'repo1': 0, 'repo2': 12}}, 'repo2: wrong password'),
     (lambda d: None, 'gave no answer'),
+    # L6 F1: the handle calls not filtered - the capability would open inodes past every hidden mount.
+    (lambda d: {**d, 'handles': {'open_by_handle_at': 'ESTALE', 'name_to_handle_at': 'EPERM'}}, 'open_by_handle_at is not filtered (ESTALE)'),
+    (lambda d: {**d, 'handles': {'open_by_handle_at': 'EPERM', 'name_to_handle_at': 'succeeded'}}, 'name_to_handle_at is not filtered (succeeded)'),
+    (lambda d: {k: v for k, v in d.items() if k != 'handles'}, 'open_by_handle_at is not filtered (None)'),
 ])
 def test_a_sandbox_verdict_stops_the_install_before_any_run(tmp_path, break_it, why):
     root, config = setup(tmp_path)
@@ -424,6 +430,20 @@ def test_uninstall_removes_everything_but_the_user_and_its_key(tmp_path):
     assert (root / 'srv/nexloop/secrets/api/database.dsn').exists()
 
 
+def test_uninstall_removes_the_staging_tree_without_touching_what_a_link_in_it_names(tmp_path):
+    """L6 S2: the staging tree is the service user's; it is removed as it is, nothing in it (or behind a link in it) chmod'ed."""
+    root, config = setup(tmp_path)
+    assert main(root, config)[0] == 0
+    outside = tmp_path / 'outside'
+    outside.write_text('not the installer\'s')
+    os.chmod(outside, 0o640)
+    staging = root / 'var/lib/nexloop-file-backup/staging'
+    (staging / 'stage-left').mkdir()
+    os.symlink(outside, staging / 'stage-left/link')
+    assert main(root, config, '--uninstall', stdin='')[0] == 0
+    assert not staging.exists() and outside.exists() and st.S_IMODE(outside.stat().st_mode) == 0o640
+
+
 def test_uninstall_refuses_a_malformed_host_health_file_before_removing_anything(tmp_path):
     root, config = setup(tmp_path)
     assert main(root, config)[0] == 0
@@ -496,6 +516,36 @@ def test_the_sandbox_check_script_reports_what_it_sees(tmp_path):
     # repo1 is never initialised (the restore journal's repository must already exist); repo2 only because --init names it.
     assert doc['restic'] == 'restic 0.18.0' and doc['repos'] == {'repo1': 10, 'repo2': 0} and doc['init'] == {'repo2': 0}
     assert 'r1\n' not in out.getvalue() and 'p1' not in out.getvalue().replace(str(files['p1']), '')
+
+
+class FakeLibc:
+    """Both handle calls as a filtered (or an unfiltered) kernel answers them."""
+    def __init__(self, codes):
+        self.codes = codes
+
+    def __getattr__(self, name):
+        if name not in self.codes:
+            raise AttributeError(name)
+
+        def call(*args):
+            import ctypes
+            code = self.codes[name]
+            if code == 0:
+                return 0 if name == 'name_to_handle_at' else os.open(os.devnull, os.O_RDONLY)
+            ctypes.set_errno(code)
+            return -1
+        return call
+
+
+def test_the_check_reports_each_handle_call_errno():
+    import errno
+    import file_backup_sandbox_check as C
+    assert C.handle_calls(FakeLibc({'open_by_handle_at': errno.EPERM, 'name_to_handle_at': errno.EPERM})) == {
+        'open_by_handle_at': 'EPERM', 'name_to_handle_at': 'EPERM'}
+    assert C.handle_calls(FakeLibc({'open_by_handle_at': errno.ESTALE, 'name_to_handle_at': 0})) == {
+        'open_by_handle_at': 'ESTALE', 'name_to_handle_at': 'succeeded'}
+    assert C.handle_calls(FakeLibc({'open_by_handle_at': 0, 'name_to_handle_at': errno.EINVAL}))['open_by_handle_at'] == 'succeeded'
+    assert C.handle_calls(FakeLibc({})) == {'open_by_handle_at': 'unavailable', 'name_to_handle_at': 'unavailable'}  # not Linux
 
 
 def test_the_unit_entry_imports_the_executor_under_isolated_mode():

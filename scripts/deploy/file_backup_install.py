@@ -40,7 +40,8 @@ Steps (each idempotent):
     repository and password files (0600, the service user), pg-ca.crt; ~/.ssh/config and known_hosts (root's; the host key pinned)
   4 /etc/nexloop/file-backup.env (0600 root), the unit and timer from the release (tokens filled); daemon-reload
   5 inside the unit's own sandbox (systemd-run with its [Service] settings): the data roots and its own files readable, /srv/nexloop
-    showing data and secrets only, secrets only backup, every InaccessiblePaths= entry and every other secret hidden, restic the
+    showing data and secrets only, secrets only backup, every InaccessiblePaths= entry and every other secret hidden, both handle
+    system calls refused with EPERM (L6 F1: the capability would otherwise open any inode past those mounts), restic the
     pinned version, both repositories open (repo2 initialised when repo2_init); then one real run of the service, all four
     ExecStart lines verified
   6 file-backup (and provider-drift, when its timer is installed here) in both host-health files (both or neither), then
@@ -575,6 +576,9 @@ def check_sandbox(root, config, service, restic_version, runner, out):
     problems += [f'{d} shows {doc.get("listing", {}).get(d)}' for d, names in expected.items() if doc.get('listing', {}).get(d) != names]
     problems += [f'{p} unreadable' for p in reads if doc.get('read', {}).get(p) is not True]
     problems += [f'{p} visible' for p in hidden if doc.get('hidden', {}).get(p) is not True]
+    # L6 F1: the handle calls filtered (EPERM), or the capability opens any inode past the mounts above.
+    problems += [f'{name} is not filtered ({doc.get("handles", {}).get(name)})' for name in ('open_by_handle_at', 'name_to_handle_at')
+                 if doc.get('handles', {}).get(name) != 'EPERM']
     if doc.get('restic') != f'restic {restic_version}':
         problems.append(f'restic is {doc.get("restic")!r}, not {restic_version}')
     for name in ('repo1', 'repo2'):
@@ -584,7 +588,7 @@ def check_sandbox(root, config, service, restic_version, runner, out):
                    12: 'wrong password'}.get(code, f'restic {code}')
             problems.append(f'{name}: {why}')
     print('sandbox: ' + json.dumps({'hidden': len(hidden), 'readable': len(reads), 'listing': 'as expected' if not any('shows' in p for p in problems) else 'NOT',
-                                    'restic': doc.get('restic'), 'repos': doc.get('repos'), 'init': doc.get('init')}, sort_keys=True), file=out)
+                                    'restic': doc.get('restic'), 'handles': doc.get('handles'), 'repos': doc.get('repos'), 'init': doc.get('init')}, sort_keys=True), file=out)
     if problems:
         raise Failed('sandbox check: ' + '; '.join(problems)[:600] + ': timer not enabled')
     return len(hidden)
@@ -729,12 +733,15 @@ def uninstall(root, config, runner, out):
                  *(under(root, f'{SECRETS}/{n}') for n in sorted(ALLOWED))):
         if path.exists() or path.is_symlink():
             path.unlink()
-    for directory in (under(root, BASE), under(root, STAGING)):
-        if directory.exists():
-            for path in [directory, *directory.rglob('*')]:
-                if not path.is_symlink():
-                    os.chmod(path, 0o700 if path.is_dir() else 0o600)
-            shutil.rmtree(directory)
+    # L6 S2: the staging tree is the service user's: removed as it is (rmtree does not follow links), never chmod'ed first.
+    if under(root, STAGING).exists():
+        shutil.rmtree(under(root, STAGING))
+    base = under(root, BASE)
+    if base.exists():
+        for path in [base, *base.rglob('*')]:  # root's own read-only release tree (and restic): writable before removal
+            if not path.is_symlink():
+                os.chmod(path, 0o700 if path.is_dir() else 0o600)
+        shutil.rmtree(base)
     rewrite_timers(files, remove_file_backup)
     runner(['systemctl', 'daemon-reload'], check=False)
     print(f'uninstalled: timer, units, env file, release, restic, staging and the secret files removed; file-backup taken out of the '

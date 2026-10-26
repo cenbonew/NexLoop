@@ -8,7 +8,8 @@
 # D3: the only privilege is CAP_DAC_READ_SEARCH (read past the 0700/0600 modes the API and the Agent Host keep; never write), and the
 # sandbox shows nothing of /srv/nexloop but the two data directories and this unit's own secrets/backup (read-only); the installer's
 # step 5 checks that from inside this very sandbox before the timer is enabled. Each run prints one JSON line of counts, labels and
-# hashes, never a secret.
+# hashes, never a secret. InaccessiblePaths= is a list of what to hide (L6 S1): a new secret location on APP_HOST outside /srv/nexloop
+# must be added to it (step 5 then checks it too).
 [Unit]
 Description=NexLoop file backup (Artifacts and finished Run stores, repo1 then repo2)
 After=network-online.target
@@ -37,6 +38,11 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 LockPersonality=true
+# L6 F1: CAP_DAC_READ_SEARCH lets open_by_handle_at(2) open any inode of a file system from any visible fd of it, past every
+# mount this sandbox hides (the shocker escape): both handle calls are filtered (EPERM), and step 5 calls one to see that.
+SystemCallFilter=~open_by_handle_at name_to_handle_at
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
 MemoryDenyWriteExecute=@MDWE@
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 TemporaryFileSystem=/srv/nexloop:ro
