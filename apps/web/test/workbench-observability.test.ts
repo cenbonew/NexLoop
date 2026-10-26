@@ -61,6 +61,9 @@ test('operations: the backup block shows numbers and states, “无” for a met
   const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
   expect(html).toContain('<div class="kv-row"><dt>最近一次已校验的数据库备份</dt><dd>30 分钟</dd></div>');expect(html).toContain('<div class="kv-row"><dt>最近一次文件快照</dt><dd>无</dd></div>');
   expect(html).toContain('<div class="kv-row"><dt>最近一次演练的 RPO</dt><dd>无</dd></div>');expect(html).toContain('<div class="kv-row"><dt>恢复日志导出延迟</dt><dd>0 秒</dd></div>');
+  expect(html).toContain('<div class="kv-row"><dt>最旧的未备份文件对象（D6）</dt><dd>无</dd></div>');  // absent: everything covered
+  const unprotected=metrics({...metricsBody,backup:{...backup,file_backup_unprotected_seconds:7200}});
+  expect(unprotected.backup.status==='ok'&&unprotected.backup.file_backup_unprotected_seconds).toBe(7200);
   expect(html).toMatch(/<dt>最近一次备份校验<\/dt><dd><span class="status-badge tone-ok"[^>]*>.*?通过<\/span><\/dd>/);expect(html).toMatch(/<dt>WAL 归档<\/dt><dd><span class="status-badge tone-fail"[^>]*>.*?出现失败<\/span><\/dd>/);
   expect(html).toContain('主仓库 30 分钟');expect(html).toContain('需要处理');
   expect(html).not.toContain('备份记录暂不可用');
