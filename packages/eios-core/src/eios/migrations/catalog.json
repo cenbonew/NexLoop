@@ -1775,6 +1775,11 @@
       "version": "0355",
       "name": "0355_extraction_dead_letter_resolve.sql",
       "sha256": "91372bdd9e55c55b161e4f2d5cc286c86ee7fa4e8ee642f4ce35b6d285370ecd"
+    },
+    {
+      "version": "0356",
+      "name": "0356_workbench_members_view.sql",
+      "sha256": "28fa8241867b1ae1db79dbfc9ec515eae06af2da75dab67d0a2250a6408674a0"
     }
   ]
 }

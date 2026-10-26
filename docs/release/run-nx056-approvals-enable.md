@@ -17,6 +17,23 @@
 - 每一步标注 **A**（只读，可以随时执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
 - **按 94baecc3 核对过**：迁移尾 0343（NX-056 主体 0326–0332，跟进修正 0339，B1 为 0342，D1 投票冷却为 0343），角色清单 manifest 40，告警规则 v14（67 条），`alert_rules_apply.py` 与 `approval_policies_apply.py` 都在。执行前如果发布又前进了，再核对一次这几项。
 
+## R46. 按 release 46（main 4426c5d0）的修订（2026-10-26，先读这一节）
+
+本单最初按 94baecc3 写成。之后发布又前进了，下面几项以本节为准，正文对应位置也已改过：
+
+| 项 | 94baecc3 时 | release 46（4426c5d0） | 影响的步骤 |
+|---|---|---|---|
+| 迁移尾 | 0343 | 0355（L3 提取死信，接 L7 的 0354） | 第 2 步 |
+| 角色清单 manifest | 40 | 46 | 第 4.2 步、6b Q5 |
+| 告警规则 | v14（67 条） | 最高 v18（74 条），逐级超集：v14 ⊂ v15 ⊂ v16 ⊂ v17 ⊂ v18；v18 只改了提取死信那条规则的指标 | 第 5 步、6b Q5 |
+| 审批策略 | `approval-policies.v1.json`，version 1，3 条 | 同名文件现在是 **version 4、`expected_revision: 3`、11 条**；version 1–3 在 `deploy/configuration/history/approval-policies.version{1,2,3}.json` | 第 6、7 步、回退 |
+| 第 3 步待发布的 Action | 本批 4 个 | 以 release 46 组批记录为准（另含 NX-058 的成员类 Action、提取死信处理等） | 第 3 步 |
+
+- **策略必须按版本依次发布**：stage 上还没有任何策略（`expected_revision` 当前为 0），直接发 `approval-policies.v1.json`（version 4，`expected_revision: 3`）会被拒为冲突。第 7 步改为依次发布 version 1 → 2 → 3 → 4 四个文件。
+- **version 2–4 的内容**：NX-058 的 owner 成员类 Action（promote / demote / suspend / resume / revoke_owner，issue_owner_reset，invite_owner，erase_member），都需要另一位 owner 批准，被操作的成员不能批准，不适用单人模式。这些 Action 的 handler 在对应策略发布之前会拒绝执行，所以发布 version 2–4 之后它们才可用。
+- **成员类策略的副作用**：发布后，对 owner 的降级、停用、撤销、签发重置码、邀请 owner、离职擦除都需要第二位 owner 批准。第二位测试 owner 必须一直保持可用；如果负责人以后要停用它，也要走这条审批（由负责人发起、第二位 owner 自己不能批准自己被停用的请求，见设计 §16 Z1），所以停用前要先有第三位成员，或者先发布放宽的策略版本。
+- 第二位 owner 仍然用 `initial_identity --create` 和成员文件加入（第 4 步），不能用 `invite_owner`：后者本身需要另一位 owner 批准，此时还没有第二位。
+
 ## 0. 前提与变量
 
 ### 0.1 前提（不满足就不开始）
@@ -88,7 +105,7 @@ ro "select to_regclass('control.nexloop_approval_policies') is not null, to_regc
 ro "select count(*) from control.nexloop_approval_policies"
 ```
 
-- **预期**：迁移尾是 0343（其中 NX-056 为 0326–0332、0339 和 0342，D1 为 0343）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
+- **预期**：迁移尾是 0355（release 46；其中 NX-056 为 0326–0332、0339 和 0342，D1 为 0343）；两张表都存在（`t|t`）；策略为 0 条，也就是此刻还没有任何能力需要审批。
 
 ## 3. 发布新的 Action（DATA_HOST，配置员窗口，B）
 
@@ -145,7 +162,7 @@ sudo shred -u "$APP_RUN/in/password-approver2"
 {"principal_id": "stage-principal-approver2", "subject_id": "stage-human-approver2", "role": "owner"}
 ```
 
-2. 应用本批的角色清单（`workbench-roles.v1.json`，94baecc3 上为 manifest 40（含 NX-056 A7 和 NX-058 片 A、B 的角色））：
+2. 应用本批的角色清单（`workbench-roles.v1.json`，release 46 上为 manifest 46；94baecc3 时为 40）：
 
 ```
 docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbench_roles.py --roles /opt/release/deploy/authorization/workbench-roles.v1.json \
@@ -157,7 +174,9 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/workbenc
   - `ro "select members ? 'stage-principal-approver2', members->>'stage-principal-approver2' from control.nexloop_workbench_configurations where tenant_id='$TENANT_ID' order by manifest_version desc limit 1"`，应为 `t|owner`；
   - 第二位 owner 用自己的账号登录工作台，审批页可以打开，三栏都为空，页面顶部没有单人模式提示。
 
-## 5. 告警规则 v14（DATA_HOST，配置员窗口，B）
+## 5. 告警规则（DATA_HOST，配置员窗口，B）
+
+release 46 起用 v18（74 条），它包含 v14 的全部审批规则。先用 doctor 看 stage 当前已发布的版本：已经是 v18 就跳过本步；低于 v18 就直接发布 v18（逐级超集，不必逐版发布；但一旦发布了 v18，就不能再发布更低的版本）。下面的命令把 v14 换成 v18，`--check` 预期为 `{"valid": true, "version": 18, "rules": 74}`。原文保留如下，供对照。
 
 ```
 docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v14.json --check
@@ -171,12 +190,16 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_ru
 
 ## 6. 策略清单 `--check`（不连库，A）
 
+release 46：四个文件依次校验（第 7 步也按这个顺序发布）。
+
 ```
-docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/approval_policies_apply.py --manifest /opt/release/deploy/configuration/approval-policies.v1.json --check
-sha256sum "$RUN/src/deploy/configuration/approval-policies.v1.json"
+for f in history/approval-policies.version1.json history/approval-policies.version2.json history/approval-policies.version3.json approval-policies.v1.json; do
+  docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/approval_policies_apply.py --manifest /opt/release/deploy/configuration/$f --check
+  sha256sum "$RUN/src/deploy/configuration/$f"
+done
 ```
 
-- **预期**：`{"valid": true, "version": 1, "expected_revision": 0, "policies": 3, "manifest_sha256": "<与 sha256sum 相同>"}`。把 sha256 记入证据。
+- **预期**（`version / expected_revision / policies`）：`1/0/3`、`2/1/8`、`3/2/10`、`4/3/11`，每个 `manifest_sha256` 与对应的 sha256sum 相同。四个 sha256 记入证据。
 
 ## 6a. 第 0 天末尾：只读核对并记录（A）
 
@@ -219,22 +242,27 @@ ro "select count(*) from control.nexloop_approval_policies"
 | Q1 | 两位 owner 的冷却都已满 | 第二条查询两行都为 `t` |
 | Q2 | D1 部署已超过 24 小时 | 第三条查询为 `t` |
 | Q3 | 第 0 天之后成员没有变化 | 两位都仍是 active 的 owner（§4.2 的核对查询）；`vote_eligible_from` 与第 0 天记录的一致。如果变了，说明角色有过中断，冷却已重新计时 |
-| Q4 | 还没有发布任何策略 | 第四条查询为 0 |
-| Q5 | 第 0 天的前提 P2、P3 仍然成立，并且第 0 天第 3–5 步的结果仍在 | 同 §0.1；第 3 步 Action 已发布（§3 的核对查询为 3）；告警规则仍为 v14、67 条（`nexloop-doctor --observability` 的 `alert_rules_current` 为 true）；角色 manifest 为 40（§4.2 的核对） |
+| Q4 | 还没有发布任何策略 | 第四条查询为 0（如果不是 0，先查 `nexloop_approval_policy_publications` 已发到哪个版本，第 7 步从下一个版本接着发） |
+| Q5 | 第 0 天的前提 P2、P3 仍然成立，并且第 0 天第 3–5 步的结果仍在 | 同 §0.1；第 3 步 Action 已发布（§3 的核对查询为 3）；告警规则为 v18、74 条（`nexloop-doctor --observability --alert-rules <v18 文件>` 的 `alert_rules_current` 为 true）；角色 manifest 为 46（§4.2 的核对） |
 
 全部满足才继续第 7 步。
 
-## 7. 发布策略 v1（DATA_HOST，配置员窗口，B）
+## 7. 发布策略 version 1 → 4（DATA_HOST，配置员窗口，B）
 
-从这一步起，首批三个能力（打开真实派发、负责人发起的擦除、解除保全）都需要另一位 owner 批准。
+从这一步起，首批三个能力（打开真实派发、负责人发起的擦除、解除保全）和 NX-058 的 owner 成员类 Action 都需要另一位 owner 批准。
+
+release 46：按顺序发布四个文件，每发一个先看输出再发下一个；某个文件被拒就停下，不跳版本：
 
 ```
-docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/approval_policies_apply.py \
-  --manifest /opt/release/deploy/configuration/approval-policies.v1.json --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn
-# 再执行一次（B，经配置员窗口，标为写入）：result.replayed 应为 true
+for f in history/approval-policies.version1.json history/approval-policies.version2.json history/approval-policies.version3.json approval-policies.v1.json; do
+  docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/approval_policies_apply.py \
+    --manifest /opt/release/deploy/configuration/$f --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn
+done
+# 最后对 approval-policies.v1.json 再执行一次（B，经配置员窗口，标为写入）：result.replayed 应为 true
 ```
 
-- **预期**：`applied: true`，`result.appended: 3`，`result.unchanged: 0`，`result.replayed: false`。
+- **预期**：每个都是 `applied: true`、`result.replayed: false`；`appended / unchanged` 依次为 `3/0`、`5/3`、`2/8`、`1/10`。
+- 下面的核对按四次发布读：`nexloop_approval_policy_publications` 应有 4 行（version 1–4，`expected_revision` 0–3，sha256 与第 6 步一致）；策略共 11 条，首批三条的预期不变，成员类 8 条为 quorum 1、`{owner}`、86400、`not_applicable`。资格时间线首批三个能力的预期不变。
 - **核对**：
 
 ```
@@ -300,7 +328,7 @@ ro "select action, payload->>'approval_id', payload->>'outcome', payload->>'acto
 | 情况 | 做法 |
 |---|---|
 | 第 3–5 步失败 | 不继续往下。Action、角色和告警规则的发布都是幂等的，修正后重跑即可；在第 7 步之前，没有任何能力需要审批 |
-| 第 7 步之后需要取消审批 | 按运行手册 §2“回退与停用”：发布 `approval-policies.v2.json`，`expected_revision: 1`，三条策略的版本都加 1，条件设成永远不会命中的常量，`decision` 中写明理由和批准人。命令与第 7 步相同 |
+| 第 7 步之后需要取消审批 | 按运行手册 §2“回退与停用”：发布下一个版本的清单（release 46 上为 version 5，`expected_revision: 4`），要停用的策略版本加 1、条件设成永远不会命中的常量，`decision` 中写明理由和批准人。命令与第 7 步相同。成员类策略没有条件字段，只能放宽（例如允许单人模式）而不能“设成不命中”，要停用先交调度员 |
 | 第 1 天发现冷却未满（Q1 或 Q2 不满足） | 不发布策略，停下。此时没有任何能力需要审批，stage 不受影响。按 §6b 的查询算出最早可开始的时刻，到时再从 §6b 开始。如果 `vote_eligible_from` 比第 0 天记录的更晚（Q3），说明角色有过中断，先查清原因（成员文件是否被重新应用、是否有人降级后又提升），再按新的时刻等待。不要为了赶时间去改成员数据或角色历史 |
 | 第二位 owner 不再需要 | 先停用策略（上一行），再按 run-assembly §2a `--revoke-member` 撤出。策略生效期间，不要让 owner 只剩一位（运行手册 §7） |
 | 演练中真实派发开关状态异常 | 负责人关闭开关（关闭不需要审批），然后按 `docs/OPERATIONS.md` §8 核对 |

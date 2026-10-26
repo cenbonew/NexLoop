@@ -752,6 +752,11 @@ class WorkbenchQueries:
             row['inputs'] = execution_inputs(row.get('operation'), row.get('inputs'))
         return view
 
+    def members(self):
+        # NX-058 workbench UI: the owner's members, unexpired invitations and the last 90 days of reset codes (labels, usernames, roles,
+        # statuses, times; never a token, code, digest or email).
+        return self.reader.observe('members')
+
     def outreach_approvals(self):
         # Outreach slice 6: pending approvals (intent id, purpose, times, requester; never the body) for the owner.
         return self.reader.observe('outreach_approvals')

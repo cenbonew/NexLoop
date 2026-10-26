@@ -413,7 +413,7 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 /* §6 long ids */
 .workbench .id-text{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;vertical-align:baseline}
 .workbench .id-kind{color:var(--muted)}
-.workbench .id-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);white-space:nowrap}
+.workbench .id-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);white-space:normal;overflow-wrap:anywhere}  /* a full ID that is shown (a link, a code) wraps instead of leaving its card */
 .workbench .id-secondary{color:var(--muted)}
 .workbench button.id-expand{min-height:0;height:auto;padding:0;border:0;background:none;color:var(--text);white-space:normal;overflow-wrap:anywhere;text-align:left}
 .workbench button.id-copy{min-height:0;height:24px;width:24px;padding:0;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);

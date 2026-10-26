@@ -7,9 +7,9 @@
  */
 import {statusLabel} from './status-labels';
 import {shorten} from './kit';
-import {useRef,useState,type FormEvent,type ReactNode} from 'react';
+import {useEffect,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
-import {approvalOutcome,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
+import {oneTimeSecret,approvalOutcome,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
 import {Short} from './pages/Page';
@@ -50,6 +50,21 @@ export const DONE_TEXT:Record<Operation,string>={
   switch_remediation:'已提交；补救开关以重新读取的状态为准。部署层 REMEDIATION_ENABLED 不在工作台控制范围内。',
   release_remediation_rule:'已解除熔断；这条规则从下一个失败起重新生成补救，已升级的补救不变。',
   resolve_extraction_dead_letter:'已记录；选择重新入队时已生成一条新的提取任务，由提取 worker 处理。死信记录本身保留不变。',
+  invite_workbench_member:'已签发邀请；邀请链接中的令牌只在这里显示一次，请线下转交本人。同一用户名再签发会让旧邀请失效。',
+  revoke_workbench_invitation:'已撤销这份邀请；令牌立即失效。',
+  issue_workbench_reset:'已签发重置码；这位成员的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
+  change_workbench_member_role:'已改角色；这位成员的会话已失效，重新登录后按新角色使用。',
+  suspend_workbench_member:'已停用；授权已撤销，会话已失效。恢复时按角色当前的模板重新授权。',
+  resume_workbench_member:'已恢复；按角色当前的模板重新授权。',
+  revoke_workbench_member:'已撤销成员；授权、配置和会话都已结束。账号保留，如需擦除个人数据请另行发起擦除。',
+  promote_workbench_member:'已提升为 owner；这位成员的会话已失效。投票资格要等 24 小时后才生效。',
+  demote_workbench_owner:'已降级；这位成员的会话、重置码和未接受的邀请都已结束。',
+  suspend_workbench_owner:'已停用这位 owner；授权已撤销，会话已失效。',
+  resume_workbench_owner:'已恢复这位 owner；投票资格要等 24 小时后才生效。',
+  revoke_workbench_owner:'已撤销这位 owner；授权、配置和会话都已结束。',
+  issue_workbench_owner_reset:'已签发重置码；这位 owner 的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
+  invite_workbench_owner:'已签发 owner 邀请；令牌只在这里显示一次，请线下转交本人。',
+  erase_workbench_member:'已擦除：账号停用、口令清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -75,16 +90,42 @@ function useWrite(operation:Operation,onDone?:()=>void){
   // onDone is a mutation-level callback: it still runs when the refetch after the write has already replaced this form
   // (take-over → hand-back), which a per-call mutate() callback would not.
   const done=useRef(onDone);done.current=onDone;
-  return useMutation({mutationFn:(body:Record<string,unknown>)=>governedWrite(cache,operation,body,pending),onSuccess:()=>done.current?.()});
+  // gcTime 0: a result (which may hold a one-time code or token) is not kept in the mutation cache once the form is gone.
+  return useMutation({mutationFn:(body:Record<string,unknown>)=>governedWrite(cache,operation,body,pending),onSuccess:()=>done.current?.(),gcTime:0});
 }
 
 function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof useWrite>}){
   if(write.isPending)return <p role="status">正在提交…</p>;
   // NX-056: an operation under an approval policy answers with its approval state instead of the plain success text.
-  if(write.isSuccess)return <p className="note" role="status">{approvalOutcome(write.data)??DONE_TEXT[operation]}</p>;
+  if(write.isSuccess)return <WriteResult operation={operation} data={write.data} onHide={()=>write.reset()}/>;
   if(write.isError){const kind=writeKindOf(write.error);
     return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}</p>;}
   return null;
+}
+
+/** The success view of one write (also the approvals page's execution): the approval state or the success text; a replay's hint; a
+ * fresh execution's one-time code or token (ADR-039 R3 §8.4). */
+export function WriteResult({operation,data,onHide}:{operation:Operation;data:Record<string,unknown>|undefined;onHide?:()=>void}){
+  const secret=oneTimeSecret(data);
+  const replay=data?.secret==='not_shown_again'?<p className="impact-summary" role="alert">这次请求已经执行过，重置码或邀请令牌不会再次显示。
+    如果没有拿到：先撤销这份邀请（重置码再签发时旧码自动作废），再重新签发。</p>:null;
+  return <><p className="note" role="status">{approvalOutcome(data)??DONE_TEXT[operation]}</p>{replay}{secret?<OneTimeSecret {...secret} onHide={onHide}/>:null}</>;
+}
+
+/** NX-058: a reset code or an invitation token, shown once to the issuer (it is in no read, list or log; the page keeps it only while
+ * this form is on screen). The invitation link carries the token in the fragment, which the accept page clears at once. */
+export function OneTimeSecret({kind,value,onHide}:{kind:'code'|'token';value:string;onHide?:()=>void}){
+  // Cleared 2 minutes after it was first shown (or at once with the button): the secret leaves the component state and the mutation
+  // result. The deadline is fixed at the first render and the callback held in a ref, so a re-render or refetch never restarts it.
+  const [shownAt]=useState(()=>Date.now());const hide=useRef(onHide);hide.current=onHide;
+  useEffect(()=>{const timer=setTimeout(()=>hide.current?.(),Math.max(0,shownAt+120_000-Date.now()));return ()=>clearTimeout(timer);},[shownAt]);
+  const origin=globalThis.location?.origin??'';
+  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value):null;
+  return <div className="one-time-secret" role="alert"><p><strong>{kind==='code'?'重置码':'邀请令牌'}（只显示这一次）</strong></p>
+    <p><code className="id-code">{value}</code></p>
+    {link?<p>邀请链接：<code className="id-code">{link}</code></p>:<p>重置页：<code className="id-code">{origin}/workbench/reset</code></p>}
+    <p className="note">请线下（当面或电话）交给本人；离开这一页或 2 分钟后无法再次查看。</p>
+    {onHide?<button type="button" onClick={onHide}>我已记下，隐藏</button>:null}</div>;
 }
 
 function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onChange:(v:string)=>void;label?:string}){
