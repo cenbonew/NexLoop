@@ -4,7 +4,7 @@
     python3 scripts/acceptance/relation_read_gaps.py --dsn-file <nexloop_metrics DSN, 0600> --tenant <TENANT_ID> --evidence-dir <dir>
 
 As the metrics login (relation_reads.checked: role checked, statement timeout 60 s), in a transaction set read only, one call of
-authz.nexloop_relation_read_gaps (0360): per world and type, the objects whose property-rule Consumers the relations miss (gaps),
+authz.nexloop_relation_read_gaps (0357): per world and type, the objects whose property-rule Consumers the relations miss (gaps),
 the same among erasing Consumers (gaps_erasing, apart: P5 looks at gaps only) and the reverse (relation_only). Counts only.
 The answer is written to <evidence-dir>/<UTC date>.json (0640, replaced atomically) and printed.
 

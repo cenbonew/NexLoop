@@ -1,4 +1,4 @@
--- NX-054 P4c (docs/design/relation-read-p4.md v2 §1; ships with P4a, 0360, on real - design §3 R4): the erasure purge finds the
+-- NX-054 P4c (docs/design/relation-read-p4.md v2 §1; ships with P4a, 0357, on real - design §3 R4): the erasure purge finds the
 -- Consumer's formal objects through relations as well as through properties (ADR-038 §2.3: the purge uses the union for good).
 -- runtime.nexloop_relation_consumer_objects(tenant, world, consumer): the objects whose ownership relations reach the Consumer, walked
 -- backwards at most the published longest chain (a Consumer source ends a path, as the forward walk 0319:271 does).

@@ -197,11 +197,11 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 
 ## 9. P4（P4a + P4c）上线前
 
-P4a（读侧并集，0360）与 P4c（purge 取并集、开始时固定目标，0361）同一批上线（设计稿 `relation-read-p4.md` §3 R4）。stage 就是 real，没有另一套环境。
+P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，0358）同一批上线（设计稿 `relation-read-p4.md` §3 R4）。stage 就是 real，没有另一套环境。
 
 | 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 | 不通过时 |
 | --- | --- | --- | --- | --- | --- |
-| 0 | DATA_HOST | 调度员 | 只读：`select count(*) from control.nexloop_consumer_erasures where state not in ('pending_confirmation','completed','completed_with_holds')` | 结果为 **0**：没有进行中的擦除（0361 在下一步开始时才固定关系目标，已经过了 messages 阶段的擦除补不回被切断的链） | 不部署；等这些擦除跑到 completed（keeper 正常推进），再重新执行第 0 步 |
+| 0 | DATA_HOST | 调度员 | 只读：`select count(*) from control.nexloop_consumer_erasures where state not in ('pending_confirmation','completed','completed_with_holds')` | 结果为 **0**：没有进行中的擦除（0358 在下一步开始时才固定关系目标，已经过了 messages 阶段的擦除补不回被切断的链） | 不部署；等这些擦除跑到 completed（keeper 正常推进），再重新执行第 0 步 |
 | 1 | DATA_HOST | 调度员 | 备份：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，`systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不部署 |
-| 2 | — | 调度员 | 按 ack-policy 部署这一批（迁移 0360、0361，告警规则 v19） | 迁移头含 0361；`alert_rules` 已应用 v19 | 按发布手册回退该批 |
+| 2 | — | 调度员 | 按 ack-policy 部署这一批（迁移 0357、0358，告警规则 v19） | 迁移头含 0358；`alert_rules` 已应用 v19 | 按发布手册回退该批 |
 | 3 | DATA_HOST | 调度员 | 安装 `nexloop-relation-read-gaps` 的 timer 与 service（示例在 `deploy/stage/systemd/`），把 `relation-read-gaps` 加进 DATA_HOST 的 host-health 配置，再执行设计稿 §2.5 的演练 | 演练两轮都符合预期 | 停用 timer，报 L5 |
