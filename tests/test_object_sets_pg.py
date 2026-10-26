@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 
 from eios.ontology.definitions import ObjectSetDefinition
 from commercial_fixture import publish_registry_actions
+from support.absence import absent
 from commitment_fixture import TENANT as COMMITMENT_TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
@@ -134,7 +135,7 @@ def test_preview_is_evaluated_at_read_time_paged_counted_and_never_wider_than_re
         assert [i['object_id'] for i in first['items']] == matching[:2]  # level desc
         # Restricted property: listed as withheld, never shown (AT-003).
         assert first['items'][0]['values'] == {'sport': '网球', 'level': 5} and first['items'][0]['withheld'] == ['income']
-        assert all('income' not in i['values'] for i in first['items']) and '5000' not in str(first)
+        assert all('income' not in i['values'] for i in first['items']) and absent(5000, first)
         rest = client.get('/api/v1/workbench/object-sets/tennis.players/members?limit=2&offset=2', headers={'Origin': ORIGIN}).json()
         assert [i['object_id'] for i in rest['items']] == matching[2:] and rest['next_offset'] is None
         assert audit(admin) > before  # every object and property read is audited

@@ -25,6 +25,7 @@ from multi_authority_fixture import seed_multi_authority
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_commitments_pg import active_plan,fresh
+from support.absence import absent
 
 pytestmark=pytest.mark.parametrize('execution_plan',['commitment-service'],indirect=True)
 ACTIONS=('nexloop.consumer.erase','nexloop.message.erase','nexloop.retention.hold','nexloop.retention.release_hold')
@@ -112,7 +113,7 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     receipt=admin.execute("select action,counts from runtime.nexloop_erasure_tombstones where subject_kind='consumer' and subject_key=runtime.nexloop_erasure_subject_key(%s,%s)",(TENANT,consumer)).fetchone()
     assert receipt[0]=='deleted' and receipt[1]['consumer_object']==1
     text=json.dumps(admin.execute('select jsonb_agg(t) from runtime.nexloop_erasure_tombstones t').fetchone()[0],ensure_ascii=False)
-    assert '13800000000' not in text and '已为您登记' not in text and 'cust-1' not in text
+    assert absent('13800000000', text) and '已为您登记' not in text and 'cust-1' not in text
     assert admin.execute('select active from control.nexloop_contact_restrictions where consumer_id=%s',(consumer,)).fetchone()==(True,)
     assert erasure_port(c).status()['requests'][0]['state']=='completed'
 
