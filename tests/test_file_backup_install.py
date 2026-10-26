@@ -235,7 +235,9 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     maint = next(c for c in runner.calls if c[0] == 'systemd-run' and any(a.endswith('/file_backup_maint.py') for a in c))
     mprops = [maint[i + 1] for i, a in enumerate(maint) if a == '-p']
     assert {'User=nexloop-file-backup', 'CapabilityBoundingSet=', 'SystemCallFilter=~open_by_handle_at name_to_handle_at', 'TemporaryFileSystem=/srv/nexloop:ro',
-            'BindReadOnlyPaths=/srv/nexloop/secrets/backup', 'EnvironmentFile=/etc/nexloop/file-backup.env'} <= set(mprops)
+            'EnvironmentFile=/etc/nexloop/file-backup.env',
+            'BindReadOnlyPaths=/srv/nexloop/secrets/backup/restic-files-repo2.repository /srv/nexloop/secrets/backup/restic-files-repo2.pass '
+            '/srv/nexloop/secrets/backup/offsite.env'} <= set(mprops)
     assert not any(p.startswith(('AmbientCapabilities=', 'ReadWritePaths=')) for p in mprops)
     assert maint[-1] == '--dry-run' and maint[maint.index('--repository-file') + 1] == '/srv/nexloop/secrets/backup/restic-files-repo2.repository'
     assert 'restic-files-repo1' not in ' '.join(maint) and 'maint dry-run: {"error": null, "forget": "ok", "ok": true, "removed": 0}' in text
@@ -505,11 +507,30 @@ def test_a_failing_repo2_maintenance_dry_run_stops_before_the_run_and_the_timers
     assert json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers'] == []
 
 
+@pytest.mark.parametrize('broken', [
+    dict(check=lambda d: {**d, 'hidden': {**d['hidden'], '/etc/nexloop': False}}),
+    dict(maint=lambda d: {**d, 'ok': False, 'forget': 'exit 12'}),
+    dict(result='exit-code'),
+])
+def test_a_rerun_whose_gate_fails_disables_both_timers_an_earlier_install_enabled(tmp_path, broken):
+    """L6 S2: the first install enabled the timers; a rerun fails step 5 - the timers are stopped before the run ends."""
+    root, config = setup(tmp_path)
+    assert main(root, config)[0] == 0
+    code, text, runner = main(root, config, stdin='', runner=Runner(tmp_path, user_exists=True, **broken))
+    disable = ['systemctl', 'disable', '--now', 'nexloop-file-backup.timer', 'nexloop-file-backup-maint.timer']
+    assert code == 1 and runner.calls[-1] == disable and 'both timers disabled' in text, text
+    assert 'step 5 failed: nexloop-file-backup.timer and nexloop-file-backup-maint.timer disabled' in text
+    assert not any(c[:2] == ['systemctl', 'enable'] for c in runner.calls)
+
+
 def test_the_maintenance_unit_is_the_backups_sandbox_without_what_it_does_not_need():
     """One sandbox for both units; repo2's maintenance reads no data, so it has no capability, no data root, nothing writable."""
     read = lambda name: dict(I.sandbox((ROOT / 'deploy/stage/systemd' / name).read_text().replace('@MDWE@', 'true')))  # noqa: E731
     backup, maint = read('nexloop-file-backup.service.example'), read('nexloop-file-backup-maint.service.example')
-    assert maint.pop('CapabilityBoundingSet') == '' and maint.pop('BindReadOnlyPaths') == I.SECRETS
+    # L6 S1: of /srv/nexloop only repo2's three files (recorder.dsn, repo1's files unreadable), and the SSH key hidden.
+    assert maint.pop('CapabilityBoundingSet') == '' and maint.pop('BindReadOnlyPaths').split() == [f'{I.SECRETS}/{n}' for n in I.REPO2]
+    hidden = maint.pop('InaccessiblePaths').split()
+    assert hidden[0] == '-/var/lib/nexloop-file-backup/.ssh' and hidden[1:] == backup.pop('InaccessiblePaths').split()
     for key in ('AmbientCapabilities', 'CapabilityBoundingSet', 'BindReadOnlyPaths', 'ReadWritePaths'):
         backup.pop(key)
     assert maint == backup

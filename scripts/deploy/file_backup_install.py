@@ -44,7 +44,8 @@ Steps (each idempotent):
     showing data and secrets only, secrets only backup, every InaccessiblePaths= entry and every other secret hidden, both handle
     system calls refused with EPERM (L6 F1: the capability would otherwise open any inode past those mounts), restic the
     pinned version, both repositories open (repo2 initialised when repo2_init); repo2's maintenance once with --dry-run in its own
-    unit's sandbox (ok, nothing removed); then one real run of the service, all four ExecStart lines verified
+    unit's sandbox (ok, nothing removed); then one real run of the service, all four ExecStart lines verified. Any of these
+    failing disables both timers before the run stops (L6 S2: a rerun leaves nothing of an earlier install running on it)
   6 file-backup, file-backup-maint (and provider-drift, when its timer is installed here) in both host-health files (both or
     neither), then `systemctl enable --now nexloop-file-backup.timer nexloop-file-backup-maint.timer`
 --uninstall: both timers, units, drop-ins, env file, release, restic, staging and the secret files removed, the file-backup and
@@ -726,9 +727,15 @@ def install(root, config, secrets, runner, out, trust, trust_python):
         write_private(systemd / name, text, mode=0o644)
     runner(['systemctl', 'daemon-reload'])
     step(4, f'{ENV_FILE} ' + ('written' if env_changed else 'unchanged') + '; units installed')
-    hidden = check_sandbox(root, config, service, version, runner, out)
-    maint_dry_run(root, config, maint, version, runner, out)
-    real_run(runner, out)
+    try:
+        hidden = check_sandbox(root, config, service, version, runner, out)
+        maint_dry_run(root, config, maint, version, runner, out)
+        real_run(runner, out)
+    except Failed as error:
+        # L6 S2: a rerun whose gate fails leaves no timer of an earlier install running on what failed the gate.
+        runner(['systemctl', 'disable', '--now', TIMER, MAINT_TIMER], check=False)
+        print(f'step 5 failed: {TIMER} and {MAINT_TIMER} disabled (an earlier install may have enabled them)', file=out)
+        raise Failed(f'{error}; both timers disabled') from None
     step(5, f'sandbox as the unit ({hidden} paths hidden, the data roots and its own files readable, both repositories open); repo2 maintenance '
          f'dry run ok; one run verified')
     names = ['file-backup', 'file-backup-maint'] + (['provider-drift'] if 'nexloop-provider-drift.timer' in runner(

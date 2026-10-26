@@ -196,7 +196,13 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 - **unit**：`nexloop-file-backup-maint.service` 加 timer，每天 04:07，随机延迟最多 120 秒。
   - 以 `nexloop-file-backup` 身份运行，与文件备份共用同一个 env 文件和同样的 `@…@` 令牌。
-  - 沙箱与 `nexloop-file-backup.service` 相同，包括遮住 `/srv/nexloop`、`InaccessiblePaths`、禁掉两个句柄调用。但更严：它不读数据，所以没有任何能力（`CapabilityBoundingSet=` 为空），`/srv/nexloop` 下只露出 `secrets/backup`，没有可写路径。测试保证两个 unit 只在这几处不同。
+  - 沙箱与 `nexloop-file-backup.service` 相同，包括遮住 `/srv/nexloop`、`InaccessiblePaths`、禁掉两个句柄调用。但更严：
+    - 它不读数据，所以没有任何能力（`CapabilityBoundingSet=` 为空）；
+    - `/srv/nexloop` 下只露出 repo2 的三个文件（仓库、口令、`offsite.env`；L6 S1），读不到 `recorder.dsn` 和 repo1 的口令；
+    - 服务用户的 `~/.ssh` 被 `InaccessiblePaths` 遮住；
+    - 没有可写路径。
+    
+    测试保证两个 unit 只在这几处不同。
 - **入口 `scripts/deploy/file_backup_maint.py`**，按顺序：
   1. `forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune`：每类文件快照各自保留 D4 的窗口；
   2. `check --retry-lock 10m`；
@@ -215,6 +221,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 - **安装器**：
   - 第 4 步安装两个 unit 和两个 timer；
   - 第 5 步在维护 unit 自己的沙箱里跑一次 `--dry-run`（只做 forget 预演，不删除，不 check），不 ok 就不启用任何 timer；
+  - 重跑安装时，第 5 步任一门槛失败（沙箱检查、维护预演、真实运行），都会先 `disable --now` 两个 timer 再退出，输出里写明 `step 5 failed: … disabled`（L6 S2）。这样上一次安装启用的 timer 不会在未通过门槛的配置上继续运行；host-health 随后会报这两个 timer 不新鲜，保持可见；
   - 第 6 步把 `file-backup-maint` 写进两个 host-health 文件，并 `enable --now` 两个 timer；
   - `--uninstall` 移除两个 unit、两个 timer 及其 host-health 条目。
 - **告警规则 v21** = v20 加 `timer_stale_file_backup_maint`（`app_host:file-backup-maint`，26 小时，与 restic-maint 同一口径），共 78 条。失败由通配规则 `timer_scheduled_failure` 覆盖，unit 缺失由 `host_unit_missing` 覆盖。APP_HOST 的两份 host-health 示例都已列入 `file-backup-maint`。
@@ -224,3 +231,17 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - `tests/test_stage_systemd_units.py`：时间错开、`Persistent`；
   - v21 = v20 加一条。
   - 变异验证 27 个，全部杀死。
+
+**每周深度 check 的下载量和费用（L6 S3，估算）**：
+
+- `check --read-data-subset 1/10` 每次随机读出约 1/10 的 pack 数据。数据从 TOS 经公网下载，计公网流出流量和 GET 请求费。
+- 每日的 `check` 不读数据，只下载索引和快照元数据，通常在 MB 量级以下。prune 只下载需要重新打包的 pack，通常也很少。
+- **现有数据量**（调度员 10-26 的主机核对）：Artifact 根目录约 8 KB，Run 根目录约 17 MB。
+  - 每类快照都是当前清单的完整副本，但 restic 会去重和压缩，repo2 的 pack 总量与文件总量同一量级，约 20 MB。
+  - 14 天内新增的数据也只按变化量计入。
+- **每周下载量** ≈ pack 总量 / 10，现在约 2 MB。
+- **费用** ≈ 下载量 × TOS 公网流出单价，再加 GET 请求费（每个 pack 一次请求，现在只有几个到几十个）。
+  - 单价以火山引擎 TOS 当期价目表为准，本文不写死。
+  - 按每 GB 1 元以内的量级估算，现在每周不到 0.01 元。
+- **随数据增长**：每周下载量随 pack 总量线性增长。例如 pack 总量到 10 GB 时，每周约 1 GB，费用按同一单价乘 1 GB。
+  - 如果以后觉得太贵，可以把深度 check 改为每月一次，或者改成 `--read-data-subset 1/20`。属于运维取舍，需要负责人决定。

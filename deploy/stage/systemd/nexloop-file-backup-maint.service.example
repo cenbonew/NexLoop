@@ -3,7 +3,8 @@
 # check --read-data-subset 1/10 too. repo1 is the restore journal's repository and DATA_HOST's nexloop-restic-maint maintains it: the
 # entry refuses anything but an S3 repository. Installed by scripts/deploy/file_backup_install.sh with nexloop-file-backup.service
 # (same user, same env file, same tokens, the D3 sandbox of that unit - a test keeps the settings equal - but stricter, since it reads
-# no data: no capability at all (CapabilityBoundingSet= empty), of /srv/nexloop only secrets/backup, nothing writable). --retry-lock 10m: prune's exclusive lock waits for a file backup round's shared one; the timer (04:07) runs
+# no data: no capability at all (CapabilityBoundingSet= empty), of /srv/nexloop only repo2's three files, its SSH key hidden,
+# nothing writable). --retry-lock 10m: prune's exclusive lock waits for a file backup round's shared one; the timer (04:07) runs
 # between two rounds (every 15 minutes). One JSON line of states and counts, never a secret.
 [Unit]
 Description=NexLoop file backup repo2 maintenance (forget per tag, prune, check; deep check on Sundays)
@@ -37,6 +38,7 @@ SystemCallArchitectures=native
 MemoryDenyWriteExecute=@MDWE@
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 TemporaryFileSystem=/srv/nexloop:ro
-BindReadOnlyPaths=/srv/nexloop/secrets/backup
-InaccessiblePaths=/etc/nexloop -/etc/pgbackrest -/etc/ssl/private -/var/log -/var/lib/nexloop -/srv/nexloop-backup -/var/lib/docker -/var/lib/containerd -/var/lib/nexloop-host-health -/etc/shadow -/etc/gshadow -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_ecdsa_key -/etc/ssh/ssh_host_rsa_key
+# L6 S1: of /srv/nexloop only repo2's three files (not recorder.dsn, not repo1's password); the service user's SSH key hidden too.
+BindReadOnlyPaths=/srv/nexloop/secrets/backup/restic-files-repo2.repository /srv/nexloop/secrets/backup/restic-files-repo2.pass /srv/nexloop/secrets/backup/offsite.env
+InaccessiblePaths=-/var/lib/nexloop-file-backup/.ssh /etc/nexloop -/etc/pgbackrest -/etc/ssl/private -/var/log -/var/lib/nexloop -/srv/nexloop-backup -/var/lib/docker -/var/lib/containerd -/var/lib/nexloop-host-health -/etc/shadow -/etc/gshadow -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_ecdsa_key -/etc/ssh/ssh_host_rsa_key
 UMask=0077
