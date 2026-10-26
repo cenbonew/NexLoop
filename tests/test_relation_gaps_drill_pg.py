@@ -42,3 +42,8 @@ def test_arm_check_clear(catalog):  # noqa: F811
     assert gaps(admin, pg).get(('test', 'Goal'), 0) == 0
     assert admin.execute("select count(*) from ontology.objects where source_system='drill-relgaps'").fetchone()[0] == 0
     assert admin.execute("select count(*) from ontology.objects where world='real'").fetchone()[0] == real_before
+
+
+def test_a_malformed_tenant_is_refused():
+    out = io.StringIO()
+    assert D.main(['check', '--tenant', "x' or '1", '--dsn-stdin'], connect=lambda: None, out=out) == 2 and 'tenant' in out.getvalue()

@@ -18,6 +18,8 @@ objects) - for this drill only:
     and source_ref 'drill-relgaps-consumer' / 'drill-relgaps-goal', ids that are the sha256 of those refs (the relation rules need
     64-hex ids); each mode's first statement asserts world = 'test', and the real world is never read or written;
   - clear deletes only by that source_system in the test world (the BEFORE DELETE trigger takes the Goal's relations with it).
+Side effect (L6 S4): the work feed triggers on ontology.objects write recall-instance items in the test world too - two upserts on
+arm (the Consumer and the Goal) and two deletes on clear; nothing in the real world.
 Each mode is one transaction. arm writes the two objects, fires the deferred relation derivation at once (SET CONSTRAINTS ...
 IMMEDIATE) and deletes the Goal's goal_of: the gap check then counts one gap (world test, type Goal). check is read only: the drill
 Goal without goal_of (1 after arm, 0 after clear). Counts and the fixed refs only are printed; no DSN.
@@ -26,6 +28,7 @@ Exit 0 done, 1 the expected state is not there, 2 refused.
 import argparse
 import hashlib
 import json
+import re
 import sys
 
 class Refused(ValueError):
@@ -72,8 +75,8 @@ def clear(db, tenant):
     with db.transaction():
         assert_test_world(db)
         db.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
-        deleted = db.execute('delete from ontology.objects where tenant_id=%s and world=%s and source_system=%s returning object_id',
-                             (tenant, WORLD, SOURCE)).fetchall()
+        deleted = db.execute('delete from ontology.objects where tenant_id=%s and world=%s and source_system=%s and object_id in (%s,%s) returning object_id',
+                             (tenant, WORLD, SOURCE, CONSUMER, GOAL)).fetchall()
     return len(deleted)
 
 
@@ -83,6 +86,9 @@ def main(argv=None, *, connect=None, stdin=sys.stdin, out=sys.stdout):
     p.add_argument('--tenant', required=True)
     p.add_argument('--dsn-stdin', action='store_true', required=True)
     a = p.parse_args(argv)
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}', a.tenant):
+        print(json.dumps({'refused': '--tenant: a tenant id'}), file=out)
+        return 2
     if connect is None:
         import psycopg
         dsn = stdin.read(8192).strip()
@@ -105,6 +111,7 @@ def run(a, connect, out):
         if a.mode == 'check':
             with db.transaction():
                 db.execute('set transaction read only')
+                assert_test_world(db)
                 n = gap_count(db, a.tenant)
             print(json.dumps({'mode': 'check', 'world': WORLD, 'drill_gaps': n}), file=out)
             return 0
