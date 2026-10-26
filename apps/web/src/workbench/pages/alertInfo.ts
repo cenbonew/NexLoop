@@ -54,6 +54,7 @@ export const ALERT_INFO:Record<string,AlertInfo>={
   wal_archive_failing:I('WAL 归档失败','count','operations','查看备份区块的 WAL 归档。'),
   offsite_backup_age:I('异地备份过旧','seconds','operations','查看备份区块的各仓库最近备份。'),
   file_backup_age:I('文件备份过旧','seconds','operations','查看备份区块。'),
+  file_backup_unprotected:I('有文件对象超过 1 小时未进入备份','seconds','operations','可备份的 Artifact 或已终态 Run 没有被任何 verified 文件快照覆盖；检查 APP_HOST 的 nexloop-file-backup.timer 是否已启用、最近一次是否 verified。'),
   restore_journal_lag:I('恢复日志导出滞后','seconds','operations','查看备份区块。'),
   restore_drill_overdue:I('恢复演练逾期','seconds','operations','安排恢复演练。'),
   backup_verify_failed:I('备份校验失败','count','operations','查看备份区块。'),

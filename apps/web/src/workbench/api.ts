@@ -612,7 +612,7 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
-  'drill_age_seconds','drill_rpo_seconds','drill_rto_seconds'] as const;
+  'file_backup_unprotected_seconds','drill_age_seconds','drill_rpo_seconds','drill_rto_seconds'] as const;
 export type BackupField=typeof BACKUP_FIELDS[number];
 export type Backup={status:'unavailable'}|({status:'ok';verify_failed:number|null;wal_archive_failing:number|null;repo_backup_age_seconds:Record<string,number>}&Record<BackupField,number|null>);
 function backup(value:unknown):Backup{
@@ -625,6 +625,7 @@ function backup(value:unknown):Backup{
 export const BACKUP_UNAVAILABLE_TEXT='没有任何已记录的数据库备份：未加载，不代表没有备份。';
 export const BACKUP_LABELS:Record<BackupField,string>={age_seconds:'最近一次已校验的数据库备份',full_backup_age_seconds:'最近一次完整备份',
   wal_last_archived_age_seconds:'最近一次 WAL 归档',journal_export_lag_seconds:'恢复日志导出延迟',file_backup_age_seconds:'最近一次文件快照',
+  file_backup_unprotected_seconds:'最旧的未备份文件对象（D6）',
   drill_age_seconds:'距上次通过的恢复演练',drill_rpo_seconds:'最近一次演练的 RPO',drill_rto_seconds:'最近一次演练的 RTO'};
 function counts(value:unknown):Record<string,number>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,count(v)]));}
 function maybeCount(value:unknown):number|null{return value===null||value===undefined?null:count(value);}
