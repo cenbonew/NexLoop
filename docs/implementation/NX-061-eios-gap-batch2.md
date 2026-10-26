@@ -143,7 +143,13 @@
 - L5 的 host health（0318，alert-rules v12）已经在 systemd 层面区分定时轮次与手工补跑：同一次触发后的第一次运行才算定时轮次；手工补跑不刷新新鲜度，也不抵消失败计数；从未见过定时成功时失败关闭。
   - 它比上游 `governance_timer_runs`（让任务自己写一行 trigger=timer/manual）更稳健：不依赖任务本身写库，任务在连库之前失败也能看到。
   - 所以**不再另建一张台账**，避免两套口径。
-- **遗漏**：stage 上的 `nexloop-file-backup.timer`（APP_HOST，每 15 分钟一次）不在 L5 的 timer 规则和配置示例中。它的新鲜度只靠 `backup.file_backup_age_seconds`，而**手工运行一次 `nexloop-file-backup` 就会刷新这个值，掩盖定时轮次的失败**，这正是 B9 要防的情况。
+- **遗漏**：文件备份 `nexloop-file-backup.timer`（APP_HOST，设计为每 15 分钟一次；unit 和 timer 的示例在 `deploy/stage/systemd/`）不在 L5 的 timer 规则和配置示例中。它的新鲜度只靠 `backup.file_backup_age_seconds`，而**手工运行一次 `nexloop-file-backup` 就会刷新这个值，掩盖定时轮次的失败**，这正是 B9 要防的情况。
+- **更正（2026-10-26，调度员在 stage 只读核对）**：本节原来写的是“stage 上的 `nexloop-file-backup.timer`”，**这是错的**。
+  - 文件备份在 stage 上**未启用（M12）**：部署日评审 M12 由负责人决定暂不启用（`docs/release/deploy-days-20261015-review.md`），之后也没有启用过；
+  - APP_HOST 上没有这个 unit，也没有执行者用户；`runtime.nexloop_backup_manifests` 里没有任何 `files_*` 行；
+  - 所以 v13 起的 `timer_stale_file_backup` 在 stage 上没有可以监视的对象；
+  - `file_backup_age` 在没有文件类记录时取值为 null，不会触发，doctor 的 `file_backup_recent` 一直为 false；
+  - 启用前需要先解决 `NX-035-file-backup.md` §5 的待定项；部署方案和需要负责人决定的点（D1–D6）已交调度员。
 
 ### 做了什么
 
@@ -159,7 +165,7 @@
 ### 部署（B 类，负责人确认，调度员执行）
 
 1. 由 configurator 发布 alert-rules v13（`apply_rules`）。
-2. 文件备份启用之后，在 APP_HOST 的 `/etc/nexloop/host-health.json` 中加入 `file-backup` 这个 timer，名称必须是 `file-backup`，否则对不上规则的 selector。没有加入时，这条规则不会触发。
+2. 文件备份启用之后（stage 上目前**未启用**，见上文更正），在 APP_HOST 的 `/etc/nexloop/host-health.json` 中加入 `file-backup` 这个 timer，名称必须是 `file-backup`，否则对不上规则的 selector。没有加入时，这条规则不会触发。
 
 ## 汇总回归（B5+B9 提交前）
 
