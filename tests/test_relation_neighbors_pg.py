@@ -2,7 +2,9 @@
 covers. On the workbench fixture with the first batch published: Goals naming the centre Consumer (goal_of derived at their
 insert) appear as the relation group ('incoming', 'goal_of', 'Goal') and no longer as the guessed property group
 ('incoming', 'property:consumer_id', 'Goal'); a link no relation type covers (Consumer.referrer) stays a property group; the
-contract still validates and another verb of the workbench read answers as before."""
+contract still validates and another verb of the workbench read answers as before. L6 review: a Goal without its relation (written in
+replica mode) keeps the property group (the relation group holds fewer), and a MessageAssignment (a type no member derives) in the
+assignment_of relation group is counted invisible (each neighbour's READ is checked)."""
 import jsonschema
 import pytest
 
@@ -38,4 +40,18 @@ def test_covered_links_are_relation_groups_and_the_rest_stay(published, admin): 
         own = {(g['direction'], g['via'], g['type_name']) for g in r.json()['groups']}
         assert ('outgoing', 'property:consumer_id', 'Consumer') not in own and ('outgoing', 'goal_of', 'Consumer') in own
         # Another verb of the wrapped read: unchanged.
+        assert client.get('/api/v1/workbench/objects/Consumer').status_code == 200
+        # A MessageAssignment naming the centre: its relation group checks the neighbour's READ (no member derives the type).
+        assignment = hexid('p4b-assignment')
+        obj(admin, 'MessageAssignment', assignment, {'consumer_id': centre, 'state': 'active'})
+        g = {(x['direction'], x['via'], x['type_name']): x for x in client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').json()['groups']}
+        assert g[('incoming', 'assignment_of', 'MessageAssignment')]['items'] == [] and g[('incoming', 'assignment_of', 'MessageAssignment')]['invisible'] == 1
+        assert assignment not in str(g)
+        # A Goal without its relation (replica: nothing derived): the relation group holds 3, the property group 4 - it stays.
+        with admin.transaction():
+            admin.execute('set local session_replication_role=replica')
+            obj(admin, 'Goal', hexid('p4b-goal-unrelated'), {'consumer_id': centre})
+        g = {(x['direction'], x['via'], x['type_name']): x for x in client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').json()['groups']}
+        prop = g[('incoming', 'property:consumer_id', 'Goal')]
+        assert len(prop['items']) + prop['invisible'] + prop['collapsed'] == 4 and ('incoming', 'goal_of', 'Goal') in g
         assert client.get('/api/v1/workbench/objects/Consumer').status_code == 200

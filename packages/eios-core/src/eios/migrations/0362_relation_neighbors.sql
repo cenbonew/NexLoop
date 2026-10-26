@@ -6,8 +6,10 @@
 --     centre (the centre's type is the source type), or incoming (the neighbour's type is the source type and the centre's the
 --     target type): that link is the relation group now, with its name, direction and cardinality, instead of a guess from a value
 --     that looks like an id;
---   - keeps every other property group (links the first batch has no type for: id arrays, RelationshipAssessment source/target,
---     principals) as before.
+--   - only when that relation group exists and holds at least the property group's total (L6 I-1 b); otherwise, and for every
+--     link the first batch has no type for (id arrays, RelationshipAssessment source/target, principals), the property group stays.
+-- A relation group checks each neighbour's READ, not the READ of the property the relation was derived from (as since 0226 for
+-- relation groups); after P4b a covered link shows through its relation group only (L6 S-3, recorded in relation-read-p4.md §P4b).
 -- The relation groups do not carry their cardinality yet: the published contract workbench-object-neighbors has no such field
 -- (additionalProperties false); adding it is a contract change of its own.
 -- The 25 a group, the totals and the per-object READ checks of the workbench (ADR-025/035) are unchanged. Before P3's backfill
@@ -28,7 +30,12 @@ begin
  where not (g->>'via' like 'property:%' and exists(select 1 from control.nexloop_relation_derivations m where m.tenant_id=p_tenant
     and m.source_property=substring(g->>'via' from 10)
     and ((g->>'direction'='outgoing' and g->>'property_holder'='centre' and m.source_type=p_type and m.target_type=g->>'type_name')
-      or (g->>'direction'='incoming' and g->>'property_holder'='neighbour' and m.source_type=g->>'type_name' and m.target_type=p_type))));
+      or (g->>'direction'='incoming' and g->>'property_holder'='neighbour' and m.source_type=g->>'type_name' and m.target_type=p_type))
+    -- L6 I-1 (b): only when the relation group of that type, direction and neighbour type is there and holds at least as many
+    -- neighbours; otherwise links without their relation (not backfilled, an array element, a value derivation does not take)
+    -- would vanish silently, so the property group stays.
+    and exists(select 1 from jsonb_array_elements(p_value->'groups') r where r->>'via'=m.relation_name and r->>'direction'=g->>'direction'
+      and r->>'type_name'=g->>'type_name' and (r->>'total')::bigint>=(g->>'total')::bigint)));
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return p_value||jsonb_build_object('groups',out);
 end $$;
