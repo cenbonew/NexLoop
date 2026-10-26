@@ -144,9 +144,18 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 退出码：0 完成，1 某步失败，2 拒绝。
 
-### 6.2 DATA_HOST：第 1 步
+### 6.2 DATA_HOST：第 1 步（`scripts/deploy/file_backup_data_host.sh`）
 
-`scripts/deploy/file_backup_data_host.sh` 做三件事：recorder 的 hostssl pg_hba 行、受限的 sftp 账户（chroot），以及 recorder 口令的核对。它是另一个分片。这部分有 root 操作，由负责人执行，或者另行请求授权；形式同样是一条命令加一个配置文件。
+由负责人以 root 执行，一条命令加一个私有配置（`deploy/examples/file-backup-data-host.example.json`，0600 root）。不读取、不写入任何秘密。信任检查与 §6.1 相同：发布检出、`.git`、root 要执行的目录树、解释器都要通过。
+
+| 步 | 内容 |
+|---|---|
+| 1a | **pg_hba（D2）**：用发布中的模板和已部署的 stage.env 重新渲染。渲染结果与已安装的 pg_hba 相比，只能多出这一条 `hostssl … nexloop_backup_recorder <APP_HOST_ADDR>/32 scram-sha-256`，不能删掉任何一行。写入方式与其他 hba 脚本相同：原地写入（同一 inode；旧内容保存为 `config/pg_hba.conf.before-file-backup`），确认容器里看到的是新文件，然后 HUP PostgreSQL 并从日志确认重新加载成功。任一步不成立，就把旧内容原地写回并重新加载。recorder 的口令不变，这里不设置 |
+| 1b | **受限 sftp（D4）**：登录账户就是仓库的属主 `nexloop-backup`，一个仓库只有一个 uid。具体做法：<br>· chroot 目录 `/srv/nexloop-sftp`（root，0755，路径上每一级都属于 root）；<br>· 用 mount unit 把 `repo_path`（恢复日志的 restic 仓库）绑定挂载为 `restic/`（可读写，restic 要写入），挂载选项 `nosuid,nodev,noexec`；备份卷上的其他内容（恢复日志分段等）不在 chroot 里；<br>· 授权公钥 `/etc/ssh/nexloop-authorized-keys/nexloop-backup`，带 `restrict,from="<APP_HOST_ADDR>"`；<br>· sshd drop-in `00-nexloop-file-backup.conf`：`Match User nexloop-backup`（对所有来源地址生效），只认这个密钥文件、只允许公钥认证；`ChrootDirectory`；`ForceCommand internal-sftp -u 0077`；不分配 tty，任何转发都不允许；文件以 `Match all` 结尾。<br>先执行 `sshd -t`，再用 `sshd -T -C user=nexloop-backup,addr=<APP_HOST_ADDR>` 读回实际生效的设置。sshd 对同一个关键字取第一次出现的值，如果别处更早设置了某个值，或者 `AllowUsers`/`DenyUsers` 挡住了这个用户，就拒绝，并恢复原来的 drop-in 和公钥文件。检查通过后才重新加载 sshd |
+
+`--uninstall` 移除 drop-in、授权公钥和 mount unit，并重新加载 sshd；chroot 目录为空时一并删除。pg_hba 中的这一行保留：模板里有它，而 APP_HOST 没有 DSN 时没人能用这一行连接。
+
+**合并顺序提示**：模板加了这一行之后，host-health、sim、evolution 三个 hba 脚本只接受各自的行。如果在本步之前重跑它们中的任何一个，会因为“多出的行不是自己的”而拒绝。所以先执行本步。
 
 ### 6.3 测试与局限
 
@@ -154,5 +163,6 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 在临时根目录下用脚本化的 runner 运行，不需要 root、systemd、数据库或 restic；
   - 信任检查按本测试的 uid 真实执行；tmp_path 以上的目录视为 root 所有，所以在 `--basetemp` 位于 /tmp 时也能通过；
   - 沙箱自检脚本和 unit 入口真实运行，restic 用一个替身脚本。
-- 变异验证：安装器和自检脚本共 40 个变异，全部被测试杀死。
-- **未覆盖**：没有在真实 systemd 下运行沙箱，也没有用真实的 restic 或 sftp。这些都由安装器第 5 步在 APP_HOST 上当场验证；验证不通过，timer 就不启用。
+- `tests/test_file_backup_data_host.py`：DATA_HOST 第 1 步，同样在临时根目录下用脚本化的 runner 运行（没有容器，也没有 sshd）。
+- 变异验证：APP_HOST 安装器和自检脚本共 40 个变异，DATA_HOST 入口 23 个变异，全部被测试杀死。
+- **未覆盖**：没有在真实 systemd 或 sshd 下运行，也没有用真实的 restic、sftp 或 PostgreSQL。这些由 DATA_HOST 第 1 步的 `sshd -T` 读回，以及 APP_HOST 第 5 步当场验证（两个仓库都能打开，真实运行四条都是 verified）；验证不通过，timer 就不启用。

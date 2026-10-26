@@ -2,8 +2,9 @@
 # The bootstrap identity only over the container-local socket (bootstrap, health), with its SCRAM password (the image's
 # initialisation connects as it with POSTGRES_PASSWORD_FILE); never over the network.
 local   all            nexloop_bootstrap                                   scram-sha-256
-# NX-035 (design §4.1): the backup roles only over the container-local socket (pgBackRest in the container, the backup
-# executor on DATA_HOST through the mounted socket directory), with their SCRAM passwords; never over the network.
+# NX-035 (design §4.1): the backup roles over the container-local socket (pgBackRest in the container, the backup executor on
+# DATA_HOST through the mounted socket directory), with their SCRAM passwords; nexloop_backup never over the network, the recorder
+# also from APP_HOST for the file backup (the hostssl line below, owner D2 2026-10-26).
 local   all            nexloop_backup                                      scram-sha-256
 local   all            nexloop_backup_recorder                             scram-sha-256
 # NX-032 §3b: the configurator only over the container-local socket, only while `stage_secrets.py register --bootstrap-dsn-file`
@@ -38,6 +39,11 @@ hostssl __NEXLOOP_DB__ nexloop_sim_worker,nexloop_sim_guard,nexloop_sim_api,nexl
 # certificate, like the simulation roles).
 local   __NEXLOOP_DB__ nexloop_host_recorder_data_host                     scram-sha-256
 hostssl __NEXLOOP_DB__ nexloop_host_recorder_app_host __APP_HOST_ADDR__/32  scram-sha-256
+# NX-035 file backup (owner D2, 2026-10-26; NX-035-file-backup.md §6): the APP_HOST executor reads its inventory and records its rows
+# as the backup recorder (it executes the record and file-inventory functions only), over hostssl with SCRAM from APP_HOST alone
+# (server certificate verify-full on the client; no client certificate, like the host-health recorder). Installed on DATA_HOST by
+# scripts/deploy/file_backup_data_host.sh; the local line above stays for DATA_HOST's own executors.
+hostssl __NEXLOOP_DB__ nexloop_backup_recorder __APP_HOST_ADDR__/32 scram-sha-256
 hostnossl all          all             0.0.0.0/0                           reject
 hostnossl all          all             ::/0                                reject
 host      all          all             0.0.0.0/0                           reject
