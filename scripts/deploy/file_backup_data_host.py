@@ -21,8 +21,9 @@ root's alone, every component lstat'ed (file_backup_install.trust_release and ro
 
 Steps (each idempotent; a rerun converges):
   1a pg_hba: rendered from the release's template with the deployed stage.env; the rendered file may differ from the installed one
-     by this one hostssl line added and nothing removed. Written in place (same inode: the container bind-mounts the single file;
-     the old content kept as config/pg_hba.conf.before-file-backup), checked from inside the container, PostgreSQL HUP'ed and the
+     by this one hostssl line added and nothing removed. config/ is root's alone and neither file a link (L6 I2). Written in place
+     (same inode: the container bind-mounts the single file; opened without following a link; the old content kept, atomically
+     and 0600, as config/pg_hba.conf.before-file-backup), checked from inside the container, PostgreSQL HUP'ed and the
      reload read back from its log; otherwise the old content is written back in place and reloaded.
   1b sftp: /srv/nexloop-sftp (root, 0755, every component root's) with restic/ bind-mounted from repo_path by a mount unit; the
      authorized key /etc/ssh/nexloop-authorized-keys/nexloop-backup (root, 0644; `restrict,from="<APP_HOST_ADDR>"`); the sshd
@@ -111,9 +112,13 @@ def rules(text):
 
 
 def write_in_place(path, text):
-    """The container bind-mounts the single file: same inode, owner and mode; refused when the inode changed."""
+    """The container bind-mounts the single file: same inode, owner and mode; refused when the inode changed. Opened without
+    following a link (L6 I2), and the file opened is checked to be the one lstat saw."""
     before = os.lstat(path).st_ino
-    with open(path, 'r+') as stream:
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'r+') as stream:
+        if os.fstat(fd).st_ino != before:
+            raise Failed('pg_hba: the inode changed while opening')
         stream.seek(0)
         stream.write(text)
         stream.truncate()
@@ -133,13 +138,19 @@ def reload_postgres(runner, sleep):
     return 'received SIGHUP' in logs and not re.search(r'pg_hba\.conf.*(not reloaded|invalid)|could not load pg_hba', logs, re.I)
 
 
-def step_hba(root, config, address, runner, out, sleep):
+def step_hba(root, config, address, runner, out, trust, sleep):
     hba = Path(config['nexloop_root']) / 'config/pg_hba.conf'
+    backup = hba.parent / 'pg_hba.conf.before-file-backup'
     checkout = Path(config['release_checkout'])
+    # L6 I2: the directory root writes in (the backup) and rewrites a file of is root's alone; neither file is a link.
+    trust(hba.parent, what='pg_hba directory')
     if os.path.islink(hba) or not hba.is_file():
         raise Refused(f'{hba}: a regular file')
+    if os.path.islink(backup):
+        raise Refused(f'{backup}: a symbolic link')
     scratch = under(root, SCRATCH)
     scratch.mkdir(parents=True, exist_ok=True)
+    trust(scratch, what='scratch directory')  # L6 I1: no link on the way and root's, before the chmod and before root writes in it
     os.chmod(scratch, 0o700)
     work = Path(tempfile.mkdtemp(dir=scratch, prefix='hba-'))
     try:
@@ -161,8 +172,7 @@ def step_hba(root, config, address, runner, out, sleep):
         return False
     if len(added) != 1 or not HBA_LINE.fullmatch(added[0]) or HBA_LINE.fullmatch(added[0]).group(1) != address:
         raise Failed(f'pg_hba: expected exactly one added rule, the recorder hostssl line from APP_HOST (found {len(added)})')
-    backup = hba.parent / 'pg_hba.conf.before-file-backup'
-    shutil.copy2(hba, backup)
+    A.write_private(backup, installed)  # atomically, 0600 root: a link put there meanwhile is replaced, never followed
     write_in_place(hba, rendered)
     if container_hba(runner) != rendered:
         write_in_place(hba, installed)
@@ -215,13 +225,19 @@ def effective(runner, address):
     return values
 
 
-def check_effective(values):
+def check_effective(values, groups=()):
     problems = [f'{k} is {" ".join(values.get(k, ["unset"]))!r}' for k, v in EFFECTIVE.items() if values.get(k) != [v]]
     allowed = [u for v in values.get('allowusers', []) for u in v.split()]
     if allowed and not any(u.split('@')[0] in (USER, '*') for u in allowed):
         problems.append(f'AllowUsers does not name {USER}')
     if any(u.split('@')[0] in (USER, '*') for v in values.get('denyusers', []) for u in v.split()):
         problems.append(f'DenyUsers names {USER}')
+    # L6 S4: the groups too (the user's groups from `id -nG`).
+    allowed = [g for v in values.get('allowgroups', []) for g in v.split()]
+    if allowed and not any(g in (*groups, '*') for g in allowed):
+        problems.append(f'AllowGroups names none of {USER}\'s groups')
+    if any(g in (*groups, '*') for v in values.get('denygroups', []) for g in v.split()):
+        problems.append(f'DenyGroups names a group of {USER}')
     return problems
 
 
@@ -263,7 +279,7 @@ def step_sftp(root, config, address, runner, out, trust):
     changed = A.write_private(dropin, sshd_dropin(), mode=0o644) or changed
     try:
         runner(['sshd', '-t'])
-        problems = check_effective(effective(runner, address))
+        problems = check_effective(effective(runner, address), runner(['id', '-nG', USER], check=False).split())
         if problems:
             raise Failed('sshd: for nexloop-backup from APP_HOST ' + '; '.join(problems)[:500] + ' (an earlier setting wins in sshd)')
     except (Failed, OSError):
@@ -279,7 +295,7 @@ def step_sftp(root, config, address, runner, out, trust):
 def install(root, config, runner, out, trust, sleep):
     trusted_code(config, trust)
     address = app_host_addr(config)
-    step_hba(root, config, address, runner, out, sleep)
+    step_hba(root, config, address, runner, out, trust, sleep)
     step_sftp(root, config, address, runner, out, trust)
     print('done: DATA_HOST step 1; next on APP_HOST: file_backup_install.sh (NX-035-file-backup.md §6.1)', file=out)
 

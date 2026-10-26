@@ -157,6 +157,27 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 `--uninstall` 移除 drop-in、授权公钥和 mount unit，并重新加载 sshd；chroot 目录为空时一并删除。pg_hba 中的这一行保留：模板里有它，而 APP_HOST 没有 DSN 时没人能用这一行连接。
 
+**pg_hba 的写入（L6 I1、I2）**：临时目录 `/var/lib/nexloop/file-backup-data-host` 先通过信任检查再 chmod，root 才在里面运行渲染；`config/` 目录必须属于 root、组和其他人不可写；`pg_hba.conf` 和备份文件都不能是链接。备份用原子写入（0600 root），写 pg_hba 时以 `O_NOFOLLOW` 打开，并核对打开的 inode 就是 lstat 看到的那个。sshd 的检查也覆盖 `AllowGroups`/`DenyGroups`（按 `id -nG` 列出的组）。
+
+**D4 的代价（L6 S3）**：
+- APP_HOST 的 sftp 密钥对 repo1 有完整的读、写、删除权限。restic 要删除自己的锁文件，sftp 做不到只允许追加。
+- APP_HOST 一旦被攻破，攻击者可以删除或改写 repo1 里的全部快照，包括恢复日志的快照。
+- 不受影响的部分：repo2（S3，凭据独立）；恢复日志分段本身（不在 chroot 里）。
+
+**评估：restic rest-server `--append-only`**：
+- **可行**：
+  - append-only 模式下，rest-server 拒绝删除或覆盖已有对象，锁文件除外；`restic backup` 照常工作。
+  - forget/prune 由 DATA_HOST 本机的 `nexloop-restic-maint` 直接对目录执行，不经过 rest-server，不受影响。
+- **需要新增**：
+  - rest-server 二进制：写入版本锁，安装时核对 sha256，同 D5；
+  - DATA_HOST 上一个 unit：以 `nexloop-backup` 运行，只提供这一个仓库；
+  - TLS 证书：可以用现有的 stage CA 签发；
+  - htpasswd 认证：口令经 stdin；
+  - nft 规则：只允许 APP_HOST 访问它的端口。
+- **APP_HOST 一侧**：仓库文件改为 `rest:https://…`。本步的 sftp 账户和 chroot 随之撤掉。
+- **局限**：仍然可以写入新数据，也可以读取全部快照（restic 口令本来就在 APP_HOST）。它防的只是删除和改写。
+- **建议**：先按 D4 上线。rest-server 作为后续项，由负责人决定，因为它多一个对外服务，也多一个版本锁条目。
+
 **合并顺序提示**：模板加了这一行之后，host-health、sim、evolution 三个 hba 脚本只接受各自的行。如果在本步之前重跑它们中的任何一个，会因为“多出的行不是自己的”而拒绝。所以先执行本步。
 
 ### 6.3 测试与局限

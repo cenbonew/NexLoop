@@ -69,6 +69,8 @@ class Runner:
         if command[1:3] == ['-I', '-B'] and command[3].endswith('render.py'):
             Path(command[command.index('--out') + 1]).write_text(rendered(self.template))
             return ''
+        if command[:2] == ['id', '-nG']:
+            return 'nexloop-backup docker\n'
         if command[:2] == ['id', '-u']:
             return f'{self.user_uid if self.user_uid is not None else os.getuid()}\n'
         if command[:2] == ['docker', 'compose']:
@@ -207,6 +209,9 @@ def test_a_container_or_reload_failure_writes_the_old_content_back(tmp_path, kw,
     (EFFECTIVE_OK.replace('chrootdirectory /srv/nexloop-sftp\n', ''), "chrootdirectory is 'unset'"),
     (EFFECTIVE_OK.replace('allowusers ops nexloop-backup', 'allowusers ops'), 'AllowUsers does not name nexloop-backup'),
     (EFFECTIVE_OK + 'denyusers nexloop-backup\n', 'DenyUsers names nexloop-backup'),
+    # L6 S4: the groups (the stand-in's `id -nG`: nexloop-backup docker).
+    (EFFECTIVE_OK + 'allowgroups ops\n', "AllowGroups names none of nexloop-backup's groups"),
+    (EFFECTIVE_OK + 'denygroups docker\n', 'DenyGroups names a group of nexloop-backup'),
 ])
 def test_an_effective_sshd_setting_other_than_the_drop_in_removes_it(tmp_path, effective, why):
     root, config, hba = setup(tmp_path)
@@ -313,3 +318,61 @@ def test_a_writable_authorized_keys_directory_and_alternates_are_refused(tmp_pat
     (tmp_path / 'a/release/.git/objects/info/alternates').write_text('/elsewhere\n')
     code, text, runner = main(root, config, hba)
     assert code == 2 and 'objects from elsewhere' in text and runner.calls == []
+
+
+def test_allow_groups_naming_one_of_the_users_groups_passes(tmp_path):
+    root, config, hba = setup(tmp_path)
+    code, text, _ = main(root, config, hba, effective=EFFECTIVE_OK + 'allowgroups ops docker\n')
+    assert code == 0, text
+
+
+def test_a_linked_or_writable_scratch_directory_is_refused_before_any_chmod(tmp_path):
+    """L6 I1: /var/lib/nexloop/file-backup-data-host is trusted before root chmods it or writes in it."""
+    root, config, hba = setup(tmp_path)
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    os.chmod(elsewhere, 0o755)
+    (root / 'var/lib/nexloop').mkdir(parents=True)
+    os.symlink(elsewhere, root / 'var/lib/nexloop/file-backup-data-host')
+    code, text, runner = main(root, config, hba)
+    assert code == 2 and 'scratch directory' in text and st.S_IMODE(elsewhere.stat().st_mode) == 0o755 and list(elsewhere.iterdir()) == []
+    assert not any(c[1:3] == ['-I', '-B'] for c in runner.calls)  # render never ran
+    root, config, hba = setup(tmp_path / 'w')
+    scratch = root / 'var/lib/nexloop/file-backup-data-host'
+    scratch.mkdir(parents=True)
+    os.chmod(root / 'var/lib/nexloop', 0o777)
+    code, text, _ = main(root, config, hba)
+    assert code == 2 and 'scratch directory' in text
+
+
+def test_the_pg_hba_directory_is_trusted_and_a_linked_backup_is_refused(tmp_path):
+    """L6 I2: root writes the backup into config/ and rewrites pg_hba there: the directory root's, the backup never a link."""
+    root, config, hba = setup(tmp_path)
+    os.chmod(hba.parent, 0o777)
+    code, text, runner = main(root, config, hba)
+    assert code == 2 and 'pg_hba directory' in text and not any(c[1:3] == ['-I', '-B'] for c in runner.calls)
+    os.chmod(hba.parent, 0o755)
+    target = tmp_path / 'target'
+    target.write_text('not pg_hba\n')
+    os.symlink(target, hba.parent / 'pg_hba.conf.before-file-backup')
+    before = hba.read_text()
+    code, text, _ = main(root, config, hba)
+    assert code == 2 and 'a symbolic link' in text and target.read_text() == 'not pg_hba\n' and hba.read_text() == before
+
+
+def test_the_backup_is_written_atomically_and_private(tmp_path):
+    root, config, hba = setup(tmp_path)
+    before = hba.read_text()
+    assert main(root, config, hba)[0] == 0
+    backup = hba.parent / 'pg_hba.conf.before-file-backup'
+    assert backup.read_text() == before and st.S_IMODE(backup.stat().st_mode) == 0o600 and not backup.is_symlink()
+
+
+def test_write_in_place_never_follows_a_link(tmp_path):
+    target = tmp_path / 'target'
+    target.write_text('kept\n')
+    link = tmp_path / 'pg_hba.conf'
+    os.symlink(target, link)
+    with pytest.raises(OSError):
+        D.write_in_place(link, 'replaced\n')
+    assert target.read_text() == 'kept\n'
