@@ -311,9 +311,10 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
 5. 负责人在 DATA_HOST 执行 `file_backup_data_host.sh <配置> --uninstall`：撤掉 sftp 账户、chroot、sshd drop-in 和 mount unit（pg_hba 那一行保留）。
 
 **版本锁**：
-- `versions.lock.json` 的 `deployment_tools.rest_server`：版本 `0.13.0`，归档 `rest-server_0.13.0_linux_amd64.tar.gz`，来源 `https://github.com/restic/rest-server/releases/tag/v0.13.0`，许可证 BSD-2-Clause。
-- `status` 目前是 `pending_download`，`archive_sha256` 和 `archive_verified` 留空，安装器会拒绝。
-- 调度员下载归档后，用该 release 的 `SHA256SUMS` 及其签名核验，再把摘要、`verified_not_installed` 和核验记录填进去。如果届时有更新的版本，三个字段一起改，安装器和测试都从锁里读，不需要改代码。
+- `versions.lock.json` 的 `deployment_tools.rest_server`：版本 `0.14.0`，归档 `rest-server_0.14.0_linux_amd64.tar.gz`（3799947 字节），来源 `https://github.com/restic/rest-server/releases/tag/v0.14.0`，许可证 BSD-2-Clause。
+- 2026-10-27 已由调度员在 CI 主机上核验：官方 `SHA256SUMS` 的签名者指纹与 restic 0.18.0 相同，gpg 显示 Good signature，归档的 sha256 与其中那一行一致。`status` 为 `verified_not_installed`，摘要和字节数都已记入。
+- 安装器在主机上再核对一次字节数和 sha256。归档必须是 root 所有、组和其他人不可写的副本：下载的文件在另一个账户的 home 里，先用 `install -o root -g root -m 0644` 复制，配置里的 `rest_server_archive` 指向这个副本。
+- 这是 gzip tar 包，不是 restic 那样的 bz2 单文件。安装器在内存里读出其中那一个普通文件 `rest-server`（位于顶层或下一级目录），从不按包内路径解压到磁盘，所以不存在路径穿越。符号链接、硬链接或出现第二个候选都拒绝。
 - `THIRD_PARTY_NOTICES.md` 已重新生成。
 
 **残余风险**：

@@ -321,14 +321,15 @@
       "archive_verified": "2026-10-14 on the administration machine: SHA256SUMS signed by CF8F18F2844575973F79D4E191A6868BD3F7A907 (gpg Good signature), archive sha256 equal to its SHA256SUMS line"
     },
     "rest_server": {
-      "version": "0.13.0",
-      "source": "https://github.com/restic/rest-server/releases/tag/v0.13.0",
+      "version": "0.14.0",
+      "source": "https://github.com/restic/rest-server/releases/tag/v0.14.0",
       "license": "BSD-2-Clause",
-      "status": "pending_download",
-      "archive": "rest-server_0.13.0_linux_amd64.tar.gz",
-      "archive_sha256": "",
-      "archive_verified": "",
-      "purpose": "NX-035 repo1 append-only (owner 2026-10-27): DATA_HOST serves the restore journal's restic repository to APP_HOST's file backup over TLS with --append-only (scripts/deploy/rest_server_data_host.sh). archive_sha256 and archive_verified are filled once the dispatcher has downloaded the official archive and checked it against the release's SHA256SUMS (and its signature) on the administration machine; until then the installer refuses."
+      "status": "verified_not_installed",
+      "archive": "rest-server_0.14.0_linux_amd64.tar.gz",
+      "archive_bytes": 3799947,
+      "archive_sha256": "4c9c95bc079a0334e81fad379b19dc5c3353c71c2c88d652cafce2081c2b1c66",
+      "archive_verified": "2026-10-27 on the CI host: SHA256SUMS signed by CF8F18F2844575973F79D4E191A6868BD3F7A907 (the signer of restic 0.18.0; gpg Good signature), archive sha256 equal to its SHA256SUMS line",
+      "purpose": "NX-035 repo1 append-only (owner 2026-10-27): DATA_HOST serves the restore journal's restic repository to APP_HOST's file backup over TLS with --append-only (scripts/deploy/rest_server_data_host.sh). A gzip tar archive: the installer reads the one regular rest-server file out of it (never extracts by name, refuses a link or a second candidate) from a root-owned copy whose sha256 equals archive_sha256."
     }
   }
 }

@@ -27,8 +27,10 @@ no alternates/commondir/pointer file, git --no-replace-objects in a minimal envi
 before its chmod. Nothing secret is printed or passed as an argument: the password reaches htpasswd on stdin, the key is a file.
 
 Steps (each idempotent):
-  R1 rest-server from the archive whose sha256 the release's versions.lock.json names (deployment_tools.rest_server; an empty digest -
-     not yet verified - is refused), /opt/nexloop/rest-server/<version>/rest-server (root, 0555), its --version read back
+  R1 rest-server from a root-owned copy of the gzip tar archive whose size and sha256 the release's versions.lock.json names
+     (deployment_tools.rest_server; an empty digest - not yet verified - is refused); the one regular rest-server file read out of it in
+     memory (never extracted by name: no traversal; a link or a second candidate refused), /opt/nexloop/rest-server/<version>/rest-server
+     (root, 0555), its --version read back
   R2 /srv/nexloop/secrets/rest-server (root, 0711): server.key (0600 nexloop-backup), server.chain.crt (0644; its SAN names
      DATA_HOST_ADDR, its public key the key's), htpasswd (0600 nexloop-backup)
   R3 /srv/nexloop-rest (root, 0755) with restic/ bind-mounted from repo_path by a mount unit; nothing else there
@@ -137,29 +139,40 @@ def private_file(path, *, what, key=False):
 def lock_entry(config, runner):
     try:
         lock = json.loads(A.git_show(config, 'versions.lock.json', runner))['deployment_tools']['rest_server']
-        version, archive, digest = lock['version'], lock['archive'], lock['archive_sha256']
+        version, archive, digest, size = lock['version'], lock['archive'], lock['archive_sha256'], lock.get('archive_bytes')
     except (ValueError, KeyError, TypeError):
         raise Failed('versions.lock.json at the release commit has no deployment_tools.rest_server') from None
+    if size is not None and (type(size) is not int or size <= 0):
+        raise Failed('versions.lock.json: deployment_tools.rest_server.archive_bytes malformed')
     if not (type(version) is str and re.fullmatch(r'\d+\.\d+\.\d+', version) and archive == f'rest-server_{version}_linux_amd64.tar.gz'):
         raise Failed('versions.lock.json: deployment_tools.rest_server malformed')
     if type(digest) is not str or not re.fullmatch(r'[0-9a-f]{64}', digest):
         raise Refused('versions.lock.json: deployment_tools.rest_server.archive_sha256 is not filled yet (the dispatcher records it once the '
                       'official archive is downloaded and checked); nothing installed')
-    return version, archive, digest
+    return version, archive, digest, size
+
+
+def _candidate(name):
+    """rest-server itself: `rest-server` at the top or one directory down, relative, no `..` and no empty or `.` part."""
+    parts = name.split('/')
+    return (not name.startswith('/') and parts[-1] == 'rest-server' and len(parts) <= 2
+            and all(part not in ('', '.', '..') for part in parts))
 
 
 def rest_server_binary(config, runner):
-    version, archive, digest = lock_entry(config, runner)
+    """The executable out of the gzip tar archive, in memory: it is never extracted by name (no path of the archive reaches the file
+    system), exactly one candidate must exist and it must be a regular file - a link, a hard link or a device is refused."""
+    version, archive, digest, size = lock_entry(config, runner)
     if Path(config['rest_server_archive']).name != archive:
         raise Refused(f'rest_server_archive: the lock names {archive}')
     data = _read_archive(config['rest_server_archive'])
-    if hashlib.sha256(data).hexdigest() != digest:
-        raise Refused(f'rest_server_archive: sha256 differs from versions.lock.json ({archive})')
+    if (size is not None and len(data) != size) or hashlib.sha256(data).hexdigest() != digest:
+        raise Refused(f'rest_server_archive: size or sha256 differs from versions.lock.json ({archive})')
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tar:
-            members = [m for m in tar.getmembers() if m.name == f'rest-server_{version}_linux_amd64/rest-server']
+            members = [m for m in tar.getmembers() if _candidate(m.name)]
             if len(members) != 1 or not members[0].isreg() or members[0].size > 1 << 27:
-                raise Refused('rest_server_archive: no single regular rest-server_<version>_linux_amd64/rest-server in it')
+                raise Refused('rest_server_archive: not exactly one regular rest-server file in it (a link or a second one is refused)')
             return version, tar.extractfile(members[0]).read()
     except (tarfile.TarError, EOFError, OSError):
         raise Refused('rest_server_archive: not a gzip tar archive') from None
@@ -171,8 +184,11 @@ def _read_archive(path):
     except OSError:
         raise Refused('rest_server_archive: unreadable (a regular file, not a link)') from None
     with os.fdopen(fd, 'rb') as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise Refused('rest_server_archive: a regular file')
+        info = os.fstat(stream.fileno())
+        # The dispatcher's download lives in another account's home: root works from its own copy (root's, not group/other-writable).
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
+            raise Refused('rest_server_archive: a regular file of the caller (root), not group/other-writable - copy the download first '
+                          '(install -o root -g root -m 0644 <download> <path>)')
         return stream.read(1 << 28)
 
 

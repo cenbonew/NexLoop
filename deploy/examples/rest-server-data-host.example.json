@@ -1,11 +1,11 @@
 {
   "schema": "nexloop-rest-server-data-host/1",
-  "_comment": "NX-035 repo1 append-only: scripts/deploy/rest_server_data_host.sh on DATA_HOST (owner, root, confirmed in person; NX-035-file-backup.md §6.5). Copy to a private 0600 root file and fill in. stage_env is the deployed private stage.env (APP_HOST_ADDR, DATA_HOST_ADDR). repo_path is the restore journal's restic repository (its config file, owned by nexloop-backup). rest_server_archive is the official archive versions.lock.json names (its sha256 recorded there first). tls_cert_file / tls_key_file: issue_certs.py server --ca-dir <CA_DIR> --out <DIR> --name rest-server --san IP:<DATA_HOST_ADDR> on the management machine, then the .chain.crt and the .key (a 0600 file) copied here. max_size_bytes: rest-server --max-size, about three times the repository's size today. Nothing secret is in this file: the htpasswd password comes on stdin.",
+  "_comment": "NX-035 repo1 append-only: scripts/deploy/rest_server_data_host.sh on DATA_HOST (owner, root, confirmed in person; NX-035-file-backup.md §6.5). Copy to a private 0600 root file and fill in. stage_env is the deployed private stage.env (APP_HOST_ADDR, DATA_HOST_ADDR). repo_path is the restore journal's restic repository (its config file, owned by nexloop-backup). rest_server_archive is a root-owned copy of the official archive versions.lock.json names (size and sha256 recorded there): copy the downloaded file first, install -o root -g root -m 0644 <download> /root/nexloop-tools/<archive name>. tls_cert_file / tls_key_file: issue_certs.py server --ca-dir <CA_DIR> --out <DIR> --name rest-server --san IP:<DATA_HOST_ADDR> on the management machine, then the .chain.crt and the .key (a 0600 file) copied here. max_size_bytes: rest-server --max-size, about three times the repository's size today. Nothing secret is in this file: the htpasswd password comes on stdin.",
   "release_checkout": "/srv/nexloop/release",
   "release_sha": "<40-hex release commit>",
   "stage_env": "<the deployed private stage.env>",
   "repo_path": "/srv/nexloop-backup/files/restic",
-  "rest_server_archive": "/root/rest-server_0.13.0_linux_amd64.tar.gz",
+  "rest_server_archive": "/root/nexloop-tools/rest-server_0.14.0_linux_amd64.tar.gz",
   "tls_cert_file": "/root/rest-server/rest-server.chain.crt",
   "tls_key_file": "/root/rest-server/rest-server.key",
   "port": 8000,

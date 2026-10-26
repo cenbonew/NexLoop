@@ -24,7 +24,9 @@ SHA = 'c' * 40
 APP = '.'.join(('192', '0', '2', '10'))   # TEST-NET-1, built at runtime
 DATA = '.'.join(('192', '0', '2', '20'))
 PASSWORD = 'Rest-Pw_synthetic_0123456789abcdef'
-BINARY = b'#!/bin/sh\necho rest-server version 0.13.0\n'
+LOCK = json.loads((ROOT / 'versions.lock.json').read_text())['deployment_tools']['rest_server']
+VERSION = LOCK['version']
+BINARY = f'#!/bin/sh\necho rest-server version {VERSION}\n'.encode()
 OWNERS = (0, os.getuid())
 KEY_MARK = 'PRIVATE' + ' KEY'  # built at runtime: no key-shaped literal in the repository
 KEY = f'-----BEGIN {KEY_MARK}-----\nsynthetic\n-----END {KEY_MARK}-----\n'
@@ -50,7 +52,7 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
     make_writable(tmp_path)
 
 
-def archive(binary=BINARY, member='rest-server_0.13.0_linux_amd64/rest-server', link=False):
+def archive(binary=BINARY, member=f'rest-server_{VERSION}_linux_amd64/rest-server', link=False, extra=()):
     out = io.BytesIO()
     with tarfile.open(fileobj=out, mode='w:gz') as tar:
         info = tarfile.TarInfo(member)
@@ -60,14 +62,22 @@ def archive(binary=BINARY, member='rest-server_0.13.0_linux_amd64/rest-server', 
         else:
             info.size, info.mode = len(binary), 0o755
             tar.addfile(info, io.BytesIO(binary))
-        readme = tarfile.TarInfo('rest-server_0.13.0_linux_amd64/README.md')
+        for name, kind in extra:
+            other = tarfile.TarInfo(name)
+            if kind == 'hard':
+                other.type, other.linkname = tarfile.LNKTYPE, member
+                tar.addfile(other)
+            else:
+                other.size = len(binary)
+                tar.addfile(other, io.BytesIO(binary))
+        readme = tarfile.TarInfo(f'rest-server_{VERSION}_linux_amd64/README.md')
         readme.size = 6
         tar.addfile(readme, io.BytesIO(b'readme'))
     return out.getvalue()
 
 
 class Runner:
-    def __init__(self, root, *, digest=None, san=None, pubkey=('PUB', 'PUB'), active='active', table=None, version='0.13.0', htpasswd=BCRYPT,
+    def __init__(self, root, *, digest=None, san=None, pubkey=('PUB', 'PUB'), active='active', table=None, version=VERSION, htpasswd=BCRYPT,
                  uid=None):
         self.calls, self.stdin, self.root, self.uid = [], [], root, uid
         self.digest, self.san, self.pubkey, self.active, self.table, self.version, self.htpasswd = digest, san, pubkey, active, table, version, htpasswd
@@ -80,8 +90,9 @@ class Runner:
             path = command[-1].split(':', 1)[1]
             if path == 'versions.lock.json':
                 lock = json.loads((ROOT / path).read_text())
-                if self.digest is not None:
+                if self.digest is not None:  # a synthetic archive: its digest, and no size (the official archive's size is the lock's)
                     lock['deployment_tools']['rest_server']['archive_sha256'] = self.digest
+                    lock['deployment_tools']['rest_server'].pop('archive_bytes', None)
                 return json.dumps(lock)
             return (ROOT / path).read_text()
         if command[:2] == ['id', '-u']:
@@ -126,7 +137,7 @@ def setup(tmp_path, data=None, **over):
     blob = archive() if data is None else data
     cfg = {'schema': R.SCHEMA, 'release_checkout': str(checkout), 'release_sha': SHA,
            'stage_env': str(private(tmp_path / 'stage.env', f'APP_HOST_ADDR={APP}\nDATA_HOST_ADDR={DATA}\n')), 'repo_path': str(repo),
-           'rest_server_archive': str(private(tmp_path / 'download/rest-server_0.13.0_linux_amd64.tar.gz', blob)),
+           'rest_server_archive': str(private(tmp_path / f'download/rest-server_{VERSION}_linux_amd64.tar.gz', blob)),
            'tls_cert_file': str(private(tmp_path / 'pki/rest-server.chain.crt', CERT, 0o644)), 'tls_key_file': str(private(tmp_path / 'pki/rest-server.key', KEY)),
            'port': 8000, 'max_size_bytes': 100 << 30, **over}
     config = private(tmp_path / 'config.json', json.dumps(cfg))
@@ -144,7 +155,7 @@ def test_installs_the_append_only_server_and_a_rerun_changes_nothing(tmp_path):
     root, config, digest = setup(tmp_path)
     code, text, runner = main(root, config, digest=digest)
     assert code == 0, text
-    binary = root / 'opt/nexloop/rest-server/0.13.0/rest-server'
+    binary = root / f'opt/nexloop/rest-server/{VERSION}/rest-server'
     assert binary.read_bytes() == BINARY and st.S_IMODE(binary.stat().st_mode) == 0o555
     secrets = root / 'srv/nexloop/secrets/rest-server'
     assert st.S_IMODE(secrets.stat().st_mode) == 0o711
@@ -165,7 +176,7 @@ def test_installs_the_append_only_server_and_a_rerun_changes_nothing(tmp_path):
     assert rules.index('delete table inet nexloop_rest_server') < rules.index('table inet nexloop_rest_server {')
     assert ['nft', '-c', '-f', str(root / 'etc/nexloop/rest-server.nft')] in runner.calls
     unit = (root / 'etc/systemd/system/nexloop-rest-server.service').read_text()
-    assert (f'ExecStart=/opt/nexloop/rest-server/0.13.0/rest-server --path /srv/nexloop-rest --listen {DATA}:8000 --append-only --tls '
+    assert (f'ExecStart=/opt/nexloop/rest-server/{VERSION}/rest-server --path /srv/nexloop-rest --listen {DATA}:8000 --append-only --tls '
             f'--tls-cert /srv/nexloop/secrets/rest-server/server.chain.crt') in unit and f'--max-size {100 << 30}' in unit
     assert ['systemctl', 'restart', 'nexloop-rest-server.service'] in runner.calls and 'step R5' in text
     code, text, runner = main(root, config, stdin='', digest=digest)
@@ -176,11 +187,14 @@ def test_installs_the_append_only_server_and_a_rerun_changes_nothing(tmp_path):
 
 def test_an_unfilled_lock_digest_or_another_archive_is_refused_before_anything(tmp_path):
     root, config, digest = setup(tmp_path)
-    code, text, runner = main(root, config)  # the lock as it is in the repository: pending, no digest
+    code, text, runner = main(root, config, digest='')  # a pending entry: no digest yet
     assert code == 2 and 'not filled yet' in text and not (root / 'opt').exists()
+    code, text, _ = main(root, config)  # the real lock's digest is the official archive's, not this synthetic one
+    assert code == 2 and 'sha256 differs' in text and not (root / 'opt').exists()
     code, text, _ = main(root, config, digest='0' * 64)
     assert code == 2 and 'sha256 differs' in text and not (root / 'opt').exists()
-    for n, blob in enumerate((archive(member='rest-server'), archive(link=True), b'not a tar archive')):
+    for n, blob in enumerate((archive(member='../rest-server'), archive(member='/rest-server'), archive(member='a/b/rest-server'), archive(link=True),
+                              archive(extra=[('rest-server', 'file')]), archive(extra=[('rest-server', 'hard')]), b'not a tar archive')):
         root, config, digest = setup(tmp_path / str(n), data=blob)
         code, text, _ = main(root, config, digest=digest)
         assert code == 2 and 'rest_server_archive' in text and not (root / 'opt').exists(), text
@@ -191,10 +205,10 @@ def test_an_unfilled_lock_digest_or_another_archive_is_refused_before_anything(t
     cfg['rest_server_archive'] = str(renamed)
     private(Path(config), json.dumps(cfg))
     code, text, _ = main(root, config, digest=digest)  # the same bytes under another name: not the archive the lock names
-    assert code == 2 and 'the lock names rest-server_0.13.0_linux_amd64.tar.gz' in text
+    assert code == 2 and f'the lock names rest-server_{VERSION}_linux_amd64.tar.gz' in text
     root, config, digest = setup(tmp_path / 'v')
     code, text, _ = main(root, config, digest=digest, version='0.12.1')
-    assert code == 1 and 'does not name 0.13.0' in text
+    assert code == 1 and f'does not name {VERSION}' in text
 
 
 @pytest.mark.parametrize('kw, why', [
@@ -292,4 +306,38 @@ def test_the_unit_is_append_only_tls_and_sandboxed():
     assert 'ExecStartPre=+/usr/sbin/nft -f /etc/nexloop/rest-server.nft' in text and 'ExecStopPost=-+/usr/sbin/nft delete table inet nexloop_rest_server' in text
     assert 'SystemCallFilter=~open_by_handle_at name_to_handle_at' in text and 'MemoryDenyWriteExecute=true' in text
     with pytest.raises(R.Failed, match='unfilled token'):
-        R.render_unit(text.replace('@MAX_SIZE@', '@OTHER@'), '0.13.0', DATA, {'port': 8000, 'max_size_bytes': 1 << 30})
+        R.render_unit(text.replace('@MAX_SIZE@', '@OTHER@'), VERSION, DATA, {'port': 8000, 'max_size_bytes': 1 << 30})
+
+
+
+def test_the_binary_may_sit_at_the_top_of_the_archive_and_the_copy_must_be_roots(tmp_path):
+    root, config, digest = setup(tmp_path, data=archive(member='rest-server'))
+    assert main(root, config, digest=digest)[0] == 0
+    root, config, digest = setup(tmp_path / 'g')
+    os.chmod(json.loads(Path(config).read_text())['rest_server_archive'], 0o664)  # still another account's download
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 2 and 'a regular file of the caller (root)' in text and not (root / 'opt').exists()
+
+
+@pytest.mark.parametrize('delta, code', [(1, 2), (0, 0), ('-size', 1)])
+def test_the_size_in_the_lock_is_checked(tmp_path, delta, code):
+    root, config, digest = setup(tmp_path)
+    runner = Runner(root, digest=digest)
+    real = runner.__call__
+
+    def lock_with_size(command, **kw):
+        out = real(command, **kw)
+        if command[:2] == ['env', '-i'] and command[-1].endswith(':versions.lock.json'):
+            lock = json.loads(out)
+            size = len(Path(json.loads(Path(config).read_text())['rest_server_archive']).read_bytes())
+            lock['deployment_tools']['rest_server']['archive_bytes'] = -size if delta == '-size' else size + delta  # -size: malformed
+            return json.dumps(lock)
+        return out
+    got, text, _ = main(root, config, runner=lock_with_size)
+    assert got == code, text
+    assert ('size or sha256 differs' in text) == (delta == 1) and ('archive_bytes malformed' in text) == (delta == '-size')
+
+
+def test_the_repository_lock_names_the_verified_official_archive():
+    assert LOCK['status'] == 'verified_not_installed' and LOCK['archive'] == f'rest-server_{VERSION}_linux_amd64.tar.gz'
+    assert len(LOCK['archive_sha256']) == 64 and type(LOCK['archive_bytes']) is int and LOCK['archive_bytes'] > 0
