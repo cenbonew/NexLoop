@@ -1,6 +1,6 @@
 # NX-035 D6：文件备份兜底告警 `file_backup_unprotected`
 
-分支 `l7/file-backup-alert`，从 main 1a391ee1 切出。迁移 `0360_file_backup_unprotected.sql` 是临时编号，合入时由调度员重编号。告警规则 v20 = v19（76 条）加这一条，共 77 条。
+分支 `l7/file-backup-alert`，从 main 1a391ee1 切出。迁移 `0361_file_backup_unprotected.sql` 是临时编号，合入时由调度员重编号。告警规则 v20 = v19（76 条）加这一条，共 77 条。
 
 依据：负责人 2026-10-26 的 D6——先启用文件备份；"有可备份对象却从未有过 verified 文件备份"的告警另开一项，放进下一个规则版本。
 
