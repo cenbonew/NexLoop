@@ -680,6 +680,18 @@
   },
   {
    "method": "GET",
+   "path": "/api/v1/workbench/members",
+   "handler": "nexloop_eios.workbench_http:members",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "port",
+    "port": "backend.workbench:members"
+   },
+   "purpose": "Workbench read: members (WorkbenchQueries.members)",
+   "source_task": "NX-058"
+  },
+  {
+   "method": "GET",
    "path": "/api/v1/workbench/metrics",
    "handler": "nexloop_eios.workbench_http:metrics",
    "realm": "workbench_session",
