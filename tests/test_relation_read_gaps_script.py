@@ -74,6 +74,15 @@ def test_evidence_is_kept_30_days(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ['2026-09-26.json', '2026-10-25.json', '2026-10-26.json', 'notes.txt']
 
 
+def test_a_failed_prune_is_a_warning_only(tmp_path, monkeypatch):
+    def refuse(self, missing_ok=False):
+        raise PermissionError('read-only')
+    (tmp_path / '2026-01-01.json').write_text('{}')
+    monkeypatch.setattr(Path, 'unlink', refuse)
+    code, _, got, err = run(tmp_path, doc(0))
+    assert code == 0 and got['evidence'] and '<4>nexloop-relation-read-gaps evidence_prune_failed error=PermissionError' in err
+
+
 def test_gaps_exit_1_with_a_journal_line(tmp_path):
     code, _, got, err = run(tmp_path, doc(3))
     assert code == 1 and err.strip() == '<3>nexloop-relation-read-gaps gaps=3 worlds=1'

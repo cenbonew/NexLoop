@@ -50,11 +50,18 @@ def write_evidence(directory, doc, now):
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise
-    keep_after = (now.date() - timedelta(days=KEEP_DAYS)).isoformat()
-    for old in directory.glob('????-??-??.json'):
-        if old.stem < keep_after:
-            old.unlink(missing_ok=True)
     return target
+
+
+def prune_evidence(directory, now, err):
+    """Evidence older than 30 days goes; a failure here is a warning only (L6 S-3): today's check and its evidence stand."""
+    keep_after = (now.date() - timedelta(days=KEEP_DAYS)).isoformat()
+    try:
+        for old in Path(directory).glob('????-??-??.json'):
+            if old.stem < keep_after:
+                old.unlink(missing_ok=True)
+    except OSError as error:
+        print('<4>nexloop-relation-read-gaps evidence_prune_failed error=' + type(error).__name__, file=err, flush=True)
 
 
 def main(argv=None, *, connect=None, clock=None, out=sys.stdout, err=sys.stderr):
@@ -79,6 +86,7 @@ def main(argv=None, *, connect=None, clock=None, out=sys.stdout, err=sys.stderr)
         print('<3>nexloop-relation-read-gaps evidence_unwritten error=' + type(error).__name__, file=err, flush=True)
         print(json.dumps({**doc, 'evidence': None}, sort_keys=True), file=out)
         return 2
+    prune_evidence(a.evidence_dir, now, err)
     print(json.dumps({**doc, 'evidence': str(path)}, sort_keys=True), file=out)
     if doc['gaps']:
         worlds = len({r['world'] for r in doc['rows'] if r['gaps']})

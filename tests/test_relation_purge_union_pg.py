@@ -40,6 +40,16 @@ def seed(admin):
     relation(admin, 'goal_of', 'Goal', ids['theirs'], 'Consumer', other)
     stock(admin, 'Commitment', ids['commitment'], {'status': 'open'})
     relation(admin, 'commitment_to', 'Commitment', ids['commitment'], 'Consumer', consumer)
+    # L6 S-1: an ownership relation with a Consumer source (no such type in the first batch; a test-only type written as owner):
+    # other -> consumer. The reverse walk ends at that Consumer, so other's Goal is never the erased Consumer's.
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        admin.execute("""insert into ontology.relation_type_versions(tenant_id,relation_name,version,definition) values(%s,'test_consumer_owner',1,
+            '{"relation_name":"test_consumer_owner","source_type":"Consumer","target_type":"Consumer","cardinality":"many_to_one","version":1,
+              "description":"test only","inverse_name":"","properties":[]}')""", (TENANT_A,))
+        admin.execute("""insert into control.nexloop_relation_type_profiles(tenant_id,relation_name,version,source_property,consumer_ownership)
+            values(%s,'test_consumer_owner',1,null,'target')""", (TENANT_A,))
+    relation(admin, 'test_consumer_owner', 'Consumer', other, 'Consumer', consumer)
     return consumer, ids
 
 
@@ -88,10 +98,18 @@ def test_the_purge_takes_the_frozen_relation_targets_batch_by_batch(catalog, sta
     targets = frozen(admin)
     assert {('Goal', ids['goal']), ('Conversation', ids['conversation']), ('Message', ids['message']),
             ('RelationshipAssessment', ids['assessment']), ('Commitment', ids['commitment'])} <= targets
-    assert ('Goal', ids['theirs']) not in targets and all(t != 'Consumer' for t, _ in targets)
+    assert ('Goal', ids['theirs']) not in targets  # behind the Consumer source: the walk stopped there (S-1)
     if start == 'messages':
         # The chain cut as the messages phase cuts it (the relations of an erased Message): the frozen targets still hold.
         admin.execute("delete from ontology.relations where relation_name in ('message_in','assessment_evidence')")
     got = run_to(admin, 'relay')
     assert got.get('phase') == 'relay', got
     assert_purged(admin, ids, commitments_ran=start == 'messages')
+    # L6 S-2: on to completed; the frozen targets go with the consumer phase.
+    for _ in range(200):
+        got = step(admin)
+        if got.get('state') == 'completed' or not got.get('progress'):
+            break
+    state = admin.execute("select state from control.nexloop_consumer_erasures where request_id='purge-union'").fetchone()[0]
+    assert state == 'completed', got
+    assert frozen(admin) == set()
