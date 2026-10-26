@@ -133,3 +133,18 @@ def test_inside_a_request_only_the_allowed_kinds_come_from_the_runs_entries():
         role_runs.scoped_envelope(('catalog', 1), compute('catalog'))
     assert calls[7:] == ['catalog']
     assert role_runs.EFFECT_REUSE_KINDS == {'relationship', 'context_formal', 'catalog'}
+
+
+def test_an_entry_with_less_than_the_margin_left_is_rebuilt_and_one_with_more_is_reused():
+    """ADR-029 rule (RUN_ENVELOPE_MARGIN 5 s) on the effect request path: 4 s left is rebuilt, 6 s left is reused."""
+    from datetime import UTC, datetime, timedelta
+    assert role_runs.RUN_ENVELOPE_MARGIN == 5.0
+    for left, reused in ((4, False), (6, True)):
+        role_runs._run_envelopes.clear()
+        cached = envelope(left)
+        role_runs._run_envelopes[('run-m', 'catalog', 1)] = (cached, datetime.now(UTC) + timedelta(seconds=left))
+        fresh = envelope(20)
+        with role_runs.request_envelope_scope(), role_runs.run_envelope_scope('run-m', kinds=role_runs.EFFECT_REUSE_KINDS) as used:
+            got = role_runs.scoped_envelope(('catalog', 1), lambda: fresh)
+        assert (got is cached, used == ['catalog']) == (reused, reused), left
+        assert role_runs._run_envelopes[('run-m', 'catalog', 1)][0] is (cached if reused else fresh)
