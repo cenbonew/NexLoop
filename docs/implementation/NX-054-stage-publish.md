@@ -211,7 +211,7 @@ P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，
 
 1. **前置的只读核对**（调度员，经 metrics DSN 本身）：`psql "$(cat <G-METRICS-DSN 文件>)" -Atc "select session_user, pg_is_in_recovery()"`，预期第一列是 `nexloop_metrics`。能连上就说明这个登录角色存在、凭据有效；DSN 文件本身不打印。
 2. **配置文件**：把 `deploy/examples/relation-gaps-install.data-host.example.json` 复制成 root 的 0600 私有文件，填入 `release_sha`（release 47 的提交）、`tenant_id`、`host_health_install_config`（DATA_HOST 上 host-health 安装配置的实际路径）。`metrics_dsn_file` 指向已有的 G-METRICS-DSN 文件；安装器以 root 读取它，复制成 `/etc/nexloop/relation-gaps/metrics.dsn`（0600，属主为单元用户），**不打印、不进 argv**。如果 DATA_HOST 上没有这个文件，就去掉这一项，改用 `--dsn-stdin`，由负责人从 Keychain 经管道传入：`security find-generic-password -s nexloop -a <metrics 条目> -w | sudo bash ... --dsn-stdin`（管道传入的是一整行 DSN）。
-3. **一条命令**：`sudo bash <release>/scripts/deploy/relation_gaps_install.sh <配置>`。七步：系统用户 `nexloop-relation-gaps`；`/opt/nexloop/relation-gaps/<sha>/`（只读）；DSN；证据目录；unit 与 timer；把 `relation-read-gaps` 加进 `/etc/nexloop/host-health.json` 与 host-health 安装配置的 timers（下次重装 host-health 也会保留）；以单元用户、在单元的沙箱里先跑一次，再 `enable --now` timer。重复执行不会重复写入。
+3. **一条命令**：`sudo bash <release>/scripts/deploy/relation_gaps_install.sh <配置>`。安装器只用标准库，开始前先核对 release 检出和它的 `.git`（每个目录，以及 objects/ 以外的每个文件）都只属于 root、不可被组或其他人写；`git show` 带 `--no-replace-objects`；单元的解释器（host-health venv 的 `bin/python`，是符号链接链）核对路径上每个目录与链接、以及真实文件都属于 root。七步：系统用户 `nexloop-relation-gaps`（`--uninstall` 不删除它）；`/opt/nexloop/relation-gaps/<sha>/`（只读）；DSN；证据目录；unit 与 timer；把 `relation-read-gaps` 加进 `/etc/nexloop/host-health.json` 与 host-health 安装配置的 timers（下次重装 host-health 也会保留）；以单元用户、在单元的沙箱里先跑一次，再 `enable --now` timer。重复执行不会重复写入。
 
 ### 9.2 演练（设计稿 §2.5）
 

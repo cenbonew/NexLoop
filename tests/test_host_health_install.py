@@ -45,6 +45,7 @@ class Runner:
         self.calls.append(list(command))
         self.stdins.append(stdin)
         if command[0] == 'git':
+            assert command[1] == '--no-replace-objects'  # L6 (relation gaps install review I2)
             return (ROOT / command[-1].split(':', 1)[1]).read_text()
         if command[1:3] == ['-m', 'venv']:
             (Path(command[3]) / 'bin').mkdir(parents=True)
@@ -310,7 +311,7 @@ def test_root_executes_only_root_owned_code(tmp_path):
     code, text, runner = install(tmp_path, example('data-host'), f'data_host\t{DATA_PW}\napp_host\t{APP_PW}\n')
     assert code == 0, text
     what = {w for w, _ in TRUSTED}
-    assert {'release_checkout', 'python', 'installer', 'release base'} <= what
+    assert {'release_checkout', 'release .git', 'python', 'installer', 'release base'} <= what
     assert ('release_checkout', '/srv/release') in TRUSTED and ('python', example('data-host')['python']) in TRUSTED
     # The real check: this test's files are not uid 0 (refused); a symbolic link is refused too.
     with pytest.raises(I.Refused, match='owned by root'):

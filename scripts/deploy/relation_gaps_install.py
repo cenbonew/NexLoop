@@ -10,25 +10,30 @@ docs/implementation/NX-054-stage-publish.md §9). Run as root through relation_g
 
 Private configuration (JSON, 0600 root; deploy/examples/relation-gaps-install.data-host.example.json): schema
 nexloop-relation-gaps-install/1, release_checkout + release_sha (the git checkout and the 40-hex release commit), python (the
-interpreter of the unit: the host-health venv, which has psycopg), tenant_id, evidence_dir, metrics_dsn_file (the existing
-G-METRICS-DSN file: nexloop_metrics over the host's socket; or --dsn-stdin), host_health_config (the probe's
-/etc/nexloop/host-health.json) and host_health_install_config (the host-health install configuration, so a later host-health
-reinstall keeps the timer).
+interpreter of the unit: the host-health venv's bin/python, which has psycopg - a symbolic link chain is fine, see below), tenant_id,
+evidence_dir, metrics_dsn_file (the existing G-METRICS-DSN file: nexloop_metrics over the host's socket; or --dsn-stdin),
+host_health_config (the probe's /etc/nexloop/host-health.json) and host_health_install_config (the host-health install
+configuration, so a later host-health reinstall keeps the timer).
+
+Trust (root runs this code; L6 review of 861be53e): stdlib only, nothing imported from outside it. Before anything, the release
+checkout and its .git (every directory, and every file outside objects/) must be root's alone; `git show` runs with
+--no-replace-objects. Root never executes the unit's interpreter (the service user does, in the sandbox), so `python` may be a link
+chain: its real file must be root's and not group/other-writable, and so must every directory on its path and on the real path.
 
 Steps (each idempotent):
-  1 the system user nexloop-relation-gaps (no home, no shell)
+  1 the system user nexloop-relation-gaps (no home, no shell; --uninstall keeps it)
   2 release: /opt/nexloop/relation-gaps/<sha>/ with relation_read_gaps.py, relation_reads.py and nexloop_eios/private_configuration.py
-    from `git show <sha>:...` (stdlib only besides psycopg from the interpreter); root:root, read-only; `current` -> <sha>
-  3 /etc/nexloop/relation-gaps/metrics.dsn (0600, the unit's user): a DSN naming user nexloop_metrics, written only when it changed
-  4 the evidence directory (0750, the unit's user)
+    from the release commit; root:root, read-only; a reused release is checked file by file against the commit; `current` -> <sha>
+  3 /etc/nexloop/relation-gaps/ (root, 0711) with metrics.dsn (0600, the service user): one DSN line with exactly one user=, that user
+    nexloop_metrics; written only when it changed
+  4 the evidence directory (0750, the service user)
   5 the unit and timer from the release's deploy/stage/systemd/nexloop-relation-read-gaps.*.example (tokens filled); daemon-reload
-  6 relation-read-gaps in the host-health timers (both files above; 0600 kept), so each scheduled run is recorded and
-    timer_scheduled_failure / timer_stale_relation_read_gaps apply
-  7 one dry run as the unit's user with the unit's sandbox (systemd-run), its evidence in a scratch directory: exit 0 or 1 (gaps) go
-    on, 2 (refused, unwritten evidence) stops; then `systemctl enable --now nexloop-relation-read-gaps.timer`
+  6 relation-read-gaps in the host-health timers (both files above; 0600 kept; the second write failing restores the first)
+  7 one dry run in the unit's own sandbox (its [Service] settings as systemd-run properties, the evidence in a scratch directory):
+    exit 0 or 1 (gaps) go on, 2 (refused, unwritten evidence) stops; then `systemctl enable --now nexloop-relation-read-gaps.timer`
 --drill-arm N: a drop-in nexloop-relation-read-gaps.timer.d/50-drill.conf adds one OnCalendar N minutes from now (the timer itself
 fires, so host-health sees a scheduled run); --drill-clear removes it. --uninstall: timer, units, drop-ins, DSN and release removed,
-the host-health entries taken out; the evidence stays.
+the host-health entries taken out; the evidence and the system user stay.
 Output: step lines and the dry run's counts; never the DSN or a password. Exit 0 done, 1 a step failed, 2 refused.
 """
 from __future__ import annotations
@@ -39,27 +44,120 @@ import json
 import os
 import re
 import shutil
+import stat
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
-
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-from host_health_install import Failed, Refused, read_private_json, root_owned, run, write_private  # noqa: E402
 
 SCHEMA = 'nexloop-relation-gaps-install/1'
 USER = 'nexloop-relation-gaps'
 SHA = re.compile(r'[0-9a-f]{40}')
 PATH = re.compile(r'/[A-Za-z0-9._/@-]+')
 TENANT = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}')
-FILES = {'scripts/acceptance/relation_read_gaps.py': 'scripts/acceptance/relation_read_gaps.py',
-         'scripts/acceptance/relation_reads.py': 'scripts/acceptance/relation_reads.py',
-         'packages/eios-core/src/nexloop_eios/__init__.py': 'packages/eios-core/src/nexloop_eios/__init__.py',
-         'packages/eios-core/src/nexloop_eios/private_configuration.py': 'packages/eios-core/src/nexloop_eios/private_configuration.py'}
+FILES = ('scripts/acceptance/relation_read_gaps.py', 'scripts/acceptance/relation_reads.py',
+         'packages/eios-core/src/nexloop_eios/__init__.py', 'packages/eios-core/src/nexloop_eios/private_configuration.py')
 UNITS = {'nexloop-relation-read-gaps.service': 'deploy/stage/systemd/nexloop-relation-read-gaps.service.example',
          'nexloop-relation-read-gaps.timer': 'deploy/stage/systemd/nexloop-relation-read-gaps.timer.example'}
 ENTRY = {'name': 'relation-read-gaps', 'timer': 'nexloop-relation-read-gaps.timer', 'service': 'nexloop-relation-read-gaps.service'}
-DSN_USER = re.compile(r"""(^|\s)user\s*=\s*'?nexloop_metrics'?(\s|$)""")
+USER_KEY = re.compile(r"""(?:^|\s)user\s*=\s*('?)([^'\s]*)\1(?=\s|$)""")
+SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'TimeoutStartSec', 'ReadWritePaths'}
+
+
+class Refused(ValueError):
+    pass
+
+
+class Failed(RuntimeError):
+    pass
+
+
+def run(command, *, stdin=None, check=True):
+    done = subprocess.run(command, input=stdin, capture_output=True, text=True, check=False)
+    if check and done.returncode != 0:
+        raise Failed(f'{Path(command[0]).name} exited {done.returncode}')
+    return done.stdout
+
+
+def _owned(info, owners):
+    return info.st_uid in owners and not info.st_mode & 0o022
+
+
+def root_owned(path, *, what, owners=(0,)):
+    """Root's alone: owner root, nothing group/other-writable, no symbolic link on the way (lstat, never followed)."""
+    path = Path(os.path.abspath(path))
+    for part in [path, *path.parents]:
+        try:
+            info = os.lstat(part)
+        except OSError:
+            raise Refused(f'{what}: {part} unreadable') from None
+        if stat.S_ISLNK(info.st_mode):
+            raise Refused(f'{what}: {part} is a symbolic link (give the real path)')
+        if not _owned(info, owners):
+            raise Refused(f'{what}: {part} must be owned by root and not group/other-writable')
+
+
+def interpreter_owned(path, *, what, owners=(0,)):
+    """L6 C1: the unit's interpreter, run by the service user and never by root, may be a link chain (the host-health venv's
+    bin/python -> python3 -> /usr/bin/python3.12, current -> <sha>). Every directory on the written path (followed) and every link on
+    it (the link itself) must be root's and not group/other-writable, and the real file and its directories too."""
+    path = Path(os.path.abspath(path))
+    for part in reversed(path.parents):
+        try:
+            followed, link = os.stat(part), os.lstat(part)
+        except OSError:
+            raise Refused(f'{what}: {part} unreadable') from None
+        if not _owned(followed, owners) or (stat.S_ISLNK(link.st_mode) and link.st_uid not in owners):
+            raise Refused(f'{what}: {part} must be owned by root and not group/other-writable')
+    try:
+        link = os.lstat(path)
+    except OSError:
+        raise Refused(f'{what}: {path} unreadable') from None
+    if stat.S_ISLNK(link.st_mode) and link.st_uid not in owners:
+        raise Refused(f'{what}: {path} must be owned by root')
+    real = Path(os.path.realpath(path))
+    root_owned(real, what=what, owners=owners)
+    if not stat.S_ISREG(os.stat(real).st_mode):
+        raise Refused(f'{what}: {real} is not a regular file')
+
+
+def trust_release(config, trust):
+    """The checkout and its .git (L6 I2): every directory, and every file outside objects/ (refs, config, hooks, packed-refs)."""
+    checkout = Path(config['release_checkout'])
+    trust(checkout, what='release_checkout')
+    git = checkout / '.git'
+    trust(git, what='release .git')
+    for path in sorted(git.rglob('*')):
+        if path.is_dir() or not str(path.relative_to(git)).startswith('objects/'):
+            trust(path, what='release .git')
+
+
+def read_private_json(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        raise Refused(f'{path}: unreadable') from None
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.geteuid():
+            raise Refused(f'{path}: a regular 0600 file of the caller')
+        try:
+            return json.loads(stream.read(1 << 16))
+        except ValueError:
+            raise Refused(f'{path}: not JSON') from None
+
+
+def write_private(path, text, mode=0o600):
+    """Atomically; returns whether the content changed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.read_text() == text:
+        return False
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix='.' + path.name)
+    with os.fdopen(fd, 'w') as stream:
+        stream.write(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+    return True
 
 
 def load_config(path):
@@ -89,13 +187,15 @@ def read_dsn(config, dsn_stdin, stdin):
     else:
         raise Refused('the metrics DSN: metrics_dsn_file in the configuration, or --dsn-stdin')
     lines = [line for line in text.splitlines() if line.strip()]
-    if len(lines) != 1 or not DSN_USER.search(lines[0]) or any(c in lines[0] for c in '\r\0'):
-        raise Refused('the metrics DSN: one line naming user nexloop_metrics')  # the DSN itself is never printed
+    users = USER_KEY.findall(lines[0]) if len(lines) == 1 else []
+    if len(lines) != 1 or len(users) != 1 or users[0][1] != 'nexloop_metrics' or len(re.findall(r'(?:^|\s)user\s*=', lines[0])) != 1 \
+            or any(c in lines[0] for c in '\r\0'):
+        raise Refused('the metrics DSN: one line with exactly one user=, nexloop_metrics')  # the DSN itself is never printed
     return lines[0].strip() + '\n'
 
 
 def git_show(config, path, runner):
-    return runner(['git', '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
+    return runner(['git', '--no-replace-objects', '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
 
 
 def release(root, config, runner, trust):
@@ -103,29 +203,34 @@ def release(root, config, runner, trust):
     target = base / config['release_sha']
     base.mkdir(parents=True, exist_ok=True)
     trust(base, what='release base')
-    if not (target / '.complete').exists():
+    wanted = {**{f: git_show(config, f, runner) for f in FILES}, **{'units/' + u: git_show(config, s, runner) for u, s in UNITS.items()}}
+    if (target / '.complete').exists():
+        # S3: a reused release, file by file against the commit (and root's alone).
+        for name, text in wanted.items():
+            trust(target / name, what='release')
+            if (target / name).read_text() != text:
+                raise Failed(f'release {config["release_sha"][:12]}: {name} differs from the commit (remove {target} and rerun)')
+    else:
         if target.exists():
+            for path in [target, *target.rglob('*')]:
+                os.chmod(path, 0o700 if path.is_dir() else 0o600)
             shutil.rmtree(target)
         work = Path(tempfile.mkdtemp(dir=base, prefix='.build-'))
-        for published, source in FILES.items():
-            (work / published).parent.mkdir(parents=True, exist_ok=True)
-            (work / published).write_text(git_show(config, source, runner))
-        for unit, source in UNITS.items():
-            (work / 'units' / unit).parent.mkdir(parents=True, exist_ok=True)
-            (work / 'units' / unit).write_text(git_show(config, source, runner))
+        for name, text in wanted.items():
+            (work / name).parent.mkdir(parents=True, exist_ok=True)
+            (work / name).write_text(text)
         (work / '.complete').write_text(config['release_sha'] + '\n')
         for path in sorted(work.rglob('*'), reverse=True):
             os.chmod(path, 0o555 if path.is_dir() else 0o444)
         os.chmod(work, 0o555)
         os.replace(work, target)
     current = base / 'current'
-    if current.is_symlink() and os.readlink(current) == config['release_sha']:
-        return target
-    tmp = base / '.current'
-    if tmp.is_symlink() or tmp.exists():
-        tmp.unlink()
-    os.symlink(config['release_sha'], tmp)
-    os.replace(tmp, current)
+    if not (current.is_symlink() and os.readlink(current) == config['release_sha']):
+        tmp = base / '.current'
+        if tmp.is_symlink() or tmp.exists():
+            tmp.unlink()
+        os.symlink(config['release_sha'], tmp)
+        os.replace(tmp, current)
     return target
 
 
@@ -137,38 +242,77 @@ def render_service(text, config):
     return text
 
 
-def add_timer(path, *, nested):
-    """relation-read-gaps in a host-health timers list (probe config, or install config's probe block); 0600 kept."""
-    value = read_private_json(path)
+def sandbox(service_text):
+    """S2: (key, value) of the unit's [Service] section, as the dry run's transient properties (ReadWritePaths: the scratch one)."""
+    out, section = [], None
+    for line in service_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith(('#', ';')):
+            continue
+        if line.endswith('\\') or '"' in line or "'" in line:
+            raise Failed('the unit uses a continuation line or a quoted value: the dry-run sandbox cannot mirror it')
+        if line.startswith('[') and line.endswith(']'):
+            section = line[1:-1]
+            continue
+        key, sep, value = line.partition('=')
+        if section == 'Service' and sep and key.strip() not in SANDBOX_SKIP:
+            out.append((key.strip(), value.strip()))
+    return out
+
+
+def timers_of(value, nested, path):
     probe = value.get('probe') if nested else value
-    if type(probe) is not dict:
-        raise Refused(f'{path}: no probe block')
+    if type(probe) is not dict or type(probe.get('timers', [])) is not list or not all(type(t) is dict for t in probe.get('timers', [])):
+        raise Refused(f'{path}: no probe timers list')  # S5: a malformed file is refused, never a traceback
+    return probe
+
+
+def host_health_files(root, config):
+    return [(root / config['host_health_config'].lstrip('/'), False), (root / config['host_health_install_config'].lstrip('/'), True)]
+
+
+def rewrite_timers(files, change):
+    """Both host-health files or neither (S5): the first is restored when the second cannot be written."""
+    plans = []
+    for path, nested in files:
+        before = path.read_text() if path.exists() else None
+        value = read_private_json(path)
+        probe = timers_of(value, nested, path)
+        if change(probe):
+            plans.append((path, before, json.dumps(value, indent=2) + '\n'))
+    done = []
+    try:
+        for path, before, text in plans:
+            write_private(path, text)
+            done.append((path, before))
+    except OSError:
+        for path, before in done:
+            if before is not None:
+                write_private(path, before)
+        raise
+    return [path for path, _, _ in plans]
+
+
+def add_entry(probe):
     timers = probe.setdefault('timers', [])
     if any(t.get('name') == ENTRY['name'] for t in timers):
         return False
     timers.append(dict(ENTRY))
-    write_private(Path(path), json.dumps(value, indent=2) + '\n')
     return True
 
 
-def remove_timer(path, *, nested):
-    try:
-        value = read_private_json(path)
-    except (Refused, OSError):
+def remove_entry(probe):
+    timers = probe.get('timers', [])
+    if not any(t.get('name') == ENTRY['name'] for t in timers):
         return False
-    probe = value.get('probe') if nested else value
-    if type(probe) is not dict or not any(t.get('name') == ENTRY['name'] for t in probe.get('timers', [])):
-        return False
-    probe['timers'] = [t for t in probe['timers'] if t.get('name') != ENTRY['name']]
-    write_private(Path(path), json.dumps(value, indent=2) + '\n')
+    probe['timers'] = [t for t in timers if t.get('name') != ENTRY['name']]
     return True
 
 
-def install(root, config, dsn, runner, out, trust):
+def install(root, config, dsn, runner, out, trust, trust_python):
     step = lambda n, text: print(f'step {n}: {text}', file=out, flush=True)  # noqa: E731
-    trust(config['release_checkout'], what='release_checkout')
-    trust(config['python'], what='python')
-    trust(HERE, what='installer')
+    trust_release(config, trust)
+    trust_python(config['python'], what='python')
     if runner(['id', '-u', USER], check=False) == '':
         runner(['useradd', '--system', '--no-create-home', '--home-dir', '/nonexistent', '--shell', '/usr/sbin/nologin', USER])
     step(1, f'user {USER}')
@@ -176,9 +320,9 @@ def install(root, config, dsn, runner, out, trust):
     step(2, 'release ' + config['release_sha'][:12])
     secrets = root / 'etc/nexloop/relation-gaps'
     secrets.mkdir(parents=True, exist_ok=True)
-    os.chmod(secrets, 0o700)
+    os.chmod(secrets, 0o711)  # S1: root's; the service user reaches its file, owns nothing in the path
     changed = write_private(secrets / 'metrics.dsn', dsn)
-    runner(['chown', f'{USER}:{USER}', str(secrets), str(secrets / 'metrics.dsn')])
+    runner(['chown', f'{USER}:{USER}', str(secrets / 'metrics.dsn')])
     step(3, 'metrics DSN ' + ('written' if changed else 'unchanged'))
     evidence = root / config['evidence_dir'].lstrip('/')
     evidence.mkdir(parents=True, exist_ok=True)
@@ -188,21 +332,19 @@ def install(root, config, dsn, runner, out, trust):
     systemd = root / 'etc/systemd/system'
     systemd.mkdir(parents=True, exist_ok=True)
     service = render_service((target / 'units/nexloop-relation-read-gaps.service').read_text(), config)
-    timer = (target / 'units/nexloop-relation-read-gaps.timer').read_text()
-    for name, text in (('nexloop-relation-read-gaps.service', service), ('nexloop-relation-read-gaps.timer', timer)):
-        (systemd / name).write_text(text)
-        os.chmod(systemd / name, 0o644)
+    for name, text in (('nexloop-relation-read-gaps.service', service),
+                       ('nexloop-relation-read-gaps.timer', (target / 'units/nexloop-relation-read-gaps.timer').read_text())):
+        write_private(systemd / name, text, mode=0o644)
     runner(['systemctl', 'daemon-reload'])
     step(5, 'units installed')
-    added = [str(p) for p, nested in ((config['host_health_config'], False), (config['host_health_install_config'], True))
-             if add_timer(root / p.lstrip('/'), nested=nested)]
-    step(6, 'host-health timers: ' + ('added to ' + ', '.join(Path(p).name for p in added) if added else 'already listed'))
-    scratch = Path(tempfile.mkdtemp(dir=root / 'tmp' if (root / 'tmp').is_dir() else None, prefix='relation-gaps-dry-'))
+    added = rewrite_timers(host_health_files(root, config), add_entry)
+    step(6, 'host-health timers: ' + ('added to ' + ', '.join(p.name for p in added) if added else 'already listed'))
+    scratch = Path(tempfile.mkdtemp(prefix='relation-gaps-dry-'))
     runner(['chown', f'{USER}:{USER}', str(scratch)])
     try:
-        answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec', '-p', f'User={USER}', '-p', f'Group={USER}',
-                         '-p', 'NoNewPrivileges=true', '-p', 'ProtectSystem=strict', '-p', 'ProtectHome=true', '-p', f'ReadWritePaths={scratch}',
-                         config['python'], '-I', '-B', str(root / 'opt/nexloop/relation-gaps/current/scripts/acceptance/relation_read_gaps.py'),
+        answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec',
+                         *[a for key, value in sandbox(service) for a in ('-p', f'{key}={value}')], '-p', f'ReadWritePaths={scratch}',
+                         config['python'], '-I', '-B', '/opt/nexloop/relation-gaps/current/scripts/acceptance/relation_read_gaps.py',
                          '--dsn-file', '/etc/nexloop/relation-gaps/metrics.dsn', '--tenant', config['tenant_id'], '--evidence-dir', str(scratch)], check=False)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -210,7 +352,7 @@ def install(root, config, dsn, runner, out, trust):
         doc = json.loads(answer.strip().splitlines()[-1])
     except (ValueError, IndexError):
         raise Failed('dry run gave no answer (the metrics login, the DSN or the interpreter): timer not enabled') from None
-    if 'refused' in doc or doc.get('evidence') is None:
+    if type(doc) is not dict or 'refused' in doc or doc.get('evidence') is None:
         raise Failed('dry run refused or wrote no evidence: timer not enabled')
     print('dry-run: ' + json.dumps({k: doc.get(k) for k in ('gaps', 'gaps_erasing', 'dangling', 'relation_only')}, sort_keys=True), file=out)
     runner(['systemctl', 'enable', '--now', 'nexloop-relation-read-gaps.timer'])
@@ -221,9 +363,9 @@ def drill_arm(root, minutes, runner, out, clock=datetime.now):
     if not 1 <= minutes <= 60:
         raise Refused('--drill-arm MINUTES: 1-60')
     when = (clock() + timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:00')
-    dropins = root / 'etc/systemd/system/nexloop-relation-read-gaps.timer.d'
-    dropins.mkdir(parents=True, exist_ok=True)
-    (dropins / '50-drill.conf').write_text(f'# NX-054 drill: one scheduled run of this timer (relation_gaps_install.py --drill-clear removes it)\n[Timer]\nOnCalendar={when}\n')
+    dropin = root / 'etc/systemd/system/nexloop-relation-read-gaps.timer.d/50-drill.conf'
+    write_private(dropin, f'# NX-054 drill: one scheduled run of this timer (relation_gaps_install.py --drill-clear removes it)\n[Timer]\nOnCalendar={when}\n',
+                  mode=0o644)
     runner(['systemctl', 'daemon-reload'])
     runner(['systemctl', 'restart', 'nexloop-relation-read-gaps.timer'])
     print(f'drill: the timer fires at {when} (host time); then --drill-clear', file=out)
@@ -253,13 +395,13 @@ def uninstall(root, config, runner, out):
             if not path.is_symlink():
                 os.chmod(path, 0o700 if path.is_dir() else 0o600)
         shutil.rmtree(base)
-    for p, nested in ((config['host_health_config'], False), (config['host_health_install_config'], True)):
-        remove_timer(root / p.lstrip('/'), nested=nested)
+    rewrite_timers([(p, n) for p, n in host_health_files(root, config) if p.exists()], remove_entry)
     runner(['systemctl', 'daemon-reload'], check=False)
-    print('uninstalled: timer, units, drop-ins, DSN and release removed; host-health entries taken out; the evidence stays', file=out)
+    print(f'uninstalled: timer, units, drop-ins, DSN and release removed; host-health entries taken out; the evidence and the user {USER} stay', file=out)
 
 
-def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned, clock=datetime.now):
+def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned, trust_python=interpreter_owned,
+         clock=datetime.now):
     p = argparse.ArgumentParser(description='NX-054 relation read gap check install (DATA_HOST, root, one command)')
     p.add_argument('config')
     mode = p.add_mutually_exclusive_group()
@@ -278,7 +420,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'),
         elif a.drill_clear:
             drill_clear(root, runner, out)
         else:
-            install(root, config, read_dsn(config, a.dsn_stdin, stdin), runner, out, trust)
+            install(root, config, read_dsn(config, a.dsn_stdin, stdin), runner, out, trust, trust_python)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2
