@@ -39,6 +39,17 @@
 - 依赖图是**静态**的，来自定义的契约字段，不包括运行时的读写关系（运行时血缘 A7 已推迟）。
 - 只列出受影响的定义，不阻止发布。是否把影响清单接进 F4 的发布许可门，需要改动 `evolution-evaluation-report` 契约，留给负责人决定。
 - 工作台前端目前还没有调用 `/check`。页面展示另开任务。
+- **CLI 展示**（负责人 2026-10-26：A1 不接 F4，只展示；调度员派工，分支 `l7/nx061-a1-cli`）：
+  - `scripts/deploy/schema_proposal.py check` 输出摘要中的 `result.impact`，就是 `/check` 列出的影响清单；
+  - 字段：`type_name`、`changed_properties`、`affected`、`affected_by_changed_properties`、`truncated`、`unreadable`，以及 `dependents`；
+  - `dependents` 的每一项都有 `definition_type`、`stable_name`、`version`、`pinned_type_version` 和 `changed_properties`；
+  - 依赖被改动属性的定义排在前面，排序沿用 `/check`；
+  - 只有名称、版本和属性名，没有数据；
+  - API 没有返回 impact 时，`impact` 为 null；
+  - `--verify-reject` 走的也是 check，所以同样带上这份清单；
+  - 测试：
+    - `tests/test_schema_proposal_tool.py::test_check_summary_shows_the_impact_list`，不连库；
+    - 同一文件的端到端测试，用真实 PG 和真实工作台登录，核对 `check` 输出的 `impact`。
 
 ## E4：每个接口的请求量、慢请求与错误数（验证“读取 0.5 秒内返回”）
 
