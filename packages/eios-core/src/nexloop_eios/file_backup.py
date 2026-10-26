@@ -251,9 +251,11 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
             os.fsync(stream.fileno())
         common = {'repository_file': repository_file, 'password_file': password_file, 'environment': environment,
                   'options': ('-o', 's3.bucket-lookup=' + s3_bucket_lookup) if s3_bucket_lookup else ()}
-        saved = _restic(restic, ['backup', '--json', '--tag', manifest_kind, '--host', 'nexloop', '.'], cwd=staging, **common)
+        # --retry-lock: repo2's daily maintenance (APP_HOST) and DATA_HOST's (repo1) prune under the exclusive lock; a round waits for it
+        # instead of recording a failed row.
+        saved = _restic(restic, ['backup', '--json', '--tag', manifest_kind, '--host', 'nexloop', '--retry-lock', '5m', '.'], cwd=staging, **common)
         snapshot = _snapshot_id(saved.stdout) if saved.returncode == 0 else None
-        checked = snapshot is not None and _restic(restic, ['check'], **common).returncode == 0
+        checked = snapshot is not None and _restic(restic, ['check', '--retry-lock', '5m'], **common).returncode == 0
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     left_out = sum(skipped.values())

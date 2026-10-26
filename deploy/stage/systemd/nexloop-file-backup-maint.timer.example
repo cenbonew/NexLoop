@@ -1,0 +1,12 @@
+[Unit]
+Description=NexLoop file backup repo2 maintenance (daily, between two file backup rounds)
+
+[Timer]
+# The file backup runs at :00/:15/:30/:45 (plus up to 60 s); 04:07 plus up to 2 minutes falls between two rounds, after DATA_HOST's
+# restic maintenance (03:30, repo1 and the journal's repo2). --retry-lock covers a round that runs long.
+OnCalendar=*-*-* 04:07:00
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target
