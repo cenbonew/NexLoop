@@ -2,11 +2,12 @@
 
 `'9000' not in response.text` fails by chance whenever a random sha256 or uuid in the same text happens to contain the marker.
 `absent(marker, value)` walks the parsed JSON instead: a number leaf must not equal the marker; a string leaf must not contain it,
-except a leaf that is wholly a hex digest, a uuid or a hex-and-separator id (it carries no seeded value, only randomness)."""
+except a leaf that is wholly a random identifier - a hex digest of at least 32 characters, or a uuid (8-4-4-4-12). Any other string
+counts, digits included ("9000.00", "19000", "9000-01" all reveal 9000)."""
 import json
 import re
 
-_HEXLIKE = re.compile(r'[0-9a-fA-F:_.-]+')
+_RANDOM_ID = re.compile(r'[0-9a-fA-F]{32,}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
 
 
 def leaves(value):
@@ -32,6 +33,6 @@ def absent(marker, value):
         if isinstance(leaf, (int, float)):
             if str(leaf) == text or (isinstance(marker, (int, float)) and leaf == marker):
                 return False
-        elif isinstance(leaf, str) and text in leaf and not (_HEXLIKE.fullmatch(leaf) and leaf != text):
+        elif isinstance(leaf, str) and text in leaf and not _RANDOM_ID.fullmatch(leaf):
             return False
     return True
