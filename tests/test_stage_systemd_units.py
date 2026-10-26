@@ -51,7 +51,9 @@ def test_every_backup_service_is_a_private_oneshot_behind_the_encrypted_volumes(
         assert service['UMask'] == ['0077'] and service['NoNewPrivileges'] == ['true'] and service['ProtectSystem'] == ['strict'], name
         for command in service['ExecStart']:
             # @PYTHON@: the file backup's interpreter, filled by scripts/deploy/file_backup_install.py (the host-health venv's).
-            assert command.split()[0].startswith(('/opt/nexloop/backup-venv/bin/', '/usr/local/bin/restic', '/bin/sh', '@PYTHON@')), (name, command)
+            # /usr/bin/python3 -I -B /opt/nexloop/restic-maint/...: restic-maint's future-snapshot guard before each forget (L6 F1).
+            assert command.split()[0].startswith(('/opt/nexloop/backup-venv/bin/', '/usr/local/bin/restic', '/bin/sh', '@PYTHON@')) or \
+                command.startswith('/usr/bin/python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py '), (name, command)
             # Only paths reach a command: no password, key or DSN value, no repository location on the command line.
             literal = re.sub(r'\$\{[A-Z0-9_]+\}', '', command)  # variable references hold paths from the private env file
             assert not re.search(r'password(?!-file)|sk-|postgres(ql)?://|s3:|sftp:|aws_', literal, re.I), (name, command)

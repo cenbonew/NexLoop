@@ -2,25 +2,31 @@
 """NX-035 repo1 append-only on DATA_HOST (owner, root; owner decision 2026-10-27; docs/implementation/NX-035-file-backup.md §6.5).
 Run through rest_server_data_host.sh, one private configuration, one command:
 
-    printf 'rest\\t%s\\n' "$REST_PW" | sudo bash rest_server_data_host.sh /path/rest-server.data-host.json
-    sudo bash rest_server_data_host.sh /path/rest-server.data-host.json              a rerun: the htpasswd file already written is kept
+    printf 'rest\\t%s\\nfiles\\t%s\\n' "$REST_PW" "$FILES_REPO_PW" | sudo bash rest_server_data_host.sh /path/rest-server.data-host.json
+    sudo bash rest_server_data_host.sh /path/rest-server.data-host.json              a rerun: htpasswd and the files password kept
     sudo bash rest_server_data_host.sh /path/rest-server.data-host.json --uninstall
 
-restic's rest-server serves the restore journal's repository (repo1) to APP_HOST's file backup with --append-only: new data and
-snapshots can be written, nothing existing can be deleted or overwritten (lock files excepted), so APP_HOST's credential no longer
-reaches DATA_HOST's snapshots (L6 S3 of the installer review; the D4 sftp account could delete everything). forget/prune stay with
-nexloop-restic-maint on the directory itself. Its own entry, not a step of file_backup_data_host.sh: that one keeps step 1a (the
+restic's rest-server serves the file backup's own repository (files repo1) to APP_HOST with --append-only: new data and snapshots can
+be written, nothing existing can be deleted or overwritten (lock files excepted). The restore journal's repository is no longer shared
+with APP_HOST at all (L6 F1 of the rest-server review: with the journal's key APP_HOST could add a future-dated `journal` snapshot and
+make the maintenance forget every real one): this installer creates the files repository - a new directory, a new restic password,
+`restic init` as nexloop-backup once - and serves only it. forget/prune stay with nexloop-restic-maint on the directory itself
+(restic_maint_data_host.sh --files-repo adds its lines, each behind the future-snapshot guard). Its own entry, not a step of file_backup_data_host.sh: that one keeps step 1a (the
 recorder's pg_hba line) and its --uninstall is how the D4 sftp account, chroot and sshd drop-in are retired after the switch; the
 rest-server has its own binary, certificate, password and lifecycle.
 
 Private configuration (JSON, 0600 root; deploy/examples/rest-server-data-host.example.json): schema nexloop-rest-server-data-host/1,
 release_checkout + release_sha (the unit template and versions.lock.json come from `git show` of it), stage_env (APP_HOST_ADDR and
-DATA_HOST_ADDR are read from it), repo_path (the restore journal's restic repository: its config file, owned by nexloop-backup),
+DATA_HOST_ADDR are read from it), files_repo_path (the files repository: created and initialised when it does not exist, owned by
+nexloop-backup; on the backup volume), journal_repo_path (the restore journal's repository, never served: the files repository must
+be neither it nor inside or above it), restic (DATA_HOST's restic binary, run as nexloop-backup for init and a cat config),
 rest_server_archive (the official rest-server_<version>_linux_amd64.tar.gz whose sha256 versions.lock.json names), tls_cert_file and
 tls_key_file (issue_certs.py server --san IP:<DATA_HOST_ADDR> on the management machine: <name>.chain.crt and <name>.key, the key a
 0600 file), port (1024-65535) and max_size_bytes (rest-server --max-size: the repository may not grow past it; at least 1 GiB).
 stdin (optional on a rerun): `rest<TAB>password` - the one htpasswd user's (nexloop-file-backup), 24-128 of A-Z a-z 0-9 _ -, as APP_HOST's
-repository URL carries it; stored only as its bcrypt hash (`htpasswd -niB`, apache2-utils).
+repository URL carries it; stored only as its bcrypt hash (`htpasswd -niB`, apache2-utils) - and `files<TAB>password`, the files
+repository's restic password (16-1024 printable, no space; APP_HOST's `repo1` line is the same one), into
+/srv/nexloop/secrets/files-repo/restic.pass (root's 0711 directory, the file 0600 nexloop-backup).
 
 Trust as the other root installers (file_backup_install): stdlib only; the checkout and its .git root's alone, lstat on every component,
 no alternates/commondir/pointer file, git --no-replace-objects in a minimal environment; every directory root writes in is trusted
@@ -33,7 +39,8 @@ Steps (each idempotent):
      (root, 0555), its --version read back
   R2 /srv/nexloop/secrets/rest-server (root, 0711): server.key (0600 nexloop-backup), server.chain.crt (0644; its SAN names
      DATA_HOST_ADDR, its public key the key's), htpasswd (0600 nexloop-backup)
-  R3 /srv/nexloop-rest (root, 0755) with restic/ bind-mounted from repo_path by a mount unit; nothing else there
+  R3 the files repository (init once if absent, then cat config as nexloop-backup), /srv/nexloop-rest (root, 0755) with restic/
+     bind-mounted from it by a mount unit; nothing else there
   R4 /etc/nexloop/rest-server.nft (0600 root): table inet nexloop_rest_server dropping every source but APP_HOST_ADDR on the port
      (IPv6 entirely), checked with nft -c; the unit loads it before the server starts and deletes it after it stops
   R5 the unit from the release (tokens filled), daemon-reload, enable and (re)start; then active, and the table loaded, read back
@@ -68,6 +75,7 @@ REST_USER = 'nexloop-file-backup'
 SERVE = '/srv/nexloop-rest'
 MOUNT = SERVE + '/restic'
 SECRETS = '/srv/nexloop/secrets/rest-server'
+FILES_SECRETS = '/srv/nexloop/secrets/files-repo'  # the files repository's restic password (not in the rest-server's sandbox)
 BASE = '/opt/nexloop/rest-server'
 UNIT = 'nexloop-rest-server.service'
 UNIT_SOURCE = 'deploy/stage/systemd/nexloop-rest-server.service.example'
@@ -80,11 +88,11 @@ HTPASSWD = re.compile(r'nexloop-file-backup:\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}')
 
 def load_config(path):
     c = A.read_private_json(path)
-    keys = {'schema', 'release_checkout', 'release_sha', 'stage_env', 'repo_path', 'rest_server_archive', 'tls_cert_file', 'tls_key_file', 'port',
-            'max_size_bytes', '_comment'}
+    keys = {'schema', 'release_checkout', 'release_sha', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive',
+            'tls_cert_file', 'tls_key_file', 'port', 'max_size_bytes', '_comment'}
     if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or keys - set(c) - {'_comment'}:
         raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(keys - {'schema', '_comment'})))
-    for key in ('release_checkout', 'stage_env', 'repo_path', 'rest_server_archive', 'tls_cert_file', 'tls_key_file'):
+    for key in ('release_checkout', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive', 'tls_cert_file', 'tls_key_file'):
         if type(c[key]) is not str or not A.PATH.fullmatch(c[key]) or '..' in c[key]:
             raise Refused(f'configuration: {key} (absolute path)')
     if type(c['release_sha']) is not str or not A.SHA.fullmatch(c['release_sha']):
@@ -93,6 +101,9 @@ def load_config(path):
         raise Refused('configuration: port (1024-65535; the service user binds it without a capability)')
     if type(c['max_size_bytes']) is not int or c['max_size_bytes'] < 1 << 30:
         raise Refused('configuration: max_size_bytes (an integer, at least 1 GiB: rest-server --max-size)')
+    files, journal = os.path.normpath(c['files_repo_path']), os.path.normpath(c['journal_repo_path'])
+    if os.path.commonpath([files, journal]) in (files, journal):
+        raise Refused('configuration: files_repo_path must be its own repository - not the journal\'s, nor inside or above it (L6 F1)')
     return c
 
 
@@ -113,15 +124,18 @@ def addresses(config):
     return out
 
 
-def read_password(stream):
+def read_passwords(stream):
+    """{'rest': htpasswd password, 'files': the files repository's restic password}, each optional (a rerun keeps the files)."""
     text = '' if stream is None else stream.read(4096)
-    lines = [line for line in text.splitlines() if line.strip()]
-    if not lines:
-        return None
-    name, sep, value = lines[0].partition('\t')
-    if len(lines) != 1 or name != 'rest' or not sep or not PASSWORD.fullmatch(value):
-        raise Refused('stdin: one rest<TAB>password line (24-128 of A-Z a-z 0-9 _ -)')
-    return value
+    out = {}
+    for line in (line for line in text.splitlines() if line.strip()):
+        name, sep, value = line.partition('\t')
+        ok = (name == 'rest' and PASSWORD.fullmatch(value)) or (name == 'files' and 16 <= len(value) <= 1024 and value.isprintable()
+                                                               and not any(c.isspace() for c in value))
+        if not sep or name in out or not ok:
+            raise Refused('stdin: rest<TAB>password (24-128 of A-Z a-z 0-9 _ -) and files<TAB>password (16-1024 printable, no space) lines')
+        out[name] = value
+    return out
 
 
 def private_file(path, *, what, key=False):
@@ -257,13 +271,49 @@ def mount_unit(repo):
             f'[Mount]\nWhat={repo}\nWhere={MOUNT}\nType=none\nOptions=bind,nosuid,nodev,noexec\n\n[Install]\nWantedBy=multi-user.target\n')
 
 
-def serve(root, config, runner, trust):
+def files_repository(root, config, password, runner, trust, trust_python):
+    """L6 F1 (b): the file backup's own repository - never the journal's. Its password in a root-owned directory (0600 nexloop-backup);
+    the directory created for nexloop-backup and `restic init` run as it when there is no repository yet; then `cat config` must work."""
     uid = runner(['id', '-u', USER], check=False).strip()
     if not uid.isdigit():
         raise Refused(f'user {USER} missing (the restore journal backup is not installed here)')
-    repo = Path(config['repo_path'])
-    if os.path.islink(repo) or not repo.is_dir() or not (repo / 'config').is_file() or os.stat(repo).st_uid != int(uid):
-        raise Refused(f'repo_path: a directory with a restic config file, owned by {USER}')
+    trust_python(config['restic'], what='restic')
+    directory = under(root, FILES_SECRETS)
+    if os.path.islink(directory):
+        raise Refused(f'{FILES_SECRETS} is a symbolic link')
+    directory.mkdir(exist_ok=True)
+    trust(directory, what='files repository secrets')
+    os.chmod(directory, 0o711)
+    pass_file = directory / 'restic.pass'
+    if password is not None:
+        written = A.write_private(pass_file, password + '\n', mode=0o600)
+    elif pass_file.is_file() and not pass_file.is_symlink():
+        written = False
+    else:
+        raise Refused('stdin: the files repository password is not written yet - give files<TAB>password')
+    runner(['chown', f'{USER}:{USER}', str(pass_file)])
+    repo = Path(config['files_repo_path'])
+    if os.path.islink(repo) or os.path.islink(repo.parent) or not repo.parent.is_dir():
+        raise Refused('files_repo_path: its parent must be a directory (the backup volume) and neither may be a link')
+    as_user = ['runuser', '-u', USER, '--', config['restic'], '--no-cache', '-r', str(repo), '--password-file', f'{FILES_SECRETS}/restic.pass']
+    created = False
+    if not (repo / 'config').is_file():
+        if repo.exists() and (not repo.is_dir() or os.listdir(repo)):
+            raise Refused('files_repo_path: exists and is neither a restic repository nor an empty directory')
+        repo.mkdir(mode=0o700, exist_ok=True)
+        runner(['chown', f'{USER}:{USER}', str(repo)])
+        runner([*as_user, 'init'])
+        created = True
+    if os.stat(repo).st_uid != int(uid):
+        raise Refused(f'files_repo_path: owned by {USER}')
+    runner([*as_user, 'cat', 'config'])  # the password opens it
+    return created, written
+
+
+def serve(root, config, runner, trust):
+    repo = Path(config['files_repo_path'])
+    if not (repo / 'config').is_file():
+        raise Failed('files_repo_path: no restic repository')
     directory, mount = under(root, SERVE), under(root, MOUNT)
     if os.path.islink(directory):
         raise Refused(f'{SERVE} is a symbolic link')
@@ -274,7 +324,7 @@ def serve(root, config, runner, trust):
         raise Refused(f'{MOUNT} is a symbolic link')
     mount.mkdir(exist_ok=True)
     unit = under(root, '/etc/systemd/system') / D.unit_name(MOUNT)
-    A.write_private(unit, mount_unit(config['repo_path']), mode=0o644)
+    A.write_private(unit, mount_unit(config['files_repo_path']), mode=0o644)
     runner(['systemctl', 'daemon-reload'])
     runner(['systemctl', 'enable', '--now', unit.name])
     if not (mount / 'config').is_file():
@@ -302,17 +352,19 @@ def render_unit(text, version, address, config):
     return text
 
 
-def install(root, config, password, runner, out, trust):
+def install(root, config, passwords, runner, out, trust, trust_python):
     step = lambda n, text: print(f'step {n}: {text}', file=out, flush=True)  # noqa: E731
     A.trust_release(config, trust)
     addr = addresses(config)
     version, binary = rest_server_binary(config, runner)
     changed = install_binary(root, version, binary, runner, trust)
     step('R1', f'rest-server {version} ' + ('installed (sha256 as versions.lock.json)' if changed else 'unchanged'))
-    done = secrets(root, config, addr['DATA_HOST_ADDR'], password, runner, trust)
+    done = secrets(root, config, addr['DATA_HOST_ADDR'], passwords.get('rest'), runner, trust)
     step('R2', 'secrets: ' + ', '.join(f'{n} {"written" if c else "unchanged"}' for n, c in sorted(done.items())) + '; the certificate names DATA_HOST')
+    created, written = files_repository(root, config, passwords.get('files'), runner, trust, trust_python)
     mount = serve(root, config, runner, trust)
-    step('R3', f'{SERVE} serves restic/ only ({mount})')
+    step('R3', f'files repository {"initialised" if created else "kept"} (password {"written" if written else "kept"}); {SERVE} serves it as '
+               f'restic/ only ({mount}); the journal\'s repository is not served')
     rules = under(root, NFT)
     rules_changed = A.write_private(rules, nft_rules(addr['APP_HOST_ADDR'], addr['DATA_HOST_ADDR'], config['port']), mode=0o600)
     runner(['nft', '-c', '-f', str(rules)])
@@ -326,8 +378,9 @@ def install(root, config, password, runner, out, trust):
     table = runner(['nft', 'list', 'table', 'inet', TABLE], check=False)
     if state != 'active' or f'ip saddr != {addr["APP_HOST_ADDR"]} drop' not in table:
         raise Failed(f'{UNIT} is {state or "not active"}' + ('' if 'drop' in table else ', the firewall table is not loaded') + f' (journalctl -u {UNIT})')
-    step('R5', f'{UNIT} active on {addr["DATA_HOST_ADDR"]}:{config["port"]}, --append-only, only APP_HOST admitted; next: APP_HOST '
-               f'file_backup_install.sh with repo1.transport "rest" (NX-035-file-backup.md §6.5)')
+    step('R5', f'{UNIT} active on {addr["DATA_HOST_ADDR"]}:{config["port"]}, --append-only, only APP_HOST admitted; next: '
+               f'restic_maint_data_host.sh --files-repo {config["files_repo_path"]} --files-password-file {FILES_SECRETS}/restic.pass, then APP_HOST '
+               f'file_backup_install.sh with repo1.transport "rest" and this files password as repo1 (NX-035-file-backup.md §6.5)')
 
 
 def uninstall(root, runner, out):
@@ -351,11 +404,12 @@ def uninstall(root, runner, out):
     for directory in (under(root, MOUNT), under(root, SERVE), under(root, SECRETS)):
         if directory.is_dir() and not directory.is_symlink() and not os.listdir(directory):
             directory.rmdir()
-    print('uninstalled: the rest-server unit, its firewall table and file, the mount unit, its secrets and binary removed; repo1 untouched',
+    print('uninstalled: the rest-server unit, its firewall table and file, the mount unit, its secrets and binary removed; the files repository '
+          'and its password stay (they hold the file backups)',
           file=out)
 
 
-def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned):
+def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned, trust_python=A.interpreter_owned):
     p = argparse.ArgumentParser(description='NX-035 repo1 rest-server --append-only on DATA_HOST (owner, root, one command)')
     p.add_argument('config')
     p.add_argument('--uninstall', action='store_true')
@@ -366,7 +420,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'),
         if a.uninstall:
             uninstall(root, runner, out)
         else:
-            install(root, config, read_password(stdin), runner, out, trust)
+            install(root, config, read_passwords(stdin), runner, out, trust, trust_python)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2

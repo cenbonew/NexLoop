@@ -12,7 +12,9 @@
 # under which every file snapshot is a group of one and is never forgotten; grouped by tag, each kind keeps D4's window of its own
 # snapshots. --retry-lock 10m (L6 S2): prune takes the exclusive lock; a file backup or journal backup holding its shared lock then
 # makes the daily run wait for it instead of failing. Applied to an installed copy by scripts/deploy/restic_maint_data_host.sh
-# (owner, root, confirmed by the owner in person).
+# (owner, root, confirmed by the owner in person). Before each forget a guard line (restic_future_guard.py, L6 F1) refuses to go on
+# while a snapshot is dated more than an hour ahead: keep-within counts from a group's newest snapshot, so a future-dated one would make
+# forget delete every real snapshot of its group.
 [Unit]
 Description=NexLoop restic retention and checks (daily; deep check on Sundays)
 After=network-online.target docker.service
@@ -24,9 +26,11 @@ Type=oneshot
 User=nexloop-backup
 Group=nexloop-backup
 EnvironmentFile=/etc/nexloop/restic.env
+ExecStart=/usr/bin/python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py --max-ahead-seconds 3600 -- /usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE}
 ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune
 ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check
 ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check --read-data-subset 1/10; fi'
+ExecStart=/usr/bin/python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py --max-ahead-seconds 3600 -- /usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE}
 ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune
 ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check
 ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache ${RESTIC_REPO2_OPTIONS} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check --read-data-subset 1/10; fi'

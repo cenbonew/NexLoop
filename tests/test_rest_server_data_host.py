@@ -24,6 +24,8 @@ SHA = 'c' * 40
 APP = '.'.join(('192', '0', '2', '10'))   # TEST-NET-1, built at runtime
 DATA = '.'.join(('192', '0', '2', '20'))
 PASSWORD = 'Rest-Pw_synthetic_0123456789abcdef'
+FILES_PW = 'files-repo-Pw-synthetic-0123456789'
+STDIN = f'rest\t{PASSWORD}\nfiles\t{FILES_PW}\n'
 LOCK = json.loads((ROOT / 'versions.lock.json').read_text())['deployment_tools']['rest_server']
 VERSION = LOCK['version']
 BINARY = f'#!/bin/sh\necho rest-server version {VERSION}\n'.encode()
@@ -108,6 +110,10 @@ class Runner:
         if command[0] == 'htpasswd':
             assert command == ['htpasswd', '-niB', 'nexloop-file-backup'] and stdin == PASSWORD + '\n'
             return self.htpasswd + '\n'
+        if command[:3] == ['runuser', '-u', 'nexloop-backup'] and command[-1] == 'init':
+            repo = Path(command[command.index('-r') + 1])
+            (repo / 'config').write_text('restic repository config (synthetic)\n')
+            return ''
         if command[:3] == ['systemctl', 'enable', '--now'] and command[3].endswith('.mount'):
             (self.root / 'srv/nexloop-rest/restic/config').write_text('restic repository config (synthetic)\n')
             return ''
@@ -131,12 +137,15 @@ def setup(tmp_path, data=None, **over):
     checkout = tmp_path / 'release'
     (checkout / '.git/refs/heads').mkdir(parents=True)
     (checkout / '.git/HEAD').write_text('ref: refs/heads/main\n')
-    repo = tmp_path / 'backup/files/restic'
-    repo.mkdir(parents=True)
-    (repo / 'config').write_text('synthetic\n')
+    journal = tmp_path / 'backups/file-repo1/restic'
+    journal.mkdir(parents=True)
+    (journal / 'config').write_text('synthetic journal\n')
+    (tmp_path / 'backups/files-repo1').mkdir(parents=True)  # the files repository's parent: it does not exist yet
+    restic = private(tmp_path / 'usr/local/bin/restic', '#!/bin/sh\n', 0o755)
     blob = archive() if data is None else data
     cfg = {'schema': R.SCHEMA, 'release_checkout': str(checkout), 'release_sha': SHA,
-           'stage_env': str(private(tmp_path / 'stage.env', f'APP_HOST_ADDR={APP}\nDATA_HOST_ADDR={DATA}\n')), 'repo_path': str(repo),
+           'stage_env': str(private(tmp_path / 'stage.env', f'APP_HOST_ADDR={APP}\nDATA_HOST_ADDR={DATA}\n')),
+           'files_repo_path': str(tmp_path / 'backups/files-repo1/restic'), 'journal_repo_path': str(journal), 'restic': str(restic),
            'rest_server_archive': str(private(tmp_path / f'download/rest-server_{VERSION}_linux_amd64.tar.gz', blob)),
            'tls_cert_file': str(private(tmp_path / 'pki/rest-server.chain.crt', CERT, 0o644)), 'tls_key_file': str(private(tmp_path / 'pki/rest-server.key', KEY)),
            'port': 8000, 'max_size_bytes': 100 << 30, **over}
@@ -144,10 +153,10 @@ def setup(tmp_path, data=None, **over):
     return root, str(config), hashlib.sha256(blob).hexdigest()
 
 
-def main(root, config, *args, runner=None, stdin=f'rest\t{PASSWORD}\n', digest=None, **kw):
+def main(root, config, *args, runner=None, stdin=STDIN, digest=None, **kw):
     out, runner = io.StringIO(), runner or Runner(root, digest=digest, **kw)
     code = R.main([config, *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=root,
-                  trust=functools.partial(R.A.root_owned, owners=OWNERS))
+                  trust=functools.partial(R.A.root_owned, owners=OWNERS), trust_python=functools.partial(R.A.interpreter_owned, owners=OWNERS))
     return code, out.getvalue(), runner
 
 
@@ -169,7 +178,7 @@ def test_installs_the_append_only_server_and_a_rerun_changes_nothing(tmp_path):
     serve = root / 'srv/nexloop-rest'
     assert sorted(os.listdir(serve)) == ['restic'] and st.S_IMODE(serve.stat().st_mode) == 0o755
     mount = (root / 'etc/systemd/system/srv-nexloop\\x2drest-restic.mount').read_text()
-    assert f'What={tmp_path}/backup/files/restic\nWhere=/srv/nexloop-rest/restic\nType=none\nOptions=bind,nosuid,nodev,noexec' in mount
+    assert f'What={tmp_path}/backups/files-repo1/restic\nWhere=/srv/nexloop-rest/restic\nType=none\nOptions=bind,nosuid,nodev,noexec' in mount
     # The firewall: IPv6 dropped on the port, IPv4 only from APP_HOST; checked before use; the table replaced atomically.
     rules = (root / 'etc/nexloop/rest-server.nft').read_text()
     assert f'ip daddr {DATA} tcp dport 8000 ip saddr != {APP} drop' in rules and 'meta nfproto ipv6 tcp dport 8000 drop' in rules
@@ -178,6 +187,7 @@ def test_installs_the_append_only_server_and_a_rerun_changes_nothing(tmp_path):
     unit = (root / 'etc/systemd/system/nexloop-rest-server.service').read_text()
     assert (f'ExecStart=/opt/nexloop/rest-server/{VERSION}/rest-server --path /srv/nexloop-rest --listen {DATA}:8000 --append-only --tls '
             f'--tls-cert /srv/nexloop/secrets/rest-server/server.chain.crt') in unit and f'--max-size {100 << 30}' in unit
+    assert ' --append-only ' in unit.split('ExecStart=', 1)[1].splitlines()[0]  # and in the unit as installed
     assert ['systemctl', 'restart', 'nexloop-rest-server.service'] in runner.calls and 'step R5' in text
     code, text, runner = main(root, config, stdin='', digest=digest)
     assert code == 0, text
@@ -230,18 +240,23 @@ def test_the_key_must_be_a_private_file_and_the_password_a_plain_token(tmp_path)
     code, text, _ = main(root, config, digest=digest)
     assert code == 2 and 'tls_key_file' in text
     root, config, digest = setup(tmp_path / 'p')
-    for bad in ('rest\tshort\n', f'rest\t{PASSWORD}:x\n', f'repo1\t{PASSWORD}\n', f'rest\t{PASSWORD}\nrest\t{PASSWORD}\n'):
+    for bad in ('rest\tshort\n', f'rest\t{PASSWORD}:x\n', f'repo1\t{PASSWORD}\n', f'rest\t{PASSWORD}\nrest\t{PASSWORD}\n', f'files\t{FILES_PW} x\n',
+                'files\tshort\n'):
         code, text, _ = main(root, config, stdin=bad, digest=digest)
         assert code == 2 and 'stdin' in text and PASSWORD not in text
     code, text, _ = main(root, config, stdin='', digest=digest)
     assert code == 2 and 'htpasswd is not written yet' in text
+    code, text, _ = main(root, config, stdin=f'rest\t{PASSWORD}\n', digest=digest)
+    assert code == 2 and 'files repository password is not written yet' in text
 
 
 def test_the_repository_its_owner_and_the_serving_directory_are_checked(tmp_path):
     root, config, digest = setup(tmp_path)
-    os.unlink(Path(json.loads(Path(config).read_text())['repo_path']) / 'config')
-    code, text, _ = main(root, config, digest=digest)
-    assert code == 2 and 'restic config file' in text
+    files = Path(json.loads(Path(config).read_text())['files_repo_path'])
+    files.mkdir()
+    (files / 'something').write_text('not a repository\n')
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 2 and 'neither a restic repository nor an empty directory' in text and not any(c[-1] == 'init' for c in runner.calls)
     root, config, digest = setup(tmp_path / 'u')
     code, text, _ = main(root, config, digest=digest, uid=4242)  # the repository is not nexloop-backup's
     assert code == 2 and 'owned by nexloop-backup' in text
@@ -287,7 +302,8 @@ def test_uninstall_removes_the_server_and_never_the_repository(tmp_path):
     for gone in ('etc/systemd/system/nexloop-rest-server.service', 'etc/systemd/system/srv-nexloop\\x2drest-restic.mount', 'etc/nexloop/rest-server.nft',
                  'srv/nexloop/secrets/rest-server', 'opt/nexloop/rest-server', 'srv/nexloop-rest'):
         assert not (root / gone).exists(), gone
-    assert (tmp_path / 'backup/files/restic').is_dir() and (tmp_path / 'backup/files/restic/config').read_text() == 'synthetic\n'  # repo1 untouched
+    assert (tmp_path / 'backups/files-repo1/restic/config').exists() and (root / 'srv/nexloop/secrets/files-repo/restic.pass').exists()  # kept
+    assert (tmp_path / 'backups/file-repo1/restic/config').read_text() == 'synthetic journal\n'
 
 
 def test_the_unit_is_append_only_tls_and_sandboxed():
@@ -297,6 +313,7 @@ def test_the_unit_is_append_only_tls_and_sandboxed():
     for flag in ('--append-only', '--tls', '--tls-cert', '--tls-key', '--htpasswd-file', '--max-size @MAX_SIZE@', '--path /srv/nexloop-rest',
                  '--listen @LISTEN@'):
         assert flag in command, flag
+    assert command.split().count('--append-only') == 1  # L6 I2: the one flag the whole design rests on, locked in the unit itself
     assert '--no-auth' not in command and '--private-repos' not in command  # one repository in a root-owned --path (see the unit's comment)
     assert service['User'] == 'nexloop-backup' and service['CapabilityBoundingSet'] == '' and service['NoNewPrivileges'] == 'true'
     assert service['TemporaryFileSystem'] == '/srv/nexloop:ro' and service['BindReadOnlyPaths'] == '/srv/nexloop/secrets/rest-server'
@@ -341,3 +358,58 @@ def test_the_size_in_the_lock_is_checked(tmp_path, delta, code):
 def test_the_repository_lock_names_the_verified_official_archive():
     assert LOCK['status'] == 'verified_not_installed' and LOCK['archive'] == f'rest-server_{VERSION}_linux_amd64.tar.gz'
     assert len(LOCK['archive_sha256']) == 64 and type(LOCK['archive_bytes']) is int and LOCK['archive_bytes'] > 0
+
+
+
+def test_the_files_repository_is_its_own_initialised_once_and_the_journal_is_never_served(tmp_path):
+    """L6 F1 (b): APP_HOST gets a repository of its own; the restore journal's is neither served nor reachable from it."""
+    root, config, digest = setup(tmp_path)
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 0, text
+    files = tmp_path / 'backups/files-repo1/restic'
+    pass_file = root / 'srv/nexloop/secrets/files-repo/restic.pass'
+    assert pass_file.read_text() == FILES_PW + '\n' and st.S_IMODE(pass_file.stat().st_mode) == 0o600
+    assert st.S_IMODE((root / 'srv/nexloop/secrets/files-repo').stat().st_mode) == 0o711
+    restic = json.loads(Path(config).read_text())['restic']
+    as_user = ['runuser', '-u', 'nexloop-backup', '--', restic, '--no-cache', '-r', str(files), '--password-file', '/srv/nexloop/secrets/files-repo/restic.pass']
+    assert [c for c in runner.calls if c[:3] == ['runuser', '-u', 'nexloop-backup']] == [[*as_user, 'init'], [*as_user, 'cat', 'config']]
+    assert ['chown', 'nexloop-backup:nexloop-backup', str(files)] in runner.calls and ['chown', 'nexloop-backup:nexloop-backup', str(pass_file)] in runner.calls
+    assert FILES_PW not in text and not any(FILES_PW in ' '.join(c) for c in runner.calls)
+    mount = (root / 'etc/systemd/system/srv-nexloop\\x2drest-restic.mount').read_text()
+    assert f'What={files}\n' in mount and str(tmp_path / 'backups/file-repo1') not in mount
+    assert 'the journal\'s repository is not served' in text and '--files-repo ' + str(files) in text
+    code, text, runner = main(root, config, stdin='', digest=digest)
+    assert code == 0 and 'files repository kept (password kept)' in text and not any(c[-1] == 'init' for c in runner.calls)
+
+
+@pytest.mark.parametrize('files', ['backups/file-repo1/restic', 'backups/file-repo1/restic/files', 'backups/file-repo1'])
+def test_the_files_repository_may_be_neither_the_journals_nor_inside_or_above_it(tmp_path, files):
+    root, config, digest = setup(tmp_path, files_repo_path=str(tmp_path / files))
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 2 and 'must be its own repository' in text and runner.calls == []
+
+
+
+def test_a_linked_or_writable_rest_server_secrets_directory_is_refused_before_any_secret_is_written(tmp_path):
+    """L6 I2: R2 trusts its directory before it writes the key, the certificate and the htpasswd file into it."""
+    root, config, digest = setup(tmp_path)
+    secrets = root / 'srv/nexloop/secrets/rest-server'
+    secrets.mkdir(parents=True)
+    os.chmod(secrets, 0o777)
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 2 and 'rest-server secrets' in text and list(secrets.iterdir()) == [] and st.S_IMODE(secrets.stat().st_mode) == 0o777
+    root, config, digest = setup(tmp_path / 'l')
+    elsewhere = tmp_path / 'l/elsewhere'
+    elsewhere.mkdir()
+    os.symlink(elsewhere, root / 'srv/nexloop/secrets/rest-server')
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 2 and 'symbolic link' in text and list(elsewhere.iterdir()) == []
+
+
+
+def test_a_writable_files_repository_secrets_directory_is_refused(tmp_path):
+    root, config, digest = setup(tmp_path)
+    (root / 'srv/nexloop/secrets/files-repo').mkdir(parents=True)
+    os.chmod(root / 'srv/nexloop/secrets/files-repo', 0o777)
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 2 and 'files repository secrets' in text and not (root / 'srv/nexloop/secrets/files-repo/restic.pass').exists()

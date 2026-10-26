@@ -5,6 +5,8 @@ nexloop-file-backup-maint.service (docs/implementation/NX-035-file-backup.md §6
 repo1 is the restore journal's repository on DATA_HOST and is maintained there (nexloop-restic-maint); this entry touches repo2 only and
 refuses a repository location that is not an S3 one. One run:
 
+  0 snapshots --json: any snapshot dated more than an hour ahead stops the run before forget (L6 F1: keep-within counts from a group's
+    newest snapshot, so a future-dated one would make forget delete every real one; restic_future_guard.py)
   1 forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune: each file kind (files_artifact,
     files_runtime: their tags) keeps D4's window. Under restic's default grouping (host,paths) every file snapshot, each from a new
     staging directory, is a group of one and is never forgotten.
@@ -23,12 +25,15 @@ import argparse
 import json
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # restic_future_guard.py, its sibling in the release
 
 from nexloop_eios.file_backup import BUCKET_LOOKUPS, _environment, _restic  # noqa: E402
 from nexloop_eios.private_configuration import read_private_text  # noqa: E402
+import restic_future_guard as guard  # noqa: E402
 
 RETENTION = ['--group-by', 'host,tags', '--keep-within', '14d', '--keep-monthly', '1']
 LOCK = ['--retry-lock', '10m']
@@ -70,6 +75,15 @@ def maintain(*, restic, repository_file, password_file, environment_file, s3_buc
         raise OffsiteKeysMissing('object storage keys missing')
     common = {'repository_file': repository_file, 'password_file': password_file, 'environment': environment, 'timeout': 3 * 3600,
               'options': ('-o', 's3.bucket-lookup=' + s3_bucket_lookup) if s3_bucket_lookup else ()}
+    # L6 F1: a snapshot dated in the future would make keep-within forget every real one of its group: no forget then.
+    listed = _restic(restic, ['snapshots', '--json', '--no-lock'], **common)
+    try:
+        verdict = guard.check(json.loads(listed.stdout or 'null'), datetime.now(UTC), 3600) if listed.returncode == 0 else None
+    except ValueError:
+        verdict = None
+    if verdict is None or not verdict['ok']:
+        return {'forget': 'refused_future_snapshots' if verdict else f'snapshots exit {listed.returncode}', 'removed': None, 'dry_run': dry_run,
+                'check': 'not_run', **({'future': verdict['future'], 'unreadable': verdict['unreadable']} if verdict else {})}
     forget = _restic(restic, ['forget', *LOCK, *RETENTION, *(['--dry-run'] if dry_run else ['--prune']), '--json'], **common)
     result = {'forget': 'ok' if forget.returncode == 0 else f'exit {forget.returncode}', 'removed': _removed(forget.stdout) if forget.returncode == 0 else None,
               'dry_run': dry_run}

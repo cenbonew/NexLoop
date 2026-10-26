@@ -98,6 +98,7 @@ HOST = re.compile(r'[A-Za-z0-9][A-Za-z0-9.:-]{0,252}')
 HOST_KEY = re.compile(r'(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ssh-rsa) [A-Za-z0-9+/]{40,}={0,2}')
 LABEL = re.compile(r'[A-Za-z0-9._:-]{1,64}')
 FILES = ('scripts/deploy/file_backup_run.py', 'scripts/deploy/file_backup_sandbox_check.py', 'scripts/deploy/file_backup_maint.py',
+         'scripts/deploy/restic_future_guard.py',
          'packages/eios-core/src/nexloop_eios/__init__.py', 'packages/eios-core/src/nexloop_eios/backup.py',
          'packages/eios-core/src/nexloop_eios/file_backup.py', 'packages/eios-core/src/nexloop_eios/private_configuration.py')
 UNITS = {SERVICE: 'deploy/stage/systemd/nexloop-file-backup.service.example', TIMER: 'deploy/stage/systemd/nexloop-file-backup.timer.example',

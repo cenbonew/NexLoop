@@ -13,9 +13,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 import restic_maint_data_host as R  # noqa: E402
+from support.writable_tree import make_writable  # noqa: E402
 
 EXAMPLE = (ROOT / 'deploy/stage/systemd/nexloop-restic-maint.service.example').read_text()
-DEPLOYED = EXAMPLE.replace(R.NEW, R.OLD)  # the deploy days' copy: restic's default grouping
+DEPLOYED = R.reverted(EXAMPLE)  # the deploy days' copy: restic's default grouping, no guard
+GROUPED = R.reverted(EXAMPLE).replace(R.OLD, R.NEW)  # this script's first version (group-by, no guard yet)
+GUARD_OK = json.dumps({'ok': True, 'snapshots': 4, 'future': [], 'unreadable': 0})
 OWNERS = (0, os.getuid())
 GROUPS = [{'host': 'nexloop', 'tags': ['journal'], 'paths': ['/srv/nexloop-backup/files/journal'], 'keep': [{'id': 'a'}] * 3, 'remove': [{'id': 'b'}]},
           {'host': 'nexloop', 'tags': ['files_artifact'], 'paths': ['/x/stage-1', '/x/stage-2'], 'keep': [{'id': 'c'}] * 2, 'remove': None}]
@@ -33,14 +36,20 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
                                    int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
         return info
     monkeypatch.setattr(os, 'lstat', fake)
+    yield
+    make_writable(tmp_path)  # the guard's directory is made read-only (support.writable_tree)
 
 
 class Runner:
-    def __init__(self, answer=None, exit_code=0):
-        self.calls, self.answer, self.exit_code = [], answer, exit_code
+    def __init__(self, answer=None, exit_code=0, guard_code=0):
+        self.calls, self.answer, self.exit_code, self.guard_code = [], answer, exit_code, guard_code
 
     def __call__(self, command, *, check=True):
         self.calls.append(list(command))
+        if command[0] == 'systemd-run' and any(a.endswith('restic_future_guard.py') for a in command):
+            if self.guard_code and check:
+                raise R.Failed(f'systemd-run exited {self.guard_code}')
+            return GUARD_OK + '\n'
         if command[0] == 'systemd-run':
             if self.exit_code and check:  # as R.run: a non-zero exit is a failure when checked
                 raise R.Failed(f'systemd-run exited {self.exit_code}')
@@ -59,7 +68,10 @@ def unit(tmp_path, text=DEPLOYED):
 
 def main(path, *args, runner=None):
     out, runner = io.StringIO(), runner or Runner()
-    code = R.main(list(args), out=out, runner=runner, unit=str(path), trust=lambda p, *, what: R.root_owned(p, what=what, owners=OWNERS))
+    root = path.parents[3]  # <tmp>/etc/systemd/system/<unit>: the guard goes to <tmp>/opt/nexloop/restic-maint
+    import file_backup_install as A
+    code = R.main(list(args), out=out, runner=runner, unit=str(path), trust=lambda p, *, what: R.root_owned(p, what=what, owners=OWNERS),
+                  root=str(root), trust_python=lambda p, *, what: A.interpreter_owned(p, what=what, owners=OWNERS))
     return code, out.getvalue(), runner
 
 
@@ -70,8 +82,16 @@ def test_previews_in_the_units_sandbox_then_rewrites_only_the_forget_lines(tmp_p
     assert path.read_text() == EXAMPLE and path.read_text().count(R.NEW) == 2
     assert (path.parent / 'nexloop-restic-maint.service.before-groupby').read_text() == DEPLOYED
     assert st.S_IMODE(path.stat().st_mode) == 0o644 and runner.calls[-1] == ['systemctl', 'daemon-reload']
-    previews = [c for c in runner.calls if c[0] == 'systemd-run']
+    guards = [c for c in runner.calls if c[0] == 'systemd-run' and any(a.endswith('restic_future_guard.py') for a in c)]
+    previews = [c for c in runner.calls if c[0] == 'systemd-run' and c not in guards]
     assert len(previews) == 2 and runner.calls.index(previews[-1]) < runner.calls.index(['systemctl', 'daemon-reload'])
+    # L6 F1: each forget is previewed after its guard, and the unit runs the guard before it.
+    assert len(guards) == 2 and all(runner.calls.index(g) < runner.calls.index(f) for g, f in zip(guards, previews))
+    assert guards[0][guards[0].index('--') + 1:] == ['/usr/local/bin/restic', '--no-cache', '--repository-file', '${RESTIC_REPO1_REPOSITORY_FILE}',
+                                                  '--password-file', '${RESTIC_REPO1_PASSWORD_FILE}']
+    guard = tmp_path / 'opt/nexloop/restic-maint/restic_future_guard.py'
+    assert guard.read_text() == (ROOT / 'scripts/deploy/restic_future_guard.py').read_text() and st.S_IMODE(guard.stat().st_mode) == 0o444
+    assert st.S_IMODE(guard.parent.stat().st_mode) == 0o555
     for command in previews:
         assert '--expand-environment=yes' in command[:command.index('-p')]  # L6 S1: the ${VAR} paths expanded explicitly
         props = [command[i + 1] for i, a in enumerate(command) if a == '-p']
@@ -111,7 +131,7 @@ def test_a_preview_exiting_non_zero_writes_nothing_even_with_a_json_last_line(tm
 
 @pytest.mark.parametrize('edit', [
     lambda t: t.replace('--keep-within 14d --keep-monthly 1 --prune', '--keep-within 30d --keep-monthly 1 --prune', 1),  # hand-tuned retention
-    lambda t: t + 'ExecStart=/usr/local/bin/restic --repository-file /x forget --keep-within 14d --keep-monthly 1 --prune\n',  # a third line
+    lambda t: t + 'ExecStart=/usr/local/bin/restic --repository-file /x forget --keep-within 14d --keep-monthly 1 --prune\n' * 2,  # a 3rd and 4th
     lambda t: t.replace(R.OLD, R.NEW, 1),                                                                                    # half done
     lambda t: t + '# forget --keep-within 14d --keep-monthly 1 --prune\n',                                                  # also in a comment
     lambda t: t.replace('UMask=0077', 'UMask=0077 \\'),                                                                     # a continuation
@@ -141,5 +161,55 @@ def test_a_link_or_a_writable_directory_is_refused(tmp_path):
     assert code == 2 and 'before-groupby is a symbolic link' in text and path.read_text() == DEPLOYED
 
 
-def test_the_example_is_already_grouped_by_tag():
-    assert EXAMPLE.count(R.NEW) == 2 and R.OLD not in EXAMPLE
+def test_the_example_is_already_grouped_by_tag_and_guarded():
+    assert EXAMPLE.count(R.NEW) == 2 and R.OLD not in EXAMPLE and R.guarded(EXAMPLE) == EXAMPLE
+    lines = [l for l in EXAMPLE.splitlines() if l.startswith('ExecStart=')]
+    for i, line in enumerate(lines):
+        if ' forget ' in line and not R.is_guard(line):
+            assert R.is_guard(lines[i - 1]) and lines[i - 1].endswith(line[len('ExecStart='):line.index(' forget ')])
+
+
+def test_the_first_version_gains_the_guards_and_a_future_snapshot_stops_the_rewrite(tmp_path):
+    """L6 F1: a unit already grouped by tag (this script's first version) gains a guard before each forget; when a guard finds a
+    future-dated snapshot nothing is written."""
+    path = unit(tmp_path, GROUPED)
+    code, text, runner = main(path, runner=Runner(guard_code=1))
+    assert code == 1 and 'future-snapshot guard refused' in text and path.read_text() == GROUPED
+    assert not any(c[0] == 'systemd-run' and not any(a.endswith('restic_future_guard.py') for a in c) for c in runner.calls)  # no forget preview
+    code, text, runner = main(path)
+    assert code == 0 and path.read_text() == EXAMPLE, text
+
+
+def test_the_files_repository_gets_its_own_guarded_maintenance_once(tmp_path):
+    """L6 F1 (b): the files repository the rest-server serves, maintained here like the others: guard, forget per tag, check, the
+    Sunday deep check, and writable to the unit."""
+    repo = tmp_path / 'backups/files-repo1/restic'
+    repo.mkdir(parents=True)
+    (repo / 'config').write_text('synthetic\n')
+    password = tmp_path / 'secrets/files-repo/restic.pass'
+    password.parent.mkdir(parents=True)
+    password.write_text('synthetic\n')
+    path = unit(tmp_path)
+    code, text, runner = main(path, '--files-repo', str(repo), '--files-password-file', str(password))
+    assert code == 0, text
+    now = path.read_text()
+    common = f'/usr/local/bin/restic --no-cache -r {repo} --password-file {password}'
+    for line in (f'ExecStart={R.GUARD_CALL}{common}', f'ExecStart={common} {R.NEW}', f'ExecStart={common} check --retry-lock 10m', f'ReadWritePaths={repo}'):
+        assert now.count(line + '\n') == 1, line
+    assert now.index(f'ExecStart={R.GUARD_CALL}{common}') < now.index(f'ExecStart={common} {R.NEW}') < now.index(f'ReadWritePaths={repo}')
+    assert len([c for c in runner.calls if c[0] == 'systemd-run']) == 6  # three guards, three forget previews
+    code, text, runner = main(path, '--files-repo', str(repo), '--files-password-file', str(password))
+    assert code == 0 and 'nothing to do' in text
+    code, text, runner = main(path, '--revert')
+    assert code == 0 and path.read_text() == DEPLOYED and str(repo) not in path.read_text()
+
+
+def test_the_files_repository_arguments_are_checked(tmp_path):
+    path = unit(tmp_path)
+    password = tmp_path / 'p'
+    password.write_text('synthetic\n')
+    for args in (['--files-repo', str(tmp_path / 'absent')], ['--files-repo', str(tmp_path / 'absent'), '--files-password-file', str(password)],
+                 ['--files-repo', str(tmp_path), '--files-password-file', str(tmp_path / 'absent')],
+                 ['--revert', '--files-repo', str(tmp_path), '--files-password-file', str(tmp_path)]):
+        code, text, runner = main(path, *args)
+        assert code == 2 and path.read_text() == DEPLOYED and not any(c[0] == 'systemd-run' for c in runner.calls), args

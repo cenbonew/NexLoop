@@ -680,6 +680,7 @@ def test_the_switch_to_the_rest_server_pins_the_ca_drops_sftp_and_proves_append_
 
 @pytest.mark.parametrize('probe, why', [
     ({'backup': 0, 'forget': 0, 'still_listed': False}, 'not append-only'),   # forget succeeded: APP_HOST can delete
+    ({'backup': 0, 'forget': 0, 'still_listed': True}, 'not append-only'),    # forget reported success, even if the listing still shows it
     ({'backup': 0, 'forget': 1, 'still_listed': False}, 'not append-only'),   # refused, yet the snapshot is gone
     ({'backup': 1}, 'not append-only'),                                        # no snapshot could be written
     (None, 'not append-only'),                                                 # no probe answer at all
