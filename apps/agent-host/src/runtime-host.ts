@@ -7,7 +7,7 @@ import {refillingResponses} from './deterministic-queue.js';
 import {delayed,latencySampler,parseDeterministicLatency} from './deterministic-latency.js';
 import {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,type Context} from '@earendil-works/pi-ai';
 import {PiRuntimeAdapter,type ModelRequestSnapshot,type ModelResult} from './pi-runtime-adapter.js';
-import {RuntimeEffectClient,requestScope,RUN_INSTRUCTIONS} from './runtime-effect-tools.js';
+import {RuntimeEffectClient,effectTimeoutMs,requestScope,RUN_INSTRUCTIONS} from './runtime-effect-tools.js';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 import {COST_CURRENCIES,selectTrustedModel,validateEstimatedReservation,validateModelTariff} from './trusted-model-profile.js';
 // 10/18 (release 14): the model provider connection (TCP + TLS) bound and its retries on a new connection, before any request byte.
@@ -82,7 +82,7 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','world_group','host_id','world_purge_key_file'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','effect_timeout_ms','world_group','host_id','world_purge_key_file'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     // NX-041 S6 (D3): one Host process serves one world group; real (the default) never a simulation Run, simulation never real or test.
     if(config.world_group!==undefined&&config.world_group!=='real'&&config.world_group!=='simulation')throw new Error('runtime configuration refused');
     this.worldGroup=config.world_group==='simulation'?'simulation':'real';
@@ -134,6 +134,9 @@ export class RuntimeHost{
     if(config.plan_outcome_tool!==undefined&&(config.plan_outcome_tool!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     // AT-043: the incentive tool rides on the effect tools; SQL still requires the Run's credential to name the Action.
     // 10/18: one model request's own bound, below the Run's active budget (the adapter takes the smaller). Real profile only.
+    // ADR-029b: the effect limit; default 2 s (ADR-022 §4), at most 5 s; out of bounds or without effect tools the Host refuses to start.
+    if(config.effect_timeout_ms!==undefined){try{effectTimeoutMs(config.effect_timeout_ms);}catch{throw new Error('runtime configuration refused');}
+      if(config.effect_tools!==true)throw new Error('runtime configuration refused');}
     if(config.model_request_timeout_ms!==undefined&&(!Number.isInteger(config.model_request_timeout_ms)||(config.model_request_timeout_ms as number)<5000||(config.model_request_timeout_ms as number)>120000||config.runtime_profile!=='deepseek-flash'))throw new Error('runtime configuration refused');
     // 10/18 (release 14): TCP + TLS bound of the model provider connection, real profile only (default 4000 there; 2 retries on a new connection).
     if(config.model_connect_timeout_ms!==undefined&&(!Number.isInteger(config.model_connect_timeout_ms)||(config.model_connect_timeout_ms as number)<1000||(config.model_connect_timeout_ms as number)>10000||config.runtime_profile!=='deepseek-flash'))throw new Error('runtime configuration refused');
@@ -366,7 +369,8 @@ export class RuntimeHost{
       faux.setResponses(refillingResponses(faux,timed(route),64));
     }
     const effects=config.effect_tools===true?new RuntimeEffectClient({guardURL:this.guard,caPath:this.caPath,keyPath:this.keyPath,privateMaterial,
-      activationForRun:runId=>this.activations.get(runId)?.ref,simulation:this.worldGroup==='simulation'}):undefined;
+      activationForRun:runId=>this.activations.get(runId)?.ref,simulation:this.worldGroup==='simulation',
+      ...(typeof config.effect_timeout_ms==='number'?{effectTimeoutMs:config.effect_timeout_ms}:{})}):undefined;
     this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true,incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       // NX-041 (L6 host-sim-context 3b): a simulation Host's Runs get the simulation instructions, never the real ones.

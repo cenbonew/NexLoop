@@ -21,6 +21,15 @@ import archive  # noqa: E402
 import release  # noqa: E402
 from test_release_compliance import Runner, finding, policy, spdx, waiver  # noqa: E402
 from test_release_local import head_sha, keypair, passed_preflight  # noqa: E402
+from support.writable_tree import make_writable  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def tmp_tree_writable_after(tmp_path):
+    """Teardown: the release trees this test made read-only become removable again (support.writable_tree)."""
+    yield
+    make_writable(tmp_path)
+
 
 CONTAINERD = '[["driver-type","io.containerd.snapshotter.v1"]]'
 

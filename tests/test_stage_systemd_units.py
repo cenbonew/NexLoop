@@ -78,7 +78,11 @@ def test_schedules_match_the_backup_plan():
         assert [re.search(r'--repo (repo\d)', c).group(1) for c in commands] == ['repo1', 'repo2']
         assert all(f'--kind {kind}' in c and '--expected-version ${PGBACKREST_VERSION}' in c for c in commands)
     maint = ' '.join(unit('nexloop-restic-maint.service.example')['Service']['ExecStart'])
-    assert maint.count('forget --keep-within 14d --keep-monthly 1 --prune') == 2 and maint.count('check --read-data-subset 1/10') == 2
+    # Grouped by tag (host,tags): the journal and each file snapshot kind keep D4's window; host,paths (restic's default) would keep
+    # every file snapshot forever, each from its own staging directory.
+    # --retry-lock (L6 S2): the exclusive prune lock waits for a backup's shared lock instead of failing the daily run.
+    assert maint.count('forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune') == 2 and maint.count('check --read-data-subset 1/10') == 2
+    assert maint.count(' forget ') == 2
     assert '$$(date +%%u)' in maint  # systemd escapes: the shell sees $(date +%u)
 
 

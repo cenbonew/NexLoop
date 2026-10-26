@@ -1795,6 +1795,16 @@
       "version": "0359",
       "name": "0359_relation_neighbors.sql",
       "sha256": "09402e38e049f149bfefbe42b44723a8cf34f84cd90de3744c5ce945e51d6ad4"
+    },
+    {
+      "version": "0360",
+      "name": "0360_relation_read_gaps_coverage.sql",
+      "sha256": "3d76e5279ec16562aac726dd87779b21d538ed8169a56ffe4f8cdc1efcfc9d1f"
+    },
+    {
+      "version": "0361",
+      "name": "0361_file_backup_unprotected.sql",
+      "sha256": "8869fedf356055447dcf7fc49c47e6bbfc7294d942b0fcfa67c947cd9378f1d5"
     }
   ]
 }
