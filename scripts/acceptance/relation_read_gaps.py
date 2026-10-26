@@ -10,7 +10,8 @@ The answer is written to <evidence-dir>/<UTC date>.json (0640, replaced atomical
 
 Evidence older than 30 days (by its file name) is removed after each write.
 
-Exit 2 also when the check covers nothing (ownership_types 0: the tenant's relation catalog is not published - 0360).
+Exit 2 also when the check covers fewer than the first batch's 14 ownership source types (ownership_types, 0360; 0: the tenant's
+relation catalog is not published). The evidence file carries ownership_types with the counts.
 Exit 0: gaps is 0 (dangling, gaps_erasing and relation_only are reported, never failing). Exit 1: gaps > 0 (one <3> line on stderr for journalctl -p err; the alarm itself is the failed scheduled run:
 host-health records it and timer_scheduled_failure fires). Exit 2: refused, or the evidence could not be written - a check without
 its evidence is a failure too.
@@ -29,6 +30,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import relation_reads as RR  # noqa: E402
 
 KEEP_DAYS = 30
+# The source types with an ownership relation type in the first batch (nexloop_eios.relation_catalog.FIRST_BATCH: 14 ownership
+# relation types, one source type each; tests/test_relation_read_gaps_script.py recomputes it). Fewer covered means the tenant's
+# catalog is missing or partial - the check would miss whatever it does not cover.
+MIN_OWNERSHIP_TYPES = 14
 
 
 def check(conn, tenant):
@@ -89,9 +94,10 @@ def main(argv=None, *, connect=None, clock=None, out=sys.stdout, err=sys.stderr)
         return 2
     prune_evidence(a.evidence_dir, now, err)
     print(json.dumps({**doc, 'evidence': str(path)}, sort_keys=True), file=out)
-    if not doc.get('ownership_types'):
+    covered = doc.get('ownership_types')
+    if type(covered) is not int or covered < MIN_OWNERSHIP_TYPES:
         # Stage drill 2026-10-26: no published ownership relation type, so the check covered nothing - a failure, never "no gap".
-        print('<3>nexloop-relation-read-gaps catalog_unpublished ownership_types=0', file=err, flush=True)
+        print(f'<3>nexloop-relation-read-gaps catalog_unpublished ownership_types={covered} expected>={MIN_OWNERSHIP_TYPES}', file=err, flush=True)
         return 2
     if doc['gaps']:
         worlds = len({r['world'] for r in doc['rows'] if r['gaps']})

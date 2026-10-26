@@ -83,6 +83,15 @@ def test_a_failed_prune_is_a_warning_only(tmp_path, monkeypatch):
     assert code == 0 and got['evidence'] and '<4>nexloop-relation-read-gaps evidence_prune_failed error=PermissionError' in err
 
 
+def test_the_threshold_is_the_first_batchs_ownership_source_types(tmp_path):
+    from nexloop_eios.relation_catalog import FIRST_BATCH
+    assert G.MIN_OWNERSHIP_TYPES == len({s.source_type for s in FIRST_BATCH if s.ownership}) == 14
+    code, _, _, err = run(tmp_path, {**doc(0), 'ownership_types': 13})  # a partial catalog
+    assert code == 2 and 'expected>=14' in err
+    assert run(tmp_path, {**doc(0), 'ownership_types': 14})[0] == 0
+    assert json.loads((tmp_path / '2026-10-26.json').read_text())['ownership_types'] == 14  # in the evidence
+
+
 def test_a_check_that_covers_nothing_fails(tmp_path):
     """Stage drill 2026-10-26: an unpublished catalog gave {"gaps": 0, "rows": []} and exit 0 - now exit 2 with its journal line."""
     code, _, got, err = run(tmp_path, {**doc(0), 'ownership_types': 0, 'rows': []})

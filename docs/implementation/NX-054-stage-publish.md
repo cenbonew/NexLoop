@@ -207,6 +207,13 @@ P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，
 | 3 | DATA_HOST | **负责人**（root） | 一个配置文件 + 一条命令安装每日缺口核对（见下面的 §9.1） | 输出最后是 `step 7: timer enabled`，`dry-run` 一行只有计数 | `sudo bash .../relation_gaps_install.sh <配置> --uninstall`，报 L5 |
 | 4 | DATA_HOST | 调度员（第 4.2 步需要负责人 root 一条命令） | §9.2 的演练 | 两轮都符合预期 | 负责人执行 `--drill-clear`；报 L5 |
 
+**执行顺序**（2026-10-26 演练的结论）：缺口核对只覆盖已发布的归属关系类型，目录没有发布时它什么都看不到。所以：
+1. 先执行 §8，发布关系目录（并完成回填）；
+2. 再部署迁移 0360 和新的 `relation_read_gaps.py`：覆盖的归属源类型少于第一批的 14 个时，它会以 2 退出、触发告警；证据文件里带 `ownership_types`；
+3. 最后做 §9.2 的演练。
+
+目录发布之前，timer 保持现状：线上运行的仍是旧版脚本（覆盖为 0 时也以 0 退出），新版要等目录发布之后再部署。7 天证据的摘要除了 `gaps`，也要记下每天的 `ownership_types`（应当是 14）。
+
 ### 9.1 安装（负责人，DATA_HOST，root）
 
 1. **前置的只读核对**（调度员，经 metrics DSN 本身）：`psql "$(cat <G-METRICS-DSN 文件>)" -Atc "select session_user, pg_is_in_recovery()"`，预期第一列是 `nexloop_metrics`。能连上就说明这个登录角色存在、凭据有效；DSN 文件本身不打印。
@@ -225,7 +232,7 @@ P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，
 
 | 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 | 不通过时 |
 | --- | --- | --- | --- | --- | --- |
-| 0 | DATA_HOST | 调度员 | 引用每日缺口证据：`$NEXLOOP_ROOT/evidence/relation-read-gaps/` 中最近的文件 | **最近连续 7 天**每天 `gaps` 为 0（`gaps_erasing`、`dangling`、`relation_only` 照实记录，不作为条件） | 不上 P4b；按缺口查原因（回填、派生） |
+| 0 | DATA_HOST | 调度员 | 引用每日缺口证据：`$NEXLOOP_ROOT/evidence/relation-read-gaps/` 中最近的文件（§9 的执行顺序之后：目录已发布、0360 与新脚本已部署） | **最近连续 7 天**每天 `ownership_types` 不少于 14、`gaps` 为 0（`gaps_erasing`、`dangling`、`relation_only` 照实记录，不作为条件） | 不上 P4b；按缺口查原因（回填、派生） |
 | 1 | APP_HOST | 调度员 | 引用 P3 的 verify：`relation_backfill.py ... verify`（§8 第 11、13 步的输出，或者当天重跑一次） | **全部 26 个 derivation**、每个 world 都是 `a == b`、`extra == 0`、`skipped_remaining == 0`（不只带归属标记的 14 个） | 不上 P4b；补回填（新的 run），再 verify |
 | 2 | DATA_HOST | 调度员 | 备份：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，`systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不部署 |
 | 3 | — | 调度员 | 按 ack-policy 部署迁移 0359（工作台读路径） | 迁移头含 0359；一个已知 Consumer 的邻居中，被覆盖的链接只出现在关系分组里 | 回退：一个新迁移把 `authz.nexloop_workbench_read` 改回 `nexloop_workbench_read_before_relation_neighbors` 的调用（删除包装函数并把旧函数改回原名），由 L5 准备 |

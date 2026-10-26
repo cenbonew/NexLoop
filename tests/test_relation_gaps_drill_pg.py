@@ -68,3 +68,21 @@ def test_the_check_says_what_it_covers(catalog):  # noqa: F811
     assert after['ownership_types'] >= 12 and after['gaps'] == 1
     assert {(r['world'], r['type_name']) for r in after['rows'] if r['gaps']} == {('test', 'Goal')}
     run(pg, 'clear')
+
+
+def test_a_derivation_without_ownership_is_not_coverage(catalog):  # noqa: F811
+    """L6 S2: a published relation type that derives (source_property) but marks no Consumer ownership is not counted: the check
+    covers only the ownership source types."""
+    admin, pg = catalog['admin'], catalog['pg']
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT_A,))
+        admin.execute("""insert into ontology.relation_type_versions(tenant_id,relation_name,version,definition) values(%s,'step_in_goal',1,
+            '{"relation_name":"step_in_goal","source_type":"PlanStep","target_type":"Goal","cardinality":"many_to_one","version":1,
+              "description":"test only","inverse_name":"","properties":[]}')""", (TENANT_A,))
+        admin.execute("""insert into control.nexloop_relation_type_profiles(tenant_id,relation_name,version,source_property,consumer_ownership)
+            values(%s,'step_in_goal',1,'goal_id',null)""", (TENANT_A,))
+        assert admin.execute("select count(*) from control.nexloop_relation_derivations where tenant_id=%s", (TENANT_A,)).fetchone()[0] == 1
+    admin.execute('alter role nexloop_metrics login')
+    with psycopg.connect(make_conninfo(pg, user='nexloop_metrics')) as db:
+        doc = db.execute('select authz.nexloop_relation_read_gaps(%s)', (TENANT_A,)).fetchone()[0]
+    assert doc['ownership_types'] == 0 and doc['rows'] == []
