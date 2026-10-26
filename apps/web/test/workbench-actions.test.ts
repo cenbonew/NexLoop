@@ -157,3 +157,20 @@ test('desktop usability: the takeover controls are one bar at the top with the s
   // A previous take-over success never shows up as a hand-back outcome (separate keyed form instances).
   expect(mine).not.toContain(DONE_TEXT.hand_back_conversation);
 });
+
+test('NX-056 approval refusals: the 409/403 status is unchanged and only a known reason code adds its Chinese explanation',async()=>{
+  const {APPROVAL_REASON_TEXT,refusalTextOf,WorkbenchWriteError}=await import('../src/workbench/api');
+  server(()=>({status:409,body:{code:'not_allowed_in_state',message:'请求未完成',details:{reason:'cooldown'}}}));
+  const cooldown=await workbenchAct('decide_approval',{},'wb-key-0000000000000002').catch(e=>e);
+  expect(cooldown).toMatchObject({kind:'not_allowed_in_state',reason:'cooldown'});
+  expect(refusalTextOf(cooldown)).toBe(APPROVAL_REASON_TEXT.cooldown);
+  server(()=>({status:403,body:{code:'forbidden',details:{reason:'approver_unauthorized'}}}));
+  const forbidden=await workbenchAct('decide_approval',{},'wb-key-0000000000000003').catch(e=>e);
+  expect(forbidden).toMatchObject({kind:'forbidden'});expect(refusalTextOf(forbidden)).toContain('有资格批准人');
+  for(const code of ['self_approval','target_cannot_approve','quorum_unreachable_in_solo_mode'])expect(APPROVAL_REASON_TEXT[code]).toBeTruthy();
+  // An unknown code, a malformed code, no details, or another kind of failure adds nothing.
+  for(const body of [{code:'not_allowed_in_state',details:{reason:'something_new'}},{code:'not_allowed_in_state',details:{reason:'Bad Code <x>'}},{code:'not_allowed_in_state'}]){
+    server(()=>({status:409,body}));expect(refusalTextOf(await workbenchAct('decide_approval',{},'wb-key-0000000000000004').catch(e=>e))).toBeNull();}
+  expect(refusalTextOf(new WorkbenchWriteError('unavailable','cooldown'))).toBeNull();
+  expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state','toString'))).toBeNull();
+});

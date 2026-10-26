@@ -270,3 +270,21 @@ def test_a_changed_body_never_consumes_the_approval_of_another(gated, admin):
     other = c['request'](reason='another reason').json()  # one field differs: another digest
     assert other['status'] == 'waiting_approval' and other['approval_id'] != approval
     assert status(admin, approval) == 'approved' and consumptions(admin) == [] and tenant_switch(admin) is None
+
+
+@PLAN
+def test_approval_refusals_keep_their_status_and_name_only_the_fixed_reason_code(gated, admin):
+    """Workbench reason codes (NX-056): an approval refusal answers with its unchanged status (409 for a state refusal, 403 for an
+    authority refusal) and details.reason = the fixed code; nothing else of the database message reaches the client."""
+    c = gated
+    mine = c['request']().json()['approval_id']
+    own = c['decide'](mine, member=c['owner_member'])                      # the requester's own vote
+    assert own.status_code == 409 and own.json()['details'] == {'reason': 'self_approval'}, own.text
+    rejected = c['decide'](mine, decision='reject')
+    assert rejected.status_code == 200, rejected.text
+    again = c['request']()                                                  # the same request within the hour: cooldown, still 409
+    assert again.status_code == 409 and again.json()['code'] == 'not_allowed_in_state' and again.json()['details'] == {'reason': 'cooldown'}
+    assert set(again.json()) == {'code', 'message', 'trace_id', 'retryable', 'details'} and 'approval' not in again.json()['message']
+    theirs = c['request'](member=c['second']).json()['approval_id']
+    withdraw = c['call'](c['owner_member'], 'cancel_approval', {'approval_id': theirs, 'reason': 'not mine'})
+    assert (withdraw.status_code, withdraw.json()['details']) == (403, {'reason': 'not_requester'}), withdraw.text
