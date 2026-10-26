@@ -1,5 +1,5 @@
 """Test teardown helper: give the owner write access back on every directory and file below a path (links are not followed), so
-pytest can remove a tmp_path in which an installer under test made its release tree read-only (CI 2026-10-27: undeletable
+pytest can remove a tmp_path in which an installer under test made its release tree read-only (CI 2026-10-26: undeletable
 garbage-* directories filled the CI host's /tmp quota). Only the test's own tmp_path is touched; the scripts under test keep
 their permission logic."""
 import os
