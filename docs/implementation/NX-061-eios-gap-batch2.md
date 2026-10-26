@@ -45,6 +45,11 @@
   - `dependents` 的每一项都有 `definition_type`、`stable_name`、`version`、`pinned_type_version` 和 `changed_properties`；
   - 依赖被改动属性的定义排在前面，排序沿用 `/check`；
   - 只有名称、版本和属性名，没有数据；
+  - **`affected` 是已列出的条数**，等于 `dependents` 的长度，不一定是全部受影响的定义：
+    - 0322 的读取每类最多返回 500 条；
+    - `truncated` 为 true 时，表示有一类被截断，此时要把 `affected`（以及 `affected_by_changed_properties`）理解为“至少 N 条”；
+    - `unreadable` 中的定义解析失败，没有计入 `affected`，需要另看；
+    - 字段名保持不变（L6 复核 e9452c1d 的建议）；
   - API 没有返回 impact 时，`impact` 为 null；
   - `--verify-reject` 走的也是 check，所以同样带上这份清单；
   - 测试：
