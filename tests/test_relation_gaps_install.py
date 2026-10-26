@@ -42,7 +42,8 @@ class Runner:
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
         if command[:2] == ['env', '-i']:
-            assert command[:command.index('git') + 2] == [*I.GIT] and not any(a.startswith('GIT_DIR') for a in command)  # minimal env, I2
+            assert command[:8] == ['env', '-i', 'PATH=/usr/bin:/bin', 'HOME=/nonexistent', 'GIT_CONFIG_NOSYSTEM=1', 'GIT_CONFIG_GLOBAL=/dev/null',
+                                   'git', '--no-replace-objects']  # the minimal environment, spelled out (I2)
             return (ROOT / command[-1].split(':', 1)[1]).read_text()
         if command[:2] == ['id', '-u']:
             return '998\n' if self.user_exists else ''
@@ -120,6 +121,8 @@ def test_installs_reruns_and_never_shows_the_dsn(tmp_path):
     # L6 C2: the unit's PrivateTmp hides the host /tmp, so the scratch directory is under /var/lib, never /tmp.
     assert 'PrivateTmp=true' in props and len(rw) == 1 and rw[0].startswith('ReadWritePaths=' + str(root / 'var/lib/nexloop/relation-gaps-dry/run-'))
     assert '/srv/nexloop/evidence' not in rw[0] and not rw[0].split('=', 1)[1].startswith(('/tmp', '/private/tmp', tempfile_dir()))
+    dry_dir = root / 'var/lib/nexloop/relation-gaps-dry'
+    assert list(dry_dir.iterdir()) == [] and dry_dir.stat().st_mode & 0o777 == 0o711  # the scratch removed; 0711 (I4)
     for path, nested in ((root / 'etc/nexloop/host-health.json', False), (root / 'root/host-health-install.data-host.json', True)):
         value = json.loads(path.read_text())
         assert I.ENTRY in (value['probe'] if nested else value)['timers'] and path.stat().st_mode & 0o777 == 0o600
@@ -190,6 +193,7 @@ def test_the_drill_and_uninstall(tmp_path):
     assert code == 0 and not dropin.parent.exists()  # L6: the drop-in directory goes too
     assert not (root / 'etc/systemd/system/nexloop-relation-read-gaps.service').exists() and not (root / 'opt/nexloop/relation-gaps').exists()
     assert not (root / 'etc/nexloop/relation-gaps/metrics.dsn').exists() and 'user nexloop-relation-gaps stay' in text
+    assert not (root / 'var/lib/nexloop/relation-gaps-dry').exists()
     assert I.ENTRY not in json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers']
 
 
@@ -270,3 +274,56 @@ def test_uninstall_refuses_a_malformed_host_health_file_before_removing_anything
     private(root / 'root/host-health-install.data-host.json', {'schema': 'x', 'probe': {'timers': 'not a list'}})
     code, text, runner = main(root, config, '--uninstall')
     assert code == 2 and (root / 'etc/systemd/system/nexloop-relation-read-gaps.service').exists() and runner.calls == []
+
+
+def test_a_linked_dry_run_directory_is_refused(tmp_path):
+    """L6 I4: /var/lib/nexloop/relation-gaps-dry as a link elsewhere: refused before any chmod or chown reaches the target."""
+    root, config = setup(tmp_path)
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    os.chmod(elsewhere, 0o700)
+    (root / 'var/lib/nexloop').mkdir(parents=True)
+    os.symlink(elsewhere, root / 'var/lib/nexloop/relation-gaps-dry')
+    code, text, runner = main(root, config)
+    assert code == 2 and 'dry-run directory' in text and elsewhere.stat().st_mode & 0o777 == 0o700 and list(elsewhere.iterdir()) == []
+    assert not any(c[0] == 'systemd-run' for c in runner.calls)
+    code, text, runner = main(root, config, '--uninstall')
+    assert code == 2 and runner.calls == []
+
+
+def test_commondir_alone_is_refused(tmp_path):
+    root, config = setup(tmp_path)
+    (tmp_path / 'release/.git/commondir').write_text('../elsewhere\n')
+    code, text, _ = main(root, config)
+    assert code == 2 and 'commondir' in text
+
+
+def test_the_root_directory_is_checked_and_a_link_loop_ends(tmp_path, monkeypatch):
+    import signal
+    check = functools.partial(I.interpreter_owned, what='python', owners=OWNERS)
+    loop = tmp_path / 'loop'
+    loop.mkdir()
+    os.symlink(loop / 'b', loop / 'a')
+    os.symlink(loop / 'a', loop / 'b')
+
+    def stop(*_):
+        raise TimeoutError('the link loop did not end')
+    previous = signal.signal(signal.SIGALRM, stop)
+    signal.alarm(5)
+    try:
+        with pytest.raises(I.Refused, match='a link'):
+            check(str(loop / 'a'))
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    lstat = os.lstat
+
+    def writable_root(path, *a, **k):
+        info = lstat(path, *a, **k)
+        if str(path) == '/':
+            return os.stat_result((info.st_mode | 0o002, info.st_ino, info.st_dev, info.st_nlink, info.st_uid, info.st_gid, info.st_size,
+                                   int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+        return info
+    monkeypatch.setattr(os, 'lstat', writable_root)
+    with pytest.raises(I.Refused, match='/ must be owned'):
+        check(sys.executable)

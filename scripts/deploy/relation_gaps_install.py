@@ -370,7 +370,8 @@ def install(root, config, dsn, runner, out, trust, trust_python):
     # L6 C2: outside /tmp - the sandbox has the unit's PrivateTmp, a host /tmp directory would not be there.
     dry = root / 'var/lib/nexloop/relation-gaps-dry'
     dry.mkdir(parents=True, exist_ok=True)
-    os.chmod(dry, 0o755)
+    trust(dry, what='dry-run directory')  # L6 I4: no link on the way, /var/lib/nexloop and the directory root's, before any chmod
+    os.chmod(dry, 0o711)
     scratch = Path(tempfile.mkdtemp(dir=dry, prefix='run-'))
     runner(['chown', f'{USER}:{USER}', str(scratch)])
     try:
@@ -416,6 +417,9 @@ def uninstall(root, config, runner, out):
     files = [(p, n) for p, n in host_health_files(root, config) if p.exists()]
     for path, nested in files:  # a malformed host-health file is refused before anything is removed
         timers_of(read_private_json(path), nested, path)
+    dry = root / 'var/lib/nexloop/relation-gaps-dry'
+    if os.path.islink(dry):
+        raise Refused(f'{dry} is a symbolic link: nothing removed')
     runner(['systemctl', 'disable', '--now', 'nexloop-relation-read-gaps.timer'], check=False)
     systemd = root / 'etc/systemd/system'
     for d in ('nexloop-relation-read-gaps.timer.d', 'nexloop-relation-read-gaps.service.d'):
@@ -424,7 +428,7 @@ def uninstall(root, config, runner, out):
     for path in (systemd / 'nexloop-relation-read-gaps.timer', systemd / 'nexloop-relation-read-gaps.service', root / 'etc/nexloop/relation-gaps/metrics.dsn'):
         if path.exists() or path.is_symlink():
             path.unlink()
-    shutil.rmtree(root / 'var/lib/nexloop/relation-gaps-dry', ignore_errors=True)
+    shutil.rmtree(dry, ignore_errors=True)
     base = root / 'opt/nexloop/relation-gaps'
     if base.exists():
         for path in [base, *base.rglob('*')]:
