@@ -215,10 +215,10 @@ P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，
 
 ### 9.2 演练（设计稿 §2.5）
 
-1. **造出 gaps = 1**（调度员，DATA_HOST，bootstrap 窗口，只在 test world）：在一个事务中写入一个 Consumer 和一个 `consumer_id` 指向它的 Goal，然后删除这个 Goal 的派生关系 `goal_of`；执行后关闭窗口。三条语句之外不做别的。
+1. **造出 gaps = 1**（调度员，DATA_HOST，bootstrap 窗口，只在 test world）：`<bootstrap DSN，从负责人的 Keychain 经管道> | /opt/nexloop/host-health/current/venv/bin/python -I -B <release>/scripts/acceptance/relation_gaps_drill.py arm --tenant "$TENANT_ID" --dsn-stdin`。脚本只在一个事务里写入一个合成 Consumer 和一个指向它的 Goal（source_system `drill-relgaps`），立即派生后删除这个 Goal 的 `goal_of`；输出 `drill_gaps: 1`。它绕过受治理入口的理由与范围写在脚本头部（只限这次演练、只在 test world、只有合成对象）。`check` 子命令只读核对。
 2. **让 timer 自己触发一次**（负责人，root 一条命令）：`sudo bash .../relation_gaps_install.sh <配置> --drill-arm 3`。安装器加一个 drop-in（`nexloop-relation-read-gaps.timer.d/50-drill.conf`，3 分钟后的一个 `OnCalendar`），重载并重启 timer；不能用 `systemctl start` 或 `systemd-run --on-active`，那两种都不算这个 timer 的定时运行。
 3. **核对**（调度员，不需要 root）：`systemctl show -p Result,ExecMainStatus nexloop-relation-read-gaps.service` 为 `Result=exit-code`、`ExecMainStatus=1`；当天的证据文件 `gaps` 为 1；下一次告警评估后 `timer_scheduled_failure`（selector `data_host:relation-read-gaps`）在工作台出现。
-4. **修复**（调度员，bootstrap 窗口）：删除这两个测试对象（BEFORE DELETE 触发器带走关系）。再请负责人执行一次 `--drill-arm 3`，核对 `Result=success`、`gaps` 为 0；记录告警清除的时刻（`timer_scheduled_failures_24h` 是 24 小时窗口，清除会晚于修复）。
+4. **修复**（调度员，bootstrap 窗口）：同一个脚本的 `clear`（只按 source_system `drill-relgaps` 在 test world 中删除，BEFORE DELETE 触发器带走关系），输出 `objects_deleted: 2`、`drill_gaps: 0`。再请负责人执行一次 `--drill-arm 3`，核对 `Result=success`、`gaps` 为 0；记录告警清除的时刻（`timer_scheduled_failures_24h` 是 24 小时窗口，清除会晚于修复）。
 5. **收尾**（负责人）：`sudo bash .../relation_gaps_install.sh <配置> --drill-clear`。结果记入 NX-054 的证据。
 
 ## 10. P4b（世界模型邻居读关系，0359）上 real 之前
