@@ -6,7 +6,7 @@
   "memory_deny_write_execute": false,
   "pip_index_url": "https://<PYPI_MIRROR>/simple",
   "host_role": "app_host",
-  "_comment": "APP_HOST (dispatcher): printf \"app_host\\t%s\\n\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v13 selectors (app_host:<name>). file-backup and provider-drift are added by scripts/deploy/file_backup_install.sh step 6 once nexloop-file-backup.timer runs verified (NX-035-file-backup.md §6; provider-drift only where its timer is installed); listing file-backup before that alerts timer_stale_file_backup (docs/implementation/host-health.md §4.5).",
+  "_comment": "APP_HOST (dispatcher): printf \"app_host\\t%s\\n\" \"$APP_PW\" | sudo bash scripts/deploy/host_health_install.sh <this file, 0600 root>. Names must match the alert rules v13 selectors (app_host:<name>). file-backup, file-backup-maint (rules v21) and provider-drift are added by scripts/deploy/file_backup_install.sh step 6 once nexloop-file-backup.timer runs verified (NX-035-file-backup.md §6; provider-drift only where its timer is installed); listing file-backup before that alerts timer_stale_file_backup (docs/implementation/host-health.md §4.5).",
   "database": {
     "host": "<DATA_HOST_PG_ADDRESS>",
     "port": 5432,
@@ -147,6 +147,11 @@
         "name": "file-backup",
         "timer": "nexloop-file-backup.timer",
         "service": "nexloop-file-backup.service"
+      },
+      {
+        "name": "file-backup-maint",
+        "timer": "nexloop-file-backup-maint.timer",
+        "service": "nexloop-file-backup-maint.service"
       }
     ]
   }

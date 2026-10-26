@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UNITS = ROOT / 'deploy/stage/systemd'
 PLAN = json.loads((ROOT / 'deploy/configuration/backup.v1.json').read_text())
 BACKUP = {'nexloop-pg-full': 'data', 'nexloop-pg-diff': 'data', 'nexloop-journal': 'data', 'nexloop-journal-restic@': 'data',
-          'nexloop-restic-maint': 'data', 'nexloop-file-backup': 'app'}
+          'nexloop-restic-maint': 'data', 'nexloop-file-backup': 'app', 'nexloop-file-backup-maint': 'app'}
 ENCRYPTED = ('/srv/nexloop/secrets', '/srv/nexloop-backup/')
 
 
@@ -68,8 +68,12 @@ def test_schedules_match_the_backup_plan():
     assert PLAN['journal']['export_every_seconds'] == 60 and calendar('nexloop-journal') == '*-*-* *:*:00'
     assert PLAN['files']['snapshot_every_minutes'] == 15 and calendar('nexloop-file-backup').startswith('*-*-* *:0/15:')
     assert calendar('nexloop-journal-restic@repo1').startswith('*-*-* *:0/5:') and calendar('nexloop-journal-restic@repo2').startswith('*-*-* *:0/15:')
+    # repo2's file maintenance (APP_HOST) daily between two file backup rounds (:00/:15/:30/:45 plus up to 60 s): 04:07 plus at most 120 s.
+    maint = unit('nexloop-file-backup-maint.timer.example')['Timer']
+    start = int(maint['OnCalendar'][0].split(':')[1]) % 15 * 60  # seconds after a file backup round's slot
+    assert maint['OnCalendar'] == ['*-*-* 04:07:00'] and 60 < start and start + int(maint['RandomizedDelaySec'][0]) < 15 * 60
     for name in ('nexloop-pg-full', 'nexloop-pg-diff', 'nexloop-journal', 'nexloop-journal-restic@repo1', 'nexloop-journal-restic@repo2',
-                 'nexloop-restic-maint', 'nexloop-file-backup'):
+                 'nexloop-restic-maint', 'nexloop-file-backup', 'nexloop-file-backup-maint'):
         t = unit(f'{name}.timer.example')
         assert t['Timer']['Persistent'] == ['true'] and t['Install']['WantedBy'] == ['timers.target'], name
     # PG backups go to both repositories; repo2 (offsite) after repo1.

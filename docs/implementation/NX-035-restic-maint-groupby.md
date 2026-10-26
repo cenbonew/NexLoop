@@ -68,6 +68,6 @@ forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 
 | **甲（推荐）**：APP_HOST 上新增 `nexloop-file-backup-maint.service` 加 timer（每天），以 `nexloop-file-backup` 身份在同样的 D3 沙箱里运行。对文件 repo2 执行 `forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune`、`check`，每周加深度 check。由 `file_backup_install` 安装：第 4 步装 unit，第 6 步启用并写入 host-health | 不挪动：口令和子用户密钥本来就在 APP_HOST | host-health 加 `file-backup-maint`。`timer_scheduled_failure` 和 `host_unit_missing` 是通配规则，自动覆盖；新鲜度规则要在下一个规则版本里加一条 `timer_stale_file_backup_maint`（26 小时） | 如果以后让 APP_HOST 的 TOS 子用户不能删除（S3 评估中的 E），维护就要迁到 DATA_HOST |
 | 乙：并进 DATA_HOST 的 restic-maint | 要把文件 repo2 的口令放到 DATA_HOST；还需要负责人在火山引擎控制台把 DATA_HOST 子用户的策略扩到 `nexloop/restic-files/`。restic.env 只能放一组 AWS 键，不能同时放 APP_HOST 子用户的密钥 | 现有的 `timer_stale_restic_maint` 已覆盖 | 维护已经在 DATA_HOST，与"APP_HOST 只追加"方向一致 |
 
-推荐甲：秘密不扩散，也不需要负责人改控制台策略。改动在 `file_backup_install`（第三十六批）和告警规则（v20 正在 L6 审）上，所以我准备等这两项合入之后作为下一个分片接着做：unit 和 timer、安装器第 4/6 步、host-health 条目、规则 v21、测试。如果负责人选乙，我改为在本分支补 restic-maint 的行，并在 `install_repo2_secrets.sh` 增加一个 DATA_HOST 角色。
+**已定为甲，并已实现**（调度员 2026-10-26，分支 `l7/file-backup-maint`；见 `NX-035-file-backup.md` §6.4）。以下为当时的推荐理由：秘密不扩散，也不需要负责人改控制台策略。改动在 `file_backup_install`（第三十六批）和告警规则（v20 正在 L6 审）上，所以我准备等这两项合入之后作为下一个分片接着做：unit 和 timer、安装器第 4/6 步、host-health 条目、规则 v21、测试。如果负责人选乙，我改为在本分支补 restic-maint 的行，并在 `install_repo2_secrets.sh` 增加一个 DATA_HOST 角色。
 
 **启用顺序**：DATA_HOST 应用本修复，并且文件 repo2 的维护（甲或乙）就位之后，再启用文件备份的 timer。
