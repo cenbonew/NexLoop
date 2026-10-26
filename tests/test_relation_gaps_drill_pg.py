@@ -47,3 +47,24 @@ def test_arm_check_clear(catalog):  # noqa: F811
 def test_a_malformed_tenant_is_refused():
     out = io.StringIO()
     assert D.main(['check', '--tenant', "x' or '1", '--dsn-stdin'], connect=lambda: None, out=out) == 2 and 'tenant' in out.getvalue()
+
+
+def test_the_check_says_what_it_covers(catalog):  # noqa: F811
+    """Stage drill 2026-10-26: before the relation catalog is published the check covers no type (ownership_types 0, rows []) -
+    the case the stage drill hit; after publication it covers the ownership source types and sees the drill's gap in the test world."""
+    admin, pg = catalog['admin'], catalog['pg']
+
+    def check():
+        admin.execute('alter role nexloop_metrics login')
+        with psycopg.connect(make_conninfo(pg, user='nexloop_metrics')) as db:
+            return db.execute('select authz.nexloop_relation_read_gaps(%s)', (TENANT_A,)).fetchone()[0]
+    assert run(pg, 'arm')[1]['drill_gaps'] == 1
+    before = check()
+    assert before['ownership_types'] == 0 and before['rows'] == [] and before['gaps'] == 0  # unpublished: nothing covered
+    run(pg, 'clear')
+    publish(catalog)
+    assert run(pg, 'arm')[1]['drill_gaps'] == 1
+    after = check()
+    assert after['ownership_types'] >= 12 and after['gaps'] == 1
+    assert {(r['world'], r['type_name']) for r in after['rows'] if r['gaps']} == {('test', 'Goal')}
+    run(pg, 'clear')

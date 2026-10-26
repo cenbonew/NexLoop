@@ -10,6 +10,7 @@ The answer is written to <evidence-dir>/<UTC date>.json (0640, replaced atomical
 
 Evidence older than 30 days (by its file name) is removed after each write.
 
+Exit 2 also when the check covers nothing (ownership_types 0: the tenant's relation catalog is not published - 0360).
 Exit 0: gaps is 0 (dangling, gaps_erasing and relation_only are reported, never failing). Exit 1: gaps > 0 (one <3> line on stderr for journalctl -p err; the alarm itself is the failed scheduled run:
 host-health records it and timer_scheduled_failure fires). Exit 2: refused, or the evidence could not be written - a check without
 its evidence is a failure too.
@@ -88,6 +89,10 @@ def main(argv=None, *, connect=None, clock=None, out=sys.stdout, err=sys.stderr)
         return 2
     prune_evidence(a.evidence_dir, now, err)
     print(json.dumps({**doc, 'evidence': str(path)}, sort_keys=True), file=out)
+    if not doc.get('ownership_types'):
+        # Stage drill 2026-10-26: no published ownership relation type, so the check covered nothing - a failure, never "no gap".
+        print('<3>nexloop-relation-read-gaps catalog_unpublished ownership_types=0', file=err, flush=True)
+        return 2
     if doc['gaps']:
         worlds = len({r['world'] for r in doc['rows'] if r['gaps']})
         print(f"<3>nexloop-relation-read-gaps gaps={doc['gaps']} worlds={worlds}", file=err, flush=True)
