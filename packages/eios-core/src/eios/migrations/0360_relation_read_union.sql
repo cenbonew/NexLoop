@@ -5,7 +5,8 @@
 -- backfill (0349) and the purge keep their own resolution (purge: P4c, 0361). The fallback is measured offline, never counted
 -- in the read path: authz.nexloop_relation_read_gaps(tenant), STABLE, the nexloop_metrics login only (session_user checked; the
 -- caller sets its transaction read only), counts per world and type of the objects whose property-rule Consumers the relations
--- miss (gaps; gaps_erasing apart, as P3 verify leaves erasing Consumers out) and the reverse (relation_only). Counts only.
+-- miss (gaps; gaps_erasing apart, as P3 verify leaves erasing Consumers out; dangling apart: a property naming no Consumer; worlds
+-- being purged left out) and the reverse (relation_only). Counts only.
 -- Ships with P4c on real (design §3 R4). Temporary number; the dispatcher renumbers.
 
 create function runtime.nexloop_object_consumers_read(p_tenant text,p_world text,p_type text,p_object text) returns text[]
@@ -25,7 +26,7 @@ begin
  if prior is distinct from t then perform set_config('eios.tenant_id',t,true);end if;
  -- (a) No erasing Consumer in this tenant and world: nothing to refuse.
  if exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=t and e.world=p_world and e.state<>'pending_confirmation') then
-  -- Erasing indirect read: the one resolution shared with object_fields (runtime.nexloop_object_consumers).
+  -- Erasing indirect read: the one resolution shared with object_fields (runtime.nexloop_object_consumers_read: relations united with the property rule).
   v:=substring(r from '^eios:(?:object|property):([A-Z][A-Za-z0-9_]{0,63})/');
   if v is null and p_claims->>'type_name' is not null then v:=p_claims->>'type_name';end if;
   c:=coalesce(substring(r from '^eios:(?:object|property):[A-Z][A-Za-z0-9_]{0,63}/([A-Za-z0-9][A-Za-z0-9._:-]{0,159})'),p_claims->>'object_id');
@@ -46,7 +47,7 @@ begin
  select * into o from ontology.objects where tenant_id=p_tenant and world=p_world and type_name=p_type and object_id=p_object;
  if not found then return null;end if;
  if not authz.nexloop_workbench_member_may_read(p_tenant,p_world,p_role,'eios:object:'||p_type||'/'||p_object)
-  -- Erasing indirect read: the Consumers the object belongs to, the resolution the read guard uses (runtime.nexloop_object_consumers).
+  -- Erasing indirect read: the Consumers the object belongs to, the resolution the read guard uses (runtime.nexloop_object_consumers_read).
   or exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=p_tenant and e.world=p_world and e.state<>'pending_confirmation'
    and e.consumer_id=any(runtime.nexloop_object_consumers_read(p_tenant,p_world,p_type,p_object))) then
   return jsonb_build_object('type_name',p_type,'object_id',p_object,'readable',false,'fields','[]'::jsonb);end if;
@@ -95,19 +96,27 @@ begin
   objs as (
    select o.world,o.type_name,runtime.nexloop_relation_gap_property_consumers(o.tenant_id,o.world,o.type_name,o.object_id) a,
     runtime.nexloop_relation_object_consumers(o.tenant_id,o.world,o.type_name,o.object_id) r
-   from ontology.objects o where o.tenant_id=p_tenant and o.type_name in (select source_type from types)),
+   from ontology.objects o where o.tenant_id=p_tenant and o.type_name in (select source_type from types)
+    -- A simulation world being purged is left out, as P3 verify leaves it (L6 I-1).
+    and not exists(select 1 from control.nexloop_sim_worlds w where w.tenant_id=p_tenant and w.world=o.world and w.status in ('deleting','deleted'))),
   marked as (
    select x.*,exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=p_tenant and e.world=x.world
      and e.state<>'pending_confirmation' and e.consumer_id=any(x.a||x.r)) erasing,
-    exists(select 1 from unnest(x.a) c where not c=any(x.r)) gap,exists(select 1 from unnest(x.r) c where not c=any(x.a)) extra
+    -- A property naming no Consumer object of the world (deleted, or never there) is dangling, not a gap: no relation can exist.
+    exists(select 1 from unnest(x.a) c where not c=any(x.r) and exists(select 1 from ontology.objects k where k.tenant_id=p_tenant and k.world=x.world
+      and k.type_name='Consumer' and k.object_id=c)) gap,
+    exists(select 1 from unnest(x.a) c where not c=any(x.r) and not exists(select 1 from ontology.objects k where k.tenant_id=p_tenant and k.world=x.world
+      and k.type_name='Consumer' and k.object_id=c)) dangling,
+    exists(select 1 from unnest(x.r) c where not c=any(x.a)) extra
    from objs x)
- select coalesce(jsonb_agg(jsonb_build_object('world',world,'type_name',type_name,'objects',n,'gaps',g,'gaps_erasing',ge,'relation_only',ro)
+ select coalesce(jsonb_agg(jsonb_build_object('world',world,'type_name',type_name,'objects',n,'gaps',g,'gaps_erasing',ge,'dangling',d,'relation_only',ro)
    order by world,type_name),'[]'::jsonb) into out
  from (select world,type_name,count(*) n,count(*) filter (where gap and not erasing) g,count(*) filter (where gap and erasing) ge,
-   count(*) filter (where extra) ro from marked group by world,type_name) s;
+   count(*) filter (where dangling and not gap) d,count(*) filter (where extra) ro from marked group by world,type_name) s;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return jsonb_build_object('tenant_id',p_tenant,'rows',out,'gaps',(select coalesce(sum((v->>'gaps')::bigint),0) from jsonb_array_elements(out) v),
   'gaps_erasing',(select coalesce(sum((v->>'gaps_erasing')::bigint),0) from jsonb_array_elements(out) v),
+  'dangling',(select coalesce(sum((v->>'dangling')::bigint),0) from jsonb_array_elements(out) v),
   'relation_only',(select coalesce(sum((v->>'relation_only')::bigint),0) from jsonb_array_elements(out) v));
 end $$;
 alter function authz.nexloop_relation_read_gaps(text) owner to nexloop_owner;

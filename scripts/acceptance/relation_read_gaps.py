@@ -8,12 +8,14 @@ authz.nexloop_relation_read_gaps (0360): per world and type, the objects whose p
 the same among erasing Consumers (gaps_erasing, apart: P5 looks at gaps only) and the reverse (relation_only). Counts only.
 The answer is written to <evidence-dir>/<UTC date>.json (0640, replaced atomically) and printed.
 
-Exit 0: gaps is 0. Exit 1: gaps > 0 (one <3> line on stderr for journalctl -p err; the alarm itself is the failed scheduled run:
+Evidence older than 30 days (by its file name) is removed after each write.
+
+Exit 0: gaps is 0 (dangling, gaps_erasing and relation_only are reported, never failing). Exit 1: gaps > 0 (one <3> line on stderr for journalctl -p err; the alarm itself is the failed scheduled run:
 host-health records it and timer_scheduled_failure fires). Exit 2: refused, or the evidence could not be written - a check without
 its evidence is a failure too.
 """
 import argparse
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import os
 import sys
@@ -24,6 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import relation_reads as RR  # noqa: E402
+
+KEEP_DAYS = 30
 
 
 def check(conn, tenant):
@@ -46,6 +50,10 @@ def write_evidence(directory, doc, now):
     except BaseException:
         Path(temp).unlink(missing_ok=True)
         raise
+    keep_after = (now.date() - timedelta(days=KEEP_DAYS)).isoformat()
+    for old in directory.glob('????-??-??.json'):
+        if old.stem < keep_after:
+            old.unlink(missing_ok=True)
     return target
 
 

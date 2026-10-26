@@ -1779,12 +1779,12 @@
     {
       "version": "0360",
       "name": "0360_relation_read_union.sql",
-      "sha256": "b1294e95f612514f3d38fe649057e9319955d3320fbcc04befcc5ec50eb9ae65"
+      "sha256": "cc69a707280b7d42e0a7f0646b32d9015fa77f4a3a81cd24d8b6159a94ff01c3"
     },
     {
       "version": "0361",
       "name": "0361_relation_purge_union.sql",
-      "sha256": "01c0e8a2cd14c1dd3396b986815fdee6a6f7baaedb042cacc832c56dc0627119"
+      "sha256": "53f318e2573ffb9b68cdbf73bf2174ecdb911e45b563f2b13fa0832b37eaf1ed"
     }
   ]
 }

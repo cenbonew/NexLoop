@@ -47,8 +47,8 @@ class Conn:
 
 
 def doc(gaps, erasing=0):
-    return {'tenant_id': 't', 'gaps': gaps, 'gaps_erasing': erasing, 'relation_only': 0,
-            'rows': [{'world': 'real', 'type_name': 'Goal', 'objects': 3, 'gaps': gaps, 'gaps_erasing': erasing, 'relation_only': 0}]}
+    return {'tenant_id': 't', 'gaps': gaps, 'gaps_erasing': erasing, 'dangling': 1, 'relation_only': 0,
+            'rows': [{'world': 'real', 'type_name': 'Goal', 'objects': 3, 'gaps': gaps, 'gaps_erasing': erasing, 'dangling': 1, 'relation_only': 0}]}
 
 
 def run(tmp_path, d, evidence=None):
@@ -64,6 +64,14 @@ def test_no_gap_exits_0_and_writes_the_days_evidence(tmp_path):
     path = tmp_path / '2026-10-26.json'
     assert got['evidence'] == str(path) and json.loads(path.read_text())['gaps_erasing'] == 2
     assert path.stat().st_mode & 0o777 == 0o640 and not [p for p in tmp_path.iterdir() if p.name.startswith('.')]
+
+
+def test_evidence_is_kept_30_days(tmp_path):
+    for day in ('2026-09-25', '2026-09-26', '2026-10-25'):
+        (tmp_path / f'{day}.json').write_text('{}')
+    (tmp_path / 'notes.txt').write_text('kept')  # not evidence: left alone
+    assert run(tmp_path, doc(0))[0] == 0
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['2026-09-26.json', '2026-10-25.json', '2026-10-26.json', 'notes.txt']
 
 
 def test_gaps_exit_1_with_a_journal_line(tmp_path):

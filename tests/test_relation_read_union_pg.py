@@ -74,10 +74,23 @@ def test_the_gap_check_counts_both_directions_and_the_erasing_part_apart(publish
     put(admin, 'Goal', linked, {})
     relation(admin, 'goal_of', 'Goal', linked, 'Consumer', other)  # relation, no property -> relation_only
     put(admin, 'Goal', erasing_gap, {'consumer_id': consumer})
+    dangling = hexid('gap-dangling-goal')
+    put(admin, 'Goal', dangling, {'consumer_id': hexid('nobody-at-all')})  # names no Consumer: dangling, never a gap (L6 I-1)
+    # A simulation world being purged is left out (L6 I-1).
+    sim = 'sim:0000aa01-0000-4000-8000-000000000001'
+    with admin.transaction():
+        admin.execute("""insert into control.nexloop_sim_worlds(world,tenant_id,created_by,purpose,status,expires_at,request_id)
+            values(%s,%s,'test','test','deleting',clock_timestamp()+interval '1 day','gap-sim')""", (sim, TENANT))
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into ontology.objects(tenant_id,world,type_name,object_id,schema_version,properties,source_system,source_ref,created_at,updated_at)
+            values(%s,%s,'Consumer',%s,1,'{}','synthetic','p4',clock_timestamp(),clock_timestamp()),
+                  (%s,%s,'Goal',%s,1,jsonb_build_object('consumer_id',%s::text),'synthetic','p4',clock_timestamp(),clock_timestamp())""",
+                      (TENANT, sim, hexid('gap-sim-consumer'), TENANT, sim, hexid('gap-sim-goal'), hexid('gap-sim-consumer')))
     before = gaps(pg)
     goal = next(r for r in before['rows'] if r['world'] == 'real' and r['type_name'] == 'Goal')
-    assert goal['gaps'] >= 2 and goal['relation_only'] >= 1 and goal['gaps_erasing'] == 0
-    assert set(goal) == {'world', 'type_name', 'objects', 'gaps', 'gaps_erasing', 'relation_only'}  # counts only, no id
+    assert goal['gaps'] >= 2 and goal['relation_only'] >= 1 and goal['gaps_erasing'] == 0 and goal['dangling'] == 1
+    assert set(goal) == {'world', 'type_name', 'objects', 'gaps', 'gaps_erasing', 'dangling', 'relation_only'}  # counts only, no id
+    assert all(r['world'] != sim for r in before['rows']) and before['dangling'] == 1
     mark_erasing(admin, TENANT, consumer)
     after = next(r for r in gaps(pg)['rows'] if r['world'] == 'real' and r['type_name'] == 'Goal')
     assert after['gaps_erasing'] >= 1 and after['gaps'] == goal['gaps'] - after['gaps_erasing']

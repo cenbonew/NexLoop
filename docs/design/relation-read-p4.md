@@ -56,7 +56,9 @@
   - [R6] 反方向也输出一列 `relation_only`：关系能解析到、属性规则解析不到的对象数。它对应 P3 verify 的 `extra`（多出来的派生关系）加上经 link 写入的关系，只报告，不作为前提；不为 0 时，说明 P4a 会比以前多拒读这些对象（§3）。
   - 只统计首批关系覆盖的类型（有带归属标记关系的源类型），以及 Message、Conversation（0315 经会话表解析的那两个类型，它们由 `message_in`、`conversation_of` 覆盖）；
   - RelationshipAssessment 只核对 `evidence_message_id` 那一半，`source_id` / `target_id` 不计入（首批没有关系）。
-- 输出只有计数：`{world, type_name, objects, gaps, gaps_erasing, relation_only}`；不输出 id、属性值或业务内容。
+- [实现复核 I-1] 属性指向的 Consumer 在这个 world 中不存在（被删除，或者从未存在）时，不可能有关系，这类对象计入 `dangling`，不计入 `gaps`（与 P3 verify 把悬空单独列出相同）；正在删除的 sim world（`deleting` / `deleted`）整体不计。P5 的前提只看 `gaps`。
+- 输出只有计数：`{world, type_name, objects, gaps, gaps_erasing, dangling, relation_only}`；不输出 id、属性值或业务内容。
+- **性能边界**（实现复核 S-4）：函数对每个带归属关系的源类型做一次全表扫描，每个对象调用两个 plpgsql 解析函数（属性规则、关系走链，后者最多 L 跳），总代价约为“这些类型的对象数 × (一次属性解析 + L 次索引探测)”。stage 是万级对象，在 60 s 的 statement_timeout 内有很大余量。当这些类型的对象超过约 50 万个，或者单次核对超过 30 s 时，改为按 world、按类型分批调用（函数加 world 与类型参数，脚本逐个调用并合并结果），或者改成集合化的写法（一次递归 CTE 求出全部对象的关系归属，再与属性归属做 anti-join），不再逐个对象调用函数。
 - 函数声明为 STABLE，开头检查 `session_user='nexloop_metrics'`，否则 42501；只授权给 `nexloop_metrics`。脚本核对会话身份，执行 `set transaction read only`，设置 statement_timeout 60 s（[R1]）。
 - 规模：stage 上是万级对象，每个对象两次解析；放在低峰期每天执行一次，几十秒以内。实现时在 stage 数据上实测。
 - `scripts/acceptance/relation_read_gaps.py --dsn-file <metrics DSN> --tenant <TENANT_ID>`：输出 JSON，有缺口时退出码 1。

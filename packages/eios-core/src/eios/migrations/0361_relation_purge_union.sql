@@ -1,10 +1,15 @@
 -- NX-054 P4c (docs/design/relation-read-p4.md v2 §1; ships with P4a, 0360, on real - design §3 R4): the erasure purge finds the
 -- Consumer's formal objects through relations as well as through properties (ADR-038 §2.3: the purge uses the union for good).
 -- runtime.nexloop_relation_consumer_objects(tenant, world, consumer): the objects whose ownership relations reach the Consumer, walked
--- backwards at most the published longest chain. runtime.nexloop_erasure_step is 0227's body with two additions only (registered in
--- the copy guard): the references phase also deletes the objects that list returns (same type exclusions: Consumer, Commitment,
--- CommercialRecord, Message keep their own phases), and the commitments phase also pseudonymizes a Commitment linked only by its
--- commitment_to relation. Nothing the property rule found is dropped. CommercialRecord (commercial phase, consumer_ref) and Message
+-- backwards at most the published longest chain (a Consumer source ends a path, as the forward walk 0319:271 does).
+-- L6 review C-1: the purge itself cuts those chains (the messages phase deletes the relations of each erased Message, 0132; the
+-- references phase deletes a Conversation, and with it message_in, before the RelationshipAssessment behind it), so the walk is done
+-- once, when the purge starts, and frozen: control.nexloop_erasure_relation_targets holds the request's targets (owner only) until
+-- its consumer phase ends. runtime.nexloop_erasure_step is 0227's body with these additions only (registered in the copy guard):
+-- the targets frozen before the first purge phase runs (an erasure already purging when this ships freezes at its next step); the
+-- references phase also deletes the frozen targets (same type exclusions: Consumer, Commitment, CommercialRecord, Message keep their
+-- own phases); the commitments phase also pseudonymizes a frozen Commitment (linked only by commitment_to); the consumer phase drops
+-- the request's frozen rows. Nothing the property rule found is dropped. CommercialRecord (commercial phase, consumer_ref) and Message
 -- (messages phase, by conversation) keep their own resolutions: both are complete without relations (a CommercialRecord always
 -- carries consumer_ref; a Message belongs to its conversation). Temporary number; the dispatcher renumbers.
 
@@ -21,11 +26,44 @@ begin
     join ontology.relations r on r.tenant_id=p_tenant and r.world=p_world and r.target_type=w.t and r.target_object_id=w.id
     join control.nexloop_relation_type_profiles p on p.tenant_id=r.tenant_id and p.relation_name=r.relation_name and p.version=r.schema_version
      and p.consumer_ownership is not null
-    where w.depth<coalesce(v_limit,0))
+    where w.depth<coalesce(v_limit,0) and (w.depth=0 or w.t<>'Consumer'))
   select distinct w.t,w.id from walk w where w.depth>0;
 end $$;
 alter function runtime.nexloop_relation_consumer_objects(text,text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_relation_consumer_objects(text,text,text) from public;
+
+create table control.nexloop_erasure_relation_targets (
+ tenant_id text not null,world text not null,request_id text not null,type_name text not null,object_id text not null,
+ primary key(tenant_id,world,request_id,type_name,object_id),
+ foreign key(tenant_id,world,request_id) references control.nexloop_consumer_erasures(tenant_id,world,request_id) on delete cascade);
+create table control.nexloop_erasure_relation_frozen (
+ tenant_id text not null,world text not null,request_id text not null,frozen_at timestamptz not null default clock_timestamp(),
+ primary key(tenant_id,world,request_id),
+ foreign key(tenant_id,world,request_id) references control.nexloop_consumer_erasures(tenant_id,world,request_id) on delete cascade);
+do $$declare t text;begin
+ foreach t in array array['control.nexloop_erasure_relation_targets','control.nexloop_erasure_relation_frozen'] loop
+  execute format('alter table %s owner to nexloop_owner',t);
+  execute format('alter table %s enable row level security',t);
+  execute format('alter table %s force row level security',t);
+  execute format('create policy tenant_boundary on %s to nexloop_owner using(tenant_id=current_setting(''eios.tenant_id'',true)) with check(tenant_id=current_setting(''eios.tenant_id'',true))',t);
+  execute format('revoke all on %s from public',t);
+ end loop;
+end $$;
+
+-- Once per request: the objects the ownership relations reach now, before any purge phase cuts a chain.
+create function runtime.nexloop_erasure_freeze_relation_targets(p_tenant text,p_world text,p_request text,p_consumer text) returns void
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+begin
+ perform set_config('eios.tenant_id',p_tenant,true);
+ insert into control.nexloop_erasure_relation_frozen(tenant_id,world,request_id) values(p_tenant,p_world,p_request) on conflict do nothing;
+ if found then
+  insert into control.nexloop_erasure_relation_targets(tenant_id,world,request_id,type_name,object_id)
+   select p_tenant,p_world,p_request,r.type_name,r.object_id from runtime.nexloop_relation_consumer_objects(p_tenant,p_world,p_consumer) r
+   on conflict do nothing;
+ end if;
+end $$;
+alter function runtime.nexloop_erasure_freeze_relation_targets(text,text,text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_erasure_freeze_relation_targets(text,text,text,text) from public;
 
 create or replace function runtime.nexloop_erasure_step(p_tenant text,p_world text,p_request text,p_batch integer,p_by text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -54,6 +92,8 @@ begin
    where tenant_id=p_tenant and world=p_world and request_id=p_request;
   return jsonb_build_object('request_id',p_request,'state','completed_with_holds','progress',true);
  end if;
+ -- NX-054 P4c (L6 C-1): the relation targets frozen before the first phase cuts a chain.
+ perform runtime.nexloop_erasure_freeze_relation_targets(p_tenant,p_world,e.request_id,e.consumer_id);
  if e.phase='messages' then
   for x in select m.message_id from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations c on c.tenant_id=m.tenant_id and c.world=m.world
     and c.conversation_id=m.conversation_id where m.tenant_id=p_tenant and m.world=p_world and c.consumer_id=e.consumer_id
@@ -111,7 +151,8 @@ begin
   for x in select o.type_name,o.object_id from ontology.objects o where o.tenant_id=p_tenant and o.world=p_world
     and o.type_name not in ('Consumer','Commitment','CommercialRecord','Message')
     and (o.properties->>'consumer_id'=e.consumer_id
-     or (o.type_name,o.object_id) in (select r.type_name,r.object_id from runtime.nexloop_relation_consumer_objects(p_tenant,p_world,e.consumer_id) r)
+     or (o.type_name,o.object_id) in (select r.type_name,r.object_id from control.nexloop_erasure_relation_targets r
+      where r.tenant_id=p_tenant and r.world=p_world and r.request_id=e.request_id)
      or (o.type_name='RelationshipAssessment' and (e.consumer_id in (o.properties->>'source_id',o.properties->>'target_id')
       or exists(select 1 from runtime.nexloop_conversation_messages cm join runtime.nexloop_conversations cv on cv.tenant_id=cm.tenant_id and cv.world=cm.world
         and cv.conversation_id=cm.conversation_id where cm.tenant_id=p_tenant and cm.world=p_world and cm.message_id=o.properties->>'evidence_message_id'
@@ -174,7 +215,8 @@ begin
   perform runtime.nexloop_erasure_open('ontology.objects',array['commitment_erasure'],false,v_ref);
   update ontology.objects set properties=properties||jsonb_build_object('made_to','erasure:'||e.request_id,'condition',null),updated_at=clock_timestamp()
    where tenant_id=p_tenant and world=p_world and type_name='Commitment' and (properties->>'made_to'=e.consumer_id
-    or object_id in (select r.object_id from runtime.nexloop_relation_consumer_objects(p_tenant,p_world,e.consumer_id) r where r.type_name='Commitment'));
+    or object_id in (select r.object_id from control.nexloop_erasure_relation_targets r
+     where r.tenant_id=p_tenant and r.world=p_world and r.request_id=e.request_id and r.type_name='Commitment'));
   get diagnostics n=row_count;
   perform runtime.nexloop_erasure_close();
   v_counts:=jsonb_build_object('commitments',n);n:=0;
@@ -191,6 +233,7 @@ begin
    on conflict do nothing;
   get diagnostics m=row_count;v_counts:=jsonb_build_object('artifacts_queued',m);
  elsif e.phase='consumer' then
+  delete from control.nexloop_erasure_relation_targets where tenant_id=p_tenant and world=p_world and request_id=e.request_id;
   -- Files first: the request completes only when its Run files and Artifacts are gone (a failed purge keeps it open).
   if exists(select 1 from runtime.nexloop_run_purge_items where tenant_id=p_tenant and world=p_world and request_ref=v_ref and state='pending')
    or exists(select 1 from runtime.nexloop_erasure_artifacts a join runtime.nexloop_local_artifacts l on l.tenant_id=a.tenant_id and l.world=a.world
