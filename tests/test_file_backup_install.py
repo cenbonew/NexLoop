@@ -33,7 +33,8 @@ def tmp_tree_writable_after(tmp_path):
 SHA = 'b' * 40
 RECORDER_PW = 'recorder-Pw-synthetic-0123456789'
 REPO1_PW = 'repo1-Pw-synthetic-0123456789abcdef'
-STDIN = f'recorder\t{RECORDER_PW}\nrepo1\t{REPO1_PW}\n'
+REST_PW = 'Rest-Pw_synthetic_0123456789abcdef'
+STDIN = f'recorder\t{RECORDER_PW}\nrepo1\t{REPO1_PW}\nrepo1_rest\t{REST_PW}\n'
 HOST_KEY = 'ssh-ed25519 ' + 'A' * 68
 BINARY = b'#!/bin/sh\necho synthetic restic\n'
 OWNERS = (0, os.getuid())
@@ -159,10 +160,13 @@ def setup(tmp_path, repo2=True, **over):
     ca = tmp_path / 'pki/ca.crt'
     ca.parent.mkdir()
     ca.write_text('-----BEGIN CERTIFICATE-----\nsynthetic\n-----END CERTIFICATE-----\n')
+    bundle = tmp_path / 'pki/bundle.crt'
+    bundle.write_text('-----BEGIN CERTIFICATE-----\nsynthetic intermediate\n-----END CERTIFICATE-----\n'
+                      '-----BEGIN CERTIFICATE-----\nsynthetic root\n-----END CERTIFICATE-----\n')
     cfg = json.loads((ROOT / 'deploy/examples/file-backup-install.app-host.example.json').read_text())
     cfg.update({'release_sha': SHA, 'release_checkout': str(checkout), 'python': venv(tmp_path), 'restic_archive': str(archive),
                 'database': {'host': 'pg.data-host.example', 'port': 5432, 'dbname': 'nexloop_stage', 'sslrootcert': str(ca)},
-                'repo1': {'host': 'ssh.data-host.example', 'port': 2222, 'host_key': HOST_KEY, 'path': '/restic'}, **over})
+                'repo1': {'host': 'data-host.example', 'port': 8000, 'cacert': str(bundle)}, **over})
     return root, private(tmp_path / 'config.json', cfg)
 
 
@@ -197,17 +201,14 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     secrets = root / SECRETS
     dsn = (secrets / 'recorder.dsn').read_text()
     assert f"user='nexloop_backup_recorder' password='{RECORDER_PW}'" in dsn and "sslmode='verify-full' sslrootcert='/srv/nexloop/secrets/backup/pg-ca.crt'" in dsn
-    assert (secrets / 'restic-files-repo1.repository').read_text() == 'sftp:nexloop-repo1:/restic\n'
+    assert (secrets / 'restic-files-repo1.repository').read_text() == f'rest:https://nexloop-file-backup:{REST_PW}@data-host.example:8000/restic/\n'
     assert (secrets / 'restic-files-repo1.pass').read_text() == REPO1_PW + '\n'
     assert st.S_IMODE(secrets.stat().st_mode) == 0o711 and st.S_IMODE((secrets / 'pg-ca.crt').stat().st_mode) == 0o644
     for name in ('recorder.dsn', 'restic-files-repo1.repository', 'restic-files-repo1.pass'):
         assert st.S_IMODE((secrets / name).stat().st_mode) == 0o600 and ['chown', 'nexloop-file-backup:nexloop-file-backup', str(secrets / name)] in runner.calls
     assert not any(c[0] == 'chown' and c[-1] in (str(secrets), str(secrets / 'pg-ca.crt')) for c in runner.calls)
-    # SSH: the alias, the pinned host key, nothing interactive; the key the user's, the rest root's.
-    ssh = root / 'var/lib/nexloop-file-backup/.ssh'
-    conf = (ssh / 'config').read_text()
-    assert 'HostName ssh.data-host.example\n  Port 2222\n  User nexloop-backup' in conf and 'StrictHostKeyChecking yes' in conf and 'BatchMode yes' in conf
-    assert (ssh / 'known_hosts').read_text() == f'nexloop-repo1 {HOST_KEY}\n' and ['chown', 'nexloop-file-backup:nexloop-file-backup', str(ssh / 'id_ed25519')] in runner.calls
+    # D4 changed (owner 2026-10-27): no SSH at all - repo1 is the rest-server.
+    assert not (root / 'var/lib/nexloop-file-backup/.ssh').exists() and not any(c[0] == 'ssh-keygen' for c in runner.calls)
     # restic from the archive, root's and read-only.
     restic = root / 'opt/nexloop/file-backup/restic-0.18.0/restic'
     assert restic.read_bytes() == BINARY and st.S_IMODE(restic.stat().st_mode) == 0o555
@@ -254,22 +255,21 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     # A rerun without stdin keeps the secret files; nothing generated twice.
     code, text, runner = main(root, config, stdin='', runner=Runner(tmp_path, user_exists=True))
     assert code == 0, text
-    assert 'recorder.dsn kept' in text and 'SSH key kept' in text and 'release bbbbbbbbbbbb reused' in text and 'restic 0.18.0 unchanged' in text
+    assert 'recorder.dsn kept' in text and 'release bbbbbbbbbbbb reused' in text and 'restic 0.18.0 unchanged' in text
     assert 'already listed' in text and not any(c[0] in ('useradd', 'ssh-keygen') for c in runner.calls)
 
 
-def test_prepare_prints_the_public_key_and_writes_no_secret(tmp_path):
+def test_prepare_writes_the_user_and_the_env_file_and_no_secret(tmp_path):
     root, config = setup(tmp_path, repo2=False)
+    ssh = root / 'var/lib/nexloop-file-backup/.ssh'  # an earlier sftp version's files: --prepare removes them too
+    ssh.mkdir(parents=True)
+    (ssh / 'id_ed25519').write_text('left by the sftp version\n')
     code, text, runner = main(root, config, '--prepare', stdin='')
     assert code == 0, text
-    assert 'public key (for DATA_HOST step 1): ssh-ed25519 ' + 'B' * 68 + ' nexloop-file-backup' in text and KEY_MARK not in text
+    assert 'install_repo2_secrets.sh files' in text and KEY_MARK not in text and 'public key' not in text
     assert (root / 'etc/nexloop/file-backup.env').exists() and (root / SECRETS).is_dir() and list((root / SECRETS).iterdir()) == []
-    assert not any(c[0] in ('systemd-run', 'systemctl') for c in runner.calls) and not (root / 'opt/nexloop/file-backup').exists()
-    key = root / 'var/lib/nexloop-file-backup/.ssh/id_ed25519'
-    before = key.read_text()
-    key.write_text(before + 'kept\n')
-    code, text, runner = main(root, config, '--prepare', stdin='')
-    assert code == 0 and 'SSH key kept' in text and key.read_text() == before + 'kept\n' and not any(c[0] == 'ssh-keygen' for c in runner.calls)
+    assert not any(c[0] in ('systemd-run', 'systemctl', 'ssh-keygen') for c in runner.calls) and not (root / 'opt/nexloop/file-backup').exists()
+    assert not (root / 'var/lib/nexloop-file-backup/.ssh').exists()
 
 
 def test_the_restic_archive_must_be_the_one_the_lock_names(tmp_path):
@@ -332,7 +332,7 @@ def test_stdin_lines_are_checked_and_a_first_install_needs_them(tmp_path):
                 f'recorder\t{RECORDER_PW}\nrepo1\t{REPO1_PW} x\n', f'recorder\t{RECORDER_PW}\nrepo1\t{REPO1_PW}\x07\n'):
         code, text, _ = main(root, config, stdin=bad)
         assert code == 2 and 'stdin: recorder<TAB>password' in text and RECORDER_PW not in text and REPO1_PW not in text
-    code, text, _ = main(root, config, stdin=f'repo1\t{REPO1_PW}\n')
+    code, text, _ = main(root, config, stdin=f'repo1\t{REPO1_PW}\nrepo1_rest\t{REST_PW}\n')
     assert code == 2 and 'recorder.dsn is not written yet' in text
 
 
@@ -371,20 +371,9 @@ def test_a_link_on_the_way_and_a_shared_configuration_are_refused(tmp_path):
     assert code == 2 and 'a regular 0600 file of the caller' in text and runner.calls == []
 
 
-def test_an_unfilled_token_and_a_malformed_public_key_stop(tmp_path):
+def test_an_unfilled_token_stops(tmp_path):
     with pytest.raises(I.Failed, match='unfilled token'):
         I.render_service('[Service]\nExecStart=@PYTHON@ --other @OTHER@\n', {'python': '/usr/bin/python3'}, '/opt/restic')
-    root, config = setup(tmp_path)
-    runner = Runner(tmp_path)
-    keygen = runner.__call__
-
-    def bad_key(command, **kw):
-        out = keygen(command, **kw)
-        if command[0] == 'ssh-keygen':
-            Path(command[command.index('-f') + 1] + '.pub').write_text('ssh-rsa AAAA two keys\nssh-ed25519 BBBB\n')
-        return out
-    code, text, _ = main(root, config, runner=bad_key)
-    assert code == 2 and 'not one ssh-ed25519 public key line' in text
 
 
 def test_repo2_is_initialised_only_when_the_configuration_says_so(tmp_path):
@@ -448,7 +437,7 @@ def test_the_env_file_keeps_the_repo2_option_install_repo2_secrets_wrote(tmp_pat
     assert dry[[i for i, a in enumerate(dry) if a == '--repo'][1] + 1].endswith('/offsite.env,dns')
 
 
-def test_uninstall_removes_everything_but_the_user_and_its_key(tmp_path):
+def test_uninstall_removes_everything_but_the_user(tmp_path):
     root, config = setup(tmp_path)
     assert main(root, config)[0] == 0
     code, text, runner = main(root, config, '--uninstall', stdin='')
@@ -458,7 +447,7 @@ def test_uninstall_removes_everything_but_the_user_and_its_key(tmp_path):
                  'etc/systemd/system/nexloop-file-backup-maint.service', 'etc/systemd/system/nexloop-file-backup-maint.timer',
                  'opt/nexloop/file-backup', 'var/lib/nexloop-file-backup/staging', f'{SECRETS}/recorder.dsn', f'{SECRETS}/offsite.env'):
         assert not (root / gone).exists(), gone
-    assert (root / 'var/lib/nexloop-file-backup/.ssh/id_ed25519').exists() and 'SSH key stay' in text
+    assert (root / 'var/lib/nexloop-file-backup').is_dir() and 'its home stay' in text
     assert [t['name'] for t in json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers']] == ['provider-drift']
     assert (root / 'srv/nexloop/secrets/api/database.dsn').exists()
 
@@ -633,9 +622,7 @@ def test_the_unit_entry_imports_the_executor_under_isolated_mode():
     assert done.returncode == 2 and 'configuration unavailable' in done.stderr, done.stderr
 
 
-# repo1 over DATA_HOST's rest-server --append-only (owner 2026-10-27): the switch from the D4 sftp account.
-
-REST_PW = 'Rest-Pw_synthetic_0123456789abcdef'
+# repo1 over DATA_HOST's rest-server --append-only (owner 2026-10-27: D4 changed to the file backup's own repository; no sftp).
 
 
 def to_rest(tmp_path, config, **over):
@@ -644,18 +631,21 @@ def to_rest(tmp_path, config, **over):
                       '-----BEGIN CERTIFICATE-----\nsynthetic root\n-----END CERTIFICATE-----\n')
     cfg = json.loads(Path(config).read_text())
     cfg['repo1'] = {'transport': 'rest', 'host': 'data-host.example', 'port': 8000, 'cacert': str(bundle), **over}
+    cfg['repo1'] = {k: v for k, v in cfg['repo1'].items() if v is not None}
     return private(Path(config), cfg)
 
 
-def test_the_switch_to_the_rest_server_pins_the_ca_drops_sftp_and_proves_append_only(tmp_path):
+def test_repo1_is_the_rest_server_the_ca_pinned_old_sftp_files_removed_and_append_only_proven(tmp_path):
     root, config = setup(tmp_path)
-    assert main(root, config)[0] == 0
-    ssh = root / 'var/lib/nexloop-file-backup/.ssh'
-    assert (ssh / 'config').exists()
-    to_rest(tmp_path, config)
-    code, text, runner = main(root, config, stdin='')
-    assert code == 2 and 'repo1_rest<TAB>password' in text  # the sftp location is not taken for a rest one
-    code, text, runner = main(root, config, stdin=f'repo1_rest\t{REST_PW}\n')
+    ssh = root / 'var/lib/nexloop-file-backup/.ssh'  # what an earlier D4 (sftp) version left: removed
+    ssh.mkdir(parents=True)
+    for name in ('config', 'known_hosts', 'id_ed25519', 'id_ed25519.pub'):
+        (ssh / name).write_text('left by the sftp version\n')
+    private(root / SECRETS / 'restic-files-repo1.repository', None, 'sftp:nexloop-repo1:/restic\n')
+    code, text, runner = main(root, config, stdin=f'recorder\t{RECORDER_PW}\nrepo1\t{REPO1_PW}\n')
+    assert code == 2 and 'repo1_rest<TAB>password' in text  # an sftp location is never taken for the rest one
+    assert not ssh.exists() and 'the SSH files of an earlier sftp version removed' in text
+    code, text, runner = main(root, config)
     assert code == 0, text
     secrets = root / SECRETS
     assert (secrets / 'restic-files-repo1.repository').read_text() == f'rest:https://nexloop-file-backup:{REST_PW}@data-host.example:8000/restic/\n'
@@ -664,7 +654,6 @@ def test_the_switch_to_the_rest_server_pins_the_ca_drops_sftp_and_proves_append_
     assert not any(c[0] == 'chown' and c[-1] == str(secrets / 'rest-ca.crt') for c in runner.calls)
     env = (root / 'etc/nexloop/file-backup.env').read_text()
     assert 'FILE_BACKUP_REPO1_OPTIONS=--cacert /srv/nexloop/secrets/backup/rest-ca.crt' in env
-    assert not (ssh / 'config').exists() and not (ssh / 'known_hosts').exists() and (ssh / 'id_ed25519').exists()
     assert REST_PW not in text and not any(REST_PW in ' '.join(c) for c in runner.calls)
     check = next(c for c in runner.calls if c[0] == 'systemd-run' and any(a.endswith('/file_backup_sandbox_check.py') for a in c))
     repos = [check[i + 1] for i, a in enumerate(check) if a == '--repo']
@@ -689,20 +678,21 @@ def test_repo1_over_the_rest_server_must_refuse_a_forget(tmp_path, probe, why):
     root, config = setup(tmp_path)
     to_rest(tmp_path, config)
     change = lambda d: {**d, 'append_only': {} if probe is None else {'repo1': probe}}  # noqa: E731
-    code, text, runner = main(root, config, stdin=STDIN + f'repo1_rest\t{REST_PW}\n', runner=Runner(tmp_path, check=change))
+    code, text, runner = main(root, config, stdin=STDIN, runner=Runner(tmp_path, check=change))
     assert code == 1 and why in text and 'timer not enabled' in text, text
     assert not any(c[:2] in (['systemctl', 'start'], ['systemctl', 'enable']) for c in runner.calls)
 
 
 def test_the_rest_configuration_and_password_are_checked(tmp_path):
     root, config = setup(tmp_path)
-    for n, over in enumerate(({'port': 80}, {'cacert': 'relative'}, {'host_key': HOST_KEY}, {'transport': 'https'})):
+    for n, over in enumerate(({'port': 80}, {'cacert': 'relative'}, {'host_key': HOST_KEY}, {'transport': 'sftp'}, {'transport': 'https'},
+                              {'cacert': None})):
         to_rest(tmp_path, config, **over)
-        code, text, _ = main(root, config, stdin=STDIN + f'repo1_rest\t{REST_PW}\n')
+        code, text, _ = main(root, config, stdin=STDIN)
         assert code == 2 and 'configuration' in text, over
     to_rest(tmp_path, config)
     for bad in (REST_PW + '@x', 'short-but-plain', REST_PW + ':y'):
-        code, text, _ = main(root, config, stdin=STDIN + f'repo1_rest\t{bad}\n')
+        code, text, _ = main(root, config, stdin=f'recorder\t{RECORDER_PW}\nrepo1\t{REPO1_PW}\nrepo1_rest\t{bad}\n')
         assert code == 2 and 'repo1_rest' in text and bad not in text, bad
 
 
@@ -746,7 +736,7 @@ def test_a_cacert_that_is_no_certificate_is_refused(tmp_path):
     root, config = setup(tmp_path)
     to_rest(tmp_path, config)
     (tmp_path / 'pki/bundle.crt').write_text('not a certificate\n')
-    code, text, _ = main(root, config, stdin=STDIN + f'repo1_rest\t{REST_PW}\n')
+    code, text, _ = main(root, config, stdin=STDIN)
     assert code == 2 and 'repo1.cacert' in text and not (root / SECRETS / 'rest-ca.crt').exists()
 
 

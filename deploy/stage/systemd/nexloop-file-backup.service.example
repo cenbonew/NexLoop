@@ -1,11 +1,11 @@
 # NX-035 slice 3 (deploy runbook step 5.1; docs/implementation/NX-035-file-backup.md §6): the APP_HOST file backup - the Artifacts
-# and the finished Run stores of world real into restic, repo1 (DATA_HOST over the restricted sftp account, the repository the
-# restore journal uses) then repo2 (S3). Owner 2026-10-26 (D1-D6, all as recommended): enabled now (no longer the M12 "not enabled"
+# and the finished Run stores of world real into restic, repo1 (the file backup's own repository on DATA_HOST behind rest-server
+# --append-only; owner 2026-10-27: not the restore journal's) then repo2 (S3). Owner 2026-10-26 (D1-D6, all as recommended): enabled now (no longer the M12 "not enabled"
 # of the deploy days). Installed by scripts/deploy/file_backup_install.sh (one private configuration, one command, root), which
 # fills the @...@ tokens and writes /etc/nexloop/file-backup.env; do not copy it by hand. The repo2 files named in that env file come
 # from scripts/deploy/install_repo2_secrets.sh files (it also sets FILE_BACKUP_REPO2_OPTIONS, "--s3-bucket-lookup dns" when TOS
 # refuses restic's path-style requests; $VAR without braces: systemd drops an empty one). FILE_BACKUP_REPO1_OPTIONS (the installer's):
-# empty while repo1 is reached over the D4 sftp account, "--cacert <stage CA bundle>" once it is DATA_HOST's rest-server (owner 2026-10-27).
+# "--cacert <stage CA bundle>": restic trusts DATA_HOST's rest-server certificate through that bundle alone.
 # D3: the only privilege is CAP_DAC_READ_SEARCH (read past the 0700/0600 modes the API and the Agent Host keep; never write), and the
 # sandbox shows nothing of /srv/nexloop but the two data directories and this unit's own secrets/backup (read-only); the installer's
 # step 5 checks that from inside this very sandbox before the timer is enabled. Each run prints one JSON line of counts, labels and

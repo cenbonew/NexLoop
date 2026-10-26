@@ -11,9 +11,9 @@ be written, nothing existing can be deleted or overwritten (lock files excepted)
 with APP_HOST at all (L6 F1 of the rest-server review: with the journal's key APP_HOST could add a future-dated `journal` snapshot and
 make the maintenance forget every real one): this installer creates the files repository - a new directory, a new restic password,
 `restic init` as nexloop-backup once - and serves only it. forget/prune stay with nexloop-restic-maint on the directory itself
-(restic_maint_data_host.sh --files-repo adds its lines, each behind the future-snapshot guard). Its own entry, not a step of file_backup_data_host.sh: that one keeps step 1a (the
-recorder's pg_hba line) and its --uninstall is how the D4 sftp account, chroot and sshd drop-in are retired after the switch; the
-rest-server has its own binary, certificate, password and lifecycle.
+(restic_maint_data_host.sh --files-repo adds its lines, each behind the future-snapshot guard). DATA_HOST step 1b, its own entry beside
+step 1a (file_backup_data_host.sh: the recorder's pg_hba line only - D4 as changed on 2026-10-27 installs no sftp account): the
+rest-server has its own binary, certificate, passwords and lifecycle, and either step can be rerun or undone without the other.
 
 Private configuration (JSON, 0600 root; deploy/examples/rest-server-data-host.example.json): schema nexloop-rest-server-data-host/1,
 release_checkout + release_sha (the unit template and versions.lock.json come from `git show` of it), stage_env (APP_HOST_ADDR and

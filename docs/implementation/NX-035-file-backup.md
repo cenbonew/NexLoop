@@ -94,13 +94,13 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 | D1 | 现在启用（不再是部署日 M12 的“不启用”） |
 | D2 | DATA_HOST 的 pg_hba 加一条 `hostssl`：只允许来自 APP_HOST 的 `nexloop_backup_recorder`，`scram-sha-256`；客户端 `verify-full` |
 | D3 | 方案②：unit 只有 `CAP_DAC_READ_SEARCH`（越过 API 与 Agent Host 的 0700/0600 只读，不能写；不改它们的属主、组或 ACL）；沙箱用 `TemporaryFileSystem=/srv/nexloop:ro` 盖住整个 `/srv/nexloop`，只读绑定两个数据目录和 `secrets/backup` |
-| D4 | repo1 经受限 sftp（chroot）写到 DATA_HOST，与恢复日志共用同一个 restic 仓库（同一口令、同一属主） |
+| D4 | **负责人 2026-10-27 改为独立仓库**：文件备份在 DATA_HOST 上用自己的 restic 仓库（独立口令，Keychain `nexloop/backup/restic-files-repo1`），经 rest-server `--append-only` 写入，不再与恢复日志共用，也不再用 sftp。原因（L6 复审 F1）：能写入共用仓库的一方可以伪造一个未来时间的快照（例如 `--time 2030 --tag journal`），restic 的 `--keep-within` 以组内最新快照为基准，下一次 forget --prune 就会把真实的恢复日志快照全部删掉。原决定（2026-10-26）是"repo1 经受限 sftp 写到 DATA_HOST，与恢复日志共用"，从未在 stage 上安装 |
 | D5 | restic 用 `versions.lock.json` 里的官方二进制，安装时在主机上核对归档的 sha256 |
 | D6 | 先启用；“有可备份对象却从未有过 verified 文件备份”的告警另开一项，放进下一个规则版本 |
 
 ## 6. 安装：两个入口
 
-第 1 步在 DATA_HOST，第 2–6 步在 APP_HOST，两个入口分别执行。
+第 1 步在 DATA_HOST（1a pg_hba：`file_backup_data_host.sh`；1b 文件仓库和 rest-server：`rest_server_data_host.sh`），第 2–6 步在 APP_HOST，各入口分别执行。
 
 ### 6.1 APP_HOST：`scripts/deploy/file_backup_install.sh`（第 2–6 步）
 
@@ -114,26 +114,26 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 口令只经 stdin，只写进 0600 文件；任何输出、参数和日志里都没有口令、DSN 或私钥。所有配置文件都原子写入（同目录临时文件再改名）；两个 host-health 文件要么都改，要么都不改（第二个写失败时恢复第一个）。
 
-顺序（一条命令加一个配置文件；口令从负责人的 Keychain 经管道传入）：
+顺序（每步一条命令加一个配置文件；口令从负责人的 Keychain 经管道传入）：
 
-1. `sudo bash file_backup_install.sh <配置> --prepare`：
+1. DATA_HOST 第 1 步（§6.2）：1a pg_hba；1b 文件仓库和 rest-server，加只追加验证和 restic-maint 的守卫（§6.5）。
+2. `sudo bash file_backup_install.sh <配置> --prepare`：
    - 建系统用户 `nexloop-file-backup`，home 为 `/var/lib/nexloop-file-backup`，属主 root，无 shell；
-   - 生成一次 SSH 密钥，以后不覆盖；
    - 建 `/srv/nexloop/secrets/backup`（root 0711）和 `/etc/nexloop/file-backup.env`；
-   - 打印公钥，供 DATA_HOST 第 1 步授权。
-2. DATA_HOST 第 1 步（§6.2）。
+   - 不生成 SSH 密钥：D4 已改为 rest-server。
 3. `install_repo2_secrets.sh files`：repo2 的仓库、口令和对象存储环境文件，路径从 env 文件里读。
-4. `printf 'recorder\t%s\nrepo1\t%s\n' … | sudo bash file_backup_install.sh <配置>`：
+4. 口令经 stdin 传入：`printf 'recorder\t%s\nrepo1\t%s\nrepo1_rest\t%s\n' … | sudo bash file_backup_install.sh <配置>`。
    - `recorder` 是 `nexloop_backup_recorder` 现有的口令，不轮换；
-   - `repo1` 是恢复日志 repo1 的 restic 口令（同一个仓库，同一个口令）；
-   - 重跑时可以不给这两行，已写的文件保留。
+   - `repo1` 是**文件仓库的 restic 口令**，Keychain `nexloop/backup/restic-files-repo1`，就是 DATA_HOST 第 1b 步 `files` 行用的那一个；
+   - `repo1_rest` 是 rest-server 的 htpasswd 口令（见 §6.5）；
+   - 重跑时可以不给这些行，已写的文件保留。
 
 各步内容：
 
 | 步 | 内容 |
 |---|---|
-| 2 | 用户和密钥；发布目录 `/opt/nexloop/file-backup/<sha>/`：执行者的四个模块、unit 入口 `file_backup_run.py`、沙箱自检 `file_backup_sandbox_check.py`、两个 unit 模板，只读；`current` 指向 `<sha>`。restic 从配置给出的归档解压到 `/opt/nexloop/file-backup/restic-<版本>/restic`（root，0555）；归档的 sha256 必须等于发布提交里 `versions.lock.json` 的 `deployment_tools.restic.archive_sha256`，否则拒绝，什么都不写 |
-| 3 | `secrets/backup`：`recorder.dsn`（hostssl，`verify-full`，CA 复制为同目录的 `pg-ca.crt`）、repo1 的仓库文件（`sftp:nexloop-repo1:<path>`）和口令文件，都是 0600、属于服务用户。这个目录里如果有清单之外的任何文件，就拒绝（D3：沙箱能看到整个目录）。另外写 `~/.ssh/config` 和 `known_hosts`（root 0644）：别名、密钥、固定的主机公钥、`StrictHostKeyChecking yes`、`BatchMode yes` |
+| 2 | 用户（以前 sftp 版本可能留下的 `~/.ssh` 文件会被删除）；发布目录 `/opt/nexloop/file-backup/<sha>/`：执行者的四个模块、unit 入口 `file_backup_run.py`、沙箱自检 `file_backup_sandbox_check.py`、两个 unit 模板，只读；`current` 指向 `<sha>`。restic 从配置给出的归档解压到 `/opt/nexloop/file-backup/restic-<版本>/restic`（root，0555）；归档的 sha256 必须等于发布提交里 `versions.lock.json` 的 `deployment_tools.restic.archive_sha256`，否则拒绝，什么都不写 |
+| 3 | `secrets/backup`：`recorder.dsn`（hostssl，`verify-full`，CA 复制为同目录的 `pg-ca.crt`）、repo1 的仓库文件（`rest:https://…`，见 §6.5）和口令文件，都是 0600、属于服务用户；`rest-ca.crt`（stage CA bundle，0644）。这个目录里如果有清单之外的任何文件，就拒绝（D3：沙箱能看到整个目录） |
 | 4 | `/etc/nexloop/file-backup.env`（0600 root）。保留 `install_repo2_secrets.sh` 写的 `FILE_BACKUP_REPO2_OPTIONS`。从发布中安装 unit 和 timer，填入 `@PYTHON@`、`@RESTIC@`、`@MDWE@`，然后 `daemon-reload` |
 | 5 | **D3 沙箱验证**：用 `systemd-run` 以 unit 自己 `[Service]` 的全部设置运行自检（同一用户、同一能力、同一挂载）。通过条件：两个数据目录和本 unit 自己的文件可读；`/srv/nexloop` 只显示 `data`、`secrets`；`secrets` 只显示 `backup`；`data` 只显示 `artifacts`、`runtime`；unit 的每个 `InaccessiblePaths=` 以及 `/srv/nexloop`、`secrets`、`data` 下的其余条目都看不到内容（不存在、被拒，或读出为空，即 `InaccessiblePaths` 挂上的空节点）；两个句柄系统调用 `open_by_handle_at`、`name_to_handle_at` 都被过滤（返回 EPERM；L6 F1：持有 `CAP_DAC_READ_SEARCH` 的进程可以借这两个调用，从任一可见 fd 打开同一文件系统上的任意 inode，绕过上面所有遮挡，即 shocker 类逃逸，所以 unit 用 `SystemCallFilter=~open_by_handle_at name_to_handle_at` 禁掉它们）；restic 是锁定的版本；两个仓库都能用口令打开（`cat config`）。`repo2_init` 为 true 时，仓库不存在才执行一次 `restic init`；repo1 从不初始化。然后真实运行一次 service，四条 ExecStart 都必须是 `verified`。任何一项不通过，timer 都不启用 |
 | 6 | 在两个 host-health 文件里加 `file-backup`；`nexloop-provider-drift.timer` 已安装时也加上 `provider-drift`（APP_HOST 的探针配置原来缺这一项）。然后 `systemctl enable --now nexloop-file-backup.timer` |
@@ -142,41 +142,31 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 `--uninstall`：
 - 移除：timer、unit、drop-in、env 文件、发布目录、restic、暂存目录、`secrets/backup` 里的文件，以及两个 host-health 文件中的 `file-backup`；
-- 保留：`provider-drift`，以及用户、home 和 SSH 密钥（DATA_HOST 上授权的公钥仍然匹配）。
+- 保留：`provider-drift`，以及用户和 home（以前 sftp 版本可能留下的 SSH 文件一并删除）。
 
 退出码：0 完成，1 某步失败，2 拒绝。
 
-### 6.2 DATA_HOST：第 1 步（`scripts/deploy/file_backup_data_host.sh`）
+### 6.2 DATA_HOST：第 1 步
 
-由负责人以 root 执行，一条命令加一个私有配置（`deploy/examples/file-backup-data-host.example.json`，0600 root）。不读取、不写入任何秘密。信任检查与 §6.1 相同：发布检出、`.git`、root 要执行的目录树、解释器都要通过。
+由负责人以 root 执行，每步一条命令加一个私有配置，安装时都要负责人本人确认。
 
-| 步 | 内容 |
-|---|---|
-| 1a | **pg_hba（D2）**：用发布中的模板和已部署的 stage.env 重新渲染。渲染结果与已安装的 pg_hba 相比，只能多出这一条 `hostssl … nexloop_backup_recorder <APP_HOST_ADDR>/32 scram-sha-256`，不能删掉任何一行。写入方式与其他 hba 脚本相同：原地写入（同一 inode；旧内容保存为 `config/pg_hba.conf.before-file-backup`），确认容器里看到的是新文件，然后 HUP PostgreSQL 并从日志确认重新加载成功。任一步不成立，就把旧内容原地写回并重新加载。recorder 的口令不变，这里不设置 |
-| 1b | **受限 sftp（D4）**：登录账户就是仓库的属主 `nexloop-backup`，一个仓库只有一个 uid。具体做法：<br>· chroot 目录 `/srv/nexloop-sftp`（root，0755，路径上每一级都属于 root）；<br>· 用 mount unit 把 `repo_path`（恢复日志的 restic 仓库）绑定挂载为 `restic/`（可读写，restic 要写入），挂载选项 `nosuid,nodev,noexec`；备份卷上的其他内容（恢复日志分段等）不在 chroot 里；<br>· 授权公钥 `/etc/ssh/nexloop-authorized-keys/nexloop-backup`，带 `restrict,from="<APP_HOST_ADDR>"`；<br>· sshd drop-in `00-nexloop-file-backup.conf`：`Match User nexloop-backup`（对所有来源地址生效），只认这个密钥文件、只允许公钥认证；`ChrootDirectory`；`ForceCommand internal-sftp -u 0077`；不分配 tty，任何转发都不允许；文件以 `Match all` 结尾。<br>先执行 `sshd -t`，再用 `sshd -T -C user=nexloop-backup,addr=<APP_HOST_ADDR>` 读回实际生效的设置。sshd 对同一个关键字取第一次出现的值，如果别处更早设置了某个值，或者 `AllowUsers`/`DenyUsers` 挡住了这个用户，就拒绝，并恢复原来的 drop-in 和公钥文件。检查通过后才重新加载 sshd |
+**1a `scripts/deploy/file_backup_data_host.sh`**（配置 `deploy/examples/file-backup-data-host.example.json`，0600 root）：
+- 只装 pg_hba 这一行（D2），不读取、不写入任何秘密。信任检查与 §6.1 相同：发布检出、`.git`、root 要执行的目录树、解释器都要通过。
+- **pg_hba**：
+  - 用发布中的模板和已部署的 stage.env 重新渲染。渲染结果与已安装的 pg_hba 相比，只能多出这一条 `hostssl … nexloop_backup_recorder <APP_HOST_ADDR>/32 scram-sha-256`，不能删掉任何一行。
+  - 写入方式与其他 hba 脚本相同：原地写入（同一 inode；旧内容原子写入 `config/pg_hba.conf.before-file-backup`，0600 root），确认容器里看到的是新文件，然后 HUP PostgreSQL，并从日志确认重新加载成功。任一步不成立，就把旧内容原地写回并重新加载。
+  - recorder 的口令不变，这里不设置。
+- **写入时的防护（L6 I1、I2）**：
+  - 临时目录 `/var/lib/nexloop/file-backup-data-host` 先通过信任检查再 chmod，root 才在里面运行渲染；
+  - `config/` 目录必须属于 root、组和其他人不可写；`pg_hba.conf` 和它的备份文件都不能是链接；
+  - 写 pg_hba 时以 `O_NOFOLLOW` 打开，并核对打开的 inode 就是 lstat 看到的那个。
+- **不再安装 sftp**：受限 sftp 账户、chroot 和 sshd drop-in 都不装（D4 于 2026-10-27 改为独立仓库）。旧配置里的 `repo_path`、`app_host_public_key` 仍能被接受，但会被忽略。
+- **`--uninstall`**：只清理以前版本可能装过的 sftp 部件，也就是 sshd drop-in、授权公钥、mount unit，以及空的 chroot 目录。
+  - 每一项都是"存在才删"，所以可以重复执行；只有 drop-in 原来存在时，才重新加载 sshd。
+  - stage 上从没装过这些部件，执行时会输出 `no D4 sftp part was there`。
+  - pg_hba 中的这一行保留：模板里有它，而没有 APP_HOST 的 DSN 时，没人能用它连接。
 
-`--uninstall` 移除 drop-in、授权公钥和 mount unit，并重新加载 sshd；chroot 目录为空时一并删除。pg_hba 中的这一行保留：模板里有它，而 APP_HOST 没有 DSN 时没人能用这一行连接。
-
-**pg_hba 的写入（L6 I1、I2）**：临时目录 `/var/lib/nexloop/file-backup-data-host` 先通过信任检查再 chmod，root 才在里面运行渲染；`config/` 目录必须属于 root、组和其他人不可写；`pg_hba.conf` 和备份文件都不能是链接。备份用原子写入（0600 root），写 pg_hba 时以 `O_NOFOLLOW` 打开，并核对打开的 inode 就是 lstat 看到的那个。sshd 的检查也覆盖 `AllowGroups`/`DenyGroups`（按 `id -nG` 列出的组）。
-
-**D4 的代价（L6 S3）**：
-- APP_HOST 的 sftp 密钥对 repo1 有完整的读、写、删除权限。restic 要删除自己的锁文件，sftp 做不到只允许追加。
-- APP_HOST 一旦被攻破，攻击者可以删除或改写 repo1 里的全部快照，包括恢复日志的快照。
-- 不受影响的部分：repo2（S3，凭据独立）；恢复日志分段本身（不在 chroot 里）。
-
-**评估：restic rest-server `--append-only`**：
-- **可行**：
-  - append-only 模式下，rest-server 拒绝删除或覆盖已有对象，锁文件除外；`restic backup` 照常工作。
-  - forget/prune 由 DATA_HOST 本机的 `nexloop-restic-maint` 直接对目录执行，不经过 rest-server，不受影响。
-- **需要新增**：
-  - rest-server 二进制：写入版本锁，安装时核对 sha256，同 D5；
-  - DATA_HOST 上一个 unit：以 `nexloop-backup` 运行，只提供这一个仓库；
-  - TLS 证书：可以用现有的 stage CA 签发；
-  - htpasswd 认证：口令经 stdin；
-  - nft 规则：只允许 APP_HOST 访问它的端口。
-- **APP_HOST 一侧**：仓库文件改为 `rest:https://…`。本步的 sftp 账户和 chroot 随之撤掉。
-- **局限**：仍然可以写入新数据，也可以读取全部快照（restic 口令本来就在 APP_HOST）。它防的只是删除和改写。
-- **建议**：先按 D4 上线。rest-server 作为后续项，由负责人决定，因为它多一个对外服务，也多一个版本锁条目。
+**1b `scripts/deploy/rest_server_data_host.sh`**：文件仓库和 rest-server `--append-only`，见 §6.5。之后还有两步：只追加验证，以及给 restic-maint 加守卫和文件仓库的维护行。
 
 **合并顺序提示**：模板加了这一行之后，host-health、sim、evolution 三个 hba 脚本只接受各自的行。如果在本步之前重跑它们中的任何一个，会因为“多出的行不是自己的”而拒绝。所以先执行本步。
 
@@ -186,9 +176,9 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 在临时根目录下用脚本化的 runner 运行，不需要 root、systemd、数据库或 restic；
   - 信任检查按本测试的 uid 真实执行；tmp_path 以上的目录视为 root 所有，所以在 `--basetemp` 位于 /tmp 时也能通过；
   - 沙箱自检脚本和 unit 入口真实运行，restic 用一个替身脚本。
-- `tests/test_file_backup_data_host.py`：DATA_HOST 第 1 步，同样在临时根目录下用脚本化的 runner 运行（没有容器，也没有 sshd）。
+- `tests/test_file_backup_data_host.py`：DATA_HOST 第 1a 步，同样在临时根目录下用脚本化的 runner 运行（没有容器）；包括 `--uninstall` 清理以前 sftp 部件，以及重复执行的幂等性。
 - 变异验证：APP_HOST 安装器和自检脚本共 40 个变异，DATA_HOST 入口 23 个变异，全部被测试杀死。
-- **未覆盖**：没有在真实 systemd 或 sshd 下运行，也没有用真实的 restic、sftp 或 PostgreSQL。这些由 DATA_HOST 第 1 步的 `sshd -T` 读回，以及 APP_HOST 第 5 步当场验证（两个仓库都能打开，真实运行四条都是 verified）；验证不通过，timer 就不启用。
+- **未覆盖**：没有在真实 systemd 下运行，也没有用真实的 restic、rest-server 或 PostgreSQL。真机上的保障是 DATA_HOST 的只追加验证（§6.5）和 APP_HOST 第 5 步当场验证：两个仓库都能打开，探针快照删不掉，真实运行四条都是 verified。验证不通过，timer 就不启用。
 
 ### 6.4 文件 repo2 的每日维护（`nexloop-file-backup-maint`；调度员 2026-10-26 定方案甲）
 
@@ -207,7 +197,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   1. `forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune`：每类文件快照各自保留 D4 的窗口；
   2. `check --retry-lock 10m`；
   3. 周日（主机时间）再加 `check --read-data-subset 1/10`。
-- **只作用于 repo2**：仓库位置不是 `s3:` 就拒绝（`NotRepo2`），repo1 的 sftp 位置也在拒绝之列。
+- **只作用于 repo2**：仓库位置不是 `s3:` 就拒绝（`NotRepo2`），repo1 的 rest 位置也在拒绝之列。
 - **未配置时不会静默通过**：以下情况都以非零退出，并只打印错误类型：
   - 仓库文件、口令文件或对象存储环境文件缺失，或不是 0600 本用户所有；
   - 环境文件里没有两个 AWS 键（`OffsiteKeysMissing`），或有三键之外的键；
@@ -246,9 +236,9 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 - **随数据增长**：每周下载量随 pack 总量线性增长。例如 pack 总量到 10 GB 时，每周约 1 GB，费用按同一单价乘 1 GB。
   - 如果以后觉得太贵，可以把深度 check 改为每月一次，或者改成 `--read-data-subset 1/20`。属于运维取舍，需要负责人决定。
 
-### 6.5 repo1 只追加：DATA_HOST 的 rest-server `--append-only`（负责人 2026-10-27 决定现在就做）
+### 6.5 repo1：DATA_HOST 上的独立文件仓库，经 rest-server `--append-only` 写入（负责人 2026-10-27）
 
-D4 的 sftp 账户对 repo1 有完整的读、写、删除权限。APP_HOST 一旦被攻破，就能删掉 repo1 的全部快照，包括恢复日志的快照（L6 S3）。现在改为由 restic 的 rest-server 以 `--append-only` 提供文件备份的仓库：可以写入新数据和新快照，已有的对象都不能删除或覆盖（锁文件除外）。forget/prune 仍由 DATA_HOST 的 `nexloop-restic-maint` 直接对目录执行，不经过 rest-server，所以不受影响。
+原 D4 方案经受限 sftp 写入、与恢复日志共用仓库。那样 APP_HOST 的 sftp 密钥对仓库有完整的读、写、删除权限；APP_HOST 一旦被攻破，就能删掉全部快照，包括恢复日志的快照（L6 S3）。这个方案从未在 stage 上安装。现在由 restic 的 rest-server 以 `--append-only` 提供文件备份**自己的**仓库：可以写入新数据和新快照，已有的对象都不能删除或覆盖（锁文件除外）。forget/prune 仍由 DATA_HOST 的 `nexloop-restic-maint` 直接对目录执行，不经过 rest-server，所以不受影响。
 
 **L6 复审 F1（确认级）及修法**：只追加挡不住"伪造未来时间的快照"。持有仓库口令的 APP_HOST 可以写一个 `--time 2030-01-01 --host nexloop --tag journal` 的快照。restic 的 `--keep-within` 和 `--keep-monthly` 以组内**最新**快照为基准，不是以当前时间为基准；于是下一次维护的 forget --prune 会把这一组真实的快照全部删掉，等于 DATA_HOST 替攻击者删了数据。两项都已做：
 
@@ -262,11 +252,20 @@ D4 的 sftp 账户对 repo1 有完整的读、写、删除权限。APP_HOST 一�
   - rest-server 只提供这一个仓库，恢复日志的仓库对 APP_HOST 完全不可见：配置里的 `journal_repo_path` 只用来核对两者不重合、也不互相嵌套；
   - APP_HOST 的 `repo1` 口令行改为这个文件仓库的口令，不再复用恢复日志的口令；
   - restic-maint 增加这个文件仓库的维护行：`restic_maint_data_host.sh --files-repo … --files-password-file …`，包括守卫、按 tag 分组的 forget、check、周日深度 check，以及它的 `ReadWritePaths`。
-  - 这一条改变了负责人 D4"repo1 与恢复日志共用"的决定，由调度员向负责人确认。
+  - 负责人 2026-10-27 已确认：D4 改为独立仓库（§5）。
 
 **DATA_HOST：`scripts/deploy/rest_server_data_host.sh`**（新的 root 脚本，**安装时要负责人本人确认**，不在已给出的 root 授权范围内）
 
-- **为什么单独做一个入口**：`file_backup_data_host.sh` 还保留第 1a 步（recorder 的 pg_hba 行），而它的 `--uninstall` 正好是切换之后撤掉 sftp 账户、chroot 和 sshd drop-in 的命令。rest-server 有自己的二进制、证书、口令和生命周期。分成两个入口，撤 sftp 和装 rest-server 互不牵连，各自可以回滚。
+- **为什么单独做一个入口（第 1b 步）**：`file_backup_data_host.sh` 只做第 1a 步（recorder 的 pg_hba 行），它不读也不写任何秘密。rest-server 有自己的二进制、证书、两个口令和生命周期。分成两个入口，每一步都可以单独重跑或撤销，互不牵连。
+- **stdin 两行，口令都从 Keychain 经管道传入**：
+  - `files<TAB>…`：文件仓库的 restic 口令，Keychain `nexloop/backup/restic-files-repo1`。安装器用它以 `nexloop-backup` 身份 init 仓库；APP_HOST 的 `repo1` 行也用它。
+  - `rest<TAB>…`：rest-server 的 htpasswd 口令，24–128 个 `A-Z a-z 0-9 _ -`。建议 Keychain 条目名 `nexloop/backup/rest-server-files`，由调度员新建（随机生成）；APP_HOST 的 `repo1_rest` 行也用它。
+
+  ```bash
+  { printf 'rest\t%s\n' "$(security find-generic-password -s nexloop/backup/rest-server-files -w)"
+    printf 'files\t%s\n' "$(security find-generic-password -s nexloop/backup/restic-files-repo1 -w)"; } \
+    | ssh <DATA_HOST> 'sudo bash <release>/scripts/deploy/rest_server_data_host.sh <私有配置>'
+  ```
 - **R1 二进制**：rest-server 来自发布提交里 `versions.lock.json` 的 `deployment_tools.rest_server` 所指的官方归档。归档的 sha256 必须一致；摘要还没填时直接拒绝。解出唯一的 `rest-server_<版本>_linux_amd64/rest-server`，装到 `/opt/nexloop/rest-server/<版本>/rest-server`（root，0555），再读回 `--version` 核对版本。
 - **R2 秘密**：`/srv/nexloop/secrets/rest-server`（root，0711）下放三个文件：
   - `server.key`：0600，属 `nexloop-backup`；
@@ -318,16 +317,16 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
 
 **APP_HOST：`file_backup_install.sh`**
 
-- 配置里 `repo1` 改为 `{"transport": "rest", "host": "<DATA_HOST_ADDR>", "port": <port>, "cacert": "<bundle.crt 在 APP_HOST 上的路径>"}`。`transport` 不写时仍是 `sftp`（D4）。
+- 配置里的 `repo1` 写成 `{"host": "<DATA_HOST_ADDR>", "port": <port>, "cacert": "<bundle.crt 在 APP_HOST 上的路径>"}`，`"transport": "rest"` 可写可不写。旧的 sftp 写法（`host_key`、`path`）会被拒绝。
 - stdin 增加一行 `repo1_rest<TAB>password`：就是 htpasswd 那个口令，24–128 个 `A-Z a-z 0-9 _ -`。
-- `repo1` 那一行改为**文件仓库的 restic 口令**，即 DATA_HOST 的 `files<TAB>` 那一个，不再是恢复日志的口令（F1 b）。切换时必须给出；给错的话，第 5 步的 `cat config` 返回 12，timer 不会启用。
+- `repo1` 那一行是**文件仓库的 restic 口令**（Keychain `nexloop/backup/restic-files-repo1`），即 DATA_HOST 的 `files<TAB>` 那一个，不是恢复日志的口令。给错的话，第 5 步的 `cat config` 返回 12，timer 不会启用。
 - **仓库文件**：`rest:https://nexloop-file-backup:<口令>@<host>:<port>/restic/`，0600，属服务用户。只有文件路径会交给 restic。重跑时不给口令，就保留已经写好的同一 host:port 的位置。
 - **钉住 CA**：
   - `rest-ca.crt` 复制进 `secrets/backup`；
   - env 文件写入 `FILE_BACKUP_REPO1_OPTIONS=--cacert /srv/nexloop/secrets/backup/rest-ca.crt`；
   - unit 的两条 repo1 行带上它，执行者把它原样交给 restic 的 `--cacert`，restic 于是只信任这个 bundle，不用系统根证书。
   - CA 文件不存在时，这一轮不运行，也不记行。
-- **SSH**：`~/.ssh/config` 和 `known_hosts` 删除。密钥保留，与 `--uninstall` 的口径一致。
+- **SSH**：不再使用。以前 sftp 版本可能留下的 `~/.ssh` 文件，安装、`--prepare` 和 `--uninstall` 都会删除。
 - **第 5 步的门槛改为"能写新快照，但删不掉"**：
   1. 沙箱检查在 repo1 上用一个只有一个文件的目录做一次新快照（tag `nexloop-append-only-probe`，放在 staging 下）；
   2. 对这个快照执行 `restic forget <id>`，必须被拒绝（退出码非 0）；
@@ -336,17 +335,19 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
   三条任一不满足，timer 不启用；重跑时已启用的 timer 一并停用（§6.4 S2）。
 - **探针快照（L6 S1）**：**每次运行安装器都会在文件仓库里留下一个探针快照**（tag `nexloop-append-only-probe`，内容是一个一行的文件）。只追加模式下删不掉它，这正是要验证的。它们由 DATA_HOST 的 restic-maint 按 tag 分组清理：保留 14 天内的全部，再加最新月份的一个。几十个这样的快照只占几 KB。
 
-**迁移路径**：
+**安装顺序**（D4 已改为独立仓库：今天直接按这个顺序上线，不再先装 sftp 版）：
 
-1. 今天先按 D4 用 sftp 装上（§6.1、§6.2）。注意：这一阶段文件快照仍和恢复日志在同一个仓库里，F1 的风险在切换之前一直存在。restic-maint 的守卫（第 3 步）可以先装，用来挡住未来时间的快照。
-2. 调度员下载 rest-server 归档并核验，把 sha256 填进 `versions.lock.json`（已完成）。
-3. 负责人签发证书（见上），在 DATA_HOST 依次执行（都需要本人确认）：
-   1. `rest_server_data_host.sh`：新建并初始化文件仓库，安装 rest-server；
-   2. `rest_server_append_only_check.sh`：一次性仓库上的只追加验证（见上）；
-   3. `restic_maint_data_host.sh --files-repo <files_repo_path> --files-password-file /srv/nexloop/secrets/files-repo/restic.pass`：给每条 forget 加守卫，并加上文件仓库的维护。
-4. APP_HOST 配置改为 `transport: rest`，`repo1` 行给文件仓库的口令、`repo1_rest` 行给 htpasswd 口令，重跑 `file_backup_install.sh`；第 5 步验证只追加，通过后才启用 timer。
-5. 负责人在 DATA_HOST 执行 `file_backup_data_host.sh <配置> --uninstall`：撤掉 sftp 账户、chroot、sshd drop-in 和 mount unit（pg_hba 那一行保留）。
-6. D4 阶段写进恢复日志仓库的文件快照（tag `files_artifact`、`files_runtime`）留在原处，由 restic-maint 按 tag 分组正常过期；它们不影响恢复日志的分组。
+1. 负责人在管理机上签发证书（见上），把私钥和证书链以文件形式传到 DATA_HOST。
+2. DATA_HOST（负责人本人确认，root）：
+   1. `file_backup_data_host.sh`：pg_hba 那一行（§6.2，第 1a 步）；
+   2. `rest_server_data_host.sh`：新建并初始化文件仓库，安装 rest-server（第 1b 步，口令见上）；
+   3. `rest_server_append_only_check.sh`：一次性仓库上的只追加验证（见上）；
+   4. `restic_maint_data_host.sh --files-repo <files_repo_path> --files-password-file /srv/nexloop/secrets/files-repo/restic.pass`：给每条 forget 加守卫，并加上文件仓库的维护。
+3. APP_HOST：
+   1. `file_backup_install.sh --prepare`；
+   2. `install_repo2_secrets.sh files`；
+   3. `file_backup_install.sh`，stdin 三行：`recorder`、`repo1`（文件仓库口令）、`repo1_rest`（htpasswd 口令）。第 5 步验证只追加，通过后才启用 timer。
+4. 以前的 sftp 部件从没在 stage 上装过，不用撤。如果别的环境装过，`file_backup_data_host.sh --uninstall` 会清掉，可以重复执行。
 
 **版本锁**：
 - `versions.lock.json` 的 `deployment_tools.rest_server`：版本 `0.14.0`，归档 `rest-server_0.14.0_linux_amd64.tar.gz`（3799947 字节），来源 `https://github.com/restic/rest-server/releases/tag/v0.14.0`，许可证 BSD-2-Clause。

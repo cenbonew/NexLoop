@@ -1,32 +1,34 @@
 #!/usr/bin/env python3
 """NX-035 slice 3: install the file backup on APP_HOST, one command (steps 2-6; docs/implementation/NX-035-file-backup.md §6).
-Step 1 runs on DATA_HOST first (scripts/deploy/file_backup_data_host.sh: the recorder's hostssl pg_hba line and the restricted
-sftp account of repo1). Run as root through file_backup_install.sh:
+Step 1 runs on DATA_HOST first (1a file_backup_data_host.sh: the recorder's hostssl pg_hba line; 1b rest_server_data_host.sh: the
+file backup's own repository behind rest-server --append-only). Run as root through file_backup_install.sh:
 
-    sudo bash file_backup_install.sh /path/file-backup.json --prepare        the user, its SSH key (printed), secrets/backup, the env file
-    printf 'recorder\\t%s\\nrepo1\\t%s\\n' "$RECORDER_PW" "$REPO1_PW" | sudo bash file_backup_install.sh /path/file-backup.json
+    sudo bash file_backup_install.sh /path/file-backup.json --prepare        the user, secrets/backup, the env file
+    printf 'recorder\\t%s\\nrepo1\\t%s\\nrepo1_rest\\t%s\\n' "$RECORDER_PW" "$FILES_REPO_PW" "$REST_PW" | sudo bash file_backup_install.sh /path/file-backup.json
     sudo bash file_backup_install.sh /path/file-backup.json                  a rerun: the secret files already written are kept
     sudo bash file_backup_install.sh /path/file-backup.json --uninstall
 
 Owner decisions 2026-10-26 (D1-D6): enabled now; the recorder connects from APP_HOST over hostssl (D2); the unit's only privilege is
-CAP_DAC_READ_SEARCH and its sandbox shows nothing of /srv/nexloop but the two data directories and secrets/backup (D3); repo1 is the
-restore journal's restic repository on DATA_HOST, reached over a chrooted sftp account (D4); restic is the official binary of
-versions.lock.json, its archive's sha256 checked (D5).
+CAP_DAC_READ_SEARCH and its sandbox shows nothing of /srv/nexloop but the two data directories and secrets/backup (D3); restic is the
+official binary of versions.lock.json, its archive's sha256 checked (D5). D4 as changed by the owner on 2026-10-27: repo1 is the file
+backup's own repository on DATA_HOST (never the restore journal's), reached only through rest-server --append-only - a forged
+future-dated snapshot in a shared repository would let keep-within forget the journal's real ones (L6 F1). No sftp any more.
 
 Private configuration (JSON, 0600 root; deploy/examples/file-backup-install.app-host.example.json): schema
 nexloop-file-backup-install/1, release_checkout + release_sha, python (the unit's interpreter: the host-health venv's bin/python,
 which has psycopg; a link chain is fine), memory_deny_write_execute (default true), restic_archive (the downloaded
 restic_<version>_linux_amd64.bz2), key_ref (the label recorded with each manifest row), database {host, port, dbname, sslrootcert}
-(DATA_HOST's PG over hostssl, verify-full; the CA is copied next to the DSN), repo1 {host, port, host_key, path} (D4: DATA_HOST's sshd,
-its pinned host key, the repository's path inside the chroot) or {transport "rest", host, port, cacert} (owner 2026-10-27: DATA_HOST's
-rest-server --append-only, the stage CA bundle pinned with --cacert; stdin then also repo1_rest<TAB>password; step 5 proves a
+(DATA_HOST's PG over hostssl, verify-full; the CA is copied next to the DSN), repo1 {host, port, cacert} (optionally transport
+"rest"; DATA_HOST's rest-server, its address as the certificate names it, the stage CA bundle pinned with --cacert; step 5 proves a
 snapshot can be written but not forgotten, NX-035-file-backup.md §6.5), repo2_init (default false: true lets step 5 run `restic init` on a
 repo2 that does not exist yet), host_health_config and host_health_install_config (both host-health files).
 
-Order: --prepare (prints the public key DATA_HOST step 1 authorizes), DATA_HOST step 1, `install_repo2_secrets.sh files` (it reads
-the repo2 file paths from the env file --prepare wrote), then the install with the passwords on stdin.
-stdin (optional on a rerun): `recorder<TAB>password` (nexloop_backup_recorder's existing password) and `repo1<TAB>password` (the
-restore journal's repo1 restic password: one repository, one password). A file already written is kept when its line is absent.
+Order: DATA_HOST step 1 (1a and 1b), --prepare, `install_repo2_secrets.sh files` (it reads the repo2 file paths from the env file
+--prepare wrote), then the install with the passwords on stdin.
+stdin (optional on a rerun): `recorder<TAB>password` (nexloop_backup_recorder's existing password), `repo1<TAB>password` (the files
+repository's restic password, the one DATA_HOST's rest_server_data_host.sh initialised it with - Keychain
+nexloop/backup/restic-files-repo1) and `repo1_rest<TAB>password` (the rest-server's htpasswd password). A file already written is
+kept when its line is absent.
 
 Trust (root runs this code; the L6 reviews of the host-health and relation-gaps installers): stdlib only. The release checkout and
 its .git (every directory, every file outside objects/) are root's alone, every path component checked with lstat; .git is a
@@ -35,11 +37,12 @@ interpreter is resolved hop by hop. A reused release is checked file by file aga
 passed as an argument or logged: the passwords arrive on stdin and leave only into 0600 files.
 
 Steps (each idempotent):
-  2 the system user nexloop-file-backup (home /var/lib/nexloop-file-backup, root's; no shell), its SSH key (generated once, kept),
+  2 the system user nexloop-file-backup (home /var/lib/nexloop-file-backup, root's; no shell; the SSH files of an earlier D4 version
+    removed),
     the release /opt/nexloop/file-backup/<sha>/ (the executor's modules, this sandbox check, the units; read-only; `current` -> <sha>)
     and restic at /opt/nexloop/file-backup/restic-<version>/restic from the archive whose sha256 versions.lock.json names
   3 /srv/nexloop/secrets/backup (root, 0711; refused when it holds anything this unit should not see): recorder.dsn, the repo1
-    repository and password files (0600, the service user), pg-ca.crt; ~/.ssh/config and known_hosts (root's; the host key pinned)
+    repository (the rest URL) and password files (0600, the service user), pg-ca.crt and rest-ca.crt (the stage CA bundle)
   4 /etc/nexloop/file-backup.env (0600 root), the units and timers from the release (tokens filled): the file backup and repo2's
     daily maintenance (nexloop-file-backup-maint: forget per tag with --prune, check; repo1 is DATA_HOST's); daemon-reload
   5 inside the unit's own sandbox (systemd-run with its [Service] settings): the data roots and its own files readable, /srv/nexloop
@@ -51,7 +54,7 @@ Steps (each idempotent):
   6 file-backup, file-backup-maint (and provider-drift, when its timer is installed here) in both host-health files (both or
     neither), then `systemctl enable --now nexloop-file-backup.timer nexloop-file-backup-maint.timer`
 --uninstall: both timers, units, drop-ins, env file, release, restic, staging and the secret files removed, the file-backup and
-file-backup-maint entries taken out of both host-health files; the user, its home and SSH key stay (DATA_HOST's authorized key keeps matching).
+file-backup-maint entries taken out of both host-health files; the user and its home stay.
 Output: step lines, the check's verdicts and the run's counts; never a password, DSN or key. Exit 0 done, 1 a step failed, 2 refused.
 """
 from __future__ import annotations
@@ -79,13 +82,11 @@ BASE = '/opt/nexloop/file-backup'
 SERVICE, TIMER = 'nexloop-file-backup.service', 'nexloop-file-backup.timer'
 MAINT_SERVICE, MAINT_TIMER = 'nexloop-file-backup-maint.service', 'nexloop-file-backup-maint.timer'  # repo2's daily maintenance
 RECORDER = 'nexloop_backup_recorder'
-REPO1_USER = 'nexloop-backup'  # DATA_HOST's owner of the restore journal's repo1 (one repository, one uid)
-SSH_ALIAS = 'nexloop-repo1'
 DATA_ROOTS = ('/srv/nexloop/data/artifacts', '/srv/nexloop/data/runtime')
 # secrets/backup holds these and nothing else (D3: the sandbox shows the whole directory); install_repo2_secrets.sh writes the repo2
 # three and keeps <file>.pre-repo2 copies for its rollback.
 OWN = {'recorder.dsn': 'user', 'pg-ca.crt': 'root', 'restic-files-repo1.repository': 'user', 'restic-files-repo1.pass': 'user',
-       'rest-ca.crt': 'root'}  # rest-ca.crt: repo1 over DATA_HOST's rest-server (transport "rest"), the stage CA bundle restic pins
+       'rest-ca.crt': 'root'}  # rest-ca.crt: repo1 is DATA_HOST's rest-server, the stage CA bundle restic pins
 REST_CA = 'rest-ca.crt'
 REST_USER = 'nexloop-file-backup'  # the rest-server's one htpasswd user
 REST_PASSWORD = re.compile(r'[A-Za-z0-9_-]{24,128}')  # it sits in the repository URL: no character that needs escaping
@@ -95,7 +96,6 @@ ALLOWED = set(OWN) | set(REPO2) | {n + '.pre-repo2' for n in REPO2}
 SHA = re.compile(r'[0-9a-f]{40}')
 PATH = re.compile(r'/[A-Za-z0-9._/@-]+')
 HOST = re.compile(r'[A-Za-z0-9][A-Za-z0-9.:-]{0,252}')
-HOST_KEY = re.compile(r'(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ssh-rsa) [A-Za-z0-9+/]{40,}={0,2}')
 LABEL = re.compile(r'[A-Za-z0-9._:-]{1,64}')
 FILES = ('scripts/deploy/file_backup_run.py', 'scripts/deploy/file_backup_sandbox_check.py', 'scripts/deploy/file_backup_maint.py',
          'scripts/deploy/restic_future_guard.py',
@@ -256,22 +256,13 @@ def load_config(path):
             or not re.fullmatch(r'[a-z_][a-z0-9_]{0,62}', db['dbname']) or type(db['sslrootcert']) is not str or not PATH.fullmatch(db['sslrootcert'])):
         raise Refused('configuration: database {host, port, dbname, sslrootcert} (DATA_HOST over hostssl, verify-full)')
     repo1 = c.get('repo1')
-    if type(repo1) is not dict or repo1.get('transport', 'sftp') not in ('sftp', 'rest'):
-        raise Refused('configuration: repo1.transport sftp (D4, the default) | rest (DATA_HOST\'s rest-server, owner 2026-10-27)')
-    if repo1.get('transport', 'sftp') == 'sftp':
-        if (set(repo1) - {'transport'} != {'host', 'port', 'host_key', 'path'} or type(repo1['host']) is not str or not HOST.fullmatch(repo1['host'])
-                or type(repo1['port']) is not int or not 0 < repo1['port'] < 65536 or type(repo1['host_key']) is not str
-                or not HOST_KEY.fullmatch(repo1['host_key']) or type(repo1['path']) is not str or not PATH.fullmatch(repo1['path']) or '..' in repo1['path']):
-            raise Refused('configuration: repo1 {host, port, host_key ("<type> <base64>"), path (inside the chroot)}')
-    elif (set(repo1) != {'transport', 'host', 'port', 'cacert'} or type(repo1['host']) is not str or not HOST.fullmatch(repo1['host'])
-            or type(repo1['port']) is not int or not 1024 <= repo1['port'] < 65536 or type(repo1['cacert']) is not str
-            or not PATH.fullmatch(repo1['cacert']) or '..' in repo1['cacert']):
-        raise Refused('configuration: repo1 {transport "rest", host (DATA_HOST\'s address, as its certificate names it), port, cacert (the stage CA bundle)}')
+    # D4 changed (owner 2026-10-27): repo1 is the files repository behind DATA_HOST's rest-server; the sftp form is refused.
+    if (type(repo1) is not dict or repo1.get('transport', 'rest') != 'rest' or set(repo1) - {'transport'} != {'host', 'port', 'cacert'}
+            or type(repo1['host']) is not str or not HOST.fullmatch(repo1['host']) or type(repo1['port']) is not int
+            or not 1024 <= repo1['port'] < 65536 or type(repo1['cacert']) is not str or not PATH.fullmatch(repo1['cacert']) or '..' in repo1['cacert']):
+        raise Refused('configuration: repo1 {host (DATA_HOST\'s address, as its certificate names it), port, cacert (the stage CA bundle)} - '
+                      'the rest-server; the D4 sftp form is no longer installed')
     return c
-
-
-def rest(config):
-    return config['repo1'].get('transport', 'sftp') == 'rest'
 
 
 def read_secrets(stream):
@@ -399,10 +390,9 @@ def ensure_user(root, runner, trust):
     if runner(['id', '-u', USER], check=False) == '':
         runner(['useradd', '--system', '--no-create-home', '--home-dir', HOME, '--shell', '/usr/sbin/nologin', USER])
     home = under(root, HOME)
-    for directory, mode in ((home, 0o755), (home / '.ssh', 0o755)):
-        directory.mkdir(parents=True, exist_ok=True)
-        trust(directory, what='home')  # no link on the way, root's, before any chmod
-        os.chmod(directory, mode)
+    home.mkdir(parents=True, exist_ok=True)
+    trust(home, what='home')  # no link on the way, root's, before any chmod
+    os.chmod(home, 0o755)
     staging = home / 'staging'
     if os.path.islink(staging):
         raise Refused(f'{staging} is a symbolic link')
@@ -411,31 +401,19 @@ def ensure_user(root, runner, trust):
     runner(['chown', f'{USER}:{USER}', str(staging)])
 
 
-def ensure_key(root, runner):
-    """The service user's SSH key, generated once (never overwritten: DATA_HOST's authorized key names it); the public half root's."""
+def remove_old_ssh(root):
+    """The SSH files an earlier D4 (sftp) version may have left in the home: removed; nothing here uses SSH any more."""
     ssh = under(root, HOME) / '.ssh'
-    key, public = ssh / 'id_ed25519', ssh / 'id_ed25519.pub'
-    created = False
-    if not os.path.lexists(key):
-        work = Path(tempfile.mkdtemp(dir=ssh, prefix='.keygen-'))
-        try:
-            runner(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', USER, '-f', str(work / 'id_ed25519')])
-            os.chmod(work / 'id_ed25519', 0o600)
-            os.chmod(work / 'id_ed25519.pub', 0o644)
-            runner(['chown', f'{USER}:{USER}', str(work / 'id_ed25519')])
-            os.link(work / 'id_ed25519', key)  # fails when a key appeared meanwhile: an existing key is never replaced
-            os.replace(work / 'id_ed25519.pub', public)
-            created = True
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
-    if os.path.islink(key) or os.path.islink(public) or not public.exists():
-        raise Refused(f'{ssh}: the key files must be regular files (id_ed25519 and id_ed25519.pub)')
-    os.chmod(key, 0o600)  # the user's alone (ssh refuses a key others can read), on every run
-    runner(['chown', f'{USER}:{USER}', str(key)])
-    line = public.read_text().strip()
-    if not re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/]+={0,2}( \S+)?', line):
-        raise Refused(f'{public}: not one ssh-ed25519 public key line')
-    return line, created
+    if os.path.islink(ssh):
+        raise Refused(f'{ssh} is a symbolic link')
+    removed = False
+    for name in ('config', 'known_hosts', 'id_ed25519', 'id_ed25519.pub'):
+        if os.path.lexists(ssh / name):
+            (ssh / name).unlink()
+            removed = True
+    if ssh.is_dir() and not os.listdir(ssh):
+        ssh.rmdir()
+    return removed
 
 
 def _quote(value):
@@ -479,14 +457,13 @@ def write_secrets(root, config, secrets, runner, trust):
     contents = {'recorder.dsn': recorder_dsn(config, secrets['recorder']) if 'recorder' in secrets else None,
                 'restic-files-repo1.repository': repo1_location(directory, config, secrets.get('repo1_rest')),
                 'restic-files-repo1.pass': secrets['repo1'] + '\n' if 'repo1' in secrets else None}
-    if rest(config):
-        try:
-            bundle = Path(config['repo1']['cacert']).read_text()
-        except (OSError, UnicodeDecodeError):
-            raise Refused('repo1.cacert: unreadable') from None
-        if '-----BEGIN CERTIFICATE-----' not in bundle or 'PRIVATE KEY' in bundle:
-            raise Refused('repo1.cacert: the stage CA bundle, PEM certificates (and no key)')
-        contents[REST_CA] = bundle
+    try:  # repo1 is the rest-server: the stage CA bundle restic pins
+        bundle = Path(config['repo1']['cacert']).read_text()
+    except (OSError, UnicodeDecodeError):
+        raise Refused('repo1.cacert: unreadable') from None
+    if '-----BEGIN CERTIFICATE-----' not in bundle or 'PRIVATE KEY' in bundle:
+        raise Refused('repo1.cacert: the stage CA bundle, PEM certificates (and no key)')
+    contents[REST_CA] = bundle
     try:
         ca = Path(config['database']['sslrootcert']).read_text()
     except (OSError, UnicodeDecodeError):
@@ -509,11 +486,9 @@ def write_secrets(root, config, secrets, runner, trust):
 
 
 def repo1_location(directory, config, rest_password):
-    """repo1's repository file: the D4 sftp alias, or DATA_HOST's rest-server (the one htpasswd user's password in the URL; the
-    file is 0600 and only its path reaches restic). None keeps a rest location already written for this host and port."""
+    """repo1's repository file: DATA_HOST's rest-server (the one htpasswd user's password in the URL; the file is 0600 and only its
+    path reaches restic). None keeps a rest location already written for this host and port."""
     repo1 = config['repo1']
-    if not rest(config):
-        return f'sftp:{SSH_ALIAS}:{repo1["path"]}\n'
     url = f'rest:https://{REST_USER}:{{}}@{repo1["host"]}:{repo1["port"]}/restic/'
     if rest_password is not None:
         return url.format(rest_password) + '\n'
@@ -528,29 +503,6 @@ def repo1_location(directory, config, rest_password):
     return None
 
 
-def ssh_files(root, config):
-    """~/.ssh/config and known_hosts, root's 0644: the alias, the key, the pinned host key, nothing interactive. Over the rest-server
-    there is no sftp: both files are removed (the key stays, as --uninstall keeps it)."""
-    repo1 = config['repo1']
-    ssh = under(root, HOME) / '.ssh'
-    if rest(config):
-        removed = False
-        for name in ('config', 'known_hosts'):
-            if os.path.lexists(ssh / name):
-                (ssh / name).unlink()
-                removed = True
-        return removed
-    conf = (f'# nexloop-file-backup: repo1 on DATA_HOST over the restricted sftp account (file_backup_install.py; do not edit)\n'
-            f'Host {SSH_ALIAS}\n  HostName {repo1["host"]}\n  Port {repo1["port"]}\n  User {REPO1_USER}\n'
-            f'  IdentityFile {HOME}/.ssh/id_ed25519\n  IdentitiesOnly yes\n  HostKeyAlias {SSH_ALIAS}\n'
-            f'  UserKnownHostsFile {HOME}/.ssh/known_hosts\n  GlobalKnownHostsFile /dev/null\n  StrictHostKeyChecking yes\n'
-            f'  UpdateHostKeys no\n  BatchMode yes\n  ForwardAgent no\n  ForwardX11 no\n  ClearAllForwardings yes\n  ConnectTimeout 20\n'
-            f'  ServerAliveInterval 30\n')
-    a = write_private(ssh / 'config', conf, mode=0o644)
-    b = write_private(ssh / 'known_hosts', f'{SSH_ALIAS} {repo1["host_key"]}\n', mode=0o644)
-    return a or b
-
-
 def env_file(root, config):
     path = under(root, ENV_FILE)
     kept = []
@@ -561,8 +513,8 @@ def env_file(root, config):
              f'RESTIC_REPO1_REPOSITORY_FILE={SECRETS}/restic-files-repo1.repository', f'RESTIC_REPO1_PASSWORD_FILE={SECRETS}/restic-files-repo1.pass',
              f'RESTIC_REPO2_REPOSITORY_FILE={SECRETS}/{REPO2[0]}', f'RESTIC_REPO2_PASSWORD_FILE={SECRETS}/{REPO2[1]}',
              f'OFFSITE_ENVIRONMENT_FILE={SECRETS}/{REPO2[2]}', *kept[:1],
-             # repo1 over DATA_HOST's rest-server: restic trusts the stage CA bundle alone (--cacert); empty over the D4 sftp account.
-             *([f'FILE_BACKUP_REPO1_OPTIONS=--cacert {SECRETS}/{REST_CA}'] if rest(config) else [])]
+             # repo1 is DATA_HOST's rest-server: restic trusts the stage CA bundle alone (--cacert).
+             f'FILE_BACKUP_REPO1_OPTIONS=--cacert {SECRETS}/{REST_CA}']
     return write_private(path, '# nexloop-file-backup (file_backup_install.py); FILE_BACKUP_REPO2_OPTIONS from install_repo2_secrets.sh files\n'
                          + '\n'.join(lines) + '\n')
 
@@ -622,15 +574,13 @@ def check_sandbox(root, config, service, restic_version, runner, out):
     if missing:
         raise Failed('repo2 files missing (' + ', '.join(missing) + '): run install_repo2_secrets.sh files, then rerun this installer')
     hidden = hidden_paths(root, properties)
-    reads = [*DATA_ROOTS, *(f'{SECRETS}/{n}' for n in [*OWN, *REPO2] if n != REST_CA or rest(config))]
-    reads += [] if rest(config) else [f'{HOME}/.ssh/id_ed25519']
+    reads = [*DATA_ROOTS, *(f'{SECRETS}/{n}' for n in [*OWN, *REPO2])]
     lists = ['/srv/nexloop', '/srv/nexloop/secrets', '/srv/nexloop/data']
     command = [config['python'], '-I', '-B', f'{BASE}/current/scripts/deploy/file_backup_sandbox_check.py', '--restic', restic_path(restic_version),
                *[a for p in lists for a in ('--list', p)], *[a for p in reads for a in ('--read', p)], *[a for p in hidden for a in ('--hidden', p)],
-               '--repo', f'repo1,{SECRETS}/restic-files-repo1.repository,{SECRETS}/restic-files-repo1.pass'
-               + (f',,,{SECRETS}/{REST_CA}' if rest(config) else ''),
-               # Over the rest-server, repo1 must take a new snapshot and refuse to forget it (--append-only).
-               *(['--append-only-probe', 'repo1', '--probe-dir', STAGING] if rest(config) else []),
+               '--repo', f'repo1,{SECRETS}/restic-files-repo1.repository,{SECRETS}/restic-files-repo1.pass,,,{SECRETS}/{REST_CA}',
+               # repo1 must take a new snapshot and refuse to forget it (the rest-server's --append-only).
+               '--append-only-probe', 'repo1', '--probe-dir', STAGING,
                '--repo', f'repo2,{SECRETS}/{REPO2[0]},{SECRETS}/{REPO2[1]},{SECRETS}/{REPO2[2]},{repo2_lookup(root)}',
                *(['--init', 'repo2'] if config.get('repo2_init') else [])]
     answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec',
@@ -653,17 +603,16 @@ def check_sandbox(root, config, service, restic_version, runner, out):
     for name in ('repo1', 'repo2'):
         code = doc.get('repos', {}).get(name)
         if code != 0:
-            why = {10: 'does not exist' + (' (repo2_init true creates it)' if name == 'repo2' else ' (DATA_HOST step 1, repo1.path)'),
+            why = {10: 'does not exist' + (' (repo2_init true creates it)' if name == 'repo2' else ' (DATA_HOST step 1b initialises it)'),
                    12: 'wrong password'}.get(code, f'restic {code}')
             problems.append(f'{name}: {why}')
-    if rest(config):
-        # Owner 2026-10-27: a new snapshot is taken, forgetting it is refused and it is still there - APP_HOST cannot delete repo1.
-        probe = doc.get('append_only', {}).get('repo1')
-        if not (type(probe) is dict and probe.get('backup') == 0 and probe.get('forget') not in (0, None) and probe.get('still_listed') is True):
-            problems.append(f'repo1 is not append-only ({json.dumps(probe, sort_keys=True)}): a forget was not refused')
+    # Owner 2026-10-27: a new snapshot is taken, forgetting it is refused and it is still there - APP_HOST cannot delete repo1.
+    probe = doc.get('append_only', {}).get('repo1')
+    if not (type(probe) is dict and probe.get('backup') == 0 and probe.get('forget') not in (0, None) and probe.get('still_listed') is True):
+        problems.append(f'repo1 is not append-only ({json.dumps(probe, sort_keys=True)}): a forget was not refused')
     print('sandbox: ' + json.dumps({'hidden': len(hidden), 'readable': len(reads), 'listing': 'as expected' if not any('shows' in p for p in problems) else 'NOT',
                                     'restic': doc.get('restic'), 'handles': doc.get('handles'), 'repos': doc.get('repos'), 'init': doc.get('init'),
-                                    **({'append_only': doc.get('append_only')} if rest(config) else {})}, sort_keys=True), file=out)
+                                    'append_only': doc.get('append_only')}, sort_keys=True), file=out)
     if problems:
         raise Failed('sandbox check: ' + '; '.join(problems)[:600] + ': timer not enabled')
     return len(hidden)
@@ -779,14 +728,14 @@ def install(root, config, secrets, runner, out, trust, trust_python):
     preflight(root, config, trust, trust_python)
     version, binary = restic_binary(config, runner)
     ensure_user(root, runner, trust)
-    public, created = ensure_key(root, runner)
+    old_ssh = remove_old_ssh(root)
     target, reused = release(root, config, runner, trust)
     unpacked = install_restic(root, version, binary, trust)
-    step(2, f'user {USER}, SSH key ' + ('generated' if created else 'kept') + f', release {config["release_sha"][:12]} ' + ('reused' if reused else 'built')
+    step(2, f'user {USER}' + (' (the SSH files of an earlier sftp version removed)' if old_ssh else '') + f', release {config["release_sha"][:12]} '
+         + ('reused' if reused else 'built')
          + f', restic {version} ' + ('installed (sha256 as versions.lock.json)' if unpacked else 'unchanged'))
     done = write_secrets(root, config, secrets, runner, trust)
-    ssh_changed = ssh_files(root, config)
-    step(3, 'secrets/backup: ' + ', '.join(f'{n} {s}' for n, s in sorted(done.items())) + '; ssh config ' + ('written' if ssh_changed else 'unchanged'))
+    step(3, 'secrets/backup: ' + ', '.join(f'{n} {s}' for n, s in sorted(done.items())))
     env_changed = env_file(root, config)
     systemd = under(root, '/etc/systemd/system')
     service = render_service((target / 'units' / SERVICE).read_text(), config, restic_path(version))
@@ -817,12 +766,11 @@ def install(root, config, secrets, runner, out, trust, trust_python):
 
 def prepare(root, config, runner, out, trust):
     ensure_user(root, runner, trust)
-    public, created = ensure_key(root, runner)
+    remove_old_ssh(root)
     secrets_directory(root, trust)
     changed = env_file(root, config)
-    print(f'prepared: user {USER}, SSH key ' + ('generated' if created else 'kept') + f', {SECRETS}, {ENV_FILE} ' + ('written' if changed else 'unchanged'),
+    print(f'prepared: user {USER}, {SECRETS}, {ENV_FILE} ' + ('written' if changed else 'unchanged') + '; next: install_repo2_secrets.sh files',
           file=out)
-    print('public key (for DATA_HOST step 1): ' + public, file=out)
 
 
 def uninstall(root, config, runner, out):
@@ -851,9 +799,10 @@ def uninstall(root, config, runner, out):
                 os.chmod(path, 0o700 if path.is_dir() else 0o600)
         shutil.rmtree(base)
     rewrite_timers(files, remove_file_backup)
+    remove_old_ssh(root)
     runner(['systemctl', 'daemon-reload'], check=False)
     print(f'uninstalled: timers, units, env file, release, restic, staging and the secret files removed; file-backup and file-backup-maint taken out of the '
-          f'host-health timers; the user {USER}, its home and SSH key stay', file=out)
+          f'host-health timers; the user {USER} and its home stay', file=out)
 
 
 def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned, trust_python=interpreter_owned):
