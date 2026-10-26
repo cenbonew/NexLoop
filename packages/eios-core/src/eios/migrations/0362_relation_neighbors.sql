@@ -33,7 +33,8 @@ begin
       or (g->>'direction'='incoming' and g->>'property_holder'='neighbour' and m.source_type=g->>'type_name' and m.target_type=p_type))
     -- L6 I-1 (b): only when the relation group of that type, direction and neighbour type is there and holds at least as many
     -- neighbours; otherwise links without their relation (not backfilled, an array element, a value derivation does not take)
-    -- would vanish silently, so the property group stays.
+    -- would vanish silently, so the property group stays. Equal totals do not mean the same neighbours: the comparison counts, and
+    -- relies on P3 verify having balanced (extra == 0: no relation without its property) for the members to be the same.
     and exists(select 1 from jsonb_array_elements(p_value->'groups') r where r->>'via'=m.relation_name and r->>'direction'=g->>'direction'
       and r->>'type_name'=g->>'type_name' and (r->>'total')::bigint>=(g->>'total')::bigint)));
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
