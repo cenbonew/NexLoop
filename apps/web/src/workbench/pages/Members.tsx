@@ -42,8 +42,11 @@ const OPS_CHANNEL='请走运维通道（可信配置的成员文件，或运维�
 /** NX-056 (design §0 I1/I2): who could approve a request now - an active owner whose vote cooldown is over, neither the requester nor the
  * member the request acts on. With nobody, the server refuses at once (quorum_unreachable); the page disables it and says why first. */
 export function approversFor(members:MemberRow[],self:string,target:string|null,now=Date.now()):number{
-  return members.filter(m=>m.role==='owner'&&m.member_status==='active'&&!m.erased&&m.principal_id!==self&&m.principal_id!==target
-    &&m.vote_eligible_from!==null&&Date.parse(m.vote_eligible_from)<=now).length;
+  // By person, as NX-056 counts votes by subject: another principal of the requester or of the target is neither; an active human only.
+  const person=(p:string|null)=>members.find(m=>m.principal_id===p)?.person;
+  const excluded=new Set([person(self),person(target)].filter(Boolean));
+  return new Set(members.filter(m=>m.role==='owner'&&m.member_status==='active'&&m.human_active&&!m.erased&&!excluded.has(m.person)
+    &&m.vote_eligible_from!==null&&Date.parse(m.vote_eligible_from)<=now).map(m=>m.person)).size;
 }
 function NoApprover({target}:{target:boolean}){
   return <p className="impact-summary" role="note">现在没有能批准的 owner（除你{target?'和被处置的 owner ':''}之外，需要一位在用、且成为 owner 已满 24 小时的 owner）。{OPS_CHANNEL}</p>;

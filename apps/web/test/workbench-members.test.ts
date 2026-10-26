@@ -5,13 +5,13 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {me,members,oneTimeSecret,OPERATION_ACTION} from '../src/workbench/api';
-import {OneTimeSecret} from '../src/workbench/actions';
+import {OneTimeSecret,WriteResult} from '../src/workbench/actions';
 import {Members,approversFor,memberControls} from '../src/workbench/pages/Members';
 import {APPROVAL_ACTION_TEXT} from '../src/workbench/pages/Approvals';
 
 const row=(principal:string,role:string|null,status:string,extra:Record<string,unknown>={})=>({principal_id:principal,label:'p-0123abcd',username:principal.replace('synthetic-',''),
   role,member_status:status,account_status:'active',vote_eligible_from:role==='owner'?'2026-10-20T00:00:00+00:00':null,erased:false,
-  person_all_revoked:status==='revoked',...extra});
+  person_all_revoked:status==='revoked',person:'s-'+Array.from(principal).reduce((a,c)=>(a*31+c.charCodeAt(0))>>>0,7).toString(16).padStart(8,'0').slice(-8),human_active:true,...extra});
 const raw={members:[row('synthetic-owner','owner','active'),row('synthetic-second','owner','active'),row('synthetic-op','operator','active'),
     row('synthetic-paused','reviewer','suspended'),row('synthetic-gone','operator','revoked',{role:null})],
   invitations:[{invitation_id:'3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11',username:'new-reviewer',role:'reviewer',issued_by:'synthetic-owner',issued_at:'2026-10-25T01:00:00+00:00',expires_at:'2026-10-26T01:00:00+00:00'}],
@@ -90,4 +90,30 @@ test('R1: a demotion cannot be submitted without a new role, even with an approv
   const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
   expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit" disabled=""/);
   expect(html).not.toContain('现在没有能批准的 owner（除你和被处置的 owner 之外');
+});
+
+
+test('B2: approvers are counted by person, active humans only', ()=>{
+  const now=Date.parse('2026-10-26T00:00:00+00:00');
+  const three=members({...raw,members:[...raw.members,row('synthetic-third','owner','active')]}).members;
+  expect(approversFor(three,'synthetic-owner','synthetic-op',now)).toBe(2);
+  const sameAsSelf=three.map(m=>m.principal_id==='synthetic-third'?{...m,person:three[0].person}:m);  // the requester's other principal
+  expect(approversFor(sameAsSelf,'synthetic-owner','synthetic-op',now)).toBe(1);
+  const disabled=three.map(m=>m.principal_id==='synthetic-third'?{...m,human_active:false}:m);
+  expect(approversFor(disabled,'synthetic-owner','synthetic-op',now)).toBe(1);
+  expect(()=>members({...raw,members:[{...raw.members[0],person:'synthetic-owner'}]})).toThrow();
+});
+
+test('B5: executing an owner reset or an owner invitation from the approvals page shows the secret once; a replay shows the hint', ()=>{
+  const code='ABCD-EFGH-IJKL-MNOP-QRST';
+  const executed=renderToStaticMarkup(h(WriteResult,{operation:'issue_workbench_owner_reset',
+    data:{reset_id:'r',target_principal:'p',replayed:false,approval_id:'a',approval:'consumed',code}}));
+  expect(executed.split(code).length-1).toBe(1);expect(executed).toContain('只显示这一次');expect(executed).toContain('已按批准执行');
+  const invite=renderToStaticMarkup(h(WriteResult,{operation:'invite_workbench_owner',
+    data:{invitation_id:'i',username:'new-owner',role:'owner',replayed:false,approval:'consumed',token:'t'.repeat(43)}}));
+  expect(invite.split('t'.repeat(43)).length-1).toBe(2);  // the token and the link carrying it, in one box
+  expect(invite).toContain('/workbench/invitation#token=');
+  const replay=renderToStaticMarkup(h(WriteResult,{operation:'issue_workbench_owner_reset',
+    data:{outcome_id:'o',operation:'issue_workbench_owner_reset',replayed:true,secret:'not_shown_again',next:'revoke_and_request_again'}}));
+  expect(replay).toContain('不会再次显示');expect(replay).not.toContain('只显示这一次');
 });
