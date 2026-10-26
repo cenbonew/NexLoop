@@ -183,7 +183,7 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 | 11 | APP_HOST | 调度员 | `... verify` | 每一行 `a == b`、`extra == 0`，`skipped_remaining == 0`；悬空和擦除中的数量照实记录 | 不平：不进入第 13 步，`revert`，把 verify 输出交给 L5 |
 | 12 | APP_HOST | 调度员 | revert 演练：`... revert --run-id p3-1`，再 `verify` | 状态 `reverted`；`b` 回到回填前的值（只剩派生出的关系）。如果回填之后有 sim world 被清除，revert 输出的 `deleted` 会小于 created 的行数，差额就是随 world 一起删除的关系（设计稿 §3.1 的 B-1），不是错误 | 重跑 `revert`（幂等）；仍不到 `reverted` 就停下报 L5 |
 | 13 | APP_HOST | 调度员 | 正式回填：`... start --run-id p3-2`、`... run --run-id p3-2`、`... verify` | 同第 11 步 | 同第 10、11 步 |
-| 14 | APP_HOST、管理机 | 调度员 | 收尾：`rm -rf -- "$BF"`；L5 准备 service-grants v21（去掉 `relation_backfiller`），合入后 register 撤销 | `$BF` 不存在；register 输出 `grants_revoked` 为 1 | — |
+| 14 | APP_HOST、管理机 | 调度员 | 收尾：`rm -rf -- "$BF"`；L5 准备好的 service-grants v21（`relation_backfiller` 退役；stage-principals v6 去掉它的 setup 凭据）在回填 verify 平衡之后合入，register 撤销它的授权；**之后从 stage secrets 树中删除 `setup/relation-backfiller-credential`（以及 `management/service-secrets.json` 中对应的条目），并清理 Keychain 里这个凭据的条目** | `$BF` 不存在；register 输出 `grants_revoked` 为 1 | — |
 
 - **必须由负责人执行的**：第 3、5 步中用到负责人工作台凭据的操作（在 CI 主机上的负责人工作台会话中：sim 生成、合成顾客的标记与擦除）。其余步骤按 2026-10-21 的口径由调度员执行（dev/test 环境、没有真实用户）。
 - **前置条件**：release 45/46 已上线（含 0344、0349、0350 与 `relation_backfill.py`）；第 5 步通过；第 6 步的 register 之后，`relation_backfiller` 的凭据有效。
