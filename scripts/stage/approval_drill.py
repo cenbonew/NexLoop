@@ -17,6 +17,7 @@ Target: --base-url is the stage workbench origin given by the operator (https, n
 nothing is hard-coded and redirects are never followed. Every step prints one JSON line (and appends it to --evidence-file
 when given): step, account label, HTTP status, approval_id, status and the answer's fixed codes; never a body field beyond
 those. --dry-run validates everything and prints the requests it would make without opening a connection.
+Needs Python 3.11 or newer (run it with the repository's .venv/bin/python). Environment proxies are ignored.
 Exit codes: 0 done (the step's HTTP status was 2xx), 1 the server refused or the step could not be done, 2 bad arguments.
 """
 import argparse
@@ -98,7 +99,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def default_opener():
-    return urllib.request.build_opener(_NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    # No proxy from the environment (ProxyHandler({})): the session goes straight to the stage workbench given on the command line.
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect, urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 
 
 class Workbench:

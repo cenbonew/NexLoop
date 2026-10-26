@@ -259,7 +259,7 @@ ro "select count(*) from control.nexloop_approval_policies"
 
 | # | 前提 | 预期 |
 |---|---|---|
-| Q1 | approver2、approver3 的冷却都已满（负责人不参与，不检查） | 第二条查询两行都为 `t` |
+| Q1 | approver2 的投票资格已到（负责人不参与，不检查；approver3 只当发起方，发起时不检查冷却，它那一行只做记录） | 第二条查询中 `stage-principal-approver2` 那一行为 `t`；approver3 那一行的值照录 |
 | Q2 | D1 部署已超过 24 小时 | 第三条查询为 `t` |
 | Q3 | 第 0 天之后成员没有变化 | 两位都仍是 active 的 owner（§4.2 的核对查询）；`vote_eligible_from` 与第 0 天记录的一致。如果变了，说明角色有过中断，冷却已重新计时 |
 | Q4 | 还没有发布任何策略 | 第四条查询为 0（如果不是 0，先查 `nexloop_approval_policy_publications` 已发到哪个版本，第 7 步从下一个版本接着发） |
@@ -315,26 +315,29 @@ ro "select capability, eligible_count from control.nexloop_approval_eligibility_
 
 操作者一列（按 §D1R）：“approver3”是发起方，“approver2”是批准方，两者都是调度员操作的测试账号。**负责人账号全程不操作。**
 
-**驱动脚本**（调度员，管理机；口令经钥匙串写入 0600 临时文件，用完 shred；`$WB` 是 stage 工作台的 https 源，只写 scheme 和主机）：
+**驱动脚本**（调度员，管理机；口令经钥匙串写入 0600 临时文件，由 trap 在退出时删除；`$WB` 是 stage 工作台的 https 源，只写 scheme 和主机）：
 
 ```
+# 在仓库根目录执行；解释器用仓库的 .venv/bin/python（脚本需要 Python 3.11 及以上，只用标准库）
 pw() { f=$(mktemp); chmod 600 "$f"; security find-generic-password -s "nexloop/stage/$1" -w > "$f"; echo "$f"; }
 P3=$(pw approver3); P2=$(pw approver2)
-D3=(python3 scripts/stage/approval_drill.py --base-url "$WB" --username "<approver3 用户名>" --account-label approver3 --password-file "$P3" --evidence-file drill-evidence.jsonl)
-D2=(python3 scripts/stage/approval_drill.py --base-url "$WB" --username "<approver2 用户名>" --account-label approver2 --password-file "$P2" --evidence-file drill-evidence.jsonl)
+trap 'rm -f "$P3" "$P2"' EXIT   # macOS 没有 shred；中途出错退出也会删掉两个口令文件
+EV="${TMPDIR:-/tmp}/drill-evidence.jsonl"   # 证据文件不落进工作树；演练结束后作为证据归档
+D3=(.venv/bin/python scripts/stage/approval_drill.py --base-url "$WB" --username "<approver3 用户名>" --account-label approver3 --password-file "$P3" --evidence-file "$EV")
+D2=(.venv/bin/python scripts/stage/approval_drill.py --base-url "$WB" --username "<approver2 用户名>" --account-label approver2 --password-file "$P2" --evidence-file "$EV")
 OPEN() { printf '{"scope_kind":"action_type","action_type":"eios:action:nexloop.service.request:1","enabled":%s,"data_mode":null,"reason":"%s"}' "$1" "$2"; }
 # 先 dry-run 一次：不连网，只打印将要发的路径和字段名
 "${D3[@]}" --dry-run request --operation set_real_dispatch --body-json "$(OPEN true '演练一：批准与执行')"
 # …… 按下表逐步执行 ……
-shred -u "$P3" "$P2"
+# 结束：退出 shell 时 trap 删除口令文件；也可以现在手动执行 rm -f "$P3" "$P2"
 ```
 
-每一步输出一行 JSON（同时追加到 `drill-evidence.jsonl`，0600）：时间、步骤、账号标签、HTTP 状态、`approval_id`、`status`/`approval` 和固定原因码。不输出口令、用户名、Cookie、CSRF 或请求原因文本。退出码 0 = 2xx，1 = 被拒或做不成，2 = 参数错误。
+每一步输出一行 JSON（同时追加到 `$EV`，即 `$TMPDIR/drill-evidence.jsonl`，0600）：时间、步骤、账号标签、HTTP 状态、`approval_id`、`status`/`approval` 和固定原因码。不输出口令、用户名、Cookie、CSRF 或请求原因文本。退出码 0 = 2xx，1 = 被拒或做不成，2 = 参数错误。
 
 | # | 命令 |
 |---|---|
 | 8.1 | `"${D3[@]}" request --operation set_real_dispatch --body-json "$(OPEN true '演练一：批准与执行')"` → 记下 `approval_id`（下称 A1） |
-| 8.2a | `"${D3[@]}" list`（A1 只在 `mine`，不在 `to_decide`）；`"${D3[@]}" decide --approval-id A1 --decision approve --reason 自批` → 被拒（403 或 409） |
+| 8.2a | `"${D3[@]}" list`（A1 只在 `mine`，不在 `to_decide`；`solo_mode.enabled` 为 `false`）；`"${D3[@]}" decide --approval-id A1 --decision approve --reason 自批` → 被拒（403 或 409） |
 | 8.2 | `"${D2[@]}" list`（A1 在 `to_decide`）；`"${D2[@]}" decide --approval-id A1 --decision approve --reason '演练一：同意'` |
 | 8.3 | `"${D3[@]}" execute --approval-id A1` → `approval: consumed` |
 | 8.4 | `"${D3[@]}" request --operation set_real_dispatch --body-json "$(OPEN false '演练一：关闭')"` → 直接执行，没有 `approval_id` |
@@ -347,7 +350,7 @@ shred -u "$P3" "$P2"
 | # | 谁 | 操作 | 预期 |
 |---|---|---|---|
 | 8.1 | 负责人 | 真实派发面板：打开 action_type `eios:action:nexloop.service.request:1`，原因 R1 | 页面提示“需要另一位成员批准”；审批页“我发起的”出现一条，状态“等待审批”，摘要显示 `scope_kind=action_type，enabled=true` |
-| 8.2 | 测试 owner | 审批页“待我审批”：看到这条，写批准原因后批准 | 状态变为“已批准”；负责人自己的“待我审批”里没有这条（禁止自批） |
+| 8.2 | 测试 owner | 审批页“待我审批”：看到这条，写批准原因后批准 | 状态变为“已批准”；告警页出现 `approval_first_time_approver`（approver2 第一次批准，持续约 24 小时，属预期）；负责人自己的“待我审批”里没有这条（禁止自批） |
 | 8.3 | 负责人 | 审批页“待我执行”：点“执行” | 提示“已按批准执行；这次批准已用掉”；真实派发面板中这个 Action 开关为打开 |
 | 8.4 | 负责人 | 真实派发面板：关闭这个开关 | 立即生效，不需要审批（关闭不在策略条件内） |
 | 8.5 | 负责人 | 8.4 之后立即：再次打开同一开关，原因 R2；在“我发起的”中撤回，撤回原因 W；然后立即再次以原因 R2 打开 | 第一次：状态变为“已撤回”。第二次：被拒绝，返回 `cooldown`（同一请求撤回后 1 小时冷却）。冷却只针对 R2，不影响下一步 |
@@ -357,11 +360,33 @@ shred -u "$P3" "$P2"
 **审计核对**（8.3 之后，A）：
 
 ```
-ro "select action, payload->>'approval_id', payload->>'outcome', payload->>'actor', payload->'approved_by' from runtime.audit_events where tenant_id='$TENANT_ID' and action like 'approval.%' order by created_at"
+ro "select created_at, action, actor_id, payload->>'approval_id', payload->>'outcome', payload->>'actor', payload->'approved_by' from runtime.audit_events where tenant_id='$TENANT_ID' and action like 'approval.%' and created_at >= '<第 7 步完成时刻>' order by created_at"
 ```
 
-- **预期**：依次有 `approval.requested`、`approval.decided`、`approval.consumed`。其中 `approval.consumed` 的 actor 是 `stage-human-approver3`（按 §D1R，不再是负责人），`approved_by` 是 `["stage-human-approver2"]`。负责人的 subject 在演练期间不应出现在任何 `approval.*` 审计里，出现就判失败。
-- 8.5 之后多一条 `approval.cancelled`（撤回）；8.6 之后多一条 `approval.requested`；8.7 之后多一条 `approval.decided`（outcome rejected）。`cooldown` 是拒绝发起，不写审计。
+操作者看 `actor_id` 列（`payload->>'actor'` 只有 `approval.consumed` 才有）。逐行预期：
+
+| 步骤 | action | `actor_id` | 其他 |
+|---|---|---|---|
+| 8.1 | `approval.requested` | `stage-principal-approver3` | |
+| 8.2 | `approval.decided` | `stage-principal-approver2` | outcome approved |
+| 8.3 | `approval.consumed` | `stage-principal-approver3` | `payload.actor` 为 `stage-human-approver3`，`approved_by` 为 `["stage-human-approver2"]` |
+| 8.5 | `approval.requested`、`approval.cancelled` | 都是 `stage-principal-approver3` | 冷却那一次是拒绝发起，不写审计 |
+| 8.6 | `approval.requested` | `stage-principal-approver3` | |
+| 8.7 | `approval.decided` | `stage-principal-approver2` | outcome rejected |
+
+- 8.2a 的自批被拒不写 `approval.decided`。
+- **负责人的 principal 和 subject 不得出现在任何一行**（`actor_id`、`payload.actor`、`approved_by` 都不行），出现就判失败。
+
+**告警核对**（A）：
+
+```
+ro "select recorded_at, rule_id, kind, selector, value, rules_version from control.nexloop_alert_events where tenant_id='$TENANT_ID' and world='real' and rule_id in ('approval_waiting','approval_first_time_approver') and recorded_at >= '<第 7 步完成时刻>' order by recorded_at"
+```
+
+- **8.2 之后**：approver2 第一次投批准票，会出现 `approval_first_time_approver` 的 `firing`（v16 起有这条规则，统计最近 24 小时，所以约 24 小时后才 `resolved`）。这是预期内的，不是故障。
+- **8.6**：A3 发起后约 61 分钟（等待超过 1 小时，加上一分钟一轮的评估），出现 `approval_waiting` 的 `firing`。
+- **8.7 之后**：下一轮评估出现 `approval_waiting` 的 `resolved`。
+- 两条告警的 `firing`、`resolved` 时间都从这条查询取，记入证据。
 
 **证据**（记入 NX-056 任务证据，不含口令、DSN 和用户名；每条写明执行者和判定者）：
 
@@ -370,7 +395,7 @@ ro "select action, payload->>'approval_id', payload->>'outcome', payload->>'acto
 - 8.1–8.7 每一步的页面状态截图或文字记录；
 - 审计查询的结果；
 - `approval_waiting` 告警的触发和解除时间；
-- `drill-evidence.jsonl`（驱动脚本的输出）；
+- `$TMPDIR/drill-evidence.jsonl`（驱动脚本的输出）；
 - 执行者：调度员（第 1–7 步、approver2 和 approver3 的全部操作）；负责人不参与；判定者：L6（只看证据）。
 
 ## 9. 回退

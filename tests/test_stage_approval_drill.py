@@ -206,3 +206,10 @@ def test_the_drill_against_the_real_workbench_request_decide_execute(gated, admi
     assert code == 0 and r['approval'] == 'consumed' and r['approval_id'] == approval, r
     assert tenant_switch(admin) is True
     assert len((tmp_path / 'evidence.jsonl').read_text().splitlines()) == 5
+
+
+def test_environment_proxies_are_ignored(monkeypatch):
+    monkeypatch.setenv('HTTPS_PROXY', 'http://proxy.invalid:3128')
+    handlers = D.default_opener().handlers
+    # An empty ProxyHandler replaces the default one (which would read HTTPS_PROXY); no handler carries a proxy.
+    assert not [h for h in handlers if isinstance(h, D.urllib.request.ProxyHandler) and h.proxies]
