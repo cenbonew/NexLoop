@@ -204,15 +204,23 @@ def write_private(path, text):
     return True
 
 
+# A minimal environment (no GIT_* variable of root's session, no system or global configuration) and no replace refs: whoever could
+# set those, or write .git, would choose what `show` returns (L6 relation gaps install review I2; follow-up, same as that installer).
+GIT = ['env', '-i', 'PATH=/usr/bin:/bin', 'HOME=/nonexistent', 'GIT_CONFIG_NOSYSTEM=1', 'GIT_CONFIG_GLOBAL=/dev/null', 'git', '--no-replace-objects']
+
+
 def git_show(config, path, runner):
-    # L6 (relation gaps install review I2): replace refs would let whoever can write .git substitute what `show` returns.
-    return runner(['git', '--no-replace-objects', '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
+    return runner([*GIT, '-C', config['release_checkout'], 'show', f'{config["release_sha"]}:{path}'])
 
 
 def trust_git(checkout, trust):
     """The checkout's .git: every directory and every file outside objects/pack data must be root's alone (refs, config, hooks
     and packed-refs decide what `git show` reads)."""
     git = Path(checkout) / '.git'
+    if os.path.islink(git) or not os.path.isdir(git):
+        raise Refused('release .git: a directory (a worktree pointer file or a link is refused)')
+    if os.path.lexists(git / 'objects/info/alternates') or os.path.lexists(git / 'commondir'):
+        raise Refused('release .git: objects from elsewhere (objects/info/alternates, commondir) are refused')
     trust(git, what='release .git')
     for path in sorted(git.rglob('*')):
         if path.is_dir() or not str(path.relative_to(git)).startswith('objects/'):
