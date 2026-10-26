@@ -58,6 +58,14 @@ read_config "$CONFIG"
 HBA="$NEXLOOP_ROOT/config/pg_hba.conf"
 
 step 1 preflight
+# L6 file-backup review I2 (same class here): root copies pg_hba to its backup and rewrites it in config/, so that directory is root's
+# alone and neither file is a symbolic link (cp would otherwise write through a link someone put there).
+CONFIG_DIR=$(dirname "$HBA")
+[ -d "$CONFIG_DIR" ] && [ ! -L "$CONFIG_DIR" ] || fail 1 "config/: a directory, not a link"
+owner_mode=$(stat -c '%u %a' "$CONFIG_DIR" 2>/dev/null || stat -f '%u %Lp' "$CONFIG_DIR")
+[ "${owner_mode%% *}" = 0 ] && (( (8#${owner_mode##* } & 8#022) == 0 )) || fail 1 "config/ must be root's and not group/other-writable"
+[ ! -L "$HBA" ] || fail 1 "pg_hba.conf is a symbolic link"
+[ ! -L "$HBA.before-host-health" ] || fail 1 "pg_hba.conf.before-host-health is a symbolic link"
 for f in "$HBA" "$STAGE_ENV" "$RELEASE_CHECKOUT/scripts/deploy/render.py" "$RELEASE_CHECKOUT/deploy/stage/config/pg_hba.conf.template"; do
   [ -f "$f" ] || fail 1 "missing $(basename "$f")"; done
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT; chmod 0700 "$WORK"
