@@ -206,14 +206,14 @@ P4a（读侧并集，0360）与 P4c（purge 取并集、开始时固定目标，
 | 2 | — | 调度员 | 按 ack-policy 部署这一批（迁移 0360、0361，告警规则 v19） | 迁移头含 0361；`alert_rules` 已应用 v19 | 按发布手册回退该批 |
 | 3 | DATA_HOST | 调度员 | 安装 `nexloop-relation-read-gaps` 的 timer 与 service（示例在 `deploy/stage/systemd/`），把 `relation-read-gaps` 加进 DATA_HOST 的 host-health 配置，再执行设计稿 §2.5 的演练 | 演练两轮都符合预期 | 停用 timer，报 L5 |
 
-## 10. P4b（世界模型邻居读关系，0362）上 real 之前
+## 10. P4b（世界模型邻居读关系，0359）上 real 之前
 
 | 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 | 不通过时 |
 | --- | --- | --- | --- | --- | --- |
 | 0 | DATA_HOST | 调度员 | 引用每日缺口证据：`$NEXLOOP_ROOT/evidence/relation-read-gaps/` 中最近的文件 | **最近连续 7 天**每天 `gaps` 为 0（`gaps_erasing`、`dangling`、`relation_only` 照实记录，不作为条件） | 不上 P4b；按缺口查原因（回填、派生） |
 | 1 | APP_HOST | 调度员 | 引用 P3 的 verify：`relation_backfill.py ... verify`（§8 第 11、13 步的输出，或者当天重跑一次） | **全部 26 个 derivation**、每个 world 都是 `a == b`、`extra == 0`、`skipped_remaining == 0`（不只带归属标记的 14 个） | 不上 P4b；补回填（新的 run），再 verify |
 | 2 | DATA_HOST | 调度员 | 备份：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，`systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不部署 |
-| 3 | — | 调度员 | 按 ack-policy 部署迁移 0362（工作台读路径） | 迁移头含 0362；一个已知 Consumer 的邻居中，被覆盖的链接只出现在关系分组里 | 回退：一个新迁移把 `authz.nexloop_workbench_read` 改回 `nexloop_workbench_read_before_relation_neighbors` 的调用（删除包装函数并把旧函数改回原名），由 L5 准备 |
+| 3 | — | 调度员 | 按 ack-policy 部署迁移 0359（工作台读路径） | 迁移头含 0359；一个已知 Consumer 的邻居中，被覆盖的链接只出现在关系分组里 | 回退：一个新迁移把 `authz.nexloop_workbench_read` 改回 `nexloop_workbench_read_before_relation_neighbors` 的调用（删除包装函数并把旧函数改回原名），由 L5 准备 |
 
 - 证据（第 0、1 步引用的文件名和数字、第 3 步的抽查结果）记入 NX-054。
 

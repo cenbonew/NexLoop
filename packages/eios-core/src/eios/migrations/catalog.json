@@ -1792,8 +1792,8 @@
       "sha256": "53f318e2573ffb9b68cdbf73bf2174ecdb911e45b563f2b13fa0832b37eaf1ed"
     },
     {
-      "version": "0362",
-      "name": "0362_relation_neighbors.sql",
+      "version": "0359",
+      "name": "0359_relation_neighbors.sql",
       "sha256": "09402e38e049f149bfefbe42b44723a8cf34f84cd90de3744c5ce945e51d6ad4"
     }
   ]
