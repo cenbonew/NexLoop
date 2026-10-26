@@ -1,0 +1,25 @@
+{
+  "schema": "nexloop-file-backup-install/1",
+  "_comment": "NX-035 slice 3: scripts/deploy/file_backup_install.sh on APP_HOST (root; steps 2-6, NX-035-file-backup.md §6). Copy to a private 0600 root file and fill in. Order: --prepare (prints the public key), DATA_HOST step 1 (file_backup_data_host.sh), install_repo2_secrets.sh files, then the install with recorder<TAB>password and repo1<TAB>password on stdin. python is the host-health venv's interpreter, /opt/nexloop/host-health/current/venv/bin/python (it has psycopg; a link chain is fine). memory_deny_write_execute as the host-health install of this host. restic_archive is the official restic_<version>_linux_amd64.bz2 of versions.lock.json, downloaded by the owner (its sha256 is checked). database is DATA_HOST's PG over hostssl (verify-full; sslrootcert the server CA on this host, copied next to the DSN). repo1 is DATA_HOST's sshd: its address, port and host key line (ssh-keyscan read on DATA_HOST itself, never trusted from the network), path the restore journal's restic repository inside the chroot. repo2_init true lets step 5 initialise the repo2 of the files once.",
+  "release_checkout": "/srv/nexloop/release",
+  "release_sha": "<40-hex release commit>",
+  "python": "/opt/nexloop/host-health/current/venv/bin/python",
+  "memory_deny_write_execute": false,
+  "restic_archive": "/root/restic_0.18.0_linux_amd64.bz2",
+  "key_ref": "restic-files",
+  "database": {
+    "host": "<DATA_HOST_PG_ADDRESS>",
+    "port": 5432,
+    "dbname": "nexloop_stage",
+    "sslrootcert": "<NEXLOOP_PG_CA_FILE>"
+  },
+  "repo1": {
+    "host": "<DATA_HOST_SSH_ADDRESS>",
+    "port": 22,
+    "host_key": "<ssh-ed25519 AAAA... (DATA_HOST's /etc/ssh/ssh_host_ed25519_key.pub, type and key)>",
+    "path": "/restic"
+  },
+  "repo2_init": true,
+  "host_health_config": "/etc/nexloop/host-health.json",
+  "host_health_install_config": "/root/host-health-install.app-host.json"
+}
