@@ -1,6 +1,6 @@
 """API process foundation. No unauthenticated business or fake login endpoints."""
 from contextlib import ExitStack,asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 from pathlib import Path
 import argparse
 import os
@@ -17,6 +17,10 @@ from nexloop_eios.backend import open_backend
 from nexloop_eios.private_configuration import read_private_text
 from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios.host_control import HostControlConfiguration, probe_host
+
+
+# The API's deployment modes (--mode); deploy/authorization/api-routes.v1.json lists routes per mode (NX-062 C8).
+MODES=('test','stage')
 
 
 @dataclass(frozen=True)
@@ -37,8 +41,12 @@ class ApiConfiguration:
     # EIOS gap E4: a loopback port for this process's per-route request metrics (eios.api.metrics); None = no export (default).
     api_metrics_port:int|None=None
     # 'test' (the foundation console and container tests; readiness stays 503 with diagnostics) or 'stage' (deployment:
-    # /health/ready is the real readiness of nexloop_eios.deployment_readiness, fixed reason codes only).
-    mode:str='test'
+    # /health/ready is the real readiness of nexloop_eios.deployment_readiness, fixed reason codes only). Required and keyword-only
+    # (NX-062 C8, L6 S-4): what is mounted depends on it (the test-world Artifact read exists in 'test' only), so no caller gets a
+    # mode by default.
+    mode:str=field(kw_only=True)
+    def __post_init__(self):
+        if self.mode not in MODES:raise ValueError('mode: test or stage')
 
 
 def serve_route_metrics(registry,port):
@@ -320,7 +328,7 @@ def parse(argv=None,environ=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--database-url-file',type=Path,required=True);p.add_argument('--signing-key-file',type=Path,required=True)
     p.add_argument('--artifact-root',type=Path,required=True);p.add_argument('--signing-key-id')
-    p.add_argument('--mode',choices=['test','stage'],required=True)
+    p.add_argument('--mode',choices=list(MODES),required=True)
     p.add_argument('--port',type=int,default=8000)
     p.add_argument('--web-root',type=Path)
     p.add_argument('--cache-configuration-file',type=Path)

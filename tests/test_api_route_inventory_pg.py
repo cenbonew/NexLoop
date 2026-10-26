@@ -5,11 +5,16 @@ routes without a cookie must answer 401 or 403; the service-token route without 
 webhook without a signature is refused. Path parameters are synthetic values of the shape each handler accepts, so the answer is
 the credential check, not input validation. Real PG (the workbench fixture's identity and business databases) is what makes a 401
 real: without a database a missing session check would still fail as 503 and look like a refusal."""
+import dataclasses
 import secrets
 import tempfile
 
+import pytest
+from fastapi.testclient import TestClient
+
 from nexloop_eios import api_route_inventory as I
 from nexloop_eios import commercial
+from nexloop_eios.http_api import create_app
 from test_workbench_read_pg import TENANT
 from test_workbench_read_pg import browser_business, conversations, identity, published_action, uow, workbench  # noqa: F401
 
@@ -47,7 +52,8 @@ def concrete(path):
     return path
 
 
-def test_g5_no_credential_no_access_on_every_inventoried_route(workbench, tmp_path):
+@pytest.mark.parametrize('mode', I.MODES)
+def test_g5_no_credential_no_access_on_every_inventoried_route(workbench, tmp_path, mode):
     inventory = I.load()
     # A configured connector, so the webhook answer is its signature check (an unknown connector is a 404 before any signature).
     key = tmp_path / 'probe-connector-key'
@@ -55,16 +61,17 @@ def test_g5_no_credential_no_access_on_every_inventoried_route(workbench, tmp_pa
     key.chmod(0o600)
     commercial.configure_connector(workbench['configurator'], tenant=TENANT, world='real', connector_id=PARAMETERS['connector_id'], data_mode='real',
                                    event_types=['order.paid'], currencies=['CNY'], key_id='k1', key_file=key, owner_confirmation='synthetic owner confirmation')
-    client = workbench['client']()
+    # The fixture's own configuration in each deployment mode (L6 S-5): what a mode mounts is what is probed.
+    client = TestClient(create_app(dataclasses.replace(workbench['config'], mode=mode)), base_url=workbench['client']().base_url)
     mounted = I.routes(client.app)
     with tempfile.TemporaryDirectory() as directory:
-        complete = I.routes(I.complete_app(directory))
+        complete = I.routes(I.complete_app(directory, mode))
     # The fixture's application is the complete configuration without a web root: nothing else differs.
     assert set(complete) - set(mounted) == {('GET', '/workbench'), ('GET', '/workbench/{rest:path}'), ('MOUNT', '/')}
     assert set(mounted) <= set(complete)
     answers, probed = {}, 0
     with client:
-        for route in inventory['routes']:
+        for route in I.listed(inventory, mode):
             if route['realm'] in EXEMPT:
                 continue
             path = concrete(route['path'])
@@ -80,9 +87,10 @@ def test_g5_no_credential_no_access_on_every_inventoried_route(workbench, tmp_pa
                 answers[(route['method'], route['path'], 'invalid token')] = send(headers={'Authorization': 'Bearer not-a-service-token'}).status_code
             else:
                 answers[(route['method'], route['path'], 'none')] = status
-    assert probed == 94 - 3 - 2 - 6                                   # every route outside public, public_static and pre_session
+    # Every route outside public, public_static and pre_session; the test-world Artifact read in --mode test only (F-2).
+    assert probed == {'test': 94 - 3 - 2 - 6, 'stage': 93 - 3 - 2 - 6}[mode]
     refused = {key: status for key, status in answers.items() if status in (401, 403)}
     leftover = sorted(f'{m} {p} ({how}): {status}' for (m, p, how), status in answers.items() if (m, p, how) not in refused)
     assert leftover == [], '\n'.join(leftover)
     bearer = {key[2]: status for key, status in answers.items() if key[1] == '/api/v1/artifacts/{artifact_id}'}
-    assert bearer == {'no token': 401, 'invalid token': 401}
+    assert bearer == ({'no token': 401, 'invalid token': 401} if mode == 'test' else {})

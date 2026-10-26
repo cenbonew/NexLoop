@@ -100,7 +100,7 @@ def test_actual_bound_pack_goes_through_pg_guard_and_exports_original_statement(
     from nexloop_eios.browser_http import BrowserConfiguration
     origin='https://context.invalid'
     browser=BrowserConfiguration(p['identity'],private(tmp_path,'read-rate-key','a'*64),original['tenant'],original['application'],origin)
-    config=ApiConfiguration(f['dsn'],p['backend_signing'],f['root'],'explicit-configuration',browser)
+    config=ApiConfiguration(f['dsn'],p['backend_signing'],f['root'],'explicit-configuration',browser,mode='test')
     with TestClient(create_app(config),base_url=origin) as client:
         logged=client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':p['password'].read_text()});assert logged.status_code==200
         response=client.get('/api/v1/messages/'+f['message']['id']+'/receipt');assert response.status_code==200

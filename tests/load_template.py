@@ -271,7 +271,7 @@ def load_commitments(f, admin, pg, records, private_dir, workdir, operator, *, t
     (workdir / 'artifacts').mkdir(mode=0o700, exist_ok=True)
     config = ApiConfiguration(private('business-dsn', make_conninfo(pg, user='nexloop_api')), private('authority-key', signer.material),
         workdir / 'artifacts', signer.key_id, BrowserConfiguration(identity, rate, tenant, browser_app, origin),
-        execution_profile='deterministic-test', workbench=BrowserConfiguration(identity, rate, tenant, workbench_app, origin))
+        execution_profile='deterministic-test', workbench=BrowserConfiguration(identity, rate, tenant, workbench_app, origin),mode='test')
     started = time.monotonic()
     replies = {}
     with TestClient(create_app(config), base_url=origin) as client:

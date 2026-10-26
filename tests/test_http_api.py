@@ -10,12 +10,12 @@ from test_compose_bootstrap import settings
 def api(admin,pg,tmp_path):
     options=settings(pg,tmp_path);initialize_test_profile(admin,**options)
     root=options['config_root']
-    config=ApiConfiguration(root/'api_dsn',root/'artifact_key',options['artifact_root'],'compose-test-v1')
+    config=ApiConfiguration(root/'api_dsn',root/'artifact_key',options['artifact_root'],'compose-test-v1',mode='test')
     return config,root,options
 
 
 def test_missing_private_configuration_keeps_liveness_but_not_readiness(tmp_path):
-    config=ApiConfiguration(tmp_path/'missing-dsn',tmp_path/'missing-key',tmp_path/'never-create','absent')
+    config=ApiConfiguration(tmp_path/'missing-dsn',tmp_path/'missing-key',tmp_path/'never-create','absent',mode='test')
     with TestClient(create_app(config)) as client:
         assert client.get('/health/live').status_code==200
         assert client.get('/health/ready').json()['missing_capabilities']==['browser_session','host_dispatch']

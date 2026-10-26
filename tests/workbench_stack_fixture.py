@@ -72,7 +72,7 @@ def workbench_stack(conversations, admin, pg, tmp_path, *, port, web, seed=None)
     rate_key = private(tmp_path / 'rate-key', os.urandom(32).hex())
     config = ApiConfiguration(private(tmp_path / 'business-dsn', make_conninfo(pg, user='nexloop_api')), private(tmp_path / 'authority-key', reader.signer.material),
         tmp_path / 'artifacts', reader.signer.key_id, BrowserConfiguration(identity_dsn, rate_key, TENANT, 'synthetic-browser-app', origin),
-        web_root=web, execution_profile='deterministic-test', workbench=BrowserConfiguration(identity_dsn, rate_key, TENANT, WORKBENCH_APP, origin))
+        web_root=web, execution_profile='deterministic-test', workbench=BrowserConfiguration(identity_dsn, rate_key, TENANT, WORKBENCH_APP, origin),mode='test')
     customer = f['base']['identity']
     credentials = {'origin': origin, 'workbench': origin + '/workbench', 'webchat': origin + '/',
                    'owner': {'username': owner['username'], 'password': owner['password']},

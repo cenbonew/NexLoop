@@ -75,7 +75,7 @@ def main(argv=None):
     browser = BrowserConfiguration(files['nexloop_identity'], rate_key, stack['tenant_id'], stack['browser_application_id'], origin)
     workbench = BrowserConfiguration(files['nexloop_identity'], rate_key, stack['tenant_id'], stack['workbench_application_id'], origin)
     config = ApiConfiguration(files['nexloop_api'], drill / 'authority-key', out / 'artifacts', stack['signing_key_id'], browser,
-                              execution_profile='deterministic-test', workbench=workbench)
+                              execution_profile='deterministic-test', workbench=workbench,mode='test')
     (out / 'ready').write_text(origin + '\n')
     print(json.dumps({'served': True, 'origin': origin, 'state': 'verified_readonly'}), flush=True)
     for handled in (signal.SIGTERM, signal.SIGINT):

@@ -49,7 +49,7 @@ def test_actual_product_tls_cache_stop_flush_rebuild_and_observable_degraded(que
         assert cache.peek(scheduler)==(True,hashlib.sha256(first['task_id'].encode()).hexdigest())
         with pytest.raises(ValueError):worker.run_once(lease_seconds=1)
         assert scheduler.inspect(task_id=first['task_id'])['fence']==0
-        config=ApiConfiguration(tmp_path/'absent-dsn',tmp_path/'absent-key',tmp_path/'absent-artifacts','synthetic',cache_wakeup=cache)
+        config=ApiConfiguration(tmp_path/'absent-dsn',tmp_path/'absent-key',tmp_path/'absent-artifacts','synthetic',cache_wakeup=cache,mode='test')
         with TestClient(create_app(config)) as http:
             assert http.get('/health/ready').json()['cache']['degraded'] is False
             assert owner('FLUSHDB')=='OK';assert cache.peek(scheduler)==(True,None)

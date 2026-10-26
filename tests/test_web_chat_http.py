@@ -88,7 +88,7 @@ def actual_chat(conversations, admin, tmp_path):
     admin.execute("insert into control.nexloop_browser_rate_policies values('00000000-0000-4000-8000-00000000000a','local_login','nexloop_identity',10,60,true)")
     config = ApiConfiguration(dsn, key, tmp_path/'artifacts', fixture['reader'].signer.key_id,
         BrowserConfiguration(identity_dsn, rate_key, TENANT_A, 'synthetic-browser-app', ORIGIN),
-        execution_profile='deterministic-test', conversation_stream_seconds=1)
+        execution_profile='deterministic-test', conversation_stream_seconds=1,mode='test')
     with TestClient(create_app(config), base_url=ORIGIN) as client:
         signed_in = login(client, fixture['base']['identity'])
         assert signed_in.status_code == 200

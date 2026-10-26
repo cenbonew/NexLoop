@@ -200,3 +200,19 @@ def test_g6_the_served_web_build_holds_only_publishable_files(tmp_path):
     (linked / 'other.html').symlink_to(linked / 'index.html')
     assert W.problems(linked) == ['other.html: symbolic link']
     assert W.main([str(tmp_path / 'absent')]) == 1
+
+
+def test_the_modes_are_one_list_in_the_api_the_schema_and_the_cli(capsys):
+    """L6 S-6: http_api.MODES (the inventory imports it), the Schema's modes enum and nexloop-api --mode choices agree."""
+    from nexloop_eios import http_api
+    schema = json.loads((ROOT / 'deploy/authorization/api-routes.schema.json').read_text())
+    assert I.MODES is http_api.MODES and I.MODES == ('test', 'stage')
+    assert schema['$defs']['route']['properties']['modes']['items']['enum'] == list(I.MODES)
+    with pytest.raises(SystemExit):
+        http_api.parse(['--mode', 'invented'])
+    assert "choose from test, stage" in capsys.readouterr().err
+    # The configuration has no default mode and refuses any other value (L6 S-4).
+    with pytest.raises(TypeError):
+        http_api.ApiConfiguration(Path('d'), Path('k'), Path('a'), 'key')
+    with pytest.raises(ValueError):
+        http_api.ApiConfiguration(Path('d'), Path('k'), Path('a'), 'key', mode='production')

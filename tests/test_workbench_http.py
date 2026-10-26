@@ -16,7 +16,7 @@ def app(tmp_path):
     missing = tmp_path / 'missing'
     browser = BrowserConfiguration(missing, missing, TENANT_A, 'synthetic-browser-app', ORIGIN)
     workbench = BrowserConfiguration(missing, missing, TENANT_A, 'synthetic-workbench-app', ORIGIN)
-    return create_app(ApiConfiguration(missing, missing, tmp_path / 'artifacts', 'missing', browser, web_root=web, workbench=workbench))
+    return create_app(ApiConfiguration(missing, missing, tmp_path / 'artifacts', 'missing', browser, web_root=web, workbench=workbench,mode='test'))
 
 
 def test_malformed_requests_are_422_and_dependency_down_is_503(tmp_path):

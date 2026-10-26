@@ -234,7 +234,7 @@ def test_browser_registration_lets_webchat_and_workbench_log_in_through_the_api_
     rate = private('rate-key', random.token_hex(32))
     config = ApiConfiguration(tmp_path / 'missing', tmp_path / 'missing-key', tmp_path / 'unused', 'missing',
                               BrowserConfiguration(identity_dsn, rate, TENANT, 'stage-webchat', origin),
-                              workbench=BrowserConfiguration(identity_dsn, rate, TENANT, 'stage-workbench', origin))
+                              workbench=BrowserConfiguration(identity_dsn, rate, TENANT, 'stage-workbench', origin),mode='test')
     with TestClient(create_app(config), base_url=origin) as client:
         for path, user in (('/api/v1/auth', 'synthetic-consumer'), ('/api/v1/workbench/auth', 'synthetic-staff')):
             ok = client.post(path + '/login', headers={'Origin': origin}, json={'username': user, 'password': password.read_text()})

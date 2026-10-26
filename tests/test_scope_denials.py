@@ -94,7 +94,7 @@ def test_current_human_function_reads_true_denial_not_receipt(denial_plan,admin,
     f=denial_plan;o=f['original'];origin='https://denial.invalid'
     rate=private(tmp_path,'scope-human-rate-key','c'*64)
     config=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'query-artifacts','explicit-configuration',
-        BrowserConfiguration(o['paths']['identity'],rate,o['tenant'],o['application'],origin),execution_profile='deterministic-test')
+        BrowserConfiguration(o['paths']['identity'],rate,o['tenant'],o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(config),base_url=origin) as client:
         logged=client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()});assert logged.status_code==200
         url='/api/v1/messages/'+f['message']['id']+'/scope-denial'
@@ -200,7 +200,7 @@ def test_real_pi_distinct_tool_calls_persist_denial_and_human_http(denial_plan,a
     assert admin.execute('select sum(reserved_units) from control.nexloop_effect_control_ledger').fetchone()==(0,)
     origin='https://pi-scope.invalid';rate=private(tmp_path,'pi-scope-rate','d'*64)
     api=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'pi-query-artifacts','explicit-configuration',
-        BrowserConfiguration(o['paths']['identity'],rate,o['tenant'],o['application'],origin),execution_profile='deterministic-test')
+        BrowserConfiguration(o['paths']['identity'],rate,o['tenant'],o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(api),base_url=origin) as client:
         assert client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()}).status_code==200
         response=client.get('/api/v1/messages/'+f['message']['id']+'/scope-denial')

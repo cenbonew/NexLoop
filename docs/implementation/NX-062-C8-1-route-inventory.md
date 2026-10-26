@@ -94,3 +94,13 @@
   - 因此，在修复上线之前，没有经这条路由的实际数据暴露面；
   - 残余情况：持有这个令牌的人请求时，会得到 404 而不是 401，可以借此判断令牌有效，但前提是已经拿到了令牌。另外，每次请求都会触发一次认证查询。方案 1 上线后，这两点都不存在了。
 
+## L6 对 103d4fb8 的小复核（追加提交）
+
+- **S-4**：`ApiConfiguration.mode` 不再有默认值，改为必填的关键字参数，并且只接受 `http_api.MODES` 中的值（`__post_init__`）。所有调用方都显式传入：
+  - `container_entrypoint.py`、`scripts/dev/restore_drill_serve.py` 传 `mode='test'`；
+  - 各测试和测试夹具也传 `mode='test'`，包括 `test_web_chat_frontend.py` 中子进程脚本字符串里的那一处；
+  - `http_api.parse` 本来就传 `mode=a.mode`。
+- **S-6**：`http_api.MODES` 是唯一的一份模式列表。`--mode` 的 choices 由它生成，`api_route_inventory` 也直接导入它。新增测试 `test_the_modes_are_one_list_in_the_api_the_schema_and_the_cli`，断言它与 Schema 的 `modes` 枚举、CLI 的 choices 一致，并断言配置没有默认模式、拒绝未知模式。
+- **S-7**：清单内容升到 `manifest_version` 2，但 `schema_version` 有意保持 `nexloop-api-routes/1`。新增的 `modes` 是可选字段：没有 `modes` 的路由在每种模式下都挂载，按 /1 写成的旧清单仍然有效、含义不变。只有不向后兼容的格式变化，才需要升到 /2。
+- **S-5（已做）**：G-5 改为按模式参数化。用工作台夹具自己的配置，分别以 test 和 stage 模式构造应用，各自探测本模式挂载的全部路由：test 探测 83 条，stage 探测 82 条，因为 stage 下没有 Artifact 读取。
+

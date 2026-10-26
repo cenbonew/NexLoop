@@ -24,12 +24,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+from nexloop_eios.http_api import MODES  # the API's --mode values, one list
+
 ROOT = Path(__file__).resolve().parents[4]
 MANIFEST = ROOT / 'deploy/authorization/api-routes.v1.json'
 SCHEMA = ROOT / 'deploy/authorization/api-routes.schema.json'
 SOURCE = Path(__file__).resolve().parent
 MOUNT = 'MOUNT'
-MODES = ('test', 'stage')  # http_api --mode
 
 # realm -> the authorization kinds it may carry (design §3.2).
 REALM_KINDS = {
