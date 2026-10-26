@@ -1,6 +1,6 @@
 """API process foundation. No unauthenticated business or fake login endpoints."""
 from contextlib import ExitStack,asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 from pathlib import Path
 import argparse
 import os
@@ -17,6 +17,10 @@ from nexloop_eios.backend import open_backend
 from nexloop_eios.private_configuration import read_private_text
 from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios.host_control import HostControlConfiguration, probe_host
+
+
+# The API's deployment modes (--mode); deploy/authorization/api-routes.v1.json lists routes per mode (NX-062 C8).
+MODES=('test','stage')
 
 
 @dataclass(frozen=True)
@@ -37,8 +41,12 @@ class ApiConfiguration:
     # EIOS gap E4: a loopback port for this process's per-route request metrics (eios.api.metrics); None = no export (default).
     api_metrics_port:int|None=None
     # 'test' (the foundation console and container tests; readiness stays 503 with diagnostics) or 'stage' (deployment:
-    # /health/ready is the real readiness of nexloop_eios.deployment_readiness, fixed reason codes only).
-    mode:str='test'
+    # /health/ready is the real readiness of nexloop_eios.deployment_readiness, fixed reason codes only). Required and keyword-only
+    # (NX-062 C8, L6 S-4): what is mounted depends on it (the test-world Artifact read exists in 'test' only), so no caller gets a
+    # mode by default.
+    mode:str=field(kw_only=True)
+    def __post_init__(self):
+        if self.mode not in MODES:raise ValueError('mode: test or stage')
 
 
 def serve_route_metrics(registry,port):
@@ -105,7 +113,8 @@ def create_app(config:ApiConfiguration):
                 app.state.browser_store=None
                 app.state.workbench_store=None
                 app.state.browser_rate_key=None
-    app=FastAPI(title='NexLoop API',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None)
+    # NX-062 C8 F-1: no runtime OpenAPI document (the contracts are published from packages/contracts; app.openapi() still works).
+    app=FastAPI(title='NexLoop API',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.route_metrics=routes_metrics
 
     @app.middleware('http')
@@ -250,23 +259,26 @@ def create_app(config:ApiConfiguration):
             'host':probe_host(config.host_control) if config.host_control else None,
             'missing_capabilities':missing,
             'cache':config.cache_wakeup.health(probe=True) if config.cache_wakeup is not None else {'configured':False,'available':False,'degraded':False,'authoritative':False}},headers={'Cache-Control':'no-store'})
-    @app.get('/api/v1/artifacts/{artifact_id}')
-    def artifact(artifact_id:str,request:Request):
-        def error(code,status):
-            return JSONResponse(status_code=status,content={'code':code,'message':'Resource unavailable',
-                'trace_id':str(uuid.uuid4()),'retryable':status==503,'details':{}},headers={'Cache-Control':'no-store'})
-        header=request.headers.get('authorization','')
-        if not header.startswith('Bearer ') or len(header)>2048:return error('unauthenticated',401)
-        backend=getattr(app.state,'backend',None)
-        if backend is None:return error('dependency_unavailable',503)
-        try:service=backend.authenticate(header[7:],world='test')
-        except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
-        except Exception:return error('unauthenticated',401)
-        try:payload=service.read_artifact(artifact_id)
-        except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
-        except Exception:return error('resource_unavailable',404)
-        return Response(payload,media_type='application/octet-stream',headers={'Cache-Control':'no-store',
-            'X-Content-Type-Options':'nosniff','Content-Disposition':'attachment'})
+    # S1 HTTP foundation: one Artifact by a Bearer service token of the fixed test world (the community container's smoke check).
+    # NX-062 C8 F-2 (dispatcher 2026-10-26): mounted in --mode test only, never on a stage or any other deployment mode.
+    if config.mode=='test':
+        @app.get('/api/v1/artifacts/{artifact_id}')
+        def artifact(artifact_id:str,request:Request):
+            def error(code,status):
+                return JSONResponse(status_code=status,content={'code':code,'message':'Resource unavailable',
+                    'trace_id':str(uuid.uuid4()),'retryable':status==503,'details':{}},headers={'Cache-Control':'no-store'})
+            header=request.headers.get('authorization','')
+            if not header.startswith('Bearer ') or len(header)>2048:return error('unauthenticated',401)
+            backend=getattr(app.state,'backend',None)
+            if backend is None:return error('dependency_unavailable',503)
+            try:service=backend.authenticate(header[7:],world='test')
+            except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
+            except Exception:return error('unauthenticated',401)
+            try:payload=service.read_artifact(artifact_id)
+            except (StorageUnavailable,BackendClosed,psycopg.OperationalError,psycopg.InterfaceError):return error('dependency_unavailable',503)
+            except Exception:return error('resource_unavailable',404)
+            return Response(payload,media_type='application/octet-stream',headers={'Cache-Control':'no-store',
+                'X-Content-Type-Options':'nosniff','Content-Disposition':'attachment'})
     @app.exception_handler(404)
     async def unknown(request,exc):
         return JSONResponse(status_code=404,content={'code':'not_found','message':'Resource unavailable',
@@ -316,7 +328,7 @@ def parse(argv=None,environ=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--database-url-file',type=Path,required=True);p.add_argument('--signing-key-file',type=Path,required=True)
     p.add_argument('--artifact-root',type=Path,required=True);p.add_argument('--signing-key-id')
-    p.add_argument('--mode',choices=['test','stage'],required=True)
+    p.add_argument('--mode',choices=list(MODES),required=True)
     p.add_argument('--port',type=int,default=8000)
     p.add_argument('--web-root',type=Path)
     p.add_argument('--cache-configuration-file',type=Path)

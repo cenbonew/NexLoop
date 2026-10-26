@@ -131,7 +131,7 @@ def test_human_reads_actual_v6_manifest_run_and_source_credentials_are_refused(v
     reconfigure(f,admin,publish)
     origin='https://context.invalid'
     config=ApiConfiguration(private(tmp_path,'audit-api-dsn',make_conninfo(o['pg'],user='nexloop_api')),o['paths']['backend_signing'],tmp_path/'audit-api-artifacts',
-        'explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'audit-rate','c'*64),tenant,o['application'],origin),execution_profile='deterministic-test')
+        'explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'audit-rate','c'*64),tenant,o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(config),base_url=origin) as client:
         assert client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()}).status_code==200
         store=client.app.state.browser_store

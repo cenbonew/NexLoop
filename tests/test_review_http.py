@@ -82,7 +82,7 @@ def review_app(identity,uow,published_action,admin,pg,tmp_path):
     hidden=put_candidate(admin,'simulation','模拟世界候选',[first])
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',reader.signer.material),
         tmp_path/'artifacts',reader.signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
-        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test')
+        TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',mode='test')
     (tmp_path/'artifacts').mkdir(mode=0o700)
     def client():return TestClient(create_app(config),base_url=ORIGIN)
     return dict(client=client,identity=identity,uow=uow,admin=admin,pending=pending,similar=similar,hidden=hidden,first=first,folded=folded)

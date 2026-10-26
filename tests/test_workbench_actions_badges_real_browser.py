@@ -87,7 +87,7 @@ def test_action_page_badges_on_real_intents(ui, admin, tmp_path, monkeypatch):  
                     '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], check=True, capture_output=True)
     config = ApiConfiguration(tmp_path / 'business-dsn', tmp_path / 'authority-key', tmp_path / 'app-artifacts', c['signer'].key_id,
         BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, 'synthetic-browser-app', origin), web_root=web,
-        execution_profile='deterministic-test', workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, origin))
+        execution_profile='deterministic-test', workbench=BrowserConfiguration(tmp_path / 'identity-dsn', tmp_path / 'rate-key', TENANT, WORKBENCH_APP, origin),mode='test')
     server = uvicorn.Server(uvicorn.Config(create_app(config), host='127.0.0.1', port=port, ssl_certfile=str(certificate), ssl_keyfile=str(key),
                                            access_log=False, log_level='warning'))
     thread = threading.Thread(target=server.run, daemon=True)

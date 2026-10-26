@@ -11,7 +11,7 @@ from test_agent_host import files, running
 def test_actual_api_to_node_auth_rotation_and_host_shutdown(tmp_path):
     runtime,key=files(tmp_path)
     caller_key=tmp_path/'caller-key';caller_key.write_text(key.read_text());caller_key.chmod(0o600)
-    config=ApiConfiguration(tmp_path/'absent-dsn',tmp_path/'absent-signer',tmp_path/'unused','absent')
+    config=ApiConfiguration(tmp_path/'absent-dsn',tmp_path/'absent-signer',tmp_path/'unused','absent',mode='test')
     with running(runtime,key) as (host,_,port):
         control=HostControlConfiguration(f'https://127.0.0.1:{port}',caller_key,key.parent/'host-cert.pem')
         with TestClient(create_app(replace(config,host_control=control))) as client:

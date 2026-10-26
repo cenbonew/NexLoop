@@ -14,7 +14,7 @@ from nexloop_eios.observability import API_SLOW_MS, ApiTimings
 
 
 def config(tmp_path, **kw):
-    return ApiConfiguration(tmp_path / 'missing-dsn', tmp_path / 'missing-key', tmp_path / 'never-create', 'absent', **kw)
+    return ApiConfiguration(tmp_path / 'missing-dsn', tmp_path / 'missing-key', tmp_path / 'never-create', 'absent', **kw,mode='test')
 
 
 def free_port():

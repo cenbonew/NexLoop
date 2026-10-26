@@ -43,7 +43,7 @@ def ui(commitments,identity,admin,pg,tmp_path):
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
         tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
         TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,WORKBENCH_APP,ORIGIN))
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,WORKBENCH_APP,ORIGIN),mode='test')
     c['app']=lambda:TestClient(create_app(config),base_url=ORIGIN)
     return c
 

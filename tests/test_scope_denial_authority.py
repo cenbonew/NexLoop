@@ -66,7 +66,7 @@ def test_current_human_permission_revocation_blocks_http_projection(denial_plan,
     from authority_fixture import replace_fact
     from eios.authz import facts as F
     f=denial_plan;o=f['original'];origin='https://denial.invalid'
-    configuration=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'query-artifacts','explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'rate','c'*64),o['tenant'],o['application'],origin),execution_profile='deterministic-test')
+    configuration=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'query-artifacts','explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'rate','c'*64),o['tenant'],o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(configuration),base_url=origin) as client:
         assert client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()}).status_code==200
         url='/api/v1/messages/'+f['message']['id']+'/scope-denial'
@@ -103,7 +103,7 @@ def test_second_genuine_human_with_function_permission_cannot_read_foreign_messa
     target='eios:function:nexloop.conversation.scope_denial:1'
     assert any(r['kind']=='grants' and r['key']==[human['principal_id'],target] and r['payload']['grants'] for r in facts)
     origin='https://denial.invalid'
-    config=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'foreign-artifacts','explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'foreign-rate','c'*64),o['tenant'],o['application'],origin),execution_profile='deterministic-test')
+    config=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'foreign-artifacts','explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'foreign-rate','c'*64),o['tenant'],o['application'],origin),execution_profile='deterministic-test',mode='test')
     app=create_app(config)
     with TestClient(app,base_url=origin) as client:
         login=client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'second-user','password':o['paths']['password'].read_text()})
@@ -139,7 +139,7 @@ def test_record_claim_outcome_mismatch_never_projects_denial(denial_plan,admin,t
         with pytest.raises(CatalogScopeDenied):
             worker.runtime_effect_tool(activation_ref=activation['activation_ref'],command=command,tool_operation='submit',parameters={'message':'Only consistent operational claims project.'},request_scope={'offering_id':f['f']['recipe']['offering_id'],'offering_revision':1,'requested_guarantees':['profit'],'requested_discounts':[]})
     origin='https://denial.invalid'
-    config=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'claim-query','explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'claim-rate','c'*64),o['tenant'],o['application'],origin),execution_profile='deterministic-test')
+    config=ApiConfiguration(f['dsn'],o['paths']['backend_signing'],tmp_path/'claim-query','explicit-configuration',BrowserConfiguration(o['paths']['identity'],private(tmp_path,'claim-rate','c'*64),o['tenant'],o['application'],origin),execution_profile='deterministic-test',mode='test')
     with TestClient(create_app(config),base_url=origin) as client:
         assert client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':o['paths']['password'].read_text()}).status_code==200
         url='/api/v1/messages/'+f['message']['id']+'/scope-denial'

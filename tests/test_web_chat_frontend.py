@@ -31,7 +31,7 @@ from pathlib import Path
 from nexloop_eios.http_api import ApiConfiguration,create_app
 from nexloop_eios.browser_http import BrowserConfiguration
 c=json.loads(Path(sys.argv[1]).read_text())
-config=ApiConfiguration(Path(c['dsn']),Path(c['key']),Path(c['artifact']),'runtime-effect',BrowserConfiguration(Path(c['identity']),Path(c['rate']),c['tenant'],'synthetic-webchat',c['origin']),web_root=Path(c['web_root']),execution_profile='deterministic-test',conversation_stream_seconds=1)
+config=ApiConfiguration(Path(c['dsn']),Path(c['key']),Path(c['artifact']),'runtime-effect',BrowserConfiguration(Path(c['identity']),Path(c['rate']),c['tenant'],'synthetic-webchat',c['origin']),web_root=Path(c['web_root']),execution_profile='deterministic-test',conversation_stream_seconds=1,mode='test')
 uvicorn.run(create_app(config),host='127.0.0.1',port=c['port'],ssl_certfile=c['cert'],ssl_keyfile=c['tlskey'],log_level='warning',access_log=False)
 """
     env={k:v for k,v in os.environ.items() if not k.startswith('MODEL_')}

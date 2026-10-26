@@ -6,9 +6,11 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(Path(__file__).resolve().parent))
 
 
 def prepare(output):
@@ -30,7 +32,9 @@ def prepare(output):
         subprocess.run(['pnpm','exec','node','--input-type=module','-e',"import {build} from 'vite'; await build({configFile:false,envDir:false});"],cwd=ROOT/'apps/web',env=env,check=True,capture_output=True,timeout=60)
         web=ROOT/'apps/web/dist'
         public=[p for p in web.rglob('*') if p.is_file()]
-        if not public or any(p.is_symlink() or p.suffix not in {'.html','.js','.css','.png'} for p in public):raise ValueError('public frontend output required')
+        # NX-062 C8 G-6: one rule for the served web root (suffix table, no source map, dotfile or link), shared with CI.
+        from check_web_build import problems
+        if not public or problems(web):raise ValueError('public frontend output required')
         for p in public:
             target=output/'web'/p.relative_to(web);target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,target)
         (output/'.dockerignore').write_text('**\n!Dockerfile\n!requirements.txt\n!nexloop_eios_core-0.1.0-py3-none-any.whl\n!web/\n!web/**\n')

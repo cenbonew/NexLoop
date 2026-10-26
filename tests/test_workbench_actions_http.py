@@ -46,7 +46,7 @@ def workbench(commitments,identity,uow,admin,pg,tmp_path):
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
         tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
         TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,'synthetic-browser-app',ORIGIN))
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,'synthetic-browser-app',ORIGIN),mode='test')
     c['app']=lambda:TestClient(create_app(config),base_url=ORIGIN);c['identity']=identity
     return c
 
@@ -136,7 +136,7 @@ def test_a_human_without_the_grant_is_forbidden(commitments,identity,uow,admin,p
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
         tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
         TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,'synthetic-browser-app',ORIGIN))
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,'synthetic-browser-app',ORIGIN),mode='test')
     with TestClient(create_app(config),base_url=ORIGIN) as client:
         csrf=session(client,identity)
         response=act(client,csrf,'cancel_commitment',{'commitment_id':commitment,'reason':'无权取消'})
@@ -165,7 +165,7 @@ def test_customer_cookie_is_refused_and_roles_bound_the_workbench_writes(commitm
     config=ApiConfiguration(private('business-dsn',make_conninfo(pg,user='nexloop_api')),private('authority-key',signer.material),
         tmp_path/'app-artifacts',signer.key_id,BrowserConfiguration(private('identity-dsn',identity[0]),private('rate-key',secrets.token_hex(32)),
         TENANT,'synthetic-browser-app',ORIGIN),execution_profile='deterministic-test',
-        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,WORKBENCH_APP,ORIGIN))
+        workbench=BrowserConfiguration(tmp_path/'identity-dsn',tmp_path/'rate-key',TENANT,WORKBENCH_APP,ORIGIN),mode='test')
     pause={'scope_kind':'consumer','scope_ref':c['consumer'],'paused':True,'reason':'暂停'}
     events=lambda:admin.execute('select count(*) from control.nexloop_control_events').fetchone()[0]
     with TestClient(create_app(config),base_url=ORIGIN) as client:
