@@ -513,7 +513,7 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 
 ## 14. 需要负责人拍板
 
-**负责人决定（2026-10-25）：Q-1 至 Q-7 都按推荐。**落实情况：
+**负责人决定（2026-10-25）：Q-1 至 Q-7 都按推荐。**（2026-10-26：R3 继续暂缓；ADR-040 正式采纳。）落实情况：
 
 - Q-1 A、Q-3 A：`deploy/configuration/remediation-rules.v1.json` 写入唯一一条规则 `deliver_final_failure`，源 Action 为 `nexloop.enterprise.deliver:1`，覆盖两种失败，kind 为 reevaluate，mode 为 automatic。选它是因为 `action-effect-categories.v3.json` 中只有它声明为外部效应；`nexloop.service.request:1` 声明为本地效应，发布时会被拒（`source_not_effect`）。
 - Q-2：暂缓，R3 不设首批目标能力。
@@ -533,6 +533,8 @@ proposed / awaiting_approval ──到达 due_by，或不再适用────�
 | Q-7 | 全局开关的默认值 | 默认关闭，上线时打开 | 按此执行 |
 
 ## 15. ADR-040 草案
+
+**已采纳（2026-10-26，负责人按推荐）**：正式文本见 `adr/ADR-040-remediation-intents.md`，并按已实现的切片（R0、R1、R2、R4、G1、G2）和 R3 暂缓写成。下面保留第 4 版草案原文，作为记录。
 
 > **ADR-040｜最终失败后的补救意图**
 >
