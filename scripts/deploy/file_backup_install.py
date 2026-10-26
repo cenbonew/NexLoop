@@ -38,16 +38,17 @@ Steps (each idempotent):
     and restic at /opt/nexloop/file-backup/restic-<version>/restic from the archive whose sha256 versions.lock.json names
   3 /srv/nexloop/secrets/backup (root, 0711; refused when it holds anything this unit should not see): recorder.dsn, the repo1
     repository and password files (0600, the service user), pg-ca.crt; ~/.ssh/config and known_hosts (root's; the host key pinned)
-  4 /etc/nexloop/file-backup.env (0600 root), the unit and timer from the release (tokens filled); daemon-reload
+  4 /etc/nexloop/file-backup.env (0600 root), the units and timers from the release (tokens filled): the file backup and repo2's
+    daily maintenance (nexloop-file-backup-maint: forget per tag with --prune, check; repo1 is DATA_HOST's); daemon-reload
   5 inside the unit's own sandbox (systemd-run with its [Service] settings): the data roots and its own files readable, /srv/nexloop
     showing data and secrets only, secrets only backup, every InaccessiblePaths= entry and every other secret hidden, both handle
     system calls refused with EPERM (L6 F1: the capability would otherwise open any inode past those mounts), restic the
-    pinned version, both repositories open (repo2 initialised when repo2_init); then one real run of the service, all four
-    ExecStart lines verified
-  6 file-backup (and provider-drift, when its timer is installed here) in both host-health files (both or neither), then
-    `systemctl enable --now nexloop-file-backup.timer`
---uninstall: timer, units, drop-ins, env file, release, restic, staging and the secret files removed, the file-backup entry taken
-out of both host-health files; the user, its home and SSH key stay (DATA_HOST's authorized key keeps matching).
+    pinned version, both repositories open (repo2 initialised when repo2_init); repo2's maintenance once with --dry-run in its own
+    unit's sandbox (ok, nothing removed); then one real run of the service, all four ExecStart lines verified
+  6 file-backup, file-backup-maint (and provider-drift, when its timer is installed here) in both host-health files (both or
+    neither), then `systemctl enable --now nexloop-file-backup.timer nexloop-file-backup-maint.timer`
+--uninstall: both timers, units, drop-ins, env file, release, restic, staging and the secret files removed, the file-backup and
+file-backup-maint entries taken out of both host-health files; the user, its home and SSH key stay (DATA_HOST's authorized key keeps matching).
 Output: step lines, the check's verdicts and the run's counts; never a password, DSN or key. Exit 0 done, 1 a step failed, 2 refused.
 """
 from __future__ import annotations
@@ -73,6 +74,7 @@ SECRETS = '/srv/nexloop/secrets/backup'
 ENV_FILE = '/etc/nexloop/file-backup.env'
 BASE = '/opt/nexloop/file-backup'
 SERVICE, TIMER = 'nexloop-file-backup.service', 'nexloop-file-backup.timer'
+MAINT_SERVICE, MAINT_TIMER = 'nexloop-file-backup-maint.service', 'nexloop-file-backup-maint.timer'  # repo2's daily maintenance
 RECORDER = 'nexloop_backup_recorder'
 REPO1_USER = 'nexloop-backup'  # DATA_HOST's owner of the restore journal's repo1 (one repository, one uid)
 SSH_ALIAS = 'nexloop-repo1'
@@ -87,11 +89,14 @@ PATH = re.compile(r'/[A-Za-z0-9._/@-]+')
 HOST = re.compile(r'[A-Za-z0-9][A-Za-z0-9.:-]{0,252}')
 HOST_KEY = re.compile(r'(ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ssh-rsa) [A-Za-z0-9+/]{40,}={0,2}')
 LABEL = re.compile(r'[A-Za-z0-9._:-]{1,64}')
-FILES = ('scripts/deploy/file_backup_run.py', 'scripts/deploy/file_backup_sandbox_check.py',
+FILES = ('scripts/deploy/file_backup_run.py', 'scripts/deploy/file_backup_sandbox_check.py', 'scripts/deploy/file_backup_maint.py',
          'packages/eios-core/src/nexloop_eios/__init__.py', 'packages/eios-core/src/nexloop_eios/backup.py',
          'packages/eios-core/src/nexloop_eios/file_backup.py', 'packages/eios-core/src/nexloop_eios/private_configuration.py')
-UNITS = {SERVICE: 'deploy/stage/systemd/nexloop-file-backup.service.example', TIMER: 'deploy/stage/systemd/nexloop-file-backup.timer.example'}
+UNITS = {SERVICE: 'deploy/stage/systemd/nexloop-file-backup.service.example', TIMER: 'deploy/stage/systemd/nexloop-file-backup.timer.example',
+         MAINT_SERVICE: 'deploy/stage/systemd/nexloop-file-backup-maint.service.example',
+         MAINT_TIMER: 'deploy/stage/systemd/nexloop-file-backup-maint.timer.example'}
 ENTRIES = {'file-backup': {'name': 'file-backup', 'timer': TIMER, 'service': SERVICE},
+           'file-backup-maint': {'name': 'file-backup-maint', 'timer': MAINT_TIMER, 'service': MAINT_SERVICE},
            'provider-drift': {'name': 'provider-drift', 'timer': 'nexloop-provider-drift.timer', 'service': 'nexloop-provider-drift.service'}}
 RUNS = ('artifact/repo1', 'artifact/repo2', 'runtime/repo1', 'runtime/repo2')  # the unit's ExecStart order
 SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'TimeoutStartSec'}
@@ -658,11 +663,34 @@ def adder(names):
 
 
 def remove_file_backup(probe):
+    """This installer's two timers out (provider-drift is its own unit and stays)."""
+    ours = {'file-backup', 'file-backup-maint'}
     timers = probe.get('timers', [])
-    if not any(t.get('name') == 'file-backup' for t in timers):
+    if not any(t.get('name') in ours for t in timers):
         return False
-    probe['timers'] = [t for t in timers if t.get('name') != 'file-backup']
+    probe['timers'] = [t for t in timers if t.get('name') not in ours]
     return True
+
+
+def maint_dry_run(root, config, maint_service, restic_version, runner, out):
+    """repo2's maintenance once with --dry-run (forget --dry-run, nothing removed, no check) in its own unit's sandbox: what fails
+    under its timer - the repository, the keys, the option, the sandbox - fails here, before the timers are enabled. The paths are
+    the env file's own (step 4); a run that is not ok, or no answer, stops the install."""
+    lookup = repo2_lookup(root)
+    command = [config['python'], '-I', '-B', f'{BASE}/current/scripts/deploy/file_backup_maint.py', '--restic', restic_path(restic_version),
+               '--repository-file', f'{SECRETS}/{REPO2[0]}', '--password-file', f'{SECRETS}/{REPO2[1]}', '--environment-file', f'{SECRETS}/{REPO2[2]}',
+               *(['--s3-bucket-lookup', lookup] if lookup else []), '--dry-run']
+    answer = runner(['systemd-run', '--quiet', '--wait', '--pipe', '--collect', '--service-type=exec',
+                     *[a for key, value in sandbox(maint_service) for a in ('-p', f'{key}={value}')], *command], check=False)
+    try:
+        doc = json.loads(answer.strip().splitlines()[-1])
+        assert type(doc) is dict
+    except (ValueError, IndexError, AssertionError):
+        raise Failed('repo2 maintenance dry run gave no answer (the interpreter, the release or a sandbox setting): timers not enabled') from None
+    print('maint dry-run: ' + json.dumps({k: doc.get(k) for k in ('ok', 'forget', 'removed', 'error')}, sort_keys=True), file=out)
+    if doc.get('ok') is not True or doc.get('forget') != 'ok':
+        raise Failed('repo2 maintenance dry run is not ok (' + str(doc.get('error') or doc.get('forget')) + '): timers not enabled')
+    return doc.get('removed')
 
 
 def preflight(root, config, trust, trust_python):
@@ -692,19 +720,23 @@ def install(root, config, secrets, runner, out, trust, trust_python):
     env_changed = env_file(root, config)
     systemd = under(root, '/etc/systemd/system')
     service = render_service((target / 'units' / SERVICE).read_text(), config, restic_path(version))
-    for name, text in ((SERVICE, service), (TIMER, (target / 'units' / TIMER).read_text())):
+    maint = render_service((target / 'units' / MAINT_SERVICE).read_text(), config, restic_path(version))
+    for name, text in ((SERVICE, service), (TIMER, (target / 'units' / TIMER).read_text()), (MAINT_SERVICE, maint),
+                       (MAINT_TIMER, (target / 'units' / MAINT_TIMER).read_text())):
         write_private(systemd / name, text, mode=0o644)
     runner(['systemctl', 'daemon-reload'])
     step(4, f'{ENV_FILE} ' + ('written' if env_changed else 'unchanged') + '; units installed')
     hidden = check_sandbox(root, config, service, version, runner, out)
+    maint_dry_run(root, config, maint, version, runner, out)
     real_run(runner, out)
-    step(5, f'sandbox as the unit ({hidden} paths hidden, the data roots and its own files readable, both repositories open); one run verified')
-    names = ['file-backup'] + (['provider-drift'] if 'nexloop-provider-drift.timer' in runner(
+    step(5, f'sandbox as the unit ({hidden} paths hidden, the data roots and its own files readable, both repositories open); repo2 maintenance '
+         f'dry run ok; one run verified')
+    names = ['file-backup', 'file-backup-maint'] + (['provider-drift'] if 'nexloop-provider-drift.timer' in runner(
         ['systemctl', 'list-unit-files', '--no-legend', 'nexloop-provider-drift.timer'], check=False) else [])
     added = rewrite_timers(host_health_files(root, config), adder(names))
-    runner(['systemctl', 'enable', '--now', TIMER])
-    step(6, 'host-health timers ' + ' and '.join(names) + ': ' + ('added to ' + ', '.join(p.name for p in added) if added else 'already listed')
-         + ('' if 'provider-drift' in names else ' (no nexloop-provider-drift.timer here)') + '; timer enabled')
+    runner(['systemctl', 'enable', '--now', TIMER, MAINT_TIMER])
+    step(6, 'host-health timers ' + ', '.join(names) + ': ' + ('added to ' + ', '.join(p.name for p in added) if added else 'already listed')
+         + ('' if 'provider-drift' in names else ' (no nexloop-provider-drift.timer here)') + '; both timers enabled')
 
 
 def prepare(root, config, runner, out, trust):
@@ -724,12 +756,12 @@ def uninstall(root, config, runner, out):
     for path in (under(root, SECRETS), under(root, BASE), under(root, STAGING)):
         if os.path.islink(path):
             raise Refused(f'{path} is a symbolic link: nothing removed')
-    runner(['systemctl', 'disable', '--now', TIMER], check=False)
+    runner(['systemctl', 'disable', '--now', TIMER, MAINT_TIMER], check=False)
     systemd = under(root, '/etc/systemd/system')
-    for d in (TIMER + '.d', SERVICE + '.d'):
+    for d in (TIMER + '.d', SERVICE + '.d', MAINT_TIMER + '.d', MAINT_SERVICE + '.d'):
         if (systemd / d).is_dir():
             shutil.rmtree(systemd / d)
-    for path in (systemd / TIMER, systemd / SERVICE, under(root, ENV_FILE), under(root, ENV_FILE + '.pre-repo2'),
+    for path in (systemd / TIMER, systemd / SERVICE, systemd / MAINT_TIMER, systemd / MAINT_SERVICE, under(root, ENV_FILE), under(root, ENV_FILE + '.pre-repo2'),
                  *(under(root, f'{SECRETS}/{n}') for n in sorted(ALLOWED))):
         if path.exists() or path.is_symlink():
             path.unlink()
@@ -744,7 +776,7 @@ def uninstall(root, config, runner, out):
         shutil.rmtree(base)
     rewrite_timers(files, remove_file_backup)
     runner(['systemctl', 'daemon-reload'], check=False)
-    print(f'uninstalled: timer, units, env file, release, restic, staging and the secret files removed; file-backup taken out of the '
+    print(f'uninstalled: timers, units, env file, release, restic, staging and the secret files removed; file-backup and file-backup-maint taken out of the '
           f'host-health timers; the user {USER}, its home and SSH key stay', file=out)
 
 

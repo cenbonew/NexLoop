@@ -189,3 +189,38 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 - `tests/test_file_backup_data_host.py`：DATA_HOST 第 1 步，同样在临时根目录下用脚本化的 runner 运行（没有容器，也没有 sshd）。
 - 变异验证：APP_HOST 安装器和自检脚本共 40 个变异，DATA_HOST 入口 23 个变异，全部被测试杀死。
 - **未覆盖**：没有在真实 systemd 或 sshd 下运行，也没有用真实的 restic、sftp 或 PostgreSQL。这些由 DATA_HOST 第 1 步的 `sshd -T` 读回，以及 APP_HOST 第 5 步当场验证（两个仓库都能打开，真实运行四条都是 verified）；验证不通过，timer 就不启用。
+
+### 6.4 文件 repo2 的每日维护（`nexloop-file-backup-maint`；调度员 2026-10-26 定方案甲）
+
+文件 repo2（TOS `nexloop/restic-files/`）原来没有任何维护任务，快照会无限增长。restic 默认按 host+paths 分组，而文件快照每次都来自新的暂存目录，所以按默认分组也永远删不掉（见 `NX-035-restic-maint-groupby.md`）。repo1 是恢复日志的仓库，由 DATA_HOST 的 `nexloop-restic-maint` 维护，这里不碰。
+
+- **unit**：`nexloop-file-backup-maint.service` 加 timer，每天 04:07，随机延迟最多 120 秒。
+  - 以 `nexloop-file-backup` 身份运行，与文件备份共用同一个 env 文件和同样的 `@…@` 令牌。
+  - 沙箱与 `nexloop-file-backup.service` 相同，包括遮住 `/srv/nexloop`、`InaccessiblePaths`、禁掉两个句柄调用。但更严：它不读数据，所以没有任何能力（`CapabilityBoundingSet=` 为空），`/srv/nexloop` 下只露出 `secrets/backup`，没有可写路径。测试保证两个 unit 只在这几处不同。
+- **入口 `scripts/deploy/file_backup_maint.py`**，按顺序：
+  1. `forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune`：每类文件快照各自保留 D4 的窗口；
+  2. `check --retry-lock 10m`；
+  3. 周日（主机时间）再加 `check --read-data-subset 1/10`。
+- **只作用于 repo2**：仓库位置不是 `s3:` 就拒绝（`NotRepo2`），repo1 的 sftp 位置也在拒绝之列。
+- **未配置时不会静默通过**：以下情况都以非零退出，并只打印错误类型：
+  - 仓库文件、口令文件或对象存储环境文件缺失，或不是 0600 本用户所有；
+  - 环境文件里没有两个 AWS 键（`OffsiteKeysMissing`），或有三键之外的键；
+  - 仓库不存在（restic 退出码 10）；
+  - forget、check 或深度 check 任一失败。
+- **输出**：一行 JSON，只有状态和计数，不含任何秘密。
+- **避免撞锁**：
+  - 文件备份在 :00/:15/:30/:45 跑（加最多 60 秒随机延迟），04:07 加最多 2 分钟正好落在两轮之间，也在 DATA_HOST 的 restic-maint（03:30）之后；
+  - prune 用 `--retry-lock 10m`，等正在进行的备份放开共享锁；
+  - 反过来，执行者的 backup 和 check 现在也带 `--retry-lock 5m`（`nexloop_eios/file_backup.py`）：在 repo1 或 repo2 上撞到维护任务的排他锁时，这一轮等待，而不是记一条 failed。
+- **安装器**：
+  - 第 4 步安装两个 unit 和两个 timer；
+  - 第 5 步在维护 unit 自己的沙箱里跑一次 `--dry-run`（只做 forget 预演，不删除，不 check），不 ok 就不启用任何 timer；
+  - 第 6 步把 `file-backup-maint` 写进两个 host-health 文件，并 `enable --now` 两个 timer；
+  - `--uninstall` 移除两个 unit、两个 timer 及其 host-health 条目。
+- **告警规则 v21** = v20 加 `timer_stale_file_backup_maint`（`app_host:file-backup-maint`，26 小时，与 restic-maint 同一口径），共 78 条。失败由通配规则 `timer_scheduled_failure` 覆盖，unit 缺失由 `host_unit_missing` 覆盖。APP_HOST 的两份 host-health 示例都已列入 `file-backup-maint`。
+- **测试**：
+  - `tests/test_file_backup_maint.py`：restic 替身记录参数和环境变量名；
+  - `tests/test_file_backup_install.py`：维护 unit 的安装、预演、启用、卸载，以及预演失败时停止；
+  - `tests/test_stage_systemd_units.py`：时间错开、`Persistent`；
+  - v21 = v20 加一条。
+  - 变异验证 27 个，全部杀死。

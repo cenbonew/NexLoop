@@ -1,0 +1,42 @@
+# NX-035 (NX-035-file-backup.md §6.4; dispatcher 2026-10-26, option 甲): the daily maintenance of the APP_HOST file backup's repo2 (TOS
+# nexloop/restic-files): forget per tag (--group-by host,tags; D4's window for each file kind) with --prune, then check; on Sundays
+# check --read-data-subset 1/10 too. repo1 is the restore journal's repository and DATA_HOST's nexloop-restic-maint maintains it: the
+# entry refuses anything but an S3 repository. Installed by scripts/deploy/file_backup_install.sh with nexloop-file-backup.service
+# (same user, same env file, same tokens, the D3 sandbox of that unit - a test keeps the settings equal - but stricter, since it reads
+# no data: no capability at all (CapabilityBoundingSet= empty), of /srv/nexloop only secrets/backup, nothing writable). --retry-lock 10m: prune's exclusive lock waits for a file backup round's shared one; the timer (04:07) runs
+# between two rounds (every 15 minutes). One JSON line of states and counts, never a secret.
+[Unit]
+Description=NexLoop file backup repo2 maintenance (forget per tag, prune, check; deep check on Sundays)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/nexloop/secrets
+
+[Service]
+Type=oneshot
+User=nexloop-file-backup
+Group=nexloop-file-backup
+EnvironmentFile=/etc/nexloop/file-backup.env
+ExecStart=@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_maint.py --restic @RESTIC@ --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} --environment-file ${OFFSITE_ENVIRONMENT_FILE} $FILE_BACKUP_REPO2_OPTIONS
+CapabilityBoundingSet=
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+# As nexloop-file-backup.service (L6 F1): without any capability the handle calls are refused anyway; filtered here too, so the
+# two units keep one sandbox apart from what this one does not need.
+SystemCallFilter=~open_by_handle_at name_to_handle_at
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=@MDWE@
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+TemporaryFileSystem=/srv/nexloop:ro
+BindReadOnlyPaths=/srv/nexloop/secrets/backup
+InaccessiblePaths=/etc/nexloop -/etc/pgbackrest -/etc/ssl/private -/var/log -/var/lib/nexloop -/srv/nexloop-backup -/var/lib/docker -/var/lib/containerd -/var/lib/nexloop-host-health -/etc/shadow -/etc/gshadow -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_ecdsa_key -/etc/ssh/ssh_host_rsa_key
+UMask=0077

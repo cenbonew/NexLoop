@@ -167,6 +167,8 @@ def test_credentials_stay_in_private_files_and_only_object_storage_keys_reach_re
         assert secret not in out.out + out.err
     calls = [json.loads(line) for line in (e['repo'] / 'calls.jsonl').read_text().splitlines()]
     assert [c['command'][0] for c in calls] == ['backup', 'check'] and all(c['cwd_is_staging'] for c in calls[:1])
+    # A maintenance prune holding the exclusive lock is waited for (both repositories have one), not a failed row.
+    assert all(c['command'][c['command'].index('--retry-lock') + 1] == '5m' for c in calls)
     for call in calls:
         assert set(call['environment_keys']) <= {'PATH', 'LANG', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'LC_CTYPE', '__CF_USER_TEXT_ENCODING'}
         assert PASSWORD not in json.dumps(call['command'])

@@ -79,10 +79,14 @@ RESULT = {'ok': True, 'kind': 'files_artifact', 'backup_id': 'c' * 64, 'verify_s
           'file_manifest_digest': 'd' * 64, 'listed': 0, 'skipped': {}, 'absent': 0, 'restic': 'ok', 'check': 'ok'}
 
 
+MAINT_OK = {'ok': True, 'forget': 'ok', 'removed': 0, 'dry_run': True, 'check': 'not_run'}
+
+
 class Runner:
-    def __init__(self, tmp_path, *, check=None, journal=None, result='success', user_exists=False, drift=True):
+    def __init__(self, tmp_path, *, check=None, journal=None, result='success', user_exists=False, drift=True, maint=None):
         self.calls, self.tmp_path = [], tmp_path
         self.check, self.journal, self.result, self.user_exists, self.drift = check, journal, result, user_exists, drift
+        self.maint = maint
 
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
@@ -101,6 +105,9 @@ class Runner:
             key.write_text(KEY_TEXT)
             Path(str(key) + '.pub').write_text('ssh-ed25519 ' + 'B' * 68 + ' nexloop-file-backup\n')
             return ''
+        if command[0] == 'systemd-run' and any(a.endswith('/file_backup_maint.py') for a in command):
+            doc = MAINT_OK if self.maint is None else self.maint(dict(MAINT_OK))
+            return '' if doc is None else json.dumps(doc) + '\n'
         if command[0] == 'systemd-run':
             doc = good_check(command)
             if self.check:
@@ -221,13 +228,26 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     assert {'/etc/nexloop', '/srv/nexloop/secrets/api', '/srv/nexloop/release', '/etc/ssh/ssh_host_ed25519_key'} <= set(hidden)
     assert '/srv/nexloop/secrets/backup' not in hidden and '/etc/shadow' not in hidden  # only what exists in this root
     assert '--init' in dry and 'repo2' == dry[dry.index('--init') + 1]
-    # The real run, then host-health (both files) and the timer last.
+    # repo2's maintenance: its unit rendered like the backup's, a dry run in its own (stricter) sandbox before the real run.
+    maint_unit = (root / 'etc/systemd/system/nexloop-file-backup-maint.service').read_text()
+    assert '--restic /opt/nexloop/file-backup/restic-0.18.0/restic' in maint_unit and '@' not in ''.join(l for l in maint_unit.splitlines() if not l.startswith('#'))
+    assert (root / 'etc/systemd/system/nexloop-file-backup-maint.timer').read_text().count('OnCalendar=*-*-* 04:07:00') == 1
+    maint = next(c for c in runner.calls if c[0] == 'systemd-run' and any(a.endswith('/file_backup_maint.py') for a in c))
+    mprops = [maint[i + 1] for i, a in enumerate(maint) if a == '-p']
+    assert {'User=nexloop-file-backup', 'CapabilityBoundingSet=', 'SystemCallFilter=~open_by_handle_at name_to_handle_at', 'TemporaryFileSystem=/srv/nexloop:ro',
+            'BindReadOnlyPaths=/srv/nexloop/secrets/backup', 'EnvironmentFile=/etc/nexloop/file-backup.env'} <= set(mprops)
+    assert not any(p.startswith(('AmbientCapabilities=', 'ReadWritePaths=')) for p in mprops)
+    assert maint[-1] == '--dry-run' and maint[maint.index('--repository-file') + 1] == '/srv/nexloop/secrets/backup/restic-files-repo2.repository'
+    assert 'restic-files-repo1' not in ' '.join(maint) and 'maint dry-run: {"error": null, "forget": "ok", "ok": true, "removed": 0}' in text
+    # The real run, then host-health (both files) and both timers last.
     start = runner.calls.index(['systemctl', 'start', 'nexloop-file-backup.service'])
-    assert runner.calls.index(dry) < start and runner.calls[-1] == ['systemctl', 'enable', '--now', 'nexloop-file-backup.timer']
+    assert runner.calls.index(dry) < runner.calls.index(maint) < start
+    assert runner.calls[-1] == ['systemctl', 'enable', '--now', 'nexloop-file-backup.timer', 'nexloop-file-backup-maint.timer']
     assert text.count('"verify_status": "verified"') == 4 and 'run runtime/repo2' in text
     for path, nested in ((root / 'etc/nexloop/host-health.json', False), (root / 'root/host-health-install.app-host.json', True)):
         value = json.loads(path.read_text())
-        assert [t['name'] for t in (value['probe'] if nested else value)['timers']] == ['file-backup', 'provider-drift'] and st.S_IMODE(path.stat().st_mode) == 0o600
+        assert [t['name'] for t in (value['probe'] if nested else value)['timers']] == ['file-backup', 'file-backup-maint', 'provider-drift']
+        assert st.S_IMODE(path.stat().st_mode) == 0o600
     # A rerun without stdin keeps the secret files; nothing generated twice.
     code, text, runner = main(root, config, stdin='', runner=Runner(tmp_path, user_exists=True))
     assert code == 0, text
@@ -408,7 +428,7 @@ def test_provider_drift_is_listed_only_when_its_timer_is_installed(tmp_path):
     root, config = setup(tmp_path)
     code, text, _ = main(root, config, runner=Runner(tmp_path, drift=False))
     assert code == 0 and 'no nexloop-provider-drift.timer here' in text
-    assert [t['name'] for t in json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers']] == ['file-backup']
+    assert [t['name'] for t in json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers']] == ['file-backup', 'file-backup-maint']
 
 
 def test_the_env_file_keeps_the_repo2_option_install_repo2_secrets_wrote(tmp_path):
@@ -430,8 +450,9 @@ def test_uninstall_removes_everything_but_the_user_and_its_key(tmp_path):
     assert main(root, config)[0] == 0
     code, text, runner = main(root, config, '--uninstall', stdin='')
     assert code == 0, text
-    assert runner.calls[0] == ['systemctl', 'disable', '--now', 'nexloop-file-backup.timer']
+    assert runner.calls[0] == ['systemctl', 'disable', '--now', 'nexloop-file-backup.timer', 'nexloop-file-backup-maint.timer']
     for gone in ('etc/systemd/system/nexloop-file-backup.service', 'etc/systemd/system/nexloop-file-backup.timer', 'etc/nexloop/file-backup.env',
+                 'etc/systemd/system/nexloop-file-backup-maint.service', 'etc/systemd/system/nexloop-file-backup-maint.timer',
                  'opt/nexloop/file-backup', 'var/lib/nexloop-file-backup/staging', f'{SECRETS}/recorder.dsn', f'{SECRETS}/offsite.env'):
         assert not (root / gone).exists(), gone
     assert (root / 'var/lib/nexloop-file-backup/.ssh/id_ed25519').exists() and 'SSH key stay' in text
@@ -468,6 +489,34 @@ def test_a_malformed_configuration_is_refused(tmp_path):
         root, config = setup(tmp_path / str(n), **over)
         code, text, _ = main(root, config)
         assert code == 2 and 'configuration' in text, over
+
+
+@pytest.mark.parametrize('answer, why', [
+    (lambda d: None, 'gave no answer'),
+    (lambda d: {'ok': False, 'error': 'NotRepo2'}, 'not ok (NotRepo2)'),
+    (lambda d: {**d, 'ok': False, 'forget': 'exit 10'}, 'not ok (exit 10)'),
+    (lambda d: {**d, 'forget': 'exit 1'}, 'not ok (exit 1)'),  # ok true but forget failed: still refused
+])
+def test_a_failing_repo2_maintenance_dry_run_stops_before_the_run_and_the_timers(tmp_path, answer, why):
+    root, config = setup(tmp_path)
+    code, text, runner = main(root, config, runner=Runner(tmp_path, maint=answer))
+    assert code == 1 and why in text and 'timers not enabled' in text, text
+    assert not any(c[:2] in (['systemctl', 'start'], ['systemctl', 'enable']) for c in runner.calls)
+    assert json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers'] == []
+
+
+def test_the_maintenance_unit_is_the_backups_sandbox_without_what_it_does_not_need():
+    """One sandbox for both units; repo2's maintenance reads no data, so it has no capability, no data root, nothing writable."""
+    read = lambda name: dict(I.sandbox((ROOT / 'deploy/stage/systemd' / name).read_text().replace('@MDWE@', 'true')))  # noqa: E731
+    backup, maint = read('nexloop-file-backup.service.example'), read('nexloop-file-backup-maint.service.example')
+    assert maint.pop('CapabilityBoundingSet') == '' and maint.pop('BindReadOnlyPaths') == I.SECRETS
+    for key in ('AmbientCapabilities', 'CapabilityBoundingSet', 'BindReadOnlyPaths', 'ReadWritePaths'):
+        backup.pop(key)
+    assert maint == backup
+    text = (ROOT / 'deploy/stage/systemd/nexloop-file-backup-maint.service.example').read_text()
+    command = next(l for l in text.splitlines() if l.startswith('ExecStart='))
+    assert '${RESTIC_REPO2_REPOSITORY_FILE}' in command and 'REPO1' not in command and command.count('ExecStart=') == 1
+    assert text.count('ExecStart=') == 1 and 'scripts/deploy/file_backup_maint.py' in I.FILES
 
 
 def test_the_unit_and_the_installer_agree(tmp_path):
