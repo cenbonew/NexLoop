@@ -1815,6 +1815,11 @@
       "version": "0363",
       "name": "0363_relation_erased_values.sql",
       "sha256": "cdba9a09ce66b17acbc6faaef7f3f438fadf6bb89a4024eacce6621d5b475507"
+    },
+    {
+      "version": "0366",
+      "name": "0366_nx043_budget_drill.sql",
+      "sha256": "811de7f8991c230cf05df6aec29b19bf973d1c5bf4d2c975137b33ad692ec042"
     }
   ]
 }
