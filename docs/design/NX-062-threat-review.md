@@ -6,7 +6,7 @@
   - ADR-033（渠道服务主体代表已绑定的消费者执行；不复用 EIOS 委托凭据）与 Q5（不引入紧急提权与长期委托）；
   - C8 设计稿 `docs/design/c8-route-capability-inventory.md` 第 2 版（L7，73a74a41），C8-1 已实现：`deploy/authorization/api-routes.v1.json`（manifest_version 2，95 条路由，含 1 个 Mount）与发布门 G-1 至 G-6；
   - ADR-039（统一审批）、NX-059 审计哈希链（`docs/design/audit-hash-chain.md`）、AGENTS.md 的安全不变式。
-- **配套 ADR 草案**：`adr/ADR-041-machine-access-channel.md`。本文给出威胁与缓解，ADR 给出决定与需要负责人拍板的问题。
+- **配套 ADR**：`adr/ADR-041-machine-access-channel.md`，**已采纳（负责人 2026-10-28，Q-1 至 Q-9 全部选 A）**。本文给出威胁与缓解，ADR 给出决定。实现排期另定，现在不开工。
 - **本文不改变任何现有行为**。文中“现状”以 main 17aa74c1 为准；“实施时”的测试是对 F1 实施的验收要求，不是现在已有的测试。
 
 ## 0. 一页结论
@@ -256,9 +256,9 @@ B4  派发：联系限制、真实派发开关、world 再检查（与人类路�
 | 客户端（SDK、CLI、MCP） | 不打印密钥；unknown 时查询不重发；工具列表等于 scope | T-1、T-6、T-10 |
 | 发布 | gitleaks 机器密钥规则；技能包无地址字面量；`check_publication` | T-1、T-10 |
 
-## 9. 需要负责人拍板的问题
+## 9. 负责人的决定
 
-见 `adr/ADR-041-machine-access-channel.md` §6（Q-1 至 Q-9，每题带推荐）。
+负责人 2026-10-28 对 Q-1 至 Q-9 全部按推荐选 A，记录在 `adr/ADR-041-machine-access-channel.md` §6。
 
 ## 10. L6 复核（6950f93f，PASS）的处理
 
