@@ -23,9 +23,13 @@ BODY = '有没有适合初学者的网球拍'
 
 class Server:
     """WebChat stand-in: login (optionally throttled), conversations, idempotent messages, replies, logout."""
-    def __init__(self, throttle=0, forbidden=(), reply=True):
+    def __init__(self, throttle=0, forbidden=(), reply=True, consumers=None):
         self.throttle, self.forbidden, self.reply = throttle, set(forbidden), reply
         self.sessions, self.conversations, self.messages, self.keys, self.requests = {}, {}, {}, {}, []
+        self.consumers = consumers or {}  # principal -> the consumer_id its own conversations carry
+        for principal in self.consumers:  # an account that has chatted before: one conversation already
+            cid = f'{len(self.conversations) + 1:064x}'
+            self.conversations[cid], self.messages[cid] = principal, []
 
     def __call__(self, method, origin, path, headers, body):
         self.requests.append((method, path, dict(headers), body))
@@ -50,7 +54,7 @@ class Server:
             return 200, {}, b'{}'
         if path.startswith('/api/v1/conversations?') or path == '/api/v1/conversations':
             if method == 'GET':
-                mine = [{'id': c} for c, p in self.conversations.items() if p == principal]
+                mine = [{'id': c, 'consumer_id': self.consumers.get(p, 'f' * 64)} for c, p in self.conversations.items() if p == principal]
                 return 200, {}, json.dumps({'items': mine[:1]}).encode()
             if principal in self.forbidden:
                 return 403, {}, b'{"code":"conversation_unavailable"}'
@@ -272,7 +276,7 @@ def run_workbench(tmp_path, server, workbench, turns, stdin=None):
 
 def test_the_persona_check_through_the_owners_workbench_precheck(tmp_path):
     """NX-054 §8: no read-only DSN - the owner's governed precheck reads the persona; the owner logs out; nothing secret in output."""
-    server, workbench = Server(), OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)})
+    server, workbench = bound(), OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)})
     code, lines, text = run_workbench(tmp_path, server, workbench, [{'account': 'customer-1', 'body': BODY}])
     assert code == 0 and lines[0] == {'preflight': {'customer-1': 'simulated_agent'}}
     assert workbench.calls == [('GET', '/api/v1/workbench/erasure-precheck/' + CONSUMER['customer-1'])] and workbench.logged_out
@@ -282,7 +286,7 @@ def test_the_persona_check_through_the_owners_workbench_precheck(tmp_path):
 
 @pytest.mark.parametrize('precheck,expected', [(('real', None), 'refused'), (('simulated_agent', 'purging'), 'skipped'), (None, 'skipped')])
 def test_the_workbench_persona_check_refuses_real_and_skips_erasing(tmp_path, precheck, expected):
-    server = Server()
+    server = bound()
     workbench = OwnerWorkbench({} if precheck is None else {CONSUMER['customer-1']: precheck})
     code, lines, text = run_workbench(tmp_path, server, workbench, [{'account': 'customer-1', 'body': BODY}])
     if expected == 'refused':
@@ -307,3 +311,30 @@ def test_the_workbench_persona_check_needs_the_owner_line_and_a_full_mapping(tmp
         plan = private(tmp_path / 'p.json', {'schema': S.PLAN_SCHEMA, 'plan_id': 'x', 'turns': [{'account': 'customer-1', 'body': BODY}]})
         out = io.StringIO()
         assert S.main(['--config', config, '--plan', plan], stdin=io.StringIO(''), out=out) == 2 and 'persona_check' in out.getvalue()
+
+
+def bound(**over):
+    """The Server whose accounts' own conversations carry the configured consumer_ids (or `over`)."""
+    by_alias = {**CONSUMER, **over}
+    return Server(consumers={PRINCIPAL[USERS[a]]: c for a, c in by_alias.items() if a in USERS})
+
+
+def test_the_workbench_persona_check_proves_the_binding_with_the_accounts_own_conversation(tmp_path):
+    """L6 I1 on d72eaecb: the alias -> consumer_id mapping is checked against what the account itself sees."""
+    workbench = OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)})
+    code, lines, text = run_workbench(tmp_path, bound(), workbench, [{'account': 'customer-1', 'body': BODY}])
+    assert code == 0 and lines[0] == {'preflight': {'customer-1': 'simulated_agent'}}
+    assert CONSUMER['customer-1'] not in text
+    # Another Consumer's id in the configuration: refused before anything is sent.
+    server = bound(**{'customer-1': 'e' * 64})
+    code, lines, text = run_workbench(tmp_path, server, OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)}),
+                                      [{'account': 'customer-1', 'body': BODY}])
+    assert code == 2 and lines[0]['refused'] == 'preflight: customer-1 is not bound to its configured Consumer; nothing sent'
+    assert not any(m == 'POST' and 'messages' in p for m, p, _, _ in server.requests) and 'e' * 64 not in text
+    # No conversation to show the binding while the configured Consumer exists: refused; one the precheck does not find: skipped.
+    server = Server()
+    code, lines, _ = run_workbench(tmp_path, server, OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)}),
+                                   [{'account': 'customer-1', 'body': BODY}])
+    assert code == 2 and 'no conversation to show it' in lines[0]['refused'] and not any(m == 'POST' and 'conversations' in p for m, p, _, _ in server.requests)
+    code, lines, _ = run_workbench(tmp_path, Server(), OwnerWorkbench({}), [{'account': 'customer-1', 'body': BODY}])
+    assert lines[0] == {'preflight': {'customer-1': 'conversation_unavailable'}}

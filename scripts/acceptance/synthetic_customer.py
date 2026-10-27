@@ -22,7 +22,11 @@ Without a read-only DSN (NX-054 §8, 2026-10-27: none exists for S6 on stage), t
 instead of reader_dsn_file: the persona and erasure state are then read through the owner's governed, audited, read-only
 erasure precheck (GET /api/v1/workbench/erasure-precheck/<consumer_id>, owner login, logged out at the end), and stdin carries
 one more line `owner<TAB>password`. The alias -> consumer_id mapping is the configuration's (filled from the dispatcher's one-time
-read of control.nexloop_consumer_owners, the same ids as the erasure configuration); the owner's password never leaves this run. Each turn: login, the account's latest conversation or a new one (403:
+read of control.nexloop_consumer_owners, the same ids as the erasure configuration); the owner's password never leaves this run. The mapping is not trusted on its own (L6 I1 on d72eaecb): in the preflight each
+account, logged in as itself, lists its own latest conversation (GET /api/v1/conversations?limit=1, the session's own only) and
+the conversation's consumer_id must equal the configured one, else the whole run is refused; an account with no conversation
+whose configured Consumer the precheck finds (200) is refused too (its binding cannot be shown), one the precheck does not find
+(404) is skipped. Each turn: login, the account's latest conversation or a new one (403:
 conversation_unavailable, the account is skipped from then on), the message with Idempotency-Key <plan_id>-<turn>-<alias> (rerunning
 the plan replays, never repeats), optionally the wait for a reply (polling; timeout is reported, never resent), logout.
 Output: one JSON line per turn {turn, account (alias), status, http, replied, elapsed_ms} and a summary line; no body, id, username,
@@ -205,9 +209,20 @@ class Driver:
                 except ConsumerChannelError as error:
                     raise Refused(f'preflight: {alias} login {error.code}') from None
                 session = client.session
-                self.logout(client)
+                try:
+                    own = None
+                    if isinstance(db, WorkbenchPersonas):
+                        listed = client.list_conversations(limit=1).get('items') or []
+                        own = listed[0].get('consumer_id') if listed else ''
+                except ConsumerChannelError as error:
+                    raise Refused(f'preflight: {alias} conversations {error.code}') from None
+                finally:
+                    self.logout(client)
                 persona, erasing = (db.persona(alias) if isinstance(db, WorkbenchPersonas)
                                     else persona_of(db, session.tenant_id, session.principal_id))
+                if own is not None and persona != 'no_consumer' and own != self.config['persona_check']['consumers'][alias]:
+                    raise Refused(f'preflight: {alias} is not bound to its configured Consumer'
+                                  + (' (no conversation to show it)' if own == '' else '') + '; nothing sent')
                 if erasing or persona == 'no_consumer':
                     self.skipped.add(alias)  # an erased (or never created) Consumer: skipped, never created here
                     report[alias] = 'conversation_unavailable'
