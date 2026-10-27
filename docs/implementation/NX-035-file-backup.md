@@ -154,12 +154,17 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 - 只装 pg_hba 这一行（D2），不读取、不写入任何秘密。信任检查与 §6.1 相同：发布检出、`.git`、root 要执行的目录树、解释器都要通过。
 - **pg_hba**：
   - 用发布中的模板和已部署的 stage.env 重新渲染。渲染结果与已安装的 pg_hba 相比，只能多出这一条 `hostssl … nexloop_backup_recorder <APP_HOST_ADDR>/32 scram-sha-256`，不能删掉任何一行。
-  - 写入方式与其他 hba 脚本相同：原地写入（同一 inode；旧内容原子写入 `config/pg_hba.conf.before-file-backup`，0600 root），确认容器里看到的是新文件，然后 HUP PostgreSQL，并从日志确认重新加载成功。任一步不成立，就把旧内容原地写回并重新加载。
+  - 写入方式与其他 hba 脚本相同：原地写入（同一 inode；旧内容原子写入 `config/pg_hba.conf.before-file-backup`，0600，属主是写入者），确认容器里看到的是新文件，然后 HUP PostgreSQL，并从日志确认重新加载成功。任一步不成立，就把旧内容原地写回并重新加载。
   - recorder 的口令不变，这里不设置。
 - **写入时的防护（L6 I1、I2）**：
   - 临时目录 `/var/lib/nexloop/file-backup-data-host` 先通过信任检查再 chmod，root 才在里面运行渲染；
-  - `config/` 目录必须属于 root、组和其他人不可写；`pg_hba.conf` 和它的备份文件都不能是链接；
-  - 写 pg_hba 时以 `O_NOFOLLOW` 打开，并核对打开的 inode 就是 lstat 看到的那个。
+  - `pg_hba.conf` 和它的备份文件都不能是链接；写 pg_hba 时以 `O_NOFOLLOW` 打开，并核对打开的 inode 就是 lstat 看到的那个。
+  - **谁来写 `config/`**（调度员 2026-10-27：stage 上第 1a 步因 `config/` 属部署用户而被拒）。按 `config/` 的实际属主分两种情况：
+    - `config/` 属 root、组和其他人不可写，上级目录也是 root 的（L6 I2）：由 root 自己写。
+    - `config/` 和 `pg_hba.conf` 属于同一个非 root 用户（stage 上是部署用户，另外几个 hba 改动本来就由它维护 pg_hba）：要求 `config/`、`pg_hba.conf` 都不能被组和其他人写；`config/` 之上属于这个用户的各级目录不能是链接，也不能被组和其他人写；第一个不属于它的上级目录及其以上必须都是 root 的。满足时，写 pg_hba、写备份、失败后写回这三步在一个子进程里执行，该子进程已降为这个用户的 uid 和主组，没有附加组，并确认无法再切回 root。这样一来，这个用户在 `config/` 里放的链接或文件，最多让它写到自己本来就能写的地方。
+    - 其余情况一律拒绝，什么都不渲染、不写。
+  - root 只在自己的临时目录里渲染；读取 pg_hba 时用 `O_NOFOLLOW|O_NONBLOCK` 打开，只接受与预检时 lstat 结果相同的普通文件（inode、设备号、属主都一致），文件在中途被换掉就失败，不读、不备份。
+  - 对照现有的 hba 脚本：`sim_hba_data_host.sh`、`evolution_hba_data_host.sh`、`host_health_hba_data_host.sh` 都要求以 sudo 运行，并以 root 身份写 pg_hba 和备份。其中 host_health 要求 `config/` 属 root，所以在 stage 的布局下同样会被拒绝；sim 和 evolution 不检查属主，root 的 `cp -p` 会跟随部署用户放在备份路径上的链接（即 L6 I2 那一类问题）。这三个脚本的改法另行处理。
 - **不再安装 sftp**：受限 sftp 账户、chroot 和 sshd drop-in 都不装（D4 于 2026-10-27 改为独立仓库）。旧配置里的 `repo_path`、`app_host_public_key` 仍能被接受，但会被忽略。
 - **`--uninstall`**：只清理以前版本可能装过的 sftp 部件，也就是 sshd drop-in、授权公钥、mount unit，以及空的 chroot 目录。
   - 每一项都是"存在才删"，所以可以重复执行；只有 drop-in 原来存在时，才重新加载 sshd。
