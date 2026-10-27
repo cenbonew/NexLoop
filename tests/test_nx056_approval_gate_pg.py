@@ -292,7 +292,7 @@ def test_approval_refusals_keep_their_status_and_name_only_the_fixed_reason_code
 
 @PLAN
 def test_the_view_says_consumed_once_executed_and_to_execute_drops_it(gated, admin):
-    """0368 (day 1 drill, L6 S1): the status stays 'approved' after execution; every row carries consumed / consumed_at from the
+    """0362 (day 1 drill, L6 S1): the status stays 'approved' after execution; every row carries consumed / consumed_at from the
     consumption record, and to_execute no longer lists the executed approval."""
     c = gated
 
@@ -319,7 +319,7 @@ def test_the_view_says_consumed_once_executed_and_to_execute_drops_it(gated, adm
 
 @PLAN
 def test_consumed_belongs_to_the_rows_own_tenant_and_world(gated, admin):
-    """0368 (L6 S1 on 8e7e4c1e): the consumption looked up for a row is that row's own tenant and world. A request executed in
+    """0362 (L6 S1 on 8e7e4c1e): the consumption looked up for a row is that row's own tenant and world. A request executed in
     tenant A / world real; the same approval_id as a row of tenant B, and as a row of A's world 'test', is not consumed - even when
     the lookup runs with A's tenant setting, where row security alone would let A's consumption through."""
     from support.tenants import TENANT_B

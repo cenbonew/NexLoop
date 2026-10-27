@@ -87,7 +87,7 @@ test('NX-056 B1: target_member parses strictly in its kinds and renders who the 
   expect(()=>approvals({...raw,to_decide:[without]})).toThrow();  // the key is always there
 });
 
-test('0368: an executed request shows 已执行 in 我发起的 (status stays approved); consumed and consumed_at must agree',()=>{
+test('0362: an executed request shows 已执行 in 我发起的 (status stays approved); consumed and consumed_at must agree',()=>{
   const done={...base,approval_id:id.replace('3f','6f'),status:'approved',approvals:1,result:'executed',consumed:true,consumed_at:'2026-10-27T02:00:00+00:00'};
   const parsed=approvals({...raw,mine:[done],to_execute:[]});
   expect(parsed.mine[0]).toMatchObject({status:'approved',consumed:true,consumed_at:'2026-10-27T02:00:00+00:00'});

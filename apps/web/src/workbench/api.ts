@@ -1149,7 +1149,7 @@ export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
   result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null;
-  /** 0368: the approval was executed (it has a consumption record); the status stays 'approved'. */
+  /** 0362: the approval was executed (it has a consumption record); the status stays 'approved'. */
   consumed:boolean;consumed_at:string|null};
 /** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
 export type TargetMember={kind:'member';label:string;username:string|null;account_status:string|null;member_status:string;role:string|null}
