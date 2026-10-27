@@ -171,7 +171,6 @@ button:disabled{cursor:wait;opacity:.7}
 .rd-pill{display:inline-block;padding:1px 10px;border-radius:999px;font-size:13px;font-weight:700}
 .rd-on{background:var(--ok-soft);color:var(--ok-strong)}.rd-off{background:var(--neutral-soft);color:var(--neutral-text)}.rd-unknown{background:var(--warn-soft);color:var(--warn-text)}
 .rd-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.workbench .rd-buttons>button:not(.rd-close):not(.btn-secondary):not(.btn-danger){background:var(--primary-bg);color:var(--primary-text);border-color:transparent}
 .workbench .rd-close{background:var(--surface);color:var(--danger);border:1px solid var(--danger-border)}
 .rd-confirm{margin-top:12px;border:1px solid var(--warn-border);background:var(--warn-soft);border-radius:10px;padding:12px 16px}.rd-confirm h3{margin:0 0 6px;font-size:15px}
 .rd-results{margin-top:12px}.rd-results h3{margin:0 0 6px;font-size:14px}.rd-results ul{margin:0;padding-left:18px}
@@ -514,3 +513,22 @@ button.btn-danger:hover,.workbench button.btn-danger:hover,.workbench-action.inl
 .workbench .health-reasons{margin:var(--space-2) 0 0;padding-left:1.2em;color:var(--warn-text);font-size:var(--fs-small)}
 /* C5: a switch state never breaks over two lines. */
 .rd-pill{white-space:nowrap}
+
+/* ==== UX audit S2 (B7, B14, C9): skip link, page title focus, narrow-screen shell, readable disabled buttons ==== */
+.skip-link{position:absolute;left:var(--space-4);top:-48px;z-index:20;padding:8px 14px;border-radius:var(--radius-sm);background:var(--primary-bg);color:var(--primary-text);
+  font-weight:600;text-decoration:none}
+.skip-link:focus{top:var(--space-2)}
+main:focus{outline:none}
+/* The page title takes focus after a navigation only to be announced; it is not a control, so it shows no ring. */
+.workbench-main h1[tabindex="-1"]:focus,.workbench-main h1[tabindex="-1"]:focus-visible{outline:none}
+/* B14: a disabled primary or danger button reads as neutral (6.9:1), not as a faded blue or red; it still says what it does. */
+button[type=submit]:disabled,form button:not([type]):disabled,button.primary:disabled,button.btn-danger:disabled,.workbench button.btn-danger:disabled,
+  .workbench-action.inline-action button:disabled{background:var(--neutral-soft);color:var(--neutral-text);border:1px solid var(--control-border);opacity:1}
+.footer-tz{display:none}
+@media (max-width:1023px){
+  /* C9: the time zone note goes to the footer; brand and menu take one short band; the menu button stays in reach while scrolling. */
+  .workbench .brand-tz{display:none}.workbench .footer-tz{display:inline}
+  .workbench .brand-header{margin-bottom:var(--space-2)}
+  .workbench .workbench-menu-toggle{position:sticky;top:0;z-index:5;box-shadow:var(--shadow-1)}
+}
+@media (max-width:639px){.shell.workbench{padding-top:var(--space-2)}.workbench .brand-header .brand-logo{width:120px}.workbench .brand-context{font-size:14px}}

@@ -1,5 +1,5 @@
 import {Brand} from '../Brand';
-import {useEffect,useState,type FormEvent} from 'react';
+import {useEffect,useRef,useState,type FormEvent,type KeyboardEvent} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,WORLD_SECTIONS,parseRoute,routePath,type PageKey,type Route} from './route';
@@ -105,6 +105,24 @@ export function crumbs(route:Route,context:Context=null):{label:string;to?:Route
   return [{label:PAGES[route.page],to:list},{label:leaf}];
 }
 
+/** The browser tab's title for a route (UX audit B7, WCAG 2.4.2): the page, the detail it shows, then the application. */
+export function pageTitle(route:Route|null,context:Context=null):string{
+  const app='负责人工作台 · NexLoop';
+  if(!route)return '登录 · '+app;
+  const trail=crumbs(route,context);
+  const page=trail.length?trail.slice(1).map(c=>c.label).reverse().concat(PAGES[route.page]).join(' · '):PAGES[route.page];
+  return page+' · '+app;
+}
+/** After an in-app navigation the reader is moved to the new page's title (WCAG 2.4.3): a screen reader announces it and the next
+ * Tab starts in the content, not back in the sidebar. Waits a few frames for the page to mount its heading. */
+function focusPageTitle(){
+  let tries=0;
+  const step=()=>{const h=document.querySelector<HTMLElement>('.workbench-main h1');
+    if(h){if(!h.hasAttribute('tabindex'))h.setAttribute('tabindex','-1');h.focus({preventScroll:true});return;}
+    if(++tries<30)requestAnimationFrame(step);};
+  requestAnimationFrame(step);
+}
+
 /** F09: the scroll position of each history entry, restored on Back once the page has rendered (data may still be loading). */
 function restoreScroll(y:number){
   const until=Date.now()+3000;
@@ -120,15 +138,26 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const [context,setContext]=useState<Context>(null);
   const [menu,setMenu]=useState(false);
   const [opened,setOpened]=useState<Partial<Record<PageKey,boolean>>>({});  // a sub-entry list the member opened or closed
-  useEffect(()=>{const back=(event:PopStateEvent)=>{setContext(null);setRoute(here());restoreScroll(Number(event.state?.scroll)||0);};
+  const toggle=useRef<HTMLButtonElement>(null);
+  useEffect(()=>{const back=(event:PopStateEvent)=>{setContext(null);setRoute(here());restoreScroll(Number(event.state?.scroll)||0);focusPageTitle();};
     window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
+  const signedIn=!!session.data;
+  useEffect(()=>{const path=window.location.pathname;
+    document.title=path===ACCOUNT_PATHS.invitation?'接受工作台邀请 · 负责人工作台 · NexLoop':path===ACCOUNT_PATHS.reset?'用重置码设置新口令 · 负责人工作台 · NexLoop'
+      :pageTitle(signedIn?route:null,context);},[route,context,signedIn]);
+  // The narrow-screen menu (UX audit C9): opening it moves focus to its first link, Escape closes it and returns to the button.
+  useEffect(()=>{if(menu)document.querySelector<HTMLElement>('#workbench-nav a')?.focus();},[menu]);
+  function navKey(event:KeyboardEvent){if(event.key==='Escape'&&menu){event.preventDefault();setMenu(false);toggle.current?.focus();}}
   function go(next:Route,options:{replace?:boolean}={}){
     if(options.replace){window.history.replaceState({...window.history.state,scroll:window.scrollY},'',routePath(next));setRoute(next);return;}
     window.history.replaceState({...window.history.state,scroll:window.scrollY},'');  // where to come back to
-    window.history.pushState({scroll:0},'',routePath(next));setContext(null);setRoute(next);window.scrollTo(0,0);
+    window.history.pushState({scroll:0},'',routePath(next));setContext(null);setRoute(next);window.scrollTo(0,0);focusPageTitle();
   }
   const logout=useMutation({mutationFn:workbenchLogout,onSettled:()=>{cache.removeQueries({queryKey:['workbench']});void session.refetch();}});
-  return <div className="shell workbench"><header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span><span className="brand-tz">时间均为北京时间</span></header><main>
+  return <div className="shell workbench"><a className="skip-link" href="#workbench-content"
+    onClick={event=>{event.preventDefault();const h=document.querySelector<HTMLElement>('.workbench-main h1');
+      if(h){if(!h.hasAttribute('tabindex'))h.setAttribute('tabindex','-1');h.focus();}else document.getElementById('workbench-content')?.focus();}}>跳到主要内容</a>
+    <header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span><span className="brand-tz">时间均为北京时间</span></header><main id="workbench-content" tabIndex={-1}>
     {/* NX-058: the public account pages need no session (the invitation token or reset code is the credential). */}
     {window.location.pathname===ACCOUNT_PATHS.invitation?<InvitationPage/>:window.location.pathname===ACCOUNT_PATHS.reset?<ResetPage/>
       :session.isPending?<p role="status">{STATE_TEXT.loading}</p>
@@ -136,9 +165,9 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
       :!session.data?<WorkbenchLogin onLogin={()=>void session.refetch()}/>
       :<div className="workbench-layout">
         {/* md/sm (<1024): the navigation sits behind this visible menu button instead of a horizontal strip (web layout batch 1). */}
-        <button type="button" className="workbench-menu-toggle" aria-expanded={menu} aria-controls="workbench-nav" onClick={()=>setMenu(!menu)}>
+        <button type="button" ref={toggle} className="workbench-menu-toggle" aria-expanded={menu} aria-controls="workbench-nav" onClick={()=>setMenu(!menu)}>
           <span>{menu?'收起菜单':'菜单'}</span><span className="menu-current">{PAGES[route.page]}{route.section?' · '+WORLD_SECTIONS.find(s=>s.key===route.section)!.label:''}</span></button>
-        <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航">{NAV_GROUPS.map(g=><div key={g.title} className="nav-group">
+        <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航" onKeyDown={navKey}>{NAV_GROUPS.map(g=><div key={g.title} className="nav-group">
           <h2 className="nav-group-title" id={'nav-'+g.title}>{g.title}</h2><ul aria-labelledby={'nav-'+g.title}>{g.pages.map(page=>{
           const children=NAV_CHILDREN[page];const open=children?(opened[page]??route.page===page):false;
           const link=<a href={routePath({page})} aria-current={route.page===page&&!route.section?'page':undefined} className={NOT_ENABLED.includes(page)?'nav-off':undefined}
@@ -156,5 +185,5 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
             onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
           <PageErrorBoundary key={routePath(route)}><WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></PageErrorBoundary></div>
       </div>}
-  </main><footer>NexLoop · 持续运营</footer></div>;
+  </main><footer>NexLoop · 持续运营<span className="footer-tz"> · 时间均为北京时间</span></footer></div>;
 }
