@@ -172,6 +172,8 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - pg_hba 中的这一行保留：模板里有它，而没有 APP_HOST 的 DSN 时，没人能用它连接。
 
 **1b `scripts/deploy/rest_server_data_host.sh`**：文件仓库和 rest-server `--append-only`，见 §6.5。之后还有两步：只追加验证，以及给 restic-maint 加守卫和文件仓库的维护行。
+  - DATA_HOST 的 ufw 已启用时，R4 会自动加一条只放行 APP_HOST 访问这个端口的 ufw 规则（comment `nexloop-rest-server`），不用再手工添加。规则已存在时不重复添加。`--uninstall` 会删掉它。见 §6.5 R4。
+  - 顺序不变：1b，只追加验证，`restic_maint_data_host.sh --files-repo`（此时文件仓库为空，判为“无可删”），然后装 APP_HOST。
 
 **合并顺序提示**：模板加了这一行之后，host-health、sim、evolution 三个 hba 脚本只接受各自的行。如果在本步之前重跑它们中的任何一个，会因为“多出的行不是自己的”而拒绝。所以先执行本步。
 
@@ -271,7 +273,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 8. `TimeoutStartSec=6h`（L6 S5）：forget 或 prune 卡住时，6 小时后 unit 被终止并失败，`ExecStopPost` 照样拉起 rest-server，它不会一直停着。unit 自己另有 `TimeoutStartSec` 时，`--files-repo` 拒绝执行（systemd 只认最后一个），要手工去掉。
 
-rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到的快照集合，就是 forget 看到的集合。测试 `tests/test_restic_maint_data_host.py` 用一个模型按行执行这个块，在守卫通过之后、forget 之前追加一个 2030 年的快照：新块里 forget 删掉的集合与没有攻击时完全相同；55271922 的旧块（不停服）则会删掉全部 30 个真实快照。重跑 `--files-repo` 会把旧块整个换成新块。`--files-repo` 要求 rest-server 已经 active，`/usr/bin/systemctl` 存在。
+rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到的快照集合，就是 forget 看到的集合。测试 `tests/test_restic_maint_data_host.py` 用一个模型按行执行这个块，在守卫通过之后、forget 之前追加一个 2030 年的快照：新块里 forget 删掉的集合与没有攻击时完全相同；55271922 的旧块（不停服）则会删掉全部 30 个真实快照。重跑 `--files-repo` 会把旧块整个换成新块。`--files-repo` 要求 rest-server 已经 active，`/usr/bin/systemctl` 存在。运行单的顺序是先加这个块、再装 APP_HOST，所以第一次运行时文件仓库还是空的。restic 0.18.0 的 `forget --json` 在没有分组时不输出任何 JSON（`cmd_forget.go`：`if gopts.JSON && len(jsonGroups) > 0`），DATA_HOST 2026-10-27 的第一次运行因此被判为“预览没有回答”。现在的规则是：守卫刚数到 0 个快照、预览以 0 退出、而且输出为空、`null`、`[]` 或只有 “Applying Policy:” 一行时，判为“无可删”，写入这个块并继续。退出码非 0（等锁超时、口令错、仓库不可读）、守卫没给出整数计数、或者守卫数到了快照却拿不到 JSON，仍然什么都不写。
 
 **维护窗口与告警**（restic-maint 的 timer 是 03:30，随机延迟最多 10 分钟；文件仓库块排在两个恢复日志仓库之后）：
 
@@ -312,12 +314,18 @@ rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到�
   - 写入后先用 `nft -c` 检查；
   - unit 在启动前（`ExecStartPre=+`，在沙箱之外执行）加载它，停止后（`ExecStopPost=-+`）删除它。端口开着的时候，这条规则一定在。表的写法是"声明、删除、定义"，重新加载不会让规则重复。
   - 不改 `data-host.nft.template`，所以不必重新渲染、重新应用整个 stage 防火墙。
+  - **ufw**（DATA_HOST 2026-10-27）：DATA_HOST 的 ufw 对入站默认丢弃，端口原来不通，负责人授权后手工加过一条放行规则。现在由 R4 处理：
+    - `/usr/sbin/ufw` 存在、而且 `ufw status` 为 active 时，执行 `ufw allow from <APP_HOST_ADDR> to <DATA_HOST_ADDR> port <port> proto tcp comment nexloop-rest-server`。规则已存在时 ufw 会跳过，不会重复（手工加的那条正是同一条）。加完之后从 `ufw status` 读回 `<DATA_HOST_ADDR> <port>/tcp ALLOW <APP_HOST_ADDR> # nexloop-rest-server`，读不到就失败，不启动服务。
+    - ufw 已安装但未启用：不加规则，在步骤行里说明。以后启用 ufw，要重跑一次安装。
+    - 没有安装 ufw：不执行任何 ufw 命令。
+    - `ufw status` 的第一行既不是 `Status: active` 也不是 `Status: inactive`（例如权限错误）：失败。不会因为读不懂就当作"无规则"。
+    - ufw 命令一律以 `LC_ALL=C` 运行，输出是英文，与 root 的 locale 无关。
 - **R5 unit**：`nexloop-rest-server.service`。
   - 参数：`--path /srv/nexloop-rest --listen <DATA_HOST_ADDR>:<port> --append-only --tls --tls-cert … --tls-key … --htpasswd-file … --max-size <max_size_bytes>`。
   - 以 `nexloop-backup` 身份运行，与 restic-maint 对这个仓库做 forget/prune 时的属主一致。
   - 沙箱与安装器同一标准：没有任何能力；`NoNewPrivileges`；`ProtectSystem=strict`；只有 `restic/` 可写；`TemporaryFileSystem=/srv/nexloop:ro`，只露出自己的 secrets；`InaccessiblePaths` 遮住 `/etc/nexloop`、备份卷本身（`/srv/nexloop-backup`）、sftp 的 chroot 和其他密钥；`SystemCallFilter=@system-service`，并禁掉两个句柄调用；`MemoryDenyWriteExecute`。
   - 安装后读回两件事：服务是 active，防火墙表已加载。
-- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、mount unit、rest-server 的 secrets 和二进制；服务目录为空时一并删除。文件仓库和它的口令保留，因为里面是文件备份。恢复日志的仓库从来不碰。restic-maint 里还有文件仓库块时拒绝执行（L6 S6），先按上面 F2 一节去掉它。
+- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、ufw 规则、mount unit、rest-server 的 secrets 和二进制。ufw 规则按添加时的同一组参数用 `ufw delete allow …` 删除；只要装了 ufw 就执行，不管是否启用，因为未启用的 ufw 也保留规则。删完 `ufw status` 里还能看到这条规则，就失败。服务目录为空时一并删除。文件仓库和它的口令保留，因为里面是文件备份。恢复日志的仓库从来不碰。restic-maint 里还有文件仓库块时拒绝执行（L6 S6），先按上面 F2 一节去掉它。
 
 **只追加的一次性验证**（运行单中的一步，L6 I1；负责人在 DATA_HOST 以 root 执行，装好 rest-server 之后、APP_HOST 切换之前）：
 
@@ -330,7 +338,8 @@ sudo bash scripts/deploy/rest_server_append_only_check.sh --rest-server /opt/nex
 - **逐项检查**（用 curl）：
   - data、index、keys、snapshots 各取一个已有对象：DELETE 和覆盖写都必须返回 403。覆盖写用的是 POST，这是 restic 写入的方式；rest-server 没有 PUT。
   - config：覆盖写必须返回 403；DELETE 不能成功，接受 403 或 405（rest-server 没有这条删除路由时返回 405）。
-  - locks：新建一个锁再删除，都必须成功（200），这是只追加唯一允许的删除。
+  - locks：新建一个锁再删除，都必须成功（200），这是只追加唯一允许的删除。另外，新建后 `locks/<名>` 必须出现，内容与 POST 的完全相同；删除后这个文件必须不见了。锁名取请求体的 sha256：rest-server 0.14.0 的 `saveBlob` 只在请求体的 sha256 等于对象名时才保存，否则返回 400。DATA_HOST 2026-10-27 第一次运行用的是随机锁名，得到的就是 400。rest-server 删除一个不存在的锁也返回 200，所以删除是否真的发生，只能看文件。
+  - 覆盖写探针先撞上的是 `saveBlob` 的“对象已存在”检查：无论开没开 `--append-only`，覆盖已有对象都返回 403。所以真正证明 `--append-only` 生效的，是各项 DELETE 的 403 和最后的逐字节比较。
   - 结束时，原有的每个对象都必须逐字节不变。
 - **收尾**：无论结果如何，最后都停掉临时实例，删掉一次性仓库。输出一行 JSON；全部符合预期才退出 0。
 
@@ -359,9 +368,13 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
 - **SSH**：不再使用。以前 sftp 版本可能留下的 `~/.ssh` 文件，安装、`--prepare` 和 `--uninstall` 都会删除。
 - **第 5 步的门槛改为"能写新快照，但删不掉"**：
   1. 沙箱检查在 repo1 上用一个只有一个文件的目录做一次新快照（tag `nexloop-append-only-probe`，放在 staging 下）；
-  2. 对这个快照执行 `restic forget <id>`，必须被拒绝（退出码非 0）；
-  3. 随后列快照，它必须还在。
+  2. 对这个快照执行 `restic forget <id>`，必须被拒绝：restic 的输出里要有 `unable to remove snapshot/<这个快照的完整 id> from the repository` 这一行（sandbox 输出中的 `refused`）。退出码只记录，不作判据；
+  3. 随后列快照，它必须还在（`still_listed`）。
+
+  APP_HOST 2026-10-27 的第一次真实运行证实：restic 0.18.0 在 rest-server `--append-only` 拒绝 DELETE（403）时，**退出码仍为 0**。原因见源码 `cmd/restic/cmd_forget.go`：`ParallelRemove` 的回调只打印上面那一行，然后返回 nil；403 本身不打印，rest 后端把 401/403 视为永久错误，不重试。所以 403 或 "Forbidden" 不能作为判据，退出码也不能。
   
+  这一行足以排除"什么也没删、也没报错"的空操作：快照 id 找不到时，restic 只打印 `Ignoring "<id>": …`，同样以 0 退出，但不会有这一行。别的快照或别的文件类型的 `unable to remove` 也不算。
+
   三条任一不满足，timer 不启用；重跑时已启用的 timer 一并停用（§6.4 S2）。
 - **探针快照（L6 S1）**：**每次运行安装器都会在文件仓库里留下一个探针快照**（tag `nexloop-append-only-probe`，内容是一个一行的文件）。只追加模式下删不掉它，这正是要验证的。它们由 DATA_HOST 的 restic-maint 按 tag 分组清理：保留 14 天内的全部，再加最新月份的一个。几十个这样的快照只占几 KB。
 

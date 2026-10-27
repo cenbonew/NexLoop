@@ -89,7 +89,7 @@ def good_check(command):
     return {'listing': {d: expected[d] for d in pick('--list')}, 'read': {p: True for p in pick('--read')}, 'hidden': {p: True for p in pick('--hidden')},
             'restic': 'restic 0.18.0', 'handles': {'open_by_handle_at': 'EPERM', 'name_to_handle_at': 'EPERM'},
             'repos': {r.split(',')[0]: 0 for r in pick('--repo')}, 'init': {},
-            'append_only': {r: {'backup': 0, 'forget': 1, 'still_listed': True} for r in pick('--append-only-probe')}}
+            'append_only': {r: {'backup': 0, 'forget': 0, 'refused': True, 'still_listed': True} for r in pick('--append-only-probe')}}
 
 
 RESULT = {'ok': True, 'kind': 'files_artifact', 'backup_id': 'c' * 64, 'verify_status': 'verified', 'file_count': 0, 'bytes': 0,
@@ -677,16 +677,22 @@ def test_repo1_is_the_rest_server_the_ca_pinned_old_sftp_files_removed_and_appen
     assert check[check.index('--append-only-probe') + 1] == 'repo1' and check[check.index('--probe-dir') + 1] == '/var/lib/nexloop-file-backup/staging'
     reads = [check[i + 1] for i, a in enumerate(check) if a == '--read']
     assert '/srv/nexloop/secrets/backup/rest-ca.crt' in reads and '/var/lib/nexloop-file-backup/.ssh/id_ed25519' not in reads
-    assert '"append_only": {"repo1": {"backup": 0, "forget": 1, "still_listed": true}}' in text
+    assert '"append_only": {"repo1": {"backup": 0, "forget": 0, "refused": true, "still_listed": true}}' in text
     code, text, _ = main(root, config, stdin='', runner=Runner(tmp_path, user_exists=True))
     assert code == 0 and 'restic-files-repo1.repository kept' in text, text
 
 
 @pytest.mark.parametrize('probe, why', [
-    ({'backup': 0, 'forget': 0, 'still_listed': False}, 'not append-only'),   # forget succeeded: APP_HOST can delete
-    ({'backup': 0, 'forget': 0, 'still_listed': True}, 'not append-only'),    # forget reported success, even if the listing still shows it
-    ({'backup': 0, 'forget': 1, 'still_listed': False}, 'not append-only'),   # refused, yet the snapshot is gone
+    ({'backup': 0, 'forget': 0, 'refused': False, 'still_listed': False}, 'not append-only'),  # forget succeeded: APP_HOST can delete
+    ({'backup': 0, 'forget': 0, 'refused': False, 'still_listed': True}, 'not append-only'),   # nothing removed, nothing refused: a no-op
+    ({'backup': 0, 'forget': 1, 'refused': False, 'still_listed': True}, 'not append-only'),   # failed before any removal (a lock, say)
+    ({'backup': 0, 'forget': 0, 'refused': True, 'still_listed': False}, 'not append-only'),   # refused, yet the snapshot is gone
+    ({'backup': 0, 'forget': 0, 'still_listed': True}, 'not append-only'),                     # the old answer, without refused
+    ({'backup': 0, 'forget': None, 'refused': True, 'still_listed': True}, 'not append-only'), # restic never ran
+    ({'backup': 0, 'forget': 0, 'refused': 'yes', 'still_listed': True}, 'not append-only'),
+    ({'backup': 0, 'forget': 0, 'refused': True, 'still_listed': 1}, 'not append-only'),
     ({'backup': 1}, 'not append-only'),                                        # no snapshot could be written
+    ({'backup': 1, 'forget': 0, 'refused': True, 'still_listed': True}, 'not append-only'),  # each field is checked
     (None, 'not append-only'),                                                 # no probe answer at all
 ])
 def test_repo1_over_the_rest_server_must_refuse_a_forget(tmp_path, probe, why):
@@ -711,29 +717,39 @@ def test_the_rest_configuration_and_password_are_checked(tmp_path):
         assert code == 2 and 'repo1_rest' in text and bad not in text, bad
 
 
-def probe_restic(tmp_path, *, forget_code, keep):
-    """A stand-in for the append-only probe: backup prints a summary with a snapshot id, forget exits forget_code, snapshots lists
-    the snapshot when keep."""
+def probe_restic(tmp_path, *, forget_code, keep, says=''):
+    """A stand-in for the append-only probe: backup prints a summary with a snapshot id, forget prints `says` (with {id}) to stderr and
+    exits forget_code, snapshots lists the snapshot when keep."""
     snapshot = 'e' * 64
+    says = says.format(id=snapshot)
     script = tmp_path / 'probe-restic'
     log = tmp_path / 'probe-calls.jsonl'
     script.write_text(f'#!{sys.executable}\nimport json,os,sys\na=sys.argv[1:]\nopen({str(log)!r},"a").write(json.dumps({{"args":a,"cwd":os.getcwd()}})+"\\n")\n'
                       'sub=a[a.index("--password-file")+2]\n'
                       f'if sub=="backup":print(json.dumps({{"message_type":"summary","snapshot_id":{snapshot!r}}}));sys.exit(0)\n'
-                      f'if sub=="forget":sys.exit({forget_code})\n'
+                      f'if sub=="forget":sys.stderr.write({says!r});sys.exit({forget_code})\n'
                       f'if sub=="snapshots":print(json.dumps([{{"id":{snapshot!r}}}] if {keep!r} else []));sys.exit(0)\n'
                       'sys.exit(2)\n')
     script.chmod(0o755)
     return str(script), log, snapshot
 
 
-@pytest.mark.parametrize('forget_code, keep, expected', [
-    (1, True, {'backup': 0, 'forget': 1, 'still_listed': True}),
-    (0, False, {'backup': 0, 'forget': 0, 'still_listed': False}),
+REFUSED = 'unable to remove snapshot/{id} from the repository\n'  # restic 0.18.0 cmd_forget.go, on stderr; it then exits 0
+
+
+@pytest.mark.parametrize('forget_code, keep, says, expected', [
+    (0, True, REFUSED, {'backup': 0, 'forget': 0, 'refused': True, 'still_listed': True}),       # restic 0.18.0 on --append-only
+    (1, True, 'x\n' + REFUSED + 'y\n', {'backup': 0, 'forget': 1, 'refused': True, 'still_listed': True}),
+    (0, False, '', {'backup': 0, 'forget': 0, 'refused': False, 'still_listed': False}),         # removed
+    (0, True, 'Ignoring "{id}": no matching ID found\n', {'backup': 0, 'forget': 0, 'refused': False, 'still_listed': True}),  # a no-op
+    (0, True, REFUSED.replace('{id}', 'f' * 64), {'backup': 0, 'forget': 0, 'refused': False, 'still_listed': True}),  # another snapshot's
+    (0, True, REFUSED.replace('snapshot/', 'index/'), {'backup': 0, 'forget': 0, 'refused': False, 'still_listed': True}),
 ])
-def test_the_append_only_probe_takes_a_snapshot_tries_to_forget_it_and_looks_again(tmp_path, forget_code, keep, expected):
+def test_the_append_only_probe_takes_a_snapshot_tries_to_forget_it_and_looks_again(tmp_path, forget_code, keep, says, expected):
+    """APP_HOST 2026-10-27: restic 0.18.0 exits 0 when rest-server --append-only refuses the DELETE; only its line naming this snapshot
+    tells a refused removal from a forget that removed nothing."""
     import file_backup_sandbox_check as C
-    restic, log, snapshot = probe_restic(tmp_path, forget_code=forget_code, keep=keep)
+    restic, log, snapshot = probe_restic(tmp_path, forget_code=forget_code, keep=keep, says=says)
     staging = tmp_path / 'staging'
     staging.mkdir(mode=0o700)
     common = {'repository_file': tmp_path / 'r', 'password_file': tmp_path / 'p', 'environment': {'PATH': os.environ['PATH']}, 'timeout': 60,

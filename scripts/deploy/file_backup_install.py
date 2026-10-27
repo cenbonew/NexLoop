@@ -643,9 +643,12 @@ def check_sandbox(root, config, service, restic_version, runner, out):
             why = {10: 'does not exist' + (' (repo2_init true creates it)' if name == 'repo2' else ' (DATA_HOST step 1b initialises it)'),
                    12: 'wrong password'}.get(code, f'restic {code}')
             problems.append(f'{name}: {why}')
-    # Owner 2026-10-27: a new snapshot is taken, forgetting it is refused and it is still there - APP_HOST cannot delete repo1.
+    # Owner 2026-10-27: a new snapshot is taken, forgetting it is refused and it is still there - APP_HOST cannot delete repo1. restic 0.18.0
+    # exits 0 when the server refuses the DELETE (APP_HOST 2026-10-27), so its exit code proves nothing either way: `refused` is restic's
+    # "unable to remove snapshot/<this probe's id>" line - a forget that removed nothing silently (an id restic did not find) has none.
     probe = doc.get('append_only', {}).get('repo1')
-    if not (type(probe) is dict and probe.get('backup') == 0 and probe.get('forget') not in (0, None) and probe.get('still_listed') is True):
+    if not (type(probe) is dict and probe.get('backup') == 0 and type(probe.get('forget')) is int and probe.get('refused') is True
+            and probe.get('still_listed') is True):
         problems.append(f'repo1 is not append-only ({json.dumps(probe, sort_keys=True)}): a forget was not refused')
     print('sandbox: ' + json.dumps({'hidden': len(hidden), 'readable': len(reads), 'listing': 'as expected' if not any('shows' in p for p in problems) else 'NOT',
                                     'restic': doc.get('restic'), 'handles': doc.get('handles'), 'repos': doc.get('repos'), 'init': doc.get('init'),

@@ -2,6 +2,7 @@
 runner stands in for restic (it lays out a repository), for the throwaway server (a model of append-only answering curl) and for
 runuser/chown; the verdicts for a server that keeps every object, and for servers that let one delete or overwrite through."""
 import functools
+import hashlib
 import io
 import json
 import os
@@ -37,14 +38,15 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
 
 class Server:
     """The throwaway server: append-only unless told to let something through."""
-    def __init__(self, repo_of, allow=(), config_delete=405, lock_delete=200, up=True, exited=False, foreign=False):
+    def __init__(self, repo_of, allow=(), config_delete=405, lock_delete=200, up=True, exited=False, foreign=False, verify=True):
         self.repo_of, self.allow, self.config_delete, self.lock_delete, self.up = repo_of, set(allow), config_delete, lock_delete, up
+        self.verify, self.lock_posts = verify, []  # rest-server 0.14.0 saveBlob: 400 unless sha256(body) is the object's name
         self.exited, self.foreign, self.stopped = exited, foreign, False
 
     def poll(self):
         return 1 if self.exited else None
 
-    def answer(self, method, url, output):
+    def answer(self, method, url, output, body=None):
         if not self.up:
             return 0
         path = url.split('127.0.0.1:', 1)[1].split('/', 1)[1]
@@ -55,7 +57,18 @@ class Server:
                 Path(output).write_bytes(b'another repository' if self.foreign else (repo / 'config').read_bytes())
             return 200
         if kind == 'locks':
-            return 200 if method == 'POST' else self.lock_delete
+            target = repo / path
+            if method == 'POST':
+                data = Path(body).read_bytes()
+                self.lock_posts.append((path.split('/')[1], data))
+                if self.verify and hashlib.sha256(data).hexdigest() != path.split('/')[1]:
+                    return 400
+                if 'locks-lie-POST' not in self.allow:
+                    target.write_bytes(b'other bytes' if 'locks-garble-POST' in self.allow else data)
+                return 500 if 'locks-500-POST' in self.allow else 200
+            if self.lock_delete == 200 and 'locks-lie-DELETE' not in self.allow:
+                target.unlink(missing_ok=True)  # a missing lock is no error either
+            return 500 if 'locks-500-DELETE' in self.allow else self.lock_delete
         if kind == 'config':
             if method == 'DELETE':
                 return self.config_delete
@@ -96,6 +109,7 @@ class Runner:
             return '998\n'
         if command[:3] == ['runuser', '-u', 'nexloop-backup'] and command[-1] == 'init':
             self.repo = Path(command[command.index('-r') + 1])
+            (self.repo / 'locks').mkdir(parents=True)
             for rel, text in (('config', 'c'), ('keys/' + 'a' * 64, 'k'), ('data/ab/' + 'b' * 64, 'd'), ('index/' + 'c' * 64, 'i')):
                 (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
                 (self.repo / rel).write_text(text)
@@ -105,7 +119,8 @@ class Runner:
             (self.repo / 'snapshots' / ('d' * 64)).write_text('s')
             return ''
         if command[0] == 'curl':
-            return str(self.server.answer(command[command.index('-X') + 1], command[-1], command[command.index('-o') + 1]))
+            body = command[command.index('--data-binary') + 1][1:] if '--data-binary' in command else None
+            return str(self.server.answer(command[command.index('-X') + 1], command[-1], command[command.index('-o') + 1], body))
         return ''
 
 
@@ -136,7 +151,7 @@ def test_an_append_only_server_refuses_every_delete_and_overwrite_but_a_locks_an
     code, doc, runner, spawned, server, root = main(tmp_path)
     assert code == 0 and doc['ok'] is True and doc['unchanged'] is True, doc
     assert doc['checks'] == {**{k: {'delete': 403, 'overwrite': 403} for k in C.KINDS}, 'config': {'delete': 405, 'overwrite': 403},
-                             'locks': {'create': 200, 'delete': 200}}
+                             'locks': {'create': 200, 'delete': 200, 'stored': True, 'gone': True}}
     # A throwaway repository under the scratch directory, a server of that binary on 127.0.0.1 only, as nexloop-backup.
     [argv] = spawned
     assert argv[:4] == ['runuser', '-u', 'nexloop-backup', '--'] and '--append-only' in argv and argv[argv.index('--listen') + 1] == '127.0.0.1:18765'
@@ -182,7 +197,6 @@ def test_a_linked_scratch_directory_or_a_low_port_is_refused(tmp_path):
     assert code == 2 and '--port' in doc['refused']
 
 
-
 def test_the_status_codes_and_the_bytes_are_each_checked(tmp_path):
     code, doc, *_ = main(tmp_path, {'allow': ['index-lie']})
     assert code == 1 and doc['unchanged'] is True and doc['checks']['index'] == {'delete': 200, 'overwrite': 200}
@@ -198,3 +212,22 @@ def test_a_writable_scratch_parent_is_refused(tmp_path):
     os.chmod(tmp_path / 'root/var/lib/nexloop', 0o777)
     code, doc, runner, spawned, *_ = main(tmp_path)
     assert code == 2 and 'scratch directory' in doc['refused'] and spawned == []
+
+
+def test_the_lock_is_named_by_the_sha256_of_its_body_as_rest_server_requires(tmp_path):
+    """DATA_HOST 2026-10-27: rest-server 0.14.0 answered 400 to a lock named by random hex - saveBlob verifies sha256(body) == name."""
+    code, doc, runner, spawned, server, root = main(tmp_path)
+    [(name, data)] = server.lock_posts
+    assert code == 0 and doc['checks']['locks']['create'] == 200 and name == hashlib.sha256(data).hexdigest()
+    code, doc, runner, spawned, other, root = main(tmp_path / 'again')  # a new lock each run, never one left by an earlier run
+    assert other.lock_posts[0][0] != name
+
+
+@pytest.mark.parametrize('lie, create, delete, stored, gone', [
+    ('locks-lie-POST', 200, 200, False, True), ('locks-garble-POST', 200, 200, False, True), ('locks-lie-DELETE', 200, 200, True, False),
+    ('locks-500-POST', 500, 200, True, True), ('locks-500-DELETE', 200, 500, True, True)])
+def test_a_lock_not_stored_as_posted_not_removed_or_not_answered_200_fails(tmp_path, lie, create, delete, stored, gone):
+    """A DELETE of a missing lock answers 200 as well: only the lock file shows the create and the delete happened."""
+    code, doc, *_ = main(tmp_path, {'allow': [lie]})
+    assert code == 1 and doc['ok'] is False, doc
+    assert doc['checks']['locks'] == {'create': create, 'delete': delete, 'stored': stored, 'gone': gone}

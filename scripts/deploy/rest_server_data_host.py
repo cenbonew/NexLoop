@@ -45,10 +45,13 @@ Steps (each idempotent):
   R3 the files repository (init once if absent, then cat config as nexloop-backup), /srv/nexloop-rest (root, 0755) with restic/
      bind-mounted from it by a mount unit; nothing else there
   R4 /etc/nexloop/rest-server.nft (0600 root): table inet nexloop_rest_server dropping every source but APP_HOST_ADDR on the port
-     (IPv6 entirely), checked with nft -c; the unit loads it before the server starts and deletes it after it stops
+     (IPv6 entirely), checked with nft -c; the unit loads it before the server starts and deletes it after it stops. When ufw is
+     installed and active (its input policy drops by default on DATA_HOST, 2026-10-27), also its rule admitting APP_HOST:
+     `ufw allow from APP_HOST_ADDR to DATA_HOST_ADDR port <port> proto tcp comment nexloop-rest-server` (ufw skips an existing rule),
+     then read back from `ufw status`; ufw installed but inactive adds nothing (enabling ufw later needs a rerun)
   R5 the unit from the release (tokens filled), daemon-reload, enable and (re)start; then active, and the table loaded, read back
---uninstall: the unit stopped and removed (its stop removes the table), the nft file, the mount unit, the secrets, the binary; the
-serving directory removed when empty. repo1 itself is never touched. nexloop-restic-maint's files repository block stops and starts
+--uninstall: the unit stopped and removed (its stop removes the table), the nft file, the ufw rule (when ufw is installed, active or
+not), the mount unit, the secrets, the binary; the serving directory removed when empty. repo1 itself is never touched. nexloop-restic-maint's files repository block stops and starts
 this unit around its guard and forget (L6 F2): while it is there (or the maintenance unit is a link) --uninstall refuses (L6 S6) -
 take it out first (restic_maint_data_host.sh --revert, then without --files-repo).
 Before R1 (L6 S7): `systemd-run --wait --quiet --collect -p ExecStopPost=/bin/false /bin/true` must exit non-zero - this host's systemd
@@ -90,6 +93,9 @@ UNIT = 'nexloop-rest-server.service'
 UNIT_SOURCE = 'deploy/stage/systemd/nexloop-rest-server.service.example'
 NFT = '/etc/nexloop/rest-server.nft'
 TABLE = 'nexloop_rest_server'
+UFW = '/usr/sbin/ufw'
+UFW_RUN = ['env', 'LC_ALL=C', 'ufw']  # its messages and status in English, whatever root's locale
+UFW_COMMENT = 'nexloop-rest-server'
 ADDR = re.compile(r'\d{1,3}(?:\.\d{1,3}){3}')
 PASSWORD = re.compile(r'[A-Za-z0-9_-]{24,128}')
 HTPASSWD = re.compile(r'nexloop-file-backup:\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}')
@@ -371,6 +377,34 @@ def nft_rules(app, data, port):
             f'    meta nfproto ipv6 tcp dport {port} drop\n    ip daddr {data} tcp dport {port} ip saddr != {app} drop\n  }}\n}}\n')
 
 
+def ufw_spec(addr, port):
+    return ['from', addr['APP_HOST_ADDR'], 'to', addr['DATA_HOST_ADDR'], 'port', str(port), 'proto', 'tcp']
+
+
+def ufw_listed(status, addr, port):
+    """Whether `ufw status` lists the rule admitting APP_HOST: `<DATA> <port>/tcp  ALLOW  <APP>  # nexloop-rest-server`."""
+    for line in status.splitlines():
+        rule, sep, comment = line.partition('#')
+        if sep and comment.strip() == UFW_COMMENT and rule.split() == [addr['DATA_HOST_ADDR'], f'{port}/tcp', 'ALLOW', addr['APP_HOST_ADDR']]:
+            return True
+    return False
+
+
+def ufw_allow(root, addr, port, runner):
+    """DATA_HOST 2026-10-27: an active ufw drops inbound by default, so the port is unreachable until this rule admits APP_HOST."""
+    if not os.path.lexists(under(root, UFW)):
+        return 'ufw not installed: no rule'
+    state = (runner([*UFW_RUN, 'status']).splitlines() or [''])[0].strip()
+    if state == 'Status: inactive':
+        return 'ufw installed but inactive: no rule added (rerun after enabling it)'
+    if state != 'Status: active':  # never "no rule" by default: an answer not understood is no answer
+        raise Failed(f'ufw status: neither active nor inactive ({state[:60]!r})')
+    said = runner([*UFW_RUN, 'allow', *ufw_spec(addr, port), 'comment', UFW_COMMENT])
+    if not ufw_listed(runner([*UFW_RUN, 'status']), addr, port):
+        raise Failed(f'ufw: the rule admitting APP_HOST to port {port} is not listed by ufw status after ufw allow')
+    return f'ufw rule admitting APP_HOST to port {port} ' + ('already present' if 'Skipping' in said else 'added')
+
+
 def render_unit(text, version, address, config):
     for token, value in (('@REST_SERVER@', f'{BASE}/{version}/rest-server'), ('@LISTEN@', f'{address}:{config["port"]}'),
                          ('@MAX_SIZE@', str(config['max_size_bytes']))):
@@ -410,7 +444,8 @@ def install(root, config, passwords, runner, out, trust, trust_python):
     rules = under(root, NFT)
     rules_changed = A.write_private(rules, nft_rules(addr['APP_HOST_ADDR'], addr['DATA_HOST_ADDR'], config['port']), mode=0o600)
     runner(['nft', '-c', '-f', str(rules)])
-    step('R4', f'{NFT} ' + ('written' if rules_changed else 'unchanged') + ' (checked with nft -c)')
+    step('R4', f'{NFT} ' + ('written' if rules_changed else 'unchanged') + ' (checked with nft -c); '
+               + ufw_allow(root, addr, config['port'], runner))
     unit_path = under(root, '/etc/systemd/system') / UNIT
     unit_changed = A.write_private(unit_path, render_unit(A.git_show(config, UNIT_SOURCE, runner), version, addr['DATA_HOST_ADDR'], config), mode=0o644)
     runner(['systemctl', 'daemon-reload'])
@@ -425,7 +460,7 @@ def install(root, config, passwords, runner, out, trust, trust_python):
                f'file_backup_install.sh with repo1.transport "rest" and this files password as repo1 (NX-035-file-backup.md §6.5)')
 
 
-def uninstall(root, runner, out):
+def uninstall(root, config, runner, out):
     maint = under(root, M.UNIT)  # L6 S6: its block stops and starts this unit; removing the unit first would fail every maintenance run
     if os.path.lexists(maint) and (os.path.islink(maint) or M.FILES_MARK in maint.read_text()
                                    or any(UNIT in value for _, _, value in M.sections(maint.read_text()))):  # comments do not count
@@ -436,6 +471,11 @@ def uninstall(root, runner, out):
             raise Refused(f'{path} is a symbolic link: nothing removed')
     runner(['systemctl', 'disable', '--now', UNIT], check=False)
     runner(['nft', 'delete', 'table', 'inet', TABLE], check=False)  # its stop does this; also when the unit is already gone
+    if os.path.lexists(under(root, UFW)):  # also an inactive ufw keeps its rules: deleted by the spec they were added with
+        addr = addresses(config)
+        runner([*UFW_RUN, 'delete', 'allow', *ufw_spec(addr, config['port'])], check=False)  # absent: "Could not delete non-existent rule"
+        if ufw_listed(runner([*UFW_RUN, 'status'], check=False), addr, config['port']):
+            raise Failed(f'ufw still lists the rule admitting APP_HOST to port {config["port"]} (ufw status numbered; ufw delete <n>)')
     mount = under(root, '/etc/systemd/system') / D.unit_name(MOUNT)
     runner(['systemctl', 'disable', '--now', mount.name], check=False)
     for path in (under(root, '/etc/systemd/system') / UNIT, mount, under(root, NFT), *(under(root, SECRETS) / n for n in ('server.key', 'server.chain.crt', 'htpasswd'))):
@@ -451,7 +491,7 @@ def uninstall(root, runner, out):
     for directory in (under(root, MOUNT), under(root, SERVE), under(root, SECRETS)):
         if directory.is_dir() and not directory.is_symlink() and not os.listdir(directory):
             directory.rmdir()
-    print('uninstalled: the rest-server unit, its firewall table and file, the mount unit, its secrets and binary removed; the files repository '
+    print('uninstalled: the rest-server unit, its firewall table and file, its ufw rule, the mount unit, its secrets and binary removed; the files repository '
           'and its password stay (they hold the file backups)',
           file=out)
 
@@ -467,7 +507,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'),
         config = load_config(a.config)
         trust = A.trusting(trust, A.trusted_owner(config, (USER, REST_USER), account))
         if a.uninstall:
-            uninstall(root, runner, out)
+            uninstall(root, config, runner, out)
         else:
             install(root, config, read_passwords(stdin), runner, out, trust, trust_python)
     except Refused as error:

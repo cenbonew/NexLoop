@@ -34,7 +34,10 @@ Steps:
   2 preview: each forget line, with --dry-run --json instead of --prune, run in the unit's own sandbox (systemd-run with its [Service]
     settings: its user, its EnvironmentFile; --expand-environment=yes, so its ${VAR} paths are expanded as in the unit - systemd 254 or
     later, an older systemd-run refuses the option and the preview fails); per group its host, tags, kept and removed counts. A preview
-    that exits non-zero or whose last line is not restic's JSON stops the run before anything is written (L6 S1, S3)
+    that exits non-zero or whose last line is not restic's JSON stops the run before anything is written (L6 S1, S3) - except on an
+    empty repository: restic 0.18.0 forget --json prints no JSON when there is no group (cmd_forget.go: `if gopts.JSON &&
+    len(jsonGroups) > 0`), so when the guard just counted 0 snapshots and the preview exited 0 with nothing, `null` or only its
+    "Applying Policy:" line, there is nothing to remove (the files repository before APP_HOST's first backup)
   3 the unit rewritten atomically (the previous text kept as <unit>.before-groupby, 0644 root), then `systemctl daemon-reload`
 Output: step lines and the preview's counts (snapshot ids, tags and counts; never a password or a repository location). Exit 0 done,
 1 a step failed, 2 refused.
@@ -131,6 +134,20 @@ def sandbox(text):
     return out
 
 
+def snapshot_count(verdict):
+    """The guard's snapshot count from its JSON line, None when it printed none."""
+    try:
+        count = json.loads(verdict.strip().splitlines()[-1]).get('snapshots')
+    except (ValueError, IndexError, AttributeError):
+        return None
+    return count if type(count) is int else None
+
+
+def no_groups(answer):
+    """restic forget --json with no group to print: nothing, `null`, or only the policy line."""
+    return all(line.strip() == 'null' or line.startswith('Applying Policy:') for line in answer.strip().splitlines())
+
+
 def preview(text, lines, runner, out):
     properties = [a for key, value in sandbox(text) for a in ('-p', f'{key}={value}')]
     for line in lines:
@@ -143,6 +160,7 @@ def preview(text, lines, runner, out):
             raise Failed(f'the future-snapshot guard refused ({error}): a snapshot dated in the future, or the repository unreadable - '
                          'investigate before any forget; nothing written') from None
         print('guard: ' + (verdict.strip().splitlines()[-1] if verdict.strip() else '{}'), file=out)
+        empty = snapshot_count(verdict) == 0
         argv = line.replace(NEW, NEW.replace('--prune', '--dry-run --json')).split()
         try:
             # L6 S1: the unit's ${VAR} paths expanded explicitly, not by a systemd-run default (systemd 254+); S3: exit 0 required.
@@ -152,7 +170,7 @@ def preview(text, lines, runner, out):
             raise Failed(f'the forget preview failed ({error}; a lock held for 10 minutes, the repository, its password, or a systemd older '
                          'than 254 refusing --expand-environment): nothing written') from None
         try:
-            groups = json.loads(answer.strip().splitlines()[-1])
+            groups = [] if empty and no_groups(answer) else json.loads(answer.strip().splitlines()[-1])
             assert type(groups) is list
         except (ValueError, IndexError, AssertionError):
             raise Failed('the forget preview gave no answer (a lock held for 10 minutes, the repository or its password): nothing written') from None

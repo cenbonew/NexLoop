@@ -12,8 +12,12 @@ damage what it hit). Owner, root, a run sheet step after rest_server_data_host.s
     not another server's that happened to hold the port
   3 with curl, for each of data, index, keys and snapshots one existing object: DELETE and an overwriting POST (restic's write; rest-server
     has no PUT) must answer 403; config: an overwriting POST must answer 403 and DELETE must not succeed (403, or 405 where the server
-    has no delete route for it); locks: a new lock POSTed and DELETEd must succeed (200) - the one deletion append-only allows; and every
-    object that existed before must be byte for byte the same afterwards
+    has no delete route for it); locks: a new lock POSTed and DELETEd must succeed (200) - the one deletion append-only allows - and the
+    lock file must appear with the POSTed bytes and be gone afterwards; and every object that existed before must be byte for byte the same
+    afterwards. rest-server (0.14.0 repo.go saveBlob) stores an object only when the sha256 of its body is its name, 400 otherwise, so the
+    lock's name is the sha256 of its body; it answers 200 to the DELETE of a lock that is not there, so only the file tells a deletion. The
+    overwrite probes reach saveBlob's existence check first (403 for any existing object, append-only or not): only the DELETEs and the
+    bytes prove --append-only itself
   4 the server stopped, the scratch directory removed - also on failure
 One JSON line: each check's status code and the verdict. Exit 0 every check as expected, 1 otherwise (or a step failed), 2 refused.
 """
@@ -79,10 +83,16 @@ def checks(runner, base, repo, body):
     delete, overwrite = curl(runner, 'DELETE', f'{base}/config'), curl(runner, 'POST', f'{base}/config', body)
     results['config'] = {'delete': delete, 'overwrite': overwrite}
     ok = ok and delete in (403, 405) and overwrite == 403
-    lock = secrets.token_hex(32)
-    created, removed = curl(runner, 'POST', f'{base}/locks/{lock}', body), curl(runner, 'DELETE', f'{base}/locks/{lock}')
-    results['locks'] = {'create': created, 'delete': removed}
-    ok = ok and created == 200 and removed == 200
+    lock_body = Path(body).with_name('lock')
+    lock_body.write_bytes(f'append-only-check lock {secrets.token_hex(16)}\n'.encode())
+    lock = hashlib.sha256(lock_body.read_bytes()).hexdigest()  # rest-server refuses (400) a body whose sha256 is not the name
+    stored_at = Path(repo) / 'locks' / lock
+    created = curl(runner, 'POST', f'{base}/locks/{lock}', lock_body)
+    stored = stored_at.is_file() and stored_at.read_bytes() == lock_body.read_bytes()
+    removed = curl(runner, 'DELETE', f'{base}/locks/{lock}')
+    gone = not os.path.lexists(stored_at)  # a DELETE of a missing lock answers 200 too: only the file shows it was removed
+    results['locks'] = {'create': created, 'delete': removed, 'stored': stored, 'gone': gone}
+    ok = ok and created == 200 and stored and removed == 200 and gone
     return results, ok
 
 
