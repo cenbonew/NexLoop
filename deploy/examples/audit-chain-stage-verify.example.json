@@ -1,0 +1,9 @@
+{
+  "schema": "nexloop-audit-chain-stage-verify/1",
+  "data_host": "data-host",
+  "run_dir": "/srv/nexloop-release/run",
+  "nexloop_root": "/srv/nexloop",
+  "backend_image": "registry.example.invalid/nexloop-backend@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "tenant_id": "<TENANT_ID>",
+  "out_dir": "/path/to/local-only/evidence/nx059-stage-verify"
+}
