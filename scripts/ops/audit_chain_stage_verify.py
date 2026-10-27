@@ -5,10 +5,11 @@ machine. The seal key comes from the macOS Keychain on stdin and is never an arg
   security find-generic-password -a nexloop -s nexloop/stage/audit-seal-key -w \\
     | python3 scripts/ops/audit_chain_stage_verify.py --config <file>         (add --dry-run to print the plan only)
 
-Steps (every database step runs on DATA_HOST in a one-shot backend container as UID 999, as the other data-host tools):
+Steps (every database step runs on DATA_HOST in a one-shot backend container as the owner UID:GID of $RUN/boot.dsn, read there with
+stat as the other data-host tools do, or as the configuration's run_user):
   0  preflight   the release tree on DATA_HOST ($RUN/src) has the same audit chain tool, module and private file reader as this checkout
   1  verify      scripts/ops/audit_chain.py verify --key-file <tmpfs file> --tenant T: the database's verification plus every seal's MAC;
-                 the key reaches the container on stdin and lives only in its tmpfs (/tmp, 0600, owned by 999)
+                 the key reaches the container on stdin and lives only in its tmpfs (/tmp, 0600, owned by the run user)
   2  export      audit_chain.export of the tenant into the container's tmpfs, streamed back as a tar into a new local directory;
                  nothing is written on DATA_HOST
   3  offline     scripts/ops/audit_chain.py verify-export on this machine (standard library only), with the key in a private
@@ -33,6 +34,8 @@ import tempfile
 
 SCHEMA = 'nexloop-audit-chain-stage-verify/1'
 FIELDS = {'schema', 'data_host', 'run_dir', 'nexloop_root', 'backend_image', 'tenant_id', 'out_dir'}
+OPTIONAL = {'run_user'}  # UID:GID; default the owner of run_dir/boot.dsn on DATA_HOST
+RUN_USER = re.compile(r'[0-9]{1,10}:[0-9]{1,10}')
 TOOL = 'scripts/ops/audit_chain.py'
 MODULE = 'packages/eios-core/src/nexloop_eios/audit_chain.py'
 PRIVATE = 'packages/eios-core/src/nexloop_eios/private_configuration.py'  # load_keys and the DSN reader
@@ -69,8 +72,10 @@ def load(path):
         config = json.loads(pathlib.Path(path).read_text())
     except (OSError, ValueError):
         raise Stop('configuration unreadable') from None
-    if type(config) is not dict or set(config) != FIELDS or config['schema'] != SCHEMA:
-        raise Stop(f'configuration: exactly the fields {sorted(FIELDS)} with schema {SCHEMA}')
+    if type(config) is not dict or not FIELDS <= set(config) <= FIELDS | OPTIONAL or config['schema'] != SCHEMA:
+        raise Stop(f'configuration: the fields {sorted(FIELDS)}, optionally {sorted(OPTIONAL)}, with schema {SCHEMA}')
+    if 'run_user' in config and (type(config['run_user']) is not str or not RUN_USER.fullmatch(config['run_user'])):
+        raise Stop('configuration: run_user must be UID:GID (numbers)')
     for name in ('data_host', 'run_dir', 'nexloop_root', 'backend_image', 'tenant_id', 'out_dir'):
         if type(config[name]) is not str or not config[name] or '\n' in config[name]:
             raise Stop(f'configuration: {name}')
@@ -96,13 +101,27 @@ def private_out_dir(value):
     return str(path)
 
 
+def run_user(config, dry):
+    """The configured run_user, else the owner of run_dir/boot.dsn on DATA_HOST (stat, as the other data-host scripts)."""
+    if 'run_user' in config:
+        return config['run_user']
+    code, out, _ = remote(config, shlex.join(['stat', '-c', '%u:%g', config['run_dir'] + '/boot.dsn']), dry=dry)
+    if dry:
+        return 'UID:GID'  # the plan only: the owner is read when the command runs
+    found = out.decode().strip()
+    if code != 0 or not RUN_USER.fullmatch(found):
+        raise Stop('the owner of run_dir/boot.dsn on DATA_HOST could not be read (set run_user to override)')
+    return found
+
+
 def docker(config, script, *args, tmpfs_export=False):
-    """The data-host one-shot container: no network, read-only, UID 999, the release tree and the bootstrap socket DSN read-only."""
-    run, root = config['run_dir'], config['nexloop_root']
-    command = ['docker', 'run', '-i', '--rm', '--network', 'none', '--read-only', '--user', '999:999', '--cap-drop', 'ALL',
-               '--security-opt', 'no-new-privileges', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m,mode=0700,uid=999,gid=999']
+    """The data-host one-shot container: no network, read-only, as the run user, the release tree and the bootstrap socket DSN read-only."""
+    run, root, user = config['run_dir'], config['nexloop_root'], config['user']
+    uid, gid = user.split(':')
+    command = ['docker', 'run', '-i', '--rm', '--network', 'none', '--read-only', '--user', user, '--cap-drop', 'ALL',
+               '--security-opt', 'no-new-privileges', '--tmpfs', f'/tmp:rw,noexec,nosuid,size=16m,mode=0700,uid={uid},gid={gid}']
     if tmpfs_export:
-        command += ['--tmpfs', '/export:rw,noexec,nosuid,size=512m,mode=0700,uid=999,gid=999']
+        command += ['--tmpfs', f'/export:rw,noexec,nosuid,size=512m,mode=0700,uid={uid},gid={gid}']
     command += ['-v', f'{run}/src:/opt/release:ro', '-v', f'{root}/run/postgresql:/var/run/postgresql', '-v', f'{run}/boot.dsn:/run/bootstrap-dsn:ro',
                 '-e', 'PYTHONPATH=/opt/release/packages/eios-core/src', '--entrypoint', 'python', config['backend_image'], '-c', script, *args]
     return shlex.join(command)
@@ -139,6 +158,9 @@ def main(argv=None):
         config = load(args.config)
         tenant, dry = config['tenant_id'], args.dry_run
         key = b'' if dry else read_key()
+        config['user'] = run_user(config, dry)
+        if not dry:
+            report('run_user', {'user': config['user'], 'source': 'configuration' if 'run_user' in config else 'boot.dsn owner'})
         # 0 preflight: the same tool and module on DATA_HOST as in this checkout (the commands below were checked against it).
         local = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in (TOOL, MODULE, PRIVATE)}
         code, out, _ = remote(config, docker(config, DIGEST, TOOL, MODULE, PRIVATE), dry=dry)
