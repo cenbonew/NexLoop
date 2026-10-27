@@ -31,7 +31,7 @@ def compose():
 
 def test_budget_registers_the_identity_pool_and_stays_within_60():
     result = connection_budget.evaluate(BUDGET)
-    assert result['passed'] and result['details']['application_pool_total'] == 59  # NX-037: + webchat-delivery 2
+    assert result['passed'] and result['details']['application_pool_total'] == 60  # NX-037: + webchat-delivery 2; outreach slice 5: + outreach-sender 1
     assert result['details']['services']['api-browser-identity'] == 4 and 'scheduler' not in result['details']['services']
     missing = copy.deepcopy(BUDGET)
     missing['services'] = [s for s in missing['services'] if s['name'] != 'api-browser-identity']

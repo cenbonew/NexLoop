@@ -386,6 +386,26 @@ services:
     labels:
       nexloop.purpose: disposable-community-test
 
+  outreach-sender:
+    # Outreach slice 5 opt-in (profile "background"): needs trusted-configuration material in background_config/outreach-sender
+    # (outreach_sender credential and restricted DSN, signer); its loopback outbox is the only provider and lives on its own
+    # writable volume; not provisioned by the disposable test profile.
+    profiles: [background]
+    image: ${BACKEND_IMAGE:?locally built tested image required}
+    user: '10001:10001'
+    command: [outreach-sender]
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    volumes: [background_config:/private/background:ro, artifacts:/var/lib/nexloop/artifacts, outreach_outbox:/var/lib/nexloop/outreach-outbox]
+    networks: [core_test]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      nexloop.purpose: disposable-community-test
+
   api-test:
     image: ${BACKEND_IMAGE:?locally built tested image required}
     user: '10001:10001'
@@ -478,6 +498,9 @@ volumes:
     labels:
       nexloop.purpose: disposable-community-test
   incentive_ledger:
+    labels:
+      nexloop.purpose: disposable-community-test
+  outreach_outbox:
     labels:
       nexloop.purpose: disposable-community-test
   background_config:

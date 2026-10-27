@@ -102,6 +102,11 @@
       "pool_max": 1
     },
     {
+      "name": "outreach-sender",
+      "processes": 1,
+      "pool_max": 1
+    },
+    {
       "name": "plan-reevaluator-launcher",
       "processes": 1,
       "pool_max": 2
