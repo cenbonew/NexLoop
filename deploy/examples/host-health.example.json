@@ -7,7 +7,7 @@
   "local_window_seconds": 900,
   "local_min_restarts": 3,
   "containers": [{"name": "postgres", "container": "<POSTGRES_CONTAINER_NAME>"}, {"name": "valkey", "container": "<VALKEY_CONTAINER_NAME>"}],
-  "services": [],
+  "services": [{"name": "rest-server", "unit": "nexloop-rest-server.service"}],
   "timers": [
     {"name": "pg-diff", "timer": "nexloop-pg-diff.timer", "service": "nexloop-pg-diff.service"},
     {"name": "pg-full", "timer": "nexloop-pg-full.timer", "service": "nexloop-pg-full.service"},

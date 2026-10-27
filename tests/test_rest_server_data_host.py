@@ -36,6 +36,10 @@ CERT = '-----BEGIN CERTIFICATE-----\nsynthetic leaf\n-----END CERTIFICATE-----\n
 BCRYPT = 'nexloop-file-backup:$2y$05$' + 'a' * 53
 
 
+HEALTH_PROBE = {'containers': [{'name': 'postgres', 'container': 'nexloop-data-postgres-1'}], 'services': [],
+                'timers': [{'name': 'restic-maint', 'timer': 'nexloop-restic-maint.timer', 'service': 'nexloop-restic-maint.service'}]}
+
+
 UIDS = {}  # test only: inode -> the uid lstat reports (the deployment user's directories without root)
 DEPLOY = 4242
 
@@ -201,13 +205,18 @@ def setup(tmp_path, data=None, **over):
     (journal / 'config').write_text('synthetic journal\n')
     (tmp_path / 'backups/files-repo1').mkdir(parents=True)  # the files repository's parent: it does not exist yet
     restic = private(tmp_path / 'usr/local/bin/restic', '#!/bin/sh\n', 0o755)
+    private(root / 'etc/nexloop/host-health.json', json.dumps({'schema': 'nexloop-host-health/1', 'host_role': 'data_host',  # the probe's own
+                                                               'recorder_dsn_file': '/etc/nexloop/host-recorder.dsn',
+                                                               'state_file': '/var/lib/nexloop-host-health/state.json', **HEALTH_PROBE}))
+    private(root / 'root/host-health-install.data-host.json', json.dumps({'schema': 'nexloop-host-health-install/1', 'probe': dict(HEALTH_PROBE)}))
     blob = archive() if data is None else data
     cfg = {'schema': R.SCHEMA, 'release_checkout': str(checkout), 'release_sha': SHA,
            'stage_env': str(private(tmp_path / 'stage.env', f'APP_HOST_ADDR={APP}\nDATA_HOST_ADDR={DATA}\n')),
            'files_repo_path': str(tmp_path / 'backups/files-repo1/restic'), 'journal_repo_path': str(journal), 'restic': str(restic),
            'rest_server_archive': str(private(tmp_path / f'download/rest-server_{VERSION}_linux_amd64.tar.gz', blob)),
            'tls_cert_file': str(private(tmp_path / 'pki/rest-server.chain.crt', CERT, 0o644)), 'tls_key_file': str(private(tmp_path / 'pki/rest-server.key', KEY)),
-           'port': 8000, 'max_size_bytes': 100 << 30, **over}
+           'port': 8000, 'max_size_bytes': 100 << 30, 'host_health_config': '/etc/nexloop/host-health.json',
+           'host_health_install_config': '/root/host-health-install.data-host.json', **over}
     config = private(tmp_path / 'config.json', json.dumps(cfg))
     return root, str(config), hashlib.sha256(blob).hexdigest()
 
@@ -681,3 +690,132 @@ def test_a_ufw_status_neither_active_nor_inactive_fails_before_the_server_starts
     with_ufw(root)
     code, text, runner = main(root, config, runner=Runner(root, digest=digest, ufw=Ufw(status=status)))
     assert code == 1 and 'neither active nor inactive' in text and ['systemctl', 'enable', R.UNIT] not in runner.calls, text
+
+
+def health(root):
+    """(probe file, install configuration's probe block) as written."""
+    return (json.loads((root / 'etc/nexloop/host-health.json').read_text()),
+            json.loads((root / 'root/host-health-install.data-host.json').read_text())['probe'])
+
+
+def test_the_rest_server_joins_the_host_health_services_of_both_files_once_and_uninstall_takes_it_out(tmp_path):
+    """Dispatcher 2026-10-27: crash_loop and host_unit_missing are wildcard rules - listed, the rest-server is covered by both."""
+    root, config, digest = setup(tmp_path)
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 0 and 'step R6: host-health services rest-server: added to host-health.json, host-health-install.data-host.json' in text, text
+    for probe in health(root):
+        assert probe['services'] == [{'name': 'rest-server', 'unit': 'nexloop-rest-server.service'}]
+        assert probe['timers'] == HEALTH_PROBE['timers'] and probe['containers'] == HEALTH_PROBE['containers']  # nothing else touched
+    for name in ('etc/nexloop/host-health.json', 'root/host-health-install.data-host.json'):
+        assert st.S_IMODE((root / name).stat().st_mode) == 0o600
+    # what the probe and the host-health installer make of it: a valid services item
+    import host_health_install as H
+    import host_health_probe as P
+    assert P.load_config(str(root / 'etc/nexloop/host-health.json'))['services'] == [R.HEALTH]
+    assert H.probe_config({'host_role': 'data_host', 'probe': health(root)[1]})['services'] == [R.HEALTH]
+    code, text, _ = main(root, config, stdin='', digest=digest)
+    assert code == 0 and 'rest-server: already listed' in text and [p['services'] for p in health(root)] == [[R.HEALTH]] * 2
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    code, text, runner = main(root, config, '--uninstall', stdin='', digest=digest)
+    assert code == 0 and 'the host-health entry' in text, text
+    assert [p['services'] for p in health(root)] == [[], []] and [p['timers'] for p in health(root)] == [HEALTH_PROBE['timers']] * 2
+
+
+def test_another_service_listed_stays_and_one_named_rest_server_is_not_doubled(tmp_path):
+    root, config, digest = setup(tmp_path)
+    other = {'name': 'sftp', 'unit': 'nexloop-sftp.service'}
+    for path, nested in R.health_files(root, json.loads(Path(config).read_text())):
+        value = json.loads(path.read_text())
+        (value['probe'] if nested else value)['services'] = [other, dict(R.HEALTH)] if nested else [other]
+        private(path, json.dumps(value))
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 0 and 'rest-server: added to host-health.json (' in text, text  # the install configuration had it already
+    assert [p['services'] for p in health(root)] == [[other, R.HEALTH], [other, R.HEALTH]]
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    assert main(root, config, '--uninstall', stdin='', digest=digest)[0] == 0
+    assert [p['services'] for p in health(root)] == [[other], [other]]
+
+
+@pytest.mark.parametrize('damage', ['missing', 'not json', 'no services list', 'services an empty object', 'services not objects', 'group readable'])
+@pytest.mark.parametrize('which', ['etc/nexloop/host-health.json', 'root/host-health-install.data-host.json'])
+def test_a_missing_or_malformed_host_health_file_is_refused_before_anything(tmp_path, damage, which):
+    root, config, digest = setup(tmp_path)
+    path = root / which
+    nested = which.startswith('root/')
+    value = json.loads(path.read_text())
+    if damage == 'missing':
+        path.unlink()
+    elif damage == 'not json':
+        private(path, '{')
+    elif damage == 'group readable':
+        os.chmod(path, 0o640)
+    else:
+        (value['probe'] if nested else value)['services'] = {'no services list': {'rest-server': R.UNIT}, 'services an empty object': {},
+                                                             'services not objects': ['rest-server']}[damage]
+        private(path, json.dumps(value))
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 2 and which.rsplit('/', 1)[1] in text and runner.calls == [], text
+    assert not (root / 'opt/nexloop/rest-server').exists()
+
+
+def test_uninstall_refuses_a_malformed_host_health_file_before_removing_anything_and_skips_a_missing_one(tmp_path):
+    root, config, digest = setup(tmp_path)
+    assert main(root, config, digest=digest)[0] == 0
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    probe = root / 'etc/nexloop/host-health.json'
+    good = probe.read_text()
+    for damaged in ('{', json.dumps({**json.loads(good), 'services': {}})):  # not JSON; its timers fine but no services list
+        private(probe, damaged)
+        code, text, runner = main(root, config, '--uninstall', stdin='', digest=digest)
+        assert code == 2 and 'host-health.json' in text and runner.calls == [], text
+        assert (root / 'etc/systemd/system/nexloop-rest-server.service').exists() and health_install_services(root) == [R.HEALTH]  # neither changed
+    private(probe, good)
+    probe.unlink()  # the probe's file gone (host-health uninstalled): the install configuration still loses the entry
+    code, text, _ = main(root, config, '--uninstall', stdin='', digest=digest)
+    assert code == 0 and health_install_services(root) == [] and not probe.exists(), text
+
+
+def health_install_services(root):
+    return json.loads((root / 'root/host-health-install.data-host.json').read_text())['probe']['services']
+
+
+def test_both_host_health_files_or_neither(tmp_path, monkeypatch):
+    root, config, digest = setup(tmp_path)
+    before = (root / 'etc/nexloop/host-health.json').read_text()
+    write = R.A.write_private
+
+    def failing(path, text, mode=0o600):
+        if path.name == 'host-health-install.data-host.json':
+            raise OSError('disk full')
+        return write(path, text, mode)
+    monkeypatch.setattr(R.A, 'write_private', failing)
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 1 and (root / 'etc/nexloop/host-health.json').read_text() == before and health_install_services(root) == []
+
+
+def test_the_examples_list_the_rest_server_and_name_both_host_health_files():
+    import host_health_probe as P
+    example = json.loads((ROOT / 'deploy/examples/rest-server-data-host.example.json').read_text())
+    assert {'host_health_config', 'host_health_install_config'} <= set(example)
+    for name in ('host-health.example.json', 'host-health-install.data-host.example.json'):
+        value = json.loads((ROOT / 'deploy/examples' / name).read_text())
+        assert R.HEALTH in (value.get('probe') or value)['services'], name
+    assert P.UNIT.fullmatch(R.HEALTH['unit']) and P.NAME.fullmatch(R.HEALTH['name'])
+
+
+def test_a_host_health_file_without_the_entry_is_left_byte_for_byte_and_the_paths_must_be_absolute(tmp_path):
+    root, config, digest = setup(tmp_path)
+    assert main(root, config, digest=digest)[0] == 0
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    install_config = root / 'root/host-health-install.data-host.json'
+    value = json.loads(install_config.read_text())
+    value['probe']['services'] = []
+    private(install_config, json.dumps(value, separators=(',', ':')))  # hand-formatted, without the entry
+    before = install_config.read_bytes()
+    assert main(root, config, '--uninstall', stdin='', digest=digest)[0] == 0
+    assert install_config.read_bytes() == before and health(root)[0]['services'] == []
+    for key in ('host_health_config', 'host_health_install_config'):
+        reconfigure(config, **{key: 'etc/nexloop/host-health.json'})
+        code, text, runner = main(root, config, digest=digest)
+        assert code == 2 and f'configuration: {key}' in text and runner.calls == [], text
+        reconfigure(config, **{key: f'/{"etc/nexloop/host-health.json" if key == "host_health_config" else "root/host-health-install.data-host.json"}'})

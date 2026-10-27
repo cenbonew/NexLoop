@@ -31,7 +31,12 @@
         "container": "nexloop-data-valkey-1"
       }
     ],
-    "services": [],
+    "services": [
+      {
+        "name": "rest-server",
+        "unit": "nexloop-rest-server.service"
+      }
+    ],
     "timers": [
       {
         "name": "pg-diff",
