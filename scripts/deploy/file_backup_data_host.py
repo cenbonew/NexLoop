@@ -14,7 +14,7 @@ rest_server_data_host.sh (step 1b). This entry is step 1a only; no sftp account,
 Private configuration (JSON, 0600 root; deploy/examples/file-backup-data-host.example.json): schema nexloop-file-backup-data-host/1,
 release_checkout (render.py and the pg_hba template come from it), python (root runs render.py with it: a real file, root's),
 nexloop_root (config/pg_hba.conf is under it) and stage_env (the deployed private stage.env; APP_HOST_ADDR is read from it); the
-earlier repo_path and app_host_public_key are accepted and ignored.
+earlier repo_path and app_host_public_key are accepted and ignored; optionally trusted_owner (the deployment user, see 1a).
 
 Trust (root runs this code and render.py): stdlib only; the checkout, its .git, the trees root executes from and the interpreter are
 root's alone, every component lstat'ed (file_backup_install.trust_release and root_owned); nothing secret is read or printed.
@@ -25,12 +25,13 @@ Step (idempotent; a rerun converges):
      container bind-mounts the single file; opened without following a link; the old content kept, atomically and 0600, as
      config/pg_hba.conf.before-file-backup), checked from inside the container, PostgreSQL HUP'ed and the reload read back from
      its log; otherwise the old content is written back in place and reloaded.
-     Who writes (dispatcher 2026-10-27, stage: config/ and pg_hba.conf belong to the deployment user, who rewrites pg_hba
-     anyway): config/ root's alone (L6 I2) - root writes; or config/ and pg_hba.conf of one user, config/ and every directory
-     above it of that user or root's and nothing group/other-writable - the write of pg_hba, the backup and a write-back are done
-     in a child process with that user's uid and gid and no supplementary group, so a link or file that user puts in config/
-     gets nothing that user could not write already. Root reads pg_hba without following a link and only from the inode, owner
-     and type lstat saw; it renders in its own scratch directory as before.
+     Who writes (dispatcher 2026-10-27, stage: /srv/nexloop, config/ and pg_hba.conf belong to the deployment user): config/
+     root's alone (L6 I2) - root writes; or, with trusted_owner configured (file_backup_install.trusted_owner: named explicitly,
+     never assumed), config/ and pg_hba.conf that user's, neither group/other-writable nor a link, every directory above root's or
+     that user's - the write of pg_hba, the backup and a write-back are done in a child process with that user's uid and gid and no
+     supplementary group, so a link or file that user puts in config/ gets nothing that user could not write already. Root reads
+     pg_hba without following a link and only from the inode, owner and type lstat saw; it renders in its own scratch directory
+     (root's, as before).
 --uninstall: the D4 sftp parts of an earlier version - the sshd drop-in, the authorized key, the mount unit and the chroot directory
 (when empty) - removed wherever they exist, sshd reloaded only when its drop-in was there. The pg_hba line stays (the template has
 it; without APP_HOST's DSN nobody uses it).
@@ -72,7 +73,7 @@ SCRATCH = '/var/lib/nexloop/file-backup-data-host'
 def load_config(path):
     c = A.read_private_json(path)
     need = {'schema', 'release_checkout', 'python', 'nexloop_root', 'stage_env'}
-    keys = need | {'repo_path', 'app_host_public_key', '_comment'}  # the D4 sftp fields of an earlier configuration: ignored
+    keys = need | {'repo_path', 'app_host_public_key', 'trusted_owner', '_comment'}  # repo_path, app_host_public_key: D4 sftp, ignored
     if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or need - set(c):
         raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(need - {'schema'})))
     for key in ('release_checkout', 'python', 'nexloop_root', 'stage_env'):
@@ -107,38 +108,18 @@ def rules(text):
     return [' '.join(line.split()) for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')]
 
 
-def hba_writer(directory, hba, trust, account=pwd.getpwuid):
-    """Who writes in config/: None (root: config/ root's alone, L6 I2) or (uid, gid, name) of the one user owning config/ and
-    pg_hba.conf, with config/ and every directory above it that user's or root's and none group/other-writable (Refused otherwise)."""
+def hba_writer(directory, hba, trust, owner):
+    """Who writes in config/: None - root, config/ root's alone (L6 I2) - or the configured trusted_owner (uid, gid, name) when config/
+    and pg_hba.conf are that user's, neither group/other-writable nor a link, and every directory above root's or that user's."""
     try:
         trust(directory, what='pg_hba directory')
         return None
     except Refused as error:
-        why = str(error)
-    info = os.lstat(directory)
-    if not stat.S_ISDIR(info.st_mode):  # lstat: a link is not a directory
-        raise Refused(why)
-    uid = info.st_uid
-    try:
-        file = os.lstat(hba)
-    except OSError:
-        raise Refused(f'{hba}: a regular file') from None
-    if file.st_uid != uid or (info.st_mode | file.st_mode) & 0o022:
-        raise Refused(f"{why}, or with pg_hba.conf of the one user owning it (neither group/other-writable)")
-    for part in directory.parents:  # the user's own directories up to the first one that is not theirs
-        above = os.lstat(part)
-        if above.st_uid != uid:
-            trust(part, what='pg_hba directory')  # that one and every directory above it root's alone
-            break
-        if stat.S_ISLNK(above.st_mode) or above.st_mode & 0o022:
-            raise Refused(f'pg_hba directory: {part} is a link or group/other-writable')
-    else:
-        raise Refused('pg_hba directory: / is not root\'s')
-    try:
-        entry = account(uid)
-    except KeyError:
-        raise Refused(f'pg_hba directory: owner uid {uid} is no account') from None
-    return uid, entry.pw_gid, entry.pw_name
+        if owner is None:
+            raise Refused(f'{error} (config/ of the deployment user: name that user as trusted_owner in the configuration)') from None
+    # config/ is not root's alone: pg_hba.conf must be trusted_owner's, and config/ above it (root's or theirs - so theirs) too.
+    trust(hba, what='pg_hba.conf of trusted_owner', own=(owner[0],))
+    return owner
 
 
 def as_user(writer, action):
@@ -217,12 +198,12 @@ def reload_postgres(runner, sleep):
     return 'received SIGHUP' in logs and not re.search(r'pg_hba\.conf.*(not reloaded|invalid)|could not load pg_hba', logs, re.I)
 
 
-def step_hba(root, config, address, runner, out, trust, sleep, account=pwd.getpwuid, as_user=as_user):
+def step_hba(root, config, address, runner, out, trust, sleep, owner=None, as_user=as_user):
     hba = Path(config['nexloop_root']) / 'config/pg_hba.conf'
     backup = hba.parent / 'pg_hba.conf.before-file-backup'
     checkout = Path(config['release_checkout'])
     # L6 I2: config/ root's alone, or the deployment user's with pg_hba.conf (then that user writes); neither file is a link.
-    writer = hba_writer(hba.parent, hba, trust, account)
+    writer = hba_writer(hba.parent, hba, trust, owner)
     if os.path.islink(hba) or not hba.is_file():
         raise Refused(f'{hba}: a regular file')
     seen = os.lstat(hba)
@@ -283,10 +264,10 @@ def unit_name(path):
     return ''.join(out) + '.mount'
 
 
-def install(root, config, runner, out, trust, sleep, **writer):
+def install(root, config, runner, out, trust, sleep, owner, as_user):
     trusted_code(config, trust)
     address = app_host_addr(config)
-    step_hba(root, config, address, runner, out, trust, sleep, **writer)
+    step_hba(root, config, address, runner, out, trust, sleep, owner, as_user)
     print('done: DATA_HOST step 1a; next: rest_server_data_host.sh (step 1b, the files repository and rest-server; NX-035-file-backup.md §6.2)',
           file=out)
 
@@ -316,7 +297,7 @@ def uninstall(root, runner, out):
     print('uninstalled: ' + (', '.join(removed) if removed else 'no D4 sftp part was there') + '; the pg_hba line stays', file=out)
 
 
-def main(argv=None, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned, sleep=time.sleep, **writer):
+def main(argv=None, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned, sleep=time.sleep, account=pwd.getpwnam, as_user=as_user):
     p = argparse.ArgumentParser(description='NX-035 file backup, DATA_HOST step 1 (owner, root, one command)')
     p.add_argument('config')
     p.add_argument('--uninstall', action='store_true')
@@ -324,10 +305,12 @@ def main(argv=None, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_own
     os.umask(0o022)
     try:
         config = load_config(a.config)
+        owner = A.trusted_owner(config, (USER,), account)
+        trust = A.trusting(trust, owner)
         if a.uninstall:
             uninstall(root, runner, out)
         else:
-            install(root, config, runner, out, trust, sleep, **writer)
+            install(root, config, runner, out, trust, sleep, owner, as_user)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2

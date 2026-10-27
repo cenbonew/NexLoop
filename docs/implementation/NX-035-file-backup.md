@@ -160,9 +160,9 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 临时目录 `/var/lib/nexloop/file-backup-data-host` 先通过信任检查再 chmod，root 才在里面运行渲染；
   - `pg_hba.conf` 和它的备份文件都不能是链接；写 pg_hba 时以 `O_NOFOLLOW` 打开，并核对打开的 inode 就是 lstat 看到的那个。
   - **谁来写 `config/`**（调度员 2026-10-27：stage 上第 1a 步因 `config/` 属部署用户而被拒）。按 `config/` 的实际属主分两种情况：
-    - `config/` 属 root、组和其他人不可写，上级目录也是 root 的（L6 I2）：由 root 自己写。
-    - `config/` 和 `pg_hba.conf` 属于同一个非 root 用户（stage 上是部署用户，另外几个 hba 改动本来就由它维护 pg_hba）：要求 `config/`、`pg_hba.conf` 都不能被组和其他人写；`config/` 之上属于这个用户的各级目录不能是链接，也不能被组和其他人写；第一个不属于它的上级目录及其以上必须都是 root 的。满足时，写 pg_hba、写备份、失败后写回这三步在一个子进程里执行，该子进程已降为这个用户的 uid 和主组，没有附加组，并确认无法再切回 root。这样一来，这个用户在 `config/` 里放的链接或文件，最多让它写到自己本来就能写的地方。
-    - 其余情况一律拒绝，什么都不渲染、不写。
+    - `config/` 属 root、组和其他人不可写（L6 I2）：由 root 自己写。
+    - 配置了 `trusted_owner`（见 §6.6），并且 `config/` 和 `pg_hba.conf` 都属于这个用户、都不能被组和其他人写、都不是链接，上级目录属 root 或这个用户：写 pg_hba、写备份、失败后写回这三步在一个子进程里执行。该子进程已降为这个用户的 uid 和主组，没有附加组，并确认无法再切回 root。这样一来，这个用户在 `config/` 里放的链接或文件，最多让它写到自己本来就能写的地方。
+    - 其余情况一律拒绝，什么都不渲染、不写。没有配置 `trusted_owner` 时，拒绝信息会提示去配置它。
   - root 只在自己的临时目录里渲染；读取 pg_hba 时用 `O_NOFOLLOW|O_NONBLOCK` 打开，只接受与预检时 lstat 结果相同的普通文件（inode、设备号、属主都一致），文件在中途被换掉就失败，不读、不备份。
   - 对照现有的 hba 脚本：`sim_hba_data_host.sh`、`evolution_hba_data_host.sh`、`host_health_hba_data_host.sh` 都要求以 sudo 运行，并以 root 身份写 pg_hba 和备份。其中 host_health 要求 `config/` 属 root，所以在 stage 的布局下同样会被拒绝；sim 和 evolution 不检查属主，root 的 `cp -p` 会跟随部署用户放在备份路径上的链接（即 L6 I2 那一类问题）。这三个脚本的改法另行处理。
 - **不再安装 sftp**：受限 sftp 账户、chroot 和 sshd drop-in 都不装（D4 于 2026-10-27 改为独立仓库）。旧配置里的 `repo_path`、`app_host_public_key` 仍能被接受，但会被忽略。
@@ -395,3 +395,19 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
 - 不能删除或覆盖已有对象。
 - rest-server 是一个新的对外端口，有四道限制：TLS、认证、只放行 APP_HOST 的防火墙表、unit 沙箱。
 - 后续项：把 `nexloop-rest-server.service` 加进 DATA_HOST 的 host-health services。`crash_loop` 和 `host_unit_missing` 是通配规则，加进去就会覆盖它。
+
+### 6.6 `trusted_owner`：部署用户持有的上级目录（调度员 2026-10-27）
+
+stage 的两台主机上，`/srv/nexloop` 都属部署用户（751），`config/` 和 `pg_hba.conf` 也是它的。DATA_HOST 上，第 1a 步在 `config/` 被拒；第 1b 步的 R0、R1 通过后，R2 在 `/srv/nexloop` 被拒。APP_HOST 的 `file_backup_install.sh` 检查 `secrets/backup` 时会在同一处被拒。三个安装器（`file_backup_install`、`file_backup_data_host`、`rest_server_data_host`）现在共用同一个信任模型：
+
+- **必须显式配置**：私有配置里可选的 `trusted_owner` 写部署用户的用户名。不配置时行为与以前完全相同，也就是路径链上每一级都必须属 root；被拒时的信息会提示可以配置这一项。不会默认放行。
+- **为什么不降低安全边界**：部署用户在这两台主机上有 NOPASSWD sudo，本来就等同 root。允许它持有上级目录，并没有给任何人增加原本没有的能力。反过来，如果不显式指定这个用户，任何非 root 属主都可能被误当作可信，所以必须由负责人写明是谁。
+- **放宽的范围**：`file_backup_install.root_owned` 的 `ancestors` 只放宽"被检查路径之上"的目录：这些目录可以属 root 或 `trusted_owner`，但仍然不能被组和其他人写，链接仍然一律拒绝。被检查的路径本身，也就是安装器自己新建并写入的目录，仍然必须属 root，权限和以前一样，其中的文件仍归 root 或服务用户。这类目录有：
+  - DATA_HOST：`secrets/rest-server`、`secrets/files-repo`、rest-server 的二进制目录、`/srv/nexloop-rest`；
+  - APP_HOST：`secrets/backup`、发布目录、home。
+
+  这些目录如果属部署用户，即使配置了 `trusted_owner` 也会被拒。
+- **不能填的值**：`trusted_owner` 不能是 root（root 本来就可信），不能是服务用户（`nexloop-backup`、`nexloop-file-backup`），也必须是本机已有的用户；否则在动任何东西之前就拒绝。
+- **pg_hba**：`config/` 和 `pg_hba.conf` 属 `trusted_owner` 时，降权到这个用户写入（§6.2 第 1a 步）。root 只在自己的临时目录里渲染，读取时核对 inode、设备号和属主。和直接以 root 写进部署用户的目录相比，这样做在用户放了链接时也不会让 root 跟着链接去写。
+- **R1 的幂等**：R1 已经装好的 `/opt/nexloop/rest-server/<version>/rest-server`，在加上 `trusted_owner` 重跑时会再核对一遍归档的 size 和 sha256，并与已安装的字节比较；内容相同就不重写，报告 `unchanged`（inode 不变，权限仍是 0555），然后从 R2 往下继续。测试 `test_a_srv_nexloop_of_the_deployment_user_is_accepted_only_as_trusted_owner_and_r1_reruns_unchanged` 复现了 stage 的情况：第一次运行在 R2 被拒，第二次加上 `trusted_owner` 后完成安装。
+- **不在本次范围**：`restic_maint_data_host`、`host_health_install`、`relation_gaps_install` 各有自己的 `root_owned` 副本；三个 hba 脚本以 root 写 pg_hba（§6.2）。这些检查的路径如果经过部署用户的目录，需要另行处理。

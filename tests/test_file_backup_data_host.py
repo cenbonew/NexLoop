@@ -349,27 +349,33 @@ class AsUser:
             self.inside = False
 
 
-def account(uid):
-    if uid != DEPLOY:
-        raise KeyError(uid)
-    return type('Entry', (), {'pw_gid': DEPLOY + 1, 'pw_name': 'deploy-user'})
+def account(name):
+    """Test only: the account database - deploy-user, a root-named alias and the service user."""
+    uids = {'deploy-user': DEPLOY, 'toor': 0, 'nexloop-backup': DEPLOY + 3}
+    if name not in uids:
+        raise KeyError(name)
+    return type('Entry', (), {'pw_uid': uids[name], 'pw_gid': DEPLOY + 1, 'pw_name': name})
 
 
-def deployment_user_owns(hba, *more, uid=DEPLOY):
-    """config/, pg_hba.conf and nexloop_root (the stage layout: the deployment user's 751/750/644)."""
-    for path in (hba, hba.parent, hba.parent.parent, *more):
+def deployment_user_owns(hba, uid=DEPLOY):
+    """config/, pg_hba.conf and nexloop_root as on stage: the deployment user's 751/750/644."""
+    for path in (hba, hba.parent, hba.parent.parent):
         UIDS[os.stat(path).st_ino] = uid
     os.chmod(hba.parent.parent, 0o751)
     os.chmod(hba.parent, 0o750)
     os.chmod(hba, 0o644)
 
 
-def test_a_config_directory_of_the_deployment_user_is_written_as_that_user(tmp_path, monkeypatch):
-    """Dispatcher 2026-10-27 (stage refused step 1a): config/ and pg_hba.conf of the deployment user, who rewrites pg_hba anyway -
-    pg_hba, its backup and nothing else are written with that user's identity; root only renders (in its own scratch) and reads."""
-    root, config, hba = setup(tmp_path)
+def deployed(tmp_path, monkeypatch, **over):
+    root, config, hba = setup(tmp_path, **{'trusted_owner': 'deploy-user', **over})
     deployment_user_owns(hba)
-    as_user = AsUser(monkeypatch)
+    return root, config, hba, AsUser(monkeypatch)
+
+
+def test_a_config_directory_of_the_trusted_owner_is_written_as_that_user(tmp_path, monkeypatch):
+    """Dispatcher 2026-10-27 (stage refused step 1a): config/ and pg_hba.conf of the deployment user, named as trusted_owner - pg_hba,
+    its backup and nothing else are written with that user's identity; root only renders (in its own scratch) and reads."""
+    root, config, hba, as_user = deployed(tmp_path, monkeypatch)
     before = hba.read_text()
     code, text, runner = main(root, config, hba, writer={'account': account, 'as_user': as_user})
     assert code == 0 and 'written as deploy-user' in text, text
@@ -382,11 +388,20 @@ def test_a_config_directory_of_the_deployment_user_is_written_as_that_user(tmp_p
     assert code == 0 and 'already installed' in text and as_user.writers == []
 
 
+def test_without_trusted_owner_the_deployment_users_config_is_refused(tmp_path, monkeypatch):
+    """Never by default: the same stage layout without trusted_owner is refused, saying what to configure."""
+    root, config, hba, as_user = deployed(tmp_path, monkeypatch)
+    cfg = json.loads(Path(config).read_text())
+    del cfg['trusted_owner']
+    Path(config).write_text(json.dumps(cfg))
+    code, text, runner = main(root, config, hba, writer={'account': account, 'as_user': as_user})
+    assert code == 2 and 'pg_hba directory' in text and 'name that user as trusted_owner' in text, text
+    assert as_user.writers == [] and not any(c[1:3] == ['-I', '-B'] for c in runner.calls)
+
+
 @pytest.mark.parametrize('kw', [{'container': lambda text: 'another inode\n'}, {'logs': 'LOG:  pg_hba.conf was not reloaded\n'}])
-def test_the_write_back_is_done_as_the_deployment_user_too(tmp_path, monkeypatch, kw):
-    root, config, hba = setup(tmp_path)
-    deployment_user_owns(hba)
-    as_user = AsUser(monkeypatch)
+def test_the_write_back_is_done_as_the_trusted_owner_too(tmp_path, monkeypatch, kw):
+    root, config, hba, as_user = deployed(tmp_path, monkeypatch)
     before = hba.read_text()
     code, text, _ = main(root, config, hba, writer={'account': account, 'as_user': as_user}, **kw)
     assert code == 1 and hba.read_text() == before
@@ -395,37 +410,42 @@ def test_the_write_back_is_done_as_the_deployment_user_too(tmp_path, monkeypatch
 
 
 def test_root_writes_itself_when_config_is_roots_alone(tmp_path, monkeypatch):
-    root, config, hba = setup(tmp_path)
+    root, config, hba = setup(tmp_path, trusted_owner='deploy-user')
     as_user = AsUser(monkeypatch)
     code, text, _ = main(root, config, hba, writer={'account': account, 'as_user': as_user})
     assert code == 0 and 'written as root' in text and as_user.writers == [None]
 
 
 @pytest.mark.parametrize('arrange, why', [
-    (lambda hba: UIDS.pop(os.stat(hba).st_ino), 'one user owning it'),             # pg_hba.conf not config/'s owner's
-    (lambda hba: os.chmod(hba.parent, 0o770), 'one user owning it'),                # config/ group-writable
-    (lambda hba: os.chmod(hba, 0o664), 'one user owning it'),                       # pg_hba.conf group-writable
-    (lambda hba: os.chmod(hba.parent.parent, 0o771), 'group/other-writable'),       # the user's directory above config/ writable
-    (lambda hba: UIDS.__setitem__(os.stat(hba.parent.parent).st_ino, DEPLOY + 7), 'must be owned by root'),  # a third user above
-    (lambda hba: [UIDS.__setitem__(os.stat(p).st_ino, DEPLOY + 7) for p in (hba, hba.parent, hba.parent.parent)], 'no account'),
+    (lambda hba: UIDS.pop(os.stat(hba).st_ino), 'must be owned by trusted_owner'),      # pg_hba.conf not the trusted owner's
+    (lambda hba: UIDS.__setitem__(os.stat(hba).st_ino, DEPLOY + 7), 'must be owned by trusted_owner'),
+    (lambda hba: os.chmod(hba, 0o664), 'must be owned by trusted_owner'),               # pg_hba.conf group-writable
+    (lambda hba: os.chmod(hba.parent, 0o770), 'or trusted_owner'),                      # config/ group-writable
+    (lambda hba: UIDS.__setitem__(os.stat(hba.parent).st_ino, DEPLOY + 7), 'or trusted_owner'),          # config/ a third user's
+    (lambda hba: os.chmod(hba.parent.parent, 0o771), 'or trusted_owner'),               # the user's directory above config/ writable
+    (lambda hba: UIDS.__setitem__(os.stat(hba.parent.parent).st_ino, DEPLOY + 7), 'or trusted_owner'),   # a third user above
 ])
-def test_a_deployment_user_layout_others_could_change_is_refused_before_anything(tmp_path, monkeypatch, arrange, why):
-    root, config, hba = setup(tmp_path)
-    deployment_user_owns(hba)
+def test_a_layout_others_than_the_trusted_owner_could_change_is_refused_before_anything(tmp_path, monkeypatch, arrange, why):
+    root, config, hba, as_user = deployed(tmp_path, monkeypatch)
     arrange(hba)
-    as_user = AsUser(monkeypatch)
     before = hba.read_text()
     code, text, runner = main(root, config, hba, writer={'account': account, 'as_user': as_user})
-    assert code == 2 and 'pg_hba directory' in text and why in text, text
+    assert code == 2 and why in text, text
     assert as_user.writers == [] and hba.read_text() == before and not any(c[1:3] == ['-I', '-B'] for c in runner.calls)
+
+
+@pytest.mark.parametrize('name, why', [('nobody-here', 'no such user'), ('toor', 'must not be root'), ('nexloop-backup', 'not nexloop-backup'),
+                                       ('Deploy User', "the deployment user's name"), (7, "the deployment user's name")])
+def test_trusted_owner_names_an_existing_user_neither_root_nor_the_service_user(tmp_path, monkeypatch, name, why):
+    root, config, hba, as_user = deployed(tmp_path, monkeypatch, trusted_owner=name)
+    code, text, runner = main(root, config, hba, writer={'account': account, 'as_user': as_user})
+    assert code == 2 and 'trusted_owner' in text and why in text and runner.calls == [], text
 
 
 def test_a_pg_hba_replaced_after_its_check_is_never_read(tmp_path, monkeypatch):
     """Root reads pg_hba only from the inode, owner and type lstat saw: a file swapped in meanwhile (say, a hard link to another
     file of the user's) is not read, written to the backup or diffed."""
-    root, config, hba = setup(tmp_path)
-    deployment_user_owns(hba)
-    as_user = AsUser(monkeypatch)
+    root, config, hba, as_user = deployed(tmp_path, monkeypatch)
 
     def swap(path):
         other = path.parent / 'other'
@@ -472,38 +492,23 @@ def test_as_user_runs_the_action_in_a_child_with_that_identity_and_reports_its_f
 
 def test_a_linked_config_or_nexloop_root_of_the_user_is_refused(tmp_path, monkeypatch):
     for n, level in enumerate(('config', 'nexloop')):
-        root, config, hba = setup(tmp_path / str(n))
-        deployment_user_owns(hba)
+        root, config, hba, as_user = deployed(tmp_path / str(n), monkeypatch)
         real = hba.parent if level == 'config' else hba.parent.parent
         moved = real.with_name(real.name + '-real')
         os.rename(real, moved)
         os.symlink(moved, real)
         UIDS[os.lstat(real).st_ino] = DEPLOY
-        as_user = AsUser(monkeypatch)
         code, text, _ = main(root, config, hba, writer={'account': account, 'as_user': as_user})
-        assert code == 2 and 'pg_hba directory' in text and as_user.writers == [], (level, text)
+        assert code == 2 and 'symbolic link' in text and as_user.writers == [], (level, text)
 
 
 def test_a_missing_pg_hba_is_refused_in_either_layout(tmp_path, monkeypatch):
     for n, deploy in enumerate((False, True)):
-        root, config, hba = setup(tmp_path / str(n))
         if deploy:
-            deployment_user_owns(hba)
+            root, config, hba, as_user = deployed(tmp_path / str(n), monkeypatch)
+        else:
+            root, config, hba = setup(tmp_path / str(n))
+            as_user = AsUser(monkeypatch)
         hba.unlink()
-        code, text, _ = main(root, config, hba, writer={'account': account, 'as_user': AsUser(monkeypatch)})
-        assert code == 2 and 'a regular file' in text, (deploy, text)
-
-
-def test_a_tree_of_the_user_up_to_slash_is_refused(tmp_path, monkeypatch):
-    """No directory above config/ is root's: nothing to anchor the chain on."""
-    directory = tmp_path / 'config'
-    directory.mkdir()
-    (directory / 'pg_hba.conf').write_text('rules\n')
-    lstat = os.lstat
-    monkeypatch.setattr(os, 'lstat', lambda path, *a, **k: os.stat_result((lstat(path).st_mode & ~0o022, *lstat(path)[1:4], DEPLOY, 0,
-                                                                            *lstat(path)[6:])))
-
-    def never(path, *, what):
-        raise D.Refused(f'{what}: must be owned by root')
-    with pytest.raises(D.Refused, match='/ is not root'):
-        D.hba_writer(directory, directory / 'pg_hba.conf', never, account)
+        code, text, _ = main(root, config, hba, writer={'account': account, 'as_user': as_user})
+        assert code == 2 and 'pg_hba.conf' in text and as_user.writers == [], (deploy, text)
