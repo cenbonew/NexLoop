@@ -691,13 +691,14 @@ def host_health_files(root, config):
     return [(under(root, config['host_health_config']), False), (under(root, config['host_health_install_config']), True)]
 
 
-def rewrite_timers(files, change):
-    """Both host-health files or neither: the first is restored when the second cannot be written."""
+def rewrite_timers(files, change, of=timers_of):
+    """Both host-health files or neither: the first is restored when the second cannot be written. of: the probe block's reader
+    (timers_of; rest_server_data_host's services_of)."""
     plans = []
     for path, nested in files:
         before = path.read_text() if path.exists() else None
         value = read_private_json(path)
-        if change(timers_of(value, nested, path)):
+        if change(of(value, nested, path)):
             plans.append((path, before, json.dumps(value, indent=2) + '\n'))
     done = []
     try:

@@ -407,7 +407,33 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
   - 恢复日志在另一个仓库里，攻击者碰不到（F1 b）。
 - 不能删除或覆盖已有对象。
 - rest-server 是一个新的对外端口，有四道限制：TLS、认证、只放行 APP_HOST 的防火墙表、unit 沙箱。
-- 后续项：把 `nexloop-rest-server.service` 加进 DATA_HOST 的 host-health services。`crash_loop` 和 `host_unit_missing` 是通配规则，加进去就会覆盖它。
+- 后续项（**已完成**，调度员 2026-10-27）：把 `nexloop-rest-server.service` 加进 DATA_HOST 的 host-health services。`crash_loop` 和 `host_unit_missing` 是通配规则（selector `*`），加进去就会覆盖它，告警规则不用改。
+  - 写入方式与 file-backup、relation-read-gaps 的 timers 相同：`rest_server_data_host.sh` 的 R6 在 R5（服务已 active）之后，把 `{"name": "rest-server", "unit": "nexloop-rest-server.service"}` 加进两个文件的 `services`。一个是探针自己的 `/etc/nexloop/host-health.json`；另一个是 host-health 的安装配置，这样以后重装 host-health 也会保留它。
+  - 配置里两个文件的路径是必填项（`host_health_config`、`host_health_install_config`），**已安装的私有配置要补上这两项**。两个文件在 R0 之前都要读得出来，任一缺失或格式不对就拒绝，什么都不装。写入时要么两个都写，要么都不写。同名条目已存在就不重复添加，其他条目不动。
+  - `--uninstall` 先把条目从仍然存在的文件里拿掉，再停服务。这样主动卸载不会触发 `host_unit_missing`。示例配置（`host-health.example.json`、`host-health-install.data-host.example.json`）已列出这一项。
+  - **crash_loop**：unit 是 `Restart=on-failure`、`RestartSec=10`，持续崩溃时每分钟重启约 6 次，1 小时内达到 3 次就告警。restic-maint 每天的停服和拉起不计数，原因有两个：一是探针对 service 的 instance_id 就是 unit 名，不会因为重新启动而变；二是 `NRestarts` 只统计 systemd 按 `Restart=` 做的自动重启，计数被清零时 SQL 也不计入。
+  - **host_unit_missing**：维护期间 rest-server 停着（ActiveState inactive），但探针照样采到这个 unit，所以不告警。删掉 unit 文件时这条规则能否告警，取决于探针是否检查 LoadState，见下面的探针提交。
+- **restic-maint 新增的文件仓库块会不会带来新的误报**（调度员 2026-10-27 要求核对）：
+  - **`timer_stale_restic_maint`**（阈值 93600 秒，即 24 小时加 2 小时）：
+    - 计时起点是上一次按计划成功运行的结束时间。这个块让每次运行变长：等锁最多 10 分钟，文件仓库的 forget/prune 和 check，周日再加 `--read-data-subset 1/10`。
+    - 只有当某一天的运行比前一天晚结束 2 小时以上，才会误报；timer 的 `RandomizedDelaySec=10min` 会再占掉最多 10 分钟。
+    - 固定的长短差在周日：深度 check 现在是三个仓库。stage 上文件仓库很小，相差几分钟，**不会产生新的误报**。
+    - 如果文件仓库将来大到本地读 1/10 要一个半小时以上，周日早上会出现一次 stale，直到这次运行结束。到那时调高这条阈值。
+    - `TimeoutStartSec=6h` 封顶：卡死的运行会以失败结束，属于真实告警。
+  - **`timer_scheduled_failure`**（data_host:restic-maint）：新增的失败路径有四条：
+    - (a) `--wait-unlocked 600` 超时：凌晨 3:30 到 3:40 之间，APP_HOST 一轮文件备份持有锁超过 10 分钟；或者某一轮崩溃后留下一把还新鲜的锁（`unlock` 只清理过期的锁）。
+    - (b) `ExecStopPost` 拉起 rest-server 后 3 秒不是 active。
+    - (c) 守卫拒绝（有未来时间的快照）。
+    - (d) 文件仓库的 forget、prune 或 check 失败。
+    - (b) 到 (d) 都是真故障。(a) 只有在单轮文件备份正常地超过 10 分钟时才算误报，stage 上一轮只要几秒到几分钟，**目前不会出现**。
+  - **对 APP_HOST 的副作用**：rest-server 停着的时候开始的一轮文件备份会失败，记为 app_host:file-backup 的 `timer_scheduled_failure`（窗口 24 小时）。
+    - 这个块先等到没有锁再停服，所以停服紧跟在一轮备份之后。
+    - 只有停服窗口（守卫加文件仓库的 forget/prune）长于到下一轮的间隔（约 15 分钟减去一轮的时长，再加减 60 秒随机延迟），才会撞上下一轮。
+    - stage 上小仓库的 prune 只要几秒，**目前不会出现**。`timer_stale_file_backup`（2700 秒，即三个周期）只有在停服超过约 30 分钟时才会受影响。
+- **L6 S1（049a33cc 的复审）**：APP_HOST 第 5 步的 `refused`，看的是 restic 输出里 `unable to remove snapshot/<探针的 id>` 这一行。
+  - 被拒绝的原因不止一种：除了 `--append-only` 返回的 403，网络错误或 5xx（restic 的重试用尽之后）也会打印同一行，而快照同样还在。从 APP_HOST 这一侧分不清这几种情况。
+  - 兜底的是 DATA_HOST 的 `rest_server_append_only_check.sh`（上文“只追加的一次性验证”）：对同一个 rest-server 二进制、以 `--append-only` 启动，用 curl 对 data、index、keys、snapshots 各发一次 DELETE，都必须返回 403；原有对象最后逐字节不变。unit 带 `--append-only`，由 `test_the_unit_is_append_only_tls_and_sandboxed` 检查。
+  - 所以两边各证明一件事：APP_HOST 第 5 步证明这个仓库经由这台服务删不掉东西；DATA_HOST 的 curl 验证证明删不掉的原因是 `--append-only`，而不是网络。
 
 ### 6.6 `trusted_owner`：部署用户持有的上级目录（调度员 2026-10-27）
 
