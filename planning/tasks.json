@@ -3029,6 +3029,18 @@
         "ref": "https://github.com/cenbonew/NexLoop/releases/tag/v0.1.0",
         "summary": "v0.1.0 发布（2026-10-20）：负责人在开发机签 SSH tag（指向 0ae29d87），以 maintainer 推入 LAN 仓库，pre-receive 按 allowed signers 验签接受；同步服务再验后推 GitHub（首次因 unit 的 /tmp 只读判 tag_unverified，主机加 PrivateTmp=yes 后同步，示例同步更正）；GitHub 干净克隆 verify-tag Good。负责人发布 GitHub Release：源码归档、公开版清单、镜像与源码 SBOM、allowed_signers、SHA256SUMS（读回 8/8 一致）。",
         "recorded_at": "2026-10-20T16:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 49 (RID 20261026-68318410d705-1, main 68318410, batches 36-38): built and signed (sealed 49) through the release lane, not deployed; superseded by release 50. Executor: dispatcher.",
+        "recorded_at": "2026-10-27T15:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 50 (RID 20261027-575859f73be7-1, main 575859f7): deployed to stage, gate 20/21, promote ok, migrations 0360-0363 applied. Executor: dispatcher.",
+        "recorded_at": "2026-10-27T15:30:00+08:00"
       }
     ]
   },
