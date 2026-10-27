@@ -101,6 +101,10 @@ _REPORT_KINDS={
 }
 
 OPERATIONS={
+    # NX-038 G1: an owner budget of any kind (evolution included, D15); the currency, amount and period are checked again in SQL.
+    'set_budget':{'budget_kind':lambda v:v if v in ('model','incentive','evolution') else (_ for _ in ()).throw(ValueError('budget kind')),
+        'unit':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}')),'limit_amount':_id(re.compile(r'[0-9]{1,15}(\.[0-9]{1,6})?')),
+        'period_start':_utc,'period_end':_utc},
     'set_control':{'scope_kind':_scope,'scope_ref':_text,'paused':_bool,'reason':_reason},
     'release_contact_restriction':{'consumer_id':_id(_HEX),'reason':_reason},
     'cancel_commitment':{'commitment_id':_id(_HEX),'reason':_reason},

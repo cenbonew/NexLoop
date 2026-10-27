@@ -1,19 +1,18 @@
-# 运行单：NX-038 剩余项的 stage 实测（AT-023、AT-024、AT-048，S6-R1、R5、R7；R2 见 §6）
+# 运行单：NX-038 剩余项的 stage 实测（AT-023、AT-024、AT-048，S6-R1、R5、R7）
 
 - **执行人**：调度员（管理机）。**判定人**：负责人（按 `planning/` 中 AT-023/024/048 与 NX-038 的记录）。L6 只复核本单，不判定结果。
 - **依据**：`docs/implementation/S6-stage-acceptance.md`（脚本、配置、断言、执行顺序）、`docs/implementation/evolution-stage-enrollment.md`（服务主体登记）、`run-nx056-approvals-enable.md`（合成 owner approver2/approver3）。本单不复述脚本的断言，只写在 stage 上怎么跑、看什么、失败怎么办。
-- **结论**：七项中六项的入口在 main 17aa74c1 上都有，但都卡在同一个前提：租户的 evolution 预算，而设它没有“配置文件加一条命令”的入口（§6 G1）。S6-R2 在仓库里没有定义（§6 G2）。G1 落地前，本单只能执行到 §2.1 的 dry-run。
+- **结论**：六项的入口在 main 17aa74c1 上都有，都依赖同一个前提：租户的 evolution 预算。设预算的入口原来缺失，本分支补上（§6 G1：工作台路由 `set_budget`，由 approver3 用 `approval_drill.py` 提交，即 §2.0）。本单要在含 G1 的发布部署到 stage 之后执行。S6-R2 无定义，按笔误处理（§6 G2）。
 - **入口**：
 
 | 项 | 入口 | 能否直接在 stage 跑 |
 |---|---|---|
-| AT-023 候选隔离 | `scripts/acceptance/s6_stage_evolution.py at023` | 入口有；但要 P3 的 evolution 预算，**设预算缺入口（§6 G1）** |
+| AT-023 候选隔离 | `scripts/acceptance/s6_stage_evolution.py at023` | 入口有；要 P3（§2.0 设定） |
 | AT-024 结构权限 | `scripts/acceptance/s6_stage_schema.py at024`（owner 用 approver3 的工作台会话） | 入口有；先跑 `s6_stage_evolution.py candidate-template`（开诊断，要 P3） |
 | AT-048 验证泄漏 | `s6_stage_evolution.py at048` | 入口有；要 P3 |
 | S6-R1 L0 复现 | `s6_stage_evolution.py r1` | 入口有；要 P3 |
 | S6-R5 writer/evaluator 分离、test 评估凭据 | `s6_stage_evolution.py r5` | 入口有；要 P3 |
 | S6-R7 删除传播 | `s6_stage_evolution.py r7-prepare` → `erase_synthetic_consumer.py erase`（approver3）→ `r7-verify` | 入口有；要 P3 |
-| S6-R2 | 仓库里没有定义 | **不能**，见 §6 G2 |
 
 - **身份**：人工步骤只用合成 owner **approver3**（口令在钥匙串 `nexloop/stage/approver3`；用户名的取法与 run-nx056-approvals-enable.md 相同）。负责人的账号不登录、不操作。evolution 的 writer/evaluator/reader 是服务凭据，不是人。
 - 本单不写正式对象：演进只写候选、评估与留出集；`--publish`（r8）和 r6 **不在本单内**（属 NX-039/040 的运行单）。
@@ -24,8 +23,8 @@
 |---|---|---|
 | P1 | stage 部署的是 main 17aa74c1 或之后、含迁移 0235/0237/0241/0248/0286（AT-048 修复）的发布 | 部署单；`ro "select version from control.schema_migrations where version in ('0235','0237','0241','0248')"` 返回 4 行（`ro` 见 run-nx057 §0.3）；0286 按集成后的实际编号核对 |
 | P2 | 演进服务主体已登记：writer、evaluator、reader 三个服务凭据和一张只含 test 的评估凭据；三个 LOGIN 角色有口令、pg_hba 放行 | `python3 scripts/deploy/evolution_enroll.py --config <私有 enroll 配置> --check`，退出码 0，四项自检都为 true。没有登记过时，先按 `evolution-stage-enrollment.md` 执行（调度员；bootstrap 窗口） |
-| P3 | 租户有 world real、kind `evolution` 的预算上限（单位 CNY，期间覆盖本次执行） | `ro "select unit, limit_amount, period_start, period_end from control.nexloop_budget_limits where tenant_id='$TENANT_ID' and world='real' and budget_kind='evolution'"` 有一行。**没有时本单全部判 blocked**：开诊断（`authz.nexloop_evo_diagnosis_open`，0235）在没有 evolution 上限时报 `budget evolution not configured`，每项检查都从开诊断开始；开评与 L1 预留也查这个上限（0241、0248）。目前没有“配置文件加一条命令”的入口来设它（§6 G1） |
-| P4 | approver3 是 stage 租户的 owner 成员，active；有 `Budget.set`（G1 落地后）、`consumer.erase_synthetic`、Schema proposal 读与发布路由的权限 | approver3 登录工作台成功；`s6_stage_schema.py at024 --dry-run` 不报 `owner workbench login not configured` |
+| P3 | 租户有 world real、kind `evolution` 的预算上限（单位 CNY，期间覆盖本次执行） | `ro "select unit, limit_amount, period_start, period_end from control.nexloop_budget_limits where tenant_id='$TENANT_ID' and world='real' and budget_kind='evolution'"` 有一行。**没有时本单全部判 blocked**：开诊断（`authz.nexloop_evo_diagnosis_open`，0235）在没有 evolution 上限时报 `budget evolution not configured`，每项检查都从开诊断开始；开评与 L1 预留也查这个上限（0241、0248）。没有时按 §2.0 设定 |
+| P4 | approver3 是 stage 租户 active 的 owner 成员，持有 `Budget.set:1`、`nexloop.consumer.erase_synthetic:1` 等 owner Action 的授权，且这些 Action 在租户已发布 | **源码判断**：`deploy/authorization/workbench-roles.v1.json` 的 owner 角色含 `eios:action:Budget.set:1`（`existing_governed` 切片），owner 成员经 `workbench_roles.compile_members` 得到全部 owner 授权；run-nx056 §1 已把 approver3 登记为 owner。所以只要 approver3 是 active owner、`Budget.set` 已发布，就有权限。**stage 只读核对**（调度员执行，`ro` 见 run-nx057 §0.3）：`ro "select entity_key[2] from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='grants' and entity_key[1]='stage-principal-approver3' and entity_key[2] in ('eios:action:Budget.set:1','eios:action:nexloop.consumer.erase_synthetic:1')"` 应有 2 行（授权事实的键是 `[principal_id, Action]`，见 `workbench_roles.py`）；`ro "select resource_id, active from control.nexloop_action_definitions where tenant_id='$TENANT_ID' and world='real' and resource_id='eios:action:Budget.set:1'"` 应有一行，`active` 为 t。没有授权或未发布时判 blocked，按 NX-056 运行单核对成员、按 `stage_secrets publish` 发布，不改用负责人账号 |
 | P5 | 合成交互数据：窗口内有 persona 为 simulated_agent/synthetic 的 Consumer 的失败 Run，带检索未命中的语义读取；至少 4 个这样的 Consumer；AT-048 的 (b) 路线要一对近重复 Run | `uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config <S6 配置>`，退出码 0（`semantic` 此时 blocked 是正常的）。不够时先用 `synthetic_customer.py` 跑一段合成交互（S6-stage-acceptance §合成交互） |
 | P6 | 管理机有同一发布的检出，`uv` 可用；能经 HTTPS 访问 stage 工作台；能用 reader/writer/evaluator/inspector 四个 DSN 连库（与 NX-043 stage 脚本相同的走法） | `s6_stage_evolution.py all --dry-run` 不报连接或角色错误 |
 
@@ -53,6 +52,24 @@ security find-generic-password -s nexloop/stage/approver3 -w | uv run --frozen p
 ```
 
 预期：每项一行 `nexloop-s6-stage-result/1`，`dry_run: true`，`blocked: false`，退出码 0。任何一项 blocked，按它的 `steps` 补前提后再来。
+
+### 2.0 设 evolution 预算（P3 不满足时；approver3，一次）
+
+照 run-nx056 §8 的驱动形态（口令经钥匙串写进 0600 临时文件，trap 删除；`$WB` 是 stage 工作台的 https 源，只写 scheme 和主机，与 run-nx056 相同）：
+
+```bash
+P3=$(f=$(mktemp); chmod 600 "$f"; security find-generic-password -s nexloop/stage/approver3 -w > "$f"; echo "$f"); trap 'rm -f "$P3"' EXIT
+D3=(.venv/bin/python scripts/stage/approval_drill.py --base-url "$WB" --username "<approver3 用户名>" --account-label approver3 --password-file "$P3" --evidence-file local-only/nx038-budget.jsonl)
+BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_start":"<本月 1 日 00:00:00Z>","period_end":"<下月 1 日 00:00:00Z>"}'
+"${D3[@]}" --dry-run request --operation set_budget --body-json "$BUDGET"
+"${D3[@]}" request --operation set_budget --body-json "$BUDGET"
+```
+
+- 预期：dry-run 打印 `POST /api/v1/workbench/actions/set_budget` 和五个字段名；正式一行 JSON，HTTP 200，`operation: set_budget`，退出码 0。`set_budget` 不在审批策略 v1 内，不会返回 waiting_approval。
+- 字段要求（路由与 SQL 都会查）：`budget_kind` 取 `model|incentive|evolution`；evolution 的 `unit` 是三位大写币种；`limit_amount` 是十进制文本（不收浮点数）；两端时间都是 UTC，期间覆盖本次执行。50 元按 S6-stage-acceptance 的规模（每候选上限 10、L1 预留 0.01）足够，由调度员按需要调整。
+- 再执行一次会追加一个新的预算版本（每次新的 Idempotency-Key），值相同不影响结果；不需要重跑。
+- 之后用 P3 的只读查询确认有一行。
+- 401/403：approver3 不是 active owner 或没有 `Budget.set` 授权（P4）；404 或 `Action not published`：`Budget.set` 未发布；422：字段不合法。都判 blocked，不改用负责人账号。
 
 ### 2.2 正式执行（顺序固定，原因见 S6-stage-acceptance §执行顺序）
 
@@ -100,7 +117,7 @@ security find-generic-password -s nexloop/stage/approver3 -w | uv run --frozen p
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| F1：任何检查 `blocked` 或失败，原因含 `budget evolution not configured` / `budget_exhausted` | P3 没有 evolution 预算，或已用完 | 判 blocked。G1 落地前不能补；落地后按 §6 G1 设预算再重跑同一 `label` |
+| F1：任何检查 `blocked` 或失败，原因含 `budget evolution not configured` / `budget_exhausted` | P3 没有 evolution 预算，或已用完 | 按 §2.0 设预算（或调高上限）后重跑同一 `label` |
 | F2：`r5`/`at023` 报评估凭据或角色错误 | P2 登记不全，或评估凭据不是 test-only | 跑 `evolution_enroll.py --check`，按其失败项修复；不要手工改登记表 |
 | F3：`s6_stage_inputs.py` 有 blocked 的 window / erasure_consumer_id | 合成数据不够（P5） | 先跑合成交互，再查一次；不要放宽 persona 到 real |
 | F4：`at024` 报 owner 登录失败或 403 | approver3 不是 active owner，或缺路由权限 | 判 blocked，按 NX-056 运行单核对 approver3 的成员状态；不改用负责人账号 |
@@ -110,12 +127,12 @@ security find-generic-password -s nexloop/stage/approver3 -w | uv run --frozen p
 | F8：`r7-verify` 某项没变 | 删除传播没到演进侧，或 keeper 还没跑完 | 等 keeper 一轮（删除工具 `--dry-run` 看 post-check）后重跑一次 `r7-verify`；仍失败判 failed |
 | F9：任何步骤报连接、超时 | 网络或服务不可用 | 重跑同一命令（同一 `label` 按重放处理，不会重复写） |
 
-## 6. 缺代码的项（工作量为估计）
+## 6. 缺代码的项
 
 | # | 缺口 | 影响 | 建议 | 估计 |
 |---|---|---|---|---|
-| G1 | **evolution 预算没有“配置文件加一条命令”的入口**。`Budget.set`（`set_budget`）有 SQL 与 `GoalGovernedActions.set_budget`，但工作台动作路由 `workbench_actions_http.py` 的字段表里没有 `set_budget`；`scripts/nx037/real_tenant_init.py budget` 把 `budget_kind` 写死为 `model`，而且要在 APP_HOST 上用应用端的 DSN 和签名密钥 | P3 无法满足，本单**全部** blocked（开诊断即被拒） | 在路由字段表加 `set_budget`（budget_kind、unit、limit_amount、period_start、period_end，与 `set_budget` 的校验相同），之后用现有的 `scripts/stage/approval_drill.py request --operation set_budget` 以 approver3 提交（不在审批策略内，直接执行）。补测试：路由字段严格、无 grant 被拒、evolution 必须是三位币种 | 0.5 天（含测试与一次 stage 演练写入运行单） |
-| G2 | **S6-R2 在仓库里没有定义**：`S6-stage-acceptance.md`、`planning/`、`docs/` 中都只有 R1、R3–R10；`s6_stage_evolution.py` 的 `ACCEPTANCE` 也没有 R2 | 无法写运行单 | 请调度员给出 L5 收口清单中 S6-R2 的原文。若它是 NX-038 交付物里的“三层预算”（诊断/候选上限、诊断截止、租户月度 evolution 上限各自耗尽时转 incomplete/budget_exhausted），本地已有 `test_evolution_e4_pg` 覆盖，stage 检查约 0.5–1 天（新增一项 `r2`，要一个很小的候选上限，依赖 G1） | 定义确认后 0.5–1 天 |
+| G1 | **evolution 预算没有“配置文件加一条命令”的入口**（原状态）：工作台动作路由的字段表里没有 `set_budget`；`real_tenant_init.py budget` 把类型写死为 `model`，且要在 APP_HOST 上用应用端 DSN 和签名密钥 | P3 无法满足，本单全部 blocked | **本分支已补**：`workbench_actions_http.py` 的 `OPERATIONS` 加 `set_budget`（budget_kind 取 model/incentive/evolution，不写死；limit_amount 只收十进制文本；时间必须 UTC；字段严格），`api-routes.v1.json` 把 `goals.budget.set` 从 `capabilities_not_on_http` 移到 `operations`。不新增 Action，不需要迁移。测试：`test_workbench_actions_http.py`（owner 设 evolution 预算成功且重放、七种不合法的请求 422 且不写、operator 403）、`test_evolution_e4_pg.py`（未设预算时开诊断报 `budget evolution not configured`，阳性对照）、`test_api_route_inventory.py`（未上 HTTP 的能力 10 → 9） | 已完成 |
+| G2 | **S6-R2 无定义**：`S6-stage-acceptance.md`、交接包文档和 `planning/` 中都没有 S6-R2 的定义；`s6_stage_evolution.py` 的 `ACCEPTANCE` 也没有 R2 | 无 | 按笔误处理（调度员 2026-10-28）：NX-038 那条 planning note 里的“R1、R2、R5、R7”应为“R1、R5、R7”，由 L4 更正 planning note。本单不补 R2 | 无 |
 
 ## 7. 局限
 

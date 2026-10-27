@@ -24,7 +24,7 @@ from test_commitments_pg import active_plan,fresh,plan_triggers
 from test_governed_entry_pg import predict
 
 pytestmark=pytest.mark.parametrize('execution_plan',['commitment-service'],indirect=True)
-GOAL_ACTIONS={'Control.set':'goals.control.set','Contact.release':'goals.contact.release'}
+GOAL_ACTIONS={'Control.set':'goals.control.set','Contact.release':'goals.contact.release','Budget.set':'goals.budget.set'}
 
 
 def publish_goal_actions(admin):
@@ -124,6 +124,27 @@ def test_contact_release_commitment_actions_and_requests_over_http(workbench,adm
     assert admin.execute("select array_agg(kind order by requested_at) from runtime.nexloop_human_requests").fetchone()==(['plan_reevaluation'],)
 
 
+EVOLUTION_BUDGET={'budget_kind':'evolution','unit':'CNY','limit_amount':'50.00','period_start':'2026-10-01T00:00:00Z','period_end':'2026-11-01T00:00:00Z'}
+
+
+def test_the_owner_sets_an_evolution_budget_and_malformed_budgets_are_refused(workbench,admin):
+    """NX-038 G1: set_budget on the workbench entry takes any budget kind (evolution included, D15), never a fixed model; the
+    fields are exact, the amount is a decimal text (no float), the period is UTC; the same key replays."""
+    c=workbench
+    limits=lambda:admin.execute("select budget_kind,unit,limit_amount::text,period_start,period_end from control.nexloop_budget_limits order by 1").fetchall()
+    with c['app']() as client:
+        csrf=session(client,c['identity'])
+        for wrong in ({**EVOLUTION_BUDGET,'budget_kind':'bonus'},{**EVOLUTION_BUDGET,'budget_kind':None},{**EVOLUTION_BUDGET,'limit_amount':50.0},
+                      {**EVOLUTION_BUDGET,'limit_amount':'-1'},{**EVOLUTION_BUDGET,'period_start':'2026-10-01T00:00:00+08:00'},
+                      {**EVOLUTION_BUDGET,'tenant_id':'other'},{k:v for k,v in EVOLUTION_BUDGET.items() if k!='unit'}):
+            assert act(client,csrf,'set_budget',wrong).status_code==422,wrong
+        assert limits()==[]
+        done=act(client,csrf,'set_budget',EVOLUTION_BUDGET,key='wb-evolution-budget-0001')
+        assert done.status_code==200 and done.json()['operation']=='set_budget',done.text
+        assert act(client,csrf,'set_budget',EVOLUTION_BUDGET,key='wb-evolution-budget-0001').status_code==200
+    assert limits()==[('evolution','CNY','50.00',datetime(2026,10,1,tzinfo=UTC),datetime(2026,11,1,tzinfo=UTC))]
+
+
 def test_a_human_without_the_grant_is_forbidden(commitments,identity,uow,admin,pg,tmp_path):
     """Logged in, business-enabled, but without the commitment Actions: 403 and nothing written."""
     from test_review_http import grant_human
@@ -180,13 +201,15 @@ def test_customer_cookie_is_refused_and_roles_bound_the_workbench_writes(commitm
         assert act(client,csrf,'request_plan_reevaluation',{'plan_id':str(plan),'reason':'x'}).status_code==403
     with TestClient(create_app(config),base_url=ORIGIN) as client:
         csrf=workbench_login(client,operator).json()['csrf_token']
-        for operation,body in [('set_control',pause),('release_contact_restriction',{'consumer_id':c['consumer'],'reason':'x'})]:
+        for operation,body in [('set_control',pause),('release_contact_restriction',{'consumer_id':c['consumer'],'reason':'x'}),('set_budget',EVOLUTION_BUDGET)]:
             denied=act(client,csrf,operation,body)
             assert denied.status_code==403 and denied.json()['code']=='forbidden',(operation,denied.text)
         allowed=act(client,csrf,'request_plan_reevaluation',{'plan_id':str(plan),'reason':'客户情况有变'})
         assert allowed.status_code==200,allowed.text
-    assert events()==0
+    assert events()==0 and admin.execute('select count(*) from control.nexloop_budget_limits').fetchone()==(0,)
     assert admin.execute('select kind,principal_id from runtime.nexloop_human_requests').fetchall()==[('plan_reevaluation',operator['principal_id'])]
     with TestClient(create_app(config),base_url=ORIGIN) as client:
         csrf=workbench_login(client,owner).json()['csrf_token']
         assert act(client,csrf,'set_control',pause).status_code==200 and events()==1
+        assert act(client,csrf,'set_budget',EVOLUTION_BUDGET).status_code==200  # the owner role holds Budget.set (workbench-roles)
+    assert admin.execute("select count(*) from control.nexloop_budget_limits where budget_kind='evolution'").fetchone()==(1,)
