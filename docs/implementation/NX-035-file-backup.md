@@ -330,7 +330,8 @@ sudo bash scripts/deploy/rest_server_append_only_check.sh --rest-server /opt/nex
 - **逐项检查**（用 curl）：
   - data、index、keys、snapshots 各取一个已有对象：DELETE 和覆盖写都必须返回 403。覆盖写用的是 POST，这是 restic 写入的方式；rest-server 没有 PUT。
   - config：覆盖写必须返回 403；DELETE 不能成功，接受 403 或 405（rest-server 没有这条删除路由时返回 405）。
-  - locks：新建一个锁再删除，都必须成功（200），这是只追加唯一允许的删除。
+  - locks：新建一个锁再删除，都必须成功（200），这是只追加唯一允许的删除。另外，新建后 `locks/<名>` 必须出现，内容与 POST 的完全相同；删除后这个文件必须不见了。锁名取请求体的 sha256：rest-server 0.14.0 的 `saveBlob` 只在请求体的 sha256 等于对象名时才保存，否则返回 400。DATA_HOST 2026-10-27 第一次运行用的是随机锁名，得到的就是 400。rest-server 删除一个不存在的锁也返回 200，所以删除是否真的发生，只能看文件。
+  - 覆盖写探针先撞上的是 `saveBlob` 的“对象已存在”检查：无论开没开 `--append-only`，覆盖已有对象都返回 403。所以真正证明 `--append-only` 生效的，是各项 DELETE 的 403 和最后的逐字节比较。
   - 结束时，原有的每个对象都必须逐字节不变。
 - **收尾**：无论结果如何，最后都停掉临时实例，删掉一次性仓库。输出一行 JSON；全部符合预期才退出 0。
 
