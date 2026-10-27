@@ -8,7 +8,7 @@ import {Approvals,resultText,soloBanner,targetText} from '../src/workbench/pages
 const id='3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11';
 const base={approval_id:id,capability:'real_dispatch.set',operation:'set_real_dispatch',action:'eios:action:nexloop.real_dispatch.set:1',requested_by:'synthetic-owner',
   requested_at:'2026-10-23T01:00:00+00:00',due_by:'2026-10-24T01:00:00+00:00',status:'waiting_approval',digest:'0123456789ab',policy_version:1,quorum:1,approvals:0,
-  summary:{scope_kind:'tenant',enabled:true},target_member:null};
+  summary:{scope_kind:'tenant',enabled:true},target_member:null,consumed:false,consumed_at:null};
 const raw={to_decide:[base],mine:[{...base,approval_id:id.replace('3f','4f'),result:null}],
   to_execute:[{...base,approval_id:id.replace('3f','5f'),status:'approved',approvals:1,inputs:{scope_kind:'tenant',enabled:true,data_mode:'real',action_type:null,reason:'季度上线'}}],
   solo_mode:{enabled:false,others_eligible:true}};
@@ -85,4 +85,17 @@ test('NX-056 B1: target_member parses strictly in its kinds and renders who the 
     expect(()=>approvals({...raw,to_decide:[{...base,target_member:bad}]})).toThrow();
   const {target_member:_,...without}=base;
   expect(()=>approvals({...raw,to_decide:[without]})).toThrow();  // the key is always there
+});
+
+test('0368: an executed request shows 已执行 in 我发起的 (status stays approved); consumed and consumed_at must agree',()=>{
+  const done={...base,approval_id:id.replace('3f','6f'),status:'approved',approvals:1,result:'executed',consumed:true,consumed_at:'2026-10-27T02:00:00+00:00'};
+  const parsed=approvals({...raw,mine:[done],to_execute:[]});
+  expect(parsed.mine[0]).toMatchObject({status:'approved',consumed:true,consumed_at:'2026-10-27T02:00:00+00:00'});
+  const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(html).toContain('已批准 · <strong class="approval-consumed">已执行</strong>');expect(html).toContain('这次批准已用掉，不能再执行');
+  const waiting=render(client([[['workbench','approvals'],approvals(raw)],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(waiting).not.toContain('approval-consumed');
+  for(const bad of [{...done,consumed_at:null},{...base,consumed:false,consumed_at:'2026-10-27T02:00:00+00:00'},{...base,consumed:'yes'}])
+    expect(()=>approvals({...raw,mine:[{...bad,result:null}],to_execute:[]})).toThrow();
+  const {consumed:_c,...missing}=base;expect(()=>approvals({...raw,to_decide:[missing]})).toThrow();
 });

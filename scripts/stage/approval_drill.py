@@ -41,7 +41,7 @@ _LABEL = re.compile(r'[a-z0-9][a-z0-9._-]{0,31}')
 # The answer fields that are safe to show: ids, statuses and fixed codes. Anything else (a code or token an execution may show,
 # a request body, a reason text) is dropped; a string that is not a fixed code is shown as '<omitted>'.
 ANSWER_KEYS = ('approval_id', 'status', 'approval', 'reason', 'code', 'replayed', 'result', 'operation')
-ROW_KEYS = ('approval_id', 'capability', 'operation', 'status', 'approvals', 'quorum', 'policy_version', 'due_by')
+ROW_KEYS = ('approval_id', 'capability', 'operation', 'status', 'consumed', 'result', 'approvals', 'quorum', 'policy_version', 'due_by')
 _CODE = re.compile(r'[A-Za-z0-9_.:+-]{1,80}')
 
 

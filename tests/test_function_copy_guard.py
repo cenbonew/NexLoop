@@ -416,6 +416,9 @@ REGISTRY = [
     Allowed('nx056_followup', 'runtime.nexloop_approval_view_row', 'a self vote counts in the list only while the mode takes effect',
             ((r"and \(d\.actor_subject<>r\.requester_subject\n.*?\n     or \(d\.self_approved and control\.nexloop_approval_solo_effective\(r\.tenant_id,r\.world,r\.capability,r\.policy_version,r\.requester_subject\)\)\)",
               "and (d.actor_subject<>r.requester_subject or d.self_approved)"),)),
+    # NX-056 follow-up (day 1 drill, L6 S1): every view row says whether the approval was executed (consumption record).
+    Allowed('approval_view_consumed', 'runtime.nexloop_approval_view_row', 'consumed and consumed_at from the consumption record',
+            ((r"\n  \|\|coalesce\(\(select jsonb_build_object\('consumed',true.*?jsonb_build_object\('consumed',false,'consumed_at',null\)\)", ""),)),
     # NX-056 B1 (ADR-039 §6): target policies approved by owners only; every view row carries target_member; two alert metrics.
     Allowed('nx056_target_member', 'control.nexloop_approval_policy_guard', 'a target policy is approved by owners only',
             ((r" -- ADR-039 §6\.7 \(R1, B1\).*?\n  raise exception 'approval policy: a target policy is approved by owners only' using errcode='22023';end if;\n", "\n"),)),

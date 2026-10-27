@@ -288,3 +288,30 @@ def test_approval_refusals_keep_their_status_and_name_only_the_fixed_reason_code
     theirs = c['request'](member=c['second']).json()['approval_id']
     withdraw = c['call'](c['owner_member'], 'cancel_approval', {'approval_id': theirs, 'reason': 'not mine'})
     assert (withdraw.status_code, withdraw.json()['details']) == (403, {'reason': 'not_requester'}), withdraw.text
+
+
+@PLAN
+def test_the_view_says_consumed_once_executed_and_to_execute_drops_it(gated, admin):
+    """0368 (day 1 drill, L6 S1): the status stays 'approved' after execution; every row carries consumed / consumed_at from the
+    consumption record, and to_execute no longer lists the executed approval."""
+    c = gated
+
+    def view(member):
+        with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+            workbench_login(client, member)
+            got = client.get('/api/v1/workbench/approvals', headers={'Origin': ORIGIN})
+            assert got.status_code == 200, got.text
+            return got.json()
+    approval = c['request']().json()['approval_id']
+    for row in view(c['second'])['to_decide']:
+        assert (row['consumed'], row['consumed_at']) == (False, None)
+    c['decide'](approval)
+    before = view(c['owner_member'])
+    mine = {r['approval_id']: r for r in before['mine']}
+    assert (mine[approval]['status'], mine[approval]['consumed'], mine[approval]['consumed_at']) == ('approved', False, None)
+    assert [r['approval_id'] for r in before['to_execute']] == [approval] and before['to_execute'][0]['consumed'] is False
+    assert c['request']().json()['approval'] == 'consumed'
+    after = view(c['owner_member'])
+    row = {r['approval_id']: r for r in after['mine']}[approval]
+    assert row['status'] == 'approved' and row['consumed'] is True and row['result'] == 'executed' and row['consumed_at'] is not None
+    assert approval not in [r['approval_id'] for r in after['to_execute']]
