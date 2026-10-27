@@ -169,9 +169,10 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_ru
 
 - `plan_reevaluator` 的 `nexloop.remediation.plan:1` 已在 2026-10-28 生效（authority_revision 3197）；v20 的 `relation_backfiller` 此前已经 register 过。所以按 2.0a 的**情况 A** 处理，不走情况 B，不需要 `setup-credentials`。
 - 本步不再写入。只执行：
-  1. 2.1 的授权查询：plan_reevaluator 有三行（`NexLoop.feed.plan-reevaluate:1`、`nexloop.plan.reevaluate:1`、`nexloop.remediation.plan:1`），长度都是 1；`relation_backfiller` 的查询有一行，长度为 1；scope 仍为 `["action.execute"]`。
+  1. 2.1 的授权查询：plan_reevaluator 有三行（`NexLoop.feed.plan-reevaluate:1`、`nexloop.plan.reevaluate:1`、`nexloop.remediation.plan:1`），长度都是 1；scope 仍为 `["action.execute"]`。
   2. 2.1 的最后一条（还没扫描过的最终失败数），以及 2.3 的三条查询：授权生效后规划器已经在跑，积压应已按 `switch_closed` 扫完。
-- 可选（B，经配置员窗口）：执行一次 2.2 的 register 作为幂等核对，预期 `changed: false`、`grants_added: 0`、`credentials_created: []`、`grants_revoked: 0`。数字不是这样就停下，报给出这份执行单的人。
+- `relation_backfiller` 和 register 的计数**以 OPERATIONS §8a.11a 的只读差异为准**，本单不写死预期：NX-054 第 14 步（2026-10-28）会撤销 `relation_backfiller` 的授权，之前之后它的查询结果和 register 的 `grants_revoked` 都不同。（§8a.11a 在本分支所基于的 main 17aa74c1 上还没有，执行时按当时 main 上的这一节。）
+- 可选（B，经配置员窗口）：执行一次 2.2 的 register 作为幂等核对，预期 `changed: false`、`grants_added: 0`、`credentials_created: []`；其余计数与 §8a.11a 的只读差异一致。不一致就停下，报给出这份执行单的人。
 - 授权查询结果与上面不符（例如缺 `nexloop.remediation.plan:1`）：停下报告，不要按情况 B 补做。
 - 证据写 authority_revision 3197 与核对查询的结果；2.0a–2.2 保留作记录。
 

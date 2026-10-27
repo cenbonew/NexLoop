@@ -107,6 +107,8 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_dr
 
 ### 2.1 准备演练配置（APP_HOST，A）
 
+- **演练期间（2.1 到 2.5 完成）不要同时重装文件备份**：文件备份安装的 R6 会改写同一个 `/etc/nexloop/host-health-install.json`，与 2.5 用原配置恢复会互相覆盖。文件备份的安装放到演练收尾之后。
+
 当前安装配置是 `/etc/nexloop/host-health-install.json`（host-health.md §4.4）。复制一份，只加一个容器，其他字段（包括 `release_sha`）一律不改：
 
 ```
@@ -133,7 +135,7 @@ sudo diff /etc/nexloop/host-health-install.json /etc/nexloop/host-health-install
   "sudo HOST_HEALTH_PYTHON=/opt/nexloop/python-3.12/bin/python3.12 bash <发布 checkout>/scripts/deploy/host_health_install.sh /etc/nexloop/host-health-install.drill.json"
 ```
 
-- **预期**：退出码 0；dry-run 摘要中的 `units` 比平时多 1。记下完成时间 `T_INSTALL`。
+- **预期**：退出码 0；dry-run 摘要中的 `expected_units` 多 1（`hh-drill`），`units` 不变。`units` 统计的是探针看到的单元，这时演练容器还不存在，所以不会变；`units` 没有多 1 不是失败。记下完成时间 `T_INSTALL`。
 - 安装是幂等的，只会重写 `/etc/nexloop/host-health.json`，不重启任何业务服务。
 
 ### 2.3 起演练容器（APP_HOST，B，`T_INSTALL` 后 60 秒内）
