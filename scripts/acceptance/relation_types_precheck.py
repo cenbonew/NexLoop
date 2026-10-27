@@ -37,7 +37,7 @@ def blocking(doc):
         if f['target_other_world']:
             out.append(f"{f['relation']}: {f['target_other_world']} target(s) in another world ({f['world']})")
         if f['hex64'] + f['pseudonyms'] < f['with_value']:
-            out.append(f"{f['relation']}: {f['with_value'] - f['hex64'] - f['pseudonyms']} value(s) neither 64 hex nor an erasure pseudonym ({f['world']}) - not derived; check the field")
+            out.append(f"{f['relation']}: {f['with_value'] - f['hex64'] - f['pseudonyms']} value(s) neither 64 hex nor an erasure pseudonym or marker ({f['world']}) - not derived; check the field")
     if doc['assessments']['first_batch_name_collisions']:
         out.append('RelationshipAssessment relation_name equal to a first-batch name: ' + ', '.join(doc['assessments']['first_batch_name_collisions']))
     return out
