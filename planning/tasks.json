@@ -4702,6 +4702,12 @@
         "ref": "owner 2026-10-26",
         "summary": "F1-F3 (API key, MCP, gateway, SDK) after S7 with a threat review and a new ADR. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "adr/ADR-041-machine-access-channel.md",
+        "summary": "ADR-041 采纳（负责人 2026-10-28，Q-1 至 Q-9 全部选 A）；威胁评审 docs/design/NX-062-threat-review.md 完成（T-1 至 T-12，L6 复核 6950f93f 与复审 92393e60 均 PASS）；F1–F3 实现待排期，现在不开工。执行人：L4；判定人：L6；决定人：负责人。",
+        "recorded_at": "2026-10-28T22:00:00+08:00"
       }
     ]
   }
