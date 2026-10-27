@@ -239,6 +239,13 @@ OPERATIONS={
     'suspend_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'resume_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'revoke_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    # NX-058 slice F (owner only): link an operator's or reviewer's IdP subject (a configured provider only; the entry adds its issuer) or
+    # remove the link. The subject is the IdP's sub claim as the owner reads it in the IdP's console.
+    'link_workbench_external':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),
+        'provider_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,31}')),
+        'external_subject':lambda v:v if type(v) is str and 0<len(v)<=255 and v==v.strip() and v.isprintable() else (_ for _ in ()).throw(ValueError('subject')),
+        'login_mode':lambda v:v if v in ('sso_only','sso_or_password') else (_ for _ in ()).throw(ValueError('mode'))},
+    'unlink_workbench_external':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
     # NX-058 slice D2 (owner only, NX-056 approval): owner targets; demote's new role is operator or reviewer (S2, SQL checks it again).
     'promote_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'demote_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason,
@@ -394,6 +401,17 @@ def router(config,*,ports_for_browser):
                 code=W.new_token() if invite else W.new_code()
                 fields={**fields,('token_hmac' if invite else 'code_hmac'):W.digest(secret_key,W.INVITE if invite else W.RESET,config.tenant_id,code),
                         'issuer_source_hmac':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
+            if operation=='link_workbench_external':
+                # Only a configured provider (the same file the login uses); its issuer, never the body's.
+                from nexloop_eios.workbench_oidc import OidcClient,load_providers
+                try:
+                    client=getattr(request.app.state,'workbench_oidc',None)
+                    if client is None and config.oidc_providers_file is not None:
+                        client=OidcClient(load_providers(config.oidc_providers_file));request.app.state.workbench_oidc=client
+                except Exception:return error('unavailable',503)
+                provider=None if client is None else client.providers.get(fields['provider_id'])
+                if provider is None:return error('not_allowed_in_state',409,{'reason':'provider_unknown'})
+                fields={**fields,'issuer':provider.issuer}
             result=await run_in_threadpool(lambda:bound(request).run(operation,'workbench-'+key,fields))
             if operation in ('issue_workbench_owner_reset','invite_workbench_owner'):
                 if (isinstance(result,dict) and result.get('approval')=='consumed' and result.get('status') is None and result.get('replayed') is False):

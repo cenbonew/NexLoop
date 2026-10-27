@@ -28,6 +28,8 @@ class BrowserConfiguration:
     trusted_proxy_peers:tuple=()
     # NX-058: the private key of one-time workbench secrets (reset codes, invitations); None = those endpoints are unavailable.
     identity_token_key_file:Path|None=None
+    # NX-058 slice F: the private provider file of workbench single sign-on (nexloop_eios.workbench_oidc); None = SSO off (the default).
+    oidc_providers_file:Path|None=None
     def __post_init__(self):
         u=urlsplit(self.origin)
         if u.scheme!='https' or not u.netloc or u.username or u.password or u.path or u.query or u.fragment:raise ValueError('canonical HTTPS origin required')
@@ -56,7 +58,8 @@ def login_username_key(username):
 
 def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser_store',member_resets=False):
     """member_resets (the workbench realm only, NX-058 slice B): POST /password/reset completes an owner-issued reset code, the
-    session view carries the 7-day reset notice and GET /reset-history the member's own 90 days."""
+    session view carries the 7-day reset notice and GET /reset-history the member's own 90 days. With them come the single sign-on
+    routes of slice F (GET /oidc/start, /oidc/callback), which answer 404 sso_unavailable while no provider file is configured."""
     COOKIE=cookie
     routes=APIRouter(prefix=prefix)
     resolver=client_ip_resolver(config)
@@ -270,6 +273,8 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
                 return await run_in_threadpool(reset_work,request,body)
             except (ValueError,UnicodeError):return response('reset_invalid',400)
             except Exception:return response('dependency_unavailable',503)
+    if member_resets:
+        _oidc_routes(routes,config,cookie=COOKIE,services=services,resolver=resolver,response=response)
     @routes.post('/csrf')
     def csrf(request:Request):
         if not same_origin(request):return response('forbidden',403)
@@ -290,3 +295,135 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
         except CredentialInvalid:return response('unauthenticated',401)
         except Exception:return response('dependency_unavailable',503)
     return routes
+
+
+OIDC_COOKIE='__Host-nexloop_workbench_oidc'
+SSO_DONE='/workbench'
+SSO_FAILED='/workbench?sso=failed'
+
+
+def _oidc_routes(routes,config,*,cookie,services,resolver,response):
+    """NX-058 slice F (nexloop_eios.workbench_oidc): the start redirects to a configured IdP with state, nonce and PKCE S256 and binds the
+    flow to this browser (an HttpOnly SameSite=Lax cookie: the IdP's redirect back is a cross-site top-level navigation); the callback takes
+    the state once, exchanges the code, verifies the ID token and signs in the member the IdP subject is linked to - never anyone else, and
+    nobody when no link exists. Every refusal is the same redirect to the login page; the reason goes to the audit only."""
+    import logging
+    from fastapi.responses import RedirectResponse
+    from nexloop_eios import workbench_member_secrets as W
+    from nexloop_eios import workbench_oidc as O
+    log=logging.getLogger('nexloop.workbench')
+    redirect_uri=config.origin+O.CALLBACK_PATH
+    def client_for(request):
+        client=getattr(request.app.state,'workbench_oidc',None)
+        if client is None and config.oidc_providers_file is not None:
+            client=O.OidcClient(O.load_providers(config.oidc_providers_file));request.app.state.workbench_oidc=client
+        return client
+    def go(location,*,clear=True):
+        result=RedirectResponse(location,status_code=303,headers={'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'})
+        if clear:result.delete_cookie(OIDC_COOKIE,secure=True,httponly=True,samesite='lax',path='/')
+        return result
+    def limited(request,store,op,prefix):
+        from nexloop_eios.browser_rate_limits import PostgresBrowserRateLimiter,client_digest
+        decision=PostgresBrowserRateLimiter(store.pool,identity_operator=True).consume(config.tenant_id,'oidc_start',client_digest(request.app.state.browser_rate_key,
+            canonical_origin=config.origin,client_identifier=prefix+resolver.resolve(request)),operator=op)
+        if decision.allowed:return None
+        result=response('rate_limited',429);result.headers['Retry-After']=str(decision.retry_after_seconds);return result
+    def start_work(request):
+        from nexloop_eios.browser_identity import verify_identity_role
+        try:client=client_for(request)
+        except Exception as failure:
+            log.warning('sso providers unavailable %s',{'reason':type(failure).__name__});return response('dependency_unavailable',503)
+        provider=None if client is None else client.providers.get(request.query_params.get('provider',''))
+        if provider is None or set(request.query_params)!={'provider'}:return response('sso_unavailable',404)
+        try:key=W.load_key(config.identity_token_key_file)
+        except Exception:return response('dependency_unavailable',503)
+        store,op,sessions=services(request)
+        refused=limited(request,store,op,'ip:')
+        if refused is not None:return refused
+        state,binding=O.new_state(),O.new_state()
+        with store.pool.connection() as c,c.transaction():
+            verify_identity_role(c)
+            c.execute('select control.nexloop_workbench_oidc_begin(%s,%s,%s,%s)',(config.tenant_id,provider.provider_id,
+                W.digest(key,O.STATE,config.tenant_id,state),W.digest(key,O.BINDING,config.tenant_id,binding)))
+        verifier=O.verifier_for(key,config.tenant_id,provider.provider_id,state)
+        result=go(O.authorization_url(provider,redirect_uri=redirect_uri,state=state,nonce=O.nonce_for(key,config.tenant_id,provider.provider_id,state),
+            code_challenge=O.challenge_for(verifier)),clear=False)
+        result.status_code=302
+        result.set_cookie(OIDC_COOKIE,binding,secure=True,httponly=True,samesite='lax',path='/',max_age=300)
+        return result
+    def callback_work(request):
+        import json
+        import uuid as _uuid
+        from types import SimpleNamespace
+        from eios.identity.models import TenantMembership
+        from nexloop_eios.browser_identity import verify_identity_role
+        trace=str(_uuid.uuid4())
+        store,op,sessions=services(request)
+        refused=limited(request,store,op,'callback-ip:')
+        if refused is not None:return refused
+        client=client_for(request)
+        if client is None:return response('sso_unavailable',404)
+        key=W.load_key(config.identity_token_key_file)
+        provider_id=None
+        def failed(reason):
+            try:
+                with store.pool.connection() as c,c.transaction():
+                    verify_identity_role(c)
+                    c.execute('select control.nexloop_workbench_oidc_failed(%s,%s,%s,%s)',(config.tenant_id,provider_id,reason,trace))
+            except Exception as failure:
+                log.warning('sso failure audit unavailable %s',{'reason':type(failure).__name__})
+            return go(SSO_FAILED)
+        q=request.query_params
+        state,binding=q.get('state',''),request.cookies.get(OIDC_COOKIE,'')
+        if not O.valid_state(state) or not O.valid_state(binding) or len(q.getlist('state'))!=1:return failed('state_invalid')
+        with store.pool.connection() as c,c.transaction():
+            verify_identity_role(c)
+            provider_id=c.execute('select control.nexloop_workbench_oidc_take(%s,%s,%s)',(config.tenant_id,
+                W.digest(key,O.STATE,config.tenant_id,state),W.digest(key,O.BINDING,config.tenant_id,binding))).fetchone()[0]
+        provider=client.providers.get(provider_id) if provider_id else None
+        if provider is None:return failed('state_invalid')
+        if 'error' in q or len(q.getlist('code'))!=1 or not 0<len(q.get('code',''))<=2048:return failed('provider_error')
+        try:
+            token=client.exchange(provider,code=q['code'],redirect_uri=redirect_uri,verifier=O.verifier_for(key,config.tenant_id,provider.provider_id,state))
+            claims=O.verify_id_token(token,provider=provider,keys=client.keys(provider),nonce=O.nonce_for(key,config.tenant_id,provider.provider_id,state),now=client.clock())
+        except O.OidcFailure as failure:return failed(failure.reason)
+        with store.pool.connection() as c,c.transaction():
+            verify_identity_role(c)
+            facts=c.execute('select control.nexloop_workbench_oidc_resolve(%s,%s,%s,%s,%s)',(config.tenant_id,config.application_id,provider.provider_id,
+                provider.issuer,claims['subject'])).fetchone()[0]
+        if facts is None:return failed('not_linked')
+        if facts['unavailable']:return failed('member_unavailable')
+        membership=TenantMembership.model_validate_json(json.dumps(facts['membership']))  # strict model: JSON mode, as list_memberships reads it
+        binding_facts=SimpleNamespace(application_revision=facts['application_revision'],subject_revision=facts['subject_revision'],credential_kind='local_account',
+            tenant_id=config.tenant_id,credential_id=facts['credential_id'],credential_revision=facts['credential_revision'],
+            credential_session_epoch=facts['credential_session_epoch'],provider_id=None,provider_revision=None,provider_configuration_fingerprint=None,
+            restricted=facts['restricted'])
+        issued=sessions._new_session(membership,application_id=config.application_id,authentication_methods=('oidc',),identity_binding=binding_facts,
+            now=store.current_time())
+        body=issued.session.model_dump(mode='json')
+        try:
+            with store.pool.connection() as c,c.transaction():
+                verify_identity_role(c)
+                created=c.execute('select control.nexloop_create_workbench_oidc_session(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,config.application_id,
+                    provider.provider_id,provider.issuer,claims['subject'],provider.fingerprint(),Jsonb(body),
+                    issued.session.session_token_digest.get_secret_value(),issued.session.csrf_token_digest.get_secret_value(),trace)).fetchone()[0]
+            if created!=body:raise ValueError()
+        except Exception as error:
+            if getattr(error,'sqlstate',None)=='EID03':return failed('member_unavailable')
+            raise
+        result=go(SSO_DONE)
+        result.set_cookie(cookie,issued.session_token.get_secret_value(),secure=True,httponly=True,samesite='strict',path='/')
+        return result
+    from psycopg.types.json import Jsonb
+    @routes.get('/oidc/start')
+    def oidc_start(request:Request):
+        if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)
+        try:return start_work(request)
+        except Exception:return response('dependency_unavailable',503)
+    @routes.get('/oidc/callback')
+    def oidc_callback(request:Request):
+        if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)
+        try:return callback_work(request)
+        except Exception as failure:
+            log.warning('sso callback unavailable %s',{'reason':type(failure).__name__})
+            return response('dependency_unavailable',503)

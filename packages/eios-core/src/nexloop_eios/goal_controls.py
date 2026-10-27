@@ -127,6 +127,8 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'issue_workbench_owner_reset':'workbench_member.issue_owner_reset','invite_workbench_owner':'workbench_member.invite_owner',
     # NX-058 slice E: the staff offboarding erasure of a revoked member, with another owner's approval (NX-056).
     'erase_workbench_member':'workbench_member.erase_member',
+    # NX-058 slice F: the owner links an operator's or reviewer's IdP subject (single sign-on) and removes the link.
+    'link_workbench_external':'workbench_member.link_external','unlink_workbench_external':'workbench_member.unlink_external',
     # Extraction dead letters (2026-10-26): requeue or dismiss one dead-lettered claim-extraction job (owner only).
     'resolve_extraction_dead_letter':'claim_extraction.dead_letter_resolve'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
@@ -666,6 +668,19 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or reason not in ('offboarding','member_request','other'):
             raise ValueError('target principal and reason offboarding, member_request or other required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'erase_workbench_member','target_principal':target_principal,'reason':reason})
+
+    # NX-058 slice F: the issuer is the configured provider's, filled by the workbench entry (never the body's).
+    def link_workbench_external(self,*,action_name,action_version,request_id,target_principal,provider_id,issuer,external_subject,login_mode):
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}',str(provider_id))
+                or type(issuer) is not str or not issuer.startswith('https://') or type(external_subject) is not str
+                or not 0<len(external_subject)<=255 or external_subject!=external_subject.strip() or login_mode not in ('sso_only','sso_or_password')):
+            raise ValueError('target principal, provider, issuer, external subject and login mode required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'link_workbench_external','target_principal':target_principal,
+                                                        'provider_id':provider_id,'issuer':issuer,'external_subject':external_subject,'login_mode':login_mode})
+
+    def unlink_workbench_external(self,*,action_name,action_version,request_id,target_principal):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)):raise ValueError('target principal required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'unlink_workbench_external','target_principal':target_principal})
 
     def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')

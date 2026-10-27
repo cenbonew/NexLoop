@@ -1815,6 +1815,11 @@
       "version": "0363",
       "name": "0363_relation_erased_values.sql",
       "sha256": "cdba9a09ce66b17acbc6faaef7f3f438fadf6bb89a4024eacce6621d5b475507"
+    },
+    {
+      "version": "0370",
+      "name": "0370_nx058_oidc.sql",
+      "sha256": "0d68262d08c4f2218d4aa20513e4ae6e5bb17b919254e0a658bece180caa149e"
     }
   ]
 }

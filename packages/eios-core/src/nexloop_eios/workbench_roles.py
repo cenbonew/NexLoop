@@ -96,6 +96,8 @@ def validate_roles(value):
                   'eios:action:nexloop.workbench_member.suspend:1',
                   'eios:action:nexloop.workbench_member.resume:1',
                   'eios:action:nexloop.workbench_member.revoke:1',
+                  'eios:action:nexloop.workbench_member.link_external:1',  # NX-058 slice F: and a member's single sign-on link
+                  'eios:action:nexloop.workbench_member.unlink_external:1',
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record

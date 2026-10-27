@@ -31,7 +31,8 @@ _SHARED = {
     'webhook_signature': {('POST', '/api/v1/webhooks/commercial/{connector_id}')},
     'pre_session': {('POST', '/api/v1/auth/login'), ('POST', '/api/v1/auth/csrf'), ('POST', '/api/v1/workbench/auth/login'),
                     ('POST', '/api/v1/workbench/auth/csrf'), ('POST', '/api/v1/workbench/auth/invitation/accept'),
-                    ('POST', '/api/v1/workbench/auth/password/reset')},
+                    ('POST', '/api/v1/workbench/auth/password/reset'),
+                    ('GET', '/api/v1/workbench/auth/oidc/start'), ('GET', '/api/v1/workbench/auth/oidc/callback')},  # NX-058 slice F
 }
 FIXED = {'test': {**_SHARED, 'service_bearer': {('GET', '/api/v1/artifacts/{artifact_id}')}},
          'stage': {**_SHARED, 'service_bearer': set()}}
@@ -48,7 +49,7 @@ def app(tmp_path_factory):
 
 
 def test_the_inventory_follows_its_schema_and_refuses_what_the_schema_cannot_say(inventory, tmp_path):
-    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 95   # 94 routes and one mount (batch 32 added the members read)
+    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 97   # 96 routes and one mount (batch 32 added the members read, NX-058 slice F the two SSO routes)
     def refused(change):
         bad = copy.deepcopy(inventory)
         change(bad)
@@ -70,7 +71,7 @@ def test_g1_each_mode_mounts_exactly_its_inventory_and_no_openapi(inventory, mod
     mounted = I.routes(I.complete_app(tmp_path, mode))
     assert I.diff(inventory, mounted, mode) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
     assert (('GET', '/api/v1/artifacts/{artifact_id}') in mounted) is (mode == 'test')                    # F-2
-    assert len(mounted) == {'test': 95, 'stage': 94}[mode]
+    assert len(mounted) == {'test': 97, 'stage': 96}[mode]
     assert not {p for _, p in mounted} & {'/openapi.json', '/docs', '/redoc', '/docs/oauth2-redirect'}
 
 
