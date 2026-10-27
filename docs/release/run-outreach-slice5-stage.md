@@ -44,6 +44,8 @@ G-1 是唯一必须写代码的缺口。G-1、G-2 合入并部署后，本单才
 | P5 | `customer-1`..`customer-4` 可登录 WebChat；口令在钥匙串 | run-assembly-20261015 §9 |
 | P6 | 目的 `commitment_followup` 在租户已启用 | `approver3` 在工作台“外联目的”页查看；未启用时由 `approver3` 用 `set_outreach_purpose` 启用（受治理，留审计）。不启用营销类目的 |
 | P7 | 执行时间在租户勿扰时段之外 | 工作台“外联控制”页；否则所有行会以勿扰闸拒绝，V4 的阴性对照无法区分 |
+| P8 | **三层真实派发开关的实际状态已读出并写进证据**（调度员 2026-10-28 核实：stage 上三层都是开的，所以本单不能假设开关关闭） | 部署层：`docker exec <action-worker 容器> printenv REAL_DISPATCH_ENABLED`，**只记值是 `true` 还是 `false`**，不贴其他环境变量；租户层与 Action 层：`ro "select world, scope_kind, scope_ref, enabled, data_mode, revision from control.nexloop_real_dispatch_switches order by 1,2,3"`（租户层 `scope_kind='tenant'`、`scope_ref='*'`；Action 层 `scope_kind='action_type'`，看 `eios:action:nexloop.outreach.send:1` 一行，没有该行即该 Action 层为关）。执行后再读一次，前后一致 |
+| P9 | **硬前提：外联执行器的 provider 只有 `LocalOutreachOutbox`（回环，写私有目录），执行器没有任何渠道凭据**。开关打开时，这是唯一挡住对外发送的一道；不满足就不开始 | ① 执行器的启动命令与配置：只有本地 outbox 目录参数，没有 provider 选择项或渠道地址（核对部署的源码树中执行器入口只构造 `LocalOutreachOutbox`：`grep -n "LocalOutreachOutbox\|Provider" <源码树>/…/outreach_sender.py`，以 G-1 合入后的文件为准）；② `docker inspect <执行器容器> --format '{{json .Mounts}}'` 只列出它自己的 DSN、服务凭据、PG 客户端证书和 outbox 目录，没有任何渠道、provider 或 webhook 的 secret；③ `docker inspect … --format '{{json .Config.Env}}'` 只看变量**名**，没有渠道类变量；④ 执行器的网络：只有到 PG 的连接（与其他 worker 相同的 compose 网络），不需要出站。任何一项不满足，判 blocked，交回调度员 |
 
 ## 2. 只读核对（现在就能做，不改任何东西）
 
@@ -66,7 +68,9 @@ ro "select l.properties->>'consumer_id', d.object_id, o.properties->'action_reso
     where d.type_name='RoleDefinition' order by 1"
 ```
 
-记下每个顾客的 Role 与布尔值。`ConsumerRoleLink` 的属性名以 stage 实际为准；查询报错时改用 role_assembly 输出中的 `role_id` 逐个查 `RoleDefinition`。
+记下每个顾客的 Role 与布尔值。`ConsumerRoleLink` 的属性 `consumer_id`、`role_id` 与 0057 的唯一索引一致。
+
+**一次性库核对（L6 S2）**：§2.1、§2.2、§2.3、P1、P8 的开关查询、§3.1、§4.1、§4.2、§4.3 的 SQL，已在一次性 PostgreSQL 上按 stage 方式组装的租户（`tests/test_plan_setup_stage_pg.py` 的夹具：register → business/catalog/enterprise → relay 登记 → role_assembly → plan_setup → plan-reevaluator 首轮发起 Role Run）中，用与 `ro` 相同的会话（只读事务、`set local role nexloop_owner`、设置 `eios.tenant_id`）逐条执行，全部无错（L4，2026-10-28，main 17aa74c1）。结果：§2.2 一行，Role 上限不含发送（false）；§2.3 一行，Run 凭据不含发送（false）；§2.1、§4.1、§4.2 无行；§4.3 为 0；开关表无行（夹具未设开关）；P1 两行。这只证明 SQL 在该 schema 上可执行、列名正确，不代表 stage 的数据。
 
 ### 2.3 最近的计划复评 Run 凭据
 
@@ -82,12 +86,12 @@ ro "select p.created_at, 'eios:action:nexloop.outreach.send:1' = any(r.allowed_r
 
 | 顾客 | 角色 | Role 上限含发送 | 联系限制 | 期望 |
 |---|---|---|---|---|
-| `customer-1` | V4 阴性对照 | 是（G-3 组装） | 无 | 有 agent 行，终态**不是** `contact_restricted`（在开关关闭时预期 `refused / real_dispatch_closed`，也可能是测试人设、勿扰、频率等后面的闸，以 `refusal_gates` 为准） |
+| `customer-1` | V4 阴性对照 | 是（G-3 组装） | 无 | 有 agent 行，终态**不是** `contact_restricted`，具体以 `refusal_gates` 为准：三层开关都开（P8）且其余各闸通过时，预期 `fulfilled`，请求写进执行器的本地 outbox（P9）；也可能被测试人设、勿扰、频率等后面的闸拒绝 |
 | `customer-2` | V4 阳性对照 | 是（G-3 组装） | **有**（§3.1） | 有 agent 行，终态 `refused / contact_restricted`；联系限制是第一道闸 |
 | `customer-3` | V3 阴性对照 | **否**（保持现状） | 无 | 计划复评 Run 照常运行，**没有** agent 行（SQL 入口以 `outreach outside the Role ceiling` 或 `outreach outside the Run` 拒绝，工具调用失败） |
 | `customer-4` | 不参与 | — | — | 不触发，作为“没有误发”的对照：全程 0 行 |
 
-真实派发开关保持关闭（本单不打开）。执行器 provider 只有回环，即使开关打开也不会对外发送；真实 WebChat 投递不在第 5 片范围内（outreach-impl-plan §4 “留给后续”）。
+本单不改变三层真实派发开关，按 P8 读出的实际状态执行并记录（stage 上 10-28 为三层都开）。开关打开时，挡住对外发送的只有 P9：执行器的 provider 只有回环 `LocalOutreachOutbox`，没有任何渠道凭据；真实 WebChat 投递不在第 5 片范围内（outreach-impl-plan §4 “留给后续”）。`fulfilled` 的行只表示请求写进了本地 outbox，不表示顾客收到。
 
 ### 3.1 给 `customer-2` 加联系限制（人工：`customer-2`，WebChat）
 
@@ -144,7 +148,7 @@ ro "select count(*) from runtime.nexloop_outreach_sends s where s.initiator='age
 
 ## 5. 证据（不含口令、令牌、DSN、主机地址和消息正文）
 
-- 执行者（调度员）：执行时间（UTC）、main 与 release、G-1/G-2 的部署记录；§2、§4 各查询的输出（`consumer_id` 只写前 12 位）；
+- 执行者（调度员）：执行时间（UTC）、main 与 release、G-1/G-2 的部署记录；§2、§4 各查询的输出（`consumer_id` 只写前 12 位）；P8 三层开关执行前后的状态（部署层只写 true/false）；P9 四项核对的结论（只写是否满足与挂载、变量的名字，不写值）；
 - 人工步骤（`approver3`、`customer-2`）：时间与操作名，不写正文；
 - 判定者（L6）：按 §3 的期望逐项判 V1–V5 为 passed / failed / 未触发（G-4）。
 
@@ -153,4 +157,4 @@ ro "select count(*) from runtime.nexloop_outreach_sends s where s.initiator='age
 - **V2 在 stage 上只能做否定性核对**：Host 只把发送工具提供给非消息 Run，兜底回复 Run 是消息 Run，所以它在 stage 上根本拿不到这个工具；SQL 侧的拒绝（`authz.nexloop_is_fallback_run`）只能在本地构造。判定依据是 §4.3 的 0 行，加本地测试 `test_outreach_runs_pg.py::test_only_a_plan_reevaluation_run_naming_the_send_may_ask` 与 `outreach-tool-profile.test.ts`（测试证据，与 stage 证据分开写）。
 - **V3 的拒绝在工具调用处**：被拒的申请不写 `outreach_sends`，所以 stage 上看到的是“没有行”；如果需要正面证据，可在 Run 的工具调用记录中查该次调用的错误码（只记错误码，不记正文）。
 - **模型不确定**（G-4）：阳性对照没有出现，可能是模型没有调用工具，不是系统拒绝；判“未触发”，不判 failed。
-- 本单不打开真实派发开关，不启用营销类目的，不给 `customer-*` 以外的任何顾客触发。
+- 本单不改变真实派发开关（按 P8 记录实际状态），不启用营销类目的，不给 `customer-*` 以外的任何顾客触发。
