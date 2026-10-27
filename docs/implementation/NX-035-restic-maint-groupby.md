@@ -71,3 +71,14 @@ forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 
 **已定为甲，并已实现**（调度员 2026-10-26，分支 `l7/file-backup-maint`；见 `NX-035-file-backup.md` §6.4）。以下为当时的推荐理由：秘密不扩散，也不需要负责人改控制台策略。改动在 `file_backup_install`（第三十六批）和告警规则（v20 正在 L6 审）上，所以我准备等这两项合入之后作为下一个分片接着做：unit 和 timer、安装器第 4/6 步、host-health 条目、规则 v21、测试。如果负责人选乙，我改为在本分支补 restic-maint 的行，并在 `install_repo2_secrets.sh` 增加一个 DATA_HOST 角色。
 
 **启用顺序**：DATA_HOST 应用本修复，并且文件 repo2 的维护（甲或乙）就位之后，再启用文件备份的 timer。
+
+## 5. 2026-10-27：未来时间守卫与文件仓库（L6 rest-server 复审 F1）
+
+- **问题**：`--keep-within` 和 `--keep-monthly` 都以组内最新快照为基准。能写入仓库的一方伪造一个未来时间的快照，下一次 forget --prune 就会删掉这一组的全部真实快照。
+- **守卫**：`restic_maint_data_host.sh` 在每条 forget 行之前插入一行守卫 `restic_future_guard.py`，用同一个仓库的 restic 命令前缀；脚本本身装到 `/opt/nexloop/restic-maint/`（root，只读），用 `/usr/bin/python3` 运行。
+  - 有快照晚于当前时间加 1 小时，或者有读不出的时间，守卫就以非 0 退出，unit 不执行 forget/prune，`timer_scheduled_failure` 告警。
+  - 脚本的预演也先跑守卫，守卫不通过就什么都不写。
+  - 这一版之前的两种 unit（部署日原样的写法，以及已按 tag 分组的上一版）都会被改成同一个目标形状；`--revert` 去掉守卫和文件仓库行。
+- **文件仓库**：`--files-repo <路径> --files-password-file <口令文件>` 加入 rest-server 所提供的文件专用仓库的维护，只加一次：守卫、按 tag 分组的 forget、check、周日深度 check，外加它的 `ReadWritePaths`。见 `NX-035-file-backup.md` §6.5。
+  - L6 F2：这个块在守卫之前停掉 rest-server（先删陈旧锁、再等到没有锁），forget/prune 之后拉起；`ExecStopPost` 在任何路径上都再拉起一次，3 秒后不是 active 就让 unit 失败。重跑 `--files-repo` 会把旧块整个替换。块里还设 `TimeoutStartSec=6h`（L6 S5），unit 自己另有 `TimeoutStartSec` 时拒绝。窗口与告警的核对见 `NX-035-file-backup.md` §6.5。
+- 运行同样需要负责人本人确认（新的 DATA_HOST root 操作）。

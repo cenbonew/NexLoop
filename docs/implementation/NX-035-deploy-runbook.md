@@ -349,7 +349,12 @@ ssh "$SSH_ALIAS_DATA" sudo -u "$FILE_BACKUP_USER" env $(cat "$OFFSITE_CREDENTIAL
    ```
    - 只恢复到新的空目录和空闲端口，只监听本机 socket，pg_hba 只放行 owner；pgBackRest 的配置（含仓库口令）只以 0600 私有文件的路径传入。
    - 演练用 `--old-primary-fenced` 表示生产库不受影响（演练从不向同一个 stanza 归档）；真实灾难恢复时，必须先确认原主库已隔离。
-   - `$JOURNAL_RESTORE_DIR` 是从 restic 恢复出来的恢复日志目录。
+   - `$JOURNAL_RESTORE_DIR` 是从 restic 恢复出来的恢复日志目录。恢复时**不用 `latest`**（L6 rest-server 复审 S2）：先用 `restic_future_guard.py --select-latest journal` 选出不晚于当前时间的最新快照 id；仓库里有未来时间的快照时，它会拒绝并退出 1，此时停下排查。再执行 `restic restore <id>`：
+     ```
+     ID=$(sudo -u nexloop-backup python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py --select-latest journal -- /usr/local/bin/restic --no-cache -r <恢复日志仓库> --password-file <口令文件> \
+       | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("ok") and print(d["selected"]) is None else 1)') || { echo '有未来时间的快照或没有可选快照：停下排查'; exit 1; }
+     sudo -u nexloop-backup /usr/local/bin/restic --no-cache -r <恢复日志仓库> --password-file <口令文件> restore "$ID" --target <目标目录>
+     ```
 4. **恢复流程**（`nexloop-restore` 在上一步中依次执行）：
    - 设立围栏；
    - 校验恢复日志的哈希链，并重放；

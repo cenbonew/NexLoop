@@ -12,6 +12,8 @@ timer run could read. It prints one JSON line and nothing else:
            empty (InaccessiblePaths= mounts an empty node over it; the capability opens that node, but there is nothing in it)
   handles  the errno of open_by_handle_at and name_to_handle_at (L6 F1): the unit filters both, so EPERM; anything else (EINVAL,
            ESTALE, a success) means the capability could open inodes past the sandbox's mounts
+  append_only  for each --append-only-probe repository (repo1 over DATA_HOST's rest-server): a new snapshot taken (backup 0), forgetting
+           it refused (forget non-zero) and the snapshot still listed afterwards
   restic   the first line of `restic version`; repos: restic's exit code of `cat config` per --repo (0 the repository opens with
            its password, 10 it does not exist, 12 the password is wrong); init: the exit code of `restic init` for --init repos that
            did not exist (then `cat config` again)
@@ -23,14 +25,18 @@ import ctypes
 import errno
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
 
-from nexloop_eios.file_backup import _environment, _restic  # noqa: E402
+from nexloop_eios.file_backup import _environment, _restic, _snapshot_id  # noqa: E402
+
+PROBE_TAG = 'nexloop-append-only-probe'
 
 
 def readable(path):
@@ -92,10 +98,37 @@ def listing(path):
         return 'error: ' + type(error).__name__
 
 
+def append_only(restic, common, probe_dir):
+    """A new snapshot of a one-file directory is taken; forgetting it must be refused, and it must still be listed afterwards (the
+    rest-server's --append-only). The probe snapshot stays (DATA_HOST's restic-maint forgets it with its tag's group). Exit codes and a
+    boolean only."""
+    if probe_dir is None:
+        return {'error': 'no --probe-dir'}
+    work = Path(probe_dir) / ('probe-' + uuid.uuid4().hex)
+    try:
+        work.mkdir(mode=0o700)
+        (work / 'append-only-probe').write_text('nexloop append-only probe\n')
+        saved = _restic(restic, ['backup', '--json', '--tag', PROBE_TAG, '--host', 'nexloop', '--retry-lock', '5m', '.'], cwd=work, **common)
+        snapshot = _snapshot_id(saved.stdout) if saved.returncode == 0 else None
+        if snapshot is None:
+            return {'backup': saved.returncode or 'no snapshot id'}
+        forget = _restic(restic, ['forget', '--retry-lock', '1m', snapshot], **common)
+        listed = _restic(restic, ['snapshots', '--json', '--tag', PROBE_TAG], **common)
+        try:
+            still = listed.returncode == 0 and any(s.get('id') == snapshot for s in json.loads(listed.stdout or '[]'))
+        except (ValueError, AttributeError):
+            still = False
+        return {'backup': 0, 'forget': forget.returncode, 'still_listed': still}
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {'error': type(error).__name__}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def repository(spec):
     name, *rest = spec.split(',')
-    if len(rest) not in (2, 3, 4):
-        raise SystemExit('--repo NAME,REPOSITORY_FILE,PASSWORD_FILE[,ENVIRONMENT_FILE[,BUCKET_LOOKUP]]')
+    if len(rest) not in (2, 3, 4, 5):
+        raise SystemExit('--repo NAME,REPOSITORY_FILE,PASSWORD_FILE[,ENVIRONMENT_FILE[,BUCKET_LOOKUP[,CACERT]]]')
     return name, rest
 
 
@@ -107,9 +140,11 @@ def main(argv=None):
     p.add_argument('--hidden', action='append', default=[])
     p.add_argument('--repo', action='append', default=[], type=repository)
     p.add_argument('--init', action='append', default=[])
+    p.add_argument('--append-only-probe', action='append', default=[])
+    p.add_argument('--probe-dir', type=Path)
     a = p.parse_args(argv)
     out = {'listing': {d: listing(d) for d in a.list}, 'read': {f: readable(f) for f in a.read}, 'hidden': {f: hidden(f) for f in a.hidden},
-           'handles': handle_calls(), 'repos': {}, 'init': {}}
+           'handles': handle_calls(), 'repos': {}, 'init': {}, 'append_only': {}}
     try:
         version = subprocess.run([a.restic, 'version'], env=_environment(None), capture_output=True, text=True, timeout=60)
         out['restic'] = ' '.join(version.stdout.split()[:2]) if version.returncode == 0 else f'exit {version.returncode}'
@@ -122,7 +157,8 @@ def main(argv=None):
             out['repos'][name] = 'error: ' + type(error).__name__
             continue
         common = {'repository_file': repository_file, 'password_file': password_file, 'environment': environment, 'timeout': 300,
-                  'options': ('-o', 's3.bucket-lookup=' + more[1]) if len(more) > 1 and more[1] else ()}
+                  'options': (('-o', 's3.bucket-lookup=' + more[1]) if len(more) > 1 and more[1] else ())
+                  + (('--cacert', more[2]) if len(more) > 2 and more[2] else ())}
         try:
             code = _restic(a.restic, ['cat', 'config'], **common).returncode
             if code == 10 and name in a.init:
@@ -131,6 +167,8 @@ def main(argv=None):
         except (OSError, subprocess.TimeoutExpired) as error:
             code = 'error: ' + type(error).__name__
         out['repos'][name] = code
+        if code == 0 and name in a.append_only_probe:
+            out['append_only'][name] = append_only(a.restic, common, a.probe_dir)
     print(json.dumps(out, sort_keys=True))
     return 0
 

@@ -27,16 +27,22 @@ def private(path, text):
     return path
 
 
-def restic(tmp_path, codes=None):
-    """A stand-in: appends {args, environment keys} to calls.jsonl; exit codes per subcommand from codes; forget prints groups."""
+SNAPSHOTS = [{'id': 'a' * 64, 'short_id': 'aaaaaaaa', 'time': '2026-10-26T04:07:10.123456789+08:00', 'tags': ['files_artifact']}]
+
+
+def restic(tmp_path, codes=None, snapshots=None):
+    """A stand-in: appends {args, environment keys} to calls.jsonl; exit codes per subcommand from codes; forget prints groups,
+    snapshots prints the given list."""
     log, state = tmp_path / 'calls.jsonl', tmp_path / 'codes.json'
     state.write_text(json.dumps(codes or {}))
+    (tmp_path / 'snapshots.json').write_text(json.dumps(SNAPSHOTS if snapshots is None else snapshots))
     script = tmp_path / 'restic'
     script.write_text(f'#!{sys.executable}\nimport json,os,sys\na=sys.argv[1:]\n'
                       f'open({str(log)!r},"a").write(json.dumps({{"args":a,"env":sorted(os.environ)}})+"\\n")\n'
                       f'codes=json.load(open({str(state)!r}))\nsub=a[a.index("--password-file")+2]\n'
                       'deep="--read-data-subset" in a\nkey="deep" if deep else sub\n'
                       f'if sub=="forget":print({json.dumps(GROUPS)!r})\n'
+                      f'if sub=="snapshots":print(open({str(tmp_path / "snapshots.json")!r}).read())\n'
                       'sys.exit(codes.get(key,0))\n')
     script.chmod(0o755)
     return str(script), log
@@ -71,7 +77,7 @@ def test_forget_per_tag_with_prune_and_a_lock_wait_then_check_and_the_deep_check
     assert code == 0 and doc == {'ok': True, 'forget': 'ok', 'removed': 2, 'dry_run': False, 'check': 'ok', 'deep': True, 'deep_check': 'ok'}
     seen = calls(log)
     commands = [c['args'][c['args'].index('--password-file') + 2:] for c in seen]
-    assert commands == [['forget', '--retry-lock', '10m', '--group-by', 'host,tags', '--keep-within', '14d', '--keep-monthly', '1', '--prune', '--json'],
+    assert commands == [['snapshots', '--json', '--no-lock'], ['forget', '--retry-lock', '10m', '--group-by', 'host,tags', '--keep-within', '14d', '--keep-monthly', '1', '--prune', '--json'],
                         ['check', '--retry-lock', '10m'], ['check', '--retry-lock', '10m', '--read-data-subset', '1/10']]
     assert all(c['args'][:3] == ['--no-cache', '-o', 's3.bucket-lookup=dns'] for c in seen)
     assert all(set(c['env']) - {'LC_CTYPE', '__CF_USER_TEXT_ENCODING'} <= {'PATH', 'LANG', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION'}
@@ -86,8 +92,8 @@ def test_the_dry_run_forgets_nothing_and_checks_nothing(tmp_path):
     bin_, log = restic(tmp_path)
     code, out = run(['--restic', bin_, *setup(tmp_path), '--dry-run'], clock=SUNDAY)
     assert code == 0 and json.loads(out) == {'ok': True, 'forget': 'ok', 'removed': 2, 'dry_run': True, 'check': 'not_run'}
-    [only] = calls(log)
-    assert '--dry-run' in only['args'] and '--prune' not in only['args'] and 'check' not in only['args']
+    listed, only = calls(log)
+    assert 'snapshots' in listed['args'] and '--dry-run' in only['args'] and '--prune' not in only['args'] and 'check' not in only['args']
 
 
 @pytest.mark.parametrize('codes, expected', [
@@ -139,3 +145,25 @@ def test_rules_v21_are_v20_plus_the_maintenance_timer_rule():
                                 'purpose': v21['rules'][-1]['purpose']}  # DATA_HOST's daily maintenance caliber: 26 hours
     assert v21['decision'].startswith(v20['decision']) and 'v21 (NX-035 repo2 maintenance' in v21['decision']
     validate_rules(v21)
+
+
+
+@pytest.mark.parametrize('snapshots, expected', [
+    ([{**SNAPSHOTS[0]}, {'id': 'f' * 64, 'short_id': 'ffffffff', 'time': '2030-01-01T00:00:00Z', 'tags': ['files_artifact']}],
+     {'forget': 'refused_future_snapshots', 'future': ['ffffffff'], 'unreadable': 0}),
+    ([{'id': 'b' * 64, 'short_id': 'bbbbbbbb', 'time': 'yesterday', 'tags': ['files_runtime']}],
+     {'forget': 'refused_future_snapshots', 'future': [], 'unreadable': 1}),
+])
+def test_a_future_dated_or_unreadable_snapshot_stops_the_run_before_forget(tmp_path, snapshots, expected):
+    """L6 F1: keep-within counts from a group's newest snapshot; a future-dated one would make forget remove every real one."""
+    bin_, log = restic(tmp_path, snapshots=snapshots)
+    code, out = run(['--restic', bin_, *setup(tmp_path)], clock=SUNDAY)
+    doc = json.loads(out)
+    assert code == 1 and doc['ok'] is False and {k: doc[k] for k in expected} == expected and doc['check'] == 'not_run'
+    assert [c['args'][c['args'].index('--password-file') + 2] for c in calls(log)] == ['snapshots']  # no forget, no check
+
+
+def test_a_failed_snapshot_listing_never_passes(tmp_path):
+    bin_, log = restic(tmp_path, codes={'snapshots': 1})
+    code, out = run(['--restic', bin_, *setup(tmp_path), '--dry-run'])
+    assert code == 1 and json.loads(out)['forget'] == 'snapshots exit 1'

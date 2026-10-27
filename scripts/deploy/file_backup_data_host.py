@@ -5,34 +5,29 @@
     sudo bash file_backup_data_host.sh /path/file-backup.data-host.json
     sudo bash file_backup_data_host.sh /path/file-backup.data-host.json --uninstall
 
-Owner decisions 2026-10-26: D2 - one hostssl pg_hba line, nexloop_backup_recorder from APP_HOST only, scram-sha-256 (its existing
-password, not rotated: nothing is set here); D4 - repo1 is the restore journal's restic repository, written over a restricted,
-chrooted sftp account: the login is the repository's own owner nexloop-backup (one repository, one uid), and for that user sshd
-allows nothing but internal-sftp inside /srv/nexloop-sftp, where the repository is bind-mounted as /restic and nothing else is.
+Owner decisions: D2 (2026-10-26) - one hostssl pg_hba line, nexloop_backup_recorder from APP_HOST only, scram-sha-256 (its existing
+password, not rotated: nothing is set here). D4 changed on 2026-10-27: the file backup no longer shares the restore journal's
+repository and is not written over sftp; its own repository is served by rest-server --append-only, installed by
+rest_server_data_host.sh (step 1b). This entry is step 1a only; no sftp account, chroot or sshd drop-in is installed any more, and
+--uninstall still removes those of an earlier version wherever they exist (idempotent).
 
 Private configuration (JSON, 0600 root; deploy/examples/file-backup-data-host.example.json): schema nexloop-file-backup-data-host/1,
 release_checkout (render.py and the pg_hba template come from it), python (root runs render.py with it: a real file, root's),
-nexloop_root (config/pg_hba.conf is under it), stage_env (the deployed private stage.env; APP_HOST_ADDR is read from it),
-repo_path (the restore journal's restic repository: a directory with its config file, owned by nexloop-backup) and
-app_host_public_key (the line `file_backup_install.sh --prepare` printed on APP_HOST).
+nexloop_root (config/pg_hba.conf is under it) and stage_env (the deployed private stage.env; APP_HOST_ADDR is read from it); the
+earlier repo_path and app_host_public_key are accepted and ignored.
 
 Trust (root runs this code and render.py): stdlib only; the checkout, its .git, the trees root executes from and the interpreter are
 root's alone, every component lstat'ed (file_backup_install.trust_release and root_owned); nothing secret is read or printed.
 
-Steps (each idempotent; a rerun converges):
+Step (idempotent; a rerun converges):
   1a pg_hba: rendered from the release's template with the deployed stage.env; the rendered file may differ from the installed one
      by this one hostssl line added and nothing removed. config/ is root's alone and neither file a link (L6 I2). Written in place
      (same inode: the container bind-mounts the single file; opened without following a link; the old content kept, atomically
      and 0600, as config/pg_hba.conf.before-file-backup), checked from inside the container, PostgreSQL HUP'ed and the
      reload read back from its log; otherwise the old content is written back in place and reloaded.
-  1b sftp: /srv/nexloop-sftp (root, 0755, every component root's) with restic/ bind-mounted from repo_path by a mount unit; the
-     authorized key /etc/ssh/nexloop-authorized-keys/nexloop-backup (root, 0644; `restrict,from="<APP_HOST_ADDR>"`); the sshd
-     drop-in /etc/ssh/sshd_config.d/00-nexloop-file-backup.conf (Match User nexloop-backup: that key file only, public key only,
-     ChrootDirectory, ForceCommand internal-sftp -u 0077, no tty and no forwarding of any kind). `sshd -t`, then the effective
-     settings for that user from APP_HOST read back with `sshd -T -C` (an earlier setting elsewhere wins in sshd: then refused,
-     the drop-in removed); then sshd reloaded.
---uninstall: the drop-in, the authorized key and the mount unit removed (sshd reloaded); the chroot directory removed when empty.
-The pg_hba line stays (the template has it; without APP_HOST's DSN nobody uses it).
+--uninstall: the D4 sftp parts of an earlier version - the sshd drop-in, the authorized key, the mount unit and the chroot directory
+(when empty) - removed wherever they exist, sshd reloaded only when its drop-in was there. The pg_hba line stays (the template has
+it; without APP_HOST's DSN nobody uses it).
 Output: step lines only. Exit 0 done, 1 a step failed, 2 refused.
 """
 from __future__ import annotations
@@ -56,32 +51,25 @@ import file_backup_install as A  # noqa: E402  (the same directory: the trust ch
 Refused, Failed, run, under = A.Refused, A.Failed, A.run, A.under
 SCHEMA = 'nexloop-file-backup-data-host/1'
 USER = 'nexloop-backup'
-CHROOT = '/srv/nexloop-sftp'
+CHROOT = '/srv/nexloop-sftp'  # the D4 sftp parts: removed by --uninstall only, never installed any more
 MOUNT = CHROOT + '/restic'
 KEYS = '/etc/ssh/nexloop-authorized-keys'
 DROPIN = '/etc/ssh/sshd_config.d/00-nexloop-file-backup.conf'
 PROJECT = 'nexloop-data'
 HBA_LINE = re.compile(r'hostssl [a-z_][a-z0-9_]* nexloop_backup_recorder (\d{1,3}(?:\.\d{1,3}){3})/32 scram-sha-256')
 ADDR = re.compile(r'\d{1,3}(?:\.\d{1,3}){3}')
-PUBLIC_KEY = re.compile(r'ssh-ed25519 [A-Za-z0-9+/]{40,}={0,2}( [A-Za-z0-9@._-]{1,64})?')
 SCRATCH = '/var/lib/nexloop/file-backup-data-host'
 # What sshd must apply to nexloop-backup from APP_HOST (sshd -T -C), keyword -> value.
-EFFECTIVE = {'chrootdirectory': CHROOT, 'forcecommand': 'internal-sftp -u 0077', 'authorizedkeysfile': KEYS + '/%u',
-             'authenticationmethods': 'publickey', 'passwordauthentication': 'no', 'kbdinteractiveauthentication': 'no',
-             'permittty': 'no', 'allowtcpforwarding': 'no', 'allowstreamlocalforwarding': 'no', 'allowagentforwarding': 'no',
-             'x11forwarding': 'no', 'permittunnel': 'no', 'gatewayports': 'no', 'permituserrc': 'no'}
-
 
 def load_config(path):
     c = A.read_private_json(path)
-    keys = {'schema', 'release_checkout', 'python', 'nexloop_root', 'stage_env', 'repo_path', 'app_host_public_key', '_comment'}
-    if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or set(keys) - set(c) - {'_comment'}:
-        raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(keys - {'schema', '_comment'})))
-    for key in ('release_checkout', 'python', 'nexloop_root', 'stage_env', 'repo_path'):
+    need = {'schema', 'release_checkout', 'python', 'nexloop_root', 'stage_env'}
+    keys = need | {'repo_path', 'app_host_public_key', '_comment'}  # the D4 sftp fields of an earlier configuration: ignored
+    if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or need - set(c):
+        raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(need - {'schema'})))
+    for key in ('release_checkout', 'python', 'nexloop_root', 'stage_env'):
         if type(c[key]) is not str or not A.PATH.fullmatch(c[key]) or '..' in c[key]:
             raise Refused(f'configuration: {key} (absolute path)')
-    if type(c['app_host_public_key']) is not str or not PUBLIC_KEY.fullmatch(c['app_host_public_key'].strip()):
-        raise Refused('configuration: app_host_public_key (the one ssh-ed25519 line file_backup_install.sh --prepare printed)')
     return c
 
 
@@ -199,122 +187,37 @@ def unit_name(path):
     return ''.join(out) + '.mount'
 
 
-def mount_unit(repo):
-    return (f'# NX-035 D4 (file_backup_data_host.py; do not edit): the restore journal\'s restic repository inside the chroot of the\n'
-            f'# restricted sftp account, as {MOUNT}; nothing else of the backup volume is there.\n'
-            f'[Unit]\nDescription=NexLoop file backup repo1 for the restricted sftp account\nRequiresMountsFor={repo}\n\n'
-            f'[Mount]\nWhat={repo}\nWhere={MOUNT}\nType=none\nOptions=bind,nosuid,nodev,noexec\n\n[Install]\nWantedBy=multi-user.target\n')
-
-
-def sshd_dropin():
-    lines = [f'# NX-035 D4 (file_backup_data_host.py; do not edit): {USER} logs in only for internal-sftp inside {CHROOT}, with the',
-             '# one APP_HOST key (its from= option names the address); first in sshd_config.d, so these values are obtained first.',
-             f'Match User {USER}', f'    AuthorizedKeysFile {KEYS}/%u', '    AuthenticationMethods publickey', '    PubkeyAuthentication yes',
-             '    PasswordAuthentication no', '    KbdInteractiveAuthentication no', f'    ChrootDirectory {CHROOT}',
-             '    ForceCommand internal-sftp -u 0077', '    PermitTTY no', '    AllowTcpForwarding no', '    AllowStreamLocalForwarding no',
-             '    AllowAgentForwarding no', '    X11Forwarding no', '    PermitTunnel no', '    GatewayPorts no', '    PermitUserRC no', 'Match all']
-    return '\n'.join(lines) + '\n'
-
-
-def effective(runner, address):
-    text = runner(['sshd', '-T', '-C', f'user={USER},host={address},addr={address}'])
-    values = {}
-    for line in text.splitlines():
-        key, _, value = line.strip().partition(' ')
-        values.setdefault(key.lower(), []).append(value.strip())
-    return values
-
-
-def check_effective(values, groups=()):
-    problems = [f'{k} is {" ".join(values.get(k, ["unset"]))!r}' for k, v in EFFECTIVE.items() if values.get(k) != [v]]
-    allowed = [u for v in values.get('allowusers', []) for u in v.split()]
-    if allowed and not any(u.split('@')[0] in (USER, '*') for u in allowed):
-        problems.append(f'AllowUsers does not name {USER}')
-    if any(u.split('@')[0] in (USER, '*') for v in values.get('denyusers', []) for u in v.split()):
-        problems.append(f'DenyUsers names {USER}')
-    # L6 S4: the groups too (the user's groups from `id -nG`).
-    allowed = [g for v in values.get('allowgroups', []) for g in v.split()]
-    if allowed and not any(g in (*groups, '*') for g in allowed):
-        problems.append(f'AllowGroups names none of {USER}\'s groups')
-    if any(g in (*groups, '*') for v in values.get('denygroups', []) for g in v.split()):
-        problems.append(f'DenyGroups names a group of {USER}')
-    return problems
-
-
-def restore(path, before):
-    if before is None:
-        if os.path.lexists(path):
-            path.unlink()
-    else:
-        A.write_private(path, before, mode=0o644)
-
-
-def step_sftp(root, config, address, runner, out, trust):
-    uid = runner(['id', '-u', USER], check=False).strip()
-    if not uid.isdigit():
-        raise Refused(f'user {USER} missing (the restore journal backup is not installed here)')
-    repo = Path(config['repo_path'])
-    if os.path.islink(repo) or not repo.is_dir() or not (repo / 'config').is_file() or os.stat(repo).st_uid != int(uid):
-        raise Refused(f'repo_path: a directory with a restic config file, owned by {USER}')
-    chroot, mount = under(root, CHROOT), under(root, MOUNT)
-    chroot.mkdir(exist_ok=True)
-    trust(chroot, what='chroot')  # sshd's own rule too: every component root's and not group/other-writable
-    os.chmod(chroot, 0o755)
-    if os.path.islink(mount):
-        raise Refused(f'{MOUNT} is a symbolic link')
-    mount.mkdir(exist_ok=True)
-    unit = under(root, '/etc/systemd/system') / unit_name(MOUNT)
-    A.write_private(unit, mount_unit(config['repo_path']), mode=0o644)
-    runner(['systemctl', 'daemon-reload'])
-    runner(['systemctl', 'enable', '--now', unit.name])
-    if not (mount / 'config').is_file():
-        raise Failed(f'{MOUNT}: the bind mount does not show the repository (systemctl status {unit.name})')
-    keys = under(root, KEYS)
-    keys.mkdir(parents=True, exist_ok=True)
-    trust(keys, what='authorized keys')
-    os.chmod(keys, 0o755)
-    keyfile, dropin = keys / USER, under(root, DROPIN)
-    before = {p: (p.read_text() if p.is_file() and not p.is_symlink() else None) for p in (keyfile, dropin)}
-    changed = A.write_private(keyfile, f'restrict,from="{address}" {config["app_host_public_key"].strip()}\n', mode=0o644)
-    changed = A.write_private(dropin, sshd_dropin(), mode=0o644) or changed
-    try:
-        runner(['sshd', '-t'])
-        problems = check_effective(effective(runner, address), runner(['id', '-nG', USER], check=False).split())
-        if problems:
-            raise Failed('sshd: for nexloop-backup from APP_HOST ' + '; '.join(problems)[:500] + ' (an earlier setting wins in sshd)')
-    except (Failed, OSError):
-        for path, text in before.items():
-            restore(path, text)
-        raise
-    if changed:
-        runner(['systemctl', 'try-reload-or-restart', 'ssh.service'], check=False)
-    print(f'step 1b: sftp chroot {CHROOT} with restic/ bound from repo_path ({unit.name}), the APP_HOST key, the sshd drop-in '
-          + ('installed, sshd reloaded' if changed else 'unchanged'), file=out)
-
-
 def install(root, config, runner, out, trust, sleep):
     trusted_code(config, trust)
     address = app_host_addr(config)
     step_hba(root, config, address, runner, out, trust, sleep)
-    step_sftp(root, config, address, runner, out, trust)
-    print('done: DATA_HOST step 1; next on APP_HOST: file_backup_install.sh (NX-035-file-backup.md §6.1)', file=out)
+    print('done: DATA_HOST step 1a; next: rest_server_data_host.sh (step 1b, the files repository and rest-server; NX-035-file-backup.md §6.2)',
+          file=out)
 
 
 def uninstall(root, runner, out):
+    """The D4 sftp parts an earlier version installed, wherever they exist; nothing else (idempotent: none of them is required)."""
     unit = under(root, '/etc/systemd/system') / unit_name(MOUNT)
-    for path in (under(root, DROPIN), under(root, KEYS) / USER):
+    dropin = under(root, DROPIN)
+    had_dropin = os.path.lexists(dropin)
+    removed = []
+    for path in (dropin, under(root, KEYS) / USER):
         if os.path.lexists(path):
             path.unlink()
-    runner(['sshd', '-t'], check=False)
-    runner(['systemctl', 'try-reload-or-restart', 'ssh.service'], check=False)
-    runner(['systemctl', 'disable', '--now', unit.name], check=False)
+            removed.append(path.name)
+    if had_dropin:
+        runner(['sshd', '-t'], check=False)
+        runner(['systemctl', 'try-reload-or-restart', 'ssh.service'], check=False)
     if os.path.lexists(unit):
+        runner(['systemctl', 'disable', '--now', unit.name], check=False)
         unit.unlink()
-    runner(['systemctl', 'daemon-reload'], check=False)
-    for directory in (under(root, MOUNT), under(root, CHROOT)):
+        runner(['systemctl', 'daemon-reload'], check=False)
+        removed.append(unit.name)
+    for directory in (under(root, MOUNT), under(root, CHROOT), under(root, KEYS)):
         if directory.is_dir() and not directory.is_symlink() and not os.listdir(directory):
             directory.rmdir()
-    print('uninstalled: the sshd drop-in, the authorized key and the mount unit removed; the pg_hba line stays', file=out)
+            removed.append(str(directory.name))
+    print('uninstalled: ' + (', '.join(removed) if removed else 'no D4 sftp part was there') + '; the pg_hba line stays', file=out)
 
 
 def main(argv=None, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned, sleep=time.sleep):

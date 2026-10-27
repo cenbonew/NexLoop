@@ -311,6 +311,7 @@ source releases.
 | Tool | Version | License | Source |
 |---|---|---|---|
 | pgbackrest | 2.59.3 | MIT | https://github.com/pgbackrest/pgbackrest/releases/tag/release/2.59.3 |
+| rest_server | 0.14.0 | BSD-2-Clause | https://github.com/restic/rest-server/releases/tag/v0.14.0 |
 | restic | 0.18.0 | BSD-2-Clause | https://github.com/restic/restic/releases/tag/v0.18.0 |
 
 ## Weak-copyleft dependencies

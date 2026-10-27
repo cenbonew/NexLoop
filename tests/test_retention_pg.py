@@ -23,6 +23,7 @@ from commercial_fixture import TENANT,commercial_setup
 from commitment_fixture import commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor,execution_plan  # noqa: F401
 from multi_authority_fixture import seed_multi_authority
+from support.absence import absent
 
 pytestmark=pytest.mark.parametrize('execution_plan',['commitment-service'],indirect=True)
 ROOT=Path(__file__).resolve().parents[1]
@@ -159,7 +160,7 @@ def test_keeper_redacts_expired_text_deletes_expired_records_and_leaves_tombston
     assert any(k=='batch' and a=='deleted' and n['cost_entries']==1 for k,_,a,n in financial)
     assert tombstones(admin,'message_text')[0][2:]==('redacted',{'messages':1,'outbox':0,'message_objects':1})
     text=json.dumps(admin.execute('select jsonb_agg(t) from runtime.nexloop_erasure_tombstones t').fetchone()[0],ensure_ascii=False)
-    assert '三个月前' not in text and 'pay-old' not in text and 'cust-1' not in text and '10000' not in text
+    assert '三个月前' not in text and 'pay-old' not in text and 'cust-1' not in text and absent(10000, text)
     # Idempotent: nothing is due again within the interval; a forced second pass finds nothing.
     assert {k:v for k,v in keeper(c,env).run_once().items() if v}=={}
     again=retention.RetentionPort(env['worker'],c['keeper_session'](),env['signer']).sweep('message_text','sweep:00000000-0000-0000-0000-000000000000')

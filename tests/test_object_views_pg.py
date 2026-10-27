@@ -20,6 +20,7 @@ from commitment_fixture import TENANT as COMMITMENT_TENANT, commitments  # noqa:
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from erasure_support import mark_erasing
 from support.tenants import TENANT_B
+from support.absence import absent
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
@@ -106,7 +107,7 @@ def test_the_layout_read_and_the_values_keep_their_own_read(workbench):
         assert (view['stable_name'], view['version'], view['object_type'], view['title_property']) == ('consumer.profile', 1, 'Consumer', 'sport')
         assert view['sections'] == [{'name': 'sport', 'title': '运动偏好', 'fields': ['sport', 'level']}, {'name': 'money', 'title': '消费能力', 'fields': ['income']}]
         assert view['relations'] == ['plays_with'] and 'secret_b' not in got.text and '他人' not in got.text
-        assert '9000' not in got.text and '网球' not in got.text  # layout only: no value
+        assert absent(9000, got.text) and '网球' not in got.text  # layout only: no value
         # No View for the type: null, the client keeps its default layout.
         none = client.get('/api/v1/workbench/object-views/Ticket', headers={'Origin': ORIGIN})
         assert none.status_code == 200 and none.json() == {'view': None}
@@ -116,7 +117,7 @@ def test_the_layout_read_and_the_values_keep_their_own_read(workbench):
         values = client.get(f'/api/v1/workbench/objects/Consumer/{oid}', headers={'Origin': ORIGIN})
         assert values.status_code == 200, values.text
         props = {p['name']: p for p in values.json()['properties']}
-        assert props['income']['status'] == 'withheld' and props['income']['reason'] == 'restricted' and '9000' not in values.text
+        assert props['income']['status'] == 'withheld' and props['income']['reason'] == 'restricted' and absent(9000, values.text)
         assert props['sport']['status'] == 'ok'
         # NX-029: once the Consumer is being erased its object shows nothing, whatever the View lists.
         mark_erasing(admin, TENANT, oid)

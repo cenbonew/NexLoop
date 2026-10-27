@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from support.absence import absent
 
 ROOT=Path(__file__).resolve().parents[1]
 MATRIX=json.loads((ROOT/'deploy/load/matrix.v1.json').read_text())
@@ -182,7 +183,7 @@ def test_an_aborted_cell_records_the_error_types_and_frames_without_text(tmp_pat
         described = M.describe_error(error)
     assert described['chain'] == [{'type': 'builtins.RuntimeError'}, {'type': 'psycopg.errors.UndefinedObject', 'sqlstate': '42704'}]
     assert any(f.startswith('test_load_matrix.py:') and f.endswith(':inner') for f in described['frames'])
-    assert secret not in json.dumps(described) and '00000000' not in json.dumps(described)
+    assert secret not in json.dumps(described) and absent('00000000', described)
     cell = _cell(tmp_path)
     result = cell.abort('runner_error', RuntimeError(secret))
     assert result['aborted'] == 'runner_error' and result['error']['chain'] == [{'type': 'builtins.RuntimeError'}] and secret not in json.dumps(result)
