@@ -22,7 +22,10 @@ nexloop-backup; on the backup volume), journal_repo_path (the restore journal's 
 be neither it nor inside or above it), restic (DATA_HOST's restic binary, run as nexloop-backup for init and a cat config),
 rest_server_archive (the official rest-server_<version>_linux_amd64.tar.gz whose sha256 versions.lock.json names), tls_cert_file and
 tls_key_file (issue_certs.py server --san IP:<DATA_HOST_ADDR> on the management machine: <name>.chain.crt and <name>.key, the key a
-0600 file), port (1024-65535) and max_size_bytes (rest-server --max-size: the repository may not grow past it; at least 1 GiB).
+0600 file), port (1024-65535) and max_size_bytes (rest-server --max-size: the repository may not grow past it; at least 1 GiB);
+optionally trusted_owner - the deployment user, named explicitly (stage's /srv/nexloop is its 751 directory): root-equivalent on
+this host (NOPASSWD sudo), so its directories may stand above what root checks (file_backup_install.trusted_owner); the directories
+and files this installer creates (secrets/rest-server, secrets/files-repo, the binary's, the serving directory) stay root's.
 stdin (optional on a rerun): `rest<TAB>password` - the one htpasswd user's (nexloop-file-backup), 24-128 of A-Z a-z 0-9 _ -, as APP_HOST's
 repository URL carries it; stored only as its bcrypt hash (`htpasswd -niB`, apache2-utils) - and `files<TAB>password`, the files
 repository's restic password (16-1024 printable, no space; APP_HOST's `repo1` line is the same one), into
@@ -95,9 +98,10 @@ HTPASSWD = re.compile(r'nexloop-file-backup:\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}')
 def load_config(path):
     c = A.read_private_json(path)
     keys = {'schema', 'release_checkout', 'release_sha', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive',
-            'tls_cert_file', 'tls_key_file', 'port', 'max_size_bytes', '_comment'}
-    if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or keys - set(c) - {'_comment'}:
-        raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(keys - {'schema', '_comment'})))
+            'tls_cert_file', 'tls_key_file', 'port', 'max_size_bytes', 'trusted_owner', '_comment'}
+    optional = {'_comment', 'trusted_owner'}
+    if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or keys - set(c) - optional:
+        raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(keys - {'schema'} - optional)) + ' (optionally trusted_owner)')
     for key in ('release_checkout', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive', 'tls_cert_file', 'tls_key_file'):
         if type(c[key]) is not str or not A.PATH.fullmatch(c[key]) or '..' in c[key]:
             raise Refused(f'configuration: {key} (absolute path)')
@@ -452,7 +456,8 @@ def uninstall(root, runner, out):
           file=out)
 
 
-def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned, trust_python=A.interpreter_owned):
+def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=A.root_owned, trust_python=A.interpreter_owned,
+         account=A.pwd.getpwnam):
     p = argparse.ArgumentParser(description='NX-035 repo1 rest-server --append-only on DATA_HOST (owner, root, one command)')
     p.add_argument('config')
     p.add_argument('--uninstall', action='store_true')
@@ -460,6 +465,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'),
     os.umask(0o022)
     try:
         config = load_config(a.config)
+        trust = A.trusting(trust, A.trusted_owner(config, (USER, REST_USER), account))
         if a.uninstall:
             uninstall(root, runner, out)
         else:
