@@ -3041,6 +3041,18 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "Release 50 (RID 20261027-575859f73be7-1, main 575859f7): deployed to stage, gate 20/21, promote ok, migrations 0360-0363 applied. Executor: dispatcher.",
         "recorded_at": "2026-10-27T15:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 51 (main 83c096e5): deployed to stage, not promoted because the deploy gate secret_distribution failed. Executor: dispatcher.",
+        "recorded_at": "2026-10-28T09:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 52 (main 933bc1a2): deployed to stage, gate 20/21, promote ok. Executor: dispatcher.",
+        "recorded_at": "2026-10-28T09:00:00+08:00"
       }
     ]
   },
@@ -3129,6 +3141,12 @@
         "ref": "docs/implementation/NX-035-file-backup.md",
         "summary": "DATA_HOST 上 rest-server --append-only 已安装，文件仓库独立（负责人 2026-10-27 改 D4）。APP_HOST 第 5 步当场发现三处问题（append-only 锁按正文 sha256 命名并检查文件；空文件仓库预览不算失败；按 restic 拒绝行判定 append-only 并为 APP_HOST 加 ufw 规则），修复在第四十三批（049a33cc），L6 PASS。执行人：调度员；判定人：L6。",
         "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "文件备份已在 stage 启用：DATA_HOST rest-server --append-only 已装，只追加验证 ok；APP_HOST 一次运行 4 份 verified，两个 timer 已启用；restic-maint 带文件块首跑 2026-10-28 03:34 成功；告警规则 v21 已应用。期间修复：门禁权限 3a529304、解析 87227dca、stage 修复 049a33cc。执行人：调度员；判定人：L6（代码审查）。",
+        "recorded_at": "2026-10-28T09:00:00+08:00"
       }
     ]
   },
@@ -4350,6 +4368,12 @@
         "ref": "docs/implementation/NX-054-stage-publish.md §8",
         "summary": "§8 第 0–3 步在 stage 完成：空闲基线 sim 用时 0.872 秒；perf-1 擦除 sync_purge 3.154 秒。执行人：调度员。第 4 步发布等第四十二批（relation_types_publish --defer assessment_evidence，L6 PASS）合入。状态 in_progress。",
         "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "§8 第 4 步于 2026-10-27 10:09Z 发布：catalog v1 共 25 个类型，assessment_evidence 推迟（--defer，L6 PASS dfe3e07d）。第 5 步负责人部分完成：派生 sim 0.694 s；perf-2 擦除 sync_purge 3.111 s（空闲 3.154 s）；24 h relay p95 未取。缺口检查已升级到 83c096e5，gaps 687 待回填。执行人：调度员（第 3、5 步含负责人部分）；判定人：L6，待判定。状态保持 in_progress。",
+        "recorded_at": "2026-10-28T09:00:00+08:00"
       }
     ]
   },
@@ -4382,6 +4406,12 @@
         "ref": "dispatcher deployment record (private)",
         "summary": "E2+E3 host health enabled on stage: APP_HOST and DATA_HOST probes recording (release 44/94baecc3 installer, busctl LastTriggerUSec fix), alert rules v13+ published, DATA_HOST timer_stale false alarms cleared 2026-10-25. Remaining for done: E1 stage run output and judgement, crash-loop drill record. Executor: dispatcher; judge: L6.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "rest-server 已纳入 DATA_HOST host-health；探针 LoadState 修正已部署（release 52，main 933bc1a2）。执行人：调度员；判定人：L6（代码审查 PASS）。",
+        "recorded_at": "2026-10-28T09:00:00+08:00"
       }
     ]
   },
@@ -4524,7 +4554,7 @@
       "M23"
     ],
     "deliverable": "审计记录哈希链与校验、审计导出附带校验；不外送外部安全平台；校验密钥放私有配置；不改已发布审计表",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -4543,6 +4573,18 @@
         "ref": "dispatcher deployment record (private)",
         "summary": "Stage: seal key in the private keychain, DATA_HOST seal cron every 15 minutes since 2026-10-23. Remaining for done: a recorded keyed verification and export verification run on stage. Checked by L2, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "stage 校验运行卡与一键入口已合入（main 17aa74c1）；stage 执行待 2026-10-28。执行人：调度员（合入）；判定：未开始。",
+        "recorded_at": "2026-10-28T09:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "NX-059 stage 验收于 2026-10-28 06:4x 完成：带密钥校验 valid（213 条，5 个封印）；导出离线校验 valid；两边比对一致。剩余项（stage 带密钥校验与导出校验）均已完成，任务 done；运行卡另有两处后续修正交 L2，不影响验收。执行人：调度员；判定人：L6（PASS）。",
+        "recorded_at": "2026-10-28T15:00:00+08:00"
       }
     ]
   },
