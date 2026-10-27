@@ -337,13 +337,21 @@ OPEN() { printf '{"scope_kind":"action_type","action_type":"eios:action:nexloop.
 | # | 命令 |
 |---|---|
 | 8.1 | `"${D3[@]}" request --operation set_real_dispatch --body-json "$(OPEN true '演练一：批准与执行')"` → 记下 `approval_id`（下称 A1） |
-| 8.2a | `"${D3[@]}" list`（A1 只在 `mine`，不在 `to_decide`；`solo_mode.enabled` 为 `false`）；`"${D3[@]}" decide --approval-id A1 --decision approve --reason 自批` → 被拒（403 或 409） |
+| 8.2a | `"${D3[@]}" list`（A1 只在 `mine`，不在 `to_decide`；`solo_mode.enabled` 为 `false`）；`"${D3[@]}" decide --approval-id A1 --decision approve --reason 自批` → 被拒：HTTP 409，`code` 为 `not_allowed_in_state`，`details_reason` 为 `self_approval`（见下方“原因码”说明） |
 | 8.2 | `"${D2[@]}" list`（A1 在 `to_decide`）；`"${D2[@]}" decide --approval-id A1 --decision approve --reason '演练一：同意'` |
 | 8.3 | `"${D3[@]}" execute --approval-id A1` → `approval: consumed` |
 | 8.4 | `"${D3[@]}" request --operation set_real_dispatch --body-json "$(OPEN false '演练一：关闭')"` → 直接执行，没有 `approval_id` |
-| 8.5 | `"${D3[@]}" request … "$(OPEN true '演练二：撤回与冷却')"` → A2；`"${D3[@]}" cancel --approval-id A2 --reason '演练二撤回：不再需要'`；再发同一 request → HTTP 409。工作台对 `approval: …` 类拒绝不带原因码（只有固定前缀的 handler 才带 `details.reason`），所以脚本输出里没有 `details_reason`；以 409、`mine` 里没有新的等待请求、审计里没有新的 `approval.requested` 三点判定为冷却 |
+| 8.5 | `"${D3[@]}" request … "$(OPEN true '演练二：撤回与冷却')"` → A2；`"${D3[@]}" cancel --approval-id A2 --reason '演练二撤回：不再需要'`；再发同一 request → HTTP 409，`code` 为 `not_allowed_in_state`，`details_reason` 为 `cooldown`；同时 `mine` 里没有新的等待请求、审计里没有新的 `approval.requested` |
 | 8.6 | `"${D3[@]}" request … "$(OPEN true '演练三：等待告警')"` → A3，等待超过 1 小时看告警 |
 | 8.7 | `"${D2[@]}" decide --approval-id A3 --decision reject --reason '演练三：拒绝'` |
+
+**原因码**（NX-056 follow-up，第四十批合入起）：工作台对审批路径的拒绝在原来的状态码之外带上固定原因码 `details.reason`，驱动脚本输出为 `details_reason`。状态码不变：
+- 冷却：409 `not_allowed_in_state`，`details_reason=cooldown`；
+- 自批：409 `not_allowed_in_state`，`details_reason=self_approval`；
+- 被操作的成员参与批准：409，`target_cannot_approve`；单人模式下凑不够人数：409，`quorum_unreachable_in_solo_mode`；
+- 非发起人撤回或执行：403 `forbidden`，`details_reason=not_requester`；不是有资格的批准人：403，`approver_unauthorized`。
+
+**第 1 天（2026-10-27）实测**：自批和冷却都只返回 409 `not_allowed_in_state`，没有 `details_reason`。这是合入原因码**之前**的行为（当时 stage 的发布还没有这一片），当天按“409、`mine` 里没有新的等待请求、审计里没有新的 `approval.requested`”判定。第 2 天及以后、部署了含原因码的发布后的演练，按上面的原因码判定。
 
 下表的“预期”不变；表中“负责人”一律读作 approver3，“测试 owner”读作 approver2。开关状态用只读查询核对，不用负责人登录看面板：`ro "select scope_kind, scope_ref, enabled from control.nexloop_real_dispatch_switches where tenant_id='$TENANT_ID' and world='real' order by 1,2"`。
 

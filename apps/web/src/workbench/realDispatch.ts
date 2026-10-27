@@ -11,7 +11,7 @@
  *  - the first refused or unknown result stops the run (no blind retry); the state is then read again.
  * The deployment layer (REAL_DISPATCH_ENABLED, APP_HOST compose env) is not readable here and cannot be changed here.
  */
-import {WorkbenchError,workbenchAct,writeKindOf,type WriteFailure} from './api';
+import {WorkbenchError,refusalTextOf,workbenchAct,writeKindOf,type WriteFailure} from './api';
 
 export const DELIVER='eios:action:nexloop.enterprise.deliver:1';
 export type SwitchState={enabled:boolean;revision:number};
@@ -78,7 +78,7 @@ export function checkReason(reason:string):string|null{
   return reason!==reason.trim()||reason.length<1||reason.length>500?'原因必填，1–500 个字符，首尾不能有空格。':null;
 }
 
-export type StepResult={change:Change;ok:true;control_revision:number|null}|{change:Change;ok:false;kind:WriteFailure};
+export type StepResult={change:Change;ok:true;control_revision:number|null}|{change:Change;ok:false;kind:WriteFailure;detail?:string|null};
 /** Runs the changes in order through the governed entry; stops at the first refused or unknown result. */
 export async function apply(changes:Change[],reason:string,act=workbenchAct):Promise<StepResult[]>{
   const results:StepResult[]=[];
@@ -87,7 +87,7 @@ export async function apply(changes:Change[],reason:string,act=workbenchAct):Pro
     try{
       const value=await act('set_real_dispatch',{...request,reason},await idempotencyKey(change,reason));
       const r=value.control_revision;results.push({change,ok:true,control_revision:typeof r==='number'?r:null});
-    }catch(error){results.push({change,ok:false,kind:writeKindOf(error)});break;}
+    }catch(error){results.push({change,ok:false,kind:writeKindOf(error),detail:refusalTextOf(error)});break;}
   }
   return results;
 }
