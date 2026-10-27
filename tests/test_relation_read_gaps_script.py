@@ -18,9 +18,16 @@ from nexloop_eios.observability import load_rules, validate_rules  # noqa: E402
 NOW = datetime(2026, 10, 26, 3, 40, tzinfo=UTC)
 
 
+def pre(deferred=(), objects=0):
+    """authz.nexloop_relation_precheck's answer: every ownership type published but the deferred ones, whose source type has
+    `objects` objects."""
+    return {'catalog': {'latest_type_versions': {n: 1 for n, *_ in G.OWNERSHIP if n not in deferred}},
+            'fields': [{'relation': n, 'world': 'real', 'objects': objects} for n in deferred] + [{'relation': 'goal_of', 'world': 'real', 'objects': 3}]}
+
+
 class Conn:
-    def __init__(self, doc):
-        self.doc, self.sql, self.closed = doc, [], False
+    def __init__(self, doc, precheck=None):
+        self.doc, self.pre, self.sql, self.closed = doc, precheck or pre(), [], False
 
     def transaction(self):
         conn = self
@@ -35,7 +42,7 @@ class Conn:
 
     def execute(self, sql, params=()):
         self.sql.append(sql)
-        doc = self.doc
+        doc = self.pre if 'precheck' in sql else self.doc
 
         class R:
             def fetchone(self):
@@ -51,8 +58,8 @@ def doc(gaps, erasing=0):
             'rows': [{'world': 'real', 'type_name': 'Goal', 'objects': 3, 'gaps': gaps, 'gaps_erasing': erasing, 'dangling': 1, 'relation_only': 0}]}
 
 
-def run(tmp_path, d, evidence=None):
-    conn, out, err = Conn(d), io.StringIO(), io.StringIO()
+def run(tmp_path, d, evidence=None, precheck=None):
+    conn, out, err = Conn(d, precheck), io.StringIO(), io.StringIO()
     code = G.main(['--dsn-file', str(tmp_path / 'dsn'), '--tenant', 't', '--evidence-dir', str(evidence or tmp_path)],
                   connect=lambda path: conn, clock=lambda: NOW, out=out, err=err)
     return code, conn, json.loads(out.getvalue()), err.getvalue()
@@ -83,13 +90,31 @@ def test_a_failed_prune_is_a_warning_only(tmp_path, monkeypatch):
     assert code == 0 and got['evidence'] and '<4>nexloop-relation-read-gaps evidence_prune_failed error=PermissionError' in err
 
 
-def test_the_threshold_is_the_first_batchs_ownership_source_types(tmp_path):
+def test_the_ownership_copy_is_the_first_batchs():
     from nexloop_eios.relation_catalog import FIRST_BATCH
-    assert G.MIN_OWNERSHIP_TYPES == len({s.source_type for s in FIRST_BATCH if s.ownership}) == 14
-    code, _, _, err = run(tmp_path, {**doc(0), 'ownership_types': 13})  # a partial catalog
-    assert code == 2 and 'expected>=14' in err
+    assert G.OWNERSHIP == tuple((s.name, s.source_type, s.source_property, s.target_type) for s in FIRST_BATCH if s.ownership)
+    assert len({s for _, s, *_ in G.OWNERSHIP}) == 14  # 12 target + message_in + assessment_evidence (L6 F1)
+
+
+def test_the_expected_coverage_follows_the_published_catalog(tmp_path):
+    code, conn, got, err = run(tmp_path, {**doc(0), 'ownership_types': 13})  # everything published, 13 covered: partial
+    assert code == 2 and 'ownership_types=13 expected=14' in err and 'precheck' in conn.sql[2]
     assert run(tmp_path, {**doc(0), 'ownership_types': 14})[0] == 0
-    assert json.loads((tmp_path / '2026-10-26.json').read_text())['ownership_types'] == 14  # in the evidence
+    evidence = json.loads((tmp_path / '2026-10-26.json').read_text())
+    assert evidence['ownership_types'] == 14 and evidence['expected_ownership_types'] == 14 and evidence['unpublished_ownership'] == []
+
+
+def test_a_deferred_type_without_objects_lowers_the_expectation(tmp_path):
+    """Stage 2026-10-27: assessment_evidence deferred (RelationshipAssessment not registered, no object) - 13 expected and covered."""
+    deferred = pre(['assessment_evidence'])
+    code, _, got, err = run(tmp_path, {**doc(0), 'ownership_types': 13}, precheck=deferred)
+    assert code == 0 and err == '' and got['expected_ownership_types'] == 13 and got['unpublished_ownership'] == ['assessment_evidence']
+    code, _, _, err = run(tmp_path, {**doc(0), 'ownership_types': 12}, precheck=deferred)
+    assert code == 2 and 'expected=13' in err
+    code, _, _, err = run(tmp_path, {**doc(0), 'ownership_types': 13}, precheck=pre(['assessment_evidence'], objects=2))
+    assert code == 2 and 'deferred_with_objects types=assessment_evidence' in err  # objects the check would not cover
+    code, _, _, err = run(tmp_path, {**doc(0), 'ownership_types': 0, 'rows': []}, precheck=pre([n for n, *_ in G.OWNERSHIP]))
+    assert code == 2 and 'expected=0' in err  # nothing published: never "no gap"
 
 
 def test_a_check_that_covers_nothing_fails(tmp_path):

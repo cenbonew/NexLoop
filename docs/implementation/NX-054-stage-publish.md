@@ -92,6 +92,12 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 ```
 
 - 重跑同一条命令是重放：`replayed: true`，`new_relation_types: 0`。
+- **端点类型没有登记时**（stage 2026-10-27：`{"refused": "InvalidParameterValue", "message": "relation type invalid: assessment_evidence"}`，本租户 `ontology.object_type_versions` 里没有 RelationshipAssessment，0319 整批拒绝、什么都不写）：
+  1. 预检加 `--defer assessment_evidence`：输出 `deferred.assessment_evidence.source_objects` 必须为 0（RelationshipAssessment 对象数，所有 world），不为 0 就出现在 `blocking` 里，停止。
+  2. dry-run 与正式发布都加 `--defer assessment_evidence`。dry-run 预期 `deferred: ["assessment_evidence"]`、`relation_types` 25、`longest_ownership_chain` 2；发布结果 `new_relation_types` 25。发布器在打开窗口之前，经 bootstrap 做一次只读查询，核对被推迟类型的端点类型确实没登记；两端都已登记的类型（例如 goal_of）拒绝推迟。
+  3. 发布后预检的 `derivation_map_rows` 为 25。回退（第 6 节）也要带同一个 `--defer`。
+  4. 第 9 节的缺口检查不用改配置：预期的归属源类型数按已发布目录实算（首批 14 个归属源类型里已发布的那些，这里是 13），实际覆盖 13 就以 0 退出，证据里有 `expected_ownership_types` 13 和 `unpublished_ownership: ["assessment_evidence"]`。未发布的归属类型只要其源类型有对象，就以 2 退出（`deferred_with_objects`）。
+  5. 以后补发：RelationshipAssessment 经受治理的目录发布登记以后，运行 `relation_types_publish.py --tenant "$TENANT_ID" --bootstrap-dsn-file /run/bootstrap-dsn --resume-derivation --from-version 1`（先加 `--dry-run` 看到 `catalog_version` 2、`relation_types` 26、`deriving` 26、`deferred` 为空），得到完整的目录版本 2；缺口检查随之预期 14。普通模式固定为版本 1，不能用来补发。
 - 发布后再跑一次第 1 步的预检：`catalog.versions` 只有版本 1，`derivation_map_rows` 为 26。从这一刻起，新写入或属性有变化的对象会派生关系；存量对象等到 P3 回填。
 
 ## 4. 基线：派生状态（发布之后）
