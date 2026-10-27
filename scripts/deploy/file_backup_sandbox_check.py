@@ -13,7 +13,10 @@ timer run could read. It prints one JSON line and nothing else:
   handles  the errno of open_by_handle_at and name_to_handle_at (L6 F1): the unit filters both, so EPERM; anything else (EINVAL,
            ESTALE, a success) means the capability could open inodes past the sandbox's mounts
   append_only  for each --append-only-probe repository (repo1 over DATA_HOST's rest-server): a new snapshot taken (backup 0), forgetting
-           it refused (forget non-zero) and the snapshot still listed afterwards
+           it refused and the snapshot still listed afterwards. restic 0.18.0 exits 0 when the server refuses the DELETE (cmd_forget.go:
+           ParallelRemove's callback prints `unable to remove snapshot/<id> from the repository` and returns nil; the 403 itself is not
+           printed), so `refused` is whether that line names this probe's own snapshot id; `forget` is restic's exit code, reported only.
+           A forget of an id restic does not find also exits 0 (`Ignoring "<id>": ...`), with no such line
   restic   the first line of `restic version`; repos: restic's exit code of `cat config` per --repo (0 the repository opens with
            its password, 10 it does not exist, 12 the password is wrong); init: the exit code of `restic init` for --init repos that
            did not exist (then `cat config` again)
@@ -113,12 +116,14 @@ def append_only(restic, common, probe_dir):
         if snapshot is None:
             return {'backup': saved.returncode or 'no snapshot id'}
         forget = _restic(restic, ['forget', '--retry-lock', '1m', snapshot], **common)
+        # The removal of exactly this snapshot was attempted and failed: restic's own line, never its other output.
+        refused = f'unable to remove snapshot/{snapshot} from the repository' in (forget.stdout or '') + (forget.stderr or '')
         listed = _restic(restic, ['snapshots', '--json', '--tag', PROBE_TAG], **common)
         try:
             still = listed.returncode == 0 and any(s.get('id') == snapshot for s in json.loads(listed.stdout or '[]'))
         except (ValueError, AttributeError):
             still = False
-        return {'backup': 0, 'forget': forget.returncode, 'still_listed': still}
+        return {'backup': 0, 'forget': forget.returncode, 'refused': refused, 'still_listed': still}
     except (OSError, subprocess.TimeoutExpired) as error:
         return {'error': type(error).__name__}
     finally:
