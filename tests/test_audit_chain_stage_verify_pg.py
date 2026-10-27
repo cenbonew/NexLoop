@@ -6,6 +6,7 @@ differs are each reported; the key is never printed; the configuration is strict
 import json
 import os
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
@@ -48,9 +49,9 @@ def local_host(chained, tmp_path, monkeypatch):
         box = tmp_path / f'container-{len(calls)}'
         for name in ('tmp', 'export'):
             (box / name).mkdir(parents=True, mode=0o700)
-        for container, here in (('/opt/release/', str(ROOT) + '/'), ('/run/bootstrap-dsn', str(dsn)), ("'/tmp/", f"'{box}/tmp/"),
-                                ("'/export/", f"'{box}/export/")):
-            script = script.replace(container, here)
+        # One pass: a replacement may itself be under /tmp (CI's basetemp), so it must never be mapped a second time.
+        mapping = {'/opt/release/': str(ROOT) + '/', '/run/bootstrap-dsn': str(dsn), "'/tmp/": f"'{box}/tmp/", "'/export/": f"'{box}/export/"}
+        script = re.sub('|'.join(re.escape(k) for k in mapping), lambda m: mapping[m.group(0)], script)
         calls.append({'stdin': bool(stdin), 'args': args})
         done = subprocess.run([sys.executable, '-c', script, *args], input=stdin, capture_output=True,
                               env={'PYTHONPATH': str(ROOT / 'packages/eios-core/src'), 'PATH': '/usr/bin:/bin'})
