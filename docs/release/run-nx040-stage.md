@@ -5,7 +5,7 @@
   - `docs/implementation/S6-stage-acceptance.md`（脚本、配置、断言、执行顺序；第 121 行起的执行顺序是本单的顺序来源）；
   - `scripts/acceptance/s6_stage_schema.py`（`at024`、`r10`、`r8`、`r6`）与 `scripts/acceptance/s6_stage_evolution.py candidate-template`；
   - `scripts/deploy/schema_proposal.py`（owner 的 Schema 提案复核与发布 CLI）；
-  - L2 的 NX-038 运行单 `docs/release/run-nx038-stage.md`（分支 `l2/nx038-stage-runs` ad55eb36）：本单与它**共用配置、前提与 evolution 预算**，并且**插在它的第 6 步与第 7 步之间**执行（§1）。
+  - L2 的 NX-038 运行单 `docs/release/run-nx038-stage.md`（分支 `l2/nx038-stage-runs` ad55eb36）与 L3 的 NX-039 运行单 `docs/release/run-nx039-stage.md`（分支 `l3/nx039-stage-runs` 06948eb4）：三张单**共用配置、前提与 evolution 预算**；本单的 r10、r8、r6 插在 038-6（at024）之后、038-7（r7-prepare）之前，r8 的正式发布放在全部验收之后（§1）。
 - 本单不复述脚本的断言，只写在 stage 上怎么跑、看什么、失败怎么办。本单在 L4 本地只核对了 main 17aa74c1 上的入口与参数，**没有连接 stage**。
 - **入口**（main 17aa74c1）：
 
@@ -35,21 +35,31 @@
 | Q4 | 租户已有一个已发布的语义版本（`parent_revision`） | `s6_stage_inputs.py` 输出的 `parent_revision` 不是 blocked。没有时 r6 在回退一步报 blocked（`no earlier release version to roll back to`），本单 r6 判 blocked，交回调度员 |
 | Q5 | 调度员确认是否执行 r8 的正式发布（§3.3）：它会在 stage 租户的正式 Schema 上新增一个合成可选属性，之后用 `hide` 回退为隐藏（新版本，不删除） | 调度员在证据中记“执行 / 不执行” |
 
-## 1. 与 NX-038 运行单的先后顺序
+## 1. 与 NX-038、NX-039 运行单的先后顺序
 
-S6-stage-acceptance 规定的总顺序（第 121–126 行）：at023 → 刷新 `semantic` → r1/r3 → candidate-template → **at024、r10、r8** → **r6** → r7。r6 会移动语义版本指针，必须在所有用到 `parent_revision` 的演进检查之后；r7 的删除会改变窗口，必须在最后。所以两张运行单合起来按下表执行：
+三张单共用一次诊断、一份配置（同一 `label`、`window`、`personas`）和一次 evolution 预算设定。L3 的 NX-039 运行单（`l3/nx039-stage-runs` 06948eb4，§1.3）已排好 NX-038 与 NX-039 的合并顺序，删除顾客（038-9）在最后。本单在它的基础上插入 NX-040 的四项；“038-n”是 NX-038 运行单 §2.2 的第 n 步，“039 顺序 n”是 NX-039 运行单 §1.3 的顺序号。
 
-| 总序 | 运行单 | 步 | 说明 |
+| 总序 | 单 | 步 | 说明 |
 |---|---|---|---|
-| 1–4 | NX-038 | r5、at048、at023、r1 | at023 的结果里有 L0 语义候选的 id |
-| 5 | NX-038 | candidate-template | 写 `inputs.candidate_template` |
-| 6 | NX-038 | **at024** | AT-024 同时属于 NX-038 与 NX-040 的剩余项，只执行一次；NX-038 第 6 步已执行时，本单 §3.1 不再执行，直接引用其结果 |
-| 7 | **本单 §3.2** | r10 | |
-| 8 | **本单 §3.3** | r8（不带 `--publish`），然后可选的正式发布与 `hide` | |
-| 9 | **本单 §3.4** | 刷新 `semantic`，然后 r6 | |
-| 10–13 | NX-038 | r7-prepare、删除预检、删除、r7-verify | 必须最后 |
+| 0 | 038 | §2.1 `all --dry-run`，加本单 §3.0 的四个 dry-run | 只读 |
+| 1–5 | 039 / 038 | 039 顺序 1–5：`at046`；038-1 `r5`、038-2 `at048`；`r4`；038-3 `at023`、038-4 `r1`（之后 `--only semantic`）；`r3` | 不变，照 NX-039 §1.3 |
+| 6 | 038 | 038-5 `candidate-template` | 写 `inputs.candidate_template` |
+| 7 | 038 | 038-6 **`at024`**（AT-024 / S6-R9） | NX-038 与 NX-040 共用，只执行一次（本单 §3.1 只在 038-6 未执行时补跑） |
+| 8 | **040** | §3.2 **`r10`** | |
+| 9 | **040** | §3.3 **`r8`**（不带 `--publish`） | 开评一次 |
+| 10 | **040** | §3.4 核对 `semantic`，然后 **`r6`** | |
+| 11–14 | 038 | 038-7 `r7-prepare` → 038-8 删除预检 → 038-9 删除 → 038-10 `r7-verify` | 删除在验收步骤中最后 |
+| 15 | **040** | （可选，Q5）§3.3 路 2 正式发布 r8 的提案，再 `hide` | 唯一写正式 Schema 的一步，放在全部验收之后 |
 
-NX-039 的 at046、r4、r3 不在两张运行单内；若同一窗口执行，按 S6-stage-acceptance 的顺序插在第 4 步附近，且都在 r6 之前。
+**为什么插在这里**：
+
+- **at024、r10、r8 放在 candidate-template（总序 6）之后**：三项都从 `inputs.candidate_template` 起步（`s6_stage_schema.py` 的 `candidate_body`），没有它就报缺失；candidate-template 本身在 038-5，所以三项只能在它之后。at024 与 NX-038 共用，跟在 038-5 后面正是 038-6。
+- **at024、r10、r8 放在删除（总序 11–14）之前**：candidate-template 的候选与 r8 的开评用的是诊断里分给 `template` 的那份留出集（`s6_stage_evolution.py` 的 `HOLDOUT_ORDER` 最后一项）。删除合成 Consumer 会改变簇单元，含它的留出集被作废（`missing_data`），r8 的开评就会失败或落到别的簇上。这与 NX-039 把 r3、r4 放在删除之前是同一个理由。
+- **留出集不冲突**：at024、r10 只做候选写入与提案冻结，不开评；r8 开评一次，用的是 `template` 那份，不占 at023、r1、r3、r4、at048、r5、r7 的留出集，也远低于每份 5 个候选的上限（D39-3）。
+- **r6 放在 at023（总序 4）之后**：r6 发布的是 at023 产出的 L0 accepted_for_release 语义候选（S6-stage-acceptance 第 121 行），`--only semantic` 也在 at023 之后执行。
+- **r6 放在所有用到 `parent_revision` 的演进检查之后**：r6 发布语义版本、再回退为更高的新版本，会移动语义版本指针。at023、r1、r3、r4、at048、r5 和 candidate-template 都以配置里的 `parent_revision` 为候选的父版本；NX-039 §1.2 也要求 r6 放在 NX-039 之后。总序 10 时这些都已完成。
+- **r6 放在删除之前**：按 S6-stage-acceptance 的执行顺序（第 125–126 行），删除必须最后，因为它改变诊断输入；r6 本身不依赖窗口，但放在删除之前，三张单都遵守“删除最后”这一条，验收期间的输入保持一致。
+- **r8 的正式发布放在最后（总序 15）**：它是唯一写正式 Schema 的一步（B 类，Q5），与验收无关的 `hide` 回退也跟着它。放在全部验收之后，发布或回退出问题不会影响任何一项验收的输入，验收结果也不依赖它。r8 的验收本身（总序 9）不带 `--publish`。
 
 ## 2. 配置
 
@@ -92,7 +102,7 @@ security find-generic-password -s nexloop/stage/approver3 -w | uv run --frozen p
 security find-generic-password -s nexloop/stage/approver3 -w | uv run --frozen python scripts/acceptance/s6_stage_schema.py r8 --config "$S6"
 ```
 
-记下结果里的提案 id。Q5 为“执行”时，用路 2 发布（approver3）：
+记下结果里的提案 id。Q5 为“执行”时，**在总序 15（NX-038 的 r7-verify 之后）**用路 2 发布（approver3）：
 
 ```bash
 python3 scripts/deploy/schema_proposal.py check   --config local-only/s6-r8-proposal.json --dry-run
@@ -139,7 +149,7 @@ r6 发布一个语义版本、立即回退为更高的新版本，并开启 7 �
 - 每项的结果行（脚本已脱敏）及 `results_dir` 下文件的 sha256；
 - 执行人：调度员；人工步骤：approver3（工作台会话，写明时间与操作名）；判定人：L6。三者分开写，AT-024 的每个表格行都要更新；
 - r8 的提案 id、发布与 `hide` 后的 Schema 版本号（执行正式发布时）；r6 的发布版本、回退版本与观察状态；
-- 发布号、`label`、执行时间段，以及与 NX-038 运行单合并执行的总序号（§1）。
+- 发布号、`label`、执行时间段，以及与 NX-038、NX-039 运行单合并执行的总序号（§1）。
 
 ## 6. 失败时怎么处理
 
