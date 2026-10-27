@@ -117,7 +117,7 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| F1：任何检查 `blocked` 或失败，原因含 `budget evolution not configured` / `budget_exhausted` | P3 没有 evolution 预算，或已用完 | 按 §2.0 设预算（或调高上限）后重跑同一 `label` |
+| F1：任何检查 `blocked` 或失败，原因含 `budget evolution not configured` / `budget_exhausted` | 没有 evolution 上限行时报 `budget evolution not configured`；有上限行但 `limit_amount` 为 0、期间不覆盖现在或已用完时报 `budget_exhausted`（不是 not configured） | 按 §2.0 设预算（或调高上限、改期间）后重跑同一 `label` |
 | F2：`r5`/`at023` 报评估凭据或角色错误 | P2 登记不全，或评估凭据不是 test-only | 跑 `evolution_enroll.py --check`，按其失败项修复；不要手工改登记表 |
 | F3：`s6_stage_inputs.py` 有 blocked 的 window / erasure_consumer_id | 合成数据不够（P5） | 先跑合成交互，再查一次；不要放宽 persona 到 real |
 | F4：`at024` 报 owner 登录失败或 403 | approver3 不是 active owner，或缺路由权限 | 判 blocked，按 NX-056 运行单核对 approver3 的成员状态；不改用负责人账号 |
