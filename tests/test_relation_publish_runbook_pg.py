@@ -14,6 +14,7 @@ import pytest
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
+from nexloop_eios import relation_catalog as R
 from support.tenants import TENANT_A
 from test_relation_types_p1_pg import catalog  # noqa: F401
 from test_relation_types_p2_pg import edges, hexid, put
@@ -181,3 +182,43 @@ def test_the_timing_of_a_real_erasure_run_by_the_keeper(erasing, admin, pg):  # 
     assert after['sync_tombstones'] >= 1 and after['sync_purge_seconds'] is not None and after['sync_purge_seconds'] >= 0
     assert after['by_item_class'] and all(v['tombstones'] >= 1 for v in after['by_item_class'].values())
     assert consumer not in json.dumps(after)
+
+
+def test_defer_dry_runs_and_refusals():
+    out = io.StringIO()
+    assert P.main(['--dry-run', '--defer', 'assessment_evidence'], out=out) == 0
+    doc = json.loads(out.getvalue())
+    assert doc['deferred'] == ['assessment_evidence'] and doc['relation_types'] == 25 and doc['longest_ownership_chain'] == 2
+    out = io.StringIO()
+    assert P.main(['--dry-run'], out=out) == 0 and json.loads(out.getvalue())['deferred'] == []
+    for name in ('message_in', 'no_such_type'):  # message_in would leave assessment_evidence without a chain
+        out = io.StringIO()
+        assert P.main(['--dry-run', '--defer', name], out=out) == 2 and 'refused' in json.loads(out.getvalue())
+    out = io.StringIO()
+    assert P.main(['--dry-run', '--stop-derivation', '--from-version', '1', '--defer', 'assessment_evidence'], out=out) == 0
+    assert json.loads(out.getvalue())['relation_types'] == 25
+
+
+def test_an_unregistered_endpoint_type_is_deferred_not_published(catalog):  # noqa: F811
+    """Stage 2026-10-27: RelationshipAssessment never registered for the tenant - the whole batch is refused (0319), the batch
+    without assessment_evidence publishes, and its derivation follows."""
+    c = catalog
+    admin = c['admin']
+    admin.execute("delete from ontology.object_type_versions where tenant_id=%s and type_name='RelationshipAssessment'", (TENANT_A,))
+    code, doc = publish(c)
+    assert code == 2 and doc['message'] == 'relation type invalid: assessment_evidence'
+    assert admin.execute('select count(*) from ontology.relation_type_versions where tenant_id=%s', (TENANT_A,)).fetchone()[0] == 0
+    code, doc = publish(c, '--defer', 'assessment_evidence')
+    assert code == 0 and doc['deferred'] == ['assessment_evidence'] and doc['result']['new_relation_types'] == 25
+    names = {r[0] for r in admin.execute('select relation_name from ontology.relation_type_versions where tenant_id=%s', (TENANT_A,))}
+    assert names == {s.name for s in R.FIRST_BATCH} - {'assessment_evidence'}
+    owners = admin.execute("""select count(distinct m.source_type) from control.nexloop_relation_derivations m join control.nexloop_relation_type_profiles f
+        on f.tenant_id=m.tenant_id and f.relation_name=m.relation_name and f.version=m.version
+        where m.tenant_id=%s and f.consumer_ownership is not null""", (TENANT_A,)).fetchone()[0]
+    assert owners == 13  # the gap check's ownership_types (0360): 14 source types less RelationshipAssessment
+    consumer, goal = hexid('defer-consumer'), hexid('defer-goal')
+    put(admin, 'Consumer', consumer, {}, replica=True)
+    put(admin, 'Goal', goal, {'consumer_id': consumer})
+    assert len(edges(admin, source=goal)) == 1
+    code, doc = publish(c, '--defer', 'assessment_evidence')  # the same command rerun replays
+    assert code == 0 and doc['result']['replayed'] is True

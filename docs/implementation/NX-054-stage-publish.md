@@ -92,6 +92,7 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 ```
 
 - 重跑同一条命令是重放：`replayed: true`，`new_relation_types: 0`。
+- **端点类型没有登记时**（stage 2026-10-27：`{"refused": "InvalidParameterValue", "message": "relation type invalid: assessment_evidence"}`，本租户 `ontology.object_type_versions` 里没有 RelationshipAssessment，0319 整批拒绝、什么都不写）：dry-run 与正式发布都加 `--defer assessment_evidence`。dry-run 预期 `deferred: ["assessment_evidence"]`、`relation_types` 25、`longest_ownership_chain` 2；发布结果 `new_relation_types` 25。这个租户上没有登记 RelationshipAssessment，也就不可能有这类对象，所以暂缓它不会漏掉任何对象。第 9 节的缺口检查 `ownership_types` 为 13（14 个归属源类型减去 RelationshipAssessment），不为 0。下面的预检数字照此减 1（`derivation_map_rows` 25）；回退（第 6 节）也要带同一个 `--defer`。等 RelationshipAssessment 经受治理的目录发布登记以后，再用新的目录版本补发它（另行实现）。
 - 发布后再跑一次第 1 步的预检：`catalog.versions` 只有版本 1，`derivation_map_rows` 为 26。从这一刻起，新写入或属性有变化的对象会派生关系；存量对象等到 P3 回填。
 
 ## 4. 基线：派生状态（发布之后）
