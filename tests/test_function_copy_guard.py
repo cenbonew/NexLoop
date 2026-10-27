@@ -496,6 +496,11 @@ REGISTRY = [
             ((r"v_types integer;", ""),
              (r"\n select count\(distinct m\.source_type\) into v_types from control\.nexloop_relation_derivations m join control\.nexloop_relation_type_profiles f\n  on f\.tenant_id=m\.tenant_id and f\.relation_name=m\.relation_name and f\.version=m\.version where m\.tenant_id=p_tenant and f\.consumer_ownership is not null;", ""),
              (r"\n  'ownership_types',v_types,", ""))),
+    # NX-054 §8: an erasure request marker ('erasure:<request id>', the commitments phase) is an erased value like a pseudonym.
+    Allowed('relation_erased_values', 'ontology.nexloop_relation_derive_one', 'erased values through runtime.nexloop_relation_value_erased; nothing else',
+            ((r"not runtime\.nexloop_relation_value_erased\(v\)", "v not like 'pseudonym:%'"),)),
+    Allowed('relation_erased_values', 'authz.nexloop_relation_precheck', 'erased values through runtime.nexloop_relation_value_erased; nothing else',
+            ((r"runtime\.nexloop_relation_value_erased\(o\.properties->>\(s->>'property'\)\)", "o.properties->>(s->>'property') like 'pseudonym:%'"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
