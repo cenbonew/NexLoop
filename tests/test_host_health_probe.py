@@ -40,8 +40,8 @@ def runner(*, docker=None, services=None, timer=None, run=None, bus=None):
                                              'InactiveExitTimestamp': f'@{T0 + 3}', 'StateChangeTimestamp': f'@{T0 + 200}'}
             return '\n\n'.join('\n'.join(f'{k}={v}' for k, v in b.items()) for b in (t, s) if b)
         blocks = services if services is not None else [
-            {'Id': 'nexloop-runtime-worker.service', 'NRestarts': '7', 'ActiveState': 'active', 'Type': 'simple'},
-            {'Id': 'nexloop-once.service', 'NRestarts': '0', 'ActiveState': 'inactive', 'Type': 'oneshot'}]
+            {'Id': 'nexloop-runtime-worker.service', 'NRestarts': '7', 'ActiveState': 'active', 'Type': 'simple', 'LoadState': 'loaded'},
+            {'Id': 'nexloop-once.service', 'NRestarts': '0', 'ActiveState': 'inactive', 'Type': 'oneshot', 'LoadState': 'loaded'}]
         return '\n\n'.join('\n'.join(f'{k}={v}' for k, v in b.items()) for b in blocks)
     return answer
 
@@ -249,3 +249,24 @@ def test_the_recorded_entry_uses_only_the_fields_the_recorder_accepts(tmp_path, 
     assert set(entry) <= entry_keys, set(entry) - entry_keys
     assert entry['units'] and all(set(u) <= unit_keys for u in entry['units'])
     assert all(set(r) <= run_keys for r in entry['timers']) and len(entry['timers']) == (1 if bus else 0)
+
+
+@pytest.mark.parametrize('load', ['not-found', 'masked', 'bad-setting', None])
+def test_a_service_systemd_does_not_have_loaded_is_not_seen_so_it_is_missing(tmp_path, load):
+    """systemctl show answers a unit that does not exist with its defaults (Type=simple, NRestarts=0, ActiveState=inactive,
+    LoadState=not-found): without LoadState=loaded that looked like a stopped service, and host_unit_missing never fired."""
+    gone = {'Id': 'nexloop-runtime-worker.service', 'NRestarts': '0', 'ActiveState': 'inactive', 'Type': 'simple', **({'LoadState': load} if load else {})}
+    once = {'Id': 'nexloop-once.service', 'NRestarts': '0', 'ActiveState': 'inactive', 'Type': 'oneshot', 'LoadState': 'loaded'}
+    calls, answer = [], runner(services=[gone, once])
+    _, doc = probe(config(tmp_path), lambda command: calls.append(command) or answer(command), '--dry-run')
+    assert 'runtime-worker' not in {u['name'] for u in doc['entry']['units']} and 'runtime-worker' in doc['entry']['expected_units']
+    [show] = [c for c in calls if c[:2] == ['systemctl', 'show'] and 'nexloop-once.service' in c]
+    assert 'LoadState' in show[2].split('=', 1)[1].split(',')  # asked for, not only judged
+
+
+def test_a_stopped_but_loaded_service_is_seen(tmp_path):
+    """restic-maint stops nexloop-rest-server daily around its forget: loaded and inactive is a sample, not a missing unit."""
+    stopped = {'Id': 'nexloop-runtime-worker.service', 'NRestarts': '2', 'ActiveState': 'inactive', 'Type': 'simple', 'LoadState': 'loaded'}
+    _, doc = probe(config(tmp_path), runner(services=[stopped]), '--dry-run')
+    [unit] = [u for u in doc['entry']['units'] if u['name'] == 'runtime-worker']
+    assert unit['running'] is False and unit['restart_count'] == 2

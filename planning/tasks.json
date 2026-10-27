@@ -3029,6 +3029,18 @@
         "ref": "https://github.com/cenbonew/NexLoop/releases/tag/v0.1.0",
         "summary": "v0.1.0 发布（2026-10-20）：负责人在开发机签 SSH tag（指向 0ae29d87），以 maintainer 推入 LAN 仓库，pre-receive 按 allowed signers 验签接受；同步服务再验后推 GitHub（首次因 unit 的 /tmp 只读判 tag_unverified，主机加 PrivateTmp=yes 后同步，示例同步更正）；GitHub 干净克隆 verify-tag Good。负责人发布 GitHub Release：源码归档、公开版清单、镜像与源码 SBOM、allowed_signers、SHA256SUMS（读回 8/8 一致）。",
         "recorded_at": "2026-10-20T16:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 49 (RID 20261026-68318410d705-1, main 68318410, batches 36-38): built and signed (sealed 49) through the release lane, not deployed; superseded by release 50. Executor: dispatcher.",
+        "recorded_at": "2026-10-27T15:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "Release 50 (RID 20261027-575859f73be7-1, main 575859f7): deployed to stage, gate 20/21, promote ok, migrations 0360-0363 applied. Executor: dispatcher.",
+        "recorded_at": "2026-10-27T15:30:00+08:00"
       }
     ]
   },
@@ -3111,6 +3123,12 @@
         "ref": "15f071c0308a85305bab1d3bae05a9c42268ecb3",
         "summary": "main at the v0.1.0 close-out (15f071c0308a); task done.",
         "recorded_at": "2026-10-20T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-035-file-backup.md",
+        "summary": "DATA_HOST 上 rest-server --append-only 已安装，文件仓库独立（负责人 2026-10-27 改 D4）。APP_HOST 第 5 步当场发现三处问题（append-only 锁按正文 sha256 命名并检查文件；空文件仓库预览不算失败；按 restic 拒绝行判定 append-only 并为 APP_HOST 加 ufw 规则），修复在第四十三批（049a33cc），L6 PASS。执行人：调度员；判定人：L6。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
       }
     ]
   },
@@ -3501,6 +3519,12 @@
         "ref": "91233ea5",
         "summary": "V1-V6 on main; V5 still leaves three V4 hooks unconnected (release item delete, retention report, semantic observation start); S6-R1/R3/R4/R6 stage runs missing. Checked by L2, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "91233ea5",
+        "summary": "更正 2026-10-21 与 2026-10-26 两条 note 中“V5 还留三个 V4 钩子没接”：0250 已经接上（L2 核对）。核对人：L2；判定人：调度员。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
       }
     ]
   },
@@ -4314,6 +4338,18 @@
         "ref": "docs/implementation/NX-054-stage-publish.md",
         "summary": "Remaining: section 8 publication and backfill on stage not run; gap check installer (batch 34, L6 PASS 26e96533) and drill pending; P4b on real needs P3 verify balanced for all 26 derivations and 7 days of zero gaps; P5 needs owner confirmation; service-grants v21 revokes relation_backfiller after verify. Checked by L5, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "575859f7",
+        "summary": "0360 覆盖检查与 0363 统一擦除标记（擦除请求标记与假名同为已擦除值）已部署在发布 50（main 575859f7）。执行人：调度员；审查：L6 PASS。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-054-stage-publish.md §8",
+        "summary": "§8 第 0–3 步在 stage 完成：空闲基线 sim 用时 0.872 秒；perf-1 擦除 sync_purge 3.154 秒。执行人：调度员。第 4 步发布等第四十二批（relation_types_publish --defer assessment_evidence，L6 PASS）合入。状态 in_progress。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
       }
     ]
   },
@@ -4386,6 +4422,24 @@
         "ref": "docs/release/run-nx056-approvals-enable.md",
         "summary": "Stage enablement day 0 done 2026-10-26 by the dispatcher (second synthetic test owner, alert rules v18, four policy manifests checked, none published); day 1 on 2026-10-27 08:15 +0800 with synthetic owners approver2/approver3, owner account not used, judged by L6. Owner deferred: erase_on_request customer entry and merging 0240.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx056-approvals-enable.md §D1R",
+        "summary": "第 1 天在 stage 完成（2026-10-27）。执行人：调度员，用 approver2/approver3 两个合成 owner，负责人账号未参与；判定人：L6，PASS。状态保持 in_progress，第 2 天未做。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx056-approvals-enable.md §D1R",
+        "summary": "P2 的偏差由负责人选择“照做并记录”。执行人：调度员；决定人：负责人。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "575859f7",
+        "summary": "第四十批：审批拒绝带固定原因码（details.reason），审批视图行带 consumed/consumed_at（迁移 0362）；已部署在发布 50（main 575859f7）。执行人：调度员；审查：L6 PASS。",
+        "recorded_at": "2026-10-27T15:00:00+08:00"
       }
     ]
   },

@@ -10,7 +10,7 @@
 ## 2. 数据怎样安全取得（权限边界）
 
 - **数据来源与被检测的服务无关**：
-  - 由一个独立的探针读取主机自身的状态：`docker inspect` 读容器的 `RestartCount` 与容器 Id；`systemctl show` 读服务的 `NRestarts`，以及 timer 的 `LastTriggerUSec` 和其服务最近一次运行的开始、结束与结果。timer 的 `LastTriggerUSec` 经 `busctl get-property org.freedesktop.systemd1 <unit 路径> org.freedesktop.systemd1.Timer LastTriggerUSec` 读成微秒整数（2026-10-25 DATA_HOST：Ubuntu 的 systemd 在 `--timestamp=unix` 下仍把它输出为带时区缩写的可读时间，不解析这种格式），`@<秒>` 只作后备。读不到时探针在 journal 写一行 `<3>nexloop-host-health trigger_unparsed host=… timer=…`，摘要列出 `trigger_unparsed`；安装器的 dry run 只要有一个 timer 读不到触发时间就失败，不启用 timer。
+  - 由一个独立的探针读取主机自身的状态：`docker inspect` 读容器的 `RestartCount` 与容器 Id；`systemctl show` 读服务的 `NRestarts`（只有 `LoadState=loaded` 的服务才算采到：不存在或被 mask 的 unit，systemd 也会返回一套默认值，这种情况必须算作缺失，由 `host_unit_missing` 告警），以及 timer 的 `LastTriggerUSec` 和其服务最近一次运行的开始、结束与结果。timer 的 `LastTriggerUSec` 经 `busctl get-property org.freedesktop.systemd1 <unit 路径> org.freedesktop.systemd1.Timer LastTriggerUSec` 读成微秒整数（2026-10-25 DATA_HOST：Ubuntu 的 systemd 在 `--timestamp=unix` 下仍把它输出为带时区缩写的可读时间，不解析这种格式），`@<秒>` 只作后备。读不到时探针在 journal 写一行 `<3>nexloop-host-health trigger_unparsed host=… timer=…`，摘要列出 `trigger_unparsed`；安装器的 dry run 只要有一个 timer 读不到触发时间就失败，不启用 timer。
   - 被检测的服务挂掉、卡住或反复重启，都不影响探针。
 - **探针的身份与权限**：
   - 每台主机（APP_HOST、DATA_HOST）各有一个 root 的 systemd timer，每分钟运行一次。

@@ -22,7 +22,8 @@ nexloop-backup; on the backup volume), journal_repo_path (the restore journal's 
 be neither it nor inside or above it), restic (DATA_HOST's restic binary, run as nexloop-backup for init and a cat config),
 rest_server_archive (the official rest-server_<version>_linux_amd64.tar.gz whose sha256 versions.lock.json names), tls_cert_file and
 tls_key_file (issue_certs.py server --san IP:<DATA_HOST_ADDR> on the management machine: <name>.chain.crt and <name>.key, the key a
-0600 file), port (1024-65535) and max_size_bytes (rest-server --max-size: the repository may not grow past it; at least 1 GiB);
+0600 file), port (1024-65535) and max_size_bytes (rest-server --max-size: the repository may not grow past it; at least 1 GiB),
+host_health_config and host_health_install_config (DATA_HOST's two host-health files: R6);
 optionally trusted_owner - the deployment user, named explicitly (stage's /srv/nexloop is its 751 directory): root-equivalent on
 this host (NOPASSWD sudo), so its directories may stand above what root checks (file_backup_install.trusted_owner); the directories
 and files this installer creates (secrets/rest-server, secrets/files-repo, the binary's, the serving directory) stay root's.
@@ -50,8 +51,12 @@ Steps (each idempotent):
      `ufw allow from APP_HOST_ADDR to DATA_HOST_ADDR port <port> proto tcp comment nexloop-rest-server` (ufw skips an existing rule),
      then read back from `ufw status`; ufw installed but inactive adds nothing (enabling ufw later needs a rerun)
   R5 the unit from the release (tokens filled), daemon-reload, enable and (re)start; then active, and the table loaded, read back
---uninstall: the unit stopped and removed (its stop removes the table), the nft file, the ufw rule (when ufw is installed, active or
-not), the mount unit, the secrets, the binary; the serving directory removed when empty. repo1 itself is never touched. nexloop-restic-maint's files repository block stops and starts
+  R6 rest-server ({"name": "rest-server", "unit": "nexloop-rest-server.service"}) in the host-health services of both host-health files
+     (host_health_config, the probe's; host_health_install_config, so a later host-health reinstall keeps it; both or neither, both
+     read before R0): the wildcard rules crash_loop and host_unit_missing then cover it
+--uninstall: the host-health entry taken out of both files first (no host_unit_missing for a unit removed on purpose), the unit
+stopped and removed (its stop removes the table), the nft file, the ufw rule (when ufw is installed, active or not), the mount unit,
+the secrets, the binary; the serving directory removed when empty. repo1 itself is never touched. nexloop-restic-maint's files repository block stops and starts
 this unit around its guard and forget (L6 F2): while it is there (or the maintenance unit is a link) --uninstall refuses (L6 S6) -
 take it out first (restic_maint_data_host.sh --revert, then without --files-repo).
 Before R1 (L6 S7): `systemd-run --wait --quiet --collect -p ExecStopPost=/bin/false /bin/true` must exit non-zero - this host's systemd
@@ -96,6 +101,7 @@ TABLE = 'nexloop_rest_server'
 UFW = '/usr/sbin/ufw'
 UFW_RUN = ['env', 'LC_ALL=C', 'ufw']  # its messages and status in English, whatever root's locale
 UFW_COMMENT = 'nexloop-rest-server'
+HEALTH = {'name': 'rest-server', 'unit': UNIT}  # the host-health services entry (crash_loop, host_unit_missing)
 ADDR = re.compile(r'\d{1,3}(?:\.\d{1,3}){3}')
 PASSWORD = re.compile(r'[A-Za-z0-9_-]{24,128}')
 HTPASSWD = re.compile(r'nexloop-file-backup:\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}')
@@ -104,11 +110,13 @@ HTPASSWD = re.compile(r'nexloop-file-backup:\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}')
 def load_config(path):
     c = A.read_private_json(path)
     keys = {'schema', 'release_checkout', 'release_sha', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive',
-            'tls_cert_file', 'tls_key_file', 'port', 'max_size_bytes', 'trusted_owner', '_comment'}
+            'tls_cert_file', 'tls_key_file', 'port', 'max_size_bytes', 'host_health_config', 'host_health_install_config', 'trusted_owner',
+            '_comment'}
     optional = {'_comment', 'trusted_owner'}
     if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys or keys - set(c) - optional:
         raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(keys - {'schema'} - optional)) + ' (optionally trusted_owner)')
-    for key in ('release_checkout', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive', 'tls_cert_file', 'tls_key_file'):
+    for key in ('release_checkout', 'stage_env', 'files_repo_path', 'journal_repo_path', 'restic', 'rest_server_archive', 'tls_cert_file', 'tls_key_file',
+                'host_health_config', 'host_health_install_config'):
         if type(c[key]) is not str or not A.PATH.fullmatch(c[key]) or '..' in c[key]:
             raise Refused(f'configuration: {key} (absolute path)')
     if type(c['release_sha']) is not str or not A.SHA.fullmatch(c['release_sha']):
@@ -405,6 +413,34 @@ def ufw_allow(root, addr, port, runner):
     return f'ufw rule admitting APP_HOST to port {port} ' + ('already present' if 'Skipping' in said else 'added')
 
 
+def services_of(value, nested, path):
+    probe = value.get('probe') if nested else value
+    if type(probe) is not dict or type(probe.get('services', [])) is not list or not all(type(s) is dict for s in probe.get('services', [])):
+        raise Refused(f'{path}: no probe services list')
+    return probe
+
+
+def health_files(root, config, existing=False):
+    files = [(under(root, config['host_health_config']), False), (under(root, config['host_health_install_config']), True)]
+    return [(p, n) for p, n in files if not existing or os.path.lexists(p)]
+
+
+def add_health(probe):
+    services = probe.setdefault('services', [])
+    if any(s.get('name') == HEALTH['name'] for s in services):
+        return False
+    services.append(dict(HEALTH))
+    return True
+
+
+def remove_health(probe):
+    services = probe.get('services', [])
+    if not any(s.get('name') == HEALTH['name'] for s in services):
+        return False
+    probe['services'] = [s for s in services if s.get('name') != HEALTH['name']]
+    return True
+
+
 def render_unit(text, version, address, config):
     for token, value in (('@REST_SERVER@', f'{BASE}/{version}/rest-server'), ('@LISTEN@', f'{address}:{config["port"]}'),
                          ('@MAX_SIZE@', str(config['max_size_bytes']))):
@@ -429,6 +465,8 @@ def stop_post_fails_the_unit(runner):
 def install(root, config, passwords, runner, out, trust, trust_python):
     step = lambda n, text: print(f'step {n}: {text}', file=out, flush=True)  # noqa: E731
     A.trust_release(config, trust)
+    for path, nested in health_files(root, config):  # R6's files, malformed or missing: refused before anything is installed
+        services_of(A.read_private_json(path), nested, path)
     stop_post_fails_the_unit(runner)
     step('R0', 'systemd: a failing ExecStopPost fails the unit (systemd-run --wait -p ExecStopPost=/bin/false /bin/true exited non-zero)')
     addr = addresses(config)
@@ -458,6 +496,9 @@ def install(root, config, passwords, runner, out, trust, trust_python):
     step('R5', f'{UNIT} active on {addr["DATA_HOST_ADDR"]}:{config["port"]}, --append-only, only APP_HOST admitted; next: '
                f'restic_maint_data_host.sh --files-repo {config["files_repo_path"]} --files-password-file {FILES_SECRETS}/restic.pass, then APP_HOST '
                f'file_backup_install.sh with repo1.transport "rest" and this files password as repo1 (NX-035-file-backup.md §6.5)')
+    added = A.rewrite_timers(health_files(root, config), add_health, of=services_of)
+    step('R6', 'host-health services rest-server: ' + ('added to ' + ', '.join(p.name for p in added) if added else 'already listed')
+               + ' (crash_loop, host_unit_missing)')
 
 
 def uninstall(root, config, runner, out):
@@ -469,6 +510,9 @@ def uninstall(root, config, runner, out):
     for path in (under(root, SERVE), under(root, SECRETS), under(root, BASE)):
         if os.path.islink(path):
             raise Refused(f'{path} is a symbolic link: nothing removed')
+    # First: removing the unit on purpose is no host_unit_missing. Both files are read before either is written, so a malformed one
+    # is refused here, before anything is removed.
+    A.rewrite_timers(health_files(root, config, existing=True), remove_health, of=services_of)
     runner(['systemctl', 'disable', '--now', UNIT], check=False)
     runner(['nft', 'delete', 'table', 'inet', TABLE], check=False)  # its stop does this; also when the unit is already gone
     if os.path.lexists(under(root, UFW)):  # also an inactive ufw keeps its rules: deleted by the spec they were added with
@@ -491,7 +535,7 @@ def uninstall(root, config, runner, out):
     for directory in (under(root, MOUNT), under(root, SERVE), under(root, SECRETS)):
         if directory.is_dir() and not directory.is_symlink() and not os.listdir(directory):
             directory.rmdir()
-    print('uninstalled: the rest-server unit, its firewall table and file, its ufw rule, the mount unit, its secrets and binary removed; the files repository '
+    print('uninstalled: the host-health entry, the rest-server unit, its firewall table and file, its ufw rule, the mount unit, its secrets and binary removed; the files repository '
           'and its password stay (they hold the file backups)',
           file=out)
 

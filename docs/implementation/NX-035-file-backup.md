@@ -119,7 +119,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 1. DATA_HOST 第 1 步（§6.2）：1a pg_hba；1b 文件仓库和 rest-server，加只追加验证和 restic-maint 的守卫（§6.5）。
 2. `sudo bash file_backup_install.sh <配置> --prepare`：
    - 建系统用户 `nexloop-file-backup`，home 为 `/var/lib/nexloop-file-backup`，属主 root，无 shell；
-   - 建 `/srv/nexloop/secrets/backup`（root 0711）和 `/etc/nexloop/file-backup.env`；
+   - 建 `/srv/nexloop/secrets/backup`（root 0700，§6.7）和 `/etc/nexloop/file-backup.env`；
    - 不生成 SSH 密钥：D4 已改为 rest-server。
 3. `install_repo2_secrets.sh files`：repo2 的仓库、口令和对象存储环境文件，路径从 env 文件里读。
 4. 口令经 stdin 传入：`printf 'recorder\t%s\nrepo1\t%s\nrepo1_rest\t%s\n' … | sudo bash file_backup_install.sh <配置>`。
@@ -133,7 +133,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 | 步 | 内容 |
 |---|---|
 | 2 | 用户（以前 sftp 版本可能留下的 `~/.ssh` 文件会被删除）；发布目录 `/opt/nexloop/file-backup/<sha>/`：执行者的四个模块、unit 入口 `file_backup_run.py`、沙箱自检 `file_backup_sandbox_check.py`、两个 unit 模板，只读；`current` 指向 `<sha>`。restic 从配置给出的归档解压到 `/opt/nexloop/file-backup/restic-<版本>/restic`（root，0555）；归档的 sha256 必须等于发布提交里 `versions.lock.json` 的 `deployment_tools.restic.archive_sha256`，否则拒绝，什么都不写 |
-| 3 | `secrets/backup`：`recorder.dsn`（hostssl，`verify-full`，CA 复制为同目录的 `pg-ca.crt`）、repo1 的仓库文件（`rest:https://…`，见 §6.5）和口令文件，都是 0600、属于服务用户；`rest-ca.crt`（stage CA bundle，0644）。这个目录里如果有清单之外的任何文件，就拒绝（D3：沙箱能看到整个目录） |
+| 3 | `secrets/backup`：`recorder.dsn`（hostssl，`verify-full`，CA 复制为同目录的 `pg-ca.crt`）、repo1 的仓库文件（`rest:https://…`，见 §6.5）和口令文件，都是 0600、属于服务用户；`pg-ca.crt` 和 `rest-ca.crt`（stage CA bundle）0600、属 root。目录 root 0700（§6.7）。这个目录里如果有清单之外的任何文件，就拒绝（D3：沙箱能看到整个目录） |
 | 4 | `/etc/nexloop/file-backup.env`（0600 root）。保留 `install_repo2_secrets.sh` 写的 `FILE_BACKUP_REPO2_OPTIONS`。从发布中安装 unit 和 timer，填入 `@PYTHON@`、`@RESTIC@`、`@MDWE@`，然后 `daemon-reload` |
 | 5 | **D3 沙箱验证**：用 `systemd-run` 以 unit 自己 `[Service]` 的全部设置运行自检（同一用户、同一能力、同一挂载）。通过条件：两个数据目录和本 unit 自己的文件可读；`/srv/nexloop` 只显示 `data`、`secrets`；`secrets` 只显示 `backup`；`data` 只显示 `artifacts`、`runtime`；unit 的每个 `InaccessiblePaths=` 以及 `/srv/nexloop`、`secrets`、`data` 下的其余条目都看不到内容（不存在、被拒，或读出为空，即 `InaccessiblePaths` 挂上的空节点）；两个句柄系统调用 `open_by_handle_at`、`name_to_handle_at` 都被过滤（返回 EPERM；L6 F1：持有 `CAP_DAC_READ_SEARCH` 的进程可以借这两个调用，从任一可见 fd 打开同一文件系统上的任意 inode，绕过上面所有遮挡，即 shocker 类逃逸，所以 unit 用 `SystemCallFilter=~open_by_handle_at name_to_handle_at` 禁掉它们）；restic 是锁定的版本；两个仓库都能用口令打开（`cat config`）。`repo2_init` 为 true 时，仓库不存在才执行一次 `restic init`；repo1 从不初始化。然后真实运行一次 service，四条 ExecStart 都必须是 `verified`。任何一项不通过，timer 都不启用 |
 | 6 | 在两个 host-health 文件里加 `file-backup`；`nexloop-provider-drift.timer` 已安装时也加上 `provider-drift`（APP_HOST 的探针配置原来缺这一项）。然后 `systemctl enable --now nexloop-file-backup.timer` |
@@ -407,7 +407,33 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
   - 恢复日志在另一个仓库里，攻击者碰不到（F1 b）。
 - 不能删除或覆盖已有对象。
 - rest-server 是一个新的对外端口，有四道限制：TLS、认证、只放行 APP_HOST 的防火墙表、unit 沙箱。
-- 后续项：把 `nexloop-rest-server.service` 加进 DATA_HOST 的 host-health services。`crash_loop` 和 `host_unit_missing` 是通配规则，加进去就会覆盖它。
+- 后续项（**已完成**，调度员 2026-10-27）：把 `nexloop-rest-server.service` 加进 DATA_HOST 的 host-health services。`crash_loop` 和 `host_unit_missing` 是通配规则（selector `*`），加进去就会覆盖它，告警规则不用改。
+  - 写入方式与 file-backup、relation-read-gaps 的 timers 相同：`rest_server_data_host.sh` 的 R6 在 R5（服务已 active）之后，把 `{"name": "rest-server", "unit": "nexloop-rest-server.service"}` 加进两个文件的 `services`。一个是探针自己的 `/etc/nexloop/host-health.json`；另一个是 host-health 的安装配置，这样以后重装 host-health 也会保留它。
+  - 配置里两个文件的路径是必填项（`host_health_config`、`host_health_install_config`），**已安装的私有配置要补上这两项**。两个文件在 R0 之前都要读得出来，任一缺失或格式不对就拒绝，什么都不装。写入时要么两个都写，要么都不写。同名条目已存在就不重复添加，其他条目不动。
+  - `--uninstall` 先把条目从仍然存在的文件里拿掉，再停服务。这样主动卸载不会触发 `host_unit_missing`。示例配置（`host-health.example.json`、`host-health-install.data-host.example.json`）已列出这一项。
+  - **crash_loop**：unit 是 `Restart=on-failure`、`RestartSec=10`，持续崩溃时每分钟重启约 6 次，1 小时内达到 3 次就告警。restic-maint 每天的停服和拉起不计数，原因有两个：一是探针对 service 的 instance_id 就是 unit 名，不会因为重新启动而变；二是 `NRestarts` 只统计 systemd 按 `Restart=` 做的自动重启，计数被清零时 SQL 也不计入。
+  - **host_unit_missing**：维护期间 rest-server 停着（ActiveState inactive），但探针照样采到这个 unit，所以不告警。unit 文件被删掉、改名或被 mask 时：`systemctl show` 对不存在的 unit 仍会给出一套默认值（`Type=simple`、`NRestarts=0`、`ActiveState=inactive`、`LoadState=not-found`），以前的探针会把它当成一个停着的服务，`host_unit_missing` 永远不会告警。这对所有配置的 service 都成立，不只是 rest-server。现在探针多读一个 `LoadState`，只有 `loaded` 才算采到，所以这种情况会告警（`host_health_probe.py`，单独的提交）。要生效，需要用新的 release 重装 host-health。
+- **restic-maint 新增的文件仓库块会不会带来新的误报**（调度员 2026-10-27 要求核对）：
+  - **`timer_stale_restic_maint`**（阈值 93600 秒，即 24 小时加 2 小时）：
+    - 计时起点是上一次按计划成功运行的结束时间。这个块让每次运行变长：等锁最多 10 分钟，文件仓库的 forget/prune 和 check，周日再加 `--read-data-subset 1/10`。
+    - 只有当某一天的运行比前一天晚结束 2 小时以上，才会误报；timer 的 `RandomizedDelaySec=10min` 会再占掉最多 10 分钟。
+    - 固定的长短差在周日：深度 check 现在是三个仓库。stage 上文件仓库很小，相差几分钟，**不会产生新的误报**。
+    - 如果文件仓库将来大到本地读 1/10 要一个半小时以上，周日早上会出现一次 stale，直到这次运行结束。到那时调高这条阈值。
+    - `TimeoutStartSec=6h` 封顶：卡死的运行会以失败结束，属于真实告警。
+  - **`timer_scheduled_failure`**（data_host:restic-maint）：新增的失败路径有四条：
+    - (a) `--wait-unlocked 600` 超时：凌晨 3:30 到 3:40 之间，APP_HOST 一轮文件备份持有锁超过 10 分钟；或者某一轮崩溃后留下一把还新鲜的锁（`unlock` 只清理过期的锁）。
+    - (b) `ExecStopPost` 拉起 rest-server 后 3 秒不是 active。
+    - (c) 守卫拒绝（有未来时间的快照）。
+    - (d) 文件仓库的 forget、prune 或 check 失败。
+    - (b) 到 (d) 都是真故障。(a) 只有在单轮文件备份正常地超过 10 分钟时才算误报，stage 上一轮只要几秒到几分钟，**目前不会出现**。
+  - **对 APP_HOST 的副作用**：rest-server 停着的时候开始的一轮文件备份会失败，记为 app_host:file-backup 的 `timer_scheduled_failure`（窗口 24 小时）。
+    - 这个块先等到没有锁再停服，所以停服紧跟在一轮备份之后。
+    - 只有停服窗口（守卫加文件仓库的 forget/prune）长于到下一轮的间隔（约 15 分钟减去一轮的时长，再加减 60 秒随机延迟），才会撞上下一轮。
+    - stage 上小仓库的 prune 只要几秒，**目前不会出现**。`timer_stale_file_backup`（2700 秒，即三个周期）只有在停服超过约 30 分钟时才会受影响。
+- **L6 S1（049a33cc 的复审）**：APP_HOST 第 5 步的 `refused`，看的是 restic 输出里 `unable to remove snapshot/<探针的 id>` 这一行。
+  - 被拒绝的原因不止一种：除了 `--append-only` 返回的 403，网络错误或 5xx（restic 的重试用尽之后）也会打印同一行，而快照同样还在。从 APP_HOST 这一侧分不清这几种情况。
+  - 兜底的是 DATA_HOST 的 `rest_server_append_only_check.sh`（上文“只追加的一次性验证”）：对同一个 rest-server 二进制、以 `--append-only` 启动，用 curl 对 data、index、keys、snapshots 各发一次 DELETE，都必须返回 403；原有对象最后逐字节不变。unit 带 `--append-only`，由 `test_the_unit_is_append_only_tls_and_sandboxed` 检查。
+  - 所以两边各证明一件事：APP_HOST 第 5 步证明这个仓库经由这台服务删不掉东西；DATA_HOST 的 curl 验证证明删不掉的原因是 `--append-only`，而不是网络。
 
 ### 6.6 `trusted_owner`：部署用户持有的上级目录（调度员 2026-10-27）
 
@@ -424,3 +450,30 @@ stage 的两台主机上，`/srv/nexloop` 都属部署用户（751），`config/
 - **pg_hba**：`config/` 和 `pg_hba.conf` 属 `trusted_owner` 时，降权到这个用户写入（§6.2 第 1a 步）。root 只在自己的临时目录里渲染，读取时核对 inode、设备号和属主。和直接以 root 写进部署用户的目录相比，这样做在用户放了链接时也不会让 root 跟着链接去写。
 - **R1 的幂等**：R1 已经装好的 `/opt/nexloop/rest-server/<version>/rest-server`，在加上 `trusted_owner` 重跑时会再核对一遍归档的 size 和 sha256，并与已安装的字节比较；内容相同就不重写，报告 `unchanged`（inode 不变，权限仍是 0555），然后从 R2 往下继续。测试 `test_a_srv_nexloop_of_the_deployment_user_is_accepted_only_as_trusted_owner_and_r1_reruns_unchanged` 复现了 stage 的情况：第一次运行在 R2 被拒，第二次加上 `trusted_owner` 后完成安装。
 - **不在本次范围**：`restic_maint_data_host`、`host_health_install`、`relation_gaps_install` 各有自己的 `root_owned` 副本；三个 hba 脚本以 root 写 pg_hba（§6.2）。这些检查的路径如果经过部署用户的目录，需要另行处理。
+
+### 6.7 `secrets/backup` 的权限与部署门禁（调度员 2026-10-27，release 51）
+
+release 51（main 83c096e5）的部署门禁是 19/21，多出来的一项失败是 `secret_distribution`，detail 为 `directory_permissions:backup`。门禁（`nexloop_eios.deploy_checks.secret_distribution`）要求每个 `secrets/<service>/` 目录是 0700，里面的文件是 0600、普通文件、只有一个硬链接。release 50 的安装器建的布局不满足这一点：目录 root 0711，`pg-ca.crt` 和 `rest-ca.crt` 是 root 0644。
+
+**做法：让文件备份适配门禁，门禁的语义不改**。与调度员的方案 (a) 有一处不同：目录和两个 CA 文件**仍然属 root**，没有改成属服务用户。
+
+- `secrets/backup`：root 0700。`pg-ca.crt`、`rest-ca.crt`：root 0600。其余文件照旧是 0600、属 `nexloop-file-backup`。
+- 安装器每次都会对目录 chmod；文件权限不对时，`write_private` 会重写这个文件。所以重跑一次就能把 0711/0644 的旧布局改过来，步骤行显示 `pg-ca.crt written`、`rest-ca.crt written`。
+- 测试 `test_secrets_backup_passes_the_deploy_gates_secret_distribution_and_a_rerun_moves_the_earlier_layout` 直接调用门禁的 `secret_distribution`：先复现 `directory_permissions:backup`，重跑后这一项消失。
+
+**为什么不改成属服务用户**：目录如果属 `nexloop-file-backup`，root 就要在服务用户能控制的目录里写文件。这与 §6.6 的原则冲突："安装器自己新建的目录和文件仍然必须由 root 持有。"
+- 在一个属于别人的目录里，目录的主人可以随时把其中的条目换成符号链接。安装器有几处会跟随符号链接：
+  - `chown`（`runner(['chown', …, path])`）；
+  - 临时文件的 `chmod`；
+  - `install_repo2_secrets.sh files` 的 `install` 和备份旧文件用的 `keep`。
+- 这样，一个被攻破的服务账户（而文件备份 unit 带着 CAP_DAC_READ_SEARCH）就能借 root 的手，chown 或复制任意文件。
+- 改成属服务用户后，这几处都要改为降权写入，波及两个脚本。目录属 root，就没有这个问题。
+- 至于 CA 文件属谁，不影响安全边界：服务账户本来就持有 repo1 的 URL 文件和 DSN，能把备份指向别处。但 CA 文件属 root，可以让 root 一直只在自己的目录里写。
+
+**服务用户怎么读到 root 0700 目录里的东西**：
+- 文件备份 unit 本来就以 `AmbientCapabilities=CAP_DAC_READ_SEARCH` 运行（D3：它要越过文件权限读两个数据目录），这个能力同样可以进入 root 0700 的目录、读 root 0600 的 CA 文件。restic 的 `--cacert` 和 psycopg 的 `sslrootcert` 都在这个 unit 里执行。unit 把整个目录 bind 进沙箱，D3 的可见性不变：`/srv/nexloop` 只露出 data 和 secrets，secrets 下只有 backup。
+- `nexloop-file-backup-maint` 没有任何能力。它把 repo2 的三个文件逐个 bind 进去，从不 bind 这个目录；bind 的源路径由 systemd 以 root 身份解析，沙箱里这几个文件的上级目录是 tmpfs 建的。所以它不受目录权限影响。
+- 第 5 步在 unit 自己的沙箱里逐个读一遍这个目录里的全部文件。如果哪天 unit 失去了这个能力，安装会在第 5 步失败，不会启用 timer。`test_the_unit_reads_a_root_0700_directory_only_through_its_capability_and_the_maintenance_binds_files_one_by_one` 守着这几条前提。
+- 附带的好处：在这个 unit 以外、以服务用户身份运行的进程（例如 `runuser`）读不到这些秘密。
+
+**不在本次范围**：DATA_HOST 的 `secrets/rest-server`（root 0711，`server.chain.crt` 0644）和 `secrets/files-repo`（root 0711），布局与这里的旧布局相同。目前只有 APP_HOST 的门禁（`deploy-gate.app.example.json`）运行 `secret_distribution`，所以它们不会触发。rest-server unit 以 `nexloop-backup` 身份运行，没有任何能力，不能照搬 0700 的做法。以后如果给 DATA_HOST 加门禁，要另行处理。

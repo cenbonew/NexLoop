@@ -47,8 +47,13 @@ Steps (each idempotent):
     removed),
     the release /opt/nexloop/file-backup/<sha>/ (the executor's modules, this sandbox check, the units; read-only; `current` -> <sha>)
     and restic at /opt/nexloop/file-backup/restic-<version>/restic from the archive whose sha256 versions.lock.json names
-  3 /srv/nexloop/secrets/backup (root, 0711; refused when it holds anything this unit should not see): recorder.dsn, the repo1
-    repository (the rest URL) and password files (0600, the service user), pg-ca.crt and rest-ca.crt (the stage CA bundle)
+  3 /srv/nexloop/secrets/backup (root, 0700; refused when it holds anything this unit should not see): recorder.dsn, the repo1
+    repository (the rest URL) and password files (0600, the service user), pg-ca.crt and rest-ca.crt (the stage CA bundle; 0600
+    root). The deploy gate's secret_distribution (a secrets/<service> directory 0700, its files 0600; release 51, 2026-10-27) holds
+    without an exception: the unit reads its secrets through CAP_DAC_READ_SEARCH (D3, which it has to read the data roots past
+    their modes; step 5 reads every one of them from inside its sandbox), nexloop-file-backup-maint binds its three repo2 files
+    one by one, and root still writes only in a directory of its own (NX-035-file-backup.md §6.7). A rerun moves an earlier
+    0711 / 0644 layout to these modes
   4 /etc/nexloop/file-backup.env (0600 root), the units and timers from the release (tokens filled): the file backup and repo2's
     daily maintenance (nexloop-file-backup-maint: forget per tag with --prune, check; repo1 is DATA_HOST's); daemon-reload
   5 inside the unit's own sandbox (systemd-run with its [Service] settings): the data roots and its own files readable, /srv/nexloop
@@ -484,7 +489,7 @@ def secrets_directory(root, trust):
     directory = under(root, SECRETS)
     directory.mkdir(exist_ok=True)
     trust(directory, what='secrets/backup')
-    os.chmod(directory, 0o711)
+    os.chmod(directory, 0o700)  # the deploy gate's secrets/<service> mode; the unit traverses it with CAP_DAC_READ_SEARCH
     return directory
 
 
@@ -516,7 +521,7 @@ def write_secrets(root, config, secrets, runner, trust):
                 raise Refused(f'stdin: {name} is not written yet - give its line ({line}<TAB>password)')
             done[name] = 'kept'
         else:
-            done[name] = 'written' if write_private(path, text, mode=0o600 if OWN[name] == 'user' else 0o644) else 'unchanged'
+            done[name] = 'written' if write_private(path, text, mode=0o600) else 'unchanged'  # the CA files root's, also 0600
         if OWN[name] == 'user':
             runner(['chown', f'{USER}:{USER}', str(path)])
     return done
@@ -691,13 +696,14 @@ def host_health_files(root, config):
     return [(under(root, config['host_health_config']), False), (under(root, config['host_health_install_config']), True)]
 
 
-def rewrite_timers(files, change):
-    """Both host-health files or neither: the first is restored when the second cannot be written."""
+def rewrite_timers(files, change, of=timers_of):
+    """Both host-health files or neither: the first is restored when the second cannot be written. of: the probe block's reader
+    (timers_of; rest_server_data_host's services_of)."""
     plans = []
     for path, nested in files:
         before = path.read_text() if path.exists() else None
         value = read_private_json(path)
-        if change(timers_of(value, nested, path)):
+        if change(of(value, nested, path)):
             plans.append((path, before, json.dumps(value, indent=2) + '\n'))
     done = []
     try:

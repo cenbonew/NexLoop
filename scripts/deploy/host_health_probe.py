@@ -6,7 +6,9 @@ observed from outside the services.
 
 Run by a systemd timer on each host (deploy/stage/systemd/nexloop-host-health.*.example), every minute. It reads
   containers  docker inspect: RestartCount and the container Id (a recreated container is a new instance);
-  services    systemctl show: NRestarts (a unit with Restart= keeps running while it loops - 'active' hides the loop);
+  services    systemctl show: NRestarts (a unit with Restart= keeps running while it loops - 'active' hides the loop); only a unit
+              whose LoadState is loaded is seen: systemctl show answers a unit that does not exist (or is masked) with its
+              defaults - Type=simple, NRestarts=0, ActiveState=inactive, LoadState=not-found - which must count as missing;
   timers      systemctl show: the timer's LastTriggerUSec and its service's last run (InactiveExitTimestamp, StateChangeTimestamp,
               Result). A run that started within grace_seconds (default 5: a timer starts its service within a second) after
               the last trigger is offered as the scheduled round; SQL keeps only the first run of each trigger as scheduled, so a
@@ -159,11 +161,13 @@ def sample_containers(items, runner=run):
 def sample_services(items, runner=run):
     if not items:
         return []
-    shown = _blocks(runner(['systemctl', 'show', '--property=Id,NRestarts,ActiveState,Type', *[i['unit'] for i in items]]))
+    shown = _blocks(runner(['systemctl', 'show', '--property=Id,NRestarts,ActiveState,Type,LoadState', *[i['unit'] for i in items]]))
     out = []
     for item in items:
         b = shown.get(item['unit'])
-        if not b or b.get('Type') == 'oneshot' or not b.get('NRestarts', '').isdigit() or b.get('ActiveState') in (None, ''):
+        if not b or b.get('LoadState') != 'loaded':
+            continue  # removed, renamed or masked: not seen, so host_unit_missing (systemd answers such a unit with defaults)
+        if b.get('Type') == 'oneshot' or not b.get('NRestarts', '').isdigit() or b.get('ActiveState') in (None, ''):
             continue  # a one-shot unit has no restart semantics (timers are judged by their runs)
         # One instance per unit: NRestarts grows with every automatic restart and a reset (negative delta) counts nothing.
         out.append({'name': item['name'], 'kind': 'service', 'instance_id': item['unit'], 'restart_count': int(b['NRestarts']),
