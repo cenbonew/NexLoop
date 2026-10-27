@@ -16,7 +16,13 @@ Plan (private JSON, 0600, owned): {"schema": "nexloop-synthetic-customer-plan/1"
 Before any message (preflight): every account logs in once (429: back off by Retry-After) and its Consumer is checked read only
 (reader_dsn_file, set read only and verified on connect: control.nexloop_consumer_owners -> control.nexloop_consumer_personas).
 Any account whose Consumer is not simulated_agent / synthetic refuses the whole run (nothing is sent); one being erased (or erased)
-is reported conversation_unavailable and skipped. Each turn: login, the account's latest conversation or a new one (403:
+is reported conversation_unavailable and skipped.
+Without a read-only DSN (NX-054 §8, 2026-10-27: none exists for S6 on stage), the configuration may give
+    "persona_check": {"via": "workbench", "owner_username_file": "<0600 file>", "consumers": {"<alias>": "<64 hex consumer_id>"}}
+instead of reader_dsn_file: the persona and erasure state are then read through the owner's governed, audited, read-only
+erasure precheck (GET /api/v1/workbench/erasure-precheck/<consumer_id>, owner login, logged out at the end), and stdin carries
+one more line `owner<TAB>password`. The alias -> consumer_id mapping is the configuration's (filled from the dispatcher's one-time
+read of control.nexloop_consumer_owners, the same ids as the erasure configuration); the owner's password never leaves this run. Each turn: login, the account's latest conversation or a new one (403:
 conversation_unavailable, the account is skipped from then on), the message with Idempotency-Key <plan_id>-<turn>-<alias> (rerunning
 the plan replays, never repeats), optionally the wait for a reply (polling; timeout is reported, never resent), logout.
 Output: one JSON line per turn {turn, account (alias), status, http, replied, elapsed_ms} and a summary line; no body, id, username,
@@ -42,6 +48,7 @@ CONFIG_SCHEMA, PLAN_SCHEMA = 'nexloop-synthetic-customer/1', 'nexloop-synthetic-
 ALIAS = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
 PLAN_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
 SYNTHETIC = ('simulated_agent', 'synthetic')
+OWNER = 'owner'  # the stdin alias of the owner's password with persona_check
 LOGIN_TRIES, MAX_BACKOFF = 5, 120
 
 
@@ -64,9 +71,17 @@ def load(config_path, plan_path):
     accounts = config.get('accounts')
     if type(accounts) is not dict or not accounts or any(not ALIAS.fullmatch(a) or type(u) is not str or not u for a, u in accounts.items()):
         raise Refused('configuration accounts: {alias: username}')
-    for key in ('origin', 'reader_dsn_file'):
-        if type(config.get(key)) is not str or not config[key]:
-            raise Refused(f'configuration {key} required')
+    if type(config.get('origin')) is not str or not config['origin']:
+        raise Refused('configuration origin required')
+    check = config.get('persona_check')
+    if check is None:
+        if type(config.get('reader_dsn_file')) is not str or not config['reader_dsn_file']:
+            raise Refused('configuration reader_dsn_file (or persona_check) required')
+    elif (type(check) is not dict or set(check) != {'via', 'owner_username_file', 'consumers'} or check['via'] != 'workbench'
+          or type(check['owner_username_file']) is not str or not check['owner_username_file'] or type(check['consumers']) is not dict
+          or set(check['consumers']) != set(accounts) or any(type(c) is not str or not re.fullmatch(r'[a-f0-9]{64}', c) for c in check['consumers'].values())
+          or 'reader_dsn_file' in config or OWNER in accounts):
+        raise Refused('persona_check: {via: workbench, owner_username_file, consumers: {alias: 64-hex consumer_id} for every account}; no reader_dsn_file')
     turns = plan.get('turns')
     if type(plan.get('plan_id')) is not str or not PLAN_ID.fullmatch(plan['plan_id']):
         raise Refused('plan_id: [A-Za-z0-9][A-Za-z0-9._-]{0,63}')
@@ -80,17 +95,17 @@ def load(config_path, plan_path):
     return config, plan
 
 
-def read_passwords(stream, aliases):
+def read_passwords(stream, aliases, owner=False):
     """`alias<TAB>password` lines from stdin, for exactly the plan's aliases. A refusal never names or echoes a line."""
-    out = {}
+    out, wanted = {}, set(aliases) | ({OWNER} if owner else set())
     for line in stream.read(1 << 16).splitlines():
         if not line.strip():
             continue
         alias, sep, password = line.partition('\t')
-        if not sep or alias not in aliases or not password or alias in out:
+        if not sep or alias not in wanted or not password or alias in out:
             raise Refused('stdin: one alias<TAB>password line per account of the plan')
         out[alias] = password
-    if set(out) != set(aliases):
+    if set(out) != wanted:
         raise Refused('stdin: a password for every account of the plan (and no other)')
     return out
 
@@ -107,11 +122,53 @@ def persona_of(db, tenant, principal):
     return row[0][0], row[0][1]
 
 
+class WorkbenchPersonas:
+    """persona_check via workbench: the owner's erasure precheck per configured consumer_id (context manager: login, logout)."""
+
+    def __init__(self, config, password, workbench_factory=None):
+        self.config, self.password = config, password
+        self.workbench_factory = workbench_factory or self._https
+
+    def _https(self):
+        sys.path.insert(0, str(ROOT / 'scripts/deploy'))
+        from real_dispatch_switch import HttpsTransport, Workbench
+        return Workbench(HttpsTransport(self.config['origin'], self.config.get('ca_file')), self.config['origin'])
+
+    def __enter__(self):
+        username = C.read_private(self.config['persona_check']['owner_username_file']).strip()
+        self.workbench = self.workbench_factory()
+        try:
+            self.workbench.login(username, self.password)
+        except PermissionError:
+            raise Refused('preflight: owner login refused') from None
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self.workbench.logout()
+        except Exception:  # noqa: BLE001 - logging out is best effort; the session expires
+            pass
+        return False
+
+    def persona(self, alias):
+        status, body = self.workbench._call('GET', '/api/v1/workbench/erasure-precheck/' + self.config['persona_check']['consumers'][alias])
+        if status == 404:
+            return 'no_consumer', False
+        if status != 200 or not isinstance(body, dict):
+            raise Refused(f'preflight: {alias} persona unreadable ({status})')
+        erasure = body.get('erasure')
+        return body.get('persona'), isinstance(erasure, dict) and erasure.get('state') not in (None, 'pending_confirmation')
+
+
 class Driver:
-    def __init__(self, config, plan, passwords, *, client_factory=None, connect=None, sleep=time.sleep, clock=time.monotonic, out=sys.stdout):
+    def __init__(self, config, plan, passwords, *, client_factory=None, connect=None, sleep=time.sleep, clock=time.monotonic, out=sys.stdout,
+                 workbench_factory=None):
         self.config, self.plan, self.passwords = config, plan, passwords
         self.client_factory = client_factory or (lambda: ConsumerClient(config['origin'], ca_file=config.get('ca_file'), sleep=sleep, clock=clock))
-        self.connect = connect or (lambda: C.connect_read_only(config['reader_dsn_file'], who='reader'))
+        if config.get('persona_check'):
+            self.connect = lambda: WorkbenchPersonas(config, passwords[OWNER], workbench_factory)
+        else:
+            self.connect = connect or (lambda: C.connect_read_only(config['reader_dsn_file'], who='reader'))
         self.sleep, self.clock, self.out = sleep, clock, out
         self.skipped = set()
 
@@ -149,7 +206,8 @@ class Driver:
                     raise Refused(f'preflight: {alias} login {error.code}') from None
                 session = client.session
                 self.logout(client)
-                persona, erasing = persona_of(db, session.tenant_id, session.principal_id)
+                persona, erasing = (db.persona(alias) if isinstance(db, WorkbenchPersonas)
+                                    else persona_of(db, session.tenant_id, session.principal_id))
                 if erasing or persona == 'no_consumer':
                     self.skipped.add(alias)  # an erased (or never created) Consumer: skipped, never created here
                     report[alias] = 'conversation_unavailable'
@@ -219,7 +277,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, **driver):
     a = p.parse_args(argv)
     try:
         config, plan = load(a.config, a.plan)
-        passwords = read_passwords(stdin, {t['account'] for t in plan['turns']})
+        passwords = read_passwords(stdin, {t['account'] for t in plan['turns']}, owner=bool(config.get('persona_check')))
         return Driver(config, plan, passwords, out=out, **driver).run()
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)

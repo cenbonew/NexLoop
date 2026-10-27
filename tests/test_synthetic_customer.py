@@ -226,3 +226,84 @@ def test_input_files_must_be_private_and_well_formed(tmp_path):
     assert S.main(['--config', config, '--plan', plan], stdin=io.StringIO(''), out=out) == 2
     config, plan = files(tmp_path, [{'account': 'customer-unknown', 'body': BODY}], plan_id='bad')
     assert S.main(['--config', config, '--plan', plan], stdin=io.StringIO(''), out=io.StringIO()) == 2
+
+
+class OwnerWorkbench:
+    """The owner's erasure precheck (GET /api/v1/workbench/erasure-precheck/<consumer>): consumer_id -> (persona, erasure state)."""
+    def __init__(self, prechecks, password=SECRET + '-owner'):
+        self.prechecks, self.password, self.calls, self.logged_in, self.logged_out = prechecks, password, [], None, False
+
+    def login(self, username, password):
+        if password != self.password:
+            raise PermissionError('login refused (401)')
+        self.logged_in = username
+
+    def logout(self):
+        self.logged_out = True
+
+    def _call(self, method, path, body=None, extra=None):
+        self.calls.append((method, path))
+        consumer = path.rsplit('/', 1)[1]
+        if consumer not in self.prechecks:
+            return 404, {'error': 'not_found'}
+        persona, state = self.prechecks[consumer]
+        return 200, {'consumer_id': consumer, 'persona': persona, 'erasure': None if state is None else {'state': state}}
+
+
+CONSUMER = {'customer-1': 'a' * 64, 'customer-2': 'b' * 64, 'customer-4': 'c' * 63 + 'd'}
+
+
+def run_workbench(tmp_path, server, workbench, turns, stdin=None):
+    owner_file = tmp_path / 'owner'
+    owner_file.write_text('owner@example.invalid\n')
+    os.chmod(owner_file, 0o600)
+    config = private(tmp_path / 'config.json', {'schema': S.CONFIG_SCHEMA, 'origin': ORIGIN, 'ca_file': None, 'accounts': USERS,
+                                                'persona_check': {'via': 'workbench', 'owner_username_file': str(owner_file), 'consumers': CONSUMER}})
+    plan = private(tmp_path / 'plan.json', {'schema': S.PLAN_SCHEMA, 'plan_id': 'nx054-perf-1', 'turns': turns})
+    clock, out = Clock(), io.StringIO()
+    aliases = list(dict.fromkeys(t['account'] for t in turns))
+    stdin = stdin if stdin is not None else ''.join(f'{a}\t{SECRET}\n' for a in aliases) + f'owner\t{SECRET}-owner\n'
+    code = S.main(['--config', config, '--plan', plan], stdin=io.StringIO(stdin), out=out,
+                  client_factory=lambda: ConsumerClient(ORIGIN, transport=server, clock=clock, sleep=clock.sleep),
+                  workbench_factory=lambda: workbench, sleep=clock.sleep, clock=clock)
+    text = out.getvalue()
+    return code, [json.loads(line) for line in text.splitlines()], text
+
+
+def test_the_persona_check_through_the_owners_workbench_precheck(tmp_path):
+    """NX-054 §8: no read-only DSN - the owner's governed precheck reads the persona; the owner logs out; nothing secret in output."""
+    server, workbench = Server(), OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)})
+    code, lines, text = run_workbench(tmp_path, server, workbench, [{'account': 'customer-1', 'body': BODY}])
+    assert code == 0 and lines[0] == {'preflight': {'customer-1': 'simulated_agent'}}
+    assert workbench.calls == [('GET', '/api/v1/workbench/erasure-precheck/' + CONSUMER['customer-1'])] and workbench.logged_out
+    assert SECRET + '-owner' not in text and 'owner@example.invalid' not in text and CONSUMER['customer-1'] not in text
+    no_secret(text)
+
+
+@pytest.mark.parametrize('precheck,expected', [(('real', None), 'refused'), (('simulated_agent', 'purging'), 'skipped'), (None, 'skipped')])
+def test_the_workbench_persona_check_refuses_real_and_skips_erasing(tmp_path, precheck, expected):
+    server = Server()
+    workbench = OwnerWorkbench({} if precheck is None else {CONSUMER['customer-1']: precheck})
+    code, lines, text = run_workbench(tmp_path, server, workbench, [{'account': 'customer-1', 'body': BODY}])
+    if expected == 'refused':
+        assert code == 2 and 'not a simulated_agent / synthetic Consumer' in lines[0]['refused']
+        assert not any(m == 'POST' and 'conversations' in p for m, p, _, _ in server.requests)
+    else:
+        assert lines[0] == {'preflight': {'customer-1': 'conversation_unavailable'}}
+
+
+def test_the_workbench_persona_check_needs_the_owner_line_and_a_full_mapping(tmp_path):
+    server, workbench = Server(), OwnerWorkbench({CONSUMER['customer-1']: ('simulated_agent', None)})
+    code, lines, _ = run_workbench(tmp_path, server, workbench, [{'account': 'customer-1', 'body': BODY}], stdin=f'customer-1\t{SECRET}\n')
+    assert code == 2 and 'stdin' in lines[0]['refused']
+    code, lines, _ = run_workbench(tmp_path, server, OwnerWorkbench({}, password='other'), [{'account': 'customer-1', 'body': BODY}])
+    assert code == 2 and lines[0]['refused'] == 'preflight: owner login refused'
+    owner_file = tmp_path / 'owner'
+    owner_file.write_text('o\n')
+    os.chmod(owner_file, 0o600)
+    for check in ({'via': 'workbench', 'owner_username_file': str(owner_file), 'consumers': {'customer-1': 'a' * 64}},  # not every account
+                  {'via': 'database', 'owner_username_file': str(owner_file), 'consumers': CONSUMER}):
+        config = private(tmp_path / 'bad.json', {'schema': S.CONFIG_SCHEMA, 'origin': ORIGIN, 'accounts': USERS, 'persona_check': check})
+        plan = private(tmp_path / 'p.json', {'schema': S.PLAN_SCHEMA, 'plan_id': 'x', 'turns': [{'account': 'customer-1', 'body': BODY}]})
+        out = io.StringIO()
+        assert S.main(['--config', config, '--plan', plan], stdin=io.StringIO(''), out=out) == 2 and 'persona_check' in out.getvalue()
