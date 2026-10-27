@@ -2,7 +2,7 @@
 
 NX-057 的 R0–R4 与 G1、G2 都随 release 46（main 4426c5d0）上了 stage。部署单只做迁移、Action 发布和角色清单；本单写的是部署之后的四件事，按顺序执行：
 
-1. 告警规则发布到 v18（stage 已经是 v18 就跳过）；
+1. 告警规则发布到 v18（stage 已经是 v18 或更高就跳过；2026-10-27 stage 为 v19，本步只核对）；
 2. 服务授权到 v20：v19 给补救规划器授权，v20 是 NX-054 P3 的 `relation_backfiller`，同一次 register 一起应用；
 3. 补救规则 v1；
 4. 打开部署层开关 `REMEDIATION_ENABLED`，核对租户开关。
@@ -15,15 +15,16 @@ NX-057 的 R0–R4 与 G1、G2 都随 release 46（main 4426c5d0）上了 stage�
   - 设计稿 `docs/design/remediation-intents.md` 第 4 版（§6.1 规划器、§9.4 开关、§14 负责人决定 Q-1..Q-7）；
   - 实现说明 `docs/implementation/NX-057-R1-remediation-suggestions.md`、`NX-057-R2-plan-wake.md`；
   - 命令形态沿用 `run-assembly-20261015.md` §0.3、`run-release7-deploy-20261016.md` §3、`run-nx056-approvals-enable.md` §0.3。
-- **按 main 4426c5d0（release 46）核对过**（2026-10-26 刷新；第一版按 main 94baecc3 写成）：
+- **按 main 575859f7（release 50）核对过**（2026-10-27 刷新；上一版按 main 4426c5d0（release 46），第一版按 main 94baecc3）。4426c5d0→575859f7 之间，下面这些项目、`scripts/deploy/` 中本单用到的三个脚本的参数、`configurator_window.py`、compose 和 env 示例都没有变化；只多了告警规则 v19–v21 和 ADR-040（文档）：
   - 迁移（main 上的正式编号）：`remediation_intents` 0337、`remediation_wake` 0338、`remediation_claims` 0345（R4）、`remediation_rule_publications` 0351（G1）；
   - 授权：`service-grants.v1.json` manifest 20，`stage-principals.v1.json` manifest 5；角色清单 `workbench-roles.v1.json` manifest 46；
   - 规则：`remediation-rules.v1.json` manifest 1，只有一条规则 `deliver_final_failure`；
-  - 告警规则：v14 67 条，v15 71 条，v16 73 条，v17 74 条，v18 74 条；
+  - 告警规则：v14 67 条，v15 71 条，v16 73 条，v17 74 条，v18 74 条；main 上另有 v19 76 条、v20 77 条、v21 78 条，stage 当前为 v19（第 1 步跳过，见 §1.0）；
   - G1：`scripts/deploy/remediation_rules_apply.py`；G2：`deploy/stage/compose.app.example.yaml` 中 `plan-reevaluator` 的 `REMEDIATION_ENABLED`，env 示例 `deploy/stage/compose.app.env.example` 默认 `false`。
   - 执行前如果 main 又前进了，重新核对这几项。
 - 每一步标 **A**（只读，随时可以执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
-- **G1、G2 已在 release 46 中**（§0.4）：四步都可以用 release 46 执行。
+- **G1、G2 已在 release 46 中**（§0.4）：四步都可以用 release 46 或之后的 release 执行，本次按 release 50。下文的“release 46”指这些部署件首次进入的 release，release 50 同样满足。
+- **谁执行**：见 §0.5。
 
 ## 0. 前提、变量、G1/G2
 
@@ -87,7 +88,25 @@ main 94baecc3 上缺这两个部署件，第二十九批补齐（分支 `l7/nx05
 
 **服务授权 `--doctor` 仍然没有窗口入口**（不在 G1 范围内）：`python -m nexloop_eios.service_grants --doctor` 读库也要配置员 DSN（`configurator_connection`）。所以本单的只读核对用 `ro` 查询代替 `--doctor`，见 2.1。
 
-## 1. 告警规则到 v18（DATA_HOST，配置员窗口，B；stage 已是 v18 就跳过）
+### 0.5 执行者（release 50 时的分工）
+
+| 步骤 | 执行者 | 账号 |
+|---|---|---|
+| P1、P2、P4、P5、P6，第 1–3 步，2.1/2.3/4.1/4.4 的查询，4.2 部署层开关 | 调度员 | 管理机、DATA_HOST、APP_HOST 的运维账号；配置员窗口由工具自己打开，不需要工作台账号 |
+| P3（看“补救”一栏）、4.3（只在租户开关被暂停时恢复）、§5 中工作台上的回退动作（暂停/恢复补救、标记已处理/取消、解除熔断） | 合成 owner **approver3**（`stage-principal-approver3`）；判定者是调度员 | 工作台账号，口令在钥匙串 `nexloop/stage/approver3`。负责人本人不需要操作，也可以代替 approver3 |
+
+- **不需要第二位 owner 批准**：已发布的审批策略（`approval-policies.v1.json` version 4）覆盖的是 `real_dispatch.set`（只在打开时）、`consumer.erase`、`retention.release_hold` 和 NX-058 的 owner 成员 Action，不包括 `nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release`。所以本单的工作台动作提交后立即执行，不进入“审批”页，approver2 不需要参与。
+- **为什么 approver3 可以**：角色清单 manifest 46 只把这三个补救 Action 给了 `owner` 角色，approver3 是 owner（run-nx056 §0 的账号表）；补救 Action 没有针对负责人 principal 的条件。
+- 本单所有写“负责人在工作台……”的地方，都按这张表由 approver3 执行。
+- 执行时如果 main 上的审批策略已经有包含 `nexloop.remediation.*` 的新版本，停下，按新策略补上 approver2 的批准步骤。
+
+## 1. 告警规则到 v18（DATA_HOST，配置员窗口，B；stage 已是 v18 或更高就跳过）
+
+### 1.0 release 50 时的情况：跳过
+
+- stage 当前是 **v19**（v18 的超集，另加 2 条），高于 v18，按 1.1 的规则**本步跳过**，不发布任何版本。
+- 只执行 1.2 的第一条查询（预期 `19|<digest>`），以及“核对”中的 doctor，`--alert-rules` 传 `alert-rules.v19.json`（doctor 比对的是传入文件的版本）。
+- main 上的 v20、v21 不属于本单，由各自的执行单发布；本单不要顺带发布。
 
 ### 1.1 各版本的关系
 
@@ -122,7 +141,7 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_ru
 
 - **`--check` 预期**：`{"valid": true, "version": 18, "rules": 74}`。
 - **应用预期**：`applied: true`，`result.replay: false`。重跑是 `replay: true`。stage 已经是同内容的 v18 时，执行也只是 `replay: true`，不会写入。
-- **核对**：下一轮评估之后，`nexloop-doctor --observability --alert-rules <v18 文件> --metrics-database-url-file <metrics DSN>` 的 `alert_rules_current` 为 true（doctor 比对的是传入文件的版本，所以要传 v18）。
+- **核对**：下一轮评估之后，`nexloop-doctor --observability --alert-rules <stage 当前版本的文件，release 50 时为 v19> --metrics-database-url-file <metrics DSN>` 的 `alert_rules_current` 为 true（doctor 比对的是传入文件的版本，所以要传与库里相同的版本）。
 - **失败时**：`alert rules version must increase` 说明库里已经是更高版本，核对第一条查询的结果，不要改版本号重发。
 
 ## 2. 服务授权到 v20（DATA_HOST，配置员窗口，B）
@@ -311,10 +330,10 @@ sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$(sudo
 
 ### 4.3 租户开关（工作台，owner，B）
 
-- **执行者**：负责人本人，用自己的 owner 账号在工作台操作。调度员不代操作。
+- **执行者**：approver3（合成 owner，§0.5），用自己的工作台账号操作；负责人本人也可以代替。调度员不用运维手段代操作。这个动作不在审批策略内，提交后立即生效。
 - **判定者**：调度员，用 4.1 的第三条查询和 4.4 的查询判定，不参与操作。
 - 4.1 显示租户开关是开的：什么都不用做，判定者记下查询结果即可。
-- 显示是暂停的：负责人在“运营 → Action / 异常 → 补救”点“恢复补救”，填原因后提交。页面摘要不再显示“补救已暂停”，下一轮评估后 `remediation_paused` 告警解除。
+- 显示是暂停的：approver3 在“运营 → Action / 异常 → 补救”点“恢复补救”，填原因后提交。页面摘要不再显示“补救已暂停”，下一轮评估后 `remediation_paused` 告警解除。
 - 判定：4.1 的第三条查询，最新一条为 `paused=f`，`revision` 加 1。
 
 ### 4.4 打开后的核对（A）
@@ -337,7 +356,8 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 **证据**（记入 NX-057 任务证据，不含 DSN、令牌和口令；每条写明执行者和判定者）：
 
 - 第 1–3 步每条命令的输出（JSON 行）；
-- 第 1 步前的告警规则版本（以及是否因为已是 v18 而跳过）；
+- 第 1 步前的告警规则版本（以及是否因为已是 v18 或更高而跳过；release 50 时预期 v19，跳过）；
+- 工作台动作由哪个账号执行（approver3 或负责人）；
 - `$LAST_REGISTER` 的实际值、2.0a 判定的情况（A 或 B）、2.1 的 diff 摘要、2.2 的计数；
 - 第 3 步规则文件的 sha256；
 - 2.3、4.1、4.4 查询的结果；
@@ -347,14 +367,14 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 
 | 情况 | 做法 | 说明 |
 |---|---|---|
-| 要马上停止生成补救 | 负责人在工作台“补救”点“暂停补救”，填原因 | 最快的办法，下一轮生效，不需要重建任何服务。会触发 `remediation_paused` 告警（warning），这是预期的。暂停也会挡住负责人手动唤醒 |
+| 要马上停止生成补救 | approver3（或负责人）在工作台“补救”点“暂停补救”，填原因 | 最快的办法，下一轮生效，不需要重建任何服务。会触发 `remediation_paused` 告警（warning），这是预期的。暂停也会挡住负责人手动唤醒 |
 | 关掉部署层 | 私有 compose env 改回 `REMEDIATION_ENABLED=false`，执行 4.2 的两条命令，`grep` 应为 `=false` | 只停规划器；负责人手动唤醒仍然可以用（它只看租户开关和控制暂停） |
 | 关着期间的失败 | 不处理 | 被记为 `switch_closed`，重新打开后**不会补生成**。需要跟进的，由负责人按失败记录手动处理 |
 | 已经生成的补救 | 负责人在“补救”一栏逐条“标记已处理”或“取消” | 关开关不会改变已有补救。`proposed` 状态的补救到期（7 天）后自动变为 `expired` |
 | 某条规则不该生效 | 发布 `remediation-rules.v2.json`：`manifest_version: 2`，去掉这条规则（`rules` 可以为空），`decision` 写明理由。命令同第 3 步，`--expected-revision 1` | 规则只追加不删除，版本只能增加；v1 的记录保留。需要先评审 v2 文件 |
 | 规则被熔断 | 负责人确认原因后，在“补救”一栏“解除熔断” | 解除后，从下一个失败开始重新生成 |
-| 撤销规划器的授权 | 不在本单范围 | 要改清单（在当时最新版本的下一版里去掉这条授权；main 4426c5d0 上最新是 v20），然后重跑 register。plan 会把这条授权清空。开关已经足够停用，一般不需要撤销 |
-| 告警规则 | 不回退 | 告警只写告警状态，没有外部效应。版本只能增加；如果确实要去掉某条，发布当时最新版本的下一版（main 4426c5d0 上最新是 v18），并另行评审 |
+| 撤销规划器的授权 | 不在本单范围 | 要改清单（在当时最新版本的下一版里去掉这条授权；main 575859f7 上最新仍是 v20），然后重跑 register。plan 会把这条授权清空。开关已经足够停用，一般不需要撤销 |
+| 告警规则 | 不回退 | 告警只写告警状态，没有外部效应。版本只能增加；如果确实要去掉某条，发布当时最新版本的下一版（main 575859f7 上最新是 v21，stage 为 v19），并另行评审 |
 
 **不允许的做法**：
 
