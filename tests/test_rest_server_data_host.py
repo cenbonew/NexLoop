@@ -80,8 +80,8 @@ def archive(binary=BINARY, member=f'rest-server_{VERSION}_linux_amd64/rest-serve
 
 class Runner:
     def __init__(self, root, *, digest=None, san=None, pubkey=('PUB', 'PUB'), active='active', table=None, version=VERSION, htpasswd=BCRYPT,
-                 uid=None):
-        self.calls, self.stdin, self.root, self.uid = [], [], root, uid
+                 uid=None, stop_post_fails=True):
+        self.calls, self.stdin, self.root, self.uid, self.stop_post_fails = [], [], root, uid, stop_post_fails
         self.digest, self.san, self.pubkey, self.active, self.table, self.version, self.htpasswd = digest, san, pubkey, active, table, version, htpasswd
 
     def __call__(self, command, *, stdin=None, check=True):
@@ -99,6 +99,10 @@ class Runner:
             return (ROOT / path).read_text()
         if command[:2] == ['id', '-u']:
             return f'{os.getuid() if self.uid is None else self.uid}\n'
+        if command == R.STOP_POST_PROBE:  # a real systemd: the failing ExecStopPost fails the transient unit, so systemd-run exits 1
+            if self.stop_post_fails:
+                raise R.Failed('systemd-run exited 1')
+            return ''
         if command[-1] == '--version':
             return f'rest-server version {self.version} (synthetic)\n'
         if command[:2] == ['openssl', 'x509'] and '-ext' in command:
@@ -310,6 +314,40 @@ def test_uninstall_removes_the_server_and_never_the_repository(tmp_path):
         assert not (root / gone).exists(), gone
     assert (tmp_path / 'backups/files-repo1/restic/config').exists() and (root / 'srv/nexloop/secrets/files-repo/restic.pass').exists()  # kept
     assert (tmp_path / 'backups/file-repo1/restic/config').read_text() == 'synthetic journal\n'
+
+
+def test_uninstall_is_refused_while_the_maintenance_still_stops_and_starts_the_server(tmp_path):
+    """L6 S6: nexloop-restic-maint's files repository block (or any of its lines naming this unit) must go first; a comment does not count."""
+    root, config, digest = setup(tmp_path)
+    assert main(root, config, digest=digest)[0] == 0
+    maint = root / 'etc/systemd/system/nexloop-restic-maint.service'
+    example = (ROOT / 'deploy/stage/systemd/nexloop-restic-maint.service.example').read_text()
+    assert 'nexloop-rest-server.service' in example  # in its comment only
+    for text in (example + R.M.FILES_MARK + '\n', example.replace('UMask=0077', 'ExecStopPost=+/usr/bin/systemctl start nexloop-rest-server.service\nUMask=0077')):
+        maint.write_text(text)
+        code, text, runner = main(root, config, '--uninstall', stdin='', digest=digest)
+        assert code == 2 and 'restic_maint_data_host.sh --revert' in text and runner.calls == [], text
+        assert (root / 'etc/systemd/system/nexloop-rest-server.service').exists()
+    maint.unlink()
+    os.symlink(tmp_path / 'elsewhere', maint)
+    assert main(root, config, '--uninstall', stdin='', digest=digest)[0] == 2
+    maint.unlink()
+    maint.write_text(example)  # the example unit, without the block: uninstall goes ahead
+    assert main(root, config, '--uninstall', stdin='', digest=digest)[0] == 0
+    assert not (root / 'etc/systemd/system/nexloop-rest-server.service').exists()
+
+
+def test_a_systemd_that_ignores_a_failing_stop_post_is_refused_before_anything(tmp_path):
+    """L6 S7: the maintenance's \"the rest-server is active again\" check is an ExecStopPost; this host's systemd must fail a unit
+    whose ExecStopPost fails, measured with a transient unit before anything is installed."""
+    root, config, digest = setup(tmp_path)
+    code, text, runner = main(root, config, digest=digest, stop_post_fails=False)
+    assert code == 2 and 'ExecStopPost failed as successful' in text and 'nothing installed' in text, text
+    assert runner.calls[-1] == ['systemd-run', '--wait', '--quiet', '--collect', '-p', 'ExecStopPost=/bin/false', '/bin/true']
+    assert not (root / 'opt/nexloop/rest-server').exists() and not (root / 'etc/systemd/system/nexloop-rest-server.service').exists()
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 0 and 'step R0: systemd: a failing ExecStopPost fails the unit' in text
+    assert runner.calls.index(R.STOP_POST_PROBE) < min(i for i, c in enumerate(runner.calls) if c[-1] == '--version')
 
 
 def test_the_unit_is_append_only_tls_and_sandboxed():

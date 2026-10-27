@@ -24,6 +24,8 @@ no lock is held (restic_future_guard.py --wait-unlocked 600: between two file ba
 nexloop-rest-server.service, the guard, forget/prune, `systemctl start`, then the checks with the server back. ExecStopPost starts it
 again on every path (a failed guard, forget or wait included), waits 3 seconds and requires it active: otherwise the unit fails and
 timer_scheduled_failure alerts. A file backup round that starts while the server is stopped fails (NX-035-file-backup.md §6.5).
+L6 S5: the block also sets TimeoutStartSec=6h - a hanging forget or prune is killed (the unit fails) and the rest-server does not stay
+stopped; a unit with a TimeoutStartSec of its own is refused.
 --files-repo requires the rest-server unit active.
 
 Steps:
@@ -59,7 +61,8 @@ GUARD_CALL = f'{PYTHON} -I -B {GUARD} --max-ahead-seconds 3600 -- '
 REST_UNIT = 'nexloop-rest-server.service'  # rest_server_data_host.UNIT
 SYSTEMCTL = '/usr/bin/systemctl'
 WAIT_SECONDS = 600
-FILES_KEYS = ('ExecStart=', 'ExecStopPost=', 'ReadWritePaths=')
+FILES_KEYS = ('ExecStart=', 'ExecStopPost=', 'ReadWritePaths=', 'TimeoutStartSec=')
+TIMEOUT = '6h'  # L6 S5: a forget or prune that hangs is killed, and ExecStopPost starts the rest-server again
 FILES_MARK = '# NX-035 files repository (APP_HOST\'s file backup through the rest-server; restic_maint_data_host.py --files-repo)'
 HERE = Path(__file__).resolve().parent
 
@@ -194,7 +197,7 @@ def files_block(restic, repo, password_file):
             f'ExecStart={common} {NEW}\nExecStart=+{SYSTEMCTL} start {REST_UNIT}\nExecStart={common} check --retry-lock 10m\n'
             f'ExecStart=/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {common} check --read-data-subset 1/10; fi\'\n'
             f'ExecStopPost=+{SYSTEMCTL} start {REST_UNIT}\nExecStopPost=/bin/sleep 3\nExecStopPost=+{SYSTEMCTL} is-active --quiet {REST_UNIT}\n'
-            f'ReadWritePaths={repo}\n')
+            f'ReadWritePaths={repo}\nTimeoutStartSec={TIMEOUT}\n')
 
 
 def without_files(text):
@@ -216,6 +219,8 @@ def with_files(text, repo, password_file):
     """The files repository's maintenance after the last line of [Service], replacing an earlier block (55271922's had no stop of the
     rest-server); the guard is added like for every forget."""
     text = without_files(text)
+    if any(s == 'Service' and k == 'TimeoutStartSec' for s, k, v in sections(text)):
+        raise Refused(f'the unit sets its own TimeoutStartSec: the files repository\'s block sets {TIMEOUT} (L6 S5) - remove it by hand')
     first = next(v for s, k, v in sections(text) if s == 'Service' and k == 'ExecStart' and ' forget ' in f' {v} ')
     restic = first.split()[0]
     lines = text.splitlines(keepends=True)

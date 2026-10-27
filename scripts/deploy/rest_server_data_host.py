@@ -46,8 +46,10 @@ Steps (each idempotent):
   R5 the unit from the release (tokens filled), daemon-reload, enable and (re)start; then active, and the table loaded, read back
 --uninstall: the unit stopped and removed (its stop removes the table), the nft file, the mount unit, the secrets, the binary; the
 serving directory removed when empty. repo1 itself is never touched. nexloop-restic-maint's files repository block stops and starts
-this unit around its guard and forget (L6 F2): take it out first (restic_maint_data_host.sh --revert, then without --files-repo), or
-every maintenance run fails starting a unit that is gone.
+this unit around its guard and forget (L6 F2): while it is there (or the maintenance unit is a link) --uninstall refuses (L6 S6) -
+take it out first (restic_maint_data_host.sh --revert, then without --files-repo).
+Before R1 (L6 S7): `systemd-run --wait --quiet --collect -p ExecStopPost=/bin/false /bin/true` must exit non-zero - this host's systemd
+fails a unit whose ExecStopPost fails, which the maintenance's check that the rest-server is active again relies on.
 Output: step lines only. Exit 0 done, 1 a step failed, 2 refused.
 """
 from __future__ import annotations
@@ -69,6 +71,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import file_backup_install as A  # noqa: E402  (the same directory: trust checks, atomic writes, git show)
 import file_backup_data_host as D  # noqa: E402  (the mount unit name)
+import restic_maint_data_host as M  # noqa: E402  (the files repository block of nexloop-restic-maint)
 
 Refused, Failed, run, under = A.Refused, A.Failed, A.run, A.under
 SCHEMA = 'nexloop-rest-server-data-host/1'
@@ -79,6 +82,7 @@ MOUNT = SERVE + '/restic'
 SECRETS = '/srv/nexloop/secrets/rest-server'
 FILES_SECRETS = '/srv/nexloop/secrets/files-repo'  # the files repository's restic password (not in the rest-server's sandbox)
 BASE = '/opt/nexloop/rest-server'
+STOP_POST_PROBE = ['systemd-run', '--wait', '--quiet', '--collect', '-p', 'ExecStopPost=/bin/false', '/bin/true']
 UNIT = 'nexloop-rest-server.service'
 UNIT_SOURCE = 'deploy/stage/systemd/nexloop-rest-server.service.example'
 NFT = '/etc/nexloop/rest-server.nft'
@@ -372,9 +376,23 @@ def render_unit(text, version, address, config):
     return text
 
 
+def stop_post_fails_the_unit(runner):
+    """L6 S7: nexloop-restic-maint relies on a failing ExecStopPost failing the unit (the rest-server not active again after the
+    files repository's maintenance must alert). Checked on this host's systemd before anything is installed: a transient unit whose
+    main process succeeds and whose ExecStopPost fails must end non-zero."""
+    try:
+        runner(STOP_POST_PROBE)
+    except Failed:
+        return
+    raise Refused('this systemd reports a unit whose ExecStopPost failed as successful: nexloop-restic-maint could not alert when the '
+                  'rest-server does not come back after its maintenance - nothing installed')
+
+
 def install(root, config, passwords, runner, out, trust, trust_python):
     step = lambda n, text: print(f'step {n}: {text}', file=out, flush=True)  # noqa: E731
     A.trust_release(config, trust)
+    stop_post_fails_the_unit(runner)
+    step('R0', 'systemd: a failing ExecStopPost fails the unit (systemd-run --wait -p ExecStopPost=/bin/false /bin/true exited non-zero)')
     addr = addresses(config)
     version, binary = rest_server_binary(config, runner)
     changed = install_binary(root, version, binary, runner, trust)
@@ -404,6 +422,11 @@ def install(root, config, passwords, runner, out, trust, trust_python):
 
 
 def uninstall(root, runner, out):
+    maint = under(root, M.UNIT)  # L6 S6: its block stops and starts this unit; removing the unit first would fail every maintenance run
+    if os.path.lexists(maint) and (os.path.islink(maint) or M.FILES_MARK in maint.read_text()
+                                   or any(UNIT in value for _, _, value in M.sections(maint.read_text()))):  # comments do not count
+        raise Refused(f'{M.UNIT} still maintains the files repository (it stops and starts {UNIT}): run restic_maint_data_host.sh --revert '
+                      'first (then restic_maint_data_host.sh without --files-repo); nothing removed')
     for path in (under(root, SERVE), under(root, SECRETS), under(root, BASE)):
         if os.path.islink(path):
             raise Refused(f'{path} is a symbolic link: nothing removed')
@@ -425,8 +448,7 @@ def uninstall(root, runner, out):
         if directory.is_dir() and not directory.is_symlink() and not os.listdir(directory):
             directory.rmdir()
     print('uninstalled: the rest-server unit, its firewall table and file, the mount unit, its secrets and binary removed; the files repository '
-          'and its password stay (they hold the file backups). nexloop-restic-maint still stops and starts this unit (L6 F2) until its files '
-          'repository lines go: restic_maint_data_host.sh --revert, then restic_maint_data_host.sh without --files-repo',
+          'and its password stay (they hold the file backups)',
           file=out)
 
 

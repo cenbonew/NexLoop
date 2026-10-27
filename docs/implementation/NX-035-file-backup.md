@@ -264,6 +264,8 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 6. `ExecStart=+/usr/bin/systemctl start nexloop-rest-server.service`：forget/prune 一结束就拉起，之后的 `check` 和周日深度 check 在服务恢复后进行；
 7. `ExecStopPost=+/usr/bin/systemctl start …`、`ExecStopPost=/bin/sleep 3`、`ExecStopPost=+/usr/bin/systemctl is-active --quiet …`：无论哪一步失败（等锁超时、守卫拒绝、forget 失败），unit 结束时都会再拉起一次；3 秒后不是 active（例如证书出错、启动即崩溃、进入自动重启），unit 以非 0 结束，`timer_scheduled_failure` 告警。
 
+8. `TimeoutStartSec=6h`（L6 S5）：forget 或 prune 卡住时，6 小时后 unit 被终止并失败，`ExecStopPost` 照样拉起 rest-server，它不会一直停着。unit 自己另有 `TimeoutStartSec` 时，`--files-repo` 拒绝执行（systemd 只认最后一个），要手工去掉。
+
 rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到的快照集合，就是 forget 看到的集合。测试 `tests/test_restic_maint_data_host.py` 用一个模型按行执行这个块，在守卫通过之后、forget 之前追加一个 2030 年的快照：新块里 forget 删掉的集合与没有攻击时完全相同；55271922 的旧块（不停服）则会删掉全部 30 个真实快照。重跑 `--files-repo` 会把旧块整个换成新块。`--files-repo` 要求 rest-server 已经 active，`/usr/bin/systemctl` 存在。
 
 **维护窗口与告警**（restic-maint 的 timer 是 03:30，随机延迟最多 10 分钟；文件仓库块排在两个恢复日志仓库之后）：
@@ -272,7 +274,8 @@ rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到�
 - `timer_stale_file_backup`（阈值 2700 秒，即三个周期）：只丢一轮时，距上次成功最多约 30 分钟，不会触发。窗口要超过约 29 分钟、连丢两轮以上才会接近阈值。
 - `file_backup_age`、`file_backup_unprotected`（阈值都是 3600 秒）：丢一轮时，最新的已验证快照最多约 30 分钟前，不会触发。
 - **`timer_scheduled_failure`（selector `*`，24 小时内有任何一次定时运行失败就告警）会因被撞上的那一轮报一次警告**，24 小时后自动消失。这不是假象：那一轮确实没有备份。要做到零告警，需要另开任务（例如 host-health 对这一窗口豁免，或文件备份对连接被拒做短时重试），本次没有做。
-- 卸载 rest-server 之前，先把这个块从 restic-maint 里去掉（`restic_maint_data_host.sh --revert`，再不带 `--files-repo` 运行一次）；否则每次维护都会因为拉起一个已不存在的 unit 而失败。
+- 卸载 rest-server 之前，先把这个块从 restic-maint 里去掉（`restic_maint_data_host.sh --revert`，再不带 `--files-repo` 运行一次）。L6 S6：只要 restic-maint 里还有这个块，或者有任何一行（注释不算）提到 `nexloop-rest-server.service`，或者 restic-maint 的 unit 文件是符号链接，`rest_server_data_host.sh --uninstall` 就拒绝执行，什么都不删。
+- L6 S7：`ExecStopPost` 失败会让 unit 失败，这一点在真实 systemd 上实测。`rest_server_data_host.sh` 在第 R1 步之前执行 `systemd-run --wait --quiet --collect -p ExecStopPost=/bin/false /bin/true`，退出码必须非 0；如果是 0，说明这台主机的 systemd 不会因为 `ExecStopPost` 失败而判 unit 失败，维护后的"rest-server 已回到 active"检查也就无法告警，安装器拒绝执行，什么都不装。
 
 **DATA_HOST：`scripts/deploy/rest_server_data_host.sh`**（新的 root 脚本，**安装时要负责人本人确认**，不在已给出的 root 授权范围内）
 
@@ -309,7 +312,7 @@ rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到�
   - 以 `nexloop-backup` 身份运行，与 restic-maint 对这个仓库做 forget/prune 时的属主一致。
   - 沙箱与安装器同一标准：没有任何能力；`NoNewPrivileges`；`ProtectSystem=strict`；只有 `restic/` 可写；`TemporaryFileSystem=/srv/nexloop:ro`，只露出自己的 secrets；`InaccessiblePaths` 遮住 `/etc/nexloop`、备份卷本身（`/srv/nexloop-backup`）、sftp 的 chroot 和其他密钥；`SystemCallFilter=@system-service`，并禁掉两个句柄调用；`MemoryDenyWriteExecute`。
   - 安装后读回两件事：服务是 active，防火墙表已加载。
-- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、mount unit、rest-server 的 secrets 和二进制；服务目录为空时一并删除。文件仓库和它的口令保留，因为里面是文件备份。恢复日志的仓库从来不碰。先按上面 F2 一节去掉 restic-maint 里的文件仓库块。
+- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、mount unit、rest-server 的 secrets 和二进制；服务目录为空时一并删除。文件仓库和它的口令保留，因为里面是文件备份。恢复日志的仓库从来不碰。restic-maint 里还有文件仓库块时拒绝执行（L6 S6），先按上面 F2 一节去掉它。
 
 **只追加的一次性验证**（运行单中的一步，L6 I1；负责人在 DATA_HOST 以 root 执行，装好 rest-server 之后、APP_HOST 切换之前）：
 

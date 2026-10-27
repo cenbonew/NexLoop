@@ -246,6 +246,7 @@ def test_the_rest_server_is_stopped_before_the_guard_and_started_after_forget_on
         ('ExecStopPost', '/bin/sleep 3'),
         ('ExecStopPost', f'+/usr/bin/systemctl is-active --quiet {S.UNIT}'),
         ('ReadWritePaths', str(repo)),
+        ('TimeoutStartSec', '6h'),  # L6 S5: a hanging forget or prune does not keep the rest-server stopped
     ]
     # Only this block touches the rest-server; the journal repositories' lines are as before, and the block runs after them.
     keys = [k for k, v in service]
@@ -316,6 +317,17 @@ def test_a_failing_guard_still_starts_the_rest_server_again(tmp_path):
     host = Host(repo)
     host.snapshots.append(dict(FUTURE, id='e' * 64))  # already there before the run: the guard refuses, forget never runs
     assert host.run(path.read_text(), attack=False) == (None, True)
+
+
+def test_a_unit_with_its_own_start_timeout_is_refused_with_the_files_repository(tmp_path):
+    """L6 S5: the block's TimeoutStartSec=6h is the unit's only one (systemd would take the last of two)."""
+    repo, password, common = files_setup(tmp_path)
+    path = unit(tmp_path, DEPLOYED.replace('UMask=0077', 'TimeoutStartSec=infinity\nUMask=0077'))
+    before = path.read_text()
+    code, text, runner = main(path, '--files-repo', str(repo), '--files-password-file', str(password))
+    assert code == 2 and 'TimeoutStartSec' in text and path.read_text() == before
+    assert main(path)[0] == 0  # without the files repository the unit's own timeout is left as it is
+    assert 'TimeoutStartSec=infinity' in path.read_text()
 
 
 def test_a_guard_source_others_can_write_is_refused(tmp_path):
