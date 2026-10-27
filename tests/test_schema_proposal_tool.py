@@ -65,7 +65,8 @@ def test_check_summary_shows_the_impact_list():
                                          'hops': 2, 'changed_properties': []}]}}
     out = T.summarize('check', answer)
     assert out['allowed'] is True and out['next_version'] == 4
-    assert out['impact'] == {'verdict': 'affected', 'verdict_text': '有影响', 'type_name': 'Consumer', 'object_types': ['Consumer'],
+    assert out['impact'] == {'verdict': 'affected', 'verdict_text': '有影响' + T.PARTIAL, 'complete': False,  # one unreadable
+                             'type_name': 'Consumer', 'object_types': ['Consumer'],
                              'object_sets': ['consumer.by_level@2'], 'views': [], 'functions': [], 'actions': ['Consumer.edit@1'], 'other': [],
                              'changed_properties': ['level'], 'affected': 2, 'affected_by_changed_properties': 1,
                              'dependents': [{'definition_type': 'object_set', 'stable_name': 'consumer.by_level', 'version': 2,
@@ -84,17 +85,28 @@ LISTED = {**EMPTY, 'affected_by_changed_properties': 1, 'dependents': [
     {'definition_type': 'interface', 'stable_name': 'Placed', 'version': 2, 'pinned_type_version': 1, 'hops': 2, 'changed_properties': []}]}
 
 
-@pytest.mark.parametrize('impact, verdict, text', [
-    (LISTED, 'affected', '有影响'),                                                       # the positive control
-    (EMPTY, 'no_impact', '无影响'),                                                        # empty, and said so
-    ({**EMPTY, 'unreadable': [{'kind': 'actions', 'stable_name': 'Store.edit'}]}, 'incomplete', '影响不完整'),  # empty but not all read
-    ({**EMPTY, 'truncated': True}, 'incomplete', '影响不完整'),                            # empty but a kind was cut at 500
-    ({**EMPTY, 'dependents': ['not an entry']}, 'no_impact', '无影响'),                     # nothing that is an entry is listed
-    (None, 'not_reported', '不是无影响'),                                                  # an answer without impact
+ODD = {**LISTED, 'dependents': [*LISTED['dependents'], 'not an entry']}
+
+
+@pytest.mark.parametrize('impact, verdict, complete, text', [
+    (LISTED, 'affected', True, '有影响'),                                                  # the positive control
+    (EMPTY, 'no_impact', True, '无影响'),                                                   # empty, and said so
+    ({**EMPTY, 'unreadable': [{'kind': 'actions', 'stable_name': 'Store.edit'}]}, 'incomplete', False, '影响不完整'),  # empty, not all read
+    ({**EMPTY, 'truncated': True}, 'incomplete', False, '影响不完整'),                       # empty but a kind was cut at 500
+    # L6 S2: an answer whose dependents are not a list of entries is malformed, not "no impact"
+    ({**EMPTY, 'dependents': ['not an entry']}, 'incomplete', False, '影响不完整'),
+    ({**EMPTY, 'dependents': {'definition_type': 'action'}}, 'incomplete', False, '影响不完整'),
+    ({k: v for k, v in EMPTY.items() if k != 'dependents'}, 'incomplete', False, '影响不完整'),
+    # L6 S1: listed, but not the whole list - affected, and the text says it is incomplete
+    ({**LISTED, 'truncated': True}, 'affected', False, '有影响（不完整'),
+    ({**LISTED, 'unreadable': [{'kind': 'functions', 'stable_name': 'store.broken'}]}, 'affected', False, '有影响（不完整'),
+    (ODD, 'affected', False, '有影响（不完整'),
+    (None, 'not_reported', None, '不是无影响'),                                             # an answer without impact
 ])
-def test_the_impact_verdict_is_never_silent(impact, verdict, text):
+def test_the_impact_verdict_is_never_silent(impact, verdict, complete, text):
     shown = T.summarize('check', {'compatibility': {'allowed': True}, 'impact': impact})['impact']
-    assert shown['verdict'] == verdict and text in shown['verdict_text']
+    assert shown['verdict'] == verdict and text in shown['verdict_text'] and shown.get('complete') is complete
+    assert ('不完整' in shown['verdict_text']) is (complete is False)
     if verdict == 'not_reported':
         assert set(shown) == {'verdict', 'verdict_text'}  # no empty lists that would read as nothing affected
         return
@@ -125,18 +137,47 @@ class AnsweringWorkbench:
         return 200, self.answer
 
 
-@pytest.mark.parametrize('impact, code, verdict', [(EMPTY, 0, 'no_impact'), (LISTED, 0, 'affected'), (None, 1, 'not_reported')])
-def test_check_exits_1_when_the_answer_carries_no_impact(tmp_path, capsys, monkeypatch, impact, code, verdict):
+CHECKED = {'compatibility': {'allowed': True, 'codes': []}}
+
+
+@pytest.mark.parametrize('answer, code, verdict', [
+    ({**CHECKED, 'impact': EMPTY}, 0, 'no_impact'),            # the positive controls: a complete answer, empty or not
+    ({**CHECKED, 'impact': LISTED}, 0, 'affected'),
+    ({**CHECKED, 'impact': {**LISTED, 'truncated': True}}, 0, 'affected'),  # shown as incomplete, still an answer
+    ({**CHECKED, 'impact': None}, 1, 'not_reported'),
+    # L6 F1: a 200 answer without compatibility never reached impact_of - check passed with no impact at all
+    ({'impact': None}, 1, 'not_reported'),
+    ({}, 1, 'not_reported'),
+    ({'allowed': True}, 1, 'not_reported'),
+    ({'impact': EMPTY}, 0, 'no_impact'),                       # no compatibility: the impact is still read, not dropped
+    ([], 1, 'not_reported'),                                   # not even an object
+    ({**CHECKED, 'impact': 'none'}, 1, 'not_reported'),
+])
+def test_check_exits_1_when_the_answer_carries_no_impact(tmp_path, capsys, monkeypatch, answer, code, verdict):
     monkeypatch.setattr(T, 'Workbench', AnsweringWorkbench)
-    monkeypatch.setattr(AnsweringWorkbench, 'answer', {'compatibility': {'allowed': True, 'codes': []}, 'impact': impact})
+    monkeypatch.setattr(AnsweringWorkbench, 'answer', answer)
     conf, user = private(tmp_path, 'c.json', cfg()), private(tmp_path, 'u', 'owner\n')
     argv = ['check', '--config', str(conf), '--origin', 'https://app.example.invalid', '--username-file', str(user), '--password-stdin']
     assert T.main(argv, stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == code
     out = json.loads(capsys.readouterr().out)
     assert out['ok'] is (code == 0) and out['result']['impact']['verdict'] == verdict
-    # --verify-reject keeps its own exit rule (refused or not); the impact rides along
+    # --verify-reject keeps its own exit rule (refused or not: none of these is refused); the impact rides along
     assert T.main([*argv, '--verify-reject'], stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == 1
     assert json.loads(capsys.readouterr().out)['result']['impact']['verdict'] == verdict
+
+
+def test_a_check_result_with_no_verdict_is_not_ok(tmp_path, capsys, monkeypatch):
+    """The exit rule itself (L6 F1): a check result whose impact carries no known verdict fails, whatever summarize made of it."""
+    monkeypatch.setattr(T, 'Workbench', AnsweringWorkbench)
+    monkeypatch.setattr(AnsweringWorkbench, 'answer', {**CHECKED, 'impact': EMPTY})
+    conf, user = private(tmp_path, 'c.json', cfg()), private(tmp_path, 'u', 'owner\n')
+    argv = ['check', '--config', str(conf), '--origin', 'https://app.example.invalid', '--username-file', str(user), '--password-stdin']
+    for shown in ({}, {'impact': None}, {'impact': {}}, {'impact': {'verdict': 'unknown'}}):
+        monkeypatch.setattr(T, 'summarize', lambda command, value, shown=shown: dict(shown))
+        assert T.main(argv, stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == 1
+        assert json.loads(capsys.readouterr().out)['ok'] is False
+    monkeypatch.setattr(T, 'summarize', lambda command, value: {'impact': {'verdict': 'no_impact'}})  # the positive control
+    assert T.main(argv, stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == 0
 
 
 class NoNetwork:
@@ -216,7 +257,7 @@ def test_check_verify_reject_and_publish_end_to_end(workbench, tmp_path, capsys,
     assert all(set(e) == set(T.IMPACT_ENTRY) for e in shown['dependents'])
     # The positive control: affected, the fixture's Consumer Actions listed by kind - the same entries, in the same order, as the
     # API's own /check answer.
-    assert shown['verdict'] == 'affected' and shown['object_types'] == ['Consumer'] and shown['actions']
+    assert shown['verdict'] == 'affected' and shown['complete'] is True and shown['object_types'] == ['Consumer'] and shown['actions']
     with w['client']() as client:
         assert workbench_login(client, w['owner']).status_code == 200
         api = client.get(f'/api/v1/workbench/schema-proposals/{good}/check').json()['impact']
@@ -228,7 +269,7 @@ def test_check_verify_reject_and_publish_end_to_end(workbench, tmp_path, capsys,
     # A type no published Definition depends on: an empty list, said to be no impact (not an empty list passed over in silence).
     code, out, _ = tool(w['owner'], 'check', cfg(proposal_id=lonely))
     shown = out['result']['impact']
-    assert code == 0 and out['ok'] is True and shown['verdict'] == 'no_impact' and shown['verdict_text'] == '无影响'
+    assert code == 0 and out['ok'] is True and shown['verdict'] == 'no_impact' and shown['verdict_text'] == '无影响' and shown['complete'] is True
     assert shown['type_name'] == 'Store' and shown['affected'] == 0 and shown['dependents'] == shown['actions'] == shown['views'] == []
     # --verify-reject: the refused change, with its expected code; only the check runs.
     code, out, requests = tool(w['owner'], 'publish', cfg(proposal_id=bad, expect_codes=['value_type_not_allowed']), '--verify-reject')

@@ -65,21 +65,35 @@
 
     | verdict | verdict_text | 条件 |
     |---|---|---|
-    | `affected` | 有影响 | 至少列出一条 |
-    | `no_impact` | 无影响 | 一条没列，没有截断，`unreadable` 为空 |
-    | `incomplete` | 影响不完整…… | 一条没列，但有截断或解析失败的定义：不能说无影响 |
-    | `not_reported` | 接口未返回影响清单（不是无影响） | `/check` 的回答里没有 `impact` |
+    | `affected` | 有影响；清单不完整时为“有影响（不完整：……）” | 至少列出一条 |
+    | `no_impact` | 无影响 | 一条没列，而且清单完整 |
+    | `incomplete` | 影响不完整…… | 一条没列，但清单不完整：不能说无影响 |
+    | `not_reported` | 接口未返回影响清单（不是无影响） | 回答里没有 `impact`，或 `impact` 不是对象 |
 
-  - `not_reported` 时 `impact` 只有这两个字段，不给空列表，免得读成“没有受影响的定义”。此时 `check` 的 `ok` 为 false，退出码为 1。以前这种情况输出 `impact: null`，退出码为 0。
+  - **完整**（`complete`）指三条同时成立：没有截断；`unreadable` 为空；`dependents` 是一个列表，且每一项都是对象。缺 `dependents`、`dependents` 不是列表、其中混有非对象，都算回答格式不对（L6 复审 S2）。列出了条目但清单不完整时，`verdict` 仍为 `affected`，`complete` 为 false，文字注明“不完整”，`affected` 要读作“至少这么多条”（L6 复审 S1）。
+  - `not_reported` 时 `impact` 只有 `verdict` 和 `verdict_text` 两个字段，不给空列表，免得读成“没有受影响的定义”。此时 `check` 的 `ok` 为 false，退出码为 1。以前这种情况输出 `impact: null`，退出码为 0。
+  - **L6 复审 F1**（f7245ec4 判 FAIL）：
+    - 原来的 `summarize` 只在回答里有 `compatibility` 时才写入 `impact`。200 的回答如果没有 `compatibility`（`{}`、`{'impact': None}`、`{'allowed': True}`），结果里就根本没有 `impact`，`check` 照样 ok、退出 0。
+    - 现在 `check` 的结果一定带 `impact`：回答里有就照常读，回答不是对象或者没有 `impact` 就是 `not_reported`。
+    - 退出规则也改成白名单：`verdict` 不在 `affected`、`no_impact`、`incomplete` 之内，`ok` 就为 false，退出 1。
   - `--verify-reject` 的退出规则不变（看是否被拒），只是同样带上 `verdict`。
   - 发布不受影响，A1 仍然只展示，不是门槛（负责人 2026-10-26）。
   - 测试（`tests/test_schema_proposal_tool.py`）：
-    - `test_the_impact_verdict_is_never_silent`：六种回答。阳性对照有一个 Object View、一个 Function 和一个未知类别；空清单为“无影响”；空清单但有 `unreadable`、空清单但截断，都是“影响不完整”；`dependents` 里只有非条目值，算“无影响”；没有 `impact` 为“不是无影响”。
-    - `test_check_exits_1_when_the_answer_carries_no_impact`：经 `main` 验证退出码，无影响 0、有影响 0、未返回 1；`--verify-reject` 带上同样的 `verdict`。
+    - `test_the_impact_verdict_is_never_silent`：11 种回答。
+      - 阳性对照：有一个 Object View、一个 Function 和一个未知类别，结论为“有影响”，`complete` 为 true；
+      - 空清单为“无影响”；
+      - 空清单但有 `unreadable`、空清单但截断、`dependents` 里只有非对象、`dependents` 不是列表、缺 `dependents`，都是“影响不完整”；
+      - 有条目但截断、有条目但有 `unreadable`、有条目但混有非对象，都是“有影响（不完整……）”；
+      - 没有 `impact` 为“不是无影响”。
+    - `test_check_exits_1_when_the_answer_carries_no_impact`：经 `main` 验证 10 种回答的退出码。
+      - 退出 0：完整的无影响、有影响、有影响但截断；没有 `compatibility` 但有 `impact`，照常读出。
+      - 退出 1：`impact` 为 null；L6 的三种回答 `{'impact': None}`、`{}`、`{'allowed': True}`；回答不是对象（`[]`）；`impact` 是字符串。
+      - `--verify-reject` 带上同样的 `verdict`。
+    - `test_a_check_result_with_no_verdict_is_not_ok`：直接验证退出规则。结果没有 `impact`、`impact` 为 null 或空对象、`verdict` 未知，都退出 1；阳性对照退出 0。
     - 端到端，用真实 PG 和真实工作台登录：
       - Consumer 提案是阳性对照：`affected`，列出夹具里的 Consumer Action。CLI 的 `dependents` 与各类列表，与同一提案直接调用 `/check` 的回答逐项、按原顺序一致。
       - 另插入一个没有任何已发布定义依赖的 `Store` 类型，它的提案输出 `no_impact` / `无影响`，`affected` 为 0，退出码为 0。
-    - 变异 9 个，全部杀死。
+    - f7245ec4 上，这些新用例中 L6 的三种回答和 `[]` 全部失败（复现 F1）。修复后变异 15 个，全部杀死。
 
 ## E4：每个接口的请求量、慢请求与错误数（验证“读取 0.5 秒内返回”）
 
