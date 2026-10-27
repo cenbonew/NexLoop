@@ -39,11 +39,19 @@ def local_host(chained, tmp_path, monkeypatch):
     dsn.write_text(chained['admin'].info.dsn)
     dsn.chmod(0o600)
     calls = []
+    owner = f'{dsn.stat().st_uid}:{dsn.stat().st_gid}'  # the file's group follows its directory on macOS
 
     def remote(config, command, *, stdin=b'', dry):
         assert not dry
         words = shlex.split(command)
-        assert words[:2] == ['docker', 'run'] and '--network' in words and words[words.index('--user') + 1] == '999:999'
+        if words[0] == 'stat':  # the run user: the owner of run_dir/boot.dsn (here the bootstrap DSN file)
+            assert words == ['stat', '-c', '%u:%g', '/srv/run/boot.dsn'] and not stdin
+            calls.append({'stat': True})
+            done = subprocess.run(['python3', '-c', 'import os,sys;s=os.stat(sys.argv[1]);print(f"{s.st_uid}:{s.st_gid}")', str(dsn)], capture_output=True)
+            return done.returncode, done.stdout, done.stderr
+        user = config.get('run_user', owner)
+        assert words[:2] == ['docker', 'run'] and '--network' in words and words[words.index('--user') + 1] == user
+        assert all(f'uid={user.split(":")[0]},gid={user.split(":")[1]}' in words[i + 1] for i, w in enumerate(words) if w == '--tmpfs')
         assert stdin == b'' or b'audit_chain.py' in words[words.index('-c') + 1].encode()  # only the verify step gets the key
         script, args = words[words.index('-c') + 1], words[words.index('-c') + 2:]
         box = tmp_path / f'container-{len(calls)}'
@@ -52,7 +60,7 @@ def local_host(chained, tmp_path, monkeypatch):
         # One pass: a replacement may itself be under /tmp (CI's basetemp), so it must never be mapped a second time.
         mapping = {'/opt/release/': str(ROOT) + '/', '/run/bootstrap-dsn': str(dsn), "'/tmp/": f"'{box}/tmp/", "'/export/": f"'{box}/export/"}
         script = re.sub('|'.join(re.escape(k) for k in mapping), lambda m: mapping[m.group(0)], script)
-        calls.append({'stdin': bool(stdin), 'args': args})
+        calls.append({'stdin': bool(stdin), 'args': args, 'user': user})
         done = subprocess.run([sys.executable, '-c', script, *args], input=stdin, capture_output=True,
                               env={'PYTHONPATH': str(ROOT / 'packages/eios-core/src'), 'PATH': '/usr/bin:/bin'})
         assert not list((box / 'tmp').iterdir())  # the key file is gone when the step ends
@@ -86,7 +94,9 @@ def test_a_clean_chain_verifies_on_the_host_and_offline(chained, local_host, tmp
     assert by['preflight']['ok'] and by['verify']['valid'] and by['offline']['valid'] and by['summary']['valid']
     assert (by['verify']['entries'], by['verify']['seals'], by['export']['entries'], by['offline']['seals']) == (5, 1, 5, 1)
     assert by['summary']['agreement_problems'] == [] and pathlib.Path(by['export']['directory'], 'manifest.json').is_file()
-    assert [c['stdin'] for c in local_host] == [False, True, False]
+    assert local_host[0] == {'stat': True} and [c['stdin'] for c in local_host[1:]] == [False, True, False]
+    dsn = (tmp_path / 'bootstrap-dsn').stat()
+    assert by['run_user'] == {'step': 'run_user', 'user': f'{dsn.st_uid}:{dsn.st_gid}', 'source': 'boot.dsn owner'}
     assert by['preflight']['files'] == sorted([S.TOOL, S.MODULE, S.PRIVATE])
     assert key_text(chained).strip() not in out.out + out.err
 
@@ -116,11 +126,12 @@ def test_a_release_tree_that_differs_stops_before_any_key_is_sent(chained, local
         return (code, out.replace(b'scripts/ops/audit_chain.py', b'scripts/ops/other.py'), err) if 'hashlib' in command else (code, out, err)
     monkeypatch.setattr(S, 'remote', differing)
     code, steps, _ = run(monkeypatch, key_text(chained), configuration(tmp_path), capsys)
-    assert code == 2 and steps == [{'step': 'preflight', 'ok': False, 'code': 'release_tree_differs'}]
-    assert [c['stdin'] for c in local_host] == [False]
+    assert code == 2 and steps[1:] == [{'step': 'preflight', 'ok': False, 'code': 'release_tree_differs'}]
+    assert [c.get('stdin') for c in local_host] == [None, False]
 
 
-@pytest.mark.parametrize('change', [{'backend_image': 'registry.invalid/backend:latest'}, {'extra': 1}, {'schema': 'other'}, {'tenant_id': ''}])
+@pytest.mark.parametrize('change', [{'backend_image': 'registry.invalid/backend:latest'}, {'extra': 1}, {'schema': 'other'}, {'tenant_id': ''},
+                                    {'run_user': '999'}, {'run_user': 'nexloop:nexloop'}, {'run_user': 999}, {'run_user': '1000:1000 --privileged'}])
 def test_the_configuration_is_strict(tmp_path, change, capsys):
     assert S.main(['--config', str(configuration(tmp_path, **change)), '--dry-run']) == 2
 
@@ -135,7 +146,9 @@ def test_the_dry_run_prints_the_plan_without_a_key(tmp_path, capsys):
     assert S.main(['--config', str(configuration(tmp_path)), '--dry-run']) == 0
     plan = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     commands = [p['command'] for p in plan if p.get('host') == 'DATA_HOST']
-    assert len(commands) == 3 and all(c.startswith('docker run -i --rm --network none --read-only --user 999:999') for c in commands)
+    assert commands[0] == "stat -c %u:%g /srv/run/boot.dsn"  # the run user is the owner of boot.dsn, read when the command runs
+    commands = commands[1:]
+    assert len(commands) == 3 and all(c.startswith('docker run -i --rm --network none --read-only --user UID:GID') for c in commands)
     assert all('/srv/run/boot.dsn:/run/bootstrap-dsn:ro' in c and '@sha256:' in c for c in commands)
     assert 'verify' in commands[1] and '--key-file' in commands[1] and 'export' in commands[2] and '/export' in commands[2]
 
@@ -183,3 +196,26 @@ def test_the_export_directory_is_private(tmp_path, local_only, capsys, request):
     assert S.main(['--config', str(configuration(tmp_path, out_dir=str(local_only))), '--dry-run']) == 0
     assert S.main(['--config', str(configuration(tmp_path)), '--dry-run']) == 0  # a private directory outside the checkout
     assert S.load(configuration(tmp_path, out_dir=str(local_only)))['out_dir'] == os.path.realpath(local_only)
+
+
+def test_run_user_overrides_the_owner_of_boot_dsn(chained, local_host, tmp_path, monkeypatch, capsys):
+    """The configured run_user is used as is: no stat, every container and its tmpfs as that UID:GID."""
+    user = f'{os.getuid()}:4242'  # not the file's group: the configured value wins
+    code, steps, _ = run(monkeypatch, key_text(chained), configuration(tmp_path, run_user=user), capsys)
+    assert code == 0, steps
+    assert {'stat': True} not in local_host and [c['user'] for c in local_host] == [user] * 3
+    assert steps[0] == {'step': 'run_user', 'user': user, 'source': 'configuration'}
+    config = dict(S.load(configuration(tmp_path, run_user='1000:1001')), user='1000:1001')
+    command = S.docker(config, S.EXPORT, TENANT_A, tmpfs_export=True)
+    assert '--user 1000:1001' in command and command.count('uid=1000,gid=1001') == 2
+
+
+def test_an_unreadable_boot_dsn_owner_stops_before_any_container(tmp_path, monkeypatch, capsys):
+    seen = []
+
+    def remote(config, command, *, stdin=b'', dry):
+        seen.append(command)
+        return 1, b'', b'stat: cannot stat'
+    monkeypatch.setattr(S, 'remote', remote)
+    code, steps, out = run(monkeypatch, 'ab' * 32 + '\n', configuration(tmp_path), capsys)
+    assert code == 2 and steps == [] and len(seen) == 1 and 'run_user' in out.err
