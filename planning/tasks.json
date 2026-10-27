@@ -2062,6 +2062,12 @@
         "ref": "ci:lane/20261009T224539Z-4f774fda073f",
         "summary": "Full CI on clean CI host for 4f774fd (integration-s4a): 2516 passed / 6 failed, all within baseline, no new failures. Re-run on main: plan outcome and re-evaluation suites passed.",
         "recorded_at": "2026-10-10T07:21:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "外联第 5 片（迁移 0239，runtime_worker 的 nexloop.outreach.run_submit:1，service-grants v18）的 stage 授权于 2026-10-28 经 NX-054 §8 第 6 步 register 生效，authority_revision 3197。此前 stage 实际停在 service-grants v17，v18 的 register 并未执行。生效后只读核对：outreach_sends 0 行、相关审计 0 条，没有被使用。执行人：调度员；判定人：L6。",
+        "recorded_at": "2026-10-28T18:00:00+08:00"
       }
     ]
   },
@@ -4503,6 +4509,12 @@
         "ref": "adr/ADR-040-remediation-intents.md",
         "summary": "ADR-040 adopted by the owner 2026-10-26 (6501d97a); R3 deferred (Q-2). Remaining: stage remediation run sheet (83bfd645) not yet executed. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "plan_reevaluator 的 remediation.plan:1（service-grants v19）的 stage 授权于 2026-10-28 经 NX-054 §8 第 6 步 register 生效，authority_revision 3197；此前 stage 实际停在 service-grants v17。REMEDIATION_ENABLED 仍为 false。执行人：调度员；判定人：L6。",
+        "recorded_at": "2026-10-28T18:00:00+08:00"
       }
     ]
   },
