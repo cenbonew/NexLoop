@@ -7,7 +7,9 @@ damage what it hit). Owner, root, a run sheet step after rest_server_data_host.s
 
   1 a scratch directory /var/lib/nexloop/rest-append-only-check/<random>/ (root's chain checked; handed to nexloop-backup), a random
     password, `restic init` and one `restic backup` of a one-file directory as nexloop-backup: config, keys, data, index and a snapshot
-  2 a second rest-server process of that binary, as nexloop-backup, --append-only --no-auth, listening on 127.0.0.1 only
+  2 a second rest-server process of that binary, as nexloop-backup, --append-only --no-auth, listening on 127.0.0.1 only; before any
+    probe (L6 S4) that process must still be running and GET /config must return this throwaway repository's config byte for byte -
+    not another server's that happened to hold the port
   3 with curl, for each of data, index, keys and snapshots one existing object: DELETE and an overwriting POST (restic's write; rest-server
     has no PUT) must answer 403; config: an overwriting POST must answer 403 and DELETE must not succeed (403, or 405 where the server
     has no delete route for it); locks: a new lock POSTed and DELETEd must succeed (200) - the one deletion append-only allows; and every
@@ -39,8 +41,8 @@ SCRATCH = '/var/lib/nexloop/rest-append-only-check'
 KINDS = ('data', 'index', 'keys', 'snapshots')
 
 
-def curl(runner, method, url, body_file=None):
-    out = runner(['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}', '-X', method, *(['--data-binary', f'@{body_file}'] if body_file else []), url],
+def curl(runner, method, url, body_file=None, output='/dev/null'):
+    out = runner(['curl', '-s', '-o', str(output), '-w', '%{http_code}', '-X', method, *(['--data-binary', f'@{body_file}'] if body_file else []), url],
                  check=False).strip()
     return int(out) if out.isdigit() else 0
 
@@ -119,13 +121,20 @@ def main(argv=None, out=sys.stdout, runner=run, spawn=subprocess.Popen, root=Pat
         before = objects(repo)
         server = spawn(['runuser', '-u', USER, '--', a.rest_server, '--path', str(repo), '--listen', f'127.0.0.1:{a.port}', '--append-only', '--no-auth'],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        base = f'http://127.0.0.1:{a.port}'
+        base, answered = f'http://127.0.0.1:{a.port}', work / 'answered-config'
         for _ in range(40):
-            if curl(runner, 'GET', f'{base}/config') == 200:
+            if server.poll() is not None:
+                break
+            if curl(runner, 'GET', f'{base}/config', output=answered) == 200:
                 break
             sleep(0.5)
         else:
             raise Failed('the throwaway rest-server did not answer on 127.0.0.1')
+        # L6 S4: the answer must come from the process started here, serving the repository made here.
+        if server.poll() is not None:
+            raise Failed(f'the throwaway rest-server exited (the port {a.port} taken, or the binary refused its options): nothing probed')
+        if not answered.is_file() or answered.read_bytes() != (repo / 'config').read_bytes():
+            raise Failed(f'127.0.0.1:{a.port} does not serve the throwaway repository (another server on the port?): nothing probed')
         results, ok = checks(runner, base, repo, body)
         unchanged = objects(repo) == before
         print(json.dumps({'ok': ok and unchanged, 'unchanged': unchanged, 'checks': results}, sort_keys=True), file=out)

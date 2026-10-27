@@ -80,4 +80,5 @@ forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 
   - 脚本的预演也先跑守卫，守卫不通过就什么都不写。
   - 这一版之前的两种 unit（部署日原样的写法，以及已按 tag 分组的上一版）都会被改成同一个目标形状；`--revert` 去掉守卫和文件仓库行。
 - **文件仓库**：`--files-repo <路径> --files-password-file <口令文件>` 加入 rest-server 所提供的文件专用仓库的维护，只加一次：守卫、按 tag 分组的 forget、check、周日深度 check，外加它的 `ReadWritePaths`。见 `NX-035-file-backup.md` §6.5。
+  - L6 F2：这个块在守卫之前停掉 rest-server（先删陈旧锁、再等到没有锁），forget/prune 之后拉起；`ExecStopPost` 在任何路径上都再拉起一次，3 秒后不是 active 就让 unit 失败。重跑 `--files-repo` 会把旧块整个替换。窗口与告警的核对见 `NX-035-file-backup.md` §6.5。
 - 运行同样需要负责人本人确认（新的 DATA_HOST root 操作）。

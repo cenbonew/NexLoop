@@ -254,6 +254,26 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - restic-maint 增加这个文件仓库的维护行：`restic_maint_data_host.sh --files-repo … --files-password-file …`，包括守卫、按 tag 分组的 forget、check、周日深度 check，以及它的 `ReadWritePaths`。
   - 负责人 2026-10-27 已确认：D4 改为独立仓库（§5）。
 
+**L6 复审 F2（确认级，55271922 的复审）及修法**：守卫和 forget 是两条独立的 ExecStart，中间有空档。APP_HOST 可以先持有一把锁，等守卫通过；forget 带 `--retry-lock 10m` 在等这把锁的时候，APP_HOST 再写入一个 2030 年的快照，然后释放锁。forget 随后按新的"最新快照"计算保留窗口，把文件仓库里的真实快照全部删掉。修法按 L6 给的 (b)：维护文件仓库期间停掉 rest-server。`restic_maint_data_host.sh --files-repo` 写入的文件仓库块依次是：
+
+1. `restic … unlock`：只删 restic 自己判为陈旧的锁（30 分钟没有刷新，没有活进程持有）；
+2. `restic_future_guard.py --wait-unlocked 600`：等到仓库里没有任何锁（每 10 秒查一次 `list locks --no-lock`），也就是在两轮文件备份之间、而不是一轮的中途停服；10 分钟内锁一直在，unit 失败并告警，不停服、不 forget；
+3. `ExecStart=+/usr/bin/systemctl stop nexloop-rest-server.service`（`+`：在沙箱之外，以 root 执行）；
+4. 守卫（与其他仓库相同）；
+5. `forget … --prune`；
+6. `ExecStart=+/usr/bin/systemctl start nexloop-rest-server.service`：forget/prune 一结束就拉起，之后的 `check` 和周日深度 check 在服务恢复后进行；
+7. `ExecStopPost=+/usr/bin/systemctl start …`、`ExecStopPost=/bin/sleep 3`、`ExecStopPost=+/usr/bin/systemctl is-active --quiet …`：无论哪一步失败（等锁超时、守卫拒绝、forget 失败），unit 结束时都会再拉起一次；3 秒后不是 active（例如证书出错、启动即崩溃、进入自动重启），unit 以非 0 结束，`timer_scheduled_failure` 告警。
+
+rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到的快照集合，就是 forget 看到的集合。测试 `tests/test_restic_maint_data_host.py` 用一个模型按行执行这个块，在守卫通过之后、forget 之前追加一个 2030 年的快照：新块里 forget 删掉的集合与没有攻击时完全相同；55271922 的旧块（不停服）则会删掉全部 30 个真实快照。重跑 `--files-repo` 会把旧块整个换成新块。`--files-repo` 要求 rest-server 已经 active，`/usr/bin/systemctl` 存在。
+
+**维护窗口与告警**（restic-maint 的 timer 是 03:30，随机延迟最多 10 分钟；文件仓库块排在两个恢复日志仓库之后）：
+
+- 停服窗口 = 文件仓库的守卫 + forget/prune 的时长。文件仓库很小，预计在一分钟以内。在这个窗口里**开始**的那一轮文件备份会失败：它的第一条 ExecStart（artifact → repo1）连不上，整个 unit 失败，同一轮的 repo2 也不做。每天最多一轮；因为先等锁再停服，正在进行的一轮不会被打断，撞上的概率大约是窗口长度 / 15 分钟。
+- `timer_stale_file_backup`（阈值 2700 秒，即三个周期）：只丢一轮时，距上次成功最多约 30 分钟，不会触发。窗口要超过约 29 分钟、连丢两轮以上才会接近阈值。
+- `file_backup_age`、`file_backup_unprotected`（阈值都是 3600 秒）：丢一轮时，最新的已验证快照最多约 30 分钟前，不会触发。
+- **`timer_scheduled_failure`（selector `*`，24 小时内有任何一次定时运行失败就告警）会因被撞上的那一轮报一次警告**，24 小时后自动消失。这不是假象：那一轮确实没有备份。要做到零告警，需要另开任务（例如 host-health 对这一窗口豁免，或文件备份对连接被拒做短时重试），本次没有做。
+- 卸载 rest-server 之前，先把这个块从 restic-maint 里去掉（`restic_maint_data_host.sh --revert`，再不带 `--files-repo` 运行一次）；否则每次维护都会因为拉起一个已不存在的 unit 而失败。
+
 **DATA_HOST：`scripts/deploy/rest_server_data_host.sh`**（新的 root 脚本，**安装时要负责人本人确认**，不在已给出的 root 授权范围内）
 
 - **为什么单独做一个入口（第 1b 步）**：`file_backup_data_host.sh` 只做第 1a 步（recorder 的 pg_hba 行），它不读也不写任何秘密。rest-server 有自己的二进制、证书、两个口令和生命周期。分成两个入口，每一步都可以单独重跑或撤销，互不牵连。
@@ -274,6 +294,8 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 - **R3 文件仓库与服务目录**：
   - 文件仓库的口令经 stdin（`files<TAB>password`）写入 `/srv/nexloop/secrets/files-repo/restic.pass`。目录 root 0711；文件 0600，属 `nexloop-backup`；不在 rest-server 的沙箱里。
   - 仓库目录不存在时，为 `nexloop-backup` 建好，并以它的身份执行一次 `restic init`；已有 config 就不再 init。目录存在但既不是仓库、也不是空目录时，拒绝。之后以 `nexloop-backup` 执行 `cat config`，确认口令能打开仓库。
+  - L6 S1：stdin 给出的口令先写到 `restic.pass.new`，init（需要时）和 `cat config` 都用它；能打开仓库，才替换 `restic.pass`。重跑时传错口令，安装器以 1 退出，`restic.pass` 保持原样，`restic.pass.new` 被删掉。
+  - L6 S2：`files_repo_path` 和 `journal_repo_path` 先做 realpath 再比较，经符号链接指向恢复日志仓库（或其上下级）的路径同样被拒绝。
   - 服务目录 `/srv/nexloop-rest`（root，0755），里面只有一个 mount unit 绑定进来的 `restic/`，来源是文件仓库。
   - **`--private-repos` 不需要**：服务目录归 root 所有，服务用户无法在里面新建别的仓库，能访问到的只有 `restic/`；htpasswd 里也只有一个用户。如果用了 `--private-repos`，仓库就必须放在 `<path>/<用户名>/` 下，反而多一层约束。
   - 服务目录里出现 `restic/` 以外的任何东西，都会拒绝。
@@ -287,7 +309,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 以 `nexloop-backup` 身份运行，与 restic-maint 对这个仓库做 forget/prune 时的属主一致。
   - 沙箱与安装器同一标准：没有任何能力；`NoNewPrivileges`；`ProtectSystem=strict`；只有 `restic/` 可写；`TemporaryFileSystem=/srv/nexloop:ro`，只露出自己的 secrets；`InaccessiblePaths` 遮住 `/etc/nexloop`、备份卷本身（`/srv/nexloop-backup`）、sftp 的 chroot 和其他密钥；`SystemCallFilter=@system-service`，并禁掉两个句柄调用；`MemoryDenyWriteExecute`。
   - 安装后读回两件事：服务是 active，防火墙表已加载。
-- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、mount unit、rest-server 的 secrets 和二进制；服务目录为空时一并删除。文件仓库和它的口令保留，因为里面是文件备份。恢复日志的仓库从来不碰。
+- **`--uninstall`**：移除 unit（它停止时会删掉防火墙表）、nft 文件、mount unit、rest-server 的 secrets 和二进制；服务目录为空时一并删除。文件仓库和它的口令保留，因为里面是文件备份。恢复日志的仓库从来不碰。先按上面 F2 一节去掉 restic-maint 里的文件仓库块。
 
 **只追加的一次性验证**（运行单中的一步，L6 I1；负责人在 DATA_HOST 以 root 执行，装好 rest-server 之后、APP_HOST 切换之前）：
 
@@ -296,7 +318,7 @@ sudo bash scripts/deploy/rest_server_append_only_check.sh --rest-server /opt/nex
 ```
 
 - **准备**：在 `/var/lib/nexloop/rest-append-only-check/<随机>/` 里，用随机口令 `restic init` 一个**一次性仓库**，并做一次 backup，得到 config、keys、data、index 和一个快照。**绝不在真实仓库上做**：万一覆盖没有被挡住，会写坏真实数据。
-- **起服务**：用同一个 rest-server 二进制，以 `nexloop-backup` 身份另起一个只监听 127.0.0.1 的 `--append-only --no-auth` 实例。
+- **起服务**：用同一个 rest-server 二进制，以 `nexloop-backup` 身份另起一个只监听 127.0.0.1 的 `--append-only --no-auth` 实例。发任何探针之前（L6 S4），这个临时进程必须还在运行，而且 `GET /config` 返回的内容必须与这个一次性仓库的 config 逐字节相同；否则（端口被别的服务占着、二进制拒绝参数）以 1 退出，一个 DELETE 或 POST 都不发。
 - **逐项检查**（用 curl）：
   - data、index、keys、snapshots 各取一个已有对象：DELETE 和覆盖写都必须返回 403。覆盖写用的是 POST，这是 restic 写入的方式；rest-server 没有 PUT。
   - config：覆盖写必须返回 403；DELETE 不能成功，接受 403 或 405（rest-server 没有这条删除路由时返回 405）。
@@ -342,7 +364,7 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
    1. `file_backup_data_host.sh`：pg_hba 那一行（§6.2，第 1a 步）；
    2. `rest_server_data_host.sh`：新建并初始化文件仓库，安装 rest-server（第 1b 步，口令见上）；
    3. `rest_server_append_only_check.sh`：一次性仓库上的只追加验证（见上）；
-   4. `restic_maint_data_host.sh --files-repo <files_repo_path> --files-password-file /srv/nexloop/secrets/files-repo/restic.pass`：给每条 forget 加守卫，并加上文件仓库的维护。
+   4. `restic_maint_data_host.sh --files-repo <files_repo_path> --files-password-file /srv/nexloop/secrets/files-repo/restic.pass`：给每条 forget 加守卫，并加上文件仓库的维护（维护期间停掉 rest-server，见上面 F2 一节）。
 3. APP_HOST：
    1. `file_backup_install.sh --prepare`；
    2. `install_repo2_secrets.sh files`；
@@ -359,7 +381,8 @@ python3 scripts/deploy/issue_certs.py server --ca-dir <CA_DIR> --out <OUT_DIR> -
 **残余风险**：
 - APP_HOST 被攻破时，攻击者仍然可以读取文件仓库的全部快照（这个口令本来就在 APP_HOST），也可以写入垃圾数据或伪造快照。
   - 体量由 `--max-size` 限制；恢复时按 FILE-MANIFEST 和库中的清单行核对。
-  - 伪造未来时间的快照会让守卫拒绝维护并告警，不会让真实快照被删（F1 a）。
+  - 伪造未来时间的快照会让守卫拒绝维护并告警，不会让真实快照被删（F1 a）；守卫与 forget 之间 rest-server 是停着的，这时写不进新快照（F2）。
+  - 持续持有一把锁，可以让文件仓库的维护每天等锁超时而失败（告警），但删不掉任何东西。
   - 恢复日志在另一个仓库里，攻击者碰不到（F1 b）。
 - 不能删除或覆盖已有对象。
 - rest-server 是一个新的对外端口，有四道限制：TLS、认证、只放行 APP_HOST 的防火墙表、unit 沙箱。

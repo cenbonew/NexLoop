@@ -15,7 +15,8 @@
 # makes the daily run wait for it instead of failing. Applied to an installed copy by scripts/deploy/restic_maint_data_host.sh
 # (owner, root, confirmed by the owner in person). Before each forget a guard line (restic_future_guard.py, L6 F1) refuses to go on
 # while a snapshot is dated more than an hour ahead: keep-within counts from a group's newest snapshot, so a future-dated one would make
-# forget delete every real snapshot of its group.
+# forget delete every real snapshot of its group. The files repository's block (L6 F2) also stops nexloop-rest-server.service from before
+# its guard until after its forget/prune, so APP_HOST cannot add a snapshot in between; ExecStopPost starts it again on every path.
 [Unit]
 Description=NexLoop restic retention and checks (daily; deep check on Sundays)
 After=network-online.target docker.service

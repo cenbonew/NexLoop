@@ -110,9 +110,15 @@ class Runner:
         if command[0] == 'htpasswd':
             assert command == ['htpasswd', '-niB', 'nexloop-file-backup'] and stdin == PASSWORD + '\n'
             return self.htpasswd + '\n'
-        if command[:3] == ['runuser', '-u', 'nexloop-backup'] and command[-1] == 'init':
+        if command[:3] == ['runuser', '-u', 'nexloop-backup'] and command[-1] in ('init', 'config'):
             repo = Path(command[command.index('-r') + 1])
-            (repo / 'config').write_text('restic repository config (synthetic)\n')
+            given = (self.root / command[command.index('--password-file') + 1].lstrip('/')).read_text()
+            if command[-1] == 'init':  # the repository keeps the password it was made with (a synthetic key file)
+                (repo / 'config').write_text('restic repository config (synthetic)\n')
+                (repo / 'keys').mkdir()
+                (repo / 'keys/synthetic').write_text(given)
+            elif (repo / 'keys/synthetic').read_text() != given:
+                raise R.Failed('runuser exited 12')  # restic: wrong password or no key found
             return ''
         if command[:3] == ['systemctl', 'enable', '--now'] and command[3].endswith('.mount'):
             (self.root / 'srv/nexloop-rest/restic/config').write_text('restic repository config (synthetic)\n')
@@ -371,19 +377,48 @@ def test_the_files_repository_is_its_own_initialised_once_and_the_journal_is_nev
     assert pass_file.read_text() == FILES_PW + '\n' and st.S_IMODE(pass_file.stat().st_mode) == 0o600
     assert st.S_IMODE((root / 'srv/nexloop/secrets/files-repo').stat().st_mode) == 0o711
     restic = json.loads(Path(config).read_text())['restic']
-    as_user = ['runuser', '-u', 'nexloop-backup', '--', restic, '--no-cache', '-r', str(files), '--password-file', '/srv/nexloop/secrets/files-repo/restic.pass']
+    as_user = ['runuser', '-u', 'nexloop-backup', '--', restic, '--no-cache', '-r', str(files), '--password-file', '/srv/nexloop/secrets/files-repo/restic.pass.new']
     assert [c for c in runner.calls if c[:3] == ['runuser', '-u', 'nexloop-backup']] == [[*as_user, 'init'], [*as_user, 'cat', 'config']]
-    assert ['chown', 'nexloop-backup:nexloop-backup', str(files)] in runner.calls and ['chown', 'nexloop-backup:nexloop-backup', str(pass_file)] in runner.calls
+    candidate = pass_file.with_name('restic.pass.new')
+    assert ['chown', 'nexloop-backup:nexloop-backup', str(files)] in runner.calls and ['chown', 'nexloop-backup:nexloop-backup', str(candidate)] in runner.calls
+    assert not candidate.exists()  # checked, then renamed to restic.pass
     assert FILES_PW not in text and not any(FILES_PW in ' '.join(c) for c in runner.calls)
     mount = (root / 'etc/systemd/system/srv-nexloop\\x2drest-restic.mount').read_text()
     assert f'What={files}\n' in mount and str(tmp_path / 'backups/file-repo1') not in mount
     assert 'the journal\'s repository is not served' in text and '--files-repo ' + str(files) in text
     code, text, runner = main(root, config, stdin='', digest=digest)
     assert code == 0 and 'files repository kept (password kept)' in text and not any(c[-1] == 'init' for c in runner.calls)
+    assert [c[-3] for c in runner.calls if c[:3] == ['runuser', '-u', 'nexloop-backup']] == ['/srv/nexloop/secrets/files-repo/restic.pass']
+    code, text, runner = main(root, config, digest=digest)  # the same password again: checked, the file unchanged
+    assert code == 0 and 'files repository kept (password kept)' in text and pass_file.read_text() == FILES_PW + '\n'
+
+
+def test_a_rerun_with_a_wrong_files_password_fails_and_keeps_the_one_in_use(tmp_path):
+    """L6 S1: the password from stdin opens the repository before it replaces restic.pass; a wrong one changes nothing."""
+    root, config, digest = setup(tmp_path)
+    assert main(root, config, digest=digest)[0] == 0
+    pass_file = root / 'srv/nexloop/secrets/files-repo/restic.pass'
+    code, text, runner = main(root, config, stdin=f'files\t{FILES_PW}-wrong\n', digest=digest)
+    assert code == 1 and 'did not open with the password given (restic.pass kept as it was)' in text, text
+    assert pass_file.read_text() == FILES_PW + '\n' and sorted(p.name for p in pass_file.parent.iterdir()) == ['restic.pass']
+    assert FILES_PW not in text
+    assert main(root, config, stdin='', digest=digest)[0] == 0  # still opens with the kept one
+    stale = pass_file.with_name('restic.pass.new')  # left by a run stopped before its check: removed, never used
+    stale.write_text('stale\n')
+    assert main(root, config, stdin='', digest=digest)[0] == 0 and not stale.exists()
 
 
 @pytest.mark.parametrize('files', ['backups/file-repo1/restic', 'backups/file-repo1/restic/files', 'backups/file-repo1'])
 def test_the_files_repository_may_be_neither_the_journals_nor_inside_or_above_it(tmp_path, files):
+    root, config, digest = setup(tmp_path, files_repo_path=str(tmp_path / files))
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 2 and 'must be its own repository' in text and runner.calls == []
+
+
+@pytest.mark.parametrize('files', ['alias/file-repo1/restic', 'alias/file-repo1/restic/files', 'alias/file-repo1'])
+def test_the_journal_reached_through_a_link_is_refused_too(tmp_path, files):
+    """L6 S2: the paths are compared after realpath - a link above them (here alias -> backups) does not hide the journal."""
+    os.symlink(tmp_path / 'backups', tmp_path / 'alias')
     root, config, digest = setup(tmp_path, files_repo_path=str(tmp_path / files))
     code, text, runner = main(root, config, digest=digest)
     assert code == 2 and 'must be its own repository' in text and runner.calls == []

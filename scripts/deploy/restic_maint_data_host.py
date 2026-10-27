@@ -17,6 +17,14 @@ L6 F1 of the rest-server review (2026-10-27): before every forget line a guard l
 hour ahead - which keep-within would take as the group's newest and so forget every real one - stops the unit before forget/prune,
 and timer_scheduled_failure alerts. --files-repo PATH --files-password-file PATH adds the files repository's maintenance (the one
 rest_server_data_host.py made for APP_HOST's file backup: forget per tag, check, the Sunday deep check, its ReadWritePaths) once.
+L6 F2 (2026-10-27): the guard and forget are two ExecStart lines, so APP_HOST could otherwise hold a lock, let the guard pass, add a
+future-dated snapshot while forget waits for that lock, then release it. The files repository's block therefore stops the rest-server
+around its guard and forget: stale locks removed (`unlock`, restic's own rule: only locks no live process refreshes), then a wait until
+no lock is held (restic_future_guard.py --wait-unlocked 600: between two file backup rounds, not in one), `systemctl stop` of
+nexloop-rest-server.service, the guard, forget/prune, `systemctl start`, then the checks with the server back. ExecStopPost starts it
+again on every path (a failed guard, forget or wait included), waits 3 seconds and requires it active: otherwise the unit fails and
+timer_scheduled_failure alerts. A file backup round that starts while the server is stopped fails (NX-035-file-backup.md §6.5).
+--files-repo requires the rest-server unit active.
 
 Steps:
   1 preflight: the unit a regular file, it and every directory above it root's and not group/other-writable (lstat, no link); exactly
@@ -43,11 +51,15 @@ from pathlib import Path
 UNIT = '/etc/systemd/system/nexloop-restic-maint.service'
 OLD = 'forget --keep-within 14d --keep-monthly 1 --prune'
 NEW = 'forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune'
-SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'TimeoutStartSec'}
+SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'ExecStopPost', 'TimeoutStartSec'}
 PYTHON = '/usr/bin/python3'  # the host's own interpreter (the guard is stdlib only)
 GUARD_DIR = '/opt/nexloop/restic-maint'
 GUARD = GUARD_DIR + '/restic_future_guard.py'
 GUARD_CALL = f'{PYTHON} -I -B {GUARD} --max-ahead-seconds 3600 -- '
+REST_UNIT = 'nexloop-rest-server.service'  # rest_server_data_host.UNIT
+SYSTEMCTL = '/usr/bin/systemctl'
+WAIT_SECONDS = 600
+FILES_KEYS = ('ExecStart=', 'ExecStopPost=', 'ReadWritePaths=')
 FILES_MARK = '# NX-035 files repository (APP_HOST\'s file backup through the rest-server; restic_maint_data_host.py --files-repo)'
 HERE = Path(__file__).resolve().parent
 
@@ -173,16 +185,37 @@ def guarded(text):
 
 
 def files_block(restic, repo, password_file):
+    """L6 F2: the rest-server stopped from before the guard until after forget/prune, so no snapshot can be added in between; started
+    again by ExecStopPost on every path, which fails the unit when it is not active."""
     common = f'{restic} --no-cache -r {repo} --password-file {password_file}'
-    return (f'{FILES_MARK}\nExecStart={common} {NEW}\nExecStart={common} check --retry-lock 10m\n'
+    return (f'{FILES_MARK}\nExecStart={common} unlock\n'
+            f'ExecStart={PYTHON} -I -B {GUARD} --wait-unlocked {WAIT_SECONDS} -- {common}\n'
+            f'ExecStart=+{SYSTEMCTL} stop {REST_UNIT}\n'
+            f'ExecStart={common} {NEW}\nExecStart=+{SYSTEMCTL} start {REST_UNIT}\nExecStart={common} check --retry-lock 10m\n'
             f'ExecStart=/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {common} check --read-data-subset 1/10; fi\'\n'
+            f'ExecStopPost=+{SYSTEMCTL} start {REST_UNIT}\nExecStopPost=/bin/sleep 3\nExecStopPost=+{SYSTEMCTL} is-active --quiet {REST_UNIT}\n'
             f'ReadWritePaths={repo}\n')
 
 
+def without_files(text):
+    """The unit without the files repository's block (its mark and the ExecStart/ExecStopPost/ReadWritePaths lines after it)."""
+    out, skip = [], False
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip('\n')
+        if bare == FILES_MARK:
+            skip = True
+            continue
+        if skip and bare.startswith(FILES_KEYS):
+            continue
+        skip = False
+        out.append(line)
+    return ''.join(out)
+
+
 def with_files(text, repo, password_file):
-    """The files repository's maintenance after the last line of [Service] (once); the guard is added like for every forget."""
-    if f'-r {repo} ' in text:
-        return text
+    """The files repository's maintenance after the last line of [Service], replacing an earlier block (55271922's had no stop of the
+    rest-server); the guard is added like for every forget."""
+    text = without_files(text)
     first = next(v for s, k, v in sections(text) if s == 'Service' and k == 'ExecStart' and ' forget ' in f' {v} ')
     restic = first.split()[0]
     lines = text.splitlines(keepends=True)
@@ -194,24 +227,11 @@ def with_files(text, repo, password_file):
 
 
 def reverted(text):
-    out, skip = [], False
-    for line in text.splitlines(keepends=True):
-        bare = line.rstrip('\n')
-        if bare == FILES_MARK:
-            skip = True
-            continue
-        if skip and (bare.startswith('ExecStart=') or bare.startswith('ReadWritePaths=')):
-            continue
-        skip = False
-        if is_guard(bare):
-            continue
-        out.append(line.replace(NEW, OLD))
-    return ''.join(out)
+    return ''.join(line.replace(NEW, OLD) for line in without_files(text).splitlines(keepends=True) if not is_guard(line.rstrip('\n')))
 
 
-def install_guard(root, runner, trust, out):
+def install_guard(root, runner, trust, out, source):
     """restic_future_guard.py from this release next to nothing else, root's and read-only."""
-    source = HERE / 'restic_future_guard.py'
     trust(source, what='guard source')
     text = source.read_text()
     directory = Path(str(root).rstrip('/') + GUARD_DIR)
@@ -240,7 +260,7 @@ def write_atomic(path, text, mode=0o644):
         raise
 
 
-def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, root='/', trust_python=None):
+def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, root='/', trust_python=None, guard_source=HERE / 'restic_future_guard.py'):
     if trust_python is None:
         sys.path.insert(0, str(HERE))
         import file_backup_install  # the same directory: the interpreter's link chain checked hop by hop
@@ -276,12 +296,17 @@ def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, roo
                     raise Refused('--files-repo: the files repository (an absolute path holding its restic config)')
                 if os.path.islink(a.files_password_file) or not a.files_password_file.is_file():
                     raise Refused('--files-password-file: a regular file (rest_server_data_host.py wrote it)')
+                # L6 F2: the block stops and starts the rest-server; without it (or systemctl) every run would fail.
+                if not os.path.isfile(str(root).rstrip('/') + SYSTEMCTL):
+                    raise Refused(f'{SYSTEMCTL} missing: the files repository\'s block stops and starts {REST_UNIT} with it')
+                if runner(['systemctl', 'is-active', REST_UNIT], check=False).strip() != 'active':
+                    raise Refused(f'{REST_UNIT} is not active: install it first (rest_server_data_host.sh), then add the files repository')
                 text_files = with_files(text, a.files_repo, a.files_password_file)
             else:
                 text_files = text
             new_text = guarded(text_files)
             trust_python(PYTHON, what='python')
-            install_guard(root, runner, trust, out)
+            install_guard(root, runner, trust, out, Path(guard_source))
         if new_text == text:
             print('done: the unit already has the guard before every forget and the per-tag retention (nothing to do)', file=out)
             return 0
@@ -297,7 +322,7 @@ def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, roo
         write_atomic(path, new_text)
         runner(['systemctl', 'daemon-reload'])
         print(f'step 3: {path.name} rewritten ({"restic default grouping, no guard" if a.revert else "--group-by host,tags, a guard before every forget"}'
-              f'{", the files repository" if a.files_repo else ""}), daemon-reload; the previous text kept as {backup.name}', file=out)
+              f'{", the files repository (the rest-server stopped around its guard and forget)" if a.files_repo else ""}), daemon-reload; the previous text kept as {backup.name}', file=out)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2

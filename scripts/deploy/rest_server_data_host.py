@@ -45,7 +45,9 @@ Steps (each idempotent):
      (IPv6 entirely), checked with nft -c; the unit loads it before the server starts and deletes it after it stops
   R5 the unit from the release (tokens filled), daemon-reload, enable and (re)start; then active, and the table loaded, read back
 --uninstall: the unit stopped and removed (its stop removes the table), the nft file, the mount unit, the secrets, the binary; the
-serving directory removed when empty. repo1 itself is never touched.
+serving directory removed when empty. repo1 itself is never touched. nexloop-restic-maint's files repository block stops and starts
+this unit around its guard and forget (L6 F2): take it out first (restic_maint_data_host.sh --revert, then without --files-repo), or
+every maintenance run fails starting a unit that is gone.
 Output: step lines only. Exit 0 done, 1 a step failed, 2 refused.
 """
 from __future__ import annotations
@@ -101,7 +103,7 @@ def load_config(path):
         raise Refused('configuration: port (1024-65535; the service user binds it without a capability)')
     if type(c['max_size_bytes']) is not int or c['max_size_bytes'] < 1 << 30:
         raise Refused('configuration: max_size_bytes (an integer, at least 1 GiB: rest-server --max-size)')
-    files, journal = os.path.normpath(c['files_repo_path']), os.path.normpath(c['journal_repo_path'])
+    files, journal = os.path.realpath(c['files_repo_path']), os.path.realpath(c['journal_repo_path'])  # L6 S2: through any link
     if os.path.commonpath([files, journal]) in (files, journal):
         raise Refused('configuration: files_repo_path must be its own repository - not the journal\'s, nor inside or above it (L6 F1)')
     return c
@@ -273,7 +275,9 @@ def mount_unit(repo):
 
 def files_repository(root, config, password, runner, trust, trust_python):
     """L6 F1 (b): the file backup's own repository - never the journal's. Its password in a root-owned directory (0600 nexloop-backup);
-    the directory created for nexloop-backup and `restic init` run as it when there is no repository yet; then `cat config` must work."""
+    the directory created for nexloop-backup and `restic init` run as it when there is no repository yet; then `cat config` must work.
+    L6 S1: a password from stdin is written to restic.pass.new first and replaces restic.pass only after `cat config` opened the
+    repository with it: a rerun with a wrong password fails and leaves the one in use as it was."""
     uid = runner(['id', '-u', USER], check=False).strip()
     if not uid.isdigit():
         raise Refused(f'user {USER} missing (the restore journal backup is not installed here)')
@@ -284,29 +288,45 @@ def files_repository(root, config, password, runner, trust, trust_python):
     directory.mkdir(exist_ok=True)
     trust(directory, what='files repository secrets')
     os.chmod(directory, 0o711)
-    pass_file = directory / 'restic.pass'
+    pass_file, candidate = directory / 'restic.pass', directory / 'restic.pass.new'
+    if os.path.lexists(candidate):  # a run that stopped before its check: never used
+        candidate.unlink()
     if password is not None:
-        written = A.write_private(pass_file, password + '\n', mode=0o600)
+        A.write_private(candidate, password + '\n', mode=0o600)
+        use = candidate
     elif pass_file.is_file() and not pass_file.is_symlink():
-        written = False
+        use = pass_file
     else:
         raise Refused('stdin: the files repository password is not written yet - give files<TAB>password')
-    runner(['chown', f'{USER}:{USER}', str(pass_file)])
-    repo = Path(config['files_repo_path'])
-    if os.path.islink(repo) or os.path.islink(repo.parent) or not repo.parent.is_dir():
-        raise Refused('files_repo_path: its parent must be a directory (the backup volume) and neither may be a link')
-    as_user = ['runuser', '-u', USER, '--', config['restic'], '--no-cache', '-r', str(repo), '--password-file', f'{FILES_SECRETS}/restic.pass']
-    created = False
-    if not (repo / 'config').is_file():
-        if repo.exists() and (not repo.is_dir() or os.listdir(repo)):
-            raise Refused('files_repo_path: exists and is neither a restic repository nor an empty directory')
-        repo.mkdir(mode=0o700, exist_ok=True)
-        runner(['chown', f'{USER}:{USER}', str(repo)])
-        runner([*as_user, 'init'])
-        created = True
-    if os.stat(repo).st_uid != int(uid):
-        raise Refused(f'files_repo_path: owned by {USER}')
-    runner([*as_user, 'cat', 'config'])  # the password opens it
+    try:
+        runner(['chown', f'{USER}:{USER}', str(use)])
+        repo = Path(config['files_repo_path'])
+        if os.path.islink(repo) or os.path.islink(repo.parent) or not repo.parent.is_dir():
+            raise Refused('files_repo_path: its parent must be a directory (the backup volume) and neither may be a link')
+        as_user = ['runuser', '-u', USER, '--', config['restic'], '--no-cache', '-r', str(repo), '--password-file', f'{FILES_SECRETS}/{use.name}']
+        created = False
+        if not (repo / 'config').is_file():
+            if repo.exists() and (not repo.is_dir() or os.listdir(repo)):
+                raise Refused('files_repo_path: exists and is neither a restic repository nor an empty directory')
+            repo.mkdir(mode=0o700, exist_ok=True)
+            runner(['chown', f'{USER}:{USER}', str(repo)])
+            runner([*as_user, 'init'])
+            created = True
+        if os.stat(repo).st_uid != int(uid):
+            raise Refused(f'files_repo_path: owned by {USER}')
+        try:
+            runner([*as_user, 'cat', 'config'])  # the password opens it
+        except Failed:
+            raise Failed('the files repository did not open with ' + ('the password given (restic.pass kept as it was)' if use is candidate
+                         else 'restic.pass')) from None
+    except BaseException:
+        if use is candidate and os.path.lexists(candidate):
+            candidate.unlink()
+        raise
+    written = False
+    if use is candidate:
+        written = not (pass_file.is_file() and not pass_file.is_symlink() and pass_file.read_text() == password + '\n')
+        os.replace(candidate, pass_file)  # the same directory, owner and mode: checked, now the one in use
     return created, written
 
 
@@ -405,7 +425,8 @@ def uninstall(root, runner, out):
         if directory.is_dir() and not directory.is_symlink() and not os.listdir(directory):
             directory.rmdir()
     print('uninstalled: the rest-server unit, its firewall table and file, the mount unit, its secrets and binary removed; the files repository '
-          'and its password stay (they hold the file backups)',
+          'and its password stay (they hold the file backups). nexloop-restic-maint still stops and starts this unit (L6 F2) until its files '
+          'repository lines go: restic_maint_data_host.sh --revert, then restic_maint_data_host.sh without --files-repo',
           file=out)
 
 

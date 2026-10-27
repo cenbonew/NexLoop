@@ -78,3 +78,37 @@ def test_the_command_line_lists_without_a_lock_and_exits_one_on_anything_but_a_c
     assert code == 1 and 'selected' not in doc  # a future snapshot exists: nothing is selected at all
     code, doc = main(['--select-latest', 'files_runtime', '--', 'restic'], Run())
     assert code == 1 and doc['selected'] is None
+
+
+class Locks:
+    """`restic list locks --no-lock` answering the lock ids it is given, one list per call (the last repeated)."""
+    def __init__(self, *answers, code=0):
+        self.answers, self.code, self.calls, self.slept = list(answers), code, [], []
+
+    def __call__(self, argv, **kw):
+        self.calls.append(argv)
+        answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        return subprocess.CompletedProcess(argv, self.code, ''.join(f'{i}\n' for i in answer), '')
+
+
+def wait(argv, run):
+    clock = iter(range(0, 10 ** 6, 10))  # each sleep is 10 seconds
+    out = io.StringIO()
+    with redirect_stdout(out):
+        code = G.main(argv, run=run, sleep=run.slept.append, monotonic=lambda: next(clock))
+    return code, json.loads(out.getvalue())
+
+
+def test_wait_unlocked_waits_for_no_lock_and_fails_after_its_time():
+    """L6 F2: the files repository's maintenance stops the rest-server between two file backup rounds, not in one: it waits until no
+    lock is held, and only lists locks (no snapshot check, no lock of its own)."""
+    run = Locks(['a' * 64], ['b' * 64], [])
+    code, doc = wait(['--wait-unlocked', '600', '--', 'restic', '-r', '/r'], run)
+    assert (code, doc) == (0, {'ok': True, 'locks': 0}) and run.slept == [10, 10]
+    assert run.calls == [['restic', '-r', '/r', 'list', 'locks', '--no-lock']] * 3
+    run = Locks(['a' * 64])
+    code, doc = wait(['--wait-unlocked', '30', '--', 'restic'], run)
+    assert code == 1 and doc == {'ok': False, 'locks': 1, 'error': 'locks still held after 30 seconds'} and len(run.calls) == 3
+    assert wait(['--wait-unlocked', '30', '--', 'restic'], Locks([], code=1)) == (1, {'ok': False, 'error': 'restic list locks exit 1'})
+    for bad in (['--wait-unlocked', '0'], ['--wait-unlocked', '3601'], ['--wait-unlocked', '30', '--select-latest', 'journal']):
+        assert wait([*bad, '--', 'restic'], Locks(['a' * 64]))[0] == 2, bad

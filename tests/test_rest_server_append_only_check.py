@@ -37,17 +37,22 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
 
 class Server:
     """The throwaway server: append-only unless told to let something through."""
-    def __init__(self, repo_of, allow=(), config_delete=405, lock_delete=200, up=True):
+    def __init__(self, repo_of, allow=(), config_delete=405, lock_delete=200, up=True, exited=False, foreign=False):
         self.repo_of, self.allow, self.config_delete, self.lock_delete, self.up = repo_of, set(allow), config_delete, lock_delete, up
-        self.stopped = False
+        self.exited, self.foreign, self.stopped = exited, foreign, False
 
-    def answer(self, method, url):
+    def poll(self):
+        return 1 if self.exited else None
+
+    def answer(self, method, url, output):
         if not self.up:
             return 0
         path = url.split('127.0.0.1:', 1)[1].split('/', 1)[1]
         repo = self.repo_of()
         kind = path.split('/')[0]
-        if method == 'GET':
+        if method == 'GET':  # another server on the port answers with its own repository's config
+            if output != '/dev/null':
+                Path(output).write_bytes(b'another repository' if self.foreign else (repo / 'config').read_bytes())
             return 200
         if kind == 'locks':
             return 200 if method == 'POST' else self.lock_delete
@@ -100,7 +105,7 @@ class Runner:
             (self.repo / 'snapshots' / ('d' * 64)).write_text('s')
             return ''
         if command[0] == 'curl':
-            return str(self.server.answer(command[command.index('-X') + 1], command[-1]))
+            return str(self.server.answer(command[command.index('-X') + 1], command[-1], command[command.index('-o') + 1]))
         return ''
 
 
@@ -156,6 +161,15 @@ def test_a_deletable_config_or_an_undeletable_lock_fails(tmp_path, kw):
 def test_a_server_that_never_answers_fails_and_still_cleans_up(tmp_path):
     code, doc, runner, spawned, server, root = main(tmp_path, {'up': False})
     assert code == 1 and 'did not answer' in doc['failed'] and server.stopped
+    assert list((root / 'var/lib/nexloop/rest-append-only-check').iterdir()) == []
+
+
+@pytest.mark.parametrize('kw, why', [({'exited': True}, 'rest-server exited'), ({'foreign': True}, 'does not serve the throwaway repository')])
+def test_a_server_that_exited_or_is_not_the_throwaway_ones_is_never_probed(tmp_path, kw, why):
+    """L6 S4: an answer on the port is not enough - the process started here must be running and serve the repository made here."""
+    code, doc, runner, spawned, server, root = main(tmp_path, kw)
+    assert code == 1 and why in doc['failed'] and server.stopped, doc
+    assert [c[c.index('-X') + 1] for c in runner.calls if c[0] == 'curl'] in ([], ['GET'])  # no DELETE or POST was sent
     assert list((root / 'var/lib/nexloop/rest-append-only-check').iterdir()) == []
 
 

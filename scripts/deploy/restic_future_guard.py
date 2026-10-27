@@ -9,10 +9,14 @@ any snapshot is later than now plus --max-ahead-seconds, naming their short ids;
 timer_scheduled_failure alerts. An unreadable answer or time also fails: the guard never passes what it could not check.
 
     restic_future_guard.py [--max-ahead-seconds N] [--select-latest TAG] -- RESTIC [ARGS...]
+    restic_future_guard.py --wait-unlocked SECONDS -- RESTIC [ARGS...]
 
 RESTIC ARGS is the restic command line up to the subcommand (binary, --no-cache, -o ..., --repository-file/-r, --password-file); the
 environment is passed on as it is (the unit's). --select-latest TAG (restores, drills): prints the full id of the newest snapshot with
 that tag that is not in the future - refusing, as above, while any future snapshot exists - instead of trusting restic's `latest`.
+--wait-unlocked SECONDS (L6 F2, the files repository's maintenance on DATA_HOST, before the rest-server is stopped): no snapshot check;
+waits until `list locks --no-lock` lists no lock (every 10 seconds), exit 0, or fails after SECONDS (exit 1): the rest-server is then
+stopped between two file backup rounds instead of in the middle of one.
 Self-contained (stdlib only): DATA_HOST runs it from /opt/nexloop/restic-maint/, APP_HOST's repo2 maintenance imports it. One JSON
 line on stdout; never restic's own output or a secret.
 """
@@ -21,6 +25,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 
 _TIME = re.compile(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})')
@@ -78,16 +83,39 @@ def list_snapshots(restic_argv, run=subprocess.run, environment=None):
         return None, 'restic snapshots: not JSON'
 
 
-def main(argv=None, run=subprocess.run, clock=lambda: datetime.now(UTC)):
+def wait_unlocked(restic_argv, seconds, run=subprocess.run, sleep=time.sleep, monotonic=time.monotonic):
+    """(ok, result): no lock in the repository within `seconds`; a failing `list locks` fails at once."""
+    deadline = monotonic() + seconds
+    while True:
+        done = run([*restic_argv, 'list', 'locks', '--no-lock'], capture_output=True, text=True, timeout=600)
+        if done.returncode != 0:
+            return False, {'ok': False, 'error': f'restic list locks exit {done.returncode}'}
+        locks = len((done.stdout or '').split())
+        if not locks:
+            return True, {'ok': True, 'locks': 0}
+        if monotonic() >= deadline:
+            return False, {'ok': False, 'locks': locks, 'error': f'locks still held after {seconds} seconds'}
+        sleep(10)
+
+
+def main(argv=None, run=subprocess.run, clock=lambda: datetime.now(UTC), sleep=time.sleep, monotonic=time.monotonic):
     p = argparse.ArgumentParser(description='refuse forget/prune while a restic snapshot is dated in the future')
     p.add_argument('--max-ahead-seconds', type=int, default=3600)
     p.add_argument('--select-latest', metavar='TAG')
+    p.add_argument('--wait-unlocked', type=int, metavar='SECONDS')
     p.add_argument('restic', nargs=argparse.REMAINDER)
     a = p.parse_args(argv)
     restic = a.restic[1:] if a.restic[:1] == ['--'] else a.restic
-    if not restic or not 0 <= a.max_ahead_seconds <= 86400:
-        print(json.dumps({'ok': False, 'error': 'usage: [--max-ahead-seconds 0-86400] [--select-latest TAG] -- RESTIC [ARGS...]'}))
+    if not restic or not 0 <= a.max_ahead_seconds <= 86400 or (a.wait_unlocked is not None and (not 0 < a.wait_unlocked <= 3600 or a.select_latest)):
+        print(json.dumps({'ok': False, 'error': 'usage: [--max-ahead-seconds 0-86400] [--select-latest TAG] | --wait-unlocked 1-3600 -- RESTIC [ARGS...]'}))
         return 2
+    if a.wait_unlocked is not None:
+        try:
+            ok, result = wait_unlocked(restic, a.wait_unlocked, run, sleep, monotonic)
+        except (OSError, subprocess.SubprocessError) as e:
+            ok, result = False, {'ok': False, 'error': type(e).__name__}
+        print(json.dumps(result, sort_keys=True))
+        return 0 if ok else 1
     try:
         snapshots, error = list_snapshots(restic, run)
     except (OSError, subprocess.SubprocessError) as e:
