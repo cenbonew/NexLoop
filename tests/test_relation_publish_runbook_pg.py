@@ -14,6 +14,7 @@ import pytest
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Jsonb
 
+from nexloop_eios import relation_catalog as R
 from support.tenants import TENANT_A
 from test_relation_types_p1_pg import catalog  # noqa: F401
 from test_relation_types_p2_pg import edges, hexid, put
@@ -28,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/deploy'))
 sys.path.insert(0, str(ROOT / 'scripts/acceptance'))
 import relation_derive_timing as T  # noqa: E402
+import relation_read_gaps as G  # noqa: E402
 import relation_reads as RR  # noqa: E402
 import relation_types_precheck as Q  # noqa: E402
 import relation_types_publish as P  # noqa: E402
@@ -45,8 +47,11 @@ def publish(c, *args):
 
     def connect(_):
         return psycopg.connect(make_conninfo(c['pg'], user='nexloop_configurator'))
+    def registered(path, tenant, types):  # the bootstrap read, here as the test's admin
+        return {r[0] for r in c['admin'].execute('select distinct type_name from ontology.object_type_versions where tenant_id=%s and type_name=any(%s)',
+                                                 (tenant, sorted(types)))}
     out = io.StringIO()
-    code = P.main(['--tenant', TENANT_A, '--bootstrap-dsn-file', '/unused', *args], out=out, window=window, connect=connect)
+    code = P.main(['--tenant', TENANT_A, '--bootstrap-dsn-file', '/unused', *args], out=out, window=window, connect=connect, registered=registered)
     return code, json.loads(out.getvalue())
 
 
@@ -181,3 +186,77 @@ def test_the_timing_of_a_real_erasure_run_by_the_keeper(erasing, admin, pg):  # 
     assert after['sync_tombstones'] >= 1 and after['sync_purge_seconds'] is not None and after['sync_purge_seconds'] >= 0
     assert after['by_item_class'] and all(v['tombstones'] >= 1 for v in after['by_item_class'].values())
     assert consumer not in json.dumps(after)
+
+
+def test_defer_dry_runs_and_refusals():
+    out = io.StringIO()
+    assert P.main(['--dry-run', '--defer', 'assessment_evidence'], out=out) == 0
+    doc = json.loads(out.getvalue())
+    assert doc['deferred'] == ['assessment_evidence'] and doc['relation_types'] == 25 and doc['longest_ownership_chain'] == 2
+    out = io.StringIO()
+    assert P.main(['--dry-run'], out=out) == 0 and json.loads(out.getvalue())['deferred'] == []
+    for name in ('message_in', 'no_such_type'):  # message_in would leave assessment_evidence without a chain
+        out = io.StringIO()
+        assert P.main(['--dry-run', '--defer', name], out=out) == 2 and 'refused' in json.loads(out.getvalue())
+    out = io.StringIO()
+    assert P.main(['--dry-run', '--stop-derivation', '--from-version', '1', '--defer', 'assessment_evidence'], out=out) == 0
+    assert json.loads(out.getvalue())['relation_types'] == 25
+
+
+def test_an_unregistered_endpoint_type_is_deferred_not_published(catalog, tmp_path):  # noqa: F811
+    """Stage 2026-10-27: RelationshipAssessment never registered for the tenant - the whole batch is refused (0319), the batch
+    without assessment_evidence publishes, and its derivation follows."""
+    c = catalog
+    admin = c['admin']
+    admin.execute("delete from ontology.object_type_versions where tenant_id=%s and type_name='RelationshipAssessment'", (TENANT_A,))
+    code, doc = publish(c)
+    assert code == 2 and doc['message'] == 'relation type invalid: assessment_evidence'
+    assert admin.execute('select count(*) from ontology.relation_type_versions where tenant_id=%s', (TENANT_A,)).fetchone()[0] == 0
+    code, doc = publish(c, '--defer', 'assessment_evidence')
+    assert code == 0 and doc['deferred'] == ['assessment_evidence'] and doc['result']['new_relation_types'] == 25
+    names = {r[0] for r in admin.execute('select relation_name from ontology.relation_type_versions where tenant_id=%s', (TENANT_A,))}
+    assert names == {s.name for s in R.FIRST_BATCH} - {'assessment_evidence'}
+    owners = admin.execute("""select count(distinct m.source_type) from control.nexloop_relation_derivations m join control.nexloop_relation_type_profiles f
+        on f.tenant_id=m.tenant_id and f.relation_name=m.relation_name and f.version=m.version
+        where m.tenant_id=%s and f.consumer_ownership is not null""", (TENANT_A,)).fetchone()[0]
+    assert owners == 13  # the gap check's ownership_types (0360): 14 source types less RelationshipAssessment
+    consumer, goal = hexid('defer-consumer'), hexid('defer-goal')
+    put(admin, 'Consumer', consumer, {}, replica=True)
+    put(admin, 'Goal', goal, {'consumer_id': consumer})
+    assert len(edges(admin, source=goal)) == 1
+    code, doc = publish(c, '--defer', 'assessment_evidence')  # the same command rerun replays
+    assert code == 0 and doc['result']['replayed'] is True
+    # L6 I1: a type whose endpoints are both registered is never deferred.
+    code, doc = publish(c, '--defer', 'goal_of')
+    assert code == 2 and 'goal_of' in doc['refused'] and 'registered' in doc['refused']
+    # Point 4: the precheck counts the deferred type's source objects (0 here: nothing blocks).
+    out = io.StringIO()
+    assert Q.main(['--dsn-file', '/unused', '--tenant', TENANT_A, '--defer', 'assessment_evidence'], out=out, connect=metrics(admin, c['pg'])) == 0
+    assert json.loads(out.getvalue())['deferred'] == {'assessment_evidence': {'source_type': 'RelationshipAssessment', 'source_objects': 0}}
+    # L6 F1: the gap check after the deferred publication expects 13 and covers 13 - exit 0, not catalog_unpublished.
+    gout, gerr = io.StringIO(), io.StringIO()
+    code = G.main(['--dsn-file', '/unused', '--tenant', TENANT_A, '--evidence-dir', str(tmp_path)], connect=lambda _: metrics(admin, c['pg'])(),
+                  out=gout, err=gerr)
+    got = json.loads(gout.getvalue())
+    assert code == 0, gerr.getvalue()
+    assert got['ownership_types'] == got['expected_ownership_types'] == 13 and got['unpublished_ownership'] == ['assessment_evidence']
+    # Once the type is registered, --resume-derivation --from-version 1 (no --defer) publishes the whole batch as version 2.
+    admin.execute("""insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'RelationshipAssessment',1,%s)""",
+                  (TENANT_A, Jsonb({'type_name': 'RelationshipAssessment', 'version': 1, 'properties': []})))
+    code, doc = publish(c, '--resume-derivation', '--from-version', '1')
+    assert code == 0 and doc['catalog_version'] == 2 and doc['relation_types'] == 26 and doc['deriving'] == 26 and doc['deferred'] == []
+    gout = io.StringIO()
+    assert G.main(['--dsn-file', '/unused', '--tenant', TENANT_A, '--evidence-dir', str(tmp_path)], connect=lambda _: metrics(admin, c['pg'])(),
+                  out=gout, err=io.StringIO()) == 0
+    assert json.loads(gout.getvalue())['ownership_types'] == 14
+
+
+def test_the_precheck_blocks_a_deferred_type_with_objects(catalog):  # noqa: F811
+    c = catalog
+    admin = c['admin']
+    put(admin, 'RelationshipAssessment', hexid('deferred-assessment'), {'evidence_message_id': hexid('some-message')}, replica=True)
+    out = io.StringIO()
+    assert Q.main(['--dsn-file', '/unused', '--tenant', TENANT_A, '--defer', 'assessment_evidence'], out=out, connect=metrics(admin, c['pg'])) == 1
+    doc = json.loads(out.getvalue())
+    assert doc['deferred']['assessment_evidence']['source_objects'] == 1 and any('assessment_evidence: deferred' in b for b in doc['blocking'])
+    assert Q.main(['--dsn-file', '/unused', '--tenant', TENANT_A, '--defer', 'nope'], out=io.StringIO(), connect=metrics(admin, c['pg'])) == 2

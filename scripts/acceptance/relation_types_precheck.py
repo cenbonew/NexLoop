@@ -11,6 +11,10 @@ property value or business content:
   supersedes  commitments superseded more than once (many_to_one keeps them; N-3)
   assessments RelationshipAssessment relation names equal to a first-batch name, and the count of version 0
   catalog     published catalog versions, latest version per type, derivation map rows (and how many derive), relations, derived ones
+  deferred    with --defer NAME (repeatable; relation_types_publish.py --defer, 2026-10-27): per deferred type its source type and
+              the source objects in all worlds. A deferred type whose source type has objects blocks: those objects would get no
+              relation and the gap check would not cover them (stage: assessment_evidence, RelationshipAssessment, must be 0). The
+              target type's objects are not counted: they exist anyway (Message) and a missing relation does not affect them.
 Exit 0 when nothing blocks publication (no cross-world target, no value that is neither 64 hex nor a pseudonym, no name
 collision), 1 otherwise, 2 refused.
 """
@@ -32,7 +36,8 @@ def specs(batch=FIRST_BATCH):
 
 
 def blocking(doc):
-    out = []
+    out = [f"{name}: deferred, but {d['source_objects']} {d['source_type']} object(s) exist - they would get no relation"
+           for name, d in sorted(doc.get('deferred', {}).items()) if d['source_objects']]
     for f in doc['fields']:
         if f['target_other_world']:
             out.append(f"{f['relation']}: {f['target_other_world']} target(s) in another world ({f['world']})")
@@ -47,13 +52,21 @@ def main(argv=None, out=sys.stdout, connect=None):
     p = argparse.ArgumentParser(description='NX-054 publication precheck (read only, counts only)')
     p.add_argument('--dsn-file', required=True)
     p.add_argument('--tenant', required=True)
+    p.add_argument('--defer', action='append', default=[], metavar='NAME')
     a = p.parse_args(argv)
+    unknown = sorted(set(a.defer) - {s.name for s in FIRST_BATCH})
+    if unknown:
+        print(json.dumps({'refused': f'--defer: not a first-batch relation type: {unknown[0]}'}), file=out)
+        return 2
     try:
         with (connect or (lambda: RR.connect_metrics(a.dsn_file)))() as db:
             doc = db.execute('select authz.nexloop_relation_precheck(%s,%s::jsonb)', (a.tenant, json.dumps(specs()))).fetchone()[0]
     except RR.Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2
+    if a.defer:
+        doc['deferred'] = {s.name: {'source_type': s.source_type, 'source_objects': sum(f['objects'] for f in doc['fields'] if f['relation'] == s.name)}
+                           for s in FIRST_BATCH if s.name in a.defer}
     doc['blocking'] = blocking(doc)
     print(json.dumps(doc, ensure_ascii=False, indent=1, default=str), file=out)
     return 1 if doc['blocking'] else 0
