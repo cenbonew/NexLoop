@@ -271,7 +271,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 
 8. `TimeoutStartSec=6h`（L6 S5）：forget 或 prune 卡住时，6 小时后 unit 被终止并失败，`ExecStopPost` 照样拉起 rest-server，它不会一直停着。unit 自己另有 `TimeoutStartSec` 时，`--files-repo` 拒绝执行（systemd 只认最后一个），要手工去掉。
 
-rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到的快照集合，就是 forget 看到的集合。测试 `tests/test_restic_maint_data_host.py` 用一个模型按行执行这个块，在守卫通过之后、forget 之前追加一个 2030 年的快照：新块里 forget 删掉的集合与没有攻击时完全相同；55271922 的旧块（不停服）则会删掉全部 30 个真实快照。重跑 `--files-repo` 会把旧块整个换成新块。`--files-repo` 要求 rest-server 已经 active，`/usr/bin/systemctl` 存在。
+rest-server 停下以后，APP_HOST 写不进任何东西，所以守卫看到的快照集合，就是 forget 看到的集合。测试 `tests/test_restic_maint_data_host.py` 用一个模型按行执行这个块，在守卫通过之后、forget 之前追加一个 2030 年的快照：新块里 forget 删掉的集合与没有攻击时完全相同；55271922 的旧块（不停服）则会删掉全部 30 个真实快照。重跑 `--files-repo` 会把旧块整个换成新块。`--files-repo` 要求 rest-server 已经 active，`/usr/bin/systemctl` 存在。运行单的顺序是先加这个块、再装 APP_HOST，所以第一次运行时文件仓库还是空的。restic 0.18.0 的 `forget --json` 在没有分组时不输出任何 JSON（`cmd_forget.go`：`if gopts.JSON && len(jsonGroups) > 0`），DATA_HOST 2026-10-27 的第一次运行因此被判为“预览没有回答”。现在的规则是：守卫刚数到 0 个快照、预览以 0 退出、而且输出为空、`null`、`[]` 或只有 “Applying Policy:” 一行时，判为“无可删”，写入这个块并继续。退出码非 0（等锁超时、口令错、仓库不可读）、守卫没给出整数计数、或者守卫数到了快照却拿不到 JSON，仍然什么都不写。
 
 **维护窗口与告警**（restic-maint 的 timer 是 03:30，随机延迟最多 10 分钟；文件仓库块排在两个恢复日志仓库之后）：
 
