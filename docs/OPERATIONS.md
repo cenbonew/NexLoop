@@ -469,8 +469,18 @@ docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXL
        and payload->>'subject_kind'='service' and entity_key[1] like 'nexloop-service-%' order by 1"
    ```
 
-   清单主体的 `principal_id` 都是 `nexloop-service-<主体>-principal`（`service-grants.v1.json` / `stage-principals.v1.json` 的 `principals`）。
-3. 把第 1 步每行换成 `principal_id resource_id`，与第 2 步比较（`comm -23`）。得到的就是这次 register 会新增的授权。
+   **不要按规则把角色短名换成 `principal_id`**：大多数是 `nexloop-service-<短名，下划线换连字符>-principal`，但有例外（例如 `claim_extraction_worker` 是 `nexloop-service-claim-worker-principal`，`claim_extraction_scheduler`、`outbound_message_recorder` 同样缩写过）。一律从清单的 `principal_id` 字段取。
+3. 从本次 `$RUN/src` 的清单直接生成 `principal_id resource_id`（与第 2 步同一格式），再比较：
+
+   ```
+   jq -r -s '(map(.principals[])|map({(.role):.principal_id})|add) as $id | map(.grants[])[] | "\($id[.principal]) \(.resource_id)"' \
+     deploy/authorization/service-grants.v1.json deploy/authorization/stage-principals.v1.json | sort -u > manifest-grants.txt
+   comm -23 manifest-grants.txt db-grants.txt     # db-grants.txt：第 2 步的输出去掉首行租户 ID 后 sort -u
+   ```
+
+   得到的就是这次 register 会新增的授权。
+   - **只比较 principal 与 resource，不比较 operations**：某条授权只改了 operations（例如 execute 之外加了一项），这个 diff 看不出来，register 时才会体现。清单一侧可以用 `.operations[]` 展开逐项列出，但库中授权事实的 payload 里 operations 的位置没有在 stage 上核对过，所以先不比较；清单中某条授权的 operations 有变动时（`git diff` 能看到），在执行单里单独写出并人工核对。
+   - `follow_latest_version` 的授权在 register 时才解析成后继版本的 Action：清单写的是基础版本，库里可能是后继版本，这类行会出现在差异里。对照 `git log -S` 确认属于这种情况的，不算新增。
    - **预期为 0**；本次执行单明确要新增的授权除外（执行单必须逐条写出）。
    - **不为 0**：列出每条差异的 principal、Action，以及它来自清单的哪一版（`git log -S '<resource_id>' -- deploy/authorization/service-grants.v1.json deploy/authorization/stage-principals.v1.json`）。交调度员确认后再 register；不确认就不执行。
 4. register 之后，`grants_added` 应当等于第 3 步的条数。`extra_grants_outside_manifest` 只统计服务主体，在 stage 上应当只有 `nexloop-sim-*`（模拟世界凭据，由 sim_world 签发，register 不撤销）。
