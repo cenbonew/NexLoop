@@ -22,6 +22,7 @@ import {Approvals} from './pages/Approvals';
 import {Members} from './pages/Members';
 import {ACCOUNT_PATHS,AccountSecurity,InvitationPage,ResetNotice,ResetPage} from './AccountPages';
 import {GOVERNED_SLOTS,type Slots} from './actions';
+import {PageErrorBoundary} from './kit';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
 export type ActionSlots=Slots;
@@ -153,7 +154,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
           <ResetNotice notices={session.data.reset_notices}/>
           {crumbs(route,context).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route,context).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
             onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
-          <WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></div>
+          <PageErrorBoundary key={routePath(route)}><WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></PageErrorBoundary></div>
       </div>}
   </main><footer>NexLoop · 持续运营</footer></div>;
 }

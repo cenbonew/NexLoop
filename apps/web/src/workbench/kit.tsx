@@ -2,7 +2,7 @@
  * Workbench UI kit, batch 1 (docs/design/workbench-ui-spec.md §2–§8, §13; interfaces frozen in its appendix A so batches 2 and 3
  * can apply them in parallel). Styling only through the tokens in styles.css; no inline styles.
  */
-import {useState,type ReactNode} from 'react';
+import {Component,useState,type ErrorInfo,type ReactNode} from 'react';
 import {Announce} from './ui';
 import {statusLabel} from './status-labels';
 import type {Section} from './api';
@@ -45,6 +45,28 @@ export function EmptyState({kind,subject='',reason,next,onRetry,details,compact}
     {onRetry&&kind==='unavailable'?<button type="button" onClick={onRetry}>重试</button>:null}
     {details?<details className="state-details"><summary>技术细节</summary>{details}</details>:null}
   </div>;
+}
+
+// ---- page error boundary (UX audit A1) ----
+/** A render error in one page replaces that page's content with a state, never the whole workbench: the navigation stays, the
+ * member can retry or go elsewhere. The caller keys it by route so another page starts clean. Technical details folded away. */
+export class PageErrorBoundary extends Component<{children:ReactNode},{error:Error|null}>{
+  state:{error:Error|null}={error:null};
+  static getDerivedStateFromError(error:Error){return {error};}
+  componentDidCatch(error:Error,info:ErrorInfo){console.error('workbench page error',error,info.componentStack);}
+  render(){
+    const {error}=this.state;
+    if(!error)return this.props.children;
+    return <section className="workbench-page" aria-labelledby="workbench-page-title" data-page-error>
+      <PageHeader title="此页暂时无法显示"/>
+      <div className="state state-unavailable" role="alert" data-state="page-error">
+        <p className="state-title"><span className="state-mark" aria-hidden="true">!</span>页面出错，内容未能显示</p>
+        <p className="state-next">可以重试，或从左侧导航打开其他页面；数据没有因此改变。</p>
+        <button type="button" onClick={()=>this.setState({error:null})}>重试</button>
+        <details className="state-details"><summary>技术细节</summary><code className="id-code">{error.message}</code></details>
+      </div>
+    </section>;
+  }
 }
 
 // ---- §3 cards and grids ----
