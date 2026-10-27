@@ -52,10 +52,11 @@ function NoApprover({target}:{target:boolean}){
   return <p className="impact-summary" role="note">现在没有能批准的 owner（除你{target?'和被处置的 owner ':''}之外，需要一位在用、且成为 owner 已满 24 小时的 owner）。{OPS_CHANNEL}</p>;
 }
 
-function Reasoned({member,operation,title,row,extra,note,children,ready=true}:{member:Me;operation:Parameters<typeof Form>[0]['operation'];title:string;row:MemberRow;
-  extra?:Record<string,unknown>;note?:React.ReactNode;children?:React.ReactNode;ready?:boolean}){
+function Reasoned({member,operation,title,row,extra,note,children,ready=true,notReady,tone}:{member:Me;operation:Parameters<typeof Form>[0]['operation'];title:string;row:MemberRow;
+  extra?:Record<string,unknown>;note?:React.ReactNode;children?:React.ReactNode;ready?:boolean;notReady?:string;tone?:'danger'}){
   const [reason,setReason]=useState('');const id=`${operation}-${row.label}`;
-  return <Form operation={operation} member={member} title={title} disabled={!reason.trim()||!ready}
+  return <Form operation={operation} member={member} title={title} tone={tone} disabled={!reason.trim()||!ready}
+    disabledReason={!ready?notReady??'现在不能提交，原因见上方说明。':'填写原因后可提交。'}
     body={()=>reason.trim()&&ready?{target_principal:row.principal_id,reason:reason.trim(),...extra}:null}>
     <p>对象：{row.username??'（无账户）'} {row.label}</p>{children}{note}
     <div className="field"><label htmlFor={id}>原因</label><textarea id={id} value={reason} onChange={e=>setReason(e.target.value)} required maxLength={500} rows={2}/></div>
@@ -69,7 +70,7 @@ function RoleChoice({value,onChange,name}:{value:string;onChange:(v:string)=>voi
 
 function ChangeRole({member,row}:{member:Me;row:MemberRow}){
   const [role,setRole]=useState('');
-  return <Form operation="change_workbench_member_role" member={member} title="改角色" disabled={!role||role===row.role}
+  return <Form operation="change_workbench_member_role" member={member} title="改角色" disabled={!role||role===row.role} disabledReason="先选择一个不同于当前的新角色。"
     body={()=>role&&role!==row.role?{target_principal:row.principal_id,new_role:role}:null}>
     <p>对象：{row.username??'（无账户）'} {row.label}（当前 {roleText(row.role)}）</p>
     <RoleChoice value={role} onChange={setRole} name={'role-'+row.label}/>
@@ -79,7 +80,8 @@ function ChangeRole({member,row}:{member:Me;row:MemberRow}){
 
 function Demote({member,row,note,blocked}:{member:Me;row:MemberRow;note:React.ReactNode;blocked:boolean}){
   const [role,setRole]=useState('');  // required: the server refuses a demotion without a new role
-  return <Reasoned member={member} operation="demote_workbench_owner" title="降级这位 owner" row={row} extra={{new_role:role}} note={note} ready={!!role&&!blocked}>
+  return <Reasoned member={member} operation="demote_workbench_owner" title="降级这位 owner" row={row} extra={{new_role:role}} note={note} ready={!!role&&!blocked} tone="danger"
+    notReady={blocked?'现在没有能批准的负责人，原因见上方说明。':'先选择新角色。'}>
     <RoleChoice value={role} onChange={setRole} name={'demote-'+row.label}/>
   </Reasoned>;
 }
@@ -101,17 +103,17 @@ function Controls({member,row,members}:{member:Me;row:MemberRow;members:MemberRo
   const gated=blocked?<NoApprover target={row.role==='owner'}/>:approvalNote;
   return <details><summary>操作</summary>
     {kinds.includes('change_role')?<ChangeRole member={member} row={row}/>:null}
-    {kinds.includes('suspend')?<Reasoned member={member} operation="suspend_workbench_member" title="停用" row={row}
+    {kinds.includes('suspend')?<Reasoned member={member} operation="suspend_workbench_member" tone="danger" title="停用" row={row}
       note={<p className="impact-summary" role="note">影响：撤销授权，会话立即失效；恢复后按角色当前的模板重新授权。</p>}/>:null}
     {kinds.includes('resume')?<Reasoned member={member} operation="resume_workbench_member" title="恢复" row={row}/>:null}
-    {kinds.includes('revoke')?<Reasoned member={member} operation="revoke_workbench_member" title="撤销成员" row={row}
+    {kinds.includes('revoke')?<Reasoned member={member} operation="revoke_workbench_member" tone="danger" title="撤销成员" row={row}
       note={<p className="impact-summary" role="note">影响：撤销授权、移出配置、会话失效；账号保留，个人数据需另行发起擦除。</p>}/>:null}
     {kinds.includes('issue_reset')?<IssueReset member={member} row={row} owner={false}/>:null}
     {kinds.includes('promote')?<Reasoned member={member} operation="promote_workbench_member" title="提升为 owner" row={row} note={gated} ready={!blocked}/>:null}
     {kinds.includes('demote')?<Demote member={member} row={row} note={gated} blocked={blocked}/>:null}
-    {kinds.includes('suspend_owner')?<Reasoned member={member} operation="suspend_workbench_owner" title="停用这位 owner" row={row} note={gated} ready={!blocked}/>:null}
+    {kinds.includes('suspend_owner')?<Reasoned member={member} operation="suspend_workbench_owner" tone="danger" title="停用这位 owner" row={row} note={gated} ready={!blocked}/>:null}
     {kinds.includes('resume_owner')?<Reasoned member={member} operation="resume_workbench_owner" title="恢复这位 owner" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('revoke_owner')?<Reasoned member={member} operation="revoke_workbench_owner" title="撤销这位 owner" row={row} note={gated} ready={!blocked}/>:null}
+    {kinds.includes('revoke_owner')?<Reasoned member={member} operation="revoke_workbench_owner" tone="danger" title="撤销这位 owner" row={row} note={gated} ready={!blocked}/>:null}
     {kinds.includes('issue_owner_reset')?<IssueReset member={member} row={row} owner blocked={blocked}/>:null}
     {kinds.includes('erase')?<EraseForm member={member} row={row} blocked={blocked}/>:null}
   </details>;
@@ -120,7 +122,8 @@ function Controls({member,row,members}:{member:Me;row:MemberRow;members:MemberRo
 const ERASE_REASONS={offboarding:'离职',member_request:'本人要求',other:'其他'} as const;
 function EraseForm({member,row,blocked}:{member:Me;row:MemberRow;blocked:boolean}){
   const [reason,setReason]=useState<keyof typeof ERASE_REASONS|''>('');
-  return <Form operation="erase_workbench_member" member={member} title="擦除这位成员的个人数据" disabled={!reason||blocked}
+  return <Form operation="erase_workbench_member" member={member} title="擦除这位成员的个人数据" tone="danger" disabled={!reason||blocked}
+    disabledReason={blocked?'现在没有能批准的负责人，原因见下方说明。':'先选择原因。'}
     body={()=>reason&&!blocked?{target_principal:row.principal_id,reason}:null}>
     <p>对象：{row.username??'（无账户）'} {row.label}</p>
     <fieldset className="choices"><legend>原因</legend>{Object.entries(ERASE_REASONS).map(([k,v])=>
@@ -136,6 +139,7 @@ function InviteForm({member,members}:{member:Me;members:MemberRow[]}){
   const valid=/^(?!erased-)[a-z0-9][a-z0-9._-]{2,63}$/.test(username)&&hours>=1&&hours<=72;
   return <>
     <Form operation="invite_workbench_member" member={member} title="邀请成员" disabled={!valid||!role}
+      disabledReason={!valid?'用户名需 3–64 位小写字母、数字或 . _ -，有效期 1–72 小时。':'先选择角色。'}
       body={()=>valid&&role?{username,role,expires_in_hours:hours}:null}>
       <div className="field"><label htmlFor="invite-username">用户名</label><input id="invite-username" value={username} onChange={e=>setUsername(e.target.value.trim().toLowerCase())}
         required maxLength={64} pattern="[a-z0-9][a-z0-9._-]{2,63}"/></div>
@@ -162,7 +166,7 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
     <DataTable label="未接受的邀请" empty={{subject:'未接受的邀请'}} rows={data.invitations} rowKey={i=>i.invitation_id} columns={[
       {label:'用户名',main:true,cell:i=>i.username},{label:'角色',cell:i=>roleText(i.role)},{label:'签发人',cell:i=><IdText value={i.issued_by} head={8} tail={4} copy={false}/>},
       {label:'到期',cell:i=><Time value={i.expires_at}/>},
-      {label:'撤销',cell:i=><Form operation="revoke_workbench_invitation" member={member} className="inline-action" title="撤销邀请" body={()=>({invitation_id:i.invitation_id})}><span/></Form>}]}/>
+      {label:'撤销',cell:i=><Form operation="revoke_workbench_invitation" member={member} className="inline-action" tone="danger" title="撤销邀请" body={()=>({invitation_id:i.invitation_id})}><span/></Form>}]}/>
     <h2>最近 90 天的重置码</h2>
     <DataTable label="最近 90 天的重置码" empty={{subject:'重置记录'}} rows={data.resets} rowKey={r=>r.reset_id} columns={[
       {label:'签发时间',main:true,cell:r=><Time value={r.issued_at}/>},{label:'对象',cell:r=><IdText value={r.target_principal} head={8} tail={4} copy={false}/>},

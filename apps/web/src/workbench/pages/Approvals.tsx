@@ -55,9 +55,9 @@ function DecideForms({member,row}:{member:Me;row:ApprovalRow}){
   const id='approval-reason-'+row.approval_id;
   return <>
     <div className="field"><label htmlFor={id}>原因</label><textarea id={id} value={reason} onChange={e=>setReason(e.target.value)} required maxLength={500} rows={2}/></div>
-    <Form operation="decide_approval" member={member} className="inline-action" title="批准" disabled={!reason.trim()}
+    <Form operation="decide_approval" member={member} className="inline-action" title="批准" disabled={!reason.trim()} disabledReason="填写原因后可批准或拒绝。"
       body={()=>reason.trim()?{approval_id:row.approval_id,decision:'approve',reason:reason.trim()}:null}><span/></Form>
-    <Form operation="decide_approval" member={member} className="inline-action" title="拒绝" disabled={!reason.trim()}
+    <Form operation="decide_approval" member={member} className="inline-action" title="拒绝" tone="danger" disabled={!reason.trim()}
       body={()=>reason.trim()?{approval_id:row.approval_id,decision:'reject',reason:reason.trim()}:null}><span/></Form>
   </>;
 }
@@ -70,7 +70,7 @@ export function soloBanner(solo:{enabled:boolean;others_eligible:boolean}):strin
 
 function SoloModeForm({member,enabled}:{member:Me;enabled:boolean}){
   const [reason,setReason]=useState('');
-  return <Form operation="set_approval_solo_mode" member={member} title={enabled?'关闭单人模式':'开启单人模式'} disabled={!reason.trim()}
+  return <Form operation="set_approval_solo_mode" member={member} title={enabled?'关闭单人模式':'开启单人模式'} disabled={!reason.trim()} disabledReason="填写原因后可提交。"
     body={()=>reason.trim()?{enabled:!enabled,reason:reason.trim()}:null}>
     <p className="impact-summary" role="note">{enabled?'关闭后，已有的自批票不再计入，需要另一位成员批准。':'开启后，只有在过去 24 小时内一直只有你一人有审批资格时，你才能批准自己的请求；出现第二位有资格的成员即自动失效。'}</p>
     <div className="field"><label htmlFor="solo-reason">原因</label><textarea id="solo-reason" value={reason} onChange={e=>setReason(e.target.value)} required maxLength={500} rows={2}/></div>

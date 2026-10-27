@@ -75,8 +75,8 @@ function Controls({state,onRead}:{state:RealDispatch;member:Me;onRead:()=>Promis
       {mode==='open'?<p className="rd-warning" role="note">部署层 REAL_DISPATCH_ENABLED 的状态工作台读不到：它平时保持打开；若部署层关闭，开启后也不会真实派发。</p>:null}
       <FormField id="rd-reason" label="原因（必填）" error={reason&&problem?problem:undefined}>
         <textarea id="rd-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} rows={2} required aria-describedby={reason&&problem?'rd-reason-error':undefined}/></FormField>
-      <div className="rd-buttons"><button type="button" onClick={()=>void confirm()} disabled={busy||!!problem||!changes.length}>{busy?'正在提交…':'确认执行'}</button>
-        <button type="button" className="rd-close" onClick={()=>setMode(null)} disabled={busy}>取消</button></div>
+      <div className="rd-buttons"><button type="button" className={mode==='close'?'btn-danger':undefined} onClick={()=>void confirm()} disabled={busy||!!problem||!changes.length}>{busy?'正在提交…':'确认执行'}</button>
+        <button type="button" className="btn-secondary" onClick={()=>setMode(null)} disabled={busy}>取消</button></div>
     </div>:null}
     {results?<div className="rd-results" role="status"><h3>执行结果</h3><ul>{results.map((r,i)=><li key={i} className={r.ok?'rd-ok':'rd-fail'}>
       {describe(r.change)}：{r.ok?`完成，新版本 ${r.control_revision??'—'}`:<span title={r.kind}>未完成：{WRITE_TEXT[r.kind]}{r.detail?<>{' '}<span className="refusal-reason">{r.detail}</span></>:null}</span>}</li>)}</ul>

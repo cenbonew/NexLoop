@@ -47,6 +47,18 @@ export function EmptyState({kind,subject='',reason,next,onRetry,details,compact}
   </div>;
 }
 
+// ---- notices (UX audit B3) ----
+export type NoticeTone='info'|'warning'|'danger'|'success';
+const NOTICE_MARK:Record<NoticeTone,string>={info:'i',warning:'!',danger:'!',success:'✓'};
+/** A message that stands apart from body text: what a change will do (info), something to look at (warning), something wrong
+ * (danger), something done (success). Words carry the meaning, the mark and colour only repeat it. A warning or danger notice is
+ * an alert only when it appears in response to something (`live`); a standing one is a note, so a screen reader is not interrupted. */
+export function Notice({tone='info',title,children,live,id}:{tone?:NoticeTone;title?:ReactNode;children?:ReactNode;live?:boolean;id?:string}){
+  const role=live?(tone==='warning'||tone==='danger'?'alert':'status'):'note';
+  return <div className={'notice notice-'+tone} role={role} id={id} data-tone={tone}><span className="notice-mark" aria-hidden="true">{NOTICE_MARK[tone]}</span>
+    <div className="notice-body">{title?<p><strong>{title}</strong></p>:null}{children}</div></div>;
+}
+
 // ---- page error boundary (UX audit A1) ----
 /** A render error in one page replaces that page's content with a state, never the whole workbench: the navigation stays, the
  * member can retry or go elsewhere. The caller keys it by route so another page starts clean. Technical details folded away. */

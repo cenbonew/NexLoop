@@ -7,7 +7,7 @@
  */
 import {statusLabel} from './status-labels';
 import {shorten} from './kit';
-import {useEffect,useRef,useState,type FormEvent,type ReactNode} from 'react';
+import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
 import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
@@ -133,14 +133,19 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
   return <div className="field"><label htmlFor={id}>{label}</label><textarea id={id} value={value} onChange={e=>onChange(e.target.value)} required maxLength={500} rows={2}/></div>;
 }
 
-/** A form for one operation: shown only when the role carries it. */
-export function Form({operation,title,member,children,body,disabled,onDone,className}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
-  disabled?:boolean;onDone?:()=>void;className?:string}){
+/** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
+ * (UX audit B4); `disabledReason` says, under the disabled button and tied to it, what is still missing (B6). */
+export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;disabledReason?:string;onDone?:()=>void;className?:string;tone?:'danger'}){
   const write=useWrite(operation,onDone);
+  const reasonId=useId();
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
+  const why=disabled&&!write.isPending&&disabledReason?disabledReason:null;
   return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
-    <button type="submit" disabled={disabled||write.isPending}>{write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
+    <button type="submit" className={tone==='danger'?'btn-danger':undefined} disabled={disabled||write.isPending} aria-describedby={why?reasonId:undefined}>
+      {write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
+    {why?<p className="disabled-reason" id={reasonId}>{why}</p>:null}
     <Outcome operation={operation} write={write}/></form>;
 }
 
@@ -199,7 +204,7 @@ export function RemediationRuleReleaseForm({member,ruleId}:{member:Me;ruleId:str
 /** The tenant's remediation switch: pausing takes effect at once; failures while paused get no remediation, now or later. */
 export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}){
   const [reason,setReason]=useState('');
-  return <Form operation="switch_remediation" title={paused?'恢复补救':'暂停补救'} member={member} body={()=>({paused:!paused,reason})}>
+  return <Form operation="switch_remediation" title={paused?'恢复补救':'暂停补救'} member={member} tone={paused?undefined:'danger'} body={()=>({paused:!paused,reason})}>
     <p className="impact-summary" role="note">影响：{paused?'之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}</p>
     <Reason id="remediation-switch-reason" value={reason} onChange={setReason}/>
   </Form>;
@@ -275,7 +280,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
   extra?:{id:string;label:string;key:'occurred_at'|'due_at'}}){
   const [reason,setReason]=useState('');const [at,setAt]=useState('');
   return <details className="workbench-op"><summary>{title}</summary>
-    <Form operation={operation} title={title} member={member} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
+    <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
       <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
       {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}

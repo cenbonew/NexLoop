@@ -81,14 +81,14 @@ test('R3: approval-gated controls are disabled with the reason and the operation
   expect(html).toContain('现在没有能批准的 owner');expect(html).toContain('运维通道');
   // the demotion of the only other owner: disabled (no approver), and in any case a new role is required (R1)
   const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
-  expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit" disabled=""/);
+  expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit"[^>]* disabled=""/);
 });
 
 test('R1: a demotion cannot be submitted without a new role, even with an approver', ()=>{
   const three=members({...raw,members:[...raw.members,row('synthetic-third','owner','active')]});
   const html=render(owner,three);
   const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
-  expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit" disabled=""/);
+  expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit"[^>]* disabled=""/);
   expect(html).not.toContain('现在没有能批准的 owner（除你和被处置的 owner 之外');
 });
 
