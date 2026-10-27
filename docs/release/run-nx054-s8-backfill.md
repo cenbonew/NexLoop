@@ -16,7 +16,7 @@
    - 情况 B 的预期输出：`{"changed": true, "added": ["setup/relation-backfiller-credential"], "setup_files": 6}`。
    - 情况 A（树里已经有这个文件）的预期输出：`{"changed": false, "added": [], "setup_files": 6}`。
    - 把树同步到 `$RUN`：属主 999，0600。
-3. **DATA_HOST**：先 dry-run，再正式执行。`$COMMON`、`$WINDOW` 与 `run-nx057-remediation-stage.md` §2 相同。
+3. **DATA_HOST**：先按 `docs/OPERATIONS.md` §8a.11a 做授权差异核对（本单唯一预期的新增是 `relation_backfiller` 的 `nexloop.relation.backfill:1`；还有别的就交调度员确认），再 dry-run、正式执行。`$COMMON`、`$WINDOW` 与 `run-nx057-remediation-stage.md` §2 相同。
 
    ```
    docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py register --out /stage --tenant "$TENANT_ID" --dry-run
@@ -40,10 +40,10 @@
 
      ```
      ro "select entity_key[1], count(*) from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='grants'
-         and entity_key[1] not like 'nexloop-service-%' group by 1 order by 1"
+         and payload->>'subject_kind'='service' and entity_key[1] not like 'nexloop-service-%' group by 1 order by 1"
      ```
 
-     每一行的主体都应以 `nexloop-sim-` 开头，计数合计等于 `extra_grants_outside_manifest`。出现别的主体就停下报告。register 不会撤销它们（只报告）。
+     `subject_kind='service'` 不能省：库里还有人类主体（审批人、owner、customer-* 等，stage 上几百行），register 的 extra 只统计服务主体。每一行的主体都应以 `nexloop-sim-` 开头，计数合计等于 `extra_grants_outside_manifest`。出现别的主体就停下报告。register 不会撤销它们（只报告）。
    - 其余数字不符就停下：说明库里的授权与清单在这之前已有偏差。
    - 被拒为 `credential_rotation_required` 时，不要重试，停下报告。
 4. **核对**：重跑第 1 条的查询，应当有一行，长度为 1。
