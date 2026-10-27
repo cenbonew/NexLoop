@@ -1805,6 +1805,11 @@
       "version": "0361",
       "name": "0361_file_backup_unprotected.sql",
       "sha256": "8869fedf356055447dcf7fc49c47e6bbfc7294d942b0fcfa67c947cd9378f1d5"
+    },
+    {
+      "version": "0362",
+      "name": "0362_approval_view_consumed.sql",
+      "sha256": "ab1a9ba5c88cad7f7c285e9c60261339689306d3479025204fb7d32867e41e7c"
     }
   ]
 }

@@ -36,17 +36,25 @@ CERT = '-----BEGIN CERTIFICATE-----\nsynthetic leaf\n-----END CERTIFICATE-----\n
 BCRYPT = 'nexloop-file-backup:$2y$05$' + 'a' * 53
 
 
+UIDS = {}  # test only: inode -> the uid lstat reports (the deployment user's directories without root)
+DEPLOY = 4242
+
+
 @pytest.fixture(autouse=True)
 def trust_root_at_tmp_path(tmp_path, monkeypatch):
     above = set()
     for base in (Path(tmp_path), Path(os.path.realpath(tmp_path))):
         above |= {str(p) for p in base.parents}
     lstat = os.lstat
+    UIDS.clear()
 
     def fake(path, *a, **k):
         info = lstat(path, *a, **k)
         if str(path) in above:
             return os.stat_result((st.S_IFDIR | 0o755, info.st_ino, info.st_dev, info.st_nlink, 0, 0, info.st_size,
+                                   int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+        if info.st_ino in UIDS:
+            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, UIDS[info.st_ino], DEPLOY, info.st_size,
                                    int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
         return info
     monkeypatch.setattr(os, 'lstat', fake)
@@ -163,11 +171,25 @@ def setup(tmp_path, data=None, **over):
     return root, str(config), hashlib.sha256(blob).hexdigest()
 
 
+def account(name):
+    """Test only: the account database."""
+    uids = {'deploy-user': DEPLOY, 'nexloop-backup': DEPLOY + 3, 'nexloop-file-backup': DEPLOY + 4}
+    if name not in uids:
+        raise KeyError(name)
+    return type('Entry', (), {'pw_uid': uids[name], 'pw_gid': uids[name], 'pw_name': name})
+
+
 def main(root, config, *args, runner=None, stdin=STDIN, digest=None, **kw):
     out, runner = io.StringIO(), runner or Runner(root, digest=digest, **kw)
     code = R.main([config, *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=root,
-                  trust=functools.partial(R.A.root_owned, owners=OWNERS), trust_python=functools.partial(R.A.interpreter_owned, owners=OWNERS))
+                  trust=functools.partial(R.A.root_owned, owners=OWNERS), trust_python=functools.partial(R.A.interpreter_owned, owners=OWNERS),
+                  account=account)
     return code, out.getvalue(), runner
+
+
+def reconfigure(config, **over):
+    cfg = {**json.loads(Path(config).read_text()), **over}
+    private(Path(config), json.dumps({k: v for k, v in cfg.items() if v is not None}))
 
 
 def test_installs_the_append_only_server_and_a_rerun_changes_nothing(tmp_path):
@@ -486,3 +508,52 @@ def test_a_writable_files_repository_secrets_directory_is_refused(tmp_path):
     os.chmod(root / 'srv/nexloop/secrets/files-repo', 0o777)
     code, text, runner = main(root, config, digest=digest)
     assert code == 2 and 'files repository secrets' in text and not (root / 'srv/nexloop/secrets/files-repo/restic.pass').exists()
+
+
+def deployment_users_srv(root):
+    """As on stage: /srv/nexloop the deployment user's, 751 (and so every path root checks under it has that user above it)."""
+    UIDS[os.stat(root / 'srv/nexloop').st_ino] = DEPLOY
+    os.chmod(root / 'srv/nexloop', 0o751)
+
+
+def test_a_srv_nexloop_of_the_deployment_user_is_accepted_only_as_trusted_owner_and_r1_reruns_unchanged(tmp_path):
+    """Dispatcher 2026-10-27: on stage R0 and R1 passed and R2 was refused on /srv/nexloop. Without trusted_owner that stays refused
+    (never by default), saying what to configure; with it the rerun keeps the binary (R1 unchanged) and installs the rest, every
+    directory and file it creates root's or nexloop-backup's as before."""
+    root, config, digest = setup(tmp_path)
+    deployment_users_srv(root)
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 2 and 'rest-server secrets' in text and 'name that user as trusted_owner' in text, text
+    binary = root / f'opt/nexloop/rest-server/{VERSION}/rest-server'
+    assert f'rest-server {VERSION} installed' in text and binary.read_bytes() == BINARY
+    inode = os.stat(binary).st_ino
+    reconfigure(config, trusted_owner='deploy-user')
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 0, text
+    assert f'step R1: rest-server {VERSION} unchanged' in text and os.stat(binary).st_ino == inode and st.S_IMODE(binary.stat().st_mode) == 0o555
+    for directory, mode in (('srv/nexloop/secrets/rest-server', 0o711), ('srv/nexloop/secrets/files-repo', 0o711)):
+        info = os.lstat(root / directory)
+        assert info.st_uid in OWNERS and st.S_IMODE(info.st_mode) == mode, directory
+    assert st.S_IMODE((root / 'srv/nexloop/secrets/rest-server/server.key').stat().st_mode) == 0o600
+    assert ['chown', 'nexloop-backup:nexloop-backup', str(root / 'srv/nexloop/secrets/rest-server/htpasswd')] in runner.calls
+
+
+@pytest.mark.parametrize('directory, what', [('srv/nexloop/secrets/rest-server', 'rest-server secrets'),
+                                             ('srv/nexloop/secrets/files-repo', 'files repository secrets')])
+def test_a_directory_the_installer_owns_stays_roots_even_with_trusted_owner(tmp_path, directory, what):
+    """trusted_owner widens only what stands above: secrets/rest-server or secrets/files-repo of the deployment user is refused."""
+    root, config, digest = setup(tmp_path, trusted_owner='deploy-user')
+    deployment_users_srv(root)
+    (root / directory).mkdir()
+    os.chmod(root / directory, 0o711)
+    UIDS[os.stat(root / directory).st_ino] = DEPLOY
+    code, text, _ = main(root, config, digest=digest)
+    assert code == 2 and what in text and 'must be owned by root and not' in text and list((root / directory).iterdir()) == [], text
+
+
+@pytest.mark.parametrize('name, why', [('nexloop-backup', 'not nexloop-backup'), ('nexloop-file-backup', 'not nexloop-backup, nexloop-file-backup'),
+                                       ('nobody-here', 'no such user'), ('', "deployment user's name")])
+def test_trusted_owner_is_an_existing_user_never_a_service_user(tmp_path, name, why):
+    root, config, digest = setup(tmp_path, trusted_owner=name)
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 2 and why in text and runner.calls == [], text

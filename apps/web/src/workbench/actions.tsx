@@ -9,7 +9,7 @@ import {statusLabel} from './status-labels';
 import {shorten} from './kit';
 import {useEffect,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
-import {oneTimeSecret,approvalOutcome,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
+import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
 import {Short} from './pages/Page';
@@ -99,7 +99,8 @@ function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof 
   // NX-056: an operation under an approval policy answers with its approval state instead of the plain success text.
   if(write.isSuccess)return <WriteResult operation={operation} data={write.data} onHide={()=>write.reset()}/>;
   if(write.isError){const kind=writeKindOf(write.error);
-    return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}</p>;}
+    const detail=refusalTextOf(write.error);
+    return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}{detail?<>{' '}<span className="refusal-reason">{detail}</span></>:null}</p>;}
   return null;
 }
 

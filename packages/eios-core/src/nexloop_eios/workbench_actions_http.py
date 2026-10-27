@@ -410,14 +410,19 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited
             return error('not_allowed_in_state',409,{'reason':code.group(1)} if code else None)  # the handler refused this transition
         except psycopg.errors.SerializationFailure:
             return error('conflict',409)
-        except (PermissionError,psycopg.errors.InsufficientPrivilege):
+        except psycopg.errors.InsufficientPrivilege as refused:
+            # NX-056: an approval refusal names its fixed code (approver_unauthorized, not_requester, requester_unavailable); the status
+            # stays 403 and nothing else of the message is passed on.
+            code=re.fullmatch(r'approval: ([a-z_]{1,40})',refused.diag.message_primary or '')
+            return error('forbidden',403,{'reason':code.group(1)} if code else None)
+        except PermissionError:
             return error('forbidden',403)
         except Exception as failure:
             if type(failure).__name__ in ('ActionAuthorizationDenied','AuthorizationFactDenied'):return error('forbidden',403)

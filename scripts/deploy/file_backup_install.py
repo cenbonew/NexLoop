@@ -21,7 +21,8 @@ restic_<version>_linux_amd64.bz2), key_ref (the label recorded with each manifes
 (DATA_HOST's PG over hostssl, verify-full; the CA is copied next to the DSN), repo1 {host, port, cacert} (optionally transport
 "rest"; DATA_HOST's rest-server, its address as the certificate names it, the stage CA bundle pinned with --cacert; step 5 proves a
 snapshot can be written but not forgotten, NX-035-file-backup.md §6.5), repo2_init (default false: true lets step 5 run `restic init` on a
-repo2 that does not exist yet), host_health_config and host_health_install_config (both host-health files).
+repo2 that does not exist yet), host_health_config and host_health_install_config (both host-health files), and optionally
+trusted_owner (below).
 
 Order: DATA_HOST step 1 (1a and 1b), --prepare, `install_repo2_secrets.sh files` (it reads the repo2 file paths from the env file
 --prepare wrote), then the install with the passwords on stdin.
@@ -35,6 +36,11 @@ its .git (every directory, every file outside objects/) are root's alone, every 
 directory without objects/info/alternates or commondir; `git show` runs with --no-replace-objects in a minimal environment. The
 interpreter is resolved hop by hop. A reused release is checked file by file against the commit. Nothing secret is printed,
 passed as an argument or logged: the passwords arrive on stdin and leave only into 0600 files.
+trusted_owner (dispatcher 2026-10-27; stage's /srv/nexloop is the deployment user's, 751): the deployment user's name, given
+explicitly - never assumed. That user holds NOPASSWD sudo on these hosts, so it is root-equivalent already, and its directories
+may then stand above anything root checks (root_owned's ancestors: not group/other-writable, no link). What root checks itself -
+the directories it creates and writes in (secrets/backup, the release base, the home) and the files in them - stays root's (or
+the service user's) exactly as before; neither root nor a service user can be named.
 
 Steps (each idempotent):
   2 the system user nexloop-file-backup (home /var/lib/nexloop-file-backup, root's; no shell; the SSH files of an earlier D4 version
@@ -61,9 +67,11 @@ from __future__ import annotations
 
 import argparse
 import bz2
+import functools
 import hashlib
 import json
 import os
+import pwd
 import re
 import shutil
 import stat
@@ -97,6 +105,7 @@ SHA = re.compile(r'[0-9a-f]{40}')
 PATH = re.compile(r'/[A-Za-z0-9._/@-]+')
 HOST = re.compile(r'[A-Za-z0-9][A-Za-z0-9.:-]{0,252}')
 LABEL = re.compile(r'[A-Za-z0-9._:-]{1,64}')
+USER_NAME = re.compile(r'[a-z_][a-z0-9_-]{0,31}')
 FILES = ('scripts/deploy/file_backup_run.py', 'scripts/deploy/file_backup_sandbox_check.py', 'scripts/deploy/file_backup_maint.py',
          'scripts/deploy/restic_future_guard.py',
          'packages/eios-core/src/nexloop_eios/__init__.py', 'packages/eios-core/src/nexloop_eios/backup.py',
@@ -131,8 +140,10 @@ def _owned(info, owners):
     return info.st_uid in owners and not info.st_mode & 0o022
 
 
-def root_owned(path, *, what, owners=(0,)):
-    """Root's alone: owner root, nothing group/other-writable, no symbolic link on the way (lstat, never followed)."""
+def root_owned(path, *, what, owners=(0,), ancestors=(), own=None):
+    """Root's alone: owner root, nothing group/other-writable, no symbolic link on the way (lstat, never followed). ancestors: the uid
+    of the configured trusted_owner (trusting), also accepted for the directories above path - never for path itself, which must be
+    one of own (default owners: root)."""
     path = Path(os.path.abspath(path))
     for part in [path, *path.parents]:
         try:
@@ -141,8 +152,34 @@ def root_owned(path, *, what, owners=(0,)):
             raise Refused(f'{what}: {part} unreadable') from None
         if stat.S_ISLNK(info.st_mode):
             raise Refused(f'{what}: {part} is a symbolic link (give the real path)')
-        if not _owned(info, owners):
-            raise Refused(f'{what}: {part} must be owned by root and not group/other-writable')
+        if part == path and not _owned(info, owners if own is None else own):
+            raise Refused(f'{what}: {part} must be owned by ' + ('root' if own is None else 'trusted_owner') + ' and not group/other-writable')
+        if part != path and not _owned(info, (*owners, *ancestors)):
+            raise Refused(f'{what}: {part} must be owned by root' + (' or trusted_owner' if ancestors else '') + ' and not group/other-writable'
+                          + ('' if ancestors else ' (a directory of the deployment user above it: name that user as trusted_owner in the configuration)'))
+
+
+def trusted_owner(config, service_users, account=pwd.getpwnam):
+    """(uid, gid, name) of the configuration's trusted_owner, or None: the deployment user, who holds NOPASSWD sudo on these hosts and so
+    is root-equivalent anyway; only when named explicitly may its directories stand above what root checks (never by default). Not
+    root (trusted anyway) and never a service user."""
+    name = config.get('trusted_owner')
+    if name is None:
+        return None
+    if type(name) is not str or not USER_NAME.fullmatch(name) or name in service_users:
+        raise Refused('configuration: trusted_owner (the deployment user\'s name; not ' + ', '.join(service_users) + ')')
+    try:
+        entry = account(name)
+    except KeyError:
+        raise Refused(f'configuration: trusted_owner {name}: no such user') from None
+    if entry.pw_uid == 0:
+        raise Refused('configuration: trusted_owner must not be root (root is trusted anyway)')
+    return entry.pw_uid, entry.pw_gid, name
+
+
+def trusting(trust, owner):
+    """trust, also accepting owner's directories above the path checked (trusted_owner); unchanged without one."""
+    return trust if owner is None else functools.partial(trust, ancestors=(owner[0],))
 
 
 def interpreter_owned(path, *, what, owners=(0,)):
@@ -237,7 +274,7 @@ def write_private(path, text, mode=0o600):
 def load_config(path):
     c = read_private_json(path)
     keys = {'schema', 'release_checkout', 'release_sha', 'python', 'memory_deny_write_execute', 'restic_archive', 'key_ref', 'database',
-            'repo1', 'repo2_init', 'host_health_config', 'host_health_install_config', '_comment'}
+            'repo1', 'repo2_init', 'host_health_config', 'host_health_install_config', 'trusted_owner', '_comment'}
     if type(c) is not dict or c.get('schema') != SCHEMA or set(c) - keys:
         raise Refused(f'configuration: schema {SCHEMA} with ' + ', '.join(sorted(keys - {'schema', '_comment'})))
     for key in ('release_checkout', 'python', 'restic_archive', 'host_health_config', 'host_health_install_config'):
@@ -805,7 +842,8 @@ def uninstall(root, config, runner, out):
           f'host-health timers; the user {USER} and its home stay', file=out)
 
 
-def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned, trust_python=interpreter_owned):
+def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned, trust_python=interpreter_owned,
+         account=pwd.getpwnam):
     p = argparse.ArgumentParser(description='NX-035 file backup install on APP_HOST (steps 2-6, root, one command)')
     p.add_argument('config')
     mode = p.add_mutually_exclusive_group()
@@ -815,6 +853,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'),
     os.umask(0o022)
     try:
         config = load_config(a.config)
+        trust = trusting(trust, trusted_owner(config, (USER,), account))
         if a.uninstall:
             uninstall(root, config, runner, out)
         elif a.prepare:

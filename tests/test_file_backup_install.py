@@ -49,14 +49,29 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
     everything at or below tmp_path is checked as it really is. The production checks have no such stop."""
     above = {str(p) for p in Path(tmp_path).parents} | {str(p) for p in Path(os.path.realpath(tmp_path)).parents}
     lstat = os.lstat
+    UIDS.clear()
 
     def fake(path, *a, **k):
         info = lstat(path, *a, **k)
         if str(path) in above:
             return os.stat_result((st.S_IFDIR | 0o755, info.st_ino, info.st_dev, info.st_nlink, 0, 0, info.st_size,
                                    int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
+        if info.st_ino in UIDS:  # the deployment user's directories (no root here to chown them)
+            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, UIDS[info.st_ino], DEPLOY, info.st_size,
+                                   int(info.st_atime), int(info.st_mtime), int(info.st_ctime)))
         return info
     monkeypatch.setattr(os, 'lstat', fake)
+
+
+UIDS = {}  # test only: inode -> the uid lstat reports
+DEPLOY = 4242
+
+
+def account(name):
+    uids = {'deploy-user': DEPLOY, 'nexloop-file-backup': DEPLOY + 3}
+    if name not in uids:
+        raise KeyError(name)
+    return type('Entry', (), {'pw_uid': uids[name], 'pw_gid': uids[name], 'pw_name': name})
 
 
 def private(path, value, text=None, mode=0o600):
@@ -173,13 +188,13 @@ def setup(tmp_path, repo2=True, **over):
 def main(root, config, *args, runner=None, stdin=STDIN, asked=None, tmp_path=None):
     out, runner = io.StringIO(), runner or Runner(tmp_path)
 
-    def trust(path, *, what):
+    def trust(path, *, what, **kw):
         if asked is not None:
             asked.append((what, str(path)))
-        I.root_owned(path, what=what, owners=OWNERS)
+        I.root_owned(path, what=what, owners=OWNERS, **kw)
 
     code = I.main([config, *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=root, trust=trust,
-                  trust_python=functools.partial(I.interpreter_owned, owners=OWNERS))
+                  trust_python=functools.partial(I.interpreter_owned, owners=OWNERS), account=account)
     return code, out.getvalue(), runner
 
 
@@ -751,3 +766,54 @@ def test_the_check_pins_the_ca_for_the_repository_that_names_one(tmp_path, capsy
     repo1 = [c for c in calls if f'{tmp_path}/r1' in c]
     repo2 = [c for c in calls if f'{tmp_path}/r2' in c]
     assert repo1 and all(c[1:3] == ['--cacert', f'{tmp_path}/ca.crt'] for c in repo1) and repo2 and not any('--cacert' in c for c in repo2)
+
+
+def test_a_srv_nexloop_of_the_deployment_user_needs_trusted_owner_and_secrets_backup_stays_roots(tmp_path):
+    """Dispatcher 2026-10-27: APP_HOST's /srv/nexloop is the deployment user's too (751). secrets/backup's check would refuse it the way
+    DATA_HOST's R2 was refused: without trusted_owner refused, saying what to configure; with it installed, secrets/backup root's 0711."""
+    root, config = setup(tmp_path)
+    UIDS[os.stat(root / 'srv/nexloop').st_ino] = DEPLOY
+    os.chmod(root / 'srv/nexloop', 0o751)
+    code, text, _ = main(root, config, tmp_path=tmp_path)
+    assert code == 2 and 'secrets/backup' in text and 'name that user as trusted_owner' in text, text
+    cfg = json.loads(Path(config).read_text())
+    private(Path(config), {**cfg, 'trusted_owner': 'deploy-user'})
+    code, text, _ = main(root, config, tmp_path=tmp_path)
+    assert code == 0, text
+    info = os.lstat(root / SECRETS)
+    assert info.st_uid in OWNERS and st.S_IMODE(info.st_mode) == 0o711
+    # What the installer owns is never the trusted owner's: secrets/backup of the deployment user is refused.
+    UIDS[info.st_ino] = DEPLOY
+    code, text, _ = main(root, config, stdin='', tmp_path=tmp_path)
+    assert code == 2 and 'secrets/backup' in text and 'must be owned by root and not' in text, text
+
+
+def test_trusted_owner_is_never_the_service_user_and_must_exist(tmp_path):
+    for n, (name, why) in enumerate((('nexloop-file-backup', 'not nexloop-file-backup'), ('nobody-here', 'no such user'))):
+        root, config = setup(tmp_path / str(n), trusted_owner=name)
+        code, text, runner = main(root, config, tmp_path=tmp_path / str(n))
+        assert code == 2 and why in text and runner.calls == [], text
+
+
+def test_root_owned_widens_only_the_ancestors_and_never_for_a_link(tmp_path):
+    top = tmp_path / 'srv'
+    path = top / 'secrets' / 'backup'
+    path.mkdir(parents=True)
+    UIDS[os.stat(top).st_ino] = DEPLOY
+    with pytest.raises(I.Refused, match='name that user as trusted_owner'):
+        I.root_owned(path, what='x', owners=OWNERS)
+    I.root_owned(path, what='x', owners=OWNERS, ancestors=(DEPLOY,))
+    UIDS[os.stat(path).st_ino] = DEPLOY
+    with pytest.raises(I.Refused, match='backup must be owned by root and not'):
+        I.root_owned(path, what='x', owners=OWNERS, ancestors=(DEPLOY,))  # the path itself: root's only
+    I.root_owned(path, what='x', owners=OWNERS, ancestors=(DEPLOY,), own=(DEPLOY,))
+    UIDS.pop(os.stat(path).st_ino)
+    os.chmod(top, 0o771)
+    with pytest.raises(I.Refused, match='or trusted_owner and not group/other-writable'):
+        I.root_owned(path, what='x', owners=OWNERS, ancestors=(DEPLOY,))
+    os.chmod(top, 0o751)
+    os.rename(top / 'secrets', top / 'real')
+    os.symlink(top / 'real', top / 'secrets')
+    UIDS[os.lstat(top / 'secrets').st_ino] = DEPLOY
+    with pytest.raises(I.Refused, match='symbolic link'):
+        I.root_owned(path, what='x', owners=OWNERS, ancestors=(DEPLOY,))

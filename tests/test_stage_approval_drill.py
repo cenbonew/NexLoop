@@ -131,7 +131,8 @@ def test_request_decide_cancel_execute_show_ids_statuses_and_codes_only(tmp_path
 
 
 def test_list_shows_columns_without_bodies_and_login_failure_is_reported(tmp_path, capsys):
-    row = {'approval_id': APPROVAL, 'capability': 'real_dispatch.set', 'operation': 'set_real_dispatch', 'status': 'waiting', 'approvals': 0, 'quorum': 1,
+    row = {'approval_id': APPROVAL, 'capability': 'real_dispatch.set', 'operation': 'set_real_dispatch', 'status': 'waiting', 'consumed': False, 'result': None,
+           'approvals': 0, 'quorum': 1,
            'policy_version': 1, 'due_by': '2026-10-28T01:00:00+00:00', 'requested_by': 'stage-human-approver3', 'summary': {'scope_kind': 'action_type'},
            'inputs': {'reason': '演练一'}}
     code, (r,), _, _ = run(tmp_path, capsys, ['list'], {('GET', '/api/v1/workbench/approvals'): (200, {

@@ -97,7 +97,8 @@ export function Approvals(){
           body={()=>r.inputs??null}><span/></Form>}</WithMember>:<span className="note">工作台不能执行这条请求（不是工作台发起的请求体），请用发起时的入口执行</span>;}}]}/>}
     <h2>我发起的</h2>
     {mine.length===0?<Empty kind="none" title="最近 30 天没有你发起的审批"/>:<DataTable label="我发起的" rows={mine} rowKey={r=>r.approval_id} columns={[
-      ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}<br/><span className="note">{resultText(r.result)}</span></>},
+      ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}{r.consumed?<>{' · '}<strong className="approval-consumed">已执行</strong></>:null}<br/>
+        <span className="note">{r.consumed?<>{resultText(r.result)}{r.consumed_at?<>，<Time value={r.consumed_at}/></>:null}；这次批准已用掉，不能再执行</>:resultText(r.result)}</span></>},
       {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><Form operation="cancel_approval" member={member} className="inline-action" title="撤回"
         body={()=>({approval_id:r.approval_id,reason:'发起人撤回'})}><span/></Form>}</WithMember>:null}]}/>}
     <WithMember>{member=><SoloModeForm member={member} enabled={solo_mode.enabled}/>}</WithMember>
