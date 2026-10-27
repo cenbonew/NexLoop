@@ -34,7 +34,7 @@ NX-057 的 R0–R4 与 G1、G2 都随 release 46（main 4426c5d0）上了 stage�
 |---|---|---|
 | P1 | release 46 已经按部署单部署，部署单记录了迁移前备份 | 部署单；`ro "select version from control.schema_migrations where version in ('0337','0338','0345','0351') order by 1"` 为 4 行 |
 | P2 | 本批的 Action 已经发布（先在只读会话里试跑一次这条查询，确认能执行，再看结果）：`nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release` | `ro "select resource_id from control.nexloop_action_definitions where active and resource_id like 'eios:action:nexloop.remediation.%' order by 1"`，应为 3 行。规划器的 `nexloop.remediation.plan:1` 是服务端口，不在业务 Action 清单里，这里查不到是正常的 |
-| P3 | 角色清单（`workbench-roles.v1.json` manifest 42 起含补救的三个 Action；release 46 为 manifest 46）已经应用，owner 能看到工作台“运营 → Action / 异常”页的“补救”一栏 | 负责人登录后打开该页，“补救”一栏显示“当前没有待处理的补救” |
+| P3 | （先按 §0.5 确认 approver3 是 active owner）角色清单（`workbench-roles.v1.json` manifest 42 起含补救的三个 Action；release 46 为 manifest 46）已经应用，owner 能看到工作台“运营 → Action / 异常”页的“补救”一栏 | 负责人登录后打开该页，“补救”一栏显示“当前没有待处理的补救” |
 | P4 | 效应类别 v3 已经在本租户生效：`nexloop.enterprise.deliver:1` 被声明为外部效应 | `ro "select external_effect from control.nexloop_action_effect_externality where tenant_id='$TENANT_ID' and world='real' and resource_id='eios:action:nexloop.enterprise.deliver:1'"`，至少一行 `t`。没有就停下：第 3 步会以 `source_not_effect` 被拒 |
 | P5 | stage 的真实派发保持关闭 | 部署层 `REAL_DISPATCH_ENABLED` 不是 `true`；工作台“真实派发”面板中租户开关为关闭 |
 | P6 | `plan-reevaluator` 在运行 | `docker compose -p nexloop-app ps plan-reevaluator` 为 running |
@@ -95,10 +95,29 @@ main 94baecc3 上缺这两个部署件，第二十九批补齐（分支 `l7/nx05
 | P1、P2、P4、P5、P6，第 1–3 步，2.1/2.3/4.1/4.4 的查询，4.2 部署层开关 | 调度员 | 管理机、DATA_HOST、APP_HOST 的运维账号；配置员窗口由工具自己打开，不需要工作台账号 |
 | P3（看“补救”一栏）、4.3（只在租户开关被暂停时恢复）、§5 中工作台上的回退动作（暂停/恢复补救、标记已处理/取消、解除熔断） | 合成 owner **approver3**（`stage-principal-approver3`）；判定者是调度员 | 工作台账号，口令在钥匙串 `nexloop/stage/approver3`。负责人本人不需要操作，也可以代替 approver3 |
 
-- **不需要第二位 owner 批准**：已发布的审批策略（`approval-policies.v1.json` version 4）覆盖的是 `real_dispatch.set`（只在打开时）、`consumer.erase`、`retention.release_hold` 和 NX-058 的 owner 成员 Action，不包括 `nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release`。所以本单的工作台动作提交后立即执行，不进入“审批”页，approver2 不需要参与。
+- **不需要第二位 owner 批准**：已发布的审批策略（`approval-policies.v1.json` version 4）覆盖的是 `real_dispatch.set`（只在打开时）、`consumer.erase`、`retention.release_hold` 和 NX-058 的 `workbench_member.*` 全部 8 个能力（promote_owner、demote_owner、suspend_owner、resume_owner、revoke_owner、issue_owner_reset、invite_owner、erase_member），不包括 `nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release`。所以本单的工作台动作提交后立即执行，不进入“审批”页，approver2 不需要参与。
 - **为什么 approver3 可以**：角色清单 manifest 46 只把这三个补救 Action 给了 `owner` 角色，approver3 是 owner（run-nx056 §0 的账号表）；补救 Action 没有针对负责人 principal 的条件。
 - 本单所有写“负责人在工作台……”的地方，都按这张表由 approver3 执行。
-- 执行时如果 main 上的审批策略已经有包含 `nexloop.remediation.*` 的新版本，停下，按新策略补上 approver2 的批准步骤。
+- **以 stage 库里已应用的策略为准**（不看 main 上的文件）。执行前核对（A，参照 run-nx056 §7 的核对查询）：
+
+```
+ro "select max(manifest_version) from control.nexloop_approval_policy_publications"                                   # 4
+ro "select count(*) from control.nexloop_approval_policies where capability like 'remediation%' or capability like '%remediation%'"   # 0
+```
+
+  - 预期第一条为 `4`，第二条为 `0`。
+  - **停止条件**：第一条大于 4，或者第二条不是 0，说明 stage 已应用的策略可能覆盖补救动作。停下，按 stage 上的策略补上 approver2 的批准步骤，再继续。
+- **approver3 的状态**（A，在 P3 之前执行）：确认 approver3 仍是 active owner，没有被暂停、撤销或降级。
+
+```
+ro "select m.payload->>'status', (select string_agg(distinct a.payload->>'status',',') from control.nexloop_browser_accounts a
+      where a.tenant_id=m.tenant_id and a.subject_id=m.subject_id),
+    (select c.members->>m.principal_id from control.nexloop_workbench_configurations c where c.tenant_id=m.tenant_id order by c.manifest_version desc limit 1)
+    from control.nexloop_browser_memberships m where m.tenant_id='$TENANT_ID' and m.principal_id='stage-principal-approver3'"
+```
+
+  - 预期为一行：`active|active|owner`。查询只输出状态和角色，不输出用户名。
+  - 其他结果（`suspended`、`revoked`、账户 `disabled`、角色不是 `owner`，或者没有这一行）：不要用 approver3，改由负责人本人执行工作台步骤，并在证据中写明原因。
 
 ## 1. 告警规则到 v18（DATA_HOST，配置员窗口，B；stage 已是 v18 或更高就跳过）
 
