@@ -88,13 +88,16 @@ def archive(binary=BINARY, member=f'rest-server_{VERSION}_linux_amd64/rest-serve
 
 class Runner:
     def __init__(self, root, *, digest=None, san=None, pubkey=('PUB', 'PUB'), active='active', table=None, version=VERSION, htpasswd=BCRYPT,
-                 uid=None, stop_post_fails=True):
+                 uid=None, stop_post_fails=True, ufw=None):
         self.calls, self.stdin, self.root, self.uid, self.stop_post_fails = [], [], root, uid, stop_post_fails
+        self.ufw = ufw  # a Ufw, or None: then no ufw command may be run
         self.digest, self.san, self.pubkey, self.active, self.table, self.version, self.htpasswd = digest, san, pubkey, active, table, version, htpasswd
 
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
         self.stdin.append(stdin)
+        if command[:3] == R.UFW_RUN:
+            return self.ufw(command[3:])
         if command[:2] == ['env', '-i']:
             assert command[:8] == R.A.GIT
             path = command[-1].split(':', 1)[1]
@@ -140,6 +143,44 @@ class Runner:
         if command[:3] == ['nft', 'list', 'table']:
             return self.table if self.table is not None else f'table inet nexloop_rest_server {{ ip saddr != {APP} drop }}\n'
         return ''
+
+
+class Ufw:
+    """ufw as DATA_HOST's: its status, and allow / delete allow of a from-to-port-proto rule with a comment (an existing rule skipped)."""
+    def __init__(self, active=True, rules=(), lie=False, status=None):
+        self.active, self.rules, self.lie, self.status = active, dict(rules), lie, status
+
+    def __call__(self, args):
+        if args == ['status'] and self.status is not None:
+            return self.status
+        if args == ['status']:
+            if not self.active:
+                return 'Status: inactive\n'
+            return 'Status: active\n\nTo                         Action      From\n--                         ------      ----\n' + ''.join(
+                f'{to} {port}/{proto}               ALLOW       {source}                  # {comment}\n'
+                for (source, to, port, proto), comment in self.rules.items())
+        if args[0] == 'allow':
+            rule, comment = (args[2], args[4], args[6], args[8]), args[10]
+            assert args[1::2][:4] == ['from', 'to', 'port', 'proto'] and args[9] == 'comment'
+            if rule in self.rules:
+                return 'Skipping adding existing rule\n'
+            if not self.lie:
+                self.rules[rule] = comment
+            return 'Rule added\n'
+        if args[:2] == ['delete', 'allow']:
+            rule = (args[3], args[5], args[7], args[9])
+            if rule in self.rules and not self.lie:
+                del self.rules[rule]
+                return 'Rule deleted\n'
+            return 'Could not delete non-existent rule\n'
+        raise AssertionError(args)
+
+
+RULE = (APP, DATA, '8000', 'tcp')
+
+
+def with_ufw(root):
+    private(root / 'usr/sbin/ufw', '#!/bin/sh\n', 0o755)
 
 
 def private(path, text, mode=0o600):
@@ -557,3 +598,86 @@ def test_trusted_owner_is_an_existing_user_never_a_service_user(tmp_path, name, 
     root, config, digest = setup(tmp_path, trusted_owner=name)
     code, text, runner = main(root, config, digest=digest)
     assert code == 2 and why in text and runner.calls == [], text
+
+
+def test_an_active_ufw_gets_the_rule_admitting_app_host_once_and_uninstall_deletes_it(tmp_path):
+    """DATA_HOST 2026-10-27: ufw drops inbound by default, so the port was unreachable until the owner added this rule by hand."""
+    root, config, digest = setup(tmp_path)
+    with_ufw(root)
+    ufw = Ufw()
+    code, text, runner = main(root, config, runner=Runner(root, digest=digest, ufw=ufw))
+    assert code == 0 and 'ufw rule admitting APP_HOST to port 8000 added' in text, text
+    assert ufw.rules == {RULE: 'nexloop-rest-server'}
+    assert [*R.UFW_RUN, 'allow', 'from', APP, 'to', DATA, 'port', '8000', 'proto', 'tcp', 'comment', 'nexloop-rest-server'] in runner.calls
+    code, text, runner = main(root, config, stdin='', runner=Runner(root, digest=digest, ufw=ufw))
+    assert code == 0 and 'already present' in text and ufw.rules == {RULE: 'nexloop-rest-server'}, text
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    code, text, runner = main(root, config, '--uninstall', stdin='', runner=Runner(root, digest=digest, ufw=ufw))
+    assert code == 0 and ufw.rules == {} and 'its ufw rule' in text, text
+    assert [*R.UFW_RUN, 'delete', 'allow', 'from', APP, 'to', DATA, 'port', '8000', 'proto', 'tcp'] in runner.calls
+
+
+def test_the_rule_the_owner_added_by_hand_is_kept_not_doubled(tmp_path):
+    root, config, digest = setup(tmp_path)
+    with_ufw(root)
+    ufw = Ufw(rules={RULE: 'nexloop-rest-server', ('198.51.100.7', DATA, '22', 'tcp'): 'ssh'})
+    code, text, _ = main(root, config, runner=Runner(root, digest=digest, ufw=ufw))
+    assert code == 0 and 'already present' in text and len(ufw.rules) == 2, text
+
+
+def test_an_inactive_ufw_gets_no_rule_but_uninstall_still_deletes_one(tmp_path):
+    root, config, digest = setup(tmp_path)
+    with_ufw(root)
+    ufw = Ufw(active=False)
+    code, text, runner = main(root, config, runner=Runner(root, digest=digest, ufw=ufw))
+    assert code == 0 and 'ufw installed but inactive: no rule added' in text and ufw.rules == {}, text
+    assert not any(c[:4] == [*R.UFW_RUN, 'allow'] for c in runner.calls)
+    ufw.rules[RULE] = 'nexloop-rest-server'  # added while ufw was active once: an inactive ufw keeps it
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    code, text, _ = main(root, config, '--uninstall', stdin='', runner=Runner(root, digest=digest, ufw=ufw))
+    assert code == 0 and ufw.rules == {}, text
+
+
+def test_without_ufw_no_ufw_command_runs(tmp_path):
+    root, config, digest = setup(tmp_path)
+    code, text, runner = main(root, config, digest=digest)
+    assert code == 0 and 'ufw not installed: no rule' in text
+    assert not any(c[:3] == R.UFW_RUN for c in runner.calls)
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    code, text, runner = main(root, config, '--uninstall', stdin='', digest=digest)
+    assert code == 0 and not any(c[:3] == R.UFW_RUN for c in runner.calls)
+
+
+def test_a_rule_ufw_does_not_list_afterwards_fails_before_the_server_starts_and_one_left_fails_uninstall(tmp_path):
+    root, config, digest = setup(tmp_path)
+    with_ufw(root)
+    code, text, runner = main(root, config, runner=Runner(root, digest=digest, ufw=Ufw(lie=True)))
+    assert code == 1 and 'not listed by ufw status' in text, text
+    assert ['systemctl', 'enable', R.UNIT] not in runner.calls
+    assert main(root, config, stdin='', runner=Runner(root, digest=digest, ufw=Ufw()))[0] == 0
+    os.unlink(root / 'srv/nexloop-rest/restic/config')
+    code, text, _ = main(root, config, '--uninstall', stdin='', runner=Runner(root, digest=digest, ufw=Ufw(rules={RULE: 'nexloop-rest-server'}, lie=True)))
+    assert code == 1 and 'still lists the rule' in text, text
+
+
+@pytest.mark.parametrize('line, listed', [
+    (f'{DATA} 8000/tcp   ALLOW   {APP}   # nexloop-rest-server', True),
+    (f'{DATA} 8000/tcp   ALLOW   {APP}   # nexloop-rest-server-old', False),
+    (f'{DATA} 8000/tcp   ALLOW   {APP}', False),
+    (f'{DATA} 8001/tcp   ALLOW   {APP}   # nexloop-rest-server', False),
+    (f'{DATA} 8000/tcp   DENY    {APP}   # nexloop-rest-server', False),
+    (f'{DATA} 8000/tcp   ALLOW   Anywhere   # nexloop-rest-server', False),
+    (f'{APP} 8000/tcp   ALLOW   {DATA}   # nexloop-rest-server', False),  # from DATA_HOST to APP_HOST: the columns are To, Action, From
+    (f'{DATA} 8000/tcp ALLOW {APP} extra # nexloop-rest-server', False),
+])
+def test_the_rule_is_read_back_by_its_addresses_port_action_and_comment(line, listed):
+    assert R.ufw_listed('Status: active\n' + line + '\n', {'APP_HOST_ADDR': APP, 'DATA_HOST_ADDR': DATA}, 8000) is listed
+
+
+@pytest.mark.parametrize('status', ['ERROR: You need to be root to run this script\n', '', 'Status: activated\n', '状态：激活\n',
+                                    'ERROR: could not read the inactive profile\n'])
+def test_a_ufw_status_neither_active_nor_inactive_fails_before_the_server_starts(tmp_path, status):
+    root, config, digest = setup(tmp_path)
+    with_ufw(root)
+    code, text, runner = main(root, config, runner=Runner(root, digest=digest, ufw=Ufw(status=status)))
+    assert code == 1 and 'neither active nor inactive' in text and ['systemctl', 'enable', R.UNIT] not in runner.calls, text

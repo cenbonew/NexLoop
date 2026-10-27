@@ -46,15 +46,16 @@ def trust_root_at_tmp_path(tmp_path, monkeypatch):
 
 
 class Runner:
-    def __init__(self, answer=None, exit_code=0, guard_code=0, rest_server='active'):
+    def __init__(self, answer=None, exit_code=0, guard_code=0, rest_server='active', guard=GUARD_OK):
         self.calls, self.answer, self.exit_code, self.guard_code, self.rest_server = [], answer, exit_code, guard_code, rest_server
+        self.guard = guard
 
     def __call__(self, command, *, check=True):
         self.calls.append(list(command))
         if command[0] == 'systemd-run' and any(a.endswith('restic_future_guard.py') for a in command):
             if self.guard_code and check:
                 raise R.Failed(f'systemd-run exited {self.guard_code}')
-            return GUARD_OK + '\n'
+            return self.guard + '\n'
         if command[0] == 'systemd-run':
             if self.exit_code and check:  # as R.run: a non-zero exit is a failure when checked
                 raise R.Failed(f'systemd-run exited {self.exit_code}')
@@ -355,3 +356,40 @@ def test_the_files_repository_arguments_are_checked(tmp_path):
     os.unlink(tmp_path / 'usr/bin/systemctl')
     code, text, runner = main(path, *args, systemctl=False)
     assert code == 2 and '/usr/bin/systemctl missing' in text and path.read_text() == DEPLOYED
+
+
+EMPTY = json.dumps({'future': [], 'ok': True, 'snapshots': 0, 'unreadable': 0})
+
+
+@pytest.mark.parametrize('answer', ['', '\n', 'null\n', '[]\n', 'Applying Policy: keep 1 monthly snapshots and all within 14d\n'])
+def test_an_empty_files_repository_has_nothing_to_remove_and_gets_its_block(tmp_path, answer):
+    """DATA_HOST 2026-10-27: the run sheet adds the block before APP_HOST's first backup, so the files repository is empty; restic
+    0.18.0 forget --json prints no JSON without a group. With the guard's count 0 and exit 0 that is "no snapshot", not a failure."""
+    repo, password, common = files_setup(tmp_path)
+    path = unit(tmp_path)
+    code, text, runner = main(path, '--files-repo', str(repo), '--files-password-file', str(password), runner=Runner(answer, guard=EMPTY))
+    assert code == 0, text
+    assert text.count('preview repo1: no snapshot') == 1 and text.count('preview files: no snapshot') == 1
+    assert path.read_text().count(f'ExecStart={common} {R.NEW}\n') == 1 and ['systemctl', 'daemon-reload'] in runner.calls
+    # the guard's JSON line is its last one, as printed after "guard: "
+    code, text, _ = main(unit(tmp_path / 'again'), runner=Runner(answer, guard='a line before it\n' + EMPTY))
+    assert code == 0 and text.count('guard: ' + EMPTY) == 2, text
+
+
+@pytest.mark.parametrize('guard, answer, exit_code', [
+    (GUARD_OK, '', 0),                                  # snapshots there, but no answer: as before, a failure
+    (GUARD_OK, 'null\n', 0),
+    (json.dumps({'ok': True}), '', 0),                   # a guard line without its count proves nothing
+    (json.dumps({'ok': True, 'snapshots': '0'}), '', 0),
+    (json.dumps({'ok': True, 'snapshots': False}), '', 0),  # False == 0 in Python: the count must be an int
+    ('', '', 0),
+    (EMPTY, '', 1),                                     # empty, but restic failed (a lock held 10 minutes, a wrong password)
+    (EMPTY, 'Fatal: wrong password or no key found\n', 0),
+    (EMPTY, '{"not": "a list"}\n', 0)])
+def test_an_empty_answer_counts_as_no_snapshot_only_after_a_guard_count_of_0_and_exit_0(tmp_path, guard, answer, exit_code):
+    repo, password, common = files_setup(tmp_path)
+    path = unit(tmp_path)
+    code, text, runner = main(path, '--files-repo', str(repo), '--files-password-file', str(password),
+                              runner=Runner(answer, exit_code=exit_code, guard=guard))
+    assert code == 1 and 'nothing written' in text and path.read_text() == DEPLOYED, text
+    assert ['systemctl', 'daemon-reload'] not in runner.calls
