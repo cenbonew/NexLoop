@@ -45,17 +45,27 @@
 ```
 BF=$(sudo -n mktemp -d /dev/shm/nexloop-backfill.XXXXXX)
 S="$NEXLOOP_ROOT/secrets"
-sudo -n install -o 10001 -g 10001 -m 0600 <树>/setup/relation-backfiller-credential "$BF/service-credential"
+# 凭据：管理机经 scp 送到 APP_HOST 的中转副本 $CRED_COPY（0600），install 之后立即删除
+sudo -n install -o 10001 -g 10001 -m 0600 "$CRED_COPY" "$BF/service-credential" && rm -f -- "$CRED_COPY"
 sudo -n install -o 10001 -g 10001 -m 0600 "$S/retention-keeper/pg-client.crt" "$BF/pg-client.crt"
 sudo -n install -o 10001 -g 10001 -m 0600 "$S/retention-keeper/pg-client.key" "$BF/pg-client.key"
 sudo -n install -o 10001 -g 10001 -m 0600 "$S/shared/db-ca.crt" "$BF/db-ca.crt"
 sudo -n install -o 10001 -g 10001 -m 0600 "$S/shared/signing.key" "$BF/signing.key"
+# DSN：只把三个证书路径改到 $BF，写入同一 tmpfs 上的临时文件，再 install 到位；内容不打印
+TMPDSN=$(sudo -n mktemp /dev/shm/nexloop-bf-dsn.XXXXXX)
+sudo -n sed -E -e "s#sslcert=[^ ]+#sslcert=$BF/pg-client.crt#" -e "s#sslkey=[^ ]+#sslkey=$BF/pg-client.key#" \
+  -e "s#sslrootcert=[^ ]+#sslrootcert=$BF/db-ca.crt#" "$S/retention-keeper/dsn" | sudo -n tee "$TMPDSN" >/dev/null
+sudo -n install -o 10001 -g 10001 -m 0600 "$TMPDSN" "$BF/dsn" && sudo -n rm -f -- "$TMPDSN"
+sudo -n grep -c -E "sslcert=$BF/pg-client.crt|sslkey=$BF/pg-client.key|sslrootcert=$BF/db-ca.crt" "$BF/dsn"   # 预期 1（三项在同一行）
+sudo -n grep -o -E "ssl(cert|key|rootcert)=[^ ]+" "$BF/dsn"   # 只看三条路径，都在 $BF 下
 sudo -n chown 10001:10001 "$BF"
 ```
 
+- 这里假定 DSN 是 libpq 的 `key=value` 形式（stage_secrets 生成的就是这种）。如果三条 grep 不符（例如是 URI 形式 `?sslcert=…&…`），停下，不要手工改。
+
 - 这个主体在库里的角色是 `nexloop_domain_worker`，retention keeper 也是。用 retention keeper 的那一组 DSN 和证书。
-- 凭据文件来自管理机的树，用 `scp` 等私有通道送到 APP_HOST，送到后立即删除中转副本。
-- **DSN**：复制 `$S/retention-keeper/dsn`，只改三个路径，改成 `$BF` 中副本的绝对路径：`sslcert=$BF/pg-client.crt`、`sslkey=$BF/pg-client.key`、`sslrootcert=$BF/db-ca.crt`。其余不变。结果写入 `$BF/dsn`，属主 10001，0600。
+- 凭据文件来自管理机的树，用 `scp` 送到 APP_HOST 的私有目录（中转副本 `$CRED_COPY`），`install` 之后立即 `rm`（见命令块）。
+- **DSN**：由上面的 sed 改写 `$S/retention-keeper/dsn` 的三条证书路径，其余不变。
   - 容器里 `$BF` 挂在同一路径（`-v "$BF:$BF:ro"`），所以 DSN 中的路径在宿主和容器里都成立。
   - DSN 内容不进命令行、不打印。
 - **通过条件**：`sudo -n ls -ln "$BF"` 中 6 个文件都是 10001、`-rw-------`。
@@ -63,6 +73,7 @@ sudo -n chown 10001:10001 "$BF"
 ## 第 8–13 步：回填（APP_HOST，release 52 的 backend 镜像）
 
 ```
+test -n "$SIGNING_KEY_ID" || { echo 'SIGNING_KEY_ID 为空：停止'; exit 1; }   # 为空就停下，不用缺省值
 APPNET=$(docker compose -p <应用 compose 项目名> ps -q app-net)
 BFRUN="--rm --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --network container:$APPNET -v $BF:$BF:ro --entrypoint python"
@@ -113,21 +124,55 @@ bf() { docker run $BFRUN "$BACKEND_IMAGE" -m nexloop_eios.relation_backfill $BFA
   - 同一 cursor 上 55P03 / 40001 / 40P01 的 retry 累计超过 20 次。
 - **`code=connection`**：重试 5 次后 runner 退出（非 0）。先 `bf status --run-id <run>` 再决定，不要直接重跑。
 - **0323 写请求 p95**：
-  - 读法：工作台指标页的 API 写类 p95（`api.classes.write.p95_ms`，5 分钟窗口）和写类 `calls`。也就是告警规则 `api_read_p95_high` 读的那份快照中的 write 类；数据库里没有更细的 per-route 数据。
+  - 读法：下面“0323 写类 p95 与 calls 的读取”的 5 分钟快照命令（metrics DSN，只读），读 `write.p95_ms` 与 `write.calls`。
   - 回填前的基线：第 9 步之前 15 分钟内读 3 次，取中位数。
   - 运行中：每 5 分钟读一次。比基线高出 25% 以上，或者超过 500 ms，就中止。
   - **写类 `calls` 在该 5 分钟窗口内少于 20 时，p95 不作判据。** stage 没有真实流量，样本太少，p95 只是噪声。这时只看前三条，并在证据里注明“p95 样本不足”。
 
-## 第 5 步 relay 门槛在没有样本时怎么判（建议，由 L6 定）
+## 第 5 步的判定（L6 2026-10-28 定）
 
-现状：24 h 窗口内 `relation_derive_timing.py relay` 只有 `authenticate` 有样本。`goal_create`、`step_create`、`assignment_create` 三步在输出里根本没有键：`authz.nexloop_relation_relay_p95` 只对有样本的步骤输出。这三步正是派生要跟随的写入。
+以 `NX-054-stage-publish.md` §4 的门槛表为准：
 
-建议：
+- relay `goal_create`、`step_create`、`assignment_create`：stage 上无样本（`relation_derive_timing.py relay` 的输出里没有这三个键），记为“**无样本，不可判定**”，作为限制记录在案；P4b 上 real 之前按绝对值重测。
+- (a) sim 生成墙钟、(b) 擦除 `sync_purge_seconds`：派生状态比空闲状态增加都不超过 25%。
+- (c) 0323 写类 p95：发布前 24 h 与发布后 24 h 对比，增加不超过 10 ms。
+  - 前提：两边写类 `calls` 都不少于 200。不足时记为“不可判定”，不阻塞。
+  - 样本充足而增加超过 10 ms：判 FAIL，不回填，执行 §5 回退。
+- relay `authenticate` 的 `p95_ms_median` 前后变化超过 10 ms 时，在 (c) 的结论里注明“环境漂移，结论打折”。
 
-1. 这三步记为“**无样本，不可判定**”，不能记为通过。§4 的“增加不超过 10 ms”在两边都没有数时无从比较。
-2. 第 5 步的通过与否，由 sim 墙钟（对照组）、擦除 `sync_purge_seconds`（≤ 25%）两项决定。另加一项**替代判据**：发布前后各 24 h，0323 写类 p95 的增加不超过 10 ms。它覆盖经 API 写入的 Goal、PlanStep、Assignment，同样走派生触发器。前提是两边写类 `calls` 都足够（例如每个 24 h 窗口不少于 200 次），否则这一项也记为“不可判定”。
-3. `authenticate` 不写派生跟随的对象，只作噪声对照：它的 `p95_ms_median` 前后变化超过 10 ms，说明环境本身在漂移，第 2 条的数字要打折看。
-4. 留作限制写进证据：P4b 上 real 之前，有真实会话样本后，再取一次这三步的 p95，按绝对值对照（没有发布前的基线）。
+## 0323 写类 p95 与 calls 的读取（DATA_HOST，只读）
+
+**5 分钟快照（metrics DSN）**：用于回填中的中止判据。`nexloop_metrics` 只能执行 `authz.nexloop_metrics_export()`，它返回的是当前 5 分钟窗口。`$COMMON`、`$RUN` 同 `NX-054-stage-publish.md` §0。
+
+```
+docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" -c \
+  "import json,psycopg; c=psycopg.connect(open('/run/metrics-dsn').read().strip(),autocommit=True); s=c.execute('select authz.nexloop_metrics_export()').fetchone()[0]; print(json.dumps(((s[0].get('api') or {}).get('classes') or {}).get('write')))"
+```
+
+- 输出形如 `{"calls": …, "p50_ms": …, "p95_ms": …, "error_rate": …, "slow_rate": …}`。
+- API 段与租户、world 无关（进程级样本），所以取第一个快照即可。
+- 输出 `null` 表示窗口内没有写请求。
+
+**24 h 窗口（第 5 步 (c) 用）**：metrics DSN **读不到**。没有授予它按任意窗口读 API 样本的函数（0336 的 `nexloop_relation_relay_p95` 只读 `relay_step`），而 export 只有当前 5 分钟。所以改用 `run-nx057-remediation-stage.md` §0.3 的只读 owner 会话 `ro`：
+
+- 经 bootstrap socket 登录，`begin read only`，`set local role nexloop_owner`，最后 rollback；
+- 口令经 Keychain 管道，同该单。
+
+按与快照相同的口径，合并窗口内各分钟样本的直方图，再取 0.95 分位：
+
+```
+ro "with s as (select sample from runtime.nexloop_process_samples where kind='api' and service='write'
+      and recorded_at>='<since ISO>' and recorded_at<'<until ISO>'),
+  h as (select e.key,sum(e.value::numeric) n from s cross join lateral jsonb_each_text(s.sample) e where e.key ~ '^h_[0-9]+\$' group by e.key)
+ select json_build_object('calls',(select coalesce(sum((sample->>'calls')::numeric),0) from s),
+  'samples',(select count(*) from s),
+  'p95_ms',runtime.nexloop_histogram_quantile((select coalesce(jsonb_object_agg(key,n),'{}'::jsonb) from h),0.95))"
+```
+
+- 发布前：`<since>` 为发布前 24 h，`<until>` 为发布时刻；发布后：`<since>` 为发布时刻，`<until>` 为发布后 24 h。
+- 输出第一行是 `set_config` 返回的租户 ID，第二行是结果。
+- 样本保留 7 天，发布前的窗口现在仍可读。
+- 这条查询只读、没有在 stage 上执行过；第一次请先用一个 5 分钟窗口试跑，与快照命令的结果对照。
 
 ## 第 14 步：收尾（顺序很重要）
 

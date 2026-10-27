@@ -114,8 +114,11 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 | --- | --- |
 | 擦除 `sync_purge_seconds` | 派生状态比空闲状态增加不超过 25% |
 | sim 生成墙钟 | 派生状态比空闲状态增加不超过 25%（对照组，应当几乎不变） |
-| real 各 relay 步骤的 `p95_ms_median` | 增加不超过 10 ms |
+| real 0323 写类 p95（发布前、后各 24 h，读法见 `docs/release/run-nx054-s8-backfill.md` “0323 写类 p95 与 calls 的读取”） | 增加不超过 10 ms；前提是两边写类 `calls` 都不少于 200，样本不足记为“不可判定”，不阻塞；样本充足而增加超过 10 ms 判 FAIL：不回填，执行第 5 步回退 |
+| real relay `goal_create` / `step_create` / `assignment_create` 的 `p95_ms_median` | stage 上无样本：记为“无样本，不可判定”，作为限制记录在案；P4b 上 real 之前按绝对值重测 |
 
+- relay `authenticate` 只作噪声对照：它的 `p95_ms_median` 前后变化超过 10 ms 时，在 0323 写类 p95 一项的结论里注明“环境漂移，结论打折”。
+- 第 5 步的判定由 L6 于 2026-10-28 定为上表（原先 relay 三步的门槛因无样本无从比较）。
 - 超过门槛时，按 P2 §3 的顺序优化（P-3 缓存派生映射，P-4 集合化），**或者执行第 5 步回退**。
 - 两次擦除的样本很少，`request_to_completion_seconds` 又由 keeper 的调度间隔主导，所以以 `sync_purge_seconds` 为准。数字记入证据。
 
