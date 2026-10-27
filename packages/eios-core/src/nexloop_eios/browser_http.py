@@ -415,6 +415,14 @@ def _oidc_routes(routes,config,*,cookie,services,resolver,response):
         result.set_cookie(cookie,issued.session_token.get_secret_value(),secure=True,httponly=True,samesite='strict',path='/')
         return result
     from psycopg.types.json import Jsonb
+    @routes.get('/oidc/providers')
+    def oidc_providers(request:Request):
+        # The login page's SSO buttons (and the members page's link form): id and display name only; empty while SSO is off.
+        if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)
+        try:client=client_for(request)
+        except Exception:return response('dependency_unavailable',503)
+        providers=[] if client is None else [{'provider_id':p.provider_id,'display_name':p.display_name or p.provider_id} for p in client.providers.values()]
+        return JSONResponse({'providers':providers},headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
     @routes.get('/oidc/start')
     def oidc_start(request:Request):
         if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)

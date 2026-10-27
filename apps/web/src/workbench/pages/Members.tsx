@@ -14,6 +14,7 @@ import {DataTable} from '../DataTable';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
 import {IdText} from '../kit';
+import {SsoLinkControls} from '../SsoLink';
 
 export const MEMBER_STATUS_TEXT:Record<MemberRow['member_status'],string>={active:'在用',suspended:'已停用',invited:'待接受',revoked:'已撤销'};
 const ROLE_TEXT:Record<string,string>={owner:'owner',operator:'运营',reviewer:'审核'};
@@ -107,6 +108,7 @@ function Controls({member,row,members}:{member:Me;row:MemberRow;members:MemberRo
     {kinds.includes('revoke')?<Reasoned member={member} operation="revoke_workbench_member" title="撤销成员" row={row}
       note={<p className="impact-summary" role="note">影响：撤销授权、移出配置、会话失效；账号保留，个人数据需另行发起擦除。</p>}/>:null}
     {kinds.includes('issue_reset')?<IssueReset member={member} row={row} owner={false}/>:null}
+    <SsoLinkControls member={member} row={row}/>
     {kinds.includes('promote')?<Reasoned member={member} operation="promote_workbench_member" title="提升为 owner" row={row} note={gated} ready={!blocked}/>:null}
     {kinds.includes('demote')?<Demote member={member} row={row} note={gated} blocked={blocked}/>:null}
     {kinds.includes('suspend_owner')?<Reasoned member={member} operation="suspend_workbench_owner" title="停用这位 owner" row={row} note={gated} ready={!blocked}/>:null}

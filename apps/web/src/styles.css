@@ -479,3 +479,8 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 .workbench .value-full{white-space:pre-wrap;overflow-wrap:anywhere;max-width:40rem}
 .workbench .name-main{display:block;font-weight:600}
 .workbench .count-item{margin-right:var(--space-3)}
+/* NX-058 slice F: the login card's SSO links look like the secondary button (same tokens; aligned with the shared button tones once merged). */
+.workbench-login .sso-login{display:grid;gap:var(--space-2);margin-top:16px}
+.workbench-login .sso-login a.button{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid var(--border);border-radius:9px;
+  color:inherit;text-decoration:none;font-weight:600}
+.workbench-login .sso-login a.button:hover{background:var(--hover)}

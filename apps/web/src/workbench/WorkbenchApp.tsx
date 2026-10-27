@@ -22,6 +22,7 @@ import {Approvals} from './pages/Approvals';
 import {Members} from './pages/Members';
 import {ACCOUNT_PATHS,AccountSecurity,InvitationPage,ResetNotice,ResetPage} from './AccountPages';
 import {GOVERNED_SLOTS,type Slots} from './actions';
+import {WorkbenchSso} from './SsoLink';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
 export type ActionSlots=Slots;
@@ -35,6 +36,8 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
     <div className="field"><label htmlFor="wb-password">密码</label><input id="wb-password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     {mutation.isError?<p className="error" role="alert">{kindOf(mutation.error)==='unauthenticated'?'账号或密码不正确。':STATE_TEXT[kindOf(mutation.error)]}</p>:null}
     <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form>
+    {/* NX-058 slice F: shown only when a provider is configured. */}
+    <WorkbenchSso/>
     <p className="note">忘记口令？请 owner 为你签发重置码，然后<a href="/workbench/reset">用重置码设置新口令</a>。</p></section>;
 }
 

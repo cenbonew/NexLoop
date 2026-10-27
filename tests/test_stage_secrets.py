@@ -502,7 +502,10 @@ def test_identity_token_key_is_generated_and_added_to_an_older_tree(tree, tmp_pa
 
 def test_the_browser_registration_carries_the_reset_completion_rate_policy():
     entries = S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench', seal_digest='a' * 64)
-    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete', 'invitation_accept']
+    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete', 'invitation_accept', 'oidc_start']
+    # NX-058 slice F: the SSO start and callback buckets (per source, each its own); harmless while no provider file is configured.
+    assert {**entries['browser_rate_policies'][3], 'operator_principal_id': None} == {'action': 'oidc_start', 'maximum_attempts': 20, 'window_seconds': 300,
+                                                                                   'operator_principal_id': None, 'active': True}
     assert all(p['operator_principal_id'] == 'nexloop_identity' and p['active'] for p in entries['browser_rate_policies'])
 
 

@@ -569,6 +569,9 @@ LOGIN_RATE = {'action': 'local_login', 'maximum_attempts': 20, 'window_seconds':
 RESET_RATE = {'action': 'password_reset_complete', 'maximum_attempts': 10, 'window_seconds': 300}
 # NX-058 slice A: the workbench invitation acceptance (browser_http invitation/accept) consumes 'invitation_accept' per source.
 INVITE_RATE = {'action': 'invitation_accept', 'maximum_attempts': 10, 'window_seconds': 300}
+# NX-058 slice F: the workbench SSO start and callback (browser_http oidc/start, oidc/callback) consume 'oidc_start' per source, each its
+# own bucket. Registered whether or not SSO is configured: without a provider file both answer 404 sso_unavailable before any limit.
+OIDC_RATE = {'action': 'oidc_start', 'maximum_attempts': 20, 'window_seconds': 300}
 _APP_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 
 
@@ -583,7 +586,7 @@ def browser_entries(*, browser_application_id, workbench_application_id, seal_di
         raise Refused('maximum accounts per application: 1..100')
     apps = [(browser_application_id, webchat_accounts), (workbench_application_id, workbench_accounts)]
     return {'browser_applications': [{'application_id': a, 'active': True} for a, _ in apps],
-            'browser_rate_policies': [{**rate, 'operator_principal_id': 'nexloop_identity', 'active': True} for rate in (LOGIN_RATE, RESET_RATE, INVITE_RATE)],
+            'browser_rate_policies': [{**rate, 'operator_principal_id': 'nexloop_identity', 'active': True} for rate in (LOGIN_RATE, RESET_RATE, INVITE_RATE, OIDC_RATE)],
             'identity_allowances': [{'application_id': a, 'enabled': True, 'maximum_accounts': n, 'operator_label': operator_label,
                                      'idempotency_key_digest': seal_digest} for a, n in apps]}
 

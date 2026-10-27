@@ -22,6 +22,7 @@
 - **没有 vendored 上游 `identity/oidc.py`**：它依赖 `joserfc`（以及间接依赖的 `cryptography`），NexLoop 没有这两个依赖，本任务也不下载新依赖。现在的实现遵循上游的规则（PKCE S256、一次性 state、nonce、JWKS 白名单、HTTPS fail-closed），但不复制它的代码，只支持 RS256。如果以后要支持 ES256 或 PS256，或者想改回 vendoring，需要先引入 `joserfc`，这是负责人的决定。
 - **owner 的绑定**：设计 S5 要求 `link_owner_external` 走审批。本片在受治理入口拒绝 owner 目标，没有新增需要审批的 Action。
 - **邀请时指定“仅限 SSO”**（§5）：没有做。现在的做法是先接受邀请，再由 owner 绑定为 `sso_only`。
+- **成员页不显示绑定状态**：成员读取（0356）不返回绑定，所以每个在用的 operator 和 reviewer 行都提供绑定和解绑，由服务端按 `already_linked` 或 `not_linked` 拒绝。要显示状态，需要扩展成员读取。
 
 ## 部署（默认不启用，启用时再做）
 
@@ -31,7 +32,7 @@
    - 写私有 provider 文件：`{"version":1,"providers":[{"provider_id":…,"issuer":…,"client_id":…,"authorization_endpoint":…,"token_endpoint":…,"jwks_uri":…,"client_secret_file":"/run/secrets/…"}]}`（也可以用 `client_secret_env`）；
    - api 和 api-2 都加参数 `--workbench-oidc-providers-file <路径>`；
    - 在 IdP 上登记回调地址 `<origin>/api/v1/workbench/auth/oidc/callback`；
-   - 注册限速策略 `oidc_start`（operator 为 nexloop_identity）。`stage_secrets.py browser` 还没有这一条，启用时补上，与 `RESET_RATE` 写法相同。缺少这条策略时，两个端点都返回 503（fail closed）。
+   - 限速策略 `oidc_start`（operator 为 nexloop_identity，每个来源 300 秒内 20 次，start 和 callback 各一个桶）已经由 `stage_secrets.py browser` 注册（`OIDC_RATE`）。不配置 provider 时注册它也没有影响：两个端点在限速之前就返回 404。只有配置了 provider、却缺少这条策略时，两个端点才返回 503（fail closed）。
 4. `identity-token.key` 轮换时（片 B 的步骤），正在进行的 SSO 流程会失败，重新点登录即可；已有的绑定不受影响，因为库里存的是 sub 原值。
 
 ## 测试
@@ -54,3 +55,15 @@
 - 反向检查（临时改代码后跑测试，跑完已还原）：
   - 去掉 nonce 比较后，篡改用例失败；
   - 去掉 SQL 里的绑定值比较后，“另一个浏览器持有自己的绑定 cookie”用例失败。第一次反向检查时发现没有这个用例，已经补上。
+
+## 第二批（调度员 10-28）：限速注册与工作台前端
+
+- `scripts/deploy/stage_secrets.py`：`browser_entries` 注册 `OIDC_RATE`（见上文“部署”）；`tests/test_stage_secrets.py` 断言了它的取值。
+- `GET /api/v1/workbench/auth/oidc/providers`（pre-session）：只返回 `provider_id` 和 `display_name`；SSO 未启用时返回空列表。api-routes 清单已登记。
+- 前端：
+  - `apps/web/src/workbench/SsoLink.tsx`：登录卡上的“用 SSO 登录”按钮，只在配置了 provider 时出现。按钮是普通链接，指向 start，所以是顶层导航，不用 fetch。回调失败（`?sso=failed`）时只显示一句提示，不说原因。成员页提供绑定表单（provider、IdP 的 sub、登录方式）和解绑表单，只对在用的 operator、reviewer 显示，且只有持有该 Action 的 owner 能看到。
+  - `WorkbenchApp.tsx` 的登录卡引用它；`Members.tsx` 只加一行引用，以减少与 L9 S1 的冲突。
+  - `api.ts` 新增 `readSsoProviders`（严格解析，失败时当作没有 provider），并在 `OPERATION_ACTION` 中加入两个新 Action；`actions.tsx` 加上两条完成提示。
+  - 样式沿用现有的 token；L9 的 S1（529b7f7d）还没合入，合入后再对齐按钮色调。
+  - 顾客侧的 `Login.tsx` 和 `Account.tsx` 不涉及 SSO，没有改动。
+- 测试：`apps/web/test/workbench-sso.test.ts`（provider 列表严格解析；SSO 按钮的显示条件和链接；失败提示；哪些行有绑定控件；owner、operator 和无 provider 时的表单差异；成员页里的位置）。

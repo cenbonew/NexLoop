@@ -81,6 +81,7 @@ def test_a_linked_member_signs_in_by_sso_and_the_flow_is_one_time(sso, admin):
     owner, operator = c['owner_member'], c['operator_member']
     with TestClient(app(c), base_url=ORIGIN) as client, TestClient(app(c), base_url=ORIGIN) as member:
         csrf = workbench_login(client, owner).json()['csrf_token']
+        assert member.get('/api/v1/workbench/auth/oidc/providers').json() == {'providers': [{'provider_id': 'corp', 'display_name': 'Test IdP'}]}
         linked = link(client, csrf, operator['principal_id'], 'idp-sub-operator')
         assert linked.status_code == 200 and linked.json()['login_mode'] == 'sso_or_password', linked.json()
         started = member.get(START, params={'provider': 'corp'}, follow_redirects=False)
@@ -237,6 +238,7 @@ def test_sso_is_off_without_a_provider_file(sso, admin):
     config = dataclasses.replace(c['config'], workbench=dataclasses.replace(c['config'].workbench, oidc_providers_file=None))
     with TestClient(create_app(config), base_url=ORIGIN) as client:
         assert client.get(START, params={'provider': 'corp'}, follow_redirects=False).status_code == 404
+        assert client.get('/api/v1/workbench/auth/oidc/providers').json() == {'providers': []}
         assert client.get(CALLBACK, params={'state': O.new_state(), 'code': 'x'}, follow_redirects=False).status_code == 404
         csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
         assert link(client, csrf, c['operator_member']['principal_id'], 'idp-sub-operator').json()['details'] == {'reason': 'provider_unknown'}

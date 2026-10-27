@@ -80,6 +80,18 @@ async function accountPost(path:string,body:Record<string,string>,done:string,in
 export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
 /** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
 export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
+/** NX-058 slice F: the configured single sign-on providers (id and display name only); none while SSO is off or unreadable, so the
+ * login card simply shows no SSO button. The start is a top-level navigation (the IdP redirects back), never a fetch. */
+export type SsoProvider={provider_id:string;display_name:string};
+export function ssoProviders(value:unknown):SsoProvider[]{
+  return list(exactKeys(object(value),['providers']).providers).map(x=>{const o=exactKeys(object(x),['provider_id','display_name']);
+    const provider_id=text(o.provider_id);if(!/^[a-z][a-z0-9_-]{0,31}$/.test(provider_id))throw new WorkbenchError('invalid');
+    return {provider_id,display_name:text(o.display_name)};});
+}
+export async function readSsoProviders():Promise<SsoProvider[]>{
+  try{return await get('/api/v1/workbench/auth/oidc/providers',ssoProviders);}catch{return [];}
+}
+export const ssoStartPath=(provider:string)=>'/api/v1/workbench/auth/oidc/start?provider='+encodeURIComponent(provider);
 export async function readWorkbenchSession():Promise<WorkbenchSession|null>{
   try{return await get('/api/v1/workbench/auth/session',session);}catch(error){if(kindOf(error)==='unauthenticated')return null;throw error;}
 }
@@ -523,6 +535,8 @@ export const OPERATION_ACTION={
   resume_workbench_owner:'eios:action:nexloop.workbench_member.resume_owner:1',revoke_workbench_owner:'eios:action:nexloop.workbench_member.revoke_owner:1',
   issue_workbench_owner_reset:'eios:action:nexloop.workbench_member.issue_owner_reset:1',invite_workbench_owner:'eios:action:nexloop.workbench_member.invite_owner:1',
   erase_workbench_member:'eios:action:nexloop.workbench_member.erase_member:1',
+  // NX-058 slice F (owner only): an operator's or reviewer's single sign-on link.
+  link_workbench_external:'eios:action:nexloop.workbench_member.link_external:1',unlink_workbench_external:'eios:action:nexloop.workbench_member.unlink_external:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
