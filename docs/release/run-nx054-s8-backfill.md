@@ -30,11 +30,21 @@
    | 字段 | 情况 A | 情况 B |
    | --- | --- | --- |
    | `changed` | false | true |
-   | `grants_added` | 0 | 1 |
+   | `grants_added` | 0 | ≥ 1（不写死，见下） |
    | `credentials_created` | `[]` | `["relation_backfiller"]` |
-   | `grants_revoked`、`extra_grants_outside_manifest` | 0 | 0 |
+   | `grants_revoked` | 0 | 0 |
+   | `extra_grants_outside_manifest` | 只能是模拟世界凭据（见下） | 同左 |
 
-   - 数字不符就停下：说明库里的授权与清单在这之前已有偏差。
+   - **`grants_added` 不写死**：它是清单中有、库里没有的授权（`missing_grants`），所以按定义都来自清单；上次 register 之后清单若还加过别的授权，这里会一并补上。stage 实测情况 B 为 3。核对：dry-run 的 `grants` 列表就是清单的全部授权；第 4 条的查询中 `relation_backfiller` 只有 1 行；其余新增项要能在 `git diff <上次 register 的提交> <本次 src> -- deploy/authorization/` 中找到。找不到就停下。
+   - **`extra_grants_outside_manifest`**：库里有、但主体不在清单中的授权（stage 实测 6）。核对它们都是模拟世界的 `nexloop-sim-*` 凭据（由 sim_world 签发，不归 register 管）：
+
+     ```
+     ro "select entity_key[1], count(*) from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='grants'
+         and entity_key[1] not like 'nexloop-service-%' group by 1 order by 1"
+     ```
+
+     每一行的主体都应以 `nexloop-sim-` 开头，计数合计等于 `extra_grants_outside_manifest`。出现别的主体就停下报告。register 不会撤销它们（只报告）。
+   - 其余数字不符就停下：说明库里的授权与清单在这之前已有偏差。
    - 被拒为 `credential_rotation_required` 时，不要重试，停下报告。
 4. **核对**：重跑第 1 条的查询，应当有一行，长度为 1。
 
@@ -75,7 +85,7 @@ sudo -n chown 10001:10001 "$BF"
 ```
 test -n "$SIGNING_KEY_ID" || { echo 'SIGNING_KEY_ID 为空：停止'; exit 1; }   # 为空就停下，不用缺省值
 APPNET=$(docker compose -p <应用 compose 项目名> ps -q app-net)
-BFRUN="--rm --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+BFRUN="--rm --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m,mode=0700,uid=10001,gid=10001 \
   --network container:$APPNET -v $BF:$BF:ro --entrypoint python"
 BFARGS="--database-url-file $BF/dsn --signing-key-file $BF/signing.key --signing-key-id $SIGNING_KEY_ID \
   --service-credential-file $BF/service-credential --artifact-root /tmp"
@@ -85,6 +95,7 @@ bf() { docker run $BFRUN "$BACKEND_IMAGE" -m nexloop_eios.relation_backfill $BFA
 - `$BACKEND_IMAGE` 用 release 52 的 backend 镜像 digest，与服务正在运行的镜像相同。
 - `$SIGNING_KEY_ID` 取应用 compose env 中的值。缺省值 `active` 不对。
 - 网络：domain worker 服务都是 `network_mode: service:app-net`。这里用 `--network container:` 加入同一个网络命名空间，因此 APP_HOST 的 nft 规则（按 `APP_CONTAINER_CIDR` 匹配）照样放行到 DATA_HOST 的 PostgreSQL（TLS）。
+- `/tmp` 的 `mode=0700,uid=10001,gid=10001` 不能省：`--artifact-root /tmp` 要求目录归运行账号所有、权限 0700，否则 runner 启动即拒绝（stage 实测）。
 - 连接：只有一条，计入 ADR-037 的 7 个运维预留连接。
 - 前台运行，不加 `-d`。Ctrl-C 经 docker 的信号代理转给 python，runner 在两次调用之间停下：输出 `event=interrupted`，退出码 3。
 - 每条命令的输出都 `| tee -a <证据目录>/<步>.jsonl`。
@@ -112,6 +123,7 @@ bf() { docker run $BFRUN "$BACKEND_IMAGE" -m nexloop_eios.relation_backfill $BFA
   - 每一行 `a == b`、`extra == 0`；
   - `skipped_remaining == 0`；
   - 行中的 relation 都属于 v1 的 25 个，没有 `assessment_evidence`。
+- **对照 preflight**：preflight 的 `report` 列出每个已发布关系（含 `with_value` 为 0 的），verify 只列有 hex 源值的组合，所以 verify 的关系数可以更少。差出来的关系在 preflight 里应当 `with_value`（或 `hex`）为 0；例如 stage 本次 preflight 22 个关系、verify 20 个，差的 `commitment_for_goal`、`supersedes` 两者 `with_value` 都是 0。差出来的关系若 `hex` > 0，就是 verify 漏行，停下报告。
 - `dangling`（目标不存在）和 `erasing`（属于擦除中的 Consumer）照实记录，不计入 `a`，所以不影响平衡。
 
 ## 中止条件与 p95 的对照（第 9–13 步运行期间）
