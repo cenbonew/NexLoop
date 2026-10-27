@@ -99,11 +99,78 @@ RESULT = {'ok': True, 'kind': 'files_artifact', 'backup_id': 'c' * 64, 'verify_s
 MAINT_OK = {'ok': True, 'forget': 'ok', 'removed': 0, 'dry_run': True, 'check': 'not_run'}
 
 
+RUN_ID, EARLIER_ID, OTHER_ID = 'a' * 32, 'b' * 32, '7' * 32
+BOOT = 'e' * 32
+SERVICE_UNIT = 'nexloop-file-backup.service'
+DESCRIPTION = 'NexLoop file backup (Artifacts and finished Run stores, repo1 then repo2)'
+
+
+def entry(i, **fields):
+    """One entry as `journalctl -o json` prints it: every value a string, the cursor's i= its sequence number."""
+    return {'__CURSOR': f's={"5" * 32};i={i:x};b={BOOT};m={i:x};t={1761550000000000 + i:x};x={i:016x}',
+            '__REALTIME_TIMESTAMP': str(1761550000000000 + i), '__MONOTONIC_TIMESTAMP': str(9000000 + i), '_BOOT_ID': BOOT,
+            'PRIORITY': '6', '_HOSTNAME': 'app-host', **fields}
+
+
+def systemd_says(i, invocation, message, message_id):
+    """PID 1's own line about the unit: UNIT= and INVOCATION_ID=, its _SYSTEMD_UNIT init.scope."""
+    return entry(i, _PID='1', _UID='0', _COMM='systemd', _TRANSPORT='journal', _SYSTEMD_UNIT='init.scope', SYSLOG_IDENTIFIER='systemd',
+                 UNIT=SERVICE_UNIT, INVOCATION_ID=invocation, MESSAGE_ID=message_id, MESSAGE=message, CODE_FILE='src/core/unit.c')
+
+
+def run_entries(start, invocation, docs, raw=None):
+    """One run in the journal: systemd's Starting, each ExecStart line's stdout (the JSON as file_backup prints it, with spaces),
+    Deactivated successfully, Finished. raw: {index: MESSAGE value} in place of a line's JSON text (None: that line without
+    _SYSTEMD_INVOCATION_ID)."""
+    lines = [entry(start + 1 + n, _PID=str(4100 + n), _UID='996', _GID='996', _COMM='python3.12', _TRANSPORT='stdout',
+                   _SYSTEMD_UNIT=SERVICE_UNIT, _SYSTEMD_SLICE='system.slice', _SYSTEMD_CGROUP=f'/system.slice/{SERVICE_UNIT}',
+                   _SYSTEMD_INVOCATION_ID=invocation, _STREAM_ID='f' * 32, SYSLOG_IDENTIFIER='python',
+                   MESSAGE=(raw or {}).get(n, json.dumps(doc))) for n, doc in enumerate(docs)]
+    for line in lines:
+        if line['MESSAGE'] is None:  # raw None: this line as journald stores one it has no invocation id for
+            line.update(MESSAGE=json.dumps(docs[lines.index(line)]))
+            del line['_SYSTEMD_INVOCATION_ID']
+    end = start + 1 + len(docs)
+    return ([systemd_says(start, invocation, f'Starting {SERVICE_UNIT} - {DESCRIPTION}...', '7d4958e842da4a758f6c1cdc7b36dcc5')], lines,
+            [systemd_says(end, invocation, f'{SERVICE_UNIT}: Deactivated successfully.', '7ad2d189f7e94e70a38c781354912448'),
+             systemd_says(end + 1, invocation, f'Finished {SERVICE_UNIT} - {DESCRIPTION}.', '39f53479d3a045ac8e11786248231fbf')])
+
+
+def four():
+    return [dict(RESULT, kind=k) for k in ('files_artifact', 'files_artifact')] + \
+        [dict(RESULT, kind='files_runtime', file_count=84, bytes=14065664, listed=84) for _ in range(2)]
+
+
 class Runner:
-    def __init__(self, tmp_path, *, check=None, journal=None, result='success', user_exists=False, drift=True, maint=None):
+    """shown: what `systemctl show -p InvocationID` answers after the run - '' as on APP_HOST 2026-10-27 (the inactive unit was
+    unloaded). The journal holds an earlier run (before the cursor), a host line (the cursor), then this run when started; late: the
+    reads before this run's stdout lines are stored; also: more entries after the cursor; raw: MESSAGE values in place of lines."""
+
+    def __init__(self, tmp_path, *, check=None, journal=None, result='success', user_exists=False, drift=True, maint=None, shown='',
+                 late=0, also=(), raw=None, cursor=True, start_fails=False):
         self.calls, self.tmp_path = [], tmp_path
         self.check, self.journal, self.result, self.user_exists, self.drift = check, journal, result, user_exists, drift
-        self.maint = maint
+        self.maint, self.shown, self.late, self.also, self.raw, self.cursor = maint, shown, late, list(also), raw, cursor
+        self.start_fails = start_fails
+        head, lines, tail = run_entries(10, EARLIER_ID, four())
+        self.entries = head + lines + tail + [entry(100, _PID='812', _COMM='sshd', _TRANSPORT='syslog', _SYSTEMD_UNIT='ssh.service',
+                                                   SYSLOG_IDENTIFIER='sshd', MESSAGE='Connection closed by authenticating user')]
+        self.pending, self.reads = [], 0
+
+    def journalctl(self, command):
+        if command[1:] == ['--sync']:
+            return ''
+        if command[1:] == ['--no-pager', '-q', '-o', 'json', '-n', '1']:
+            return json.dumps(self.entries[-1]) + '\n' if self.cursor else ''
+        assert command[1:7] == ['--no-pager', '-q', '-o', 'json', '-u', SERVICE_UNIT], command
+        self.reads += 1
+        if self.pending and self.reads > self.late:
+            self.entries[-2:-2], self.pending = self.pending, []
+        after = [a.split('=', 1)[1] for a in command[7:] if a.startswith('--after-cursor=')]
+        floor = int(after[0].split(';')[1][2:], 16) if after else -1
+        return ''.join(json.dumps(e) + '\n' for e in self.entries
+                       if int(e['__CURSOR'].split(';')[1][2:], 16) > floor
+                       and SERVICE_UNIT in (e.get('_SYSTEMD_UNIT'), e.get('UNIT'), e.get('OBJECT_SYSTEMD_UNIT'), e.get('COREDUMP_UNIT')))
 
     def __call__(self, command, *, stdin=None, check=True):
         self.calls.append(list(command))
@@ -130,11 +197,19 @@ class Runner:
             if self.check:
                 doc = self.check(doc)
             return '' if doc is None else json.dumps(doc) + '\n'
+        if command == ['systemctl', 'start', SERVICE_UNIT]:
+            head, lines, tail = run_entries(200, RUN_ID, four() if self.journal is None else self.journal, self.raw)
+            self.entries += head + self.also + tail
+            self.pending = lines
+            if not self.late:
+                self.entries[-2:-2], self.pending = self.pending, []
+            if (self.result != 'success' or self.start_fails) and check:
+                raise I.Failed('systemctl exited 1')  # as run() does
+            return ''
         if command[:3] == ['systemctl', 'show', '-p']:
-            return {'InvocationID': 'a' * 32 + '\n', 'Result': self.result + '\n'}[command[3]]
+            return {'InvocationID': self.shown + '\n', 'Result': self.result + '\n'}[command[3]]
         if command[0] == 'journalctl':
-            lines = self.journal if self.journal is not None else [dict(RESULT, kind=k) for k in ('files_artifact', 'files_artifact', 'files_runtime', 'files_runtime')]
-            return 'Starting nexloop-file-backup...\n' + ''.join(json.dumps(x) + '\n' for x in lines)
+            return self.journalctl(command)
         if command[:2] == ['systemctl', 'list-unit-files']:
             return 'nexloop-provider-drift.timer enabled enabled\n' if self.drift else ''
         return ''
@@ -194,8 +269,11 @@ def main(root, config, *args, runner=None, stdin=STDIN, asked=None, tmp_path=Non
         I.root_owned(path, what=what, owners=OWNERS, **kw)
 
     code = I.main([config, *args], stdin=io.StringIO(stdin), out=out, runner=runner, root=root, trust=trust,
-                  trust_python=functools.partial(I.interpreter_owned, owners=OWNERS), account=account)
+                  trust_python=functools.partial(I.interpreter_owned, owners=OWNERS), account=account, sleep=slept.append)
     return code, out.getvalue(), runner
+
+
+slept = []
 
 
 def secret_free(text, runner):
@@ -329,6 +407,82 @@ def test_an_unverified_run_does_not_enable_the_timer(tmp_path, journal, result):
     root, config = setup(tmp_path)
     code, text, runner = main(root, config, runner=Runner(tmp_path, journal=journal, result=result))
     assert code == 1 and 'not verified' in text and not any(c[:2] == ['systemctl', 'enable'] for c in runner.calls)
+
+
+def test_the_run_is_read_from_the_journal_by_its_own_invocation_when_systemctl_no_longer_shows_it(tmp_path):
+    """APP_HOST 2026-10-27: four verified lines in the journal, `systemctl show -p InvocationID` empty after the run (the unit
+    unloaded), the installer reported "success, 0 of 4 lines". The invocation now comes from the journal after the cursor."""
+    root, config = setup(tmp_path)
+    slept.clear()
+    code, text, runner = main(root, config, runner=Runner(tmp_path))
+    assert code == 0, text
+    assert 'run runtime/repo2: {"absent": 0, "check": "ok", "file_count": 84, "listed": 84, "restic": "ok", "skipped": {}, "verify_status": "verified"}' in text
+    journal = [c for c in runner.calls if c[0] == 'journalctl']
+    cursor = runner.entries[[e['_COMM'] for e in runner.entries].index('sshd')]['__CURSOR']
+    start = runner.calls.index(['systemctl', 'start', SERVICE_UNIT])
+    assert runner.calls[start - 1] == ['journalctl', '--no-pager', '-q', '-o', 'json', '-n', '1']  # the cursor, read before the start
+    assert journal[1:] == [['journalctl', '--sync'],
+                           ['journalctl', '--no-pager', '-q', '-o', 'json', '-u', SERVICE_UNIT, f'--after-cursor={cursor}']]
+    assert slept == [] and any(c[:3] == ['systemctl', 'enable', '--now'] for c in runner.calls)
+
+
+@pytest.mark.parametrize('runner, why', [
+    # the earlier run's four verified lines lie before the cursor: this run's three are not enough
+    (dict(journal=[dict(RESULT)] * 3), '3 of 4 lines of ' + RUN_ID),
+    # no cursor (an empty journal answer): the earlier run is read too - two invocations, nothing counted
+    (dict(cursor=False), '0 of 4 lines of 2 invocations'),
+    # a second run during this one (a timer of an earlier install)
+    (dict(also=run_entries(150, OTHER_ID, four())[1]), '0 of 4 lines of 2 invocations'),
+    # systemctl does show an invocation, and it is not the journal's
+    (dict(shown=OTHER_ID), f'0 of 4 lines of {RUN_ID}, but systemctl shows {OTHER_ID}'),
+    # the run failed: systemctl start nonzero, whatever the lines say
+    (dict(result='exit-code'), 'exit-code, systemctl start failed, 4 of 4 lines'),
+    # systemctl start nonzero (its job failed or was cancelled) though the unit shows success and four lines are there
+    (dict(start_fails=True), 'success, systemctl start failed, 4 of 4 lines'),
+    # a line of the unit that journald stored without the invocation id is not counted, and is named
+    (dict(raw={1: None}), f'3 of 4 lines of {RUN_ID}, 1 of its lines without _SYSTEMD_INVOCATION_ID'),
+    # a JSON object that is not one of the four results is one line too many
+    (dict(journal=four() + [{'kind': 'files_runtime'}]), '5 of 4 lines of ' + RUN_ID),
+    # a line that is not this unit's JSON result
+    (dict(raw={2: 'Traceback (most recent call last):'}), '3 of 4 lines of ' + RUN_ID),
+])
+def test_only_this_runs_own_invocation_after_the_cursor_counts(tmp_path, runner, why):
+    root, config = setup(tmp_path)
+    code, text, runner = main(root, config, runner=Runner(tmp_path, **runner))
+    assert code == 1 and why in text and 'timer not enabled' in text, text
+    assert not any(c[:2] == ['systemctl', 'enable'] for c in runner.calls)
+
+
+def test_journalds_own_line_about_the_unit_is_not_a_second_run(tmp_path):
+    """`journalctl -u` matches OBJECT_SYSTEMD_UNIT= too: journald's rate-limit line carries journald's own invocation."""
+    suppressed = entry(205, _PID='301', _UID='0', _COMM='systemd-journal', _TRANSPORT='driver', _SYSTEMD_UNIT='systemd-journald.service',
+                       _SYSTEMD_INVOCATION_ID=OTHER_ID, OBJECT_SYSTEMD_UNIT=SERVICE_UNIT, OBJECT_PID='4101', MESSAGE_ID='a596d6fe7bfa4994828e72309e95d61e',
+                       MESSAGE='Suppressed 12 messages from nexloop-file-backup.service')
+    root, config = setup(tmp_path)
+    code, text, runner = main(root, config, runner=Runner(tmp_path, also=[suppressed]))
+    assert code == 0 and text.count('"verify_status": "verified"') == 4, text
+
+
+def test_a_shown_invocation_that_is_the_journals_and_lines_in_any_json_spacing_or_as_bytes_are_read(tmp_path):
+    root, config = setup(tmp_path)
+    docs = four()
+    raw = {0: json.dumps(docs[0], separators=(',', ':')), 1: json.dumps(docs[1], indent=None, sort_keys=True),
+           3: list(json.dumps(docs[3]).encode())}  # journalctl -o json: a byte array for a MESSAGE it does not print as text
+    code, text, runner = main(root, config, runner=Runner(tmp_path, shown=RUN_ID, raw=raw))
+    assert code == 0 and text.count('"verify_status": "verified"') == 4, text
+
+
+@pytest.mark.parametrize('late, ok', [(3, True), (I.JOURNAL_READS, False)])
+def test_lines_journald_stores_late_are_waited_for_a_bounded_time(tmp_path, late, ok):
+    root, config = setup(tmp_path)
+    slept.clear()
+    code, text, runner = main(root, config, runner=Runner(tmp_path, late=late))
+    reads = [c for c in runner.calls if c[0] == 'journalctl' and '-u' in c]
+    syncs = [c for c in runner.calls if c == ['journalctl', '--sync']]
+    assert (code == 0) is ok, text
+    assert len(reads) == len(syncs) == (late + 1 if ok else I.JOURNAL_READS) and slept == [1] * (len(reads) - 1)
+    if not ok:
+        assert '0 of 4 lines of ' + RUN_ID in text
 
 
 def test_missing_repo2_files_and_foreign_entries_in_secrets_backup(tmp_path):

@@ -135,7 +135,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
 | 2 | 用户（以前 sftp 版本可能留下的 `~/.ssh` 文件会被删除）；发布目录 `/opt/nexloop/file-backup/<sha>/`：执行者的四个模块、unit 入口 `file_backup_run.py`、沙箱自检 `file_backup_sandbox_check.py`、两个 unit 模板，只读；`current` 指向 `<sha>`。restic 从配置给出的归档解压到 `/opt/nexloop/file-backup/restic-<版本>/restic`（root，0555）；归档的 sha256 必须等于发布提交里 `versions.lock.json` 的 `deployment_tools.restic.archive_sha256`，否则拒绝，什么都不写 |
 | 3 | `secrets/backup`：`recorder.dsn`（hostssl，`verify-full`，CA 复制为同目录的 `pg-ca.crt`）、repo1 的仓库文件（`rest:https://…`，见 §6.5）和口令文件，都是 0600、属于服务用户；`pg-ca.crt` 和 `rest-ca.crt`（stage CA bundle）0600、属 root。目录 root 0700（§6.7）。这个目录里如果有清单之外的任何文件，就拒绝（D3：沙箱能看到整个目录） |
 | 4 | `/etc/nexloop/file-backup.env`（0600 root）。保留 `install_repo2_secrets.sh` 写的 `FILE_BACKUP_REPO2_OPTIONS`。从发布中安装 unit 和 timer，填入 `@PYTHON@`、`@RESTIC@`、`@MDWE@`，然后 `daemon-reload` |
-| 5 | **D3 沙箱验证**：用 `systemd-run` 以 unit 自己 `[Service]` 的全部设置运行自检（同一用户、同一能力、同一挂载）。通过条件：两个数据目录和本 unit 自己的文件可读；`/srv/nexloop` 只显示 `data`、`secrets`；`secrets` 只显示 `backup`；`data` 只显示 `artifacts`、`runtime`；unit 的每个 `InaccessiblePaths=` 以及 `/srv/nexloop`、`secrets`、`data` 下的其余条目都看不到内容（不存在、被拒，或读出为空，即 `InaccessiblePaths` 挂上的空节点）；两个句柄系统调用 `open_by_handle_at`、`name_to_handle_at` 都被过滤（返回 EPERM；L6 F1：持有 `CAP_DAC_READ_SEARCH` 的进程可以借这两个调用，从任一可见 fd 打开同一文件系统上的任意 inode，绕过上面所有遮挡，即 shocker 类逃逸，所以 unit 用 `SystemCallFilter=~open_by_handle_at name_to_handle_at` 禁掉它们）；restic 是锁定的版本；两个仓库都能用口令打开（`cat config`）。`repo2_init` 为 true 时，仓库不存在才执行一次 `restic init`；repo1 从不初始化。然后真实运行一次 service，四条 ExecStart 都必须是 `verified`。任何一项不通过，timer 都不启用 |
+| 5 | **D3 沙箱验证**：用 `systemd-run` 以 unit 自己 `[Service]` 的全部设置运行自检（同一用户、同一能力、同一挂载）。通过条件：两个数据目录和本 unit 自己的文件可读；`/srv/nexloop` 只显示 `data`、`secrets`；`secrets` 只显示 `backup`；`data` 只显示 `artifacts`、`runtime`；unit 的每个 `InaccessiblePaths=` 以及 `/srv/nexloop`、`secrets`、`data` 下的其余条目都看不到内容（不存在、被拒，或读出为空，即 `InaccessiblePaths` 挂上的空节点）；两个句柄系统调用 `open_by_handle_at`、`name_to_handle_at` 都被过滤（返回 EPERM；L6 F1：持有 `CAP_DAC_READ_SEARCH` 的进程可以借这两个调用，从任一可见 fd 打开同一文件系统上的任意 inode，绕过上面所有遮挡，即 shocker 类逃逸，所以 unit 用 `SystemCallFilter=~open_by_handle_at name_to_handle_at` 禁掉它们）；restic 是锁定的版本；两个仓库都能用口令打开（`cat config`）。`repo2_init` 为 true 时，仓库不存在才执行一次 `restic init`；repo1 从不初始化。然后真实运行一次 service，四条 ExecStart 都必须是 `verified`（这次运行的 invocation 和它的四行从日志里取，见 §6.8）。任何一项不通过，timer 都不启用 |
 | 6 | 在两个 host-health 文件里加 `file-backup`；`nexloop-provider-drift.timer` 已安装时也加上 `provider-drift`（APP_HOST 的探针配置原来缺这一项）。然后 `systemctl enable --now nexloop-file-backup.timer` |
 
 **`InaccessiblePaths=` 是黑名单**（L6 S1）：第 5 步只能证明列出的路径被遮住，不能证明 APP_HOST 上没有遗漏。现有的密钥位置都已覆盖：`/srv/nexloop/secrets`（由 TemporaryFileSystem 遮住）、`/etc/nexloop`、`/var/lib/nexloop`、`/var/lib/nexloop-host-health`、`/etc/pgbackrest`；`/root` 和 `/home` 由 ProtectHome 遮住。**以后在 APP_HOST 的 `/srv/nexloop` 之外新增任何密钥位置，都要同时加进这个 unit 的 `InaccessiblePaths=`**，第 5 步随后也会检查它。
@@ -185,7 +185,7 @@ nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root 
   - 沙箱自检脚本和 unit 入口真实运行，restic 用一个替身脚本。
 - `tests/test_file_backup_data_host.py`：DATA_HOST 第 1a 步，同样在临时根目录下用脚本化的 runner 运行（没有容器）；包括 `--uninstall` 清理以前 sftp 部件，以及重复执行的幂等性。
 - 变异验证：APP_HOST 安装器和自检脚本共 40 个变异，DATA_HOST 入口 23 个变异，全部被测试杀死。
-- **未覆盖**：没有在真实 systemd 下运行，也没有用真实的 restic、rest-server 或 PostgreSQL。真机上的保障是 DATA_HOST 的只追加验证（§6.5）和 APP_HOST 第 5 步当场验证：两个仓库都能打开，探针快照删不掉，真实运行四条都是 verified。验证不通过，timer 就不启用。
+- **未覆盖**：没有在真实 systemd 下运行，也没有用真实的 restic、rest-server 或 PostgreSQL。真机上的保障是 DATA_HOST 的只追加验证（§6.5）和 APP_HOST 第 5 步当场验证：两个仓库都能打开，探针快照删不掉，真实运行四条都是 verified。验证不通过，timer 就不启用。systemd 和 journald 的行为（unit 卸载、日志字段、异步写入）只在模拟器里按真实格式复现，APP_HOST 第一次跑通第 5 步之前仍未经主机验证（§6.8）。
 
 ### 6.4 文件 repo2 的每日维护（`nexloop-file-backup-maint`；调度员 2026-10-26 定方案甲）
 
@@ -477,3 +477,39 @@ release 51（main 83c096e5）的部署门禁是 19/21，多出来的一项失败
 - 附带的好处：在这个 unit 以外、以服务用户身份运行的进程（例如 `runuser`）读不到这些秘密。
 
 **不在本次范围**：DATA_HOST 的 `secrets/rest-server`（root 0711，`server.chain.crt` 0644）和 `secrets/files-repo`（root 0711），布局与这里的旧布局相同。目前只有 APP_HOST 的门禁（`deploy-gate.app.example.json`）运行 `secret_distribution`，所以它们不会触发。rest-server unit 以 `nexloop-backup` 身份运行，没有任何能力，不能照搬 0700 的做法。以后如果给 DATA_HOST 加门禁，要另行处理。
+
+### 6.8 第 5 步怎样认出"这一次运行"（调度员 2026-10-27，release 52）
+
+release 52（main 933bc1a2）在 APP_HOST 重装时，第 5 步的最后一项失败：`the service run is not verified (success, 0 of 4 lines; …)`。同一次运行在 `journalctl -u nexloop-file-backup.service` 里有四行 JSON，全部 `"verify_status": "verified"`，unit 也是 `Deactivated successfully`，所以备份本身成功了，错在安装器认运行的方式。
+
+**原因（推断，没有上主机复核）**：旧做法是运行结束后用 `systemctl show -p InvocationID` 取 id，再按 `_SYSTEMD_INVOCATION_ID=<id>` 查日志。按空格匹配不是原因，旧代码本来就逐行 `json.loads`。问题出在取 id 这一步：
+- 这是个 oneshot，运行完就回到 inactive。此时两个 timer 都还没启用，没有任何东西引用它，systemd 会把它卸载。
+- 之后的 `systemctl show` 看到的是重新加载出来的 unit，InvocationID 为空，Result 是默认的 `success`。
+- id 为空，旧代码就不查日志，于是得到 `0 of 4 lines`，而 Result 恰好显示 `success`。
+- 测试里的模拟器以前总是回答一个 id，所以没有暴露。按真实格式改写模拟器后，旧代码在测试中给出与主机上一字不差的报错。
+
+**做法**：
+1. 启动前用 `journalctl -n 1 -o json` 取最后一条日志的游标；
+2. `systemctl start`（oneshot，运行结束才返回，任何一条 ExecStart 失败都会非零退出）；
+3. 先 `journalctl --sync`，再读 `journalctl -u nexloop-file-backup.service -o json --after-cursor=<游标>`。每行按 JSON 解析成日志条目，从中收集这个 unit 的 invocation id：
+   - unit 自己的输出行看 `_SYSTEMD_INVOCATION_ID`；
+   - systemd 关于它的行（Starting / Deactivated successfully / Finished）看 `UNIT=`、`INVOCATION_ID=`；
+   - journald 和 systemd-coredump 关于它的行（`OBJECT_SYSTEMD_UNIT=`、`COREDUMP_UNIT=`）带的是它们自己的 id，不计入。
+4. 必须恰好一个 invocation。如果 `systemctl show` 还能给出 id，它必须与日志里的一致。
+5. 取这个 invocation 的行，对每条的 `MESSAGE` 做 `json.loads`，与空格、键序无关；`MESSAGE` 是字节数组（日志认为不可打印时）也能解析。
+
+**通过条件**：`systemctl start` 成功，Result 为 `success`，恰好四个 JSON 对象，每个都是 `ok: true` 且 `verified`。
+
+**等待**：journald 是异步写入的。行数不足时最多读 10 次（`JOURNAL_READS`），每次间隔 1 秒，每次之前都 `--sync`。
+
+**以下情况仍然失败**：
+- 游标之前的旧运行不计入；
+- 读不到游标时，会读到旧运行，结果是两个 invocation，失败；
+- 运行期间另有一次运行（例如上一次安装启用的 timer 触发），同样是两个 invocation，失败；
+- unit 自己的行如果没有 `_SYSTEMD_INVOCATION_ID`，不计入，报错里写明有几行，方便直接去看日志。
+
+**测试**：`test_file_backup_install.py` 的模拟器改成真实的 `journalctl -o json` 条目：值全是字符串，带游标，有 PID 1 的 Starting/Deactivated/Finished 行，run 的 JSON 带空格。`systemctl show` 默认回答空 id，与 APP_HOST 一致。新测试覆盖：
+- APP_HOST 这次的情形；
+- 游标、两个 invocation、id 不一致、start 失败、多出一个 JSON 对象、缺 id 的行、journald 自己的行；
+- 紧凑或排序过的 JSON、字节数组；
+- 迟到的行（等到即通过；等满 10 次仍没有则失败）。

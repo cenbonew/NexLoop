@@ -60,7 +60,8 @@ Steps (each idempotent):
     showing data and secrets only, secrets only backup, every InaccessiblePaths= entry and every other secret hidden, both handle
     system calls refused with EPERM (L6 F1: the capability would otherwise open any inode past those mounts), restic the
     pinned version, both repositories open (repo2 initialised when repo2_init); repo2's maintenance once with --dry-run in its own
-    unit's sandbox (ok, nothing removed); then one real run of the service, all four ExecStart lines verified. Any of these
+    unit's sandbox (ok, nothing removed); then one real run of the service, all four ExecStart lines verified (its one invocation and
+    its lines found in the journal after a cursor taken before the start, each line parsed as JSON). Any of these
     failing disables both timers before the run stops (L6 S2: a rerun leaves nothing of an earlier install running on it)
   6 file-backup, file-backup-maint (and provider-drift, when its timer is installed here) in both host-health files (both or
     neither), then `systemctl enable --now nexloop-file-backup.timer nexloop-file-backup-maint.timer`
@@ -83,6 +84,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 SCHEMA = 'nexloop-file-backup-install/1'
@@ -123,6 +125,7 @@ ENTRIES = {'file-backup': {'name': 'file-backup', 'timer': TIMER, 'service': SER
            'provider-drift': {'name': 'provider-drift', 'timer': 'nexloop-provider-drift.timer', 'service': 'nexloop-provider-drift.service'}}
 RUNS = ('artifact/repo1', 'artifact/repo2', 'runtime/repo1', 'runtime/repo2')  # the unit's ExecStart order
 SANDBOX_SKIP = {'Type', 'ExecStart', 'ExecStartPre', 'ExecStartPost', 'TimeoutStartSec'}
+JOURNAL_READS = 10  # real_run: journald writes a unit's output asynchronously
 OPTIONS = re.compile(r'FILE_BACKUP_REPO2_OPTIONS=--s3-bucket-lookup (auto|dns|path)')
 
 
@@ -663,26 +666,97 @@ def check_sandbox(root, config, service, restic_version, runner, out):
     return len(hidden)
 
 
-def real_run(runner, out):
-    """One run of the service itself (all four ExecStart lines); each line's JSON result read back from its invocation's journal."""
-    runner(['systemctl', 'start', SERVICE], check=False)
-    invocation = runner(['systemctl', 'show', '-p', 'InvocationID', '--value', SERVICE], check=False).strip()
-    result = runner(['systemctl', 'show', '-p', 'Result', '--value', SERVICE], check=False).strip()
-    lines = runner(['journalctl', '--no-pager', '-o', 'cat', f'_SYSTEMD_INVOCATION_ID={invocation}'], check=False) if re.fullmatch(r'[0-9a-f]{32}', invocation) else ''
-    results = []
-    for line in lines.splitlines():
+def journal_entries(text):
+    """The entries of `journalctl -o json` (one JSON object a line); a line that is not one is skipped."""
+    entries = []
+    for line in text.splitlines():
         try:
-            doc = json.loads(line)
+            entry = json.loads(line)
         except ValueError:
             continue
-        if type(doc) is dict and 'ok' in doc:
+        if type(entry) is dict:
+            entries.append(entry)
+    return entries
+
+
+def message_of(entry):
+    """An entry's MESSAGE as text: `journalctl -o json` gives a byte array instead of a string for one that is not printable UTF-8."""
+    message = entry.get('MESSAGE')
+    if type(message) is list and all(type(b) is int and 0 <= b < 256 for b in message):
+        return bytes(message).decode('utf-8', 'replace')
+    return message if type(message) is str else ''
+
+
+def invocations(entries):
+    """SERVICE's invocation ids in these entries: its processes' lines carry _SYSTEMD_INVOCATION_ID, systemd's own lines about it
+    (Starting, Deactivated successfully, Finished) UNIT= and INVOCATION_ID=. `journalctl -u` also returns journald's and
+    systemd-coredump's lines about the unit (OBJECT_SYSTEMD_UNIT=, COREDUMP_UNIT=): their _SYSTEMD_INVOCATION_ID is their own."""
+    ids = set()
+    for entry in entries:
+        if entry.get('_SYSTEMD_UNIT') == SERVICE and entry.get('_SYSTEMD_INVOCATION_ID'):
+            ids.add(entry['_SYSTEMD_INVOCATION_ID'])
+        if entry.get('UNIT') == SERVICE and entry.get('INVOCATION_ID'):
+            ids.add(entry['INVOCATION_ID'])
+    return ids
+
+
+def run_results(entries, invocation):
+    """The JSON result lines of that invocation's processes (an invocation id is one unit's), in journal order (the ExecStart
+    order); each MESSAGE parsed as JSON, whatever its spacing."""
+    results = []
+    for entry in entries:
+        if entry.get('_SYSTEMD_INVOCATION_ID') != invocation:
+            continue
+        try:
+            doc = json.loads(message_of(entry))
+        except ValueError:
+            continue
+        if type(doc) is dict:  # each ExecStart prints its one result; any other JSON object fails the count
             results.append(doc)
+    return results
+
+
+def real_run(runner, out, sleep=time.sleep):
+    """One run of the service itself (all four ExecStart lines), read back from the journal. APP_HOST 2026-10-27: the run ends with
+    the oneshot unit inactive and, both timers disabled, nothing referencing it - systemd unloads it, and `systemctl show` then
+    answers a freshly loaded unit's empty InvocationID (and default Result): the journal query by that id found 0 of 4 lines of a run
+    whose four lines were all verified. So the invocation is taken from the journal itself: SERVICE's entries after a cursor read
+    before the start must all be of one invocation (a shown InvocationID, when there is one, the same), and that invocation's lines
+    are read as `journalctl -o json` entries, each MESSAGE parsed with json.loads. journald stores a unit's output asynchronously:
+    each read follows `journalctl --sync`, up to JOURNAL_READS reads one second apart."""
+    last = journal_entries(runner(['journalctl', '--no-pager', '-q', '-o', 'json', '-n', '1'], check=False))
+    cursor = last[-1].get('__CURSOR') if last else None
+    try:
+        runner(['systemctl', 'start', SERVICE])  # a oneshot: returns when the run has ended, nonzero when a line failed
+        started = True
+    except Failed:
+        started = False
+    shown = runner(['systemctl', 'show', '-p', 'InvocationID', '--value', SERVICE], check=False).strip()
+    result = runner(['systemctl', 'show', '-p', 'Result', '--value', SERVICE], check=False).strip()
+    query = ['journalctl', '--no-pager', '-q', '-o', 'json', '-u', SERVICE] + ([f'--after-cursor={cursor}'] if type(cursor) is str and cursor else [])
+    for attempt in range(JOURNAL_READS):
+        if attempt:
+            sleep(1)
+        runner(['journalctl', '--sync'], check=False)
+        ids = invocations(entries := journal_entries(runner(query, check=False)))
+        invocation = next(iter(ids)) if len(ids) == 1 else None
+        results = run_results(entries, invocation) if invocation else []
+        if not started or len(ids) > 1 or len(results) >= len(RUNS):
+            break
     for label, doc in zip(RUNS, results):
         print(f'run {label}: ' + json.dumps({k: doc.get(k) for k in ('verify_status', 'file_count', 'listed', 'skipped', 'absent', 'restic', 'check', 'error')
                                              if k in doc}, sort_keys=True), file=out)
-    if result != 'success' or len(results) != len(RUNS) or not all(d.get('ok') is True and d.get('verify_status') == 'verified' for d in results):
-        raise Failed(f'the service run is not verified ({result or "no result"}, {len(results)} of {len(RUNS)} lines; '
-                     f'journalctl -u {SERVICE}): timer not enabled')
+    which = invocation or (f'{len(ids)} invocations' if ids else 'no invocation')
+    unmarked = sum(1 for e in entries if e.get('_SYSTEMD_UNIT') == SERVICE and not e.get('_SYSTEMD_INVOCATION_ID'))
+    if unmarked:  # the unit's own lines with no invocation id: not counted, named so that the journal can be looked at
+        which += f', {unmarked} of its lines without _SYSTEMD_INVOCATION_ID'
+    if re.fullmatch(r'[0-9a-f]{32}', shown) and invocation and shown != invocation:
+        which = f'{invocation}, but systemctl shows {shown}'
+        results = []
+    if (not started or result != 'success' or len(results) != len(RUNS)
+            or not all(d.get('ok') is True and d.get('verify_status') == 'verified' for d in results)):
+        raise Failed(f'the service run is not verified ({result or "no result"}' + ('' if started else ', systemctl start failed')
+                     + f', {len(results)} of {len(RUNS)} lines of {which}; journalctl -u {SERVICE}): timer not enabled')
 
 
 def timers_of(value, nested, path):
@@ -769,7 +843,7 @@ def preflight(root, config, trust, trust_python):
     foreign_secrets(root)
 
 
-def install(root, config, secrets, runner, out, trust, trust_python):
+def install(root, config, secrets, runner, out, trust, trust_python, sleep=time.sleep):
     step = lambda n, text: print(f'step {n}: {text}', file=out, flush=True)  # noqa: E731
     preflight(root, config, trust, trust_python)
     version, binary = restic_binary(config, runner)
@@ -794,7 +868,7 @@ def install(root, config, secrets, runner, out, trust, trust_python):
     try:
         hidden = check_sandbox(root, config, service, version, runner, out)
         maint_dry_run(root, config, maint, version, runner, out)
-        real_run(runner, out)
+        real_run(runner, out, sleep)
     except Failed as error:
         # L6 S2: a rerun whose gate fails leaves no timer of an earlier install running on what failed the gate.
         runner(['systemctl', 'disable', '--now', TIMER, MAINT_TIMER], check=False)
@@ -852,7 +926,7 @@ def uninstall(root, config, runner, out):
 
 
 def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'), trust=root_owned, trust_python=interpreter_owned,
-         account=pwd.getpwnam):
+         account=pwd.getpwnam, sleep=time.sleep):
     p = argparse.ArgumentParser(description='NX-035 file backup install on APP_HOST (steps 2-6, root, one command)')
     p.add_argument('config')
     mode = p.add_mutually_exclusive_group()
@@ -868,7 +942,7 @@ def main(argv=None, stdin=sys.stdin, out=sys.stdout, runner=run, root=Path('/'),
         elif a.prepare:
             prepare(root, config, runner, out, trust)
         else:
-            install(root, config, read_secrets(stdin), runner, out, trust, trust_python)
+            install(root, config, read_secrets(stdin), runner, out, trust, trust_python, sleep)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2
