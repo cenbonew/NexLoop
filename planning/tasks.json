@@ -3467,6 +3467,12 @@
         "ref": "91233ea5",
         "summary": "No new deliveries after E3 semantic pool wiring; AT-023, AT-024, AT-048 and S6-R1/R2/R5/R7 stage runs still missing. Checked by L2, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/S6-stage-acceptance.md",
+        "summary": "更正笔误：2026-10-21 与 2026-10-26 两条 note 中的“S6-R1、R2、R5、R7”应为“S6-R1、R5、R7”；S6-R2 在仓库中没有定义（仓库只定义 S6-R1、R3–R7）。原证据保留不改。更正人：L4；判定人：调度员。",
+        "recorded_at": "2026-10-28T20:00:00+08:00"
       }
     ]
   },
