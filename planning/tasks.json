@@ -4554,7 +4554,7 @@
       "M23"
     ],
     "deliverable": "审计记录哈希链与校验、审计导出附带校验；不外送外部安全平台；校验密钥放私有配置；不改已发布审计表",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -4579,6 +4579,12 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "stage 校验运行卡与一键入口已合入（main 17aa74c1）；stage 执行待 2026-10-28。执行人：调度员（合入）；判定：未开始。",
         "recorded_at": "2026-10-28T09:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "NX-059 stage 验收于 2026-10-28 06:4x 完成：带密钥校验 valid（213 条，5 个封印）；导出离线校验 valid；两边比对一致。剩余项（stage 带密钥校验与导出校验）均已完成，任务 done；运行卡另有两处后续修正交 L2，不影响验收。执行人：调度员；判定人：L6（PASS）。",
+        "recorded_at": "2026-10-28T15:00:00+08:00"
       }
     ]
   },
