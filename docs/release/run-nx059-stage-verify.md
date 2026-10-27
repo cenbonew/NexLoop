@@ -12,7 +12,8 @@ NX-059 的审计哈希链（迁移 0320）已经在 stage 上运行，DATA_HOST 
   - 工具 `scripts/ops/audit_chain.py`：子命令 `verify`、`export`、`verify-export`，参数见 §4；
   - 模块 `packages/eios-core/src/nexloop_eios/audit_chain.py`；
   - 迁移 `0320_audit_hash_chain.sql`：四张表、库内函数 `runtime.nexloop_audit_chain_verify(text)` 和 `runtime.nexloop_audit_chain_export(text,bigint,integer)`，都属 `nexloop_owner`，不授权给应用角色。
-  - main 前进后，§0 P4 的前置检查会自动比对 DATA_HOST 上那两个文件的 sha256 与本机检出：不一致就停，不发送密钥。
+  - 私有文件读取 `packages/eios-core/src/nexloop_eios/private_configuration.py`（工具读密钥和 DSN 都经过它）。
+  - main 前进后，第 0 步的前置检查会自动比对 DATA_HOST 上这三个文件的 sha256 与本机检出：不一致就停，不发送密钥。
 - **入口**：`scripts/ops/audit_chain_stage_verify.py`（新增）。
   - 它在 DATA_HOST 的一次性后端容器里调用上面这个**未改动**的工具，所以不需要重新部署镜像；
   - 配置文件示例是 `deploy/examples/audit-chain-stage-verify.example.json`；
@@ -26,7 +27,7 @@ NX-059 的审计哈希链（迁移 0320）已经在 stage 上运行，DATA_HOST 
 | P1 | release 50（main 575859f7）已经在 stage 部署，迁移 0320 在库里 | 部署单；只读会话 `ro "select 1 from control.schema_migrations where version='0320'"`（`ro` 见 run-nx057 §0.3），返回 1 |
 | P2 | 封印定时任务在跑：最近一次封印不早于 20 分钟前 | `ro "select max(sealed_at), now()-max(sealed_at) from runtime.nexloop_audit_chain_seals where tenant_id='$TENANT_ID'"`，第二列 < 00:20:00。超过 20 分钟时先查定时任务（§5 F1），本单不代替它封印 |
 | P3 | 密钥在管理机钥匙串里，条目 `nexloop/stage/audit-seal-key`，账户 `nexloop` | `security find-generic-password -a nexloop -s nexloop/stage/audit-seal-key >/dev/null && echo present`（不加 `-w`，不显示值） |
-| P4 | DATA_HOST 上的 `$RUN/src` 是 575859f7 的打包，属主 999；`$RUN/boot.dsn` 是 `nexloop_bootstrap` 的本地 socket DSN，属主 999、权限 0600 | `stat -c '%u %a' $RUN/boot.dsn` 预期 `999 600`。`$RUN/src` 的做法同 run-assembly §0.4；两个文件的 sha256 由入口在第 0 步自动比对 |
+| P4 | DATA_HOST 上的 `$RUN/src` 是 575859f7 的打包，属主 999；`$RUN/boot.dsn` 是 `nexloop_bootstrap` 的本地 socket DSN，属主 999、权限 0600 | `stat -c '%u %a' $RUN/boot.dsn` 预期 `999 600`。`$RUN/src` 的做法同 run-assembly §0.4；三个文件的 sha256 由入口在第 0 步自动比对 |
 | P5 | 管理机有 575859f7 的检出，`python3` ≥ 3.12；离线校验只用标准库 | `git -C <检出> rev-parse HEAD` 为 575859f7；`python3 -c 'import sys;print(sys.version_info>=(3,12))'` 输出 True |
 | P6 | 到 DATA_HOST 的 ssh 免交互，用平时部署的身份，该身份能运行 `docker run` | `ssh -o BatchMode=yes <data_host> docker version --format '{{.Server.Version}}'` 有版本号输出 |
 
@@ -34,7 +35,7 @@ NX-059 的审计哈希链（迁移 0320）已经在 stage 上运行，DATA_HOST 
 
 | 步骤 | 机器 | 身份 | 密钥 |
 |---|---|---|---|
-| 0 前置：比对 DATA_HOST 上的工具和模块 | DATA_HOST，一次性容器 | 容器 UID 999；不连库 | 不用 |
+| 0 前置：比对 DATA_HOST 上的工具、模块和私有文件读取 | DATA_HOST，一次性容器 | 容器 UID 999；不连库 | 不用 |
 | 1 带密钥校验 | DATA_HOST，一次性容器：`--network none --read-only --user 999:999 --cap-drop ALL`，只读挂载 `$RUN/src`、PG socket 目录、`$RUN/boot.dsn` | 库：`nexloop_bootstrap`（超级用户，经 PG 容器本地 socket），与封印定时任务和其他数据主机工具相同 | 钥匙串 → 管道 → 入口进程 → ssh 的 stdin → 容器的 stdin → 容器 tmpfs 中的 `/tmp/seal.key`（0600，属主 999）。校验结束就删除，不落 DATA_HOST 的磁盘，不出现在命令行参数里 |
 | 2 导出 | DATA_HOST，同样的容器，另加一个 tmpfs `/export` | 同上 | 不用 |
 | 3 离线校验 | 负责人管理机 | 本机用户 | 写进本机私有临时目录中的文件（0600），进程结束时删除 |
@@ -55,7 +56,7 @@ NX-059 的审计哈希链（迁移 0320）已经在 stage 上运行，DATA_HOST 
 | `nexloop_root` | 部署单的 `$NEXLOOP_ROOT`；PG socket 在 `$NEXLOOP_ROOT/run/postgresql` |
 | `backend_image` | release 50 的后端镜像，必须带 digest（`name@sha256:…`），与发布清单一致 |
 | `tenant_id` | stage 租户 |
-| `out_dir` | 管理机上已有的私有目录（`local-only/evidence/…`），0700 |
+| `out_dir` | 管理机上已有的私有目录，属主是本人，权限 0700。解析符号链接之后，必须在检出根目录的 `local-only/` 下，或者在检出之外（例如 `~/.nexloop/` 下）。工作区里其他会被 git 跟踪的路径一律拒绝（入口的 `load()` 会检查） |
 
 字段多一个、少一个，或者镜像不带 digest，入口都会拒绝（退出码 2）。
 
@@ -85,7 +86,7 @@ security find-generic-password -a nexloop -s nexloop/stage/audit-seal-key -w \
 
 | 行 | 预期 |
 |---|---|
-| `{"step":"preflight","ok":true,"files":[…]}` | 两个文件与本机检出相同 |
+| `{"step":"preflight","ok":true,"files":[…]}` | 三个文件与本机检出相同 |
 | `{"step":"verify","tenant_id":…,"valid":true,"entries":N,"pruned":P,"pending":Q,"head_seq":H,"seals":S,"problems":[]}` | `valid` 为 true；`problems` 为空；`head_seq = entries = N`；`seals` ≥ 1。`pending` 可以大于 0：这是上次封印以后才写入的审计行，下一轮定时任务会把它们追加进链 |
 | `{"step":"export","directory":…,"entries":N2,"head_seq":H2,"files":{…}}` | `N2 ≥ N`、`H2 ≥ H`（两步之间定时任务可能追加了新行） |
 | `{"step":"offline","tenant_id":…,"valid":true,"entries":N2,"pruned":P2,"seals":S2,"problems":[]}` | `valid` 为 true；`S2 ≥ S` |
@@ -114,7 +115,7 @@ security find-generic-password -a nexloop -s nexloop/stage/audit-seal-key -w \
 
 | 现象 | 含义 | 处理 |
 |---|---|---|
-| 退出码 2，`preflight … release_tree_differs` | DATA_HOST 的 `$RUN/src` 不是 575859f7（至少这两个文件不同） | 按 P4 重新打包，或者用匹配的检出重跑；这时还没有发送密钥 |
+| 退出码 2，`preflight … release_tree_differs` | DATA_HOST 的 `$RUN/src` 不是 575859f7（至少这三个文件中有一个不同） | 按 P4 重新打包，或者用匹配的检出重跑；这时还没有发送密钥 |
 | 退出码 2，`… release_tree_unreadable` / `verify_unavailable` / `export_unavailable`，`error` 是异常类名或 docker 的报错 | ssh、docker 或连库失败（例如 `OperationalError` 表示 socket 或 DSN 有问题，`PermissionError` 表示 DSN 文件属主或权限不对） | 按 P4、P6 查。不是链的问题，不判 failed，修好后重跑 |
 | 导出步骤报 tmpfs 挂载错误 | 该 docker 版本不支持 tmpfs 的 `uid=`/`gid=` 选项 | 记下 docker 版本交回 L2；不要改成在 DATA_HOST 磁盘上导出 |
 | `verify` 的 `problems` 中有 `link_broken`、`sequence_gap`、`head_mismatch` | 链本身被改过（条目被删、插入或重算） | 判 failed。停止，保留现场，报负责人 |
@@ -129,3 +130,9 @@ security find-generic-password -a nexloop -s nexloop/stage/audit-seal-key -w \
 ## 6. 回退
 
 本单只读，没有需要回退的写入。执行完把 `out_dir` 中的导出目录留在 `local-only/` 下作为私有证据；判定之后是否删除，由负责人决定。
+
+## 7. 局限
+
+- **管理机上的密钥临时文件可能残留**：离线校验时，密钥写在 `tempfile.TemporaryDirectory()` 下的 `seal.key`（0600，只有本人可读）。入口正常结束、出错或被 Ctrl-C 中断时都会删除；但如果进程被 SIGKILL（例如 `kill -9`、强行关闭终端会话），这个目录会留下。执行后可以检查系统临时目录里有没有 `tmp*/seal.key`，有就删除（`rm -P` 或 `shred -u`）。
+- **tmpfs 可能被换出到 swap**：DATA_HOST 上容器的 `/tmp` 和 `/export` 是 tmpfs，内存紧张时其中的页（包括密钥文件和导出的审计行原文）可能被换出到 swap，留在磁盘上。本单不解决这个问题；如果 DATA_HOST 的 swap 没有加密，执行本单就要接受这项风险。
+- **docker 段未在本机实测**：测试是在本机直接运行容器里的脚本，没有经过 docker 和 ssh。tmpfs 的 `uid=`/`gid=` 选项在第 0 步前置检查时会首先用到（`/tmp`）；导出用的 `/export` 若报挂载错误，按 §5 处理。

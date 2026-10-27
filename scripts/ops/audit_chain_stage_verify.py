@@ -6,7 +6,7 @@ machine. The seal key comes from the macOS Keychain on stdin and is never an arg
     | python3 scripts/ops/audit_chain_stage_verify.py --config <file>         (add --dry-run to print the plan only)
 
 Steps (every database step runs on DATA_HOST in a one-shot backend container as UID 999, as the other data-host tools):
-  0  preflight   the release tree on DATA_HOST ($RUN/src) has the same audit chain tool and module as this checkout
+  0  preflight   the release tree on DATA_HOST ($RUN/src) has the same audit chain tool, module and private file reader as this checkout
   1  verify      scripts/ops/audit_chain.py verify --key-file <tmpfs file> --tenant T: the database's verification plus every seal's MAC;
                  the key reaches the container on stdin and lives only in its tmpfs (/tmp, 0600, owned by 999)
   2  export      audit_chain.export of the tenant into the container's tmpfs, streamed back as a tar into a new local directory;
@@ -35,6 +35,7 @@ SCHEMA = 'nexloop-audit-chain-stage-verify/1'
 FIELDS = {'schema', 'data_host', 'run_dir', 'nexloop_root', 'backend_image', 'tenant_id', 'out_dir'}
 TOOL = 'scripts/ops/audit_chain.py'
 MODULE = 'packages/eios-core/src/nexloop_eios/audit_chain.py'
+PRIVATE = 'packages/eios-core/src/nexloop_eios/private_configuration.py'  # load_keys and the DSN reader
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 KEY_LINE = re.compile(r'[0-9a-f]{64}')
 
@@ -75,7 +76,24 @@ def load(path):
             raise Stop(f'configuration: {name}')
     if not config['backend_image'].count('@sha256:') == 1:
         raise Stop('configuration: backend_image must be pinned by digest (name@sha256:...)')
+    config['out_dir'] = private_out_dir(config['out_dir'])
     return config
+
+
+def private_out_dir(value):
+    """The export holds audit row texts: its directory (resolved) is under this checkout's local-only/ or outside the checkout, never
+    another path of the work tree that git could track; an existing directory owned by this user with no group or other access."""
+    path = pathlib.Path(os.path.realpath(pathlib.Path(value).expanduser()))
+    root = pathlib.Path(os.path.realpath(ROOT))
+    if path.is_relative_to(root) and not path.is_relative_to(root / 'local-only'):
+        raise Stop('configuration: out_dir must be under local-only/ or outside the checkout (the export holds audit row texts)')
+    try:
+        info = path.stat()
+    except OSError:
+        raise Stop('configuration: out_dir must be an existing directory') from None
+    if not path.is_dir() or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise Stop('configuration: out_dir must be a directory owned by this user, mode 0700')
+    return str(path)
 
 
 def docker(config, script, *args, tmpfs_export=False):
@@ -122,8 +140,8 @@ def main(argv=None):
         tenant, dry = config['tenant_id'], args.dry_run
         key = b'' if dry else read_key()
         # 0 preflight: the same tool and module on DATA_HOST as in this checkout (the commands below were checked against it).
-        local = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in (TOOL, MODULE)}
-        code, out, _ = remote(config, docker(config, DIGEST, TOOL, MODULE), dry=dry)
+        local = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in (TOOL, MODULE, PRIVATE)}
+        code, out, _ = remote(config, docker(config, DIGEST, TOOL, MODULE, PRIVATE), dry=dry)
         if not dry:
             found = dict(reversed(line.split(' ', 1)) for line in out.decode().splitlines() if ' ' in line)
             if code != 0 or found != local:

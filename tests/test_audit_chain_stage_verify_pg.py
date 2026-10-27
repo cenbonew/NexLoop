@@ -4,6 +4,7 @@ tree (release tree = this checkout, bootstrap DSN = the admin DSN): the key goes
 offline verification and the agreement checks run as on the management machine. A tampered row, a wrong key and a release tree that
 differs are each reported; the key is never printed; the configuration is strict. Synthetic tenants and audit rows."""
 import json
+import os
 import pathlib
 import shlex
 import subprocess
@@ -85,6 +86,7 @@ def test_a_clean_chain_verifies_on_the_host_and_offline(chained, local_host, tmp
     assert (by['verify']['entries'], by['verify']['seals'], by['export']['entries'], by['offline']['seals']) == (5, 1, 5, 1)
     assert by['summary']['agreement_problems'] == [] and pathlib.Path(by['export']['directory'], 'manifest.json').is_file()
     assert [c['stdin'] for c in local_host] == [False, True, False]
+    assert by['preflight']['files'] == sorted([S.TOOL, S.MODULE, S.PRIVATE])
     assert key_text(chained).strip() not in out.out + out.err
 
 
@@ -152,3 +154,31 @@ def test_an_export_behind_the_verified_head_is_a_disagreement(chained, local_hos
     summary = steps[-1]
     assert code == 1 and summary['step'] == 'summary' and not summary['valid']
     assert summary['agreement_problems'] == ['export_behind_verified_head', 'export_has_fewer_seals']
+
+
+@pytest.fixture
+def local_only():
+    path = ROOT / 'local-only' / 'test-audit-export'
+    path.mkdir(parents=True, mode=0o700)
+    yield path
+    path.rmdir()
+    if not any((ROOT / 'local-only').iterdir()):
+        (ROOT / 'local-only').rmdir()
+
+
+def test_the_export_directory_is_private(tmp_path, local_only, capsys, request):
+    """I1 (L6): the export holds audit row texts - only local-only/ of the checkout or a private directory outside it."""
+    tracked = ROOT / 'docs' / 'test-audit-export'  # private mode, but a work tree path git could track
+    tracked.mkdir(mode=0o700)
+    request.addfinalizer(tracked.rmdir)
+    inside = tmp_path / 'link-into-docs'
+    inside.symlink_to(tracked)
+    loose = tmp_path / 'loose'
+    loose.mkdir(mode=0o755)
+    loose.chmod(0o755)
+    for refused in (str(tracked), str(inside), str(ROOT), str(loose), str(tmp_path / 'missing')):
+        assert S.main(['--config', str(configuration(tmp_path, out_dir=refused)), '--dry-run']) == 2, refused
+        assert 'out_dir' in capsys.readouterr().err
+    assert S.main(['--config', str(configuration(tmp_path, out_dir=str(local_only))), '--dry-run']) == 0
+    assert S.main(['--config', str(configuration(tmp_path)), '--dry-run']) == 0  # a private directory outside the checkout
+    assert S.load(configuration(tmp_path, out_dir=str(local_only)))['out_dir'] == os.path.realpath(local_only)
