@@ -24,10 +24,13 @@ read from these files, nor restic's own output, is printed; the result line hold
 
     nexloop-file-backup --kind artifact|runtime --recorder-dsn-file F --source-root D --staging-root D
         --repository-file F --password-file F [--environment-file F] [--repo repo1|repo2] [--key-ref LABEL] [--restic BIN]
-        [--s3-bucket-lookup auto|dns|path]
+        [--s3-bucket-lookup auto|dns|path] [--cacert F]
 
 ``--s3-bucket-lookup`` (repo2 on TOS, activation run sheet 2026-10-18): restic's ``-o s3.bucket-lookup=`` for an S3 store that
 answers path-style requests with an error; ``dns`` is virtual-hosted addressing (<bucket>.<endpoint>). Omitted: restic's default.
+
+``--cacert`` (repo1 over DATA_HOST's rest-server, owner 2026-10-27): restic's ``--cacert``, the stage CA bundle the server certificate
+must chain to; restic then trusts it alone, not the system roots.
 """
 import argparse
 import hashlib
@@ -222,9 +225,9 @@ def _snapshot_id(stdout):
 
 
 def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repository_file, password_file, environment_file=None,
-                    repo='repo1', key_ref=None, restic='restic', s3_bucket_lookup=None):
+                    repo='repo1', key_ref=None, restic='restic', s3_bucket_lookup=None, cacert=None):
     if kind not in KINDS or repo not in ('repo1', 'repo2') or (key_ref is not None and not _LABEL.fullmatch(key_ref)) \
-            or (s3_bucket_lookup is not None and s3_bucket_lookup not in BUCKET_LOOKUPS):
+            or (s3_bucket_lookup is not None and s3_bucket_lookup not in BUCKET_LOOKUPS) or (cacert is not None and not Path(cacert).is_file()):
         raise BackupUnavailable('file backup arguments invalid')
     manifest_kind = KINDS[kind]
     # The repository location and the password stay in their files; reading them here only proves they are private.
@@ -250,7 +253,7 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
             stream.flush()
             os.fsync(stream.fileno())
         common = {'repository_file': repository_file, 'password_file': password_file, 'environment': environment,
-                  'options': ('-o', 's3.bucket-lookup=' + s3_bucket_lookup) if s3_bucket_lookup else ()}
+                  'options': (('-o', 's3.bucket-lookup=' + s3_bucket_lookup) if s3_bucket_lookup else ()) + (('--cacert', str(cacert)) if cacert else ())}
         # --retry-lock: repo2's daily maintenance (APP_HOST) and DATA_HOST's (repo1) prune under the exclusive lock; a round waits for it
         # instead of recording a failed row.
         saved = _restic(restic, ['backup', '--json', '--tag', manifest_kind, '--host', 'nexloop', '--retry-lock', '5m', '.'], cwd=staging, **common)
@@ -286,12 +289,13 @@ def main(argv=None):
     parser.add_argument('--key-ref')
     parser.add_argument('--restic', default='restic')
     parser.add_argument('--s3-bucket-lookup', choices=BUCKET_LOOKUPS)
+    parser.add_argument('--cacert', type=Path)
     args = parser.parse_args(argv)
     try:
         result = run_file_backup(kind=args.kind, recorder_conninfo=read_private_text(args.recorder_dsn_file, maximum=4096),
                                  source_root=args.source_root, staging_root=args.staging_root, repository_file=args.repository_file,
                                  password_file=args.password_file, environment_file=args.environment_file, repo=args.repo,
-                                 key_ref=args.key_ref, restic=args.restic, s3_bucket_lookup=args.s3_bucket_lookup)
+                                 key_ref=args.key_ref, restic=args.restic, s3_bucket_lookup=args.s3_bucket_lookup, cacert=args.cacert)
     except Exception as error:
         print(json.dumps({'ok': False, 'error': type(error).__name__}))
         return 1

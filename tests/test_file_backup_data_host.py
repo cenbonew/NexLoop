@@ -53,11 +53,10 @@ def without_recorder_line(text):
     return '\n'.join(l for l in text.splitlines() if not D.HBA_LINE.fullmatch(' '.join(l.split()))) + '\n'
 
 
-EFFECTIVE_OK = '\n'.join(f'{k} {v}' for k, v in D.EFFECTIVE.items()) + '\nport 22\nallowusers ops nexloop-backup\n'
 
 
 class Runner:
-    def __init__(self, root, hba, *, effective=EFFECTIVE_OK, container=None, logs='LOG:  received SIGHUP, reloading configuration files\n',
+    def __init__(self, root, hba, *, effective='', container=None, logs='LOG:  received SIGHUP, reloading configuration files\n',
                  template=None, user_uid=None):
         self.calls, self.root, self.hba = [], root, hba
         self.effective, self.container, self.logs, self.template, self.user_uid = effective, container, logs, template, user_uid
@@ -107,11 +106,8 @@ def setup(tmp_path, **over):
     stage_env = tmp_path / 'stage.env'
     stage_env.write_text(f'NEXLOOP_DB=nexloop_stage\nAPP_HOST_ADDR={ADDRESS}\n')
     os.chmod(stage_env, 0o600)
-    repo = tmp_path / 'backup/files/restic'
-    repo.mkdir(parents=True)
-    (repo / 'config').write_text('synthetic\n')
     cfg = {'schema': D.SCHEMA, 'release_checkout': str(checkout), 'python': str(python), 'nexloop_root': str(nexloop), 'stage_env': str(stage_env),
-           'repo_path': str(repo), 'app_host_public_key': KEY, **over}
+           **over}
     config = tmp_path / 'config.json'
     config.write_text(json.dumps(cfg))
     os.chmod(config, 0o600)
@@ -137,35 +133,6 @@ def test_the_template_adds_exactly_the_recorder_line_and_the_pattern_accepts_onl
                      (f'host nexloop_stage nexloop_backup_recorder {ADDRESS}/32 scram-sha-256', False),
                      (f'hostssl nexloop_stage nexloop_backup,nexloop_backup_recorder {ADDRESS}/32 scram-sha-256', False)):
         assert bool(D.HBA_LINE.fullmatch(line)) is ok, line
-
-
-def test_installs_both_parts_and_a_rerun_changes_nothing(tmp_path):
-    root, config, hba = setup(tmp_path)
-    code, text, runner = main(root, config, hba)
-    assert code == 0, text
-    assert f'hostssl nexloop_stage nexloop_backup_recorder {ADDRESS}/32 scram-sha-256' in D.rules(hba.read_text())
-    assert (hba.parent / 'pg_hba.conf.before-file-backup').read_text() == without_recorder_line(rendered())
-    assert ['docker', 'compose', '-p', 'nexloop-data', 'kill', '-s', 'HUP', 'postgres'] in runner.calls
-    # The chroot: root's 0755, restic/ bound from the repository by the mount unit.
-    chroot = root / 'srv/nexloop-sftp'
-    assert st.S_IMODE(chroot.stat().st_mode) == 0o755
-    unit = root / 'etc/systemd/system' / 'srv-nexloop\\x2dsftp-restic.mount'
-    text_unit = unit.read_text()
-    assert f'What={tmp_path}/backup/files/restic\nWhere=/srv/nexloop-sftp/restic\nType=none\nOptions=bind,nosuid,nodev,noexec' in text_unit
-    assert ['systemctl', 'enable', '--now', unit.name] in runner.calls
-    # The key: restricted to APP_HOST's address; the drop-in: internal-sftp in the chroot, nothing else.
-    assert (root / 'etc/ssh/nexloop-authorized-keys/nexloop-backup').read_text() == f'restrict,from="{ADDRESS}" {KEY}\n'
-    dropin = (root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf').read_text()
-    assert 'Match User nexloop-backup\n' in dropin and dropin.rstrip().endswith('Match all')
-    for setting in ('ChrootDirectory /srv/nexloop-sftp', 'ForceCommand internal-sftp -u 0077', 'AuthenticationMethods publickey', 'PermitTTY no',
-                    'AllowTcpForwarding no', 'AuthorizedKeysFile /etc/ssh/nexloop-authorized-keys/%u'):
-        assert f'    {setting}\n' in dropin, setting
-    assert ['sshd', '-t'] in runner.calls and ['sshd', '-T', '-C', f'user=nexloop-backup,host={ADDRESS},addr={ADDRESS}'] in runner.calls
-    assert runner.calls.index(['sshd', '-t']) < runner.calls.index(['systemctl', 'try-reload-or-restart', 'ssh.service'])
-    assert 'step 1a' in text and 'step 1b' in text and text.rstrip().endswith('(NX-035-file-backup.md §6.1)')
-    code, text, runner = main(root, config, hba)
-    assert code == 0 and 'already installed' in text and 'unchanged' in text, text
-    assert not any('HUP' in c for c in runner.calls) and ['systemctl', 'try-reload-or-restart', 'ssh.service'] not in runner.calls
 
 
 @pytest.mark.parametrize('installed, why', [
@@ -204,78 +171,6 @@ def test_a_container_or_reload_failure_writes_the_old_content_back(tmp_path, kw,
     assert not (root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf').exists()  # step 1b never started
 
 
-@pytest.mark.parametrize('effective, why', [
-    (EFFECTIVE_OK.replace('passwordauthentication no', 'passwordauthentication yes'), "passwordauthentication is 'yes'"),
-    (EFFECTIVE_OK.replace('chrootdirectory /srv/nexloop-sftp\n', ''), "chrootdirectory is 'unset'"),
-    (EFFECTIVE_OK.replace('allowusers ops nexloop-backup', 'allowusers ops'), 'AllowUsers does not name nexloop-backup'),
-    (EFFECTIVE_OK + 'denyusers nexloop-backup\n', 'DenyUsers names nexloop-backup'),
-    # L6 S4: the groups (the stand-in's `id -nG`: nexloop-backup docker).
-    (EFFECTIVE_OK + 'allowgroups ops\n', "AllowGroups names none of nexloop-backup's groups"),
-    (EFFECTIVE_OK + 'denygroups docker\n', 'DenyGroups names a group of nexloop-backup'),
-])
-def test_an_effective_sshd_setting_other_than_the_drop_in_removes_it(tmp_path, effective, why):
-    root, config, hba = setup(tmp_path)
-    code, text, runner = main(root, config, hba, effective=effective)
-    assert code == 1 and why in text, text
-    assert not (root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf').exists() and not (root / 'etc/ssh/nexloop-authorized-keys/nexloop-backup').exists()
-    assert ['systemctl', 'try-reload-or-restart', 'ssh.service'] not in runner.calls
-
-
-def test_a_failed_check_restores_a_previous_drop_in(tmp_path):
-    root, config, hba = setup(tmp_path)
-    assert main(root, config, hba)[0] == 0
-    dropin = root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf'
-    os.chmod(dropin, 0o644)
-    dropin.write_text(dropin.read_text() + '# kept\n')
-    code, text, _ = main(root, config, hba, effective=EFFECTIVE_OK.replace('permittty no', 'permittty yes'))
-    assert code == 1 and dropin.read_text().endswith('# kept\n')
-
-
-def test_the_repository_and_its_user_are_checked(tmp_path):
-    root, config, hba = setup(tmp_path)
-    code, text, _ = main(root, config, hba, user_uid=4242)
-    assert code == 2 and 'owned by nexloop-backup' in text
-    os.unlink(Path(json.loads(Path(config).read_text())['repo_path']) / 'config')
-    code, text, _ = main(root, config, hba)
-    assert code == 2 and 'restic config file' in text
-
-
-def test_a_writable_chroot_component_or_checkout_is_refused(tmp_path):
-    root, config, hba = setup(tmp_path)
-    os.chmod(root / 'srv', 0o777)
-    code, text, _ = main(root, config, hba)
-    assert code == 2 and 'chroot' in text and not (root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf').exists()
-    root, config, hba = setup(tmp_path / 'c')
-    os.chmod(tmp_path / 'c/release/scripts/deploy', 0o777)
-    code, text, runner = main(root, config, hba)
-    assert code == 2 and 'scripts/deploy' in text and runner.calls == []
-
-
-def test_the_configuration_and_the_stage_env_are_checked(tmp_path):
-    for n, over in enumerate(({'app_host_public_key': 'ssh-rsa AAAA'}, {'repo_path': 'relative'}, {'unexpected': 1})):
-        root, config, hba = setup(tmp_path / str(n), **over)
-        code, text, _ = main(root, config, hba)
-        assert code == 2 and 'configuration' in text, over
-    root, config, hba = setup(tmp_path / 'e')
-    stage_env = Path(json.loads(Path(config).read_text())['stage_env'])
-    stage_env.write_text('NEXLOOP_DB=nexloop_stage\n')
-    code, text, runner = main(root, config, hba)
-    assert code == 2 and 'APP_HOST_ADDR' in text and not any(c[0] == 'docker' for c in runner.calls)
-
-
-def test_uninstall_removes_the_account_but_keeps_the_pg_hba_line(tmp_path):
-    root, config, hba = setup(tmp_path)
-    assert main(root, config, hba)[0] == 0
-    os.unlink(root / 'srv/nexloop-sftp/restic/config')  # the bind mount gone once the unit is stopped
-    code, text, runner = main(root, config, hba, '--uninstall')
-    assert code == 0, text
-    for gone in ('etc/ssh/sshd_config.d/00-nexloop-file-backup.conf', 'etc/ssh/nexloop-authorized-keys/nexloop-backup', 'srv/nexloop-sftp',
-                 'etc/systemd/system/srv-nexloop\\x2dsftp-restic.mount'):
-        assert not (root / gone).exists(), gone
-    assert ['systemctl', 'disable', '--now', 'srv-nexloop\\x2dsftp-restic.mount'] in runner.calls
-    assert f'nexloop_backup_recorder {ADDRESS}/32' in hba.read_text()
-
-
 def test_the_mount_unit_name_is_systemd_escape():
     assert D.unit_name('/srv/nexloop-sftp/restic') == 'srv-nexloop\\x2dsftp-restic.mount'
     assert D.unit_name('/srv/nexloop sftp/r') == 'srv-nexloop\\x20sftp-r.mount'
@@ -292,38 +187,6 @@ def test_the_stage_env_address_must_be_one_ipv4_line(tmp_path):
         Path(json.loads(Path(config).read_text())['stage_env']).write_text(body)
         code, text, _ = main(root, config, hba)
         assert code == 2 and 'one APP_HOST_ADDR=' in text
-
-
-def test_a_bind_mount_that_does_not_show_the_repository_stops_before_sshd(tmp_path):
-    root, config, hba = setup(tmp_path)
-    runner = Runner(root, hba)
-    real = runner.__call__
-
-    def no_mount(command, **kw):
-        return '' if command[:3] == ['systemctl', 'enable', '--now'] else real(command, **kw)
-    code, text, _ = main(root, config, hba, runner=no_mount)
-    assert code == 1 and 'the bind mount does not show the repository' in text
-    assert not (root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf').exists()
-
-
-def test_a_writable_authorized_keys_directory_and_alternates_are_refused(tmp_path):
-    root, config, hba = setup(tmp_path)
-    keys = root / 'etc/ssh/nexloop-authorized-keys'
-    keys.mkdir(parents=True)
-    os.chmod(keys, 0o777)
-    code, text, _ = main(root, config, hba)
-    assert code == 2 and 'authorized keys' in text and st.S_IMODE(os.stat(keys).st_mode) == 0o777
-    root, config, hba = setup(tmp_path / 'a')
-    (tmp_path / 'a/release/.git/objects/info').mkdir(parents=True)
-    (tmp_path / 'a/release/.git/objects/info/alternates').write_text('/elsewhere\n')
-    code, text, runner = main(root, config, hba)
-    assert code == 2 and 'objects from elsewhere' in text and runner.calls == []
-
-
-def test_allow_groups_naming_one_of_the_users_groups_passes(tmp_path):
-    root, config, hba = setup(tmp_path)
-    code, text, _ = main(root, config, hba, effective=EFFECTIVE_OK + 'allowgroups ops docker\n')
-    assert code == 0, text
 
 
 def test_a_linked_or_writable_scratch_directory_is_refused_before_any_chmod(tmp_path):
@@ -376,3 +239,74 @@ def test_write_in_place_never_follows_a_link(tmp_path):
     with pytest.raises(OSError):
         D.write_in_place(link, 'replaced\n')
     assert target.read_text() == 'kept\n'
+
+
+
+def test_installs_the_pg_hba_line_only_and_a_rerun_changes_nothing(tmp_path):
+    """D4 changed (owner 2026-10-27): no sftp account, chroot, authorized key or sshd drop-in is installed any more."""
+    root, config, hba = setup(tmp_path)
+    code, text, runner = main(root, config, hba)
+    assert code == 0, text
+    assert f'hostssl nexloop_stage nexloop_backup_recorder {ADDRESS}/32 scram-sha-256' in D.rules(hba.read_text())
+    assert (hba.parent / 'pg_hba.conf.before-file-backup').read_text() == without_recorder_line(rendered())
+    assert ['docker', 'compose', '-p', 'nexloop-data', 'kill', '-s', 'HUP', 'postgres'] in runner.calls
+    for absent in ('srv/nexloop-sftp', 'etc/ssh/nexloop-authorized-keys', 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf',
+                   'etc/systemd/system/srv-nexloop\\x2dsftp-restic.mount'):
+        assert not (root / absent).exists(), absent
+    assert not any(c[0] in ('sshd', 'systemctl') for c in runner.calls)
+    assert 'step 1a' in text and 'rest_server_data_host.sh' in text
+    code, text, runner = main(root, config, hba)
+    assert code == 0 and 'already installed' in text and not any('HUP' in c for c in runner.calls), text
+
+
+def test_a_writable_checkout_tree_or_alternates_are_refused(tmp_path):
+    root, config, hba = setup(tmp_path)
+    os.chmod(tmp_path / 'release/scripts/deploy', 0o777)
+    code, text, runner = main(root, config, hba)
+    assert code == 2 and 'scripts/deploy' in text and runner.calls == []
+    root, config, hba = setup(tmp_path / 'a')
+    (tmp_path / 'a/release/.git/objects/info').mkdir(parents=True)
+    (tmp_path / 'a/release/.git/objects/info/alternates').write_text('/elsewhere\n')
+    code, text, runner = main(root, config, hba)
+    assert code == 2 and 'objects from elsewhere' in text and runner.calls == []
+
+
+def test_the_configuration_and_the_stage_env_are_checked(tmp_path):
+    for n, over in enumerate(({'nexloop_root': 'relative'}, {'unexpected': 1})):
+        root, config, hba = setup(tmp_path / str(n), **over)
+        code, text, _ = main(root, config, hba)
+        assert code == 2 and 'configuration' in text, over
+    # An earlier configuration with the D4 sftp fields still loads (they are ignored).
+    root, config, hba = setup(tmp_path / 'old', repo_path='/srv/nexloop/backups/file-repo1/restic', app_host_public_key=KEY)
+    assert main(root, config, hba)[0] == 0
+    root, config, hba = setup(tmp_path / 'e')
+    stage_env = Path(json.loads(Path(config).read_text())['stage_env'])
+    stage_env.write_text('NEXLOOP_DB=nexloop_stage\n')
+    code, text, runner = main(root, config, hba)
+    assert code == 2 and 'APP_HOST_ADDR' in text and not any(c[0] == 'docker' for c in runner.calls)
+
+
+def plant_old_sftp_parts(root):
+    """What the D4 version of this script installed (never on stage, but --uninstall must clear it wherever it is)."""
+    (root / 'srv/nexloop-sftp/restic').mkdir(parents=True)
+    (root / 'etc/ssh/nexloop-authorized-keys').mkdir(parents=True)
+    (root / 'etc/ssh/nexloop-authorized-keys/nexloop-backup').write_text(f'restrict,from="{ADDRESS}" {KEY}\n')
+    (root / 'etc/ssh/sshd_config.d/00-nexloop-file-backup.conf').write_text('Match User nexloop-backup\n    ForceCommand internal-sftp\nMatch all\n')
+    (root / 'etc/systemd/system').mkdir(parents=True, exist_ok=True)
+    (root / 'etc/systemd/system/srv-nexloop\\x2dsftp-restic.mount').write_text('[Mount]\n')
+
+
+def test_uninstall_clears_old_sftp_parts_and_is_idempotent(tmp_path):
+    root, config, hba = setup(tmp_path)
+    assert main(root, config, hba)[0] == 0
+    plant_old_sftp_parts(root)
+    code, text, runner = main(root, config, hba, '--uninstall')
+    assert code == 0, text
+    for gone in ('etc/ssh/sshd_config.d/00-nexloop-file-backup.conf', 'etc/ssh/nexloop-authorized-keys', 'srv/nexloop-sftp',
+                 'etc/systemd/system/srv-nexloop\\x2dsftp-restic.mount'):
+        assert not (root / gone).exists(), gone
+    assert ['systemctl', 'disable', '--now', 'srv-nexloop\\x2dsftp-restic.mount'] in runner.calls
+    assert ['sshd', '-t'] in runner.calls and ['systemctl', 'try-reload-or-restart', 'ssh.service'] in runner.calls
+    assert f'nexloop_backup_recorder {ADDRESS}/32' in hba.read_text()  # the pg_hba line stays
+    code, text, runner = main(root, config, hba, '--uninstall')
+    assert code == 0 and 'no D4 sftp part was there' in text and runner.calls == []

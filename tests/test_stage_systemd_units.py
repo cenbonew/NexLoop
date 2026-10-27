@@ -51,7 +51,9 @@ def test_every_backup_service_is_a_private_oneshot_behind_the_encrypted_volumes(
         assert service['UMask'] == ['0077'] and service['NoNewPrivileges'] == ['true'] and service['ProtectSystem'] == ['strict'], name
         for command in service['ExecStart']:
             # @PYTHON@: the file backup's interpreter, filled by scripts/deploy/file_backup_install.py (the host-health venv's).
-            assert command.split()[0].startswith(('/opt/nexloop/backup-venv/bin/', '/usr/local/bin/restic', '/bin/sh', '@PYTHON@')), (name, command)
+            # /usr/bin/python3 -I -B /opt/nexloop/restic-maint/...: restic-maint's future-snapshot guard before each forget (L6 F1).
+            assert command.split()[0].startswith(('/opt/nexloop/backup-venv/bin/', '/usr/local/bin/restic', '/bin/sh', '@PYTHON@')) or \
+                command.startswith('/usr/bin/python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py '), (name, command)
             # Only paths reach a command: no password, key or DSN value, no repository location on the command line.
             literal = re.sub(r'\$\{[A-Z0-9_]+\}', '', command)  # variable references hold paths from the private env file
             assert not re.search(r'password(?!-file)|sk-|postgres(ql)?://|s3:|sftp:|aws_', literal, re.I), (name, command)
@@ -100,6 +102,8 @@ def test_the_file_backup_unit_is_the_installers_and_sandboxed_as_d3():
     assert [re.search(r'--kind (\w+)', c).group(1) + '/' + re.search(r'--repo (repo\d)', c).group(1) for c in commands] == [
         'artifact/repo1', 'artifact/repo2', 'runtime/repo1', 'runtime/repo2']  # the installer reads the results in this order
     assert all(('--environment-file' in c) == ('repo2' in c) for c in commands)
+    # repo1's options (the installer's env file: --cacert <stage CA bundle> once repo1 is DATA_HOST's rest-server), on repo1 lines only.
+    assert all(c.endswith(' $FILE_BACKUP_REPO1_OPTIONS') == ('repo1' in c) for c in commands)
     assert all(c.startswith('@PYTHON@ -I -B /opt/nexloop/file-backup/current/scripts/deploy/file_backup_run.py ') and c.count('--restic @RESTIC@') == 1
                for c in commands)
     assert service['AmbientCapabilities'] == service['CapabilityBoundingSet'] == ['CAP_DAC_READ_SEARCH']

@@ -1,0 +1,55 @@
+# NX-035 repo1 append-only (owner 2026-10-27; NX-035-file-backup.md §6.5): DATA_HOST serves the restore journal's restic repository to
+# APP_HOST's file backup through restic's rest-server with --append-only - new data and snapshots can be written, nothing that exists can
+# be deleted or overwritten (lock files excepted), so a compromised APP_HOST cannot remove repo1's snapshots. forget/prune stay with
+# nexloop-restic-maint, which works on the directory itself. Installed by scripts/deploy/rest_server_data_host.sh (owner, root), which
+# fills the @...@ tokens; do not copy it by hand.
+# --path is a root-owned directory holding only the bind mount restic/ (the repository): no other repository exists, none can be created
+# there (the service user cannot write the directory), so --private-repos is not needed. TLS with the stage CA's server certificate
+# (SAN: DATA_HOST's address), one htpasswd user (bcrypt). The firewall rule (only APP_HOST may reach the port) is loaded before the
+# server starts (ExecStartPre, outside the sandbox) and removed after it stops: the rule exists whenever the port is open.
+[Unit]
+Description=NexLoop rest-server (repo1, append-only, for the APP_HOST file backup)
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/nexloop/secrets /srv/nexloop-rest/restic
+
+[Service]
+Type=simple
+User=nexloop-backup
+Group=nexloop-backup
+ExecStartPre=+/usr/sbin/nft -f /etc/nexloop/rest-server.nft
+ExecStart=@REST_SERVER@ --path /srv/nexloop-rest --listen @LISTEN@ --append-only --tls --tls-cert /srv/nexloop/secrets/rest-server/server.chain.crt --tls-key /srv/nexloop/secrets/rest-server/server.key --htpasswd-file /srv/nexloop/secrets/rest-server/htpasswd --max-size @MAX_SIZE@
+ExecStopPost=-+/usr/sbin/nft delete table inet nexloop_rest_server
+Restart=on-failure
+RestartSec=10
+CapabilityBoundingSet=
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectProc=invisible
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~open_by_handle_at name_to_handle_at
+SystemCallErrorNumber=EPERM
+TemporaryFileSystem=/srv/nexloop:ro
+BindReadOnlyPaths=/srv/nexloop/secrets/rest-server
+InaccessiblePaths=/etc/nexloop -/srv/nexloop-backup -/srv/nexloop-sftp -/etc/pgbackrest -/etc/ssl/private -/var/log -/var/lib/nexloop -/var/lib/docker -/var/lib/containerd -/var/lib/nexloop-host-health -/etc/shadow -/etc/gshadow -/etc/ssh/ssh_host_ed25519_key -/etc/ssh/ssh_host_ecdsa_key -/etc/ssh/ssh_host_rsa_key
+ReadWritePaths=/srv/nexloop-rest/restic
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

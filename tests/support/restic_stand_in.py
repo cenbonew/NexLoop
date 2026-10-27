@@ -21,8 +21,8 @@ def main(argv):
     args = list(argv)
     # Extended options (`-o s3.bucket-lookup=dns`) between --no-cache and the repository file are recorded and removed.
     options = []
-    while args[1:2] == ['-o'] and len(args) > 2:
-        options.append(args[2])
+    while args[1:2] in (['-o'], ['--cacert']) and len(args) > 2:  # --cacert: repo1 over the rest-server, recorded as cacert=<path>
+        options.append(args[2] if args[1] == '-o' else 'cacert=' + args[2])
         del args[1:3]
     if args[:1] != ['--no-cache'] or args[1] != '--repository-file' or args[3] != '--password-file':
         print('unexpected arguments', file=sys.stderr)
