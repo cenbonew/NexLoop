@@ -315,3 +315,29 @@ def test_the_view_says_consumed_once_executed_and_to_execute_drops_it(gated, adm
     row = {r['approval_id']: r for r in after['mine']}[approval]
     assert row['status'] == 'approved' and row['consumed'] is True and row['result'] == 'executed' and row['consumed_at'] is not None
     assert approval not in [r['approval_id'] for r in after['to_execute']]
+
+
+@PLAN
+def test_consumed_belongs_to_the_rows_own_tenant_and_world(gated, admin):
+    """0368 (L6 S1 on 8e7e4c1e): the consumption looked up for a row is that row's own tenant and world. A request executed in
+    tenant A / world real; the same approval_id as a row of tenant B, and as a row of A's world 'test', is not consumed - even when
+    the lookup runs with A's tenant setting, where row security alone would let A's consumption through."""
+    from support.tenants import TENANT_B
+    c = gated
+    approval = c['request']().json()['approval_id']
+    c['decide'](approval)
+    assert c['request']().json()['approval'] == 'consumed'
+
+    def row_as(tenant, world):
+        with admin.transaction():
+            admin.execute('set local role nexloop_owner')
+            admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+            return admin.execute("""select runtime.nexloop_approval_view_row(
+                    jsonb_populate_record(r, jsonb_build_object('tenant_id',%s::text,'world',%s::text)), pol)
+                from control.nexloop_approval_requests r join control.nexloop_approval_policies pol on pol.capability=r.capability and pol.version=r.policy_version
+                where r.tenant_id=%s and r.world='real' and r.approval_id=%s""", (tenant, world, TENANT, approval)).fetchone()[0]
+    own = row_as(TENANT, 'real')
+    assert own['consumed'] is True and own['consumed_at'] is not None
+    for tenant, world in ((TENANT_B, 'real'), (TENANT, 'test')):
+        other = row_as(tenant, world)
+        assert (other['approval_id'], other['consumed'], other['consumed_at']) == (approval, False, None), (tenant, world)
