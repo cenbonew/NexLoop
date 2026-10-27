@@ -114,8 +114,11 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 | --- | --- |
 | 擦除 `sync_purge_seconds` | 派生状态比空闲状态增加不超过 25% |
 | sim 生成墙钟 | 派生状态比空闲状态增加不超过 25%（对照组，应当几乎不变） |
-| real 各 relay 步骤的 `p95_ms_median` | 增加不超过 10 ms |
+| real 0323 写类 p95（发布前、后各 24 h，读法见 `docs/release/run-nx054-s8-backfill.md` “0323 写类 p95 与 calls 的读取”） | 增加不超过 10 ms；前提是两边写类 `calls` 都不少于 200，样本不足记为“不可判定”，不阻塞；样本充足而增加超过 10 ms 判 FAIL：不回填，执行第 5 步回退 |
+| real relay `goal_create` / `step_create` / `assignment_create` 的 `p95_ms_median` | stage 上无样本：记为“无样本，不可判定”，作为限制记录在案；P4b 上 real 之前按绝对值重测 |
 
+- relay `authenticate` 只作噪声对照：它的 `p95_ms_median` 前后变化超过 10 ms 时，在 0323 写类 p95 一项的结论里注明“环境漂移，结论打折”。
+- 第 5 步的判定由 L6 于 2026-10-28 定为上表（原先 relay 三步的门槛因无样本无从比较）。
 - 超过门槛时，按 P2 §3 的顺序优化（P-3 缓存派生映射，P-4 集合化），**或者执行第 5 步回退**。
 - 两次擦除的样本很少，`request_to_completion_seconds` 又由 keeper 的调度间隔主导，所以以 `sync_purge_seconds` 为准。数字记入证据。
 
@@ -154,7 +157,7 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 
 1. **生成凭据**（管理机，私有的 stage secrets 树）：
    1. `stage_secrets.py setup-credentials --out <树>`：按 `stage-principals.v1.json` 第 5 版，在 `setup/relation-backfiller-credential` 生成这个主体的凭据文件（0600），并加入 `management/service-secrets.json`；重复执行不会再新增。
-   2. `stage_secrets.py register --out <树> --tenant "$TENANT_ID" --bootstrap-dsn-file <bootstrap socket DSN 文件>`：按 v20 注册这个主体，写入它的唯一一条授权（与其他主体的 register 相同，经 configurator 窗口）。
+   2. `stage_secrets.py register --out <树> --tenant "$TENANT_ID" --bootstrap-dsn-file <bootstrap socket DSN 文件> --signing-key-id <KEY_ID> --credential-expires-at <ISO>`：按 v20 注册这个主体，写入它的唯一一条授权（与其他主体的 register 相同，经 configurator 窗口；两个参数与 `docs/release/run-nx057-remediation-stage.md` §2.2 相同）。**如果 NX-057 已经按 v20 register 过（该单 §2 的情况 A），这一步什么也不新增**，见 §8 第 6 步。
 2. **放到私有配置里**（APP_HOST，私有临时目录 `$BF`，在 tmpfs 上新建：`BF=$(mktemp -d /dev/shm/nexloop-backfill.XXXXXX)`，mktemp 建出的目录就是 0700；凭据和签名密钥的副本不落盘）：
 
    | 文件 | 来源 | 权限 |
@@ -163,7 +166,7 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
    | `$BF/dsn` 与 `$BF/pg-client.crt`、`$BF/pg-client.key` | 一个现有 `nexloop_domain_worker` 服务的 DSN 文件和客户端证书、私钥（例如 retention keeper 的那一组）的副本：回填与它们使用同一个数据库角色，身份由服务凭据区分。**DSN 中的 `sslcert`、`sslkey`（以及 `sslrootcert`，如有）改为指向 `$BF` 中的副本**，不引用原服务的 secrets 目录 | 0600 |
    | `$BF/signing.key` | 服务进程使用的签名密钥文件的副本 | 0600 |
 
-3. **执行**：`python scripts/deploy/relation_backfill.py --database-url-file $BF/dsn --signing-key-file $BF/signing.key --service-credential-file $BF/service-credential --artifact-root <临时空目录> <命令> [--run-id <run>]`。命令依次为 `preflight` → `start` → `run --max-batches 1`（校准）→ `run` → `verify` → `revert`（演练）→ 新的 `start` 与 `run` → `verify`（设计稿 §8）。
+3. **执行**：`python -m nexloop_eios.relation_backfill --database-url-file $BF/dsn --signing-key-file $BF/signing.key --signing-key-id "$SIGNING_KEY_ID" --service-credential-file $BF/service-credential --artifact-root /tmp <命令> [--run-id <run>]`（`--signing-key-id` 必须与服务的 `SIGNING_KEY_ID` 相同，缺省值 `active` 不对；完整的 docker run 见 `docs/release/run-nx054-s8-backfill.md`）。命令依次为 `preflight` → `start` → `run --max-batches 1`（校准）→ `run` → `verify` → `revert`（演练）→ 新的 `start` 与 `run` → `verify`（设计稿 §8）。
    - 工具只开一条连接，计入 ADR-037 中运维预留的 7 个连接；不在 APP_HOST 应用的连接预算中登记。
 4. **收尾**：回填完成并核对之后，`rm -rf -- "$BF"`。`$BF` 在 tmpfs 上，内容只在内存中，删除即释放，不需要 shred；`service-grants` 的下一版（v21）去掉 `relation_backfiller`，register 时撤销它的授权和凭据。
 
@@ -180,16 +183,16 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
 | 4a | DATA_HOST | 调度员 | **备份**：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，再 `systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不发布；查备份失败的原因 |
 | 4 | DATA_HOST | 调度员 | §3 发布：先 `--dry-run`，再正式发布（configurator 窗口经 bootstrap DSN 自动开关）；再跑一次预检 | `relation_types: 26`、`deriving: 26`；预检 `derivation_map_rows: 26` | §5 回退：`--stop-derivation --from-version <回退时的头版本>`。**回退时**再用 `control.nexloop_relation_catalog_head` 读一次当前头版本（发布之后的值，首次发布后是 1），不要用第 0 步记下的发布前的值；脚本会拒绝比头版本旧的值 |
 | 5 | CI 主机（负责人工作台会话）+ DATA_HOST | **负责人** + 调度员 | §4 派生基线（新 world、perf-2、发布后 24 h），对照门槛 | 三项都在门槛内 | 超标：执行 §5 回退，P3 不开始 |
-| 6 | 管理机 | 调度员 | §7 第 1 步：`setup-credentials`，再 `register`（v20 只给 `relation_backfiller` 一条授权；register 是幂等的，其他主体 `changed: false`） | register 输出中 `grants_added` 为 1，`credentials_created` 只有这个主体 | 撤回授权：service-grants v21 去掉这个主体后再 register（L5 准备） |
+| 6 | 管理机（setup-credentials）、DATA_HOST（register：要用 bootstrap socket，形态同 NX-057 §2 的 `$COMMON $WINDOW`） | 调度员 | §7 第 1 步：`setup-credentials`，再 `register`（v20 只给 `relation_backfiller` 一条授权；register 是幂等的，其他主体 `changed: false`） | 先用 NX-057 §2.1 的 `relation_backfiller` 授权查询分情况：已有一行（v20 已 register）→ `changed: false`、`grants_added` 0、`credentials_created` 为 `[]`；没有 → `grants_added` 1、`credentials_created` 为 `["relation_backfiller"]`。两种情况 `grants_revoked` 都是 0 | 撤回授权：service-grants v21 去掉这个主体后再 register（L5 准备） |
 | 7 | APP_HOST | 调度员 | §7 第 2 步：`BF=$(mktemp -d /dev/shm/nexloop-backfill.XXXXXX)`，放入凭据、DSN、证书、私钥、签名密钥的副本，DSN 中的证书路径指向 `$BF` | 文件全部 0600 | `rm -rf -- "$BF"` |
 | 8 | APP_HOST | 调度员 | `relation_backfill.py ... preflight` | `blocking` 为空；`digest` 记下 | 只读；按 `blocking` 处理 |
 | 9a | DATA_HOST | 调度员 | **备份**：同 4a | `Result=success`、`ExecMainStatus=0` | 不开始回填 |
 | 9 | APP_HOST | 调度员 | `... start --run-id p3-1`，然后 `... run --run-id p3-1 --max-batches 1` | 一行 `event=batch`：`elapsed_ms` < 300、`waiters` 为 0；不满足就停下，把这一行交给 L5 校准 | `... abort --run-id p3-1`，再 `... revert --run-id p3-1` |
 | 10 | APP_HOST | 调度员 | `... run --run-id p3-1`（前台；中途可以 Ctrl-C，退出码 3，再执行同一命令继续） | 最后一行 `event=complete`、`completed: true`；运行期间对照 0323 的写请求 p95（自动暂停暂不看 p95） | 见下面的中止条件；`abort` 后 `revert` |
-| 11 | APP_HOST | 调度员 | `... verify` | 每一行 `a == b`、`extra == 0`，`skipped_remaining == 0`；悬空和擦除中的数量照实记录 | 不平：不进入第 13 步，`revert`，把 verify 输出交给 L5 |
+| 11 | APP_HOST | 调度员 | `... verify` | 每一行 `a == b`、`extra == 0`，`skipped_remaining == 0`；悬空和擦除中的数量照实记录。行是**（已发布的派生关系 × 有 64 位 hex 源值的 world）**，不是固定 25 行；没有源值的关系没有行；推迟的 `assessment_evidence` 不在派生映射里，所以不出现 | 不平：不进入第 13 步，`revert`，把 verify 输出交给 L5 |
 | 12 | APP_HOST | 调度员 | revert 演练：`... revert --run-id p3-1`，再 `verify` | 状态 `reverted`；`b` 回到回填前的值（只剩派生出的关系）。如果回填之后有 sim world 被清除，revert 输出的 `deleted` 会小于 created 的行数，差额就是随 world 一起删除的关系（设计稿 §3.1 的 B-1），不是错误 | 重跑 `revert`（幂等）；仍不到 `reverted` 就停下报 L5 |
 | 13 | APP_HOST | 调度员 | 正式回填：`... start --run-id p3-2`、`... run --run-id p3-2`、`... verify` | 同第 11 步 | 同第 10、11 步 |
-| 14 | APP_HOST、管理机 | 调度员 | 收尾：`rm -rf -- "$BF"`；L5 准备好的 service-grants v21（`relation_backfiller` 退役；stage-principals v6 去掉它的 setup 凭据）在回填 verify 平衡之后合入，register 撤销它的授权；**之后从 stage secrets 树中删除 `setup/relation-backfiller-credential`（以及 `management/service-secrets.json` 中对应的条目），并清理 Keychain 里这个凭据的条目** | `$BF` 不存在；register 输出 `grants_revoked` 为 1 | — |
+| 14 | APP_HOST、管理机 | 调度员 | 收尾：`rm -rf -- "$BF"`；L5 准备好的 service-grants v21（31884a17：`relation_backfiller` 退役；stage-principals v6 去掉它的 setup 凭据）在回填 verify 平衡之后合入。**先**从 stage secrets 树中删除 `setup/relation-backfiller-credential` 和 `management/service-secrets.json` 中的 `setup:setup/relation-backfiller-credential` 条目，**再**按 v21 register（v6 下残留的条目会让 register 以 `a generated credential file has no principal` 拒绝），最后清理 Keychain 里这个凭据的条目 | `$BF` 不存在；register 输出 `grants_revoked` 为 1、`grants_added` 0、`credentials_created` `[]` | — |
 
 - **必须由负责人执行的**：第 3、5 步中用到负责人工作台凭据的操作（在 CI 主机上的负责人工作台会话中：sim 生成、合成顾客的标记与擦除）。其余步骤按 2026-10-21 的口径由调度员执行（dev/test 环境、没有真实用户）。
 - **前置条件**：release 45/46 已上线（含 0344、0349、0350 与 `relation_backfill.py`）；第 5 步通过；第 6 步的 register 之后，`relation_backfiller` 的凭据有效。
@@ -198,7 +201,7 @@ docker run $COMMON -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" "$BACKEND_IMAGE" \
   - 同一个 cursor 上 `event=retry` 的 55P03 / 40001 / 40P01 累计超过 20 次（说明与 real 写入或擦除持续冲突）；
   - 出现 `code=connection` 的重试 5 次之后 runner 退出（结果不明的批已经按意图 id 对账，重新 `run` 前先看 `status`）；
   - 0323 的写请求 p95 比回填前高出 25% 以上，或者超过 500 ms。
-- **运行容器**：第 8–13 步在 APP_HOST 上用发布镜像执行（与服务相同的镜像、只读根文件系统、`--user` 非 root、`--cap-drop ALL`），网络与 domain worker 服务相同（它要经 TLS 连 DATA_HOST 的 PostgreSQL）；`$BF` 只读挂载。
+- **运行容器**：第 8–13 步在 APP_HOST 上用发布镜像执行（与服务相同的镜像、只读根文件系统、`--user` 非 root、`--cap-drop ALL`），网络与 domain worker 服务相同（它要经 TLS 连 DATA_HOST 的 PostgreSQL）；`$BF` 只读挂载。逐条命令、属主（镜像用户 10001）和中止时 p95 的读法见 `docs/release/run-nx054-s8-backfill.md`。
 
 
 ## 9. P4（P4a + P4c）上线前
