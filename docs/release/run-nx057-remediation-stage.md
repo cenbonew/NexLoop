@@ -165,6 +165,16 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_ru
 
 ## 2. 服务授权到 v20（DATA_HOST，配置员窗口，B）
 
+### 2.00 2026-10-28 的现状：按情况 A，授权已生效，本步只核对
+
+- `plan_reevaluator` 的 `nexloop.remediation.plan:1` 已在 2026-10-28 生效（authority_revision 3197）；v20 的 `relation_backfiller` 此前已经 register 过。所以按 2.0a 的**情况 A** 处理，不走情况 B，不需要 `setup-credentials`。
+- 本步不再写入。只执行：
+  1. 2.1 的授权查询：plan_reevaluator 有三行（`NexLoop.feed.plan-reevaluate:1`、`nexloop.plan.reevaluate:1`、`nexloop.remediation.plan:1`），长度都是 1；`relation_backfiller` 的查询有一行，长度为 1；scope 仍为 `["action.execute"]`。
+  2. 2.1 的最后一条（还没扫描过的最终失败数），以及 2.3 的三条查询：授权生效后规划器已经在跑，积压应已按 `switch_closed` 扫完。
+- 可选（B，经配置员窗口）：执行一次 2.2 的 register 作为幂等核对，预期 `changed: false`、`grants_added: 0`、`credentials_created: []`、`grants_revoked: 0`。数字不是这样就停下，报给出这份执行单的人。
+- 授权查询结果与上面不符（例如缺 `nexloop.remediation.plan:1`）：停下报告，不要按情况 B 补做。
+- 证据写 authority_revision 3197 与核对查询的结果；2.0a–2.2 保留作记录。
+
 ### 2.0 为什么在 stage 上用 `register`，不直接用 `service_grants --apply`
 
 - stage 的服务授权由 `stage_secrets.py register` 管理。它把 `service-grants.v1.json` 与 `stage-principals.v1.json` 合并，加上 `owner-property-restrictions.json`，再调用同一个 `nexloop_eios.service_grants.apply`（run-34 §1、run-release7 §3）。
@@ -377,7 +387,7 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 - 第 1–3 步每条命令的输出（JSON 行）；
 - 第 1 步前的告警规则版本（以及是否因为已是 v18 或更高而跳过；release 50 时预期 v19，跳过）；
 - 工作台动作由哪个账号执行（approver3 或负责人）；
-- `$LAST_REGISTER` 的实际值、2.0a 判定的情况（A 或 B）、2.1 的 diff 摘要、2.2 的计数；
+- 2.00：情况 A，authority_revision 3197，2.1/2.3 查询的结果；做了 2.2 幂等核对时写它的输出（之前的写法：`$LAST_REGISTER` 的实际值、2.0a 判定的情况、2.1 的 diff 摘要、2.2 的计数）；
 - 第 3 步规则文件的 sha256；
 - 2.3、4.1、4.4 查询的结果；
 - 4.2 的时间。
