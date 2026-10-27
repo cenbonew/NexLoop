@@ -534,7 +534,33 @@ export function reviews(member:Me|undefined):boolean{return !!member&&member.act
 export function readsKnowledgeOnly(member:Me|undefined):boolean{return !!member&&!reviews(member)&&member.actions.includes(KNOWLEDGE_READ_ACTION);}
 
 export type WriteFailure=FailureKind|'not_allowed_in_state'|'conflict'|'request_timeout'|'not_sent';
-export class WorkbenchWriteError extends Error{constructor(readonly kind:WriteFailure){super(kind);}}
+export class WorkbenchWriteError extends Error{constructor(readonly kind:WriteFailure,readonly reason:string|null=null){super(kind);}}
+/** The fixed reason code of a refused write (details.reason), never any other part of the answer. */
+export function refusalReasonOf(value:unknown):string|null{
+  if(!value||typeof value!=='object')return null;const d=(value as Record<string,unknown>).details;
+  if(!d||typeof d!=='object')return null;const r=(d as Record<string,unknown>).reason;
+  return typeof r==='string'&&/^[a-z_]{1,40}$/.test(r)?r:null;
+}
+/** NX-056 refusals of the unified approval path, by reason code (workbench_actions_http passes the code only). */
+export const APPROVAL_REASON_TEXT:Record<string,string>={
+  cooldown:'同一请求刚被撤回或拒绝，1 小时内不能再次发起。',
+  self_approval:'不能批准自己发起的请求。',
+  target_cannot_approve:'这条请求针对的是你本人，你不能参与批准。',
+  quorum_unreachable:'当前有资格的批准人不足，这条请求无法达到所需的批准人数。',
+  quorum_unreachable_in_solo_mode:'单人模式下无法满足这条策略的批准人数（该能力不适用单人模式），需要另一位成员批准。',
+  too_many_waiting:'你等待中的审批请求太多，请先处理或撤回已有的请求。',
+  request_reused:'这个请求号已用于另一条请求，请重新发起。',
+  not_waiting:'这条审批已不在等待状态，请刷新查看最新状态。',
+  not_found:'找不到这条审批，请刷新查看。',
+  not_requester:'只有发起人可以撤回或执行这条请求。',
+  approver_unauthorized:'你当前不是这条请求的有资格批准人（角色或投票资格不满足）。',
+  requester_unavailable:'发起人已不再具备发起资格，这条请求不能继续。',
+  target_unresolved:'请求针对的成员不是本租户的成员，未发起审批。',
+  policy_unavailable:'审批策略暂不可用，未执行。',
+  operation_mismatch:'执行的内容与批准的请求不一致，未执行。',
+  execution_field_invalid:'执行时的附加字段无效，未执行。',
+  invalid:'审批请求内容无效，未执行。',
+};
 /** Exact outcome text (AT-045). 503/network/invalid response: the result is not known, never shown as failed or done. */
 export const WRITE_TEXT:Record<WriteFailure,string>={
   unauthenticated:'会话已失效，请重新登录工作台；操作未提交。',
@@ -572,10 +598,15 @@ export async function workbenchAct(operation:Operation,body:Record<string,unknow
   catch{throw new WorkbenchWriteError('unavailable');}
   let value:unknown;
   try{value=await response.json();}catch{throw new WorkbenchWriteError(response.ok?'invalid':writeFailureOf(response.status,null));}
-  if(!response.ok)throw new WorkbenchWriteError(writeFailureOf(response.status,value&&typeof value==='object'?(value as Record<string,unknown>).code:null));
+  if(!response.ok)throw new WorkbenchWriteError(writeFailureOf(response.status,value&&typeof value==='object'?(value as Record<string,unknown>).code:null),refusalReasonOf(value));
   try{return object(value);}catch{throw new WorkbenchWriteError('invalid');}
 }
 export function writeKindOf(error:unknown):WriteFailure{return error instanceof WorkbenchWriteError?error.kind:'unavailable';}
+/** The Chinese explanation of a refused write's approval reason code, or null (an unknown or missing code adds nothing). */
+export function refusalTextOf(error:unknown):string|null{
+  if(!(error instanceof WorkbenchWriteError)||!error.reason||(error.kind!=='not_allowed_in_state'&&error.kind!=='forbidden'))return null;
+  return Object.hasOwn(APPROVAL_REASON_TEXT,error.reason)?APPROVAL_REASON_TEXT[error.reason]:null;
+}
 
 
 // ---- NX-030: alerts, operations status (metrics snapshot) and the owner's audit ----
@@ -1117,7 +1148,9 @@ export function readOutreachEvidence(intentId:string){return get('/api/v1/workbe
 export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|'expired';
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
-  result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null};
+  result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null;
+  /** 0368: the approval was executed (it has a consumption record); the status stays 'approved'. */
+  consumed:boolean;consumed_at:string|null};
 /** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
 export type TargetMember={kind:'member';label:string;username:string|null;account_status:string|null;member_status:string;role:string|null}
   |{kind:'invitee';username:string;same_username_exists:boolean}|{kind:'hidden'}|{kind:'unresolved'}|{kind:'erased'};
@@ -1131,7 +1164,7 @@ function targetMember(value:unknown):TargetMember|null{
   throw new WorkbenchError('invalid');
 }
 export type Approvals={to_decide:ApprovalRow[];mine:ApprovalRow[];to_execute:ApprovalRow[];solo_mode:{enabled:boolean;others_eligible:boolean}};
-const APPROVAL_KEYS='action,approval_id,approvals,capability,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary,target_member';
+const APPROVAL_KEYS='action,approval_id,approvals,capability,consumed,consumed_at,digest,due_by,operation,policy_version,quorum,requested_at,requested_by,status,summary,target_member';
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
 function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   const r=object(value);
@@ -1143,7 +1176,8 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   const row:ApprovalRow={approval_id:text(r.approval_id),capability:text(r.capability),operation:text(r.operation),action:text(r.action),
     requested_by:text(r.requested_by),requested_at:text(r.requested_at),due_by:text(r.due_by),status:text(r.status) as ApprovalStatus,digest:text(r.digest),
     policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary'],
-    target_member:targetMember(r.target_member)};
+    target_member:targetMember(r.target_member),consumed:flag(r.consumed),consumed_at:maybeText(r.consumed_at)};
+  if(row.consumed!==(row.consumed_at!==null))throw new WorkbenchError('invalid');
   if(extra==='result')row.result=maybeText(r.result);
   if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
   return row;

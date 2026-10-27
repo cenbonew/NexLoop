@@ -270,3 +270,74 @@ def test_a_changed_body_never_consumes_the_approval_of_another(gated, admin):
     other = c['request'](reason='another reason').json()  # one field differs: another digest
     assert other['status'] == 'waiting_approval' and other['approval_id'] != approval
     assert status(admin, approval) == 'approved' and consumptions(admin) == [] and tenant_switch(admin) is None
+
+
+@PLAN
+def test_approval_refusals_keep_their_status_and_name_only_the_fixed_reason_code(gated, admin):
+    """Workbench reason codes (NX-056): an approval refusal answers with its unchanged status (409 for a state refusal, 403 for an
+    authority refusal) and details.reason = the fixed code; nothing else of the database message reaches the client."""
+    c = gated
+    mine = c['request']().json()['approval_id']
+    own = c['decide'](mine, member=c['owner_member'])                      # the requester's own vote
+    assert own.status_code == 409 and own.json()['details'] == {'reason': 'self_approval'}, own.text
+    rejected = c['decide'](mine, decision='reject')
+    assert rejected.status_code == 200, rejected.text
+    again = c['request']()                                                  # the same request within the hour: cooldown, still 409
+    assert again.status_code == 409 and again.json()['code'] == 'not_allowed_in_state' and again.json()['details'] == {'reason': 'cooldown'}
+    assert set(again.json()) == {'code', 'message', 'trace_id', 'retryable', 'details'} and 'approval' not in again.json()['message']
+    theirs = c['request'](member=c['second']).json()['approval_id']
+    withdraw = c['call'](c['owner_member'], 'cancel_approval', {'approval_id': theirs, 'reason': 'not mine'})
+    assert (withdraw.status_code, withdraw.json()['details']) == (403, {'reason': 'not_requester'}), withdraw.text
+
+
+@PLAN
+def test_the_view_says_consumed_once_executed_and_to_execute_drops_it(gated, admin):
+    """0368 (day 1 drill, L6 S1): the status stays 'approved' after execution; every row carries consumed / consumed_at from the
+    consumption record, and to_execute no longer lists the executed approval."""
+    c = gated
+
+    def view(member):
+        with TestClient(create_app(c['config']), base_url=ORIGIN) as client:
+            workbench_login(client, member)
+            got = client.get('/api/v1/workbench/approvals', headers={'Origin': ORIGIN})
+            assert got.status_code == 200, got.text
+            return got.json()
+    approval = c['request']().json()['approval_id']
+    for row in view(c['second'])['to_decide']:
+        assert (row['consumed'], row['consumed_at']) == (False, None)
+    c['decide'](approval)
+    before = view(c['owner_member'])
+    mine = {r['approval_id']: r for r in before['mine']}
+    assert (mine[approval]['status'], mine[approval]['consumed'], mine[approval]['consumed_at']) == ('approved', False, None)
+    assert [r['approval_id'] for r in before['to_execute']] == [approval] and before['to_execute'][0]['consumed'] is False
+    assert c['request']().json()['approval'] == 'consumed'
+    after = view(c['owner_member'])
+    row = {r['approval_id']: r for r in after['mine']}[approval]
+    assert row['status'] == 'approved' and row['consumed'] is True and row['result'] == 'executed' and row['consumed_at'] is not None
+    assert approval not in [r['approval_id'] for r in after['to_execute']]
+
+
+@PLAN
+def test_consumed_belongs_to_the_rows_own_tenant_and_world(gated, admin):
+    """0368 (L6 S1 on 8e7e4c1e): the consumption looked up for a row is that row's own tenant and world. A request executed in
+    tenant A / world real; the same approval_id as a row of tenant B, and as a row of A's world 'test', is not consumed - even when
+    the lookup runs with A's tenant setting, where row security alone would let A's consumption through."""
+    from support.tenants import TENANT_B
+    c = gated
+    approval = c['request']().json()['approval_id']
+    c['decide'](approval)
+    assert c['request']().json()['approval'] == 'consumed'
+
+    def row_as(tenant, world):
+        with admin.transaction():
+            admin.execute('set local role nexloop_owner')
+            admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+            return admin.execute("""select runtime.nexloop_approval_view_row(
+                    jsonb_populate_record(r, jsonb_build_object('tenant_id',%s::text,'world',%s::text)), pol)
+                from control.nexloop_approval_requests r join control.nexloop_approval_policies pol on pol.capability=r.capability and pol.version=r.policy_version
+                where r.tenant_id=%s and r.world='real' and r.approval_id=%s""", (tenant, world, TENANT, approval)).fetchone()[0]
+    own = row_as(TENANT, 'real')
+    assert own['consumed'] is True and own['consumed_at'] is not None
+    for tenant, world in ((TENANT_B, 'real'), (TENANT, 'test')):
+        other = row_as(tenant, world)
+        assert (other['approval_id'], other['consumed'], other['consumed_at']) == (approval, False, None), (tenant, world)

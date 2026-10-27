@@ -79,7 +79,7 @@ function Controls({state,onRead}:{state:RealDispatch;member:Me;onRead:()=>Promis
         <button type="button" className="rd-close" onClick={()=>setMode(null)} disabled={busy}>取消</button></div>
     </div>:null}
     {results?<div className="rd-results" role="status"><h3>执行结果</h3><ul>{results.map((r,i)=><li key={i} className={r.ok?'rd-ok':'rd-fail'}>
-      {describe(r.change)}：{r.ok?`完成，新版本 ${r.control_revision??'—'}`:<span title={r.kind}>未完成：{WRITE_TEXT[r.kind]}</span>}</li>)}</ul>
+      {describe(r.change)}：{r.ok?`完成，新版本 ${r.control_revision??'—'}`:<span title={r.kind}>未完成：{WRITE_TEXT[r.kind]}{r.detail?<>{' '}<span className="refusal-reason">{r.detail}</span></>:null}</span>}</li>)}</ul>
       {results.some(r=>!r.ok)?<p className="note">已停止后续步骤，未自动重试；上方状态为重新读取后的结果。</p>:null}</div>:null}
   </div>;
 }
