@@ -50,11 +50,36 @@
     - `truncated` 为 true 时，表示有一类被截断，此时要把 `affected`（以及 `affected_by_changed_properties`）理解为“至少 N 条”；
     - `unreadable` 中的定义解析失败，没有计入 `affected`，需要另看；
     - 字段名保持不变（L6 复核 e9452c1d 的建议）；
-  - API 没有返回 impact 时，`impact` 为 null；
   - `--verify-reject` 走的也是 check，所以同样带上这份清单；
   - 测试：
     - `tests/test_schema_proposal_tool.py::test_check_summary_shows_the_impact_list`，不连库；
     - 同一文件的端到端测试，用真实 PG 和真实工作台登录，核对 `check` 输出的 `impact`。
+- **CLI 按类别列出与明确结论**（调度员 2026-10-28，分支 `l7/nx061-cli-impact`）：
+  - `impact` 在原有字段之外，把 `dependents` 按 `definition_type` 再列一遍，每项写成 `stable_name@version`：
+    - `object_sets`、`views`（Object View）、`functions`、`actions`；
+    - 接口以后如果返回别的类别，进 `other`，写成 `类别:名称@版本`，不丢；
+    - 各类条数之和等于 `affected`；
+    - 另有 `object_types`：有受影响的定义时为 `[type_name]`，否则为空；属性沿用 `changed_properties`。
+  - 分组只用接口返回的字段，不另行计算，与 `/check` 的口径一致。
+  - `verdict` 与 `verdict_text`，空清单不会被静默当作通过：
+
+    | verdict | verdict_text | 条件 |
+    |---|---|---|
+    | `affected` | 有影响 | 至少列出一条 |
+    | `no_impact` | 无影响 | 一条没列，没有截断，`unreadable` 为空 |
+    | `incomplete` | 影响不完整…… | 一条没列，但有截断或解析失败的定义：不能说无影响 |
+    | `not_reported` | 接口未返回影响清单（不是无影响） | `/check` 的回答里没有 `impact` |
+
+  - `not_reported` 时 `impact` 只有这两个字段，不给空列表，免得读成“没有受影响的定义”。此时 `check` 的 `ok` 为 false，退出码为 1。以前这种情况输出 `impact: null`，退出码为 0。
+  - `--verify-reject` 的退出规则不变（看是否被拒），只是同样带上 `verdict`。
+  - 发布不受影响，A1 仍然只展示，不是门槛（负责人 2026-10-26）。
+  - 测试（`tests/test_schema_proposal_tool.py`）：
+    - `test_the_impact_verdict_is_never_silent`：六种回答。阳性对照有一个 Object View、一个 Function 和一个未知类别；空清单为“无影响”；空清单但有 `unreadable`、空清单但截断，都是“影响不完整”；`dependents` 里只有非条目值，算“无影响”；没有 `impact` 为“不是无影响”。
+    - `test_check_exits_1_when_the_answer_carries_no_impact`：经 `main` 验证退出码，无影响 0、有影响 0、未返回 1；`--verify-reject` 带上同样的 `verdict`。
+    - 端到端，用真实 PG 和真实工作台登录：
+      - Consumer 提案是阳性对照：`affected`，列出夹具里的 Consumer Action。CLI 的 `dependents` 与各类列表，与同一提案直接调用 `/check` 的回答逐项、按原顺序一致。
+      - 另插入一个没有任何已发布定义依赖的 `Store` 类型，它的提案输出 `no_impact` / `无影响`，`affected` 为 0，退出码为 0。
+    - 变异 9 个，全部杀死。
 
 ## E4：每个接口的请求量、慢请求与错误数（验证“读取 0.5 秒内返回”）
 

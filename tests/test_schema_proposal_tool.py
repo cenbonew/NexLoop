@@ -65,14 +65,78 @@ def test_check_summary_shows_the_impact_list():
                                          'hops': 2, 'changed_properties': []}]}}
     out = T.summarize('check', answer)
     assert out['allowed'] is True and out['next_version'] == 4
-    assert out['impact'] == {'type_name': 'Consumer', 'changed_properties': ['level'], 'affected': 2, 'affected_by_changed_properties': 1,
+    assert out['impact'] == {'verdict': 'affected', 'verdict_text': '有影响', 'type_name': 'Consumer', 'object_types': ['Consumer'],
+                             'object_sets': ['consumer.by_level@2'], 'views': [], 'functions': [], 'actions': ['Consumer.edit@1'], 'other': [],
+                             'changed_properties': ['level'], 'affected': 2, 'affected_by_changed_properties': 1,
                              'dependents': [{'definition_type': 'object_set', 'stable_name': 'consumer.by_level', 'version': 2,
                                              'pinned_type_version': 3, 'changed_properties': ['level']},
                                             {'definition_type': 'action', 'stable_name': 'Consumer.edit', 'version': 1,
                                              'pinned_type_version': 3, 'changed_properties': []}],
                              'truncated': False, 'unreadable': [{'kind': 'functions', 'stable_name': 'consumer.broken'}]}
-    assert T.summarize('check', {**answer, 'impact': None})['impact'] is None      # an older API without impact: shown as absent
     assert 'impact' not in T.summarize('basis', {'operation': 'x', 'schema': {'version': 3}})
+
+
+EMPTY = {'type_name': 'Store', 'changed_properties': ['opening_hours'], 'affected_by_changed_properties': 0, 'truncated': False,
+         'unreadable': [], 'dependents': []}
+LISTED = {**EMPTY, 'affected_by_changed_properties': 1, 'dependents': [
+    {'definition_type': 'object_view', 'stable_name': 'store.card', 'version': 3, 'pinned_type_version': 1, 'hops': 1, 'changed_properties': ['opening_hours']},
+    {'definition_type': 'function', 'stable_name': 'store.score', 'version': 1, 'pinned_type_version': 1, 'hops': 1, 'changed_properties': []},
+    {'definition_type': 'interface', 'stable_name': 'Placed', 'version': 2, 'pinned_type_version': 1, 'hops': 2, 'changed_properties': []}]}
+
+
+@pytest.mark.parametrize('impact, verdict, text', [
+    (LISTED, 'affected', '有影响'),                                                       # the positive control
+    (EMPTY, 'no_impact', '无影响'),                                                        # empty, and said so
+    ({**EMPTY, 'unreadable': [{'kind': 'actions', 'stable_name': 'Store.edit'}]}, 'incomplete', '影响不完整'),  # empty but not all read
+    ({**EMPTY, 'truncated': True}, 'incomplete', '影响不完整'),                            # empty but a kind was cut at 500
+    ({**EMPTY, 'dependents': ['not an entry']}, 'no_impact', '无影响'),                     # nothing that is an entry is listed
+    (None, 'not_reported', '不是无影响'),                                                  # an answer without impact
+])
+def test_the_impact_verdict_is_never_silent(impact, verdict, text):
+    shown = T.summarize('check', {'compatibility': {'allowed': True}, 'impact': impact})['impact']
+    assert shown['verdict'] == verdict and text in shown['verdict_text']
+    if verdict == 'not_reported':
+        assert set(shown) == {'verdict', 'verdict_text'}  # no empty lists that would read as nothing affected
+        return
+    kinds = ('object_sets', 'views', 'functions', 'actions', 'other')
+    assert shown['affected'] == len(shown['dependents']) == sum(len(shown[k]) for k in kinds)  # every listed entry in one kind
+    if verdict == 'affected':
+        assert shown['object_types'] == ['Store'] and shown['changed_properties'] == ['opening_hours']
+        assert (shown['views'], shown['functions'], shown['other']) == (['store.card@3'], ['store.score@1'], ['interface:Placed@2'])
+        assert shown['object_sets'] == shown['actions'] == []
+    else:
+        assert shown['affected'] == 0 and shown['object_types'] == [] and shown['changed_properties'] == ['opening_hours']
+
+
+class AnsweringWorkbench:
+    """The workbench as the CLI uses it, answering one /check."""
+    answer = None
+
+    def __init__(self, transport, origin):
+        self.csrf = 'csrf'
+
+    def login(self, username, password):
+        pass
+
+    def logout(self):
+        pass
+
+    def _call(self, method, path, body, extra):
+        return 200, self.answer
+
+
+@pytest.mark.parametrize('impact, code, verdict', [(EMPTY, 0, 'no_impact'), (LISTED, 0, 'affected'), (None, 1, 'not_reported')])
+def test_check_exits_1_when_the_answer_carries_no_impact(tmp_path, capsys, monkeypatch, impact, code, verdict):
+    monkeypatch.setattr(T, 'Workbench', AnsweringWorkbench)
+    monkeypatch.setattr(AnsweringWorkbench, 'answer', {'compatibility': {'allowed': True, 'codes': []}, 'impact': impact})
+    conf, user = private(tmp_path, 'c.json', cfg()), private(tmp_path, 'u', 'owner\n')
+    argv = ['check', '--config', str(conf), '--origin', 'https://app.example.invalid', '--username-file', str(user), '--password-stdin']
+    assert T.main(argv, stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == code
+    out = json.loads(capsys.readouterr().out)
+    assert out['ok'] is (code == 0) and out['result']['impact']['verdict'] == verdict
+    # --verify-reject keeps its own exit rule (refused or not); the impact rides along
+    assert T.main([*argv, '--verify-reject'], stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == 1
+    assert json.loads(capsys.readouterr().out)['result']['impact']['verdict'] == verdict
 
 
 class NoNetwork:
@@ -109,6 +173,7 @@ class AppTransport:
 
 
 # PG part --------------------------------------------------------------------------------------------------------------------------
+from psycopg.types.json import Jsonb  # noqa: E402
 from nexloop_eios.workbench_roles import compile_members  # noqa: E402
 from test_browser_http import ORIGIN  # noqa: E402
 from test_nx040_schema_publication_pg import proposal  # noqa: E402
@@ -126,6 +191,10 @@ def test_check_verify_reject_and_publish_end_to_end(workbench, tmp_path, capsys,
     f = {'admin': admin, 'tenant': TENANT}
     good = proposal(f, 'add_optional_property', 'Consumer', {'property_name': 'preferred_store', 'value_type': 'string'})
     bad = proposal(f, 'add_optional_property', 'Consumer', {'property_name': 'raw_blob', 'value_type': 'json'})
+    admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Store',1,%s)",
+                  (TENANT, Jsonb({'type_name': 'Store', 'version': 1, 'properties': [{'property_name': 'city', 'value_type': 'string'}],
+                                  'property_groups': [{'group_name': 'place', 'property_names': ['city']}]})))
+    lonely = proposal(f, 'add_optional_property', 'Store', {'property_name': 'opening_hours', 'value_type': 'string'})
 
     def tool(member, command, conf, *extra):
         path = private(tmp_path, f'c-{uuid.uuid4().hex[:6]}.json', conf)
@@ -145,6 +214,22 @@ def test_check_verify_reject_and_publish_end_to_end(workbench, tmp_path, capsys,
     shown = out['result']['impact']
     assert shown['type_name'] == 'Consumer' and shown['changed_properties'] == ['preferred_store'] and shown['affected'] == len(shown['dependents']) >= 1
     assert all(set(e) == set(T.IMPACT_ENTRY) for e in shown['dependents'])
+    # The positive control: affected, the fixture's Consumer Actions listed by kind - the same entries, in the same order, as the
+    # API's own /check answer.
+    assert shown['verdict'] == 'affected' and shown['object_types'] == ['Consumer'] and shown['actions']
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        api = client.get(f'/api/v1/workbench/schema-proposals/{good}/check').json()['impact']
+    assert [{k: e[k] for k in T.IMPACT_ENTRY} for e in api['dependents']] == shown['dependents']
+    for kind, name in T.IMPACT_KINDS:
+        assert shown[name] == [f"{e['stable_name']}@{e['version']}" for e in api['dependents'] if e['definition_type'] == kind]
+    assert (shown['changed_properties'], shown['affected_by_changed_properties'], shown['truncated'], shown['unreadable']) == (
+        api['changed_properties'], api['affected_by_changed_properties'], api['truncated'], api['unreadable'])
+    # A type no published Definition depends on: an empty list, said to be no impact (not an empty list passed over in silence).
+    code, out, _ = tool(w['owner'], 'check', cfg(proposal_id=lonely))
+    shown = out['result']['impact']
+    assert code == 0 and out['ok'] is True and shown['verdict'] == 'no_impact' and shown['verdict_text'] == '无影响'
+    assert shown['type_name'] == 'Store' and shown['affected'] == 0 and shown['dependents'] == shown['actions'] == shown['views'] == []
     # --verify-reject: the refused change, with its expected code; only the check runs.
     code, out, requests = tool(w['owner'], 'publish', cfg(proposal_id=bad, expect_codes=['value_type_not_allowed']), '--verify-reject')
     assert code == 0 and out['rejected'] is True and 'value_type_not_allowed' in out['result']['codes']

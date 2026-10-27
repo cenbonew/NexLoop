@@ -10,7 +10,9 @@ session (ontology.schema.review: owner and reviewer; the operator gets 403), aft
 
     basis          the publication basis of the proposal (proposal, Parent version, Actions, object count) - summarized
     check          what a publication would be judged now: the F1 report (allowed, class, codes), the next version and the published
-                   Definitions it may affect (NX-061 A1: impact - names, versions, changed properties; no data); writes nothing
+                   Definitions it may affect (NX-061 A1: impact - names, versions, changed properties; no data), by kind (object
+                   type, properties, Object Sets, views, Functions, Actions) with a verdict: affected, no_impact (无影响: nothing
+                   listed, truncated or unreadable), incomplete, or not_reported (the answer carried no impact: exit 1); writes nothing
     publish        the publication: SQL re-checks the F4 release permit (an accepted nx040-gates-1 report: G9-G13), F1, the successor
                    Actions and the permission proof; refused codes come back and nothing is written
     hide           the rollback of a published optional property: the next Schema version with it hidden
@@ -110,17 +112,31 @@ def summarize(command, value):
 
 
 IMPACT_ENTRY = ('definition_type', 'stable_name', 'version', 'pinned_type_version', 'changed_properties')
+# The listed Definitions by kind, as /check names them (eios.ontology.definitions.DefinitionType; 0322 reads the first four).
+IMPACT_KINDS = (('object_set', 'object_sets'), ('object_view', 'views'), ('function', 'functions'), ('action', 'actions'))
+VERDICT_TEXT = {'affected': '有影响', 'no_impact': '无影响', 'incomplete': '影响不完整：有定义解析失败或被截断，需另看 unreadable / truncated',
+                'not_reported': '接口未返回影响清单（不是无影响）'}
 
 
 def impact_of(value):
     """NX-061 A1 (owner 2026-10-26: shown, not a release gate): the Definitions the /check answer lists, those depending on a changed
-    property first - names, versions and property names only, as /check returns them (schema_impact.impact); None when absent."""
+    property first - names, versions and property names only, as /check returns them (schema_impact.impact), and the same list by
+    kind: the object type, the changed properties, the Object Sets, views, Functions and Actions. An empty list is never silent:
+    verdict no_impact only when nothing is listed, nothing truncated and nothing unreadable (incomplete otherwise); an answer
+    without impact is not_reported, not "no impact"."""
     if not isinstance(value, dict):
-        return None
+        return {'verdict': 'not_reported', 'verdict_text': VERDICT_TEXT['not_reported']}
     listed = [{k: e.get(k) for k in IMPACT_ENTRY} for e in value.get('dependents') or () if isinstance(e, dict)]
-    return {'type_name': value.get('type_name'), 'changed_properties': value.get('changed_properties') or [], 'affected': len(listed),
-            'affected_by_changed_properties': value.get('affected_by_changed_properties', 0), 'dependents': listed,
-            'truncated': bool(value.get('truncated')), 'unreadable': value.get('unreadable') or []}
+    known = {kind for kind, _ in IMPACT_KINDS}
+    by_kind = {name: [f"{e['stable_name']}@{e['version']}" for e in listed if e['definition_type'] == kind] for kind, name in IMPACT_KINDS}
+    by_kind['other'] = [f"{e['definition_type']}:{e['stable_name']}@{e['version']}" for e in listed if e['definition_type'] not in known]
+    truncated, unreadable = bool(value.get('truncated')), value.get('unreadable') or []
+    verdict = 'affected' if listed else 'incomplete' if truncated or unreadable else 'no_impact'
+    return {'verdict': verdict, 'verdict_text': VERDICT_TEXT[verdict], 'type_name': value.get('type_name'),
+            'object_types': [value['type_name']] if listed and value.get('type_name') else [],
+            'changed_properties': value.get('changed_properties') or [], 'affected': len(listed),
+            'affected_by_changed_properties': value.get('affected_by_changed_properties', 0), 'dependents': listed, **by_kind,
+            'truncated': truncated, 'unreadable': unreadable}
 
 
 def main(argv=None, *, stdin=None, transport=None):
@@ -181,6 +197,7 @@ def main(argv=None, *, stdin=None, transport=None):
         out.update(ok=rejected, rejected=out['result'].get('allowed') is False, expected_codes=expected)
         return emit(out, 0 if rejected else 1)
     ok = not (args.command in ('publish', 'hide') and out['result'].get('published') is False)
+    ok = ok and not (args.command == 'check' and out['result'].get('impact', {}).get('verdict') == 'not_reported')  # never a silent pass
     out['ok'] = ok
     return emit(out, 0 if ok else 1)
 
