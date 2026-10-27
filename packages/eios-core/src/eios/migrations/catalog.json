@@ -1810,6 +1810,11 @@
       "version": "0362",
       "name": "0362_approval_view_consumed.sql",
       "sha256": "ab1a9ba5c88cad7f7c285e9c60261339689306d3479025204fb7d32867e41e7c"
+    },
+    {
+      "version": "0363",
+      "name": "0363_relation_erased_values.sql",
+      "sha256": "cdba9a09ce66b17acbc6faaef7f3f438fadf6bb89a4024eacce6621d5b475507"
     }
   ]
 }
