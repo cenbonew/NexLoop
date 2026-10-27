@@ -16,9 +16,13 @@ until then (no reader uses them before P4). Published versions are immutable: de
 --defer NAME (repeatable; stage 2026-10-27): leave a first-batch relation type out of this catalog version, for a tenant on which
 one of its endpoint types is not registered (ontology.object_type_versions; 0319 refuses the whole publication otherwise - on
 stage RelationshipAssessment, so assessment_evidence). The name must be a first-batch type and what is left must still form
-complete ownership chains (a deferred message_in would leave assessment_evidence without one: refused). The deferred names are
-printed; the manifest (and so its digest) leaves them out. A later catalog version publishes them once the type is registered. Every mode
-takes it (a rollback of a deferred catalog defers the same names).
+complete ownership chains (a deferred message_in would leave assessment_evidence without one: refused). Only a type with an
+endpoint type that is really not registered for the tenant may be deferred (L6 I1): before the window, one read-only transaction
+over the bootstrap socket (the configurator cannot read the ontology schema) reads which of the deferred types' endpoint types are
+registered; a deferred type whose both endpoints are registered is refused. The deferred names are printed; the manifest (and so its
+digest) leaves them out. Later, once the type is registered, `--resume-derivation --from-version 1` (no --defer) publishes the
+whole first batch as catalog version 2 (the 25 at version 2, deriving, plus the deferred one). A rollback of a deferred catalog
+defers the same names.
 Output: one JSON line (counts, versions, the manifest digest; never a DSN). Exit 0 done, 2 refused.
 """
 import argparse
@@ -77,13 +81,35 @@ def check_head(head, version):
         raise Refused(f'--from-version must be the latest published catalog version ({head}), not {version - 1}')
 
 
+def registered_types(bootstrap_dsn_file, tenant, types):
+    """The given type names registered for the tenant, read in one read-only transaction as nexloop_bootstrap over the socket."""
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict
+    from nexloop_eios.trusted_configuration import read_private_text
+    bootstrap = read_private_text(bootstrap_dsn_file, maximum=16384).strip()
+    params = conninfo_to_dict(bootstrap)
+    if params.get('user') != 'nexloop_bootstrap' or not str(params.get('host', '')).startswith('/'):
+        raise Refused('--bootstrap-dsn-file: the nexloop_bootstrap DSN over the local socket (host=<socket directory>)')
+    with psycopg.connect(bootstrap, connect_timeout=5) as db, db.transaction():
+        db.execute("set transaction read only")
+        db.execute("set local statement_timeout='10000ms'")
+        return {r[0] for r in db.execute('select distinct type_name from ontology.object_type_versions where tenant_id=%s and type_name=any(%s)',
+                                         (tenant, sorted(types)))}
+
+
+def check_deferrable(deferred, registered):
+    for spec in R.FIRST_BATCH:
+        if spec.name in deferred and {spec.source_type, spec.target_type} <= registered:
+            raise Refused(f'--defer {spec.name}: both its endpoint types are registered for the tenant - publish it')
+
+
 def summary(value, deferred=()):
     return {'deferred': sorted(set(deferred)), 'catalog_version': value['version'], 'relation_types': len(value['relation_types']),
             'deriving': sum(1 for r in value['relation_types'] if r['source_property']),
             'longest_ownership_chain': value['longest_ownership_chain'], 'manifest_digest': R.manifest_digest(value)}
 
 
-def main(argv=None, out=sys.stdout, window=configurator_window, connect=None):
+def main(argv=None, out=sys.stdout, window=configurator_window, connect=None, registered=registered_types):
     p = argparse.ArgumentParser(description='NX-054: publish relation types / stop or resume derivation (configurator window)')
     p.add_argument('--tenant')
     p.add_argument('--bootstrap-dsn-file')
@@ -104,6 +130,9 @@ def main(argv=None, out=sys.stdout, window=configurator_window, connect=None):
             return 0
         if not a.tenant or not a.bootstrap_dsn_file:
             raise Refused('--tenant and --bootstrap-dsn-file required')
+        if a.defer:
+            endpoints = {t for x in R.FIRST_BATCH if x.name in a.defer for t in (x.source_type, x.target_type)}
+            check_deferrable(set(a.defer), registered(a.bootstrap_dsn_file, a.tenant, endpoints))
         if connect is None:
             from nexloop_eios.trusted_configuration import configurator_connection as connect
         with window(a.bootstrap_dsn_file, refused=Refused) as dsn:
