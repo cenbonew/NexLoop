@@ -49,7 +49,7 @@ test('NX-058 F: link controls only for active operators and reviewers other than
 test('NX-058 F: the owner gets link and unlink forms; without a provider only unlink; an operator gets none', ()=>{
   const r=members({members:[row('synthetic-op','operator','active')],invitations:[],resets:[]}).members[0];
   const both=html(h(SsoLinkForms,{member:owner,row:r,providers:corp}));
-  for(const t of ['绑定单点登录','IdP 用户标识（sub）','SSO 或口令','仅 SSO','解绑单点登录','Corp IdP'])expect(both).toContain(t);
+  for(const t of ['绑定单点登录','IdP 用户标识（sub）','SSO 或密码','仅 SSO','解绑单点登录','Corp IdP'])expect(both).toContain(t);
   const none=html(h(SsoLinkForms,{member:owner,row:r,providers:[]}));
   expect(none).not.toContain('aria-label="绑定单点登录"');expect(none).toContain('解绑单点登录');
   const operator=me({principal_id:'synthetic-op2',role:'operator',actions:['eios:action:nexloop.workbench.read:1']});

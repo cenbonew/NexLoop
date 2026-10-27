@@ -19,7 +19,9 @@
 
 ## 与设计的偏差（需 L6 和调度员确认）
 
-- **没有 vendored 上游 `identity/oidc.py`**：它依赖 `joserfc`（以及间接依赖的 `cryptography`），NexLoop 没有这两个依赖，本任务也不下载新依赖。现在的实现遵循上游的规则（PKCE S256、一次性 state、nonce、JWKS 白名单、HTTPS fail-closed），但不复制它的代码，只支持 RS256。如果以后要支持 ES256 或 PS256，或者想改回 vendoring，需要先引入 `joserfc`，这是负责人的决定。
+- **负责人决定（2026-10-28）**：先只支持 RS256，不引入 `joserfc`。将来需要 ES256 或 PS256 时再议。
+
+- **没有 vendored 上游 `identity/oidc.py`**：它依赖 `joserfc`（以及间接依赖的 `cryptography`），NexLoop 没有这两个依赖，本任务也不下载新依赖。现在的实现遵循上游的规则（PKCE S256、一次性 state、nonce、JWKS 白名单、HTTPS fail-closed），但不复制它的代码，只支持 RS256。如果以后要支持 ES256 或 PS256，或者想改回 vendoring，需要先引入 `joserfc`，届时再议（见上一条）。
 - **owner 的绑定**：设计 S5 要求 `link_owner_external` 走审批。本片在受治理入口拒绝 owner 目标，没有新增需要审批的 Action。
 - **邀请时指定“仅限 SSO”**（§5）：没有做。现在的做法是先接受邀请，再由 owner 绑定为 `sso_only`。
 - **成员页不显示绑定状态**：成员读取（0356）不返回绑定，所以每个在用的 operator 和 reviewer 行都提供绑定和解绑，由服务端按 `already_linked` 或 `not_linked` 拒绝。要显示状态，需要扩展成员读取。
@@ -67,3 +69,5 @@
   - 样式沿用现有的 token；L9 的 S1（529b7f7d）还没合入，合入后再对齐按钮色调。
   - 顾客侧的 `Login.tsx` 和 `Account.tsx` 不涉及 SSO，没有改动。
 - 测试：`apps/web/test/workbench-sso.test.ts`（provider 列表严格解析；SSO 按钮的显示条件和链接；失败提示；哪些行有绑定控件；owner、operator 和无 provider 时的表单差异；成员页里的位置）。
+
+- 前端文案按负责人 10-28 定的术语：客户、密码、负责人（只改了本片新增的文案；内部标识和 API 名不变）。

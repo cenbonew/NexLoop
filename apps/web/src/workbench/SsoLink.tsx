@@ -15,7 +15,7 @@ const useProviders=()=>useQuery({queryKey:['workbench','sso-providers'],queryFn:
 export function SsoButtons({providers,failed}:{providers:SsoProvider[];failed:boolean}){
   if(!providers.length)return null;
   return <div className="sso-login">
-    {failed?<p className="error" role="alert">单点登录没有完成。请重试；如果仍然不行，请联系 owner 确认你的账号已绑定。</p>:null}
+    {failed?<p className="error" role="alert">单点登录没有完成。请重试；如果仍然不行，请联系负责人确认你的账号已绑定。</p>:null}
     {providers.map(p=><a key={p.provider_id} className="button" href={ssoStartPath(p.provider_id)}>用 SSO 登录（{p.display_name}）</a>)}
   </div>;
 }
@@ -46,13 +46,13 @@ export function SsoLinkForms({member,row,providers}:{member:Me;row:MemberRow;pro
       <div className="field"><label htmlFor={id('subject')}>IdP 用户标识（sub）</label><input id={id('subject')} value={subject} onChange={e=>setSubject(e.target.value)}
         required maxLength={255} autoComplete="off" spellCheck={false}/></div>
       <fieldset className="choices"><legend>登录方式</legend>
-        <label className="choice"><input type="radio" name={id('mode')} checked={mode==='sso_or_password'} onChange={()=>setMode('sso_or_password')}/>SSO 或口令</label>
+        <label className="choice"><input type="radio" name={id('mode')} checked={mode==='sso_or_password'} onChange={()=>setMode('sso_or_password')}/>SSO 或密码</label>
         <label className="choice"><input type="radio" name={id('mode')} checked={mode==='sso_only'} onChange={()=>setMode('sso_only')}/>仅 SSO</label></fieldset>
-      <p className="impact-summary" role="note">影响：IdP 中这个用户只能登录到这位成员。选“仅 SSO”时，口令不再能登录，也不能再签发重置码，现有会话立即失效。</p>
+      <p className="impact-summary" role="note">影响：IdP 中这个用户只能登录到这位成员。选“仅 SSO”时，密码不再能登录，也不能再签发重置码，现有会话立即失效。</p>
     </Form>:<p className="note">未配置单点登录的身份提供方，不能绑定。</p>}
     <Form operation="unlink_workbench_external" member={member} title="解绑单点登录" body={()=>({target_principal:row.principal_id})}>
       <p>对象：{row.username??'（无账户）'} {row.label}</p>
-      <p className="impact-summary" role="note">影响：删除这位成员的单点登录绑定，会话立即失效；之后只能用口令登录。没有绑定时服务端拒绝。</p>
+      <p className="impact-summary" role="note">影响：删除这位成员的单点登录绑定，会话立即失效；之后只能用密码登录。没有绑定时服务端拒绝。</p>
     </Form>
   </>;
 }
