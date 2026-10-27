@@ -218,7 +218,7 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     assert f"user='nexloop_backup_recorder' password='{RECORDER_PW}'" in dsn and "sslmode='verify-full' sslrootcert='/srv/nexloop/secrets/backup/pg-ca.crt'" in dsn
     assert (secrets / 'restic-files-repo1.repository').read_text() == f'rest:https://nexloop-file-backup:{REST_PW}@data-host.example:8000/restic/\n'
     assert (secrets / 'restic-files-repo1.pass').read_text() == REPO1_PW + '\n'
-    assert st.S_IMODE(secrets.stat().st_mode) == 0o711 and st.S_IMODE((secrets / 'pg-ca.crt').stat().st_mode) == 0o644
+    assert st.S_IMODE(secrets.stat().st_mode) == 0o700 and st.S_IMODE((secrets / 'pg-ca.crt').stat().st_mode) == 0o600
     for name in ('recorder.dsn', 'restic-files-repo1.repository', 'restic-files-repo1.pass'):
         assert st.S_IMODE((secrets / name).stat().st_mode) == 0o600 and ['chown', 'nexloop-file-backup:nexloop-file-backup', str(secrets / name)] in runner.calls
     assert not any(c[0] == 'chown' and c[-1] in (str(secrets), str(secrets / 'pg-ca.crt')) for c in runner.calls)
@@ -665,7 +665,7 @@ def test_repo1_is_the_rest_server_the_ca_pinned_old_sftp_files_removed_and_appen
     secrets = root / SECRETS
     assert (secrets / 'restic-files-repo1.repository').read_text() == f'rest:https://nexloop-file-backup:{REST_PW}@data-host.example:8000/restic/\n'
     assert st.S_IMODE((secrets / 'restic-files-repo1.repository').stat().st_mode) == 0o600
-    assert 'synthetic root' in (secrets / 'rest-ca.crt').read_text() and st.S_IMODE((secrets / 'rest-ca.crt').stat().st_mode) == 0o644
+    assert 'synthetic root' in (secrets / 'rest-ca.crt').read_text() and st.S_IMODE((secrets / 'rest-ca.crt').stat().st_mode) == 0o600
     assert not any(c[0] == 'chown' and c[-1] == str(secrets / 'rest-ca.crt') for c in runner.calls)
     env = (root / 'etc/nexloop/file-backup.env').read_text()
     assert 'FILE_BACKUP_REPO1_OPTIONS=--cacert /srv/nexloop/secrets/backup/rest-ca.crt' in env
@@ -786,7 +786,7 @@ def test_the_check_pins_the_ca_for_the_repository_that_names_one(tmp_path, capsy
 
 def test_a_srv_nexloop_of_the_deployment_user_needs_trusted_owner_and_secrets_backup_stays_roots(tmp_path):
     """Dispatcher 2026-10-27: APP_HOST's /srv/nexloop is the deployment user's too (751). secrets/backup's check would refuse it the way
-    DATA_HOST's R2 was refused: without trusted_owner refused, saying what to configure; with it installed, secrets/backup root's 0711."""
+    DATA_HOST's R2 was refused: without trusted_owner refused, saying what to configure; with it installed, secrets/backup root's 0700."""
     root, config = setup(tmp_path)
     UIDS[os.stat(root / 'srv/nexloop').st_ino] = DEPLOY
     os.chmod(root / 'srv/nexloop', 0o751)
@@ -797,7 +797,7 @@ def test_a_srv_nexloop_of_the_deployment_user_needs_trusted_owner_and_secrets_ba
     code, text, _ = main(root, config, tmp_path=tmp_path)
     assert code == 0, text
     info = os.lstat(root / SECRETS)
-    assert info.st_uid in OWNERS and st.S_IMODE(info.st_mode) == 0o711
+    assert info.st_uid in OWNERS and st.S_IMODE(info.st_mode) == 0o700
     # What the installer owns is never the trusted owner's: secrets/backup of the deployment user is refused.
     UIDS[info.st_ino] = DEPLOY
     code, text, _ = main(root, config, stdin='', tmp_path=tmp_path)
@@ -833,3 +833,44 @@ def test_root_owned_widens_only_the_ancestors_and_never_for_a_link(tmp_path):
     UIDS[os.lstat(top / 'secrets').st_ino] = DEPLOY
     with pytest.raises(I.Refused, match='symbolic link'):
         I.root_owned(path, what='x', owners=OWNERS, ancestors=(DEPLOY,))
+
+
+def backup_problems(root):
+    """The deploy gate's own secret_distribution on this host's secrets tree: its findings for secrets/backup."""
+    from nexloop_eios import deploy_checks
+    found = deploy_checks.secret_distribution(root / 'srv/nexloop/secrets')['details']['secrets']['problems']
+    return [p for p in found if p.endswith(':backup')]
+
+
+def test_secrets_backup_passes_the_deploy_gates_secret_distribution_and_a_rerun_moves_the_earlier_layout(tmp_path):
+    """Release 51 (2026-10-27): secret_distribution failed with directory_permissions:backup - secrets/backup was root 0711 and its two
+    CA files root 0644. Now the directory is root 0700 and every file 0600; a rerun moves an earlier install to it."""
+    root, config = setup(tmp_path)
+    code, text, _ = main(root, config, tmp_path=tmp_path)
+    assert code == 0, text
+    secrets = root / SECRETS
+    assert backup_problems(root) == []
+    assert st.S_IMODE(secrets.stat().st_mode) == 0o700 and all(st.S_IMODE(f.stat().st_mode) == 0o600 for f in secrets.iterdir())
+    os.chmod(secrets, 0o711)  # what release 50's installer left
+    for name in ('pg-ca.crt', 'rest-ca.crt'):
+        os.chmod(secrets / name, 0o644)
+    assert backup_problems(root) == ['directory_permissions:backup']
+    code, text, _ = main(root, config, stdin='', tmp_path=tmp_path)
+    assert code == 0 and 'pg-ca.crt written' in text and 'rest-ca.crt written' in text, text  # same bytes, the mode moved
+    assert backup_problems(root) == [] and st.S_IMODE(secrets.stat().st_mode) == 0o700
+    assert [st.S_IMODE((secrets / n).stat().st_mode) for n in ('pg-ca.crt', 'rest-ca.crt')] == [0o600, 0o600]
+
+
+def test_the_unit_reads_a_root_0700_directory_only_through_its_capability_and_the_maintenance_binds_files_one_by_one():
+    """What secrets/backup root 0700 with root's 0600 CA files relies on (NX-035-file-backup.md §6.7): the file backup unit traverses
+    and reads them with CAP_DAC_READ_SEARCH and binds the directory itself; nexloop-file-backup-maint, without any capability, binds
+    its three repo2 files one by one (systemd resolves the sources as root), never the directory; and step 5 reads every secret
+    from inside the sandbox, so a unit that lost the capability fails there, before any timer."""
+    units = ROOT / 'deploy/stage/systemd'
+    backup = (units / 'nexloop-file-backup.service.example').read_text()
+    maint = (units / 'nexloop-file-backup-maint.service.example').read_text()
+    assert 'AmbientCapabilities=CAP_DAC_READ_SEARCH\n' in backup and 'CapabilityBoundingSet=CAP_DAC_READ_SEARCH\n' in backup
+    assert any(line.startswith('BindReadOnlyPaths=') and '/srv/nexloop/secrets/backup' in line.split('=', 1)[1].split() for line in backup.splitlines())
+    [binds] = [line.split('=', 1)[1].split() for line in maint.splitlines() if line.startswith('BindReadOnlyPaths=')]
+    assert '/srv/nexloop/secrets/backup' not in binds and all(b.startswith('/srv/nexloop/secrets/backup/') for b in binds)
+    assert 'CapabilityBoundingSet=\n' in maint
