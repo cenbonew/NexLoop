@@ -69,11 +69,11 @@ ro "select runtime.nexloop_twin_calibration_aggregates('$TENANT_ID', date_trunc(
 
 ### 第 3 步：受治理 Action，预期被拒（approver3，工作台）
 
-配置 `local-only/nx042/twin-calibrate.json`（0600），窗口从孪生发布当天（UTC 零点）开始：
+配置 `local-only/nx042/twin-calibrate.json`（0600），窗口从孪生发布日期（UTC）的**前一天**开始。这样即使恰好在零点发布、或者时区换算不同，窗口也一定早于发布时刻：
 
 ```
 {"schema": "nexloop-twin-calibrate/1", "twin_id": "at046-synthetic-stage", "version": 1,
- "windows": [{"split_at": "<第 1 步 published_at 的 UTC 日期>", "span_days": 28}]}
+ "windows": [{"split_at": "<第 1 步 published_at 的 UTC 日期减 1 天>", "span_days": 28}]}
 ```
 
 ```
@@ -84,11 +84,17 @@ security find-generic-password -s nexloop/stage/approver3 -w | python3 "$RELEASE
 ```
 
 - **dry-run 预期**：退出码 0，显示请求体（twin_id、version、windows）和 Idempotency-Key，不读口令、不发送。
+- **dry-run 之后、正式执行之前的核对**：`split_at` 必须早于 `published_at`：
+
+```
+ro "select '<split_at>'::date::timestamptz < published_at from control.nexloop_consumer_twins where tenant_id='$TENANT_ID' and twin_id='at046-synthetic-stage' and version=1"
+```
+
+  预期为 `t`。不是 `t` 就停下，不执行正式请求。
 - **正式执行预期**：退出码 1，被拒，原因是下面之一（都在写报告之前）：
-  - `window_before_publication`：零点早于发布时刻；
-  - `not_published`：孪生已被 AT-046 收尾作废；
-  - `window_open`：窗口还没结束。
-- **停止条件**：执行前确认今天早于 `split_at + 28 天`，并且 `split_at` 是发布当天。如果算出的窗口已经结束、又在发布之后，**不要执行**：服务端会写出一份冻结报告并永久用掉这段窗口（L3）。
+  - `window_before_publication`：窗口起点早于发布时刻（孪生仍是 published 时的预期结果）；
+  - `not_published`：孪生已被 AT-046 收尾作废（服务端先查状态，后查窗口）。
+- **停止条件**：上面的核对不是 `t` 时不执行。窗口如果不早于发布时刻、又已经结束，服务端会写出一份冻结报告并永久用掉这段窗口（L3）。
 - 输出不含用户名、口令、cookie。
 
 ### 第 4 步：评估函数，四种结论（调度员，只读）
@@ -131,7 +137,7 @@ ev "$DEF"                                             true  2    # D
 
 1. 第 1 步：孪生在库里，校准状态 `uncalibrated`；
 2. 第 2 步：合成顾客没有进入任何单元（`groups` 为空，被排除或被抑制）；
-3. 第 3 步：dry-run 退出码 0；正式执行被服务端以独立性检查之一拒绝（`window_before_publication`、`not_published` 或 `window_open`），没有写报告；
+3. 第 3 步：dry-run 退出码 0，`split_at` 早于 `published_at`；正式执行以 `window_before_publication`（或孪生已作废时的 `not_published`）被拒，没有写报告；
 4. 第 4 步：A–D 四个结论与上表完全一致；
 5. 第 5 步：报告数、事件数没有变化，校准状态仍为 `uncalibrated`。
 
