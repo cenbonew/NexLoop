@@ -20,6 +20,7 @@
 | # | 前提 | 怎么核对 |
 |---|---|---|
 | P7 | R3 的输入：窗口内某次语义读取的结果超过 10 条（占满浏览上限），并且包含配置的 `protected_refs` | `s6_stage_inputs.py` 输出中 `evolution.window` 的 `evidence` 里“占满浏览上限的读取数”≥ 1；`evolution.protected_refs` 的 `status` 为找到，并且来源是这类读取。不满足时，`r3` 会以 `no scoped definition whose alias pushes a configured protected ref past the browse limit` 判 blocked |
+| P9 | 合成 Consumer 至少覆盖 **4 个簇单元**。留出集是簇单元的非空真子集：4 个单元有 14 个，够分给 8 项；3 个单元只有 6 个，排在后面的项（其中有 at048、r5、r7、template）会以 `cluster units give … holdouts; 8 are needed` 判 blocked | 只读：`uv run --frozen python scripts/acceptance/s6_stage_evolution.py r4 --config "$S6" --dry-run`，结果中 `inputs` 一步的 `units` ≥ 4（同一步还给出 `runs`、`clusters`、`excluded`）。`s6_stage_inputs.py` 的 `evolution.window` 证据中 Consumer 数 ≥ 4 只是必要条件：近重复的 Run 会并簇，所以以 `units` 为准。不足时，先跑一段涉及更多合成 Consumer 的合成交互，然后两张单一起换 `label` |
 | P8 | 本单和 NX-038 的单**用同一份私有配置**（`local-only/s6-stage.json`，同一个 `label`、同一个 `window`），并且 NX-038 的第 7 步（`r7-prepare`）还没有开始 | 配置文件的 sha256 与 NX-038 执行时记录的相同；NX-038 的结果目录里没有 `r7-prepare` 的结果 |
 
 预算（P3）不满足时，按 NX-038 §2.0 由 approver3 设定，**两张单共用这一次设定**，不要再设一次。
