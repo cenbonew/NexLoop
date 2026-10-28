@@ -17,7 +17,7 @@ const hex='a'.repeat(64);
 
 test('the tab title: page, then the detail it shows, then the application; signed out it is the sign-in',()=>{
   expect(pageTitle({page:'overview'})).toBe('总览 · 负责人工作台 · NexLoop');
-  expect(pageTitle({page:'ontology',section:'object_types'})).toBe('Object Type · 企业世界模型 · 负责人工作台 · NexLoop');
+  expect(pageTitle({page:'ontology',section:'object_types'})).toBe('Object Type（对象类型） · 企业世界模型 · 负责人工作台 · NexLoop');
   expect(pageTitle({page:'consumers',id:hex,sub:'conversation'},{consumerId:hex,label:'客户 甲'})).toBe('会话 · 客户 甲 · 客户 · 负责人工作台 · NexLoop');
   expect(pageTitle({page:'commitments',id:hex})).toBe('承诺详情 · 承诺 / 交付 · 负责人工作台 · NexLoop');
   expect(pageTitle(null)).toBe('登录 · 负责人工作台 · NexLoop');

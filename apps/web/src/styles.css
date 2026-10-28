@@ -600,3 +600,14 @@ a.text-link{color:var(--accent);text-decoration:underline;text-underline-offset:
 /* Stage walkthrough (W4): the registration form names its close control at the top, beside the title. */
 .workbench .experiment-register-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
 .workbench .experiment-register-head h2{margin:0}.workbench .experiment-register-head h2:focus{outline:none}
+/* Owner 2026-10-29: world model identifiers with a Chinese gloss - Consumer（客户）. The identifier is code and never breaks; the
+ * full-width parentheses with the Chinese are secondary text in the body font and may wrap in a narrow column. */
+.term{display:inline}
+.term-id{white-space:nowrap}
+code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small)}
+.term-word{font:inherit}
+.term-gloss{font-family:inherit;font-weight:400;color:var(--muted);overflow-wrap:anywhere}
+.term-machine{display:inline-block;margin-left:var(--space-1);padding:0 4px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  font-size:12px;line-height:16px;color:var(--muted);vertical-align:1px;cursor:help;white-space:nowrap}
+/* On a selected control (a pressed switch, the current sidebar entry) the gloss takes the control's own text colour, not the muted grey. */
+[aria-pressed="true"] .term-gloss,[aria-current="page"] .term-gloss{color:inherit;opacity:.85}

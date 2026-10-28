@@ -10,6 +10,7 @@ import {kindOf,readObjectSetMembers,readObjectSets,type ObjectSetFilter,type Obj
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
 import {Card,EmptyState,IdText,KeyValue} from '../kit';
+import {Term,sectionText,useWorldGlosses} from '../Gloss';
 
 export type ObjectSetState={set:string|null;offset:number};
 const OPERATOR_TEXT:Record<ObjectSetFilter['operator'],string>={eq:'等于',ne:'不等于',gt:'大于',gte:'不小于',lt:'小于',lte:'不大于',in:'属于',not_in:'不属于'};
@@ -28,7 +29,7 @@ export function ObjectSets({state,onState}:{state:ObjectSetState;onState:(change
     <DataTable label="Object Set" rows={all} rowKey={s=>s.stable_name} rowClass={s=>s.stable_name===state.set?'row-selected':undefined} columns={[
       {label:'Object Set',main:true,cell:s=><button type="button" className="link" aria-pressed={s.stable_name===state.set}
         onClick={()=>onState({set:s.stable_name===state.set?null:s.stable_name,offset:0})}><code className="code-name">{s.stable_name}</code></button>},
-      {label:'版本',cell:s=>`v${s.version}${s.versions>1?`（共 ${s.versions} 个版本）`:''}`},{label:'Object Type',cell:s=><code className="code-name">{s.object_type}</code>},
+      {label:'版本',cell:s=>`v${s.version}${s.versions>1?`（共 ${s.versions} 个版本）`:''}`},{label:sectionText('Object Type'),cell:s=><TypeTerm name={s.object_type}/>},
       {label:'条件',wide:true,cell:s=>s.filters.length?s.filters.map(conditionText).join('；'):'全部 Object'},
       {label:'发布时间',cell:s=><Time value={s.published_at}/>}]}/>
     {selected?<Preview set={selected} offset={state.offset} onOffset={offset=>onState({offset})}/>
@@ -39,7 +40,7 @@ export function ObjectSets({state,onState}:{state:ObjectSetState;onState:(change
 function Preview({set,offset,onOffset}:{set:ObjectSetSummary;offset:number;onOffset:(offset:number)=>void}){
   const page=useQuery({queryKey:['workbench','object-set-members',set.stable_name,set.version,offset],queryFn:()=>readObjectSetMembers(set.stable_name,offset)});
   return <section aria-label={`${set.stable_name} 预览`}><Card title={<><code className="code-name">{set.stable_name}</code> 预览</>} label={`${set.stable_name} 预览卡片`}>
-    <KeyValue label="Object Set 定义" items={[{key:'Object Type',value:<><code className="code-name">{set.object_type}</code>（v{set.object_type_version}）</>},
+    <KeyValue label="Object Set 定义" items={[{key:sectionText('Object Type'),value:<><TypeTerm name={set.object_type}/> · v{set.object_type_version}</>},
       {key:'条件',value:set.filters.length?set.filters.map(conditionText).join('；'):'全部 Object'},
       {key:'排序',value:set.sort.length?set.sort.map(s=>`${s.property}${s.direction==='desc'?' 降序':' 升序'}`).join('，'):'按标识'},
       {key:'显示的 Property',value:set.projection.join('、')},{key:'发布原因',value:set.reason}]}/>
@@ -60,3 +61,6 @@ function Preview({set,offset,onOffset}:{set:ObjectSetSummary;offset:number;onOff
       </>}
   </Card></section>;
 }
+
+/** An Object Type named by a set, with its gloss from the world model on this page. */
+function TypeTerm({name}:{name:string}){const g=useWorldGlosses().type(name);return <Term id={name} gloss={g.gloss} source={g.gloss_source}/>;}

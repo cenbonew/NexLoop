@@ -24,6 +24,7 @@ import {ACCOUNT_PATHS,AccountSecurity,InvitationPage,ResetNotice,ResetPage} from
 import {GOVERNED_SLOTS,type Slots} from './actions';
 import {PageErrorBoundary} from './kit';
 import {WorkbenchSso} from './SsoLink';
+import {SectionTerm,sectionText} from './Gloss';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
 export type ActionSlots=Slots;
@@ -97,7 +98,7 @@ const sameRoute=(a:Route,b:Route)=>a.page===b.page&&a.section===b.section;
 /** Detail pages: where this page sits (F08); every step but the last goes back. With the customer known (F10) a conversation reads
  * 消费者 › <客户> › 会话 and a commitment 承诺 / 交付 › <客户的承诺> › 承诺详情. */
 export function crumbs(route:Route,context:Context=null):{label:string;to?:Route}[]{
-  if(route.page==='ontology'&&route.section)return [{label:PAGES.ontology,to:{page:'ontology'}},{label:WORLD_SECTIONS.find(s=>s.key===route.section)!.label}];
+  if(route.page==='ontology'&&route.section)return [{label:PAGES.ontology,to:{page:'ontology'}},{label:sectionText(WORLD_SECTIONS.find(s=>s.key===route.section)!.label)}];
   if(!route.id)return [];
   const list={page:route.page} as Route;
   if(route.page==='consumers'&&route.sub==='conversation')return [{label:PAGES.consumers,to:list},
@@ -172,7 +173,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
       :<div className="workbench-layout">
         {/* md/sm (<1024): the navigation sits behind this visible menu button instead of a horizontal strip (web layout batch 1). */}
         <button type="button" ref={toggle} className="workbench-menu-toggle" aria-expanded={menu} aria-controls="workbench-nav" onClick={()=>setMenu(!menu)}>
-          <span>{menu?'收起菜单':'菜单'}</span><span className="menu-current">{PAGES[route.page]}{route.section?' · '+WORLD_SECTIONS.find(s=>s.key===route.section)!.label:''}</span></button>
+          <span>{menu?'收起菜单':'菜单'}</span><span className="menu-current">{PAGES[route.page]}{route.section?' · '+sectionText(WORLD_SECTIONS.find(s=>s.key===route.section)!.label):''}</span></button>
         <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航" onKeyDown={navKey}>{NAV_GROUPS.map(g=><div key={g.title} className="nav-group">
           <h2 className="nav-group-title" id={'nav-'+g.title}>{g.title}</h2><ul aria-labelledby={'nav-'+g.title}>{g.pages.map(page=>{
           const children=NAV_CHILDREN[page];const open=children?(opened[page]??route.page===page):false;
@@ -182,7 +183,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
             <button type="button" className="nav-expand" aria-expanded={open} aria-controls={'nav-sub-'+page} aria-label={(open?'收起':'展开')+PAGES[page]}
               onClick={()=>setOpened({...opened,[page]:!open})}>{open?'▾':'▸'}</button></div>
             {open?<ul id={'nav-sub-'+page} className="nav-sub">{children.map(c=><li key={c.label}><a href={routePath(c.route)}
-              aria-current={sameRoute(route,c.route)?'page':undefined} onClick={event=>{event.preventDefault();setMenu(false);go(c.route);}}>{c.label}</a></li>)}</ul>:null}</>
+              aria-current={sameRoute(route,c.route)?'page':undefined} onClick={event=>{event.preventDefault();setMenu(false);go(c.route);}}><SectionTerm name={c.label}/></a></li>)}</ul>:null}</>
             :link}</li>;})}</ul></div>)}
           <button type="button" onClick={()=>logout.mutate()} disabled={logout.isPending}>退出</button></nav>
         <div className="workbench-main">

@@ -749,33 +749,43 @@ export function humanActions(value:unknown):AuditItem[]{
 export const readHumanActions=()=>get('/api/v1/workbench/human-actions',humanActions);
 
 // ---- Enterprise world model W1 (0230; packages/contracts/workbench-world-model.schema.json): published model metadata, read only ----
-export type WorldProperty={name:string;withheld:true}|{name:string;withheld:false;value_type:string;required:boolean;nullable:boolean;group:string|null;visibility:string;description:string};
-export type WorldObjectType={name:string;version:number;display_name:string;description:string;title_property:string;primary_key:string[];objects:number;properties:WorldProperty[]};
-export type WorldRelation={name:string;version:number;source_type:string;target_type:string;cardinality:'one_to_one'|'one_to_many'|'many_to_one'|'many_to_many';inverse_name:string;description:string;property_count:number};
-export type WorldEvent={name:string;version:number;object_type:string;description:string;payload_property_count:number};
-export type WorldAction={resource_id:string;name:string;version:number;risk_level:string|null;approval_mode:string|null;change_scope:string|null;has_side_effects:boolean;
+/** Owner 2026-10-29 (L2 shape): each world model identifier may carry its Chinese gloss and where it came from; absent means none. */
+export type WorldGloss={gloss:string|null;gloss_source:'manual'|'machine'|null};
+export type WorldProperty=WorldGloss&({name:string;withheld:true}|{name:string;withheld:false;value_type:string;required:boolean;nullable:boolean;group:string|null;visibility:string;description:string});
+export type WorldObjectType=WorldGloss&{name:string;version:number;display_name:string;description:string;title_property:string;primary_key:string[];objects:number;properties:WorldProperty[]};
+export type WorldRelation=WorldGloss&{inverse_gloss:string|null;inverse_gloss_source:'manual'|'machine'|null;name:string;version:number;source_type:string;target_type:string;cardinality:'one_to_one'|'one_to_many'|'many_to_one'|'many_to_many';inverse_name:string;description:string;property_count:number};
+export type WorldEvent=WorldGloss&{name:string;version:number;object_type:string;description:string;payload_property_count:number};
+export type WorldAction=WorldGloss&{resource_id:string;name:string;version:number;risk_level:string|null;approval_mode:string|null;change_scope:string|null;has_side_effects:boolean;
   object_types:string[];required_scopes:string[];contract_digest:string|null};
-export type WorldFunction={resource_id:string;name:string;version:number;applies_to:(string|null)[];required_scopes:string[];contract_digest:string|null};
+export type WorldFunction=WorldGloss&{resource_id:string;name:string;version:number;applies_to:(string|null)[];required_scopes:string[];contract_digest:string|null};
 export type WorldModel={world:string;computed_at:string;object_types:WorldObjectType[];relation_types:WorldRelation[];event_types:WorldEvent[];actions:WorldAction[];functions:WorldFunction[]};
 const CARDINALITIES=['one_to_one','one_to_many','many_to_one','many_to_many'] as const;
 const texts=(v:unknown)=>list(v).map(text);
+/** A gloss and its source: absent or null is none; an empty gloss is none; a source without a gloss is dropped. */
+function worldGloss(o:Record<string,unknown>,prefix=''):WorldGloss{
+  const g=o[prefix+'gloss'],s=o[prefix+'gloss_source'];
+  const gloss=g===undefined||g===null?null:text(g).trim()||null;
+  const source=s===undefined||s===null?null:oneOf(s,['manual','machine'] as const);
+  return {gloss,gloss_source:gloss?source:null};
+}
 function version(v:unknown):number{const n=count(v);if(n<1)throw new WorkbenchError('invalid');return n;}
 export function worldModel(value:unknown):WorldModel{
   const v=object(value);
-  const property=(x:unknown):WorldProperty=>{const o=object(x);if(flag(o.withheld)){if(Object.keys(o).length!==2)throw new WorkbenchError('invalid');return {name:text(o.name),withheld:true};}
-    return {name:text(o.name),withheld:false,value_type:text(o.value_type),required:flag(o.required),nullable:flag(o.nullable),group:maybeText(o.group),visibility:text(o.visibility),description:text(o.description)};};
+  const property=(x:unknown):WorldProperty=>{const o=object(x);if(flag(o.withheld)){if(Object.keys(o).filter(k=>k!=='gloss'&&k!=='gloss_source').length!==2)throw new WorkbenchError('invalid');
+      return {...worldGloss(o),name:text(o.name),withheld:true};}
+    return {...worldGloss(o),name:text(o.name),withheld:false,value_type:text(o.value_type),required:flag(o.required),nullable:flag(o.nullable),group:maybeText(o.group),visibility:text(o.visibility),description:text(o.description)};};
   return {world:text(v.world),computed_at:text(v.computed_at),
-    object_types:list(v.object_types).map(x=>{const o=object(x);return {name:text(o.name),version:version(o.version),display_name:text(o.display_name),description:text(o.description),
+    object_types:list(v.object_types).map(x=>{const o=object(x);return {...worldGloss(o),name:text(o.name),version:version(o.version),display_name:text(o.display_name),description:text(o.description),
       title_property:text(o.title_property),primary_key:texts(o.primary_key),objects:count(o.objects),properties:list(o.properties).map(property)};}),
     relation_types:list(v.relation_types).map(x=>{const o=object(x);const c=text(o.cardinality);if(!(CARDINALITIES as readonly string[]).includes(c))throw new WorkbenchError('invalid');
-      return {name:text(o.name),version:version(o.version),source_type:text(o.source_type),target_type:text(o.target_type),cardinality:c as WorldRelation['cardinality'],
+      return {...worldGloss(o),inverse_gloss:worldGloss(o,'inverse_').gloss,inverse_gloss_source:worldGloss(o,'inverse_').gloss_source,name:text(o.name),version:version(o.version),source_type:text(o.source_type),target_type:text(o.target_type),cardinality:c as WorldRelation['cardinality'],
         inverse_name:text(o.inverse_name),description:text(o.description),property_count:count(o.property_count)};}),
-    event_types:list(v.event_types).map(x=>{const o=object(x);return {name:text(o.name),version:version(o.version),object_type:text(o.object_type),description:text(o.description),
+    event_types:list(v.event_types).map(x=>{const o=object(x);return {...worldGloss(o),name:text(o.name),version:version(o.version),object_type:text(o.object_type),description:text(o.description),
       payload_property_count:count(o.payload_property_count)};}),
-    actions:list(v.actions).map(x=>{const o=object(x);return {resource_id:text(o.resource_id),name:text(o.name),version:version(o.version),risk_level:maybeText(o.risk_level),
+    actions:list(v.actions).map(x=>{const o=object(x);return {...worldGloss(o),resource_id:text(o.resource_id),name:text(o.name),version:version(o.version),risk_level:maybeText(o.risk_level),
       approval_mode:maybeText(o.approval_mode),change_scope:maybeText(o.change_scope),has_side_effects:flag(o.has_side_effects),object_types:texts(o.object_types),
       required_scopes:texts(o.required_scopes),contract_digest:maybeText(o.contract_digest)};}),
-    functions:list(v.functions).map(x=>{const o=object(x);return {resource_id:text(o.resource_id),name:text(o.name),version:version(o.version),
+    functions:list(v.functions).map(x=>{const o=object(x);return {...worldGloss(o),resource_id:text(o.resource_id),name:text(o.name),version:version(o.version),
       applies_to:list(o.applies_to).map(maybeText),required_scopes:texts(o.required_scopes),contract_digest:maybeText(o.contract_digest)};})};
 }
 export const readWorldModel=()=>get('/api/v1/workbench/world-model',worldModel);
