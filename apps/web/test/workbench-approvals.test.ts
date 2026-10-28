@@ -121,7 +121,8 @@ test('NX-056 budget approval: a budget loosening is listed as 放宽预算 with 
   const owner=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.approvals.decide:1',
     'eios:action:nexloop.approvals.cancel:1','eios:action:nexloop.budget.loosen:1']});
   const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],owner]]),h(Approvals,{}));
-  for(const t of ['放宽预算','from_limit_amount=50.00','limit_amount=80.00'])expect(html).toContain(t);
+  // The UX audit B8 summary (merged in batch 49): fields without a label are folded under 其他字段 as <code>name</code>：value.
+  for(const t of ['放宽预算','<code class="id-code">from_limit_amount</code>：50.00','<code class="id-code">limit_amount</code>：80.00'])expect(html).toContain(t);
   expect(html).not.toContain('工作台不能执行这条请求');  // loosen_budget is an operation the workbench resubmits
   for(const reason of ['budget_loosen_requires_approval','budget_changed','approval_unavailable'])
     expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state',reason))).toBeTruthy();
