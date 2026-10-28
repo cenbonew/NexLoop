@@ -1439,6 +1439,10 @@
    "capability": "goals.budget.set"
   },
   {
+   "operation": "loosen_budget",
+   "capability": "goals.budget.loosen"
+  },
+  {
    "operation": "set_control",
    "capability": "goals.control.set"
   },

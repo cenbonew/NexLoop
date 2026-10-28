@@ -54,6 +54,7 @@ def validate_roles(value):
     # D2 / ADR-023 §2.4: owner-only Actions never appear in another role.
     owner_only = {'eios:action:Contact.release:1', 'eios:action:Commitment.cancel:1', 'eios:action:Commitment.mark_communication:1',
                   'eios:action:Goal.publish:1', 'eios:action:Metric.approve:1', 'eios:action:Budget.set:1', 'eios:action:Control.set:1',
+                  'eios:action:nexloop.budget.loosen:1',  # NX-056 budget approval: loosening a budget, with another owner's approval
                   'eios:action:nexloop.alert.silence:1',  # NX-030: alert silencing is the owner's
                   'eios:action:nexloop.restore.open_scope:1',  # NX-035: opening a restored database is the owner's
                   'eios:action:nexloop.incentive.issue:1',  # AT-043: it spends the tenant incentive budget

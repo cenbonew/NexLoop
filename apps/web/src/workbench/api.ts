@@ -537,6 +537,8 @@ export const OPERATION_ACTION={
   erase_workbench_member:'eios:action:nexloop.workbench_member.erase_member:1',
   // NX-058 slice F (owner only): an operator's or reviewer's single sign-on link.
   link_workbench_external:'eios:action:nexloop.workbench_member.link_external:1',unlink_workbench_external:'eios:action:nexloop.workbench_member.unlink_external:1',
+  // NX-056 budget approval: a budget loosening, executed from the approvals page after another owner approves it.
+  loosen_budget:'eios:action:nexloop.budget.loosen:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -574,6 +576,10 @@ export const APPROVAL_REASON_TEXT:Record<string,string>={
   operation_mismatch:'执行的内容与批准的请求不一致，未执行。',
   execution_field_invalid:'执行时的附加字段无效，未执行。',
   invalid:'审批请求内容无效，未执行。',
+  // NX-056 budget approval.
+  budget_loosen_requires_approval:'这项预算调整会放宽预算（新设、调高、延后结束或改变起点、改币种），需要另一位 owner 批准，请改用“放宽预算”发起审批。',
+  budget_changed:'预算在你查看之后已经变化，未执行；请刷新后按当前预算重新发起。',
+  approval_unavailable:'这项操作需要审批，但当前没有可用的审批（策略未发布或不是这条请求），未执行。',
 };
 /** Exact outcome text (AT-045). 503/network/invalid response: the result is not known, never shown as failed or done. */
 export const WRITE_TEXT:Record<WriteFailure,string>={

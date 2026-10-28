@@ -67,6 +67,7 @@ export const DONE_TEXT:Record<Operation,string>={
   link_workbench_external:'已绑定单点登录；这位成员可以用 SSO 登录。选了“仅 SSO”时，密码和重置码已停用，现有会话已失效。',
   unlink_workbench_external:'已解绑单点登录；这位成员的会话已失效，之后用密码登录（仅 SSO 的成员需要负责人签发重置码）。',
   erase_workbench_member:'已擦除：账号停用、密码清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
+  loosen_budget:'已放宽预算（经另一位负责人批准）；新的上限和期间立即生效。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the

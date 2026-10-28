@@ -130,7 +130,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-058 slice F: the owner links an operator's or reviewer's IdP subject (single sign-on) and removes the link.
     'link_workbench_external':'workbench_member.link_external','unlink_workbench_external':'workbench_member.unlink_external',
     # Extraction dead letters (2026-10-26): requeue or dismiss one dead-lettered claim-extraction job (owner only).
-    'resolve_extraction_dead_letter':'claim_extraction.dead_letter_resolve'}
+    'resolve_extraction_dead_letter':'claim_extraction.dead_letter_resolve',
+    # NX-056 budget approval: loosening a budget, with another owner's approval (Budget.set keeps tightening and the renewal).
+    'loosen_budget':'goals.budget.loosen'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -262,6 +264,21 @@ class GoalGovernedActions:
         if budget_kind not in ('model','incentive','evolution'):raise ValueError('budget kind required')  # evolution: NX-038 D15
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_budget','budget_kind':budget_kind,
             'unit':unit,'limit_amount':_decimal(limit_amount),'period_start':_utc(period_start),'period_end':_utc(period_end)})
+
+    def loosen_budget(self,*,action_name,action_version,request_id,budget_kind,unit,limit_amount,period_start,period_end,
+                      from_unit,from_limit_amount,from_period_start,from_period_end,expected_revision):
+        """NX-056 budget approval: the set_budget fields plus the current row the requester saw (every from_* None and expected_revision 0
+        for a new budget); SQL refuses a body that does not name the current row (budget_changed), when it opens and when it runs."""
+        if budget_kind not in ('model','incentive','evolution'):raise ValueError('budget kind required')
+        if type(expected_revision) is not int or expected_revision<0:raise ValueError('expected revision required')
+        if from_unit is not None and type(from_unit) is not str:raise ValueError('unit text required')
+        # Each as read, None where there is no current budget; SQL refuses a partial or stale view (budget: invalid / budget_changed).
+        current={'from_unit':from_unit,'from_limit_amount':None if from_limit_amount is None else _decimal(from_limit_amount),
+                 'from_period_start':None if from_period_start is None else _utc(from_period_start),
+                 'from_period_end':None if from_period_end is None else _utc(from_period_end)}
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'loosen_budget','budget_kind':budget_kind,
+            'unit':unit,'limit_amount':_decimal(limit_amount),'period_start':_utc(period_start),'period_end':_utc(period_end),
+            **current,'expected_revision':expected_revision})
 
     def release_contact_restriction(self,*,action_name,action_version,request_id,consumer_id,reason):
         # ADR-023 §2.4: only a human owner's governed Action releases a contact restriction (SQL enforces human).

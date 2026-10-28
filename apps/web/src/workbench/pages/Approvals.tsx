@@ -53,7 +53,9 @@ export const APPROVAL_ACTION_TEXT:Record<string,string>={set_real_dispatch:'打�
   issue_incentive:'发放激励',
   // NX-058: the owner-only member Actions and the staff erasure.
   promote_workbench_member:'提升为负责人',demote_workbench_owner:'降级负责人',suspend_workbench_owner:'停用负责人',resume_workbench_owner:'恢复负责人',
-  revoke_workbench_owner:'撤销负责人',issue_workbench_owner_reset:'为负责人签发重置码',invite_workbench_owner:'邀请负责人',erase_workbench_member:'擦除离职成员'};
+  revoke_workbench_owner:'撤销负责人',issue_workbench_owner_reset:'为负责人签发重置码',invite_workbench_owner:'邀请负责人',erase_workbench_member:'擦除离职成员',
+  // NX-056 budget approval.
+  loosen_budget:'放宽预算'};
 export function actionText(row:ApprovalRow):string{return APPROVAL_ACTION_TEXT[row.operation]??'其他操作';}
 /** The target member in words (ADR-039 §6): who the request acts on, as the server rendered it for this reader. */
 export function targetText(t:ApprovalRow['target_member']):string{

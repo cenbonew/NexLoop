@@ -934,6 +934,11 @@
       "stable_name": "nexloop.workbench_member.unlink_external",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.budget.loosen",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
     }
   ],
   "functions": [

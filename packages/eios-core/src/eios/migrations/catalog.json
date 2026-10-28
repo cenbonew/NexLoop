@@ -1840,6 +1840,11 @@
       "version": "0368",
       "name": "0368_ui_conversation_times.sql",
       "sha256": "793b73ae35ea877c1f91505ae10fe0a8b32c2c44ac92159e1775c8d1d0802130"
+    },
+    {
+      "version": "0378",
+      "name": "0378_budget_loosen.sql",
+      "sha256": "12992b24afbd9259720e841e3b6724381a4c5997c60170d5453340833d4f396f"
     }
   ]
 }

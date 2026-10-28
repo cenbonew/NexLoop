@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from nexloop_eios.bootstrap import bootstrap
+from support.budgets import approved_budget
 from support.tenants import TENANT_A
 from test_stage_secrets import S, tree  # noqa: F401  (S puts scripts/deploy on sys.path)
 import assembly_dryrun_fixture as A  # noqa: E402
@@ -402,8 +403,8 @@ def publish_strategy(st):
 
 def test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run(assembled, admin, capsys):
     """G-CONTEXT-STRATEGY and G-WORKBENCH-AUTH: the owner (workbench roles v11, applied with workbench_roles --apply) publishes
-    recent_plus_required through context_strategy_setup (again: replayed); the owner's workbench session also sets the trial budget
-    (Budget.set, real_tenant_init step 4); then the consumer's message passes the relay's v6 context preparation and its Run is issued
+    recent_plus_required through context_strategy_setup (again: replayed); the owner's workbench session also submits the trial budget
+    (nexloop.budget.loosen, real_tenant_init step 4; NX-056 budget approval); then the consumer's message passes the relay's v6 context preparation and its Run is issued
     and accepted (relay first round: queued)."""
     st = assembled
     owner_workbench(st, admin)
@@ -425,7 +426,7 @@ def test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run(ass
 
 
 def budget_cli(st, *, username='dryrun-owner', password_file=None):
-    """G-BUDGET-CLI: scripts/nx037/real_tenant_init.py budget (Budget.set on the owner's own workbench session). Returns (code, out, err)."""
+    """G-BUDGET-CLI: scripts/nx037/real_tenant_init.py budget (nexloop.budget.loosen on the owner's own workbench session). Returns (code, out, err)."""
     import subprocess
     import sys
     catalog = st.root / 'value-catalog.json'
@@ -456,19 +457,26 @@ def model_budget(admin):
 
 
 def set_trial_budget(st, admin):
-    """real_tenant_init step 4 (Budget.set) through `real_tenant_init.py budget` after workbench_roles --apply; again: replayed."""
+    """real_tenant_init step 4 through `real_tenant_init.py budget` after workbench_roles --apply. NX-056 budget approval: the first
+    model budget is a loosening (nexloop.budget.loosen) another owner approves; the assembly applies no approval policy, so the handler
+    fails closed (`budget: approval_unavailable`, nothing written; with the policy the same call opens the approval,
+    tests/test_budget_approval_pg.py). The approved write then stands in for the approval."""
+    import sys
+    sys.path.insert(0, str(A.ROOT / 'scripts/nx037'))
+    import real_tenant_init as I
     code, out, err = budget_cli(st)
-    assert code == 0, (out, err)
-    first = json.loads(out)
-    assert first['executed'] and first['replayed'] is False and first['budget_kind'] == 'model'
+    assert code == 2 and json.loads(out) == {'ok': False, 'detail': 'budget: approval_unavailable'}, (code, out, err)
     password = (st.root / 'owner-password').read_text()
     assert password not in out + err and 'dryrun-owner' not in out + err  # credentials are never printed
-    code, out, err = budget_cli(st)
-    again = json.loads(out)
-    assert code == 0 and again['replayed'] is True and again['request_id'] == first['request_id']
+    assert model_budget(admin) is None
+    p = I.parameters(tenant=TENANT, owner_principal='owner-principal-synthetic', value_catalog=str(st.root / 'value-catalog.json'),
+                     channel_ref='channel:webchat:synthetic', period_start=st.budget_period[0], period_end=st.budget_period[1],
+                     cumulative=None, per_run=None, monthly=None, trial=I.TRIAL)
+    request = I.budget_request(p)
+    approved_budget(admin, TENANT, 'model', request['unit'], request['limit_amount'], request['period_start'], request['period_end'])
     budget = model_budget(admin)
-    assert float(budget['limit']) == float(first['limit_amount']), budget
-    return first
+    assert float(budget['limit']) == float(request['limit_amount']), budget
+    return {'executed': True, **request}
 
 
 def test_budget_cli_refuses_a_non_owner_and_a_password_file_that_is_not_private(assembled, admin, capsys):
@@ -566,8 +574,8 @@ def test_a_revoked_workbench_owner_is_refused_and_the_remaining_owner_is_not(ass
     code, out, err = strategy_as(st, 'owner', 'context-strategy-revoked-owner')
     assert code == 2 and json.loads(err) == {'ok': False, 'reason': 'ActionAuthorizationDenied'}, (code, out, err)
     assert admin.execute('select count(*) from control.nexloop_context_strategies where tenant_id=%s', (TENANT,)).fetchone() == (0,)
-    # The remaining owner performs both.
+    # The remaining owner performs both (the budget handler is reached: authorized; without an approval policy it fails closed).
     code, out, err = budget_cli(st, username='dryrun-owner2', password_file=st.root / 'owner2-password')
-    assert code == 0 and json.loads(out)['executed'] is True, (code, out, err)
+    assert code == 2 and json.loads(out) == {'ok': False, 'detail': 'budget: approval_unavailable'}, (code, out, err)
     code, out, err = strategy_as(st, 'owner2', 'context-strategy-remaining-owner')
     assert code == 0 and json.loads(out)['strategy_ref'] == 'context-strategy:recent_plus_required@1', (code, out, err)
