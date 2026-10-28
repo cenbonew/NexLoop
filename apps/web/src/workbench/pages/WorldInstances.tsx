@@ -86,7 +86,7 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
   const layout=view.data??null;
   const page=objectPage(type,id);
   return <aside className="world-panel world-object" aria-label={`${type} ${shortId(id)} 详情`}>
-    <Card title={<>{type} <code className="id-code" title={id}>{shortId(id)}</code></>} label={`${type} 详情卡片`} footer={<button type="button" onClick={onClose}>关闭</button>}>
+    <Card title={<>{type} <IdText value={id}/></>} label={`${type} 详情卡片`} footer={<button type="button" onClick={onClose}>关闭</button>}>
       <KeyValue label="Object 标识" items={[{key:'完整标识',value:<IdText value={id} kind={type} expandable/>},
         ...(row?[{key:'Schema 版本',value:`v${row.schema_version}`},{key:'修订',value:row.revision},{key:'更新时间',value:<Time value={row.updated_at}/>}]:[])]}/>
       {layout?null:<h3>属性</h3>}

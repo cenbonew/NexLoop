@@ -124,6 +124,8 @@ export function KeyValue({items,label,className}:{items:KeyValueItem[];label?:st
 export function shorten(value:string,head=8,tail=4):string{return value.length<=head+tail+1?value:value.slice(0,head)+'…'+value.slice(-tail);}
 /** A long identifier: kind in words, the head…tail form (monospace), the full value on hover and focus, a copy button (announces
  * 已复制); `name` replaces the hash as the visible text when the object has one; `expandable` shows the full value on click. */
+/** L6 S1 on S8: a shortened ID is not a tab stop, so its copy button is how the full value is reached - `copy={false}` only where the
+ * ID sits inside a link or button (which is the tab stop). */
 export function IdText({value,kind,name,head=8,tail=4,copy=true,expandable}:{value:string;kind?:string;name?:string|null;head?:number;tail?:number;copy?:boolean;expandable?:boolean}){
   const [open,setOpen]=useState(false);const [copied,setCopied]=useState(false);
   const full=(kind?kind+' ':'')+value;

@@ -253,7 +253,7 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
   const impact=controlImpact(kind,kind==='tenant'?'*':ref,pause);
   return <Form operation="set_control" title={fixed?(paused?'恢复主动联系':'暂停主动联系'):pause===null?'暂停 / 恢复':pause?'暂停主动联系':'恢复主动联系'} member={member}
     disabled={!impact} body={()=>impact&&kind?({scope_kind:kind,scope_ref:kind==='tenant'?'*':ref,paused:pause,reason}):null}>
-    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<IdText value={ref} copy={false}/>:ref}</p>:<>
+    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<IdText value={ref}/>:ref}</p>:<>
       <div className="field"><label htmlFor="control-scope">范围</label><select id="control-scope" value={kind} required onChange={e=>{setKind(e.target.value as keyof typeof SCOPES|'');setRef('');}}>
         <option value="">请选择范围</option>{Object.entries(SCOPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
       {kind&&kind!=='tenant'?<div className="field"><label htmlFor="control-ref">对象</label><input id="control-ref" value={ref} onChange={e=>setRef(e.target.value)} required maxLength={255}/></div>:null}
@@ -269,7 +269,7 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
 export function ReleaseForm({member,consumerId,context}:{member:Me;consumerId:string;context?:ReactNode}){
   const [reason,setReason]=useState('');
   return <Form operation="release_contact_restriction" title="解除联系限制" member={member} body={()=>({consumer_id:consumerId,reason})}>
-    <p>客户：<IdText value={consumerId} copy={false}/></p>{context}
+    <p>客户：<IdText value={consumerId}/></p>{context}
     <p className="impact-summary" role="note">影响：只解除这位客户的联系限制；之前被拒的意图不会重放，计划将重新评估。</p>
     <Reason id="release-reason" value={reason} onChange={setReason} label="解除原因（例如客户已确认可以联系）"/>
   </Form>;
@@ -309,7 +309,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
   const [reason,setReason]=useState('');const [at,setAt]=useState('');
   return <details className="workbench-op"><summary>{title}</summary>
     <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
-      <p>对象：承诺 {subject?`“${subject}” `:''}<IdText value={commitmentId} copy={false}/></p>
+      <p>对象：承诺 {subject?`“${subject}” `:''}<IdText value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
       {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
       <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>

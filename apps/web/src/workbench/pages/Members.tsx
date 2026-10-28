@@ -180,7 +180,7 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
   const panel=useRef<HTMLHeadingElement>(null);
   useEffect(()=>{if(chosen)panel.current?.focus();},[chosen]);
   const target=chosen?data.members.find(m=>m.principal_id===chosen.principal)??null:null;
-  const who=(principal:string)=>{const m=data.members.find(x=>x.principal_id===principal);return m?<>{m.username??'（无账户）'} <span className="note">{m.label}</span></>:<IdText value={principal} head={8} tail={4} copy={false}/>;};
+  const who=(principal:string)=>{const m=data.members.find(x=>x.principal_id===principal);return m?<>{m.username??'（无账户）'} <span className="note">{m.label}</span></>:<IdText value={principal} head={8} tail={4}/>;};
   return <>
     <h2>成员</h2>
     <DataTable label="成员" empty={{subject:'成员'}} rows={data.members} rowKey={m=>m.principal_id} columns={[

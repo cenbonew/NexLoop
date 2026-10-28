@@ -57,7 +57,7 @@ export function CustomerHistory({consumerId,currentConversationId}:{consumerId:s
     <header className="customer-history-head"><h2>客户近期往来</h2><span className="note">{total} 个会话 · 按时间倒序 · 北京时间</span>
       {items.length>1||history.hasNextPage?<button type="button" className="history-toggle" aria-expanded={open} onClick={()=>setOpen(!open)}>{open?'收起':'展开最近 10 条'}</button>:null}</header>
     {items.length?<ol className="history-list">{shown.map(m=><li key={m.id} className={'history-item history-'+m.direction}>
-      <p className="meta"><span className={'history-conv'+(m.conversation_id===currentConversationId?' history-current':'')}>{m.conversation_id===currentConversationId?'本会话':<IdText kind="会话" value={m.conversation_id} copy={false}/>}</span>
+      <p className="meta"><span className={'history-conv'+(m.conversation_id===currentConversationId?' history-current':'')}>{m.conversation_id===currentConversationId?'本会话':<IdText kind="会话" value={m.conversation_id}/>}</span>
         · #{m.sequence} · {senderText(m)}{m.content.status==='ok'&&m.content.actor&&m.direction==='outbound'?`（${m.content.actor}）`:''} · {beijing(m.accepted_at)}</p>
       {m.content.status==='ok'?<HistoryBody body={m.content.body??''}/>:<p className="note">{RESTRICTED_TEXT}</p>}</li>)}</ol>
       :<EmptyState kind="empty" subject="消息" reason="这位客户还没有消息" compact/>}
@@ -192,7 +192,7 @@ export function Conversation({conversationId,actions,onContext}:{conversationId:
     {data.messages.map(m=><li key={m.id} className={'message-'+m.direction}>
       <p className="meta">#{m.sequence} · {m.direction==='outbound'?(m.sender_kind==='agent'?'企业 Agent 回复':m.sender_kind==='human_takeover'?`人工客服回复${m.content.status==='ok'&&m.content.actor?`（${m.content.actor}）`:''}`:'企业回复'):'客户'} · {when(m.accepted_at)}
         {m.provider?` · 渠道 ${m.provider.namespace}${m.provider.sequence!==null?` 序号 ${m.provider.sequence}`:''}${m.provider.trust==='client'?'（客户端陈述）':''}${m.provider.skewed?'（时间偏差）':''}`:''}
-        {m.reply_to_message_id?<> · 回复 <IdText kind="消息" value={m.reply_to_message_id} copy={false}/></>:null}</p>
+        {m.reply_to_message_id?<> · 回复 <IdText kind="消息" value={m.reply_to_message_id}/></>:null}</p>
       {m.content.status==='ok'?<p>{m.content.body}</p>:<p className="note">{RESTRICTED_TEXT}</p>}
     </li>)}
   </ol>:<EmptyState kind="empty" subject="消息"/>}</div>

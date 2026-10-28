@@ -28,7 +28,7 @@ export function ReadAudit(){
     {query.isPending?<EmptyState kind="loading" subject="成员读取审计"/>:query.isError?<EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="成员读取审计"
       onRetry={()=>void query.refetch()}/>
       :<DataTable label="成员读取审计" empty={{subject:'读取记录'}} rows={query.data} rowKey={r=>String(r.audit_id)} columns={[
-      {label:'时间',main:true,cell:r=><Time value={r.read_at}/>},{label:'成员',cell:r=><><StatusBadge domain="member_role" code={r.role}/> <IdText value={r.principal_id} head={6} tail={4} copy={false}/></>},
+      {label:'时间',main:true,cell:r=><Time value={r.read_at}/>},{label:'成员',cell:r=><><StatusBadge domain="member_role" code={r.role}/> <IdText value={r.principal_id} head={6} tail={4}/></>},
       {label:'对象',wide:true,cell:r=><IdText kind={statusLabel('audit_target',r.object_kind)} value={r.target_resource.split(/[/:]/).pop()||r.target_resource}/>},
       {label:'用途',cell:r=><StatusBadge domain="read_purpose" code={r.read_purpose}/>}]}/>}</section>;
 }
