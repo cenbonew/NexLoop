@@ -89,3 +89,16 @@ test('registration: the draft says what is missing; a complete one is the contra
   render(h(Register,{member:owner,listed:['']}));
   expect(box.textContent).toContain('这个编号已在列表中');
 });
+
+test('W4: the registration form closes with 取消 at its top and with Escape, focus back on its opener; the confirmation panel keeps its own Escape',()=>{
+  render(h(Register,{member:owner,listed:[]}));
+  act(()=>button('登记新实验')!.click());
+  const cancels=[...box.querySelectorAll('button')].filter(b=>b.textContent==='取消');
+  expect(cancels.length).toBeGreaterThanOrEqual(1);expect(box.querySelector('.experiment-register-head button')!.textContent).toBe('取消');
+  act(()=>cancels[0].click());
+  expect(box.querySelector('.experiment-register')).toBeNull();expect(document.activeElement).toBe(button('登记新实验'));
+  act(()=>button('登记新实验')!.click());
+  const input=box.querySelector<HTMLInputElement>('#exp-hypothesis')!;
+  act(()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));});
+  expect(box.querySelector('.experiment-register')).toBeNull();expect(document.activeElement).toBe(button('登记新实验'));
+});

@@ -593,3 +593,6 @@ a.text-link{color:var(--accent);text-decoration:underline;text-underline-offset:
 /* Batch 52: shown only below 640 px (a hint that only matters on a phone). */
 .workbench .narrow-only{display:none}
 @media (max-width:639px){.workbench .narrow-only{display:block}}
+/* Stage walkthrough (W4): the registration form names its close control at the top, beside the title. */
+.workbench .experiment-register-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
+.workbench .experiment-register-head h2{margin:0}.workbench .experiment-register-head h2:focus{outline:none}
