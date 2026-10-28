@@ -273,7 +273,13 @@ class WorkbenchQueries:
         if has_open_commitments is not None:
             rows = [r for r in rows if (r['open_commitments'] > 0) == has_open_commitments]
         key = sort or 'id'
-        rows.sort(key=lambda r: (r['consumer_id'],) if key == 'id' else (r[key], r['consumer_id']), reverse=order == 'desc')
+        if key == 'last_conversation_at':
+            # X3: by the latest message time; a Consumer without one (no message, or being erased) never takes part in the order: last
+            # in either direction, by id.
+            timed = sorted((r for r in rows if r.get(key)), key=lambda r: (r[key], r['consumer_id']), reverse=order == 'desc')
+            rows = timed + sorted((r for r in rows if not r.get(key)), key=lambda r: r['consumer_id'])
+        else:
+            rows.sort(key=lambda r: (r['consumer_id'],) if key == 'id' else (r[key], r['consumer_id']), reverse=order == 'desc')
         start = int(cursor or 0)
         items = rows[start:start + limit]
         for item in items:
@@ -756,6 +762,11 @@ class WorkbenchQueries:
         # NX-058 workbench UI: the owner's members, unexpired invitations and the last 90 days of reset codes (labels, usernames, roles,
         # statuses, times; never a token, code, digest or email).
         return self.reader.observe('members')
+
+    def experiments(self):
+        # Experiment space slice 1 (0370): the owner's experiments - registration fields, status and times, spend, allocation counts,
+        # the latest report's digest and conclusion, the budget-drill flag and notice, the twin's status and calibration.
+        return self.reader.observe('experiments')
 
     def outreach_approvals(self):
         # Outreach slice 6: pending approvals (intent id, purpose, times, requester; never the body) for the owner.

@@ -501,7 +501,10 @@ def test_identity_token_key_is_generated_and_added_to_an_older_tree(tree, tmp_pa
 
 def test_the_browser_registration_carries_the_reset_completion_rate_policy():
     entries = S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench', seal_digest='a' * 64)
-    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete', 'invitation_accept']
+    assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete', 'invitation_accept', 'oidc_start']
+    # NX-058 slice F: the SSO start and callback buckets (per source, each its own); harmless while no provider file is configured.
+    assert {**entries['browser_rate_policies'][3], 'operator_principal_id': None} == {'action': 'oidc_start', 'maximum_attempts': 20, 'window_seconds': 300,
+                                                                                   'operator_principal_id': None, 'active': True}
     assert all(p['operator_principal_id'] == 'nexloop_identity' and p['active'] for p in entries['browser_rate_policies'])
 
 
@@ -588,3 +591,72 @@ def test_the_delivery_service_gets_the_same_ca_as_the_action_worker_route(tree):
     entry = next(f for f in tree['manifest']['files'] if f['path'] == 'webchat-delivery/provider-ca.crt')
     other = next(f for f in tree['manifest']['files'] if f['path'] == 'webchat-delivery/dsn')
     assert entry['kind'] == 'ca_bundle' and entry['owner'] == other['owner'] and oct((root / 'webchat-delivery/provider-ca.crt').stat().st_mode)[-3:] == '600'
+
+
+def test_add_service_gives_a_new_compose_service_its_files_once_and_mints_no_channel_credential(tree, tmp_path):
+    """Release 53: the stage tree predates outreach-sender. add-service writes its DSN (the domain worker's password from another DSN of
+    that role, its own client certificate paths), a client certificate with CN nexloop_domain_worker and the outreach_sender service
+    credential (also in service-secrets.json), changes nothing else, and refuses a second run. A service that mounts a channel
+    credential is refused (webchat-delivery: provider-credential)."""
+    import hashlib
+    import shutil
+    from psycopg.conninfo import conninfo_to_dict
+    old = tmp_path / 'tree'
+    shutil.copytree(tree['out'], old)
+    secrets_root = old / 'app' / 'secrets'
+    shutil.rmtree(secrets_root / 'outreach-sender')
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if not (f['host'] == 'app' and f['service'] == 'outreach-sender')]
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    store = old / 'management' / 'service-secrets.json'
+    tokens = json.loads(store.read_text())
+    expected_token = tokens.pop('app:outreach-sender/service-credential')
+    store.write_text(json.dumps(tokens))
+    before = {p: p.read_bytes() for p in secrets_root.rglob('*') if p.is_file()}
+    argv = ['add-service', '--out', str(old), '--ca-dir', str(tree['ca']), '--params', str(tree['params']), '--service', 'outreach-sender']
+    assert S.main(argv) == 0
+    added = sorted(str(p.relative_to(secrets_root)) for p in secrets_root.rglob('*') if p.is_file() and p not in before)
+    assert added == ['outreach-sender/dsn', 'outreach-sender/pg-client.crt', 'outreach-sender/pg-client.key', 'outreach-sender/service-credential']
+    assert all(p.read_bytes() == data for p, data in before.items())  # nothing else changed
+    dsn = conninfo_to_dict((secrets_root / 'outreach-sender/dsn').read_text().strip())
+    donor = conninfo_to_dict((secrets_root / 'domain-worker/dsn').read_text().strip())
+    assert dsn['user'] == 'nexloop_domain_worker' and dsn['password'] == donor['password'] and dsn['sslmode'] == 'verify-full'
+    assert dsn['sslcert'] == '/run/secrets/outreach_sender_pg_client_cert' and dsn['sslkey'] == '/run/secrets/outreach_sender_pg_client_key'
+    assert cn(secrets_root / 'outreach-sender/pg-client.crt') == 'nexloop_domain_worker'
+    token = (secrets_root / 'outreach-sender/service-credential').read_text()
+    assert json.loads(store.read_text())['app:outreach-sender/service-credential'] == token and len(token) == len(expected_token) and token != expected_token
+    assert oct((secrets_root / 'outreach-sender/pg-client.key').stat().st_mode)[-3:] == '600'
+    entries = {f['path']: f for f in json.loads((old / 'manifest.json').read_text())['files'] if f['service'] == 'outreach-sender'}
+    assert set(entries) == set(added) and all(entries[p]['sha256'] == hashlib.sha256((secrets_root / p).read_bytes()).hexdigest() for p in added)
+    assert S.check(old)['ok']
+    import pytest
+    with pytest.raises(S.Refused, match='already has files'):  # once only
+        S.add_service(old, tree['ca'], tree['params'], 'outreach-sender')
+    shutil.rmtree(secrets_root / 'webchat-delivery')
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['service'] != 'webchat-delivery']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(S.Refused, match='does not mint'):  # a channel credential (provider-credential) and a server key: refused
+        S.add_service(old, tree['ca'], tree['params'], 'webchat-delivery')
+    assert not (secrets_root / 'webchat-delivery').exists()
+
+
+def test_add_service_reuses_the_principals_token_when_it_already_has_one(tree, tmp_path, monkeypatch):
+    """One token per principal, as generate makes it: a principal that already holds a token under another file keeps it."""
+    import shutil
+    old = tmp_path / 'tree'
+    shutil.copytree(tree['out'], old)
+    shutil.rmtree(old / 'app' / 'secrets' / 'outreach-sender')
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['service'] != 'outreach-sender']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    store = old / 'management' / 'service-secrets.json'
+    tokens = json.loads(store.read_text())
+    tokens.pop('app:outreach-sender/service-credential')
+    tokens['setup:setup/outreach-sender-credential'] = 'synthetic-existing-principal-token-0123456789'
+    store.write_text(json.dumps(tokens))
+    principals = S._stage_principals()
+    principals['credential_files'] = {**principals['credential_files'], 'setup/outreach-sender-credential': 'outreach_sender'}
+    monkeypatch.setattr(S, '_stage_principals', lambda *a, **k: principals)
+    S.add_service(old, tree['ca'], tree['params'], 'outreach-sender')
+    assert (old / 'app/secrets/outreach-sender/service-credential').read_text() == 'synthetic-existing-principal-token-0123456789'

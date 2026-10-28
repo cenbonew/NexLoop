@@ -32,6 +32,9 @@ STAFF_KEPT = {
     'control.nexloop_browser_memberships': 'the revoked membership rows stay: principal and subject kept for audit (design §2.7)',
     'control.nexloop_workbench_grant_instances': 'grant audit (principal and digests only); revoked members hold none current - staff erasure: NX-058 slice E (E5)',
     'control.nexloop_workbench_role_history': 'vote eligibility and audit (principal only); its stop is written at revocation - staff erasure: NX-058 slice E (E5)',
+    'control.nexloop_workbench_external_identities': 'single sign-on links (NX-058 slice F): a trigger deletes the link when the membership is revoked, so a revoked member - the only kind erased - has none left',
+    'control.nexloop_workbench_sso_pending': 'SSO-only invitees awaiting their link (NX-058 slice F): a trigger deletes the row when the membership is revoked, so a revoked member has none left',
+    'control.nexloop_workbench_external_identity_events': _ACT + ' (link history: principals, provider and mode; never the IdP subject)',
 }
 
 

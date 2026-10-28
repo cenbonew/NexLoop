@@ -78,8 +78,22 @@ async function accountPost(path:string,body:Record<string,string>,done:string,in
 }
 /** NX-058 §1: accept an invitation with its token and a new password (no username: the invitation names it). */
 export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
+/** NX-058 slice F: accept an SSO-only invitation with its token only (it takes no password; the server refuses one). */
+export const acceptSsoInvitation=(token:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token},'invitation_accepted','invitation_invalid');
 /** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
 export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
+/** NX-058 slice F: the configured single sign-on providers (id and display name only); none while SSO is off or unreadable, so the
+ * login card simply shows no SSO button. The start is a top-level navigation (the IdP redirects back), never a fetch. */
+export type SsoProvider={provider_id:string;display_name:string};
+export function ssoProviders(value:unknown):SsoProvider[]{
+  return list(exactKeys(object(value),['providers']).providers).map(x=>{const o=exactKeys(object(x),['provider_id','display_name']);
+    const provider_id=text(o.provider_id);if(!/^[a-z][a-z0-9_-]{0,31}$/.test(provider_id))throw new WorkbenchError('invalid');
+    return {provider_id,display_name:text(o.display_name)};});
+}
+export async function readSsoProviders():Promise<SsoProvider[]>{
+  try{return await get('/api/v1/workbench/auth/oidc/providers',ssoProviders);}catch{return [];}
+}
+export const ssoStartPath=(provider:string)=>'/api/v1/workbench/auth/oidc/start?provider='+encodeURIComponent(provider);
 export async function readWorkbenchSession():Promise<WorkbenchSession|null>{
   try{return await get('/api/v1/workbench/auth/session',session);}catch(error){if(kindOf(error)==='unauthenticated')return null;throw error;}
 }
@@ -175,16 +189,19 @@ export const DISPLAY_NOTE:Record<'restricted'|'missing'|'failed',string>={restri
 export function consumerLabel(consumerId:string,display:DisplayName):string{
   return display.status==='ok'?display.name:`${consumerAlias(consumerId)}（${DISPLAY_NOTE[display.status]}）`;
 }
-export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName};
+export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName;
+  /** X3: the newest message time across the customer's conversations (null: none, or erasing); undefined from an older server. */
+  last_conversation_at?:string|null};
 export type ConsumerPage={items:ConsumerRow[];next_cursor:string|null;total:number|null;tenant_total:number|null};
 const total=(value:unknown)=>value===undefined||value===null?null:count(value);
 export function consumers(value:unknown):ConsumerPage{
   const v=object(value);
-  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display)};}),
+  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display),
+    ...(o.last_conversation_at===undefined?{}:{last_conversation_at:maybeText(o.last_conversation_at)})};}),
     next_cursor:v.next_cursor===null||v.next_cursor===undefined?null:/^\d+$/.test(String(v.next_cursor))?String(v.next_cursor):id(v.next_cursor),total:total(v.total),tenant_total:total(v.tenant_total)};
 }
 /** F09: list filters and sort (server side, on the list's own counts); `cursor` is the server's offset or, for the plain list, the id cursor. */
-export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans';order?:'asc'|'desc';cursor?:string};
+export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans'|'last_conversation_at';order?:'asc'|'desc';cursor?:string};
 export function consumerQueryString(q:ConsumerQuery,limit=50):string{
   const p=new URLSearchParams();
   if(q.restricted!==undefined)p.set('restricted',String(q.restricted));
@@ -385,18 +402,19 @@ export const readSettings=()=>get('/api/v1/workbench/settings',settings);
  * days of reset codes. Never a token, code, digest or email (the server leaves them out; a row that carried one is refused here). */
 export type MemberStatus='invited'|'active'|'suspended'|'revoked';
 export type MemberRow={principal_id:string;label:string;username:string|null;role:string|null;member_status:MemberStatus;account_status:string|null;
-  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean;person:string;human_active:boolean};
+  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean;person:string;human_active:boolean;sso_pending?:boolean};
 export type InvitationRow={invitation_id:string;username:string;role:string;issued_by:string;issued_at:string;expires_at:string};
 export type ResetRow={reset_id:string;target_principal:string;issued_by:string;issued_at:string;expires_at:string;state:string;completed_at:string|null;kind:'member'|'owner'};
 export type Members={members:MemberRow[];invitations:InvitationRow[];resets:ResetRow[]};
 function exactKeys(o:Record<string,unknown>,keys:string[]){if(Object.keys(o).sort().join()!==[...keys].sort().join())throw new WorkbenchError('invalid');return o;}
 const memberStatus=(v:unknown):MemberStatus=>{const t=text(v);if(!['invited','active','suspended','revoked'].includes(t))throw new WorkbenchError('invalid');return t as MemberStatus;};
 export function members(value:unknown):Members{const v=exactKeys(object(value),['members','invitations','resets']);
-  return {members:list(v.members).map(x=>{const o=exactKeys(object(x),['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked','person','human_active']);
+  // sso_pending (NX-058 F, 0371): a member who accepted an SSO-only invitation and awaits its link; absent before 0371.
+  return {members:list(v.members).map(x=>{const r=object(x);const o=exactKeys(r,['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked','person','human_active',...('sso_pending' in r?['sso_pending']:[])]);
       const label=text(o.label);if(!/^p-[0-9a-f]{8}$/.test(label))throw new WorkbenchError('invalid');
       return {principal_id:text(o.principal_id),label,username:maybeText(o.username),role:maybeText(o.role),member_status:memberStatus(o.member_status),
         account_status:maybeText(o.account_status),vote_eligible_from:maybeText(o.vote_eligible_from),erased:flag(o.erased),person_all_revoked:flag(o.person_all_revoked),
-        person:(()=>{const v=text(o.person);if(!/^s-[0-9a-f]{8}$/.test(v))throw new WorkbenchError('invalid');return v;})(),human_active:flag(o.human_active)};}),
+        person:(()=>{const v=text(o.person);if(!/^s-[0-9a-f]{8}$/.test(v))throw new WorkbenchError('invalid');return v;})(),human_active:flag(o.human_active),...('sso_pending' in o?{sso_pending:flag(o.sso_pending)}:{})};}),
     invitations:list(v.invitations).map(x=>{const o=exactKeys(object(x),['invitation_id','username','role','issued_by','issued_at','expires_at']);
       return {invitation_id:text(o.invitation_id),username:text(o.username),role:text(o.role),issued_by:text(o.issued_by),issued_at:text(o.issued_at),expires_at:text(o.expires_at)};}),
     resets:list(v.resets).map(x=>{const o=exactKeys(object(x),['reset_id','target_principal','issued_by','issued_at','expires_at','state','completed_at','kind']);
@@ -405,11 +423,11 @@ export function members(value:unknown):Members{const v=exactKeys(object(value),[
         state:text(o.state),completed_at:maybeText(o.completed_at),kind};})};}
 export const readMembers=()=>get('/api/v1/workbench/members',members);
 /** A one-time secret in a write's result (a reset code or an invitation token): shown once to the issuer, never stored by the page. */
-export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string}|null{
+export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string;sso?:boolean}|null{
   // Only the execution that drew it: never a replay, a waiting request or a refusal (those carry no secret anyway).
   if(!result||result.replayed!==false||'status' in result||(result.approval!==undefined&&result.approval!=='consumed'))return null;
   if(typeof result.code==='string'&&result.code.length>=16)return {kind:'code',value:result.code};
-  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token};
+  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token,...(typeof result.sso_provider==='string'?{sso:true}:{})};
   return null;
 }
 
@@ -523,6 +541,13 @@ export const OPERATION_ACTION={
   resume_workbench_owner:'eios:action:nexloop.workbench_member.resume_owner:1',revoke_workbench_owner:'eios:action:nexloop.workbench_member.revoke_owner:1',
   issue_workbench_owner_reset:'eios:action:nexloop.workbench_member.issue_owner_reset:1',invite_workbench_owner:'eios:action:nexloop.workbench_member.invite_owner:1',
   erase_workbench_member:'eios:action:nexloop.workbench_member.erase_member:1',
+  // NX-058 slice F (owner only): an operator's or reviewer's single sign-on link.
+  link_workbench_external:'eios:action:nexloop.workbench_member.link_external:1',unlink_workbench_external:'eios:action:nexloop.workbench_member.unlink_external:1',
+  // NX-056 budget approval: a budget loosening, executed from the approvals page after another owner approves it.
+  loosen_budget:'eios:action:nexloop.budget.loosen:1',
+  // Experiment space slice 2 (owner only, NX-043 D3): preregister, start and stop an experiment.
+  register_experiment:'eios:action:nexloop.experiment.register:1',start_experiment:'eios:action:nexloop.experiment.start:1',
+  stop_experiment:'eios:action:nexloop.experiment.stop:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -560,6 +585,10 @@ export const APPROVAL_REASON_TEXT:Record<string,string>={
   operation_mismatch:'执行的内容与批准的请求不一致，未执行。',
   execution_field_invalid:'执行时的附加字段无效，未执行。',
   invalid:'审批请求内容无效，未执行。',
+  // NX-056 budget approval.
+  budget_loosen_requires_approval:'这项预算调整会放宽预算（新设、调高、延后结束或改变起点、改币种），需要另一位 owner 批准，请改用“放宽预算”发起审批。',
+  budget_changed:'预算在你查看之后已经变化，未执行；请刷新后按当前预算重新发起。',
+  approval_unavailable:'这项操作需要审批，但当前没有可用的审批（策略未发布或不是这条请求），未执行。',
 };
 /** Exact outcome text (AT-045). 503/network/invalid response: the result is not known, never shown as failed or done. */
 export const WRITE_TEXT:Record<WriteFailure,string>={
@@ -1149,6 +1178,9 @@ export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
   result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null;
+  /** X1 (l2/ui-backend-x1-x4): the requester's workbench username; null when erased, without an account or not a member here;
+   * undefined from a server without the field. X2: a label per summary key (the key itself when the server has none). */
+  requested_by_username?:string|null;summary_labels?:Record<string,string>;
   /** 0362: the approval was executed (it has a consumption record); the status stays 'approved'. */
   consumed:boolean;consumed_at:string|null};
 /** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
@@ -1168,7 +1200,8 @@ const APPROVAL_KEYS='action,approval_id,approvals,capability,consumed,consumed_a
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
 function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   const r=object(value);
-  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[])].sort().join()
+  const optional=['requested_by_username','summary_labels'].filter(k=>k in r);
+  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[]),...optional].sort().join()
     ||!/^[0-9a-f-]{36}$/.test(text(r.approval_id))||!/^[0-9a-f]{12}$/.test(text(r.digest))||!APPROVAL_STATUS.includes(text(r.status) as ApprovalStatus))
     throw new WorkbenchError('invalid');
   const summary=object(r.summary);
@@ -1178,6 +1211,10 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
     policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary'],
     target_member:targetMember(r.target_member),consumed:flag(r.consumed),consumed_at:maybeText(r.consumed_at)};
   if(row.consumed!==(row.consumed_at!==null))throw new WorkbenchError('invalid');
+  if('requested_by_username' in r)row.requested_by_username=maybeText(r.requested_by_username);
+  if('summary_labels' in r){const labels=object(r.summary_labels);
+    if(Object.entries(labels).some(([k,v])=>!(k in summary)||typeof v!=='string'||!v))throw new WorkbenchError('invalid');
+    row.summary_labels=labels as Record<string,string>;}
   if(extra==='result')row.result=maybeText(r.result);
   if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
   return row;
@@ -1203,3 +1240,43 @@ export function approvalOutcome(result:Record<string,unknown>|undefined):string|
   return null;
 }
 
+
+// ---- experiment space, slice 1 (0370): the owner's experiments, read only ----
+export const EXPERIMENT_STAGES=['screening','shadow','online'] as const;
+export const EXPERIMENT_STATUSES=['registered','started','stopped'] as const;
+export type StrategyRef={strategy_id:string;version:number};
+export type ExperimentTwin={twin_id:string;version:number;status:string|null;calibration:string|null};
+export type ExperimentReport={as_of:string;created_at:string;report_digest:string;conclusion:string|null;reason:string|null;candidate_matured:number;control_matured:number};
+export type Experiment={experiment_id:string;world:string;world_kind:string|null;stage:typeof EXPERIMENT_STAGES[number];hypothesis:string|null;
+  candidate:StrategyRef;control:StrategyRef;primary_metric:{key:string;direction:string}|null;guardrails:Record<string,number>;
+  sample_size:{candidate:number;control:number}|null;budget:{model_cny:number;incentive_cny:number};ends_at:string|null;
+  registration_digest:string;registered_at:string;status:typeof EXPERIMENT_STATUSES[number];started_at:string|null;stopped_at:string|null;
+  stop_reason:string|null;stopped_by_guard:boolean;spent:{model_cny:number;incentive_cny:number};
+  allocation:{candidate:number;control:number;excluded:number};report:ExperimentReport|null;budget_drill:boolean;notice:string|null;twin:ExperimentTwin|null};
+const EXPERIMENT_KEYS=['experiment_id','world','world_kind','stage','hypothesis','candidate','control','primary_metric','guardrails','sample_size','budget','ends_at',
+  'registration_digest','registered_at','status','started_at','stopped_at','stop_reason','stopped_by_guard','spent','allocation','report','budget_drill','notice','twin'];
+function amount(value:unknown):number{if(typeof value!=='number'||!Number.isFinite(value)||value<0)throw new WorkbenchError('invalid');return value;}
+function strategyRef(value:unknown):StrategyRef{const o=object(value);return {strategy_id:text(o.strategy_id),version:count(o.version)};}
+function hex(value:unknown):string{const v=text(value);if(!hex64.test(v))throw new WorkbenchError('invalid');return v;}
+function experimentReport(value:unknown):ExperimentReport|null{
+  if(value===null)return null;
+  const o=exactKeys(object(value),['as_of','created_at','report_digest','conclusion','reason','candidate_matured','control_matured']);
+  return {as_of:text(o.as_of),created_at:text(o.created_at),report_digest:hex(o.report_digest),conclusion:maybeText(o.conclusion),reason:maybeText(o.reason),
+    candidate_matured:count(o.candidate_matured),control_matured:count(o.control_matured)};
+}
+export function experimentRow(value:unknown):Experiment{
+  const o=exactKeys(object(value),EXPERIMENT_KEYS);
+  const g=object(o.guardrails),b=object(o.budget),s=object(o.spent),a=object(o.allocation);
+  const m=o.primary_metric===null?null:object(o.primary_metric),n=o.sample_size===null?null:object(o.sample_size),t=o.twin===null?null:object(o.twin);
+  return {experiment_id:text(o.experiment_id),world:text(o.world),world_kind:maybeText(o.world_kind),stage:oneOf(o.stage,EXPERIMENT_STAGES),hypothesis:maybeText(o.hypothesis),
+    candidate:strategyRef(o.candidate),control:strategyRef(o.control),primary_metric:m?{key:text(m.key),direction:text(m.direction)}:null,
+    guardrails:Object.fromEntries(Object.entries(g).map(([k,v])=>[k,amount(v)])),sample_size:n?{candidate:count(n.candidate),control:count(n.control)}:null,
+    budget:{model_cny:amount(b.model_cny),incentive_cny:amount(b.incentive_cny)},ends_at:maybeText(o.ends_at),registration_digest:hex(o.registration_digest),
+    registered_at:text(o.registered_at),status:oneOf(o.status,EXPERIMENT_STATUSES),started_at:maybeText(o.started_at),stopped_at:maybeText(o.stopped_at),
+    stop_reason:maybeText(o.stop_reason),stopped_by_guard:flag(o.stopped_by_guard),spent:{model_cny:amount(s.model_cny),incentive_cny:amount(s.incentive_cny)},
+    allocation:{candidate:count(a.candidate),control:count(a.control),excluded:count(a.excluded)},report:experimentReport(o.report),
+    budget_drill:flag(o.budget_drill),notice:maybeText(o.notice),
+    twin:t?{twin_id:text(t.twin_id),version:count(t.version),status:maybeText(t.status),calibration:maybeText(t.calibration)}:null};
+}
+export function experiments(value:unknown):Experiment[]{return list(exactKeys(object(value),['experiments']).experiments).map(experimentRow);}
+export const readExperiments=()=>get('/api/v1/workbench/experiments',experiments);

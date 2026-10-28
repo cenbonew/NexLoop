@@ -8,7 +8,7 @@
 import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {APPROVAL_REASON_TEXT,OPERATION_ACTION,readApprovals,type ApprovalRow,type ApprovalStatus,type Me,type Operation} from '../api';
-import {Form,WithMember} from '../actions';
+import {ConfirmedForm,Form,WithMember} from '../actions';
 import {DataTable} from '../DataTable';
 import {Time} from '../ui';
 import {EmptyState,IdText,Notice} from '../kit';
@@ -41,11 +41,16 @@ function summaryValue(key:string,value:string|number|boolean|null){
   if(typeof value==='string'&&(HEX.test(value)||value.length>40))return <IdText value={value}/>;
   return String(value);
 }
+/** A summary key's label: the server's (X2, when it is not just the key), else the page's own, else none (folded with its name). */
+export function summaryLabel(row:ApprovalRow,key:string):string|null{
+  const server=row.summary_labels?.[key];
+  return server&&server!==key?server:Object.hasOwn(SUMMARY_FIELD_TEXT,key)?SUMMARY_FIELD_TEXT[key]:null;
+}
 export function Summary({row}:{row:ApprovalRow}){
   const entries=Object.entries(row.summary);
   if(!entries.length)return <>—</>;
-  const known=entries.filter(([k])=>Object.hasOwn(SUMMARY_FIELD_TEXT,k)),other=entries.filter(([k])=>!Object.hasOwn(SUMMARY_FIELD_TEXT,k));
-  return <>{known.length?<dl className="kv approval-summary">{known.map(([k,v])=><div key={k} className="kv-row"><dt>{SUMMARY_FIELD_TEXT[k]}</dt><dd>{summaryValue(k,v)}</dd></div>)}</dl>:null}
+  const known=entries.filter(([k])=>summaryLabel(row,k)),other=entries.filter(([k])=>!summaryLabel(row,k));
+  return <>{known.length?<dl className="kv approval-summary">{known.map(([k,v])=><div key={k} className="kv-row"><dt>{summaryLabel(row,k)}</dt><dd>{summaryValue(k,v)}</dd></div>)}</dl>:null}
     {other.length?<details className="state-details"><summary>其他字段（{other.length}）</summary>{other.map(([k,v])=><p key={k}><code className="id-code">{k}</code>：{v===null?'空':String(v)}</p>)}</details>:null}</>;
 }
 /** The Action in business words (L6 review 7); the capability stays visible as secondary text. */
@@ -53,7 +58,9 @@ export const APPROVAL_ACTION_TEXT:Record<string,string>={set_real_dispatch:'打�
   issue_incentive:'发放激励',
   // NX-058: the owner-only member Actions and the staff erasure.
   promote_workbench_member:'提升为负责人',demote_workbench_owner:'降级负责人',suspend_workbench_owner:'停用负责人',resume_workbench_owner:'恢复负责人',
-  revoke_workbench_owner:'撤销负责人',issue_workbench_owner_reset:'为负责人签发重置码',invite_workbench_owner:'邀请负责人',erase_workbench_member:'擦除离职成员'};
+  revoke_workbench_owner:'撤销负责人',issue_workbench_owner_reset:'为负责人签发重置码',invite_workbench_owner:'邀请负责人',erase_workbench_member:'擦除离职成员',
+  // NX-056 budget approval.
+  loosen_budget:'放宽预算'};
 export function actionText(row:ApprovalRow):string{return APPROVAL_ACTION_TEXT[row.operation]??'其他操作';}
 /** The target member in words (ADR-039 §6): who the request acts on, as the server rendered it for this reader. */
 export function targetText(t:ApprovalRow['target_member']):string{
@@ -75,6 +82,14 @@ const common=[
   {label:'截止',cell:(r:ApprovalRow)=><Time value={r.due_by}/>},
   {label:'批准',num:true,cell:(r:ApprovalRow)=>`${r.approvals} / ${r.quorum}`},
 ];
+
+/** X1: the requester by username, the member id as secondary text; null (erased, no account, or not a member here) is said without
+ * guessing which (L6 S1); an older server: the id. */
+export function Requester({row}:{row:ApprovalRow}){
+  const id=<IdText kind="成员" value={row.requested_by} head={6} tail={4}/>;
+  if(row.requested_by_username===undefined)return id;
+  return <span className="requester"><span className="name-main">{row.requested_by_username??'成员信息不可用'}</span>{id}</span>;
+}
 
 function DecideForms({member,row}:{member:Me;row:ApprovalRow}){
   const [reason,setReason]=useState('');
@@ -119,7 +134,7 @@ function ApprovalLists({data}:{data:Awaited<ReturnType<typeof readApprovals>>}){
     <p className="note">执行时还会重查批准人资格、期限和暂停；派发时照常检查全部闸门。</p>
     <h2>待我审批（{to_decide.length}）</h2>
     {to_decide.length===0?<EmptyState kind="empty" title="没有待你审批的请求"/>:<DataTable label="待我审批" rows={to_decide} rowKey={r=>r.approval_id} columns={[
-      ...common,{label:'发起人',cell:r=><><IdText kind="成员" value={r.requested_by} head={6} tail={4}/><br/><Time value={r.requested_at}/></>},
+      ...common,{label:'发起人',cell:r=><><Requester row={r}/><br/><Time value={r.requested_at}/></>},
       {label:'审批',cell:r=><WithMember>{member=><DecideForms member={member} row={r}/>}</WithMember>}]}/>}
     <h2>待我执行（{to_execute.length}）</h2>
     {to_execute.length===0?<EmptyState kind="empty" title="没有已批准待执行的请求"/>:<DataTable label="待我执行" rows={to_execute} rowKey={r=>r.approval_id} columns={[
@@ -130,8 +145,8 @@ function ApprovalLists({data}:{data:Awaited<ReturnType<typeof readApprovals>>}){
     {mine.length===0?<EmptyState kind="empty" title="最近 30 天没有你发起的审批"/>:<DataTable label="我发起的" rows={mine} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}{r.consumed?<>{' · '}<strong className="approval-consumed">已执行</strong></>:null}<br/>
         <span className="note">{r.consumed?<>{resultText(r.result)}{r.consumed_at?<>，<Time value={r.consumed_at}/></>:null}；这次批准已用掉，不能再执行</>:resultText(r.result)}</span></>},
-      {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><Form operation="cancel_approval" member={member} className="inline-action" title="撤回"
-        body={()=>({approval_id:r.approval_id,reason:'发起人撤回'})}><span/></Form>}</WithMember>:null}]}/>}
+      {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><ConfirmedForm operation="cancel_approval" member={member} trigger="撤回…" title="确认撤回"
+        impact="影响：这条审批请求结束，不能再批准；同一请求 1 小时内不能再次发起。" body={reason=>({approval_id:r.approval_id,reason})}/>}</WithMember>:null}]}/>}
     <details className="approval-settings"><summary>单人模式设置（{solo_mode.enabled?'已开启':'未开启'}）</summary>
       <WithMember>{member=><SoloModeForm member={member} enabled={solo_mode.enabled}/>}</WithMember></details>
   </>;

@@ -6,6 +6,7 @@
  * Idempotency-Key (the governed entry answers a replay from its terminal outcome, nothing runs twice).
  */
 import {statusLabel} from './status-labels';
+import {beijingLocalToUtc} from './ui';
 import {shorten} from './kit';
 import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
@@ -64,7 +65,13 @@ export const DONE_TEXT:Record<Operation,string>={
   revoke_workbench_owner:'已撤销这位负责人；授权、配置和会话都已结束。',
   issue_workbench_owner_reset:'已签发重置码；这位负责人的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
   invite_workbench_owner:'已签发负责人邀请；令牌只在这里显示一次，请线下转交本人。',
+  link_workbench_external:'已绑定单点登录；这位成员可以用 SSO 登录。选了“仅 SSO”时，密码和重置码已停用，现有会话已失效。',
+  unlink_workbench_external:'已解绑单点登录；这位成员的会话已失效，之后用密码登录（仅 SSO 的成员需要负责人签发重置码）。',
   erase_workbench_member:'已擦除：账号停用、密码清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
+  loosen_budget:'已放宽预算（经另一位负责人批准）；新的上限和期间立即生效。',
+  register_experiment:'已登记实验；登记内容已冻结（含摘要），之后不能修改，改动请登记新的实验。登记不等于开始。',
+  start_experiment:'已开始实验；分配从现在起按登记执行，护栏和预算随时可能自动停止它。',
+  stop_experiment:'已停止实验；所有客户回到对照策略，已发生的花费和分配记录保留。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -115,13 +122,14 @@ export function WriteResult({operation,data,onHide}:{operation:Operation;data:Re
 
 /** NX-058: a reset code or an invitation token, shown once to the issuer (it is in no read, list or log; the page keeps it only while
  * this form is on screen). The invitation link carries the token in the fragment, which the accept page clears at once. */
-export function OneTimeSecret({kind,value,onHide}:{kind:'code'|'token';value:string;onHide?:()=>void}){
+export function OneTimeSecret({kind,value,sso,onHide}:{kind:'code'|'token';value:string;sso?:boolean;onHide?:()=>void}){
   // Cleared 2 minutes after it was first shown (or at once with the button): the secret leaves the component state and the mutation
   // result. The deadline is fixed at the first render and the callback held in a ref, so a re-render or refetch never restarts it.
   const [shownAt]=useState(()=>Date.now());const hide=useRef(onHide);hide.current=onHide;
   useEffect(()=>{const timer=setTimeout(()=>hide.current?.(),Math.max(0,shownAt+120_000-Date.now()));return ()=>clearTimeout(timer);},[shownAt]);
   const origin=globalThis.location?.origin??'';
-  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value):null;
+  // An SSO-only invitation's link says so (sso=1), so the accept page asks for no password; the server decides either way.
+  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value)+(sso?'&sso=1':''):null;
   return <div className="one-time-secret" role="alert"><p><strong>{kind==='code'?'重置码':'邀请令牌'}（只显示这一次）</strong></p>
     <p><code className="id-code">{value}</code></p>
     {link?<p>邀请链接：<code className="id-code">{link}</code></p>:<p>重置页：<code className="id-code">{origin}/workbench/reset</code></p>}
@@ -135,18 +143,46 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
 
 /** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
  * (UX audit B4); `disabledReason` says, under the disabled button and tied to it, what is still missing (B6). */
-export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
-  disabled?:boolean;disabledReason?:string;onDone?:()=>void;className?:string;tone?:'danger'}){
+export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,onBusy,className,tone,level='h2'}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;disabledReason?:string;onDone?:()=>void;onBusy?:(busy:boolean)=>void;className?:string;tone?:'danger';
+  /** The title's heading level: h3 for a form inside a titled section. */level?:'h2'|'h3'}){
   const write=useWrite(operation,onDone);
+  const Heading=level;
   const reasonId=useId();
+  // `onBusy`: a container that could unmount this form (a confirmation panel) learns that a request is in flight (L6 review of S5).
+  const busy=useRef(onBusy);busy.current=onBusy;
+  useEffect(()=>{busy.current?.(write.isPending);},[write.isPending]);
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
   const why=disabled&&!write.isPending&&disabledReason?disabledReason:null;
-  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
+  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><Heading>{title}</Heading>{children}
     <button type="submit" className={tone==='danger'?'btn-danger':undefined} disabled={disabled||write.isPending} aria-describedby={why?reasonId:undefined}>
       {write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
     {why?<p className="disabled-reason" id={reasonId}>{why}</p>:null}
     <Outcome operation={operation} write={write}/></form>;
+}
+
+/** UX audit B5: a row action that used to run on one click (and wrote a reason nobody typed). The trigger opens a confirmation in place:
+ * what it does, the member's own reason (when the Action takes one), then the confirm button; 取消 or Escape closes it and returns focus
+ * to the trigger. Shown only when the role carries the operation. */
+export function ConfirmedForm({operation,member,trigger,title,impact,tone,withReason=true,reasonLabel='原因',body}:{operation:Operation;member:Me;trigger:string;title:string;
+  impact:ReactNode;tone?:'danger';withReason?:boolean;reasonLabel?:string;body:(reason:string)=>Record<string,unknown>}){
+  const [open,setOpen]=useState(false);const [reason,setReason]=useState('');
+  // L6 review of S5: while the request is in flight the panel cannot close - closing would unmount the form, so its outcome and the
+  // same-request retry of an unknown result would be lost. It closes once the result is shown.
+  const [pending,setPending]=useState(false);
+  const button=useRef<HTMLButtonElement>(null);const panel=useRef<HTMLDivElement>(null);const was=useRef(false);const id=useId();
+  useEffect(()=>{if(open)panel.current?.querySelector<HTMLElement>('textarea,button[type=submit]')?.focus();else if(was.current)button.current?.focus();was.current=open;},[open]);
+  if(!offers(member,operation))return null;
+  if(!open)return <button type="button" ref={button} className={'confirm-trigger'+(tone==='danger'?' confirm-trigger-danger':'')} aria-expanded={false} onClick={()=>setOpen(true)}>{trigger}</button>;
+  return <div className="confirm-panel" ref={panel} role="group" aria-label={title} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();if(!pending)setOpen(false);}}}>
+    <Form operation={operation} member={member} title={title} tone={tone} className="inline-confirm" disabled={withReason&&!reason.trim()}
+      disabledReason={withReason?'填写原因后可确认。':undefined} onBusy={setPending} body={()=>withReason&&!reason.trim()?null:body(reason.trim())}>
+      <p className="impact-summary" role="note">{impact}</p>
+      {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel}/>:null}
+    </Form>
+    <button type="button" className="btn-secondary" disabled={pending} onClick={()=>setOpen(false)}>{pending?'等待结果…':'取消'}</button>
+  </div>;
 }
 
 /** The member's role decides which controls are offered; without it nothing is guessed. */
@@ -157,7 +193,7 @@ export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   return <>{children(member.data)}</>;
 }
 
-function utc(local:string):string|null{const d=new Date(local);return Number.isNaN(d.getTime())?null:d.toISOString();}
+const utc=beijingLocalToUtc;  // the input is Beijing time, as the page shows it (not the browser's zone)
 
 // ---- remediation intents (NX-057 R1, owner) ----
 /** Resolve one open remediation: handled (a person took it) or cancelled. Nothing else changes, nothing is sent again. */
@@ -283,7 +319,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
     <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
       <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
-      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
+      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}（北京时间）</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
       <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>
     </Form></details>;
 }

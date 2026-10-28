@@ -4,7 +4,7 @@
 One invocation = one synthetic test owner logging in to the stage workbench over HTTPS and doing one thing:
 
   list                                   the three approval columns (ids, statuses, counts only)
-  request --operation OP --body-json J   submit one workbench operation (e.g. set_real_dispatch); answers waiting_approval
+  request --operation OP --body-json J   submit one workbench operation (e.g. set_real_dispatch, loosen_budget); answers waiting_approval
   decide  --approval-id ID --decision approve|reject --reason R
   cancel  --approval-id ID --reason R
   execute --approval-id ID               resubmit the approved request with the frozen inputs from 待我执行 (a new request key)

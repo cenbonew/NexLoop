@@ -23,6 +23,7 @@ import {Members} from './pages/Members';
 import {ACCOUNT_PATHS,AccountSecurity,InvitationPage,ResetNotice,ResetPage} from './AccountPages';
 import {GOVERNED_SLOTS,type Slots} from './actions';
 import {PageErrorBoundary} from './kit';
+import {WorkbenchSso} from './SsoLink';
 
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
 export type ActionSlots=Slots;
@@ -36,6 +37,8 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
     <div className="field"><label htmlFor="wb-password">密码</label><input id="wb-password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     {mutation.isError?<p className="error" role="alert">{kindOf(mutation.error)==='unauthenticated'?'账号或密码不正确。':STATE_TEXT[kindOf(mutation.error)]}</p>:null}
     <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form>
+    {/* NX-058 slice F: shown only when a provider is configured. */}
+    <WorkbenchSso/>
     <p className="note">忘记密码？请负责人为你签发重置码，然后<a href="/workbench/reset">用重置码设置新密码</a>。</p></section>;
 }
 
@@ -62,7 +65,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'approvals':return <Approvals/>;
     case 'members':return <Members/>;
     case 'account':return <AccountSecurity/>;
-    case 'personas':return <Personas actions={a}/>;
+    case 'personas':return <Personas actions={a} onConsumers={()=>go({page:'consumers'})}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
     case 'alerts':return <Alerts actions={a}/>;
@@ -85,7 +88,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
   {title:'管理',pages:['settings','members','account','personas','capabilities','experiments']}];
-const NOT_ENABLED:PageKey[]=['experiments'];
+const NOT_ENABLED:PageKey[]=[];
 /** Pages with sub-entries in the sidebar: the world model's concept pages (WORLD_SECTIONS, in EIOS order). */
 export const NAV_CHILDREN:Partial<Record<PageKey,{label:string;route:Route}[]>>={
   ontology:WORLD_SECTIONS.map(s=>({label:s.label,route:{page:'ontology',section:s.key}}))};

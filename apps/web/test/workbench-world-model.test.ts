@@ -21,7 +21,7 @@ test('the parser accepts the contract example and refuses a withheld property th
   expect(()=>worldModel(bad)).toThrow(WorkbenchError);
 });
 
-test('layout: deterministic, every node inside the box, no two node boxes overlap (ring and force)',()=>{
+test('layout: deterministic, every node inside the box, no two node boxes overlap (grid placement around the most connected type)',()=>{
   for(const n of [1,2,5,8,9,24,40]){
     const nodes=Array.from({length:n},(_,i)=>({id:`T${String(i).padStart(2,'0')}`,label:`T${i}`}));
     const edges=nodes.slice(1).map((x,i)=>({id:'e'+i,from:nodes[Math.floor(i/3)].id,to:x.id}));

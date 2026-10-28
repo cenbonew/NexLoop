@@ -54,6 +54,7 @@ def validate_roles(value):
     # D2 / ADR-023 §2.4: owner-only Actions never appear in another role.
     owner_only = {'eios:action:Contact.release:1', 'eios:action:Commitment.cancel:1', 'eios:action:Commitment.mark_communication:1',
                   'eios:action:Goal.publish:1', 'eios:action:Metric.approve:1', 'eios:action:Budget.set:1', 'eios:action:Control.set:1',
+                  'eios:action:nexloop.budget.loosen:1',  # NX-056 budget approval: loosening a budget, with another owner's approval
                   'eios:action:nexloop.alert.silence:1',  # NX-030: alert silencing is the owner's
                   'eios:action:nexloop.restore.open_scope:1',  # NX-035: opening a restored database is the owner's
                   'eios:action:nexloop.incentive.issue:1',  # AT-043: it spends the tenant incentive budget
@@ -96,6 +97,8 @@ def validate_roles(value):
                   'eios:action:nexloop.workbench_member.suspend:1',
                   'eios:action:nexloop.workbench_member.resume:1',
                   'eios:action:nexloop.workbench_member.revoke:1',
+                  'eios:action:nexloop.workbench_member.link_external:1',  # NX-058 slice F: and a member's single sign-on link
+                  'eios:action:nexloop.workbench_member.unlink_external:1',
                   'eios:action:nexloop.object_view.publish:1',  # capability gap P2: how an object's detail is laid out is the owner's
                   'eios:action:nexloop.outreach.send:1',  # outreach slice 4: a proactive message reaches a customer
                   'eios:action:nexloop.marketing_consent.record:1',  # outreach slice 7: whether a customer receives marketing is the owner's record
