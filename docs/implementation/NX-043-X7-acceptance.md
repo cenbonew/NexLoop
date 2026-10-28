@@ -24,7 +24,7 @@
 | 7 | 影子决策只记录、不发送；影子世界零 provider 请求 | D7、§9 建议 5、AT-046 | 拆成跨主机的几步（按 AT-046 的做法）：shadow-keys（DATA_HOST 探针）：`shadow_events_copied`；decide（APP_HOST，只用 sim_worker）：`shadow_decisions_recorded`；probe-after（DATA_HOST）：`shadow_decisions_landed`、`shadow_sends_nothing`；merge：`nx043-shadow` | 同上 | stage 可验 |
 | 8 | 停止规则：到结束时间由护栏自动停止 | D4、§5、§9 建议 2 | probe-after：`guard_stops_at_the_end`（等待告警评估服务的 tick，reason 为 `guardrail: ended`） | `test_nx043_guardrails_pg`、`test_nx043_guard_wiring_pg` | stage 可验 |
 | 9 | 其他护栏：拒绝率、对账异常、孪生被撤回 | D4 | — | 同上 | 只有本地覆盖（stage 上需要注入真实越界） |
-| 10 | 实验预算用尽即阻断新消耗 | D5、§9 建议 3 | gaps：`experiment_budget`（blocked） | `test_nx043_guard_wiring_pg` | **阻塞**：需要实验世界里的模拟 Run（AT-046 的 run 链路） |
+| 10 | 实验预算用尽即阻断新消耗 | D5、§9 建议 3 | 预算演练（负责人 2026-10-28 方案 A，迁移 0366）：budget-start：`budget_drill_registered`、`budget_drill_started`；budget-before；budget-runs：`first_run_accepted`、`second_run_accepted`；budget-probe：`budget_exhausted_stops_the_drill`、`first_run_kept`、`new_spend_refused_at_dispatch`、`budget_drill_visible`、`drill_runs_never_real` | `test_nx043_budget_drill_pg`、`test_nx043_guard_wiring_pg`、`test_nx043_stage_pg` | **stage 可验**（预算演练，孪生未校准，结论不代表实验效果） |
 | 11 | 分配：按消费者，会话聚类同组，对照组至少一半 | D2、AT-048 | online-probe：`online_allocated` | `test_nx043_allocation_pg`、`test_nx043_x4_wiring_pg` | **可验**：X4 接线（0304）后 real 入站首次分配，经 online 段验证 |
 | 12 | 成熟窗口；窗口没到的样本不计；unknown 不算成功；样本不足不出结论 | D6、§6、§9 建议 4 | report：`experiment_result_reports_nothing_below_the_minimum` | `test_nx043_reports_pg`、`test_nx043_pooled_pg` | stage 只能验“不出结论”；按成熟窗口出统计需要 online 的分配 |
 | 13 | 报告只含聚合数，冻结后不可修改，不能反推个人；只有 owner 能取 | §6、X3 4.x、报告 Action | report：`shadow_report_aggregates_only` | `test_nx043_report_action_pg` | stage 可验 |
@@ -49,7 +49,8 @@
 10. `online`（owner）：在 world real 登记一个 online 实验（不选孪生）并开始。必须在 `probe-after` **之后**执行：online 会写 real 侧的分配和审计，否则会被 real 摘要比较当成变化。
 11. 由调度员再让 real 入站流量进来，然后执行 `online-probe`（DATA_HOST，只读）：各组分配人数（候选组不超过上限）和 `strategy_applied` 审计数，只输出计数。
 12. `online-stop`（owner）：停止 online 实验，所有人回到当前策略。
-13. `gaps`：阻塞项（只剩实验预算），由调度员登记。
+13. 预算演练（第 10 项）：`budget-start`（owner）→ `budget-before`（DATA_HOST）→ `budget-runs`（APP_HOST，演练 world 的 api 凭据）→ `budget-probe`（DATA_HOST）。见下文“预算演练”。
+14. `gaps`：已经没有阻塞项（第 9 项按设计只做本地覆盖）。
 
 ## 审查（L6 `nx043-x7-review.md`）的处理
 
@@ -118,7 +119,33 @@
 | O3 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-probe --config DATA.json` | 各组分配人数、`strategy_applied` 审计数 |
 | O4 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py online-stop --config PRIVATE.json` | 实验停止，所有人回到当前策略 |
 | O5 | DATA_HOST | probe，socket 只读 | `nx043_stage.py online-drain --config DATA.json` | 开始以来**实验成员**（有组别的分配）的 real 外联和效应没有在途的（L6 复核 1.3：其他 real 外联不影响判断）（`pending_approval`、`accepted`、`dispatching`、`unknown`、`observed_fulfilled` 都为 0）；默认等 900 秒 |
-| G | 任意 | 无连接 | `nx043_stage.py gaps --config ANY.json` | 阻塞项：实验预算 |
+| B1 | 调度员机器 | owner，HTTPS | `… \| nx043_stage.py budget-start --config PRIVATE.json`（在 S1 之后；用 S1 的两个策略） | screening 登记带 `budget_drill: true`、上限 1 CNY、1 小时内结束、孪生已发布未校准；开始 |
+| B2 | DATA_HOST | probe，socket 只读 | `nx043_stage.py budget-before --config DATA.json` | 演练 world 的合成 Consumer、Run Action 已发布、演练已开始 |
+| B3 | APP_HOST | sim_api（演练 world 的 api 凭据），hostssl | `nx043_stage.py budget-runs --config APP.json --from B2` | 两个模拟 Run 依次进入（相隔 `gap_seconds`），各自声明最大花费 1.0 CNY |
+| B4 | DATA_HOST | probe，socket 只读 | `nx043_stage.py budget-probe --config DATA.json --from B2 --from B3` | 第 1 个 Run 成功、预留和台账保留；演练以 `budget_exhausted` 停止；第 2 个 Run 在派发时被拒（`budget_exhausted`），没有预留；登记标记与审计可见；real 没有预留 |
+| G | 任意 | 无连接 | `nx043_stage.py gaps --config ANY.json` | 没有阻塞项 |
+
+### 预算演练（第 10 项，负责人 2026-10-28 方案 A）
+
+- **证据口径**：预算演练，孪生未校准，结论不代表实验效果。登记记录、审计事件 `nexloop.experiment.budget_drill`、登记返回的 notice 和实验报告都带这一标记（报告的 `budget_drill: true` 与 notice 计入报告摘要）。
+- **前提**：
+  - AT-046 的 sim world 仍然有效：有合成 Consumer，Run Action 已发布（AT-046 prepare），模拟进程组在运行；
+  - 这个 world 的 api 凭据（`roles.sim_api`，与 AT-046 相同）；
+  - 一个已发布、未退役、**未校准**的孪生版本（例如 AT-046 publish-twin 发布的合成孪生）。
+- **豁免的范围（0366）**：只有登记显式带 `budget_drill: true`，并且同时满足以下条件时，才豁免“孪生已校准”（D9）：
+  - stage 为 screening，world 为 sim；
+  - 模型上限大于 0、不超过 1 CNY；
+  - 结束时间在 1 小时内；
+  - 孪生已发布未校准。
+  
+  任何一条不满足，登记被拒 `budget_drill_not_allowed`。不带标记的 screening 仍然在开始时被拒 `twin_not_calibrated`（第 4 项，S2 照常验证）。
+- **派发时的复核（D5）**：某个 sim 或 shadow world 中最新登记的实验已经被护栏以 `budget_exhausted` 停止，且该 world 没有进行中的实验时，新的 Run 模型预留以 NXB01 拒绝。模拟 runtime worker 的派发控制把它报为 `budget_exhausted`，任务失败。
+  - 达到或越过上限的那一次预留仍然放行：停止事件要和它一起提交；
+  - 此前的预留、实验台账和已完成的 Run 都保留；
+  - real 和 test 不受影响；
+  - 不新增也不改动任何凭据，影子世界照旧只有 worker 凭据。
+- **配置**：`inputs.budget_drill` = `{world, twin {twin_id, version}, ends_in_minutes（默认 45，最多 55）, gap_seconds（默认 30）, run_timeout_seconds（默认 900）}`；APP.json 另加 `roles.sim_api`。私有状态文件照旧在主机之间拷贝。
+- **收尾**：演练实验已经由护栏停止，不需要 owner 再停。到结束时间后，护栏不会再改动它。
 
 ### 收尾
 

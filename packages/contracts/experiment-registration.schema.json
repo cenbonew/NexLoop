@@ -214,6 +214,10 @@
       "minimum": 0,
       "maximum": 2147483647
     },
+    "budget_drill": {
+      "const": true,
+      "description": "NX-043 X7 item 10 (owner 2026-10-28): a budget drill - accepted only for a screening in a simulation world, a model cap above 0 and at most 1 CNY, an end at most one hour away and a published, uncalibrated twin; waives the twin calibration (D9) for this drill only. The result does not represent the experiment's effect."
+    },
     "eligibility": {
       "type": "object",
       "additionalProperties": false,

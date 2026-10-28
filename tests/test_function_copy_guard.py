@@ -504,6 +504,11 @@ REGISTRY = [
             ((r"not runtime\.nexloop_relation_value_erased\(v\)", "v not like 'pseudonym:%'"),)),
     Allowed('relation_erased_values', 'authz.nexloop_relation_precheck', 'erased values through runtime.nexloop_relation_value_erased; nothing else',
             ((r"runtime\.nexloop_relation_value_erased\(o\.properties->>\(s->>'property'\)\)", "o.properties->>(s->>'property') like 'pseudonym:%'"),)),
+    # NX-043 X7 item 10 (owner 2026-10-28, option A): the budget drill waives the twin's calibration for that drill only, and its notice.
+    Allowed('nx043_budget_drill', 'runtime.nexloop_experiment_twin_ok', 'a budget drill (runtime.nexloop_experiment_budget_drill_ok) passes; nothing else',
+            ((r"\n  or runtime\.nexloop_experiment_budget_drill_ok\(p_tenant,r\)", ""),)),
+    Allowed('nx043_budget_drill', 'runtime.nexloop_experiment_notice', "a budget drill's registration gets the drill notice first; nothing else",
+            ((r"when p_registration->'budget_drill'='true'::jsonb then runtime\.nexloop_experiment_budget_drill_notice\(\)\n  when ", "when "),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

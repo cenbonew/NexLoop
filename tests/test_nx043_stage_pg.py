@@ -180,7 +180,8 @@ def test_the_dry_run_calls_nothing_and_the_gaps_are_blocked_never_passed(stage):
     assert f['owner'].calls == [] and f['admin'].execute('select count(*) from control.nexloop_experiments').fetchone()[0] == before
     assert not (f['tmp'] / 'results').exists()
     code, doc, _ = phase(f, 'gaps')
-    assert code == 1 and doc['passed'] is None and len(doc['blocked']) == 1  # experiment budget (online opened by the owner 2026-10-21)
+    # Item 10 is the budget drill since 0366 (owner 2026-10-28); online was opened 2026-10-21: nothing is blocked any more.
+    assert code == 0 and doc['passed'] is True and doc['blocked'] == [] and 'experiment_budget' not in json.dumps(doc)
 
 
 def test_the_online_part_starts_allocates_on_inbound_and_stops(stage):
@@ -397,3 +398,91 @@ def test_the_base_waits_for_live_real_claims_and_blocks_naming_them(monkeypatch)
     assert quiet is False and unfinished == {'unfinished_jobs': 0, 'unfinished_claims': {'Goal.create': 2, 'PlanStep.create': 1}}
     live['claims'] = []
     assert X._quiet_real(Ports(), TENANT_A, {'quiet_seconds': 1, 'quiet_timeout_seconds': -1})[1:] == (True, {})
+
+
+class DrillProbe:
+    """The read-only probe, except that the drill world's Run Action counts as published (AT-046 prepare's publish_sim_catalog, which
+    this local fixture does not run)."""
+
+    def __init__(self, pg):
+        self.pg = pg
+
+    def __call__(self):
+        conn = psycopg.connect(self.pg, autocommit=True)
+        execute = conn.execute
+
+        def patched(sql, params=None, **kw):
+            if 'control.nexloop_action_definitions' in sql:
+                return execute('select 1')
+            return execute(sql, params, **kw)
+        conn.execute = patched
+        return conn
+
+
+def dispatch(admin, world, job, run):
+    """What the simulation runtime worker does at its control stage: reserve the Run's declared maximum cost (1.0 CNY) in its world -
+    the SQL triggers decide (0297 attribution, 0366 refusal) - then finish the task: refused NXB01 -> failed with code budget_exhausted
+    (nexloop_eios.goal_controls.REASONS), else succeeded."""
+    try:
+        with admin.transaction():
+            admin.execute("""insert into control.nexloop_budget_consumption(tenant_id,world,budget_kind,consumption_id,amount,unit,source_ref,principal_id)
+                values(%s,%s,'model',%s,1.0,'CNY',%s,'sim-worker')""", (TENANT_A, world, 'run:' + run, 'run:' + run))
+        status, result = 'succeeded', {}
+    except psycopg.Error as error:
+        from nexloop_eios.goal_controls import REASONS
+        status, result = 'failed', {'code': REASONS[error.sqlstate]}
+    admin.execute("update runtime.jobs set status=%s,result=%s where job_id=%s", (status, Jsonb(result), job))
+
+
+def test_the_budget_drill_stops_at_the_cap_and_refuses_the_next_run_at_dispatch(stage, monkeypatch):
+    """Item 10 (owner 2026-10-28, option A): budget-start, budget-before, budget-runs, budget-probe with the SQL of 0366 doing the work;
+    only the intake and the worker's dispatch are stand-ins (the stage runs the AT-046 run chain)."""
+    f = stage
+    admin = f['admin']
+    monkeypatch.setattr(X.time, 'sleep', lambda s: None)
+    world = json.loads(Path(f['config']).read_text())['inputs']['screening']['world']
+    admin.execute("select control.nexloop_governed_generate_sim_world_data(%s,'real','owner-principal','owner-subject','i-gen',%s)",
+                  (TENANT_A, Jsonb({'operation': 'generate_sim_world_data', 'request_id': 'gen-drill', 'world': world, 'kind': 'synthetic', 'seed': 's',
+                                    'consumers': 2, 'events_per_consumer': {'min': 1, 'max': 1}, 'segments': {'trial': 1}})))
+    config = json.loads(Path(f['config']).read_text())
+    config['inputs']['budget_drill'] = {'world': world, 'twin': {'twin_id': 'trial.service_consumer', 'version': 1}, 'gap_seconds': 1, 'run_timeout_seconds': 5}
+    Path(f['config']).write_text(json.dumps(config))
+    assert phase(f, 'prepare')[0] == 0
+    code, doc, _ = phase(f, 'budget-start')
+    assert code == 0 and doc['passed'] is True, [x for x in doc['steps'] if x['passed'] is not True]
+    assert steps(doc)['budget_drill_registered']['observed']['notice'] == X.DRILL_NOTICE
+    probe = at046_stage.Ports(owner=f['owner'], probe=DrillProbe(f['pg']))
+    code, before, before_path = phase(f, 'budget-before', ports=probe)
+    assert code == 0 and before['passed'] is True, before
+    jobs = []
+
+    def intake(w, consumer, effect):
+        job, run = str(uuid.uuid4()), str(uuid.uuid4())
+        with admin.transaction():
+            admin.execute('set local session_replication_role=replica')
+            admin.execute("""insert into runtime.jobs(job_id,invocation_id,capability_name,capability_version,capability_type,execution_mode,tenant_id,actor_id,trace_id,
+                request_id,normalized_input,plan_snapshot,status,created_at,updated_at,world,queue,attempts,max_attempts)
+                values(%s,%s,'nexloop.runtime.run','1','atomic','async',%s,'synthetic','synthetic',%s,'{}','{}','pending',now(),now(),%s,'operations',0,3)""",
+                          (job, str(uuid.uuid4()), TENANT_A, str(uuid.uuid4()), w))
+        jobs.append((job, run))
+        dispatch(admin, w, job, run)  # the worker picks it up before the next intake (gap_seconds)
+        return job, run
+    code, runs, runs_path = phase(f, 'budget-runs', '--from', before_path, ports=at046_stage.Ports(intake=intake))
+    assert code == 0 and runs['passed'] is True, runs
+    code, doc, _ = phase(f, 'budget-probe', '--from', before_path, '--from', runs_path, ports=probe)
+    got = steps(doc)
+    assert code == 0 and doc['passed'] is True, [x for x in doc['steps'] if x['passed'] is not True]
+    assert got['new_spend_refused_at_dispatch']['observed'] == {'task_status': 'failed', 'code': 'budget_exhausted', 'reserved': 0}
+    assert got['first_run_kept']['observed']['ledger_entries'] == 1 and got['budget_exhausted_stops_the_drill']['observed']['reason'] == 'guardrail: budget_exhausted'
+    # Positive control for the probe: had the second Run been let through, the probe fails.
+    admin.execute("update runtime.jobs set status='succeeded',result='{}' where job_id=%s", (jobs[1][0],))
+    code, doc, _ = phase(f, 'budget-probe', '--from', before_path, '--from', runs_path, ports=probe)
+    assert code == 1 and steps(doc)['new_spend_refused_at_dispatch']['passed'] is False
+
+
+def test_a_plain_screening_start_is_still_refused_beside_the_drill(stage):
+    """Item 4 keeps its stage check: run's screening (no budget_drill) is refused twin_not_calibrated with the same uncalibrated twin."""
+    f = stage
+    assert phase(f, 'prepare')[0] == 0
+    code, doc, _ = phase(f, 'run')
+    assert steps(doc)['screening_start_needs_a_calibrated_twin']['observed'] == {'status': 409, 'reason': 'twin_not_calibrated'}
