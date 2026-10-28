@@ -33,14 +33,14 @@ const STATE:Record<StateKind,{title:(s:string)=>string;next:string;mark:string;a
 };
 /** One loading / empty / unavailable / forbidden state: a fixed title per kind ("暂无 X", "X 暂不可用"), an optional specific
  * reason, the next step, a retry button where it helps and the technical details folded away (HTTP status, codes). */
-export function EmptyState({kind,subject='',reason,next,onRetry,details,compact}:{kind:StateKind;subject?:string;reason?:ReactNode;next?:ReactNode;
+export function EmptyState({kind,subject='',title,reason,next,onRetry,details,compact}:{kind:StateKind;subject?:string;title?:string;reason?:ReactNode;next?:ReactNode;
   onRetry?:()=>void;details?:ReactNode;compact?:boolean}){
   const t=STATE[kind];
   const subjectText=subject||(kind==='empty'||kind==='filtered'?'数据':kind==='loading'?'':'此内容');
   if(kind==='loading')return <div className={'state state-loading'+(compact?' state-compact':'')} role="status" aria-busy="true" data-state="loading">
     <span className="sr-only">{t.title(subjectText)}</span><span className="skeleton-line"/><span className="skeleton-line"/><span className="skeleton-line short"/></div>;
   return <div className={`state state-${kind}`+(compact?' state-compact':'')} role={t.alert?'alert':'status'} data-state={kind}>
-    <p className="state-title"><span className="state-mark" aria-hidden="true">{t.mark}</span>{t.title(subjectText)}{reason?<>：{reason}</>:null}</p>
+    <p className="state-title"><span className="state-mark" aria-hidden="true">{t.mark}</span>{title??t.title(subjectText)}{reason?<>：{reason}</>:null}</p>
     {next??t.next?<p className="state-next">{next??t.next}</p>:null}
     {onRetry&&kind==='unavailable'?<button type="button" onClick={onRetry}>重试</button>:null}
     {details?<details className="state-details"><summary>技术细节</summary>{details}</details>:null}
@@ -62,24 +62,29 @@ export function Notice({tone='info',title,children,live,id}:{tone?:NoticeTone;ti
 // ---- page error boundary (UX audit A1) ----
 /** A render error in one page replaces that page's content with a state, never the whole workbench: the navigation stays, the
  * member can retry or go elsewhere. The caller keys it by route so another page starts clean. Technical details folded away. */
-export class PageErrorBoundary extends Component<{children:ReactNode},{error:Error|null}>{
-  state:{error:Error|null}={error:null};
-  static getDerivedStateFromError(error:Error){return {error};}
-  componentDidCatch(error:Error,info:ErrorInfo){console.error('workbench page error',error,info.componentStack);}
+export class PageErrorBoundary extends Component<{children:ReactNode},{error:Error|null;trace:string}>{
+  state:{error:Error|null;trace:string}={error:null,trace:''};
+  /** L6 review of S0: the screen shows only the error's class and a short trace id; the message (which may carry internal detail)
+   * goes to the console under that id, so a member can quote the id and support can find the entry. */
+  static getDerivedStateFromError(error:Error){return {error,trace:traceId()};}
+  componentDidCatch(error:Error,info:ErrorInfo){console.error(`workbench page error [${this.state.trace||'trace'}]`,error,info.componentStack);}
   render(){
-    const {error}=this.state;
+    const {error,trace}=this.state;
     if(!error)return this.props.children;
     return <section className="workbench-page" aria-labelledby="workbench-page-title" data-page-error>
       <PageHeader title="此页暂时无法显示"/>
       <div className="state state-unavailable" role="alert" data-state="page-error">
         <p className="state-title"><span className="state-mark" aria-hidden="true">!</span>页面出错，内容未能显示</p>
-        <p className="state-next">可以重试，或从左侧导航打开其他页面；数据没有因此改变。</p>
-        <button type="button" onClick={()=>this.setState({error:null})}>重试</button>
-        <details className="state-details"><summary>技术细节</summary><code className="id-code">{error.message}</code></details>
+        <p className="state-next">可以重试，或从左侧导航打开其他页面；数据没有因此改变。需要协助时请提供追踪号。</p>
+        <button type="button" onClick={()=>this.setState({error:null,trace:''})}>重试</button>
+        <details className="state-details"><summary>技术细节</summary><p>错误类型 <code className="id-code">{errorClass(error)}</code> · 追踪号 <code className="id-code">{trace}</code></p></details>
       </div>
     </section>;
   }
 }
+/** A class name only when it is a plain identifier (a custom error could put anything in `name`). */
+const errorClass=(error:Error)=>/^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(error.name)?error.name:'Error';
+const traceId=()=>(globalThis.crypto?.randomUUID?.()??Math.random().toString(16).slice(2)+'0000000000').replace(/-/g,'').slice(0,10);
 
 // ---- §3 cards and grids ----
 /** A card: title (and a status badge on its right), content, and a footer kept at the bottom so a row's buttons line up. A card

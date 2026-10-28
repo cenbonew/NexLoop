@@ -45,8 +45,8 @@ test('an unreadable remediation list says so and offers a retry',async()=>{
   expect([...box.querySelectorAll('button')].map(b=>b.textContent)).toContain('重试');
 });
 
-test('a page that throws is replaced by an alert with a retry; its siblings stay',async()=>{
-  vi.spyOn(console,'error').mockImplementation(()=>{});
+test('a page that throws is replaced by an alert with a retry; its siblings stay; only the error class and a trace id are shown',async()=>{
+  const logged=vi.spyOn(console,'error').mockImplementation(()=>{});
   let broken=true;
   function Page(){if(broken)throw new Error('synthetic render failure');return h('p',null,'页面内容');}
   act(()=>root.render(h('div',null,h('nav',{'aria-label':'工作台导航'},'导航'),h(PageErrorBoundary,null,h(Page)))));
@@ -54,7 +54,11 @@ test('a page that throws is replaced by an alert with a retry; its siblings stay
   const alert=box.querySelector('[data-state="page-error"]');
   expect(alert?.getAttribute('role')).toBe('alert');
   expect(box.querySelector('h1')?.textContent).toBe('此页暂时无法显示');
-  expect(box.querySelector('details')?.textContent).toContain('synthetic render failure');
+  const details=box.querySelector('details')?.textContent??'';
+  expect(box.textContent).not.toContain('synthetic render failure');  // L6: no internal message on screen
+  const trace=/错误类型 Error · 追踪号 ([0-9a-f]{10})/.exec(details);
+  expect(trace).not.toBeNull();
+  expect(logged.mock.calls.some(c=>String(c[0]).includes(trace![1])&&String(c[1]).includes('synthetic render failure'))).toBe(true);
   broken=false;
   const retry=[...box.querySelectorAll('button')].find(b=>b.textContent==='重试')!;
   act(()=>retry.click());
