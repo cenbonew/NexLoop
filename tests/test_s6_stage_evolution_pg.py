@@ -63,8 +63,8 @@ def failed_run(admin, digest, consumer, minutes, now):
 @pytest.fixture
 def stage(admin, pg, tmp_path):
     bootstrap(admin)
-    # The data and the window are relative to the time the test runs (PG's clock), never to collection: a full CI round runs
-    # this fixture long after the module was imported, and the stage reads the window against the database's now().
+    # The data and the window are both relative to the time the test runs (PG's clock), not to collection; only the budget
+    # period (+29 days) depends on the real time.
     now = admin.execute("select date_trunc('second', clock_timestamp())").fetchone()[0].astimezone(UTC)
     writer, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32)
     reader, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, identity_suffix='-reader')
