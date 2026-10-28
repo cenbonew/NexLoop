@@ -62,3 +62,26 @@ test('without a reason field the confirm is ready at once and danger-toned; a ro
     title:'确认不采纳',impact:'x',body:()=>({})}))));
   expect(box.textContent).toBe('');
 });
+
+test('L6 review: while the request is in flight neither 取消 nor Escape closes it; an unknown result keeps the same-request retry; then it closes',async()=>{
+  let release:(r:Response)=>void=()=>{};
+  vi.stubGlobal('fetch',vi.fn(async(path:string,init?:RequestInit)=>{
+    if(path.endsWith('/csrf'))return new Response(JSON.stringify({csrf_token:'synthetic-csrf'}),{status:200});
+    sent.push({path,body:JSON.parse(String(init?.body))});return new Promise<Response>(r=>{release=r;});}));
+  mount();
+  act(()=>button('撤回…').click());
+  type(box.querySelector('textarea')!,'提交错了');
+  await act(async()=>{box.querySelector<HTMLButtonElement>('button[type=submit]')!.click();});await settle();
+  expect(sent).toHaveLength(1);
+  const cancel=[...box.querySelectorAll<HTMLButtonElement>('.confirm-panel > button')].pop()!;
+  expect(cancel.disabled).toBe(true);expect(cancel.textContent).toBe('等待结果…');
+  act(()=>cancel.click());
+  act(()=>{box.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));});
+  expect(box.querySelector('.confirm-panel')).not.toBeNull();
+  await act(async()=>{release(new Response(JSON.stringify({code:'unavailable'}),{status:503}));});await settle();  // the result is unknown
+  expect(box.querySelector('.confirm-panel')).not.toBeNull();
+  expect(box.querySelector('button[type=submit]')?.textContent).toBe('用同一请求重试');
+  expect(button('取消').disabled).toBe(false);
+  act(()=>{box.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));});
+  expect(box.querySelector('.confirm-panel')).toBeNull();
+});
