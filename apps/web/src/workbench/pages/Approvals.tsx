@@ -78,7 +78,7 @@ const isOperation=(value:string):value is Operation=>Object.prototype.hasOwnProp
 const common=[
   {label:'操作',main:true,cell:(r:ApprovalRow)=><><span className="name-main">{actionText(r)}</span><span className="tech-name">{r.capability} · 策略 v{r.policy_version}</span></>},
   {label:'目标',cell:(r:ApprovalRow)=>targetText(r.target_member)},
-  {label:'内容摘要',wide:true,cell:(r:ApprovalRow)=><><Summary row={r}/><span className="kv-hint">请求指纹 <IdText value={r.digest} head={12} tail={4} kind="请求指纹"/></span></>},
+  {label:'内容摘要',wide:true,cell:(r:ApprovalRow)=><><Summary row={r}/><span className="kv-hint"><IdText value={r.digest} head={12} tail={4} kind="请求指纹"/></span></>},
   {label:'截止',cell:(r:ApprovalRow)=><Time value={r.due_by}/>},
   {label:'批准',num:true,cell:(r:ApprovalRow)=>`${r.approvals} / ${r.quorum}`},
 ];
@@ -133,16 +133,16 @@ function ApprovalLists({data}:{data:Awaited<ReturnType<typeof readApprovals>>}){
     <p className="workbench-summary" role="status">待我审批 {to_decide.length} 条 · 待我执行 {to_execute.length} 条 · 我最近 30 天发起 {mine.length} 条</p>
     <p className="note">执行时还会重查批准人资格、期限和暂停；派发时照常检查全部闸门。</p>
     <h2>待我审批（{to_decide.length}）</h2>
-    {to_decide.length===0?<EmptyState kind="empty" title="没有待你审批的请求"/>:<DataTable label="待我审批" rows={to_decide} rowKey={r=>r.approval_id} columns={[
+    {to_decide.length===0?<EmptyState kind="empty" title="没有待你审批的请求"/>:<DataTable label="待我审批" className="table-stacked" rows={to_decide} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'发起人',cell:r=><><Requester row={r}/><br/><Time value={r.requested_at}/></>},
       {label:'审批',cell:r=><WithMember>{member=><DecideForms member={member} row={r}/>}</WithMember>}]}/>}
     <h2>待我执行（{to_execute.length}）</h2>
-    {to_execute.length===0?<EmptyState kind="empty" title="没有已批准待执行的请求"/>:<DataTable label="待我执行" rows={to_execute} rowKey={r=>r.approval_id} columns={[
+    {to_execute.length===0?<EmptyState kind="empty" title="没有已批准待执行的请求"/>:<DataTable label="待我执行" className="table-stacked" rows={to_execute} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'执行',cell:r=>{const operation=r.operation;
         return isOperation(operation)&&r.inputs?<WithMember>{member=><Form operation={operation} member={member} className="inline-action" title="执行"
           body={()=>r.inputs??null}><span/></Form>}</WithMember>:<span className="note">工作台不能执行这条请求（不是工作台发起的请求体），请用发起时的入口执行</span>;}}]}/>}
     <h2>我发起的（{mine.length}）</h2>
-    {mine.length===0?<EmptyState kind="empty" title="最近 30 天没有你发起的审批"/>:<DataTable label="我发起的" rows={mine} rowKey={r=>r.approval_id} columns={[
+    {mine.length===0?<EmptyState kind="empty" title="最近 30 天没有你发起的审批"/>:<DataTable label="我发起的" className="table-stacked" rows={mine} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}{r.consumed?<>{' · '}<strong className="approval-consumed">已执行</strong></>:null}<br/>
         <span className="note">{r.consumed?<>{resultText(r.result)}{r.consumed_at?<>，<Time value={r.consumed_at}/></>:null}；这次批准已用掉，不能再执行</>:resultText(r.result)}</span></>},
       {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><ConfirmedForm operation="cancel_approval" member={member} trigger="撤回…" title="确认撤回"

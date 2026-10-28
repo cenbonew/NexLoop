@@ -133,3 +133,12 @@ test('the graph with Links: fitted to the canvas, node labels never below the fl
   // Fit: a small picture is enlarged to the canvas, a large one stops at the label floor (and pans instead).
   expect(fitScale(400,200,960)).toBeGreaterThan(1);expect(fitScale(20000,8000,960)).toBe(MIN_SCALE);
 });
+
+test('batch 52: the graph view says below 640 px that the table reads better, with a switch; the table view has no hint',()=>{
+  const graph=render({view:'graph'},'object_types');
+  expect(graph).toMatch(/<p class="note narrow-only" data-hint="narrow-graph">窄屏建议用表格：[^<]*<button type="button" class="link">切换到表格<\/button><\/p>/);
+  expect(graph).toContain('<svg');  // the graph is still there
+  expect(render(undefined,'object_types')).not.toContain('narrow-graph');
+  const css=readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
+  expect(css).toContain('.workbench .narrow-only{display:none}');expect(css).toContain('@media (max-width:639px){.workbench .narrow-only{display:block}}');
+});

@@ -18,7 +18,7 @@ export const STATE_TEXT:Record<FailureKind|'loading'|'empty',string>={
   forbidden:'当前账号没有查看此内容的权限。',
   not_found:'没有找到该对象，可能已被删除或不属于当前租户。',
   invalid_request:'请求参数无效，请检查筛选条件。',
-  unavailable:'服务暂时不可用：数据未加载，这不代表没有数据。',
+  unavailable:'服务暂时不可用：数据未加载。',
   invalid:'服务器响应格式不符，已拒绝显示，以免误导。',
 };
 export const SECTION_TEXT:Record<Exclude<SectionStatus,'ok'>,string>={

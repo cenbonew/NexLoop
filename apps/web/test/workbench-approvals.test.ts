@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
@@ -144,4 +145,13 @@ test('X1/X2 (l2/ui-backend-x1-x4, fixtures): the requester by username, an erase
   expect(html).toContain('<dt>范围</dt><dd>整个租户</dd>');  // a label equal to the key falls back to the page's own
   const custom=approvals({...raw,to_decide:[{...base,summary:{offering_revision:3},summary_labels:{offering_revision:'激励目录版本'},requested_by_username:'x'}]});
   expect(render(client([[['workbench','approvals'],custom],[['workbench','me'],approver]]),h(Approvals,{}))).toContain('<dt>激励目录版本</dt><dd>3</dd>');
+});
+
+test('batch 52: the three lists stack their cells below 640 px; the request fingerprint is named once',()=>{
+  const html=render(client([[['workbench','approvals'],approvals(raw)],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(html.match(/<table class="data-table table-stacked"/g)).toHaveLength(3);
+  expect(html.replace(/<[^>]*>/g,' ').match(/请求指纹/g)).toHaveLength(3);  // one visible kind per row, no second text label
+  expect(html).toContain('<span class="id-kind">请求指纹</span><code class="id-code" title="请求指纹 0123456789ab" aria-label="0123456789ab">');
+  const css=readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
+  expect(css).toMatch(/@media \(max-width:639px\)\{\n  \.workbench \.data-table\.table-stacked td\{display:block;flex-basis:100%\}/);
 });

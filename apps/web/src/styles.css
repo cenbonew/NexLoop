@@ -217,6 +217,12 @@ button:disabled{cursor:wait;opacity:.7}
   .workbench .data-table td.cell-main::before{content:none}
   .data-table tr.critical{border-color:var(--danger)}
 }
+/* Batch 52: rows whose cells hold several blocks (a summary list, a requester with id and time, a reason and two buttons) stack at
+   narrow widths - each cell takes the full card width, its label above, so nothing is squeezed into a one-character column. */
+@media (max-width:639px){
+  .workbench .data-table.table-stacked td{display:block;flex-basis:100%}
+  .workbench .data-table.table-stacked td::before{display:block;margin-bottom:2px}
+}
 
 /* WebChat (batch 2): the conversation, its mode and world sit in one top bar; the composer stays at the bottom of the viewport while
    the message list scrolls. */
@@ -577,3 +583,7 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 .workbench .workbench-skeleton .workbench-main{display:grid;gap:var(--space-3);padding:var(--space-4)}
 .workbench .skeleton-line.skeleton-title{height:24px;width:40%}
 @media (max-width:1023px){.workbench .workbench-skeleton .skeleton-nav{display:none}}
+
+/* Batch 52: shown only below 640 px (a hint that only matters on a phone). */
+.workbench .narrow-only{display:none}
+@media (max-width:639px){.workbench .narrow-only{display:block}}

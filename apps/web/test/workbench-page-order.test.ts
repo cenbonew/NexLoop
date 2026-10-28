@@ -46,7 +46,11 @@ test('F06: pause/resume has no default scope or operation and says its impact; d
   expect(goals).toContain('当前没有已发布目标');expect(before(goals,'控制事件','暂停 / 恢复')).toBe(true);
   expect(goals).toContain('<option value="" selected="">请选择范围</option>');expect(goals).not.toContain('checked=""');expect(goals).toContain('请先选择范围和操作');
   expect(controlImpact('tenant','*',true)).toBe('将暂停 整个租户（所有客户） 的主动联系：之后的派发会被拒绝，来信必回不受影响。');
-  expect(controlImpact('consumer','',true)).toBeNull();expect(controlImpact('','*',true)).toBeNull();
+  expect(controlImpact('consumer','',true)).toBeNull();
+  // Batch 52: a customer hash in the impact is an IdText with its copy button, never a hand-cut 'xxxx…'.
+  const hex='d'.repeat(64);const said=renderToStaticMarkup(h('p',null,controlImpact('consumer',hex,true)));
+  expect(said).toMatch(new RegExp(`^<p>将暂停 客户 <span class="id-text" data-id="${hex}"><code[^>]*>dddddddd…dddd</code><button type="button" class="id-copy"[^>]*>⧉</button></span> 的主动联系：`));
+  expect(controlImpact('role','support',false)).toBe('将恢复 角色 support 的主动联系：暂停期间被拒的意图不会重放，计划将重新评估。');expect(controlImpact('','*',true)).toBeNull();
   const tenant={enabled:true,data_mode:'real',revision:2};
   expect(outcomeText({world:'real',tenant,actions:[{action_type:DELIVER,enabled:true,revision:1}]}).dispatchable).toBe('unconfirmed');
   expect(outcomeText({world:'real',tenant,actions:[]}).text).toBe('真实交付：不可派发（交付 Action 层未开启）。');
@@ -71,5 +75,5 @@ test('F11: audit objects as type + short ID (full value in the title, copy butto
   const html=page([[['workbench','human-actions'],items]],{page:'audit'});
   // C1: the kit's IdText (type in words, head…tail, the full value in the title, expandable, a copy button).
   expect(html).toMatch(/<span class="id-kind">[^<a-z]+<\/span>/);expect(html).toContain(` ${id('a')}"`);expect(html).toContain('aaaaaaaa…aaaa');expect(html).not.toContain(`>${id('a')}<`);
-  expect(html).toContain('复制');expect(html).toContain('负责人 · synthe…6789');expect(html).toMatch(/<time dateTime="[^"]+" title="北京时间 [^"]+">2026/);expect(html).toMatch(/title="read" data-code="read">.*?读取<\/span>/);
+  expect(html).toContain('复制');expect(html).toMatch(/负责人 · <span class="id-text" data-id="synthetic-staff-owner-0123456789"><code[^>]*>synthe…6789<\/code><button type="button" class="id-copy"/);expect(html).toMatch(/<time dateTime="[^"]+" title="北京时间 [^"]+">2026/);expect(html).toMatch(/title="read" data-code="read">.*?读取<\/span>/);
 });
