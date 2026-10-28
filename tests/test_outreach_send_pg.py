@@ -368,8 +368,15 @@ def test_a_non_loopback_provider_is_refused_before_anything_is_read(outreach, pg
     outreach provider exists, is refused even with it - before a credential is read or a connection opened. The positive
     control is the loopback default (and --provider loopback), which starts."""
     c = outreach
-    code, lines, err = entry(c, pg, tmp_path, tmp_path / 'refused-outbox', *extra)
-    assert code == 1 and lines == [] and err.strip().endswith('Outreach Sender unavailable')
+    import nexloop_eios.private_configuration as private_configuration
+    read = []
+    original = private_configuration.read_private_text
+    private_configuration.read_private_text = lambda path, **kw: read.append(path) or original(path, **kw)
+    try:
+        code, lines, err = entry(c, pg, tmp_path, tmp_path / 'refused-outbox', *extra)
+    finally:
+        private_configuration.read_private_text = original
+    assert code == 1 and lines == [] and err.strip().endswith('Outreach Sender unavailable') and read == []  # nothing read first
     assert not (tmp_path / 'refused-outbox').exists()
     code, lines, _ = entry(c, pg, tmp_path, tmp_path / 'loopback-outbox', '--provider', 'loopback')
     assert code == 0 and json_counts(lines) == NOTHING

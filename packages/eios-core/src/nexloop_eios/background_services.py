@@ -358,6 +358,8 @@ def run(service,arguments,stop):
         if configuration_values({},env_file=arguments.model_env_file,prefix='MODEL').get('MODEL_TEST_VARIANT','').strip() and \
                 (service!='claim-extraction-worker' or arguments.mode!='test'):
             raise ValueError('load-rules profile is test mode only')
+    if service=='outreach-sender' and arguments.provider!='loopback':
+        outreach_provider(arguments)  # refused before any credential is read or connection opened (L6)
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
     if service=='recall-indexer':load_types(arguments.types_file)
@@ -375,9 +377,7 @@ def run(service,arguments,stop):
     if service=='commercial-recorder':
         from nexloop_eios.commercial import load_settings
         load_settings(arguments.settings_file)
-    if service=='outreach-sender':
-        if arguments.provider!='loopback':outreach_provider(arguments)  # refused before any credential or connection
-        private_directory(arguments.outbox_directory)
+    if service=='outreach-sender':private_directory(arguments.outbox_directory)
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
             signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max))
