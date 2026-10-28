@@ -3,6 +3,11 @@
  * status, start and stop, stop reason) and one experiment's detail: strategies, guardrails and thresholds, budget and spend, allocation
  * counts, the latest frozen report's conclusion and digest, the twin and its calibration, and for a budget drill the notice that its
  * result does not represent the experiment's effect. Counts only: no customer appears here. Codes stay in titles, words on the page.
+ * Slice 2: the owner registers, starts and stops an experiment through the governed Actions (register_experiment, start_experiment,
+ * stop_experiment), each confirmed in place (ConfirmedForm); stopping needs the owner's own reason. An unknown result is reconciled
+ * first: every read is refetched after a write, and a control is offered only while the experiment is still in the state it acts on
+ * (start while registered, stop while started; registration while its id is not listed), so a write that did take effect closes its
+ * control instead of offering a retry; otherwise the panel keeps 用同一请求重试 (the same Idempotency-Key).
  */
 import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
@@ -10,7 +15,9 @@ import {readExperiments,type Experiment} from '../api';
 import {DataTable} from '../DataTable';
 import {Page} from './Page';
 import {StatusBadge,Time,type Tone} from '../ui';
-import {Card,IdText,KeyValue,Notice} from '../kit';
+import {Card,ChoiceGroup,FormField,IdText,KeyValue,Notice} from '../kit';
+import {ConfirmedForm,WithMember} from '../actions';
+import {offers,type Me} from '../api';
 
 export const STAGE_TEXT:Record<Experiment['stage'],string>={screening:'孪生筛选',shadow:'影子',online:'线上'};
 export const STATUS_TEXT:Record<Experiment['status'],string>={registered:'已登记，未开始',started:'进行中',stopped:'已停止'};
@@ -38,6 +45,7 @@ const world=(x:Experiment)=>x.world_kind?WORLD_TEXT[x.world_kind]??'其他':'未
 export function Experiments({title}:{title:string}){
   const query=useQuery({queryKey:['workbench','experiments'],queryFn:readExperiments});
   return <Page title={title} query={query} empty={rows=>rows.length===0}
+    actions={<WithMember>{member=><Register member={member} listed={query.data?.map(x=>x.experiment_id)??null}/>}</WithMember>}
     lead="负责人的实验（只读）：登记、开始与停止、护栏、预算和报告摘要。只显示计数，不显示任何客户。"
     forbidden={<p>实验空间只对负责人开放。</p>}
     announce={rows=>`实验：${rows.length} 个`}>{rows=><Body rows={rows}/>}</Page>;
@@ -56,7 +64,7 @@ function Body({rows}:{rows:Experiment[]}){
       {label:'开始',cell:x=><Time value={x.started_at}/>},
       {label:'停止',cell:x=><Time value={x.stopped_at}/>},
       {label:'停止原因',cell:x=>{const r=stopReason(x);return r?<span title={r.code}>{r.text}</span>:'—';}}]}/>
-    {chosen?<Detail x={chosen}/>:<p className="note">选择一个实验查看详情。</p>}
+    {chosen?<><Detail x={chosen}/><WithMember>{member=><Operations key={chosen.experiment_id} member={member} x={chosen}/>}</WithMember></>:<p className="note">选择一个实验查看详情。</p>}
   </>;
 }
 
@@ -102,5 +110,84 @@ export function Detail({x}:{x:Experiment}){
         {key:'校准',value:<span title={x.twin.calibration??undefined}>{x.twin.calibration?CALIBRATION_TEXT[x.twin.calibration]??'其他':'未知'}</span>}]}/>
         :<p className="note">这个实验不使用孪生。</p>}
     </Card>
+  </section>;
+}
+
+/** Start while registered, stop while started: the control follows the read state (an unknown result that took effect closes it). */
+export function Operations({member,x}:{member:Me;x:Experiment}){
+  const unknown='如果结果未知：列表会自动刷新，先看这个实验的状态；状态已经变了说明已生效，这里的按钮会消失，不要重试。';
+  if(x.status==='registered')return <div className="experiment-operations" aria-label="实验操作">
+    <ConfirmedForm key={'start:'+x.experiment_id} operation="start_experiment" member={member} trigger="开始实验" title="确认开始实验" withReason={false}
+      impact={<>影响：从现在起按登记分配客户（{world(x)}世界，{STAGE_TEXT[x.stage]}）；护栏和预算会自动停止它。{x.budget_drill?DRILL_TEXT+'。':''}{unknown}</>}
+      body={()=>({experiment_id:x.experiment_id})}/></div>;
+  if(x.status==='started')return <div className="experiment-operations" aria-label="实验操作">
+    <ConfirmedForm key={'stop:'+x.experiment_id} operation="stop_experiment" member={member} trigger="停止实验" title="确认停止实验" tone="danger" reasonLabel="停止原因"
+      impact={<>影响：立即停止，所有客户回到对照策略；已发生的花费和分配记录保留，停止后不能重新开始这个实验。{unknown}</>}
+      body={reason=>({experiment_id:x.experiment_id,reason})}/></div>;
+  return null;
+}
+
+export type Draft={experiment_id:string;stage:Experiment['stage'];world:string;hypothesis:string;candidate:string;candidate_version:string;control:string;control_version:string;
+  metric:string;direction:'increase'|'decrease';refusal_delta:string;sample_candidate:string;sample_control:string;window_days:string;model_cny:string;incentive_cny:string;
+  ends_at:string;twin:string;twin_version:string;seed:string;budget_drill:boolean};
+export const EMPTY_DRAFT:Draft={experiment_id:'',stage:'screening',world:'',hypothesis:'',candidate:'',candidate_version:'1',control:'',control_version:'1',metric:'',direction:'increase',
+  refusal_delta:'0.02',sample_candidate:'',sample_control:'',window_days:'14',model_cny:'',incentive_cny:'0',ends_at:'',twin:'',twin_version:'1',seed:'',budget_drill:false};
+const SLUG=/^[a-z][a-z0-9_.-]{0,63}$/;
+const int=(v:string)=>/^[1-9][0-9]{0,8}$/.test(v)?Number(v):null;
+const dec=(v:string)=>/^[0-9]+(\.[0-9]+)?$/.test(v)?Number(v):null;
+/** The registration from the draft (nexloop-experiment-registration/1), or what is still missing. The server checks it all again. */
+export function registrationOf(d:Draft):{registration:Record<string,unknown>}|{missing:string}{
+  if(!SLUG.test(d.experiment_id))return {missing:'实验编号（小写字母开头，可含数字 . _ -）'};
+  if(!d.world.trim())return {missing:'世界'};
+  if(!d.hypothesis.trim())return {missing:'假设'};
+  if(!SLUG.test(d.candidate)||!int(d.candidate_version)||!SLUG.test(d.control)||!int(d.control_version))return {missing:'候选和对照策略及版本'};
+  if(!d.metric.trim())return {missing:'主要指标'};
+  const delta=dec(d.refusal_delta),sc=int(d.sample_candidate),sk=int(d.sample_control),w=int(d.window_days),m=dec(d.model_cny),i=dec(d.incentive_cny),seed=int(d.seed);
+  if(delta===null)return {missing:'拒绝或退订率护栏'};
+  if(!sc||!sk)return {missing:'计划样本'};
+  if(!w)return {missing:'成熟窗口天数'};
+  if(m===null||i===null)return {missing:'预算'};
+  const ends=new Date(d.ends_at);if(!d.ends_at||Number.isNaN(ends.getTime()))return {missing:'结束时间'};
+  const twin=d.twin.trim()?(int(d.twin_version)?{twin_id:d.twin.trim(),version:int(d.twin_version)}:undefined):null;
+  if(twin===undefined)return {missing:'孪生版本'};
+  if(!seed)return {missing:'分配种子'};
+  return {registration:{schema:'nexloop-experiment-registration/1',experiment_id:d.experiment_id,stage:d.stage,world:d.world.trim(),hypothesis:d.hypothesis.trim(),
+    candidate:{strategy_id:d.candidate,version:int(d.candidate_version)},control:{strategy_id:d.control,version:int(d.control_version)},
+    primary_metric:{key:d.metric.trim(),direction:d.direction},guardrails:{refusal_or_unsubscribe_rate_delta:delta},sample_size:{candidate:sc,control:sk},
+    maturity:{window_days:w},budget:{model_cny:m,incentive_cny:i},ends_at:ends.toISOString().replace(/\.\d{3}Z$/,'Z'),twin,allocation_seed:seed,
+    ...(d.budget_drill?{budget_drill:true}:{})}};
+}
+
+/** Preregistration: the fields, then one in-place confirmation (the registration is frozen once accepted). */
+export function Register({member,listed}:{member:Me;listed:string[]|null}){
+  const [open,setOpen]=useState(false);const [d,setD]=useState<Draft>(EMPTY_DRAFT);
+  if(!offers(member,'register_experiment'))return null;
+  if(!open)return <button type="button" onClick={()=>setOpen(true)}>登记新实验</button>;
+  const set=<K extends keyof Draft>(k:K)=>(v:Draft[K])=>setD({...d,[k]:v});
+  const text=(k:keyof Draft,label:string,hint?:string,type='text')=><FormField id={'exp-'+k} label={label} hint={hint}>
+    <input id={'exp-'+k} type={type} value={String(d[k])} onChange={e=>set(k)(e.target.value as never)}/></FormField>;
+  const r=registrationOf(d);
+  const taken=listed?.includes(d.experiment_id)??false;
+  return <section className="experiment-register" aria-label="登记新实验"><h2>登记新实验</h2>
+    {text('experiment_id','实验编号','登记后不能修改')}
+    <ChoiceGroup legend="阶段" name="exp-stage" value={d.stage} onChange={set('stage')}
+      options={(Object.keys(STAGE_TEXT) as Experiment['stage'][]).map(k=>({value:k,label:STAGE_TEXT[k]}))}/>
+    {text('world','世界','孪生筛选用仿真世界，影子用影子世界，线上用 real')}{text('hypothesis','假设')}
+    {text('candidate','候选策略')}{text('candidate_version','候选策略版本')}{text('control','对照策略')}{text('control_version','对照策略版本')}
+    {text('metric','主要指标')}
+    <ChoiceGroup legend="指标方向" name="exp-direction" value={d.direction} onChange={set('direction')}
+      options={[{value:'increase',label:'越高越好'},{value:'decrease',label:'越低越好'}]}/>
+    {text('refusal_delta',GUARDRAIL_TEXT.refusal_or_unsubscribe_rate_delta,'例如 0.02 表示高出 2 个百分点即停止')}
+    {text('sample_candidate','候选组样本')}{text('sample_control','对照组样本')}{text('window_days','成熟窗口（天）')}
+    {text('model_cny','模型费用上限（元）')}{text('incentive_cny','激励费用上限（元）')}{text('ends_at','结束时间',undefined,'datetime-local')}
+    {text('twin','孪生（线上可留空）')}{text('twin_version','孪生版本')}{text('seed','分配种子','正整数，决定分组，登记后固定')}
+    <label className="choice"><input type="checkbox" checked={d.budget_drill} onChange={e=>set('budget_drill')(e.target.checked)}/>预算演练（只用于演示预算用尽；仿真世界、孪生筛选、上限不超过 1 元、一小时内结束）</label>
+    {d.budget_drill?<Notice tone="warning">{DRILL_TEXT}</Notice>:null}
+    {taken?<p className="note" role="status">这个编号已在列表中：已登记（如果刚才结果未知，说明登记已生效，不要重试）。</p>
+      :'missing' in r?<p className="disabled-reason">还需要填写：{r.missing}</p>
+      :<ConfirmedForm operation="register_experiment" member={member} trigger="登记" title="确认登记实验" withReason={false}
+        impact={<>影响：登记内容冻结后不能修改；登记不等于开始，开始需要另行确认。如果结果未知：列表会自动刷新，先看这个编号是否已出现，出现就不要重试。</>}
+        body={()=>({registration:r.registration})}/>}
+    <button type="button" className="btn-secondary" onClick={()=>setOpen(false)}>收起</button>
   </section>;
 }

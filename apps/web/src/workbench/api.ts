@@ -542,6 +542,9 @@ export const OPERATION_ACTION={
   link_workbench_external:'eios:action:nexloop.workbench_member.link_external:1',unlink_workbench_external:'eios:action:nexloop.workbench_member.unlink_external:1',
   // NX-056 budget approval: a budget loosening, executed from the approvals page after another owner approves it.
   loosen_budget:'eios:action:nexloop.budget.loosen:1',
+  // Experiment space slice 2 (owner only, NX-043 D3): preregister, start and stop an experiment.
+  register_experiment:'eios:action:nexloop.experiment.register:1',start_experiment:'eios:action:nexloop.experiment.start:1',
+  stop_experiment:'eios:action:nexloop.experiment.stop:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
