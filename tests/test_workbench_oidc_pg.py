@@ -22,7 +22,8 @@ from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_real_dispatch_switch_pg import switching  # noqa: F401
 from test_workbench_actions_http import act
-from test_workbench_read_pg import workbench_login
+from nexloop_eios.workbench_roles import apply_members
+from test_workbench_read_pg import ROLES, members_file, workbench_login
 
 ACTIONS = ('nexloop.workbench_member.link_external', 'nexloop.workbench_member.unlink_external', 'nexloop.workbench_member.issue_reset',
            'nexloop.workbench_member.revoke')
@@ -97,6 +98,7 @@ def test_a_linked_member_signs_in_by_sso_and_the_flow_is_one_time(sso, admin):
         assert done.status_code == 303 and done.headers['location'] == '/workbench', done.text
         view = member.get('/api/v1/workbench/auth/session').json()
         assert view['principal_id'] == operator['principal_id'] and view['authenticated'] is True
+        assert view['authentication_methods'] == ['oidc']  # L6 S1: an SSO session is told apart from a password one
         csrf_member = member.post('/api/v1/workbench/auth/csrf', headers={'Origin': ORIGIN})
         assert csrf_member.status_code == 200
         # The PKCE verifier reached the IdP and matched (the mock refuses otherwise); the secret went in the Authorization header only.
@@ -113,8 +115,9 @@ def test_a_linked_member_signs_in_by_sso_and_the_flow_is_one_time(sso, admin):
         assert again.status_code == 303 and again.headers['location'] == '/workbench?sso=failed'
         assert admin.execute('select count(*) from control.nexloop_browser_sessions').fetchone()[0] == before
         assert failures(admin) == ['state_invalid']
-        # sso_or_password: the password still opens a session.
+        # sso_or_password: the password still opens a session (and says so).
         assert workbench_login(member, operator).status_code == 200
+        assert member.get('/api/v1/workbench/auth/session').json()['authentication_methods'] == ['password']
     audit = admin.execute("select payload from runtime.audit_events where action='nexloop.workbench_member.link_external'").fetchone()[0]
     assert audit == {'target_principal': operator['principal_id'], 'provider_id': 'corp', 'login_mode': 'sso_or_password'}
 
@@ -258,3 +261,29 @@ def test_identity_role_only_for_the_login_functions(sso, admin):
     # Any other session user (here the test administrator) is refused by the function itself.
     with pytest.raises(Exception):
         admin.execute("select control.nexloop_workbench_oidc_failed(%s,'corp','not_linked','t')", (TENANT,))
+
+
+def test_a_promoted_member_loses_its_link_and_no_owner_signs_in_by_sso(sso, admin):
+    """L6 F1: link first, promote later must not give an owner an unapproved SSO login. Promotion deletes the link in the same transaction
+    (every path to owner writes the owner role's start in the role history; here the configurator's); the resolve refuses an owner even
+    with a link left in place; an owner target can be unlinked (clean-up)."""
+    c, idp = sso, sso['idp']
+    owner, operator = c['owner_member'], c['operator_member']
+    with TestClient(app(c), base_url=ORIGIN) as client, TestClient(app(c), base_url=ORIGIN) as member:
+        csrf = workbench_login(client, owner).json()['csrf_token']
+        assert link(client, csrf, operator['principal_id'], 'idp-sub-operator').status_code == 200
+        assert sign_in(member, idp, 'idp-sub-operator').headers['location'] == '/workbench'
+        apply_members(ROLES, members_file((owner, 'owner'), (operator, 'owner')), database_url_file=c['configurator'])
+        assert admin.execute('select count(*) from control.nexloop_workbench_external_identities').fetchone()[0] == 0
+        assert [k for (k,) in admin.execute('select kind from control.nexloop_workbench_external_identity_events order by created_at')] == ['linked', 'owner_promoted']
+        assert sign_in(member, idp, 'idp-sub-operator').headers['location'] == '/workbench?sso=failed'
+        # Second guard: a link present for an owner anyway (written here directly) still signs nobody in.
+        admin.execute("""insert into control.nexloop_workbench_external_identities values(%s,'corp',%s,'idp-sub-operator',%s,%s,'sso_or_password',%s,'synthetic-direct',now())""",
+                      (TENANT, idp.issuer, operator['principal_id'], operator['subject_id'], owner['principal_id']))
+        assert sign_in(member, idp, 'idp-sub-operator').headers['location'] == '/workbench?sso=failed'
+        # ... and an owner target can be unlinked.
+        csrf = workbench_login(client, owner).json()['csrf_token']
+        unlinked = act(client, csrf, 'unlink_workbench_external', {'target_principal': operator['principal_id']})
+        assert unlinked.status_code == 200, unlinked.json()
+        assert admin.execute('select count(*) from control.nexloop_workbench_external_identities').fetchone()[0] == 0
+    assert failures(admin) == ['not_linked', 'member_unavailable']

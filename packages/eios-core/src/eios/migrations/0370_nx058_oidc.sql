@@ -39,7 +39,7 @@ create index nexloop_workbench_external_identities_subject on control.nexloop_wo
 create table control.nexloop_workbench_external_identity_events (
  event_id uuid primary key default gen_random_uuid(),tenant_id text not null references control.nexloop_tenants(tenant_id),
  request_id text not null check(char_length(request_id) between 1 and 200),
- kind text not null check(kind in ('linked','unlinked','member_revoked')),
+ kind text not null check(kind in ('linked','unlinked','member_revoked','owner_promoted')),
  target_principal text not null,provider_id text not null,login_mode text not null,
  actor_principal text not null,created_at timestamptz not null,
  unique(tenant_id,request_id,kind)
@@ -122,6 +122,29 @@ end $$;
 create trigger nx058_unlink_revoked after update of payload on control.nexloop_browser_memberships
  for each row execute function control.nexloop_workbench_unlink_revoked();
 
+-- Becoming an owner ends the member's link in the same transaction (L6 F1, option: delete rather than refuse the promotion). Why: the
+-- promotion is already approved by another owner, and refusing it would make an unrelated link block it; deleting keeps the rule that an
+-- owner's link needs its own approval. Every path to owner writes a 'start' of the owner role here (promote_owner, invite_owner
+-- acceptance, resume_owner, the configurator's role history sync), so one trigger covers them all; the resolve check above is the second
+-- guard. The promotion already ends the member's sessions.
+create function control.nexloop_workbench_unlink_promoted() returns trigger
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare l control.nexloop_workbench_external_identities;saved text:=current_setting('eios.tenant_id',true);
+begin
+ if new.role='owner' and new.event='start' then
+  perform set_config('eios.tenant_id',new.tenant_id,true);
+  delete from control.nexloop_workbench_external_identities where tenant_id=new.tenant_id and principal_id=new.principal_id returning * into l;
+  if found then
+   insert into control.nexloop_workbench_external_identity_events(tenant_id,request_id,kind,target_principal,provider_id,login_mode,actor_principal,created_at)
+    values(new.tenant_id,'owner-promoted:'||gen_random_uuid(),'owner_promoted',l.principal_id,l.provider_id,l.login_mode,'role_history',clock_timestamp());
+  end if;
+  perform set_config('eios.tenant_id',coalesce(saved,''),true);
+ end if;
+ return null;
+end $$;
+create trigger nx058_unlink_promoted after insert on control.nexloop_workbench_role_history
+ for each row execute function control.nexloop_workbench_unlink_promoted();
+
 create function control.nexloop_governed_link_workbench_external(p_tenant text,p_world text,p_principal text,p_subject text,p_intent text,body jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare a control.nexloop_browser_accounts;e control.nexloop_workbench_external_identity_events;target text:=body->>'target_principal';
@@ -189,7 +212,7 @@ begin
  end if;
  if not control.nexloop_workbench_member_active(p_tenant,p_principal,true) then raise exception 'workbench member: issuer_not_owner' using errcode='22023';end if;
  if target=p_principal then raise exception 'workbench member: target_is_requester' using errcode='22023';end if;
- if control.nexloop_workbench_role(p_tenant,target)='owner' then raise exception 'workbench member: target_role_changed' using errcode='22023';end if;
+ -- Any role (L6 F1): unlinking only removes a way in, so an owner target is allowed (a link left from before a promotion is cleared here).
  delete from control.nexloop_workbench_external_identities where tenant_id=p_tenant and principal_id=target returning * into l;
  if not found then raise exception 'workbench member: not_linked' using errcode='22023';end if;
  insert into control.nexloop_workbench_external_identity_events(tenant_id,request_id,kind,target_principal,provider_id,login_mode,actor_principal,created_at)
@@ -243,7 +266,8 @@ begin
  select payload into m from control.nexloop_browser_memberships where tenant_id=p_tenant and principal_id=l.principal_id;
  select payload into s from control.nexloop_browser_subjects where subject_id=l.subject_id;
  select * into a from control.nexloop_browser_accounts where tenant_id=p_tenant and subject_id=l.subject_id;
- if app is null or m is null or s is null or a.local_account_id is null or control.nexloop_workbench_role(p_tenant,l.principal_id) is null
+ -- An owner never signs in by a link (L6 F1): owner links wait for an approval policy (S5), whatever path made the member an owner.
+ if app is null or m is null or s is null or a.local_account_id is null or coalesce(control.nexloop_workbench_role(p_tenant,l.principal_id),'owner')='owner'
   or m->>'status' is distinct from 'active' or m->>'subject_id' is distinct from l.subject_id
   or (m->>'valid_from')::timestamptz>now_at or (m->>'valid_until')::timestamptz<=now_at
   or s->>'kind' is distinct from 'human' or s->>'status' is distinct from 'active'
@@ -310,7 +334,7 @@ end $$;
 
 do $$ declare f text; begin
  foreach f in array array['control.nexloop_workbench_password_allowed(text,text)','control.nexloop_workbench_sso_only_evidence()',
-   'control.nexloop_workbench_sso_only_reset()','control.nexloop_workbench_unlink_revoked()',
+   'control.nexloop_workbench_sso_only_reset()','control.nexloop_workbench_unlink_revoked()','control.nexloop_workbench_unlink_promoted()',
    'control.nexloop_workbench_external_identity_events_append_only()',
    'control.nexloop_governed_link_workbench_external(text,text,text,text,text,jsonb)',
    'control.nexloop_governed_unlink_workbench_external(text,text,text,text,text,jsonb)',

@@ -71,3 +71,13 @@
 - 测试：`apps/web/test/workbench-sso.test.ts`（provider 列表严格解析；SSO 按钮的显示条件和链接；失败提示；哪些行有绑定控件；owner、operator 和无 provider 时的表单差异；成员页里的位置）。
 
 - 前端文案按负责人 10-28 定的术语：客户、密码、负责人（只改了本片新增的文案；内部标识和 API 名不变）。
+
+## L6 复核（build/batch-review-20261028b.md）的处理
+
+- **F1**（先绑定、后提升，就能绕过“负责人的绑定需要审批”）：
+  - (a) `control.nexloop_workbench_oidc_resolve`：成员当前角色是负责人（或没有角色）时返回 unavailable，即使绑定还在，也不能用 SSO 登录。
+  - (b) 选的是**提升时在同一事务里删除绑定**，而不是拒绝提升。理由有两点：提升本身已经过另一位负责人批准，一个无关的绑定不应该挡住它；删除绑定后，“负责人的绑定要单独审批”这条规则保持不变。实现方式是 `control.nexloop_workbench_role_history` 上的触发器 `nx058_unlink_promoted`：凡是成为负责人的路径（promote_owner、接受 invite_owner、resume_owner、configurator 的角色历史同步）都会写入负责人角色的 start，所以一个触发器能覆盖全部路径。删除时记录事件 `owner_promoted`。提升本身已经会让会话失效。
+  - (c) `unlink_external` 对负责人目标也可以执行，用来清理已有的情况；仍然拒绝请求人本人作为目标。
+  - 测试 `test_a_promoted_member_loses_its_link_and_no_owner_signs_in_by_sso`：绑定 → SSO 能登录 → 经 configurator 提升 → 绑定被删除，记录 owner_promoted 事件，SSO 被拒（`not_linked`）；直接写入一条负责人的绑定后，SSO 仍被拒（`member_unavailable`）；对负责人目标解绑成功。
+- **S1**：工作台的 `GET /auth/session` 返回 `authentication_methods`（`["oidc"]` 或 `["password"]`），用来区分 SSO 会话和密码会话；正常登录用例分别断言了两种情况。
+- **S2**（只检查 IP 字面量，provider 的主机名解析到内网地址时不防）：作为已知局限接受。provider 文件是受信的私有配置，只有运维能写；能改这份文件的人本来就能把 IdP 指向任何地址。

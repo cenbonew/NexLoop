@@ -132,7 +132,9 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
             # the notices does not fail the session view (review S-4): the field is left out and the failure logged by type only.
             extra={}
             if member_resets:
-                try:extra={'reset_notices':notices(store,current,7)}
+                # L6 S1: how this session signed in (["password"] or ["oidc"]), so the member and support can tell SSO sessions apart.
+                extra['authentication_methods']=list(current.authentication_methods)
+                try:extra['reset_notices']=notices(store,current,7)
                 except Exception as failure:
                     import logging
                     logging.getLogger('nexloop.workbench').warning('reset notices unavailable %s',{'reason':type(failure).__name__})
