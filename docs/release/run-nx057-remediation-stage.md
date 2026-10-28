@@ -36,7 +36,7 @@ NX-057 的 R0–R4 与 G1、G2 都随 release 46（main 4426c5d0）上了 stage�
 | P2 | 本批的 Action 已经发布（先在只读会话里试跑一次这条查询，确认能执行，再看结果）：`nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release` | `ro "select resource_id from control.nexloop_action_definitions where active and resource_id like 'eios:action:nexloop.remediation.%' order by 1"`，应为 3 行。规划器的 `nexloop.remediation.plan:1` 是服务端口，不在业务 Action 清单里，这里查不到是正常的 |
 | P3 | （先按 §0.5 确认 approver3 是 active owner）角色清单（`workbench-roles.v1.json` manifest 42 起含补救的三个 Action；release 46 为 manifest 46）已经应用，owner 能看到工作台“运营 → Action / 异常”页的“补救”一栏 | 负责人登录后打开该页，“补救”一栏显示“当前没有待处理的补救” |
 | P4 | 效应类别 v3 已经在本租户生效：`nexloop.enterprise.deliver:1` 被声明为外部效应 | `ro "select external_effect from control.nexloop_action_effect_externality where tenant_id='$TENANT_ID' and world='real' and resource_id='eios:action:nexloop.enterprise.deliver:1'"`，至少一行 `t`。没有就停下：第 3 步会以 `source_not_effect` 被拒 |
-| P5 | 真实派发三层开关的实际状态已读出并记入证据（2026-10-28 调度员核实：stage 上三层都开着，release 53+54 的门禁按此预期 20/21） | 读法同 run-outreach-slice5-stage P8：部署层只记 `REAL_DISPATCH_ENABLED` 是 `true` 还是 `false`，租户层与 Action 层看 `control.nexloop_real_dispatch_switches`。补救规则 v1 只有一条手动升级规则（`deliver_final_failure`），补救本身不发任何东西，所以开关开着不是停止条件；开着时最终失败会比关着时多，4.4 的查询可能不为空 |
+| P5 | 真实派发三层开关的实际状态已读出并记入证据（2026-10-28 调度员核实：stage 上三层都开着，release 53+54 的门禁按此预期 20/21） | 读法同 run-outreach-slice5-stage P8：部署层只记 `REAL_DISPATCH_ENABLED` 是 `true` 还是 `false`，租户层与 Action 层看 `control.nexloop_real_dispatch_switches`。开关开着**不是停止条件**，但要清楚它的后果：补救规则 v1 唯一的规则 `deliver_final_failure` 是 `kind=reevaluate`、`mode=automatic`，投递最终失败后会自动唤醒等待的计划，由新的复评 Run 决定重试、告知顾客还是升级；release 53 的 G-2 又给复评 Run 打开了 `outreach_tool`，所以补救会间接引出新的派发尝试。不作为停止条件的理由：① 补救本身只提议唤醒，不派发；② 复评 Run 产生的每条意图在派发时都重新过全部闸门（联系限制、请求方当前权限、负责人控制、目的、频率、三层开关等）；③ 外联目前只有回环 outbox，没有真实渠道；④ 限额：同一计划 7 天内最多唤醒 2 次、同一顾客 24 小时内最多 3 次，超过只升级、不再唤醒（规则 v1 的 `limits`）；⑤ 负责人接受三层开关都开着的决定适用于 deliver 和外联派发，补救唤醒出来的派发走的是同一套闸门。停止条件见 4.4：出现任何回环以外的发送就全部停止 |
 | P6 | `plan-reevaluator` 在运行 | `docker compose -p nexloop-app ps plan-reevaluator` 为 running |
 
 ### 0.2 变量
@@ -377,6 +377,17 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 
 - `nexloop.enterprise.deliver:1` 的最终失败预期为 `generated`，其他 Action 的失败为 `no_rule` 或 `not_eligible`。
 - 最终失败多少取决于真实派发开关（P5 读出的状态）。失败很少时，打开之后一段时间内两条查询都为空是正常的。本单不制造失败；演练另行安排。
+- 补救唤醒的后果（P5）：`deliver_final_failure` 生成的补救会自动唤醒等待的计划，新的复评 Run 可能再提出投递或外联意图。记下这段时间由补救唤醒的复评 Run 数，以及它们产生的意图数：
+
+```
+ro "select count(*) from runtime.nexloop_remediation_intents where tenant_id='$TENANT_ID' and consumed_by_run is not null and woken_at > '<4.2 的时间>'"
+ro "select 'effect', count(*) from runtime.nexloop_effect_submissions s join runtime.nexloop_remediation_intents q on q.consumed_by_run=s.run_id
+     where q.tenant_id='$TENANT_ID' and q.woken_at > '<4.2 的时间>'
+    union all select 'outreach', count(*) from runtime.nexloop_outreach_sends o join runtime.nexloop_remediation_intents q on q.consumed_by_run=o.run_id
+     where q.tenant_id='$TENANT_ID' and q.woken_at > '<4.2 的时间>'"
+```
+
+- **停止条件**：出现任何回环以外的发送（外联写到执行器本地 outbox 之外，或投递到了真实渠道），**全部停止**：approver3 在工作台“补救”点“暂停补救”，按真实派发面板关掉租户层开关（关闭不需要审批），报调度员和负责人。与总顺序 `plan-post-r53-stage.md` §5 中 OUT 的那一行一致。
 - 工作台“补救”一栏显示待处理条数；告警：
   - 有补救等待超过 24 小时：`remediation_waiting`；
   - 超过每小时上限：`remediation_rate_capped`；
@@ -390,7 +401,7 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 - 工作台动作由哪个账号执行（approver3 或负责人）；
 - 2.00：情况 A，authority_revision 3197，2.1/2.3 查询的结果；做了 2.2 幂等核对时写它的输出（之前的写法：`$LAST_REGISTER` 的实际值、2.0a 判定的情况、2.1 的 diff 摘要、2.2 的计数）；
 - 第 3 步规则文件的 sha256；
-- 2.3、4.1、4.4 查询的结果；
+- 2.3、4.1、4.4 查询的结果，包括由补救唤醒的复评 Run 数和它们产生的意图数（投递、外联分开）；
 - 4.2 的时间。
 
 ## 5. 回退

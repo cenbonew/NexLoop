@@ -13,7 +13,7 @@
 | **BUD** | NX-038 §2.0：evolution 预算的放宽审批 | d60a833f | 一条审批与一行预算 |
 | **E1** | `run-nx055-stage.md` §1：授权漂移检查 | d60a833f | 不写库 |
 | **E2** | `run-nx055-stage.md` §2：崩溃循环演练 | d60a833f | APP_HOST 的探针配置（临时）和一次性容器；一次 `crash_loop` critical 告警，最长约 1 小时 |
-| **REM** | `run-nx057-remediation-stage.md` | 本分支更新了 §0.1 P5 和 §0.5 | 补救规则 v1、`REMEDIATION_ENABLED`；重建 `plan-reevaluator` |
+| **REM** | `run-nx057-remediation-stage.md` | 本分支更新了 §0.1 P5 和 §0.5 | 补救规则 v1、`REMEDIATION_ENABLED`；重建 `plan-reevaluator`。规则 v1 的 `deliver_final_failure` 是自动复评：投递最终失败后唤醒等待的计划，新的复评 Run 可能再提出投递或外联意图（派发时重新过全部闸门；外联只有回环 outbox） |
 | **OUT** | `run-outreach-slice5-stage.md`（L4） | d60a833f | 外联记录；customer-2 的联系限制（要恢复） |
 
 本分支同时改了两张单：run-nx039 里预算由谁设定的三处，改为“approver3 发起和执行，approver2 批准”；run-nx057 的 P5 和 §0.5，见 §3。run-nx040 §0 的“P3（evolution 预算，NX-038 §2.0 由 approver3 设定）”是 L4 的单，这里没有改，按 NX-038 §2.0 的现行写法执行。
@@ -133,6 +133,7 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 | S6：其他单项 failed（at048、r1、r3、r4、r5、at024、r10、r8） | 只判这一项；**不跳过 038-9 的顺序约束** | S6 的其余项（每项用自己的留出集）；其他单 |
 | S6：r8 的 `catalog_and_verify_unchanged` 失败（040 F5） | 040 的正式发布（总序 15）和 r6 | 038、039 的其余项；其他单 |
 | S6：038-8 预检显示 persona 是 real，或 `erasure_consumer_id` 是 OUT 还要用的顾客 | 038-9（不删）。前一种：重新取 `erasure_consumer_id`；后一种：等 OUT 结束 | 其他单 |
+| REM：出现任何回环以外的发送（run-nx057 4.4） | **全部停止**，同 OUT 的同类一行；另由 approver3 暂停补救 | 无 |
 | REM：停止条件（积压不为 0、规则不是 v1、策略覆盖补救）或 4.2 后 `plan-reevaluator` 没起来 | REM；`plan-reevaluator` 没起来时 **OUT 也停**（OUT 靠它认领计划步骤） | S6、E1、E2（X3 仍然适用）、S14 |
 | OUT：P9 不满足（执行器挂了渠道凭据，或 provider 不是回环） | OUT 不开始 | 全部其他单 |
 | OUT：任何迹象表明消息到了真实渠道（outbox 之外有发送） | **全部停止**。按真实派发面板关掉租户层开关（approver3，审批策略覆盖“打开”，关闭不需要审批），报调度员和负责人 | 无 |
@@ -143,7 +144,7 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 - customer-2 的联系限制：OUT §3.1 的查询，`active = f`；
 - E2：`docker ps -a --filter label=nexloop.drill=host-health` 为空；`/etc/nexloop/host-health-install.drill.json` 已删除；`crash_loop` 的恢复事件已记录；
 - S6：`results_dir` 下各结果文件的 sha256；r8 正式发布时 `hide` 已执行；
-- REM：4.4 的两条查询；
+- REM：4.4 的查询，包括由补救唤醒的复评 Run 数和它们产生的意图数；
 - 真实派发三层开关：与 OUT P8 执行前读出的状态相同；
 - 各单的证据都分开写了执行人（调度员）、人工步骤的账号和判定人（L6）。
 
