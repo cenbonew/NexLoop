@@ -55,3 +55,29 @@ test('B12: a failed progress read says the message was sent and only the progres
   expect(progressError(new ApiError(503))).toBe('暂时查不到处理进度，请稍后再看；你的消息已经发出。');
   expect(progressError(new ApiError(401))).toBe('登录已失效，请重新登录。');
 });
+
+test('X4 (l2/ui-backend-x1-x4, fixtures): a conversation is named by when it started and how long it is; an older server keeps the list place',async()=>{
+  const {conversation}=await import('../src/chat-api');const {conversationLabel}=await import('../src/WebChat');
+  const c={id:'a'.repeat(64),consumer_id:'b'.repeat(64),world_id:'real',revision:1};
+  const timed=conversation({...c,started_at:'2026-10-28T02:30:00.000000Z',last_message_at:'2026-10-28T03:00:00.000000Z',message_count:5});
+  expect(timed).toMatchObject({message_count:5,started_at:'2026-10-28T02:30:00.000000Z'});
+  const day=new Date('2026-10-28T02:30:00Z').toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
+  expect(conversationLabel(0,c.id,timed)).toBe(`${day} 开始 · 共 5 条`);expect(day).toMatch(/10月28日/);
+  expect(conversationLabel(1,c.id,conversation({...c,started_at:null,last_message_at:null,message_count:0}))).toBe('新对话（还没有消息）');
+  expect(conversationLabel(2,c.id,conversation(c))).toBe('对话 3');
+  for(const bad of [{started_at:'x',last_message_at:'x',message_count:1},{started_at:null,last_message_at:null},{message_count:-1,started_at:null,last_message_at:null},{message_count:1.5,started_at:null,last_message_at:null}])
+    expect(()=>conversation({...c,...bad})).toThrow();
+});
+
+test('L6 I1: a conversation whose earliest messages were cleared (retention, erasure) has a count and no times; it parses and keeps its list place',async()=>{
+  const {conversation,listConversations}=await import('../src/chat-api');const {conversationLabel}=await import('../src/WebChat');
+  const c={id:'a'.repeat(64),consumer_id:'b'.repeat(64),world_id:'real',revision:1};
+  const cleared=conversation({...c,started_at:null,last_message_at:null,message_count:7});
+  expect(cleared).toMatchObject({message_count:7,started_at:null,last_message_at:null});
+  expect(conversationLabel(1,c.id,cleared)).toBe('对话 2');
+  // The whole list still reads when one conversation is like that.
+  const ok={...c,id:'c'.repeat(64),started_at:'2026-10-28T02:30:00.000000Z',last_message_at:'2026-10-28T03:00:00.000000Z',message_count:2};
+  const fetch=async()=>new Response(JSON.stringify({items:[ok,{...c,started_at:null,last_message_at:null,message_count:7}],next_cursor:null}),{status:200});
+  const original=globalThis.fetch;globalThis.fetch=fetch as typeof globalThis.fetch;
+  try{expect((await listConversations()).items.map(x=>x.message_count)).toEqual([2,7]);}finally{globalThis.fetch=original;}
+});

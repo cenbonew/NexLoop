@@ -30,14 +30,26 @@ private state file in results_dir (0600), never in the output, which holds codes
     nx043_stage.py online-stop --config PRIVATE.json               owner: stop_experiment (everyone back to the current policy)
     nx043_stage.py online-drain --config DATA.json                 probe: the real outreach sends and effects since the online start reach
                                                                      a final state (real dispatch is open: nothing left in flight)
+    nx043_stage.py budget-start --config PRIVATE.json              owner: register_experiment (screening, budget_drill: true, cap 1 CNY, end
+                                                                     within the hour, a published uncalibrated twin) and start it (item 10)
+    nx043_stage.py budget-before --config DATA.json                probe: the drill world's synthetic Consumers and its Run Action
+    nx043_stage.py budget-runs --config APP.json --from BEFORE     sim intake (the world's api credential, APP_HOST): two simulation Runs,
+                                                                     each declaring the cap as its maximum cost (the AT-046 run chain)
+    nx043_stage.py budget-probe --config DATA.json --from BEFORE --from RUNS
+                                                                   probe: the first Run kept (succeeded, reserved, in the ledger), the drill
+                                                                     stopped budget_exhausted, the second refused at dispatch (budget_exhausted)
     nx043_stage.py gaps --config ANY.json                          no connection: what the stage cannot show yet (blocked, never a pass)
 
 inputs: deployment_real_dispatch (true/false: the dispatching workers' REAL_DISPATCH_ENABLED as observed by the operator; optional),
     shadow_purpose, candidate_levers, control_levers (D1 levers), strategy_prefix, experiment_prefix, ends_in_minutes (shadow
     experiment end; the guard stops it there), screening {world, twin {twin_id, version}} (optional), decisions {kind, limit},
-    guard_timeout_seconds (probe-after waits for the guard stop, default 900)
+    guard_timeout_seconds (probe-after waits for the guard stop, default 900),
+    budget_drill {world (an active sim world with the AT-046 Run Action and running simulation group), twin {twin_id, version} (published,
+    not calibrated), ends_in_minutes (default 45, at most 55), gap_seconds (between the two Runs, default 30), run_timeout_seconds (900)}.
+    The budget drill is evidence that an exhausted budget blocks new spend - the twin is not calibrated, and its result does not
+    represent the experiment's effect (owner 2026-10-28).
 roles: inspector {dsn_file} (read only; readiness, falls back to probe); probe {dsn_file}; sim_worker {dsn_file, token_file} (the shadow world's worker credential; optional); owner {origin, ca_file,
-    username_file}.
+    username_file}; sim_api {dsn_file, token_file, signing_key_file, signing_key_id} (the drill world's api credential, as AT-046; budget-runs only).
 Exit: 0 passed, 1 failed or blocked, 2 input refused.
 """
 from __future__ import annotations
@@ -56,7 +68,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
-from at046_stage import EXCLUDED, FILTERED, Ports, real_digest  # noqa: E402
+from at046_stage import EXCLUDED, FILTERED, Ports, _effect, intake_from, real_digest  # noqa: E402
 from s6_common import Blocked, Redactor, Refused, Result, connect_from, load_chain, read_private  # noqa: E402
 from s6_common import connect_read_only as s6_connect_read_only  # noqa: E402
 
@@ -65,7 +77,9 @@ ACCEPTANCE = {'prepare': ['NX-043 D1', 'NX-043 D3'], 'probe-before': ['AT-046'],
               'shadow-keys': ['NX-043 D7'], 'decide': ['NX-043 D7', 'AT-046'], 'merge': ['NX-043 D7', 'AT-046', 'NX-043 D4', 'NX-043 §9'],
               'probe-after': ['AT-046', 'NX-043 D4', 'NX-043 §9'], 'report': ['NX-043 D6', 'NX-043 §6', 'NX-043 D7'],
               'online': ['NX-043 online', 'NX-043 D3'], 'online-probe': ['NX-043 online', 'NX-043 D2'], 'online-stop': ['NX-043 online', 'NX-043 D4'],
-              'online-drain': ['NX-043 online', 'NX-043 §9'], 'gaps': ['NX-043 D5'], 'readiness': ['NX-043 D3', 'NX-043 D7', 'NX-043 online']}
+              'online-drain': ['NX-043 online', 'NX-043 §9'], 'gaps': ['NX-043 D5'],
+              'budget-start': ['NX-043 D5', 'NX-043 D9'], 'budget-before': ['NX-043 D5'], 'budget-runs': ['NX-043 D5', 'AT-046'],
+              'budget-probe': ['NX-043 D5', 'NX-043 §9'], 'readiness': ['NX-043 D3', 'NX-043 D7', 'NX-043 online']}
 
 
 # --- private state (ids between phases, never in the output) ---------------------------------------------------------------------
@@ -494,9 +508,120 @@ def online_drain(ports, config, r, prior=None):
            {'outreach_sends': total, 'outreach_in_flight': sends, 'effects_in_flight': effects}, sends == 0 and effects == 0)
 
 
+DRILL_NOTICE = "budget drill: the twin is not calibrated; the result does not represent the experiment's effect"
+
+
+def _drill_inputs(config):
+    d = (config.get('inputs') or {}).get('budget_drill') or {}
+    if not d.get('world') or not (d.get('twin') or {}).get('twin_id'):
+        raise Blocked('inputs.budget_drill (a sim world and a published, uncalibrated twin) not configured')
+    return d
+
+
+def budget_start(ports, config, r, prior=None):
+    """Owner (item 10, owner 2026-10-28 option A): a budget drill - a screening registration with budget_drill true in the AT-046 sim
+    world, cap 1 CNY (the intake's declared maximum cost per Run), ending within the hour, with a published uncalibrated twin; the
+    drill is the one waiver of the twin's calibration (0364), the registration carries the flag and its notice."""
+    state = load_state(config)
+    d = _drill_inputs(config)
+    eid = f"{(config.get('inputs') or {}).get('experiment_prefix') or 'x7'}.budget.{state['run']}"
+    minutes = min(int(d.get('ends_in_minutes') or 45), 55)
+    ends = (datetime.now(UTC) + timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    reg = {**registration(eid, 'screening', d['world'], state['strategies']['candidate'], state['strategies']['control'],
+                          {'twin_id': d['twin']['twin_id'], 'version': int(d['twin'].get('version') or 1)}, ends),
+           'hypothesis': 'Budget drill (synthetic): an exhausted experiment budget blocks new spend', 'budget_drill': True}
+    status, out = ports.act('register_experiment', {'registration': reg}, 'nx043-' + state['run'] + '-e-budget')
+    flagged = isinstance(out, dict) and (out.get('registration') or {}).get('budget_drill') is True
+    r.step('budget_drill_registered', 'a frozen screening registration carrying budget_drill and the drill notice (0364)',
+           {'status': status, 'reason': _reason(out), 'flagged': flagged, 'notice': out.get('notice') if isinstance(out, dict) else None},
+           _ok(status) and flagged and out.get('notice') == DRILL_NOTICE)
+    if not _ok(status):
+        return
+    status, out = ports.act('start_experiment', {'experiment_id': eid}, 'nx043-' + state['run'] + '-start-budget')
+    r.step('budget_drill_started', 'started with the uncalibrated twin (the drill waiver only; a screening without the flag is refused, item 4)',
+           {'status': status, 'reason': _reason(out), 'started': out.get('started') if isinstance(out, dict) else None}, _ok(status))
+    if _ok(status):
+        save_state(config, {**state, 'experiments': {**state['experiments'], 'budget': eid}})
+
+
+def budget_before(ports, config, r, prior=None):
+    """DATA_HOST (read only): the drill world's synthetic Consumers and its Run Action; the drill started."""
+    state = load_state(config)
+    d = _drill_inputs(config)
+    tenant, world = config['tenant_id'], d['world']
+    consumers = [row[0] for row in ports.read("select object_id from runtime.nexloop_sim_objects where tenant_id=%s and world=%s and type_name='Consumer' order by 1 limit 2",
+                                              (tenant, world))]
+    r.step('drill_world_consumers', 'synthetic Consumers in the drill world', {'consumers': len(consumers)}, bool(consumers), consumers=consumers)
+    published = ports.read('select count(*) from control.nexloop_action_definitions where tenant_id=%s and world=%s and resource_id=%s and active',
+                           (tenant, world, _effect()))[0][0]
+    r.step('drill_world_run_action', 'the Run Action is in the drill world catalog (AT-046 prepare)', {'published': bool(published)}, bool(published))
+    status = ports.read('select runtime.nexloop_experiment_status(%s,%s)', (tenant, state['experiments'].get('budget') or ''))[0][0]
+    r.step('budget_drill_running', 'the drill experiment is started (budget-start)', {'status': status}, status == 'started')
+
+
+def budget_runs(ports, config, r, prior):
+    """APP_HOST (the drill world's api credential, hostssl): two simulation Runs through the AT-046 intake, gap_seconds apart. Each
+    declares maximum_cost 1.0 CNY, which the simulation worker reserves at dispatch: the first reaches the cap and stops the drill, the
+    second is the new spend the dispatch-time recheck refuses."""
+    d = _drill_inputs(config)
+    if ports.intake is None:
+        raise Blocked('roles.sim_api (the drill world api credential) not configured')
+    consumers = next((s.get('evidence') or {} for s in prior if s.get('name') == 'drill_world_consumers'), {}).get('consumers') or []
+    if not consumers:
+        raise Blocked('no synthetic Consumer (budget-before)')
+    runs = []
+    for i, label in enumerate(('first', 'second')):
+        if i:
+            time.sleep(int(d.get('gap_seconds') or 30))
+        task_id, run_id = ports.intake(d['world'], consumers[i % len(consumers)], _effect())
+        runs.append({'label': label, 'task_id': task_id, 'run_id': run_id})
+        r.step(f'{label}_run_accepted', 'the simulation intake issued the Run credential and accepted the Run', {'accepted': bool(task_id)}, bool(task_id),
+               task_id=task_id, run_id=run_id)
+
+
+def budget_probe(ports, config, r, prior):
+    """DATA_HOST (read only): wait for both Runs to end, then the drill's outcome."""
+    state = load_state(config)
+    d = _drill_inputs(config)
+    tenant, world, eid = config['tenant_id'], d['world'], state['experiments'].get('budget')
+    runs = {s['name'].split('_')[0]: s.get('evidence') or {} for s in prior if s.get('name') in ('first_run_accepted', 'second_run_accepted')}
+    if set(runs) != {'first', 'second'}:
+        raise Blocked('budget-runs did not accept both Runs')
+    deadline = time.monotonic() + int(d.get('run_timeout_seconds') or 900)
+    while True:
+        jobs = {k: ports.read("select status,result->>'code' from runtime.jobs where job_id=%s", (v['task_id'],)) for k, v in runs.items()}
+        done = all(rows and rows[0][0] in ('succeeded', 'failed', 'dead_letter', 'dead_lettered', 'cancelled') for rows in jobs.values())
+        if done or time.monotonic() >= deadline:
+            break
+        time.sleep(10)
+    jobs = {k: (rows[0] if rows else (None, None)) for k, rows in jobs.items()}
+    reserved = {k: ports.read("select count(*) from control.nexloop_budget_consumption where tenant_id=%s and world=%s and budget_kind='model' and consumption_id=%s",
+                              (tenant, world, 'run:' + v['run_id']))[0][0] for k, v in runs.items()}
+    stop = ports.read("select recorded_by,reason from control.nexloop_experiment_events where tenant_id=%s and experiment_id=%s and status='stopped'", (tenant, eid))
+    ledger = ports.read('select coalesce(sum(amount_cny),0),count(*) from control.nexloop_experiment_spend where tenant_id=%s and experiment_id=%s', (tenant, eid))[0]
+    r.step('budget_exhausted_stops_the_drill', 'the first Run reached the cap at dispatch and the guard stopped the drill (budget_exhausted)',
+           {'stopped_by_guard': bool(stop) and stop[0][0] == 'nexloop:experiment-guard', 'reason': stop[0][1] if stop else None},
+           bool(stop) and stop[0] == ('nexloop:experiment-guard', 'guardrail: budget_exhausted'))
+    r.step('first_run_kept', 'the first Run succeeded, its reservation and the experiment ledger stay (the cap, one entry)',
+           {'task_status': jobs['first'][0], 'reserved': reserved['first'], 'ledger_cny': str(ledger[0]), 'ledger_entries': ledger[1]},
+           jobs['first'][0] == 'succeeded' and reserved['first'] == 1 and float(ledger[0]) == 1.0 and ledger[1] == 1)
+    r.step('new_spend_refused_at_dispatch', 'the second Run was refused by the dispatch-time recheck (NXB01: budget_exhausted), nothing reserved',
+           {'task_status': jobs['second'][0], 'code': jobs['second'][1], 'reserved': reserved['second']},
+           jobs['second'][0] == 'failed' and jobs['second'][1] == 'budget_exhausted' and reserved['second'] == 0)
+    flagged = ports.read("""select (select registration->'budget_drill'='true'::jsonb from control.nexloop_experiments where tenant_id=%s and experiment_id=%s),
+        (select count(*) from runtime.audit_events where tenant_id=%s and action='nexloop.experiment.budget_drill' and payload->>'experiment_id'=%s)""",
+                         (tenant, eid, tenant, eid))[0]
+    r.step('budget_drill_visible', 'the registration carries budget_drill and its audit event exists (calibration waived for the drill only)',
+           {'registration_flag': flagged[0], 'audit_events': flagged[1]}, flagged[0] is True and flagged[1] == 1)
+    real = ports.read("select count(*) from control.nexloop_budget_consumption where tenant_id=%s and world='real' and consumption_id = any(%s)",
+                      (tenant, ['run:' + v['run_id'] for v in runs.values()]))[0][0]
+    r.step('drill_runs_never_real', 'neither Run reserved anything in world real', {'real_reservations': real}, real == 0)
+
+
 def gaps(ports, config, r, prior=None):
-    """What the stage cannot show yet: blocked (passed null), with the slice that closes each gap."""
-    r.block('experiment_budget', 'needs simulation Runs of the experiment world (the AT-046 run chain); local: tests/test_nx043_guard_wiring_pg.py')
+    """What the stage cannot show yet: blocked (passed null), with the slice that closes each gap. Item 10 (experiment budget) is the
+    budget drill since 0364 (budget-start, budget-before, budget-runs, budget-probe); nothing is left here."""
+    r.step('no_gaps', 'every stage item has its phase; item 9 (other guardrails) stays local by design', {'blocked': []}, True)
 
 
 def merge(ports, config, r, prior=None):
@@ -504,9 +629,10 @@ def merge(ports, config, r, prior=None):
 
 
 PHASES = {'prepare': prepare, 'probe-before': probe_before, 'run': run_phase, 'shadow-keys': shadow_keys, 'decide': decide, 'probe-after': probe_after,
-          'report': report, 'merge': merge, 'readiness': readiness, 'online': online, 'online-probe': online_probe, 'online-stop': online_stop, 'online-drain': online_drain, 'gaps': gaps}
+          'report': report, 'merge': merge, 'readiness': readiness, 'online': online, 'online-probe': online_probe, 'online-stop': online_stop, 'online-drain': online_drain, 'gaps': gaps,
+          'budget-start': budget_start, 'budget-before': budget_before, 'budget-runs': budget_runs, 'budget-probe': budget_probe}
 CHAIN = ['nx043-probe-before', 'nx043-shadow-keys', 'nx043-decide', 'nx043-probe-after']
-NEEDS = {'probe-after': CHAIN[:3], 'merge': CHAIN}
+NEEDS = {'probe-after': CHAIN[:3], 'merge': CHAIN, 'budget-runs': ['nx043-budget-before'], 'budget-probe': ['nx043-budget-before', 'nx043-budget-runs']}
 PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy (candidate, control)', 'owner: register_experiment (shadow; screening when configured)'],
         'probe-before': ['probe (read only): wait for the real side to be quiet, then world-real digests, real dispatch switches'],
         'run': ['owner: start_experiment (screening: refused twin_not_calibrated; shadow: started)', 'owner: set_shadow_copy on'],
@@ -519,9 +645,13 @@ PLAN = {'prepare': ['owner: create_sim_world (shadow)', 'owner: publish_strategy
         'online-probe': ['probe (read only): allocations by arm, strategy_applied audit count'],
         'online-stop': ['owner: stop_experiment (online)'],
         'online-drain': ['probe (read only): real outreach sends and effects since the online start, until none is in flight'],
-        'gaps': ['no connection: the blocked item (experiment budget)'],
+        'gaps': ['no connection: nothing blocked (the experiment budget is the budget drill)'],
+        'budget-start': ['owner: register_experiment (screening, budget_drill true)', 'owner: start_experiment (budget drill)'],
+        'budget-before': ['probe (read only): the drill world Consumers, its Run Action, the drill started'],
+        'budget-runs': ['sim intake (the drill world api credential, APP_HOST): two simulation Runs, gap_seconds apart'],
+        'budget-probe': ['probe (read only): both Runs ended; drill stopped budget_exhausted, first kept, second refused at dispatch'],
         'readiness': ['inspector (read only): sim world, strategy problems, shadow copy target, inbound trigger, real dispatch layers, running experiments']}
-OWNER_PHASES = ('prepare', 'run', 'report', 'online', 'online-stop')
+OWNER_PHASES = ('prepare', 'run', 'report', 'online', 'online-stop', 'budget-start')
 
 
 def decide_from(roles):
@@ -554,7 +684,7 @@ def ports_from(config, password, phase=None):
         owner = Workbench(HttpsTransport(o['origin'], o.get('ca_file')), o['origin'])
         owner.login(read_private(o['username_file'], 1024).strip(), password)
     probe = (roles.get('inspector') or roles.get('probe') or {}).get('dsn_file') if phase == 'readiness' else (roles.get('probe') or {}).get('dsn_file')
-    ports = Ports(owner=owner, probe=connect_read_only(probe) if probe else None)
+    ports = Ports(owner=owner, probe=connect_read_only(probe) if probe else None, intake=intake_from(roles) if phase == 'budget-runs' else None)
     ports.decide = decide_from(roles)
     return ports
 

@@ -273,7 +273,13 @@ class WorkbenchQueries:
         if has_open_commitments is not None:
             rows = [r for r in rows if (r['open_commitments'] > 0) == has_open_commitments]
         key = sort or 'id'
-        rows.sort(key=lambda r: (r['consumer_id'],) if key == 'id' else (r[key], r['consumer_id']), reverse=order == 'desc')
+        if key == 'last_conversation_at':
+            # X3: by the latest message time; a Consumer without one (no message, or being erased) never takes part in the order: last
+            # in either direction, by id.
+            timed = sorted((r for r in rows if r.get(key)), key=lambda r: (r[key], r['consumer_id']), reverse=order == 'desc')
+            rows = timed + sorted((r for r in rows if not r.get(key)), key=lambda r: r['consumer_id'])
+        else:
+            rows.sort(key=lambda r: (r['consumer_id'],) if key == 'id' else (r[key], r['consumer_id']), reverse=order == 'desc')
         start = int(cursor or 0)
         items = rows[start:start + limit]
         for item in items:

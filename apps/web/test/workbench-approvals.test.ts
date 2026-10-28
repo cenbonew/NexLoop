@@ -2,7 +2,7 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
-import {approvalOutcome,approvals,me} from '../src/workbench/api';
+import {WorkbenchWriteError,approvalOutcome,approvals,me,refusalTextOf} from '../src/workbench/api';
 import {Approvals,resultText,soloBanner,targetText} from '../src/workbench/pages/Approvals';
 
 const id='3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11';
@@ -110,4 +110,38 @@ test('UX audit B8: the shared page shell, counts per list, readable summary fiel
   expect(html).toMatch(/<summary>其他字段（1）<\/summary><p><code class="id-code">odd_field<\/code>：x1<\/p>/);
   expect(html).not.toMatch(/scope_kind=|enabled=/);
   expect(html).toMatch(/<details class="approval-settings"><summary>单人模式设置（未开启）<\/summary>/);
+});
+
+test('NX-056 budget approval: a budget loosening is listed as 放宽预算 with the old and new values, executed from 待我执行; its refusals read in Chinese',()=>{
+  const body={budget_kind:'evolution',unit:'CNY',limit_amount:'80.00',period_start:'2026-10-01T00:00:00Z',period_end:'2026-11-01T00:00:00Z',
+    from_unit:'CNY',from_limit_amount:'50.00',from_period_start:'2026-10-01T00:00:00Z',from_period_end:'2026-11-01T00:00:00Z',expected_revision:3};
+  const row={...base,capability:'goals.budget.loosen',operation:'loosen_budget',action:'eios:action:nexloop.budget.loosen:1',
+    summary:{budget_kind:'evolution',unit:'CNY',from_limit_amount:'50.00',limit_amount:'80.00'}};
+  const parsed=approvals({...raw,to_decide:[row],mine:[],to_execute:[{...row,approval_id:id.replace('3f','6f'),status:'approved',approvals:1,inputs:body}]});
+  const owner=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.approvals.decide:1',
+    'eios:action:nexloop.approvals.cancel:1','eios:action:nexloop.budget.loosen:1']});
+  const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],owner]]),h(Approvals,{}));
+  // The UX audit B8 summary (merged in batch 49): fields without a label are folded under 其他字段 as <code>name</code>：value.
+  for(const t of ['放宽预算','<code class="id-code">from_limit_amount</code>：50.00','<code class="id-code">limit_amount</code>：80.00'])expect(html).toContain(t);
+  expect(html).not.toContain('工作台不能执行这条请求');  // loosen_budget is an operation the workbench resubmits
+  for(const reason of ['budget_loosen_requires_approval','budget_changed','approval_unavailable'])
+    expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state',reason))).toBeTruthy();
+  expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state','budget_changed'))).toContain('刷新');
+});
+
+test('X1/X2 (l2/ui-backend-x1-x4, fixtures): the requester by username, an erased one said so, server labels first; an older server still parses',()=>{
+  const row={...base,requested_by_username:'staff-owner',summary_labels:{scope_kind:'范围',enabled:'开关'},summary:{scope_kind:'tenant',enabled:true}};
+  const erased={...base,approval_id:id.replace('3f','7f'),requested_by_username:null,summary_labels:{scope_kind:'scope_kind',enabled:'开关'}};
+  const parsed=approvals({...raw,to_decide:[row,erased]});
+  expect(parsed.to_decide[0]).toMatchObject({requested_by_username:'staff-owner',summary_labels:{scope_kind:'范围',enabled:'开关'}});
+  expect(parsed.to_decide[1].requested_by_username).toBeNull();
+  expect(approvals(raw).to_decide[0].requested_by_username).toBeUndefined();  // the field is optional until the backend lands
+  expect(()=>approvals({...raw,to_decide:[{...row,summary_labels:{other:'其他'}}]})).toThrow();  // a label for a key that is not in the summary
+  expect(()=>approvals({...raw,to_decide:[{...row,summary_labels:{enabled:3}}]})).toThrow();
+  expect(()=>approvals({...raw,to_decide:[{...row,surprise:1}]})).toThrow();  // the key list is still exact
+  const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(html).toContain('<span class="name-main">staff-owner</span>');expect(html).toContain('成员信息不可用');expect(html).not.toContain('已删除');
+  expect(html).toContain('<dt>范围</dt><dd>整个租户</dd>');  // a label equal to the key falls back to the page's own
+  const custom=approvals({...raw,to_decide:[{...base,summary:{offering_revision:3},summary_labels:{offering_revision:'激励目录版本'},requested_by_username:'x'}]});
+  expect(render(client([[['workbench','approvals'],custom],[['workbench','me'],approver]]),h(Approvals,{}))).toContain('<dt>激励目录版本</dt><dd>3</dd>');
 });

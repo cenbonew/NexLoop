@@ -21,7 +21,9 @@ _FREE_TEXT = re.compile(r'(^|.*_)(reason|basis|text|body|message|note|notes|desc
 # The fields each capability's policy may show to every approver (the same list as control.nexloop_approval_summary_allowed, 0326).
 SUMMARY_ALLOWED = {'real_dispatch.set': ('scope_kind', 'enabled', 'data_mode', 'action_type'), 'retention.release_hold': (),
                    'consumer.erase': (), 'incentive.issue': ('amount_minor', 'currency', 'offering_revision'),
-                   'workbench_member.demote_owner': ('new_role',)}
+                   'workbench_member.demote_owner': ('new_role',),
+                   'goals.budget.loosen': ('budget_kind', 'unit', 'from_limit_amount', 'limit_amount', 'from_period_start', 'from_period_end',
+                                           'period_start', 'period_end')}
 _KEYS = {'capability', 'version', 'action_version', 'condition', 'quorum', 'approver_roles', 'expires_after_seconds', 'summary_fields'}
 
 

@@ -9,18 +9,24 @@
     python scripts/nx037/real_tenant_init.py verify  --tenant UUID --metrics-dsn-file F ...        # the post-initialization check
     python scripts/nx037/real_tenant_init.py budget  ... --recipe F --username-file F --password-file F --database-url-file F \
         --identity-database-url-file F --browser-rate-key-file F --signing-key-file F --signing-key-id ID --artifact-root D
-                                                       # step 4 (Budget.set) as the owner, on the owner's own workbench session
+                                                       # step 4 (nexloop.budget.loosen) as the owner, on the owner's own workbench
+                                                       # session: opens the approval; with --execute, runs it once another owner approved
 
 The real tenant is a new tenant id, never the synthetic demo tenant, and is initialized only through:
 - trusted configuration (the technical configurator role): service principals and grants (the 0050 path also creates the tenant),
   action effect categories v2 for the Actions the tenant has published (any other stays undeclared: customer contact and
   external, fail closed), alert rules;
-- the owner's governed Action `Budget.set` (owner change set_budget) for the D-g cumulative cap as the model budget of the trial
-  period: it needs the owner's own workbench session. `plan` prints the request; `budget` (G-BUDGET-CLI) performs it by signing in
-  as the owner exactly as the workbench login does (context_strategy_setup.owner_session: the owner's username and password from
-  private files, never arguments, never printed; the browser login rate limit), then submits the request on the owner's browser
-  business authority (0045) and revokes the session. The request id is a stable business-intent id: running it again replays the
-  same change (`replayed: true`). A principal without the Budget.set grant (workbench owner role) is refused.
+- the owner's governed Action `nexloop.budget.loosen` (NX-056 budget approval: a new budget is a loosening, approved by another
+  owner; single-person mode allowed) for the D-g cumulative cap as the model budget of the trial period: it needs the owner's own
+  workbench session. `plan` prints the request; `budget` (G-BUDGET-CLI) submits it by signing in as the owner exactly as the workbench
+  login does (context_strategy_setup.owner_session: the owner's username and password from private files, never arguments, never
+  printed; the browser login rate limit), on the owner's browser business authority (0045), and revokes the session. The first
+  submission opens the approval (`status: approval_pending`, its approval_id); the request id is a stable business-intent id, so
+  running it again answers the same approval (`replayed: true`). After another owner approved it (the workbench approvals page),
+  `budget --execute` resubmits the frozen request under its own stable request id and the budget is written (`status: executed`), or
+  the requester executes it from the workbench (待我执行). A principal without the grant (workbench owner role) is refused; a refusal
+  of the budget handler is reported by its fixed code (`budget: approval_unavailable` while no approval policy is applied,
+  `budget: budget_changed` when the tenant already has a model budget: this step only sets the first one).
 - references only for the value catalog (file sha256) and the channel configuration (an opaque reference): the channel itself
   is connected in NX-037 B-class work, not here.
 `configure` runs only the effect categories, alert rules and merge (glue) configuration steps, for a tenant whose service principals and grants another
@@ -100,12 +106,25 @@ def parameters(*, tenant, owner_principal, value_catalog, channel_ref, period_st
 
 
 def budget_request(p):
-    """The owner's governed Budget.set (GoalGovernedActions.set_budget) the owner submits from the workbench. The request id is
-    a stable business-intent id: resubmitting it is the same change."""
+    """The owner's governed nexloop.budget.loosen (GoalGovernedActions.loosen_budget) for the tenant's first model budget (no current
+    row: every from_* None, expected_revision 0), approved by another owner (NX-056 budget approval). The request id is a stable
+    business-intent id: resubmitting it answers the same approval."""
     request_id = 'nx037-budget-' + str(uuid.uuid5(uuid.NAMESPACE_URL, f'nexloop:nx037:{p["tenant"]}:{p["period_start"].isoformat()}'))
-    return {'action_name': 'Budget.set', 'action_version': 1, 'request_id': request_id, 'budget_kind': 'model',
+    return {'action_name': 'nexloop.budget.loosen', 'action_version': 1, 'request_id': request_id, 'budget_kind': 'model',
             'unit': p['plan']['currency'], 'limit_amount': str(p['plan']['cost_caps']['cumulative']),
-            'period_start': p['period_start'].isoformat(), 'period_end': p['period_end'].isoformat()}
+            'period_start': p['period_start'].isoformat(), 'period_end': p['period_end'].isoformat(),
+            'from_unit': None, 'from_limit_amount': None, 'from_period_start': None, 'from_period_end': None, 'expected_revision': 0}
+
+
+def budget_outcome(result):
+    """The governed answer of the loosening in words: approval_pending (waiting for another owner), executed, approval_consumed (an
+    earlier submission executed it) or the gate's other status."""
+    result = result if isinstance(result, dict) else {}
+    if result.get('approval') == 'consumed' and result.get('status') is None:
+        status = 'executed'
+    else:
+        status = {'waiting_approval': 'approval_pending'}.get(result.get('status'), result.get('status') or 'submitted')
+    return {'status': status, 'approval_id': result.get('approval_id'), 'replayed': bool(result.get('replayed', False))}
 
 
 def steps(p):
@@ -143,8 +162,8 @@ def execute(p, *, configurator_dsn_file, signing_key_file, signing_key_id, servi
     if owner_actions is None:
         done['model_budget'] = {'status': 'owner_pending', 'request_id': request['request_id']}
     else:
-        owner_actions.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
-        done['model_budget'] = {'status': 'submitted', 'request_id': request['request_id']}
+        result = owner_actions.loosen_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
+        done['model_budget'] = {**budget_outcome(result), 'request_id': request['request_id']}
     return {'mode': 'execute', 'executed': True, 'tenant': p['tenant'], 'steps': done}
 
 
@@ -232,14 +251,19 @@ def budget_recipe(value, tenant):
 
 
 def set_budget(p, recipe, *, database_url_file, identity_database_url_file, signing_key_file, signing_key_id, artifact_root, username_file,
-               password_file, browser_rate_key_file):
-    """Budget.set (budget_request) on the owner's own workbench session; the same production calls as the workbench."""
+               password_file, browser_rate_key_file, execute=False):
+    """nexloop.budget.loosen (budget_request) on the owner's own workbench session; the same production calls as the workbench. With
+    `execute`, the frozen request again under its own stable request id: it runs the approved approval (the approval matches by the
+    request digest, which leaves the request id out)."""
+    import psycopg
     from nexloop_eios.backend import open_backend
     from nexloop_eios.browser_authorization import authenticate_browser_business
     from nexloop_eios.context_strategy_setup import owner_session
     from nexloop_eios.goal_controls import GoalGovernedActions
     from nexloop_eios.private_configuration import read_private_text
     request = budget_request(p)
+    if execute:
+        request = {**request, 'request_id': request['request_id'] + '-execute'}
     username = read_private_text(username_file, maximum=1024).strip()
     password = read_private_text(password_file, maximum=1024).strip()
     rate_key = bytes.fromhex(read_private_text(browser_rate_key_file, maximum=256).strip())
@@ -249,11 +273,18 @@ def set_budget(p, recipe, *, database_url_file, identity_database_url_file, sign
             owner_session(read_private_text(identity_database_url_file, maximum=16384).strip(), rate_key, session_recipe, username, password,
                           recipe['browser_origin']) as session:
         owner = GoalGovernedActions(api._pool, authenticate_browser_business(api._pool, session, world='real'), api._signer)
-        # set_budget takes aware datetimes; the request carries their ISO text for printing.
-        result = owner.set_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
-    return {'mode': 'budget', 'executed': True, 'tenant': p['tenant'], 'request_id': request['request_id'], 'budget_kind': request['budget_kind'],
-            'unit': request['unit'], 'limit_amount': request['limit_amount'], 'period_start': request['period_start'],
-            'period_end': request['period_end'], 'replayed': bool(result.get('replayed', False))}
+        # loosen_budget takes aware datetimes; the request carries their ISO text for printing.
+        try:
+            result = owner.loosen_budget(**{**request, 'period_start': p['period_start'], 'period_end': p['period_end']})
+        except psycopg.errors.InvalidParameterValue as refused:
+            code = re.fullmatch(r'(?:budget|approval): [a-z_]{1,40}', refused.diag.message_primary or '')
+            if code is None:
+                raise
+            raise Refused(code.group(0)) from None
+    outcome = budget_outcome(result)
+    return {'mode': 'budget', 'executed': outcome['status'] == 'executed', **outcome, 'tenant': p['tenant'], 'request_id': request['request_id'],
+            'budget_kind': request['budget_kind'], 'unit': request['unit'], 'limit_amount': request['limit_amount'],
+            'period_start': request['period_start'], 'period_end': request['period_end']}
 
 
 def main(argv=None):
@@ -266,6 +297,7 @@ def main(argv=None):
                  '--recipe', '--username-file', '--password-file', '--database-url-file', '--identity-database-url-file', '--browser-rate-key-file',
                  '--artifact-root'):
         parser.add_argument(name)
+    parser.add_argument('--execute', action='store_true', help='budget: run the approved loosening (after another owner approved it)')
     parser.add_argument('--trial-config', default=str(TRIAL), help='trial configuration (default: the newest nx037-trial.v<N>.json)')
     args = parser.parse_args(argv)
     try:
@@ -297,7 +329,7 @@ def main(argv=None):
                 raise Refused('budget needs --' + ', --'.join(n.replace('_', '-') for n in needed))
             from nexloop_eios.private_configuration import read_private_text
             recipe = budget_recipe(json.loads(read_private_text(args.recipe, maximum=4096)), p['tenant'])
-            out = set_budget(p, recipe, **{n: getattr(args, n) for n in needed if n != 'recipe'})
+            out = set_budget(p, recipe, **{n: getattr(args, n) for n in needed if n != 'recipe'}, execute=args.execute)
             code = 0
         else:
             if args.metrics_dsn_file is None:

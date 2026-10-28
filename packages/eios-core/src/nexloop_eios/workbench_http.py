@@ -31,7 +31,7 @@ _OBJECT = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ARTIFACT_CURSOR = re.compile(r'[0-9][0-9T:. +\-]{9,39}\|[a-f0-9]{32}')
 _OFFSET = re.compile(r'0|[1-9][0-9]{0,5}')
 _INSTANT = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})')
-_CONSUMER_SORTS = ('id', 'open_commitments', 'conversations', 'active_plans')
+_CONSUMER_SORTS = ('id', 'open_commitments', 'conversations', 'active_plans', 'last_conversation_at')  # X3: the latest message time
 HEADERS = {'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'}
 
 

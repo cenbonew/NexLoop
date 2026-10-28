@@ -23,7 +23,8 @@ from test_workbench_read_pg import workbench_login
 
 COLUMNS = {'to_decide', 'mine', 'to_execute', 'solo_mode'}
 ROW = {'approval_id', 'capability', 'operation', 'action', 'requested_by', 'requested_at', 'due_by', 'status', 'digest', 'policy_version', 'quorum',
-       'approvals', 'summary', 'target_member', 'consumed', 'consumed_at'}  # 0362: whether it was executed
+       'approvals', 'summary', 'target_member', 'consumed', 'consumed_at',  # 0362: whether it was executed
+       'requested_by_username', 'summary_labels'}  # UI backend X1, X2
 
 
 def view(c, member):

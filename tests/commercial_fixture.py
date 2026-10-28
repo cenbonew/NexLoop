@@ -99,7 +99,9 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.remediation.rule_release':('Consumer','remediation.rule_release'),  # NX-057 R2
     'nexloop.workbench_member.promote_owner':('Consumer','workbench_member.promote_owner'),'nexloop.workbench_member.demote_owner':('Consumer','workbench_member.demote_owner'),'nexloop.workbench_member.suspend_owner':('Consumer','workbench_member.suspend_owner'),'nexloop.workbench_member.resume_owner':('Consumer','workbench_member.resume_owner'),'nexloop.workbench_member.revoke_owner':('Consumer','workbench_member.revoke_owner'),
     'nexloop.workbench_member.issue_owner_reset':('Consumer','workbench_member.issue_owner_reset'),'nexloop.workbench_member.invite_owner':('Consumer','workbench_member.invite_owner'),'nexloop.workbench_member.erase_member':('Consumer','workbench_member.erase_member'),
-    'nexloop.claim_extraction.dead_letter_resolve':('Consumer','claim_extraction.dead_letter_resolve')}  # NX-058 slices D2, D3, E; extraction dead letters
+    'nexloop.workbench_member.link_external':('Consumer','workbench_member.link_external'),'nexloop.workbench_member.unlink_external':('Consumer','workbench_member.unlink_external'),
+    'nexloop.claim_extraction.dead_letter_resolve':('Consumer','claim_extraction.dead_letter_resolve'),
+    'nexloop.budget.loosen':('Consumer','goals.budget.loosen')}  # NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

@@ -80,6 +80,18 @@ async function accountPost(path:string,body:Record<string,string>,done:string,in
 export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
 /** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
 export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
+/** NX-058 slice F: the configured single sign-on providers (id and display name only); none while SSO is off or unreadable, so the
+ * login card simply shows no SSO button. The start is a top-level navigation (the IdP redirects back), never a fetch. */
+export type SsoProvider={provider_id:string;display_name:string};
+export function ssoProviders(value:unknown):SsoProvider[]{
+  return list(exactKeys(object(value),['providers']).providers).map(x=>{const o=exactKeys(object(x),['provider_id','display_name']);
+    const provider_id=text(o.provider_id);if(!/^[a-z][a-z0-9_-]{0,31}$/.test(provider_id))throw new WorkbenchError('invalid');
+    return {provider_id,display_name:text(o.display_name)};});
+}
+export async function readSsoProviders():Promise<SsoProvider[]>{
+  try{return await get('/api/v1/workbench/auth/oidc/providers',ssoProviders);}catch{return [];}
+}
+export const ssoStartPath=(provider:string)=>'/api/v1/workbench/auth/oidc/start?provider='+encodeURIComponent(provider);
 export async function readWorkbenchSession():Promise<WorkbenchSession|null>{
   try{return await get('/api/v1/workbench/auth/session',session);}catch(error){if(kindOf(error)==='unauthenticated')return null;throw error;}
 }
@@ -175,16 +187,19 @@ export const DISPLAY_NOTE:Record<'restricted'|'missing'|'failed',string>={restri
 export function consumerLabel(consumerId:string,display:DisplayName):string{
   return display.status==='ok'?display.name:`${consumerAlias(consumerId)}（${DISPLAY_NOTE[display.status]}）`;
 }
-export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName};
+export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName;
+  /** X3: the newest message time across the customer's conversations (null: none, or erasing); undefined from an older server. */
+  last_conversation_at?:string|null};
 export type ConsumerPage={items:ConsumerRow[];next_cursor:string|null;total:number|null;tenant_total:number|null};
 const total=(value:unknown)=>value===undefined||value===null?null:count(value);
 export function consumers(value:unknown):ConsumerPage{
   const v=object(value);
-  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display)};}),
+  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display),
+    ...(o.last_conversation_at===undefined?{}:{last_conversation_at:maybeText(o.last_conversation_at)})};}),
     next_cursor:v.next_cursor===null||v.next_cursor===undefined?null:/^\d+$/.test(String(v.next_cursor))?String(v.next_cursor):id(v.next_cursor),total:total(v.total),tenant_total:total(v.tenant_total)};
 }
 /** F09: list filters and sort (server side, on the list's own counts); `cursor` is the server's offset or, for the plain list, the id cursor. */
-export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans';order?:'asc'|'desc';cursor?:string};
+export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans'|'last_conversation_at';order?:'asc'|'desc';cursor?:string};
 export function consumerQueryString(q:ConsumerQuery,limit=50):string{
   const p=new URLSearchParams();
   if(q.restricted!==undefined)p.set('restricted',String(q.restricted));
@@ -523,6 +538,10 @@ export const OPERATION_ACTION={
   resume_workbench_owner:'eios:action:nexloop.workbench_member.resume_owner:1',revoke_workbench_owner:'eios:action:nexloop.workbench_member.revoke_owner:1',
   issue_workbench_owner_reset:'eios:action:nexloop.workbench_member.issue_owner_reset:1',invite_workbench_owner:'eios:action:nexloop.workbench_member.invite_owner:1',
   erase_workbench_member:'eios:action:nexloop.workbench_member.erase_member:1',
+  // NX-058 slice F (owner only): an operator's or reviewer's single sign-on link.
+  link_workbench_external:'eios:action:nexloop.workbench_member.link_external:1',unlink_workbench_external:'eios:action:nexloop.workbench_member.unlink_external:1',
+  // NX-056 budget approval: a budget loosening, executed from the approvals page after another owner approves it.
+  loosen_budget:'eios:action:nexloop.budget.loosen:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -560,6 +579,10 @@ export const APPROVAL_REASON_TEXT:Record<string,string>={
   operation_mismatch:'执行的内容与批准的请求不一致，未执行。',
   execution_field_invalid:'执行时的附加字段无效，未执行。',
   invalid:'审批请求内容无效，未执行。',
+  // NX-056 budget approval.
+  budget_loosen_requires_approval:'这项预算调整会放宽预算（新设、调高、延后结束或改变起点、改币种），需要另一位 owner 批准，请改用“放宽预算”发起审批。',
+  budget_changed:'预算在你查看之后已经变化，未执行；请刷新后按当前预算重新发起。',
+  approval_unavailable:'这项操作需要审批，但当前没有可用的审批（策略未发布或不是这条请求），未执行。',
 };
 /** Exact outcome text (AT-045). 503/network/invalid response: the result is not known, never shown as failed or done. */
 export const WRITE_TEXT:Record<WriteFailure,string>={
@@ -1149,6 +1172,9 @@ export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
   result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null;
+  /** X1 (l2/ui-backend-x1-x4): the requester's workbench username; null when erased, without an account or not a member here;
+   * undefined from a server without the field. X2: a label per summary key (the key itself when the server has none). */
+  requested_by_username?:string|null;summary_labels?:Record<string,string>;
   /** 0362: the approval was executed (it has a consumption record); the status stays 'approved'. */
   consumed:boolean;consumed_at:string|null};
 /** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
@@ -1168,7 +1194,8 @@ const APPROVAL_KEYS='action,approval_id,approvals,capability,consumed,consumed_a
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
 function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   const r=object(value);
-  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[])].sort().join()
+  const optional=['requested_by_username','summary_labels'].filter(k=>k in r);
+  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[]),...optional].sort().join()
     ||!/^[0-9a-f-]{36}$/.test(text(r.approval_id))||!/^[0-9a-f]{12}$/.test(text(r.digest))||!APPROVAL_STATUS.includes(text(r.status) as ApprovalStatus))
     throw new WorkbenchError('invalid');
   const summary=object(r.summary);
@@ -1178,6 +1205,10 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
     policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary'],
     target_member:targetMember(r.target_member),consumed:flag(r.consumed),consumed_at:maybeText(r.consumed_at)};
   if(row.consumed!==(row.consumed_at!==null))throw new WorkbenchError('invalid');
+  if('requested_by_username' in r)row.requested_by_username=maybeText(r.requested_by_username);
+  if('summary_labels' in r){const labels=object(r.summary_labels);
+    if(Object.entries(labels).some(([k,v])=>!(k in summary)||typeof v!=='string'||!v))throw new WorkbenchError('invalid');
+    row.summary_labels=labels as Record<string,string>;}
   if(extra==='result')row.result=maybeText(r.result);
   if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
   return row;

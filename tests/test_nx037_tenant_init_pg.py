@@ -14,8 +14,7 @@ import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
 
-from goal_fixture import ACTIONS, authenticate_human, register_goal_actions, seed_human_owner
-from nexloop_eios.goal_controls import GoalGovernedActions
+from support.budgets import approved_budget
 from support.tenants import TENANT_A
 from test_action_definitions import published_action  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
@@ -53,7 +52,11 @@ def test_dry_run_lists_the_governed_steps_and_refuses_the_demo_tenant(catalog, c
         ('service_grants', 'trusted_configuration'), ('effect_categories', 'trusted_configuration'), ('alert_rules', 'trusted_configuration'),
         ('merge_configuration', 'trusted_configuration'), ('model_budget', 'owner_action'), ('value_catalog', 'reference'), ('channel_configuration', 'reference'), ('verify', 'check')]
     budget = out['steps'][4]['request']
-    assert budget['action_name'] == 'Budget.set' and budget['budget_kind'] == 'model' and budget['unit'] == 'CNY' and budget['limit_amount'] == '100'
+    assert budget['action_name'] == 'nexloop.budget.loosen' and budget['budget_kind'] == 'model' and budget['unit'] == 'CNY' and budget['limit_amount'] == '100'
+    # NX-056 budget approval: the first model budget is a loosening of no current row, approved by another owner.
+    assert (budget['from_unit'], budget['from_limit_amount'], budget['from_period_start'], budget['from_period_end'], budget['expected_revision']) == (None,) * 4 + (0,)
+    assert I.budget_outcome({'status': 'waiting_approval', 'approval_id': 'a-1', 'replayed': False}) == {'status': 'approval_pending', 'approval_id': 'a-1', 'replayed': False}
+    assert I.budget_outcome({'approval': 'consumed', 'approval_id': 'a-1'})['status'] == 'executed'
     assert I.budget_request(params(catalog))['request_id'] == budget['request_id']  # a stable business-intent id
     assert I.plan(params(catalog, cumulative='50', per_run='1', monthly='200'))['cost_caps'] == {'cumulative': '50', 'per_run': '1', 'tenant_monthly': '200'}
     from nexloop_eios.sandbox_profile import SANDBOX_TENANT
@@ -104,14 +107,14 @@ def test_execute_through_trusted_configuration_and_the_owner_action_then_verify(
                                                        'findings': ['embedding_profile_mismatch', 'no_active_configuration']}
         assert {k for k, v in pending['checks'].items() if not v} == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'merge_configuration_active'}
         activate_calibrated_recall_profile(admin, p['tenant'])
-        # The owner submits Budget.set from their own session (the workbench): the governed path, not a table write.
-        register_goal_actions(admin, base, capability)
-        browser = seed_human_owner(admin, reader.pool, list(ACTIONS), identity, uow)
-        owner = GoalGovernedActions(reader.pool, authenticate_human(reader.pool, browser), reader.signer)
-        again = I.execute(p, **files, owner_actions=owner)  # trusted configuration is idempotent
+        # The owner's loosening, approved by another owner (NX-056 budget approval; tests/test_budget_approval_pg.py covers the
+        # approval): the approved write stands in for it here. The step stays owner_pending in the trusted configuration run.
+        again = I.execute(p, **files)  # trusted configuration is idempotent
         assert again['steps']['merge_configuration']['status'] == 'applied'
         assert I.execute(p, **files)['steps']['merge_configuration']['status'] == 'in_sync'
-        assert again['steps']['model_budget']['status'] == 'submitted'
+        assert again['steps']['model_budget']['status'] == 'owner_pending'
+        request = I.budget_request(p)
+        approved_budget(admin, p['tenant'], 'model', request['unit'], request['limit_amount'], request['period_start'], request['period_end'])
         ready = I.verify(p, metrics, environ={})
         assert ready['ready'] is True, ready
         assert ready['enforced_by_executor'] == {'per_run': '2', 'tenant_monthly': '300'}
@@ -197,10 +200,10 @@ def test_real_run_entry_refuses_until_verify_and_the_planned_switches_hold(pg, a
     assert code == 3 and 'reply_fallback_currency_differs' not in out['refused']  # reply-guarantee.v3.json is CNY
     assert code == 3 and set(out['refused']) == {'model_budget_is_cumulative_cap', 'model_budget_covers_trial', 'merge_configuration_active', 'switch_deployment_differs',
                                                  'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
-    register_goal_actions(admin, base, capability)
-    owner = GoalGovernedActions(reader.pool, authenticate_human(reader.pool, seed_human_owner(admin, reader.pool, list(ACTIONS), identity, uow)), reader.signer)
     activate_calibrated_recall_profile(admin, p['tenant'])
-    I.execute(p, **files, owner_actions=owner)
+    I.execute(p, **files)
+    request = I.budget_request(p)  # the owner's loosening, approved by another owner (NX-056 budget approval): its approved write
+    approved_budget(admin, p['tenant'], 'model', request['unit'], request['limit_amount'], request['period_start'], request['period_end'])
     code, out = attempt({'REAL_DISPATCH_ENABLED': 'true'})
     assert code == 3 and set(out['refused']) == {'switch_tenant_differs', 'switch_data_mode_differs', 'switch_actions_differs'}
     with admin.transaction():

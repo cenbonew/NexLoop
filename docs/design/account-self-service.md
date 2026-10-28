@@ -189,6 +189,8 @@
 
 ## 5. 单点登录（OIDC，第二阶段：只定接口与范围）
 
+> 片 F 已按负责人 2026-10-28 的决定实现，默认不启用，测试用进程内模拟 IdP，见 `docs/implementation/NX-058-slice-F.md`。与本节的偏差：没有 vendored 上游（它依赖 joserfc），只支持 RS256；owner 的绑定和“邀请时指定仅限 SSO”尚未实现。
+
 - **范围**：企业 IdP 的授权码流程，带 PKCE（S256）、state（5 分钟、一次性）、nonce；用 JWKS 白名单校验 ID token；只支持 OIDC，不做 SAML（上游也没有 SAML）。
 - **账号关联**：`external_identity(issuer, subject) → principal`。只有负责人能建立关联（受治理 Action `workbench_member.link_external`，或者在邀请时指定“仅限 SSO”）。目标是 owner 的关联，走与“提升为 owner”相同的审批，单人模式不适用（S5）。首次登录**不自动开户**。
 - **接口**：

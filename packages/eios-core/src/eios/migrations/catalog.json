@@ -1815,6 +1815,36 @@
       "version": "0363",
       "name": "0363_relation_erased_values.sql",
       "sha256": "cdba9a09ce66b17acbc6faaef7f3f438fadf6bb89a4024eacce6621d5b475507"
+    },
+    {
+      "version": "0364",
+      "name": "0364_nx043_budget_drill.sql",
+      "sha256": "9e471e4b6527fef3cbf3c5bd07a30fb15bd21d20b13c9be1b81c0e99fec4bab8"
+    },
+    {
+      "version": "0365",
+      "name": "0365_nx058_oidc.sql",
+      "sha256": "5acc38a3c735f78e80efeefce843f188a63e82b30793664cb96073f8f2ebf124"
+    },
+    {
+      "version": "0366",
+      "name": "0366_ui_approval_requester_labels.sql",
+      "sha256": "e7e187130af0792be0e4165ef0ff6af17f70f3e3616c36720d8dbe412ea3a4c9"
+    },
+    {
+      "version": "0367",
+      "name": "0367_ui_consumer_last_conversation.sql",
+      "sha256": "5bde05a8bbd4980998baa4c077df40efce38ab86595afc6ffe8e9f3e3a995300"
+    },
+    {
+      "version": "0368",
+      "name": "0368_ui_conversation_times.sql",
+      "sha256": "793b73ae35ea877c1f91505ae10fe0a8b32c2c44ac92159e1775c8d1d0802130"
+    },
+    {
+      "version": "0369",
+      "name": "0369_budget_loosen.sql",
+      "sha256": "12992b24afbd9259720e841e3b6724381a4c5997c60170d5453340833d4f396f"
     }
   ]
 }

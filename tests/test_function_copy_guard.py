@@ -441,6 +441,14 @@ REGISTRY = [
              (r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;", ""),
              (r"\n if pol\.target_subject_field is not null or pol\.solo_mode='not_applicable' then.*?\n  end if;\n end if;", ""),
              (r"p_body-control\.nexloop_approval_execution_fields_of\(p_capability\),", "p_body,"))),
+    # budget_loosen (NX-056 budget approval, design §2): Budget.set's handler passes a set_budget body through the tighten-only check; a
+    # loosening opens only against the current row it names; its policy may show the old and new limit and period.
+    Allowed('budget_loosen', 'control.nexloop_governed_owner_change', 'a set_budget body passes the tighten-only check first; nothing else',
+            ((r"control\.nexloop_budget_set_tighten_only\(p_tenant,p_world,body\)", "body"),)),
+    Allowed('budget_loosen', 'control.nexloop_approval_summary_allowed', 'goals.budget.loosen shows the kind, the unit and the old and new limit and period; nothing else',
+            ((r"\s*when 'goals\.budget\.loosen' then array\[[^\]]*\]", ''),)),
+    Allowed('budget_loosen', 'control.nexloop_approval_open', 'a budget loosening opens only against the current row it names; nothing else',
+            ((r"\n if p_capability='goals\.budget\.loosen' then perform control\.nexloop_budget_loosen_check\(p_tenant,p_world,p_body,false\);end if;", ''),)),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_gate', 'the execution-time HMACs checked before the handler',
             ((r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;\n return jsonb_build_object\('proceed',true", "\n return jsonb_build_object('proceed',true"),)),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_terminate', 'one more reason, requester_no_longer_eligible',
@@ -504,6 +512,11 @@ REGISTRY = [
             ((r"not runtime\.nexloop_relation_value_erased\(v\)", "v not like 'pseudonym:%'"),)),
     Allowed('relation_erased_values', 'authz.nexloop_relation_precheck', 'erased values through runtime.nexloop_relation_value_erased; nothing else',
             ((r"runtime\.nexloop_relation_value_erased\(o\.properties->>\(s->>'property'\)\)", "o.properties->>(s->>'property') like 'pseudonym:%'"),)),
+    # NX-043 X7 item 10 (owner 2026-10-28, option A): the budget drill waives the twin's calibration for that drill only, and its notice.
+    Allowed('nx043_budget_drill', 'runtime.nexloop_experiment_twin_ok', 'a budget drill (runtime.nexloop_experiment_budget_drill_ok) passes; nothing else',
+            ((r"\n  or runtime\.nexloop_experiment_budget_drill_ok\(p_tenant,r\)", ""),)),
+    Allowed('nx043_budget_drill', 'runtime.nexloop_experiment_notice', "a budget drill's registration gets the drill notice first; nothing else",
+            ((r"when p_registration->'budget_drill'='true'::jsonb then runtime\.nexloop_experiment_budget_drill_notice\(\)\n  when ", "when "),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

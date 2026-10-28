@@ -105,6 +105,15 @@ OPERATIONS={
     'set_budget':{'budget_kind':lambda v:v if v in ('model','incentive','evolution') else (_ for _ in ()).throw(ValueError('budget kind')),
         'unit':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}')),'limit_amount':_id(re.compile(r'[0-9]{1,15}(\.[0-9]{1,6})?')),
         'period_start':_utc,'period_end':_utc},
+    # NX-056 budget approval: a loosening (another owner approves it) names the current row the requester saw - every from_* null and
+    # expected_revision 0 for a new budget; SQL refuses a body that does not name the current row (budget_changed).
+    'loosen_budget':{'budget_kind':lambda v:v if v in ('model','incentive','evolution') else (_ for _ in ()).throw(ValueError('budget kind')),
+        'unit':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}')),'limit_amount':_id(re.compile(r'[0-9]{1,15}(\.[0-9]{1,6})?')),
+        'period_start':_utc,'period_end':_utc,
+        'from_unit':lambda v:None if v is None else _id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}'))(v),
+        'from_limit_amount':lambda v:None if v is None else _id(re.compile(r'[0-9]{1,18}(\.[0-9]{1,12})?'))(v),
+        'from_period_start':lambda v:None if v is None else _utc(v),'from_period_end':lambda v:None if v is None else _utc(v),
+        'expected_revision':lambda v:v if type(v) is int and 0<=v<=999999999999999999 else (_ for _ in ()).throw(ValueError('revision'))},
     'set_control':{'scope_kind':_scope,'scope_ref':_text,'paused':_bool,'reason':_reason},
     'release_contact_restriction':{'consumer_id':_id(_HEX),'reason':_reason},
     'cancel_commitment':{'commitment_id':_id(_HEX),'reason':_reason},
@@ -243,6 +252,13 @@ OPERATIONS={
     'suspend_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'resume_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'revoke_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
+    # NX-058 slice F (owner only): link an operator's or reviewer's IdP subject (a configured provider only; the entry adds its issuer) or
+    # remove the link. The subject is the IdP's sub claim as the owner reads it in the IdP's console.
+    'link_workbench_external':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),
+        'provider_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,31}')),
+        'external_subject':lambda v:v if type(v) is str and 0<len(v)<=255 and v==v.strip() and v.isprintable() else (_ for _ in ()).throw(ValueError('subject')),
+        'login_mode':lambda v:v if v in ('sso_only','sso_or_password') else (_ for _ in ()).throw(ValueError('mode'))},
+    'unlink_workbench_external':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
     # NX-058 slice D2 (owner only, NX-056 approval): owner targets; demote's new role is operator or reviewer (S2, SQL checks it again).
     'promote_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'demote_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason,
@@ -398,6 +414,17 @@ def router(config,*,ports_for_browser):
                 code=W.new_token() if invite else W.new_code()
                 fields={**fields,('token_hmac' if invite else 'code_hmac'):W.digest(secret_key,W.INVITE if invite else W.RESET,config.tenant_id,code),
                         'issuer_source_hmac':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
+            if operation=='link_workbench_external':
+                # Only a configured provider (the same file the login uses); its issuer, never the body's.
+                from nexloop_eios.workbench_oidc import OidcClient,load_providers
+                try:
+                    client=getattr(request.app.state,'workbench_oidc',None)
+                    if client is None and config.oidc_providers_file is not None:
+                        client=OidcClient(load_providers(config.oidc_providers_file));request.app.state.workbench_oidc=client
+                except Exception:return error('unavailable',503)
+                provider=None if client is None else client.providers.get(fields['provider_id'])
+                if provider is None:return error('not_allowed_in_state',409,{'reason':'provider_unknown'})
+                fields={**fields,'issuer':provider.issuer}
             result=await run_in_threadpool(lambda:bound(request).run(operation,'workbench-'+key,fields))
             if operation in ('issue_workbench_owner_reset','invite_workbench_owner'):
                 if (isinstance(result,dict) and result.get('approval')=='consumed' and result.get('status') is None and result.get('replayed') is False):
@@ -414,7 +441,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited
