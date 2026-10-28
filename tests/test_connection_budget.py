@@ -21,8 +21,8 @@ def test_declared_stage_budget_is_within_policy():
     # + message-relay 2 + outbound-recorder 2 + 11 background services x 1 + 2 launcher API pools x 2 = 53,
     # = 49 without the removed scheduler reserve (dispatcher 2026-10-11), + the API browser identity pools 2 x 4 (NX-032) = 57,
     # + the NX-037 webchat-delivery service 1 x 2 = 59; option B (dispatcher 2026-10-13): message-relay 2 x 2 (+2) and the identity
-    # pools 2 x 3 (-2) = 59.
-    assert result['passed'] and result['details']['application_pool_total']==59 and result['details']['missing_services']==[]
+    # pools 2 x 3 (-2) = 59; + the outreach sender 1 x 1 (outreach slice 5) = 60, the limit itself.
+    assert result['passed'] and result['details']['application_pool_total']==60 and result['details']['missing_services']==[]
     assert result['details']['services']['runtime-worker']==2+4*4
 
 
@@ -50,10 +50,10 @@ def test_max_connections_floor(max_connections,passed):
 
 
 def test_total_over_sixty_fails():
-    # 59 at the default four guard workers (NX-032 identity pools, NX-037 webchat-delivery): one more guard process breaks the limit.
-    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 63 total
+    # 60 at the default four guard workers (NX-032 identity pools, NX-037 webchat-delivery, outreach sender): one more guard process breaks the limit.
+    document=copy.deepcopy(DOCUMENT);runtime(document)['guard_workers']=5  # 2 + 5*4 = 22 -> 64 total
     result=budget.evaluate(document)
-    assert not result['passed'] and result['details']['application_pool_total']==63
+    assert not result['passed'] and result['details']['application_pool_total']==64
 
 
 def relay(document):return next(s for s in document['services'] if s['name']=='message-relay')
@@ -62,13 +62,13 @@ def relay(document):return next(s for s in document['services'] if s['name']=='m
 def test_the_semantic_read_pool_is_counted_per_process():
     """NX-038 E3 wiring (L6 review 5.1): a declared semantic_read_pool_max adds processes x that to the service and the total; the
     stage budget declares one per relay process (dispatcher 2026-10-22)."""
-    # Stage (dispatcher 2026-10-22): relay 2 x (2 + 1 semantic), api-browser-identity 2 x 2 -> 59.
-    assert relay(DOCUMENT)['semantic_read_pool_max']==1 and budget.evaluate(DOCUMENT)['details']['application_pool_total']==59
+    # Stage (dispatcher 2026-10-22): relay 2 x (2 + 1 semantic), api-browser-identity 2 x 2 -> 59; + outreach sender 1 -> 60.
+    assert relay(DOCUMENT)['semantic_read_pool_max']==1 and budget.evaluate(DOCUMENT)['details']['application_pool_total']==60
     document=copy.deepcopy(DOCUMENT);relay(document)['semantic_read_pool_max']=0
-    assert budget.evaluate(document)['details']['application_pool_total']==57
-    relay(document)['semantic_read_pool_max']=2  # two relay processes: +4 -> 61, over the limit
+    assert budget.evaluate(document)['details']['application_pool_total']==58
+    relay(document)['semantic_read_pool_max']=2  # two relay processes: +4 -> 62, over the limit
     result=budget.evaluate(document)
-    assert result['details']['services']['message-relay']==2*(2+2) and result['details']['application_pool_total']==61
+    assert result['details']['services']['message-relay']==2*(2+2) and result['details']['application_pool_total']==62
     assert not result['passed'] and result['checks']['application_pool_total'] is False
 
 
@@ -252,7 +252,7 @@ def _required(service):
         'recall-indexer':['--types-file','x'],'commitment-keeper':['--settings-file','x'],'commercial-recorder':['--settings-file','x'],
         'plan-reevaluator':['--settings-file','x','--api-database-url-file','x','--effect-action','eios:action:x:1',
             *[a for n in B.LAUNCH_CREDENTIALS for a in (f'--{n}-credential-file','x')]],
-        'incentive-issuer':['--ledger-directory','x'],
+        'incentive-issuer':['--ledger-directory','x'],'outreach-sender':['--outbox-directory','x'],
         'reply-guarantor':['--policy-file','x','--api-database-url-file','x','--recipe-file','x',*[a for n in B.RELAY_CREDENTIALS for a in (f'--{n}-credential-file','x')]]}
     return extra.get(service,[])
 
@@ -290,13 +290,13 @@ def simulation(document):return {s['name']:s for s in document['simulation']['se
 
 def test_the_application_and_simulation_budgets_are_summed_apart():
     result=budget.evaluate(DOCUMENT,max_connections=80,superuser_reserved=3)
-    assert result['passed'] and result['details']['application_pool_total']==59 and result['details']['simulation_pool_total']==8
+    assert result['passed'] and result['details']['application_pool_total']==60 and result['details']['simulation_pool_total']==8
     assert result['details']['simulation_services']=={'sim-runtime-worker':6,'sim-stand-in-executor':1,'sim-world-files':1}
     assert 'sim-runtime-worker' not in result['details']['services']  # never in the application's 60
-    assert result['checks']['simulation_pool_total'] and result['checks']['server_capacity']  # 59 + 8 + 7 <= 80 - 3
+    assert result['checks']['simulation_pool_total'] and result['checks']['server_capacity']  # 60 + 8 + 7 <= 80 - 3
     assert (budget.APPLICATION_POOL_LIMIT,budget.SIMULATION_POOL_LIMIT,budget.OPERATIONS_RESERVE)==(60,10,7)
     # The capacity uses the server's own superuser reserve: a larger reserve on a minimal server does not fit at the limits.
-    assert budget.evaluate(DOCUMENT,max_connections=80,superuser_reserved=7)['checks']['server_capacity'] is False  # 59 + 8 + 7 = 74 > 80 - 7
+    assert budget.evaluate(DOCUMENT,max_connections=80,superuser_reserved=7)['checks']['server_capacity'] is False  # 60 + 8 + 7 = 75 > 80 - 7
     assert 'server_capacity' not in budget.evaluate(DOCUMENT,max_connections=80)['checks']  # the doctor always gives both
 
 

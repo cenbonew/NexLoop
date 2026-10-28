@@ -21,6 +21,13 @@
 ``nexloop-incentive-issuer``         (nexloop_domain_worker) accepted incentive intents → admitted at dispatch (controls, contact
                                        restriction, catalog, per-Consumer limit, tenant budget) → loopback ledger once; unknown
                                        answers queried, never re-sent (AT-043; D9: no real incentive channel)
+``nexloop-outreach-sender``          (nexloop_domain_worker) accepted outreach intents → admitted at dispatch by SQL
+                                       (nexloop.outreach.execute:1: contact restriction, requester's current authority, owner
+                                       controls, purpose, marketing, test persona, quiet hours, frequency, preferences, the three
+                                       real dispatch layers, model budget; a refusal is terminal and the provider gets nothing) →
+                                       the loopback outbox once; the admission (fence) is stored before the provider is called and
+                                       its answer is stored before the tick goes on; an unknown answer is queried by intent id,
+                                       never sent again (outreach slice 5, G-1; no real outreach channel exists)
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -52,6 +59,7 @@ SERVICES={
     'retention-keeper':('Retention Keeper','nexloop_domain_worker'),
     'alert-evaluator':('Alert Evaluator','nexloop_domain_worker'),
     'incentive-issuer':('Incentive Issuer','nexloop_domain_worker'),
+    'outreach-sender':('Outreach Sender','nexloop_domain_worker'),
 }
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
@@ -106,6 +114,13 @@ def _parser(service):
     if service=='incentive-issuer':
         # AT-043 D9: the loopback ledger is the only provider (a private, writable directory of fsynced records).
         parser.add_argument('--ledger-directory',type=Path,required=True)
+    if service=='outreach-sender':
+        # Outreach slice 5 G-1: the loopback outbox is the only provider (a private, writable directory of fsynced records).
+        parser.add_argument('--outbox-directory',type=Path,required=True)
+        # L6 (dispatcher 2026-10-28): with all three real dispatch layers open the loopback provider is the only thing between an
+        # admitted intent and a real send. Any other provider needs the explicit enablement flag as well - and none exists yet.
+        parser.add_argument('--provider',default='loopback')
+        parser.add_argument('--real-channel-enabled',action='store_true')
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         # Relay multi-consumer D4: one consumer's recipe, or the deployment Run profile with enrolled consumers (0160).
@@ -217,6 +232,9 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
     if service=='incentive-issuer':
         from nexloop_eios.incentives import IncentiveIssuer,LocalIncentiveLedger
         return IncentiveIssuer(pool,session,signer,LocalIncentiveLedger(arguments.ledger_directory)).run_once()
+    if service=='outreach-sender':
+        from nexloop_eios.outreach import OutreachSender
+        return OutreachSender(pool,session,signer,outreach_provider(arguments)).run_once()
     if service=='alert-evaluator':
         # NX-030: alert rules on the SQL metrics snapshot (world real only, D6); also rolls up and expires process samples (D5).
         from nexloop_eios.observability import AlertEvaluator
@@ -278,6 +296,29 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
     return RecallInstanceIndexWorker(pool,session,signer,types=load_types(arguments.types_file),provider=embedding,expected_dimension=dimension).run_once()
 
 
+def private_directory(path):
+    """The outbox directory as LocalOutreachOutbox creates it (0700): an existing one must be a real directory of this user with no
+    group or other access - its records name Consumers and intents."""
+    import os
+    import stat
+    path=Path(path)
+    if not path.is_absolute():raise ValueError('outbox directory')
+    if not os.path.lexists(path):return path
+    info=os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o077:raise ValueError('outbox directory')
+    return path
+
+
+def outreach_provider(arguments):
+    """The outreach sender's provider: the loopback outbox. A non-loopback provider is refused without --real-channel-enabled, and
+    refused with it too, since no real outreach provider exists in this release (a real one is its own reviewed change)."""
+    if arguments.provider=='loopback':
+        from nexloop_eios.outreach import LocalOutreachOutbox
+        return LocalOutreachOutbox(arguments.outbox_directory)
+    if not arguments.real_channel_enabled:raise ValueError('non-loopback outreach provider without explicit enablement')
+    raise ValueError('no real outreach provider exists')
+
+
 class TickFailures:
     """A failed tick used to be swallowed without a trace: a service whose every tick failed (authentication, authority, SQL)
     stayed `running` with nothing in its log (2026-10-18 stage: the alert evaluator's state stopped at 2026-10-17 14:33Z). Now
@@ -317,6 +358,8 @@ def run(service,arguments,stop):
         if configuration_values({},env_file=arguments.model_env_file,prefix='MODEL').get('MODEL_TEST_VARIANT','').strip() and \
                 (service!='claim-extraction-worker' or arguments.mode!='test'):
             raise ValueError('load-rules profile is test mode only')
+    if service=='outreach-sender' and arguments.provider!='loopback':
+        outreach_provider(arguments)  # refused before any credential is read or connection opened (L6)
     dsn=read_private_text(arguments.database_url_file,maximum=16384)
     read_private_text(arguments.service_credential_file,maximum=16384)
     if service=='recall-indexer':load_types(arguments.types_file)
@@ -334,6 +377,7 @@ def run(service,arguments,stop):
     if service=='commercial-recorder':
         from nexloop_eios.commercial import load_settings
         load_settings(arguments.settings_file)
+    if service=='outreach-sender':private_directory(arguments.outbox_directory)
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
             signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max))
@@ -436,6 +480,7 @@ def commercial_recorder(argv=None):return main_for('commercial-recorder',argv)
 def retention_keeper(argv=None):return main_for('retention-keeper',argv)
 def alert_evaluator(argv=None):return main_for('alert-evaluator',argv)
 def incentive_issuer(argv=None):return main_for('incentive-issuer',argv)
+def outreach_sender(argv=None):return main_for('outreach-sender',argv)
 
 
 if __name__=='__main__':

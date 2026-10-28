@@ -18,14 +18,14 @@ test('NX-058 UI: the invitation token comes from the fragment only, in its own s
 
 test('NX-058 UI: the invitation page asks for a password only (no username) and says when the link is incomplete', ()=>{
   const withToken=renderToStaticMarkup(h(InvitationPage,{initialHash:'#token='+token}));
-  expect(withToken).toContain('接受邀请并设置口令');expect(withToken).toContain('type="password"');expect(withToken).not.toContain('autoComplete="username"');
+  expect(withToken).toContain('接受邀请并设置密码');expect(withToken).toContain('type="password"');expect(withToken).not.toContain('autoComplete="username"');
   expect(withToken).not.toContain(token);  // the token is never rendered
   expect(renderToStaticMarkup(h(InvitationPage,{initialHash:''}))).toContain('邀请链接不完整或已失效');
 });
 
 test('NX-058 UI: the reset page takes the code and a new password, no username', ()=>{
   const html=renderToStaticMarkup(h(ResetPage,{}));
-  expect(html).toContain('重置码');expect(html).toContain('设置新口令');expect(html).not.toMatch(/用户名<\/label>|id="reset-username"/);
+  expect(html).toContain('重置码');expect(html).toContain('设置新密码');expect(html).not.toMatch(/用户名<\/label>|id="reset-username"/);
 });
 
 test('NX-058 UI: the reset notice has no close button; the account page lists the 90 days', ()=>{

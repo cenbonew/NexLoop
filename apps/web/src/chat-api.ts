@@ -27,8 +27,10 @@ export function message(value:unknown):Message{const v=object(value);if(!Number.
   return {...base,direction:'outbound',sender_kind:'agent',intent_id:v.intent_id,trigger_message_id:id(v.trigger_message_id)};}
 export function messagePresentation(item:Message):{sender:string;status:string;receipt:boolean}{
   // A visible outbound Message means the channel accepted it; it never claims the problem is solved.
-  if(item.direction==='outbound'&&item.sender_kind==='human_takeover')return {sender:'人工客服回复',status:'已发送；不代表问题已解决或承诺已兑现',receipt:false};
-  return item.direction==='outbound'?{sender:'企业 Agent 回复',status:'渠道已接受；不代表问题已解决或承诺已兑现',receipt:false}:{sender:'发送者：'+item.actor,status:'消息已接受',receipt:true};}
+  // B12 (owner 2026-10-28): the customer's own message reads as 我 / 已发送, never the sender's principal; a reply is labelled by who
+  // answered (the AI is named as such), with no delivery vocabulary.
+  if(item.direction==='outbound'&&item.sender_kind==='human_takeover')return {sender:'人工客服',status:'',receipt:false};
+  return item.direction==='outbound'?{sender:'智能客服',status:'',receipt:false}:{sender:'我',status:'已发送',receipt:true};}
 function page<T>(value:unknown,validate:(value:unknown)=>T):Page<T>{const v=object(value);if(!Array.isArray(v.items)||(v.next_cursor!==null&&typeof v.next_cursor!=='string'))throw new Error('响应无效');return {items:v.items.map(validate),next_cursor:v.next_cursor as string|null};}
 async function request(path:string,init?:RequestInit):Promise<unknown>{const response=await fetch(path,{...init,credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new ApiError(response.status);return response.json();}
 async function write(path:string,body:unknown,key:string):Promise<unknown>{const {csrf}=await refreshCsrf();return request(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'Idempotency-Key':key},body:JSON.stringify(body)});}
@@ -51,7 +53,7 @@ export function subscribe(conversationId:string,after:number,onCommitted:(event:
   source.addEventListener('unavailable',()=>{source.close();onUnavailable();onClosed();});source.onerror=()=>{onUnavailable();if(source.readyState===EventSource.CLOSED)onClosed();};source.onopen=onAvailable;
   return ()=>source.close();
 }
-export function chatError(error:unknown){if(error instanceof ApiError){if(error.status===403)return '你没有此对话的访问权限。';if(error.status===401)return '登录已失效，请重新登录。';if(error.status===409)return '此请求编号已有不同内容，请核对原消息。';if(error.status===422)return '消息格式无效，请检查输入。';}return '服务暂不可用；消息是否已接受需核对，重试会使用同一请求编号。';}
+export function chatError(error:unknown){if(error instanceof ApiError){if(error.status===403)return '你没有此对话的访问权限。';if(error.status===401)return '登录已失效，请重新登录。';if(error.status===409)return '这条消息与之前发送的内容不一致，请刷新后查看。';if(error.status===422)return '消息格式无效，请检查输入。';}return '服务暂时不可用，消息可能没有发出。请稍后重新发送，同一条消息不会重复发出。';}
 
 export type ServiceReceipt={intent_id:string;receipt_id:string;state:'accepted'|'dispatching'|'unknown'|'observed_fulfilled'|'fulfilled'|'failed'|'confirmed';scope:'service_delivery';provider_state:'accepted'|'fulfilled'|'not_found'|null;governed_claim_finalized:boolean;business_action_success:boolean};
 export type MessageServiceReceipt={message_id:string;run:{run_id:string;request_id:string;task_id:string;status:'queued'}|null;receipt:ServiceReceipt|null};

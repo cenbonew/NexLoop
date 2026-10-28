@@ -418,11 +418,11 @@ compose 里用 `network_mode: service:<X>` 的服务，共用 X 容器的网络�
 **规则**：重建（`up -d --force-recreate`，或让配置变化生效的 `up -d`）或重启（`restart`；X 重启后网络命名空间也会重新建立）任何被引用的服务 X 时，必须在同一条命令里同时处理所有引用它的服务。
 
 目前的依赖关系（`compose.app.example.yaml`，由 `tests/test_compose_network_mode_rebuild.py` 守护）：
-- `app-net` 被 17 个服务引用：
+- `app-net` 被 18 个服务引用：
   - app-link-relay、gateway、api-1、api-2；
   - domain-worker、runtime-worker、message-relay、message-relay-2、outbound-recorder；
   - claim-extraction-scheduler、plan-reevaluator、reply-guarantor；
-  - commitment-keeper、commercial-recorder、retention-keeper、alert-evaluator、incentive-issuer。
+  - commitment-keeper、commercial-recorder、retention-keeper、alert-evaluator、incentive-issuer、outreach-sender。
 
   重建 app-net 实际上等于重启整个项目，在维护窗口内进行。
 - `agent-host` 被 `agent-link-relay` 引用。
@@ -456,6 +456,34 @@ docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXL
    - 合并配置要求租户当前生效的召回 profile 就是校准过的 embedding profile，所以要等新的召回索引服务运行过一次（§8a.12）。在此之前执行，会得到 `blocked`（`embedding_profile_mismatch`），什么都不写；等服务运行后重跑即可。
    - 也可以单独核对：`python -m nexloop_eios.merge_configuration --manifest deploy/ontology/merge-config.v1.json --tenant <TENANT_ID> --doctor --database-url-file <CONFIGURATOR_DSN_FILE>`。
 6. **部署后核对**：`nexloop-doctor` 全部通过（含 §8a.12 的检查项）；工作台“告警”页没有新的 firing。
+
+### 8a.11a register 之前：服务授权的差异核对（固定步骤，L6 2026-10-28）
+
+起因：stage 实际停在 service-grants v17，v18、v19 的 register 都没有执行过，而后来的各执行单都假定已经执行过。所以任何 `stage_secrets.py register` 之前，先只读核对“清单有、库里没有”的授权（register 时会报成 `grants_added`），而不是假定上一版已经生效。
+
+1. `stage_secrets.py register --out <树> --tenant <TENANT_ID> --dry-run`：列出清单（service-grants 与 stage-principals 合并后）的全部授权，每行 `principal resource_type resource_id operations`。**dry-run 不连库**，看不出差异，只作清单。
+2. 只读读出库里服务主体的授权（`ro` 会话：经 bootstrap socket、`begin read only`、`set local role nexloop_owner`，最后 rollback，同 `docs/release/run-nx057-remediation-stage.md` §0.3）：
+
+   ```
+   ro "select entity_key[1]||' '||entity_key[2] from authz.nexloop_authority_facts where tenant_id='<TENANT_ID>' and fact_kind='grants'
+       and payload->>'subject_kind'='service' and entity_key[1] like 'nexloop-service-%' order by 1"
+   ```
+
+   **不要按规则把角色短名换成 `principal_id`**：大多数是 `nexloop-service-<短名，下划线换连字符>-principal`，但有例外（例如 `claim_extraction_worker` 是 `nexloop-service-claim-worker-principal`，`claim_extraction_scheduler`、`outbound_message_recorder` 同样缩写过）。一律从清单的 `principal_id` 字段取。
+3. 从本次 `$RUN/src` 的清单直接生成 `principal_id resource_id`（与第 2 步同一格式），再比较：
+
+   ```
+   jq -r -s '(map(.principals[])|map({(.role):.principal_id})|add) as $id | map(.grants[])[] | "\($id[.principal]) \(.resource_id)"' \
+     deploy/authorization/service-grants.v1.json deploy/authorization/stage-principals.v1.json | sort -u > manifest-grants.txt
+   comm -23 manifest-grants.txt db-grants.txt     # db-grants.txt：第 2 步的输出去掉首行租户 ID 后 sort -u
+   ```
+
+   得到的就是这次 register 会新增的授权。
+   - **只比较 principal 与 resource，不比较 operations**：某条授权只改了 operations（例如 execute 之外加了一项），这个 diff 看不出来，register 时才会体现。清单一侧可以用 `.operations[]` 展开逐项列出，但库中授权事实的 payload 里 operations 的位置没有在 stage 上核对过，所以先不比较；清单中某条授权的 operations 有变动时（`git diff` 能看到），在执行单里单独写出并人工核对。
+   - `follow_latest_version` 的授权在 register 时才解析成后继版本的 Action：清单写的是基础版本，库里可能是后继版本，这类行会出现在差异里。对照 `git log -S` 确认属于这种情况的，不算新增。
+   - **预期为 0**；本次执行单明确要新增的授权除外（执行单必须逐条写出）。
+   - **不为 0**：列出每条差异的 principal、Action，以及它来自清单的哪一版（`git log -S '<resource_id>' -- deploy/authorization/service-grants.v1.json deploy/authorization/stage-principals.v1.json`）。交调度员确认后再 register；不确认就不执行。
+4. register 之后，`grants_added` 应当等于第 3 步的条数。`extra_grants_outside_manifest` 只统计服务主体，在 stage 上应当只有 `nexloop-sim-*`（模拟世界凭据，由 sim_world 签发，register 不撤销）。
 
 ### 8a.12 后台服务的故障判读（发布 17–18）
 

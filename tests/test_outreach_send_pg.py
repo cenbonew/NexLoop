@@ -37,7 +37,8 @@ def outreach(restoring, admin, tmp_path):
     publish_registry_actions(admin, ('nexloop.outreach.send',))
     _, token = seed_multi_authority(admin, c['worker'], [(EXECUTE_ACTION, ResourceType.ACTION, Operation.EXECUTE)],
                                     identity_suffix='-outreach-sender', tenant=TENANT)
-    c.update(sender_session=lambda: authenticate_service(c['worker'], token, world='real'), outbox=LocalOutreachOutbox(tmp_path / 'outbox'))
+    c.update(sender_session=lambda: authenticate_service(c['worker'], token, world='real'), outbox=LocalOutreachOutbox(tmp_path / 'outbox'),
+             sender_token=token)
     return c
 
 
@@ -264,3 +265,118 @@ def test_only_the_owner_sends_and_bad_requests_are_refused(outreach, admin):
     assert send(c, channel='sms').status_code == 422
     assert admin.execute('select count(*) from runtime.nexloop_outreach_sends').fetchone() == (0,)
     assert admin.execute("select has_function_privilege('nexloop_api','authz.nexloop_outreach_command(text,text,text,text,text)','execute')").fetchone() == (False,)
+
+
+def entry(c, pg, tmp_path, outbox, *extra):
+    """The deployed process entry (nexloop-outreach-sender, outreach slice 5 G-1) with private files only, one --once tick."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+    from psycopg.conninfo import make_conninfo
+    from nexloop_eios import background_services as B
+    root = tmp_path / 'sender-files'
+    root.mkdir(mode=0o700, exist_ok=True)
+
+    def private(name, value):
+        path = root / name
+        path.write_bytes(value if isinstance(value, bytes) else value.encode())
+        path.chmod(0o600)
+        return str(path)
+    argv = ['--database-url-file', private('dsn', make_conninfo(pg, user='nexloop_domain_worker')), '--signing-key-file', private('key', c['signer'].material),
+            '--signing-key-id', c['signer'].key_id, '--service-credential-file', private('credential', c['sender_token']),
+            '--artifact-root', str(tmp_path / 'artifacts'), '--world', 'real', '--outbox-directory', str(outbox), '--once', *extra]
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = B.main_for('outreach-sender', argv)
+    lines = out.getvalue().strip().splitlines()
+    secrets = (c['sender_token'], make_conninfo(pg, user='nexloop_domain_worker'))
+    assert not any(secret in out.getvalue() + err.getvalue() for secret in secrets)
+    return code, lines, err.getvalue()
+
+
+def test_the_deployed_entry_sends_once_and_prints_counts_only(outreach, admin, monkeypatch, pg, tmp_path):
+    """G-1: the process entry admits at dispatch and sends once; its output is the tick's counts, never the body or an id."""
+    c = outreach
+    open_everything(c, admin, monkeypatch)
+    body = '您好，这是一条只在合成库里的跟进消息。'
+    intent = send(c, body=body).json()['intent_id']
+    outbox = tmp_path / 'deployed-outbox'
+    code, lines, err = entry(c, pg, tmp_path, outbox)
+    assert code == 0 and lines == ['Outreach Sender ready', '{"admitted":1,"failed":0,"fulfilled":1,"refused":0,"unknown":0}'], (lines, err)
+    assert row(admin, intent)[0] == 'fulfilled' and len(list(outbox.glob('*.json'))) == 1
+    assert (outbox.stat().st_mode & 0o777) == 0o700
+    assert body not in outbox.joinpath(next(outbox.glob('*.json')).name).read_text()  # the outbox keeps the digest, not the text
+    assert body not in '\n'.join(lines) + err and intent not in '\n'.join(lines) + err
+    code, lines, _ = entry(c, pg, tmp_path, outbox)  # terminal: nothing sent twice
+    assert code == 0 and json_counts(lines) == NOTHING and len(list(outbox.glob('*.json'))) == 1
+
+
+def test_the_deployed_entry_queries_an_unknown_result_and_never_sends_again(outreach, admin, monkeypatch, pg, tmp_path):
+    """Persisted before the provider call, the unknown answer is queried by the entry, not re-sent: the record written before the
+    timeout is the one the query finds; with no record the query is a definite failure."""
+    c = outreach
+    open_everything(c, admin, monkeypatch)
+    outbox = tmp_path / 'deployed-outbox'
+    intent = send(c).json()['intent_id']
+    assert tick(c, LocalOutreachOutbox(outbox, fault='timeout_after_write')) == {**NOTHING, 'admitted': 1, 'unknown': 1}
+    assert row(admin, intent)[0] == 'unknown'
+    original = LocalOutreachOutbox.send
+    never = lambda self, request: (_ for _ in ()).throw(AssertionError('re-sent'))  # noqa: E731
+    monkeypatch.setattr(LocalOutreachOutbox, 'send', never)
+    code, lines, _ = entry(c, pg, tmp_path, outbox)
+    assert code == 0 and json_counts(lines) == {**NOTHING, 'fulfilled': 1} and row(admin, intent)[0] == 'fulfilled'
+    assert len(list(outbox.glob('*.json'))) == 1 and LocalOutreachOutbox(outbox).query(intent)[0] == 'fulfilled'
+    monkeypatch.setattr(LocalOutreachOutbox, 'send', original)
+    lost = send(c, origin='commitment:synthetic-lost').json()['intent_id']
+    assert tick(c, LocalOutreachOutbox(tmp_path / 'lost-outbox', fault='timeout_before_write'))['unknown'] == 1
+    monkeypatch.setattr(LocalOutreachOutbox, 'send', never)
+    code, lines, _ = entry(c, pg, tmp_path, tmp_path / 'lost-outbox')
+    assert code == 0 and json_counts(lines) == {**NOTHING, 'failed': 1} and row(admin, lost)[0] == 'failed'
+
+
+@pytest.mark.parametrize('broken', ['group_readable', 'symbolic_link', 'relative', 'file'])
+def test_the_entry_refuses_an_outbox_directory_others_can_reach(outreach, pg, tmp_path, broken):
+    import os
+    c = outreach
+    target = tmp_path / 'outbox-target'
+    target.mkdir(mode=0o700)
+    if broken == 'group_readable':
+        target.chmod(0o750)
+        outbox = target
+    elif broken == 'symbolic_link':
+        outbox = tmp_path / 'outbox-link'
+        os.symlink(target, outbox)
+    elif broken == 'file':
+        outbox = tmp_path / 'outbox-file'
+        outbox.write_text('')
+        outbox.chmod(0o600)
+    else:
+        outbox = 'relative-outbox'
+    code, lines, err = entry(c, pg, tmp_path, outbox)
+    assert code == 1 and lines == [] and err.strip().endswith('Outreach Sender unavailable')
+    assert list(target.iterdir()) == []
+
+
+def json_counts(lines):
+    import json
+    assert lines[0] == 'Outreach Sender ready' and len(lines) == 2
+    return json.loads(lines[1])
+
+
+@pytest.mark.parametrize('extra', [['--provider', 'webchat'], ['--provider', 'webchat', '--real-channel-enabled'], ['--provider', '']])
+def test_a_non_loopback_provider_is_refused_before_anything_is_read(outreach, pg, tmp_path, extra):
+    """L6 hard constraint: the loopback outbox is the only provider; anything else needs --real-channel-enabled and, as no real
+    outreach provider exists, is refused even with it - before a credential is read or a connection opened. The positive
+    control is the loopback default (and --provider loopback), which starts."""
+    c = outreach
+    import nexloop_eios.private_configuration as private_configuration
+    read = []
+    original = private_configuration.read_private_text
+    private_configuration.read_private_text = lambda path, **kw: read.append(path) or original(path, **kw)
+    try:
+        code, lines, err = entry(c, pg, tmp_path, tmp_path / 'refused-outbox', *extra)
+    finally:
+        private_configuration.read_private_text = original
+    assert code == 1 and lines == [] and err.strip().endswith('Outreach Sender unavailable') and read == []  # nothing read first
+    assert not (tmp_path / 'refused-outbox').exists()
+    code, lines, _ = entry(c, pg, tmp_path, tmp_path / 'loopback-outbox', '--provider', 'loopback')
+    assert code == 0 and json_counts(lines) == NOTHING

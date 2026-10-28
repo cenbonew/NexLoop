@@ -31,7 +31,7 @@ def compose():
 
 def test_budget_registers_the_identity_pool_and_stays_within_60():
     result = connection_budget.evaluate(BUDGET)
-    assert result['passed'] and result['details']['application_pool_total'] == 59  # NX-037: + webchat-delivery 2
+    assert result['passed'] and result['details']['application_pool_total'] == 60  # NX-037: + webchat-delivery 2; outreach slice 5: + outreach-sender 1
     assert result['details']['services']['api-browser-identity'] == 4 and 'scheduler' not in result['details']['services']
     missing = copy.deepcopy(BUDGET)
     missing['services'] = [s for s in missing['services'] if s['name'] != 'api-browser-identity']
@@ -273,3 +273,17 @@ def test_the_calibration_run_entry_form_gets_what_it_reads_from_the_action_worke
     assert spec['secret_uids']['action-worker'] == 10001 and 'user' not in worker  # the backend image's service user, 10001
     # The run entry's --webchat-provider-file and --enterprise-provider-file are these container paths.
     assert {f'/run/secrets/{name}' for name in ('action_worker_webchat_provider', 'action_worker_enterprise_provider')} <= {f'/run/secrets/{n}' for n in mounted}
+
+
+def test_the_stage_compose_gives_the_sender_no_channel_credential():
+    """L6: compose distributes no channel credential to the sender and runs it on the loopback provider only."""
+    import yaml
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    service = yaml.safe_load((root / 'deploy/stage/compose.app.example.yaml').read_text())['services']['outreach-sender']
+    assert sorted(service['secrets']) == sorted(['outreach_sender_dsn', 'outreach_sender_pg_client_cert', 'outreach_sender_pg_client_key',
+                                                 'outreach_sender_credential', 'signing_key', 'pg_ca'])
+    assert '--provider' not in service['command'] and '--real-channel-enabled' not in service['command']
+    assert all(not str(v).startswith('${NEXLOOP_ROOT:?root}/secrets') for v in service['volumes'])
+    community = yaml.safe_load((root / 'deploy/community/compose.test.yaml').read_text())['services']['outreach-sender']
+    assert community['command'] == ['outreach-sender'] and not community.get('secrets')

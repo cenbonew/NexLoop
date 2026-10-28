@@ -181,4 +181,4 @@ def test_stage_compose_runs_two_relays_with_their_own_vaults_within_the_budget()
     assert apis and all(spec['command'][spec['command'].index('--identity-pool-max')+1]=='2' for spec in apis)
     assert compose_budget(budget,compose)['checks']['compose_matches_budget']
     evaluated=connection_budget.evaluate(budget)
-    assert evaluated['passed'] and evaluated['details']['application_pool_total']==59
+    assert evaluated['passed'] and evaluated['details']['application_pool_total']==60

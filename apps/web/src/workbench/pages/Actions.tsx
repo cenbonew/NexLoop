@@ -43,9 +43,10 @@ export function Actions({actions}:{actions?:ReactNode}){
  * owner's (offered only when the role carries them; the governed entry still decides). */
 export function Remediations(){
   const query=useQuery({queryKey:['workbench','remediations'],queryFn:()=>readRemediations()});
-  if(query.isPending)return <section aria-label="补救"><h2>补救</h2><p role="status">正在读取…</p></section>;
-  if(query.isError)return <section aria-label="补救"><h2>补救</h2><p className="note" role="status">补救暂不可读。</p></section>;
+  // Every hook before the first early return: a hook after it is skipped while loading and crashes the page once data arrives.
   const [selected,setSelected]=useState<string|null>(null);
+  if(query.isPending)return <section aria-label="补救"><h2>补救</h2><EmptyState kind="loading" subject="补救" compact/></section>;
+  if(query.isError)return <section aria-label="补救"><h2>补救</h2><EmptyState kind="unavailable" subject="补救" onRetry={()=>void query.refetch()} compact/></section>;
   const data=query.data;const open=data.remediations.filter(r=>r.state==='proposed'||r.state==='escalated');
   return <section aria-label="补救"><h2>补救</h2>
     <p className="workbench-summary" role="status">{data.paused?'补救已暂停：新的最终失败不会生成补救。':open.length?`待处理 ${open.length} 条：最终失败的 Action 需要人跟进。`:'当前没有待处理的补救。'}

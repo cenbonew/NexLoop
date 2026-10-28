@@ -76,7 +76,7 @@ try{
   result.chat.meta_in_bar=await page.locator('.chat-bar .chat-meta').isVisible();
   // A conversation long enough to scroll: four more messages through the composer itself (accepted rows, synthetic text).
   for(let i=1;i<=4;i++){const before=await page.locator('.messages li').count();await page.fill('#chat-message',`版式测试消息 ${i}：合成文本。`);
-    await page.locator('.chat-composer button',{hasText:'发送消息'}).click();
+    await page.locator('.chat-composer').getByRole('button',{name:'发送',exact:true}).click();
     await page.waitForFunction(n=>document.querySelectorAll('.messages li').length>n,before,{timeout:20000});}
   result.chat.sent_through_composer=await page.locator('.messages li').count()>=5;
   await page.setViewportSize({width:390,height:480});await page.evaluate(()=>document.querySelector('.messages').scrollIntoView());await page.waitForTimeout(300);
@@ -134,7 +134,7 @@ try{
   result.menu.toggle_visible=await toggle.isVisible();result.menu.nav_hidden_before=!(await page.locator('#workbench-nav').isVisible());
   await toggle.click();result.menu.nav_visible_after=await page.locator('#workbench-nav').isVisible();
   result.menu.entries=await page.locator('#workbench-nav a').count();
-  await page.locator('#workbench-nav a',{hasText:'消费者'}).click();await page.locator('.workbench-page h1',{hasText:'消费者'}).waitFor({timeout:20000});
+  await page.locator('#workbench-nav a',{hasText:'客户'}).click();await page.locator('.workbench-page h1',{hasText:'客户'}).waitFor({timeout:20000});
   result.menu.closed_after_navigation=!(await page.locator('#workbench-nav').isVisible());
   result.menu.hscroll_open=await (async()=>{await toggle.click();return page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);})();
   await page.screenshot({path:`${shots}/wb-menu-open-390.png`,fullPage:true});

@@ -22,6 +22,7 @@
   "incentive-issuer": 10001,
   "message-relay": 10001,
   "outbound-recorder": 10001,
+  "outreach-sender": 10001,
   "plan-reevaluator": 10001,
   "recall-indexer": 10001,
   "reply-guarantor": 10001,

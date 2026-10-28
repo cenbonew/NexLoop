@@ -167,7 +167,7 @@ def test_g4_every_governed_capability_is_reached_or_explained(inventory):
     on_http = {x['capability'] for x in inventory['operations']}
     explained = {x['capability'] for x in inventory['capabilities_not_on_http']}
     assert not on_http & explained and on_http | explained == registry
-    assert len(explained) == 10
+    assert len(explained) == 9  # NX-038 G1: goals.budget.set is on HTTP (set_budget)
 
 
 def test_f1_no_runtime_openapi_document_and_the_schema_still_builds(app):

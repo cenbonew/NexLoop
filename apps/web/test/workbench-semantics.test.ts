@@ -44,10 +44,10 @@ test('F09: filters live in the URL, only declared keys with valid values survive
 test('F10: breadcrumbs lead back to the customer of a conversation and to that customer\'s commitments',()=>{
   const ctx={consumerId:id('a'),label:'合成客户甲'};
   expect(crumbs({page:'consumers',id:id('c'),sub:'conversation'},ctx).map(c=>[c.label,c.to?routePath(c.to):null])).toEqual([
-    ['消费者','/workbench/consumers'],['合成客户甲','/workbench/consumers/'+id('a')],['会话',null]]);
+    ['客户','/workbench/consumers'],['合成客户甲','/workbench/consumers/'+id('a')],['会话',null]]);
   expect(crumbs({page:'commitments',id:id('1')},ctx).map(c=>[c.label,c.to?routePath(c.to):null])).toEqual([
     ['承诺 / 交付','/workbench/commitments'],['合成客户甲 的承诺','/workbench/commitments?consumer='+id('a')+'&status=all'],['承诺详情',null]]);
-  expect(crumbs({page:'consumers',id:id('c'),sub:'conversation'}).map(c=>c.label)).toEqual(['消费者','会话']);   // before the customer is known
+  expect(crumbs({page:'consumers',id:id('c'),sub:'conversation'}).map(c=>c.label)).toEqual(['客户','会话']);   // before the customer is known
 });
 
 function render(node:ReturnType<typeof h>,key:unknown[],data:unknown){

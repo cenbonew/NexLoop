@@ -36,7 +36,7 @@ def named_services(command, known):
 
 def test_the_dependency_graph_is_the_one_operations_documents():
     graph, _ = dependents()
-    assert graph['agent-host'] == {'agent-link-relay'} and graph['action-worker'] == {'webchat-delivery'} and len(graph['app-net']) == 17  # recall-indexer left app-net for claim_egress (2026-10-18)
+    assert graph['agent-host'] == {'agent-link-relay'} and graph['action-worker'] == {'webchat-delivery'} and len(graph['app-net']) == 18  # recall-indexer left app-net for claim_egress (2026-10-18); + outreach-sender (outreach slice 5)
     assert set(graph) == {'app-net', 'agent-host', 'action-worker'}
     text = (ROOT / 'docs/OPERATIONS.md').read_text()
     assert '8a.10' in text and all(name in text for names in graph.values() for name in names)

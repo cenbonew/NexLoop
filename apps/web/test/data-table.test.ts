@@ -16,7 +16,7 @@ test('every cell carries its column label for the narrow card view; main, count 
 
 test('a conversation is named by its place in the list, not by its full ID; times are local', ()=>{
   const id='f'.repeat(64);
-  expect(conversationLabel(0,id)).toBe('服务对话 1 · ffffff');
+  expect(conversationLabel(0,id)).toBe('对话 1');expect(conversationLabel(0,id)).not.toContain('ffffff');
   expect(conversationLabel(0,id)).not.toContain(id);
   expect(localTime('2026-10-10T09:00:00Z')).toBe(new Date('2026-10-10T09:00:00Z').toLocaleString('zh-CN',{hour12:false}));
   expect(localTime('not a time')).toBe('not a time');

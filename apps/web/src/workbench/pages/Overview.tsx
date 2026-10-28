@@ -3,7 +3,7 @@ import {useQuery} from '@tanstack/react-query';
 import {ageText,readOverview,type Backlog,type Commercial} from '../api';
 import {Page} from './Page';
 import {Money,StatusBadge} from '../ui';
-import {CardGrid,EmptyState,KeyValue,ScopeText,SectionCard} from '../kit';
+import {CardGrid,EmptyState,KeyValue,Notice,ScopeText,SectionCard} from '../kit';
 import {statusLabel} from '../status-labels';
 import {takeoverText} from '../actions';
 
@@ -14,7 +14,7 @@ export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:strin
     <SectionCard title="目标与控制" section={data.goals} footer={open('goals','查看目标')}>{g=><>
       <KeyValue items={[{key:'控制修订号',value:<span className="num">{g.control_revision}</span>},{key:'已发布目标',value:`${g.goals.length} 个`}]}/>
       {g.goals.length?<ul>{g.goals.map(x=><li key={x.goal_id}>{x.objective}（v{x.current_version}，KR {x.key_results} 个）</li>)}</ul>:<EmptyState kind="empty" subject="已发布目标" compact/>}
-      {g.paused_scopes.length?<p className="warning">已暂停：{g.paused_scopes.map((s,i)=><span key={s.scope_kind+s.scope_ref}>{i?'、':''}<ScopeText kind={s.scope_kind} value={s.scope_ref}/></span>)}</p>:null}</>}</SectionCard>
+      {g.paused_scopes.length?<Notice tone="warning">已暂停主动联系：{g.paused_scopes.map((s,i)=><span key={s.scope_kind+s.scope_ref}>{i?'、':''}<ScopeText kind={s.scope_kind} value={s.scope_ref}/></span>)}</Notice>:null}</>}</SectionCard>
     <SectionCard title="承诺" section={data.commitments} footer={open('commitments','查看承诺')}>{c=><>
       <p>未结束 {c.open} 条，其中已违约 {c.breached} 条</p>
       {c.exceptions.length?<ul className="badge-list">{c.exceptions.map(e=><li key={e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/> {e.count}</li>)}</ul>

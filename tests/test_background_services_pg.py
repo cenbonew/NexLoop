@@ -24,7 +24,8 @@ ROLES={'claim-extraction-scheduler':('claim_extraction_scheduler','nexloop_api')
     'claim-matcher':('claim_matcher','nexloop_domain_worker'),'recall-indexer':('recall_indexer','nexloop_domain_worker'),
     'plan-reevaluator':('plan_reevaluator','nexloop_domain_worker'),'reply-guarantor':('reply_guarantor','nexloop_domain_worker'),
     'commitment-keeper':('commitment_keeper','nexloop_domain_worker'),'commercial-recorder':('commercial_recorder','nexloop_domain_worker'),
-    'retention-keeper':('retention_keeper','nexloop_domain_worker'),'incentive-issuer':('incentive_issuer','nexloop_domain_worker')}
+    'retention-keeper':('retention_keeper','nexloop_domain_worker'),'incentive-issuer':('incentive_issuer','nexloop_domain_worker'),
+    'outreach-sender':('outreach_sender','nexloop_domain_worker')}
 
 
 def argv(d,tmp_path,service,*,role=None,policy=None):
@@ -55,6 +56,8 @@ def argv(d,tmp_path,service,*,role=None,policy=None):
         args+=['--settings-file',str(ROOT/'deploy/configuration/commercial.v1.json')]
     if service=='incentive-issuer':
         args+=['--ledger-directory',str(tmp_path/'incentive-ledger')]
+    if service=='outreach-sender':
+        args+=['--outbox-directory',str(tmp_path/'outreach-outbox')]
     if service=='reply-guarantor':
         # Idle tick: nothing is due, so the relay identities are read but never authenticated (synthetic placeholders);
         # the fallback itself is exercised by tests/test_reply_fallback_pg.py.
@@ -82,7 +85,8 @@ def hidden(d):return [*d['tokens'].values(),d['paths']['signing'].read_text().st
     ('commercial-recorder',{'changed':0,'created':0,'dead_lettered':0,'edited':0,'late':0,'lease_lost':0,'retry':0,'unchanged':0}),
     ('retention-keeper',{'approvals_expired':0,'approvals_failed':0,'approvals_redacted':0,'artifacts_deleted':0,'artifacts_failed':0,'classes':21,'erasure_steps':0,'incomplete':0,'passes':21,'processed':0,
         'runs_failed':0,'runs_purged':0,'member_logins_cleared':0,'member_login_events':0,'member_login_failed':0}),
-    ('incentive-issuer',{'admitted':0,'failed':0,'fulfilled':0,'refused':0,'unknown':0})])
+    ('incentive-issuer',{'admitted':0,'failed':0,'fulfilled':0,'refused':0,'unknown':0}),
+    ('outreach-sender',{'admitted':0,'failed':0,'fulfilled':0,'refused':0,'unknown':0})])
 def test_each_entry_runs_one_tick_with_manifest_credentials(deployment,tmp_path,capsys,service,expected):
     d=deployment;d['apply']()
     assert B.main_for(service,argv(d,tmp_path,service))==0
