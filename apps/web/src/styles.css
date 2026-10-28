@@ -534,3 +534,8 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 @media (max-width:639px){.shell.workbench{padding-top:var(--space-2)}.workbench .brand-header .brand-logo{width:120px}.workbench .brand-context{font-size:14px}}
 /* UX audit S9 (B12): a test deployment said plainly on the customer page. */
 .chat-test-badge{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn-text);font-weight:600}
+/* UX audit S4 (B9): the one member operation, opened under the members table. */
+.workbench .member-operation{margin:var(--space-3) 0 var(--space-5);padding:var(--space-3) var(--space-4);border:1px solid var(--info-border);border-radius:var(--radius-lg);background:var(--surface-2)}
+.workbench .member-operation h3{margin:0 0 var(--space-2);font-size:var(--fs-h3)}.workbench .member-operation h3:focus{outline:none}
+.workbench .member-operation .workbench-action{border:0;padding:0;background:none}.workbench .member-operation .workbench-action h2{display:none}
+.workbench select.member-control{min-width:9rem;max-width:14rem}
