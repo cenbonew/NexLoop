@@ -7,6 +7,7 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {Account} from '../src/Account';
 import {Login} from '../src/Login';
+import {WebChat} from '../src/WebChat';
 import {SsoButtons} from '../src/workbench/SsoLink';
 import {WorkbenchLogin} from '../src/workbench/WorkbenchApp';
 
@@ -47,4 +48,12 @@ test('the account pages use 账号 / 密码 / 负责人, not 用户名 or 口令
   const text=(source.match(/[一-鿿][^<>{}'"`]*/g)??[]).join('\n');
   expect(text).not.toMatch(/用户名|口令|管理员|工作空间/);
   expect(text).toContain('账号以邀请为准');
+});
+
+test('S1: the customer page carries no conversation ID in a title or aria attribute (the picker options show only 对话 n / date)',()=>{
+  const ids=['7c1e4f0a-2b3d-4e5f-8a9b-0c1d2e3f4a5b','9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a'];
+  const page=render(h(WebChat),{'["conversations"]':{items:[{id:ids[0],started_at:'2026-10-28T10:54:00Z',message_count:1},{id:ids[1]}],next_cursor:null}});
+  expect(page).toContain(`<option value="${ids[1]}">对话 2</option>`);
+  const attrs=[...page.matchAll(/\s(title|aria-[a-z]+)="([^"]*)"/g)].map(m=>m[2]);
+  for(const id of ids)for(const value of attrs)expect(value).not.toContain(id.slice(0,8));
 });
