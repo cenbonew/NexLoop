@@ -2,7 +2,7 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
-import {WRITE_TEXT,actions,consumer,me,overview,readActions,readConsumer,takeovers,workbenchAct,type Me} from '../src/workbench/api';
+import {WRITE_TEXT,technical,actions,consumer,me,overview,readActions,readConsumer,takeovers,workbenchAct,type Me} from '../src/workbench/api';
 import {CommitmentControls,ConsumerControls,ConversationControls,DONE_TEXT,GOVERNED_SLOTS,governedWrite,takeoverText} from '../src/workbench/actions';
 import {Actions} from '../src/workbench/pages/Actions';
 import {WorkbenchPage} from '../src/workbench/WorkbenchApp';
@@ -58,7 +58,7 @@ test('AT-045 writes: every outcome has its exact kind; 503, network loss and an 
   vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:503})));
   await expect(workbenchAct('set_control',{},'wb-key-0000000000000001')).rejects.toMatchObject({kind:'not_sent'});
   expect(WRITE_TEXT.unavailable).toContain('无法确认是否已执行');expect(WRITE_TEXT.unavailable).toContain('不会重复执行');
-  expect(WRITE_TEXT.forbidden).toContain('403');expect(WRITE_TEXT.not_allowed_in_state).toContain('409');expect(WRITE_TEXT.not_sent).toContain('未提交');
+  for(const text of Object.values(WRITE_TEXT))expect(text).not.toMatch(/（\d{3}）/);expect(technical('forbidden')).toBe('HTTP 403 · forbidden');expect(technical('not_allowed_in_state')).toBe('HTTP 409 · not_allowed_in_state');expect(WRITE_TEXT.not_sent).toContain('未提交');
   expect(DONE_TEXT.send_staff_reply).toContain('不代表问题已解决');expect(DONE_TEXT.request_effect_query).toContain('不会重发');
 });
 

@@ -15,10 +15,10 @@ export const STATE_TEXT:Record<FailureKind|'loading'|'empty',string>={
   loading:'正在加载…',
   empty:'暂无记录。',
   unauthenticated:'会话已失效，请重新登录工作台。',
-  forbidden:'当前账号没有查看此内容的权限（403）。',
+  forbidden:'当前账号没有查看此内容的权限。',
   not_found:'没有找到该对象，可能已被删除或不属于当前租户。',
   invalid_request:'请求参数无效，请检查筛选条件。',
-  unavailable:'服务暂时不可用（503）：数据未加载，这不代表没有数据。',
+  unavailable:'服务暂时不可用：数据未加载，这不代表没有数据。',
   invalid:'服务器响应格式不符，已拒绝显示，以免误导。',
 };
 export const SECTION_TEXT:Record<Exclude<SectionStatus,'ok'>,string>={
@@ -567,16 +567,20 @@ export const APPROVAL_REASON_TEXT:Record<string,string>={
 /** Exact outcome text (AT-045). 503/network/invalid response: the result is not known, never shown as failed or done. */
 export const WRITE_TEXT:Record<WriteFailure,string>={
   unauthenticated:'会话已失效，请重新登录工作台；操作未提交。',
-  forbidden:'当前账号无权执行此操作（403），未执行。',
-  not_found:'本租户未发布此操作或对象不存在（404），未执行。',
-  invalid_request:'填写内容无效（422），未执行。',
-  not_allowed_in_state:'当前状态不允许此操作（409），未执行；请查看最新状态。',
-  conflict:'与同时进行的其他操作冲突（409），未执行；请刷新后重试。',
-  request_timeout:'请求超时（408），未提交。',
+  forbidden:'当前账号无权执行此操作，未执行。',
+  not_found:'本租户未发布此操作或对象不存在，未执行。',
+  invalid_request:'填写内容无效，未执行。',
+  not_allowed_in_state:'当前状态不允许此操作，未执行；请查看最新状态。',
+  conflict:'与同时进行的其他操作冲突，未执行；请刷新后重试。',
+  request_timeout:'请求超时，未提交。',
   not_sent:'暂时无法连接服务，操作未提交；请稍后重试。',
-  unavailable:'服务暂时不可用（503），无法确认是否已执行。请稍后刷新查看结果；重试使用同一请求号，不会重复执行。',
+  unavailable:'服务暂时不可用，无法确认是否已执行。请稍后刷新查看结果；重试使用同一请求号，不会重复执行。',
   invalid:'已提交，但服务器响应格式不符，结果未确认；请刷新查看。',
 };
+/** UX audit C11: the HTTP status is a technical detail (shown folded or as a title), never part of the sentence. */
+export const HTTP_STATUS:Partial<Record<WriteFailure,number>>={unauthenticated:401,forbidden:403,not_found:404,invalid_request:422,
+  not_allowed_in_state:409,conflict:409,request_timeout:408,unavailable:503};
+export const technical=(kind:WriteFailure)=>HTTP_STATUS[kind]?`HTTP ${HTTP_STATUS[kind]} · ${kind}`:kind;
 /** Unknown result: keep the same Idempotency-Key for a retry (the governed entry answers a replay from its terminal outcome). */
 export const UNKNOWN_RESULT:WriteFailure[]=['unavailable','invalid'];
 export function writeFailureOf(status:number,code:unknown):WriteFailure{
@@ -658,7 +662,7 @@ function backup(value:unknown):Backup{
 }
 export const BACKUP_UNAVAILABLE_TEXT='没有任何已记录的数据库备份：未加载，不代表没有备份。';
 export const BACKUP_LABELS:Record<BackupField,string>={age_seconds:'最近一次已校验的数据库备份',full_backup_age_seconds:'最近一次完整备份',
-  wal_last_archived_age_seconds:'最近一次 WAL 归档',journal_export_lag_seconds:'恢复日志导出延迟',file_backup_age_seconds:'最近一次文件快照',
+  wal_last_archived_age_seconds:'最近一次日志归档',journal_export_lag_seconds:'恢复日志导出延迟',file_backup_age_seconds:'最近一次文件快照',
   file_backup_unprotected_seconds:'最旧的未备份文件对象（D6）',
   drill_age_seconds:'距上次通过的恢复演练',drill_rpo_seconds:'最近一次演练的 RPO',drill_rto_seconds:'最近一次演练的 RTO'};
 function counts(value:unknown):Record<string,number>{const o=object(value);return Object.fromEntries(Object.entries(o).map(([k,v])=>[k,count(v)]));}

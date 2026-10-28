@@ -21,7 +21,7 @@ const Unavailable=({what}:{what:string})=><EmptyState kind="unavailable" subject
 export function DataAssets(){
   const query=useQuery({queryKey:['workbench','metrics'],queryFn:readMetrics});
   return <Page title="数据资产" query={query}
-    lead="NexLoop 自己的数据资产（只读）：Artifact、Claim 与提取、召回索引、Embedding 预算、备份与合并配置。只有计数和时间，不含消息原文。">{m=><Body m={m}/>}</Page>;
+    lead="NexLoop 自己的数据资产（只读）：Artifact、Claim 与提取、召回索引、嵌入预算、备份与合并配置。只有计数和时间，不含消息原文。">{m=><Body m={m}/>}</Page>;
 }
 
 function Body({m}:{m:Metrics}){
@@ -43,25 +43,25 @@ function Body({m}:{m:Metrics}){
       <Card title="召回索引">
         {d?<>
           <h3>条目</h3><Counts values={d.recall.entries} domain="recall_index" subject="召回条目"/>
-          <h3>Embedding profile</h3>
-          <DataTable label="Embedding profile" empty={{subject:'Embedding profile'}} rows={d.recall.profiles} rowKey={p=>p.profile_id} columns={[
-            {label:'Profile',main:true,cell:p=><code className="id-code">{p.profile_id}</code>},{label:'维度',num:true,cell:p=>p.dimension},{label:'向量',num:true,cell:p=>p.vectors},
+          <h3>嵌入配置</h3>
+          <DataTable label="嵌入配置" empty={{subject:'嵌入配置'}} rows={d.recall.profiles} rowKey={p=>p.profile_id} columns={[
+            {label:'嵌入配置',main:true,cell:p=><code className="id-code">{p.profile_id}</code>},{label:'维度',num:true,cell:p=>p.dimension},{label:'向量',num:true,cell:p=>p.vectors},
             {label:'创建时间',cell:p=><Time value={p.created_at}/>}]}/>
           <h3>回填记录</h3>
           <DataTable label="回填记录" empty={{subject:'回填记录'}} rows={d.recall.backfills} rowKey={b=>b.profile_id} columns={[
-            {label:'Profile',main:true,cell:b=><code className="id-code">{b.profile_id}</code>},{label:'次数',num:true,cell:b=>b.runs},
+            {label:'嵌入配置',main:true,cell:b=><code className="id-code">{b.profile_id}</code>},{label:'次数',num:true,cell:b=>b.runs},
             {label:'最近一次',cell:b=><Time value={b.last_at}/>},
             {label:'最近排队',num:true,cell:b=>b.last_queued??<StatusBadge text="不可用" tone="neutral"/>},{label:'最近定义类型',num:true,cell:b=>b.last_definition_types??<StatusBadge text="不可用" tone="neutral"/>}]}/>
         </>:<Unavailable what="召回索引的统计"/>}
       </Card>
-      <Card title="Embedding 预算">
-        {!d?<Unavailable what="Embedding 预算"/>:d.embedding_budget.status==='unavailable'
-          ?<EmptyState kind="unavailable" subject="Embedding 预算" reason="目前没有记录 Embedding 花费的预算或成本类别（预算只有模型费用和激励）" next="不表示花费为 0。" compact/>
+      <Card title="嵌入预算">
+        {!d?<Unavailable what="嵌入预算"/>:d.embedding_budget.status==='unavailable'
+          ?<EmptyState kind="unavailable" subject="嵌入预算" reason="目前没有记录 嵌入花费的预算或成本类别（预算只有模型费用和激励）" next="不表示花费为 0。" compact/>
           :<p><StatusBadge text="已记录" tone="ok"/></p>}
       </Card>
       <Card title="合并配置">
         {c?<p><StatusBadge domain="merge_configuration" code={c.merge_configuration_active?'active':'missing'} tone={c.merge_configuration_active?'ok':'fail'}/>
-          {' '}待粘合候选 {c.staged} 个{!c.merge_configuration_active&&c.staged?`，其中 ${c.staged_without_configuration} 个因没有合并配置而等待（Claim 匹配空转）`:''}。</p>
+          {' '}待粘合候选 {c.staged} 个{!c.merge_configuration_active&&c.staged?`，其中 ${c.staged_without_configuration} 个因没有合并配置而等待（Claim 无法匹配，暂不处理）`:''}。</p>
           :<Unavailable what="合并配置状态"/>}
       </Card>
       <BackupBlock backup={m.backup}/>

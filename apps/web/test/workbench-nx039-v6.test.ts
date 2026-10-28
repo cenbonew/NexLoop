@@ -44,21 +44,23 @@ test('parsing is strict: gates carry only gate and result, digests are 64 hex, r
 
 test('the three buttons only for a role carrying the release scope; an operator sees no section at all',()=>{
   const owner=render(me('owner',SCOPE));
-  expect(owner).toContain('评估与审核');expect(owner).toContain('>停止</button>');expect(owner).toContain('>发布</button>');expect(owner).toContain('>回退</button>');
+  expect(owner).toContain('评估与审核');expect(owner).toContain('>停止…</button>');expect(owner).toContain('>发布</button>');expect(owner).toContain('>回退</button>');
   const operator=render(me('operator',['eios:action:nexloop.workbench.read:1']));
   expect(operator).toBe('');
   // Only the stop Action: the stop button, no publish or rollback form.
   const stopper=render(me('owner',[SCOPE[2]]));
-  expect(stopper).toContain('>停止</button>');expect(stopper).not.toContain('>发布</button>');expect(stopper).not.toContain('>回退</button>');
+  expect(stopper).toContain('>停止…</button>');expect(stopper).not.toContain('>发布</button>');expect(stopper).not.toContain('>回退</button>');
 });
 
 test('reasons are required: every release button starts disabled until its reason is written',()=>{
   const html=render(me('owner',SCOPE));
-  for(const title of ['停止','发布','回退']){
+  // C12: the stop switch confirms in place (its reason is asked in the confirmation, a danger trigger).
+  expect(html).toMatch(/<button type="button" class="confirm-trigger confirm-trigger-danger"[^>]*>停止…<\/button>/);
+  for(const title of ['发布','回退']){
     const button=new RegExp(`<button type="submit"[^>]*disabled=""[^>]*>${title}</button>`);
     expect(html,title).toMatch(button);
   }
-  expect(html).toContain('原因（必填）');
+  expect(html).not.toContain('确认停止');  // the stop reason is asked only once the confirmation is opened
 });
 
 test('the report: gates as G labels with Chinese results, scores and non-inferiority in words, class shown and never an input',()=>{
@@ -66,7 +68,7 @@ test('the report: gates as G labels with Chinese results, scores and non-inferio
   for(const label of ['G1 引用有效','G2 零越权','G3 零跨租户','G4 零事实污染','G5 无禁止的行为回退','G6 确定性语义回归','G7 成本与性能','G8 语义不冲突','G9 索引与迁移影响'])
     expect(html).toContain(label);
   expect(html).toContain('>可发布</span>');expect(html).toContain('>通过</span>');expect(html).toContain('>次要级</span>');expect(html).toContain('>未通过</span>');
-  expect(html).toContain('title="由评估器 classify_change 评定，不能修改"');expect(html).not.toMatch(/name="change_class"|id="[^"]*class[^"]*"/);
+  expect(html).toContain('title="由评估器评定，不能修改"');expect(html).not.toMatch(/name="change_class"|id="[^"]*class[^"]*"/);
   expect(gateSummary(semanticReview(REVIEW).candidates[0])).toBe('通过 9/10');
   expect(html).toContain('50.0% → 83.0%（6 个用例）');expect(niText(semanticReview(REVIEW).candidates[0])).toBe('主指标覆盖率；候选不低于基线 1 个百分点以内，持平不算通过');
   expect(html).toContain('10 个 · 集合摘要');

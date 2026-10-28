@@ -24,7 +24,8 @@ export function Empty({kind,title,reason,next,action}:{kind:EmptyKind;title?:str
 }
 
 // ---- F13: status badges ----
-const MARK:Record<Tone,string>={ok:'✓',fail:'✕',pending:'…',limited:'!',neutral:'–'};
+// C17: a neutral badge has no mark (the dash read as a minus sign); the others repeat their meaning as a symbol.
+const MARK:Record<Tone,string>={ok:'✓',fail:'✕',pending:'…',limited:'!',neutral:''};
 /** UI spec §7: `{domain, code}` takes the Chinese label and the tone from status-labels (an unlisted code reads 未知状态, the code
  * only in the title); `{text, tone}` stays for wording that is not a code. The technical code is never the visible label. */
 export type StatusBadgeProps={domain:Domain;code:string|null|undefined;tone?:Tone}|{text:string;tone:Tone;code?:string|null;domain?:undefined};
@@ -32,7 +33,7 @@ export function StatusBadge(props:StatusBadgeProps){
   const text=props.domain?statusLabel(props.domain,props.code):props.text;
   const tone=props.tone??(props.domain?statusTone(props.domain,props.code):'neutral');
   const code=props.code??undefined;
-  return <span className={'status-badge tone-'+tone} title={code} data-code={code}><span aria-hidden="true" className="status-mark">{MARK[tone]}</span>{text}</span>;
+  return <span className={'status-badge tone-'+tone} title={code} data-code={code}>{MARK[tone]?<span aria-hidden="true" className="status-mark">{MARK[tone]}</span>:null}{text}</span>;
 }
 
 /** Intent states (accepted … confirmed) as tones: done, failed, still open. */
