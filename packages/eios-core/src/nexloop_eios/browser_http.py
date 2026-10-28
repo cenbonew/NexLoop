@@ -214,16 +214,18 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
                 canonical_origin=config.origin,client_identifier='ip:'+address),operator=op)
             if not decision.allowed:
                 result=response('rate_limited',429);result.headers['Retry-After']=str(decision.retry_after_seconds);return result
-            if type(body) is not dict or set(body)!={'token','password'} or not W.valid_token(body['token']) or type(body['password']) is not str:
+            # An SSO-only invitation takes no password (body {token}); any other takes one. The lookup says which; a mismatch is invalid.
+            if (type(body) is not dict or set(body) not in ({'token','password'},{'token'}) or not W.valid_token(body['token'])
+                    or type(body.get('password','')) is not str):
                 PasswordHasher().hash('nexloop-timing-equaliser');return invalid()
             token=W.digest(key,W.INVITE,config.tenant_id,body['token'])
             with store.pool.connection() as c:
                 with c.transaction():
                     verify_identity_role(c)
                     found=c.execute('select control.nexloop_workbench_invitation_lookup(%s,%s)',(config.tenant_id,token)).fetchone()[0]
-                if found is None:
+                if found is None or ('password' in body)==(found.get('sso_only') is True):
                     PasswordHasher().hash('nexloop-timing-equaliser');return invalid()
-                if password_problem(body['password'],None,[]) is not None:
+                if 'password' in body and password_problem(body['password'],None,[]) is not None:
                     with c.transaction():
                         c.execute('select control.nexloop_workbench_invitation_failed(%s,%s)',(config.tenant_id,token))
                     return invalid()
@@ -231,7 +233,8 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
                 subject=Subject(subject_id=f'workbench-subject-{ident}',kind=SubjectKind.HUMAN,status='active',created_at=now,updated_at=now,revision=1)
                 membership=TenantMembership(tenant_id=config.tenant_id,principal_id=f'workbench-{ident}',subject_id=subject.subject_id,kind=MembershipKind.HOME,
                     status='active',valid_from=now,valid_until=None,revision=1)
-                encoded=PasswordHasher().hash(body['password'])
+                # SSO only: an unusable hash of a secret nobody keeps (the account needs one; 0370 refuses password Evidence anyway).
+                encoded=PasswordHasher().hash(body['password'] if 'password' in body else W.new_token())
                 account=LocalAccount(local_account_id=f'workbench-account-{ident}',tenant_id=config.tenant_id,subject_id=subject.subject_id,
                     username=found['username'],verified_email=found['username']+'@workbench.invalid',password_hash=EncodedPasswordHash(encoded),status='active',failed_attempts=0,lockout_level=0,locked_until=None,
                     must_change_password=False,session_epoch=1,created_at=now,updated_at=now,revision=1).model_dump(mode='json')

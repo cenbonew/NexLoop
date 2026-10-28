@@ -78,6 +78,8 @@ async function accountPost(path:string,body:Record<string,string>,done:string,in
 }
 /** NX-058 §1: accept an invitation with its token and a new password (no username: the invitation names it). */
 export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
+/** NX-058 slice F: accept an SSO-only invitation with its token only (it takes no password; the server refuses one). */
+export const acceptSsoInvitation=(token:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token},'invitation_accepted','invitation_invalid');
 /** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
 export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
 /** NX-058 slice F: the configured single sign-on providers (id and display name only); none while SSO is off or unreadable, so the
@@ -420,11 +422,11 @@ export function members(value:unknown):Members{const v=exactKeys(object(value),[
         state:text(o.state),completed_at:maybeText(o.completed_at),kind};})};}
 export const readMembers=()=>get('/api/v1/workbench/members',members);
 /** A one-time secret in a write's result (a reset code or an invitation token): shown once to the issuer, never stored by the page. */
-export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string}|null{
+export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string;sso?:boolean}|null{
   // Only the execution that drew it: never a replay, a waiting request or a refusal (those carry no secret anyway).
   if(!result||result.replayed!==false||'status' in result||(result.approval!==undefined&&result.approval!=='consumed'))return null;
   if(typeof result.code==='string'&&result.code.length>=16)return {kind:'code',value:result.code};
-  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token};
+  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token,...(typeof result.sso_provider==='string'?{sso:true}:{})};
   return null;
 }
 

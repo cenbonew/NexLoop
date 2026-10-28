@@ -1845,6 +1845,11 @@
       "version": "0369",
       "name": "0369_budget_loosen.sql",
       "sha256": "12992b24afbd9259720e841e3b6724381a4c5997c60170d5453340833d4f396f"
+    },
+    {
+      "version": "0370",
+      "name": "0370_nx058_invite_sso.sql",
+      "sha256": "74c4d932ac1239f70e81f98bab9b692531c0d5bd1be1820eec0d0d6af60cf3a5"
     }
   ]
 }

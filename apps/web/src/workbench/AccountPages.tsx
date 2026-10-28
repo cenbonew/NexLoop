@@ -9,7 +9,7 @@
  */
 import {useEffect,useState,type FormEvent} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {acceptInvitation,completeReset,kindOf,readResetHistory,STATE_TEXT,type AccountFormResult,type ResetNotice as Notice} from './api';
+import {acceptInvitation,acceptSsoInvitation,completeReset,kindOf,readResetHistory,STATE_TEXT,type AccountFormResult,type ResetNotice as Notice} from './api';
 import {Time} from './ui';
 import {IdText} from './kit';
 
@@ -43,14 +43,21 @@ function PasswordFields({password,confirm,setPassword,setConfirm}:{password:stri
 export function InvitationPage({initialHash}:{initialHash?:string}){
   useNoReferrer();
   const [token]=useState(()=>takeFragmentToken(initialHash??globalThis.location?.hash??''));
+  const [sso]=useState(()=>new URLSearchParams((initialHash??globalThis.location?.hash??'').replace(/^#/,'')).get('sso')==='1');
   useEffect(()=>{if(globalThis.location?.hash)window.history.replaceState(null,'',ACCOUNT_PATHS.invitation);},[]);
   const [password,setPassword]=useState('');const [confirm,setConfirm]=useState('');
   const [result,setResult]=useState<AccountFormResult|null>(null);const [busy,setBusy]=useState(false);
-  async function submit(event:FormEvent){event.preventDefault();if(!token||password.length<12||password!==confirm)return;
-    setBusy(true);setResult(await acceptInvitation(token,password));setBusy(false);}
+  async function submit(event:FormEvent){event.preventDefault();if(!token||(!sso&&(password.length<12||password!==confirm)))return;
+    setBusy(true);setResult(await (sso?acceptSsoInvitation(token):acceptInvitation(token,password)));setBusy(false);}
   return <section className="workbench-page" aria-labelledby="invitation-title"><h1 id="invitation-title">接受工作台邀请</h1>
-    {result==='done'?<><p role="status">已接受邀请，账号已开通。请用邀请里的用户名和刚设置的密码登录。</p><a href="/workbench">去登录</a></>
+    {result==='done'?(sso?<p role="status">已接受邀请。这个账号只能用单点登录（SSO）登录，不设密码；负责人把你的 SSO 账号绑定之后才能登录，请告诉负责人你已接受。</p>
+        :<><p role="status">已接受邀请，账号已开通。请用邀请里的用户名和刚设置的密码登录。</p><a href="/workbench">去登录</a></>)
       :!token?<p role="alert">邀请链接不完整或已失效。请向邀请你的负责人重新索取（链接只能用一次）。</p>
+      :sso?<form onSubmit={submit} aria-label="接受邀请">
+        <p className="note">这份邀请只能用单点登录（SSO），不设密码；用户名以邀请为准。这个链接只能用一次。</p>
+        <button type="submit" disabled={busy}>接受邀请</button>
+        {result?<p className={result==='unavailable'?'pending':'error'} role="alert">{RESULT_TEXT[result]}</p>:null}
+      </form>
       :<form onSubmit={submit} aria-label="接受邀请">
         <p className="note">设置密码后即开通账号；用户名以邀请为准。这个链接只能用一次。</p>
         <PasswordFields password={password} confirm={confirm} setPassword={setPassword} setConfirm={setConfirm}/>

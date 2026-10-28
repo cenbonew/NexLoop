@@ -14,7 +14,7 @@ import {DataTable} from '../DataTable';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
 import {IdText} from '../kit';
-import {SsoLinkControls} from '../SsoLink';
+import {SsoInviteChoice,SsoLinkControls} from '../SsoLink';
 
 export const MEMBER_STATUS_TEXT:Record<MemberRow['member_status'],string>={active:'在用',suspended:'已停用',invited:'待接受',revoked:'已撤销'};
 export const ACCOUNT_STATUS_TEXT:Record<string,string>={active:'在用',disabled:'已停用',locked:'已锁定',erased:'已擦除'};
@@ -138,17 +138,18 @@ function EraseForm({member,row,blocked}:{member:Me;row:MemberRow;blocked:boolean
 
 function InviteForm({member,members}:{member:Me;members:MemberRow[]}){
   const ownerBlocked=approversFor(members,member.principal_id,null)===0;
-  const [username,setUsername]=useState('');const [role,setRole]=useState('');const [hours,setHours]=useState(24);
+  const [username,setUsername]=useState('');const [role,setRole]=useState('');const [hours,setHours]=useState(24);const [sso,setSso]=useState('');
   const valid=/^(?!erased-)[a-z0-9][a-z0-9._-]{2,63}$/.test(username)&&hours>=1&&hours<=72;
   return <>
     <Form operation="invite_workbench_member" member={member} title="邀请成员" disabled={!valid||!role}
       disabledReason={!valid?'用户名需 3–64 位小写字母、数字或 . _ -，有效期 1–72 小时。':'先选择角色。'}
-      body={()=>valid&&role?{username,role,expires_in_hours:hours}:null}>
+      body={()=>valid&&role?{username,role,expires_in_hours:hours,...(sso?{sso_provider:sso}:{})}:null}>
       <div className="field"><label htmlFor="invite-username">用户名</label><input id="invite-username" value={username} onChange={e=>setUsername(e.target.value.trim().toLowerCase())}
         required maxLength={64} pattern="[a-z0-9][a-z0-9._-]{2,63}"/></div>
       <RoleChoice value={role} onChange={setRole} name="invite-role"/>
       <div className="field"><label htmlFor="invite-hours">有效期（小时）</label><input id="invite-hours" type="number" min={1} max={72} value={hours} onChange={e=>setHours(Number(e.target.value))}/></div>
-      <p className="impact-summary" role="note">影响：生成一次性邀请令牌；同一用户名的旧邀请作废。用户名以 erased- 开头的保留给系统，不能使用。</p>
+      <SsoInviteChoice value={sso} onChange={setSso}/>
+      <p className="impact-summary" role="note">影响：生成一次性邀请令牌；同一用户名的旧邀请作废。选“仅 SSO”时不设密码，你绑定本人的 SSO 账号（登录方式只能是“仅 SSO”）之后才能登录。用户名以 erased- 开头的保留给系统，不能使用。</p>
     </Form>
     <Form operation="invite_workbench_owner" member={member} title="邀请负责人" disabled={!valid||ownerBlocked} body={()=>valid&&!ownerBlocked?{username,expires_in_hours:hours}:null}>
       <p>用户名与有效期同上。</p>{ownerBlocked?<NoApprover target={false}/>:approvalNote}
