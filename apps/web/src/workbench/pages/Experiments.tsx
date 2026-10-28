@@ -147,7 +147,8 @@ export function registrationOf(d:Draft):{registration:Record<string,unknown>}|{m
   if(!sc||!sk)return {missing:'计划样本'};
   if(!w)return {missing:'成熟窗口天数'};
   if(m===null||i===null)return {missing:'预算'};
-  const ends=new Date(d.ends_at);if(!d.ends_at||Number.isNaN(ends.getTime()))return {missing:'结束时间'};
+  // The input is Beijing time (as every time on the workbench), whatever the browser's zone: +08:00, no daylight saving.
+  const ends=/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(d.ends_at)?new Date(d.ends_at+':00+08:00'):null;if(!ends||Number.isNaN(ends.getTime()))return {missing:'结束时间'};
   const twin=d.twin.trim()?(int(d.twin_version)?{twin_id:d.twin.trim(),version:int(d.twin_version)}:undefined):null;
   if(twin===undefined)return {missing:'孪生版本'};
   if(!seed)return {missing:'分配种子'};
@@ -179,7 +180,7 @@ export function Register({member,listed}:{member:Me;listed:string[]|null}){
       options={[{value:'increase',label:'越高越好'},{value:'decrease',label:'越低越好'}]}/>
     {text('refusal_delta',GUARDRAIL_TEXT.refusal_or_unsubscribe_rate_delta,'例如 0.02 表示高出 2 个百分点即停止')}
     {text('sample_candidate','候选组样本')}{text('sample_control','对照组样本')}{text('window_days','成熟窗口（天）')}
-    {text('model_cny','模型费用上限（元）')}{text('incentive_cny','激励费用上限（元）')}{text('ends_at','结束时间',undefined,'datetime-local')}
+    {text('model_cny','模型费用上限（元）')}{text('incentive_cny','激励费用上限（元）')}{text('ends_at','结束时间','按北京时间填写，提交时换算为 UTC','datetime-local')}
     {text('twin','孪生（线上可留空）')}{text('twin_version','孪生版本')}{text('seed','分配种子','正整数，决定分组，登记后固定')}
     <label className="choice"><input type="checkbox" checked={d.budget_drill} onChange={e=>set('budget_drill')(e.target.checked)}/>预算演练（只用于演示预算用尽；仿真世界、孪生筛选、上限不超过 1 元、一小时内结束）</label>
     {d.budget_drill?<Notice tone="warning">{DRILL_TEXT}</Notice>:null}

@@ -80,11 +80,12 @@ test('registration: the draft says what is missing; a complete one is the contra
   expect('registration' in r&&r.registration).toMatchObject({schema:'nexloop-experiment-registration/1',experiment_id:'budget.drill',stage:'screening',
     candidate:{strategy_id:'followup.later',version:1},guardrails:{refusal_or_unsubscribe_rate_delta:0.02},budget:{model_cny:1,incentive_cny:0},
     twin:{twin_id:'trial.service_consumer',version:1},allocation_seed:20261028,budget_drill:true});
-  expect('registration' in r&&(r.registration.ends_at as string)).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  expect('registration' in r&&r.registration.ends_at).toBe('2026-10-28T04:00:00Z');  // 12:00 Beijing time, whatever the test machine's zone
+  expect(registrationOf({...draft,ends_at:'2026-10-28'})).toEqual({missing:'结束时间'});
   expect('registration' in registrationOf({...draft,twin:''})&&(registrationOf({...draft,twin:''}) as {registration:{twin:unknown}}).registration.twin).toBeNull();
   render(h(Register,{member:owner,listed:[]}));
   act(()=>button('登记新实验')!.click());
-  expect(box.textContent).toContain('还需要填写：实验编号');expect(button('登记')).toBeUndefined();expect(sent).toHaveLength(0);
+  expect(box.textContent).toContain('还需要填写：实验编号');expect(box.textContent).toContain('按北京时间填写，提交时换算为 UTC');expect(button('登记')).toBeUndefined();expect(sent).toHaveLength(0);
   render(h(Register,{member:owner,listed:['']}));
   expect(box.textContent).toContain('这个编号已在列表中');
 });
