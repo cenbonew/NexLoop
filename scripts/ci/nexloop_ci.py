@@ -66,6 +66,33 @@ DEPENDENCY_FATAL = (
     ('resolution', re.compile(r'No solution found|ERR_PNPM_NO_MATCHING_VERSION|ERR_PNPM_PEER_DEP|Because .{0,200} we can conclude', re.I)),
     ('parse', re.compile(r'Failed to parse|TOML parse error|ERR_PNPM_BROKEN_LOCKFILE|YAMLException|Unexpected token', re.I)))
 _sleep = time.sleep
+# What a dependency stage leaves half written when it fails, removed before it runs again so a retry never builds on an
+# incomplete directory: the uv environment, and every node_modules directory pnpm made (not those inside another one).
+DEPENDENCY_OUTPUTS = {'dependency-python': ('.venv',), 'dependency-node': ('node_modules',)}
+# Only these classes are "unavailable" (the index or the network, possibly temporary); any other failure of a dependency stage
+# is a real one and is named so.
+TRANSIENT_CLASSES = ('unavailable', 'timeout')
+
+
+def dependency_status(failure):
+    return 'dependency_unavailable' if failure in TRANSIENT_CLASSES else 'dependency_failed'
+
+
+def clear_dependency_outputs(stage, work):
+    """Remove the stage's outputs inside the work directory; a symbolic link is removed itself, never followed."""
+    work = Path(work)
+    for name in DEPENDENCY_OUTPUTS.get(stage['name'], ()):
+        found = []
+        for top, dirs, _files in os.walk(work):
+            if name in dirs:
+                found.append(Path(top) / name)
+                dirs.remove(name)
+            dirs[:] = [d for d in dirs if d != '.git' and not (Path(top) / d).is_symlink()]
+        for path in found:
+            if path.is_symlink():
+                path.unlink()
+            else:
+                shutil.rmtree(path)
 
 
 def dependency_failure_class(rc, output):
@@ -95,6 +122,7 @@ def run_stage(stage, argv, work):
         if failure != 'unavailable':
             return rc, retried, failure
         retried.append({'exit': rc, 'class': failure})
+        clear_dependency_outputs(stage, work)
         _sleep(DEPENDENCY_BACKOFF_SECONDS[min(attempt, len(DEPENDENCY_BACKOFF_SECONDS)) - 1])
 
 
@@ -508,11 +536,17 @@ def run_check(repo, queue, request, policy, identities, *, runner=None, workroot
             if runner is not None:
                 argv = podman_argv(runner, stage, work, argv)
             rc, retried, failure = run_stage(stage, argv, work)
-            status = 'passed' if rc == 0 else ('dependency_unavailable' if stage['name'].startswith('dependency') else 'failed')
+            if rc == 0:
+                status = 'passed'
+            elif stage.get('network') == 'dependency':
+                status = dependency_status(failure)
+            else:
+                status = 'dependency_unavailable' if stage['name'].startswith('dependency') else 'failed'
             entry = {'name': stage['name'], 'status': status, 'exit': rc, 'seconds': round(time.monotonic() - s0, 3), 'junit': {}}
             if stage.get('network') == 'dependency':
                 # Additive to nexloop-ci-result/1: how many times the stage ran, why each earlier run was retried, and the class
-                # of the final failure (None when it passed). The status names stay as they were.
+                # of the final failure (None when it passed). Its status is dependency_unavailable only for 'unavailable' and
+                # 'timeout', dependency_failed for every other class (integrity, lock, resolution, parse, unknown).
                 entry.update(attempts=len(retried) + 1, retries=retried, failure_class=failure)
             for pattern in stage.get('junit', []):
                 for path in sorted(glob.glob(str(work / pattern))):

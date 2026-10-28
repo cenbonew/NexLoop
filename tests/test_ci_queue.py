@@ -211,7 +211,9 @@ def test_a_dependency_cache_miss_fails_explicitly(lab):
     policy = {**lab['policy'], 'stages': stages}
     ci.enqueue(lab['bare'], lab['queue'], 'refs/heads/integration/dep', lab['base'], 'integrator-a')
     r = ci.run_once(lab['bare'], lab['queue'], policy, lab['identities'], workroot=lab['tmp'] / 'builds', restricted_identifiers=lab['restricted'])['outcome']
-    assert r['status'] == 'failed' and r['stages'][0]['status'] == 'dependency_unavailable' and len(r['stages']) == 1
+    # No output names the network, so it is not called unavailable: a real dependency failure (dependency_failed).
+    assert r['status'] == 'failed' and r['stages'][0]['status'] == 'dependency_failed' and len(r['stages']) == 1
+    assert r['stages'][0]['failure_class'] == 'unknown'
     assert 'stage_failed:dependency-python' in r['reasons'] and 'suite_missing:unit' in r['reasons']  # never a skipped pass
 
 
@@ -688,8 +690,48 @@ def test_a_dependency_failure_a_retry_cannot_fix_fails_at_once(lab, tmp_path, mo
     stage = r['stages'][0]
     assert r['status'] == 'failed' and runs == 1 and pauses == []
     assert stage['attempts'] == 1 and stage['retries'] == [] and stage['failure_class'] == failure
+    assert stage['status'] == 'dependency_failed'  # never the name of a temporary outage
 
 
 def test_a_dependency_timeout_and_other_stages_are_never_retried():
     assert ci.dependency_failure_class('timeout', 'ETIMEDOUT') == 'timeout'
+    assert [ci.dependency_status(c) for c in ('unavailable', 'timeout', 'integrity', 'lock', 'resolution', 'parse', 'unknown')] == \
+        ['dependency_unavailable'] * 2 + ['dependency_failed'] * 5
     assert ci.run_stage({'name': 'suite', 'network': 'test', 'argv': ['false']}, ['sh', '-c', 'echo ECONNRESET; exit 1'], '.') == (1, [], None)
+
+
+# Before a retry the stage's half-written outputs are removed: a run never continues on what the failed one left.
+LEAVES = """#!/bin/sh
+n=$(($(cat "$1" 2>/dev/null || echo 0) + 1)); echo $n > "$1"
+for d in $2; do if [ -e "$d/partial" ]; then echo "$d left over" >&2; exit 9; fi; mkdir -p "$d" && touch "$d/partial"; done
+if [ $n -le 1 ]; then echo "error sending request: Connection reset by peer" >&2; exit 2; fi
+"""
+
+
+@pytest.mark.parametrize('stage_name,dirs', [('dependency-python', '.venv'),
+                                             ('dependency-node', 'node_modules apps/web/node_modules packages/x/node_modules')])
+def test_a_retry_starts_without_the_failed_run_s_outputs(lab, tmp_path, monkeypatch, stage_name, dirs):
+    script, counter = tmp_path / 'leaves.sh', tmp_path / 'leaves.count'
+    script.write_text(LEAVES)
+    monkeypatch.setattr(ci, '_sleep', lambda seconds: None)
+    stages = {'schema': 'nexloop-ci-stages/1', 'version': 1, 'stages': [
+        {'name': stage_name, 'network': 'dependency', 'argv': ['sh', str(script), str(counter), dirs]},
+        {'name': 'suite', 'network': 'test', 'argv': ['sh', 'ci-test.sh'], 'junit': ['.ci-results/*.xml']}]}
+    ci.enqueue(lab['bare'], lab['queue'], 'refs/heads/integration/leaves', lab['base'], 'integrator-a')
+    r = ci.run_once(lab['bare'], lab['queue'], {**lab['policy'], 'stages': stages}, lab['identities'], workroot=lab['tmp'] / 'builds',
+                    restricted_identifiers=lab['restricted'])['outcome']
+    assert r['status'] == 'passed' and r['stages'][0]['attempts'] == 2 and counter.read_text().strip() == '2'
+
+
+def test_clearing_outputs_removes_a_link_and_never_follows_it(tmp_path):
+    outside, work = tmp_path / 'outside', tmp_path / 'work'
+    (outside / 'node_modules').mkdir(parents=True)
+    (outside / 'node_modules' / 'keep').touch()
+    (work / 'apps').mkdir(parents=True)
+    (work / 'node_modules' / 'a' / 'node_modules').mkdir(parents=True)
+    (work / 'apps' / 'node_modules').symlink_to(outside / 'node_modules')
+    (work / 'linked').symlink_to(outside)
+    (work / '.venv').mkdir()
+    ci.clear_dependency_outputs({'name': 'dependency-node'}, work)
+    assert not (work / 'node_modules').exists() and not (work / 'apps' / 'node_modules').is_symlink()
+    assert (outside / 'node_modules' / 'keep').exists() and (work / '.venv').is_dir()  # only this stage's outputs

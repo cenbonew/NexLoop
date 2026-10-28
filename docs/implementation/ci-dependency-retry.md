@@ -24,15 +24,20 @@
   - `attempts`：运行次数；
   - `retries`：每次被重试的运行一条 `{exit, class}`；
   - `failure_class`：最终失败的类别，通过时为 `null`。
-- 阶段状态名不变：失败的依赖阶段仍是 `dependency_unavailable`，`judge`、release 和既有测试都不受影响。结果里只有类别代码，不保存输出，也不保存其中的地址。
-- 重试在同一个检出目录里重跑同一个阶段脚本：`uv sync --frozen` 与 `pnpm install --frozen-lockfile` 都可以重复执行；预热用的临时目录每次重新 `mktemp`。
+- **状态语义（L6 I1）**：失败的依赖阶段只在 `failure_class` 为 `unavailable` 或 `timeout` 时记 `dependency_unavailable`（可能是偶发，可以重排）；`integrity`、`lock`、`resolution`、`parse` 和认不出的 `unknown` 一律记 **`dependency_failed`**，表示真实的依赖问题，重排不会好，要先修。以前所有依赖失败都叫 `dependency_unavailable`，第 49 批就是凭这个名字判成偶发的。`unknown` 也归为真实失败：没有证据表明是网络问题时，不给出“可能偶发”的暗示；如果日后发现某种网络错误被认成 `unknown`，就把它加进可重试的模式。
+- `judge` 只看阶段是否 `passed`，所以 `dependency_failed` 同样让结果失败，release 和合并门不受影响。结果里只有类别代码，不保存输出，也不保存其中的地址。
+- **重试前清理（L6 S1）**：每次重试之前，先删掉本阶段上一次运行留下的半截输出，避免在不完整的目录上重跑：`dependency-python` 删检出里的 `.venv`，`dependency-node` 删每个 `node_modules`（不包括其他 `node_modules` 里面的）。只在检出目录里找，不进 `.git`；符号链接只删链接本身，从不跟随；不碰其他阶段的输出（重跑 `dependency-node` 时不删 `.venv`，`static` 阶段已经用过它）。
+- 重试在同一个检出目录里重跑同一个阶段脚本（先按上一条清理）；预热用的临时目录每次重新 `mktemp`。
 
 ## 测试（`tests/test_ci_queue.py`）
 
 - `test_a_dependency_stage_unavailable_twice_passes_on_the_third_run`：前两次输出连接重置、退出 2，第三次成功。结果通过，`attempts` 3，两条 `unavailable` 的重试，两次等待依次是 30 秒、90 秒；结果 JSON 里没有输出原文。
 - `test_a_dependency_stage_unavailable_every_time_stops_after_three_runs`：每次都超时。正好运行 3 次后以 `dependency_unavailable` 失败，后面的阶段不再运行。
 - `test_a_dependency_failure_a_retry_cannot_fix_fails_at_once`（7 组参数）：校验和不符（uv 与 pnpm 各一组，uv 那组同时含连接重置）、lock 不一致（uv 与 pnpm）、解析失败、无解、未知错误。每组都只运行 1 次，不等待，`failure_class` 为对应类别。
-- `test_a_dependency_timeout_and_other_stages_are_never_retried`：超时归为 `timeout`；非依赖阶段即使输出网络错误也只运行一次。
+- `test_a_dependency_timeout_and_other_stages_are_never_retried`：超时归为 `timeout`；7 个类别对应的状态（两个 `dependency_unavailable`，五个 `dependency_failed`）；非依赖阶段即使输出网络错误也只运行一次。
+- 上面不可重试的 7 组参数都断言状态为 `dependency_failed`；`test_a_dependency_cache_miss_fails_explicitly`（没有任何输出的失败）改为断言 `dependency_failed` 和 `unknown`。
+- `test_a_retry_starts_without_the_failed_run_s_outputs`（python、node 两组）：第一次运行留下半截目录后以网络错误失败；如果目录还在，第二次运行会以退出 9 失败。结果通过、运行 2 次，说明重试前目录已清掉。node 一组含根目录、`apps/web` 与 `packages/x` 三处 `node_modules`。
+- `test_clearing_outputs_removes_a_link_and_never_follows_it`：指向检出外的 `node_modules` 链接只删链接，外部文件仍在；嵌套的 `node_modules` 随外层一起删；`.venv` 不受 node 阶段的清理影响。
 
 ## 部署到 CI 主机（合入 main 之后，调度员按 ack-policy 另做一步）
 
@@ -44,4 +49,5 @@
 4. 核对：
    - `sha256sum <新目录>/scripts/ci/nexloop_ci.py` 与 `<MAIN_SHA>` 中的文件一致；
    - 下一次检查的 `result.json` 里，`controller_version` 是新文件的 sha256，依赖阶段的条目带 `attempts` 字段。
+   - ack 记录里写明新的状态语义：`dependency_unavailable` 只表示可能偶发，`dependency_failed` 表示真实依赖问题。按 `dependency_unavailable` 重排的操作说明（`NX-034-release-ci-queue.md` 第 157 行那一行）仍然适用；遇到 `dependency_failed` 不重排，先修 lock 或依赖。
 5. **回退**：把 hook 和 unit 改回旧目录，再 `daemon-reload`。结果文件新增的字段是只增的，旧控制器不读它们。
