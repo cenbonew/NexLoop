@@ -45,15 +45,21 @@ def test_a_valid_token_names_its_subject(idp):
     assert verify(idp, token(idp, aud=[idp.client_id, 'other'], azp=idp.client_id))['subject'] == 'member-sub-1'
 
 
+class Ago(int):
+    """A time claim as an offset from the moment the test runs (not the moment it is collected: a long run would age a fixed time)."""
+
+
 @pytest.mark.parametrize('claims', [
     {'aud': 'another-client'}, {'aud': ['another-client']}, {'aud': ['nexloop-workbench-test', 'other']},
-    {'azp': 'another-client'}, {'iss': 'https://idp.example.test/other'}, {'exp': int(time.time()) - 120},
-    {'iat': int(time.time()) - 3600, 'exp': int(time.time()) + 300}, {'iat': int(time.time()) + 600},
-    {'nbf': int(time.time()) + 600}, {'nonce': 'n-1'}, {'nonce': None}, {'sub': ''}, {'sub': None}, {'exp': None},
+    {'azp': 'another-client'}, {'iss': 'https://idp.example.test/other'}, {'exp': Ago(-120)},
+    {'iat': Ago(-3600), 'exp': Ago(300)}, {'iat': Ago(600)},
+    {'nbf': Ago(600)}, {'nonce': 'n-1'}, {'nonce': None}, {'sub': ''}, {'sub': None}, {'exp': None},
     {'exp': 'never'}])
 def test_claims_outside_the_rules_are_refused(idp, claims):
+    now = int(time.time())
+    claims = {k: now + v if isinstance(v, Ago) else v for k, v in claims.items()}
     with pytest.raises(O.OidcFailure) as refused:
-        verify(idp, token(idp, **claims))
+        verify(idp, token(idp, **claims), now=now)
     assert refused.value.reason == 'id_token_invalid'
 
 
