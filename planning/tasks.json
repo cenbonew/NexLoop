@@ -2062,6 +2062,12 @@
         "ref": "ci:lane/20261009T224539Z-4f774fda073f",
         "summary": "Full CI on clean CI host for 4f774fd (integration-s4a): 2516 passed / 6 failed, all within baseline, no new failures. Re-run on main: plan outcome and re-evaluation suites passed.",
         "recorded_at": "2026-10-10T07:21:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "外联第 5 片（迁移 0239，runtime_worker 的 nexloop.outreach.run_submit:1，service-grants v18）的 stage 授权于 2026-10-28 经 NX-054 §8 第 6 步 register 生效，authority_revision 3197。此前 stage 实际停在 service-grants v17，v18 的 register 并未执行。生效后只读核对：outreach_sends 0 行、相关审计 0 条，没有被使用。执行人：调度员；判定人：L6。",
+        "recorded_at": "2026-10-28T18:00:00+08:00"
       }
     ]
   },
@@ -3461,6 +3467,12 @@
         "ref": "91233ea5",
         "summary": "No new deliveries after E3 semantic pool wiring; AT-023, AT-024, AT-048 and S6-R1/R2/R5/R7 stage runs still missing. Checked by L2, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/S6-stage-acceptance.md",
+        "summary": "更正笔误：2026-10-21 与 2026-10-26 两条 note 中的“S6-R1、R2、R5、R7”应为“S6-R1、R5、R7”；S6-R2 在仓库中没有定义（仓库只定义 S6-R1、R3–R7）。原证据保留不改。更正人：L4；判定人：调度员。",
+        "recorded_at": "2026-10-28T20:00:00+08:00"
       }
     ]
   },
@@ -4503,6 +4515,12 @@
         "ref": "adr/ADR-040-remediation-intents.md",
         "summary": "ADR-040 adopted by the owner 2026-10-26 (6501d97a); R3 deferred (Q-2). Remaining: stage remediation run sheet (83bfd645) not yet executed. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "plan_reevaluator 的 remediation.plan:1（service-grants v19）的 stage 授权于 2026-10-28 经 NX-054 §8 第 6 步 register 生效，authority_revision 3197；此前 stage 实际停在 service-grants v17。REMEDIATION_ENABLED 仍为 false。执行人：调度员；判定人：L6。",
+        "recorded_at": "2026-10-28T18:00:00+08:00"
       }
     ]
   },
@@ -4684,6 +4702,12 @@
         "ref": "owner 2026-10-26",
         "summary": "F1-F3 (API key, MCP, gateway, SDK) after S7 with a threat review and a new ADR. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "adr/ADR-041-machine-access-channel.md",
+        "summary": "ADR-041 采纳（负责人 2026-10-28，Q-1 至 Q-9 全部选 A）；威胁评审 docs/design/NX-062-threat-review.md 完成（T-1 至 T-12，L6 复核 6950f93f 与复审 92393e60 均 PASS）；F1–F3 实现待排期，现在不开工。执行人：L4；判定人：L6；决定人：负责人。",
+        "recorded_at": "2026-10-28T22:00:00+08:00"
       }
     ]
   }
