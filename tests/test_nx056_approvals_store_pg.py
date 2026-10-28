@@ -86,6 +86,9 @@ def test_a_request_is_frozen_once_and_never_flooded(store):
     refused('request_reused', open_request, f, enabled=True, scope_kind='action_type')  # the same id, another body
     assert open_request(f, request_id='r-2')['approval_id'] == approval  # the same digest while one waits
     assert f['admin'].execute("select count(*) from runtime.audit_events where action='approval.requested'").fetchone() == (1,)
+    # one clock reading per request (CI seq 186): due_by is exactly requested_at + 24 h, and the audit records that same instant
+    assert f['admin'].execute("""select a.created_at=q.requested_at from runtime.audit_events a join control.nexloop_approval_requests q
+        on a.event_id='approval-requested:'||q.approval_id where q.approval_id=%s""", (approval,)).fetchone() == (True,)
 
 
 def test_the_requester_never_approves_by_any_principal(store):

@@ -449,6 +449,13 @@ REGISTRY = [
             ((r"\s*when 'goals\.budget\.loosen' then array\[[^\]]*\]", ''),)),
     Allowed('budget_loosen', 'control.nexloop_approval_open', 'a budget loosening opens only against the current row it names; nothing else',
             ((r"\n if p_capability='goals\.budget\.loosen' then perform control\.nexloop_budget_loosen_check\(p_tenant,p_world,p_body,false\);end if;", ''),)),
+    # approval_single_now (CI seq 186): one clock reading per request - requested_at, due_by and the audit time.
+    Allowed('approval_single_now', 'control.nexloop_approval_open', 'requested_at, due_by and the audit time from one clock reading; nothing else',
+            ((r";v_now timestamptz;", ";"),
+             (r"\n v_now:=clock_timestamp\(\);  -- one reading: requested_at, due_by and the audit time are the same instant\n", "\n"),
+             (r",requester_principal,requested_at,due_by\)", ",requester_principal,due_by)"),
+             (r"p_principal,v_now,v_now\+make_interval", "p_principal,clock_timestamp()+make_interval"),
+             (r"'due_by',r\.due_by\),v_now\);", "'due_by',r.due_by),clock_timestamp());"))),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_gate', 'the execution-time HMACs checked before the handler',
             ((r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;\n return jsonb_build_object\('proceed',true", "\n return jsonb_build_object('proceed',true"),)),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_terminate', 'one more reason, requester_no_longer_eligible',

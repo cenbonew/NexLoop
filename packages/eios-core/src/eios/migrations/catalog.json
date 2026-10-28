@@ -1855,6 +1855,11 @@
       "version": "0371",
       "name": "0371_nx058_invite_sso.sql",
       "sha256": "fa98238e18f657aff84033c4b91e10b36f2530be668670a5c8c7759fa72e5c04"
+    },
+    {
+      "version": "0372",
+      "name": "0372_approval_single_now.sql",
+      "sha256": "8d2f49a53e46ab65aafc3c4a52060167353058fd70c51ca9889ad22bf3c131e5"
     }
   ]
 }
