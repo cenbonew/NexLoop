@@ -402,18 +402,19 @@ export const readSettings=()=>get('/api/v1/workbench/settings',settings);
  * days of reset codes. Never a token, code, digest or email (the server leaves them out; a row that carried one is refused here). */
 export type MemberStatus='invited'|'active'|'suspended'|'revoked';
 export type MemberRow={principal_id:string;label:string;username:string|null;role:string|null;member_status:MemberStatus;account_status:string|null;
-  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean;person:string;human_active:boolean};
+  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean;person:string;human_active:boolean;sso_pending?:boolean};
 export type InvitationRow={invitation_id:string;username:string;role:string;issued_by:string;issued_at:string;expires_at:string};
 export type ResetRow={reset_id:string;target_principal:string;issued_by:string;issued_at:string;expires_at:string;state:string;completed_at:string|null;kind:'member'|'owner'};
 export type Members={members:MemberRow[];invitations:InvitationRow[];resets:ResetRow[]};
 function exactKeys(o:Record<string,unknown>,keys:string[]){if(Object.keys(o).sort().join()!==[...keys].sort().join())throw new WorkbenchError('invalid');return o;}
 const memberStatus=(v:unknown):MemberStatus=>{const t=text(v);if(!['invited','active','suspended','revoked'].includes(t))throw new WorkbenchError('invalid');return t as MemberStatus;};
 export function members(value:unknown):Members{const v=exactKeys(object(value),['members','invitations','resets']);
-  return {members:list(v.members).map(x=>{const o=exactKeys(object(x),['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked','person','human_active']);
+  // sso_pending (NX-058 F, 0370): a member who accepted an SSO-only invitation and awaits its link; absent before 0370.
+  return {members:list(v.members).map(x=>{const r=object(x);const o=exactKeys(r,['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked','person','human_active',...('sso_pending' in r?['sso_pending']:[])]);
       const label=text(o.label);if(!/^p-[0-9a-f]{8}$/.test(label))throw new WorkbenchError('invalid');
       return {principal_id:text(o.principal_id),label,username:maybeText(o.username),role:maybeText(o.role),member_status:memberStatus(o.member_status),
         account_status:maybeText(o.account_status),vote_eligible_from:maybeText(o.vote_eligible_from),erased:flag(o.erased),person_all_revoked:flag(o.person_all_revoked),
-        person:(()=>{const v=text(o.person);if(!/^s-[0-9a-f]{8}$/.test(v))throw new WorkbenchError('invalid');return v;})(),human_active:flag(o.human_active)};}),
+        person:(()=>{const v=text(o.person);if(!/^s-[0-9a-f]{8}$/.test(v))throw new WorkbenchError('invalid');return v;})(),human_active:flag(o.human_active),...('sso_pending' in o?{sso_pending:flag(o.sso_pending)}:{})};}),
     invitations:list(v.invitations).map(x=>{const o=exactKeys(object(x),['invitation_id','username','role','issued_by','issued_at','expires_at']);
       return {invitation_id:text(o.invitation_id),username:text(o.username),role:text(o.role),issued_by:text(o.issued_by),issued_at:text(o.issued_at),expires_at:text(o.expires_at)};}),
     resets:list(v.resets).map(x=>{const o=exactKeys(object(x),['reset_id','target_principal','issued_by','issued_at','expires_at','state','completed_at','kind']);

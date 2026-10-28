@@ -163,7 +163,7 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
     <DataTable label="成员" empty={{subject:'成员'}} rows={data.members} rowKey={m=>m.principal_id} columns={[
       {label:'成员',main:true,cell:m=><>{m.username??'（无账户）'}<br/><span className="note">{m.label}</span></>},
       {label:'角色',cell:m=>m.role?<StatusBadge domain="member_role" code={m.role}/>:<span className="note">无角色</span>},
-      {label:'状态',cell:m=><>{m.erased?'已擦除':MEMBER_STATUS_TEXT[m.member_status]}{m.account_status&&m.account_status!=='active'?<><br/><span className="note" title={m.account_status}>账户{ACCOUNT_STATUS_TEXT[m.account_status]??'状态未知'}</span></>:null}</>},
+      {label:'状态',cell:m=><>{m.erased?'已擦除':MEMBER_STATUS_TEXT[m.member_status]}{m.sso_pending&&!m.erased?<><br/><span className="note">待绑定 SSO（绑定前不能登录）</span></>:null}{m.account_status&&m.account_status!=='active'?<><br/><span className="note" title={m.account_status}>账户{ACCOUNT_STATUS_TEXT[m.account_status]??'状态未知'}</span></>:null}</>},
       {label:'负责人投票资格',cell:m=>m.role!=='owner'?'—':m.vote_eligible_from?<>自 <Time value={m.vote_eligible_from}/></>:<span className="note">尚无</span>},
       {label:'操作',cell:m=><Controls member={member} row={m} members={data.members}/>}]}/>
     <h2>未接受的邀请</h2>

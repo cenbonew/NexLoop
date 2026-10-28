@@ -40,6 +40,14 @@ function PasswordFields({password,confirm,setPassword,setConfirm}:{password:stri
   </>;
 }
 
+/** The password form's refusal. L6 S1: after every refusal the same hint, which says nothing about this invitation - an SSO-only one
+ * opened without its full link (no sso=1) lands here. */
+export function PasswordAcceptRefusal({result}:{result:AccountFormResult|null}){
+  if(!result||result==='done')return null;
+  return <><p className={result==='unavailable'?'pending':'error'} role="alert">{RESULT_TEXT[result]}</p>
+    {result==='invalid'?<p className="note">如果这份邀请需要用单点登录接受，请使用邀请邮件里的完整链接，或联系负责人。</p>:null}</>;
+}
+
 export function InvitationPage({initialHash}:{initialHash?:string}){
   useNoReferrer();
   const [token]=useState(()=>takeFragmentToken(initialHash??globalThis.location?.hash??''));
@@ -62,7 +70,7 @@ export function InvitationPage({initialHash}:{initialHash?:string}){
         <p className="note">设置密码后即开通账号；用户名以邀请为准。这个链接只能用一次。</p>
         <PasswordFields password={password} confirm={confirm} setPassword={setPassword} setConfirm={setConfirm}/>
         <button type="submit" disabled={busy||password.length<12||password!==confirm}>接受邀请并设置密码</button>
-        {result?<p className={result==='unavailable'?'pending':'error'} role="alert">{RESULT_TEXT[result]}</p>:null}
+        <PasswordAcceptRefusal result={result}/>
       </form>}</section>;
 }
 

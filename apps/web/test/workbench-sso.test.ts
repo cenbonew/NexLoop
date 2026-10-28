@@ -6,7 +6,7 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
 import {acceptSsoInvitation,me,members,oneTimeSecret,OPERATION_ACTION,readSsoProviders,ssoProviders,ssoStartPath} from '../src/workbench/api';
 import {OneTimeSecret} from '../src/workbench/actions';
-import {InvitationPage} from '../src/workbench/AccountPages';
+import {InvitationPage,PasswordAcceptRefusal} from '../src/workbench/AccountPages';
 import {SsoButtons,SsoInviteChoiceView,SsoLinkForms,ssoControls} from '../src/workbench/SsoLink';
 import {Members} from '../src/workbench/pages/Members';
 
@@ -81,4 +81,17 @@ test('NX-058 F: an SSO-only acceptance posts the token alone', async()=>{
   const fetch=vi.fn(async()=>new Response('{"code":"invitation_accepted"}',{status:200}));vi.stubGlobal('fetch',fetch);
   expect(await acceptSsoInvitation('T'.repeat(43))).toBe('done');
   expect(JSON.parse((fetch.mock.calls[0] as unknown as [string,RequestInit])[1].body as string)).toEqual({token:'T'.repeat(43)});
+});
+
+test('NX-058 F (L6 S1, S2): a refused password acceptance hints at the full SSO link; the members page marks a member pending SSO', ()=>{
+  const refused=html(h(PasswordAcceptRefusal,{result:'invalid'}));
+  expect(refused).toContain('需要用单点登录接受');expect(refused).toContain('完整链接');
+  expect(html(h(PasswordAcceptRefusal,{result:'rate_limited'}))).not.toContain('单点登录');
+  expect(html(h(PasswordAcceptRefusal,{result:null}))).toBe('');
+  const parsed=members({members:[{...row('synthetic-op','operator','active'),sso_pending:true},row('synthetic-rv','reviewer','active')],invitations:[],resets:[]}).members;
+  expect(parsed.map(m=>m.sso_pending)).toEqual([true,undefined]);
+  expect(()=>members({members:[{...row('synthetic-op','operator','active'),sso_pending:'yes'}],invitations:[],resets:[]})).toThrow();
+  const page=html(h(Members,{}),{'["workbench","members"]':members({members:[row('synthetic-owner','owner','active'),{...row('synthetic-op','operator','active'),sso_pending:true}],invitations:[],resets:[]}),
+    '["workbench","me"]':owner,'["workbench","sso-providers"]':corp});
+  expect(page.match(/待绑定 SSO/g)?.length).toBe(1);
 });

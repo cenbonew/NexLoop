@@ -161,3 +161,17 @@ do $$ declare f text; begin
  end loop;
 end $$;
 grant execute on function control.nexloop_workbench_invitation_lookup(text,text) to nexloop_identity;
+
+-- The owner's members view (0356) marks a member pending SSO (L6 S2): sso_pending, a boolean only (never the provider or the IdP subject).
+alter function runtime.nexloop_workbench_members_view(text) rename to nexloop_workbench_members_view_before_sso;
+revoke all on function runtime.nexloop_workbench_members_view_before_sso(text) from public;
+create function runtime.nexloop_workbench_members_view(p_tenant text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v jsonb:=runtime.nexloop_workbench_members_view_before_sso(p_tenant);
+begin
+ perform set_config('eios.tenant_id',p_tenant,true);
+ return jsonb_set(v,'{members}',coalesce((select jsonb_agg(m||jsonb_build_object('sso_pending',exists(select 1 from control.nexloop_workbench_sso_pending p
+   where p.tenant_id=p_tenant and p.principal_id=m->>'principal_id')) order by o) from jsonb_array_elements(v->'members') with ordinality t(m,o)),'[]'::jsonb));
+end $$;
+alter function runtime.nexloop_workbench_members_view(text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_workbench_members_view(text) from public;

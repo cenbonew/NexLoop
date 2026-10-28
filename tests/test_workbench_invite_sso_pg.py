@@ -50,6 +50,10 @@ def test_an_sso_only_invitee_has_no_way_in_until_linked_then_signs_in_by_sso(inv
         admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
         principal, subject = admin.execute("select accepted_principal,accepting_subject from control.nexloop_workbench_invitations where username='sso-operator'").fetchone()
         assert admin.execute('select provider_id from control.nexloop_workbench_sso_pending where principal_id=%s', (principal,)).fetchall() == [('corp',)]
+        # The owner's members view marks the member pending (a boolean only); nobody else is.
+        view = admin.execute('select runtime.nexloop_workbench_members_view(%s)', (TENANT,)).fetchone()[0]['members']
+        assert {m['principal_id']: m['sso_pending'] for m in view}[principal] is True and sum(m['sso_pending'] for m in view) == 1
+        assert 'corp' not in str([m for m in view if m['principal_id'] == principal])
         # Pending: the password path refuses (whatever password), no reset code, and SSO finds no link.
         assert workbench_login(member, {'username': 'sso-operator', 'password': 'a-good-password-1'}).status_code == 401
         reset = act(client, csrf, 'issue_workbench_reset', {'target_principal': principal})
@@ -63,6 +67,7 @@ def test_an_sso_only_invitee_has_no_way_in_until_linked_then_signs_in_by_sso(inv
         linked = link(client, csrf, principal, 'idp-sub-invitee', mode='sso_only')
         assert linked.status_code == 200, linked.json()
         assert admin.execute('select count(*) from control.nexloop_workbench_sso_pending where principal_id=%s', (principal,)).fetchone()[0] == 0
+        assert not any(m['sso_pending'] for m in admin.execute('select runtime.nexloop_workbench_members_view(%s)', (TENANT,)).fetchone()[0]['members'])
         # Linked: SSO signs the member in; the password still does not.
         assert sign_in(member, idp, 'idp-sub-invitee').headers['location'] == '/workbench'
         session = member.get('/api/v1/workbench/auth/session').json()

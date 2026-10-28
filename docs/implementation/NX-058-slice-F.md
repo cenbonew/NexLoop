@@ -95,3 +95,6 @@
 - **测试**：
   - `tests/test_workbench_invite_sso_pg.py`：未配置的 provider 和负责人邀请被拒；接受时带密码被拒；待绑定时口令、重置码和 SSO 都被拒；登录方式为 `sso_or_password` 的绑定被拒，成员仍处于待绑定；`sso_only` 绑定后 SSO 能登录（`authentication_methods=["oidc"]`），口令仍被拒；普通邀请不带密码被拒，照常能用；撤销后待绑定记录被删除。
   - `apps/web/test/workbench-sso.test.ts`：增加了登录方式选项、链接里的 `sso=1`、接受页不显示密码栏、只提交 token 等用例。
+- **L6 建议（bbb5df6a 复核）**：
+  - S1：只有令牌、链接里没有 `sso=1` 时，接受页显示的是密码表单。现在每次被拒都会附一句：“如果这份邀请需要用单点登录接受，请使用邀请邮件里的完整链接，或联系负责人。”这句提示对所有邀请都一样，不透露是哪一种邀请。
+  - S2：负责人的成员视图（`runtime.nexloop_workbench_members_view`，0370 包了一层，原函数改名为 `_before_sso`）给每个成员加了布尔字段 `sso_pending`，不包含 provider 和 sub；成员页的状态栏显示“待绑定 SSO（绑定前不能登录）”。
