@@ -74,7 +74,7 @@
         "packages/eios-core/UPSTREAM_APPROVAL_TESTS.json"
       ],
       "lineage": "nexloop-eios-v1",
-      "bootstrap_revision": "0378",
+      "bootstrap_revision": "0369",
       "dependency_lock": "uv.lock"
     },
     "node": {

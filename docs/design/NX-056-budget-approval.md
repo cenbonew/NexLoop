@@ -181,7 +181,7 @@
 ## 9. 实现说明（与上文的差异和细化）
 
 - **Action 名**：放宽用业务 Action `nexloop.budget.loosen`（能力 `goals.budget.loosen`，operation `loosen_budget`，`business-actions.v1.json`），与 NX-058 的 owner Action 同一种登记方式；上文写的 `Budget.loosen` 指的就是它。`Budget.set` 名字和版本不变。
-- **迁移** `budget_loosen`（临时编号 0378）：
+- **迁移** `budget_loosen`（临时编号 0369）：
   - `control.nexloop_budget_direction`：对照当前行（加行锁）判定 tighten、renewal 或 loosen，规则即 2.2 和 Q4；
   - `Budget.set` 的处理函数 `control.nexloop_governed_owner_change` 先过 `control.nexloop_budget_set_tighten_only`，放宽就以 `budget: budget_loosen_requires_approval` 拒绝，不写；
   - `control.nexloop_governed_loosen_budget`：失败即关的两层检查（策略形态；正在执行的审批就是这一条请求），执行时在行锁下核对 `from_*` 和 `expected_revision`，然后调用 0068 原样的 set_budget 写入，并写一条审计事件（方向、前后值、approval_id）；
