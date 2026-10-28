@@ -123,7 +123,7 @@ test('X1/X2 (l2/ui-backend-x1-x4, fixtures): the requester by username, an erase
   expect(()=>approvals({...raw,to_decide:[{...row,summary_labels:{enabled:3}}]})).toThrow();
   expect(()=>approvals({...raw,to_decide:[{...row,surprise:1}]})).toThrow();  // the key list is still exact
   const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],approver]]),h(Approvals,{}));
-  expect(html).toContain('<span class="name-main">staff-owner</span>');expect(html).toContain('已删除的成员');
+  expect(html).toContain('<span class="name-main">staff-owner</span>');expect(html).toContain('成员信息不可用');expect(html).not.toContain('已删除');
   expect(html).toContain('<dt>范围</dt><dd>整个租户</dd>');  // a label equal to the key falls back to the page's own
   const custom=approvals({...raw,to_decide:[{...base,summary:{offering_revision:3},summary_labels:{offering_revision:'激励目录版本'},requested_by_username:'x'}]});
   expect(render(client([[['workbench','approvals'],custom],[['workbench','me'],approver]]),h(Approvals,{}))).toContain('<dt>激励目录版本</dt><dd>3</dd>');

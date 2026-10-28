@@ -7,7 +7,8 @@ import {chatError,createConversation,listConversations,mergeCommitted,messagePre
  * no identifier (UX audit B12, owner 2026-10-28). */
 export function conversationLabel(index:number,_id:string,times?:{started_at?:string|null;message_count?:number}):string{
   if(times?.message_count===undefined)return `对话 ${index+1}`;
-  if(!times.started_at||!times.message_count)return '新对话（还没有消息）';
+  if(!times.message_count&&!times.started_at)return '新对话（还没有消息）';
+  if(!times.started_at||!times.message_count)return `对话 ${index+1}`;  // earliest messages cleared (retention, erasure): no start to name it by
   const d=new Date(times.started_at);
   if(Number.isNaN(d.getTime()))return `对话 ${index+1}`;
   const day=d.toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});

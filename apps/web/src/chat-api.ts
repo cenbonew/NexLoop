@@ -18,9 +18,9 @@ function times(v:Record<string,unknown>):Pick<Conversation,'started_at'|'last_me
   if(v.message_count===undefined&&v.started_at===undefined&&v.last_message_at===undefined)return {};
   const at=(x:unknown)=>{if(x===null)return null;const s=string(x);if(!Number.isFinite(Date.parse(s)))throw new Error('响应无效');return s;};
   if(!Number.isSafeInteger(v.message_count)||Number(v.message_count)<0)throw new Error('响应无效');
-  const out={started_at:at(v.started_at),last_message_at:at(v.last_message_at),message_count:Number(v.message_count)};
-  if((out.message_count===0)!==(out.started_at===null)||(out.started_at===null)!==(out.last_message_at===null))throw new Error('响应无效');
-  return out;}
+  // L6 I1: the count follows the conversation's last sequence while the times come from the messages still stored, so after retention
+  // or erasure a conversation can have a count and no times. That is not an invalid response; the label falls back instead.
+  return {started_at:at(v.started_at),last_message_at:at(v.last_message_at),message_count:Number(v.message_count)};}
 function provider(value:unknown):MessageProvider|null{if(value===null)return null;const v=object(value);const keys=['namespace','message_ref','sequence','sent_at','trust','skewed'];
   if(Object.keys(v).length!==keys.length||!keys.every(k=>k in v)||!/^[a-z][a-z0-9.-]{1,63}$/.test(string(v.namespace))||(v.message_ref!==null&&typeof v.message_ref!=='string')||(v.sequence!==null&&(!Number.isSafeInteger(v.sequence)||Number(v.sequence)<1))||(v.sent_at!==null&&!Number.isFinite(Date.parse(string(v.sent_at))))||!['server','signed','client'].includes(String(v.trust))||typeof v.skewed!=='boolean')throw new Error('响应无效');
   return {namespace:v.namespace as string,message_ref:v.message_ref as string|null,sequence:v.sequence as number|null,sent_at:v.sent_at as string|null,trust:v.trust as MessageProvider['trust'],skewed:v.skewed};}

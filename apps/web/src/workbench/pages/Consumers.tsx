@@ -88,11 +88,13 @@ export function Consumers({actions,onOpen,onCommitments,query={},onQuery=()=>{}}
     if(!('page' in changes))delete next.page;onQuery(next);};
   const keyword=query.q??'';
   const choose=(name:string,value:string)=>set({[name]:value});
+  // L6 S2: the sort by newest conversation only where the server knows it (rows carry the time), or when the URL already asks for it.
+  const byRecent=query.sort==='last_conversation_at'||!!data.data?.items.some(c=>c.last_conversation_at!==undefined);
   return <Page title="客户" query={data} actions={actions} lead="与企业有往来的客户：名称、联系限制、未结束承诺、活跃计划与会话；按条件筛选和排序。" toolbar={<div className="list-tools" role="search" aria-label="筛选客户">
       <label>联系限制<select value={query.restricted??''} onChange={e=>choose('restricted',e.target.value)}><option value="">全部</option><option value="true">受限</option><option value="false">未受限</option></select></label>
       <label>未结束承诺<select value={query.open??''} onChange={e=>choose('open',e.target.value)}><option value="">全部</option><option value="true">有</option><option value="false">没有</option></select></label>
       <label>排序<select value={(query.sort??'id')+':'+(query.order??'asc')} onChange={e=>{const [sort,order]=e.target.value.split(':');set({sort,order});}}>
-        <option value="id:asc">按 ID</option><option value="last_conversation_at:desc">最近有会话的在前</option><option value="open_commitments:desc">未结束承诺最多</option><option value="conversations:desc">会话最多</option><option value="active_plans:desc">活跃计划最多</option></select></label>
+        <option value="id:asc">按 ID</option>{byRecent?<option value="last_conversation_at:desc">最近有会话的在前</option>:null}<option value="open_commitments:desc">未结束承诺最多</option><option value="conversations:desc">会话最多</option><option value="active_plans:desc">活跃计划最多</option></select></label>
       <Keyword label="关键字" value={keyword} onChange={v=>set({q:v,page:query.page??''})}/></div>}
     empty={d=>d.items.length===0&&!start&&query.restricted===undefined&&query.open===undefined}>{page=>{
     const k=keyword.trim().toLowerCase();

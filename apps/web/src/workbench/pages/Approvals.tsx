@@ -81,11 +81,12 @@ const common=[
   {label:'批准',num:true,cell:(r:ApprovalRow)=>`${r.approvals} / ${r.quorum}`},
 ];
 
-/** X1: the requester by username, the member id as secondary text; an erased or unknown member said so; an older server: the id. */
+/** X1: the requester by username, the member id as secondary text; null (erased, no account, or not a member here) is said without
+ * guessing which (L6 S1); an older server: the id. */
 export function Requester({row}:{row:ApprovalRow}){
   const id=<IdText kind="成员" value={row.requested_by} head={6} tail={4}/>;
   if(row.requested_by_username===undefined)return id;
-  return <span className="requester"><span className="name-main">{row.requested_by_username??'已删除的成员'}</span>{id}</span>;
+  return <span className="requester"><span className="name-main">{row.requested_by_username??'成员信息不可用'}</span>{id}</span>;
 }
 
 function DecideForms({member,row}:{member:Me;row:ApprovalRow}){

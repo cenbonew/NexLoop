@@ -145,4 +145,5 @@ test('X3: the consumer list shows a 最近会话 column only when the server sen
   const withTime=page([{...row,last_conversation_at:'2026-10-28T02:30:00.000000Z'}]);
   expect(withTime).toContain('>最近会话</th>');expect(withTime).toContain('<option value="last_conversation_at:desc">最近有会话的在前</option>');
   expect(page([row])).not.toContain('>最近会话</th>');
+  expect(page([row])).not.toContain('last_conversation_at:desc');  // L6 S2: not offered to a server that would refuse it (422)
 });
