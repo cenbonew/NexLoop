@@ -7,13 +7,12 @@
  */
 import {statusLabel} from './status-labels';
 import {beijingLocalToUtc} from './ui';
-import {shorten} from './kit';
+import {IdText,shorten} from './kit';
 import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
-import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
+import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,technical,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
-import {Short} from './pages/Page';
 import {when} from './pages/Consumers';
 
 export type SlotValue=ReactNode|((route:Route)=>ReactNode);
@@ -107,7 +106,8 @@ function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof 
   if(write.isSuccess)return <WriteResult operation={operation} data={write.data} onHide={()=>write.reset()}/>;
   if(write.isError){const kind=writeKindOf(write.error);
     const detail=refusalTextOf(write.error);
-    return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}{detail?<>{' '}<span className="refusal-reason">{detail}</span></>:null}</p>;}
+    return <div className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert"><p>{WRITE_TEXT[kind]}{detail?<>{' '}<span className="refusal-reason">{detail}</span></>:null}</p>
+      <details className="state-details"><summary>技术细节</summary>{technical(kind)}</details></div>;}
   return null;
 }
 
@@ -188,7 +188,7 @@ export function ConfirmedForm({operation,member,trigger,title,impact,tone,withRe
 /** The member's role decides which controls are offered; without it nothing is guessed. */
 export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
-  if(member.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
+  if(member.isPending)return null;  // C13: no "正在加载…" line at every form; the form appears once the role is known
   if(member.isError)return <p className="note" role="status">操作区暂不可用：{STATE_TEXT[kindOf(member.error)]}</p>;
   return <>{children(member.data)}</>;
 }
@@ -261,7 +261,7 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
   const impact=controlImpact(kind,kind==='tenant'?'*':ref,pause);
   return <Form operation="set_control" title={fixed?(paused?'恢复主动联系':'暂停主动联系'):pause===null?'暂停 / 恢复':pause?'暂停主动联系':'恢复主动联系'} member={member}
     disabled={!impact} body={()=>impact&&kind?({scope_kind:kind,scope_ref:kind==='tenant'?'*':ref,paused:pause,reason}):null}>
-    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<Short value={ref}/>:ref}</p>:<>
+    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<IdText value={ref}/>:ref}</p>:<>
       <div className="field"><label htmlFor="control-scope">范围</label><select id="control-scope" value={kind} required onChange={e=>{setKind(e.target.value as keyof typeof SCOPES|'');setRef('');}}>
         <option value="">请选择范围</option>{Object.entries(SCOPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
       {kind&&kind!=='tenant'?<div className="field"><label htmlFor="control-ref">对象</label><input id="control-ref" value={ref} onChange={e=>setRef(e.target.value)} required maxLength={255}/></div>:null}
@@ -277,7 +277,7 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
 export function ReleaseForm({member,consumerId,context}:{member:Me;consumerId:string;context?:ReactNode}){
   const [reason,setReason]=useState('');
   return <Form operation="release_contact_restriction" title="解除联系限制" member={member} body={()=>({consumer_id:consumerId,reason})}>
-    <p>客户：<Short value={consumerId}/></p>{context}
+    <p>客户：<IdText value={consumerId}/></p>{context}
     <p className="impact-summary" role="note">影响：只解除这位客户的联系限制；之前被拒的意图不会重放，计划将重新评估。</p>
     <Reason id="release-reason" value={reason} onChange={setReason} label="解除原因（例如客户已确认可以联系）"/>
   </Form>;
@@ -317,7 +317,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
   const [reason,setReason]=useState('');const [at,setAt]=useState('');
   return <details className="workbench-op"><summary>{title}</summary>
     <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
-      <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
+      <p>对象：承诺 {subject?`“${subject}” `:''}<IdText value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
       {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}（北京时间）</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
       <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>

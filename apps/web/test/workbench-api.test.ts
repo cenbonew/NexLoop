@@ -24,7 +24,7 @@ test('AT-045: exact failure kinds from status codes, never an empty success',asy
   vi.stubGlobal('fetch',vi.fn(async()=>{throw new TypeError('network down');}));
   await expect(readOverview()).rejects.toMatchObject({kind:'unavailable'});
   respond(200,'not json');await expect(readOverview()).rejects.toMatchObject({kind:'invalid'});
-  expect(STATE_TEXT.unavailable).toContain('不代表没有数据');expect(STATE_TEXT.forbidden).toContain('403');
+  expect(STATE_TEXT.unavailable).toContain('不代表没有数据');expect(STATE_TEXT.forbidden).not.toMatch(/\d{3}/);  // C11: codes in the technical details only
 });
 
 test('AT-045: partial overview keeps each block\'s own status; a malformed block rejects the whole response',async()=>{

@@ -34,7 +34,7 @@ try{
   await open(page,'/workbench/actions','order-actions');
   result.actions={summary:await page.locator('.workbench-summary').innerText(),textareas:await page.locator('.workbench-page textarea').count()};
   await open(page,'/workbench/plans','order-plans');
-  result.plans={textareas:await page.locator('.workbench-page textarea').count(),empty:await page.locator('.workbench-empty').innerText()};
+  result.plans={textareas:await page.locator('.workbench-page textarea').count(),empty:await page.locator('.workbench-page .state[data-state="empty"]').innerText()};
   // F06 pause/resume: nothing chosen by default; the impact appears once scope and operation are chosen; still nothing submitted.
   await open(page,'/workbench/goals','order-goals');
   result.goals={scope:await page.locator('#control-scope').inputValue(),checked:await page.locator('input[name=control-paused]:checked').count(),
@@ -51,7 +51,7 @@ try{
   result.audit=await page.evaluate(()=>{const t=document.querySelector('section[aria-labelledby="workbench-audit-title"] table');
     const one=e=>{const r=e.getBoundingClientRect();const lh=parseFloat(getComputedStyle(e).lineHeight)||parseFloat(getComputedStyle(e).fontSize)*1.6;return r.height<=lh*1.5;};
     return {rows:t.querySelectorAll('tbody tr').length,nowrap_one_line:[...t.querySelectorAll('.nowrap')].every(one),
-      ids:[...t.querySelectorAll('.id-ref code')].map(c=>c.textContent),full_in_title:[...t.querySelectorAll('.id-ref-toggle')].every(b=>b.title.length>=b.textContent.length),
+      ids:[...t.querySelectorAll('.id-text .id-code')].map(c=>c.textContent),full_in_title:[...t.querySelectorAll('.id-text .id-code')].every(c=>c.title.length>=c.textContent.length),
       hscroll:document.documentElement.scrollWidth-innerWidth};});
   await context.close();
 }finally{await browser.close();}

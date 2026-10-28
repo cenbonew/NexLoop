@@ -16,7 +16,7 @@ import {ExtractionDeadLetterForm,WithMember} from '../actions';
 
 export const REASON_TEXT:Record<string,string>={
   dead_letters:'有未处理的提取死信',failed_jobs:'有提取任务失败',backlog_stale:'待提取消息等待超过 1 小时',failure_ratio_high:'24 小时提取失败率超过 20%',
-  no_active_profile:'召回索引没有启用的 embedding profile',missing_embeddings:'有条目缺少 embedding，需要回填',profile_drift:'存在旧 profile 的向量（profile 漂移）',
+  no_active_profile:'召回索引没有启用的嵌入配置',missing_embeddings:'有条目缺少向量，需要回填',profile_drift:'存在按旧嵌入配置生成的向量，需要重新生成',
   reflow_stale:'审核决定等待重流超过 1 小时',
   signature_rejections:'有商业事件因签名被拒',rejected_ratio_high:'24 小时商业事件拒收率超过 10%',outbox_backlog:'消息发件箱积压超过 50 条',
   orphans:'有超过 1 天、没有任何引用的 Artifact',retention_passed:'有超过保留期仍可用的 Artifact',stuck_deleting:'有 Artifact 删除中超过 1 小时',
@@ -61,9 +61,9 @@ function Body({h}:{h:Health}){
       </Card>
       {x.dead_letter_items.length?<DeadLetters items={x.dead_letter_items} total={x.unresolved_dead_letters}/>:null}
       <Card title="召回索引与回填" s={r}>
-        <Row k="启用的 profile" v={r.active_profile?<code>{r.active_profile}</code>:'未设置'}/><Row k="条目" v={r.entries}/>
-        <Row k="缺少 embedding" v={r.missing_embeddings}/><Row k="覆盖率" v={percent(r.coverage_ratio)}/>
-        <Row k="旧 profile 向量" v={r.other_profile_vectors}/><Row k="最近回填" v={r.last_backfill_at?when(r.last_backfill_at):'—'}/>
+        <Row k="启用的嵌入配置" v={r.active_profile?<code>{r.active_profile}</code>:'未设置'}/><Row k="条目" v={r.entries}/>
+        <Row k="缺少向量" v={r.missing_embeddings}/><Row k="覆盖率" v={percent(r.coverage_ratio)}/>
+        <Row k="旧配置的向量" v={r.other_profile_vectors}/><Row k="最近回填" v={r.last_backfill_at?when(r.last_backfill_at):'—'}/>
       </Card>
       <Card title="审核重流" s={f}>
         <Row k="待重流" v={f.pending}/><Row k="等待授权" v={f.waiting}/><Row k="最久等待" v={f.pending+f.waiting?ageText(f.oldest_seconds):'—'}/>

@@ -384,7 +384,7 @@ export function OutreachApprovals(){
         {label:'目的',cell:p=><code>{p.purpose_id}</code>},
         {label:'发起时间',cell:p=><Time value={p.requested_at}/>},
         {label:'截止',cell:p=><Time value={p.expires_at}/>},
-        {label:'发起人',cell:p=><IdText value={p.requested_by} kind="成员" copy={false}/>},
+        {label:'发起人',cell:p=><IdText value={p.requested_by} kind="成员"/>},
         {label:'操作',cell:p=><WithMember>{member=><>
           <Form operation="decide_outreach_approval" member={member} className="inline-action" title="批准" body={()=>({intent_id:p.intent_id,decision:'approve',reason:'负责人批准'})}><span/></Form>
           <Form operation="decide_outreach_approval" member={member} className="inline-action" title="拒绝" body={()=>({intent_id:p.intent_id,decision:'reject',reason:'负责人拒绝'})}><span/></Form>
