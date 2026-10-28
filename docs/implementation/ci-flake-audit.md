@@ -78,12 +78,12 @@
 
 | 风险 | 位置 | 说明 | 建议 |
 |---|---|---|---|
-| 高 | `tests/test_s6_stage_evolution_pg.py:98` | 窗口 `until = NOW + 1 min`。只要收集后超过 1 分钟才跑到这个用例，运行时写入的证据就落在窗口之外 | 在用例内求值：`now = datetime.now(UTC)`（或取 PG 的 `select now()`）；约 3 行 |
+| 低（P2 实测后下调） | `tests/test_s6_stage_evolution_pg.py:98` | 窗口 `until = NOW + 1 min`。原判断是收集后超过 1 分钟运行就会出窗。l5/flake-p2 用"运行晚于收集 2 小时"实测，旧代码仍然通过：窗口和全部合成数据都相对同一个 `NOW`，阶段脚本并不拿窗口和数据库的 now() 比较。只有预算期 `NOW + 29 天` 这类条件，要在收集后约 29 天才会失效 | 在用例内求值：`now = datetime.now(UTC)`（或取 PG 的 `select now()`）；约 3 行 |
 | 高 | `tests/test_goal_controls.py:177` | 注释写明 `NOW - 5 min` 应在 1 h 成熟窗口内。收集后超过 55 分钟才运行时，就落到窗口外 | 同上，用例内取时间；约 2 行 |
 | 中 | `tests/test_nx037_tenant_init_pg.py:28,88,175` | `credential_expires_at = NOW + 2h`，`PERIOD` 从 `NOW - 1h` 开始。以一轮 1.5 小时计尚有余量，但余量不大 | 改为用例内或 fixture 内求值；约 4 行 |
 | 中 | `tests/test_nx043_pooled_pg.py:17`、`test_nx043_report_action_pg.py:21`、`test_nx043_reports_pg.py:20` | `TODAY` 是收集时的 UTC 零点。收集在 UTC 零点之前、运行在零点之后（即北京时间 08:00 前后）时，"整 UTC 日"的计算会错一天 | fixture 内求值；每个文件约 2 行 |
 | 低（需确认） | `test_commercial_metrics_pg.py:9`、`test_evolution_e4_pg.py:26`、`test_budget_approval_pg.py:24`、`test_stage_tenant_configure_pg.py:22`、`test_nx022_dispatch_e2e.py:28`、`test_file_backup_pg.py:22`、`test_data_health_pg.py:24`、`test_retention_pg.py:31` | 多为"若干小时或天以前"这种宽窗口，或是只用来写入的时间戳。commercial_metrics 用的是 `NOW - 1h / -3h`，如果它所比较的窗口是"最近 N 小时"，就和上面属于同一类 | 逐个确认；统一做法是用例内求值 |
-| 低 | `tests/test_nx043_budget_drill_pg.py:68` | 参数化在收集时求值 `soon(120)`。该用例要验证"超过 1 h 被拒"，但 `ends_at` 是收集时算出的固定时刻，随时间推移离现在越来越近。在收集后约 60 分钟以内运行时仍大于 1 h；超过约 60 分钟，就会变成"1 h 内"而被接受，断言失败 | 改为在用例内计算（参数只传分钟数）；约 2 行 |
+| 高 | `tests/test_nx043_budget_drill_pg.py:68` | 参数化在收集时求值 `soon(120)`。该用例要验证"超过 1 h 被拒"，但 `ends_at` 是收集时算出的固定时刻，随时间推移离现在越来越近。在收集后约 60 分钟以内运行时仍大于 1 h；超过约 60 分钟，就会变成"1 h 内"而被接受，断言失败 | 改为在用例内计算（参数只传分钟数）；约 2 行 |
 
 另：本次没有发现参数化里直接调用 `time.time()` 的写法。
 
@@ -122,8 +122,8 @@ d60a833f 已经修好 `runtime_worker` CLI 的退出超时，本扫描没有发�
 |---|---|---|---|
 | P1 | 第 4 项 lease expiry：条件等待，`receive` 加诊断 | 约 15 行 | 已在 CI 上出现 |
 | P1 | 第 1 项 v6 relationships：加入 `HEAVY_TESTS`，可选诊断 | 1–4 行 | 已在 CI 上出现，属老偶发 |
-| P2 | A 类两个高风险项：s6_stage_evolution、goal_controls | 约 5 行 | 尚未在 CI 出现，但必然随运行时长触发 |
-| P2 | A 类 budget_drill 参数化 `soon(120)` | 约 2 行 | 同上 |
+| P2 | A 类高风险项 goal_controls；s6_stage_evolution 一并改为用例内求值（实测并非偶发来源） | 约 5 行 | goal_controls 尚未在 CI 出现，但运行晚于收集约 55 分钟后必然触发 |
+| P2 | A 类 budget_drill 参数化 `soon(120)` | 约 2 行 | 运行晚于收集约 60 分钟后必然触发 |
 | P3 | A 类中风险的 nx043 `TODAY`、nx037；B 类 test_backend_queue、test_runtime_dispatch 逐条确认 | 每处 2–6 行 | — |
 | — | 第 2、3 项 | 无 | 已修的真问题，只需在 CI 主机核对失败轮次的 head |
 
