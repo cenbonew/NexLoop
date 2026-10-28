@@ -1,4 +1,4 @@
-"""UI backend X1-X4 (L9 workbench UX audit; migrations 0374-0376, temporary numbers): read-only fields for the workbench and WebChat.
+"""UI backend X1-X4 (L9 workbench UX audit; migrations 0366-0368, temporary numbers): read-only fields for the workbench and WebChat.
 
 X1  the approvals view names the requester (`requested_by_username`): the account of that membership in this tenant, null once the
     member was erased, never another tenant's account;

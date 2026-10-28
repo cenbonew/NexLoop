@@ -1,6 +1,6 @@
 # UI 后端 X1–X4：接口说明（给 L9）
 
-来源：L9 工作台 UX 审查（`claude/ui-ux-05f384` 3dc04c11 的 `docs/design/workbench-ux-audit.md` §X）。分支 `l2/ui-backend-x1-x4`，基于 main 17aa74c1。迁移 0374–0376，临时编号，由调度员重排。只改后端；前端由 L9 接。
+来源：L9 工作台 UX 审查（`claude/ui-ux-05f384` 3dc04c11 的 `docs/design/workbench-ux-audit.md` §X）。分支 `l2/ui-backend-x1-x4`，基于 main 17aa74c1。迁移 0366–0368，临时编号，由调度员重排。只改后端；前端由 L9 接。
 
 **契约**：四处都是给已有响应**追加只读字段**，没有删改旧字段。这几处响应（工作台审批视图、消费者列表、顾客对话列表）在 `packages/contracts/` 里都没有发布过 JSON Schema，所以不出新的契约版本；旧客户端忽略新字段即可。前端解析器若用白名单校验字段，要先放行新字段。
 
