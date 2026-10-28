@@ -94,7 +94,7 @@ IDENTITY_KEPT = {
     # NX-058 slice F: single sign-on of workbench members - staff, never a Consumer (staff erasure: tests/test_member_erasure_coverage_pg.py).
     # The link holds the member's IdP subject in clear (external_subject, not an HMAC); a trigger deletes it when the membership is revoked.
     'control.nexloop_workbench_external_identities': _STAFF + ' (a workbench member\'s SSO link: provider, issuer and IdP subject in clear; deleted on revocation)',
-    'control.nexloop_workbench_sso_pending': _STAFF + ' (an SSO-only invitee awaiting the link: principal, provider and invitation id, no IdP subject; deleted on link or revocation)',
+    'control.nexloop_workbench_sso_pending': _STAFF + ' (an SSO-only invitee awaiting the link: principal, provider and invitation id; subject_id is the internal subject id, not the IdP sub; deleted on link or revocation)',
     # NX-057: who switched or resolved a remediation (the owner or the planner's service principal); the remediation holds no consumer id.
     'control.nexloop_remediation_switches': _STAFF + ' (the owner who paused or resumed remediation)',
     'runtime.nexloop_remediation_events': _STAFF + ' (the planner service or the owner who moved a remediation)',
