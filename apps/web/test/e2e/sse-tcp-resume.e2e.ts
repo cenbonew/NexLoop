@@ -78,7 +78,7 @@ test('TCP cut, Last-Event-ID resume over TLS: every committed message is display
     // The resumed request carried Last-Event-ID 3: the stream URL still says after=2, yet the second connection starts at 4.
     expect(received).toEqual([['3'],['4','5']]);
     // A refetch of the list after the resume keeps exactly one copy of each row.
-    const check=[...host.querySelectorAll('button')].find(b=>b.textContent==='核对已提交消息')!;
+    const check=[...host.querySelectorAll('button')].find(b=>b.textContent==='刷新消息')!;
     await act(async()=>check.click());await act(async()=>{await new Promise(r=>setTimeout(r,500));});
     expect(shown()).toEqual(expected(5));expect(new Set(shown()).size).toBe(5);
     Object.assign(observed,{shown:shown(),events_per_connection:received,relay_connections:connections,stream_unavailable_shown:host.textContent!.includes('实时连接暂不可用')});

@@ -23,7 +23,7 @@ try{
     const prompt=JSON.parse(line);
     if(prompt.act){
       await page.fill('#chat-message',prompt.text);
-      await page.getByRole('button',{name:'发送消息'}).click();
+      await page.getByRole('button',{name:'发送',exact:true}).click();
       await page.locator('ol.messages > li > p',{hasText:prompt.text}).first().waitFor({timeout:20000});
     }
     process.stdout.write(JSON.stringify({seq:prompt.seq,sent:!!prompt.act})+'\n');

@@ -15,7 +15,7 @@ const staff={id:'b'.repeat(64),conversation_id:'a'.repeat(64),sequence:3,actor:'
  direction:'outbound',sender_kind:'human_takeover',trigger_message_id:'c'.repeat(64)};
 test('staff reply (ruling B) parses without an intent and never claims resolution',()=>{
  const item=message(staff);expect(item).toMatchObject({direction:'outbound',sender_kind:'human_takeover',trigger_message_id:'c'.repeat(64)});
- const view=messagePresentation(item);expect(view.sender).toBe('人工客服回复');expect(view.receipt).toBe(false);expect(view.status).toContain('不代表问题已解决');
+ const view=messagePresentation(item);expect(view.sender).toBe('人工客服');expect(view.receipt).toBe(false);expect(view.status).not.toMatch(/已解决|已兑现|已完成/);  // B12: no status line on a reply
 });
 test.each([
  ['staff reply with an intent',{...staff,intent_id:'5f0c8c8e-3b1a-4c6d-9e2f-1a2b3c4d5e6f'}],

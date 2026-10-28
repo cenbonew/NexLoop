@@ -21,9 +21,10 @@ test('strict projection rejects fake fulfillment, extra private fields and expan
 });
 test('real projected denial replaces queued wording without claiming delivery',()=>{
  const html=render({receipt:{message_id:mid,run:{run_id:'x'},receipt:null},denial});
- assert.match(html,/超出已授权服务范围/);assert.match(html,/未创建新的交付意图/);assert.match(html,/JSON 文本导出/);assert.doesNotMatch(html,/已进入处理队列|服务已履行/);
+ assert.match(html,/超出了可提供的服务范围，没有为你办理/);assert.match(html,/可以提供：固定私有目录内可核验的 JSON 文本导出/);assert.doesNotMatch(html,/处理中|已办理完成/);
+ assert.doesNotMatch(html,/治理|回执|核验证据|意图/);  // B12: no internal vocabulary for the customer
 });
 test('successful governed receipt retains fulfillment presentation',()=>{
  const html=render({receipt:{message_id:mid,run:{run_id:'x'},receipt:{state:'fulfilled',business_action_success:true,receipt_id:'original-receipt'}},denial:null});
- assert.match(html,/服务已履行（治理回执）/);assert.match(html,/original-receipt/);assert.doesNotMatch(html,/超出已授权服务范围/);
+ assert.match(html,/已办理完成/);assert.doesNotMatch(html,/original-receipt|治理回执/);assert.doesNotMatch(html,/超出了可提供的服务范围/);  // B12: no receipt id or vocabulary
 });

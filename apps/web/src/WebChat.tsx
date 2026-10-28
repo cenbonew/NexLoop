@@ -4,8 +4,8 @@ import {MessageReceipt} from './MessageReceipt';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {chatError,createConversation,listConversations,mergeCommitted,messagePresentation,readHandling,readMessages,sendMessage,subscribe,type Message} from './chat-api';
 /** The conversation list carries no title or time yet (that needs a new field in the conversation read), so a conversation is named by
- * its place in the list; the full ID stays in the option's title. */
-export const conversationLabel=(index:number,id:string)=>`服务对话 ${index+1} · ${id.slice(0,6)}`;
+ * its place in the list. The customer sees no identifier (UX audit B12, owner 2026-10-28). */
+export const conversationLabel=(index:number,_id:string)=>`对话 ${index+1}`;
 /** Local date and time, 24-hour, without seconds' fractions. */
 export const localTime=(value:string)=>{const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false});};
 export function WebChat(){
@@ -23,24 +23,25 @@ export function WebChat(){
   useEffect(()=>{if(!selected||!messages.data)return;const after=messages.data.items.reduce((n,item)=>Math.max(n,item.sequence),0);let retry:ReturnType<typeof setTimeout>|undefined;const close=subscribe(selected,after,event=>{setStreamUnavailable(false);cache.setQueryData(['messages',selected],(old:{items:Message[];next_cursor:string|null}|undefined)=>old?{...old,items:[...old.items.filter(item=>item.id!==event.data.id),event.data].sort((a,b)=>a.sequence-b.sequence)}:old);},()=>setStreamUnavailable(true),()=>setStreamUnavailable(false),()=>{retry=setTimeout(()=>setStreamGeneration(n=>n+1),5000);});return ()=>{clearTimeout(retry);close();};},[selected,!!messages.data,cache,streamGeneration]);
   const current=conversations.data?.items.find(item=>item.id===selected);
   function submit(){const item=pending??nativeMessage(selected,draft);setPending(item);send.mutate(item);}
-  const profile=current?.execution_profile==='deterministic-test'?'确定性测试（不代表真实模型或真实渠道）':current?.execution_profile==='real-provider'?'受控 Provider（调用结果以实际回执为准）':current?.execution_profile==='disabled'?'未启用':'待核验';
-  const world=current?.world_id==='real'?'业务世界：real':current?'业务世界：'+current.world_id:'业务世界待核验';
+  // B12 (owner 2026-10-28): the customer sees the conversation and simple states only - no execution profile, world or receipt
+  // vocabulary. A test deployment is still said plainly, so a test reply is never taken for the real service.
+  const test=current?.execution_profile==='deterministic-test'||(!!current&&current.world_id!=='real');
   const latest=messages.data?.items.reduce<string|null>((t,item)=>!t||item.accepted_at>t?item.accepted_at:t,null)??null;
   return <section className="chat" aria-labelledby="chat-heading">
-    <div className="chat-bar"><h2 id="chat-heading">消费者对话</h2>
+    <div className="chat-bar"><h2 id="chat-heading">我的对话</h2>
       {conversations.isPending?<p role="status">正在读取你的对话…</p>:conversations.isError?<p role="alert">{chatError(conversations.error)}</p>:<div className="chat-picker"><label htmlFor="conversation">你的对话</label><select id="conversation" value={selected} disabled={!!pending||send.isPending} onChange={event=>{setSelected(event.target.value);setStreamUnavailable(false);}}><option value="">选择对话</option>{conversations.data.items.map((item,i)=><option key={item.id} value={item.id} title={item.id}>{conversationLabel(i,item.id)}</option>)}</select>
-        <button type="button" disabled={create.isPending||!!pending} onClick={()=>create.mutate()}>{create.isPending?'正在创建…':'建立服务对话'}</button></div>}
-      <p className="note chat-meta">执行模式：{profile} · 企业服务入口 · {world}{latest?<> · 最近消息 <time dateTime={latest}>{localTime(latest)}</time></>:null}</p>
-      {conversations.data&&!conversations.data.items.length&&<p>还没有对话。</p>}{conversations.data?.next_cursor&&<button type="button" disabled={moreConversations.isPending} onClick={()=>moreConversations.mutate()}>读取更多对话</button>}{moreConversations.isError&&<p role="alert">{chatError(moreConversations.error)}</p>}
+        <button type="button" disabled={create.isPending||!!pending} onClick={()=>create.mutate()}>{create.isPending?'正在创建…':'新建对话'}</button></div>}
+      {test||latest?<p className="note chat-meta">{test?<span className="chat-test-badge">测试环境，回复不代表正式服务</span>:null}{test&&latest?' · ':null}{latest?<>最近消息 <time dateTime={latest}>{localTime(latest)}</time></>:null}</p>:null}
+      {conversations.data&&!conversations.data.items.length&&<p>还没有对话，点“新建对话”开始。</p>}{conversations.data?.next_cursor&&<button type="button" disabled={moreConversations.isPending} onClick={()=>moreConversations.mutate()}>加载更早的对话</button>}{moreConversations.isError&&<p role="alert">{chatError(moreConversations.error)}</p>}
       {create.isError&&<p role="alert">{chatError(create.error)}</p>}
       {selected&&handled.data?.handled_by==='human'&&<p role="status" className="banner">人工客服处理中</p>}
     </div>
-    {selected&&<><p className="note">仅显示已提交消息。“已接受”表示消息入库，尚不代表服务已履行。执行模式以服务端配置标签为准；可查询实际治理回执，未取得回执时不推断履行。</p>
-      {messages.isPending?<p role="status">正在读取消息…</p>:messages.isError?<p role="alert">{chatError(messages.error)}</p>:<ol className="messages">{messages.data?.items.map(item=>{const view=messagePresentation(item);return <li key={item.id} className={item.direction==='outbound'?'message outbound':'message inbound'} data-direction={item.direction}><span>{view.sender}</span><time dateTime={item.accepted_at}>{localTime(item.accepted_at)}</time><p>{item.body}</p><small>{view.status}</small>{view.receipt&&<MessageReceipt messageId={item.id}/>}</li>;})}</ol>}
-      {messages.data?.next_cursor&&<button type="button" disabled={more.isPending} onClick={()=>more.mutate()}>{more.isPending?'正在读取…':'读取后续已提交消息'}</button>}{more.isError&&<p role="alert">{chatError(more.error)}</p>}
+    {selected&&<>
+      {messages.isPending?<p role="status">正在读取消息…</p>:messages.isError?<p role="alert">{chatError(messages.error)}</p>:<ol className="messages">{messages.data?.items.map(item=>{const view=messagePresentation(item);return <li key={item.id} className={item.direction==='outbound'?'message outbound':'message inbound'} data-direction={item.direction}><span>{view.sender}</span><time dateTime={item.accepted_at}>{localTime(item.accepted_at)}</time><p>{item.body}</p>{view.status?<small>{view.status}</small>:null}{view.receipt&&<MessageReceipt messageId={item.id}/>}</li>;})}</ol>}
+      {messages.data?.next_cursor&&<button type="button" disabled={more.isPending} onClick={()=>more.mutate()}>{more.isPending?'正在读取…':'加载更多消息'}</button>}{more.isError&&<p role="alert">{chatError(more.error)}</p>}
       <div className="chat-composer">
-        {streamUnavailable&&<p role="status">实时连接暂不可用，正在等待重新连接；可手动核对已提交消息。</p>}
-        <form onSubmit={event=>{event.preventDefault();submit();}}><label htmlFor="chat-message">消息</label><textarea id="chat-message" value={pending?.body??draft} maxLength={8192} disabled={!!pending} onChange={event=>setDraft(event.target.value)} aria-describedby="chat-limit"/><p id="chat-limit" className="note">仅支持文本；附件、停止促销及删除请求专用处理尚未接通。</p><div className="chat-composer-actions"><button type="button" onClick={()=>void messages.refetch()}>核对已提交消息</button><button disabled={send.isPending||(!pending&&!draft.trim())}>{send.isPending?'正在提交…':pending?'核对并重试同一消息':'发送消息'}</button></div></form>
+        {streamUnavailable&&<p role="status">实时连接暂不可用，正在重新连接；可以点“刷新消息”查看最新消息。</p>}
+        <form onSubmit={event=>{event.preventDefault();submit();}}><label htmlFor="chat-message">消息</label><textarea id="chat-message" value={pending?.body??draft} maxLength={8192} disabled={!!pending} onChange={event=>setDraft(event.target.value)} aria-describedby="chat-limit"/><p id="chat-limit" className="note">目前只支持文字消息。退订推广或删除个人信息的请求暂时需要另行联系企业。</p><div className="chat-composer-actions"><button type="button" className="btn-secondary" onClick={()=>void messages.refetch()}>刷新消息</button><button disabled={send.isPending||(!pending&&!draft.trim())}>{send.isPending?'正在发送…':pending?'重新发送这条消息':'发送'}</button></div></form>
         {send.isError&&<p role="alert">{chatError(send.error)}</p>}
       </div>
     </>}

@@ -142,5 +142,5 @@ def test_real_chromium_workbench_semantics_batch_seven(conversations, admin, pg,
     # F10: from the customer to their commitments without searching; breadcrumbs name the customer; the history does not move the reading.
     f10 = o['f10']
     assert f10['commitments_url'].endswith('consumer=' + credentials['consumer_id'] + '&status=open') and f10['chip'].startswith('客户：'), f10
-    assert f10['crumbs'][0] == '消费者' and f10['crumbs'][1] == names['list'] and f10['crumbs'][-1] == '会话', f10
+    assert f10['crumbs'][0] == '客户' and f10['crumbs'][1] == names['list'] and f10['crumbs'][-1] == '会话', f10
     assert abs(f10['current_after'] - f10['current_before']) <= 2 and f10['history_snippet'], f10

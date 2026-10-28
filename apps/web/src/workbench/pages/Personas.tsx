@@ -42,7 +42,7 @@ export function Personas({actions}:{actions?:ReactNode}){
 function PersonaVersions({data}:{data:PersonaOverview}){
   const rows=[...data.personas].sort((a,b)=>a.persona_id.localeCompare(b.persona_id)||b.version-a.version);
   return <>
-    <p className="note">人设是消费者看到的“运营”的身份与说话方式。版本一经发布不可修改；Agent 不能修改人设。</p>
+    <p className="note">人设是客户看到的“运营”的身份与说话方式。版本一经发布不可修改；Agent 不能修改人设。</p>
     {rows.length?<DataTable label="人设版本" rows={rows} rowKey={p=>personaRef(p)} columns={[
       {label:'人设',main:true,cell:p=><>{p.document.display_name} <code>{personaRef(p)}</code></>},
       {label:'状态',cell:p=><StatusBadge domain="persona_status" code={p.status}/>},
@@ -52,7 +52,7 @@ function PersonaVersions({data}:{data:PersonaOverview}){
         className="inline-action" body={()=>p.status==='published'
           ?{persona_id:p.persona_id,version:p.version,status:'retired',document:null,reason:'负责人停用'}
           :{persona_id:p.persona_id,version:p.version,status:'published',document:p.document,reason:'负责人重新启用'}}><span/></Form>}</WithMember>}]}/>
-      :<EmptyState kind="empty" subject="人设" next="负责人在下方编辑并发布第一个人设；在此之前，消费者对话不带人设。"/>}
+      :<EmptyState kind="empty" subject="人设" next="负责人在下方编辑并发布第一个人设；在此之前，客户对话不带人设。"/>}
     <WithMember>{member=><PersonaEditor member={member} personas={data.personas}/>}</WithMember>
   </>;
 }
@@ -158,7 +158,7 @@ function AssignForm({member,usable}:{member:Parameters<typeof Form>[0]['member']
   const [consumer,setConsumer]=useState('');const [persona,setPersona]=useState('');const [reason,setReason]=useState('');
   return <Form operation="assign_operator_persona" member={member} title="为单个客户指定人设" disabled={!/^[a-f0-9]{64}$/.test(consumer)||!reason.trim()}
     body={()=>({consumer_id:consumer,persona_id:persona||null,reason:reason.trim()})}>
-    <FormField id="assign-consumer" label="客户 ID" hint="在消费者详情页复制客户 ID 后粘贴（64 位）。"><input id="assign-consumer" value={consumer} aria-describedby="assign-consumer-hint" onChange={e=>setConsumer(e.target.value.trim())}/></FormField>
+    <FormField id="assign-consumer" label="客户 ID" hint="在客户详情页复制客户 ID 后粘贴（64 位）。"><input id="assign-consumer" value={consumer} aria-describedby="assign-consumer-hint" onChange={e=>setConsumer(e.target.value.trim())}/></FormField>
     <FormField id="assign-persona" label="人设"><select id="assign-persona" value={persona} onChange={e=>setPersona(e.target.value)}>
       <option value="">清除指定（回到规则）</option>{usable.map(p=><option key={p.persona_id} value={p.persona_id}>{p.document.display_name} · {personaRef(p)}</option>)}</select></FormField>
     <FormField id="assign-reason" label="原因"><input id="assign-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></FormField>
@@ -173,7 +173,7 @@ export function Disclosure({setting}:{setting:AiDisclosure}){
       {key:'被直接询问是否 AI 时',value:setting.when_asked==='deflect'?'用人设里的回避话术回答（话术为空时转人工）':'转人工'},
       {key:'拦截“自称人类”的说法',value:setting.block_human_claims?'拦截':'不拦截'},{key:'消息加“AI 生成”标识',value:setting.content_label?'加':'不加'},
       {key:'修订号',value:setting.revision?`第 ${setting.revision} 版`:'未设置（使用默认值）'}]}/>
-    <p className="note">是否让消费者知道是 AI 由使用方决定；不同法域对 AI 生成内容的标识有不同要求，合规责任由使用方承担。系统只提供开关与话术配置，并记录每次处理。</p>
+    <p className="note">是否让客户知道是 AI 由使用方决定；不同法域对 AI 生成内容的标识有不同要求，合规责任由使用方承担。系统只提供开关与话术配置，并记录每次处理。</p>
     <WithMember>{member=><DisclosureForm member={member} setting={setting}/>}</WithMember>
   </>;
 }

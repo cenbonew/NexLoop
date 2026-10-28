@@ -7,7 +7,7 @@ import {useQuery} from '@tanstack/react-query';
 import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Backup,type Process} from '../api';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
-import {Card,CardGrid,EmptyState,KeyValue} from '../kit';
+import {Card,CardGrid,EmptyState,KeyValue,Notice} from '../kit';
 import {statusLabel,type Domain} from '../status-labels';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
@@ -21,7 +21,7 @@ const age=ageText;
 export function Alerts({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
   return <Page title="告警" query={query}>{data=><>
-    {data.evaluator.stale?<p className="warning" role="alert">{EVALUATOR_STALE_TEXT}</p>
+    {data.evaluator.stale?<Notice tone="warning" live>{EVALUATOR_STALE_TEXT}</Notice>
       :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 <Time value={data.evaluator.last_evaluated_at}/>。</p>}
     <Card title="正在触发" badge={data.firing.length?<StatusBadge text={`${data.firing.length} 条`} tone={data.firing.some(a=>a.severity==='critical'&&!a.silenced_until)?'fail':'limited'}/>:null}>
       <DataTable label="正在触发的告警" empty={{subject:'触发中的告警'}} rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[

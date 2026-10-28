@@ -15,7 +15,7 @@ import {SemanticReleaseSection} from './SemanticReleases';
  * reviewer-less member): the page says whose page it is instead of the generic "no permission" (NX-028 D2 and its 2026-10-18
  * revision). */
 export const REVIEWER_ONLY_TEXT=<>
-  <p>查看知识工作台需要审核 Action（<code>ontology.schema.review</code>，<strong>审核员（reviewer）</strong>角色）或知识只读 Action（<code>nexloop.knowledge.read</code>）。当前账号的角色两者都不包含。</p>
+  <p>查看知识工作台需要审核 Action（<code>ontology.schema.review</code>，<strong>审核人</strong>角色）或知识只读 Action（<code>nexloop.knowledge.read</code>）。当前账号的角色两者都不包含。</p>
   <p>需要查看或审核时，请用相应角色的账号登录工作台。成员的角色由可信配置分配（<code>workbench_roles</code>），不能在工作台内自行更改。</p>
 </>;
 
@@ -31,7 +31,7 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
   // NX-039 V4: the owner's semantic release controls sit beside the review queue (shown only for a role carrying them).
   return <><Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
     {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
-    <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。有审核权限的成员（负责人或审核员）在候选的证据页中提交决定（通过、并入已有定义、拒绝），理由必填，决定写入审计。</p>
+    <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。有审核权限的成员（负责人或审核人）在候选的证据页中提交决定（通过、并入已有定义、拒绝），理由必填，决定写入审计。</p>
     <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[
       {label:'候选',main:true,cell:x=><button type="button" className="link" onClick={()=>onOpen(x.candidate_id)}>{x.display_name??shorten(x.candidate_id)}</button>},
       {label:'类别',cell:x=><StatusBadge domain="candidate_kind" code={x.kind}/>},{label:'证据',num:true,cell:x=>x.evidence_count},{label:'提出时间',cell:x=><Time value={x.created_at}/>}]}/>

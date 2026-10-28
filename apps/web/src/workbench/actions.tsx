@@ -7,7 +7,7 @@
  */
 import {statusLabel} from './status-labels';
 import {shorten} from './kit';
-import {useEffect,useRef,useState,type FormEvent,type ReactNode} from 'react';
+import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
 import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
@@ -37,9 +37,9 @@ export const DONE_TEXT:Record<Operation,string>={
   commitment_condition_met:'已记录条件满足。',mark_commitment_communication:'已标记为沟通类承诺。',
   request_plan_reevaluation:'已请求复评；是否启动复评 Run 仍由预检决定。',
   request_effect_query:'已请求查询执行结果；不会重发，也不会换新的幂等键。',
-  take_over_conversation:'已接管：接管期间 Agent 不回复，顾客看到“人工客服处理中”。',
+  take_over_conversation:'已接管：接管期间 Agent 不回复，客户看到“人工客服处理中”。',
   hand_back_conversation:'已交还：只有最新一条未回复的来信恢复待回复，更早的记为接管期间已处理；计划将重新评估。',
-  send_staff_reply:'已发送给顾客；不代表问题已解决或承诺已兑现。',
+  send_staff_reply:'已发送给客户；不代表问题已解决或承诺已兑现。',
   silence_alert:'已静默：期间仍会评估和记录，只是不再提示；到期自动结束。',
   set_real_dispatch:'已提交；开关以重新读取的状态为准。部署层 REAL_DISPATCH_ENABLED 不在工作台控制范围内。',
   decide_approval:'已记录审批结论；批准后由发起人执行，执行时还会重查批准人资格、期限和暂停。',
@@ -57,14 +57,14 @@ export const DONE_TEXT:Record<Operation,string>={
   suspend_workbench_member:'已停用；授权已撤销，会话已失效。恢复时按角色当前的模板重新授权。',
   resume_workbench_member:'已恢复；按角色当前的模板重新授权。',
   revoke_workbench_member:'已撤销成员；授权、配置和会话都已结束。账号保留，如需擦除个人数据请另行发起擦除。',
-  promote_workbench_member:'已提升为 owner；这位成员的会话已失效。投票资格要等 24 小时后才生效。',
+  promote_workbench_member:'已提升为负责人；这位成员的会话已失效。投票资格要等 24 小时后才生效。',
   demote_workbench_owner:'已降级；这位成员的会话、重置码和未接受的邀请都已结束。',
-  suspend_workbench_owner:'已停用这位 owner；授权已撤销，会话已失效。',
-  resume_workbench_owner:'已恢复这位 owner；投票资格要等 24 小时后才生效。',
-  revoke_workbench_owner:'已撤销这位 owner；授权、配置和会话都已结束。',
-  issue_workbench_owner_reset:'已签发重置码；这位 owner 的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
-  invite_workbench_owner:'已签发 owner 邀请；令牌只在这里显示一次，请线下转交本人。',
-  erase_workbench_member:'已擦除：账号停用、口令清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
+  suspend_workbench_owner:'已停用这位负责人；授权已撤销，会话已失效。',
+  resume_workbench_owner:'已恢复这位负责人；投票资格要等 24 小时后才生效。',
+  revoke_workbench_owner:'已撤销这位负责人；授权、配置和会话都已结束。',
+  issue_workbench_owner_reset:'已签发重置码；这位负责人的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
+  invite_workbench_owner:'已签发负责人邀请；令牌只在这里显示一次，请线下转交本人。',
+  erase_workbench_member:'已擦除：账号停用、密码清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -133,14 +133,19 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
   return <div className="field"><label htmlFor={id}>{label}</label><textarea id={id} value={value} onChange={e=>onChange(e.target.value)} required maxLength={500} rows={2}/></div>;
 }
 
-/** A form for one operation: shown only when the role carries it. */
-export function Form({operation,title,member,children,body,disabled,onDone,className}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
-  disabled?:boolean;onDone?:()=>void;className?:string}){
+/** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
+ * (UX audit B4); `disabledReason` says, under the disabled button and tied to it, what is still missing (B6). */
+export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;disabledReason?:string;onDone?:()=>void;className?:string;tone?:'danger'}){
   const write=useWrite(operation,onDone);
+  const reasonId=useId();
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
+  const why=disabled&&!write.isPending&&disabledReason?disabledReason:null;
   return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
-    <button type="submit" disabled={disabled||write.isPending}>{write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
+    <button type="submit" className={tone==='danger'?'btn-danger':undefined} disabled={disabled||write.isPending} aria-describedby={why?reasonId:undefined}>
+      {write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
+    {why?<p className="disabled-reason" id={reasonId}>{why}</p>:null}
     <Outcome operation={operation} write={write}/></form>;
 }
 
@@ -199,7 +204,7 @@ export function RemediationRuleReleaseForm({member,ruleId}:{member:Me;ruleId:str
 /** The tenant's remediation switch: pausing takes effect at once; failures while paused get no remediation, now or later. */
 export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}){
   const [reason,setReason]=useState('');
-  return <Form operation="switch_remediation" title={paused?'恢复补救':'暂停补救'} member={member} body={()=>({paused:!paused,reason})}>
+  return <Form operation="switch_remediation" title={paused?'恢复补救':'暂停补救'} member={member} tone={paused?undefined:'danger'} body={()=>({paused:!paused,reason})}>
     <p className="impact-summary" role="note">影响：{paused?'之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}</p>
     <Reason id="remediation-switch-reason" value={reason} onChange={setReason}/>
   </Form>;
@@ -275,7 +280,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
   extra?:{id:string;label:string;key:'occurred_at'|'due_at'}}){
   const [reason,setReason]=useState('');const [at,setAt]=useState('');
   return <details className="workbench-op"><summary>{title}</summary>
-    <Form operation={operation} title={title} member={member} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
+    <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
       <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
       {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
@@ -328,7 +333,7 @@ function TakeoverControls({member,scopeKind,scopeRef,consumerId,conversationId}:
   return <section className={'takeover-bar'+(current?' takeover-on':'')} aria-label="人工接管">
     <div className="takeover-status" role="status">
       <span className={'takeover-pill'+(current?' takeover-pill-on':'')}>{current?'人工接管中':'Agent 处理中'}</span>
-      <span>{current?takeoverText(current):scopeKind==='consumer'?'该客户的会话由 Agent 回复。':'本会话由 Agent 回复；接管后 Agent 暂停回复，顾客看到“人工客服处理中”。'}</span>
+      <span>{current?takeoverText(current):scopeKind==='consumer'?'该客户的会话由 Agent 回复。':'本会话由 Agent 回复；接管后 Agent 暂停回复，客户看到“人工客服处理中”。'}</span>
     </div>
     {notice?<p className={'takeover-notice'+(notice.operation==='hand_back_conversation'?' takeover-notice-back':'')} role="status">
       {notice.at} · {notice.operation==='hand_back_conversation'?'已交还给 Agent。':'已接管。'}{DONE_TEXT[notice.operation].replace(/^已(交还|接管)：/,'')}</p>:null}

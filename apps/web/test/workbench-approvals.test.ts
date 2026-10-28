@@ -32,7 +32,7 @@ test('NX-056 A4: the three columns parse strictly; a decide row never carries a 
 test('NX-056 A4: the page offers approve and reject with a reason, execute and withdraw; an operator without the Actions gets no form', ()=>{
   const parsed=approvals(raw);
   const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],approver]]),h(Approvals,{}));
-  for(const t of ['待我审批','待我执行','我发起的','批准','拒绝','执行','撤回','打开真实派发','scope_kind=tenant','0123456789ab','0 / 1'])expect(html).toContain(t);
+  for(const t of ['待我审批','待我执行','我发起的','批准','拒绝','执行','撤回','打开真实派发','<dt>范围</dt><dd>整个租户</dd>','0123456789ab','0 / 1'])expect(html).toContain(t);
   expect(html).not.toContain('<code>set_real_dispatch</code>');  // the Action in words, not its operation code
   expect(html).not.toContain('季度上线');  // the frozen reason is not shown
   const asOperator=render(client([[['workbench','approvals'],parsed],[['workbench','me'],operator]]),h(Approvals,{}));
@@ -49,7 +49,7 @@ test('NX-056 A4: a governed write under an approval policy says what happened to
   expect(approvalOutcome({status:'approval_consumed',result:'executed'})).toContain('没有再次执行');
   expect(approvalOutcome({status:'policy_changed'})).toContain('重新提交');
   expect(approvalOutcome({control_revision:3})).toBeNull();
-  expect(resultText('execution_refused:P0001')).toBe('执行被拒（P0001）');expect(resultText(null)).toBe('—');
+  expect(resultText('execution_refused:P0001')).toBe('执行被拒（代码 P0001）');expect(resultText('execution_refused:not_requester')).toBe('执行被拒：只有发起人可以撤回或执行这条请求。');expect(resultText(null)).toBe('—');
 });
 
 test('NX-056 A4 review 7: a frozen body the workbench cannot resubmit is listed without an execute form', ()=>{
@@ -75,9 +75,9 @@ test('NX-056 B1: target_member parses strictly in its kinds and renders who the 
   const member={kind:'member',label:'p-0a1b2c3d',username:'staff-ops',account_status:'active',member_status:'active',role:'operator'};
   const parsed=approvals({...raw,to_decide:[{...base,target_member:member}]});
   expect(parsed.to_decide[0].target_member).toEqual(member);
-  expect(targetText(parsed.to_decide[0].target_member)).toBe('staff-ops p-0a1b2c3d（operator，active）');
+  expect(targetText(parsed.to_decide[0].target_member)).toBe('staff-ops p-0a1b2c3d（运营，在用）');
   for(const kind of ['hidden','unresolved','erased'])expect(approvals({...raw,to_decide:[{...base,target_member:{kind}}]}).to_decide[0].target_member).toEqual({kind});
-  expect(targetText({kind:'hidden'})).toContain('仅 owner');expect(targetText({kind:'erased'})).toBe('已擦除');expect(targetText(null)).toBe('—');
+  expect(targetText({kind:'hidden'})).toContain('仅负责人');expect(targetText({kind:'erased'})).toBe('已擦除');expect(targetText(null)).toBe('—');
   const invitee={kind:'invitee',username:'new-owner',same_username_exists:false};
   expect(approvals({...raw,to_decide:[{...base,target_member:invitee}]}).to_decide[0].target_member).toEqual(invitee);
   expect(targetText(invitee)).toBe('邀请：new-owner');expect(targetText({...invitee,same_username_exists:true})).toContain('应拒绝');
@@ -98,4 +98,16 @@ test('0362: an executed request shows 已执行 in 我发起的 (status stays ap
   for(const bad of [{...done,consumed_at:null},{...base,consumed:false,consumed_at:'2026-10-27T02:00:00+00:00'},{...base,consumed:'yes'}])
     expect(()=>approvals({...raw,mine:[{...bad,result:null}],to_execute:[]})).toThrow();
   const {consumed:_c,...missing}=base;expect(()=>approvals({...raw,to_decide:[missing]})).toThrow();
+});
+
+test('UX audit B8: the shared page shell, counts per list, readable summary fields and requester, unknown fields folded, the single-person mode folded',()=>{
+  const row={...base,summary:{scope_kind:'tenant',enabled:true,consumer_id:'c'.repeat(64),odd_field:'x1'}};
+  const html=render(client([[['workbench','approvals'],approvals({...raw,to_decide:[row]})],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(html).toContain('class="workbench-page"');expect(html).toContain('<h1 id="workbench-page-title">审批</h1>');
+  expect(html).toMatch(/<h2>待我审批（1）<\/h2>/);expect(html).toContain('待我审批 1 条');
+  expect(html).toContain('<dt>开关</dt><dd>是</dd>');expect(html).toContain('<dt>客户</dt>');
+  expect(html).not.toContain('c'.repeat(64)+'<');  // a 64-hex value shows in its short form, never in full as text
+  expect(html).toMatch(/<summary>其他字段（1）<\/summary><p><code class="id-code">odd_field<\/code>：x1<\/p>/);
+  expect(html).not.toMatch(/scope_kind=|enabled=/);
+  expect(html).toMatch(/<details class="approval-settings"><summary>单人模式设置（未开启）<\/summary>/);
 });

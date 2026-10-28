@@ -30,7 +30,7 @@ export function when(value:string|null,timeZone='Asia/Shanghai'):string{
 }
 /** Beijing time, as the owner reads it whatever the member's machine is set to. */
 export const beijing=(value:string|null)=>when(value,'Asia/Shanghai');
-const senderText=(m:{direction:string;sender_kind:string})=>m.direction==='inbound'?'顾客':m.sender_kind==='agent'?'Agent':m.sender_kind==='human_takeover'?'人工客服':'企业';
+const senderText=(m:{direction:string;sender_kind:string})=>m.direction==='inbound'?'客户':m.sender_kind==='agent'?'Agent':m.sender_kind==='human_takeover'?'人工客服':'企业';
 
 /** "客户近期往来" (owner feedback 2026-10-18): what this customer said and was told across all of their conversations, newest first.
  * Collapsed it shows the latest exchange; expanded the latest 10, and "查看更早" pages back 10 at a time (cursor). Bodies come through
@@ -88,7 +88,7 @@ export function Consumers({actions,onOpen,onCommitments,query={},onQuery=()=>{}}
     if(!('page' in changes))delete next.page;onQuery(next);};
   const keyword=query.q??'';
   const choose=(name:string,value:string)=>set({[name]:value});
-  return <Page title="消费者" query={data} actions={actions} lead="与企业有往来的客户：名称、联系限制、未结束承诺、活跃计划与会话；按条件筛选和排序。" toolbar={<div className="list-tools" role="search" aria-label="筛选消费者">
+  return <Page title="客户" query={data} actions={actions} lead="与企业有往来的客户：名称、联系限制、未结束承诺、活跃计划与会话；按条件筛选和排序。" toolbar={<div className="list-tools" role="search" aria-label="筛选客户">
       <label>联系限制<select value={query.restricted??''} onChange={e=>choose('restricted',e.target.value)}><option value="">全部</option><option value="true">受限</option><option value="false">未受限</option></select></label>
       <label>未结束承诺<select value={query.open??''} onChange={e=>choose('open',e.target.value)}><option value="">全部</option><option value="true">有</option><option value="false">没有</option></select></label>
       <label>排序<select value={(query.sort??'id')+':'+(query.order??'asc')} onChange={e=>{const [sort,order]=e.target.value.split(':');set({sort,order});}}>
@@ -98,7 +98,7 @@ export function Consumers({actions,onOpen,onCommitments,query={},onQuery=()=>{}}
     const k=keyword.trim().toLowerCase();
     const rows=k?page.items.filter(c=>(consumerLabel(c.consumer_id,c.display)+' '+c.consumer_id).toLowerCase().includes(k)):page.items;
     return <>
-    {rows.length?<DataTable label="消费者" rows={rows} rowKey={c=>c.consumer_id} columns={[
+    {rows.length?<DataTable label="客户" rows={rows} rowKey={c=>c.consumer_id} columns={[
       {label:'客户',main:true,cell:c=><button type="button" className="link" onClick={()=>onOpen(c.consumer_id)}><ConsumerName consumerId={c.consumer_id} display={c.display}/></button>},
       {label:'ID',cell:c=><IdText value={c.consumer_id}/>},
       {label:'联系限制',cell:c=>c.restricted?<StatusBadge text="受限" tone="limited"/>:'—'},
@@ -125,7 +125,7 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
   const query=useQuery({queryKey:['workbench','consumer',consumerId],queryFn:()=>readConsumer(consumerId)});
   const d=query.data;
   useEffect(()=>{if(d)onContext?.({consumerId:d.consumer_id,label:consumerLabel(d.consumer_id,d.display)});},[d,onContext]);
-  return <Page title="消费者详情" query={query}
+  return <Page title="客户详情" query={query}
     lead={d?<><ConsumerHeader consumerId={d.consumer_id} display={d.display} restricted={!!d.restriction?.active} commitments={d.commitments.length}
       conversations={d.conversations.length} onCommitments={onCommitments?()=>onCommitments(d.consumer_id):undefined}/>{d.paused?'主动联系已暂停':''}</>:null}>{data=><>
     <h2>联系限制</h2>
@@ -165,7 +165,7 @@ export function Conversation({conversationId,actions,onContext}:{conversationId:
     <h2>本会话消息</h2>
     {data.messages.length?<ol className="workbench-messages">
     {data.messages.map(m=><li key={m.id} className={'message-'+m.direction}>
-      <p className="meta">#{m.sequence} · {m.direction==='outbound'?(m.sender_kind==='agent'?'企业 Agent 回复':m.sender_kind==='human_takeover'?`人工客服回复${m.content.status==='ok'&&m.content.actor?`（${m.content.actor}）`:''}`:'企业回复'):'顾客'} · {when(m.accepted_at)}
+      <p className="meta">#{m.sequence} · {m.direction==='outbound'?(m.sender_kind==='agent'?'企业 Agent 回复':m.sender_kind==='human_takeover'?`人工客服回复${m.content.status==='ok'&&m.content.actor?`（${m.content.actor}）`:''}`:'企业回复'):'客户'} · {when(m.accepted_at)}
         {m.provider?` · 渠道 ${m.provider.namespace}${m.provider.sequence!==null?` 序号 ${m.provider.sequence}`:''}${m.provider.trust==='client'?'（客户端陈述）':''}${m.provider.skewed?'（时间偏差）':''}`:''}
         {m.reply_to_message_id?<> · 回复 <IdText kind="消息" value={m.reply_to_message_id} copy={false}/></>:null}</p>
       {m.content.status==='ok'?<p>{m.content.body}</p>:<p className="note">{RESTRICTED_TEXT}</p>}
