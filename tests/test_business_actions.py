@@ -144,7 +144,7 @@ def test_human_owner_actions_are_never_granted_to_service_principals():
     assert services<={p['role'] for p in GRANTS['principals']}
     # nexloop.context.assemble:1 is issued with each Run (0104): no standing service principal holds it.
     assert not any(g['resource_id']=='eios:action:nexloop.context.assemble:1' for g in GRANTS['grants'])
-    assert [r['role'] for r in GRANTS['retired_principals']]==['context_assembler']
+    assert [r['role'] for r in GRANTS['retired_principals']]==['context_assembler','relation_backfiller']  # v21: the one-off backfiller (NX-054)
 
 
 def test_edit_profile_requires_a_side_effecting_service_snapshot():

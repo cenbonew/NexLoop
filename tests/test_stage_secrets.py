@@ -430,17 +430,16 @@ def test_setup_credentials_reuse_the_principal_token_and_are_idempotent(tree, tm
     setup = {k: v for k, v in tokens.items() if k.startswith('setup:')}
     assert sorted(setup) == ['setup:setup/business-executor-credential', 'setup:setup/business-owner-credential',
                              'setup:setup/catalog-maintainer-credential', 'setup:setup/catalog-source-credential',
-                             'setup:setup/relation-backfiller-credential', 'setup:setup/role-assembler-credential']
+                             'setup:setup/role-assembler-credential']
     assert setup['setup:setup/business-executor-credential'] == tokens['app:action-worker/service-credential']
     assert setup['setup:setup/catalog-source-credential'] == tokens['app:message-relay/source-credential']
-    assert len({setup['setup:setup/business-owner-credential'], setup['setup:setup/catalog-maintainer-credential'], setup['setup:setup/role-assembler-credential'],
-                setup['setup:setup/relation-backfiller-credential'], *[
-        v for k, v in tokens.items() if not k.startswith('setup:')]}) == len({v for k, v in tokens.items() if not k.startswith('setup:')}) + 4
+    assert len({setup['setup:setup/business-owner-credential'], setup['setup:setup/catalog-maintainer-credential'], setup['setup:setup/role-assembler-credential'], *[
+        v for k, v in tokens.items() if not k.startswith('setup:')]}) == len({v for k, v in tokens.items() if not k.startswith('setup:')}) + 3
     for key, token in setup.items():
         path = out / key.split(':', 1)[1]
         assert path.read_text() == token and path.stat().st_mode & 0o777 == 0o600
     assert (out / 'management' / 'service-secrets.json').stat().st_mode & 0o777 == 0o600
-    assert S.setup_credentials(out) == {'changed': False, 'added': [], 'setup_files': 6}
+    assert S.setup_credentials(out) == {'changed': False, 'added': [], 'setup_files': 5}
     assert S.check(out)['ok'] is True
     (out / 'setup' / 'business-owner-credential').unlink()
     S.write_private(out / 'setup' / 'business-owner-credential', 'tampered')
