@@ -59,15 +59,15 @@ export function InvitationPage({initialHash}:{initialHash?:string}){
     setBusy(true);setResult(await (sso?acceptSsoInvitation(token):acceptInvitation(token,password)));setBusy(false);}
   return <section className="workbench-page" aria-labelledby="invitation-title"><h1 id="invitation-title">接受工作台邀请</h1>
     {result==='done'?(sso?<p role="status">已接受邀请。这个账号只能用单点登录（SSO）登录，不设密码；负责人把你的 SSO 账号绑定之后才能登录，请告诉负责人你已接受。</p>
-        :<><p role="status">已接受邀请，账号已开通。请用邀请里的用户名和刚设置的密码登录。</p><a href="/workbench">去登录</a></>)
+        :<><p role="status">已接受邀请，账号已开通。请用邀请里的账号和刚设置的密码登录。</p><a href="/workbench">去登录</a></>)
       :!token?<p role="alert">邀请链接不完整或已失效。请向邀请你的负责人重新索取（链接只能用一次）。</p>
       :sso?<form onSubmit={submit} aria-label="接受邀请">
-        <p className="note">这份邀请只能用单点登录（SSO），不设密码；用户名以邀请为准。这个链接只能用一次。</p>
+        <p className="note">这份邀请只能用单点登录（SSO），不设密码；账号以邀请为准。这个链接只能用一次。</p>
         <button type="submit" disabled={busy}>接受邀请</button>
         {result?<p className={result==='unavailable'?'pending':'error'} role="alert">{RESULT_TEXT[result]}</p>:null}
       </form>
       :<form onSubmit={submit} aria-label="接受邀请">
-        <p className="note">设置密码后即开通账号；用户名以邀请为准。这个链接只能用一次。</p>
+        <p className="note">设置密码后即开通账号；账号以邀请为准。这个链接只能用一次。</p>
         <PasswordFields password={password} confirm={confirm} setPassword={setPassword} setConfirm={setConfirm}/>
         <button type="submit" disabled={busy||password.length<12||password!==confirm}>接受邀请并设置密码</button>
         <PasswordAcceptRefusal result={result}/>
@@ -84,7 +84,7 @@ export function ResetPage(){
   return <section className="workbench-page" aria-labelledby="reset-title"><h1 id="reset-title">用重置码设置新密码</h1>
     {result==='done'?<><p role="status">密码已重置，之前的登录都已失效。请用新密码登录。</p><a href="/workbench">去登录</a></>
       :<form onSubmit={submit} aria-label="重置密码">
-        <p className="note">重置码由负责人线下交给你，30 分钟内有效，只能用一次。这里不需要用户名。</p>
+        <p className="note">重置码由负责人线下交给你，30 分钟内有效，只能用一次。这里不需要填账号。</p>
         <div className="field"><label htmlFor="reset-code">重置码</label><input id="reset-code" autoComplete="one-time-code" spellCheck={false} maxLength={64}
           value={code} onChange={e=>setCode(e.target.value)} required/></div>
         <PasswordFields password={password} confirm={confirm} setPassword={setPassword} setConfirm={setConfirm}/>
