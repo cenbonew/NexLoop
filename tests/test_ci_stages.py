@@ -104,7 +104,7 @@ def test_the_gate_and_the_heavy_cases_run_in_their_own_stages_only(stubs):
     assert '-n 2 ' in heavy_run and all(t in heavy_run for t in heavy) and not any(t in heavy_run for t in gate)
     # Every id names collected tests (a stale id would silently select nothing).
     collected = subprocess.run([sys.executable, '-m', 'pytest', '--co', '-q', '-p', 'no:cacheprovider', *gate, *heavy], cwd=ROOT, capture_output=True, text=True)
-    assert collected.returncode == 0 and re.search(r'(\d+) tests? collected', collected.stdout).group(1) == '49', collected.stdout[-500:]
+    assert collected.returncode == 0 and re.search(r'(\d+) tests? collected', collected.stdout).group(1) == '50', collected.stdout[-500:]
 
 
 def test_moving_tests_between_grouped_suites_is_not_a_drop_but_losing_one_is():
