@@ -8,6 +8,8 @@
     stage_secrets.py check    --out DIR [--uids]                                       secret_distribution and manifest digests
     stage_secrets.py metrics  --out DIR --ca-dir CA_DIR --params PRIVATE_JSON         G-METRICS-DSN: add the metrics client to an older tree
     stage_secrets.py reissue-role --out DIR --ca-dir CA_DIR --params PRIVATE_JSON --service S   one service's DSN and certificate for its role
+    stage_secrets.py add-service --out DIR --ca-dir CA_DIR --params PRIVATE_JSON --service S    a service new in the Compose file: its DSN,
+                                                                                                 client certificate and service credential
 
 The catalog is read from the APP_HOST Compose file's `secrets:` section (so it cannot drift from what the services mount) plus
 the fixed DATA_HOST files. `generate` writes, below a directory that must not exist:
@@ -444,6 +446,87 @@ def reissue_role(out, ca_dir, params_file, service):
     manifest_path.chmod(0o600)
     manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
     return {'service': service, 'role': role, 'reissued': paths}
+
+
+ADD_KINDS = {'dsn', 'client_cert', 'client_key', 'token', 'ca_bundle', 'signing_key'}
+
+
+def add_service(out, ca_dir, params_file, service, *, compose_app=COMPOSE_APP, compose_data=COMPOSE_DATA):
+    """A backend service that is new in the APP_HOST Compose file (release 53: outreach-sender) gets its own files in an existing tree:
+    the DSN (its role's password, read from another DSN of that role in this tree - one password per role - so no role password
+    changes), a client certificate with CN = the role from the intermediate CA, and the service credential (the principal's token
+    from service-secrets.json when the principal already has one, else a new one, added to service-secrets.json). Shared files it
+    mounts (pg_ca, signing_key) already exist and are not touched. Only these kinds are added: a service that mounts anything else
+    (a channel credential, a provider file, a key) is refused, so nothing of that kind is minted here. Refused when the tree already
+    has any file of the service. No value is printed."""
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    out, ca_dir = Path(out), Path(ca_dir)
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    wanted = [e for e in catalog(compose_app, compose_data) if e['host'] == 'app' and e['service'] == service]
+    if not wanted:
+        raise Refused(f'{service} mounts no secret file in the Compose file')
+    if any(f['host'] == 'app' and f['service'] == service for f in manifest['files']):
+        raise Refused(f'{service} already has files in this tree (reissue-role re-issues a DSN)')
+    if any(e['kind'] not in ADD_KINDS or e['path'].split('/', 1)[1] in ('provider-credential', 'webchat-provider-credential') for e in wanted):
+        raise Refused(f'{service} mounts a file of a kind add-service does not mint: ' + ', '.join(sorted(e['path'] for e in wanted if e['kind'] not in ADD_KINDS)))
+    _params(params_file)  # the tree's private params must still be valid
+    secrets_root = out / 'app' / 'secrets'
+    store = out / 'management' / 'service-secrets.json'
+    tokens = json.loads(store.read_text())
+    stage = _stage_principals()
+    new, added_tokens, work = {}, {}, out / f'.add-{service}'
+    try:
+        for e in wanted:
+            name = e['path'].split('/', 1)[1]
+            kind = e['kind']
+            if kind in ('ca_bundle', 'signing_key'):
+                continue  # shared files: the service mounts the existing ones (pg_ca, signing_key), nothing below its own directory
+            if kind == 'dsn':
+                role = _role(service, name)
+                donors = [f for f in manifest['files'] if f['host'] == 'app' and f['kind'] == 'dsn' and _role(f['service'], f['path'].split('/', 1)[1]) == role
+                          and (secrets_root / f['path']).is_file()]
+                if not donors:
+                    raise Refused(f'no other DSN of {role} in this tree to take its password from')
+                donor = conninfo_to_dict((secrets_root / donors[0]['path']).read_text().strip())
+                if not donor.get('password'):
+                    raise Refused(f'the DSN of {role} carries no password')
+                prefix = (e['secret'] or '').removesuffix('_dsn')
+                new[e['path']] = (make_conninfo(**{**donor, 'user': role, 'sslcert': f'/run/secrets/{prefix}_pg_client_cert',
+                                                   'sslkey': f'/run/secrets/{prefix}_pg_client_key'}) + '\n').encode()
+            elif kind in ('client_cert', 'client_key'):
+                stem = name.rsplit('.', 1)[0]
+                cert_name = f'{service}-{stem}'
+                if not (work / f'{cert_name}.key').is_file():
+                    issue_certs.leaf('client', ca_dir, work, cert_name, cn=CLIENT_CERTS.get((service, stem)) or _role(service, _client_dsn(name)))
+                new[e['path']] = (work / (f'{cert_name}.chain.crt' if kind == 'client_cert' else f'{cert_name}.key')).read_bytes()
+            else:  # token: the service credential of its principal
+                role = stage['credential_files'].get(e['path'])
+                if role is None:
+                    raise Refused(f"credential file without a principal in {PRINCIPALS.name}: {e['path']}")
+                existing = [t for k, t in tokens.items() if stage['credential_files'].get(k.split(':', 1)[1]) == role]
+                token = existing[0] if existing else secrets.token_urlsafe(48)
+                new[e['path']] = token.encode()
+                added_tokens['app:' + e['path']] = token
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    for path, data in new.items():
+        _write(secrets_root / path, data)
+    for e in wanted:
+        if e['path'] in new:
+            e['generated'] = True
+            e['sha256'] = hashlib.sha256(new[e['path']]).hexdigest()
+            manifest['files'].append(e)
+    if added_tokens:
+        temporary = store.with_name('.service-secrets.json.new')
+        temporary.unlink(missing_ok=True)
+        _write(temporary, json.dumps({**tokens, **added_tokens}, indent=1, sort_keys=True))
+        os.replace(temporary, store)
+    staged = manifest_path.with_name('.manifest.json.new')
+    staged.unlink(missing_ok=True)
+    _write(staged, json.dumps(manifest, indent=1, sort_keys=True))
+    os.replace(staged, manifest_path)
+    return {'service': service, 'added': sorted(new), 'credentials_added': sorted(added_tokens)}
 
 
 def summary(manifest):
@@ -983,6 +1066,11 @@ def main(argv=None):
     rr.add_argument('--ca-dir', type=Path, required=True)
     rr.add_argument('--params', type=Path, required=True)
     rr.add_argument('--service', required=True)
+    ad = sub.add_parser('add-service', help='release 53: the files of a backend service new in the Compose file (DSN, client certificate, service credential)')
+    ad.add_argument('--out', type=Path, required=True)
+    ad.add_argument('--ca-dir', type=Path, required=True)
+    ad.add_argument('--params', type=Path, required=True)
+    ad.add_argument('--service', required=True)
     m = sub.add_parser('metrics', help='G-METRICS-DSN: add the read-only metrics client to a tree generated before it existed')
     m.add_argument('--out', type=Path, required=True)
     m.add_argument('--ca-dir', type=Path, required=True)
@@ -1021,6 +1109,8 @@ def main(argv=None):
             out, code = publish_main(args), 0
         elif args.command == 'reissue-role':
             out, code = reissue_role(args.out, args.ca_dir, args.params, args.service), 0
+        elif args.command == 'add-service':
+            out, code = add_service(args.out, args.ca_dir, args.params, args.service), 0
         elif args.command == 'identity-token-key':
             out, code = add_identity_token_key(args.out, rotate=args.rotate), 0
         elif args.command == 'metrics':
