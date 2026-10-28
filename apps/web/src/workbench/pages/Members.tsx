@@ -105,11 +105,11 @@ export const CONTROL_TEXT:Record<string,{title:string;operation:Operation;danger
   demote:{title:'降级这位负责人',operation:'demote_workbench_owner',danger:true},suspend_owner:{title:'停用这位负责人',operation:'suspend_workbench_owner',danger:true},
   resume_owner:{title:'恢复这位负责人',operation:'resume_workbench_owner'},revoke_owner:{title:'撤销这位负责人',operation:'revoke_workbench_owner',danger:true},
   issue_owner_reset:{title:'为这位负责人签发重置码',operation:'issue_workbench_owner_reset'},erase:{title:'擦除这位成员的个人数据',operation:'erase_workbench_member',danger:true},
-  sso_link:{title:'单点登录绑定',operation:'link_workbench_external'}};
+  sso:{title:'单点登录绑定',operation:'link_workbench_external'}};
 /** The kinds a member may use on a row: what the row allows (memberControls) and the member's role carries. */
-// NX-058 slice F: the SSO link and unlink forms are one more kind of an active operator or reviewer row (ssoControls).
-export const offeredControls=(member:Me,row:MemberRow)=>[...memberControls(row,member.principal_id),...(ssoControls(row,member.principal_id)?['sso_link']:[])]
-  .filter(k=>offers(member,CONTROL_TEXT[k].operation));
+export const offeredControls=(member:Me,row:MemberRow)=>[...memberControls(row,member.principal_id).filter(k=>offers(member,CONTROL_TEXT[k].operation)),
+  // NX-058 slice F: single sign-on binding, offered when the row allows it and the role carries linking or unlinking.
+  ...(ssoControls(row,member.principal_id)&&(offers(member,'link_workbench_external')||offers(member,'unlink_workbench_external'))?['sso']:[])];
 
 /** UX audit B9: a row offers its operations in one picker; the chosen one opens as a single form under the table (never several
  * forms stacked in a table cell). */
@@ -140,7 +140,7 @@ export function MemberControlPanel({member,row,members,kind}:{member:Me;row:Memb
     case 'revoke_owner':return <Reasoned member={member} operation="revoke_workbench_owner" tone="danger" title="撤销这位负责人" row={row} note={gated} ready={!blocked}/>;
     case 'issue_owner_reset':return <IssueReset member={member} row={row} owner blocked={blocked}/>;
     case 'erase':return <EraseForm member={member} row={row} blocked={blocked}/>;
-    case 'sso_link':return <SsoLinkControls member={member} row={row}/>;
+    case 'sso':return <SsoLinkControls member={member} row={row}/>;  // NX-058 slice F, one more pick of the S4 picker
     default:return null;
   }
 }

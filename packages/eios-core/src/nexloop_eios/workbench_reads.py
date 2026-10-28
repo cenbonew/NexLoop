@@ -763,6 +763,11 @@ class WorkbenchQueries:
         # statuses, times; never a token, code, digest or email).
         return self.reader.observe('members')
 
+    def experiments(self):
+        # Experiment space slice 1 (0370): the owner's experiments - registration fields, status and times, spend, allocation counts,
+        # the latest report's digest and conclusion, the budget-drill flag and notice, the twin's status and calibration.
+        return self.reader.observe('experiments')
+
     def outreach_approvals(self):
         # Outreach slice 6: pending approvals (intent id, purpose, times, requester; never the body) for the owner.
         return self.reader.observe('outreach_approvals')

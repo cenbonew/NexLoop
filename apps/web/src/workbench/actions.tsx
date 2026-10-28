@@ -6,6 +6,7 @@
  * Idempotency-Key (the governed entry answers a replay from its terminal outcome, nothing runs twice).
  */
 import {statusLabel} from './status-labels';
+import {beijingLocalToUtc} from './ui';
 import {shorten} from './kit';
 import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
@@ -68,6 +69,9 @@ export const DONE_TEXT:Record<Operation,string>={
   unlink_workbench_external:'已解绑单点登录；这位成员的会话已失效，之后用密码登录（仅 SSO 的成员需要负责人签发重置码）。',
   erase_workbench_member:'已擦除：账号停用、密码清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
   loosen_budget:'已放宽预算（经另一位负责人批准）；新的上限和期间立即生效。',
+  register_experiment:'已登记实验；登记内容已冻结（含摘要），之后不能修改，改动请登记新的实验。登记不等于开始。',
+  start_experiment:'已开始实验；分配从现在起按登记执行，护栏和预算随时可能自动停止它。',
+  stop_experiment:'已停止实验；所有客户回到对照策略，已发生的花费和分配记录保留。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -188,7 +192,7 @@ export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   return <>{children(member.data)}</>;
 }
 
-function utc(local:string):string|null{const d=new Date(local);return Number.isNaN(d.getTime())?null:d.toISOString();}
+const utc=beijingLocalToUtc;  // the input is Beijing time, as the page shows it (not the browser's zone)
 
 // ---- remediation intents (NX-057 R1, owner) ----
 /** Resolve one open remediation: handled (a person took it) or cancelled. Nothing else changes, nothing is sent again. */
@@ -314,7 +318,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
     <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
       <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
-      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
+      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}（北京时间）</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
       <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>
     </Form></details>;
 }

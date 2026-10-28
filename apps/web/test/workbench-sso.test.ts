@@ -6,7 +6,7 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
 import {me,members,OPERATION_ACTION,readSsoProviders,ssoProviders,ssoStartPath} from '../src/workbench/api';
 import {SsoButtons,SsoLinkForms,ssoControls} from '../src/workbench/SsoLink';
-import {Members} from '../src/workbench/pages/Members';
+import {MemberControlPanel,Members} from '../src/workbench/pages/Members';
 
 afterEach(()=>{vi.unstubAllGlobals();});
 const html=(node:ReactNode,data:Record<string,unknown>={})=>{const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
@@ -54,9 +54,11 @@ test('NX-058 F: the owner gets link and unlink forms; without a provider only un
   expect(none).not.toContain('aria-label="绑定单点登录"');expect(none).toContain('解绑单点登录');
   const operator=me({principal_id:'synthetic-op2',role:'operator',actions:['eios:action:nexloop.workbench.read:1']});
   expect(html(h(SsoLinkForms,{member:operator,row:r,providers:corp}))).not.toContain('<form');
-  // On the members page, inside the row's controls.
+  // On the members page: one pick of the row's operation picker (UX S4), which opens the forms as that row's panel.
   const page=html(h(Members,{}),{'["workbench","members"]':members({members:[row('synthetic-owner','owner','active'),row('synthetic-op','operator','active')],invitations:[],resets:[]}),
     '["workbench","me"]':owner,'["workbench","sso-providers"]':corp});
-  expect(page).toContain('aria-label="绑定单点登录"');
+  expect(page).toContain('<option value="sso">单点登录绑定</option>');
+  const ownerRow=members({members:[row('synthetic-owner','owner','active'),r],invitations:[],resets:[]}).members;
+  expect(html(h(MemberControlPanel,{member:owner,row:r,members:ownerRow,kind:'sso'}),{'["workbench","sso-providers"]':corp})).toContain('aria-label="绑定单点登录"');
   expect(OPERATION_ACTION.link_workbench_external).toBe('eios:action:nexloop.workbench_member.link_external:1');
 });

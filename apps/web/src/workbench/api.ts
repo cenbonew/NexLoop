@@ -542,6 +542,9 @@ export const OPERATION_ACTION={
   link_workbench_external:'eios:action:nexloop.workbench_member.link_external:1',unlink_workbench_external:'eios:action:nexloop.workbench_member.unlink_external:1',
   // NX-056 budget approval: a budget loosening, executed from the approvals page after another owner approves it.
   loosen_budget:'eios:action:nexloop.budget.loosen:1',
+  // Experiment space slice 2 (owner only, NX-043 D3): preregister, start and stop an experiment.
+  register_experiment:'eios:action:nexloop.experiment.register:1',start_experiment:'eios:action:nexloop.experiment.start:1',
+  stop_experiment:'eios:action:nexloop.experiment.stop:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -1234,3 +1237,43 @@ export function approvalOutcome(result:Record<string,unknown>|undefined):string|
   return null;
 }
 
+
+// ---- experiment space, slice 1 (0370): the owner's experiments, read only ----
+export const EXPERIMENT_STAGES=['screening','shadow','online'] as const;
+export const EXPERIMENT_STATUSES=['registered','started','stopped'] as const;
+export type StrategyRef={strategy_id:string;version:number};
+export type ExperimentTwin={twin_id:string;version:number;status:string|null;calibration:string|null};
+export type ExperimentReport={as_of:string;created_at:string;report_digest:string;conclusion:string|null;reason:string|null;candidate_matured:number;control_matured:number};
+export type Experiment={experiment_id:string;world:string;world_kind:string|null;stage:typeof EXPERIMENT_STAGES[number];hypothesis:string|null;
+  candidate:StrategyRef;control:StrategyRef;primary_metric:{key:string;direction:string}|null;guardrails:Record<string,number>;
+  sample_size:{candidate:number;control:number}|null;budget:{model_cny:number;incentive_cny:number};ends_at:string|null;
+  registration_digest:string;registered_at:string;status:typeof EXPERIMENT_STATUSES[number];started_at:string|null;stopped_at:string|null;
+  stop_reason:string|null;stopped_by_guard:boolean;spent:{model_cny:number;incentive_cny:number};
+  allocation:{candidate:number;control:number;excluded:number};report:ExperimentReport|null;budget_drill:boolean;notice:string|null;twin:ExperimentTwin|null};
+const EXPERIMENT_KEYS=['experiment_id','world','world_kind','stage','hypothesis','candidate','control','primary_metric','guardrails','sample_size','budget','ends_at',
+  'registration_digest','registered_at','status','started_at','stopped_at','stop_reason','stopped_by_guard','spent','allocation','report','budget_drill','notice','twin'];
+function amount(value:unknown):number{if(typeof value!=='number'||!Number.isFinite(value)||value<0)throw new WorkbenchError('invalid');return value;}
+function strategyRef(value:unknown):StrategyRef{const o=object(value);return {strategy_id:text(o.strategy_id),version:count(o.version)};}
+function hex(value:unknown):string{const v=text(value);if(!hex64.test(v))throw new WorkbenchError('invalid');return v;}
+function experimentReport(value:unknown):ExperimentReport|null{
+  if(value===null)return null;
+  const o=exactKeys(object(value),['as_of','created_at','report_digest','conclusion','reason','candidate_matured','control_matured']);
+  return {as_of:text(o.as_of),created_at:text(o.created_at),report_digest:hex(o.report_digest),conclusion:maybeText(o.conclusion),reason:maybeText(o.reason),
+    candidate_matured:count(o.candidate_matured),control_matured:count(o.control_matured)};
+}
+export function experimentRow(value:unknown):Experiment{
+  const o=exactKeys(object(value),EXPERIMENT_KEYS);
+  const g=object(o.guardrails),b=object(o.budget),s=object(o.spent),a=object(o.allocation);
+  const m=o.primary_metric===null?null:object(o.primary_metric),n=o.sample_size===null?null:object(o.sample_size),t=o.twin===null?null:object(o.twin);
+  return {experiment_id:text(o.experiment_id),world:text(o.world),world_kind:maybeText(o.world_kind),stage:oneOf(o.stage,EXPERIMENT_STAGES),hypothesis:maybeText(o.hypothesis),
+    candidate:strategyRef(o.candidate),control:strategyRef(o.control),primary_metric:m?{key:text(m.key),direction:text(m.direction)}:null,
+    guardrails:Object.fromEntries(Object.entries(g).map(([k,v])=>[k,amount(v)])),sample_size:n?{candidate:count(n.candidate),control:count(n.control)}:null,
+    budget:{model_cny:amount(b.model_cny),incentive_cny:amount(b.incentive_cny)},ends_at:maybeText(o.ends_at),registration_digest:hex(o.registration_digest),
+    registered_at:text(o.registered_at),status:oneOf(o.status,EXPERIMENT_STATUSES),started_at:maybeText(o.started_at),stopped_at:maybeText(o.stopped_at),
+    stop_reason:maybeText(o.stop_reason),stopped_by_guard:flag(o.stopped_by_guard),spent:{model_cny:amount(s.model_cny),incentive_cny:amount(s.incentive_cny)},
+    allocation:{candidate:count(a.candidate),control:count(a.control),excluded:count(a.excluded)},report:experimentReport(o.report),
+    budget_drill:flag(o.budget_drill),notice:maybeText(o.notice),
+    twin:t?{twin_id:text(t.twin_id),version:count(t.version),status:maybeText(t.status),calibration:maybeText(t.calibration)}:null};
+}
+export function experiments(value:unknown):Experiment[]{return list(exactKeys(object(value),['experiments']).experiments).map(experimentRow);}
+export const readExperiments=()=>get('/api/v1/workbench/experiments',experiments);

@@ -88,7 +88,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
   {title:'管理',pages:['settings','members','account','personas','capabilities','experiments']}];
-const NOT_ENABLED:PageKey[]=['experiments'];
+const NOT_ENABLED:PageKey[]=[];
 /** Pages with sub-entries in the sidebar: the world model's concept pages (WORLD_SECTIONS, in EIOS order). */
 export const NAV_CHILDREN:Partial<Record<PageKey,{label:string;route:Route}[]>>={
   ontology:WORLD_SECTIONS.map(s=>({label:s.label,route:{page:'ontology',section:s.key}}))};
