@@ -1,6 +1,6 @@
 # 世界模型中文注释（world-model glossary）：后端设计
 
-状态：设计稿，待 L6 审，审过再写代码。分支 `l2/world-glossary`，基于 main 53af5efc。按负责人 10-29 的决定，这是 Schema 改动，走 feature 分支 + PR。前端由 L9 按第 4 节的 API 形状并行做。
+状态：设计稿（第 6 节已按调度员 10-29 的决定更新），待 L6 审，审过再写代码。分支 `l2/world-glossary`，基于 main 53af5efc。按负责人 10-29 的决定，这是 Schema 改动，走 feature 分支 + PR。前端由 L9 按第 4 节的 API 形状并行做。
 
 ## 1. 决定与边界
 
@@ -36,11 +36,11 @@
    - **调用模型**：复用现有的 `LazyModelProvider`、`model_profile` 和 `OpenAICompatibleExtractionProvider`，模型配置用 stage 已有的 `claim-extraction-worker/model.env`，以 compose secret 只读挂载，不新增凭据。
    - **输入**：只有标识名、kind、所属类型名、已有的 `description`/`display_name`，外加 v1 词表里与它相关的若干条作为术语参考（例如 Consumer=客户）。不含任何客户数据，也不含对象实例。
    - **输出**：严格 JSON `{gloss}`，长度不超过 24 字，必须含中文，不能包含原标识或括号。不合格按 `response_parse` 失败处理。
-   - **限额**：每轮最多 20 个标识，每天每租户最多 200 次模型调用，在 PG 计数。达到上限后停到第二天，并打一条告警样本。
+   - **限额**：每轮最多 10 个标识，每天每租户最多 50 条（见第 6 节第 5 条），每次调用经 `nexloop.cost.record` 记成本，在 PG 计数。达到上限后停到第二天，并打一条告警样本。
    - **重试**：指数退避，基数 60 秒、上限 1 小时；第 3 次失败后标 `failed`，不再自动重试。只要还没成功，前端就只显示英文（`gloss=null`）。
    - **写入**：只能经 SECURITY DEFINER 函数写，而且只能写 `source=machine`。已有 `manual` 的标识，机翻**不能覆盖**（函数里校验）。
 3. **人工改正**：新的受治理 Action `nexloop.world_glossary.set`，只给 owner。
-   - 入参：`kind`、`identifier`、`gloss`（1–24 字；空字符串的含义见第 6 节问题 3）。
+   - 入参：`kind`、`identifier`、`gloss`（0–24 字；空串表示人工清空，见第 6 节第 3 条）。
    - 效果：写 `source=manual`，revision 加一，追加一条修订记录。
    - 治理：标识必须在当前世界模型里存在，否则拒绝。不需要审批策略，风险等级 low、无外部效应。
    - 登记：`business-actions.v1.json`、`capabilities.v1.json`、`system-catalog-names.v1.json`，以及 `workbench-roles.v1.json` 里的 owner 授权和 owner-only 条目。`test_stage_register_pg` 中 Action 的数量从 128 改为 129，即 (20, 129, 2)。
@@ -74,7 +74,7 @@
 - withheld 的属性同样带 gloss，因为属性名本来就会显示。
 - `inverse_name` 为空字符串时，`inverse_gloss` 和 `inverse_gloss_source` 都为 null。
 - 改正接口沿用现有工作台 Action 路由：`POST /api/v1/workbench/actions/world_glossary_set`，body 为 `{kind, identifier, gloss}`，返回 `{kind, identifier, gloss, gloss_source:"manual", revision}`。
-- 修订历史：`GET /api/v1/workbench/world-model/glossary/history?kind=&identifier=`，只给 owner，按时间倒序，每条含 `gloss`、`source`、`revision`、`recorded_at`、`model_id`（机翻时有）。是否要做见第 6 节问题 4。
+- 修订历史 API：**延后**（见第 6 节第 4 条），这一版只存库。
 - **契约**：`packages/contracts/workbench-world-model.schema.json` 处处是 `additionalProperties:false`，加字段就必须出新版本。新增 `workbench-world-model.v2.schema.json`，v1 原样保留；重新生成 `generated/openapi-components.json`。
 
 ## 5. 测试计划
@@ -93,10 +93,12 @@
 - register 数量：(20, 129, 2)。
 - 契约：v2 schema 能校验真实响应；v1 文件不变。
 
-## 6. 需要负责人确认的问题
+## 6. 已定事项（调度员 10-29，按推荐方案，报负责人）
 
-1. **v1 词表缺新 Action 本身**：v1 里的 actions 有 128 条，与现在的 Action 数一致；新增的 `nexloop.world_glossary.set` 不在其中。建议在 v1 里补一条“设定世界模型译名”，否则它上线后会先显示机翻。补这一条会改动词表内容，所以要你同意。
-2. **事件类型不在词表 v1 中**：世界模型返回 `event_types`，但 v1 没有对应分组。按“全部英文”的范围，现在的做法是让它们走机翻。如果你希望人工翻译，请补一个分组。
-3. **人工清空**：是否允许负责人把某个标识设为“不显示中文”？建议允许，`gloss=""` 时记 `source=manual`，前端只显示英文，机翻也不会再覆盖。
-4. **修订历史 API**：这一版是否就要提供？可以只留在库里，以后再开。
-5. **模型配置**：复用 claim-extraction-worker 的 `model.env`，意味着两个服务共用同一把模型 key 及其额度。如果要分开计费，就得新增凭据，与你“不新增凭据”的要求冲突。现在按共用设计。
+1. **v1 补上新 Action 的译名**：负责人草稿已加 `"nexloop.world_glossary.set": "设定世界模型译名"`，actions 现为 129 条。实现时从草稿重新读取。
+2. **事件类型**：stage 现在 `event_types` 为 0，没有可译内容。v1 不加这个分组，以后出现时走机翻。词表格式里给 `event_types` 预留分组位置（可选，缺省为空）。
+3. **允许人工清空**：`gloss=""` 记为 `source=manual`，API 返回 `gloss:""`、`gloss_source:"manual"`，前端只显示英文；机翻不得覆盖。改正 Action 的入参因此允许空串（0–24 字），非空时必须含中文。
+4. **修订历史 API 延后**：这一版只存库，第 4 节里的 history 接口延后，不实现。
+5. **模型配置共用**：用 claim-extraction 的模型配置。
+   - 每日限额设得低，按条数计：每租户每天 50 条，每轮 10 条。
+   - 每次模型调用都经 `nexloop.cost.record`（现有的成本记账 Action）记成本，这样预算里能看到。实现时先核实它的入参与授权；如果机翻服务的身份调不了它，回报后再定，不另开记账路径。
