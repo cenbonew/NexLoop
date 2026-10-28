@@ -1,53 +1,165 @@
 # 世界模型中文注释（world-model glossary）：后端设计
 
-状态：设计稿（第 6 节已按调度员 10-29 的决定更新），待 L6 审，审过再写代码。分支 `l2/world-glossary`，基于 main 53af5efc。按负责人 10-29 的决定，这是 Schema 改动，走 feature 分支 + PR。前端由 L9 按第 4 节的 API 形状并行做。
+状态：设计稿 r2。第 6 节按调度员 10-29 的决定定稿，第 2–5 节按 L6 对 bbfd18e6 的审查意见（C1、I1–I4、S1–S3）修订。待 L6 复审，复审通过前不写代码。
+
+分支 `l2/world-glossary`，基于 main 53af5efc。按负责人 10-29 的决定，这是 Schema 改动，走 feature 分支 + PR。前端由 L9 按第 4 节的 API 形状并行做。
 
 ## 1. 决定与边界
 
-- 显示形式为 `Consumer（客户）`，用全角括号，由前端拼接；后端只提供译文本身（`客户`）。
-- 范围覆盖世界模型里的全部英文标识：栏目名、Object Type、Property、Link 及反向名、Function、Action。
-- 词表是**显示用的元数据，不是业务事实**：
+- **显示形式**：`Consumer（客户）`，全角括号，由前端拼接。后端只提供译文本身（`客户`）。
+- **范围**：世界模型里的全部英文标识，包括栏目名、Object Type、Property、Link 及反向名、Function、Action。
+- **词表只是显示用的元数据，不是业务事实**：
   - 不改任何标识、契约名或 Action 名；
   - 不进 ontology，不进 EvoOntology，不参与授权、规划或上下文装配；
-  - 发给模型的上下文里也不带它（避免译名反过来影响行为）。
-- 首版 v1 用负责人人工翻译的 303 条。以后新增的标识由模型翻译，立即显示并标为“机翻”。负责人可以改正，改正后以人工译文为准。
+  - 发给运行时模型的上下文里也不带它，免得译名反过来影响行为。
+- **首版 v1**：负责人人工翻译，共 304 条：
 
-## 2. 存储（PG，迁移只新增文件，从 main 的下一个号起用临时编号）
+  | 分组 | 条数 |
+  |---|---|
+  | sections | 14 |
+  | object_types | 20 |
+  | properties | 95 |
+  | relations | 44 |
+  | functions | 2 |
+  | actions | 129（含 `nexloop.world_glossary.set`） |
+
+  `event_types` 分组预留，v1 为空。
+- **之后新增的标识**：由模型翻译，立即显示，标为“机翻”。负责人可以改正，改正后以人工译文为准。
+- **real 和 sim 共用一份词表**：词表按租户存，不按世界分。理由：
+  - 两个世界的标识是同一套定义；
+  - 词表只是显示元数据，没有任何效应。
+
+  改正 Action 只在 real 世界受理，sim 世界一律拒绝，免得在模拟里改到真实显示。
+
+## 2. 存储
+
+PG 迁移只新增文件，从 main 的下一个号起用临时编号。修订历史表和触发器这一版就建（S3），查询 API 延后。
 
 | 表 | 用途 |
 |---|---|
-| `control.nexloop_world_glossary_publications` | 词表清单的发布记录：tenant、world、`manifest_version`、`sha256`、`expected_revision`、发布时间。规则与 remediation rules（0351）相同：同版本同 sha 是重放，什么都不写；同版本不同内容拒绝（40001）；版本只能递增 |
-| `control.nexloop_world_glossary` | 当前译文：`(tenant, world, kind, identifier)` 为主键。字段：`gloss`、`source`（`manual`/`machine`）、`revision`、`updated_at`；机翻另记 `model_provider`、`model_id`、`input_sha256`、`translated_at` |
-| `control.nexloop_world_glossary_revisions` | 只追加的修订历史：每次清单发布、机翻写入、人工改正各记一行，内容为旧译文、新译文、`source`、`revision`、`intent_id`、`recorded_at`、`actor_principal`（人工改正时才有）。用触发器保证不可修改，写法同 `ontology.nexloop_assessment_revisions`（0058） |
-| `control.nexloop_world_glossary_jobs` | 机翻队列：每个缺译标识一行。字段为 attempts、next_attempt_at、status（`pending`/`done`/`failed`），以及只含失败码的 `last_error`（如 `http_429`），不存原文 |
+| `control.nexloop_world_glossary_publications` | 词表清单的发布记录（见下方“发布规则”）。字段：`tenant_id`、`manifest_version`、`sha256`、`expected_revision`、`published_at` |
+| `control.nexloop_world_glossary` | 当前译文，主键 `(tenant_id, kind, identifier)`。字段：`gloss`（可为空串）、`source`（`manual`/`machine`）、`revision`、`updated_at`。机翻行另记 `model_provider`、`model_id`、`input_sha256`、`translated_at` |
+| `control.nexloop_world_glossary_revisions` | 只追加的修订历史。清单发布、机翻写入、人工改正各记一行，含 `revision`、旧译文、新译文、`source`、`intent_id`、`recorded_at`、`actor_principal`（只有人工改正时有值）。触发器禁止 update 和 delete，写法同 `ontology.nexloop_assessment_revisions`（0058） |
+| `control.nexloop_world_glossary_jobs` | 机翻队列，每个缺译标识一行。字段：`attempts`、`next_attempt_at`、`status`（`pending`/`done`/`failed`），以及只含失败码的 `last_error`（如 `http_429`），不存原文 |
+| `control.nexloop_world_glossary_usage` | 机翻用量（I4），每次模型调用一行：`tenant_id`、`day`（UTC 日）、`model_id`、`prompt_tokens`、`completion_tokens`、`cost`、`currency`、`recorded_at` |
 
-- `kind` 取 `section | object_type | property | relation | relation_inverse | event_type | function | action`。
-  - property 的 identifier 只用属性名，不带所属类型：词表 v1 就是这样组织的，同名属性共用一个译名。
-  - 反向名作为单独的 kind，因为词表 v1 里反向名和正向名混在 `relations` 一组。发布时按世界模型里实际的 `inverse_name` 分类。
-- **擦除**：只有 `actor_principal` 一列涉及员工身份。把它登记进 `STAFF_KEPT`，理由沿用 `_ACT`（记录谁做了治理动作）。其余列都不是个人数据，也不含客户数据，不进客户擦除。会补测试，证明客户擦除和成员擦除都覆盖到。
+**发布规则**（同 remediation rules，0351）：
+- 同版本同 sha256 是重放，什么都不写；
+- 同版本不同内容拒绝（40001）；
+- `expected_revision` 必须等于当前已发布版本，否则拒绝（40001）；
+- 版本只能递增。
 
-## 3. 三条写入路径
+**`kind` 的取值**：`section | object_type | property | relation | relation_inverse | event_type | function | action`。
+- property 的 identifier 只用属性名，不带所属类型。词表 v1 就是这样组织的，同名属性共用一个译名。
+- 词表 v1 的 `relations` 一组里混有正向名和反向名。发布时按世界模型里实际的 `inverse_name` 分成 `relation` 和 `relation_inverse`。
 
-1. **人工清单发布（v1）**
-   - 文件：`deploy/configuration/world-model-glossary.v1.json`，内容取自负责人的草稿，不改，只统一格式（键排序、两空格缩进、末尾换行）。
-   - 发布：新增 `scripts/deploy/world_glossary_apply.py`，走 configurator window，`--check` 时只打印 `manifest_sha256`、不连库，SQL 侧同样核对 sha256。发布写 `source=manual`，所以会覆盖同名的机翻。
-2. **机翻服务**：新的后台服务 `world-glossary-translator`，按 claim-extraction-worker 的方式接入 compose。
-   - **找缺译**：周期性读取世界模型，找出词表中缺的标识，写入任务队列。
-   - **调用模型**：复用现有的 `LazyModelProvider`、`model_profile` 和 `OpenAICompatibleExtractionProvider`，模型配置用 stage 已有的 `claim-extraction-worker/model.env`，以 compose secret 只读挂载，不新增凭据。
-   - **输入**：只有标识名、kind、所属类型名、已有的 `description`/`display_name`，外加 v1 词表里与它相关的若干条作为术语参考（例如 Consumer=客户）。不含任何客户数据，也不含对象实例。
-   - **输出**：严格 JSON `{gloss}`，长度不超过 24 字，必须含中文，不能包含原标识或括号。不合格按 `response_parse` 失败处理。
-   - **限额**：每轮最多 10 个标识，每天每租户最多 50 条（见第 6 节第 5 条），每次调用经 `nexloop.cost.record` 记成本，在 PG 计数。达到上限后停到第二天，并打一条告警样本。
-   - **重试**：指数退避，基数 60 秒、上限 1 小时；第 3 次失败后标 `failed`，不再自动重试。只要还没成功，前端就只显示英文（`gloss=null`）。
-   - **写入**：只能经 SECURITY DEFINER 函数写，而且只能写 `source=machine`。已有 `manual` 的标识，机翻**不能覆盖**（函数里校验）。
-3. **人工改正**：新的受治理 Action `nexloop.world_glossary.set`，只给 owner。
-   - 入参：`kind`、`identifier`、`gloss`（0–24 字；空串表示人工清空，见第 6 节第 3 条）。
-   - 效果：写 `source=manual`，revision 加一，追加一条修订记录。
-   - 治理：标识必须在当前世界模型里存在，否则拒绝。不需要审批策略，风险等级 low、无外部效应。
-   - 登记：`business-actions.v1.json`、`capabilities.v1.json`、`system-catalog-names.v1.json`，以及 `workbench-roles.v1.json` 里的 owner 授权和 owner-only 条目。`test_stage_register_pg` 中 Action 的数量从 128 改为 129，即 (20, 129, 2)。
+**擦除**：
+- 只有 `actor_principal` 一列涉及员工身份，登记进 `STAFF_KEPT`，理由沿用 `_ACT`（记录谁做了治理动作）。
+- 其余列都不是个人数据，也不含客户数据，不进客户擦除。
+- 会补测试，证明客户擦除覆盖和成员擦除覆盖都通过。
+
+## 3. 写入路径与函数规范
+
+### 3.1 人工清单发布
+
+- **清单文件**：`deploy/configuration/world-model-glossary.v1.json`。内容取自负责人草稿，不改，只统一格式：键排序、两空格缩进、末尾换行。
+- **发布脚本**：新增 `scripts/deploy/world_glossary_apply.py`，走 configurator window。
+  - `--check` 只打印 `manifest_sha256`，不连库；
+  - SQL 侧同样核对 sha256。
+- **发布语义**（I1）：
+  - 清单里的每条都写成 `source=manual`，覆盖同名的机翻；
+  - 新版清单里**省略**的条目保留原译文和来源，不删除；
+  - 只有清单里**显式写 `null`** 的条目才清除。这时删掉当前行，修订表记一行，新译文为 null。
+  - 所以 v2 删掉 v1 里的某条，那条人工译文仍然保留。
+
+### 3.2 机翻服务 `world-glossary-translator`
+
+**身份与部署**（C1）。模型 key 和 claim-extraction 共用，PG 身份单独一个：
+
+- **PG 主体**：新主体 `world_glossary_translator`，有自己的 DSN、pg-client 证书和服务凭据。不借用 claim-extraction-worker 的任何 DB 凭据。
+- **登记**：
+  - `deploy/authorization/stage-principals.v1.json` 加上 `world-glossary-translator/service-credential` 等条目；
+  - `deploy/authorization/service-grants.v1.json` 加上它的 grant；
+  - `deploy/stage/connection-budget.v1.json` 和 `deploy-gate.app.example.json` 各加一条；
+  - `test_stage_register_pg` 中按主体或 grant 计数的断言相应调整（具体数在实现时按 register 输出核对）。
+- **权限只有四项**：
+  1. 执行写机翻的 definer 函数（只能写 `source=machine`）；
+  2. 读世界模型的标识，经一个只返回标识名、kind、所属类型、`description`、`display_name` 的 definer 读函数，不给表权限；
+  3. 读写 jobs 表；
+  4. 写 usage 表，同样经 definer 函数。
+
+  没有其他表权限，没有任何 Action 执行权。成本记账见下方“限额与成本”。
+- **compose**：`deploy/stage/compose.app.example.yaml` 新增服务，写法照 `claim-extraction-worker`：只读根文件系统，`cap_drop ALL`，非 root 用户。
+  - 只挂三样：共用的 `claim-extraction-worker/model.env`（只读 secret）、它自己的 DSN 和 pg-client 证书、它自己的服务凭据；
+  - 不挂渠道、admin、bootstrap 或其他服务的凭据；
+  - 出网只到模型 provider：加入现有的 `claim_egress` 网络，防火墙模板 `deploy/stage/firewall/app-host.nft.template` 中按 claim-extraction-worker 的出站规则给它同样的条目。
+- **host-health**：`deploy/examples/host-health-install.app-host.example.json` 的期望容器加上它。
+- **部署单步骤**：
+  1. `stage_secrets.py add-service --service world-glossary-translator` 生成 DSN、证书和服务凭据；
+  2. 执行 register（`stage_secrets.py publish` 和 register 步骤），并 dry-run 确认新 Action 和 grant 都已发布；
+  3. 迁移；
+  4. `world_glossary_apply.py` 发布 v1；
+  5. 启动服务，确认 host-health 通过。
+
+**流程**：
+- **找缺译**：每轮经读函数取世界模型的标识，找出词表里没有的，写入 jobs。
+- **模型调用**：复用 `LazyModelProvider`、`model_profile` 和 `OpenAICompatibleExtractionProvider`。
+- **发给模型的输入**（S1）：
+  - 标识名、kind、所属类型名；
+  - 已有的 `description` 和 `display_name`，各截断到 200 字；
+  - v1 词表里与它相关的若干条，作为术语参考，例如 Consumer=客户。
+
+  不含任何客户数据或对象实例。withheld 属性的**名字**也会发给模型：它本来就显示在世界模型里，只有它的说明不发。
+- **输出校验**：严格 JSON `{gloss}`，1–24 字，必须含中文，不能含原标识或括号。不合格按 `response_parse` 失败处理。
+
+**写入函数规范**（I1）：
+
+```sql
+insert into control.nexloop_world_glossary(tenant_id,kind,identifier,gloss,source,revision,…)
+values (…,'machine',1,…)
+on conflict (tenant_id,kind,identifier) do update
+  set gloss=excluded.gloss, source='machine', revision=nexloop_world_glossary.revision+1, …
+  where nexloop_world_glossary.source<>'manual'
+returning revision;
+```
+
+- `returning` 没有行，说明那条已是 manual，机翻放弃写入，job 标 `done`。
+- 机翻和人工改正在同一行上的竞争，由这条语句的行锁裁决，manual 不会被抢写。
+- 修订表在同一事务里追加。
+
+**限额与成本**（I4）：
+- **条数上限**：每轮最多 10 条，每租户每天最多 50 条。用 usage 表按租户和 UTC 日计数，在写入函数里于同一事务内检查。
+- **用尽**：当天停止调用，并打一条告警样本。
+- **用量记录**：每次调用（成功或失败）都在 usage 表记 token 数和按模型单价算出的费用。
+- **成本归集**：费用接入现有的 `model` 预算类型（control 里的预算表 `budget_kind='model'`），这样预算里能看到，与 claim-extraction 共用 key 时也能按服务分开汇总。
+- **`nexloop.cost.record` 的用法**（调度员第 5 条）：机翻服务本身没有 Action 执行权，所以由写入函数在同一事务里按 `nexloop.cost.record` 的记账口径记一笔。实现时先核实它的入参和记账表；如果不能在 definer 内复用，回报后再定，不另开记账路径。
+
+**重试**：
+- 指数退避，基数 60 秒，上限 1 小时；
+- 第 3 次失败后标 `failed`，不再自动重试；
+- 只要还没成功，API 就返回 `gloss=null`，前端只显示英文。
+
+### 3.3 人工改正：`nexloop.world_glossary.set`
+
+- **授权**：只给 owner。
+- **入参**：body 为 `{kind, identifier, gloss}`，用 exactKeys 校验，多一个键少一个键都拒绝（I3）。
+  - `tenant_id` 取自服务端已认证的上下文，不从 body 传；
+  - 只在 real 世界受理，sim 世界拒绝（见第 1 节）。
+- **gloss 规则**（I2）：
+  - 空串合法，表示人工清空：记 `source=manual`，前端只显示英文，机翻不得覆盖；
+  - 非空时必须含中文，长度不超过 24 字；
+  - 其他一律拒绝。
+- **校验时点**：标识必须在当前世界模型里存在。这个检查在派发时于 Action 内做，不在规划时做。
+- **效果**：在同一事务里对当前行 `for update`，写 `source=manual`，revision 加一，追加修订记录（`actor_principal` 为当前成员）。
+- **治理**：不需要审批策略，风险等级 low，无外部效应。
+- **登记**：
+  - `business-actions.v1.json`、`capabilities.v1.json`、`system-catalog-names.v1.json`；
+  - `workbench-roles.v1.json` 里的 owner 授权和 owner-only 条目；
+  - `test_stage_register_pg` 中 Action 数从 128 改为 129，即 `(20, 129, 2)`。
 
 ## 4. API 形状（给 L9）
 
-`GET /api/v1/workbench/world-model` 新增字段；旧字段一个都不变。
+`GET /api/v1/workbench/world-model` 新增字段，旧字段一个都不变。返回体按 **v2 契约**（S2）。
 
 ```jsonc
 {
@@ -70,35 +182,73 @@
 }
 ```
 
-- `gloss_source` 的取值为 `"manual" | "machine" | null`。null 表示还没有译文，前端只显示英文。`machine` 显示“机翻”标记。
-- withheld 的属性同样带 gloss，因为属性名本来就会显示。
-- `inverse_name` 为空字符串时，`inverse_gloss` 和 `inverse_gloss_source` 都为 null。
-- 改正接口沿用现有工作台 Action 路由：`POST /api/v1/workbench/actions/world_glossary_set`，body 为 `{kind, identifier, gloss}`，返回 `{kind, identifier, gloss, gloss_source:"manual", revision}`。
-- 修订历史 API：**延后**（见第 6 节第 4 条），这一版只存库。
-- **契约**：`packages/contracts/workbench-world-model.schema.json` 处处是 `additionalProperties:false`，加字段就必须出新版本。新增 `workbench-world-model.v2.schema.json`，v1 原样保留；重新生成 `generated/openapi-components.json`。
+**字段语义**：
+
+| `gloss` | `gloss_source` | 含义 | 前端显示 |
+|---|---|---|---|
+| `null` | `null` | 还没有译文 | 只显示英文 |
+| `""` | `"manual"` | 人工清空 | 只显示英文 |
+| 非空 | `"machine"` | 机翻 | 英文（译文），加“机翻”标记 |
+| 非空 | `"manual"` | 人工译文 | 英文（译文） |
+
+- withheld 属性同样带 gloss，因为属性名本来就会显示。
+- `inverse_name` 为空串时，`inverse_gloss` 和 `inverse_gloss_source` 都为 null。
+
+**改正接口**：沿用现有工作台 Action 路由 `POST /api/v1/workbench/actions/world_glossary_set`。
+- body：`{kind, identifier, gloss}`，只接受这三个键；
+- 返回：`{kind, identifier, gloss, gloss_source:"manual", revision}`。
+
+**修订历史 API**：延后，这一版只存库。
+
+**契约**（S2）：
+- 新增 `packages/contracts/workbench-world-model.v2.schema.json`，v1 原样保留：
+  - `glossary.sections` 写成枚举栏目名的对象，`additionalProperties:false`；
+  - `gloss_source` 和 `inverse_gloss_source` 取 `enum ["manual","machine",null]`；
+  - `gloss` 的类型为 `string | null`，`maxLength` 24。
+- 重新生成 `generated/openapi-components.json`，把这个接口的返回体声明为 v2。
 
 ## 5. 测试计划
 
-- 授权：
-  - 读取：任何能读世界模型的角色都看得到 gloss；跨租户读不到。
-  - 改正：非 owner 被拒；owner 成功；不存在的标识、空串、超长、不含中文都被拒。
-- 优先级：机翻不能覆盖 manual；清单发布会覆盖 machine；revision 只增；修订表禁止改写。
-- 清单发布：重放无副作用；同版本不同内容被拒（40001）；`expected_revision` 不对被拒；sha256 不一致被拒；`--check` 不连库。
-- 机翻服务，用桩替代模型提供方：
-  - 成功时字段写全，`input_sha256` 可复算；
-  - `http_429`、超时、不合格输出时走退避，第 3 次后标 failed，此时 API 中 `gloss=null`；
-  - 达到每日限额后停止调用；
-  - 发给模型的内容里查不到任何客户数据。用合成客户的标记串做缺席断言，标记串不用类十六进制字符。
-- 擦除覆盖：`test_member_erasure_coverage_pg` 和 `test_consumer_erasure_coverage_pg` 都通过；客户全库搜索不受影响。
-- register 数量：(20, 129, 2)。
-- 契约：v2 schema 能校验真实响应；v1 文件不变。
+- **授权**：
+  - 读：能读世界模型的角色都看得到 gloss；跨租户读不到。
+  - 改正：非 owner 被拒，owner 成功。
+  - 上下文：body 多键、少键、带 `tenant_id` 都被 exactKeys 拒绝；sim 世界被拒。
+  - 派发时校验：在规划和派发之间把标识从世界模型里撤下，派发会拒绝。
+- **gloss 取值**（I2）：
+  - 空串成功，记为 manual，API 返回 `""` 和 `manual`；之后机翻不覆盖它；
+  - 25 字、不含中文的非空串都被拒。
+- **优先级与并发**（I1）：
+  - 机翻不覆盖 manual，包括并发场景：两个连接同时写机翻和人工改正，结果必为 manual；
+  - 清单发布会覆盖 machine；
+  - 新版清单省略某条时保留原译文，显式写 `null` 才清除；
+  - revision 只增；修订表的 update 和 delete 都被触发器拒绝。
+- **清单发布**：
+  - 重放无副作用；
+  - 同版本不同内容被拒（40001）；
+  - `expected_revision` 不对被拒；
+  - sha256 不一致被拒；
+  - `--check` 不连库；
+  - v1 文件为 304 条，其中 actions 129 条。
+- **机翻服务**（用桩替代模型提供方）：
+  - 成功时字段写全，`input_sha256` 可复算，usage 表记录 token 和费用，model 预算里看得到；
+  - `http_429`、超时、不合格输出都走退避，第 3 次后标 failed，这时 API 返回 `gloss=null`；
+  - 达到每日条数上限后停止调用；
+  - 发给模型的内容里查不到任何客户数据。用合成客户的标记串做缺席断言，标记串不用类十六进制字符；`description` 和 `display_name` 被截断到 200 字（S1）。
+- **身份**（C1）：
+  - `world_glossary_translator` 只能调这四类函数；
+  - 直接读写词表或其他业务表、执行任何 Action，都被拒绝；
+  - compose 测试确认它只挂 model.env 和它自己的凭据；
+  - `test_stage_compose` 和 host-health 期望容器测试都通过。
+- **擦除覆盖**：`test_member_erasure_coverage_pg` 和 `test_consumer_erasure_coverage_pg` 都通过；客户全库搜索不受影响。
+- **register 数量**：`(20, 129, 2)`，以及主体和 grant 计数的相应调整。
+- **契约**：v2 schema 能校验真实响应；v1 文件不变。
 
 ## 6. 已定事项（调度员 10-29，按推荐方案，报负责人）
 
-1. **v1 补上新 Action 的译名**：负责人草稿已加 `"nexloop.world_glossary.set": "设定世界模型译名"`，actions 现为 129 条。实现时从草稿重新读取。
-2. **事件类型**：stage 现在 `event_types` 为 0，没有可译内容。v1 不加这个分组，以后出现时走机翻。词表格式里给 `event_types` 预留分组位置（可选，缺省为空）。
-3. **允许人工清空**：`gloss=""` 记为 `source=manual`，API 返回 `gloss:""`、`gloss_source:"manual"`，前端只显示英文；机翻不得覆盖。改正 Action 的入参因此允许空串（0–24 字），非空时必须含中文。
-4. **修订历史 API 延后**：这一版只存库，第 4 节里的 history 接口延后，不实现。
-5. **模型配置共用**：用 claim-extraction 的模型配置。
-   - 每日限额设得低，按条数计：每租户每天 50 条，每轮 10 条。
-   - 每次模型调用都经 `nexloop.cost.record`（现有的成本记账 Action）记成本，这样预算里能看到。实现时先核实它的入参与授权；如果机翻服务的身份调不了它，回报后再定，不另开记账路径。
+1. **v1 补新 Action 的译名**：负责人草稿已加 `"nexloop.world_glossary.set": "设定世界模型译名"`。actions 现为 129 条，总数 304。实现时从草稿重新读取。
+2. **事件类型**：stage 现在 `event_types` 为 0。v1 不加这个分组，以后出现时走机翻；词表格式里预留 `event_types` 分组，可选，缺省为空。
+3. **允许人工清空**：规则见 §3.3 和 §4。
+4. **修订历史 API 延后**：表和触发器这一版就建。
+5. **模型配置共用**：用 claim-extraction 的模型 key（model.env），但 PG 身份独立（§3.2）。
+   - 每日条数上限设得低：每租户每天 50 条，每轮 10 条；
+   - 成本按 §3.2 的“限额与成本”记账。
