@@ -146,7 +146,8 @@ def run(dsn,*,fn,tenant,resolve,revokers,own_revoke,cycles,asserters=4,deny_wind
     for t in workers+threads:t.start()
     # Every revoker completes its fixed cycles before the asserters stop: the run is bounded by the
     # cycles, not by a time window (CI check 197: a 600 s join ended a loaded run at 179 of 200).
-    for t in threads:t.join(1800)
+    deadline=time.monotonic()+1800  # one deadline for all revokers, not 1800 s each
+    for t in threads:t.join(max(0,deadline-time.monotonic()))
     unfinished=sum(t.is_alive() for t in threads)
     if duration:time.sleep(duration)
     stop.set()
