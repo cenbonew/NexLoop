@@ -12,7 +12,7 @@ import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe
 import {DataTable} from '../DataTable';
 import {StatusBadge,TabPanel,Tabs,Time} from '../ui';
 import {CheckboxGroup,ChoiceGroup,EmptyState,FormField,IdText,KeyValue,shorten} from '../kit';
-import {Form,WithMember} from '../actions';
+import {ConfirmedForm,Form,WithMember} from '../actions';
 import {Page} from './Page';
 import {OutreachInsights} from './OutreachInsights';
 
@@ -48,10 +48,13 @@ function PersonaVersions({data}:{data:PersonaOverview}){
       {label:'状态',cell:p=><StatusBadge domain="persona_status" code={p.status}/>},
       {label:'语气',wide:true,cell:p=>p.document.tone},
       {label:'发布时间',cell:p=><Time value={p.created_at}/>},
-      {label:'操作',cell:p=><WithMember>{member=><Form operation="publish_operator_persona" member={member} title={p.status==='published'?'停用':'重新启用'}
-        className="inline-action" body={()=>p.status==='published'
-          ?{persona_id:p.persona_id,version:p.version,status:'retired',document:null,reason:'负责人停用'}
-          :{persona_id:p.persona_id,version:p.version,status:'published',document:p.document,reason:'负责人重新启用'}}><span/></Form>}</WithMember>}]}/>
+      {label:'操作',cell:p=><WithMember>{member=>p.status==='published'
+        ?<ConfirmedForm operation="publish_operator_persona" member={member} tone="danger" trigger="停用…" title={`确认停用 ${personaRef(p)}`}
+          impact="影响：分配到这个版本的客户下次对话起不再使用它（按分配规则或租户默认人设）；可以再重新启用。"
+          body={reason=>({persona_id:p.persona_id,version:p.version,status:'retired',document:null,reason})}/>
+        :<ConfirmedForm operation="publish_operator_persona" member={member} trigger="重新启用…" title={`确认重新启用 ${personaRef(p)}`}
+          impact="影响：这个版本重新可被分配；已分配的客户下次对话起使用它。"
+          body={reason=>({persona_id:p.persona_id,version:p.version,status:'published',document:p.document,reason})}/>}</WithMember>}]}/>
       :<EmptyState kind="empty" subject="人设" next="负责人在下方编辑并发布第一个人设；在此之前，客户对话不带人设。"/>}
     <WithMember>{member=><PersonaEditor member={member} personas={data.personas}/>}</WithMember>
   </>;
@@ -207,8 +210,10 @@ export function ConsumerPersona({consumerId}:{consumerId:string}){
       :prefs.data.length?<DataTable label="沟通偏好" rows={prefs.data} rowKey={p=>p.claim_id} columns={[
         {label:'偏好',main:true,cell:p=>PREFERENCE_TEXT[p.dimension]},{label:'内容',wide:true,cell:p=>preferenceText(p)},
         {label:'状态',cell:p=><StatusBadge text={p.dismissed?'不采纳':'采纳'} tone={p.dismissed?'neutral':'ok'} code={p.dismissed?'dismissed':'adopted'}/>},
-        {label:'操作',cell:p=><WithMember>{member=><Form operation="dismiss_contact_preference" member={member} className="inline-action" title={p.dismissed?'恢复采纳':'不采纳'}
-          body={()=>({claim_id:p.claim_id,dismissed:!p.dismissed,reason:p.dismissed?'负责人恢复采纳':'负责人不采纳'})}><span/></Form>}</WithMember>}]}/>
+        {label:'操作',cell:p=><WithMember>{member=><ConfirmedForm operation="dismiss_contact_preference" member={member} trigger={p.dismissed?'恢复采纳…':'不采纳…'}
+          title={p.dismissed?'确认恢复采纳':'确认不采纳'} tone={p.dismissed?undefined:'danger'}
+          impact={p.dismissed?'影响：这条偏好重新在派发和对话中生效。':'影响：这条客户自己说过的偏好不再约束派发与对话；可以再恢复采纳。'}
+          body={reason=>({claim_id:p.claim_id,dismissed:!p.dismissed,reason})}/>}</WithMember>}]}/>
       :<EmptyState kind="empty" subject="沟通偏好" next="客户说出联系时段、频率、渠道、主题或语气方面的要求后，会出现在这里。"/>}
     <p className="note">时段、频率、渠道、主题在派发时强制执行，只会比租户规则更严；语气只供对话参考。负责人只能不采纳，不能替客户新增偏好。</p>
   </section>;

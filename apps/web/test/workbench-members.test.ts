@@ -6,7 +6,7 @@ import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
 import {me,members,oneTimeSecret,OPERATION_ACTION} from '../src/workbench/api';
 import {OneTimeSecret,WriteResult} from '../src/workbench/actions';
-import {Members,approversFor,memberControls} from '../src/workbench/pages/Members';
+import {MemberControlPanel,Members,approversFor,memberControls} from '../src/workbench/pages/Members';
 import {APPROVAL_ACTION_TEXT} from '../src/workbench/pages/Approvals';
 
 const row=(principal:string,role:string|null,status:string,extra:Record<string,unknown>={})=>({principal_id:principal,label:'p-0123abcd',username:principal.replace('synthetic-',''),
@@ -21,6 +21,11 @@ const operator=me({principal_id:'synthetic-op',role:'operator',actions:['eios:ac
 function render(member:ReturnType<typeof me>,data:unknown){const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
   c.setQueryData(['workbench','members'],data);c.setQueryData(['workbench','me'],member);
   return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(Members,{})) as ReactNode);}
+/** One row's control form, as the page opens it under the table when the member picks it (UX audit B9). */
+function panel(member:ReturnType<typeof me>,data:ReturnType<typeof members>,principal:string,kind:string){
+  const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
+  const row=data.members.find(m=>m.principal_id===principal)!;
+  return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(MemberControlPanel,{member,row,members:data.members,kind})) as ReactNode);}
 
 test('NX-058 UI: the members view parses strictly and refuses a row carrying anything else (a secret, an email)', ()=>{
   expect(members(raw).members).toHaveLength(5);
@@ -46,9 +51,13 @@ test('NX-058 UI: each row offers only what its role and status allow; never the 
 
 test('NX-058 UI: the owner sees facts then controls; an operator gets no form', ()=>{
   const html=render(owner,members(raw));
-  for(const t of ['成员与账号','未接受的邀请','new-reviewer','最近 90 天的重置码','已完成','邀请成员','邀请负责人','改角色','提升为负责人','降级这位负责人','擦除这位成员的个人数据',
-    '需要另一位负责人批准'])expect(html).toContain(t);
-  expect(html.indexOf('<h2>成员</h2>')).toBeLessThan(html.indexOf('aria-label="改角色"'));
+  for(const t of ['成员与账号','未接受的邀请','new-reviewer','最近 90 天的重置码','已完成','邀请成员','负责人（需另一位负责人批准）',
+    '<option value="change_role">改角色</option>','<option value="promote">提升为负责人</option>','<option value="demote">降级这位负责人（需谨慎）</option>',
+    '<option value="erase">擦除这位成员的个人数据（需谨慎）</option>'])expect(html).toContain(t);
+  // B9: no row form is open until one is picked; the only form on the page is the invitation
+  expect(html).not.toContain('member-operation');expect(html).not.toMatch(/aria-label="(改角色|停用|撤销成员|提升为负责人|降级这位负责人|擦除这位成员的个人数据)"/);
+  expect(html).toContain('aria-label="邀请成员"');
+  expect(panel(owner,members(raw),'synthetic-op','promote')).toContain('需要另一位负责人批准');
   const asOperator=render(operator,members({...raw,members:raw.members.slice(2,3)}));
   expect(asOperator).not.toContain('<form');
 });
@@ -77,7 +86,7 @@ test('R3: approval-gated controls are disabled with the reason and the operation
   expect(approversFor(m,'synthetic-owner','synthetic-op',now)).toBe(1);  // the second owner
   expect(approversFor(m,'synthetic-owner','synthetic-second',now)).toBe(0);  // two owners: the target never approves its own request
   expect(approversFor(m.map(x=>x.principal_id==='synthetic-second'?{...x,vote_eligible_from:'2026-10-27T00:00:00+00:00'}:x),'synthetic-owner','synthetic-op',now)).toBe(0);  // cooldown
-  const html=render(owner,members(raw));
+  const html=panel(owner,members(raw),'synthetic-second','demote');
   expect(html).toContain('现在没有能批准的负责人');expect(html).toContain('运维通道');
   // the demotion of the only other owner: disabled (no approver), and in any case a new role is required (R1)
   const demote=html.slice(html.indexOf('aria-label="降级这位负责人"'));
@@ -86,7 +95,7 @@ test('R3: approval-gated controls are disabled with the reason and the operation
 
 test('R1: a demotion cannot be submitted without a new role, even with an approver', ()=>{
   const three=members({...raw,members:[...raw.members,row('synthetic-third','owner','active')]});
-  const html=render(owner,three);
+  const html=panel(owner,three,'synthetic-second','demote');
   const demote=html.slice(html.indexOf('aria-label="降级这位负责人"'));
   expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit"[^>]* disabled=""/);
   expect(html).not.toContain('现在没有能批准的负责人（除你和被处置的负责人之外');

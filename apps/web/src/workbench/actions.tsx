@@ -138,10 +138,13 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
 
 /** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
  * (UX audit B4); `disabledReason` says, under the disabled button and tied to it, what is still missing (B6). */
-export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
-  disabled?:boolean;disabledReason?:string;onDone?:()=>void;className?:string;tone?:'danger'}){
+export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,onBusy,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;disabledReason?:string;onDone?:()=>void;onBusy?:(busy:boolean)=>void;className?:string;tone?:'danger'}){
   const write=useWrite(operation,onDone);
   const reasonId=useId();
+  // `onBusy`: a container that could unmount this form (a confirmation panel) learns that a request is in flight (L6 review of S5).
+  const busy=useRef(onBusy);busy.current=onBusy;
+  useEffect(()=>{busy.current?.(write.isPending);},[write.isPending]);
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
   const why=disabled&&!write.isPending&&disabledReason?disabledReason:null;
@@ -150,6 +153,29 @@ export function Form({operation,title,member,children,body,disabled,disabledReas
       {write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
     {why?<p className="disabled-reason" id={reasonId}>{why}</p>:null}
     <Outcome operation={operation} write={write}/></form>;
+}
+
+/** UX audit B5: a row action that used to run on one click (and wrote a reason nobody typed). The trigger opens a confirmation in place:
+ * what it does, the member's own reason (when the Action takes one), then the confirm button; 取消 or Escape closes it and returns focus
+ * to the trigger. Shown only when the role carries the operation. */
+export function ConfirmedForm({operation,member,trigger,title,impact,tone,withReason=true,reasonLabel='原因',body}:{operation:Operation;member:Me;trigger:string;title:string;
+  impact:ReactNode;tone?:'danger';withReason?:boolean;reasonLabel?:string;body:(reason:string)=>Record<string,unknown>}){
+  const [open,setOpen]=useState(false);const [reason,setReason]=useState('');
+  // L6 review of S5: while the request is in flight the panel cannot close - closing would unmount the form, so its outcome and the
+  // same-request retry of an unknown result would be lost. It closes once the result is shown.
+  const [pending,setPending]=useState(false);
+  const button=useRef<HTMLButtonElement>(null);const panel=useRef<HTMLDivElement>(null);const was=useRef(false);const id=useId();
+  useEffect(()=>{if(open)panel.current?.querySelector<HTMLElement>('textarea,button[type=submit]')?.focus();else if(was.current)button.current?.focus();was.current=open;},[open]);
+  if(!offers(member,operation))return null;
+  if(!open)return <button type="button" ref={button} className={'confirm-trigger'+(tone==='danger'?' confirm-trigger-danger':'')} aria-expanded={false} onClick={()=>setOpen(true)}>{trigger}</button>;
+  return <div className="confirm-panel" ref={panel} role="group" aria-label={title} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();if(!pending)setOpen(false);}}}>
+    <Form operation={operation} member={member} title={title} tone={tone} className="inline-confirm" disabled={withReason&&!reason.trim()}
+      disabledReason={withReason?'填写原因后可确认。':undefined} onBusy={setPending} body={()=>withReason&&!reason.trim()?null:body(reason.trim())}>
+      <p className="impact-summary" role="note">{impact}</p>
+      {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel}/>:null}
+    </Form>
+    <button type="button" className="btn-secondary" disabled={pending} onClick={()=>setOpen(false)}>{pending?'等待结果…':'取消'}</button>
+  </div>;
 }
 
 /** The member's role decides which controls are offered; without it nothing is guessed. */
