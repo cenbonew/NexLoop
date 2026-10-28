@@ -32,10 +32,11 @@ def test_check_validates_without_connecting_and_names_the_files_sha256():
 
 
 def test_the_current_file_is_version_2_over_version_1():
-    """NX-058 slices D2/D3: the deployed file adds the seven owner-only member Actions (version 3, applied over versions 1 and 2, deployment history)."""
+    """NX-058 slices D2/D3/E: the owner-only member Actions (versions 2-4); NX-056 budget approval: goals.budget.loosen (version 5, applied over
+    versions 1-4, deployment history)."""
     current = ROOT / 'deploy/configuration/approval-policies.v1.json'
     code, out = run('--manifest', str(current), '--check')
-    assert code == 0 and (out['version'], out['expected_revision'], out['policies']) == (4, 3, 11)
+    assert code == 0 and (out['version'], out['expected_revision'], out['policies']) == (5, 4, 12)
     policies = {p['capability']: p for p in json.loads(current.read_text())['policies']}
     v1 = {p['capability']: p for p in json.loads(MANIFEST.read_text())['policies']}
     assert all(policies[k] == v for k, v in v1.items())  # version 1's policies unchanged
@@ -45,6 +46,12 @@ def test_the_current_file_is_version_2_over_version_1():
     v2 = {p['capability']: p for p in json.loads((ROOT / 'deploy/configuration/history/approval-policies.version2.json').read_text())['policies']}
     assert len(v2) == 8 and all(policies[k] == v for k, v in v2.items())  # version 2's policies unchanged
     assert {k: p['summary_fields'] for k, p in policies.items() if k.startswith('workbench_member.') and p['summary_fields']} == {'workbench_member.demote_owner': ['new_role']}
+    v4 = {p['capability']: p for p in json.loads((ROOT / 'deploy/configuration/history/approval-policies.version4.json').read_text())['policies']}
+    assert len(v4) == 11 and all(policies[k] == v for k, v in v4.items())  # version 4's policies unchanged
+    budget = policies['goals.budget.loosen']
+    assert (budget['condition'], budget['quorum'], budget['approver_roles'], budget['solo_mode'], budget['expires_after_seconds'], budget.get('target_subject_field')) == (
+        None, 1, ['owner'], 'allowed', 86400, None)  # Q2: every budget kind; Q5: single-person mode allowed; Q6: quorum 1
+    assert budget['summary_fields'] == ['budget_kind', 'unit', 'from_limit_amount', 'limit_amount', 'from_period_start', 'from_period_end', 'period_start', 'period_end']
 
 
 def test_apply_needs_the_tenant_and_bootstrap_file_and_a_known_tenant(tmp_path):

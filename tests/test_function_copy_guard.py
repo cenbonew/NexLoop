@@ -441,6 +441,14 @@ REGISTRY = [
              (r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;", ""),
              (r"\n if pol\.target_subject_field is not null or pol\.solo_mode='not_applicable' then.*?\n  end if;\n end if;", ""),
              (r"p_body-control\.nexloop_approval_execution_fields_of\(p_capability\),", "p_body,"))),
+    # budget_loosen (NX-056 budget approval, design §2): Budget.set's handler passes a set_budget body through the tighten-only check; a
+    # loosening opens only against the current row it names; its policy may show the old and new limit and period.
+    Allowed('budget_loosen', 'control.nexloop_governed_owner_change', 'a set_budget body passes the tighten-only check first; nothing else',
+            ((r"control\.nexloop_budget_set_tighten_only\(p_tenant,p_world,body\)", "body"),)),
+    Allowed('budget_loosen', 'control.nexloop_approval_summary_allowed', 'goals.budget.loosen shows the kind, the unit and the old and new limit and period; nothing else',
+            ((r"\s*when 'goals\.budget\.loosen' then array\[[^\]]*\]", ''),)),
+    Allowed('budget_loosen', 'control.nexloop_approval_open', 'a budget loosening opens only against the current row it names; nothing else',
+            ((r"\n if p_capability='goals\.budget\.loosen' then perform control\.nexloop_budget_loosen_check\(p_tenant,p_world,p_body,false\);end if;", ''),)),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_gate', 'the execution-time HMACs checked before the handler',
             ((r"\n if exists\(select 1 from unnest\(control\.nexloop_approval_execution_fields_of\(p_capability\)\) f.*?execution_field_invalid' using errcode='22023';end if;\n return jsonb_build_object\('proceed',true", "\n return jsonb_build_object('proceed',true"),)),
     Allowed('nx056_execution_fields', 'control.nexloop_approval_terminate', 'one more reason, requester_no_longer_eligible',

@@ -351,8 +351,8 @@ def test_erasure_deletes_patches_and_invalidates(evo):
 
 
 def test_without_an_evolution_budget_the_diagnosis_is_refused(evo):
-    """NX-038 G1 positive control: a tenant without the evolution budget (the owner sets it with the workbench set_budget) cannot open
-    a diagnosis, so every stage evolution check is blocked until it is set."""
+    """NX-038 G1 positive control: a tenant without the evolution budget (the owner sets it up with the workbench loosen_budget and
+    another owner's approval, NX-056 budget approval) cannot open a diagnosis, so every stage evolution check is blocked until it is set."""
     f = evo
     with f['admin'].transaction():  # the fixture's limit row is append-only: removed below the triggers, as a tenant that never set one
         f['admin'].execute('set local session_replication_role=replica')

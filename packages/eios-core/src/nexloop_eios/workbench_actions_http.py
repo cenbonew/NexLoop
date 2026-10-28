@@ -105,6 +105,15 @@ OPERATIONS={
     'set_budget':{'budget_kind':lambda v:v if v in ('model','incentive','evolution') else (_ for _ in ()).throw(ValueError('budget kind')),
         'unit':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}')),'limit_amount':_id(re.compile(r'[0-9]{1,15}(\.[0-9]{1,6})?')),
         'period_start':_utc,'period_end':_utc},
+    # NX-056 budget approval: a loosening (another owner approves it) names the current row the requester saw - every from_* null and
+    # expected_revision 0 for a new budget; SQL refuses a body that does not name the current row (budget_changed).
+    'loosen_budget':{'budget_kind':lambda v:v if v in ('model','incentive','evolution') else (_ for _ in ()).throw(ValueError('budget kind')),
+        'unit':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}')),'limit_amount':_id(re.compile(r'[0-9]{1,15}(\.[0-9]{1,6})?')),
+        'period_start':_utc,'period_end':_utc,
+        'from_unit':lambda v:None if v is None else _id(re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,31}'))(v),
+        'from_limit_amount':lambda v:None if v is None else _id(re.compile(r'[0-9]{1,18}(\.[0-9]{1,12})?'))(v),
+        'from_period_start':lambda v:None if v is None else _utc(v),'from_period_end':lambda v:None if v is None else _utc(v),
+        'expected_revision':lambda v:v if type(v) is int and 0<=v<=999999999999999999 else (_ for _ in ()).throw(ValueError('revision'))},
     'set_control':{'scope_kind':_scope,'scope_ref':_text,'paused':_bool,'reason':_reason},
     'release_contact_restriction':{'consumer_id':_id(_HEX),'reason':_reason},
     'cancel_commitment':{'commitment_id':_id(_HEX),'reason':_reason},
@@ -414,7 +423,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited

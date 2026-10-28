@@ -65,6 +65,7 @@ export const DONE_TEXT:Record<Operation,string>={
   issue_workbench_owner_reset:'已签发重置码；这位 owner 的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
   invite_workbench_owner:'已签发 owner 邀请；令牌只在这里显示一次，请线下转交本人。',
   erase_workbench_member:'已擦除：账号停用、口令清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
+  loosen_budget:'已放宽预算（经另一位 owner 批准）；新的上限和期间立即生效。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the

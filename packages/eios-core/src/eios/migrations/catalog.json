@@ -1815,6 +1815,11 @@
       "version": "0363",
       "name": "0363_relation_erased_values.sql",
       "sha256": "cdba9a09ce66b17acbc6faaef7f3f438fadf6bb89a4024eacce6621d5b475507"
+    },
+    {
+      "version": "0378",
+      "name": "0378_budget_loosen.sql",
+      "sha256": "12992b24afbd9259720e841e3b6724381a4c5997c60170d5453340833d4f396f"
     }
   ]
 }

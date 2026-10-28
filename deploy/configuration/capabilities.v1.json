@@ -2473,6 +2473,29 @@
       },
       "schema_hash": "d6ba65793f09b31f35ca593382fa74909ae0324a6c048f7adfd15e30f8fa0579",
       "side_effects_reason": null
+    },
+    {
+      "capability_name": "goals.budget.loosen",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "loosen_budget",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "b01a3c4bcfaff00059118f1d0d77794cba92affdec746d3f609ad9ca65a69f58",
+      "side_effects_reason": null
     }
   ]
 }

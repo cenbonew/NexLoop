@@ -22,6 +22,7 @@ from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_commitments_pg import active_plan,fresh,plan_triggers
 from test_governed_entry_pg import predict
+from support.budgets import approved_budget
 
 pytestmark=pytest.mark.parametrize('execution_plan',['commitment-service'],indirect=True)
 GOAL_ACTIONS={'Control.set':'goals.control.set','Contact.release':'goals.contact.release','Budget.set':'goals.budget.set'}
@@ -129,7 +130,8 @@ EVOLUTION_BUDGET={'budget_kind':'evolution','unit':'CNY','limit_amount':'50.00',
 
 def test_the_owner_sets_an_evolution_budget_and_malformed_budgets_are_refused(workbench,admin):
     """NX-038 G1: set_budget on the workbench entry takes any budget kind (evolution included, D15), never a fixed model; the
-    fields are exact, the amount is a decimal text (no float), the period is UTC; the same key replays."""
+    fields are exact, the amount is a decimal text (no float), the period is UTC; the same key replays. NX-056 budget approval: setting up
+    a budget is a loosening (409 budget_loosen_requires_approval; loosen_budget with approval, test_budget_approval_pg); lowering runs."""
     c=workbench
     limits=lambda:admin.execute("select budget_kind,unit,limit_amount::text,period_start,period_end from control.nexloop_budget_limits order by 1").fetchall()
     with c['app']() as client:
@@ -139,7 +141,11 @@ def test_the_owner_sets_an_evolution_budget_and_malformed_budgets_are_refused(wo
                       {**EVOLUTION_BUDGET,'tenant_id':'other'},{k:v for k,v in EVOLUTION_BUDGET.items() if k!='unit'}):
             assert act(client,csrf,'set_budget',wrong).status_code==422,wrong
         assert limits()==[]
-        done=act(client,csrf,'set_budget',EVOLUTION_BUDGET,key='wb-evolution-budget-0001')
+        held=act(client,csrf,'set_budget',EVOLUTION_BUDGET,key='wb-evolution-budget-0000')
+        assert held.status_code==409 and held.json()['details']=={'reason':'budget_loosen_requires_approval'},held.text
+        assert limits()==[]
+        approved_budget(admin,TENANT,'evolution','CNY','80.00',EVOLUTION_BUDGET['period_start'],EVOLUTION_BUDGET['period_end'])
+        done=act(client,csrf,'set_budget',EVOLUTION_BUDGET,key='wb-evolution-budget-0001')  # 80 -> 50: a tightening
         assert done.status_code==200 and done.json()['operation']=='set_budget',done.text
         assert act(client,csrf,'set_budget',EVOLUTION_BUDGET,key='wb-evolution-budget-0001').status_code==200
     assert limits()==[('evolution','CNY','50.00',datetime(2026,10,1,tzinfo=UTC),datetime(2026,11,1,tzinfo=UTC))]
@@ -211,5 +217,7 @@ def test_customer_cookie_is_refused_and_roles_bound_the_workbench_writes(commitm
     with TestClient(create_app(config),base_url=ORIGIN) as client:
         csrf=workbench_login(client,owner).json()['csrf_token']
         assert act(client,csrf,'set_control',pause).status_code==200 and events()==1
-        assert act(client,csrf,'set_budget',EVOLUTION_BUDGET).status_code==200  # the owner role holds Budget.set (workbench-roles)
-    assert admin.execute("select count(*) from control.nexloop_budget_limits where budget_kind='evolution'").fetchone()==(1,)
+        # The owner role holds Budget.set (workbench-roles): not 403; a new budget is a loosening (NX-056 budget approval).
+        held=act(client,csrf,'set_budget',EVOLUTION_BUDGET)
+        assert held.status_code==409 and held.json()['details']=={'reason':'budget_loosen_requires_approval'},held.text
+    assert admin.execute("select count(*) from control.nexloop_budget_limits where budget_kind='evolution'").fetchone()==(0,)

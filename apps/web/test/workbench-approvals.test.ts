@@ -2,7 +2,7 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
-import {approvalOutcome,approvals,me} from '../src/workbench/api';
+import {WorkbenchWriteError,approvalOutcome,approvals,me,refusalTextOf} from '../src/workbench/api';
 import {Approvals,resultText,soloBanner,targetText} from '../src/workbench/pages/Approvals';
 
 const id='3f2b6a52-1c1e-4c55-9d0e-9a2f4a1b7c11';
@@ -98,4 +98,20 @@ test('0362: an executed request shows 已执行 in 我发起的 (status stays ap
   for(const bad of [{...done,consumed_at:null},{...base,consumed:false,consumed_at:'2026-10-27T02:00:00+00:00'},{...base,consumed:'yes'}])
     expect(()=>approvals({...raw,mine:[{...bad,result:null}],to_execute:[]})).toThrow();
   const {consumed:_c,...missing}=base;expect(()=>approvals({...raw,to_decide:[missing]})).toThrow();
+});
+
+test('NX-056 budget approval: a budget loosening is listed as 放宽预算 with the old and new values, executed from 待我执行; its refusals read in Chinese',()=>{
+  const body={budget_kind:'evolution',unit:'CNY',limit_amount:'80.00',period_start:'2026-10-01T00:00:00Z',period_end:'2026-11-01T00:00:00Z',
+    from_unit:'CNY',from_limit_amount:'50.00',from_period_start:'2026-10-01T00:00:00Z',from_period_end:'2026-11-01T00:00:00Z',expected_revision:3};
+  const row={...base,capability:'goals.budget.loosen',operation:'loosen_budget',action:'eios:action:nexloop.budget.loosen:1',
+    summary:{budget_kind:'evolution',unit:'CNY',from_limit_amount:'50.00',limit_amount:'80.00'}};
+  const parsed=approvals({...raw,to_decide:[row],mine:[],to_execute:[{...row,approval_id:id.replace('3f','6f'),status:'approved',approvals:1,inputs:body}]});
+  const owner=me({principal_id:'synthetic-owner',role:'owner',actions:['eios:action:nexloop.workbench.read:1','eios:action:nexloop.approvals.decide:1',
+    'eios:action:nexloop.approvals.cancel:1','eios:action:nexloop.budget.loosen:1']});
+  const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],owner]]),h(Approvals,{}));
+  for(const t of ['放宽预算','from_limit_amount=50.00','limit_amount=80.00'])expect(html).toContain(t);
+  expect(html).not.toContain('工作台不能执行这条请求');  // loosen_budget is an operation the workbench resubmits
+  for(const reason of ['budget_loosen_requires_approval','budget_changed','approval_unavailable'])
+    expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state',reason))).toBeTruthy();
+  expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state','budget_changed'))).toContain('刷新');
 });

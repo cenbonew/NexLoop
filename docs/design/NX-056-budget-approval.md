@@ -177,3 +177,17 @@
 - 不改消耗记账和 `budget_exhausted` 的语义。
 - 不给模拟世界的预算加审批（E5，系统建立，不花真实的钱）。
 - 不扩展策略条件语法（Q1）。
+
+## 9. 实现说明（与上文的差异和细化）
+
+- **Action 名**：放宽用业务 Action `nexloop.budget.loosen`（能力 `goals.budget.loosen`，operation `loosen_budget`，`business-actions.v1.json`），与 NX-058 的 owner Action 同一种登记方式；上文写的 `Budget.loosen` 指的就是它。`Budget.set` 名字和版本不变。
+- **迁移** `budget_loosen`（临时编号 0378）：
+  - `control.nexloop_budget_direction`：对照当前行（加行锁）判定 tighten、renewal 或 loosen，规则即 2.2 和 Q4；
+  - `Budget.set` 的处理函数 `control.nexloop_governed_owner_change` 先过 `control.nexloop_budget_set_tighten_only`，放宽就以 `budget: budget_loosen_requires_approval` 拒绝，不写；
+  - `control.nexloop_governed_loosen_budget`：失败即关的两层检查（策略形态；正在执行的审批就是这一条请求），执行时在行锁下核对 `from_*` 和 `expected_revision`，然后调用 0068 原样的 set_budget 写入，并写一条审计事件（方向、前后值、approval_id）；
+  - **发起时核对**放在 `control.nexloop_approval_open` 里：能力为 `goals.budget.loosen` 时先核对当前行，不符就以 `budget: budget_changed` 拒绝，不建审批。
+  - `control.nexloop_approval_summary_allowed` 增加本能力的八个摘要字段。三处重定义都在 `tests/test_function_copy_guard.py` 登记。
+- **Q4 的“长度相同”**：旧期间是整数个日历月（例如 10-01 到 11-01）时，按月数比较，新期间也必须是同样多的整月（11-01 到 12-01 虽然少一天，也算同长）；否则按精确时长比较。
+- **world**：处理函数不限制 world；工作台路由只在 real 世界。
+- **real_tenant_init**：第 4 步改为 `loosen_budget`（第一笔 model 预算，`from_*` 为空、`expected_revision` 0）。`budget` 子命令第一次运行打开审批（`approval_pending`），另一位 owner 批准后加 `--execute` 再运行一次即写入；审批处理函数的拒绝按固定代码输出（例如 `budget: approval_unavailable`）。
+- **工作台**：`loosen_budget` 在“审批”页显示为“放宽预算”，可以从“待我执行”执行；三个新拒绝代码有中文说明。
