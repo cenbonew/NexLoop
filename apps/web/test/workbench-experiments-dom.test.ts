@@ -101,4 +101,15 @@ test('W4: the registration form closes with 取消 at its top and with Escape, f
   const input=box.querySelector<HTMLInputElement>('#exp-hypothesis')!;
   act(()=>{input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));});
   expect(box.querySelector('.experiment-register')).toBeNull();expect(document.activeElement).toBe(button('登记新实验'));
+  // Escape inside the confirmation panel closes only the panel: the form stays open with what was filled.
+  act(()=>button('登记新实验')!.click());
+  const fill:Record<string,string>={experiment_id:'esc.check',world:'sim:00000000-0000-4000-8000-000000000001',hypothesis:'h',candidate:'followup.later',
+    control:'followup.default',metric:'reply_within_24h',sample_candidate:'20',sample_control:'20',model_cny:'1',ends_at:'2026-10-28T12:00',twin:'trial.service_consumer',seed:'20261028'};
+  const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!;
+  for(const [k,v] of Object.entries(fill))act(()=>{const el=box.querySelector<HTMLInputElement>('#exp-'+k)!;setter.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));});
+  act(()=>button('登记')!.click());
+  const panel=box.querySelector<HTMLElement>('.experiment-register .confirm-panel')!;expect(panel).not.toBeNull();
+  act(()=>{panel.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));});
+  expect(box.querySelector('.confirm-panel')).toBeNull();expect(box.querySelector('.experiment-register')).not.toBeNull();
+  expect(box.querySelector<HTMLInputElement>('#exp-experiment_id')!.value).toBe('esc.check');expect(button('登记')).toBeDefined();
 });
