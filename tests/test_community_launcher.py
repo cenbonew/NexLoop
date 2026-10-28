@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+import time
 import pytest
+from support.ci_results import RESULTS, prune, results_output
 
 ROOT=Path(__file__).resolve().parents[1]
 # Entry scripts are executable modules, not application packages.
@@ -20,10 +22,12 @@ def launcher():
     return module
 
 @pytest.fixture
-def project():
-    module=launcher();output=ROOT/'.ci-results'/('launcher-test-'+secrets.token_hex(12))
-    report=module.prepare_project(output)
-    return module,output,report
+def project(request):
+    # About 120 MB with synthetic secrets per run; it must be a direct child of .ci-results (prepare_project), so
+    # it is removed at teardown (kept only when the test failed, bounded by support.ci_results).
+    with results_output(request,'launcher-test-') as output:
+        module=launcher();report=module.prepare_project(output)
+        yield module,output,report
 
 
 def test_private_inputs_consistent_and_actual_compose_client_renders(project):
@@ -130,3 +134,23 @@ def test_provider_environment_not_inherited_by_disposable_compose(monkeypatch,tm
     monkeypatch.setattr(module.subprocess,'run',subprocess_boundary)
     with pytest.raises(ValueError):module.run_project(tmp_path)
     assert len(calls)==2 and not any('build' in args or 'up' in args for args in calls)
+
+
+def test_a_passing_run_leaves_no_output_and_kept_failures_are_bounded():
+    """No new launcher-test-* after a passing run of the fixture; kept failure outputs are pruned by count and age."""
+    import sys
+    before={p.name for p in RESULTS.glob('launcher-test-*')}
+    run=subprocess.run([sys.executable,'-m','pytest','-q','-p','no:cacheprovider','-p','no:xdist',
+        str(ROOT/'tests/test_community_launcher.py::test_existing_project_resources_refused_before_build')],
+        cwd=ROOT,capture_output=True,text=True,timeout=600)
+    assert run.returncode==0,run.stdout[-2000:]
+    assert {p.name for p in RESULTS.glob('launcher-test-*')}==before
+    now=time.time();made=[]
+    for n,age in enumerate([10,7200,7300,7400,7500,90000]):
+        path=RESULTS/f'launcher-prune-test-{n}';path.mkdir();os.utime(path,(now-age,now-age));made.append(path)
+    try:
+        prune('launcher-prune-test-',keep=3,now=now)
+        assert [p.exists() for p in made]==[True,True,True,False,False,False]
+    finally:
+        for path in made:
+            if path.exists():path.rmdir()
