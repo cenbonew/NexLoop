@@ -6,7 +6,7 @@
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,test} from 'vitest';
-import {NODE_H,NODE_W,edgePaths,labelBox,layout,segmentHitsBox,type GraphEdge,type GraphNode} from '../src/workbench/graph/layout';
+import {MAX_GRAPH_TYPES,NODE_H,NODE_W,edgePaths,labelBox,layout,segmentHitsBox,type GraphEdge,type GraphNode} from '../src/workbench/graph/layout';
 import {DEFAULT_W,EDGE_PX,MAX_H,MIN_LABEL_PX,MIN_SCALE,SchemaGraph,canvasHeight,fitScale} from '../src/workbench/graph/SchemaGraph';
 
 // The relation catalog NX-054 published on stage (25 types; assessment_evidence deferred), plus types without any relation.
@@ -122,4 +122,17 @@ test('the layout stays quick for a large schema',()=>{
   const edges=nodes.slice(1).map((x,i):GraphEdge=>({id:'e'+i,from:nodes[Math.floor(i/3)].id,to:x.id,label:'link N:1'}));
   const t=performance.now();const l=layout(nodes,edges,DEFAULT_W/MAX_H,1120);
   expect(performance.now()-t).toBeLessThan(3000);expect(l.width).toBeLessThanOrEqual(1120);
+});
+
+test('above the cap the placement is skipped for a name-order grid, quickly, with every node still inside the viewBox',()=>{
+  const nodes=Array.from({length:MAX_GRAPH_TYPES+40},(_,i)=>node(`T${String(i).padStart(3,'0')}`));
+  const edges=nodes.slice(1).map((x,i):GraphEdge=>({id:'e'+i,from:nodes[i%5].id,to:x.id,label:'link N:1'}));
+  const t=performance.now();const l=layout(nodes,edges,DEFAULT_W/MAX_H,1120);
+  expect(performance.now()-t).toBeLessThan(200);expect(l.capped).toBe(true);expect(l.width).toBeLessThanOrEqual(1120);
+  expect(layout(nodes.slice(0,MAX_GRAPH_TYPES),edges.filter(e=>Number(e.to.slice(1))<MAX_GRAPH_TYPES),DEFAULT_W/MAX_H,1120).capped).toBeUndefined();
+  const r=render({nodes,edges});
+  expect(r.html).toContain('data-layout="capped"');expect(r.html).toContain(`超过 ${MAX_GRAPH_TYPES} 个`);
+  expect(r.rects).toHaveLength(nodes.length);
+  for(const p of r.rects){expect(p.x).toBeGreaterThanOrEqual(r.view.x0);expect(p.y).toBeGreaterThanOrEqual(r.view.y0);
+    expect(p.x+NODE_W).toBeLessThanOrEqual(r.view.x1+1e-6);expect(p.y+NODE_H).toBeLessThanOrEqual(r.view.y1+1e-6);}
 });

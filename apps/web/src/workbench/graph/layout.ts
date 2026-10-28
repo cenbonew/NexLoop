@@ -14,7 +14,12 @@
 export type GraphNode={id:string;label:string;sub?:string};
 export type GraphEdge={id:string;from:string;to:string;label?:string};
 export type Placed={id:string;x:number;y:number};
-export type Layout={nodes:Placed[];width:number;height:number};
+export type Layout={nodes:Placed[];width:number;height:number;
+  /** The connected layout was skipped for size (more than MAX_GRAPH_TYPES linked types): a plain grid in name order. */capped?:boolean};
+/** Above this many linked types the placement (about O(n^2 x cells)) is skipped for a plain grid: measured on this machine, 60 types
+ * take 0.4-0.5 s and 80 take 0.9-1.2 s on the main thread, so the cap keeps a layout under about a second. A Web Worker would
+ * move the cost off the main thread but not shorten the wait, and a schema of hundreds of types reads better as the table anyway. */
+export const MAX_GRAPH_TYPES=64;
 
 export const NODE_W=168,NODE_H=48,MARGIN=80;  // the margin keeps a self-loop (reach 56) and its label inside the box
 export const GAP_X=48,GAP_Y=40;
@@ -128,6 +133,7 @@ export function layout(nodes:GraphNode[],edges:GraphEdge[],aspect=16/9,maxWidth=
   const adj=new Map(all.map(id=>[id,new Set<string>()]));
   for(const e of links){adj.get(e.from)!.add(e.to);adj.get(e.to)!.add(e.from);}
   const linked=all.filter(id=>adj.get(id)!.size),alone=all.filter(id=>!adj.get(id)!.size);
+  if(linked.length>MAX_GRAPH_TYPES)return {...place(grid(all,Math.min(gridColumns(all.length,aspect),gridCols)),all),capped:true};
   // Connected parts, largest first (then by first name), one under another.
   const parts:string[][]=[];const inPart=new Set<string>();
   for(const id of linked){if(inPart.has(id))continue;const part=[id];inPart.add(id);

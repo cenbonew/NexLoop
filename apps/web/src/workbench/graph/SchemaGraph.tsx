@@ -11,7 +11,7 @@
  * the fitted picture is taller than MAX_H the canvas grows to it, so the default view and "适应画布" frame every node.
  */
 import {useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent} from 'react';
-import {NODE_H,NODE_W,edgePaths,hue,layout,type GraphEdge,type GraphNode} from './layout';
+import {MAX_GRAPH_TYPES,NODE_H,NODE_W,edgePaths,hue,layout,type GraphEdge,type GraphNode} from './layout';
 
 export const CARDINALITY_TEXT:Record<string,string>={one_to_one:'1:1',one_to_many:'1:N',many_to_one:'N:1',many_to_many:'N:N'};
 const HUES=Array.from({length:8},(_,i)=>`var(--hue-${i+1})`);  // UI spec §1: the graph hues are tokens (light and dark)
@@ -74,13 +74,13 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
       <button type="button" onClick={()=>zoomBy(1.25)} aria-label="放大">＋</button>
       <button type="button" onClick={()=>zoomBy(1/1.25)} aria-label="缩小" disabled={scale<=MIN_SCALE+1e-9}>－</button>
       <button type="button" onClick={reset}>适应画布</button>
-      <span className="note">点击或用 Tab 选中，Enter 查看；图获得焦点时方向键平移、+/− 缩放、0 适应画布。{paths.some(p=>p.crowded)?'放不下的关系名在选中一端类型时显示。':''}</span>
+      <span className="note">点击或用 Tab 选中，Enter 查看；图获得焦点时方向键平移、+/− 缩放、0 适应画布。{paths.some(p=>p.crowded)?'放不下的关系名在选中一端类型时显示。':''}{placed.capped?`有关系的类型超过 ${MAX_GRAPH_TYPES} 个，按名称排成网格；关系的走向请看表格视图。`:''}</span>
     </div>
     {grid&&emptyEdgesText?<p className="note" role="status" data-empty-edges="">{emptyEdgesText}</p>:null}
     <svg role="group" aria-label={label} tabIndex={0} onKeyDown={keys} width="100%" height={canvasH}
       style={{border:'1px solid var(--border)',borderRadius:8,display:'block'}}
       viewBox={`${x0} ${y0} ${viewW} ${viewH}`} preserveAspectRatio="xMidYMid meet" data-nodes={placed.nodes.length} data-edges={drawn.length}
-      data-layout={grid?'grid':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
+      data-layout={grid?'grid':placed.capped?'capped':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
       <defs><marker id="schema-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
       <g className="schema-edges" style={{color:'var(--text)'}}>
