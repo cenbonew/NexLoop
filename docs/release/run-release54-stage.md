@@ -1,31 +1,32 @@
 # 执行单：release 54 的 stage 部署（第 50 批）
 
-release 54 = 第 50 批的排练提交 **`<第 50 批 SHA>`**（L4 正在组，基于 release 53 的 5988b5be；SHA 定下后替换本单所有占位并重新核对 §0 的表）。本单写成可以照着执行的步骤，每一步写明预期结果和怎么撤回。
+release 54 = 第 50 批的排练提交 **f56cd5af**（`f56cd5af624b9a434a1178d2c46b1ff5efe1504e`，第一父 5988b5be，即 release 53）。本单写成可以照着执行的步骤，每一步写明预期结果和怎么撤回。
 
 - **执行者**：调度员。**判定者**：L6。证据里两者分开写，测试、演练和真实结果分开记录。
 - **人工步骤**：调度员在管理机和两台主机上执行的命令，以及 S8 用合成账号 approver3 做的浏览器走查；负责人账号不参与。
-- **本单起草时的依据**（只读核对源码，没有连接主机）：第 50 批尚未组好，下表按组成第 50 批的分支头核对；SHA 定下后按排练提交逐项再核一次，不一致就改本单再执行。
+- **按 f56cd5af 核对过**（只读核对源码，没有连接主机）：与 5988b5be 相比，`deploy/` 下只改了 `api-routes.v1.json`，迁移只多 0370、0371；三个来源分支头 503aa660、28aab168、c12a6bf7 都已包含在内。
 
-| 项 | 第 50 批的内容 | 来源（分支头） |
+| 项 | f56cd5af 上的值 | 来源 |
 |---|---|---|
-| 新迁移 | 0370 `ui_experiments_view`（实验空间的只读视图；`authz.nexloop_workbench_observe_read` 加动词 `experiments`，只给 owner）；0371 `nx058_invite_sso`（邀请可指定仅限 SSO；成员视图包装 0356 的视图，加布尔 `sso_pending`）。两者在分支上都是临时号 0370，排练时由调度员重编为 0370、0371；迁移尾为 0371 | `l5/experiments-ui` 503aa660、`claude/nx058-invite-sso` c12a6bf7 |
+| 新迁移 | 0370 `ui_experiments_view`（实验空间的只读视图；`authz.nexloop_workbench_observe_read` 加动词 `experiments`，只给 owner）；0371 `nx058_invite_sso`（邀请可指定仅限 SSO；成员视图包装 0356 的视图，加布尔 `sso_pending`）。迁移尾为 0371 | `packages/eios-core/src/eios/migrations/catalog.json` |
 | 业务 Action | **没有新 Action**。实验空间第 2 片用已发布的 `nexloop.experiment.register/start/stop/report:1`；邀请仅限 SSO 是已有 `invite_workbench_member` 的一个可选字段（SQL 函数 `create or replace`，Action 定义不变） | 两个分支都没有改 `deploy/` 下的清单 |
 | 工作台角色 | 不变（v48；owner 已含 4 个实验 Action） | `deploy/authorization/workbench-roles.v1.json` |
 | 授权、主体、审批策略 | 不变（service-grants v22、stage-principals v7、approval-policies revision 5） | 同上 |
 | compose、连接预算、host-health、告警规则 | 不变（app-net 18 个服务、连接 60/60、告警 v21） | 同上 |
 | Host 运行配置 | 不变 | — |
+| API 路由清单 | `api-routes` v3 → v4：新增 `GET /api/v1/workbench/experiments`（realm `workbench_session`，端口 `backend.workbench:experiments`）。这是仓库内由 CI 核对的清单，随镜像生效，stage 上没有要应用的步骤 | `deploy/authorization/api-routes.v1.json` |
 | 前端 | 实验空间开放（不再标“未启用”）；Object Type 关系图（每个节点都在画布内，超过 64 个有关系的类型按名称排网格）；运营人设页（多个人设逐行列出）；确认面板（行内操作先确认，请求进行中不能关闭）；成员页的操作选择器与“待 SSO 关联”标记；客户详情页先列最近 5 次对话 | `l5/experiments-ui`、`claude/ui-ux-05f384` 28aab168、`claude/nx058-invite-sso` |
 | SSO | stage 不配置 SSO provider：SSO 端点照旧 404；指定 `sso_provider` 的邀请被拒为 `provider_unknown`（409）。不重跑 `stage_secrets.py browser` | `docs/implementation/NX-058-slice-F.md` |
 
 ## 0. 记号
 
-同 `run-release53-stage.md` §0：`$NEXLOOP_ROOT`、`<树>`、`<检出>`（管理机上第 50 批排练提交的检出）、`ro "<SQL>"`、`stage_release.py` 各步。每一步先 `--dry-run` 看命令再正式执行；结果与预期不符就停下，交调度员判断。
+同 `run-release53-stage.md` §0：`$NEXLOOP_ROOT`、`<树>`、`<检出>`（管理机上 f56cd5af 的检出）、`ro "<SQL>"`、`stage_release.py` 各步。每一步先 `--dry-run` 看命令再正式执行；结果与预期不符就停下，交调度员判断。
 
 ## 1. 前提（不满足就不开始）
 
 | # | 前提 | 怎么核对 |
 |---|---|---|
-| P1 | 第 50 批排练提交的 CI 通过，release 已构建、签名、封存 | `stage_release.py --step build`、`--step sign` 都是 ok（签名前核对提交在 main 上） |
+| P1 | f56cd5af 的 CI 通过，release 已构建、签名、封存 | `stage_release.py --step build`、`--step sign` 都是 ok（签名前核对提交在 main 上，第 50 批合入 main 之后才执行本单） |
 | P2 | stage 当前是 release 53（迁移尾 0369），known_good 记录在案 | `ro "select max(version) from control.schema_migrations"` 返回 0369 |
 | P3 | release 53 的部署单已完整执行，S13 的连接数记录在案 | release 53 的证据 |
 | P4 | 最近一次 pgBackRest 备份成功 | OPERATIONS §8a.2 |
