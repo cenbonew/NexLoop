@@ -223,3 +223,68 @@ def test_the_registry_and_the_summary_fields(admin):
         'loosen_budget', 'human')
     assert admin.execute("select control.nexloop_approval_summary_allowed('goals.budget.loosen')").fetchone()[0] == [
         'budget_kind', 'unit', 'from_limit_amount', 'limit_amount', 'from_period_start', 'from_period_end', 'period_start', 'period_end']
+
+
+@pytest.mark.parametrize('shape', [
+    {'condition': Jsonb({'field': 'budget_kind', 'equals': 'model'}), 'approver_roles': ['owner']},  # a condition: some loosenings unheld
+    {'condition': None, 'approver_roles': ['owner', 'operator']},  # an approver role beyond owner
+])
+def test_a_policy_of_another_shape_never_runs_even_an_approved_request(budgets, admin, shape):
+    """L6 S1 (fail closed, layer 1 alone): the only policy of goals.budget.loosen has another shape from version 1 on, so the approved
+    request matches its version and digest - only the shape check refuses it (approval_unavailable), consumed, nothing written."""
+    c = budgets
+    admin.execute("""insert into control.nexloop_approval_policies(capability,version,action_version,condition,quorum,approver_roles,expires_after_seconds,
+        published_by) values('goals.budget.loosen',1,1,%s,1,%s,86400,'synthetic-configurator')""", (shape['condition'], shape['approver_roles']))
+    body = loosening(admin, budget())
+    first = c['loosen'](body)
+    assert first.status_code == 200 and first.json()['status'] == 'waiting_approval', first.text
+    assert c['decide'](c['second'], first.json()['approval_id']).json()['status'] == 'approved'
+    spent = c['loosen'](body)
+    assert spent.json()['status'] == 'execution_refused' and spent.json()['approval'] == 'consumed', spent.json()
+    assert admin.execute('select result from control.nexloop_approval_consumptions where approval_id=%s', (first.json()['approval_id'],)).fetchone() == (
+        'execution_refused:22023:approval_unavailable',)
+    assert row(admin) is None
+
+
+def test_two_connections_only_one_change_applies_to_the_revision_it_read(budgets, admin, pg):
+    """L6 S2: an approved loosening executes while another session holds the row (a tightening, not yet committed). The execution's
+    check waits for the row lock and then sees the new revision: budget_changed, and the tightening stands; it never writes over a
+    change made after the revision the approver saw."""
+    import threading
+    import time
+    c = budgets
+    with_policies(c)
+    approved_budget(admin, TENANT, 'model', 'USD', '100.00', P0, P1)
+    body = loosening(admin, budget(limit='150.00'))
+    approval = c['loosen'](body).json()['approval_id']
+    assert c['decide'](c['second'], approval).json()['status'] == 'approved'
+    principal = c['owner_member']['principal_id']
+    frozen = admin.execute('select body from control.nexloop_approval_requests where approval_id=%s', (approval,)).fetchone()[0]  # as the entry sent it
+    holder = psycopg.connect(pg)
+    holder.execute('begin')
+    holder.execute('select control.nexloop_governed_owner_change(%s,%s,%s,%s,%s,%s)', (TENANT, 'real', principal, 'human', 'intent-' + uuid.uuid4().hex[:12],
+                   Jsonb({'operation': 'set_budget', 'request_id': uuid.uuid4().hex, **budget(limit='60.00')})))
+    outcome = {}
+
+    def execute():
+        with psycopg.connect(pg) as db:
+            try:
+                with db.transaction():
+                    db.execute("select set_config('nexloop.approval_in_flight',%s,true)", (approval,))
+                    db.execute('select control.nexloop_governed_loosen_budget(%s,%s,%s,%s,%s,%s)', (TENANT, 'real', principal, 'human',
+                               'intent-' + uuid.uuid4().hex[:12], Jsonb({**frozen, 'request_id': uuid.uuid4().hex})))
+                outcome['result'] = 'executed'
+            except psycopg.Error as error:
+                outcome['result'] = error.diag.message_primary
+    worker = threading.Thread(target=execute)
+    worker.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not admin.execute("""select count(*) from pg_stat_activity where wait_event_type='Lock'
+            and query like '%%nexloop_governed_loosen_budget%%'""").fetchone()[0]:
+        time.sleep(0.05)
+    assert worker.is_alive(), outcome  # waiting for the tightening's row lock
+    holder.execute('commit')
+    holder.close()
+    worker.join(10)
+    assert outcome == {'result': 'budget: budget_changed'}
+    assert row(admin)[1] == '60.00'
