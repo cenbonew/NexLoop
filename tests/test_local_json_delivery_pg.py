@@ -226,8 +226,8 @@ def test_actual_sigkill_reopen_recovers_original_intent_without_second_post_or_q
 
 # The window is written only when the whole server path (TLS, the guard's delivery proof, the store) answers inside one provider
 # timeout: once the client gives up, the Dispatcher stops waiting and the authority refuses the late delivery, so no manifest
-# exists (CI seq 193: no recovery candidate). The fixture's timeout, capped by the Dispatcher's own rule (timeout <= lease/3), not a
-# shorter one; the lease is long enough for it.
+# exists (CI seq 193: no recovery candidate). So the dispatch uses the fixture's timeout, kept within the Dispatcher's rule (it refuses
+# a provider whose timeout exceeds lease/3; it never lowers one), with a lease long enough for it.
 WINDOW_LEASE_SECONDS=9
 
 
