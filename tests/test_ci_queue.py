@@ -636,3 +636,60 @@ def test_a_scan_timeout_kills_the_whole_process_group(tmp_path):
         time.sleep(0.1)
     else:
         raise AssertionError('the grandchild outlived the timeout')
+
+
+# A dependency stage that fails with a network error is run again (at most 3 times); one that fails with an integrity, lock,
+# resolution or parse error, a timeout or an unrecognised error is not.
+FLAKY = """#!/bin/sh
+n=$(($(cat "$1" 2>/dev/null || echo 0) + 1)); echo $n > "$1"
+if [ $n -le "$2" ]; then echo "$3" >&2; exit 2; fi
+"""
+
+
+def _dependency_run(lab, tmp_path, monkeypatch, fails, message, *, ref):
+    script, counter, pauses = tmp_path / 'flaky.sh', tmp_path / f'{ref}.count', []
+    script.write_text(FLAKY)
+    monkeypatch.setattr(ci, '_sleep', pauses.append)
+    stages = {'schema': 'nexloop-ci-stages/1', 'version': 1, 'stages': [
+        {'name': 'dependency-python', 'network': 'dependency', 'argv': ['sh', str(script), str(counter), str(fails), message]},
+        {'name': 'suite', 'network': 'test', 'argv': ['sh', 'ci-test.sh'], 'junit': ['.ci-results/*.xml']}]}
+    ci.enqueue(lab['bare'], lab['queue'], f'refs/heads/integration/{ref}', lab['base'], 'integrator-a')
+    r = ci.run_once(lab['bare'], lab['queue'], {**lab['policy'], 'stages': stages}, lab['identities'], workroot=lab['tmp'] / 'builds',
+                    restricted_identifiers=lab['restricted'])['outcome']
+    return r, int(counter.read_text()), pauses
+
+
+def test_a_dependency_stage_unavailable_twice_passes_on_the_third_run(lab, tmp_path, monkeypatch):
+    r, runs, pauses = _dependency_run(lab, tmp_path, monkeypatch, 2, 'error: Failed to fetch: `https://pypi.example.invalid/simple/x/` Connection reset by peer', ref='flaky')
+    stage = r['stages'][0]
+    assert r['status'] == 'passed' and runs == 3 and stage['status'] == 'passed'
+    assert stage['attempts'] == 3 and stage['retries'] == [{'exit': 2, 'class': 'unavailable'}] * 2 and stage['failure_class'] is None
+    assert pauses == list(ci.DEPENDENCY_BACKOFF_SECONDS)
+    assert 'Connection reset' not in json.dumps(r)  # class codes only, never the output
+
+
+def test_a_dependency_stage_unavailable_every_time_stops_after_three_runs(lab, tmp_path, monkeypatch):
+    r, runs, pauses = _dependency_run(lab, tmp_path, monkeypatch, 9, 'ERR_PNPM_META_FETCH_FAIL GET https://registry.example.invalid/x: ETIMEDOUT', ref='down')
+    stage = r['stages'][0]
+    assert r['status'] == 'failed' and runs == 3 and stage['status'] == 'dependency_unavailable' and len(r['stages']) == 1
+    assert stage['attempts'] == 3 and len(stage['retries']) == 2 and stage['failure_class'] == 'unavailable' and len(pauses) == 2
+
+
+@pytest.mark.parametrize('message,failure', [
+    ('error: Hash mismatch for `x==1.0`: Connection reset while comparing', 'integrity'),
+    ('ERR_PNPM_TARBALL_INTEGRITY  Got unexpected checksum for "https://registry.example.invalid/x.tgz"', 'integrity'),
+    ('error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided', 'lock'),
+    ('ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date', 'lock'),
+    ('No solution found when resolving dependencies', 'resolution'),
+    ('error: Failed to parse `uv.lock`', 'parse'),
+    ('something else went wrong', 'unknown')])
+def test_a_dependency_failure_a_retry_cannot_fix_fails_at_once(lab, tmp_path, monkeypatch, message, failure):
+    r, runs, pauses = _dependency_run(lab, tmp_path, monkeypatch, 9, message, ref='fatal')
+    stage = r['stages'][0]
+    assert r['status'] == 'failed' and runs == 1 and pauses == []
+    assert stage['attempts'] == 1 and stage['retries'] == [] and stage['failure_class'] == failure
+
+
+def test_a_dependency_timeout_and_other_stages_are_never_retried():
+    assert ci.dependency_failure_class('timeout', 'ETIMEDOUT') == 'timeout'
+    assert ci.run_stage({'name': 'suite', 'network': 'test', 'argv': ['false']}, ['sh', '-c', 'echo ECONNRESET; exit 1'], '.') == (1, [], None)

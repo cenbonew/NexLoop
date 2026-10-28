@@ -47,6 +47,55 @@ ENQUEUE_PREFIXES = ('refs/heads/incoming/', 'refs/heads/integration/')
 POLICY_PATHS = ('scripts/ci/', '.ci-policy/', 'deploy/', '.githooks/')
 LOCK_FILES = ('versions.lock.json', 'uv.lock', 'pnpm-lock.yaml')
 CONTROLLER_VERSION = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+# A dependency stage (network "dependency": uv sync, pnpm install) that fails because the package index or the network was
+# briefly unreachable is run again, at most DEPENDENCY_ATTEMPTS times in all, after the pauses below. Only a failure whose
+# output names such an error, and nothing that a retry cannot fix, is retried: a lock that does not match, a hash or integrity
+# mismatch, a resolution or parse error, a timeout or any unrecognised failure ends the stage at once. The output is read in
+# memory for this only; the result keeps the class codes and the number of attempts, never the output.
+DEPENDENCY_ATTEMPTS = 3
+DEPENDENCY_BACKOFF_SECONDS = (30, 90)
+DEPENDENCY_UNAVAILABLE = re.compile(
+    r'ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH|ERR_SOCKET_TIMEOUT|ERR_PNPM_FETCH_5\d\d'
+    r'|ERR_PNPM_META_FETCH_FAIL|socket hang up|Failed to fetch|Failed to download|error sending request|operation timed out'
+    r'|Connection reset|connection closed before message completed|dns error|Temporary failure in name resolution'
+    r'|\b(?:502|503|504) (?:Bad Gateway|Service Unavailable|Gateway Timeout)\b', re.I)
+DEPENDENCY_FATAL = (
+    ('integrity', re.compile(r'Hash mismatch|ERR_PNPM_TARBALL_INTEGRITY|EINTEGRITY|integrity checksum failed|checksum mismatch', re.I)),
+    ('lock', re.compile(r'lockfile .{0,40}needs to be updated|ERR_PNPM_OUTDATED_LOCKFILE|ERR_PNPM_LOCKFILE'
+                        r'|lock file .{0,40}(?:not up to date|out of date)', re.I)),
+    ('resolution', re.compile(r'No solution found|ERR_PNPM_NO_MATCHING_VERSION|ERR_PNPM_PEER_DEP|Because .{0,200} we can conclude', re.I)),
+    ('parse', re.compile(r'Failed to parse|TOML parse error|ERR_PNPM_BROKEN_LOCKFILE|YAMLException|Unexpected token', re.I)))
+_sleep = time.sleep
+
+
+def dependency_failure_class(rc, output):
+    """'unavailable' (retryable) or the reason it is not: 'integrity', 'lock', 'resolution', 'parse', 'timeout', 'unknown'."""
+    if rc == 'timeout':
+        return 'timeout'
+    for name, pattern in DEPENDENCY_FATAL:
+        if pattern.search(output):
+            return name
+    return 'unavailable' if DEPENDENCY_UNAVAILABLE.search(output) else 'unknown'
+
+
+def run_stage(stage, argv, work):
+    """(exit, retried, failure_class) of one stage: the last exit code or 'timeout'; one {exit, class} per run that was retried;
+    the class of the final failure for a dependency stage (None when it passed or for any other stage)."""
+    tries = DEPENDENCY_ATTEMPTS if stage.get('network') == 'dependency' else 1
+    retried = []
+    for attempt in range(1, tries + 1):
+        try:
+            run = subprocess.run(argv, cwd=work, env=_stage_env(stage), capture_output=True, text=True, timeout=stage.get('timeout_seconds', 7200))
+            rc, output = run.returncode, (run.stdout or '') + (run.stderr or '')
+        except subprocess.TimeoutExpired:
+            rc, output = 'timeout', ''
+        if rc == 0 or attempt == tries:
+            return rc, retried, (None if rc == 0 or tries == 1 else dependency_failure_class(rc, output))
+        failure = dependency_failure_class(rc, output)
+        if failure != 'unavailable':
+            return rc, retried, failure
+        retried.append({'exit': rc, 'class': failure})
+        _sleep(DEPENDENCY_BACKOFF_SECONDS[min(attempt, len(DEPENDENCY_BACKOFF_SECONDS)) - 1])
 
 
 class ConfigError(Exception):
@@ -458,13 +507,13 @@ def run_check(repo, queue, request, policy, identities, *, runner=None, workroot
             argv = stage['argv']
             if runner is not None:
                 argv = podman_argv(runner, stage, work, argv)
-            try:
-                run = subprocess.run(argv, cwd=work, env=_stage_env(stage), capture_output=True, text=True, timeout=stage.get('timeout_seconds', 7200))
-                rc = run.returncode
-            except subprocess.TimeoutExpired:
-                rc = 'timeout'
+            rc, retried, failure = run_stage(stage, argv, work)
             status = 'passed' if rc == 0 else ('dependency_unavailable' if stage['name'].startswith('dependency') else 'failed')
             entry = {'name': stage['name'], 'status': status, 'exit': rc, 'seconds': round(time.monotonic() - s0, 3), 'junit': {}}
+            if stage.get('network') == 'dependency':
+                # Additive to nexloop-ci-result/1: how many times the stage ran, why each earlier run was retried, and the class
+                # of the final failure (None when it passed). The status names stay as they were.
+                entry.update(attempts=len(retried) + 1, retries=retried, failure_class=failure)
             for pattern in stage.get('junit', []):
                 for path in sorted(glob.glob(str(work / pattern))):
                     name = Path(path).stem
