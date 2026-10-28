@@ -20,7 +20,7 @@ NX-055 的 C3、D2、E1 代码与 E2+E3 主机健康都已上 stage（任务证�
 | P1 | 知道 stage 当前部署的 main 提交 `$RELEASE_COMMIT`（部署单记录），管理机上有它的检出 | `git -C <检出> rev-parse HEAD` 等于 `$RELEASE_COMMIT` |
 | P2 | stage 库的迁移尾与 `$RELEASE_COMMIT` 的 catalog 尾相同 | `ro "select max(version) from control.schema_migrations"`（`ro` 见 run-nx057 §0.3），等于检出中 `packages/eios-core/src/eios/migrations/catalog.json` 的最后一个 `version` |
 | P3 | 管理机的 PostgreSQL 与 stage 同一大版本（18） | `"$NEXLOOP_TEST_PG_BIN/postgres" --version`（未设置时用 `/opt/homebrew/opt/postgresql@18/bin/postgres`）为 18.x；`ro "show server_version"` 为 18.x。大版本不同，`acldefault` 和预定义角色会不同，E1 的比较没有意义 |
-| P4 | DATA_HOST 的 `$RUN/src` 是 `$RELEASE_COMMIT` 的打包（含 `scripts/deploy` 和 `packages/eios-core/src`），属主 999；`$RUN/boot.dsn` 属主 999、0600 | 做法同 run-assembly §0.4；`stat -c '%u %a' $RUN/boot.dsn` 为 `999 600` |
+| P4 | DATA_HOST 的 `$RUN/src` 是 `$RELEASE_COMMIT` 的打包（含 `scripts/deploy` 和 `packages/eios-core/src`）；`$RUN/boot.dsn` 为 0600，属主就是本单 §1 拷贝文件和运行容器所用的 uid（不写死：stage 上是 1000，不是 999） | 做法同 run-assembly §0.4；`stat -c '%u:%g %a' $RUN/boot.dsn` 的权限为 `600`，记下 `%u:%g` |
 | P5 | 两台主机的主机健康探针正常 | host-health.md §4.6 第 1、2 条：`probe_age_seconds` 两台都在 120 秒以内，`blind`、`missing_units` 都为 0 |
 | P6 | APP_HOST 有 release 的 backend 镜像（带 digest），不需要拉取 | `docker image inspect --format '{{index .RepoDigests 0}}' "$BACKEND_IMAGE"` 有输出 |
 | P7 | 钥匙串里有 APP_HOST 记录器口令条目 `nexloop/stage/host-recorder-app-host`（只查是否存在） | `security find-generic-password -s nexloop/stage/host-recorder-app-host >/dev/null && echo present` |
@@ -49,30 +49,36 @@ LC_ALL=C.UTF-8 PYTHONPATH=packages/eios-core/src <venv>/bin/python scripts/deplo
 
 ```
 scp local-only/nx055/grant-snapshot.json <data_host>:$RUN/grant-snapshot.json
-ssh <data_host> "sudo chown 999:999 $RUN/grant-snapshot.json && sudo chmod 0640 $RUN/grant-snapshot.json && sha256sum $RUN/grant-snapshot.json"
+ssh <data_host> "chmod 0600 $RUN/grant-snapshot.json && stat -c '%u:%g %a' $RUN/boot.dsn $RUN/grant-snapshot.json && sha256sum $RUN/grant-snapshot.json"
 shasum -a 256 local-only/nx055/grant-snapshot.json
 ```
 
+- `<data_host>` 的登录用户必须就是 `$RUN/boot.dsn` 的属主（P4 记下的 uid），这样拷贝出的文件天然属于该 uid，**不用 sudo**、不 `chown`。`stat` 两行的 `%u:%g` 必须相同，权限都是 `600`；不同就停下，不要用 sudo 改属主。
 - 两边的 sha256 必须相同。
 
 ### 1.3 检查（DATA_HOST，一次性容器，A）
 
 ```
-docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_drift.py check \
+RUN_AS=$(stat -c %u:%g "$RUN/boot.dsn")
+CHECK_COMMON="${COMMON/--user 999:999/--user $RUN_AS}"
+case "$CHECK_COMMON" in *"--user $RUN_AS"*) ;; *) echo "COMMON has no --user 999:999 to replace; stop"; false;; esac
+docker run $CHECK_COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_drift.py check \
   --database-url-file /run/bootstrap-dsn --expected /stage/grant-snapshot.json --json > "$RUN/grant-drift.json"; echo "exit=$?"
-docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_drift.py check \
+docker run $CHECK_COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_drift.py check \
   --database-url-file /run/bootstrap-dsn --expected /stage/grant-snapshot.json | tail -1
 ```
 
+- `$COMMON`（run-nx057 §0.2）写死了 `--user 999:999`；本单在运行时用 `stat -c %u:%g $RUN/boot.dsn` 读出属主，替换成该 uid。`case` 一行确认替换确实发生。
+
 - **连接身份**：`nexloop_bootstrap`，经 PG 容器的本地 socket，与 run-nx057 的只读会话和其他数据主机工具相同。工具在只读事务里只读系统目录，并把 `transaction_read_only` 读回确认；不写库。
-- 容器 `--network none`、只读根、UID 999；只挂 `$RUN/src`、`$RUN`（只读）、PG socket 目录和 `boot.dsn`。
+- 容器 `--network none`、只读根，以 `$RUN_AS`（`boot.dsn` 的属主）运行；只挂 `$RUN/src`、`$RUN`（只读）、PG socket 目录和 `boot.dsn`。
 - 不用 metrics 角色：它读不到 `control.schema_migrations`，只能加 `--allow-unknown-revision`，就失去了版本核对。
 - 输出不含 DSN 或口令。把 `$RUN/grant-drift.json` 取回管理机 `local-only/nx055/`，然后删除 DATA_HOST 上的 `grant-drift.json` 和 `grant-snapshot.json`。
 
 ### 1.4 预期与判定
 
 - **退出码**：0 为一致，1 为漂移或版本不符，2 为用法或连接错误。
-- **第一次运行预期是 1**（工具文档已写明）：stage 的部署和运行时会在迁移之外建角色（stage 的登录角色、每个 world/租户的运行角色、主机健康记录器角色 `nexloop_host_recorder_*` 等），它们的 `role`、`member` 和授权会以 `EXTRA` 出现。`IGNORED` 目前为空，所以这些都会列出来。
+- **第一次运行预期是 0**：stage 实测第一次就 exit 0，`0 missing, 0 extra`，6679 条一致。stage 的登录、sim 和主机健康记录器角色都由迁移创建（例如 0318），部署只给它们设口令；口令不在比较范围内，也不在快照里。只有在迁移之外另建的角色（及其成员关系和授权）才会以 `EXTRA` 出现；`IGNORED` 目前为空，出现时按下表分类。
 - 判定者逐条分类 JSON 中的 `missing`、`extra`：
 
 | 类别 | 例子 | 处理 |
@@ -85,7 +91,45 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_dr
   1. 在包含已审 `IGNORED` 的 release 上，1.3 退出码为 0，最后一行为 `grant drift: match (0 missing, 0 extra, <k> ignored; …)`；
   2. `revision_match` 为 true；
   3. 没有 `STALE IGNORE`（工具把它算作不一致，退出码不会是 0）。
-- 第一次运行如果直接是 0：同样记录，E1 通过。
+- 第一次运行就是 0（预期情况）：记录，再做 1.4a 的阳性对照，两者都符合才判 E1 通过。
+
+### 1.4a 阳性对照与连接目标核对（L6 要求；已在 stage 验证）
+
+只得到 0 不能说明工具真的在比较，也不能说明它连的是 stage 库。所以再做两项，仍然只读。
+
+1. **阳性对照**：从快照复制出 `ctl.json`，删掉一条已有条目，再加一条不存在的条目（管理机）：
+
+```
+python3 - local-only/nx055/grant-snapshot.json local-only/nx055/ctl.json <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+removed = d['entries'].pop(len(d['entries']) // 2)
+added = 'role|nexloop_control_absent|nexloop_control_absent|SUPERUSER|true'
+d['entries'] = sorted(d['entries'] + [added])
+json.dump(d, open(sys.argv[2], 'w'), indent=0)
+print('removed', removed); print('added', added)
+PY
+```
+
+   记下打印的两条，按 1.2 送到 `$RUN/ctl.json`（同样 0600、同一属主），再执行：
+
+```
+docker run $CHECK_COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/grant_drift.py check \
+  --database-url-file /run/bootstrap-dsn --expected /stage/ctl.json --json > "$RUN/grant-drift-ctl.json"; echo "exit=$?"
+```
+
+   **预期**：`exit=1`；JSON 里 `missing` 正好一条，是加进去的那条（期望有、库里没有），`extra` 正好一条，是删掉的那条（库里有、期望里没有），`revision_match` 为 true。多一条、少一条或换了别的条目，都算不符合，停下报给 L6。做完删除 DATA_HOST 上的 `ctl.json` 和 `grant-drift-ctl.json`。
+
+2. **连接目标核对**：确认 1.3 连的是 stage 库，而不是空库或别的库。
+
+```
+ro "select current_database(), count(*) from pg_catalog.pg_roles where oid<>10 and rolname !~ '^pg_'"
+python3 -c "import json;print(len({e.split('|')[1] for e in json.load(open('local-only/nx055/grant-snapshot.json'))['entries'] if e.startswith('role|')}))"
+```
+
+   `ro`（run-nx057 §0.3）本身就在 `begin read only` … `rollback` 里执行，所以这条查询处在只读事务中。
+
+   **预期**：`current_database()` 为 `$DB`；角色数与快照中 `role` 条目的不同主体数相同（两边口径相同：不含 oid 10 和 `pg_*`）。不同时，差的就是迁移之外的角色，应已在 1.3 里以 `EXTRA` 出现；1.3 为 0 而这里不同，就说明连错了库，停下。
 - 第一次运行有 D 类：E1 不通过，NX-055 留在 `in_progress`，另开修复任务。
 
 ### 1.5 失败处理
