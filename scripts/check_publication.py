@@ -18,7 +18,7 @@ def paths(command):
 
 def violation(name, raw):
     path = Path(name)
-    if (any(part in path.parts for part in ('local-only','private','secrets','runtime-data','backups'))
+    if (any(part in path.parts for part in ('local-only','private','secrets','runtime-data','backups','.ci-results'))
             or name.startswith('docs/tmp/') or path.name.startswith('NexLoop_完整交接文档_')
             or (path.name.startswith('.env') and path.name != '.env.example')):
         return 'private path'
