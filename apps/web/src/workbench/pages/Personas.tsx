@@ -26,7 +26,7 @@ export function usableVersions(personas:PersonaVersion[]):Map<string,PersonaVers
 }
 export function personaRef(p:{persona_id:string;version:number}):string{return `${p.persona_id}@${p.version}`;}
 
-export function Personas({actions}:{actions?:ReactNode}){
+export function Personas({actions,onConsumers}:{actions?:ReactNode;onConsumers?:()=>void}){
   const [tab,setTab]=useState<Tab>('personas');
   const query=useQuery({queryKey:['workbench','operator-personas'],queryFn:()=>readOperatorPersonas()});
   // 0232: the outreach controls tab is the owner's only (the read and the Action are owner only).
@@ -35,7 +35,7 @@ export function Personas({actions}:{actions?:ReactNode}){
   const tabs:{key:Tab;label:string}[]=[{key:'personas',label:'人设与版本'},{key:'rules',label:'分配'},{key:'disclosure',label:'AI 身份披露'},...(owner?[{key:'outreach' as Tab,label:'外联控制'},{key:'insights' as Tab,label:'外联指标与证据'}]:[])];
   return <Page title="运营人设" query={query} actions={actions} lead="运营在对话中的身份与说话方式：人设版本、分配规则与 AI 身份披露。"
     toolbar={<Tabs id="persona-tabs" label="人设设置" value={tab} onChange={setTab} tabs={tabs}/>}>{data=><TabPanel id="persona-tabs" value={tab}>{
-    tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data}/>:tab==='outreach'&&owner?<OutreachControlsTab/>:tab==='insights'&&owner?<OutreachInsights/>:<Disclosure setting={data.ai_disclosure}/>}</TabPanel>}</Page>;
+    tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data} onConsumers={onConsumers}/>:tab==='outreach'&&owner?<OutreachControlsTab/>:tab==='insights'&&owner?<OutreachInsights/>:<Disclosure setting={data.ai_disclosure}/>}</TabPanel>}</Page>;
 }
 
 // ---- versions and the editor ----
@@ -114,7 +114,7 @@ function PersonaEditor({member,personas}:{member:Parameters<typeof Form>[0]['mem
 // ---- assignment: default, rules, one customer ----
 function ruleText(rule:PersonaRule):string{return 'role_id' in rule.when?`拥有角色 ${shorten(rule.when.role_id)}`:`属性 ${rule.when.property} 等于“${rule.when.equals}”`;}
 type RuleDraft={kind:'role_id'|'property';role_id:string;property:string;equals:string;persona_id:string};
-function Assignment({data}:{data:PersonaOverview}){
+function Assignment({data,onConsumers}:{data:PersonaOverview;onConsumers?:()=>void}){
   const usable=[...usableVersions(data.personas).values()];
   const name=(id:string|null)=>id?(usable.find(p=>p.persona_id===id)?.document.display_name??id)+`（${id}）`:'无';
   return <>
@@ -125,9 +125,8 @@ function Assignment({data}:{data:PersonaOverview}){
         {label:'顺序',main:true,cell:r=>`第 ${r.i+1} 条`},{label:'条件',wide:true,cell:r=>ruleText(r)},{label:'人设',cell:r=>name(r.persona_id)}]}/>
         :<EmptyState kind="empty" subject="分群规则" next="所有客户使用租户默认人设。"/>}</>
       :<EmptyState kind="empty" subject="已发布的分配规则" next="发布规则并设置租户默认人设后，客户对话才会带上人设。"/>}
-    <WithMember>{member=><>
-      <RulesEditor member={member} data={data} usable={usable}/>
-      <AssignForm member={member} usable={usable}/></>}</WithMember>
+    <p className="note">为单个客户指定人设：在客户详情的“运营人设与沟通偏好”里操作。{onConsumers?<> <button type="button" className="link" onClick={onConsumers}>去客户列表</button></>:null}</p>
+    <WithMember>{member=><RulesEditor member={member} data={data} usable={usable}/>}</WithMember>
   </>;
 }
 function RulesEditor({member,data,usable}:{member:Parameters<typeof Form>[0]['member'];data:PersonaOverview;usable:PersonaVersion[]}){
@@ -157,14 +156,22 @@ function RulesEditor({member,data,usable}:{member:Parameters<typeof Form>[0]['me
     <p className="note">新规则发布后，受影响的客户在下次对话时更换人设，每次更换都留下记录。</p>
   </Form>;
 }
-function AssignForm({member,usable}:{member:Parameters<typeof Form>[0]['member'];usable:PersonaVersion[]}){
-  const [consumer,setConsumer]=useState('');const [persona,setPersona]=useState('');const [reason,setReason]=useState('');
-  return <Form operation="assign_operator_persona" member={member} title="为单个客户指定人设" disabled={!/^[a-f0-9]{64}$/.test(consumer)||!reason.trim()}
-    body={()=>({consumer_id:consumer,persona_id:persona||null,reason:reason.trim()})}>
-    <FormField id="assign-consumer" label="客户 ID" hint="在客户详情页复制客户 ID 后粘贴（64 位）。"><input id="assign-consumer" value={consumer} aria-describedby="assign-consumer-hint" onChange={e=>setConsumer(e.target.value.trim())}/></FormField>
+/** UX audit B10: one customer's persona is assigned on that customer's page (the customer is known there, nothing is pasted). */
+function ConsumerAssignForm({member,consumerId,data}:{member:Parameters<typeof Form>[0]['member'];consumerId:string;data:PersonaOverview}){
+  const desired=data.consumer?.desired;
+  const assigned=desired?.source==='owner_assign'?desired.persona_id??'':'';
+  const [persona,setPersona]=useState(assigned);const [reason,setReason]=useState('');
+  const usable=[...usableVersions(data.personas).values()];
+  const same=persona===assigned;
+  if(!usable.length&&!assigned)return null;  // nothing to choose: the line above already says no persona is available
+  return <Form operation="assign_operator_persona" member={member} title="为这位客户指定人设" level="h3" disabled={same||!reason.trim()}
+    disabledReason={same?(assigned?'选择另一个人设，或选“不指定”回到规则。':'先选择一个人设。'):!reason.trim()?'填写原因后才能提交。':undefined}
+    body={()=>({consumer_id:consumerId,persona_id:persona||null,reason:reason.trim()})}>
     <FormField id="assign-persona" label="人设"><select id="assign-persona" value={persona} onChange={e=>setPersona(e.target.value)}>
-      <option value="">清除指定（回到规则）</option>{usable.map(p=><option key={p.persona_id} value={p.persona_id}>{p.document.display_name} · {personaRef(p)}</option>)}</select></FormField>
+      <option value="">{assigned?'不指定（回到分群规则和租户默认）':'不指定（按分群规则和租户默认）'}</option>
+      {usable.map(p=><option key={p.persona_id} value={p.persona_id}>{p.document.display_name} · {personaRef(p)}</option>)}</select></FormField>
     <FormField id="assign-reason" label="原因"><input id="assign-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></FormField>
+    <p className="note">指定后，这位客户下次对话起使用新的人设，进行中的对话不切换；每次更换都留下记录。</p>
   </Form>;
 }
 
@@ -203,7 +210,7 @@ export function ConsumerPersona({consumerId}:{consumerId:string}){
   return <section aria-labelledby="consumer-persona-title"><h2 id="consumer-persona-title">运营人设与沟通偏好</h2>
     {overview.isPending?<EmptyState kind="loading" subject="运营人设" compact/>:overview.isError?<EmptyState kind={kindOf(overview.error)==='forbidden'?'forbidden':'unavailable'}
       subject="运营人设" onRetry={()=>void overview.refetch()}/>
-      :<PersonaLine data={overview.data}/>}
+      :<><PersonaLine data={overview.data}/><WithMember>{member=><ConsumerAssignForm member={member} consumerId={consumerId} data={overview.data}/>}</WithMember></>}
     <h3>这位客户自己说过的沟通偏好</h3>
     {prefs.isPending?<EmptyState kind="loading" subject="沟通偏好" compact/>:prefs.isError?<EmptyState kind={kindOf(prefs.error)==='forbidden'?'forbidden':'unavailable'}
       subject="沟通偏好" reason={kindOf(prefs.error)==='forbidden'?'只有负责人可以查看客户的沟通偏好':undefined} onRetry={()=>void prefs.refetch()}/>

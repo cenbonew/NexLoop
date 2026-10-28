@@ -545,3 +545,9 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 .workbench .confirm-panel{display:flex;flex-direction:column;gap:6px;min-width:16rem;padding:8px 10px;border:1px solid var(--warn-border);border-radius:var(--radius);background:var(--surface-2)}
 .workbench .confirm-panel .workbench-action{border:0;padding:0;background:none}.workbench .confirm-panel .workbench-action h2{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .workbench .confirm-panel>button.btn-secondary{align-self:flex-start;margin:0}
+/* UX audit S6 (B11): customer detail sections; an empty one is one line, its title beside why it is empty. */
+.detail-section{margin-top:1.25rem}
+.detail-section.detail-empty{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .75rem;margin-top:.75rem}
+.detail-section.detail-empty h2{margin:0;font-size:1rem}
+.detail-section.detail-empty p{margin:0}
+.detail-section .notice{margin-bottom:.75rem}

@@ -135,9 +135,11 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
 
 /** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
  * (UX audit B4); `disabledReason` says, under the disabled button and tied to it, what is still missing (B6). */
-export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,onBusy,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
-  disabled?:boolean;disabledReason?:string;onDone?:()=>void;onBusy?:(busy:boolean)=>void;className?:string;tone?:'danger'}){
+export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,onBusy,className,tone,level='h2'}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;disabledReason?:string;onDone?:()=>void;onBusy?:(busy:boolean)=>void;className?:string;tone?:'danger';
+  /** The title's heading level: h3 for a form inside a titled section. */level?:'h2'|'h3'}){
   const write=useWrite(operation,onDone);
+  const Heading=level;
   const reasonId=useId();
   // `onBusy`: a container that could unmount this form (a confirmation panel) learns that a request is in flight (L6 review of S5).
   const busy=useRef(onBusy);busy.current=onBusy;
@@ -145,7 +147,7 @@ export function Form({operation,title,member,children,body,disabled,disabledReas
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
   const why=disabled&&!write.isPending&&disabledReason?disabledReason:null;
-  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
+  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><Heading>{title}</Heading>{children}
     <button type="submit" className={tone==='danger'?'btn-danger':undefined} disabled={disabled||write.isPending} aria-describedby={why?reasonId:undefined}>
       {write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
     {why?<p className="disabled-reason" id={reasonId}>{why}</p>:null}

@@ -7,7 +7,7 @@ import type {Query} from '../route';
 import {Page} from './Page';
 import {ConsumerPersona} from './Personas';
 import {Keyword,Pager,StatusBadge,Time,relative} from '../ui';
-import {EmptyState,IdText,KeyValue,shorten as shortenId} from '../kit';
+import {EmptyState,IdText,KeyValue,Notice,shorten as shortenId} from '../kit';
 import {commitmentSummary} from './Commitments';
 import {DataTable} from '../DataTable';
 import {Operations} from './PageOps';
@@ -124,36 +124,57 @@ export function ConsumerHeader({consumerId,display,restricted,commitments,conver
       {conversations!==undefined?<span>会话 {conversations} 个</span>:null}</span></div>;
 }
 
+/** UX audit B11: a detail section; an empty one is a single line (its title and why it is empty), so what is there comes first. */
+function DetailSection({id,title,empty,children}:{id:string;title:string;empty?:ReactNode;children?:ReactNode}){
+  return empty!==undefined?<section className="detail-section detail-empty" aria-labelledby={id}><h2 id={id}>{title}</h2><p className="note">{empty}</p></section>
+    :<section className="detail-section" aria-labelledby={id}><h2 id={id}>{title}</h2>{children}</section>;
+}
+const RECENT_CONVERSATIONS=5;
+
+/** UX audit B11: the customer, then what is used most (latest conversations, commitments), the operations, then persona and
+ * preferences, properties and the contact restriction - which moves up to second place with a warning while it is in force. */
 export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,onContext}:{consumerId:string;actions?:ReactNode;onConversation:(conversationId:string)=>void;
   onCommitments?:(consumerId:string)=>void;onContext?:(context:Context)=>void}){
   const query=useQuery({queryKey:['workbench','consumer',consumerId],queryFn:()=>readConsumer(consumerId)});
+  const [allConversations,setAllConversations]=useState(false);
   const d=query.data;
   useEffect(()=>{if(d)onContext?.({consumerId:d.consumer_id,label:consumerLabel(d.consumer_id,d.display)});},[d,onContext]);
   return <Page title="客户详情" query={query}
-    lead={d?<><ConsumerHeader consumerId={d.consumer_id} display={d.display} restricted={!!d.restriction?.active} commitments={d.commitments.length}
-      conversations={d.conversations.length} onCommitments={onCommitments?()=>onCommitments(d.consumer_id):undefined}/>{d.paused?'主动联系已暂停':''}</>:null}>{data=><>
-    <h2>联系限制</h2>
-    {data.restriction?<KeyValue label="联系限制" items={[{key:'状态',value:data.restriction.active?<StatusBadge text="受限" tone="limited"/>:<StatusBadge text="已解除" tone="neutral"/>},
-      {key:'命中规则',value:<code className="id-code">{data.restriction.rule_id}</code>},{key:'控制修订号',value:data.restriction.control_revision},{key:'受限时间',value:<Time value={data.restriction.restricted_at}/>}]}/>
-      :<EmptyState kind="empty" subject="联系限制" compact/>}
-    <ConsumerPersona consumerId={data.consumer_id}/>
-    <h2>属性</h2>
-    {data.properties.status==='ok'?(Object.keys(data.properties.values).length?<KeyValue label="客户的 Property" items={Object.entries(data.properties.values).map(([k,v])=>({key:k,
-        value:typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):<code className="id-code">{JSON.stringify(v)}</code>}))}/>
-        :<EmptyState kind="empty" subject="可读的 Property" compact/>)
-      :<EmptyState kind="forbidden" subject="客户的 Property" reason="当前账号没有 Property 读取权限，字段与证据不显示" compact/>}
-    {data.properties.withheld.length?<p className="note">负责人标为受限的属性组不显示：{data.properties.withheld.map((g,i)=><span key={g}>{i?'、':''}<code className="id-code">{g}</code></span>)}</p>:null}
-    <h2>会话</h2>
-    {data.conversations.length?<ul className="conversation-list">{[...data.conversations].sort((a,b)=>(b.last_message_at??'').localeCompare(a.last_message_at??'')).map((c,i)=>
+    lead={d?<ConsumerHeader consumerId={d.consumer_id} display={d.display} restricted={!!d.restriction?.active} commitments={d.commitments.length}
+      conversations={d.conversations.length} onCommitments={onCommitments?()=>onCommitments(d.consumer_id):undefined}/>:null}>{data=>{
+    const active=!!data.restriction?.active;
+    const restriction=data.restriction?<DetailSection id="consumer-restriction" title="联系限制">
+      {active?<Notice tone="warning" title="这位客户受联系限制">解除之前，不会主动联系这位客户。</Notice>:null}
+      <KeyValue label="联系限制" items={[{key:'状态',value:active?<StatusBadge text="受限" tone="limited"/>:<StatusBadge text="已解除" tone="neutral"/>},
+        {key:'命中规则',value:<code className="id-code">{data.restriction.rule_id}</code>},{key:'控制修订号',value:data.restriction.control_revision},{key:'受限时间',value:<Time value={data.restriction.restricted_at}/>}]}/>
+    </DetailSection>:<DetailSection id="consumer-restriction" title="联系限制" empty="无"/>;
+    const conversations=[...data.conversations].sort((a,b)=>(b.last_message_at??'').localeCompare(a.last_message_at??''));
+    const shown=allConversations?conversations:conversations.slice(0,RECENT_CONVERSATIONS);
+    const props=data.properties;
+    const withheld=props.withheld.length?<>负责人标为受限的属性组不显示：{props.withheld.map((g,i)=><span key={g}>{i?'、':''}<code className="id-code">{g}</code></span>)}</>:null;
+    return <>
+    {data.paused?<Notice tone="info" title="主动联系已暂停">恢复之前，不会主动联系这位客户；客户发来的消息照常处理。</Notice>:null}
+    {active?restriction:null}
+    {conversations.length?<DetailSection id="consumer-conversations" title="会话">
+      <ul className="conversation-list">{shown.map((c,i)=>
       <li key={c.conversation_id}><button type="button" className="conversation-item" onClick={()=>onConversation(c.conversation_id)}>
         <span className="conversation-time">{when(c.last_message_at)}{i===0&&c.last_message_at?<span className="badge-latest">最新</span>:null}</span>
         <span className="conversation-meta">会话 <code className="id-code" title={c.conversation_id}>{shortenId(c.conversation_id)}</code> · {c.last_sequence} 条消息</span></button></li>)}</ul>
-      :<EmptyState kind="empty" subject="会话" compact/>}
-    <h2>承诺</h2>
-    {data.commitments.length?<p>{data.commitments.length} 条 · {onCommitments?<button type="button" className="link-count" onClick={()=>onCommitments(data.consumer_id)}>查看这位客户的承诺</button>:'见“承诺 / 交付”'}</p>
-      :<EmptyState kind="empty" subject="承诺" compact/>}
+      {conversations.length>RECENT_CONVERSATIONS?<button type="button" className="btn-secondary" aria-expanded={allConversations} onClick={()=>setAllConversations(!allConversations)}>
+        {allConversations?`只看最近 ${RECENT_CONVERSATIONS} 个`:`查看全部 ${conversations.length} 个会话`}</button>:null}
+    </DetailSection>:<DetailSection id="consumer-conversations" title="会话" empty="还没有会话"/>}
+    {data.commitments.length?<DetailSection id="consumer-commitments" title="承诺">
+      <p>{data.commitments.length} 条 · {onCommitments?<button type="button" className="link-count" onClick={()=>onCommitments(data.consumer_id)}>查看这位客户的承诺</button>:'见“承诺 / 交付”'}</p>
+    </DetailSection>:<DetailSection id="consumer-commitments" title="承诺" empty="没有承诺"/>}
     <Operations actions={actions} title="对这位客户的操作"/>
-  </>}</Page>;
+    <ConsumerPersona consumerId={data.consumer_id}/>
+    {props.status==='ok'&&Object.keys(props.values).length?<DetailSection id="consumer-properties" title="属性">
+        <KeyValue label="客户的 Property" items={Object.entries(props.values).map(([k,v])=>({key:k,
+          value:typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):<code className="id-code">{JSON.stringify(v)}</code>}))}/>
+        {withheld?<p className="note">{withheld}</p>:null}</DetailSection>
+      :<DetailSection id="consumer-properties" title="属性" empty={<>{props.status==='ok'?'没有可读的 Property':'当前账号没有 Property 读取权限，字段与证据不显示'}{withheld?<>；{withheld}</>:null}</>}/>}
+    {active?null:restriction}
+  </>;}}</Page>;
 }
 
 export function Conversation({conversationId,actions,onContext}:{conversationId:string;actions?:ReactNode;onContext?:(context:Context)=>void}){
