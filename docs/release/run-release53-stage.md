@@ -118,6 +118,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
    - 从树中删除 `setup/relation-backfiller-credential`；
    - 删除 `management/service-secrets.json` 中的 `setup:setup/relation-backfiller-credential` 条目：`jq 'del(."setup:setup/relation-backfiller-credential")'` 写到同目录的临时文件，0600，再 `mv` 覆盖。不打印内容。
    - 必须在 register 之前删：v6 起 register 遇到没有主体的条目会拒绝（`a generated credential file has no principal: setup/relation-backfiller-credential`），什么也不写。
+   - **删完立即另存第二份快照**：`cp -a <树> <树>.after-s6-1`（0700，不进仓库）。它既没有回填凭据，也还没有外联执行器的条目，是 v21 / v6 清单唯一能接受的树，S7 的撤回只能用它（L6 I1）。
 2. **再生成**外联执行器的文件：
 
    ```bash
@@ -134,7 +135,10 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 5. **outbox 目录**：`install -d -o 10001 -g 10001 -m 0700 "$NEXLOOP_ROOT/data/outreach-outbox"`。若由 Docker 自动创建，目录属 root，执行器会拒绝启动（它要求目录属本用户、0700）。
 6. 同步到 DATA_HOST 的 `$RUN`（register 读的是 `$RUN` 下的树），做法同 run-nx054-s8-backfill 第 14 步第 3 条。
 
-- **撤回**：管理机用 `<树>.before-r53` 覆盖回去；APP_HOST 删除 `$NEXLOOP_ROOT/secrets/outreach-sender/` 和 `$NEXLOOP_ROOT/data/outreach-outbox`（S9 之前，或撤回 S9 之后）。回填凭据删掉之后不需要恢复：v21 起它没有主体。
+- **撤回**：
+  - 只撤外联执行器的文件（保留回填凭据的删除）：管理机用 `<树>.after-s6-1` 覆盖回去；
+  - `<树>.before-r53` 只用于连 S6.1 一起撤回、并且 stage 仍停在 v20 / v5 的情况（它还含回填凭据，v6 起的 register 会拒绝它）；
+  - APP_HOST 删除 `$NEXLOOP_ROOT/secrets/outreach-sender/` 和 `$NEXLOOP_ROOT/data/outreach-outbox`（S9 之前，或撤回 S9 之后）。回填凭据删掉之后不需要恢复：v21 起它没有主体。
 
 ### S7 register：service-grants v21 + v22、stage-principals v6 + v7（DATA_HOST）
 
@@ -155,7 +159,8 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 5. 清理 Keychain 中回填凭据的条目（如有），更新 `~/.nexloop/vault-index.md`。
 
 - **撤回**：
-  - 撤销外联执行器的授权：用 v21 / v6 的清单（git 中 31884a17 的两个文件）再 register 一次，`grants_revoked` 应为 1（outreach_sender）；
+  - 撤销外联执行器的授权：先撤回 S9 的执行器（停掉并删除容器）。然后用 `<树>.after-s6-1`（没有 `app:outreach-sender/service-credential` 条目）配 v21 / v6 的清单（git 中 31884a17 的两个文件）再 register 一次，`grants_revoked` 应为 1（outreach_sender）。
+  - **不能用当前的 `<树>`**：S6 之后它的 `service-secrets.json` 里有 `app:outreach-sender/service-credential`，v6 没有对应的主体，register 会拒绝（`a generated credential file has no principal`，`stage_secrets.py` 第 742 行），什么也不写。也不能用 `<树>.before-r53`：它还含回填凭据，同样被拒绝。没有 `after-s6-1` 快照时，先从树里删掉 `app/secrets/outreach-sender/` 和 `service-secrets.json` 的 `app:outreach-sender/service-credential` 条目（jq 写临时文件，0600，再 `mv` 覆盖，不打印内容），再 register；
   - 回填主体已退役，不恢复。
 
 ### S8 审批策略 v5（预算放宽）
@@ -256,6 +261,14 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 ```
 
 - `promote` 只在本 release 最近一次门禁只因预期项失败时执行；`post` 的 `post_deploy_check` 为 `pass: true`，日志错误统计不超过配置的上限。
+- **连接数实测**（L6 建议：连接预算已到 60 / 60，没有余量）：所有服务运行至少 5 分钟后，只读记录一次各登录角色的实际连接数：
+
+  ```bash
+  ro "select usename, count(*) from pg_stat_activity where datname=current_database() group by 1 order by 1"
+  ro "select count(*) from pg_stat_activity where datname=current_database()"
+  ```
+
+  证据里写各角色的数目和总数，与预算对照：应用服务的总数不应超过 60（模拟世界、运维与超级用户的连接另算，见 `deploy/stage/connection-budget.v1.json`）。超过就停下交调度员，不再增加任何服务，并在下次加服务之前先调整预算。
 - 只读核对：
   - `ro "select max(version) from control.schema_migrations"` 为 0369；
   - `ro "select initiator, state, count(*) from runtime.nexloop_outreach_sends group by 1,2 order by 1,2"`：与 S2 相比没有新的 `agent` 行（外联第 5 片的验收按它自己的执行单做）；已有的 `accepted` 行此时会被执行器准入，按各道闸进入终态，这是 G-1 的预期效果；
@@ -283,8 +296,8 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 | S3 迁移 | 只能用迁移前备份恢复，与镜像一起退回 release 52 | 恢复点之后的数据丢失；需要调度员决定 |
 | S4 Action 发布 | 不能删除；撤回 S5 让无人持有授权 | 无 |
 | S5 角色 | 重新应用 v46 | 三个新 Action 失去成员授权 |
-| S6 秘密树 | `<树>.before-r53` 覆盖；删除 APP_HOST 上的新目录 | 无 |
-| S7 register | 用 v21 / v6 清单再 register，撤销 outreach_sender 的授权 | 执行器无法认证（应先撤回 S9 的执行器） |
+| S6 秘密树 | 只撤执行器的文件：`<树>.after-s6-1` 覆盖（`before-r53` 只用于 stage 仍是 v20 / v5 时）；删除 APP_HOST 上的新目录 | 无 |
+| S7 register | 先撤回 S9 的执行器；再用 `<树>.after-s6-1`（或删掉 outreach-sender 条目的树）配 v21 / v6 清单 register，撤销 outreach_sender 的授权 | 执行器无法认证 |
 | S8 审批策略 | 只能发布新版本放宽或停用 | 无删除路径 |
 | S9 重建 | 停掉并删除 outreach-sender；或整体退回 release 52 | 已受理的外联意图停在 `accepted` |
 | S10 Host 配置 | 备份覆盖回去，两项一起删，重建 agent-host 与 agent-link-relay | 计划复评 Run 失去结论工具和外联工具 |
