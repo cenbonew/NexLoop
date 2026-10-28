@@ -1,5 +1,6 @@
 // Experiment space slice 1 (0370): the owner's experiments parsed strictly and shown as a list and one detail; states, the drill notice.
 import {createElement as h} from 'react';
+import {readFileSync} from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
@@ -93,4 +94,23 @@ test('the detail names the three guardrails in words; the boolean one reads 预�
   expect(html).toContain('对账异常');expect(html).toContain('出现任何一条即停止');
   expect(html).toContain('预算用尽即停止');expect(html).not.toMatch(/>true<|>stop_on_budget_exhausted<|>reconciliation_anomalies</);
   const list=render({experiments:[stageShaped,drill]});expect(list).toContain('aria-label="实验列表"');expect(list).not.toContain('服务器响应格式不符');
+});
+
+// L6: driven by the contract itself - nexloop-experiment-registration/1 (schema and its example), not only a hand-written fixture. The schema's
+// guardrail properties give each value (the consts, the delta's maximum); the example gives the registration fields the row repeats.
+test('contract-driven: every guardrail the registration schema allows, with its contract value, parses; the parser accepts exactly those keys',()=>{
+  const read=(p:string)=>JSON.parse(readFileSync(new URL('../../../packages/contracts/'+p,import.meta.url),'utf8'));
+  const schema=read('experiment-registration.schema.json'),example=read('examples/experiment-registration.valid.json');
+  const props=schema.properties.guardrails.properties as Record<string,{const?:unknown;maximum?:number}>;
+  expect(schema.properties.guardrails.additionalProperties).toBe(false);
+  const contractGuardrails=Object.fromEntries(Object.entries(props).map(([k,p])=>[k,'const' in p?p.const:p.maximum]));
+  expect(contractGuardrails.stop_on_budget_exhausted).toBe(true);
+  expect(Object.keys(contractGuardrails).sort()).toEqual(['reconciliation_anomalies','refusal_or_unsubscribe_rate_delta','stop_on_budget_exhausted']);
+  const fromExample={...stageShaped,experiment_id:example.experiment_id,stage:example.stage,world:example.world,hypothesis:example.hypothesis,
+    candidate:example.candidate,control:example.control,primary_metric:example.primary_metric,sample_size:example.sample_size,budget:example.budget,
+    ends_at:example.ends_at,guardrails:{...example.guardrails,...contractGuardrails}};
+  const [x]=experiments({experiments:[fromExample]});
+  expect(x.guardrails).toEqual(contractGuardrails);expect(x.experiment_id).toBe(example.experiment_id);
+  expect(experiments({experiments:[{...fromExample,guardrails:example.guardrails}]})[0].guardrails).toEqual(example.guardrails);
+  expect(()=>experiments({experiments:[{...fromExample,guardrails:{...contractGuardrails,not_in_contract:true}}]})).toThrow(WorkbenchError);
 });
