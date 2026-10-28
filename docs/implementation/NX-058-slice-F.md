@@ -1,6 +1,6 @@
 # NX-058 片 F：工作台单点登录（OIDC）
 
-依据 `docs/design/account-self-service.md` §5、§2（S5）。负责人 2026-10-28 定：现在写代码，测试只用进程内的模拟 IdP；stage 接哪个真实 IdP、owner 是否只能用 SSO，排期时再定。所以实现做成可配置，**默认不启用**：没有 provider 文件时，两个 SSO 端点都返回 404 `sso_unavailable`。迁移 `0370_nx058_oidc.sql` 用的是临时编号。
+依据 `docs/design/account-self-service.md` §5、§2（S5）。负责人 2026-10-28 定：现在写代码，测试只用进程内的模拟 IdP；stage 接哪个真实 IdP、owner 是否只能用 SSO，排期时再定。所以实现做成可配置，**默认不启用**：没有 provider 文件时，两个 SSO 端点都返回 404 `sso_unavailable`。迁移 `0365_nx058_oidc.sql` 用的是临时编号。
 
 ## 做了什么
 
@@ -28,7 +28,7 @@
 
 ## 部署（默认不启用，启用时再做）
 
-1. 迁移 0370（临时编号）。只建表、函数和触发器；不配置 provider 时，行为与以前一样。
+1. 迁移 0365（临时编号）。只建表、函数和触发器；不配置 provider 时，行为与以前一样。
 2. 发布新 Action：stage_secrets publish（Action 数 125 → 127），工作台角色 manifest v47（owner 角色 93 个 Action）。
 3. 启用 SSO 时：
    - 写私有 provider 文件：`{"version":1,"providers":[{"provider_id":…,"issuer":…,"client_id":…,"authorization_endpoint":…,"token_endpoint":…,"jwks_uri":…,"client_secret_file":"/run/secrets/…"}]}`（也可以用 `client_secret_env`）；

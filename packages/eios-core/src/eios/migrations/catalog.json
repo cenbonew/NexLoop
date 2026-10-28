@@ -1822,8 +1822,8 @@
       "sha256": "9e471e4b6527fef3cbf3c5bd07a30fb15bd21d20b13c9be1b81c0e99fec4bab8"
     },
     {
-      "version": "0370",
-      "name": "0370_nx058_oidc.sql",
+      "version": "0365",
+      "name": "0365_nx058_oidc.sql",
       "sha256": "5acc38a3c735f78e80efeefce843f188a63e82b30793664cb96073f8f2ebf124"
     }
   ]
