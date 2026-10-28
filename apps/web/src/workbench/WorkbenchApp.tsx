@@ -28,7 +28,7 @@ import {WorkbenchSso} from './SsoLink';
 /** Governed Action controls per page (slices 2/3, ./actions); a slot may depend on the route (the object shown). */
 export type ActionSlots=Slots;
 
-function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
+export function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
   const [username,setUsername]=useState('');const [password,setPassword]=useState('');
   const mutation=useMutation({mutationFn:()=>workbenchLogin(username,password),onSuccess:()=>{setPassword('');onLogin();}});
   function submit(event:FormEvent){event.preventDefault();mutation.mutate();}
@@ -39,7 +39,7 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
     <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form>
     {/* NX-058 slice F: shown only when a provider is configured. */}
     <WorkbenchSso/>
-    <p className="note">忘记密码？请负责人为你签发重置码，然后<a href="/workbench/reset">用重置码设置新密码</a>。</p></section>;
+    <p className="note login-help">忘记密码？请负责人为你签发重置码，然后<a className="text-link" href="/workbench/reset">用重置码设置新密码</a>。</p></section>;
 }
 
 /** What the shown object belongs to (F10): a detail page names its customer so the breadcrumb can lead back to that customer. */

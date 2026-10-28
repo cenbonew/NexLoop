@@ -44,4 +44,7 @@ for name in unit-contract serial-build deadline-gate integration-parallel integr
 done
 # NX-049 deadline gate result (ADR-022 §4).
 if [[ $deadline_gate_rc -ne 0 ]]; then echo "NX-049 deadline gate failed (rc=$deadline_gate_rc)" >&2; fi
+# Failure outputs the tests keep below .ci-results (synthetic secrets, about 120 MB each) stay bounded even when no
+# later run uses their fixture; never changes the status.
+python3 tests/support/ci_results.py || echo 'kept test outputs not pruned' >&2
 exit "$first_rc"
