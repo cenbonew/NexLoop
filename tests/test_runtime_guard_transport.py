@@ -51,7 +51,7 @@ def test_connection_limit_applies_before_tls_and_releases_slots(tmp_path, monkey
         for attempt in range(5):
             # One at a time, each accepted before the next: the listen backlog is 5, and a slow accept loop
             # with 8 pending peers resets the surplus (seen under load), which is not the bound under test.
-            full=True
+            dropped.clear();full=True  # a drop from an earlier attempt must not answer this one
             for n in range(8):
                 sockets.append(socket.create_connection(('127.0.0.1',server.server_port),timeout=10))
                 if not wait_until(lambda:server.connection_slots._value==7-n,10):
