@@ -1,6 +1,6 @@
 # 世界模型中文注释（world-model glossary）：后端设计
 
-状态：设计稿 r2。第 6 节按调度员 10-29 的决定定稿，第 2–5 节按 L6 对 bbfd18e6 的审查意见（C1、I1–I4、S1–S3）修订。待 L6 复审，复审通过前不写代码。
+状态：设计稿 r2，L6 复审 PASS（9a4dcc4f），补 I5、S4–S6 后开始实现。第 6 节按调度员 10-29 的决定定稿，第 2–5 节按 L6 对 bbfd18e6 的审查意见（C1、I1–I4、S1–S3）修订。待 L6 复审，复审通过前不写代码。
 
 分支 `l2/world-glossary`，基于 main 53af5efc。按负责人 10-29 的决定，这是 Schema 改动，走 feature 分支 + PR。前端由 L9 按第 4 节的 API 形状并行做。
 
@@ -71,6 +71,7 @@ PG 迁移只新增文件，从 main 的下一个号起用临时编号。修订�
   - 新版清单里**省略**的条目保留原译文和来源，不删除；
   - 只有清单里**显式写 `null`** 的条目才清除。这时删掉当前行，修订表记一行，新译文为 null。
   - 所以 v2 删掉 v1 里的某条，那条人工译文仍然保留。
+  - **`null` 与 `""` 不同**（S4）：清单里写 `null` 表示“恢复为自动翻译”，当前行删除后该标识会重新进入机翻队列；写 `""` 表示“人工清空”，记 `source=manual`，只显示英文，机翻不覆盖。
 
 ### 3.2 机翻服务 `world-glossary-translator`
 
@@ -85,8 +86,8 @@ PG 迁移只新增文件，从 main 的下一个号起用临时编号。修订�
 - **权限只有四项**：
   1. 执行写机翻的 definer 函数（只能写 `source=machine`）；
   2. 读世界模型的标识，经一个只返回标识名、kind、所属类型、`description`、`display_name` 的 definer 读函数，不给表权限；
-  3. 读写 jobs 表；
-  4. 写 usage 表，同样经 definer 函数。
+  3. jobs 队列：认领、完成、失败，都经 definer 函数（S5），不给表权限；
+  4. 限额预占与 usage 回填，同样经 definer 函数（I5）。
 
   没有其他表权限，没有任何 Action 执行权。成本记账见下方“限额与成本”。
 - **compose**：`deploy/stage/compose.app.example.yaml` 新增服务，写法照 `claim-extraction-worker`：只读根文件系统，`cap_drop ALL`，非 root 用户。
@@ -128,9 +129,10 @@ returning revision;
 - 修订表在同一事务里追加。
 
 **限额与成本**（I4）：
-- **条数上限**：每轮最多 10 条，每租户每天最多 50 条。用 usage 表按租户和 UTC 日计数，在写入函数里于同一事务内检查。
+- **条数上限，调用前原子预占**（I5）：每轮最多 10 条，每租户每天最多 50 条。translator 在调用模型**之前**先调 definer `reserve`：同一事务里按 (租户, UTC 日) 对计数行 `for update`、判断、`+1`，返回 `allowed` 或 `full`。只有 `allowed` 才调模型；调用结束（成功或失败）再用 `usage` 回填 token 和费用到这次预占的那一行。预占不退还（失败的调用也算一条），所以上限是调用次数的硬上界。
 - **用尽**：当天停止调用，并打一条告警样本。
-- **用量记录**：每次调用（成功或失败）都在 usage 表记 token 数和按模型单价算出的费用。
+- **用量记录**：每次调用（成功或失败）都在 usage 表记 token 数。
+- **单价来源**（S6）：只用仓库里已有的模型单价配置（实现时核实 `deploy/configuration` 下现有的模型价格或预算清单，例如嵌入预算用的 tariff 文件那一类）。找不到该模型的单价时，`cost` 和 `currency` 留空，只记 token，不估价。
 - **成本归集**：费用接入现有的 `model` 预算类型（control 里的预算表 `budget_kind='model'`），这样预算里能看到，与 claim-extraction 共用 key 时也能按服务分开汇总。
 - **`nexloop.cost.record` 的用法**（调度员第 5 条）：机翻服务本身没有 Action 执行权，所以由写入函数在同一事务里按 `nexloop.cost.record` 的记账口径记一笔。实现时先核实它的入参和记账表；如果不能在 definer 内复用，回报后再定，不另开记账路径。
 
@@ -209,6 +211,7 @@ returning revision;
 
 ## 5. 测试计划
 
+- **限额预占**（I5）：当天计数已满时，桩模型的调用次数为 0；并发两个 translator 同时预占最后一条，只有一个得到 `allowed`。
 - **授权**：
   - 读：能读世界模型的角色都看得到 gloss；跨租户读不到。
   - 改正：非 owner 被拒，owner 成功。
