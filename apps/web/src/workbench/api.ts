@@ -548,6 +548,8 @@ export const OPERATION_ACTION={
   // Experiment space slice 2 (owner only, NX-043 D3): preregister, start and stop an experiment.
   register_experiment:'eios:action:nexloop.experiment.register:1',start_experiment:'eios:action:nexloop.experiment.start:1',
   stop_experiment:'eios:action:nexloop.experiment.stop:1',
+  // World model glossary (owner only, docs/design/world-model-glossary.md §3.3): correct or clear one identifier's Chinese.
+  world_glossary_set:'eios:action:nexloop.world_glossary.set:1',
 } as const;
 export type Operation=keyof typeof OPERATION_ACTION;
 export function offers(member:Me|undefined,operation:Operation):boolean{return !!member&&member.actions.includes(OPERATION_ACTION[operation]);}
@@ -758,15 +760,23 @@ export type WorldEvent=WorldGloss&{name:string;version:number;object_type:string
 export type WorldAction=WorldGloss&{resource_id:string;name:string;version:number;risk_level:string|null;approval_mode:string|null;change_scope:string|null;has_side_effects:boolean;
   object_types:string[];required_scopes:string[];contract_digest:string|null};
 export type WorldFunction=WorldGloss&{resource_id:string;name:string;version:number;applies_to:(string|null)[];required_scopes:string[];contract_digest:string|null};
-export type WorldModel={world:string;computed_at:string;object_types:WorldObjectType[];relation_types:WorldRelation[];event_types:WorldEvent[];actions:WorldAction[];functions:WorldFunction[]};
+export type WorldGlossary={manifest_version:number;sections:Record<string,string>};
+export type WorldModel={world:string;computed_at:string;glossary:WorldGlossary;object_types:WorldObjectType[];relation_types:WorldRelation[];event_types:WorldEvent[];actions:WorldAction[];functions:WorldFunction[]};
 const CARDINALITIES=['one_to_one','one_to_many','many_to_one','many_to_many'] as const;
 const texts=(v:unknown)=>list(v).map(text);
-/** A gloss and its source: absent or null is none; an empty gloss is none; a source without a gloss is dropped. */
+/** A gloss and its source (docs/design/world-model-glossary.md §4): absent or null is none; "" with source manual is the owner's
+ * deliberate clear (English only, kept as manual so it shows as cleared); a source without a gloss otherwise is dropped. */
 function worldGloss(o:Record<string,unknown>,prefix=''):WorldGloss{
   const g=o[prefix+'gloss'],s=o[prefix+'gloss_source'];
   const gloss=g===undefined||g===null?null:text(g).trim()||null;
   const source=s===undefined||s===null?null:oneOf(s,['manual','machine'] as const);
-  return {gloss,gloss_source:gloss?source:null};
+  return {gloss,gloss_source:gloss||source==='manual'&&g===''?source:null};
+}
+/** The top-level glossary: the published manifest version (0: none) and the section names; absent before L2's v2 shape. */
+function worldGlossary(value:unknown):WorldGlossary{
+  if(value===undefined||value===null)return {manifest_version:0,sections:{}};
+  const o=object(value),s=object(o.sections);
+  return {manifest_version:count(o.manifest_version),sections:Object.fromEntries(Object.entries(s).map(([k,v])=>[k,text(v)]).filter(([,v])=>v))};
 }
 function version(v:unknown):number{const n=count(v);if(n<1)throw new WorkbenchError('invalid');return n;}
 export function worldModel(value:unknown):WorldModel{
@@ -774,7 +784,7 @@ export function worldModel(value:unknown):WorldModel{
   const property=(x:unknown):WorldProperty=>{const o=object(x);if(flag(o.withheld)){if(Object.keys(o).filter(k=>k!=='gloss'&&k!=='gloss_source').length!==2)throw new WorkbenchError('invalid');
       return {...worldGloss(o),name:text(o.name),withheld:true};}
     return {...worldGloss(o),name:text(o.name),withheld:false,value_type:text(o.value_type),required:flag(o.required),nullable:flag(o.nullable),group:maybeText(o.group),visibility:text(o.visibility),description:text(o.description)};};
-  return {world:text(v.world),computed_at:text(v.computed_at),
+  return {world:text(v.world),computed_at:text(v.computed_at),glossary:worldGlossary(v.glossary),
     object_types:list(v.object_types).map(x=>{const o=object(x);return {...worldGloss(o),name:text(o.name),version:version(o.version),display_name:text(o.display_name),description:text(o.description),
       title_property:text(o.title_property),primary_key:texts(o.primary_key),objects:count(o.objects),properties:list(o.properties).map(property)};}),
     relation_types:list(v.relation_types).map(x=>{const o=object(x);const c=text(o.cardinality);if(!(CARDINALITIES as readonly string[]).includes(c))throw new WorkbenchError('invalid');

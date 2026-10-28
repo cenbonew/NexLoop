@@ -13,7 +13,8 @@ import {WORLD_SECTIONS,type Query,type WorldSection} from '../route';
 import {Page} from './Page';
 import {DataTable} from '../DataTable';
 import {Keyword,StatusBadge,Time} from '../ui';
-import {SectionTerm,Term,glossMatches,glossText,sectionText} from '../Gloss';
+import {SECTION_GLOSS,SectionTerm,Term,glossMatches,glossText,sectionText} from '../Gloss';
+import {GlossEditor,type GlossTarget} from '../GlossEdit';
 import {Card,CardGrid,EmptyState,KeyValue,MetricCard} from '../kit';
 import {statusLabel} from '../status-labels';
 import {CARDINALITY_TEXT,SchemaGraph} from '../graph/SchemaGraph';
@@ -49,6 +50,8 @@ function toQuery(section:WorldSection,q:WorldModelQuery):Query{
 }
 
 type PropertyRow={type:string;property:WorldProperty};
+/** One correction target per identifier (a Property name shared by several types is glossed once). */
+const unique=(targets:GlossTarget[])=>[...new Map(targets.map(t=>[t.identifier,t])).values()];
 /** Property names of a type with their glosses (primary key, title Property). */
 function propTerms(t:WorldObjectType,names:string[]):ReactNode{
   if(!names.length)return '—';
@@ -86,6 +89,8 @@ function Summary({model:m,go}:{model:Model;go:WorldGo}){
       {label:S('Event Type'),main:true,cell:e=><Term id={e.name} gloss={e.gloss} source={e.gloss_source}/>},{label:S('Object Type'),cell:e=><TypeLink name={e.object_type} model={m} go={go}/>},{label:'版本',num:true,cell:e=>`v${e.version}`},
       {label:S('Payload Property'),num:true,cell:e=>e.payload_property_count},{label:'说明',wide:true,cell:e=>e.description||'—'}]}/>
       :<EmptyState kind="empty" subject="已发布的 Event Type"/>}
+    <GlossEditor kind="event_type" label=" Event Type " targets={m.event_types.map(e=>({identifier:e.name,gloss:e.gloss}))}/>
+    <GlossEditor kind="section" label="栏目名" targets={Object.keys(SECTION_GLOSS).map(k=>({identifier:k,gloss:m.glossary.sections[k]??SECTION_GLOSS[k]}))}/>
   </>;
 }
 
@@ -127,7 +132,8 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
           {label:'主键',cell:t=>propTerms(t,t.primary_key)},{label:'标题 '+S('Property'),cell:t=>t.title_property?propTerms(t,[t.title_property]):'—'},
           {label:S('Object'),num:true,cell:t=>t.objects?<button type="button" className="link" aria-label={`查看 ${glossText(t.name,t.gloss)} 的 ${t.objects} 个 Object`}
             onClick={()=>go('objects',{type:t.name})}>{t.objects}</button>:0},
-          {label:'说明',wide:true,cell:t=>t.description||'—'}]}/></>:<EmptyState kind="empty" subject="已发布的 Object Type"/>}
+          {label:'说明',wide:true,cell:t=>t.description||'—'}]}/>
+          <GlossEditor kind="object_type" label=" Object Type " targets={m.object_types.map(t=>({identifier:t.name,gloss:t.gloss}))}/></>:<EmptyState kind="empty" subject="已发布的 Object Type"/>}
     </>;
     case 'objects':return <Instances types={m.object_types} state={q} onState={change=>set(change)}/>;
     case 'object_sets':return <ObjectSets state={q} onState={change=>set(change)}/>;
@@ -136,23 +142,28 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
       {label:S('Property'),main:true,cell:r=><Term id={r.property.name} gloss={r.property.gloss} source={r.property.gloss_source}/>},{label:S('Object Type'),cell:r=>typeLink(r.type)},
       {label:'数据类型',cell:r=>r.property.withheld?<StatusBadge text="受限" tone="limited" code="withheld"/>:r.property.value_type},
       {label:'约束',cell:r=>r.property.withheld?'—':[r.property.required?'必填':'可选',r.property.nullable?'可空':''].filter(Boolean).join(' · ')},
-      {label:'属性组',cell:r=>r.property.withheld?'—':r.property.group??'—'},{label:'说明',wide:true,cell:r=>r.property.withheld?'负责人限制的属性组：只显示名称':r.property.description||'—'}]}/></>
+      {label:'属性组',cell:r=>r.property.withheld?'—':r.property.group??'—'},{label:'说明',wide:true,cell:r=>r.property.withheld?'负责人限制的属性组：只显示名称':r.property.description||'—'}]}/>
+      <GlossEditor kind="property" label=" Property " targets={unique(props.map(r=>({identifier:r.property.name,gloss:r.property.gloss})))}/></>
       :<EmptyState kind="empty" subject="Property"/>;
     case 'links':return m.relation_types.length?<>{search('Link')}<DataTable label="Link" rows={m.relation_types.filter(r=>hit(r.name,r.gloss)||(!!r.inverse_name&&hit(r.inverse_name,r.inverse_gloss)))}
       rowKey={r=>r.name} empty={filtered} columns={[
       {label:S('Link'),main:true,cell:r=><Term id={r.name} gloss={r.gloss} source={r.gloss_source}/>},{label:'方向',cell:r=><>{typeLink(r.source_type)} → {typeLink(r.target_type)}</>},
       {label:'基数',cell:r=>CARDINALITY_TEXT[r.cardinality]},{label:'版本',num:true,cell:r=>`v${r.version}`},{label:'反向名',cell:r=>r.inverse_name?<Term id={r.inverse_name} gloss={r.inverse_gloss} source={r.inverse_gloss_source}/>:'—'},
-      {label:'说明',wide:true,cell:r=>r.description||'—'}]}/></>:<EmptyState kind="empty" subject="已发布的 Link"/>;
+      {label:'说明',wide:true,cell:r=>r.description||'—'}]}/>
+      <GlossEditor kind="relation" label=" Link " targets={m.relation_types.map(r=>({identifier:r.name,gloss:r.gloss}))}/>
+      <GlossEditor kind="relation_inverse" label="反向名" targets={unique(m.relation_types.filter(r=>r.inverse_name).map(r=>({identifier:r.inverse_name,gloss:r.inverse_gloss})))}/></>:<EmptyState kind="empty" subject="已发布的 Link"/>;
     case 'actions':return m.actions.length?<>{search('Action')}<DataTable label="Action" rows={m.actions.filter(a=>hit(a.name,a.gloss))} rowKey={a=>a.resource_id} empty={filtered} columns={[
       {label:S('Action'),main:true,cell:a=><Term id={a.name} gloss={a.gloss} source={a.gloss_source}/>},{label:'版本',num:true,cell:a=>`v${a.version}`},
       {label:'风险',cell:a=>a.risk_level?<StatusBadge domain="action_risk" code={a.risk_level}/>:'—'},
       {label:'审批',cell:a=>a.approval_mode?<span title={a.approval_mode}>{statusLabel('action_approval',a.approval_mode)}</span>:'—'},
       {label:'副作用',cell:a=><StatusBadge text={a.has_side_effects?'有':'无'} tone={a.has_side_effects?'limited':'neutral'} code={a.change_scope}/>},
-      {label:S('Object Type'),wide:true,cell:a=>typeTerms(a.object_types)},{label:S('Scope'),cell:a=>a.required_scopes.join('、')||'—'}]}/></>
+      {label:S('Object Type'),wide:true,cell:a=>typeTerms(a.object_types)},{label:S('Scope'),cell:a=>a.required_scopes.join('、')||'—'}]}/>
+      <GlossEditor kind="action" label=" Action " targets={m.actions.map(a=>({identifier:a.name,gloss:a.gloss}))}/></>
       :<EmptyState kind="empty" subject="生效的 Action"/>;
     case 'functions':return m.functions.length?<>{search('Function')}<DataTable label="Function" rows={m.functions.filter(f=>hit(f.name,f.gloss))} rowKey={f=>f.resource_id} empty={filtered} columns={[
       {label:S('Function'),main:true,cell:f=><Term id={f.name} gloss={f.gloss} source={f.gloss_source}/>},{label:'版本',num:true,cell:f=>`v${f.version}`},
-      {label:S('Object Type'),wide:true,cell:f=>typeTerms(f.applies_to)},{label:S('Scope'),cell:f=>f.required_scopes.join('、')||'—'}]}/></>
+      {label:S('Object Type'),wide:true,cell:f=>typeTerms(f.applies_to)},{label:S('Scope'),cell:f=>f.required_scopes.join('、')||'—'}]}/>
+      <GlossEditor kind="function" label=" Function " targets={m.functions.map(f=>({identifier:f.name,gloss:f.gloss}))}/></>
       :<EmptyState kind="empty" subject="生效的 Function"/>;
   }
 }

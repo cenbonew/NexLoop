@@ -611,3 +611,7 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
   font-size:12px;line-height:16px;color:var(--muted);vertical-align:1px;cursor:help;white-space:nowrap}
 /* On a selected control (a pressed switch, the current sidebar entry) the gloss takes the control's own text colour, not the muted grey. */
 [aria-pressed="true"] .term-gloss,[aria-current="page"] .term-gloss{color:inherit;opacity:.85}
+/* The owner's glossary correction under a world model list. */
+.workbench .gloss-edit-open{margin-top:var(--space-3)}
+.workbench .gloss-edit{margin-top:var(--space-3);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-2)}
+.workbench .gloss-edit .workbench-action{border:0;padding:0;background:none}

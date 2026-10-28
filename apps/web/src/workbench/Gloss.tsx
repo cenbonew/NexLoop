@@ -30,7 +30,11 @@ export function Term({id,gloss,source=null,mono=true}:{id:string;gloss:string|nu
   if(!gloss)return <span className="term">{name}</span>;
   return <span className="term">{name}<span className="term-gloss">（{gloss}）{source==='machine'?<small className="term-machine" title={MACHINE_HINT}>机翻</small>:null}</span></span>;
 }
-export const SectionTerm=({name}:{name:string})=><Term id={name} gloss={SECTION_GLOSS[name]} mono={false}/>;
+/** A section or view name: the server's glossary sections when the model is on this page, else glossary v1. */
+export function SectionTerm({name}:{name:string}){
+  const sections=useContext(QueryClientContext)?.getQueryData<WorldModel>(['workbench','world-model'])?.glossary.sections;
+  return <Term id={name} gloss={sections?.[name]??SECTION_GLOSS[name]} mono={false}/>;
+}
 
 /** Glosses of the world model already read on this page (the cached model; nothing is fetched here): by type, by a type's
  * Property, by Link or inverse name. Missing: no gloss (the identifier alone). */

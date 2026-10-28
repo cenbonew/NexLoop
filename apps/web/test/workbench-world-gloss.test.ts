@@ -77,3 +77,18 @@ test('search finds an identifier by its English or its Chinese; each list has it
   expect(glossMatches('会话','Consumer','客户')).toBe(false);expect(glossMatches('','Consumer',null)).toBe(true);expect(glossMatches('客户','Consumer',null)).toBe(false);
   for(const s of ['object_types','properties','links','actions'])expect(render(s)).toContain('（英文或中文）</span><input type="search"');
 });
+
+// L2 shape (docs/design/world-model-glossary.md §4): a top-level glossary block; "" with manual is the owner's deliberate clear.
+test('L2 shape: the glossary block gives the section names; a manual "" is a clear (English only), a machine "" is nothing',()=>{
+  const v2={...structuredClone(glossed),glossary:{manifest_version:1,sections:{'Object Type':'对象类别',Property:'属性'}}};
+  v2.object_types[1].gloss='';v2.object_types[1].gloss_source='manual';
+  v2.actions[0].gloss='';v2.actions[0].gloss_source='machine';
+  const m=worldModel(v2);
+  expect(m.glossary).toEqual({manifest_version:1,sections:{'Object Type':'对象类别',Property:'属性'}});
+  expect(m.object_types[1]).toMatchObject({gloss:null,gloss_source:'manual'});expect(m.actions[0]).toMatchObject({gloss:null,gloss_source:null});
+  expect(worldModel(example).glossary).toEqual({manifest_version:0,sections:{}});
+  const html=render('object_types',undefined,v2);
+  expect(html).toContain('<span class="term-id term-word">Object Type</span><span class="term-gloss">（对象类别）</span>');  // the server's name wins
+  expect(html).toContain('<code class="term-id">Conversation</code></span></button>');  // cleared: English only, no parentheses
+  const bad=structuredClone(v2);bad.glossary.manifest_version=-1;expect(()=>worldModel(bad)).toThrow(WorkbenchError);
+});
