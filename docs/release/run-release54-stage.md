@@ -55,8 +55,16 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 | name | sql | expect |
 |---|---|---|
 | migration_head | `select max(version) from control.schema_migrations` | `0369` |
-| issued_sso_invitations | `select count(*) from control.nexloop_workbench_invitations where state='issued'` | 记录数值（0371 加的列对已有邀请为空，不改变它们） |
 
+另记一条数值（`precheck` 只记录输出的 sha256，看不到数值，所以不放进预检清单）：
+
+```bash
+ro "select count(*) from control.nexloop_workbench_invitations where state='issued'"
+```
+
+- 把这个数写进证据。这是迁移前**全部**未用的邀请，不是 SSO 邀请：迁移前还没有 `sso_provider` 列，SSO 邀请无从计数，所以不设固定预期值。S7 用它对照：
+  - `ro "select count(*) from control.nexloop_workbench_invitations where state='issued'"` 与此数相同（0371 不改变已有邀请）；
+  - `ro "select count(*) from control.nexloop_workbench_invitations where sso_provider is not null"` 为 0（stage 不配置 SSO provider）。
 - **撤回**：不需要（只读）。
 
 ### S3 迁移 0370、0371
@@ -119,6 +127,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 - `promote` 只在本 release 最近一次门禁只因预期项失败时执行；`post` 的 `post_deploy_check` 为 `pass: true`。
 - 只读核对：
   - `ro "select max(version) from control.schema_migrations"` 为 0371；
+  - S2 记下的邀请对照两条（未用邀请数不变；`sso_provider` 非空的为 0）；
   - `nexloop-doctor` 全部通过；工作台“告警”页没有新的 firing；
   - 连接数：服务没有增加，照 release 53 的 S13 记录一次各角色连接数和总数，应用服务总数不超过 60。
 - **撤回**：按 known_good 退回 release 53（S5 的撤回）。
