@@ -87,7 +87,7 @@ def test_v3_runs_the_stage_scripts_in_the_order_of_scripts_ci_check():
 
 def test_the_gate_and_the_heavy_cases_run_in_their_own_stages_only(stubs):
     gate, heavy = shell_list('DEADLINE_GATE_TESTS'), shell_list('HEAVY_TESTS')
-    assert len(gate) == 4 and sum('test_agent_host_run_limit.py' in t for t in gate) == 2 and len(heavy) == 33
+    assert len(gate) == 4 and sum('test_agent_host_run_limit.py' in t for t in gate) == 2 and len(heavy) == 34
     _, whole, _ = stubs(['scripts/ci/check'])
     gate_run = next(line for line in whole if 'python-deadline-gate.xml' in line and 'pytest' in line)
     assert gate_run.startswith('GUARD=4 uv run --frozen pytest -q -p no:xdist ') and all(t in gate_run for t in gate)  # 4 guard processes
