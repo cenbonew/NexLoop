@@ -85,6 +85,12 @@ export function relative(value:string,now=Date.now()):string{
   return text==='刚刚'?text:text+(after?'后':'前');
 }
 /** Absolute Beijing time (the workbench's one time zone, labelled once in the header) and the relative value; ISO in dateTime. */
+/** A datetime-local value ("YYYY-MM-DDTHH:MM[:SS]") read as Beijing time (+08:00, no daylight saving), as every time on the workbench
+ * is shown, whatever the browser's zone; the UTC instant as ISO text, or null when it is not such a value. */
+export function beijingLocalToUtc(local:string):string|null{
+  if(!/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?$/.test(local))return null;
+  const d=new Date(local+(local.length===16?':00':'')+'+08:00');return Number.isNaN(d.getTime())?null:d.toISOString();
+}
 export function Time({value,now}:{value:string|null;now?:number}){
   if(!value)return <>—</>;
   const d=parse(value);if(Number.isNaN(d.getTime()))return <>{value}</>;

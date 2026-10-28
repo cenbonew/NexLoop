@@ -6,6 +6,7 @@
  * Idempotency-Key (the governed entry answers a replay from its terminal outcome, nothing runs twice).
  */
 import {statusLabel} from './status-labels';
+import {beijingLocalToUtc} from './ui';
 import {shorten} from './kit';
 import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
@@ -189,7 +190,7 @@ export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   return <>{children(member.data)}</>;
 }
 
-function utc(local:string):string|null{const d=new Date(local);return Number.isNaN(d.getTime())?null:d.toISOString();}
+const utc=beijingLocalToUtc;  // the input is Beijing time, as the page shows it (not the browser's zone)
 
 // ---- remediation intents (NX-057 R1, owner) ----
 /** Resolve one open remediation: handled (a person took it) or cancelled. Nothing else changes, nothing is sent again. */
@@ -315,7 +316,7 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
     <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
       <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
-      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
+      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}（北京时间）</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
       <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>
     </Form></details>;
 }

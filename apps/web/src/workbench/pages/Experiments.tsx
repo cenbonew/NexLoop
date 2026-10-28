@@ -14,7 +14,7 @@ import {useQuery} from '@tanstack/react-query';
 import {readExperiments,type Experiment} from '../api';
 import {DataTable} from '../DataTable';
 import {Page} from './Page';
-import {StatusBadge,Time,type Tone} from '../ui';
+import {StatusBadge,Time,beijingLocalToUtc,type Tone} from '../ui';
 import {Card,ChoiceGroup,FormField,IdText,KeyValue,Notice} from '../kit';
 import {ConfirmedForm,WithMember} from '../actions';
 import {offers,type Me} from '../api';
@@ -147,15 +147,14 @@ export function registrationOf(d:Draft):{registration:Record<string,unknown>}|{m
   if(!sc||!sk)return {missing:'计划样本'};
   if(!w)return {missing:'成熟窗口天数'};
   if(m===null||i===null)return {missing:'预算'};
-  // The input is Beijing time (as every time on the workbench), whatever the browser's zone: +08:00, no daylight saving.
-  const ends=/^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(d.ends_at)?new Date(d.ends_at+':00+08:00'):null;if(!ends||Number.isNaN(ends.getTime()))return {missing:'结束时间'};
+  const ends=beijingLocalToUtc(d.ends_at);if(!ends)return {missing:'结束时间'};
   const twin=d.twin.trim()?(int(d.twin_version)?{twin_id:d.twin.trim(),version:int(d.twin_version)}:undefined):null;
   if(twin===undefined)return {missing:'孪生版本'};
   if(!seed)return {missing:'分配种子'};
   return {registration:{schema:'nexloop-experiment-registration/1',experiment_id:d.experiment_id,stage:d.stage,world:d.world.trim(),hypothesis:d.hypothesis.trim(),
     candidate:{strategy_id:d.candidate,version:int(d.candidate_version)},control:{strategy_id:d.control,version:int(d.control_version)},
     primary_metric:{key:d.metric.trim(),direction:d.direction},guardrails:{refusal_or_unsubscribe_rate_delta:delta},sample_size:{candidate:sc,control:sk},
-    maturity:{window_days:w},budget:{model_cny:m,incentive_cny:i},ends_at:ends.toISOString().replace(/\.\d{3}Z$/,'Z'),twin,allocation_seed:seed,
+    maturity:{window_days:w},budget:{model_cny:m,incentive_cny:i},ends_at:ends.replace(/\.\d{3}Z$/,'Z'),twin,allocation_seed:seed,
     ...(d.budget_drill?{budget_drill:true}:{})}};
 }
 
