@@ -2,8 +2,10 @@
 the community build context refuse any other place). A passing test's output is removed at teardown; a failing
 one is kept for inspection, at most KEEP of them per prefix and none older than MAX_AGE (pruned at the next use)."""
 import contextlib
+import os
 import secrets
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -31,6 +33,10 @@ def results_output(request, prefix):
     RESULTS.mkdir(exist_ok=True)
     prune(prefix)
     output = RESULTS / (prefix + secrets.token_hex(12))
+    log = os.environ.get('NEXLOOP_TEST_RESULTS_LOG')
+    if log:  # lets a test name exactly the outputs a child run made, whatever parallel workers do meanwhile
+        with open(log, 'a') as written:
+            written.write(str(output) + '\n')
     failed = request.session.testsfailed
     try:
         yield output
@@ -38,3 +44,11 @@ def results_output(request, prefix):
         # The call phase is reported before teardown, so a failure of this test has been counted by now.
         if request.session.testsfailed == failed:
             shutil.rmtree(output, ignore_errors=True)
+
+
+PREFIXES = ('launcher-test-', 'community-contract-')
+
+if __name__ == '__main__':
+    # scripts/ci/check runs this at the end, so kept outputs are bounded even when no test uses the fixture again.
+    for prefix in sys.argv[1:] or PREFIXES:
+        prune(prefix)

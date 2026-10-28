@@ -136,15 +136,19 @@ def test_provider_environment_not_inherited_by_disposable_compose(monkeypatch,tm
     assert len(calls)==2 and not any('build' in args or 'up' in args for args in calls)
 
 
-def test_a_passing_run_leaves_no_output_and_kept_failures_are_bounded():
+def test_a_passing_run_leaves_no_output_and_kept_failures_are_bounded(tmp_path):
     """No new launcher-test-* after a passing run of the fixture; kept failure outputs are pruned by count and age."""
     import sys
-    before={p.name for p in RESULTS.glob('launcher-test-*')}
+    # The child names the outputs it made: parallel workers and the child's own prune of old outputs change the
+    # rest of .ci-results meanwhile, so a before/after listing would not say what this run left.
+    log=tmp_path/'outputs.log'
     run=subprocess.run([sys.executable,'-m','pytest','-q','-p','no:cacheprovider','-p','no:xdist',
         str(ROOT/'tests/test_community_launcher.py::test_existing_project_resources_refused_before_build')],
-        cwd=ROOT,capture_output=True,text=True,timeout=600)
+        cwd=ROOT,capture_output=True,text=True,timeout=600,env=os.environ|{'NEXLOOP_TEST_RESULTS_LOG':str(log)})
     assert run.returncode==0,run.stdout[-2000:]
-    assert {p.name for p in RESULTS.glob('launcher-test-*')}==before
+    made=log.read_text().split()
+    assert len(made)==1 and Path(made[0]).parent==RESULTS and Path(made[0]).name.startswith('launcher-test-')
+    assert not Path(made[0]).exists()
     now=time.time();made=[]
     for n,age in enumerate([10,7200,7300,7400,7500,90000]):
         path=RESULTS/f'launcher-prune-test-{n}';path.mkdir();os.utime(path,(now-age,now-age));made.append(path)
