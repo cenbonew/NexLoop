@@ -41,7 +41,9 @@ export function EmptyState({kind,subject='',title,reason,next,onRetry,details,co
     <span className="sr-only">{t.title(subjectText)}</span><span className="skeleton-line"/><span className="skeleton-line"/><span className="skeleton-line short"/></div>;
   return <div className={`state state-${kind}`+(compact?' state-compact':'')} role={t.alert?'alert':'status'} data-state={kind}>
     <p className="state-title"><span className="state-mark" aria-hidden="true">{t.mark}</span>{title??t.title(subjectText)}{reason?<>：{reason}</>:null}</p>
-    {next??t.next?<p className="state-next">{next??t.next}</p>:null}
+    {/* C2: a compact empty state inside a card is one line ("暂无 X"), without the default next step; a compact unavailable or
+        forbidden state keeps its line (it says the number is not zero). */}
+    {next??(compact&&(kind==='empty'||kind==='filtered')?'':t.next)?<p className="state-next">{next??t.next}</p>:null}
     {onRetry&&kind==='unavailable'?<button type="button" onClick={onRetry}>重试</button>:null}
     {details?<details className="state-details"><summary>技术细节</summary>{details}</details>:null}
   </div>;
@@ -122,16 +124,18 @@ export function KeyValue({items,label,className}:{items:KeyValueItem[];label?:st
 export function shorten(value:string,head=8,tail=4):string{return value.length<=head+tail+1?value:value.slice(0,head)+'…'+value.slice(-tail);}
 /** A long identifier: kind in words, the head…tail form (monospace), the full value on hover and focus, a copy button (announces
  * 已复制); `name` replaces the hash as the visible text when the object has one; `expandable` shows the full value on click. */
+/** L6 S1 on S8: a shortened ID is not a tab stop, so its copy button is how the full value is reached - `copy={false}` only where the
+ * ID sits inside a link or button (which is the tab stop). */
 export function IdText({value,kind,name,head=8,tail=4,copy=true,expandable}:{value:string;kind?:string;name?:string|null;head?:number;tail?:number;copy?:boolean;expandable?:boolean}){
   const [open,setOpen]=useState(false);const [copied,setCopied]=useState(false);
   const full=(kind?kind+' ':'')+value;
   const short=shorten(value,head,tail);
   const text=name?<span className="id-name">{name}</span>:expandable?<button type="button" className="id-code id-expand" aria-expanded={open} title={full} onClick={()=>setOpen(!open)}>{open?value:short}</button>
-    :<code className="id-code" title={full} tabIndex={0} aria-label={full}>{short}</code>;
+    :<code className="id-code" title={full} aria-label={kind?value:full}>{short}</code>;  // the visible kind is read once  // C3: not a tab stop; the copy button is the one
   function doCopy(){void navigator.clipboard?.writeText(value).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>undefined);}
   return <span className="id-text" data-id={value}>{kind?<span className="id-kind">{kind}</span>:null}{text}
     {name?<code className="id-code id-secondary" title={full}>{short}</code>:null}
-    {copy?<button type="button" className="id-copy" aria-label={`复制${kind?kind+' ':''}ID`} title="复制完整 ID" onClick={doCopy}>{copied?'✓':'⧉'}</button>:null}
+    {copy?<button type="button" className="id-copy" aria-label={`复制${kind?kind+' ':''}ID`} title={`复制完整 ID：${value}`} onClick={doCopy}>{copied?'✓':'⧉'}</button>:null}
     {copied?<Announce text="已复制"/>:null}</span>;
 }
 

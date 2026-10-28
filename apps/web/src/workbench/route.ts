@@ -22,7 +22,7 @@ const QUERY:Partial<Record<PageKey,Record<string,(v:string)=>boolean>>>={
   commitments:{status:v=>['open','ended','all'].includes(v),consumer:v=>hex64.test(v),late:v=>v==='true'||v==='false',due_from:v=>day.test(v),due_to:v=>day.test(v),
     sort:v=>['due_at','registered_at','status'].includes(v),order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},
   capabilities:{tab:v=>['capabilities','actions','channels','dispatch'].includes(v)},
-  consumers:{restricted:v=>v==='true'||v==='false',open:v=>v==='true'||v==='false',sort:v=>['id','open_commitments','conversations','active_plans'].includes(v),
+  consumers:{restricted:v=>v==='true'||v==='false',open:v=>v==='true'||v==='false',sort:v=>['id','open_commitments','conversations','active_plans','last_conversation_at'].includes(v),
     order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},
 };
 const typeName=(v:string)=>/^[A-Za-z][A-Za-z0-9_.]{0,159}$/.test(v),ref=(v:string)=>/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(v);

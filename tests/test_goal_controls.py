@@ -26,6 +26,7 @@ from nexloop_eios.authorization import authenticate_service
 from test_action_definitions import published_action
 from test_browser_identity_reads import identity
 from test_browser_session_creation import uow
+from support.budgets import approved_budget as approved
 from support.tenants import TENANT_A, TENANT_B
 
 NOW=datetime.now(UTC).replace(microsecond=0)
@@ -269,12 +270,19 @@ def test_dispatch_gate_inside_caller_transaction_orders_against_pause(env,admin)
         with pytest.raises(ControlDenied):env.control.assert_dispatch(planned,connection=c)
 
 
+def approved_budget(admin,kind,unit,limit,period):
+    return approved(admin,TENANT_A,kind,unit,limit,*period)
+
+
 def test_at043_tenant_budget_blocks_new_consumption_and_keeps_existing(env,admin):
     with pytest.raises(ControlDenied) as missing:
         env.control.reserve_budget(budget_kind='model',consumption_id='call-0',amount='0.01',unit='USD',source_ref='model-call:0')
     assert missing.value.reason=='budget_unconfigured'
     period=(NOW-timedelta(hours=1),NOW+timedelta(days=30))
-    env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-model-1',budget_kind='model',unit='USD',limit_amount='1.00',period_start=period[0],period_end=period[1])
+    # NX-056 budget approval: Budget.set never creates a budget (a loosening); the approved loosening does.
+    with pytest.raises(psycopg.Error,match='budget_loosen_requires_approval'):
+        env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-model-1',budget_kind='model',unit='USD',limit_amount='1.00',period_start=period[0],period_end=period[1])
+    approved_budget(admin,'model','USD','1.00',period)
     planned=env.control.snapshot(budgets=['model'])
     assert env.control.reserve_budget(budget_kind='model',consumption_id='call-1',amount='0.60',unit='USD',source_ref='model-call:1')['remaining']=='0.40'
     env.control.reserve_budget(budget_kind='model',consumption_id='call-2',amount='0.30',unit='USD',source_ref='model-call:2')
@@ -295,7 +303,7 @@ def test_at043_tenant_budget_blocks_new_consumption_and_keeps_existing(env,admin
     with pytest.raises(ControlDenied) as stale:env.control.assert_dispatch(planned)  # budget change advances control revision
     assert stale.value.reason=='control_revision_stale'
     # Incentive budget: ISO currency minor units, integers only.
-    env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-incentive-1',budget_kind='incentive',unit='CNY',limit_amount='1000',period_start=period[0],period_end=period[1])
+    approved_budget(admin,'incentive','CNY','1000',period)
     with pytest.raises(psycopg.Error,match='unit mismatch'):
         env.control.reserve_budget(budget_kind='incentive',consumption_id='coupon-1',amount='10.5',unit='CNY',source_ref='offer:1')
     env.control.reserve_budget(budget_kind='incentive',consumption_id='coupon-2',amount='1000',unit='CNY',source_ref='offer:2')
@@ -306,8 +314,12 @@ def test_at043_tenant_budget_blocks_new_consumption_and_keeps_existing(env,admin
 
 
 def test_nx038_d15_owner_sets_the_evolution_budget_through_budget_set(env,admin):
-    """D15: budget kind evolution is set by the owner through the governed Budget.set; it is its own kind, never `model`."""
+    """D15: budget kind evolution is the owner's; it is its own kind, never `model`. NX-056 budget approval: setting it up is a loosening
+    (Budget.loosen with another owner's approval, test_budget_approval_pg); lowering it stays Budget.set."""
     period=(NOW-timedelta(hours=1),NOW+timedelta(days=30))
+    with pytest.raises(psycopg.Error,match='budget_loosen_requires_approval'):
+        env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-evolution-0',budget_kind='evolution',unit='CNY',limit_amount='100',period_start=period[0],period_end=period[1])
+    approved_budget(admin,'evolution','CNY','200',period)
     env.owner.set_budget(action_name='Budget.set',action_version=1,request_id='budget-evolution-1',budget_kind='evolution',unit='CNY',limit_amount='100',period_start=period[0],period_end=period[1])
     assert admin.execute("select budget_kind,unit,limit_amount::text from control.nexloop_budget_limits").fetchall()==[('evolution','CNY','100')]
     assert env.control.budget_status('model')['configured'] is False

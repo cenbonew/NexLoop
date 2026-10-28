@@ -111,8 +111,12 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'workbench_member.issue_owner_reset':'human_owner','workbench_member.invite_owner':'human_owner',
     # NX-058 slice E: the staff offboarding erasure, under NX-056 approval.
     'workbench_member.erase_member':'human_owner',
+    # NX-058 slice F: linking and unlinking an operator's or reviewer's IdP subject (single sign-on).
+    'workbench_member.link_external':'human_owner','workbench_member.unlink_external':'human_owner',
     # Extraction dead letters (2026-10-26): the owner requeues or dismisses one dead-lettered claim-extraction job.
-    'claim_extraction.dead_letter_resolve':'human_owner'}
+    'claim_extraction.dead_letter_resolve':'human_owner',
+    # NX-056 budget approval: loosening a budget, under an NX-056 approval policy.
+    'goals.budget.loosen':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

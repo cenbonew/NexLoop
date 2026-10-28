@@ -6,14 +6,15 @@
  * requester executes them there. A control is offered only when the member's role carries its Action and the row's role and status allow
  * it; the server rechecks both at execution. A reset code or an invitation token is shown once, in the form that issued it.
  */
-import {useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {readMembers,type Me,type MemberRow,type Members as MembersData} from '../api';
-import {Form,WithMember} from '../actions';
+import {offers,readMembers,type Me,type MemberRow,type Members as MembersData,type Operation} from '../api';
+import {ConfirmedForm,Form,WithMember} from '../actions';
 import {DataTable} from '../DataTable';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
 import {IdText} from '../kit';
+import {SsoInviteChoice,SsoLinkControls,ssoControls} from '../SsoLink';
 
 export const MEMBER_STATUS_TEXT:Record<MemberRow['member_status'],string>={active:'在用',suspended:'已停用',invited:'待接受',revoked:'已撤销'};
 export const ACCOUNT_STATUS_TEXT:Record<string,string>={active:'在用',disabled:'已停用',locked:'已锁定',erased:'已擦除'};
@@ -64,9 +65,9 @@ function Reasoned({member,operation,title,row,extra,note,children,ready=true,not
   </Form>;
 }
 
-function RoleChoice({value,onChange,name}:{value:string;onChange:(v:string)=>void;name:string}){
-  return <fieldset className="choices"><legend>新角色</legend>
-    {['operator','reviewer'].map(r=><label key={r} className="choice"><input type="radio" name={name} checked={value===r} onChange={()=>onChange(r)}/>{ROLE_TEXT[r]}</label>)}</fieldset>;
+function RoleChoice({value,onChange,name,roles=['operator','reviewer']}:{value:string;onChange:(v:string)=>void;name:string;roles?:string[]}){
+  return <fieldset className="choices"><legend>{roles.includes('owner')?'角色':'新角色'}</legend>
+    {roles.map(r=><label key={r} className="choice"><input type="radio" name={name} checked={value===r} onChange={()=>onChange(r)}/>{ROLE_TEXT[r]}{r==='owner'?'（需另一位负责人批准）':''}</label>)}</fieldset>;
 }
 
 function ChangeRole({member,row}:{member:Me;row:MemberRow}){
@@ -96,28 +97,52 @@ function IssueReset({member,row,owner,blocked}:{member:Me;row:MemberRow;owner:bo
   </Form>;
 }
 
-function Controls({member,row,members}:{member:Me;row:MemberRow;members:MemberRow[]}){
-  const kinds=memberControls(row,member.principal_id);
+/** The controls a row offers, in words, each with its governed operation (the role must carry it to be offered). */
+export const CONTROL_TEXT:Record<string,{title:string;operation:Operation;danger?:boolean}>={
+  change_role:{title:'改角色',operation:'change_workbench_member_role'},suspend:{title:'停用',operation:'suspend_workbench_member',danger:true},
+  resume:{title:'恢复',operation:'resume_workbench_member'},revoke:{title:'撤销成员',operation:'revoke_workbench_member',danger:true},
+  issue_reset:{title:'签发重置码',operation:'issue_workbench_reset'},promote:{title:'提升为负责人',operation:'promote_workbench_member'},
+  demote:{title:'降级这位负责人',operation:'demote_workbench_owner',danger:true},suspend_owner:{title:'停用这位负责人',operation:'suspend_workbench_owner',danger:true},
+  resume_owner:{title:'恢复这位负责人',operation:'resume_workbench_owner'},revoke_owner:{title:'撤销这位负责人',operation:'revoke_workbench_owner',danger:true},
+  issue_owner_reset:{title:'为这位负责人签发重置码',operation:'issue_workbench_owner_reset'},erase:{title:'擦除这位成员的个人数据',operation:'erase_workbench_member',danger:true},
+  sso:{title:'单点登录绑定',operation:'link_workbench_external'}};
+/** The kinds a member may use on a row: what the row allows (memberControls) and the member's role carries. */
+export const offeredControls=(member:Me,row:MemberRow)=>[...memberControls(row,member.principal_id).filter(k=>offers(member,CONTROL_TEXT[k].operation)),
+  // NX-058 slice F: single sign-on binding, offered when the row allows it and the role carries linking or unlinking.
+  ...(ssoControls(row,member.principal_id)&&(offers(member,'link_workbench_external')||offers(member,'unlink_workbench_external'))?['sso']:[])];
+
+/** UX audit B9: a row offers its operations in one picker; the chosen one opens as a single form under the table (never several
+ * forms stacked in a table cell). */
+function Controls({member,row,selected,onSelect}:{member:Me;row:MemberRow;selected:string;onSelect:(kind:string)=>void}){
+  const kinds=offeredControls(member,row);
   if(!kinds.length)return <span className="note">—</span>;
+  return <select className="member-control" aria-label={`对 ${row.username??row.label} 的操作`} value={selected} onChange={e=>onSelect(e.target.value)}>
+    <option value="">选择操作…</option>{kinds.map(k=><option key={k} value={k}>{CONTROL_TEXT[k].title}{CONTROL_TEXT[k].danger?'（需谨慎）':''}</option>)}</select>;
+}
+
+/** One operation's form for one row (the forms themselves are unchanged: reason, impact, approval note, danger tone). */
+export function MemberControlPanel({member,row,members,kind}:{member:Me;row:MemberRow;members:MemberRow[];kind:string}){
   // An owner target never approves its own request (AA2): it is left out of the approvers.
   const blocked=approversFor(members,member.principal_id,row.principal_id)===0;
   const gated=blocked?<NoApprover target={row.role==='owner'}/>:approvalNote;
-  return <details><summary>操作</summary>
-    {kinds.includes('change_role')?<ChangeRole member={member} row={row}/>:null}
-    {kinds.includes('suspend')?<Reasoned member={member} operation="suspend_workbench_member" tone="danger" title="停用" row={row}
-      note={<p className="impact-summary" role="note">影响：撤销授权，会话立即失效；恢复后按角色当前的模板重新授权。</p>}/>:null}
-    {kinds.includes('resume')?<Reasoned member={member} operation="resume_workbench_member" title="恢复" row={row}/>:null}
-    {kinds.includes('revoke')?<Reasoned member={member} operation="revoke_workbench_member" tone="danger" title="撤销成员" row={row}
-      note={<p className="impact-summary" role="note">影响：撤销授权、移出配置、会话失效；账号保留，个人数据需另行发起擦除。</p>}/>:null}
-    {kinds.includes('issue_reset')?<IssueReset member={member} row={row} owner={false}/>:null}
-    {kinds.includes('promote')?<Reasoned member={member} operation="promote_workbench_member" title="提升为负责人" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('demote')?<Demote member={member} row={row} note={gated} blocked={blocked}/>:null}
-    {kinds.includes('suspend_owner')?<Reasoned member={member} operation="suspend_workbench_owner" tone="danger" title="停用这位负责人" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('resume_owner')?<Reasoned member={member} operation="resume_workbench_owner" title="恢复这位负责人" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('revoke_owner')?<Reasoned member={member} operation="revoke_workbench_owner" tone="danger" title="撤销这位负责人" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('issue_owner_reset')?<IssueReset member={member} row={row} owner blocked={blocked}/>:null}
-    {kinds.includes('erase')?<EraseForm member={member} row={row} blocked={blocked}/>:null}
-  </details>;
+  switch(kind){
+    case 'change_role':return <ChangeRole member={member} row={row}/>;
+    case 'suspend':return <Reasoned member={member} operation="suspend_workbench_member" tone="danger" title="停用" row={row}
+      note={<p className="impact-summary" role="note">影响：撤销授权，会话立即失效；恢复后按角色当前的模板重新授权。</p>}/>;
+    case 'resume':return <Reasoned member={member} operation="resume_workbench_member" title="恢复" row={row}/>;
+    case 'revoke':return <Reasoned member={member} operation="revoke_workbench_member" tone="danger" title="撤销成员" row={row}
+      note={<p className="impact-summary" role="note">影响：撤销授权、移出配置、会话失效；账号保留，个人数据需另行发起擦除。</p>}/>;
+    case 'issue_reset':return <IssueReset member={member} row={row} owner={false}/>;
+    case 'promote':return <Reasoned member={member} operation="promote_workbench_member" title="提升为负责人" row={row} note={gated} ready={!blocked}/>;
+    case 'demote':return <Demote member={member} row={row} note={gated} blocked={blocked}/>;
+    case 'suspend_owner':return <Reasoned member={member} operation="suspend_workbench_owner" tone="danger" title="停用这位负责人" row={row} note={gated} ready={!blocked}/>;
+    case 'resume_owner':return <Reasoned member={member} operation="resume_workbench_owner" title="恢复这位负责人" row={row} note={gated} ready={!blocked}/>;
+    case 'revoke_owner':return <Reasoned member={member} operation="revoke_workbench_owner" tone="danger" title="撤销这位负责人" row={row} note={gated} ready={!blocked}/>;
+    case 'issue_owner_reset':return <IssueReset member={member} row={row} owner blocked={blocked}/>;
+    case 'erase':return <EraseForm member={member} row={row} blocked={blocked}/>;
+    case 'sso':return <SsoLinkControls member={member} row={row}/>;  // NX-058 slice F, one more pick of the S4 picker
+    default:return null;
+  }
 }
 
 const ERASE_REASONS={offboarding:'离职',member_request:'本人要求',other:'其他'} as const;
@@ -134,44 +159,59 @@ function EraseForm({member,row,blocked}:{member:Me;row:MemberRow;blocked:boolean
   </Form>;
 }
 
+/** UX audit B9: one invitation form; choosing 负责人 makes it the approval-gated owner invitation (another owner approves it). */
 function InviteForm({member,members}:{member:Me;members:MemberRow[]}){
   const ownerBlocked=approversFor(members,member.principal_id,null)===0;
-  const [username,setUsername]=useState('');const [role,setRole]=useState('');const [hours,setHours]=useState(24);
+  const [username,setUsername]=useState('');const [role,setRole]=useState('');const [hours,setHours]=useState(24);const [sso,setSso]=useState('');
   const valid=/^(?!erased-)[a-z0-9][a-z0-9._-]{2,63}$/.test(username)&&hours>=1&&hours<=72;
-  return <>
-    <Form operation="invite_workbench_member" member={member} title="邀请成员" disabled={!valid||!role}
-      disabledReason={!valid?'用户名需 3–64 位小写字母、数字或 . _ -，有效期 1–72 小时。':'先选择角色。'}
-      body={()=>valid&&role?{username,role,expires_in_hours:hours}:null}>
-      <div className="field"><label htmlFor="invite-username">用户名</label><input id="invite-username" value={username} onChange={e=>setUsername(e.target.value.trim().toLowerCase())}
-        required maxLength={64} pattern="[a-z0-9][a-z0-9._-]{2,63}"/></div>
-      <RoleChoice value={role} onChange={setRole} name="invite-role"/>
-      <div className="field"><label htmlFor="invite-hours">有效期（小时）</label><input id="invite-hours" type="number" min={1} max={72} value={hours} onChange={e=>setHours(Number(e.target.value))}/></div>
-      <p className="impact-summary" role="note">影响：生成一次性邀请令牌；同一用户名的旧邀请作废。用户名以 erased- 开头的保留给系统，不能使用。</p>
-    </Form>
-    <Form operation="invite_workbench_owner" member={member} title="邀请负责人" disabled={!valid||ownerBlocked} body={()=>valid&&!ownerBlocked?{username,expires_in_hours:hours}:null}>
-      <p>用户名与有效期同上。</p>{ownerBlocked?<NoApprover target={false}/>:approvalNote}
-    </Form>
-  </>;
+  const owner=role==='owner';
+  const roles=offers(member,'invite_workbench_owner')?['operator','reviewer','owner']:['operator','reviewer'];
+  const fields=<>
+    <div className="field"><label htmlFor="invite-username">用户名</label><input id="invite-username" value={username} onChange={e=>setUsername(e.target.value.trim().toLowerCase())}
+      required maxLength={64} pattern="[a-z0-9][a-z0-9._-]{2,63}"/></div>
+    <RoleChoice value={role} onChange={setRole} name="invite-role" roles={roles}/>
+    <div className="field"><label htmlFor="invite-hours">有效期（小时）</label><input id="invite-hours" type="number" min={1} max={72} value={hours} onChange={e=>setHours(Number(e.target.value))}/></div>
+    {/* NX-058 slice F: a member invitation may be SSO-only; an owner invitation takes no SSO choice. */}
+    {owner?null:<SsoInviteChoice value={sso} onChange={setSso}/>}
+    <p className="impact-summary" role="note">影响：生成一次性邀请令牌；同一用户名的旧邀请作废。{owner?'':'选“仅 SSO”时不设密码，你绑定本人的 SSO 账号（登录方式只能是“仅 SSO”）之后才能登录。'}用户名以 erased- 开头的保留给系统，不能使用。</p></>;
+  const why=!valid?'用户名需 3–64 位小写字母、数字或 . _ -，有效期 1–72 小时。':!role?'先选择角色。':null;
+  return owner?<Form key="owner" operation="invite_workbench_owner" member={member} title="邀请负责人" disabled={!valid||ownerBlocked}
+      disabledReason={why??'现在没有能批准的负责人，原因见下方说明。'} body={()=>valid&&!ownerBlocked?{username,expires_in_hours:hours}:null}>
+      {fields}{ownerBlocked?<NoApprover target={false}/>:approvalNote}</Form>
+    :<Form key="member" operation="invite_workbench_member" member={member} title="邀请成员" disabled={!valid||!role} disabledReason={why??undefined}
+      body={()=>valid&&role?{username,role,expires_in_hours:hours,...(sso?{sso_provider:sso}:{})}:null}>{fields}</Form>;
 }
 
 export function MembersView({data,member}:{data:MembersData;member:Me}){
+  const [chosen,setChosen]=useState<{principal:string;kind:string}|null>(null);
+  const panel=useRef<HTMLHeadingElement>(null);
+  useEffect(()=>{if(chosen)panel.current?.focus();},[chosen]);
+  const target=chosen?data.members.find(m=>m.principal_id===chosen.principal)??null:null;
+  const who=(principal:string)=>{const m=data.members.find(x=>x.principal_id===principal);return m?<>{m.username??'（无账户）'} <span className="note">{m.label}</span></>:<IdText value={principal} head={8} tail={4}/>;};
   return <>
     <h2>成员</h2>
     <DataTable label="成员" empty={{subject:'成员'}} rows={data.members} rowKey={m=>m.principal_id} columns={[
       {label:'成员',main:true,cell:m=><>{m.username??'（无账户）'}<br/><span className="note">{m.label}</span></>},
       {label:'角色',cell:m=>m.role?<StatusBadge domain="member_role" code={m.role}/>:<span className="note">无角色</span>},
-      {label:'状态',cell:m=><>{m.erased?'已擦除':MEMBER_STATUS_TEXT[m.member_status]}{m.account_status&&m.account_status!=='active'?<><br/><span className="note" title={m.account_status}>账户{ACCOUNT_STATUS_TEXT[m.account_status]??'状态未知'}</span></>:null}</>},
+      {label:'状态',cell:m=><>{m.erased?'已擦除':MEMBER_STATUS_TEXT[m.member_status]}{m.sso_pending&&!m.erased?<><br/><span className="note">待绑定 SSO（绑定前不能登录）</span></>:null}{m.account_status&&m.account_status!=='active'?<><br/><span className="note" title={m.account_status}>账户{ACCOUNT_STATUS_TEXT[m.account_status]??'状态未知'}</span></>:null}</>},
       {label:'负责人投票资格',cell:m=>m.role!=='owner'?'—':m.vote_eligible_from?<>自 <Time value={m.vote_eligible_from}/></>:<span className="note">尚无</span>},
-      {label:'操作',cell:m=><Controls member={member} row={m} members={data.members}/>}]}/>
+      {label:'操作',cell:m=><Controls member={member} row={m} selected={chosen?.principal===m.principal_id?chosen.kind:''}
+        onSelect={kind=>setChosen(kind?{principal:m.principal_id,kind}:null)}/>}]}/>
+    {chosen&&target?<section className="member-operation" aria-labelledby="member-operation-title">
+      <h3 id="member-operation-title" ref={panel} tabIndex={-1}>{CONTROL_TEXT[chosen.kind]?.title}：{target.username??'（无账户）'} {target.label}</h3>
+      <MemberControlPanel key={chosen.principal+chosen.kind} member={member} row={target} members={data.members} kind={chosen.kind}/>
+      <button type="button" className="btn-secondary" onClick={()=>setChosen(null)}>关闭</button>
+    </section>:null}
     <h2>未接受的邀请</h2>
     <DataTable label="未接受的邀请" empty={{subject:'未接受的邀请'}} rows={data.invitations} rowKey={i=>i.invitation_id} columns={[
-      {label:'用户名',main:true,cell:i=>i.username},{label:'角色',cell:i=>roleText(i.role)},{label:'签发人',cell:i=><IdText value={i.issued_by} head={8} tail={4} copy={false}/>},
+      {label:'用户名',main:true,cell:i=>i.username},{label:'角色',cell:i=>roleText(i.role)},{label:'签发人',cell:i=>who(i.issued_by)},
       {label:'到期',cell:i=><Time value={i.expires_at}/>},
-      {label:'撤销',cell:i=><Form operation="revoke_workbench_invitation" member={member} className="inline-action" tone="danger" title="撤销邀请" body={()=>({invitation_id:i.invitation_id})}><span/></Form>}]}/>
+      {label:'撤销',cell:i=><ConfirmedForm operation="revoke_workbench_invitation" member={member} tone="danger" trigger="撤销…" title="确认撤销邀请" withReason={false}
+        impact={<>影响：{i.username} 的邀请令牌立即失效，不能恢复；需要时重新邀请。</>} body={()=>({invitation_id:i.invitation_id})}/>}]}/>
     <h2>最近 90 天的重置码</h2>
     <DataTable label="最近 90 天的重置码" empty={{subject:'重置记录'}} rows={data.resets} rowKey={r=>r.reset_id} columns={[
-      {label:'签发时间',main:true,cell:r=><Time value={r.issued_at}/>},{label:'对象',cell:r=><IdText value={r.target_principal} head={8} tail={4} copy={false}/>},
-      {label:'签发人',cell:r=><IdText value={r.issued_by} head={8} tail={4} copy={false}/>},{label:'类别',cell:r=>r.kind==='owner'?'负责人（经审批）':'成员'},
+      {label:'签发时间',main:true,cell:r=><Time value={r.issued_at}/>},{label:'对象',cell:r=>who(r.target_principal)},
+      {label:'签发人',cell:r=>who(r.issued_by)},{label:'类别',cell:r=>r.kind==='owner'?'负责人（经审批）':'成员'},
       {label:'状态',cell:r=>RESET_STATE_TEXT[r.state]??r.state}]}/>
     <h2>邀请</h2>
     <InviteForm member={member} members={data.members}/>

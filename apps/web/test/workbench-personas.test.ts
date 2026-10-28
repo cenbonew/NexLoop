@@ -35,9 +35,9 @@ test('a draft publishes only the fields filled in, as the contract allows', ()=>
 test('the owner gets the editor, rules and disclosure forms; another member reads only', ()=>{
   const view=personaOverview(raw);
   const asOwner=render(client([[['workbench','operator-personas'],view],[['workbench','me'],owner]]),h(Personas,{}));
-  expect(asOwner).toContain('xiaohe@2');expect(asOwner).toContain('发布为 xiaohe@3');expect(asOwner).toContain('停用');
+  expect(asOwner).toContain('xiaohe@2');expect(asOwner).toContain('新建人设');expect(asOwner).toContain('发布新版本…');expect(asOwner).toContain('停用');
   const asOperator=render(client([[['workbench','operator-personas'],view],[['workbench','me'],operator]]),h(Personas,{}));
-  expect(asOperator).toContain('xiaohe@2');expect(asOperator).not.toContain('发布为');expect(asOperator).not.toContain('<form');
+  expect(asOperator).toContain('xiaohe@2');expect(asOperator).not.toContain('新建人设');expect(asOperator).not.toContain('发布新版本');expect(asOperator).not.toContain('<form');
 });
 
 test('the consumer block shows persona@version with its source and the customer\'s preferences', ()=>{

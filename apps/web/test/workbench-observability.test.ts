@@ -64,7 +64,7 @@ test('operations: the backup block shows numbers and states, “无” for a met
   expect(html).toContain('<div class="kv-row"><dt>最旧的未备份文件对象（D6）</dt><dd>无</dd></div>');  // absent: everything covered
   const unprotected=metrics({...metricsBody,backup:{...backup,file_backup_unprotected_seconds:7200}});
   expect(unprotected.backup.status==='ok'&&unprotected.backup.file_backup_unprotected_seconds).toBe(7200);
-  expect(html).toMatch(/<dt>最近一次备份校验<\/dt><dd><span class="status-badge tone-ok"[^>]*>.*?通过<\/span><\/dd>/);expect(html).toMatch(/<dt>WAL 归档<\/dt><dd><span class="status-badge tone-fail"[^>]*>.*?出现失败<\/span><\/dd>/);
+  expect(html).toMatch(/<dt>最近一次备份校验<\/dt><dd><span class="status-badge tone-ok"[^>]*>.*?通过<\/span><\/dd>/);expect(html).toMatch(/<dt>日志归档<\/dt><dd><span class="status-badge tone-fail"[^>]*>.*?出现失败<\/span><\/dd>/);
   expect(html).toContain('主仓库 30 分钟');expect(html).toContain('需要处理');
   expect(html).not.toContain('备份记录暂不可用');
   for(const bad of [{...backup,age_seconds:'1800'},{...backup,age_seconds:-1},{...backup,status:'stale'},{...backup,repo_backup_age_seconds:{repo1:null}}])
@@ -136,4 +136,14 @@ test('overview commercial block: unavailable today is labelled; when served, bud
   const empty=render(client([[['workbench','overview'],overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[]}}})]]),h(Overview,{onOpen:()=>{}}));
   expect(empty).toContain('暂无预算：还没有设置');expect(empty).toContain('暂无费用记录：最近 24 小时');
   expect(()=>overview({...base,commercial:{status:'ok',data:{budgets:{},last_24h:[{...served.data.last_24h[0],amount:'12,5'}]}}})).toThrow(WorkbenchError);
+});
+
+test('C6: the alerts page has a lead, says "真实数据", and shows the silence section only to a member who may silence something firing',()=>{
+  const slot=h('p',null,'静默表单');
+  const page=(member:Me,body:ReturnType<typeof alertsBody>)=>render(client([[['workbench','alerts'],alerts(body)],[['workbench','me'],member]]),h(Alerts,{actions:slot}));
+  const firing=page(owner,alertsBody(false));
+  expect(firing).toContain('基于真实数据的运行告警');expect(firing).toContain('只针对真实数据');expect(firing).not.toContain('（real）');
+  expect(firing).toContain('>静默告警</h2>');
+  expect(page(operator,alertsBody(false))).not.toContain('>静默告警</h2>');
+  expect(page(owner,{...alertsBody(false),firing:[]})).not.toContain('>静默告警</h2>');
 });

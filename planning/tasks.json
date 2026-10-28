@@ -3680,7 +3680,7 @@
       "M21"
     ],
     "deliverable": "版本化行为模型、独立真实数据校准，不伪装概率",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -3693,6 +3693,18 @@
         "ref": "91233ea5",
         "summary": "T1-T7 on main and deployed (release 28); D9 real-data calibration needs at least 28 days of real data and is blocked until a real launch. Checked by L3, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx042-synthetic-calibration.md",
+        "summary": "负责人 2026-10-28 决定：用合成数据跑通校准工具链即可判 done；运行单 L6 复核 PASS，等 stage 执行。真实数据校准（D9）拆到 NX-063。执行人：L3（运行单）；判定人：L6；决定人：负责人。",
+        "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "stage release 52 上按运行单 c384832d 执行合成数据工具链验证：五条通过条件全部满足；第 3 步返回 409 window_before_publication；四个结论与表一致；没有任何写入。口径：合成数据，只验证工具链，不代表真实校准（真实校准见 NX-063）。执行人：调度员 + approver3；判定人：L6。",
+        "recorded_at": "2026-10-28T15:47:50+08:00"
       }
     ]
   },
@@ -3721,6 +3733,12 @@
         "ref": "docs/implementation/NX-043-X7-acceptance.md",
         "summary": "X7 stage segments S2/S4/S5/S7 had follow-ups; full result chain not in the repository; checklist item 10 (budget block) still blocked. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "migration 0364 (batch 49 5988b5be)",
+        "summary": "第 10 项预算演练已实现（0364），负责人选方案 A；L6 复核 PASS，等 stage 执行。执行人：实现线；判定人：L6；决定人：负责人。",
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4482,6 +4500,12 @@
         "ref": "575859f7",
         "summary": "第四十批：审批拒绝带固定原因码（details.reason），审批视图行带 consumed/consumed_at（迁移 0362）；已部署在发布 50（main 575859f7）。执行人：调度员；审查：L6 PASS。",
         "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "migration 0369 (batch 49 5988b5be)",
+        "summary": "预算审批 Q1–Q8 由负责人决定，实现为 0369，作为 real 上线的前置条件。执行人：实现线；判定人：L6；决定人：负责人。",
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4558,6 +4582,12 @@
         "ref": "docs/design/account-self-service.md",
         "summary": "Remaining: SSO slice F deferred by the owner (OIDC when scheduled); real-browser walk of invitation/reset/member changes on stage. Checked by L2, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "migration 0365 (batch 49 5988b5be)",
+        "summary": "片 F 的 OIDC 实现（0365）默认不启用，只支持 RS256（负责人决定）；L6 复核 PASS。执行人：nx058-oidc 线；判定人：L6；决定人：负责人。",
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4668,6 +4698,12 @@
         "ref": "owner 2026-10-26",
         "summary": "A1 not wired into F4, display only; E4 p95 alert in rules v19 (deployed release 47); B5 thresholds after one week of observation. Remaining: CLI check summary lacks the impact list; B9 file-backup timer not yet in APP_HOST host-health configuration. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "batch 49 5988b5be",
+        "summary": "CLI 影响清单 F1 已修复，L6 复核 PASS；剩余 B5 的阈值观察一周后再定。执行人：实现线；判定人：L6；决定人：负责人（B5 阈值）。",
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4708,6 +4744,33 @@
         "ref": "adr/ADR-041-machine-access-channel.md",
         "summary": "ADR-041 采纳（负责人 2026-10-28，Q-1 至 Q-9 全部选 A）；威胁评审 docs/design/NX-062-threat-review.md 完成（T-1 至 T-12，L6 复核 6950f93f 与复审 92393e60 均 PASS）；F1–F3 实现待排期，现在不开工。执行人：L4；判定人：L6；决定人：负责人。",
         "recorded_at": "2026-10-28T22:00:00+08:00"
+      }
+    ]
+  },
+  {
+    "id": "NX-063",
+    "stage": "S7",
+    "title": "消费者孪生真实数据校准（D9）",
+    "dependencies": [
+      "NX-042"
+    ],
+    "modules": [
+      "M21"
+    ],
+    "deliverable": "正式上线后，用两个完整的 28 天真实窗口（约 56 天）校准一个只含可校准行为（reply_within_24h、refuse_contact）的孪生版本；冻结报告 passed/failed，passed 时 NX-043 可选用，failed 按 K=3 处理；证据注明真实数据，执行者与判定者分开记录",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx042-synthetic-calibration.md §6",
+        "summary": "从 NX-042 拆出。依赖：正式上线（真实派发、真实 Consumer）+ 两个发布后开始且已结束的 28 天窗口（约 56 天）；前置：另发一版只含可校准行为的孪生，发布日期早于第一个窗口；payment_intent 等 T4 有真实聚合后再加。执行人：L4（拆分）；决定人：负责人；判定人：调度员。",
+        "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "dispatcher 2026-10-28",
+        "summary": "沿用 S7：依赖正式上线，S7 其余任务完成后，本任务单独保持开放（S7 是最后一个阶段，无后续阶段等它收口）。实施时执行人：调度员；判定人：L6。上一条 note 中的判定人（调度员）指“拆分”这件事。",
+        "recorded_at": "2026-10-28T02:42:46Z"
       }
     ]
   }

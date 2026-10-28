@@ -217,6 +217,12 @@ button:disabled{cursor:wait;opacity:.7}
   .workbench .data-table td.cell-main::before{content:none}
   .data-table tr.critical{border-color:var(--danger)}
 }
+/* Batch 52: rows whose cells hold several blocks (a summary list, a requester with id and time, a reason and two buttons) stack at
+   narrow widths - each cell takes the full card width, its label above, so nothing is squeezed into a one-character column. */
+@media (max-width:639px){
+  .workbench .data-table.table-stacked td{display:block;flex-basis:100%}
+  .workbench .data-table.table-stacked td::before{display:block;margin-bottom:2px}
+}
 
 /* WebChat (batch 2): the conversation, its mode and world sit in one top bar; the composer stays at the bottom of the viewport while
    the message list scrolls. */
@@ -410,6 +416,8 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 @media (max-width:639px){.workbench .table-scroll{overflow:visible;background:none}}
 /* §6 long ids */
 .workbench .id-text{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;vertical-align:baseline}
+/* The head…tail and its copy button stay together on one line; the whole ID moves to the next line at a word boundary. */
+.workbench .id-text code.id-code{white-space:nowrap}
 .workbench .id-kind{color:var(--muted)}
 .workbench .id-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);white-space:normal;overflow-wrap:anywhere}  /* a full ID that is shown (a link, a code) wraps instead of leaving its card */
 .workbench .id-secondary{color:var(--muted)}
@@ -497,6 +505,9 @@ button.btn-danger:hover,.workbench button.btn-danger:hover,.workbench-action.inl
 /* B3: notices (kit Notice) and the earlier classes that meant the same thing but had no style outside the review page. */
 .notice,.workbench p.warning,.workbench div.warning,.workbench .impact-summary,.banner{display:flex;gap:8px;align-items:flex-start;margin:8px 0;padding:8px 12px;
   border:1px solid var(--info-border);border-left-width:4px;border-radius:var(--radius);background:var(--info-soft);color:var(--info-text);font-size:14px;line-height:1.6;max-width:72ch}
+/* Batch 52 review: an impact line and a warning are running text, not a mark beside a body - block, so an IdText inside flows with
+   the words (as flex items the words and the ID became columns and the ID was squeezed to two characters a line). */
+.workbench p.warning,.workbench div.warning,.workbench .impact-summary{display:block}
 .notice>.notice-mark{font-weight:700;flex:none}.notice>.notice-body{min-width:0}.notice p{margin:0}
 .notice-warning,.workbench p.warning,.workbench div.warning{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn-text)}
 .notice-danger{border-color:var(--danger-border);background:var(--danger-soft);color:var(--danger)}
@@ -534,3 +545,50 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 @media (max-width:639px){.shell.workbench{padding-top:var(--space-2)}.workbench .brand-header .brand-logo{width:120px}.workbench .brand-context{font-size:14px}}
 /* UX audit S9 (B12): a test deployment said plainly on the customer page. */
 .chat-test-badge{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn-text);font-weight:600}
+/* NX-058 slice F: the login card's SSO links look like the secondary button (same tokens; aligned with the shared button tones once merged). */
+.workbench-login .sso-login{display:grid;gap:var(--space-2);margin-top:16px}
+.workbench-login .sso-login a.button{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid var(--border);border-radius:9px;
+  color:inherit;text-decoration:none;font-weight:600}
+.workbench-login .sso-login a.button:hover{background:var(--hover)}
+/* UX audit S4 (B9): the one member operation, opened under the members table. */
+.workbench .member-operation{margin:var(--space-3) 0 var(--space-5);padding:var(--space-3) var(--space-4);border:1px solid var(--info-border);border-radius:var(--radius-lg);background:var(--surface-2)}
+.workbench .member-operation h3{margin:0 0 var(--space-2);font-size:var(--fs-h3)}.workbench .member-operation h3:focus{outline:none}
+.workbench .member-operation .workbench-action{border:0;padding:0;background:none}.workbench .member-operation .workbench-action h2{display:none}
+.workbench select.member-control{min-width:9rem;max-width:14rem}
+/* UX audit S5 (B5): a row action opens its confirmation in place. */
+.workbench button.confirm-trigger{min-height:32px;padding:4px 12px;font-size:13px;margin:0;background:var(--surface);color:var(--text);border:1px solid var(--control-border)}
+.workbench button.confirm-trigger-danger{color:var(--danger);border-color:var(--danger-border)}
+.workbench .confirm-panel{display:flex;flex-direction:column;gap:6px;min-width:16rem;padding:8px 10px;border:1px solid var(--warn-border);border-radius:var(--radius);background:var(--surface-2)}
+.workbench .confirm-panel .workbench-action{border:0;padding:0;background:none}.workbench .confirm-panel .workbench-action h2{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.workbench .confirm-panel>button.btn-secondary{align-self:flex-start;margin:0}
+/* UX audit S6 (B11): customer detail sections; an empty one is one line, its title beside why it is empty. */
+.detail-section{margin-top:1.25rem}
+.detail-section.detail-empty{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .75rem;margin-top:.75rem}
+.detail-section.detail-empty h2{margin:0;font-size:1rem}
+.detail-section.detail-empty p{margin:0}
+.detail-section .notice{margin-bottom:.75rem}
+/* Personas (owner report 2026-10-28): the list of personas with "新建人设" beside its title; the editor opens under it. */
+.section-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem 1rem}
+.section-head h2{margin:0}
+.persona-list{margin-bottom:1rem}
+.persona-editor-panel{border:1px solid var(--border);border-radius:8px;padding:1rem;margin:1rem 0}
+.persona-list td button,.persona-list td code{white-space:nowrap}
+/* UX audit S8 (C19): the schema graph's styles, formerly inline; a focused node shows the focus colour on its box. */
+.schema-graph{position:relative}
+.schema-graph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2,8px);margin-bottom:var(--space-2,8px)}
+.schema-graph-canvas{display:block;border:1px solid var(--border);border-radius:8px}
+.schema-edges{color:var(--text)}
+.schema-edge-label{paint-order:stroke;stroke:var(--surface);stroke-width:4px}
+.schema-node{cursor:pointer;outline:none}
+.schema-node:focus-visible>rect:first-of-type{stroke:var(--focus);stroke-width:3px}
+/* C3: the table scroller's focus ring, only when it is a tab stop (it overflows). */
+.table-scroll[tabindex="0"]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* C13: the workbench's shape while the session is checked. */
+.workbench .workbench-skeleton .skeleton-nav{display:grid;gap:var(--space-3);padding:var(--space-4)}
+.workbench .workbench-skeleton .workbench-main{display:grid;gap:var(--space-3);padding:var(--space-4)}
+.workbench .skeleton-line.skeleton-title{height:24px;width:40%}
+@media (max-width:1023px){.workbench .workbench-skeleton .skeleton-nav{display:none}}
+
+/* Batch 52: shown only below 640 px (a hint that only matters on a phone). */
+.workbench .narrow-only{display:none}
+@media (max-width:639px){.workbench .narrow-only{display:block}}

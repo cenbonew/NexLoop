@@ -1,6 +1,6 @@
 import {useState,type ReactNode} from 'react';
 import {keepPreviousData,useQuery} from '@tanstack/react-query';
-import {INTENT_STATE_TEXT,readActions,readRemediationEvidence,readRemediations,type Dispatch,type Remediation} from '../api';
+import {INTENT_STATE_TEXT,kindOf,readActions,readRemediationEvidence,readRemediations,type Dispatch,type Remediation} from '../api';
 import {RemediationResolveForm,RemediationRuleReleaseForm,RemediationSwitchForm,WithMember} from '../actions';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
@@ -71,8 +71,10 @@ export function Remediations(){
 /** NX-057 R4: the evidence chain of one remediation (design §10), ids, codes and times only; the reason a person gave is not shown. */
 export function RemediationEvidencePanel({id}:{id:string}){
   const query=useQuery({queryKey:['workbench','remediation-evidence',id],queryFn:()=>readRemediationEvidence(id)});
-  if(query.isPending)return <section aria-label="补救证据"><p role="status">正在读取证据…</p></section>;
-  if(query.isError)return <section aria-label="补救证据"><p className="note" role="status">证据暂不可读。</p></section>;
+  // C13: the shared states, with a retry when the read failed.
+  if(query.isPending)return <section aria-label="补救证据"><EmptyState kind="loading" subject="证据" compact/></section>;
+  if(query.isError)return <section aria-label="补救证据"><EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="证据" compact
+    onRetry={()=>void query.refetch()}/></section>;
   const e=query.data;
   return <section aria-label="补救证据" className="evidence-drawer"><h3>证据链</h3>
     <ol>
@@ -81,7 +83,7 @@ export function RemediationEvidencePanel({id}:{id:string}){
       <li>最终失败 <StatusBadge domain="failure_reason" code={e.failure.reason_code}/> <Time value={e.failure.recorded_at}/>
         {Object.entries(e.failure.evidence).map(([k,v])=><span key={k} className="kv-hint"> {k}: <code className="id-code">{v}</code></span>)}</li>
       <li>动作认领 {e.claim?<>{e.claim.status==='permanent_failure'?'已终结为永久失败':e.claim.status??e.claim.state}{e.claim.finalized_at?<> <Time value={e.claim.finalized_at}/></>:null}</>:'没有认领（从未派发）'}</li>
-      <li>规则 <code className="id-code">{e.rule.rule_id}</code> v{e.rule.manifest_version} <span className="kv-hint">摘要 {e.rule.digest.slice(0,12)}…</span></li>
+      <li>规则 <code className="id-code">{e.rule.rule_id}</code> v{e.rule.manifest_version} <span className="kv-hint">摘要 <IdText value={e.rule.digest} head={12} tail={4}/></span></li>
       {e.plan?<li>唤醒计划 <IdText kind="计划" value={e.plan.plan_id}/>{e.plan.woken_at?<> <Time value={e.plan.woken_at}/></>:null}
         {e.plan.consumed_by_run?<> 由 Run <code className="id-code">{e.plan.consumed_by_run}</code> 处理</>:' 尚未开 Run'}</li>:null}
       {e.remediation.origin_remediation_id?<li>来源补救 <code className="id-code">{e.remediation.origin_remediation_id}</code>（补救 Run 提出的意图又失败，只升级）</li>:null}

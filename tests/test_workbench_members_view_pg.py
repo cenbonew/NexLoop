@@ -37,7 +37,8 @@ def test_the_owner_sees_members_invitations_and_resets_without_any_secret(owners
     by = {m['principal_id']: m for m in view['members']}
     assert by[c['operator_member']['principal_id']]['role'] == 'operator' and by[c['third']['principal_id']]['role'] == 'owner'
     owner = by[c['owner_member']['principal_id']]
-    assert set(owner) == {'principal_id', 'label', 'username', 'role', 'member_status', 'account_status', 'vote_eligible_from', 'erased', 'person_all_revoked', 'person', 'human_active'}
+    assert set(owner) == {'principal_id', 'label', 'username', 'role', 'member_status', 'account_status', 'vote_eligible_from', 'erased', 'person_all_revoked', 'person', 'human_active', 'sso_pending'}
+    assert owner['sso_pending'] is False  # NX-058 F (0371)
     assert owner['person_all_revoked'] is False and owner['human_active'] is True and owner['person'].startswith('s-') and len(owner['person']) == 10
     assert owner['label'].startswith('p-') and len(owner['label']) == 10 and owner['username'] == c['owner_member']['username'] and owner['erased'] is False
     assert [(i['username'], i['role']) for i in view['invitations']] == [('viewed-reviewer', 'reviewer')]

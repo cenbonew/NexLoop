@@ -79,7 +79,7 @@ def approved_run(c, requester, approver, operation, body):
 def test_promotion_runs_once_after_another_owners_approval(owners, admin):
     c = owners
     applied = with_policies(c)
-    assert applied['version'] == 4 and applied['appended'] == 1 and applied['unchanged'] == 10
+    assert applied['version'] == 5 and applied['appended'] == 1 and applied['unchanged'] == 11  # version 5: goals.budget.loosen (NX-056 budget approval)
     p = c['operator_member']['principal_id']
     body = {'target_principal': p, 'reason': 'synthetic promotion'}
     executed = approved_run(c, c['owner_member'], c['second'], 'promote_workbench_member', body)

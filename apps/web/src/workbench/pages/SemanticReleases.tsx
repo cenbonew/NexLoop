@@ -9,7 +9,7 @@
 import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {kindOf,readSemanticReleases,readSemanticReview,type PublishableCandidate,type ReleaseWatch,type ReviewCandidate,type SemanticRelease,type SemanticReview} from '../api';
-import {Form,WithMember} from '../actions';
+import {ConfirmedForm,Form,WithMember} from '../actions';
 import {offers,readMe} from '../api';
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
@@ -143,7 +143,7 @@ export function niText(c:ReviewCandidate):string{
 export function ReviewQueue(){
   const query=useQuery({queryKey:['workbench','semantic-review'],queryFn:readSemanticReview});
   return <Card title="评估与审核" label="评估与审核">
-    <p className="note">每个候选的最新评估报告：门槛逐项结论、L0/L1 指标与非劣判定。分级由评估器 classify_change 给出，只显示，不能修改；报告只含摘要与计数。</p>
+    <p className="note">每个候选最新的评估报告：逐项门槛的结论、各级指标和“是否不比现有版本差”的判定。变更分级由评估器给出，这里只显示、不能修改；报告只含摘要和计数。</p>
     {query.isPending?<EmptyState kind="loading" subject="评估报告" compact/>
       :query.isError?<EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="评估报告" onRetry={()=>void query.refetch()}/>
       :<ReviewBody review={query.data}/>}
@@ -161,7 +161,7 @@ export function ReviewBody({review}:{review:SemanticReview}){
       {label:'候选',main:true,cell:c=><IdText value={c.candidate_id} kind="候选"/>},
       {label:'状态',cell:c=><><StatusBadge domain="evo_candidate_status" code={c.status}/>{c.end_reason?<span className="kv-hint">{statusLabel('evo_end_reason',c.end_reason)}</span>:null}</>},
       {label:'结论',cell:c=><><StatusBadge domain="evo_conclusion" code={c.conclusion}/>{c.reason?<span className="kv-hint">{statusLabel('evo_report_reason',c.reason)}</span>:null}</>},
-      {label:'分级',cell:c=>c.change_class?<span title="由评估器 classify_change 评定，不能修改"><StatusBadge domain="evo_change_class" code={c.change_class}/></span>:'—'},
+      {label:'分级',cell:c=>c.change_class?<span title="由评估器评定，不能修改"><StatusBadge domain="evo_change_class" code={c.change_class}/></span>:'—'},
       {label:'门槛',cell:c=>gateSummary(c)},{label:'设计集',cell:c=>scoreText(c.scores.design)},{label:'留出集',cell:c=>scoreText(c.scores.validation)},
       {label:'详情',wide:true,cell:c=><ReportDetail c={c}/>}]}/>
       :<EmptyState kind="empty" subject="评估报告" next="候选经独立评估写入报告后会出现在这里。" compact/>}
@@ -176,12 +176,12 @@ export function ReportDetail({c}:{c:ReviewCandidate}){
       {key:'门槛清单',value:c.hard_gates_version??'—'},{key:'报告摘要',value:<IdText value={c.report_digest}/>},{key:'报告时间',value:<Time value={c.recorded_at}/>}]}/>
   </details>;
 }
-/** D39-8: the stop switch, the release scope's third Action; a reason is required and audited. */
+/** D39-8: the stop switch, the release scope's third Action; a reason is required and audited. UX audit C12: stopping is a danger
+ * action confirmed in place (the effect, the member's own reason); resuming is confirmed the same way without the danger tone. */
 function StopForm({dimension,stopped}:{dimension:string;stopped:boolean}){
-  const [reason,setReason]=useState('');const ok=reason.trim().length>0;const id=`stop-${dimension}`;
-  return <WithMember>{member=><Form operation="set_evolution_stop" member={member} title={stopped?'恢复':'停止'} className="inline-action" disabled={!ok}
-    body={()=>ok?{dimension,stopped:!stopped,reason:reason.trim()}:null}>
-    <FormField id={`${id}-reason`} label="原因（必填）" hint={stopped?'恢复后可以重新开评估和发布。':'停止期间不能开评估，也不能发布这个维度的候选。'}>
-      <input id={`${id}-reason`} value={reason} maxLength={500} aria-describedby={`${id}-reason-hint`} onChange={e=>setReason(e.target.value)}/></FormField>
-  </Form>}</WithMember>;
+  const name=statusLabel('evo_dimension',dimension);
+  return <WithMember>{member=><ConfirmedForm operation="set_evolution_stop" member={member} trigger={stopped?'恢复…':'停止…'} tone={stopped?undefined:'danger'}
+    title={stopped?`确认恢复“${name}”的演进`:`确认停止“${name}”的演进`}
+    impact={stopped?'影响：恢复后可以重新开评估和发布这个维度的候选。':'影响：停止期间不能开评估，也不能发布这个维度的候选；可以再恢复。'}
+    body={reason=>({dimension,stopped:!stopped,reason})}/>}</WithMember>;
 }

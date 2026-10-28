@@ -94,7 +94,9 @@ def test_model_reservations_are_admitted_to_the_cap_and_stop_beyond_it(running, 
     reserve(db, world, 'model', over, 7)  # 4 + 7 > 10: not admitted to the experiment, which stops at once
     assert stops(db) == [('guardrail: budget_exhausted', 'nexloop:experiment-guard')]
     assert db.execute('select count(*) from control.nexloop_experiment_spend where spend_ref=%s', (over,)).fetchone() == (0,)
-    reserve(db, world, 'model', f'run:{uuid.uuid4()}', 1)  # stopped: nothing more is attributed
+    # Stopped for its budget: a new Run reservation in its world is refused at dispatch (NXB01, 0364 budget drill / D5), nothing more attributed.
+    with pytest.raises(psycopg.Error, match='experiment budget exhausted'), db.transaction():
+        reserve(db, world, 'model', f'run:{uuid.uuid4()}', 1)
     assert db.execute('select sum(amount_cny) from control.nexloop_experiment_spend').fetchone()[0] == 4
 
 

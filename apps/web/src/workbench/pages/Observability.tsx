@@ -4,14 +4,14 @@
  */
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMetrics,type Backup,type Process} from '../api';
+import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMe,readMetrics,offers,type Backup,type Process} from '../api';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
-import {Card,CardGrid,EmptyState,KeyValue,Notice} from '../kit';
+import {Card,CardGrid,EmptyState,IdText,KeyValue,Notice} from '../kit';
 import {statusLabel,type Domain} from '../status-labels';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
-import {IdRef,NoWrap,Operations as OpsSection} from './PageOps';
+import {Operations as OpsSection} from './PageOps';
 import {ALERT_INFO,sinceText,thresholdOf,valueText} from './alertInfo';
 import {routePath} from '../route';
 import {readableName} from './Capabilities';
@@ -20,17 +20,19 @@ const age=ageText;
 
 export function Alerts({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','alerts'],queryFn:readAlerts});
-  return <Page title="告警" query={query}>{data=><>
+  // C6: what the page is, and the silence section only when there is something to silence and the member may (no empty title).
+  const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
+  return <Page title="告警" query={query} lead="基于真实数据的运行告警：正在触发的告警和最近的告警事件；负责人可以暂时静默某条告警，静默期间仍在评估和记录。">{data=><>
     {data.evaluator.stale?<Notice tone="warning" live>{EVALUATOR_STALE_TEXT}</Notice>
-      :<p className="note">只针对真实世界（real）的数据告警；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 <Time value={data.evaluator.last_evaluated_at}/>。</p>}
+      :<p className="note">只针对真实数据（不含测试与模拟数据）；规则版本 v{data.evaluator.rules_version ?? '—'}，最近评估 <Time value={data.evaluator.last_evaluated_at}/>。</p>}
     <Card title="正在触发" badge={data.firing.length?<StatusBadge text={`${data.firing.length} 条`} tone={data.firing.some(a=>a.severity==='critical'&&!a.silenced_until)?'fail':'limited'}/>:null}>
       <DataTable label="正在触发的告警" empty={{subject:'触发中的告警'}} rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
         {label:'告警',main:true,cell:a=>{const info=ALERT_INFO[a.rule_id];return <><strong>{info?.name??a.rule_id}</strong><code className="tech-name alert-code">{a.rule_id}</code>
           {info?<span className="alert-help">{info.help} <a href={routePath({page:info.page})}>去处理</a></span>:null}</>;}},
-        {label:'级别',cell:a=><StatusBadge domain="alert_severity" code={a.severity}/>},{label:'影响对象',cell:a=><NoWrap>{a.selector??'全局'}</NoWrap>},
+        {label:'级别',cell:a=><StatusBadge domain="alert_severity" code={a.severity}/>},{label:'影响对象',cell:a=><span className="nowrap">{a.selector??'全局'}</span>},
         {label:'当前值 / 阈值',cell:a=>{const info=ALERT_INFO[a.rule_id];const t=thresholdOf(a,data.events);
           return <>{valueText(info,a.value)}{t!==null?` / 阈值 ${valueText(info,t)}`:''}{info?.window?<small>（{info.window}）</small>:null}</>;}},
-        {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
+        {label:'持续',cell:a=><span className="nowrap">{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</span>},{label:'次数',num:true,cell:a=>a.fire_count},
         {label:'静默',cell:a=>a.silenced_until?<>已静默至 <Time value={a.silenced_until}/>（仍在评估和记录）</>:'—'}]}/>
     </Card>
     <Card title="最近事件">
@@ -40,7 +42,7 @@ export function Alerts({actions}:{actions?:ReactNode}){
         {label:'级别',cell:e=><StatusBadge domain="alert_severity" code={e.severity}/>},{label:'影响对象',cell:e=>e.selector??'全局'},
         {label:'值 / 阈值',cell:e=><>{e.value!==null?valueText(ALERT_INFO[e.rule_id],e.value):'—'}{e.threshold!==null?` / 阈值 ${valueText(ALERT_INFO[e.rule_id],e.threshold)}`:''}</>}]}/>
     </Card>
-    <OpsSection actions={actions} title="静默（可选）"/>
+    {data.firing.length&&offers(member.data,'silence_alert')?<OpsSection actions={actions} title="静默告警"/>:null}
   </>}</Page>;
 }
 
@@ -61,7 +63,7 @@ export function BackupBlock({backup}:{backup:Backup}){
   const failing=!!(backup.verify_failed||backup.wal_archive_failing);
   return <Card title="备份" badge={failing?<StatusBadge text="需要处理" tone="fail"/>:null}><KeyValue label="备份" items={[
     ...BACKUP_FIELDS.map(f=>({key:BACKUP_LABELS[f],value:value(backup[f])})),
-    {key:'最近一次备份校验',value:flag(backup.verify_failed,'失败','通过')},{key:'WAL 归档',value:flag(backup.wal_archive_failing,'出现失败','正常')},
+    {key:'最近一次备份校验',value:flag(backup.verify_failed,'失败','通过')},{key:'日志归档',value:flag(backup.wal_archive_failing,'出现失败','正常')},
     {key:'各仓库最近备份',value:repos.length?repos.map(([r,n])=>`${statusLabel('backup_repo',r)} ${age(n)}`).join('；'):'无'}]}/></Card>;
 }
 
@@ -94,7 +96,7 @@ export function Operations({actions}:{actions?:ReactNode}){
         <p>待提取消息 {m.extraction.pending_messages} 条，最久 {age(m.extraction.oldest_pending_seconds)}</p></Card>
       <ProcessBlock title={`守卫时延（2 秒截止）${m.guard.status==='ok'&&m.guard.timeout_rate!==undefined?` · 超时率 ${(m.guard.timeout_rate*100).toFixed(2)}%`:''}`} section={m.guard}
         fields={[['calls','调用'],['timeouts','超时'],['p95_ms','95 分位（毫秒）'],['max_ms','最大（毫秒）']]}/>
-      <ProcessBlock title="Agent Host 并发" section={m.host} fields={[['active_runs','运行中'],['waiting','排队'],['max_active_runs','上限'],['admission_timeouts','等待超时']]}/>
+      <ProcessBlock title="智能体主机并发" section={m.host} fields={[['active_runs','运行中'],['waiting','排队'],['max_active_runs','上限'],['admission_timeouts','等待超时']]}/>
       <ProcessBlock title="连接池" section={m.pool} fields={[['pool_size','连接'],['requests_waiting','等待'],['requests_errors','错误'],['max_size','上限']]}/>
       <Card title="数据库连接"><p>{m.connections.total} 个（部署上限 60；不按角色细分）</p></Card>
       <BackupBlock backup={m.backup}/>
@@ -103,9 +105,9 @@ export function Operations({actions}:{actions?:ReactNode}){
 }
 
 const ROLE_NAME:Record<string,string>={owner:'负责人',operator:'运营',reviewer:'审核人'};
-/** F11: a member as role + stable short alias (the read model carries no display name yet); the full id is in the title. */
+/** F11: a member as role + stable short alias (the read model carries no display name yet); a long id is an IdText (copy button). */
 export function memberAlias(principal:string,role?:string):ReactNode{
-  return <span title={principal}>{role?`${ROLE_NAME[role]??role} · `:''}{principal.length>14?principal.slice(0,6)+'…'+principal.slice(-4):principal}</span>;
+  return <span title={principal}>{role?`${ROLE_NAME[role]??role} · `:''}{principal.length>14?<IdText value={principal} head={6} tail={4}/>:principal}</span>;
 }
 
 export function Audit({actions}:{actions?:ReactNode}){
@@ -114,5 +116,5 @@ export function Audit({actions}:{actions?:ReactNode}){
     <DataTable label="审计" empty={{subject:'审计记录'}} rows={items} rowKey={(_,i)=>String(i)} columns={[
       {label:'时间',main:true,cell:x=><Time value={x.occurred_at}/>},{label:'类别',cell:x=><StatusBadge domain="audit_category" code={x.category}/>},
       {label:'操作',cell:x=><><span className="name-main">{readableName(x.action)}</span><code className="tech-name">{x.action}</code></>},
-      {label:'成员',cell:x=><NoWrap>{memberAlias(x.principal_id,x.role)}</NoWrap>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdRef kind={x.target_kind} value={x.target_ref}/>:statusLabel('audit_target',x.target_kind)}]}/>}</Page>;
+      {label:'成员',cell:x=><span className="nowrap">{memberAlias(x.principal_id,x.role)}</span>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdText kind={statusLabel('audit_target',x.target_kind)} value={x.target_ref} expandable/>:statusLabel('audit_target',x.target_kind)}]}/>}</Page>;
 }

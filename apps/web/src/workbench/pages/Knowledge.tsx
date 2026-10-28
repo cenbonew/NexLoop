@@ -15,8 +15,9 @@ import {SemanticReleaseSection} from './SemanticReleases';
  * reviewer-less member): the page says whose page it is instead of the generic "no permission" (NX-028 D2 and its 2026-10-18
  * revision). */
 export const REVIEWER_ONLY_TEXT=<>
-  <p>查看知识工作台需要审核 Action（<code>ontology.schema.review</code>，<strong>审核人</strong>角色）或知识只读 Action（<code>nexloop.knowledge.read</code>）。当前账号的角色两者都不包含。</p>
-  <p>需要查看或审核时，请用相应角色的账号登录工作台。成员的角色由可信配置分配（<code>workbench_roles</code>），不能在工作台内自行更改。</p>
+  <p>知识工作台只对<strong>审核人</strong>和有知识只读权限的成员开放，当前账号的角色不包含这两项。</p>
+  <p>需要查看或审核时，请用相应角色的账号登录工作台。成员的角色由可信配置分配，不能在工作台内自行更改。</p>
+  <details className="state-details"><summary>技术细节</summary>需要 <code>ontology.schema.review</code>（审核）或 <code>nexloop.knowledge.read</code>（只读）；角色来自 <code>workbench_roles</code>。HTTP 403</details>
 </>;
 
 /** NX-028 D2 revision (owner 2026-10-18): a role with nexloop.knowledge.read but not ontology.schema.review sees the knowledge
@@ -29,7 +30,8 @@ export function Knowledge({actions,onOpen}:{actions?:ReactNode;onOpen:(candidate
   const query=useQuery({queryKey:['workbench','review'],queryFn:readReviewQueue});
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
   // NX-039 V4: the owner's semantic release controls sit beside the review queue (shown only for a role carrying them).
-  return <><Page title="知识工作台" query={query} actions={actions} empty={d=>d.length===0} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
+  return <><Page title="知识工作台" query={query} actions={actions} lead="从对话中提出的候选定义，等待审核人依据证据决定是否进入正式的企业世界模型。"
+    empty={d=>d.length===0} emptyState={<EmptyState kind="empty" subject="待审核的候选" next="从对话中提出新的候选定义后，会出现在这里。"/>} forbidden={REVIEWER_ONLY_TEXT}>{items=><>
     {readsKnowledgeOnly(member.data)?<p className="note" role="status">{READ_ONLY_TEXT}</p>:null}
     <p className="note">候选定义只显示为“候选”，不会出现在正式本体视图中。有审核权限的成员（负责人或审核人）在候选的证据页中提交决定（通过、并入已有定义、拒绝），理由必填，决定写入审计。</p>
     <DataTable label="待审核候选" rows={items} rowKey={x=>x.candidate_id} columns={[

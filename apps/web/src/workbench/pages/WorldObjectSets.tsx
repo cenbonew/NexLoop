@@ -9,11 +9,10 @@ import {useQuery} from '@tanstack/react-query';
 import {kindOf,readObjectSetMembers,readObjectSets,type ObjectSetFilter,type ObjectSetSummary} from '../api';
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
-import {Card,EmptyState,KeyValue} from '../kit';
+import {Card,EmptyState,IdText,KeyValue} from '../kit';
 
 export type ObjectSetState={set:string|null;offset:number};
 const OPERATOR_TEXT:Record<ObjectSetFilter['operator'],string>={eq:'等于',ne:'不等于',gt:'大于',gte:'不小于',lt:'小于',lte:'不大于',in:'属于',not_in:'不属于'};
-const shortId=(id:string)=>id.length>14?id.slice(0,8)+'…'+id.slice(-4):id;
 const literal=(v:unknown)=>typeof v==='string'?`“${v}”`:String(v);
 export const conditionText=(f:ObjectSetFilter)=>`${f.property} ${OPERATOR_TEXT[f.operator]} ${Array.isArray(f.value)?f.value.map(literal).join('、'):literal(f.value)}`;
 const shown=(v:unknown)=>v===null||v===undefined?'—':typeof v==='object'?JSON.stringify(v):String(v);
@@ -52,7 +51,7 @@ function Preview({set,offset,onOffset}:{set:ObjectSetSummary;offset:number;onOff
         <p className="workbench-summary" role="status">符合条件 {page.data.total} 个 · 本页显示 {page.data.items.length} 个
           {page.data.invisible?<> · <StatusBadge text={`本页不可见 ${page.data.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
         {page.data.items.length?<DataTable label={`${set.stable_name} Object`} rows={page.data.items} rowKey={r=>r.object_id} columns={[
-          {label:'Object',main:true,cell:r=><code className="id-code" title={r.object_id}>{shortId(r.object_id)}</code>},
+          {label:'Object',main:true,cell:r=><IdText value={r.object_id}/>},
           ...page.data.projection.map(p=>({label:p,cell:(r:typeof page.data.items[number])=>r.withheld.includes(p)
             ?<StatusBadge text="受限" tone="limited" code="withheld"/>:shown(r.values[p])}))]}/>
           :page.data.invisible?<EmptyState kind="forbidden" subject="本页的 Object" reason={`${page.data.invisible} 个 Object 你没有读取权限`}/>:<EmptyState kind="empty" subject="符合条件的 Object"/>}

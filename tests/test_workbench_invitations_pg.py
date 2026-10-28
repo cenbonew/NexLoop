@@ -4,6 +4,7 @@ password only (no session; the tenant is the server's), becomes an active Human 
 configurator's template, and logs in; every refusal is one answer; a token is one-time, voided after five rule failures, revoked by a
 reissue for the same username or by the owner, and refused once its issuer is no longer an active owner; owners are not invited by this
 Action; the issuing owner is limited; without the key both ends are unavailable. Synthetic members only."""
+from datetime import timedelta
 import dataclasses
 import json
 import secrets
@@ -17,6 +18,7 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.workbench_roles import compile_member, load
 from commercial_fixture import publish_registry_actions
 from commitment_fixture import TENANT, commitments  # noqa: F401
+from support.single_clock import issued_once
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
@@ -65,6 +67,9 @@ def test_an_invited_operator_joins_with_the_role_template_grants(invites, admin)
         assert issued.status_code == 200, issued.json()
         token = issued.json()['token']
         assert W.valid_token(token) and issued.json()['role'] == 'operator'
+        invitation = issued.json()['invitation_id']
+        issued_once(admin, TENANT, 'control.nexloop_workbench_invitations', 'invitation_id', invitation, timedelta(hours=24),
+                    audit=('runtime.audit_events', 'created_at', 'event_id', 'workbench-invite:' + invitation))
         assert admin.execute('select token_hmac from control.nexloop_workbench_invitations').fetchall() == [(W.digest(c['key'], W.INVITE, TENANT, token),)]
         dump = json.dumps(admin.execute("select to_jsonb(i) from control.nexloop_workbench_invitations i").fetchall()) + json.dumps(
             admin.execute("select payload from runtime.audit_events where action like 'nexloop.workbench_member.%'").fetchall())

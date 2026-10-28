@@ -6,13 +6,13 @@
  * Idempotency-Key (the governed entry answers a replay from its terminal outcome, nothing runs twice).
  */
 import {statusLabel} from './status-labels';
-import {shorten} from './kit';
+import {beijingLocalToUtc} from './ui';
+import {IdText,shorten} from './kit';
 import {useEffect,useId,useRef,useState,type FormEvent,type ReactNode} from 'react';
 import {useMutation,useQuery,useQueryClient,type QueryClient} from '@tanstack/react-query';
-import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
+import {oneTimeSecret,approvalOutcome,refusalTextOf,COMMITMENT_STATUS_TEXT,OPEN_STATUSES,STATE_TEXT,UNKNOWN_RESULT,WRITE_TEXT,technical,kindOf,newRequestKey,offers,readActions,readCommitment,readConsumer,
   readConversation,readMe,readPlans,readTakeovers,takeoverOf,workbenchAct,writeKindOf,readAlerts,type Me,type Operation,type Takeover} from './api';
 import type {PageKey,Route} from './route';
-import {Short} from './pages/Page';
 import {when} from './pages/Consumers';
 
 export type SlotValue=ReactNode|((route:Route)=>ReactNode);
@@ -64,7 +64,13 @@ export const DONE_TEXT:Record<Operation,string>={
   revoke_workbench_owner:'已撤销这位负责人；授权、配置和会话都已结束。',
   issue_workbench_owner_reset:'已签发重置码；这位负责人的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
   invite_workbench_owner:'已签发负责人邀请；令牌只在这里显示一次，请线下转交本人。',
+  link_workbench_external:'已绑定单点登录；这位成员可以用 SSO 登录。选了“仅 SSO”时，密码和重置码已停用，现有会话已失效。',
+  unlink_workbench_external:'已解绑单点登录；这位成员的会话已失效，之后用密码登录（仅 SSO 的成员需要负责人签发重置码）。',
   erase_workbench_member:'已擦除：账号停用、密码清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
+  loosen_budget:'已放宽预算（经另一位负责人批准）；新的上限和期间立即生效。',
+  register_experiment:'已登记实验；登记内容已冻结（含摘要），之后不能修改，改动请登记新的实验。登记不等于开始。',
+  start_experiment:'已开始实验；分配从现在起按登记执行，护栏和预算随时可能自动停止它。',
+  stop_experiment:'已停止实验；所有客户回到对照策略，已发生的花费和分配记录保留。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the
@@ -100,7 +106,8 @@ function Outcome({operation,write}:{operation:Operation;write:ReturnType<typeof 
   if(write.isSuccess)return <WriteResult operation={operation} data={write.data} onHide={()=>write.reset()}/>;
   if(write.isError){const kind=writeKindOf(write.error);
     const detail=refusalTextOf(write.error);
-    return <p className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert">{WRITE_TEXT[kind]}{detail?<>{' '}<span className="refusal-reason">{detail}</span></>:null}</p>;}
+    return <div className={UNKNOWN_RESULT.includes(kind)?'pending':'error'} role="alert"><p>{WRITE_TEXT[kind]}{detail?<>{' '}<span className="refusal-reason">{detail}</span></>:null}</p>
+      <details className="state-details"><summary>技术细节</summary>{technical(kind)}</details></div>;}
   return null;
 }
 
@@ -115,13 +122,14 @@ export function WriteResult({operation,data,onHide}:{operation:Operation;data:Re
 
 /** NX-058: a reset code or an invitation token, shown once to the issuer (it is in no read, list or log; the page keeps it only while
  * this form is on screen). The invitation link carries the token in the fragment, which the accept page clears at once. */
-export function OneTimeSecret({kind,value,onHide}:{kind:'code'|'token';value:string;onHide?:()=>void}){
+export function OneTimeSecret({kind,value,sso,onHide}:{kind:'code'|'token';value:string;sso?:boolean;onHide?:()=>void}){
   // Cleared 2 minutes after it was first shown (or at once with the button): the secret leaves the component state and the mutation
   // result. The deadline is fixed at the first render and the callback held in a ref, so a re-render or refetch never restarts it.
   const [shownAt]=useState(()=>Date.now());const hide=useRef(onHide);hide.current=onHide;
   useEffect(()=>{const timer=setTimeout(()=>hide.current?.(),Math.max(0,shownAt+120_000-Date.now()));return ()=>clearTimeout(timer);},[shownAt]);
   const origin=globalThis.location?.origin??'';
-  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value):null;
+  // An SSO-only invitation's link says so (sso=1), so the accept page asks for no password; the server decides either way.
+  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value)+(sso?'&sso=1':''):null;
   return <div className="one-time-secret" role="alert"><p><strong>{kind==='code'?'重置码':'邀请令牌'}（只显示这一次）</strong></p>
     <p><code className="id-code">{value}</code></p>
     {link?<p>邀请链接：<code className="id-code">{link}</code></p>:<p>重置页：<code className="id-code">{origin}/workbench/reset</code></p>}
@@ -135,29 +143,57 @@ function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onCha
 
 /** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
  * (UX audit B4); `disabledReason` says, under the disabled button and tied to it, what is still missing (B6). */
-export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,className,tone}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
-  disabled?:boolean;disabledReason?:string;onDone?:()=>void;className?:string;tone?:'danger'}){
+export function Form({operation,title,member,children,body,disabled,disabledReason,onDone,onBusy,className,tone,level='h2'}:{operation:Operation;title:string;member:Me;children:ReactNode;body:()=>Record<string,unknown>|null;
+  disabled?:boolean;disabledReason?:string;onDone?:()=>void;onBusy?:(busy:boolean)=>void;className?:string;tone?:'danger';
+  /** The title's heading level: h3 for a form inside a titled section. */level?:'h2'|'h3'}){
   const write=useWrite(operation,onDone);
+  const Heading=level;
   const reasonId=useId();
+  // `onBusy`: a container that could unmount this form (a confirmation panel) learns that a request is in flight (L6 review of S5).
+  const busy=useRef(onBusy);busy.current=onBusy;
+  useEffect(()=>{busy.current?.(write.isPending);},[write.isPending]);
   if(!offers(member,operation))return null;
   function submit(event:FormEvent){event.preventDefault();const b=body();if(b)write.mutate(b);}
   const why=disabled&&!write.isPending&&disabledReason?disabledReason:null;
-  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><h2>{title}</h2>{children}
+  return <form className={'workbench-action'+(className?' '+className:'')} aria-label={title} onSubmit={submit}><Heading>{title}</Heading>{children}
     <button type="submit" className={tone==='danger'?'btn-danger':undefined} disabled={disabled||write.isPending} aria-describedby={why?reasonId:undefined}>
       {write.isError&&UNKNOWN_RESULT.includes(writeKindOf(write.error))?'用同一请求重试':title}</button>
     {why?<p className="disabled-reason" id={reasonId}>{why}</p>:null}
     <Outcome operation={operation} write={write}/></form>;
 }
 
+/** UX audit B5: a row action that used to run on one click (and wrote a reason nobody typed). The trigger opens a confirmation in place:
+ * what it does, the member's own reason (when the Action takes one), then the confirm button; 取消 or Escape closes it and returns focus
+ * to the trigger. Shown only when the role carries the operation. */
+export function ConfirmedForm({operation,member,trigger,title,impact,tone,withReason=true,reasonLabel='原因',body}:{operation:Operation;member:Me;trigger:string;title:string;
+  impact:ReactNode;tone?:'danger';withReason?:boolean;reasonLabel?:string;body:(reason:string)=>Record<string,unknown>}){
+  const [open,setOpen]=useState(false);const [reason,setReason]=useState('');
+  // L6 review of S5: while the request is in flight the panel cannot close - closing would unmount the form, so its outcome and the
+  // same-request retry of an unknown result would be lost. It closes once the result is shown.
+  const [pending,setPending]=useState(false);
+  const button=useRef<HTMLButtonElement>(null);const panel=useRef<HTMLDivElement>(null);const was=useRef(false);const id=useId();
+  useEffect(()=>{if(open)panel.current?.querySelector<HTMLElement>('textarea,button[type=submit]')?.focus();else if(was.current)button.current?.focus();was.current=open;},[open]);
+  if(!offers(member,operation))return null;
+  if(!open)return <button type="button" ref={button} className={'confirm-trigger'+(tone==='danger'?' confirm-trigger-danger':'')} aria-expanded={false} onClick={()=>setOpen(true)}>{trigger}</button>;
+  return <div className="confirm-panel" ref={panel} role="group" aria-label={title} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();if(!pending)setOpen(false);}}}>
+    <Form operation={operation} member={member} title={title} tone={tone} className="inline-confirm" disabled={withReason&&!reason.trim()}
+      disabledReason={withReason?'填写原因后可确认。':undefined} onBusy={setPending} body={()=>withReason&&!reason.trim()?null:body(reason.trim())}>
+      <p className="impact-summary" role="note">{impact}</p>
+      {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel}/>:null}
+    </Form>
+    <button type="button" className="btn-secondary" disabled={pending} onClick={()=>setOpen(false)}>{pending?'等待结果…':'取消'}</button>
+  </div>;
+}
+
 /** The member's role decides which controls are offered; without it nothing is guessed. */
 export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
-  if(member.isPending)return <p role="status">{STATE_TEXT.loading}</p>;
+  if(member.isPending)return null;  // C13: no "正在加载…" line at every form; the form appears once the role is known
   if(member.isError)return <p className="note" role="status">操作区暂不可用：{STATE_TEXT[kindOf(member.error)]}</p>;
   return <>{children(member.data)}</>;
 }
 
-function utc(local:string):string|null{const d=new Date(local);return Number.isNaN(d.getTime())?null:d.toISOString();}
+const utc=beijingLocalToUtc;  // the input is Beijing time, as the page shows it (not the browser's zone)
 
 // ---- remediation intents (NX-057 R1, owner) ----
 /** Resolve one open remediation: handled (a person took it) or cancelled. Nothing else changes, nothing is sent again. */
@@ -213,10 +249,14 @@ export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}
 // ---- pause / resume (owner, Control.set) ----
 const SCOPES={tenant:'整个租户',consumer:'客户',role:'角色',strategy:'策略',action_type:'Action 类型'} as const;
 /** What a pause/resume changes, said before it is submitted (F06): the scope is never assumed. */
-export function controlImpact(kind:keyof typeof SCOPES|'',ref:string,pause:boolean|null):string|null{
+/** A long reference is an IdText (its copy button reaches the full value), never a hand-shortened string. */
+export function controlImpact(kind:keyof typeof SCOPES|'',ref:string,pause:boolean|null):ReactNode{
   if(!kind||pause===null||(kind!=='tenant'&&!ref.trim()))return null;
-  const target=kind==='tenant'?'整个租户（所有客户）':`${SCOPES[kind]} ${ref.length>16?ref.slice(0,12)+'…':ref}`;
-  return pause?`将暂停 ${target} 的主动联系：之后的派发会被拒绝，来信必回不受影响。`:`将恢复 ${target} 的主动联系：暂停期间被拒的意图不会重放，计划将重新评估。`;
+  const effect=pause?'的主动联系：之后的派发会被拒绝，来信必回不受影响。':'的主动联系：暂停期间被拒的意图不会重放，计划将重新评估。';
+  const verb=pause?'将暂停':'将恢复';
+  if(kind==='tenant')return `${verb} 整个租户（所有客户） ${effect}`;
+  if(ref.length<=16)return `${verb} ${SCOPES[kind]} ${ref} ${effect}`;
+  return <>{verb} {SCOPES[kind]} <IdText value={ref}/> {effect}</>;
 }
 export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeKind?:keyof typeof SCOPES;scopeRef?:string;paused?:boolean}){
   const fixed=scopeKind!==undefined;
@@ -225,7 +265,7 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
   const impact=controlImpact(kind,kind==='tenant'?'*':ref,pause);
   return <Form operation="set_control" title={fixed?(paused?'恢复主动联系':'暂停主动联系'):pause===null?'暂停 / 恢复':pause?'暂停主动联系':'恢复主动联系'} member={member}
     disabled={!impact} body={()=>impact&&kind?({scope_kind:kind,scope_ref:kind==='tenant'?'*':ref,paused:pause,reason}):null}>
-    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<Short value={ref}/>:ref}</p>:<>
+    {fixed?<p>范围：{SCOPES[scopeKind]} {scopeKind==='consumer'?<IdText value={ref}/>:ref}</p>:<>
       <div className="field"><label htmlFor="control-scope">范围</label><select id="control-scope" value={kind} required onChange={e=>{setKind(e.target.value as keyof typeof SCOPES|'');setRef('');}}>
         <option value="">请选择范围</option>{Object.entries(SCOPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></div>
       {kind&&kind!=='tenant'?<div className="field"><label htmlFor="control-ref">对象</label><input id="control-ref" value={ref} onChange={e=>setRef(e.target.value)} required maxLength={255}/></div>:null}
@@ -241,7 +281,7 @@ export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeK
 export function ReleaseForm({member,consumerId,context}:{member:Me;consumerId:string;context?:ReactNode}){
   const [reason,setReason]=useState('');
   return <Form operation="release_contact_restriction" title="解除联系限制" member={member} body={()=>({consumer_id:consumerId,reason})}>
-    <p>客户：<Short value={consumerId}/></p>{context}
+    <p>客户：<IdText value={consumerId}/></p>{context}
     <p className="impact-summary" role="note">影响：只解除这位客户的联系限制；之前被拒的意图不会重放，计划将重新评估。</p>
     <Reason id="release-reason" value={reason} onChange={setReason} label="解除原因（例如客户已确认可以联系）"/>
   </Form>;
@@ -281,9 +321,9 @@ function CommitmentOperation({member,operation,title,effect,commitmentId,subject
   const [reason,setReason]=useState('');const [at,setAt]=useState('');
   return <details className="workbench-op"><summary>{title}</summary>
     <Form operation={operation} title={title} member={member} tone={operation==='cancel_commitment'?'danger':undefined} body={()=>{if(!extra)return {commitment_id:commitmentId,reason};const v=utc(at);return v?{commitment_id:commitmentId,[extra.key]:v,reason}:null;}}>
-      <p>对象：承诺 {subject?`“${subject}” `:''}<Short value={commitmentId}/></p>
+      <p>对象：承诺 {subject?`“${subject}” `:''}<IdText value={commitmentId}/></p>
       <p className="impact-summary" role="note">影响：{effect}</p>
-      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
+      {extra?<div className="field"><label htmlFor={extra.id}>{extra.label}（北京时间）</label><input id={extra.id} type="datetime-local" value={at} onChange={e=>setAt(e.target.value)} required/></div>:null}
       <Reason id={`${operation}-reason`} value={reason} onChange={setReason}/>
     </Form></details>;
 }
