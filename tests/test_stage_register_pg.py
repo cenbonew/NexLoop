@@ -126,7 +126,7 @@ def test_register_is_idempotent_and_dry_run_writes_nothing(registered):
     assert again == {**again, 'changed': False, 'message_read_rules_written': 0, 'credentials_created': [], 'grants_added': 0, 'grants_revoked': 0}
     count = r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0]
     dry = r['register'](dry_run=True)
-    assert dry['dry_run'] is True and len(dry['principals']) == 24 and dry['credential_files'] == 33
+    assert dry['dry_run'] is True and len(dry['principals']) == 25 and dry['credential_files'] == 34
     assert r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0] == count
 
 

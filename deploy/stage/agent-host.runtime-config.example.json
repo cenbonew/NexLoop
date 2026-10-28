@@ -8,6 +8,8 @@
   "model_tariff_file": "/run/secrets/host_model_tariff",
   "maximum_request_cost": "0.45",
   "effect_tools": true,
+  "plan_outcome_tool": true,
+  "outreach_tool": true,
   "context_input_protocol": "nexloop.context-pack.v6",
   "maximum_active_runs": 4,
   "run_admission_wait_ms": 500,

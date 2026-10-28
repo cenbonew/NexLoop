@@ -120,6 +120,10 @@
         "container": "nexloop-app-incentive-issuer-1"
       },
       {
+        "name": "outreach-sender",
+        "container": "nexloop-app-outreach-sender-1"
+      },
+      {
         "name": "sim-agent-host",
         "container": "nexloop-simulation-sim-agent-host-1"
       },

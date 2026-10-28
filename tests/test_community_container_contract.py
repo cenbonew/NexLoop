@@ -76,7 +76,7 @@ def test_root_docker_context_is_fail_closed():
     assert (ROOT/'.dockerignore').read_text().splitlines()[1]=='**'
     source=yaml.safe_load((ROOT/'deploy/community/compose.test.yaml').read_text())
     assert set(source['services'])=={'postgres','bootstrap','api-test','check-test','cache-bootstrap','valkey','host-bootstrap','host-test','browser-bootstrap','worker-bootstrap','worker-test','outbound-recorder',
-        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator','incentive-issuer'}
+        'claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator','incentive-issuer','outreach-sender'}
     assert source['services']['bootstrap']['secrets']==['bootstrap_dsn']
     assert 'pg_bootstrap_password' not in source['services']['check-test'].get('secrets',[])
     assert source['services']['valkey']['user']=='10001:10001'
@@ -117,7 +117,7 @@ def test_outbound_recorder_is_opt_in_restricted_and_not_mounted_elsewhere():
 
 
 BACKGROUND=('claim-extraction-scheduler','claim-extraction-worker','claim-matcher','recall-indexer','plan-reevaluator','reply-guarantor','commitment-keeper','commercial-recorder','retention-keeper','alert-evaluator',
-    'incentive-issuer')
+    'incentive-issuer','outreach-sender')
 
 
 def test_background_services_are_opt_in_restricted_and_not_mounted_elsewhere():
@@ -127,11 +127,14 @@ def test_background_services_are_opt_in_restricted_and_not_mounted_elsewhere():
         service=source['services'][name]
         assert service['profiles']==['background'] and service['command']==[name] and service['user']=='10001:10001'
         assert service['networks']==['core_test'] and not service.get('secrets') and not service.get('ports')
-        # AT-043: the incentive issuer adds only its own writable loopback ledger volume (D9).
+        # AT-043: the incentive issuer adds only its own writable loopback ledger volume (D9); the outreach sender (outreach
+        # slice 5) only its own loopback outbox volume.
         assert service['volumes']==['background_config:/private/background:ro','artifacts:/var/lib/nexloop/artifacts',
-            *(['incentive_ledger:/var/lib/nexloop/incentive-ledger'] if name=='incentive-issuer' else [])]
+            *(['incentive_ledger:/var/lib/nexloop/incentive-ledger'] if name=='incentive-issuer' else []),
+            *(['outreach_outbox:/var/lib/nexloop/outreach-outbox'] if name=='outreach-sender' else [])]
         assert service['read_only'] is True and service['cap_drop']==['ALL'] and service['security_opt']==['no-new-privileges:true']
     for name,service in source['services'].items():
         if name not in BACKGROUND:assert not any('background_config' in v for v in service.get('volumes',[]))
         if name!='incentive-issuer':assert not any('incentive_ledger' in v for v in service.get('volumes',[]))
+        if name!='outreach-sender':assert not any('outreach_outbox' in v for v in service.get('volumes',[]))
     assert 'background_config' in source['volumes']

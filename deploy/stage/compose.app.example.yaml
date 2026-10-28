@@ -443,6 +443,21 @@ services:
     secrets: [incentive_issuer_dsn, incentive_issuer_pg_client_cert, incentive_issuer_pg_client_key, incentive_issuer_credential, signing_key, pg_ca]
     labels:
       nexloop.budget-service: incentive-issuer
+  outreach-sender:
+    # Outreach slice 5 G-1: admits accepted outreach intents at dispatch (SQL re-checks every gate, the three real dispatch layers
+    # among them) and sends each once through the loopback outbox, its only provider (no channel credential exists for it);
+    # unknown answers are queried, never re-sent. ${NEXLOOP_ROOT}/data/outreach-outbox must exist, 0700, owned by 10001.
+    <<: *service
+    entrypoint: [nexloop-outreach-sender]
+    command: [--database-url-file, /run/secrets/outreach_sender_dsn, --service-credential-file, /run/secrets/outreach_sender_credential,
+              --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
+              /var/lib/nexloop/artifacts, --world, real, --outbox-directory, /var/lib/nexloop/outreach-outbox]
+    volumes:
+      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
+      - ${NEXLOOP_ROOT:?root}/data/outreach-outbox:/var/lib/nexloop/outreach-outbox
+    secrets: [outreach_sender_dsn, outreach_sender_pg_client_cert, outreach_sender_pg_client_key, outreach_sender_credential, signing_key, pg_ca]
+    labels:
+      nexloop.budget-service: outreach-sender
 networks:
   # G-APP-SUBNET (run sheet 4.2, 2026-10-15): the application network's subnet is fixed to APP_CONTAINER_CIDR, the source the
   # APP_HOST nft rules match (app-host.nft.template, NX-037 D4). Without it Docker picks a subnet and those rules never match.
@@ -604,3 +619,7 @@ secrets:
   incentive_issuer_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/pg-client.crt"}
   incentive_issuer_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/pg-client.key"}
   incentive_issuer_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/incentive-issuer/service-credential"}
+  outreach_sender_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/outreach-sender/dsn"}
+  outreach_sender_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/outreach-sender/pg-client.crt"}
+  outreach_sender_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/outreach-sender/pg-client.key"}
+  outreach_sender_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/outreach-sender/service-credential"}
