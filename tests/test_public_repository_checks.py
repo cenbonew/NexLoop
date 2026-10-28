@@ -183,15 +183,18 @@ def scan(root, *args):
 def test_tree_and_archive_modes_scan_every_tracked_file_not_only_the_diff(repository, tmp_path):
     (repository / 'local-only').mkdir()
     (repository / 'local-only/notes.txt').write_text('synthetic\n')
+    (repository / '.ci-results/launcher-test-x').mkdir(parents=True)  # test outputs hold synthetic secrets
+    (repository / '.ci-results/launcher-test-x/compose.env').write_text('synthetic\n')
     (repository / 'old.cfg').write_text('host=192.168.' + '213.97\n')
     (repository / 'link').symlink_to('a.txt')
-    git(repository, 'add', '-f', 'local-only/notes.txt', 'old.cfg', 'link')
+    git(repository, 'add', '-f', 'local-only/notes.txt', '.ci-results/launcher-test-x/compose.env', 'old.cfg', 'link')
     git(repository, 'commit', '-q', '-m', 'old')
     commit(repository, 'new.txt', 'clean change')  # the latest diff alone is clean
     tree = scan(repository, '--tree', 'HEAD')
     assert tree.returncode == 1
     assert 'local-only/notes.txt (tree): private path' in tree.stdout and 'old.cfg (tree): private address' in tree.stdout
     assert 'link (tree): symbolic link' in tree.stdout and '213.97' not in tree.stdout
+    assert '.ci-results/launcher-test-x/compose.env (tree): private path' in tree.stdout
     archive = tmp_path / 'src.tar'
     git(repository, 'archive', '--format=tar', '-o', str(archive), 'HEAD')
     result = scan(repository, '--archive', archive)
