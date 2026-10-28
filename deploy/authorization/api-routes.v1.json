@@ -1395,6 +1395,10 @@
    "capability": "consumer.set_persona"
   },
   {
+   "operation": "set_budget",
+   "capability": "goals.budget.set"
+  },
+  {
    "operation": "set_control",
    "capability": "goals.control.set"
   },
@@ -1467,11 +1471,6 @@
    "capability": "goals.agent.propose",
    "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.propose_agent_goal only (exercised by tests)",
    "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
-  },
-  {
-   "capability": "goals.budget.set",
-   "reached_by": "scripts/nx037/real_tenant_init.py through GoalGovernedActions.set_budget",
-   "reason": "Budgets are set by the tenant initialisation tool; no HTTP entry"
   },
   {
    "capability": "goals.metric.approve",
