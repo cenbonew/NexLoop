@@ -259,12 +259,15 @@ def test_cli_dispatch_loops_share_the_queue_each_task_claimed_once(accepted_inpu
             deadline=time.monotonic()+60
             while admin.execute("select count(*) from runtime.jobs where job_id=any(%s) and status='running'",(list(tasks),)).fetchone()[0]<2:
                 assert time.monotonic()<deadline,'both tasks were never running at the same time';time.sleep(.01)
-            # SIGTERM settles both in-flight dispatches (each bounded by --total-timeout 10) and then stops the
-            # guard (5 s join), so the exit takes up to about 15 s plus process teardown; the former 20 s wait
-            # timed out under CI load (ad8f42dc attempt 2). A Worker that never settles still fails here.
+            # SIGTERM settles both in-flight dispatches (each bounded by --total-timeout 10), then the finally
+            # stops the guard pool (monitor join 5 s + child terminate, kill_after = stop_timeout, default 20 s)
+            # and the guard thread (join 5 s): a worst case near 10 + 5 + 20 + 5 = 40 s plus process teardown.
+            # The former 20 s wait timed out under CI load (ad8f42dc attempt 2); do not lower this below that
+            # bound. A Worker that never settles still fails here.
             process.terminate()
             try:code=process.wait(timeout=120)
             except subprocess.TimeoutExpired:
+                process.kill();process.wait(timeout=10)  # so worker_process's own cleanup cannot raise over this failure
                 states=admin.execute('select job_id,status from runtime.jobs where job_id=any(%s)',(list(tasks),)).fetchall()
                 pytest.fail(f'the Worker did not exit within 120 s of SIGTERM; tasks {states}')
             assert code==0
