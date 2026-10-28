@@ -7,6 +7,7 @@ owners and an operator (the slice D2 fixture) and approval policies version 3:
   the approval executed and flags an acceptance from the issuer's source (approval.same_person_flagged);
 - requester_no_longer_eligible through the D2 handler (L6 I-C1): an owner demoted, suspended or revoked loses its approved, unconsumed
   requests at once. Synthetic members only."""
+from datetime import timedelta
 import uuid
 
 import pytest
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from nexloop_eios import workbench_member_secrets as W
 from nexloop_eios.http_api import create_app
 from commitment_fixture import TENANT, commitments  # noqa: F401
+from support.single_clock import issued_once
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
@@ -52,6 +54,9 @@ def test_an_owner_reset_code_appears_only_at_execution_and_a_retry_replays(owner
         executed = act(client, csrf, 'issue_workbench_owner_reset', {'target_principal': t}, key=key)
         assert executed.status_code == 200 and executed.json()['approval'] == 'consumed' and W.valid_code(executed.json()['code']), executed.json()
         code = executed.json()['code']
+        reset = executed.json()['reset_id']
+        issued_once(admin, TENANT, 'control.nexloop_workbench_reset_codes', 'reset_id', reset, timedelta(minutes=30),
+                    audit=('runtime.audit_events', 'created_at', 'event_id', 'workbench-reset-issue:' + reset))
         assert admin.execute('select code_hmac,state from control.nexloop_workbench_reset_codes').fetchall() == [(W.digest(key_of(c), W.RESET, TENANT, code), 'issued')]
         assert target.get('/api/v1/workbench/auth/session').status_code == 401  # only now
         # The response was lost: the same Idempotency-Key again (a new HMAC is drawn) replays the claim - no second code, no conflict.
@@ -80,6 +85,9 @@ def test_an_owner_invitation_is_shown_at_execution_needs_its_approval_and_flags_
         executed = act(client, csrf, 'invite_workbench_owner', body)
         token = executed.json()['token']
         assert W.valid_token(token) and executed.json()['role'] == 'owner', executed.json()
+        invitation = executed.json()['invitation_id']
+        issued_once(admin, TENANT, 'control.nexloop_workbench_invitations', 'invitation_id', invitation, timedelta(hours=24),
+                    audit=('runtime.audit_events', 'created_at', 'event_id', 'workbench-invite:' + invitation))
         assert admin.execute("select role,approval_id::text from control.nexloop_workbench_invitations where username='new-owner'").fetchone() == ('owner', executed.json()['approval_id'])
         done = accept(client, {'token': token, 'password': 'a-good-password-1'})
         assert (done.status_code, done.json()) == (200, {'code': 'invitation_accepted'})

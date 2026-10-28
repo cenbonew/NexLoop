@@ -3,6 +3,7 @@ IdP of tests/support/mock_oidc_idp.py (self-signed JWKS; nothing leaves the proc
 governed Action; the operator signs in by authorization code with PKCE, state and nonce; an unlinked subject, a tampered state, nonce or
 signature, an expired token and a wrong audience are refused with the same redirect and an audit reason; sso_only stops the password and
 reset codes (a member without it is unaffected); unlinking and revoking end the link. Synthetic members, keys and secrets only."""
+from datetime import timedelta
 import dataclasses
 import json
 import secrets
@@ -17,6 +18,7 @@ from commercial_fixture import publish_registry_actions
 from commitment_fixture import TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from support.mock_oidc_idp import MockIdp, cached_keypair
+from support.single_clock import issued_once
 from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
@@ -93,6 +95,11 @@ def test_a_linked_member_signs_in_by_sso_and_the_flow_is_one_time(sso, admin):
         # Only HMACs are stored: neither the state nor the browser binding is in the database.
         stored = admin.execute('select state_hmac,binding_hmac from control.nexloop_workbench_oidc_states').fetchall()
         assert len(stored) == 1 and q['state'] not in stored[0] and member.cookies.get('__Host-nexloop_workbench_oidc') not in stored[0]
+        issued_once(admin, TENANT, 'control.nexloop_workbench_oidc_states', 'state_hmac', stored[0][0], timedelta(minutes=5), start='created_at')
+        # Both times come from one statement and nothing else records the instant, so two adjacent readings often agree to the
+        # microsecond: the deployed definition itself must read the clock once.
+        assert admin.execute("""select (length(d)-length(replace(d,'clock_timestamp()','')))/length('clock_timestamp()')
+            from pg_get_functiondef('control.nexloop_workbench_oidc_begin(text,text,text,text)'::regprocedure) d""").fetchone() == (1,)
         back = idp.authorize(location, 'idp-sub-operator')
         done = member.get(CALLBACK, params=back, follow_redirects=False)
         assert done.status_code == 303 and done.headers['location'] == '/workbench', done.text
