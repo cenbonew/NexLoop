@@ -16,7 +16,8 @@ import {StatusBadge,Time} from '../ui';
 import {IdText} from '../kit';
 
 export const MEMBER_STATUS_TEXT:Record<MemberRow['member_status'],string>={active:'在用',suspended:'已停用',invited:'待接受',revoked:'已撤销'};
-const ROLE_TEXT:Record<string,string>={owner:'owner',operator:'运营',reviewer:'审核'};
+export const ACCOUNT_STATUS_TEXT:Record<string,string>={active:'在用',disabled:'已停用',locked:'已锁定',erased:'已擦除'};
+const ROLE_TEXT:Record<string,string>={owner:'负责人',operator:'运营',reviewer:'审核人'};
 const RESET_STATE_TEXT:Record<string,string>={issued:'未使用',completed:'已完成',revoked:'已作废',voided:'失败过多作废',expired:'已过期'};
 const roleText=(role:string|null)=>role?ROLE_TEXT[role]??role:'无角色';
 
@@ -37,8 +38,8 @@ export function memberControls(row:MemberRow,self:string):string[]{
   return out;
 }
 
-const approvalNote=<p className="note">需要另一位 owner 批准：提交后在“审批”页等待批准，批准后由你在那里执行。</p>;
-const OPS_CHANNEL='请走运维通道（可信配置的成员文件，或运维重置工具 0198），并在审计中留下记录。';
+const approvalNote=<p className="note">需要另一位负责人批准：提交后在“审批”页等待批准，批准后由你在那里执行。</p>;
+const OPS_CHANNEL='请走运维通道（可信配置的成员文件，或运维重置工具），并在审计中留下记录。';
 /** NX-056 (design §0 I1/I2): who could approve a request now - an active owner whose vote cooldown is over, neither the requester nor the
  * member the request acts on. With nobody, the server refuses at once (quorum_unreachable); the page disables it and says why first. */
 export function approversFor(members:MemberRow[],self:string,target:string|null,now=Date.now()):number{
@@ -49,7 +50,7 @@ export function approversFor(members:MemberRow[],self:string,target:string|null,
     &&m.vote_eligible_from!==null&&Date.parse(m.vote_eligible_from)<=now).map(m=>m.person)).size;
 }
 function NoApprover({target}:{target:boolean}){
-  return <p className="impact-summary" role="note">现在没有能批准的 owner（除你{target?'和被处置的 owner ':''}之外，需要一位在用、且成为 owner 已满 24 小时的 owner）。{OPS_CHANNEL}</p>;
+  return <p className="impact-summary" role="note">现在没有能批准的负责人（除你{target?'和被处置的负责人':''}之外，需要一位在用、且成为负责人已满 24 小时的负责人）。{OPS_CHANNEL}</p>;
 }
 
 function Reasoned({member,operation,title,row,extra,note,children,ready=true,notReady,tone}:{member:Me;operation:Parameters<typeof Form>[0]['operation'];title:string;row:MemberRow;
@@ -80,7 +81,7 @@ function ChangeRole({member,row}:{member:Me;row:MemberRow}){
 
 function Demote({member,row,note,blocked}:{member:Me;row:MemberRow;note:React.ReactNode;blocked:boolean}){
   const [role,setRole]=useState('');  // required: the server refuses a demotion without a new role
-  return <Reasoned member={member} operation="demote_workbench_owner" title="降级这位 owner" row={row} extra={{new_role:role}} note={note} ready={!!role&&!blocked} tone="danger"
+  return <Reasoned member={member} operation="demote_workbench_owner" title="降级这位负责人" row={row} extra={{new_role:role}} note={note} ready={!!role&&!blocked} tone="danger"
     notReady={blocked?'现在没有能批准的负责人，原因见上方说明。':'先选择新角色。'}>
     <RoleChoice value={role} onChange={setRole} name={'demote-'+row.label}/>
   </Reasoned>;
@@ -88,10 +89,10 @@ function Demote({member,row,note,blocked}:{member:Me;row:MemberRow;note:React.Re
 
 function IssueReset({member,row,owner,blocked}:{member:Me;row:MemberRow;owner:boolean;blocked?:boolean}){
   const operation=owner?'issue_workbench_owner_reset':'issue_workbench_reset';
-  return <Form operation={operation} member={member} title={owner?'为这位 owner 签发重置码':'签发重置码'} disabled={blocked} body={()=>blocked?null:({target_principal:row.principal_id})}>
+  return <Form operation={operation} member={member} title={owner?'为这位负责人签发重置码':'签发重置码'} disabled={blocked} body={()=>blocked?null:({target_principal:row.principal_id})}>
     <p>对象：{row.username??'（无账户）'} {row.label}</p>
     <p className="impact-summary" role="note">影响：生成一次性重置码（30 分钟内有效），这位成员的现有会话立即失效，旧的未用重置码作废。{owner?'':'按签发人限速。'}</p>
-    {owner?(blocked?<NoApprover target/>:<p className="note">需要另一位 owner 批准；发起请求不会让对方下线，也不生成重置码，批准后执行时才生成。</p>):null}
+    {owner?(blocked?<NoApprover target/>:<p className="note">需要另一位负责人批准；发起请求不会让对方下线，也不生成重置码，批准后执行时才生成。</p>):null}
   </Form>;
 }
 
@@ -109,11 +110,11 @@ function Controls({member,row,members}:{member:Me;row:MemberRow;members:MemberRo
     {kinds.includes('revoke')?<Reasoned member={member} operation="revoke_workbench_member" tone="danger" title="撤销成员" row={row}
       note={<p className="impact-summary" role="note">影响：撤销授权、移出配置、会话失效；账号保留，个人数据需另行发起擦除。</p>}/>:null}
     {kinds.includes('issue_reset')?<IssueReset member={member} row={row} owner={false}/>:null}
-    {kinds.includes('promote')?<Reasoned member={member} operation="promote_workbench_member" title="提升为 owner" row={row} note={gated} ready={!blocked}/>:null}
+    {kinds.includes('promote')?<Reasoned member={member} operation="promote_workbench_member" title="提升为负责人" row={row} note={gated} ready={!blocked}/>:null}
     {kinds.includes('demote')?<Demote member={member} row={row} note={gated} blocked={blocked}/>:null}
-    {kinds.includes('suspend_owner')?<Reasoned member={member} operation="suspend_workbench_owner" tone="danger" title="停用这位 owner" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('resume_owner')?<Reasoned member={member} operation="resume_workbench_owner" title="恢复这位 owner" row={row} note={gated} ready={!blocked}/>:null}
-    {kinds.includes('revoke_owner')?<Reasoned member={member} operation="revoke_workbench_owner" tone="danger" title="撤销这位 owner" row={row} note={gated} ready={!blocked}/>:null}
+    {kinds.includes('suspend_owner')?<Reasoned member={member} operation="suspend_workbench_owner" tone="danger" title="停用这位负责人" row={row} note={gated} ready={!blocked}/>:null}
+    {kinds.includes('resume_owner')?<Reasoned member={member} operation="resume_workbench_owner" title="恢复这位负责人" row={row} note={gated} ready={!blocked}/>:null}
+    {kinds.includes('revoke_owner')?<Reasoned member={member} operation="revoke_workbench_owner" tone="danger" title="撤销这位负责人" row={row} note={gated} ready={!blocked}/>:null}
     {kinds.includes('issue_owner_reset')?<IssueReset member={member} row={row} owner blocked={blocked}/>:null}
     {kinds.includes('erase')?<EraseForm member={member} row={row} blocked={blocked}/>:null}
   </details>;
@@ -128,7 +129,7 @@ function EraseForm({member,row,blocked}:{member:Me;row:MemberRow;blocked:boolean
     <p>对象：{row.username??'（无账户）'} {row.label}</p>
     <fieldset className="choices"><legend>原因</legend>{Object.entries(ERASE_REASONS).map(([k,v])=>
       <label key={k} className="choice"><input type="radio" name={'erase-'+row.label} checked={reason===k} onChange={()=>setReason(k as keyof typeof ERASE_REASONS)}/>{v}</label>)}</fieldset>
-    <p className="impact-summary" role="note">影响：账号停用、口令清空、用户名与邮箱改为假名、会话与邀请和重置记录删除；成员身份标识与审计保留。不可撤销。同一个人的全部成员身份都已撤销才能执行。</p>
+    <p className="impact-summary" role="note">影响：账号停用、密码清空、用户名与邮箱改为假名、会话与邀请和重置记录删除；成员身份标识与审计保留。不可撤销。同一个人的全部成员身份都已撤销才能执行。</p>
     {blocked?<NoApprover target={false}/>:approvalNote}
   </Form>;
 }
@@ -147,7 +148,7 @@ function InviteForm({member,members}:{member:Me;members:MemberRow[]}){
       <div className="field"><label htmlFor="invite-hours">有效期（小时）</label><input id="invite-hours" type="number" min={1} max={72} value={hours} onChange={e=>setHours(Number(e.target.value))}/></div>
       <p className="impact-summary" role="note">影响：生成一次性邀请令牌；同一用户名的旧邀请作废。用户名以 erased- 开头的保留给系统，不能使用。</p>
     </Form>
-    <Form operation="invite_workbench_owner" member={member} title="邀请 owner" disabled={!valid||ownerBlocked} body={()=>valid&&!ownerBlocked?{username,expires_in_hours:hours}:null}>
+    <Form operation="invite_workbench_owner" member={member} title="邀请负责人" disabled={!valid||ownerBlocked} body={()=>valid&&!ownerBlocked?{username,expires_in_hours:hours}:null}>
       <p>用户名与有效期同上。</p>{ownerBlocked?<NoApprover target={false}/>:approvalNote}
     </Form>
   </>;
@@ -159,8 +160,8 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
     <DataTable label="成员" empty={{subject:'成员'}} rows={data.members} rowKey={m=>m.principal_id} columns={[
       {label:'成员',main:true,cell:m=><>{m.username??'（无账户）'}<br/><span className="note">{m.label}</span></>},
       {label:'角色',cell:m=>m.role?<StatusBadge domain="member_role" code={m.role}/>:<span className="note">无角色</span>},
-      {label:'状态',cell:m=><>{m.erased?'已擦除':MEMBER_STATUS_TEXT[m.member_status]}{m.account_status&&m.account_status!=='active'?<><br/><span className="note">账户 {m.account_status}</span></>:null}</>},
-      {label:'owner 投票资格',cell:m=>m.role!=='owner'?'—':m.vote_eligible_from?<>自 <Time value={m.vote_eligible_from}/></>:<span className="note">尚无</span>},
+      {label:'状态',cell:m=><>{m.erased?'已擦除':MEMBER_STATUS_TEXT[m.member_status]}{m.account_status&&m.account_status!=='active'?<><br/><span className="note" title={m.account_status}>账户{ACCOUNT_STATUS_TEXT[m.account_status]??'状态未知'}</span></>:null}</>},
+      {label:'负责人投票资格',cell:m=>m.role!=='owner'?'—':m.vote_eligible_from?<>自 <Time value={m.vote_eligible_from}/></>:<span className="note">尚无</span>},
       {label:'操作',cell:m=><Controls member={member} row={m} members={data.members}/>}]}/>
     <h2>未接受的邀请</h2>
     <DataTable label="未接受的邀请" empty={{subject:'未接受的邀请'}} rows={data.invitations} rowKey={i=>i.invitation_id} columns={[
@@ -170,7 +171,7 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
     <h2>最近 90 天的重置码</h2>
     <DataTable label="最近 90 天的重置码" empty={{subject:'重置记录'}} rows={data.resets} rowKey={r=>r.reset_id} columns={[
       {label:'签发时间',main:true,cell:r=><Time value={r.issued_at}/>},{label:'对象',cell:r=><IdText value={r.target_principal} head={8} tail={4} copy={false}/>},
-      {label:'签发人',cell:r=><IdText value={r.issued_by} head={8} tail={4} copy={false}/>},{label:'类别',cell:r=>r.kind==='owner'?'owner（经审批）':'成员'},
+      {label:'签发人',cell:r=><IdText value={r.issued_by} head={8} tail={4} copy={false}/>},{label:'类别',cell:r=>r.kind==='owner'?'负责人（经审批）':'成员'},
       {label:'状态',cell:r=>RESET_STATE_TEXT[r.state]??r.state}]}/>
     <h2>邀请</h2>
     <InviteForm member={member} members={data.members}/>
@@ -179,6 +180,6 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
 
 export function Members(){
   const query=useQuery({queryKey:['workbench','members'],queryFn:readMembers});
-  return <Page title="成员与账号" query={query} lead="工作台成员、未接受的邀请和最近的重置码。成员管理只对 owner 开放；处置 owner、邀请 owner、为 owner 签发重置码和擦除离职成员需要另一位 owner 批准。">
+  return <Page title="成员与账号" query={query} lead="工作台成员、未接受的邀请和最近的重置码。成员管理只对负责人开放；处置负责人、邀请负责人、为负责人签发重置码和擦除离职成员需要另一位负责人批准。">
     {data=><WithMember>{member=><MembersView data={data} member={member}/>}</WithMember>}</Page>;
 }

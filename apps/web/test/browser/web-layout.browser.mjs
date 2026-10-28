@@ -134,7 +134,7 @@ try{
   result.menu.toggle_visible=await toggle.isVisible();result.menu.nav_hidden_before=!(await page.locator('#workbench-nav').isVisible());
   await toggle.click();result.menu.nav_visible_after=await page.locator('#workbench-nav').isVisible();
   result.menu.entries=await page.locator('#workbench-nav a').count();
-  await page.locator('#workbench-nav a',{hasText:'消费者'}).click();await page.locator('.workbench-page h1',{hasText:'消费者'}).waitFor({timeout:20000});
+  await page.locator('#workbench-nav a',{hasText:'客户'}).click();await page.locator('.workbench-page h1',{hasText:'客户'}).waitFor({timeout:20000});
   result.menu.closed_after_navigation=!(await page.locator('#workbench-nav').isVisible());
   result.menu.hscroll_open=await (async()=>{await toggle.click();return page.evaluate(()=>document.documentElement.scrollWidth-innerWidth);})();
   await page.screenshot({path:`${shots}/wb-menu-open-390.png`,fullPage:true});

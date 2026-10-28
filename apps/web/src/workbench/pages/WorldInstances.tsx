@@ -23,7 +23,7 @@ export function objectPage(type:string,id:string):Route|null{
   return type==='Consumer'?{page:'consumers',id}:type==='Commitment'?{page:'commitments',id}:null;
 }
 const WITHHELD_TEXT:Record<NonNullable<PropertyValue['reason']>,string>={restricted:'负责人已限制这一属性组',not_permitted:'当前角色不能读取这一属性',
-  erasing:'值涉及正在删除的消费者'};
+  erasing:'值涉及正在删除的客户'};
 const CUT=48;
 /** One property value: the text (cut with an expander when long), the one withheld badge, or an em dash when missing. */
 export function PropertyCell({p,expanded=false}:{p:PropertyValue;expanded?:boolean}){
@@ -96,7 +96,7 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
         :layout?<ViewLayout view={layout} properties={values.data.properties}/>
         :values.data.properties.length?<div className="object-properties"><KeyValue label="属性值" items={values.data.properties.map(v=>({key:v.name,value:<PropertyCell p={v} expanded/>}))}/></div>
         :<EmptyState kind="empty" subject="Property" compact/>}
-      {page?<p><a href={routePath(page)}>在{type==='Consumer'?'消费者详情':'承诺详情'}中查看内容</a></p>:null}
+      {page?<p><a href={routePath(page)}>在{type==='Consumer'?'客户详情':'承诺详情'}中查看内容</a></p>:null}
       <h3>邻域（深度 1）</h3>
       {neighbors.isPending?<EmptyState kind="loading" subject="邻域" compact/>
         :neighbors.isError?(kindOf(neighbors.error)==='forbidden'?<EmptyState kind="forbidden" subject="邻域" compact/>:kindOf(neighbors.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>

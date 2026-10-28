@@ -104,8 +104,8 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # empty states with a kind and a next step (not enabled on experiments); badges in words; the page title near the top.
     assert observed['shell'] == {'groups': ['运营', '模型与资产', '监控', '管理'], 'last': ['能力目录', '实验空间未启用']}, observed['shell']
     # Batch 7 (F10): a conversation's breadcrumb also names its customer (alias or name) and leads back to them.
-    assert all(pages[f'wb-consumer-{w}']['crumbs'] == ['消费者', '客户详情'] for w in (1440, 1024, 390))
-    assert all(len(c := pages[f'wb-conversation-{w}']['crumbs']) == 3 and c[0] == '消费者' and c[1].startswith('客户') and c[2] == '会话' for w in (1440, 1024, 390)), \
+    assert all(pages[f'wb-consumer-{w}']['crumbs'] == ['客户', '客户详情'] for w in (1440, 1024, 390))
+    assert all(len(c := pages[f'wb-conversation-{w}']['crumbs']) == 3 and c[0] == '客户' and c[1].startswith('客户') and c[2] == '会话' for w in (1440, 1024, 390)), \
         {w: pages[f'wb-conversation-{w}']['crumbs'] for w in (1440, 1024, 390)}
     assert all(v['tz'] == '时间均为北京时间' for k, v in pages.items() if k.startswith('wb-') and not k.startswith('wb-login'))
     assert all(e['kind'] and e['next'] for v in pages.values() for e in v['empties']), {k: v['empties'] for k, v in pages.items() if v['empties']}

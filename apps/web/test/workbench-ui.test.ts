@@ -37,7 +37,7 @@ test('navigation: four groups, every page once, the next-stage page last; detail
   expect(NAV_GROUPS.map(g=>g.title)).toEqual(['运营','模型与资产','监控','管理']);
   const all=NAV_GROUPS.flatMap(g=>g.pages);expect([...all].sort()).toEqual(Object.keys(PAGES).sort());expect(all.slice(-1)).toEqual(['experiments']);expect(NAV_GROUPS[1].pages).toEqual(['ontology','data_assets','data_health','knowledge']);expect(NAV_GROUPS[3].pages).toEqual(['settings','members','account','personas','capabilities','experiments']);
   expect(crumbs({page:'consumers'})).toEqual([]);
-  expect(crumbs({page:'consumers',id:'x',sub:'conversation'}).map(c=>c.label)).toEqual(['消费者','会话']);
+  expect(crumbs({page:'consumers',id:'x',sub:'conversation'}).map(c=>c.label)).toEqual(['客户','会话']);
   expect(crumbs({page:'commitments',id:'x'}).map(c=>c.label)).toEqual([PAGES.commitments,'承诺详情']);
 });
 

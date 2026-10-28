@@ -46,8 +46,8 @@ test('NX-058 UI: each row offers only what its role and status allow; never the 
 
 test('NX-058 UI: the owner sees facts then controls; an operator gets no form', ()=>{
   const html=render(owner,members(raw));
-  for(const t of ['成员与账号','未接受的邀请','new-reviewer','最近 90 天的重置码','已完成','邀请成员','邀请 owner','改角色','提升为 owner','降级这位 owner','擦除这位成员的个人数据',
-    '需要另一位 owner 批准'])expect(html).toContain(t);
+  for(const t of ['成员与账号','未接受的邀请','new-reviewer','最近 90 天的重置码','已完成','邀请成员','邀请负责人','改角色','提升为负责人','降级这位负责人','擦除这位成员的个人数据',
+    '需要另一位负责人批准'])expect(html).toContain(t);
   expect(html.indexOf('<h2>成员</h2>')).toBeLessThan(html.indexOf('aria-label="改角色"'));
   const asOperator=render(operator,members({...raw,members:raw.members.slice(2,3)}));
   expect(asOperator).not.toContain('<form');
@@ -78,18 +78,18 @@ test('R3: approval-gated controls are disabled with the reason and the operation
   expect(approversFor(m,'synthetic-owner','synthetic-second',now)).toBe(0);  // two owners: the target never approves its own request
   expect(approversFor(m.map(x=>x.principal_id==='synthetic-second'?{...x,vote_eligible_from:'2026-10-27T00:00:00+00:00'}:x),'synthetic-owner','synthetic-op',now)).toBe(0);  // cooldown
   const html=render(owner,members(raw));
-  expect(html).toContain('现在没有能批准的 owner');expect(html).toContain('运维通道');
+  expect(html).toContain('现在没有能批准的负责人');expect(html).toContain('运维通道');
   // the demotion of the only other owner: disabled (no approver), and in any case a new role is required (R1)
-  const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
+  const demote=html.slice(html.indexOf('aria-label="降级这位负责人"'));
   expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit"[^>]* disabled=""/);
 });
 
 test('R1: a demotion cannot be submitted without a new role, even with an approver', ()=>{
   const three=members({...raw,members:[...raw.members,row('synthetic-third','owner','active')]});
   const html=render(owner,three);
-  const demote=html.slice(html.indexOf('aria-label="降级这位 owner"'));
+  const demote=html.slice(html.indexOf('aria-label="降级这位负责人"'));
   expect(demote.slice(0,demote.indexOf('</form>'))).toMatch(/<button type="submit"[^>]* disabled=""/);
-  expect(html).not.toContain('现在没有能批准的 owner（除你和被处置的 owner 之外');
+  expect(html).not.toContain('现在没有能批准的负责人（除你和被处置的负责人之外');
 });
 
 

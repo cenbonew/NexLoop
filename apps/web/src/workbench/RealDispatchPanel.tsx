@@ -20,7 +20,7 @@ export function RealDispatchPanel(){
       :<Layers state={state.data}/>}
     {state.data?<Outcome state={state.data}/>:null}
     {state.data&&member.data&&offers(member.data,'set_real_dispatch')?<Controls state={state.data} member={member.data} onRead={()=>state.refetch()}/>
-      :member.data?<p className="note">只读：只有负责人（owner）可以开关。</p>:null}
+      :member.data?<p className="note">只读：只有负责人可以开关。</p>:null}
   </section>;
 }
 

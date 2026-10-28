@@ -13,7 +13,7 @@ import {DataTable} from '../DataTable';
 import {Time} from '../ui';
 import {EmptyState,IdText,Notice} from '../kit';
 import {statusLabel} from '../status-labels';
-import {MEMBER_STATUS_TEXT} from './Members';
+import {ACCOUNT_STATUS_TEXT,MEMBER_STATUS_TEXT} from './Members';
 import {Page} from './Page';
 
 export const APPROVAL_STATUS_TEXT:Record<ApprovalStatus,string>={waiting_approval:'等待审批',approved:'已批准',rejected:'已拒绝',cancelled:'已撤回',expired:'已过期'};
@@ -66,7 +66,6 @@ export function targetText(t:ApprovalRow['target_member']):string{
     t.account_status&&t.account_status!=='active'?'账户'+(ACCOUNT_STATUS_TEXT[t.account_status]??'状态未知'):null].filter(Boolean).join('，');
   return `${t.username??'（无账户）'} ${t.label}（${status}）`;
 }
-export const ACCOUNT_STATUS_TEXT:Record<string,string>={active:'在用',disabled:'已停用',locked:'已锁定',erased:'已擦除'};
 const isOperation=(value:string):value is Operation=>Object.prototype.hasOwnProperty.call(OPERATION_ACTION,value);
 
 const common=[

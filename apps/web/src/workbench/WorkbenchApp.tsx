@@ -31,12 +31,12 @@ function WorkbenchLogin({onLogin}:{onLogin:()=>void}){
   const [username,setUsername]=useState('');const [password,setPassword]=useState('');
   const mutation=useMutation({mutationFn:()=>workbenchLogin(username,password),onSuccess:()=>{setPassword('');onLogin();}});
   function submit(event:FormEvent){event.preventDefault();mutation.mutate();}
-  return <section className="workbench-login" aria-labelledby="workbench-login-title"><h1 id="workbench-login-title">登录负责人工作台</h1><p className="subtitle">企业成员账号；顾客账号不能进入工作台</p>
+  return <section className="workbench-login" aria-labelledby="workbench-login-title"><h1 id="workbench-login-title">登录负责人工作台</h1><p className="subtitle">企业成员账号；客户账号不能进入工作台</p>
     <form onSubmit={submit}><div className="field"><label htmlFor="wb-username">账号</label><input id="wb-username" autoComplete="username" value={username} onChange={e=>setUsername(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     <div className="field"><label htmlFor="wb-password">密码</label><input id="wb-password" type="password" autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} required maxLength={1024} disabled={mutation.isPending}/></div>
     {mutation.isError?<p className="error" role="alert">{kindOf(mutation.error)==='unauthenticated'?'账号或密码不正确。':STATE_TEXT[kindOf(mutation.error)]}</p>:null}
     <button type="submit" disabled={mutation.isPending}>{mutation.isPending?'正在登录…':'登录'}</button></form>
-    <p className="note">忘记口令？请 owner 为你签发重置码，然后<a href="/workbench/reset">用重置码设置新口令</a>。</p></section>;
+    <p className="note">忘记密码？请负责人为你签发重置码，然后<a href="/workbench/reset">用重置码设置新密码</a>。</p></section>;
 }
 
 /** What the shown object belongs to (F10): a detail page names its customer so the breadcrumb can lead back to that customer. */
@@ -143,7 +143,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
     window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   const signedIn=!!session.data;
   useEffect(()=>{const path=window.location.pathname;
-    document.title=path===ACCOUNT_PATHS.invitation?'接受工作台邀请 · 负责人工作台 · NexLoop':path===ACCOUNT_PATHS.reset?'用重置码设置新口令 · 负责人工作台 · NexLoop'
+    document.title=path===ACCOUNT_PATHS.invitation?'接受工作台邀请 · 负责人工作台 · NexLoop':path===ACCOUNT_PATHS.reset?'用重置码设置新密码 · 负责人工作台 · NexLoop'
       :pageTitle(signedIn?route:null,context);},[route,context,signedIn]);
   // The narrow-screen menu (UX audit C9): opening it moves focus to its first link, Escape closes it and returns to the button.
   useEffect(()=>{if(menu)document.querySelector<HTMLElement>('#workbench-nav a')?.focus();},[menu]);
