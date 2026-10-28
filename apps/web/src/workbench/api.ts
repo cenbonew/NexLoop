@@ -187,16 +187,19 @@ export const DISPLAY_NOTE:Record<'restricted'|'missing'|'failed',string>={restri
 export function consumerLabel(consumerId:string,display:DisplayName):string{
   return display.status==='ok'?display.name:`${consumerAlias(consumerId)}（${DISPLAY_NOTE[display.status]}）`;
 }
-export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName};
+export type ConsumerRow={consumer_id:string;restricted:boolean;open_commitments:number;active_plans:number;conversations:number;display:DisplayName;
+  /** X3: the newest message time across the customer's conversations (null: none, or erasing); undefined from an older server. */
+  last_conversation_at?:string|null};
 export type ConsumerPage={items:ConsumerRow[];next_cursor:string|null;total:number|null;tenant_total:number|null};
 const total=(value:unknown)=>value===undefined||value===null?null:count(value);
 export function consumers(value:unknown):ConsumerPage{
   const v=object(value);
-  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display)};}),
+  return {items:list(v.items).map(x=>{const o=object(x);return {consumer_id:id(o.consumer_id),restricted:flag(o.restricted),open_commitments:count(o.open_commitments),active_plans:count(o.active_plans),conversations:count(o.conversations),display:displayName(o.display),
+    ...(o.last_conversation_at===undefined?{}:{last_conversation_at:maybeText(o.last_conversation_at)})};}),
     next_cursor:v.next_cursor===null||v.next_cursor===undefined?null:/^\d+$/.test(String(v.next_cursor))?String(v.next_cursor):id(v.next_cursor),total:total(v.total),tenant_total:total(v.tenant_total)};
 }
 /** F09: list filters and sort (server side, on the list's own counts); `cursor` is the server's offset or, for the plain list, the id cursor. */
-export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans';order?:'asc'|'desc';cursor?:string};
+export type ConsumerQuery={restricted?:boolean;has_open_commitments?:boolean;sort?:'id'|'open_commitments'|'conversations'|'active_plans'|'last_conversation_at';order?:'asc'|'desc';cursor?:string};
 export function consumerQueryString(q:ConsumerQuery,limit=50):string{
   const p=new URLSearchParams();
   if(q.restricted!==undefined)p.set('restricted',String(q.restricted));
@@ -1169,6 +1172,9 @@ export type ApprovalStatus='waiting_approval'|'approved'|'rejected'|'cancelled'|
 export type ApprovalRow={approval_id:string;capability:string;operation:string;action:string;requested_by:string;requested_at:string;due_by:string;
   status:ApprovalStatus;digest:string;policy_version:number;quorum:number;approvals:number;summary:Record<string,string|number|boolean|null>;
   result?:string|null;inputs?:Record<string,unknown>|null;target_member:TargetMember|null;
+  /** X1 (l2/ui-backend-x1-x4): the requester's workbench username; null when erased, without an account or not a member here;
+   * undefined from a server without the field. X2: a label per summary key (the key itself when the server has none). */
+  requested_by_username?:string|null;summary_labels?:Record<string,string>;
   /** 0362: the approval was executed (it has a consumption record); the status stays 'approved'. */
   consumed:boolean;consumed_at:string|null};
 /** ADR-039 §6 (R1): the member a request acts on, rendered by the server for owners only; hidden for everyone else. */
@@ -1188,7 +1194,8 @@ const APPROVAL_KEYS='action,approval_id,approvals,capability,consumed,consumed_a
 const APPROVAL_STATUS:ApprovalStatus[]=['waiting_approval','approved','rejected','cancelled','expired'];
 function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
   const r=object(value);
-  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[])].sort().join()
+  const optional=['requested_by_username','summary_labels'].filter(k=>k in r);
+  if(Object.keys(r).sort().join()!==[...APPROVAL_KEYS.split(','),...(extra?[extra]:[]),...optional].sort().join()
     ||!/^[0-9a-f-]{36}$/.test(text(r.approval_id))||!/^[0-9a-f]{12}$/.test(text(r.digest))||!APPROVAL_STATUS.includes(text(r.status) as ApprovalStatus))
     throw new WorkbenchError('invalid');
   const summary=object(r.summary);
@@ -1198,6 +1205,10 @@ function approvalRow(value:unknown,extra:''|'result'|'inputs'):ApprovalRow{
     policy_version:count(r.policy_version),quorum:count(r.quorum),approvals:count(r.approvals),summary:summary as ApprovalRow['summary'],
     target_member:targetMember(r.target_member),consumed:flag(r.consumed),consumed_at:maybeText(r.consumed_at)};
   if(row.consumed!==(row.consumed_at!==null))throw new WorkbenchError('invalid');
+  if('requested_by_username' in r)row.requested_by_username=maybeText(r.requested_by_username);
+  if('summary_labels' in r){const labels=object(r.summary_labels);
+    if(Object.entries(labels).some(([k,v])=>!(k in summary)||typeof v!=='string'||!v))throw new WorkbenchError('invalid');
+    row.summary_labels=labels as Record<string,string>;}
   if(extra==='result')row.result=maybeText(r.result);
   if(extra==='inputs')row.inputs=r.inputs===null?null:object(r.inputs);
   return row;

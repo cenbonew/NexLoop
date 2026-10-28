@@ -123,3 +123,27 @@ test('desktop usability: readable names, a non-identifying alias otherwise, and 
   expect(when('2026-10-17 13:13:54.071455+00').startsWith(new Date('2026-10-17T13:13:54.071Z').toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'})+'（')).toBe(true);   // Beijing + relative (F15)
   expect(when(null)).toBe('—');expect(when('not a time')).toBe('not a time');
 });
+
+test('X3 (l2/ui-backend-x1-x4, fixtures): the newest conversation time per customer, its sort key in the URL and the query; an older server omits it',async()=>{
+  const {consumers,consumerQueryString}=await import('../src/workbench/api');
+  const row={consumer_id:id('2'),restricted:false,open_commitments:0,active_plans:0,conversations:1};
+  expect(consumers({items:[{...row,last_conversation_at:'2026-10-28T02:30:00.123456Z'},{...row,consumer_id:id('3'),last_conversation_at:null}],next_cursor:null}).items
+    .map(c=>c.last_conversation_at)).toEqual(['2026-10-28T02:30:00.123456Z',null]);
+  expect('last_conversation_at' in consumers({items:[row],next_cursor:null}).items[0]).toBe(false);
+  expect(parseRoute('/workbench/consumers','?sort=last_conversation_at&order=desc')).toEqual({page:'consumers',query:{sort:'last_conversation_at',order:'desc'}});
+  expect(consumerQueryString({sort:'last_conversation_at',order:'desc'})).toContain('sort=last_conversation_at');
+});
+
+test('X3: the consumer list shows a 最近会话 column only when the server sends the time, and offers the sort',async()=>{
+  const {createElement:h}=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');
+  const {QueryClient,QueryClientProvider}=await import('@tanstack/react-query');
+  const {consumers}=await import('../src/workbench/api');const {Consumers}=await import('../src/workbench/pages/Consumers');
+  const row={consumer_id:id('2'),restricted:false,open_commitments:0,active_plans:0,conversations:1,display:{status:'ok',name:'合成客户甲'}};
+  const page=(items:unknown[])=>{const c=new QueryClient({defaultOptions:{queries:{staleTime:Infinity}}});
+    c.setQueryData(['workbench','consumers',{sort:'id'}],consumers({items,next_cursor:null}));
+    return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(Consumers,{onOpen:()=>{}})));};
+  const withTime=page([{...row,last_conversation_at:'2026-10-28T02:30:00.000000Z'}]);
+  expect(withTime).toContain('>最近会话</th>');expect(withTime).toContain('<option value="last_conversation_at:desc">最近有会话的在前</option>');
+  expect(page([row])).not.toContain('>最近会话</th>');
+  expect(page([row])).not.toContain('last_conversation_at:desc');  // L6 S2: not offered to a server that would refuse it (422)
+});
