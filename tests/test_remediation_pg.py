@@ -25,6 +25,7 @@ from nexloop_eios.remediation import (PLAN_ACTION, RemediationPlanner, Remediati
 from pathlib import Path
 from test_browser_http import ORIGIN
 from test_observability_pg import TENANT, observed  # noqa: F401
+from support.single_clock import issued_once
 from test_workbench_actions_http import act
 from test_workbench_read_pg import browser_business, conversations, identity, published_action, uow, workbench, workbench_login  # noqa: F401
 
@@ -150,6 +151,9 @@ def test_the_planner_proposes_once_per_failure_and_rule_and_only_for_eligible_fa
     assert r['plan']()['decisions'] == {}                                    # each failure row is considered once
     events = admin.execute('select from_state,to_state,code,actor_kind from runtime.nexloop_remediation_events order by recorded_at').fetchall()
     assert events == [(None, 'proposed', 'proposed', 'service')] * 2
+    for (remediation,) in admin.execute('select remediation_id from runtime.nexloop_remediation_intents where tenant_id=%s', (TENANT,)).fetchall():
+        issued_once(admin, TENANT, 'runtime.nexloop_remediation_intents', 'remediation_id', remediation, timedelta(seconds=604800),
+                    start='created_at', end='due_by', audit=('runtime.nexloop_remediation_events', 'recorded_at', 'remediation_id', remediation))
 
 
 def test_an_automatic_escalation_goes_to_the_owner_at_once(remediating):

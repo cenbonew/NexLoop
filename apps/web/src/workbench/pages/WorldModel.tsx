@@ -100,6 +100,10 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
   switch(section){
     case 'object_types':return <>
       <ViewSwitch graph={q.graph} onChange={graph=>set({graph,focus:graph?q.focus:null},true)}/>
+      {/* Batch 52: the table is the default view; below 640 px the graph stacks into one tall column, so it says so and offers the
+          table, while staying reachable. */}
+      {q.graph?<p className="note narrow-only" data-hint="narrow-graph">窄屏建议用表格：图在手机宽度下会排成很长的一列。{' '}
+        <button type="button" className="link" onClick={()=>set({graph:false,focus:null},true)}>切换到表格</button></p>:null}
       {q.graph?<TypeGraph model={m} focus={q.focus} onFocus={focus=>set({focus})}/>
         :m.object_types.length?<DataTable label="Object Type" rows={m.object_types} rowKey={t=>t.name} columns={[
           {label:'Object Type',main:true,cell:t=><button type="button" className="link" onClick={()=>set({graph:true,focus:t.name})}>{t.name}</button>},

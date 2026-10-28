@@ -65,3 +65,8 @@ test('an owner stop keeps the owner reason; an unknown guard code is not shown r
   expect(stopReason({stop_reason:'guardrail: new_code',stopped_by_guard:true})).toEqual({text:'护栏：其他原因',code:'new_code'});
   expect(stopReason({stop_reason:null,stopped_by_guard:false})).toBeNull();
 });
+
+test('batch 52: the lead matches the page - an owner registers experiments here, so it does not say read only',()=>{
+  const html=render({experiments:[]});
+  expect(html).not.toContain('（只读）');expect(html).toContain('在这里登记新实验');
+});

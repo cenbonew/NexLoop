@@ -217,6 +217,12 @@ button:disabled{cursor:wait;opacity:.7}
   .workbench .data-table td.cell-main::before{content:none}
   .data-table tr.critical{border-color:var(--danger)}
 }
+/* Batch 52: rows whose cells hold several blocks (a summary list, a requester with id and time, a reason and two buttons) stack at
+   narrow widths - each cell takes the full card width, its label above, so nothing is squeezed into a one-character column. */
+@media (max-width:639px){
+  .workbench .data-table.table-stacked td{display:block;flex-basis:100%}
+  .workbench .data-table.table-stacked td::before{display:block;margin-bottom:2px}
+}
 
 /* WebChat (batch 2): the conversation, its mode and world sit in one top bar; the composer stays at the bottom of the viewport while
    the message list scrolls. */
@@ -410,6 +416,8 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 @media (max-width:639px){.workbench .table-scroll{overflow:visible;background:none}}
 /* §6 long ids */
 .workbench .id-text{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;vertical-align:baseline}
+/* The head…tail and its copy button stay together on one line; the whole ID moves to the next line at a word boundary. */
+.workbench .id-text code.id-code{white-space:nowrap}
 .workbench .id-kind{color:var(--muted)}
 .workbench .id-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);white-space:normal;overflow-wrap:anywhere}  /* a full ID that is shown (a link, a code) wraps instead of leaving its card */
 .workbench .id-secondary{color:var(--muted)}
@@ -497,6 +505,9 @@ button.btn-danger:hover,.workbench button.btn-danger:hover,.workbench-action.inl
 /* B3: notices (kit Notice) and the earlier classes that meant the same thing but had no style outside the review page. */
 .notice,.workbench p.warning,.workbench div.warning,.workbench .impact-summary,.banner{display:flex;gap:8px;align-items:flex-start;margin:8px 0;padding:8px 12px;
   border:1px solid var(--info-border);border-left-width:4px;border-radius:var(--radius);background:var(--info-soft);color:var(--info-text);font-size:14px;line-height:1.6;max-width:72ch}
+/* Batch 52 review: an impact line and a warning are running text, not a mark beside a body - block, so an IdText inside flows with
+   the words (as flex items the words and the ID became columns and the ID was squeezed to two characters a line). */
+.workbench p.warning,.workbench div.warning,.workbench .impact-summary{display:block}
 .notice>.notice-mark{font-weight:700;flex:none}.notice>.notice-body{min-width:0}.notice p{margin:0}
 .notice-warning,.workbench p.warning,.workbench div.warning{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn-text)}
 .notice-danger{border-color:var(--danger-border);background:var(--danger-soft);color:var(--danger)}
@@ -577,3 +588,7 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 .workbench .workbench-skeleton .workbench-main{display:grid;gap:var(--space-3);padding:var(--space-4)}
 .workbench .skeleton-line.skeleton-title{height:24px;width:40%}
 @media (max-width:1023px){.workbench .workbench-skeleton .skeleton-nav{display:none}}
+
+/* Batch 52: shown only below 640 px (a hint that only matters on a phone). */
+.workbench .narrow-only{display:none}
+@media (max-width:639px){.workbench .narrow-only{display:block}}

@@ -83,7 +83,7 @@ export function RemediationEvidencePanel({id}:{id:string}){
       <li>最终失败 <StatusBadge domain="failure_reason" code={e.failure.reason_code}/> <Time value={e.failure.recorded_at}/>
         {Object.entries(e.failure.evidence).map(([k,v])=><span key={k} className="kv-hint"> {k}: <code className="id-code">{v}</code></span>)}</li>
       <li>动作认领 {e.claim?<>{e.claim.status==='permanent_failure'?'已终结为永久失败':e.claim.status??e.claim.state}{e.claim.finalized_at?<> <Time value={e.claim.finalized_at}/></>:null}</>:'没有认领（从未派发）'}</li>
-      <li>规则 <code className="id-code">{e.rule.rule_id}</code> v{e.rule.manifest_version} <span className="kv-hint">摘要 {e.rule.digest.slice(0,12)}…</span></li>
+      <li>规则 <code className="id-code">{e.rule.rule_id}</code> v{e.rule.manifest_version} <span className="kv-hint">摘要 <IdText value={e.rule.digest} head={12} tail={4}/></span></li>
       {e.plan?<li>唤醒计划 <IdText kind="计划" value={e.plan.plan_id}/>{e.plan.woken_at?<> <Time value={e.plan.woken_at}/></>:null}
         {e.plan.consumed_by_run?<> 由 Run <code className="id-code">{e.plan.consumed_by_run}</code> 处理</>:' 尚未开 Run'}</li>:null}
       {e.remediation.origin_remediation_id?<li>来源补救 <code className="id-code">{e.remediation.origin_remediation_id}</code>（补救 Run 提出的意图又失败，只升级）</li>:null}

@@ -11,7 +11,7 @@ import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,offers,readContactPreferences
   type PersonaOverview,type PersonaRule,type PersonaVersion} from '../api';
 import {DataTable} from '../DataTable';
 import {StatusBadge,TabPanel,Tabs,Time} from '../ui';
-import {CheckboxGroup,ChoiceGroup,EmptyState,FormField,IdText,KeyValue,Notice,shorten} from '../kit';
+import {CheckboxGroup,ChoiceGroup,EmptyState,FormField,IdText,KeyValue,Notice} from '../kit';
 import {ConfirmedForm,Form,WithMember} from '../actions';
 import {Page} from './Page';
 import {OutreachInsights} from './OutreachInsights';
@@ -148,7 +148,7 @@ function PersonaEditor({member,personas,mode,onDone}:{member:Parameters<typeof F
 }
 
 // ---- assignment: default, rules, one customer ----
-function ruleText(rule:PersonaRule):string{return 'role_id' in rule.when?`拥有角色 ${shorten(rule.when.role_id)}`:`属性 ${rule.when.property} 等于“${rule.when.equals}”`;}
+function ruleText(rule:PersonaRule):ReactNode{return 'role_id' in rule.when?<>拥有角色 <IdText value={rule.when.role_id}/></>:`属性 ${rule.when.property} 等于“${rule.when.equals}”`;}
 type RuleDraft={kind:'role_id'|'property';role_id:string;property:string;equals:string;persona_id:string};
 function Assignment({data,onConsumers}:{data:PersonaOverview;onConsumers?:()=>void}){
   const usable=[...usableVersions(data.personas).values()];

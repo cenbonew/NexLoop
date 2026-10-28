@@ -57,7 +57,7 @@ test('KeyValue: a description list of key and value rows with an optional hint',
 test('IdText: head…tail in monospace, the full value on hover and focus, a copy button; a name replaces the hash; short ids unchanged',()=>{
   expect(shorten(HEX)).toBe('548560cd…a3f0');expect(shorten('abc')).toBe('abc');expect(shorten(HEX,4,2)).toBe('5485…f0');
   const html=r(h(IdText,{value:HEX,kind:'客户'}));
-  expect(html).toContain('<span class="id-kind">客户</span>');expect(html).toContain(`<code class="id-code" title="客户 ${HEX}" aria-label="客户 ${HEX}">548560cd…a3f0</code>`);  // C3: no tab stop
+  expect(html).toContain('<span class="id-kind">客户</span>');expect(html).toContain(`<code class="id-code" title="客户 ${HEX}" aria-label="${HEX}">548560cd…a3f0</code>`);  // C3: no tab stop; batch 52: the visible kind is not repeated in the label
   expect(html).toContain('aria-label="复制客户 ID"');expect(html).toContain(`data-id="${HEX}"`);expect(html.split(HEX).length-1).toBe(4);  // data-id, title, aria-label, the copy button's title: never as text
   const named=r(h(IdText,{value:HEX,name:'王女士',kind:'客户'}));
   expect(named).toContain('<span class="id-name">王女士</span>');expect(named).toContain('class="id-code id-secondary"');
