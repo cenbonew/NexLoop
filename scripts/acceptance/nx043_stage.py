@@ -521,7 +521,7 @@ def _drill_inputs(config):
 def budget_start(ports, config, r, prior=None):
     """Owner (item 10, owner 2026-10-28 option A): a budget drill - a screening registration with budget_drill true in the AT-046 sim
     world, cap 1 CNY (the intake's declared maximum cost per Run), ending within the hour, with a published uncalibrated twin; the
-    drill is the one waiver of the twin's calibration (0366), the registration carries the flag and its notice."""
+    drill is the one waiver of the twin's calibration (0364), the registration carries the flag and its notice."""
     state = load_state(config)
     d = _drill_inputs(config)
     eid = f"{(config.get('inputs') or {}).get('experiment_prefix') or 'x7'}.budget.{state['run']}"
@@ -532,7 +532,7 @@ def budget_start(ports, config, r, prior=None):
            'hypothesis': 'Budget drill (synthetic): an exhausted experiment budget blocks new spend', 'budget_drill': True}
     status, out = ports.act('register_experiment', {'registration': reg}, 'nx043-' + state['run'] + '-e-budget')
     flagged = isinstance(out, dict) and (out.get('registration') or {}).get('budget_drill') is True
-    r.step('budget_drill_registered', 'a frozen screening registration carrying budget_drill and the drill notice (0366)',
+    r.step('budget_drill_registered', 'a frozen screening registration carrying budget_drill and the drill notice (0364)',
            {'status': status, 'reason': _reason(out), 'flagged': flagged, 'notice': out.get('notice') if isinstance(out, dict) else None},
            _ok(status) and flagged and out.get('notice') == DRILL_NOTICE)
     if not _ok(status):
@@ -620,7 +620,7 @@ def budget_probe(ports, config, r, prior):
 
 def gaps(ports, config, r, prior=None):
     """What the stage cannot show yet: blocked (passed null), with the slice that closes each gap. Item 10 (experiment budget) is the
-    budget drill since 0366 (budget-start, budget-before, budget-runs, budget-probe); nothing is left here."""
+    budget drill since 0364 (budget-start, budget-before, budget-runs, budget-probe); nothing is left here."""
     r.step('no_gaps', 'every stage item has its phase; item 9 (other guardrails) stays local by design', {'blocked': []}, True)
 
 

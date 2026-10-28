@@ -24,7 +24,7 @@
 | 7 | 影子决策只记录、不发送；影子世界零 provider 请求 | D7、§9 建议 5、AT-046 | 拆成跨主机的几步（按 AT-046 的做法）：shadow-keys（DATA_HOST 探针）：`shadow_events_copied`；decide（APP_HOST，只用 sim_worker）：`shadow_decisions_recorded`；probe-after（DATA_HOST）：`shadow_decisions_landed`、`shadow_sends_nothing`；merge：`nx043-shadow` | 同上 | stage 可验 |
 | 8 | 停止规则：到结束时间由护栏自动停止 | D4、§5、§9 建议 2 | probe-after：`guard_stops_at_the_end`（等待告警评估服务的 tick，reason 为 `guardrail: ended`） | `test_nx043_guardrails_pg`、`test_nx043_guard_wiring_pg` | stage 可验 |
 | 9 | 其他护栏：拒绝率、对账异常、孪生被撤回 | D4 | — | 同上 | 只有本地覆盖（stage 上需要注入真实越界） |
-| 10 | 实验预算用尽即阻断新消耗 | D5、§9 建议 3 | 预算演练（负责人 2026-10-28 方案 A，迁移 0366）：budget-start：`budget_drill_registered`、`budget_drill_started`；budget-before；budget-runs：`first_run_accepted`、`second_run_accepted`；budget-probe：`budget_exhausted_stops_the_drill`、`first_run_kept`、`new_spend_refused_at_dispatch`、`budget_drill_visible`、`drill_runs_never_real` | `test_nx043_budget_drill_pg`、`test_nx043_guard_wiring_pg`、`test_nx043_stage_pg` | **stage 可验**（预算演练，孪生未校准，结论不代表实验效果） |
+| 10 | 实验预算用尽即阻断新消耗 | D5、§9 建议 3 | 预算演练（负责人 2026-10-28 方案 A，迁移 0364）：budget-start：`budget_drill_registered`、`budget_drill_started`；budget-before；budget-runs：`first_run_accepted`、`second_run_accepted`；budget-probe：`budget_exhausted_stops_the_drill`、`first_run_kept`、`new_spend_refused_at_dispatch`、`budget_drill_visible`、`drill_runs_never_real` | `test_nx043_budget_drill_pg`、`test_nx043_guard_wiring_pg`、`test_nx043_stage_pg` | **stage 可验**（预算演练，孪生未校准，结论不代表实验效果） |
 | 11 | 分配：按消费者，会话聚类同组，对照组至少一半 | D2、AT-048 | online-probe：`online_allocated` | `test_nx043_allocation_pg`、`test_nx043_x4_wiring_pg` | **可验**：X4 接线（0304）后 real 入站首次分配，经 online 段验证 |
 | 12 | 成熟窗口；窗口没到的样本不计；unknown 不算成功；样本不足不出结论 | D6、§6、§9 建议 4 | report：`experiment_result_reports_nothing_below_the_minimum` | `test_nx043_reports_pg`、`test_nx043_pooled_pg` | stage 只能验“不出结论”；按成熟窗口出统计需要 online 的分配 |
 | 13 | 报告只含聚合数，冻结后不可修改，不能反推个人；只有 owner 能取 | §6、X3 4.x、报告 Action | report：`shadow_report_aggregates_only` | `test_nx043_report_action_pg` | stage 可验 |
@@ -132,7 +132,7 @@
   - AT-046 的 sim world 仍然有效：有合成 Consumer，Run Action 已发布（AT-046 prepare），模拟进程组在运行；
   - 这个 world 的 api 凭据（`roles.sim_api`，与 AT-046 相同）；
   - 一个已发布、未退役、**未校准**的孪生版本（例如 AT-046 publish-twin 发布的合成孪生）。
-- **豁免的范围（0366）**：只有登记显式带 `budget_drill: true`，并且同时满足以下条件时，才豁免“孪生已校准”（D9）：
+- **豁免的范围（0364）**：只有登记显式带 `budget_drill: true`，并且同时满足以下条件时，才豁免“孪生已校准”（D9）：
   - stage 为 screening，world 为 sim；
   - 模型上限大于 0、不超过 1 CNY；
   - 结束时间在 1 小时内；

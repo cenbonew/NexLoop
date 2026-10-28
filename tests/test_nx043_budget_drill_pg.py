@@ -1,4 +1,4 @@
-"""NX-043 X7 item 10 (owner 2026-10-28, option A; temporary migration 0366): the budget drill.
+"""NX-043 X7 item 10 (owner 2026-10-28, option A; temporary migration 0364): the budget drill.
 
 A screening registration with "budget_drill": true starts with a published, uncalibrated twin only when every drill condition holds
 (simulation world, model cap in (0, 1] CNY, end within an hour); a screening without the flag is still refused twin_not_calibrated

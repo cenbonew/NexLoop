@@ -180,7 +180,7 @@ def test_the_dry_run_calls_nothing_and_the_gaps_are_blocked_never_passed(stage):
     assert f['owner'].calls == [] and f['admin'].execute('select count(*) from control.nexloop_experiments').fetchone()[0] == before
     assert not (f['tmp'] / 'results').exists()
     code, doc, _ = phase(f, 'gaps')
-    # Item 10 is the budget drill since 0366 (owner 2026-10-28); online was opened 2026-10-21: nothing is blocked any more.
+    # Item 10 is the budget drill since 0364 (owner 2026-10-28); online was opened 2026-10-21: nothing is blocked any more.
     assert code == 0 and doc['passed'] is True and doc['blocked'] == [] and 'experiment_budget' not in json.dumps(doc)
 
 
@@ -421,7 +421,7 @@ class DrillProbe:
 
 def dispatch(admin, world, job, run):
     """What the simulation runtime worker does at its control stage: reserve the Run's declared maximum cost (1.0 CNY) in its world -
-    the SQL triggers decide (0297 attribution, 0366 refusal) - then finish the task: refused NXB01 -> failed with code budget_exhausted
+    the SQL triggers decide (0297 attribution, 0364 refusal) - then finish the task: refused NXB01 -> failed with code budget_exhausted
     (nexloop_eios.goal_controls.REASONS), else succeeded."""
     try:
         with admin.transaction():
@@ -435,7 +435,7 @@ def dispatch(admin, world, job, run):
 
 
 def test_the_budget_drill_stops_at_the_cap_and_refuses_the_next_run_at_dispatch(stage, monkeypatch):
-    """Item 10 (owner 2026-10-28, option A): budget-start, budget-before, budget-runs, budget-probe with the SQL of 0366 doing the work;
+    """Item 10 (owner 2026-10-28, option A): budget-start, budget-before, budget-runs, budget-probe with the SQL of 0364 doing the work;
     only the intake and the worker's dispatch are stand-ins (the stage runs the AT-046 run chain)."""
     f = stage
     admin = f['admin']
