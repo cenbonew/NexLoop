@@ -1,6 +1,7 @@
-# 预算调整纳入 NX-056 审批：评估与设计（第 1 版）
+# 预算调整纳入 NX-056 审批：评估与设计（第 2 版）
 
 - **状态**：草案，待负责人拍板（第 6 节）。只有设计，没有代码。
+- **第 2 版**：按 L6 I1 修正期间的方向判定（2.2）与 Q4 的续期条件，并在测试清单里补上对应的两种情况。
 - **起因**：L6 复核 L2 的 NX-038 G1（工作台路由 `set_budget`，分支 `l2/nx038-stage-runs` 1e56c3fa）时指出：model、incentive、evolution 三种预算，现在一位 owner 经 HTTP 就能调高，不经过第二个人。上 real 之前要决定是否纳入 NX-056 的审批策略。
 - **按 main 17aa74c1 核对**。G1 在 1e56c3fa 上，尚未进这个 main；第 1 节按“G1 已合入”写。
 - **依据**：`docs/design/unified-approvals.md`（第 3 节“条件只支持单字段等值”、第 10 节“`goals.budget.set` 移出首批，以后拆出 `goals.budget.raise`”、第 15 节单人模式）、`docs/design/nx058-owner-actions.md`（拆分 Action、执行时重查当前状态的做法）、`deploy/configuration/approval-policies.v1.json` version 4、迁移 0068（`control.nexloop_nx022_owner_change` 的 `set_budget` 分支）与 0235（`evolution` 类型）。
@@ -36,12 +37,14 @@
 |---|---|---|
 | 没有当前行（新设） | 放宽：从“未配置，什么都不能花”变成可以花 | `Budget.loosen` |
 | `req.limit_amount > cur.limit_amount` | 放宽 | `Budget.loosen` |
-| 期间延长或移动：`req.period_start < cur.period_start` 或 `req.period_end > cur.period_end` | 放宽 | `Budget.loosen`（例外见 Q4 的续期） |
+| `req.period_start` 与 `cur.period_start` 不同（往前或往后都算） | 放宽：0068 只统计 `recorded_at` 落在 `[period_start, period_end)` 内的消耗，起点后移会把已经发生的消耗排除在外，相当于把已用额度清零；起点前移会扩大可用时间 | `Budget.loosen`（例外见 Q4 的续期） |
+| `req.period_end > cur.period_end` | 放宽 | `Budget.loosen` |
 | 改 `unit` | 放宽（无法比较大小；有消耗时 0068 本来就拒绝） | `Budget.loosen` |
-| 以上都不是：上限不变或调低，期间不变或收窄，单位不变 | 收紧（包括“值完全相同”） | `Budget.set`，不经审批 |
+| 以上都不是：上限不变或调低，`period_start` 不变，`period_end` 不变或提前，单位不变 | 收紧（包括“值完全相同”） | `Budget.set`，不经审批 |
 
 - 收紧必须能立即生效，与 `real_dispatch.set` 关闭时不拦是同一个道理。调低到已消耗额以下也允许，0068 写明“不删除、不改写已记录的合法消耗”，之后的消耗会以 `budget_exhausted` 被拒。
 - 一个请求只要有一项是放宽，整个请求就是放宽。
+- 期间只有一种收紧：`period_end` 提前（起点不变）。起点的任何变化都按放宽处理，原因见上表（L6 I1 (a)）。
 
 ### 2.3 两个 Action 的行为
 
@@ -117,7 +120,9 @@
 
 | 测试 | 断言 |
 |---|---|
-| 方向判定（PG） | 新设、调高、延长期间、提前起点、改单位：`Budget.set` 都以 `budget_loosen_requires_approval` 拒绝，库里不变；调低、收窄期间、值相同：直接生效，不产生审批 |
+| 方向判定（PG） | 新设、调高、延长期间、提前起点、**后移起点**、改单位：`Budget.set` 都以 `budget_loosen_requires_approval` 拒绝，库里不变；调低、收窄期间、值相同：直接生效，不产生审批 |
+| 起点后移不能清零（PG） | 期间内已有消耗时，用 `Budget.set` 把 `period_start` 往后移：以 `budget_loosen_requires_approval` 拒绝，预算行和可用额度都不变（L6 I1 (a)） |
+| 同额续期的时间条件（PG，Q4 选 B 时） | `now < cur.period_end` 时提交同额续期：`Budget.set` 以 `budget_loosen_requires_approval` 拒绝，旧期间的消耗仍然计入；`now ≥ cur.period_end` 时同一请求直接生效（L6 I1 (b)） |
 | 调低到已消耗额以下（PG） | 允许；已记录的消耗不变；之后的消耗报 `budget_exhausted` |
 | 放宽需要审批（PG） | `Budget.loosen` 返回 `waiting_approval`，预算行不变；另一位 owner 批准后执行，预算行为请求值，revision 加 1 |
 | 自批（PG） | 请求人自己批准被拒；单人模式下（满足 24 小时条件）可以自批，有审计和告警；单人模式关闭后自批票不计入 |
@@ -139,7 +144,7 @@
 | Q1 | 用什么方式只拦“放宽” | A：拆成 `Budget.set`（收紧）和 `Budget.loosen`（放宽）两个 Action；B：扩展策略条件语法，支持与当前值比较 | **A**。unified-approvals §3、§394 已经定了不扩展条件语法；NX-058 用的也是拆分 |
 | Q2 | 哪些预算类型要审批 | A：model、incentive、evolution 全部；B：只拦 incentive（直接花钱给顾客）；C：incentive 和 model | **A**。三种都以真实币种计费；一个策略覆盖全部，更简单。B 也可以做：策略加条件 `budget_kind = incentive`，但 model 预算是 D-g 的累计上限，调高它同样会扩大真实花费 |
 | Q3 | 新设预算（之前没有这一行）算不算放宽 | A：算，要审批；B：不算，第一次设可以直接生效 | **A**。没有预算时什么都不能花，新设就是从 0 放开；只有一个人时用单人模式即可 |
-| Q4 | 每月续期（期间整体后移）要不要每次审批 | A：要；B：“同额续期”免审批：新期间紧接旧期间结束、长度相同、上限和单位都不变，由 `Budget.set` 直接执行 | **B**。同额续期不提高花费速度，每月都要第二个人批准只会增加操作负担。其余的期间变化（延长、提前起点、续期时同时调高）都要审批 |
+| Q4 | 每月续期（期间整体后移）要不要每次审批 | A：要；B：“同额续期”免审批，条件全部满足：服务端时间 `now ≥ cur.period_end`（旧期间已经结束）；新期间的起点等于旧期间的终点；长度相同；上限和单位都不变。由 `Budget.set` 直接执行 | **B**。旧期间结束后的同额续期不提高花费速度，每月都要第二个人批准只会增加操作负担。**旧期间结束之前续期必须审批**：那时续期等于把旧期间的消耗清零，提前拿到一整份新额度（L6 I1 (b)）。其余的期间变化（延长、移动起点、续期时同时调高）都要审批 |
 | Q5 | 单人模式是否适用 | A：`allowed`；B：`not_applicable`（只有一人时就无法放宽预算） | **A**。只有一个人的公司必须能设预算；单人模式已有 24 小时资格历史、审计和告警 |
 | Q6 | quorum | 1 或 2 | **1**，与其他策略一致 |
 | Q7 | 小额调高是否免审批（例如 10% 以内） | A：不免；B：按比例或金额免审批 | **A**。条件语法不支持；在处理函数里加阈值，会让“分多次小幅调高”绕开审批 |
