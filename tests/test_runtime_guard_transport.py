@@ -23,27 +23,52 @@ BODY = {'activation_ref': 'activation_transport_test_only',
         'command': {'run_id': 'synthetic-transport-run'}, 'operation': 'model'}
 
 
-def test_connection_limit_applies_before_tls_and_releases_slots(tmp_path):
+def wait_until(predicate, timeout):
+    deadline=time.monotonic()+timeout
+    while not predicate():
+        if time.monotonic()>=deadline:return False
+        time.sleep(.01)
+    return True
+
+
+def test_connection_limit_applies_before_tls_and_releases_slots(tmp_path, monkeypatch):
+    from nexloop_eios import observability
     from nexloop_eios.runtime_control import create_runtime_guard_server
     _,key=files(tmp_path);worker=TransportOnlyWorker()
     server=create_runtime_guard_server(worker,port=0,key_file=key,
         certificate_file=tmp_path/'host-cert.pem',tls_key_file=tmp_path/'host-key.pem')
+    # The drop at the bound is observed as an event, not inferred from a short recv timeout: under CI load the
+    # accept loop can be slower than any fixed sub-second wait (the 50th batch failed so, on the extra recv).
+    dropped=threading.Event();monkeypatch.setattr(observability.GUARD,'drop',dropped.set)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     sockets=[]
     try:
         # Actual idle TCP peers never send a TLS ClientHello. Their connection
         # threads must consume the bound before any HTTP POST permission slot.
-        for _ in range(8):sockets.append(socket.create_connection(('127.0.0.1',server.server_port),timeout=1))
-        deadline=time.monotonic()+2
-        while server.connection_slots._value!=0:
-            assert time.monotonic()<deadline;time.sleep(.01)
-        with socket.create_connection(('127.0.0.1',server.server_port),timeout=1) as extra:
-            extra.settimeout(.5);assert extra.recv(1)==b''
+        # The server gives a handshake 3 s, so an idle peer frees its slot after
+        # that; an attempt where the 3 s ran out before the extra peer arrived
+        # proves nothing and is repeated (a bound that never drops fails all).
+        for attempt in range(5):
+            # One at a time, each accepted before the next: the listen backlog is 5, and a slow accept loop
+            # with 8 pending peers resets the surplus (seen under load), which is not the bound under test.
+            full=True
+            for n in range(8):
+                sockets.append(socket.create_connection(('127.0.0.1',server.server_port),timeout=10))
+                if not wait_until(lambda:server.connection_slots._value==7-n,10):
+                    full=False;break
+            if full:
+                with socket.create_connection(('127.0.0.1',server.server_port),timeout=10) as extra:
+                    if dropped.wait(10):
+                        extra.settimeout(10);assert extra.recv(1)==b''  # closed before any TLS byte
+                        break
+            for connection in sockets:connection.close()
+            sockets.clear();assert wait_until(lambda:server.connection_slots._value==8,10)
+        else:
+            pytest.fail('the ninth connection was never dropped at the bound')
         assert worker.calls==0
         for connection in sockets:connection.close()
-        sockets.clear();deadline=time.monotonic()+2
-        while server.connection_slots._value!=8:
-            assert time.monotonic()<deadline;time.sleep(.01)
+        # Released slots are reusable: all 8 come back (closed peers or the 3 s handshake bound), then a request passes.
+        sockets.clear();assert wait_until(lambda:server.connection_slots._value==8,10)
         with client(key) as http:
             response=http.post(f'https://127.0.0.1:{server.server_port}{PATH}',
                 headers={'Authorization':'Bearer '+key.read_text()},json=BODY)
