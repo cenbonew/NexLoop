@@ -9,7 +9,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {offers,readMembers,type Me,type MemberRow,type Members as MembersData,type Operation} from '../api';
-import {Form,WithMember} from '../actions';
+import {ConfirmedForm,Form,WithMember} from '../actions';
 import {DataTable} from '../DataTable';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
@@ -199,7 +199,8 @@ export function MembersView({data,member}:{data:MembersData;member:Me}){
     <DataTable label="未接受的邀请" empty={{subject:'未接受的邀请'}} rows={data.invitations} rowKey={i=>i.invitation_id} columns={[
       {label:'用户名',main:true,cell:i=>i.username},{label:'角色',cell:i=>roleText(i.role)},{label:'签发人',cell:i=>who(i.issued_by)},
       {label:'到期',cell:i=><Time value={i.expires_at}/>},
-      {label:'撤销',cell:i=><Form operation="revoke_workbench_invitation" member={member} className="inline-action" tone="danger" title="撤销邀请" body={()=>({invitation_id:i.invitation_id})}><span/></Form>}]}/>
+      {label:'撤销',cell:i=><ConfirmedForm operation="revoke_workbench_invitation" member={member} tone="danger" trigger="撤销…" title="确认撤销邀请" withReason={false}
+        impact={<>影响：{i.username} 的邀请令牌立即失效，不能恢复；需要时重新邀请。</>} body={()=>({invitation_id:i.invitation_id})}/>}]}/>
     <h2>最近 90 天的重置码</h2>
     <DataTable label="最近 90 天的重置码" empty={{subject:'重置记录'}} rows={data.resets} rowKey={r=>r.reset_id} columns={[
       {label:'签发时间',main:true,cell:r=><Time value={r.issued_at}/>},{label:'对象',cell:r=>who(r.target_principal)},

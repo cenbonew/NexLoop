@@ -149,6 +149,26 @@ export function Form({operation,title,member,children,body,disabled,disabledReas
     <Outcome operation={operation} write={write}/></form>;
 }
 
+/** UX audit B5: a row action that used to run on one click (and wrote a reason nobody typed). The trigger opens a confirmation in place:
+ * what it does, the member's own reason (when the Action takes one), then the confirm button; 取消 or Escape closes it and returns focus
+ * to the trigger. Shown only when the role carries the operation. */
+export function ConfirmedForm({operation,member,trigger,title,impact,tone,withReason=true,reasonLabel='原因',body}:{operation:Operation;member:Me;trigger:string;title:string;
+  impact:ReactNode;tone?:'danger';withReason?:boolean;reasonLabel?:string;body:(reason:string)=>Record<string,unknown>}){
+  const [open,setOpen]=useState(false);const [reason,setReason]=useState('');
+  const button=useRef<HTMLButtonElement>(null);const panel=useRef<HTMLDivElement>(null);const was=useRef(false);const id=useId();
+  useEffect(()=>{if(open)panel.current?.querySelector<HTMLElement>('textarea,button[type=submit]')?.focus();else if(was.current)button.current?.focus();was.current=open;},[open]);
+  if(!offers(member,operation))return null;
+  if(!open)return <button type="button" ref={button} className={'confirm-trigger'+(tone==='danger'?' confirm-trigger-danger':'')} aria-expanded={false} onClick={()=>setOpen(true)}>{trigger}</button>;
+  return <div className="confirm-panel" ref={panel} role="group" aria-label={title} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();setOpen(false);}}}>
+    <Form operation={operation} member={member} title={title} tone={tone} className="inline-confirm" disabled={withReason&&!reason.trim()}
+      disabledReason={withReason?'填写原因后可确认。':undefined} body={()=>withReason&&!reason.trim()?null:body(reason.trim())}>
+      <p className="impact-summary" role="note">{impact}</p>
+      {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel}/>:null}
+    </Form>
+    <button type="button" className="btn-secondary" onClick={()=>setOpen(false)}>取消</button>
+  </div>;
+}
+
 /** The member's role decides which controls are offered; without it nothing is guessed. */
 export function WithMember({children}:{children:(member:Me)=>ReactNode}){
   const member=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false});
