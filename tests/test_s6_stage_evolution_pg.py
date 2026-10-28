@@ -30,7 +30,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/acceptance'))
 import s6_stage_evolution as S  # noqa: E402
 
-NOW = datetime.now(UTC).replace(microsecond=0)
 TERM = hexid('s6-stage-term')
 REF, OTHER = 'eios:object_type:Product', 'nexloop:vocabulary:color/red'
 WIDE = [f'eios:property:Consumer/p{i}' for i in range(10)]
@@ -43,14 +42,14 @@ def private(path, text):
     return str(path)
 
 
-def access(admin, run_id, terms, refs, *, browse=True):
+def access(admin, run_id, terms, refs, now, *, browse=True):
     admin.execute("""insert into runtime.nexloop_semantic_accesses(tenant_id,world,access_id,kind,run_id,operation,query_kind,term_hashes,coverage,ambiguity,
         result_refs,result_count,unresolved_count,recorded_at) values(%s,'real',%s,'access',%s,'browse','any',%s,0,false,%s,%s,0,%s)""",
-                  (TENANT_A, uuid.uuid4(), run_id, list(terms), Jsonb([{'ref': r, 'revision': '1'} for r in refs]), len(refs), NOW - timedelta(minutes=30)))
+                  (TENANT_A, uuid.uuid4(), run_id, list(terms), Jsonb([{'ref': r, 'revision': '1'} for r in refs]), len(refs), now - timedelta(minutes=30)))
 
 
-def failed_run(admin, digest, consumer, minutes):
-    rid = run(admin, digest, NOW - timedelta(minutes=minutes), consumer=consumer, link='message', tenant=TENANT_A)
+def failed_run(admin, digest, consumer, minutes, now):
+    rid = run(admin, digest, now - timedelta(minutes=minutes), consumer=consumer, link='message', tenant=TENANT_A)
     job = 'task_' + rid
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')
@@ -64,6 +63,9 @@ def failed_run(admin, digest, consumer, minutes):
 @pytest.fixture
 def stage(admin, pg, tmp_path):
     bootstrap(admin)
+    # The data and the window are relative to the time the test runs (PG's clock), never to collection: a full CI round runs
+    # this fixture long after the module was imported, and the stage reads the window against the database's now().
+    now = admin.execute("select date_trunc('second', clock_timestamp())").fetchone()[0].astimezone(UTC)
     writer, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32)
     reader, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, identity_suffix='-reader')
     evaluator, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, identity_suffix='-evaluator')
@@ -72,19 +74,19 @@ def stage(admin, pg, tmp_path):
     register(admin, hexid(evaluator), 'evaluator')
     evaluation, _ = eval_credential(admin, '-s6-stage')
     admin.execute("""insert into control.nexloop_budget_limits(tenant_id,world,budget_kind,unit,limit_amount,period_start,period_end,revision)
-        values(%s,'real','evolution','CNY',100,%s,%s,1)""", (TENANT_A, NOW - timedelta(days=1), NOW + timedelta(days=29)))
+        values(%s,'real','evolution','CNY',100,%s,%s,1)""", (TENANT_A, now - timedelta(days=1), now + timedelta(days=29)))
     consumers = [hexid('s6-consumer-' + str(i)) for i in range(5)]
     runs = {}
     for i, c in enumerate(consumers):
         admin.execute("insert into control.nexloop_consumer_personas(tenant_id,world,consumer_id,persona,revision,updated_by) values(%s,'real',%s,'simulated_agent',1,'synthetic')",
                       (TENANT_A, c))
-        runs[c] = [failed_run(admin, hexid(writer), c, 50 - 2 * i - k) for k in range(2)]
+        runs[c] = [failed_run(admin, hexid(writer), c, 50 - 2 * i - k, now) for k in range(2)]
     pair = (runs[consumers[0]][0], runs[consumers[1]][0])
     for c in consumers:
         for rid in runs[c]:
-            access(admin, rid, [TERM], [])                                                      # the miss
-            access(admin, rid, [hexid('dup') if rid in pair else hexid('other-' + rid)], [REF, OTHER])  # a hit (the pair asked the same)
-            access(admin, rid, [TERM, hexid('wide')], WIDE)                                    # a wide read: R3's protected ref is its last
+            access(admin, rid, [TERM], [], now)                                                    # the miss
+            access(admin, rid, [hexid('dup') if rid in pair else hexid('other-' + rid)], [REF, OTHER], now)  # a hit (the pair asked the same)
+            access(admin, rid, [TERM, hexid('wide')], WIDE, now)                                  # a wide read: R3's protected ref is its last
     d = tmp_path / 'private'
     d.mkdir(mode=0o700)
     dsn = {role: private(d / f'{role}.dsn', make_conninfo(pg, user=user)) for role, user in
@@ -95,13 +97,13 @@ def stage(admin, pg, tmp_path):
                         'inspector': {'dsn_file': private(d / 'inspector.dsn', pg)},  # locally the superuser, read only; on stage the bootstrap DSN
                         'evaluation': {'token_file': tok['evaluation']}, 'registrar': {'dsn_file': private(d / 'registrar.dsn', pg)}},
               'inputs': {'candidate_template': str(d / 'candidate-template.json'),
-                         'evolution': {'window': {'since': (NOW - timedelta(hours=1)).isoformat(), 'until': (NOW + timedelta(minutes=1)).isoformat()},
+                         'evolution': {'window': {'since': (now - timedelta(hours=1)).isoformat(), 'until': (now + timedelta(minutes=1)).isoformat()},
                                        'personas': ['simulated_agent'], 'label': 's6-local-1', 'parent_revision': 'sem-7', 'evaluator_version': 'l0-1',
                                        'model_profile': 'none', 'created_at': '2026-10-21T00:00:00Z',
                                        'l0_inputs': {'latency_ms': {'parent': [10.0] * 50, 'candidate': [10.5] * 50}},
                                        'protected_refs': [PROTECTED], 'erasure_consumer_id': consumers[2]}}}
     path = private(d / 's6-stage.json', json.dumps(config))
-    return dict(admin=admin, config=path, consumers=consumers, tokens=(writer, reader, evaluator, evaluation), pg=pg, tmp=tmp_path)
+    return dict(admin=admin, config=path, consumers=consumers, tokens=(writer, reader, evaluator, evaluation), pg=pg, tmp=tmp_path, now=now)
 
 
 def everything(admin):
