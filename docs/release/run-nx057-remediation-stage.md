@@ -36,7 +36,7 @@ NX-057 的 R0–R4 与 G1、G2 都随 release 46（main 4426c5d0）上了 stage�
 | P2 | 本批的 Action 已经发布（先在只读会话里试跑一次这条查询，确认能执行，再看结果）：`nexloop.remediation.resolve`、`nexloop.remediation.switch`、`nexloop.remediation.rule_release` | `ro "select resource_id from control.nexloop_action_definitions where active and resource_id like 'eios:action:nexloop.remediation.%' order by 1"`，应为 3 行。规划器的 `nexloop.remediation.plan:1` 是服务端口，不在业务 Action 清单里，这里查不到是正常的 |
 | P3 | （先按 §0.5 确认 approver3 是 active owner）角色清单（`workbench-roles.v1.json` manifest 42 起含补救的三个 Action；release 46 为 manifest 46）已经应用，owner 能看到工作台“运营 → Action / 异常”页的“补救”一栏 | 负责人登录后打开该页，“补救”一栏显示“当前没有待处理的补救” |
 | P4 | 效应类别 v3 已经在本租户生效：`nexloop.enterprise.deliver:1` 被声明为外部效应 | `ro "select external_effect from control.nexloop_action_effect_externality where tenant_id='$TENANT_ID' and world='real' and resource_id='eios:action:nexloop.enterprise.deliver:1'"`，至少一行 `t`。没有就停下：第 3 步会以 `source_not_effect` 被拒 |
-| P5 | stage 的真实派发保持关闭 | 部署层 `REAL_DISPATCH_ENABLED` 不是 `true`；工作台“真实派发”面板中租户开关为关闭 |
+| P5 | 真实派发三层开关的实际状态已读出并记入证据（2026-10-28 调度员核实：stage 上三层都开着，release 53+54 的门禁按此预期 20/21） | 读法同 run-outreach-slice5-stage P8：部署层只记 `REAL_DISPATCH_ENABLED` 是 `true` 还是 `false`，租户层与 Action 层看 `control.nexloop_real_dispatch_switches`。补救规则 v1 只有一条手动升级规则（`deliver_final_failure`），补救本身不发任何东西，所以开关开着不是停止条件；开着时最终失败会比关着时多，4.4 的查询可能不为空 |
 | P6 | `plan-reevaluator` 在运行 | `docker compose -p nexloop-app ps plan-reevaluator` 为 running |
 
 ### 0.2 变量
@@ -101,12 +101,12 @@ main 94baecc3 上缺这两个部署件，第二十九批补齐（分支 `l7/nx05
 - **以 stage 库里已应用的策略为准**（不看 main 上的文件）。执行前核对（A，参照 run-nx056 §7 的核对查询）：
 
 ```
-ro "select max(manifest_version) from control.nexloop_approval_policy_publications"                                   # 4
+ro "select max(manifest_version) from control.nexloop_approval_policy_publications"                                   # 5（release 53 的 S8 之后；之前为 4）
 ro "select count(*) from control.nexloop_approval_policies where capability like 'remediation%' or capability like '%remediation%'"   # 0
 ```
 
-  - 预期第一条为 `4`，第二条为 `0`。
-  - **停止条件**：第一条大于 4，或者第二条不是 0，说明 stage 已应用的策略可能覆盖补救动作。停下，按 stage 上的策略补上 approver2 的批准步骤，再继续。
+  - 预期第一条为 `5`（release 53 的 S8 应用了 version 5，只新增 `goals.budget.loosen`；在那之前为 `4`），第二条为 `0`。
+  - **停止条件**：第一条大于 5，或者第二条不是 0，说明 stage 已应用的策略可能覆盖补救动作。停下，按 stage 上的策略补上 approver2 的批准步骤，再继续。
 - **approver3 的状态**（A，在 P3 之前执行）：确认 approver3 仍是 active owner，没有被暂停、撤销或降级。
 
 ```
@@ -376,7 +376,7 @@ ro "select state, kind, last_code, count(*) from runtime.nexloop_remediation_int
 ```
 
 - `nexloop.enterprise.deliver:1` 的最终失败预期为 `generated`，其他 Action 的失败为 `no_rule` 或 `not_eligible`。
-- stage 的真实派发是关的，最终失败很少，打开之后一段时间内两条查询都为空是正常的。本单不制造失败；演练另行安排。
+- 最终失败多少取决于真实派发开关（P5 读出的状态）。失败很少时，打开之后一段时间内两条查询都为空是正常的。本单不制造失败；演练另行安排。
 - 工作台“补救”一栏显示待处理条数；告警：
   - 有补救等待超过 24 小时：`remediation_waiting`；
   - 超过每小时上限：`remediation_rate_capped`；

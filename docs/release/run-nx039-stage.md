@@ -10,7 +10,7 @@
 | S6-R4 留出集用尽 | `s6_stage_evolution.py r4` | P2–P5；用**自己那份**留出集，故意用完（使用序号 1–5，第 6 个被拒） |
 | S6-R3 G5 硬门槛 | `s6_stage_evolution.py r3` | P2–P5，另加 P7（某次读取超过 10 条结果并含受保护定义） |
 
-- **身份**：本单三项都不需要人工操作。唯一的人工步骤是 NX-038 §2.0 的 evolution 预算设置，只由合成 owner **approver3** 执行（口令在钥匙串 `nexloop/stage/approver3`）。负责人的账号不登录、不操作。writer、evaluator、reader 是服务凭据，不是人。
+- **身份**：本单三项都不需要人工操作。唯一的人工步骤是 NX-038 §2.0 的 evolution 预算设置：新设预算按 NX-056 预算审批（迁移 `budget_loosen`）走放宽，由合成 owner **approver3** 发起和执行，**approver2** 批准（口令在钥匙串 `nexloop/stage/approver3`、`nexloop/stage/approver2`）。负责人的账号不登录、不操作。writer、evaluator、reader 是服务凭据，不是人。
 - 本单不写正式对象，只写候选、评估和留出集使用记录。`r6`（发布语义版本再回滚）、`r8 --publish` 不在本单内。
 
 ## 0. 前提
@@ -23,7 +23,7 @@
 | P9 | 合成 Consumer 至少覆盖 **4 个簇单元**。留出集是簇单元的非空真子集：4 个单元有 14 个，够分给 8 项；3 个单元只有 6 个，排在后面的项（其中有 at048、r5、r7、template）会以 `cluster units give … holdouts; 8 are needed` 判 blocked | 只读：`uv run --frozen python scripts/acceptance/s6_stage_evolution.py r4 --config "$S6" --dry-run`，结果中 `inputs` 一步的 `units` ≥ 4（同一步还给出 `runs`、`clusters`、`excluded`）。`s6_stage_inputs.py` 的 `evolution.window` 证据中 Consumer 数 ≥ 4 只是必要条件：近重复的 Run 会并簇，所以以 `units` 为准。不足时，先跑一段涉及更多合成 Consumer 的合成交互，然后两张单一起换 `label` |
 | P8 | 本单和 NX-038 的单**用同一份私有配置**（`local-only/s6-stage.json`，同一个 `label`、同一个 `window`），并且 NX-038 的第 7 步（`r7-prepare`）还没有开始 | 配置文件的 sha256 与 NX-038 执行时记录的相同；NX-038 的结果目录里没有 `r7-prepare` 的结果 |
 
-预算（P3）不满足时，按 NX-038 §2.0 由 approver3 设定，**两张单共用这一次设定**，不要再设一次。
+预算（P3）不满足时，按 NX-038 §2.0 设定（approver3 发起和执行，approver2 批准），**两张单共用这一次设定**，不要再设一次。
 
 ## 1. 两张单怎么排：同一次诊断里连续跑
 
@@ -107,7 +107,7 @@ uv run --frozen python scripts/acceptance/s6_stage_evolution.py r3 --config "$S6
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| F1：`budget evolution not configured` / `budget_exhausted` | 同 NX-038 F1 | 按 NX-038 §2.0 由 approver3 设定或调高，两张单共用；然后重跑同一 `label` |
+| F1：`budget evolution not configured` / `budget_exhausted` | 同 NX-038 F1 | 按 NX-038 §2.0 设定或调高（approver3 发起和执行，approver2 批准；调高也是放宽），两张单共用；然后重跑同一 `label` |
 | F2：`at046` 的评估凭据 worlds 不是 `["test"]`、未登记，或在 real 认证成功 | 登记错误，或评估凭据被换成了 real 凭据 | 判 failed，停止全部演进检查（R5、L1 都依赖它），报 L6；不要手工改登记表，按 `evolution-stage-enrollment.md` 重新登记 |
 | F3：`r4` 的 `plan` 显示 `holdout_uses` 不为 0 | 这份留出集已经用过：重跑，或者输入变了（NX-038 的删除已经执行、换了 `window`） | 不执行。要重做 R4 需要新的 `label` 和新的合成数据；两张单一起换 |
 | F4：`r4` 前 5 个中有开评失败（预算以外的原因） | 留出集被其他检查共用，或者开评门槛变化 | 判 failed，保留结果文件，报 L6 |
