@@ -97,3 +97,20 @@ def test_an_empty_tenant_reads_an_empty_list(owners):
     with_policies(c)
     response = read(c, c['owner_member'])
     assert response.status_code == 200 and response.json() == {'experiments': []}
+
+
+def test_over_http_an_owner_reads_only_the_session_tenant_s_experiments(owners, admin):
+    """L6 S1 on a51d0ad4: the tenant comes from the session, never the request. Another tenant's experiment (seeded directly, its
+    registration as this tenant's) does not reach this tenant's owner over HTTP, and this tenant's does."""
+    c = owners
+    with_policies(c)
+    world = seed(admin)
+    admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict do nothing", (TENANT_B,))
+    theirs = registration(world, TWIN, experiment_id='other.tenant', budget={'model_cny': 1, 'incentive_cny': 0}, ends_at=soon())
+    admin.execute("""insert into control.nexloop_experiments(tenant_id,experiment_id,registration,registration_digest,request_id,registered_by)
+        values(%s,'other.tenant',%s,%s,'other-tenant-request','other-owner')""", (TENANT_B, json.dumps(theirs), 'e' * 64))
+    response = read(c, c['owner_member'])
+    assert response.status_code == 200
+    ids = {x['experiment_id'] for x in response.json()['experiments']}
+    assert ids == {'budget.drill', 'plain.screening'} and 'other.tenant' not in json.dumps(response.json())
+    assert [x['experiment_id'] for x in admin.execute('select runtime.nexloop_workbench_experiments_view(%s)', (TENANT_B,)).fetchone()[0]['experiments']] == ['other.tenant']
