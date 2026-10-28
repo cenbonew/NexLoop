@@ -5,7 +5,7 @@
   - `docs/implementation/S6-stage-acceptance.md`（脚本、配置、断言、执行顺序；第 121 行起的执行顺序是本单的顺序来源）；
   - `scripts/acceptance/s6_stage_schema.py`（`at024`、`r10`、`r8`、`r6`）与 `scripts/acceptance/s6_stage_evolution.py candidate-template`；
   - `scripts/deploy/schema_proposal.py`（owner 的 Schema 提案复核与发布 CLI）；
-  - L2 的 NX-038 运行单 `docs/release/run-nx038-stage.md`（分支 `l2/nx038-stage-runs` ad55eb36）与 L3 的 NX-039 运行单 `docs/release/run-nx039-stage.md`（分支 `l3/nx039-stage-runs` 06948eb4）：三张单**共用配置、前提与 evolution 预算**；本单的 r10、r8、r6 插在 038-6（at024）之后、038-7（r7-prepare）之前，r8 的正式发布放在全部验收之后（§1）。
+  - L2 的 NX-038 运行单 `docs/release/run-nx038-stage.md`（分支 `l2/nx038-stage-runs` ad55eb36）与 L3 的 NX-039 运行单 `docs/release/run-nx039-stage.md`（分支 `l3/nx039-stage-runs` 06948eb4）：三张单**共用配置、前提与 evolution 预算**；本单的 r10、r8 插在 038-6（at024）之后、038-7（r7-prepare）之前，r6 放在 038-10（r7-verify）之后，r8 的正式发布放在最后（§1）。
 - 本单不复述脚本的断言，只写在 stage 上怎么跑、看什么、失败怎么办。本单在 L4 本地只核对了 main 17aa74c1 上的入口与参数，**没有连接 stage**。
 - **入口**（main 17aa74c1）：
 
@@ -47,19 +47,19 @@
 | 7 | 038 | 038-6 **`at024`**（AT-024 / S6-R9） | NX-038 与 NX-040 共用，只执行一次（本单 §3.1 只在 038-6 未执行时补跑） |
 | 8 | **040** | §3.2 **`r10`** | |
 | 9 | **040** | §3.3 **`r8`**（不带 `--publish`） | 开评一次 |
-| 10 | **040** | §3.4 核对 `semantic`，然后 **`r6`** | |
-| 11–14 | 038 | 038-7 `r7-prepare` → 038-8 删除预检 → 038-9 删除 → 038-10 `r7-verify` | 删除在验收步骤中最后 |
+| 10–13 | 038 | 038-7 `r7-prepare` → 038-8 删除预检 → 038-9 删除 → 038-10 `r7-verify` | 删除在所有用到诊断输入的步骤之后 |
+| 14 | **040** | §3.4 核对 `semantic`，然后 **`r6`** | 移动语义指针，放在 r7 全部完成之后（L6 S1） |
 | 15 | **040** | （可选，Q5）§3.3 路 2 正式发布 r8 的提案，再 `hide` | 唯一写正式 Schema 的一步，放在全部验收之后 |
 
 **为什么插在这里**：
 
 - **at024、r10、r8 放在 candidate-template（总序 6）之后**：三项都从 `inputs.candidate_template` 起步（`s6_stage_schema.py` 的 `candidate_body`），没有它就报缺失；candidate-template 本身在 038-5，所以三项只能在它之后。at024 与 NX-038 共用，跟在 038-5 后面正是 038-6。
-- **at024、r10、r8 放在删除（总序 11–14）之前**：candidate-template 的候选与 r8 的开评用的是诊断里分给 `template` 的那份留出集（`s6_stage_evolution.py` 的 `HOLDOUT_ORDER` 最后一项）。删除合成 Consumer 会改变簇单元，含它的留出集被作废（`missing_data`），r8 的开评就会失败或落到别的簇上。这与 NX-039 把 r3、r4 放在删除之前是同一个理由。
+- **at024、r10、r8 放在删除（总序 10–13）之前**：candidate-template 的候选与 r8 的开评用的是诊断里分给 `template` 的那份留出集（`s6_stage_evolution.py` 的 `HOLDOUT_ORDER` 最后一项）。删除合成 Consumer 会改变簇单元，含它的留出集被作废（`missing_data`），r8 的开评就会失败或落到别的簇上。这与 NX-039 把 r3、r4 放在删除之前是同一个理由。
 - **留出集不冲突**：at024、r10 只做候选写入与提案冻结，不开评；r8 开评一次，用的是 `template` 那份，不占 at023、r1、r3、r4、at048、r5、r7 的留出集，也远低于每份 5 个候选的上限（D39-3）。
 - **r6 放在 at023（总序 4）之后**：r6 发布的是 at023 产出的 L0 accepted_for_release 语义候选（S6-stage-acceptance 第 121 行），`--only semantic` 也在 at023 之后执行。
-- **r6 放在所有用到 `parent_revision` 的演进检查之后**：r6 发布语义版本、再回退为更高的新版本，会移动语义版本指针。at023、r1、r3、r4、at048、r5 和 candidate-template 都以配置里的 `parent_revision` 为候选的父版本；NX-039 §1.2 也要求 r6 放在 NX-039 之后。总序 10 时这些都已完成。
-- **r6 放在删除之前**：按 S6-stage-acceptance 的执行顺序（第 125–126 行），删除必须最后，因为它改变诊断输入；r6 本身不依赖窗口，但放在删除之前，三张单都遵守“删除最后”这一条，验收期间的输入保持一致。
-- **r8 的正式发布放在最后（总序 15）**：它是唯一写正式 Schema 的一步（B 类，Q5），与验收无关的 `hide` 回退也跟着它。放在全部验收之后，发布或回退出问题不会影响任何一项验收的输入，验收结果也不依赖它。r8 的验收本身（总序 9）不带 `--publish`。
+- **r6 放在所有用到 `parent_revision` 的演进检查之后**：r6 发布语义版本、再回退为更高的新版本，会移动语义版本指针。at023、r1、r3、r4、at048、r5、candidate-template 和 r7-prepare 都以配置里的 `parent_revision` 为候选的父版本；NX-039 §1.2 也要求 r6 放在 NX-039 之后。总序 14 时这些都已完成。§3.4 在删除之后执行的 `--only semantic` 只取 `semantic` 一项，不重新取窗口，不受删除影响。
+- **r6 放在 r7-verify 之后（L6 S1，与 S6-stage-acceptance 第 125–126 行的顺序不同）**：r7-prepare 仍以配置里旧的 `parent_revision` 起草候选。SQL 里只有语义发布有 `parent_moved` 检查，候选写入和开评都没有，所以 r6 先移动指针大概率不影响 r7，但没有验证过。r6 不依赖窗口，也不依赖被删除的 Consumer（它发布的是 at023 的候选，`--only semantic` 在总序 4 之后已经取好），所以把它移到 r7 全部完成之后，r7 的四步就不受指针移动的影响。删除仍是所有用到诊断输入的步骤中的最后一步。
+- **r8 的正式发布放在最后（总序 15，r6 之后）**：它是唯一写正式 Schema 的一步（B 类，Q5），与验收无关的 `hide` 回退也跟着它。放在全部验收之后，发布或回退出问题不会影响任何一项验收的输入，验收结果也不依赖它。r8 的验收本身（总序 9）不带 `--publish`。
 
 ## 2. 配置
 
@@ -111,7 +111,14 @@ security find-generic-password -s nexloop/stage/approver3 -w | python3 scripts/d
 ```
 
 - `check` 预期：F1 允许，类别 minor，影响清单只有 `inputs.schema_type`；
-- `publish` 预期：`published: true`，新的 Schema 版本号；发布前后由 `verify` 核对迁移目录与 `bootstrap.verify` 不变——用路 1 时脚本自动核对，用路 2 时由调度员执行一次 `s6_stage_schema.py r8`（同一 `label`，按重放处理）取 `catalog_and_verify_unchanged` 一步作为发布后的核对；
+- `publish` 预期：`published: true`，新的 Schema 版本号；
+- **发布后的核对（L6 S2，方法：直接执行 `bootstrap.verify`）**：用路 1 时脚本自动核对（`owner_publication_changes_no_catalog`）。用路 2 时，**不**靠再跑一次 r8 的重放（重放会先重新提案、冻结和开评，不保证能走到 verify 那一步），而是直接执行：
+
+  ```bash
+  uv run --frozen python scripts/acceptance/s6_bootstrap_verify.py --config "$S6"
+  ```
+
+  它用 S6 配置里 r8 同一个 verify 连接（`roles.verify.dsn_file`，只读事务）执行 `bootstrap.verify`，输出一行 `{revision, migration_count, digest}`，与 r8 的 `catalog_and_verify_unchanged` 同一摘要。通过条件：等于总序 9 的 r8 结果中 `catalog_and_verify_unchanged.observed.before`。本地测试 `tests/test_s6_stage_schema_pg.py::test_r8_goes_through_g9_g13_and_the_catalog_stays` 在 owner 发布之后执行它，结果与 r8 的 before 相同；没有配置 verify 连接时以退出码 2 拒绝，不算通过；
 - 验收后用同一 CLI 的 `hide` 把这个合成属性回退为隐藏（新 Schema 版本，不删除对象数据），输出记入证据。
 
 ### 3.4 S6-R6
@@ -169,7 +176,7 @@ r6 发布一个语义版本、立即回退为更高的新版本，并开启 7 �
 
 在 main 17aa74c1 上，本单的四项都有入口，evolution 预算的入口由 L2 的 G1 补上（L6 PASS），**没有新的代码缺口**。需要注意：
 
-- 路 2 发布后取“迁移目录与 verify 不变”的证据，要再跑一次 `s6_stage_schema.py r8`（重放）；如果希望 `schema_proposal.py publish` 自己输出 verify 摘要，可另立一个小改动（约 0.5 天），不阻塞本单。
+- 路 2 发布后的“迁移目录与 verify 不变”由新增的 `scripts/acceptance/s6_bootstrap_verify.py` 直接核对（§3.3），不再依赖 r8 的重放。
 
 ## 8. 局限
 

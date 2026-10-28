@@ -152,6 +152,23 @@ def test_r8_goes_through_g9_g13_and_the_catalog_stays(stage, tmp_path):
     # --publish: the owner's B-class step; still no catalog change.
     code, doc = run(tmp_path, 'r8', s['ports'](), {**s['inputs'], 'new_property': 's6_shoe_size'}, '--publish')
     assert code == 0 and steps(doc)['owner_publication_changes_no_catalog']['observed']['published'] is True, json.dumps(doc, ensure_ascii=False)
+    # The run sheet's route 2 check after a schema_proposal.py publication: bootstrap.verify on its own gives the same summary as r8's
+    # before (the publication changes no catalog); a configuration without the verify connection is refused, never a pass.
+    import s6_bootstrap_verify as V
+    dsn = tmp_path / 'verify.dsn'
+    dsn.write_text(make_conninfo(s['e']['pg'], user='nexloop_api'))
+    dsn.chmod(0o600)
+    config = json.loads(config_file(tmp_path).read_text())
+    config['roles'] = {'verify': {'dsn_file': str(dsn)}}
+    path = tmp_path / 's6-verify.json'
+    path.write_text(json.dumps(config))
+    path.chmod(0o600)
+    out = io.StringIO()
+    assert V.main(['--config', str(path)], out=out) == 0
+    assert json.loads(out.getvalue()) == st['catalog_and_verify_unchanged']['observed']['before']
+    assert str(s['e']['pg']) not in out.getvalue()
+    out = io.StringIO()
+    assert V.main(['--config', str(config_file(tmp_path))], out=out) == 2 and 'roles.verify.dsn_file' in out.getvalue()
 
 
 def test_r10_three_breaking_changes_each_return_their_code(stage, tmp_path):
