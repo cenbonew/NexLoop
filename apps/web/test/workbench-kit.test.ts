@@ -57,8 +57,8 @@ test('KeyValue: a description list of key and value rows with an optional hint',
 test('IdText: head…tail in monospace, the full value on hover and focus, a copy button; a name replaces the hash; short ids unchanged',()=>{
   expect(shorten(HEX)).toBe('548560cd…a3f0');expect(shorten('abc')).toBe('abc');expect(shorten(HEX,4,2)).toBe('5485…f0');
   const html=r(h(IdText,{value:HEX,kind:'客户'}));
-  expect(html).toContain('<span class="id-kind">客户</span>');expect(html).toContain(`<code class="id-code" title="客户 ${HEX}" tabindex="0" aria-label="客户 ${HEX}">548560cd…a3f0</code>`);
-  expect(html).toContain('aria-label="复制客户 ID"');expect(html).toContain(`data-id="${HEX}"`);expect(html.split(HEX).length-1).toBe(3);  // data-id, title, aria-label only: never as text
+  expect(html).toContain('<span class="id-kind">客户</span>');expect(html).toContain(`<code class="id-code" title="客户 ${HEX}" aria-label="客户 ${HEX}">548560cd…a3f0</code>`);  // C3: no tab stop
+  expect(html).toContain('aria-label="复制客户 ID"');expect(html).toContain(`data-id="${HEX}"`);expect(html.split(HEX).length-1).toBe(4);  // data-id, title, aria-label, the copy button's title: never as text
   const named=r(h(IdText,{value:HEX,name:'王女士',kind:'客户'}));
   expect(named).toContain('<span class="id-name">王女士</span>');expect(named).toContain('class="id-code id-secondary"');
   expect(r(h(IdText,{value:HEX,copy:false}))).not.toContain('id-copy');
@@ -96,7 +96,7 @@ test('DataTable: its own horizontal scroller, the header sticks past 20 rows, nu
   const rows=Array.from({length:3},(_,i)=>({id:'r'+i,n:i}));
   const cols=[{label:'名称',main:true,cell:(x:{id:string})=>x.id},{label:'次数',num:true,cell:(x:{n:number})=>x.n}];
   const html=r(h(DataTable<{id:string;n:number}>,{label:'记录',rows,rowKey:x=>x.id,columns:cols}));
-  expect(html).toMatch(/^<div class="table-scroll" role="region" aria-label="记录（可横向滚动）" tabindex="0"><table class="data-table" aria-label="记录">/);
+  expect(html).toMatch(/^<div class="table-scroll"><table class="data-table" aria-label="记录">/);  // C3: a tab stop only once it overflows (measured in the browser)
   expect(html).toContain('<th scope="col" class="cell-num">次数</th>');expect(html).toContain('<td data-label="次数" class="cell-num">2</td>');
   const long=r(h(DataTable<{id:string;n:number}>,{rows:Array.from({length:21},(_,i)=>({id:'r'+i,n:i})),rowKey:x=>x.id,columns:cols}));
   expect(long).toContain('class="data-table table-sticky"');
@@ -134,4 +134,11 @@ test('pages: Goals shows control events as label + IdText (never the 64-hex scop
     {claim_id:'c2',predicate:'due_date',source_message_id:'m'.repeat(20),content:body},{claim_id:'c3',predicate:'item',source_message_id:'m'.repeat(20),content:body}]}));
   expect(ev.split('下周三之前寄出').length-1).toBe(1);expect(ev).toContain('3 条 Claim');expect(ev).toContain('aria-label="证据：1 条消息，3 条 Claim"');
   expect(ev).toContain('delivery_promise');expect(ev).toContain('due_date');
+});
+
+test('C2: a compact empty state is one line; a compact unavailable one keeps saying the number is not zero; a full one keeps its next step',()=>{
+  expect(r(h(EmptyState,{kind:'empty',subject:'承诺',compact:true}))).not.toContain('state-next');
+  expect(r(h(EmptyState,{kind:'empty',subject:'承诺',compact:true,next:'自定义'}))).toContain('自定义');
+  expect(r(h(EmptyState,{kind:'empty',subject:'承诺'}))).toContain('有新记录时会出现在这里。');
+  expect(r(h(EmptyState,{kind:'unavailable',subject:'承诺',compact:true}))).toContain('未加载，不代表数量为零。');
 });

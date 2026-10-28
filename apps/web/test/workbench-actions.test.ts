@@ -2,7 +2,7 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
-import {WRITE_TEXT,actions,consumer,me,overview,readActions,readConsumer,takeovers,workbenchAct,type Me} from '../src/workbench/api';
+import {WRITE_TEXT,technical,actions,consumer,me,overview,readActions,readConsumer,takeovers,workbenchAct,type Me} from '../src/workbench/api';
 import {CommitmentControls,ConsumerControls,ConversationControls,DONE_TEXT,GOVERNED_SLOTS,governedWrite,takeoverText} from '../src/workbench/actions';
 import {Actions} from '../src/workbench/pages/Actions';
 import {WorkbenchPage} from '../src/workbench/WorkbenchApp';
@@ -58,7 +58,7 @@ test('AT-045 writes: every outcome has its exact kind; 503, network loss and an 
   vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:503})));
   await expect(workbenchAct('set_control',{},'wb-key-0000000000000001')).rejects.toMatchObject({kind:'not_sent'});
   expect(WRITE_TEXT.unavailable).toContain('无法确认是否已执行');expect(WRITE_TEXT.unavailable).toContain('不会重复执行');
-  expect(WRITE_TEXT.forbidden).toContain('403');expect(WRITE_TEXT.not_allowed_in_state).toContain('409');expect(WRITE_TEXT.not_sent).toContain('未提交');
+  for(const text of Object.values(WRITE_TEXT))expect(text).not.toMatch(/（\d{3}）/);expect(technical('forbidden')).toBe('HTTP 403 · forbidden');expect(technical('not_allowed_in_state')).toBe('HTTP 409 · not_allowed_in_state');expect(WRITE_TEXT.not_sent).toContain('未提交');
   expect(DONE_TEXT.send_staff_reply).toContain('不代表问题已解决');expect(DONE_TEXT.request_effect_query).toContain('不会重发');
 });
 
@@ -97,9 +97,10 @@ test('D2: an operator is not offered owner-only controls; the owner is',()=>{
     // Both roles: extend / attest a commitment, take a consumer over.
     expect(form(commitment,'延期')).toBe(true);expect(form(commitment,'人工证明已兑现')).toBe(true);expect(form(detail,'接管整个客户')).toBe(true);
   }
-  // Without the role nothing is guessed: the action area says it is unavailable.
+  // Without the role nothing is guessed: no form is offered while it loads (C13: and no "正在加载…" line at every form).
   const unknownRole=client([]);unknownRole.setQueryDefaults(['workbench','me'],{queryFn:()=>new Promise(()=>{})});
-  expect(render(unknownRole,h(ConsumerControls,{consumerId:id('2')}))).toContain('正在加载');
+  const loading=render(unknownRole,h(ConsumerControls,{consumerId:id('2')}));
+  expect(loading).not.toContain('<form');expect(loading).not.toContain('正在加载');
 });
 
 test('takeover page: state, hand-back, and the staff reply only for the member who took it over',()=>{

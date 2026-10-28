@@ -70,7 +70,7 @@ test('several personas: one row each with its current version, state and assignm
   expect(box.querySelector('#persona-list-title')!.textContent).toBe('人设（3 个）');
   const rows=[...box.querySelectorAll('table[aria-label="人设"] tbody tr')].map(r=>[...r.querySelectorAll('td,th')].map(c=>c.textContent));
   expect(rows.map(r=>r.slice(0,4))).toEqual([
-    ['小蓝 lan','lan@1','✓已发布','分群规则第 1、2 条'],['旧人设 old','没有在用的版本','–已停用','未分配'],['小禾 xiaohe','xiaohe@2','✓已发布','租户默认']]);
+    ['小蓝 lan','lan@1','✓已发布','分群规则第 1、2 条'],['旧人设 old','没有在用的版本','已停用','未分配'],['小禾 xiaohe','xiaohe@2','✓已发布','租户默认']]);
   expect(box.querySelectorAll('table[aria-label="人设版本"] tbody tr')).toHaveLength(4);  // every version still listed for retiring / re-enabling
   act(()=>button('新建人设')!.click());
   fill('persona-persona_id','xiaohe');fill('persona-display_name','重复');fill('persona-tone','x');fill('persona-reason','x');

@@ -97,7 +97,7 @@ export function ResetPage(){
 export function ResetNotice({notices}:{notices:Notice[]}){
   if(!notices.length)return null;
   const last=notices[0];
-  return <p className="impact-summary" role="status" aria-live="polite">你的密码在 <Time value={last.completed_at}/> 通过负责人签发的重置码重置（签发人 <IdText value={last.issued_by} head={8} tail={4} copy={false}/>）。
+  return <p className="impact-summary" role="status" aria-live="polite">你的密码在 <Time value={last.completed_at}/> 通过负责人签发的重置码重置（签发人 <IdText value={last.issued_by} head={8} tail={4}/>）。
     如果不是你本人操作，请立即联系其他负责人。这条提示 7 天内每次登录都会显示，详情见“账号安全”。</p>;
 }
 
@@ -107,6 +107,6 @@ export function AccountSecurity(){
     <p className="note">最近 90 天通过负责人签发的重置码完成的密码重置。这里的记录你不能删除。</p>
     {query.isPending?<p role="status">{STATE_TEXT.loading}</p>:query.isError?<p role="alert">{STATE_TEXT[kindOf(query.error)]}</p>
       :query.data.length===0?<p>最近 90 天没有通过重置码重置密码。</p>
-      :<ul>{query.data.map(n=><li key={n.reset_id}><Time value={n.completed_at}/>，签发人 <IdText value={n.issued_by} head={8} tail={4} copy={false}/></li>)}</ul>}
+      :<ul>{query.data.map(n=><li key={n.reset_id}><Time value={n.completed_at}/>，签发人 <IdText value={n.issued_by} head={8} tail={4}/></li>)}</ul>}
   </section>;
 }

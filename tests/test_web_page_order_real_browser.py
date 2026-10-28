@@ -90,4 +90,4 @@ def test_real_chromium_page_order_batch_six(conversations, admin, pg, tmp_path, 
     # F11: one-line time/member/purpose cells, objects as short IDs with the full value in the title, no sideways page scroll.
     audit = observed['audit']
     assert audit['rows'] >= 1 and audit['nowrap_one_line'] and audit['full_in_title'] and audit['hscroll'] <= 0, audit
-    assert audit['ids'] and all(len(i) <= 9 for i in audit['ids']), audit['ids']
+    assert audit['ids'] and all(len(i) <= 11 for i in audit['ids']), audit['ids']  # the kit's IdText: head 6, …, tail 4

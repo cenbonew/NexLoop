@@ -10,16 +10,16 @@ import {takeoverText} from '../actions';
 export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:string)=>void}){
   const query=useQuery({queryKey:['workbench','overview'],queryFn:readOverview});
   const open=(page:string,text:string)=><button type="button" onClick={()=>onOpen(page)}>{text}</button>;
-  return <Page title="总览" query={query} actions={actions} lead="今天需要关注什么：目标与控制、承诺、待核对的外部动作、联系限制、人工接管、后台积压与费用。">{data=><CardGrid label="总览">
+  return <Page title="总览" query={query} actions={actions} lead="今天需要关注什么：目标与控制、承诺、Action 与异常、联系限制、人工接管、后台积压与费用。">{data=><CardGrid label="总览">
     <SectionCard title="目标与控制" section={data.goals} footer={open('goals','查看目标')}>{g=><>
-      <KeyValue items={[{key:'控制修订号',value:<span className="num">{g.control_revision}</span>},{key:'已发布目标',value:`${g.goals.length} 个`}]}/>
+      <KeyValue items={[{key:'已发布目标',value:`${g.goals.length} 个`}]}/>
       {g.goals.length?<ul>{g.goals.map(x=><li key={x.goal_id}>{x.objective}（v{x.current_version}，KR {x.key_results} 个）</li>)}</ul>:<EmptyState kind="empty" subject="已发布目标" compact/>}
       {g.paused_scopes.length?<Notice tone="warning">已暂停主动联系：{g.paused_scopes.map((s,i)=><span key={s.scope_kind+s.scope_ref}>{i?'、':''}<ScopeText kind={s.scope_kind} value={s.scope_ref}/></span>)}</Notice>:null}</>}</SectionCard>
     <SectionCard title="承诺" section={data.commitments} footer={open('commitments','查看承诺')}>{c=><>
       <p>未结束 {c.open} 条，其中已违约 {c.breached} 条</p>
       {c.exceptions.length?<ul className="badge-list">{c.exceptions.map(e=><li key={e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/> {e.count}</li>)}</ul>
         :<EmptyState kind="empty" subject="承诺异常" compact/>}</>}</SectionCard>
-    <SectionCard title="待核对的外部动作" section={data.actions} footer={open('actions','查看 Action')}>{a=>
+    <SectionCard title="Action / 异常" section={data.actions} footer={open('actions','查看 Action')}>{a=>
       <p>待核对 {a.count} 个{a.oldest_age_seconds!==null?`，最久 ${Math.round(a.oldest_age_seconds/60)} 分钟`:''}</p>}</SectionCard>
     <SectionCard title="联系限制" section={data.contact} footer={open('contact','查看限制')}>{c=>
       <p>受限客户 {c.restricted} 位；来信必回升级 {c.escalations} 条</p>}</SectionCard>

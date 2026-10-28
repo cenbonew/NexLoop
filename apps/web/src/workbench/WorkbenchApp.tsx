@@ -66,7 +66,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'members':return <Members/>;
     case 'account':return <AccountSecurity/>;
     case 'personas':return <Personas actions={a} onConsumers={()=>go({page:'consumers'})}/>;
-    case 'settings':return <Settings actions={a}/>;
+    case 'settings':return <Settings actions={a} onMembers={()=>go({page:'members'})}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
     case 'alerts':return <Alerts actions={a}/>;
     case 'operations':return <Operations actions={a}/>;
@@ -163,7 +163,10 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
     <header className="brand-header"><Brand/><span className="brand-context">负责人工作台</span><span className="brand-tz">时间均为北京时间</span></header><main id="workbench-content" tabIndex={-1}>
     {/* NX-058: the public account pages need no session (the invitation token or reset code is the credential). */}
     {window.location.pathname===ACCOUNT_PATHS.invitation?<InvitationPage/>:window.location.pathname===ACCOUNT_PATHS.reset?<ResetPage/>
-      :session.isPending?<p role="status">{STATE_TEXT.loading}</p>
+      // C13: while the session is checked, the shape of the workbench (navigation and page placeholders), not a line on white.
+      :session.isPending?<div className="workbench-layout workbench-skeleton" role="status" aria-busy="true"><span className="sr-only">{STATE_TEXT.loading}</span>
+        <div className="skeleton-nav" aria-hidden="true">{Array.from({length:8},(_,i)=><span key={i} className="skeleton-line"/>)}</div>
+        <div className="workbench-main" aria-hidden="true"><span className="skeleton-line skeleton-title"/><span className="skeleton-line"/><span className="skeleton-line"/><span className="skeleton-line short"/></div></div>
       :session.isError?<section><h1>暂时无法连接</h1><p role="alert">{STATE_TEXT[kindOf(session.error)]}</p><button type="button" onClick={()=>void session.refetch()}>重试</button></section>
       :!session.data?<WorkbenchLogin onLogin={()=>void session.refetch()}/>
       :<div className="workbench-layout">

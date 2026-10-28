@@ -45,7 +45,7 @@ test('the page lists the sets and previews the selected one: restricted Properti
     [['workbench','object-set-members','tennis.players',2,0],objectSetPage(PAGE)]]);
   expect(preview).toContain('符合条件 3 个');expect(preview).toContain('本页不可见 1 个');
   expect(preview).toContain('受限');expect(preview).toContain('aaaaaaaa…aaaa');
-  expect(preview.replace(/title="[^"]*"/g,'')).not.toContain(A);  // the whole id only in the hover title, never in the text
+  expect(preview.replace(/(title|aria-label|data-id)="[^"]*"/g,'')).not.toContain(A);  // the whole id only in attributes (title, label, copy), never in the text
   const held=render({set:'tennis.players'},[[['workbench','object-sets'],objectSets(SETS)],
     [['workbench','object-set-members','tennis.players',2,0],objectSetPage({stable_name:'tennis.players',version:2,object_type:'Consumer',status:'withheld',items:[],total:null})]]);
   expect(held).toContain('无权查看这个 Object Set 的预览');expect(held).not.toContain('符合条件');
