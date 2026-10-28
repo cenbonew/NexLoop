@@ -4773,5 +4773,25 @@
         "recorded_at": "2026-10-28T02:42:46Z"
       }
     ]
+  },
+  {
+    "id": "NX-064",
+    "stage": "S6",
+    "title": "效应请求时限（Host 2 秒）在高负载下超时的产品处理与按 p99 定值",
+    "dependencies": [],
+    "modules": [
+      "M17",
+      "M23"
+    ],
+    "deliverable": "stage 上测得效应请求 p99；按 p99 加余量重定时限，或定下超时后的产品行为（重试、降级、告警），必要时另写 ADR；补一个高负载下的回归（优先复用 NX-031 的并发矩阵）",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "adr/ADR-029b-effect-tool-envelope-reuse.md §3a; docs/implementation/ci-flake-audit.md (l5/ci-flake-audit 882fe2c7)",
+        "summary": "L6 I1 登记。背景：v6 relationships 用例在 CI 全并行负载下超过 Host 2 秒的效应时限，重试一次后仍 runtime_failed；为 CI 稳定已挪入 HEAVY_TESTS（低并行阶段），但“高负载下 2 秒会超时”是真实产品风险，单独跟踪。阶段选 S6：可靠执行先于模拟，属当前阶段。执行人、判定人待派。",
+        "recorded_at": "2026-10-28T20:43:05+08:00"
+      }
+    ]
   }
 ]
