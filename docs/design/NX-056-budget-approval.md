@@ -1,6 +1,6 @@
 # 预算调整纳入 NX-056 审批：评估与设计（第 2 版）
 
-- **状态**：草案，待负责人拍板（第 6 节）。只有设计，没有代码。
+- **状态**：已定（负责人 2026-10-28，Q1–Q8 均按推荐）。实现见同一分支的后续提交。
 - **第 2 版**：按 L6 I1 修正期间的方向判定（2.2）与 Q4 的续期条件，并在测试清单里补上对应的两种情况。
 - **起因**：L6 复核 L2 的 NX-038 G1（工作台路由 `set_budget`，分支 `l2/nx038-stage-runs` 1e56c3fa）时指出：model、incentive、evolution 三种预算，现在一位 owner 经 HTTP 就能调高，不经过第二个人。上 real 之前要决定是否纳入 NX-056 的审批策略。
 - **按 main 17aa74c1 核对**。G1 在 1e56c3fa 上，尚未进这个 main；第 1 节按“G1 已合入”写。
@@ -120,7 +120,7 @@
 
 | 测试 | 断言 |
 |---|---|
-| 方向判定（PG） | 新设、调高、延长期间、提前起点、**后移起点**、改单位：`Budget.set` 都以 `budget_loosen_requires_approval` 拒绝，库里不变；调低、收窄期间、值相同：直接生效，不产生审批 |
+| 方向判定（PG） | 新设、调高、延长期间、提前起点、**后移起点**、改单位：`Budget.set` 都以 `budget_loosen_requires_approval` 拒绝，库里不变；调低、`period_end` 提前、值相同：直接生效，不产生审批 |
 | 起点后移不能清零（PG） | 期间内已有消耗时，用 `Budget.set` 把 `period_start` 往后移：以 `budget_loosen_requires_approval` 拒绝，预算行和可用额度都不变（L6 I1 (a)） |
 | 同额续期的时间条件（PG，Q4 选 B 时） | `now < cur.period_end` 时提交同额续期：`Budget.set` 以 `budget_loosen_requires_approval` 拒绝，旧期间的消耗仍然计入；`now ≥ cur.period_end` 时同一请求直接生效（L6 I1 (b)） |
 | 调低到已消耗额以下（PG） | 允许；已记录的消耗不变；之后的消耗报 `budget_exhausted` |
@@ -137,7 +137,21 @@
 | 前端（若加表单） | 预算页显示当前值、请求值和审批状态；`Approvals.tsx` 的 `APPROVAL_ACTION_TEXT` 加 `loosen_budget: '放宽预算'` |
 | real_tenant_init | 第 4 步在没有审批时输出 `waiting_approval`；批准后执行得到预算行 |
 
-## 6. 需要负责人拍板的问题（每题带推荐）
+## 6. 负责人决定（2026-10-28：Q1–Q8 均按推荐）
+
+| # | 决定 |
+|---|---|
+| Q1 | A：拆成 `Budget.set`（收紧）和 `Budget.loosen`（放宽），不扩展条件语法 |
+| Q2 | A：model、incentive、evolution 三种都要审批 |
+| Q3 | A：新设预算算放宽，要审批 |
+| Q4 | B：旧期间结束后（`now ≥ cur.period_end`）的同额续期免审批，其余期间变化都要审批 |
+| Q5 | A：单人模式 `allowed` |
+| Q6 | quorum 1 |
+| Q7 | A：小额调高不免审批 |
+| Q8 | A：作为 real 上线的前置 |
+
+下表是提交给负责人时的问题和推荐，保留作记录。
+
 
 | # | 问题 | 选项 | 推荐 |
 |---|---|---|---|
