@@ -199,13 +199,16 @@ function ConsumerAssignForm({member,consumerId,data}:{member:Parameters<typeof F
   const [persona,setPersona]=useState(assigned);const [reason,setReason]=useState('');
   const usable=[...usableVersions(data.personas).values()];
   const same=persona===assigned;
+  const retired=assigned&&!usable.some(p=>p.persona_id===assigned)?data.personas.filter(p=>p.persona_id===assigned).sort((a,b)=>b.version-a.version)[0]??{document:{display_name:assigned}}:null;
   if(!usable.length&&!assigned)return null;  // nothing to choose: the line above already says no persona is available
   return <Form operation="assign_operator_persona" member={member} title="为这位客户指定人设" level="h3" disabled={same||!reason.trim()}
     disabledReason={same?(assigned?'选择另一个人设，或选“不指定”回到规则。':'先选择一个人设。'):!reason.trim()?'填写原因后才能提交。':undefined}
     body={()=>({consumer_id:consumerId,persona_id:persona||null,reason:reason.trim()})}>
     <FormField id="assign-persona" label="人设"><select id="assign-persona" value={persona} onChange={e=>setPersona(e.target.value)}>
       <option value="">{assigned?'不指定（回到分群规则和租户默认）':'不指定（按分群规则和租户默认）'}</option>
-      {usable.map(p=><option key={p.persona_id} value={p.persona_id}>{p.document.display_name} · {personaRef(p)}</option>)}</select></FormField>
+      {usable.map(p=><option key={p.persona_id} value={p.persona_id}>{p.document.display_name} · {personaRef(p)}</option>)}
+      {/* L6 S1: an assigned persona with no version in use is still what is assigned - listed, read only, marked retired. */}
+      {retired?<option value={assigned} disabled>{retired.document.display_name} · {assigned}（已停用）</option>:null}</select></FormField>
     <FormField id="assign-reason" label="原因"><input id="assign-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></FormField>
     <p className="note">指定后，这位客户下次对话起使用新的人设，进行中的对话不切换；每次更换都留下记录。</p>
   </Form>;

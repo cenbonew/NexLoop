@@ -106,6 +106,11 @@ test('an owner assignment preselects its persona; clearing it goes back to the r
   const select=box.querySelector<HTMLSelectElement>('#assign-persona')!;
   expect(select.value).toBe('xiaohe');expect(select.options[0].textContent).toBe('不指定（回到分群规则和租户默认）');
   expect(box.querySelector('.disabled-reason')?.textContent).toBe('选择另一个人设，或选“不指定”回到规则。');
+  // L6 S1: an assigned persona that is retired stays shown as the assignment, read only and marked, not as 不指定.
+  act(()=>root.unmount());root=createRoot(box);
+  mount(client(detail(),owner,overview({persona_id:'old',source:'owner_assign',rules_version:null},[...PERSONAS,{...PERSONAS[1],persona_id:'old',status:'retired',document:{...doc,display_name:'旧人设'}}])));
+  const kept=box.querySelector<HTMLSelectElement>('#assign-persona')!;
+  expect(kept.value).toBe('old');expect(kept.selectedOptions[0].textContent).toBe('旧人设 · old（已停用）');expect(kept.selectedOptions[0].disabled).toBe(true);
   act(()=>root.unmount());root=createRoot(box);
   mount(client(detail(),operator));
   expect(box.querySelector('form[aria-label="为这位客户指定人设"]')).toBeNull();
