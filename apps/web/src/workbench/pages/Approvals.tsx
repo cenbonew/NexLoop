@@ -8,7 +8,7 @@
 import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {APPROVAL_REASON_TEXT,OPERATION_ACTION,readApprovals,type ApprovalRow,type ApprovalStatus,type Me,type Operation} from '../api';
-import {Form,WithMember} from '../actions';
+import {ConfirmedForm,Form,WithMember} from '../actions';
 import {DataTable} from '../DataTable';
 import {Time} from '../ui';
 import {EmptyState,IdText,Notice} from '../kit';
@@ -145,8 +145,8 @@ function ApprovalLists({data}:{data:Awaited<ReturnType<typeof readApprovals>>}){
     {mine.length===0?<EmptyState kind="empty" title="最近 30 天没有你发起的审批"/>:<DataTable label="我发起的" rows={mine} rowKey={r=>r.approval_id} columns={[
       ...common,{label:'状态',cell:r=><>{APPROVAL_STATUS_TEXT[r.status]}{r.consumed?<>{' · '}<strong className="approval-consumed">已执行</strong></>:null}<br/>
         <span className="note">{r.consumed?<>{resultText(r.result)}{r.consumed_at?<>，<Time value={r.consumed_at}/></>:null}；这次批准已用掉，不能再执行</>:resultText(r.result)}</span></>},
-      {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><Form operation="cancel_approval" member={member} className="inline-action" title="撤回"
-        body={()=>({approval_id:r.approval_id,reason:'发起人撤回'})}><span/></Form>}</WithMember>:null}]}/>}
+      {label:'撤回',cell:r=>r.status==='waiting_approval'?<WithMember>{member=><ConfirmedForm operation="cancel_approval" member={member} trigger="撤回…" title="确认撤回"
+        impact="影响：这条审批请求结束，不能再批准；同一请求 1 小时内不能再次发起。" body={reason=>({approval_id:r.approval_id,reason})}/>}</WithMember>:null}]}/>}
     <details className="approval-settings"><summary>单人模式设置（{solo_mode.enabled?'已开启':'未开启'}）</summary>
       <WithMember>{member=><SoloModeForm member={member} enabled={solo_mode.enabled}/>}</WithMember></details>
   </>;

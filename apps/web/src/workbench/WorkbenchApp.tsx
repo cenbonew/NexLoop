@@ -65,7 +65,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'approvals':return <Approvals/>;
     case 'members':return <Members/>;
     case 'account':return <AccountSecurity/>;
-    case 'personas':return <Personas actions={a}/>;
+    case 'personas':return <Personas actions={a} onConsumers={()=>go({page:'consumers'})}/>;
     case 'settings':return <Settings actions={a}/>;
     case 'knowledge':return route.id?<ReviewEvidencePage candidateId={route.id} actions={a}/>:<Knowledge actions={a} onOpen={id=>go({page:'knowledge',id})}/>;
     case 'alerts':return <Alerts actions={a}/>;

@@ -112,7 +112,8 @@ try{
   result.tabs=tabs;
   // Operator persona pages: the owner fills a draft and publishes xiaohe@1, publishes rules with it as the default, then the
   // consumer detail shows persona@version and its source (the governed writes through the page's own forms).
-  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/personas');await page.locator('#persona-display_name').waitFor({timeout:20000});
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/personas');
+  await page.locator('button',{hasText:'新建人设'}).click();await page.locator('#persona-display_name').waitFor({timeout:20000});
   await page.fill('#persona-persona_id','xiaohe');await page.fill('#persona-display_name','小禾');await page.fill('#persona-tone','亲切、简洁');
   await page.fill('#persona-deflect','我是本店的服务助手，有什么可以帮您？');await page.fill('#persona-reason','首个人设');
   await page.locator('form.persona-editor button[type=submit]').click();
