@@ -7,9 +7,11 @@
  * Fit and legibility (owner review of release 23, 2026-10-20): the picture opens fitted to the canvas (as large as it fits, never
  * smaller than the label floor), and no zoom makes a node label smaller than MIN_LABEL_PX on screen: past the floor the canvas pans
  * instead. Without any Link the nodes are a grid filling the canvas and the graph says so.
+ * Every node in view (owner report from stage, 2026-10-28): the layout is never wider than the canvas at the label floor, and when
+ * the fitted picture is taller than MAX_H the canvas grows to it, so the default view and "适应画布" frame every node.
  */
-import {useEffect,useMemo,useRef,useState,type KeyboardEvent} from 'react';
-import {NODE_H,NODE_W,border,hue,layout,selfLoop,type GraphEdge,type GraphNode} from './layout';
+import {useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent} from 'react';
+import {MAX_GRAPH_TYPES,NODE_H,NODE_W,edgePaths,hue,layout,type GraphEdge,type GraphNode} from './layout';
 
 export const CARDINALITY_TEXT:Record<string,string>={one_to_one:'1:1',one_to_many:'1:N',many_to_one:'N:1',many_to_many:'N:N'};
 const HUES=Array.from({length:8},(_,i)=>`var(--hue-${i+1})`);  // UI spec §1: the graph hues are tokens (light and dark)
@@ -26,21 +28,33 @@ const clamp=(v:number,lo:number,hi:number)=>Math.min(hi,Math.max(lo,v));
 export function fitScale(layoutW:number,layoutH:number,canvasW:number,canvasH=MAX_H):number{
   return clamp(Math.min(canvasW/layoutW,canvasH/layoutH),MIN_SCALE,MAX_SCALE);
 }
+/** The canvas height at a scale: the picture's height, at least MIN_H; at most MAX_H, or the fitted picture's height when that is
+ * taller (the layout's width fits the canvas at the floor, so only the height can be short). */
+export function canvasHeight(layoutH:number,scale:number,fit:number):number{
+  return Math.round(clamp(layoutH*scale,MIN_H,Math.max(MAX_H,layoutH*fit)));
+}
 
 export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{nodes:GraphNode[];edges:GraphEdge[];focus:string|null;
   onFocus:(id:string|null)=>void;label:string;emptyEdgesText?:string}){
   const box=useRef<HTMLDivElement>(null);
   const [canvasW,setCanvasW]=useState(DEFAULT_W);
-  useEffect(()=>{const el=box.current;if(!el||typeof ResizeObserver==='undefined')return;
+  // The width is read once before the first paint (the picture is laid out for the real canvas, not DEFAULT_W and then shrunk),
+  // then followed with a ResizeObserver.
+  useLayoutEffect(()=>{const el=box.current;if(!el)return;const w=Math.round(el.getBoundingClientRect().width);if(w>0)setCanvasW(w);
+    if(typeof ResizeObserver==='undefined')return;
     const seen=new ResizeObserver(([e])=>{const w=Math.round(e.contentRect.width);if(w>0)setCanvasW(w);});seen.observe(el);return ()=>seen.disconnect();},[]);
-  const placed=useMemo(()=>layout(nodes,edges,canvasW/MAX_H),[nodes,edges,canvasW]);
+  // The widest picture the canvas shows at the label floor, in 40-unit steps (a resize does not re-run the layout every pixel).
+  const maxWidth=Math.floor(canvasW/MIN_SCALE/40)*40;
+  const placed=useMemo(()=>layout(nodes,edges,canvasW/MAX_H,maxWidth),[nodes,edges,canvasW,maxWidth]);
   const at=useMemo(()=>new Map(placed.nodes.map(n=>[n.id,n])),[placed]);
+  const paths=useMemo(()=>edgePaths(placed.nodes,edges,EDGE_PX,placed),[placed,edges]);
   const drawn=edges.filter(e=>at.has(e.from)&&at.has(e.to));
+  const edgeOf=new Map(drawn.map(e=>[e.id,e]));
   const fit=fitScale(placed.width,placed.height,canvasW);
   const [zoom,setZoom]=useState<number|null>(null);  // null: fitted (follows the canvas width)
   const [pan,setPan]=useState({x:0,y:0});
   const scale=zoom??fit;
-  const canvasH=Math.round(clamp(placed.height*scale,MIN_H,MAX_H));
+  const canvasH=canvasHeight(placed.height,scale,fit);
   const viewW=canvasW/scale,viewH=canvasH/scale;
   const x0=(placed.width-viewW)/2+pan.x,y0=(placed.height-viewH)/2+pan.y;
   const near=focus?new Set([focus,...edges.filter(e=>e.from===focus||e.to===focus).flatMap(e=>[e.from,e.to])]):null;
@@ -60,24 +74,26 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
       <button type="button" onClick={()=>zoomBy(1.25)} aria-label="放大">＋</button>
       <button type="button" onClick={()=>zoomBy(1/1.25)} aria-label="缩小" disabled={scale<=MIN_SCALE+1e-9}>－</button>
       <button type="button" onClick={reset}>适应画布</button>
-      <span className="note">点击或用 Tab 选中，Enter 查看；图获得焦点时方向键平移、+/− 缩放、0 适应画布。</span>
+      <span className="note">点击或用 Tab 选中，Enter 查看；图获得焦点时方向键平移、+/− 缩放、0 适应画布。{paths.some(p=>p.crowded)?'放不下的关系名在选中一端类型时显示。':''}{placed.capped?`有关系的类型超过 ${MAX_GRAPH_TYPES} 个，按名称排成网格；关系的走向请看表格视图。`:''}</span>
     </div>
     {grid&&emptyEdgesText?<p className="note" role="status" data-empty-edges="">{emptyEdgesText}</p>:null}
     <svg role="group" aria-label={label} tabIndex={0} onKeyDown={keys} width="100%" height={canvasH}
       style={{border:'1px solid var(--border)',borderRadius:8,display:'block'}}
       viewBox={`${x0} ${y0} ${viewW} ${viewH}`} preserveAspectRatio="xMidYMid meet" data-nodes={placed.nodes.length} data-edges={drawn.length}
-      data-layout={grid?'grid':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
+      data-layout={grid?'grid':placed.capped?'capped':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
       <defs><marker id="schema-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
       <g className="schema-edges" style={{color:'var(--text)'}}>
-        {drawn.map(e=>{const a=at.get(e.from)!,b=at.get(e.to)!;
-          const dim=near&&!(near.has(e.from)&&near.has(e.to)&&(e.from===focus||e.to===focus));
-          if(e.from===e.to){const loop=selfLoop(a.x,a.y);return <g key={e.id} opacity={dim?0.25:0.85} data-self-loop={e.id}>
-            <path d={loop.d} fill="none" stroke="currentColor" strokeWidth={2} markerEnd="url(#schema-arrow)"/>
-            {e.label?<text x={loop.label.x} y={loop.label.y} fontSize={EDGE_PX} fill="currentColor" style={{paintOrder:'stroke',stroke:'var(--surface, #fff)',strokeWidth:4}}>{e.label}</text>:null}</g>;}
-          const s=border(a.x,a.y,b.x,b.y),t=border(b.x,b.y,a.x,a.y);
-          return <g key={e.id} opacity={dim?0.25:0.85} data-edge={e.id}><line x1={s.x} y1={s.y} x2={t.x} y2={t.y} stroke="currentColor" strokeWidth={2} markerEnd="url(#schema-arrow)"/>
-            {e.label?<text x={(s.x+t.x)/2} y={(s.y+t.y)/2-6} fontSize={EDGE_PX} textAnchor="middle" fill="currentColor" style={{paintOrder:'stroke',stroke:'var(--surface, #fff)',strokeWidth:4}}>{e.label}</text>:null}</g>;})}
+        {paths.map(p=>{const e=edgeOf.get(p.id)!;
+          const touches=e.from===focus||e.to===focus;
+          const dim=near&&!(near.has(e.from)&&near.has(e.to)&&touches);
+          // A crowded label (no clear spot) is drawn only while one of its types is selected; its name is always the edge's title.
+          const shown=e.label&&p.label&&(!p.crowded||touches);
+          return <g key={p.id} opacity={dim?0.25:0.85} {...(p.self?{'data-self-loop':p.id}:{'data-edge':p.id})} {...(p.crowded?{'data-crowded':''}:{})}>
+            <path d={p.d} fill="none" stroke="currentColor" strokeWidth={2} markerEnd="url(#schema-arrow)"/>
+            {e.label?<title>{`${e.from} → ${e.to}：${e.label}`}</title>:null}
+            {shown?<text x={p.label!.x} y={p.label!.y} fontSize={EDGE_PX} textAnchor={p.anchor} dominantBaseline="middle" fill="currentColor"
+              style={{paintOrder:'stroke',stroke:'var(--surface, #fff)',strokeWidth:4}}>{e.label}</text>:null}</g>;})}
       </g>
       <g className="schema-nodes">
         {nodes.map(n=>{const p=at.get(n.id);if(!p)return null;const selected=focus===n.id;const color=HUES[hue(n.id)];

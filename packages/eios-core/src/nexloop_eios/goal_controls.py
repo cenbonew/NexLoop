@@ -657,13 +657,16 @@ class GoalGovernedActions:
                                                         'code_hmac':code_hmac,'issuer_source':issuer_source})
 
     # NX-058 slice A: the token never comes here - only its HMAC (and the issuer's source digest), drawn by the workbench entry.
-    def invite_workbench_member(self,*,action_name,action_version,request_id,username,role,expires_in_hours,token_hmac,issuer_source):
+    def invite_workbench_member(self,*,action_name,action_version,request_id,username,role,expires_in_hours,token_hmac,issuer_source,sso_provider=None):
         if (type(username) is not str or not re.fullmatch(r'[a-z0-9][a-z0-9._-]{2,63}',username) or role not in ('operator','reviewer')
                 or type(expires_in_hours) is not int or not 1<=expires_in_hours<=72
-                or not re.fullmatch(r'[0-9a-f]{64}',str(token_hmac)) or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source))):
+                or not re.fullmatch(r'[0-9a-f]{64}',str(token_hmac)) or not re.fullmatch(r'[0-9a-f]{64}',str(issuer_source))
+                or (sso_provider is not None and not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}',str(sso_provider)))):
             raise ValueError('username, operator or reviewer role, 1-72 hours, token HMAC and issuer source required')
+        # NX-058 slice F: sso_provider makes the member SSO only (no password at acceptance; signs in once an owner links its IdP subject).
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'invite_workbench_member','username':username,'role':role,
-                                                        'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source':issuer_source})
+                                                        'expires_in_hours':expires_in_hours,'token_hmac':token_hmac,'issuer_source':issuer_source,
+                                                        **({'sso_provider':sso_provider} if sso_provider is not None else {})})
 
     # NX-058 slice D3: owners, with another owner's approval; the HMACs are execution-time fields (never in the digest nor the frozen body).
     def issue_workbench_owner_reset(self,*,action_name,action_version,request_id,target_principal,code_hmac,issuer_source_hmac):

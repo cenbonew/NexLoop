@@ -8,6 +8,7 @@ import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {readSsoProviders,ssoStartPath,type Me,type MemberRow,type SsoProvider} from './api';
 import {Form} from './actions';
+import {ChoiceGroup} from './kit';
 
 const useProviders=()=>useQuery({queryKey:['workbench','sso-providers'],queryFn:readSsoProviders,refetchOnWindowFocus:false,staleTime:Infinity});
 
@@ -62,4 +63,16 @@ export function SsoLinkControls({member,row}:{member:Me;row:MemberRow}){
   const providers=useProviders();
   if(!ssoControls(row,member.principal_id))return null;
   return <SsoLinkForms member={member} row={row} providers={providers.data??[]}/>;
+}
+
+/** The invite form's login method: password, or SSO only with a configured provider (none offered while SSO is off). '' is password. */
+export function SsoInviteChoiceView({providers,value,onChange}:{providers:SsoProvider[];value:string;onChange:(value:string)=>void}){
+  if(!providers.length)return null;
+  return <ChoiceGroup legend="登录方式" name="invite-login" value={value} onChange={onChange} options={[
+    {value:'',label:'密码',hint:'接受邀请时由本人设置密码。'},
+    ...providers.map(p=>({value:p.provider_id,label:`仅 SSO（${p.display_name}）`,hint:'接受邀请时不设密码；负责人绑定本人的 SSO 账号后才能登录。'}))]}/>;
+}
+export function SsoInviteChoice(props:{value:string;onChange:(value:string)=>void}){
+  const providers=useProviders();
+  return <SsoInviteChoiceView providers={providers.data??[]} {...props}/>;
 }
