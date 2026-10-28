@@ -9,11 +9,11 @@ import {useQuery} from '@tanstack/react-query';
 import {kindOf,readObjectSetMembers,readObjectSets,type ObjectSetFilter,type ObjectSetSummary} from '../api';
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
-import {Card,EmptyState,KeyValue} from '../kit';
+import {Card,EmptyState,KeyValue,shorten} from '../kit';
 
 export type ObjectSetState={set:string|null;offset:number};
 const OPERATOR_TEXT:Record<ObjectSetFilter['operator'],string>={eq:'等于',ne:'不等于',gt:'大于',gte:'不小于',lt:'小于',lte:'不大于',in:'属于',not_in:'不属于'};
-const shortId=(id:string)=>id.length>14?id.slice(0,8)+'…'+id.slice(-4):id;
+const shortId=(id:string)=>shorten(id);  // C1: the kit's head…tail
 const literal=(v:unknown)=>typeof v==='string'?`“${v}”`:String(v);
 export const conditionText=(f:ObjectSetFilter)=>`${f.property} ${OPERATOR_TEXT[f.operator]} ${Array.isArray(f.value)?f.value.map(literal).join('、'):literal(f.value)}`;
 const shown=(v:unknown)=>v===null||v===undefined?'—':typeof v==='object'?JSON.stringify(v):String(v);

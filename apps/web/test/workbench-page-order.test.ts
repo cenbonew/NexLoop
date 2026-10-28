@@ -69,6 +69,7 @@ test('F07: a firing alert in business words, with unit, threshold, duration and 
 test('F11: audit objects as type + short ID (full value in the title, copy button), members by role + alias, no wrapping time',()=>{
   const items=[{category:'read',action:'read.contact',principal_id:'synthetic-staff-owner-0123456789',role:'owner',target_kind:'consumer',target_ref:id('a'),intent_id:null,occurred_at:'2026-10-18T09:00:00+00:00'}];
   const html=page([[['workbench','human-actions'],items]],{page:'audit'});
-  expect(html).toContain('consumer </span>');expect(html).toContain(`title="${id('a')}"`);expect(html).toContain('aaaaaaaa…');expect(html).not.toContain(`>${id('a')}<`);
+  // C1: the kit's IdText (type in words, head…tail, the full value in the title, expandable, a copy button).
+  expect(html).toMatch(/<span class="id-kind">[^<a-z]+<\/span>/);expect(html).toContain(` ${id('a')}"`);expect(html).toContain('aaaaaaaa…aaaa');expect(html).not.toContain(`>${id('a')}<`);
   expect(html).toContain('复制');expect(html).toContain('负责人 · synthe…6789');expect(html).toMatch(/<time dateTime="[^"]+" title="北京时间 [^"]+">2026/);expect(html).toMatch(/title="read" data-code="read">.*?读取<\/span>/);
 });

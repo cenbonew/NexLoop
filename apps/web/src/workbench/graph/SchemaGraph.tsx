@@ -69,8 +69,8 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
     if(move[event.key]){event.preventDefault();move[event.key]();}
   }
   const grid=drawn.length===0;
-  return <div className="schema-graph" ref={box} style={{position:'relative'}}>
-    <div className="schema-graph-tools" role="group" aria-label="缩放" style={{display:'flex',gap:8,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
+  return <div className="schema-graph" ref={box}>
+    <div className="schema-graph-tools" role="group" aria-label="缩放">
       <button type="button" onClick={()=>zoomBy(1.25)} aria-label="放大">＋</button>
       <button type="button" onClick={()=>zoomBy(1/1.25)} aria-label="缩小" disabled={scale<=MIN_SCALE+1e-9}>－</button>
       <button type="button" onClick={reset}>适应画布</button>
@@ -78,12 +78,12 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
     </div>
     {grid&&emptyEdgesText?<p className="note" role="status" data-empty-edges="">{emptyEdgesText}</p>:null}
     <svg role="group" aria-label={label} tabIndex={0} onKeyDown={keys} width="100%" height={canvasH}
-      style={{border:'1px solid var(--border)',borderRadius:8,display:'block'}}
+      className="schema-graph-canvas"
       viewBox={`${x0} ${y0} ${viewW} ${viewH}`} preserveAspectRatio="xMidYMid meet" data-nodes={placed.nodes.length} data-edges={drawn.length}
       data-layout={grid?'grid':placed.capped?'capped':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
       <defs><marker id="schema-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
-      <g className="schema-edges" style={{color:'var(--text)'}}>
+      <g className="schema-edges">
         {paths.map(p=>{const e=edgeOf.get(p.id)!;
           const touches=e.from===focus||e.to===focus;
           const dim=near&&!(near.has(e.from)&&near.has(e.to)&&touches);
@@ -93,12 +93,12 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
             <path d={p.d} fill="none" stroke="currentColor" strokeWidth={2} markerEnd="url(#schema-arrow)"/>
             {e.label?<title>{`${e.from} → ${e.to}：${e.label}`}</title>:null}
             {shown?<text x={p.label!.x} y={p.label!.y} fontSize={EDGE_PX} textAnchor={p.anchor} dominantBaseline="middle" fill="currentColor"
-              style={{paintOrder:'stroke',stroke:'var(--surface, #fff)',strokeWidth:4}}>{e.label}</text>:null}</g>;})}
+              className="schema-edge-label">{e.label}</text>:null}</g>;})}
       </g>
       <g className="schema-nodes">
         {nodes.map(n=>{const p=at.get(n.id);if(!p)return null;const selected=focus===n.id;const color=HUES[hue(n.id)];
           return <g key={n.id} role="button" tabIndex={0} aria-label={`${n.label}${n.sub?'，'+n.sub:''}${selected?'，已选中':''}`} aria-pressed={selected}
-            data-node={n.id} opacity={near&&!near.has(n.id)?0.35:1} style={{cursor:'pointer',outline:'none'}}
+            data-node={n.id} opacity={near&&!near.has(n.id)?0.35:1} className="schema-node"
             onClick={()=>onFocus(selected?null:n.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onFocus(selected?null:n.id);}}}>
             <rect x={p.x-NODE_W/2} y={p.y-NODE_H/2} width={NODE_W} height={NODE_H} rx={12} fill="var(--surface, #fff)" stroke={color} strokeWidth={selected?3:1.5}/>
             <rect x={p.x-NODE_W/2} y={p.y-NODE_H/2} width={6} height={NODE_H} rx={3} fill={color}/>

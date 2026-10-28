@@ -6,23 +6,6 @@ import {useRef,type KeyboardEvent,type ReactNode} from 'react';
 import {statusLabel,statusTone,type Domain,type Tone} from './status-labels';
 export type {Tone} from './status-labels';
 
-// ---- F12: empty states ----
-export type EmptyKind='none'|'filtered'|'not_enabled'|'forbidden'|'unavailable';
-const EMPTY:Record<EmptyKind,{title:string;next:string}>={
-  none:{title:'暂无数据',next:'有新记录时会出现在这里。'},
-  filtered:{title:'没有符合筛选条件的记录',next:'换一个筛选条件，或选择“全部”。'},
-  not_enabled:{title:'未启用',next:'属于下一阶段，当前不提供任何发布或操作。'},
-  forbidden:{title:'当前账号没有查看此内容的权限',next:'需要时请负责人调整角色；这不表示没有数据。'},
-  unavailable:{title:'暂时无法读取',next:'稍后再打开；这不表示数量为零。'},
-};
-/** One empty/unavailable state: what it is, why (optional) and the next step. */
-export function Empty({kind,title,reason,next,action}:{kind:EmptyKind;title?:string;reason?:ReactNode;next?:ReactNode;action?:ReactNode}){
-  const t=EMPTY[kind];
-  return <div className={'workbench-empty empty-'+kind} role="status" data-empty={kind}>
-    <p className="empty-title">{title??t.title}{reason?<>：{reason}</>:null}</p>
-    <p className="empty-next">{next??t.next}</p>{action}</div>;
-}
-
 // ---- F13: status badges ----
 // C17: a neutral badge has no mark (the dash read as a minus sign); the others repeat their meaning as a symbol.
 const MARK:Record<Tone,string>={ok:'✓',fail:'✕',pending:'…',limited:'!',neutral:''};

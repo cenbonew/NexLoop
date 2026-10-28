@@ -1,6 +1,6 @@
 import {useState,type ReactNode} from 'react';
 import {keepPreviousData,useQuery} from '@tanstack/react-query';
-import {INTENT_STATE_TEXT,readActions,readRemediationEvidence,readRemediations,type Dispatch,type Remediation} from '../api';
+import {INTENT_STATE_TEXT,kindOf,readActions,readRemediationEvidence,readRemediations,type Dispatch,type Remediation} from '../api';
 import {RemediationResolveForm,RemediationRuleReleaseForm,RemediationSwitchForm,WithMember} from '../actions';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
@@ -71,8 +71,10 @@ export function Remediations(){
 /** NX-057 R4: the evidence chain of one remediation (design §10), ids, codes and times only; the reason a person gave is not shown. */
 export function RemediationEvidencePanel({id}:{id:string}){
   const query=useQuery({queryKey:['workbench','remediation-evidence',id],queryFn:()=>readRemediationEvidence(id)});
-  if(query.isPending)return <section aria-label="补救证据"><p role="status">正在读取证据…</p></section>;
-  if(query.isError)return <section aria-label="补救证据"><p className="note" role="status">证据暂不可读。</p></section>;
+  // C13: the shared states, with a retry when the read failed.
+  if(query.isPending)return <section aria-label="补救证据"><EmptyState kind="loading" subject="证据" compact/></section>;
+  if(query.isError)return <section aria-label="补救证据"><EmptyState kind={kindOf(query.error)==='forbidden'?'forbidden':'unavailable'} subject="证据" compact
+    onRetry={()=>void query.refetch()}/></section>;
   const e=query.data;
   return <section aria-label="补救证据" className="evidence-drawer"><h3>证据链</h3>
     <ol>

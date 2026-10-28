@@ -1,7 +1,7 @@
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,test} from 'vitest';
-import {Announce,Empty,StatusBadge,Tabs,commitmentTone,intentTone,money,relative} from '../src/workbench/ui';
+import {Announce,StatusBadge,Tabs,commitmentTone,intentTone,money,relative} from '../src/workbench/ui';
 import {dispatchText} from '../src/workbench/pages/Actions';
 import {crumbs,NAV_CHILDREN,NAV_GROUPS} from '../src/workbench/WorkbenchApp';
 import {PAGES,routePath} from '../src/workbench/route';
@@ -24,10 +24,6 @@ test('a finished intent needs no further dispatch; a failed one is not applicabl
   const blocked={status:'ok' as const,prediction:{dispatchable:false,reason:'not_queued'}};
   expect(dispatchText(blocked,'fulfilled')).toBe('无需再次派发');expect(dispatchText(blocked,'confirmed')).toBe('无需再次派发');
   expect(dispatchText(blocked,'failed')).toContain('不适用');expect(dispatchText(blocked,'unknown')).toContain('不在派发队列');
-});
-test('each empty kind says what it is and what next', ()=>{
-  for(const kind of ['none','filtered','not_enabled','forbidden','unavailable'] as const){
-    const html=renderToStaticMarkup(h(Empty,{kind}));expect(html).toContain(`data-empty="${kind}"`);expect(html).toMatch(/empty-next">[^<]+</);}
 });
 test('tabs: one tab in the tab order, the selected one', ()=>{
   const html=renderToStaticMarkup(h(Tabs,{label:'范围',value:'b',onChange:()=>{},tabs:[{key:'a',label:'甲'},{key:'b',label:'乙'}]}));

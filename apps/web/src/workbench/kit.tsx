@@ -41,7 +41,9 @@ export function EmptyState({kind,subject='',title,reason,next,onRetry,details,co
     <span className="sr-only">{t.title(subjectText)}</span><span className="skeleton-line"/><span className="skeleton-line"/><span className="skeleton-line short"/></div>;
   return <div className={`state state-${kind}`+(compact?' state-compact':'')} role={t.alert?'alert':'status'} data-state={kind}>
     <p className="state-title"><span className="state-mark" aria-hidden="true">{t.mark}</span>{title??t.title(subjectText)}{reason?<>：{reason}</>:null}</p>
-    {next??t.next?<p className="state-next">{next??t.next}</p>:null}
+    {/* C2: a compact empty state inside a card is one line ("暂无 X"), without the default next step; a compact unavailable or
+        forbidden state keeps its line (it says the number is not zero). */}
+    {next??(compact&&(kind==='empty'||kind==='filtered')?'':t.next)?<p className="state-next">{next??t.next}</p>:null}
     {onRetry&&kind==='unavailable'?<button type="button" onClick={onRetry}>重试</button>:null}
     {details?<details className="state-details"><summary>技术细节</summary>{details}</details>:null}
   </div>;
@@ -127,11 +129,11 @@ export function IdText({value,kind,name,head=8,tail=4,copy=true,expandable}:{val
   const full=(kind?kind+' ':'')+value;
   const short=shorten(value,head,tail);
   const text=name?<span className="id-name">{name}</span>:expandable?<button type="button" className="id-code id-expand" aria-expanded={open} title={full} onClick={()=>setOpen(!open)}>{open?value:short}</button>
-    :<code className="id-code" title={full} tabIndex={0} aria-label={full}>{short}</code>;
+    :<code className="id-code" title={full} aria-label={full}>{short}</code>;  // C3: not a tab stop; the copy button is the one
   function doCopy(){void navigator.clipboard?.writeText(value).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>undefined);}
   return <span className="id-text" data-id={value}>{kind?<span className="id-kind">{kind}</span>:null}{text}
     {name?<code className="id-code id-secondary" title={full}>{short}</code>:null}
-    {copy?<button type="button" className="id-copy" aria-label={`复制${kind?kind+' ':''}ID`} title="复制完整 ID" onClick={doCopy}>{copied?'✓':'⧉'}</button>:null}
+    {copy?<button type="button" className="id-copy" aria-label={`复制${kind?kind+' ':''}ID`} title={`复制完整 ID：${value}`} onClick={doCopy}>{copied?'✓':'⧉'}</button>:null}
     {copied?<Announce text="已复制"/>:null}</span>;
 }
 

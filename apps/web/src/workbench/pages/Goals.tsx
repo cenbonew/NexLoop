@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {readGoals,readPlans} from '../api';
-import {Page,Short} from './Page';
+import {Page} from './Page';
 import {Money,StatusBadge,Time} from '../ui';
 import {EmptyState,IdText,ScopeText} from '../kit';
 import {routePath} from '../route';

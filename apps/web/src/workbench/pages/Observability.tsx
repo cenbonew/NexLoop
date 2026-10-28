@@ -7,11 +7,11 @@ import {useQuery} from '@tanstack/react-query';
 import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMe,readMetrics,offers,type Backup,type Process} from '../api';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
-import {Card,CardGrid,EmptyState,KeyValue,Notice} from '../kit';
+import {Card,CardGrid,EmptyState,IdText,KeyValue,Notice} from '../kit';
 import {statusLabel,type Domain} from '../status-labels';
 import {when} from './Consumers';
 import {DataTable} from '../DataTable';
-import {IdRef,NoWrap,Operations as OpsSection} from './PageOps';
+import {Operations as OpsSection} from './PageOps';
 import {ALERT_INFO,sinceText,thresholdOf,valueText} from './alertInfo';
 import {routePath} from '../route';
 import {readableName} from './Capabilities';
@@ -29,10 +29,10 @@ export function Alerts({actions}:{actions?:ReactNode}){
       <DataTable label="正在触发的告警" empty={{subject:'触发中的告警'}} rows={data.firing} rowKey={a=>a.dedupe_key} rowClass={a=>a.severity==='critical'&&!a.silenced_until?'critical':undefined} columns={[
         {label:'告警',main:true,cell:a=>{const info=ALERT_INFO[a.rule_id];return <><strong>{info?.name??a.rule_id}</strong><code className="tech-name alert-code">{a.rule_id}</code>
           {info?<span className="alert-help">{info.help} <a href={routePath({page:info.page})}>去处理</a></span>:null}</>;}},
-        {label:'级别',cell:a=><StatusBadge domain="alert_severity" code={a.severity}/>},{label:'影响对象',cell:a=><NoWrap>{a.selector??'全局'}</NoWrap>},
+        {label:'级别',cell:a=><StatusBadge domain="alert_severity" code={a.severity}/>},{label:'影响对象',cell:a=><span className="nowrap">{a.selector??'全局'}</span>},
         {label:'当前值 / 阈值',cell:a=>{const info=ALERT_INFO[a.rule_id];const t=thresholdOf(a,data.events);
           return <>{valueText(info,a.value)}{t!==null?` / 阈值 ${valueText(info,t)}`:''}{info?.window?<small>（{info.window}）</small>:null}</>;}},
-        {label:'持续',cell:a=><NoWrap>{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</NoWrap>},{label:'次数',num:true,cell:a=>a.fire_count},
+        {label:'持续',cell:a=><span className="nowrap">{sinceText(a.first_fired_at)}（自 <Time value={a.first_fired_at}/>）</span>},{label:'次数',num:true,cell:a=>a.fire_count},
         {label:'静默',cell:a=>a.silenced_until?<>已静默至 <Time value={a.silenced_until}/>（仍在评估和记录）</>:'—'}]}/>
     </Card>
     <Card title="最近事件">
@@ -116,5 +116,5 @@ export function Audit({actions}:{actions?:ReactNode}){
     <DataTable label="审计" empty={{subject:'审计记录'}} rows={items} rowKey={(_,i)=>String(i)} columns={[
       {label:'时间',main:true,cell:x=><Time value={x.occurred_at}/>},{label:'类别',cell:x=><StatusBadge domain="audit_category" code={x.category}/>},
       {label:'操作',cell:x=><><span className="name-main">{readableName(x.action)}</span><code className="tech-name">{x.action}</code></>},
-      {label:'成员',cell:x=><NoWrap>{memberAlias(x.principal_id,x.role)}</NoWrap>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdRef kind={x.target_kind} value={x.target_ref}/>:statusLabel('audit_target',x.target_kind)}]}/>}</Page>;
+      {label:'成员',cell:x=><span className="nowrap">{memberAlias(x.principal_id,x.role)}</span>},{label:'对象',wide:true,cell:x=>x.target_ref?<IdText kind={statusLabel('audit_target',x.target_kind)} value={x.target_ref} expandable/>:statusLabel('audit_target',x.target_kind)}]}/>}</Page>;
 }

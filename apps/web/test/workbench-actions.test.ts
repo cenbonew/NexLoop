@@ -97,9 +97,10 @@ test('D2: an operator is not offered owner-only controls; the owner is',()=>{
     // Both roles: extend / attest a commitment, take a consumer over.
     expect(form(commitment,'延期')).toBe(true);expect(form(commitment,'人工证明已兑现')).toBe(true);expect(form(detail,'接管整个客户')).toBe(true);
   }
-  // Without the role nothing is guessed: the action area says it is unavailable.
+  // Without the role nothing is guessed: no form is offered while it loads (C13: and no "正在加载…" line at every form).
   const unknownRole=client([]);unknownRole.setQueryDefaults(['workbench','me'],{queryFn:()=>new Promise(()=>{})});
-  expect(render(unknownRole,h(ConsumerControls,{consumerId:id('2')}))).toContain('正在加载');
+  const loading=render(unknownRole,h(ConsumerControls,{consumerId:id('2')}));
+  expect(loading).not.toContain('<form');expect(loading).not.toContain('正在加载');
 });
 
 test('takeover page: state, hand-back, and the staff reply only for the member who took it over',()=>{

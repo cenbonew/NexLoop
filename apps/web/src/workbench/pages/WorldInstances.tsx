@@ -12,11 +12,11 @@ import {readObjectNeighbors,readObjectValues,readObjectView,readObjects,type Nei
 import {routePath,type Route} from '../route';
 import {DataTable} from '../DataTable';
 import {StatusBadge,Time} from '../ui';
-import {Card,EmptyState,IdText,KeyValue} from '../kit';
+import {Card,EmptyState,IdText,KeyValue,shorten} from '../kit';
 import {kindOf} from '../api';
 import {SchemaGraph} from '../graph/SchemaGraph';
 
-const shortId=(id:string)=>id.length>14?id.slice(0,8)+'…'+id.slice(-4):id;
+const shortId=(id:string)=>shorten(id);  // C1: the kit's head…tail
 /** Where the workbench already has a page for an object of this type (its content, with its own READ checks). */
 export function objectPage(type:string,id:string):Route|null{
   if(!/^[a-f0-9]{64}$/.test(id))return null;

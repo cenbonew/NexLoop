@@ -557,3 +557,18 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 .persona-list{margin-bottom:1rem}
 .persona-editor-panel{border:1px solid var(--border);border-radius:8px;padding:1rem;margin:1rem 0}
 .persona-list td button,.persona-list td code{white-space:nowrap}
+/* UX audit S8 (C19): the schema graph's styles, formerly inline; a focused node shows the focus colour on its box. */
+.schema-graph{position:relative}
+.schema-graph-tools{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2,8px);margin-bottom:var(--space-2,8px)}
+.schema-graph-canvas{display:block;border:1px solid var(--border);border-radius:8px}
+.schema-edges{color:var(--text)}
+.schema-edge-label{paint-order:stroke;stroke:var(--surface);stroke-width:4px}
+.schema-node{cursor:pointer;outline:none}
+.schema-node:focus-visible>rect:first-of-type{stroke:var(--focus);stroke-width:3px}
+/* C3: the table scroller's focus ring, only when it is a tab stop (it overflows). */
+.table-scroll[tabindex="0"]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* C13: the workbench's shape while the session is checked. */
+.workbench .workbench-skeleton .skeleton-nav{display:grid;gap:var(--space-3);padding:var(--space-4)}
+.workbench .workbench-skeleton .workbench-main{display:grid;gap:var(--space-3);padding:var(--space-4)}
+.workbench .skeleton-line.skeleton-title{height:24px;width:40%}
+@media (max-width:1023px){.workbench .workbench-skeleton .skeleton-nav{display:none}}
