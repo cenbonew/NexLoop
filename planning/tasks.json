@@ -3698,7 +3698,7 @@
         "type": "note",
         "ref": "docs/release/run-nx042-synthetic-calibration.md",
         "summary": "负责人 2026-10-28 决定：用合成数据跑通校准工具链即可判 done；运行单 L6 复核 PASS，等 stage 执行。真实数据校准（D9）拆到 NX-063。执行人：L3（运行单）；判定人：L6；决定人：负责人。",
-        "recorded_at": "2026-10-28T23:30:00+08:00"
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -3732,7 +3732,7 @@
         "type": "note",
         "ref": "migration 0364 (batch 49 5988b5be)",
         "summary": "第 10 项预算演练已实现（0364），负责人选方案 A；L6 复核 PASS，等 stage 执行。执行人：实现线；判定人：L6；决定人：负责人。",
-        "recorded_at": "2026-10-28T23:30:00+08:00"
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4499,7 +4499,7 @@
         "type": "note",
         "ref": "migration 0369 (batch 49 5988b5be)",
         "summary": "预算审批 Q1–Q8 由负责人决定，实现为 0369，作为 real 上线的前置条件。执行人：实现线；判定人：L6；决定人：负责人。",
-        "recorded_at": "2026-10-28T23:30:00+08:00"
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4581,7 +4581,7 @@
         "type": "note",
         "ref": "migration 0365 (batch 49 5988b5be)",
         "summary": "片 F 的 OIDC 实现（0365）默认不启用，只支持 RS256（负责人决定）；L6 复核 PASS。执行人：nx058-oidc 线；判定人：L6；决定人：负责人。",
-        "recorded_at": "2026-10-28T23:30:00+08:00"
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4697,7 +4697,7 @@
         "type": "note",
         "ref": "batch 49 5988b5be",
         "summary": "CLI 影响清单 F1 已修复，L6 复核 PASS；剩余 B5 的阈值观察一周后再定。执行人：实现线；判定人：L6；决定人：负责人（B5 阈值）。",
-        "recorded_at": "2026-10-28T23:30:00+08:00"
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       }
     ]
   },
@@ -4758,7 +4758,7 @@
         "type": "note",
         "ref": "docs/release/run-nx042-synthetic-calibration.md §6",
         "summary": "从 NX-042 拆出。依赖：正式上线（真实派发、真实 Consumer）+ 两个发布后开始且已结束的 28 天窗口（约 56 天）；前置：另发一版只含可校准行为的孪生，发布日期早于第一个窗口；payment_intent 等 T4 有真实聚合后再加。执行人：L4（拆分）；决定人：负责人；判定人：调度员。",
-        "recorded_at": "2026-10-28T23:30:00+08:00"
+        "recorded_at": "2026-10-28T10:26:25+08:00"
       },
       {
         "type": "note",
