@@ -224,7 +224,16 @@ def test_actual_sigkill_reopen_recovers_original_intent_without_second_post_or_q
         assert admin.execute('select count(*) from runtime.nexloop_local_delivery_recoveries where intent_id=%s',(intent,)).fetchone()==(1,)
 
 
-def manifest_window(f,monkeypatch,*,lease_seconds=3):
+# The window is written only when the whole server path (TLS, the guard's delivery proof, the store) answers inside one provider
+# timeout: once the client gives up, the Dispatcher stops waiting and the authority refuses the late delivery, so no manifest
+# exists (CI seq 193: no recovery candidate). So the dispatch uses the fixture's timeout, kept within the Dispatcher's rule (it refuses
+# a provider whose timeout exceeds lease/3; it never lowers one), with a lease long enough for it.
+WINDOW_LEASE_SECONDS=9
+
+
+def manifest_window(f,monkeypatch,*,lease_seconds=WINDOW_LEASE_SECONDS):
+    cfg=f['provider'].configuration
+    f['provider']=HttpEffectProvider(EffectProviderConfiguration(cfg.origin,credential_file=cfg.credential_file,ca_file=cfg.ca_file,timeout=min(cfg.timeout,lease_seconds/3)))
     intent=submit(f)['intent_id'];original=f['store']._immutable
     def fault(name,body):
         original(name,body)
@@ -240,7 +249,9 @@ def manifest_window(f,monkeypatch,*,lease_seconds=3):
 
 
 def await_original_action_expiry(admin,intent):
-    deadline=time.monotonic()+5
+    # Until PG itself says the original Action lease expired: bounded by that lease's own remaining time plus a margin, not a fixed wait.
+    remaining=admin.execute("select extract(epoch from (claim->>'lease_expires_at')::timestamptz-clock_timestamp()) from runtime.nexloop_action_claims where intent_id=%s",(intent,)).fetchone()[0]
+    deadline=time.monotonic()+max(0,float(remaining))+10
     while time.monotonic()<deadline:
         expired=admin.execute("select (claim->>'lease_expires_at')::timestamptz<=clock_timestamp() from runtime.nexloop_action_claims where intent_id=%s",(intent,)).fetchone()[0]
         if expired:return
@@ -277,9 +288,7 @@ def test_actual_active_original_claim_recovery_does_not_occupy_new_effect_lease(
 @pytest.mark.parametrize('revocation',['source_send','executor_send','source_run_expired'])
 def test_actual_recovery_current_authority_revocation_denies_real_new_claim_and_file(delivery_plan,admin,monkeypatch,revocation):
     f=delivery_plan
-    # timeout / lease rule is enforced by Dispatcher, not relaxed in tests.
-    cfg=f['provider'].configuration
-    f['provider']=HttpEffectProvider(EffectProviderConfiguration(cfg.origin,credential_file=cfg.credential_file,ca_file=cfg.ca_file,timeout=.5))
+    # timeout / lease rule is enforced by Dispatcher, not relaxed in tests (manifest_window).
     intent,manifest=manifest_window(f,monkeypatch)
     await_original_action_expiry(admin,intent)
     before=admin.execute('select claim from runtime.nexloop_action_claims where intent_id=%s',(intent,)).fetchone()[0]
@@ -339,8 +348,7 @@ def test_actual_recovery_reserve_tail_expiry_rolls_back_claim_attempt_and_marker
     from nexloop_eios.local_json_delivery import PROTOCOL
     from nexloop_eios.postgres_artifacts import canonical_payload
     import hmac
-    f=delivery_plan;cfg=f['provider'].configuration
-    f['provider']=HttpEffectProvider(EffectProviderConfiguration(cfg.origin,credential_file=cfg.credential_file,ca_file=cfg.ca_file,timeout=.5))
+    f=delivery_plan
     intent,manifest=manifest_window(f,monkeypatch)
     await_original_action_expiry(admin,intent)
     claim_before=admin.execute('select claim from runtime.nexloop_action_claims where intent_id=%s',(intent,)).fetchone()[0]
@@ -385,8 +393,7 @@ def _recovery_after_reserve_process(options,root,credential,profile,pipe):
 
 def test_actual_sigkill_after_recovery_reserve_commit_same_intent_recovers_no_new_quota(delivery_plan,admin,tmp_path,monkeypatch):
     import multiprocessing,signal
-    f=delivery_plan;cfg=f['provider'].configuration
-    f['provider']=HttpEffectProvider(EffectProviderConfiguration(cfg.origin,credential_file=cfg.credential_file,ca_file=cfg.ca_file,timeout=.5))
+    f=delivery_plan
     intent,manifest=manifest_window(f,monkeypatch)
     await_original_action_expiry(admin,intent)
     before=admin.execute('select action_claim_revision from runtime.nexloop_effect_attempts where intent_id=%s',(intent,)).fetchone()[0]
