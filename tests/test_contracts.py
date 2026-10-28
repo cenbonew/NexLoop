@@ -45,3 +45,22 @@ def test_runtime_cannot_request_unbounded_budget_or_embed_credentials():
     with pytest.raises(ValidationError):validator.validate(forged)
     forged=copy.deepcopy(example);forged['api_key']='synthetic-invalid-field'
     with pytest.raises(ValidationError):validator.validate(forged)
+
+
+VARIANTS = sorted(p.name for p in (ROOT/'examples').glob('*.*.valid.json'))
+
+
+@pytest.mark.parametrize('variant',VARIANTS)
+def test_example_variants_are_valid(variant):
+    """A variant example `<schema>.<variant>.valid.json` (beside the one `<schema>.valid.json`) validates against its schema."""
+    name = variant.split('.',1)[0]
+    assert name in NAMES, f'{variant} names no schema'
+    validator,_ = contract(name)
+    validator.validate(json.loads((ROOT/'examples'/variant).read_text()))
+
+
+def test_experiment_full_guardrails_example_has_every_guardrail():
+    example = json.loads((ROOT/'examples/experiment-registration.full-guardrails.valid.json').read_text())
+    schema = json.loads((ROOT/'experiment-registration.schema.json').read_text())
+    assert set(example['guardrails']) == set(schema['properties']['guardrails']['properties'])
+    assert example['guardrails']['stop_on_budget_exhausted'] is True

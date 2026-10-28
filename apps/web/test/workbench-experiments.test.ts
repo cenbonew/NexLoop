@@ -96,21 +96,16 @@ test('the detail names the three guardrails in words; the boolean one reads 预�
   const list=render({experiments:[stageShaped,drill]});expect(list).toContain('aria-label="实验列表"');expect(list).not.toContain('服务器响应格式不符');
 });
 
-// L6: driven by the contract itself - nexloop-experiment-registration/1 (schema and its example), not only a hand-written fixture. The schema's
-// guardrail properties give each value (the consts, the delta's maximum); the example gives the registration fields the row repeats.
-test('contract-driven: every guardrail the registration schema allows, with its contract value, parses; the parser accepts exactly those keys',()=>{
+// L6 S1: driven by the contract itself - examples/experiment-registration.full-guardrails.valid.json carries all three guardrails of
+// nexloop-experiment-registration/1 (stop_on_budget_exhausted true among them); the row takes the example's registration as it is.
+test('contract-driven: the full-guardrails registration example parses with every guardrail; the parser accepts exactly the schema keys',()=>{
   const read=(p:string)=>JSON.parse(readFileSync(new URL('../../../packages/contracts/'+p,import.meta.url),'utf8'));
-  const schema=read('experiment-registration.schema.json'),example=read('examples/experiment-registration.valid.json');
-  const props=schema.properties.guardrails.properties as Record<string,{const?:unknown;maximum?:number}>;
-  expect(schema.properties.guardrails.additionalProperties).toBe(false);
-  const contractGuardrails=Object.fromEntries(Object.entries(props).map(([k,p])=>[k,'const' in p?p.const:p.maximum]));
-  expect(contractGuardrails.stop_on_budget_exhausted).toBe(true);
-  expect(Object.keys(contractGuardrails).sort()).toEqual(['reconciliation_anomalies','refusal_or_unsubscribe_rate_delta','stop_on_budget_exhausted']);
-  const fromExample={...stageShaped,experiment_id:example.experiment_id,stage:example.stage,world:example.world,hypothesis:example.hypothesis,
-    candidate:example.candidate,control:example.control,primary_metric:example.primary_metric,sample_size:example.sample_size,budget:example.budget,
-    ends_at:example.ends_at,guardrails:{...example.guardrails,...contractGuardrails}};
-  const [x]=experiments({experiments:[fromExample]});
-  expect(x.guardrails).toEqual(contractGuardrails);expect(x.experiment_id).toBe(example.experiment_id);
-  expect(experiments({experiments:[{...fromExample,guardrails:example.guardrails}]})[0].guardrails).toEqual(example.guardrails);
-  expect(()=>experiments({experiments:[{...fromExample,guardrails:{...contractGuardrails,not_in_contract:true}}]})).toThrow(WorkbenchError);
+  const schema=read('experiment-registration.schema.json'),example=read('examples/experiment-registration.full-guardrails.valid.json');
+  expect(Object.keys(example.guardrails).sort()).toEqual(Object.keys(schema.properties.guardrails.properties).sort());
+  expect(example.guardrails.stop_on_budget_exhausted).toBe(true);
+  const registered=Object.fromEntries(Object.entries(example).filter(([k])=>k in stageShaped));
+  const [x]=experiments({experiments:[{...stageShaped,...registered,twin:stageShaped.twin}]});
+  expect(x.guardrails).toEqual(example.guardrails);expect(x.experiment_id).toBe(example.experiment_id);expect(x.hypothesis).toBe(example.hypothesis);
+  expect(()=>experiments({experiments:[{...stageShaped,...registered,twin:stageShaped.twin,guardrails:{...example.guardrails,not_in_contract:true}}]})).toThrow(WorkbenchError);
+  const html=renderToStaticMarkup(h(Detail,{x}));expect(html).toContain('预算用尽即停止');expect(html).toContain('出现任何一条即停止');
 });
