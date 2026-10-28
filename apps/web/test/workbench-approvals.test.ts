@@ -111,3 +111,20 @@ test('UX audit B8: the shared page shell, counts per list, readable summary fiel
   expect(html).not.toMatch(/scope_kind=|enabled=/);
   expect(html).toMatch(/<details class="approval-settings"><summary>单人模式设置（未开启）<\/summary>/);
 });
+
+test('X1/X2 (l2/ui-backend-x1-x4, fixtures): the requester by username, an erased one said so, server labels first; an older server still parses',()=>{
+  const row={...base,requested_by_username:'staff-owner',summary_labels:{scope_kind:'范围',enabled:'开关'},summary:{scope_kind:'tenant',enabled:true}};
+  const erased={...base,approval_id:id.replace('3f','7f'),requested_by_username:null,summary_labels:{scope_kind:'scope_kind',enabled:'开关'}};
+  const parsed=approvals({...raw,to_decide:[row,erased]});
+  expect(parsed.to_decide[0]).toMatchObject({requested_by_username:'staff-owner',summary_labels:{scope_kind:'范围',enabled:'开关'}});
+  expect(parsed.to_decide[1].requested_by_username).toBeNull();
+  expect(approvals(raw).to_decide[0].requested_by_username).toBeUndefined();  // the field is optional until the backend lands
+  expect(()=>approvals({...raw,to_decide:[{...row,summary_labels:{other:'其他'}}]})).toThrow();  // a label for a key that is not in the summary
+  expect(()=>approvals({...raw,to_decide:[{...row,summary_labels:{enabled:3}}]})).toThrow();
+  expect(()=>approvals({...raw,to_decide:[{...row,surprise:1}]})).toThrow();  // the key list is still exact
+  const html=render(client([[['workbench','approvals'],parsed],[['workbench','me'],approver]]),h(Approvals,{}));
+  expect(html).toContain('<span class="name-main">staff-owner</span>');expect(html).toContain('已删除的成员');
+  expect(html).toContain('<dt>范围</dt><dd>整个租户</dd>');  // a label equal to the key falls back to the page's own
+  const custom=approvals({...raw,to_decide:[{...base,summary:{offering_revision:3},summary_labels:{offering_revision:'激励目录版本'},requested_by_username:'x'}]});
+  expect(render(client([[['workbench','approvals'],custom],[['workbench','me'],approver]]),h(Approvals,{}))).toContain('<dt>激励目录版本</dt><dd>3</dd>');
+});

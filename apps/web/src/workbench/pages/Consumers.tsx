@@ -92,7 +92,7 @@ export function Consumers({actions,onOpen,onCommitments,query={},onQuery=()=>{}}
       <label>联系限制<select value={query.restricted??''} onChange={e=>choose('restricted',e.target.value)}><option value="">全部</option><option value="true">受限</option><option value="false">未受限</option></select></label>
       <label>未结束承诺<select value={query.open??''} onChange={e=>choose('open',e.target.value)}><option value="">全部</option><option value="true">有</option><option value="false">没有</option></select></label>
       <label>排序<select value={(query.sort??'id')+':'+(query.order??'asc')} onChange={e=>{const [sort,order]=e.target.value.split(':');set({sort,order});}}>
-        <option value="id:asc">按 ID</option><option value="open_commitments:desc">未结束承诺最多</option><option value="conversations:desc">会话最多</option><option value="active_plans:desc">活跃计划最多</option></select></label>
+        <option value="id:asc">按 ID</option><option value="last_conversation_at:desc">最近有会话的在前</option><option value="open_commitments:desc">未结束承诺最多</option><option value="conversations:desc">会话最多</option><option value="active_plans:desc">活跃计划最多</option></select></label>
       <Keyword label="关键字" value={keyword} onChange={v=>set({q:v,page:query.page??''})}/></div>}
     empty={d=>d.items.length===0&&!start&&query.restricted===undefined&&query.open===undefined}>{page=>{
     const k=keyword.trim().toLowerCase();
@@ -104,7 +104,9 @@ export function Consumers({actions,onOpen,onCommitments,query={},onQuery=()=>{}}
       {label:'联系限制',cell:c=>c.restricted?<StatusBadge text="受限" tone="limited"/>:'—'},
       {label:'未结束承诺',num:true,cell:c=>c.open_commitments&&onCommitments?<button type="button" className="link-count" aria-label={`查看 ${consumerLabel(c.consumer_id,c.display)} 的 ${c.open_commitments} 条未结束承诺`}
         onClick={()=>onCommitments(c.consumer_id)}>{c.open_commitments}</button>:c.open_commitments},
-      {label:'活跃计划',num:true,cell:c=>c.active_plans},{label:'会话',num:true,cell:c=>c.conversations}]}/>
+      {label:'活跃计划',num:true,cell:c=>c.active_plans},{label:'会话',num:true,cell:c=>c.conversations},
+      // X3: shown when the server sends the newest message time (an older server does not).
+      ...(rows.some(c=>c.last_conversation_at!==undefined)?[{label:'最近会话',cell:(c:typeof rows[number])=><Time value={c.last_conversation_at??null}/>}]:[])]}/>
       :<EmptyState kind="filtered" subject="客户" reason={k?'关键字只在当前页内查找':undefined}/>}
     {k&&rows.length?<p className="note">关键字只在当前页内查找（共 {page.items.length} 条中匹配 {rows.length} 条）。</p>:null}
     <Pager total={page.total} start={start} size={PAGE_SIZE} shown={page.items.length} onPage={n=>set({page:n?String(n):''})}/>

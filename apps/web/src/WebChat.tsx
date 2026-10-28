@@ -3,9 +3,16 @@ import {useEffect,useState} from 'react';
 import {MessageReceipt} from './MessageReceipt';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {chatError,createConversation,listConversations,mergeCommitted,messagePresentation,readHandling,readMessages,sendMessage,subscribe,type Message} from './chat-api';
-/** The conversation list carries no title or time yet (that needs a new field in the conversation read), so a conversation is named by
- * its place in the list. The customer sees no identifier (UX audit B12, owner 2026-10-28). */
-export const conversationLabel=(index:number,_id:string)=>`对话 ${index+1}`;
+/** A conversation by its times (X4: first message, count); without them (an older server) by its place in the list. The customer sees
+ * no identifier (UX audit B12, owner 2026-10-28). */
+export function conversationLabel(index:number,_id:string,times?:{started_at?:string|null;message_count?:number}):string{
+  if(times?.message_count===undefined)return `对话 ${index+1}`;
+  if(!times.started_at||!times.message_count)return '新对话（还没有消息）';
+  const d=new Date(times.started_at);
+  if(Number.isNaN(d.getTime()))return `对话 ${index+1}`;
+  const day=d.toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
+  return `${day} 开始 · 共 ${times.message_count} 条`;
+}
 /** Local date and time, 24-hour, without seconds' fractions. */
 export const localTime=(value:string)=>{const d=new Date(value);return Number.isNaN(d.getTime())?value:d.toLocaleString('zh-CN',{hour12:false});};
 export function WebChat(){
@@ -29,7 +36,7 @@ export function WebChat(){
   const latest=messages.data?.items.reduce<string|null>((t,item)=>!t||item.accepted_at>t?item.accepted_at:t,null)??null;
   return <section className="chat" aria-labelledby="chat-heading">
     <div className="chat-bar"><h2 id="chat-heading">我的对话</h2>
-      {conversations.isPending?<p role="status">正在读取你的对话…</p>:conversations.isError?<p role="alert">{chatError(conversations.error)}</p>:<div className="chat-picker"><label htmlFor="conversation">你的对话</label><select id="conversation" value={selected} disabled={!!pending||send.isPending} onChange={event=>{setSelected(event.target.value);setStreamUnavailable(false);}}><option value="">选择对话</option>{conversations.data.items.map((item,i)=><option key={item.id} value={item.id} title={item.id}>{conversationLabel(i,item.id)}</option>)}</select>
+      {conversations.isPending?<p role="status">正在读取你的对话…</p>:conversations.isError?<p role="alert">{chatError(conversations.error)}</p>:<div className="chat-picker"><label htmlFor="conversation">你的对话</label><select id="conversation" value={selected} disabled={!!pending||send.isPending} onChange={event=>{setSelected(event.target.value);setStreamUnavailable(false);}}><option value="">选择对话</option>{conversations.data.items.map((item,i)=><option key={item.id} value={item.id} title={item.id}>{conversationLabel(i,item.id,item)}</option>)}</select>
         <button type="button" disabled={create.isPending||!!pending} onClick={()=>create.mutate()}>{create.isPending?'正在创建…':'新建对话'}</button></div>}
       {test||latest?<p className="note chat-meta">{test?<span className="chat-test-badge">测试环境，回复不代表正式服务</span>:null}{test&&latest?' · ':null}{latest?<>最近消息 <time dateTime={latest}>{localTime(latest)}</time></>:null}</p>:null}
       {conversations.data&&!conversations.data.items.length&&<p>还没有对话，点“新建对话”开始。</p>}{conversations.data?.next_cursor&&<button type="button" disabled={moreConversations.isPending} onClick={()=>moreConversations.mutate()}>加载更早的对话</button>}{moreConversations.isError&&<p role="alert">{chatError(moreConversations.error)}</p>}

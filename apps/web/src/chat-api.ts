@@ -1,7 +1,9 @@
 import {nativeAttempt,type PendingNativeMessage} from './native-message';
 import {ApiError,refreshCsrf} from './api';
 
-export type Conversation={id:string;consumer_id:string;world_id:string;revision:number;execution_profile?:'deterministic-test'|'real-provider'|'disabled'};
+export type Conversation={id:string;consumer_id:string;world_id:string;revision:number;execution_profile?:'deterministic-test'|'real-provider'|'disabled';
+  /** X4 (l2/ui-backend-x1-x4): first and newest message times and the count; absent from an older server. */
+  started_at?:string|null;last_message_at?:string|null;message_count?:number};
 export type Message={id:string;conversation_id:string;sequence:number;actor:string;body:string;accepted_at:string;status:'accepted';direction:'inbound'|'outbound';sender_kind:'consumer'|'agent'|'human_takeover';intent_id?:string;trigger_message_id?:string;reply_to_message_id?:string|null;provider?:MessageProvider|null};
 // NX-051: channel order/time/reference as evidence. Display only; the list order stays `sequence`.
 export type MessageProvider={namespace:string;message_ref:string|null;sequence:number|null;sent_at:string|null;trust:'server'|'signed'|'client';skewed:boolean};
@@ -11,7 +13,14 @@ const opaqueId=/^[0-9a-f]{64}$/;
 function object(value:unknown):Record<string,unknown>{if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('响应无效');return value as Record<string,unknown>;}
 function string(value:unknown):string{if(typeof value!=='string'||!value)throw new Error('响应无效');return value;}
 function id(value:unknown):string{const result=string(value);if(!opaqueId.test(result))throw new Error('响应无效');return result;}
-export function conversation(value:unknown):Conversation{const v=object(value);if(!Number.isSafeInteger(v.revision)||Number(v.revision)<1)throw new Error('响应无效');if(v.execution_profile!==undefined&&!['deterministic-test','real-provider','disabled'].includes(String(v.execution_profile)))throw new Error('响应无效');if(v.execution_profile!==undefined&&typeof v.execution_profile!=='string')throw new Error('响应无效');return {id:id(v.id),consumer_id:id(v.consumer_id),world_id:string(v.world_id),revision:Number(v.revision),...(v.execution_profile===undefined?{}:{execution_profile:v.execution_profile as Conversation['execution_profile']})};}
+export function conversation(value:unknown):Conversation{const v=object(value);if(!Number.isSafeInteger(v.revision)||Number(v.revision)<1)throw new Error('响应无效');if(v.execution_profile!==undefined&&!['deterministic-test','real-provider','disabled'].includes(String(v.execution_profile)))throw new Error('响应无效');if(v.execution_profile!==undefined&&typeof v.execution_profile!=='string')throw new Error('响应无效');return {id:id(v.id),consumer_id:id(v.consumer_id),world_id:string(v.world_id),revision:Number(v.revision),...(v.execution_profile===undefined?{}:{execution_profile:v.execution_profile as Conversation['execution_profile']}),...times(v)};}
+function times(v:Record<string,unknown>):Pick<Conversation,'started_at'|'last_message_at'|'message_count'>{
+  if(v.message_count===undefined&&v.started_at===undefined&&v.last_message_at===undefined)return {};
+  const at=(x:unknown)=>{if(x===null)return null;const s=string(x);if(!Number.isFinite(Date.parse(s)))throw new Error('响应无效');return s;};
+  if(!Number.isSafeInteger(v.message_count)||Number(v.message_count)<0)throw new Error('响应无效');
+  const out={started_at:at(v.started_at),last_message_at:at(v.last_message_at),message_count:Number(v.message_count)};
+  if((out.message_count===0)!==(out.started_at===null)||(out.started_at===null)!==(out.last_message_at===null))throw new Error('响应无效');
+  return out;}
 function provider(value:unknown):MessageProvider|null{if(value===null)return null;const v=object(value);const keys=['namespace','message_ref','sequence','sent_at','trust','skewed'];
   if(Object.keys(v).length!==keys.length||!keys.every(k=>k in v)||!/^[a-z][a-z0-9.-]{1,63}$/.test(string(v.namespace))||(v.message_ref!==null&&typeof v.message_ref!=='string')||(v.sequence!==null&&(!Number.isSafeInteger(v.sequence)||Number(v.sequence)<1))||(v.sent_at!==null&&!Number.isFinite(Date.parse(string(v.sent_at))))||!['server','signed','client'].includes(String(v.trust))||typeof v.skewed!=='boolean')throw new Error('响应无效');
   return {namespace:v.namespace as string,message_ref:v.message_ref as string|null,sequence:v.sequence as number|null,sent_at:v.sent_at as string|null,trust:v.trust as MessageProvider['trust'],skewed:v.skewed};}

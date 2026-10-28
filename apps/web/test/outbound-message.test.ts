@@ -55,3 +55,16 @@ test('B12: a failed progress read says the message was sent and only the progres
   expect(progressError(new ApiError(503))).toBe('暂时查不到处理进度，请稍后再看；你的消息已经发出。');
   expect(progressError(new ApiError(401))).toBe('登录已失效，请重新登录。');
 });
+
+test('X4 (l2/ui-backend-x1-x4, fixtures): a conversation is named by when it started and how long it is; an older server keeps the list place',async()=>{
+  const {conversation}=await import('../src/chat-api');const {conversationLabel}=await import('../src/WebChat');
+  const c={id:'a'.repeat(64),consumer_id:'b'.repeat(64),world_id:'real',revision:1};
+  const timed=conversation({...c,started_at:'2026-10-28T02:30:00.000000Z',last_message_at:'2026-10-28T03:00:00.000000Z',message_count:5});
+  expect(timed).toMatchObject({message_count:5,started_at:'2026-10-28T02:30:00.000000Z'});
+  const day=new Date('2026-10-28T02:30:00Z').toLocaleString('zh-CN',{month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
+  expect(conversationLabel(0,c.id,timed)).toBe(`${day} 开始 · 共 5 条`);expect(day).toMatch(/10月28日/);
+  expect(conversationLabel(1,c.id,conversation({...c,started_at:null,last_message_at:null,message_count:0}))).toBe('新对话（还没有消息）');
+  expect(conversationLabel(2,c.id,conversation(c))).toBe('对话 3');
+  for(const bad of [{started_at:null,last_message_at:null,message_count:2},{started_at:'x',last_message_at:'x',message_count:1},{started_at:null,last_message_at:null},{message_count:-1,started_at:null,last_message_at:null}])
+    expect(()=>conversation({...c,...bad})).toThrow();
+});

@@ -41,11 +41,16 @@ function summaryValue(key:string,value:string|number|boolean|null){
   if(typeof value==='string'&&(HEX.test(value)||value.length>40))return <IdText value={value}/>;
   return String(value);
 }
+/** A summary key's label: the server's (X2, when it is not just the key), else the page's own, else none (folded with its name). */
+export function summaryLabel(row:ApprovalRow,key:string):string|null{
+  const server=row.summary_labels?.[key];
+  return server&&server!==key?server:Object.hasOwn(SUMMARY_FIELD_TEXT,key)?SUMMARY_FIELD_TEXT[key]:null;
+}
 export function Summary({row}:{row:ApprovalRow}){
   const entries=Object.entries(row.summary);
   if(!entries.length)return <>—</>;
-  const known=entries.filter(([k])=>Object.hasOwn(SUMMARY_FIELD_TEXT,k)),other=entries.filter(([k])=>!Object.hasOwn(SUMMARY_FIELD_TEXT,k));
-  return <>{known.length?<dl className="kv approval-summary">{known.map(([k,v])=><div key={k} className="kv-row"><dt>{SUMMARY_FIELD_TEXT[k]}</dt><dd>{summaryValue(k,v)}</dd></div>)}</dl>:null}
+  const known=entries.filter(([k])=>summaryLabel(row,k)),other=entries.filter(([k])=>!summaryLabel(row,k));
+  return <>{known.length?<dl className="kv approval-summary">{known.map(([k,v])=><div key={k} className="kv-row"><dt>{summaryLabel(row,k)}</dt><dd>{summaryValue(k,v)}</dd></div>)}</dl>:null}
     {other.length?<details className="state-details"><summary>其他字段（{other.length}）</summary>{other.map(([k,v])=><p key={k}><code className="id-code">{k}</code>：{v===null?'空':String(v)}</p>)}</details>:null}</>;
 }
 /** The Action in business words (L6 review 7); the capability stays visible as secondary text. */
@@ -75,6 +80,13 @@ const common=[
   {label:'截止',cell:(r:ApprovalRow)=><Time value={r.due_by}/>},
   {label:'批准',num:true,cell:(r:ApprovalRow)=>`${r.approvals} / ${r.quorum}`},
 ];
+
+/** X1: the requester by username, the member id as secondary text; an erased or unknown member said so; an older server: the id. */
+export function Requester({row}:{row:ApprovalRow}){
+  const id=<IdText kind="成员" value={row.requested_by} head={6} tail={4}/>;
+  if(row.requested_by_username===undefined)return id;
+  return <span className="requester"><span className="name-main">{row.requested_by_username??'已删除的成员'}</span>{id}</span>;
+}
 
 function DecideForms({member,row}:{member:Me;row:ApprovalRow}){
   const [reason,setReason]=useState('');
@@ -119,7 +131,7 @@ function ApprovalLists({data}:{data:Awaited<ReturnType<typeof readApprovals>>}){
     <p className="note">执行时还会重查批准人资格、期限和暂停；派发时照常检查全部闸门。</p>
     <h2>待我审批（{to_decide.length}）</h2>
     {to_decide.length===0?<EmptyState kind="empty" title="没有待你审批的请求"/>:<DataTable label="待我审批" rows={to_decide} rowKey={r=>r.approval_id} columns={[
-      ...common,{label:'发起人',cell:r=><><IdText kind="成员" value={r.requested_by} head={6} tail={4}/><br/><Time value={r.requested_at}/></>},
+      ...common,{label:'发起人',cell:r=><><Requester row={r}/><br/><Time value={r.requested_at}/></>},
       {label:'审批',cell:r=><WithMember>{member=><DecideForms member={member} row={r}/>}</WithMember>}]}/>}
     <h2>待我执行（{to_execute.length}）</h2>
     {to_execute.length===0?<EmptyState kind="empty" title="没有已批准待执行的请求"/>:<DataTable label="待我执行" rows={to_execute} rowKey={r=>r.approval_id} columns={[
