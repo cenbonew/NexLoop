@@ -1850,6 +1850,11 @@
       "version": "0370",
       "name": "0370_ui_experiments_view.sql",
       "sha256": "15fc07e4d2b5872d3b0b0e5e6a3003f2f54361a1b38ff2ce42c4037bab1629f4"
+    },
+    {
+      "version": "0371",
+      "name": "0371_nx058_invite_sso.sql",
+      "sha256": "fa98238e18f657aff84033c4b91e10b36f2530be668670a5c8c7759fa72e5c04"
     }
   ]
 }

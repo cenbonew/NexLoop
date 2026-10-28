@@ -78,6 +78,8 @@ async function accountPost(path:string,body:Record<string,string>,done:string,in
 }
 /** NX-058 §1: accept an invitation with its token and a new password (no username: the invitation names it). */
 export const acceptInvitation=(token:string,password:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token,password},'invitation_accepted','invitation_invalid');
+/** NX-058 slice F: accept an SSO-only invitation with its token only (it takes no password; the server refuses one). */
+export const acceptSsoInvitation=(token:string)=>accountPost('/api/v1/workbench/auth/invitation/accept',{token},'invitation_accepted','invitation_invalid');
 /** NX-058 §2 (I3): complete a reset with the code and a new password only (no username to enumerate). */
 export const completeReset=(code:string,password:string)=>accountPost('/api/v1/workbench/auth/password/reset',{code,password},'password_reset','reset_invalid');
 /** NX-058 slice F: the configured single sign-on providers (id and display name only); none while SSO is off or unreadable, so the
@@ -400,18 +402,19 @@ export const readSettings=()=>get('/api/v1/workbench/settings',settings);
  * days of reset codes. Never a token, code, digest or email (the server leaves them out; a row that carried one is refused here). */
 export type MemberStatus='invited'|'active'|'suspended'|'revoked';
 export type MemberRow={principal_id:string;label:string;username:string|null;role:string|null;member_status:MemberStatus;account_status:string|null;
-  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean;person:string;human_active:boolean};
+  vote_eligible_from:string|null;erased:boolean;person_all_revoked:boolean;person:string;human_active:boolean;sso_pending?:boolean};
 export type InvitationRow={invitation_id:string;username:string;role:string;issued_by:string;issued_at:string;expires_at:string};
 export type ResetRow={reset_id:string;target_principal:string;issued_by:string;issued_at:string;expires_at:string;state:string;completed_at:string|null;kind:'member'|'owner'};
 export type Members={members:MemberRow[];invitations:InvitationRow[];resets:ResetRow[]};
 function exactKeys(o:Record<string,unknown>,keys:string[]){if(Object.keys(o).sort().join()!==[...keys].sort().join())throw new WorkbenchError('invalid');return o;}
 const memberStatus=(v:unknown):MemberStatus=>{const t=text(v);if(!['invited','active','suspended','revoked'].includes(t))throw new WorkbenchError('invalid');return t as MemberStatus;};
 export function members(value:unknown):Members{const v=exactKeys(object(value),['members','invitations','resets']);
-  return {members:list(v.members).map(x=>{const o=exactKeys(object(x),['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked','person','human_active']);
+  // sso_pending (NX-058 F, 0371): a member who accepted an SSO-only invitation and awaits its link; absent before 0371.
+  return {members:list(v.members).map(x=>{const r=object(x);const o=exactKeys(r,['principal_id','label','username','role','member_status','account_status','vote_eligible_from','erased','person_all_revoked','person','human_active',...('sso_pending' in r?['sso_pending']:[])]);
       const label=text(o.label);if(!/^p-[0-9a-f]{8}$/.test(label))throw new WorkbenchError('invalid');
       return {principal_id:text(o.principal_id),label,username:maybeText(o.username),role:maybeText(o.role),member_status:memberStatus(o.member_status),
         account_status:maybeText(o.account_status),vote_eligible_from:maybeText(o.vote_eligible_from),erased:flag(o.erased),person_all_revoked:flag(o.person_all_revoked),
-        person:(()=>{const v=text(o.person);if(!/^s-[0-9a-f]{8}$/.test(v))throw new WorkbenchError('invalid');return v;})(),human_active:flag(o.human_active)};}),
+        person:(()=>{const v=text(o.person);if(!/^s-[0-9a-f]{8}$/.test(v))throw new WorkbenchError('invalid');return v;})(),human_active:flag(o.human_active),...('sso_pending' in o?{sso_pending:flag(o.sso_pending)}:{})};}),
     invitations:list(v.invitations).map(x=>{const o=exactKeys(object(x),['invitation_id','username','role','issued_by','issued_at','expires_at']);
       return {invitation_id:text(o.invitation_id),username:text(o.username),role:text(o.role),issued_by:text(o.issued_by),issued_at:text(o.issued_at),expires_at:text(o.expires_at)};}),
     resets:list(v.resets).map(x=>{const o=exactKeys(object(x),['reset_id','target_principal','issued_by','issued_at','expires_at','state','completed_at','kind']);
@@ -420,11 +423,11 @@ export function members(value:unknown):Members{const v=exactKeys(object(value),[
         state:text(o.state),completed_at:maybeText(o.completed_at),kind};})};}
 export const readMembers=()=>get('/api/v1/workbench/members',members);
 /** A one-time secret in a write's result (a reset code or an invitation token): shown once to the issuer, never stored by the page. */
-export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string}|null{
+export function oneTimeSecret(result:Record<string,unknown>|undefined):{kind:'code'|'token';value:string;sso?:boolean}|null{
   // Only the execution that drew it: never a replay, a waiting request or a refusal (those carry no secret anyway).
   if(!result||result.replayed!==false||'status' in result||(result.approval!==undefined&&result.approval!=='consumed'))return null;
   if(typeof result.code==='string'&&result.code.length>=16)return {kind:'code',value:result.code};
-  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token};
+  if(typeof result.token==='string'&&result.token.length>=16)return {kind:'token',value:result.token,...(typeof result.sso_provider==='string'?{sso:true}:{})};
   return null;
 }
 

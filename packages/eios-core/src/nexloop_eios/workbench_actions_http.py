@@ -235,9 +235,11 @@ OPERATIONS={
     # NX-058 slice B (owner only): a one-time reset code for an operator or reviewer; the entry draws the code (below), never the body.
     'issue_workbench_reset':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
     # NX-058 slice A (owner only): invite an operator or reviewer; the entry draws the token (below). Revoke an unused invitation.
-    'invite_workbench_member':{'username':_id(re.compile(r'(?!erased-)[a-z0-9][a-z0-9._-]{2,63}')),
+    # An invitation may name the member SSO only (a configured provider, checked below; owners never: invite_owner has no such field).
+    'invite_workbench_member':lambda body:{'username':_id(re.compile(r'(?!erased-)[a-z0-9][a-z0-9._-]{2,63}')),
         'role':lambda v:v if v in ('operator','reviewer') else (_ for _ in ()).throw(ValueError('role')),
-        'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours'))},
+        'expires_in_hours':lambda v:v if type(v) is int and 1<=v<=72 else (_ for _ in ()).throw(ValueError('hours')),
+        **({'sso_provider':_id(re.compile(r'[a-z][a-z0-9_-]{0,31}'))} if 'sso_provider' in body else {})},
     'revoke_workbench_invitation':{'invitation_id':_id(_UUID)},
     # NX-058 slice D3 (owner only, NX-056 approval): the entry draws the code or token at every submission (below).
     'issue_workbench_owner_reset':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
@@ -414,7 +416,7 @@ def router(config,*,ports_for_browser):
                 code=W.new_token() if invite else W.new_code()
                 fields={**fields,('token_hmac' if invite else 'code_hmac'):W.digest(secret_key,W.INVITE if invite else W.RESET,config.tenant_id,code),
                         'issuer_source_hmac':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
-            if operation=='link_workbench_external':
+            if operation=='link_workbench_external' or (operation=='invite_workbench_member' and 'sso_provider' in fields):
                 # Only a configured provider (the same file the login uses); its issuer, never the body's.
                 from nexloop_eios.workbench_oidc import OidcClient,load_providers
                 try:
@@ -422,9 +424,9 @@ def router(config,*,ports_for_browser):
                     if client is None and config.oidc_providers_file is not None:
                         client=OidcClient(load_providers(config.oidc_providers_file));request.app.state.workbench_oidc=client
                 except Exception:return error('unavailable',503)
-                provider=None if client is None else client.providers.get(fields['provider_id'])
+                provider=None if client is None else client.providers.get(fields.get('provider_id',fields.get('sso_provider')))
                 if provider is None:return error('not_allowed_in_state',409,{'reason':'provider_unknown'})
-                fields={**fields,'issuer':provider.issuer}
+                if operation=='link_workbench_external':fields={**fields,'issuer':provider.issuer}
             result=await run_in_threadpool(lambda:bound(request).run(operation,'workbench-'+key,fields))
             if operation in ('issue_workbench_owner_reset','invite_workbench_owner'):
                 if (isinstance(result,dict) and result.get('approval')=='consumed' and result.get('status') is None and result.get('replayed') is False):

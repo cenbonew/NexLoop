@@ -4,8 +4,10 @@ import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
-import {me,members,OPERATION_ACTION,readSsoProviders,ssoProviders,ssoStartPath} from '../src/workbench/api';
-import {SsoButtons,SsoLinkForms,ssoControls} from '../src/workbench/SsoLink';
+import {acceptSsoInvitation,me,members,oneTimeSecret,OPERATION_ACTION,readSsoProviders,ssoProviders,ssoStartPath} from '../src/workbench/api';
+import {OneTimeSecret} from '../src/workbench/actions';
+import {InvitationPage,PasswordAcceptRefusal} from '../src/workbench/AccountPages';
+import {SsoButtons,SsoInviteChoiceView,SsoLinkForms,ssoControls} from '../src/workbench/SsoLink';
 import {MemberControlPanel,Members} from '../src/workbench/pages/Members';
 
 afterEach(()=>{vi.unstubAllGlobals();});
@@ -61,4 +63,37 @@ test('NX-058 F: the owner gets link and unlink forms; without a provider only un
   const ownerRow=members({members:[row('synthetic-owner','owner','active'),r],invitations:[],resets:[]}).members;
   expect(html(h(MemberControlPanel,{member:owner,row:r,members:ownerRow,kind:'sso'}),{'["workbench","sso-providers"]':corp})).toContain('aria-label="绑定单点登录"');
   expect(OPERATION_ACTION.link_workbench_external).toBe('eios:action:nexloop.workbench_member.link_external:1');
+});
+
+test('NX-058 F: the invite form offers SSO only with a configured provider; its link and accept page take no password', ()=>{
+  expect(html(h(SsoInviteChoiceView,{providers:[],value:'',onChange:()=>{}}))).toBe('');
+  const choice=html(h(SsoInviteChoiceView,{providers:corp,value:'corp',onChange:()=>{}}));
+  for(const t of ['登录方式','密码','仅 SSO（Corp IdP）','value="corp"'])expect(choice).toContain(t);
+  const token='T'.repeat(43);
+  expect(oneTimeSecret({replayed:false,token,sso_provider:'corp'})).toEqual({kind:'token',value:token,sso:true});
+  expect(oneTimeSecret({replayed:false,token,sso_provider:null})).toEqual({kind:'token',value:token});
+  expect(html(h(OneTimeSecret,{kind:'token',value:token,sso:true}))).toContain('#token='+token+'&amp;sso=1');
+  expect(html(h(OneTimeSecret,{kind:'token',value:token}))).not.toContain('sso=1');
+  const sso=html(h(InvitationPage,{initialHash:'#token='+token+'&sso=1'}));
+  expect(sso).toContain('只能用单点登录');expect(sso).not.toContain('type="password"');
+  expect(html(h(InvitationPage,{initialHash:'#token='+token}))).toContain('type="password"');
+});
+
+test('NX-058 F: an SSO-only acceptance posts the token alone', async()=>{
+  const fetch=vi.fn(async()=>new Response('{"code":"invitation_accepted"}',{status:200}));vi.stubGlobal('fetch',fetch);
+  expect(await acceptSsoInvitation('T'.repeat(43))).toBe('done');
+  expect(JSON.parse((fetch.mock.calls[0] as unknown as [string,RequestInit])[1].body as string)).toEqual({token:'T'.repeat(43)});
+});
+
+test('NX-058 F (L6 S1, S2): a refused password acceptance hints at the full SSO link; the members page marks a member pending SSO', ()=>{
+  const refused=html(h(PasswordAcceptRefusal,{result:'invalid'}));
+  expect(refused).toContain('需要用单点登录接受');expect(refused).toContain('完整链接');
+  expect(html(h(PasswordAcceptRefusal,{result:'rate_limited'}))).not.toContain('单点登录');
+  expect(html(h(PasswordAcceptRefusal,{result:null}))).toBe('');
+  const parsed=members({members:[{...row('synthetic-op','operator','active'),sso_pending:true},row('synthetic-rv','reviewer','active')],invitations:[],resets:[]}).members;
+  expect(parsed.map(m=>m.sso_pending)).toEqual([true,undefined]);
+  expect(()=>members({members:[{...row('synthetic-op','operator','active'),sso_pending:'yes'}],invitations:[],resets:[]})).toThrow();
+  const page=html(h(Members,{}),{'["workbench","members"]':members({members:[row('synthetic-owner','owner','active'),{...row('synthetic-op','operator','active'),sso_pending:true}],invitations:[],resets:[]}),
+    '["workbench","me"]':owner,'["workbench","sso-providers"]':corp});
+  expect(page.match(/待绑定 SSO/g)?.length).toBe(1);
 });

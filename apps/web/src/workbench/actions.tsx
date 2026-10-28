@@ -122,13 +122,14 @@ export function WriteResult({operation,data,onHide}:{operation:Operation;data:Re
 
 /** NX-058: a reset code or an invitation token, shown once to the issuer (it is in no read, list or log; the page keeps it only while
  * this form is on screen). The invitation link carries the token in the fragment, which the accept page clears at once. */
-export function OneTimeSecret({kind,value,onHide}:{kind:'code'|'token';value:string;onHide?:()=>void}){
+export function OneTimeSecret({kind,value,sso,onHide}:{kind:'code'|'token';value:string;sso?:boolean;onHide?:()=>void}){
   // Cleared 2 minutes after it was first shown (or at once with the button): the secret leaves the component state and the mutation
   // result. The deadline is fixed at the first render and the callback held in a ref, so a re-render or refetch never restarts it.
   const [shownAt]=useState(()=>Date.now());const hide=useRef(onHide);hide.current=onHide;
   useEffect(()=>{const timer=setTimeout(()=>hide.current?.(),Math.max(0,shownAt+120_000-Date.now()));return ()=>clearTimeout(timer);},[shownAt]);
   const origin=globalThis.location?.origin??'';
-  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value):null;
+  // An SSO-only invitation's link says so (sso=1), so the accept page asks for no password; the server decides either way.
+  const link=kind==='token'?origin+'/workbench/invitation#token='+encodeURIComponent(value)+(sso?'&sso=1':''):null;
   return <div className="one-time-secret" role="alert"><p><strong>{kind==='code'?'重置码':'邀请令牌'}（只显示这一次）</strong></p>
     <p><code className="id-code">{value}</code></p>
     {link?<p>邀请链接：<code className="id-code">{link}</code></p>:<p>重置页：<code className="id-code">{origin}/workbench/reset</code></p>}

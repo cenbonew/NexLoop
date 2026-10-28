@@ -23,7 +23,7 @@
 
 - **没有 vendored 上游 `identity/oidc.py`**：它依赖 `joserfc`（以及间接依赖的 `cryptography`），NexLoop 没有这两个依赖，本任务也不下载新依赖。现在的实现遵循上游的规则（PKCE S256、一次性 state、nonce、JWKS 白名单、HTTPS fail-closed），但不复制它的代码，只支持 RS256。如果以后要支持 ES256 或 PS256，或者想改回 vendoring，需要先引入 `joserfc`，届时再议（见上一条）。
 - **owner 的绑定**：设计 S5 要求 `link_owner_external` 走审批。本片在受治理入口拒绝 owner 目标，没有新增需要审批的 Action。
-- **邀请时指定“仅限 SSO”**（§5）：没有做。现在的做法是先接受邀请，再由 owner 绑定为 `sso_only`。
+- **邀请时指定“仅限 SSO”**（§5）：已实现，见文末“邀请时指定仅限 SSO”。
 - **成员页不显示绑定状态**：成员读取（0356）不返回绑定，所以每个在用的 operator 和 reviewer 行都提供绑定和解绑，由服务端按 `already_linked` 或 `not_linked` 拒绝。要显示状态，需要扩展成员读取。
 
 ## 部署（默认不启用，启用时再做）
@@ -81,3 +81,20 @@
   - 测试 `test_a_promoted_member_loses_its_link_and_no_owner_signs_in_by_sso`：绑定 → SSO 能登录 → 经 configurator 提升 → 绑定被删除，记录 owner_promoted 事件，SSO 被拒（`not_linked`）；直接写入一条负责人的绑定后，SSO 仍被拒（`member_unavailable`）；对负责人目标解绑成功。
 - **S1**：工作台的 `GET /auth/session` 返回 `authentication_methods`（`["oidc"]` 或 `["password"]`），用来区分 SSO 会话和密码会话；正常登录用例分别断言了两种情况。
 - **S2**（只检查 IP 字面量，provider 的主机名解析到内网地址时不防）：作为已知局限接受。provider 文件是受信的私有配置，只有运维能写；能改这份文件的人本来就能把 IdP 指向任何地址。
+
+## 邀请时指定仅限 SSO（调度员 10-28，迁移 `0371_nx058_invite_sso.sql`，临时编号）
+
+- **邀请**：`invite_workbench_member` 可以带 `sso_provider`。它必须是已配置的 provider，入口用登录所用的同一份文件检查；未配置时返回 409 `provider_unknown`。只能邀请 operator 和 reviewer：`invite_owner` 没有这个字段，带上它会返回 422；表上的 check 约束也要求 `sso_provider` 只出现在这两种角色上。负责人用 SSO 登录的方式，排期时再定。重放时比较的字段也包括 `sso_provider`。审计记录 provider。
+- **接受**：仅限 SSO 的邀请，请求体只有 `{token}`。带上密码会被拒绝；反过来，普通邀请不带密码也会被拒绝。两种情况都返回 `invitation_invalid`。账号需要一个口令哈希，入口用一个随机且不保存的值生成它。接受邀请时，在同一事务里把成员写入 `control.nexloop_workbench_sso_pending`，即“待绑定”。
+- **待绑定期间**：成员没有任何登录途径。`nexloop_workbench_password_allowed` 对待绑定成员返回 false，所以口令证据被拒（口令登录失败，表现与口令错误相同），签发重置码返回 409 `target_sso_only`。SSO 找不到绑定，返回 `not_linked`。
+- **绑定**：仍然走负责人的 `link_external`。`external_identities` 上的触发器要求，待绑定成员的绑定必须用邀请里的 provider，并且登录方式是 `sso_only`，否则返回 409 `sso_invitation_mismatch`，成员仍处于待绑定。绑定成功后待绑定状态结束，SSO 可以登录，口令仍不能登录。
+- **结束待绑定**：成员被撤销，或者成为负责人时，触发器删除待绑定记录，与 0365 删除绑定的做法相同。所以待绑定记录不会比成员活得久；成为负责人的成员也能走负责人重置。擦除覆盖检查已登记这张表。
+- **前端**：
+  - 邀请表单用 L9 的 `ChoiceGroup` 选择“登录方式”：“密码”或“仅 SSO（provider 名称）”；没有配置 provider 时不显示这一项。
+  - 仅限 SSO 的邀请链接带 `sso=1`。接受页据此不显示密码栏，只提交 token；最终以服务端判断为准。
+- **测试**：
+  - `tests/test_workbench_invite_sso_pg.py`：未配置的 provider 和负责人邀请被拒；接受时带密码被拒；待绑定时口令、重置码和 SSO 都被拒；登录方式为 `sso_or_password` 的绑定被拒，成员仍处于待绑定；`sso_only` 绑定后 SSO 能登录（`authentication_methods=["oidc"]`），口令仍被拒；普通邀请不带密码被拒，照常能用；撤销后待绑定记录被删除。
+  - `apps/web/test/workbench-sso.test.ts`：增加了登录方式选项、链接里的 `sso=1`、接受页不显示密码栏、只提交 token 等用例。
+- **L6 建议（bbb5df6a 复核）**：
+  - S1：只有令牌、链接里没有 `sso=1` 时，接受页显示的是密码表单。现在每次被拒都会附一句：“如果这份邀请需要用单点登录接受，请使用邀请邮件里的完整链接，或联系负责人。”这句提示对所有邀请都一样，不透露是哪一种邀请。
+  - S2：负责人的成员视图（`runtime.nexloop_workbench_members_view`，0371 包了一层，原函数改名为 `_before_sso`）给每个成员加了布尔字段 `sso_pending`，不包含 provider 和 sub；成员页的状态栏显示“待绑定 SSO（绑定前不能登录）”。
