@@ -447,6 +447,13 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'members')
 
+    @routes.get('/experiments')
+    async def experiments(request: Request):
+        # Experiment space slice 1 (0370): the owner's experiments view, read only.
+        if request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'experiments')
+
     @routes.get('/outreach-approvals')
     async def outreach_approvals(request: Request):
         # Outreach slice 6: the owner's pending approvals (ids, purpose, times, requester).
