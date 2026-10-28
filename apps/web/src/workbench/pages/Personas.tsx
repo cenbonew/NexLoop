@@ -5,13 +5,13 @@
  * published: the editor is a local draft that publishes as the next version. The consumer detail block shows the customer's
  * persona@version with its source and their own communication preferences (owner only: they come from their statements).
  */
-import {useState,type ReactNode} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,readOutreachApprovals,readOutreachPurposes,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
+import {PERSONA_SOURCE_TEXT,PREFERENCE_TEXT,kindOf,offers,readContactPreferences,readMe,readOperatorPersonas,readOutreachControls,readOutreachApprovals,readOutreachPurposes,type ConsentMode,type OutreachSettings,type AiDisclosure,type ContactPreference,type PersonaDocument,
   type PersonaOverview,type PersonaRule,type PersonaVersion} from '../api';
 import {DataTable} from '../DataTable';
 import {StatusBadge,TabPanel,Tabs,Time} from '../ui';
-import {CheckboxGroup,ChoiceGroup,EmptyState,FormField,IdText,KeyValue,shorten} from '../kit';
+import {CheckboxGroup,ChoiceGroup,EmptyState,FormField,IdText,KeyValue,Notice,shorten} from '../kit';
 import {ConfirmedForm,Form,WithMember} from '../actions';
 import {Page} from './Page';
 import {OutreachInsights} from './OutreachInsights';
@@ -38,12 +38,50 @@ export function Personas({actions,onConsumers}:{actions?:ReactNode;onConsumers?:
     tab==='personas'?<PersonaVersions data={data}/>:tab==='rules'?<Assignment data={data} onConsumers={onConsumers}/>:tab==='outreach'&&owner?<OutreachControlsTab/>:tab==='insights'&&owner?<OutreachInsights/>:<Disclosure setting={data.ai_disclosure}/>}</TabPanel>}</Page>;
 }
 
-// ---- versions and the editor ----
+// ---- personas, their versions and the editor ----
+/** Where a persona is used: the tenant default and the rules that name it (one customer's own assignment is on that customer's page). */
+function assignmentText(id:string,rules:PersonaOverview['rules']):string{
+  if(!rules)return '未分配（还没有分配规则）';
+  const parts=[...(rules.default_persona_id===id?['租户默认']:[]),...(()=>{const n=rules.rules.flatMap((r,i)=>r.persona_id===id?[i+1]:[]);return n.length?[`分群规则第 ${n.join('、')} 条`]:[];})()];
+  return parts.length?parts.join('；'):'未分配';
+}
+type EditorMode={kind:'new'}|{kind:'edit';id:string}|null;
+/** Owner report from stage (2026-10-28: "只能设一个人设"): a tenant has as many personas as it likes, one row each with its current
+ * version, state and where it is assigned; "新建人设" and "发布新版本" (of one persona) are separate entries into the editor, which
+ * opens under the list with focus on its title; every version stays listed below for retiring or re-enabling. */
 function PersonaVersions({data}:{data:PersonaOverview}){
+  const [mode,setMode]=useState<EditorMode>(null);const [published,setPublished]=useState<string|null>(null);
+  const editor=useRef<HTMLDivElement>(null);
+  const opener=useRef<HTMLElement|null>(null);
+  const open=(next:EditorMode,from:HTMLElement)=>{opener.current=from;setPublished(null);setMode(next);};
+  const close=()=>{setMode(null);const back=opener.current;if(back?.isConnected)setTimeout(()=>back.focus(),0);};
+  useEffect(()=>{if(!mode)return;const title=editor.current?.querySelector<HTMLElement>('h2');if(title){title.tabIndex=-1;title.focus();}},[mode]);
+  const usable=usableVersions(data.personas);
+  const ids=[...new Set(data.personas.map(p=>p.persona_id))].sort();
+  const latest=(id:string)=>data.personas.filter(p=>p.persona_id===id).sort((a,b)=>b.version-a.version)[0];
   const rows=[...data.personas].sort((a,b)=>a.persona_id.localeCompare(b.persona_id)||b.version-a.version);
+  const many='可以创建多个人设，按分配规则给不同客户使用（例如按客户属性或角色），也可以为单个客户指定。';
   return <>
-    <p className="note">人设是客户看到的“运营”的身份与说话方式。版本一经发布不可修改；Agent 不能修改人设。</p>
-    {rows.length?<DataTable label="人设版本" rows={rows} rowKey={p=>personaRef(p)} columns={[
+    <p className="note">人设是客户看到的“运营”的身份与说话方式。{many}版本一经发布不可修改；Agent 不能修改人设。</p>
+    <section className="persona-list" aria-labelledby="persona-list-title">
+      <div className="section-head"><h2 id="persona-list-title">人设{ids.length?`（${ids.length} 个）`:''}</h2>
+        <WithMember>{member=>offers(member,'publish_operator_persona')?<button type="button" className="primary" aria-expanded={mode?.kind==='new'}
+          onClick={e=>open({kind:'new'},e.currentTarget)}>新建人设</button>:null}</WithMember></div>
+      {ids.length?<DataTable label="人设" rows={ids} rowKey={id=>id} columns={[
+        {label:'人设',main:true,cell:id=><>{(usable.get(id)??latest(id)).document.display_name} <code>{id}</code></>},
+        {label:'当前版本',cell:id=>usable.get(id)?<code>{personaRef(usable.get(id)!)}</code>:'没有在用的版本'},
+        {label:'状态',cell:id=><StatusBadge domain="persona_status" code={usable.has(id)?'published':'retired'}/>},
+        {label:'分配',cell:id=>assignmentText(id,data.rules)},
+        {label:'操作',cell:id=><WithMember>{member=>offers(member,'publish_operator_persona')?<button type="button" aria-expanded={mode?.kind==='edit'&&mode.id===id}
+          onClick={e=>open({kind:'edit',id},e.currentTarget)}>发布新版本…</button>:null}</WithMember>}]}/>
+        :<EmptyState kind="empty" subject="人设" title="还没有人设" next={`${many}在此之前，客户对话不带人设。`}/>}
+      {published?<Notice tone="success" live>已发布 {published}。要让客户用上它，在“分配”里设为默认、写进分群规则，或在客户详情里为单个客户指定。</Notice>:null}
+    </section>
+    {mode?<WithMember>{member=><div className="persona-editor-panel" ref={editor}>
+      <PersonaEditor key={mode.kind==='new'?'new':mode.id} member={member} personas={data.personas} mode={mode} onDone={ref=>{setPublished(ref);close();}}/>
+      <button type="button" className="btn-secondary" onClick={close}>关闭</button></div>}</WithMember>:null}
+    {rows.length?<section aria-labelledby="persona-versions-title"><h2 id="persona-versions-title">版本记录</h2>
+      <DataTable label="人设版本" rows={rows} rowKey={p=>personaRef(p)} columns={[
       {label:'人设',main:true,cell:p=><>{p.document.display_name} <code>{personaRef(p)}</code></>},
       {label:'状态',cell:p=><StatusBadge domain="persona_status" code={p.status}/>},
       {label:'语气',wide:true,cell:p=>p.document.tone},
@@ -54,9 +92,7 @@ function PersonaVersions({data}:{data:PersonaOverview}){
           body={reason=>({persona_id:p.persona_id,version:p.version,status:'retired',document:null,reason})}/>
         :<ConfirmedForm operation="publish_operator_persona" member={member} trigger="重新启用…" title={`确认重新启用 ${personaRef(p)}`}
           impact="影响：这个版本重新可被分配；已分配的客户下次对话起使用它。"
-          body={reason=>({persona_id:p.persona_id,version:p.version,status:'published',document:p.document,reason})}/>}</WithMember>}]}/>
-      :<EmptyState kind="empty" subject="人设" next="负责人在下方编辑并发布第一个人设；在此之前，客户对话不带人设。"/>}
-    <WithMember>{member=><PersonaEditor member={member} personas={data.personas}/>}</WithMember>
+          body={reason=>({persona_id:p.persona_id,version:p.version,status:'published',document:p.document,reason})}/>}</WithMember>}]}/></section>:null}
   </>;
 }
 
@@ -78,25 +114,25 @@ export function documentOf(d:Draft):PersonaDocument{
   if(d.statement.trim()||d.deflect.trim())doc.ai_disclosure={...(d.statement.trim()?{statement:d.statement.trim()}:{}),...(d.deflect.trim()?{deflect_statement:d.deflect.trim()}:{})};
   return doc;
 }
-function PersonaEditor({member,personas}:{member:Parameters<typeof Form>[0]['member'];personas:PersonaVersion[]}){
-  const ids=[...new Set(personas.map(p=>p.persona_id))].sort();
+function PersonaEditor({member,personas,mode,onDone}:{member:Parameters<typeof Form>[0]['member'];personas:PersonaVersion[];mode:NonNullable<EditorMode>;onDone:(ref:string)=>void}){
   const latest=(id:string)=>personas.filter(p=>p.persona_id===id).sort((a,b)=>b.version-a.version)[0];
-  const [base,setBase]=useState(ids[0]??'');
-  const [draft,setDraft]=useState<Draft>(()=>draftOf(ids[0]??'',ids[0]?latest(ids[0])?.document:undefined));
+  const fresh=mode.kind==='new';
+  const [draft,setDraft]=useState<Draft>(()=>fresh?draftOf(''):draftOf(mode.id,latest(mode.id)?.document));
   const set=(key:keyof Draft)=>(value:string)=>setDraft({...draft,[key]:value});
   const next=(latest(draft.persona_id)?.version??0)+1;
   const idOk=/^[a-z][a-z0-9_-]{0,63}$/.test(draft.persona_id);
-  function pick(id:string){setBase(id);setDraft(draftOf(id,id?latest(id)?.document:undefined));}
+  const taken=fresh&&!!latest(draft.persona_id);
   const field=(key:keyof Draft,label:string,opts:{area?:boolean;hint?:string;max?:number}={})=><FormField id={'persona-'+key} label={label} hint={opts.hint}>
     {opts.area?<textarea id={'persona-'+key} value={draft[key]} aria-describedby={opts.hint?'persona-'+key+'-hint':undefined} onChange={e=>set(key)(e.target.value)}/>
       :<input id={'persona-'+key} value={draft[key]} maxLength={opts.max} aria-describedby={opts.hint?'persona-'+key+'-hint':undefined} onChange={e=>set(key)(e.target.value)}/>}</FormField>;
-  return <Form operation="publish_operator_persona" member={member} title={`发布为 ${idOk?draft.persona_id:'新人设'}@${next}`} className="persona-editor"
-    disabled={!idOk||!draft.display_name.trim()||!draft.tone.trim()||!draft.reason.trim()}
+  const why=fresh&&!idOk?'先填写人设标识（小写字母开头）。':taken?`标识 ${draft.persona_id} 已经有人设在用；要修改它，请在列表里选“发布新版本”。`
+    :!draft.display_name.trim()?'填写名字后才能发布。':!draft.tone.trim()?'填写语气后才能发布。':!draft.reason.trim()?'填写发布原因后才能发布。':undefined;
+  const name=fresh?'':latest(mode.id)?.document.display_name??mode.id;
+  return <Form operation="publish_operator_persona" member={member} title={fresh?'新建人设':`为 ${name} 发布新版本 ${mode.kind==='edit'?mode.id:''}@${next}`} className="persona-editor"
+    disabled={!!why} disabledReason={why} onDone={()=>onDone(`${draft.persona_id}@${next}`)}
     body={()=>({persona_id:draft.persona_id,version:next,status:'published',document:documentOf(draft),reason:draft.reason.trim()})}>
-    <p className="note">草稿只保存在本页，发布后成为新版本，旧版本不变。</p>
-    <FormField id="persona-base" label="从哪个人设开始"><select id="persona-base" value={base} onChange={e=>pick(e.target.value)}>
-      {ids.map(id=><option key={id} value={id}>{latest(id)?.document.display_name} · {id}</option>)}<option value="">新人设</option></select></FormField>
-    {base===''?field('persona_id','人设标识',{hint:'小写字母开头，可含数字、- 和 _，最长 64 个字符；发布后不可更改。',max:64}):null}
+    <p className="note">{fresh?'新的人设从版本 1 开始；发布后可以在“分配”里把它设为默认或写进分群规则。':'在当前内容上修改，发布后成为新版本，旧版本不变。'}草稿只保存在本页。</p>
+    {fresh?field('persona_id','人设标识',{hint:'小写字母开头，可含数字、- 和 _，最长 64 个字符；发布后不可更改。',max:64}):null}
     {field('display_name','名字',{max:40})}{field('signature','署名',{max:40})}{field('self_intro','自我介绍',{area:true})}
     {field('tone','语气',{max:200,hint:'例如：亲切、简洁'})}{field('values','价值观（每行一条，最多 5 条）',{area:true})}
     <FormField id="persona-max_chars" label="单条消息字数上限" width="sm"><input id="persona-max_chars" type="number" min={20} max={2000} value={draft.max_chars}

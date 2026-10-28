@@ -551,3 +551,9 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 .detail-section.detail-empty h2{margin:0;font-size:1rem}
 .detail-section.detail-empty p{margin:0}
 .detail-section .notice{margin-bottom:.75rem}
+/* Personas (owner report 2026-10-28): the list of personas with "新建人设" beside its title; the editor opens under it. */
+.section-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem 1rem}
+.section-head h2{margin:0}
+.persona-list{margin-bottom:1rem}
+.persona-editor-panel{border:1px solid var(--border);border-radius:8px;padding:1rem;margin:1rem 0}
+.persona-list td button,.persona-list td code{white-space:nowrap}
