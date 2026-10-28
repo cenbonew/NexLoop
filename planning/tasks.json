@@ -3680,7 +3680,7 @@
       "M21"
     ],
     "deliverable": "版本化行为模型、独立真实数据校准，不伪装概率",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -3699,6 +3699,12 @@
         "ref": "docs/release/run-nx042-synthetic-calibration.md",
         "summary": "负责人 2026-10-28 决定：用合成数据跑通校准工具链即可判 done；运行单 L6 复核 PASS，等 stage 执行。真实数据校准（D9）拆到 NX-063。执行人：L3（运行单）；判定人：L6；决定人：负责人。",
         "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
+        "summary": "stage release 52 上按运行单 c384832d 执行合成数据工具链验证：五条通过条件全部满足；第 3 步返回 409 window_before_publication；四个结论与表一致；没有任何写入。口径：合成数据，只验证工具链，不代表真实校准（真实校准见 NX-063）。执行人：调度员 + approver3；判定人：L6。",
+        "recorded_at": "2026-10-28T15:47:50+08:00"
       }
     ]
   },
