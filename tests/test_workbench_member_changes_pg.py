@@ -6,7 +6,7 @@ configurator's apply refuses to undo a governed change (X1) except for named rev
 and ends the sessions of a member it removes (S4). Synthetic members only."""
 import dataclasses
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +17,7 @@ from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.workbench_roles import WorkbenchRolesRejected, apply_members, compile_member
 from commercial_fixture import publish_registry_actions
 from support.vote_cooldown import ripen_approvers
+from support.single_clock import issued_once
 from commitment_fixture import TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_http import ORIGIN
@@ -64,7 +65,10 @@ def test_a_role_change_suspension_resumption_and_revocation(changes, admin):
     with TestClient(create_app(c['config']), base_url=ORIGIN) as client, TestClient(create_app(c['config']), base_url=ORIGIN) as member:
         csrf = workbench_login(client, owner).json()['csrf_token']
         assert workbench_login(member, operator).status_code == 200
-        code = act(client, csrf, 'issue_workbench_reset', {'target_principal': p}).json()['code']
+        issued = act(client, csrf, 'issue_workbench_reset', {'target_principal': p}).json()
+        code = issued['code']
+        issued_once(admin, TENANT, 'control.nexloop_workbench_reset_codes', 'reset_id', issued['reset_id'], timedelta(minutes=30),
+                    audit=('runtime.audit_events', 'created_at', 'event_id', 'workbench-reset-issue:' + issued['reset_id']))
         relogin = workbench_login(member, operator)
         assert relogin.status_code == 200
         old_csrf = relogin.json()['csrf_token']

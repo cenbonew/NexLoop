@@ -1860,6 +1860,11 @@
       "version": "0372",
       "name": "0372_approval_single_now.sql",
       "sha256": "8d2f49a53e46ab65aafc3c4a52060167353058fd70c51ca9889ad22bf3c131e5"
+    },
+    {
+      "version": "0373",
+      "name": "0373_single_clock_issue.sql",
+      "sha256": "f2a2d61187be443204f9c1594f2aa5aec430633e4cc2f6320858d50667394830"
     }
   ]
 }
