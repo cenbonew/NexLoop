@@ -90,7 +90,7 @@ test('the same committed event delivered twice (race) is displayed once',async()
 test('a refetch of the list that started before a live event and finishes after it does not remove that event',async()=>{
   const source=await mount();
   listGate={snapshot:[row(1),row(2)],release:()=>{}};  // the GET is served before message 3 commits
-  const check=[...host.querySelectorAll('button')].find(b=>b.textContent==='核对已提交消息')!;
+  const check=[...host.querySelectorAll('button')].find(b=>b.textContent==='刷新消息')!;
   await act(async()=>check.click());
   committed.push(row(3));await act(async()=>source.deliver());expectExactlyOnce(3);
   await act(async()=>listGate!.release());await settle();
@@ -118,3 +118,13 @@ async function mountWithFakeTimers(){
   for(let i=0;i<5;i++)await act(async()=>{await vi.advanceTimersByTimeAsync(0);});
   expectExactlyOnce(2);expect(open()).toHaveLength(1);return open()[0];
 }
+
+test('B12: the customer sees the conversation and simple states, no internal identifiers or vocabulary',async()=>{
+  await mount();
+  const text=host.textContent??'';
+  for(const word of ['执行模式','业务世界','治理','回执','Provider','发送者','consumer-principal','已提交','入库'])expect(text,word).not.toContain(word);
+  expect(host.querySelector('h2')?.textContent).toBe('我的对话');
+  expect([...host.querySelectorAll('ol.messages > li > span')].map(s=>s.textContent)).toEqual(['我','我']);
+  expect([...host.querySelectorAll('ol.messages > li > small')].map(s=>s.textContent)).toEqual(['已发送','已发送']);
+  expect([...host.querySelectorAll('button')].map(b=>b.textContent)).toEqual(expect.arrayContaining(['新建对话','查看处理进度','刷新消息','发送']));
+});

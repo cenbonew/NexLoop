@@ -532,3 +532,5 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
   .workbench .workbench-menu-toggle{position:sticky;top:0;z-index:5;box-shadow:var(--shadow-1)}
 }
 @media (max-width:639px){.shell.workbench{padding-top:var(--space-2)}.workbench .brand-header .brand-logo{width:120px}.workbench .brand-context{font-size:14px}}
+/* UX audit S9 (B12): a test deployment said plainly on the customer page. */
+.chat-test-badge{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn-text);font-weight:600}
