@@ -17,7 +17,7 @@ export function SsoButtons({providers,failed}:{providers:SsoProvider[];failed:bo
   if(!providers.length)return null;
   return <div className="sso-login">
     {failed?<p className="error" role="alert">单点登录没有完成。请重试；如果仍然不行，请联系负责人确认你的账号已绑定。</p>:null}
-    {providers.map(p=><a key={p.provider_id} className="button" href={ssoStartPath(p.provider_id)}>用 SSO 登录（{p.display_name}）</a>)}
+    {providers.map(p=><a key={p.provider_id} className="button btn-secondary" href={ssoStartPath(p.provider_id)}>用 SSO 登录（{p.display_name}）</a>)}
   </div>;
 }
 
