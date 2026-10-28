@@ -153,3 +153,22 @@ def test_no_function_here_touches_a_real_dispatch_switch_or_a_credential(db):  #
     bodies = db.execute("""select string_agg(prosrc,' ') from pg_proc where proname in ('nexloop_experiment_budget_refusal','nexloop_experiment_budget_drill_problem',
         'nexloop_experiment_budget_drill_audit','nexloop_experiment_budget_drill_report','nexloop_experiment_budget_drill_ok')""").fetchone()[0]
     assert 'real_dispatch' not in bodies and 'credential' not in bodies
+
+
+def test_a_later_unrelated_event_keeps_the_refusal_and_only_a_new_start_lifts_it(uncalibrated, db):
+    """L6 S1 on f94107af: the refusal reads the budget_exhausted stop itself, not the latest event's reason."""
+    register(db, drill(uncalibrated))
+    start(db, DRILL)
+    reserve(db, uncalibrated, '1')  # exhausts it
+    assert stops(db) == ['guardrail: budget_exhausted']
+    # An unrelated event after the stop (another stop entry, as a later writer could append): still refused.
+    db.execute("""insert into control.nexloop_experiment_events(tenant_id,experiment_id,status,reason,recorded_by,request_id)
+        values(%s,%s,'stopped','an unrelated later stop','synthetic-writer','later-event')""", (TENANT_A, DRILL))
+    with pytest.raises(psycopg.Error, match='experiment budget exhausted'), db.transaction():
+        reserve(db, uncalibrated, '0.1')
+    # A newer experiment of the same world registered but not started: still refused.
+    register(db, drill(uncalibrated, experiment_id='budget.next'))
+    with pytest.raises(psycopg.Error, match='experiment budget exhausted'), db.transaction():
+        reserve(db, uncalibrated, '0.1')
+    start(db, 'budget.next')  # started after the stop: lifted
+    reserve(db, uncalibrated, '0.1')

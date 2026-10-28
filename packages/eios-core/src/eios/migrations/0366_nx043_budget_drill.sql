@@ -9,8 +9,8 @@
 --    the twin's calibration (D9) besides online. A screening registration without the flag is refused twin_not_calibrated at start as
 --    before (item 4). Start, the guard and strategy_for all read twin_ok, so the drill is not stopped as twin_withdrawn.
 -- 3. Dispatch-time recheck (D5): a model reservation of a Run ('run:<uuid>') in a simulation or shadow world is refused with NXB01
---    (the runtime worker's dispatch control reports budget_exhausted) while the world's latest experiment is stopped by the guard for
---    budget_exhausted and none of its experiments is started. The reservation that reaches or crosses the cap is still admitted (its
+--    (the runtime worker's dispatch control reports budget_exhausted) once an experiment of the world was stopped by the guard for
+--    budget_exhausted, until an experiment of the world is started after that stop (any other later event does not lift it). The reservation that reaches or crosses the cap is still admitted (its
 --    stop has to commit with it, 0297); every later one is refused. Real and test worlds are not touched.
 -- 4. A report of a drill experiment carries budget_drill: true and the notice below, in the stored report and its digest; the
 --    registration's notice says the same. Pooled reports are online and real only (0299), so a drill is never pooled.
@@ -109,23 +109,21 @@ $$;
 -- 3. The dispatch-time recheck.
 create function control.nexloop_experiment_budget_refusal() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v_prior text:=current_setting('eios.tenant_id',true);v_exp text;v_reason text;
+declare v_prior text:=current_setting('eios.tenant_id',true);v_stop bigint;
 begin
  if new.budget_kind<>'model' or new.consumption_id!~'^run:[0-9a-f-]{36}$'
   or coalesce(runtime.nexloop_world_kind(new.world),'') not in ('simulation','shadow') then return new;end if;
  perform set_config('eios.tenant_id',new.tenant_id,true);
- if not exists(select 1 from control.nexloop_experiments e where e.tenant_id=new.tenant_id and e.registration->>'world'=new.world
-   and runtime.nexloop_experiment_status(new.tenant_id,e.experiment_id)='started') then
-  select e.experiment_id into v_exp from control.nexloop_experiments e where e.tenant_id=new.tenant_id and e.registration->>'world'=new.world
-   order by e.registered_at desc,e.experiment_id desc limit 1;
-  if v_exp is not null then
-   select x.reason into v_reason from control.nexloop_experiment_events x where x.tenant_id=new.tenant_id and x.experiment_id=v_exp
-    order by x.event_id desc limit 1;
-   if v_reason='guardrail: budget_exhausted' then
-    perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
-    raise exception 'experiment budget exhausted (D5): the world''s experiment stopped' using errcode='NXB01';
-   end if;
-  end if;
+ -- L6 S1 on f94107af: not the latest event's reason (any later event would lift it) but the latest budget_exhausted stop of an
+ -- experiment of this world, refused until an experiment of this world is started after it.
+ select max(x.event_id) into v_stop from control.nexloop_experiment_events x join control.nexloop_experiments e
+   on e.tenant_id=x.tenant_id and e.experiment_id=x.experiment_id
+  where x.tenant_id=new.tenant_id and e.registration->>'world'=new.world and x.status='stopped' and x.reason='guardrail: budget_exhausted';
+ if v_stop is not null and not exists(select 1 from control.nexloop_experiment_events x join control.nexloop_experiments e
+   on e.tenant_id=x.tenant_id and e.experiment_id=x.experiment_id
+  where x.tenant_id=new.tenant_id and e.registration->>'world'=new.world and x.status='started' and x.event_id>v_stop) then
+  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
+  raise exception 'experiment budget exhausted (D5): the world''s experiment stopped' using errcode='NXB01';
  end if;
  perform set_config('eios.tenant_id',coalesce(v_prior,''),true);
  return new;
