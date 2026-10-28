@@ -104,7 +104,7 @@ python3 - local-only/nx055/grant-snapshot.json local-only/nx055/ctl.json <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 removed = d['entries'].pop(len(d['entries']) // 2)
-added = 'role|nexloop_control_absent|nexloop_control_absent|SUPERUSER|true'
+added = 'relation|control.nexloop_control_absent|nexloop_owner|SELECT|plain'  # same shape as a real entry
 d['entries'] = sorted(d['entries'] + [added])
 json.dump(d, open(sys.argv[2], 'w'), indent=0)
 print('removed', removed); print('added', added)
@@ -118,18 +118,21 @@ docker run $CHECK_COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/gr
   --database-url-file /run/bootstrap-dsn --expected /stage/ctl.json --json > "$RUN/grant-drift-ctl.json"; echo "exit=$?"
 ```
 
-   **预期**：`exit=1`；JSON 里 `missing` 正好一条，是加进去的那条（期望有、库里没有），`extra` 正好一条，是删掉的那条（库里有、期望里没有），`revision_match` 为 true。多一条、少一条或换了别的条目，都算不符合，停下报给 L6。做完删除 DATA_HOST 上的 `ctl.json` 和 `grant-drift-ctl.json`。
+   **预期**：`exit=1`；JSON 里 `missing` 正好一条，是加进去的那条（期望有、库里没有），`extra` 正好一条，是删掉的那条（库里有、期望里没有），`revision_match` 为 true。多一条、少一条或换了别的条目，都算不符合，停下报给 L6。做完删除 DATA_HOST 上的 `ctl.json` 和 `grant-drift-ctl.json`（第 2 项做完再删 `connection_target.py`）。
 
 2. **连接目标核对**：确认 1.3 连的是 stage 库，而不是空库或别的库。
 
+   必须走与 1.3 **相同的连接路径**（同一镜像、`$CHECK_COMMON $WINDOW`、`/run/bootstrap-dsn`）。不能用 `ro()`：它 `docker exec` 进 PG 容器另连一次，证明不了 1.3 连到哪里。查询写在仓库文件 `docs/release/nx055/connection_target.py` 里（不放进 heredoc 或 shell 字符串），在只读事务里执行，只输出一行 JSON，不含 DSN：
+
 ```
-ro "select current_database(), count(*) from pg_catalog.pg_roles where oid<>10 and rolname !~ '^pg_'"
-python3 -c "import json;print(len({e.split('|')[1] for e in json.load(open('local-only/nx055/grant-snapshot.json'))['entries'] if e.startswith('role|')}))"
+scp "$RELEASE_CHECKOUT/docs/release/nx055/connection_target.py" <data_host>:$RUN/connection_target.py   # 管理机；用含本单的 main 检出里的这份文件
+docker run $CHECK_COMMON $WINDOW "$BACKEND_IMAGE" /stage/connection_target.py; echo "exit=$?"            # DATA_HOST
+python3 -c "import json;print(len({e.split('|')[1] for e in json.load(open('local-only/nx055/grant-snapshot.json'))['entries'] if e.startswith('role|')}))"   # 管理机
 ```
 
-   `ro`（run-nx057 §0.3）本身就在 `begin read only` … `rollback` 里执行，所以这条查询处在只读事务中。
+   （`$RELEASE_CHECKOUT` 若早于本单、没有这个文件，就从含本单的 main 检出拷贝；脚本只读，与 release 无关。）
 
-   **预期**：`current_database()` 为 `$DB`；角色数与快照中 `role` 条目的不同主体数相同（两边口径相同：不含 oid 10 和 `pg_*`）。不同时，差的就是迁移之外的角色，应已在 1.3 里以 `EXTRA` 出现；1.3 为 0 而这里不同，就说明连错了库，停下。
+   **预期**：`exit=0`，`transaction_read_only` 为 `on`，`current_database` 为 `$DB`，`inet_server_port` 记入证据（socket 连接时为空）；角色数与快照中 `role` 条目的不同主体数相同（两边口径相同：不含 oid 10 和 `pg_*`）。不同时，差的就是迁移之外的角色，应已在 1.3 里以 `EXTRA` 出现；1.3 为 0 而这里不同，就说明连错了库，停下。
 - 第一次运行有 D 类：E1 不通过，NX-055 留在 `in_progress`，另开修复任务。
 
 ### 1.5 失败处理
