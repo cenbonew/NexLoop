@@ -216,8 +216,29 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
    - OPERATIONS §8a.10：app-net 现在被 18 个服务引用（多了 outreach-sender），重建 app-net 时它们一起处理；
    - 预期：`docker compose ps` 中有 `nexloop-app-outreach-sender-1` 且在运行；它的日志第一行是 `Outreach Sender ready`，此后没有 `background tick failed`。日志里只有计数和结构化的失败行，不会有正文。
 - **撤回**：
-  - 只撤外联执行器：`docker compose -p nexloop-app stop outreach-sender && docker compose -p nexloop-app rm -f outreach-sender`，再用不含它的 compose 文件（release 52）启动；已受理的外联意图停在 `accepted`，不会被发送；
-  - 整体：按 known_good（release 52）的镜像和 compose 重建，同 §8a.10 一起处理引用方。迁移不随镜像退回（见 S3）。
+  - 只撤外联执行器：`docker compose -p nexloop-app stop outreach-sender && docker compose -p nexloop-app rm -f outreach-sender`，其余服务保持 ad8f42dc 的镜像；已受理的外联意图停在 `accepted`，不会被发送；
+  - 整体：**不能只退镜像**，见下面的 S9a。
+
+### S9a 回退依据：release 52 的镜像不能在 0371 的库上运行
+
+按 release 52（933bc1a2）的源码核对（只读）：
+
+- **启动即拒绝**：每个服务经 `nexloop_eios.backend.open_backend` → `assembly.open_core` 打开数据库，`open_core` 调用 `bootstrap.verify`，要求 `control.schema_migrations` 的（版本, 校验和）列表与镜像自带的迁移目录**完全相等**，否则抛 `MigrationDrift('NexLoop database lineage is not exact')`。release 52 的目录到 0363 为止，库里多了 0364–0371，所以 API、各 worker、外联执行器都会在启动时退出；`/health/ready` 报 `migration_drift`，doctor 同样失败。release 53 的单里写的“迁移不随镜像退回”，以及 release 54 单里写的“旧镜像在新库上能运行”，都不成立。
+- **假如没有这道检查**，其余几点都透明，这里记下供以后参考：
+  - 0366、0367、0368、0370 把 `authz.nexloop_workbench_observe_read`、`nexloop_workbench_read`、`nexloop_conversation_command` 改名保存，再用**相同的名字和参数**新建，只在返回的 jsonb 里多出字段或多出一个动词；0371 的成员视图同样只是包装旧视图、多一个布尔字段；
+  - 0371 给邀请表加的 `sso_provider` 可以为空，旧后端不传它，邀请与接受的行为不变；`create or replace` 的三个函数参数不变；
+  - 0364、0365、0369 新增的函数旧代码不调用；没有任何函数被删除或改了参数。
+- **预算放宽的审批**：0369 把收紧限制放在 SQL 里（`control.nexloop_governed_owner_change` 先过 `nexloop_budget_set_tighten_only`，放宽以 `budget_loosen_requires_approval` 拒绝），与镜像无关。只要库停在 0369 以上，无论哪个镜像，`Budget.set` 都只能收紧。但按上一条，回到 release 52 必须恢复库到 0363，恢复后 0369 不存在，`Budget.set` 回到 release 52 的行为（放宽不需要审批）。这符合 release 52 当时的状态，回退记录里写明即可。
+
+**所以整体回退到 release 52 只有一条路**，需要调度员决定：
+
+1. 停掉 APP_HOST 上全部应用服务（`docker compose -p nexloop-app stop`），保证恢复期间没有写入；
+2. 用 S1 的迁移前备份（迁移尾 0363）做 pgBackRest 恢复，恢复点之后的数据丢失；
+3. 恢复后 `ro "select max(version) from control.schema_migrations"` 必须为 0363；
+4. 秘密树与授权一起退回：S7 撤回到 v20 / v5 时用 `<树>.before-r53`（S6 的撤回说明），S8 的审批策略随库恢复退回 revision 4，S10 的 Host 配置用备份覆盖；
+5. 用 known_good（release 52）的镜像和 compose 重建，引用方同 §8a.10；再跑一次门禁（预期 20/21）。
+
+不想丢数据时，不回退，往前修：在 ad8f42dc 上修复后发新版本，库不动。
 
 ### S10 G-2：Host 运行配置打开 `plan_outcome_tool` 与 `outreach_tool`（行为变化，单独一步，调度员按 ack-policy 确认后执行）
 
@@ -286,7 +307,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
   - 实验视图（release 54）由 S14 的 W4 在页面上核对；
   - `ro "select initiator, state, count(*) from runtime.nexloop_outreach_sends group by 1,2 order by 1,2"`：与 S2 相比没有新的 `agent` 行（外联第 5 片的验收按它自己的执行单做）；已有的 `accepted` 行此时会被执行器准入，按各道闸进入终态，这是 G-1 的预期效果；
   - `nexloop-doctor` 全部通过（OPERATIONS §8a.11 第 6 步）；工作台“告警”页没有新的 firing。
-- **撤回**：按 known_good 退回 release 52（S9 的整体撤回），并恢复 S10 的 Host 配置。
+- **撤回**：按 S9a 整体回退到 release 52（库恢复到 0363 再换镜像），或往前修。
 
 ### S14 浏览器走查（调度员，合成账号 approver3，S13 之后）
 
@@ -324,14 +345,14 @@ stage 工作台，用 approver3（合成 owner）登录；口令从 Keychain 取
 
 | 步骤 | 怎么撤回 | 代价 |
 |---|---|---|
-| S3 迁移 | 只能用迁移前备份恢复，与镜像一起退回 release 52 | 恢复点之后的数据丢失；需要调度员决定 |
+| S3 迁移 | 只能用迁移前备份恢复，与镜像一起退回 release 52（S9a） | 恢复点之后的数据丢失；需要调度员决定 |
 | S4 Action 发布 | 不能删除；撤回 S5 让无人持有授权 | 无 |
 | S5 角色 | 重新应用 v46 | 三个新 Action 失去成员授权 |
 | S6 秘密树 | 只撤执行器的文件：`<树>.after-s6-1` 覆盖（`before-r53` 只用于 stage 仍是 v20 / v5 时）；删除 APP_HOST 上的新目录 | 无 |
 | S7 register | 先撤回 S9 的执行器；再用 `<树>.after-s6-1`（或删掉 outreach-sender 条目的树）配 v21 / v6 清单 register，撤销 outreach_sender 的授权 | 执行器无法认证 |
 | S8 审批策略 | 只能发布新版本放宽或停用 | 无删除路径 |
-| S9 重建 | 停掉并删除 outreach-sender；或整体退回 release 52 | 已受理的外联意图停在 `accepted` |
+| S9 重建 | 只撤执行器：停掉并删除 outreach-sender，其余保持 ad8f42dc；整体：按 S9a，库先恢复到 0363，再换 release 52 的镜像（release 52 的镜像在 0364 以上的库上启动即因 `MigrationDrift` 退出） | 已受理的外联意图停在 `accepted`；整体回退丢失恢复点之后的数据，`Budget.set` 回到不需要审批的放宽 |
 | S10 Host 配置 | 备份覆盖回去，两项一起删，重建 agent-host 与 agent-link-relay | 计划复评 Run 失去结论工具和外联工具 |
 | S11 host-health | 私有配置去掉执行器，重跑安装 | 无 |
 | S12 门禁、S14 走查 | 不需要（只检查、只看） | 无 |
-| S13 promote | 同 S9 的整体撤回（known_good 指回 release 52），并恢复 S10 的 Host 配置；迁移不随镜像退回（见 S3） | 同 S3、S9、S10 各行；实验空间与前端修复一起失效 |
+| S13 promote | 按 S9a 整体回退（库恢复到 0363，S7、S8、S10 一起退回，换 release 52 的镜像），或往前修 | 同 S3、S9、S10 各行；实验空间与前端修复一起失效 |

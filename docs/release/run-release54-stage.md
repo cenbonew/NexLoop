@@ -105,7 +105,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 - 镜像只按签名清单里的 digest 载入（`rebuild` 会比对）；compose 不变，app-net 仍被 18 个服务引用，按 OPERATIONS §8a.10 一起处理。
 - 外联执行器的 compose 不变，P9 仍应为 ok：重建前照 release 53 的 S9 第 1 步跑一次 `outreach_sender_p9.py`，不是 ok 就停。
 - 预期：`docker compose ps` 全部服务在运行；工作台前端镜像为新 digest。
-- **撤回**：按 known_good（release 53）的镜像和 compose 重建，引用方同 §8a.10。迁移不随镜像退回（见 S3），release 53 的镜像在 0371 上能运行：0370、0371 只新增对象和可选字段，旧前端不调用 `experiments` 动词，也不读 `sso_pending`。
+- **撤回**：按 known_good（release 53）的镜像和 compose 重建，引用方同 §8a.10。**更正**：release 53 的镜像**不能**在 0371 的库上运行。`assembly.open_core` 要求迁移谱系与镜像的目录完全相等，否则 `MigrationDrift`，服务启动即退出。退回 release 53 要先用 S1 的迁移前备份把库恢复到 0369，再换镜像（同 `run-release53-54-stage.md` S9a）。
 
 ### S6 部署门禁
 
@@ -174,7 +174,7 @@ stage 工作台，用 approver3（合成 owner）登录；口令从 Keychain 取
 |---|---|---|
 | S3 迁移 | 只能用迁移前备份恢复，与镜像一起退回 release 53 | 恢复点之后的数据丢失；需要调度员决定 |
 | S4 发布预演 | 不需要 | 无 |
-| S5 重建 | 按 known_good 退回 release 53 的镜像（在 0371 上能运行） | 前端回到 release 53：实验空间重新“未启用”，三处修复失效 |
+| S5 重建 | 先把库恢复到 0369，再退回 release 53 的镜像（镜像不能在 0371 上运行，见 S5 的更正） | 前端回到 release 53：实验空间重新“未启用”，三处修复失效 |
 | S6 门禁 | 不需要 | 无 |
 | S7 promote | 同 S5，known_good 指回 release 53 | 同 S5 |
 | S8 走查 | 不需要 | 无 |
