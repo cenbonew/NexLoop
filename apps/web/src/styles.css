@@ -534,3 +534,8 @@ button[type=submit]:disabled,form button:not([type]):disabled,button.primary:dis
 @media (max-width:639px){.shell.workbench{padding-top:var(--space-2)}.workbench .brand-header .brand-logo{width:120px}.workbench .brand-context{font-size:14px}}
 /* UX audit S9 (B12): a test deployment said plainly on the customer page. */
 .chat-test-badge{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn-text);font-weight:600}
+/* NX-058 slice F: the login card's SSO links look like the secondary button (same tokens; aligned with the shared button tones once merged). */
+.workbench-login .sso-login{display:grid;gap:var(--space-2);margin-top:16px}
+.workbench-login .sso-login a.button{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid var(--border);border-radius:9px;
+  color:inherit;text-decoration:none;font-weight:600}
+.workbench-login .sso-login a.button:hover{background:var(--hover)}

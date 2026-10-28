@@ -64,6 +64,8 @@ export const DONE_TEXT:Record<Operation,string>={
   revoke_workbench_owner:'已撤销这位负责人；授权、配置和会话都已结束。',
   issue_workbench_owner_reset:'已签发重置码；这位负责人的现有会话已全部失效。重置码只在这里显示一次，30 分钟内有效，请线下转交本人。',
   invite_workbench_owner:'已签发负责人邀请；令牌只在这里显示一次，请线下转交本人。',
+  link_workbench_external:'已绑定单点登录；这位成员可以用 SSO 登录。选了“仅 SSO”时，密码和重置码已停用，现有会话已失效。',
+  unlink_workbench_external:'已解绑单点登录；这位成员的会话已失效，之后用密码登录（仅 SSO 的成员需要负责人签发重置码）。',
   erase_workbench_member:'已擦除：账号停用、密码清空、用户名与邮箱改为假名，邀请与重置记录已删除；不可撤销。失败登录记录中的用户名在 90 天后清除。',
 };
 
