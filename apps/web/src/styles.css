@@ -416,6 +416,8 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 @media (max-width:639px){.workbench .table-scroll{overflow:visible;background:none}}
 /* §6 long ids */
 .workbench .id-text{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;vertical-align:baseline}
+/* The head…tail and its copy button stay together on one line; the whole ID moves to the next line at a word boundary. */
+.workbench .id-text code.id-code{white-space:nowrap}
 .workbench .id-kind{color:var(--muted)}
 .workbench .id-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small);white-space:normal;overflow-wrap:anywhere}  /* a full ID that is shown (a link, a code) wraps instead of leaving its card */
 .workbench .id-secondary{color:var(--muted)}
@@ -503,6 +505,9 @@ button.btn-danger:hover,.workbench button.btn-danger:hover,.workbench-action.inl
 /* B3: notices (kit Notice) and the earlier classes that meant the same thing but had no style outside the review page. */
 .notice,.workbench p.warning,.workbench div.warning,.workbench .impact-summary,.banner{display:flex;gap:8px;align-items:flex-start;margin:8px 0;padding:8px 12px;
   border:1px solid var(--info-border);border-left-width:4px;border-radius:var(--radius);background:var(--info-soft);color:var(--info-text);font-size:14px;line-height:1.6;max-width:72ch}
+/* Batch 52 review: an impact line and a warning are running text, not a mark beside a body - block, so an IdText inside flows with
+   the words (as flex items the words and the ID became columns and the ID was squeezed to two characters a line). */
+.workbench p.warning,.workbench div.warning,.workbench .impact-summary{display:block}
 .notice>.notice-mark{font-weight:700;flex:none}.notice>.notice-body{min-width:0}.notice p{margin:0}
 .notice-warning,.workbench p.warning,.workbench div.warning{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn-text)}
 .notice-danger{border-color:var(--danger-border);background:var(--danger-soft);color:var(--danger)}

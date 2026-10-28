@@ -61,3 +61,17 @@ test('IdText: a shortened ID carries a copy button whose title is the full value
   const html=renderToStaticMarkup(h(IdText,{value:hex,kind:'客户'}));
   expect(html).toContain(`title="复制完整 ID：${hex}"`);expect(html).toContain('class="id-copy"');expect(html).not.toMatch(/<code[^>]*tabindex/);
 });
+
+// Batch 52 review: an IdText inside running text flows as an inline element - its own markup is spans, code and a button, and the
+// impact line or warning around it is a block, not a flex row (which split the words and the ID into columns).
+test('an IdText in running text: inline markup, a block paragraph around it, the short ID unbroken',()=>{
+  const hex='e'.repeat(64);
+  const html=renderToStaticMarkup(h('p',{className:'impact-summary'},'将暂停 客户 ',h(IdText,{value:hex}),' 的主动联系'));
+  const inner=html.slice(html.indexOf('<span class="id-text"'),html.lastIndexOf('</span>')+7);
+  expect([...inner.matchAll(/<(\w+)/g)].map(m=>m[1])).toEqual(['span','code','button']);
+  expect(inner).not.toMatch(/class="[^"]*(?:flex|grid|block|row|stack)/);
+  const css=readFileSync(join(import.meta.dirname,'../src/styles.css'),'utf8');
+  expect(css).toContain('.workbench p.warning,.workbench div.warning,.workbench .impact-summary{display:block}');
+  expect(css).toContain('.workbench .id-text code.id-code{white-space:nowrap}');
+  expect(css.indexOf('{display:block}',css.indexOf('.workbench .impact-summary{display:block}')-5)).toBeGreaterThan(css.indexOf('.workbench .impact-summary,.banner{display:flex'));  // overrides the shared rule
+});
