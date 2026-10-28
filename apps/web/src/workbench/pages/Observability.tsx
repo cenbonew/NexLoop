@@ -105,9 +105,9 @@ export function Operations({actions}:{actions?:ReactNode}){
 }
 
 const ROLE_NAME:Record<string,string>={owner:'负责人',operator:'运营',reviewer:'审核人'};
-/** F11: a member as role + stable short alias (the read model carries no display name yet); the full id is in the title. */
+/** F11: a member as role + stable short alias (the read model carries no display name yet); a long id is an IdText (copy button). */
 export function memberAlias(principal:string,role?:string):ReactNode{
-  return <span title={principal}>{role?`${ROLE_NAME[role]??role} · `:''}{principal.length>14?principal.slice(0,6)+'…'+principal.slice(-4):principal}</span>;
+  return <span title={principal}>{role?`${ROLE_NAME[role]??role} · `:''}{principal.length>14?<IdText value={principal} head={6} tail={4}/>:principal}</span>;
 }
 
 export function Audit({actions}:{actions?:ReactNode}){

@@ -131,7 +131,7 @@ export function IdText({value,kind,name,head=8,tail=4,copy=true,expandable}:{val
   const full=(kind?kind+' ':'')+value;
   const short=shorten(value,head,tail);
   const text=name?<span className="id-name">{name}</span>:expandable?<button type="button" className="id-code id-expand" aria-expanded={open} title={full} onClick={()=>setOpen(!open)}>{open?value:short}</button>
-    :<code className="id-code" title={full} aria-label={full}>{short}</code>;  // C3: not a tab stop; the copy button is the one
+    :<code className="id-code" title={full} aria-label={kind?value:full}>{short}</code>;  // the visible kind is read once  // C3: not a tab stop; the copy button is the one
   function doCopy(){void navigator.clipboard?.writeText(value).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>undefined);}
   return <span className="id-text" data-id={value}>{kind?<span className="id-kind">{kind}</span>:null}{text}
     {name?<code className="id-code id-secondary" title={full}>{short}</code>:null}

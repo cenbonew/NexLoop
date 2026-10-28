@@ -24,7 +24,8 @@ test('AT-045: exact failure kinds from status codes, never an empty success',asy
   vi.stubGlobal('fetch',vi.fn(async()=>{throw new TypeError('network down');}));
   await expect(readOverview()).rejects.toMatchObject({kind:'unavailable'});
   respond(200,'not json');await expect(readOverview()).rejects.toMatchObject({kind:'invalid'});
-  expect(STATE_TEXT.unavailable).toContain('不代表没有数据');expect(STATE_TEXT.forbidden).not.toMatch(/\d{3}/);  // C11: codes in the technical details only
+  expect(STATE_TEXT.unavailable).toBe('服务暂时不可用：数据未加载。');  // batch 52: '不代表数量为零' is the state's next line, said once
+  expect(STATE_TEXT.forbidden).not.toMatch(/\d{3}/);  // C11: codes in the technical details only
 });
 
 test('AT-045: partial overview keeps each block\'s own status; a malformed block rejects the whole response',async()=>{

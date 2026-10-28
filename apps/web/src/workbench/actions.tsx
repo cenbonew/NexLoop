@@ -249,10 +249,14 @@ export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}
 // ---- pause / resume (owner, Control.set) ----
 const SCOPES={tenant:'整个租户',consumer:'客户',role:'角色',strategy:'策略',action_type:'Action 类型'} as const;
 /** What a pause/resume changes, said before it is submitted (F06): the scope is never assumed. */
-export function controlImpact(kind:keyof typeof SCOPES|'',ref:string,pause:boolean|null):string|null{
+/** A long reference is an IdText (its copy button reaches the full value), never a hand-shortened string. */
+export function controlImpact(kind:keyof typeof SCOPES|'',ref:string,pause:boolean|null):ReactNode{
   if(!kind||pause===null||(kind!=='tenant'&&!ref.trim()))return null;
-  const target=kind==='tenant'?'整个租户（所有客户）':`${SCOPES[kind]} ${ref.length>16?ref.slice(0,12)+'…':ref}`;
-  return pause?`将暂停 ${target} 的主动联系：之后的派发会被拒绝，来信必回不受影响。`:`将恢复 ${target} 的主动联系：暂停期间被拒的意图不会重放，计划将重新评估。`;
+  const effect=pause?'的主动联系：之后的派发会被拒绝，来信必回不受影响。':'的主动联系：暂停期间被拒的意图不会重放，计划将重新评估。';
+  const verb=pause?'将暂停':'将恢复';
+  if(kind==='tenant')return `${verb} 整个租户（所有客户） ${effect}`;
+  if(ref.length<=16)return `${verb} ${SCOPES[kind]} ${ref} ${effect}`;
+  return <>{verb} {SCOPES[kind]} <IdText value={ref}/> {effect}</>;
 }
 export function ControlForm({member,scopeKind,scopeRef,paused}:{member:Me;scopeKind?:keyof typeof SCOPES;scopeRef?:string;paused?:boolean}){
   const fixed=scopeKind!==undefined;

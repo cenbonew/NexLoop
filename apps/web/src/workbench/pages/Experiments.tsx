@@ -46,7 +46,7 @@ export function Experiments({title}:{title:string}){
   const query=useQuery({queryKey:['workbench','experiments'],queryFn:readExperiments});
   return <Page title={title} query={query} empty={rows=>rows.length===0}
     actions={<WithMember>{member=><Register member={member} listed={query.data?.map(x=>x.experiment_id)??null}/>}</WithMember>}
-    lead="负责人的实验（只读）：登记、开始与停止、护栏、预算和报告摘要。只显示计数，不显示任何客户。"
+    lead="负责人的实验：在这里登记新实验，查看开始与停止、护栏、预算和报告摘要。只显示计数，不显示任何客户。"
     forbidden={<p>实验空间只对负责人开放。</p>}
     announce={rows=>`实验：${rows.length} 个`}>{rows=><Body rows={rows}/>}</Page>;
 }
