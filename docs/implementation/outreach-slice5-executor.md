@@ -15,6 +15,10 @@
   - **持久化后再确认**：准入把意图改为 `dispatching` 并发放 fence，这一步提交之后才调用 provider；provider 的回答再以 fence 写回（`observe`），之后才处理下一条；
   - **未知结果先查询**：provider 超时或断开记为 `unknown`。下一次 tick 只按意图 id 查询（`query`），从不重发；查不到（回环 outbox 写入前就丢失）是确定的失败；仍然未知就保持 `unknown`；过期的 `dispatching` 租约同样只查询。
 - **provider 只有回环 outbox**（`LocalOutreachOutbox`）：每个意图一条 fsync 过的 JSON 记录，只存正文的摘要，不存正文。目录由 `--outbox-directory` 指定；已存在时必须是本用户的真实目录、没有组和其他人的任何权限（`private_directory`），否则启动即失败。
+- **硬约束：provider 只能是回环 outbox**（L6，调度员 2026-10-28）。三层真实派发开关都打开时，这是挡住对外发送的唯一一道：
+  - `--provider` 默认 `loopback`。其它任何值，没有 `--real-channel-enabled` 就拒绝启动；带了也拒绝，因为本版本没有任何真实外联 provider，真实渠道要另做一次评审过的改动；
+  - 这道检查在读取任何凭据、打开任何连接之前执行；
+  - stage compose 不传 `--provider` 和 `--real-channel-enabled`，只分发执行器自己的 4 个 secret 加签名密钥和 PG CA，不挂任何渠道凭据（`tests/test_stage_compose.py::test_the_stage_compose_gives_the_sender_no_channel_credential` 守着）。
 - **秘密**：只有数据库连接（DSN 与 PG 客户端证书）、签名密钥和自己的服务凭据。回环 outbox 没有渠道密钥，执行器也不持有任何渠道凭据、模型凭据或其他服务的凭据。
 - **授权**：
   - `service-grants` **v22**：新主体 `outreach_sender`（`nexloop_domain_worker`），只有一条授权 `eios:action:nexloop.outreach.execute:1`；不持有发送、提交或任何人工 Action；
@@ -43,6 +47,11 @@
 
 **打开后的效果**：
 
-- `plan_outcome_tool`：Host 给 Run 提供 `nexloop.plan.outcome` 工具。计划复评 Run 用它记录一次结论（`no_action`、`needs_information`、`waiting_external`、`escalate`、`plan_update` 替换计划步骤、`action_intent` 指向本 Run 已提交的意图）；记录走 guard 与 `authz.nexloop_record_plan_outcome`，SQL 校验 Run 与计划版本（NX-024）。**这是行为变化**：stage 上的计划复评 Run 从此能改写计划和设置下次复评时间，需调度员确认（执行单 §0 G-2 已注明）。
+- `plan_outcome_tool`（**行为变化，部署时由调度员按 ack-policy 处理**）：Host 给 Run 提供 `nexloop.plan.outcome` 工具。影响：
+  - 以前 stage 的计划复评 Run 没有这个工具，无法记录结论；打开后，模型可以在每次复评时记录一次结论；
+  - `plan_update` 会用新步骤替换计划（计划版本前进），`reassess_at` 会设定下次复评时间（仍受 `min_reassess_seconds` 与 `self_trigger_cap` 约束）；`escalate` 会升级给负责人；
+  - 结论只经 guard 与 SQL 写入，SQL 校验 Run、计划和当前计划版本；不直接改业务对象，也不发送任何东西；
+  - 关闭方法：从运行配置删掉 `plan_outcome_tool`（同时必须删掉 `outreach_tool`，否则 Host 拒绝启动），重启 Host。
+- `plan_outcome_tool` 的工具说明：计划复评 Run 用它记录一次结论（`no_action`、`needs_information`、`waiting_external`、`escalate`、`plan_update` 替换计划步骤、`action_intent` 指向本 Run 已提交的意图）；记录走 guard 与 `authz.nexloop_record_plan_outcome`，SQL 校验 Run 与计划版本（NX-024）。**这是行为变化**：stage 上的计划复评 Run 从此能改写计划和设置下次复评时间，需调度员确认（执行单 §0 G-2 已注明）。
 - `outreach_tool`：只给非消息 Run（计划复评 Run）提供 `nexloop.outreach.send`，参数只有目的和正文。工具调用经 runtime worker 的 `nexloop.outreach.run_submit:1` 受理，SQL 仍要求：是计划复评 Run（兜底 Run 一律拒绝）、Run 凭据与 Role 上限都含 `nexloop.outreach.send:1`、目的已启用。**受理不等于发送**：发送只由 G-1 的执行器在派发时决定，三层真实派发开关、联系限制、频率和测试人设都在那时再查一次。
 - 两项都不打开任何真实渠道：外联目前只有回环 outbox。

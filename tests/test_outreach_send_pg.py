@@ -361,3 +361,15 @@ def json_counts(lines):
     assert lines[0] == 'Outreach Sender ready' and len(lines) == 2
     return json.loads(lines[1])
 
+
+@pytest.mark.parametrize('extra', [['--provider', 'webchat'], ['--provider', 'webchat', '--real-channel-enabled'], ['--provider', '']])
+def test_a_non_loopback_provider_is_refused_before_anything_is_read(outreach, pg, tmp_path, extra):
+    """L6 hard constraint: the loopback outbox is the only provider; anything else needs --real-channel-enabled and, as no real
+    outreach provider exists, is refused even with it - before a credential is read or a connection opened. The positive
+    control is the loopback default (and --provider loopback), which starts."""
+    c = outreach
+    code, lines, err = entry(c, pg, tmp_path, tmp_path / 'refused-outbox', *extra)
+    assert code == 1 and lines == [] and err.strip().endswith('Outreach Sender unavailable')
+    assert not (tmp_path / 'refused-outbox').exists()
+    code, lines, _ = entry(c, pg, tmp_path, tmp_path / 'loopback-outbox', '--provider', 'loopback')
+    assert code == 0 and json_counts(lines) == NOTHING

@@ -117,6 +117,10 @@ def _parser(service):
     if service=='outreach-sender':
         # Outreach slice 5 G-1: the loopback outbox is the only provider (a private, writable directory of fsynced records).
         parser.add_argument('--outbox-directory',type=Path,required=True)
+        # L6 (dispatcher 2026-10-28): with all three real dispatch layers open the loopback provider is the only thing between an
+        # admitted intent and a real send. Any other provider needs the explicit enablement flag as well - and none exists yet.
+        parser.add_argument('--provider',default='loopback')
+        parser.add_argument('--real-channel-enabled',action='store_true')
     if service=='reply-guarantor':
         parser.add_argument('--policy-file',type=Path,required=True);parser.add_argument('--api-database-url-file',type=Path,required=True)
         # Relay multi-consumer D4: one consumer's recipe, or the deployment Run profile with enrolled consumers (0160).
@@ -229,8 +233,8 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         from nexloop_eios.incentives import IncentiveIssuer,LocalIncentiveLedger
         return IncentiveIssuer(pool,session,signer,LocalIncentiveLedger(arguments.ledger_directory)).run_once()
     if service=='outreach-sender':
-        from nexloop_eios.outreach import LocalOutreachOutbox,OutreachSender
-        return OutreachSender(pool,session,signer,LocalOutreachOutbox(arguments.outbox_directory)).run_once()
+        from nexloop_eios.outreach import OutreachSender
+        return OutreachSender(pool,session,signer,outreach_provider(arguments)).run_once()
     if service=='alert-evaluator':
         # NX-030: alert rules on the SQL metrics snapshot (world real only, D6); also rolls up and expires process samples (D5).
         from nexloop_eios.observability import AlertEvaluator
@@ -305,6 +309,16 @@ def private_directory(path):
     return path
 
 
+def outreach_provider(arguments):
+    """The outreach sender's provider: the loopback outbox. A non-loopback provider is refused without --real-channel-enabled, and
+    refused with it too, since no real outreach provider exists in this release (a real one is its own reviewed change)."""
+    if arguments.provider=='loopback':
+        from nexloop_eios.outreach import LocalOutreachOutbox
+        return LocalOutreachOutbox(arguments.outbox_directory)
+    if not arguments.real_channel_enabled:raise ValueError('non-loopback outreach provider without explicit enablement')
+    raise ValueError('no real outreach provider exists')
+
+
 class TickFailures:
     """A failed tick used to be swallowed without a trace: a service whose every tick failed (authentication, authority, SQL)
     stayed `running` with nothing in its log (2026-10-18 stage: the alert evaluator's state stopped at 2026-10-17 14:33Z). Now
@@ -361,7 +375,9 @@ def run(service,arguments,stop):
     if service=='commercial-recorder':
         from nexloop_eios.commercial import load_settings
         load_settings(arguments.settings_file)
-    if service=='outreach-sender':private_directory(arguments.outbox_directory)
+    if service=='outreach-sender':
+        if arguments.provider!='loopback':outreach_provider(arguments)  # refused before any credential or connection
+        private_directory(arguments.outbox_directory)
     with ExitStack() as stack:
         backend=stack.enter_context(open_backend(database_url=dsn,artifact_root=arguments.artifact_root,
             signing_key_file=arguments.signing_key_file,signing_key_id=arguments.signing_key_id,pool_max_size=arguments.pool_max))
