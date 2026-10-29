@@ -136,6 +136,15 @@ def _read_owned_file(path, uid=None, *, maximum=16384):
             raise OwnedFileRefused('not_owned_by_reader_or_not_private') from None
         except (OSError, ValueError):
             raise OwnedFileRefused('unreadable_or_invalid') from None
+    value = _read_owned_bytes(path, uid, maximum=maximum)
+    try:
+        return value.decode('utf-8').strip()
+    except UnicodeDecodeError:
+        raise OwnedFileRefused('not_utf8') from None
+
+
+def _read_owned_bytes(path, uid, *, maximum=16384):
+    """The bytes of a service's private file read by its owner uid (the root gate's half of _read_owned_file)."""
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
@@ -153,10 +162,7 @@ def _read_owned_file(path, uid=None, *, maximum=16384):
         value = stream.read(maximum + 1)
     if not value or len(value) > maximum:
         raise OwnedFileRefused('length')
-    try:
-        return value.decode('utf-8').strip()
-    except UnicodeDecodeError:
-        raise OwnedFileRefused('not_utf8') from None
+    return value
 
 
 def _read_dsn_file(path, uid=None):
@@ -609,6 +615,45 @@ def delivery_provider_profile(compose, uids=None):
     return {'checks': {'webchat_delivery_profile_matches_route': not differs}, 'details': {'webchat_delivery_profile': differs}}
 
 
+# The machine glossary's tariff copy (L6 S13 on the release 54 deploy sheet) -------------------------------------------------------
+TRANSLATOR = 'world-glossary-translator'
+TARIFF_ORIGINAL = ('agent-host', 'model-tariff.cny.json')  # the Agent Host's tariff (owner 10020)
+TARIFF_COPY = (TRANSLATOR, 'model-tariff.cny.json')  # the translator's own copy (owner 10001), byte for byte the original
+
+
+def glossary_tariff_copy(secret_root, compose=None, uids=None):
+    """The world-glossary translator prices its calls by its own copy of the Agent Host's tariff; a copy left behind when the original
+    changes would price every call at the old rate unnoticed. Both files must exist and have the same sha256, each read by its own
+    directory's uid (both 0600, different owners; the gate runs as root). The translator counts as configured when the rendered
+    Compose has the service (whichever tariff it mounts) or its secret directory exists; a deployment with neither passes with the
+    explicit detail translator_not_configured. A translator that mounts the original itself has no copy to drift. Details are codes."""
+    import hashlib
+    root, uids = Path(secret_root), uids or {}
+    service = ((compose or {}).get('services') or {}).get(TRANSLATOR)
+    if service is None and not (root / TRANSLATOR).is_dir():
+        return {'checks': {'glossary_tariff_copy_matches': True}, 'details': {'glossary_tariff_copy': 'translator_not_configured'}}
+    original, copy = root.joinpath(*TARIFF_ORIGINAL), root.joinpath(*TARIFF_COPY)
+    if service is not None:
+        mounted = _argument(service.get('command'), '--tariff-file')
+        declared = {name: (spec or {}).get('file') for name, spec in ((compose or {}).get('secrets') or {}).items()}
+        path = declared.get(mounted.removeprefix('/run/secrets/')) if mounted and mounted.startswith('/run/secrets/') else None
+        if not path:
+            return {'checks': {'glossary_tariff_copy_matches': False}, 'details': {'glossary_tariff_copy': 'translator_tariff_not_mounted'}}
+        where = (Path(path).parent.name, Path(path).name)  # the rendered host path, compared by its service directory and name
+        if where == TARIFF_ORIGINAL:
+            return {'checks': {'glossary_tariff_copy_matches': True}, 'details': {'glossary_tariff_copy': 'translator_reads_original'}}
+        if where != TARIFF_COPY:
+            return {'checks': {'glossary_tariff_copy_matches': False}, 'details': {'glossary_tariff_copy': 'translator_tariff_elsewhere'}}
+    digests = {}
+    for label, path in (('original', original), ('copy', copy)):
+        try:
+            digests[label] = hashlib.sha256(_read_owned_bytes(path, uids.get(path.parent.name, os.geteuid()), maximum=65536)).hexdigest()
+        except OwnedFileRefused as error:
+            return {'checks': {'glossary_tariff_copy_matches': False}, 'details': {'glossary_tariff_copy': f'{label}_{error.code}'}}
+    same = digests['original'] == digests['copy']
+    return {'checks': {'glossary_tariff_copy_matches': same}, 'details': {'glossary_tariff_copy': 'sha256_equal' if same else 'sha256_differs'}}
+
+
 # The gate (§6) ----------------------------------------------------------------------------------------------------------------
 REQUIRED_INPUTS = {
     'app': ('stage_env', 'connection_budget', 'running', 'inventory_before', 'inventory_after', 'secret_root', 'compose_json', 'tls_spec',
@@ -687,6 +732,11 @@ def deploy_gate(spec):
                 checks['planned_ports_free_before'] = not [p for p in conflicts if p.startswith('port_conflict')]
     if spec.get('secret_root'):
         merge(secret_distribution(spec['secret_root'], compose=load('compose_json') if spec.get('compose_json') else None, uids=spec.get('secret_uids')))
+    if role == 'app':
+        if spec.get('secret_root'):
+            merge(glossary_tariff_copy(spec['secret_root'], load('compose_json') if spec.get('compose_json') else None, spec.get('secret_uids')))
+        else:
+            checks['glossary_tariff_copy_matches'] = False
     if role == 'app' and spec.get('roles_database_url_file'):
         import psycopg
         from nexloop_eios.private_configuration import read_private_text

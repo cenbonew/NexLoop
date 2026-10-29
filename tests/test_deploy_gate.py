@@ -231,7 +231,8 @@ def test_doctor_deploy_gate_runs_every_check_and_fails_on_a_missing_input(pki, s
     assert code == 0 and all(out['checks'].values()), {k: v for k, v in out['checks'].items() if not v}
     assert {'guard_workers_exact', 'running_processes_registered', 'port_bindings', 'planned_ports_free_before', 'application_roles_unprivileged',
             'secret_distribution', 'real_dispatch_closed', 'existing_services_unchanged', 'tls_certificates', 'tls_dsn_verify_full',
-            'agent_host_concurrency'} <= set(out['checks'])
+            'agent_host_concurrency', 'glossary_tariff_copy_matches'} <= set(out['checks'])
+    assert out['details']['glossary_tariff_copy'] == 'translator_reads_original'
     text = json.dumps(out)
     assert s['APP_HOST_ADDR'] not in text and str(pki) not in text and 'data.stage.invalid' not in text
     spec.pop('running')
@@ -260,3 +261,46 @@ def test_the_firewall_networks_have_the_stage_env_subnets_declared_and_running(s
     assert live['details']['firewall_networks']['running_networks'] == ['subnet_differs:app'] and '192.0.2.0' not in json.dumps(live)
     old = deploy_checks.firewall_networks(values, app_compose(), {'services': {}})
     assert old['checks']['running_networks_match_firewall'] is False and old['details']['firewall_networks']['running_networks'] == ['not_provided']
+
+
+def test_the_glossary_tariff_copy_must_match_the_agent_hosts_tariff(tmp_path):
+    """L6 S13 (release 54): the translator's copy of the tariff and the Agent Host's original have the same sha256; either missing,
+    unreadable by its owner uid or different fails. No translator (no service, no directory) passes, named as such."""
+    root = secret_tree(tmp_path / 'secrets')
+    tariff = (ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json').read_bytes()
+    uid = os.geteuid()
+    check = lambda compose=None, uids=None: deploy_checks.glossary_tariff_copy(root, compose, uids)
+    result = lambda r: (r['checks']['glossary_tariff_copy_matches'], r['details']['glossary_tariff_copy'])
+    assert result(check()) == (True, 'translator_not_configured')
+    # The service in the Compose with its own copy mounted: both files are required.
+    compose = app_compose()
+    compose['secrets']['glossary_tariff'] = {'file': '/srv/x/secrets/world-glossary-translator/model-tariff.cny.json'}
+    command = compose['services'][deploy_checks.TRANSLATOR]['command']
+    command[command.index('--tariff-file') + 1] = '/run/secrets/glossary_tariff'
+    assert result(check(compose)) == (False, 'original_missing')
+    (root / 'agent-host' / 'model-tariff.cny.json').write_bytes(tariff)
+    (root / 'agent-host' / 'model-tariff.cny.json').chmod(0o600)
+    assert result(check(compose)) == (False, 'copy_missing')
+    copy_path = root / deploy_checks.TRANSLATOR / 'model-tariff.cny.json'
+    copy_path.parent.mkdir(mode=0o700)
+    copy_path.write_bytes(tariff)
+    copy_path.chmod(0o640)
+    assert result(check(compose)) == (False, 'copy_permissions')
+    copy_path.chmod(0o600)
+    assert result(check(compose, {'agent-host': uid, deploy_checks.TRANSLATOR: uid})) == (True, 'sha256_equal')
+    assert result(check(compose, {'agent-host': uid + 1, deploy_checks.TRANSLATOR: uid})) == (False, 'original_owner_differs')
+    copy_path.write_bytes(tariff.replace(b'"version"', b'"version" ', 1))
+    assert result(check(compose)) == (False, 'sha256_differs')
+    # Without the service in the Compose (a profile left out of the rendering), the directory alone makes it configured.
+    del compose['services'][deploy_checks.TRANSLATOR]
+    assert result(check(compose)) == (False, 'sha256_differs')
+    copy_path.write_bytes(tariff)
+    assert result(check(compose)) == (True, 'sha256_equal')
+    # The example Compose mounts the original itself: no copy to drift. A tariff elsewhere, or none, fails.
+    example = app_compose()
+    assert result(check(example)) == (True, 'translator_reads_original')
+    command = example['services'][deploy_checks.TRANSLATOR]['command']
+    command[command.index('--tariff-file') + 1] = '/run/secrets/embedding_tariff'
+    assert result(check(example)) == (False, 'translator_tariff_elsewhere')
+    del command[command.index('--tariff-file'):command.index('--tariff-file') + 2]
+    assert result(check(example)) == (False, 'translator_tariff_not_mounted')
