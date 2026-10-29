@@ -77,42 +77,189 @@
 
 **WebChat 合成顾客要登录**，所以要口令。发言这一步标为“**负责人在终端执行**”。
 
-### 2.2 发言（负责人在终端执行，管理机）
+### 2.2 发言与观察：逐轮执行
 
-计划文件按 S6-stage-acceptance §合成交互的格式写，每个账号 3 轮，共 12 轮：
+**为什么逐轮**：观察方 `run_interactions.py --driver real` 用 v3 计划，每次交互（SEQ）先给出提示，只接受这一次所列账号的消息，并等待 `$TRIAL_DIR/operator-done/<SEQ>`（`interaction_drivers` 的 `prompt`/`_views`）。一次连发多轮时，第二个账号的消息落在同一次交互里，判为 `offplan_sender`。所以每轮单独发，发完才写完成标记。
 
-- (a) 每个账号 2 轮，问语义层没有定义的词；
-- (b) 每个账号 1 轮，问一个宽泛的问题，涉及联系偏好、退订或拒绝联系；
-- (c) 两个不同账号的某一轮 (a) 问完全相同的话（AT-048 (b) 路线的近重复对）。
+**私有文件**（0600，放 `local-only/s6-<日期>/`；模板在调度员的交接材料里）：
 
-计划分两份：前 3 轮校准一份，其余一份，`plan_id` 不同。`wait_reply_seconds` 设为 120。
+| 文件 | 内容 |
+|---|---|
+| `customers.json` | `nexloop-synthetic-customer/1`：origin、CA、customer-1/2/3/5 的用户名；`persona_check` 走 workbench（owner 用户名文件，4 个 consumer_id） |
+| `plan-calibration.json` | `plan_id` `s6-<日期>-calibration`，3 轮：customer-1/2/3 各 1 轮 (a) |
+| `plan-main.json` | `plan_id` `s6-<日期>-main`，9 轮；每个账号合计 3 轮（(a) 2、(b) 1），(c) 的近重复对在 customer-2 与 customer-5 |
+| `trial.json`（APP_HOST，10001） | `nx037-trial.v1` 的副本：`total` 12，`mix` 只有 `ordinary_reply` 12，`calibration_interactions` 3，窗口 10:00–18:00（Asia/Shanghai），`operator_authorization`，`participants`（4 个 agent 加 owner 的 staff） |
+| `plan.json`（APP_HOST，10001） | `nx037-interaction-plan.v3`：12 个 `ordinary_reply`，顺序与发言一致，`consumer` 为 `consumer:<id>`；`real_dispatch` 填实际开关状态（A5） |
 
-配置和计划都是 0600 文件，放在 `local-only/s6-<日期>/` 下。命令存成脚本文件 `local-only/s6-<日期>/speak.sh`，0700，负责人用 `bash local-only/s6-<日期>/speak.sh <PLAN.json>` 执行：
+所有 `wait_reply_seconds` 都是 120。
+
+**1. 预检**（调度员，APP_HOST；`$RUNI`、metrics 副本与 host-config 副本按 run-calibration-20261017 §2.1）：
+
+```
+$RUNI scripts/nx037/run_interactions.py --driver real --trial-id "$TRIAL_ID" --out "$TRIAL_DIR" --plan-file "$TRIAL_IN/plan.json" \
+  --trial-config "$TRIAL_IN/trial.json" --tenant "$TENANT_ID" --owner-principal "$OWNER_PRINCIPAL_REF" --value-catalog "$TRIAL_IN/value-catalog.json" \
+  --channel-ref "$CHANNEL_REF" --period-start 2026-10-01T00:00:00Z --period-end 2026-11-01T00:00:00Z --metrics-dsn-file "$M/metrics.dsn" \
+  --owner-session-file "$TRIAL_IN/owner-session" --host-config "$TRIAL_IN/host-config.json" --operator-authorization-file "$TRIAL_IN/authorization.txt" \
+  --webchat-provider-file /run/secrets/action_worker_webchat_provider --preflight
+```
+
+预期 `{"ok": true, "preflight": true, "refused": [], …}`，退出码 0。计划不开真实企业交付，所以不带 `--enterprise-provider-file`；`real_dispatch` 列了 `nexloop.enterprise.deliver:1` 时，按 10-17 加上它和 `--endpoint-parameters-file`。
+
+**2. 正式运行**：同一命令去掉 `--preflight`。`TRIAL_ID` 用新的 uuid，`TRIAL_DIR` 事先不存在。
+
+**3. 每一次交互**：entry 在 stderr 和 `$TRIAL_DIR/prompts.jsonl` 给出 SEQ 的提示后，负责人才发这一轮：
+
+| SEQ | 命令（负责人终端，管理机） |
+|---|---|
+| 1–3 | `bash local-only/s6-<日期>/speak-turn.sh plan-calibration.json <SEQ> <SEQ>` |
+| 4–12 | `bash local-only/s6-<日期>/speak-turn.sh plan-main.json <SEQ−3> <SEQ>` |
+
+- 只有 `synthetic_customer.py` 退出码 0（已发或重放；收到回复或等满 120 秒）时，脚本才写完成标记。
+- 在 SEQ 的提示出现之前不要发言：提示前接受的消息属于上一次交互。
+- 退出码 1（这一轮没发出）：同一 SEQ 重跑同一命令，单轮 `plan_id` 不变，按重放处理。
+- 每次交互共 900 秒（含等待），超时是暂停。
+
+**4. 校准暂停与继续**：SEQ 3 之后 entry 以 `detail` 为 `paused_needs_resume`（规则 `calibration`）结束，退出码 3。负责人看 `$TRIAL_DIR/interactions.jsonl`，`cost.max_run` 小于 2 CNY 时确认，调度员用原参数加 `--resume s6-<日期>-calibration-ok` 继续，entry 给出 SEQ 4 的提示。
+
+**退出码**（`run_interactions.main`）：
+
+- 0：完成；
+- 3：读输出 JSON 的 `detail`：
+  - `paused_needs_resume`：唯一可以继续的情况，用负责人新的确认引用 `--resume`；
+  - `trial_stopped`：一律不继续，换新的 `TRIAL_ID`；
+  - 其他：输入或前提被拒，修正后重跑；
+- 1 / 2：运行以 `status` 为 `paused` / `stopped` 的状态结束，分别按上面两种处理。
+
+**`speak-turn.sh`**（0700）：
 
 ```bash
 #!/bin/bash
+# S6 speaking, one turn per call (owner terminal, management machine):  bash speak-turn.sh <PLAN.json> <TURN> <SEQ>
+#   TURN: 1-based turn in PLAN; SEQ: the run entry's interaction number it answers (calibration 1-3 = turns 1-3, main 4-12 = turns 1-9).
+# Why per turn: with plan v3 the run entry prompts interaction SEQ, accepts only that interaction's account and waits for
+# $TRIAL_DIR/operator-done/SEQ; a second account speaking inside the same interaction is offplan_sender.
+# The turn is sent as a one-turn plan <plan_id>-t<TURN> (Idempotency-Key <plan_id>-t<TURN>-1-<alias>): rerunning a turn replays it.
+# Passwords: that turn's account plus `owner` (persona_check via workbench), from Keychain over stdin only.
 set -euo pipefail
-D=$(dirname "$0")
-( for a in customer-1 customer-2 customer-3 customer-5; do
-    printf '%s\t%s\n' "$a" "$(security find-generic-password -s "nexloop/stage/$a" -w)"
-  done ) | uv run --frozen python scripts/acceptance/synthetic_customer.py --config "$D/customers.json" --plan "$1"
+D=$(cd "$(dirname "$0")" && pwd); PLAN=$1; TURN=$2; SEQ=$3
+: "${REPO:?release checkout}" "${APP_SSH:?ssh target of APP_HOST}" "${TRIAL_DIR:?run entry --out on APP_HOST}"
+export SSL_CERT_FILE=$HOME/.nexloop/stage/endpoint-20261015/ca-bundle.crt
+ONE=$(mktemp "$D/.turn.XXXXXX"); trap 'rm -f "$ONE"' EXIT
+ACCOUNT=$(python3 - "$PLAN" "$TURN" "$ONE" <<'PY'
+import json, sys
+plan, n, out = json.load(open(sys.argv[1])), int(sys.argv[2]), sys.argv[3]
+turn = plan['turns'][n - 1]
+json.dump({'schema': plan['schema'], 'plan_id': f"{plan['plan_id']}-t{n}", 'turns': [turn]}, open(out, 'w'), ensure_ascii=False)
+print(turn['account'])
+PY
+)
+( printf '%s\t%s\n' "$ACCOUNT" "$(security find-generic-password -s "nexloop/stage/$ACCOUNT" -w)"
+  printf 'owner\t%s\n' "$(security find-generic-password -s "${OWNER_KEYCHAIN:-nexloop/stage/approver3}" -w)"
+) | (cd "$REPO" && uv run --frozen python scripts/acceptance/synthetic_customer.py --config "$D/customers.json" --plan "$ONE")
+# Exit 0 only: mark interaction SEQ done for the run entry (root touch; the entry only checks existence and mtime).
+ssh "$APP_SSH" "sudo -n touch '$TRIAL_DIR/operator-done/$SEQ'" && echo "operator-done/$SEQ"
 ```
 
-- 口令只走 stdin。脚本必须是文件，不能用 `python -`。钥匙串条目名以 vault-index 为准。
-- 观察方：调度员在 APP_HOST 上按 S6-stage-acceptance 的方法运行 `run_interactions.py --driver real`，先 `--preflight`。前 3 轮之后暂停，负责人确认单次成本后再 `--resume`。
-- 退出码 1 时（有轮次没发出），只重跑同一个 `plan_id`，已发的轮次按重放处理。
+- 口令只走 stdin，脚本必须是文件，不能用 `python -`。钥匙串条目名以 vault-index 为准。
+- 完成标记由 root `touch`；entry 只看文件是否存在及其 mtime。
+
+### 2.2a customer-5（A4）
+
+1. `--apply password`：口令直接生成进 Keychain；
+2. `--apply identity`：`initial_identity --create`，口令经 ssh stdin 写进容器的 `/work`（tmpfs）；
+3. 调度员在 DATA_HOST 把 customer-5 加进私有配方，执行 `webchat_consumers.py --apply`；
+4. `--apply open`：customer-5 开一个会话，不发消息，于是有了 Consumer；
+5. 调度员只读查出 consumer_id，填 `persona-customer-5.json`；
+6. approver3 先 `--apply mark-dry` 再 `--apply mark`（`erase_synthetic_consumer.py mark`）。
+
+不带参数时是 dry-run。
+
+```bash
+#!/bin/bash
+# A4: customer-5 (owner terminal, management machine). Default is a dry run; `--apply STEP` performs one step.
+#   1 password   generate customer-5's password straight into Keychain nexloop/stage/customer-5 (never printed, no file)
+#   2 identity   initial_identity --create on APP_HOST; the password goes over ssh stdin into the container's /work tmpfs only
+#   (3 dispatcher: webchat_consumers.py --apply with customer-5 added to the private recipe, DATA_HOST, configurator window)
+#   4 open       customer-5 opens one conversation (no message): its Consumer now exists
+#   (5 dispatcher: read the consumer_id, fill persona-customer-5.json)
+#   6 mark       erase_synthetic_consumer.py mark as approver3: --dry-run first (`--apply mark-dry`), then `--apply mark`
+set -euo pipefail
+D=$(cd "$(dirname "$0")" && pwd)
+: "${REPO:?release checkout}" "${ORIGIN:?https://<APP_HOST_NAME>:<PORT>}" "${APP_SSH:?ssh target of APP_HOST}"
+: "${APPTOOL:?docker run options of run-assembly-20261015 §1 (identity DSN secret, /in mount, --user 10001)}" "${BACKEND_IMAGE:?}"
+export SSL_CERT_FILE=$HOME/.nexloop/stage/endpoint-20261015/ca-bundle.crt
+CA=$SSL_CERT_FILE; K=nexloop/stage/customer-5
+need() { for f; do [ -f "$f" ] && [ "$(stat -f %Lp "$f")" = 600 ] || { echo "missing or not 0600: $f" >&2; exit 2; }; done; }
+case "${1:-} ${2:-}" in
+ " ")
+  echo "dry run:"; security find-generic-password -s "$K" >/dev/null 2>&1 && echo "  1: Keychain $K exists (step 1 would refuse)" || echo "  1: would create Keychain $K"
+  need "$D/customer-5.username" "$D/approver3.username" "$D/webchat-consumers.json"; [ -f "$D/persona-customer-5.json" ] || echo "  6: persona-customer-5.json pending (step 5)"
+  ssh "$APP_SSH" "sudo -n docker run --rm $APPTOOL $BACKEND_IMAGE -m nexloop_eios.initial_identity --manifest /in/identity-customer-5.json --check"
+  echo "  2: manifest checks; 4/6: inputs present" ;;
+ "--apply password")
+  security find-generic-password -s "$K" >/dev/null 2>&1 && { echo "exists: $K" >&2; exit 2; }
+  P=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
+  printf 'add-generic-password -s %s -a customer-5 -w %s\n' "$K" "$P" | security -i >/dev/null 2>&1 || { unset P; echo "keychain: add failed" >&2; exit 1; }; unset P
+  security find-generic-password -s "$K" >/dev/null && echo "keychain: $K stored" ;;
+ "--apply identity")
+  # APPTOOL (as ~/nx-a1/a1-publish.sh on APP_HOST) already has --tmpfs /tmp and the /work tmpfs owned by 10001: no extra mount;
+  # its entry is switched from python to sh exactly as a1-publish.sh does, and must be the only one left.
+  security find-generic-password -s "$K" -w | ssh "$APP_SSH" 'set -eu; APPTOOL='"$(printf %q "$APPTOOL")"'
+    OPTS="${APPTOOL/--entrypoint python/--entrypoint sh}"
+    case "$OPTS" in *"--entrypoint python"*|*"--entrypoint sh"*"--entrypoint"*) echo "entrypoint not unique" >&2; exit 2;; *"--entrypoint sh"*) ;; *) echo "no sh entrypoint" >&2; exit 2;; esac
+    sudo -n docker run -i --rm $OPTS '"$BACKEND_IMAGE"' -c "umask 077; cat > /work/pw; exec python -m nexloop_eios.initial_identity --manifest /in/identity-customer-5.json --create --identity-database-url-file /run/secrets/api_identity_dsn --password-file /work/pw --idempotency-key-file /in/identity-seal"' ;;
+ "--apply open")
+  need "$D/customer-5.username"
+  security find-generic-password -s "$K" -w | python3 "$D/open_conversation.py" "$ORIGIN" "$CA" "$D/customer-5.username" "$REPO" ;;
+ "--apply mark-dry"|"--apply mark")
+  need "$D/approver3.username" "$D/persona-customer-5.json" "$D/webchat-consumers.json"
+  DRY=--dry-run; [ "$2" = mark ] && DRY=
+  security find-generic-password -s nexloop/stage/approver3 -w | (cd "$REPO" && python3 scripts/deploy/erase_synthetic_consumer.py mark \
+    --origin "$ORIGIN" --ca-file "$CA" --username-file "$D/approver3.username" --password-stdin \
+    --config "$D/persona-customer-5.json" --recipe "$D/webchat-consumers.json" $DRY) ;;
+ *) echo "usage: $0 [--apply password|identity|open|mark-dry|mark]" >&2; exit 2 ;;
+esac
+```
+
+`open_conversation.py`：
+
+```python
+#!/usr/bin/env python3
+"""Open (or find) one WebChat conversation for one account, sending no message: creates the account's Consumer so its
+consumer_id can be read and marked before it speaks. Password on stdin (one line); never printed.
+    security find-generic-password -s nexloop/stage/customer-5 -w | python3 open_conversation.py ORIGIN CA_FILE USERNAME_FILE
+Output: {"conversation": "existing"|"created"} only."""
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[4] if len(sys.argv) > 4 else '.') / 'packages/eios-core/src'))
+from nexloop_eios.consumer_channel import ConsumerClient  # noqa: E402
+
+origin, ca, username_file = sys.argv[1:4]
+password = sys.stdin.readline().rstrip('\n')
+client = ConsumerClient(origin, ca_file=ca)
+client.login(Path(username_file).read_text().strip(), password)
+try:
+    items = client.list_conversations(limit=1).get('items') or []
+    if not items:
+        client.create_conversation('s6-20261030-open-customer-5')
+    print(json.dumps({'conversation': 'existing' if items else 'created'}))
+finally:
+    client.logout()
+```
 
 ### 2.3 时间
 
 | 步 | 耗时 |
 |---|---|
-| A1–A6 核对 | 约 15 分钟（A1/A2 要请示时另计） |
-| 前 3 轮校准，加上成本确认 | 约 10–15 分钟 |
-| 其余 9 轮（每轮最多等 120 秒回复） | 约 20–30 分钟 |
+| A1–A6 核对；customer-5 六步 | 约 15 分钟加 15 分钟（A1/A2 要请示时另计） |
+| 预检，正式运行启动 | 约 5 分钟 |
+| 校准 3 轮（每轮：等提示、登录、发送、最多 120 秒等回复、写标记、entry 判定，约 2–3 分钟） | 约 6–9 分钟 |
+| 成本确认与 resume | 约 5 分钟 |
+| 其余 9 轮（同上，逐轮） | 约 18–27 分钟 |
 | 兜底时间（300 秒）过后，等最后一轮可能出现的兜底 Run 落定 | 约 10 分钟 |
 | 再跑 `s6_stage_inputs.py`，填配置，记 sha256 | 约 10 分钟 |
 
-合计约 **1–1.5 小时**，不含请示等待。
+合计约 **1.5–2 小时**，不含请示等待。发言必须落在 trial 窗口（北京时间 10:00–18:00）里。
 
 ### 2.4 window 与 X5
 
