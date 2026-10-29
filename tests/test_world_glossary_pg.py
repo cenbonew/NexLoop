@@ -389,3 +389,23 @@ def test_translations_that_always_fail_raise_the_business_alerts(translator):
     admin.execute("update control.nexloop_world_glossary_jobs set next_attempt_at=clock_timestamp() where tenant_id=%s and status='pending'", (TENANT,))
     t['make'](StubModel(answer='机器译名'), per_round=1).run_once()
     assert owner_sql(admin, "select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,))['world_glossary']['pending_without_success_24h'] == 0
+
+
+def test_a_section_outside_the_contract_is_refused_by_the_tool_and_by_sql(glossary):
+    """I8 (L6): a manifest with a section name the v2 contract does not list would break the whole world model answer."""
+    from nexloop_eios.world_glossary import GlossaryRejected, SECTIONS, validate_manifest
+    g = glossary; w = g['w']
+    schema = json.loads((ROOT / 'packages/contracts/workbench-world-model-v2.schema.json').read_text())
+    assert set(schema['properties']['glossary']['properties']['sections']['propertyNames']['enum']) == SECTIONS == set(json.loads(V1.read_text())['sections'])
+    for extra in ('Scope', 'Object type'):
+        bad = json.loads(V1.read_text()); bad['sections'][extra] = '范围'
+        with pytest.raises(GlossaryRejected):
+            validate_manifest(bad)
+        path = g['tmp'] / 'bad.json'; path.write_text(json.dumps(bad, ensure_ascii=False))
+        code, out = publish(w['configurator'], path, 0)
+        assert code == 2 and 'sections' in out['reason']
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        with psycopg.connect(Path(w['configurator']).read_text().strip()) as db, pytest.raises(psycopg.errors.InvalidParameterValue):
+            db.execute('select control.nexloop_publish_world_glossary(%s,%s,%s,0)', (TENANT, path.read_text(), digest))
+    assert g['admin'].execute('select count(*) from control.nexloop_world_glossary_publications').fetchone()[0] == 0
+    assert publish(w['configurator'], V1, 0)[0] == 0  # v1 itself is unaffected

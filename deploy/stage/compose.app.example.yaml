@@ -306,7 +306,8 @@ services:
     # one connection while it runs, from the operations reserve (budget label none, like sim-setup). Its own service principal, DSN
     # and pg-client certificate; the model file is claim-extraction-worker's (the owner shares the key, not the database identity).
     # G-CLAIM-EGRESS: same namespace rules as claim-extraction-worker (DATA_HOST's PostgreSQL and the model provider on 443 only);
-    # no channel, admin or other service credential. The daily call quota is in SQL.
+    # no channel, admin or other service credential. The daily call quota is in SQL. It writes no Artifact: no data volume, its
+    # artifact root is in its own tmpfs (S10).
     labels:
       nexloop.budget-service: none
     image: ${BACKEND_IMAGE:?backend image by digest}
@@ -321,10 +322,8 @@ services:
     entrypoint: [nexloop-world-glossary-translator]
     command: [--database-url-file, /run/secrets/world_glossary_translator_dsn, --service-credential-file, /run/secrets/world_glossary_translator_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
-              /var/lib/nexloop/artifacts, --world, real, --model-env-file, /run/secrets/claim_extraction_worker_model,
+              /tmp/artifacts, --world, real, --model-env-file, /run/secrets/claim_extraction_worker_model,
               --tariff-file, /run/secrets/host_model_tariff, --once]
-    volumes:
-      - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
     # host_model_tariff: the Agent Host's copy of the model tariff (no secret value), so every call is priced (configured_rate).
     secrets: [world_glossary_translator_dsn, world_glossary_translator_pg_client_cert, world_glossary_translator_pg_client_key, world_glossary_translator_credential, signing_key, pg_ca, claim_extraction_worker_model, host_model_tariff]
   claim-matcher:

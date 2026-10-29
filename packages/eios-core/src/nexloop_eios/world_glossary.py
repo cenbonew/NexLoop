@@ -30,6 +30,8 @@ GROUPS={'sections':'section','object_types':'object_type','properties':'property
         'functions':'function','actions':'action'}
 TRANSLATE_ACTION='nexloop.world_glossary.translate'
 PROTOCOL='nexloop-world-glossary-v1'
+# The section names of the v2 contract (workbench-world-model-v2 glossary.sections propertyNames enum); SQL checks the same list.
+SECTIONS=frozenset({'Object Type','Object','Property','Link','Function','Action','Object Set','Event Type','Payload Property','Table','Graph','Object View','Interface','Shared Property'})
 PER_ROUND=10
 # One --once run starts no new model call after RUN_SECONDS (each call is bounded by the provider's 60 s deadline), so a run ends
 # within about 5 minutes, half the 10-minute timer period.
@@ -65,6 +67,7 @@ def validate_manifest(manifest):
     for group in GROUPS:
         entries=manifest.get(group,{})
         if type(entries) is not dict:raise GlossaryRejected(group)
+        if group=='sections' and set(entries)-SECTIONS:raise GlossaryRejected('sections: '+', '.join(sorted(set(entries)-SECTIONS)))
         for identifier,gloss in entries.items():
             if not 1<=len(identifier)<=200 or not (gloss is None or valid_gloss(gloss)):raise GlossaryRejected(f'{group}: {identifier}')
     return manifest

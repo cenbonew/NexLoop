@@ -186,6 +186,9 @@ begin
   or exists(select 1 from jsonb_object_keys(m) x where x not in ('schema_version','manifest_version','decision','source','sections','object_types',
     'properties','relations','event_types','functions','actions'))
   or exists(select 1 from jsonb_each(m) x where x.key in (select jsonb_object_keys(kinds)) and jsonb_typeof(x.value) is distinct from 'object')
+  -- I8 (L6): the section names are the v2 contract's enum (workbench-world-model-v2 glossary.sections propertyNames), exactly.
+  or exists(select 1 from jsonb_object_keys(case when jsonb_typeof(m->'sections')='object' then m->'sections' else '{}' end) x
+    where x not in ('Object Type','Object','Property','Link','Function','Action','Object Set','Event Type','Payload Property','Table','Graph','Object View','Interface','Shared Property'))
   or exists(select 1 from jsonb_each(m) x,jsonb_each(x.value) y where x.key in (select jsonb_object_keys(kinds))
     and (char_length(y.key) not between 1 and 200 or not (jsonb_typeof(y.value)='null' or (jsonb_typeof(y.value)='string'
      and control.nexloop_world_glossary_valid(y.value#>>'{}'))))) then
