@@ -3,7 +3,6 @@
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {asV2} from './world-model-v2';
 import {expect,test} from 'vitest';
 import {WorkbenchError,objectSetPage,objectSets,worldModel} from '../src/workbench/api';
 import {conditionText} from '../src/workbench/pages/WorldObjectSets';
@@ -11,7 +10,7 @@ import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath} from '../src/workbench/route';
 import {readFileSync} from 'node:fs';
 
-const model=asV2(JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8')));
+const model=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model-v2.valid.json',import.meta.url),'utf8'));
 const A='a'.repeat(64),B='b'.repeat(64);
 const SETS={object_sets:[{stable_name:'tennis.players',version:2,versions:2,object_type:'Consumer',object_type_version:97,
   filters:[{property:'sport',operator:'eq',value:'网球'},{property:'level',operator:'in',value:[3,4]}],sort:[{property:'level',direction:'desc'}],

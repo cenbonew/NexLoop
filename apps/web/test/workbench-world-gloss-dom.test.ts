@@ -5,13 +5,12 @@ import {createRoot} from 'react-dom/client';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {asV2} from './world-model-v2';
 import {expect,test} from 'vitest';
 import {worldModel} from '../src/workbench/api';
 import {WorldModel} from '../src/workbench/pages/WorldModel';
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
-const example=asV2(JSON.parse(readFileSync(resolve(__dirname,'../../../packages/contracts/examples/workbench-world-model.valid.json'),'utf8')));
+const example=JSON.parse(readFileSync(resolve(__dirname,'../../../packages/contracts/examples/workbench-world-model-v2.valid.json'),'utf8'));
 const glossed=structuredClone(example);glossed.object_types[0].gloss='客户';glossed.object_types[1].gloss='会话';glossed.object_types[0].gloss_source=glossed.object_types[1].gloss_source='manual';
 
 test('typing 客户 or consum keeps Consumer, typing 会话 keeps Conversation; nothing found is the filtered state',()=>{

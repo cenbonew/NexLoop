@@ -1,5 +1,4 @@
 // World model W2 (owner 2026-10-19 D3; ADR-035): instances by type with a cursor, the object drawer and its depth-1 neighbourhood.
-import {asV2} from './world-model-v2';
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
@@ -11,7 +10,7 @@ import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath} from '../src/workbench/route';
 
 const json=(name:string)=>JSON.parse(readFileSync(new URL(`../../../packages/contracts/examples/${name}.valid.json`,import.meta.url),'utf8'));
-const model=asV2(json('workbench-world-model')),page=json('workbench-object-page'),neighbors=json('workbench-object-neighbors');
+const model=json('workbench-world-model-v2'),page=json('workbench-object-page'),neighbors=json('workbench-object-neighbors');
 const A='a'.repeat(64);
 
 function render(query:Record<string,string>,seed:[unknown[],unknown][]=[]){  // the Object page (section objects)
@@ -41,9 +40,9 @@ test('deep links: type, cursor and open object round-trip on the Object page; th
 test('instances: a chosen type lists ids with versions and times, counts the invisible ones, pages by cursor; no property shown',()=>{
   expect(render({})).toContain('暂无选中的 Object Type');
   const html=render({type:'Consumer'},[[['workbench','objects','Consumer',''],objectPage(page)]]);
-  expect(html).toContain('<span class="term"><code class="term-id">Consumer</code></span> 共 7 个 Object · 本页显示 1 个');expect(html).toContain('本页不可见 1 个');expect(html).toContain('data-code="invisible"');
+  expect(html).toContain('<span class="term"><code class="term-id">Consumer</code><span class="term-gloss">（客户）</span></span> 共 7 个 Object · 本页显示 1 个');expect(html).toContain('本页不可见 1 个');expect(html).toContain('data-code="invisible"');
   expect(html).toContain('aaaaaaaa…aaaa');expect(html).toContain('>下一页</button>');expect(html).not.toContain('>上一页</button>');
-  expect(html).toContain('<option value="Consumer" selected="">Consumer · 12 个</option>');
+  expect(html).toContain('<option value="Consumer" selected="">Consumer（客户） · 12 个</option>');
 });
 
 test('the drawer: full id, versions, a link to the content page where one exists, groups with invisible and collapsed said as they are',()=>{
@@ -51,7 +50,7 @@ test('the drawer: full id, versions, a link to the content page where one exists
     [['workbench','object-neighbors','Consumer',A],objectNeighbors(neighbors)]]);
   expect(html).toContain(`aria-label="Consumer aaaaaaaa…aaaa 详情"`);expect(html).toContain(A);expect(html).toContain('href="/workbench/consumers/'+A+'"');
   expect(html).toContain('← <span class="term"><code class="term-id">Goal</code></span> · Property（属性） <span class="term"><code class="term-id">consumer_id</code></span>');expect(html).toContain('不可见 25 个');expect(html).toContain('折叠 5 个');
-  expect(html).toContain('→ <span class="term"><code class="term-id">Consumer</code></span> · Link（关系） <span class="term"><code class="term-id">knows</code></span>');expect(html).toContain('邻域图：');
+  expect(html).toContain('→ <span class="term"><code class="term-id">Consumer</code><span class="term-gloss">（客户）</span></span> · Link（关系） <span class="term"><code class="term-id">knows</code></span>');expect(html).toContain('邻域图：');
   expect(pageFor('Goal',A)).toBeNull();expect(pageFor('Commitment',A)).toEqual({page:'commitments',id:A});
 });
 

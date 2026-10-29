@@ -2,7 +2,6 @@
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {asV2} from './world-model-v2';
 import {expect,test} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {WorkbenchError,worldModel} from '../src/workbench/api';
@@ -11,7 +10,7 @@ import {LABEL_PX,MIN_LABEL_PX,MIN_SCALE,SchemaGraph,fitScale} from '../src/workb
 import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath,PAGES} from '../src/workbench/route';
 
-const example=asV2(JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8')));
+const example=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model-v2.valid.json',import.meta.url),'utf8'));
 
 test('the parser accepts the contract example and refuses a withheld property that carries more than its name',()=>{
   const m=worldModel(example);
@@ -93,7 +92,7 @@ test('the graph view: one focusable button per type, labelled edges, the focused
   const html=render({view:'graph',focus:'Consumer'},'object_types');
   expect(html).toContain('<svg');expect(html).toContain('aria-label="Object Type 关系图：2 个 Object Type，1 条 Link"');
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
-  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer 详情"');expect(html).toContain('→ <span class="term"><code class="term-id">Conversation</code></span>：<span class="term"><code class="term-id">consumer_conversation</code></span> · 1:N');
+  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('→ <span class="term"><code class="term-id">Conversation</code></span>：<span class="term"><code class="term-id">consumer_conversation</code></span> · 1:N');
   expect(html).toContain('<button type="button" aria-pressed="true"><span class="term"><span class="term-id term-word">Graph</span><span class="term-gloss">（关系图）</span></span></button>');expect(html).not.toContain('data-empty-edges');
 });
 

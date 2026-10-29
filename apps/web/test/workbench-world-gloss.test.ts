@@ -4,14 +4,12 @@ import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {readFileSync} from 'node:fs';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {asV2} from './world-model-v2';
 import {expect,test} from 'vitest';
-import {WorkbenchError,worldModel} from '../src/workbench/api';
+import {WORLD_SECTION_NAMES,WorkbenchError,worldModel} from '../src/workbench/api';
 import {WorldModel} from '../src/workbench/pages/WorldModel';
 import {MACHINE_HINT,Term,glossMatches,glossText,sectionText} from '../src/workbench/Gloss';
-import {GLOSSARY_V1_SECTIONS} from './world-model-v2';
 
-const example=asV2(JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8')));
+const example=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model-v2.valid.json',import.meta.url),'utf8'));
 const css=readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
 // Glossary v1 entries for the contract example's identifiers; spending_power (withheld) has none; the action is a machine gloss here.
 const glossed=structuredClone(example);
@@ -31,7 +29,7 @@ test('v2, strict (L6 S5): both keys on every identifier; null/null none, ""/manu
   expect(m.object_types[0]).toMatchObject({name:'Consumer',gloss:'客户',gloss_source:'manual'});
   expect(m.object_types[0].properties[1]).toEqual({name:'spending_power',withheld:true,gloss:null,gloss_source:null});
   expect(m.relation_types[0]).toMatchObject({gloss:'客户的会话',inverse_gloss:null});expect(m.actions[0]).toMatchObject({gloss:'提交服务请求',gloss_source:'machine'});
-  expect(worldModel(example).object_types[0]).toMatchObject({gloss:null,gloss_source:null});
+  expect(worldModel(example).object_types[1]).toMatchObject({name:'Conversation',gloss:null,gloss_source:null});
   const refused=(change:(x:typeof glossed)=>void)=>{const x=structuredClone(glossed);change(x);expect(()=>worldModel(x)).toThrow(WorkbenchError);};
   refused(x=>{x.object_types[0].gloss_source='guess';});refused(x=>{delete x.object_types[0].gloss;});refused(x=>{delete x.actions[0].gloss_source;});
   refused(x=>{delete x.relation_types[0].inverse_gloss;});refused(x=>{x.object_types[0].gloss_source=null;});  // text without a source
@@ -53,7 +51,7 @@ test('Term: the identifier in code, the full-width gloss as secondary text, no e
   expect(MACHINE_HINT).toBe('由模型翻译，负责人可改正');
   expect(glossText('Consumer','客户')).toBe('Consumer（客户）');expect(glossText('Consumer',null)).toBe('Consumer');
   // S4: section names come from the server only; without them the English stands alone.
-  expect(sectionText('Link',GLOSSARY_V1_SECTIONS)).toBe('Link（关系）');expect(sectionText('Link',undefined)).toBe('Link');expect(sectionText('Link',{})).toBe('Link');
+  expect(sectionText('Link',example.glossary.sections)).toBe('Link（关系）');expect(sectionText('Link',undefined)).toBe('Link');expect(sectionText('Link',{})).toBe('Link');
 });
 
 test('typography: the identifier never breaks, the gloss is secondary and may wrap, the 机翻 mark is at least 12px',()=>{
@@ -76,7 +74,8 @@ test('every list, the type graph and its panel show the glosses; a missing one s
   expect(graph).toContain('<title>Consumer（客户） · v3 · 2 Property · 12 Object</title>');expect(graph).toContain('consumer_conversation（客户的会话） 1:N');
   expect(graph).toContain('aria-label="Consumer（客户） 详情"');expect(graph).toContain(`<h2><span class="term">${term('Consumer','客户')}</span></span></h2>`);
   // Without glosses the node keeps its details line and nothing shows empty parentheses.
-  const plain=render('object_types',{view:'graph'},example);expect(plain).not.toContain('schema-node-gloss');expect(plain).toContain('v3 · 2 Property');
+  const unglossed=structuredClone(example);unglossed.object_types[0].gloss=null;unglossed.object_types[0].gloss_source=null;
+  const plain=render('object_types',{view:'graph'},unglossed);expect(plain).not.toContain('schema-node-gloss');expect(plain).toContain('v3 · 2 Property');
   expect(plain).not.toMatch(/（）/);
   // The Object page's type picker (plain text in an option): the gloss, then the count.
   expect(render('objects')).toContain('>Consumer（客户） · 12 个</option>');
@@ -101,4 +100,29 @@ test('L2 shape: the glossary block gives the section names; a manual "" is a cle
   expect(html).toContain('<span class="term"><span class="term-id term-word">Table</span></span>');  // a cleared section name likewise
   expect(html).toContain('<th scope="col" class="cell-main">Object Type（对象类别）</th>');  // headers from the server too
   const bad=structuredClone(v2);bad.glossary.manifest_version=-1;expect(()=>worldModel(bad)).toThrow(WorkbenchError);
+});
+
+// L6 S7/S8: the frontend follows L2's v2 contract itself (packages/contracts/workbench-world-model-v2.schema.json and its example).
+const contract=JSON.parse(readFileSync(new URL('../../../packages/contracts/workbench-world-model-v2.schema.json',import.meta.url),'utf8'));
+test('S7: WORLD_SECTION_NAMES is the v2 schema\'s glossary.sections enum, word for word and in order; the length limit is the same',()=>{
+  const sections=contract.properties.glossary.properties.sections;
+  expect([...WORLD_SECTION_NAMES]).toEqual(sections.propertyNames.enum);
+  expect(sections.additionalProperties.maxLength).toBe(24);
+});
+
+test('S8: the v2 contract example parses as it is - every identifier, the inverse names and all 14 section names',()=>{
+  const m=worldModel(example);
+  expect(Object.keys(m.glossary.sections).sort()).toEqual([...WORLD_SECTION_NAMES].sort());
+  expect(m.glossary).toEqual({manifest_version:example.glossary.manifest_version,sections:example.glossary.sections});
+  const pairs=(xs:{gloss:string|null;gloss_source:string|null}[])=>xs.map(x=>[x.gloss,x.gloss_source]);
+  expect(pairs(m.object_types)).toEqual(pairs(example.object_types));
+  expect(pairs(m.object_types.flatMap(t=>t.properties))).toEqual(pairs(example.object_types.flatMap((t:{properties:unknown[]})=>t.properties)));
+  expect(pairs(m.actions)).toEqual(pairs(example.actions));expect(pairs(m.functions)).toEqual(pairs(example.functions));
+  expect(pairs(m.event_types)).toEqual(pairs(example.event_types));
+  expect(m.relation_types.map(r=>[r.gloss,r.gloss_source,r.inverse_gloss,r.inverse_gloss_source]))
+    .toEqual(example.relation_types.map((r:Record<string,unknown>)=>[r.gloss,r.gloss_source,r.inverse_gloss,r.inverse_gloss_source]));
+  // Each example field the contract adds is required by the frontend too: dropping one is refused.
+  for(const drop of [(x:typeof example)=>{delete x.glossary;},(x:typeof example)=>{delete x.object_types[0].gloss_source;},
+    (x:typeof example)=>{delete x.relation_types[0].inverse_gloss;},(x:typeof example)=>{x.glossary.sections.Scope='权限范围';}]){
+    const x=structuredClone(example);drop(x);expect(()=>worldModel(x)).toThrow(WorkbenchError);}
 });
