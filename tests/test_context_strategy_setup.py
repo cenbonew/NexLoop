@@ -20,7 +20,16 @@ def test_the_example_recipe_selects_the_relay_strategy():
     definition = C.strategy_definition(STRATEGIES, C.validate_recipe(RECIPE))
     assert definition['strategy_id'] == 'recent_plus_required' and definition['version'] == 1
     # The relay's compose command names the same strategy (deployment hard constraint 3).
-    assert '--context-strategy, recent_plus_required' in (ROOT / 'deploy/stage/compose.app.example.yaml').read_text()
+    import re
+    import yaml
+    services = yaml.safe_load((ROOT / 'deploy/stage/compose.app.example.yaml').read_text())['services']
+    env = dict(line.split('=', 1) for line in (ROOT / 'deploy/stage/compose.app.env.example').read_text().splitlines()
+               if line.startswith('RELAY_CONTEXT_STRATEGY='))
+    for name in ('message-relay', 'message-relay-2'):
+        args = [str(a) for a in services[name]['command']]
+        raw = args[args.index('--context-strategy') + 1]
+        assert re.sub(r'\$\{RELAY_CONTEXT_STRATEGY:-([^}]*)\}', r'\1', raw) == 'recent_plus_required'
+        assert re.sub(r'\$\{RELAY_CONTEXT_STRATEGY:-([^}]*)\}', env['RELAY_CONTEXT_STRATEGY'], raw) == 'recent_plus_required'
 
 
 @pytest.mark.parametrize('change', [lambda r: r.update(version=0), lambda r: r.update(tenant_id='x'), lambda r: r.update(extra=1),
