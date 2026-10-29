@@ -132,7 +132,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Extraction dead letters (2026-10-26): requeue or dismiss one dead-lettered claim-extraction job (owner only).
     'resolve_extraction_dead_letter':'claim_extraction.dead_letter_resolve',
     # NX-056 budget approval: loosening a budget, with another owner's approval (Budget.set keeps tightening and the renewal).
-    'loosen_budget':'goals.budget.loosen'}
+    'loosen_budget':'goals.budget.loosen',
+    # World-model glossary (0374): the owner corrects or clears one identifier's Chinese gloss (owner only).
+    'set_world_glossary':'world_glossary.set'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -401,6 +403,15 @@ class GoalGovernedActions:
             raise ValueError('task, disposition and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'resolve_extraction_dead_letter','task_id':task_id,
                                                         'disposition':disposition,'reason':reason})
+
+    # World-model glossary (0374): owner only; '' clears by hand (English only); tenant and world are the session's, never the body's.
+    def set_world_glossary(self,*,action_name,action_version,request_id,kind,identifier,gloss):
+        from nexloop_eios.world_glossary import valid_gloss
+        if (kind not in ('section','object_type','property','relation','event_type','function','action') or type(identifier) is not str
+                or not 1<=len(identifier)<=200 or not valid_gloss(gloss)):
+            raise ValueError('kind, identifier and gloss required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_world_glossary','kind':kind,
+                                                        'identifier':identifier,'gloss':gloss})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):

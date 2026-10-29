@@ -116,7 +116,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Extraction dead letters (2026-10-26): the owner requeues or dismisses one dead-lettered claim-extraction job.
     'claim_extraction.dead_letter_resolve':'human_owner',
     # NX-056 budget approval: loosening a budget, under an NX-056 approval policy.
-    'goals.budget.loosen':'human_owner'}
+    'goals.budget.loosen':'human_owner',
+    # World-model glossary (0374): the owner's correction of a Chinese gloss.
+    'world_glossary.set':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
