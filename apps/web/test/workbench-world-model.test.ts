@@ -64,18 +64,18 @@ test('the summary: one card per concept in EIOS order with its count, the Event 
   const cards=[...html.matchAll(/aria-label="([A-Za-z ]+)（[^）]+）(?: · real)? (\d+)，查看"/g)].map(m=>m[1]);
   expect(cards).toEqual(['Object Type','Object','Property','Link','Function','Action']);
   expect(html).toContain('aria-label="Object Type（对象类型） 2，查看"');expect(html).toContain('<strong class="metric-value">42</strong>');
-  expect(html).toContain('<h2 id="world-event-types"><span class="term"><span class="term-id term-word">Event Type</span><span class="term-gloss">（事件类型）</span></span></h2>');
+  expect(html).toContain('<h2 id="world-event-types"><span class="term term-inline"><span class="term-id term-word">Event Type</span><span class="term-gloss"><span class="term-gloss-text">（事件类型）</span></span></span></h2>');
   expect(html).toContain('<span class="metric-label">Event Type（事件类型）</span><strong class="metric-value">0</strong>');expect(html).toContain('暂无已发布的 Event Type');expect(html).not.toContain('<svg');
   expect(html).not.toMatch(/新建|编辑|删除/);
   // Owner 2026-10-29: the EIOS English terms stay, each with its Chinese in full-width parentheses (it replaced the English-only rule).
   for(const page of [html,render(undefined,'object_types'),render(undefined,'properties'),render(undefined,'links'),render(undefined,'actions'),render(undefined,'functions')]){
-    expect(page).toMatch(/<span class="term-gloss">（[^）<]+）/);expect(page).not.toMatch(/（）|实例|关系类型/);}
+    expect(page).toMatch(/<span class="term-gloss-text">（[^）<]+）/);expect(page).not.toMatch(/（）|实例|关系类型/);}
   expect(html).not.toContain('aria-label="查看方式"');
 });
 
 test('each concept page: its EIOS title, its own table; Table / Graph only under the Object Type title',()=>{
   const types=render(undefined,'object_types');
-  const term=(id:string,gloss:string)=>`<span class="term"><span class="term-id term-word">${id}</span><span class="term-gloss">（${gloss}）</span></span>`;
+  const term=(id:string,gloss:string)=>`<span class="term term-inline"><span class="term-id term-word">${id}</span><span class="term-gloss"><span class="term-gloss-text">（${gloss}）</span></span></span>`;
   expect(types).toContain(`<h1 id="workbench-page-title">${term('Object Type','对象类型')}</h1>`);
   expect(types).toMatch(/<\/header><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式">/);
   expect(types).toContain(`<button type="button" aria-pressed="true">${term('Table','表格')}</button><button type="button" aria-pressed="false">${term('Graph','关系图')}</button></div>`);
@@ -92,8 +92,8 @@ test('the graph view: one focusable button per type, labelled edges, the focused
   const html=render({view:'graph',focus:'Consumer'},'object_types');
   expect(html).toContain('<svg');expect(html).toContain('aria-label="Object Type 关系图：2 个 Object Type，1 条 Link"');
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
-  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('→ <span class="term"><code class="term-id">Conversation</code></span>：<span class="term"><code class="term-id">consumer_conversation</code></span> · 1:N');
-  expect(html).toContain('<button type="button" aria-pressed="true"><span class="term"><span class="term-id term-word">Graph</span><span class="term-gloss">（关系图）</span></span></button>');expect(html).not.toContain('data-empty-edges');
+  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('→ <span class="term term-stack" title="Conversation"><code class="term-id">Conversation</code></span>：<span class="term term-stack" title="consumer_conversation"><code class="term-id">consumer_conversation</code></span> · 1:N');
+  expect(html).toContain('<button type="button" aria-pressed="true"><span class="term term-inline"><span class="term-id term-word">Graph</span><span class="term-gloss"><span class="term-gloss-text">（关系图）</span></span></span></button>');expect(html).not.toContain('data-empty-edges');
 });
 
 test('a relation from a type to itself: both ends on the node border (outside the box) and an arrowhead like any edge',()=>{

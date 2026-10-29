@@ -1,7 +1,7 @@
 /**
  * Owner 2026-10-29: every English identifier of the enterprise world model carries a Chinese gloss in full-width parentheses, e.g.
  * Consumer（客户）. The identifier stays monospace and never breaks; the parentheses with the Chinese are secondary, in the body font,
- * and may wrap. No gloss: the identifier alone, never empty parentheses. A machine gloss carries a small 机翻 mark.
+ * and never split (see Term for the two layouts). No gloss: the identifier alone, never empty parentheses. A machine gloss carries a small 机翻 mark.
  */
 import {useContext,useMemo,useSyncExternalStore,type ReactNode} from 'react';
 import {QueryClientContext} from '@tanstack/react-query';
@@ -24,11 +24,18 @@ export const sectionText=(name:string,sections:Sections|undefined)=>glossText(na
 export const glossMatches=(keyword:string,id:string,gloss:string|null|undefined)=>{
   const k=keyword.trim().toLowerCase();return !k||id.toLowerCase().includes(k)||(!!gloss&&gloss.toLowerCase().includes(k));};
 
-/** An identifier with its gloss. `mono`: identifiers are code (names); section names are words. */
-export function Term({id,gloss,source=null,mono=true}:{id:string;gloss:string|null|undefined;source?:GlossSource|null;mono?:boolean}):ReactNode{
+/** An identifier with its gloss. `mono`: identifiers are code (names); section names are words.
+ * Owner 2026-10-30 (stage walkthrough), one rule per place:
+ * - default (table cells, detail panels, lists): two lines in every case - the identifier, then the gloss left-aligned below it,
+ *   never broken inside; the identifier itself is never cut (it may wrap) and the whole term's title is id（gloss); too narrow, the gloss ends in an ellipsis and its title carries the full text.
+ * - `inline` (titles, crumbs, sidebar, switches, a sentence): English（中文） on one line; the gloss moves as a whole, never split. */
+export function Term({id,gloss,source=null,mono=true,inline=false}:{id:string;gloss:string|null|undefined;source?:GlossSource|null;mono?:boolean;inline?:boolean}):ReactNode{
   const name=mono?<code className="term-id">{id}</code>:<span className="term-id term-word">{id}</span>;
-  if(!gloss)return <span className="term">{name}</span>;
-  return <span className="term">{name}<span className="term-gloss">（{gloss}）{source==='machine'?<small className="term-machine" title={MACHINE_HINT}>机翻</small>:null}</span></span>;
+  const layout=inline?'term term-inline':'term term-stack';
+  const title=inline?undefined:glossText(id,gloss);
+  if(!gloss)return <span className={layout} title={title}>{name}</span>;
+  const machine=source==='machine'?<small className="term-machine" title={MACHINE_HINT}>机翻</small>:null;
+  return <span className={layout} title={title}>{name}<span className="term-gloss" title={inline?undefined:gloss}><span className="term-gloss-text">（{gloss}）</span>{machine}</span></span>;
 }
 const MODEL_KEY=['workbench','world-model'];
 const NOTHING=()=>()=>{};
@@ -41,7 +48,7 @@ export function useCachedWorldModel():WorldModel|undefined{
 /** The server's section names (S4: never a copy in the frontend, so an owner's correction shows everywhere). */
 export const useSections=():Sections|undefined=>useCachedWorldModel()?.glossary.sections;
 /** A section or view name with the server's gloss. */
-export function SectionTerm({name}:{name:string}){return <Term id={name} gloss={useSections()?.[name]} mono={false}/>;}
+export function SectionTerm({name}:{name:string}){return <Term id={name} gloss={useSections()?.[name]} mono={false} inline/>;}
 
 /** Glosses of the world model already read on this page (the cached model; nothing is fetched here): by type, by a type's
  * Property, by Link or inverse name. Missing: no gloss (the identifier alone). */

@@ -186,7 +186,7 @@ function TypePanel({type,model,onClose}:{type:WorldObjectType;model:Model;onClos
   const list=(items:ReactNode[])=><ul>{items}</ul>;
   const typeTerm=(name:string)=>{const t=model.object_types.find(x=>x.name===name);return <Term id={name} gloss={t?.gloss} source={t?.gloss_source}/>;};
   return <aside className="world-panel" aria-label={`${glossText(type.name,type.gloss)} 详情`}>
-    <Card title={<Term id={type.name} gloss={type.gloss} source={type.gloss_source}/>} badge={<span className="note">v{type.version}</span>} footer={<button type="button" onClick={onClose}>关闭</button>}>
+    <Card title={<Term id={type.name} gloss={type.gloss} source={type.gloss_source} inline/>} badge={<span className="note">v{type.version}</span>} footer={<button type="button" onClick={onClose}>关闭</button>}>
       {type.description?<p>{type.description}</p>:null}
       <KeyValue label={`${type.name} 概况`} items={[{key:sectionText('Object',model.glossary.sections)+' · real',value:type.objects},{key:'标题 '+sectionText('Property',model.glossary.sections),value:type.title_property?propTerms(type,[type.title_property]):'—'},
         {key:'主键',value:propTerms(type,type.primary_key)}]}/>

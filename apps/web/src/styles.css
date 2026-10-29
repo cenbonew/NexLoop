@@ -600,15 +600,23 @@ a.text-link{color:var(--accent);text-decoration:underline;text-underline-offset:
 /* Stage walkthrough (W4): the registration form names its close control at the top, beside the title. */
 .workbench .experiment-register-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap}
 .workbench .experiment-register-head h2{margin:0}.workbench .experiment-register-head h2:focus{outline:none}
-/* Owner 2026-10-29: world model identifiers with a Chinese gloss - Consumer（客户）. The identifier is code and never breaks; the
- * full-width parentheses with the Chinese are secondary text in the body font and may wrap in a narrow column. */
-.term{display:inline}
+/* Owner 2026-10-29/30: world model identifiers with a Chinese gloss - Consumer（客户）. The identifier is code and never breaks; the
+ * gloss is secondary text that is never split. Stacked (cells, panels): two lines, left-aligned, the gloss cut with an ellipsis.
+ * Inline (titles, crumbs, sidebar, switches): one line, the gloss moving to the next line as a whole when it must. */
 .term-id{white-space:nowrap}
 code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-small)}
 .term-word{font:inherit}
-.term-gloss{font-family:inherit;font-weight:400;color:var(--muted);overflow-wrap:anywhere}
-.term-machine{display:inline-block;margin-left:var(--space-1);padding:0 4px;border:1px solid var(--border);border-radius:var(--radius-sm);
+.term-gloss{font-family:inherit;font-weight:400;color:var(--muted);white-space:nowrap}
+.term-stack{display:inline-flex;flex-direction:column;align-items:flex-start;max-width:100%;min-width:0;vertical-align:baseline;text-align:left}
+.term-stack>.term-id{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.term-stack>.term-gloss{display:flex;align-items:center;max-width:100%;min-width:0;font-size:12px;line-height:1.35}
+.term-stack .term-gloss-text{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.term-inline{display:inline}
+.term-inline>.term-gloss{display:inline-block}
+.term-machine{display:inline-block;flex:none;margin-left:var(--space-1);padding:0 4px;border:1px solid var(--border);border-radius:var(--radius-sm);
   font-size:12px;line-height:16px;color:var(--muted);vertical-align:1px;cursor:help;white-space:nowrap}
+/* A link-styled button (an Object Type cell, a detail link) starts at the left like the rest of its column, never centred. */
+.workbench button.link{justify-content:flex-start;text-align:left;height:auto;max-width:100%}
 /* On a selected control (a pressed switch, the current sidebar entry) the gloss takes the control's own text colour, not the muted grey. */
 [aria-pressed="true"] .term-gloss,[aria-current="page"] .term-gloss{color:inherit;opacity:.85}
 /* The owner's glossary correction under a world model list. */

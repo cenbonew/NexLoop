@@ -22,10 +22,10 @@ test('the parser: a View or null; names checked; a View without sections refused
 test('rendering: sections in the View order with their titles, the title value above, withheld stays withheld, the rest folded',()=>{
   const html=renderToStaticMarkup(h(ViewLayout,{view:objectView(raw)!,properties:props}));
   expect(html).toContain('data-view="consumer.profile@2"');
-  const order=['data-title-property="sport"','>运动偏好</h3>','<dt><span class="term"><code class="term-id">level</code></span></dt>','<dt><span class="term"><code class="term-id">sport</code></span></dt>','>消费能力</h3>','<dt><span class="term"><code class="term-id">income</code></span></dt>','其他 Property（1）','<dt><span class="term"><code class="term-id">note</code></span></dt>'].map(x=>html.indexOf(x));
+  const order=['data-title-property="sport"','>运动偏好</h3>','<dt><span class="term term-stack" title="level"><code class="term-id">level</code></span></dt>','<dt><span class="term term-stack" title="sport"><code class="term-id">sport</code></span></dt>','>消费能力</h3>','<dt><span class="term term-stack" title="income"><code class="term-id">income</code></span></dt>','其他 Property（1）','<dt><span class="term term-stack" title="note"><code class="term-id">note</code></span></dt>'].map(x=>html.indexOf(x));
   expect(order.every(i=>i>=0)).toBe(true);expect([...order].sort((a,b)=>a-b)).toEqual(order);
   const money=html.slice(html.indexOf('>消费能力</h3>'),html.indexOf('其他 Property'));
-  expect(money).toContain('<dt><span class="term"><code class="term-id">income</code></span></dt>');expect(money).not.toContain('9000');expect(money).toMatch(/withheld|受限|不可见/);
+  expect(money).toContain('<dt><span class="term term-stack" title="income"><code class="term-id">income</code></span></dt>');expect(money).not.toContain('9000');expect(money).toMatch(/withheld|受限|不可见/);
   expect(html).toContain('只决定位置和顺序，不改变谁能看到哪个 Property');
   // A View field the current schema no longer has is said as such, never invented.
   const stale=renderToStaticMarkup(h(ViewLayout,{view:{...objectView(raw)!,sections:[{name:'a',title:'A',fields:['gone']}]},properties:props}));
