@@ -323,9 +323,11 @@ services:
     command: [--database-url-file, /run/secrets/world_glossary_translator_dsn, --service-credential-file, /run/secrets/world_glossary_translator_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
               /tmp/artifacts, --world, real, --model-env-file, /run/secrets/claim_extraction_worker_model,
-              --tariff-file, /run/secrets/host_model_tariff, --once]
-    # host_model_tariff: the Agent Host's copy of the model tariff (no secret value), so every call is priced (configured_rate).
-    secrets: [world_glossary_translator_dsn, world_glossary_translator_pg_client_cert, world_glossary_translator_pg_client_key, world_glossary_translator_credential, signing_key, pg_ca, claim_extraction_worker_model, host_model_tariff]
+              --tariff-file, /run/secrets/world_glossary_translator_tariff, --once]
+    # world_glossary_translator_tariff: its own copy of the Agent Host's model tariff (no secret value), so every call is priced
+    # (configured_rate). The Host's copy is 10020-only (secrets/agent-host 0700, file 0600) and this service runs as 10001, so the
+    # deployment installs an identical copy (same sha256) in the service's own directory (release 54 run sheet, P6/S6).
+    secrets: [world_glossary_translator_dsn, world_glossary_translator_pg_client_cert, world_glossary_translator_pg_client_key, world_glossary_translator_credential, signing_key, pg_ca, claim_extraction_worker_model, world_glossary_translator_tariff]
   claim-matcher:
     # G-CLAIM-EGRESS: same namespace rules as claim-extraction-worker.
     image: ${BACKEND_IMAGE:?backend image by digest}
@@ -594,6 +596,7 @@ secrets:
   world_glossary_translator_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/world-glossary-translator/pg-client.crt"}
   world_glossary_translator_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/world-glossary-translator/pg-client.key"}
   world_glossary_translator_credential: {file: "${NEXLOOP_ROOT:?root}/secrets/world-glossary-translator/service-credential"}
+  world_glossary_translator_tariff: {file: "${NEXLOOP_ROOT:?root}/secrets/world-glossary-translator/model-tariff.cny.json"}
   claim_matcher_dsn: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/dsn"}
   claim_matcher_pg_client_cert: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/pg-client.crt"}
   claim_matcher_pg_client_key: {file: "${NEXLOOP_ROOT:?root}/secrets/claim-matcher/pg-client.key"}
