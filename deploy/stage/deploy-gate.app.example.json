@@ -15,6 +15,7 @@
   "claim-extraction-scheduler": 10001,
   "claim-extraction-worker": 10001,
   "claim-matcher": 10001,
+  "world-glossary-translator": 10001,
   "commercial-recorder": 10001,
   "commitment-keeper": 10001,
   "domain-worker": 10001,

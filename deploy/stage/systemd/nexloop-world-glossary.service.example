@@ -1,0 +1,24 @@
+# World-model glossary (owner 2026-10-29; docs/release/run-world-glossary-stage.md §5): one --once run of the
+# world-glossary-translator on APP_HOST. Example only: copy to /etc/systemd/system/ without the .example suffix, fill in the paths,
+# `systemctl daemon-reload` and `systemctl enable --now nexloop-world-glossary.timer`.
+# - One instance at a time: flock -n on a lock file, and systemd never starts a oneshot unit again while it is active. A run that finds
+#   the lock held starts no container, writes "skipped: locked" to the journal and exits 0 (L6 I6: a skipped round is not a failed
+#   one, so it never raises timer_scheduled_failure); flock's own code for that case is 75, any other exit is the translator's.
+# - One PostgreSQL connection while it runs, from the operations reserve (connection budget: it is not in the application's 60).
+# - The container is the compose service world-glossary-translator (profile world-glossary): read only, cap_drop ALL, its own DSN,
+#   pg-client certificate and service credential, the extraction model file, claim_egress only (PostgreSQL and the model provider).
+# - TimeoutStartSec bounds a stuck run; the translator itself starts no new model call after 240 s.
+[Unit]
+Description=NexLoop world-model glossary translator (one run)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=NEXLOOP_ROOT=/srv/nexloop
+EnvironmentFile=/srv/nexloop/config/compose.images.env
+ExecStart=/bin/sh -c 'flock -n -E 75 /run/lock/nexloop-world-glossary.lock docker compose -f /srv/nexloop/release/deploy/stage/compose.app.yaml --env-file /srv/nexloop/config/compose.app.env --profile world-glossary run --rm -T world-glossary-translator; rc=$?; if [ "$rc" -eq 75 ]; then echo "skipped: locked"; exit 0; fi; exit "$rc"'
+SyslogIdentifier=nexloop-world-glossary
+TimeoutStartSec=9min
+NoNewPrivileges=true
+PrivateTmp=true

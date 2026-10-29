@@ -866,6 +866,11 @@
       "source": "deploy/configuration/business-actions.v1.json"
     },
     {
+      "stable_name": "nexloop.world_glossary.set",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
       "stable_name": "nexloop.workbench_member.change_role",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
