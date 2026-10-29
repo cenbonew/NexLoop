@@ -262,7 +262,7 @@ returning revision;
 2. **关系的 kind**：正向名和反向名都用 `relation` 一个 kind。两者是不同的字符串，词表 v1 也把它们放在同一组；`relation_inverse` 不再单列。API 形状不变：关系仍返回 `inverse_gloss` 和 `inverse_gloss_source`。
 3. **全角括号**：词表 v1 里有 4 条带全角括号（如“金额（最小单位）”）。人工译文允许全角括号，ASCII 括号不允许；机翻译文两种括号都不允许。
 4. **常驻改为定时运行**：应用的 PG 连接预算已用满（60/60），机翻服务不常驻，详见第 8 节（调度员 10-29 选 A）。
-5. **单价**：挂载 Agent Host 已有的 `host_model_tariff`（非秘密值），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
+5. **单价**：挂载 Agent Host 单价文件的一份副本 `world_glossary_translator_tariff`（非秘密值；Host 的那份属 10020、0600，机翻以 10001 运行读不到，所以部署时复制到机翻自己的 secret 目录，sha256 与原件一致，见 release 54 执行单 S6），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
 6. **每日上限**：每租户每天 50 次，固定写在 SQL 端口里，客户端无法放宽；每轮 10 条，为客户端参数，SQL 端口最多给 10 条。
 7. **任务编号**：治理注册表要求 `source_task` 形如 `NX-0xx`，暂用 `NX-064`，请调度员给正式编号后统一替换。
 
@@ -271,7 +271,7 @@ returning revision;
 ### 8.1 运行方式
 
 - **定时**：systemd timer `nexloop-world-glossary.timer` 每 10 分钟触发一次，落在每小时的 03、13、23……分，避开每分钟整点跑的 journal。触发后，oneshot 服务 `nexloop-world-glossary.service` 执行 `docker compose --profile world-glossary run --rm -T world-glossary-translator`，跑一轮就退出。样例在 `deploy/stage/systemd/nexloop-world-glossary.{service,timer}.example`。
-- **身份和容器**：与常驻方案相同。用它自己的服务主体、DSN、pg-client 证书和服务凭据，另外只挂 model.env（共用 claim-extraction 的）和单价文件 `host_model_tariff`（不是秘密）。容器只读、`cap_drop ALL`、`no-new-privileges`，网络只接 `claim_egress`：出网只能到 DATA_HOST 的 PostgreSQL 和模型 provider 的 443 端口。
+- **身份和容器**：与常驻方案相同。用它自己的服务主体、DSN、pg-client 证书和服务凭据，另外只挂 model.env（共用 claim-extraction 的）和自己目录下的单价副本 `world_glossary_translator_tariff`（不是秘密）。容器只读、`cap_drop ALL`、`no-new-privileges`，网络只接 `claim_egress`：出网只能到 DATA_HOST 的 PostgreSQL 和模型 provider 的 443 端口。
 - **同一时间只有一个实例**，有两层保证：
   1. systemd 不会在 oneshot 单元还在运行时再次启动它；
   2. 命令外层套 `flock -n /run/lock/nexloop-world-glossary.lock`。手工补跑或 timer 撞上上一轮时，后来者拿不到锁，直接退出（退出码 1），不会启动第二个容器。
