@@ -258,6 +258,15 @@ def test_two_reservations_of_the_last_call_of_the_day_admit_one(translator):
     assert admin.execute('select reserved from control.nexloop_world_glossary_quota where tenant_id=%s', (TENANT,)).fetchone() == (50,)
 
 
+def test_a_run_starts_no_model_call_after_its_time(translator):
+    t = translator
+    ticks = iter([0, 0, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250])  # started, first item, then past 240 s
+    model = StubModel(answer='机器译名')
+    summary = t['make'](model, clock=lambda: next(ticks)).run_once()
+    assert model.calls == 1 and summary['stopped'] == 'run_time'
+    assert t['admin'].execute('select count(*) from control.nexloop_world_glossary_usage where tenant_id=%s', (TENANT,)).fetchone()[0] == 1
+
+
 def test_failures_back_off_then_fail_and_show_english_only(translator):
     t = translator; admin = t['admin']
     model = StubModel(error='http_429')

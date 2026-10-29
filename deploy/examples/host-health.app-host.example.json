@@ -13,6 +13,7 @@
   "timers": [
     {"name": "provider-drift", "timer": "nexloop-provider-drift.timer", "service": "nexloop-provider-drift.service"},
     {"name": "file-backup", "timer": "nexloop-file-backup.timer", "service": "nexloop-file-backup.service"},
-    {"name": "file-backup-maint", "timer": "nexloop-file-backup-maint.timer", "service": "nexloop-file-backup-maint.service"}
+    {"name": "file-backup-maint", "timer": "nexloop-file-backup-maint.timer", "service": "nexloop-file-backup-maint.service"},
+    {"name": "world-glossary", "timer": "nexloop-world-glossary.timer", "service": "nexloop-world-glossary.service"}
   ]
 }

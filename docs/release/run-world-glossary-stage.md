@@ -45,13 +45,18 @@ python3 scripts/deploy/world_glossary_apply.py --bootstrap-dsn-file "$BOOTSTRAP_
 
 ## 5. 定时运行机翻（一次一轮）
 
-机翻服务不常驻：应用的 60 个 PG 连接已用满（`deploy/stage/connection-budget.v1.json`）。它由定时器拉起，用 `--once` 跑一轮就退出，运行期间占 1 个连接，计在运维保留里（同 sim-setup）。
+机翻服务不常驻：应用的 60 个 PG 连接已用满（`deploy/stage/connection-budget.v1.json`）。设计第 8 节写明了运维保留的峰值和约束。
 
-```bash
-docker compose -f deploy/stage/compose.app.yaml --env-file "$APP_ENV" --profile world-glossary run --rm world-glossary-translator
-```
-
-建议 systemd timer 每 10 分钟一次。每轮最多 10 个标识，每租户每天最多 50 次模型调用（SQL 里计数，调用前预占），所以定时频率不影响花费上限。
+1. 先手工跑一轮，确认能跑通：
+   ```bash
+   docker compose -f deploy/stage/compose.app.yaml --env-file "$APP_ENV" --profile world-glossary run --rm -T world-glossary-translator
+   ```
+   输出一行计数摘要（enqueued、translated、failed、manual_kept、quota），退出码 0。
+2. 安装 `deploy/stage/systemd/nexloop-world-glossary.{service,timer}.example`：去掉 `.example` 后缀，按实际路径填写，然后 `systemctl daemon-reload`，再 `systemctl enable --now nexloop-world-glossary.timer`。timer 落在每小时的 03、13……分，`flock` 保证同一时间只有一个实例。
+3. host-health：在 APP_HOST 的安装配置 `timers` 里加上 `world-glossary`，重跑 `host_health_install.sh`（幂等）；告警规则发布 v22（`alert_rules_apply.py`）。必须先装好 timer，再加这一项，否则会按 fail closed 在 30 分钟后报 `timer_stale_world_glossary`。
+4. 运维约束：
+   - 做迁移或 sim-setup 前，先 `systemctl stop nexloop-world-glossary.timer`，做完再启动；
+   - 不在 02:00 的 PG 备份窗口里做人工操作。
 
 ## 6. 验收
 

@@ -31,6 +31,9 @@ GROUPS={'sections':'section','object_types':'object_type','properties':'property
 TRANSLATE_ACTION='nexloop.world_glossary.translate'
 PROTOCOL='nexloop-world-glossary-v1'
 PER_ROUND=10
+# One --once run starts no new model call after RUN_SECONDS (each call is bounded by the provider's 60 s deadline), so a run ends
+# within about 5 minutes, half the 10-minute timer period.
+RUN_SECONDS=240
 CONTEXT_LIMIT=200
 PROMPT_VERSION='world-glossary-1'
 SYSTEM_PROMPT=('你为企业运营系统的数据模型标识写简短的中文名称，供界面在英文标识后用括号显示，例如 Consumer（客户）。'
@@ -143,16 +146,20 @@ def parse_gloss(text,identifier):
 
 
 class WorldGlossaryTranslator:
-    def __init__(self,pool,session,signer,provider,*,tariff=None,per_round=PER_ROUND,unavailable=Exception):
-        if not 1<=per_round<=PER_ROUND:raise ValueError('per_round')
+    def __init__(self,pool,session,signer,provider,*,tariff=None,per_round=PER_ROUND,run_seconds=RUN_SECONDS,unavailable=Exception,clock=None):
+        import time
+        if not 1<=per_round<=PER_ROUND or not 0<run_seconds<=RUN_SECONDS:raise ValueError('per_round')
+        self.run_seconds,self.clock=run_seconds,clock or time.monotonic
         self.port=GlossaryPort(pool,session,signer)
         self.provider,self.tariff,self.per_round,self.unavailable=provider,tariff,per_round,unavailable
 
     @authority_request_scoped
     def run_once(self):
         summary={'enqueued':self.port.call('scan')['enqueued'],'translated':0,'failed':0,'manual_kept':0,'quota':'open'}
+        started=self.clock()
         due=self.port.call('due',limit=self.per_round)
         for item in due['items']:
+            if self.clock()-started>=self.run_seconds:summary['stopped']='run_time';break  # the rest waits for the next run
             reserved=self.port.call('reserve',kind=item['kind'],identifier=item['identifier'])
             if not reserved['allowed']:
                 if reserved.get('reason')=='full':summary['quota']='full';break

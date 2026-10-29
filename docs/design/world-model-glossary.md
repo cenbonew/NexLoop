@@ -261,7 +261,56 @@ returning revision;
 1. **服务的 gate Action**：签名服务端口沿用 claim feed（0069）的模式，必须经一个 Action 资源授权。所以机翻主体有且只有一条授权 `nexloop.world_glossary.translate:1` execute，写在 service-grants 里；它不是发布的 Action 定义，与 `nexloop.claim.extract` 相同，不计入 register 的 Action 数。register 仍是 `(20, 129, 2)`，主体 26，凭据文件 35。
 2. **关系的 kind**：正向名和反向名都用 `relation` 一个 kind。两者是不同的字符串，词表 v1 也把它们放在同一组；`relation_inverse` 不再单列。API 形状不变：关系仍返回 `inverse_gloss` 和 `inverse_gloss_source`。
 3. **全角括号**：词表 v1 里有 4 条带全角括号（如“金额（最小单位）”）。人工译文允许全角括号，ASCII 括号不允许；机翻译文两种括号都不允许。
-4. **常驻改为定时运行**：应用的 PG 连接预算已用满（60/60），机翻服务不常驻。它用 `--once` 由定时器拉起，运行时占 1 个连接，计在运维保留里，同 sim-setup。compose 里的服务放在 profile `world-glossary` 下，预算标签为 `none`；`connection_budget.required_services` 不要求它。本条需调度员确认（10-29 已提问，先按此实现）。
+4. **常驻改为定时运行**：应用的 PG 连接预算已用满（60/60），机翻服务不常驻，详见第 8 节（调度员 10-29 选 A）。
 5. **单价**：挂载 Agent Host 已有的 `host_model_tariff`（非秘密值），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
 6. **每日上限**：每租户每天 50 次，固定写在 SQL 端口里，客户端无法放宽；每轮 10 条，为客户端参数，SQL 端口最多给 10 条。
 7. **任务编号**：治理注册表要求 `source_task` 形如 `NX-0xx`，暂用 `NX-064`，请调度员给正式编号后统一替换。
+
+## 8. 一次性运行（--once）与运维保留（调度员 10-29 选 A）
+
+### 8.1 运行方式
+
+- **定时**：systemd timer `nexloop-world-glossary.timer` 每 10 分钟触发一次，落在每小时的 03、13、23……分，避开每分钟整点跑的 journal。触发后，oneshot 服务 `nexloop-world-glossary.service` 执行 `docker compose --profile world-glossary run --rm -T world-glossary-translator`，跑一轮就退出。样例在 `deploy/stage/systemd/nexloop-world-glossary.{service,timer}.example`。
+- **身份和容器**：与常驻方案相同。用它自己的服务主体、DSN、pg-client 证书和服务凭据，另外只挂 model.env（共用 claim-extraction 的）和单价文件 `host_model_tariff`（不是秘密）。容器只读、`cap_drop ALL`、`no-new-privileges`，网络只接 `claim_egress`：出网只能到 DATA_HOST 的 PostgreSQL 和模型 provider 的 443 端口。
+- **同一时间只有一个实例**，有两层保证：
+  1. systemd 不会在 oneshot 单元还在运行时再次启动它；
+  2. 命令外层套 `flock -n /run/lock/nexloop-world-glossary.lock`。手工补跑或 timer 撞上上一轮时，后来者拿不到锁，直接退出（退出码 1），不会启动第二个容器。
+- **一次运行有多长**：
+  - 每轮最多处理 10 条（SQL 端口 `due` 最多返回 10 条）；
+  - 运行满 240 秒后不再发起新的模型调用（`RUN_SECONDS`），剩下的留给下一轮；
+  - 每次模型调用最多 60 秒（provider 的 deadline）；
+  - 所以一次运行最长约 240 + 60 秒，再加启动和收尾，不到 10 分钟一个周期的一半；
+  - `TimeoutStartSec=9min` 兜底，卡住的运行会被 systemd 结束。
+- **每天的花费上限**：每租户每天 50 次模型调用，在 SQL 里预占计数，与运行频率无关。
+- **`--once` 模式下仍然先预占、后调用**：`--once` 和常驻模式走同一个 `run_once`，每条都先调端口的 `reserve`（锁住计数行并加 1），拿到 `allowed` 才调模型（I5）。测试：当天已满时调用 0 次；两路并发抢最后一个名额只有一路成功；运行时间到了不再调用。
+- **连接**：运行期间只用 1 个连接（服务 pool 上限 1），进程退出时连接即释放。
+
+### 8.2 运维保留 7 的峰值
+
+`OPERATIONS_RESERVE = 7`（`connection_budget.py`，ADR-037），给“管理、CI、备份、一次性的 sim-setup”用。仓库里没有逐项清单，下面按 `deploy/stage/systemd` 下各单元实际打开的 DSN 来数，都没有在 stage 实测，算是保守的上界。
+
+| 占用方 | 时间 | 同时连接数 |
+|---|---|---|
+| journal（`nexloop-backup journal`，recorder DSN） | 每分钟 00 秒 | 1 |
+| file-backup（`file_backup_run.py`，recorder DSN） | 每 15 分钟 | 1 |
+| host-health 探针 | 每分钟 15 秒 | 1（按它写 PG 计；如果它经 API 写，则为 0） |
+| pg-diff / pg-full（recorder 1 + pgBackRest 备份连接 1） | 每天 02:00 | 2 |
+| relation-read-gaps（DATA_HOST，metrics DSN） | 每天 03:40 | 1 |
+| runtime-worker 的 `ExecStartPre` doctor | 只在服务启动时 | 1，短暂 |
+| 人工管理会话或迁移、sim-setup | 人工，不定时 | 见下 |
+| **world-glossary（本节）** | 每 10 分钟的 03、13…分 | **1** |
+
+- **定时任务的最坏重叠**：02:03 前后，pg-diff 2 + journal 1 + file-backup 1 + host-health 1 + world-glossary 1 = **6**。
+- **人工操作**：迁移和 sim-setup 都按运行单在维护窗口里做，同时最多 1 个会话，峰值 7，不超过运维保留。
+- **约束写进运行单**：人工迁移、sim-setup 和 02:00 的 PG 备份不能同时进行（它们原本就分开做），并且做迁移时先停掉 `nexloop-world-glossary.timer`。这样即使人工会话开 2 个连接，峰值也是 6 − 1 + 2 = 7。
+- **数据库也有硬上限**：除运维保留外，`max_connections` 80 − superuser 保留 3 − 应用 60 − 模拟 10 = 7，超出时新连接被 PG 拒绝，不会挤占应用的 60 个。
+
+### 8.3 监测
+
+- **不再列为期望容器**：它不常驻，不在 host-health 的 `containers` 里，也不在连接预算和 deploy-gate 的常驻服务里。
+- **按 timer 的新鲜度监测**：APP_HOST 的 host-health 配置在 `timers` 里加上 `world-glossary`（`nexloop-world-glossary.timer` / `.service`）。用的是 host-health 现有的口径（`docs/implementation/host-health.md` §4.5）：
+  - 只认**定时**轮次的成功，手工补跑不刷新新鲜度；
+  - **fail closed**：从未见过定时成功时，从这个 timer 第一次被列为期望起计时，到阈值就报警，不会静默通过；
+  - 告警规则 v22 新增 `timer_stale_world_glossary`，超过 1800 秒（3 个周期）报 warning；
+  - 定时轮次失败（例如端口拒绝、数据库不可用）由现有的 `timer_scheduled_failure` 报出。
+- **哪些不算失败**：模型调用失败（429、超时等）、当天名额用满，都只记在任务和用量里，进程仍正常退出。它们不是服务故障，不会让 timer 显得失败。
