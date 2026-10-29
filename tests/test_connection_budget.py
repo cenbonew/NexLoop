@@ -227,6 +227,8 @@ def test_every_background_service_is_budgeted_with_the_pool_it_opens():
     from nexloop_eios import background_services as B
     declared={s['name']:s for s in DOCUMENT['services']}
     for service in B.SERVICES:
+        if service in B.ONE_SHOT:  # world-model glossary: --once from a timer, the operations reserve (never in the application budget)
+            assert service not in declared;continue
         assert declared[service]=={'name':service,'processes':1,'pool_max':B.POOL_MAX},service
         assert B._parser(service).parse_args(['--database-url-file','x','--signing-key-file','x','--service-credential-file','x',
             '--artifact-root','x','--world','real',*_required(service)]).pool_max==B.POOL_MAX
