@@ -71,11 +71,20 @@
 | A1 | C7：语义读取会被写入 | **负责人 10-29：启用 `ontology_hybrid`（top_k 5）**，按第 7 节执行并核对后才发言。不要用播种工具直接插读取记录 |
 | A2 | R3 需要一次占满浏览上限（**10 条**）的读取（`s6_stage_inputs.py` 的 `WIDE = 10`），而 Run 路径的读取上限是策略的 `top_k`，`ontology_hybrid` 是 **5**，到不了 10 条 | **负责人 10-29：不发布 top_k ≥ 10 的版本，r3 判 blocked**（原因：Run 路径读取上限 5 < 浏览上限 10，P7 不可满足），其余项照做（plan §5：单项只判这一项） |
 | A3 | 失败口径（负责人 10-22 选 A）：`attribution._failed` 把 sample 的 `outcome` 属于 `FAILED_OUTCOMES = {error, reply_fallback}` 的 Run 算作失败。`error`：Run 有 failures、outcome 为 error 或模型调用失败；`reply_fallback`：入站消息后来发起了兜底回复 Run（stage 在 300 秒后发起，`reply-guarantee.v3`）。真实模型一般几秒内就成功回复，两种都不出现时 Run 不算失败，**也就不会产生 retrieval_miss 草稿** | **负责人 10-29：照常发言并观测，不改失败口径。** 再跑 `s6_stage_inputs.py` 后 window 仍 blocked 且 `runs_with_miss=0` 时，把依赖 window / 草稿的项判 blocked（原因写“合成 Run 无 error / reply_fallback 结局，未产生检索未命中”），其余照做；不加轮次碰运气，不改模型档案或超时 |
-| A4 | 至少 4 个 simulated_agent 合成 Consumer 能发言（P9 要 4 个簇单元）。customer-4 已擦除；S6 用 customer-1/2/3/5 | `synthetic_customer.py` 预检会报 `conversation_unavailable`；customer-5 不存在时，按 S6-stage-acceptance 用 `webchat_consumers.py` 加一个，并用 `erase_synthetic_consumer.py mark` 标为 simulated_agent（approver3） |
+| A4 | 至少 4 个 simulated_agent 合成 Consumer 能发言（P9 要 4 个簇单元）。customer-4、refusal-1 已擦除；**10-30 起按 §2.1a 只用 customer-1/2/3**，customer-5 是条件分支 | `synthetic_customer.py` 预检会报 `conversation_unavailable`；customer-5 不存在时，按 S6-stage-acceptance 用 `webchat_consumers.py` 加一个，并用 `erase_synthetic_consumer.py mark` 标为 simulated_agent（approver3） |
 | A5 | 没有正在运行的 online 实验；real 外发的三层开关与 run 入口计划一致；routes 里企业端点指向参考替身 | 照 S6-stage-acceptance“副作用”一节。确认不了时请负责人临时关闭 `nexloop.enterprise.deliver:1` |
 | A6 | OUT 还没开始（X5） | OUT 已开始就等 OUT §4.4 结束，并且整个窗口要避开 OUT 的 Run |
 
 **WebChat 合成顾客要登录**，所以要口令。发言这一步标为“**负责人在终端执行**”。
+
+### 2.1a 3 账号路径（负责人 2026-10-30，L6 同意）
+
+refusal-1 的 Consumer 已擦除，customer-4 也已擦除。今天只用 customer-1/2/3 发言，共 9 轮。
+
+- **blocked**（plan §5，单项只判这一项）：依赖 4 个簇单元的 at048、r5、r7、template，照实判 blocked，原因写“只有 3 个合成 Consumer 能发言”。
+- **r7 一律不做**：它的擦除不可逆，没有第 4 个簇单元时不执行。
+- **window**：用 `s6_stage_inputs.py` 输出的 `candidates[0]`，证据里注明来源是 blocked 时的候选值。
+- 其余项照做。customer-5 是条件分支（§2.2a），今天不用。
 
 ### 2.2 发言与观察：逐轮执行
 
@@ -85,11 +94,11 @@
 
 | 文件 | 内容 |
 |---|---|
-| `customers.json` | `nexloop-synthetic-customer/1`：origin、CA、customer-1/2/3/5 的用户名；`persona_check` 走 workbench（owner 用户名文件，4 个 consumer_id） |
-| `plan-calibration.json` | `plan_id` `s6-<日期>-calibration`，3 轮：customer-1/2/3 各 1 轮 (a) |
-| `plan-main.json` | `plan_id` `s6-<日期>-main`，9 轮；每个账号合计 3 轮（(a) 2、(b) 1），(c) 的近重复对在 customer-2 与 customer-5 |
-| `trial.json`（APP_HOST，10001） | `nx037-trial.v1` 的副本：`total` 12，`mix` 只有 `ordinary_reply` 12，`calibration_interactions` 3，窗口 10:00–18:00（Asia/Shanghai），`operator_authorization`，`participants`（4 个 agent 加 owner 的 staff） |
-| `plan.json`（APP_HOST，10001） | `nx037-interaction-plan.v3`：12 个 `ordinary_reply`，顺序与发言一致，`consumer` 为 `consumer:<id>`；`real_dispatch` 填实际开关状态（A5） |
+| `customers.json` | `nexloop-synthetic-customer/1`：origin、CA、customer-1/2/3 的用户名；`persona_check` 走 workbench（owner 用户名文件，3 个 consumer_id） |
+| `plan-calibration.json` | `plan_id` `s6-<日期>b-calibration`，3 轮：customer-1/2/3 各 1 轮 (a) |
+| `plan-main.json` | `plan_id` `s6-<日期>b-main`，6 轮：每个账号再 1 轮 (a)、1 轮 (b)；(c) 的近重复对在 customer-1 与 customer-2 |
+| `trial.json`（APP_HOST，10001） | `nx037-trial.v1` 的副本：`total` 9，`mix` 只有 `ordinary_reply` 9，`calibration_interactions` 3，窗口 10:00–18:00（Asia/Shanghai），`operator_authorization`，`participants`（customer-1/2/3 三个 agent 加 owner 的 staff） |
+| `plan.json`（APP_HOST，10001） | `nx037-interaction-plan.v3`：9 个 `ordinary_reply`，顺序与发言一致，`consumer` 为 `consumer:<id>`；`real_dispatch` 填实际开关状态（A5） |
 
 所有 `wait_reply_seconds` 都是 120。
 
@@ -112,7 +121,7 @@ $RUNI scripts/nx037/run_interactions.py --driver real --trial-id "$TRIAL_ID" --o
 | SEQ | 命令（负责人终端，管理机） |
 |---|---|
 | 1–3 | `bash local-only/s6-<日期>/speak-turn.sh plan-calibration.json <SEQ> <SEQ>` |
-| 4–12 | `bash local-only/s6-<日期>/speak-turn.sh plan-main.json <SEQ−3> <SEQ>` |
+| 4–9 | `bash local-only/s6-<日期>/speak-turn.sh plan-main.json <SEQ−3> <SEQ>`（正式份第 1–6 轮） |
 
 - 只有 `synthetic_customer.py` 退出码 0（已发或重放；收到回复或等满 120 秒）时，脚本才写完成标记。
 - 在 SEQ 的提示出现之前不要发言：提示前接受的消息属于上一次交互。
@@ -135,7 +144,7 @@ $RUNI scripts/nx037/run_interactions.py --driver real --trial-id "$TRIAL_ID" --o
 ```bash
 #!/bin/bash
 # S6 speaking, one turn per call (owner terminal, management machine):  bash speak-turn.sh <PLAN.json> <TURN> <SEQ>
-#   TURN: 1-based turn in PLAN; SEQ: the run entry's interaction number it answers (calibration 1-3 = turns 1-3, main 4-12 = turns 1-9).
+#   TURN: 1-based turn in PLAN; SEQ: the run entry's interaction number it answers (calibration 1-3 = turns 1-3, main 4-9 = turns 1-6).
 # Why per turn: with plan v3 the run entry prompts interaction SEQ, accepts only that interaction's account and waits for
 # $TRIAL_DIR/operator-done/SEQ; a second account speaking inside the same interaction is offplan_sender.
 # The turn is sent as a one-turn plan <plan_id>-t<TURN> (Idempotency-Key <plan_id>-t<TURN>-1-<alias>): rerunning a turn replays it.
@@ -163,7 +172,9 @@ ssh "$APP_SSH" "sudo -n touch '$TRIAL_DIR/operator-done/$SEQ'" && echo "operator
 - 口令只走 stdin，脚本必须是文件，不能用 `python -`。钥匙串条目名以 vault-index 为准。
 - 完成标记由 root `touch`；entry 只看文件是否存在及其 mtime。
 
-### 2.2a customer-5（A4）
+### 2.2a customer-5（A4，条件分支）
+
+只在 A3 观测到检索未命中、且负责人需要完整结果时才用；用之前先做 run-assembly §6.1–6.3。今天的 3 账号路径不用它。
 
 1. `--apply password`：口令直接生成进 Keychain；
 2. `--apply identity`：`initial_identity --create`，口令经 ssh stdin 写进容器的 `/work`（tmpfs）；
@@ -251,15 +262,15 @@ finally:
 
 | 步 | 耗时 |
 |---|---|
-| A1–A6 核对；customer-5 六步 | 约 15 分钟加 15 分钟（A1/A2 要请示时另计） |
+| A1–A6 核对 | 约 15 分钟（A1/A2 要请示时另计） |
 | 预检，正式运行启动 | 约 5 分钟 |
 | 校准 3 轮（每轮：等提示、登录、发送、最多 120 秒等回复、写标记、entry 判定，约 2–3 分钟） | 约 6–9 分钟 |
 | 成本确认与 resume | 约 5 分钟 |
-| 其余 9 轮（同上，逐轮） | 约 18–27 分钟 |
+| 其余 6 轮（同上，逐轮） | 约 12–18 分钟 |
 | 兜底时间（300 秒）过后，等最后一轮可能出现的兜底 Run 落定 | 约 10 分钟 |
 | 再跑 `s6_stage_inputs.py`，填配置，记 sha256 | 约 10 分钟 |
 
-合计约 **1.5–2 小时**，不含请示等待。发言必须落在 trial 窗口（北京时间 10:00–18:00）里。
+合计约 **1–1.5 小时**，不含请示等待。发言必须落在 trial 窗口（北京时间 10:00–18:00）里。
 
 ### 2.4 window 与 X5
 
