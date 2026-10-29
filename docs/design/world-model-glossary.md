@@ -271,7 +271,7 @@ returning revision;
      - 服务直接挂原件时没有副本会过期，判通过，details 写 `translator_reads_original`。
      - 挂的是别的文件或没挂单价，判失败。
      - 选 deploy-gate 而不选 host-health：deploy-gate 本来就以 root 按各服务的 uid 读秘密并对照渲染后的 Compose，而且在 promote 之前就能拦下；host-health 只看运行中的容器。另外机翻服务不常驻，不在 host-health 的期望容器里。
-     - 加了这一项后，app 门禁多一个检查。stage 的预期从 **20/21** 变为 **21/22**，唯一不通过的仍是 `real_dispatch_closed`。
+     - 加了这一项后，app 门禁多一个检查。stage 的预期从 **20/21** 变为 **21/22**（自 R55 起；gate 渲染 compose 时带 `--profile world-glossary`），details 必须是 `sha256_equal`，唯一不通过的仍是 `real_dispatch_closed`。
 6. **每日上限**：每租户每天 50 次，固定写在 SQL 端口里，客户端无法放宽；每轮 10 条，为客户端参数，SQL 端口最多给 10 条。
 7. **任务编号**：治理注册表要求 `source_task` 形如 `NX-0xx`，暂用 `NX-064`，请调度员给正式编号后统一替换。
 

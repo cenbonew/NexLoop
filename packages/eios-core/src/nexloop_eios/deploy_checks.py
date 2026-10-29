@@ -639,10 +639,11 @@ def glossary_tariff_copy(secret_root, compose=None, uids=None):
         path = declared.get(mounted.removeprefix('/run/secrets/')) if mounted and mounted.startswith('/run/secrets/') else None
         if not path:
             return {'checks': {'glossary_tariff_copy_matches': False}, 'details': {'glossary_tariff_copy': 'translator_tariff_not_mounted'}}
-        where = (Path(path).parent.name, Path(path).name)  # the rendered host path, compared by its service directory and name
-        if where == TARIFF_ORIGINAL:
+        # The rendered host path against the full paths under secret_root (L6 S15: not by its last two parts).
+        where = os.path.normpath(path)
+        if where == os.path.normpath(original):
             return {'checks': {'glossary_tariff_copy_matches': True}, 'details': {'glossary_tariff_copy': 'translator_reads_original'}}
-        if where != TARIFF_COPY:
+        if where != os.path.normpath(copy):
             return {'checks': {'glossary_tariff_copy_matches': False}, 'details': {'glossary_tariff_copy': 'translator_tariff_elsewhere'}}
     digests = {}
     for label, path in (('original', original), ('copy', copy)):

@@ -219,10 +219,12 @@ def test_doctor_deploy_gate_runs_every_check_and_fails_on_a_missing_input(pki, s
                 'certificates': [{'name': 'pg-server', 'chain': str(pki / 'pg/pg-server.chain.crt'), 'key': str(pki / 'pg/pg-server.key'), 'purpose': 'server',
                                   'names': ['127.0.0.1']}],
                 'dsn_files': [{'name': 'api', 'path': private('api.dsn', dsn_text)}]}
+    gate_compose = delivery_profile_files(app_compose(), tmp_path / 'delivery')
+    gate_compose['secrets']['host_model_tariff']['file'] = str(tmp_path / 'secrets/agent-host/model-tariff.cny.json')  # rendered under this root
     host_config = private('agent-host.json', json.dumps(json.loads((ROOT / 'deploy/stage/agent-host.runtime-config.example.json').read_text())))
     spec = {'host_role': 'app', 'stage_env': str(stage), 'connection_budget': str(ROOT / 'deploy/stage/connection-budget.v1.json'),
             'running': private('running.json', running()), 'inventory_before': private('before.json', before), 'inventory_after': private('after.json', after),
-            'secret_root': str(secret_tree(tmp_path / 'secrets')), 'compose_json': private('compose.json', delivery_profile_files(app_compose(), tmp_path / 'delivery')), 'tls_spec': private('tls.json', tls_spec),
+            'secret_root': str(secret_tree(tmp_path / 'secrets')), 'compose_json': private('compose.json', gate_compose), 'tls_spec': private('tls.json', tls_spec),
             'roles_database_url_file': private('roles.dsn', pg), 'disabled_roles': ['nexloop_owner'], 'agent_host_config': host_config}
     from nexloop_eios.doctor import main
     sys.argv = ['nexloop-doctor', '--deploy-gate', private('gate.json', spec)]
@@ -274,7 +276,7 @@ def test_the_glossary_tariff_copy_must_match_the_agent_hosts_tariff(tmp_path):
     assert result(check()) == (True, 'translator_not_configured')
     # The service in the Compose with its own copy mounted: both files are required.
     compose = app_compose()
-    compose['secrets']['glossary_tariff'] = {'file': '/srv/x/secrets/world-glossary-translator/model-tariff.cny.json'}
+    compose['secrets']['glossary_tariff'] = {'file': str(root / 'world-glossary-translator/model-tariff.cny.json')}
     command = compose['services'][deploy_checks.TRANSLATOR]['command']
     command[command.index('--tariff-file') + 1] = '/run/secrets/glossary_tariff'
     assert result(check(compose)) == (False, 'original_missing')
@@ -298,7 +300,12 @@ def test_the_glossary_tariff_copy_must_match_the_agent_hosts_tariff(tmp_path):
     assert result(check(compose)) == (True, 'sha256_equal')
     # The example Compose mounts the original itself: no copy to drift. A tariff elsewhere, or none, fails.
     example = app_compose()
+    assert result(check(example)) == (False, 'translator_tariff_elsewhere')  # the example's root is not this secret_root (S15: full paths)
+    example['secrets']['host_model_tariff']['file'] = str(root / 'agent-host/model-tariff.cny.json')
     assert result(check(example)) == (True, 'translator_reads_original')
+    example['secrets']['host_model_tariff']['file'] = '/elsewhere/agent-host/model-tariff.cny.json'  # the same last two parts
+    assert result(check(example)) == (False, 'translator_tariff_elsewhere')
+    example['secrets']['host_model_tariff']['file'] = str(root / 'agent-host/model-tariff.cny.json')
     command = example['services'][deploy_checks.TRANSLATOR]['command']
     command[command.index('--tariff-file') + 1] = '/run/secrets/embedding_tariff'
     assert result(check(example)) == (False, 'translator_tariff_elsewhere')

@@ -1,5 +1,7 @@
 # 执行单：release 54 的 stage 部署（第 56、57 批，世界模型中文注释）
 
+> **自 R55 起**：本单以后用于 release 55 及以后的部署。门禁预期是 **21/22**（多了 `glossary_tariff_copy_matches`，I9）；按 release 54 部署时是 20/21，回退到 release 53 以后的门禁也是 20/21，因为 release 53 的镜像里没有这一项。
+
 release 54 = **28e7689a**（第 57 批“世界模型词表”的合并提交，第一父 c77b5129 = 第 56 批，再下是 main 01d875dd = 第 53–55 批）。stage 当前是 release 53（**53af5efc**，迁移头 0373，告警规则 v21，register 已到 authority revision 3539）。本单从 53af5efc 直接到 28e7689a，每一步写明预期结果和怎么撤回。
 
 - 同名的旧文件（第 50 批的 release 54 单，f56cd5af）已并入 `run-release53-54-stage.md`，内容保留在 git 历史里（78c38b28）；本文件替换它。
@@ -47,7 +49,7 @@ release 54 = **28e7689a**（第 57 批“世界模型词表”的合并提交，
 | P5 | `stage_secrets.py check --out <树>` 为 ok，`<树>` 是 stage 正在用的那份 | 执行一次 |
 | P6 | APP_HOST 上机翻要读的两个现有文件存在：`model.env` uid 10001 能读；Agent Host 的单价文件存在（S6 第 1 步从它复制） | 调度员 10-29 只读核实：`secrets/claim-extraction-worker/` 属 nexloop-svc（10001）、0700，文件 0600，机翻（10001）可以直接挂 `model.env`；`secrets/agent-host/` 属 nexloop-agent（10020）、0700，`model-tariff.cny.json` 属 nexloop-agent、0600，10001 读不到。所以单价**不**直接挂 Host 的文件，而是在 S6 复制一份到机翻自己的目录。**不改 `secrets/agent-host` 的属主或权限**。执行时再看一次：`sudo stat -c '%n %U:%G %a' "$NEXLOOP_ROOT/secrets/claim-extraction-worker/model.env" "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json"` |
 | P7 | 部署门禁参照 `$NEXLOOP_ROOT/ops/baseline-r36/baseline.json` 存在 | `test -f` |
-| P8 | 真实派发三层开关的现状记在上次部署的证据里（门禁预期 20/21，唯一不通过的是 `real_dispatch_closed`） | 上次部署的门禁记录；以执行时的读数为准 |
+| P8 | 真实派发三层开关的现状记在上次部署的证据里（门禁预期 21/22，自 R55 起；唯一不通过的是 `real_dispatch_closed`） | 上次部署的门禁记录；以执行时的读数为准 |
 
 ## 2. 步骤
 
@@ -356,7 +358,10 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 
 - 私有配置：`expected_gate_failures: ["real_dispatch_closed"]`；`--before` 用 `$NEXLOOP_ROOT/ops/baseline-r36/baseline.json`。
 - 私有门禁配置的 `secret_uids` 按新示例加上 `"world-glossary-translator": 10001`，否则 `secret_distribution` 会把新目录当成未声明的目录。
-- 预期 **20/21**，唯一不通过的是 `real_dispatch_closed`。`secret_distribution` 必须通过：`secrets/world-glossary-translator/` 目录 0700、文件 0600、属 10001。连接预算比较两个方向都通过：机翻服务的预算标签是 `none`，不在应用的 60 里。
+- 预期 **21/22**（自 R55 起，含 `glossary_tariff_copy_matches`），唯一不通过的是 `real_dispatch_closed`。`secret_distribution` 必须通过：`secrets/world-glossary-translator/` 目录 0700、文件 0600、属 10001。连接预算比较两个方向都通过：机翻服务的预算标签是 `none`，不在应用的 60 里。
+- `details.glossary_tariff_copy` 必须等于 `sha256_equal`（机翻挂的是自己的单价副本，与 Agent Host 的原件一致）。出现 `translator_reads_original` 或 `translator_not_configured` 都要停。
+- gate 步骤渲染的 `compose.json` 带 `--profile world-glossary`（`scripts/deploy/gate_dir.py` 的 `RENDERED_PROFILES`）。手工准备 gate 目录时，也要用 `docker compose ... --profile world-glossary config --format json` 生成，否则渲染结果里没有机翻服务。
+- 软链（L6 S21）：门禁按完整路径比较渲染后 Compose 里的单价路径和 gate spec 的 `secret_root` 拼出的路径，不解析软链。如果 `secret_root` 和 Compose 渲染时用的 `NEXLOOP_ROOT` 一个经过软链、一个不经过，即使是同一个文件，也会误判为 `translator_tariff_elsewhere`。两边要用同一种写法，与 `compose.app.env` 里的 `NEXLOOP_ROOT` 一致。
 - 出现别的失败就停，不 promote。
 - **撤回**：不需要（只检查）。
 
