@@ -33,8 +33,9 @@ LAUNCHERS = ('plan-reevaluator-launcher', 'reply-guarantor-launcher')
 
 
 def required_services():
-    from nexloop_eios.background_services import SERVICES
-    return (*BASE_SERVICES, *SERVICES, *LAUNCHERS)
+    from nexloop_eios.background_services import ONE_SHOT,SERVICES
+    # A one-shot service (--once from a timer, one connection while it runs) is in the operations reserve, not the application budget.
+    return (*BASE_SERVICES, *(s for s in SERVICES if s not in ONE_SHOT), *LAUNCHERS)
 
 
 class BudgetInvalid(ValueError):

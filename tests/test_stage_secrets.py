@@ -641,6 +641,53 @@ def test_add_service_gives_a_new_compose_service_its_files_once_and_mints_no_cha
     assert not (secrets_root / 'webchat-delivery').exists()
 
 
+def test_add_service_mints_the_translators_tariff_copy_from_the_shipped_tariff(tree, tmp_path):
+    """Release 54: the glossary translator (10001) mounts its own copy of the model tariff. add-service writes it from TARIFF - the
+    Agent Host's source - beside its DSN, certificate and credential; check sees it. Other provider files stay refused."""
+    import hashlib
+    import shutil
+    import pytest
+    old = tmp_path / 'tree'
+    shutil.copytree(tree['out'], old)
+    secrets_root = old / 'app' / 'secrets'
+    shutil.rmtree(secrets_root / 'world-glossary-translator')
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['service'] != 'world-glossary-translator']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    result = S.add_service(old, tree['ca'], tree['params'], 'world-glossary-translator')
+    assert result['added'] == ['world-glossary-translator/dsn', 'world-glossary-translator/model-tariff.cny.json', 'world-glossary-translator/pg-client.crt',
+                               'world-glossary-translator/pg-client.key', 'world-glossary-translator/service-credential']
+    copy = secrets_root / 'world-glossary-translator/model-tariff.cny.json'
+    assert copy.read_bytes() == S.TARIFF.read_bytes() == (secrets_root / 'agent-host/model-tariff.cny.json').read_bytes()
+    assert oct(copy.stat().st_mode)[-3:] == '600'
+    entry = next(f for f in json.loads((old / 'manifest.json').read_text())['files'] if f['path'] == 'world-glossary-translator/model-tariff.cny.json')
+    assert entry['sha256'] == hashlib.sha256(S.TARIFF.read_bytes()).hexdigest() and entry['owner'] == '10001'
+    assert S.check(old)['ok']
+    shutil.rmtree(secrets_root / 'agent-host')
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['service'] != 'agent-host']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    with pytest.raises(S.Refused, match='does not mint'):  # the provider key and model configuration: still refused
+        S.add_service(old, tree['ca'], tree['params'], 'agent-host')
+    assert not (secrets_root / 'agent-host').exists()
+
+
+def test_add_service_mints_the_tariff_copy_for_the_glossary_translator_only(tree, tmp_path, monkeypatch):
+    """S24: another service mounting a model-tariff.cny.json in its own directory is refused; nothing is written."""
+    import shutil
+    import pytest
+    old = tmp_path / 'tree'
+    shutil.copytree(tree['out'], old)
+    real = S.catalog
+    def catalog(*a, **k):
+        return [{**e, 'service': 'other-worker', 'path': 'other-worker/' + e['path'].split('/', 1)[1]} if e['service'] == 'world-glossary-translator' else e
+                for e in real(*a, **k)]
+    monkeypatch.setattr(S, 'catalog', catalog)
+    with pytest.raises(S.Refused, match='does not mint: other-worker/model-tariff.cny.json$'):
+        S.add_service(old, tree['ca'], tree['params'], 'other-worker')
+    assert not (old / 'app/secrets/other-worker').exists()
+
+
 def test_add_service_reuses_the_principals_token_when_it_already_has_one(tree, tmp_path, monkeypatch):
     """One token per principal, as generate makes it: a principal that already holds a token under another file keeps it."""
     import shutil

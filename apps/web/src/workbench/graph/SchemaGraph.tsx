@@ -97,14 +97,15 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
       </g>
       <g className="schema-nodes">
         {nodes.map(n=>{const p=at.get(n.id);if(!p)return null;const selected=focus===n.id;const color=HUES[hue(n.id)];
-          return <g key={n.id} role="button" tabIndex={0} aria-label={`${n.label}${n.sub?'，'+n.sub:''}${selected?'，已选中':''}`} aria-pressed={selected}
+          return <g key={n.id} role="button" tabIndex={0} aria-label={`${n.gloss?`${n.label}（${n.gloss}）`:n.label}${n.sub?'，'+n.sub:''}${selected?'，已选中':''}`} aria-pressed={selected}
             data-node={n.id} opacity={near&&!near.has(n.id)?0.35:1} className="schema-node"
             onClick={()=>onFocus(selected?null:n.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onFocus(selected?null:n.id);}}}>
             <rect x={p.x-NODE_W/2} y={p.y-NODE_H/2} width={NODE_W} height={NODE_H} rx={12} fill="var(--surface, #fff)" stroke={color} strokeWidth={selected?3:1.5}/>
             <rect x={p.x-NODE_W/2} y={p.y-NODE_H/2} width={6} height={NODE_H} rx={3} fill={color}/>
-            <text x={p.x} y={p.y-(n.sub?3:-5)} fontSize={LABEL_PX} fontWeight={600} textAnchor="middle" fill="var(--text)">{short(n.label)}</text>
-            {n.sub?<text x={p.x} y={p.y+15} fontSize={SUB_PX} textAnchor="middle" fill="var(--muted)">{short(n.sub,24)}</text>:null}
-            <title>{n.label}{n.sub?` · ${n.sub}`:''}</title></g>;})}
+            <text x={p.x} y={p.y-(n.sub||n.gloss?3:-5)} fontSize={LABEL_PX} fontWeight={600} textAnchor="middle" fill="var(--text)" className="schema-node-id">{short(n.label)}</text>
+            {n.gloss?<text x={p.x} y={p.y+15} fontSize={SUB_PX} textAnchor="middle" fill="var(--muted)" className="schema-node-gloss">{short(`（${n.gloss}）`,12)}</text>
+              :n.sub?<text x={p.x} y={p.y+15} fontSize={SUB_PX} textAnchor="middle" fill="var(--muted)">{short(n.sub,24)}</text>:null}
+            <title>{`${n.gloss?`${n.label}（${n.gloss}）`:n.label}${n.sub?` · ${n.sub}`:''}`}</title></g>;})}
       </g>
     </svg>
   </div>;

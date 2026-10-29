@@ -93,12 +93,12 @@ def test_compose_examples_publish_only_the_planned_ports_and_keep_secrets_per_se
     published = {name: s.get('ports') for name, s in app['services'].items() if s.get('ports')}
     assert list(published) == ['app-net'] and all(p.startswith('${APP_HOST_ADDR') for p in published['app-net'])
     for name, s in app['services'].items():
-        own = ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer')
+        own = ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer', 'world-glossary-translator')
         if name not in own:  # NX-037 / G-CLAIM-EGRESS: own namespaces
             assert s['network_mode'] == 'service:app-net' and s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == '${REAL_DISPATCH_ENABLED:-false}', name
-        if name in ('action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer'):
+        if name in ('action-worker', 'webchat-delivery', 'claim-extraction-worker', 'claim-matcher', 'recall-indexer', 'world-glossary-translator'):
             assert s.get('read_only') is True and s['environment']['REAL_DISPATCH_ENABLED'] == '${REAL_DISPATCH_ENABLED:-false}', name
-        if name in ('claim-extraction-worker', 'claim-matcher', 'recall-indexer'):
+        if name in ('claim-extraction-worker', 'claim-matcher', 'recall-indexer', 'world-glossary-translator'):
             assert s['networks'] == ['claim_egress'] and 'network_mode' not in s and s.get('cap_drop') == ['ALL'], name
         image = s['image']
         assert image.startswith('${') and 'by digest' in image, name
@@ -140,7 +140,7 @@ def test_compose_examples_render_with_their_env_files_and_docker_compose_config(
             run = subprocess.run([docker, 'compose', '-f', f'compose.{name}.example.yaml', '--env-file', f'compose.{name}.env.example', 'config', '--format', 'json'],
                                  cwd=STAGE, capture_output=True, text=True, timeout=60)
             assert run.returncode == 0, run.stderr[-2000:]
-            assert {k: v['image'] for k, v in json.loads(run.stdout)['services'].items()} == {k: v['image'] for k, v in rendered['services'].items()}
+            assert {k: v['image'] for k, v in json.loads(run.stdout)['services'].items()} == {k: v['image'] for k, v in rendered['services'].items() if not v.get('profiles')}  # profile services: only with --profile
     # A missing required variable is refused by the same rule docker applies.
     def without(key):
         lines = [l for l in (STAGE / 'compose.data.env.example').read_text().splitlines() if not l.startswith(key + '=')]

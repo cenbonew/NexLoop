@@ -1,0 +1,9 @@
+[Unit]
+Description=NexLoop world-model glossary translator, every 10 minutes (minutes 03, 13, ... - away from the full-minute journal run)
+
+[Timer]
+OnCalendar=*-*-* *:03/10:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

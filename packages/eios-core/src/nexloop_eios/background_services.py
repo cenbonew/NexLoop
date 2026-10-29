@@ -28,6 +28,9 @@
                                        the loopback outbox once; the admission (fence) is stored before the provider is called and
                                        its answer is stored before the tick goes on; an unknown answer is queried by intent id,
                                        never sent again (outreach slice 5, G-1; no real outreach channel exists)
+``nexloop-world-glossary-translator`` (nexloop_domain_worker) world-model identifiers without a gloss → one quota reservation per
+                                       model call, taken before the call → machine gloss (never over a manual one), tokens and
+                                       cost recorded (world-model glossary, 0374; the claim-extraction model profile, no new key)
 
 Each process never migrates a database. Secrets come only from explicitly named private
 files (DSN, signing key, service credential, optional model/embedding env files); the
@@ -60,7 +63,11 @@ SERVICES={
     'alert-evaluator':('Alert Evaluator','nexloop_domain_worker'),
     'incentive-issuer':('Incentive Issuer','nexloop_domain_worker'),
     'outreach-sender':('Outreach Sender','nexloop_domain_worker'),
+    'world-glossary-translator':('World Glossary Translator','nexloop_domain_worker'),
 }
+# World-model glossary (owner 2026-10-29): the translator is never long-running. A timer starts it with --once (one tick, one
+# connection while it runs), so it is counted in the operations reserve of max_connections, not in the application's 60.
+ONE_SHOT=('world-glossary-translator',)
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
 LAUNCH_CREDENTIALS=('source','planner','queue','executor')
@@ -92,6 +99,9 @@ def _parser(service):
     if service=='claim-extraction-scheduler':
         parser.add_argument('--quiet-seconds',type=int,default=5);parser.add_argument('--window',type=int,default=50)
         parser.add_argument('--max-attempts',type=int,default=3)
+    if service=='world-glossary-translator':
+        # The claim-extraction model profile (shared key, owner 2026-10-29); the tariff prices the calls, without it they are unpriced.
+        parser.add_argument('--model-env-file',type=Path,required=True);parser.add_argument('--tariff-file',type=Path)
     if service=='claim-extraction-worker':
         parser.add_argument('--model-env-file',type=Path,required=True);parser.add_argument('--timezone',default='Asia/Shanghai')
         # NX-031: `test` admits the load lane's load-rules profile variant; the default refuses it at startup.
@@ -217,6 +227,9 @@ class LazyModelProvider:
     @property
     def model_id(self):return self._resolve().model_id
 
+    @property
+    def last_usage(self):return getattr(self._provider,'last_usage',None)
+
     def complete(self,system_prompt,user_payload):
         provider=self._resolve()
         try:return provider.complete(system_prompt,user_payload)
@@ -263,6 +276,12 @@ def _tick(service,arguments,pool,session,signer,launcher=None):
         from nexloop_eios.claim_extraction_jobs import ClaimExtractionScheduler
         return {'enqueued':len(ClaimExtractionScheduler(pool,session,signer,quiet_seconds=arguments.quiet_seconds,window=arguments.window,
             max_attempts=arguments.max_attempts).run_once())}
+    if service=='world-glossary-translator':
+        from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable
+        from nexloop_eios.world_glossary import WorldGlossaryTranslator,load_tariff
+        provider=LazyModelProvider(arguments.model_env_file,ExtractionProviderUnavailable)
+        tariff=load_tariff(arguments.tariff_file,model=provider.model_id) if arguments.tariff_file is not None else None
+        return WorldGlossaryTranslator(pool,session,signer,provider,tariff=tariff,unavailable=ExtractionProviderUnavailable).run_once()
     if service=='claim-extraction-worker':
         from nexloop_eios.claim_extraction_jobs import ClaimExtractionWorker
         from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable
@@ -346,7 +365,7 @@ def run(service,arguments,stop):
     from nexloop_eios.backend import open_backend
     from nexloop_eios.private_configuration import read_private_text
     label,role=SERVICES[service]
-    if service in ('claim-extraction-worker','claim-matcher','recall-indexer'):
+    if service in ('claim-extraction-worker','claim-matcher','recall-indexer','world-glossary-translator'):
         # D2 (eios-capability-gap): their model and embedding calls run in forkserver children (nexloop_eios.deadline_http); the
         # forkserver starts now, before this process reads a credential or opens a connection, so no child can inherit one.
         from nexloop_eios.deadline_http import ensure_request_runtime_ready
@@ -481,6 +500,7 @@ def retention_keeper(argv=None):return main_for('retention-keeper',argv)
 def alert_evaluator(argv=None):return main_for('alert-evaluator',argv)
 def incentive_issuer(argv=None):return main_for('incentive-issuer',argv)
 def outreach_sender(argv=None):return main_for('outreach-sender',argv)
+def world_glossary_translator(argv=None):return main_for('world-glossary-translator',argv)
 
 
 if __name__=='__main__':

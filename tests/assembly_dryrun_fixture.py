@@ -205,6 +205,8 @@ def worker_command(st, name, compose, config_dir, tmp, variables=None, overlay=N
     for a in args:
         for key, value in variables.items():
             a = re.sub(r'\$\{' + key + r'(:\?[^}]*)?\}', value, a)
+        # Unset optional deployment variables take their compose default (${VAR:-default}).
+        a = re.sub(r'\$\{[A-Z_][A-Z0-9_]*:-([^}]*)\}', r'\1', a)
         if '${' in a:
             raise Skip('deployment variable: ' + a)
         if a.startswith('/run/secrets/'):

@@ -19,7 +19,8 @@ from test_browser_session_creation import uow  # noqa: F401
 from test_conversation_messages import conversations  # noqa: F401
 from test_workbench_read_pg import READ, ROLES, TENANT, provision, revoke_member, workbench, workbench_login, write_facts  # noqa: F401
 
-SCHEMA = json.loads((Path(__file__).resolve().parents[1] / 'packages/contracts/workbench-world-model.schema.json').read_text())
+# The answer is contract v2 since the world-model glossary (0374); v1 stays in packages/contracts unchanged.
+SCHEMA = json.loads((Path(__file__).resolve().parents[1] / 'packages/contracts/workbench-world-model-v2.schema.json').read_text())
 PROFILE = {'type_name': 'SyntheticProfile', 'properties': [
     {'property_name': 'nickname', 'value_type': 'string', 'required': True, 'nullable': False, 'description': 'synthetic'},
     {'property_name': 'spending_band', 'value_type': 'string', 'required': False, 'nullable': True, 'description': 'synthetic restricted'}],
@@ -51,8 +52,8 @@ def test_members_read_published_model_metadata_with_restricted_properties_withhe
         profile = types['SyntheticProfile']
         assert profile['version'] == 2 and profile['objects'] == 0 and profile['title_property'] == 'nickname'
         assert profile['properties'] == [
-            {'name': 'nickname', 'withheld': False, 'value_type': 'string', 'required': True, 'nullable': False, 'group': 'basic', 'visibility': 'normal', 'description': 'synthetic'},
-            {'name': 'spending_band', 'withheld': True}]
+            {'name': 'nickname', 'withheld': False, 'value_type': 'string', 'required': True, 'nullable': False, 'group': 'basic', 'visibility': 'normal', 'description': 'synthetic', 'gloss': None, 'gloss_source': None},
+            {'name': 'spending_band', 'withheld': True, 'gloss': None, 'gloss_source': None}]  # no glossary published here
         assert 'synthetic restricted' not in response.text
         # Instance counts only: the fixture's Consumer and Conversation exist, their content is not in the answer.
         assert types['Consumer']['objects'] >= 1 and w['f']['consumer'] not in response.text and '短信' not in response.text
