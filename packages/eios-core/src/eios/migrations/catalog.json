@@ -1865,6 +1865,11 @@
       "version": "0373",
       "name": "0373_single_clock_issue.sql",
       "sha256": "f2a2d61187be443204f9c1594f2aa5aec430633e4cc2f6320858d50667394830"
+    },
+    {
+      "version": "0374",
+      "name": "0374_world_model_glossary.sql",
+      "sha256": "211b9d1a96ae26622253aa50d797b9fd97e90579560e2274b2d59d8810ba4420"
     }
   ]
 }

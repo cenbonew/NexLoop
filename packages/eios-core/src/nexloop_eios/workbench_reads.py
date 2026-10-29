@@ -415,6 +415,7 @@ class WorkbenchQueries:
 
     def world_model(self):
         # Enterprise world model W1 (0230): published model metadata (types, relations, events, Actions, Functions, counts); read only.
+        # Since the world-model glossary (0374) the answer is contract v2 (packages/contracts/workbench-world-model-v2.schema.json).
         return self.reader.call('world_model')
 
     def capabilities(self):
