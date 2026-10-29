@@ -20,7 +20,7 @@ release 54 = **28e7689a**（第 57 批“世界模型词表”的合并提交，
 | API 路由 | `api-routes` v5（v4），新增 `set_world_glossary` → `world_glossary.set`；由 CI 核对，随镜像生效，stage 上没有要应用的步骤 | `deploy/authorization/api-routes.v1.json` |
 | 词表 | `world-model-glossary` v1：**304** 条，没有 `null` 或空串；`manifest_sha256` = `0e25be1f4e42e1567e302a92eb01f4c1ae5251961a4a030557d1505b49f64ffe` | `world_glossary_apply.py --check` 实测 |
 | 告警规则 | `alert-rules` v22（v21）：81 条（78），新增 3 条，其余不变：`timer_stale_world_glossary`（`host_health.timer_success_age_seconds`，selector `app_host:world-glossary`，> 1800，warning）、`world_glossary_failed`（`world_glossary.failed_24h` > 0，warning）、`world_glossary_no_success`（`world_glossary.pending_without_success_24h` > 0，warning）；文件 sha256 `03a0384f9ecb0561823e15e07b3b5b9b965d49f915adb394557a2b16926b5da0` | `deploy/configuration/alert-rules.v22.json` 与 v21 逐条比较 |
-| compose | 新服务 `world-glossary-translator`：`profiles: [world-glossary]`、`restart: 'no'`、`--once`、预算标签 `none`，**不常驻**，`up -d` 不会启动它；网络只接 `claim_egress`；只读、`cap_drop ALL`；挂它自己的 4 个文件，加 `signing_key`、`pg_ca`、共用的 `claim_extraction_worker_model`（`secrets/claim-extraction-worker/model.env`）和 `host_model_tariff`（`secrets/agent-host/model-tariff.cny.json`） | `deploy/stage/compose.app.example.yaml` |
+| compose | 新服务 `world-glossary-translator`：`profiles: [world-glossary]`、`restart: 'no'`、`--once`、预算标签 `none`，**不常驻**，`up -d` 不会启动它；网络只接 `claim_egress`；只读、`cap_drop ALL`；挂它自己的 4 个文件，加 `signing_key`、`pg_ca`、共用的 `claim_extraction_worker_model`（`secrets/claim-extraction-worker/model.env`）和它**自己的单价副本** `world_glossary_translator_tariff`（`secrets/world-glossary-translator/model-tariff.cny.json`）。28e7689a 上原本挂的是 Agent Host 的 `host_model_tariff`，读不到（见 P6），本分支已改 compose 和 `tests/test_stage_compose.py`，属于部署配置变更，合并走 ack-policy | `deploy/stage/compose.app.example.yaml` |
 | 连接预算 | 不变：应用 60 / 60；机翻运行时占 1 个连接，算在运维保留的 7 个里（同 sim-setup） | `deploy/stage/connection-budget.v1.json`（未改） |
 | systemd | 新示例 `nexloop-world-glossary.service.example`（oneshot，`flock -n -E 75`，锁被占时写 `skipped: locked` 并以 0 退出，`TimeoutStartSec=9min`）与 `.timer.example`（`OnCalendar=*-*-* *:03/10:00`，每 10 分钟，落在 03、13……分） | `deploy/stage/systemd/` |
 | host-health | APP_HOST 安装配置的 `timers` 增加 `{"name": "world-glossary", "timer": "nexloop-world-glossary.timer", "service": "nexloop-world-glossary.service"}`；DATA_HOST 不变 | `deploy/examples/host-health-install.app-host.example.json` |
@@ -45,7 +45,7 @@ release 54 = **28e7689a**（第 57 批“世界模型词表”的合并提交，
 | P3 | stage 已应用的版本：service-grants v22、stage-principals v7、workbench-roles v48、告警规则 v21、register 在 authority revision 3539 | 上次部署记录；S6 第 2 步的差异核对再核一次授权；任一项不符就停下，按实际版本重写受影响的步骤 |
 | P4 | 最近一次 pgBackRest 备份成功 | OPERATIONS §8a.2 |
 | P5 | `stage_secrets.py check --out <树>` 为 ok，`<树>` 是 stage 正在用的那份 | 执行一次 |
-| P6 | APP_HOST 上机翻要读的两个现有文件存在，且 uid 10001 能读 | `sudo stat -c '%n %u:%g %a' "$NEXLOOP_ROOT/secrets/claim-extraction-worker/model.env" "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json"`。机翻容器以 10001 运行（门禁 `secret_uids`），compose 的 file secret 保留宿主机的属主和权限。**model.env** 预期属 10001（claim-extraction-worker 同 uid）。**model-tariff.cny.json** 在 Agent Host 的目录下，Host 是 10020：如果它属 10020 且是 0600，机翻读不到它，`load_tariff` 报错，S10 第 1 步会失败。这一项不满足就停下，交调度员决定（例如把单价文件放宽为 0644，它不是秘密；或另装一份属 10001 的副本并改 compose），不要在执行中临时改权限 |
+| P6 | APP_HOST 上机翻要读的两个现有文件存在：`model.env` uid 10001 能读；Agent Host 的单价文件存在（S6 第 1 步从它复制） | 调度员 10-29 只读核实：`secrets/claim-extraction-worker/` 属 nexloop-svc（10001）、0700，文件 0600，机翻（10001）可以直接挂 `model.env`；`secrets/agent-host/` 属 nexloop-agent（10020）、0700，`model-tariff.cny.json` 属 nexloop-agent、0600，10001 读不到。所以单价**不**直接挂 Host 的文件，而是在 S6 复制一份到机翻自己的目录。**不改 `secrets/agent-host` 的属主或权限**。执行时再看一次：`sudo stat -c '%n %U:%G %a' "$NEXLOOP_ROOT/secrets/claim-extraction-worker/model.env" "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json"` |
 | P7 | 部署门禁参照 `$NEXLOOP_ROOT/ops/baseline-r36/baseline.json` 存在 | `test -f` |
 | P8 | 真实派发三层开关的现状记在上次部署的证据里（门禁预期 20/21，唯一不通过的是 `real_dispatch_closed`） | 上次部署的门禁记录；以执行时的读数为准 |
 
@@ -133,6 +133,19 @@ python3 <检出>/scripts/deploy/stage_secrets.py add-service --out <树> --ca-di
   - 不复制任何别的服务的 DSN 或证书。model.env 和单价文件是 APP_HOST 上的现有文件，不进秘密树。
 - `python3 <检出>/scripts/deploy/stage_secrets.py check --out <树>`：预期 ok。
 - **装到 APP_HOST**：`$NEXLOOP_ROOT/secrets/world-glossary-translator/` 目录 0700、属 10001；四个文件用 `install -o 10001 -g 10001 -m 0600` 逐个装入，必须在 S9 之前（源文件缺失时 Docker 会自建同名空目录，OPERATIONS §8a.5）。
+- **单价副本**（APP_HOST，root；P6）：把 Agent Host 的单价文件原样复制到机翻自己的目录，属 10001、0600，再核对两份的 sha256 一致：
+
+  ```bash
+  sudo install -o 10001 -g 10001 -m 0600 "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
+  sudo sha256sum "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
+  sudo stat -c '%n %u:%g %a' "$NEXLOOP_ROOT/secrets/world-glossary-translator" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
+  ```
+
+  - 预期：两行 sha256 相同；目录 `10001:10001 700`，文件 `10001:10001 600`。sha256 不同就删掉副本重做，不往下做。
+  - 单价文件不是秘密，但仍按 secret 目录的规矩放（0600），门禁的 `secret_distribution` 对它与其他文件一样检查。
+  - 只读 Agent Host 的文件，不改它和它所在目录的属主或权限。
+  - 以后 Agent Host 的单价文件更新时（换价目版本），这份副本要同时更新并重新核对 sha256；否则机翻按旧价记账。写进交接记录。
+  - 这份副本不在 `<树>` 里（`stage_secrets.py` 只管理 Host 的那份），所以 `stage_secrets.py check` 看不到它，以上面的 sha256 核对为准。
 - **同步到 DATA_HOST 的 `$RUN`**（register 读的是 `$RUN` 下的树），做法同 run-release53-54 S6 第 6 步。
 
 **2. 差异核对（OPERATIONS §8a.11a，只读；L6 对 R53 的 S1：队列授权要算进去）**
@@ -249,7 +262,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 - 镜像只按签名清单里的 digest 载入（`rebuild` 会比对）。
 - 用 28e7689a 的 compose 文件。`world-glossary-translator` 属于 profile `world-glossary`，`up -d` **不会**启动它，常驻服务的个数与 release 53 相同。
 - 预期：`docker compose -p nexloop-app ps` 里没有 `world-glossary-translator`；其余服务都在运行，日志里没有 `background tick failed`。
-- `docker compose -p nexloop-app -f "$NEXLOOP_ROOT/compose.app.yaml" --env-file "$NEXLOOP_ROOT/config/compose.app.env" --env-file "$NEXLOOP_ROOT/config/compose.images.env" config --format json | jq -r '.services["world-glossary-translator"].secrets[].source'` 列出的正好是 compose 里那 8 项：自己的 4 个文件，加 `signing_key`、`pg_ca`、`claim_extraction_worker_model`、`host_model_tariff`。
+- `docker compose -p nexloop-app -f "$NEXLOOP_ROOT/compose.app.yaml" --env-file "$NEXLOOP_ROOT/config/compose.app.env" --env-file "$NEXLOOP_ROOT/config/compose.images.env" config --format json | jq -r '.services["world-glossary-translator"].secrets[].source'` 列出的正好是 compose 里那 8 项：自己的 4 个文件，加 `signing_key`、`pg_ca`、`claim_extraction_worker_model`、`world_glossary_translator_tariff`；**没有** `host_model_tariff`。
 - **撤回**：不能只退镜像，见 §4 R1。
 
 ### S10 机翻：手工跑一轮，再装 timer 和 host-health（APP_HOST）
@@ -263,7 +276,7 @@ docker compose -p nexloop-app -f "$NEXLOOP_ROOT/compose.app.yaml" --env-file "$N
 
 - 预期 `exit=0`，输出一行计数摘要（enqueued、translated、failed、manual_kept、quota），不含正文、DSN 或 key。
 - 词表 v1 已覆盖 304 个标识。没有译名的标识才进入机翻，每天最多 50 次模型调用。
-- 失败时，按输出里的错误类名对照 P6，不重试第二次就交调度员。`PermissionError` 或单价文件相关的错误，就是 P6 的单价文件读不到。
+- 失败时，按输出里的错误类名对照 P6，不重试第二次就交调度员。`PermissionError` 或单价文件相关的错误，先核对 S6 的单价副本（属主、权限、sha256）。
 
 **2. 安装 systemd 单元**（root）。示例写的是 `/srv/nexloop` 和不带 `-p` 的 compose 命令，**必须按 stage 实际填写**。
 
@@ -359,7 +372,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
   - `ro "select max(version) from control.schema_migrations"` 为 `0374`；
   - `ro "select count(*) filter (where source='manual'), count(*) filter (where source='machine') from control.nexloop_world_glossary where tenant_id='$TENANT_ID'"`：manual 仍为 304，machine 为机翻写入的条数；
   - `ro "select count(*) from control.nexloop_world_glossary_usage where tenant_id='$TENANT_ID' and reserved_at >= now() - interval '24 hours'"` 不超过 50；
-  - `ro "select basis, count(*) from runtime.nexloop_cost_entries where entry_id like 'model:world-glossary:%' group by 1"`：只有 `configured_rate`。出现 `unpriced` 说明单价文件没有挂上，回到 P6。
+  - `ro "select basis, count(*) from runtime.nexloop_cost_entries where entry_id like 'model:world-glossary:%' group by 1"`：只有 `configured_rate`。出现 `unpriced` 说明单价副本没有挂上，回到 S6 的单价副本一步。
   - 所有服务运行至少 5 分钟后，`ro "select count(*) from pg_stat_activity where datname=current_database()"` 记入证据；应用服务的总数不超过 60（机翻运行时多 1 个，算运维保留）；
   - `nexloop-doctor` 全部通过；工作台“告警”页没有新的 firing。
 - **撤回**：见 §4 R1。
@@ -386,7 +399,7 @@ stage 工作台，用 approver3（合成 owner）登录。口令从 Keychain 取
 | 步骤 | 执行者记录 | 判定者（L6）核对 |
 |---|---|---|
 | S1–S5 | 各步 `stage_release.py` 日志行（已脱敏）、两次备份的标签、预演与发布前后的计数、roles 的 owner 授权数 | 迁移头 0374、definer 0 problems；预演只有 `world_glossary.set:1`；owner 95 |
-| S6 | `add-service` 与 `check` 的输出；`manifest-grants.txt` 与 `db-grants.txt` 的行数和队列授权行数；两个方向的 `comm` 输出；register 的 `grants_added`、`grants_revoked`、`credentials_created`、新的 authority revision | 79 / 78 行，队列授权两侧都是 5；`comm -23` 恰好是机翻那一行，`comm -13` 为空；`grants_added` 1 |
+| S6 | `add-service` 与 `check` 的输出；单价副本的两行 sha256 与 `stat`；`manifest-grants.txt` 与 `db-grants.txt` 的行数和队列授权行数；两个方向的 `comm` 输出；register 的 `grants_added`、`grants_revoked`、`credentials_created`、新的 authority revision | 79 / 78 行，队列授权两侧都是 5；`comm -23` 恰好是机翻那一行，`comm -13` 为空；`grants_added` 1 |
 | S7 | `--check`、发布、重放三次输出；三条核对查询 | sha256 与 28e7689a 的文件一致；manual 304；重放 `replay: true`，不写 |
 | S8 | `--check` 与应用的输出、doctor 的 `alert_rules_current` | v22，81 条 |
 | S9 | `docker compose ps`、机翻服务 secret 列表 | 机翻服务没有常驻；secret 正好 8 项 |
@@ -405,7 +418,7 @@ stage 工作台，用 approver3（合成 owner）登录。口令从 Keychain 取
 2. 停掉 APP_HOST 全部应用服务（`docker compose -p nexloop-app stop`）；
 3. 用 S1 的迁移前备份（迁移头 0373）做 pgBackRest 恢复；恢复点之后的数据丢失，包括词表、机翻结果和这段时间的业务数据；
 4. 恢复后 `ro "select max(version) from control.schema_migrations"` 必须为 `0373`；
-5. 授权和目录随库恢复回到 S1 时的状态（revision 3539、v48 角色、v21 告警规则）；秘密树用 `<树>.before-r54`，APP_HOST 删除 `secrets/world-glossary-translator/`，host-health 私有配置去掉 `world-glossary` 后重跑安装，门禁私有配置去掉对应的 uid；
+5. 授权和目录随库恢复回到 S1 时的状态（revision 3539、v48 角色、v21 告警规则）；秘密树用 `<树>.before-r54`，APP_HOST 删除 `secrets/world-glossary-translator/`（含单价副本），host-health 私有配置去掉 `world-glossary` 后重跑安装，门禁私有配置去掉对应的 uid；
 6. 用 known_good（release 53）的镜像和 compose 重建，再跑一次门禁（预期 20/21）。
 
 不想丢数据时，不回退，往前修：在 28e7689a 之上修复后发新版本，库不动。只关掉机翻，则停用 timer 即可（下表 S10）。
