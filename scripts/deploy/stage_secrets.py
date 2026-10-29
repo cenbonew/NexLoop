@@ -448,7 +448,7 @@ def reissue_role(out, ca_dir, params_file, service):
     return {'service': service, 'role': role, 'reissued': paths}
 
 
-ADD_KINDS = {'dsn', 'client_cert', 'client_key', 'token', 'ca_bundle', 'signing_key'}
+ADD_KINDS = {'dsn', 'client_cert', 'client_key', 'token', 'ca_bundle', 'signing_key', 'host_model_tariff'}
 
 
 def add_service(out, ca_dir, params_file, service, *, compose_app=COMPOSE_APP, compose_data=COMPOSE_DATA):
@@ -456,7 +456,8 @@ def add_service(out, ca_dir, params_file, service, *, compose_app=COMPOSE_APP, c
     the DSN (its role's password, read from another DSN of that role in this tree - one password per role - so no role password
     changes), a client certificate with CN = the role from the intermediate CA, and the service credential (the principal's token
     from service-secrets.json when the principal already has one, else a new one, added to service-secrets.json). Shared files it
-    mounts (pg_ca, signing_key) already exist and are not touched. Only these kinds are added: a service that mounts anything else
+    mounts (pg_ca, signing_key) already exist and are not touched. A model tariff in its own directory (release 54: the glossary
+    translator, uid 10001, cannot read the Agent Host's 0600 copy) is the shipped TARIFF, the same source as the Host's. Only these kinds are added: a service that mounts anything else
     (a channel credential, a provider file, a key) is refused, so nothing of that kind is minted here. Refused when the tree already
     has any file of the service. No value is printed."""
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -494,6 +495,8 @@ def add_service(out, ca_dir, params_file, service, *, compose_app=COMPOSE_APP, c
                 prefix = (e['secret'] or '').removesuffix('_dsn')
                 new[e['path']] = (make_conninfo(**{**donor, 'user': role, 'sslcert': f'/run/secrets/{prefix}_pg_client_cert',
                                                    'sslkey': f'/run/secrets/{prefix}_pg_client_key'}) + '\n').encode()
+            elif kind == 'host_model_tariff':
+                new[e['path']] = TARIFF.read_bytes()
             elif kind in ('client_cert', 'client_key'):
                 stem = name.rsplit('.', 1)[0]
                 cert_name = f'{service}-{stem}'

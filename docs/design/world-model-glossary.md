@@ -262,7 +262,7 @@ returning revision;
 2. **关系的 kind**：正向名和反向名都用 `relation` 一个 kind。两者是不同的字符串，词表 v1 也把它们放在同一组；`relation_inverse` 不再单列。API 形状不变：关系仍返回 `inverse_gloss` 和 `inverse_gloss_source`。
 3. **全角括号**：词表 v1 里有 4 条带全角括号（如“金额（最小单位）”）。人工译文允许全角括号，ASCII 括号不允许；机翻译文两种括号都不允许。
 4. **常驻改为定时运行**：应用的 PG 连接预算已用满（60/60），机翻服务不常驻，详见第 8 节（调度员 10-29 选 A）。
-5. **单价**：挂载 Agent Host 单价文件的一份副本 `world_glossary_translator_tariff`（非秘密值；Host 的那份属 10020、0600，机翻以 10001 运行读不到，所以部署时复制到机翻自己的 secret 目录，sha256 与原件一致，见 release 54 执行单 S6），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
+5. **单价**：挂载 Agent Host 单价文件的一份副本 `world_glossary_translator_tariff`（非秘密值；Host 的那份属 10020、0600，机翻以 10001 运行读不到，所以 `stage_secrets.py add-service` 从同一来源（`deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json`）在秘密树里为机翻生成一份，装到它自己的 secret 目录，sha256 与原件一致，见 release 54 执行单 S6），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
    - **单价副本的门禁**（L6 S13，release 54）：如果机翻服务挂的是自己目录下的副本 `secrets/world-glossary-translator/model-tariff.cny.json`，`nexloop-doctor --deploy-gate` 的 `glossary_tariff_copy_matches` 会核对它和原件 `secrets/agent-host/model-tariff.cny.json` 的 sha256 是否一致。
      - 两份文件都按各自目录的属主 uid 读取（原件 10020，副本 10001，都是 0600；门禁以 root 运行），读取规则与其他服务秘密相同。
      - 任何一份缺失、读不了或 sha256 不同，都判失败。

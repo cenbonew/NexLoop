@@ -47,7 +47,7 @@ release 54 = **28e7689a**（第 57 批“世界模型词表”的合并提交，
 | P3 | stage 已应用的版本：service-grants v22、stage-principals v7、workbench-roles v48、告警规则 v21、register 在 authority revision 3539 | 上次部署记录；S6 第 2 步的差异核对再核一次授权；任一项不符就停下，按实际版本重写受影响的步骤 |
 | P4 | 最近一次 pgBackRest 备份成功 | OPERATIONS §8a.2 |
 | P5 | `stage_secrets.py check --out <树>` 为 ok，`<树>` 是 stage 正在用的那份 | 执行一次 |
-| P6 | APP_HOST 上机翻要读的两个现有文件存在：`model.env` uid 10001 能读；Agent Host 的单价文件存在（S6 第 1 步从它复制） | 调度员 10-29 只读核实：`secrets/claim-extraction-worker/` 属 nexloop-svc（10001）、0700，文件 0600，机翻（10001）可以直接挂 `model.env`；`secrets/agent-host/` 属 nexloop-agent（10020）、0700，`model-tariff.cny.json` 属 nexloop-agent、0600，10001 读不到。所以单价**不**直接挂 Host 的文件，而是在 S6 复制一份到机翻自己的目录。**不改 `secrets/agent-host` 的属主或权限**。执行时再看一次：`sudo stat -c '%n %U:%G %a' "$NEXLOOP_ROOT/secrets/claim-extraction-worker/model.env" "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json"` |
+| P6 | APP_HOST 上机翻要读的两个现有文件存在：`model.env` uid 10001 能读；Agent Host 的单价文件存在（S6 第 1 步与它核对 sha256） | 调度员 10-29 只读核实：`secrets/claim-extraction-worker/` 属 nexloop-svc（10001）、0700，文件 0600，机翻（10001）可以直接挂 `model.env`；`secrets/agent-host/` 属 nexloop-agent（10020）、0700，`model-tariff.cny.json` 属 nexloop-agent、0600，10001 读不到。所以单价**不**直接挂 Host 的文件，而是由 S6 的 add-service 从同一来源在树里生成一份机翻自己的副本。**不改 `secrets/agent-host` 的属主或权限**。执行时再看一次：`sudo stat -c '%n %U:%G %a' "$NEXLOOP_ROOT/secrets/claim-extraction-worker/model.env" "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json"` |
 | P7 | 部署门禁参照 `$NEXLOOP_ROOT/ops/baseline-r36/baseline.json` 存在 | `test -f` |
 | P8 | 真实派发三层开关的现状记在上次部署的证据里（门禁预期 21/22，自 R55 起；唯一不通过的是 `real_dispatch_closed`） | 上次部署的门禁记录；以执行时的读数为准 |
 
@@ -128,26 +128,25 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 python3 <检出>/scripts/deploy/stage_secrets.py add-service --out <树> --ca-dir <中间 CA 目录> --params <私有 params> --service world-glossary-translator
 ```
 
-- 预期输出：`{"added": ["world-glossary-translator/dsn", "world-glossary-translator/pg-client.crt", "world-glossary-translator/pg-client.key", "world-glossary-translator/service-credential"], "credentials_added": ["app:world-glossary-translator/service-credential"], "service": "world-glossary-translator"}`。
+- 预期输出：`{"added": ["world-glossary-translator/dsn", "world-glossary-translator/model-tariff.cny.json", "world-glossary-translator/pg-client.crt", "world-glossary-translator/pg-client.key", "world-glossary-translator/service-credential"], "credentials_added": ["app:world-glossary-translator/service-credential"], "service": "world-glossary-translator"}`。
   - DSN 用 `nexloop_domain_worker` 已有的口令，从树里同一角色的另一个 DSN 读出，所以不改任何角色口令。
   - 客户端证书的 CN 是 `nexloop_domain_worker`，由同一个中间 CA 签发。
   - 服务凭据是新令牌，同时写进 `service-secrets.json`。
-  - 不复制任何别的服务的 DSN 或证书。model.env 和单价文件是 APP_HOST 上的现有文件，不进秘密树。
+  - 单价副本 `model-tariff.cny.json` 取自仓库里的 `deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json`，与 Agent Host 那份原件同一来源（P6：10001 读不到 Agent Host 的 0600 原件，所以机翻挂自己的副本）。它在树里，`check` 和门禁的 `secret_distribution` 都能看到。
+  - 不复制任何别的服务的 DSN 或证书。model.env 是 APP_HOST 上的现有文件，不进秘密树。
+  - add-service 仍拒绝其他 provider 类文件（provider 密钥、模型配置等）。
 - `python3 <检出>/scripts/deploy/stage_secrets.py check --out <树>`：预期 ok。
-- **装到 APP_HOST**：`$NEXLOOP_ROOT/secrets/world-glossary-translator/` 目录 0700、属 10001；四个文件用 `install -o 10001 -g 10001 -m 0600` 逐个装入，必须在 S9 之前（源文件缺失时 Docker 会自建同名空目录，OPERATIONS §8a.5）。
-- **单价副本**（APP_HOST，root；P6）：把 Agent Host 的单价文件原样复制到机翻自己的目录，属 10001、0600，再核对两份的 sha256 一致：
+- **装到 APP_HOST**：`$NEXLOOP_ROOT/secrets/world-glossary-translator/` 目录 0700、属 10001；五个文件（含单价副本）从树里用 `install -o 10001 -g 10001 -m 0600` 逐个装入，必须在 S9 之前（源文件缺失时 Docker 会自建同名空目录，OPERATIONS §8a.5）。
+- **单价副本核对**（APP_HOST，root；P6）：与 Agent Host 原件比对 sha256，并看属主和权限：
 
   ```bash
-  sudo install -o 10001 -g 10001 -m 0600 "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
   sudo sha256sum "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
   sudo stat -c '%n %u:%g %a' "$NEXLOOP_ROOT/secrets/world-glossary-translator" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
   ```
 
-  - 预期：两行 sha256 相同；目录 `10001:10001 700`，文件 `10001:10001 600`。sha256 不同就删掉副本重做，不往下做。
-  - 单价文件不是秘密，但仍按 secret 目录的规矩放（0600），门禁的 `secret_distribution` 对它与其他文件一样检查。
+  - 预期：两行 sha256 相同（也等于树的 `manifest.json` 里这一项的 sha256）；目录 `10001:10001 700`，文件 `10001:10001 600`。不同说明 Agent Host 原件已不是仓库这一版，停下交调度员，不往下做。
   - 只读 Agent Host 的文件，不改它和它所在目录的属主或权限。
-  - 以后 Agent Host 的单价文件更新时（换价目版本），这份副本要同时更新并重新核对 sha256；否则机翻按旧价记账。写进交接记录。
-  - 这份副本不在 `<树>` 里（`stage_secrets.py` 只管理 Host 的那份），所以 `stage_secrets.py check` 看不到它，以上面的 sha256 核对为准。
+  - 以后换价目版本时，两份要一起更新并重新核对 sha256；否则机翻按旧价记账。写进交接记录。
 - **同步到 DATA_HOST 的 `$RUN`**（register 读的是 `$RUN` 下的树），做法同 run-release53-54 S6 第 6 步。
 
 **2. 差异核对（OPERATIONS §8a.11a，只读；L6 对 R53 的 S1：队列授权要算进去）**
