@@ -18,6 +18,7 @@ _CUSTOMER = 'a customer principal (NX-029 Consumer erasure), never a workbench m
 _SERVICE = 'a service or runtime principal, never a workbench member'
 STAFF_KEPT = {
     'control.nexloop_alert_silences': _ACT, 'control.nexloop_approval_consumptions': _ACT, 'control.nexloop_approval_decisions': _ACT,
+    'control.nexloop_world_glossary_revisions': _ACT,  # world-model glossary (0374): who corrected a gloss
     'control.nexloop_budget_consumption': _ACT, 'control.nexloop_control_events': _ACT, 'control.nexloop_remediation_switches': _ACT,
     'control.nexloop_run_goal_bindings': _ACT, 'control.nexloop_sim_clock_events': _ACT, 'runtime.nexloop_commitment_events': _ACT,
     'runtime.nexloop_effect_query_admissions': _ACT, 'runtime.nexloop_effect_submissions': _ACT, 'runtime.nexloop_human_requests': _ACT,

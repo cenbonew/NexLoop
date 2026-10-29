@@ -176,9 +176,10 @@ class OpenAICompatibleExtractionProvider:
     """
     def __init__(self,profile,*,timeout=60,client=None):
         if profile.provider!='deepseek':raise ExtractionProviderUnavailable('real model profile required','profile')
-        self.profile=profile;self.provider=profile.provider;self.model_id=profile.model_id;self.timeout=timeout;self.client=client
+        self.profile=profile;self.provider=profile.provider;self.model_id=profile.model_id;self.timeout=timeout;self.client=client;self.last_usage=None
     def complete(self,system_prompt,user_payload):
         import httpx
+        self.last_usage=None
         body={'model':self.model_id,'temperature':0,'response_format':{'type':'json_object'},
               'messages':[{'role':'system','content':system_prompt},{'role':'user','content':user_payload}]}
         headers={'Authorization':'Bearer '+self.profile.credential_for_provider(),'Content-Type':'application/json'}
@@ -192,8 +193,12 @@ class OpenAICompatibleExtractionProvider:
             if status!=200:
                 code='http_429' if status==429 else 'http_5xx' if status>=500 else 'http_4xx'
                 raise ExtractionProviderUnavailable('provider status '+str(status),code)
-            try:content=json.loads(raw)['choices'][0]['message']['content']
+            try:
+                answer=json.loads(raw);content=answer['choices'][0]['message']['content']
             except Exception:raise ExtractionProviderUnavailable('provider response unparsable','response_parse') from None
+            # The provider's own token counts (world-glossary usage); nothing else of the answer is kept.
+            usage=answer.get('usage') if type(answer) is dict else None
+            self.last_usage={k:usage.get(k) for k in ('prompt_tokens','completion_tokens')} if type(usage) is dict else None
             if type(content) is not str:raise ExtractionProviderUnavailable('provider response unparsable','response_parse')
             return content
         except ExtractionProviderUnavailable:raise

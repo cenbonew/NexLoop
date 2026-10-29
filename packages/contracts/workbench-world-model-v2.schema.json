@@ -1,0 +1,517 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v2:workbench-world-model",
+  "title": "workbench-world-model-v2",
+  "description": "Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7). GET /api/v1/workbench/world-model: a read-only snapshot of the tenant's published model metadata for a workbench member holding nexloop.workbench.read (SQL authz.nexloop_workbench_read verb world_model). The current version of each object type (with its properties), relation type and event type; the active Actions and Functions of the read world; instance counts per type. Metadata only: no instance content. A property in an owner-restricted group is listed by name with withheld=true and nothing else (AT-003). Server-derived from the authenticated session; grants nothing; there is no write counterpart (schema changes stay candidate review and trusted configuration). v2 (world-model glossary, owner 2026-10-29, docs/design/world-model-glossary.md): every identifier carries its Chinese gloss for display only (gloss, gloss_source manual | machine | null; a manual empty string is a deliberate English-only), relation types also inverse_gloss / inverse_gloss_source, and the snapshot carries glossary {manifest_version, sections}. Display metadata, never a business fact; v1 is kept unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "world",
+    "computed_at",
+    "object_types",
+    "relation_types",
+    "event_types",
+    "actions",
+    "functions",
+    "glossary"
+  ],
+  "properties": {
+    "world": {
+      "const": "real"
+    },
+    "computed_at": {
+      "type": "string"
+    },
+    "object_types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version",
+          "display_name",
+          "description",
+          "title_property",
+          "primary_key",
+          "objects",
+          "properties",
+          "gloss",
+          "gloss_source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "title_property": {
+            "type": "string"
+          },
+          "primary_key": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "objects": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "withheld",
+                    "value_type",
+                    "required",
+                    "nullable",
+                    "group",
+                    "visibility",
+                    "description",
+                    "gloss",
+                    "gloss_source"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                    },
+                    "withheld": {
+                      "const": false
+                    },
+                    "value_type": {
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "nullable": {
+                      "type": "boolean"
+                    },
+                    "group": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "visibility": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "gloss": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 24
+                    },
+                    "gloss_source": {
+                      "enum": [
+                        "manual",
+                        "machine",
+                        null
+                      ]
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "withheld",
+                    "gloss",
+                    "gloss_source"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+                    },
+                    "withheld": {
+                      "const": true
+                    },
+                    "gloss": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 24
+                    },
+                    "gloss_source": {
+                      "enum": [
+                        "manual",
+                        "machine",
+                        null
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "gloss": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 24
+          },
+          "gloss_source": {
+            "enum": [
+              "manual",
+              "machine",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "relation_types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version",
+          "source_type",
+          "target_type",
+          "cardinality",
+          "inverse_name",
+          "description",
+          "property_count",
+          "gloss",
+          "gloss_source",
+          "inverse_gloss",
+          "inverse_gloss_source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source_type": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "target_type": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "cardinality": {
+            "enum": [
+              "one_to_one",
+              "one_to_many",
+              "many_to_one",
+              "many_to_many"
+            ]
+          },
+          "inverse_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "property_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gloss": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 24
+          },
+          "gloss_source": {
+            "enum": [
+              "manual",
+              "machine",
+              null
+            ]
+          },
+          "inverse_gloss": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 24
+          },
+          "inverse_gloss_source": {
+            "enum": [
+              "manual",
+              "machine",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "event_types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "version",
+          "object_type",
+          "description",
+          "payload_property_count",
+          "gloss",
+          "gloss_source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "object_type": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "payload_property_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gloss": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 24
+          },
+          "gloss_source": {
+            "enum": [
+              "manual",
+              "machine",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_id",
+          "name",
+          "version",
+          "risk_level",
+          "approval_mode",
+          "change_scope",
+          "has_side_effects",
+          "object_types",
+          "required_scopes",
+          "contract_digest",
+          "gloss",
+          "gloss_source"
+        ],
+        "properties": {
+          "resource_id": {
+            "type": "string",
+            "pattern": "^eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "risk_level": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approval_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_side_effects": {
+            "type": "boolean"
+          },
+          "object_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contract_digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gloss": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 24
+          },
+          "gloss_source": {
+            "enum": [
+              "manual",
+              "machine",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resource_id",
+          "name",
+          "version",
+          "applies_to",
+          "required_scopes",
+          "contract_digest",
+          "gloss",
+          "gloss_source"
+        ],
+        "properties": {
+          "resource_id": {
+            "type": "string",
+            "pattern": "^eios:function:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,159}$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "applies_to": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contract_digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gloss": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 24
+          },
+          "gloss_source": {
+            "enum": [
+              "manual",
+              "machine",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "glossary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_version",
+        "sections"
+      ],
+      "properties": {
+        "manifest_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sections": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "Object Type",
+              "Object",
+              "Property",
+              "Link",
+              "Function",
+              "Action",
+              "Object Set",
+              "Event Type",
+              "Payload Property",
+              "Table",
+              "Graph",
+              "Object View",
+              "Interface",
+              "Shared Property"
+            ]
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 24
+          }
+        }
+      }
+    }
+  }
+}
