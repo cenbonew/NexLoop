@@ -23,8 +23,15 @@ export function glossProblem(gloss:string,clear:boolean):string|null{
 }
 
 /** One kind's correction: pick the identifier, write its Chinese or clear it. */
-export function GlossEditor({kind,label,targets}:{kind:GlossKind;label:string;targets:GlossTarget[]}){
-  return <WithMember>{member=>offers(member,'world_glossary_set')&&targets.length?<GlossEditorForm kind={kind} label={label} targets={targets} member={member}/>:null}</WithMember>;
+export const SIM_REASON='只能在真实世界改正';
+/** S6: the server accepts a correction only in the real world (the glossary is per tenant, shared with simulations); elsewhere the
+ * owner sees the control disabled with the reason. */
+export function GlossEditor({kind,label,targets,world}:{kind:GlossKind;label:string;targets:GlossTarget[];world:string}){
+  const reason=useId();
+  return <WithMember>{member=>!offers(member,'world_glossary_set')||!targets.length?null
+    :world!=='real'?<p className="gloss-edit-sim"><button type="button" className="btn-secondary gloss-edit-open" disabled aria-describedby={reason}>改正{label}的中文译名</button>
+      <span className="disabled-reason" id={reason}>{SIM_REASON}：当前是{world.startsWith('shadow:')?'影子':'模拟'}世界，译名与真实世界共用。</span></p>
+    :<GlossEditorForm kind={kind} label={label} targets={targets} member={member}/>}</WithMember>;
 }
 
 function GlossEditorForm({kind,label,targets,member}:{kind:GlossKind;label:string;targets:GlossTarget[];member:Parameters<typeof Form>[0]['member']}){

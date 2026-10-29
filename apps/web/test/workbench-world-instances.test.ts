@@ -1,4 +1,5 @@
 // World model W2 (owner 2026-10-19 D3; ADR-035): instances by type with a cursor, the object drawer and its depth-1 neighbourhood.
+import {asV2} from './world-model-v2';
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
@@ -10,7 +11,7 @@ import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath} from '../src/workbench/route';
 
 const json=(name:string)=>JSON.parse(readFileSync(new URL(`../../../packages/contracts/examples/${name}.valid.json`,import.meta.url),'utf8'));
-const model=json('workbench-world-model'),page=json('workbench-object-page'),neighbors=json('workbench-object-neighbors');
+const model=asV2(json('workbench-world-model')),page=json('workbench-object-page'),neighbors=json('workbench-object-neighbors');
 const A='a'.repeat(64);
 
 function render(query:Record<string,string>,seed:[unknown[],unknown][]=[]){  // the Object page (section objects)

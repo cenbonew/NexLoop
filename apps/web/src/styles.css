@@ -615,3 +615,5 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .gloss-edit-open{margin-top:var(--space-3)}
 .workbench .gloss-edit{margin-top:var(--space-3);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-2)}
 .workbench .gloss-edit .workbench-action{border:0;padding:0;background:none}
+.workbench .gloss-edit-sim{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:var(--space-3) 0 0}
+.workbench .gloss-edit-sim .gloss-edit-open{margin:0}

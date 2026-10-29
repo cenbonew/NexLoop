@@ -4,12 +4,14 @@ import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {readFileSync} from 'node:fs';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {asV2} from './world-model-v2';
 import {expect,test} from 'vitest';
 import {WorkbenchError,worldModel} from '../src/workbench/api';
 import {WorldModel} from '../src/workbench/pages/WorldModel';
-import {MACHINE_HINT,SECTION_GLOSS,Term,glossMatches,glossText} from '../src/workbench/Gloss';
+import {MACHINE_HINT,Term,glossMatches,glossText,sectionText} from '../src/workbench/Gloss';
+import {GLOSSARY_V1_SECTIONS} from './world-model-v2';
 
-const example=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8'));
+const example=asV2(JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8')));
 const css=readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
 // Glossary v1 entries for the contract example's identifiers; spending_power (withheld) has none; the action is a machine gloss here.
 const glossed=structuredClone(example);
@@ -24,14 +26,21 @@ const render=(section?:string,query?:Record<string,string>,body=glossed)=>{const
   return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(WorldModel,{section:section as never,query,go:()=>{}})));};
 const term=(id:string,gloss:string)=>`<code class="term-id">${id}</code><span class="term-gloss">（${gloss}）`;
 
-test('the parser reads gloss and gloss_source on every identifier; absent, null or empty is none; an unknown source is refused',()=>{
+test('v2, strict (L6 S5): both keys on every identifier; null/null none, ""/manual a clear, text with manual or machine; anything else refused',()=>{
   const m=worldModel(glossed);
   expect(m.object_types[0]).toMatchObject({name:'Consumer',gloss:'客户',gloss_source:'manual'});
   expect(m.object_types[0].properties[1]).toEqual({name:'spending_power',withheld:true,gloss:null,gloss_source:null});
   expect(m.relation_types[0]).toMatchObject({gloss:'客户的会话',inverse_gloss:null});expect(m.actions[0]).toMatchObject({gloss:'提交服务请求',gloss_source:'machine'});
   expect(worldModel(example).object_types[0]).toMatchObject({gloss:null,gloss_source:null});
-  const blank=structuredClone(glossed);blank.object_types[0].gloss='  ';expect(worldModel(blank).object_types[0]).toMatchObject({gloss:null,gloss_source:null});
-  const bad=structuredClone(glossed);bad.object_types[0].gloss_source='guess';expect(()=>worldModel(bad)).toThrow(WorkbenchError);
+  const refused=(change:(x:typeof glossed)=>void)=>{const x=structuredClone(glossed);change(x);expect(()=>worldModel(x)).toThrow(WorkbenchError);};
+  refused(x=>{x.object_types[0].gloss_source='guess';});refused(x=>{delete x.object_types[0].gloss;});refused(x=>{delete x.actions[0].gloss_source;});
+  refused(x=>{delete x.relation_types[0].inverse_gloss;});refused(x=>{x.object_types[0].gloss_source=null;});  // text without a source
+  refused(x=>{x.object_types[0].gloss=null;});  // a source without text
+  refused(x=>{x.actions[0].gloss='';});  // "" is only the owner's (manual) clear, never a machine result
+  refused(x=>{x.object_types[0].gloss='客'.repeat(25);});refused(x=>{delete x.glossary;});refused(x=>{x.glossary.sections.Scope='权限范围';});
+  refused(x=>{x.glossary.extra=1;});refused(x=>{x.object_types[0].properties[1].note='x';});
+  refused(x=>{x.relation_types[0].inverse_gloss='反向';x.relation_types[0].inverse_gloss_source='manual';});  // no inverse name, no inverse gloss
+  expect(worldModel({...structuredClone(glossed),glossary:{manifest_version:0,sections:{}}}).glossary).toEqual({manifest_version:0,sections:{}});
   const leaky=structuredClone(glossed);leaky.object_types[0].properties[1].value_type='string';expect(()=>worldModel(leaky)).toThrow(WorkbenchError);
 });
 
@@ -43,7 +52,8 @@ test('Term: the identifier in code, the full-width gloss as secondary text, no e
     .toContain(`（放宽预算）<small class="term-machine" title="${MACHINE_HINT}">机翻</small>`);
   expect(MACHINE_HINT).toBe('由模型翻译，负责人可改正');
   expect(glossText('Consumer','客户')).toBe('Consumer（客户）');expect(glossText('Consumer',null)).toBe('Consumer');
-  expect(SECTION_GLOSS).toMatchObject({'Object Type':'对象类型',Property:'属性',Link:'关系',Function:'函数',Action:'动作','Object Set':'对象集','Event Type':'事件类型',Table:'表格',Graph:'关系图'});
+  // S4: section names come from the server only; without them the English stands alone.
+  expect(sectionText('Link',GLOSSARY_V1_SECTIONS)).toBe('Link（关系）');expect(sectionText('Link',undefined)).toBe('Link');expect(sectionText('Link',{})).toBe('Link');
 });
 
 test('typography: the identifier never breaks, the gloss is secondary and may wrap, the 机翻 mark is at least 12px',()=>{
@@ -80,15 +90,15 @@ test('search finds an identifier by its English or its Chinese; each list has it
 
 // L2 shape (docs/design/world-model-glossary.md §4): a top-level glossary block; "" with manual is the owner's deliberate clear.
 test('L2 shape: the glossary block gives the section names; a manual "" is a clear (English only), a machine "" is nothing',()=>{
-  const v2={...structuredClone(glossed),glossary:{manifest_version:1,sections:{'Object Type':'对象类别',Property:'属性'}}};
+  const v2={...structuredClone(glossed),glossary:{manifest_version:1,sections:{'Object Type':'对象类别',Property:'属性',Table:''} as Record<string,string>}};
   v2.object_types[1].gloss='';v2.object_types[1].gloss_source='manual';
-  v2.actions[0].gloss='';v2.actions[0].gloss_source='machine';
   const m=worldModel(v2);
   expect(m.glossary).toEqual({manifest_version:1,sections:{'Object Type':'对象类别',Property:'属性'}});
-  expect(m.object_types[1]).toMatchObject({gloss:null,gloss_source:'manual'});expect(m.actions[0]).toMatchObject({gloss:null,gloss_source:null});
-  expect(worldModel(example).glossary).toEqual({manifest_version:0,sections:{}});
+  expect(m.object_types[1]).toMatchObject({gloss:null,gloss_source:'manual'});
   const html=render('object_types',undefined,v2);
   expect(html).toContain('<span class="term-id term-word">Object Type</span><span class="term-gloss">（对象类别）</span>');  // the server's name wins
   expect(html).toContain('<code class="term-id">Conversation</code></span></button>');  // cleared: English only, no parentheses
+  expect(html).toContain('<span class="term"><span class="term-id term-word">Table</span></span>');  // a cleared section name likewise
+  expect(html).toContain('<th scope="col" class="cell-main">Object Type（对象类别）</th>');  // headers from the server too
   const bad=structuredClone(v2);bad.glossary.manifest_version=-1;expect(()=>worldModel(bad)).toThrow(WorkbenchError);
 });

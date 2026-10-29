@@ -2,6 +2,7 @@
 import {createElement as h} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {asV2} from './world-model-v2';
 import {expect,test} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {WorkbenchError,worldModel} from '../src/workbench/api';
@@ -10,7 +11,7 @@ import {LABEL_PX,MIN_LABEL_PX,MIN_SCALE,SchemaGraph,fitScale} from '../src/workb
 import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath,PAGES} from '../src/workbench/route';
 
-const example=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8'));
+const example=asV2(JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8')));
 
 test('the parser accepts the contract example and refuses a withheld property that carries more than its name',()=>{
   const m=worldModel(example);

@@ -3,23 +3,23 @@
  * Consumer（客户）. The identifier stays monospace and never breaks; the parentheses with the Chinese are secondary, in the body font,
  * and may wrap. No gloss: the identifier alone, never empty parentheses. A machine gloss carries a small 机翻 mark.
  */
-import {useContext,useMemo,type ReactNode} from 'react';
+import {useContext,useMemo,useSyncExternalStore,type ReactNode} from 'react';
 import {QueryClientContext} from '@tanstack/react-query';
-import type {WorldModel} from './api';
+import {WORLD_SECTION_NAMES,type WorldModel} from './api';
 
 export type GlossSource='manual'|'machine';
 export type Glossed={gloss:string|null;gloss_source:GlossSource|null};
 export const NO_GLOSS:Glossed={gloss:null,gloss_source:null};
 export const MACHINE_HINT='由模型翻译，负责人可改正';
 
-/** The workbench's own section and view names (glossary v1, manual). */
-export const SECTION_GLOSS:Record<string,string>={'Object Type':'对象类型',Object:'对象',Property:'属性',Link:'关系',Function:'函数',Action:'动作',
-  'Object Set':'对象集','Event Type':'事件类型','Payload Property':'载荷属性',Table:'表格',Graph:'关系图','Object View':'对象视图',Interface:'接口',
-  'Shared Property':'共享属性',Scope:'权限范围'};
+/** Section and view names glossed by the server (v2 glossary.sections, the enum WORLD_SECTION_NAMES); none until the model is read. */
+export type Sections=Partial<Record<string,string>>;
+export {WORLD_SECTION_NAMES};
 
 /** As plain text, for titles, accessible names and search: Consumer（客户）, or the identifier alone. */
 export const glossText=(id:string,gloss:string|null|undefined)=>gloss?`${id}（${gloss}）`:id;
-export const sectionText=(name:string)=>glossText(name,SECTION_GLOSS[name]);
+/** A section name as text with the server's gloss (English alone without one, e.g. before the model is read). */
+export const sectionText=(name:string,sections:Sections|undefined)=>glossText(name,sections?.[name]);
 /** Whether a keyword finds an identifier by its English or its Chinese. */
 export const glossMatches=(keyword:string,id:string,gloss:string|null|undefined)=>{
   const k=keyword.trim().toLowerCase();return !k||id.toLowerCase().includes(k)||(!!gloss&&gloss.toLowerCase().includes(k));};
@@ -30,16 +30,23 @@ export function Term({id,gloss,source=null,mono=true}:{id:string;gloss:string|nu
   if(!gloss)return <span className="term">{name}</span>;
   return <span className="term">{name}<span className="term-gloss">（{gloss}）{source==='machine'?<small className="term-machine" title={MACHINE_HINT}>机翻</small>:null}</span></span>;
 }
-/** A section or view name: the server's glossary sections when the model is on this page, else glossary v1. */
-export function SectionTerm({name}:{name:string}){
-  const sections=useContext(QueryClientContext)?.getQueryData<WorldModel>(['workbench','world-model'])?.glossary.sections;
-  return <Term id={name} gloss={sections?.[name]??SECTION_GLOSS[name]} mono={false}/>;
+const MODEL_KEY=['workbench','world-model'];
+const NOTHING=()=>()=>{};
+/** The cached world model, followed as it changes (nothing is fetched here); undefined until some page has read it. */
+export function useCachedWorldModel():WorldModel|undefined{
+  const client=useContext(QueryClientContext);
+  return useSyncExternalStore(client?(notify=>client.getQueryCache().subscribe(notify)):NOTHING,
+    ()=>client?.getQueryData<WorldModel>(MODEL_KEY),()=>client?.getQueryData<WorldModel>(MODEL_KEY));
 }
+/** The server's section names (S4: never a copy in the frontend, so an owner's correction shows everywhere). */
+export const useSections=():Sections|undefined=>useCachedWorldModel()?.glossary.sections;
+/** A section or view name with the server's gloss. */
+export function SectionTerm({name}:{name:string}){return <Term id={name} gloss={useSections()?.[name]} mono={false}/>;}
 
 /** Glosses of the world model already read on this page (the cached model; nothing is fetched here): by type, by a type's
  * Property, by Link or inverse name. Missing: no gloss (the identifier alone). */
 export function useWorldGlosses(){
-  const m=useContext(QueryClientContext)?.getQueryData<WorldModel>(['workbench','world-model']);
+  const m=useCachedWorldModel();
   return useMemo(()=>{
     const types=new Map((m?.object_types??[]).map(t=>[t.name,t]));
     const links=new Map<string,Glossed>();

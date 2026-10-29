@@ -48,6 +48,7 @@ test('企业世界模型 is an expandable sidebar entry: one page per EIOS conce
   expect(NAV_CHILDREN.ontology!.map(c=>routePath(c.route))).toEqual(['/workbench/ontology/object-types','/workbench/ontology/objects','/workbench/ontology/properties',
     '/workbench/ontology/links','/workbench/ontology/functions','/workbench/ontology/actions','/workbench/ontology/object-sets']);
   expect(Object.keys(NAV_CHILDREN)).toEqual(['ontology']);
-  expect(crumbs({page:'ontology',section:'links'})).toEqual([{label:'企业世界模型',to:{page:'ontology'}},{label:'Link（关系）'}]);
+  expect(crumbs({page:'ontology',section:'links'})).toEqual([{label:'企业世界模型',to:{page:'ontology'}},{label:'Link'}]);  // before the model is read
+  expect(crumbs({page:'ontology',section:'links'},null,{Link:'关系'})).toEqual([{label:'企业世界模型',to:{page:'ontology'}},{label:'Link（关系）'}]);
   expect(crumbs({page:'ontology'})).toEqual([]);
 });

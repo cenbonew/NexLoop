@@ -15,7 +15,7 @@ import {StatusBadge,Time} from '../ui';
 import {Card,EmptyState,IdText,KeyValue,shorten} from '../kit';
 import {kindOf} from '../api';
 import {SchemaGraph} from '../graph/SchemaGraph';
-import {Term,glossText,sectionText,useWorldGlosses} from '../Gloss';
+import {Term,glossText,sectionText,useSections,useWorldGlosses} from '../Gloss';
 
 const shortId=(id:string)=>shorten(id);  // C1: the kit's head…tail
 /** Where the workbench already has a page for an object of this type (its content, with its own READ checks). */
@@ -150,10 +150,10 @@ export function neighborhoodGraph(v:ObjectNeighbors){
 
 function Neighborhood({value,onOpen}:{value:ObjectNeighbors;onOpen:(type:string,id:string)=>void}){
   if(!value.groups.length)return <EmptyState kind="empty" subject="关联的 Object" compact/>;
-  const graph=neighborhoodGraph(value);const glosses=useWorldGlosses();
+  const graph=neighborhoodGraph(value);const glosses=useWorldGlosses();const sections=useSections();
   const typeTerm=(n:string)=><Term id={n} gloss={glosses.type(n).gloss} source={glosses.type(n).gloss_source}/>;
-  const via=(v:string)=>v.startsWith('property:')?<>{sectionText('Property')} <Term id={v.slice(9)} gloss={glosses.property(value.type_name,v.slice(9)).gloss}/></>
-    :<>{sectionText('Link')} <Term id={v} gloss={glosses.link(v).gloss} source={glosses.link(v).gloss_source}/></>;
+  const via=(v:string)=>v.startsWith('property:')?<>{sectionText('Property',sections)} <Term id={v.slice(9)} gloss={glosses.property(value.type_name,v.slice(9)).gloss}/></>
+    :<>{sectionText('Link',sections)} <Term id={v} gloss={glosses.link(v).gloss} source={glosses.link(v).gloss_source}/></>;
   return <>
     <ul className="world-neighbors">{value.groups.map((g:NeighborGroup,i)=><li key={i}>
       <span>{g.direction==='outgoing'?'→':'←'} {typeTerm(g.type_name)} · {via(g.via)}</span>

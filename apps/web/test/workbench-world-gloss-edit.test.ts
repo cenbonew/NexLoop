@@ -21,8 +21,8 @@ beforeEach(()=>{sent.length=0;
   box=document.createElement('div');document.body.append(box);root=createRoot(box);});
 afterEach(()=>{act(()=>root.unmount());box.remove();vi.unstubAllGlobals();});
 const settle=async()=>{for(let i=0;i<6;i++)await act(async()=>{await new Promise(r=>setTimeout(r,0));});};
-const mount=(member:typeof owner)=>{const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});client.setQueryData(['workbench','me'],member);
-  act(()=>root.render(h(QueryClientProvider,{client},h(GlossEditor,{kind:'object_type',label:' Object Type ',targets:[{identifier:'Consumer',gloss:'客户'},{identifier:'Goal',gloss:null}]}))));};
+const mount=(member:typeof owner,world='real')=>{const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});client.setQueryData(['workbench','me'],member);
+  act(()=>root.render(h(QueryClientProvider,{client},h(GlossEditor,{world,kind:'object_type',label:' Object Type ',targets:[{identifier:'Consumer',gloss:'客户'},{identifier:'Goal',gloss:null}]}))));};
 const button=(text:string)=>[...box.querySelectorAll('button')].find(b=>b.textContent===text);
 const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!;
 const type=(el:HTMLInputElement,v:string)=>act(()=>{setter.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));});
@@ -47,4 +47,13 @@ test('only the owner sees it; a correction sends {kind, identifier, gloss}; a cl
   act(()=>box.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());expect(input.disabled).toBe(true);
   await act(async()=>{submit().click();});await settle();
   expect(sent[1]).toEqual({path:'/api/v1/workbench/actions/world_glossary_set',body:{kind:'object_type',identifier:'Goal',gloss:''}});
+});
+
+test('S6: in a simulation or shadow world the owner sees the control disabled with the reason, and no form opens',()=>{
+  mount(owner,'sim:00000000-0000-4000-8000-000000000001');
+  const b=button('改正 Object Type 的中文译名')!;expect(b.disabled).toBe(true);
+  expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toBe('只能在真实世界改正：当前是模拟世界，译名与真实世界共用。');
+  expect(box.querySelector('form')).toBeNull();
+  act(()=>root.unmount());root=createRoot(box);mount(owner,'shadow:00000000-0000-4000-8000-000000000001');expect(box.textContent).toContain('当前是影子世界');
+  act(()=>root.unmount());root=createRoot(box);mount(operator,'sim:00000000-0000-4000-8000-000000000001');expect(box.textContent).toBe('');
 });
