@@ -307,7 +307,7 @@ returning revision;
 - **定时任务的最坏重叠**：02:03 前后，pg-diff 2 + journal 1 + file-backup 1 + host-health 1 + world-glossary 1 = **6**。
 - **人工操作**：迁移和 sim-setup 都按运行单在维护窗口里做，同时最多 1 个会话，峰值 7，不超过运维保留。
 - **约束写进运行单**（调度员 10-29 接受）：人工迁移、sim-setup 和 02:00 的 PG 备份不能同时进行（它们原本就分开做）；迁移前先 `systemctl stop nexloop-world-glossary.timer` 并等正在跑的那一次结束，迁移后再 start。这样即使人工会话开 2 个连接，峰值也是 6 − 1 + 2 = 7。
-- **数据库也有硬上限**：除运维保留外，`max_connections` 80 − superuser 保留 3 − 应用 60 − 模拟 10 = 7，超出时新连接被 PG 拒绝，不会挤占应用的 60 个。
+- **超出 7 时没有隔离**（L6 S9）：`max_connections` 是全局上限，各角色没有 `connlimit`。运维侧一旦超出 7，PG 拒绝的可能是之后的任何新连接，包括应用的连接，而不只是运维的。所以“峰值不超过 7”只能靠运行单的时间约束保证：迁移、sim-setup 与 02:00 备份分开做，迁移前停 timer。是否给运维角色设 `connlimit` 另议。02:00 备份窗口的实测峰值由调度员采集。
 
 ### 8.3 监测
 
@@ -317,4 +317,10 @@ returning revision;
   - **fail closed**：从未见过定时成功时，从这个 timer 第一次被列为期望起计时，到阈值就报警，不会静默通过；
   - 告警规则 v22 新增 `timer_stale_world_glossary`，超过 1800 秒（3 个周期）报 warning；
   - 定时轮次失败（例如端口拒绝、数据库不可用）由现有的 `timer_scheduled_failure` 报出。
-- **哪些不算失败**：模型调用失败（429、超时等）、当天名额用满，都只记在任务和用量里，进程仍正常退出。它们不是服务故障，不会让 timer 显得失败。
+- **哪些不算失败**：
+  - 模型调用失败（429、超时等）和当天名额用满，只记在任务和用量里，进程仍正常退出；
+  - 拿不到锁的一轮写一行 `skipped: locked` 并以 0 退出（L6 I6）；
+  - 这些都不会让 timer 显得失败。
+- **业务层告警**（L6 I7，防止 timer 一直成功、却始终翻不出来）：指标快照加了 `world_glossary` 块，v22 有两条 warning：
+  - `world_glossary_failed`：过去 24 小时有任务因 3 次失败而标为 failed；
+  - `world_glossary_no_success`：有任务在等，而过去 24 小时至少调用了 3 次模型，没有一次写出译文（例如 key 永久失效、provider 一直拒绝）。

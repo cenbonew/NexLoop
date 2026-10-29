@@ -345,3 +345,47 @@ def test_the_service_runs_once_from_its_own_files_and_is_outside_the_application
     assert args.once and args.pool_max == B.POOL_MAX and str(args.tariff_file) == str(TARIFF)
     assert 'world-glossary-translator' in B.ONE_SHOT and 'world-glossary-translator' not in connection_budget.required_services()
     assert load_tariff(None, model='deepseek-flash') is None and load_tariff(TARIFF, model='deepseek-flash')['currency'] == 'CNY'
+
+
+def _exec_start(tmp_path, flock_code, docker_code):
+    """The service example's ExecStart with stand-in flock and docker on PATH (the real flock is util-linux, not on every CI host)."""
+    import re
+    import subprocess
+    unit = (ROOT / 'deploy/stage/systemd/nexloop-world-glossary.service.example').read_text()
+    line = next(l for l in unit.splitlines() if l.startswith('ExecStart='))
+    script = re.fullmatch(r"ExecStart=/bin/sh -c '(.*)'", line).group(1)
+    bin_dir = tmp_path / 'bin'; bin_dir.mkdir(exist_ok=True)
+    # flock -n -E 75 <lock> <command...>: held -> 75 without running the command; free -> runs it.
+    (bin_dir / 'flock').write_text('#!/bin/sh\n' + (f'exit {flock_code}\n' if flock_code else 'shift 4; exec "$@"\n'))
+    (bin_dir / 'docker').write_text(f'#!/bin/sh\necho translator-ran\nexit {docker_code}\n')
+    for f in ('flock', 'docker'):
+        (bin_dir / f).chmod(0o755)
+    return subprocess.run(['/bin/sh', '-c', script], capture_output=True, text=True, env={'PATH': f'{bin_dir}:/usr/bin:/bin'})
+
+
+def test_a_locked_round_is_skipped_as_success_and_says_so(tmp_path):
+    locked = _exec_start(tmp_path, 75, 0)
+    assert locked.returncode == 0 and locked.stdout.strip() == 'skipped: locked' and 'translator-ran' not in locked.stdout
+    ran = _exec_start(tmp_path, 0, 0)
+    assert ran.returncode == 0 and ran.stdout.strip() == 'translator-ran'
+    failed = _exec_start(tmp_path, 0, 1)  # the translator's own failure stays a failure
+    assert failed.returncode == 1
+
+
+def test_translations_that_always_fail_raise_the_business_alerts(translator):
+    t = translator; admin = t['admin']
+    rules = {r['rule_id']: r for r in json.loads((ROOT / 'deploy/configuration/alert-rules.v22.json').read_text())['rules']}
+    model = StubModel(error='http_4xx')  # a key revoked for good: every call refused, every run still exits 0
+    for _ in range(3):
+        admin.execute("update control.nexloop_world_glossary_jobs set next_attempt_at=clock_timestamp() where tenant_id=%s", (TENANT,))
+        summary = t['make'](model, per_round=2).run_once()
+        assert summary['translated'] == 0 and summary['failed'] >= 1
+    snapshot = owner_sql(admin, "select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,))['world_glossary']
+    assert snapshot['translated_24h'] == 0 and snapshot['calls_24h'] >= 3 and snapshot['failed_24h'] >= 1 and snapshot['pending'] >= 1
+    for rule_id, key in (('world_glossary_failed', 'failed_24h'), ('world_glossary_no_success', 'pending_without_success_24h')):
+        rule = rules[rule_id]
+        assert rule['metric'] == 'world_glossary.' + key and rule['condition'] == 'gt' and snapshot[key] > rule['threshold'], rule_id
+    # One success clears the second signal.
+    admin.execute("update control.nexloop_world_glossary_jobs set next_attempt_at=clock_timestamp() where tenant_id=%s and status='pending'", (TENANT,))
+    t['make'](StubModel(answer='机器译名'), per_round=1).run_once()
+    assert owner_sql(admin, "select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,))['world_glossary']['pending_without_success_24h'] == 0

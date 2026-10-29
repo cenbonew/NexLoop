@@ -419,3 +419,29 @@ begin
 end $$;
 alter function authz.nexloop_workbench_world_model(text,text) owner to nexloop_owner;
 revoke all on function authz.nexloop_workbench_world_model(text,text) from public;
+
+-- I7 (L6): the timer can keep succeeding while every translation fails (a key revoked for good, a provider that always refuses), and
+-- the workbench would show English only forever. The metrics snapshot (world real) gains world_glossary for alert rules v22:
+--   failed_24h                      jobs that reached failed (3 attempts) in the last 24 hours
+--   pending                         jobs still waiting
+--   calls_24h / translated_24h      model calls recorded and calls that wrote a gloss, last 24 hours
+--   pending_without_success_24h     pending jobs while the last 24 hours had at least 3 calls and not one wrote a gloss (else 0)
+alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_world_glossary;
+revoke all on function runtime.nexloop_metrics_snapshot_before_world_glossary(text,text) from public;
+create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v jsonb:=runtime.nexloop_metrics_snapshot_before_world_glossary(p_tenant,p_world);prior text:=current_setting('eios.tenant_id',true);
+ since timestamptz:=clock_timestamp()-interval '24 hours';v_failed bigint;v_pending bigint;v_calls bigint;v_translated bigint;
+begin
+ if p_world is distinct from 'real' then return v;end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ select count(*) filter (where j.status='failed' and j.updated_at>=since),count(*) filter (where j.status='pending')
+  into v_failed,v_pending from control.nexloop_world_glossary_jobs j where j.tenant_id=p_tenant;
+ select count(*) filter (where u.recorded_at is not null),count(*) filter (where u.outcome='translated')
+  into v_calls,v_translated from control.nexloop_world_glossary_usage u where u.tenant_id=p_tenant and u.reserved_at>=since;
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return v||jsonb_build_object('world_glossary',jsonb_build_object('failed_24h',v_failed,'pending',v_pending,'calls_24h',v_calls,
+  'translated_24h',v_translated,'pending_without_success_24h',case when v_pending>0 and v_calls>=3 and v_translated=0 then v_pending else 0 end));
+end $$;
+alter function runtime.nexloop_metrics_snapshot(text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_metrics_snapshot(text,text) from public;
