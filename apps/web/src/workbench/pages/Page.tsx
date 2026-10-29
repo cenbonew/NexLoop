@@ -9,7 +9,7 @@ import {EmptyState,PageHeader} from '../kit';
  * is and how to get there); still a 403, still role="alert". */
 /** `toolbar` (tabs, filters) stays mounted while the data loads; with placeholder data the old rows stay, marked busy (F12). */
 /** `announce`: what a screen reader hears once the data for the current tab/filter has arrived (e.g. "失败：3 条"). */
-export function Page<T>({title,lead,query,actions,toolbar,empty,emptyKind='none',emptyState,forbidden,announce,children}:{title:string;lead?:ReactNode;query:UseQueryResult<T>;actions?:ReactNode;announce?:(data:T)=>string;
+export function Page<T>({title,lead,query,actions,toolbar,empty,emptyKind='none',emptyState,forbidden,announce,children}:{title:ReactNode;lead?:ReactNode;query:UseQueryResult<T>;actions?:ReactNode;announce?:(data:T)=>string;
   toolbar?:ReactNode;empty?:(data:T)=>boolean;emptyKind?:'none'|'filtered';/** UX audit C12: the page's own empty state instead of the generic one. */emptyState?:ReactNode;forbidden?:ReactNode;children:(data:T)=>ReactNode}){
   return <section className="workbench-page" aria-labelledby="workbench-page-title">
     <PageHeader title={title} lead={lead} actions={actions} toolbar={toolbar}/>
