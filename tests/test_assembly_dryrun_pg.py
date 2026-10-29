@@ -425,6 +425,17 @@ def test_the_owner_publishes_the_relay_strategy_and_the_relay_issues_the_run(ass
     assert run == (1,), run
 
 
+
+def test_a_variables_override_wins_over_the_compose_default_of_the_relay_strategy(assembled, admin, capsys):
+    """L6 S30: ${RELAY_CONTEXT_STRATEGY:-recent_plus_required} takes the caller's value when given, the default otherwise."""
+    st, compose = assembled, A.compose_services()
+    A.install_config(st.root / 'config', tenant_configuration(st, admin, capsys))
+    for name in ('message-relay', 'message-relay-2'):
+        given, _ = A.worker_command(st, name, compose, st.root / 'config', st.root / ('w-override-' + name), {'RELAY_CONTEXT_STRATEGY': 'ontology_hybrid'})
+        default, _ = A.worker_command(st, name, compose, st.root / 'config', st.root / ('w-default-' + name))
+        assert given[given.index('--context-strategy') + 1] == 'ontology_hybrid'
+        assert default[default.index('--context-strategy') + 1] == 'recent_plus_required'
+
 def budget_cli(st, *, username='dryrun-owner', password_file=None):
     """G-BUDGET-CLI: scripts/nx037/real_tenant_init.py budget (nexloop.budget.loosen on the owner's own workbench session). Returns (code, out, err)."""
     import subprocess
