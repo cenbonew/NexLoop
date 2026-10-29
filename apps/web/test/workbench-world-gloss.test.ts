@@ -44,8 +44,8 @@ test('v2, strict (L6 S5): both keys on every identifier; null/null none, ""/manu
 });
 
 test('Term: the identifier in code, the full-width gloss as secondary text, no empty parentheses, a 机翻 mark for a machine gloss',()=>{
-  expect(renderToStaticMarkup(h(Term,{id:'Consumer',gloss:'客户'}))).toBe(`<span class="term term-stack">${term('Consumer','客户')}</span></span>`);
-  expect(renderToStaticMarkup(h(Term,{id:'spending_power',gloss:null}))).toBe('<span class="term term-stack"><code class="term-id">spending_power</code></span>');
+  expect(renderToStaticMarkup(h(Term,{id:'Consumer',gloss:'客户'}))).toBe(`<span class="term term-stack" title="Consumer（客户）">${term('Consumer','客户')}</span></span>`);
+  expect(renderToStaticMarkup(h(Term,{id:'spending_power',gloss:null}))).toBe('<span class="term term-stack" title="spending_power"><code class="term-id">spending_power</code></span>');
   expect(renderToStaticMarkup(h(Term,{id:'Consumer',gloss:'客户',inline:true}))).toBe(inlineTerm('Consumer','客户'));
   expect(renderToStaticMarkup(h(Term,{id:'x',gloss:''}))).not.toContain('（');
   expect(renderToStaticMarkup(h(Term,{id:'nexloop.budget.loosen',gloss:'放宽预算',source:'machine'})))

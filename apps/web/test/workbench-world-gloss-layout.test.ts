@@ -34,6 +34,10 @@ test.each(['object_types','properties','links','actions'])('%s: every glossed te
     expect(getComputedStyle(g).whiteSpace).toBe('nowrap');
     const text=g.querySelector<HTMLElement>('.term-gloss-text')!;expect(getComputedStyle(text).textOverflow).toBe('ellipsis');
     expect(`（${g.title}）`).toBe(text.textContent);}  // the full text on hover when cut
+  // L6 I15: the identifier is never cut (consumer_conversation_a vs _b): it may wrap, and the whole term carries id（gloss） as its title.
+  for(const t of terms){const id=t.querySelector<HTMLElement>(':scope>.term-id')!,s=getComputedStyle(id);
+    expect(s.textOverflow).not.toBe('ellipsis');expect(s.overflow).not.toBe('hidden');expect(s.whiteSpace).toBe('normal');expect(s.overflowWrap).toBe('anywhere');
+    const g=t.querySelector('.term-gloss')?.getAttribute('title');expect(t.title).toBe(g?`${id.textContent}（${g}）`:id.textContent);}
   for(const cell of box.querySelectorAll<HTMLElement>('td'))expect(getComputedStyle(cell).textAlign).not.toBe('center');
   for(const b of box.querySelectorAll<HTMLElement>('td button.link')){
     const s=getComputedStyle(b);expect(s.justifyContent).toBe('flex-start');expect(s.textAlign).toBe('left');}

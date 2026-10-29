@@ -27,14 +27,15 @@ export const glossMatches=(keyword:string,id:string,gloss:string|null|undefined)
 /** An identifier with its gloss. `mono`: identifiers are code (names); section names are words.
  * Owner 2026-10-30 (stage walkthrough), one rule per place:
  * - default (table cells, detail panels, lists): two lines in every case - the identifier, then the gloss left-aligned below it,
- *   never broken inside; too narrow, the gloss ends in an ellipsis and its title carries the full text.
+ *   never broken inside; the identifier itself is never cut (it may wrap) and the whole term's title is id（gloss); too narrow, the gloss ends in an ellipsis and its title carries the full text.
  * - `inline` (titles, crumbs, sidebar, switches, a sentence): English（中文） on one line; the gloss moves as a whole, never split. */
 export function Term({id,gloss,source=null,mono=true,inline=false}:{id:string;gloss:string|null|undefined;source?:GlossSource|null;mono?:boolean;inline?:boolean}):ReactNode{
   const name=mono?<code className="term-id">{id}</code>:<span className="term-id term-word">{id}</span>;
   const layout=inline?'term term-inline':'term term-stack';
-  if(!gloss)return <span className={layout}>{name}</span>;
+  const title=inline?undefined:glossText(id,gloss);
+  if(!gloss)return <span className={layout} title={title}>{name}</span>;
   const machine=source==='machine'?<small className="term-machine" title={MACHINE_HINT}>机翻</small>:null;
-  return <span className={layout}>{name}<span className="term-gloss" title={inline?undefined:gloss}><span className="term-gloss-text">（{gloss}）</span>{machine}</span></span>;
+  return <span className={layout} title={title}>{name}<span className="term-gloss" title={inline?undefined:gloss}><span className="term-gloss-text">（{gloss}）</span>{machine}</span></span>;
 }
 const MODEL_KEY=['workbench','world-model'];
 const NOTHING=()=>()=>{};

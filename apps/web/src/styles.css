@@ -608,7 +608,7 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .term-word{font:inherit}
 .term-gloss{font-family:inherit;font-weight:400;color:var(--muted);white-space:nowrap}
 .term-stack{display:inline-flex;flex-direction:column;align-items:flex-start;max-width:100%;min-width:0;vertical-align:baseline;text-align:left}
-.term-stack>.term-id{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.term-stack>.term-id{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .term-stack>.term-gloss{display:flex;align-items:center;max-width:100%;min-width:0;font-size:12px;line-height:1.35}
 .term-stack .term-gloss-text{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .term-inline{display:inline}

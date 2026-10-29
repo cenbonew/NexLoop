@@ -92,7 +92,7 @@ test('the graph view: one focusable button per type, labelled edges, the focused
   const html=render({view:'graph',focus:'Consumer'},'object_types');
   expect(html).toContain('<svg');expect(html).toContain('aria-label="Object Type 关系图：2 个 Object Type，1 条 Link"');
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
-  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('→ <span class="term term-stack"><code class="term-id">Conversation</code></span>：<span class="term term-stack"><code class="term-id">consumer_conversation</code></span> · 1:N');
+  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('→ <span class="term term-stack" title="Conversation"><code class="term-id">Conversation</code></span>：<span class="term term-stack" title="consumer_conversation"><code class="term-id">consumer_conversation</code></span> · 1:N');
   expect(html).toContain('<button type="button" aria-pressed="true"><span class="term term-inline"><span class="term-id term-word">Graph</span><span class="term-gloss"><span class="term-gloss-text">（关系图）</span></span></span></button>');expect(html).not.toContain('data-empty-edges');
 });
 
