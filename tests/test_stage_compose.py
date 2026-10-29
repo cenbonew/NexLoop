@@ -77,7 +77,7 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     shared = {s for s, o in owners.items() if len(o) > 1}
     # The two API processes share their files, and so do the two relays (dispatcher 2026-10-13: same configuration, own vaults).
     # The extraction model file is also the world-glossary translator's (the owner shares the key, 2026-10-29); it stays in its directory.
-    assert shared <= SHARED | {'pg_ca', 'claim_extraction_worker_model', 'host_model_tariff'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}} \
+    assert shared <= SHARED | {'pg_ca', 'claim_extraction_worker_model'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}} \
         | {s for s in owners if s.startswith('message_relay_') and owners[s] == {'message-relay', 'message-relay-2'}}, shared
     assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca', 'host_guard_key', 'host_runtime_config', 'host_model_configuration', 'host_model_tariff', 'host_model_key'}
     # Model credentials only where a model is called; channel provider configuration only in the action worker.
@@ -85,7 +85,10 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker', 'world-glossary-translator'} and owners['claim_matcher_model'] == {'claim-matcher'}
     assert set(services['world-glossary-translator']['secrets']) == {'world_glossary_translator_dsn', 'world_glossary_translator_pg_client_cert',
         'world_glossary_translator_pg_client_key', 'world_glossary_translator_credential', 'signing_key', 'pg_ca', 'claim_extraction_worker_model',
-        'host_model_tariff'}
+        'world_glossary_translator_tariff'}
+    # The Host's tariff copy is readable by the Host's user only; the translator (10001) mounts its own copy, never the Host's file.
+    assert owners['host_model_tariff'] == {'agent-host'}
+    assert compose['secrets']['world_glossary_translator_tariff']['file'].endswith('/secrets/world-glossary-translator/model-tariff.cny.json')
     assert services['world-glossary-translator']['profiles'] == ['world-glossary'] and '--once' in services['world-glossary-translator']['command']
     # The embedding key only where embeddings are made; the tariff (no secret value) shared by those two.
     assert owners['recall_indexer_embedding'] == {'recall-indexer'} and owners['claim_matcher_embedding'] == {'claim-matcher'}
