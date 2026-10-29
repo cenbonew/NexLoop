@@ -672,6 +672,22 @@ def test_add_service_mints_the_translators_tariff_copy_from_the_shipped_tariff(t
     assert not (secrets_root / 'agent-host').exists()
 
 
+def test_add_service_mints_the_tariff_copy_for_the_glossary_translator_only(tree, tmp_path, monkeypatch):
+    """S24: another service mounting a model-tariff.cny.json in its own directory is refused; nothing is written."""
+    import shutil
+    import pytest
+    old = tmp_path / 'tree'
+    shutil.copytree(tree['out'], old)
+    real = S.catalog
+    def catalog(*a, **k):
+        return [{**e, 'service': 'other-worker', 'path': 'other-worker/' + e['path'].split('/', 1)[1]} if e['service'] == 'world-glossary-translator' else e
+                for e in real(*a, **k)]
+    monkeypatch.setattr(S, 'catalog', catalog)
+    with pytest.raises(S.Refused, match='does not mint: other-worker/model-tariff.cny.json$'):
+        S.add_service(old, tree['ca'], tree['params'], 'other-worker')
+    assert not (old / 'app/secrets/other-worker').exists()
+
+
 def test_add_service_reuses_the_principals_token_when_it_already_has_one(tree, tmp_path, monkeypatch):
     """One token per principal, as generate makes it: a principal that already holds a token under another file keeps it."""
     import shutil

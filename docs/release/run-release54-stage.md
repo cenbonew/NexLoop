@@ -144,8 +144,9 @@ python3 <检出>/scripts/deploy/stage_secrets.py add-service --out <树> --ca-di
   sudo stat -c '%n %u:%g %a' "$NEXLOOP_ROOT/secrets/world-glossary-translator" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"
   ```
 
-  - 预期：两行 sha256 相同（也等于树的 `manifest.json` 里这一项的 sha256）；目录 `10001:10001 700`，文件 `10001:10001 600`。不同说明 Agent Host 原件已不是仓库这一版，停下交调度员，不往下做。
+  - 预期：两行 sha256 相同（也等于树的 `manifest.json` 里这一项的 sha256）；目录 `10001:10001 700`，文件 `10001:10001 600`。不同时按下一条处理。
   - 只读 Agent Host 的文件，不改它和它所在目录的属主或权限。
+  - 如果 Host 原件与仓库的 `TARIFF` 不同（负责人在 stage 上改过价），以 Host 原件为准：`sudo install -o 10001 -g 10001 -m 0600 "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"` 覆盖副本，再重跑上面两条核对；不要改仓库的 `TARIFF`。调度员 10-29 已核实 stage 上两者一致（`579297c25f29…`）。
   - 以后换价目版本时，两份要一起更新并重新核对 sha256；否则机翻按旧价记账。写进交接记录。
 - **同步到 DATA_HOST 的 `$RUN`**（register 读的是 `$RUN` 下的树），做法同 run-release53-54 S6 第 6 步。
 
