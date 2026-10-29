@@ -220,11 +220,17 @@ def test_doctor_deploy_gate_runs_every_check_and_fails_on_a_missing_input(pki, s
                                   'names': ['127.0.0.1']}],
                 'dsn_files': [{'name': 'api', 'path': private('api.dsn', dsn_text)}]}
     gate_compose = delivery_profile_files(app_compose(), tmp_path / 'delivery')
-    gate_compose['secrets']['host_model_tariff']['file'] = str(tmp_path / 'secrets/agent-host/model-tariff.cny.json')  # rendered under this root
+    secrets_root = secret_tree(tmp_path / 'secrets')
+    tariff = (ROOT / 'deploy/configuration/model-tariffs/deepseek-flash.cny.v1.json').read_bytes()
+    for service in ('agent-host', 'world-glossary-translator'):  # the original and the translator's copy, the same bytes
+        (secrets_root / service).mkdir(mode=0o700, exist_ok=True)
+        (secrets_root / service / 'model-tariff.cny.json').write_bytes(tariff)
+        (secrets_root / service / 'model-tariff.cny.json').chmod(0o600)
+    gate_compose['secrets']['world_glossary_translator_tariff']['file'] = str(secrets_root / 'world-glossary-translator/model-tariff.cny.json')
     host_config = private('agent-host.json', json.dumps(json.loads((ROOT / 'deploy/stage/agent-host.runtime-config.example.json').read_text())))
     spec = {'host_role': 'app', 'stage_env': str(stage), 'connection_budget': str(ROOT / 'deploy/stage/connection-budget.v1.json'),
             'running': private('running.json', running()), 'inventory_before': private('before.json', before), 'inventory_after': private('after.json', after),
-            'secret_root': str(secret_tree(tmp_path / 'secrets')), 'compose_json': private('compose.json', gate_compose), 'tls_spec': private('tls.json', tls_spec),
+            'secret_root': str(secrets_root), 'compose_json': private('compose.json', gate_compose), 'tls_spec': private('tls.json', tls_spec),
             'roles_database_url_file': private('roles.dsn', pg), 'disabled_roles': ['nexloop_owner'], 'agent_host_config': host_config}
     from nexloop_eios.doctor import main
     sys.argv = ['nexloop-doctor', '--deploy-gate', private('gate.json', spec)]
@@ -234,7 +240,7 @@ def test_doctor_deploy_gate_runs_every_check_and_fails_on_a_missing_input(pki, s
     assert {'guard_workers_exact', 'running_processes_registered', 'port_bindings', 'planned_ports_free_before', 'application_roles_unprivileged',
             'secret_distribution', 'real_dispatch_closed', 'existing_services_unchanged', 'tls_certificates', 'tls_dsn_verify_full',
             'agent_host_concurrency', 'glossary_tariff_copy_matches'} <= set(out['checks'])
-    assert out['details']['glossary_tariff_copy'] == 'translator_reads_original'
+    assert out['details']['glossary_tariff_copy'] == 'sha256_equal'
     text = json.dumps(out)
     assert s['APP_HOST_ADDR'] not in text and str(pki) not in text and 'data.stage.invalid' not in text
     spec.pop('running')
@@ -298,15 +304,18 @@ def test_the_glossary_tariff_copy_must_match_the_agent_hosts_tariff(tmp_path):
     assert result(check(compose)) == (False, 'sha256_differs')
     copy_path.write_bytes(tariff)
     assert result(check(compose)) == (True, 'sha256_equal')
-    # The example Compose mounts the original itself: no copy to drift. A tariff elsewhere, or none, fails.
+    # The example Compose mounts the translator's own copy (world_glossary_translator_tariff), compared by its full path (S15).
     example = app_compose()
-    assert result(check(example)) == (False, 'translator_tariff_elsewhere')  # the example's root is not this secret_root (S15: full paths)
+    assert result(check(example)) == (False, 'translator_tariff_elsewhere')  # the example's root is not this secret_root
+    example['secrets']['world_glossary_translator_tariff']['file'] = '/elsewhere/world-glossary-translator/model-tariff.cny.json'  # same last parts
+    assert result(check(example)) == (False, 'translator_tariff_elsewhere')
+    example['secrets']['world_glossary_translator_tariff']['file'] = str(copy_path)
+    assert result(check(example)) == (True, 'sha256_equal')
+    # Mounting the original itself leaves no copy to drift.
+    command = example['services'][deploy_checks.TRANSLATOR]['command']
+    command[command.index('--tariff-file') + 1] = '/run/secrets/host_model_tariff'
     example['secrets']['host_model_tariff']['file'] = str(root / 'agent-host/model-tariff.cny.json')
     assert result(check(example)) == (True, 'translator_reads_original')
-    example['secrets']['host_model_tariff']['file'] = '/elsewhere/agent-host/model-tariff.cny.json'  # the same last two parts
-    assert result(check(example)) == (False, 'translator_tariff_elsewhere')
-    example['secrets']['host_model_tariff']['file'] = str(root / 'agent-host/model-tariff.cny.json')
-    command = example['services'][deploy_checks.TRANSLATOR]['command']
     command[command.index('--tariff-file') + 1] = '/run/secrets/embedding_tariff'
     assert result(check(example)) == (False, 'translator_tariff_elsewhere')
     del command[command.index('--tariff-file'):command.index('--tariff-file') + 2]
