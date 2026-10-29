@@ -46,6 +46,12 @@ def _utc(value):
     return parsed
 
 
+def _gloss(value):
+    from nexloop_eios.world_glossary import valid_gloss
+    if not valid_gloss(value):raise ValueError('gloss')
+    return value
+
+
 def _id(pattern):
     def check(value):
         if type(value) is not str or not pattern.fullmatch(value):raise ValueError('identifier')
@@ -292,6 +298,10 @@ OPERATIONS={
     'switch_remediation':{'paused':_bool,'reason':_reason},
     # NX-057 R2: owner-only; a rule the breaker held is released (it generates again from the next failure).
     'release_remediation_rule':{'rule_id':_id(re.compile(r'[a-z][a-z0-9_]{0,63}')),'reason':_reason},
+    # World-model glossary (0374, owner only): exactly kind, identifier and gloss ('' = English only); tenant and world from the session.
+    'set_world_glossary':{'kind':lambda v:v if v in ('section','object_type','property','relation','event_type','function','action') else (_ for _ in ()).throw(ValueError('kind')),
+        'identifier':_id(re.compile(r'[A-Za-z][A-Za-z0-9_. -]{0,199}')),
+        'gloss':_gloss},
     # Extraction dead letters (0355, owner only): requeue or dismiss one dead-lettered claim-extraction job.
     'resolve_extraction_dead_letter':{'task_id':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}')),
         'disposition':lambda v:v if v in ('requeue','dismiss') else (_ for _ in ()).throw(ValueError('disposition')),'reason':_reason},

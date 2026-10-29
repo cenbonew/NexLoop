@@ -39,7 +39,8 @@ table inet nexloop_stage {
     ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __DATA_HOST_ADDR__ tcp dport __PG_PORT__ accept
     ip saddr __EFFECT_EGRESS_CIDR__ ip daddr __ENTERPRISE_ENDPOINT_ADDR__ tcp dport __ENTERPRISE_ENDPOINT_PORT__ accept
     ip saddr __EFFECT_EGRESS_CIDR__ ct state new drop
-    # G-CLAIM-EGRESS: the claim workers' own namespace (__CLAIM_EGRESS_CIDR__; claim-extraction-worker, claim-matcher, the only
+    # G-CLAIM-EGRESS: the claim workers' own namespace (__CLAIM_EGRESS_CIDR__; claim-extraction-worker, claim-matcher and the
+    # world-glossary-translator (the same model file, world-model glossary 2026-10-29), the only
     # model credential holders besides the Agent Host, and the recall indexer calling the embedding endpoint) reaches DATA_HOST's
     # PostgreSQL and its own model allowlist (CLAIM_MODEL_PROVIDER_ALLOWLIST, default MODEL_PROVIDER_ALLOWLIST) on 443 only;
     # never Valkey, never another DATA_HOST port, nothing else.

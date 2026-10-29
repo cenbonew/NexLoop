@@ -51,14 +51,16 @@ def peak(admin,seconds):
 def test_background_services_stay_within_their_declared_connections(deployment,admin,tmp_path):
     d=deployment;d['apply']()
     baseline=peak(admin,1)
-    allowed={s:BUDGET[s]['pool_max']+BUDGET.get(s+'-launcher',{}).get('pool_max',0) for s in B.SERVICES}
+    # ONE_SHOT services (world-model glossary, --once from a timer) take the operations reserve, not the application budget.
+    services=[s for s in B.SERVICES if s not in B.ONE_SHOT]
+    allowed={s:BUDGET[s]['pool_max']+BUDGET.get(s+'-launcher',{}).get('pool_max',0) for s in services}
     measured={}
-    for service in B.SERVICES:
+    for service in services:
         with running(d,tmp_path/service,[service]):
             measured[service]=peak(admin,4)-baseline
-    with running(d,tmp_path/'all',list(B.SERVICES)):
+    with running(d,tmp_path/'all',services):
         together=peak(admin,8)-baseline
     report={'baseline':baseline,'measured_peak':measured,'declared':allowed,'measured_together':together,'declared_total':sum(allowed.values())}
     print('NX031-D7-MEASURED',json.dumps(report,sort_keys=True))
-    assert all(1<=measured[s]<=allowed[s] for s in B.SERVICES),report
+    assert all(1<=measured[s]<=allowed[s] for s in services),report
     assert together<=sum(allowed.values()),report

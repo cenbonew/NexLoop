@@ -9,7 +9,7 @@ section), the gate reads the files itself. Writes into a new directory (0700, fi
   before.json     --before (the first deployment's inventory, preferred) or a fresh `inventory.py --phase before`
   after.json      `inventory.py --phase after`
   running.json    `running_snapshot.py`
-  compose.json    `docker compose ... config --format json`
+  compose.json    `docker compose ... --profile world-glossary config --format json`
   simulation-compose.json  only when NEXLOOP_ROOT/config/compose.simulation.yaml exists (ADR-037, L6 review 2.1): the simulation
                   project rendered with --profile simulation; the gate then checks it against the budget's simulation section (and fails
                   when the project runs without it)
@@ -119,6 +119,11 @@ def _write(path, data):
         out.write(data)
 
 
+# L6 S16: the world-glossary translator is a profile service (a timer runs it); rendered with its profile, the gate sees which tariff
+# it mounts (deploy_checks.glossary_tariff_copy). Rendering only: nothing is started.
+RENDERED_PROFILES = ('--profile', 'world-glossary')
+
+
 def _run(argv, **kw):
     done = subprocess.run(argv, capture_output=True, text=True, **kw)
     if done.returncode:
@@ -142,7 +147,7 @@ def assemble(a):
         _run([*inventory, '--phase', 'before', '--out', str(gate / 'before.json')])
     _run([*inventory, '--phase', 'after', '--out', str(gate / 'after.json')])
     _run([sys.executable, str(checkout / 'scripts/deploy/running_snapshot.py'), '--project', PROJECT, '--out', str(gate / 'running.json')])
-    compose_text = _run([*compose_cmd, 'config', '--format', 'json'])
+    compose_text = _run([*compose_cmd, *RENDERED_PROFILES, 'config', '--format', 'json'])
     _write(gate / 'compose.json', compose_text)
     simulation = root / 'config/compose.simulation.yaml'
     if simulation.exists():
