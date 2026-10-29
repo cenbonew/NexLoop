@@ -61,9 +61,9 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
     owners = {}
     for name, spec in services.items():
         if name not in ('app-net', 'agent-host', 'agent-link-relay', 'action-worker', 'webchat-delivery', 'claim-extraction-worker',
-                        'claim-matcher', 'recall-indexer'):
+                        'claim-matcher', 'recall-indexer', 'world-glossary-translator'):
             assert spec['network_mode'] == 'service:app-net', name
-        if name in ('claim-extraction-worker', 'claim-matcher', 'recall-indexer'):
+        if name in ('claim-extraction-worker', 'claim-matcher', 'recall-indexer', 'world-glossary-translator'):
             # G-CLAIM-EGRESS: their own egress network (PG and the model allowlist only), never the application namespace; the
             # recall indexer joins them when it calls the embedding provider (owner 2026-10-18, option B).
             assert 'network_mode' not in spec and list(spec['networks']) == ['claim_egress'], name
@@ -76,11 +76,17 @@ def test_every_service_is_hardened_and_holds_only_its_own_secrets(compose):
             owners.setdefault(secret, set()).add(name)
     shared = {s for s, o in owners.items() if len(o) > 1}
     # The two API processes share their files, and so do the two relays (dispatcher 2026-10-13: same configuration, own vaults).
-    assert shared <= SHARED | {'pg_ca'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}} \
+    # The extraction model file is also the world-glossary translator's (the owner shares the key, 2026-10-29); it stays in its directory.
+    assert shared <= SHARED | {'pg_ca', 'claim_extraction_worker_model', 'host_model_tariff'} | {s for s in owners if s.startswith('api_') and owners[s] == {'api-1', 'api-2'}} \
         | {s for s in owners if s.startswith('message_relay_') and owners[s] == {'message-relay', 'message-relay-2'}}, shared
     assert set(services['agent-host']['secrets']) == {'host_cert', 'host_key', 'host_transport_key', 'guard_ca', 'host_guard_key', 'host_runtime_config', 'host_model_configuration', 'host_model_tariff', 'host_model_key'}
     # Model credentials only where a model is called; channel provider configuration only in the action worker.
-    assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker'} and owners['claim_matcher_model'] == {'claim-matcher'}
+    # The world-glossary translator uses the extraction worker's model file (the owner shares the key, 2026-10-29), never its DSN.
+    assert owners['claim_extraction_worker_model'] == {'claim-extraction-worker', 'world-glossary-translator'} and owners['claim_matcher_model'] == {'claim-matcher'}
+    assert set(services['world-glossary-translator']['secrets']) == {'world_glossary_translator_dsn', 'world_glossary_translator_pg_client_cert',
+        'world_glossary_translator_pg_client_key', 'world_glossary_translator_credential', 'signing_key', 'pg_ca', 'claim_extraction_worker_model',
+        'host_model_tariff'}
+    assert services['world-glossary-translator']['profiles'] == ['world-glossary'] and '--once' in services['world-glossary-translator']['command']
     # The embedding key only where embeddings are made; the tariff (no secret value) shared by those two.
     assert owners['recall_indexer_embedding'] == {'recall-indexer'} and owners['claim_matcher_embedding'] == {'claim-matcher'}
     assert owners['embedding_tariff'] == {'recall-indexer', 'claim-matcher'}

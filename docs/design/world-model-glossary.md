@@ -255,3 +255,13 @@ returning revision;
 5. **模型配置共用**：用 claim-extraction 的模型 key（model.env），但 PG 身份独立（§3.2）。
    - 每日条数上限设得低：每租户每天 50 条，每轮 10 条；
    - 成本按 §3.2 的“限额与成本”记账。
+
+## 7. 实现与设计的差异（实现时发现，r2 之后）
+
+1. **服务的 gate Action**：签名服务端口沿用 claim feed（0069）的模式，必须经一个 Action 资源授权。所以机翻主体有且只有一条授权 `nexloop.world_glossary.translate:1` execute，写在 service-grants 里；它不是发布的 Action 定义，与 `nexloop.claim.extract` 相同，不计入 register 的 Action 数。register 仍是 `(20, 129, 2)`，主体 26，凭据文件 35。
+2. **关系的 kind**：正向名和反向名都用 `relation` 一个 kind。两者是不同的字符串，词表 v1 也把它们放在同一组；`relation_inverse` 不再单列。API 形状不变：关系仍返回 `inverse_gloss` 和 `inverse_gloss_source`。
+3. **全角括号**：词表 v1 里有 4 条带全角括号（如“金额（最小单位）”）。人工译文允许全角括号，ASCII 括号不允许；机翻译文两种括号都不允许。
+4. **常驻改为定时运行**：应用的 PG 连接预算已用满（60/60），机翻服务不常驻。它用 `--once` 由定时器拉起，运行时占 1 个连接，计在运维保留里，同 sim-setup。compose 里的服务放在 profile `world-glossary` 下，预算标签为 `none`；`connection_budget.required_services` 不要求它。本条需调度员确认（10-29 已提问，先按此实现）。
+5. **单价**：挂载 Agent Host 已有的 `host_model_tariff`（非秘密值），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
+6. **每日上限**：每租户每天 50 次，固定写在 SQL 端口里，客户端无法放宽；每轮 10 条，为客户端参数，SQL 端口最多给 10 条。
+7. **任务编号**：治理注册表要求 `source_task` 形如 `NX-0xx`，暂用 `NX-064`，请调度员给正式编号后统一替换。

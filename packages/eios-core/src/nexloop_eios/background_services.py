@@ -65,6 +65,9 @@ SERVICES={
     'outreach-sender':('Outreach Sender','nexloop_domain_worker'),
     'world-glossary-translator':('World Glossary Translator','nexloop_domain_worker'),
 }
+# World-model glossary (owner 2026-10-29): the translator is never long-running. A timer starts it with --once (one tick, one
+# connection while it runs), so it is counted in the operations reserve of max_connections, not in the application's 60.
+ONE_SHOT=('world-glossary-translator',)
 RELAY_CREDENTIALS=('route','source','planner','executor')
 # NX-024/025: the reevaluator's Role launch runs as these API-side service identities (each its own credential file).
 LAUNCH_CREDENTIALS=('source','planner','queue','executor')

@@ -326,3 +326,13 @@ def test_model_input_cuts_long_metadata():
     payload = json.loads(model_input({'kind': 'object_type', 'identifier': 'Consumer', 'owner_type': None, 'description': '长' * 500,
                                       'display_name': 'x' * 300}, {'Consumer': '客户'}))
     assert len(payload['description']) == CONTEXT_LIMIT and len(payload['display_name']) == CONTEXT_LIMIT
+
+
+def test_the_service_runs_once_from_its_own_files_and_is_outside_the_application_budget():
+    from nexloop_eios import background_services as B
+    from nexloop_eios import connection_budget
+    args = B._parser('world-glossary-translator').parse_args(['--database-url-file', 'd', '--signing-key-file', 's', '--service-credential-file', 'c',
+        '--artifact-root', 'a', '--world', 'real', '--model-env-file', 'm', '--tariff-file', str(TARIFF), '--once'])
+    assert args.once and args.pool_max == B.POOL_MAX and str(args.tariff_file) == str(TARIFF)
+    assert 'world-glossary-translator' in B.ONE_SHOT and 'world-glossary-translator' not in connection_budget.required_services()
+    assert load_tariff(None, model='deepseek-flash') is None and load_tariff(TARIFF, model='deepseek-flash')['currency'] == 'CNY'
