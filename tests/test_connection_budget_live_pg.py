@@ -9,6 +9,8 @@ import os
 import subprocess
 import sys
 import time
+
+import pytest
 from pathlib import Path
 
 from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
@@ -95,13 +97,17 @@ def test_a_one_shot_run_holds_one_connection_from_the_operations_reserve(deploym
             root=tmp_path/service;root.mkdir();(root/'artifacts').mkdir(mode=0o700)
             args=argv(d,root,service)+['--model-env-file',str(root/'model.env')];(root/'model.env').write_text('MODEL_PROVIDER=\n')
             child=subprocess.Popen([sys.executable,'-c',STUB_ENTRY,service,*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-            top=0
+            top=0;deadline=time.monotonic()+60
             while child.poll() is None:
+                if time.monotonic()>deadline:
+                    child.kill();child.wait(timeout=30);pytest.fail('one-shot run still running after 60 s')
                 top=max(top,admin.execute(SAMPLE).fetchone()[0]-baseline);time.sleep(0.02)
             out,err=child.communicate(timeout=30)
             summary=json.loads(out.splitlines()[-1])
             print('S26-ONE-SHOT-MEASURED',service,json.dumps({'baseline':baseline,'peak':top,'summary':summary},sort_keys=True))
             assert child.returncode==0 and summary['translated']>=1 and summary['failed']==0,(out,err)
-            assert top==1 and top<=connection_budget.OPERATIONS_RESERVE,top  # one connection, from the operations reserve
+            # The bound is what matters: never more than one connection. A 20 ms sample may miss a short hold, so no lower bound
+            # from sampling; that the run used PostgreSQL at all is shown by its translations (each one a port call).
+            assert top<=1<=connection_budget.OPERATIONS_RESERVE,top
     finally:
         ROLES.clear();ROLES.update(original)
