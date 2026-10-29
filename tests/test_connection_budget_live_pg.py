@@ -11,9 +11,11 @@ import sys
 import time
 from pathlib import Path
 
+from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
 from nexloop_eios import background_services as B
+from psycopg.types.json import Jsonb
 from test_background_services_pg import ROLES, argv
-from test_service_grants_pg import deployment  # noqa: F401
+from test_service_grants_pg import TENANT,deployment  # noqa: F401
 
 ROOT=Path(__file__).resolve().parents[1]
 BUDGET={s['name']:s for s in json.loads((ROOT/'deploy/stage/connection-budget.v1.json').read_text())['services']}
@@ -64,3 +66,42 @@ def test_background_services_stay_within_their_declared_connections(deployment,a
     print('NX031-D7-MEASURED',json.dumps(report,sort_keys=True))
     assert all(1<=measured[s]<=allowed[s] for s in services),report
     assert together<=sum(allowed.values()),report
+
+
+# S26: a ONE_SHOT service is measured on its own: one --once run against a stub model (no network), sampled until it exits.
+STUB_ENTRY='''import sys,time
+from nexloop_eios import background_services as B
+class Stub:
+    provider,model_id,last_usage='test','stub-model',{'prompt_tokens':10,'completion_tokens':2}
+    def complete(self,system_prompt,user_payload):
+        time.sleep(0.2);return '{"gloss": "\\u6d4b\\u8bd5\\u540d\\u79f0"}'
+B.LazyModelProvider._resolve=lambda self:Stub()
+sys.exit(B.main_for(sys.argv[1],sys.argv[2:]))'''
+
+
+def test_a_one_shot_run_holds_one_connection_from_the_operations_reserve(deployment,admin,tmp_path):
+    from nexloop_eios import connection_budget
+    d=deployment;d['apply']()
+    assert B.ONE_SHOT and not set(B.ONE_SHOT)&set(BUDGET) and not set(B.ONE_SHOT)&set(connection_budget.required_services())
+    original=dict(ROLES);ROLES['world-glossary-translator']=('world_glossary_translator','nexloop_domain_worker')
+    try:
+        # One object type for the translator to gloss (the same synthetic Consumer as test_background_services_pg).
+        schema=ObjectTypeDefinition(type_name='Consumer',version=1,title_property='display_name',
+            properties=(PropertyDefinition(property_name='display_name',value_type=PropertyValueType.STRING),))
+        admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',1,%s)",
+            (TENANT,Jsonb(schema.model_dump(mode='json'))))
+        baseline=peak(admin,1)
+        for service in B.ONE_SHOT:
+            root=tmp_path/service;root.mkdir();(root/'artifacts').mkdir(mode=0o700)
+            args=argv(d,root,service)+['--model-env-file',str(root/'model.env')];(root/'model.env').write_text('MODEL_PROVIDER=\n')
+            child=subprocess.Popen([sys.executable,'-c',STUB_ENTRY,service,*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            top=0
+            while child.poll() is None:
+                top=max(top,admin.execute(SAMPLE).fetchone()[0]-baseline);time.sleep(0.02)
+            out,err=child.communicate(timeout=30)
+            summary=json.loads(out.splitlines()[-1])
+            print('S26-ONE-SHOT-MEASURED',service,json.dumps({'baseline':baseline,'peak':top,'summary':summary},sort_keys=True))
+            assert child.returncode==0 and summary['translated']>=1 and summary['failed']==0,(out,err)
+            assert top==1 and top<=connection_budget.OPERATIONS_RESERVE,top  # one connection, from the operations reserve
+    finally:
+        ROLES.clear();ROLES.update(original)
