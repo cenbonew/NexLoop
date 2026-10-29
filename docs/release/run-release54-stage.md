@@ -147,6 +147,7 @@ python3 <检出>/scripts/deploy/stage_secrets.py add-service --out <树> --ca-di
   - 预期：两行 sha256 相同（也等于树的 `manifest.json` 里这一项的 sha256）；目录 `10001:10001 700`，文件 `10001:10001 600`。不同时按下一条处理。
   - 只读 Agent Host 的文件，不改它和它所在目录的属主或权限。
   - 如果 Host 原件与仓库的 `TARIFF` 不同（负责人在 stage 上改过价），以 Host 原件为准：`sudo install -o 10001 -g 10001 -m 0600 "$NEXLOOP_ROOT/secrets/agent-host/model-tariff.cny.json" "$NEXLOOP_ROOT/secrets/world-glossary-translator/model-tariff.cny.json"` 覆盖副本，再重跑上面两条核对；不要改仓库的 `TARIFF`。调度员 10-29 已核实 stage 上两者一致（`579297c25f29…`）。
+  - 覆盖之后，副本的 sha256 与 `<树>/manifest.json` 里这一项记的值（仓库价）不再一致。`stage_secrets.py` 没有更新树里单个文件的入口，所以树不改：把 Host 原件的新 sha256 和覆盖时间记入 S6 证据，并写进交接记录。之后的 `check` 仍按树核对，结果有效（树里这一项本身没变）；**以后任何从树重装 `world-glossary-translator/` 的操作，都会把副本装回仓库价，装完必须重复这一步覆盖和核对**。门禁的 `glossary_tariff_copy` 比较的是 APP_HOST 上的两份，以它为准。
   - 以后换价目版本时，两份要一起更新并重新核对 sha256；否则机翻按旧价记账。写进交接记录。
 - **同步到 DATA_HOST 的 `$RUN`**（register 读的是 `$RUN` 下的树），做法同 run-release53-54 S6 第 6 步。
 
