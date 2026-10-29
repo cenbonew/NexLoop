@@ -287,13 +287,17 @@ returning revision;
 
 ### 8.2 运维保留 7 的峰值
 
-`OPERATIONS_RESERVE = 7`（`connection_budget.py`，ADR-037），给“管理、CI、备份、一次性的 sim-setup”用。仓库里没有逐项清单，下面按 `deploy/stage/systemd` 下各单元实际打开的 DSN 来数，都没有在 stage 实测，算是保守的上界。
+`OPERATIONS_RESERVE = 7`（`connection_budget.py`，ADR-037），给“管理、CI、备份、一次性的 sim-setup”用。
+
+**一次快照**（调度员 10-29 08:2x +0800 在 stage 上只读查询 `pg_stat_activity`，按角色计）：domain_worker 17、api 11、action_worker 3、identity 2、bootstrap 2（含这次只读查询本身），后台进程 8；`max_connections` 80，`superuser_reserved_connections` 3。当时运维侧实际只占 bootstrap 2。这只是非备份、非迁移时段的一次快照；**峰值出现在 02:00 的备份窗口或迁移窗口，没有实测过**。
+
+仓库里没有逐项清单，下面按 `deploy/stage/systemd` 下各单元实际打开的 DSN 估一个保守的上界。
 
 | 占用方 | 时间 | 同时连接数 |
 |---|---|---|
 | journal（`nexloop-backup journal`，recorder DSN） | 每分钟 00 秒 | 1 |
 | file-backup（`file_backup_run.py`，recorder DSN） | 每 15 分钟 | 1 |
-| host-health 探针 | 每分钟 15 秒 | 1（按它写 PG 计；如果它经 API 写，则为 0） |
+| host-health 探针（hostssl DSN 直连 PG，`nexloop_host_recorder_app_host`，调度员 10-29 确认） | 每分钟 15 秒 | 1 |
 | pg-diff / pg-full（recorder 1 + pgBackRest 备份连接 1） | 每天 02:00 | 2 |
 | relation-read-gaps（DATA_HOST，metrics DSN） | 每天 03:40 | 1 |
 | runtime-worker 的 `ExecStartPre` doctor | 只在服务启动时 | 1，短暂 |
@@ -302,7 +306,7 @@ returning revision;
 
 - **定时任务的最坏重叠**：02:03 前后，pg-diff 2 + journal 1 + file-backup 1 + host-health 1 + world-glossary 1 = **6**。
 - **人工操作**：迁移和 sim-setup 都按运行单在维护窗口里做，同时最多 1 个会话，峰值 7，不超过运维保留。
-- **约束写进运行单**：人工迁移、sim-setup 和 02:00 的 PG 备份不能同时进行（它们原本就分开做），并且做迁移时先停掉 `nexloop-world-glossary.timer`。这样即使人工会话开 2 个连接，峰值也是 6 − 1 + 2 = 7。
+- **约束写进运行单**（调度员 10-29 接受）：人工迁移、sim-setup 和 02:00 的 PG 备份不能同时进行（它们原本就分开做）；迁移前先 `systemctl stop nexloop-world-glossary.timer` 并等正在跑的那一次结束，迁移后再 start。这样即使人工会话开 2 个连接，峰值也是 6 − 1 + 2 = 7。
 - **数据库也有硬上限**：除运维保留外，`max_connections` 80 − superuser 保留 3 − 应用 60 − 模拟 10 = 7，超出时新连接被 PG 拒绝，不会挤占应用的 60 个。
 
 ### 8.3 监测

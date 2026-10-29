@@ -29,6 +29,22 @@ python3 scripts/deploy/stage_secrets.py add-service --out "$NEXLOOP_ROOT/secrets
 
 照常执行迁移（0374）。迁移只新增文件，不改已发布的迁移。
 
+以后每次迁移（timer 装好之后）都加两步：
+
+1. 迁移前停掉 timer，并等正在跑的那一次结束：
+   ```bash
+   sudo systemctl stop nexloop-world-glossary.timer
+   ```
+   ```bash
+   while systemctl is-active --quiet nexloop-world-glossary.service; do sleep 5; done
+   ```
+2. 迁移后再启动：
+   ```bash
+   sudo systemctl start nexloop-world-glossary.timer
+   ```
+
+第一次上线时 timer 还没装，这两步不需要。
+
 ## 4. 发布词表 v1
 
 ```bash
@@ -55,7 +71,7 @@ python3 scripts/deploy/world_glossary_apply.py --bootstrap-dsn-file "$BOOTSTRAP_
 2. 安装 `deploy/stage/systemd/nexloop-world-glossary.{service,timer}.example`：去掉 `.example` 后缀，按实际路径填写，然后 `systemctl daemon-reload`，再 `systemctl enable --now nexloop-world-glossary.timer`。timer 落在每小时的 03、13……分，`flock` 保证同一时间只有一个实例。
 3. host-health：在 APP_HOST 的安装配置 `timers` 里加上 `world-glossary`，重跑 `host_health_install.sh`（幂等）；告警规则发布 v22（`alert_rules_apply.py`）。必须先装好 timer，再加这一项，否则会按 fail closed 在 30 分钟后报 `timer_stale_world_glossary`。
 4. 运维约束：
-   - 做迁移或 sim-setup 前，先 `systemctl stop nexloop-world-glossary.timer`，做完再启动；
+   - 做迁移或 sim-setup 前，按第 3 节停掉 timer 并等当前一次结束，做完再启动；
    - 不在 02:00 的 PG 备份窗口里做人工操作。
 
 ## 6. 验收
