@@ -87,7 +87,20 @@
   "glossary": {
     "manifest_version": 1,
     "sections": {
-      "Object Type": "对象类型"
+      "Action": "动作",
+      "Event Type": "事件类型",
+      "Function": "函数",
+      "Graph": "关系图",
+      "Interface": "接口",
+      "Link": "关系",
+      "Object": "对象",
+      "Object Set": "对象集",
+      "Object Type": "对象类型",
+      "Object View": "对象视图",
+      "Payload Property": "载荷属性",
+      "Property": "属性",
+      "Shared Property": "共享属性",
+      "Table": "表格"
     }
   }
 }
