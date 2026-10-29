@@ -15,6 +15,7 @@ import {StatusBadge,Time} from '../ui';
 import {Card,EmptyState,IdText,KeyValue,shorten} from '../kit';
 import {kindOf} from '../api';
 import {SchemaGraph} from '../graph/SchemaGraph';
+import {Term,glossText,sectionText,useSections,useWorldGlosses} from '../Gloss';
 
 const shortId=(id:string)=>shorten(id);  // C1: the kit's head…tail
 /** Where the workbench already has a page for an object of this type (its content, with its own READ checks). */
@@ -39,7 +40,6 @@ export function PropertyCell({p,expanded=false}:{p:PropertyValue;expanded?:boole
 export function propertyColumns(rows:{properties:PropertyValue[]}[]):string[]{
   const names:string[]=[];for(const r of rows)for(const p of r.properties)if(!names.includes(p.name))names.push(p.name);return names;
 }
-const viaText=(via:string)=>via.startsWith('property:')?`Property ${via.slice(9)}`:`Link ${via}`;
 
 export type InstanceState={type:string|null;after:string|null;object:string|null};
 
@@ -49,23 +49,24 @@ export function Instances({types,state,onState}:{types:WorldObjectType[];state:I
     <div className="field field-narrow"><label htmlFor="world-instance-type">Object Type</label>
       <select id="world-instance-type" value={type??''} onChange={e=>onState({type:e.target.value||null,after:null,object:null})}>
         <option value="">请选择 Object Type</option>
-        {types.map(t=><option key={t.name} value={t.name}>{t.name}（{t.objects} 个）</option>)}</select></div>
+        {types.map(t=><option key={t.name} value={t.name}>{glossText(t.name,t.gloss)} · {t.objects} 个</option>)}</select></div>
     {type?<InstanceList type={type} state={state} onState={onState}/>:<EmptyState kind="empty" subject="选中的 Object Type" next="先选择一个 Object Type：列出标识、版本、更新时间和你能读取的属性值；你没有读取权限的 Object 只计数，不显示。"/>}
   </div>;
 }
 
 function InstanceList({type,state,onState}:{type:string;state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
+  const glosses=useWorldGlosses();
   const page=useQuery({queryKey:['workbench','objects',type,state.after??''],queryFn:()=>readObjects(type,state.after??undefined)});
   if(page.isPending)return <EmptyState kind="loading" subject="Object"/>;
   if(page.isError)return kindOf(page.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些 Object"/>:<EmptyState kind="unavailable" subject="这些 Object" onRetry={()=>void page.refetch()}/>;
   const p=page.data;
   return <div className={'world-instance-grid object-view'+(state.object?' object-view-detail':'')}>
     <div>
-      <p className="workbench-summary" role="status">{type} 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
+      <p className="workbench-summary" role="status"><Term id={type} gloss={glosses.type(type).gloss} source={glosses.type(type).gloss_source}/> 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
       {p.items.length?<DataTable label={`${type} Object`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
         {label:'Object',main:true,cell:r=><button type="button" className="link" aria-pressed={r.object_id===state.object} title={r.object_id}
           onClick={()=>onState({object:r.object_id===state.object?null:r.object_id})}><code className="id-code">{shortId(r.object_id)}</code></button>},
-        ...propertyColumns(p.items).map(name=>({label:name,cell:(r:typeof p.items[number])=>{const v=r.properties.find(x=>x.name===name);return v?<PropertyCell p={v}/>:<span className="note">—</span>;}})),
+        ...propertyColumns(p.items).map(name=>({label:glossText(name,glosses.property(type,name).gloss),cell:(r:typeof p.items[number])=>{const v=r.properties.find(x=>x.name===name);return v?<PropertyCell p={v}/>:<span className="note">—</span>;}})),
         {label:'Schema 版本',num:true,cell:r=>`v${r.schema_version}`},{label:'修订',num:true,cell:r=>r.revision},
         {label:'更新时间',cell:r=><Time value={r.updated_at}/>}]}/>
         :p.invisible?<EmptyState kind="forbidden" subject="本页的 Object" reason={`${p.invisible} 个 Object 你没有读取权限`}/>:<EmptyState kind="empty" subject="这一页的 Object"/>}
@@ -93,7 +94,7 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
       {values.isPending?<EmptyState kind="loading" subject="属性" compact/>
         :values.isError?(kindOf(values.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些属性" compact/>:kindOf(values.error)==='not_found'?<EmptyState kind="empty" subject="这个 Object" reason="已不存在" compact/>
           :<EmptyState kind="unavailable" subject="Property 值" onRetry={()=>void values.refetch()}/>)
-        :layout?<ViewLayout view={layout} properties={values.data.properties}/>
+        :layout?<ViewLayout view={layout} properties={values.data.properties} type={type}/>
         :values.data.properties.length?<div className="object-properties"><KeyValue label="属性值" items={values.data.properties.map(v=>({key:v.name,value:<PropertyCell p={v} expanded/>}))}/></div>
         :<EmptyState kind="empty" subject="Property" compact/>}
       {page?<p><a href={routePath(page)}>在{type==='Consumer'?'客户详情':'承诺详情'}中查看内容</a></p>:null}
@@ -108,7 +109,9 @@ function ObjectDrawer({type,id,row,onOpen,onClose}:{type:string;id:string;row:{s
 
 /** The Object View's sections in order, each property as the object read gave it (a restricted or unreadable one stays withheld:
  * the View only places it); the title property's value above them; readable properties the View does not list under 其他 Property. */
-export function ViewLayout({view,properties}:{view:ObjectView;properties:PropertyValue[]}){
+export function ViewLayout({view,properties,type}:{view:ObjectView;properties:PropertyValue[];type?:string}){
+  const glosses=useWorldGlosses();
+  const name=(n:string)=>{const g=type?glosses.property(type,n):null;return <Term id={n} gloss={g?.gloss} source={g?.gloss_source}/>;};
   const by=new Map(properties.map(p=>[p.name,p]));
   const listed=new Set(view.sections.flatMap(s=>s.fields));
   const rest=properties.filter(p=>!listed.has(p.name));
@@ -117,10 +120,10 @@ export function ViewLayout({view,properties}:{view:ObjectView;properties:Propert
     {title?<p className="object-view-title" data-title-property={title.name}><PropertyCell p={title}/></p>:null}
     {view.sections.map(s=><section key={s.name} className="object-view-section" aria-labelledby={`view-${s.name}`}>
       <h3 id={`view-${s.name}`}>{s.title}</h3>
-      <dl className="object-properties">{s.fields.map(f=>{const p=by.get(f);return <div key={f}><dt>{f}</dt><dd>{p?<PropertyCell p={p} expanded/>
+      <dl className="object-properties">{s.fields.map(f=>{const p=by.get(f);return <div key={f}><dt>{name(f)}</dt><dd>{p?<PropertyCell p={p} expanded/>
         :<StatusBadge text="不在当前 Schema" tone="neutral" code="not_in_schema"/>}</dd></div>;})}</dl></section>)}
     {rest.length?<details className="object-view-rest"><summary>其他 Property（{rest.length}）</summary>
-      <dl className="object-properties">{rest.map(v=><div key={v.name}><dt>{v.name}</dt><dd><PropertyCell p={v} expanded/></dd></div>)}</dl></details>:null}
+      <dl className="object-properties">{rest.map(v=><div key={v.name}><dt>{name(v.name)}</dt><dd><PropertyCell p={v} expanded/></dd></div>)}</dl></details>:null}
     <p className="note">按 Object View <code>{view.stable_name}</code> v{view.version} 排列；只决定位置和顺序，不改变谁能看到哪个 Property。</p>
   </div>;
 }
@@ -147,10 +150,13 @@ export function neighborhoodGraph(v:ObjectNeighbors){
 
 function Neighborhood({value,onOpen}:{value:ObjectNeighbors;onOpen:(type:string,id:string)=>void}){
   if(!value.groups.length)return <EmptyState kind="empty" subject="关联的 Object" compact/>;
-  const graph=neighborhoodGraph(value);
+  const graph=neighborhoodGraph(value);const glosses=useWorldGlosses();const sections=useSections();
+  const typeTerm=(n:string)=><Term id={n} gloss={glosses.type(n).gloss} source={glosses.type(n).gloss_source}/>;
+  const via=(v:string)=>v.startsWith('property:')?<>{sectionText('Property',sections)} <Term id={v.slice(9)} gloss={glosses.property(value.type_name,v.slice(9)).gloss}/></>
+    :<>{sectionText('Link',sections)} <Term id={v} gloss={glosses.link(v).gloss} source={glosses.link(v).gloss_source}/></>;
   return <>
     <ul className="world-neighbors">{value.groups.map((g:NeighborGroup,i)=><li key={i}>
-      <span>{g.direction==='outgoing'?'→':'←'} {g.type_name} · {viaText(g.via)}</span>
+      <span>{g.direction==='outgoing'?'→':'←'} {typeTerm(g.type_name)} · {via(g.via)}</span>
       {g.items.length?<ul>{g.items.map(item=><li key={item.object_id}><button type="button" className="link" title={item.object_id} onClick={()=>onOpen(item.type_name,item.object_id)}>
         <code className="id-code">{shortId(item.object_id)}</code></button></li>)}</ul>:null}
       {g.invisible?<StatusBadge text={`不可见 ${g.invisible} 个`} tone="limited" code="invisible"/>:null}

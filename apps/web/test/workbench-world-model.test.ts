@@ -10,11 +10,11 @@ import {LABEL_PX,MIN_LABEL_PX,MIN_SCALE,SchemaGraph,fitScale} from '../src/workb
 import {WorldModel,worldQuery} from '../src/workbench/pages/WorldModel';
 import {parseRoute,routePath,PAGES} from '../src/workbench/route';
 
-const example=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model.valid.json',import.meta.url),'utf8'));
+const example=JSON.parse(readFileSync(new URL('../../../packages/contracts/examples/workbench-world-model-v2.valid.json',import.meta.url),'utf8'));
 
 test('the parser accepts the contract example and refuses a withheld property that carries more than its name',()=>{
   const m=worldModel(example);
-  expect(m.object_types[0].properties[1]).toEqual({name:'spending_power',withheld:true});
+  expect(m.object_types[0].properties[1]).toEqual({name:'spending_power',withheld:true,gloss:null,gloss_source:null});
   const leaky=structuredClone(example);leaky.object_types[0].properties[1].value_type='string';
   expect(()=>worldModel(leaky)).toThrow(WorkbenchError);
   const bad=structuredClone(example);bad.relation_types[0].cardinality='some';
@@ -61,24 +61,27 @@ function render(query?:Record<string,string>,section?:string){
 test('the summary: one card per concept in EIOS order with its count, the Event Types, EIOS terms, no edit control',()=>{
   const html=render();
   expect(html).toContain('企业世界模型');expect(html).toContain('只读');
-  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+)(?:（real）)? (\d+)，查看"/g)].map(m=>m[1]);
+  const cards=[...html.matchAll(/aria-label="([A-Za-z ]+)（[^）]+）(?: · real)? (\d+)，查看"/g)].map(m=>m[1]);
   expect(cards).toEqual(['Object Type','Object','Property','Link','Function','Action']);
-  expect(html).toContain('aria-label="Object Type 2，查看"');expect(html).toContain('<strong class="metric-value">42</strong>');
-  expect(html).toContain('>Event Type</h2>');expect(html).toContain('<span class="metric-label">Event Type</span><strong class="metric-value">0</strong>');expect(html).toContain('暂无已发布的 Event Type');expect(html).not.toContain('<svg');
+  expect(html).toContain('aria-label="Object Type（对象类型） 2，查看"');expect(html).toContain('<strong class="metric-value">42</strong>');
+  expect(html).toContain('<h2 id="world-event-types"><span class="term"><span class="term-id term-word">Event Type</span><span class="term-gloss">（事件类型）</span></span></h2>');
+  expect(html).toContain('<span class="metric-label">Event Type（事件类型）</span><strong class="metric-value">0</strong>');expect(html).toContain('暂无已发布的 Event Type');expect(html).not.toContain('<svg');
   expect(html).not.toMatch(/新建|编辑|删除/);
-  // Entities are EIOS English everywhere; the view switch is not on this page.
+  // Owner 2026-10-29: the EIOS English terms stay, each with its Chinese in full-width parentheses (it replaced the English-only rule).
   for(const page of [html,render(undefined,'object_types'),render(undefined,'properties'),render(undefined,'links'),render(undefined,'actions'),render(undefined,'functions')]){
-    expect(page).not.toMatch(/事件类型|实例|对象类型|关系类型|>表格<|>关系图</);}
+    expect(page).toMatch(/<span class="term-gloss">（[^）<]+）/);expect(page).not.toMatch(/（）|实例|关系类型/);}
   expect(html).not.toContain('aria-label="查看方式"');
 });
 
 test('each concept page: its EIOS title, its own table; Table / Graph only under the Object Type title',()=>{
   const types=render(undefined,'object_types');
-  expect(types).toContain('<h1 id="workbench-page-title">Object Type</h1>');
-  expect(types).toMatch(/<\/h1><p class="workbench-lead">[^<]+<\/p><\/div><\/header><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式"><button type="button" aria-pressed="true">Table<\/button><button type="button" aria-pressed="false">Graph<\/button><\/div>/);
+  const term=(id:string,gloss:string)=>`<span class="term"><span class="term-id term-word">${id}</span><span class="term-gloss">（${gloss}）</span></span>`;
+  expect(types).toContain(`<h1 id="workbench-page-title">${term('Object Type','对象类型')}</h1>`);
+  expect(types).toMatch(/<\/header><div class="workbench-data"[^>]*><div class="segmented" role="group" aria-label="查看方式">/);
+  expect(types).toContain(`<button type="button" aria-pressed="true">${term('Table','表格')}</button><button type="button" aria-pressed="false">${term('Graph','关系图')}</button></div>`);
   expect(types).toContain('aria-label="Object Type"');expect(types).not.toContain('<svg');
   const props=render(undefined,'properties');
-  expect(props).toContain('<h1 id="workbench-page-title">Property</h1>');expect(props).not.toContain('查看方式');
+  expect(props).toContain(`<h1 id="workbench-page-title">${term('Property','属性')}</h1>`);expect(props).not.toContain('查看方式');
   expect(props).toContain('spending_power');expect(props).toContain('data-code="withheld"');expect(props).toContain('负责人限制的属性组：只显示名称');
   const actions=render(undefined,'actions');
   expect(actions).toContain('nexloop.service.request');expect(actions).toContain('>有</span>');expect(actions).not.toContain('查看方式');
@@ -89,8 +92,8 @@ test('the graph view: one focusable button per type, labelled edges, the focused
   const html=render({view:'graph',focus:'Consumer'},'object_types');
   expect(html).toContain('<svg');expect(html).toContain('aria-label="Object Type 关系图：2 个 Object Type，1 条 Link"');
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
-  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer 详情"');expect(html).toContain('→ Conversation：consumer_conversation（1:N）');
-  expect(html).toContain('<button type="button" aria-pressed="true">Graph</button>');expect(html).not.toContain('data-empty-edges');
+  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('→ <span class="term"><code class="term-id">Conversation</code></span>：<span class="term"><code class="term-id">consumer_conversation</code></span> · 1:N');
+  expect(html).toContain('<button type="button" aria-pressed="true"><span class="term"><span class="term-id term-word">Graph</span><span class="term-gloss">（关系图）</span></span></button>');expect(html).not.toContain('data-empty-edges');
 });
 
 test('a relation from a type to itself: both ends on the node border (outside the box) and an arrowhead like any edge',()=>{
