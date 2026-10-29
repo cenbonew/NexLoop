@@ -144,11 +144,16 @@ def run(dsn,*,fn,tenant,resolve,revokers,own_revoke,cycles,asserters=4,deny_wind
     threads=[threading.Thread(target=revoker,args=r) for r in revokers]
     workers=[threading.Thread(target=asserter,args=(i,)) for i in range(asserters)]
     for t in workers+threads:t.start()
-    for t in threads:t.join(600)
+    # Every revoker completes its fixed cycles before the asserters stop: the run is bounded by the
+    # cycles, not by a time window (CI check 197: a 600 s join ended a loaded run at 179 of 200).
+    deadline=time.monotonic()+1800  # one deadline for all revokers, not 1800 s each
+    for t in threads:t.join(max(0,deadline-time.monotonic()))
+    unfinished=sum(t.is_alive() for t in threads)
     if duration:time.sleep(duration)
     stop.set()
     for t in workers:t.join(120)
     assert not errors,errors[:3]
+    assert not unfinished,('revokers did not complete their cycles within 1800 s',unfinished)
     violations=[];allowed=0;assertions=0;stale=0
     for mode,resolved_at,deadline,out in records:
         for row in out:
@@ -219,7 +224,7 @@ def test_action_memo_never_serves_a_revoked_or_expired_allow(action,mutation):
     if mutation=='no_trigger':
         assert summary['own_write_statements']>=100 and violations==[],violations[:5]
     elif mutation is None:
-        assert summary['revocations']>=200 and summary['allowed']>0 and summary['own_write_statements']>0 and summary['expiry_statements']>0
+        assert summary['revocations']==200 and summary['allowed']>0 and summary['own_write_statements']>0 and summary['expiry_statements']>0
         assert violations==[],violations[:5]
     else:
         assert violations,('mutation not detected',mutation,summary)
@@ -272,7 +277,7 @@ def test_derived_message_memo_never_serves_a_revoked_deleted_or_moved_allow(mess
     finally:undo()
     print('NX049_MESSAGE_STRESS',mutation,summary)
     if mutation is None:
-        assert summary['revocations']>=600 and summary['allowed']>0 and summary['own_write_statements']>0 and summary['expiry_statements']>0
+        assert summary['revocations']==600 and summary['allowed']>0 and summary['own_write_statements']>0 and summary['expiry_statements']>0
         assert violations==[],violations[:5]
     else:
         assert violations,('mutation not detected',mutation,summary)
