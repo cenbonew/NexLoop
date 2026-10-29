@@ -469,8 +469,10 @@ def add_service(out, ca_dir, params_file, service, *, compose_app=COMPOSE_APP, c
         raise Refused(f'{service} mounts no secret file in the Compose file')
     if any(f['host'] == 'app' and f['service'] == service for f in manifest['files']):
         raise Refused(f'{service} already has files in this tree (reissue-role re-issues a DSN)')
-    if any(e['kind'] not in ADD_KINDS or e['path'].split('/', 1)[1] in ('provider-credential', 'webchat-provider-credential') for e in wanted):
-        raise Refused(f'{service} mounts a file of a kind add-service does not mint: ' + ', '.join(sorted(e['path'] for e in wanted if e['kind'] not in ADD_KINDS)))
+    def mintable(e):  # the tariff copy only for the glossary translator; any other service mounting it is refused
+        return e['kind'] in ADD_KINDS and (e['kind'] != 'host_model_tariff' or service == 'world-glossary-translator')
+    if any(not mintable(e) or e['path'].split('/', 1)[1] in ('provider-credential', 'webchat-provider-credential') for e in wanted):
+        raise Refused(f'{service} mounts a file of a kind add-service does not mint: ' + ', '.join(sorted(e['path'] for e in wanted if not mintable(e))))
     _params(params_file)  # the tree's private params must still be valid
     secrets_root = out / 'app' / 'secrets'
     store = out / 'management' / 'service-secrets.json'
