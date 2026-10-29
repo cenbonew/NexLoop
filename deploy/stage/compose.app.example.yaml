@@ -229,7 +229,7 @@ services:
               "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
               --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
               --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
-              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required,
+              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, "${RELAY_CONTEXT_STRATEGY:-recent_plus_required}",
               --semantic-read-pool-max, "1"]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
@@ -246,7 +246,7 @@ services:
               "${SIGNING_KEY_ID:?signing key id}", --artifact-root, /var/lib/nexloop/artifacts, --route-credential-file, /run/secrets/message_relay_route_credential,
               --source-credential-file, /run/secrets/message_relay_source_credential, --planner-credential-file, /run/secrets/message_relay_planner_credential,
               --executor-credential-file, /run/secrets/message_relay_executor_credential, --vault-root, /var/lib/nexloop/relay-vault,
-              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, recent_plus_required,
+              --run-profile-file, /etc/nexloop/relay-run-profile.json, --context-strategy, "${RELAY_CONTEXT_STRATEGY:-recent_plus_required}",
               --semantic-read-pool-max, "1"]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
