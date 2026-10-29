@@ -188,7 +188,7 @@ def worker_command(st, name, compose, config_dir, tmp, variables=None, overlay=N
         # One iteration of the loop: the python command between `python -m` and the first `;`.
         script = args[0]
         for key, value in variables.items():
-            script = re.sub(r'\$\{' + key + r'(:\?[^}]*)?\}', value, script)
+            script = re.sub(r'\$\{' + key + r'(:[?-][^}]*)?\}', value, script)
         loop = re.search(r'python -m (\S+) ([^;]*);', script)
         if loop is None:
             raise Skip('shell loop without one python command')
@@ -204,7 +204,7 @@ def worker_command(st, name, compose, config_dir, tmp, variables=None, overlay=N
         argv = [str(script), *entry[1:]]
     for a in args:
         for key, value in variables.items():
-            a = re.sub(r'\$\{' + key + r'(:\?[^}]*)?\}', value, a)
+            a = re.sub(r'\$\{' + key + r'(:[?-][^}]*)?\}', value, a)
         # Unset optional deployment variables take their compose default (${VAR:-default}).
         a = re.sub(r'\$\{[A-Z_][A-Z0-9_]*:-([^}]*)\}', r'\1', a)
         if '${' in a:
