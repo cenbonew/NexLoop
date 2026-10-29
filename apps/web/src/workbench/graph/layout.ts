@@ -11,7 +11,8 @@
  *    every type in the free cell nearest its placed neighbours, avoiding cells where an edge would run through another box or a
  *    box would sit on an edge; parts one under another; types without any edge in a grid below.
  */
-export type GraphNode={id:string;label:string;sub?:string};
+/** `gloss`: the Chinese of the label (owner 2026-10-29); shown as the node's second line, the `sub` details then only on hover. */
+export type GraphNode={id:string;label:string;sub?:string;gloss?:string|null};
 export type GraphEdge={id:string;from:string;to:string;label?:string};
 export type Placed={id:string;x:number;y:number};
 export type Layout={nodes:Placed[];width:number;height:number;
