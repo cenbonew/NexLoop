@@ -296,3 +296,34 @@ def test_the_stage_compose_gives_the_sender_no_channel_credential():
     assert all(not str(v).startswith('${NEXLOOP_ROOT:?root}/secrets') for v in service['volumes'])
     community = yaml.safe_load((root / 'deploy/community/compose.test.yaml').read_text())['services']['outreach-sender']
     assert community['command'] == ['outreach-sender'] and not community.get('secrets')
+
+
+def test_the_relay_context_strategy_is_one_compose_variable_of_both_relays_recent_plus_required_by_default():
+    """run-s6-stage-prep §7 (A1): both message relays name their Context strategy through RELAY_CONTEXT_STRATEGY from the private compose
+    env, default recent_plus_required; nothing else reads it, and an override reaches both relays and only them."""
+    text = (STAGE / 'compose.app.example.yaml').read_text()
+    reference = '${RELAY_CONTEXT_STRATEGY:-recent_plus_required}'
+    relays = {'message-relay', 'message-relay-2'}
+    assert text.count(reference) == 2 and text.count('RELAY_CONTEXT_STRATEGY') == 2
+    env = STAGE / 'compose.app.env.example'
+    assert 'RELAY_CONTEXT_STRATEGY=recent_plus_required' in env.read_text().splitlines()
+
+    def strategies(rendered):
+        found = {}
+        for name, service in rendered['services'].items():
+            command = [str(c) for c in (service.get('command') or [])]
+            if '--context-strategy' in command:
+                found[name] = command[command.index('--context-strategy') + 1]
+        return found
+    for overrides, want in (({}, 'recent_plus_required'), ({'RELAY_CONTEXT_STRATEGY': ''}, 'recent_plus_required'),
+                            ({'RELAY_CONTEXT_STRATEGY': 'ontology_hybrid'}, 'ontology_hybrid')):
+        assert strategies(yaml.safe_load(interpolate(text, env, overrides))) == dict.fromkeys(relays, want)
+    raw = yaml.safe_load(text)
+    without = {k: v for k, v in raw['services'].items() if k not in relays}
+    assert 'RELAY_CONTEXT_STRATEGY' not in json.dumps(without)
+    docker = shutil.which('docker')
+    if docker:
+        run = subprocess.run([docker, 'compose', '-f', 'compose.app.example.yaml', '--env-file', 'compose.app.env.example', 'config', '--format', 'json'],
+                             cwd=STAGE, capture_output=True, text=True, timeout=60, env={**os.environ, 'RELAY_CONTEXT_STRATEGY': 'ontology_hybrid'})
+        assert run.returncode == 0, run.stderr[-2000:]
+        assert strategies(json.loads(run.stdout)) == dict.fromkeys(relays, 'ontology_hybrid')
