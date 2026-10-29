@@ -263,6 +263,15 @@ returning revision;
 3. **全角括号**：词表 v1 里有 4 条带全角括号（如“金额（最小单位）”）。人工译文允许全角括号，ASCII 括号不允许；机翻译文两种括号都不允许。
 4. **常驻改为定时运行**：应用的 PG 连接预算已用满（60/60），机翻服务不常驻，详见第 8 节（调度员 10-29 选 A）。
 5. **单价**：挂载 Agent Host 单价文件的一份副本 `world_glossary_translator_tariff`（非秘密值；Host 的那份属 10020、0600，机翻以 10001 运行读不到，所以部署时复制到机翻自己的 secret 目录，sha256 与原件一致，见 release 54 执行单 S6），每次调用按 `configured_rate` 记入 `runtime.nexloop_cost_entries`。没有单价文件时记 `unpriced`，只记 token 和条数。
+   - **单价副本的门禁**（L6 S13，release 54）：如果机翻服务挂的是自己目录下的副本 `secrets/world-glossary-translator/model-tariff.cny.json`，`nexloop-doctor --deploy-gate` 的 `glossary_tariff_copy_matches` 会核对它和原件 `secrets/agent-host/model-tariff.cny.json` 的 sha256 是否一致。
+     - 两份文件都按各自目录的属主 uid 读取（原件 10020，副本 10001，都是 0600；门禁以 root 运行），读取规则与其他服务秘密相同。
+     - 任何一份缺失、读不了或 sha256 不同，都判失败。
+     - 只要渲染后的 Compose 里有这个服务，或者 `secrets/world-glossary-translator/` 目录存在，就视为已配置。
+     - 两者都没有时判通过，details 写明 `translator_not_configured`。
+     - 服务直接挂原件时没有副本会过期，判通过，details 写 `translator_reads_original`。
+     - 挂的是别的文件或没挂单价，判失败。
+     - 选 deploy-gate 而不选 host-health：deploy-gate 本来就以 root 按各服务的 uid 读秘密并对照渲染后的 Compose，而且在 promote 之前就能拦下；host-health 只看运行中的容器。另外机翻服务不常驻，不在 host-health 的期望容器里。
+     - 加了这一项后，app 门禁多一个检查。stage 的预期从 **20/21** 变为 **21/22**（自 R55 起；gate 渲染 compose 时带 `--profile world-glossary`），details 必须是 `sha256_equal`，唯一不通过的仍是 `real_dispatch_closed`。
 6. **每日上限**：每租户每天 50 次，固定写在 SQL 端口里，客户端无法放宽；每轮 10 条，为客户端参数，SQL 端口最多给 10 条。
 7. **任务编号**：治理注册表要求 `source_task` 形如 `NX-0xx`，暂用 `NX-064`，请调度员给正式编号后统一替换。
 

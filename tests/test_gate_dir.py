@@ -184,3 +184,10 @@ def test_the_agent_host_configuration_is_read_by_the_host_uid_and_refusals_carry
     assert gate(agent_host_config=str(tmp_path / 'absent'), agent_host_config_uid=me) == (False, 'file_missing')
     spec = G.gate_spec(STAGE / 'deploy-gate.app.example.json', gate_dir=tmp_path / 'g', nexloop_root='/srv/nexloop', release_checkout='/opt/c')
     assert spec['agent_host_config_uid'] == 10020
+
+
+def test_the_gate_renders_the_compose_with_the_world_glossary_profile():
+    """L6 S16: the translator is a profile service; without its profile the rendered Compose would not show which tariff it mounts."""
+
+    assert G.RENDERED_PROFILES == ('--profile', 'world-glossary')
+    assert "*RENDERED_PROFILES, 'config', '--format', 'json'" in (ROOT / 'scripts/deploy/gate_dir.py').read_text()
