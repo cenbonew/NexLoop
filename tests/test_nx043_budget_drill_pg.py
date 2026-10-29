@@ -65,9 +65,11 @@ def test_a_drill_registration_is_frozen_with_its_flag_audited_and_noticed(uncali
 @pytest.mark.parametrize('change', [
     {'budget': {'model_cny': 2, 'incentive_cny': 0}},   # above 1 CNY
     {'budget': {'model_cny': 0, 'incentive_cny': 0}},   # no cap: nothing to exhaust
-    {'ends_at': soon(120)},                              # longer than an hour
+    {'ends_at': 120},                                    # longer than an hour (minutes from when the test runs)
 ])
 def test_a_drill_outside_its_conditions_is_refused(uncalibrated, db, change):
+    # An end is given in minutes and turned into a time here, not at collection: a full CI round runs this long after import.
+    change = {k: soon(v) if k == 'ends_at' else v for k, v in change.items()}
     refused('budget_drill_not_allowed', register, db, drill(uncalibrated, **change))
 
 

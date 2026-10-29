@@ -5,6 +5,7 @@ import secrets
 import subprocess
 import pytest
 import yaml
+from support.ci_results import results_output
 from nexloop_eios.compose_bootstrap import initialize_test_profile
 from test_compose_bootstrap import settings
 
@@ -57,12 +58,16 @@ def test_compose_client_render_has_no_host_ports_admin_leak_or_env_loading(tmp_p
     assert config['services']['postgres']['environment']['PGDATA']=='/var/lib/postgresql/18/docker'
 
 
-def test_build_context_contains_only_wheel_lock_export_and_docker_files():
+def test_build_context_contains_only_wheel_lock_export_and_docker_files(request):
     import importlib.util
     spec=importlib.util.spec_from_file_location("prepare_community_build",ROOT/"scripts/prepare_community_build.py")
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     prepare=module.prepare
-    output=ROOT/'.ci-results'/('community-contract-'+secrets.token_hex(12))
+    with results_output(request,'community-contract-') as output:  # removed afterwards unless this test fails
+        check_build_context(prepare,output)
+
+
+def check_build_context(prepare,output):
     report=prepare(output)
     assert not report['container_built']
     assert {p for p in report['sha256'] if not p.startswith('web/')}=={'.dockerignore','Dockerfile','requirements.txt','nexloop_eios_core-0.1.0-py3-none-any.whl'}

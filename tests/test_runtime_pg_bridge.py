@@ -86,11 +86,13 @@ def pi_process(root,command,socket_path,*,resume=False,mode='blocked'):
 
 
 def receive(events,name):
-    deadline=time.monotonic()+15
+    deadline=time.monotonic()+15;seen=[]
     while time.monotonic()<deadline:
-        item=events.get(timeout=max(.01,deadline-time.monotonic()))
+        try:item=events.get(timeout=max(.01,deadline-time.monotonic()))
+        except queue.Empty:break
         if item['event']==name:return item
-    raise AssertionError('actual Pi event unavailable')
+        seen.append(item['event'])
+    raise AssertionError(f'actual Pi event {name} unavailable within 15 s; received {seen}')
 
 
 def test_actual_pg_guard_pi_sigkill_owner_reopen(authority,tmp_path):
@@ -132,13 +134,19 @@ def test_actual_pg_revoke_stops_pi_tool_dispatch(authority,admin,tmp_path):
     assert admin.execute('select count(*) from ontology.objects').fetchone()[0]==0
 
 
-@pytest.mark.parametrize('authority',[1],indirect=True)
+# The lease runs from the fixture's claim, so it has to cover the Node start and the start authorization
+# (over 1 s under CI load, when start itself was refused): 15 s, the same bound receive() gives each step, so a
+# lease lost before start can no longer be the cause. Expiry is then PG's own judgement, not a Python sleep.
+@pytest.mark.parametrize('authority',[15],indirect=True)
 def test_actual_pg_lease_expiry_stops_pi_tool_dispatch(authority,admin,tmp_path):
     guard,command,_,issued,_=authority;root=tmp_path/'runtime';root.mkdir(mode=0o700)
     with bridge(guard) as (path,calls):
         with pi_process(root,command,path) as (process,events,errors):
             receive(events,'accepted');receive(events,'generation_started')
-            time.sleep(1.1)
+            assert ('tool',False) not in calls
+            deadline=time.monotonic()+30
+            while not admin.execute('select lease_until<=clock_timestamp() from runtime.jobs where job_id=%s',(guard.task_id,)).fetchone()[0]:
+                assert time.monotonic()<deadline,'the task lease never expired by the PG clock';time.sleep(.05)
             process.stdin.write(json.dumps({'operation':'release'})+'\n');process.stdin.flush()
             assert receive(events,'authorization_denied')['operation']=='tool'
             assert ('tool',False) in calls

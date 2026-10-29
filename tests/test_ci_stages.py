@@ -42,10 +42,17 @@ exit 0
 ''')
         (bin_dir / tool).chmod(0o755)
 
-    def run(argv, fail_at='', fail_rc=3, trace=None):
+    # The pnpm build is a stand-in, so build-artifacts checks this minimal publishable web root, never a dist left in the checkout
+    # by an earlier real build (absent in a clean checkout; possibly unpublishable when present).
+    web_root = tmp_path / 'web-root'
+    web_root.mkdir()
+    (web_root / 'index.html').write_text('<!doctype html><title>stub</title>\n')
+
+    def run(argv, fail_at='', fail_rc=3, trace=None, root=ROOT, web=web_root):
         trace = trace or tmp_path / f'trace-{os.urandom(4).hex()}'
-        env = {'PATH': f'{bin_dir}:/usr/bin:/bin', 'TRACE': str(trace), 'FAIL_AT': str(fail_at), 'FAIL_RC': str(fail_rc), 'HOME': str(tmp_path)}
-        done = subprocess.run(['bash', *argv], cwd=ROOT, env=env, capture_output=True, text=True)
+        env = {'PATH': f'{bin_dir}:/usr/bin:/bin', 'TRACE': str(trace), 'FAIL_AT': str(fail_at), 'FAIL_RC': str(fail_rc), 'HOME': str(tmp_path),
+               'NEXLOOP_WEB_ROOT': str(web)}
+        done = subprocess.run(['bash', *argv], cwd=root, env=env, capture_output=True, text=True)
         lines = re.sub(r'/[^ \n]*/tmp\.[A-Za-z0-9]+', '<tmp>', trace.read_text()).splitlines() if trace.exists() else []
         return done.returncode, lines, done.stderr + done.stdout
     return run
@@ -87,7 +94,7 @@ def test_v3_runs_the_stage_scripts_in_the_order_of_scripts_ci_check():
 
 def test_the_gate_and_the_heavy_cases_run_in_their_own_stages_only(stubs):
     gate, heavy = shell_list('DEADLINE_GATE_TESTS'), shell_list('HEAVY_TESTS')
-    assert len(gate) == 4 and sum('test_agent_host_run_limit.py' in t for t in gate) == 2 and len(heavy) == 33
+    assert len(gate) == 4 and sum('test_agent_host_run_limit.py' in t for t in gate) == 2 and len(heavy) == 34
     _, whole, _ = stubs(['scripts/ci/check'])
     gate_run = next(line for line in whole if 'python-deadline-gate.xml' in line and 'pytest' in line)
     assert gate_run.startswith('GUARD=4 uv run --frozen pytest -q -p no:xdist ') and all(t in gate_run for t in gate)  # 4 guard processes
@@ -97,7 +104,7 @@ def test_the_gate_and_the_heavy_cases_run_in_their_own_stages_only(stubs):
     assert '-n 2 ' in heavy_run and all(t in heavy_run for t in heavy) and not any(t in heavy_run for t in gate)
     # Every id names collected tests (a stale id would silently select nothing).
     collected = subprocess.run([sys.executable, '-m', 'pytest', '--co', '-q', '-p', 'no:cacheprovider', *gate, *heavy], cwd=ROOT, capture_output=True, text=True)
-    assert collected.returncode == 0 and re.search(r'(\d+) tests? collected', collected.stdout).group(1) == '49', collected.stdout[-500:]
+    assert collected.returncode == 0 and re.search(r'(\d+) tests? collected', collected.stdout).group(1) == '50', collected.stdout[-500:]
 
 
 def test_moving_tests_between_grouped_suites_is_not_a_drop_but_losing_one_is():
@@ -218,3 +225,33 @@ def test_every_stage_prints_one_result_line_with_its_junit(stubs):
     assert code == 0 and [f[0] for f in found] == STAGES and all(f[1] == 0 and f[2] >= 0 for f in found)
     declared = {s['name']: ','.join(s.get('junit', [])) or '-' for s in ci.load_policy(ROOT / '.ci-policy', 4)['stages']['stages']}
     assert {f[0]: f[3] for f in found} == {n: declared[n] for n in STAGES}
+
+
+def test_build_artifacts_checks_the_test_web_root_in_a_checkout_without_a_dist(stubs, tmp_path):
+    """L6 I1: the stage is self-contained. In a checkout with no apps/web/dist it passes on the fixture's web root; with an
+    unpublishable dist left in the checkout it still checks the given root, and an unpublishable given root fails it."""
+    checkout = tmp_path / 'checkout'
+    (checkout / 'scripts').mkdir(parents=True)
+    import shutil
+    shutil.copytree(ROOT / 'scripts/ci', checkout / 'scripts/ci')
+    shutil.copy(ROOT / 'scripts/check_web_build.py', checkout / 'scripts/check_web_build.py')
+    stage = ['scripts/ci/stages/build-artifacts.sh']
+    assert not (checkout / 'apps/web/dist').exists()
+    rc, lines, out = stubs(stage, root=checkout)
+    assert rc == 0, out
+    assert lines == ['pnpm --filter @nexloop/web build', 'pnpm build:pi', 'pnpm --filter @nexloop/agent-host build']
+    assert '"publishable": true' in out
+
+    stale = checkout / 'apps/web/dist'
+    stale.mkdir(parents=True)
+    (stale / 'app.js.map').write_text('{}')  # no index.html, a source map: unpublishable
+    rc, _, out = stubs(stage, root=checkout)
+    assert rc == 0 and 'app.js.map' not in out, out
+
+    bad = tmp_path / 'bad-root'
+    bad.mkdir()
+    (bad / 'index.html').write_text('x')
+    (bad / '.env').write_text('x')
+    rc, lines, out = stubs(stage, root=checkout, web=bad)
+    assert rc == 1 and '.env: dotfile' in out and 'app.js.map' not in out, out
+    assert lines == ['pnpm --filter @nexloop/web build']  # stopped at the check

@@ -171,10 +171,12 @@ def test_kr_from_approved_definition_real_matured_only(env,admin):
     def observe(oid,num,den,mode,at):
         return env.control.record_observation(metric_id='renewal-rate',metric_version=1,observation_id=oid,numerator=num,denominator=den,
             occurred_at=at,data_mode=mode,source_ref='commerce:'+oid,evidence_refs=['evidence:'+oid])
-    old=NOW-timedelta(days=2)
+    # Times of this test, not of collection: a full CI round runs it long after import, and maturity is judged at its now.
+    now=datetime.now(UTC).replace(microsecond=0)
+    old=now-timedelta(days=2)
     observe('real-1','8','10','real',old)
     observe('test-1','10','10','test',old)
-    observe('fresh-1','0','10','real',NOW-timedelta(minutes=5))  # inside 1h maturity window
+    observe('fresh-1','0','10','real',now-timedelta(minutes=5))  # inside 1h maturity window
     assert observe('real-1','8','10','real',old)['replayed'] is True
     with pytest.raises(ControlDenied) as conflict:observe('real-1','9','10','real',old)
     assert conflict.value.reason=='observation_conflict'

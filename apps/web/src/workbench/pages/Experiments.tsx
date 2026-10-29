@@ -9,9 +9,9 @@
  * (start while registered, stop while started; registration while its id is not listed), so a write that did take effect closes its
  * control instead of offering a retry; otherwise the panel keeps 用同一请求重试 (the same Idempotency-Key).
  */
-import {useState} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {readExperiments,type Experiment} from '../api';
+import {readExperiments,type Experiment,type ExperimentGuardrails} from '../api';
 import {DataTable} from '../DataTable';
 import {Page} from './Page';
 import {StatusBadge,Time,beijingLocalToUtc,type Tone} from '../ui';
@@ -25,7 +25,16 @@ const STATUS_TONE:Record<Experiment['status'],Tone>={registered:'neutral',starte
 export const WORLD_TEXT:Record<string,string>={real:'真实',simulation:'仿真',shadow:'影子',test:'测试'};
 export const GUARD_TEXT:Record<string,string>={budget_exhausted:'预算用尽',ended:'到达结束时间',purpose_not_allowed:'沟通目的不再允许',
   reconciliation_anomaly:'对账异常超过阈值',refusal_rate:'拒绝或退订率超过阈值',twin_withdrawn:'孪生版本已撤回'};
-export const GUARDRAIL_TEXT:Record<string,string>={refusal_or_unsubscribe_rate_delta:'拒绝或退订率比对照组高出',reconciliation_anomalies:'对账异常数上限'};
+export const GUARDRAIL_TEXT:Record<keyof ExperimentGuardrails,string>={refusal_or_unsubscribe_rate_delta:'拒绝或退订率比对照组高出',reconciliation_anomalies:'对账异常',
+  stop_on_budget_exhausted:'预算用尽'};
+/** The detail's guardrail rows: the number as it is, the two fixed ones in words. */
+export function guardrailRows(g:ExperimentGuardrails):{key:string;value:ReactNode}[]{
+  const rows:{key:string;value:ReactNode}[]=[];
+  if(g.refusal_or_unsubscribe_rate_delta!==undefined)rows.push({key:GUARDRAIL_TEXT.refusal_or_unsubscribe_rate_delta,value:`${g.refusal_or_unsubscribe_rate_delta}（即停止）`});
+  if(g.reconciliation_anomalies!==undefined)rows.push({key:GUARDRAIL_TEXT.reconciliation_anomalies,value:'出现任何一条即停止'});
+  if(g.stop_on_budget_exhausted)rows.push({key:GUARDRAIL_TEXT.stop_on_budget_exhausted,value:'预算用尽即停止'});
+  return rows;
+}
 export const CALIBRATION_TEXT:Record<string,string>={passed:'已校准',failed:'校准未通过',uncalibrated:'未校准'};
 export const TWIN_STATUS_TEXT:Record<string,string>={published:'已发布',retired:'已退役',draft:'草稿'};
 export const CONCLUSION_TEXT:Record<string,string>={reported:'已出结论',not_reported:'样本不足，暂无结论'};
@@ -86,7 +95,7 @@ export function Detail({x}:{x:Experiment}){
         {key:'登记摘要',value:<IdText value={x.registration_digest}/>}]}/>
     </Card>
     <Card title="护栏">
-      {Object.keys(x.guardrails).length?<KeyValue label="护栏阈值" items={Object.entries(x.guardrails).sort().map(([k,v])=>({key:GUARDRAIL_TEXT[k]??'其他护栏',value:<span title={k}>{v}</span>}))}/>
+      {guardrailRows(x.guardrails).length?<KeyValue label="护栏" items={guardrailRows(x.guardrails)}/>
         :<p className="note">没有登记额外护栏；预算和对账异常护栏始终生效。</p>}
     </Card>
     <Card title="预算与分配">
@@ -161,14 +170,20 @@ export function registrationOf(d:Draft):{registration:Record<string,unknown>}|{m
 /** Preregistration: the fields, then one in-place confirmation (the registration is frozen once accepted). */
 export function Register({member,listed}:{member:Me;listed:string[]|null}){
   const [open,setOpen]=useState(false);const [d,setD]=useState<Draft>(EMPTY_DRAFT);
+  const trigger=useRef<HTMLButtonElement>(null);const heading=useRef<HTMLHeadingElement>(null);const was=useRef(false);
+  useEffect(()=>{if(open)heading.current?.focus();else if(was.current)trigger.current?.focus();was.current=open;},[open]);
   if(!offers(member,'register_experiment'))return null;
-  if(!open)return <button type="button" onClick={()=>setOpen(true)}>登记新实验</button>;
+  if(!open)return <button type="button" ref={trigger} aria-expanded={false} onClick={()=>setOpen(true)}>登记新实验</button>;
   const set=<K extends keyof Draft>(k:K)=>(v:Draft[K])=>setD({...d,[k]:v});
   const text=(k:keyof Draft,label:string,hint?:string,type='text')=><FormField id={'exp-'+k} label={label} hint={hint}>
     <input id={'exp-'+k} type={type} value={String(d[k])} onChange={e=>set(k)(e.target.value as never)}/></FormField>;
   const r=registrationOf(d);
   const taken=listed?.includes(d.experiment_id)??false;
-  return <section className="experiment-register" aria-label="登记新实验"><h2>登记新实验</h2>
+  return <section className="experiment-register" aria-label="登记新实验"
+    onKeyDown={e=>{if(e.key==='Escape'&&!e.defaultPrevented){e.preventDefault();setOpen(false);}}}>
+    <div className="experiment-register-head"><h2 ref={heading} tabIndex={-1}>登记新实验</h2>
+      <button type="button" className="btn-secondary" onClick={()=>setOpen(false)}>取消</button></div>
+    <p className="note">按 Esc 或“取消”关闭；已填内容保留到离开这个页面。</p>
     {text('experiment_id','实验编号','登记后不能修改')}
     <ChoiceGroup legend="阶段" name="exp-stage" value={d.stage} onChange={set('stage')}
       options={(Object.keys(STAGE_TEXT) as Experiment['stage'][]).map(k=>({value:k,label:STAGE_TEXT[k]}))}/>
@@ -188,6 +203,6 @@ export function Register({member,listed}:{member:Me;listed:string[]|null}){
       :<ConfirmedForm operation="register_experiment" member={member} trigger="登记" title="确认登记实验" withReason={false}
         impact={<>影响：登记内容冻结后不能修改；登记不等于开始，开始需要另行确认。如果结果未知：列表会自动刷新，先看这个编号是否已出现，出现就不要重试。</>}
         body={()=>({registration:r.registration})}/>}
-    <button type="button" className="btn-secondary" onClick={()=>setOpen(false)}>收起</button>
+    <button type="button" className="btn-secondary" onClick={()=>setOpen(false)}>取消</button>
   </section>;
 }

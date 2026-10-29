@@ -1251,8 +1251,11 @@ export const EXPERIMENT_STATUSES=['registered','started','stopped'] as const;
 export type StrategyRef={strategy_id:string;version:number};
 export type ExperimentTwin={twin_id:string;version:number;status:string|null;calibration:string|null};
 export type ExperimentReport={as_of:string;created_at:string;report_digest:string;conclusion:string|null;reason:string|null;candidate_matured:number;control_matured:number};
+/** nexloop-experiment-registration/1 guardrails: each optional, each with its own contract type (a rate delta in (0, 0.02], anomalies 0,
+ * stop on exhausted budget true); any other key is refused. */
+export type ExperimentGuardrails={refusal_or_unsubscribe_rate_delta?:number;reconciliation_anomalies?:0;stop_on_budget_exhausted?:true};
 export type Experiment={experiment_id:string;world:string;world_kind:string|null;stage:typeof EXPERIMENT_STAGES[number];hypothesis:string|null;
-  candidate:StrategyRef;control:StrategyRef;primary_metric:{key:string;direction:string}|null;guardrails:Record<string,number>;
+  candidate:StrategyRef;control:StrategyRef;primary_metric:{key:string;direction:string}|null;guardrails:ExperimentGuardrails;
   sample_size:{candidate:number;control:number}|null;budget:{model_cny:number;incentive_cny:number};ends_at:string|null;
   registration_digest:string;registered_at:string;status:typeof EXPERIMENT_STATUSES[number];started_at:string|null;stopped_at:string|null;
   stop_reason:string|null;stopped_by_guard:boolean;spent:{model_cny:number;incentive_cny:number};
@@ -1260,6 +1263,16 @@ export type Experiment={experiment_id:string;world:string;world_kind:string|null
 const EXPERIMENT_KEYS=['experiment_id','world','world_kind','stage','hypothesis','candidate','control','primary_metric','guardrails','sample_size','budget','ends_at',
   'registration_digest','registered_at','status','started_at','stopped_at','stop_reason','stopped_by_guard','spent','allocation','report','budget_drill','notice','twin'];
 function amount(value:unknown):number{if(typeof value!=='number'||!Number.isFinite(value)||value<0)throw new WorkbenchError('invalid');return value;}
+function guardrails(value:unknown):ExperimentGuardrails{
+  const o=object(value),out:ExperimentGuardrails={};
+  for(const [k,v] of Object.entries(o)){
+    if(k==='refusal_or_unsubscribe_rate_delta'){if(typeof v!=='number'||!Number.isFinite(v)||v<=0||v>0.02)throw new WorkbenchError('invalid');out[k]=v;}
+    else if(k==='reconciliation_anomalies'){if(v!==0)throw new WorkbenchError('invalid');out[k]=0;}
+    else if(k==='stop_on_budget_exhausted'){if(v!==true)throw new WorkbenchError('invalid');out[k]=true;}
+    else throw new WorkbenchError('invalid');
+  }
+  return out;
+}
 function strategyRef(value:unknown):StrategyRef{const o=object(value);return {strategy_id:text(o.strategy_id),version:count(o.version)};}
 function hex(value:unknown):string{const v=text(value);if(!hex64.test(v))throw new WorkbenchError('invalid');return v;}
 function experimentReport(value:unknown):ExperimentReport|null{
@@ -1270,11 +1283,11 @@ function experimentReport(value:unknown):ExperimentReport|null{
 }
 export function experimentRow(value:unknown):Experiment{
   const o=exactKeys(object(value),EXPERIMENT_KEYS);
-  const g=object(o.guardrails),b=object(o.budget),s=object(o.spent),a=object(o.allocation);
+  const b=object(o.budget),s=object(o.spent),a=object(o.allocation);
   const m=o.primary_metric===null?null:object(o.primary_metric),n=o.sample_size===null?null:object(o.sample_size),t=o.twin===null?null:object(o.twin);
   return {experiment_id:text(o.experiment_id),world:text(o.world),world_kind:maybeText(o.world_kind),stage:oneOf(o.stage,EXPERIMENT_STAGES),hypothesis:maybeText(o.hypothesis),
     candidate:strategyRef(o.candidate),control:strategyRef(o.control),primary_metric:m?{key:text(m.key),direction:text(m.direction)}:null,
-    guardrails:Object.fromEntries(Object.entries(g).map(([k,v])=>[k,amount(v)])),sample_size:n?{candidate:count(n.candidate),control:count(n.control)}:null,
+    guardrails:guardrails(o.guardrails),sample_size:n?{candidate:count(n.candidate),control:count(n.control)}:null,
     budget:{model_cny:amount(b.model_cny),incentive_cny:amount(b.incentive_cny)},ends_at:maybeText(o.ends_at),registration_digest:hex(o.registration_digest),
     registered_at:text(o.registered_at),status:oneOf(o.status,EXPERIMENT_STATUSES),started_at:maybeText(o.started_at),stopped_at:maybeText(o.stopped_at),
     stop_reason:maybeText(o.stop_reason),stopped_by_guard:flag(o.stopped_by_guard),spent:{model_cny:amount(s.model_cny),incentive_cny:amount(s.incentive_cny)},

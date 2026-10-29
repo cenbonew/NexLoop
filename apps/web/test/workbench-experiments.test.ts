@@ -1,5 +1,6 @@
 // Experiment space slice 1 (0370): the owner's experiments parsed strictly and shown as a list and one detail; states, the drill notice.
 import {createElement as h} from 'react';
+import {readFileSync} from 'node:fs';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {expect,test} from 'vitest';
@@ -69,4 +70,47 @@ test('an owner stop keeps the owner reason; an unknown guard code is not shown r
 test('batch 52: the lead matches the page - an owner registers experiments here, so it does not say read only',()=>{
   const html=render({experiments:[]});
   expect(html).not.toContain('（只读）');expect(html).toContain('在这里登记新实验');
+});
+
+// Stage walkthrough (release 53): the experiments list came back with all three contract guardrails and the page refused it as invalid.
+const stageShaped={...plain,experiment_id:'stage.shaped',budget_drill:false,world_kind:'simulation',
+  guardrails:{refusal_or_unsubscribe_rate_delta:0.02,reconciliation_anomalies:0,stop_on_budget_exhausted:true},
+  twin:{twin_id:'trial.service_consumer',version:1,status:'published',calibration:'uncalibrated'}};
+test('stage shape: 25 keys with the three contract guardrails parse; each guardrail is checked by its own type and unknown ones are refused',()=>{
+  expect(Object.keys(stageShaped)).toHaveLength(25);
+  const [x]=experiments({experiments:[stageShaped]});
+  expect(x.guardrails).toEqual({refusal_or_unsubscribe_rate_delta:0.02,reconciliation_anomalies:0,stop_on_budget_exhausted:true});
+  expect(experiments({experiments:[{...stageShaped,guardrails:{}}]})[0].guardrails).toEqual({});
+  for(const g of [{stop_on_budget_exhausted:false},{stop_on_budget_exhausted:'true'},{stop_on_budget_exhausted:1},{reconciliation_anomalies:1},
+    {reconciliation_anomalies:false},{refusal_or_unsubscribe_rate_delta:0},{refusal_or_unsubscribe_rate_delta:0.03},{refusal_or_unsubscribe_rate_delta:true},
+    {max_contacts:3},{refusal_or_unsubscribe_rate_delta:0.01,other:true}])
+    expect(()=>experiments({experiments:[{...stageShaped,guardrails:g}]})).toThrow(WorkbenchError);
+});
+
+test('the detail names the three guardrails in words; the boolean one reads 预算用尽即停止',()=>{
+  const [x]=experiments({experiments:[stageShaped]});
+  const html=renderToStaticMarkup(h(Detail,{x}));
+  expect(html).toContain('拒绝或退订率比对照组高出');expect(html).toContain('0.02（即停止）');
+  expect(html).toContain('对账异常');expect(html).toContain('出现任何一条即停止');
+  expect(html).toContain('预算用尽即停止');expect(html).not.toMatch(/>true<|>stop_on_budget_exhausted<|>reconciliation_anomalies</);
+  const list=render({experiments:[stageShaped,drill]});expect(list).toContain('aria-label="实验列表"');expect(list).not.toContain('服务器响应格式不符');
+});
+
+// L6: driven by the contract itself - nexloop-experiment-registration/1 (schema and its example), not only a hand-written fixture. The schema's
+// guardrail properties give each value (the consts, the delta's maximum); the example gives the registration fields the row repeats.
+test('contract-driven: every guardrail the registration schema allows, with its contract value, parses; the parser accepts exactly those keys',()=>{
+  const read=(p:string)=>JSON.parse(readFileSync(new URL('../../../packages/contracts/'+p,import.meta.url),'utf8'));
+  const schema=read('experiment-registration.schema.json'),example=read('examples/experiment-registration.valid.json');
+  const props=schema.properties.guardrails.properties as Record<string,{const?:unknown;maximum?:number}>;
+  expect(schema.properties.guardrails.additionalProperties).toBe(false);
+  const contractGuardrails=Object.fromEntries(Object.entries(props).map(([k,p])=>[k,'const' in p?p.const:p.maximum]));
+  expect(contractGuardrails.stop_on_budget_exhausted).toBe(true);
+  expect(Object.keys(contractGuardrails).sort()).toEqual(['reconciliation_anomalies','refusal_or_unsubscribe_rate_delta','stop_on_budget_exhausted']);
+  const fromExample={...stageShaped,experiment_id:example.experiment_id,stage:example.stage,world:example.world,hypothesis:example.hypothesis,
+    candidate:example.candidate,control:example.control,primary_metric:example.primary_metric,sample_size:example.sample_size,budget:example.budget,
+    ends_at:example.ends_at,guardrails:{...example.guardrails,...contractGuardrails}};
+  const [x]=experiments({experiments:[fromExample]});
+  expect(x.guardrails).toEqual(contractGuardrails);expect(x.experiment_id).toBe(example.experiment_id);
+  expect(experiments({experiments:[{...fromExample,guardrails:example.guardrails}]})[0].guardrails).toEqual(example.guardrails);
+  expect(()=>experiments({experiments:[{...fromExample,guardrails:{...contractGuardrails,not_in_contract:true}}]})).toThrow(WorkbenchError);
 });

@@ -32,6 +32,7 @@ HEAVY_TESTS=(
   'tests/test_relationship_context_v4.py::test_real_human_message_v4_bound_artifact[tail_statement_wait]'
   'tests/test_context_v6_pg.py::test_actual_pi_run_records_every_model_call_of_a_v6_run'
   'tests/test_role_context_v6_pg.py::test_actual_pi_role_run_on_v6_records_every_model_call'
+  'tests/test_context_v6_relationships_pg.py::test_v6_carries_v4_relationships_with_hypotheses_as_evidence_only'
   'tests/test_message_driven_delivery.py::test_two_user_messages_export_their_exact_body_and_replay_once'
   'tests/test_native_web_delivery.py::test_native_provider_event_exact_id_different_transport_runs_delivers_once'
   'tests/test_offering_runtime_pg.py::test_actual_https_scope_denial_is_bounded_current_read_no_receipt'

@@ -37,7 +37,7 @@ release 53 = 第 49 批的排练提交 5988b5be，它包含第 47、48 批。本
 
 | # | 前提 | 怎么核对 |
 |---|---|---|
-| P1 | 5988b5be 的 CI 通过，release 已构建、签名、封存 | `stage_release.py --step build`、`--step sign` 的 JSON 都是 ok；签名前它会核对提交在 main 上（第 49 批合入 main 之后才执行本单） |
+| P1 | 5988b5be 的 CI 通过，release 已构建、签名、封存 | `stage_release.py --step build`、`--step sign` 的 JSON 都是 ok；签名前它会核对提交在 main 上：main 头应是第 49 批合入后的 5988b5be（47b 与第 48 批已合入，此前 main 为 c7f00079） |
 | P2 | stage 当前是 release 52（迁移尾 0363），known_good 记录在案 | `ro "select max(version) from control.schema_migrations"` 返回 0363 |
 | P3 | 最近一次 pgBackRest 备份成功 | OPERATIONS §8a.2 |
 | P4 | stage 上已应用的版本：service-grants v20（v21 尚未 register）、stage-principals v5、workbench-roles v46、approval-policies revision 4、告警规则 v21 | register 前的 §8a.11a 差异核对会再核一次授权；审批策略看 `control.nexloop_approval_policy_publications` 的最大 `manifest_version`（4）；角色清单与告警规则以上次部署记录为准。任一项不符就停下，按实际版本重写受影响的步骤 |

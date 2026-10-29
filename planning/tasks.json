@@ -4442,6 +4442,18 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "rest-server 已纳入 DATA_HOST host-health；探针 LoadState 修正已部署（release 52，main 933bc1a2）。执行人：调度员；判定人：L6（代码审查 PASS）。",
         "recorded_at": "2026-10-28T09:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "dispatcher stage evidence log, post-R53 phase 1/3",
+        "summary": "E1 授权漂移检查 stage 结果 PASS（情况 (a)）：期望快照 6679 条，以 53af5efc 生成；check exit 0，match 0 missing / 0 extra，revision 0373；阳性对照 exit 1，报出的 missing 与 extra 正好是人为改动的两条；连接目标 nexloop_stage，角色 22=22；connection_target.py 以 c78c4e97 实跑 exit 0。执行者：调度员；判定者：L6。",
+        "recorded_at": "2026-10-29T08:13:41+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "dispatcher stage evidence log, post-R53 phase 2/3",
+        "summary": "E2 崩溃循环演练 stage 结果 PASS：10-28 23:09:02Z 起演练容器，RestartCount 5、状态 exited，restarts_1h 5；23:12:20Z crash_loop 触发，00:12:18Z resolved；现有 29 个容器无重启；无 host_unit_missing。执行者：调度员；判定者：L6。任务保持 in_progress：E3（定时产物新鲜度、每主机独立 recorder）尚无单独的 stage 验收记录；acceptance-tests.json 中没有映射到 NX-055 的 AT，故未改 AT 状态。",
+        "recorded_at": "2026-10-29T08:13:41+08:00"
       }
     ]
   },
@@ -4545,6 +4557,12 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "plan_reevaluator 的 remediation.plan:1（service-grants v19）的 stage 授权于 2026-10-28 经 NX-054 §8 第 6 步 register 生效，authority_revision 3197；此前 stage 实际停在 service-grants v17。REMEDIATION_ENABLED 仍为 false。执行人：调度员；判定人：L6。",
         "recorded_at": "2026-10-28T18:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "dispatcher stage evidence log, post-R53 phase 3/3",
+        "summary": "REM 补救启用 stage 结果 PASS：规则 v1（sha 00e1af95…）；10-28 23:06:28Z 部署层开关 REMEDIATION_ENABLED=true；4.4 无失败、无补救。执行者：调度员；判定者：L6。任务保持 in_progress：L6 I1 要求 24 小时内复查一次（负责人：调度员），复查后再判 done；acceptance-tests.json 中没有映射到 NX-057 的 AT，故未改 AT 状态。",
+        "recorded_at": "2026-10-29T08:13:41+08:00"
       }
     ]
   },
@@ -4771,6 +4789,26 @@
         "ref": "dispatcher 2026-10-28",
         "summary": "沿用 S7：依赖正式上线，S7 其余任务完成后，本任务单独保持开放（S7 是最后一个阶段，无后续阶段等它收口）。实施时执行人：调度员；判定人：L6。上一条 note 中的判定人（调度员）指“拆分”这件事。",
         "recorded_at": "2026-10-28T02:42:46Z"
+      }
+    ]
+  },
+  {
+    "id": "NX-064",
+    "stage": "S6",
+    "title": "效应请求时限（Host 2 秒）在高负载下超时的产品处理与按 p99 定值",
+    "dependencies": [],
+    "modules": [
+      "M17",
+      "M23"
+    ],
+    "deliverable": "stage 上测得效应请求 p99；按 p99 加余量重定时限，或定下超时后的产品行为（重试、降级、告警），必要时另写 ADR；补一个高负载下的回归（优先复用 NX-031 的并发矩阵）",
+    "status": "not_started",
+    "evidence": [
+      {
+        "type": "note",
+        "ref": "adr/ADR-029b-effect-tool-envelope-reuse.md §3a; docs/implementation/ci-flake-audit.md (l5/ci-flake-audit 882fe2c7)",
+        "summary": "L6 I1 登记。背景：v6 relationships 用例在 CI 全并行负载下超过 Host 2 秒的效应时限，重试一次后仍 runtime_failed；为 CI 稳定已挪入 HEAVY_TESTS（低并行阶段），但“高负载下 2 秒会超时”是真实产品风险，单独跟踪。阶段选 S6：可靠执行先于模拟，属当前阶段。执行人、判定人待派。",
+        "recorded_at": "2026-10-28T20:43:05+08:00"
       }
     ]
   }

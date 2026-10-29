@@ -21,10 +21,11 @@ reading role's search_path cannot change them. Extension members, the system sch
 types, languages, large objects, foreign servers and parameter ACLs (none is granted by NexLoop migrations).
 Roles: PUBLIC; a superuser as <superuser> (the bootstrap account is named differently per cluster); any other role by name. The cluster's
 initial superuser (oid 10) has no role entry; every other non-predefined role has one, so a role a deployment or the runtime creates
-outside the migrations (a login role of the stage, a world's or tenant's runtime role) shows as EXTRA with its grants and memberships.
+outside the migrations shows as EXTRA with its grants and memberships. Roles the migrations create (the stage's login, sim and host
+recorder roles, e.g. 0318) are on both sides; the deployment only sets their passwords, which are not compared.
 LOGIN, CONNECTION LIMIT, passwords and VALID UNTIL are deployment-managed (the deploy enables logins; the configurator window opens one
-for ten minutes) and are not compared. A first read-only run on the stage classifies such differences: into the migrations, or into
-IGNORED with a reason.
+for ten minutes) and are not compared. A role created outside the migrations is classified when it appears: into the migrations, or
+into IGNORED with a reason.
 Design after the upstream ops/postgres/verify_role_grants.py (NEX-EIOS 1e363db; it replays GRANT/REVOKE text for two roles over three
 schemas); no code is copied.
 """
