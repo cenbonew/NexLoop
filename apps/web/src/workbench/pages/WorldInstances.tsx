@@ -62,7 +62,7 @@ function InstanceList({type,state,onState}:{type:string;state:InstanceState;onSt
   const p=page.data;
   return <div className={'world-instance-grid object-view'+(state.object?' object-view-detail':'')}>
     <div>
-      <p className="workbench-summary" role="status"><Term id={type} gloss={glosses.type(type).gloss} source={glosses.type(type).gloss_source}/> 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
+      <p className="workbench-summary" role="status"><Term id={type} gloss={glosses.type(type).gloss} source={glosses.type(type).gloss_source} inline/> 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
       {p.items.length?<DataTable label={`${type} Object`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
         {label:'Object',main:true,cell:r=><button type="button" className="link" aria-pressed={r.object_id===state.object} title={r.object_id}
           onClick={()=>onState({object:r.object_id===state.object?null:r.object_id})}><code className="id-code">{shortId(r.object_id)}</code></button>},
@@ -151,9 +151,9 @@ export function neighborhoodGraph(v:ObjectNeighbors){
 function Neighborhood({value,onOpen}:{value:ObjectNeighbors;onOpen:(type:string,id:string)=>void}){
   if(!value.groups.length)return <EmptyState kind="empty" subject="关联的 Object" compact/>;
   const graph=neighborhoodGraph(value);const glosses=useWorldGlosses();const sections=useSections();
-  const typeTerm=(n:string)=><Term id={n} gloss={glosses.type(n).gloss} source={glosses.type(n).gloss_source}/>;
-  const via=(v:string)=>v.startsWith('property:')?<>{sectionText('Property',sections)} <Term id={v.slice(9)} gloss={glosses.property(value.type_name,v.slice(9)).gloss}/></>
-    :<>{sectionText('Link',sections)} <Term id={v} gloss={glosses.link(v).gloss} source={glosses.link(v).gloss_source}/></>;
+  const typeTerm=(n:string)=><Term id={n} gloss={glosses.type(n).gloss} source={glosses.type(n).gloss_source} inline/>;
+  const via=(v:string)=>v.startsWith('property:')?<>{sectionText('Property',sections)} <Term id={v.slice(9)} gloss={glosses.property(value.type_name,v.slice(9)).gloss} inline/></>
+    :<>{sectionText('Link',sections)} <Term id={v} gloss={glosses.link(v).gloss} source={glosses.link(v).gloss_source} inline/></>;
   return <>
     <ul className="world-neighbors">{value.groups.map((g:NeighborGroup,i)=><li key={i}>
       <span>{g.direction==='outgoing'?'→':'←'} {typeTerm(g.type_name)} · {via(g.via)}</span>

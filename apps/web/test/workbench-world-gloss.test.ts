@@ -22,7 +22,8 @@ glossed.actions[0].gloss='提交服务请求';glossed.actions[0].gloss_source='m
 const render=(section?:string,query?:Record<string,string>,body=glossed)=>{const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
   c.setQueryData(['workbench','world-model'],worldModel(body));
   return renderToStaticMarkup(h(QueryClientProvider,{client:c},h(WorldModel,{section:section as never,query,go:()=>{}})));};
-const term=(id:string,gloss:string)=>`<code class="term-id">${id}</code><span class="term-gloss">（${gloss}）`;
+const term=(id:string,gloss:string)=>`<code class="term-id">${id}</code><span class="term-gloss" title="${gloss}"><span class="term-gloss-text">（${gloss}）</span>`;
+const inlineTerm=(id:string,gloss:string)=>`<span class="term term-inline"><code class="term-id">${id}</code><span class="term-gloss"><span class="term-gloss-text">（${gloss}）</span></span></span>`;
 
 test('v2, strict (L6 S5): both keys on every identifier; null/null none, ""/manual a clear, text with manual or machine; anything else refused',()=>{
   const m=worldModel(glossed);
@@ -43,20 +44,21 @@ test('v2, strict (L6 S5): both keys on every identifier; null/null none, ""/manu
 });
 
 test('Term: the identifier in code, the full-width gloss as secondary text, no empty parentheses, a 机翻 mark for a machine gloss',()=>{
-  expect(renderToStaticMarkup(h(Term,{id:'Consumer',gloss:'客户'}))).toBe(`<span class="term">${term('Consumer','客户')}</span></span>`);
-  expect(renderToStaticMarkup(h(Term,{id:'spending_power',gloss:null}))).toBe('<span class="term"><code class="term-id">spending_power</code></span>');
+  expect(renderToStaticMarkup(h(Term,{id:'Consumer',gloss:'客户'}))).toBe(`<span class="term term-stack">${term('Consumer','客户')}</span></span>`);
+  expect(renderToStaticMarkup(h(Term,{id:'spending_power',gloss:null}))).toBe('<span class="term term-stack"><code class="term-id">spending_power</code></span>');
+  expect(renderToStaticMarkup(h(Term,{id:'Consumer',gloss:'客户',inline:true}))).toBe(inlineTerm('Consumer','客户'));
   expect(renderToStaticMarkup(h(Term,{id:'x',gloss:''}))).not.toContain('（');
   expect(renderToStaticMarkup(h(Term,{id:'nexloop.budget.loosen',gloss:'放宽预算',source:'machine'})))
-    .toContain(`（放宽预算）<small class="term-machine" title="${MACHINE_HINT}">机翻</small>`);
+    .toContain(`（放宽预算）</span><small class="term-machine" title="${MACHINE_HINT}">机翻</small>`);
   expect(MACHINE_HINT).toBe('由模型翻译，负责人可改正');
   expect(glossText('Consumer','客户')).toBe('Consumer（客户）');expect(glossText('Consumer',null)).toBe('Consumer');
   // S4: section names come from the server only; without them the English stands alone.
   expect(sectionText('Link',example.glossary.sections)).toBe('Link（关系）');expect(sectionText('Link',undefined)).toBe('Link');expect(sectionText('Link',{})).toBe('Link');
 });
 
-test('typography: the identifier never breaks, the gloss is secondary and may wrap, the 机翻 mark is at least 12px',()=>{
+test('typography: the identifier never breaks, the gloss is secondary and never split, the 机翻 mark is at least 12px',()=>{
   expect(css).toMatch(/\.term-id\{white-space:nowrap\}/);
-  expect(css).toMatch(/\.term-gloss\{[^}]*color:var\(--muted\)[^}]*overflow-wrap:anywhere/);
+  expect(css).toMatch(/\.term-gloss\{[^}]*color:var\(--muted\)[^}]*white-space:nowrap/);
   expect(css).toMatch(/\.term-gloss\{font-family:inherit;font-weight:400/);
   expect(css).toContain('[aria-pressed="true"] .term-gloss,[aria-current="page"] .term-gloss{color:inherit');  // readable on a selected control
   const mark=/\.term-machine\{([^}]*)\}/.exec(css)![1];expect(Number(/font-size:(\d+)px/.exec(mark)![1])).toBeGreaterThanOrEqual(12);
@@ -72,7 +74,7 @@ test('every list, the type graph and its panel show the glosses; a missing one s
   const graph=render('object_types',{view:'graph',focus:'Consumer'});
   expect(graph).toContain('class="schema-node-gloss">（客户）</text>');expect(graph).toContain('aria-label="Consumer（客户），v3 · 2 Property · 12 Object，已选中"');
   expect(graph).toContain('<title>Consumer（客户） · v3 · 2 Property · 12 Object</title>');expect(graph).toContain('consumer_conversation（客户的会话） 1:N');
-  expect(graph).toContain('aria-label="Consumer（客户） 详情"');expect(graph).toContain(`<h2><span class="term">${term('Consumer','客户')}</span></span></h2>`);
+  expect(graph).toContain('aria-label="Consumer（客户） 详情"');expect(graph).toContain(`<h2>${inlineTerm('Consumer','客户')}</h2>`);
   // Without glosses the node keeps its details line and nothing shows empty parentheses.
   const unglossed=structuredClone(example);unglossed.object_types[0].gloss=null;unglossed.object_types[0].gloss_source=null;
   const plain=render('object_types',{view:'graph'},unglossed);expect(plain).not.toContain('schema-node-gloss');expect(plain).toContain('v3 · 2 Property');
@@ -95,9 +97,9 @@ test('L2 shape: the glossary block gives the section names; a manual "" is a cle
   expect(m.glossary).toEqual({manifest_version:1,sections:{'Object Type':'对象类别',Property:'属性'}});
   expect(m.object_types[1]).toMatchObject({gloss:null,gloss_source:'manual'});
   const html=render('object_types',undefined,v2);
-  expect(html).toContain('<span class="term-id term-word">Object Type</span><span class="term-gloss">（对象类别）</span>');  // the server's name wins
+  expect(html).toContain('<span class="term-id term-word">Object Type</span><span class="term-gloss"><span class="term-gloss-text">（对象类别）</span></span>');  // the server's name wins
   expect(html).toContain('<code class="term-id">Conversation</code></span></button>');  // cleared: English only, no parentheses
-  expect(html).toContain('<span class="term"><span class="term-id term-word">Table</span></span>');  // a cleared section name likewise
+  expect(html).toContain('<span class="term term-inline"><span class="term-id term-word">Table</span></span>');  // a cleared section name likewise
   expect(html).toContain('<th scope="col" class="cell-main">Object Type（对象类别）</th>');  // headers from the server too
   const bad=structuredClone(v2);bad.glossary.manifest_version=-1;expect(()=>worldModel(bad)).toThrow(WorkbenchError);
 });
