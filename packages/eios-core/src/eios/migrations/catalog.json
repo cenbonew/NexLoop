@@ -1875,6 +1875,11 @@
       "version": "0375",
       "name": "0375_relay_dependency_expiry.sql",
       "sha256": "84fb60f72f77d87d0f8051356bf3c0b0e4ec05742c2ff2c0bec0fae29185bdc1"
+    },
+    {
+      "version": "0376",
+      "name": "0376_relay_backlog_settle.sql",
+      "sha256": "6c20819cf6313f9095d92240f125953607e62d12d46c0b4a7dd06e99b7c56fb9"
     }
   ]
 }

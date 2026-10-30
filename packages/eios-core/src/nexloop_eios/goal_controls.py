@@ -134,7 +134,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # NX-056 budget approval: loosening a budget, with another owner's approval (Budget.set keeps tightening and the renewal).
     'loosen_budget':'goals.budget.loosen',
     # World-model glossary (0374): the owner corrects or clears one identifier's Chinese gloss (owner only).
-    'set_world_glossary':'world_glossary.set'}
+    'set_world_glossary':'world_glossary.set',
+    # S42 option A (0376): the owner settles pending inbound messages no relay will serve (owner only).
+    'settle_relay_backlog':'relay.backlog_settle'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -412,6 +414,14 @@ class GoalGovernedActions:
             raise ValueError('kind, identifier and gloss required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_world_glossary','kind':kind,
                                                         'identifier':identifier,'gloss':gloss})
+
+    # S42 option A (0376): owner only; SQL settles only messages whose Consumer is erased or has no serviceable relay enrollment.
+    def settle_relay_backlog(self,*,action_name,action_version,request_id,message_ids,reason):
+        if (type(message_ids) is not list or not 1<=len(message_ids)<=50 or len(set(message_ids))!=len(message_ids)
+                or any(type(m) is not str or not re.fullmatch(r'[a-f0-9]{64}',m) for m in message_ids)
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('message ids and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'settle_relay_backlog','message_ids':message_ids,'reason':reason})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):

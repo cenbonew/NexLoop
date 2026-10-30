@@ -302,6 +302,9 @@ OPERATIONS={
     'set_world_glossary':{'kind':lambda v:v if v in ('section','object_type','property','relation','event_type','function','action') else (_ for _ in ()).throw(ValueError('kind')),
         'identifier':_id(re.compile(r'[A-Za-z][A-Za-z0-9_. -]{0,199}')),
         'gloss':_gloss},
+    # S42 option A (0376, owner only): settle 1-50 pending inbound messages no relay will serve, with a rationale.
+    'settle_relay_backlog':{'message_ids':lambda v:v if type(v) is list and 1<=len(v)<=50 and len(set(v))==len(v) and all(type(x) is str and _HEX.fullmatch(x) for x in v)
+        else (_ for _ in ()).throw(ValueError('message ids')),'reason':_reason},
     # Extraction dead letters (0355, owner only): requeue or dismiss one dead-lettered claim-extraction job.
     'resolve_extraction_dead_letter':{'task_id':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}')),
         'disposition':lambda v:v if v in ('requeue','dismiss') else (_ for _ in ()).throw(ValueError('disposition')),'reason':_reason},
@@ -453,7 +456,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited

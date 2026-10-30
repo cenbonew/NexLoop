@@ -1,6 +1,6 @@
-# relay 旧积压的处置（S42，设计稿，待负责人决定）
+# relay 旧积压的处置（S42，已决定：方案 A）
 
-状态：设计，不实现。起因：L6 S42，调度员 2026-10-30。
+状态：负责人 2026-10-30 选方案 A，customer-1 那条直接结束、不回复；已实现（迁移 relay_backlog_settle，`nexloop.relay.backlog_settle:1`，部署单 `docs/release/run-relay-readiness-stage.md`）。起因：L6 S42。
 
 ## 1. 现状
 

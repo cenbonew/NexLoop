@@ -10,6 +10,8 @@ its template; the CLI is the deployment step after business and catalog setup.
 
 The enrollment file may carry the consumer's enterprise slot (ADR-030) as enterprise_control_id, enterprise_offering_id and
 enterprise_binding_id: all three or none. Enrolling again with a new intent_id and without them clears the slot.
+A file of exactly {"withdraw": true, "consumer_id", "intent_id"} withdraws the consumer's enrollment instead (S43 follow-up: an
+enrollment whose dependencies expired; the same owner credential; SQL re-checks the caller).
 """
 import argparse
 import json
@@ -117,8 +119,11 @@ def main(argv=None):
         if not re.fullmatch('[A-Za-z0-9_-]{1,64}', args.signing_key_id):
             raise ValueError()
         spec = json.loads(read_private_text(args.enrollment_file, maximum=16384))
+        withdrawing = type(spec) is dict and spec.get('withdraw') is True
+        if withdrawing and set(spec) != {'withdraw', 'consumer_id', 'intent_id'}:
+            raise ValueError()
         allowed = {'consumer_id', 'control_id', 'offering_id', 'binding_id', 'relay_principal', 'intent_id', 'role_id', 'link_id', 'step_id'}
-        if type(spec) is not dict or not set(spec) <= allowed | set(ENTERPRISE_FILE_KEYS):
+        if not withdrawing and (type(spec) is not dict or not set(spec) <= allowed | set(ENTERPRISE_FILE_KEYS)):
             raise ValueError()
         present = [key for key in ENTERPRISE_FILE_KEYS if key in spec]
         if present and len(present) != len(ENTERPRISE_FILE_KEYS):
@@ -131,6 +136,10 @@ def main(argv=None):
                 if verify_application_role(db) != 'nexloop_api':
                     raise ValueError()
             owner = backend.authenticate(read_private_text(args.owner_credential_file, maximum=16384), world='real')
+            if withdrawing:
+                result = withdraw(owner, consumer_id=spec['consumer_id'], intent_id=spec['intent_id'])
+                print(json.dumps({'withdrawn': True, **result}, separators=(',', ':')))
+                return 0
             result = enroll(owner, **spec)
         print(json.dumps({'enrolled': True, **result}, separators=(',', ':')))
         return 0
