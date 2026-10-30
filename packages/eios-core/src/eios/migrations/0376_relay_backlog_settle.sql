@@ -30,6 +30,9 @@ revoke all on runtime.nexloop_relay_backlog_settlements from public,nexloop_api,
  nexloop_runtime,nexloop_identity,nexloop_configurator,nexloop_metrics,nexloop_stand_in_worker;
 create trigger relay_backlog_settlements_append_only before update or delete on runtime.nexloop_relay_backlog_settlements
  for each row execute function control.nexloop_nx022_append_only();
+-- Declared for the NX-041 outbound guard: an audit of governed settlement; nothing leaves the system through it, so not guarded.
+insert into control.nexloop_real_effect_tables(table_name,guarded,reason) values
+ ('runtime.nexloop_relay_backlog_settlements',false,'append-only audit of governed relay backlog settlement (ids only, no message text); no external effect');
 
 -- The Consumer of one outbox message (null when the message or its conversation is unknown).
 create function runtime.nexloop_outbox_consumer(p_tenant text,p_world text,p_message text) returns text
