@@ -13,6 +13,7 @@ Guard-side request durations are recorded per operation (2 s tool limit, ADR-022
 """
 from contextlib import contextmanager
 import json
+import uuid
 import secrets
 import time
 
@@ -116,6 +117,10 @@ def test_no_reasonable_contact_is_a_normal_no_action(role_planning,admin,tmp_pat
     run_id,command,text=launched(f,s['plan_id'])
     pack=json.loads(text)
     assert [i['ref'] for i in pack['open_work'] if i['subsection']=='plan']==[f"nexloop:plan:{s['plan_id']}@1"]
+    # L6 I20: the Host's planRun recognises the real reevaluation command and pack (it offers plan.outcome and outreach on it).
+    from support.plan_run_verdict import plan_run
+    assert plan_run(command,text) is True
+    assert plan_run({**command,'request_id':'plan-reevaluate-'+str(uuid.uuid4())},text) is False
     with actual_host(f,tmp_path,worker,'no_action',spawn,multi=multi) as (runtime,client,headers):
         result=run_on_host(client,headers,worker,command,text)
     assert result['runtime_outcome']=='succeeded'

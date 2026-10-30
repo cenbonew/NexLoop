@@ -63,16 +63,21 @@ test('evidence messages: one 12 px gap between message cards, none of them touch
   expect(list.querySelectorAll(':scope>.evidence-message').length).toBe(2);
 });
 
-test('W5: the owner finds the glossary correction beside the search box above the table, and in the focused type\'s panel',()=>{
+test('R57 W5: the world model pages show glosses only - no correction control in a list, the summary or the type panel, even for the owner',()=>{
   const owner=me({principal_id:'synthetic-owner',role:'owner',actions:[OPERATION_ACTION.world_glossary_set]});
   const seed=(c:QueryClient)=>{c.setQueryData(['workbench','world-model'],worldModel(example));c.setQueryData(['workbench','me'],owner);};
-  mount(h(WorldModel,{section:'object_types' as never,go:()=>{}}),seed);
-  const head=box.querySelector('.world-list-head')!;expect(head.textContent).toContain('查找 Object Type');
-  const open=[...head.querySelectorAll('button')].find(b=>b.textContent==='改正 Object Type 的中文译名')!;expect(open).toBeTruthy();
-  expect(open.compareDocumentPosition(box.querySelector('table')!)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();  // above the table
-  expect(st(head).display).toBe('flex');expect(st(head).flexWrap).toBe('wrap');
-  for(const s of ['properties','links','actions','functions']){act(()=>root.unmount());root=createRoot(box);mount(h(WorldModel,{section:s as never,go:()=>{}}),seed);
-    const b=box.querySelector('.world-list-head button.gloss-edit-open');if(box.querySelector('table'))expect(b).not.toBeNull();}
+  for(const s of [undefined,'object_types','properties','links','actions','functions']){act(()=>root.unmount());root=createRoot(box);mount(h(WorldModel,{section:s as never,go:()=>{}}),seed);
+    expect(box.textContent).not.toContain('中文译名');expect(box.querySelector('.gloss-edit-open,.gloss-edit')).toBeNull();}
   act(()=>root.unmount());root=createRoot(box);mount(h(WorldModel,{section:'object_types' as never,query:{view:'graph',focus:'Consumer'},go:()=>{}}),seed);
-  expect([...box.querySelectorAll('.world-panel button')].map(b=>b.textContent)).toContain('改正 Consumer 的中文译名');
+  expect(box.querySelector('.world-panel')).not.toBeNull();expect(box.querySelector('.world-panel')!.textContent).not.toContain('中文译名');
+});
+
+test('R57: an inline badge keeps 8 px from the button or count beside it (演进停止开关, 总览 承诺)',()=>{
+  expect(css).toContain('.workbench .status-badge+:not(.kv-hint):not(br){margin-left:var(--space-2)}');
+  expect(css).toContain('.workbench :is(button,a,.badge-count,code,time)+.status-badge{margin-left:var(--space-2)}');
+  const li=document.createElement('li');li.innerHTML='<span class="status-badge">运行中</span><button>停止…</button><span class="status-badge">没有期限</span><span class="badge-count">152</span>';
+  box.append(li);
+  const [b1,count]=[li.querySelector('button')!,li.querySelector('.badge-count')!];
+  expect(st(b1).marginLeft).toBe('var(--space-2)');expect(st(count).marginLeft).toBe('var(--space-2)');
+  expect(st(li.querySelectorAll('.status-badge')[1]).marginLeft).toBe('var(--space-2)');li.remove();
 });

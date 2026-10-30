@@ -479,8 +479,16 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
  * content area is wide enough the canvas and the panel sit side by side, so the graph fits (and 适应画布 refits) the width left to
  * it; narrower (1024 px windows with the sidebar), the panel goes under the full-width canvas. */
 .workbench .world-graph-frame{container-type:inline-size;min-width:0}
-@container (min-width:960px){.workbench .world-graph-panel{grid-template-columns:minmax(0,1fr) 340px;align-items:start}
-  .workbench .world-graph-panel .world-panel{position:sticky;top:var(--space-3);max-height:calc(100dvh - 2 * var(--space-3));overflow:auto}}
+/* Owner walkthrough R57 (W2): the panel shares the canvas's row (SchemaGraph's aside), exactly as tall as the canvas with tops and
+ * bottoms aligned; its content scrolls inside it under a sticky head that keeps 关闭 at the top right. Stacked: at most 70vh. */
+.workbench .schema-graph-body{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}
+.workbench .world-panel{min-width:0}
+.workbench .world-panel>.card{max-height:70vh;overflow:auto;padding-top:0}
+.workbench .world-panel>.card>.card-head{position:sticky;top:0;z-index:1;background:var(--surface);padding:var(--space-4) 0 var(--space-2);border-bottom:1px solid var(--border)}
+.workbench .panel-head-end{display:flex;align-items:center;gap:var(--space-2)}.workbench .panel-close{margin:0}
+@container (min-width:960px){.workbench .schema-graph-body.with-aside{grid-template-columns:minmax(0,1fr) 340px;align-items:stretch}
+  .workbench .schema-graph-body.with-aside .world-panel{position:relative}
+  .workbench .schema-graph-body.with-aside .world-panel>.card{position:absolute;inset:0;max-height:none}}
 /* The panel's Links: one tidy block per Link - direction, the other type and the cardinality on the first line, the Link under it. */
 .workbench .panel-links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 .workbench .panel-link{display:grid;grid-template-columns:1.25em minmax(0,1fr) auto;column-gap:var(--space-2);row-gap:2px;padding:var(--space-2) 0;border-top:1px solid var(--border)}
@@ -655,10 +663,17 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .world-list-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-2) var(--space-3);margin-bottom:var(--space-3)}
 .workbench .world-list-head>*{margin:0}
 .workbench .world-list-head>label,.workbench .world-list-head>.keyword{flex:1 1 18rem}
-.workbench .world-list-head .gloss-edit{flex:1 1 100%}
-.workbench .world-panel .gloss-edit-open{margin-top:var(--space-2)}
 .workbench .state+*,.workbench .section-head+*{margin-top:var(--space-3)}
 .workbench details>summary+*{margin-top:var(--space-3)}
 .workbench button+.disabled-reason,.workbench .form-actions+.disabled-reason{margin-top:var(--space-2)}
 /* The graph toolbar: its buttons and the hint share one row (the hint's paragraph margin pushed it 30 px down). */
 .schema-graph-tools>*{margin:0}.schema-graph-tools>.note{flex:1 1 20rem;min-width:0}
+/* Owner walkthrough R57: an inline badge never touches what follows it on its line - the button beside it (演进停止开关) or the count
+ * after it (总览 承诺) - and a badge after other inline content keeps the same 8 px. */
+.workbench .status-badge+:not(.kv-hint):not(br){margin-left:var(--space-2)}
+.workbench :is(button,a,.badge-count,code,time)+.status-badge{margin-left:var(--space-2)}
+.workbench .badge-list>li+li{margin-top:var(--space-1)}
+.workbench .badge-count{font-variant-numeric:tabular-nums}
+/* R57 W5: the glossary page's kind switch wraps on narrow screens and keeps 16 px before the search box. */
+.workbench .glossary-kinds{flex-wrap:wrap;margin-bottom:var(--space-4)}
+.workbench .panel-head-end>.note{margin:0;white-space:nowrap}

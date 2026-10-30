@@ -944,6 +944,11 @@
       "stable_name": "nexloop.budget.loosen",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.relay.backlog_settle",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
     }
   ],
   "functions": [

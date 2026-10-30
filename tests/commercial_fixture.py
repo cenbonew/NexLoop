@@ -102,7 +102,8 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.workbench_member.link_external':('Consumer','workbench_member.link_external'),'nexloop.workbench_member.unlink_external':('Consumer','workbench_member.unlink_external'),
     'nexloop.claim_extraction.dead_letter_resolve':('Consumer','claim_extraction.dead_letter_resolve'),
     'nexloop.budget.loosen':('Consumer','goals.budget.loosen'),
-    'nexloop.world_glossary.set':('Consumer','world_glossary.set')}  # NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
+    'nexloop.world_glossary.set':('Consumer','world_glossary.set'),
+    'nexloop.relay.backlog_settle':('Consumer','relay.backlog_settle')}  # NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary; S42
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

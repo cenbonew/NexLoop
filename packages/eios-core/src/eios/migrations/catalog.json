@@ -1870,6 +1870,16 @@
       "version": "0374",
       "name": "0374_world_model_glossary.sql",
       "sha256": "c6f9363f7434909118396386bcbcff3fdd951b6f58030751e31b1f0df05441bd"
+    },
+    {
+      "version": "0375",
+      "name": "0375_relay_dependency_expiry.sql",
+      "sha256": "84fb60f72f77d87d0f8051356bf3c0b0e4ec05742c2ff2c0bec0fae29185bdc1"
+    },
+    {
+      "version": "0376",
+      "name": "0376_relay_backlog_settle.sql",
+      "sha256": "96e5fead85c1bcee9e84768e2fb00bfeacf142e23368173a0874c779dbef80ea"
     }
   ]
 }
