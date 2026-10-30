@@ -26,17 +26,19 @@ export function glossProblem(gloss:string,clear:boolean):string|null{
 export const SIM_REASON='只能在真实世界改正';
 /** S6: the server accepts a correction only in the real world (the glossary is per tenant, shared with simulations); elsewhere the
  * owner sees the control disabled with the reason. */
-export function GlossEditor({kind,label,targets,world}:{kind:GlossKind;label:string;targets:GlossTarget[];world:string}){
+/** Owner walkthrough R57 (W5): used only on the glossary page under 管理; `pick` opens the form on that identifier, `onClose` follows 收起. */
+export function GlossEditor({kind,label,targets,world,pick,onClose}:{kind:GlossKind;label:string;targets:GlossTarget[];world:string;pick?:string;onClose?:()=>void}){
   const reason=useId();
   return <WithMember>{member=>!offers(member,'world_glossary_set')||!targets.length?null
     :world!=='real'?<p className="gloss-edit-sim"><button type="button" className="btn-secondary gloss-edit-open" disabled aria-describedby={reason}>改正{label}的中文译名</button>
       <span className="disabled-reason" id={reason}>{SIM_REASON}：当前是{world.startsWith('shadow:')?'影子':'模拟'}世界，译名与真实世界共用。</span></p>
-    :<GlossEditorForm kind={kind} label={label} targets={targets} member={member}/>}</WithMember>;
+    :<GlossEditorForm kind={kind} label={label} targets={targets} member={member} pick={pick} onClose={onClose}/>}</WithMember>;
 }
 
-function GlossEditorForm({kind,label,targets,member}:{kind:GlossKind;label:string;targets:GlossTarget[];member:Parameters<typeof Form>[0]['member']}){
+function GlossEditorForm({kind,label,targets,member,pick,onClose}:{kind:GlossKind;label:string;targets:GlossTarget[];member:Parameters<typeof Form>[0]['member'];pick?:string;onClose?:()=>void}){
   const id=useId();
-  const [open,setOpen]=useState(false);const [identifier,setIdentifier]=useState(targets[0].identifier);
+  const picked=targets.some(t=>t.identifier===pick);
+  const [open,setOpen]=useState(picked);const [identifier,setIdentifier]=useState(picked?pick!:targets[0].identifier);
   const current=targets.find(t=>t.identifier===identifier)??targets[0];
   const [gloss,setGloss]=useState(current.gloss??'');const [clear,setClear]=useState(false);
   if(!open)return <button type="button" className="btn-secondary gloss-edit-open" onClick={()=>setOpen(true)}>改正{label}的中文译名</button>;
@@ -51,6 +53,6 @@ function GlossEditorForm({kind,label,targets,member}:{kind:GlossKind;label:strin
         <input id={id+'-gloss'} value={gloss} maxLength={24} disabled={clear} onChange={e=>setGloss(e.target.value)}/></FormField>
       <label className="choice"><input type="checkbox" checked={clear} onChange={e=>setClear(e.target.checked)}/>清空中文（只显示英文）</label>
     </Form>
-    <button type="button" className="btn-secondary" onClick={()=>setOpen(false)}>收起</button>
+    <button type="button" className="btn-secondary" onClick={()=>{setOpen(false);onClose?.();}}>收起</button>
   </div>;
 }

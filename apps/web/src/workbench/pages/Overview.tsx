@@ -17,7 +17,7 @@ export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:strin
       {g.paused_scopes.length?<Notice tone="warning">已暂停主动联系：{g.paused_scopes.map((s,i)=><span key={s.scope_kind+s.scope_ref}>{i?'、':''}<ScopeText kind={s.scope_kind} value={s.scope_ref}/></span>)}</Notice>:null}</>}</SectionCard>
     <SectionCard title="承诺" section={data.commitments} footer={open('commitments','查看承诺')}>{c=><>
       <p>未结束 {c.open} 条，其中已违约 {c.breached} 条</p>
-      {c.exceptions.length?<ul className="badge-list">{c.exceptions.map(e=><li key={e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/> {e.count}</li>)}</ul>
+      {c.exceptions.length?<ul className="badge-list">{c.exceptions.map(e=><li key={e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/><span className="badge-count">{e.count}</span></li>)}</ul>
         :<EmptyState kind="empty" subject="承诺异常" compact/>}</>}</SectionCard>
     <SectionCard title="Action / 异常" section={data.actions} footer={open('actions','查看 Action')}>{a=>
       <p>待核对 {a.count} 个{a.oldest_age_seconds!==null?`，最久 ${Math.round(a.oldest_age_seconds/60)} 分钟`:''}</p>}</SectionCard>

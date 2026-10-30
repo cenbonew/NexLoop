@@ -92,7 +92,9 @@ test('the graph view: one focusable button per type, labelled edges, the focused
   const html=render({view:'graph',focus:'Consumer'},'object_types');
   expect(html).toContain('<svg');expect(html).toContain('aria-label="Object Type 关系图：2 个 Object Type，1 条 Link"');
   expect(html.match(/role="button" tabindex="0"/g)?.length).toBe(2);
-  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('<li class="panel-link"><span class="panel-link-dir" aria-label="指向">→</span><span class="panel-link-type"><span class="term term-stack" title="Conversation"><code class="term-id">Conversation</code></span></span><span class="panel-link-card">1:N</span><span class="panel-link-name"><span class="term term-stack" title="consumer_conversation"><code class="term-id">consumer_conversation</code></span></span></li>');
+  expect(html).toContain('consumer_conversation 1:N');expect(html).toContain('aria-label="Consumer（客户） 详情"');expect(html).toContain('<li class="panel-link"><span class="panel-link-dir"><span aria-hidden="true">→</span><span class="sr-only">指向</span></span><span class="panel-link-type"><span class="term term-stack" title="Conversation"><code class="term-id">Conversation</code></span></span><span class="panel-link-card">1:N</span><span class="panel-link-name"><span class="term term-stack" title="consumer_conversation"><code class="term-id">consumer_conversation</code></span></span></li>');
+  // L6 S44: the direction is read as visible-to-assistive text (sr-only), the arrow glyph hidden; never aria-label on a plain span.
+  expect(html).not.toMatch(/<span[^>]*class="panel-link-dir"[^>]*aria-label/);
   expect(html).toContain('<div class="world-graph-frame"><div class="world-graph world-graph-panel">');
   expect(html).toContain('<button type="button" aria-pressed="true"><span class="term term-inline"><span class="term-id term-word">Graph</span><span class="term-gloss"><span class="term-gloss-text">（关系图）</span></span></span></button>');expect(html).not.toContain('data-empty-edges');
 });

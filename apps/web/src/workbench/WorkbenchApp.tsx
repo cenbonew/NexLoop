@@ -1,7 +1,7 @@
 import {Brand} from '../Brand';
 import {useEffect,useRef,useState,type FormEvent,type KeyboardEvent} from 'react';
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
-import {STATE_TEXT,kindOf,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
+import {STATE_TEXT,kindOf,offers,readMe,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,WORLD_SECTIONS,parseRoute,routePath,type PageKey,type Route} from './route';
 import {Overview} from './pages/Overview';
 import {Personas} from './pages/Personas';
@@ -15,6 +15,7 @@ import {Experiments} from './pages/Experiments';
 import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 import {Alerts,Audit,Operations} from './pages/Observability';
 import {WorldModel} from './pages/WorldModel';
+import {Glossary} from './pages/Glossary';
 import {Capabilities} from './pages/Capabilities';
 import {DataAssets} from './pages/DataAssets';
 import {DataHealth} from './pages/DataHealth';
@@ -78,6 +79,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'data_assets':return <DataAssets/>;
     case 'data_health':return <DataHealth/>;
     case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
+    case 'glossary':return <Glossary/>;
     case 'experiments':return <Experiments title={PAGES.experiments}/>;
   }
 }
@@ -88,7 +90,10 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','members','account','personas','capabilities','experiments']}];
+  {title:'管理',pages:['settings','members','account','personas','capabilities','glossary','experiments']}];
+/** Pages offered only to a member whose role carries the operation (R57 W5: the glossary page, the owner's). */
+const NAV_NEEDS:Partial<Record<PageKey,Parameters<typeof offers>[1]>>={glossary:'world_glossary_set'};
+export const navOffered=(page:PageKey,member:Parameters<typeof offers>[0])=>{const need=NAV_NEEDS[page];return !need||offers(member,need);};
 const NOT_ENABLED:PageKey[]=[];
 /** Pages with sub-entries in the sidebar: the world model's concept pages (WORLD_SECTIONS, in EIOS order). */
 export const NAV_CHILDREN:Partial<Record<PageKey,{label:string;route:Route}[]>>={
@@ -146,7 +151,9 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   useEffect(()=>{const back=(event:PopStateEvent)=>{setContext(null);setRoute(here());restoreScroll(Number(event.state?.scroll)||0);focusPageTitle();};
     window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   const signedIn=!!session.data;
-  const sections=useSections();  // the server's section names once the world model is read (S4)
+  const sections=useSections();
+  const me=useQuery({queryKey:['workbench','me'],queryFn:readMe,refetchOnWindowFocus:false,enabled:signedIn});
+  const shown=(page:PageKey)=>navOffered(page,me.data);  // the server's section names once the world model is read (S4)
   useEffect(()=>{const path=window.location.pathname;
     document.title=path===ACCOUNT_PATHS.invitation?'接受工作台邀请 · 负责人工作台 · NexLoop':path===ACCOUNT_PATHS.reset?'用重置码设置新密码 · 负责人工作台 · NexLoop'
       :pageTitle(signedIn?route:null,context,sections);},[route,context,signedIn,sections]);
@@ -176,7 +183,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
         <button type="button" ref={toggle} className="workbench-menu-toggle" aria-expanded={menu} aria-controls="workbench-nav" onClick={()=>setMenu(!menu)}>
           <span>{menu?'收起菜单':'菜单'}</span><span className="menu-current">{PAGES[route.page]}{route.section?' · '+sectionText(WORLD_SECTIONS.find(s=>s.key===route.section)!.label,sections):''}</span></button>
         <nav id="workbench-nav" className={menu?'open':undefined} aria-label="工作台导航" onKeyDown={navKey}>{NAV_GROUPS.map(g=><div key={g.title} className="nav-group">
-          <h2 className="nav-group-title" id={'nav-'+g.title}>{g.title}</h2><ul aria-labelledby={'nav-'+g.title}>{g.pages.map(page=>{
+          <h2 className="nav-group-title" id={'nav-'+g.title}>{g.title}</h2><ul aria-labelledby={'nav-'+g.title}>{g.pages.filter(shown).map(page=>{
           const children=NAV_CHILDREN[page];const open=children?(opened[page]??route.page===page):false;
           const link=<a href={routePath({page})} aria-current={route.page===page&&!route.section?'page':undefined} className={NOT_ENABLED.includes(page)?'nav-off':undefined}
             onClick={event=>{event.preventDefault();setMenu(false);go({page});}}>{PAGES[page]}{NOT_ENABLED.includes(page)?<span className="nav-badge">未启用</span>:null}</a>;
