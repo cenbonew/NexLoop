@@ -63,9 +63,20 @@ class RecallInstanceIndexWorker:
             _activated.add(key)
         return key[2]
 
+    def reflow_definitions(self):
+        """I26 (0375): every published type whose latest version is not in the definition index is reindexed on the tick (a schema
+        publication or a tenant configuration publish does not touch the index). A version that moves on meanwhile is left for the
+        next tick; any other failure propagates, so the tick fails visibly."""
+        done=0
+        for type_name in self.indexer.stale_definitions():
+            try:self.indexer.index_object_type(type_name);done+=1
+            except psycopg.errors.SerializationFailure:continue
+        return done
+
     @authority_request_scoped
     def run_once(self):
         self.ensure_profile()
+        self.reflow_definitions()
         from nexloop_eios.embedding_budget import EmbeddingBudgetDenied
         summary={'indexed':0,'removed':0,'skipped':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0}
         denied=False

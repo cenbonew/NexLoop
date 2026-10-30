@@ -70,6 +70,8 @@ class RecallResult:
     profile_id:str|None
     config_version:str
     tokenizer_version:str=TOKENIZER_VERSION
+    readable_types:int|None=None  # definition types readable by the caller (None: definitions not asked)
+    terms:tuple=()  # definition bodies found in the text when extract_terms was asked (I26)
 
     def contract(self):
         return [hit.contract() for hit in self.definitions+self.instances]
@@ -218,25 +220,42 @@ class OntologyRecall:
         return tuple(m for m in METHODS if m!='vector' or self.provider is not None)
 
     @authority_request_scoped
-    def recall(self,text,*,strong_ids=(),verified_refs=(),type_names=None,definitions=True,instances=True):
+    def _terms(self,text,types,props):
+        """I26: the readable definition names, display names, aliases and vocabulary values that occur in the text (0375), longest
+        first, minus any contained in a longer one."""
+        found=self._db.call('nexloop_recall_terms',Jsonb({'text':text,'readable_types':sorted(types),'readable_properties':sorted(props)}))
+        kept=[]
+        for term in found:
+            if not any(term.lower() in longer.lower() for longer in kept):kept.append(term)
+        return tuple(kept)
+
+    def recall(self,text,*,strong_ids=(),verified_refs=(),type_names=None,definitions=True,instances=True,extract_terms=False):
+        """With extract_terms the definitions are searched with the terms found in the text (joined), not the whole text; the
+        text itself is searched when none is found."""
         if type(text) is not str or not text.strip() or len(text)>4000:raise ValueError('recall text must be bounded nonempty text')
         if type_names is not None:
             type_names=frozenset(type_names)
             if not type_names or any(type(t) is not str or not _NAME.fullmatch(t) for t in type_names):raise ValueError('invalid type scope')
         methods=self._methods()
         vector=None if self.provider is None else _vector_literal(self.provider.embed(text),self.dimension)
-        out={}
+        out={};readable=None;terms=()
         for kind,enabled in (('definition',definitions),('instance',instances)):
             if not enabled:out[kind]=();continue
             types,props=self._gates(kind)
+            if kind=='definition':readable=len(types)
             if not types:out[kind]=();continue
-            per_method={m:self._search(kind,m,text,types,props,vector=vector,type_names=type_names) for m in methods}
+            query=text
+            if kind=='definition' and extract_terms:
+                terms=self._terms(text,types,props)
+                if terms:query=' '.join(terms)
+            per_method={m:self._search(kind,m,query,types,props,vector=vector,type_names=type_names) for m in methods}
             if kind=='instance' and (strong_ids or verified_refs):
                 per_method['strong_id']=self._search(kind,'strong_id',text,types,props,strong_ids=strong_ids,verified_refs=verified_refs,type_names=type_names)
             hits=self._fuse(kind,per_method,methods)
             hits=self._instance_post_check(hits) if kind=='instance' else [hit for hit,_ in hits]
             out[kind]=tuple(hits[:self.config.top_k])
-        return RecallResult(out['definition'],out['instance'],methods,None if self.provider is None else self.provider.profile_id,self.config.config_version)
+        return RecallResult(out['definition'],out['instance'],methods,None if self.provider is None else self.provider.profile_id,self.config.config_version,
+            readable_types=readable,terms=terms)
 
 
 class RecallIndexer:
@@ -266,6 +285,10 @@ class RecallIndexer:
             if row['body'] not in cache:cache[row['body']]=_vector_literal(self.provider.embed(row['body']),self.dimension)
             vectors.append({'ref':row['ref'],'field':row['field'],'body':row['body'],'vector':cache[row['body']]})
         return self.provider.profile_id,Jsonb(vectors)
+
+    def stale_definitions(self):
+        """0375: published types whose latest version is not in the definition index."""
+        return self._db.call('nexloop_recall_stale_definitions')
 
     def index_object_type(self,type_name):
         texts=self._db.call('nexloop_recall_definition_texts',type_name)

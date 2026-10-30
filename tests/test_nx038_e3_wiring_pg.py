@@ -105,6 +105,17 @@ def test_an_enabled_strategy_records_the_runs_semantic_read(v6, admin):
     assert pack['semantics'] == []  # option A: nothing in the pack
 
 
+def test_the_relay_read_searches_the_statements_definition_terms(v6, admin, monkeypatch):
+    """I26: the relay asks for term extraction; with no definition term in the statement the sentence stays the one term (above)."""
+    from nexloop_eios.context_engine.semantic import SemanticAdapter
+    f = v6
+    semantic(admin, f['original']['tenant'], True)
+    seen, browse = [], SemanticAdapter.browse
+    monkeypatch.setattr(SemanticAdapter, 'browse', lambda self, *a, **k: seen.append(k.get('extract_terms')) or browse(self, *a, **k))
+    assert f['v6_relay']().run_once() == 'queued'
+    assert seen == [True] and len(accesses(admin, f['original']['tenant'])) == 1
+
+
 def test_a_disabled_strategy_never_reads(v6, admin, monkeypatch):
     f = v6
     called = []

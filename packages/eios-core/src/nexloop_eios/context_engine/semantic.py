@@ -56,10 +56,12 @@ class SemanticAccessRecorder:
         self.written+=1
         return payload['access_id']
 
-    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0):
-        return self._write({'kind':'access','access_id':str(uuid.uuid4()),'run_id':self.run_id,'context_id':self.context_id,'operation':operation,
+    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0,miss_reason=None):
+        payload={'kind':'access','access_id':str(uuid.uuid4()),'run_id':self.run_id,'context_id':self.context_id,'operation':operation,
             'query_kind':query_kind,'term_hashes':[term_hash(t) for t in terms],'coverage':coverage,'ambiguity':bool(ambiguity),
-            'refs':refs,'unresolved_count':unresolved})
+            'refs':refs,'unresolved_count':unresolved}
+        if not refs and miss_reason is not None:payload['miss_reason']=miss_reason  # I26 (0375): why nothing came back
+        return self._write(payload)
 
     def used(self,access_id,refs):
         """The caller used these refs of an earlier access (a second append-only row; the access row never changes)."""
@@ -78,6 +80,13 @@ def ref_kind(ref):
     if ref.startswith('eios:property:'):return 'property'
     if ref.startswith('nexloop:vocabulary:'):return 'vocabulary_value'
     return None
+
+
+def miss_reason(result,hits,items):
+    """I26 (0375): no_readable_types, denied (recall found definitions the caller may not read) or no_match; None when items came back."""
+    if items:return None
+    if getattr(result,'readable_types',None)==0:return 'no_readable_types'
+    return 'denied' if hits else 'no_match'
 
 
 def gates(ref):
@@ -162,9 +171,12 @@ class SemanticAdapter:
     def _ambiguous(self,scores):
         return len(scores)>1 and scores[0]-scores[1]<self.config.ambiguity_margin
 
-    def browse(self,query,*,kind='any',limit=10):
+    def browse(self,query,*,kind='any',limit=10,extract_terms=False):
+        """With extract_terms (I26) recall searches the definition terms found in the query and the record keeps one hash per
+        term; the whole query stays the single term when none is found."""
         if kind not in KINDS or type(limit) is not int or not 1<=limit<=20:raise ValueError('browse parameters')
-        result=self.recall.recall(query,instances=False)
+        result=self.recall.recall(query,instances=False,**({'extract_terms':True} if extract_terms else {}))
+        terms=list(getattr(result,'terms',()) or ()) or [query]
         hits=self._with_overlay([query],kind,[h for h in result.definitions if h.score>=self.config.min_score and (kind=='any' or ref_kind(h.ref)==kind)])[:limit]
         details,proofs=self._definitions([ref for ref,_,_ in hits])
         items=[{**details[ref],'score':round(score,6),'method':method,'source_refs':[ref]} for ref,score,method in hits if ref in details]
@@ -173,18 +185,19 @@ class SemanticAdapter:
             'access_decision_refs':sorted(decision_ref(p) for p in proofs)}
         if self.overlay is not None:out['overlay']=self.overlay.candidate_id
         if self.recorder is not None:
-            out['access_id']=self.recorder.access('browse',kind,[query],coverage=out['coverage'],ambiguity=out['ambiguity'],refs=_refs(items),
-                unresolved=0 if items else 1)
+            out['access_id']=self.recorder.access('browse',kind,terms,coverage=out['coverage'],ambiguity=out['ambiguity'],refs=_refs(items),
+                unresolved=0 if items else len(terms),miss_reason=miss_reason(result,hits,items))
         return out
 
     def resolve(self,mentions,*,type_hint=None):
         if type(mentions) not in (list,tuple) or not 1<=len(mentions)<=16 or any(type(m) is not str or not m.strip() for m in mentions):
             raise ValueError('resolve mentions')
-        out=[];all_items=[];proofs=[];result=None
+        out=[];all_items=[];proofs=[];result=None;any_hits=False;readable=None
         for mention in mentions:
             result=self.recall.recall(mention,instances=False,type_names=None if type_hint is None else [type_hint])
             hits=self._with_overlay([mention],'any' if type_hint is None else 'object_type',
                 [h for h in result.definitions if h.score>=self.config.min_score])[:self.config.top_k]
+            any_hits=any_hits or bool(hits);readable=getattr(result,'readable_types',None) if readable is None else readable
             details,mention_proofs=self._definitions([ref for ref,_,_ in hits]);proofs+=mention_proofs
             candidates=[{**details[ref],'score':round(score,6),'source_refs':[ref]} for ref,score,_ in hits if ref in details]
             all_items+=candidates
@@ -198,7 +211,8 @@ class SemanticAdapter:
         if self.overlay is not None:value['overlay']=self.overlay.candidate_id
         if self.recorder is not None:
             value['access_id']=self.recorder.access('resolve','any' if type_hint is None else 'object_type',list(mentions),coverage=value['coverage'],
-                ambiguity=value['ambiguity'],refs=_refs(all_items),unresolved=sum(1 for r in out if r['status']=='unresolved'))
+                ambiguity=value['ambiguity'],refs=_refs(all_items),unresolved=sum(1 for r in out if r['status']=='unresolved'),
+                miss_reason=None if all_items else 'no_readable_types' if readable==0 else 'denied' if any_hits else 'no_match')
         return value
 
 
