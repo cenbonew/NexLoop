@@ -1875,6 +1875,11 @@
       "version": "0375",
       "name": "0375_semantic_terms_reflow.sql",
       "sha256": "6d1971ab94a3fc0c8b16baaa1ff77afb8ae7bd996a315d1cd66cede393146ed2"
+    },
+    {
+      "version": "0376",
+      "name": "0376_glossary_recall.sql",
+      "sha256": "d1aef372942c2ad13ab8f93aa512fed47f7b600365761527ccfdeecf5a1d7704"
     }
   ]
 }

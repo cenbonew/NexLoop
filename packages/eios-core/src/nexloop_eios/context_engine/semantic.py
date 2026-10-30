@@ -56,11 +56,12 @@ class SemanticAccessRecorder:
         self.written+=1
         return payload['access_id']
 
-    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0,miss_reason=None):
+    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0,miss_reason=None,gloss_hits=None):
         payload={'kind':'access','access_id':str(uuid.uuid4()),'run_id':self.run_id,'context_id':self.context_id,'operation':operation,
             'query_kind':query_kind,'term_hashes':[term_hash(t) for t in terms],'coverage':coverage,'ambiguity':bool(ambiguity),
             'refs':refs,'unresolved_count':unresolved}
         if not refs and miss_reason is not None:payload['miss_reason']=miss_reason  # I26 (0375): why nothing came back
+        if gloss_hits:payload['gloss_hits']=dict(gloss_hits)  # I26 A (0376): definitions reached through a glossary gloss, by source
         return self._write(payload)
 
     def used(self,access_id,refs):
@@ -87,6 +88,13 @@ def miss_reason(result,hits,items):
     if items:return None
     if getattr(result,'readable_types',None)==0:return 'no_readable_types'
     return 'denied' if hits else 'no_match'
+
+
+def gloss_hits(definitions,refs):
+    """I26 A (0376): of the returned refs, how many recall reached through a manual / machine glossary gloss."""
+    fields={h.ref:set(getattr(h,'fields',()) or ()) for h in definitions}
+    counts={source:sum(1 for r in set(refs) if 'gloss_'+source in fields.get(r,())) for source in ('manual','machine')}
+    return {k:v for k,v in counts.items() if v}
 
 
 def gates(ref):
@@ -186,18 +194,19 @@ class SemanticAdapter:
         if self.overlay is not None:out['overlay']=self.overlay.candidate_id
         if self.recorder is not None:
             out['access_id']=self.recorder.access('browse',kind,terms,coverage=out['coverage'],ambiguity=out['ambiguity'],refs=_refs(items),
-                unresolved=0 if items else len(terms),miss_reason=miss_reason(result,hits,items))
+                unresolved=0 if items else len(terms),miss_reason=miss_reason(result,hits,items),
+                gloss_hits=gloss_hits(result.definitions,[i['ref'] for i in items]))
         return out
 
     def resolve(self,mentions,*,type_hint=None):
         if type(mentions) not in (list,tuple) or not 1<=len(mentions)<=16 or any(type(m) is not str or not m.strip() for m in mentions):
             raise ValueError('resolve mentions')
-        out=[];all_items=[];proofs=[];result=None;any_hits=False;readable=None
+        out=[];all_items=[];proofs=[];result=None;any_hits=False;readable=None;reached=[]
         for mention in mentions:
             result=self.recall.recall(mention,instances=False,type_names=None if type_hint is None else [type_hint])
             hits=self._with_overlay([mention],'any' if type_hint is None else 'object_type',
                 [h for h in result.definitions if h.score>=self.config.min_score])[:self.config.top_k]
-            any_hits=any_hits or bool(hits);readable=getattr(result,'readable_types',None) if readable is None else readable
+            any_hits=any_hits or bool(hits);reached+=list(result.definitions);readable=getattr(result,'readable_types',None) if readable is None else readable
             details,mention_proofs=self._definitions([ref for ref,_,_ in hits]);proofs+=mention_proofs
             candidates=[{**details[ref],'score':round(score,6),'source_refs':[ref]} for ref,score,_ in hits if ref in details]
             all_items+=candidates
@@ -212,7 +221,8 @@ class SemanticAdapter:
         if self.recorder is not None:
             value['access_id']=self.recorder.access('resolve','any' if type_hint is None else 'object_type',list(mentions),coverage=value['coverage'],
                 ambiguity=value['ambiguity'],refs=_refs(all_items),unresolved=sum(1 for r in out if r['status']=='unresolved'),
-                miss_reason=None if all_items else 'no_readable_types' if readable==0 else 'denied' if any_hits else 'no_match')
+                miss_reason=None if all_items else 'no_readable_types' if readable==0 else 'denied' if any_hits else 'no_match',
+                gloss_hits=gloss_hits(reached,[i['ref'] for i in all_items]))
         return value
 
 

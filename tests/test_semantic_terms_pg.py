@@ -78,3 +78,70 @@ def test_every_index_tick_reflows_first():
         feed=SimpleNamespace(claim=lambda **k:calls.append('claim') or []),batch=1,lease_seconds=1)
     RecallInstanceIndexWorker.run_once(worker)
     assert calls==['reflow','claim']
+
+
+# --- option A (0376): glossary glosses take part in recall -------------------------------------------------------------------------
+
+def gloss(admin,kind,identifier,text,source='manual',revision=1):
+    machine=dict(model_provider='synthetic',model_id='synthetic-model',input_sha256='e'*64) if source=='machine' else dict(model_provider=None,model_id=None,input_sha256=None)
+    admin.execute("""insert into control.nexloop_world_glossary(tenant_id,kind,identifier,gloss,source,revision,model_provider,model_id,input_sha256,translated_at)
+        values(%s,%s,%s,%s,%s,%s,%s,%s,%s,case when %s='machine' then now() end)
+        on conflict(tenant_id,kind,identifier) do update set gloss=excluded.gloss,source=excluded.source,revision=excluded.revision,
+         model_provider=excluded.model_provider,model_id=excluded.model_id,input_sha256=excluded.input_sha256,translated_at=excluded.translated_at""",
+        (A,kind,identifier,text,source,revision,machine['model_provider'],machine['model_id'],machine['input_sha256'],source))
+
+
+def gloss_rows(admin):
+    return admin.execute("select source_key,ref,world,gloss_source,source_revision from ontology.nexloop_recall_entries"
+        " where source_key like 'glossary:%%' order by ref").fetchall()
+
+
+def access_gloss(admin):
+    return admin.execute("select gloss_hits from runtime.nexloop_semantic_accesses where kind='access' order by recorded_at desc limit 1").fetchone()[0]
+
+
+def test_manual_and_machine_glosses_are_recalled_and_recorded_by_source(semantic):
+    f,session,signer=semantic;admin=f['admin'];recorder=SemanticAccessRecorder(f['worker'],session,signer)
+    browse=lambda text:adapter(f,session,signer,recorder).browse(text,extract_terms=True)
+    assert browse('我是老客户')['items']==[] and browse('看重雨天耐用性')['items']==[]  # no gloss yet: nothing
+    gloss(admin,'object_type','Consumer','客户');gloss(admin,'property','waterproof_concern','雨天耐用性','machine')
+    gloss(admin,'relation','consumer_goal','客户目标')  # no recall ref: skipped
+    assert gloss_rows(admin)==[('glossary:object_type/Consumer','eios:object_type:Consumer','real','manual',1),
+        ('glossary:property/waterproof_concern','eios:property:Consumer/waterproof_concern','real','machine',1)]
+    out=browse('我是老客户')
+    assert [i['ref'] for i in out['items']][0]=='eios:object_type:Consumer' and access_gloss(admin)=={'manual':1}
+    out=browse('看重雨天耐用性')
+    assert [i['ref'] for i in out['items']][0]=='eios:property:Consumer/waterproof_concern' and access_gloss(admin)=={'machine':1}
+    # The gloss inherits the definition's READ: a gloss of the unreadable monthly_income is never returned.
+    gloss(admin,'property','monthly_income','收入水平')
+    assert not any('monthly_income' in i['ref'] for i in browse('收入水平怎么样')['items'])
+
+
+def test_a_correction_clearing_or_restore_takes_the_alias_away_and_simulation_never_sees_it(semantic):
+    f,session,_=semantic;admin=f['admin']
+    from support.tenants import SIM_WORLD
+    gloss(admin,'object_type','Consumer','客户')
+    sim_session,_=seed_multi_authority(admin,f['worker'],[('eios:object_type:Consumer',ResourceType.OBJECT_TYPE,Operation.READ)],
+        identity_suffix='-sim-reader',world=SIM_WORLD,tenant=A)
+    sim=recall_for(f,sim_session,provider=None)
+    assert 'eios:object_type:Consumer' not in [h.ref for h in sim.recall('客户',instances=False).definitions]
+    from nexloop_eios.authorization import authenticate_service
+    real=recall_for(f,authenticate_service(f['worker'],f['reader_token'],world='real'),provider=None)
+    assert [h.ref for h in real.recall('客户',instances=False).definitions][:1]==['eios:object_type:Consumer']
+    gloss(admin,'object_type','Consumer','顾主',revision=2)  # correction
+    assert [r[1] for r in gloss_rows(admin)]==['eios:object_type:Consumer'] and real.recall('客户',instances=False).definitions==()
+    gloss(admin,'object_type','Consumer','',revision=3)  # cleared by hand
+    assert gloss_rows(admin)==[]
+    gloss(admin,'object_type','Consumer','客户',revision=4)
+    admin.execute("delete from control.nexloop_world_glossary where tenant_id=%s",(A,))  # restored to automatic translation
+    assert gloss_rows(admin)==[]
+
+
+def test_a_new_type_version_moves_the_aliases_and_a_publication_opens_a_watch(recall_db):  # noqa: F811
+    f=recall_db;admin=f['admin']
+    gloss(admin,'object_type','Consumer','客户')
+    put_schema(admin,A,consumer_schema(version=2))
+    assert [r[4] for r in gloss_rows(admin)]==[2]
+    admin.execute("insert into control.nexloop_world_glossary_publications(tenant_id,manifest_version,manifest_sha256,expected_revision,entries)"
+        " values(%s,1,%s,0,1)",(A,'f'*64))
+    assert admin.execute("select release_ref from runtime.nexloop_evo_release_watches where tenant_id=%s",(A,)).fetchall()==[('glossary:1',)]
