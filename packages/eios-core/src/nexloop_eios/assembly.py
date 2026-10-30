@@ -24,6 +24,12 @@ def database_now(pool):
         return c.execute('select clock_timestamp()').fetchone()[0].astimezone(UTC)
 
 
+def connection_now(db):
+    """database_now on a connection the caller already holds (no second connection from the pool, L6 S53)."""
+    from datetime import UTC
+    return db.execute('select clock_timestamp()').fetchone()[0].astimezone(UTC)
+
+
 def verify_application_role(connection):
     """Reject SET ROLE disguises and inherited paths to elevated authority.
 

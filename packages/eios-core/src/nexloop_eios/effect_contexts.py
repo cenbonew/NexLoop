@@ -5,7 +5,7 @@ Run authentication MUST occur through Backend.authenticate_run, never lookup of
 an arbitrary Run ID. Formal Goal/Step/Control writes use existing object Actions.
 """
 from datetime import UTC,datetime,timedelta
-from nexloop_eios.assembly import database_now
+from nexloop_eios.assembly import connection_now,database_now
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib
 import hmac
@@ -120,7 +120,7 @@ class EffectContextRegistrar:
             # Registrar's stable retry key cannot be chosen by caller or include
             # fresh timestamp/tool call. Different principal remains claim conflict.
             claim_id='context:'+request_hash
-            now=database_now(self.pool)
+            now=connection_now(db) if db is not None else database_now(self.pool)
             command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,
                 action_stable_name=action,idempotency_key=claim_id),
                 binding=M.ClaimBindingPayload(invocation_id=claim_id,action_reference=definition.reference(),request_digest=request_hash,
