@@ -55,7 +55,7 @@ def test_any_other_core_change_still_refuses_the_bind(v6,admin,pg,monkeypatch):
     before_bind(monkeypatch,lambda n:ledger(admin,'budget_units') if n==1 else None)
     relay=v6['v6_relay']()
     with pytest.raises(MessageRelayUnavailable):relay.run_once()
-    assert relay._diagnostic_failure==('context_prepare','ContextArtifactUnavailable') and errors()  # refused (the plan check sees it first)
+    assert relay._diagnostic_failure==('context_prepare','ContextArtifactUnavailable',None) and errors()  # refused (the plan check sees it first)
 
 
 def test_a_retry_of_a_run_whose_context_was_stored_but_never_bound_is_handed_off_at_once(v6,admin,pg,monkeypatch):
