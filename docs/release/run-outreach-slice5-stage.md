@@ -2,7 +2,9 @@
 
 外联第 5 片（迁移 0239，`authz.nexloop_run_outreach_command`；`service-grants` v18 授予 runtime_worker `nexloop.outreach.run_submit:1`）已在 main 上，stage 授权已于 2026-10-28 随 NX-054 §8 第 6 步的 register 生效（authority_revision 3197）。负责人 2026-10-28 接受“Agent 主动外发在 stage 上可用”，要求提前验收。
 
-本单在 stage 上让计划复评 Run 发起主动消息，只发给合成顾客 `customer-1`..`customer-4`，并验证：
+本单在 stage 上让计划复评 Run 发起主动消息，只发给合成顾客 `s6c-1`..`s6c-3`，并验证：
+
+> **10-30 改用 s6c 账号（L6 I18）**：customer-1/2/3 的 WebChat 授权已在 S6 重建（rebuild-s6c R2）中撤销，它们的装配也已过期（valid_until 10-22），customer-4 已擦除。OUT 改用 s6c-1/2/3（persona `simulated_agent`，装配 valid_until 2026-12-01；完整 consumer_id 在私有 `local-only/s6c-20261030/index.json`）。旧 customer-1..4 只作“没有误发”的对照。
 
 | # | 验收项 | 本单的判定依据 |
 |---|---|---|
@@ -41,11 +43,13 @@ G-1 是唯一必须写代码的缺口。G-1、G-2 合入并部署后，本单才
 | P2 | G-1 的执行器已部署并运行 | `docker ps` 中有外联执行器容器；它的日志只有计数行 |
 | P3 | G-2 的 Host 配置已生效 | Host 启动日志不报 `runtime configuration refused`；运行配置文件中两项为 `true`（只看键，不贴文件） |
 | P4 | `approver3` 可登录工作台，角色为 owner | run-nx056-approvals-enable 的人员表 |
-| P5 | `customer-1`..`customer-4` 可登录 WebChat；口令在钥匙串 | run-assembly-20261015 §9 |
+| P5 | `s6c-1`..`s6c-3` 可登录 WebChat，口令在钥匙串 `nexloop/stage/s6c-N`；每个账号已有会话（S6 发言时开出；没有时先用 `open_conversation.py` 开一个，否则 `synthetic_customer.py` 预检会拒绝） | rebuild-s6c R1、R10 |
+| P5a | **S6 的 9 轮发言已全部结束，S6 window 已固定**，`date -u` 晚于 window 的 `until`（X4、S6 prep §2.4） | S6 证据中的 `until` |
 | P6 | 目的 `commitment_followup` 在租户已启用 | `approver3` 在工作台“外联目的”页查看；未启用时由 `approver3` 用 `set_outreach_purpose` 启用（受治理，留审计）。不启用营销类目的 |
 | P7 | 执行时间在租户勿扰时段之外 | 工作台“外联控制”页；否则所有行会以勿扰闸拒绝，V4 的阴性对照无法区分 |
 | P8 | **三层真实派发开关的实际状态已读出并写进证据**（调度员 2026-10-28 核实：stage 上三层都是开的，所以本单不能假设开关关闭） | 部署层：`docker exec <action-worker 容器> printenv REAL_DISPATCH_ENABLED`，**只记值是 `true` 还是 `false`**，不贴其他环境变量；租户层与 Action 层：`ro "select world, scope_kind, scope_ref, enabled, data_mode, revision from control.nexloop_real_dispatch_switches order by 1,2,3"`（租户层 `scope_kind='tenant'`、`scope_ref='*'`；Action 层 `scope_kind='action_type'`，看 `eios:action:nexloop.outreach.send:1` 一行，没有该行即该 Action 层为关）。执行后再读一次，前后一致 |
 | P9 | **硬前提：外联执行器的 provider 只有 `LocalOutreachOutbox`（回环，写私有目录），执行器没有任何渠道凭据**。开关打开时，这是唯一挡住对外发送的一道；不满足就不开始 | ① 执行器的启动命令与配置：只有本地 outbox 目录参数，没有 provider 选择项或渠道地址（核对部署的源码树中执行器入口只构造 `LocalOutreachOutbox`：`grep -n "LocalOutreachOutbox\|Provider" <源码树>/…/outreach_sender.py`，以 G-1 合入后的文件为准）；② `docker inspect <执行器容器> --format '{{json .Mounts}}'` 只列出它自己的 DSN、服务凭据、PG 客户端证书和 outbox 目录，没有任何渠道、provider 或 webhook 的 secret；③ `docker inspect … --format '{{json .Config.Env}}'` 只看变量**名**，没有渠道类变量；④ 执行器的网络：只有到 PG 的连接（与其他 worker 相同的 compose 网络），不需要出站。任何一项不满足，判 blocked，交回调度员 |
+| P10 | **L2 cc882c79 部署之后，第一次计划复评 Run 确实拿到了 `nexloop.plan.outcome`**（L6 S49：cc882c79 起 plan.outcome 与 outreach 只给确认的计划复评 Run）。没拿到就停下，不开始 OUT | 部署时刻记为 `D`。① 结果表：`ro "select p.run_id, p.created_at, o.kind, o.recorded_at from runtime.nexloop_plan_runs p left join runtime.nexloop_plan_outcomes o on o.tenant_id=p.tenant_id and o.world=p.world and o.run_id=p.run_id where p.tenant_id='$TENANT_ID' and p.world='real' and p.created_at > '$D' order by p.created_at limit 3"`：第一行的 `kind` 非空（这次 Run 调用过 `nexloop.plan.outcome`）；② 或看这次 Run 的工具列表含 `nexloop.plan.outcome`（Host 的工具调用记录，只看工具名）。`D` 之后还没有计划复评 Run 时，等常驻 plan-reevaluator 发起一次再核对；`kind` 为空且工具列表也没有它时判 blocked，交回调度员 |
 
 ## 2. 只读核对（现在就能做，不改任何东西）
 
@@ -86,26 +90,38 @@ ro "select p.created_at, 'eios:action:nexloop.outreach.send:1' = any(r.allowed_r
 
 | 顾客 | 角色 | Role 上限含发送 | 联系限制 | 期望 |
 |---|---|---|---|---|
-| `customer-1` | V4 阴性对照 | 是（G-3 组装） | 无 | 有 agent 行，终态**不是** `contact_restricted`，具体以 `refusal_gates` 为准：三层开关都开（P8）且其余各闸通过时，预期 `fulfilled`，请求写进执行器的本地 outbox（P9）；也可能被测试人设、勿扰、频率等后面的闸拒绝 |
-| `customer-2` | V4 阳性对照 | 是（G-3 组装） | **有**（§3.1） | 有 agent 行，终态 `refused / contact_restricted`；联系限制是第一道闸 |
-| `customer-3` | V3 阴性对照 | **否**（保持现状） | 无 | 计划复评 Run 照常运行，**没有** agent 行（SQL 入口以 `outreach outside the Role ceiling` 或 `outreach outside the Run` 拒绝，工具调用失败） |
-| `customer-4` | 不参与 | — | — | 不触发，作为“没有误发”的对照：全程 0 行 |
+| `s6c-1` | V4 阴性对照 | 是（G-3 组装） | 无 | 有 agent 行，终态**不是** `contact_restricted`，具体以 `refusal_gates` 为准：三层开关都开（P8）且其余各闸通过时，预期 `fulfilled`，请求写进执行器的本地 outbox（P9）；也可能被测试人设、勿扰、频率等后面的闸拒绝 |
+| `s6c-2` | V4 阳性对照 | 是（G-3 组装） | **有**（§3.1） | 有 agent 行，终态 `refused / contact_restricted`；联系限制是第一道闸 |
+| `s6c-3` | V3 阴性对照 | **否**（保持 rebuild-s6c R7 的 Role：上限只有 `nexloop.service.request:1`） | 无 | 计划复评 Run 照常运行，**没有** agent 行（SQL 入口以 `outreach outside the Role ceiling` 或 `outreach outside the Run` 拒绝，工具调用失败） |
+| 旧 `customer-1`..`customer-4` | 不参与 | — | — | 不触发（授权已撤销或已擦除，装配已过期），作为“没有误发”的对照：全程 0 行 |
+
+G-3 给 `s6c-1`、`s6c-2` 重新组装含发送的 Role 并重新登记 relay，同样要等 S6 的 9 轮发言结束、window 固定之后（P5a）：登记修订号变化会落进 S6 的输入。
 
 本单不改变三层真实派发开关，按 P8 读出的实际状态执行并记录（stage 上 10-28 为三层都开）。开关打开时，挡住对外发送的只有 P9：执行器的 provider 只有回环 `LocalOutreachOutbox`，没有任何渠道凭据；真实 WebChat 投递不在第 5 片范围内（outreach-impl-plan §4 “留给后续”）。`fulfilled` 的行只表示请求写进了本地 outbox，不表示顾客收到。
 
-### 3.1 给 `customer-2` 加联系限制（人工：`customer-2`，WebChat）
+### 3.1 给 `s6c-2` 加联系限制（负责人终端，一条命令）
 
-`customer-2` 登录 WebChat，在自己的会话里发一条命中拒绝规则 v2 `stop-contact` 的话，例如“以后不要再联系我了”。
+**必须在 S6 的 9 轮发言全部结束、window 固定之后**（P5a）：这条消息会写入联系限制，落在 S6 window 里就会改变 S6 的输入。
+
+`s6c-2` 在自己的会话里发一条命中拒绝规则 v2 `stop-contact` 的话（“以后不要再联系我了。”）。计划 `out-restrict.json`（`plan_id` `out-s6c-20261030-restrict`，一轮，120 秒等回复），先 dry-run 再执行：
 
 ```bash
-ro "select active, certainty, rule_id from control.nexloop_contact_restrictions where consumer_id='<customer-2 的 consumer_id>'"
+REPO=<release 检出> RULES=deploy/configuration/contact-refusal-rules.v2.json bash local-only/out-s6c/out-restrict.sh
+REPO=<release 检出> RULES=deploy/configuration/contact-refusal-rules.v2.json bash local-only/out-s6c/out-restrict.sh --apply
+```
+
+- dry-run 用 `check_refusal.py` 核对这句话**命中** `refuse / stop-contact`（与 S6 发言前的核对方向相反：S6 的正文必须全部不命中）；没命中就不发。
+- 口令只走钥匙串管道（`s6c-2` 和 owner 一行一个），不打印、不落文件。
+
+```bash
+ro "select active, certainty, rule_id from control.nexloop_contact_restrictions where consumer_id='<s6c-2 的 consumer_id>'"
 ```
 
 预期：`t | refuse | stop-contact`。没有生效就停，不往下做。
 
 ### 3.2 触发计划复评 Run（调度员；**B**）
 
-按 run-g-plan-20261017 §5–§6 的方式，为 `customer-1`、`customer-2`、`customer-3` 各建立（或复用）一个计划步骤，`reassess_at` 设在约 5 分钟后，计划步骤说明写成承诺跟进场景（例如“顾客预约的服务明天开始，提醒顾客如需调整请回复”），让模型有理由使用 `commitment_followup`。常驻的 plan-reevaluator 到期后自动认领。
+按 run-g-plan-20261017 §5–§6 的方式，为 `s6c-1`、`s6c-2`、`s6c-3` 各建立（或复用）一个计划步骤，`reassess_at` 设在约 5 分钟后，计划步骤说明写成承诺跟进场景（例如“顾客预约的服务明天开始，提醒顾客如需调整请回复”），让模型有理由使用 `commitment_followup`。常驻的 plan-reevaluator 到期后自动认领。
 
 ## 4. 执行后的只读核对
 
@@ -130,9 +146,9 @@ ro "select s.consumer_id, s.initiator, s.run_id is not null, s.principal_id = 'r
 ro "select consumer_id, refusal_code, refusal_gates from runtime.nexloop_outreach_sends where initiator='agent' order by created_at"
 ```
 
-- `customer-2`：`refusal_code='contact_restricted'`（阳性对照）；
-- `customer-1`：`refusal_code` 不是 `contact_restricted`（阴性对照），`refusal_gates` 显示联系限制闸通过；
-- `customer-3`、`customer-4`：没有行（V3、对照）。
+- `s6c-2`：`refusal_code='contact_restricted'`（阳性对照）；
+- `s6c-1`：`refusal_code` 不是 `contact_restricted`（阴性对照），`refusal_gates` 显示联系限制闸通过；
+- `s6c-3`：没有行（V3）；旧 `customer-1`..`customer-4`：没有行（对照）。
 
 ### 4.3 兜底 Run 没有发起（V2）
 
@@ -142,14 +158,20 @@ ro "select count(*) from runtime.nexloop_outreach_sends s where s.initiator='age
 
 预期 0。
 
-### 4.4 联系限制解除（人工：`approver3`，工作台）
+### 4.4 联系限制解除（负责人终端，一条命令：`approver3`）
 
-`approver3` 在工作台对 `customer-2` 执行“解除联系限制”（`release_contact_restriction`），理由写“外联第 5 片验收结束”。再查 §3.1 的语句，预期 `active = f`。
+**只要做过 §3.1，无论结果如何都要做**（X4）。`approver3` 经工作台 Action `release_contact_restriction` 解除 `s6c-2` 的限制，理由“外联第 5 片验收结束（OUT §4.4）”。先不带 `--apply`（只登录、登出），再执行：
+
+```bash
+security find-generic-password -s nexloop/stage/approver3 -w | python3 local-only/out-s6c/release_restriction.py <release 检出> https://<APP_HOST_NAME>:<PORT> "$HOME/.nexloop/stage/endpoint-20261015/ca-bundle.crt" local-only/out-s6c/approver3.username <s6c-2 的 consumer_id> --apply
+```
+
+预期 `{"ok": true, "applied": true, "status": 200, ...}`。再查 §3.1 的语句，预期 `active = f`。§4.4 完成之前，不用 `s6c-2` 跑新的合成交互。
 
 ## 5. 证据（不含口令、令牌、DSN、主机地址和消息正文）
 
 - 执行者（调度员）：执行时间（UTC）、main 与 release、G-1/G-2 的部署记录；§2、§4 各查询的输出（`consumer_id` 只写前 12 位）；P8 三层开关执行前后的状态（部署层只写 true/false）；P9 四项核对的结论（只写是否满足与挂载、变量的名字，不写值）；
-- 人工步骤（`approver3`、`customer-2`）：时间与操作名，不写正文；
+- 人工步骤（`approver3`、`s6c-2`）：时间与操作名，不写正文；
 - 判定者（L6）：按 §3 的期望逐项判 V1–V5 为 passed / failed / 未触发（G-4）。
 
 ## 6. 说明与限制
@@ -157,4 +179,59 @@ ro "select count(*) from runtime.nexloop_outreach_sends s where s.initiator='age
 - **V2 在 stage 上只能做否定性核对**：Host 只把发送工具提供给非消息 Run，兜底回复 Run 是消息 Run，所以它在 stage 上根本拿不到这个工具；SQL 侧的拒绝（`authz.nexloop_is_fallback_run`）只能在本地构造。判定依据是 §4.3 的 0 行，加本地测试 `test_outreach_runs_pg.py::test_only_a_plan_reevaluation_run_naming_the_send_may_ask` 与 `outreach-tool-profile.test.ts`（测试证据，与 stage 证据分开写）。
 - **V3 的拒绝在工具调用处**：被拒的申请不写 `outreach_sends`，所以 stage 上看到的是“没有行”；如果需要正面证据，可在 Run 的工具调用记录中查该次调用的错误码（只记错误码，不记正文）。
 - **模型不确定**（G-4）：阳性对照没有出现，可能是模型没有调用工具，不是系统拒绝；判“未触发”，不判 failed。
-- 本单不改变真实派发开关（按 P8 记录实际状态），不启用营销类目的，不给 `customer-*` 以外的任何顾客触发。
+- 本单不改变真实派发开关（按 P8 记录实际状态），不启用营销类目的，不给 `s6c-1`..`s6c-3` 以外的任何顾客触发。
+
+## 附：负责人脚本（调度员复制到 `local-only/out-s6c/`，0700；私有文件 0600）
+
+`customers.json` 与 S6 的同一份（s6c-1/2/3，`persona_check` 走 workbench）；`check_refusal.py` 见 S6 prep §2.2。
+
+`out-restrict.sh`：
+
+```bash
+#!/bin/bash
+# OUT §3.1 (owner terminal, management machine): s6c-2 says one sentence that hits refusal rule v2 stop-contact.
+#   bash out-restrict.sh            dry run: the sentence must hit refuse/stop-contact (check_refusal.py exit 1 with that id)
+#   bash out-restrict.sh --apply    sends it (one turn, 120 s reply wait) through synthetic_customer.py
+# Only after S6's nine turns are over and its window is fixed (X4). s6c-2 must already have a conversation (S6 gave it one;
+# otherwise run open_conversation.py for s6c-2 first: the preflight refuses an account without one).
+set -euo pipefail
+D=$(cd "$(dirname "$0")" && pwd)
+: "${REPO:?release checkout}" "${RULES:?the current contact-refusal-rules file, e.g. deploy/configuration/contact-refusal-rules.v2.json}"
+export SSL_CERT_FILE=$HOME/.nexloop/stage/endpoint-20261015/ca-bundle.crt
+HITS=$(python3 "$D/check_refusal.py" "$REPO/$RULES" "$D/out-restrict.json" || true)
+case "$HITS" in *"refuse stop-contact"*) echo "rule check: hits stop-contact";; *) echo "rule check: no stop-contact hit; not sent" >&2; exit 2;; esac
+[ "${1:-}" = --apply ] || exit 0
+( printf 's6c-2\t%s\n' "$(security find-generic-password -s nexloop/stage/s6c-2 -w)"
+  printf 'owner\t%s\n' "$(security find-generic-password -s "${OWNER_KEYCHAIN:-nexloop/stage/approver3}" -w)"
+) | (cd "$REPO" && uv run --frozen python scripts/acceptance/synthetic_customer.py --config "$D/customers.json" --plan "$D/out-restrict.json")
+```
+
+`release_restriction.py`：
+
+```python
+#!/usr/bin/env python3
+"""OUT §4.4: approver3 releases one Consumer's contact restriction (workbench Action release_contact_restriction).
+    security find-generic-password -s nexloop/stage/approver3 -w | \\
+      python3 release_restriction.py REPO ORIGIN CA_FILE USERNAME_FILE CONSUMER_ID [--apply]
+Without --apply: log in and out only (checks the account and the origin). Password on stdin (one line), never printed.
+Output: one JSON line {ok, applied, status} - no id beyond the first 12 hex, no body, no token."""
+import json, sys
+from pathlib import Path
+repo, origin, ca, username_file, consumer = sys.argv[1:6]
+apply = sys.argv[6:] == ['--apply']
+sys.path.insert(0, str(Path(repo) / 'scripts/deploy'))
+from real_dispatch_switch import HttpsTransport, Workbench, read_private  # noqa: E402
+password = sys.stdin.readline().rstrip('\n')
+w = Workbench(HttpsTransport(origin, ca), origin)
+w.login(read_private(username_file, 1024).strip(), password)
+try:
+    status = None
+    if apply:
+        status, _ = w._call('POST', '/api/v1/workbench/actions/release_contact_restriction',
+                            {'consumer_id': consumer, 'reason': '外联第 5 片验收结束（OUT §4.4）'},
+                            {'X-CSRF-Token': w.csrf, 'Idempotency-Key': 'out-s6c-release-' + consumer[:16]})
+finally:
+    w.logout()
+print(json.dumps({'ok': status in (None, 200), 'applied': apply, 'status': status, 'consumer': consumer[:12]}))
+sys.exit(0 if status in (None, 200) else 1)
+```
