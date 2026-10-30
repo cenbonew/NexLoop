@@ -1880,6 +1880,21 @@
       "version": "0376",
       "name": "0376_relay_backlog_settle.sql",
       "sha256": "96e5fead85c1bcee9e84768e2fb00bfeacf142e23368173a0874c779dbef80ea"
+    },
+    {
+      "version": "0377",
+      "name": "0377_semantic_terms_reflow.sql",
+      "sha256": "6d1971ab94a3fc0c8b16baaa1ff77afb8ae7bd996a315d1cd66cede393146ed2"
+    },
+    {
+      "version": "0378",
+      "name": "0378_glossary_recall.sql",
+      "sha256": "3e3ce02d0a36e4932c5f00599ef07712e4a6000b0bdc5179fa7df3fb19246956"
+    },
+    {
+      "version": "0379",
+      "name": "0379_recall_terms_round3.sql",
+      "sha256": "0e625cfeb402ddb9b8219dc10811d3df5b6cf17b2bc5958693da677543478c62"
     }
   ]
 }
