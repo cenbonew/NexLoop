@@ -50,6 +50,12 @@ export const ALERT_INFO:Record<string,AlertInfo>={
   backup_age:I('PG 备份过旧','seconds','operations','查看备份区块。'),
   relay_unenrolled_pending:I('来信无 relay 服务','count','operations','客户来信没有 relay 接收；检查 relay 注册。'),
   relay_backlog_age:I('relay 积压','seconds','operations','查看 relay 与消息待处理时间。'),
+  // Relay readiness (alert-rules v23, S43): what keeps a relay serving its enrolled consumers.
+  relay_dependency_expiring:I('relay 依赖即将过期','count','operations','有 relay 注册的依赖将在 7 天内过期；过期前重新装配，否则 relay 将停止服务。'),
+  relay_dependency_expired:I('relay 依赖已过期','count','operations','有 relay 注册的依赖已过期或缺失，relay 已不再服务对应客户；重新装配。'),
+  relay_unserviceable_enrollment:I('relay 注册无法服务','count','operations','有生效的 relay 注册当前没有可用的 relay 配置（控制、账本、权益或绑定无效），其客户会被跳过；检查 relay 注册。'),
+  relay_no_active_enrollment:I('没有生效的 relay 注册','count','operations','本租户没有生效的 relay 注册，客户来信无人接收；检查 relay 注册。'),
+  relay_stalled_consumers:I('relay 客户停滞','count','operations','有已注册的客户等待超过 5 分钟仍未被 relay 领取；查看 relay 运行状态。'),
   wal_archive_lag:I('WAL 归档滞后','seconds','operations','查看备份区块的 WAL 归档。'),
   wal_archive_failing:I('WAL 归档失败','count','operations','查看备份区块的 WAL 归档。'),
   offsite_backup_age:I('异地备份过旧','seconds','operations','查看备份区块的各仓库最近备份。'),
