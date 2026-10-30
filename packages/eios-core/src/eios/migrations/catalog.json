@@ -1880,6 +1880,11 @@
       "version": "0376",
       "name": "0376_glossary_recall.sql",
       "sha256": "26a9205966e1437e454d9e0be4d6ec126de87efb9146b91471127c3fd805cbe8"
+    },
+    {
+      "version": "0377",
+      "name": "0377_recall_terms_round3.sql",
+      "sha256": "0e625cfeb402ddb9b8219dc10811d3df5b6cf17b2bc5958693da677543478c62"
     }
   ]
 }

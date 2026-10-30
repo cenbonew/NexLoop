@@ -176,6 +176,11 @@ class SemanticAdapter:
         digest=hashlib.sha256(canonical_payload([list(b[:2])+[list(b[2])] for b in basis]).encode()).hexdigest()
         return f"semantic:{digest}@{result.config_version}@{result.profile_id or 'fts'}"
 
+    def _term_ambiguous(self,result,details):
+        """I26 round 3: with terms searched one by one, ambiguity is two readable candidates of one term within the margin; two
+        terms naming two definitions are no ambiguity."""
+        return any(self._ambiguous([h.score for h in hits if h.ref in details]) for hits in result.term_hits)
+
     def _ambiguous(self,scores):
         return len(scores)>1 and scores[0]-scores[1]<self.config.ambiguity_margin
 
@@ -189,7 +194,7 @@ class SemanticAdapter:
         details,proofs=self._definitions([ref for ref,_,_ in hits])
         items=[{**details[ref],'score':round(score,6),'method':method,'source_refs':[ref]} for ref,score,method in hits if ref in details]
         out={'version':self._version(items,result),'coverage':1.0 if items else 0.0,
-            'ambiguity':self._ambiguous([i['score'] for i in items]),'items':items,
+            'ambiguity':self._term_ambiguous(result,details) if getattr(result,'term_hits',()) else self._ambiguous([i['score'] for i in items]),'items':items,
             'access_decision_refs':sorted(decision_ref(p) for p in proofs)}
         if self.overlay is not None:out['overlay']=self.overlay.candidate_id
         if self.recorder is not None:

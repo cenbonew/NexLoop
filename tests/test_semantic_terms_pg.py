@@ -176,3 +176,48 @@ def test_gloss_rows_are_invisible_outside_world_real(semantic):
         hits=recall_for(f,other,provider=None).recall('客户',instances=False).definitions
         assert all('alias' not in h.fields and not any(x.startswith('gloss_') for x in h.fields) for h in hits),world
         assert 'eios:object_type:Consumer' not in [h.ref for h in hits],world
+
+
+# --- round 3 (L2 review B1/B2, property gloss fan-out) --------------------------------------------------------------------------
+
+def second_type(admin,f):
+    """A second readable type sharing the property waterproof_concern, and a reader of both."""
+    from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
+    put_schema(admin,A,ObjectTypeDefinition(type_name='Umbrella',display_name='雨伞',version=1,title_property='label',primary_key=('label',),
+        properties=(PropertyDefinition(property_name='label',value_type=PropertyValueType.STRING,display_name='型号',required=True),
+            PropertyDefinition(property_name='waterproof_concern',value_type=PropertyValueType.BOOLEAN,display_name='防水要求'))))
+    RecallIndexer(f['worker'],f['indexers'][(A,'real')],provider=f['provider'],expected_dimension=64).index_object_type('Umbrella')
+    targets=[(f'eios:object_type:{t}',ResourceType.OBJECT_TYPE,Operation.READ) for t in ('Consumer','Umbrella')]
+    targets+=[(f'eios:property:{t}/{p}',ResourceType.PROPERTY,Operation.READ) for t,p in (('Consumer','member_no'),('Consumer','waterproof_concern'),
+        ('Umbrella','label'),('Umbrella','waterproof_concern'))]
+    session,_=seed_multi_authority(admin,f['worker'],targets,identity_suffix='-two-types',world='real',tenant=A)
+    return session
+
+
+def test_two_type_names_in_one_sentence_both_return_without_ambiguity(semantic):
+    f,_,signer=semantic;admin=f['admin'];session=second_type(admin,f)
+    out=adapter(f,session,signer,None).browse('消费者想买一把雨伞',extract_terms=True)
+    top={i['ref']:i['score'] for i in out['items']}
+    assert {'eios:object_type:Consumer','eios:object_type:Umbrella'}<=set(top) and out['ambiguity'] is False
+    # Each type scores as its own term would, not as a share of both.
+    assert top['eios:object_type:Consumer']==top['eios:object_type:Umbrella']==1.0
+
+
+def test_a_property_gloss_keeps_to_the_type_another_term_named(semantic):
+    f,_,signer=semantic;admin=f['admin'];session=second_type(admin,f)
+    gloss(admin,'property','waterproof_concern','雨天耐用性','machine')
+    assert len([r for r in gloss_rows(admin) if r[0]=='glossary:property/waterproof_concern'])==2  # fans out over both types
+    refs=[i['ref'] for i in adapter(f,session,signer,None).browse('雨伞的雨天耐用性',extract_terms=True)['items']]
+    assert 'eios:property:Umbrella/waterproof_concern' in refs and 'eios:property:Consumer/waterproof_concern' not in refs
+    gloss(admin,'property','member_no','编号')  # a two-character property gloss is no term
+    assert recall_for(f,session,provider=None).recall('我的编号',instances=False,extract_terms=True).terms==()
+
+
+def test_gloss_rows_stay_lexical_only(recall_db):  # noqa: F811
+    """B1: the active profile embeds definitions (fixture), never a gloss row; enabling vector for glosses is a later decision."""
+    f=recall_db;admin=f['admin']
+    gloss(admin,'object_type','Consumer','客户')
+    assert admin.execute("""select count(*) filter (where m.entry_id is not null),count(*) from ontology.nexloop_recall_entries e
+        left join ontology.nexloop_recall_embeddings m using(entry_id) where e.source_key like 'glossary:%%'""").fetchone()==(0,1)
+    assert admin.execute("""select count(*) from ontology.nexloop_recall_entries e join ontology.nexloop_recall_embeddings m using(entry_id)
+        where e.source_key like 'type:%%'""").fetchone()[0]>0

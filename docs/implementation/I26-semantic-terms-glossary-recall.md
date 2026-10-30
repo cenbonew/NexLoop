@@ -23,6 +23,13 @@
   - manifest 发布和负责人更正各开一个 7 天观察窗（0250）。
   - S55：stale 判定只读一个 tokenizer 常量，并拒绝不一致的调用方；重建后仍判为过期的类型会打 warning 并计数。
 
+- **I26-c（第三轮，L2 审查 side-session-notes/I26-review-l2.md）**
+  - B2：每个术语单独做词法检索，再按 ref 取最高分合并；ambiguity 只在同一术语的候选之间比较。原先把术语拼接成一个查询，每个定义只能拿到“自己那一个词 / 全部词”的分数，还会误报 ambiguity。最多检索 8 个术语。配置了 vector 时，向量仍对整句计算，作为一组额外候选。
+  - property 译名扇出：一个 property 术语如果命中多个类型的同名属性，而别的术语已经点名了其中某个类型，就只保留被点名的类型。property 译名不足 3 个字的（例如“状态”“名称”）不作为术语抽取。
+  - tokenizer：`nexloop_recall_insert`、`nexloop_recall_scope` 改为读 `nexloop_recall_tokenizer()`，0067 原文不改，在新迁移里用 create or replace 重定义。
+  - B1：gloss 只走词法，由 `test_gloss_rows_stay_lexical_only` 固定下来。
+  - 后续（未做）：词表 reflow 目前是整租户删除后重建，复杂度为词条数×类型数，在写事务内完成；L6 判 stage 规模可以接受。租户变大时，改为按变化的 identifier 增量处理，或交给 recall-indexer 的 tick。另外，gloss 行只写 world=real，shadow 和 simulation 的评估对比需要考虑这一点。
+
 ## Embedding（I27）
 
 - gloss 行不会被 embedding：
