@@ -14,7 +14,7 @@
 | **E1** | `run-nx055-stage.md` §1：授权漂移检查 | d60a833f | 不写库 |
 | **E2** | `run-nx055-stage.md` §2：崩溃循环演练 | d60a833f | APP_HOST 的探针配置（临时）和一次性容器；一次 `crash_loop` critical 告警，最长约 1 小时 |
 | **REM** | `run-nx057-remediation-stage.md` | 本分支更新了 §0.1 P5 和 §0.5 | 补救规则 v1、`REMEDIATION_ENABLED`；重建 `plan-reevaluator`。规则 v1 的 `deliver_final_failure` 是自动复评：投递最终失败后唤醒等待的计划，新的复评 Run 可能再提出投递或外联意图（派发时重新过全部闸门；外联只有回环 outbox） |
-| **OUT** | `run-outreach-slice5-stage.md`（L4） | d60a833f | 外联记录；customer-2 的联系限制（要恢复） |
+| **OUT** | `run-outreach-slice5-stage.md`（L4） | d60a833f | 外联记录；s6c-2 的联系限制（要恢复） |
 
 本分支同时改了两张单：run-nx039 里预算由谁设定的三处，改为“approver3 发起和执行，approver2 批准”；run-nx057 的 P5 和 §0.5，见 §3。run-nx040 §0 的“P3（evolution 预算，NX-038 §2.0 由 approver3 设定）”是 L4 的单，这里没有改，按 NX-038 §2.0 的现行写法执行。
 
@@ -39,11 +39,11 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 
 | # | 约束 | 原因 | 做法 |
 |---|---|---|---|
-| X1 | **删除合成 Consumer（038-9）放在所有用到它的检查之后** | 删除会改变 S6 窗口的簇单元，作废包含它的留出集；S6 的合成交互用 customer-1/2/3/5（S6-stage-acceptance §合成交互），`erasure_consumer_id` 很可能是 customer-1..3 之一，而 OUT 要用 customer-1..4 | 038-9 放在 S6 的 038-7 之前各项**和 OUT 全部完成（包括 OUT §4.4 解除联系限制）**之后。执行 038-8 预检前核对：`erasure_consumer_id` 不是 OUT 还要用的顾客；是的话等 OUT 结束 |
+| X1 | **r7 的删除（038-9）在这一轮判 blocked，不做** | 10-30 起 S6 与 OUT 都只用 s6c-1/2/3（customer-1..4 的授权已撤销或已擦除，装配过期）。`erasure_consumer_id` 只能从这三个里选，而 OUT 也要用这三个；同时只有 3 个簇单元，r7 依赖的第 4 个簇单元不存在（S6 prep §2.1a，负责人 10-30：r7 一律不做） | r7 照实判 blocked，原因写“只有 3 个合成 Consumer，且都被 OUT 使用”。不等 OUT 结束后再补做：等下去也凑不出第 4 个簇单元，而删除不可逆，会让 OUT 的阳性或阴性对照之一永久失效。以后补 r7 时，要先有第 4 个不被 OUT 使用的合成 Consumer，并排在 OUT 全部完成（含 §4.4）之后 |
 | X2 | **E2 期间不重装文件备份** | 文件备份安装的 R6 会改写同一个 `/etc/nexloop/host-health-install.json`，和 E2 收尾用原配置恢复会互相覆盖（run-nx055 §2.1） | 从 E2 的 2.1 到 2.5 第 4 条，不执行任何文件备份安装（APP_HOST 部分）。文件备份安装放在 E2 收尾之后 |
 | X3 | **E2 期间 APP_HOST 不重建、不重启任何容器，也不重装 host-health** | E2 的通过条件之一是“现有服务没有任何重启”；REM 4.2 重建 `plan-reevaluator`，DEP 的 S9/S10 重建和重启 Host | REM 4.2 放在 E2 之前完成；E2 期间不执行任何 `docker compose up`，也不跑 `host_health_install.sh`（E2 自己的两次除外） |
-| X4 | **OUT 会给 customer-2 加联系限制，跑完必须恢复** | OUT §3.1 由 customer-2 在 WebChat 说“以后不要再联系我了”，规则 v2 `stop-contact` 生效 | OUT 只要做过 §3.1，无论结果如何都要做 §4.4（approver3 执行 `release_contact_restriction`），再用 §3.1 的查询确认 `active = f`。§4.4 完成之前：不执行 038-9；不用 customer-2 跑新的合成交互 |
-| X5 | **S6 的 `window` 要在 OUT 开始之前固定，并且结束时间早于 OUT §3.1** | OUT 会产生 customer-1..3 的新 Run（customer-2 的发言、计划复评 Run）。如果它们落进 S6 窗口，簇单元就会变化，三张单要一起换 `label` | 先用 `s6_stage_inputs.py` 生成 S6 配置并记下 sha256（run-nx039 P8），确认 `window` 的结束时间早于 OUT 开始的时间，然后才开始 OUT |
+| X4 | **OUT 会给 s6c-2 加联系限制，跑完必须恢复；而且必须等 S6 发言结束** | OUT §3.1 由 s6c-2 说“以后不要再联系我了。”，规则 v2 `stop-contact` 生效；s6c-2 也是 S6 的发言账号 | OUT §3.1 与 G-3（s6c-1/2 重新组装 Role、重新登记）都排在 S6 的 9 轮发言全部结束、window 固定（`date -u` 晚于 `until`）之后。OUT 只要做过 §3.1，无论结果如何都要做 §4.4（approver3 用 `release_restriction.py` 执行 `release_contact_restriction`，负责人终端一条命令），再用 §3.1 的查询确认 `active = f`。§4.4 完成之前：不用 s6c-2 跑新的合成交互 |
+| X5 | **S6 的 `window` 要在 OUT 开始之前固定，并且结束时间早于 OUT §3.1** | OUT 会产生 s6c-1..3 的新 Run（s6c-2 的发言、计划复评 Run）。如果它们落进 S6 窗口，簇单元就会变化，三张单要一起换 `label` | 先用 `s6_stage_inputs.py` 生成 S6 配置并记下 sha256（run-nx039 P8），确认 `window` 的结束时间早于 OUT 开始的时间，然后才开始 OUT |
 | X6 | **REM 4.2 不与 OUT §3.2 等待计划复评的时段重叠** | REM 4.2 重建 `plan-reevaluator`；OUT 靠常驻的 `plan-reevaluator` 认领到期的计划步骤 | REM 全部完成后再开始 OUT §3.2；或者等 OUT §4 结束后再执行 REM 4.2 |
 | X7 | **BUD 只做一次** | 三张 S6 单共用一次预算；重复发起会在等待期间按重放返回同一条审批，但执行之后再发起会以 `budget_changed` 被拒 | 发起前先用 NX-038 P3 的查询看有没有行，有行就按 §2.0 填 `from_*` |
 | X8 | **040 的 r6 在 038-10 之后；r8 的正式发布（可选，Q5）放在最后** | run-nx040 §1 | 照 run-nx040 §1 的总序 14、15 |
@@ -58,7 +58,7 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 | E2 收尾之后等待 `crash_loop` 恢复的约 1 小时内，可以执行 S6（管理机）、BUD、OUT 的只读部分；**但不能做 X3 列出的重建，也不能做 X2 的文件备份安装** | E2 的 2.1–2.5 第 4 条（约 10 分钟，APP_HOST 独占） |
 | OUT 等待计划复评（§3.2，每轮约 5 分钟）期间可以执行 S6 的 1–9 步（S6 的写入只在演进侧，不碰外联） | S6 的 0–15 步按 run-nx040 §1 的总序，不能打乱 |
 | REM 的只读核对（A 步）随时可以做 | REM 第 3 步在第 4 步之前；4.2 不能与 E2、OUT §3.2 重叠 |
-| | 038-9 删除排在 OUT §4.4 之后（X1） |
+| | 038-9 删除：本轮判 blocked，不做（X1，10-30） |
 
 ## 2. 推荐的总顺序
 
@@ -69,8 +69,8 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 | 2 | REM：前提核对，按 §0.5 新的预期（策略 5）→ 第 3 步 → 第 4 步（含 4.2 重建 `plan-reevaluator`）。已经做过的步骤按单里的“只核对”执行 | 是 | 约 30 分钟 |
 | 3 | E2：2.1–2.5（APP_HOST 独占约 10 分钟），然后等 `crash_loop` 恢复（最长约 1 小时，可以与阶段 4、5 重叠，但要遵守 X2、X3） | 是（临时） | 主动约 15 分钟，恢复等待最长约 1 小时 |
 | 4 | S6 准备：生成并固定 S6 配置（X5）→ S6 的 dry-run（038 §2.1、039 §2.1、040 §3.0）→ BUD（approver3 发起，approver2 批准，approver3 执行）→ S6 总序 1–9（at046、r5、at048、r4、at023、r1 加 `--only semantic`、r3、candidate-template、at024、r10、r8） | 是（演进侧） | 配置与 dry-run 约 20 分钟；BUD 约 10 分钟；总序 1–9 约 45–90 分钟 |
-| 5 | OUT：§2 只读 → §3.1（customer-2）→ §3.2 → §4.1–4.3 → **§4.4 解除限制（必做）**。可以在阶段 4 的 BUD 之后开始，与总序 1–9 交替执行（X5 已满足时） | 是 | 约 30–60 分钟（每个顾客最多触发 3 次，见 OUT G-4） |
-| 6 | S6 总序 10–13：038-7 `r7-prepare` → 038-8 删除预检（核对 X1）→ 038-9 删除 → 038-10 `r7-verify` | 是（不可逆） | 约 20 分钟，另加等 keeper 一轮的时间 |
+| 5 | OUT：§2 只读 → G-3（s6c-1/2）→ §3.1（s6c-2）→ §3.2 → §4.1–4.3 → **§4.4 解除限制（必做）**。G-3 与 §3.1 排在 S6 的 9 轮发言结束、window 固定之后（X4，10-30）；§2 只读可以提前 | 是 | 约 30–60 分钟（每个顾客最多触发 3 次，见 OUT G-4） |
+| 6 | S6 总序 10–13：038-7 `r7-prepare` → 038-8 → 038-9 → 038-10 `r7-verify`：**本轮全部判 blocked，不执行**（X1，10-30：只有 3 个合成 Consumer，且都被 OUT 使用） | — | 0 |
 | 7 | S6 总序 14：040 r6；总序 15（Q5 为“执行”时）：r8 路 2 正式发布，再 `hide` | 是 | 约 20 分钟 |
 | 8 | 收尾核对（§5） | 否 | 约 10 分钟 |
 
@@ -106,8 +106,8 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 | BUD 第 2 步批准 | **approver2** | 不能是 approver3（会以 409 `self_approval` 被拒），也不能是负责人 |
 | S6：at024、r10、r8、r6、Schema 提案的 check/publish/hide、038-8/038-9 删除 | **approver3** | 各单 |
 | REM：P3 看“补救”一栏；4.3 只在租户开关被暂停时恢复；§5 工作台上的回退 | **approver3** | 补救 Action 不在策略 v5 里，approver2 不参与（run-nx057 §0.5） |
-| OUT §1 P6 外联目的、§4.4 解除 customer-2 的联系限制 | **approver3** | — |
-| OUT §3.1 触发联系限制 | 合成顾客 **customer-2**（WebChat） | 不是工作台账号 |
+| OUT §1 P6 外联目的、§4.4 解除 s6c-2 的联系限制 | **approver3**（§4.4 用 `release_restriction.py`，负责人终端一条命令） | — |
+| OUT §3.1 触发联系限制 | 合成顾客 **s6c-2**（`out-restrict.sh`，负责人终端一条命令） | 不是工作台账号 |
 | S14 浏览器走查 | **approver3** | 只看，不提交 |
 | E1、E2 | 不需要工作台账号 | 调度员的运维账号；E2 用钥匙串里的记录器口令 |
 
@@ -137,11 +137,11 @@ release 53+54 = ad8f42dc，迁移尾 0371。下文各单前提里写的旧发布
 | REM：停止条件（积压不为 0、规则不是 v1、策略覆盖补救）或 4.2 后 `plan-reevaluator` 没起来 | REM；`plan-reevaluator` 没起来时 **OUT 也停**（OUT 靠它认领计划步骤） | S6、E1、E2（X3 仍然适用）、S14 |
 | OUT：P9 不满足（执行器挂了渠道凭据，或 provider 不是回环） | OUT 不开始 | 全部其他单 |
 | OUT：任何迹象表明消息到了真实渠道（outbox 之外有发送） | **全部停止**。按真实派发面板关掉租户层开关（approver3，审批策略覆盖“打开”，关闭不需要审批），报调度员和负责人 | 无 |
-| OUT：V1/V3/V4/V5 某项 failed | OUT 的后续触发；**仍要执行 §4.4 解除 customer-2 的联系限制** | 全部其他单；038-9 等 §4.4 完成之后再执行 |
+| OUT：V1/V3/V4/V5 某项 failed | OUT 的后续触发；**仍要执行 §4.4 解除 s6c-2 的联系限制** | 全部其他单（038-9 本轮 blocked，X1） |
 
 ## 6. 收尾核对（阶段 8，只读）
 
-- customer-2 的联系限制：OUT §3.1 的查询，`active = f`；
+- s6c-2 的联系限制：OUT §3.1 的查询，`active = f`；
 - E2：`docker ps -a --filter label=nexloop.drill=host-health` 为空；`/etc/nexloop/host-health-install.drill.json` 已删除；`crash_loop` 的恢复事件已记录；
 - S6：`results_dir` 下各结果文件的 sha256；r8 正式发布时 `hide` 已执行；
 - REM：4.4 的查询，包括由补救唤醒的复评 Run 数和它们产生的意图数；
