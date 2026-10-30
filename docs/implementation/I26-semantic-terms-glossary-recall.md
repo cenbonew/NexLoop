@@ -30,6 +30,23 @@
   - B1：gloss 只走词法，由 `test_gloss_rows_stay_lexical_only` 固定下来。
   - 后续（未做）：词表 reflow 目前是整租户删除后重建，复杂度为词条数×类型数，在写事务内完成；L6 判 stage 规模可以接受。租户变大时，改为按变化的 identifier 增量处理，或交给 recall-indexer 的 tick。另外，gloss 行只写 world=real，shadow 和 simulation 的评估对比需要考虑这一点。
 
+## 分数阈值与检索次数（L6，第三轮之后）
+
+- **含义变化**：`min_score` 和 `candidate_limit` 的含义都变了。
+  - 分数现在按单个术语计算：一个定义命中自己那个词，就接近满分。因此同一个 `min_score` 实际上比整句检索时宽松。stage 当前配置为 0.0，不受影响；以后调高时，要按单个术语的分数来定阈值。
+  - `candidate_limit` 现在是“每个术语、每种方法”各一个上限；`top_k` 在合并之后才截断。
+- **检索次数**：一次 access 最多 8 个术语（`MAX_TERMS`）。每个术语跑 fts 和 trgm 两种词法方法，最多 16 次检索。另外还有 1 次抽词查询、1 次可读范围查询；配置了 vector 时，再加 1 次整句检索。
+  - L6 估的是 8 × 3 = 24 次，按的是三种方法；vector 不参与逐词检索，所以实际上限是 16 次。
+
+## S57 上线观察：语义读取耗时
+
+- relay 的语义读取池只有 1 条连接，上面这些查询是顺序执行的，会拉长 access 耗时。
+- 现有超时 `SEMANTIC_READ_TIMEOUT_SECONDS` 为 0.5 秒；超时只计数，不会让 Run 失败。
+- 上线后要对照两项：relay 的 semantic `timeout` 计数，以及 access 的耗时。
+- 如果出现 timeout，有两个处理办法：
+  - 调小 `MAX_TERMS`；
+  - 把多个术语合进同一条 SQL，一次返回各个术语各自的候选。
+
 ## Embedding（I27）
 
 - gloss 行不会被 embedding：
