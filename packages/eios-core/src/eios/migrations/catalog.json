@@ -1900,6 +1900,11 @@
       "version": "0380",
       "name": "0380_semantic_read_health.sql",
       "sha256": "a6a5c49fbdec1b62bd864eac5cee767689324f12de441c77509e79bdca84ec6a"
+    },
+    {
+      "version": "0381",
+      "name": "0381_definition_read_rule.sql",
+      "sha256": "a9029ee95dc055b0a1631bdc8b72770f3d16e8b3cca328239e21124ef4b42d6b"
     }
   ]
 }

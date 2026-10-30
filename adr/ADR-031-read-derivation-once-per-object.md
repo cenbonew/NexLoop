@@ -75,3 +75,17 @@ relay Source 没有配置授权，它对目录对象（ServiceOffering、Consume
 
 - 不跨调用缓存，也不缓存权威事实或身份快照（剖析 §4 第 4 项，另行决定）。
 - 不改 Python 读取路径和信封（优化①归 L3）。
+
+## 补注（I29，2026-10-31）：relay Source 的定义层 READ 走派生规则，不走 grant
+
+负责人 2026-10-31 定的范围：全部 20 个已发布类型的定义，排除受限字段。调度员同日选方案 A，照 0211 G-ROLE-READ 的做法实现。迁移 0381 `definition_read_rule`，stage-principals v9 新增 `definition_read_rules` 段。
+
+- **为什么不走 grant**：给 relay_source 授 `object_type`/`property` READ，会让它凭据的 `requested_scopes` 多出 `object_type.read` 和 `property.read`。`service_grants.apply` / `stage_secrets register` 会以 `credential_rotation_required` 失败关闭，而 stage 没有凭据轮换流程。规则事实不改任何凭据的 scope，也不写逐对象事实。
+- **授予什么**：stage-principals 里逐条列出的类型（与世界模型译名表的 20 个类型一致，由测试强制同步），对每个类型授予 `eios:object_type:<T>`，以及该类型最新已发布版本里每个属性的类型级 `eios:property:<T>/<p>`。owner 限制的属性组（`property_group_restriction`）排除；不属于任何组的属性不算受限。
+- **边界**：
+  1. 只有 recall 授权器的定义门（`EiosRecallAuthorizer.readable`）和语义适配器读取定义详情时调用 `authz.nexloop_definition_read`。
+  2. 派生证明 `definition-read-v1` 只能写 `eios:object_type:<T>` 或两段式的 `eios:property:<T>/<p>`，每次使用都在 SQL 里重新派生。共享读取断言只在 `authz.nexloop_context_read` 的 definitions 动词执行期间接受它；这段期间由事务内标志标明。
+  3. 对象读取、逐对象属性读取（`Type/<oid>/<p>`）、属性值读取、其他派生的嵌套类型 READ 一律拒绝这种证明。`nexloop_property_access_basis` 和各读取断言的原有分支都没有改动。
+  4. 只在 real 世界生效，只对不带 Run 上下文的服务凭据生效。规则停用、过期或被撤销后，下一次读取立即失效。
+- **剩余风险**（交 L6 审）：事务内标志是一个自定义 GUC，调用方可以在自己的事务里设置它。但证明的资源名在 SQL 里被限定为定义层资源，即使伪造了标志，也读不到实例或属性值；测试 `test_a_definition_proof_is_accepted_only_inside_the_definitions_read` 覆盖了改名为对象资源的伪造证明。
+- **以后新增类型**：需要在 stage-principals 里显式加上该类型，再跑一次 register。测试 `test_the_stage_rule_lists_the_twenty_published_types_and_adds_no_grant` 在两份清单不一致时失败。

@@ -112,6 +112,19 @@ class EiosRecallAuthorizer:
         try:return property_access_basis(self.pool,self.session,resource_id(kind,name),'read').get('mode')=='derived'
         except Exception:return False
 
+    def _definitions(self,kind,names):
+        """I29 (0381): definition-level READ from a definition_read_rule (type and type-level property definitions of the listed
+        published types, owner-restricted groups excluded). Only this recall gate consults it; object and value reads never do."""
+        if kind not in (ResourceType.OBJECT_TYPE,ResourceType.PROPERTY) or not names:return frozenset()
+        try:
+            with self.pool.connection() as connection,connection.transaction():
+                verify_application_role(connection)
+                found=connection.execute('select authz.nexloop_definition_read(%s,%s,%s,%s)',
+                    (self.session.token_digest,self.session.world,kind.value,list(names))).fetchone()[0]
+        except Exception:
+            return frozenset()
+        return frozenset(found or ())&frozenset(names)
+
     def readable(self,kind,names):
         self._assert_current();allowed=set()
         for name in sorted(set(names)):
@@ -121,6 +134,7 @@ class EiosRecallAuthorizer:
             except Exception:
                 pass
             if self._derived(kind,name):allowed.add(name)
+        allowed|=self._definitions(kind,sorted(set(names)-allowed))
         self._assert_current()
         return frozenset(allowed)
 

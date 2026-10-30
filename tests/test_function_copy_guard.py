@@ -585,6 +585,10 @@ REGISTRY = [
             ((r"ontology\.nexloop_recall_tokenizer\(\)", "'nexloop-cjk-bigram-v1'"),), PG_TEMP),
     Allowed('recall_terms_round3', 'control.nexloop_recall_terms', 'property glosses shorter than 3 characters left out; nothing else',
             ((r"\s*and not \(e\.gloss_source is not null and e\.target_kind='property' and char_length\(btrim\(e\.body\)\)<3\)", ""),)),
+    # I29 (0381): definition_read_rule, the relay Source's definition-level READ for the recall gate (stage-principals v9).
+    Allowed('definition_read_rule', 'control.nexloop_configure_manifest', 'one more fact kind, definition_read_rule, and its exact shape; nothing else',
+            ((r",'role_source_read_rule','definition_read_rule'\)", ",'role_source_read_rule')"),
+             (r"\n  -- I29 \(0381\): definition_read_rule \[service principal\].*?raise exception 'definition read rule rejected' using errcode='22023';end if;", ""))),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

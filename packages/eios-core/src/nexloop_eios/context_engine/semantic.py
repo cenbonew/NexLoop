@@ -13,7 +13,7 @@ import logging
 import uuid
 
 from eios.authz.resources import ResourceType
-from nexloop_eios.context_engine.authority import ContextDenied,decision_ref,read_proof,signed_read
+from nexloop_eios.context_engine.authority import ContextDenied,decision_ref,definition_proof,read_proof,signed_read
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 KINDS=('object_type','property','vocabulary_value','any')
@@ -164,7 +164,9 @@ class SemanticAdapter:
             for kind,name in gates(ref):wanted[(kind,name)]=None
         proofs=[];readable=set()
         for kind,name in wanted:
-            try:proofs.append(read_proof(self.pool,self.session,kind,name));readable.add((kind,name))
+            try:proofs.append(read_proof(self.pool,self.session,kind,name));readable.add((kind,name));continue
+            except ContextDenied:pass
+            try:proofs.append(definition_proof(self.pool,self.session,kind,name));readable.add((kind,name))  # I29: definition_read_rule
             except ContextDenied:pass
         allowed=[r for r in refs if all(g in readable for g in gates(r))]
         if not allowed:return {},[]

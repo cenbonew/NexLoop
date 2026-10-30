@@ -60,6 +60,27 @@ def read_proof(pool,session,kind,name):
     return {**_base(session,target,decision,entries,'read'),'target_resource':target}
 
 
+DEFINITION_READ='definition-read-v1'
+
+
+def definition_proof(pool,session,kind,name):
+    """I29 (0381): a definition-level READ proof from the caller's definition_read_rule - eios:object_type:<T> or the type-level
+    eios:property:<T>/<p> only. SQL re-derives it at use and accepts it only inside the context read's definitions verb."""
+    from nexloop_eios.assembly import verify_application_role
+    if kind not in (ResourceType.OBJECT_TYPE,ResourceType.PROPERTY) or session.run_context is not None:raise ContextDenied(name)
+    try:
+        with pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            found=db.execute('select authz.nexloop_definition_read(%s,%s,%s,%s)',(session.token_digest,session.world,kind.value,[name])).fetchone()[0]
+    except Exception:
+        raise ContextDenied(name) from None
+    if name not in (found or ()):raise ContextDenied(name)
+    target=resource_id(kind,name);auth=session.authentication
+    return {'tenant_id':auth.tenant_id,'principal_id':auth.subject_principal_id,'credential_id':auth.credential_id,
+        'directory_hash':session.directory_hash,'world':session.world,'resource_id':target,'target_resource':target,'operation':'read',
+        'expires_at':(datetime.now(UTC)+SIGNED_COMMAND_TTL).isoformat(),'facts':[],'derivation':DEFINITION_READ}
+
+
 def action_claims(pool,session,stable_name,version=1):
     target,decision,entries=_decide(pool,session,ResourceType.ACTION,(stable_name,version),Operation.EXECUTE)
     return {**_base(session,target,decision,entries,'execute'),'action_resource':target}
