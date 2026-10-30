@@ -45,7 +45,7 @@ export function Glossary(){
   const result=useQuery({queryKey:['workbench','world-model'],queryFn:readWorldModel});
   return <Page title="世界模型译名" query={result}
     lead="世界模型各标识的中文译名：按种类浏览和查找，标出机翻或人工；改正后作为人工译名，机翻不会再覆盖。">{m=><WithMember>{member=>offers(member,'world_glossary_set')
-      ?<GlossaryBody model={m}/>:<EmptyState kind="forbidden" subject="世界模型译名" reason="只有负责人可以管理世界模型译名。"/>}</WithMember>}</Page>;
+      ?<GlossaryBody model={m}/>:<EmptyState kind="forbidden" subject="世界模型译名" reason="你的角色没有管理世界模型译名的权限。"/>}</WithMember>}</Page>;
 }
 
 function GlossaryBody({model:m}:{model:Model}){

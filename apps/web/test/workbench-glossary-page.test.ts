@@ -2,7 +2,7 @@
 // Owner walkthrough R57 (W5): the glossary is managed on its own page under 管理 (世界模型译名), offered only to a role carrying
 // world_glossary_set: browse and search every identifier by kind with 机翻 / 人工 marked, and open the existing correction form from a
 // row (same checks, same sim rule). The type panel of the graph closes from its sticky head.
-import {createElement as h,act,type ReactNode} from 'react';
+import {createElement as h,act,useState,type ReactNode} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -63,7 +63,7 @@ test('in a simulation the owner sees the rows and the disabled control with its 
   expect(box.querySelectorAll('tbody tr').length).toBeGreaterThan(0);expect(box.querySelector('button[aria-label^="改正 "]')).toBeNull();
   expect(button('改正 Object Type 的中文译名')!.disabled).toBe(true);expect(box.textContent).toContain('只能在真实世界改正');
   act(()=>root.unmount());root=createRoot(box);mount(h(Glossary),operator);
-  expect(box.textContent).toContain('只有负责人可以管理世界模型译名');expect(box.querySelector('table')).toBeNull();
+  expect(box.textContent).toContain('你的角色没有管理世界模型译名的权限');expect(box.querySelector('table')).toBeNull();
 });
 
 test('W2: the type panel closes from the top of its sticky head, not below its content',()=>{
@@ -75,3 +75,14 @@ test('W2: the type panel closes from the top of its sticky head, not below its c
   expect(box.querySelector('.schema-graph-body.with-aside>.world-panel')).not.toBeNull();
   act(()=>close.click());expect(closed).toBe(true);
 });
+
+test('L6 I24: 关闭 returns focus to the node the panel was opened from (the canvas when that node is gone)',()=>{
+  const Host=()=>{const [focus,setFocus]=useState<string|null>('Consumer');
+    return h(WorldModel,{section:'object_types' as never,query:{view:'graph',...(focus?{focus}:{})},go:(_s,q)=>setFocus(q?.focus??null)});};
+  mount(h(Host),owner);
+  const close=box.querySelector<HTMLButtonElement>('.world-panel .panel-close')!;close.focus();
+  act(()=>close.click());
+  expect(box.querySelector('.world-panel')).toBeNull();
+  expect(document.activeElement).toBe(box.querySelector('[data-node="Consumer"]'));
+});
+

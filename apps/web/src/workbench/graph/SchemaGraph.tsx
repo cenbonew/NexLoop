@@ -10,7 +10,7 @@
  * Every node in view (owner report from stage, 2026-10-28): the layout is never wider than the canvas at the label floor, and when
  * the fitted picture is taller than MAX_H the canvas grows to it, so the default view and "适应画布" frame every node.
  */
-import {useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
+import {useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
 import {MAX_GRAPH_TYPES,NODE_H,NODE_W,edgePaths,hue,layout,type GraphEdge,type GraphNode} from './layout';
 
 export const CARDINALITY_TEXT:Record<string,string>={one_to_one:'1:1',one_to_many:'1:N',many_to_one:'N:1',many_to_many:'N:N'};
@@ -38,6 +38,11 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText,asid
   onFocus:(id:string|null)=>void;label:string;emptyEdgesText?:string;aside?:ReactNode}){
   const box=useRef<SVGSVGElement>(null);
   const [canvasW,setCanvasW]=useState(DEFAULT_W);
+  // L6 I24: when the detail closes (its 关闭 unmounts with it), focus goes back to the node it was opened from, or the canvas.
+  const was=useRef<string|null>(focus);
+  useEffect(()=>{const before=was.current;was.current=focus;if(focus!==null||before===null)return;
+    const svg=box.current;if(!svg)return;const a=document.activeElement;if(a&&a!==document.body&&svg.contains(a))return;
+    (svg.querySelector<SVGGElement>(`[data-node="${CSS.escape(before)}"]`)??svg).focus();},[focus]);
   // The width is read once before the first paint (the picture is laid out for the real canvas, not DEFAULT_W and then shrunk),
   // then followed with a ResizeObserver.
   useLayoutEffect(()=>{const el=box.current;if(!el)return;const w=Math.round(el.getBoundingClientRect().width);if(w>0)setCanvasW(w);
