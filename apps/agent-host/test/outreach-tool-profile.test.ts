@@ -29,3 +29,21 @@ describe('outreach tool configuration',()=>{
   expect(()=>open(extra)).toThrow('runtime configuration refused');
  });
 });
+
+/** 10-30 stage S6: a message Run is never offered the plan outcome tool (nor outreach); a plan Run keeps both. */
+describe('plan outcome tool in message Runs',()=>{
+ const tools=(h:RuntimeHost,input:string)=>{
+  const c=command() as {run_id:string};
+  (h as unknown as {activations:Map<string,{input:string}>}).activations.set(c.run_id,{input});
+  const adapter=(h as unknown as {adapter:{options:{toolsForRun?:(c:unknown)=>readonly {name:string}[]}}}).adapter;
+  return (adapter.options.toolsForRun?.(c)??[]).map(tool=>tool.name);
+ };
+ it('is withheld from a message Run and offered to a plan Run',()=>{
+  const h=open({plan_outcome_tool:true,outreach_tool:true});
+  const message=tools(h,JSON.stringify({user_statement:{message_id:'m'},current_event:{kind:'consumer_message'}}));
+  expect(message).not.toContain('nexloop.plan.outcome');expect(message).not.toContain('nexloop.outreach.send');
+  expect(message).toContain('nexloop.service.request');
+  const plan=tools(h,JSON.stringify({user_statement:null,current_event:{kind:'plan_reevaluate'}}));
+  expect(plan).toContain('nexloop.plan.outcome');expect(plan).toContain('nexloop.outreach.send');
+ });
+});
