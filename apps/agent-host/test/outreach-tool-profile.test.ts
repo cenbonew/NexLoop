@@ -13,9 +13,12 @@ function open(extra:Record<string,unknown>={}){
   guard_url:'https://127.0.0.1:65431/internal/v1/runtime/authorize',runtime_profile:'deterministic-test',effect_tools:true,...extra}));
  const h=new RuntimeHost(root,config,readPrivateMaterial,()=>{});hosts.push(h);return h;
 }
-const toolNames=(h:RuntimeHost)=>{
+const PLAN_INPUT=JSON.stringify({schema_version:'nexloop.context-pack.v6',user_statement:null,current_event:{kind:'service_trigger'}});
+const toolNames=(h:RuntimeHost,{input=PLAN_INPUT,request}:{input?:string|null;request?:(runId:string)=>string}={})=>{
+ const c=command();c.request_id=request?request(c.run_id):'plan-reevaluate-'+c.run_id;
+ if(input!==null)(h as unknown as {activations:Map<string,{ref:string;input:string}>}).activations.set(c.run_id,{ref:'activation_synthetic',input});
  const adapter=(h as unknown as {adapter:{options:{toolsForRun?:(c:unknown)=>readonly {name:string}[]}}}).adapter;
- return (adapter.options.toolsForRun?.(command())??[]).map(tool=>tool.name);
+ return (adapter.options.toolsForRun?.(c)??[]).map(tool=>tool.name);
 };
 describe('outreach tool configuration',()=>{
  it('is not offered unless the Host configuration turns it on',()=>{
@@ -30,20 +33,24 @@ describe('outreach tool configuration',()=>{
  });
 });
 
-/** 10-30 stage S6: a message Run is never offered the plan outcome tool (nor outreach); a plan Run keeps both. */
-describe('plan outcome tool in message Runs',()=>{
- const tools=(h:RuntimeHost,input:string)=>{
-  const c=command() as {run_id:string};
-  (h as unknown as {activations:Map<string,{input:string}>}).activations.set(c.run_id,{input});
-  const adapter=(h as unknown as {adapter:{options:{toolsForRun?:(c:unknown)=>readonly {name:string}[]}}}).adapter;
-  return (adapter.options.toolsForRun?.(c)??[]).map(tool=>tool.name);
- };
- it('is withheld from a message Run and offered to a plan Run',()=>{
-  const h=open({plan_outcome_tool:true,outreach_tool:true});
-  const message=tools(h,JSON.stringify({user_statement:{message_id:'m'},current_event:{kind:'consumer_message'}}));
-  expect(message).not.toContain('nexloop.plan.outcome');expect(message).not.toContain('nexloop.outreach.send');
-  expect(message).toContain('nexloop.service.request');
-  const plan=tools(h,JSON.stringify({user_statement:null,current_event:{kind:'plan_reevaluate'}}));
-  expect(plan).toContain('nexloop.plan.outcome');expect(plan).toContain('nexloop.outreach.send');
+/** 10-30 stage S6 and L6 S47: the plan outcome and outreach tools go only to a Run positively known to be a plan reevaluation Run. */
+describe('plan outcome tool only for plan reevaluation Runs',()=>{
+ const PLAN=['nexloop.plan.outcome','nexloop.outreach.send'];
+ it('is offered to a plan reevaluation Run',()=>{
+  const names=toolNames(open({plan_outcome_tool:true,outreach_tool:true}));
+  for(const name of PLAN)expect(names).toContain(name);
+ });
+ it.each([
+  ['a message Run',{input:JSON.stringify({schema_version:'nexloop.context-pack.v6',user_statement:{message_id:'m'},current_event:{kind:'consumer_message'}})}],
+  ['no activation',{input:null}],
+  ['an unreadable input',{input:'not json'}],
+  ['another request id (a Role or fallback Run)',{request:()=>'synthetic-role-request-0001'}],
+  ['another Run\'s plan request id',{request:()=>'plan-reevaluate-00000000-0000-4000-8000-000000000000'}],
+  ['an older pack version',{input:JSON.stringify({schema_version:'nexloop.context-pack.v3',user_statement:null,current_event:{kind:'service_trigger'}})}],
+  ['a consumer event',{input:JSON.stringify({schema_version:'nexloop.context-pack.v6',user_statement:null,current_event:{kind:'consumer_message'}})}],
+ ] as const)('is withheld on %s',(_,options)=>{
+  const names=toolNames(open({plan_outcome_tool:true,outreach_tool:true}),options as never);
+  for(const name of PLAN)expect(names).not.toContain(name);
+  expect(names).toContain('nexloop.service.request');
  });
 });
