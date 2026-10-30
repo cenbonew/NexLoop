@@ -34,7 +34,7 @@
 select runtime.nexloop_metrics_snapshot('<TENANT_ID>','real')->'relay_readiness';
 ```
 
-预期 `active_enrollments` ≥ 1、`earliest_valid_until` 不晚于 `2026-12-01T00:00:00Z`。旧 customer-1/2/3 的登记若仍 active 且依赖已过期，`dependencies_expired` 和 `unserviceable_enrollments` 大于 0，由 S5 处理。
+预期 `active_enrollments` ≥ 1、`earliest_valid_until` 不晚于 `2026-12-01T00:00:00Z`。旧 customer-1/2/3 的登记若仍 active 且依赖已过期，`dependencies_expired` 和 `unserviceable_enrollments` 大于 0，由 S4 处理。
 
 ### S2 发布业务 Action（DATA_HOST，配置员窗口）
 
@@ -45,27 +45,40 @@ select runtime.nexloop_metrics_snapshot('<TENANT_ID>','real')->'relay_readiness'
 
 `workbench_roles --apply`（命令同 R54 S5）。预期 ok；owner 授权数 **96**，多出的一项是 `eios:action:nexloop.relay.backlog_settle:1`；operator 12、reviewer 1。
 
-### S4 告警规则 v23（DATA_HOST，配置员窗口）
+### S4 撤销依赖已过期的旧登记（business_owner）
+
+部署 v23 之前先撤销，否则 v23 一上线 `relay_dependency_expired` 和 `relay_unserviceable_enrollment` 就会持续报 critical。
+
+1. 只读列出要撤销的 consumer（DATA_HOST，`ro()`）：最新一次登记为 active、且当前 relay profile 为空的全部 consumer。不写死名单，已擦除的 consumer（例如 customer-4、refusal-1/2）也可能在里面：
+
+   ```sql
+   select e.consumer_id,e.enrollment_revision from (select distinct on (x.consumer_id) x.* from control.nexloop_relay_enrollments x
+     where x.tenant_id='<TENANT_ID>' and x.world='real' order by x.consumer_id,x.enrollment_revision desc) e
+   where e.state='active' and runtime.nexloop_relay_profile(e.tenant_id,e.world,e.consumer_id,null) is null order by 1;
+   ```
+
+2. 每个 consumer 一个撤销文件（0600，不进仓库）：`{"withdraw": true, "consumer_id": "<64 hex>", "intent_id": "relay-withdraw-<新 UUID>"}`，用 business_owner 的凭据执行：
+
+   ```bash
+   nexloop-relay-enroll --database-url-file F --signing-key-file F --owner-credential-file <business_owner 凭据> --artifact-root D --enrollment-file <撤销文件>
+   ```
+
+   预期每次输出 `{"withdrawn":true,...}`，凭据不出现在输出里；重跑同一意图为重放。撤销后，这些 consumer 之后到达的消息会由 `relay_unenrolled_pending` 报出（预期行为）。
+3. **只读核对**（撤销之后、发布 v23 之前）：
+
+   ```sql
+   select runtime.nexloop_relay_readiness('<TENANT_ID>','real',clock_timestamp());
+   ```
+
+   预期 `active_enrollments` = 3（只剩 s6c 的登记）、`dependencies_expired` = 0、`unserviceable_enrollments` = 0。任一项不符就停下，不发布 v23。
+
+### S5 告警规则 v23（DATA_HOST，配置员窗口）
 
 ```bash
 docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v23.json --check
 ```
 
 再去掉 `--check` 正式应用（`--expected-revision` 等参数同 R54 S8）。预期 86 条。
-
-### S5 撤销 3 个旧登记（business_owner；**是否执行以 L6 的判断为准**）
-
-旧 customer-1/2/3 的登记仍是 active，但依赖已在 10-22 过期。部署 v23 后，`relay_dependency_expired` 和 `relay_unserviceable_enrollment` 会因为它们持续报 critical。
-
-- 先只读列出：`select consumer_id,enrollment_revision,state from (select distinct on (consumer_id) * from control.nexloop_relay_enrollments where tenant_id='<TENANT_ID>' and world='real' order by consumer_id,enrollment_revision desc) e where state='active'`，再用 S1 的快照确认哪 3 个 consumer 的 profile 为空。
-- 每个 consumer 一个撤销文件（0600，不进仓库）：`{"withdraw": true, "consumer_id": "<64 hex>", "intent_id": "relay-withdraw-<新 UUID>"}`，用 business_owner 的凭据执行一次：
-
-  ```bash
-  nexloop-relay-enroll --database-url-file F --signing-key-file F --owner-credential-file <business_owner 凭据> --artifact-root D --enrollment-file <撤销文件>
-  ```
-
-- 预期每次输出 `{"withdrawn":true,...}`，凭据不出现在输出里。重跑同一意图为重放。
-- **与 OUT 的关系待 L6 判断**：撤销后，这 3 个 consumer 的入站消息不再有 relay 服务，`relay_unenrolled_pending` 会对它们之后到达的消息报警；如果 OUT（主动外呼）或其他流程仍依赖这 3 个登记，就不要撤销，改为续期重新装配。L6 判断前不执行本步。
 
 ### S6 结束现有积压（负责人或 approver3，一条命令）
 
@@ -93,7 +106,7 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
 
 - `relay.pending_messages` 为 0（或只剩 S6 之后新到的消息）；`relay_backlog_age`、`relay_unenrolled_pending` 在下一次评估后恢复。
 - `select reason,source,count(*) from runtime.nexloop_relay_backlog_settlements where tenant_id='<TENANT_ID>' group by 1,2`：`no_serviceable_enrollment / owner` 1，`consumer_erased / owner` 50。
-- `relay_readiness`：执行 S5 后 `dependencies_expired` 和 `unserviceable_enrollments` 为 0；`dependencies_expiring_7d` 在 11-24 前后开始大于 0，这是预期的提前量。
+- `relay_readiness`：执行 S4 后 `dependencies_expired` 和 `unserviceable_enrollments` 为 0；`dependencies_expiring_7d` 在 11-24 前后开始大于 0，这是预期的提前量。
 
 ## 证据
 
@@ -102,8 +115,8 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
 | S1 | 迁移日志行、definer 检查、`relay_readiness` 快照 | 头前进两版；0 problems |
 | S2 | 预演与发布输出 | 只多 `relay.backlog_settle:1`；(20, 130, 2) |
 | S3 | roles 输出 | owner 96 |
-| S4 | `--check` 与应用输出 | 86 条 |
-| S5 | 3 次撤销输出（或 L6 不执行的结论） | `withdrawn: true` |
+| S4 | 撤销清单查询结果、每次撤销输出、撤销后的 `relay_readiness` | `withdrawn: true`；active 3、expired 0、unserviceable 0 |
+| S5 | `--check` 与应用输出 | 86 条 |
 | S6 | dry-run 与执行输出（已脱敏） | `[50, 1]`；全部 settled |
 | S7 | 快照与审计计数 | 积压为 0；审计 1 + 50 |
 
@@ -111,4 +124,4 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
 
 - 迁移 B 之前的 stage 镜像不能运行在迁移后的库上（MigrationDrift），完整回退先恢复 P1 的备份。
 - 已结束的消息不会自动恢复为 pending（审计表追加写，有意不可撤销）；只回退告警时，重新应用 v22 即可。
-- S5 撤销后要恢复服务，用新的 intent 重新登记（续期后的装配）。
+- S4 撤销后要恢复服务，用新的 intent 重新登记（续期后的装配）。
