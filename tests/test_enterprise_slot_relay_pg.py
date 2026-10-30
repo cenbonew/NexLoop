@@ -160,8 +160,13 @@ def test_without_an_enterprise_slot_profile_assignment_and_credential_are_unchan
     assert pack is None or 'effect_supplies' not in json.loads(pack[0])
 
 
-def test_an_enrolled_enterprise_slot_gives_one_run_both_actions_and_one_context_per_slot(slots):
+def test_an_enrolled_enterprise_slot_gives_one_run_both_actions_and_one_context_per_slot(slots, monkeypatch):
     s = slots
+    # L6 S53: bind_slots hands its transaction's connection in; the claim time is read on it, never on a second pool connection.
+    from nexloop_eios import effect_contexts
+    def second_connection(pool):
+        raise AssertionError('database_now borrowed a second connection inside bind_slots')
+    monkeypatch.setattr(effect_contexts, 'database_now', second_connection)
     assert s['enroll']('D')['state'] == 'active'
     d = s['people']['D']
     p = profile(s, 'D')

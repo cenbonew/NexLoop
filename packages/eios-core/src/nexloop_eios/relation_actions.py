@@ -1,5 +1,6 @@
 """Governed relation link adapter; restricted SQL function is the only business writer."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.assembly import database_now
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import re
@@ -33,7 +34,7 @@ class GovernedRelationLinker:
         endpoint_authorities=[authority._authority(ResourceType.OBJECT,f'{kind}/{value}',Operation.EDIT)
             for kind,value in sorted(set(((schema.source_type,source_id),(schema.target_type,target_id))))]
         payload={'request_id':intent_id,'relation_name':relation_name,'source_id':source_id,'target_id':target_id,'metadata':values}
-        now=datetime.now(UTC);ref=definition.reference()
+        now=database_now(self.pool);ref=definition.reference()
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=action_name,idempotency_key=intent_id),
           binding=M.ClaimBindingPayload(invocation_id=intent_id,action_reference=ref,request_digest=M.canonical_request_digest(payload),
             capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),requested_at=now,lease_expires_at=now+timedelta(seconds=20))
@@ -76,7 +77,7 @@ class GovernedRelationUnlinker:
         endpoint_authorities=[authority._authority(ResourceType.OBJECT,f'{kind}/{value}',Operation.EDIT)
             for kind,value in sorted(set(((schema.source_type,source_id),(schema.target_type,target_id))))]
         payload={'request_id':intent_id,'relation_name':relation_name,'source_id':source_id,'target_id':target_id}
-        now=datetime.now(UTC);ref=definition.reference()
+        now=database_now(self.pool);ref=definition.reference()
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=action_name,idempotency_key=intent_id),
           binding=M.ClaimBindingPayload(invocation_id=intent_id,action_reference=ref,request_digest=M.canonical_request_digest(payload),
             capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),requested_at=now,lease_expires_at=now+timedelta(seconds=20))

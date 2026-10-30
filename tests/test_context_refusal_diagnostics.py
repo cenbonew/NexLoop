@@ -74,3 +74,36 @@ def test_a_failed_fallback_names_the_refusing_check_in_the_escalation():
     worker = _worker(launcher)
     worker.run_once()
     assert worker.port.escalations == [('fallback_failed', {'error': 'RuntimeError', 'restricted': False})]
+
+
+class _GovernancePort:
+    def __init__(self):
+        self.calls = []
+
+    def call(self, verb, **parameters):
+        self.calls.append(verb)
+        return {'message_id': 'b' * 64, 'fence': 1, 'consumer_id': 'c'} if verb == 'claim' else None
+
+
+def test_a_governance_refusal_logs_its_code_before_context(monkeypatch, caplog):
+    """Stage 10-30 (R58): Goal.create refused with ActionGovernanceError and the attempt line named only the class."""
+    import pytest
+    from eios.actions.governance import ActionGovernanceError
+    from nexloop_eios import context_runtime_bridge
+    from nexloop_eios.message_relay import MessageRelay, MessageRelayUnavailable, governance_code
+
+    def refuse(services):
+        raise ActionGovernanceError('action_governance_claim_result_invalid', 'Action claim result is invalid')
+    monkeypatch.setattr(context_runtime_bridge, 'ContextConversationRuntimeBridge', refuse)
+    relay = object.__new__(MessageRelay)
+    relay.recipe, relay.max_backlog, relay.route, relay.port = {'consumer_id': 'c'}, None, None, _GovernancePort()
+    with caplog.at_level(logging.WARNING, logger='nexloop.message_relay'), pytest.raises(MessageRelayUnavailable):
+        relay.run_once()
+    assert relay._diagnostic_failure == ('before_context', 'ActionGovernanceError', 'action_governance_claim_result_invalid')
+    [record] = [r for r in caplog.records if r.getMessage().startswith('message relay attempt failed')]
+    assert record.args == {'message_id': 'b' * 64, 'stage': 'before_context', 'reason': 'ActionGovernanceError',
+                           'code': 'action_governance_claim_result_invalid'}
+    assert relay.port.calls == ['claim', 'yield']
+    # Only the stable code shape, never a message or another error's text.
+    assert governance_code(ActionGovernanceError('Free text, not a code', 'm')) is None
+    assert governance_code(ValueError('action_governance_conflict')) is None

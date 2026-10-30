@@ -15,6 +15,21 @@ RUNTIME_WORKER_ROLES = {'real': frozenset({'nexloop_domain_worker', 'nexloop_sch
 RUNTIME_GUARD_ROLES = {'real': frozenset({'nexloop_domain_worker', 'nexloop_scheduler'}), 'simulation': frozenset({'nexloop_sim_guard'})}
 
 
+def database_now(pool):
+    """The database clock for an Action claim's requested_at/lease (stage 10-30): the claim SQL and the governor's evaluated_at
+    read clock_timestamp(), so a container clock a few ms ahead or behind must not refuse a claim it just wrote."""
+    from datetime import UTC
+    with pool.connection() as c:
+        verify_application_role(c)
+        return c.execute('select clock_timestamp()').fetchone()[0].astimezone(UTC)
+
+
+def connection_now(db):
+    """database_now on a connection the caller already holds (no second connection from the pool, L6 S53)."""
+    from datetime import UTC
+    return db.execute('select clock_timestamp()').fetchone()[0].astimezone(UTC)
+
+
 def verify_application_role(connection):
     """Reject SET ROLE disguises and inherited paths to elevated authority.
 

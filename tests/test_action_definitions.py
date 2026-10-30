@@ -318,3 +318,21 @@ def test_tenant_b_cannot_read_tenant_a_object_even_with_same_target_grant(publis
     token,_=seed_authority(admin,TENANT_B,target,operation=Operation.READ,resource_type=ResourceType.OBJECT)
     projector=AuthorizedObjectReader(reader.pool,authenticate_service(reader.pool,token,world='real'),reader.signer)
     with pytest.raises(psycopg.errors.InsufficientPrivilege):projector.get('Consumer',receipt['object_id'])
+
+
+@pytest.mark.parametrize('skew_ms',[200,-200])
+def test_a_skewed_container_clock_still_claims_and_passes_the_recheck(published_action,admin,monkeypatch,skew_ms):
+    """Stage 10-30 (R58): the relay container's clock ran a little ahead of the database's. requested_at came from the container,
+    evaluated_at and the claim SQL's v_now from clock_timestamp(): the claim was written, the governor's recheck refused it
+    (ActionGovernanceError) and Goal.create stayed active. requested_at and the lease now come from the database clock."""
+    from datetime import datetime as real_datetime,timedelta
+    from nexloop_eios import action_definitions,object_actions,postgres_action_claims
+    class Skewed(real_datetime):
+        @classmethod
+        def now(cls,tz=None):return real_datetime.now(tz)+timedelta(milliseconds=skew_ms)
+    for module in (object_actions,action_definitions,postgres_action_claims):monkeypatch.setattr(module,'datetime',Skewed)
+    reader,_,_=published_action;creator=object_actions.GovernedObjectCreator(reader.pool,reader.session,reader.signer)
+    intent=f'synthetic-skew-intent-{skew_ms+1000:04d}'
+    receipt=creator.create(action_name='Consumer.create',action_version=1,intent_id=intent,type_name='Consumer',properties={})
+    state=admin.execute("select claim->>'state' from runtime.nexloop_action_claims where action_name='Consumer.create' and intent_id=%s",(intent,)).fetchone()
+    assert state==('terminal',) and receipt['type_name']=='Consumer'

@@ -5,6 +5,7 @@ keeps its existing EFFECT allowlist. Every write is surrounded by the original
 opaque activation guard and current signed Source catalog READ on one connection.
 """
 from datetime import UTC, datetime, timedelta
+from nexloop_eios.assembly import connection_now
 import hashlib
 import psycopg
 from jsonschema import Draft202012Validator
@@ -74,7 +75,7 @@ def record_runtime_scope_denial(port,*,activation_ref,command,parameters,request
             # Slot independent of tool call / fresh timestamp. Different formal
             # parameters on the same Run + scope hit the original claim conflict.
             claim_id='scope-denial:'+M.canonical_request_digest({'run_id':command['run_id'],'request_scope':request_scope})
-            now=datetime.now(UTC)
+            now=connection_now(db)
             claim=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=source.authentication.tenant_id,
                 action_stable_name=RECORD,idempotency_key=claim_id),
                 binding=M.ClaimBindingPayload(invocation_id=claim_id,action_reference=definition.reference(),

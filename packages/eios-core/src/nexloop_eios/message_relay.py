@@ -112,6 +112,13 @@ def recipe_from_profile(run_profile,profile):
         'consumer_revision':profile.get('consumer_revision'),'valid_until':profile.get('valid_until')})
 
 
+def governance_code(error):
+    """The stable code of an ActionGovernanceError (e.g. action_governance_claim_result_invalid); None for anything else."""
+    from eios.actions.governance import ActionGovernanceError
+    code=getattr(error,'code',None) if isinstance(error,ActionGovernanceError) else None
+    return code if type(code) is str and re.fullmatch(r'[a-z][a-z0-9_]{0,63}',code) else None
+
+
 class MessageRelayPort:
     """Only real authenticated Backend services; all calls own current RLock."""
     def __init__(self, services):
@@ -139,7 +146,7 @@ class MessageRelayPort:
                     return db.execute('select authz.nexloop_message_run_issuance_command(%s,%s,%s,%s,%s)',
                         (self.session.token_digest,self.session.world,text,signature,body)).fetchone()[0]
         except Exception as error:
-            self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__)
+            self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__,governance_code(error))
             raise MessageRelayUnavailable() from None
 
     def source_proofs(self,source,actions=(EFFECT,)):
@@ -214,10 +221,12 @@ class MessageRelay:
             if claimed:
                 # 10/18 stage (trial e80e360c): five failed attempts left no trace. One allowlisted line per failed attempt: the
                 # stage and, for a refused Context, the refusing check as a code (never a value or a body).
-                stage,error=getattr(self,'_diagnostic_failure',None) or ('unknown','unknown')
+                stage,error,code=getattr(self,'_diagnostic_failure',None) or ('unknown','unknown',None)
                 from nexloop_eios.context_artifacts import check_code
+                # Stage 10-30 (R58): a governed create refused with ActionGovernanceError and the line did not say which check; its
+                # stable code (allowlisted shape, never a message) now goes with it.
                 logging.getLogger('nexloop.message_relay').warning('message relay attempt failed %s',{'message_id':claimed['message_id'],'stage':stage,
-                    'reason':error,'code':check_code(getattr(self,'_context_diagnostic',None)) if stage=='context_prepare' else None})
+                    'reason':error,'code':check_code(getattr(self,'_context_diagnostic',None)) if stage=='context_prepare' else code})
             # Root cause of the stuck messages: a failed attempt kept its claim until the lease ran out and was then retried with
             # a changed command. A failed attempt now gives the message back with a bounded count; when the count is used up
             # the message is handed to the reply guarantee instead of blocking the consumer (0150).
@@ -367,5 +376,5 @@ class MessageRelay:
             self._mark('release')
             return 'queued'
         except Exception as error:
-            self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__)
+            self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__,governance_code(error))
             raise MessageRelayUnavailable() from None

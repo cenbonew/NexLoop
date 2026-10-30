@@ -123,12 +123,15 @@ def test_actual_create_after_write_fault_rolls_back_business_and_terminal(roles,
     import nexloop_eios.object_actions as module
     create,valid,reader=roles
     if fault=='ttl':
+        # requested_at and the lease come from the database clock; the module's
+        # datetime.now only caps the signed command's expires_at, so every call
+        # here shortens that authority to expire during the trigger's sleep.
         class ShortAuthorityClock:
             calls=0
             @classmethod
             def now(cls,tz):
                 cls.calls+=1
-                return datetime.now(tz)-(timedelta(seconds=24.8) if cls.calls==2 else timedelta())
+                return datetime.now(tz)-timedelta(seconds=24.8)
         monkeypatch.setattr(module,'datetime',ShortAuthorityClock)
         statement='perform pg_sleep(.35);'
     elif fault=='key':statement='update authz.nexloop_authority_signing_keys set active=false;'
@@ -138,6 +141,7 @@ def test_actual_create_after_write_fault_rolls_back_business_and_terminal(roles,
     admin.execute('create function ontology.test_role_after_write() returns trigger language plpgsql security definer set search_path=pg_catalog as $$ begin '+statement+' return new;end $$')
     admin.execute("create trigger test_role_after_write after insert on ontology.objects for each row when(new.type_name='RoleDefinition') execute function ontology.test_role_after_write()")
     with pytest.raises(psycopg.errors.InsufficientPrivilege):create('RoleDefinition','tail-fault-role',dict(name='fault',responsibility='synthetic',ceiling_ref='eios:ceiling:declared-only',**valid))
+    if fault=='ttl':assert ShortAuthorityClock.calls>=1
     assert admin.execute("select count(*) from ontology.objects where type_name='RoleDefinition'").fetchone()==(0,)
     assert admin.execute("select count(*) from runtime.nexloop_action_claims where action_name='RoleDefinition.create' and claim->>'state'='terminal'").fetchone()==(0,)
     assert admin.execute('select bool_and(active) from authz.nexloop_authority_signing_keys').fetchone()==(True,)
