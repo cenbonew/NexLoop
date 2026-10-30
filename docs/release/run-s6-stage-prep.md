@@ -96,11 +96,39 @@ refusal-1 的 Consumer 已擦除，customer-4 也已擦除。今天只用 custom
 |---|---|
 | `customers.json` | `nexloop-synthetic-customer/1`：origin、CA、customer-1/2/3 的用户名；`persona_check` 走 workbench（owner 用户名文件，3 个 consumer_id） |
 | `plan-calibration.json` | `plan_id` `s6-<日期>b-calibration`，3 轮：customer-1/2/3 各 1 轮 (a) |
-| `plan-main.json` | `plan_id` `s6-<日期>b-main`，6 轮：每个账号再 1 轮 (a)、1 轮 (b)；(c) 的近重复对在 customer-1 与 customer-2 |
-| `trial.json`（APP_HOST，10001） | `nx037-trial.v1` 的副本：`total` 9，`mix` 只有 `ordinary_reply` 9，`calibration_interactions` 3，窗口 10:00–18:00（Asia/Shanghai），`operator_authorization`，`participants`（customer-1/2/3 三个 agent 加 owner 的 staff） |
+| `plan-main.json` | `plan_id` `s6-<日期>b-main-r2`，6 轮：每个账号再 1 轮 (a)、1 轮 (b)；(c) 的近重复对在 customer-1 与 customer-2。(b) 只问联系偏好，不说出退订或拒绝联系本身（L6 C2：r1 的第 5 轮命中 `unsubscribe`，第 6 轮擦边）。r2 的第 5、6 轮是“推广消息和订单通知能分开设置吗？我只想保留订单相关的。”和“如果我以后只想自己来咨询，你们这边能怎么记录我的联系偏好？” |
+| `trial.json`（APP_HOST，10001） | `nx037-trial.v1` 的副本：`total` 9，`mix` 只有 `ordinary_reply` 9，`calibration_interactions` 3，`alert_rules` 填租户现行版本（10-30 为 `alert-rules.v22.json`，81 条；填旧版本时预检以 `alert_rules_in_effect` 拒绝），窗口 10:00–18:00（Asia/Shanghai），`operator_authorization`，`participants`（customer-1/2/3 三个 agent 加 owner 的 staff） |
 | `plan.json`（APP_HOST，10001） | `nx037-interaction-plan.v3`：9 个 `ordinary_reply`，顺序与发言一致，`consumer` 为 `consumer:<id>`；`real_dispatch` 填实际开关状态（A5） |
 
 所有 `wait_reply_seconds` 都是 120。
+
+**0. 发言前的规则核对**（调度员，本地，只读）：
+
+- 把两份计划所有轮次的正文，逐条对现行 `contact-refusal-rules`（10-30 为 v2）的 `refuse` 和 `uncertain` 做正则匹配，结果必须全部为空；
+- 有命中就改写那一轮，换新的 `plan_id`，再核对。
+
+```bash
+python3 check_refusal.py deploy/configuration/contact-refusal-rules.v2.json plan-calibration.json plan-main.json
+```
+
+预期 `{"rules_version": 2, "patterns": 7, "matches": 0}`，退出码 0。
+
+`check_refusal.py`：
+
+```python
+#!/usr/bin/env python3
+"""Before speaking: every turn body against the current contact-refusal rules' refuse and uncertain patterns; all must be empty.
+    python3 check_refusal.py RULES.json PLAN.json [PLAN.json ...]      exit 0 = no match, 1 = a match (printed: plan, turn, rule id)"""
+import json, re, sys
+rules = json.load(open(sys.argv[1]))
+patterns = [(group, r['id'], re.compile(r['pattern'])) for group in ('refuse', 'uncertain') for r in rules[group]]
+hits = [(plan['plan_id'], n, group, rid) for path in sys.argv[2:] for plan in [json.load(open(path))]
+        for n, t in enumerate(plan['turns'], 1) for group, rid, p in patterns if p.search(t['body'])]
+for hit in hits:
+    print('match', *hit)
+print(json.dumps({'rules_version': rules.get('version'), 'patterns': len(patterns), 'matches': len(hits)}))
+sys.exit(1 if hits else 0)
+```
 
 **1. 预检**（调度员，APP_HOST；`$RUNI`、metrics 副本与 host-config 副本按 run-calibration-20261017 §2.1）：
 
