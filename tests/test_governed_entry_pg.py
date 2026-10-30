@@ -67,7 +67,8 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'workbench_member.issue_owner_reset':'issue_workbench_owner_reset','workbench_member.invite_owner':'invite_workbench_owner','workbench_member.erase_member':'erase_workbench_member',
         'workbench_member.link_external':'link_workbench_external','workbench_member.unlink_external':'unlink_workbench_external',
         'claim_extraction.dead_letter_resolve':'resolve_extraction_dead_letter',
-        'goals.budget.loosen':'loosen_budget','world_glossary.set':'set_world_glossary'}  # NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
+        'goals.budget.loosen':'loosen_budget','world_glossary.set':'set_world_glossary',
+        'relay.backlog_settle':'settle_relay_backlog'}  # S42; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):

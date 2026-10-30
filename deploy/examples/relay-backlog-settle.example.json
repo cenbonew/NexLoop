@@ -1,0 +1,6 @@
+{
+  "schema": "nexloop-relay-backlog-settle/1",
+  "confirmation_ref": "s42-settle:20261030-1",
+  "reason": "S42 option A (owner 2026-10-30): settle the inbound messages of erased consumers and of a consumer without a serviceable relay enrollment; no reply.",
+  "message_ids": ["0000000000000000000000000000000000000000000000000000000000000001"]
+}

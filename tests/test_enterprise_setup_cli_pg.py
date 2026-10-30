@@ -107,3 +107,16 @@ def test_enterprise_setup_refuses_a_malformed_recipe_and_creates_nothing(operato
     code, out = setup(o, tmp_path, capsys, **change)
     assert code == 1 and out.out == '' and out.err == 'Enterprise setup unavailable\n'
     assert o['admin'].execute("select count(*) from ontology.objects where type_name in ('ServiceOffering','ConsumerServiceOffering','EffectControl')").fetchone() == count
+
+
+def test_the_cli_withdraws_an_enrollment_from_a_withdraw_file(operator, tmp_path, capsys):
+    """S43 follow-up: an enrollment whose dependencies expired is withdrawn by the same command and owner credential."""
+    o = operator
+    assert enroll(o, tmp_path, capsys, {**o['base'], 'intent_id': 'cli-enroll-0002'})[0] == 0
+    assert profile(o, 'E') is not None
+    code, out = enroll(o, tmp_path, capsys, {'withdraw': True, 'consumer_id': o['e']['consumer'], 'intent_id': 'cli-withdraw-0001'})
+    assert code == 0 and json.loads(out.out)['withdrawn'] is True and o['owner_token'] not in out.out
+    assert profile(o, 'E') is None
+    # A withdraw file carries exactly its three keys.
+    code, out = enroll(o, tmp_path, capsys, {'withdraw': True, 'consumer_id': o['e']['consumer'], 'intent_id': 'cli-withdraw-0002', 'control_id': o['base']['control_id']})
+    assert code == 1 and out.out.strip() == 'Relay enrollment unavailable'
