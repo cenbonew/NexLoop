@@ -137,11 +137,13 @@ test('above the cap the placement is skipped for a name-order grid, quickly, wit
     expect(p.x+NODE_W).toBeLessThanOrEqual(r.view.x1+1e-6);expect(p.y+NODE_H).toBeLessThanOrEqual(r.view.y1+1e-6);}
 });
 
-test('the type detail floats over the graph on wide screens (the canvas keeps its full width), and stacks below it under 900px',async()=>{
+test('R56 W2: the type detail never covers the canvas: side by side when the content area is wide, under the canvas when narrow',async()=>{
   const {readFileSync}=await import('node:fs');
   const css=readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
-  expect(css).not.toMatch(/\.world-graph-panel\{grid-template-columns:minmax\(0,1fr\) minmax\(260px/);
-  const wide=/@media \(min-width:900px\)\{\.workbench \.world-graph-panel \.world-panel\{([^}]*)\}/.exec(css);
-  expect(wide).not.toBeNull();expect(wide![1]).toContain('position:absolute');expect(wide![1]).toContain('overflow:auto');
-  expect(css).toContain('.workbench .world-graph-panel{position:relative}');
+  expect(css).not.toMatch(/\.world-panel\{position:absolute/);  // the floating panel hid the right-hand nodes and the toolbar hint
+  expect(css).toContain('.workbench .world-graph-frame{container-type:inline-size;min-width:0}');
+  const wide=/@container \(min-width:960px\)\{\.workbench \.world-graph-panel\{([^}]*)\}/.exec(css);
+  expect(wide).not.toBeNull();expect(wide![1]).toContain('grid-template-columns:minmax(0,1fr) 340px');
+  // Below that the base grid has one column: the panel stacks under the full-width canvas.
+  expect(css).toContain('.workbench .world-graph{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}');
 });

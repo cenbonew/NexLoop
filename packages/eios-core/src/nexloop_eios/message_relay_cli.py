@@ -71,6 +71,27 @@ def _configuration(config):
     return ('recipe',_recipe(config.recipe_file)) if config.recipe_file is not None else ('run_profile',_run_profile(config.run_profile_file))
 
 
+class TickFailures:
+    """Loop mode used to swallow every failed tick without a trace (stage 10-30: no claim for days, only "ready" in the log).
+    One stderr line per change of failure code, again every `repeat` seconds while it persists, and one when ticks recover;
+    codes only, never a value, path, token or body."""
+    def __init__(self,stream=None,clock=time.monotonic,repeat=300):
+        self.stream,self.clock,self.repeat=stream,clock,repeat;self.code=None;self.since=None;self.count=0;self.last=None
+
+    def failed(self,code):
+        now=self.clock();self.count+=1
+        if code!=self.code:self.code,self.since,self.count,self.last=code,now,1,None
+        if self.last is None or now-self.last>=self.repeat:
+            self.last=now
+            print('Message relay tick failed '+json.dumps({'code':code,'consecutive':self.count,'seconds':int(now-self.since)},separators=(',',':')),
+                file=self.stream or sys.stderr,flush=True)
+
+    def succeeded(self):
+        if self.code is not None:
+            print('Message relay tick recovered '+json.dumps({'code':self.code,'failed_ticks':self.count},separators=(',',':')),file=self.stream or sys.stderr,flush=True)
+        self.code=self.since=self.last=None;self.count=0
+
+
 def run(config,stop):
     dsn=read_private_text(config.database_url_file,maximum=16384)
     initial=_configuration(config)
@@ -98,26 +119,32 @@ def run(config,stop):
                 from nexloop_eios.observability import RELAY,flush_relay,start_sampler
                 start_sampler(stop,60,lambda:flush_relay(backend._pool))
                 print('Message relay ready',flush=True)
+                failures=TickFailures();stage='configuration'
                 while not stop.is_set():
                     try:
+                        stage='configuration'
                         current=_configuration(config)
                         # Rotation cannot alter stable business assignments in place.
-                        if current!=initial: raise ValueError()
+                        if current!=initial: stage='configuration_changed';raise ValueError()
+                        stage='authenticate'
                         authenticated=time.monotonic()
                         route,source,planner=services()
                         RELAY.observe('authenticate',(time.monotonic()-authenticated)*1000)
                         executor=read_private_text(config.executor_credential_file,maximum=16384)
-                        vault._check()
+                        stage='vault';vault._check()
                         if stop.is_set(): break
+                        stage='relay'
                         status=MessageRelay(route=route,source=source,planner=planner,
                             executor_token=executor,vault=vault,**{current[0]:current[1]},context_strategy=config.context_strategy,max_backlog=config.max_backlog).run_once()
                         if config.once:
                             if status not in {'idle','queued','requires_governed_replan','handed_to_fallback'}: raise ValueError()
                             print(json.dumps({'status':status},separators=(',',':')),flush=True)
                             return 0
+                        failures.succeeded()
                     except Exception:
                         if config.once:
                             print('Message relay unavailable',file=sys.stderr,flush=True);return 1
+                        failures.failed(stage)
                     stop.wait(config.tick_seconds)
             return 0
         finally:

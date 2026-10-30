@@ -53,3 +53,22 @@ def test_cli_context_strategy_selects_v6_only_by_strategy_id(capsys):
     for value in ('Recent','recent-plus','',"x;drop",'a'*65):
         with pytest.raises(SystemExit) as error:arguments(_relay_argv()+['--context-strategy',value])
         assert error.value.code==2 and capsys.readouterr().err=='Message relay configuration unavailable\n'
+
+
+def test_loop_tick_failures_are_reported_by_code_rate_limited_and_on_recovery():
+    """Stage 10-30: loop mode swallowed every failed tick; now one line per code change, every 300 s while it persists, and on recovery."""
+    import io
+    from nexloop_eios.message_relay_cli import TickFailures
+    now = [0.0]
+    out = io.StringIO()
+    t = TickFailures(stream=out, clock=lambda: now[0])
+    for _ in range(3):
+        t.failed('relay'); now[0] += 2
+    now[0] = 301; t.failed('relay')
+    t.failed('configuration_changed')
+    t.succeeded(); t.succeeded()
+    assert out.getvalue().splitlines() == [
+        'Message relay tick failed {"code":"relay","consecutive":1,"seconds":0}',
+        'Message relay tick failed {"code":"relay","consecutive":4,"seconds":301}',
+        'Message relay tick failed {"code":"configuration_changed","consecutive":1,"seconds":0}',
+        'Message relay tick recovered {"code":"configuration_changed","failed_ticks":1}']
