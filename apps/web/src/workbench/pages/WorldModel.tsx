@@ -186,7 +186,7 @@ function TypePanel({type,model,onClose}:{type:WorldObjectType;model:Model;onClos
   const list=(items:ReactNode[])=><ul>{items}</ul>;
   const typeTerm=(name:string)=>{const t=model.object_types.find(x=>x.name===name);return <Term id={name} gloss={t?.gloss} source={t?.gloss_source}/>;};
   const linkRow=(key:string,arrow:string,said:string,r:WorldRelation,other:string)=><li key={key+r.name} className="panel-link">
-    <span className="panel-link-dir" aria-label={said}>{arrow}</span><span className="panel-link-type">{typeTerm(other)}</span>
+    <span className="panel-link-dir"><span aria-hidden="true">{arrow}</span><span className="sr-only">{said}</span></span><span className="panel-link-type">{typeTerm(other)}</span>
     <span className="panel-link-card">{CARDINALITY_TEXT[r.cardinality]}</span><span className="panel-link-name"><Term id={r.name} gloss={r.gloss} source={r.gloss_source}/></span></li>;
   return <aside className="world-panel" aria-label={`${glossText(type.name,type.gloss)} 详情`}>
     <Card title={<Term id={type.name} gloss={type.gloss} source={type.gloss_source} inline/>} badge={<span className="note">v{type.version}</span>} footer={<button type="button" onClick={onClose}>关闭</button>}>
