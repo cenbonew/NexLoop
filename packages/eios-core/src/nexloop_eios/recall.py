@@ -288,7 +288,7 @@ class RecallIndexer:
 
     def stale_definitions(self):
         """0375: published types whose latest version is not in the definition index."""
-        return self._db.call('nexloop_recall_stale_definitions')
+        return self._db.call('nexloop_recall_stale_definitions',TOKENIZER_VERSION)  # S55: SQL refuses another version
 
     def index_object_type(self,type_name):
         texts=self._db.call('nexloop_recall_definition_texts',type_name)

@@ -17,6 +17,9 @@
 -- 5. A manifest publication and an owner correction each open a 7-day release watch (0250 runtime.nexloop_evo_watch_start):
 --    release_ref glossary:<manifest_version> or glossary-correction:<kind>.<identifier>.<revision>; the existing regression alert
 --    (evolution_release_regressing) covers it. Machine translations open none (they arrive continuously).
+-- 6. S55 (L6): the stale check reads the tokenizer version from ontology.nexloop_recall_tokenizer() (one constant, the version
+--    nexloop_recall_insert writes) and refuses a caller whose code expects another version (control.nexloop_recall_stale_definitions
+--    now takes it), so a tokenizer change fails visibly instead of rebuilding every type on every tick.
 
 alter table ontology.nexloop_recall_entries add column gloss_source text check(gloss_source in ('manual','machine')),
  add constraint nexloop_recall_entries_gloss check(gloss_source is null or (field='alias' and index_kind='definition' and source_key like 'glossary:%'));
@@ -221,3 +224,25 @@ begin
  return jsonb_build_object('access_id',v_id,'kind',c->>'kind');
 end $$;
 
+
+-- 6. S55 -----------------------------------------------------------------------------------------------------------------------------
+create function ontology.nexloop_recall_tokenizer() returns text language sql immutable parallel safe set search_path=pg_catalog,pg_temp as $$
+ select 'nexloop-cjk-bigram-v1'::text
+$$;
+alter function ontology.nexloop_recall_tokenizer() owner to nexloop_owner;
+grant execute on function ontology.nexloop_recall_tokenizer() to public;
+drop function control.nexloop_recall_stale_definitions(text,text);
+create function control.nexloop_recall_stale_definitions(p_digest text,p_world text,p_tokenizer text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare t text:=ontology.nexloop_recall_tenant(p_digest,p_world);
+begin
+ if session_user is distinct from 'nexloop_domain_worker' then raise exception 'recall reflow unavailable' using errcode='42501';end if;
+ if p_tokenizer is distinct from ontology.nexloop_recall_tokenizer() then raise exception 'recall tokenizer mismatch' using errcode='22023';end if;
+ return coalesce((select jsonb_agg(l.type_name order by l.type_name) from (
+   select v.type_name,max(v.version) latest from ontology.object_type_versions v where v.tenant_id=t group by v.type_name) l
+  where not exists(select 1 from ontology.nexloop_recall_entries e where e.tenant_id=t and e.index_kind='definition'
+   and e.source_key='type:'||l.type_name and e.source_revision=l.latest and e.tokenizer_version=ontology.nexloop_recall_tokenizer())),'[]'::jsonb);
+end $$;
+alter function control.nexloop_recall_stale_definitions(text,text,text) owner to nexloop_owner;
+revoke all on function control.nexloop_recall_stale_definitions(text,text,text) from public;
+grant execute on function control.nexloop_recall_stale_definitions(text,text,text) to nexloop_domain_worker;

@@ -8,6 +8,8 @@ the definition defaults); other types are acknowledged without indexing. Recall 
 still filters by tenant, world and the caller's current EIOS READ, so revocation applies
 at query time without re-indexing.
 """
+import logging
+
 import psycopg
 
 from nexloop_eios.authorization import authority_request_scoped
@@ -17,6 +19,9 @@ from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied,retry_delay
 FEED='recall-instance'
 # (credential digest, world, profile) already activated by this process; the worker object is rebuilt every tick.
 _activated=set()
+# S55: types found still stale right after their rebuild, over the process lifetime.
+_stuck=[0]
+_log=logging.getLogger(__name__)
 
 
 class RecallInstanceIndexWorker:
@@ -67,10 +72,15 @@ class RecallInstanceIndexWorker:
         """I26 (0375): every published type whose latest version is not in the definition index is reindexed on the tick (a schema
         publication or a tenant configuration publish does not touch the index). A version that moves on meanwhile is left for the
         next tick; any other failure propagates, so the tick fails visibly."""
-        done=0
+        done=0;rebuilt=[]
         for type_name in self.indexer.stale_definitions():
-            try:self.indexer.index_object_type(type_name);done+=1
+            try:self.indexer.index_object_type(type_name);done+=1;rebuilt.append(type_name)
             except psycopg.errors.SerializationFailure:continue
+        # S55: a type still stale right after its rebuild would be rebuilt on every tick; say so and count it.
+        stuck=sorted(set(rebuilt)&set(self.indexer.stale_definitions())) if rebuilt else []
+        if stuck:
+            _log.warning('recall definitions still stale after reindex: %d',len(stuck))
+            _stuck[0]+=len(stuck)
         return done
 
     @authority_request_scoped

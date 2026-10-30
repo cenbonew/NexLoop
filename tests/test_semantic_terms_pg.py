@@ -145,3 +145,20 @@ def test_a_new_type_version_moves_the_aliases_and_a_publication_opens_a_watch(re
     admin.execute("insert into control.nexloop_world_glossary_publications(tenant_id,manifest_version,manifest_sha256,expected_revision,entries)"
         " values(%s,1,%s,0,1)",(A,'f'*64))
     assert admin.execute("select release_ref from runtime.nexloop_evo_release_watches where tenant_id=%s",(A,)).fetchall()==[('glossary:1',)]
+
+
+def test_a_type_still_stale_after_its_rebuild_is_warned_and_counted(caplog):
+    """S55: an unhealable stale type would be rebuilt on every tick; the tick says so and counts it."""
+    from nexloop_eios import recall_index_worker
+    before=recall_index_worker._stuck[0]
+    indexer=SimpleNamespace(stale_definitions=lambda:['Stuck'],index_object_type=lambda name:1)
+    with caplog.at_level('WARNING'):
+        assert RecallInstanceIndexWorker.reflow_definitions(SimpleNamespace(indexer=indexer))==1
+    assert recall_index_worker._stuck[0]==before+1 and 'still stale after reindex: 1' in caplog.text
+
+
+def test_the_stale_check_refuses_another_tokenizer(recall_db):  # noqa: F811
+    import psycopg
+    import pytest
+    f=recall_db;indexer=RecallIndexer(f['worker'],f['indexers'][(A,'real')],provider=f['provider'],expected_dimension=64)
+    with pytest.raises(psycopg.errors.InvalidParameterValue):indexer._db.call('nexloop_recall_stale_definitions','nexloop-cjk-bigram-v2')
