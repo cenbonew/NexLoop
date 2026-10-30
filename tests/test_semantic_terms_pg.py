@@ -162,3 +162,17 @@ def test_the_stale_check_refuses_another_tokenizer(recall_db):  # noqa: F811
     import pytest
     f=recall_db;indexer=RecallIndexer(f['worker'],f['indexers'][(A,'real')],provider=f['provider'],expected_dimension=64)
     with pytest.raises(psycopg.errors.InvalidParameterValue):indexer._db.call('nexloop_recall_stale_definitions','nexloop-cjk-bigram-v2')
+
+
+def test_gloss_rows_are_invisible_outside_world_real(semantic):
+    """I27 gate evidence: recall_scope keeps a definition row of another world out; gloss rows are world real only."""
+    from support.tenants import SIM_WORLD
+    f,_,_=semantic;admin=f['admin']
+    gloss(admin,'object_type','Consumer','客户')
+    assert {r[2] for r in gloss_rows(admin)}=={'real'}
+    for world in (SIM_WORLD,'test'):
+        other,_=seed_multi_authority(admin,f['worker'],[('eios:object_type:Consumer',ResourceType.OBJECT_TYPE,Operation.READ)],
+            identity_suffix='-gloss-'+world,world=world,tenant=A)
+        hits=recall_for(f,other,provider=None).recall('客户',instances=False).definitions
+        assert all('alias' not in h.fields and not any(x.startswith('gloss_') for x in h.fields) for h in hits),world
+        assert 'eios:object_type:Consumer' not in [h.ref for h in hits],world
