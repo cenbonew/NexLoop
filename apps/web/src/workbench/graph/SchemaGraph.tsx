@@ -10,7 +10,7 @@
  * Every node in view (owner report from stage, 2026-10-28): the layout is never wider than the canvas at the label floor, and when
  * the fitted picture is taller than MAX_H the canvas grows to it, so the default view and "适应画布" frame every node.
  */
-import {useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent} from 'react';
+import {useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent,type ReactNode} from 'react';
 import {MAX_GRAPH_TYPES,NODE_H,NODE_W,edgePaths,hue,layout,type GraphEdge,type GraphNode} from './layout';
 
 export const CARDINALITY_TEXT:Record<string,string>={one_to_one:'1:1',one_to_many:'1:N',many_to_one:'N:1',many_to_many:'N:N'};
@@ -34,9 +34,9 @@ export function canvasHeight(layoutH:number,scale:number,fit:number):number{
   return Math.round(clamp(layoutH*scale,MIN_H,Math.max(MAX_H,layoutH*fit)));
 }
 
-export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{nodes:GraphNode[];edges:GraphEdge[];focus:string|null;
-  onFocus:(id:string|null)=>void;label:string;emptyEdgesText?:string}){
-  const box=useRef<HTMLDivElement>(null);
+export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText,aside}:{nodes:GraphNode[];edges:GraphEdge[];focus:string|null;
+  onFocus:(id:string|null)=>void;label:string;emptyEdgesText?:string;aside?:ReactNode}){
+  const box=useRef<SVGSVGElement>(null);
   const [canvasW,setCanvasW]=useState(DEFAULT_W);
   // The width is read once before the first paint (the picture is laid out for the real canvas, not DEFAULT_W and then shrunk),
   // then followed with a ResizeObserver.
@@ -69,7 +69,7 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
     if(move[event.key]){event.preventDefault();move[event.key]();}
   }
   const grid=drawn.length===0;
-  return <div className="schema-graph" ref={box}>
+  return <div className="schema-graph">
     <div className="schema-graph-tools" role="group" aria-label="缩放">
       <button type="button" onClick={()=>zoomBy(1.25)} aria-label="放大">＋</button>
       <button type="button" onClick={()=>zoomBy(1/1.25)} aria-label="缩小" disabled={scale<=MIN_SCALE+1e-9}>－</button>
@@ -77,7 +77,9 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
       <span className="note">点击或用 Tab 选中，Enter 查看；图获得焦点时方向键平移、+/− 缩放、0 适应画布。{paths.some(p=>p.crowded)?'放不下的关系名在选中一端类型时显示。':''}{placed.capped?`有关系的类型超过 ${MAX_GRAPH_TYPES} 个，按名称排成网格；关系的走向请看表格视图。`:''}</span>
     </div>
     {grid&&emptyEdgesText?<p className="note" role="status" data-empty-edges="">{emptyEdgesText}</p>:null}
-    <svg role="group" aria-label={label} tabIndex={0} onKeyDown={keys} width="100%" height={canvasH}
+    {/* Owner walkthrough R57 (W2): a detail panel (aside) sits beside the canvas in one row, as tall as the canvas, top and bottom aligned. */}
+    <div className={'schema-graph-body'+(aside?' with-aside':'')}>
+    <svg ref={box} role="group" aria-label={label} tabIndex={0} onKeyDown={keys} width="100%" height={canvasH}
       className="schema-graph-canvas"
       viewBox={`${x0} ${y0} ${viewW} ${viewH}`} preserveAspectRatio="xMidYMid meet" data-nodes={placed.nodes.length} data-edges={drawn.length}
       data-layout={grid?'grid':placed.capped?'capped':'graph'} data-scale={scale.toFixed(3)} data-label-px={(LABEL_PX*scale).toFixed(2)}>
@@ -107,6 +109,6 @@ export function SchemaGraph({nodes,edges,focus,onFocus,label,emptyEdgesText}:{no
               :n.sub?<text x={p.x} y={p.y+15} fontSize={SUB_PX} textAnchor="middle" fill="var(--muted)">{short(n.sub,24)}</text>:null}
             <title>{`${n.gloss?`${n.label}（${n.gloss}）`:n.label}${n.sub?` · ${n.sub}`:''}`}</title></g>;})}
       </g>
-    </svg>
+    </svg>{aside}</div>
   </div>;
 }

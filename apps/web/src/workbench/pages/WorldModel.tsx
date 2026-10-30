@@ -14,7 +14,6 @@ import {Page} from './Page';
 import {DataTable} from '../DataTable';
 import {Keyword,StatusBadge,Time} from '../ui';
 import {SectionTerm,Term,WORLD_SECTION_NAMES,glossMatches,glossText,sectionText} from '../Gloss';
-import {GlossEditor,type GlossTarget} from '../GlossEdit';
 import {Card,CardGrid,EmptyState,KeyValue,MetricCard} from '../kit';
 import {statusLabel} from '../status-labels';
 import {CARDINALITY_TEXT,SchemaGraph} from '../graph/SchemaGraph';
@@ -49,8 +48,6 @@ function toQuery(section:WorldSection,q:WorldModelQuery):Query{
 }
 
 type PropertyRow={type:string;property:WorldProperty};
-/** One correction target per identifier (a Property name shared by several types is glossed once). */
-const unique=(targets:GlossTarget[])=>[...new Map(targets.map(t=>[t.identifier,t])).values()];
 /** Property names of a type with their glosses (primary key, title Property). */
 function propTerms(t:WorldObjectType,names:string[]):ReactNode{
   if(!names.length)return '—';
@@ -85,7 +82,6 @@ function Summary({model:m,go}:{model:Model;go:WorldGo}){
     </CardGrid>
     <p className="note">计算时间 <Time value={m.computed_at}/>{withheld?` · ${withheld} 个 Property 属于负责人限制的属性组，只显示名称`:''}。</p>
     <h2 id="world-event-types"><SectionTerm name="Event Type"/></h2>
-    <div className="world-list-head"><GlossEditor world={m.world} kind="event_type" label=" Event Type " targets={m.event_types.map(e=>({identifier:e.name,gloss:e.gloss}))}/><GlossEditor world={m.world} kind="section" label="栏目名" targets={WORLD_SECTION_NAMES.map(k=>({identifier:k,gloss:m.glossary.sections[k]??null}))}/></div>
     {m.event_types.length?<DataTable label="Event Type" rows={m.event_types} rowKey={e=>e.name} columns={[
       {label:S('Event Type'),main:true,cell:e=><Term id={e.name} gloss={e.gloss} source={e.gloss_source}/>},{label:S('Object Type'),cell:e=><TypeLink name={e.object_type} model={m} go={go}/>},{label:'版本',num:true,cell:e=>`v${e.version}`},
       {label:S('Payload Property'),num:true,cell:e=>e.payload_property_count},{label:'说明',wide:true,cell:e=>e.description||'—'}]}/>
@@ -115,8 +111,8 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
     return shown.length?shown.map((n,i)=><span key={n}>{i?'、':''}<Term id={n} gloss={types.get(n)?.gloss} source={types.get(n)?.gloss_source}/></span>):'—';};
   // Owner 2026-10-29: each list is searchable by the English identifier or its Chinese gloss.
   const [keyword,setKeyword]=useState('');
-  // Owner walkthrough R56 (W5): the glossary correction sits beside the search box, above the table, not below its last row.
-  const search=(what:string,...editors:ReactNode[])=><div className="world-list-head"><Keyword value={keyword} onChange={setKeyword} label={`查找 ${what}（英文或中文）`}/>{editors}</div>;
+  // Owner walkthrough R57 (W5): the pages only show glosses; corrections live on the glossary page under 管理 (pages/Glossary).
+  const search=(what:string)=><div className="world-list-head"><Keyword value={keyword} onChange={setKeyword} label={`查找 ${what}（英文或中文）`}/></div>;
   const hit=(id:string,gloss:string|null)=>glossMatches(keyword,id,gloss);
   const filtered={filtered:!!keyword.trim()};
   switch(section){
@@ -127,7 +123,7 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
       {q.graph?<p className="note narrow-only" data-hint="narrow-graph">窄屏建议用表格：图在手机宽度下会排成很长的一列。{' '}
         <button type="button" className="link" onClick={()=>set({graph:false,focus:null},true)}>切换到表格</button></p>:null}
       {q.graph?<TypeGraph model={m} focus={q.focus} onFocus={focus=>set({focus})}/>
-        :m.object_types.length?<>{search('Object Type',<GlossEditor key="object_type" world={m.world} kind="object_type" label=" Object Type " targets={m.object_types.map(t=>({identifier:t.name,gloss:t.gloss}))}/>)}<DataTable label="Object Type" rows={m.object_types.filter(t=>hit(t.name,t.gloss))} rowKey={t=>t.name} empty={filtered} columns={[
+        :m.object_types.length?<>{search('Object Type')}<DataTable label="Object Type" rows={m.object_types.filter(t=>hit(t.name,t.gloss))} rowKey={t=>t.name} empty={filtered} columns={[
           {label:S('Object Type'),main:true,cell:t=><button type="button" className="link" onClick={()=>set({graph:true,focus:t.name})}><Term id={t.name} gloss={t.gloss} source={t.gloss_source}/></button>},
           {label:'版本',num:true,cell:t=>`v${t.version}`},{label:S('Property'),num:true,cell:t=>t.properties.length},
           {label:'主键',cell:t=>propTerms(t,t.primary_key)},{label:'标题 '+S('Property'),cell:t=>t.title_property?propTerms(t,[t.title_property]):'—'},
@@ -138,7 +134,7 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
     </>;
     case 'objects':return <Instances types={m.object_types} state={q} onState={change=>set(change)}/>;
     case 'object_sets':return <ObjectSets state={q} onState={change=>set(change)}/>;
-    case 'properties':return props.length?<>{search('Property',<GlossEditor key="property" world={m.world} kind="property" label=" Property " targets={unique(props.map(r=>({identifier:r.property.name,gloss:r.property.gloss})))}/>)}<DataTable label="Property" rows={props.filter(r=>hit(r.property.name,r.property.gloss)||hit(r.type,types.get(r.type)?.gloss??null))}
+    case 'properties':return props.length?<>{search('Property')}<DataTable label="Property" rows={props.filter(r=>hit(r.property.name,r.property.gloss)||hit(r.type,types.get(r.type)?.gloss??null))}
       rowKey={r=>r.type+'/'+r.property.name} empty={filtered} columns={[
       {label:S('Property'),main:true,cell:r=><Term id={r.property.name} gloss={r.property.gloss} source={r.property.gloss_source}/>},{label:S('Object Type'),cell:r=>typeLink(r.type)},
       {label:'数据类型',cell:r=>r.property.withheld?<StatusBadge text="受限" tone="limited" code="withheld"/>:r.property.value_type},
@@ -146,14 +142,14 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
       {label:'属性组',cell:r=>r.property.withheld?'—':r.property.group??'—'},{label:'说明',wide:true,cell:r=>r.property.withheld?'负责人限制的属性组：只显示名称':r.property.description||'—'}]}/>
       </>
       :<EmptyState kind="empty" subject="Property"/>;
-    case 'links':return m.relation_types.length?<>{search('Link',<GlossEditor key="relation" world={m.world} kind="relation" label=" Link " targets={m.relation_types.map(r=>({identifier:r.name,gloss:r.gloss}))}/>,<GlossEditor key="relation_inverse" world={m.world} kind="relation_inverse" label="反向名" targets={unique(m.relation_types.filter(r=>r.inverse_name).map(r=>({identifier:r.inverse_name,gloss:r.inverse_gloss})))}/>)}<DataTable label="Link" rows={m.relation_types.filter(r=>hit(r.name,r.gloss)||(!!r.inverse_name&&hit(r.inverse_name,r.inverse_gloss)))}
+    case 'links':return m.relation_types.length?<>{search('Link')}<DataTable label="Link" rows={m.relation_types.filter(r=>hit(r.name,r.gloss)||(!!r.inverse_name&&hit(r.inverse_name,r.inverse_gloss)))}
       rowKey={r=>r.name} empty={filtered} columns={[
       {label:S('Link'),main:true,cell:r=><Term id={r.name} gloss={r.gloss} source={r.gloss_source}/>},{label:'方向',cell:r=><>{typeLink(r.source_type)} → {typeLink(r.target_type)}</>},
       {label:'基数',cell:r=>CARDINALITY_TEXT[r.cardinality]},{label:'版本',num:true,cell:r=>`v${r.version}`},{label:'反向名',cell:r=>r.inverse_name?<Term id={r.inverse_name} gloss={r.inverse_gloss} source={r.inverse_gloss_source}/>:'—'},
       {label:'说明',wide:true,cell:r=>r.description||'—'}]}/>
       
       </>:<EmptyState kind="empty" subject="已发布的 Link"/>;
-    case 'actions':return m.actions.length?<>{search('Action',<GlossEditor key="action" world={m.world} kind="action" label=" Action " targets={m.actions.map(a=>({identifier:a.name,gloss:a.gloss}))}/>)}<DataTable label="Action" rows={m.actions.filter(a=>hit(a.name,a.gloss))} rowKey={a=>a.resource_id} empty={filtered} columns={[
+    case 'actions':return m.actions.length?<>{search('Action')}<DataTable label="Action" rows={m.actions.filter(a=>hit(a.name,a.gloss))} rowKey={a=>a.resource_id} empty={filtered} columns={[
       {label:S('Action'),main:true,cell:a=><Term id={a.name} gloss={a.gloss} source={a.gloss_source}/>},{label:'版本',num:true,cell:a=>`v${a.version}`},
       {label:'风险',cell:a=>a.risk_level?<StatusBadge domain="action_risk" code={a.risk_level}/>:'—'},
       {label:'审批',cell:a=>a.approval_mode?<span title={a.approval_mode}>{statusLabel('action_approval',a.approval_mode)}</span>:'—'},
@@ -161,7 +157,7 @@ function SectionBody({section,model:m,q,set,go}:{section:WorldSection;model:Mode
       {label:S('Object Type'),wide:true,cell:a=>typeTerms(a.object_types)},{label:'Scope',cell:a=>a.required_scopes.join('、')||'—'}]}/>
       </>
       :<EmptyState kind="empty" subject="生效的 Action"/>;
-    case 'functions':return m.functions.length?<>{search('Function',<GlossEditor key="function" world={m.world} kind="function" label=" Function " targets={m.functions.map(f=>({identifier:f.name,gloss:f.gloss}))}/>)}<DataTable label="Function" rows={m.functions.filter(f=>hit(f.name,f.gloss))} rowKey={f=>f.resource_id} empty={filtered} columns={[
+    case 'functions':return m.functions.length?<>{search('Function')}<DataTable label="Function" rows={m.functions.filter(f=>hit(f.name,f.gloss))} rowKey={f=>f.resource_id} empty={filtered} columns={[
       {label:S('Function'),main:true,cell:f=><Term id={f.name} gloss={f.gloss} source={f.gloss_source}/>},{label:'版本',num:true,cell:f=>`v${f.version}`},
       {label:S('Object Type'),wide:true,cell:f=>typeTerms(f.applies_to)},{label:'Scope',cell:f=>f.required_scopes.join('、')||'—'}]}/>
       </>
@@ -176,8 +172,8 @@ function TypeGraph({model:m,focus,onFocus}:{model:Model;focus:string|null;onFocu
   const focused=focus?m.object_types.find(t=>t.name===focus)??null:null;
   return <div className="world-graph-frame"><div className={'world-graph'+(focused?' world-graph-panel':'')}>
     {nodes.length?<SchemaGraph nodes={nodes} edges={edges} focus={focused?.name??null} onFocus={onFocus} emptyEdgesText="暂无已发布的 Link"
-      label={`Object Type 关系图：${nodes.length} 个 Object Type，${edges.length} 条 Link`}/>:<EmptyState kind="empty" subject="已发布的 Object Type"/>}
-    {focused?<TypePanel type={focused} model={m} onClose={()=>onFocus(null)}/>:null}
+      label={`Object Type 关系图：${nodes.length} 个 Object Type，${edges.length} 条 Link`}
+      aside={focused?<TypePanel type={focused} model={m} onClose={()=>onFocus(null)}/>:undefined}/>:<EmptyState kind="empty" subject="已发布的 Object Type"/>}
   </div></div>;
 }
 
@@ -189,7 +185,8 @@ function TypePanel({type,model,onClose}:{type:WorldObjectType;model:Model;onClos
     <span className="panel-link-dir"><span aria-hidden="true">{arrow}</span><span className="sr-only">{said}</span></span><span className="panel-link-type">{typeTerm(other)}</span>
     <span className="panel-link-card">{CARDINALITY_TEXT[r.cardinality]}</span><span className="panel-link-name"><Term id={r.name} gloss={r.gloss} source={r.gloss_source}/></span></li>;
   return <aside className="world-panel" aria-label={`${glossText(type.name,type.gloss)} 详情`}>
-    <Card title={<Term id={type.name} gloss={type.gloss} source={type.gloss_source} inline/>} badge={<span className="note">v{type.version}</span>} footer={<button type="button" onClick={onClose}>关闭</button>}>
+    <Card title={<Term id={type.name} gloss={type.gloss} source={type.gloss_source} inline/>} badge={<span className="panel-head-end"><span className="note">v{type.version}</span>
+      <button type="button" className="btn-secondary panel-close" onClick={onClose} aria-label={`关闭 ${type.name} 详情`}>关闭</button></span>}>
       {type.description?<p>{type.description}</p>:null}
       <KeyValue label={`${type.name} 概况`} items={[{key:sectionText('Object',model.glossary.sections)+' · real',value:type.objects},{key:'标题 '+sectionText('Property',model.glossary.sections),value:type.title_property?propTerms(type,[type.title_property]):'—'},
         {key:'主键',value:propTerms(type,type.primary_key)}]}/>
@@ -199,7 +196,6 @@ function TypePanel({type,model,onClose}:{type:WorldObjectType;model:Model;onClos
       <h3><SectionTerm name="Link"/></h3>
       {out.length||into.length?<ul className="panel-links">{[...out.map(r=>linkRow('o','→','指向',r,r.target_type)),...into.map(r=>linkRow('i','←','来自',r,r.source_type))]}</ul>
         :<EmptyState kind="empty" subject="Link" compact/>}
-      <GlossEditor key={type.name} world={model.world} kind="object_type" label={` ${type.name} `} targets={[{identifier:type.name,gloss:type.gloss}]}/>
     </Card>
   </aside>;
 }

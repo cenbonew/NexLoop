@@ -137,13 +137,16 @@ test('above the cap the placement is skipped for a name-order grid, quickly, wit
     expect(p.x+NODE_W).toBeLessThanOrEqual(r.view.x1+1e-6);expect(p.y+NODE_H).toBeLessThanOrEqual(r.view.y1+1e-6);}
 });
 
-test('R56 W2: the type detail never covers the canvas: side by side when the content area is wide, under the canvas when narrow',async()=>{
+test('R56/R57 W2: the type detail never covers the canvas; wide, it shares the canvas row, as tall as the canvas, scrolling inside under a sticky close',async()=>{
   const {readFileSync}=await import('node:fs');
   const css=readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
-  expect(css).not.toMatch(/\.world-panel\{position:absolute/);  // the floating panel hid the right-hand nodes and the toolbar hint
   expect(css).toContain('.workbench .world-graph-frame{container-type:inline-size;min-width:0}');
-  const wide=/@container \(min-width:960px\)\{\.workbench \.world-graph-panel\{([^}]*)\}/.exec(css);
-  expect(wide).not.toBeNull();expect(wide![1]).toContain('grid-template-columns:minmax(0,1fr) 340px');
-  // Below that the base grid has one column: the panel stacks under the full-width canvas.
-  expect(css).toContain('.workbench .world-graph{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}');
+  const wide=/@container \(min-width:960px\)\{\.workbench \.schema-graph-body\.with-aside\{([^}]*)\}([^@]*)\}\}/.exec(css);
+  expect(wide).not.toBeNull();expect(wide![1]).toContain('grid-template-columns:minmax(0,1fr) 340px');expect(wide![1]).toContain('align-items:stretch');
+  // The card is taken out of the row (the canvas alone sets its height) and fills the panel: same top, same bottom, own scroll.
+  expect(wide![2]).toContain('.world-panel>.card{position:absolute;inset:0;max-height:none');
+  expect(css).toContain('.workbench .world-panel>.card{max-height:70vh;overflow:auto;padding-top:0}');
+  expect(css).toMatch(/\.world-panel>\.card>\.card-head\{position:sticky;top:0/);
+  // Narrow: one column, the panel under the full-width canvas.
+  expect(css).toContain('.workbench .schema-graph-body{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}');
 });
