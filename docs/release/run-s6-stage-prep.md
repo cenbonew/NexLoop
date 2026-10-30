@@ -237,7 +237,7 @@ case "${1:-} ${2:-}" in
   echo "  2: manifest checks; 4/6: inputs present" ;;
  "--apply password")
   security find-generic-password -s "$K" >/dev/null 2>&1 && { echo "exists: $K" >&2; exit 2; }
-  P=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24)
+  P=$(python3 -c 'import secrets,string;a=string.ascii_letters+string.digits;print("".join(secrets.choice(a) for _ in range(24)))'); [ ${#P} -eq 24 ] || { unset P; echo "password generation failed" >&2; exit 1; }
   printf 'add-generic-password -s %s -a customer-5 -w %s\n' "$K" "$P" | security -i >/dev/null 2>&1 || { unset P; echo "keychain: add failed" >&2; exit 1; }; unset P
   security find-generic-password -s "$K" >/dev/null && echo "keychain: $K stored" ;;
  "--apply identity")
