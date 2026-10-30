@@ -65,9 +65,10 @@ def denial_plan(context_message,admin):
 
 def test_actual_runtime_denial_commits_once_without_intent_quota(denial_plan,admin,tmp_path,monkeypatch):
     # L6 S53: the claim time is read on the denial's own connection, never on a second one from the pool.
-    from nexloop_eios import scope_denials
+    from nexloop_eios import assembly,scope_denials
+    assert not hasattr(scope_denials,'database_now')  # a module-level import of it would be the second connection
     def second_connection(pool):raise AssertionError('database_now borrowed a second connection inside the scope denial')
-    monkeypatch.setattr(scope_denials,'database_now',second_connection,raising=False)
+    monkeypatch.setattr(assembly,'database_now',second_connection)  # and so would a call through the assembly module
     f=denial_plan;assert f['relay'].run_once()=='queued'
     scope={'offering_id':f['f']['recipe']['offering_id'],'offering_revision':1,
         'requested_guarantees':['profit-guarantee'],'requested_discounts':[]}
