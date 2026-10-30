@@ -366,7 +366,7 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
                 recall=OntologyRecall(pool,session,authorizer=EiosRecallAuthorizer(pool,session))  # full text only: no embedding call
                 recorder=SemanticAccessRecorder(pool,session,signer,run_id=run_id)
                 SemanticAdapter(pool,session,signer,recall,config=SemanticConfig(top_k=sem['top_k'],ambiguity_margin=sem['ambiguity_margin']),
-                    recorder=recorder).browse(body,limit=sem['top_k'])
+                    recorder=recorder).browse(body,limit=sem['top_k'],extract_terms=True)  # I26: the statement's definition terms, not the sentence
                 return recorder
             finally:slots.release()  # the slot is held until the read really ends, not until the caller stops waiting
         try:

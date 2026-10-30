@@ -569,6 +569,22 @@ REGISTRY = [
     Allowed('nx058_invite_sso', 'control.nexloop_workbench_password_allowed', 'a member pending SSO (control.nexloop_workbench_sso_pending) is refused as sso_only; nothing else',
             ((r"\s*or exists\(select 1 from control\.nexloop_workbench_sso_pending where tenant_id=p_tenant and subject_id=p_subject\)", ""),
              (r"\bblocked\b", "found_link"))),
+    # I26 (L6, S6 semantic reads): miss reasons and glossary hits on the access record; glossary aliases reported by source in recall;
+    # the tokenizer constant in insert and scope; short property glosses kept out of the term list.
+    Allowed('semantic_terms_reflow', 'authz.nexloop_semantic_access_record', 'miss_reason stored on an empty result; nothing else',
+            ((r",miss_reason\)", ")"),
+             (r",\s*case when jsonb_array_length\(v_refs\)=0 then nullif\(c->>'miss_reason',''\) end\) on conflict", ") on conflict"))),
+    Allowed('glossary_recall', 'authz.nexloop_semantic_access_record', 'gloss_hits stored (an object or {}); nothing else',
+            ((r",gloss_hits\)", ")"),
+             (r",\s*case when jsonb_typeof\(c->'gloss_hits'\)='object' then c->'gloss_hits' else '\{\}'::jsonb end\) on conflict", ") on conflict"))),
+    Allowed('glossary_recall', 'control.nexloop_recall_search', "a gloss row's field reads gloss_<source> (and pg_temp last in search_path); nothing else",
+            ((r"case when e\.gloss_source is null then e\.field else 'gloss_'\|\|e\.gloss_source end field", "e.field"),), PG_TEMP),
+    Allowed('recall_terms_round3', 'ontology.nexloop_recall_insert', 'the tokenizer version from ontology.nexloop_recall_tokenizer() (and pg_temp last in search_path); nothing else',
+            ((r"ontology\.nexloop_recall_tokenizer\(\)", "'nexloop-cjk-bigram-v1'"),), PG_TEMP),
+    Allowed('recall_terms_round3', 'ontology.nexloop_recall_scope', 'the tokenizer version from ontology.nexloop_recall_tokenizer() (and pg_temp last in search_path); nothing else',
+            ((r"ontology\.nexloop_recall_tokenizer\(\)", "'nexloop-cjk-bigram-v1'"),), PG_TEMP),
+    Allowed('recall_terms_round3', 'control.nexloop_recall_terms', 'property glosses shorter than 3 characters left out; nothing else',
+            ((r"\s*and not \(e\.gloss_source is not null and e\.target_kind='property' and char_length\(btrim\(e\.body\)\)<3\)", ""),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

@@ -70,6 +70,9 @@ class RecallResult:
     profile_id:str|None
     config_version:str
     tokenizer_version:str=TOKENIZER_VERSION
+    readable_types:int|None=None  # definition types readable by the caller (None: definitions not asked)
+    terms:tuple=()  # definition bodies found in the text when extract_terms was asked (I26)
+    term_hits:tuple=()  # per term, its own ranked definition hits (I26 round 3: ambiguity is judged within one term)
 
     def contract(self):
         return [hit.contract() for hit in self.definitions+self.instances]
@@ -218,25 +221,83 @@ class OntologyRecall:
         return tuple(m for m in METHODS if m!='vector' or self.provider is not None)
 
     @authority_request_scoped
-    def recall(self,text,*,strong_ids=(),verified_refs=(),type_names=None,definitions=True,instances=True):
+    def _terms(self,text,types,props):
+        """I26: the readable definition names, display names, aliases and vocabulary values that occur in the text (@@@), longest
+        first, minus any contained in a longer one."""
+        found=self._db.call('nexloop_recall_terms',Jsonb({'text':text,'readable_types':sorted(types),'readable_properties':sorted(props)}))
+        kept=[]
+        for term in found:
+            if not any(term.lower() in longer.lower() for longer in kept):kept.append(term)
+        return tuple(kept)
+
+    def recall(self,text,*,strong_ids=(),verified_refs=(),type_names=None,definitions=True,instances=True,extract_terms=False):
+        """With extract_terms each term found in the text is searched on its own (lexical methods; the vector, when configured,
+        still embeds the whole text) and the hits are merged by ref at their best score; the text itself is searched when no term is
+        found. Searching the terms joined would score every definition by its share of all the terms (L2 review B2)."""
         if type(text) is not str or not text.strip() or len(text)>4000:raise ValueError('recall text must be bounded nonempty text')
         if type_names is not None:
             type_names=frozenset(type_names)
             if not type_names or any(type(t) is not str or not _NAME.fullmatch(t) for t in type_names):raise ValueError('invalid type scope')
         methods=self._methods()
         vector=None if self.provider is None else _vector_literal(self.provider.embed(text),self.dimension)
-        out={}
+        out={};readable=None;terms=();term_hits=()
         for kind,enabled in (('definition',definitions),('instance',instances)):
             if not enabled:out[kind]=();continue
             types,props=self._gates(kind)
+            if kind=='definition':readable=len(types)
             if not types:out[kind]=();continue
+            if kind=='definition' and extract_terms:
+                terms=self._terms(text,types,props)[:MAX_TERMS]
+                if terms:
+                    groups=self._term_groups(terms,types,props,methods,vector,text,type_names)
+                    term_hits=tuple(tuple(g[:self.config.top_k]) for g in groups[:len(terms)])
+                    out[kind]=tuple(_merged(groups)[:self.config.top_k]);continue
             per_method={m:self._search(kind,m,text,types,props,vector=vector,type_names=type_names) for m in methods}
             if kind=='instance' and (strong_ids or verified_refs):
                 per_method['strong_id']=self._search(kind,'strong_id',text,types,props,strong_ids=strong_ids,verified_refs=verified_refs,type_names=type_names)
             hits=self._fuse(kind,per_method,methods)
             hits=self._instance_post_check(hits) if kind=='instance' else [hit for hit,_ in hits]
             out[kind]=tuple(hits[:self.config.top_k])
-        return RecallResult(out['definition'],out['instance'],methods,None if self.provider is None else self.provider.profile_id,self.config.config_version)
+        return RecallResult(out['definition'],out['instance'],methods,None if self.provider is None else self.provider.profile_id,self.config.config_version,
+            readable_types=readable,terms=terms,term_hits=term_hits)
+
+    def _term_groups(self,terms,types,props,methods,vector,text,type_names):
+        """One ranked hit list per term (lexical methods only), plus the whole text's when a vector is configured. A property term
+        that fans out over several types keeps the types another term named, when it names any (L2 review: a property gloss maps to
+        the property of every type)."""
+        lexical=tuple(m for m in methods if m!='vector')
+        groups=[[hit for hit,_ in self._fuse('definition',{m:self._search('definition',m,term,types,props,type_names=type_names) for m in lexical},lexical)]
+                for term in terms]
+        named={_type_of(g[0].ref) for g in groups if g and g[0].ref.startswith('eios:object_type:')}
+        for i,g in enumerate(groups):
+            kinds={_type_of(h.ref) for h in g if h.ref.startswith('eios:property:')}
+            if len(kinds)>1 and kinds&named and all(h.ref.startswith('eios:property:') for h in g):
+                groups[i]=[h for h in g if _type_of(h.ref) in named]
+        if 'vector' in methods:
+            groups.append([hit for hit,_ in self._fuse('definition',{m:self._search('definition',m,text,types,props,vector=vector,type_names=type_names)
+                for m in methods},methods)])
+        return groups
+
+
+MAX_TERMS=8  # terms searched one by one (each is a lexical search per method)
+
+
+def _type_of(ref):
+    return ref.split(':',2)[2].split('/')[0]
+
+
+def _merged(groups):
+    """Hits of several terms by ref at the best score, fields united (a gloss hit stays visible), ranked as _fuse ranks."""
+    best={}
+    for g in groups:
+        for hit in g:
+            seen=best.get(hit.ref)
+            if seen is None or hit.score>seen.score:
+                fields=hit.fields if seen is None else tuple(sorted(set(hit.fields)|set(seen.fields)))
+                best[hit.ref]=RecallHit(hit.ref,hit.method,hit.score,hit.kind,hit.method_scores,fields)
+            else:
+                best[hit.ref]=RecallHit(seen.ref,seen.method,seen.score,seen.kind,seen.method_scores,tuple(sorted(set(hit.fields)|set(seen.fields))))
+    return sorted(best.values(),key=lambda h:(h.method!='strong_id',-h.score,h.ref))
 
 
 class RecallIndexer:
@@ -266,6 +327,10 @@ class RecallIndexer:
             if row['body'] not in cache:cache[row['body']]=_vector_literal(self.provider.embed(row['body']),self.dimension)
             vectors.append({'ref':row['ref'],'field':row['field'],'body':row['body'],'vector':cache[row['body']]})
         return self.provider.profile_id,Jsonb(vectors)
+
+    def stale_definitions(self):
+        """@@@: published types whose latest version is not in the definition index."""
+        return self._db.call('nexloop_recall_stale_definitions',TOKENIZER_VERSION)  # S55: SQL refuses another version
 
     def index_object_type(self,type_name):
         texts=self._db.call('nexloop_recall_definition_texts',type_name)
