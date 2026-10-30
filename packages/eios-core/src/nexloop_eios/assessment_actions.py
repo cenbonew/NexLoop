@@ -1,5 +1,6 @@
 """Governed create adapter; restricted SQL function is the only business writer."""
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.assembly import database_now
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
 import re
@@ -31,7 +32,7 @@ class GovernedAssessmentCreator:
         if capability.capability_name != 'ontology.relationship_assessment.create': raise ActionAuthorizationDenied('assessment capability required')
         provenance=assessment_authorities(self,values)
         payload={'request_id':intent_id,'type_name':type_name,'properties':values}
-        now=datetime.now(UTC);ref=definition.reference()
+        now=database_now(self.pool);ref=definition.reference()
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=action_name,idempotency_key=intent_id),
           binding=M.ClaimBindingPayload(invocation_id=intent_id,action_reference=ref,request_digest=M.canonical_request_digest(payload),
             capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),requested_at=now,lease_expires_at=now+timedelta(seconds=20))
@@ -127,7 +128,7 @@ class GovernedAssessmentCorrector:
         property_authorities=[authority._authority(ResourceType.PROPERTY,f'{type_name}/{object_id}/{field}',Operation.EDIT) for field in sorted(values)]
         provenance=assessment_authorities(self,values)
         payload={'request_id':intent_id,'type_name':type_name,'properties':values,'object_id':object_id,'expected_revision':expected_revision}
-        now=datetime.now(UTC);ref=definition.reference()
+        now=database_now(self.pool);ref=definition.reference()
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=action_name,idempotency_key=intent_id),
           binding=M.ClaimBindingPayload(invocation_id=intent_id,action_reference=ref,request_digest=M.canonical_request_digest(payload),
             capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),requested_at=now,lease_expires_at=now+timedelta(seconds=20))

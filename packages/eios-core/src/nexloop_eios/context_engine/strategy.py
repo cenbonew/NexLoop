@@ -5,6 +5,7 @@ It can never unpin mandatory sections, admit Claims into the formal zone, or tur
 hypotheses in the real world (ADR-019 decisions 2/5; docs/05 §2, §9).
 """
 from dataclasses import dataclass
+from nexloop_eios.assembly import database_now
 from datetime import UTC,datetime,timedelta
 import hashlib
 import hmac
@@ -133,7 +134,7 @@ class StrategyPublisher:
         action,capability=definition_reader.get(PUBLISH_ACTION,action_version)
         if capability.capability_name!=PUBLISH_CAPABILITY:raise ActionAuthorizationDenied('strategy publication capability required')
         payload={'request_id':request_id,'strategy_id':definition['strategy_id'],'version':definition['version'],'definition':definition}
-        now=datetime.now(UTC)
+        now=database_now(self.pool)
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=PUBLISH_ACTION,idempotency_key=request_id),
             binding=M.ClaimBindingPayload(invocation_id=request_id,action_reference=action.reference(),request_digest=M.canonical_request_digest(payload),
                 capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),requested_at=now,lease_expires_at=now+timedelta(seconds=20))

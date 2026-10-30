@@ -7,6 +7,7 @@ authenticated session, never from a caller payload. KR values come from an
 approved MetricDefinition's fixed aggregation; no caller SQL is executed.
 """
 from datetime import UTC,datetime,timedelta
+from nexloop_eios.assembly import database_now
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
 from decimal import Decimal,InvalidOperation
 import hmac
@@ -841,7 +842,7 @@ class GoalGovernedActions:
         definition,capability=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get(action_name,action_version)
         if capability.capability_name!=CAPABILITIES[payload['operation']]:
             raise ActionAuthorizationDenied('Action capability does not match goal operation')
-        now=datetime.now(UTC);ref=definition.reference();intent=payload['request_id']
+        now=database_now(self.pool);ref=definition.reference();intent=payload['request_id']
         # The claim binds the request without its execution-time fields (ADR-039 R3 §8.4 option a); SQL still receives the whole payload.
         claimed={k:v for k,v in payload.items() if k not in EXECUTION_FIELDS.get(capability.capability_name,())}
         command=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=action_name,idempotency_key=intent),

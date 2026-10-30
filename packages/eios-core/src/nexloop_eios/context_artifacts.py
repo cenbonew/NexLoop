@@ -1,5 +1,6 @@
 """Server-only real governed ContextArtifact producer. No credential reaches pack."""
 import re
+from nexloop_eios.assembly import database_now
 from datetime import UTC,datetime,timedelta
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hashlib,hmac
@@ -197,7 +198,7 @@ class ContextArtifactProducer:
     def _claim_request(self,message_id,command,ref,definition,capability):
         request_hash=M.canonical_request_digest({'message_id':message_id,'command_binding':command_binding(command),'pack_digest':ref.sha256})
         claim_id='context-artifact:'+request_hash
-        now=datetime.now(UTC)
+        now=database_now(self.pool)
         request=M.ActionClaimRequest(key=M.ActionReservationKey(tenant_id=self.session.authentication.tenant_id,action_stable_name=ACTION,idempotency_key=claim_id),
          binding=M.ClaimBindingPayload(invocation_id=claim_id,action_reference=definition.reference(),request_digest=request_hash,capability_binding=capability.binding(),adapter_id='nexloop.core',target_system='postgres'),
          requested_at=now,lease_expires_at=now+timedelta(seconds=20))
