@@ -1905,6 +1905,11 @@
       "version": "0381",
       "name": "0381_definition_read_rule.sql",
       "sha256": "b4e5d320dc8f4b0aef4fc71b599205efc896fe1967781e8a5114fe9575a022f7"
+    },
+    {
+      "version": "0382",
+      "name": "0382_relay_backlog_pseudonym.sql",
+      "sha256": "3252965e4c24a659c3566c4cb93af3a29b22118ffde434ac9abf736f7431f292"
     }
   ]
 }

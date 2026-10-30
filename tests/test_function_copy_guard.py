@@ -589,6 +589,9 @@ REGISTRY = [
     Allowed('definition_read_rule', 'control.nexloop_configure_manifest', 'one more fact kind, definition_read_rule, and its exact shape; nothing else',
             ((r",'role_source_read_rule','definition_read_rule'\)", ",'role_source_read_rule')"),
              (r"\n  -- I29 \(0381\): definition_read_rule \[service principal\].*?raise exception 'definition read rule rejected' using errcode='22023';end if;", ""))),
+    # R60 (stage 2026-10-31): a Consumer pseudonymized by the completed erasure (0305) settles as consumer_erased.
+    Allowed('relay_backlog_pseudonym', 'control.nexloop_governed_relay_backlog_settle', "a 'pseudonym:' Consumer reads as erased; nothing else",
+            ((r" or v_consumer like 'pseudonym:%'", ""),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
