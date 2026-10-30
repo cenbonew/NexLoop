@@ -1895,6 +1895,11 @@
       "version": "0379",
       "name": "0379_recall_terms_round3.sql",
       "sha256": "0e625cfeb402ddb9b8219dc10811d3df5b6cf17b2bc5958693da677543478c62"
+    },
+    {
+      "version": "0380",
+      "name": "0380_semantic_read_health.sql",
+      "sha256": "a6a5c49fbdec1b62bd864eac5cee767689324f12de441c77509e79bdca84ec6a"
     }
   ]
 }
