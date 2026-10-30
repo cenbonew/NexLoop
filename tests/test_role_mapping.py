@@ -123,25 +123,31 @@ def test_actual_create_after_write_fault_rolls_back_business_and_terminal(roles,
     import nexloop_eios.object_actions as module
     create,valid,reader=roles
     if fault=='ttl':
+        from nexloop_eios.signing import SIGNED_COMMAND_TTL
         # requested_at and the lease come from the database clock; the module's
-        # datetime.now only caps the signed command's expires_at, so every call
-        # here shortens that authority to expire during the trigger's sleep.
+        # datetime.now only caps the signed command's expires_at. Shift it so the
+        # authority is still valid at the INSERT and expires during the trigger's
+        # sleep, whatever the TTL is.
+        shift=SIGNED_COMMAND_TTL-timedelta(seconds=.5)
         class ShortAuthorityClock:
             calls=0
             @classmethod
             def now(cls,tz):
                 cls.calls+=1
-                return datetime.now(tz)-timedelta(seconds=24.8)
+                return datetime.now(tz)-shift
         monkeypatch.setattr(module,'datetime',ShortAuthorityClock)
-        statement='perform pg_sleep(.35);'
+        statement='perform pg_sleep(1);'
     elif fault=='key':statement='update authz.nexloop_authority_signing_keys set active=false;'
     else:statement="update control.nexloop_action_definitions set active=false where resource_id='eios:action:RoleDefinition.create:1';"
     # Owned fault-injection changes authority metadata only, after the genuine
     # governed business INSERT. The outer command must roll back all its writes.
-    admin.execute('create function ontology.test_role_after_write() returns trigger language plpgsql security definer set search_path=pg_catalog as $$ begin '+statement+' return new;end $$')
+    # A sequence advance survives the rollback, proving the fault ran after the write.
+    admin.execute('create sequence ontology.test_role_after_write_seen')
+    admin.execute("create function ontology.test_role_after_write() returns trigger language plpgsql security definer set search_path=pg_catalog as $$ begin perform nextval('ontology.test_role_after_write_seen');"+statement+' return new;end $$')
     admin.execute("create trigger test_role_after_write after insert on ontology.objects for each row when(new.type_name='RoleDefinition') execute function ontology.test_role_after_write()")
     with pytest.raises(psycopg.errors.InsufficientPrivilege):create('RoleDefinition','tail-fault-role',dict(name='fault',responsibility='synthetic',ceiling_ref='eios:ceiling:declared-only',**valid))
     if fault=='ttl':assert ShortAuthorityClock.calls>=1
+    assert admin.execute('select is_called from ontology.test_role_after_write_seen').fetchone()==(True,)
     assert admin.execute("select count(*) from ontology.objects where type_name='RoleDefinition'").fetchone()==(0,)
     assert admin.execute("select count(*) from runtime.nexloop_action_claims where action_name='RoleDefinition.create' and claim->>'state'='terminal'").fetchone()==(0,)
     assert admin.execute('select bool_and(active) from authz.nexloop_authority_signing_keys').fetchone()==(True,)
