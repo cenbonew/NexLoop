@@ -41,6 +41,17 @@ export function messageRun(input:unknown):boolean{
   try{const statement=(JSON.parse(input) as {user_statement?:unknown}).user_statement;return !!statement&&typeof statement==='object'&&!Array.isArray(statement);}
   catch{return false;}
 }
+/** L6 S47: the plan outcome and outreach tools go only to a Run positively known to be a plan reevaluation Run, never on doubt
+ * (a missing activation or an unreadable input is not one). The reevaluation worker (nexloop_eios.plan_reevaluation) is the only
+ * issuer of request_id plan-reevaluate-<run_id>, bound to the command digest by SQL; its Context is a v6 Role pack: no
+ * user_statement, a service_trigger event. Plan items alone prove nothing: every v6 pack carries the Consumer's active plans. */
+export function planRun(command:{run_id?:unknown;request_id?:unknown}|undefined,input:unknown):boolean{
+  if(!command||typeof command.run_id!=='string'||command.request_id!=='plan-reevaluate-'+command.run_id||typeof input!=='string')return false;
+  try{
+    const pack=JSON.parse(input) as {schema_version?:unknown;user_statement?:unknown;current_event?:{kind?:unknown}|null};
+    return pack.schema_version==='nexloop.context-pack.v6'&&pack.user_statement===null&&pack.current_event?.kind==='service_trigger';
+  }catch{return false;}
+}
 export function enterpriseSupply(input:unknown):EffectSupply|undefined{
   if(typeof input!=='string')return undefined;
   try{
@@ -373,8 +384,11 @@ export class RuntimeHost{
       ...(typeof config.effect_timeout_ms==='number'?{effectTimeoutMs:config.effect_timeout_ms}:{})}):undefined;
     // 10-30 stage S6 (Runs a1b1aee5, 86107e0a): with plan_outcome_tool on, message Runs were offered nexloop.plan.outcome too; the
     // model called it after the reply, SQL refused it (not a plan reevaluation Run) and the Run failed although the reply had gone
-    // out. Like the outreach tool, the plan outcome tool is for plan reevaluation Runs only, never a message Run.
-    this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&!messageRun(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
+    // out. The plan outcome and outreach tools are for plan reevaluation Runs only, offered on positive evidence (planRun, S47).
+    // A simulation Host keeps its own rule: its Runs read a rendered simulation context, not a v6 pack (stand-ins only).
+    const plan=(command:RunCommand)=>this.worldGroup==='simulation'?!messageRun(this.activations.get(command.run_id)?.input)
+      :planRun(command,this.activations.get(command.run_id)?.input);
+    this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true&&plan(command),incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&plan(command),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       // NX-041 (L6 host-sim-context 3b): a simulation Host's Runs get the simulation instructions, never the real ones.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:this.simulationContext?SIM_RUN_INSTRUCTIONS:RUN_INSTRUCTIONS}:{}),

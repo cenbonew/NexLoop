@@ -121,6 +121,9 @@ def test_unanswered_message_gets_one_llm_fallback_reply_and_settles(assembled_me
             assert admin.execute('select message_id from authz.nexloop_message_fallback_issuances where run_id=%s',(run_id,)).fetchone()==(consumer['id'],)
             pack=json.loads(g['launcher'].last['input'])
             assert pack['schema_version']=='nexloop.context-pack.v6' and pack['user_statement']['message_id']==consumer['id']
+            # L6 I20: the Host's planRun refuses this real message Run (no plan outcome or outreach tool for it).
+            from support.plan_run_verdict import plan_run
+            assert plan_run(g['launcher'].last['command'],g['launcher'].last['input']) is False
             assert run_fallback_on_host(c,tmp_path,g,host_mode)['runtime_outcome']=='succeeded'
             ((intent,state,_,_,_,trigger,_),)=outbound(admin,tenant)
             assert state=='persisted' and trigger==consumer['id']
