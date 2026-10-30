@@ -221,3 +221,30 @@ def test_gloss_rows_stay_lexical_only(recall_db):  # noqa: F811
         left join ontology.nexloop_recall_embeddings m using(entry_id) where e.source_key like 'glossary:%%'""").fetchone()==(0,1)
     assert admin.execute("""select count(*) from ontology.nexloop_recall_entries e join ontology.nexloop_recall_embeddings m using(entry_id)
         where e.source_key like 'type:%%'""").fetchone()[0]>0
+
+
+# --- I29 (R60 smoke): the relay's semantic read runs under the message_relay service principal ---------------------------------
+
+def relay_targets():
+    """message_relay's manifest grants (deploy/authorization/service-grants.v1.json): Actions only, no object_type/property READ."""
+    import json
+    from pathlib import Path
+    manifest=json.loads((Path(__file__).resolve().parents[1]/'deploy/authorization/service-grants.v1.json').read_text())
+    grants=[g for g in manifest['grants'] if g['principal']=='message_relay']
+    assert grants and all(g['resource_type']=='action' for g in grants)  # the R60 cause: no definition READ at all
+    return [(g['resource_id'],ResourceType.ACTION,Operation.EXECUTE) for g in grants]
+
+
+def test_the_relay_principal_reads_definitions_only_with_a_definition_read(semantic):
+    f,_,signer=semantic;admin=f['admin']
+    # As the manifest stands: the statement is one term and the miss says no_readable_types (R60 s6c-1).
+    relay,_=seed_multi_authority(admin,f['worker'],relay_targets(),identity_suffix='-relay-as-is',world='real',tenant=A)
+    recorder=SemanticAccessRecorder(f['worker'],relay,signer)
+    out=adapter(f,relay,signer,recorder).browse(SENTENCE,extract_terms=True)
+    assert out['items']==[] and records(admin)[-1]==([term_hash(SENTENCE)],0,1,'no_readable_types')
+    # With type and property READ on the published definition (the I29 grant): terms are extracted and the definition is hit.
+    granted,_=seed_multi_authority(admin,f['worker'],relay_targets()+[('eios:object_type:Consumer',ResourceType.OBJECT_TYPE,Operation.READ),
+        ('eios:property:Consumer/member_no',ResourceType.PROPERTY,Operation.READ)],identity_suffix='-relay-granted',world='real',tenant=A)
+    out=adapter(f,granted,signer,SemanticAccessRecorder(f['worker'],granted,signer)).browse(SENTENCE,extract_terms=True)
+    assert 'eios:property:Consumer/member_no' in {i['ref'] for i in out['items']}
+    assert records(admin)[-1][0]==[term_hash('会员编号')] and records(admin)[-1][3] is None
