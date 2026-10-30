@@ -475,9 +475,19 @@ input[type=radio]:focus-visible,input[type=checkbox]:focus-visible{outline:3px s
 /* Stage walkthrough: the type detail floats over the graph on wide screens, so the canvas keeps its full width and its proportions
  * (as a second column it squeezed the canvas into a tall narrow strip); below 900px it stacks under the graph. */
 .workbench .world-graph-panel{position:relative}
-@media (min-width:900px){.workbench .world-graph-panel .world-panel{position:absolute;top:var(--space-6);right:var(--space-3);z-index:3;width:min(320px,40%);
-  max-height:calc(100% - var(--space-6) - var(--space-3));overflow:auto;border-radius:var(--radius-lg);box-shadow:var(--shadow-2)}
-  .workbench .world-graph-panel .world-panel>*{margin:0}}
+/* Owner walkthrough R56 (W2): the panel no longer floats over the canvas (it hid the right-hand nodes and the toolbar hint). When the
+ * content area is wide enough the canvas and the panel sit side by side, so the graph fits (and 适应画布 refits) the width left to
+ * it; narrower (1024 px windows with the sidebar), the panel goes under the full-width canvas. */
+.workbench .world-graph-frame{container-type:inline-size;min-width:0}
+@container (min-width:960px){.workbench .world-graph-panel{grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+  .workbench .world-graph-panel .world-panel{position:sticky;top:var(--space-3);max-height:calc(100dvh - 2 * var(--space-3));overflow:auto}}
+/* The panel's Links: one tidy block per Link - direction, the other type and the cardinality on the first line, the Link under it. */
+.workbench .panel-links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.workbench .panel-link{display:grid;grid-template-columns:1.25em minmax(0,1fr) auto;column-gap:var(--space-2);row-gap:2px;padding:var(--space-2) 0;border-top:1px solid var(--border)}
+.workbench .panel-link:first-child{border-top:0;padding-top:0}
+.workbench .panel-link-dir{color:var(--muted)}
+.workbench .panel-link-card{color:var(--muted);font-size:var(--fs-small);white-space:nowrap;font-variant-numeric:tabular-nums}
+.workbench .panel-link-name{grid-column:2 / 4}
 .workbench .tech-name{display:block;color:var(--muted);font-size:var(--fs-small);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
 .workbench .object-view{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4)}
 .workbench .object-view-detail{grid-template-columns:minmax(0,1fr) minmax(280px,360px)}
@@ -625,3 +635,30 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .gloss-edit .workbench-action{border:0;padding:0;background:none}
 .workbench .gloss-edit-sim{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);margin:var(--space-3) 0 0}
 .workbench .gloss-edit-sim .gloss-edit-open{margin:0}
+
+/* Owner walkthrough R56: one vertical rhythm for the workbench. Sections and stacked cards keep a 16 px gap (24 px before a new
+ * section), button groups an 8 px gap, form rows 12 px; nothing touches its neighbour. */
+.workbench .workbench-data>*+*,.workbench .workbench-page>section+section,.workbench .workbench-page>.workbench-data+section{margin-top:var(--space-4)}
+.workbench .workbench-data>*+section,.workbench .workbench-data>*+h2,.workbench .workbench-data section+*{margin-top:var(--space-5)}
+.workbench :not(.card-grid)>.card+.card,.workbench :not(.card-grid)>.card+section,.workbench :not(.card-grid)>section+.card{margin-top:var(--space-4)}
+.workbench .card{height:auto}.workbench .card-grid>.card{height:100%}
+.workbench .card-head{gap:var(--space-3)}.workbench .card-head>:not(h2):not(h3){flex:none}
+.workbench .experiment-detail{display:flex;flex-direction:column;gap:var(--space-4)}.workbench .experiment-detail>*{margin:0}
+.workbench .evidence-list{list-style:none;margin:var(--space-3) 0 0;padding:0;display:flex;flex-direction:column;gap:var(--space-3)}
+.workbench .evidence-list>li{margin:0;max-width:none}
+.workbench .decisions{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-3);max-width:40rem}
+.workbench .decisions>*{margin:0}
+.workbench .decision-field{display:flex;flex-direction:column;gap:var(--space-1)}
+.workbench .decision-field textarea,.workbench .decision-field select{width:100%}
+.workbench .decision-actions{display:flex;flex-wrap:wrap;gap:var(--space-2)}.workbench .decision-actions button{margin:0}
+.workbench section[aria-labelledby="review-decisions-heading"]{margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--border)}
+.workbench .world-list-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-2) var(--space-3);margin-bottom:var(--space-3)}
+.workbench .world-list-head>*{margin:0}
+.workbench .world-list-head>label,.workbench .world-list-head>.keyword{flex:1 1 18rem}
+.workbench .world-list-head .gloss-edit{flex:1 1 100%}
+.workbench .world-panel .gloss-edit-open{margin-top:var(--space-2)}
+.workbench .state+*,.workbench .section-head+*{margin-top:var(--space-3)}
+.workbench details>summary+*{margin-top:var(--space-3)}
+.workbench button+.disabled-reason,.workbench .form-actions+.disabled-reason{margin-top:var(--space-2)}
+/* The graph toolbar: its buttons and the hint share one row (the hint's paragraph margin pushed it 30 px down). */
+.schema-graph-tools>*{margin:0}.schema-graph-tools>.note{flex:1 1 20rem;min-width:0}

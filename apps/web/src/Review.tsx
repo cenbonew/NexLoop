@@ -14,7 +14,7 @@ export function mergeTargets(detail:CandidateDetail):string[]{
 /** Without the governed human review Action the decisions are shown disabled with the reason. */
 export function DisabledDecisions({decisions}:{decisions:Decisions}){
   return <div className="decisions" role="group" aria-label="审核决定">
-    {decisions.actions.map(action=><button key={action} type="button" disabled aria-disabled="true" aria-describedby="decisions-disabled">{DECISION_LABELS[action]}</button>)}
+    <div className="decision-actions">{decisions.actions.map(action=><button key={action} type="button" disabled aria-disabled="true" aria-describedby="decisions-disabled">{DECISION_LABELS[action]}</button>)}</div>
     <p id="decisions-disabled" role="status">未启用：审核决定需要受治理的人类审核 Action；当前不会提交任何决定。</p>
   </div>;
 }
@@ -31,12 +31,13 @@ export function DecisionBar({detail,endpoints=BROWSER_REVIEW}:{detail:CandidateD
   const unverified=detail.kind==='property'&&detail.derivation_impact===null;
   return <div className="decisions" role="group" aria-label="审核决定">
     {impact&&<p className="warning" role="note" id="approve-impact">{impact}</p>}
-    <label htmlFor="decision-rationale">决定理由（必填，将写入审计记录）</label>
-    <textarea id="decision-rationale" value={rationale} maxLength={2000} onChange={event=>setRationale(event.target.value)}/>
-    {targets.length?<><label htmlFor="merge-target">并入的已有定义</label><select id="merge-target" value={target} onChange={event=>setTarget(event.target.value)}>{targets.map(t=><option key={t} value={t}>{t}</option>)}</select></>:<p className="note">没有可并入的同类已有定义。</p>}
-    {detail.decisions.actions.map(action=><button key={action} type="button" disabled={blocked||(action==='merge_into'&&!target)||(action==='approve'&&unverified)}
+    {/* Owner walkthrough R56: each field on its own row and the decision buttons in their own spaced row, never one squeezed line. */}
+    <div className="decision-field"><label htmlFor="decision-rationale">决定理由（必填，将写入审计记录）</label>
+    <textarea id="decision-rationale" value={rationale} maxLength={2000} onChange={event=>setRationale(event.target.value)}/></div>
+    {targets.length?<div className="decision-field"><label htmlFor="merge-target">并入的已有定义</label><select id="merge-target" value={target} onChange={event=>setTarget(event.target.value)}>{targets.map(t=><option key={t} value={t}>{t}</option>)}</select></div>:<p className="note">没有可并入的同类已有定义。</p>}
+    <div className="decision-actions">{detail.decisions.actions.map(action=><button key={action} type="button" disabled={blocked||(action==='merge_into'&&!target)||(action==='approve'&&unverified)}
       aria-describedby={action==='approve'&&impact?'approve-impact':undefined} onClick={()=>mutation.mutate(action)}>
-      {mutation.isPending&&mutation.variables===action?'正在提交…':DECISION_LABELS[action]}</button>)}
+      {mutation.isPending&&mutation.variables===action?'正在提交…':DECISION_LABELS[action]}</button>)}</div>
     {!rationale.trim()&&<p className="note">填写理由后才能提交决定。</p>}
     {mutation.isError&&<p role="alert">{reviewError(mutation.error)}</p>}
     {mutation.data&&<p role="status">{decisionMessage(mutation.data)}</p>}
