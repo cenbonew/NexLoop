@@ -91,6 +91,8 @@ finally:
 
 配置文件（0600）每步一个，下文写为 `cfg-<步骤>.json`。
 
+**重跑即重放**：同一个 cfg 重跑会重放上一次的结果（Idempotency-Key 由配置内容派生）。不要为了“再试一次”去改 `reason` 或其他字段，否则会变成一次新的请求；对 `set_consumer_persona` 来说，就是一次新的人设修订。
+
 ## 4. #18 勿扰时段与频率上限的拒绝路径
 
 **执行时间**：B1 在租户勿扰时段内（默认北京时间 21:00–09:00，以 P10 读出的为准）；B2、B3 在勿扰时段外。不改租户设置。
@@ -163,7 +165,26 @@ select x->>'run_id' run_id, x->>'issued_at' issued_at
 
 ### 4.2 方案 R（负责人授权后；完整证明）
 
-顺序：R0 改人设 → B1 → B2 → B3 → R9 改回。B1 在勿扰时段内，B2、B3 在次日勿扰时段外，B2 和 B3 之间不超过 24 小时。
+**L6 的四个条件（负责人已选 R）**：
+
+1. **压缩时间窗，全程约 1 小时，不隔夜**（以租户勿扰 21:00–09:00、北京时间为例，按 P10 读出的设置换算）：
+
+   | 约北京时间 | 步骤 |
+   |---|---|
+   | 08:30 | R0（勿扰时段快结束时） |
+   | 紧接着 | B1（仍在勿扰时段内） |
+   | 09:00 之后马上 | B2 |
+   | B2 之后 | B3 |
+   | 随即 | R9 |
+
+2. **R0 之前的只读确认**（任一不满足就不开始）：
+   - 没有自动发起方会在窗内触达 s6c-1，SQL 见 §4.2a；
+   - I36（未结束承诺作废）已完成；
+   - **B6 不放进这个窗口**（见 §6）。
+3. **证据**：
+   - 记 R0、R9 的执行时间（取自 `date -u`）和人设修订号（§4.0 的事件查询），作为指标和演进必须排除的时间段；
+   - 同一时间段写进 S6 运行单的注意事项（`docs/release/run-s6-stage-prep.md` §6 之后的“排除时段”一节，本提交已加上该节；W0、W1 的实际值由调度员在执行后填进证据）。
+4. **B2 的 `fulfilled` 只表示写进回环**：证据照抄 §0.4，不写“已送达”。
 
 - **R0**：见 §4.0。
 - **B1 勿扰时段内**：配置同 4.1。
@@ -177,7 +198,27 @@ select x->>'run_id' run_id, x->>'issued_at' issued_at
   - business intent id 含 origin_ref，所以这是新意图，不是重放。
   - 预期 `refused`，`refusal_code=frequency_capped`；`refusal_gates.frequency.detail.last_24h=1`。
   - 回环 outbox 没有这条。
-- **R9**：见 §4.0。**无论前面成败都要做**，要在 B6 结束之后。
+- **R9**：见 §4.0。B3 之后随即执行，**无论前面成败都要做**。
+
+#### 4.2a R0 之前：窗内没有自动触达 s6c-1 的来源（只读）
+
+```sql
+-- 进行中的 Goal / PlanStep（指向 s6c-1）
+select type_name, count(*) from ontology.objects where tenant_id='$T' and type_name in ('Goal','PlanStep','Plan')
+   and properties::text like '%'||'$C1'||'%' and coalesce(properties->>'status','') not in ('completed','cancelled','closed','done','superseded') group by 1;
+-- 会触发跟进的未结束承诺（made_to = s6c-1）
+select properties->>'status' status, count(*), min(properties->>'due_at') from ontology.objects where tenant_id='$T' and type_name='Commitment'
+   and properties->>'made_to' like '%'||'$C1'||'%' and properties->>'status' in ('conditional','open','in_progress','breached') group by 1;
+-- 排队或运行中的计划复评任务（plan-reevaluator 的作业）
+select capability_name, status, count(*) from runtime.jobs where tenant_id='$T' and status not in ('succeeded','failed','dead_lettered')
+   and normalized_input::text like '%'||'$C1'||'%' group by 1,2;
+-- 未完成的外联与激励意图
+select 'outreach', state, count(*) from runtime.nexloop_outreach_sends where tenant_id='$T' and world='real' and consumer_id='$C1' and state in ('accepted','pending_approval','dispatching','unknown') group by 2
+union all select 'incentive', state, count(*) from runtime.nexloop_incentive_issues where tenant_id='$T' and world='real' and consumer_id='$C1' and state in ('accepted','dispatching','unknown') group by 2;
+```
+
+- 预期：四个查询都没有行。有行就不开始，交回调度员处理：例如先按 I36 作废承诺，或等作业结束。
+- 四个查询已在本地一次性库上试跑，执行无错（见 §8）。`runtime.jobs` 的终态取值以 stage 读出的为准：先跑一次 `select status, count(*) from runtime.jobs where tenant_id='$T' group by 1`，再决定排除哪些。
 
 ### 4.3 只读核对 SQL
 
@@ -236,7 +277,7 @@ select action, request_id, created_at from runtime.audit_events
 ## 6. #17 外联第 5 片阳性对照
 
 - **方案 R**：§4.2 的 B2（owner 发起的 `fulfilled`）就是外联发送和执行器准入的阳性对照。Agent 发起这一路再做 B6。
-- **B6（Agent 发起；真实模型调用）**：
+- **B6（Agent 发起；真实模型调用；不在方案 R 的时间窗内，L6 条件 ②）**：在 R9 之后执行，此时 s6c-1 已改回 `simulated_agent`，预期 `refused / persona_excluded`，证明“计划复评 Run → 受理 → 准入 → 逐道闸”这条链。如果要 Agent 发起这一路也拿到 `fulfilled`，需要另开一个满足同样条件的窗口，由负责人另行决定。
   - **授权依据**：负责人 2026-10-31 会话确认（经调度员转达）。
   - **成本上限**：单 Run ≤ 2 CNY（计划复评 Run 预算 4 轮模型、12 次工具、2 CNY），本单只触发 1 次；沿用 100 CNY / 7 天预算。执行前后各读一次租户模型预算消耗，差额写进证据：`ro "select sum(amount) from control.nexloop_budget_consumption where tenant_id='$T' and world='real' and budget_kind='model' and recorded_at > now()-interval '7 days'"`。
   - **回环约束**：外联执行器的 provider 只有 `LocalOutreachOutbox`（P2）；不满足 P2 就不做 B6。
@@ -297,6 +338,9 @@ select p.target_ref like '%'||'$C1'||'%' c1, p.property_name, p.status, count(*)
 ## 9. 证据
 
 - **执行者（调度员）**：
+  - **P1–P12 每一条的输出**（逐条原样记录，`consumer_id` 只写前 12 位；B 档 L6 补充 b）；
+  - §4.2a 四个查询的输出；
+  - R0、R9 的 `date -u` 时间和人设修订号（排除时段）；
   - 执行时间（UTC，取自 `date`）；
   - P1–P12 的输出，`consumer_id` 只写前 12 位；
   - 每一步 `owner_action.py` 的输出行；
