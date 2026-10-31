@@ -246,6 +246,9 @@ def test_world_due_times_are_scheduled_on_the_wall_and_rescheduled_by_every_cloc
 
 def test_only_the_time_expressions_changed_and_a_deleted_world_takes_its_clock(db):
     for name in CONVERTED:
+        # I38 (0388) renamed and wrapped the commitment command: the converted body is the wrapped one.
+        if name == 'authz.nexloop_commitment_command':
+            name = 'authz.nexloop_commitment_command_before_commitment_orphans'
         source = db.execute('select prosrc from pg_proc where oid=%s::regprocedure', (db.execute('select %s::regproc::regprocedure::text', (name,)).fetchone()[0],)).fetchone()[0]
         assert 'nexloop_world_now' in source or 'nexloop_world_wall_at' in source, name
     # The leases and the audit time stay the wall in the dispatch.
@@ -337,4 +340,6 @@ def test_the_clock_migration_changes_only_time_expressions_of_the_latest_definit
         # Nothing after the clock migration redefines it without the world time.
         for f in later:
             for again in define(name).finditer(f.read_text()):
-                assert 'nexloop_world_' in _body(f.read_text(), again.end()), (name, f.name)
+                body = _body(f.read_text(), again.end())
+                # I38 (0388): a rename-and-wrap that delegates to the converted body (renamed) keeps the world time.
+                assert 'nexloop_world_' in body or (name + '_before_') in body, (name, f.name)
