@@ -603,6 +603,10 @@ REGISTRY = [
     Allowed('service_credential_rotation', 'runtime.nexloop_restore_replay_before_contact_keys_v0240',
             'a revocation entry naming a token revokes that token only; nothing else',
             ((r"\s*and \(not e \? 'token_digest' or token_digest=e->>'token_digest'\)", ""),)),
+    # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
+    Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
+            ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
+             (re.escape("when 'ServiceOffering' then 'service_offering' else 'object' end"), "else 'service_offering' end"))),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

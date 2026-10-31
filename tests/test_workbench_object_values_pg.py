@@ -63,8 +63,9 @@ def test_without_the_read_nothing_is_shown(workbench):
     admin = w['admin']
     centre, referrers, related, goals = seed(w)
     with w['client']() as client:
-        assert workbench_login(client, w['owner']).status_code == 200
-        # MessageAssignment: a type no member role derives (ADR-035 §4): 403, no value, no id on the list page.
+        # I35: the owner reads MessageAssignment through its roles v52 read list; the operator derives no read of it (ADR-035 §4).
+        assert workbench_login(client, w['operator']).status_code == 200
+        # MessageAssignment for the operator: 403, no value, no id on the list page.
         denied = client.get(f'/api/v1/workbench/objects/MessageAssignment/{goals[0]}')
         assert denied.status_code == 403 and 'active' not in denied.text
         listed = client.get('/api/v1/workbench/objects/MessageAssignment').json()

@@ -1,6 +1,6 @@
 # I35 负责人读不到对象属性值：诊断与修复方案
 
-状态：诊断完成、方案待负责人决定（2026-10-31）。只读诊断脚本 `scripts/ops/i35_owner_property_read.sql`（PG 测试 `tests/test_i35_owner_property_read_pg.py`）。尚未改授权。
+状态：负责人 2026-10-31 选方案 A，已实现：workbench-roles v52 的 `read_types`，迁移 workbench_read_types（临时编号 0387）。owner 读全部 20 个已发布类型（含运行时类型）；受限组最后排除；已擦除 consumer 不可读；operator、reviewer 不变；每次读取写审计。只读诊断脚本 `scripts/ops/i35_owner_property_read.sql`，PG 测试 `tests/test_i35_owner_property_read_pg.py`。
 
 ## 1. 诊断
 
@@ -78,3 +78,81 @@ stage 发布的 Consumer v1（`consumer_profile.consumer_profile_schema`）有 6
 3. operator 是否也读 Consumer 画像（display_name 等）？目前 operator 与 owner 读的范围相同，这次会出现分歧。
 4. reviewer 维持“只读待审定义所依赖的证据 Message”，是否不变？
 5. 新增的读取同样每个对象写一条审计（`runtime.nexloop_workbench_read_audit`），确认可以接受。
+
+## 5. 实现与部署单片段（方案 A，负责人 2026-10-31）
+
+**实现**
+
+- `deploy/authorization/workbench-roles.v1.json` v52 新增 `read_types`：
+  - owner 逐个列出 20 个类型，不用通配，按字母排序；
+  - operator 和 reviewer 为空列表；
+  - Action 不变，owner 仍是 97 个。
+- 迁移 workbench_read_types（临时编号 0387，依赖 0123、0224、0226、0357、0383）：
+  - 新表 `control.nexloop_workbench_read_types`（按角色版本和角色记录，只追加），由配置员函数 `control.nexloop_configure_workbench_read_types` 写入。版本必须等于当前工作台配置的 roles_version；重放同样的清单不写，不同的清单拒绝。
+  - `authz.nexloop_workbench_member_may_read` 改名后包一层新逻辑：
+    - 先查角色：不是三种工作台角色之一就拒绝；再查已擦除：对象的任一 consumer 正在擦除或已擦除，任何派生方式都拒绝（见 I35-a）；
+    - 再走原来的派生，结果不变；
+    - 原来的派生拒绝时，查角色当前的 `read_types`：类型在清单里、且对象所在的类型版本已发布（object_type_versions 中有定义），就可读对象和该版本声明的属性；
+    - 最后不论来自哪条派生，属于负责人受限组（property_group_restriction）的属性一律不可读。
+  - 审计读取（`authz.nexloop_assert_workbench_member_read`）接受任何类型：新可读类型的 object_kind 为 `object`，原有六种不变；审计表的两个约束相应放宽。
+- `workbench_roles --apply`：在 `control.nexloop_configure_workbench` 之后、同一事务里写入可读类型，输出多一项 `read_types_recorded`。
+
+**I35-a 擦除：每个类型关联客户的字段**
+
+新包装函数在所有派生之前做擦除判断，原有的 0123、0224 派生也包括在内。对象关联的客户，任一个正在擦除或已擦除（逐个问 `runtime.nexloop_consumer_erasing`；0383 起假名也算已擦除），任何角色都读不到这个对象和它的属性。关联字段由共享解析 `runtime.nexloop_object_consumers_read` 给出（0315/0357，与 assert 守卫、object_fields 同一套；它也跟随 relation 关联），再补上 RoleExecutionCeiling 的数组字段。assert 路径直接调用 may_read，所以这个判断不依赖调用方。
+
+| 类型 | 关联客户的字段 | 由谁解析 |
+|---|---|---|
+| Consumer | 对象 id 本身 | 包装函数直接判断，共享解析也覆盖 |
+| Conversation | `runtime.nexloop_conversations.consumer_id`（对象 id 即 conversation_id） | 共享解析 |
+| Message | 所属 Conversation 的 consumer_id | 共享解析 |
+| Commitment | made_to | 共享解析 |
+| CommercialRecord | consumer_ref | 共享解析 |
+| Goal、PlanStep、EffectControl、MessageAssignment、ConsumerOwnership、ConsumerServiceOffering、ConsumerIncentiveOffering、ConsumerRoleLink、RoleAssignmentScope | consumer_id | 共享解析（“其他类型的 consumer_id”） |
+| RoleExecutionCeiling | consumer_ids（数组） | 包装函数单独判断（共享解析不跟随数组） |
+| ServiceOffering、IncentiveOffering、RoleDefinition、ContextStrategy | 无客户关联（目录或定义） | — |
+| ContextManifest | 无客户关联（run_id、call_sequence、request_digest，只记 Run 的上下文清单） | — |
+
+另外，任何类型只要有 relation 指向正在擦除的客户，共享解析也会把它列为关联。
+
+**I35-b 断言路径**：三处一起扩展，覆盖任何类型名，也就包括这 20 个：
+- `authz.nexloop_assert_workbench_member_read` 中 v_object 的正则；
+- 审计 object_kind 的 case：原有六种不变，其余类型记为 `object`；
+- 审计表的 object_kind 与 target_resource 两个 check 约束。
+
+copy guard 登记了这一处差异。PG 测试按真实路径走：owner 经工作台读取 Conversation，写入一行 `object` 审计；operator 被拒绝。
+
+**I35-c 边界**（测试中有断言）：
+- 清单只在原有派生拒绝时补充，原有派生允许的结果不变。reviewer 对 Message 的规则仍是“只读待审定义所依赖的证据”：没有待审依赖时，reviewer 读不到 Message。
+- 角色为空或不在三种角色之内时一律拒绝，例如 customer、大小写不同的写法。customer principal 本来就不是工作台成员，assert 路径会先拒绝；包装函数在入口再挡一次。0123 曾让空角色读到 Consumer 对象，这次一并封住。
+- 受限组仍在最后排除，不论来自哪条派生，测试也覆盖了这一条。
+
+**I35-d operator 和 reviewer**：
+- 清单只写 owner；operator 与 reviewer 是空清单，不继承 owner 的清单。
+- operator 读到的范围与之前完全相同：Consumer 画像仍不可读，新增的 14 个类型仍是 readable=false。
+- 前端已有这种显示：object_fields 返回 readable=false 时显示“受限”，读取值时 403 也按受限处理，与改动前相同，不需要前端改动。
+
+**20 个类型（清单中逐项列出，按字母排序）**：Commitment、CommercialRecord、Consumer、ConsumerIncentiveOffering、ConsumerOwnership、ConsumerRoleLink、ConsumerServiceOffering、ContextManifest、ContextStrategy、Conversation、EffectControl、Goal、IncentiveOffering、Message、MessageAssignment、PlanStep、RoleAssignmentScope、RoleDefinition、RoleExecutionCeiling、ServiceOffering。
+
+**部署单片段（DATA_HOST，配置员窗口；迁移照常先备份）**
+
+1. 迁移到 workbench_read_types（合批定号后的编号）；`check_definer_search_path` 预期 0 problems。
+2. `workbench_roles --apply`（命令同 R54 S5），roles v52。预期：
+   - `ok`；
+   - owner 授权数仍为 **97**，operator 12、reviewer 1，没有 Action 增减；
+   - 输出 `read_types_recorded: 3`（三个角色各一行，operator 和 reviewer 为空清单）；
+   - 重跑为 `0`。
+3. 只读核对（能执行 owner-only 函数的只读窗口）：
+
+   ```sql
+   select control.nexloop_workbench_role_read_types('<TENANT_ID>','owner');   -- 20 个类型
+   select control.nexloop_workbench_role_read_types('<TENANT_ID>','operator'); -- {}
+   ```
+
+   再跑 `scripts/ops/i35_owner_property_read.sql` 第 5 节，预期：
+   - 每个有 real 对象的类型 `object_readable = true`，`readable = properties`；
+   - 例外是负责人受限组里的属性（当前三个类型的受限组都为空，所以没有例外）；
+   - 已擦除 consumer 的对象不出现在可读结果里。
+4. 工作台：负责人登录后，「客户」列表显示名称，「企业世界模型 › Object」里 Consumer 的 6 个画像属性显示值。operator 登录后 Consumer 画像仍为受限（行为不变）。
+
+**回退**：roles 版本不能后退，所以要回退就发布 v53：`read_types` 的 owner 改为空清单，其余照 v52。各角色回到 0123、0224 的派生。迁移本身不回退。
