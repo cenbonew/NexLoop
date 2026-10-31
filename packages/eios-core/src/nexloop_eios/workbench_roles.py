@@ -267,6 +267,12 @@ def role_templates(roles, tenant, *, valid_from=None):
             for role in sorted(roles['roles'])}
 
 
+def write_read_types(db, tenant, roles):
+    """I35: the roles version's read lists (control.nexloop_configure_workbench_read_types), in the configuration's transaction."""
+    return db.execute('select control.nexloop_configure_workbench_read_types(%s,%s::jsonb)',
+                      (tenant, canonical_payload(read_types_payload(roles)))).fetchone()[0]
+
+
 def apply_members(roles, members, *, database_url_file, named_revocations=()):
     """Technical configurator only (0140 refuses any other session). One transaction, three steps (NX-058 §1c, L6 slice A review D-1,
     A-3): (1) the role templates, published as text with its sha256 and the expected revision (the last published roles manifest version,
@@ -303,8 +309,11 @@ def _apply_members_locked(db, roles, members, roles_payload, members_payload, te
             (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
         configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
             (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
-        read_types = db.execute('select control.nexloop_configure_workbench_read_types(%s,%s::jsonb)',
-            (tenant, canonical_payload(read_types_payload(roles)))).fetchone()[0]
+        read_types = write_read_types(db, tenant, roles)
+        # I35-e: the configuration and its read lists commit together or not at all.
+        state = db.execute('select control.nexloop_workbench_read_types_state(%s)', (tenant,)).fetchone()[0]
+        if not state.get('present'):
+            raise WorkbenchRolesRejected(f"read_types_missing: roles version {state.get('roles_version')} has no read lists")
         settled = db.execute('select control.nexloop_workbench_templates_settle_v2(%s)', (tenant,)).fetchone()[0]
         history = db.execute('select control.nexloop_workbench_role_history_sync(%s)', (tenant,)).fetchone()[0]
         return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],

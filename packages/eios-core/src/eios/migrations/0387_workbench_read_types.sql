@@ -161,3 +161,33 @@ begin
   on conflict(tenant_id,read_txid,principal_id,target_resource) do nothing;
  return ident->'binding';
 end $$;
+
+-- I35-e: the read lists are bound to the roles version. A configuration whose roles version has no list (a write that never
+-- happened) leaves the owner at the 0123/0224 reads without a sign; this state says it, workbench_roles --apply refuses to commit
+-- without it, and the metrics snapshot carries it for nexloop-doctor --workbench-read-types.
+create function control.nexloop_workbench_read_types_state(p_tenant text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare prior text:=current_setting('eios.tenant_id',true);cur control.nexloop_workbench_configurations;n integer;
+begin
+ cur:=control.nexloop_workbench_current(p_tenant);
+ if cur.tenant_id is null then return jsonb_build_object('configured',false);end if;
+ perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
+ select count(*) into n from control.nexloop_workbench_read_types where tenant_id=p_tenant and roles_version=cur.roles_version;
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return jsonb_build_object('configured',true,'roles_version',cur.roles_version,'present',n=3);
+end $$;
+alter function control.nexloop_workbench_read_types_state(text) owner to nexloop_owner;
+revoke all on function control.nexloop_workbench_read_types_state(text) from public;
+grant execute on function control.nexloop_workbench_read_types_state(text) to nexloop_configurator;
+
+alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_workbench_read_types;
+revoke all on function runtime.nexloop_metrics_snapshot_before_workbench_read_types(text,text) from public;
+create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp as $$
+declare v jsonb:=runtime.nexloop_metrics_snapshot_before_workbench_read_types(p_tenant,p_world);
+begin
+ if p_world is distinct from 'real' then return v;end if;
+ return v||jsonb_build_object('workbench_read_types',control.nexloop_workbench_read_types_state(p_tenant));
+end $$;
+alter function runtime.nexloop_metrics_snapshot(text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_metrics_snapshot(text,text) from public;

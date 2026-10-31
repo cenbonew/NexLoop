@@ -137,3 +137,40 @@ def test_the_owner_reads_a_newly_listed_type_through_the_audited_read(workbench)
     with w['client']() as client:
         assert workbench_login(client, w['operator']).status_code == 200
         assert client.get(path).status_code in (403, 404)
+
+
+def test_a_configuration_without_its_read_lists_is_refused_by_apply_and_reported_by_doctor(workbench, tmp_path, monkeypatch):
+    """I35-e: the read lists are bound to the roles version. --apply writes them in the configuration's transaction and refuses to
+    commit when they are missing; a configuration written without them (the state an interrupted or skipped write leaves) is reported
+    by nexloop-doctor --workbench-read-types through the read-only metrics role."""
+    import copy
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    from nexloop_eios import workbench_roles
+    from nexloop_eios.doctor import workbench_read_types
+    from test_workbench_read_pg import members_file
+    w = workbench; admin = w['admin']
+    provision(w)
+    dsn = tmp_path / 'metrics-dsn'
+    dsn.write_text(make_conninfo(**{**conninfo_to_dict(Path(w['configurator']).read_text().strip()), 'user': 'nexloop_metrics'}))
+    dsn.chmod(0o600)
+    report = workbench_read_types(dsn)
+    assert report['checks'] == {'metrics_export': True, 'workbench_read_types_reported': True, 'workbench_read_types_present': True}
+    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 52, 'present': True}
+    members = members_file((w['owner'], 'owner'), (w['operator'], 'operator'))
+    v53 = copy.deepcopy(ROLES); v53['manifest_version'] = 53
+    # The write skipped: --apply refuses and nothing of v53 is committed.
+    monkeypatch.setattr(workbench_roles, 'write_read_types', lambda db, tenant, roles: {'recorded': 0})
+    with pytest.raises(workbench_roles.WorkbenchRolesRejected, match='read_types_missing: roles version 53'):
+        workbench_roles.apply_members(v53, members, database_url_file=w['configurator'])
+    assert workbench_read_types(dsn)['details']['workbench_read_types'][TENANT]['roles_version'] == 52
+    # A configuration written without its lists (the configuration call alone): doctor fails.
+    roles_payload, members_payload = workbench_roles.configuration_payloads(v53, members)
+    with psycopg.connect(Path(w['configurator']).read_text().strip()) as db:
+        db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
+                   (TENANT, workbench_roles.canonical_payload(roles_payload), workbench_roles.canonical_payload(members_payload)))
+    report = workbench_read_types(dsn)
+    assert report['checks']['workbench_read_types_present'] is False
+    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 53, 'present': False}
+    assert may(admin, 'owner', 'eios:object:Conversation/' + admin.execute(
+        "select object_id from ontology.objects where tenant_id=%s and world='real' and type_name='Conversation' limit 1", (TENANT,)).fetchone()[0]) is False

@@ -134,6 +134,16 @@ copy guard 登记了这一处差异。PG 测试按真实路径走：owner 经工
 
 **20 个类型（清单中逐项列出，按字母排序）**：Commitment、CommercialRecord、Consumer、ConsumerIncentiveOffering、ConsumerOwnership、ConsumerRoleLink、ConsumerServiceOffering、ContextManifest、ContextStrategy、Conversation、EffectControl、Goal、IncentiveOffering、Message、MessageAssignment、PlanStep、RoleAssignmentScope、RoleDefinition、RoleExecutionCeiling、ServiceOffering。
 
+**I35-e 清单与 roles 版本绑定**
+
+- 可读类型按 roles 版本记录。以后 roles 升版时，如果只写了配置、没写清单，owner 会无声地退回 0123/0224 的范围，必须能被发现。
+- `workbench_roles --apply` 在同一事务里依次写配置和清单。写完后调用 `control.nexloop_workbench_read_types_state` 自检：当前 roles 版本必须有三个角色的清单，缺任何一个就报 `read_types_missing: roles version N has no read lists`，整个事务回滚，配置也不会留下。
+- 指标快照（real）新增 `workbench_read_types`，内容为 `{configured, roles_version, present}`。
+- `nexloop-doctor --workbench-read-types --metrics-database-url-file F` 走只读的 metrics 角色：任何有工作台配置的 real 租户，只要 `present` 为 false 就退出码 1。
+- PG 测试覆盖两种情况：
+  - 跳过清单写入时，`--apply` 报错且没有任何提交；
+  - 直接写入一个缺清单的配置时，doctor 检查失败，owner 退回原有派生。
+
 **部署单片段（DATA_HOST，配置员窗口；迁移照常先备份）**
 
 1. 迁移到 workbench_read_types（合批定号后的编号）；`check_definer_search_path` 预期 0 problems。
@@ -142,7 +152,8 @@ copy guard 登记了这一处差异。PG 测试按真实路径走：owner 经工
    - owner 授权数仍为 **97**，operator 12、reviewer 1，没有 Action 增减；
    - 输出 `read_types_recorded: 3`（三个角色各一行，operator 和 reviewer 为空清单）；
    - 重跑为 `0`。
-3. 只读核对（能执行 owner-only 函数的只读窗口）：
+3. `nexloop-doctor --workbench-read-types --metrics-database-url-file <metrics DSN 文件>`：预期 `workbench_read_types_present: true`，该租户 `roles_version: 52`。之后每次 roles 升版都跑一次。
+4. 只读核对（能执行 owner-only 函数的只读窗口）：
 
    ```sql
    select control.nexloop_workbench_role_read_types('<TENANT_ID>','owner');   -- 20 个类型
@@ -153,6 +164,6 @@ copy guard 登记了这一处差异。PG 测试按真实路径走：owner 经工
    - 每个有 real 对象的类型 `object_readable = true`，`readable = properties`；
    - 例外是负责人受限组里的属性（当前三个类型的受限组都为空，所以没有例外）；
    - 已擦除 consumer 的对象不出现在可读结果里。
-4. 工作台：负责人登录后，「客户」列表显示名称，「企业世界模型 › Object」里 Consumer 的 6 个画像属性显示值。operator 登录后 Consumer 画像仍为受限（行为不变）。
+5. 工作台：负责人登录后，「客户」列表显示名称，「企业世界模型 › Object」里 Consumer 的 6 个画像属性显示值。operator 登录后 Consumer 画像仍为受限（行为不变）。
 
 **回退**：roles 版本不能后退，所以要回退就发布 v53：`read_types` 的 owner 改为空清单，其余照 v52。各角色回到 0123、0224 的派生。迁移本身不回退。
