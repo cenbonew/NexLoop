@@ -903,17 +903,24 @@ def _rotation_state(out, role):
         raise Refused('no prepared rotation of ' + role) from None
 
 
-def rotation_apply(out, role, *, tenant, database_url_file, signing_key_id, credential_expires_at):
+def rotation_apply(out, role, *, tenant, database_url_file, signing_key_id, credential_expires_at, grants_path=GRANTS, principals_path=PRINCIPALS):
     from datetime import datetime
     from nexloop_eios import service_grants as G
     principal, _ = _principal(role)
     _, current, pending = _rotation_state(out, role)
     if pending['credential_id'] != principal['credential_id']:
         raise Refused('the prepared rotation names another credential')
+    # S79 (0391): the new token's scopes are compiled from the current service grants, as register compiles them, so a rotation also
+    # moves the credential onto the scopes the grants now need (equal scopes: the binding is unchanged). After a scope change the
+    # previous token still authenticates but its decisions are stale (EIOS compares the binding with the shared fact) until
+    # revoke-credential --previous: switch right after apply.
+    manifest, _ = merged_manifest(grants_path, principals_path)
+    expires_at = datetime.fromisoformat(credential_expires_at)
+    scopes = sorted(G.compile_principal(manifest, tenant, principal, credential_expires_at=expires_at)[0].requested_scopes)
     result = G.rotate_credential(tenant, credential_id=principal['credential_id'], current_secret=current['token'], new_secret=pending['token'],
-                                 expires_at=datetime.fromisoformat(credential_expires_at), request_id=pending['request_id'],
-                                 database_url_file=database_url_file, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
-                                 signing_key_id=signing_key_id)
+                                 expires_at=expires_at, request_id=pending['request_id'], database_url_file=database_url_file,
+                                 signing_key_file=Path(out) / 'management' / 'signing.key.hex', signing_key_id=signing_key_id,
+                                 requested_scopes=scopes)
     return {'role': role, **result}
 
 
@@ -946,6 +953,23 @@ def rotation_finish(out, role):
         raise Refused('the tree does not hold the new token: switch (and revoke the previous token) first')
     shutil.rmtree(d)
     return {'role': role, 'finished': True}
+
+
+def revoke_superseded(out, role, *, expires_at, tenant, database_url_file, signing_key_id, request_id):
+    """S79: two active tokens and no rotation files (finish already ran, R65): revoke the one that expires exactly at expires_at, keeping
+    the token this tree holds (it must expire later). The database checks both; nothing is read from the token beyond its digest."""
+    from datetime import datetime
+    from nexloop_eios import service_grants as G
+    principal, stage = _principal(role)
+    if (Path(out) / 'management' / ROTATION / role / 'pending.json').exists():
+        raise Refused('a rotation of this role is prepared: use revoke-credential --previous')
+    tokens = json.loads((Path(out) / 'management' / 'service-secrets.json').read_text())
+    keys = _role_keys(tokens, stage, role)
+    result = G.revoke_superseded_credential(tenant, credential_id=principal['credential_id'], keep_secret=tokens[keys[0]],
+                                            expires_at=datetime.fromisoformat(expires_at), request_id=request_id,
+                                            database_url_file=database_url_file, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
+                                            signing_key_id=signing_key_id)
+    return {'role': role, **result}
 
 
 def revoke_retired(out, role, *, credential_id, tenant, database_url_file, signing_key_id, request_id, grants_path=GRANTS):
@@ -1198,6 +1222,11 @@ def credential_main(args):
                                                    credential_expires_at=args.credential_expires_at))
     if args.previous:
         return database(lambda dsn: revoke_previous(args.out, args.role, tenant=args.tenant, database_url_file=dsn, signing_key_id=args.signing_key_id))
+    if args.superseded:
+        if not (args.expires_at and args.request_id):
+            raise Refused('--superseded needs --expires-at and --request-id')
+        return database(lambda dsn: revoke_superseded(args.out, args.role, expires_at=args.expires_at, tenant=args.tenant, database_url_file=dsn,
+                                                      signing_key_id=args.signing_key_id, request_id=args.request_id))
     if not (args.credential_id and args.request_id):
         raise Refused('--retired needs --credential-id and --request-id')
     return database(lambda dsn: revoke_retired(args.out, args.role, credential_id=args.credential_id, tenant=args.tenant, database_url_file=dsn,
@@ -1279,14 +1308,16 @@ def main(argv=None):
     rc.add_argument('--bootstrap-dsn-file', type=Path)
     rc.add_argument('--signing-key-id')
     rc.add_argument('--credential-expires-at')
-    rv = sub.add_parser('revoke-credential', help='I31: revoke the previous token after a rotation, or every token of a retired principal')
+    rv = sub.add_parser('revoke-credential', help='I31: revoke the previous token after a rotation, a superseded token (S79), or every token of a retired principal')
     rv.add_argument('--out', type=Path, required=True)
     rv.add_argument('--role', required=True)
     rv_mode = rv.add_mutually_exclusive_group(required=True)
     rv_mode.add_argument('--previous', action='store_true')
     rv_mode.add_argument('--retired', action='store_true')
+    rv_mode.add_argument('--superseded', action='store_true', help='S79: no rotation files left; revoke the token expiring at --expires-at')
     rv.add_argument('--credential-id', help='with --retired: the retired principal\'s credential id')
-    rv.add_argument('--request-id', help='with --retired: a fixed UUID, so a repeated run is a replay')
+    rv.add_argument('--expires-at', help='with --superseded: the exact expiry of the token to revoke (another, later one is kept)')
+    rv.add_argument('--request-id', help='with --retired / --superseded: a fixed UUID, so a repeated run is a replay')
     rv.add_argument('--tenant', required=True)
     rv.add_argument('--configurator-dsn-file', type=Path)
     rv.add_argument('--bootstrap-dsn-file', type=Path)

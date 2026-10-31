@@ -624,6 +624,10 @@ REGISTRY = [
     Allowed('service_credential_rotation', 'runtime.nexloop_restore_replay_before_contact_keys_v0240',
             'a revocation entry naming a token revokes that token only; nothing else',
             ((r"\s*and \(not e \? 'token_digest' or token_digest=e->>'token_digest'\)", ""),)),
+    # S79 (0391): the scope rotation entry may insert the second token too.
+    Allowed('service_credential_rescoped_rotation', 'authz.nexloop_service_credential_rows_guard',
+            'the second token is also accepted from inside control.nexloop_rotate_service_credential_scopes; nothing else',
+            ((r"\s*and position\('function control\.nexloop_rotate_service_credential_scopes\(' in v_stack\)=0", ""),)),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
