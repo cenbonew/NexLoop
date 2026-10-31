@@ -84,14 +84,18 @@ def test_owner_and_operator_read_operations_objects_within_the_field_lists(workb
         got = read(w, member, 'Commitment', ids['Commitment'], ['made_to', 'due_at', 'status', 'late', 'fulfillment_basis'])
         assert got['made_to'] == w['f']['consumer'] and got['status'] == 'open'
         assert read(w, member, 'ServiceOffering', ids['ServiceOffering'], OFFERING_FIELDS)['active'] is True
-        # Outside the field lists: the promise's customer content and who made it; a step's submitter principals.
+        # Outside the field lists: the promise's customer content and who made it; a step's submitter principals. The operator stays
+        # inside them; the owner reads them through its roles v52 read list (I35: every declared property of a listed type).
         for type_name, field in (('Commitment', 'condition'), ('Commitment', 'content_ref'), ('Commitment', 'made_by'), ('Commitment', 'fulfillment_evidence'),
                                  ('PlanStep', 'submitter_principals')):
-            assert read(w, member, type_name, ids[type_name], [field]) is None, (type_name, field)
+            got = read(w, member, type_name, ids[type_name], [field])
+            # This fixture publishes no PlanStep type version: the list opens only declared properties of a published version.
+            assert (got is not None) is (member is w['owner'] and type_name == 'Commitment'), (type_name, field)
     # One audit row per object read, with the new kinds.
     kinds = admin.execute("""select object_kind,count(*) from runtime.nexloop_workbench_read_audit where read_purpose='world_model' group by 1 order by 1""").fetchall()
     assert {k for k, _ in kinds} == {'goal', 'plan_step', 'commitment', 'service_offering'}
-    assert admin.execute("select count(*) from runtime.nexloop_workbench_read_audit where read_purpose='world_model'").fetchone()[0] - before == 8
+    # 4 object reads per member, and the owner's 4 Commitment reads beyond the field lists (I35).
+    assert admin.execute("select count(*) from runtime.nexloop_workbench_read_audit where read_purpose='world_model'").fetchone()[0] - before == 8 + 4
 
 
 def test_restricted_groups_reviewers_other_tenants_and_erasure_get_nothing(workbench):

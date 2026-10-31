@@ -1930,6 +1930,11 @@
       "version": "0386",
       "name": "0386_semantic_extraction.sql",
       "sha256": "816db74abeed957b21daf2d0fb56712f1fafb213ed341a7e5725d0cf8d9206de"
+    },
+    {
+      "version": "0387",
+      "name": "0387_workbench_read_types.sql",
+      "sha256": "47f458bf7879ff8e454f57055f6120eb9d5e38a5e24e42c7c1db98cf7a2b350b"
     }
   ]
 }

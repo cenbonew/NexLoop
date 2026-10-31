@@ -94,3 +94,26 @@ def test_nx039_release_scope_is_owner_only_and_its_three_actions_are_declared_ev
         stable = f'nexloop.semantic_release.{a}'
         assert actions[stable]['authority'] == 'human_owner' and actions[stable]['capability_name'] == f'semantic_release.{a}'
         assert f'semantic_release.{a}' in capabilities and stable in names
+
+
+def test_i35_read_types_list_every_published_type_for_the_owner_only_and_are_validated():
+    """I35 (v52): the owner reads the 20 published types, listed one by one (sorted, unique, no wildcard); operator and reviewer read
+    nothing more. The lists go to control.nexloop_configure_workbench_read_types with the roles version."""
+    from nexloop_eios.system_catalog import object_types
+    from nexloop_eios.workbench_roles import read_types_payload
+    root = Path(__file__).resolve().parents[1]
+    roles = load(root / 'deploy/authorization/workbench-roles.v1.json')
+    published = set(object_types()) | {t['type_name'] for f in ('business', 'system') for t in
+                                       json.loads((root / f'deploy/ontology/{f}-object-types.v1.json').read_text())['object_types']}
+    assert roles['manifest_version'] == 52 and roles['read_types']['owner'] == sorted(published) and len(published) == 20
+    assert roles['read_types']['operator'] == roles['read_types']['reviewer'] == [] and len(roles['roles']['owner']) == 97
+    assert read_types_payload(roles) == {'manifest_version': 52, 'read_types': roles['read_types']}
+    for bad in (['*'], ['Goal', 'Consumer'], ['Goal', 'Goal'], 'Goal'):
+        forged = copy.deepcopy(roles)
+        forged['read_types']['owner'] = bad
+        with pytest.raises(WorkbenchRolesRejected):
+            validate_roles(forged)
+    forged = copy.deepcopy(roles)
+    del forged['read_types']['reviewer']
+    with pytest.raises(WorkbenchRolesRejected):
+        validate_roles(forged)

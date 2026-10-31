@@ -201,6 +201,21 @@ def relay_source(metrics_database_url_file):
     return {'checks':checks,'details':{'relay_source':{'expected_principal':RELAY_SOURCE_PRINCIPAL,'tenants':dict(sorted(tenants.items()))}}}
 
 
+def workbench_read_types(metrics_database_url_file):
+    """I35-e: every real tenant with a workbench configuration has the read lists of its current roles version (otherwise the owner
+    silently reads only what 0123/0224 derive). Read through the read-only nexloop_metrics role only."""
+    from nexloop_eios.observability import read_export
+    try:
+        export=read_export(metrics_database_url_file)
+    except Exception:
+        return {'checks':{'metrics_export':False},'details':{'workbench_read_types_error':'metrics export unavailable'}}
+    tenants={s['tenant_id']:s.get('workbench_read_types') for s in export if s.get('world')=='real'}
+    configured={t:v for t,v in tenants.items() if (v or {}).get('configured')}
+    return {'checks':{'metrics_export':True,'workbench_read_types_reported':all(v is not None for v in tenants.values()),
+                      'workbench_read_types_present':all(v.get('present') for v in configured.values())},
+            'details':{'workbench_read_types':dict(sorted(configured.items()))}}
+
+
 def embedding(env_file,tariff_file,merge_config=None):
     """Owner 2026-10-18 (option B): the embedding profile of recall-indexer / claim-matcher, its tariff and the profile the merge
     configuration was calibrated on. Files only: no provider call, never the key."""
@@ -258,6 +273,7 @@ def main():
     parser.add_argument('--alert-rules',type=Path,help='deploy/configuration/alert-rules.v<N>.json')
     parser.add_argument('--deploy-gate',type=Path,help='NX-032 §6: private deploy-gate spec (host_role and input files); every pre-start check of one host')
     parser.add_argument('--tls-spec',type=Path,help='NX-032: private TLS spec (CA, certificates, DSN files, Valkey configuration); names and codes only in the output')
+    parser.add_argument('--workbench-read-types',action='store_true',help='I35: the workbench read lists of the current roles version (read-only metrics role)')
     parser.add_argument('--relay-source',action='store_true',help='relay multi-consumer: the relay Source principal and credential (read-only metrics role)')
     parser.add_argument('--backup',action='store_true',help='NX-035: backups against deploy/configuration/backup.v1.json, restore state (read-only metrics role)')
     parser.add_argument('--backup-plan',type=Path,help='deploy/configuration/backup.v<N>.json')
@@ -312,6 +328,12 @@ def main():
     if args.backup:
         if not args.metrics_database_url_file or not args.backup_plan:parser.error('--backup requires --metrics-database-url-file and --backup-plan')
         result=backup(args.metrics_database_url_file,args.backup_plan)
+        result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
+        print(json.dumps(result,indent=2,default=str))
+        return 0 if result['foundation_checks_passed'] else 1
+    if args.workbench_read_types:
+        if not args.metrics_database_url_file:parser.error('--workbench-read-types requires --metrics-database-url-file')
+        result=workbench_read_types(args.metrics_database_url_file)
         result.update(foundation_checks_passed=all(result['checks'].values()),product_ready=False)
         print(json.dumps(result,indent=2,default=str))
         return 0 if result['foundation_checks_passed'] else 1
