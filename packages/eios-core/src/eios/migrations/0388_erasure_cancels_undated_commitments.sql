@@ -68,17 +68,52 @@ revoke all on function runtime.nexloop_commitment_cancel_apply(text,text,text,te
 -- erasure's pseudonym (as 0306 does for the other tables) with its prepared properties cleared ({"erased":true}); its guard admits that one erasure update (and the erasure delete, as before).
 alter table runtime.nexloop_commitments drop constraint nexloop_commitments_consumer_id_check,
  add constraint nexloop_commitments_consumer_id_check check(consumer_id~'^[a-f0-9]{64}$' or consumer_id~'^pseudonym:[0-9a-f]{32}$');
+-- L6 I36-c a: a kept row holds nothing that identifies the customer - claim, message and correlation references go (null) and the
+-- dedupe key becomes 'erased:<commitment id>'; the claim triple check admits exactly that shape for a pseudonym row.
+do $c$
+declare k text;
+begin
+ select conname into strict k from pg_constraint where conrelid='runtime.nexloop_commitments'::regclass and contype='c'
+  and pg_get_constraintdef(oid) like '%correlation_key IS NULL%';
+ execute format('alter table runtime.nexloop_commitments drop constraint %I',k);
+end $c$;
+alter table runtime.nexloop_commitments add constraint nexloop_commitments_claim_triple_check check(
+ (consumer_id~'^pseudonym:[0-9a-f]{32}$' and claim_id is null and message_id is null and correlation_key is null)
+ or ((origin='claim')=(claim_id is not null) and (claim_id is null)=(message_id is null) and (claim_id is null)=(correlation_key is null)));
 create or replace function runtime.nexloop_commitment_registry_guard() returns trigger
  language plpgsql set search_path=pg_catalog,pg_temp as $$
 begin
  if tg_op='DELETE' and runtime.nexloop_erasure_permits(current_user::text,'runtime.nexloop_commitments','DELETE',to_jsonb(old),null) then return old;end if;
- if tg_op='UPDATE' and runtime.nexloop_erasure_permits(current_user::text,'runtime.nexloop_commitments','UPDATE',to_jsonb(old),to_jsonb(new)) then return new;end if;
+ -- I36-c: inside a consumer erasure that registered this table, a registered row may become the kept shape and nothing else.
+ if tg_op='UPDATE' and current_user='nexloop_owner' and exists(select 1 from control.nexloop_erasure_scope s where s.txid=txid_current()
+   and s.table_name='runtime.nexloop_commitments' and 'consumer_id'=any(s.columns))
+  and old.registered_at is not null and new.consumer_id~'^pseudonym:[0-9a-f]{32}$' and new.properties='{"erased":true}'::jsonb
+  and new.claim_id is null and new.message_id is null and new.correlation_key is null and new.dedupe_key='erased:'||old.commitment_id
+  and (to_jsonb(new)-array['consumer_id','properties','claim_id','message_id','correlation_key','dedupe_key'])
+   =(to_jsonb(old)-array['consumer_id','properties','claim_id','message_id','correlation_key','dedupe_key']) then return new;end if;
  if tg_op='DELETE' or old.registered_at is not null or new.registered_at is null
   or (to_jsonb(new)-'registered_at') is distinct from (to_jsonb(old)-'registered_at') then
   raise exception 'commitment registry is immutable' using errcode='42501';end if;
  return new;
 end $$;
 
+-- L6 I36-c b: no follow-up for an erasing or erased Consumer is generated at all - the plan marks (due soon, breached, condition at due,
+-- clarify) are skipped, and no no_active_plan exception is raised for it (0111 body with this first line only; copy guard).
+create or replace function runtime.nexloop_commitment_mark_plans(p_tenant text,p_world text,p_commitment text,p_consumer text,p_due timestamptz,p_stage text) returns integer
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare p record;n integer:=0;
+begin
+ if runtime.nexloop_consumer_erasing(p_tenant,p_world,p_consumer) then return 0;end if;
+ for p in select a.plan_id from runtime.nexloop_active_plans(p_tenant,p_world) a where a.consumer_id=p_consumer order by a.plan_id loop
+  perform runtime.nexloop_plan_commitment_due(p_tenant,p_world,p.plan_id,'commitment:'||p_commitment,clock_timestamp());n:=n+1;
+ end loop;
+ if n=0 then perform runtime.nexloop_commitment_raise(p_tenant,p_world,'commitment:'||p_commitment,p_consumer,'no_active_plan',
+  jsonb_build_object('stage',p_stage,'due_at',p_due));end if;
+ return n;
+end $$;
+
+-- I38 (L6): the keeper's commitment command tells a missing registry row (P0002, terminal: the keeper completes the item) from an
+-- unavailable port (42501, retried); before, a missing row was retried for good.
 -- a. The keeper's settle records its status event through the shared function (0263 body otherwise unchanged).
 CREATE OR REPLACE FUNCTION authz.nexloop_commitment_command(p_digest text, p_world text, p_text text, p_signature text, p_payload text)
  RETURNS jsonb
@@ -105,7 +140,7 @@ begin
  end if;
  if coalesce(c->>'commitment_id','')!~'^[0-9a-f]{64}$' then raise exception 'commitment command invalid' using errcode='22023';end if;
  select * into r from runtime.nexloop_commitments where tenant_id=t and world=p_world and commitment_id=c->>'commitment_id' for update;
- if not found then raise exception 'commitment unavailable' using errcode='42501';end if;
+ if not found then raise exception 'commitment registry row absent' using errcode='P0002';end if;
  v_subject:='commitment:'||r.commitment_id;
  select * into o from ontology.objects where tenant_id=t and world=p_world and type_name='Commitment' and object_id=r.commitment_id for share;
  if c->>'verb'='registered' then
@@ -236,9 +271,10 @@ begin
  n:=n||jsonb_build_object('commitments_cancelled',c);
  -- I36-c (owner): a dated, not yet ended commitment keeps its registry row under this step's pseudonym, so the keeper still moves it
  -- (breached at its due time, D4) and commitment_closed retention removes it later; every other registry row goes.
- -- Its prepared properties (made_to, condition) are no longer needed after registration and are cleared like the other erased values.
- perform runtime.nexloop_erasure_open('runtime.nexloop_commitments',array['consumer_id','properties'],true,v_ref);
- update runtime.nexloop_commitments r set consumer_id=v_p,properties='{"erased":true}'::jsonb from ontology.objects o
+ -- Nothing identifying stays (L6 I36-c a): the prepared properties, claim / message / correlation references and the dedupe key go.
+ perform runtime.nexloop_erasure_open('runtime.nexloop_commitments',array['consumer_id'],true,v_ref);
+ update runtime.nexloop_commitments r set consumer_id=v_p,properties='{"erased":true}'::jsonb,claim_id=null,message_id=null,correlation_key=null,
+  dedupe_key='erased:'||r.commitment_id from ontology.objects o
   where r.tenant_id=tn and r.world=w and r.consumer_id=k and o.tenant_id=r.tenant_id and o.world=r.world and o.type_name='Commitment'
    and o.object_id=r.commitment_id and r.registered_at is not null and o.properties->>'status' in ('conditional','open','in_progress') and o.properties->>'due_at' is not null;
  get diagnostics c=row_count;n:=n||jsonb_build_object('commitments_kept',c);

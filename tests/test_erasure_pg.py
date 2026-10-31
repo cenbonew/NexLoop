@@ -114,7 +114,9 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     # I36-c: the dated one keeps its registry row under the erasure pseudonym (the keeper still moves it); the undated one's row is gone.
     assert status=='open' and admin.execute('select count(*) from runtime.nexloop_commitments where commitment_id=%s',(undated,)).fetchone()==(0,)
     kept=admin.execute('select consumer_id from runtime.nexloop_commitments where commitment_id=%s',(commitment,)).fetchone()[0]
-    assert admin.execute('select properties from runtime.nexloop_commitments where commitment_id=%s',(commitment,)).fetchone()==({'erased':True},)
+    # L6 I36-c a: the kept row holds only the pseudonym and what the keeper needs; nothing identifying.
+    assert admin.execute('select properties,claim_id,message_id,correlation_key,dedupe_key from runtime.nexloop_commitments where commitment_id=%s',(commitment,)).fetchone()==(
+        {'erased':True},None,None,None,'erased:'+commitment)
     assert kept.startswith('pseudonym:') and consumer not in json.dumps(admin.execute('select jsonb_agg(r) from runtime.nexloop_commitments r').fetchone()[0])
     cancel,settled=events()[-2:]
     assert cancel[:3]==('cancel_requested','erasure:'+request_id,'erasure:'+request_id) and cancel[3]=={'reason':'consumer_erasure'}
@@ -264,7 +266,9 @@ def test_a_dated_commitment_of_an_erased_consumer_breaches_contacts_no_one_and_e
     assert pseudonym.startswith('pseudonym:') and admin.execute('select runtime.nexloop_consumer_erasing(%s,%s,%s)',(TENANT,'real',pseudonym)).fetchone()==(True,)
     messages=lambda:admin.execute("select count(*) from runtime.nexloop_conversation_messages").fetchone()[0]
     intents=lambda:admin.execute("select count(*) from runtime.nexloop_effect_intents").fetchone()[0]
-    before=(messages(),intents())
+    outreach=lambda:admin.execute("select (select count(*) from runtime.nexloop_outreach_sends)+(select count(*) from runtime.nexloop_outreach_approvals)").fetchone()[0]
+    before=(messages(),intents(),outreach())
+    raised_before={r[0] for r in admin.execute("select reason from runtime.nexloop_commitment_exceptions where subject_ref=%s",('commitment:'+dated,))}
     first=c.tick()  # before the due time: the keeper reads the pseudonym commitment, no retry
     assert all(r['retry']==0 and r['dead_lettered']==0 for r in first),first
     status=lambda:admin.execute("select properties->>'status' from ontology.objects where object_id=%s",(dated,)).fetchone()[0]
@@ -274,9 +278,10 @@ def test_a_dated_commitment_of_an_erased_consumer_breaches_contacts_no_one_and_e
         time.sleep(1);ticks=c.tick()
         assert all(r['retry']==0 for r in ticks),ticks
     assert status()=='breached'
-    assert (messages(),intents())==before  # nobody contacted
+    assert (messages(),intents(),outreach())==before  # nobody contacted: 0 outreach, 0 effect, 0 message
     reasons={r[0]:r[1] for r in admin.execute("select reason,consumer_id from runtime.nexloop_commitment_exceptions where subject_ref=%s",('commitment:'+dated,))}
-    assert reasons.get('breached')==pseudonym and 'no_active_plan' in reasons
+    # L6 I36-c b: the breach is owner-visible only; no plan mark is generated for the erased customer (no no_active_plan either).
+    assert reasons.get('breached')==pseudonym and set(reasons)==raised_before|{'breached'}  # nothing else generated at the breach
     # Retention: once the closed commitment is past commitment_closed, the sweep removes it with its registry row.
     fault(admin,"update runtime.nexloop_commitment_events set recorded_at=recorded_at-interval '3650 days' where subject_ref=%s",('commitment:'+dated,))
     fault(admin,"update ontology.objects set updated_at=updated_at-interval '3650 days' where object_id=%s",(dated,))
@@ -286,3 +291,16 @@ def test_a_dated_commitment_of_an_erased_consumer_breaches_contacts_no_one_and_e
     assert swept, swept
     assert admin.execute("select count(*) from ontology.objects where object_id=%s",(dated,)).fetchone()==(0,)
     assert admin.execute("select count(*) from runtime.nexloop_commitments where commitment_id=%s",(dated,)).fetchone()==(0,)
+
+
+def test_i38_a_missing_registry_row_is_completed_not_retried(commitments,admin):
+    """I38 (L6): the keeper tells a missing registry row (terminal, the item completed and counted orphaned) from an unavailable port."""
+    c=commitments
+    dated,_=fresh(c)
+    fault(admin,'delete from runtime.nexloop_commitments where commitment_id=%s',(dated,))
+    fault(admin,"update runtime.nexloop_work_feed set available_at=clock_timestamp()-interval '1 second' where feed='commitment-monitor' and item_key=%s",('commitment:'+dated,))
+    ticks=c.tick()
+    assert sum(t['orphaned'] for t in ticks)==1 and all(t['retry']==0 for t in ticks),ticks
+    row=admin.execute("select status from runtime.nexloop_work_feed where feed='commitment-monitor' and item_key=%s",('commitment:'+dated,)).fetchone()
+    assert row is None or row[0]!='pending',row
+    assert all(t['orphaned']==0 for t in c.tick())
