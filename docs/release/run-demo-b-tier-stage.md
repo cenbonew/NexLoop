@@ -278,7 +278,9 @@ select action, request_id, created_at from runtime.audit_events
 ## 6. #17 外联第 5 片阳性对照
 
 - **方案 R**：§4.2 的 B2（owner 发起的 `fulfilled`）就是外联发送和执行器准入的阳性对照。Agent 发起这一路再做 B6。
-- **B6（Agent 发起；真实模型调用；不在方案 R 的时间窗内，L6 条件 ②）**：在 R9 之后执行，此时 s6c-1 已改回 `simulated_agent`，预期 `refused / persona_excluded`，证明“计划复评 Run → 受理 → 准入 → 逐道闸”这条链。如果要 Agent 发起这一路也拿到 `fulfilled`，需要另开一个满足同样条件的窗口，由负责人另行决定。
+- **B6（Agent 发起；真实模型调用；不在方案 R 的时间窗内，L6 条件 ②）**：在 R9 之后执行，此时 s6c-1 已改回 `simulated_agent`，预期 `refused / persona_excluded`，证明“计划复评 Run → 受理 → 准入 → 逐道闸”这条链。**负责人决定（2026-10-31）：B6 接受部分证明，不另开第二个窗口。**
+  - 预期结果：`refused / persona_excluded`。
+  - 证据口径：“Agent 发起链路到准入为止已证实；回环写入由负责人发起的 B2 证实。”
   - **授权依据**：负责人 2026-10-31 会话确认（经调度员转达）。
   - **成本上限**：单 Run ≤ 2 CNY（计划复评 Run 预算 4 轮模型、12 次工具、2 CNY），本单只触发 1 次；沿用 100 CNY / 7 天预算。执行前后各读一次租户模型预算消耗，差额写进证据：`ro "select sum(amount) from control.nexloop_budget_consumption where tenant_id='$T' and world='real' and budget_kind='model' and recorded_at > now()-interval '7 days'"`。
   - **回环约束**：外联执行器的 provider 只有 `LocalOutreachOutbox`（P2）；不满足 P2 就不做 B6。
