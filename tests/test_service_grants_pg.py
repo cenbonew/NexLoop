@@ -239,7 +239,7 @@ def test_property_access_rule_and_owner_restriction_are_written_only_by_trusted_
     # Removing the rule deactivates it (never deletes it).
     removed=copy.deepcopy(d['manifest']);removed.pop('property_access_rules')
     assert {'kind':'property_access_rule','key':[matcher['principal_id'],'Consumer']} in d['apply'](G.validate(removed))['facts_written']
-    assert admin.execute("select array_agg(payload->>'active' order by payload->>'type_name') from authz.nexloop_authority_facts where fact_kind='property_access_rule'").fetchone()==(['false','false','false'],)
+    assert admin.execute("select array_agg(payload->>'active' order by payload->>'type_name') from authz.nexloop_authority_facts where fact_kind='property_access_rule'").fetchone()==(['false']*5,)  # v24: + the two incentive catalog rules (S77)
 
 
 def test_rule_without_owner_restriction_is_reported_and_service_manifest_cannot_carry_restrictions(deployment,admin):
@@ -248,9 +248,11 @@ def test_rule_without_owner_restriction_is_reported_and_service_manifest_cannot_
     matcher=next(p for p in d['manifest']['principals'] if p['role']=='claim_matcher')
     keeper=next(p for p in d['manifest']['principals'] if p['role']=='commitment_keeper')
     recorder=next(p for p in d['manifest']['principals'] if p['role']=='commercial_recorder')
+    maintainer=next(p for p in d['manifest']['principals'] if p['role']=='catalog_maintainer')
     assert report['property_access']==[{'state':'owner_restriction_missing','principal_id':matcher['principal_id'],'type_name':'Consumer'},
         {'state':'owner_restriction_missing','principal_id':keeper['principal_id'],'type_name':'Commitment'},
-        {'state':'owner_restriction_missing','principal_id':recorder['principal_id'],'type_name':'CommercialRecord'}]
+        {'state':'owner_restriction_missing','principal_id':recorder['principal_id'],'type_name':'CommercialRecord'},
+        *({'state':'owner_restriction_missing','principal_id':maintainer['principal_id'],'type_name':t} for t in ('ConsumerIncentiveOffering','IncentiveOffering'))]
     assert admin.execute("select count(*) from authz.nexloop_authority_facts where fact_kind='property_group_restriction'").fetchone()==(0,)
     assert G.doctor(d['manifest'],TENANT,database_url_file=d['paths']['dsn'])['in_sync'] is False
     smuggled=copy.deepcopy(d['manifest']);smuggled['property_group_restrictions']=[]

@@ -30,10 +30,11 @@ DELIVER_INPUT = {'type': 'object', 'properties': {'summary': {'type': 'string', 
                  'details': {'type': 'string', 'maxLength': 2000}, 'consumer_ref': {'type': 'string', 'minLength': 1, 'maxLength': 80}},
                  'required': ['summary'], 'additionalProperties': False}
 BIND_TYPES = ('Consumer', 'Goal', 'PlanStep', 'EffectControl')
+INCENTIVE_V2 = ('IncentiveOffering', 'ConsumerIncentiveOffering')
 
 
 def object_types():
-    """{type name: ObjectTypeDefinition v1} built by the production schema functions (design §1.1).
+    """{type name: ObjectTypeDefinition} (v1; the incentive catalog types v2, S77) built by the production schema functions (design §1.1).
 
     Consumer: consumer_profile.consumer_profile_schema, the fresh-tenant declaration with the profile properties (the fixtures use
     a bare Consumer v1; consumer_resolution.consumer_profile_schema is a one-property subset used by its own tests). Decision
@@ -50,8 +51,10 @@ def object_types():
                *incentive_schemas(), *role_mapping_schemas(), *role_policy_schemas()]
     out = {}
     for schema in schemas:
-        if schema.type_name in out or schema.version != 1:
-            raise ValueError('system object type duplicated or not v1: ' + schema.type_name)
+        # S77: the incentive catalog types are published at v2 (their v1 stays in the database lineage).
+        expected = 2 if schema.type_name in INCENTIVE_V2 else 1
+        if schema.type_name in out or schema.version != expected:
+            raise ValueError('system object type duplicated or not at its catalog version: ' + schema.type_name)
         out[schema.type_name] = schema
     return out
 
@@ -124,6 +127,11 @@ ACTIONS = (
     _create('Consumer', 'setup', 'tests/test_business_setup_pg.py:business_plan'),
     _create('ServiceOffering', 'setup', 'tests/runtime_effect_fixture.py:install_runtime_catalog'),
     _create('ConsumerServiceOffering', 'setup', 'tests/runtime_effect_fixture.py:install_runtime_catalog'),
+    # S77 incentive catalog: created and withdrawn by catalog_maintainer (nexloop_eios.incentive_setup); 0389 guards shape and direction.
+    _create('IncentiveOffering', 'setup', 'tests/test_incentive_setup_pg.py:incentive_catalog'),
+    _create('ConsumerIncentiveOffering', 'setup', 'tests/test_incentive_setup_pg.py:incentive_catalog'),
+    ActionSpec('IncentiveOffering.edit', ('IncentiveOffering',), OBJECT_EDIT, 'setup', 'tests/test_incentive_setup_pg.py:incentive_catalog'),
+    ActionSpec('ConsumerIncentiveOffering.edit', ('ConsumerIncentiveOffering',), OBJECT_EDIT, 'setup', 'tests/test_incentive_setup_pg.py:incentive_catalog'),
     # role runtime (plan-reevaluator)
     _create('RoleDefinition', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
     _create('ConsumerRoleLink', 'role_run', 'tests/role_run_fixture.py:role_runtime_plan', scopes=ROLES, capability_version=ROLE_CAPABILITY),
@@ -186,7 +194,8 @@ def _builders():
     from nexloop_eios.service_offerings import offering_schemas
     return {'consumer_schema': consumer_profile_schema, 'effect_plan_schemas': effect_plan_schemas, 'conversation_schemas': conversation_schemas,
             'message_assignment_schema': message_assignment_schema, 'service_offering_schemas': offering_schemas,
-            'incentive_offering_schemas': incentive_schemas, 'role_mapping_schemas': role_mapping_schemas, 'role_policy_schemas': role_policy_schemas,
+            'incentive_offering_schemas': lambda: incentive_schemas(1) + incentive_schemas(2),  # S77: v1 lineage, then v2 (ADR-042)
+            'role_mapping_schemas': role_mapping_schemas, 'role_policy_schemas': role_policy_schemas,
             'registrar_schema:configure': lambda: registrar_schema('configure'), 'registrar_schema:bind': lambda: registrar_schema('bind'),
             'context_binding_schema': context_binding_schema, 'role_context_binding_schema': role_context_binding_schema,
             'enterprise_deliver_schema': lambda: DELIVER_INPUT, 'scope_denial_record_schema': record_schema,

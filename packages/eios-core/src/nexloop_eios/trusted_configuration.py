@@ -174,6 +174,23 @@ def apply_manifest_with_secrets(manifest,*,database_url_file,signing_key_file,si
     except Exception:raise ConfigurationRejected() from None
 
 
+def apply_group_increments(tenant,object_types,*,database_url_file,expected_revision):
+    """ADR-042 (0390): the group-only object type increments (version >= 2) as their own configurator step, before the manifest
+    that names them. Each item is the canonical ObjectTypeDefinition dump; the database accepts only an increment over N-1 that adds
+    property groups of existing, ungrouped properties (equal ones are a no-op)."""
+    try:
+        items=[ObjectTypeDefinition.model_validate_json(canonical_payload(item)).model_dump(mode='json') for item in object_types]
+        if not items or any(item['version']<2 for item in items) or type(expected_revision) is not int:raise ValueError()
+        with psycopg.connect(read_private_text(database_url_file,maximum=16384),connect_timeout=5) as db,db.transaction():
+            db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
+            role=db.execute('select current_user,session_user from pg_roles where rolname=current_user').fetchone()
+            if not role or tuple(role)!=('nexloop_configurator','nexloop_configurator'):raise ValueError()
+            result=db.execute('select control.nexloop_configure_group_increment(%s,%s,%s::jsonb)',(tenant,expected_revision,canonical_payload(items))).fetchone()[0]
+        if type(result) is not dict or result.get('configured') is not True or type(result.get('authority_revision')) is not int:raise ValueError()
+        return result
+    except Exception:raise ConfigurationRejected() from None
+
+
 def main():
     p=argparse.ArgumentParser(description='Explicit technical configuration administrator; no business object creation')
     p.add_argument('--manifest',type=Path,required=True);mode=p.add_mutually_exclusive_group(required=True);mode.add_argument('--check',action='store_true');mode.add_argument('--apply',action='store_true')

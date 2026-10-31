@@ -176,7 +176,10 @@ def validate_system_actions(value, *, capabilities, other_object_types=(), other
     caps = {(c['capability_name'], c['capability_version']): c for c in capabilities['capabilities']}
     types = set(other_object_types)
     for item in value['object_types']:
-        if type(item) is not dict or set(item) != SYSTEM_TYPE or type(item['type_name']) is not str or item['version'] != 1:
+        # ADR-042 (S77): a version N >= 2 follows its version N-1 declared earlier in the list (trusted configuration accepts only a
+        # group-only increment over N-1; 0390).
+        if type(item) is not dict or set(item) != SYSTEM_TYPE or type(item['type_name']) is not str or type(item['version']) is not int \
+                or item['version'] < 1 or (item['version'] > 1 and (item['type_name'], item['version'] - 1) not in types):
             raise CatalogManifestRejected(f'object type entry: {item!r}')
         problem = _builder_problem(item['builder'], builders)
         if problem:

@@ -17,14 +17,19 @@ EXECUTE_ACTION='eios:action:nexloop.incentive.execute:1'
 RUN_SUBMIT_ACTION='eios:action:nexloop.incentive.run_submit:1'
 OFFERING_FIELDS=('active','currency','eligibility','incentive_code','kind','max_amount_minor','per_consumer_period_limit_minor','title','valid_until')
 BINDING_FIELDS=('consumer_id','offering_id','offering_revision','source_principal','active')
+LIFECYCLE_GROUP='incentive_lifecycle'
 
 
-def offering_schemas():
-    """Formal catalog types, written only by the existing governed object Actions."""
-    from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyValueType
+def offering_schemas(version=2):
+    """Formal catalog types, written only by the governed catalog Actions (S77: IncentiveOffering / ConsumerIncentiveOffering
+    .create/.edit, 0389). v2 (S77, dispatcher option A) only adds the property group incentive_lifecycle = {active}, so the catalog
+    maintainer's property_access_rule (0084) derives EDIT on active alone; v1 (published before S77) is kept for its lineage."""
+    from eios.ontology.models import ObjectTypeDefinition,PropertyDefinition,PropertyGroup,PropertyValueType
+    if version not in (1,2):raise ValueError('incentive catalog schema version')
     kinds={'IncentiveOffering':{field:('boolean' if field=='active' else 'string') for field in OFFERING_FIELDS},
      'ConsumerIncentiveOffering':{field:('integer' if field=='offering_revision' else 'boolean' if field=='active' else 'string') for field in BINDING_FIELDS}}
-    return tuple(ObjectTypeDefinition(type_name=name,version=1,only_edit_via_actions=True,
+    groups=(PropertyGroup(group_name=LIFECYCLE_GROUP,display_name='激励状态',property_names=('active',)),) if version==2 else ()
+    return tuple(ObjectTypeDefinition(type_name=name,version=version,only_edit_via_actions=True,property_groups=groups,
       properties=tuple(PropertyDefinition(property_name=key,value_type=PropertyValueType(kind)) for key,kind in fields.items())) for name,fields in kinds.items())
 
 
