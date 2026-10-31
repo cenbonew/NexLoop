@@ -2,7 +2,7 @@
 
 The model's reading (`time` on each extracted Claim) is injected by a fake provider; no real model is called. The anchor is
 the cited message's acceptance time in the tenant timezone (Asia/Shanghai, +08:00)."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 
 import pytest
@@ -222,3 +222,49 @@ def test_a_leading_deadline_word_is_accepted_as_a_deadline():
     with pytest.raises(Refused) as refusal:
         checked('截止周五', {'kind': 'point', 'start': day('2026-10-16'), 'end': day('2026-10-17'), 'granularity': 'day'})
     assert refusal.value.code == 'time_llm_deadline_mismatch'
+
+
+# I37: "N个工作日内/后" has no holiday calendar behind it: a latest-bound window, never a date. WED is Wed 2026-10-14 10:00.
+@pytest.mark.parametrize('expression,start,lower', [
+    ('3个工作日内', '2026-10-14T10:00:00+08:00', day('2026-10-20')),   # Thu, Fri, Mon: the window opens after Mon 10-19
+    ('三个工作日之内', '2026-10-14T10:00:00+08:00', day('2026-10-20')),
+    ('5个工作日', '2026-10-14T10:00:00+08:00', day('2026-10-22')),      # bare: read as within
+    ('2个工作日后', day('2026-10-16'), day('2026-10-17')),               # on or after Fri 10-16
+])
+def test_working_days_are_a_latest_bound_window_that_skips_weekends(expression, start, lower):
+    got = resolve_time(expression, WED, TZ)
+    upper = datetime.fromisoformat(lower) + timedelta(days=7)
+    assert (got['kind'], got['status'], got['granularity'], got['start']) == ('interval', 'ambiguous', 'day', start)
+    assert got['latest_bound_window'] == [lower, upper.isoformat()] and got['end'] == upper.isoformat()
+
+
+def test_working_days_said_on_a_saturday_and_a_configured_margin():
+    got = resolve_time('1个工作日内', SAT, TZ, working_day_margin_days=3)
+    assert got['latest_bound_window'] == [day('2026-10-20'), day('2026-10-23')]   # Mon 10-19 is the first working day
+
+
+@pytest.mark.parametrize('expression', ['3个工作日前', '100个工作日内', '零个工作日内'])
+def test_working_days_that_are_past_or_out_of_range_stay_unresolved(expression):
+    assert resolve_time(expression, WED, TZ)['status'] == 'unresolved'
+
+
+def test_a_within_reading_from_the_model_is_an_interval_from_the_anchor_never_a_deadline():
+    # "…内" read as an interval that starts at the anchor instant is accepted; the rules' window stands when they read it too.
+    rule, got, flags = run('3个工作日内', WED, {'kind': 'interval', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-20'), 'granularity': 'day'})
+    assert source(flags) == 'conflict' and got['status'] == 'ambiguous' and got['latest_bound_window'] == rule['latest_bound_window']
+    rule, got, flags = run('两周内', WED, {'kind': 'interval', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-28'), 'granularity': 'day'})
+    assert source(flags) == 'conflict' and got['normalization']['verdict'] == 'conflict'   # checked, not refused as a span
+    assert checked('两周之内', {'kind': 'interval', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-28'), 'granularity': 'day'})[0] == 'interval'
+    # The same reading as a deadline is still refused: only DEADLINE words make one.
+    rule, got, flags = run('3个工作日内', WED, {'kind': 'deadline', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-20'), 'granularity': 'day'})
+    assert refused(got, rule, flags, 'time_llm_deadline_mismatch')
+    # Without 内 an interval starting mid-day is still a span refusal.
+    with pytest.raises(Refused) as refusal:
+        checked('下周', {'kind': 'interval', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-26'), 'granularity': 'day'})
+    assert refusal.value.code in ('time_llm_span', 'time_llm_invented_minute')
+
+
+@pytest.mark.parametrize('expression,kind', [('尽快', 'unparsed'), ('过两天', 'unparsed'), ('回头', 'unparsed'), ('3天前', 'past_reference')])
+def test_vague_words_and_past_references_stay_unresolved(expression, kind):
+    got = resolve_time(expression, WED, TZ)
+    assert (got['kind'], got['status']) == (kind, 'unresolved')

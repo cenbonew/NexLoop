@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 
 from nexloop_eios.time_normalization import merge as merge_time
 
-EXTRACTOR_VERSION='nx019-extractor/2'
+EXTRACTOR_VERSION='nx019-extractor/3'
 PROMPT_VERSION='nx019-conversation-extraction-prompt/3'
 EPISTEMIC_KINDS=('user_statement','preference','constraint','intent','need_problem','commitment','hypothesis','correction')
 FORBIDDEN_KINDS=('verified_fact',)
@@ -137,6 +137,7 @@ class ExtractionContext:
     conversation_id: str
     consumer_id: str
     timezone: str='UTC'
+    working_day_margin_days: int=7
 
 
 @dataclass
@@ -267,7 +268,8 @@ WEEKDAY={'一':0,'二':1,'三':2,'四':3,'五':4,'六':5,'日':6,'天':6}
 DAY_WORDS={'前天':-2,'昨天':-1,'昨日':-1,'今天':0,'今日':0,'今晚':0,'明天':1,'明日':1,'明早':1,'明晚':1,'后天':2,'大后天':3}
 PART_OF_DAY={'凌晨':(0,6),'早上':(6,9),'上午':(6,12),'中午':(11,13),'下午':(12,18),'傍晚':(17,19),'晚上':(18,24),'今晚':(18,24),'明晚':(18,24),'明早':(6,9),'夜里':(20,24)}
 VAGUE=re.compile(r'(过两天|过几天|改天|回头|晚点|稍后|以后|最近|有空|尽快|马上|早点)')
-TIME_EXPRESSION=re.compile(r'(未来|接下来|最近)?([零一二两三四五六七八九十\d]{1,3})(个)?(天|日|周|星期|礼拜|月)(内|之内|以内|后|之后)'
+TIME_EXPRESSION=re.compile(r'[零一二两三四五六七八九十\d]{1,3}(个)?工作日(内|之内|以内|后|之后)?'
+    r'|(未来|接下来|最近)?([零一二两三四五六七八九十\d]{1,3})(个)?(天|日|周|星期|礼拜|月)(内|之内|以内|后|之后)'
     r'|(未来|接下来|最近)([零一二两三四五六七八九十\d]{1,3})(个)?(天|日|周|星期|礼拜|月)'
     r'|(下周|下星期|下礼拜|本周|这周|这星期)[一二三四五六日天]'
     r'|大后天|前天|昨天|昨日|今天|今日|今晚|明天|明日|明早|明晚|后天'
@@ -326,6 +328,10 @@ def condition_clause(quote):
 
 
 AGO=re.compile(r'[零一二两三四五六七八九十\d]{1,3}(个)?(天|日|周|星期|礼拜|月|年)(前|之前|以前)$')
+WORKING_DAYS=re.compile(r'([零一二两三四五六七八九十\d]{1,3})(个)?工作日(内|之内|以内|后|之后)?(?!前|之前|以前)')
+# I37: no holiday calendar, so N working days is a window: its lower bound skips Saturdays and Sundays, its upper bound adds this margin
+# (public holidays). Configurable per extraction context.
+WORKING_DAY_MARGIN_DAYS=7
 CLOCK=re.compile(r'(\d{1,2}|[一二两三四五六七八九十]{1,3})点(半|钟|(\d{1,2}|[零一二两三四五六七八九十]{1,3})分)?')
 
 
@@ -333,7 +339,7 @@ def _unresolved(base,kind='unparsed'):
     return base|{'kind':kind,'status':'unresolved','start':None,'end':None}
 
 
-def resolve_time(expression,anchor,timezone):
+def resolve_time(expression,anchor,timezone,*,working_day_margin_days=WORKING_DAY_MARGIN_DAYS):
     """Deterministic, evidence-bound time semantics; never invents minutes.
 
     The anchor is the server acceptance time of the cited Message, read in the
@@ -344,10 +350,23 @@ def resolve_time(expression,anchor,timezone):
     base={'expression':expression or '','timezone':timezone,'anchor':anchor.astimezone(UTC).isoformat()}
     if not expression:return base|{'kind':'none','status':'absent','start':None,'end':None}
     if AGO.search(expression):return _unresolved(base,'past_reference')
+    def at(date,hour=0,minute=0):return datetime(date.year,date.month,date.day,tzinfo=zone)+timedelta(hours=hour,minutes=minute)
+    work=WORKING_DAYS.search(expression)
+    if work:
+        # "3个工作日内/后": the Nth working day is only a lower bound (holidays unknown); the latest bound is a window, never a date.
+        count=_number(work.group(1))
+        if not count or count>60:return _unresolved(base)
+        nth=local.date()
+        for _ in range(count):
+            nth+=timedelta(days=1)
+            while nth.weekday()>=5:nth+=timedelta(days=1)
+        lower=at(nth+timedelta(days=1));upper=lower+timedelta(days=working_day_margin_days)
+        start=at(nth) if work.group(3) in ('后','之后') else local
+        return base|{'kind':'interval','status':'ambiguous','granularity':'day','start':start.isoformat(),'end':upper.isoformat(),
+                     'latest_bound_window':[lower.isoformat(),upper.isoformat()]}
     deadline=bool(re.search(r'(前|之前|以前)$',expression))
     text=re.sub(r'(之前|以前|前)$','',expression) if deadline else expression
     if VAGUE.search(text) and not re.search(r'[天日周月号点午晚早]',VAGUE.sub('',text)):return _unresolved(base)
-    def at(date,hour=0,minute=0):return datetime(date.year,date.month,date.day,tzinfo=zone)+timedelta(hours=hour,minutes=minute)
     span=re.search(r'(未来|接下来|最近)?([零一二两三四五六七八九十\d]{1,3})(个)?(天|日|周|星期|礼拜|月)(内|之内|以内|后|之后)?',text)
     if span and (span.group(1) or span.group(5)):
         count=_number(span.group(2))
@@ -621,7 +640,7 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     if not time_expression and quote:time_expression=find_time_expression(quote)
     anchor=anchor_time(source or message)
     if anchor is not (source or message).accepted_at:flags.append('anchor_signed_channel_time')
-    valid_time=resolve_time(time_expression,anchor,context.timezone)
+    valid_time=resolve_time(time_expression,anchor,context.timezone,working_day_margin_days=context.working_day_margin_days)
     # Owner 2026-10-17: the model's absolute reading, checked and merged with the rule reading (time_normalization).
     valid_time,time_flags=merge_time(valid_time,item.get('time'),expression=time_expression,anchor=anchor,timezone=context.timezone)
     flags+=time_flags
