@@ -116,16 +116,43 @@ def test_a_definition_proof_is_accepted_only_inside_the_definitions_read(semanti
     assert proof['derivation'] == 'definition-read-v1' and proof['resource_id'] == 'eios:object_type:Consumer'
     with pytest.raises(ContextDenied):
         definition_proof(f['worker'], session, ResourceType.OBJECT, 'Consumer/' + 'a' * 64)
-    # Outside authz.nexloop_context_read's definitions verb the shared read assertion refuses it.
-    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='outside definitions'):
-        with admin.transaction():
-            admin.execute('select authz.nexloop_assert_read_authority(%s,%s,%s)', (session.token_digest, 'real', Jsonb(proof)))
-    # Even inside it, a proof renamed to an object resource is refused.
-    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='invalid'):
-        with admin.transaction():
-            admin.execute("select set_config('nexloop.definition_read_scope','definitions',true)")
-            forged = {**proof, 'resource_id': 'eios:object:Consumer/' + 'a' * 64, 'target_resource': 'eios:object:Consumer/' + 'a' * 64}
-            admin.execute('select authz.nexloop_assert_read_authority(%s,%s,%s)', (session.token_digest, 'real', Jsonb(forged)))
+    # Outside authz.nexloop_context_read's definitions entry the shared read assertion refuses it - also with the I30 flag set.
+    for flagged in (False, True):
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='outside definitions'):
+            with admin.transaction():
+                if flagged:
+                    admin.execute("select set_config('nexloop.definition_read_scope','definitions',true)")
+                admin.execute('select authz.nexloop_assert_read_authority(%s,%s,%s)', (session.token_digest, 'real', Jsonb(proof)))
+
+
+def test_an_application_role_flag_opens_no_object_or_value_read(semantic):
+    """L6 I30: an application role sets any session flag, then reads an object and a property value with definition-read-v1
+    proofs in the same transaction: 42501, and no data."""
+    import hmac
+    import psycopg
+    from nexloop_eios.context_engine.authority import definition_proof
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    f, _, signer = semantic; admin = f['admin']; _, token = relay(f)
+    oid = put_object(admin, A, 'real', 'definition-flag-instance', {'member_no': 'm-2', 'display_name': 'y'})
+    session = rule(f, token)
+    type_proof = definition_proof(f['worker'], session, ResourceType.OBJECT_TYPE, 'Consumer')
+    prop_proof = definition_proof(f['worker'], session, ResourceType.PROPERTY, 'Consumer/member_no')
+    for top, props in ((type_proof, [prop_proof]),  # as issued
+                       ({**type_proof, 'resource_id': f'eios:object:Consumer/{oid}', 'target_resource': f'eios:object:Consumer/{oid}'},
+                        [{**prop_proof, 'resource_id': f'eios:property:Consumer/{oid}/member_no', 'target_resource': f'eios:property:Consumer/{oid}/member_no'}])):
+        claims = {**top, 'protocol': 'nexloop-object-read-v1', 'key_id': signer.key_id, 'type_name': 'Consumer', 'object_id': oid,
+                  'fields': ['member_no'], 'property_authorities': props}
+        text = canonical_payload(claims)
+        signature = hmac.new(signer.material, ('nexloop-object-read-v1:' + text).encode(), 'sha256').hexdigest()
+        with f['worker'].connection() as c:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with c.transaction():
+                    c.execute("select set_config('nexloop.definition_read_scope','definitions',true)")
+                    c.execute('select authz.nexloop_read_object(%s,%s,%s,%s)', (session.token_digest, 'real', text, signature))
+        # Nor may the role call the definitions entry itself.
+        with f['worker'].connection() as c:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                c.execute("select authz.nexloop_context_read_definitions('x','real','{}','x','{\"verb\":\"definitions\"}')")
 
 
 def test_a_restricted_property_is_not_returned_by_the_semantic_read(semantic):

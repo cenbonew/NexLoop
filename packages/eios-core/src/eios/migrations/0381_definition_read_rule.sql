@@ -289,14 +289,17 @@ grant execute on function authz.nexloop_definition_read(text,text,text,text[]) t
 
 -- 3. The derived definition proof, verified at each use - and accepted only inside the context read's definitions verb ---------
 -- The semantic adapter reads definition details (authz.nexloop_context_read verb definitions) with one READ proof per gate; a
--- definition-read-v1 proof names eios:object_type:<T> or eios:property:<T>/<p> only and is re-derived here. The context read
--- marks its definitions verb with a transaction-local flag for the duration of the call; outside it (object reads, property
--- value reads, nested type READ of other derivations, every other verb) the proof is refused.
+-- definition-read-v1 proof names eios:object_type:<T> or eios:property:<T>/<p> only and is re-derived here. The scope is the
+-- server-side call stack, never caller state (L6 I30): the context read hands its definitions verb to the owner-only entry
+-- authz.nexloop_context_read_definitions, and the proof is accepted only while that entry is on the PL/pgSQL call stack
+-- (GET DIAGNOSTICS PG_CONTEXT). Object reads, property value reads, nested type READ of other derivations and every other verb
+-- run outside it and are refused (42501), whatever the caller set in its session.
 create function authz.nexloop_assert_definition_read(p_digest text,p_world text,p_claims jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare ident jsonb;m text[];v_kind text;v_name text;
+declare ident jsonb;m text[];v_kind text;v_name text;v_stack text;
 begin
- if current_setting('nexloop.definition_read_scope',true) is distinct from 'definitions' then
+ get diagnostics v_stack=pg_context;
+ if position('function authz.nexloop_context_read_definitions(' in v_stack)=0 then
   raise exception 'derived definition read outside definitions' using errcode='42501';end if;
  ident:=authz.nexloop_service_identity_snapshot(p_digest,p_world);  -- raises for a revoked or expired credential
  m:=regexp_match(coalesce(p_claims->>'resource_id',''),'^eios:(object_type):([A-Z][A-Za-z0-9_]{0,63})$');
@@ -332,14 +335,21 @@ revoke all on function authz.nexloop_assert_read_authority(text,text,jsonb) from
 
 alter function authz.nexloop_context_read(text,text,text,text,text) rename to nexloop_context_read_before_definition_read;
 revoke all on function authz.nexloop_context_read_before_definition_read(text,text,text,text,text) from public,nexloop_api,nexloop_domain_worker;
+-- The definitions verb's own entry: owner only (no role may call it), so its frame on the call stack is the scope.
+create function authz.nexloop_context_read_definitions(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+begin
+ if (p_payload::jsonb)->>'verb' is distinct from 'definitions' then raise exception 'context read unavailable' using errcode='42501';end if;
+ return authz.nexloop_context_read_before_definition_read(p_digest,p_world,p_text,p_signature,p_payload);
+end $$;
+alter function authz.nexloop_context_read_definitions(text,text,text,text,text) owner to nexloop_owner;
+revoke all on function authz.nexloop_context_read_definitions(text,text,text,text,text) from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_identity,nexloop_configurator;
 create function authz.nexloop_context_read(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v jsonb;definitions boolean:=(p_payload::jsonb)->>'verb' is not distinct from 'definitions';
 begin
- if definitions then perform set_config('nexloop.definition_read_scope','definitions',true);end if;
- v:=authz.nexloop_context_read_before_definition_read(p_digest,p_world,p_text,p_signature,p_payload);
- if definitions then perform set_config('nexloop.definition_read_scope','',true);end if;
- return v;
+ if (p_payload::jsonb)->>'verb' is not distinct from 'definitions' then
+  return authz.nexloop_context_read_definitions(p_digest,p_world,p_text,p_signature,p_payload);end if;
+ return authz.nexloop_context_read_before_definition_read(p_digest,p_world,p_text,p_signature,p_payload);
 end $$;
 alter function authz.nexloop_context_read(text,text,text,text,text) owner to nexloop_owner;
 revoke all on function authz.nexloop_context_read(text,text,text,text,text) from public;
