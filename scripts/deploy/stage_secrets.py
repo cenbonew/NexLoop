@@ -608,6 +608,15 @@ def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
                 or rule['principal'] not in effect_roles or rule['principal'] in seen_rules:
             raise Refused('role_source_read_rules shape')
         seen_rules.add(rule['principal'])
+    # I29 (0381): definition-level READ for the recall gate, the published types listed one by one (sorted, unique, no wildcard).
+    seen_rules = set()
+    for rule in stage.get('definition_read_rules', []):
+        names = rule.get('type_names') if type(rule) is dict else None
+        if set(rule) != {'principal', 'type_names', 'valid_until', 'purpose', 'source_task'} or rule['principal'] not in {p['role'] for p in stage['principals']} \
+                or rule['principal'] in seen_rules or type(names) is not list or not names or names != sorted(set(names)) \
+                or any(type(t) is not str or not re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}', t) for t in names):
+            raise Refused('definition_read_rules shape')
+        seen_rules.add(rule['principal'])
     merged = {**base, 'principals': base['principals'] + stage['principals'], 'grants': base['grants'] + stage['grants']}
     return merged, stage
 
@@ -624,6 +633,13 @@ def _role_source_read_facts(manifest, stage, tenant):
     ids = {p['role']: p['principal_id'] for p in manifest['principals']}
     return [('role_source_read_rule', [ids[r['principal']]], RoleSourceReadRule(tenant_id=tenant, principal_id=ids[r['principal']], active=True,
              valid_until=r['valid_until'])) for r in stage.get('role_source_read_rules', [])]
+
+
+def _definition_read_facts(manifest, stage, tenant):
+    from nexloop_eios.property_access import DefinitionReadRule
+    ids = {p['role']: p['principal_id'] for p in manifest['principals']}
+    return [('definition_read_rule', [ids[r['principal']]], DefinitionReadRule(tenant_id=tenant, principal_id=ids[r['principal']],
+             type_names=tuple(r['type_names']), active=True, valid_until=r['valid_until'])) for r in stage.get('definition_read_rules', [])]
 
 
 def _apply_extra_facts(facts, tenant, *, database_url_file, signing_key_file, signing_key_id):
@@ -768,6 +784,7 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
                 'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in manifest['grants']),
                 'message_read_rules': [r['principal'] for r in stage.get('source_message_read_rules', [])],
                 'role_source_read_rules': [r['principal'] for r in stage.get('role_source_read_rules', [])],
+                'definition_read_rules': {r['principal']: len(r['type_names']) for r in stage.get('definition_read_rules', [])},
                 'credential_files': len(stage['credential_files'])}
     secrets_map = _reference_secrets(out, manifest, stage)
     # service_grants.apply re-validates a manifest whose grants follow the latest Action version, and that validation refuses the
@@ -791,11 +808,13 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     finally:
         staged.unlink(missing_ok=True)
         scratch.rmdir()
-    extra = _apply_extra_facts(_message_read_facts(manifest, stage, tenant) + _role_source_read_facts(manifest, stage, tenant), tenant,
+    extra = _apply_extra_facts(_message_read_facts(manifest, stage, tenant) + _role_source_read_facts(manifest, stage, tenant)
+                               + _definition_read_facts(manifest, stage, tenant), tenant,
                                database_url_file=database_url_file,
                                signing_key_file=management / 'signing.key.hex', signing_key_id=signing_key_id)
     return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra.count('message_read_rule'),
-            'role_source_read_rules_written': extra.count('role_source_read_rule'), 'credentials_created': sorted(report['credentials_created']),
+            'role_source_read_rules_written': extra.count('role_source_read_rule'),
+            'definition_read_rules_written': extra.count('definition_read_rule'), 'credentials_created': sorted(report['credentials_created']),
             'grants_added': len(report['grants_added']), 'grants_revoked': len(report['grants_revoked']),
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
 

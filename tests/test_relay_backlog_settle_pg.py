@@ -148,3 +148,17 @@ def test_the_owner_settles_the_backlog_with_one_command_and_a_rerun_replays(back
     assert w['owner']['password'] not in text and '不回复' not in text
     code, again = run()
     assert code == 0 and [b['result'] for b in again['batches']] == ['replayed', 'replayed']
+
+
+def test_a_consumer_pseudonymized_by_a_completed_erasure_settles_as_erased(backlog):
+    """R60 (stage 2026-10-31): the completed erasure (0305) pseudonymizes the conversation, and the erasure table keeps the original id;
+    the message still settles as consumer_erased. A Consumer without an enrollment stays no_serviceable_enrollment."""
+    w = backlog; admin = w['admin']
+    erased, stale = pending(admin, 'pseudonym:' + secrets.token_hex(16), 2), pending(admin, hexid())
+    with w['client']() as client:
+        csrf = workbench_login(client, w['owner']).json()['csrf_token']
+        done = act(client, csrf, 'settle_relay_backlog', {'message_ids': erased + stale, 'reason': 'R60'})
+        assert done.status_code == 200, done.text
+    assert {s['message_id']: s['reason'] for s in done.json()['settled']} == {
+        erased[0]: 'consumer_erased', erased[1]: 'consumer_erased', stale[0]: 'no_serviceable_enrollment'}
+    assert audit(admin, erased[0])[:2] == ('consumer_erased', 'owner')

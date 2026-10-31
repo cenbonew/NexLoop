@@ -76,3 +76,22 @@ B 只适合作为 A 上线前的临时措施。如果采用，名单的 `expires
 需要负责人决定：
 1. 选 A 还是 B；
 2. customer-1 这条消息是“恢复服务后回复”，还是“不回复，结束”。
+
+## 5. 已知偏差：R60 的理由码（stage 2026-10-31）
+
+R60 按方案 A 结束了 51 条积压（`s42-settle:20261031-1`），51 条都已 `settled`，pending 为 0；但审计表里 51 条的理由码都是 `no_serviceable_enrollment`，部署单预期其中 50 条为 `consumer_erased`。
+
+原因：擦除完成时（0305）把会话的 `consumer_id` 换成新的 `pseudonym:<hex>`，擦除表仍按原 consumer_id 记录。0376 用会话上的 consumer 去问 `runtime.nexloop_consumer_erasing`，对假名得到 false，于是落进了第二个分支。结束动作本身没有错（这 50 条确实没人会再服务），错的只是理由码的分类。
+
+修复：迁移 relay_backlog_pseudonym（0382）把 consumer 为 `pseudonym:` 开头的消息判为 `consumer_erased`。只有擦除会往会话里写假名，所以这个判断是充分的。擦除触发器那条路径不受影响：它在擦除离开 `pending_confirmation` 时按原 consumer_id 结束消息，比 0305 的假名化（`completed` 时）早，因此只影响 0376 上线前已擦除完成的 consumer。
+
+审计表只追加写，stage 已有的这 50 行不改。判读方法：理由码为 `no_serviceable_enrollment`、但会话 consumer 以 `pseudonym:` 开头的行，按 `consumer_erased` 理解。
+
+```sql
+select s.reason,(cv.consumer_id like 'pseudonym:%') erased,count(*) from runtime.nexloop_relay_backlog_settlements s
+  join runtime.nexloop_message_outbox b using(tenant_id,world,message_id)
+  join runtime.nexloop_conversations cv on cv.tenant_id=b.tenant_id and cv.world=b.world and cv.conversation_id=b.conversation_id
+where s.tenant_id='<TENANT_ID>' group by 1,2;
+```
+
+R60 的预期读数：`no_serviceable_enrollment / true` 50（即实际的 consumer_erased），`no_serviceable_enrollment / false` 1（customer-1）。

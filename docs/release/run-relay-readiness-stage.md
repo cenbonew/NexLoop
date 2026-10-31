@@ -99,13 +99,13 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
    security find-generic-password -s <keychain service> -a <account> -w | python3 scripts/deploy/relay_backlog_settle.py --origin https://<APP_HOST_NAME>:<PORT> --ca-file <CA> --username-file <F> --password-stdin --config <F>
    ```
 
-   预期 `ok: true`，两批都是 `settled`，理由码：customer-1 那条为 `no_serviceable_enrollment`，其余为 `consumer_erased`。中断后重跑同一配置为 `replayed`，不会重复结束。
+   预期 `ok: true`，两批都是 `settled`。理由码：customer-1 那条为 `no_serviceable_enrollment`；已擦除 consumer 的 50 条，在迁移 relay_backlog_pseudonym（0382）上线后为 `consumer_erased`，上线前为 `no_serviceable_enrollment`（R60 实际如此：擦除完成后会话的 consumer 已是假名，0376 识别不出，见 `docs/design/relay-backlog-disposition.md` 第 5 节）。中断后重跑同一配置为 `replayed`，不会重复结束。
 5. 拒绝码对照：`unknown_message`（ID 不在 outbox）、`not_pending`（已投递或已结束）、`consumer_serviceable`（该 consumer 有可服务的登记：应由 relay 正常回复，不该结束）、`invalid`（请求体）。403 表示登录者不是 owner。
 
 ### S7 核对
 
 - `relay.pending_messages` 为 0（或只剩 S6 之后新到的消息）；`relay_backlog_age`、`relay_unenrolled_pending` 在下一次评估后恢复。
-- `select reason,source,count(*) from runtime.nexloop_relay_backlog_settlements where tenant_id='<TENANT_ID>' group by 1,2`：`no_serviceable_enrollment / owner` 1，`consumer_erased / owner` 50。
+- `select reason,source,count(*) from runtime.nexloop_relay_backlog_settlements where tenant_id='<TENANT_ID>' group by 1,2`：`no_serviceable_enrollment / owner` 1，`consumer_erased / owner` 50（修复后执行）；R60（修复前执行）实际为 `no_serviceable_enrollment / owner` 51，这些行不改，按设计文档第 5 节的查询判读：其中会话 consumer 为 `pseudonym:` 的 50 条即 consumer_erased。
 - `relay_readiness`：执行 S4 后 `dependencies_expired` 和 `unserviceable_enrollments` 为 0；`dependencies_expiring_7d` 在 11-24 前后开始大于 0，这是预期的提前量。
 
 ## 证据
@@ -118,7 +118,7 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
 | S4 | 撤销清单查询结果、每次撤销输出、撤销后的 `relay_readiness` | `withdrawn: true`；active 3、expired 0、unserviceable 0 |
 | S5 | `--check` 与应用输出 | 86 条 |
 | S6 | dry-run 与执行输出（已脱敏） | `[50, 1]`；全部 settled |
-| S7 | 快照与审计计数 | 积压为 0；审计 1 + 50 |
+| S7 | 快照与审计计数 | 积压为 0；审计 1 + 50（R60：51 条 no_serviceable_enrollment，其中 50 条假名） |
 
 ## 回退
 

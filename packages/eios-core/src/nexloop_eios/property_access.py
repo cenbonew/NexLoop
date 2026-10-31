@@ -136,6 +136,27 @@ class RoleSourceReadRule(BaseModel):
     valid_until:AwareDatetime
 
 
+class DefinitionReadRule(BaseModel):
+    """Trusted-configuration ``definition_read_rule`` payload (key: [service principal]; I29, 0381).
+
+    Definition-level READ for the recall authorizer only: eios:object_type:<T> and type-level eios:property:<T>/<p> of the listed
+    published types, owner-restricted groups excluded; never an object, instance or property value read (SQL
+    authz.nexloop_definition_read). Types are listed one by one, sorted and unique."""
+    model_config=ConfigDict(extra='forbid',frozen=True)
+    tenant_id:str
+    principal_id:str=Field(min_length=1,max_length=320)
+    type_names:tuple[str,...]=Field(min_length=1,max_length=64)
+    active:bool
+    valid_until:AwareDatetime
+
+    @field_validator('type_names')
+    @classmethod
+    def _types(cls,value):
+        if list(value)!=sorted(set(value)) or any(re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}',t) is None for t in value):
+            raise ValueError('type_names must be sorted unique type names')
+        return value
+
+
 def role_source_claims(session,resource_id,basis):
     """Typed role-source proof (READ only; no nested type READ): SQL re-derives it at every use."""
     authentication=session.authentication

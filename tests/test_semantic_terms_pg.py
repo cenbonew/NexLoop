@@ -221,3 +221,39 @@ def test_gloss_rows_stay_lexical_only(recall_db):  # noqa: F811
         left join ontology.nexloop_recall_embeddings m using(entry_id) where e.source_key like 'glossary:%%'""").fetchone()==(0,1)
     assert admin.execute("""select count(*) from ontology.nexloop_recall_entries e join ontology.nexloop_recall_embeddings m using(entry_id)
         where e.source_key like 'type:%%'""").fetchone()[0]>0
+
+
+# --- I29 (R60 smoke): the relay's semantic read runs under the relay_source service principal ----------------------------------
+
+def relay_source_targets():
+    """relay_source's stage grants (deploy/authorization/stage-principals.v1.json): no object_type/property READ at all - its
+    definitions come from the definition_read_rule (0381), never from a grant (a grant would change its credential scopes)."""
+    import json
+    from pathlib import Path
+    stage=json.loads((Path(__file__).resolve().parents[1]/'deploy/authorization/stage-principals.v1.json').read_text())
+    grants=[g for g in stage['grants'] if g['principal']=='relay_source']
+    assert grants and {g['resource_type'] for g in grants}<={'action','artifact'}  # the R60 cause, and the I29 fix adds no grant
+    return [(g['resource_id'],ResourceType.ACTION,Operation.EXECUTE) for g in grants if g['resource_type']=='action']
+
+
+def definition_rule(admin,principal,types=('Consumer',),active=True,valid_until='2027-10-09T00:00:00+00:00'):
+    """The fact stage_secrets register writes through 0050 (seeded directly here, as test_plan_setup_stage_pg seeds its rule)."""
+    import json
+    admin.execute("""insert into authz.nexloop_authority_facts values(%s,'definition_read_rule',array[%s],%s)
+        on conflict(tenant_id,fact_kind,entity_key) do update set payload=excluded.payload""",
+        (A,principal,json.dumps({'tenant_id':A,'principal_id':principal,'type_names':sorted(types),'active':active,'valid_until':valid_until})))
+
+
+def test_the_relay_source_reads_definitions_only_through_its_definition_rule(semantic):
+    f,_,signer=semantic;admin=f['admin']
+    relay,token=seed_multi_authority(admin,f['worker'],relay_source_targets(),identity_suffix='-relay-source',world='real',tenant=A)
+    # As R60: no readable type, the statement is one term and the miss says no_readable_types.
+    out=adapter(f,relay,signer,SemanticAccessRecorder(f['worker'],relay,signer)).browse(SENTENCE,extract_terms=True)
+    assert out['items']==[] and records(admin)[-1]==([term_hash(SENTENCE)],0,1,'no_readable_types')
+    # With the definition rule: terms are extracted and the definition is hit.
+    definition_rule(admin,relay.authentication.subject_principal_id)
+    from nexloop_eios.authorization import authenticate_service
+    relay=authenticate_service(f['worker'],token,world='real')  # the fact write moved the authority revision
+    out=adapter(f,relay,signer,SemanticAccessRecorder(f['worker'],relay,signer)).browse(SENTENCE,extract_terms=True)
+    assert 'eios:property:Consumer/member_no' in {i['ref'] for i in out['items']}
+    assert term_hash('会员编号') in records(admin)[-1][0] and records(admin)[-1][3] is None

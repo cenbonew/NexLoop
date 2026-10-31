@@ -1895,6 +1895,26 @@
       "version": "0379",
       "name": "0379_recall_terms_round3.sql",
       "sha256": "0e625cfeb402ddb9b8219dc10811d3df5b6cf17b2bc5958693da677543478c62"
+    },
+    {
+      "version": "0380",
+      "name": "0380_semantic_read_health.sql",
+      "sha256": "a6a5c49fbdec1b62bd864eac5cee767689324f12de441c77509e79bdca84ec6a"
+    },
+    {
+      "version": "0381",
+      "name": "0381_definition_read_rule.sql",
+      "sha256": "b4e5d320dc8f4b0aef4fc71b599205efc896fe1967781e8a5114fe9575a022f7"
+    },
+    {
+      "version": "0382",
+      "name": "0382_relay_backlog_pseudonym.sql",
+      "sha256": "3252965e4c24a659c3566c4cb93af3a29b22118ffde434ac9abf736f7431f292"
+    },
+    {
+      "version": "0383",
+      "name": "0383_erasing_pseudonym.sql",
+      "sha256": "19347e364b69d3f69682a6d83b73670e4b84aed8adf49931bd1d0409b058df2c"
     }
   ]
 }

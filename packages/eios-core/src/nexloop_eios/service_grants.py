@@ -103,7 +103,7 @@ ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{
 FORBIDDEN_MARKERS=('schema.review','real_dispatch','nexloop.service.request','nexloop.enterprise.deliver','nexloop.service.query',
     'nexloop.service.receipt_reconcile','nexloop.receipt.reconcile','channel.enable','external_effect')
 ORDER=('subject','membership','actor','authentication','application','subject_authority','resource_graph','grants','scope','controls','policies','revision',
-    'property_group_restriction','property_access_rule','message_purpose_rule','relay_source_read_rule')
+    'property_group_restriction','property_access_rule','message_purpose_rule','relay_source_read_rule','definition_read_rule')
 _ID=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
 _ROLE=re.compile(r'[a-z][a-z0-9_]{0,63}')
 NAMESPACE=uuid.UUID('9b7f3c52-2f43-4b0e-8f0e-4e5800480048')
