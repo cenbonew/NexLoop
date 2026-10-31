@@ -1915,6 +1915,11 @@
       "version": "0383",
       "name": "0383_erasing_pseudonym.sql",
       "sha256": "19347e364b69d3f69682a6d83b73670e4b84aed8adf49931bd1d0409b058df2c"
+    },
+    {
+      "version": "0384",
+      "name": "0384_service_credential_rotation.sql",
+      "sha256": "f5d9f9d5c4d0e1b2ec77dee4d7e823598a0ac212b69eca3a792d875ac9d5ce1a"
     }
   ]
 }

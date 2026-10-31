@@ -819,6 +819,145 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
 
 
+# I31 (dispatcher 2026-10-31): renewing a service credential before it expires. One credential_id holds two active tokens for a
+# while (migration 0384): prepare (management machine) keeps the current token and a new one below management/rotation/<role>/,
+# apply (where register runs) adds the new token in the database, switch writes it into the role's credential files, the service
+# reloads it, and revoke-credential --old revokes the previous token. Tokens never leave the files; outputs name paths and counts.
+ROTATION = 'rotation'
+
+
+def _rotation_dir(out, role):
+    root = Path(out) / 'management' / ROTATION
+    for d in (root, root / role):
+        d.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(d, 0o700)
+    return root / role
+
+
+def _principal(role, grants_path=GRANTS, principals_path=PRINCIPALS):
+    manifest, stage = merged_manifest(grants_path, principals_path)
+    principal = next((p for p in manifest['principals'] if p['role'] == role), None)
+    if principal is None:
+        raise Refused('no current principal with this role: ' + role)
+    return principal, stage
+
+
+def _role_keys(tokens, stage, role):
+    keys = sorted(k for k in tokens if stage['credential_files'].get(k.split(':', 1)[1]) == role)
+    if not keys:
+        raise Refused('the tree holds no credential file of ' + role)
+    if len({tokens[k] for k in keys}) != 1:
+        raise Refused('the credential files of one principal must hold the same token: ' + role)
+    return keys
+
+
+def _replace_private(path, data):
+    temporary = path.with_name('.' + path.name + '.new')
+    temporary.unlink(missing_ok=True)
+    _write(temporary, data)
+    os.replace(temporary, path)
+
+
+def _tree_file(out, key):
+    host, path = key.split(':', 1)
+    return (Path(out) / path) if host == 'setup' else (Path(out) / host / 'secrets' / path)
+
+
+def _set_token(out, keys, token):
+    """Write token into every credential file of keys, service-secrets.json and the manifest's digests."""
+    out = Path(out)
+    for key in keys:
+        _replace_private(_tree_file(out, key), token)
+    store = out / 'management' / 'service-secrets.json'
+    tokens = json.loads(store.read_text())
+    tokens.update({k: token for k in keys})
+    _replace_private(store, json.dumps(tokens, indent=1, sort_keys=True))
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    for f in manifest['files']:
+        if f.get('generated') and f"{f['host']}:{f['path']}" in keys:
+            f['sha256'] = digest
+    _replace_private(manifest_path, json.dumps(manifest, indent=1, sort_keys=True))
+
+
+def rotation_prepare(out, role):
+    principal, stage = _principal(role)
+    tokens = json.loads((Path(out) / 'management' / 'service-secrets.json').read_text())
+    keys = _role_keys(tokens, stage, role)
+    d = _rotation_dir(out, role)
+    if (d / 'pending.json').exists():
+        raise Refused('a rotation of this role is already prepared (switch, revoke or remove management/rotation/' + role + ')')
+    import uuid
+    _write(d / 'current.json', json.dumps({'keys': keys, 'token': tokens[keys[0]]}))
+    _write(d / 'pending.json', json.dumps({'request_id': str(uuid.uuid4()), 'credential_id': principal['credential_id'],
+                                           'token': secrets.token_urlsafe(48)}))
+    return {'role': role, 'credential_id': principal['credential_id'], 'prepared': True, 'files': keys}
+
+
+def _rotation_state(out, role):
+    d = Path(out) / 'management' / ROTATION / role
+    try:
+        return d, json.loads((d / 'current.json').read_text()), json.loads((d / 'pending.json').read_text())
+    except FileNotFoundError:
+        raise Refused('no prepared rotation of ' + role) from None
+
+
+def rotation_apply(out, role, *, tenant, database_url_file, signing_key_id, credential_expires_at):
+    from datetime import datetime
+    from nexloop_eios import service_grants as G
+    principal, _ = _principal(role)
+    _, current, pending = _rotation_state(out, role)
+    if pending['credential_id'] != principal['credential_id']:
+        raise Refused('the prepared rotation names another credential')
+    result = G.rotate_credential(tenant, credential_id=principal['credential_id'], current_secret=current['token'], new_secret=pending['token'],
+                                 expires_at=datetime.fromisoformat(credential_expires_at), request_id=pending['request_id'],
+                                 database_url_file=database_url_file, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
+                                 signing_key_id=signing_key_id)
+    return {'role': role, **result}
+
+
+def rotation_switch(out, role, *, back=False):
+    _, current, pending = _rotation_state(out, role)
+    _set_token(out, current['keys'], current['token'] if back else pending['token'])
+    return {'role': role, 'switched_to': 'current' if back else 'new', 'files_rewritten': current['keys']}
+
+
+def revoke_previous(out, role, *, tenant, database_url_file, signing_key_id):
+    """After switch and the service's check: revoke the previous token (database only; the tree may be mounted read-only here)."""
+    import uuid
+    from nexloop_eios import service_grants as G
+    principal, stage = _principal(role)
+    d, current, pending = _rotation_state(out, role)
+    tokens = json.loads((Path(out) / 'management' / 'service-secrets.json').read_text())
+    if any(tokens.get(k) != pending['token'] for k in current['keys']):
+        raise Refused('switch to the new token first: the tree still holds the previous one')
+    result = G.revoke_credential(tenant, credential_id=principal['credential_id'], secret=current['token'], request_id=uuid.uuid5(uuid.UUID(pending['request_id']), 'revoke-previous'),
+                                 database_url_file=database_url_file, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
+                                 signing_key_id=signing_key_id)
+    return {'role': role, **result}
+
+
+def rotation_finish(out, role):
+    """After revoke-credential --previous: drop the rotation's files (the previous token is revoked, the new one is in the tree)."""
+    d, current, pending = _rotation_state(out, role)
+    tokens = json.loads((Path(out) / 'management' / 'service-secrets.json').read_text())
+    if any(tokens.get(k) != pending['token'] for k in current['keys']):
+        raise Refused('the tree does not hold the new token: switch (and revoke the previous token) first')
+    shutil.rmtree(d)
+    return {'role': role, 'finished': True}
+
+
+def revoke_retired(out, role, *, credential_id, tenant, database_url_file, signing_key_id, request_id, grants_path=GRANTS):
+    from nexloop_eios import service_grants as G
+    retired = {r['role'] for r in json.loads(Path(grants_path).read_text()).get(G.RETIRED, [])}
+    if role not in retired:
+        raise Refused('not a retired principal of the service grants manifest: ' + role)
+    result = G.revoke_credential(tenant, credential_id=credential_id, retired=True, request_id=request_id, database_url_file=database_url_file,
+                                 signing_key_file=Path(out) / 'management' / 'signing.key.hex', signing_key_id=signing_key_id)
+    return {'role': role, **result}
+
+
 def configurator_window(bootstrap_dsn_file):
     """The configurator login window over the bootstrap socket (document §3b; configurator_window.py)."""
     return _configurator_window(bootstrap_dsn_file, refused=Refused)
@@ -1038,6 +1177,33 @@ def publish_main(args):
     return {**result, 'emitted': emitted}
 
 
+def credential_main(args):
+    def database(run):
+        if bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file) or not args.tenant or not args.signing_key_id:
+            raise Refused('needs --tenant, --signing-key-id and one of --configurator-dsn-file / --bootstrap-dsn-file')
+        if args.configurator_dsn_file:
+            return run(args.configurator_dsn_file)
+        with configurator_window(args.bootstrap_dsn_file) as dsn:
+            return run(dsn)
+    if args.command == 'rotate-credential':
+        if args.prepare:
+            return rotation_prepare(args.out, args.role)
+        if args.switch or args.switch_back:
+            return rotation_switch(args.out, args.role, back=args.switch_back)
+        if args.finish:
+            return rotation_finish(args.out, args.role)
+        if not args.credential_expires_at:
+            raise Refused('--apply needs --credential-expires-at')
+        return database(lambda dsn: rotation_apply(args.out, args.role, tenant=args.tenant, database_url_file=dsn, signing_key_id=args.signing_key_id,
+                                                   credential_expires_at=args.credential_expires_at))
+    if args.previous:
+        return database(lambda dsn: revoke_previous(args.out, args.role, tenant=args.tenant, database_url_file=dsn, signing_key_id=args.signing_key_id))
+    if not (args.credential_id and args.request_id):
+        raise Refused('--retired needs --credential-id and --request-id')
+    return database(lambda dsn: revoke_retired(args.out, args.role, credential_id=args.credential_id, tenant=args.tenant, database_url_file=dsn,
+                                               signing_key_id=args.signing_key_id, request_id=args.request_id))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -1102,6 +1268,29 @@ def main(argv=None):
     itk = sub.add_parser('identity-token-key', help='NX-058: add the workbench one-time secret key to a tree generated before it existed')
     itk.add_argument('--out', type=Path, required=True)
     itk.add_argument('--rotate', action='store_true', help='replace the key: every unused code and invitation stops working; restart api and api-2 together')
+    rc = sub.add_parser('rotate-credential', help='I31: renew one service credential (prepare, apply, switch, switch-back, finish)')
+    rc.add_argument('--out', type=Path, required=True)
+    rc.add_argument('--role', required=True)
+    rc_mode = rc.add_mutually_exclusive_group(required=True)
+    for flag in ('--prepare', '--apply', '--switch', '--switch-back', '--finish'):
+        rc_mode.add_argument(flag, action='store_true')
+    rc.add_argument('--tenant')
+    rc.add_argument('--configurator-dsn-file', type=Path)
+    rc.add_argument('--bootstrap-dsn-file', type=Path)
+    rc.add_argument('--signing-key-id')
+    rc.add_argument('--credential-expires-at')
+    rv = sub.add_parser('revoke-credential', help='I31: revoke the previous token after a rotation, or every token of a retired principal')
+    rv.add_argument('--out', type=Path, required=True)
+    rv.add_argument('--role', required=True)
+    rv_mode = rv.add_mutually_exclusive_group(required=True)
+    rv_mode.add_argument('--previous', action='store_true')
+    rv_mode.add_argument('--retired', action='store_true')
+    rv.add_argument('--credential-id', help='with --retired: the retired principal\'s credential id')
+    rv.add_argument('--request-id', help='with --retired: a fixed UUID, so a repeated run is a replay')
+    rv.add_argument('--tenant', required=True)
+    rv.add_argument('--configurator-dsn-file', type=Path)
+    rv.add_argument('--bootstrap-dsn-file', type=Path)
+    rv.add_argument('--signing-key-id', required=True)
     k = sub.add_parser('check')
     k.add_argument('--out', type=Path, required=True)
     k.add_argument('--uids', action='store_true', help='also require the intended owners (on the host after install)')
@@ -1135,6 +1324,8 @@ def main(argv=None):
             out, code = reissue_role(args.out, args.ca_dir, args.params, args.service), 0
         elif args.command == 'add-service':
             out, code = add_service(args.out, args.ca_dir, args.params, args.service), 0
+        elif args.command in ('rotate-credential', 'revoke-credential'):
+            out, code = credential_main(args), 0
         elif args.command == 'identity-token-key':
             out, code = add_identity_token_key(args.out, rotate=args.rotate), 0
         elif args.command == 'metrics':
