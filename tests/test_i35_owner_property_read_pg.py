@@ -154,9 +154,12 @@ def test_a_configuration_without_its_read_lists_is_refused_by_apply_and_reported
     dsn = tmp_path / 'metrics-dsn'
     dsn.write_text(make_conninfo(**{**conninfo_to_dict(Path(w['configurator']).read_text().strip()), 'user': 'nexloop_metrics'}))
     dsn.chmod(0o600)
+    # I35-g: a tenant without a workbench configuration reports a visible 0, never an absent number (alert rule v27).
+    assert admin.execute("select runtime.nexloop_metrics_snapshot('tenant-without-workbench','real')->'workbench_read_types'").fetchone()[0] == {
+        'configured': False, 'missing': 0}
     report = workbench_read_types(dsn)
     assert report['checks'] == {'metrics_export': True, 'workbench_read_types_reported': True, 'workbench_read_types_present': True}
-    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 52, 'present': True}
+    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 52, 'present': True, 'missing': 0}
     members = members_file((w['owner'], 'owner'), (w['operator'], 'operator'))
     v53 = copy.deepcopy(ROLES); v53['manifest_version'] = 53
     # The write skipped: --apply refuses and nothing of v53 is committed.
@@ -171,6 +174,6 @@ def test_a_configuration_without_its_read_lists_is_refused_by_apply_and_reported
                    (TENANT, workbench_roles.canonical_payload(roles_payload), workbench_roles.canonical_payload(members_payload)))
     report = workbench_read_types(dsn)
     assert report['checks']['workbench_read_types_present'] is False
-    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 53, 'present': False}
+    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 53, 'present': False, 'missing': 1}
     assert may(admin, 'owner', 'eios:object:Conversation/' + admin.execute(
         "select object_id from ontology.objects where tenant_id=%s and world='real' and type_name='Conversation' limit 1", (TENANT,)).fetchone()[0]) is False
