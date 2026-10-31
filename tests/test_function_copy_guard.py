@@ -541,6 +541,16 @@ REGISTRY = [
              (r"\(properties->>'made_to'=e\.consumer_id\n    or object_id in \(select r\.object_id from control\.nexloop_erasure_relation_targets r\n     where r\.tenant_id=p_tenant and r\.world=p_world and r\.request_id=e\.request_id and r\.type_name='Commitment'\)\);",
               "properties->>'made_to'=e.consumer_id;"),
              (r"\n  delete from control\.nexloop_erasure_relation_targets where tenant_id=p_tenant and world=p_world and request_id=e\.request_id;", ""))),
+    # I36 (owner 2026-10-31, L6 option A): the keeper's settle and the erasure share one status event; the completion trigger cancels
+    # the Consumer's undated (or cancel-requested) open commitments before the registry rows go.
+    Allowed('erasure_cancels_undated_commitments', 'authz.nexloop_commitment_command',
+            'the status event through runtime.nexloop_commitment_status_event; nothing else',
+            ((r"perform runtime\.nexloop_commitment_status_event\(t,p_world,o,v_last,null\);",
+              "insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,detail)\n    values(t,p_world,v_subject,'status',jsonb_build_object('status',v_status,'from',v_last,'late',o.properties->'late','revision',o.nexloop_revision,\n     'fulfillment_evidence',o.properties->'fulfillment_evidence'));"),)),
+    Allowed('erasure_cancels_undated_commitments', 'control.nexloop_consumer_reference_erasure',
+            'before the registry delete, the undated or cancel-requested open commitments are cancelled through runtime.nexloop_commitment_cancel_apply and counted; nothing else',
+            ((r"tn text:=new\.tenant_id;x record;", "tn text:=new.tenant_id;"),
+             (r"\n -- I36: before the registry rows go.*?\n n:=n\|\|jsonb_build_object\('commitments_cancelled',c\);", ""))),
     # NX-054 P4a follow-up: the gap check says how many source types it covers (0: catalog not published).
     Allowed('relation_read_gaps_coverage', 'authz.nexloop_relation_read_gaps', 'returns ownership_types, the source types covered; nothing else',
             ((r"v_types integer;", ""),

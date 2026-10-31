@@ -60,6 +60,8 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     c=erasing;env=c['env'];consumer=c['consumer']
     plan=active_plan(c)
     commitment,source=fresh(c)
+    # I36: an undated commitment never expires; the completion cancels it before the registry rows go (the dated one keeps D4).
+    undated,_=fresh(c,due_in=None,reply='好的，我会给您回电。',quote='我会给您回电',predicate='回电')
     inbound=c.inbound('我的手机号是 13800000000，请删除我的资料')
     reply=c.outbound('好的，已为您登记');claim=c.claim(reply,'已为您登记')
     env.post(env.event('payment.succeeded','pay-1'));env.tick()
@@ -93,7 +95,7 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
         keeper(c,host=host).run_once()
         if request(admin,consumer)[1]=='completed':break
     request_id,state,phase,counts=request(admin,consumer)
-    assert state=='completed' and phase is None and counts['messages']>=3 and counts['claims']>=2 and counts['commitments']==1
+    assert state=='completed' and phase is None and counts['messages']>=3 and counts['claims']>=2 and counts['commitments']==2
     # Text and identity are gone everywhere they were kept.
     rows=admin.execute("""select m.record->>'body',m.record->>'erased' from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations v
         on v.tenant_id=m.tenant_id and v.conversation_id=m.conversation_id where v.conversation_id=any(%s)""",(conversations,)).fetchall()
@@ -105,6 +107,19 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     assert admin.execute("select count(*) from ontology.nexloop_recall_entries where source_key like %s",('%'+consumer+'%',)).fetchone()==(0,)
     made_to,status=admin.execute("select properties->>'made_to',properties->>'status' from ontology.objects where object_id=%s",(commitment,)).fetchone()
     assert made_to=='erasure:'+request_id and status  # D4: kept until its own expiry, no longer pointing at the person
+    # I36 (L6 option A): the commitment keeper never ran during the erasure; the undated one is already cancelled, the dated one not.
+    events=lambda:admin.execute("select kind,ref,principal_id,detail from runtime.nexloop_commitment_events where subject_ref=%s and kind in ('cancel_requested','status') order by event_number",
+        ('commitment:'+undated,)).fetchall()
+    assert admin.execute("select properties->>'made_to',properties->>'status' from ontology.objects where object_id=%s",(undated,)).fetchone()==('erasure:'+request_id,'cancelled')
+    assert status=='open' and admin.execute('select count(*) from runtime.nexloop_commitments where commitment_id=any(%s)',([commitment,undated],)).fetchone()==(0,)
+    cancel,settled=events()[-2:]
+    assert cancel[:3]==('cancel_requested','erasure:'+request_id,'erasure:'+request_id) and cancel[3]=={'reason':'consumer_erasure'}
+    assert settled[0]=='status' and settled[3]['status']=='cancelled' and settled[3]['source']=='consumer_erasure' and settled[3]['from']=='open'
+    references=admin.execute("select counts from runtime.nexloop_erasure_tombstones where item_class='consumer_references'").fetchone()[0]
+    assert references['commitments_cancelled']==1 and references['commitments']==2
+    before=events()
+    c.tick()  # the keeper wakes: nothing to move, nothing to repeat, no error
+    assert events()==before and admin.execute("select properties->>'status' from ontology.objects where object_id=%s",(undated,)).fetchone()==('cancelled',)
     assert admin.execute("select count(*) from control.nexloop_commercial_customer_links where consumer_id=%s",(consumer,)).fetchone()==(0,)
     assert admin.execute("select count(*) from runtime.nexloop_commercial_events where customer_ref='cust-1'").fetchone()==(0,)
     assert admin.execute("select consumer_ref from runtime.nexloop_cost_entries where entry_id='discount:c1'").fetchone()==(None,)
@@ -195,3 +210,34 @@ def test_run_files_and_artifacts_leave_only_when_their_deletion_is_confirmed(era
         assert admin.execute("select reason from runtime.nexloop_erasure_tombstones where subject_key=%s",(young,)).fetchone()==('consumer_erasure',)
     # Only the keeper's own grant reaches the port: a service without it is refused.
     with pytest.raises(Exception):retention.ErasurePort(c['env']['worker'],c['env'].session(),c['env']['signer']).requests()
+
+
+def test_existing_stock_of_an_erased_consumer_is_cancelled_once(commitments,admin):
+    """I36 d: commitments of a Consumer erased before 0306 (made_to an erasure reference, registry row kept) are cancelled by 0388's
+    stock block with the same rule: undated or already cancel-requested open / conditional; dated without a request and breached stay.
+    Running the block again changes nothing (one cancel request, one status event)."""
+    import re as _re
+    from pathlib import Path
+    c=commitments
+    undated,_=fresh(c,due_in=None,reply='好的，我会给您回电。',quote='我会给您回电',predicate='回电')
+    requested,_=fresh(c,reply='好的，我会在后天前给您寄出。',quote='我会在后天前给您寄出',predicate='寄出')
+    dated,_=fresh(c)
+    admin.execute("insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,ref,detail,principal_id) values(%s,'real',%s,'cancel_requested','intent:x','{\"reason\":\"t\"}','synthetic-owner')",
+        (TENANT,'commitment:'+requested))
+    with admin.transaction():
+        admin.execute("select runtime.nexloop_erasure_open('ontology.objects',array['commitment_erasure'],false,'consumer-erasure:old-1')")
+        admin.execute("update ontology.objects set properties=properties||jsonb_build_object('made_to','erasure:old-1','condition',null) where object_id=any(%s)",([undated,requested,dated],))
+        admin.execute('select runtime.nexloop_erasure_close()')
+    sql=Path(__file__).resolve().parents[1].joinpath('packages/eios-core/src/eios/migrations/0388_erasure_cancels_undated_commitments.sql').read_text()
+    block=_re.search(r'do \$stock\$.*?\$stock\$;',sql,_re.S).group(0)
+    status=lambda x:admin.execute("select properties->>'status' from ontology.objects where object_id=%s",(x,)).fetchone()[0]
+    count=lambda:admin.execute("select count(*) from runtime.nexloop_commitment_events where subject_ref=any(%s) and kind in ('cancel_requested','status')",
+        (['commitment:'+x for x in (undated,requested,dated)],)).fetchone()[0]
+    admin.execute(block)
+    assert (status(undated),status(requested),status(dated))==('cancelled','cancelled','open')
+    after=count()
+    admin.execute(block)
+    assert count()==after
+    assert admin.execute("select principal_id,ref from runtime.nexloop_commitment_events where subject_ref=%s and kind='cancel_requested'",('commitment:'+undated,)).fetchall()==[('erasure:old-1','erasure:old-1')]
+    c.tick()
+    assert count()==after and status(undated)=='cancelled'
