@@ -129,6 +129,13 @@ uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config <私有配
 
 ## 合成交互：合成顾客发言（`synthetic_customer.py`）
 
+逐轮发言的期限、就绪握手和超时处理（S69）以 `docs/release/run-s6-stage-prep.md` §2.2 的“就绪握手与超时”为准，要点如下：
+
+- 900 秒从提示开始计算，到期记为 `interaction_timeout`，试运行进入 `paused`。
+- 顺序是：就绪标记（APP_HOST `runs/speaker-ready`）→ 观察程序启动或恢复 → 发言。
+- 超时后由负责人确认，用 `--resume REF --void-seq N --void-confirmation REF` 继续。只有 `stopped` 才换新的 `TRIAL_ID`。
+- 示例脚本：`deploy/examples/nx037/speak-when-ready.example.sh`。
+
 合成交互数据执行单（分支 `l5/s6-stage-data`，ec9bf9a0，尚未进 main）第 2 步“执行”中的顾客发言改用本工具；合入后以本节为准。调度员在自己的 Mac 上发言；观察方仍是 APP_HOST 上的 run 入口。
 
 - **发言**：`scripts/acceptance/synthetic_customer.py` 代替操作员在合成 WebChat 中逐轮发言，走与真人相同的顾客路径（`nexloop_eios.consumer_channel`：登录、会话、带 CSRF 与 Idempotency-Key 的消息、登出），不经任何后门。
