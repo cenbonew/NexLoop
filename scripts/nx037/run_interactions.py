@@ -44,6 +44,13 @@ the refusal codes. It sends nothing and writes nothing: no prompt, no consent.js
 conformance (which creates three marked effects on the endpoint) is not run; only the enterprise provider file is read
 (enterprise_provider_unreadable). The output names that check under not_run. It does not need --out to be new or to exist.
 
+Speaking order (S69, after S6 rerun dc7645a9 interaction 1 timed out): each interaction's --interaction-timeout counts from its
+prompt, and a timeout (interaction_timeout) pauses the trial. Start or resume this entry only when the speaker is ready: the
+speaker first writes a readiness marker and waits; the operator's watcher then starts or resumes the entry; the speaker speaks once
+the interaction's prompt line is in prompts.jsonl (and, after a pause, a new resumes.jsonl line). Example:
+deploy/examples/nx037/speak-when-ready.example.sh. After a timeout, with the owner's confirmation: --resume REF --void-seq N
+--void-confirmation REF.
+
 A stopped trial never resumes (start a new trial id). A paused trial continues only with --resume and the owner's confirmation
 reference. Output: one JSON line of ids, codes, numbers and times. Exit: 0 completed; 1 paused; 2 stopped; 3 refused (input or
 real mode preconditions).
