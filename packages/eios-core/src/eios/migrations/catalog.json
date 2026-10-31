@@ -1910,6 +1910,11 @@
       "version": "0382",
       "name": "0382_relay_backlog_pseudonym.sql",
       "sha256": "3252965e4c24a659c3566c4cb93af3a29b22118ffde434ac9abf736f7431f292"
+    },
+    {
+      "version": "0383",
+      "name": "0383_erasing_pseudonym.sql",
+      "sha256": "19347e364b69d3f69682a6d83b73670e4b84aed8adf49931bd1d0409b058df2c"
     }
   ]
 }

@@ -592,6 +592,11 @@ REGISTRY = [
     # R60 (stage 2026-10-31): a Consumer pseudonymized by the completed erasure (0305) settles as consumer_erased.
     Allowed('relay_backlog_pseudonym', 'control.nexloop_governed_relay_backlog_settle', "a 'pseudonym:' Consumer reads as erased; nothing else",
             ((r" or v_consumer like 'pseudonym:%'", ""),)),
+    # I28: every reader of a pseudonymized row sees the erased Consumer as erasing; the outreach candidates skip an erasing Consumer.
+    Allowed('erasing_pseudonym', 'runtime.nexloop_consumer_erasing', "a 'pseudonym:' id is erasing; nothing else",
+            ((r"\s*if p_consumer like 'pseudonym:%' then return true;end if;", ""),)),
+    Allowed('erasing_pseudonym', 'runtime.nexloop_outreach_candidates', 'an erasing Consumer is no candidate; nothing else',
+            ((r"\s*continue when runtime\.nexloop_consumer_erasing\(p_tenant,p_world,x\.consumer_id\);", ""),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

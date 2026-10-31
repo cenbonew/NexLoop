@@ -107,3 +107,20 @@ def test_the_read_is_the_owners(restoring, admin):
         assert client.get('/api/v1/workbench/outreach-candidates?x=1', headers={'Origin': ORIGIN}).status_code == 422
         view = client.get('/api/v1/workbench/outreach-candidates', headers={'Origin': ORIGIN})
         assert view.status_code == 200 and view.json()['candidates'] == [] and 'nothing is sent' in view.json()['note']
+
+
+def test_an_erasing_or_pseudonymized_consumer_is_no_candidate(restoring, admin, tmp_path):
+    """I28 (migration erasing_pseudonym): an erasing Consumer leaves the candidates; after completion its kept rows carry a pseudonym,
+    which runtime.nexloop_consumer_erasing reads as erasing too."""
+    from erasure_support import mark_erasing
+    c = restoring
+    c.configure_categories()
+    fresh(c, due_in=timedelta(minutes=30))
+    with effect_provider(tmp_path / 'provider.sqlite') as provider:
+        c.deliver(provider, c.submit({'service': '后台退款处理'})['intent_id'])
+    assert len(candidates(admin)['candidates']) == 2
+    erasing = "select runtime.nexloop_consumer_erasing(%s,'real',%s)"
+    assert admin.execute(erasing, (TENANT, 'pseudonym:' + '0' * 32)).fetchone()[0] is True
+    assert admin.execute(erasing, (TENANT, c['consumer'])).fetchone()[0] is False
+    mark_erasing(admin, TENANT, c['consumer'])
+    assert candidates(admin)['candidates'] == []
