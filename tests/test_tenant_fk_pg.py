@@ -175,6 +175,7 @@ BATCH4B = (
     'runtime.nexloop_commitment_evidence',
     'runtime.nexloop_commitment_exceptions',
     'runtime.nexloop_commitments',
+    'runtime.nexloop_commitment_orphans',
     'runtime.nexloop_incentive_issues',
     'control.nexloop_consumer_erasures',
     'control.nexloop_data_exports',

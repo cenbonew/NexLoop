@@ -115,7 +115,7 @@ end $$;
 -- I36-d (L6): every orphaned commitment the keeper meets is recorded (one row per commitment, last seen time) and counted in the
 -- metrics snapshot; a tenant-context or RLS fault that hides registry rows would show up here instead of passing silently.
 create table runtime.nexloop_commitment_orphans (
- tenant_id text not null,world text not null,commitment_id text not null check(commitment_id~'^[0-9a-f]{64}$'),
+ tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,commitment_id text not null check(commitment_id~'^[0-9a-f]{64}$'),
  first_seen_at timestamptz not null default clock_timestamp(),last_seen_at timestamptz not null default clock_timestamp(),
  seen integer not null default 1 check(seen>=1),primary key(tenant_id,world,commitment_id)
 );
