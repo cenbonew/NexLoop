@@ -165,16 +165,18 @@ end $$;
 -- I35-e: the read lists are bound to the roles version. A configuration whose roles version has no list (a write that never
 -- happened) leaves the owner at the 0123/0224 reads without a sign; this state says it, workbench_roles --apply refuses to commit
 -- without it, and the metrics snapshot carries it for nexloop-doctor --workbench-read-types.
+-- I35-g: missing is the number the alert rule reads (the evaluator compares numbers only, a false present would never fire):
+-- 1 when the tenant has a workbench configuration and its roles version lacks a list, else 0; a tenant without one reports 0.
 create function control.nexloop_workbench_read_types_state(p_tenant text) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare prior text:=current_setting('eios.tenant_id',true);cur control.nexloop_workbench_configurations;n integer;
 begin
  cur:=control.nexloop_workbench_current(p_tenant);
- if cur.tenant_id is null then return jsonb_build_object('configured',false);end if;
+ if cur.tenant_id is null then return jsonb_build_object('configured',false,'missing',0);end if;
  perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
  select count(*) into n from control.nexloop_workbench_read_types where tenant_id=p_tenant and roles_version=cur.roles_version;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
- return jsonb_build_object('configured',true,'roles_version',cur.roles_version,'present',n=3);
+ return jsonb_build_object('configured',true,'roles_version',cur.roles_version,'present',n=3,'missing',case when n=3 then 0 else 1 end);
 end $$;
 alter function control.nexloop_workbench_read_types_state(text) owner to nexloop_owner;
 revoke all on function control.nexloop_workbench_read_types_state(text) from public;

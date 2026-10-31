@@ -138,7 +138,8 @@ copy guard 登记了这一处差异。PG 测试按真实路径走：owner 经工
 
 - 可读类型按 roles 版本记录。以后 roles 升版时，如果只写了配置、没写清单，owner 会无声地退回 0123/0224 的范围，必须能被发现。
 - `workbench_roles --apply` 在同一事务里依次写配置和清单。写完后调用 `control.nexloop_workbench_read_types_state` 自检：当前 roles 版本必须有三个角色的清单，缺任何一个就报 `read_types_missing: roles version N has no read lists`，整个事务回滚，配置也不会留下。
-- 指标快照（real）新增 `workbench_read_types`，内容为 `{configured, roles_version, present}`。
+- 指标快照（real）新增 `workbench_read_types`，内容为 `{configured, roles_version, present, missing}`。
+- I35-g：告警评估器只比较数字，布尔 `present=false` 永远不会触发，所以另给数字 `missing`：有工作台配置且当前 roles 版本缺清单时为 1，否则为 0。没有工作台配置的租户报 `{configured: false, missing: 0}`，是看得见的 0，不是缺失。告警规则 v27 的 `workbench_read_types_missing` 读这个键。
 - `nexloop-doctor --workbench-read-types --metrics-database-url-file F` 走只读的 metrics 角色：任何有工作台配置的 real 租户，只要 `present` 为 false 就退出码 1。
 - PG 测试覆盖两种情况：
   - 跳过清单写入时，`--apply` 报错且没有任何提交；
