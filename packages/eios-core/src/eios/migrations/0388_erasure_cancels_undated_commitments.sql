@@ -112,8 +112,31 @@ begin
  return n;
 end $$;
 
--- I38 (L6): the keeper's commitment command tells a missing registry row (P0002, terminal: the keeper completes the item) from an
--- unavailable port (42501, retried); before, a missing row was retried for good.
+-- I36-d (L6): every orphaned commitment the keeper meets is recorded (one row per commitment, last seen time) and counted in the
+-- metrics snapshot; a tenant-context or RLS fault that hides registry rows would show up here instead of passing silently.
+create table runtime.nexloop_commitment_orphans (
+ tenant_id text not null,world text not null,commitment_id text not null check(commitment_id~'^[0-9a-f]{64}$'),
+ first_seen_at timestamptz not null default clock_timestamp(),last_seen_at timestamptz not null default clock_timestamp(),
+ seen integer not null default 1 check(seen>=1),primary key(tenant_id,world,commitment_id)
+);
+alter table runtime.nexloop_commitment_orphans owner to nexloop_owner;
+alter table runtime.nexloop_commitment_orphans enable row level security;
+alter table runtime.nexloop_commitment_orphans force row level security;
+create policy tenant_boundary on runtime.nexloop_commitment_orphans to nexloop_owner
+ using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
+revoke all on runtime.nexloop_commitment_orphans from public,nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime,nexloop_identity,nexloop_configurator;
+create function runtime.nexloop_commitment_orphan(p_tenant text,p_world text,p_commitment text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+begin
+ insert into runtime.nexloop_commitment_orphans(tenant_id,world,commitment_id) values(p_tenant,p_world,p_commitment)
+  on conflict(tenant_id,world,commitment_id) do update set last_seen_at=clock_timestamp(),seen=runtime.nexloop_commitment_orphans.seen+1;
+ return jsonb_build_object('commitment_id',p_commitment,'orphaned',true);
+end $$;
+alter function runtime.nexloop_commitment_orphan(text,text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_commitment_orphan(text,text,text) from public;
+
+-- I38 (L6): the keeper's commitment command tells a missing registry row (recorded and returned as orphaned; terminal: the keeper
+-- completes the item) from an unavailable port (42501, retried); before, a missing row was retried for good.
 -- a. The keeper's settle records its status event through the shared function (0263 body otherwise unchanged).
 CREATE OR REPLACE FUNCTION authz.nexloop_commitment_command(p_digest text, p_world text, p_text text, p_signature text, p_payload text)
  RETURNS jsonb
@@ -140,7 +163,13 @@ begin
  end if;
  if coalesce(c->>'commitment_id','')!~'^[0-9a-f]{64}$' then raise exception 'commitment command invalid' using errcode='22023';end if;
  select * into r from runtime.nexloop_commitments where tenant_id=t and world=p_world and commitment_id=c->>'commitment_id' for update;
- if not found then raise exception 'commitment registry row absent' using errcode='P0002';end if;
+ if not found then
+  -- I38 / I36-d: orphaned only when this tenant still holds the Commitment object (its registry row went with a completed erasure);
+  -- anything else (another tenant's commitment, an unknown id) is refused as before.
+  if exists(select 1 from ontology.objects x where x.tenant_id=t and x.world=p_world and x.type_name='Commitment' and x.object_id=c->>'commitment_id') then
+   return runtime.nexloop_commitment_orphan(t,p_world,c->>'commitment_id');end if;
+  raise exception 'commitment unavailable' using errcode='42501';
+ end if;
  v_subject:='commitment:'||r.commitment_id;
  select * into o from ontology.objects where tenant_id=t and world=p_world and type_name='Commitment' and object_id=r.commitment_id for share;
  if c->>'verb'='registered' then
@@ -334,3 +363,20 @@ begin
  end loop;
  perform set_config('eios.tenant_id','',true);
 end $stock$;
+
+-- I36-d: runtime.nexloop_metrics_snapshot is renamed once and wrapped (world real): commitment_orphans {total, seen_last_24h}.
+alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_commitment_orphans;
+revoke all on function runtime.nexloop_metrics_snapshot_before_commitment_orphans(text,text) from public;
+create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp as $$
+declare v jsonb:=runtime.nexloop_metrics_snapshot_before_commitment_orphans(p_tenant,p_world);prior text:=current_setting('eios.tenant_id',true);o jsonb;
+begin
+ if p_world is distinct from 'real' then return v;end if;
+ perform set_config('eios.tenant_id',p_tenant,true);
+ select jsonb_build_object('total',count(*),'seen_last_24h',count(*) filter(where last_seen_at>clock_timestamp()-interval '24 hours')) into o
+  from runtime.nexloop_commitment_orphans where tenant_id=p_tenant and world=p_world;
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return v||jsonb_build_object('commitment_orphans',o);
+end $$;
+alter function runtime.nexloop_metrics_snapshot(text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_metrics_snapshot(text,text) from public;

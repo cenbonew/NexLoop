@@ -293,9 +293,13 @@ def test_a_dated_commitment_of_an_erased_consumer_breaches_contacts_no_one_and_e
     assert admin.execute("select count(*) from runtime.nexloop_commitments where commitment_id=%s",(dated,)).fetchone()==(0,)
 
 
-def test_i38_a_missing_registry_row_is_completed_not_retried(commitments,admin):
-    """I38 (L6): the keeper tells a missing registry row (terminal, the item completed and counted orphaned) from an unavailable port."""
-    c=commitments
+def test_i38_a_missing_registry_row_is_completed_not_retried(commitments,admin,caplog):
+    """I38 (L6): the keeper tells a missing registry row (terminal, the item completed and counted orphaned) from an unavailable port.
+    I36-d: it is never silent - a warning names the commitment, the orphan is recorded and the metrics snapshot counts it."""
+    import logging
+    c=commitments;caplog.set_level(logging.WARNING,logger='nexloop_eios.commitments')
+    snapshot=lambda:admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'commitment_orphans'",(TENANT,)).fetchone()[0]
+    assert snapshot()=={'total':0,'seen_last_24h':0}  # a visible zero
     dated,_=fresh(c)
     fault(admin,'delete from runtime.nexloop_commitments where commitment_id=%s',(dated,))
     fault(admin,"update runtime.nexloop_work_feed set available_at=clock_timestamp()-interval '1 second' where feed='commitment-monitor' and item_key=%s",('commitment:'+dated,))
@@ -304,3 +308,8 @@ def test_i38_a_missing_registry_row_is_completed_not_retried(commitments,admin):
     row=admin.execute("select status from runtime.nexloop_work_feed where feed='commitment-monitor' and item_key=%s",('commitment:'+dated,)).fetchone()
     assert row is None or row[0]!='pending',row
     assert all(t['orphaned']==0 for t in c.tick())
+    assert snapshot()=={'total':1,'seen_last_24h':1}
+    assert admin.execute("select seen from runtime.nexloop_commitment_orphans where commitment_id=%s",(dated,)).fetchone()==(1,)
+    warnings=[r.getMessage() for r in caplog.records if r.levelno==logging.WARNING and 'orphaned' in r.getMessage()]
+    assert len(warnings)==1 and dated in warnings[0]
+    assert admin.execute("select runtime.nexloop_metrics_snapshot(%s,'test') ? 'commitment_orphans'",(TENANT,)).fetchone()==(False,)

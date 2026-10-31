@@ -104,6 +104,8 @@ def test_ports_refuse_other_callers(commitments,admin):
     _,foreign=seed_multi_authority(admin,c['worker'],KEEPER_TARGETS,identity_suffix='-foreign-keeper',tenant=other_tenant)
     foreign_session=authenticate_service(c['worker'],foreign,world='real')
     with pytest.raises(Exception):CommitmentPort(c['worker'],foreign_session,c['signer']).evaluate(commitment)
+    # I36-d: another tenant's commitment is refused, never recorded as an orphan of the caller's tenant.
+    assert admin.execute('select count(*) from runtime.nexloop_commitment_orphans').fetchone()==(0,)
     assert CommitmentReadPort(c['worker'],foreign_session,c['signer']).commitment(commitment) is None
     assert CommitmentReadPort(c['worker'],foreign_session,c['signer']).commitments()==[]
     # Application roles have no table access.
