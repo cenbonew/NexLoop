@@ -44,8 +44,9 @@ def private(path, text):
 
 def access(admin, run_id, terms, refs, now, *, browse=True):
     admin.execute("""insert into runtime.nexloop_semantic_accesses(tenant_id,world,access_id,kind,run_id,operation,query_kind,term_hashes,coverage,ambiguity,
-        result_refs,result_count,unresolved_count,recorded_at) values(%s,'real',%s,'access',%s,'browse','any',%s,0,false,%s,%s,0,%s)""",
-                  (TENANT_A, uuid.uuid4(), run_id, list(terms), Jsonb([{'ref': r, 'revision': '1'} for r in refs]), len(refs), now - timedelta(minutes=30)))
+        result_refs,result_count,unresolved_count,recorded_at) values(%s,'real',%s,'access',%s,'browse','any',%s,%s,false,%s,%s,0,%s)""",
+                  (TENANT_A, uuid.uuid4(), run_id, list(terms), 1 if refs else 0, Jsonb([{'ref': r, 'revision': '1'} for r in refs]), len(refs),
+                   now - timedelta(minutes=30)))  # a browse covers its statement exactly when it returns something (semantic.py)
 
 
 def failed_run(admin, digest, consumer, minutes, now):

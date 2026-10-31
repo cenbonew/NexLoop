@@ -14,7 +14,9 @@ semantics), with its evidence chain and a short rationale:
     safety_regression     the same scenarios with a send, or an unexpected delivery: safety regression, never a candidate
     tool_misuse           a failing tool (unregistered tool, parameter errors) -> semantic_tool, marked only (D19)
     ambiguity_unresolved  a resolve returned ambiguity, nothing was used from it, and the Run failed -> semantic_content
-    retrieval_miss        a browse found nothing or a resolve left every term unresolved, and the Run failed -> semantic_content
+    retrieval_miss        a read the semantic layer did not cover - its statement fell back to the whole sentence (extraction
+                          'fallback') or its coverage is below 1 - and the Run failed -> semantic_content (I34 b: a fallback read
+                          with a fuzzy hit reports coverage 1.0 and is still a miss)
     none                  no semantic signal
 
 ``recovered_tool_errors`` are a weak signal (§11.3): a (tool, code) pair seen at least 3 times from at least 2 Consumers (D13) is
@@ -52,6 +54,7 @@ DIAGNOSIS_RUNS = 2000     # D20, per diagnosis
 WEAK_SIGNAL = (3, 2)      # D13: occurrences, distinct Consumers
 GROUP_MINIMUM = (3, 2)    # a semantic_content group needs Runs from at least this many occurrences and clusters (the D13 bar)
 VALIDATION_SHARE = 0.3
+EXTRACTIONS = ('terms', 'fallback')  # I34 (a): how a semantic access found its search terms (L3, runtime.nexloop_semantic_accesses.extraction)
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,46 @@ def _accesses_by_run(accesses: list[dict]) -> dict[str, list[dict]]:
     return out
 
 
+def read_missed(access: dict) -> bool:
+    """I34 (b): a semantic read the layer did not cover - extraction 'fallback' (no definition term was found in the statement, so the
+    whole sentence was searched and any hit is fuzzy) or coverage below 1. Only a read with extraction 'terms' and coverage 1 is covered;
+    a record without extraction (older than I34 a, and no derived value) is judged by its coverage alone."""
+    if access.get('kind') != 'access':
+        return False
+    if access.get('extraction') == 'fallback':
+        return True
+    coverage = access.get('coverage')
+    return coverage is not None and float(coverage) < 1
+
+
+def with_extraction(accesses: list[dict], derived: dict[str, str]) -> list[dict]:
+    """The records with `extraction` filled from a derived mapping (access_id -> terms | fallback, I34 c) where the record has none: the
+    value authz.nexloop_semantic_access_read returns (I34 a) is used as it is, and only a null one (a record older than the column) takes
+    the derived value - never overridden, even when the file says otherwise."""
+    return [a if a.get('extraction') in EXTRACTIONS or a.get('access_id') not in derived else {**a, 'extraction': derived[a['access_id']]}
+            for a in accesses]
+
+
+def load_extraction(text: str) -> dict[str, str]:
+    """I34 (c)'s derivation file: a JSON list of {access_id, extraction} (or {"accesses": [...]}), ids and codes only. Refuses anything else."""
+    value = json.loads(text)
+    rows = value.get('accesses') if isinstance(value, dict) else value
+    if not isinstance(rows, list):
+        raise ValueError('extraction file: a list of {access_id, extraction}')
+    out: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {'access_id', 'extraction'} or row['extraction'] not in EXTRACTIONS:
+            raise ValueError('extraction file: each row exactly {access_id, extraction terms|fallback}')
+        try:
+            access_id = str(uuid.UUID(str(row['access_id'])))
+        except ValueError:
+            raise ValueError('extraction file: access_id must be a uuid') from None
+        if out.get(access_id, row['extraction']) != row['extraction']:
+            raise ValueError('extraction file: one access with two values')
+        out[access_id] = row['extraction']
+    return out
+
+
 def _semantic(run_accesses: list[dict]) -> tuple[str, dict] | None:
     used = {a['accessed_id'] for a in run_accesses if a['kind'] == 'use'}
     reads = [a for a in run_accesses if a['kind'] == 'access']
@@ -131,8 +174,7 @@ def _semantic(run_accesses: list[dict]) -> tuple[str, dict] | None:
         refs = sorted({r['ref'] for a in ambiguous for r in a.get('result_refs') or []})
         return 'ambiguity_unresolved', {'access_ids': [a['access_id'] for a in ambiguous], 'refs': refs,
                                         'term_hashes': sorted({h for a in ambiguous for h in a.get('term_hashes') or []})}
-    missed = [a for a in reads if (a['operation'] == 'browse' and a.get('result_count', 0) == 0)
-              or (a['operation'] == 'resolve' and a.get('unresolved_count', 0) == len(a.get('term_hashes') or []) and a.get('unresolved_count', 0) > 0)]
+    missed = [a for a in reads if read_missed(a)]
     if missed:
         found = sorted({r['ref'] for a in reads if a not in missed for r in a.get('result_refs') or []})
         return 'retrieval_miss', {'access_ids': [a['access_id'] for a in missed], 'refs': found,
