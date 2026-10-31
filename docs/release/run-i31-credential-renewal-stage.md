@@ -100,12 +100,17 @@ world_glossary_translator 同样执行一次。
 
    ```bash
    { security find-generic-password -s <Keychain 中 APP_HOST sudo 的条目> -w; cat <树>/app/secrets/outreach-sender/service-credential; } | \
-     ssh <APP_HOST> 'sudo -S -p "" install -o 10001 -g 10001 -m 0600 /dev/stdin "$NEXLOOP_ROOT/secrets/outreach-sender/service-credential"'
+     ssh <APP_HOST> 'F="$NEXLOOP_ROOT/secrets/outreach-sender/service-credential"; sudo -S -p "" sh -c "install -o 10001 -g 10001 -m 0600 /dev/stdin \"\$1.i31new\" && mv -f \"\$1.i31new\" \"\$1\"" sh "$F"'
    ```
 
    - sudo 从标准输入的第一行读口令，`install` 读其余部分。
+   - **为什么先装到 `<文件>.i31new` 再 `mv -f`**：APP_HOST 上的 GNU `install` 以 `/dev/stdin` 为源覆盖**已存在**的目标文件时报 `install: No such file or directory`（新建文件不报；R62 用探针文件复现）。所以先 install 到同目录的新文件（属主 10001、0600），再 `mv -f` 在同一文件系统上原子替换。结果仍是新 inode，第 4 条的重启理由不变。
+   - 装之前记下旧 inode：`sudo stat -c '%i' <文件>`。
+   - 装完核对（都只看元数据和摘要，不显示内容）：
+     - `sudo stat -c '%u:%g %a %s %i' <文件>` 预期 `10001:10001 600`、非零大小，inode 与装之前不同；
+     - `sudo test ! -e <文件>.i31new && echo no-temp` 预期 `no-temp`（没有遗留临时文件；若 install 成功而 mv 失败，临时文件会留下，删除后重做本条）；
+     - `sudo sha256sum <文件>` 与 `<树>/manifest.json` 中这个文件的 `sha256` 一致。
    - glossary 的路径是 `$NEXLOOP_ROOT/secrets/world-glossary-translator/service-credential`，属主同样是 10001。
-   - 装完核对：`sudo stat -c '%U %a %s' <文件>` 预期 `10001 600` 和非零大小；`sudo sha256sum <文件>` 与 `<树>/manifest.json` 中这个文件的 `sha256` 一致（只比较摘要，不显示内容）。
 4. **重启 outreach-sender**：
 
    ```bash
@@ -113,7 +118,7 @@ world_glossary_translator 同样执行一次。
      --env-file "$NEXLOOP_ROOT/config/compose.images.env" restart outreach-sender
    ```
 
-   必须重启：`install` 会生成新的 inode，而 compose 的 `secrets: file:` 是 bind-mount，运行中的容器还看着旧文件。重启后会重新挂载。
+   必须重启：`mv -f` 替换后是新的 inode，而 compose 的 `secrets: file:` 是 bind-mount，运行中的容器还看着旧文件。重启后会重新挂载。
 
    glossary 不用重启，下一轮 timer 会起一个新容器读新文件。
 5. **重启后核对**（APP_HOST）：
