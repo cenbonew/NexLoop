@@ -543,11 +543,6 @@ REGISTRY = [
              (r"\n  delete from control\.nexloop_erasure_relation_targets where tenant_id=p_tenant and world=p_world and request_id=e\.request_id;", ""))),
     # I36 (owner 2026-10-31, L6 option A): the keeper's settle and the erasure share one status event; the completion trigger cancels
     # the Consumer's undated (or cancel-requested) open commitments before the registry rows go.
-    Allowed('erasure_cancels_undated_commitments', 'authz.nexloop_commitment_command',
-            'the status event through runtime.nexloop_commitment_status_event; I38 / I36-d: a missing registry row is recorded and returned as orphaned; nothing else',
-            ((r"if not found then\n  -- I38 / I36-d: orphaned only.*?\n  raise exception 'commitment unavailable' using errcode='42501';\n end if;", "if not found then raise exception 'commitment unavailable' using errcode='42501';end if;"),
-             (r"perform runtime\.nexloop_commitment_status_event\(t,p_world,o,v_last,null\);",
-              "insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,detail)\n    values(t,p_world,v_subject,'status',jsonb_build_object('status',v_status,'from',v_last,'late',o.properties->'late','revision',o.nexloop_revision,\n     'fulfillment_evidence',o.properties->'fulfillment_evidence'));"),)),
     Allowed('erasure_cancels_undated_commitments', 'control.nexloop_consumer_reference_erasure',
             'before the registry delete, the undated or cancel-requested open commitments are cancelled through runtime.nexloop_commitment_cancel_apply and counted; dated open ones keep their registry row under the pseudonym (I36-c); nothing else',
             ((r"tn text:=new\.tenant_id;x record;", "tn text:=new.tenant_id;"),

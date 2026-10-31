@@ -309,11 +309,7 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         '_erasure_identity_residue',
         # NX-054 P4c 0358 copies the latest Consumer erasure step with the relation targets fixed at its start; its claims phase is
         # unchanged (blanks the quote, texts and value of the erased Consumer's Claims); no Claim value is read or projected.
-        '_relation_purge_union',
-        # I36 0388 copies the 0263 commitment command (its Claim lines - resolving the registered commitment Claim and the existence
-        # check on it - unchanged; settle now calls the shared status event) and the 0306 erasure completion trigger (cancels or keeps
-        # the erased Consumer's commitments; its Claim handling unchanged); no new Claim value is read or projected.
-        '_erasure_cancels_undated_commitments')) for name in migrations)
+        '_relation_purge_union')) for name in migrations)
 
 
 def correction_window(conversations):

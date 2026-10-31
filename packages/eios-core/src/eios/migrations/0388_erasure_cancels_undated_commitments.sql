@@ -5,8 +5,8 @@
 --
 -- a. One transition, shared: runtime.nexloop_commitment_cancel_apply(tenant, world, commitment, source) applies the ledger-derived
 --    patch (runtime.nexloop_commitment_target, the same function the keeper's evaluate uses; the object guard checks it again) with
---    revision+1, and records the status event through runtime.nexloop_commitment_status_event, which the keeper's settle now calls
---    too (authz.nexloop_commitment_command is 0263's body with that call in place of its inline insert; registered in the copy guard).
+--    revision+1, and records the status event through runtime.nexloop_commitment_status_event, which writes the
+--    same event as the keeper's settle (0263, unchanged).
 --    The event carries source consumer_erasure; the keeper's carries none (unchanged). The object write is not the keeper's signed
 --    Commitment.edit (the erasure holds no keeper permit): no action claim / outcome row, as the erasure's own made_to write (0132).
 -- b. Only conditional / open / in_progress commitments that are undated or already carry a cancel request; fulfilled, breached,
@@ -136,134 +136,30 @@ alter function runtime.nexloop_commitment_orphan(text,text,text) owner to nexloo
 revoke all on function runtime.nexloop_commitment_orphan(text,text,text) from public;
 
 -- I38 (L6): the keeper's commitment command tells a missing registry row (recorded and returned as orphaned; terminal: the keeper
--- completes the item) from an unavailable port (42501, retried); before, a missing row was retried for good.
--- a. The keeper's settle records its status event through the shared function (0263 body otherwise unchanged).
-CREATE OR REPLACE FUNCTION authz.nexloop_commitment_command(p_digest text, p_world text, p_text text, p_signature text, p_payload text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'pg_temp'
- SET row_security TO 'on'
-AS $function$
-declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-commitment-keep-v1','eios:action:nexloop.commitment.keep:1',
-  array['nexloop_domain_worker']);c jsonb:=p_payload::jsonb;r runtime.nexloop_commitments;o ontology.objects;v_patch jsonb;v_status text;v_last text;
- v_due timestamptz;v_lead integer;v_next timestamptz;v_now timestamptz:=runtime.nexloop_world_now(t,p_world);v_subject text;v_restricted boolean;f runtime.nexloop_work_feed;
+-- completes the item) from an unavailable port (42501, retried); before, a missing row was retried for good. Renamed and wrapped
+-- (L6 CI 269: no copy of 0263's body, whose Claim lines stay where they are); the wrapped command is 0263's, unchanged - its settle
+-- writes the same status event as runtime.nexloop_commitment_status_event (written only when the last recorded status differs).
+alter function authz.nexloop_commitment_command(text,text,text,text,text) rename to nexloop_commitment_command_before_commitment_orphans;
+revoke all on function authz.nexloop_commitment_command_before_commitment_orphans(text,text,text,text,text) from public,nexloop_domain_worker;
+create function authz.nexloop_commitment_command(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare c jsonb:=p_payload::jsonb;t text;
 begin
- perform set_config('eios.tenant_id',t,true);
- if c->>'verb'='prepare' then
-  if c ? 'claim_id' then
-   if coalesce(c->>'claim_id','')!~'^[0-9a-f]{64}$' then raise exception 'commitment command invalid' using errcode='22023';end if;
-   return runtime.nexloop_commitment_prepare_claim(t,p_world,c->>'claim_id');
-  end if;
-  if coalesce(c->>'commitment_id','')!~'^[0-9a-f]{64}$' then raise exception 'commitment command invalid' using errcode='22023';end if;
-  select * into r from runtime.nexloop_commitments where tenant_id=t and world=p_world and commitment_id=c->>'commitment_id';
-  if not found then raise exception 'commitment unavailable' using errcode='42501';end if;
-  if r.registered_at is not null then return jsonb_build_object('action','registered','commitment_id',r.commitment_id);end if;
-  return jsonb_build_object('action','create','commitment_id',r.commitment_id,'intent_id',r.intent_id,'properties',r.properties);
- end if;
- if coalesce(c->>'commitment_id','')!~'^[0-9a-f]{64}$' then raise exception 'commitment command invalid' using errcode='22023';end if;
- select * into r from runtime.nexloop_commitments where tenant_id=t and world=p_world and commitment_id=c->>'commitment_id' for update;
- if not found then
+ if c->>'verb' is distinct from 'prepare' and coalesce(c->>'commitment_id','')~'^[0-9a-f]{64}$' then
+  t:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-commitment-keep-v1','eios:action:nexloop.commitment.keep:1',
+   array['nexloop_domain_worker']);
   -- I38 / I36-d: orphaned only when this tenant still holds the Commitment object (its registry row went with a completed erasure);
-  -- anything else (another tenant's commitment, an unknown id) is refused as before.
-  if exists(select 1 from ontology.objects x where x.tenant_id=t and x.world=p_world and x.type_name='Commitment' and x.object_id=c->>'commitment_id') then
-   return runtime.nexloop_commitment_orphan(t,p_world,c->>'commitment_id');end if;
-  raise exception 'commitment unavailable' using errcode='42501';
+  -- anything else (another tenant's commitment, an unknown id) goes to the wrapped command, which refuses it as before.
+  if not exists(select 1 from runtime.nexloop_commitments r where r.tenant_id=t and r.world=p_world and r.commitment_id=c->>'commitment_id')
+   and exists(select 1 from ontology.objects x where x.tenant_id=t and x.world=p_world and x.type_name='Commitment' and x.object_id=c->>'commitment_id') then
+   return runtime.nexloop_commitment_orphan(t,p_world,c->>'commitment_id');
+  end if;
  end if;
- v_subject:='commitment:'||r.commitment_id;
- select * into o from ontology.objects where tenant_id=t and world=p_world and type_name='Commitment' and object_id=r.commitment_id for share;
- if c->>'verb'='registered' then
-  if o.object_id is null or o.properties is distinct from r.properties then raise exception 'commitment not created as prepared' using errcode='40001';end if;
-  if r.registered_at is not null then return jsonb_build_object('commitment_id',r.commitment_id,'replay',true);end if;
-  update runtime.nexloop_commitments set registered_at=v_now where tenant_id=t and world=p_world and commitment_id=r.commitment_id;
-  insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,ref,detail)
-   values(t,p_world,v_subject,'registered',coalesce('claim:'||r.claim_id,'commitment:'||r.supersedes),jsonb_build_object('origin',r.origin,'status',r.properties->>'status'));
-  if r.claim_id is not null then
-   update ontology.nexloop_claims set resolution_state='resolved' where tenant_id=t and world=p_world and claim_id=r.claim_id and resolution_state in ('unresolved','needs_resolution');
-  end if;
-  if r.supersedes is not null then
-   insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,ref)
-    values(t,p_world,'commitment:'||r.supersedes,'superseded',v_subject);
-   perform runtime.nexloop_commitment_touch(t,p_world,r.supersedes,v_now);
-  end if;
-  if exists(select 1 from control.nexloop_contact_restrictions x where x.tenant_id=t and x.world=p_world and x.consumer_id=r.consumer_id and x.active) and r.origin='claim' then
-   perform runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,'made_under_contact_restriction',jsonb_build_object('message_id',r.message_id));
-  end if;
-  if r.claim_id is not null and exists(select 1 from ontology.nexloop_claims cl where cl.tenant_id=t and cl.world=p_world and cl.claim_id=r.claim_id
-    and cl.valid_time->>'kind'='past_reference') then
-   perform runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,'due_in_past',jsonb_build_object('claim_id',r.claim_id));
-  end if;
-  -- Without a due date the plans are marked now: the business rule is to clarify it (docs/04 §8).
-  if r.properties->>'due_at' is null then perform runtime.nexloop_commitment_mark_plans(t,p_world,r.commitment_id,r.consumer_id,null,'clarify_due');end if;
-  perform runtime.nexloop_commitment_touch(t,p_world,r.commitment_id,v_now);
-  return jsonb_build_object('commitment_id',r.commitment_id,'replay',false);
- elsif c->>'verb'='exception' then
-  if coalesce(c->>'reason','')!~'^[a-z_]{1,64}$' or jsonb_typeof(c->'detail') is distinct from 'object' then raise exception 'commitment command invalid' using errcode='22023';end if;
-  return jsonb_build_object('raised',runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,c->>'reason',c->'detail'));
- end if;
- if o.object_id is null or r.registered_at is null then raise exception 'commitment not registered' using errcode='40001';end if;
- if c->>'verb'='evaluate' then
-  v_patch:=runtime.nexloop_commitment_target(t,p_world,r.commitment_id,o.properties,v_now);
-  return jsonb_build_object('commitment_id',r.commitment_id,'revision',o.nexloop_revision,'status',o.properties->>'status','patch',v_patch);
- elsif c->>'verb'='settle' then
-  v_status:=o.properties->>'status';
-  select e.detail->>'status' into v_last from runtime.nexloop_commitment_events e where e.tenant_id=t and e.world=p_world and e.subject_ref=v_subject
-   and e.kind in ('status','registered') order by e.event_number desc limit 1;
-  if v_last is distinct from v_status then
-   perform runtime.nexloop_commitment_status_event(t,p_world,o,v_last,null);
-   if v_status='breached' then
-    v_restricted:=exists(select 1 from control.nexloop_contact_restrictions x where x.tenant_id=t and x.world=p_world and x.consumer_id=r.consumer_id and x.active);
-    perform runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,'breached',jsonb_build_object('due_at',o.properties->>'due_at',
-     'contact_restricted',v_restricted,'paused',exists(select 1 from control.nexloop_control_scopes s where s.tenant_id=t and s.world=p_world and s.paused
-      and ((s.scope_kind='consumer' and s.scope_ref=r.consumer_id) or s.scope_kind='tenant'))));
-    perform runtime.nexloop_commitment_mark_plans(t,p_world,r.commitment_id,r.consumer_id,(o.properties->>'due_at')::timestamptz,'breached');
-   end if;
-  end if;
-  v_due:=(o.properties->>'due_at')::timestamptz;v_lead:=runtime.nexloop_commitment_setting('lead_seconds');
-  if v_status in ('open','in_progress') then
-   -- A fulfilment intent that cannot dispatch to a restricted Consumer (ADR-023): owner-visible.
-   if exists(select 1 from control.nexloop_contact_restrictions x where x.tenant_id=t and x.world=p_world and x.consumer_id=r.consumer_id and x.active)
-    and exists(select 1 from runtime.nexloop_commitment_evidence q join runtime.nexloop_effect_intents i on 'intent:'||i.intent_id=q.ref
-      and i.tenant_id=q.tenant_id and i.world=q.world
-     where q.tenant_id=t and q.world=p_world and q.commitment_id=r.commitment_id and q.kind='requested' and i.state not in ('fulfilled','confirmed')
-      and runtime.nexloop_commitment_effect_kind(t,p_world,i.intent_id)='delivered_message') then
-    perform runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,'blocked_by_contact_restriction',jsonb_build_object('due_at',o.properties->>'due_at'));
-   end if;
-   if v_due is not null then
-    if v_now>=v_due-make_interval(secs=>v_lead) and not exists(select 1 from runtime.nexloop_commitment_events e
-      where e.tenant_id=t and e.world=p_world and e.subject_ref=v_subject and e.kind='due_soon') then
-     insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,detail) values(t,p_world,v_subject,'due_soon',jsonb_build_object('due_at',o.properties->>'due_at'));
-     perform runtime.nexloop_commitment_mark_plans(t,p_world,r.commitment_id,r.consumer_id,v_due,'due_soon');
-    end if;
-    v_next:=case when v_now<v_due-make_interval(secs=>v_lead) then v_due-make_interval(secs=>v_lead) else v_due end;
-   end if;
-  elsif v_status='conditional' and v_due is not null then
-   if v_now>=v_due then
-    if runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,'condition_unresolved_at_due',jsonb_build_object('due_at',o.properties->>'due_at')) then
-     perform runtime.nexloop_commitment_mark_plans(t,p_world,r.commitment_id,r.consumer_id,v_due,'condition_unresolved');
-    end if;
-   else v_next:=v_due;end if;
-  end if;
-  if v_status in ('conditional','open','in_progress') and v_due is null then
-   if v_now>=r.registered_at+make_interval(secs=>runtime.nexloop_commitment_setting('unspecified_max_open_seconds')) then
-    perform runtime.nexloop_commitment_raise(t,p_world,v_subject,r.consumer_id,'no_due_date',jsonb_build_object('registered_at',r.registered_at));
-   else v_next:=r.registered_at+make_interval(secs=>runtime.nexloop_commitment_setting('unspecified_max_open_seconds'));end if;
-  end if;
-  -- Next stage of this commitment's monitor item; an item changed while being worked on stays due now.
-  if v_next is not null then
-   select * into f from runtime.nexloop_work_feed where tenant_id=t and world=p_world and feed='commitment-monitor' and item_key=v_subject for update;
-   if not found then
-    insert into runtime.nexloop_work_feed(tenant_id,world,feed,item_key,payload,available_at)
-     values(t,p_world,'commitment-monitor',v_subject,jsonb_build_object('commitment_id',r.commitment_id),runtime.nexloop_world_wall_at(t,p_world,v_next));
-   elsif f.lease_seq is not distinct from (c->>'fence')::bigint and f.change_seq=f.lease_seq then
-    update runtime.nexloop_work_feed set available_at=runtime.nexloop_world_wall_at(t,p_world,v_next),change_seq=change_seq+1,changed_at=clock_timestamp()
-     where tenant_id=t and world=p_world and feed='commitment-monitor' and item_key=v_subject;
-   end if;
-  end if;
-  return jsonb_build_object('commitment_id',r.commitment_id,'status',v_status,'next_at',v_next);
- end if;
- raise exception 'commitment command invalid' using errcode='22023';
-end $function$;
+ return authz.nexloop_commitment_command_before_commitment_orphans(p_digest,p_world,p_text,p_signature,p_payload);
+end $$;
+alter function authz.nexloop_commitment_command(text,text,text,text,text) owner to nexloop_owner;
+revoke all on function authz.nexloop_commitment_command(text,text,text,text,text) from public;
+grant execute on function authz.nexloop_commitment_command(text,text,text,text,text) to nexloop_domain_worker;
 
 -- c. The completion trigger cancels before the registry rows go (0306 body otherwise unchanged).
 create or replace function control.nexloop_consumer_reference_erasure() returns trigger
