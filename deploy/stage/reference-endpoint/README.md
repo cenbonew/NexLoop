@@ -64,6 +64,12 @@ python scripts/nx037/endpoint_conformance.py --origin https://<ENDPOINT_HOST_NAM
 
 浏览器打开 `https://<ENDPOINT_HOST_NAME>:<ENDPOINT_PORT>/staff`，用员工凭据登录（会话 8 小时，Cookie 为 HttpOnly、Secure、SameSite=Strict）。页面按工单列出最近 500 条请求，字段为：请求摘要（含详情与客户引用）、来源租户与意图 id、收到时间、处理人、状态（待处理 / 已处理 / 处理失败）、处理结果与备注。员工处理“待处理”工单时必须填写处理人（最多 64 字），可填备注（最多 500 字），再选“已处理”或“处理失败”；处理时间自动记录。标记一经写入不可更改。
 
+
+**工作台入口链接（S73，2026-10-31）**：负责人工作台「管理 › 入口」页可以列出这个员工页面。部署单片段：
+
+1. 在 APP_HOST 的私有 `compose.app.env` 里写 `REFERENCE_ENDPOINT_STAFF_URL=https://<ENDPOINT_HOST_NAME>:<ENDPOINT_PORT>/staff`。示例文件 `deploy/stage/compose.app.env.example` 里该值留空。只能填不带凭据、查询串和片段的 HTTPS 地址，否则 API 启动时拒绝。
+2. 重建 `api-1`、`api-2`（`docker compose ... up -d api-1 api-2`），两者都通过 `--reference-endpoint-staff-url` 读到这个值。
+3. 核对：负责人登录工作台，打开「管理 › 入口」，“外部系统”一组出现“参考端点 · 员工页面（新窗口打开）”，点击后在新窗口打开员工页面。值为空时这一组不显示，`GET /api/v1/workbench/entries` 返回 `{"reference_endpoint_staff_url": null}`。
 - **视图**（2026-10-17）：默认只显示**待处理的客户工单**，按收到时间倒序；“全部客户工单”和“一致性检查工单”各有自己的视图，带计数。一致性检查工单按摘要识别：`NexLoop conformance check …`（`endpoint_conformance.py` 的默认摘要），或 `端点一致性检查`（命令单中的空操作参数）。时间按北京时间显示，鼠标悬停可看 UTC；存储仍为 UTC。
 - 请求参数就是 `nexloop.enterprise.deliver:1` 的参数：`summary`（必填，最多 200 字）、`details`（可选，最多 2000 字）、`consumer_ref`（可选，NexLoop 的不透明客户引用，员工可凭它在工作台找到对应会话）。带其他键、类型或长度不对的请求一律返回 400 `parameters_invalid`，不落库。
 - “来源租户”不来自请求：一个端点只服务一个企业，取部署配置里的租户标签 `ENDPOINT_TENANT_LABEL`。

@@ -30,12 +30,19 @@ class BrowserConfiguration:
     identity_token_key_file:Path|None=None
     # NX-058 slice F: the private provider file of workbench single sign-on (nexloop_eios.workbench_oidc); None = SSO off (the default).
     oidc_providers_file:Path|None=None
+    # Owner S73 (2026-10-31): the reference endpoint staff page the workbench 入口 page links to (compose REFERENCE_ENDPOINT_STAFF_URL);
+    # None = no link. A plain HTTPS URL, no credentials, query or fragment.
+    reference_endpoint_staff_url:str|None=None
     def __post_init__(self):
         u=urlsplit(self.origin)
         if u.scheme!='https' or not u.netloc or u.username or u.password or u.path or u.query or u.fragment:raise ValueError('canonical HTTPS origin required')
         if any(type(v) is not str or not v or v!=v.strip() for v in (self.tenant_id,self.application_id)):raise ValueError('server realm required')
         if type(self.trusted_proxy_peers) is not tuple:raise ValueError('trusted proxy peers must be a tuple')
         client_ip_resolver(self)  # refuses an invalid peer list at start
+        if self.reference_endpoint_staff_url is not None:
+            r=self.reference_endpoint_staff_url;s=urlsplit(r) if type(r) is str else None
+            if s is None or len(r)>512 or r!=r.strip() or s.scheme!='https' or not s.hostname or s.username or s.password or s.query or s.fragment:
+                raise ValueError('plain HTTPS reference endpoint staff URL required')
 
 
 def client_ip_resolver(config):

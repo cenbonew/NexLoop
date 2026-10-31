@@ -340,6 +340,8 @@ def parse(argv=None,environ=None):
     p.add_argument('--identity-token-key-file',type=Path,help='NX-058: private key of one-time workbench secrets (reset codes, invitations)')
     p.add_argument('--browser-tenant-id');p.add_argument('--browser-application-id');p.add_argument('--browser-origin')
     p.add_argument('--workbench-application-id')
+    # Owner S73: the reference endpoint staff page linked from the workbench 入口 page; empty = no link (compose default).
+    p.add_argument('--reference-endpoint-staff-url',default='')
     p.add_argument('--workbench-oidc-providers-file',type=Path,help='NX-058 slice F: private provider file of workbench single sign-on (off without it)')
     # L6 C11: the gateway peers (address or CIDR, repeatable) whose X-NexLoop-Client-IP the login rate limit trusts; none = the socket peer.
     p.add_argument('--trusted-proxy-peer',action='append',default=[])
@@ -374,9 +376,11 @@ def parse(argv=None,environ=None):
     if a.workbench_application_id is not None:
         if browser is None or a.workbench_application_id==a.browser_application_id:p.error('workbench needs the browser realm and its own application')
         from nexloop_eios.browser_http import BrowserConfiguration
-        workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin,
+        try:workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin,
             trusted_proxy_peers=tuple(a.trusted_proxy_peer),identity_token_key_file=a.identity_token_key_file,
-            oidc_providers_file=a.workbench_oidc_providers_file)
+            oidc_providers_file=a.workbench_oidc_providers_file,reference_endpoint_staff_url=a.reference_endpoint_staff_url or None)
+        except ValueError:p.error('plain HTTPS reference endpoint staff URL required')
+    elif a.reference_endpoint_staff_url:p.error('the reference endpoint staff URL needs the workbench')
     host_control=None
     if any(v is not None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):
         if any(v is None for v in (a.host_origin,a.host_control_key_file,a.host_ca_file)):p.error('complete Host control configuration required')
