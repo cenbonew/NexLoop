@@ -17,6 +17,8 @@
 | 0391 §3 | `control.nexloop_revoke_superseded_service_credential`：没有轮换目录时，撤销到期时间**恰好**为给定值的那一枚 active 令牌；保留的令牌（树里这枚）必须是同一凭据的另一枚 active 令牌且更晚到期 |
 | 工具 | `rotate-credential --apply` 总是按当前 service-grants 重新编译 scopes 再轮换（输出 `scopes_added` / `scopes_removed`）；新增 `revoke-credential --superseded --expires-at <到期时间> --request-id <UUID>` |
 
+**scopes 的取值**由 configurator 侧（`rotate-credential --apply`）按 service-grants 清单编译；数据库只保证形状正确、与认证 fact 一致，不与清单比对。
+
 **注意，scopes 变化时不是无缝重叠**：EIOS 逐字段比较令牌绑定与按 credential_id 共享的认证 fact。所以 apply 之后旧令牌**仍能认证**，
 但授权判定都会因 `AUTHENTICATION_STALE` 被拒；在 register 写完新的 scope fact 之前，新令牌也用不了新增的 scope。
 对 catalog_maintainer 来说这段窗口没有影响（无常驻服务），但从 apply 到 register 期间不要运行 catalog_setup / incentive_setup。
@@ -87,6 +89,13 @@ python3 <检出>/scripts/deploy/stage_secrets.py rotate-credential --out <树> -
 
 - `--previous` 预期 `"revoked": 1, "active_tokens": 1`；拒绝 `switch to the new token first` 表示 `$RUN` 没有同步。
 - finish 之后同步时，`$RUN/management/rotation/catalog_maintainer/` 也要删除。
+- **只读核对（关闭 R65 的"两枚令牌未关闭"项，记入 R66 证据）**：
+
+  ```bash
+  ro "select count(*) filter (where status='active') active, jsonb_agg(binding->'requested_scopes') filter (where status='active') scopes from authz.nexloop_service_credentials where tenant_id='<TENANT_ID>' and credential_id='nexloop-service-catalog-maintainer-key'"
+  ```
+
+  预期 `active=1`，`scopes` 为 `[["action.execute", "object_type.read"]]`，即 service-grants v24 对 catalog_maintainer 的编译结果（action 的 execute 加 object_type 的 read）。
 
 ### 3. register 与核对
 
@@ -96,7 +105,13 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_se
 ```
 
 - 正式执行预期 `changed: true`，写入 R65 未写的 facts（4 个 Action grant、2 个类型 READ、property_access_rule、owner 限制，共 38 条左右）；再执行一次预期 `changed: false`。
-- register-check（`service_grants --doctor`，只读）预期 `in_sync: true`，`credentials` 中没有 catalog_maintainer。
+- register-check（与 r65_data.sh register-check 相同的只读查询）：
+
+  ```bash
+  ro "select entity_key, payload->>'active' from authz.nexloop_authority_facts where tenant_id='<TENANT_ID>' and fact_kind in ('property_access_rule','property_group_restriction') and entity_key::text like '%IncentiveOffering%'"
+  ```
+
+  预期 4 行（两条规则、两条限制），都是 active；register 报告 in_sync；catalog_maintainer 只剩 1 枚 active 令牌，scopes 为 `["action.execute","object_type.read"]`（第 2 步末尾的查询）。
 - 然后回到 run-incentive-catalog 第 3 步的核对。
 
 ## 撤回
