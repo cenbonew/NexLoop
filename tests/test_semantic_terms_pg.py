@@ -257,3 +257,41 @@ def test_the_relay_source_reads_definitions_only_through_its_definition_rule(sem
     out=adapter(f,relay,signer,SemanticAccessRecorder(f['worker'],relay,signer)).browse(SENTENCE,extract_terms=True)
     assert 'eios:property:Consumer/member_no' in {i['ref'] for i in out['items']}
     assert term_hash('会员编号') in records(admin)[-1][0] and records(admin)[-1][3] is None
+
+
+def extraction_rows(admin):
+    return admin.execute('select extraction,coverage,result_count,unresolved_count from runtime.nexloop_semantic_accesses'
+        " where kind='access' order by recorded_at").fetchall()
+
+
+def test_a_fallback_read_covers_nothing_yet_still_returns_its_fuzzy_hits_marked(semantic):
+    """I34 (S6 R61): an undefined concept falls back to the whole statement; the fuzzy recall still finds something, but the access
+    says extraction fallback and coverage 0, and every returned item is marked fallback."""
+    f,session,signer=semantic;admin=f['admin']
+    recorder=SemanticAccessRecorder(f['worker'],session,signer)
+    out=adapter(f,session,signer,recorder).browse('我的编号',extract_terms=True)
+    assert out['extraction']=='fallback' and out['coverage']==0.0
+    assert out['items'] and all(i['fallback'] is True for i in out['items'])
+    assert extraction_rows(admin)[-1]==('fallback',0,len(out['items']),1)
+    assert records(admin)[-1][0]==[term_hash('我的编号')]
+    # A statement with definition terms: extraction terms, coverage the share of terms with a readable definition, no marks.
+    out=adapter(f,session,signer,recorder).browse(SENTENCE,extract_terms=True)
+    assert out['extraction']=='terms' and out['coverage']==1.0 and not any('fallback' in i for i in out['items'])
+    assert extraction_rows(admin)[-1][:2]==('terms',1)
+    # Browse without extraction passes its query as the term: no extraction recorded (as before I34).
+    out=adapter(f,session,signer,recorder).browse(SENTENCE)
+    assert 'extraction' not in out and extraction_rows(admin)[-1][0] is None
+
+
+def test_the_record_refuses_a_fallback_with_coverage(semantic):
+    import pytest
+    from psycopg import errors
+    f,session,signer=semantic;admin=f['admin']
+    recorder=SemanticAccessRecorder(f['worker'],session,signer)
+    for extraction,coverage in (('fallback',1.0),('fallback',0.5),('sentence',0.0),(None,0.0)):
+        payload={'kind':'access','access_id':str(__import__('uuid').uuid4()),'run_id':None,'context_id':None,'operation':'browse',
+            'query_kind':'any','term_hashes':[term_hash('x')],'coverage':coverage,'ambiguity':False,'refs':[],'unresolved_count':1,'extraction':extraction}
+        with pytest.raises(errors.InvalidParameterValue):recorder._send(payload)
+    with pytest.raises(errors.CheckViolation),admin.transaction():
+        admin.execute("insert into runtime.nexloop_semantic_accesses(tenant_id,world,access_id,kind,operation,query_kind,term_hashes,coverage,ambiguity,"
+            "result_refs,result_count,extraction) values(%s,'real',gen_random_uuid(),'access','browse','any','{}',1,false,'[]',0,'fallback')",(A,))
