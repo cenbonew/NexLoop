@@ -1940,6 +1940,16 @@
       "version": "0388",
       "name": "0388_erasure_cancels_undated_commitments.sql",
       "sha256": "aded7294e97a2dc9c0eb85fb2d9978e2b07cdd1138c1ad8fbb940096a05c39ab"
+    },
+    {
+      "version": "0389",
+      "name": "0389_incentive_catalog_guard.sql",
+      "sha256": "0b106074f1c776d0ad14970793516b3e29bfed37a8bc1632dda7651290c32fc4"
+    },
+    {
+      "version": "0390",
+      "name": "0390_configure_group_only_increment.sql",
+      "sha256": "2c3ba85b2e2691ea7f67f68ff89800026f80ea8ba2cff4528ddf7a3442f7136e"
     }
   ]
 }

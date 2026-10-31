@@ -1,0 +1,16 @@
+{
+  "schema_version": "nexloop-incentive-setup/1",
+  "request_id": "6f1c2a52-6a3b-4f0e-9d0c-8e3b1f5a7c21",
+  "offering": {
+    "incentive_code": "b16-test-credit",
+    "max_amount_minor": "500",
+    "per_consumer_period_limit_minor": "1000",
+    "currency": "CNY",
+    "title": "测试优惠",
+    "valid_until": "2026-12-01T00:00:00Z"
+  },
+  "consumers": [
+    "0000000000000000000000000000000000000000000000000000000000000001",
+    "0000000000000000000000000000000000000000000000000000000000000002"
+  ]
+}

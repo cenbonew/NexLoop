@@ -34,6 +34,7 @@ COVERAGE = {
                           'RoleExecutionCeiling.create', 'RoleAssignmentScope.create', 'ConsumerRoleLink.edit', 'RoleExecutionCeiling.edit',
                           'RoleAssignmentScope.edit', 'nexloop.context.bind_role'},
     'denial_plan': {'nexloop.service.scope_denial.record'},
+    'incentive_catalog': {'IncentiveOffering.create', 'ConsumerIncentiveOffering.create', 'IncentiveOffering.edit', 'ConsumerIncentiveOffering.edit'},
 }
 FUNCTION_COVERAGE = {'assembled_message': {'nexloop.conversation.service_receipt'}, 'denial_plan': {'nexloop.conversation.scope_denial'}}
 

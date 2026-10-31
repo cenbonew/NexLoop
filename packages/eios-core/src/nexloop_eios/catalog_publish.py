@@ -52,16 +52,18 @@ def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_
         match = [s for s in _schemas_of(builders[item['builder']]()) if s.type_name == item['type_name'] and s.version == item['version']]
         if len(match) != 1:
             raise CatalogPublishRefused('builder does not produce ' + item['type_name'])
-        types[item['type_name']] = match[0].model_dump(mode='json')
+        types[(item['type_name'], item['version'])] = match[0].model_dump(mode='json')
     for row in ontology_rows:
-        if row['type_name'] in types:
+        if any(name == row['type_name'] for name, _ in types):
             raise CatalogPublishRefused('object type declared twice: ' + row['type_name'])
-        types[row['type_name']] = row
-    definitions = {name: ObjectTypeDefinition.model_validate_json(json.dumps(row)) for name, row in types.items()}
+        types[(row['type_name'], row['version'])] = row
+    # Keyed by (name, version): a type may be declared at v1 and at its group-only v2 (ADR-042); v1 is sent first.
+    definitions = {key: ObjectTypeDefinition.model_validate_json(json.dumps(row)) for key, row in types.items()}
+    latest = {name: types[(name, version)] for name, version in sorted(types)}
 
     def ref(name, version):
-        schema = definitions[name]
-        if schema.version != version:
+        schema = definitions.get((name, version))
+        if schema is None:
             raise CatalogPublishRefused(f'{name} v{version} not declared')
         return OntologySchemaReference(tenant_id=tenant, schema_type=OntologySchemaType.OBJECT_TYPE, stable_name=name, version=version,
                                        schema_digest=schema_contract_digest(schema))
@@ -81,7 +83,7 @@ def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_
         actions.append({'definition': definition.model_dump(mode='json'), 'capability': capability.model_dump(mode='json')})
     # Business Actions bind the 1.0.0 snapshot of their capability (business-actions.v1.json names no version).
     used = {a['capability_name'] for a in business['actions']}
-    actions += business_actions.compile_actions(business, tenant=tenant, created_by=created_by, created_at=created_at, object_types=list(types.values()),
+    actions += business_actions.compile_actions(business, tenant=tenant, created_by=created_by, created_at=created_at, object_types=list(latest.values()),
                                                 capabilities={n: snapshots[(n, BUSINESS_CAPABILITY_VERSION)] for n in used})
     functions = []
     for item in system['functions']:
@@ -95,7 +97,7 @@ def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_
     names = [a['definition']['stable_name'] for a in actions]
     if len(names) != len(set(names)):
         raise CatalogPublishRefused('Action declared twice')
-    return {'object_types': [types[n] for n in sorted(types)], 'actions': sorted(actions, key=lambda a: a['definition']['stable_name']),
+    return {'object_types': [types[k] for k in sorted(types)], 'actions': sorted(actions, key=lambda a: a['definition']['stable_name']),
             'functions': functions}
 
 
@@ -131,6 +133,22 @@ def publish(compiled, tenant, *, database_url_file, signing_key_file, signing_ke
         return {'dry_run': True, **summary}
     if not pending:
         return {'changed': False, **summary}
+    increments = [t for t in compiled['object_types'] if t['version'] >= 2]
+    if increments:
+        # ADR-042: the v1 types first (a manifest of types only), then the group-only increments as their own step; the full
+        # manifest below then finds every version present and equal.
+        from nexloop_eios.trusted_configuration import apply_group_increments
+        first = [t for t in compiled['object_types'] if t['version'] == 1]
+        types_only = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
+                      'object_types': first, 'actions': [], 'functions': [], 'authority_facts': [], 'service_credentials': [], 'browser_applications': [],
+                      'browser_business_applications': [], 'browser_rate_policies': [], 'identity_allowances': []}
+        types_only['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-catalog-types:' + str(current['authority_revision']) + ':' + canonical_payload(types_only)))
+        revision = apply_manifest_with_secrets(types_only, database_url_file=database_url_file, signing_key_file=Path(signing_key_file),
+                                               signing_key_id=signing_key_id, service_secrets={})['authority_revision']
+        apply_group_increments(tenant, increments, database_url_file=database_url_file, signing_key_file=Path(signing_key_file),
+                               signing_key_id=signing_key_id, expected_revision=revision,
+                               manifest_id=str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-catalog-increment:' + str(revision) + ':' + canonical_payload(increments))))
+        current = G.inventory(database_url_file, tenant)
     body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
             'object_types': compiled['object_types'], 'actions': pending, 'functions': compiled['functions'], 'authority_facts': [],
             'service_credentials': [], 'browser_applications': [], 'browser_business_applications': [], 'browser_rate_policies': [], 'identity_allowances': []}

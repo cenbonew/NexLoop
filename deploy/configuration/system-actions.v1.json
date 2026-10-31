@@ -61,8 +61,18 @@
       "builder": "incentive_offering_schemas"
     },
     {
+      "type_name": "IncentiveOffering",
+      "version": 2,
+      "builder": "incentive_offering_schemas"
+    },
+    {
       "type_name": "ConsumerIncentiveOffering",
       "version": 1,
+      "builder": "incentive_offering_schemas"
+    },
+    {
+      "type_name": "ConsumerIncentiveOffering",
+      "version": 2,
       "builder": "incentive_offering_schemas"
     },
     {
@@ -665,6 +675,94 @@
       ],
       "capability": [
         "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "IncentiveOffering.create",
+      "version": 1,
+      "object_types": [
+        [
+          "IncentiveOffering",
+          2
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "ConsumerIncentiveOffering.create",
+      "version": 1,
+      "object_types": [
+        [
+          "ConsumerIncentiveOffering",
+          2
+        ]
+      ],
+      "capability": [
+        "ontology.object.create",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "IncentiveOffering.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "IncentiveOffering",
+          2
+        ]
+      ],
+      "capability": [
+        "ontology.object.edit",
+        "1.0.0"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "input": null,
+      "group": "setup"
+    },
+    {
+      "stable_name": "ConsumerIncentiveOffering.edit",
+      "version": 1,
+      "object_types": [
+        [
+          "ConsumerIncentiveOffering",
+          2
+        ]
+      ],
+      "capability": [
+        "ontology.object.edit",
         "1.0.0"
       ],
       "target_systems": [
