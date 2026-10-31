@@ -49,3 +49,15 @@ def test_the_derived_file_fills_old_records_only():
 def test_a_bad_derived_file_is_refused(bad):
     with pytest.raises(ValueError):
         load_extraction(json.dumps(bad))
+
+
+def test_the_read_output_extraction_wins_and_only_null_takes_the_file():
+    """I34 (a/c): authz.nexloop_semantic_access_read returns extraction (null for records older than the column); the derived file fills
+    the nulls only, also when it disagrees with a returned value."""
+    new_terms, new_fallback, old = (str(uuid.uuid4()) for _ in range(3))
+    derived = {new_terms: 'fallback', new_fallback: 'terms', old: 'fallback'}
+    rows = [{'access_id': new_terms, 'kind': 'access', 'coverage': 1.0, 'extraction': 'terms'},
+            {'access_id': new_fallback, 'kind': 'access', 'coverage': 1.0, 'extraction': 'fallback'},
+            {'access_id': old, 'kind': 'access', 'coverage': 1.0, 'extraction': None}]
+    out = with_extraction(rows, derived)
+    assert [r['extraction'] for r in out] == ['terms', 'fallback', 'fallback'] and [read_missed(r) for r in out] == [False, True, True]

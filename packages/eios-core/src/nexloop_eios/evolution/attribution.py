@@ -139,8 +139,9 @@ def read_missed(access: dict) -> bool:
 
 
 def with_extraction(accesses: list[dict], derived: dict[str, str]) -> list[dict]:
-    """The records with `extraction` filled from a derived mapping (access_id -> terms | fallback, I34 c) where the record has none;
-    a recorded value is never overridden."""
+    """The records with `extraction` filled from a derived mapping (access_id -> terms | fallback, I34 c) where the record has none: the
+    value authz.nexloop_semantic_access_read returns (I34 a) is used as it is, and only a null one (a record older than the column) takes
+    the derived value - never overridden, even when the file says otherwise."""
     return [a if a.get('extraction') in EXTRACTIONS or a.get('access_id') not in derived else {**a, 'extraction': derived[a['access_id']]}
             for a in accesses]
 

@@ -222,7 +222,7 @@ class Stage:
                 rows = db.execute('select authz.nexloop_semantic_access_read(%s,%s,%s,%s)',
                                   (_digest_of(cfg['credentials']['reader']), 'real', cfg['window']['since'], 1000)).fetchone()[0]
             accesses = [a for a in rows if a.get('run_id') in runs]
-            if cfg.get('extraction_file'):  # I34 (c): records older than the extraction column get L3's derived value
+            if cfg.get('extraction_file'):  # I34 (c): the read's own extraction wins; only a null (older record) takes L3's derived value
                 with open(cfg['extraction_file'], encoding='utf-8') as f:
                     accesses = with_extraction(accesses, load_extraction(f.read()))
             diagnosis = attribute(read.samples, accesses)
@@ -235,8 +235,9 @@ class Stage:
             clusters = dict(base.case_groups)
             terms = {}
             for a in accesses:
-                # I34 (b), open: excluding covered reads here merges every group into one unit (the group's runs share its missed
-                # term by construction), so the near-duplicate input stays every read until the dispatcher decides (see the report).
+                # I34 (b), every read on purpose: the missed signal comes from read_missed in the attribution alone; the cluster units
+                # must split out holdouts and need the whole read set - missed reads only would share the group's key term and collapse
+                # into one unit, zero holdouts. Later refinement: drop the group key's own term and ignore empty sets.
                 if a.get('kind') == 'access' and a['run_id'] in clusters:
                     terms.setdefault(a['run_id'], set()).update(a.get('term_hashes') or [])
             # Near duplicates across clusters (open check 3): the clusters they join are one unit, so no AT but AT-048 splits them.
