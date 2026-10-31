@@ -1939,7 +1939,7 @@
     {
       "version": "0388",
       "name": "0388_erasure_cancels_undated_commitments.sql",
-      "sha256": "4d05f7e2fd145ae48df62f8ecde3d278079ea6c76639a42d7d296a654d0e0538"
+      "sha256": "eca683e00b7baf3149db6774c111dfcecc723d0b09491d3af67a1164da982629"
     }
   ]
 }
