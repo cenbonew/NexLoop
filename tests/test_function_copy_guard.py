@@ -589,6 +589,13 @@ REGISTRY = [
     Allowed('definition_read_rule', 'control.nexloop_configure_manifest', 'one more fact kind, definition_read_rule, and its exact shape; nothing else',
             ((r",'role_source_read_rule','definition_read_rule'\)", ",'role_source_read_rule')"),
              (r"\n  -- I29 \(0381\): definition_read_rule \[service principal\].*?raise exception 'definition read rule rejected' using errcode='22023';end if;", ""))),
+    # I34 (0386): extraction terms | fallback; a fallback access has coverage 0.
+    Allowed('semantic_extraction', 'authz.nexloop_semantic_access_record', 'extraction checked and stored; nothing else',
+            ((r",extraction\)", ")"),
+             (r",c->>'extraction'\) on conflict", ") on conflict"),
+             (r"\n  -- I34 \(0386\).*?raise exception 'semantic access record invalid' using errcode='22023';end if;", ""))),
+    Allowed('semantic_extraction', 'authz.nexloop_semantic_access_read', 'the extraction column in each row; nothing else',
+            ((r",'extraction',s\.extraction\)", ")"),)),
     # R60 (stage 2026-10-31): a Consumer pseudonymized by the completed erasure (0305) settles as consumer_erased.
     Allowed('relay_backlog_pseudonym', 'control.nexloop_governed_relay_backlog_settle', "a 'pseudonym:' Consumer reads as erased; nothing else",
             ((r" or v_consumer like 'pseudonym:%'", ""),)),

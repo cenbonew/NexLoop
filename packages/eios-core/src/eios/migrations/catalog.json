@@ -1925,6 +1925,11 @@
       "version": "0385",
       "name": "0385_action_claim_settle.sql",
       "sha256": "adacec2cc113080c4882592b8df3c2a110b2c2d6d141c740e591a1732a32a890"
+    },
+    {
+      "version": "0386",
+      "name": "0386_semantic_extraction.sql",
+      "sha256": "816db74abeed957b21daf2d0fb56712f1fafb213ed341a7e5725d0cf8d9206de"
     }
   ]
 }

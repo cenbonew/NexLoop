@@ -2,11 +2,14 @@
 """S6 stage acceptance: a read-only helper that finds the values of the private configuration's `inputs` on stage.
 
     uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config PRIVATE.json [--days 14] [--personas simulated_agent,synthetic] [--only semantic]
+        [--extraction-file DERIVED.json]
 
 It connects only as roles.inspector (on stage the bootstrap DSN from the private configuration), sets the session read only before the
 first query and checks that it took, and reads:
   window             the span of the synthetic Consumers' Runs with semantic reads (persona from control.nexloop_consumer_personas,
-                     Consumer derived per Run by runtime.nexloop_evo_run_consumer) and how many Runs / Consumers / misses fall in it
+                     Consumer derived per Run by runtime.nexloop_evo_run_consumer) and how many Runs / Consumers / misses fall in it;
+                     a miss is a read the semantic layer did not cover (I34 b: extraction 'fallback' or coverage below 1, the same rule
+                     as the NX-039 attribution); records older than the extraction column take L3's derived value from --extraction-file
   parent_revision    the tenant's published semantic release (ontology.nexloop_semantic_release_pointers)
   protected_refs     a contact-limit or refusal definition ref the window's reads returned (R3 needs it in a read that fills the browse limit of 10)
   erasure_consumer_id  a simulated_agent / synthetic Consumer with Runs in the window (R7); never a real one, whatever --personas says
@@ -29,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import s6_common as C  # noqa: E402
+from nexloop_eios.evolution.attribution import load_extraction, read_missed  # noqa: E402
 
 SCHEMA = 'nexloop-s6-stage-inputs/1'
 LABEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
@@ -52,7 +56,7 @@ def _iso(t):
     return t.astimezone(datetime.UTC).replace(microsecond=0).isoformat()
 
 
-def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic'), template=None):
+def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic'), template=None, extraction=None):
     """Every input's candidates and sources (db: a read-only connection)."""
     db.execute("select set_config('eios.tenant_id',%s,false)", (tenant,))  # the tables' tenant_boundary policy (a non-superuser bootstrap)
     q = lambda sql, *a: db.execute(sql, a).fetchall()  # noqa: E731
@@ -60,14 +64,25 @@ def probe(db, tenant, *, now, days=14, personas=('simulated_agent', 'synthetic')
 
     # window, erasure_consumer_id: the synthetic Consumers' Runs with semantic reads -----------------------------------------------
     since = now - datetime.timedelta(days=days)
+    # I34 (b): a Run has a miss when one of its reads was not covered (read_missed); the extraction column comes with I34 (a), and an
+    # older record takes the derived value (access_id -> terms | fallback) when one is given.
+    has_extraction = q("""select exists(select 1 from information_schema.columns where table_schema='runtime'
+                          and table_name='nexloop_semantic_accesses' and column_name='extraction')""")[0][0]
+    derived = extraction or {}
+    reads = q(f"""select a.run_id::text,a.access_id::text,a.coverage,{'a.extraction' if has_extraction else 'null::text'}
+                  from runtime.nexloop_semantic_accesses a where a.tenant_id=%s and a.world='real' and a.kind='access' and a.run_id is not null
+                   and a.recorded_at>=%s""", tenant, since)
+    missed_runs = {run for run, access, coverage, ext in reads
+                   if read_missed({'kind': 'access', 'coverage': coverage, 'extraction': ext or derived.get(access)})}
     runs = q("""with r as (select a.run_id,min(a.recorded_at) first_at,max(a.recorded_at) last_at,
-                   bool_or(a.kind='access' and (a.result_count=0 or a.unresolved_count>0)) miss,max(a.result_count) widest
+                   false miss,max(a.result_count) widest
                  from runtime.nexloop_semantic_accesses a where a.tenant_id=%s and a.world='real' and a.run_id is not null and a.recorded_at>=%s
                  group by a.run_id),
                c as (select r.*,runtime.nexloop_evo_run_consumer(%s,'real',r.run_id::text) consumer from r)
              select c.run_id::text,c.first_at,c.last_at,c.miss,c.widest,c.consumer,p.persona from c
                join control.nexloop_consumer_personas p on p.tenant_id=%s and p.world='real' and p.consumer_id=c.consumer and p.persona=any(%s)
              order by c.first_at""", tenant, since, tenant, tenant, list(personas))
+    runs = [(r[0], r[1], r[2], r[0] in missed_runs, *r[4:]) for r in runs]
     consumers = {}
     synthetic = set()
     for _, _, _, miss, _, consumer, persona in runs:
@@ -199,6 +214,7 @@ def main(argv=None, out=sys.stdout, now=None):
     p.add_argument('--days', type=int, default=14)
     p.add_argument('--personas', default='simulated_agent,synthetic')
     p.add_argument('--only', choices=['semantic'], help='the second probe (after at023): draft and report semantic alone')
+    p.add_argument('--extraction-file', help='I34 (c): derived {access_id, extraction} rows for reads older than the extraction column')
     a = p.parse_args(argv)
     try:
         config = C.load_config(a.config)
@@ -209,9 +225,15 @@ def main(argv=None, out=sys.stdout, now=None):
         if not personas or not set(personas) <= {'simulated_agent', 'synthetic', 'real'} or not 1 <= a.days <= 90:
             raise C.Refused('--personas simulated_agent,synthetic[,real]; --days 1..90')
         inputs = config.get('inputs') if type(config.get('inputs')) is dict else {}
+        try:
+            extraction = None if a.extraction_file is None else load_extraction(Path(a.extraction_file).read_text(encoding='utf-8'))
+        except OSError as error:
+            raise C.Refused(f'--extraction-file unreadable ({type(error).__name__})') from None
+        except ValueError as error:
+            raise C.Refused(f'--extraction-file: {error}') from None
         with C.connect_read_only(dsn_file) as db:
             src = probe(db, config['tenant_id'], now=now or datetime.datetime.now(datetime.UTC), days=a.days, personas=personas,
-                        template=inputs.get('candidate_template'))
+                        template=inputs.get('candidate_template'), extraction=extraction)
     except C.Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2

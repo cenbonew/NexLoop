@@ -155,6 +155,21 @@ $RUNI scripts/nx037/run_interactions.py --driver real --trial-id "$TRIAL_ID" --o
 - 在 SEQ 的提示出现之前不要发言：提示前接受的消息属于上一次交互。
 - 退出码 1（这一轮没发出）：同一 SEQ 重跑同一命令，单轮 `plan_id` 不变，按重放处理。
 - 每次交互共 900 秒（含等待），超时是暂停。
+- 期限与就绪握手见下面的“就绪握手与超时”。
+
+**就绪握手与超时（S69，L6 记录；S6 补跑 dc7645a9 的 SEQ 1 超时之后）**
+
+1. **期限**：每个 SEQ 的 900 秒（`--interaction-timeout`）从 entry 给出这个 SEQ 的提示时开始计算，包括等待发言的时间。到期仍没有 `operator-done/<SEQ>` 时，记为 `interaction_timeout`，试运行进入 `paused`。dc7645a9 的 SEQ 1 超时，原因是观察程序已给出提示，但调度员没有提醒负责人。
+2. **推荐顺序**：先打就绪标记，再启动或恢复观察程序，最后发言。
+   - 发言脚本先在 APP_HOST 的 `runs/speaker-ready` 写就绪标记（SEQ 和时间），然后等待。
+   - 调度员的 watcher 看到标记后，才启动观察程序（第一个 SEQ）或恢复它（`--resume`）。恢复时 entry 会在 `$TRIAL_DIR/resumes.jsonl` 追加一行。
+   - 发言脚本看到 `prompts.jsonl` 里标记之后出现的这个 SEQ 的提示行，恢复时还要看到 `resumes.jsonl` 多了一行，才开始发言。发言退出码为 0 时写 `operator-done/<SEQ>`，并删除标记。
+   - 仓库示例：`deploy/examples/nx037/speak-when-ready.example.sh`。复制到私有运行目录后填环境变量，不含账号、主机和私有路径。它只打标记、等待、发言、写完成标记，从不自行启动、恢复或作废。
+   - 用法：`bash speak-when-ready.sh <SEQ> -- <发言命令>`。S6 中发言命令就是 `speak-turn.sh`，但要去掉它自己写完成标记的最后一行，由示例统一写。
+3. **超时后的受治理处理**：
+   - 由负责人确认，调度员用原参数加 `--resume <负责人确认引用> --void-seq <N> --void-confirmation <负责人确认引用>` 继续。作废的记录列在 `voids.jsonl`，恢复记录在 `resumes.jsonl`，两者都进证据包。
+   - 然后按上面的顺序重新握手：发言脚本带 `EXPECT_RESUME=1` 打标记，watcher 恢复，看到提示后再发言。
+   - 换新的 `TRIAL_ID` 只用于 `stopped`（`trial_stopped`）。`paused` 一律走 resume，不换 trial。
 
 **4. 校准暂停与继续**：SEQ 3 之后 entry 以 `detail` 为 `paused_needs_resume`（规则 `calibration`）结束，退出码 3。负责人看 `$TRIAL_DIR/interactions.jsonl`，`cost.max_run` 小于 2 CNY 时确认，调度员用原参数加 `--resume s6-<日期>-calibration-ok` 继续，entry 给出 SEQ 4 的提示。
 

@@ -40,7 +40,7 @@ def sample(run_id, consumer, **over):
 def access(run_id, *, operation='browse', terms=(TERM,), refs=(), ambiguity=False, unresolved=0, kind='access', accessed=None):
     return {'access_id': str(uuid.uuid4()), 'kind': kind, 'run_id': run_id, 'context_id': None, 'accessed_id': accessed,
             'operation': operation if kind == 'access' else None, 'query_kind': 'any' if kind == 'access' else None,
-            'term_hashes': list(terms) if kind == 'access' else [], 'coverage': 0.0, 'ambiguity': ambiguity if kind == 'access' else None,
+            'term_hashes': list(terms) if kind == 'access' else [], 'coverage': (1.0 if refs else 0.0) if kind == 'access' else None, 'ambiguity': ambiguity if kind == 'access' else None,
             'result_refs': list(refs), 'result_count': len(refs), 'unresolved_count': unresolved, 'recorded_at': NOW.isoformat()}
 
 

@@ -21,7 +21,8 @@ Configuration (s6_common, nexloop-s6-stage/1; deploy/examples/s6-stage.example.j
 {dsn_file, token_file}, roles.reader {dsn_file, token_file}, roles.inspector {dsn_file}, roles.evaluation {token_file} (the
 test-only evaluation credential), roles.registrar {dsn_file} (optional, R5's registration negative only); inputs.evolution {window
 {since, until}, personas, label, parent_revision, evaluator_version, model_profile, created_at, l0_inputs, protected_refs,
-erasure_consumer_id}; inputs.candidate_template (a path). Private state (R7) lives under results_dir/state.
+erasure_consumer_id, and optionally extraction_file}; inputs.candidate_template (a path). extraction_file (I34 b/c, an absolute path):
+L3's derived {access_id, extraction} rows for access records older than the extraction column; a recorded value always wins. Private state (R7) lives under results_dir/state.
 
 --dry-run calls no writing entry: it checks the configuration and the role of every connection, reads the inputs, plans each
 candidate in memory and probes the holdout uses. Output and exit: s6_common's (passed null when blocked or a dry run).
@@ -46,7 +47,7 @@ sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 import psycopg  # noqa: E402
 
 from nexloop_eios.evolution import evaluation as E  # noqa: E402
-from nexloop_eios.evolution.attribution import attribute, draft_candidates  # noqa: E402
+from nexloop_eios.evolution.attribution import attribute, draft_candidates, load_extraction, read_missed, with_extraction  # noqa: E402
 from nexloop_eios.evolution.l1 import run_l1  # noqa: E402
 from nexloop_eios.evolution_store import CandidateStore, EvaluatorStore, diagnosis_id  # noqa: E402
 from nexloop_eios.evolution_traces import DatabaseTraceSource  # noqa: E402
@@ -95,8 +96,11 @@ def load_config(path):
     e = inputs.get('evolution')
     keys = {'window', 'personas', 'label', 'parent_revision', 'evaluator_version', 'model_profile', 'created_at', 'l0_inputs', 'protected_refs',
             'erasure_consumer_id'}
-    if type(e) is not dict or set(e) != keys:
-        raise Refused(f'inputs.evolution keys: {sorted(keys)}')
+    if type(e) is not dict or set(e) - {'extraction_file'} != keys:
+        raise Refused(f'inputs.evolution keys: {sorted(keys)} (and optionally extraction_file)')
+    extraction_file = e.get('extraction_file')
+    if extraction_file is not None and (type(extraction_file) is not str or not os.path.isabs(extraction_file)):
+        raise Refused('inputs.evolution.extraction_file: an absolute path (I34 c derivation)')
     try:
         since, until = datetime.fromisoformat(e['window']['since']), datetime.fromisoformat(e['window']['until'])
         created = datetime.fromisoformat(e['created_at'].replace('Z', '+00:00'))
@@ -124,7 +128,7 @@ def load_config(path):
           'label': e['label'], 'parent_revision': e['parent_revision'], 'evaluator_version': e['evaluator_version'], 'model_profile': e['model_profile'],
           'created_at': e['created_at'], 'l0_inputs': e['l0_inputs'], 'protected_refs': e['protected_refs'],
           'erasure': {'consumer_id': e['erasure_consumer_id']}, 'state_dir': str(Path(config['results_dir']) / 'state'), 'tenant_id': config['tenant_id'],
-          'candidate_template': template}
+          'candidate_template': template, 'extraction_file': extraction_file}
     return config, ev
 
 
@@ -218,6 +222,9 @@ class Stage:
                 rows = db.execute('select authz.nexloop_semantic_access_read(%s,%s,%s,%s)',
                                   (_digest_of(cfg['credentials']['reader']), 'real', cfg['window']['since'], 1000)).fetchone()[0]
             accesses = [a for a in rows if a.get('run_id') in runs]
+            if cfg.get('extraction_file'):  # I34 (c): the read's own extraction wins; only a null (older record) takes L3's derived value
+                with open(cfg['extraction_file'], encoding='utf-8') as f:
+                    accesses = with_extraction(accesses, load_extraction(f.read()))
             diagnosis = attribute(read.samples, accesses)
             tenant = self._tenant()  # the drafts carry the writer credential's tenant (SQL checks it against the credential)
             drafts, skipped = draft_candidates(diagnosis, read.samples, tenant_id=tenant, parent_revision=cfg['parent_revision'],
@@ -228,6 +235,9 @@ class Stage:
             clusters = dict(base.case_groups)
             terms = {}
             for a in accesses:
+                # I34 (b), every read on purpose: the missed signal comes from read_missed in the attribution alone; the cluster units
+                # must split out holdouts and need the whole read set - missed reads only would share the group's key term and collapse
+                # into one unit, zero holdouts. Later refinement: drop the group key's own term and ignore empty sets.
                 if a.get('kind') == 'access' and a['run_id'] in clusters:
                     terms.setdefault(a['run_id'], set()).update(a.get('term_hashes') or [])
             # Near duplicates across clusters (open check 3): the clusters they join are one unit, so no AT but AT-048 splits them.
