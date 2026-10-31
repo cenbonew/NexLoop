@@ -1,0 +1,9 @@
+{
+  "schema": "nexloop-action-claim-settle/1",
+  "confirmation_ref": "stale-claims:20261031-1",
+  "reason": "Stale action claims (owner 2026-10-31): postgres claims whose transaction rolled back, and effects the owner confirmed not delivered on 10-18.",
+  "claims": [
+    {"action_name": "Goal.create", "intent_id": "message-relay-0000000000000000000000000000000000000000000000000000000000000001", "category": "uncommitted"},
+    {"action_name": "nexloop.service.request", "intent_id": "00000000-0000-4000-8000-000000000001", "category": "confirmed_not_delivered"}
+  ]
+}

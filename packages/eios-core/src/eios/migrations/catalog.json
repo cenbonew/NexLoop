@@ -1920,6 +1920,11 @@
       "version": "0384",
       "name": "0384_service_credential_rotation.sql",
       "sha256": "d064ec8c2a4f90fbc8ed92ab646509ed7d3455d17a0a1060d450de4fb3f82a2b"
+    },
+    {
+      "version": "0385",
+      "name": "0385_action_claim_settle.sql",
+      "sha256": "4029d45b9fb9cf216488954fbc6a8fd7ea96c601c2668172716b5f8d70390052"
     }
   ]
 }
