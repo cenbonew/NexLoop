@@ -13,11 +13,19 @@
 --    evidence ids, the reason, the deciding owner and the governed intent. Forced RLS, owner only.
 -- 2. runtime.nexloop_action_claim_settle_check(tenant, world, action, intent, category): one code for whether a claim may be settled now
 --    (eligible, not_found, not_active, not_stale, wrong_class, object_exists, intent_not_failed, no_determination, provider_observed,
---    outbound_delivered), used by the Action. Every case needs a world-real active claim whose lease expired more than an hour ago.
---    * uncommitted: binding adapter_id nexloop.core and target_system postgres, and no object written under the intent (source_ref = intent,
---      which also covers 0010's object id sha256(tenant, world, type, intent)).
+--    provider_reference, attempt_after_determination, outbound_unknown), used by the Action. Every case needs a world-real active claim
+--    whose lease expired more than an hour ago.
+--    * uncommitted: only the Actions whose business write and terminal claim are proven to commit in one transaction (L6 I33: the
+--      nexloop.core / postgres adapter has other callers - relations, context artifacts in two steps, scope denials, identity links):
+--      Goal.create and PlanStep.create (authz.nexloop_create_object_action, 0081) and nexloop.experiment.start, nexloop.approvals.decide,
+--      nexloop.real_dispatch.set, nexloop.consumer_twin.calibrate (registered governed handlers run inside authz.nexloop_goal_governed_action,
+--      0348); binding adapter_id nexloop.core and target_system postgres; and no object written under the intent (source_ref = intent,
+--      which also covers 0010's object id sha256(tenant, world, type, intent)). Any other Action is wrong_class.
 --    * confirmed_not_delivered: an effect claim (not postgres) whose effect intent is failed with a confirmed_not_delivered determination
---      on a not_found observation, no accepted or fulfilled observation of it, and no outbound reply materialized or delivered (0079).
+--      on a not_found observation, and nothing that says the provider may have received it (L6 I32, a positive list): no accepted or
+--      fulfilled observation; the attempt (one per intent) has no provider reference and neither moved after the determination nor carries
+--      a later revision than the determination's observation; every outbound reply of the intent (0079) is persisted or failed, or there
+--      is none - dispatching, unknown, provider_accepted and delivered are outbound_unknown.
 --    An effect claim in any other state is refused: an unknown result goes to the effect reconciliation, never here.
 -- 3. Governed human capability action_claim.settle (operation settle_action_claim; owner only by the workbench role manifest): takes 0007's
 --    advisory lock and the claim row, checks again, and ends the claim terminal permanent_failure - the frozen claim contract has no other
@@ -55,14 +63,17 @@ create trigger action_claim_settlements_append_only before update or delete or t
 -- 2. The check ------------------------------------------------------------------------------------------------------------------------
 create function runtime.nexloop_action_claim_settle_check(p_tenant text,p_world text,p_action text,p_intent text,p_category text) returns text
  language plpgsql stable set search_path=pg_catalog,pg_temp as $$
-declare c runtime.nexloop_action_claims;i runtime.nexloop_effect_intents;d runtime.nexloop_effect_determinations;
+declare c runtime.nexloop_action_claims;i runtime.nexloop_effect_intents;d runtime.nexloop_effect_determinations;v_obs runtime.nexloop_effect_observations;
+ v_att runtime.nexloop_effect_attempts;
 begin
  select * into c from runtime.nexloop_action_claims where tenant_id=p_tenant and world=p_world and action_name=p_action and intent_id=p_intent;
  if not found or p_world<>'real' then return 'not_found';end if;
  if c.claim->>'state' is distinct from 'active' then return 'not_active';end if;
  if (c.claim->>'lease_expires_at')::timestamptz>clock_timestamp()-interval '1 hour' then return 'not_stale';end if;
  if p_category='uncommitted' then
-  if c.claim->'binding'->>'adapter_id' is distinct from 'nexloop.core' or c.claim->'binding'->>'target_system' is distinct from 'postgres' then
+  if p_action<>all(array['Goal.create','PlanStep.create','nexloop.experiment.start','nexloop.approvals.decide','nexloop.real_dispatch.set',
+    'nexloop.consumer_twin.calibrate'])
+   or c.claim->'binding'->>'adapter_id' is distinct from 'nexloop.core' or c.claim->'binding'->>'target_system' is distinct from 'postgres' then
    return 'wrong_class';end if;
   if exists(select 1 from ontology.objects o where o.tenant_id=p_tenant and o.world=p_world and o.source_ref=p_intent) then return 'object_exists';end if;
   return 'eligible';
@@ -72,12 +83,18 @@ begin
  select * into i from runtime.nexloop_effect_intents where tenant_id=p_tenant and world=p_world and intent_id=p_intent::uuid and action_name=p_action;
  if not found or i.state<>'failed' then return 'intent_not_failed';end if;
  select * into d from runtime.nexloop_effect_determinations where tenant_id=p_tenant and world=p_world and intent_id=i.intent_id and kind='confirmed_not_delivered';
- if not found or not exists(select 1 from runtime.nexloop_effect_observations o where o.observation_id=d.observation_id and o.provider_state='not_found') then
-  return 'no_determination';end if;
- if exists(select 1 from runtime.nexloop_effect_observations o where o.tenant_id=p_tenant and o.world=p_world and o.intent_id=i.intent_id
-   and o.provider_state in ('accepted','fulfilled')) then return 'provider_observed';end if;
+ if not found then return 'no_determination';end if;
+ select * into v_obs from runtime.nexloop_effect_observations where observation_id=d.observation_id;
+ if not found or v_obs.provider_state<>'not_found' then return 'no_determination';end if;
+ if exists(select 1 from runtime.nexloop_effect_observations x where x.tenant_id=p_tenant and x.world=p_world and x.intent_id=i.intent_id
+   and x.provider_state<>'not_found') then return 'provider_observed';end if;
+ select * into v_att from runtime.nexloop_effect_attempts where intent_id=i.intent_id and tenant_id=p_tenant and world=p_world;
+ if found then
+  if v_att.provider_reference is not null then return 'provider_reference';end if;
+  if v_att.updated_at>d.decided_at then return 'attempt_after_determination';end if;
+ end if;
  if exists(select 1 from runtime.nexloop_outbound_messages m where m.tenant_id=p_tenant and m.world=p_world and m.intent_id=i.intent_id
-   and (m.message_id is not null or m.delivery_state in ('provider_accepted','delivered'))) then return 'outbound_delivered';end if;
+   and (m.message_id is not null or m.delivery_state not in ('persisted','failed'))) then return 'outbound_unknown';end if;
  return 'eligible';
 end $$;
 alter function runtime.nexloop_action_claim_settle_check(text,text,text,text,text) owner to nexloop_owner;

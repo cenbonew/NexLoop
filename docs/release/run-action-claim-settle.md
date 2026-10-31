@@ -16,9 +16,10 @@
 
 ## 规则
 - 只收 world=real、state=active、租约过期**超过 1 小时**的 claim。
-- `uncommitted`：binding 是 adapter `nexloop.core` 且 target `postgres`，并且不存在 source_ref=intent 的对象。依据是这类 Action 的业务写入和终态 claim 在同一事务提交（0010、0348）。
-- `confirmed_not_delivered`：effect intent 已是 failed，有 0210 的 confirmed_not_delivered 裁定，且裁定依据的观察为 not_found；没有任何 accepted/fulfilled 观察；outbound 回复没有 materialized，也不是 delivered/provider_accepted。
-- 其他情况一律拒绝，并返回代码：not_found / not_active / not_stale / wrong_class / object_exists / intent_not_failed / no_determination / provider_observed / outbound_delivered / already_settled。结果未知的 effect claim 不在这里处理，要先对账。
+- `uncommitted`：只接受白名单里的 6 个 Action：Goal.create、PlanStep.create、nexloop.experiment.start、nexloop.approvals.decide、nexloop.real_dispatch.set、nexloop.consumer_twin.calibrate。白名单的依据是测试已证明这几个 Action 的业务写入和终态 claim 在同一事务提交（0081 的创建入口，0348 的受治理入口）。此外 binding 必须是 adapter `nexloop.core` 且 target `postgres`，并且不存在 source_ref=intent 的对象。nexloop.core/postgres 的其他调用方（relation、两段式 context artifact、scope denial、identity link）一律返回 wrong_class（L6 I33）。
+- `confirmed_not_delivered`：effect intent 已是 failed，有 0210 的 confirmed_not_delivered 裁定，且裁定依据的观察为 not_found。同时必须**没有任何迹象**表明 provider 可能收到过（L6 I32，正向白名单）：没有非 not_found 的观察；attempt 没有 provider_reference，且在裁定之后没有变动（updated_at）；该 intent 的 outbound 全部处于 persisted 或 failed，或者根本没有 outbound。
+- 其他情况一律拒绝，并返回代码：not_found / not_active / not_stale / wrong_class / object_exists / intent_not_failed / no_determination / provider_observed / provider_reference / attempt_after_determination / outbound_unknown / already_settled。结果未知的 effect claim 不在这里处理，要先对账。
+- stage 上那两条 service.request 按 Q4/Q6/Q7 的结果可以通过检查：没有 provider_ref；attempt 最后更新是 10-18 05:15Z，早于裁定时间 05:52Z；outbound 为 failed。
 - 终态为 `permanent_failure`，outcome_id 填 settlement_id。同一 intent 之后再 reserve 只会重放，不会执行。**不写 effect_failures**，避免补救扫描重发回复和统计突增。
 
 ## 步骤（stage）

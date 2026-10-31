@@ -213,11 +213,7 @@ def test_an_effect_the_owner_confirmed_not_delivered_ends_and_its_reply_was_neve
     """The stage case: 0210 failed the intent before 0325/0345 existed, so its claim stayed active (rebuilt here by inserting the claim
     after the determination; 0345 only closes a claim on a new failure row)."""
     c = owner_desk;c['executor_fixture'] = governed_effect_executor
-    publish_registry_actions(admin, (ACTION,))
-    intent, tenant = unknown_intent(c, admin)
-    observe(admin, intent, tenant, 'not_found', 30)
-    owner = c['owner']()
-    action = admin.execute('select action_name from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone()[0]
+    intent, tenant, action, owner = confirmed_ready(c, admin)
     stale_claim(admin, tenant, action, intent, target='service', adapter='nexloop.effect')
     early = act(owner.client, owner.csrf, 'settle_action_claim', {'claim_action': action, 'intent_id': intent, 'category': 'confirmed_not_delivered', 'reason': '未确认'})
     assert early.status_code == 409 and early.json()['details'] == {'reason': 'intent_not_failed'}  # unknown: reconcile first
@@ -239,17 +235,142 @@ def test_an_effect_the_owner_confirmed_not_delivered_ends_and_its_reply_was_neve
     assert health(admin, tenant)['stale_active'] == 0
 
 
-@PLAN
-def test_a_provider_acceptance_blocks_the_effect_settlement(owner_desk, admin, governed_effect_executor):
-    c = owner_desk;c['executor_fixture'] = governed_effect_executor
+def confirmed_ready(c, admin):
+    """An unknown effect with a not_found observation, ready for the owner's 0210."""
     publish_registry_actions(admin, (ACTION,))
     intent, tenant = unknown_intent(c, admin)
     observe(admin, intent, tenant, 'not_found', 30)
-    owner = c['owner']()
-    assert owner.confirm(intent).status_code == 200
     action = admin.execute('select action_name from runtime.nexloop_effect_intents where intent_id=%s', (intent,)).fetchone()[0]
+    return intent, tenant, action, c['owner']()
+
+
+def confirmed(c, admin):
+    intent, tenant, action, owner = confirmed_ready(c, admin)
+    done = owner.confirm(intent)
+    assert done.status_code == 200, done.text
     stale_claim(admin, tenant, action, intent, target='service', adapter='nexloop.effect')
+    return intent, tenant, action, owner
+
+
+def refusal(owner, action, intent):
+    r = act(owner.client, owner.csrf, 'settle_action_claim', {'claim_action': action, 'intent_id': intent, 'category': 'confirmed_not_delivered', 'reason': 'x'})
+    assert r.status_code == 409, r.text
+    return r.json()['details']['reason']
+
+
+def outbound(admin, tenant, intent, state):
+    """An outbound reply of the intent in a given delivery state (0079 row; the state as the ledger triggers leave it)."""
+    conversation = secrets.token_hex(32)
+    admin.execute("insert into runtime.nexloop_conversations(tenant_id,world,conversation_id,consumer_id,principal_id,idempotency_key) "
+                  "values(%s,'real',%s,%s,'synthetic-human',%s)", (tenant, conversation, secrets.token_hex(8), 'claim-settle-' + conversation[:12]))
+    admin.execute("insert into runtime.nexloop_outbound_messages(tenant_id,world,intent_id,receipt_id,conversation_id,trigger_message_id,run_id,sender_kind,"
+                  "sender_principal,role_ref,body_digest,delivery_state) values(%s,'real',%s,gen_random_uuid(),%s,%s,gen_random_uuid(),'agent','synthetic-agent',"
+                  "'synthetic-role',%s,%s)", (tenant, intent, conversation, secrets.token_hex(32), 'b' * 64, state))
+
+
+@PLAN
+def test_a_provider_acceptance_blocks_the_effect_settlement(owner_desk, admin, governed_effect_executor):
+    c = owner_desk;c['executor_fixture'] = governed_effect_executor
+    intent, tenant, action, owner = confirmed(c, admin)
     observe(admin, intent, tenant, 'accepted', 5)  # contradicting evidence arriving later
-    refused = act(owner.client, owner.csrf, 'settle_action_claim', {'claim_action': action, 'intent_id': intent, 'category': 'confirmed_not_delivered', 'reason': 'x'})
-    assert refused.status_code == 409 and refused.json()['details'] == {'reason': 'provider_observed'}
+    assert refusal(owner, action, intent) == 'provider_observed'
     assert claim_of(admin, action, intent)['state'] == 'active'
+
+
+@PLAN
+@pytest.mark.parametrize('state', ['dispatching', 'unknown', 'provider_accepted', 'delivered'])
+def test_an_outbound_reply_not_persisted_or_failed_is_unknown(owner_desk, admin, governed_effect_executor, state):
+    """L6 I32: only persisted or failed (or no outbound) is eligible; dispatching and unknown are unknown results - reconcile first."""
+    c = owner_desk;c['executor_fixture'] = governed_effect_executor
+    intent, tenant, action, owner = confirmed(c, admin)
+    outbound(admin, tenant, intent, state)
+    assert refusal(owner, action, intent) == 'outbound_unknown'
+    assert claim_of(admin, action, intent)['state'] == 'active'
+
+
+@PLAN
+def test_an_outbound_reply_that_failed_is_eligible(owner_desk, admin, governed_effect_executor):
+    c = owner_desk;c['executor_fixture'] = governed_effect_executor
+    intent, tenant, action, owner = confirmed(c, admin)
+    outbound(admin, tenant, intent, 'failed')
+    code = "select runtime.nexloop_action_claim_settle_check(%s,'real',%s,%s,'confirmed_not_delivered')"
+    assert admin.execute(code, (tenant, action, intent)).fetchone()[0] == 'eligible'
+
+
+@PLAN
+@pytest.mark.parametrize('change,reason', [
+    ("provider_reference='provider-ref-9'", 'provider_reference'),
+    ("attempt_revision=attempt_revision+1,updated_at=clock_timestamp()", 'attempt_after_determination')])
+def test_any_sign_the_provider_may_have_received_it_goes_to_reconcile(owner_desk, admin, governed_effect_executor, change, reason):
+    """L6 I32: a provider reference on the attempt, or an attempt that moved after the determination, refuses the settlement."""
+    c = owner_desk;c['executor_fixture'] = governed_effect_executor
+    intent, tenant, action, owner = confirmed(c, admin)
+    with admin.transaction():
+        admin.execute('alter table runtime.nexloop_effect_attempts disable trigger user')
+        admin.execute(f'update runtime.nexloop_effect_attempts set {change} where intent_id=%s', (intent,))
+        admin.execute('alter table runtime.nexloop_effect_attempts enable trigger user')
+    assert refusal(owner, action, intent) == reason
+    assert claim_of(admin, action, intent)['state'] == 'active'
+
+
+UNCOMMITTED = ('Goal.create', 'PlanStep.create', 'nexloop.experiment.start', 'nexloop.approvals.decide', 'nexloop.real_dispatch.set',
+               'nexloop.consumer_twin.calibrate')
+
+
+def test_uncommitted_takes_only_the_proven_single_transaction_actions(desk):
+    """L6 I33: each whitelisted Action writes its business rows and its terminal claim in one SQL function (one transaction). The two
+    creates are authz.nexloop_create_object_action; the four others are governed handlers that authz.nexloop_goal_governed_action runs
+    before it turns the claim terminal. Other nexloop.core / postgres callers (relations, two-step context artifacts, ...) are refused."""
+    admin = desk['admin']
+    def body(name):
+        return admin.execute('select prosrc from pg_proc where oid=%s::regprocedure', (name + '(text,text,text,text,text)',)).fetchone()[0]
+    terminal = "update runtime.nexloop_action_claims set claim=stored.claim||jsonb_build_object('state','terminal'"
+    # The create entry is renamed and wrapped across migrations; the function that inserts the object also ends the claim.
+    creates = [r[0] for r in admin.execute("select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='authz' "
+                                           "and p.proname like 'nexloop_create_object_action%%' and p.prosrc like '%%insert into ontology.objects%%'")]
+    assert creates and all(terminal in src for src in creates)
+    entry = body('authz.nexloop_goal_governed_action')
+    assert entry.index('cap.handler') < entry.index(terminal)
+    manifest = {a['stable_name']: a for a in json.loads((RULES / 'business-actions.v1.json').read_text())['actions']}
+    registered = {r[0] for r in admin.execute('select capability from control.nexloop_governed_capabilities')}
+    for action in UNCOMMITTED[2:]:
+        assert manifest[action]['target_systems'] == ['postgres'] and manifest[action]['capability_name'] in registered, action
+    code = "select runtime.nexloop_action_claim_settle_check(%s,'real',%s,%s,'uncommitted')"
+    for action in UNCOMMITTED + ('Relation.link', 'nexloop.context.bind', 'nexloop.service.scope_denial.record'):
+        intent = 'synthetic-' + secrets.token_hex(16)
+        stale_claim(admin, TENANT, action, intent)
+        assert admin.execute(code, (TENANT, action, intent)).fetchone()[0] == ('eligible' if action in UNCOMMITTED else 'wrong_class'), action
+
+
+@PLAN
+def test_a_settled_create_replays_permanent_failure_and_writes_nothing(owner_desk, admin, governed_effect_executor):
+    """L6 S63: after the settlement the original Action's reserve of the same intent replays the permanent_failure outcome; the create
+    is refused before any write and no object appears."""
+    from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
+    c = owner_desk;c['executor_fixture'] = governed_effect_executor
+    publish_registry_actions(admin, (ACTION,))
+    plan = governed_effect_executor.plan
+    planner = plan['backend'].authenticate(plan['planner_token'], world='real')  # after the role and Action publications above
+    from datetime import UTC, datetime, timedelta
+    expiry = (datetime.now(UTC) + timedelta(minutes=3)).isoformat()
+    intent, properties = 'message-relay-' + secrets.token_hex(32), {'consumer_id': plan['consumer'], 'state': 'active', 'valid_until': expiry}
+    # The stage failure: the reserve committed, the create transaction did not (fault injection on a disposable database).
+    admin.execute("create function public.nx_refuse() returns trigger language plpgsql as $$ begin raise exception 'synthetic create failure'; end $$")
+    admin.execute(f"create trigger nx_refuse before insert on ontology.objects for each row when (new.source_ref = '{intent}') execute function public.nx_refuse()")
+    with pytest.raises(psycopg.Error, match='synthetic create failure'):
+        planner.create_object(action_name='Goal.create', action_version=1, intent_id=intent, type_name='Goal', properties=properties)
+    admin.execute('drop trigger nx_refuse on ontology.objects')
+    admin.execute('drop function public.nx_refuse()')
+    claim = claim_of(admin, 'Goal.create', intent)
+    assert claim['state'] == 'active' and claim['binding']['target_system'] == 'postgres'
+    admin.execute("update runtime.nexloop_action_claims set claim=jsonb_set(claim,'{lease_expires_at}',to_jsonb(clock_timestamp()-interval '2 hours')) "
+                  "where action_name='Goal.create' and intent_id=%s", (intent,))
+    owner = c['owner']()
+    done = act(owner.client, owner.csrf, 'settle_action_claim', {'claim_action': 'Goal.create', 'intent_id': intent, 'category': 'uncommitted', 'reason': 'S63'})
+    assert done.status_code == 200, done.text
+    settled = claim_of(admin, 'Goal.create', intent)
+    with pytest.raises(ActionAuthorizationDenied, match='non-success terminal outcome'):
+        planner.create_object(action_name='Goal.create', action_version=1, intent_id=intent, type_name='Goal', properties=properties)
+    assert claim_of(admin, 'Goal.create', intent) == settled  # replayed, not reclaimed (same revision, fence and outcome)
+    assert settled['terminal_outcome'] == {**settled['terminal_outcome'], 'status': 'permanent_failure', 'outcome_id': str(done.json()['settlement_id'])}
+    assert admin.execute('select count(*) from ontology.objects where source_ref=%s', (intent,)).fetchone()[0] == 0
