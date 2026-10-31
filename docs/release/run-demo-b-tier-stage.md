@@ -193,6 +193,7 @@ select x->>'run_id' run_id, x->>'issued_at' issued_at
 - **B2 勿扰时段外第 1 次（阳性，同时是 #17 的阳性对照）**：`origin_ref` 改为 `owner:b-tier-20261031-first`。
   - 预期 `fulfilled`，`admitted_at` 非空，`refusal_gates` 为空，`provider_reference` 非空。
   - 回环 outbox 有一条（Q3）。
+  - 证据照抄 §0.4：`fulfilled` 只表示写进了本地回环，不会有任何消息送达真实客户。不写“已送达”。
   - 计入频率：Q4 的 `last_24h` 为 1。
 - **B3 24 小时内第 2 次**：`origin_ref` 改为 `owner:b-tier-20261031-second`。
   - business intent id 含 origin_ref，所以这是新意图，不是重放。
