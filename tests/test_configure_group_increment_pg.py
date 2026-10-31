@@ -43,8 +43,9 @@ def revision(f):
         return db.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(f['tenant'],)).fetchone()[0]
 
 
-def increment(f,items):
-    return apply_group_increments(f['tenant'],items,database_url_file=f['paths']['dsn'],expected_revision=revision(f))
+def increment(f,items,**kw):
+    return apply_group_increments(f['tenant'],items,database_url_file=f['paths']['dsn'],signing_key_file=f['paths']['signing'],
+                                  signing_key_id='explicit-configuration',expected_revision=kw.pop('expected_revision',None) or revision(f),**kw)
 
 
 def test_a_group_only_increment_is_accepted_and_replays(configured,admin):
@@ -55,7 +56,10 @@ def test_a_group_only_increment_is_accepted_and_replays(configured,admin):
     assert increment(f,[two])['inserted']==1
     publish(f,[base,two])  # the manifest now finds v2 present and equal
     assert stored(admin,f)=={1:base,2:two}
-    assert increment(f,[two])['inserted']==0  # replay: same content, nothing changes
+    assert increment(f,[two])['inserted']==0  # an equal version: nothing changes
+    mid=str(uuid.uuid4());rev=revision(f);first=increment(f,[two],manifest_id=mid,expected_revision=rev)
+    assert increment(f,[two],manifest_id=mid,expected_revision=rev)==first  # replay of the same manifest id and digest: the recorded result
+    with pytest.raises(ConfigurationRejected):increment(f,[bump(base,groups=({'group_name':'probe_other','display_name':'','property_names':['amount']},))],manifest_id=mid,expected_revision=rev)
     other=bump(base,groups=({'group_name':'probe_lifecycle','display_name':'状态','property_names':['title']},))
     with pytest.raises(ConfigurationRejected):increment(f,[other])  # same version, other content: conflict
     assert stored(admin,f)[2]==two
@@ -64,7 +68,7 @@ def test_a_group_only_increment_is_accepted_and_replays(configured,admin):
     assert increment(f,[three])['inserted']==1 and set(stored(admin,f))=={1,2,3}
     with pytest.raises(ConfigurationRejected):increment(f,[bump(with_type('S77Probe2'))])  # stale expected revision is not the cause here: no v1
     published=admin.execute("select count(*) from control.nexloop_configuration_publications where tenant_id=%s and public_manifest->>'kind'='group_increment'",(f['tenant'],)).fetchone()
-    assert published==(2,)
+    assert published==(4,)  # two inserts, the equal no-op, and the replayed manifest id once
 
 
 @pytest.mark.parametrize('change',['added_property','removed_property','changed_type','required','display','unknown_member','grouped_twice',
@@ -100,7 +104,7 @@ def test_a_changed_old_group_and_a_stale_revision_are_refused(configured,admin):
     with pytest.raises(ConfigurationRejected):increment(f,[three])
     good=bump(two,3,({'group_name':'probe_text','display_name':'','property_names':['title']},))
     with pytest.raises(ConfigurationRejected):
-        apply_group_increments(f['tenant'],[good],database_url_file=f['paths']['dsn'],expected_revision=revision(f)-1)
+        increment(f,[good],expected_revision=revision(f)-1)
     assert set(stored(admin,f))=={1,2}
 
 
@@ -109,4 +113,4 @@ def test_only_the_configurator_calls_it(configured,admin):
     for role in ('nexloop_api','nexloop_domain_worker','nexloop_runtime'):
         with pytest.raises(psycopg.errors.InsufficientPrivilege),admin.transaction():
             admin.execute(f'set local role {role}')
-            admin.execute("select control.nexloop_configure_group_increment('x',1,'[]')")
+            admin.execute("select control.nexloop_configure_group_increment('x','{}','x','x',decode(repeat('00',32),'hex'))")

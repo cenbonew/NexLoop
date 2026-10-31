@@ -2,12 +2,14 @@
 -- type version, a group-only increment. Generic, no type name here. control.nexloop_configure_manifest (latest body 0381) is NOT
 -- changed: every object type row it inserts advances the tenant's monotonic authority revision (0009 epoch trigger, 0004 guard),
 -- so a wrapper inserting before the wrapped body would always fail its expected-revision check (ADR-042 §2, implementation note).
--- Instead the configurator calls control.nexloop_configure_group_increment(tenant, expected revision, types) as its own step,
--- before the manifest that names the new version: under the same advisory lock and expected-revision rule, for each item of
+-- Instead the configurator calls control.nexloop_configure_group_increment(tenant, text, digest, key id, key) as its own step,
+-- before the manifest that names the new version - the same trust layer as configure_manifest (configurator session, sha256
+-- digest of the exact text, tenant in the text, active signing key, advisory lock, expected revision, replay by manifest id), with
+-- a narrower body (kind group_increment: object_types only). For each item of
 -- version N >= 2: N present and equal is a no-op, N present and different a conflict; otherwise version N-1 must exist and the
 -- item must differ from it only by property_groups (control.nexloop_group_only_increment: every N-1 group kept exactly, every new
 -- group with a new name and non-empty, unique members that are existing properties ungrouped in N-1), else 'schema increment not
--- supported'. All or nothing; the step is recorded as a configuration publication (manifest kind group_increment). The following
+-- supported'. All or nothing; the step is recorded as a configuration publication under its manifest id. The following
 -- manifest then finds version N present and equal (its no-op path); any other increment is still refused there as before.
 create function control.nexloop_group_only_increment(p_previous jsonb,p_item jsonb) returns boolean
  language sql immutable set search_path=pg_catalog,pg_temp as $$
@@ -36,18 +38,39 @@ $$;
 alter function control.nexloop_group_only_increment(jsonb,jsonb) owner to nexloop_owner;
 revoke all on function control.nexloop_group_only_increment(jsonb,jsonb) from public;
 
-create function control.nexloop_configure_group_increment(p_tenant text,p_expected bigint,p_types jsonb) returns jsonb
+create function control.nexloop_configure_group_increment(p_tenant text,p_text text,p_digest text,p_key_id text,p_key bytea) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on set timezone='UTC' as $$
-declare item jsonb;previous jsonb;existing jsonb;v integer;v_revision bigint;n integer:=0;v_text text;v_digest text;
+declare m jsonb;item jsonb;previous jsonb;existing jsonb;v integer;v_revision bigint;v_expected bigint;v_manifest uuid;n integer:=0;
+ prior control.nexloop_configuration_publications;v_fingerprint text;
 begin
- if session_user<>'nexloop_configurator' or p_tenant is null or p_tenant!~'^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$' or p_expected is null
-  or jsonb_typeof(p_types) is distinct from 'array' or jsonb_array_length(p_types) not between 1 and 64 then
+ -- The same trust layer as control.nexloop_configure_manifest: configurator session only, the exact text bound by its sha256
+ -- digest, the tenant named in the text, an active signing key of the same material, one advisory lock, the expected revision,
+ -- replay by manifest id with the same digest. A narrower body: only object_types of version >= 2.
+ begin m:=p_text::jsonb;exception when others then m:=null;end;
+ if session_user<>'nexloop_configurator' or p_tenant is null or p_tenant!~'^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$'
+  or p_text is null or octet_length(p_text)>4194304 or jsonb_typeof(m) is distinct from 'object'
+  or p_digest is distinct from encode(sha256(convert_to(p_text,'UTF8')),'hex')
+  or m->>'schema_version' is distinct from '1.0' or m->>'kind' is distinct from 'group_increment' or m->>'tenant_id' is distinct from p_tenant
+  or (select count(*) from jsonb_object_keys(m))<>6
+  or exists(select 1 from jsonb_object_keys(m) k where k not in ('schema_version','kind','manifest_id','tenant_id','expected_revision','object_types'))
+  or jsonb_typeof(m->'expected_revision') is distinct from 'number' or m->>'expected_revision'!~'^[0-9]+$'
+  or jsonb_typeof(m->'object_types') is distinct from 'array' or jsonb_array_length(m->'object_types') not between 1 and 64
+  or p_key_id is null or p_key_id!~'^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$' or p_key is null or octet_length(p_key)<>32 then
   raise exception 'configuration rejected' using errcode='42501';end if;
+ v_manifest:=(m->>'manifest_id')::uuid;v_expected:=(m->>'expected_revision')::bigint;v_fingerprint:=encode(sha256(p_key),'hex');
  perform pg_advisory_xact_lock(hashtextextended('nexloop-configure:'||p_tenant,0));
  perform set_config('eios.tenant_id',p_tenant,true);
+ select * into prior from control.nexloop_configuration_publications where tenant_id=p_tenant and manifest_id=v_manifest;
+ if found then
+  if prior.manifest_digest is distinct from p_digest or prior.secret_fingerprint is distinct from v_fingerprint then
+   raise exception 'configuration conflict' using errcode='40001';end if;
+  return jsonb_build_object('configured',true,'manifest_digest',p_digest,'authority_revision',prior.authority_revision,'inserted',0);
+ end if;
+ if not exists(select 1 from authz.nexloop_authority_signing_keys where key_id=p_key_id and key_material=p_key and active) then
+  raise exception 'configuration conflict' using errcode='40001';end if;
  select authority_revision into v_revision from control.nexloop_tenants where tenant_id=p_tenant for no key update;
- if not found or v_revision<>p_expected then raise exception 'configuration conflict' using errcode='40001';end if;
- for item in select value from jsonb_array_elements(p_types) loop
+ if not found or v_revision<>v_expected then raise exception 'configuration conflict' using errcode='40001';end if;
+ for item in select value from jsonb_array_elements(m->'object_types') loop
   if jsonb_typeof(item) is distinct from 'object' or coalesce(item->>'type_name','')='' or coalesce(item->>'version','')!~'^[0-9]{1,6}$'
    or (item->>'version')::integer<2 then raise exception 'configuration rejected' using errcode='22023';end if;
   v:=(item->>'version')::integer;
@@ -62,13 +85,11 @@ begin
   insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(p_tenant,item->>'type_name',v,item);
   n:=n+1;
  end loop;
- if n=0 then return jsonb_build_object('configured',true,'inserted',0,'authority_revision',v_revision);end if;
- select authority_revision into v_revision from control.nexloop_tenants where tenant_id=p_tenant;
- v_text:=jsonb_build_object('kind','group_increment','object_types',p_types)::text;v_digest:=encode(sha256(convert_to(v_text,'UTF8')),'hex');
- insert into control.nexloop_configuration_publications values(p_tenant,('00000000-0000-5000-8000-'||substr(v_digest,1,12))::uuid,v_digest,session_user,
-  clock_timestamp(),v_revision,v_text::jsonb,v_digest);
- return jsonb_build_object('configured',true,'inserted',n,'authority_revision',v_revision);
+ -- As configure_manifest: the publication advances the revision once more and is recorded under its manifest id.
+ update control.nexloop_tenants set authority_revision=authority_revision+1 where tenant_id=p_tenant returning authority_revision into v_revision;
+ insert into control.nexloop_configuration_publications values(p_tenant,v_manifest,p_digest,session_user,clock_timestamp(),v_revision,m,v_fingerprint);
+ return jsonb_build_object('configured',true,'manifest_digest',p_digest,'authority_revision',v_revision,'inserted',n);
 end $$;
-alter function control.nexloop_configure_group_increment(text,bigint,jsonb) owner to nexloop_owner;
-revoke all on function control.nexloop_configure_group_increment(text,bigint,jsonb) from public,nexloop_api,nexloop_identity,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime;
-grant execute on function control.nexloop_configure_group_increment(text,bigint,jsonb) to nexloop_configurator;
+alter function control.nexloop_configure_group_increment(text,text,text,text,bytea) owner to nexloop_owner;
+revoke all on function control.nexloop_configure_group_increment(text,text,text,text,bytea) from public,nexloop_api,nexloop_identity,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_runtime;
+grant execute on function control.nexloop_configure_group_increment(text,text,text,text,bytea) to nexloop_configurator;

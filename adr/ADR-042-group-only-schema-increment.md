@@ -25,11 +25,22 @@
   - 每插入一行类型版本，0009 的 epoch 触发器都会把租户的 `authority_revision` 加 1，0004 的守卫又保证这个值只能单调递增；
   - 所以包装先插入 N 版之后，原函数检查 `expected_revision` 时必然对不上；
   - 而修订号不能回退，只能复制原函数体，或者改 epoch 触发器，这两样都比本方案碰的信任根更多。
-- 因此改为新增函数 `control.nexloop_configure_group_increment(tenant, expected_revision, types)`：
-  - 只有 `nexloop_configurator` 可以调用；
-  - 和 configure_manifest 用同一把 advisory lock、同一条 expected_revision 规则；
-  - 要么全部成功，要么全部不生效；
-  - 每次执行都记一条配置发布（`public_manifest.kind = group_increment`）。
+- 因此改为新增函数 `control.nexloop_configure_group_increment(tenant, text, digest, key_id, key)`。它和 configure_manifest **处于同一信任层**，是一个独立入口，不是旁路：
+
+  | 项 | configure_manifest | configure_group_increment |
+  |---|---|---|
+  | 形态 | security definer，owner 为 nexloop_owner，`search_path=pg_catalog,pg_temp`，`row_security=on`，`timezone=UTC` | 相同 |
+  | 调用方 | 只有 `session_user='nexloop_configurator'`；EXECUTE 只授给 configurator，对 api 和各 worker 角色撤销 | 相同 |
+  | 文本与摘要 | `p_digest` 必须等于 `p_text` 的 sha256；租户以文本中的为准 | 相同；文本的 `kind` 必须是 `group_increment`，键集合固定为 6 个 |
+  | 签名密钥 | 新密钥会写入；要求存在一把 active 且内容相同的密钥 | 只接受已存在且 active 的同一把密钥，不新增密钥 |
+  | 并发与顺序 | 同一把 advisory lock；`expected_revision` 必须等于当前修订号 | 相同 |
+  | 重放 | 同一 manifest_id：摘要和指纹都相同则返回已记录的结果，否则冲突 | 相同 |
+  | 记录 | 修订号加 1，写一条 `configuration_publications` | 相同（`public_manifest.kind=group_increment`） |
+  | 内容 | 全部配置 | 只有 v≥2 的 object_types，且必须通过 `nexloop_group_only_increment` |
+
+  Python 侧的 `trusted_configuration.apply_group_increments` 与 `apply_manifest_with_secrets` 一样：用 configurator 登录，校验没有 superuser、bypassrls，生成规范文本和摘要，读取签名密钥。
+  - 说明：configure_manifest 本身**没有** PG_CONTEXT 守卫（PG_CONTEXT 只用在 0381 的定义读取派生里），所以新函数也没有。两者的调用方限制都是 `session_user` 加上 EXECUTE 授权。
+- 与 0082 的关系：0082 是业务层的人工审核发布，只能新增候选属性，由审核角色执行，不经过受信配置；本入口是配置层，只能给已有属性加组，由 configurator 执行。两者互不替代，也互不调用。
 - `control.nexloop_configure_manifest`（0381 的函数体）**一字不动**，仍然拒绝任何它找不到"已存在且内容相同"的 v≥2 条目。
 - 发布顺序（`catalog_publish.publish`）：
   1. 先发一份只含 v1 类型的清单；

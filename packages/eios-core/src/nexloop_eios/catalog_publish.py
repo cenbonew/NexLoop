@@ -145,7 +145,9 @@ def publish(compiled, tenant, *, database_url_file, signing_key_file, signing_ke
         types_only['manifest_id'] = str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-catalog-types:' + str(current['authority_revision']) + ':' + canonical_payload(types_only)))
         revision = apply_manifest_with_secrets(types_only, database_url_file=database_url_file, signing_key_file=Path(signing_key_file),
                                                signing_key_id=signing_key_id, service_secrets={})['authority_revision']
-        apply_group_increments(tenant, increments, database_url_file=database_url_file, expected_revision=revision)
+        apply_group_increments(tenant, increments, database_url_file=database_url_file, signing_key_file=Path(signing_key_file),
+                               signing_key_id=signing_key_id, expected_revision=revision,
+                               manifest_id=str(uuid.uuid5(G.NAMESPACE, tenant + ':stage-catalog-increment:' + str(revision) + ':' + canonical_payload(increments))))
         current = G.inventory(database_url_file, tenant)
     body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
             'object_types': compiled['object_types'], 'actions': pending, 'functions': compiled['functions'], 'authority_facts': [],

@@ -174,19 +174,25 @@ def apply_manifest_with_secrets(manifest,*,database_url_file,signing_key_file,si
     except Exception:raise ConfigurationRejected() from None
 
 
-def apply_group_increments(tenant,object_types,*,database_url_file,expected_revision):
+def apply_group_increments(tenant,object_types,*,database_url_file,signing_key_file,signing_key_id,expected_revision,manifest_id=None):
     """ADR-042 (0390): the group-only object type increments (version >= 2) as their own configurator step, before the manifest
-    that names them. Each item is the canonical ObjectTypeDefinition dump; the database accepts only an increment over N-1 that adds
-    property groups of existing, ungrouped properties (equal ones are a no-op)."""
+    that names them - the same trust layer as apply_manifest (configurator login, canonical text and its sha256 digest, the
+    signing key), a narrower body. The database accepts only an increment over N-1 that adds property groups of existing,
+    ungrouped properties; equal ones are a no-op; a replay of the same manifest id and digest returns the recorded revision."""
     try:
         items=[ObjectTypeDefinition.model_validate_json(canonical_payload(item)).model_dump(mode='json') for item in object_types]
-        if not items or any(item['version']<2 for item in items) or type(expected_revision) is not int:raise ValueError()
+        if not items or len(items)>64 or any(item['version']<2 for item in items) or type(expected_revision) is not int:raise ValueError()
+        key=bytes.fromhex(read_private_text(signing_key_file,maximum=128))
+        if len(key)!=32 or type(signing_key_id) is not str or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}',signing_key_id) is None:raise ValueError()
+        body={'schema_version':'1.0','kind':'group_increment','manifest_id':manifest_id or str(uuid.uuid4()),'tenant_id':tenant,
+              'expected_revision':expected_revision,'object_types':items}
+        text=canonical_payload(body);digest=hashlib.sha256(text.encode()).hexdigest()
         with psycopg.connect(read_private_text(database_url_file,maximum=16384),connect_timeout=5) as db,db.transaction():
             db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
-            role=db.execute('select current_user,session_user from pg_roles where rolname=current_user').fetchone()
-            if not role or tuple(role)!=('nexloop_configurator','nexloop_configurator'):raise ValueError()
-            result=db.execute('select control.nexloop_configure_group_increment(%s,%s,%s::jsonb)',(tenant,expected_revision,canonical_payload(items))).fetchone()[0]
-        if type(result) is not dict or result.get('configured') is not True or type(result.get('authority_revision')) is not int:raise ValueError()
+            role=db.execute('select current_user,session_user,rolsuper,rolbypassrls from pg_roles where rolname=current_user').fetchone()
+            if not role or role[:2]!=('nexloop_configurator','nexloop_configurator') or any(role[2:]):raise ValueError()
+            result=db.execute('select control.nexloop_configure_group_increment(%s,%s,%s,%s,%s)',(tenant,text,digest,signing_key_id,key)).fetchone()[0]
+        if type(result) is not dict or result.get('configured') is not True or result.get('manifest_digest')!=digest or type(result.get('authority_revision')) is not int:raise ValueError()
         return result
     except Exception:raise ConfigurationRejected() from None
 
