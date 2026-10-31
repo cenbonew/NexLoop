@@ -37,7 +37,7 @@
 
 ### 1. 收口两枚 active 令牌
 
-1. 管理机树里已经是 2027-01-31 那一枚（R65 已 switch、finish）。把树同步到 DATA_HOST 的 `$RUN`，做法同 run-i31 第 1 步。
+1. 管理机树和 DATA_HOST 的 `$RUN` 里都已经是 2027-01-31 那一枚（R65 已 switch、finish 并同步 `setup/catalog-maintainer-credential`；旧令牌只在管理机私有快照里，本步不需要它）。只做核对，不一致时再按 run-i31 第 1 步同步。
    核对：`stage_secrets.py check --out <树>` 预期 ok；`$RUN/management/service-secrets.json` 的摘要与管理机一致（`sha256sum` 对比，不看内容）。
 2. 撤销较早的那一枚（DATA_HOST，配置员窗口）：
 
