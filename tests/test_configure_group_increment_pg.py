@@ -114,3 +114,35 @@ def test_only_the_configurator_calls_it(configured,admin):
         with pytest.raises(psycopg.errors.InsufficientPrivilege),admin.transaction():
             admin.execute(f'set local role {role}')
             admin.execute("select control.nexloop_configure_group_increment('x','{}','x','x',decode(repeat('00',32),'hex'))")
+
+
+def raw_increment(f,items):
+    """The 0390 entry called directly as the configurator, past the Python model (which would already drop or refuse these
+    shapes): the database is the only check a later manifest relies on (L6 K1)."""
+    import hashlib
+    import psycopg
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    from nexloop_eios.private_configuration import read_private_text
+    body={'schema_version':'1.0','kind':'group_increment','manifest_id':str(uuid.uuid4()),'tenant_id':f['tenant'],'expected_revision':revision(f),'object_types':items}
+    text=canonical_payload(body)
+    with psycopg.connect(read_private_text(f['paths']['dsn'],maximum=16384)) as db:
+        return db.execute('select control.nexloop_configure_group_increment(%s,%s,%s,%s,%s)',(f['tenant'],text,hashlib.sha256(text.encode()).hexdigest(),
+            'explicit-configuration',bytes.fromhex(read_private_text(f['paths']['signing'],maximum=128)))).fetchone()[0]
+
+
+@pytest.mark.parametrize('group',[
+    {'group_name':'probe_lifecycle','display_name':'状态','property_names':['active'],'extra':'1'},          # an extra key
+    {'group_name':'Probe_Lifecycle','display_name':'状态','property_names':['active']},                    # an upper-case name
+    {'group_name':None,'display_name':'状态','property_names':['active']},                                 # a null name
+    {'group_name':'1probe','display_name':'状态','property_names':['active']},                             # not the 0084 group name
+    {'group_name':'probe_lifecycle','display_name':None,'property_names':['active']},                     # a non-string display name
+    {'group_name':'probe_lifecycle','property_names':['active']},                                         # a missing key
+    'probe_lifecycle',                                                                                     # not an object
+])
+def test_the_database_alone_refuses_a_malformed_new_group(configured,admin,group):
+    import psycopg
+    f=configured;base=with_type();publish(f,[base])
+    good=bump(base);assert raw_increment(f,[good])['inserted']==1  # the raw path itself works
+    item=bump(good,3,(group,));rev=revision(f)
+    with pytest.raises(psycopg.Error):raw_increment(f,[item])
+    assert set(stored(admin,f))=={1,2} and revision(f)==rev

@@ -23,7 +23,14 @@ create function control.nexloop_group_only_increment(p_previous jsonb,p_item jso
   and exists(select 1 from jsonb_array_elements(p_item->'property_groups') g where not coalesce(p_previous->'property_groups','[]'::jsonb) @> jsonb_build_array(g))
   and not exists(select 1 from jsonb_array_elements(p_item->'property_groups') g
    where not coalesce(p_previous->'property_groups','[]'::jsonb) @> jsonb_build_array(g) and (
-    jsonb_typeof(g) is distinct from 'object' or jsonb_typeof(g->'property_names') is distinct from 'array' or jsonb_array_length(g->'property_names')=0
+    jsonb_typeof(g) is distinct from 'object'
+    -- K1 (L6): the database is the only check of a new group (a later manifest finds the version equal and passes it): exactly
+    -- these keys, a group name as 0084 rules name groups, a string display name.
+    or (select array_agg(k order by k) from jsonb_object_keys(case jsonb_typeof(g) when 'object' then g else '{}'::jsonb end) k)
+       is distinct from array['display_name','group_name','property_names']
+    or jsonb_typeof(g->'group_name') is distinct from 'string' or g->>'group_name'!~'^[a-z][a-z0-9_]{0,63}$'
+    or jsonb_typeof(g->'display_name') is distinct from 'string'
+    or jsonb_typeof(g->'property_names') is distinct from 'array' or jsonb_array_length(g->'property_names')=0
     or exists(select 1 from jsonb_array_elements(coalesce(p_previous->'property_groups','[]'::jsonb)) o where o->>'group_name'=g->>'group_name')
     or (select count(*) from jsonb_array_elements_text(g->'property_names'))<>(select count(distinct n) from jsonb_array_elements_text(g->'property_names') n)
     or exists(select 1 from jsonb_array_elements_text(g->'property_names') n where

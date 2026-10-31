@@ -82,3 +82,8 @@ def test_the_group_changes_no_existing_result_and_adds_only_the_maintainer_edit(
     hidden=[t for t,a,b in zip(v2,[admin.execute(MAY,(TENANT,'owner',t)).fetchone()[0] for t in v1],[admin.execute(MAY,(TENANT,'owner',t)).fetchone()[0] for t in v2]) if a!=b]
     assert hidden==[v2[0].replace('eios:object:','eios:property:')+'/active'],hidden
     assert not admin.execute(DERIVE,(TENANT,TENANT,MAINTAINER,v2[0].replace('eios:object:','eios:property:')+'/active','edit')).fetchone()[0]
+    # Restored: the owner's decision restricts no group again, and every result is back to the unrestricted one.
+    admin.execute("update authz.nexloop_authority_facts set payload=jsonb_set(payload,'{restricted_groups}','[]') "
+                  "where tenant_id=%s and fact_kind='property_group_restriction' and entity_key=array['IncentiveOffering']",(TENANT,))
+    assert all(admin.execute(MAY,(TENANT,'owner',t)).fetchone()[0] for t in v2)
+    assert admin.execute(DERIVE,(TENANT,TENANT,MAINTAINER,v2[0].replace('eios:object:','eios:property:')+'/active','edit')).fetchone()[0]
