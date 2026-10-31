@@ -36,9 +36,9 @@
 - **执行者**：调度员（命令和只读查询）。
 - **人工步骤**：只用合成 owner `approver3`（工作台 Action）和合成顾客 s6c-1/2/3；负责人账号不参与。
 - **判定者**：L6。证据里三者分开写。
-- **需要负责人授权的**：
-  - 方案 R 的人设变更（§0.2）；
-  - B6 的计划复评 Run：真实模型调用，单 Run 上限 2 CNY，本单最多触发 1 次，合计不超过 2 CNY，计入租户月度模型预算；
+- **负责人已授权（2026-10-31 会话确认，经调度员转达）**：
+  - **方案 R**：s6c-1 人设临时改为 `real`，验证完改回（§4.0）；
+  - **B6**：Agent 发起一次主动外联，真实模型调用，单 Run 上限 2 CNY，沿用 100 CNY / 7 天预算；外联只走回环（§6）；
   - 第 3 节若改租户勿扰设置（`set_outreach_controls`），属于配置变更。不改的话就在勿扰时段内执行，推荐这样做。
 - **其余步骤不调用模型、不产生模型费用**：owner 发起的外联和激励都不经过模型；激励金额计入租户激励预算（回环，不出钱）。
 
@@ -95,6 +95,57 @@ finally:
 
 **执行时间**：B1 在租户勿扰时段内（默认北京时间 21:00–09:00，以 P10 读出的为准）；B2、B3 在勿扰时段外。不改租户设置。
 
+### 4.0 人设切换窗口（方案 R，负责人已授权）
+
+`R0`（改为 real）和 `R9`（改回）由 **approver3** 在负责人终端执行，用 §3 的 `owner_action.py`，Action 是 `set_consumer_persona`。
+
+```json
+// cfg-R0.json
+{"operation": "set_consumer_persona", "body": {"consumer_id": "<C1>", "persona": "real", "reason": "S74 B 档 stage 验证，临时（负责人 2026-10-31 会话确认）；R9 改回"}}
+// cfg-R9.json
+{"operation": "set_consumer_persona", "body": {"consumer_id": "<C1>", "persona": "simulated_agent", "reason": "S74 B 档 stage 验证结束，改回"}}
+```
+
+```bash
+security find-generic-password -s nexloop/stage/approver3 -w | python3 local-only/b-tier/owner_action.py <release 检出> https://<APP_HOST_NAME>:<PORT> "$HOME/.nexloop/stage/endpoint-20261015/ca-bundle.crt" local-only/b-tier/approver3.username local-only/b-tier/cfg-R0.json
+# 验证结束后（无论 B1-B6 成败）同样执行 cfg-R9.json
+```
+
+**前后只读核对**（R0 之前、R0 之后、R9 之后各一次）：
+
+```sql
+-- 当前人设
+select consumer_id like '$C1%' c1, persona, revision, updated_at from control.nexloop_consumer_personas where tenant_id='$T' and world='real' and consumer_id='$C1';
+-- 人设事件：窗口的起止时间以这里为准
+select previous, persona, revision, set_by, recorded_at from control.nexloop_consumer_persona_events where tenant_id='$T' and world='real' and consumer_id='$C1' order by revision;
+```
+
+- 预期：R0 之前是 `simulated_agent`；R0 之后是 `real`，revision 加 1，新增一条 `simulated_agent → real` 事件；R9 之后回到 `simulated_agent`，再加一条 `real → simulated_agent` 事件。
+- **时间窗** `[W0, W1)`：W0 是 R0 事件的 `recorded_at`，W1 是 R9 事件的 `recorded_at`。两个时间都写进证据，取自上面的查询，不要估计。
+
+**窗内的影响**：
+- 人设在读取时才求值（`runtime.nexloop_consumer_persona` 取当前值，0220）。所以窗内任何按人设筛选的读取都把 s6c-1 当作 `real`，包括它在窗口之前的历史记录。涉及的读取有：
+  - 演进轨迹读取 `authz.nexloop_evo_trace_runs`，以及它的 `personas` 参数（0233）；
+  - 外联证据（0251）；
+  - NX-043 的分配和比较（0289 起）；
+  - 运营指标里与人设相关的部分。
+- 窗内不发起任何演进或评估读取，也不跑 S6 / NX-043 的阶段脚本。调度员在 R0 之前确认没有排定这类任务。
+
+**窗后的排除方法**：R9 之后，s6c-1 的全部记录又标为 `simulated_agent`，窗内产生的 Run（B2、B6 等）也一样，会进入以后 `personas` 含 `simulated_agent` 的演进读取。排除办法：
+1. **首选**：以后演进或评估的 `window` 不与 `[W0, W1)` 重叠，`since` 取 W1 或之后；
+2. 必须覆盖这段时间时，把窗内 s6c-1 的 Run 列成排除清单，从读取结果中剔除，并在证据里写明剔除了多少。清单由下面的只读 SQL 生成：
+
+```sql
+-- 演进读取所用的同一个内部函数（0233，0313 重定义），只取 s6c-1 在窗内的 run_id
+select x->>'run_id' run_id, x->>'issued_at' issued_at
+  from jsonb_array_elements(runtime.nexloop_evo_trace_runs('$T','real','<W0>'::timestamptz,'<W1>'::timestamptz,null,null,1000,
+       array['real','simulated_agent','synthetic'])->'runs') x
+ where x->>'consumer_id'='$C1' order by 2;
+```
+
+（输出一页最多 1000 条；超出时用上一页最后一条的 issued_at 和 run_id 作为 `p_after_at`、`p_after_run` 翻页。）
+3. 窗内留下的外联和激励行（Q1、§5.3）是本单的证据，按 `origin_ref like 'owner:b-tier-%'` 或 `plan:` 加时间窗识别，不属于业务数据。
+
 ### 4.1 方案 S（不改人设；部分证明）
 
 **B1 勿扰时段内触发一次（s6c-1）**
@@ -114,7 +165,7 @@ finally:
 
 顺序：R0 改人设 → B1 → B2 → B3 → R9 改回。B1 在勿扰时段内，B2、B3 在次日勿扰时段外，B2 和 B3 之间不超过 24 小时。
 
-- **R0**：`cfg-R0.json`，`{"operation":"set_consumer_persona","body":{"consumer_id":"<C1>","persona":"real","reason":"S74 B 档 stage 验证，临时；R9 改回"}}`。核对：P11 的查询中 `$C1` 为 `real`，revision 加 1。
+- **R0**：见 §4.0。
 - **B1 勿扰时段内**：配置同 4.1。
   - 预期 `refused`，`refusal_code=quiet_hours`。
   - 人设闸这时通过；勿扰排在频率之前，所以即使频率也拒，代码仍是 `quiet_hours`。
@@ -126,7 +177,7 @@ finally:
   - business intent id 含 origin_ref，所以这是新意图，不是重放。
   - 预期 `refused`，`refusal_code=frequency_capped`；`refusal_gates.frequency.detail.last_24h=1`。
   - 回环 outbox 没有这条。
-- **R9**：`cfg-R9.json` 把 `persona` 改回 `simulated_agent`，理由“S74 B 档验证结束”。核对同 R0。**无论前面成败都要做**。
+- **R9**：见 §4.0。**无论前面成败都要做**，要在 B6 结束之后。
 
 ### 4.3 只读核对 SQL
 
@@ -185,7 +236,11 @@ select action, request_id, created_at from runtime.audit_events
 ## 6. #17 外联第 5 片阳性对照
 
 - **方案 R**：§4.2 的 B2（owner 发起的 `fulfilled`）就是外联发送和执行器准入的阳性对照。Agent 发起这一路再做 B6。
-- **B6（Agent 发起；真实模型调用，需负责人授权，≤ 2 CNY）**：按 OUT 单 §3.2 给 s6c-1 建一个计划步骤，`reassess_at` 设在约 5 分钟后，并且在勿扰时段外、距 B2 超过 24 小时（否则会以 `frequency_capped` 拒绝，那就是又一次频率证明，不是阳性）。常驻 plan-reevaluator 认领后，Run 调用 `nexloop.outreach.send`。
+- **B6（Agent 发起；真实模型调用）**：
+  - **授权依据**：负责人 2026-10-31 会话确认（经调度员转达）。
+  - **成本上限**：单 Run ≤ 2 CNY（计划复评 Run 预算 4 轮模型、12 次工具、2 CNY），本单只触发 1 次；沿用 100 CNY / 7 天预算。执行前后各读一次租户模型预算消耗，差额写进证据：`ro "select sum(amount) from control.nexloop_budget_consumption where tenant_id='$T' and world='real' and budget_kind='model' and recorded_at > now()-interval '7 days'"`。
+  - **回环约束**：外联执行器的 provider 只有 `LocalOutreachOutbox`（P2）；不满足 P2 就不做 B6。
+  - 步骤：按 OUT 单 §3.2 给 s6c-1 建一个计划步骤，`reassess_at` 设在约 5 分钟后，并且在勿扰时段外、距 B2 超过 24 小时（否则会以 `frequency_capped` 拒绝，那就是又一次频率证明，不是阳性）。常驻 plan-reevaluator 认领后，Run 调用 `nexloop.outreach.send`。
   - 预期：`initiator='agent'`，带 `run_id`；方案 R 下为 `fulfilled`。
   - 前提：OUT 单的 G-1 到 G-3 已满足（Role 上限含发送，见 OUT §2.2、§2.3），P10（L6 S49）中 `plan.outcome` 已生效。
   - 核对：Q1（`origin_ref like 'plan:%'`、`initiator='agent'`），以及 OUT 单 §4 的查询。
@@ -202,18 +257,42 @@ select o.object_id like '$C1%' c1, o.object_id like '$C2%' c2, o.object_id like 
 select e.object_id like '$C1%' c1, e.event_type, e.sequence, e.actor_id, e.created_at
   from ontology.events e where e.tenant_id='$T' and e.object_type='Consumer' and e.object_id in ('$C1','$C2','$C3')
  order by e.object_id, e.sequence;
--- 由 Claim 匹配自动应用的属性修订（来源可追溯到 Claim）：事件里引用 claim 的条数
-select e.object_id like '$C1%' c1, count(*) filter (where e.payload ? 'claim_id' or e.payload ? 'source_claims') from_claims, count(*) total
-  from ontology.events e where e.tenant_id='$T' and e.object_type='Consumer' and e.object_id in ('$C1','$C2','$C3') group by 1;
+-- 由 Claim 匹配产生的属性修订（可追溯到 Claim：nexloop_mutation_proposals，0070）
+select p.target_ref like '%'||'$C1'||'%' c1, p.property_name, p.status, count(*), max(p.updated_at)
+  from ontology.nexloop_mutation_proposals p where p.tenant_id='$T' and p.world='real' and p.type_name='Consumer'
+   and (p.target_ref like '%'||'$C1'||'%' or p.target_ref like '%'||'$C2'||'%' or p.target_ref like '%'||'$C3'||'%')
+ group by 1,2,3 order by 1,2,3;
 ```
 
 - 预期：至少一个 s6c 顾客的 Consumer 对象有 S6 发言之后的属性修订事件，并且能追溯到 Claim。演示里的“客户画像 · 修订 N”就对应这些事件。
-- 如果 `from_claims` 为 0，说明 stage 上画像更新没有走 Claim 自动应用这条路，#19 仍留在 B 档，并在证据里写明。
-- payload 的键名（`claim_id` / `source_claims`）以 claim 应用代码为准，执行前在一次性库上核对（§8）。
+- 如果第三个查询没有 `status='applied'` 的行，说明 stage 上画像更新没有走 Claim 自动应用这条路，#19 仍留在 B 档，并在证据里写明。
 
 ## 8. 执行前的一次性库核对
 
 §2、§4.3、§5.3、§7 的 SQL 先在一次性 PostgreSQL 上用与 `ro` 相同的会话（只读事务、`set local role nexloop_owner`、设置 `eios.tenant_id`）逐条执行，确认列名和函数签名，与 OUT 单 L6 S2 的做法相同。这只证明 SQL 可执行，不代表 stage 的数据。
+
+**L3 本地试跑（2026-10-31，main 80b1009b 的 schema）**：
+- 夹具：`tests/test_semantic_access_record_pg.py` 的 `semantic`，即全量 bootstrap 加合成租户 A。consumer_id 用占位哈希。
+- 会话：只读事务，`set local role nexloop_owner`，设置 `eios.tenant_id`。
+- 结果：20 条全部执行无错。
+
+| 查询 | 结果 |
+|---|---|
+| P4a | 0 行 |
+| P4b | 1 行（0）|
+| P5 / P6 / P7 / P8 / P11 / P12 | 各 0 行 |
+| P9 | 1 行：`listed=true`、`enabled=true`、`commitment_followup` |
+| P10 | 1 行：`per_24h=1`、`per_7d=2`、`source=default`、marketing 关 |
+| Q1 / Q2 | 各 0 行 |
+| Q4 | 1 行（0, 0）|
+| §5.3 三条 | 各 0 行 |
+| §7 前两条 | 各 0 行 |
+| §4.0 人设事件 | 0 行 |
+
+- §7 第三条最初按 `ontology.events.payload` 的键名写，键名无法从源码确认，已改为 `ontology.nexloop_mutation_proposals`（0070），重新试跑执行无错，0 行。
+- 夹具里没有激励目录、预算、人设和外联数据，所以只验证了列名和函数签名。
+- §4.0 的排除清单 SQL（`runtime.nexloop_evo_trace_runs`）也已本地试跑，执行无错，0 行。
+- P4b 的匹配方式（`entity_key[2] like '%nexloop.incentive.execute%'`）只证明能执行。stage 上读出 0 时，改用 `ro "select entity_key from authz.nexloop_authority_facts where fact_kind='grants' and entity_key::text like '%incentive%'"` 再看一次。
 
 ## 9. 证据
 
