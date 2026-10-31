@@ -1,7 +1,8 @@
 """I31 service credential rotation (migration service_credential_rotation, alert rules v25) on real PostgreSQL, through
 `stage_secrets.py rotate-credential` / `revoke-credential` on a registered stage tree: one credential_id holds two active tokens for
 the overlap and both authenticate as the same principal; a third active token is refused; revoking the previous token refuses it
-(42501) while the new one keeps working; the revocation rules (a later-expiring token must remain; --retired only without grants);
+(42501) while the new one keeps working; a previous token past its own row's expiry is refused although the fact was
+extended (S65); a second token only from inside the rotation entry on the call stack, never a GUC (S68); the revocation rules (a later-expiring token must remain; --retired only without grants or rule facts, S66);
 the authentication fact follows the active tokens; register stays in sync; the restore journal names the revoked token; the metrics
 snapshot and the two v25 rules; no token in any output, file modes 0700/0600."""
 import json
@@ -154,24 +155,25 @@ def test_a_third_token_and_the_revocation_rules_are_refused(registered, capsys):
     common = dict(database_url_file=dsn(r), signing_key_file=signing, signing_key_id='stage-1')
     old, second, third = token_of(r), 'second-' + uuid.uuid4().hex * 2, 'third-' + uuid.uuid4().hex * 2
     until = datetime.now(UTC) + timedelta(days=60)
+    row = r['admin'].execute('select tenant_id,binding,worlds,audience from authz.nexloop_service_credentials where token_digest=%s',
+                             (G.hashlib.sha256(old.encode()).hexdigest(),)).fetchone()
+
+    def insert(secret):
+        r['admin'].execute("insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at)"
+                           " values(%s,%s,%s,%s,%s,%s,'active',%s)",
+                           (G.hashlib.sha256(secret.encode()).hexdigest(), row[0], credential, psycopg.types.json.Jsonb(row[1]), row[2], row[3], until))
+    # S68: the second-token permission is the call stack, not a GUC - setting the old rotation GUC and inserting as 0050 would is refused.
+    with pytest.raises(psycopg.errors.UniqueViolation), r['admin'].transaction():
+        r['admin'].execute("select set_config('nexloop.service_credential_rotation',%s,true)",
+                           (credential + ':' + G.hashlib.sha256(second.encode()).hexdigest(),))
+        insert(second)
     G.rotate_credential(TENANT, credential_id=credential, current_secret=old, new_secret=second, expires_at=until, request_id=uuid.uuid4(), **common)
     # A third active token: refused by the function (the current token is not the only active one) and by the table guard.
     with pytest.raises(G.ServiceGrantsRejected, match='credential_rotate_refused:42501'):
         G.rotate_credential(TENANT, credential_id=credential, current_secret=second, new_secret=third, expires_at=until + timedelta(days=1),
                             request_id=uuid.uuid4(), **common)
-    row = r['admin'].execute('select tenant_id,binding,worlds,audience from authz.nexloop_service_credentials where token_digest=%s',
-                             (G.hashlib.sha256(old.encode()).hexdigest(),)).fetchone()
-    with pytest.raises(psycopg.errors.UniqueViolation):  # an insert outside the rotation, as 0050 would do it
-        r['admin'].execute("insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at)"
-                           " values(%s,%s,%s,%s,%s,%s,'active',%s)",
-                           (G.hashlib.sha256(third.encode()).hexdigest(), row[0], credential, psycopg.types.json.Jsonb(row[1]), row[2], row[3], until))
-    with pytest.raises(psycopg.errors.UniqueViolation):  # a third active row even with the rotation flag
-        with r['admin'].transaction():
-            r['admin'].execute("select set_config('nexloop.service_credential_rotation',%s,true)",
-                               (credential + ':' + G.hashlib.sha256(third.encode()).hexdigest(),))
-            r['admin'].execute("insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at)"
-                               " values(%s,%s,%s,%s,%s,%s,'active',%s)",
-                               (G.hashlib.sha256(third.encode()).hexdigest(), row[0], credential, psycopg.types.json.Jsonb(row[1]), row[2], row[3], until))
+    with pytest.raises(psycopg.errors.UniqueViolation), r['admin'].transaction():  # an insert outside the rotation, as 0050 would do it
+        insert(third)
     # Revoking the token that expires last is refused (the remaining one would expire earlier); --retired with grants is refused.
     with pytest.raises(G.ServiceGrantsRejected, match='credential_revoke_refused:42501'):
         G.revoke_credential(TENANT, credential_id=credential, secret=second, request_id=uuid.uuid4(), **common)
@@ -194,6 +196,22 @@ def test_a_third_token_and_the_revocation_rules_are_refused(registered, capsys):
     assert not authenticates(r, old) and authenticates(r, second)
 
 
+def test_the_previous_token_expires_on_its_own_row_although_the_fact_is_extended(registered):  # noqa: F811
+    r = registered  # S65
+    credential = principal(r)['credential_id']
+    common = dict(database_url_file=dsn(r), signing_key_file=r['tree']['out'] / 'management' / 'signing.key.hex', signing_key_id='stage-1')
+    old, new = token_of(r), 'renewed-' + uuid.uuid4().hex * 2
+    until = datetime.now(UTC) + timedelta(days=90)
+    G.rotate_credential(TENANT, credential_id=credential, current_secret=old, new_secret=new, expires_at=until, request_id=uuid.uuid4(), **common)
+    fact = r['admin'].execute("select payload->>'expires_at' from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='authentication'"
+                              " and entity_key=array[%s]", (TENANT, credential)).fetchone()[0]
+    assert abs(datetime.fromisoformat(fact) - until) < timedelta(seconds=1)
+    with r['admin'].transaction():  # the old row passes its own expires_at; nothing revoked it
+        r['admin'].execute("update authz.nexloop_service_credentials set expires_at=clock_timestamp()-interval '1 second' where token_digest=%s",
+                           (G.hashlib.sha256(old.encode()).hexdigest(),))
+    assert not authenticates(r, old) and authenticates(r, new) and decides(r, new)
+
+
 def test_retired_principal_without_grants_loses_its_last_token(registered):  # noqa: F811
     r = registered
     role = 'relation_backfiller'
@@ -203,6 +221,20 @@ def test_retired_principal_without_grants_loses_its_last_token(registered):  # n
     r['admin'].execute("update authz.nexloop_authority_facts set payload=payload||'{\"grants\":[]}'::jsonb where tenant_id=%s and fact_kind='grants' "
                        "and entity_key[1]=%s", (TENANT, victim['principal_id']))
     signing = r['tree']['out'] / 'management' / 'signing.key.hex'
+    rules = r['admin'].execute("select fact_kind from authz.nexloop_authority_facts where tenant_id=%s and entity_key[1]=%s and fact_kind in"
+                               " ('message_read_rule','message_purpose_rule','property_access_rule','relay_source_read_rule','role_source_read_rule',"
+                               "'definition_read_rule','property_group_restriction')", (TENANT, victim['principal_id'])).fetchall()
+    if not rules:  # S66: give it one rule fact so the refusal is exercised
+        r['admin'].execute("insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) select tenant_id,'definition_read_rule',"
+                           "array[%s],'{}'::jsonb from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[1]=%s",
+                           (victim['principal_id'], TENANT, victim['principal_id']))
+    # S66: a principal that still holds a rule fact is not retired.
+    with pytest.raises(G.ServiceGrantsRejected, match='credential_revoke_refused:42501'):
+        G.revoke_credential(TENANT, credential_id=victim['credential_id'], retired=True, request_id=uuid.uuid4(), database_url_file=dsn(r),
+                            signing_key_file=signing, signing_key_id='stage-1')
+    r['admin'].execute("delete from authz.nexloop_authority_facts where tenant_id=%s and entity_key[1]=%s and fact_kind in ('message_read_rule',"
+                       "'message_purpose_rule','property_access_rule','relay_source_read_rule','role_source_read_rule','definition_read_rule',"
+                       "'property_group_restriction')", (TENANT, victim['principal_id']))
     request = str(uuid.uuid4())
     result = S.revoke_retired(r['tree']['out'], role, credential_id=victim['credential_id'], tenant=TENANT, database_url_file=dsn(r),
                               signing_key_id='stage-1', request_id=request)

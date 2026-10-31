@@ -28,12 +28,16 @@ create index nexloop_service_credentials_credential on authz.nexloop_service_cre
 
 create function authz.nexloop_service_credential_rows_guard() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
+declare v_stack text;
 begin
  perform pg_advisory_xact_lock(hashtextextended('nexloop-service-credential:'||new.credential_id,0));
+ get diagnostics v_stack=pg_context;
  if tg_op='UPDATE' and new.credential_id is distinct from old.credential_id then
   raise exception 'service credential id is immutable' using errcode='42501';end if;
  if tg_op='INSERT' and exists(select 1 from authz.nexloop_service_credentials c where c.credential_id=new.credential_id and c.token_digest<>new.token_digest)
-  and current_setting('nexloop.service_credential_rotation',true) is distinct from new.credential_id||':'||new.token_digest then
+  and position('function control.nexloop_rotate_service_credential(' in v_stack)=0 then
+  -- A second token for an id is inserted only from inside the rotation entry (the server-side call stack, L6 S68), never on a
+  -- caller-settable GUC: the trusted configuration (0050) or any other path keeps the old unique behaviour.
   raise exception 'duplicate key value violates unique constraint "nexloop_service_credentials_credential_id_key"' using errcode='23505';end if;
  if new.status='active' and (select count(*) from authz.nexloop_service_credentials c
    where c.credential_id=new.credential_id and c.status='active' and c.token_digest<>new.token_digest)>=2 then
@@ -121,10 +125,8 @@ begin
   or p_fact->>'status' is distinct from 'active' or (p_fact->>'expires_at')::timestamptz is distinct from v_until
   or coalesce(p_fact->>'snapshot_digest','')!~'^[a-f0-9]{64}$' then
   raise exception 'credential rotation refused' using errcode='42501';end if;
- perform set_config('nexloop.service_credential_rotation',cur.credential_id||':'||p_new_digest,true);
  insert into authz.nexloop_service_credentials(token_digest,tenant_id,credential_id,binding,worlds,audience,status,expires_at,agent_invocation,sim_use)
   values(p_new_digest,p_tenant,cur.credential_id,cur.binding,cur.worlds,cur.audience,'active',v_until,cur.agent_invocation,cur.sim_use);
- perform set_config('nexloop.service_credential_rotation','',true);
  update authz.nexloop_authority_facts set payload=p_fact where tenant_id=p_tenant and fact_kind='authentication' and entity_key=array[cur.credential_id];
  v_result:=jsonb_build_object('rotated',true,'credential_id',cur.credential_id,'expires_at',v_until,'previous_expires_at',cur.expires_at,'active_tokens',2,
   'replayed',false);
@@ -161,8 +163,12 @@ begin
  if v_retired then
   select binding->>'subject_principal_id' into v_principal from authz.nexloop_service_credentials
    where tenant_id=p_tenant and credential_id=v_credential and status='active' and binding->>'subject_kind'='service' limit 1;
+  -- Retired means no grant and no rule fact keyed to the principal (L6 S66).
   if v_principal is null or exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=p_tenant and f.fact_kind='grants'
-    and f.entity_key[1]=v_principal and jsonb_typeof(f.payload->'grants')='array' and jsonb_array_length(f.payload->'grants')>0) then
+    and f.entity_key[1]=v_principal and jsonb_typeof(f.payload->'grants')='array' and jsonb_array_length(f.payload->'grants')>0)
+   or exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=p_tenant and f.entity_key[1]=v_principal
+    and f.fact_kind in ('message_read_rule','message_purpose_rule','property_access_rule','relay_source_read_rule','role_source_read_rule',
+     'definition_read_rule','property_group_restriction')) then
    raise exception 'credential revocation refused' using errcode='42501';end if;
   update authz.nexloop_service_credentials set status='revoked' where tenant_id=p_tenant and credential_id=v_credential and status='active';
   get diagnostics n=row_count;

@@ -21,7 +21,7 @@ stage 上有三个 active 服务凭据于 **2026-11-04T00:00:00Z** 到期：
 | --- | --- | --- |
 | P1 | 迁移 0384（`service_credential_rotation`）已执行 | `select max(version) from` 迁移表，或 `\df control.nexloop_rotate_service_credential` 有结果 |
 | P2 | `$RUN/src` 是含 0384 和本单代码的 main 打包，做法同 run-assembly §0.4 | `ls $RUN/src/scripts/deploy/stage_secrets.py`；`grep -c rotate-credential` 大于 0 |
-| P3 | 管理机上的秘密树 `<树>` 与 `$RUN` 一致，并另存快照 `cp -a <树> <树>.before-i31`（0700，不进仓库） | `stage_secrets.py check --out <树>` 预期 ok |
+| P3 | 管理机上的秘密树 `<树>` 与 `$RUN` 一致，并另存快照 `cp -a <树> <树>.before-i31`（0700，不进仓库；第 7 步销毁） | `stage_secrets.py check --out <树>` 预期 ok |
 | P4 | 告警规则 v25 已发布（见第 6 步，可先做） | 87+2=89 条 |
 
 - **`$COMMON`、`$WINDOW`**：与 run-nx057-remediation-stage §2 相同（DATA_HOST）。`$RUN` 只读挂在 `/stage`，本单在 DATA_HOST 上只写数据库，不写树。
@@ -151,6 +151,22 @@ world_glossary_translator 同样执行一次。
 
 ## 5. 退役主体的凭据（DATA_HOST）
 
+**前置核对（只读，执行前必须都成立）**：
+
+1. 该服务已从 compose 移除：在 APP_HOST 上 `docker compose -f <stage compose> config --services | grep -c relation` 预期 0，`docker ps --format '{{.Names}}' | grep -c relation` 预期 0。
+2. 库里没有规则 fact（配置员窗口）：
+
+   ```sql
+   select fact_kind,count(*) from authz.nexloop_authority_facts f
+    where tenant_id='<TENANT_ID>' and entity_key[1]=(select binding->>'subject_principal_id' from authz.nexloop_service_credentials
+      where credential_id='nexloop-service-relation-backfiller-key' limit 1)
+      and fact_kind in ('grants','message_read_rule','message_purpose_rule','property_access_rule','relay_source_read_rule',
+                        'role_source_read_rule','definition_read_rule','property_group_restriction')
+    group by 1;
+   ```
+
+   预期：没有行，或只有一行 `grants`（其 `payload->'grants'` 为空数组）。有任何规则型 fact 就停下，先回报调度员。
+
 ```bash
 docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py revoke-credential --out /stage --role relation_backfiller --retired \
   --credential-id nexloop-service-relation-backfiller-key --request-id <固定 UUID，记入证据> \
@@ -160,7 +176,7 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_se
 - 预期：`"revoked": 1, "active_tokens": 0, "retired": true`。同一命令再执行一次得到 `"replayed": true`。
 - 前提：
   - 主体在 service-grants 的 `retired_principals` 里；
-  - 库里这个主体已经没有任何授权（v21 的 register 已经撤销）。
+  - 库里这个主体已经没有任何授权（v21 的 register 已经撤销），也没有任何规则型 fact（`message_read_rule`、`message_purpose_rule`、`property_access_rule`、`relay_source_read_rule`、`role_source_read_rule`、`definition_read_rule`、`property_group_restriction`）。
   - 否则拒绝（`not a retired principal` 或 `credential_revoke_refused:42501`）。
 - 不撤销的话，它会在 11-04 后让 `service_credential_expired`（critical）一直报警。
 
@@ -176,6 +192,7 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
   - 在第 1–4 步之前发布：三条凭据都在 7 天内到期，`service_credential_expiring` 会立即报出。
   - 续期过程中，被轮换的旧令牌也会一直报这条，直到第 4 步撤销。
   - 这是预期行为，正好说明告警有效，不是误报。
+  - 特别是：第 2 步轮换之后、第 4 步撤销旧令牌之前，`expiring_7d` 的 warning（`service_credential_expiring`）会一直触发——旧令牌那一行仍在 7 天内到期。属于预期；第 4 步完成后应在下一个评估周期自行恢复，没有恢复才需要排查。
 - **只读核对**：
 
   ```sql
@@ -184,7 +201,21 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
 
   第 1 步之前预期 `expiring_7d` 3、`expired_active` 0；第 4、5 步之后 `expiring_7d` 0、`expired_active` 0，`earliest_expires_at` 不早于 2027-01-12。
 
-## 7. 证据与遗留
+## 7. 收尾：销毁 P3 快照（管理机）
+
+两个服务（outreach_sender、world_glossary）都完成第 4 步并通过第 3.5 条核对、第 5 步完成、第 6 步只读核对符合预期之后，才执行。快照 `<树>.before-i31` 里有旧令牌和整棵秘密树，不能留：
+
+```bash
+find <树>.before-i31 -type f -exec shred -u -z -n 3 {} +   # macOS 无 shred 时用 gshred（coreutils）
+rm -rf <树>.before-i31
+test ! -e <树>.before-i31 && echo snapshot-gone
+```
+
+- 预期：`snapshot-gone`。
+- 注意：快照删除后第 3 步的切回（`--switch-back`）不再能回到续期前的整棵树；所以必须在全部核对通过之后才做。
+- APFS/SSD 上覆写不保证物理擦除；快照所在卷应是 FileVault 加密卷；这里的 shred 是尽力而为，结果记入证据。
+
+## 8. 证据与遗留
 
 - 证据记录：每一步的命令输出（已经不含令牌）、第 3.5 条的核对结果、第 6 步前后的 `service_credentials` 快照；执行人和判定人分开写。
 - **PITR 注意**：续期本身不进恢复日志。如果 stage 恢复到续期之前的时间点：
