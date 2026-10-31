@@ -167,6 +167,19 @@ def test_the_evo_reader_reads_only_its_tenant_through_the_function(semantic,pg):
         db.execute('select authz.nexloop_semantic_access_read(%s,%s,%s,%s)',(session.token_digest,'real',since,100))
 
 
+
+def test_the_evo_reader_sees_each_access_extraction(semantic,pg):
+    """I34 (0386): the read returns extraction terms, fallback, or null (no extraction: browse with the query as its term)."""
+    f,session,signer=semantic;admin=f['admin']
+    recorder=SemanticAccessRecorder(f['worker'],session,signer)
+    a=adapter(f,session,signer,recorder)
+    a.browse('我只想改会员编号',extract_terms=True);a.browse('xqzv',extract_terms=True);a.browse('防水')
+    since=datetime.now(UTC)-timedelta(hours=1)
+    with psycopg.connect(make_conninfo(pg,user='nexloop_evo_reader'),autocommit=True) as reader:
+        out=reader.execute('select authz.nexloop_semantic_access_read(%s,%s,%s,%s)',(session.token_digest,'real',since,100)).fetchone()[0]
+    assert all('extraction' in r for r in out)
+    assert [r['extraction'] for r in out]==['terms','fallback',None]
+
 def test_record_overhead_per_access(semantic,capsys):
     """Measured, not a threshold: the added cost of one record on top of one browse (reported in the task evidence)."""
     f,session,signer=semantic

@@ -56,10 +56,11 @@ class SemanticAccessRecorder:
         self.written+=1
         return payload['access_id']
 
-    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0,miss_reason=None,gloss_hits=None):
+    def access(self,operation,query_kind,terms,*,coverage,ambiguity,refs,unresolved=0,miss_reason=None,gloss_hits=None,extraction=None):
         payload={'kind':'access','access_id':str(uuid.uuid4()),'run_id':self.run_id,'context_id':self.context_id,'operation':operation,
             'query_kind':query_kind,'term_hashes':[term_hash(t) for t in terms],'coverage':coverage,'ambiguity':bool(ambiguity),
             'refs':refs,'unresolved_count':unresolved}
+        if extraction is not None:payload['extraction']=extraction  # I34 (0386): terms | fallback
         if not refs and miss_reason is not None:payload['miss_reason']=miss_reason  # I26 (@@@): why nothing came back
         if gloss_hits:payload['gloss_hits']=dict(gloss_hits)  # I26 A (@@@): definitions reached through a glossary gloss, by source
         return self._write(payload)
@@ -188,21 +189,33 @@ class SemanticAdapter:
 
     def browse(self,query,*,kind='any',limit=10,extract_terms=False):
         """With extract_terms (I26) recall searches the definition terms found in the query and the record keeps one hash per
-        term; the whole query stays the single term when none is found."""
+        term; the whole query stays the single term when none is found. I34: that is extraction 'fallback', whose coverage is 0 (no
+        definition term was extracted) however many fuzzy hits come back; they still come back, each marked fallback. With terms,
+        coverage is the share of extracted terms with at least one readable definition."""
         if kind not in KINDS or type(limit) is not int or not 1<=limit<=20:raise ValueError('browse parameters')
         result=self.recall.recall(query,instances=False,**({'extract_terms':True} if extract_terms else {}))
-        terms=list(getattr(result,'terms',()) or ()) or [query]
+        extracted=list(getattr(result,'terms',()) or ())
+        terms=extracted or [query]
+        extraction=None if not extract_terms else 'terms' if extracted else 'fallback'
         hits=self._with_overlay([query],kind,[h for h in result.definitions if h.score>=self.config.min_score and (kind=='any' or ref_kind(h.ref)==kind)])[:limit]
         details,proofs=self._definitions([ref for ref,_,_ in hits])
-        items=[{**details[ref],'score':round(score,6),'method':method,'source_refs':[ref]} for ref,score,method in hits if ref in details]
-        out={'version':self._version(items,result),'coverage':1.0 if items else 0.0,
+        items=[{**details[ref],'score':round(score,6),'method':method,'source_refs':[ref],**({'fallback':True} if extraction=='fallback' else {})}
+            for ref,score,method in hits if ref in details]
+        if extraction=='fallback':coverage=0.0
+        elif extraction=='terms':
+            term_hits=list(getattr(result,'term_hits',()) or ())
+            returned={i['ref'] for i in items}
+            coverage=sum(1 for i in range(len(extracted)) if i<len(term_hits) and any(h.ref in returned for h in term_hits[i]))/len(extracted)
+        else:coverage=1.0 if items else 0.0
+        out={'version':self._version(items,result),'coverage':coverage,
             'ambiguity':self._term_ambiguous(result,details) if getattr(result,'term_hits',()) else self._ambiguous([i['score'] for i in items]),'items':items,
             'access_decision_refs':sorted(decision_ref(p) for p in proofs)}
+        if extraction is not None:out['extraction']=extraction
         if self.overlay is not None:out['overlay']=self.overlay.candidate_id
         if self.recorder is not None:
             out['access_id']=self.recorder.access('browse',kind,terms,coverage=out['coverage'],ambiguity=out['ambiguity'],refs=_refs(items),
-                unresolved=0 if items else len(terms),miss_reason=miss_reason(result,hits,items),
-                gloss_hits=gloss_hits(result.definitions,[i['ref'] for i in items]))
+                unresolved=(0 if items else len(terms)) if extraction is None else len(terms)-round(coverage*len(terms)),
+                miss_reason=miss_reason(result,hits,items),gloss_hits=gloss_hits(result.definitions,[i['ref'] for i in items]),extraction=extraction)
         return out
 
     def resolve(self,mentions,*,type_hint=None):
