@@ -677,3 +677,7 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 /* R57 W5: the glossary page's kind switch wraps on narrow screens and keeps 16 px before the search box. */
 .workbench .glossary-kinds{flex-wrap:wrap;margin-bottom:var(--space-4)}
 .workbench .panel-head-end>.note{margin:0;white-space:nowrap}
+/* 管理 › 入口 (S73): read-only links grouped by where they lead. */
+.entries{display:grid;gap:24px}.entry-group h2{font-size:16px;line-height:24px;margin:0 0 8px}
+.entry-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}.entry-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.entry-list .note{margin:0;font-size:14px}.entry-new{font-size:13px;color:var(--muted);margin-left:4px}

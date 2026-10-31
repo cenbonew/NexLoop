@@ -19,6 +19,7 @@ Human-only Actions (cancel, extend, attest, condition met, communication marking
 NX-028. Settings come from deploy/configuration/commitments.v1.json (the migration seeds the same v1).
 """
 import json
+import logging
 from pathlib import Path
 
 from eios.authz import facts as F
@@ -93,6 +94,13 @@ def _code(error):
     return 'commitment_failed'
 
 
+LOG=logging.getLogger(__name__)
+
+
+class _Orphaned(Exception):
+    """The commitment command found no registry row for the item (I38)."""
+
+
 class CommitmentKeeper:
     """One tick over both feeds: register commitment Claims, then move commitments on their evidence."""
 
@@ -130,6 +138,7 @@ class CommitmentKeeper:
     def monitor(self,item):
         commitment=item['payload']['commitment_id']
         evaluated=self.port.evaluate(commitment)
+        if evaluated.get('orphaned'):raise _Orphaned(commitment)
         applied=None
         if evaluated['patch']:
             revision=evaluated['revision']
@@ -141,7 +150,7 @@ class CommitmentKeeper:
 
     @authority_request_scoped
     def run_once(self):
-        summary={'registered':0,'reaffirmed':0,'skipped':0,'transitions':0,'settled':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
+        summary={'registered':0,'reaffirmed':0,'skipped':0,'transitions':0,'settled':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0,'orphaned':0}
         for item in self.register_feed.claim(limit=self.worker['batch'],lease_seconds=self.worker['lease_seconds']):
             try:outcome=self.register(item)
             except WorkFeedDenied:raise
@@ -152,6 +161,11 @@ class CommitmentKeeper:
         for item in self.monitor_feed.claim(limit=self.worker['batch'],lease_seconds=self.worker['lease_seconds']):
             try:applied,_=self.monitor(item)
             except WorkFeedDenied:raise
+            except _Orphaned:
+                # I38 / I36-d: the registry row is gone (a completed erasure removed it): terminal, completed, never retried; recorded in
+                # SQL (runtime.nexloop_commitment_orphans, metrics commitment_orphans) and logged, so a hidden row never passes silently.
+                LOG.warning('commitment keeper: registry row absent, item completed as orphaned (commitment %s)',item['payload']['commitment_id'])
+                self.monitor_feed.complete(item_key=item['item_key'],fence=item['fence']);summary['orphaned']+=1;continue
             except Exception as error:self._retry(self.monitor_feed,item,_code(error),summary);continue
             if applied:summary['transitions']+=1
             status=self.monitor_feed.complete(item_key=item['item_key'],fence=item['fence'])

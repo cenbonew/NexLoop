@@ -1329,3 +1329,13 @@ export function experimentRow(value:unknown):Experiment{
 }
 export function experiments(value:unknown):Experiment[]{return list(exactKeys(object(value),['experiments']).experiments).map(experimentRow);}
 export const readExperiments=()=>get('/api/v1/workbench/experiments',experiments);
+
+// ---- owner S73: deployment links of the 入口 page (GET /api/v1/workbench/entries; the deployment's REFERENCE_ENDPOINT_STAFF_URL) ----
+export type EntryLinks={reference_endpoint_staff_url:string|null};
+/** Only a plain HTTPS URL becomes a link; anything else reads as no link (the server already refuses it at start). */
+export function entryLinks(value:unknown):EntryLinks{
+  const raw=maybeText(object(value).reference_endpoint_staff_url);let url:string|null=null;
+  if(raw){try{const u=new URL(raw);if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash)url=u.href;}catch{url=null;}}
+  return {reference_endpoint_staff_url:url};
+}
+export function readEntryLinks():Promise<EntryLinks>{return get('/api/v1/workbench/entries',entryLinks);}

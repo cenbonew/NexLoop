@@ -1930,6 +1930,16 @@
       "version": "0386",
       "name": "0386_semantic_extraction.sql",
       "sha256": "816db74abeed957b21daf2d0fb56712f1fafb213ed341a7e5725d0cf8d9206de"
+    },
+    {
+      "version": "0387",
+      "name": "0387_workbench_read_types.sql",
+      "sha256": "e8baffdf027ece7650089cf01dd852ac6b76bc386312bad01af30405748f1d38"
+    },
+    {
+      "version": "0388",
+      "name": "0388_erasure_cancels_undated_commitments.sql",
+      "sha256": "aded7294e97a2dc9c0eb85fb2d9978e2b07cdd1138c1ad8fbb940096a05c39ab"
     }
   ]
 }

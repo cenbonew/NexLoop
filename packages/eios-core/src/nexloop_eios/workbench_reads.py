@@ -208,10 +208,14 @@ class WorkbenchQueries:
                     'control_revision': g['control']['revision'], 'paused_scopes': [s for s in g['control']['scopes'] if s['paused']]}
 
         def commitments():
+            # I36: the labels count the exceptions of the open commitments (and pre-registration ones), the same scope as the
+            # commitments page's open group (F05/F09); a cancelled or fulfilled commitment's exceptions stay in the history only.
             c = r.call('commitments')
+            scope = {'commitment:' + x['commitment_id'] for x in c['commitments']}
             reasons = {}
             for e in c['exceptions']:
-                reasons[e['reason']] = reasons.get(e['reason'], 0) + 1
+                if e['subject_ref'] in scope or not e['subject_ref'].startswith('commitment:'):
+                    reasons[e['reason']] = reasons.get(e['reason'], 0) + 1
             statuses = [x['properties'].get('status') for x in c['commitments']]
             return {'open': len(statuses), 'breached': statuses.count('breached'),
                     'exceptions': [{'reason': k, 'count': v} for k, v in sorted(reasons.items())]}

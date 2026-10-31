@@ -88,7 +88,7 @@ def test_g5_no_credential_no_access_on_every_inventoried_route(workbench, tmp_pa
             else:
                 answers[(route['method'], route['path'], 'none')] = status
     # Every route outside public, public_static and pre_session; the test-world Artifact read in --mode test only (F-2).
-    assert probed == {'test': 96 - 3 - 2 - 6, 'stage': 95 - 3 - 2 - 6}[mode]  # batch 32 added the members read, batch 50 the experiments read
+    assert probed == {'test': 97 - 3 - 2 - 6, 'stage': 96 - 3 - 2 - 6}[mode]  # batch 32 added the members read, batch 50 the experiments read, S73 the 入口 links
     refused = {key: status for key, status in answers.items() if status in (401, 403)}
     leftover = sorted(f'{m} {p} ({how}): {status}' for (m, p, how), status in answers.items() if (m, p, how) not in refused)
     assert leftover == [], '\n'.join(leftover)

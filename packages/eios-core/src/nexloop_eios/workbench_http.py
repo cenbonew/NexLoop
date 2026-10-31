@@ -247,6 +247,22 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'me')
 
+    @routes.get('/entries')
+    async def entries(request: Request):
+        # Owner S73: the deployment's links for the 入口 page under 管理 - the reference endpoint staff page URL, or null when the
+        # deployment gives none. Any member's own session (re-authenticated like every read); no tenant data, nothing changes.
+        if request.query_params:
+            return error('invalid_request', 422)
+        try:
+            await run_in_threadpool(lambda: ports(request))
+        except CredentialInvalid:
+            return error('unauthenticated', 401)
+        except (PermissionError, psycopg.errors.InsufficientPrivilege):
+            return error('forbidden', 403)
+        except Exception:
+            return error('dependency_unavailable', 503)
+        return JSONResponse({'reference_endpoint_staff_url': config.reference_endpoint_staff_url}, headers=HEADERS)
+
     @routes.get('/capabilities')
     async def capabilities(request: Request):
         # World model W3: read-only capability catalog (governed capabilities, business Actions, effect categories, channels,

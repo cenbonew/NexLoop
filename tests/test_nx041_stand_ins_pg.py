@@ -555,22 +555,27 @@ def test_a_replay_with_the_copied_frozen_configuration_gives_the_same_receipts(s
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='outcome_seed_server_only'), admin.transaction():
         admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], Jsonb({'outcome_seed': 'e' * 64})))
     digest_a = admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, f['a'], config)).fetchone()[0]
-    bodies = [intent() for _ in range(24)]
-    ids = [b['intent_id'] for b in bodies]
+    bodies, first = [], {}
 
-    def run(world, token):
-        for body in bodies:
+    def run(world, token, batch):
+        for body in batch:
             submit(f, world, token, body)
         executor = S.StandInExecutor(f['worker'], token, world)
-        executor.run_once(limit=100)
-        return receipts_without_world(executor, ids)
-    first = run(f['a'], f['token_a'])
-    assert {r['status'] for r in first.values()} >= {'fulfilled', 'failed'}
+        executor.run_once(limit=len(batch))  # at most 240, within the entry's cap of 500
+        return receipts_without_world(executor, [b['intent_id'] for b in batch])
+    # Each outcome hashes a random intent id with a server salt: 24 intents at unknown_rate 0.2 have no 'unknown' with probability
+    # 0.8**24 (about 0.5 %, CI check 264 attempt 2). Add batches of 24 until every status occurs, so the replay compares all three.
+    while {r['status'] for r in first.values()} != {'fulfilled', 'failed', 'unknown'}:
+        assert len(bodies) < 240, 'no status mix after ten batches'
+        batch = [intent() for _ in range(24)]
+        bodies += batch
+        first |= run(f['a'], f['token_a'], batch)
+    ids = [b['intent_id'] for b in bodies]
     # The replay world: the same frozen configuration and seed, copied by reference to the source world.
     replay = create_world(admin)
     token_r, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'e' * 32, world=replay, identity_suffix='-stand-in-replay')
     assert admin.execute("select runtime.nexloop_stand_in_configure_copy(%s,%s,%s,'experiment-replay')", (TENANT_A, f['a'], replay)).fetchone()[0] == digest_a
-    assert run(replay, token_r) == first  # byte for byte, the world aside
+    assert run(replay, token_r, bodies) == first  # byte for byte, the world aside
     # N4 still holds in the replay world: a new intent id for an open business intent is refused.
     open_ids = [i for i, r in first.items() if r['status'] == 'unknown']
     assert open_ids
@@ -580,7 +585,7 @@ def test_a_replay_with_the_copied_frozen_configuration_gives_the_same_receipts(s
     fresh = create_world(admin)
     token_f, _ = seed_authority(admin, TENANT_A, 'eios:artifact:' + 'f' * 32, world=fresh, identity_suffix='-stand-in-fresh')
     admin.execute("select runtime.nexloop_stand_in_configure(%s,%s,%s,'experiment-inputs')", (TENANT_A, fresh, config))
-    other = run(fresh, token_f)
+    other = run(fresh, token_f, bodies)
     assert other != first and any(other[i]['external_ref'] != first[i]['external_ref'] for i in ids)
     # A copy never overwrites a frozen configuration, never targets a real world, never copies from another tenant's world.
     with pytest.raises(psycopg.errors.UniqueViolation), admin.transaction():

@@ -541,6 +541,20 @@ REGISTRY = [
              (r"\(properties->>'made_to'=e\.consumer_id\n    or object_id in \(select r\.object_id from control\.nexloop_erasure_relation_targets r\n     where r\.tenant_id=p_tenant and r\.world=p_world and r\.request_id=e\.request_id and r\.type_name='Commitment'\)\);",
               "properties->>'made_to'=e.consumer_id;"),
              (r"\n  delete from control\.nexloop_erasure_relation_targets where tenant_id=p_tenant and world=p_world and request_id=e\.request_id;", ""))),
+    # I36 (owner 2026-10-31, L6 option A): the keeper's settle and the erasure share one status event; the completion trigger cancels
+    # the Consumer's undated (or cancel-requested) open commitments before the registry rows go.
+    Allowed('erasure_cancels_undated_commitments', 'control.nexloop_consumer_reference_erasure',
+            'before the registry delete, the undated or cancel-requested open commitments are cancelled through runtime.nexloop_commitment_cancel_apply and counted; dated open ones keep their registry row under the pseudonym (I36-c); nothing else',
+            ((r"tn text:=new\.tenant_id;x record;", "tn text:=new.tenant_id;"),
+             (r"\n -- I36: before the registry rows go.*?\n n:=n\|\|jsonb_build_object\('commitments_cancelled',c\);", ""),
+             (r"\n -- I36-c \(owner\): a dated.*?\n perform runtime\.nexloop_erasure_open\('runtime\.nexloop_commitments',array\['consumer_id'\],true,v_ref\);.*?n:=n\|\|jsonb_build_object\('commitments_kept',c\);",
+              "\n perform runtime.nexloop_erasure_open('runtime.nexloop_commitments',null,true,v_ref);"))),
+    Allowed('erasure_cancels_undated_commitments', 'runtime.nexloop_commitment_registry_guard',
+            'I36-c: inside a consumer erasure a registered row may become the kept, non-identifying shape; nothing else',
+            ((r"\n -- I36-c: inside a consumer erasure.*?then return new;end if;", ""),)),
+    Allowed('erasure_cancels_undated_commitments', 'runtime.nexloop_commitment_mark_plans',
+            'L6 I36-c b: an erasing or erased Consumer gets no plan mark and no no_active_plan exception; nothing else',
+            ((r"\n if runtime\.nexloop_consumer_erasing\(p_tenant,p_world,p_consumer\) then return 0;end if;", ""),)),
     # NX-054 P4a follow-up: the gap check says how many source types it covers (0: catalog not published).
     Allowed('relation_read_gaps_coverage', 'authz.nexloop_relation_read_gaps', 'returns ownership_types, the source types covered; nothing else',
             ((r"v_types integer;", ""),
@@ -610,6 +624,10 @@ REGISTRY = [
     Allowed('service_credential_rotation', 'runtime.nexloop_restore_replay_before_contact_keys_v0240',
             'a revocation entry naming a token revokes that token only; nothing else',
             ((r"\s*and \(not e \? 'token_digest' or token_digest=e->>'token_digest'\)", ""),)),
+    # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
+    Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
+            ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
+             (re.escape("when 'ServiceOffering' then 'service_offering' else 'object' end"), "else 'service_offering' end"))),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

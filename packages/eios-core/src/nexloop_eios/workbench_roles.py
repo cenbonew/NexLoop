@@ -36,6 +36,7 @@ MEMBERS_SCHEMA = 'nexloop-workbench-members/1'
 ROLE_NAMES = ('operator', 'owner', 'reviewer')
 _ACTION = re.compile(r'eios:action:[A-Za-z][A-Za-z0-9._-]{0,159}:[1-9][0-9]{0,5}')
 _NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,159}')
+_TYPE = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
 
 
 class WorkbenchRolesRejected(ValueError):
@@ -113,7 +114,20 @@ def validate_roles(value):
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')
+    # I35 (v52): per role, the object types it reads, listed one by one (sorted, unique; no wildcard). Absent before v52: none.
+    if 'read_types' in value:
+        listed = value['read_types']
+        if type(listed) is not dict or tuple(sorted(listed)) != ROLE_NAMES or any(
+                type(names) is not list or len(names) > 64 or names != sorted(set(names))
+                or any(type(n) is not str or not _TYPE.fullmatch(n) for n in names) for names in listed.values()):
+            raise WorkbenchRolesRejected('read_types')
     return value
+
+
+def read_types_payload(roles):
+    """The argument of control.nexloop_configure_workbench_read_types (I35): the roles version and each role's listed types."""
+    listed = roles.get('read_types') or {}
+    return {'manifest_version': roles['manifest_version'], 'read_types': {role: list(listed.get(role, [])) for role in ROLE_NAMES}}
 
 
 def validate_members(value, roles):
@@ -253,6 +267,12 @@ def role_templates(roles, tenant, *, valid_from=None):
             for role in sorted(roles['roles'])}
 
 
+def write_read_types(db, tenant, roles):
+    """I35: the roles version's read lists (control.nexloop_configure_workbench_read_types), in the configuration's transaction."""
+    return db.execute('select control.nexloop_configure_workbench_read_types(%s,%s::jsonb)',
+                      (tenant, canonical_payload(read_types_payload(roles)))).fetchone()[0]
+
+
 def apply_members(roles, members, *, database_url_file, named_revocations=()):
     """Technical configurator only (0140 refuses any other session). One transaction, three steps (NX-058 §1c, L6 slice A review D-1,
     A-3): (1) the role templates, published as text with its sha256 and the expected revision (the last published roles manifest version,
@@ -289,10 +309,15 @@ def _apply_members_locked(db, roles, members, roles_payload, members_payload, te
             (tenant, canonical_payload(role_templates(roles, tenant)), expected)).fetchone()[0]
         configured = db.execute('select control.nexloop_configure_workbench(%s,%s::jsonb,%s::jsonb)',
             (tenant, canonical_payload(roles_payload), canonical_payload(members_payload))).fetchone()[0]
+        read_types = write_read_types(db, tenant, roles)
+        # I35-e: the configuration and its read lists commit together or not at all.
+        state = db.execute('select control.nexloop_workbench_read_types_state(%s)', (tenant,)).fetchone()[0]
+        if not state.get('present'):
+            raise WorkbenchRolesRejected(f"read_types_missing: roles version {state.get('roles_version')} has no read lists")
         settled = db.execute('select control.nexloop_workbench_templates_settle_v2(%s)', (tenant,)).fetchone()[0]
         history = db.execute('select control.nexloop_workbench_role_history_sync(%s)', (tenant,)).fetchone()[0]
         return {**configured, 'role_templates': templates['published'], 'template_publication_replayed': templates['replayed'],
-                'instances_rewritten': settled, 'role_history_entries': history}
+                'instances_rewritten': settled, 'role_history_entries': history, 'read_types_recorded': read_types['recorded']}
 
 
 def publish_human_authority(tenant, *, authority_facts, business_application, humans, label, database_url_file, signing_key_file, signing_key_id,

@@ -16,6 +16,7 @@ import {Knowledge,ReviewEvidencePage} from './pages/Knowledge';
 import {Alerts,Audit,Operations} from './pages/Observability';
 import {WorldModel} from './pages/WorldModel';
 import {Glossary} from './pages/Glossary';
+import {Entries} from './pages/Entries';
 import {Capabilities} from './pages/Capabilities';
 import {DataAssets} from './pages/DataAssets';
 import {DataHealth} from './pages/DataHealth';
@@ -80,6 +81,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'data_health':return <DataHealth/>;
     case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
     case 'glossary':return <Glossary/>;
+    case 'entries':return <Entries groups={NAV_GROUPS} offered={navOffered} go={r=>go(r)}/>;
     case 'experiments':return <Experiments title={PAGES.experiments}/>;
   }
 }
@@ -90,7 +92,7 @@ export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
   {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','members','account','personas','capabilities','glossary','experiments']}];
+  {title:'管理',pages:['settings','members','account','personas','capabilities','glossary','entries','experiments']}];
 /** Pages offered only to a member whose role carries the operation (R57 W5: the glossary page, the owner's). */
 const NAV_NEEDS:Partial<Record<PageKey,Parameters<typeof offers>[1]>>={glossary:'world_glossary_set'};
 export const navOffered=(page:PageKey,member:Parameters<typeof offers>[0])=>{const need=NAV_NEEDS[page];return !need||offers(member,need);};
