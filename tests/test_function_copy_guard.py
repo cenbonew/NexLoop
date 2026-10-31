@@ -594,6 +594,8 @@ REGISTRY = [
             ((r",extraction\)", ")"),
              (r",c->>'extraction'\) on conflict", ") on conflict"),
              (r"\n  -- I34 \(0386\).*?raise exception 'semantic access record invalid' using errcode='22023';end if;", ""))),
+    Allowed('semantic_extraction', 'authz.nexloop_semantic_access_read', 'the extraction column in each row; nothing else',
+            ((r",'extraction',s\.extraction\)", ")"),)),
     # R60 (stage 2026-10-31): a Consumer pseudonymized by the completed erasure (0305) settles as consumer_erased.
     Allowed('relay_backlog_pseudonym', 'control.nexloop_governed_relay_backlog_settle', "a 'pseudonym:' Consumer reads as erased; nothing else",
             ((r" or v_consumer like 'pseudonym:%'", ""),)),

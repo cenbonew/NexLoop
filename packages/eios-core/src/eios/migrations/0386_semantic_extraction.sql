@@ -7,7 +7,8 @@
 -- 'fallback' (none was found; the whole statement was the single search). Null on older rows and on an access whose caller passed
 -- its query as the term itself (resolve, browse without extraction). A fallback access has coverage 0: coverage counts the
 -- definition terms extracted, and a fallback extracted none. Its fuzzy results still reach the caller, marked as fallback hits;
--- the row keeps them in result_refs. Checked in the table and again in the record function.
+-- the row keeps them in result_refs. Checked in the table and again in the record function. authz.nexloop_semantic_access_read
+-- (0234 body) returns the column as extraction (null on rows without it).
 
 alter table runtime.nexloop_semantic_accesses add column extraction text check(extraction in ('terms','fallback')),
  add constraint nexloop_semantic_accesses_fallback_coverage check(extraction is distinct from 'fallback' or coverage=0);
@@ -65,4 +66,20 @@ begin
     case when jsonb_typeof(c->'gloss_hits')='object' then c->'gloss_hits' else '{}'::jsonb end,c->>'extraction') on conflict do nothing;
  end if;
  return jsonb_build_object('access_id',v_id,'kind',c->>'kind');
+end $$;
+
+create or replace function authz.nexloop_semantic_access_read(p_digest text,p_world text,p_since timestamptz,p_limit integer) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v_tenant text;
+begin
+ if session_user is distinct from 'nexloop_evo_reader' or p_world is distinct from 'real' or p_limit not between 1 and 1000 or p_since is null then
+  raise exception 'semantic access read unavailable' using errcode='42501';end if;
+ v_tenant:=authz.nexloop_service_identity_snapshot(p_digest,p_world)->'binding'->>'tenant_id';
+ if v_tenant is null then raise exception 'semantic access read unavailable' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',v_tenant,true);
+ return coalesce((select jsonb_agg(jsonb_build_object('access_id',s.access_id,'kind',s.kind,'run_id',s.run_id,'context_id',s.context_id,'accessed_id',s.accessed_id,
+   'operation',s.operation,'query_kind',s.query_kind,'term_hashes',to_jsonb(s.term_hashes),'coverage',s.coverage,'ambiguity',s.ambiguity,
+   'result_refs',s.result_refs,'result_count',s.result_count,'unresolved_count',s.unresolved_count,'recorded_at',s.recorded_at,'extraction',s.extraction) order by s.recorded_at,s.access_id)
+  from (select * from runtime.nexloop_semantic_accesses where tenant_id=v_tenant and world='real' and recorded_at>=p_since
+   order by recorded_at,access_id limit p_limit) s),'[]'::jsonb);
 end $$;
