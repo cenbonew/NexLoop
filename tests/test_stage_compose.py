@@ -202,6 +202,17 @@ def test_only_the_gateway_gets_one_capability_back(compose):
     assert added == {'gateway': ['NET_BIND_SERVICE']}
 
 
+def test_the_gateway_keeps_no_state_and_its_root_stays_read_only(compose):
+    """S59: Caddy's storage is a small tmpfs at /data (locks only: auto_https off, certificates from secrets), /config is never
+    written (persist_config off); the root stays read-only and the gateway has no persistent volume beyond the read-only Caddyfile."""
+    gateway = compose['services']['gateway']
+    assert gateway['read_only'] is True and gateway['tmpfs'] == ['/tmp', '/data:size=4m,mode=0700']
+    assert [v for v in gateway['volumes'] if not str(v).endswith(':ro')] == []
+    caddyfile = (STAGE / 'config/Caddyfile.template').read_text()
+    globals_block = caddyfile[caddyfile.index('\n{\n') + 3:caddyfile.index('\n}\n')]
+    assert {line.strip() for line in globals_block.splitlines()} == {'auto_https off', 'admin off', 'persist_config off'}
+
+
 def test_the_real_dispatch_switch_is_one_compose_variable_closed_by_default_and_only_true_or_false():
     """Calibration gap 1 (2026-10-17): the deployment layer REAL_DISPATCH_ENABLED comes from the private compose env, default false;
     the x-service anchor and the Agent Host take the same variable and nothing else sets it; app-net extends real-dispatch.<value>.yaml,
