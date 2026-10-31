@@ -680,6 +680,18 @@
   },
   {
    "method": "GET",
+   "path": "/api/v1/workbench/entries",
+   "handler": "nexloop_eios.workbench_http:entries",
+   "realm": "workbench_session",
+   "authorization": {
+    "kind": "session_only",
+    "reason": "Deployment links of the 入口 page (reference endpoint staff URL); the caller's re-authenticated session, no tenant data"
+   },
+   "purpose": "Workbench realm: deployment links of the 入口 page",
+   "source_task": "NX-028 S73"
+  },
+  {
+   "method": "GET",
    "path": "/api/v1/workbench/goals",
    "handler": "nexloop_eios.workbench_http:goals",
    "realm": "workbench_session",

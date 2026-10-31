@@ -26,9 +26,9 @@ const mount=(node:ReactNode,member:typeof owner,model:unknown=example)=>{const c
   act(()=>root.render(h(QueryClientProvider,{client:c},node)));};
 const button=(text:string)=>[...box.querySelectorAll('button')].find(b=>b.textContent===text);
 
-test('the sidebar offers 世界模型译名 under 管理, before 实验空间, only to a role carrying world_glossary_set',()=>{
+test('the sidebar offers 世界模型译名 under 管理, before 入口, only to a role carrying world_glossary_set',()=>{
   expect(PAGES.glossary).toBe('世界模型译名');
-  const admin=NAV_GROUPS.find(g=>g.title==='管理')!.pages;expect(admin.indexOf('glossary')).toBe(admin.indexOf('experiments')-1);
+  const admin=NAV_GROUPS.find(g=>g.title==='管理')!.pages;expect(admin.indexOf('glossary')).toBe(admin.indexOf('entries')-1);
   expect(navOffered('glossary',owner)).toBe(true);expect(navOffered('glossary',operator)).toBe(false);expect(navOffered('glossary',undefined)).toBe(false);
   expect(navOffered('settings',operator)).toBe(true);
 });

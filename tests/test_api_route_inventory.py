@@ -50,7 +50,7 @@ def app(tmp_path_factory):
 
 
 def test_the_inventory_follows_its_schema_and_refuses_what_the_schema_cannot_say(inventory, tmp_path):
-    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 99   # 98 routes and one mount (batch 32 added the members read, NX-058 slice F the three SSO routes, batch 50 the experiments read)
+    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 100   # 99 routes and one mount (batch 32 added the members read, NX-058 slice F the three SSO routes, batch 50 the experiments read, S73 the 入口 links)
     def refused(change):
         bad = copy.deepcopy(inventory)
         change(bad)
@@ -72,7 +72,7 @@ def test_g1_each_mode_mounts_exactly_its_inventory_and_no_openapi(inventory, mod
     mounted = I.routes(I.complete_app(tmp_path, mode))
     assert I.diff(inventory, mounted, mode) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
     assert (('GET', '/api/v1/artifacts/{artifact_id}') in mounted) is (mode == 'test')                    # F-2
-    assert len(mounted) == {'test': 99, 'stage': 98}[mode]
+    assert len(mounted) == {'test': 100, 'stage': 99}[mode]
     assert not {p for _, p in mounted} & {'/openapi.json', '/docs', '/redoc', '/docs/oauth2-redirect'}
 
 
