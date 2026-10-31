@@ -30,7 +30,7 @@ def wide_read_with_a_contact_limit(admin, now):
     run = admin.execute("select run_id from runtime.nexloop_semantic_accesses where tenant_id=%s and kind='access' limit 1", (TENANT_A,)).fetchone()[0]
     refs = [f'eios:property:Consumer/q{i}' for i in range(9)] + [LIMIT]
     admin.execute("""insert into runtime.nexloop_semantic_accesses(tenant_id,world,access_id,kind,run_id,operation,query_kind,term_hashes,coverage,ambiguity,
-        result_refs,result_count,unresolved_count,recorded_at) values(%s,'real',%s,'access',%s,'browse','any',%s,0,false,%s,10,0,%s)""",
+        result_refs,result_count,unresolved_count,recorded_at) values(%s,'real',%s,'access',%s,'browse','any',%s,1,false,%s,10,0,%s)""",
                   (TENANT_A, uuid.uuid4(), run, ['d' * 64], Jsonb([{'ref': r, 'revision': '1'} for r in refs]), now - timedelta(minutes=20)))
 
 
@@ -143,3 +143,25 @@ def test_connect_read_only_refuses_a_session_that_stays_writable(monkeypatch, tm
     with pytest.raises(C.Refused, match='nx043 reader is not read only'):
         C.connect_read_only(str(dsn), who='nx043 reader')
     assert Conn.closed
+
+
+def test_a_fallback_read_counts_as_a_miss_from_the_derived_file(stage, tmp_path):  # noqa: F811 - the imported fixture
+    """I34 (b/c): a Consumer whose only read is a fuzzy fallback hit (coverage 1) has no miss by coverage; L3's derived file says
+    fallback and the Consumer counts. A bad file is refused (exit 2)."""
+    admin = stage['admin']
+    code, _, before = call(stage)
+    base = before['sources']['window']['evidence']
+    run = admin.execute("select run_id from runtime.nexloop_semantic_accesses where tenant_id=%s and kind='access' limit 1", (TENANT_A,)).fetchone()[0]
+    with admin.transaction():  # the records are append-only; on the disposable fixture its reads become fuzzy fallback hits
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("update runtime.nexloop_semantic_accesses set coverage=1 where tenant_id=%s and run_id=%s", (TENANT_A, run))
+    _, _, covered = call(stage)
+    assert covered['sources']['window']['evidence']['runs_with_miss'] == base['runs_with_miss'] - 1
+    ids = [str(r[0]) for r in admin.execute("select access_id from runtime.nexloop_semantic_accesses where tenant_id=%s and run_id=%s", (TENANT_A, run))]
+    derived = tmp_path / 'derived.json'
+    derived.write_text(json.dumps([{'access_id': i, 'extraction': 'fallback'} for i in ids]))
+    _, _, fed = call(stage, '--extraction-file', str(derived))
+    assert fed['sources']['window']['evidence']['runs_with_miss'] == base['runs_with_miss']
+    derived.write_text(json.dumps([{'access_id': ids[0], 'extraction': 'maybe'}]))
+    code, text, refused = call(stage, '--extraction-file', str(derived))
+    assert code == 2 and 'extraction-file' in refused['refused'] and str(tmp_path) not in text
