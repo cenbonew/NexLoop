@@ -1,6 +1,6 @@
-# 设计稿：从 dsh-superagent-prototype 吸收的设计思想（第 1 版）
+# 设计稿：从 dsh-superagent-prototype 吸收的设计思想（第 2 版）
 
-- **状态**：设计稿，**不含实现，不含代码移植**。等负责人对 §7 的问题拍板后再立项。
+- **状态**：设计稿，**不含实现，不含代码移植**。负责人已于 2026-11-01 对 §7 的问题拍板（按 L6 推荐），见 §7。
 - **修订记录**：
   - 第 1 版：2026-11-01，依据对 [deepseek-ai/dsh-superagent-prototype](https://github.com/deepseek-ai/dsh-superagent-prototype)（MIT，单提交，自述研究原型）全部 8 篇设计文档与核心源码（`src/core`、`src/app/effects.ts`、`src/app/outbox.ts`、`src/executor/dsh.ts`）的通读，对照 NexLoop 的 [02_ARCHITECTURE](../handoff/docs/02_ARCHITECTURE.md)、[05_CONTEXT_AND_PLANNING](../handoff/docs/05_CONTEXT_AND_PLANNING.md)、[06_ACTION_RUNTIME_AND_RECOVERY](../handoff/docs/06_ACTION_RUNTIME_AND_RECOVERY.md)、[16_ADR](../handoff/docs/16_ADR.md)、ADR-028 / 030 / 039 / 040 / 041 与 [主动触达设计稿](proactive-outreach.md)。
 - **关联**：
@@ -8,6 +8,7 @@
   - ADR-016（自有代码 Apache-2.0，第三方保留原许可）、ADR-023（联系限制与回复保证）、ADR-039（统一审批）、ADR-040（补救意图）；
   - `docs/design/proactive-outreach.md`（负责人已拍板 P1–P8，实施排在 v0.1 冻结之后）；
   - NX-023（上下文 v6 与请求快照）、NX-024（计划复评与 `run-outcome` 契约）、NX-022（控制面）。
+  - 第 2 版：2026-11-01，正文保留第 1 版原意，只做增补：写入负责人对 Q-1 至 Q-4 的拍板（§7 改为“已决定”）；落 L6 复核注记 N1–N5（§3.1、§3.3、§3.4、§4）；§4 为 K0 结论留占位（待 L7）；§5 按 §3.5 格式补拍板日期列。N2 同时在 [主动触达设计稿](proactive-outreach.md) 的修订记录中登记。
 
 ## 0. 背景与结论
 
@@ -64,7 +65,12 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 
 **验收要点。** observe 下 provider 零请求（现有 `test_loopback_http` 断言）；每条观察记录带全部闸门结果；切 `live` 前后同一触发源的判定一致（同一 Run 输入，只有终结码不同）；清单未声明 `mode` 的目的按 `off`。
 
-**需要的决定。** Q-1（§7）。
+**需要的决定。** Q-1（§7），已决定：采纳三态，`active` 并入 `mode`，观察记录沿用派发拒绝表保留期。
+
+**L6 注记（第 2 版增补）。**
+- **N1**：`observe` 不得改变 `live` 路径的短路语义与拒绝码。前 10 道闸门在两种模式下的判定与顺序相同；单测断言同一输入在 `observe` 与 `live` 下**首个拒绝码一致**（`live` 被某道闸门拒绝时，`observe` 记录的首个拒绝也是这道闸门、这个码），`purpose_observe_only` 只出现在全部闸门通过之后。
+- **N1（成本）**：`observe` 不是零成本。复评 Run 照常执行，产生真实的模型与 Run 预算成本；意图照常以 `world=real` 记录（只是派发终结于 `purpose_observe_only`）。负责人开启 `observe` 前应知晓这部分成本，成本视图照常计入。
+- **N2**：`active` 并入 `mode` 是对主动触达设计稿 §2 目的字段的修订，已在 [主动触达设计稿](proactive-outreach.md) 修订记录中登记并指向本稿。
 
 ### 3.2 模型可见面的整体预算与漂移测试
 
@@ -94,7 +100,10 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 
 **验收要点。** 一个带 `question` 的 `escalate` 结果在总览出现一条、在客户页出现一条、回答后两处同时消失且下一次复评上下文包含回答；无待办时首页只有一行；`question` 缺失时行为与现状逐字节一致（钉住）。
 
-**需要的决定。** Q-2（§7）。
+**需要的决定。** Q-2、Q-3（§7），已决定。Q-2：`audience` 由 Run 声明；`operator` 只答运营类问题，涉及预算、解除限制、擦除的只能 `owner` 回答；回答权限由服务端按角色能力表强制，**不信任 Run 的 `audience` 声明**（声明只决定展示位置，不授予回答权限）。Q-3：“待我处理”替换现有首页，原首页内容移入“健康”标签，旧首页路由保留并跳转。
+
+**L6 注记（第 2 版增补）。**
+- **N3**：人的回答按“用户陈述”分类入库（与事实、假设区分），保留来源与时间，可撤回、可擦除，撤回与擦除按现有更正 / 删除传播规则影响后续复评上下文。`run-outcome` 增加 `question` 属 Schema 变更（`packages/contracts/`），K4 走功能分支与 PR。
 
 ### 3.4 恢复前把“所依据的配置已变化”显式告知 Run
 
@@ -110,6 +119,13 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 **验收要点。** 配置发布后恢复的复评 Run 的请求快照含该小节；配置未变时逐字节与现状一致；小节大小计入预算且在 `mandatory` 层。
 
 **需要的决定。** 不需要负责人决定，属普通实现细节；但触及 context pack 的 `mandatory` 层，由 L6 复核预算影响。
+
+**L6 注记 N4（第 2 版增补，已核实）。** 上文“取可信配置发布时的 `summary` 字段”的前提**当前不成立**。按 `git grep` 核实（基于 44cd5046）：
+- 通用发布记录 `control.nexloop_configuration_publications`（迁移 0050）只有 `manifest_id`、`manifest_digest`、`configured_at`、`authority_revision`、`public_manifest`、`secret_fingerprint` 等列，**没有 `summary` 列**，此后也没有迁移给它加列；
+- 目的清单 `control.nexloop_outreach_purpose_lists`（迁移 0236）只有 `version`、`definition`、`definition_digest`、`published_by`、`published_at`；`definition` 内有一段自由文本 `decision`，说明整份清单的来由，不是相对上一版的差异摘要；
+- 全部迁移中 `summary` 只出现在成本视图动词与进程采样小时汇总，与配置发布无关。
+
+因此 **K3 增加前置**：受影响的各类可信配置在发布时记录一条差异摘要（发布者填写、随版本只增不改、长度受限），由新迁移增加，不修改已发布迁移。在此之前，“变化的配置”小节只列配置名与新旧版本号，不给摘要，也不由模型补写。
 
 ### 3.5 设计稿与 ADR 增加“被否决的做法”一节
 
@@ -130,18 +146,23 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 | 队列行按 (kind, key) 合并，带 `generation` 计数 | 同 key 再次入队替换载荷、置为立即到期但保留队列位置；`generation` 递增，正在运行的尝试完成后不会删除更新的载荷 | Effect Worker 与后台服务的待办表（`effect_dispatch.py`、`plan_reevaluation.py` 的“同一计划只保留一条待办复评”）是否区分“覆盖待办载荷”与“运行中尝试完成后的删除”；若用 `FOR UPDATE SKIP LOCKED` 领取并带 fence，可能已等价 |
 | “稍后再试”与“失败”分开 | 抛 `Later` 表示现在不能做（暂停、槽位满、来源关闭），重排不计失败次数；真失败才计数并指数退避，连续三次才上报健康 | 派发拒绝码中 `real_dispatch_closed`、`quiet_hours`、`budget_exhausted` 等是否计入失败重试计数与告警；若计入，勿扰时段会制造假告警 |
 
-核对由实现线在 §8 的 K0 完成，结论写回本稿第 2 版。
+核对由实现线在 §8 的 K0 完成，结论写回本稿。第 2 版时 K0 已派给 L7，结论尚未返回，以下为占位，不作推断：
+
+- **第一条（队列合并与 `generation`）**：K0 结论（待 L7）。
+- **第二条（“稍后再试”与“失败”分开）**：K0 结论（待 L7）。按 L6 注记 N5，结论须列出受影响的告警规则 `rule_id`（若拒绝码计入失败计数或告警，列出会因此误报的规则；若不计入，写明依据）。
 
 ## 5. 否决的做法
 
-| 做法 | 否决理由 |
-|---|---|
-| vendored 其 `src/core` 为 `packages/` 下的新包 | 领域对象不对应；需重写为 Python / SQL；价值在规则（2026-11-01） |
-| 以其 Executor 模型让 Agent Host 获得 shell 与目录 | 违反“Runtime 无生产 Shell / DB / 渠道凭据”；其文档自认不是安全边界 |
-| 引入常驻的 LLM 主 Session 做路由 | 违反“Run 短生命周期、不设常驻 Agent”；NexLoop 的路由由 SQL 预检确定性完成 |
-| 用它作 NexLoop 自身的开发代理 | 以 GitHub 为控制面，与本地 CI 权威冲突；需 DeepSeek Harness 运行时；原型成熟度不足 |
-| 把 observe 模式做成单独的派发路径 | 主动触达设计稿已定“所有检查放在现有派发检查链上，不新增派发路径”；observe 只是链尾的终结码 |
-| 让模型生成“配置变化摘要”（§3.4） | 摘要必须来自可信配置发布时的字段，模型生成会把推测混进“必须”层 |
+按 §3.5 的格式：做法 / 否决理由，附拍板日期。
+
+| 做法 | 否决理由 | 拍板日期 |
+|---|---|---|
+| vendored 其 `src/core` 为 `packages/` 下的新包 | 领域对象不对应；需重写为 Python / SQL；价值在规则 | 2026-11-01 |
+| 以其 Executor 模型让 Agent Host 获得 shell 与目录 | 违反“Runtime 无生产 Shell / DB / 渠道凭据”；其文档自认不是安全边界 | 2026-11-01 |
+| 引入常驻的 LLM 主 Session 做路由 | 违反“Run 短生命周期、不设常驻 Agent”；NexLoop 的路由由 SQL 预检确定性完成 | 2026-11-01 |
+| 用它作 NexLoop 自身的开发代理 | 以 GitHub 为控制面，与本地 CI 权威冲突；需 DeepSeek Harness 运行时；原型成熟度不足 | 2026-11-01 |
+| 把 observe 模式做成单独的派发路径 | 主动触达设计稿已定“所有检查放在现有派发检查链上，不新增派发路径”；observe 只是链尾的终结码 | 2026-11-01 |
+| 让模型生成“配置变化摘要”（§3.4） | 摘要必须来自可信配置发布时的字段，模型生成会把推测混进“必须”层 | 2026-11-01 |
 
 ## 6. 不吸收的部分（有意不做）
 
@@ -149,14 +170,16 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 - **Subscription 扇出与 follow-up 所有权。** 对应到 NexLoop 是“客户回复由哪次计划 / 承诺接手”，现状由会话流、回复绑定来信（0079）与复评触发覆盖；不另引入订阅概念。
 - **主 Session 的 `noWait` 守卫。** Run 预算（8 轮 / 12 次工具 / 300 s）已经限制等待。
 
-## 7. 需要负责人决定的问题
+## 7. 负责人的决定（已决定）
 
-| 编号 | 问题 | 建议 |
+第 1 版列出四个问题与建议；负责人于 2026-11-01 按 L6 推荐拍板如下。
+
+| 编号 | 问题 | 决定 |
 |---|---|---|
-| Q-1 | 主动触达目的的 `mode` 三态（off / observe / live）是否采纳；observe 的观察记录保留多久 | 采纳；观察记录按派发拒绝表现有保留期，不单设 |
-| Q-2 | `run-outcome` 增加可选 `question`，由谁回答：只负责人，还是运营也可以 | `audience` 由 Run 声明，`operator` 可答运营类问题（延期、确认履约），涉及预算、解除限制、擦除的只能 `owner`，与现有角色能力表一致 |
-| Q-3 | 工作台“待我处理”首页是否替换现有首页，还是作为新标签 | 替换；现有首页内容移入“健康”标签 |
-| Q-4 | §3.1 至 §3.4 的实施排期：是否排在主动触达实施（v0.1 冻结之后）之内一并做 | §3.1 并入主动触达实施切片；§3.2、§3.5 立即可做；§3.3、§3.4 另立任务 |
+| Q-1 | 主动触达目的的 `mode` 三态（off / observe / live）是否采纳；observe 的观察记录保留多久 | 采纳三态；`active` 并入 `mode`；观察记录沿用派发拒绝表现有保留期，不单设 |
+| Q-2 | `run-outcome` 增加可选 `question`，由谁回答 | `audience` 由 Run 声明；运营只答运营类问题（延期、确认履约）；预算、解除限制、擦除只由 `owner` 回答；服务端按角色能力表强制，不信任 Run 声明 |
+| Q-3 | 工作台“待我处理”首页是否替换现有首页 | 替换；原首页内容移入“健康”标签；保留旧路由并跳转 |
+| Q-4 | §3.1 至 §3.4 的实施排期 | §3.1 并入主动触达实施；§3.2、§3.5 与 K0 立即做（已派 L3 做 K1、L7 做 K0）；§3.3、§3.4 另立任务 |
 
 ## 8. 实施切片建议（立项时细化）
 
@@ -165,7 +188,7 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 | K0 | §4 两条核对，结论写回本稿 | 无 |
 | K1 | §3.2 `test_model_surface.py` 与文档模块索引检查；§3.5 模板 | 无 |
 | K2 | §3.1 目的 `mode` 与 `purpose_observe_only`、观察视图 | 主动触达实施切片 |
-| K3 | §3.4 计划记录配置版本集合、context pack “变化的配置”小节 | NX-023 上下文 v6 |
-| K4 | §3.3 `run-outcome.question`、待人工事项登记与回答 Action、总览首页 | Q-2、Q-3 |
+| K3 | §3.4 计划记录配置版本集合、context pack “变化的配置”小节 | NX-023 上下文 v6；发布时记录差异摘要（N4） |
+| K4 | §3.3 `run-outcome.question`、待人工事项登记与回答 Action、总览首页 | Q-2、Q-3（已决定）；Schema 变更走功能分支与 PR（N3） |
 
 每个切片按 AGENTS.md：代码、测试、证据、状态更新，先本地 CI；K2 触及可信配置与迁移，走功能分支与 PR。
