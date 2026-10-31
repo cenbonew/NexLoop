@@ -14,6 +14,8 @@
 --    recorded status differs); a keeper that wakes later finds an empty patch and an equal last status.
 -- c. In the completion trigger control.nexloop_consumer_reference_erasure (0306's body with these additions only; copy guard), in
 --    the same transaction and before the registry rows are deleted; a retention hold returns before either, as before.
+-- I36-c: a dated, not yet ended commitment keeps its registry row under the erasure pseudonym (the guard admits that update), so
+--    the keeper breaches it at its due time (D4) and commitment_closed retention removes it; counted as commitments_kept.
 -- d. Existing stock: the commitments of Consumers whose erasure already completed and whose registry rows remain (erased before
 --    0306; made_to 'erasure:<request id>') are handled once below, with the same rule and the same functions.
 
@@ -61,6 +63,21 @@ begin
 end $$;
 alter function runtime.nexloop_commitment_cancel_apply(text,text,text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_commitment_cancel_apply(text,text,text,text) from public;
+
+-- I36-c (owner 2026-10-31, option one): the registry keeps a dated, not yet ended commitment of an erased Consumer under the
+-- erasure's pseudonym (as 0306 does for the other tables) with its prepared properties cleared ({"erased":true}); its guard admits that one erasure update (and the erasure delete, as before).
+alter table runtime.nexloop_commitments drop constraint nexloop_commitments_consumer_id_check,
+ add constraint nexloop_commitments_consumer_id_check check(consumer_id~'^[a-f0-9]{64}$' or consumer_id~'^pseudonym:[0-9a-f]{32}$');
+create or replace function runtime.nexloop_commitment_registry_guard() returns trigger
+ language plpgsql set search_path=pg_catalog,pg_temp as $$
+begin
+ if tg_op='DELETE' and runtime.nexloop_erasure_permits(current_user::text,'runtime.nexloop_commitments','DELETE',to_jsonb(old),null) then return old;end if;
+ if tg_op='UPDATE' and runtime.nexloop_erasure_permits(current_user::text,'runtime.nexloop_commitments','UPDATE',to_jsonb(old),to_jsonb(new)) then return new;end if;
+ if tg_op='DELETE' or old.registered_at is not null or new.registered_at is null
+  or (to_jsonb(new)-'registered_at') is distinct from (to_jsonb(old)-'registered_at') then
+  raise exception 'commitment registry is immutable' using errcode='42501';end if;
+ return new;
+end $$;
 
 -- a. The keeper's settle records its status event through the shared function (0263 body otherwise unchanged).
 CREATE OR REPLACE FUNCTION authz.nexloop_commitment_command(p_digest text, p_world text, p_text text, p_signature text, p_payload text)
@@ -217,7 +234,14 @@ begin
   if (runtime.nexloop_commitment_cancel_apply(tn,w,x.commitment_id,'consumer_erasure')->>'applied')::boolean then c:=c+1;end if;
  end loop;
  n:=n||jsonb_build_object('commitments_cancelled',c);
- perform runtime.nexloop_erasure_open('runtime.nexloop_commitments',null,true,v_ref);
+ -- I36-c (owner): a dated, not yet ended commitment keeps its registry row under this step's pseudonym, so the keeper still moves it
+ -- (breached at its due time, D4) and commitment_closed retention removes it later; every other registry row goes.
+ -- Its prepared properties (made_to, condition) are no longer needed after registration and are cleared like the other erased values.
+ perform runtime.nexloop_erasure_open('runtime.nexloop_commitments',array['consumer_id','properties'],true,v_ref);
+ update runtime.nexloop_commitments r set consumer_id=v_p,properties='{"erased":true}'::jsonb from ontology.objects o
+  where r.tenant_id=tn and r.world=w and r.consumer_id=k and o.tenant_id=r.tenant_id and o.world=r.world and o.type_name='Commitment'
+   and o.object_id=r.commitment_id and r.registered_at is not null and o.properties->>'status' in ('conditional','open','in_progress') and o.properties->>'due_at' is not null;
+ get diagnostics c=row_count;n:=n||jsonb_build_object('commitments_kept',c);
  delete from runtime.nexloop_commitments where tenant_id=tn and world=w and consumer_id=k;
  get diagnostics c=row_count;n:=n||jsonb_build_object('commitments',c);
  -- Pseudonyms (no guard on these tables).

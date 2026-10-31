@@ -12,6 +12,7 @@
 | a 共用转移 | `runtime.nexloop_commitment_cancel_apply(tenant, world, commitment, source)`：用 keeper evaluate 所用的同一个 `runtime.nexloop_commitment_target` 推出补丁，对象守卫会再校验一次；修订号 +1；status 事件由 `runtime.nexloop_commitment_status_event` 写入。keeper 的 settle 现在也调用这个函数（`authz.nexloop_commitment_command` 是 0263 的函数体，只替换了这一处，已登记 copy guard）。擦除写的事件带 `source: consumer_erasure`，keeper 写的不带，和原来一样 |
 | b 范围与幂等 | 只处理 conditional / open / in_progress 中满足"没有期限"或"已有取消请求"的承诺；fulfilled、breached、cancelled 不动。取消请求每条最多一条；status 事件只在最后记录的状态不同时才写，所以 keeper 之后醒来补丁为空、事件不重复 |
 | c 位置 | 在完成触发器 `control.nexloop_consumer_reference_erasure` 内（0306 函数体加这一段，已登记 copy guard），与删除登记行同一事务，并在删除之前。retention hold 仍在两者之前返回 |
+| I36-c 有期限 | 负责人方案一：有期限且未结束的承诺不删登记行，`consumer_id` 改为本次擦除的 pseudonym，`properties` 清为 `{"erased":true}`（登记后不再使用）；登记表约束放宽接受 pseudonym，登记守卫放行这一次擦除更新。keeper 照常推进：到期为 breached，异常记在 pseudonym 名下，没有计划可标记、不联系任何人；结束后由 `commitment_closed` 保留期整条删除。计数 `commitments_kept` |
 | d 存量 | 迁移末尾的一次性块：made_to 为 `erasure:<request id>` 且登记行仍在的承诺（0306 之前完成的擦除），按同一规则处理；取消请求的 ref 和 principal 都记为该 made_to 值 |
 
 ## 和 L6 条件 a 的差别（请知悉）

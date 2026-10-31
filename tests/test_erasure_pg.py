@@ -6,7 +6,7 @@ retention keeper runs as its own service through the signed ports only, with a f
 local Artifact store. Admin seeds fixtures and, where a test says so, injects a ledger state. Synthetic data only.
 """
 from datetime import UTC,datetime,timedelta
-import hashlib,json,secrets,uuid
+import hashlib,json,secrets,time,uuid
 
 import psycopg
 import pytest
@@ -111,12 +111,16 @@ def test_owner_erases_a_consumer_end_to_end_and_services_cannot(erasing,admin):
     events=lambda:admin.execute("select kind,ref,principal_id,detail from runtime.nexloop_commitment_events where subject_ref=%s and kind in ('cancel_requested','status') order by event_number",
         ('commitment:'+undated,)).fetchall()
     assert admin.execute("select properties->>'made_to',properties->>'status' from ontology.objects where object_id=%s",(undated,)).fetchone()==('erasure:'+request_id,'cancelled')
-    assert status=='open' and admin.execute('select count(*) from runtime.nexloop_commitments where commitment_id=any(%s)',([commitment,undated],)).fetchone()==(0,)
+    # I36-c: the dated one keeps its registry row under the erasure pseudonym (the keeper still moves it); the undated one's row is gone.
+    assert status=='open' and admin.execute('select count(*) from runtime.nexloop_commitments where commitment_id=%s',(undated,)).fetchone()==(0,)
+    kept=admin.execute('select consumer_id from runtime.nexloop_commitments where commitment_id=%s',(commitment,)).fetchone()[0]
+    assert admin.execute('select properties from runtime.nexloop_commitments where commitment_id=%s',(commitment,)).fetchone()==({'erased':True},)
+    assert kept.startswith('pseudonym:') and consumer not in json.dumps(admin.execute('select jsonb_agg(r) from runtime.nexloop_commitments r').fetchone()[0])
     cancel,settled=events()[-2:]
     assert cancel[:3]==('cancel_requested','erasure:'+request_id,'erasure:'+request_id) and cancel[3]=={'reason':'consumer_erasure'}
     assert settled[0]=='status' and settled[3]['status']=='cancelled' and settled[3]['source']=='consumer_erasure' and settled[3]['from']=='open'
     references=admin.execute("select counts from runtime.nexloop_erasure_tombstones where item_class='consumer_references'").fetchone()[0]
-    assert references['commitments_cancelled']==1 and references['commitments']==2
+    assert references['commitments_cancelled']==1 and references['commitments_kept']==1 and references['commitments']==1
     before=events()
     c.tick()  # the keeper wakes: nothing to move, nothing to repeat, no error
     assert events()==before and admin.execute("select properties->>'status' from ontology.objects where object_id=%s",(undated,)).fetchone()==('cancelled',)
@@ -241,3 +245,44 @@ def test_existing_stock_of_an_erased_consumer_is_cancelled_once(commitments,admi
     assert admin.execute("select principal_id,ref from runtime.nexloop_commitment_events where subject_ref=%s and kind='cancel_requested'",('commitment:'+undated,)).fetchall()==[('erasure:old-1','erasure:old-1')]
     c.tick()
     assert count()==after and status(undated)=='cancelled'
+
+
+def test_a_dated_commitment_of_an_erased_consumer_breaches_contacts_no_one_and_expires(erasing,admin):
+    """I36-c (owner, option one): after the erasure completes, a dated commitment keeps its registry row under the pseudonym; the keeper
+    moves it at its due time (breached, D4) without port_unavailable although the pseudonym reads as erasing (0383), contacts no one,
+    and commitment_closed retention removes it afterwards."""
+    c=erasing;consumer=c['consumer']
+    dated,_=fresh(c,due_in=timedelta(seconds=20))
+    out=act(c['owner_actions'],'erase_consumer','erase-dated',consumer_id=consumer,reason='顾客要求删除')
+    assert out['state']=='settling'
+    for _ in range(10):
+        keeper(c).run_once()
+        if request(admin,consumer)[1]=='completed':break
+    request_id,state,_,counts=request(admin,consumer)
+    assert state=='completed'
+    pseudonym=admin.execute('select consumer_id from runtime.nexloop_commitments where commitment_id=%s',(dated,)).fetchone()[0]
+    assert pseudonym.startswith('pseudonym:') and admin.execute('select runtime.nexloop_consumer_erasing(%s,%s,%s)',(TENANT,'real',pseudonym)).fetchone()==(True,)
+    messages=lambda:admin.execute("select count(*) from runtime.nexloop_conversation_messages").fetchone()[0]
+    intents=lambda:admin.execute("select count(*) from runtime.nexloop_effect_intents").fetchone()[0]
+    before=(messages(),intents())
+    first=c.tick()  # before the due time: the keeper reads the pseudonym commitment, no retry
+    assert all(r['retry']==0 and r['dead_lettered']==0 for r in first),first
+    status=lambda:admin.execute("select properties->>'status' from ontology.objects where object_id=%s",(dated,)).fetchone()[0]
+    assert status()=='open'
+    deadline=datetime.now(UTC)+timedelta(seconds=40)
+    while status()!='breached' and datetime.now(UTC)<deadline:
+        time.sleep(1);ticks=c.tick()
+        assert all(r['retry']==0 for r in ticks),ticks
+    assert status()=='breached'
+    assert (messages(),intents())==before  # nobody contacted
+    reasons={r[0]:r[1] for r in admin.execute("select reason,consumer_id from runtime.nexloop_commitment_exceptions where subject_ref=%s",('commitment:'+dated,))}
+    assert reasons.get('breached')==pseudonym and 'no_active_plan' in reasons
+    # Retention: once the closed commitment is past commitment_closed, the sweep removes it with its registry row.
+    fault(admin,"update runtime.nexloop_commitment_events set recorded_at=recorded_at-interval '3650 days' where subject_ref=%s",('commitment:'+dated,))
+    fault(admin,"update ontology.objects set updated_at=updated_at-interval '3650 days' where object_id=%s",(dated,))
+    with admin.transaction():
+        admin.execute('set local role nexloop_owner')
+        swept=admin.execute("select runtime.nexloop_retention_sweep_expiry(%s,'real','commitment_closed',100,'i36-test','synthetic')",(TENANT,)).fetchone()[0]
+    assert swept, swept
+    assert admin.execute("select count(*) from ontology.objects where object_id=%s",(dated,)).fetchone()==(0,)
+    assert admin.execute("select count(*) from runtime.nexloop_commitments where commitment_id=%s",(dated,)).fetchone()==(0,)
