@@ -231,6 +231,9 @@ def test_an_effect_the_owner_confirmed_not_delivered_ends_and_its_reply_was_neve
     stale_claim(admin, tenant, action, intent, target='service', adapter='nexloop.effect')
     determination = admin.execute('select determination_id from runtime.nexloop_effect_determinations where intent_id=%s', (intent,)).fetchone()[0]
     assert claim_of(admin, action, intent)['state'] == 'active' and health(admin, tenant)['stale_active_by_class']['effect'] == 1
+    # S72: the critical rule's positive control on a real effect claim. fired() compares value > threshold only and ignores for_seconds
+    # (900 s is the evaluator's hold time, not part of the snapshot), so this asserts the rule's condition holds.
+    assert {'action_claim_stale', 'action_claim_stale_effect'} <= fired(health(admin, tenant))
     sent = admin.execute('select count(*),max(attempt_revision) from runtime.nexloop_effect_attempts where intent_id=%s', (intent,)).fetchone()
     done = act(owner.client, owner.csrf, 'settle_action_claim', {'claim_action': action, 'intent_id': intent, 'category': 'confirmed_not_delivered',
                                                                  'reason': '10-18 已确认未送达'})
