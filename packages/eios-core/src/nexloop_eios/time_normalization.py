@@ -25,6 +25,8 @@ CLOCK = re.compile(r'(\d{1,2}|[一二两三四五六七八九十]{1,3})(点|:|�
 # A deadline word at the end ("周五前", "周五截止") or a leading 截止/截至(到) before a time word ("截止周五", "截止到月底"); not
 # "截止目前/截至现在" (so far) or "截止日期/截止时间" (a noun).
 DEADLINE = re.compile(r'(?<!目)(前|之前|以前)$|(截止|为止|最晚|最迟)$|^(最晚|最迟)|^截[止至]到?(?!目前|现在|日期|时间)(?=[周星礼下本这明后今月\d一二三四五六七八九十])')
+# I37: "3个工作日内/两周之内/一个月以内" is an interval that starts at the anchor itself; it is never a deadline (DEADLINE above).
+WITHIN = re.compile(r'(内|之内|以内)$')
 PAST = re.compile(r'(前天|昨天|昨日|上周|上星期|上个月|去年|刚才|之前那|[零一二两三四五六七八九十\d]{1,3}(个)?(天|日|周|星期|礼拜|月|年)(前|之前|以前)$)')
 BARE_WEEKDAY = re.compile(r'(?<![下本这上每])(周|星期|礼拜)([一二三四五六日天])')
 WEEKDAY = {'一': 0, '二': 1, '三': 2, '四': 3, '五': 4, '六': 5, '日': 6, '天': 6}
@@ -114,18 +116,21 @@ def check(proposed, *, expression, anchor, timezone):
     if start > end:
         raise Refused('time_llm_order')
     local = anchor.astimezone(zone)
+    # An interval read from "…内" may start at the anchor instant (as the rules read it); its span is then checked from that day.
+    anchored = kind == 'interval' and bool(WITHIN.search(expression)) and start == local
+    span_start = datetime(local.year, local.month, local.day, tzinfo=zone) if anchored else start
     # No invented minutes: without a clock time in the expression, day or part-of-day bounds only.
     if not CLOCK.search(expression):
         if granularity in ('minute', 'hour'):
             raise Refused('time_llm_invented_minute')
-        if granularity in ('day', 'period', 'month') and any((t.hour, t.minute, t.second, t.microsecond) != (0, 0, 0, 0) for t in (end,) + (() if kind == 'deadline' else (start,))):
+        if granularity in ('day', 'period', 'month') and any((t.hour, t.minute, t.second, t.microsecond) != (0, 0, 0, 0) for t in (end,) + (() if kind == 'deadline' else (span_start,))):
             raise Refused('time_llm_invented_minute')
         if granularity == 'part_of_day' and any((t.minute, t.second, t.microsecond) != (0, 0, 0) for t in (start, end)):
             raise Refused('time_llm_invented_minute')
     # "前/之前" is a deadline, and only such words make one.
     if bool(DEADLINE.search(expression)) != (kind == 'deadline'):
         raise Refused('time_llm_deadline_mismatch')
-    _span(kind, granularity, start, end)
+    _span(kind, granularity, span_start, end)
     # Relation to the anchor: a future expression ends after the anchor and stays within the horizon.
     if not PAST.search(expression):
         if end <= local or start < datetime(local.year, local.month, local.day, tzinfo=zone) or end > local + HORIZON:

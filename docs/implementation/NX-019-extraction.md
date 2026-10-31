@@ -16,7 +16,9 @@
 
 代码：`packages/eios-core/src/nexloop_eios/conversation_extraction.py`（纯逻辑/提示词/provider/守卫/时间解析）、`claim_store.py`（PG 端口）、`claim_extraction_jobs.py`（后台调度/worker/积压）；迁移 `0066_nx019_claims.sql`、`0069_nx019_extraction_queue.sql`（0069 为临时编号）。
 
-版本：提取器 `nx019-extractor/2`、提示词 `nx019-conversation-extraction-prompt/2`（v2 起 claim_id 含 corrects/subject_text；与 /1 的结果视为不同输入版本）。
+版本：提取器 `nx019-extractor/3`、提示词 `nx019-conversation-extraction-prompt/2`（v2 起 claim_id 含 corrects/subject_text；与 /1 的结果视为不同输入版本）。
+
+I37（2026-10-31）起为 `nx019-extractor/3`："N个工作日内/后"按最晚边界窗口解析（下界跳过周六日，上界加 `ExtractionContext.working_day_margin_days` 天余量（当前只在代码层可配，默认 7，取值 1–30，越界拒绝；部署配置不提供此项），status ambiguous，granularity day，不给确定日期）；模型把"…内"读成从锚点开始的 interval 时可通过校验，deadline 仍只认截止类词。历史 claim 不回填；版本号进入 claim_id，重提取得到新 claim。
 
 ## 2. 确定性守卫（与模型无关）
 
