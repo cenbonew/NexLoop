@@ -1,9 +1,13 @@
 # NX-032 §2.1, §3.1 (D8): the Gateway, only for the trusted LAN (enforced by the firewall), HTTP only redirects. It runs in the
 # application namespace of compose.app.example.yaml and proxies to the API on loopback; the API serves the built web root.
 # Server TLS only (D2) with the gateway certificate from the internal CA; LAN users install the root certificate.
+# S59: the root file system is read-only and nothing persists. persist_config off: no autosave to /config (with admin off nothing
+# else writes there). /data is a small tmpfs (compose): auto_https off and the certificates come from secrets, so no certificate or
+# ACME state is kept; Caddy only writes its storage locks there, and they may be lost on restart.
 {
     auto_https off
     admin off
+    persist_config off
 }
 http://__APP_HOST_NAME__:8080 {
     redir https://__APP_HOST_NAME__:__GATEWAY_HTTPS_PORT__{uri} permanent

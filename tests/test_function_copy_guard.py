@@ -597,6 +597,12 @@ REGISTRY = [
             ((r"\s*if p_consumer like 'pseudonym:%' then return true;end if;", ""),)),
     Allowed('erasing_pseudonym', 'runtime.nexloop_outreach_candidates', 'an erasing Consumer is no candidate; nothing else',
             ((r"\s*continue when runtime\.nexloop_consumer_erasing\(p_tenant,p_world,x\.consumer_id\);", ""),)),
+    # I31 (dispatcher 2026-10-31): a rotated credential keeps one id over two tokens, so a revocation names its token.
+    Allowed('service_credential_rotation', 'control.nexloop_journal_on_service_credential', 'the revocation entry names the revoked token; nothing else',
+            ((r",'token_digest',new\.token_digest", ""),)),
+    Allowed('service_credential_rotation', 'runtime.nexloop_restore_replay_before_contact_keys_v0240',
+            'a revocation entry naming a token revokes that token only; nothing else',
+            ((r"\s*and \(not e \? 'token_digest' or token_digest=e->>'token_digest'\)", ""),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

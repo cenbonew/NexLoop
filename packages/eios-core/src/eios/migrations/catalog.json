@@ -1915,6 +1915,16 @@
       "version": "0383",
       "name": "0383_erasing_pseudonym.sql",
       "sha256": "19347e364b69d3f69682a6d83b73670e4b84aed8adf49931bd1d0409b058df2c"
+    },
+    {
+      "version": "0384",
+      "name": "0384_service_credential_rotation.sql",
+      "sha256": "d064ec8c2a4f90fbc8ed92ab646509ed7d3455d17a0a1060d450de4fb3f82a2b"
+    },
+    {
+      "version": "0385",
+      "name": "0385_action_claim_settle.sql",
+      "sha256": "adacec2cc113080c4882592b8df3c2a110b2c2d6d141c740e591a1732a32a890"
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
  "schema_version": "nexloop-api-routes/1",
- "manifest_version": 6,
- "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version. v2 (dispatcher 2026-10-26, F-2 option 1): GET /api/v1/artifacts/{artifact_id}, the test-world service-token read, is mounted in --mode test only; routes without modes are mounted in every mode. v3 (NX-058 slice F): GET /api/v1/workbench/auth/oidc/providers, /oidc/start and /oidc/callback, the workbench single sign-on (pre-session; 404 sso_unavailable while no provider file is configured). v4 (batch 50, NX-043 experiment space slice 1): GET /api/v1/workbench/experiments, the owner's experiments read (port backend.workbench:experiments). v5 (world-model glossary): the workbench operation set_world_glossary (capability world_glossary.set, owner only) on POST /api/v1/workbench/actions/{operation}. v6 (S42 option A): the workbench operation settle_relay_backlog (capability relay.backlog_settle, owner only) on POST /api/v1/workbench/actions/{operation}.",
+ "manifest_version": 7,
+ "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version. v2 (dispatcher 2026-10-26, F-2 option 1): GET /api/v1/artifacts/{artifact_id}, the test-world service-token read, is mounted in --mode test only; routes without modes are mounted in every mode. v3 (NX-058 slice F): GET /api/v1/workbench/auth/oidc/providers, /oidc/start and /oidc/callback, the workbench single sign-on (pre-session; 404 sso_unavailable while no provider file is configured). v4 (batch 50, NX-043 experiment space slice 1): GET /api/v1/workbench/experiments, the owner's experiments read (port backend.workbench:experiments). v5 (world-model glossary): the workbench operation set_world_glossary (capability world_glossary.set, owner only) on POST /api/v1/workbench/actions/{operation}. v6 (S42 option A): the workbench operation settle_relay_backlog (capability relay.backlog_settle, owner only) on POST /api/v1/workbench/actions/{operation}. v7 (stale action claims): the workbench operation settle_action_claim (capability action_claim.settle, owner only) on POST /api/v1/workbench/actions/{operation}.",
  "routes": [
   {
    "method": "MOUNT",
@@ -1517,6 +1517,10 @@
   {
    "operation": "settle_relay_backlog",
    "capability": "relay.backlog_settle"
+  },
+  {
+   "operation": "settle_action_claim",
+   "capability": "action_claim.settle"
   }
  ],
  "capabilities_not_on_http": [

@@ -47,6 +47,7 @@ treats them as managed, so a leftover grant is drift rather than foreign authori
 """
 import argparse,hashlib,json,re,sys,uuid
 from datetime import UTC,datetime
+import psycopg
 from pathlib import Path
 
 from eios.authz import facts as F
@@ -543,7 +544,9 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictio
     """Pure diff: facts to write (incl. revocations), credentials to create, findings."""
     human=set(inventory.get('human_identifiers',[]))
     current={(r['kind'],tuple(r['key'])):r['payload'] for r in inventory['facts']}
-    credentials={c['credential_id']:c for c in inventory['credentials']}
+    # I31 (0384): a rotation leaves one credential_id with two tokens for a while; the credential is its active token that expires last.
+    credentials={}
+    for c in sorted(inventory['credentials'],key=lambda c:(c['status']=='active',datetime.fromisoformat(c['expires_at']))):credentials[c['credential_id']]=c
     writes=[];new_credentials=[];findings=[]
     for principal in manifest['principals']:
         if {principal['principal_id'],principal['subject_id']}&human:_reject('excluded_by_policy:human_principal')
@@ -656,6 +659,43 @@ def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,se
     except ConfigurationRejected:raise ServiceGrantsRejected('configuration_rejected') from None
     report.update(changed=True,authority_revision=configured['authority_revision'],configuration_digest=configured['manifest_digest'])
     return report
+
+
+def _credential_call(function,tenant,request,*,database_url_file,signing_key_file,signing_key_id,new_digest=None,fact=None):
+    """One call of a 0384 credential function as the configurator with the signing key; the result is counts and ids only."""
+    key=bytes.fromhex(read_private_text(signing_key_file,maximum=128))
+    if len(key)!=32:_reject('signing_key_invalid')
+    try:db=configurator_connection(database_url_file)
+    except Exception:raise ServiceGrantsRejected('configurator_role_required') from None
+    try:
+        with db,db.transaction():
+            db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
+            if function=='rotate':
+                return db.execute('select control.nexloop_rotate_service_credential(%s,%s::jsonb,%s,%s::jsonb,%s,%s)',
+                                  (tenant,json.dumps(request),new_digest,json.dumps(fact),signing_key_id,key)).fetchone()[0]
+            return db.execute('select control.nexloop_revoke_service_credential(%s,%s::jsonb,%s,%s)',(tenant,json.dumps(request),signing_key_id,key)).fetchone()[0]
+    except psycopg.Error as e:
+        raise ServiceGrantsRejected(f'credential_{function}_refused:{e.sqlstate}') from None
+
+
+def rotate_credential(tenant,*,credential_id,current_secret,new_secret,expires_at,request_id,database_url_file,signing_key_file,signing_key_id):
+    """I31: add new_secret as a second active token of credential_id (current_secret must be its only active one); only digests leave."""
+    request={'request_id':str(request_id),'credential_id':credential_id,'current_digest':hashlib.sha256(current_secret.encode()).hexdigest(),
+             'expires_at':expires_at.isoformat()}
+    # The authentication fact with the new expiry, sealed by the EIOS model (snapshot_digest); SQL accepts no other change to it.
+    stored=next((f['payload'] for f in inventory(database_url_file,tenant)['facts'] if f['kind']=='authentication' and f['key']==[credential_id]),None)
+    if stored is None:_reject('credential_unknown')
+    fact=F.CredentialAuthenticationFacts.model_validate_json(json.dumps({**stored,'expires_at':expires_at.isoformat(),'snapshot_digest':None})).model_dump(mode='json')
+    return _credential_call('rotate',tenant,request,database_url_file=database_url_file,signing_key_file=signing_key_file,
+                            signing_key_id=signing_key_id,new_digest=hashlib.sha256(new_secret.encode()).hexdigest(),fact=fact)
+
+
+def revoke_credential(tenant,*,credential_id,request_id,database_url_file,signing_key_file,signing_key_id,secret=None,retired=False):
+    """I31: revoke one token (another active token of the credential must expire later) or, retired, every token of a principal without grants."""
+    if (secret is None)==(not retired):_reject('revoke_needs_secret_or_retired')
+    request={'request_id':str(request_id),'credential_id':credential_id}
+    request.update({'retired':True} if retired else {'token_digest':hashlib.sha256(secret.encode()).hexdigest()})
+    return _credential_call('revoke',tenant,request,database_url_file=database_url_file,signing_key_file=signing_key_file,signing_key_id=signing_key_id)
 
 
 def main(argv=None):

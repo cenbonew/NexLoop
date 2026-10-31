@@ -137,7 +137,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # World-model glossary (0374): the owner corrects or clears one identifier's Chinese gloss (owner only).
     'set_world_glossary':'world_glossary.set',
     # S42 option A (0376): the owner settles pending inbound messages no relay will serve (owner only).
-    'settle_relay_backlog':'relay.backlog_settle'}
+    'settle_relay_backlog':'relay.backlog_settle',
+    # Stale action claims (2026-10-31): the owner ends a stale active claim whose result is settled (owner only).
+    'settle_action_claim':'action_claim.settle'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -423,6 +425,15 @@ class GoalGovernedActions:
                 or type(reason) is not str or not 1<=len(reason.strip())<=500):
             raise ValueError('message ids and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'settle_relay_backlog','message_ids':message_ids,'reason':reason})
+
+    # Stale action claims (2026-10-31): owner only; SQL ends the claim only when its result is settled (uncommitted or confirmed not delivered).
+    def settle_action_claim(self,*,action_name,action_version,request_id,claim_action,intent_id,category,reason):
+        if (type(claim_action) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,159}',claim_action)
+                or type(intent_id) is not str or not 1<=len(intent_id)<=200 or category not in ('uncommitted','confirmed_not_delivered')
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('claim action, intent, category and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'settle_action_claim','action_name':claim_action,
+                                                        'intent_id':intent_id,'category':category,'reason':reason})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):

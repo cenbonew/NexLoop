@@ -120,7 +120,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # World-model glossary (0374): the owner's correction of a Chinese gloss.
     'world_glossary.set':'human_owner',
     # S42 option A: the owner settles inbound messages no relay will serve.
-    'relay.backlog_settle':'human_owner'}
+    'relay.backlog_settle':'human_owner',
+    # Stale action claims (2026-10-31): the owner ends a stale active claim whose result is settled.
+    'action_claim.settle':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 
