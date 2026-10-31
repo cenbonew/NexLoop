@@ -1935,6 +1935,11 @@
       "version": "0387",
       "name": "0387_workbench_read_types.sql",
       "sha256": "47f458bf7879ff8e454f57055f6120eb9d5e38a5e24e42c7c1db98cf7a2b350b"
+    },
+    {
+      "version": "0388",
+      "name": "0388_erasure_cancels_undated_commitments.sql",
+      "sha256": "4d05f7e2fd145ae48df62f8ecde3d278079ea6c76639a42d7d296a654d0e0538"
     }
   ]
 }
