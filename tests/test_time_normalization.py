@@ -268,3 +268,11 @@ def test_a_within_reading_from_the_model_is_an_interval_from_the_anchor_never_a_
 def test_vague_words_and_past_references_stay_unresolved(expression, kind):
     got = resolve_time(expression, WED, TZ)
     assert (got['kind'], got['status']) == (kind, 'unresolved')
+
+
+# I37 C9 (stage, 2026-10-31): 9 of the 16 'other' phrases are "after some event". The event's time is unknown to the extractor, so no
+# date or window is invented: they stay unparsed until the event itself is recorded.
+@pytest.mark.parametrize('expression', ['收到货之后', '审核通过后', '确认以后', '到货后'])
+def test_after_an_event_is_never_given_a_date(expression):
+    got = resolve_time(expression, WED, TZ)
+    assert (got['kind'], got['status'], got['start'], got['end']) == ('unparsed', 'unresolved', None, None)
