@@ -162,7 +162,6 @@ Action 名、配方字段和工具命令以 S77 合入后的版本为准。本�
 - **单位**：
   - incentive 预算的 `limit_amount` 必须是整数（0068 的检查约束 `limit_amount=trunc(limit_amount)`）；
   - 准入时预留的是 `amount_minor`（0145：`nexloop_reserve_budget(...,i.amount_minor::text,i.currency,...)`），所以单位是最小货币单位；
-  - **更正说明**：0145 第 375–376 行注释写的是 “major units of a two-decimal currency”，与第 322 行按 `amount_minor` 预留的事实不符。以代码为准。0145 已发布、冻结，本单不改它，只在这里记录；
   - **20 元写成 `"2000"`**。写成 `"20.00"` 也能通过约束，但只有 20 分，#16 的发放会被预算拒绝。
 
 ### 3.2 命令（approver3 发起，approver2 批准，approver3 执行）
