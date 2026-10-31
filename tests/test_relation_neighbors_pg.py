@@ -41,12 +41,20 @@ def test_covered_links_are_relation_groups_and_the_rest_stay(published, admin): 
         assert ('outgoing', 'property:consumer_id', 'Consumer') not in own and ('outgoing', 'goal_of', 'Consumer') in own
         # Another verb of the wrapped read: unchanged.
         assert client.get('/api/v1/workbench/objects/Consumer').status_code == 200
-        # A MessageAssignment naming the centre: its relation group checks the neighbour's READ (no member derives the type).
+        # A MessageAssignment naming the centre: its relation group checks the neighbour's READ. Since roles v52 (I35, owner option A)
+        # the owner reads MessageAssignment through read_types and sees it; the operator's list is empty and it stays invisible.
         assignment = hexid('p4b-assignment')
         obj(admin, 'MessageAssignment', assignment, {'consumer_id': centre, 'state': 'active'})
         g = {(x['direction'], x['via'], x['type_name']): x for x in client.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').json()['groups']}
+        assert [i['object_id'] for i in g[('incoming', 'assignment_of', 'MessageAssignment')]['items']] == [assignment]
+        assert g[('incoming', 'assignment_of', 'MessageAssignment')]['invisible'] == 0
+    with w['client']() as other:
+        assert workbench_login(other, w['operator']).status_code == 200
+        g = {(x['direction'], x['via'], x['type_name']): x for x in other.get(f'/api/v1/workbench/objects/Consumer/{centre}/neighbors').json()['groups']}
         assert g[('incoming', 'assignment_of', 'MessageAssignment')]['items'] == [] and g[('incoming', 'assignment_of', 'MessageAssignment')]['invisible'] == 1
         assert assignment not in str(g)
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
         # A Goal without its relation (replica: nothing derived): the relation group holds 3, the property group 4 - it stays.
         with admin.transaction():
             admin.execute('set local session_replication_role=replica')
