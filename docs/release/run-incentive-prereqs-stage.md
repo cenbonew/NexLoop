@@ -1,6 +1,7 @@
 # B 档 #16 前置：激励派发开关、测试激励目录、incentive 预算（stage，受治理操作单草稿）
 
-- **状态**：草稿，待负责人确认后执行。本单不改代码。
+- **状态**：L6 条件 PASS（b6b191f8）后按其意见修订；负责人已按推荐决定 P5（§1.0）。本单不改代码。
+- **#16 的时间**：2026-11-01 00:00Z 之后（§3 预算期间从这一刻开始），并且在 S77 合入、发布、setup 完成之后（§2）。
 - **起因**：B 档运行单 #16“激励发放一次 + 联系限制拦截一次”被三项前置挡住（调度员只读核对，2026-10-31 21:4x）：
   - P5：`control.nexloop_real_dispatch_switches` 没有 `eios:action:nexloop.incentive.issue:1` 这一行；
   - P6：`ontology.objects` 里没有 `IncentiveOffering` / `ConsumerIncentiveOffering`；
@@ -15,8 +16,8 @@
 
 | 项 | 能否按受治理路径做 | 是否需要审批 | 结论 |
 |---|---|---|---|
-| 1 开关 | 能：`set_real_dispatch`（`nexloop.real_dispatch.set:1`，owner） | **打开需要**（审批策略 v1：`enabled=true` 时须另一位 owner 批准；关闭不需要） | 先做 §1.0 核对，很可能**根本不需要这一行**（见 §1.0） |
-| 2 目录对象 | **不能**：stage 上没有发布 `IncentiveOffering.create` / `ConsumerIncentiveOffering.create` 这两个 Action，仓库里也没有对应的 setup 工具 | — | **阻塞**，需要先补代码和 Action（§2.2），本单不绕过 |
+| 1 开关 | 能：`set_real_dispatch`（`nexloop.real_dispatch.set:1`，owner） | **打开需要**（审批策略 v1：`enabled=true` 时须另一位 owner 批准；关闭不需要） | **决定**：§1.0 读到非外部则跳过 §1.1，#16 的 P5 改为“effect_is_external=f” |
+| 2 目录对象 | main 51820ab6 上不能：没有 `.create` / `.edit` Action；**S77**（L2）正在实现 | 按 S77 的定义 | **依赖 S77 合入并发布**（§2），本单不绕过 |
 | 3 预算 | 能：`loosen_budget`（`nexloop.budget.loosen:1`），新设预算不能走 `set_budget` | **需要**（审批策略 v5，可单人模式但本单不用） | 注意单位：incentive 预算按**最小货币单位**记，20 元写 `"2000"` |
 
 ## 0. 共用准备（管理机，发布检出根目录）
@@ -58,8 +59,15 @@ ro "select x.external_effect, x.manifest_version, x.definition_digest = control.
 
 `control.nexloop_effect_is_external` 对 public 撤销了执行权，只读窗口不一定能调用，所以这里直接读它依据的表：只有 `external_effect=f` 且 `current_definition=t` 时才判为非外部。没有行，或 `current_definition=f`，都按外部处理（函数的默认）。如果只读角色连这两张表也读不到，就用 bootstrap 窗口执行，同 run-nx056 §6。
 
-- 结果为一行 `f|…|t`：开关不影响 #16。**建议跳过 §1.1**，把 #16 的 P5 改成“effect_is_external 为 f”。由负责人确认。这样也不用为一个回环效果多开一个审批。
-- 其他情况（`t`、无行或 `current_definition=f`）：按 §1.1 打开。
+**比对的是哪份定义**：0153 在两处判断外部性。
+- 发起时（`authz.nexloop_assert_intent_dispatch_controls`）比对的是 intent 里存的 `action_definition`；
+- 准入时（`authz.nexloop_incentive_command` 的 `admit`）比对的是当时 active 的定义。
+
+本查询比对的是当前 active 定义。发起 #16 之前两者应当一致。如果 #16 发起之后 Action 重发过（定义摘要变了），以 intent 里存的定义为准：用同一查询把 `d.definition` 换成该 intent 的 `action_definition` 再核对一次，两者都必须为非外部。
+
+**决定**（负责人按推荐，2026-10-31）：
+- 结果为一行 `f|…|t`：**跳过 §1.1**，不建这一行开关。#16 的 P5 改为“`effect_is_external=f`”，证据记本查询的输出。
+- 其他情况（`t`、无行或 `current_definition=f`）：P5 不满足。按 §1.1 打开，或回报调度员。
 
 ### 1.1 打开（需要审批：approver3 发起，approver2 批准，approver3 执行）
 
@@ -99,48 +107,50 @@ OPEN() { printf '{"scope_kind":"action_type","action_type":"eios:action:nexloop.
 
   核对：该行 `enabled=f`，`revision` 加 1。行不会被删除，关闭后的状态就是回退的终态。
 
-## 2. 测试用 IncentiveOffering 与两条 ConsumerIncentiveOffering 绑定
+## 2. 测试用 IncentiveOffering 与两条 ConsumerIncentiveOffering 绑定（依赖 S77）
 
-### 2.1 现状：没有受治理的创建入口（阻塞）
+### 2.1 现状
 
-- `IncentiveOffering`、`ConsumerIncentiveOffering` 两个**类型**由 `system-actions.v1.json` 发布（builder `incentive_offering_schemas`），`only_edit_via_actions=true`。
-- 但仓库里**没有**它们的 CREATE Action：
-  - `system-catalog-names.v1.json` 和 `system-actions.v1.json` 只有 `ServiceOffering.create` / `ConsumerServiceOffering.create` 等，`git grep "IncentiveOffering.create"` 没有结果；
-  - 也没有像 `catalog_setup` / `enterprise_setup` 那样的 incentive setup 工具，也没有持有创建授权的服务主体。
-- 现有测试（`tests/test_incentives_pg.py` 的 `seed_offering`）用 `session_replication_role=replica` 直接插 `ontology.objects`，那只是测试夹具，**不能**在 stage 上照做：直接 SQL、超级用户，都违反安全不变量。
+- main 51820ab6 上，这两个类型已发布（`system-actions.v1.json`，`only_edit_via_actions=true`），但没有任何 `.create` / `.edit` Action，也没有 setup 工具。
+- 测试夹具（`tests/test_incentives_pg.py` 的 `seed_offering`）用 replica 模式直接插表，**不能**在 stage 上照做。
 
-结论：第 2 步在当前 main（51820ab6）上没有受治理的做法。本单**不提供**绕过办法。
+### 2.2 S77（L2 实现中）
 
-### 2.2 补齐所需（交负责人决定，是另一项代码任务）
+S77 补上两个类型的 `.create` / `.edit` 受治理 Action：
+- v2 schema 给 `active` 加属性组 `incentive_lifecycle`；
+- `catalog_maintainer` 经 service-grants 的 `property_access_rule` 获得该组的 EDIT；
+- 迁移 0389 的守卫只允许 `active` 从 true 改为 false；
+- offering 的 edit 只能撤下，不能改 `valid_until`。
 
-参照 `ServiceOffering` 的路径（`service_offerings.governed_create_catalog` + `catalog_setup`），需要：
+Action 名、配方字段和工具命令以 S77 合入后的版本为准。本节执行前，把下面的占位换成 S77 的实际写法。
 
-1. 在 `system-actions` / `system-catalog-names` 中加 `IncentiveOffering.create:1`、`ConsumerIncentiveOffering.create:1`（`ontology.object.create`，postgres，按 `request_id`/`intent_id` 幂等），并用 `stage_secrets.py publish` 发布；
-2. 给 `catalog_maintainer` 加这两个 Action 的 execute 授权（新的 service-grants 版本，经 register）；
-3. 一个 `incentive_setup` 工具：配方是 `request_id`、`consumer_id` 列表、`valid_until`、金额。它用 `incentives.fixed_amount_example` 产生属性，`source_principal` 取 delivery Source 的 principal（同 `governed_create_catalog`）；
-4. 测试：重放返回同一对象；Source 没有 CREATE；字段严格；准入能读到绑定。
+### 2.3 #16 的前置顺序（全部在 S77 合入 main 并部署到 stage 之后）
 
-补齐之后的执行草案（字段名以实现为准）：
+1. **dry-run publish**：`stage_secrets.py publish ... --dry-run`。预期新增两种类型的 v2 和四个 Action（create、edit 各两个），其余不变。必须先 dry-run，因为新 Action 在发布之前会返回 404。
+2. **publish**：去掉 `--dry-run`。
+3. **register**：应用含 S77 授权的 service-grants 版本。`catalog_maintainer` 应得到四个 Action 的 execute 授权和 `incentive_lifecycle` 的 `property_access_rule`。
+4. **setup**：用 S77 的 setup 工具。配方草案如下，字段名以实现为准：
 
-```json
-{"schema_version":"1.0","request_id":"<新 UUID，重放用同一个>","valid_until":"2026-12-01T00:00:00Z",
- "offering":{"incentive_code":"b16-test-credit","kind":"fixed_amount","max_amount_minor":"500","per_consumer_period_limit_minor":"1000",
-             "currency":"CNY","eligibility":"bound_consumer","title":"测试优惠","active":true},
- "consumers":["<s6c-1 的 consumer_id>","<s6c-2 的 consumer_id>"]}
-```
+   ```json
+   {"schema_version":"1.0","request_id":"<新 UUID，重放用同一个>","valid_until":"2026-12-01T00:00:00Z",
+    "offering":{"incentive_code":"b16-test-credit","kind":"fixed_amount","max_amount_minor":"500","per_consumer_period_limit_minor":"1000",
+                "currency":"CNY","eligibility":"bound_consumer","title":"测试优惠","active":true},
+    "consumers":["<s6c-1 的 consumer_id>","<s6c-2 的 consumer_id>"]}
+   ```
 
-- 金额都是最小单位：单次最多 5 元，每人每期最多 10 元，两人合计不超过 §3 的 20 元预算。
-- **预期**：输出 `offering_id` 和两个 `binding_id`；同一配方再执行一次，返回相同的对象。
-- **核对**（只读，只看类型、数量和非个人字段）：
+   - 金额都是最小单位：单次最多 5 元，每人每期最多 10 元，两人合计不超过 §3 的 20 元。
+   - 预期输出 `offering_id` 和两个 `binding_id`；同一配方重放返回相同的对象。
+5. **只读核对**：
 
-  ```bash
-  ro "select type_name, count(*) from ontology.objects where tenant_id='<TENANT_ID>' and world='real' and type_name in ('IncentiveOffering','ConsumerIncentiveOffering') group by 1 order by 1"
-  ro "select object_id, properties->>'currency', properties->>'max_amount_minor', properties->>'valid_until', properties->>'active' from ontology.objects where tenant_id='<TENANT_ID>' and world='real' and type_name='IncentiveOffering'"
-  ro "select properties->>'offering_id', properties->>'offering_revision', properties->>'active' from ontology.objects where tenant_id='<TENANT_ID>' and world='real' and type_name='ConsumerIncentiveOffering'"
-  ```
+   ```bash
+   ro "select type_name, schema_version, count(*) from ontology.objects where tenant_id='<TENANT_ID>' and world='real' and type_name in ('IncentiveOffering','ConsumerIncentiveOffering') group by 1,2 order by 1"
+   ro "select object_id, properties->>'currency', properties->>'max_amount_minor', properties->>'valid_until', properties->>'active' from ontology.objects where tenant_id='<TENANT_ID>' and world='real' and type_name='IncentiveOffering'"
+   ro "select properties->>'offering_id', properties->>'offering_revision', properties->>'active' from ontology.objects where tenant_id='<TENANT_ID>' and world='real' and type_name='ConsumerIncentiveOffering'"
+   ```
 
-  预期计数 1 和 2；两条绑定都指向该 offering，`offering_revision=1`，`active=true`。
-- **回退**：对象只能经受治理 Action 编辑（需要 `*.edit` Action，同属第 2.2 项），把 `active` 设为 false，不删除。在 edit Action 补上之前，可以让 `valid_until`（11-01 起约一个月）自然到期作为兜底；也可以关闭 §1 的开关并保留 §3 的预算上限，这样已有对象发不出任何激励。
+   预期计数 1 和 2；两条绑定都指向该 offering，`offering_revision=1`，`active=true`。
+
+- **回退**：用 S77 的 `.edit` 把 offering 和两条绑定的 `active` 改为 false（0389 只允许这一种改法；不删除，也不改 `valid_until`）。另外，`valid_until`（12-01）到期后也会自然失效。
 
 ## 3. incentive 预算：20 元，2026-11-01 至 2026-12-01
 
@@ -152,6 +162,7 @@ OPEN() { printf '{"scope_kind":"action_type","action_type":"eios:action:nexloop.
 - **单位**：
   - incentive 预算的 `limit_amount` 必须是整数（0068 的检查约束 `limit_amount=trunc(limit_amount)`）；
   - 准入时预留的是 `amount_minor`（0145：`nexloop_reserve_budget(...,i.amount_minor::text,i.currency,...)`），所以单位是最小货币单位；
+  - **更正说明**：0145 第 375–376 行注释写的是 “major units of a two-decimal currency”，与第 322 行按 `amount_minor` 预留的事实不符。以代码为准。0145 已发布、冻结，本单不改它，只在这里记录；
   - **20 元写成 `"2000"`**。写成 `"20.00"` 也能通过约束，但只有 20 分，#16 的发放会被预算拒绝。
 
 ### 3.2 命令（approver3 发起，approver2 批准，approver3 执行）
@@ -181,16 +192,19 @@ BUDGET='{"budget_kind":"incentive","unit":"CNY","limit_amount":"2000","period_st
 - **核对**：执行后上面的查询有一行 `incentive|CNY|2000|2026-11-01 00:00:00+00|2026-12-01 00:00:00+00|1`。
 - **时机**：期间从 11-01 00:00Z 开始。在这之前执行 #16 会因为“没有覆盖当前时刻的预算”被拒，所以 #16 要放在 11-01 00:00Z 之后。
 - **回退**：
-  - 收紧不需要审批：`"${D3[@]}" request --operation set_budget --body-json '{"budget_kind":"incentive","unit":"CNY","limit_amount":"0","period_start":"2026-11-01T00:00:00Z","period_end":"2026-12-01T00:00:00Z"}'`，HTTP 200，`limit_amount` 变为 0，`revision` 加 1。0 是否被接受以路由校验为准；不接受时改用 `"1"`（1 分，小于任何一次发放）。
+  - 收紧不需要审批：`"${D3[@]}" request --operation set_budget --body-json '{"budget_kind":"incentive","unit":"CNY","limit_amount":"0","period_start":"2026-11-01T00:00:00Z","period_end":"2026-12-01T00:00:00Z"}'`，HTTP 200，`limit_amount` 变为 0，`revision` 加 1。
+  - **执行 §3.2 之前**先用同一请求体加 `--dry-run`，只确认路由校验；然后读路由的字段规则（`workbench_actions_http.py` 的 `set_budget`）和 SQL 约束，确定 `"0"` 能否被接受。不能就把回退值定为 `"1"`（1 分，小于任何一次发放），写进证据。不要留到回退时才判断。
+  - 注意：`--dry-run` 不连接，所以只能确认字段形状，不能确认 SQL 是否接受；能否接受以读到的规则为准。
   - 已发出的激励不受影响，已预留的会按 0145 正常结算。
   - 也可以等 12-01 期间自然结束，不续期。
 
 ## 4. 执行顺序与证据
 
 1. 0（Q1–Q4）
-2. §1.0；结果为 `t` 时再做 §1.1
-3. §3（可以先做，只要在 #16 之前即可）
-4. §2：**阻塞**，等 §2.2 的代码任务合入、部署并发布 Action 后另行执行
+2. §1.0；读到非外部则跳过 §1.1（P5 记为 `effect_is_external=f`）
+3. §3：先 dry-run 并确定回退值，再执行（只要在 #16 之前即可）
+4. §2.3：S77 合入、部署之后执行 dry-run publish → publish → register → setup → 只读核对
+5. #16：2026-11-01 00:00Z 之后，并且以上各步都已完成
 
 - 证据：`$EV`（0600，不含口令、用户名、Cookie 和原因文本以外的内容），以及每步前后的只读查询结果。执行人写 approver3（由调度员操作），批准人写 approver2，判定人写 L6，分开记录。
-- #16 结束后的回退：§1.1 关闭开关；§3.2 收紧预算或让它到期；§2 的对象停用（依赖 edit Action）。
+- #16 结束后的回退：§1.1 关闭开关（只在打开过时）；§3.2 收紧到事先确定的值，或让它到期；§2 用 S77 的 `.edit` 把对象停用。
