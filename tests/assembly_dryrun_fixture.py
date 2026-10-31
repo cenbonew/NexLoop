@@ -87,9 +87,21 @@ def publish_catalog(out, *, tenant, bootstrap_dsn_file, signing_key_id):
     compiled = compile_catalog(tenant)
     with configurator_window(bootstrap_dsn_file) as dsn:
         current = G.inventory(dsn, tenant)
+        empty = {'authority_facts': [], 'service_credentials': [], 'browser_applications': [], 'browser_business_applications': [],
+                 'browser_rate_policies': [], 'identity_allowances': []}
+        increments = [t for t in compiled['object_types'] if t['version'] >= 2]
+        if increments:  # ADR-042: v1 types, then the group-only increments, then the full manifest (as catalog_publish.publish)
+            from nexloop_eios.trusted_configuration import apply_group_increments
+            first = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
+                     'manifest_id': str(uuid.uuid4()), 'object_types': [t for t in compiled['object_types'] if t['version'] == 1], 'actions': [],
+                     'functions': [], **empty}
+            revision = apply_manifest_with_secrets(first, database_url_file=dsn, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
+                                                   signing_key_id=signing_key_id, service_secrets={})['authority_revision']
+            apply_group_increments(tenant, increments, database_url_file=dsn, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
+                                   signing_key_id=signing_key_id, expected_revision=revision)
+            current = G.inventory(dsn, tenant)
         body = {'schema_version': '1.0', 'tenant_id': tenant, 'expected_revision': current['authority_revision'], 'tenant_status': current['tenant_status'],
-                'manifest_id': str(uuid.uuid4()), **compiled, 'authority_facts': [], 'service_credentials': [], 'browser_applications': [],
-                'browser_business_applications': [], 'browser_rate_policies': [], 'identity_allowances': []}
+                'manifest_id': str(uuid.uuid4()), **compiled, **empty}
         apply_manifest_with_secrets(body, database_url_file=dsn, signing_key_file=Path(out) / 'management' / 'signing.key.hex',
                                     signing_key_id=signing_key_id, service_secrets={})
     return {k: len(v) for k, v in compiled.items()}

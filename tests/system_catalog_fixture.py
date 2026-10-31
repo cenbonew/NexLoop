@@ -33,8 +33,8 @@ def publish_system_catalog(admin, tenant, types, actions=(), functions=(), *, cr
     created_at = created_at or datetime.now(UTC) - timedelta(days=1)
     schemas = SC.object_types()
     for name in types:
-        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',
-                      (tenant, name, Jsonb(schemas[name].model_dump(mode='json'))))
+        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s)',
+                      (tenant, name, schemas[name].version, Jsonb(schemas[name].model_dump(mode='json'))))
     rows = SC.compile_system_actions(tenant=tenant, created_by=CREATED_BY, created_at=created_at, snapshots=snapshots(), select=tuple(actions)) if actions else []
     for row in rows:
         d = row['definition']

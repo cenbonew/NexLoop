@@ -1,0 +1,7 @@
+{
+  "schema_version": "nexloop-incentive-withdraw/1",
+  "request_id": "0b7e4d18-2c55-4b8a-a6f1-3d9e2c7b5a40",
+  "target": "offering",
+  "object_id": "00000000000000000000000000000000000000000000000000000000000000aa",
+  "expected_revision": 1
+}

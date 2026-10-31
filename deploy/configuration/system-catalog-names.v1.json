@@ -54,12 +54,12 @@
     },
     {
       "type_name": "IncentiveOffering",
-      "version": 1,
+      "version": 2,
       "source": "incentives.offering_schemas"
     },
     {
       "type_name": "ConsumerIncentiveOffering",
-      "version": 1,
+      "version": 2,
       "source": "incentives.offering_schemas"
     },
     {
@@ -342,6 +342,46 @@
       "capability": "ontology.object.create",
       "group": "setup",
       "fixture": "tests/runtime_effect_fixture.py:install_runtime_catalog"
+    },
+    {
+      "stable_name": "IncentiveOffering.create",
+      "version": 1,
+      "object_types": [
+        "IncentiveOffering"
+      ],
+      "capability": "ontology.object.create",
+      "group": "setup",
+      "fixture": "tests/test_incentive_setup_pg.py:incentive_catalog"
+    },
+    {
+      "stable_name": "ConsumerIncentiveOffering.create",
+      "version": 1,
+      "object_types": [
+        "ConsumerIncentiveOffering"
+      ],
+      "capability": "ontology.object.create",
+      "group": "setup",
+      "fixture": "tests/test_incentive_setup_pg.py:incentive_catalog"
+    },
+    {
+      "stable_name": "IncentiveOffering.edit",
+      "version": 1,
+      "object_types": [
+        "IncentiveOffering"
+      ],
+      "capability": "ontology.object.edit",
+      "group": "setup",
+      "fixture": "tests/test_incentive_setup_pg.py:incentive_catalog"
+    },
+    {
+      "stable_name": "ConsumerIncentiveOffering.edit",
+      "version": 1,
+      "object_types": [
+        "ConsumerIncentiveOffering"
+      ],
+      "capability": "ontology.object.edit",
+      "group": "setup",
+      "fixture": "tests/test_incentive_setup_pg.py:incentive_catalog"
     },
     {
       "stable_name": "RoleDefinition.create",
