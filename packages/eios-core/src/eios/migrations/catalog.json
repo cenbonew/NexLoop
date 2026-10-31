@@ -1950,6 +1950,11 @@
       "version": "0390",
       "name": "0390_configure_group_only_increment.sql",
       "sha256": "2c3ba85b2e2691ea7f67f68ff89800026f80ea8ba2cff4528ddf7a3442f7136e"
+    },
+    {
+      "version": "0391",
+      "name": "0391_service_credential_rescoped_rotation.sql",
+      "sha256": "c4d60e0eb962642ef56fb831aa12fdbd83d531f6acd2f9300a04b535fff797d5"
     }
   ]
 }

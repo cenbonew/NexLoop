@@ -671,23 +671,39 @@ def _credential_call(function,tenant,request,*,database_url_file,signing_key_fil
         with db,db.transaction():
             db.execute("set local statement_timeout='10000ms'; set local lock_timeout='3000ms'")
             if function=='rotate':
-                return db.execute('select control.nexloop_rotate_service_credential(%s,%s::jsonb,%s,%s::jsonb,%s,%s)',
+                entry='nexloop_rotate_service_credential_scopes' if 'requested_scopes' in request else 'nexloop_rotate_service_credential'
+                return db.execute(f'select control.{entry}(%s,%s::jsonb,%s,%s::jsonb,%s,%s)',
                                   (tenant,json.dumps(request),new_digest,json.dumps(fact),signing_key_id,key)).fetchone()[0]
-            return db.execute('select control.nexloop_revoke_service_credential(%s,%s::jsonb,%s,%s)',(tenant,json.dumps(request),signing_key_id,key)).fetchone()[0]
+            entry='nexloop_revoke_superseded_service_credential' if 'keep_digest' in request else 'nexloop_revoke_service_credential'
+            return db.execute(f'select control.{entry}(%s,%s::jsonb,%s,%s)',(tenant,json.dumps(request),signing_key_id,key)).fetchone()[0]
     except psycopg.Error as e:
         raise ServiceGrantsRejected(f'credential_{function}_refused:{e.sqlstate}') from None
 
 
-def rotate_credential(tenant,*,credential_id,current_secret,new_secret,expires_at,request_id,database_url_file,signing_key_file,signing_key_id):
-    """I31: add new_secret as a second active token of credential_id (current_secret must be its only active one); only digests leave."""
+def rotate_credential(tenant,*,credential_id,current_secret,new_secret,expires_at,request_id,database_url_file,signing_key_file,signing_key_id,
+                      requested_scopes=None):
+    """I31: add new_secret as a second active token of credential_id (current_secret must be its only active one); only digests leave.
+    S79 (0391): with requested_scopes the new token's binding and the authentication fact take those scopes (nothing else changes);
+    the previous token's decisions are stale from then on, until it is revoked."""
     request={'request_id':str(request_id),'credential_id':credential_id,'current_digest':hashlib.sha256(current_secret.encode()).hexdigest(),
              'expires_at':expires_at.isoformat()}
-    # The authentication fact with the new expiry, sealed by the EIOS model (snapshot_digest); SQL accepts no other change to it.
+    changes={'expires_at':expires_at.isoformat(),'snapshot_digest':None}
+    if requested_scopes is not None:
+        request['requested_scopes']=changes['requested_scopes']=sorted(requested_scopes)
+    # The authentication fact with the new expiry (and scopes), sealed by the EIOS model (snapshot_digest); SQL accepts no other change to it.
     stored=next((f['payload'] for f in inventory(database_url_file,tenant)['facts'] if f['kind']=='authentication' and f['key']==[credential_id]),None)
     if stored is None:_reject('credential_unknown')
-    fact=F.CredentialAuthenticationFacts.model_validate_json(json.dumps({**stored,'expires_at':expires_at.isoformat(),'snapshot_digest':None})).model_dump(mode='json')
+    fact=F.CredentialAuthenticationFacts.model_validate_json(json.dumps({**stored,**changes})).model_dump(mode='json')
     return _credential_call('rotate',tenant,request,database_url_file=database_url_file,signing_key_file=signing_key_file,
                             signing_key_id=signing_key_id,new_digest=hashlib.sha256(new_secret.encode()).hexdigest(),fact=fact)
+
+
+def revoke_superseded_credential(tenant,*,credential_id,keep_secret,expires_at,request_id,database_url_file,signing_key_file,signing_key_id):
+    """S79 (0391): revoke the active token of credential_id that expires exactly at expires_at, keeping keep_secret's token (it must be
+    another active token of the credential that expires later); for a rotation whose files are already gone."""
+    request={'request_id':str(request_id),'credential_id':credential_id,'keep_digest':hashlib.sha256(keep_secret.encode()).hexdigest(),
+             'expires_at':expires_at.isoformat()}
+    return _credential_call('revoke',tenant,request,database_url_file=database_url_file,signing_key_file=signing_key_file,signing_key_id=signing_key_id)
 
 
 def revoke_credential(tenant,*,credential_id,request_id,database_url_file,signing_key_file,signing_key_id,secret=None,retired=False):
