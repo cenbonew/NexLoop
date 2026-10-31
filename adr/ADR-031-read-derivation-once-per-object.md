@@ -84,6 +84,6 @@ relay Source 没有配置授权，它对目录对象（ServiceOffering、Consume
 - **授予什么**：stage-principals 里逐条列出的类型（与世界模型译名表的 20 个类型一致，由测试强制同步），对每个类型授予 `eios:object_type:<T>`，以及该类型最新已发布版本里每个属性的类型级 `eios:property:<T>/<p>`。owner 限制的属性组（`property_group_restriction`）排除；不属于任何组的属性不算受限。
 - **边界**（三条，由 SQL 强制，不靠调用方）：
   1. 只用于 recall 的定义门（`EiosRecallAuthorizer.readable` → `authz.nexloop_definition_read`）和 `authz.nexloop_context_read` 的 definitions 动词。
-  2. 永远不作为对象、实例、属性值或嵌套类型 READ 的依据：派生证明 `definition-read-v1` 只能写 `eios:object_type:<T>` 或两段式 `eios:property:<T>/<p>`；共享读取断言只在调用栈上有 owner 专用入口 `authz.nexloop_context_read_definitions` 时接受它，栈由服务端 `GET DIAGNOSTICS PG_CONTEXT` 读取，不读任何调用方可设的会话状态（L6 I30：3ded2585 用自定义 GUC 传作用域，已撤掉）。该入口不授给任何角色，只能由 context_read 的 definitions 动词进入；对象读取、属性值读取、其他派生和其他动词都在栈外，一律 42501。
+  2. 永远不作为对象、实例、属性值或嵌套类型 READ 的依据：派生证明 `definition-read-v1` 只能写 `eios:object_type:<T>` 或两段式 `eios:property:<T>/<p>`；共享读取断言只在调用栈上有 owner 专用入口 `authz.nexloop_context_read_definitions` 时接受它，栈由服务端 `GET DIAGNOSTICS PG_CONTEXT` 读取，不读任何调用方可设的会话状态（L6 I30：3ded2585 用自定义 GUC 传作用域，已撤掉）。该入口不授给任何角色，只能由 context_read 的 definitions 动词进入；对象读取、属性值读取、其他派生和其他动词都在栈外，一律 42501。PG_CONTEXT 的文本格式是 PostgreSQL 的实现细节：PG 大版本升级时复核 PG_CONTEXT 匹配（L6 S62；措辞变化时正向路径失败关闭为拒绝，正例测试会立即发现）。
   3. 不改凭据 scope，不写逐对象事实；只在 real 世界、只对不带 Run 上下文的服务凭据生效；规则停用、过期或撤销后，下一次读取即失效。
 - **以后新增类型**：需要在 stage-principals 里显式加上该类型，再跑一次 register。测试 `test_the_stage_rule_lists_the_twenty_published_types_and_adds_no_grant` 在两份清单不一致时失败。
