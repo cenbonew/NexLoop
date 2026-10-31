@@ -34,9 +34,12 @@
    security find-generic-password -s <keychain service> -a <account> -w | \
      python3 scripts/deploy/commitment_cancel.py --origin https://<APP_HOST_NAME>:<PORT> --username-file F --password-stdin --config F
    ```
-   预期 155 条全部 `cancelled`，退出码 0；重跑应全部为 `replayed`。
+   预期 155 条全部为 `cancel_requested`，退出码 0；重跑应全部为 `replayed`。**`cancel_requested` 只表示取消请求已被受理**：SQL 只在账本里写 `cancel_requested` 事件，承诺此时仍是原状态；状态变成 `cancelled` 要等 commitment keeper 推进（第 4 步）。（L6 I36-a）
 4. 等 commitment keeper 处理完 cancel_requested（它的下一轮），再跑一次 C7，应为 **0 行**；`status='cancelled'` 的应多出 155。
-5. 工作台总览的承诺卡片：未结束 0、已违约 0，四个标签（受限期间作出、没有进行中的计划、没有期限、来源已删除）都不再显示。
+   - **其中 44 条属于已擦除的旧 consumer（made_to=erasure:*）**（L6 I36-b）。stage 上它们的登记行还在（那次擦除完成于 0306 之前），keeper 应能推进，C7 为 0。
+   - 如果 keeper 推进不了这 44 条（C7 剩 44 行，keeper 对它们报 `port_unavailable` 重试），**就此停下**，等第二步迁移（0388，见 `docs/release/run-erasure-cancels-undated-commitments.md`）处理。**不要当作失败重跑工具，也不要手工改库**：重跑只会重放，取消请求已经记在账本里。
+   - 其余 111 条（customer-1/2/3、s6c-2/3）必须推进为 cancelled；C7 里如果剩下非擦除 consumer 的行，按失败处理并报告。
+5. 工作台总览的承诺卡片：未结束 0、已违约 0，四个标签（受限期间作出、没有进行中的计划、没有期限、来源已删除）都不再显示。**这一步依赖那 44 条也已 cancelled**：来源已删除 45 全部属于已擦除那位，如果第 4 步剩 44 行，卡片会剩未结束 44 和它们的标签，等第二步后再核对。
 
 ## 证据
-C7 前后行数、工具两次输出（cancelled / replayed 计数）、卡片截图；不写令牌、DSN、主机地址或用户名。
+C7 前后行数、工具两次输出（cancel_requested / replayed 计数）、卡片截图；不写令牌、DSN、主机地址或用户名。

@@ -87,7 +87,7 @@ def test_the_owner_cancels_open_and_conditional_commitments_and_a_rerun_replays(
     code, dry = run(c, tmp_path, capsys, c['owner_account'], [open_, conditional], '--dry-run')
     assert code == 0 and dry['commitments'] == [open_, conditional] and status(c, open_) == 'open'
     code, out = run(c, tmp_path, capsys, c['owner_account'], [open_, conditional])
-    assert code == 0 and [r['result'] for r in out['commitments']] == ['cancelled', 'cancelled'], out
+    assert code == 0 and [r['result'] for r in out['commitments']] == ['cancel_requested', 'cancel_requested'], out
     text = json.dumps(out, ensure_ascii=False)
     assert c['owner_account']['password'] not in text and REASON not in text and c['owner_account']['username'] not in text
     c.tick()

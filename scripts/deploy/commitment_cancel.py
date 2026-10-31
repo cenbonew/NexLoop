@@ -15,8 +15,8 @@ Configuration (private JSON, 0600; deploy/examples/commitment-cancel.example.jso
 Rerunning the same configuration replays (the Idempotency-Key is derived from the commitment and the confirmation reference).
 --dry-run checks the configuration and prints the commitments without logging in.
 
-Output: one JSON object (commitment ids, outcome ids and refusal codes; never the username, password, cookie, CSRF token or reason).
-Exit: 0 every commitment cancelled (or replayed); 1 a commitment was refused; 2 input refused. Standard library only.
+Output: one JSON object (commitment ids, results cancel_requested / replayed / refused, outcome ids and refusal codes; never the username, password, cookie, CSRF token or reason).
+Exit: 0 every cancel request accepted (or replayed); 1 a commitment was refused; 2 input refused. Standard library only.
 """
 import argparse
 import hashlib
@@ -68,7 +68,7 @@ def cancel(workbench, config):
             {'X-CSRF-Token': workbench.csrf, 'Idempotency-Key': idempotency_key(commitment_id, config['confirmation_ref'])})
         entry = {'commitment_id': commitment_id}
         if status == 200 and isinstance(body, dict):
-            entry.update(result='replayed' if body.get('replayed') else 'cancelled', outcome_id=body.get('outcome_id'))
+            entry.update(result='replayed' if body.get('replayed') else 'cancel_requested', outcome_id=body.get('outcome_id'))
         else:
             failed = True
             entry.update(result='refused', status=status, code=body.get('code') if isinstance(body, dict) else None,
