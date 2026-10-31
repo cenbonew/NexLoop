@@ -276,3 +276,21 @@ def test_vague_words_and_past_references_stay_unresolved(expression, kind):
 def test_after_an_event_is_never_given_a_date(expression):
     got = resolve_time(expression, WED, TZ)
     assert (got['kind'], got['status'], got['start'], got['end']) == ('unparsed', 'unresolved', None, None)
+
+
+@pytest.mark.parametrize('margin', [0, -1, 31, 7.0, True])
+def test_the_working_day_margin_is_an_integer_from_1_to_30(margin):
+    with pytest.raises(ValueError):
+        resolve_time('3个工作日内', WED, TZ, working_day_margin_days=margin)
+    assert resolve_time('3个工作日内', WED, TZ, working_day_margin_days=30)['status'] == 'ambiguous'
+
+
+@pytest.mark.parametrize('expression', ['到货的时候', '到您方便的时候'])
+def test_when_an_event_happens_is_never_given_a_date(expression):
+    got = resolve_time(expression, WED, TZ)
+    assert (got['kind'], got['status'], got['start'], got['end']) == ('unparsed', 'unresolved', None, None)
+
+
+def test_within_days_read_as_a_deadline_is_refused():
+    rule, got, flags = run('3天内', WED, {'kind': 'deadline', 'start': '2026-10-14T10:00+08:00', 'end': day('2026-10-17'), 'granularity': 'day'})
+    assert refused(got, rule, flags, 'time_llm_deadline_mismatch') and got['status'] == 'resolved'

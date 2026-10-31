@@ -330,7 +330,7 @@ def condition_clause(quote):
 AGO=re.compile(r'[零一二两三四五六七八九十\d]{1,3}(个)?(天|日|周|星期|礼拜|月|年)(前|之前|以前)$')
 WORKING_DAYS=re.compile(r'([零一二两三四五六七八九十\d]{1,3})(个)?工作日(内|之内|以内|后|之后)?(?!前|之前|以前)')
 # I37: no holiday calendar, so N working days is a window: its lower bound skips Saturdays and Sundays, its upper bound adds this margin
-# (public holidays). Configurable per extraction context.
+# (public holidays). Code-level only (ExtractionContext.working_day_margin_days), 1 to 30 days.
 WORKING_DAY_MARGIN_DAYS=7
 CLOCK=re.compile(r'(\d{1,2}|[一二两三四五六七八九十]{1,3})点(半|钟|(\d{1,2}|[零一二两三四五六七八九十]{1,3})分)?')
 
@@ -346,6 +346,8 @@ def resolve_time(expression,anchor,timezone,*,working_day_margin_days=WORKING_DA
     tenant timezone. Vague expressions stay unresolved; part-of-day and
     unspecified AM/PM stay ambiguous windows rather than a chosen minute.
     """
+    if type(working_day_margin_days) is not int or not 1<=working_day_margin_days<=30:
+        raise ValueError('working_day_margin_days must be an integer from 1 to 30')
     zone=ZoneInfo(timezone);local=anchor.astimezone(zone)
     base={'expression':expression or '','timezone':timezone,'anchor':anchor.astimezone(UTC).isoformat()}
     if not expression:return base|{'kind':'none','status':'absent','start':None,'end':None}
