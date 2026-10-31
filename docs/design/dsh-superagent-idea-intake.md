@@ -57,7 +57,7 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 **借鉴点。** dsh 的 accept mode 有 observe：候选照常研判，正向结论记录为“本来会接”，不接。文档建议“从 observe 开始，审阅记录后再切 auto”。
 
 **落地方案。**
-- 目的清单 `proactive-purposes.v<N>.json` 的每个目的增加 `mode ∈ {off, observe, live}`，默认 `off`。`live` 对应现状的“启用”；`active` 字段并入 `mode`。
+- 目的清单 `proactive-purposes.v<N>.json` 的每个目的增加 `mode ∈ {off, observe, live}`，默认 `off`。`live` 对应现状的“启用”；启用状态（目的清单 v1 的 `default_enabled` 与租户状态表的 `enabled`）并入 `mode`。
 - `observe`：触发源照常标记复评；复评 Run 照常判断并提交 `nexloop.outreach.send:1`；派发时走完全部 10 道闸门，**每一道的通过或拒绝都写入**，然后以新拒绝码 `purpose_observe_only` 终结，provider 收到的请求为零，不预留效应单位、不计入频率桶。
 - 观察记录写入现有派发拒绝表，并带 `observed_body_hash` 与文案工件引用，供负责人在工作台“主动触达观察”视图按目的、按闸门汇总：本来会发多少条、每道闸门拦多少、文案样例。
 - 从 `observe` 切到 `live` 是发布新版清单，走负责人受治理 Action，有版本、留证，与现状一致。
@@ -65,12 +65,12 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 
 **验收要点。** observe 下 provider 零请求（现有 `test_loopback_http` 断言）；每条观察记录带全部闸门结果；切 `live` 前后同一触发源的判定一致（同一 Run 输入，只有终结码不同）；清单未声明 `mode` 的目的按 `off`。
 
-**需要的决定。** Q-1（§7），已决定：采纳三态，`active` 并入 `mode`，观察记录沿用派发拒绝表保留期。
+**需要的决定。** Q-1（§7），已决定：采纳三态，启用状态（目的清单 v1 的 `default_enabled` 与租户状态表的 `enabled`）并入 `mode`，观察记录沿用派发拒绝表保留期。
 
 **L6 注记（第 2 版增补）。**
 - **N1**：`observe` 不得改变 `live` 路径的短路语义与拒绝码。前 10 道闸门在两种模式下的判定与顺序相同；单测断言同一输入在 `observe` 与 `live` 下**首个拒绝码一致**（`live` 被某道闸门拒绝时，`observe` 记录的首个拒绝也是这道闸门、这个码），`purpose_observe_only` 只出现在全部闸门通过之后。
 - **N1（成本）**：`observe` 不是零成本。复评 Run 照常执行，产生真实的模型与 Run 预算成本；意图照常以 `world=real` 记录（只是派发终结于 `purpose_observe_only`）。负责人开启 `observe` 前应知晓这部分成本，成本视图照常计入。
-- **N2**：`active` 并入 `mode` 是对主动触达设计稿 §2 目的字段的修订，已在 [主动触达设计稿](proactive-outreach.md) 修订记录中登记并指向本稿。
+- **N2**：启用状态（目的清单 v1 的 `default_enabled` 与租户状态表的 `enabled`）并入 `mode` 是对主动触达设计稿 §2 目的字段的修订，已在 [主动触达设计稿](proactive-outreach.md) 修订记录中登记并指向本稿。
 
 ### 3.2 模型可见面的整体预算与漂移测试
 
@@ -176,7 +176,7 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 
 | 编号 | 问题 | 决定 |
 |---|---|---|
-| Q-1 | 主动触达目的的 `mode` 三态（off / observe / live）是否采纳；observe 的观察记录保留多久 | 采纳三态；`active` 并入 `mode`；观察记录沿用派发拒绝表现有保留期，不单设 |
+| Q-1 | 主动触达目的的 `mode` 三态（off / observe / live）是否采纳；observe 的观察记录保留多久 | 采纳三态；启用状态（目的清单 v1 的 `default_enabled` 与租户状态表的 `enabled`）并入 `mode`；观察记录沿用派发拒绝表现有保留期，不单设。注：负责人拍板原话为“`active` 并入 `mode`”，主动触达设计稿 §2 的目的字段表也写作 `active`，但实现中没有该字段名，此处按实际字段名校正 |
 | Q-2 | `run-outcome` 增加可选 `question`，由谁回答 | `audience` 由 Run 声明；运营只答运营类问题（延期、确认履约）；预算、解除限制、擦除只由 `owner` 回答；服务端按角色能力表强制，不信任 Run 声明 |
 | Q-3 | 工作台“待我处理”首页是否替换现有首页 | 替换；原首页内容移入“健康”标签；保留旧路由并跳转 |
 | Q-4 | §3.1 至 §3.4 的实施排期 | §3.1 并入主动触达实施；§3.2、§3.5 与 K0 立即做（已派 L3 做 K1、L7 做 K0）；§3.3、§3.4 另立任务 |
