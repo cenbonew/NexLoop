@@ -69,10 +69,10 @@ def desk(workbench):
     return w
 
 
-def test_v26_adds_exactly_the_two_stale_claim_rules_on_v24():
-    v24, v26 = json.loads((RULES / 'alert-rules.v24.json').read_text()), load_rules(RULES / 'alert-rules.v26.json')
-    assert v26['version'] == 26 and len(v26['rules']) == len(v24['rules']) + 2 and v26['rules'][:len(v24['rules'])] == v24['rules']
-    stale, effect = v26['rules'][len(v24['rules']):]
+def test_v26_adds_exactly_the_two_stale_claim_rules_on_v25():
+    v25, v26 = json.loads((RULES / 'alert-rules.v25.json').read_text()), load_rules(RULES / 'alert-rules.v26.json')
+    assert v26['version'] == 26 and len(v25['rules']) == 89 and len(v26['rules']) == 91 and v26['rules'][:89] == v25['rules']
+    stale, effect = v26['rules'][89:]
     assert (stale['rule_id'], stale['metric'], stale['threshold'], stale['severity']) == (
         'action_claim_stale', 'action_claims.stale_active_oldest_age_seconds', 3600, 'warning')
     assert (effect['rule_id'], effect['metric'], effect['selector'], effect['threshold'], effect['for_seconds'], effect['severity']) == (
@@ -90,6 +90,14 @@ def test_the_owner_ends_an_uncommitted_claim_once_and_the_metric_clears(desk):
     assert snap['stale_active'] == 2 and snap['stale_active_by_class'] == {'postgres': 2, 'effect': 0}
     assert 7100 < snap['stale_active_oldest_age_seconds'] < 7300 and fired(snap) == {'action_claim_stale'}
     assert admin.execute("select runtime.nexloop_metrics_snapshot(%s,'test') ? 'action_claims'", (TENANT,)).fetchone()[0] is False
+    # Batch 71: the action_claims wrapper is stacked on L4 I31's service_credentials wrapper (and the earlier semantic_reads); all present.
+    keys = admin.execute("select array(select jsonb_object_keys(runtime.nexloop_metrics_snapshot(%s,'real')))", (TENANT,)).fetchone()[0]
+    assert {'action_claims', 'service_credentials', 'semantic_reads'} <= set(keys)
+    chain = [r[0] for r in admin.execute("select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='runtime' "
+                                         "and proname in ('nexloop_metrics_snapshot_before_action_claims','nexloop_metrics_snapshot_before_service_credentials')")]
+    assert sorted(chain) == ['nexloop_metrics_snapshot_before_action_claims', 'nexloop_metrics_snapshot_before_service_credentials']
+    assert 'nexloop_metrics_snapshot_before_service_credentials' not in admin.execute(
+        "select prosrc from pg_proc where oid='runtime.nexloop_metrics_snapshot(text,text)'::regprocedure").fetchone()[0]
     with w['client']() as client:
         csrf = workbench_login(client, w['operator']).json()['csrf_token']
         assert settle(client, csrf, 'Goal.create', intent, 'uncommitted').status_code == 403

@@ -35,7 +35,7 @@
 --    settlement per claim; the same category replays.
 -- 4. runtime.nexloop_metrics_snapshot is renamed once and wrapped (world real): action_claims {stale_active, stale_active_oldest_age_seconds,
 --    stale_active_by_class {postgres, effect}} - active claims whose lease expired more than 5 minutes ago on the database clock; counts
---    only, zeros when there are none. Alert rules v26 (on v24; L4 I31 publishes v25) read it.
+--    only, zeros when there are none. Alert rules v26 (on v25) read it; this wrapper stacks on 0384's service_credentials wrapper.
 
 create table runtime.nexloop_action_claim_settlements (
  settlement_id uuid primary key default gen_random_uuid(),

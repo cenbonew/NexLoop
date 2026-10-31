@@ -1,6 +1,6 @@
 # 运行单：结束过期 action claim（stage，2026-10-31）
 
-适用分支 `l2/stale-claim-settle`（基于第 70 批 5df334b0）。迁移 `0384_action_claim_settle.sql` 和告警 `alert-rules.v26.json` 都是**临时编号**：L4 I31 占 0384 和 v25，调度员组批时把本迁移重编为 0385，并把 v26 改为在 v25 之上追加（v26 当前以 v24 为底，`test_action_claim_settle_pg` 的前缀断言要随之改成 v25）。
+适用分支 `l2/stale-claim-settle`（第 71 批：叠在 L4 I31 9a667c11 之上，L4 基于 5df334b0）。迁移为 `0385_action_claim_settle.sql`，接在 L4 的 0384 之后；告警 `alert-rules.v26.json` 以 L4 的 v25（89 条）为底，加两条，共 91 条。指标快照 `action_claims` 块包在 L4 的 `service_credentials` 块之上（rename-and-wrap），两块并存。
 
 ## 变更
 
