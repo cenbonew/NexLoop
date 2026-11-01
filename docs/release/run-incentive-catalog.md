@@ -61,7 +61,7 @@ python3 scripts/deploy/stage_secrets.py register ...
 ```
 
 - dry-run 预期：principals 里仍然有 catalog_maintainer，grants 多出四个 Action 和两个类型 READ。
-- 正式执行后核对 `ro "select entity_key, payload->>'active' from authz.nexloop_authority_facts where tenant_id='<TENANT_ID>' and fact_kind in ('property_access_rule','property_group_restriction') and entity_key::text like '%IncentiveOffering%'"`，预期 4 行：两条规则、两条限制，都是 active。
+- 正式执行后核对 `ro "select entity_key, payload->>'active', payload->'restricted_groups' from authz.nexloop_authority_facts where tenant_id='<TENANT_ID>' and fact_kind in ('property_access_rule','property_group_restriction') and entity_key::text like '%IncentiveOffering%'"`，预期 4 行：两条 `property_access_rule` 的 active 为 true；两条 `property_group_restriction` 没有 active 键（列为空：PropertyGroupRestriction 只有 tenant_id/type_name/restricted_groups/decision），`restricted_groups` 为 `[]`。
 - 没有新凭据，也没有轮换。
 
 ### 4. setup（调度员，catalog_maintainer 凭据）
