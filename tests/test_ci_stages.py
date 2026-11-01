@@ -131,7 +131,7 @@ def test_v1_is_unchanged_and_stays_the_default():
 
 def test_check_is_the_stage_scripts_in_sequence(stubs):
     code, whole, _ = stubs(['scripts/ci/check'])
-    assert code == 0 and len(whole) == 36
+    assert code == 0 and len(whole) == 37
     pieces = []
     for name in STAGES:
         rc, lines, _ = stubs([f'scripts/ci/stages/{name}.sh'])

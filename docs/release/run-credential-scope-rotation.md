@@ -108,10 +108,10 @@ docker run $COMMON $WINDOW "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_se
 - register-check（与 r65_data.sh register-check 相同的只读查询）：
 
   ```bash
-  ro "select entity_key, payload->>'active' from authz.nexloop_authority_facts where tenant_id='<TENANT_ID>' and fact_kind in ('property_access_rule','property_group_restriction') and entity_key::text like '%IncentiveOffering%'"
+  ro "select entity_key, payload->>'active', payload->'restricted_groups' from authz.nexloop_authority_facts where tenant_id='<TENANT_ID>' and fact_kind in ('property_access_rule','property_group_restriction') and entity_key::text like '%IncentiveOffering%'"
   ```
 
-  预期 4 行（两条规则、两条限制），都是 active；register 报告 in_sync；catalog_maintainer 只剩 1 枚 active 令牌，scopes 为 `["action.execute","object_type.read"]`（第 2 步末尾的查询）。
+  预期 4 行：两条 `property_access_rule` 的 active 为 true；两条 `property_group_restriction` 没有 active 键（列为空：PropertyGroupRestriction 只有 tenant_id/type_name/restricted_groups/decision），`restricted_groups` 为 `[]`；register 报告 in_sync；catalog_maintainer 只剩 1 枚 active 令牌，scopes 为 `["action.execute","object_type.read"]`（第 2 步末尾的查询）。
 - 然后回到 run-incentive-catalog 第 3 步的核对。
 
 ## 撤回
