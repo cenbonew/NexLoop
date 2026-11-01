@@ -29,7 +29,7 @@
 其余约束：
 - **调用者**：调用者的工作台会话在 SQL 里按令牌摘要重读，成员**当前**角色必须是 owner（Q2）。
 - **票据**：单次使用，有效期 30 s（Q1，上限 60 s）。只经 POST 体传递，不出现在 URL、日志、前端构建或配置文件里。数据库只存 sha256。参考端点的票据用专用 HMAC 密钥签名，jti 持久化防重放。
-- **开关**：进程环境变量 `NEXLOOP_ENTRY_TICKETS` 只认值 stage；只有 stage 的 compose 会传这个变量，任何公开文件都不会把它设为 stage（check_publication）。
+- **开关**：进程环境变量 `NEXLOOP_ENTRY_TICKETS` 只认值 stage，其他值拒绝启动；只有 stage 的 compose 会传这个变量（默认 off）。执行这条约束的只有两处：check_publication（任何公开文件把它设为 stage、或 stage compose 之外的部署文件提到它，都拒绝）和进程开关本身。`deploy/render`（stage_render）只渲染 stage 模板，那些模板都不含这个变量；目前也没有生产渲染目标，所以 render 不另做检查。
 - **会话**：生成的会话就是该 principal 的普通会话，权限不扩大。ADR-023 的联系限制和 ADR-039 的审批照常生效。
 - **审计与擦除**：签发和兑换都有审计，保留 30 天（retention keeper）。consumer 擦除和 member 擦除会把审计里的 principal 假名化，并清空客户端摘要。
 

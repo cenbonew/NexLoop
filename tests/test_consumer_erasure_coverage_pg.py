@@ -128,3 +128,20 @@ def test_every_identity_column_table_is_erased_or_has_a_reason(db):
         assert how.startswith(('erased:', 'kept:')), (table, how)
         if how.startswith('erased:'):
             assert table in reached, (table, column)
+
+
+# Tables naming a customer by principal (no consumer_id column, so the check above does not see them), each with how the erasure
+# reaches it. S81 / ADR-043 (0392): entry tickets name the synthetic test customer in target_principal; the trigger
+# nexloop_entry_ticket_consumer_erase (before delete on control.nexloop_consumer_owners, which the erasure deletes) pseudonymizes
+# it (behaviour: test_entry_tickets_pg T14). A change to that trigger or its table fails here.
+BY_PRINCIPAL = {'control.nexloop_entry_tickets': 'nexloop_entry_ticket_consumer_erase', 'control.nexloop_entry_ticket_events': 'nexloop_entry_ticket_consumer_erase'}
+
+
+def test_principal_named_customer_tables_are_erased_by_their_trigger(db):
+    for table, trigger in BY_PRINCIPAL.items():
+        assert db.execute("select count(*) from pg_attribute where attrelid=%s::regclass and attname='target_principal' and not attisdropped",
+                          (table,)).fetchone()[0] == 1
+        found = db.execute("""select p.prosrc from pg_trigger t join pg_proc p on p.oid=t.tgfoid
+            where t.tgrelid='control.nexloop_consumer_owners'::regclass and t.tgname=%s and not t.tgisinternal""", (trigger,)).fetchone()
+        assert found is not None, trigger
+        assert table in written(found[0]), (table, trigger)

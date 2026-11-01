@@ -7,6 +7,27 @@
 - 执行者：调度员。判定者：L6。
 - 口令、密钥、票据只放在 Keychain 和两台主机的 secrets（0600），不写进文档、证据或命令行。
 
+## R68 执行顺序（L6 核对要点，按此顺序，不得跳步）
+
+1. **建号**：身份操作员建 entry-test-consumer，加入 WebChat 客户授权（第 2.1–2.2 步）。
+2. **生成 Consumer**：测试客户先手动登录一次、开一个对话（第 2.3 步）。
+3. **标记 persona 并核对**：owner 执行 `consumer.set_persona` = simulated_agent，并做第 2.5 步的只读核对。**必须在打开开关之前完成。**
+4. **发密钥**：第 1 步。两台主机各一份，0600，`sha256sum` 摘要一致。
+5. **备份**：按部署单做迁移前备份。
+6. **迁移**：执行 0392。
+7. **publish / register 的 dry-run**：本批没有新增 Action、类型或授权，预期没有变化（test_stage_register_pg 的计数仍是 22/135/2）。路由清单 `api-routes.v1.json`（v9）是随代码审阅的文件，不需要发布或注册。
+8. **配置**：在 APP_HOST 的私有 env 里打开开关并写入钉住的 principal；参考端点叠加 `compose.entry-ticket.example.yaml`，即提供 `--entry-ticket-key-file`（第 3 步）。
+9. **重启**：api-1、api-2 和参考端点。
+10. **走查 7 项**：
+    1. owner 点 WebChat 直接进入，已登录为测试客户，地址栏是 `/`；
+    2. 同一张票据重放，返回固定失败页；
+    3. owner 点员工页直接进入，是只读会话；
+    4. 只读会话不能标记工单（403）；
+    5. 运营角色签发被拒（403 not_owner）；
+    6. 第 4 步的事件计数里没有 `not_synthetic`；
+    7. 截图和证据里不出现票据、口令、主机名或地址。
+11. **回退**：关开关（从私有 env 删掉那一行，或改为 off），重建 api-1、api-2；参考端点去掉叠加文件重建。
+
 ## 0. 前提
 
 - 0392 已迁移：`\df control.nexloop_entry_ticket_issue` 有结果。
