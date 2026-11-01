@@ -34,10 +34,10 @@ MESSAGE_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': {
                 'effect_supplies': [{'action': 'nexloop.enterprise.deliver:1', 'offering_id': 'o' * 64, 'offering_revision': 1,
                                      'properties': {'service_code': 'enterprise.synthetic', 'title': '合成企业交付', 'price_amount': '100.00'}}]}
 PLAN_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': None, 'current_event': TRIGGER}
-# S85 (S83 batch 2): the incentive tool only with an IncentiveOffering of the customer in open work, the reply's request_scope only
-# with a guarantee or discount the supply allows. The budgets below are for the widest surface, so these packs carry both.
-WIDEST = {'open_work': [{'subsection': 'incentive', 'ref': 'eios:object:IncentiveOffering/' + '1' * 64}],
-          'supply': {'properties': {'allowed_guarantees': ['synthetic-guarantee'], 'allowed_discounts': []}}}
+# S85 (S83 batch 2): the incentive tool only with an IncentiveOffering of the customer in open work. The budgets below are for the
+# widest surface, so these packs carry one. (The reply's request_scope is always offered: the supply's allowed terms are empty by
+# contract, maxItems 0, and request_scope exists to ask for terms outside them, which are refused and recorded - CI 101.)
+WIDEST = {'open_work': [{'subsection': 'incentive', 'ref': 'eios:object:IncentiveOffering/' + '1' * 64}]}
 MESSAGE_PACK = {**MESSAGE_PACK, **WIDEST}
 PLAN_PACK = {**PLAN_PACK, **WIDEST}
 SIM_PACK = {'schema_version': 'nexloop.context-pack.sim.v1', 'data_mode': 'simulation', 'current_event': None, 'consumer_state': [], 'evidence': []}
@@ -205,11 +205,10 @@ def narrow_requests(tmp_path_factory):
 
 @pytest.mark.parametrize('kind', NARROW)
 def test_tools_are_offered_only_when_the_context_needs_them(requests, narrow_requests, kind):
-    """S85: without an IncentiveOffering in open work no incentive tool; without allowed terms the reply has no request_scope
-    (a stricter schema: request_scope is refused by the argument check). The surface shrinks; the widest still bounds the budget."""
+    """S85: without an IncentiveOffering in open work no incentive tool; the reply keeps request_scope (scope denials, CI 101).
+    The surface shrinks; the widest still bounds the budget."""
     names = {t['name'] for t in _tools(narrow_requests[kind])}
     assert 'nexloop.incentive.issue' not in names and 'nexloop.incentive.issue' in {t['name'] for t in _tools(requests[kind])}
     (reply,) = [t for t in _tools(narrow_requests[kind]) if t['name'] == 'nexloop.service.request']
-    assert set(reply['parameters']['properties']) == {'message'} and reply['parameters']['additionalProperties'] is False
-    assert 'request_scope' not in reply['description']
-    assert framing_tokens(narrow_requests[kind]) < framing_tokens(requests[kind]) - 700
+    assert set(reply['parameters']['properties']) == {'message', 'request_scope'} and 'request_scope' in reply['description']
+    assert framing_tokens(narrow_requests[kind]) < framing_tokens(requests[kind]) - 400

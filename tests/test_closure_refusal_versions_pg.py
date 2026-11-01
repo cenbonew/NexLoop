@@ -142,15 +142,17 @@ def test_pause_refuses_the_queued_intent_and_resume_reevaluates_instead_of_repla
     # The due plan waits in PostgreSQL without a Run.
     make_due(admin)
     before=admin.execute('select count(*) from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()[0]
-    assert f['worker']().run_once()['paused']==1
+    # S90: a paused plan is deferred (later, not done: no attempt spent), not completed.
+    assert f['worker']().run_once()['deferred']==1
     assert admin.execute('select count(*) from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()[0]==before
+    (_,_,_,waiting),=feed(admin);assert waiting
     owner_change(admin,p['tenant'],{'operation':'set_control','scope_kind':'consumer','scope_ref':p['consumer'],'paused':False,'reason':'owner resume'},'nx025-resume')
-    (_,payload,_,_),=feed(admin)
-    assert payload['triggers'][-1]['kind']=='resume'
+    (_,payload,_,waiting),=feed(admin)
+    assert payload['triggers'][0]['kind']=='resume' and waiting is False  # newest first (0106); the resume makes it due at once
     # Resume is a fresh reevaluation: a new bounded Run with the new control state; the old intent stays refused.
     assert f['worker']().run_once()['launched']==1
     runs=admin.execute('select run_id::text,triggers from runtime.nexloop_plan_runs where plan_id=%s order by created_at',(s['plan_id'],)).fetchall()
-    assert len(runs)==before+1 and runs[-1][0]!=run_id and runs[-1][1][-1]['kind']=='resume'
+    assert len(runs)==before+1 and runs[-1][0]!=run_id and runs[-1][1][0]['kind']=='resume'
     time.sleep(LEASE+0.2)  # the refused attempt's executor lease expires (no fault injection)
     denied,requests=dispatch_attempt(p,tmp_path,intent)
     assert denied and requests==[]

@@ -38,16 +38,11 @@ describe('incentive tool configuration',()=>{
   activate(h,cmd,{open_work:[{subsection:'incentive',ref:'eios:object:IncentiveOffering/'+'1'.repeat(64)}]});
   expect(toolNamesFor(h,cmd)).toContain('nexloop.incentive.issue');
  });
- it('offers the reply\'s request_scope only when the supply allows a guarantee or a discount (S85)',()=>{
+ it('always offers the reply\'s request_scope (CI 101: allowed terms are empty by contract; request_scope asks for others, refused and recorded)',()=>{
   const h=open({});const cmd=command();
-  const scope=()=>{const reply=tools(h,cmd).find(t=>t.name==='nexloop.service.request') as unknown as {parameters:{properties:Record<string,unknown>};description:string};
-   return [Object.keys(reply.parameters.properties).sort(),reply.description.includes('request_scope')];};
   activate(h,cmd,{supply:{properties:{allowed_guarantees:[],allowed_discounts:[]}}});
-  expect(scope()).toEqual([['message'],false]);
-  activate(h,cmd,{supply:{properties:{allowed_guarantees:[],allowed_discounts:['loyalty']}}});
-  expect(scope()).toEqual([['message','request_scope'],true]);
-  activate(h,cmd,{supply:{properties:{allowed_guarantees:['refund'],allowed_discounts:[]}}});
-  expect(scope()[0]).toEqual(['message','request_scope']);
+  const reply=tools(h,cmd).find(t=>t.name==='nexloop.service.request') as unknown as {parameters:{properties:Record<string,unknown>};description:string};
+  expect(Object.keys(reply.parameters.properties).sort()).toEqual(['message','request_scope']);expect(reply.description).toMatch(/request_scope is optional/);
  });
  it.each([{incentive_tool:false},{incentive_tool:'yes'},{incentive_tool:true,effect_tools:false}])('rejects %j',extra=>{
   expect(()=>open(extra)).toThrow('runtime configuration refused');
