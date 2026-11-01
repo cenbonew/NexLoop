@@ -247,7 +247,7 @@ Q3（APP_HOST，只数不读）：`sudo ls <outreach-sender 的 outbox 目录> |
 
 前提 P3–P8 全部满足。下文中 `<O>`、`<rev>`、`<B1>`、`<B2>` 分别是 P6 读出的 offering_id、revision，以及对 `$C1`、`$C2` 的 binding_id；金额取目录单次上限以内的最小值，例如 100（分）。
 
-**stage 现状（S77 已执行，调度员 2026-11-01）**：offering `860ce1ee…`（rev 1）；s6c-1 的绑定 `dc12cbe2…`（`active=true`）；s6c-2 的绑定 `5fe63acc…` 已撤下（`active=false`，作为撤下操作的验收演示）。P5 按 S76 §1.0 的决定改为“`effect_is_external=f`”（只读核对见 S76 §1.0）；P7 由 S76 §3 新设（20 元，写成 `"2000"`）。
+**stage 现状（S77 已执行，调度员 2026-11-01）**：offering `860ce1ee…`（rev 1）；s6c-1 的绑定 `dc12cbe2…`（`active=true`）；s6c-2 的绑定 `5fe63acc…` 已撤下（`active=false`，作为撤下操作的验收演示）。P5 按 S76 §1.0 的决定记为“`effect_is_external=f`”：调度员 2026-11-01 只读实测 `external_effect=f`、`manifest_version=3`、`current_definition=t`，跳过 S76 §1.1；#16 前置只剩 S76 §3 预算（负责人执行）。P7 由 S76 §3 新设（20 元，写成 `"2000"`）。
 
 **执行顺序**（负责人“B 档按推荐”）：先 #18、#17、#19；再 S76 §1.0 核对和 §3 预算；然后 5.1。5.2 按 §5.2 的条件决定做还是留待。
 
@@ -317,6 +317,34 @@ select action, request_id, created_at from runtime.audit_events
 - **方案 S**：B6 预期 `refused / persona_excluded`，只证明“Run → 受理 → 准入 → 逐道闸”这条链。
 
 ## 7. #19 客户画像属性修订（只读）
+
+**S74b 结论：本轮只记录现状，不验证，#19 仍留 B 档。** 调度员 2026-11-01 09:5x 在 DATA_HOST 只读实测：
+- s6c-1、s6c-2 的 Consumer 对象 schema_version 1，2026-10-30 01:43Z 之后没有更新，属性键 0 个；
+- `ontology.events` 没有 Consumer 事件；
+- `ontology.nexloop_mutation_proposals` 没有行（自然也没有 `status='applied'`）。
+
+按本节末条，stage 上画像更新没有走 Claim 自动应用这条路。证据记上面三条现状。
+
+**要演示 #19 还缺什么**（处理链见 NX-020 §2：读取会话 Claim → 召回 → 四层判定 → 记录提案 → `claim-matcher` 服务经 `Consumer.edit` 受治理 Action 应用）：
+1. **`claim-matcher` 服务在 stage 运行且有授权**：compose 的 `claim-matcher` 服务（`nexloop-claim-matcher`，`--world real`）在跑；它的 service 凭据有效，且有 `eios:action:nexloop.claim.match:1` 和 `Consumer.edit` 的 EXECUTE。提案表为空，说明它没跑过，或者跑了但没有一条 Claim 走到提案。下面的只读查询可以区分两者。
+2. **Consumer 类型要有可写的属性**：守卫要求属性在召回结果中，且存在于 `Consumer.edit` 绑定的 ObjectTypeDefinition 中。封闭词表属性命中时判 `full_match`，开放属性的新值判 `partial_match`；两者都会生成提案并由 worker 应用。类型里没有对应属性时只会生成候选定义（`no_match`），进审核，不会自动修订。
+3. **召回索引里有这些属性的定义**（NX-021 的 recall-index 服务）。
+4. **对话输入**：顾客本人的 `asserted`、非否定陈述，说出某个 Consumer 属性的值，例如“我只想在站内收消息”对应联系偏好类属性；值的写法要落在词表里，或者是开放属性。`hypothesis`、条件句、`intent`、`commitment` 不会进入匹配（NX-020 §2）。
+
+只读核对（调度员，用来确定缺的是哪一环）：
+
+```sql
+-- 匹配日志：有没有跑过、各判定多少（0070）
+select outcome, count(*), max(recorded_at) from ontology.nexloop_claim_matches where tenant_id='$T' and world='real' group by 1;
+-- 候选定义：判了 no_match 的去向
+select kind, status, count(*) from ontology.nexloop_candidate_definitions where tenant_id='$T' and world='real' group by 1,2;
+-- Claim 匹配授权和服务凭据
+select credential_id, status, expires_at > now() valid from authz.nexloop_service_credentials where credential_id like '%claim-match%';
+```
+
+表和列已对照 0070（匹配日志、候选定义）核过，但这三条没有在一次性库上试跑。APP_HOST 上：`docker inspect -f '{{.State.Status}}' nexloop-app-claim-matcher-1`。
+
+以下是原来的核对 SQL 和判定，保留作参考。
 
 ```sql
 -- 合成顾客的 Consumer 对象：版本、更新时间、属性名（不读值）
