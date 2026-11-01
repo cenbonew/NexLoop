@@ -16,7 +16,8 @@
 3. **发布声明 v7 的策略版本**：受治理的策略发布，在当前计划策略的基础上新增一个版本，只把 `protocol` 改为 v7，其余不变。
 4. **打开 v7（先让 Run 能读到回答）**：私有 compose env 写 `NEXLOOP_CONTEXT_V7=plan`，然后 `up -d --no-deps plan-reevaluator`。
    - 核对：`ro "select protocol, count(*) from runtime.nexloop_context_packs where tenant_id='<TENANT_ID>' and created_at>now()-interval '1 hour' group by 1"`，在下一次计划 Run 之后出现 v7。
-5. **再打开提问**：Host 的 planQuestion 开关（K4a/b），按其运行单打开。这一步**必须在第 4 步之后**：否则会有一段时间问了问题，答案却进不了下一次计划 Run。
+5. **再打开提问**：Host 的 planQuestion 开关（K4a/b）。这一步**必须在第 4 步之后**：否则会有一段时间问了问题，答案却进不了下一次计划 Run。
+   - **注意：planQuestion 目前没有任何配置可以打开**（f656e6ce：默认关，没有任何 Host 配置会设置它）。启用 K4 需要另做一个受控的配置入口（代码改动），并另行审查；在那之前第 5 步无法执行，第 1–4 步可以先做，没有问题也就没有回答，v7 包与 v6 只差 schema_version。
 6. 与之同批：K4c 读接口（工作台的问题列表）、L9 首页的问题卡片、L6 复审。
 7. **只读核对**：
    - 回答一个问题后，下一次该客户的计划 Run 的包里，`evidence` 中有对应的 `human_answers` 条目：
@@ -32,4 +33,6 @@
 
 ## 已知取值
 
-- 回答配额：最多 8 条、最多 1500 个估算 token（Q6）。按当前估算口径，每条回答连同信封大约 250–400 token，所以实际通常是 token 上限先起作用，一次保留 4–6 条。被裁的记为 omitted（`section_quota`，只用 v6 的原因值）。是否调整，等 stage 观察后再定。
+- 回答配额（W3）：最多 8 条、最多 1500 个估算 token（Q6）。stage 上统计 `section_quota` 的 omitted 次数后再议是否调整：
+  `ro "select count(*) from runtime.nexloop_context_sources s join runtime.nexloop_context_packs p using(tenant_id,world,context_id) where p.protocol='nexloop.context-pack.v7' and s.ref like 'nexloop:human_answer:%' and s.status='omitted' and s.omitted_reason='section_quota'"`
+- 估算：按当前估算口径，每条回答连同信封大约 250–400 token，所以实际通常是 token 上限先起作用，一次保留 4–6 条。被裁的记为 omitted（`section_quota`，只用 v6 的原因值）。是否调整，等 stage 观察后再定。

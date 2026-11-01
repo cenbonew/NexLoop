@@ -120,6 +120,18 @@ export function validateOperatorPersona(value:unknown):void{
     ||typeof ai.block_human_claims!=='boolean'||typeof ai.content_label!=='boolean')fail();
 }
 
+/** K4c (the Host's own line, before SQL's): every staff answer of a pack is a v7 plan-Run (Role Run) evidence.human_answers user
+ *  statement - never in a v6 pack, a message Run's pack or another section. Throws runtime_context_invalid. */
+export function assertHumanAnswers(protocol:unknown,roleRun:boolean,pack:Record<string,unknown>):void{
+  for(const section of ['constraints','consumer_state','open_work','evidence','semantics','experience']){
+    const rows=pack[section];if(!Array.isArray(rows))continue;
+    for(const value of rows){
+      const item=value as Record<string,unknown>;
+      if(item&&(item.subsection==='human_answers'||String(item.ref).startsWith('nexloop:human_answer:')))
+        validateHumanAnswer(protocol===CONTEXT_PROTOCOL_V7&&roleRun,section,item);
+    }
+  }
+}
 /** K4c: one evidence.human_answers item (content re-derived and compared whole by SQL at bind; here its shape only). */
 function validateHumanAnswer(v7:boolean,section:string,item:Record<string,unknown>):void{
   if(!v7||section!=='evidence'||item.subsection!=='human_answers'||item.evidence_kind!=='user_statement'||(item.tags as unknown[]).length!==0)fail();
@@ -229,11 +241,10 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
         if(section!=='evidence'&&String(item.ref).startsWith('claim:'))return fail();
         if((item.evidence_kind==='hypothesis')!==(section==='evidence'&&item.subsection==='hypotheses'))return fail();
         if(item.tags.some(tag=>!['negation','contact_limit','unconfirmed','latest_consumer_turn'].includes(String(tag))))return fail();
-        // K4c: a staff answer is a v7 evidence.human_answers user statement and nothing else; never in a v6 pack or a formal section.
-        const answer=item.subsection==='human_answers'||String(item.ref).startsWith('nexloop:human_answer:');
-        if(answer)validateHumanAnswer(v7,section,item);
       }
     }
+    // K4c: a staff answer is a v7 plan-Run evidence.human_answers user statement and nothing else.
+    assertHumanAnswers(protocol,roleRun,pack);
     exact(pack.budget_report,['estimator','input_token_budget','output_reserve','framing_reserve','available','used','sections','omitted']);
     const core={bindings:pack.bindings,formal_facts:pack.formal_facts,current_constraints:pack.current_constraints,supply:pack.supply};
     const role=pack.role as Record<string,unknown>|null;

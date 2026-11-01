@@ -186,3 +186,17 @@ def test_a_v7_pack_needs_a_v7_strategy_and_a_v6_pack_no_answers(v7,admin,monkeyp
     producer=RoleContextV6ArtifactProducer(source,STRATEGY_ID)
     with pytest.raises(ContextArtifactUnavailable):producer.prepare(run_token=run.token,command=command,body='后续角色触发',**ids)
     assert role_row(admin,run.run_id) is None
+
+
+def test_the_completeness_check_refuses_a_v7_pack_under_a_v6_strategy(role_v6,admin):  # noqa: F811  (L6 W1: Q1 locked)
+    import psycopg
+    tenant=role_v6['tenant']  # the fixture's current strategy declares v6
+    pack={'strategy_ref':'context-strategy:recent_plus_required@'+str(STRATEGY['version']),'evidence':[],'constraints':[],'consumer_state':[],
+          'open_work':[],'semantics':[],'experience':[]}
+    with pytest.raises(psycopg.errors.InsufficientPrivilege) as refused,admin.transaction():
+        admin.execute('select authz.nexloop_context_human_answers_complete(%s,%s,%s,%s,%s)',(tenant,'real','e'*64,Jsonb(pack),Jsonb({'omitted_items':[]})))
+    assert refused.value.diag.message_primary=='context v7 strategy not v7'
+    seed_strategy(admin,tenant,V7)
+    pack['strategy_ref']='context-strategy:recent_plus_required@'+str(V7['version'])
+    with admin.transaction():  # the same call under the v7 strategy passes (no answers expected for that Consumer)
+        admin.execute('select authz.nexloop_context_human_answers_complete(%s,%s,%s,%s,%s)',(tenant,'real','e'*64,Jsonb(pack),Jsonb({'omitted_items':[]})))
