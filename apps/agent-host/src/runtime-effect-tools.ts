@@ -102,6 +102,43 @@ export const RUN_INSTRUCTIONS=[
  * state) and the enterprise's own business result, which is always still pending here (its staff handle the order and report
  * back later). No internal field names, digests or receipt ids reach the model. */
 export const ENTERPRISE_RESULT_GUIDE='The result has request_status (sending: the request is on its way to the enterprise; order_placed: the enterprise has the order; checking: not yet known whether the enterprise received it, it is being checked automatically; not_placed: the enterprise system did not take it), enterprise_result (pending_enterprise: the enterprise staff have not yet reported the outcome; this is normal and not a failure) and next_step. Within this Run, once the result is back, do not request the same order again (that would be a duplicate). Tell the customer in plain words, never these field names or codes.';
+/** S84 (S83 G1): enterprise.find refers to deliver's guide instead of repeating its status glossary; the pending-is-normal,
+ * no-second-order and plain-words rules stay in find word for word. */
+export const ENTERPRISE_FIND_RESULT_NOTE='The result has the same result fields as nexloop.enterprise.deliver (request_status, enterprise_result, next_step); pending_enterprise is normal and not a failure. Within this Run, once the result is back, do not request the same order again (that would be a duplicate). Tell the customer in plain words, never these field names or codes.';
+/** S84 (S83 D2): the parameters the model reads, in a shorter equivalent JSON Schema. TypeBox writes a union of literals as anyOf of
+ * consts and a nullable value as anyOf [null, X]; this writes enum and type [X, 'null'], drops the any-key patternProperties of a
+ * free record and the JS safe-integer maximum. The model-facing schema only: pi-durable's argument check accepts the same values
+ * (test/model-schema.test.ts), and the Host's own checks (runOutcome, the incentive and request-scope checks, Number.isSafeInteger)
+ * and the guard's RunOutcome contract stay the validation of record. */
+export function compactSchema(schema:unknown):unknown{
+  if(Array.isArray(schema))return schema.map(compactSchema);
+  if(schema===null||typeof schema!=='object')return schema;
+  const node=schema as Record<string,unknown>;
+  const anyOf=node.anyOf;
+  if(Array.isArray(anyOf)&&anyOf.length>0&&Object.keys(node).every(key=>key==='anyOf')){
+    const items=anyOf as Record<string,unknown>[];
+    if(items.every(item=>item.type==='string'&&typeof item.const==='string'&&Object.keys(item).length===2))return {type:'string',enum:items.map(item=>item.const)};
+    const rest=items.filter(item=>!(item.type==='null'&&Object.keys(item).length===1));
+    if(items.length===2&&rest.length===1&&typeof rest[0]!.type==='string'){const one=compactSchema(rest[0]) as Record<string,unknown>;return {...one,type:[one.type,'null']};}
+  }
+  const out:Record<string,unknown>={};
+  for(const [key,value] of Object.entries(node)){
+    if(key==='maximum'&&value===Number.MAX_SAFE_INTEGER)continue;
+    if(key==='patternProperties'&&JSON.stringify(value)==='{"^.*$":{}}')continue;
+    out[key]=compactSchema(value);
+  }
+  return out;
+}
+const compact=<T,>(schema:T):T=>compactSchema(schema) as T;
+/** S84: the raw TypeBox parameters (equal to the contracts and the Host checks); the tools offer compactSchema of them. */
+export const PLAN_OUTCOME_PARAMETERS=Type.Object({schema_version:Type.Literal('1.0'),kind:Type.Union(OUTCOME_KINDS.map(kind=>Type.Literal(kind))),reasons:Type.Array(Type.String({minLength:1,maxLength:500}),{maxItems:8}),
+        reassess_at:Type.Union([Type.Null(),Type.String({pattern:instant.source})]),evidence_refs:Type.Array(Type.String({minLength:3,maxLength:512}),{maxItems:32}),
+        intent_ref:Type.Union([Type.Null(),Type.String({pattern:uuid.source})]),plan_update:Type.Union([Type.Null(),Type.Object({strategy:Type.Union([Type.Null(),Type.String({minLength:1,maxLength:8192})]),
+          steps:Type.Array(Type.Record(Type.String(),Type.Unknown()),{minItems:1,maxItems:32})},{additionalProperties:false})])},{additionalProperties:false});
+export const INCENTIVE_PARAMETERS=Type.Object({incentive_offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),
+        binding_id:Type.String({pattern:'^[a-f0-9]{64}$'}),amount_minor:Type.String({pattern:'^[1-9][0-9]{0,15}$'}),currency:Type.String({pattern:'^[A-Z]{3}$'}),
+        notification_text:Type.String({maxLength:2000})},{additionalProperties:false});
+export const REPLY_PARAMETERS=Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false});
 const REQUEST_STATUS:Record<string,'sending'|'order_placed'|'checking'|'not_placed'>={accepted:'sending',dispatching:'sending',observed_fulfilled:'order_placed',
   fulfilled:'order_placed',confirmed:'order_placed',unknown:'checking',failed:'not_placed'};
 const NEXT_STEP={
@@ -454,10 +491,7 @@ export class RuntimeEffectClient{
     };
     const outcomeTool=options.planOutcome===true?[defineTool({name:'nexloop.plan.outcome',
       description:'Record the result of this plan reevaluation exactly once. no_action, needs_information, waiting_external and escalate are normal results. plan_update replaces the plan with new steps; action_intent names an intent this Run already submitted. Read current facts first; never re-run an old step mechanically.',
-      parameters:Type.Object({schema_version:Type.Literal('1.0'),kind:Type.Union(OUTCOME_KINDS.map(kind=>Type.Literal(kind))),reasons:Type.Array(Type.String({minLength:1,maxLength:500}),{maxItems:8}),
-        reassess_at:Type.Union([Type.Null(),Type.String({pattern:instant.source})]),evidence_refs:Type.Array(Type.String({minLength:3,maxLength:512}),{maxItems:32}),
-        intent_ref:Type.Union([Type.Null(),Type.String({pattern:uuid.source})]),plan_update:Type.Union([Type.Null(),Type.Object({strategy:Type.Union([Type.Null(),Type.String({minLength:1,maxLength:8192})]),
-          steps:Type.Array(Type.Record(Type.String(),Type.Unknown()),{minItems:1,maxItems:32})},{additionalProperties:false})])},{additionalProperties:false}),
+      parameters:compact(PLAN_OUTCOME_PARAMETERS),
       replay:'safe',execute:async args=>{
         try{return {content:[{type:'text' as const,text:JSON.stringify(await this.recordOutcome(bound,args))}]};}
         catch(error){if(error instanceof RuntimeError&&['plan_version_not_current','invalid_run_outcome'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('run_outcome_unavailable');}
@@ -465,9 +499,7 @@ export class RuntimeEffectClient{
     // AT-043: offered only when the Run is meant to issue incentives (its credential names nexloop.incentive.issue:1; SQL re-checks it).
     const incentiveTool=options.incentive===true?[defineTool({name:'nexloop.incentive.issue',
       description:'Issue one incentive from the customer\'s own catalog (an IncentiveOffering bound to this customer). accepted is not issued: the executor admits it at dispatch under the budget and may refuse it. Never promise an incentive that is not in the catalog. One issue per offering per Run; retries return the original receipt.',
-      parameters:Type.Object({incentive_offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),
-        binding_id:Type.String({pattern:'^[a-f0-9]{64}$'}),amount_minor:Type.String({pattern:'^[1-9][0-9]{0,15}$'}),currency:Type.String({pattern:'^[A-Z]{3}$'}),
-        notification_text:Type.String({maxLength:2000})},{additionalProperties:false}),
+      parameters:compact(INCENTIVE_PARAMETERS),
       replay:'safe',execute:async args=>{
         try{return {content:[{type:'text' as const,text:JSON.stringify(await this.issueIncentive(bound,args))}]};}
         catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('incentive_unavailable');}
@@ -489,7 +521,7 @@ export class RuntimeEffectClient{
       parameters:Type.Object({summary:Type.String({minLength:1,maxLength:200}),details:Type.Optional(Type.String({maxLength:2000})),
         consumer_ref:Type.Optional(Type.String({minLength:1,maxLength:80}))},{additionalProperties:false}),
       replay:'safe',execute:async args=>invokeAction('submit',args,ENTERPRISE)}),
-      defineTool({name:'nexloop.enterprise.find',description:`Read the current state of an enterprise delivery this Run requested: only a request_id that nexloop.enterprise.deliver returned in this Run (earlier orders cannot be read here; effect_intent_unavailable means it is not this Run's). Not being able to read an earlier order never stops a new one: when the customer asks to order, use nexloop.enterprise.deliver. Does not send anything and never places it again. ${ENTERPRISE_RESULT_GUIDE}`,
+      defineTool({name:'nexloop.enterprise.find',description:`Read the current state of an enterprise delivery this Run requested: only a request_id that nexloop.enterprise.deliver returned in this Run (earlier orders cannot be read here; effect_intent_unavailable means it is not this Run's). Not being able to read an earlier order never stops a new one: when the customer asks to order, use nexloop.enterprise.deliver. Does not send anything and never places it again. ${ENTERPRISE_FIND_RESULT_NOTE}`,
         parameters:Type.Object({request_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
         replay:'safe',execute:async args=>invokeAction('find',args!==null&&typeof args==='object'&&!Array.isArray(args)&&Object.keys(args).length===1&&Object.hasOwn(args,'request_id')
           ?{intent_id:(args as {request_id:unknown}).request_id}:args,ENTERPRISE)})]:[];
@@ -501,7 +533,7 @@ export class RuntimeEffectClient{
       ...outreachTool,
       ...enterpriseTools,
       defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key. request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.',
-        parameters:Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('submit',args)}),
+        parameters:compact(REPLY_PARAMETERS),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt of a reply this Run sent (an intent_id nexloop.service.request returned in this Run; any other gives effect_intent_unavailable). Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),
     ];

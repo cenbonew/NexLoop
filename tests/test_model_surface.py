@@ -49,10 +49,13 @@ RUNS = {
 }
 # Framing budget per Run kind, in estimated tokens (baseline at 366295aa in the comment).
 FRAMING_BUDGET = {
-    'message_reply': 3900,       # 3409: instructions + incentive.issue, enterprise.deliver/find, service.request/find
-    'plan_reevaluation': 3250,   # 2822: + plan.outcome, no enterprise
-    'fallback_reply': 2300,      # 1997: no enterprise supply
-    'outreach': 3900,            # 3375: + outreach.send
+    # S84 (S83 D2, 86dca8e8): enterprise.find refers to deliver's result guide; plan.outcome, incentive.issue and service.request
+    # offer a compact equivalent schema. Measured 3254 / 2670 / 1970 / 3223 (were 3409 / 2822 / 1997 / 3375); each budget is
+    # the measurement x 1.15 rounded up to 50.
+    'message_reply': 3750,       # 3254: instructions + incentive.issue, enterprise.deliver/find, service.request/find
+    'plan_reevaluation': 3100,   # 2670: + plan.outcome, no enterprise
+    'fallback_reply': 2300,      # 1970: no enterprise supply
+    'outreach': 3750,            # 3223: + outreach.send
     'simulation_reply': 1700,    # 1445 (K1b, 8ba485e6): SIM_RUN_INSTRUCTIONS + stand-in incentive.issue, service.request/find
 }
 # Host-only tools: offered to the model, but not EIOS Actions of the published catalogs.
@@ -168,7 +171,7 @@ def test_object_type_names_the_model_reads_are_in_a_glossary(requests, kind):
     assert camel <= terms, f'{kind}: undefined terms {sorted(camel - terms)}'
 
 
-# S82 (owner 2026-11-01): context strategies v2 reserve 3900 for framing, the K1 maximum (3409) plus 15%; v1's 1500 was below every
+# S84: v3 (3750) is held after the D1 calibration (L6); v2 (3900) still covers every budget below. S82 (owner 2026-11-01): context strategies v2 reserve 3900 for framing, the K1 maximum (3409) plus 15%; v1's 1500 was below every
 # Run kind's framing, so pack plus framing could exceed input_token_budget.
 @pytest.mark.parametrize('kind', RUNS)
 def test_framing_fits_the_context_strategy_framing_reserve(requests, kind):
