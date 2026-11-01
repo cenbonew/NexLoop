@@ -1,6 +1,6 @@
 /** Workbench routes live in the URL (/workbench/<page>[/<id>][?filters]) so a page, its object and its list filters can be linked,
  * reloaded and restored on Back (walkthrough F09). Only the query keys a page declares are kept, each with its own check. */
-export const PAGES={overview:'总览',goals:'目标与对齐',consumers:'客户',plans:'计划与运行',actions:'Action / 异常',approvals:'审批',members:'成员与账号',account:'账号安全',commitments:'承诺 / 交付',contact:'联系限制',
+export const PAGES={home:'待我处理',goals:'目标与对齐',consumers:'客户',plans:'计划与运行',actions:'Action / 异常',approvals:'审批',members:'成员与账号',account:'账号安全',commitments:'承诺 / 交付',contact:'联系限制',
   knowledge:'知识工作台',alerts:'告警',operations:'运行状态',audit:'审计',settings:'设置与治理',personas:'运营人设',capabilities:'能力目录',ontology:'企业世界模型',data_assets:'数据资产',data_health:'数据健康',glossary:'译名管理',entries:'关联系统入口',experiments:'实验空间'} as const;
 export type PageKey=keyof typeof PAGES;
 export type Query=Record<string,string>;
@@ -19,6 +19,7 @@ const offset=/^(0|[1-9]\d{0,5})$/;
 const words=(v:string)=>v.length>0&&v.length<=80&&!/[\u0000-\u001f]/.test(v);
 /** List filters per page (the list pages only; detail pages carry none). */
 const QUERY:Partial<Record<PageKey,Record<string,(v:string)=>boolean>>>={
+  home:{tab:v=>v==='health'},  // K4f: 待我处理 (default) or 健康 (the former 总览)
   commitments:{status:v=>['open','ended','all'].includes(v),consumer:v=>hex64.test(v),late:v=>v==='true'||v==='false',due_from:v=>day.test(v),due_to:v=>day.test(v),
     sort:v=>['due_at','registered_at','status'].includes(v),order:v=>v==='asc'||v==='desc',page:v=>offset.test(v),q:words},
   capabilities:{tab:v=>['capabilities','actions','channels','dispatch'].includes(v)},
@@ -43,8 +44,10 @@ function parseQuery(page:PageKey,search:string,section?:WorldSection):Query|unde
 }
 export function parseRoute(pathname:string,search=''):Route{
   const parts=pathname.replace(/^\/workbench\/?/,'').split('/').filter(Boolean);
-  const page=(parts[0]??'overview') as PageKey;
-  if(!(page in PAGES))return {page:'overview'};
+  // K4f (owner Q-3, Q-B/C/D): the former 总览 is the 健康 tab of the home page; its old path still opens it (the app replaces the URL).
+  if(parts[0]==='overview'&&parts.length===1)return {page:'home',query:{tab:'health'}};
+  const page=(parts[0]??'home') as PageKey;
+  if(!(page in PAGES))return {page:'home'};
   if(page==='consumers'&&parts[1]==='conversations'&&hex64.test(parts[2]??''))return {page,id:parts[2],sub:'conversation'};
   if((page==='consumers'||page==='commitments')&&hex64.test(parts[1]??''))return {page,id:parts[1]};
   if(page==='knowledge'&&uuid.test(parts[1]??''))return {page,id:parts[1]};

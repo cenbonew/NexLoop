@@ -5,10 +5,9 @@ import {createElement as h,act} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,beforeEach,expect,test} from 'vitest';
 import {pending,PENDING_CATEGORIES,type Pending} from '../src/workbench/api';
-import {PendingBlock,QUESTIONS_SHOWN,pendingTarget} from '../src/workbench/pages/Pending';
+import {PendingBody,QUESTIONS_SHOWN,pendingTarget} from '../src/workbench/pages/Pending';
 import {routePath,type Route} from '../src/workbench/route';
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
@@ -20,8 +19,7 @@ const busy=(over:Record<string,number>)=>({...example,all_clear:false,categories
 let root:Root;let box:HTMLDivElement;
 beforeEach(()=>{box=document.createElement('div');document.body.append(box);root=createRoot(box);});
 afterEach(()=>{act(()=>root.unmount());box.remove();});
-const mount=(data:Pending,go:(r:Route)=>void=()=>{})=>{const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
-  c.setQueryData(['workbench','pending'],data);act(()=>root.render(h(QueryClientProvider,{client:c},h(PendingBlock,{go,href:routePath}))));};
+const mount=(data:Pending,go:(r:Route)=>void=()=>{})=>act(()=>root.render(h(PendingBody,{data,go,href:routePath})));
 const rows=()=>[...box.querySelectorAll<HTMLLIElement>('.pending-list li')];
 
 test('the contract example parses; the parser holds the six categories in order and refuses what the contract does not allow',()=>{
@@ -50,7 +48,9 @@ test('each category with work shows its count, longest wait and where it is hand
   const link=approval.querySelector('a')!;expect(link.getAttribute('href')).toBe('/workbench/approvals');expect(link.getAttribute('aria-label')).toBe('去审批：待批审批（4）');
   act(()=>link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));expect(went).toEqual({page:'approvals'});
   expect(rows()[4].querySelector('a')!.getAttribute('href')).toBe('/workbench/knowledge/'+CANDIDATE);
-  expect(rows()[3].querySelector('a')).toBeNull();expect(rows()[3].textContent).toContain('人工接管');
+  // L6 R1: takeovers are listed under 人工接管 on the 健康 tab.
+  const takeover=rows()[3].querySelector('a')!;expect(takeover.getAttribute('href')).toBe('/workbench/home?tab=health');
+  act(()=>takeover.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));expect(went).toEqual({page:'home',query:{tab:'health'}});
   expect(box.querySelectorAll('button,form,input,select,textarea').length).toBe(0);
   expect(box.textContent).not.toContain('告警');
 });

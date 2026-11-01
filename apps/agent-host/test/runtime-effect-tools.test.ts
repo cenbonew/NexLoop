@@ -8,6 +8,7 @@ import {once} from 'node:events';
 import {afterEach,describe,expect,it} from 'vitest';
 import {ENTERPRISE_FIND_RESULT_NOTE,ENTERPRISE_RESULT_GUIDE,RuntimeEffectClient} from '../src/runtime-effect-tools.ts';
 import {command} from './pi-runtime-support.ts';
+import {validateToolArguments} from '../../../vendor/pi/packages/ai/dist/utils/validation.js';
 
 const resources:{server:Server;directory:string}[]=[];
 const intent='11111111-1111-4111-8111-111111111111';
@@ -217,6 +218,16 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
     expect(deliver).toMatch(/that is a new order: place it now with this tool, even if the conversation history shows an earlier order/);
     expect(deliver).toMatch(/an earlier order is never a reason to skip this one/);
     expect(find).toMatch(/Not being able to read an earlier order never stops a new one/);
+  });
+  it('S85 C2: without allowed terms the reply has no request_scope; a call that still passes one fails the argument check and sends nothing',async()=>{
+    const {client,cmd,bodies}=await bridge();
+    const reply=client.toolsForRun(cmd,{requestScope:false}).find(t=>t.name==='nexloop.service.request') as unknown as {name:string;description:string;parameters:unknown};
+    const scope={offering_id:'a'.repeat(64),offering_revision:1,requested_guarantees:[],requested_discounts:['loyalty']};
+    // The same check pi-durable runs before execute (tool.ts validate -> harness error invalid_arguments): the call never reaches execute.
+    expect(()=>validateToolArguments(reply as never,{type:'toolCall',id:'c',name:reply.name,arguments:{message:'好的',request_scope:scope}} as never)).toThrow(/Validation failed/);
+    expect(validateToolArguments(reply as never,{type:'toolCall',id:'c',name:reply.name,arguments:{message:'好的'}} as never)).toEqual({message:'好的'});
+    expect(bodies).toEqual([]);  // no intent: nothing reached the guard
+    expect(reply.description).not.toMatch(/request_scope/);
   });
   it('10/18 (Run eede1a41): the enterprise offering in a reply\'s request_scope is refused before the network, with what to do',async()=>{
     type Run={execute:(args:unknown)=>Promise<{isError?:boolean;content:{text:string}[]}>;description:string};

@@ -52,6 +52,26 @@ export function planRun(command:{run_id?:unknown;request_id?:unknown}|undefined,
     return (pack.schema_version==='nexloop.context-pack.v6'||pack.schema_version==='nexloop.context-pack.v7')&&pack.user_statement===null&&pack.current_event?.kind==='service_trigger';
   }catch{return false;}
 }
+/** S85 (S83 batch 2): whether the Run's Context offers the incentive tool any use - an IncentiveOffering of this customer in open
+ * work (SQL derives only the bound, active, valid offerings, 0145, and re-derives them at bind). */
+export function incentiveOffered(input:unknown):boolean{
+  if(typeof input!=='string')return false;
+  try{
+    const work=(JSON.parse(input) as {open_work?:unknown}).open_work;
+    return Array.isArray(work)&&work.some(row=>row&&typeof row==='object'&&(row as {subsection?:unknown}).subsection==='incentive'
+      &&typeof (row as {ref?:unknown}).ref==='string'&&((row as {ref:string}).ref).startsWith('eios:object:IncentiveOffering/'));
+  }catch{return false;}
+}
+
+/** S85: whether the reply's own catalog supply allows a guarantee or a discount (request_scope has a use). */
+export function supplyAllowsTerms(input:unknown):boolean{
+  if(typeof input!=='string')return false;
+  try{
+    const properties=((JSON.parse(input) as {supply?:{properties?:unknown}}).supply?.properties??{}) as Record<string,unknown>;
+    return [properties.allowed_guarantees,properties.allowed_discounts].some(v=>Array.isArray(v)&&v.length>0);
+  }catch{return false;}
+}
+
 export function enterpriseSupply(input:unknown):EffectSupply|undefined{
   if(typeof input!=='string')return undefined;
   try{
@@ -390,7 +410,7 @@ export class RuntimeHost{
     // A simulation Host keeps its own rule: its Runs read a rendered simulation context, not a v6 pack (stand-ins only).
     const plan=(command:RunCommand)=>this.worldGroup==='simulation'?!messageRun(this.activations.get(command.run_id)?.input)
       :planRun(command,this.activations.get(command.run_id)?.input);
-    this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true&&plan(command),incentive:config.incentive_tool===true,outreach:config.outreach_tool===true&&plan(command),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
+    this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true&&plan(command),incentive:config.incentive_tool===true&&(this.simulationContext||incentiveOffered(this.activations.get(command.run_id)?.input)),requestScope:this.simulationContext||supplyAllowsTerms(this.activations.get(command.run_id)?.input),outreach:config.outreach_tool===true&&plan(command),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       // NX-041 (L6 host-sim-context 3b): a simulation Host's Runs get the simulation instructions, never the real ones.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:this.simulationContext?SIM_RUN_INSTRUCTIONS:RUN_INSTRUCTIONS}:{}),

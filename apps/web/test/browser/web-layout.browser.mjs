@@ -32,7 +32,7 @@ const measure=()=>{const vw=innerWidth;
         head_hidden:t.querySelector('thead').getBoundingClientRect().height<=1,
         labelled:plain.length===0||plain.every(td=>getComputedStyle(td,'::before').content===JSON.stringify(td.dataset.label)),
         row_max:Math.max(0,...rows.map(r=>Math.round(r.getBoundingClientRect().height)))};}),
-    // Batch 3: overview/operations cards — columns in use; UI spec §3 (owner 2026-10-20): the cards of one row are equally tall
+    // Batch 3: health (the former overview, K4f)/operations cards — columns in use; UI spec §3 (owner 2026-10-20): the cards of one row are equally tall
     // (rows_equal), the footer at the bottom. Bubbles — widest share of main.
     grid:(g=>{if(!g)return null;const cs=[...g.children].map(c=>c.getBoundingClientRect());const rows=new Map();
       for(const r of cs){const k=Math.round(r.top);rows.set(k,[...(rows.get(k)??[]),Math.round(r.height)]);}
@@ -48,7 +48,7 @@ const measure=()=>{const vw=innerWidth;
     crumbs:[...document.querySelectorAll('nav.breadcrumbs li')].map(l=>l.textContent.trim()),
     tz:document.querySelector('.brand-tz')?.textContent??null,
     // UI batch 1/3: the earlier Empty (.workbench-empty, data-empty) and the kit's EmptyState (.state, data-state) alike.
-    empties:[...document.querySelectorAll('.workbench-empty, .state:not(.state-loading)')].map(e=>({kind:e.dataset.empty??e.dataset.state??null,next:!!(e.querySelector('.empty-next')??e.querySelector('.state-next'))?.textContent.trim()})),
+    empties:[...document.querySelectorAll('.workbench-empty, .state:not(.state-loading)')].map(e=>({kind:e.dataset.empty??e.dataset.state??null,next:!!(e.querySelector('.empty-next')??e.querySelector('.state-next'))?.textContent.trim(),compact:e.classList.contains('state-compact')})),
     badges_worded:[...document.querySelectorAll('.status-badge')].every(b=>b.textContent.replace(/[✓✕…!–]/g,'').trim().length>0&&!/^[a-z_]+$/.test(b.textContent.replace(/[✓✕…!–]/g,'').trim())),
     h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')
@@ -85,17 +85,17 @@ try{
   await page.screenshot({path:`${shots}/customer-webchat-390x480.png`});
   await context.close();
   context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:session.origin});page=await context.newPage();
-  await page.goto('/workbench/overview');await page.locator('#wb-username').waitFor({timeout:20000});await shoot(page,'wb-login');
+  await page.goto('/workbench/home');await page.locator('#wb-username').waitFor({timeout:20000});await shoot(page,'wb-login');
   await page.fill('#wb-username',session.owner.username);await page.fill('#wb-password',secret(session.owner.password_file));await page.click('button[type=submit]');
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
-  for(const [name,path] of [['wb-overview','/workbench/overview'],['wb-consumers','/workbench/consumers'],['wb-consumer',`/workbench/consumers/${session.consumer_id}`],
+  for(const [name,path] of [['wb-home','/workbench/home'],['wb-health','/workbench/home?tab=health'],['wb-consumers','/workbench/consumers'],['wb-consumer',`/workbench/consumers/${session.consumer_id}`],
     ['wb-conversation',`/workbench/consumers/conversations/${session.conversation_id}`],['wb-settings','/workbench/settings'],
     ['wb-actions','/workbench/actions'],['wb-commitments','/workbench/commitments'],['wb-operations','/workbench/operations'],['wb-goals','/workbench/goals'],['wb-contact','/workbench/contact'],['wb-experiments','/workbench/experiments'],['wb-personas','/workbench/personas'],['wb-audit','/workbench/audit']]){
     await page.goto(path);await page.locator('.workbench-page h1').waitFor({timeout:20000});await page.waitForTimeout(800);await shoot(page,name);}
   // Batch 5 shell at 1440: three navigation groups, the next-stage pages last and marked; tabs on commitments: arrow keys,
   // Home/End and Enter/Space move the selection, aria-selected and the roving tabindex follow, focus stays on the selected tab,
   // and the tab list is the same element (not re-mounted) after the other list loads.
-  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});
+  await page.setViewportSize({width:1440,height:900});await page.goto('/workbench/home');await page.locator('.workbench-page h1').waitFor({timeout:20000});
   result.shell={groups:await page.locator('#workbench-nav .nav-group-title').allTextContents(),
     last:await page.locator('#workbench-nav a').evaluateAll(a=>a.slice(-2).map(x=>x.textContent))};
   await page.goto('/workbench/commitments');await page.locator('.workbench-toolbar [role=tab]').first().waitFor({timeout:20000});
@@ -117,20 +117,22 @@ try{
   await page.fill('#persona-persona_id','xiaohe');await page.fill('#persona-display_name','小禾');await page.fill('#persona-tone','亲切、简洁');
   await page.fill('#persona-deflect','我是本店的服务助手，有什么可以帮您？');await page.fill('#persona-reason','首个人设');
   await page.locator('form.persona-editor button[type=submit]').click();
-  await page.locator('.data-table code',{hasText:'xiaohe@1'}).waitFor({timeout:20000});
-  result.persona={published:await page.locator('.data-table code',{hasText:'xiaohe@1'}).count()};
+  // The persona list (the 人设版本 table beside it names the same version).
+  const personas=page.getByRole('table',{name:'人设',exact:true}).locator('code',{hasText:'xiaohe@1'});
+  await personas.waitFor({timeout:20000});
+  result.persona={published:await personas.count()};
   await page.locator('[role=tab]',{hasText:'分配'}).click();await page.locator('#rules-default').waitFor({timeout:20000});
   await page.selectOption('#rules-default','xiaohe');await page.fill('#rules-reason','默认人设');
   await page.locator('form[aria-label^="发布分配规则"] button[type=submit]').click();
   await page.getByText('规则版本 v1').waitFor({timeout:20000});
   await page.goto(`/workbench/consumers/${session.consumer_id}`);await page.locator('#consumer-persona-title').waitFor({timeout:20000});
-  await page.getByText('下次对话起').waitFor({timeout:20000});
+  await page.getByText('下次对话起',{exact:true}).waitFor({timeout:20000});
   result.persona.consumer=await page.locator('section[aria-labelledby=consumer-persona-title] dl.facts').innerText();
   await page.screenshot({path:`${shots}/wb-consumer-persona-1440.png`,fullPage:true});
   await page.goto('/workbench/personas');await page.locator('[role=tab]',{hasText:'AI 身份披露'}).click();
   await page.locator('#ai-mode').waitFor({timeout:20000});await page.screenshot({path:`${shots}/wb-personas-disclosure-1440.png`,fullPage:true});
   // The menu below 1024 px: a visible button; the navigation hidden until it is opened; a click on an entry navigates and closes it.
-  await page.setViewportSize({width:390,height:844});await page.goto('/workbench/overview');await page.locator('.workbench-page h1').waitFor({timeout:20000});
+  await page.setViewportSize({width:390,height:844});await page.goto('/workbench/home');await page.locator('.workbench-page h1').waitFor({timeout:20000});
   const toggle=page.locator('.workbench-menu-toggle');
   result.menu.toggle_visible=await toggle.isVisible();result.menu.nav_hidden_before=!(await page.locator('#workbench-nav').isVisible());
   await toggle.click();result.menu.nav_visible_after=await page.locator('#workbench-nav').isVisible();

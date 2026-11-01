@@ -30,7 +30,7 @@ from smoke_seed import large_records
 from workbench_stack_fixture import private, workbench_stack
 
 pytestmark = pytest.mark.real_browser
-PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-overview', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings',
+PAGES = ('customer-login', 'customer-webchat', 'wb-login', 'wb-home', 'wb-health', 'wb-consumers', 'wb-consumer', 'wb-conversation', 'wb-settings',
          'wb-actions', 'wb-commitments', 'wb-operations', 'wb-goals', 'wb-contact', 'wb-experiments', 'wb-personas', 'wb-audit')
 
 
@@ -75,7 +75,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
                or (k.split('-')[-1] == '390' or k.endswith('390-dark')) and v['scrollers']}
     assert failing == {}, {k: {f: v[f] for f in ('hscroll', 'offscreen', 'font_min', 'th_max', 'scrollers')} for k, v in failing.items()}
     assert observed['dark_differs'] == {f'{p}-{w}': True for p in PAGES for w in (1440, 390)}
-    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 18,
+    assert observed['menu'] == {'toggle_visible': True, 'nav_hidden_before': True, 'nav_visible_after': True, 'entries': 23,  # every page of the four groups: 8 + 4 + 3 + 8 (sections folded)
                                 'closed_after_navigation': True, 'hscroll_open': 0}
     # Batch 2: the consumers table lists the fixture's customer and the 12 seeded ones; cards below 640 px, a table above.
     consumers = {w: pages[f'wb-consumers-{w}']['tables'] for w in (1440, 1024, 390)}
@@ -86,11 +86,11 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     narrow = [t for k, v in pages.items() if k.endswith(('-390', '-390-dark')) for t in v['tables'] if t['rows']]
     assert narrow and all(t['cards'] and t['head_hidden'] and t['labelled'] for t in narrow), narrow
     assert observed['chat'] == {'option_texts_without_ids': True, 'meta_in_bar': True, 'sent_through_composer': True, 'composer_pinned': True}
-    # Batch 3: overview cards in 3+/2/1 columns and of their own height; operations likewise; bubbles within 80 % of the list (92 % on
+    # Batch 3 (K4f: the former overview is the home page's 健康 tab, wb-health): cards in 3+/2/1 columns and of their own height; operations likewise; bubbles within 80 % of the list (92 % on
     # phones); every empty/unavailable state in the one dashed style.
-    assert [pages[f'wb-overview-{w}']['grid']['cols'] for w in (1440, 1024, 390)] == [3, 2, 1], {w: pages[f'wb-overview-{w}']['grid'] for w in (1440, 1024, 390)}
+    assert [pages[f'wb-health-{w}']['grid']['cols'] for w in (1440, 1024, 390)] == [3, 2, 1], {w: pages[f'wb-health-{w}']['grid'] for w in (1440, 1024, 390)}
     # UI spec §3 (owner 2026-10-20, replacing batch 3's "cards keep their own height"): the cards of one row are equally tall.
-    assert all(pages[f'{p}-{w}']['grid']['rows_equal'] for p in ('wb-overview', 'wb-operations') for w in (1440, 1024)), {p: pages[f'{p}-1440']['grid'] for p in ('wb-overview', 'wb-operations')}
+    assert all(pages[f'{p}-{w}']['grid']['rows_equal'] for p in ('wb-health', 'wb-operations') for w in (1440, 1024)), {p: pages[f'{p}-1440']['grid'] for p in ('wb-health', 'wb-operations')}
     assert all(0 < pages[f'wb-conversation-{w}']['bubble_ratio'] <= 0.81 for w in (1440, 1024)) and pages['wb-conversation-390']['bubble_ratio'] <= 0.93, {w: pages[f'wb-conversation-{w}']['bubble_ratio'] for w in (1440, 1024, 390)}
     assert [k for k, v in pages.items() if not v['empty_styled']] == []
     # Batch 4: radios/checkboxes at native size next to their text (pause/resume radios on goals, the checkbox on contact).
@@ -102,14 +102,16 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert all(f['w'] < f['parent'] for w in (1440, 1024) for f in pages[f'wb-goals-{w}']['fieldsets']), {w: pages[f'wb-goals-{w}']['fieldsets'] for w in (1440, 1024)}
     # Batch 5 (walkthrough F08, F12–F15): groups, next-stage pages last and marked; breadcrumbs on detail pages; the time zone note;
     # empty states with a kind and a next step (not enabled on experiments); badges in words; the page title near the top.
-    assert observed['shell'] == {'groups': ['运营', '模型与资产', '监控', '管理'], 'last': ['能力目录', '实验空间未启用']}, observed['shell']
+    assert observed['shell'] == {'groups': ['运营', '模型与资产', '监控', '管理'], 'last': ['实验空间', '关联系统入口']}, observed['shell']  # S80 order; 译名管理 between them is the glossary owner's (world_glossary_set), not this fixture's
     # Batch 7 (F10): a conversation's breadcrumb also names its customer (alias or name) and leads back to them.
     assert all(pages[f'wb-consumer-{w}']['crumbs'] == ['客户', '客户详情'] for w in (1440, 1024, 390))
     assert all(len(c := pages[f'wb-conversation-{w}']['crumbs']) == 3 and c[0] == '客户' and c[1].startswith('客户') and c[2] == '会话' for w in (1440, 1024, 390)), \
         {w: pages[f'wb-conversation-{w}']['crumbs'] for w in (1440, 1024, 390)}
     assert all(v['tz'] == '时间均为北京时间' for k, v in pages.items() if k.startswith('wb-') and not k.startswith('wb-login'))
-    assert all(e['kind'] and e['next'] for v in pages.values() for e in v['empties']), {k: v['empties'] for k, v in pages.items() if v['empties']}
-    assert {e['kind'] for e in pages['wb-experiments-1440']['empties']} == {'not_enabled'}
+    # UX audit C2: a compact empty state inside a card is one line, without the default next step.
+    ok = lambda e: e['kind'] and (e['next'] or e['compact'] and e['kind'] in ('empty', 'filtered'))  # noqa: E731
+    assert all(ok(e) for v in pages.values() for e in v['empties']), {k: bad for k, v in pages.items() if (bad := [e for e in v['empties'] if not ok(e)])}
+    assert {e['kind'] for e in pages['wb-experiments-1440']['empties']} == {'empty'}  # batch 50: the experiments space is enabled (an empty register here)
     assert all(v['badges_worded'] for v in pages.values())
     assert all(pages[f'{p}-1440']['h1_top'] <= 160 for p in PAGES if p.startswith('wb-') and p != 'wb-login'), {p: pages[f'{p}-1440']['h1_top'] for p in PAGES if p.startswith('wb-')}
     # F14: each step moves selection and focus together; the tab list is not re-mounted by the data load.

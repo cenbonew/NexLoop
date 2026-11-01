@@ -3,7 +3,7 @@ import {useEffect,useRef,useState,type FormEvent,type KeyboardEvent} from 'react
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,offers,readMe,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,WORLD_SECTIONS,parseRoute,routePath,type PageKey,type Route} from './route';
-import {Overview} from './pages/Overview';
+import {Home} from './pages/Home';
 import {Personas} from './pages/Personas';
 import {Goals,Plans} from './pages/Goals';
 import {ConsumerDetail,Consumers,Conversation} from './pages/Consumers';
@@ -52,7 +52,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
   const slot=slots[route.page];const a=typeof slot==='function'?slot(route):slot;
   const setQuery=(query:Route['query'])=>go({page:route.page,query},{replace:true});
   switch(route.page){
-    case 'overview':return <Overview actions={a} onOpen={page=>go({page:page as PageKey})} go={r=>go(r)}/>;
+    case 'home':return <Home actions={a} query={route.query} onQuery={setQuery} go={r=>go(r)}/>;
     case 'goals':return <Goals actions={a}/>;
     case 'consumers':
       if(route.sub==='conversation'&&route.id)return <Conversation conversationId={route.id} actions={a} onContext={onContext}/>;
@@ -89,7 +89,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
 /** Navigation in four groups (walkthrough F08; world model design §5: 模型与资产 next to 运营); the next-stage page last, marked "未启用".
  * 企业世界模型 is an expandable entry (EIOS navigation, owner review 2026-10-20): its summary page and one page per concept. */
 export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
-  {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
+  {title:'运营',pages:['home','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
   {title:'管理',pages:['settings','members','account','personas','capabilities','experiments','glossary','entries']}];
@@ -150,6 +150,8 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const [menu,setMenu]=useState(false);
   const [opened,setOpened]=useState<Partial<Record<PageKey,boolean>>>({});  // a sub-entry list the member opened or closed
   const toggle=useRef<HTMLButtonElement>(null);
+  // K4f: an old /workbench/overview bookmark opens the 健康 tab under its new address, without an extra history entry.
+  useEffect(()=>{if(/^\/workbench\/overview\/?$/.test(window.location.pathname))window.history.replaceState(window.history.state,'',routePath(route));},[route]);
   useEffect(()=>{const back=(event:PopStateEvent)=>{setContext(null);setRoute(here());restoreScroll(Number(event.state?.scroll)||0);focusPageTitle();};
     window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   const signedIn=!!session.data;
