@@ -6,11 +6,13 @@ import {Money,StatusBadge} from '../ui';
 import {CardGrid,EmptyState,KeyValue,Notice,ScopeText,SectionCard} from '../kit';
 import {statusLabel} from '../status-labels';
 import {takeoverText} from '../actions';
+import {routePath,type Route} from '../route';
+import {PendingBlock} from './Pending';
 
-export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:string)=>void}){
+export function Overview({actions,onOpen,go}:{actions?:ReactNode;onOpen:(page:string)=>void;go?:(route:Route)=>void}){
   const query=useQuery({queryKey:['workbench','overview'],queryFn:readOverview});
   const open=(page:string,text:string)=><button type="button" onClick={()=>onOpen(page)}>{text}</button>;
-  return <Page title="总览" query={query} actions={actions} lead="今天需要关注什么：目标与控制、承诺、Action 与异常、联系限制、人工接管、后台积压与费用。">{data=><CardGrid label="总览">
+  return <Page title="总览" query={query} actions={actions} lead="今天需要关注什么：目标与控制、承诺、Action 与异常、联系限制、人工接管、后台积压与费用。">{data=><>{/* K4e: what this member is waiting on comes first (dsh intake §3.3) */}<PendingBlock go={go??(r=>onOpen(r.page))} href={routePath}/><CardGrid label="总览">
     <SectionCard title="目标与控制" section={data.goals} footer={open('goals','查看目标')}>{g=><>
       <KeyValue items={[{key:'已发布目标',value:`${g.goals.length} 个`}]}/>
       {g.goals.length?<ul>{g.goals.map(x=><li key={x.goal_id}>{x.objective}（v{x.current_version}，KR {x.key_results} 个）</li>)}</ul>:<EmptyState kind="empty" subject="已发布目标" compact/>}
@@ -26,7 +28,7 @@ export function Overview({actions,onOpen}:{actions?:ReactNode;onOpen:(page:strin
     <SectionCard title="人工接管" section={data.takeovers}>{t=>t.length?<ul>{t.map(x=><li key={x.takeover_id}>{takeoverText(x)}</li>)}</ul>:<EmptyState kind="empty" subject="人工接管" compact/>}</SectionCard>
     <SectionCard title="队列积压" section={data.backlog}>{b=><BacklogView backlog={b}/>}</SectionCard>
     <SectionCard title="商业事件与费用" section={data.commercial}>{c=><CommercialView commercial={c}/>}</SectionCard>
-  </CardGrid>}</Page>;
+  </CardGrid></>}</Page>;
 }
 
 /** Every part is stated: an empty map reads “无”, never a blank block (AT-045). */
