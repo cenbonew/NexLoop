@@ -154,3 +154,84 @@ def router(config):
         return JSONResponse(value, headers=HEADERS)
 
     return routes
+
+
+# ---- C2: the WebChat redemption (consumer realm) ------------------------------------------------------------------------------------
+# One fixed page for every refusal (unknown, used, expired, wrong target, not synthetic, rate limited...): the reason goes to the
+# audit only (0392 events), never back to the browser.
+FAILED_PAGE = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>自动登录失败</title></head>'
+               '<body><p>自动登录失败，请手动登录。</p><p><a href="/">返回登录页</a></p></body></html>').encode()
+_TICKET = re.compile(r'[A-Za-z0-9_-]{43}')
+
+
+def redemption_routes(routes, config, *, cookie, services, resolver):
+    """POST <auth prefix>/entry (form body ticket=..., same origin): take the ticket once in SQL, open the pinned test customer's
+    session (authentication_methods [entry_ticket]) and go to the WebChat (303 /); any refusal is FAILED_PAGE (401)."""
+    from fastapi.responses import RedirectResponse, Response
+    from starlette.concurrency import run_in_threadpool as threadpool
+
+    def failed():
+        return Response(FAILED_PAGE, status_code=401, media_type='text/html; charset=utf-8',
+                        headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'})
+
+    def work(request, ticket):
+        from types import SimpleNamespace
+        from eios.identity.models import TenantMembership
+        from nexloop_eios.browser_identity import verify_identity_role
+        from nexloop_eios.browser_rate_limits import PostgresBrowserRateLimiter
+        store, op, sessions = services(request)
+        client = client_of(request, config)
+        from nexloop_eios.browser_rate_limits import client_digest
+        decision = PostgresBrowserRateLimiter(store.pool, identity_operator=True).consume(config.tenant_id, 'local_login', client_digest(
+            request.app.state.browser_rate_key, canonical_origin=config.origin, client_identifier='ip:' + resolver.resolve(request)), operator=op)
+        if not decision.allowed:
+            return None
+        with store.pool.connection() as c, c.transaction():
+            verify_identity_role(c)
+            taken = c.execute('select control.nexloop_entry_ticket_take(%s,%s,%s,%s)', (config.tenant_id, config.application_id, digest(ticket), client)).fetchone()[0]
+        if not taken['taken']:
+            return None
+        facts = taken['facts']
+        membership = TenantMembership.model_validate_json(json.dumps(facts['membership']))
+        binding = SimpleNamespace(application_revision=facts['application_revision'], subject_revision=facts['subject_revision'],
+                                  credential_kind='local_account', tenant_id=config.tenant_id, credential_id=facts['credential_id'],
+                                  credential_revision=facts['credential_revision'], credential_session_epoch=facts['credential_session_epoch'],
+                                  provider_id=None, provider_revision=None, provider_configuration_fingerprint=None, restricted=facts['restricted'])
+        issued = sessions._new_session(membership, application_id=config.application_id, authentication_methods=('entry_ticket',),
+                                       identity_binding=binding, now=store.current_time())
+        body = issued.session.model_dump(mode='json')
+        from psycopg.types.json import Jsonb
+        with store.pool.connection() as c, c.transaction():
+            verify_identity_role(c)
+            created = c.execute('select control.nexloop_entry_ticket_session(%s,%s,%s,%s,%s,%s,%s,%s)',
+                                (config.tenant_id, config.application_id, digest(ticket), client, Jsonb(body),
+                                 issued.session.session_token_digest.get_secret_value(), issued.session.csrf_token_digest.get_secret_value(),
+                                 str(uuid.uuid4()))).fetchone()[0]
+        if created != body:
+            return None
+        return issued.session_token.get_secret_value()
+
+    @routes.post('/entry')
+    async def entry(request: Request):
+        if not config.entry_tickets:
+            return failed()
+        if request.headers.get('origin') != config.origin or request.headers.get('host') != urlsplit(config.origin).netloc:
+            return failed()
+        try:
+            if request.query_params or request.headers.get('content-type', '').split(';')[0] != 'application/x-www-form-urlencoded':
+                return failed()
+            raw = await request.body()
+            if len(raw) > 128:
+                return failed()
+            from urllib.parse import parse_qs
+            form = parse_qs(raw.decode('ascii'), strict_parsing=True, keep_blank_values=True)
+            if set(form) != {'ticket'} or len(form['ticket']) != 1 or not _TICKET.fullmatch(form['ticket'][0]):
+                return failed()
+            token = await threadpool(lambda: work(request, form['ticket'][0]))
+        except Exception:
+            return failed()
+        if token is None:
+            return failed()
+        result = RedirectResponse('/', status_code=303, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'})
+        result.set_cookie(cookie, token, secure=True, httponly=True, samesite='strict', path='/')
+        return result

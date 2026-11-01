@@ -133,7 +133,7 @@ def create_app(config:ApiConfiguration):
             API.observe(request.method,status,elapsed*1000)
     if config.browser is not None:
         from nexloop_eios.browser_http import router
-        app.include_router(router(config.browser))
+        app.include_router(router(config.browser, entry_redemption=True))
         from nexloop_eios.web_chat_http import router as conversation_router
         def browser_ports(request, inspected_session):
             backend = getattr(request.app.state, 'backend', None)
@@ -381,7 +381,7 @@ def parse(argv=None,environ=None):
     if any(v is not None for v in browser_values):
         if any(v is None for v in browser_values):p.error('complete private browser configuration required')
         from nexloop_eios.browser_http import BrowserConfiguration
-        try:browser=BrowserConfiguration(*browser_values,trusted_proxy_peers=tuple(a.trusted_proxy_peer))
+        try:browser=BrowserConfiguration(*browser_values,trusted_proxy_peers=tuple(a.trusted_proxy_peer),entry_tickets=entry)
         except ValueError:p.error('valid fixed HTTPS browser realm required')
     workbench=None
     if a.workbench_application_id is not None:

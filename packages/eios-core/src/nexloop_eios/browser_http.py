@@ -75,7 +75,7 @@ def login_username_key(username):
     return 'user:'+hashlib.sha256(unicodedata.normalize('NFKC',username).strip().casefold().encode()).hexdigest()
 
 
-def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser_store',member_resets=False):
+def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser_store',member_resets=False,entry_redemption=False):
     """member_resets (the workbench realm only, NX-058 slice B): POST /password/reset completes an owner-issued reset code, the
     session view carries the 7-day reset notice and GET /reset-history the member's own 90 days. With them come the single sign-on
     routes of slice F (GET /oidc/start, /oidc/callback), which answer 404 sso_unavailable while no provider file is configured."""
@@ -299,6 +299,10 @@ def router(config,*,prefix='/api/v1/auth',cookie=COOKIE,store_attribute='browser
             except Exception:return response('dependency_unavailable',503)
     if member_resets:
         _oidc_routes(routes,config,cookie=COOKIE,services=services,resolver=resolver,response=response)
+    if entry_redemption:
+        # S81 / ADR-043 (the consumer realm only): POST /entry redeems a workbench entry ticket for the pinned synthetic test customer.
+        from nexloop_eios.entry_tickets import redemption_routes
+        redemption_routes(routes,config,cookie=COOKIE,services=services,resolver=resolver)
     @routes.post('/csrf')
     def csrf(request:Request):
         if not same_origin(request):return response('forbidden',403)
