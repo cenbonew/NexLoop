@@ -116,6 +116,7 @@ button:disabled{cursor:wait;opacity:.7}
 .workbench th,.workbench td{padding:8px 10px}
 .workbench tbody tr:hover td{background:var(--hover)}
 .workbench-actions{display:grid;gap:12px;margin-bottom:16px}
+.workbench .section-ops{display:grid;gap:12px;justify-items:start;margin-top:var(--space-3)}.workbench .section-ops>form{justify-self:stretch}.workbench .section-ops:empty{display:none}
 .workbench-action{border:1px solid var(--border);border-radius:10px;padding:12px 16px;background:var(--surface-2)}
 .workbench-action h2{margin:0 0 8px;font-size:15px}
 .consumer-name{font-weight:600}.consumer-alias{color:var(--text-2);font-weight:500}.consumer-alias small{color:var(--muted);margin-left:2px;font-size:13px}
@@ -126,8 +127,10 @@ button:disabled{cursor:wait;opacity:.7}
 .workbench .conversation-item:hover{background:var(--hover);border-color:var(--info-border)}
 .conversation-time{font-weight:600;font-variant-numeric:tabular-nums}.conversation-meta{color:var(--muted);font-size:13px}
 .badge-latest{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--ok-soft);color:var(--ok-strong);font-size:13px;font-weight:700}
-/* Takeover bar: first thing on a conversation, sticky while the messages scroll. */
-.takeover-bar{position:sticky;top:0;z-index:2;border:1px solid var(--border-strong);background:var(--hover);border-radius:12px;padding:12px 16px;display:grid;gap:8px}
+/* Takeover bar: first thing on a conversation, sticky while the messages scroll. K4j: only there - on the customer page it is one of
+   several stacked operations and must not ride over the forms around it (R67 walkthrough). */
+.takeover-bar{border:1px solid var(--border-strong);background:var(--hover);border-radius:12px;padding:12px 16px;display:grid;gap:8px}
+.takeover-bar.takeover-sticky{position:sticky;top:0;z-index:2}
 .takeover-bar.takeover-on{border-color:var(--violet-border);background:var(--violet-soft)}
 .takeover-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
 .takeover-pill{padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:13px}
@@ -154,7 +157,7 @@ button:disabled{cursor:wait;opacity:.7}
   .workbench-layout nav ul{display:grid;grid-template-columns:repeat(auto-fill,minmax(9rem,1fr));gap:4px}
   .workbench-layout nav a{padding:10px 12px}
   .workbench input:not([type=radio]):not([type=checkbox]),.workbench select,.workbench textarea{max-width:none}
-  .workbench-page{padding:14px}.workbench .takeover-form .field,.workbench .takeover-form .field:has(input[type=number]){flex-basis:100%}.takeover-bar{position:static}}
+  .workbench-page{padding:14px}.workbench .takeover-form .field,.workbench .takeover-form .field:has(input[type=number]){flex-basis:100%}.takeover-bar.takeover-sticky{position:static}}
 @media (max-width:639px){.workbench .brand-header .brand-logo{width:150px}.workbench .brand-context{font-size:15px}}
 /* Workbench login: a centred card. */
 .workbench-login{max-width:440px;margin:8vh auto 0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px 32px 24px;

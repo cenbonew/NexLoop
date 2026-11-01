@@ -1,4 +1,6 @@
 import {createElement as h,type ReactNode} from 'react';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,expect,test,vi} from 'vitest';
@@ -151,10 +153,10 @@ test('overview takeover block: the takeovers in effect, labelled; an unavailable
 test('desktop usability: the takeover controls are one bar at the top with the state, and hand-back is a separate form instance',()=>{
   const base:[unknown[],unknown][]=[[['workbench','me'],member('owner')],[['workbench','conversation',id('5')],conversationView]];
   const none=render(client([...base,[['workbench','takeovers'],{...takeovers(takeover(true)),takeovers:[]}]]),h(ConversationControls,{conversationId:id('5')}));
-  expect(none).toMatch(/<section class="takeover-bar"[^>]*aria-label="人工接管">/);expect(none).toContain('Agent 处理中');
+  expect(none).toMatch(/<section class="takeover-bar takeover-sticky"[^>]*aria-label="人工接管">/);expect(none).toContain('Agent 处理中');
   expect(none.indexOf('takeover-bar')).toBeLessThan(none.indexOf('接管本会话'));
   const mine=render(client([...base,[['workbench','takeovers'],takeovers(takeover(true))]]),h(ConversationControls,{conversationId:id('5')}));
-  expect(mine).toContain('takeover-bar takeover-on');expect(mine).toContain('人工接管中</span>');
+  expect(mine).toContain('takeover-bar takeover-sticky takeover-on');expect(mine).toContain('人工接管中</span>');
   // A previous take-over success never shows up as a hand-back outcome (separate keyed form instances).
   expect(mine).not.toContain(DONE_TEXT.hand_back_conversation);
 });
@@ -174,4 +176,12 @@ test('NX-056 approval refusals: the 409/403 status is unchanged and only a known
     server(()=>({status:409,body}));expect(refusalTextOf(await workbenchAct('decide_approval',{},'wb-key-0000000000000004').catch(e=>e))).toBeNull();}
   expect(refusalTextOf(new WorkbenchWriteError('unavailable','cooldown'))).toBeNull();
   expect(refusalTextOf(new WorkbenchWriteError('not_allowed_in_state','toString'))).toBeNull();
+});
+
+test('K4j: on the customer page the takeover bar is one stacked operation, not sticky over the forms around it (R67 walkthrough)',async()=>{
+  const cache=client([[['workbench','me'],member('owner')],[['workbench','takeovers'],{...takeovers(takeover(true)),takeovers:[]}]]);
+  const page=render(cache,h(ConsumerControls,{consumerId:id('2')}));
+  expect(page).toMatch(/<section class="takeover-bar"[^>]*aria-label="人工接管">/);expect(page).not.toContain('takeover-sticky');
+  const css=readFileSync(resolve(__dirname,'../src/styles.css'),'utf8');
+  expect(css).not.toMatch(/\.takeover-bar\{[^}]*sticky/);expect(css).toContain('.takeover-bar.takeover-sticky{position:sticky');
 });
