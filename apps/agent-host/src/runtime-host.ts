@@ -1,5 +1,5 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
-import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation,ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
+import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation,ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {type IncomingMessage} from 'node:http';
@@ -49,7 +49,7 @@ export function planRun(command:{run_id?:unknown;request_id?:unknown}|undefined,
   if(!command||typeof command.run_id!=='string'||command.request_id!=='plan-reevaluate-'+command.run_id||typeof input!=='string')return false;
   try{
     const pack=JSON.parse(input) as {schema_version?:unknown;user_statement?:unknown;current_event?:{kind?:unknown}|null};
-    return pack.schema_version==='nexloop.context-pack.v6'&&pack.user_statement===null&&pack.current_event?.kind==='service_trigger';
+    return (pack.schema_version==='nexloop.context-pack.v6'||pack.schema_version==='nexloop.context-pack.v7')&&pack.user_statement===null&&pack.current_event?.kind==='service_trigger';
   }catch{return false;}
 }
 export function enterpriseSupply(input:unknown):EffectSupply|undefined{
@@ -158,20 +158,22 @@ export class RuntimeHost{
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     // NX-025: explicit synthetic plan-reevaluation protocol (test profile only; records a fixed run-outcome for the plan in the v6 pack).
     if(config.deterministic_plan_outcome!==undefined&&(!['no_action','action_intent'].includes(String(config.deterministic_plan_outcome))||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true
-      ||config.plan_outcome_tool!==true||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&!multi)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
+      ||config.plan_outcome_tool!==true||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7&&!multi)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     // NX-025 / ADR-023: explicit synthetic fallback-reply protocol (test profile only; one bound reply from the v6 message pack).
     if(config.deterministic_reply_once!==undefined&&(config.deterministic_reply_once!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true
-      ||config.context_input_protocol!==CONTEXT_PROTOCOL_V6||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined
+      ||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined
       ||config.deterministic_plan_outcome!==undefined))throw new Error('runtime configuration refused');
-    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true&&config.deterministic_plan_outcome===undefined&&config.deterministic_reply_once===undefined)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
+    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true&&config.deterministic_plan_outcome===undefined&&config.deterministic_reply_once===undefined)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_request_scope!==undefined&&(config.runtime_profile!=='deterministic-test'||config.deterministic_message_from_input!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     const syntheticScope=config.deterministic_effect_request_scope===undefined?undefined:requestScope(config.deterministic_effect_request_scope);
-    if(config.deterministic_relationship_from_context!==undefined&&(config.deterministic_relationship_from_context!==true||config.runtime_profile!=='deterministic-test'||(config.context_input_protocol!==CONTEXT_PROTOCOL_V4&&config.context_input_protocol!==CONTEXT_PROTOCOL_V6)||config.deterministic_message_from_input!==true))throw new Error('runtime configuration refused');
+    if(config.deterministic_relationship_from_context!==undefined&&(config.deterministic_relationship_from_context!==true||config.runtime_profile!=='deterministic-test'||(config.context_input_protocol!==CONTEXT_PROTOCOL_V4&&config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7)||config.deterministic_message_from_input!==true))throw new Error('runtime configuration refused');
     // Multi-protocol: no Host-wide protocol; each Run's pack is validated under its own declared protocol (v2 or v6 only).
-    const contextProtocol=multi?undefined:config.context_input_protocol===CONTEXT_PROTOCOL_V6?CONTEXT_PROTOCOL_V6:config.context_input_protocol===CONTEXT_PROTOCOL_V5?CONTEXT_PROTOCOL_V5:config.context_input_protocol===CONTEXT_PROTOCOL_V4?CONTEXT_PROTOCOL_V4:config.context_input_protocol===CONTEXT_PROTOCOL_V3?CONTEXT_PROTOCOL_V3:config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
-    const contextMode=multi||config.context_input_protocol===CONTEXT_PROTOCOL_V6||config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2||config.context_input_protocol===CONTEXT_PROTOCOL_V3||config.context_input_protocol===CONTEXT_PROTOCOL_V4||config.context_input_protocol===CONTEXT_PROTOCOL_V5;
-    const declared=(input:unknown)=>{if(typeof input!=='string')return undefined;try{const v=record(JSON.parse(input)).schema_version;return v===CONTEXT_PROTOCOL_V2||v===CONTEXT_PROTOCOL_V6?v:undefined;}catch{return undefined;}};
+    const contextProtocol=multi?undefined:config.context_input_protocol===CONTEXT_PROTOCOL_V7?CONTEXT_PROTOCOL_V7:config.context_input_protocol===CONTEXT_PROTOCOL_V6?CONTEXT_PROTOCOL_V6:config.context_input_protocol===CONTEXT_PROTOCOL_V5?CONTEXT_PROTOCOL_V5:config.context_input_protocol===CONTEXT_PROTOCOL_V4?CONTEXT_PROTOCOL_V4:config.context_input_protocol===CONTEXT_PROTOCOL_V3?CONTEXT_PROTOCOL_V3:config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
+    const contextMode=multi||config.context_input_protocol===CONTEXT_PROTOCOL_V6||config.context_input_protocol===CONTEXT_PROTOCOL_V7||config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2||config.context_input_protocol===CONTEXT_PROTOCOL_V3||config.context_input_protocol===CONTEXT_PROTOCOL_V4||config.context_input_protocol===CONTEXT_PROTOCOL_V5;
+    const declared=(input:unknown)=>{if(typeof input!=='string')return undefined;try{const v=record(JSON.parse(input)).schema_version;return v===CONTEXT_PROTOCOL_V2||v===CONTEXT_PROTOCOL_V6||v===CONTEXT_PROTOCOL_V7?v:undefined;}catch{return undefined;}};
     const runProtocol=(runId:string)=>multi?declared(this.activations.get(runId)?.input):contextProtocol;
+    // K4c: a v7 Run (plan Runs) is recorded and authorized like a v6 Run; a v7-configured Host also serves v6 Runs.
+    const sixFamily=(protocol:string|undefined)=>protocol===CONTEXT_PROTOCOL_V6||protocol===CONTEXT_PROTOCOL_V7;
     this.guard=new URL(String(config.guard_url));
     if(this.guard.protocol!=='https:'||this.guard.hostname!=='127.0.0.1'||!this.guard.port||Number(this.guard.port)<1024||Number(this.guard.port)>65535||this.guard.username||this.guard.password||this.guard.search||this.guard.hash||this.guard.pathname!=='/internal/v1/runtime/authorize')throw new Error('runtime guard refused');
     if(typeof config.guard_ca_file!=='string'||typeof config.guard_key_file!=='string')throw new Error('runtime guard files required');
@@ -184,7 +186,7 @@ export class RuntimeHost{
       const key=privateMaterial(this.keyPath,64).toString('utf8');
       if(!/^[0-9a-f]{64}$/.test(key))throw new RuntimeError('runtime_authorization_denied');
       // v6: each actual model request is recorded by the guard before the call (AT-027).
-      if((requestSnapshot!==undefined||modelResult!==undefined)&&(operation!=='model'||runProtocol(command.run_id)!==CONTEXT_PROTOCOL_V6||(requestSnapshot!==undefined&&modelResult!==undefined)))throw new RuntimeError('runtime_authorization_denied');
+      if((requestSnapshot!==undefined||modelResult!==undefined)&&(operation!=='model'||!sixFamily(runProtocol(command.run_id))||(requestSnapshot!==undefined&&modelResult!==undefined)))throw new RuntimeError('runtime_authorization_denied');
       const payload=Buffer.from(JSON.stringify({activation_ref:ref,command,operation,...(input===undefined?{}:{input}),...(requestSnapshot===undefined?{}:{request_snapshot:requestSnapshot}),...(modelResult===undefined?{}:{model_result:modelResult})}));
       // NX-031 (dispatcher 2026-10-11): a guard that did not answer (timeout, connection error, 503) is not a denial. The same
       // authorization is retried within the command's time limit (each call keeps the 2 s limit of ADR-022 §4); the guard records
@@ -375,7 +377,7 @@ export class RuntimeHost{
         const bound=typeof run==='string'?this.activations.get(run):undefined;
         if(!protocol||!bound?.command||!bound.context||declared(bound.input)!==protocol)throw new RuntimeError('runtime_context_invalid');
         if(protocol===CONTEXT_PROTOCOL_V2)return scripted.message!(context);
-        return (validateContextInput(raw,bound.command,bound.context,CONTEXT_PROTOCOL_V6).plans?.length?scripted.plan!:scripted.reply!)(context);
+        return (validateContextInput(raw,bound.command,bound.context,protocol).plans?.length?scripted.plan!:scripted.reply!)(context);
       };
       faux.setResponses(refillingResponses(faux,timed(route),64));
     }
@@ -395,7 +397,7 @@ export class RuntimeHost{
       ...(typeof config.model_request_timeout_ms==='number'?{modelRequestTimeoutMs:config.model_request_timeout_ms}:{}),
       ...(config.runtime_profile==='deepseek-flash'?{modelConnect:{timeoutMs:typeof config.model_connect_timeout_ms==='number'?config.model_connect_timeout_ms:MODEL_CONNECT_TIMEOUT_MS,retries:MODEL_CONNECT_RETRIES}}:{}),
       // v6 Runs record each actual model request (AT-027); in multi-protocol mode that is decided per Run.
-      recordModelRequests:multi?(command:RunCommand)=>runProtocol(command.run_id)===CONTEXT_PROTOCOL_V6:contextProtocol===CONTEXT_PROTOCOL_V6,
+      recordModelRequests:multi?(command:RunCommand)=>sixFamily(runProtocol(command.run_id)):sixFamily(contextProtocol),
       authorize:async(command,operation,request,result)=>guard(command,operation,undefined,undefined,request,result)});
   }
   private readonly authorizeAdmission:(command:RunCommand,operation:string,input?:string,ref?:string)=>Promise<{ever_execution_authorized:boolean}>;

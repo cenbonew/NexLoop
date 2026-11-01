@@ -12,6 +12,9 @@ from nexloop_eios.context_engine.budget import Item
 
 FORMAL_SECTIONS={'constraints':('formal_object','policy'),'consumer_state':('formal_object','policy'),'open_work':('formal_object','execution_state','policy')}
 EVIDENCE_SUBSECTIONS={'conversation','claim_evidence','relationships','recall','hypotheses'}
+# K4c (context-pack v7): a staff member's answer to a plan Run's question - a statement, never a fact, evidence only.
+HUMAN_ANSWERS='human_answers'
+HUMAN_ANSWER_REF='nexloop:human_answer:'
 UNCONFIRMED_OUTBOUND=('persisted','dispatching','unknown')
 CHANNEL_ACCEPTED=('provider_accepted','delivered')
 REVIEW_STATES=('unresolved','needs_resolution','awaiting_definition','resolved')
@@ -21,16 +24,21 @@ class PartitionViolation(ValueError):
     pass
 
 
-def assert_partition(items):
-    """Same rules the SQL check constraints of runtime.nexloop_context_sources enforce."""
+def assert_partition(items,*,human_answers=False):
+    """Same rules the SQL check constraints of runtime.nexloop_context_sources enforce. human_answers: a v7 pack."""
     for item in items:
+        answer=item.ref.startswith(HUMAN_ANSWER_REF) or item.subsection==HUMAN_ANSWERS
+        if answer and (not human_answers or (item.section,item.subsection,item.evidence_kind)!=('evidence',HUMAN_ANSWERS,'user_statement')
+                       or not item.ref.startswith(HUMAN_ANSWER_REF) or item.tags):
+            raise PartitionViolation('human answers only as v7 evidence.human_answers user statements')
         allowed=FORMAL_SECTIONS.get(item.section)
         if allowed is not None:
             if item.evidence_kind not in allowed or item.ref.startswith(('claim:','nexloop:claim:')):
                 raise PartitionViolation(f'{item.ref} cannot enter formal section {item.section}')
         if item.evidence_kind=='hypothesis' and (item.section,item.subsection)!=('evidence','hypotheses'):
             raise PartitionViolation('hypotheses only in evidence.hypotheses')
-        if item.section=='evidence' and item.subsection not in EVIDENCE_SUBSECTIONS:raise PartitionViolation('evidence subsection')
+        if item.section=='evidence' and item.subsection not in EVIDENCE_SUBSECTIONS and not (human_answers and item.subsection==HUMAN_ANSWERS):
+            raise PartitionViolation('evidence subsection')
     return items
 
 

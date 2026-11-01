@@ -19,6 +19,28 @@ from nexloop_eios.service_offerings import _catalog_envelope,read_catalog,_read_
 from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 
 ACTION='nexloop.context.bind_role'
+# K4c (owner Q1, Q2): the plan reevaluator's deployment switch for context-pack v7. 'plan' turns it on for plan Runs (the only Runs
+# this producer serves) under a strategy that declares v7; unset, empty or 'off' keeps v6 - the bytes of today.
+CONTEXT_V7_SWITCH='NEXLOOP_CONTEXT_V7'
+
+
+def context_v7_enabled(environ=None):
+    import os
+    value=(os.environ if environ is None else environ).get(CONTEXT_V7_SWITCH,'')
+    if value not in ('','off','plan'):raise ValueError(CONTEXT_V7_SWITCH+' must be plan or off')
+    return value=='plan'
+
+
+def human_answer_items(raw):
+    """The SQL-derived staff answers (authz.nexloop_context_human_answers) as pack items, unchanged: SQL compares each one whole."""
+    from nexloop_eios.context_engine.budget import Item
+    out=[]
+    for row in raw or []:
+        item=Item('evidence','human_answers',row['ref'],row['revision'],row['content'],row['evidence_kind'],row['access_decision_ref'],
+                  relevance=row['relevance_permille']/1000,at=row['at'],tags=frozenset(row['tags']))
+        if item.content_hash!=row['content_hash']:raise ValueError('human answer content hash')
+        out.append(item)
+    return out
 
 def role_context_binding_schema():
     return {'type':'object','properties':{'run_id':{'type':'string','format':'uuid'},'trigger_event_id':{'type':'string','format':'uuid'},'body':{'type':'string','minLength':1,'maxLength':8192}},'required':['run_id','trigger_event_id','body'],'additionalProperties':False}
@@ -100,14 +122,15 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
     Role activation happens once per Run; a changed source on a second attempt is refused
     by SQL as a conflict rather than silently rebound.
     """
-    def __init__(self,source,strategy_id):
+    def __init__(self,source,strategy_id,context_v7=None):
         super().__init__(source);self.strategy_id=strategy_id;self.last_diagnostic=None;self.run=None
+        self.context_v7=context_v7_enabled() if context_v7 is None else context_v7;self.protocol=None
 
     def assemble(self,snapshot,command):
         import json
         from nexloop_eios.context_engine.pack import assemble_v6
         from nexloop_eios.context_engine.sources import collect,consumer_conversations
-        from nexloop_eios.context_engine.strategy import StrategyRegistry
+        from nexloop_eios.context_engine.strategy import PROTOCOL,PROTOCOL_V7,StrategyRegistry
         core=json.loads(encode_role_pack(snapshot,command))
         strategy=StrategyRegistry(self.pool,self.session,self.signer,run=self.run).get(self.strategy_id)
         if strategy is None:raise ValueError('context strategy unavailable')
@@ -119,13 +142,18 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
         persona=self._role_section('authz.nexloop_context_operator_persona(%s,%s,%s)',consumer)
         outreach=self._role_section('authz.nexloop_context_outreach(%s,%s,%s,%s)',consumer,core['bindings']['run_id'])
+        # K4c: v7 only with the switch on and a strategy that declares it; then the staff answers join the evidence (SQL re-derives them).
+        protocol=PROTOCOL_V7 if self.context_v7 and strategy.definition['protocol']==PROTOCOL_V7 else PROTOCOL
+        items=list(found.items)
+        if protocol==PROTOCOL_V7:items+=human_answer_items(self._role_section('authz.nexloop_context_human_answers(%s,%s,%s)',consumer))
+        self.protocol=protocol
         from nexloop_eios.context_artifacts import assemble_within_budget
         def build(items,extra):
             return assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role={'role_binding':core['role_binding'],'role_policy':core.get('role_policy')},
                 current_event=core['trigger_statement'],user_statement=None,goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
                 formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=items,
-                extra_insufficient=list(found.insufficient)+list(extra),operator_persona=persona,outreach=outreach)
-        body,outcome,kept=assemble_within_budget(build,found.items)  # S88: over the token budget, the open work degrades
+                extra_insufficient=list(found.insufficient)+list(extra),operator_persona=persona,outreach=outreach,protocol=protocol)
+        body,outcome,kept=assemble_within_budget(build,items)  # S88: over the token budget, the open work degrades
         return body,outcome,kept,found.proofs
 
     def _role_section(self,call,*arguments):
@@ -153,7 +181,9 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
                 artifact=self.source.put_artifact(request_id='context:'+command['run_id'],payload=text.encode(),media_type=MEDIA,retention_until=retention)
                 core=dict(zip(('text','signature','payload'),self._envelope({**params,'verb':'snapshot'},run,definition,capability,artifact_proofs=True)))
                 with self.pool.connection() as db,db.transaction():
-                    result=v6_call(db,self.authority,self.session,self.signer,'authz.nexloop_role_context_v6_command',
+                    from nexloop_eios.context_engine.strategy import PROTOCOL_V7
+                    entry='authz.nexloop_role_context_v7_command' if pack['schema_version']==PROTOCOL_V7 else 'authz.nexloop_role_context_v6_command'
+                    result=v6_call(db,self.authority,self.session,self.signer,entry,
                         {'verb':'bind','core':core,'pack_text':text,'pack_digest':artifact.sha256,'artifact_id':artifact.artifact_id,'omitted_items':omitted},proofs.values(),run=run)
                 return {'artifact_ref':'artifact:'+artifact.artifact_id,'sha256':artifact.sha256,'input':text,'command_binding_digest':binding_digest,
                     'context_id':result['context_id'],'strategy_ref':result['strategy_ref'],'insufficient':pack['insufficient']}

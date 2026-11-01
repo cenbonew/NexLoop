@@ -14,6 +14,9 @@ MANDATORY_SECTIONS=('bindings','role','goal','current_event','constraints')
 # 0202: the customer's latest turn before the current statement is pinned too (SQL requires it present and tagged).
 PIN_TAGS=frozenset({'negation','contact_limit','unconfirmed','latest_consumer_turn'})
 SECTIONS=MANDATORY_SECTIONS+('consumer_state','open_work','evidence','semantics','experience')
+# K4c (v7): staff answers have their own quota inside evidence (owner Q6): at most 8 items and 1500 estimated tokens, newest first.
+HUMAN_ANSWER_ITEMS=8
+HUMAN_ANSWER_TOKENS=1500
 
 
 @dataclass(frozen=True)
@@ -97,10 +100,16 @@ def apply_budget(items,strategy,*,estimator=None,fixed=0):
         return {id(i) for i in turns[-recent:]} if recent else set()
     # 1. Section quotas for non-pinned items (lowest relevance, then oldest, first out). In evidence the recent conversation
     # turns are protected as in older_conversation, and Claims go before older turns (0202).
+    # K4c: the staff answers' own quota first (newest kept); omitted as section_quota (the v6 reasons only, V2).
+    answers=sorted([i for i in kept if i.subsection=='human_answers'],key=lambda i:(i.at,i.ref),reverse=True)
+    spent=0
+    for index,item in enumerate(answers):
+        spent+=cost[id(item)]
+        if index>=HUMAN_ANSWER_ITEMS or spent>HUMAN_ANSWER_TOKENS:drop(item,'section_quota')
     for section in ('consumer_state','open_work','evidence','semantics','experience'):
         limit=strategy['sections'][section]['max_items']
         protected=recent_turns() if section=='evidence' else set()
-        loose=[i for i in kept if i.section==section and not i.pinned]
+        loose=[i for i in kept if i.section==section and not i.pinned and i.subsection!='human_answers']
         over=max(0,len(loose)-limit)
         for item in _order_worst_first([i for i in loose if id(i) not in protected],lambda i:(i.subsection=='conversation',i.relevance,i.at,i.ref))[:over]:drop(item,'section_quota')
     pinned=[i for i in kept if i.pinned]
@@ -131,6 +140,10 @@ def apply_budget(items,strategy,*,estimator=None,fixed=0):
         for item in candidates(step):
             if used()<=available:break
             drop(item,step)
+    # K4c: still over the budget - staff answers go (oldest first) before core state, as section_quota, never insufficient.
+    for item in sorted([i for i in kept if i.subsection=='human_answers'],key=lambda i:(i.at,i.ref)):
+        if used()<=available:break
+        drop(item,'section_quota')
     if used()>available:
         # Core business state would have to go: say so explicitly instead of pretending.
         core=_order_worst_first([i for i in kept if not i.pinned],lambda i:(i.section=='open_work',i.relevance,i.at))
