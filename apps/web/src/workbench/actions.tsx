@@ -183,6 +183,7 @@ export function ConfirmedForm({operation,member,trigger,title,impact,tone,withRe
       disabledReason={need?'填写原因后可确认。':undefined} onBusy={setPending} body={()=>need?null:body(reason.trim()||defaultReason||'')}>
       <p className="impact-summary" role="note">{impact}</p>
       {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel} optional={!!defaultReason}/>:null}
+      {withReason&&defaultReason?<p className="note" data-default-reason>留空时记录为“{defaultReason}”。</p>:null}
     </Form>
     <button type="button" className="btn-secondary" disabled={pending} onClick={()=>setOpen(false)}>{pending?'等待结果…':'取消'}</button>
   </div>;
@@ -241,12 +242,15 @@ export function RemediationRuleReleaseForm({member,ruleId}:{member:Me;ruleId:str
 }
 
 /** The tenant's remediation switch: pausing takes effect at once; failures while paused get no remediation, now or later. */
+/** The one default reason (K4i): what the audit records when the owner pauses remediation without writing a reason. Counting pause
+ * reasons later, this exact text means "no reason given". */
+export const PAUSE_DEFAULT_REASON='暂停补救（未填写原因）';
 export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}){
   // F02 (K4g): a switch, not a task - behind its button (impact and reason in the panel), so the page has no open form without a task.
   // Pausing stops harm at once: one confirmation, the reason optional (the server requires one, so an empty one is sent as the default text).
   return <ConfirmedForm operation="switch_remediation" member={member} trigger={paused?'恢复补救…':'暂停补救…'} title={paused?'恢复补救':'暂停补救'}
     tone={paused?undefined:'danger'} impact={paused?'影响：之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'影响：立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}
-    defaultReason={paused?undefined:'暂停补救（未填写原因）'} body={reason=>({paused:!paused,reason})}/>;  // pause: one confirmation, reason optional; resume: reason required
+    defaultReason={paused?undefined:PAUSE_DEFAULT_REASON} body={reason=>({paused:!paused,reason})}/>;  // pause: one confirmation, reason optional; resume: reason required
 }
 
 // ---- pause / resume (owner, Control.set) ----
