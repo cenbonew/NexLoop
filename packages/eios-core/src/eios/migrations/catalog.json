@@ -1970,6 +1970,11 @@
       "version": "0394",
       "name": "0394_schema_watch_one_estimator.sql",
       "sha256": "98e989015ecfbee25630b46b7be5d9b36dd686a5c8fe83a43fb89f65809a47ea"
+    },
+    {
+      "version": "0395",
+      "name": "0395_context_degraded_any_run.sql",
+      "sha256": "519407456906e5011c50fc01de8808d698bc4e0216aad5091b2f3228bccbfe3d"
     }
   ]
 }

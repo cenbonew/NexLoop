@@ -220,9 +220,42 @@ def test_a_consumer_with_a_long_history_still_gets_a_context_within_the_bound_si
         assert [m['relay'](vault, context_strategy='recent_plus_required').run_once() for _ in range(2)] == ['queued'] * 2
     (text,) = m['admin'].execute('select pack_text from runtime.nexloop_context_artifact_bindings where message_id=%s', (c['messages'][2],)).fetchone()
     pack = json.loads(text)
-    assert len(text.encode()) <= MAX_PACK_BYTES and pack['insufficient'] == []
+    # S87/S88: under the v2 estimate the 20 long contact limits alone exceed the token budget. They never degrade, so leaving the
+    # open work out would not bring the pack within it: the full pack is bound (SQL checked every pinned source) and says so.
+    assert len(text.encode()) <= MAX_PACK_BYTES
+    assert [(x['code'], x['section']) for x in pack['insufficient']] == [('mandatory_exceeds_budget', None)]
+    assert pack['budget_report']['estimator'] == 'conservative-bytes-half-v2' and pack['budget_report']['used'] > pack['budget_report']['available']
     refs = {i['ref'] for section in ('open_work', 'evidence') for i in pack[section]}
-    assert {'nexloop:intent:' + i for i in unknown} | {'nexloop:outbound:' + i for i in unknown} <= refs
+    assert {'nexloop:intent:' + i for i in unknown} | {'nexloop:outbound:' + i for i in unknown} <= refs  # the unconfirmed orders in full
     assert sum(1 for i in pack['evidence'] if 'contact_limit' in i['tags']) == 20
     assert any(i['tags'] == ['latest_consumer_turn'] for i in pack['evidence'])
-    assert len(pack['budget_report']['omitted']) <= 2 * STRATEGY['sections']['evidence']['max_items']
+    # The omission report stays bounded: evidence by twice its quota as before; S87: over the budget the Consumer (consumer_state,
+    # not pinned) is omitted too (mandatory_exceeds_budget).
+    omitted = pack['budget_report']['omitted']
+    assert sum(1 for o in omitted if o['section'] == 'evidence') <= 2 * STRATEGY['sections']['evidence']['max_items']
+    assert all(o['section'] in ('evidence', 'consumer_state') for o in omitted) and sum(1 for o in omitted if o['section'] == 'consumer_state') <= 1
+
+
+def test_over_the_token_budget_a_message_run_names_its_open_work_by_reference_and_binds(multi):  # noqa: F811
+    """S88 (owner 2026-11-01): the pinned open work of a message Run that does not fit the token budget (the contact limits do)
+    is named by reference under mandatory_exceeds_budget, section open_work, and the pack still binds: 0395 accepts that for
+    any Run, as 0212 did for the fallback reply Run only. The model still reads which orders are unconfirmed (their refs), so
+    an earlier unknown order is visible and not silently forgotten (f4e3629a)."""
+    import copy
+    from nexloop_eios.run_credential_vault import RunCredentialVault
+    from test_context_v6_pg import STRATEGY, seed_strategy
+    m = multi
+    m['enroll']('A')
+    stage_rule(m)
+    tight = copy.deepcopy(STRATEGY); tight.update(input_token_budget=2200, framing_reserve=0)  # fixed ~1.6k fits, + 4 open work items (~1.1k) does not
+    seed_strategy(m['admin'], m['tenant'], tight)
+    c = m['consumers']['A']
+    with RunCredentialVault(m['vault_dir']) as vault:
+        assert m['relay'](vault, context_strategy='recent_plus_required').run_once() == 'queued'
+        unknown = seed_unknown_replies(m, c, 2)
+        assert m['relay'](vault, context_strategy='recent_plus_required').run_once() == 'queued'  # bound: 0395 accepted the reference
+    (text,) = m['admin'].execute('select pack_text from runtime.nexloop_context_artifact_bindings where message_id=%s', (c['messages'][1],)).fetchone()
+    pack = json.loads(text)
+    named = {'nexloop:intent:' + i for i in unknown} | {'nexloop:outbound:' + i for i in unknown}
+    assert pack['open_work'] == [] and pack['budget_report']['used'] <= pack['budget_report']['available']
+    assert pack['insufficient'] == [{'code': 'mandatory_exceeds_budget', 'section': 'open_work', 'refs': sorted(named)}]

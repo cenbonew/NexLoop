@@ -227,3 +227,16 @@ def test_s87_v2_counts_the_item_envelope_and_the_fixed_sections():
     with pytest.raises(ValueError):apply_budget([one],s,fixed=-1)
     conf=Path(__file__).resolve().parents[1]/'deploy/configuration'
     assert {s['framing_reserve'] for s in load_builtins(conf/'context-strategies.v2.json')}=={3900}
+
+
+def test_s88_the_newest_open_work_stays_and_the_rest_is_named():
+    from nexloop_eios.context_artifacts import DEGRADED_OPEN_WORK_KEEP,budget_degraded_items
+    work=[item('open_work','intent',f'nexloop:intent:{n}',10,at=f'2026-10-0{n}T00:00:00Z',tags={'unconfirmed'}) for n in range(1,8)]
+    safety=item('constraints','policy','no-contact',10)
+    assert all(i.pinned for i in work) and DEGRADED_OPEN_WORK_KEEP==5
+    kept,extra=budget_degraded_items(work+[safety])
+    assert [i.ref for i in kept if i.section=='open_work']==[f'nexloop:intent:{n}' for n in range(3,8)] and safety in kept
+    assert extra==[{'code':'mandatory_exceeds_budget','section':'open_work','refs':['nexloop:intent:1','nexloop:intent:2']}]
+    kept,extra=budget_degraded_items(work+[safety],0)
+    assert kept==[safety] and len(extra[0]['refs'])==7
+    assert budget_degraded_items([safety],0)==([safety],[])  # nothing to name: no degradation

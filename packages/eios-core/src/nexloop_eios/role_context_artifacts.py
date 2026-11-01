@@ -117,12 +117,16 @@ class RoleContextV6ArtifactProducer(RoleContextArtifactProducer):
         found=collect(self.pool,self.session,self.signer,consumer_id=consumer,conversation_ids=conversations or [],strategy=strategy.definition)
         if conversations is None:found.insufficient.append({'code':'required_source_unreadable','section':'evidence','refs':['eios:object:Consumer/'+consumer]})
         goal=next(f for f in core['formal_facts'] if f['type']=='Goal')
-        body,outcome=assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role={'role_binding':core['role_binding'],'role_policy':core.get('role_policy')},
-            current_event=core['trigger_statement'],user_statement=None,goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
-            formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=found.items,extra_insufficient=found.insufficient,
-            operator_persona=self._role_section('authz.nexloop_context_operator_persona(%s,%s,%s)',consumer),
-            outreach=self._role_section('authz.nexloop_context_outreach(%s,%s,%s,%s)',consumer,core['bindings']['run_id']))
-        return body,outcome,found.items,found.proofs
+        persona=self._role_section('authz.nexloop_context_operator_persona(%s,%s,%s)',consumer)
+        outreach=self._role_section('authz.nexloop_context_outreach(%s,%s,%s,%s)',consumer,core['bindings']['run_id'])
+        from nexloop_eios.context_artifacts import assemble_within_budget
+        def build(items,extra):
+            return assemble_v6(strategy=strategy.definition,bindings=core['bindings'],role={'role_binding':core['role_binding'],'role_policy':core.get('role_policy')},
+                current_event=core['trigger_statement'],user_statement=None,goal={'goal_version_refs':[f"goal:{goal['id']}@{goal['revision']}"],'control_snapshot':found.control},
+                formal_facts=core['formal_facts'],current_constraints=core['current_constraints'],supply=core['supply'],items=items,
+                extra_insufficient=list(found.insufficient)+list(extra),operator_persona=persona,outreach=outreach)
+        body,outcome,kept=assemble_within_budget(build,found.items)  # S88: over the token budget, the open work degrades
+        return body,outcome,kept,found.proofs
 
     def _role_section(self,call,*arguments):
         """Outreach slice 5: the operator persona (0227) and outreach sections for this Role Run, or None; SQL re-derives both at
