@@ -203,7 +203,7 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
           {crumbs(route,context,sections).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route,context,sections).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
             onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
           {/* Keyed by page and object, not by list filters: a tab or filter change must not re-mount the page (F14: focus stays on the tab). */}
-          <PageErrorBoundary key={routePath({...route,query:undefined})}><WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></PageErrorBoundary></div>
+          <PageErrorBoundary key={routePath({...route,query:undefined})} resetKey={routePath(route)}><WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></PageErrorBoundary></div>
       </div>}
   </main><footer>NexLoop · 持续运营<span className="footer-tz"> · 时间均为北京时间</span></footer></div>;
 }

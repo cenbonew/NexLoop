@@ -138,8 +138,8 @@ export function OneTimeSecret({kind,value,sso,onHide}:{kind:'code'|'token';value
     {onHide?<button type="button" onClick={onHide}>我已记下，隐藏</button>:null}</div>;
 }
 
-function Reason({id,value,onChange,label='原因'}:{id:string;value:string;onChange:(v:string)=>void;label?:string}){
-  return <div className="field"><label htmlFor={id}>{label}</label><textarea id={id} value={value} onChange={e=>onChange(e.target.value)} required maxLength={500} rows={2}/></div>;
+function Reason({id,value,onChange,label='原因',optional=false}:{id:string;value:string;onChange:(v:string)=>void;label?:string;optional?:boolean}){
+  return <div className="field"><label htmlFor={id}>{label}{optional?'（选填）':''}</label><textarea id={id} value={value} onChange={e=>onChange(e.target.value)} required={!optional} maxLength={500} rows={2}/></div>;
 }
 
 /** A form for one operation: shown only when the role carries it. `tone="danger"` marks an irreversible or revoking operation
@@ -166,8 +166,9 @@ export function Form({operation,title,member,children,body,disabled,disabledReas
 /** UX audit B5: a row action that used to run on one click (and wrote a reason nobody typed). The trigger opens a confirmation in place:
  * what it does, the member's own reason (when the Action takes one), then the confirm button; 取消 or Escape closes it and returns focus
  * to the trigger. Shown only when the role carries the operation. */
-export function ConfirmedForm({operation,member,trigger,title,impact,tone,withReason=true,reasonLabel='原因',body}:{operation:Operation;member:Me;trigger:string;title:string;
-  impact:ReactNode;tone?:'danger';withReason?:boolean;reasonLabel?:string;body:(reason:string)=>Record<string,unknown>}){
+/** `defaultReason`: the reason is optional and this text is sent when it is left empty (the server still requires one). */
+export function ConfirmedForm({operation,member,trigger,title,impact,tone,withReason=true,reasonLabel='原因',defaultReason,body}:{operation:Operation;member:Me;trigger:string;title:string;
+  impact:ReactNode;tone?:'danger';withReason?:boolean;reasonLabel?:string;defaultReason?:string;body:(reason:string)=>Record<string,unknown>}){
   const [open,setOpen]=useState(false);const [reason,setReason]=useState('');
   // L6 review of S5: while the request is in flight the panel cannot close - closing would unmount the form, so its outcome and the
   // same-request retry of an unknown result would be lost. It closes once the result is shown.
@@ -175,12 +176,13 @@ export function ConfirmedForm({operation,member,trigger,title,impact,tone,withRe
   const button=useRef<HTMLButtonElement>(null);const panel=useRef<HTMLDivElement>(null);const was=useRef(false);const id=useId();
   useEffect(()=>{if(open)panel.current?.querySelector<HTMLElement>('textarea,button[type=submit]')?.focus();else if(was.current)button.current?.focus();was.current=open;},[open]);
   if(!offers(member,operation))return null;
+  const need=withReason&&!defaultReason&&!reason.trim();
   if(!open)return <button type="button" ref={button} className={'confirm-trigger'+(tone==='danger'?' confirm-trigger-danger':'')} aria-expanded={false} onClick={()=>setOpen(true)}>{trigger}</button>;
   return <div className="confirm-panel" ref={panel} role="group" aria-label={title} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();if(!pending)setOpen(false);}}}>
-    <Form operation={operation} member={member} title={title} tone={tone} className="inline-confirm" disabled={withReason&&!reason.trim()}
-      disabledReason={withReason?'填写原因后可确认。':undefined} onBusy={setPending} body={()=>withReason&&!reason.trim()?null:body(reason.trim())}>
+    <Form operation={operation} member={member} title={title} tone={tone} className="inline-confirm" disabled={need}
+      disabledReason={need?'填写原因后可确认。':undefined} onBusy={setPending} body={()=>need?null:body(reason.trim()||defaultReason||'')}>
       <p className="impact-summary" role="note">{impact}</p>
-      {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel}/>:null}
+      {withReason?<Reason id={id+'-reason'} value={reason} onChange={setReason} label={reasonLabel} optional={!!defaultReason}/>:null}
     </Form>
     <button type="button" className="btn-secondary" disabled={pending} onClick={()=>setOpen(false)}>{pending?'等待结果…':'取消'}</button>
   </div>;
@@ -241,9 +243,10 @@ export function RemediationRuleReleaseForm({member,ruleId}:{member:Me;ruleId:str
 /** The tenant's remediation switch: pausing takes effect at once; failures while paused get no remediation, now or later. */
 export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}){
   // F02 (K4g): a switch, not a task - behind its button (impact and reason in the panel), so the page has no open form without a task.
+  // Pausing stops harm at once: one confirmation, the reason optional (the server requires one, so an empty one is sent as the default text).
   return <ConfirmedForm operation="switch_remediation" member={member} trigger={paused?'恢复补救…':'暂停补救…'} title={paused?'恢复补救':'暂停补救'}
     tone={paused?undefined:'danger'} impact={paused?'影响：之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'影响：立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}
-    body={reason=>({paused:!paused,reason})}/>;
+    defaultReason={paused?undefined:'暂停补救（未填写原因）'} body={reason=>({paused:!paused,reason})}/>;  // pause: one confirmation, reason optional; resume: reason required
 }
 
 // ---- pause / resume (owner, Control.set) ----
