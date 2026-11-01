@@ -251,7 +251,8 @@ def worker_command(st, name, compose, config_dir, tmp, variables=None, overlay=N
     for option, value in (replace or {}).items():
         argv[argv.index(option) + 1] = value
     env = {k: v for k, v in os.environ.items() if not k.startswith('NEXLOOP_TEST_')}
-    env.update({k: str(v) for k, v in (service.get('environment') or {}).items()})
+    # Environment values take their compose default like the arguments (S81: NEXLOOP_ENTRY_TICKETS is checked at start).
+    env.update({k: re.sub(r'\$\{[A-Z_][A-Z0-9_]*:-([^}]*)\}', r'\1', str(v)) for k, v in (service.get('environment') or {}).items()})
     env['PYTHONPATH'] = str(ROOT / 'packages/eios-core/src')
     if shutil.which('node'):
         env['PATH'] = os.environ['PATH']

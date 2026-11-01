@@ -57,7 +57,7 @@ def client(monkeypatch, url, inspect):
 @pytest.mark.parametrize('url', [STAFF, None])
 def test_a_member_reads_the_url_or_null(monkeypatch, url):
     response = client(monkeypatch, url, Session).get('/api/v1/workbench/entries')
-    assert response.status_code == 200 and response.json() == {'reference_endpoint_staff_url': url}
+    assert response.status_code == 200 and response.json() == {'reference_endpoint_staff_url': url, 'entry_tickets': []}
     assert response.headers['cache-control'] == 'no-store'
 
 

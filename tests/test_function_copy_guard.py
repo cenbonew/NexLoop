@@ -628,6 +628,9 @@ REGISTRY = [
     Allowed('service_credential_rescoped_rotation', 'authz.nexloop_service_credential_rows_guard',
             'the second token is also accepted from inside control.nexloop_rotate_service_credential_scopes; nothing else',
             ((r"\s*and position\('function control\.nexloop_rotate_service_credential_scopes\(' in v_stack\)=0", ""),)),
+    # S81 (0392, ADR-043): the retention keeper also clears entry tickets older than 30 days.
+    Allowed('entry_tickets', 'authz.nexloop_retention_command', 'one more verb, entry_tickets_clear; nothing else',
+            ((r"\n elsif c->>'verb'='entry_tickets_clear' then\n  -- S81 \(0392, ADR-043\).*?return control\.nexloop_entry_tickets_clear\(t,\(s->'sweep'->>'batch'\)::integer\);", ""),)),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),

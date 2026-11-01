@@ -56,3 +56,46 @@ test('only a plain HTTPS URL from the server becomes a link',()=>{
     expect(entryLinks({reference_endpoint_staff_url:bad}).reference_endpoint_staff_url).toBeNull();
   expect(entryLinks({reference_endpoint_staff_url:STAFF}).reference_endpoint_staff_url).toBe(STAFF);
 });
+
+// S81 / ADR-043: the entry ticket buttons (owner only on the server; offered targets from GET /entries).
+import {entryTicket} from '../src/workbench/api';
+import {enterWithTicket} from '../src/workbench/pages/Entries';
+import {vi} from 'vitest';
+const TICKET='A'.repeat(43);
+
+test('S81: a button per offered target, none when the deployment offers none',()=>{
+  const c=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity}}});
+  c.setQueryData(['workbench','entries'],entryLinks({reference_endpoint_staff_url:STAFF,entry_tickets:['webchat','reference_staff','other']}));
+  act(()=>root.render(h(QueryClientProvider,{client:c},h(Entries,{origin:ORIGIN}))));
+  expect([...box.querySelectorAll('button')].map(b=>b.textContent)).toEqual(['以测试客户身份直接进入 WebChat','以只读测试员工身份直接进入员工页面']);
+  expect(entryLinks({entry_tickets:'webchat'}).entry_tickets).toEqual([]);
+});
+
+test('S81: only a well-formed answer for the asked target is used',()=>{
+  expect(entryTicket({target:'webchat',action:'/api/v1/auth/entry',ticket:TICKET},'webchat')).toEqual({action:'/api/v1/auth/entry',ticket:TICKET});
+  for(const bad of [{target:'webchat',action:'https://evil.example.test/api/v1/auth/entry',ticket:TICKET},{target:'webchat',action:'/api/v1/auth/entry',ticket:'short'},
+    {target:'reference_staff',action:'/api/v1/auth/entry',ticket:TICKET},{target:'webchat',action:'/api/v1/auth/entry?ticket=x',ticket:TICKET}])
+    expect(()=>entryTicket(bad,'webchat')).toThrow();
+  expect(entryTicket({target:'reference_staff',action:'https://endpoint.example.test:9444/staff/entry',ticket:'aGVhZA.bWFj'},'reference_staff').action).toBe('https://endpoint.example.test:9444/staff/entry');
+  for(const action of ['http://endpoint.example.test/staff/entry','https://endpoint.example.test/staff/entry?x=1','https://endpoint.example.test/staff'])
+    expect(()=>entryTicket({target:'reference_staff',action,ticket:'aGVhZA.bWFj'},'reference_staff')).toThrow();
+});
+
+test('S81: the ticket goes into a POST form body in the opened window, never into a URL, and the form is removed',async()=>{
+  const calls:string[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>{calls.push(url);
+    return new Response(JSON.stringify(url.endsWith('/csrf')?{csrf_token:'c'}:{target:'webchat',action:'/api/v1/auth/entry',ticket:TICKET,expires_at:'x'}),{status:200});}));
+  const submitted:{method:string;action:string;target:string;body:string}[]=[];
+  HTMLFormElement.prototype.submit=function(this:HTMLFormElement){submitted.push({method:this.method,action:this.getAttribute('action')!,target:this.target,
+    body:[...new FormData(this).entries()].map(([k,v])=>k+'='+v).join('&')});};
+  const opened={opener:{} as unknown,close:vi.fn()};let named='';
+  await enterWithTicket('webchat',document,name=>{named=name;return opened as unknown as Window;});
+  expect(calls).toEqual(['/api/v1/workbench/auth/csrf','/api/v1/workbench/entry-tickets']);
+  expect(submitted).toEqual([{method:'post',action:'/api/v1/auth/entry',target:named,body:'ticket='+TICKET}]);
+  expect(opened.opener).toBeNull();expect(document.querySelector('form')).toBeNull();
+  // A refusal closes the blank window and throws (the page shows the fixed hint).
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>new Response(JSON.stringify(url.endsWith('/csrf')?{csrf_token:'c'}:{code:'not_owner'}),{status:url.endsWith('/csrf')?200:403})));
+  await expect(enterWithTicket('webchat',document,()=>opened as unknown as Window)).rejects.toThrow();
+  expect(opened.close).toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});

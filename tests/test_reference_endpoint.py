@@ -39,7 +39,7 @@ def private(path, text):
 
 
 @contextmanager
-def running(tmp_path):
+def running(tmp_path, entry_key=None):
     cert, key = tmp_path / 'endpoint-cert.pem', tmp_path / 'endpoint-key.pem'
     subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', str(key), '-out', str(cert), '-days', '1',
                     '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1'], check=True, capture_output=True)
@@ -48,7 +48,8 @@ def running(tmp_path):
     service, staff = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     data = tmp_path / 'endpoint-data'
     server = endpoint_module.make_server(data_dir=data, listen='127.0.0.1:0', service_token=service, staff_token=staff,
-                                        tls_cert_file=str(cert), tls_key_file=str(key), tenant_label='示例企业')
+                                        tls_cert_file=str(cert), tls_key_file=str(key), tenant_label='示例企业',
+                                        entry_ticket_key=entry_key)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     origin = 'https://127.0.0.1:' + str(server.server_address[1])
