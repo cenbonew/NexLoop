@@ -100,7 +100,7 @@ test('silencing is offered to the owner only, sends the chosen rule and selector
 
 test('overview backlog block renders the NX-030 shape: feed name, pending count and oldest wait; empty queues read “无”, never blank',async()=>{
   const {overview}=await import('../src/workbench/api');
-  const {Overview}=await import('../src/workbench/pages/Overview');
+  const {Home}=await import('../src/workbench/pages/Home');const Overview=(_:{onOpen:()=>void})=>h(Home,{query:{tab:'health'},onQuery:()=>{},go:()=>{}});  // K4f: the 健康 tab
   const unavailable={status:'unavailable',data:null};
   const body={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,commercial:unavailable,
     backlog:{status:'ok',data:{queues:{},feeds:{'recall-instance':{pending:5,dead_lettered:0,dead_lettered_last_hour:0,oldest_pending_seconds:12578}},
@@ -121,7 +121,7 @@ test('overview backlog block renders the NX-030 shape: feed name, pending count 
 
 test('overview commercial block: unavailable today is labelled; when served, budgets and 24 h costs render and empties read “无”',async()=>{
   const {overview}=await import('../src/workbench/api');
-  const {Overview}=await import('../src/workbench/pages/Overview');
+  const {Home}=await import('../src/workbench/pages/Home');const Overview=(_:{onOpen:()=>void})=>h(Home,{query:{tab:'health'},onQuery:()=>{},go:()=>{}});  // K4f: the 健康 tab
   const unavailable={status:'unavailable',data:null};
   const base={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,backlog:unavailable};
   const off=render(client([[['workbench','overview'],overview({...base,commercial:unavailable})]]),h(Overview,{onOpen:()=>{}}));
