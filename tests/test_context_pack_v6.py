@@ -54,6 +54,25 @@ def forged(path,value):
     return body
 
 
+def test_strategies_v2_reserve_keeps_the_mandatory_layers_and_every_item():
+    """S82: v2 reserves 3900 framing tokens (was 1500), so the pack budget shrinks by 2400; the example's mandatory layers and
+    every item still fit (nothing omitted, nothing insufficient) in each v2 strategy."""
+    from nexloop_eios.context_engine.strategy import load_builtins
+    conf=Path(__file__).resolve().parents[1]/'deploy/configuration'
+    v1={x['strategy_id']:x for x in load_builtins(conf/'context-strategies.v1.json')}
+    for strategy in load_builtins(conf/'context-strategies.v2.json'):
+        assert strategy['framing_reserve']==3900 and strategy['version']==2
+        assert {k:v for k,v in strategy.items() if k not in ('version','framing_reserve')}=={k:v for k,v in v1[strategy['strategy_id']].items() if k not in ('version','framing_reserve')}
+        old=inputs();old['strategy']=copy.deepcopy(v1[strategy['strategy_id']])
+        new=inputs();new['strategy']=copy.deepcopy(strategy)
+        (a,_),(b,outcome)=assemble_v6(**old),assemble_v6(**new)
+        assert outcome.insufficient==[] and b['budget_report']['omitted']==a['budget_report']['omitted']
+        assert b['budget_report']['available']==a['budget_report']['available']-2400
+        for section in ('constraints','consumer_state','open_work','evidence','semantics','experience'):
+            assert [i['ref'] for i in b[section]]==[i['ref'] for i in a[section]],section
+        VALID.validate(b)
+
+
 @pytest.mark.parametrize('label,path,value',[
     ('claim_in_formal_state',('consumer_state',0,'evidence_kind'),'user_statement'),
     ('hypothesis_in_claim_evidence',('evidence',0,'evidence_kind'),'hypothesis'),

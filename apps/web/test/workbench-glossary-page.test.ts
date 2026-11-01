@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Owner walkthrough R57 (W5): the glossary is managed on its own page under 管理 (世界模型译名), offered only to a role carrying
+// Owner walkthrough R57 (W5): the glossary is managed on its own page under 管理 (译名管理 since S80), offered only to a role carrying
 // world_glossary_set: browse and search every identifier by kind with 机翻 / 人工 marked, and open the existing correction form from a
 // row (same checks, same sim rule). The type panel of the graph closes from its sticky head.
 import {createElement as h,act,useState,type ReactNode} from 'react';
@@ -26,9 +26,9 @@ const mount=(node:ReactNode,member:typeof owner,model:unknown=example)=>{const c
   act(()=>root.render(h(QueryClientProvider,{client:c},node)));};
 const button=(text:string)=>[...box.querySelectorAll('button')].find(b=>b.textContent===text);
 
-test('the sidebar offers 世界模型译名 under 管理, before 入口, only to a role carrying world_glossary_set',()=>{
-  expect(PAGES.glossary).toBe('世界模型译名');
-  const admin=NAV_GROUPS.find(g=>g.title==='管理')!.pages;expect(admin.indexOf('glossary')).toBe(admin.indexOf('entries')-1);
+test('the sidebar offers 译名管理 under 管理, after 实验空间 and before 关联系统入口, only to a role carrying world_glossary_set',()=>{
+  expect(PAGES.glossary).toBe('译名管理');
+  const admin=NAV_GROUPS.find(g=>g.title==='管理')!.pages;expect(admin.slice(-3)).toEqual(['experiments','glossary','entries']);
   expect(navOffered('glossary',owner)).toBe(true);expect(navOffered('glossary',operator)).toBe(false);expect(navOffered('glossary',undefined)).toBe(false);
   expect(navOffered('settings',operator)).toBe(true);
 });
@@ -43,7 +43,7 @@ test('every kind is listed with its source; sections carry none; a Property shar
 
 test('the owner browses, searches and opens the correction form on the chosen identifier',()=>{
   mount(h(Glossary),owner);
-  expect(box.querySelector('h1')!.textContent).toBe('世界模型译名');
+  expect(box.querySelector('h1')!.textContent).toBe('译名管理');
   const kinds=[...box.querySelectorAll('.glossary-kinds button')];expect(kinds).toHaveLength(8);
   const rows=()=>[...box.querySelectorAll('tbody tr')].map(r=>r.textContent);
   expect(rows().some(r=>r!.includes('Consumer')&&r!.includes('客户')&&r!.includes('人工'))).toBe(true);
@@ -63,7 +63,7 @@ test('in a simulation the owner sees the rows and the disabled control with its 
   expect(box.querySelectorAll('tbody tr').length).toBeGreaterThan(0);expect(box.querySelector('button[aria-label^="改正 "]')).toBeNull();
   expect(button('改正 Object Type 的中文译名')!.disabled).toBe(true);expect(box.textContent).toContain('只能在真实世界改正');
   act(()=>root.unmount());root=createRoot(box);mount(h(Glossary),operator);
-  expect(box.textContent).toContain('你的角色没有管理世界模型译名的权限');expect(box.querySelector('table')).toBeNull();
+  expect(box.textContent).toContain('你的角色没有译名管理的权限');expect(box.querySelector('table')).toBeNull();
 });
 
 test('W2: the type panel closes from the top of its sticky head, not below its content',()=>{
