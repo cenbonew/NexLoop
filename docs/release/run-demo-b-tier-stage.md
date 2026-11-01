@@ -75,7 +75,7 @@ repo, origin, ca, user_file, cfg = sys.argv[1:6]
 sys.path.insert(0, repo + '/scripts/deploy')
 from real_dispatch_switch import HttpsTransport, Workbench  # noqa: E402
 config = json.load(open(cfg)); op = config['operation']; body = config['body']
-assert op in ('send_outreach', 'issue_incentive', 'set_consumer_persona'), op
+assert op in ('send_outreach', 'issue_incentive', 'set_consumer_persona', 'release_contact_restriction'), op
 password = sys.stdin.readline().rstrip('\n'); username = open(user_file).read().strip()
 assert username and len(password) >= 8, 'credentials'
 wb = Workbench(HttpsTransport(origin, ca), origin); wb.login(username, password)
@@ -90,6 +90,8 @@ finally:
 ```
 
 配置文件（0600）每步一个，下文写为 `cfg-<步骤>.json`。
+
+S74b：负责人终端用 `local-only/b-tier/step.sh <步骤>` 包一层（读同目录私有的 origin、ca-file、用户名文件和 cfg，口令只走 Keychain 管道）；`release_contact_restriction` 用于 §5.2 事后解除 s6c-2 的联系限制。
 
 **重跑即重放**：同一个 cfg 重跑会重放上一次的结果（Idempotency-Key 由配置内容派生）。不要为了“再试一次”去改 `reason` 或其他字段，否则会变成一次新的请求；对 `set_consumer_persona` 来说，就是一次新的人设修订。
 
@@ -167,19 +169,22 @@ select x->>'run_id' run_id, x->>'issued_at' issued_at
 
 **L6 的四个条件（负责人已选 R）**：
 
-1. **压缩时间窗，全程约 1 小时，不隔夜**（以租户勿扰 21:00–09:00、北京时间为例，按 P10 读出的设置换算）：
+1. **压缩时间窗，全程不超过 1 小时，不隔夜**。11-01 早上的窗口已过，**改为 11-01 晚上一窗**（S74b，调度员 2026-11-01；租户勿扰 21:00–09:00、北京时间，按 P10 读出的设置换算）：
 
-   | 约北京时间 | 步骤 |
-   |---|---|
-   | 08:30 | R0（勿扰时段快结束时） |
-   | 紧接着 | B1（仍在勿扰时段内） |
-   | 09:00 之后马上 | B2 |
-   | B2 之后 | B3 |
-   | 随即 | R9 |
+   | 北京时间 | 步骤 | 是否在勿扰时段内 |
+   |---|---|---|
+   | 20:45 | R0 | 否 |
+   | 紧接着 | B2（阳性，`fulfilled`） | 否 |
+   | B2 之后 | B3（预期 `frequency_capped`） | 否，必须在 21:00 之前完成 |
+   | 21:01 | B1（预期 `quiet_hours`） | 是 |
+   | B1 之后随即 | R9 | — |
+
+   **顺序改变不影响判定**。依据是下文 B1 预期里的原话：“勿扰排在频率之前，所以即使频率也拒，代码仍是 `quiet_hours`。”B1 改到 B2 之后执行时，B2 已计入频率（`last_24h`=1），频率这道闸也会拒；但 `runtime.nexloop_outreach_gates` 取第一道拒绝作为 `refusal_code`，勿扰（第 6 道）在频率（第 7 道）之前，所以 B1 的代码仍是 `quiet_hours`，`refusal_gates` 里会同时看到 `quiet_hours` 和 `frequency` 都是 `refuse`。B3 的判定不变：它在勿扰时段外，第一道拒绝是频率。被拒的 B3 不准入，不计入频率，不影响 B1。
+   - B3 若在 21:00 之后才执行，代码会变成 `quiet_hours`，B3 作废；不要重跑（重跑是重放）。改用新的 `origin_ref` 在下一个勿扰外时段补做，并另行告知负责人。
 
 2. **R0 之前的只读确认**（任一不满足就不开始）：
    - 没有自动发起方会在窗内触达 s6c-1，SQL 见 §4.2a；
-   - I36（未结束承诺作废）已完成；
+   - I36（未结束承诺作废）已完成：负责人执行 `run-commitments-cancel.sh --apply` 之后，§4.2a 第二个查询无行；
    - **B6 不放进这个窗口**（见 §6）。
 3. **证据**：
    - 记 R0、R9 的执行时间（取自 `date -u`）和人设修订号（§4.0 的事件查询），作为指标和演进必须排除的时间段；
@@ -242,6 +247,10 @@ Q3（APP_HOST，只数不读）：`sudo ls <outreach-sender 的 outbox 目录> |
 
 前提 P3–P8 全部满足。下文中 `<O>`、`<rev>`、`<B1>`、`<B2>` 分别是 P6 读出的 offering_id、revision，以及对 `$C1`、`$C2` 的 binding_id；金额取目录单次上限以内的最小值，例如 100（分）。
 
+**stage 现状（S77 已执行，调度员 2026-11-01）**：offering `860ce1ee…`（rev 1）；s6c-1 的绑定 `dc12cbe2…`（`active=true`）；s6c-2 的绑定 `5fe63acc…` 已撤下（`active=false`，作为撤下操作的验收演示）。P5 按 S76 §1.0 的决定改为“`effect_is_external=f`”（只读核对见 S76 §1.0）；P7 由 S76 §3 新设（20 元，写成 `"2000"`）。
+
+**执行顺序**（负责人“B 档按推荐”）：先 #18、#17、#19；再 S76 §1.0 核对和 §3 预算；然后 5.1。5.2 按 §5.2 的条件决定做还是留待。
+
 ### 5.1 发放一次（s6c-1，没有联系限制）
 
 ```json
@@ -257,8 +266,25 @@ Q3（APP_HOST，只数不读）：`sudo ls <outreach-sender 的 outbox 目录> |
 
 配置同上，`consumer_id` 换成 `<C2>`，`binding_id` 换成 `<B2>`，`notification_text` 非空。
 
-- 预期：`refused`，`refusal_code=contact_restricted`。带通知的发放对受限顾客整单拒绝（0145 §4 admit）。
-- provider 收到 0 个请求；激励预算没有预留。
+**源码核对（S74b，main 50415427）**：
+
+1. **受理时就查目录**。owner 的 `issue_incentive` 经 `control.nexloop_governed_issue_incentive` 进入 `runtime.nexloop_incentive_accept`，后者调用 `runtime.nexloop_incentive_catalog`，要求绑定 `active=true`、offering 有效且 revision 一致（0145 l.144）。s6c-2 现有绑定已撤下，**请求在受理时就被拒（`outside_catalog_terms`），根本到不了准入**，也就看不到联系限制。所以 5.2 需要 s6c-2 有一条有效绑定。
+2. **准入的检查顺序**（0145 `authz.nexloop_incentive_command` admit，l.291–325；0153 只在它前面加了真实派发开关一层）：擦除中 → 负责人控制 → **带通知且有生效的联系限制**（hint `attached_notification`）→ D7（非 owner/回复来源且受限，hint `contact_restricted`）→ 目录 → 每顾客周期上限 → 预算。联系限制排在目录之前，但受理时已经查过一次目录。
+3. **拒绝码更正**：owner 发放的 `origin` 是 `human`，D7 那一道不适用。带通知的 owner 发放对受限顾客的拒绝码是 **`attached_notification`**，不是 `contact_restricted`（`contact_restricted` 只出现在 Agent 来源的发放上）。本节预期按此改正。
+
+**可行方案**：
+
+- **a) 为 s6c-2 建一条新的有效绑定**：`incentive_setup` 的配方必须同时含 `offering` 和 `consumers`，不支持只建绑定（`setup_recipe` 要求四个键齐全，`setup_incentives` 先建 offering 再建绑定）。
+  - 用 S77 原来的 `request_id` 重放：offering 和 s6c-2 绑定的意图键不变，返回的是原来那条已撤下的绑定，没有用。
+  - 用**新的 `request_id`**：会**新建第二个 offering** `<O2>`（rev 1）和 s6c-2 对它的绑定 `<B2'>`。offering 字段可与原来相同（0389 不要求 `incentive_code` 唯一，以 stage 执行结果为准）。代价是目录里多一个测试 offering，验证后可以用 `withdraw` 配方撤下。5.2 改用 `<O2>`、`1`、`<B2'>`。
+- **b) 给 s6c-2 加联系限制**：没有直接设置联系限制的 owner Action。限制由顾客来信命中联系拒绝规则后生成（ADR-023），做法同 OUT 单 §3.1：s6c-2 在自己的会话里说一句“以后不要再联系我了。”（`local-only/out-s6c/out-restrict.sh`）。先看 P12：s6c-2 已有生效限制（OUT 单执行过）就跳过这一步。
+  - 事后解除：owner Action `release_contact_restriction`（`{"consumer_id": "<C2>", "reason": "…"}`），由 approver3 执行。
+  - 这条消息和限制会落进 S6 和演进的输入：时间记入“排除时段”，与方案 R 的窗口同样处理。
+
+a 和 b 都可行时按 a + b 执行 5.2；任一不可行（例如 a 的 setup 被 0389 拒绝），#16 只做 5.1，证据写明“5.2 留待：原因 …”。
+
+- 预期：`refused`，`refusal_code=attached_notification`。带通知的发放对受限顾客整单拒绝（0145 admit；ADR-023 §3、NX-026 D6）。
+- provider 收到 0 个请求；激励预算没有预留；审计有一条 `nexloop.incentive.issue.refused`，payload 的 `code` 为 `attached_notification`。
 - **注意**：`notification_text` 为空的 owner 发放，按 D7 对受限顾客是**允许**的；本步必须带通知。
 
 ### 5.3 只读核对
@@ -273,7 +299,7 @@ select action, request_id, created_at from runtime.audit_events
  where tenant_id='$T' and action like 'nexloop.incentive.issue.%' and created_at > '<本节开始时间>' order by created_at;
 ```
 
-预期：C1 一行 `fulfilled`；C2 一行 `refused / contact_restricted`；预算消耗只有 C1 那一笔；审计里有 `nexloop.incentive.issue.refused` 一条。表和列已对照 0145、0068、0238 核过；执行前仍按 §8 在一次性库上跑一遍。
+预期：C1 一行 `fulfilled`；C2 一行 `refused / attached_notification`；预算消耗只有 C1 那一笔；审计里有 `nexloop.incentive.issue.refused` 一条。表和列已对照 0145、0068、0238 核过；执行前仍按 §8 在一次性库上跑一遍。
 
 ## 6. #17 外联第 5 片阳性对照
 
@@ -353,7 +379,7 @@ select p.target_ref like '%'||'$C1'||'%' c1, p.property_name, p.status, count(*)
   - B1：`quiet_hours` 在派发时拒绝。方案 S 下作为 `refusal_gates` 的结论，方案 R 下作为 `refusal_code`。
   - B3：`frequency_capped`（只有方案 R）。
   - B2 / B6：阳性。
-  - 5.1：`fulfilled`；5.2：`contact_restricted`，provider 0 请求。
+  - 5.1：`fulfilled`；5.2：`attached_notification`，provider 0 请求（或“5.2 留待”及原因）。
   - #19：有可追溯修订。
   - 每项判 passed、failed、不可证明（写明原因）。
 - 所有 `fulfilled` 都只表示写进了回环，不是送达真实客户。
