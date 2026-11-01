@@ -52,7 +52,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
   const slot=slots[route.page];const a=typeof slot==='function'?slot(route):slot;
   const setQuery=(query:Route['query'])=>go({page:route.page,query},{replace:true});
   switch(route.page){
-    case 'overview':return <Overview actions={a} onOpen={page=>go({page:page as PageKey})}/>;
+    case 'overview':return <Overview actions={a} onOpen={page=>go({page:page as PageKey})} go={r=>go(r)}/>;
     case 'goals':return <Goals actions={a}/>;
     case 'consumers':
       if(route.sub==='conversation'&&route.id)return <Conversation conversationId={route.id} actions={a} onContext={onContext}/>;

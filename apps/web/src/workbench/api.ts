@@ -1366,3 +1366,31 @@ export async function issueEntryTicket(target:EntryTarget):Promise<EntryTicket>{
   try{return entryTicket(await response.json(),target);}catch{throw new WorkbenchWriteError('invalid');}
 }
 export function readEntryLinks():Promise<EntryLinks>{return get('/api/v1/workbench/entries',entryLinks);}
+
+// ---- K4 (workbench-pending v1): the home "待我处理" read, GET /api/v1/workbench/pending. The server filters by what the signed-in
+// member may act on; six fixed categories in a fixed order; questions are parsed but not shown until context-pack v7 (owner). ----
+export const PENDING_CATEGORIES=['question','approval','remediation','reply_escalation','takeover_expiry','candidate_review'] as const;
+export type PendingCategory=typeof PENDING_CATEGORIES[number];
+export type PendingCount={category:PendingCategory;count:number;oldest_waiting_seconds:number|null;oldest_ref:string|null};
+export type PendingQuestion={question_id:string;audience:'owner'|'operator';question_kind:string;text:string;options:string[];subject_ref:string|null;
+  withdrawable:boolean;created_at:string;due_by:string;answer:{operation:'nexloop.human_question.answer:1'}};
+export type Pending={all_clear:boolean;last_health_check_at:string|null;categories:PendingCount[];questions:PendingQuestion[]};
+const PENDING_REF=/^[A-Za-z][A-Za-z0-9_.-]*:\S+$/;
+const pendingRef=(v:unknown)=>{const t=maybeText(v);if(t!==null&&(t.length<3||t.length>512||!PENDING_REF.test(t)))throw new WorkbenchError('invalid');return t;};
+export function pending(value:unknown):Pending{
+  const o=exactKeys(object(value),['all_clear','last_health_check_at','categories','questions']);
+  if(typeof o.all_clear!=='boolean')throw new WorkbenchError('invalid');
+  const categories=list(o.categories).map(x=>{const c=exactKeys(object(x),['category','count','oldest_waiting_seconds','oldest_ref']);
+    if(!PENDING_CATEGORIES.includes(c.category as PendingCategory))throw new WorkbenchError('invalid');
+    return {category:c.category as PendingCategory,count:count(c.count),oldest_waiting_seconds:c.oldest_waiting_seconds===null?null:count(c.oldest_waiting_seconds),oldest_ref:pendingRef(c.oldest_ref)};});
+  if(categories.map(c=>c.category).join()!==PENDING_CATEGORIES.join())throw new WorkbenchError('invalid');
+  if(o.all_clear!==categories.every(c=>c.count===0))throw new WorkbenchError('invalid');
+  const questions=list(o.questions).map(x=>{const q=exactKeys(object(x),['question_id','audience','question_kind','text','options','subject_ref','withdrawable','created_at','due_by','answer']);
+    const answer=exactKeys(object(q.answer),['operation']);
+    if(answer.operation!=='nexloop.human_question.answer:1'||(q.audience!=='owner'&&q.audience!=='operator')||typeof q.withdrawable!=='boolean')throw new WorkbenchError('invalid');
+    return {question_id:text(q.question_id),audience:q.audience as PendingQuestion['audience'],question_kind:text(q.question_kind),text:text(q.text),options:list(q.options).map(text),
+      subject_ref:pendingRef(q.subject_ref),withdrawable:q.withdrawable,created_at:text(q.created_at),due_by:text(q.due_by),answer:{operation:'nexloop.human_question.answer:1' as const}};});
+  if(questions.length>20)throw new WorkbenchError('invalid');
+  return {all_clear:o.all_clear,last_health_check_at:maybeText(o.last_health_check_at),categories,questions};
+}
+export function readPending():Promise<Pending>{return get('/api/v1/workbench/pending',pending);}
