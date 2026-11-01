@@ -17,11 +17,14 @@ export function requestScope(value:unknown):EffectRequestScope{
   return {offering_id:row.offering_id,offering_revision:row.offering_revision,requested_guarantees:terms(row.requested_guarantees),requested_discounts:terms(row.requested_discounts)};
 }
 type Material=(path:string,maximum:number)=>Buffer;
-/** NX-024 run-outcome 1.0 (packages/contracts/run-outcome.schema.json); identity is derived by the server. */
-export type RunOutcome={schema_version:'1.0';kind:'no_action'|'needs_information'|'waiting_external'|'escalate'|'plan_update'|'action_intent';reasons:string[];
-  reassess_at:string|null;evidence_refs:string[];intent_ref:string|null;plan_update:{strategy:string|null;steps:Record<string,unknown>[]}|null};
+/** NX-024 run-outcome 1.0 and K4a 1.1 (packages/contracts/run-outcome.schema.json); identity is derived by the server. 1.1 may carry one
+ *  question (escalate or needs_information only); its audience grants nothing - the server decides who may answer from question_kind. */
+export type RunQuestion={audience:'owner'|'operator';question_kind:typeof QUESTION_KINDS[number];text:string;options:string[];subject_ref:string|null;withdrawable:boolean};
+export type RunOutcome={schema_version:'1.0'|'1.1';kind:'no_action'|'needs_information'|'waiting_external'|'escalate'|'plan_update'|'action_intent';reasons:string[];
+  reassess_at:string|null;evidence_refs:string[];intent_ref:string|null;plan_update:{strategy:string|null;steps:Record<string,unknown>[]}|null;question?:RunQuestion};
 export type RecordedOutcome={run_id:string;recorded:true;replay:boolean;kind:RunOutcome['kind'];plan_version:number;new_version:number|null};
 const OUTCOME_KINDS=['no_action','needs_information','waiting_external','escalate','plan_update','action_intent'] as const;
+const QUESTION_KINDS=['schedule_change','fulfilment_confirm','customer_fact','budget','contact_release','erasure','other'] as const;
 const instant=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|\+00:00)$/;
 const reference=/^[A-Za-z][A-Za-z0-9_.-]*:\S+$/;
 const shortText=(value:unknown,maximum:number)=>typeof value==='string'&&[...value].length>=1&&[...value].length<=maximum&&!/\u0000/.test(value);
@@ -38,10 +41,21 @@ function planStep(value:unknown):Record<string,unknown>{
     if(typeof budget[key]!=='number'||!Number.isSafeInteger(budget[key])||(budget[key] as number)<1||(budget[key] as number)>maximum)throw new RuntimeError('invalid_run_outcome');
   return step;
 }
+function runQuestion(value:unknown):RunQuestion{
+  const row=exact(value,['audience','question_kind','text','options','subject_ref','withdrawable']);
+  if(!['owner','operator'].includes(row.audience as string)||!QUESTION_KINDS.includes(row.question_kind as RunQuestion['question_kind'])||!shortText(row.text,300)
+    ||!Array.isArray(row.options)||row.options.length>4||row.options.some(item=>!shortText(item,60))||new Set(row.options).size!==row.options.length
+    ||!(row.subject_ref===null||(typeof row.subject_ref==='string'&&row.subject_ref.length>=3&&row.subject_ref.length<=512&&reference.test(row.subject_ref)))
+    ||typeof row.withdrawable!=='boolean')throw new Error();
+  return row as RunQuestion;
+}
 export function runOutcome(value:unknown):RunOutcome{
   try{
-    const row=exact(value,['schema_version','kind','reasons','reassess_at','evidence_refs','intent_ref','plan_update']);
-    if(row.schema_version!=='1.0'||!OUTCOME_KINDS.includes(row.kind as RunOutcome['kind'])||!Array.isArray(row.reasons)||row.reasons.length>8||row.reasons.some(item=>!shortText(item,500))
+    const asks=value!==null&&typeof value==='object'&&Object.hasOwn(value,'question');
+    const row=exact(value,['schema_version','kind','reasons','reassess_at','evidence_refs','intent_ref','plan_update',...(asks?['question']:[])]);
+    if(asks&&(row.schema_version!=='1.1'||!['escalate','needs_information'].includes(row.kind as string)))throw new Error();
+    if(asks)runQuestion(row.question);
+    if((row.schema_version!=='1.0'&&row.schema_version!=='1.1')||!OUTCOME_KINDS.includes(row.kind as RunOutcome['kind'])||!Array.isArray(row.reasons)||row.reasons.length>8||row.reasons.some(item=>!shortText(item,500))
       ||!Array.isArray(row.evidence_refs)||row.evidence_refs.length>32||row.evidence_refs.some(item=>typeof item!=='string'||item.length>512||!reference.test(item))
       ||!(row.reassess_at===null||(typeof row.reassess_at==='string'&&instant.test(row.reassess_at)))||!(row.intent_ref===null||(typeof row.intent_ref==='string'&&uuid.test(row.intent_ref))))throw new Error();
     if((row.kind==='plan_update')!==(row.plan_update!==null))throw new Error();
@@ -135,6 +149,11 @@ export const PLAN_OUTCOME_PARAMETERS=Type.Object({schema_version:Type.Literal('1
         reassess_at:Type.Union([Type.Null(),Type.String({pattern:instant.source})]),evidence_refs:Type.Array(Type.String({minLength:3,maxLength:512}),{maxItems:32}),
         intent_ref:Type.Union([Type.Null(),Type.String({pattern:uuid.source})]),plan_update:Type.Union([Type.Null(),Type.Object({strategy:Type.Union([Type.Null(),Type.String({minLength:1,maxLength:8192})]),
           steps:Type.Array(Type.Record(Type.String(),Type.Unknown()),{minItems:1,maxItems:32})},{additionalProperties:false})])},{additionalProperties:false});
+/** K4a/K4 H1: the same with run-outcome 1.1 and its optional question (offered only with planQuestion, default off). */
+export const PLAN_OUTCOME_QUESTION_PARAMETERS=Type.Object({...PLAN_OUTCOME_PARAMETERS.properties,schema_version:Type.Union([Type.Literal('1.0'),Type.Literal('1.1')]),
+        question:Type.Optional(Type.Object({audience:Type.Union([Type.Literal('owner'),Type.Literal('operator')]),question_kind:Type.Union(QUESTION_KINDS.map(kind=>Type.Literal(kind))),
+          text:Type.String({minLength:1,maxLength:300}),options:Type.Array(Type.String({minLength:1,maxLength:60}),{maxItems:4,uniqueItems:true}),
+          subject_ref:Type.Union([Type.Null(),Type.String({minLength:3,maxLength:512,pattern:'^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$'})]),withdrawable:Type.Boolean()},{additionalProperties:false}))},{additionalProperties:false});
 export const INCENTIVE_PARAMETERS=Type.Object({incentive_offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),
         binding_id:Type.String({pattern:'^[a-f0-9]{64}$'}),amount_minor:Type.String({pattern:'^[1-9][0-9]{0,15}$'}),currency:Type.String({pattern:'^[A-Z]{3}$'}),
         notification_text:Type.String({maxLength:2000})},{additionalProperties:false});
@@ -455,7 +474,7 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;planQuestion?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
     const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
@@ -489,11 +508,17 @@ export class RuntimeEffectClient{
         if(error instanceof RuntimeError&&error.code==='intent_payload_conflict'&&operation==='submit')return {content:[{type:'text' as const,text:JSON.stringify({code:'reply_already_submitted',...(submitted!==undefined?{intent_id:submitted}:{}),next:'This Run already sent its one reply; nothing more was sent. End the Run now.'})}],...end};
         if(error instanceof RuntimeError&&error.code==='intent_payload_conflict')return {isError:true,content:[{type:'text' as const,text:'{"code":"intent_payload_conflict","http_status":409}'}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
+    // K4 (L6 H1): run-outcome 1.1 questions stay off until context-pack v7 carries the staff answers back to the Run. planQuestion is
+    // false unless a caller passes true, and no Host configuration does yet: the tool then offers exactly 1.0 and refuses 1.1.
+    const asks=options.planQuestion===true;
     const outcomeTool=options.planOutcome===true?[defineTool({name:'nexloop.plan.outcome',
-      description:'Record the result of this plan reevaluation exactly once. no_action, needs_information, waiting_external and escalate are normal results. plan_update replaces the plan with new steps; action_intent names an intent this Run already submitted. Read current facts first; never re-run an old step mechanically.',
-      parameters:compact(PLAN_OUTCOME_PARAMETERS),
+      description:'Record the result of this plan reevaluation exactly once. no_action, needs_information, waiting_external and escalate are normal results. plan_update replaces the plan with new steps; action_intent names an intent this Run already submitted. '
+        +(asks?'With schema_version 1.1, escalate or needs_information may ask one question to a person (question: audience, question_kind, text, up to 4 short options); audience does not decide who may answer. ':'')
+        +'Read current facts first; never re-run an old step mechanically.',
+      parameters:compact(asks?PLAN_OUTCOME_QUESTION_PARAMETERS:PLAN_OUTCOME_PARAMETERS),
       replay:'safe',execute:async args=>{
-        try{return {content:[{type:'text' as const,text:JSON.stringify(await this.recordOutcome(bound,args))}]};}
+        try{if(!asks&&(args as {schema_version?:unknown}).schema_version!=='1.0')throw new RuntimeError('invalid_run_outcome');
+          return {content:[{type:'text' as const,text:JSON.stringify(await this.recordOutcome(bound,args))}]};}
         catch(error){if(error instanceof RuntimeError&&['plan_version_not_current','invalid_run_outcome'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('run_outcome_unavailable');}
       }})]:[];
     // AT-043: offered only when the Run is meant to issue incentives (its credential names nexloop.incentive.issue:1; SQL re-checks it).

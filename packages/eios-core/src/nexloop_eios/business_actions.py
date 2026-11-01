@@ -122,7 +122,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # S42 option A: the owner settles inbound messages no relay will serve.
     'relay.backlog_settle':'human_owner',
     # Stale action claims (2026-10-31): the owner ends a stale active claim whose result is settled.
-    'action_claim.settle':'human_owner'}
+    'action_claim.settle':'human_owner',
+    # K4b (human_questions): a workbench member answers a reevaluation Run's question (owner and operator; the handler checks the kind).
+    'human_question.answer':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

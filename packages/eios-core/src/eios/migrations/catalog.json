@@ -1980,6 +1980,11 @@
       "version": "0396",
       "name": "0396_context_degraded_any_run.sql",
       "sha256": "519407456906e5011c50fc01de8808d698bc4e0216aad5091b2f3228bccbfe3d"
+    },
+    {
+      "version": "0397",
+      "name": "0397_human_questions.sql",
+      "sha256": "ae4835f6380851e72662e9e6044f5a7e37ef4f9eaaa3e1d7069f5f5e9dc27aec"
     }
   ]
 }

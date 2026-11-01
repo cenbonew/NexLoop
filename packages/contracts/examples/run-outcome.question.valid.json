@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.1",
+  "kind": "escalate",
+  "reasons": ["合成测试客户要求改期，超出计划允许的时间窗口"],
+  "reassess_at": null,
+  "evidence_refs": ["message:4f2a6c1d8e9b0a7c5d3e1f2a4b6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c"],
+  "intent_ref": null,
+  "plan_update": null,
+  "question": {
+    "audience": "operator",
+    "question_kind": "schedule_change",
+    "text": "客户希望把上门时间改到周五下午，是否可以？",
+    "options": ["可以", "不可以"],
+    "subject_ref": "consumer:synthetic-test-1",
+    "withdrawable": true
+  }
+}

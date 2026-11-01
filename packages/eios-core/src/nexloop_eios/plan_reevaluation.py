@@ -132,7 +132,7 @@ class PlanOutcomePort(_SignedPort):
     def record(self,*,activation_ref,command,outcome):
         from nexloop_eios.contracts import RunOutcome
         if not isinstance(activation_ref,str) or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError('activation reference')
-        RunOutcome.model_validate(outcome)  # exact run-outcome 1.0 shape before anything is signed
+        RunOutcome.model_validate(outcome)  # exact run-outcome 1.0 or 1.1 shape before anything is signed
         return self._signed({'activation_ref':activation_ref,'command_text':canonical_payload(command),'outcome':outcome})
 
 

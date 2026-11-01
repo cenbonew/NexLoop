@@ -1,0 +1,15 @@
+{
+  "schema": "nexloop-human-question-kinds/1",
+  "version": 1,
+  "decision": "K4b (owner 2026-11-01, dsh intake v2 §3.3, Q-2 and K4 D1-D6, all as recommended): who may answer a question a plan reevaluation Run asks (run-outcome 1.1). The server decides from question_kind and the answerer's current workbench role; the Run's audience never decides it. Operators answer operational questions (schedule changes, fulfilment confirmations, customer facts); budget, releasing a contact restriction, erasure and anything unclassified (other) are the owner's, matching the owner-only set of workbench-roles (a test keeps the two from drifting). A question of an owner-only kind is always withdrawable (D3). An open question expires after expire_after_seconds (D2, 7 days): it wakes the plan once and is never asked again by itself. Reviewers answer nothing (D6). Trusted configuration: a change is a new version of this file and a new migration; versions are only added.",
+  "expire_after_seconds": 604800,
+  "kinds": {
+    "schedule_change": ["owner", "operator"],
+    "fulfilment_confirm": ["owner", "operator"],
+    "customer_fact": ["owner", "operator"],
+    "budget": ["owner"],
+    "contact_release": ["owner"],
+    "erasure": ["owner"],
+    "other": ["owner"]
+  }
+}

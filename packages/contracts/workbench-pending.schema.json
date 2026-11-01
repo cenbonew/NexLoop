@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:workbench-pending",
+  "title": "workbench-pending",
+  "description": "K4 (owner 2026-11-01, dsh intake §3.3, Q-2 and Q-3): the workbench home 'waiting for me' read of one tenant, GET /api/v1/workbench/pending (workbench read verb `pending`). Read-only: every count comes from an existing read projection or the K4 question register, filtered by what the signed-in member may act on as the server derives their current role; a question's audience only orders the list and never widens it. Six fixed categories (questions, approvals, remediations, reply escalations, takeovers expiring, candidate definitions awaiting review); alert acknowledgement is not part of it. questions carries at most the 20 oldest open questions this member may answer, text cut to 120 characters, the subject as a reference only. all_clear is true exactly when every count is zero. answer.operation names the governed Action that answers a question; holding it grants nothing by itself, the server checks question_kind against the member's role at dispatch. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["all_clear", "last_health_check_at", "categories", "questions"],
+  "properties": {
+    "all_clear": {"type": "boolean"},
+    "last_health_check_at": {"anyOf": [{"type": "null"}, {"type": "string", "format": "date-time"}]},
+    "categories": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["category", "count", "oldest_waiting_seconds", "oldest_ref"],
+        "properties": {
+          "category": {"enum": ["question", "approval", "remediation", "reply_escalation", "takeover_expiry", "candidate_review"]},
+          "count": {"type": "integer", "minimum": 0},
+          "oldest_waiting_seconds": {"anyOf": [{"type": "null"}, {"type": "integer", "minimum": 0}]},
+          "oldest_ref": {"anyOf": [{"type": "null"}, {"type": "string", "minLength": 3, "maxLength": 512, "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"}]}
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_id", "audience", "question_kind", "text", "options", "subject_ref", "withdrawable", "created_at", "due_by", "answer"],
+        "properties": {
+          "question_id": {"type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+          "audience": {"enum": ["owner", "operator"]},
+          "question_kind": {"enum": ["schedule_change", "fulfilment_confirm", "customer_fact", "budget", "contact_release", "erasure", "other"]},
+          "text": {"type": "string", "minLength": 1, "maxLength": 120},
+          "options": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 60}},
+          "subject_ref": {"anyOf": [{"type": "null"}, {"type": "string", "minLength": 3, "maxLength": 512, "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"}]},
+          "withdrawable": {"type": "boolean"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "due_by": {"type": "string", "format": "date-time"},
+          "answer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["operation"],
+            "properties": {"operation": {"const": "nexloop.human_question.answer:1"}}
+          }
+        }
+      }
+    }
+  }
+}

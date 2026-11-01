@@ -107,7 +107,7 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     tool_run_id=body['command'].get('run_id')
                     if type(tool_run_id) is str and re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',tool_run_id):self._tool_run=tool_run_id
                 if self.path=='/internal/v1/runtime/outcomes/record':
-                    # NX-024 run-outcome of a plan reevaluation Run (contract run-outcome 1.0).
+                    # NX-024 run-outcome of a plan reevaluation Run (contract run-outcome 1.0, or 1.1 with a question; K4a).
                     if (type(body) is not dict or set(body)!={'activation_ref','command','outcome'} or type(body['command']) is not dict
                         or type(body['activation_ref']) is not str or type(body['outcome']) is not dict):
                         self.send(400,{'code':'invalid_run_outcome'});return

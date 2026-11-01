@@ -7105,12 +7105,15 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:run-outcome",
         "title": "run-outcome",
-        "description": "NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Identity (tenant, world, Run, plan) is derived by the server from the Run's live activation; this body carries none. Grants nothing.",
+        "description": "NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Version 1.1 (K4, owner 2026-11-01, dsh intake §3.3 and Q-2) adds an optional question for escalate and needs_information: one structured question to a human. audience is the Run's claim of who should see it first and grants nothing; who may answer is decided by the server from question_kind and the answerer's current role, never from audience. 1.0 bodies are unchanged and never carry question. Identity (tenant, world, Run, plan) is derived by the server from the Run's live activation; this body carries none. Grants nothing.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "schema_version": {
-            "const": "1.0"
+            "enum": [
+              "1.0",
+              "1.1"
+            ]
           },
           "kind": {
             "enum": [
@@ -7321,6 +7324,68 @@
                 ]
               }
             ]
+          },
+          "question": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "audience": {
+                "enum": [
+                  "owner",
+                  "operator"
+                ]
+              },
+              "question_kind": {
+                "enum": [
+                  "schedule_change",
+                  "fulfilment_confirm",
+                  "customer_fact",
+                  "budget",
+                  "contact_release",
+                  "erasure",
+                  "other"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "options": {
+                "type": "array",
+                "maxItems": 4,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60
+                }
+              },
+              "subject_ref": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 512,
+                    "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+                  }
+                ]
+              },
+              "withdrawable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "audience",
+              "question_kind",
+              "text",
+              "options",
+              "subject_ref",
+              "withdrawable"
+            ]
           }
         },
         "required": [
@@ -7397,6 +7462,26 @@
                   }
                 }
               ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "question"
+              ]
+            },
+            "then": {
+              "properties": {
+                "schema_version": {
+                  "const": "1.1"
+                },
+                "kind": {
+                  "enum": [
+                    "escalate",
+                    "needs_information"
+                  ]
+                }
+              }
             }
           }
         ]
@@ -9014,6 +9099,186 @@
           }
         }
       },
+      "WorkbenchPending": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-pending",
+        "title": "workbench-pending",
+        "description": "K4 (owner 2026-11-01, dsh intake §3.3, Q-2 and Q-3): the workbench home 'waiting for me' read of one tenant, GET /api/v1/workbench/pending (workbench read verb `pending`). Read-only: every count comes from an existing read projection or the K4 question register, filtered by what the signed-in member may act on as the server derives their current role; a question's audience only orders the list and never widens it. Six fixed categories (questions, approvals, remediations, reply escalations, takeovers expiring, candidate definitions awaiting review); alert acknowledgement is not part of it. questions carries at most the 20 oldest open questions this member may answer, text cut to 120 characters, the subject as a reference only. all_clear is true exactly when every count is zero. answer.operation names the governed Action that answers a question; holding it grants nothing by itself, the server checks question_kind against the member's role at dispatch. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "all_clear",
+          "last_health_check_at",
+          "categories",
+          "questions"
+        ],
+        "properties": {
+          "all_clear": {
+            "type": "boolean"
+          },
+          "last_health_check_at": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          },
+          "categories": {
+            "type": "array",
+            "minItems": 6,
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "count",
+                "oldest_waiting_seconds",
+                "oldest_ref"
+              ],
+              "properties": {
+                "category": {
+                  "enum": [
+                    "question",
+                    "approval",
+                    "remediation",
+                    "reply_escalation",
+                    "takeover_expiry",
+                    "candidate_review"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "oldest_waiting_seconds": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  ]
+                },
+                "oldest_ref": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 512,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "questions": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "question_id",
+                "audience",
+                "question_kind",
+                "text",
+                "options",
+                "subject_ref",
+                "withdrawable",
+                "created_at",
+                "due_by",
+                "answer"
+              ],
+              "properties": {
+                "question_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "audience": {
+                  "enum": [
+                    "owner",
+                    "operator"
+                  ]
+                },
+                "question_kind": {
+                  "enum": [
+                    "schedule_change",
+                    "fulfilment_confirm",
+                    "customer_fact",
+                    "budget",
+                    "contact_release",
+                    "erasure",
+                    "other"
+                  ]
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "options": {
+                  "type": "array",
+                  "maxItems": 4,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  }
+                },
+                "subject_ref": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 512,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"
+                    }
+                  ]
+                },
+                "withdrawable": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "due_by": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "answer": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "operation"
+                  ],
+                  "properties": {
+                    "operation": {
+                      "const": "nexloop.human_question.answer:1"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
       "WorkbenchWorldModelV2": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v2:workbench-world-model",
@@ -9904,7 +10169,7 @@
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",
     "review-decision.schema.json": "0697e40727889a919f0909a44091d5f65f3081d4906c00f6dd02d65d93d59d57",
     "run-command.schema.json": "1d3be1a2316247e3ca7d1a80bd51bd0fdf2fa490293c1ab1036880f8dc530b22",
-    "run-outcome.schema.json": "89136bd36e0c57cd6ff3b453635f50dc64950ea59b2799a1be169de53bd2850d",
+    "run-outcome.schema.json": "d1d360172b352ccacbdeca9ba8f93c93b33cfa9f26335e7069712ac0034ac2ad",
     "schema-proposal.schema.json": "034fa3bf47735e115ef2ffbf86d281332790b9ccd5f43a927bd080187f1836df",
     "strategy-version.schema.json": "edf78631c7f3676b81579e0ab364fb78f7c3cc7d372ce17156f43334a258ef9f",
     "trajectory-sample.schema.json": "0edf634efeb3811dbf267b4874ded44ccc2b35ad7bb8d8a7cc5dbb0f2a130d5c",
@@ -9915,6 +10180,7 @@
     "workbench-object-neighbors.schema.json": "658414b148404f7d62a16564eee47bdf32559b83b04a96a6d29a02e7c9959fc0",
     "workbench-object-page.schema.json": "a5c73602e52fc972aef296eb7f907af4ee58344f5601f8d7f5544b5491a301f4",
     "workbench-object-values.schema.json": "3ebb1b48ce3e6b21315aaa9a7a79ee195f2ecbfddfa9086f06630f6b1f169efe",
+    "workbench-pending.schema.json": "0961c4dcbd9e8ff8ec8719a579bae7ba5c3715b06788f8fb911ad1b92b364fff",
     "workbench-world-model-v2.schema.json": "15b462206d4bae3c95c078221ac53e60907be544126cd9a51441ccc24d23062f",
     "workbench-world-model.schema.json": "8d95753382700b3653874220642e3f427b430d305e3d83832b190dc497752f12"
   }

@@ -308,6 +308,10 @@ OPERATIONS={
     # Stale action claims (2026-10-31, owner only): end one stale active claim whose result is settled.
     'settle_action_claim':{'claim_action':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.]{0,159}')),'intent_id':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}')),
         'category':lambda v:v if v in ('uncommitted','confirmed_not_delivered') else (_ for _ in ()).throw(ValueError('category')),'reason':_reason},
+    # K4b (owner and operator; the handler checks the question kind against the member's role): answer, correct or withdraw.
+    'answer_human_question':{'question_id':_id(_UUID),'answer_kind':lambda v:v if v in ('answer','withdraw') else (_ for _ in ()).throw(ValueError('answer kind')),
+        'option_index':lambda v:v if v is None or (type(v) is int and 0<=v<=3) else (_ for _ in ()).throw(ValueError('option index')),
+        'text':lambda v:v if v is None or (type(v) is str and 1<=len(v)<=500) else (_ for _ in ()).throw(ValueError('text'))},
     # Extraction dead letters (0355, owner only): requeue or dismiss one dead-lettered claim-extraction job.
     'resolve_extraction_dead_letter':{'task_id':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}')),
         'disposition':lambda v:v if v in ('requeue','dismiss') else (_ for _ in ()).throw(ValueError('disposition')),'reason':_reason},
@@ -459,7 +463,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited
@@ -469,7 +473,7 @@ def router(config,*,ports_for_browser):
         except psycopg.errors.InsufficientPrivilege as refused:
             # NX-056: an approval refusal names its fixed code (approver_unauthorized, not_requester, requester_unavailable); the status
             # stays 403 and nothing else of the message is passed on.
-            code=re.fullmatch(r'approval: ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:approval|human question): ([a-z_]{1,40})',refused.diag.message_primary or '')
             return error('forbidden',403,{'reason':code.group(1)} if code else None)
         except PermissionError:
             return error('forbidden',403)
