@@ -34,6 +34,7 @@ MESSAGE_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': {
                 'effect_supplies': [{'action': 'nexloop.enterprise.deliver:1', 'offering_id': 'o' * 64, 'offering_revision': 1,
                                      'properties': {'service_code': 'enterprise.synthetic', 'title': '合成企业交付', 'price_amount': '100.00'}}]}
 PLAN_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': None, 'current_event': TRIGGER}
+SIM_PACK = {'schema_version': 'nexloop.context-pack.sim.v1', 'data_mode': 'simulation', 'current_event': None, 'consumer_state': [], 'evidence': []}
 TOOLS = {'effect_tools': True, 'plan_outcome_tool': True, 'incentive_tool': True}
 RUNS = {
     'message_reply': {'host': TOOLS, 'plan': False, 'pack': MESSAGE_PACK},
@@ -41,6 +42,10 @@ RUNS = {
     # ADR-023 §2.7: the fallback reply Run's Context carries the customer's statement; its request id is not a plan's.
     'fallback_reply': {'host': TOOLS, 'plan': False, 'pack': {**MESSAGE_PACK, 'effect_supplies': []}},
     'outreach': {'host': {**TOOLS, 'outreach_tool': True}, 'plan': True, 'pack': PLAN_PACK},
+    # NX-041 (K1b): a simulation Host's reply Run: SIM_RUN_INSTRUCTIONS and the stand-in tools (same names, simulated answers),
+    # through the same RuntimeHost/PiRuntimeAdapter path. No plan tools (a simulation Host offers them to non-message Runs only
+    # when configured), no enterprise delivery (it has no stand-in).
+    'simulation_reply': {'host': {'effect_tools': True, 'incentive_tool': True, 'world_group': 'simulation'}, 'plan': False, 'pack': SIM_PACK},
 }
 # Framing budget per Run kind, in estimated tokens (baseline at 366295aa in the comment).
 FRAMING_BUDGET = {
@@ -48,6 +53,7 @@ FRAMING_BUDGET = {
     'plan_reevaluation': 3250,   # 2822: + plan.outcome, no enterprise
     'fallback_reply': 2300,      # 1997: no enterprise supply
     'outreach': 3900,            # 3375: + outreach.send
+    'simulation_reply': 1700,    # 1445 (K1b, 8ba485e6): SIM_RUN_INSTRUCTIONS + stand-in incentive.issue, service.request/find
 }
 # Host-only tools: offered to the model, but not EIOS Actions of the published catalogs.
 HOST_ONLY = {
@@ -115,6 +121,12 @@ def test_every_run_kind_is_assembled(requests):
     assert 'nexloop.service.request' in names['message_reply'] and 'nexloop.enterprise.deliver' in names['message_reply']
     assert 'nexloop.plan.outcome' in names['plan_reevaluation'] and 'nexloop.outreach.send' not in names['plan_reevaluation']
     assert 'nexloop.outreach.send' in names['outreach'] and 'nexloop.plan.outcome' not in names['fallback_reply']
+    # The simulation Run reads the simulation instructions, never the real ones, and its tools are the stand-ins of the real names
+    # (no simulation-only tool exists, so HOST_ONLY needs no entry for it).
+    simulation = _system(requests['simulation_reply'])['sections']['instructions']
+    assert 'This Run is in a simulation world.' in simulation and 'formal_facts' not in simulation
+    assert names['simulation_reply'] == {'nexloop.incentive.issue', 'nexloop.service.request', 'nexloop.service.find'}
+    assert all(t['description'].startswith('Simulation world:') for t in _tools(requests['simulation_reply']))
 
 
 @pytest.mark.parametrize('kind', RUNS)
