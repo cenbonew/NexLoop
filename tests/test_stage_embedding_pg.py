@@ -99,7 +99,7 @@ def test_calls_are_reserved_before_the_provider_and_a_closed_budget_claims_nothi
     rows = admin.execute("select amount::text from control.nexloop_budget_consumption where tenant_id=%s and consumption_id like 'embedding:recall-indexer:%%'",
                          (tenant,)).fetchall()
     assert rows == [('0.000004',)]
-    # The worker with the budgeted provider: a refusal puts the item back unprocessed (pending, not dead-lettered).
+    # The worker with the budgeted provider: a refusal defers the item unprocessed (S91: pending, no attempt spent, never dead-lettered).
     restart()
     worker = RecallInstanceIndexWorker(f['worker'], authenticate_service(f['worker'], token, world='real'), f['signer'],
                                        types={'Consumer': None, 'Product': None}, provider=wrapped, expected_dimension=64)
@@ -110,6 +110,7 @@ def test_calls_are_reserved_before_the_provider_and_a_closed_budget_claims_nothi
     try:
         summary = worker.run_once()
     except EmbeddingBudgetDenied:
-        summary = {'retry': 1}
-    assert summary.get('retry', 0) >= 1
+        summary = {'deferred': 1}
+    assert summary.get('deferred', 0) >= 1 and summary.get('retry', 0) == 0
     assert all(r[5] == 'pending' for r in feed_rows(admin, 'recall-instance'))
+    assert admin.execute("select count(*) from runtime.nexloop_work_feed where feed='recall-instance' and last_code='embedding_budget' and deferred_since is not null").fetchone()[0] >= 1

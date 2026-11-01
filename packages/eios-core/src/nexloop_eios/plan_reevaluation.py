@@ -146,7 +146,9 @@ class LaunchedRun:
 # S90 (owner 2026-11-01): how long a plan that must wait (paused, budget exhausted) is put off per deferral, and how long a run of
 # deferrals may last before it falls back to counted retries. Code constants: the settings file's keys are fixed (load_settings).
 DEFER_SECONDS=900
-MAX_DEFER_SECONDS=7*86400
+# S91 (L6): the model budget period on stage is 7 days; a budget used up at its start needs 7 days plus one deferral step to reach the
+# next period, so the bound is 7 days plus an hour (not exactly 7 days, which would spend an attempt minutes before the budget opens).
+MAX_DEFER_SECONDS=7*86400+3600
 
 
 def _budget_denied(triggers):

@@ -107,7 +107,7 @@ def test_defer_input_is_bounded(planning, payload, status):
 
 
 def test_constants():
-    assert plan_reevaluation.DEFER_SECONDS == 900 and plan_reevaluation.MAX_DEFER_SECONDS == 7 * 86400
+    assert plan_reevaluation.DEFER_SECONDS == 900 and plan_reevaluation.MAX_DEFER_SECONDS == 7 * 86400 + 3600
 
 
 @pytest.mark.parametrize('order,deferred', [(('control_snapshot_missing', 'budget_exhausted'), 1), (('budget_exhausted', 'control_snapshot_missing'), 0)])
