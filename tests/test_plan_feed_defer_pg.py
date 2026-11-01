@@ -108,3 +108,19 @@ def test_defer_input_is_bounded(planning, payload, status):
 
 def test_constants():
     assert plan_reevaluation.DEFER_SECONDS == 900 and plan_reevaluation.MAX_DEFER_SECONDS == 7 * 86400
+
+
+@pytest.mark.parametrize('order,deferred', [(('control_snapshot_missing', 'budget_exhausted'), 1), (('budget_exhausted', 'control_snapshot_missing'), 0)])
+def test_the_newest_trigger_decides(planning, order, deferred):
+    """L6 Q2: authz.nexloop_plan_feed_touch keeps the newest trigger first; the defer looks at that one only. A self denial then an
+    exhausted budget defers; the reverse does not. Guards against a silent change of the touch's concatenation order."""
+    f = planning; admin = f['admin']
+    s = spec(f['plan'], settings={'self_window_seconds': 600, 'self_trigger_cap': 5, 'min_reassess_seconds': 0}); f['port']().establish(s)
+    for code in order:
+        admin.execute("select authz.nexloop_plan_feed_touch(%s,'real',%s,%s,null)",
+                      (f['tenant'], s['plan_id'], Jsonb({'kind': 'dispatch_denied', 'cause': 'self', 'code': code})))
+    (_, payload, _, _), = feed(admin)
+    assert [t['code'] for t in payload['triggers'][:2]] == list(reversed(order))  # newest first
+    make_due(admin)
+    summary = f['worker'](FakeLauncher(f['plan'])).run_once()
+    assert summary['deferred'] == deferred and summary['launched'] == 1 - deferred

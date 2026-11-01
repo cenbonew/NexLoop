@@ -34,6 +34,8 @@
 - **独立上限**：一串连续推迟最长 7 天（`MAX_DEFER_SECONDS`，以 `runtime.nexloop_work_feed.deferred_since` 计）；超过后回到计次重试（可见于 feed attempts，最终死信）。长期推迟期间该条目的 `changed_at` 不变，`feed_backlog_age`（warning，> 600 s）会如实显示积压——这是"长期推迟由积压告警体现"的设计，判读时对照 `last_code='budget_exhausted'` / `'control_paused'`。
 - **恢复不再需要人工处理**：负责人执行 `Budget.set`（开启新期间或调整额度）→ 预算控制事件重新登记计划（最新触发变为 external，条目立即到期）→ 下一轮正常复评；恢复（resume）同理。上面 F1 b 的"人工处理办法"只在 7 天上限之后、或负责人要求立即复评时才需要。
 - 告警口径不变：defer 不是失败，不计入 failure_rate，不触发 `feed_dead_letter`；v28 不变。
+- **F1 b 在 S90 后的结论（核实实现后的准确说法）**：预算期间不会自然滚动，也就不会自己产生控制事件（0068，见 F1 b）。defer 每 900 秒让条目再被领取一次，但 worker 只看**最新触发**：只要最新触发仍是"本计划 Run 因预算耗尽被拒"，它就再推迟一次，**不会**主动去试预算是否已恢复。预算恢复的唯一途径是负责人的 `Budget.set`（新期间或新额度），它写的预算控制事件会把计划重新登记为 external 触发，下一次领取即继续。因此：预算恢复后不会卡在死信、也不需要人工 touch；若 7 天内一直没有 Budget.set，推迟串到上限后回到计次重试（可见、最终死信），这是"防无限推迟"的设计。
+- **Q1 判读 `feed_backlog_age`**：长时间推迟时条目的 `changed_at` 不变，`feed_backlog_age`（warning，> 600 s）会报警。对负责人主动暂停或预算耗尽这是**预期噪音**：先用下面的只读查询看 `last_code`——是 `control_paused` 或 `budget_exhausted` 则无需处理（等 resume / Budget.set）；是其它码按普通积压处理。
 - 只读观察：`select item_key, last_code, attempts, deferred_since, available_at from runtime.nexloop_work_feed where tenant_id=current_setting('eios.tenant_id') and world='real' and feed='plan-reevaluate' and deferred_since is not null order by deferred_since limit 20`。
 
 ## F2 每计划每小时复评 Run ≤ 上限（只读 SQL）
