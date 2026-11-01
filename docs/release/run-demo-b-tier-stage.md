@@ -277,9 +277,11 @@ Q3（APP_HOST，只数不读）：`sudo ls <outreach-sender 的 outbox 目录> |
 
 - **a) 为 s6c-2 建一条新的有效绑定**：`incentive_setup` 的配方必须同时含 `offering` 和 `consumers`，不支持只建绑定（`setup_recipe` 要求四个键齐全，`setup_incentives` 先建 offering 再建绑定）。
   - 用 S77 原来的 `request_id` 重放：offering 和 s6c-2 绑定的意图键不变，返回的是原来那条已撤下的绑定，没有用。
-  - 用**新的 `request_id`**：会**新建第二个 offering** `<O2>`（rev 1）和 s6c-2 对它的绑定 `<B2'>`。offering 字段可与原来相同（0389 不要求 `incentive_code` 唯一，以 stage 执行结果为准）。代价是目录里多一个测试 offering，验证后可以用 `withdraw` 配方撤下。5.2 改用 `<O2>`、`1`、`<B2'>`。
+  - 用**新的 `request_id`**：会**新建第二个 offering** `<O2>`（rev 1）和 s6c-2 对它的绑定 `<B2'>`。证据写明“为 5.2 新建第二个测试 offering”；s6c-2 的旧绑定 `5fe63acc…` 保持撤下，不改动。offering 字段可与原来相同（0389 不要求 `incentive_code` 唯一，以 stage 执行结果为准）。代价是目录里多一个测试 offering，验证后可以用 `withdraw` 配方撤下。5.2 改用 `<O2>`、`1`、`<B2'>`。
 - **b) 给 s6c-2 加联系限制**：没有直接设置联系限制的 owner Action。限制由顾客来信命中联系拒绝规则后生成（ADR-023），做法同 OUT 单 §3.1：s6c-2 在自己的会话里说一句“以后不要再联系我了。”（`local-only/out-s6c/out-restrict.sh`）。先看 P12：s6c-2 已有生效限制（OUT 单执行过）就跳过这一步。
-  - 事后解除：owner Action `release_contact_restriction`（`{"consumer_id": "<C2>", "reason": "…"}`），由 approver3 执行。
+  - 事后解除：owner Action `release_contact_restriction`（`{"consumer_id": "<C2>", "reason": "…"}`，能力 `goals.contact.release`），由 approver3 执行。
+  - **不需要第二位 owner 批准**（L6 K1，调度员 2026-11-01 在 stage 只读核对）：审批策略表里没有任何含 `contact` 的能力，`ro "select capability, version, quorum from control.nexloop_approval_policies where capability like '%contact%' order by 1,2"` 无行。本地一次性库上同一查询也执行无错、0 行。
+  - 兜底：如果执行时返回 `waiting_approval`，就按 approver3 发起、approver2 批准、approver3 执行的顺序完成（同 S76 §3.2），并把策略变化写进证据。
   - 这条消息和限制会落进 S6 和演进的输入：时间记入“排除时段”，与方案 R 的窗口同样处理。
 
 a 和 b 都可行时按 a + b 执行 5.2；任一不可行（例如 a 的 setup 被 0389 拒绝），#16 只做 5.1，证据写明“5.2 留待：原因 …”。
@@ -343,7 +345,7 @@ select kind, status, count(*) from ontology.nexloop_candidate_definitions where 
 select credential_id, status, expires_at > now() valid from authz.nexloop_service_credentials where credential_id like '%claim-match%';
 ```
 
-表和列已对照 0070（匹配日志、候选定义）核过，但这三条没有在一次性库上试跑。APP_HOST 上：`docker inspect -f '{{.State.Status}}' nexloop-app-claim-matcher-1`。
+**已试跑**（L3，2026-11-01，main 50415427 的 schema；L6 K2）：在一次性库（`tests/test_recall_pg.py` 的 `recall_db` 夹具：全量 bootstrap 加合成租户 A）上，用与 `ro` 相同的会话（只读事务、`set local role nexloop_owner`、设置 `eios.tenant_id`）执行这三条，全部无错，各 0 行。输出只有判定、类别、状态、计数和“是否有效”，没有摘要或正文。APP_HOST 上：`docker inspect -f '{{.State.Status}}' nexloop-app-claim-matcher-1`。
 
 以下是原来的核对 SQL 和判定，保留作参考。
 
