@@ -397,6 +397,9 @@ services:
       # NX-057 (design remediation-intents §9.4, Q-7): the deployment layer of the remediation planner, which runs in this process only.
       # From the private compose env, default false; only the exact value true opens it (run sheet run-nx057-remediation-stage §4.2).
       REMEDIATION_ENABLED: "${REMEDIATION_ENABLED:-false}"
+      # K4c (Q1): context-pack v7 for plan Runs (staff answers as evidence), only with the value plan and a strategy that declares v7;
+      # default off - the v6 bytes of today. Turn the Host's context_input_protocol to v7 first (it then reads v6 and v7).
+      NEXLOOP_CONTEXT_V7: "${NEXLOOP_CONTEXT_V7:-off}"
     entrypoint: [nexloop-plan-reevaluator]
     command: [--database-url-file, /run/secrets/plan_reevaluator_dsn, --service-credential-file, /run/secrets/plan_reevaluator_credential,
               --signing-key-file, /run/secrets/signing_key, --signing-key-id, "${SIGNING_KEY_ID:?signing key id}", --artifact-root,
