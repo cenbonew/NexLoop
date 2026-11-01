@@ -284,6 +284,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # World model W4 data assets 0224 counts a tenant's Claims by epistemic kind and resolution state for the metrics snapshot;
         # it returns counts only, no Claim value, quote or subject is read or projected.
         '_context_conversation_turns','_context_latest_consumer_turn','_context_degraded_fallback','_consumer_persona','_data_assets_metrics',
+        # S88 0396 copies the 0212 v6 section check verbatim without the fallback-issuance condition on the open_work exception;
+        # its pinned-Claim requirement is unchanged. K4c 0398 moves that body into the shared v6/v7 sections core with the same
+        # pinned-Claim requirement; the v7 human_answers items are staff answers, not Claims. No Claim value is read or projected.
+        '_context_degraded_any_run','_context_pack_v7',
         # Operator persona 0227 copies the latest erasure step (0145, Claim erasure unchanged) to add the persona tables to the
         # consumer phase; no Claim value is read or projected.
         '_operator_persona',
