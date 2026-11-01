@@ -126,7 +126,8 @@ test('overview commercial block: unavailable today is labelled; when served, bud
   const base={goals:unavailable,commitments:unavailable,actions:unavailable,contact:unavailable,takeovers:unavailable,backlog:unavailable};
   const off=render(client([[['workbench','overview'],overview({...base,commercial:unavailable})]]),h(Overview,{onOpen:()=>{}}));
   const offBlock=off.slice(off.indexOf('aria-label="商业事件与费用"'));
-  expect(offBlock).toContain('data-state="unavailable"');expect(offBlock).toContain('商业事件与费用暂不可用');expect(offBlock).toContain('未加载，不代表数量为零。');
+  // K4j: not served yet (NX-027 not wired) - said as not connected, neutral, not as a failure.
+  expect(offBlock).toContain('data-state="not_enabled"');expect(offBlock).toContain('商业事件与费用尚未接入');expect(offBlock).not.toContain('暂不可用');
   const served={status:'ok',data:{budgets:{model_tokens:{limit:'100',unit:'CNY',consumed:'12.5',ratio:0.125}},
     last_24h:[{cost_kind:'model',data_mode:'real',currency:'CNY',amount:'12.50',entries:3,unpriced:1}]}};
   const on=render(client([[['workbench','overview'],overview({...base,commercial:served})]]),h(Overview,{onOpen:()=>{}}));
