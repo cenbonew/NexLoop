@@ -29,6 +29,13 @@
   3. 不用直接 SQL touch。
 - **列为 S90 验收项**："defer 落地后，预算恢复（Budget.set）时被推迟的计划自动继续，且推迟期间不计次、不死信"；另：期间结束（NXB01 'budget period closed'）与额度用尽同样走 defer。
 
+## S90 之后（迁移 work_feed_defer 合入后，以本节为准）
+- **副作用消除**：复评条目的最新触发是"本计划 Run 因预算耗尽（或期间结束，同为 NXB01）被派发拒绝"时，worker 以 `defer` 推迟 900 秒（`plan_reevaluation.DEFER_SECONDS`），**不计次数、不死信、不建 Run**（不进入 self 窗口）；暂停（precheck 判 paused）同样 defer。预算长期耗尽不再出现 `feed_dead_letter`。
+- **独立上限**：一串连续推迟最长 7 天（`MAX_DEFER_SECONDS`，以 `runtime.nexloop_work_feed.deferred_since` 计）；超过后回到计次重试（可见于 feed attempts，最终死信）。长期推迟期间该条目的 `changed_at` 不变，`feed_backlog_age`（warning，> 600 s）会如实显示积压——这是"长期推迟由积压告警体现"的设计，判读时对照 `last_code='budget_exhausted'` / `'control_paused'`。
+- **恢复不再需要人工处理**：负责人执行 `Budget.set`（开启新期间或调整额度）→ 预算控制事件重新登记计划（最新触发变为 external，条目立即到期）→ 下一轮正常复评；恢复（resume）同理。上面 F1 b 的"人工处理办法"只在 7 天上限之后、或负责人要求立即复评时才需要。
+- 告警口径不变：defer 不是失败，不计入 failure_rate，不触发 `feed_dead_letter`；v28 不变。
+- 只读观察：`select item_key, last_code, attempts, deferred_since, available_at from runtime.nexloop_work_feed where tenant_id=current_setting('eios.tenant_id') and world='real' and feed='plan-reevaluate' and deferred_since is not null order by deferred_since limit 20`。
+
 ## F2 每计划每小时复评 Run ≤ 上限（只读 SQL）
 上限按该计划自己的设置计算：`self_trigger_cap × ceil(3600 / self_window_seconds)`（stage 2 × 6 = 12）。返回 0 行即符合；有行即超出（附该小时 Run 数与上限）。
 ```

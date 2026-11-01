@@ -65,4 +65,7 @@ class WorkFeed:
     def complete(self,*,item_key,fence):return self._call('complete',item_key=item_key,fence=fence)['status']
     def retry(self,*,item_key,fence,code,delay_seconds,max_attempts):
         return self._call('retry',item_key=item_key,fence=fence,code=code,delay_seconds=delay_seconds,max_attempts=max_attempts)['status']
+    def defer(self,*,item_key,fence,code,delay_seconds,max_defer_seconds):
+        """S90 (0400): later, not a failure - no attempt spent, never dead-lettered; 'defer_limit' past max_defer_seconds."""
+        return self._call('defer',item_key=item_key,fence=fence,code=code,delay_seconds=delay_seconds,max_defer_seconds=max_defer_seconds)['status']
     def backlog(self):return self._call('backlog')
