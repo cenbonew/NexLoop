@@ -17,6 +17,11 @@ from nexloop_eios.recall import RecallIndexer
 from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied,retry_delay
 
 FEED='recall-instance'
+# S91 (owner D1/D2): an exhausted model budget is 'later', not a failure - the item is deferred (no attempt spent) and picked up when
+# the budget opens again (a closed budget claims nothing); a run of deferrals longer than 7 days falls back to counted retries.
+BUDGET_DEFER_SECONDS=900
+# 7 days plus an hour (L6): a 7-day budget used up at its start opens again only after 7 days plus up to one deferral step.
+BUDGET_MAX_DEFER_SECONDS=7*86400+3600
 # (credential digest, world, profile) already activated by this process; the worker object is rebuilt every tick.
 _activated=set()
 # S55: types found still stale right after their rebuild, over the process lifetime.
@@ -88,13 +93,19 @@ class RecallInstanceIndexWorker:
         self.ensure_profile()
         self.reflow_definitions()
         from nexloop_eios.embedding_budget import EmbeddingBudgetDenied
-        summary={'indexed':0,'removed':0,'skipped':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0}
+        summary={'indexed':0,'removed':0,'skipped':0,'changed':0,'retry':0,'dead_lettered':0,'lease_lost':0,'deferred':0}
         denied=False
+        def budget_later(item):
+            # S91: deferred while the budget is exhausted; past BUDGET_MAX_DEFER_SECONDS a counted retry (visible, finally dead-lettered).
+            status=self.feed.defer(item_key=item['item_key'],fence=item['fence'],code='embedding_budget',delay_seconds=BUDGET_DEFER_SECONDS,
+                max_defer_seconds=BUDGET_MAX_DEFER_SECONDS)
+            if status=='defer_limit':
+                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='embedding_budget',delay_seconds=BUDGET_DEFER_SECONDS,max_attempts=20)
+            summary['retry' if status=='pending' else status]+=1
         for item in self.feed.claim(limit=self.batch,lease_seconds=self.lease_seconds):
             if denied:
                 # The model budget closed during this tick: the rest goes back unprocessed (no provider call).
-                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='embedding_budget',delay_seconds=300,max_attempts=20)
-                summary['retry' if status=='pending' else status]+=1;continue
+                budget_later(item);continue
             try:
                 outcome=self._index(item['payload'])
             except WorkFeedDenied:raise
@@ -102,10 +113,9 @@ class RecallInstanceIndexWorker:
                 # The object moved on during indexing; its newer change re-marks the item.
                 status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='revision_stale',delay_seconds=0,max_attempts=self.max_attempts)
                 summary['retry' if status=='pending' else status]+=1;continue
-            except EmbeddingBudgetDenied:
+            except EmbeddingBudgetDenied:  # the one 'later': its own type, before the generic failure below
                 denied=True
-                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='embedding_budget',delay_seconds=300,max_attempts=20)
-                summary['retry' if status=='pending' else status]+=1;continue
+                budget_later(item);continue
             except Exception as error:
                 code='embedding_unavailable' if type(error).__name__.startswith('Embedding') else 'index_failed'
                 status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code=code,
