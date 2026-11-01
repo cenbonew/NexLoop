@@ -1985,6 +1985,11 @@
       "version": "0397",
       "name": "0397_human_questions.sql",
       "sha256": "ae4835f6380851e72662e9e6044f5a7e37ef4f9eaaa3e1d7069f5f5e9dc27aec"
+    },
+    {
+      "version": "0398",
+      "name": "0398_context_pack_v7.sql",
+      "sha256": "ba463aa3e39b45b2ab0d7d3bdab0ec0630e3276ef0ce0ba3288e0cda3e74e2c7"
     }
   ]
 }

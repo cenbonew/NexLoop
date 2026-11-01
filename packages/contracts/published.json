@@ -7,6 +7,10 @@
     {
       "path": "context-pack-v6.schema.json",
       "sha256": "9f50b585d8d5eb7d6e3a7fee9d7b273cd990aac5dc6e86080680f0cf2b354e0a"
+    },
+    {
+      "path": "context-pack-v7.schema.json",
+      "sha256": "eed42d12f14acab06642ffc81224a659fd873ce455dc43596e1d7b6d2a4b1bd8"
     }
   ]
 }
