@@ -10,7 +10,7 @@
 ## R68 执行顺序（L6 核对要点，按此顺序，不得跳步）
 
 1. **建号**：身份操作员建 entry-test-consumer，加入 WebChat 客户授权（第 2.1–2.2 步）。
-2. **生成 Consumer**：测试客户先手动登录一次、开一个对话（第 2.3 步）。
+2. **建 Consumer 和归属**：`business_setup`（第 2.3 步）。**登录或开对话不会建出 Consumer**：会话入口要求 `control.nexloop_consumer_owners` 里已有这个 principal 的行，否则 403（R67 实测）。
 3. **标记 persona 并核对**：owner 执行 `consumer.set_persona` = simulated_agent，并做第 2.5 步的只读核对。**必须在打开开关之前完成。**
 4. **发密钥**：第 1 步。两台主机各一份，0600，`sha256sum` 摘要一致。
 5. **备份**：按部署单做迁移前备份。
@@ -52,8 +52,13 @@ python3 <检出>/scripts/deploy/stage_secrets.py entry-ticket-key --out <树>
 
 1. **身份操作员建号**：用配方的 `identity_human` 部分，做法同 identity-human 配方。口令用 python secrets 生成，并检查长度；生成后直接存进 Keychain（`nexloop/…/entry-test-consumer`），再经管道装到主机。不回显，不写文件。
 2. **加入 WebChat 客户授权**：用配方的 `webchat_consumers` 部分执行 `python -m nexloop_eios.webchat_consumers --apply ...`。
-3. **建出 Consumer**：用 entry-test-consumer 手动登录 WebChat 一次，开一个对话。这一步会写入 `control.nexloop_consumer_owners`。
-4. **标记 persona**：负责人在工作台对这个 Consumer 执行 `consumer.set_persona` = `simulated_agent`，理由写 `entry-test`（ADR-034）。
+3. **建 Consumer 和归属（受治理，`business_setup`）**：用 `deploy/examples/nx037/business-recipe.example.json`，`human_principal_id` 填 entry-test-consumer 的 principal，执行方式同 run-assembly §6.1（`--owner-credential-file` 为 business_owner，`--executor-credential-file` 为 effect_executor）。
+   - 它依次建：Consumer（`Consumer.create`）、这个 Consumer 自己的 EffectControl（`budget_units`、`valid_until`，不是租户预算，也不是试用期配置）、ConsumerOwnership（`register_consumer_owner`，写入 `control.nexloop_consumer_owners`）。
+   - 测试客户只需要能登录、能进入，`budget_units` 取最小值 1，`valid_until` 取 30 天内。
+   - 预期输出 `configured: true` 和 `consumer_id`；同一配方再执行一次，返回相同的对象。
+   - **登录 WebChat 或开对话都不会建出 Consumer**（R67 实测 403 "conversation unavailable"）。原文写错了，已改正。
+   - S81 的走查 7 项都不需要 Agent 回复，所以**不需要** catalog_setup、enterprise_setup、role_assembly、relay 登记（run-assembly §6.2–8）。走查时不要以测试客户身份发消息：没有 relay 时，回复兜底会把消息升级给 owner，产生无关的升级记录。
+4. **标记 persona（必须在打开开关之前）**：business_setup 一完成 Consumer 就存在，不需要先开对话。负责人用 `scripts/deploy/erase_synthetic_consumer.py mark`（受治理的 owner Action `nexloop.consumer.set_persona:1`，配置 `nexloop-consumer-persona/1`，做法同 run-s6-stage-prep §2.2a 第 6 步：先 dry-run 再执行），把这个 Consumer 标为 `simulated_agent`，理由写 `entry-test`（ADR-034）。
 5. **只读核对**：
    - `ro "select runtime.nexloop_consumer_persona('<TENANT_ID>','real',(select consumer_id from control.nexloop_consumer_owners where tenant_id='<TENANT_ID>' and principal_id='<PRINCIPAL_ID>'))"` 预期 `simulated_agent`。
    - 0231 的外呼候选会因 `persona_excluded` 跳过这个客户。
