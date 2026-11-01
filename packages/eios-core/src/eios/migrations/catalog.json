@@ -1990,6 +1990,11 @@
       "version": "0398",
       "name": "0398_context_pack_v7.sql",
       "sha256": "ba463aa3e39b45b2ab0d7d3bdab0ec0630e3276ef0ce0ba3288e0cda3e74e2c7"
+    },
+    {
+      "version": "0399",
+      "name": "0399_plan_denial_self_cause.sql",
+      "sha256": "d10cb09ae8e898d5e605d06e741f0cf8515b87eae2f607a0fc67acf7ce8aeea2"
     }
   ]
 }
