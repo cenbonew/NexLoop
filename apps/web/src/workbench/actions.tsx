@@ -240,11 +240,10 @@ export function RemediationRuleReleaseForm({member,ruleId}:{member:Me;ruleId:str
 
 /** The tenant's remediation switch: pausing takes effect at once; failures while paused get no remediation, now or later. */
 export function RemediationSwitchForm({member,paused}:{member:Me;paused:boolean}){
-  const [reason,setReason]=useState('');
-  return <Form operation="switch_remediation" title={paused?'恢复补救':'暂停补救'} member={member} tone={paused?undefined:'danger'} body={()=>({paused:!paused,reason})}>
-    <p className="impact-summary" role="note">影响：{paused?'之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}</p>
-    <Reason id="remediation-switch-reason" value={reason} onChange={setReason}/>
-  </Form>;
+  // F02 (K4g): a switch, not a task - behind its button (impact and reason in the panel), so the page has no open form without a task.
+  return <ConfirmedForm operation="switch_remediation" member={member} trigger={paused?'恢复补救…':'暂停补救…'} title={paused?'恢复补救':'暂停补救'}
+    tone={paused?undefined:'danger'} impact={paused?'影响：之后的最终失败重新按规则生成补救；暂停期间的失败不会补生成。':'影响：立即停止为新的最终失败生成补救；暂停期间的失败以后也不会补生成，已有的补救不受影响。'}
+    body={reason=>({paused:!paused,reason})}/>;
 }
 
 // ---- pause / resume (owner, Control.set) ----
@@ -346,11 +345,12 @@ export function EffectQueryForm({member}:{member:Me}){
   const unknown=useQuery({queryKey:['workbench','actions','unknown'],queryFn:()=>readActions('unknown'),enabled:offers(member,'request_effect_query')});
   const [chosen,setChosen]=useState('');const [reason,setReason]=useState('');
   const ids=unknown.data?.intents.map(i=>i.intent_id)??[];const target=ids.includes(chosen)?chosen:'';
-  if(unknown.data&&!ids.length)return null;
+  // F02 (K4g): a form only with a task - not while the list loads, fails or is empty.
+  if(!ids.length)return null;
   return <Form operation="request_effect_query" title="查询执行结果" member={member} disabled={!target} body={()=>target?{intent_id:target,reason}:null}>
     <p className="note">对“待核对”的意图向渠道查询结果；不是重发。</p>
-    {ids.length?<div className="field"><label htmlFor="query-intent">意图</label><select id="query-intent" value={target} required onChange={e=>setChosen(e.target.value)}><option value="">请选择待核对的意图</option>
-      {unknown.data!.intents.map(i=><option key={i.intent_id} value={i.intent_id}>{i.intent_id.slice(0,8)}… {i.action_name}</option>)}</select></div>:<p className="note">没有待核对的意图。</p>}
+    <div className="field"><label htmlFor="query-intent">意图</label><select id="query-intent" value={target} required onChange={e=>setChosen(e.target.value)}><option value="">请选择待核对的意图</option>
+      {unknown.data!.intents.map(i=><option key={i.intent_id} value={i.intent_id}>{i.intent_id.slice(0,8)}… {i.action_name}</option>)}</select></div>
     <Reason id="query-reason" value={reason} onChange={setReason}/>
   </Form>;
 }
