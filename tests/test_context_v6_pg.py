@@ -320,7 +320,8 @@ def test_budget_trims_evidence_but_never_pinned_sources(v6,admin,mode):
     """AT-028: over budget, non-pinned evidence is omitted with reasons (recorded as omitted
     sources); negations/contact limits stay; if pinned alone exceed, the pack says so."""
     f=v6;tenant=f['original']['tenant']
-    tiny=copy.deepcopy(STRATEGY);tiny.update(version=2,input_token_budget=1024,framing_reserve=0)
+    # S87: 3000 (was 1024) - the v2 estimate counts the fixed sections, which alone exceed 1024; the same trim and the same pinned overflow.
+    tiny=copy.deepcopy(STRATEGY);tiny.update(version=2,input_token_budget=3000,framing_reserve=0)
     seed_strategy(admin,tenant,tiny)
     long='很长的历史原文'*90
     pinned=[seed_claim(admin,f,kind='constraint',polarity='negated',quote=('不要再联系我' if mode=='trim' else '不要再联系我'+long)+str(n)) for n in range(1 if mode=='trim' else 3)]

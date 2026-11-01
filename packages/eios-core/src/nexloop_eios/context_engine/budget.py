@@ -45,16 +45,26 @@ class Item:
     def content_hash(self):return hashlib.sha256(canonical_payload(self.content).encode()).hexdigest()
 
 
-class ConservativeEstimator:
-    """Deliberately high token estimate: ceil(UTF-8 bytes / 2) + per-item framing.
+def wire_item(item):
+    """An item as the pack carries it (contract context-pack-v6 section entry)."""
+    return {'subsection':item.subsection,'ref':item.ref,'revision':item.revision,'content':item.content,'content_hash':item.content_hash,
+        'evidence_kind':item.evidence_kind,'access_decision_ref':item.access_decision_ref,'relevance_permille':round(item.relevance*1000),'at':item.at,
+        'tags':sorted(item.tags)}
 
-    CJK text (3 bytes/char, usually ~1 token/char) and ASCII (~4 bytes/token) are both
-    over-counted. A model-specific tokenizer may replace it; characters are never tokens.
+
+class ConservativeEstimator:
+    """Token estimate: ceil(UTF-8 bytes / 2) of what the pack carries.
+
+    S87 (S86 (a), owner 2026-11-01): v1 counted an item's content only (+8) and none of the fixed sections, so used was about
+    half of the provider input (D1: provider ~ 1.92 x used + 3622, deepseek-flash). v2 counts each item as the pack carries it
+    (wire_item: its envelope with two 64-hex digests included) and estimate_value counts the fixed sections, which apply_budget
+    adds to used: used <= available means the whole pack fits the pack budget again. Not a tokenizer: no provider ratio here.
     """
-    estimator_id='conservative-bytes-half-v1'
-    item_overhead=8
+    estimator_id='conservative-bytes-half-v2'
     def estimate(self,item):
-        return math.ceil(len(canonical_payload(item.content).encode())/2)+self.item_overhead
+        return self.estimate_value(wire_item(item))
+    def estimate_value(self,value):
+        return math.ceil(len(canonical_payload(value).encode())/2)
 
 
 @dataclass
@@ -68,8 +78,11 @@ class BudgetOutcome:
 def _order_worst_first(items,key):return sorted(items,key=key)
 
 
-def apply_budget(items,strategy,*,estimator=None):
+def apply_budget(items,strategy,*,estimator=None,fixed=0):
+    """fixed: the estimate of the pack's sections that are not items (bindings, goal, formal_facts, supply, persona, ...);
+    they are never trimmed and count toward used (S87)."""
     estimator=estimator or ConservativeEstimator()
+    if type(fixed) is not int or fixed<0:raise ValueError('fixed estimate')
     items=list(items)
     if len({(i.section,i.ref) for i in items})!=len(items):raise ValueError('duplicate context item')
     cost={id(i):estimator.estimate(i) for i in items}
@@ -77,7 +90,7 @@ def apply_budget(items,strategy,*,estimator=None):
     kept=list(items);omitted=[];insufficient=[]
     def drop(item,reason):
         kept.remove(item);omitted.append({'section':item.section,'subsection':item.subsection,'ref':item.ref,'reason':reason})
-    def used():return sum(cost[id(i)] for i in kept)
+    def used():return fixed+sum(cost[id(i)] for i in kept)
     recent=strategy['sections']['evidence']['recent_turns']
     def recent_turns():
         turns=sorted([i for i in kept if i.subsection=='conversation'],key=lambda i:(i.at,i.ref))
@@ -91,10 +104,10 @@ def apply_budget(items,strategy,*,estimator=None):
         over=max(0,len(loose)-limit)
         for item in _order_worst_first([i for i in loose if id(i) not in protected],lambda i:(i.subsection=='conversation',i.relevance,i.at,i.ref))[:over]:drop(item,'section_quota')
     pinned=[i for i in kept if i.pinned]
-    if sum(cost[id(i)] for i in pinned)>available:
+    if fixed+sum(cost[id(i)] for i in pinned)>available:
         for item in [i for i in kept if not i.pinned]:drop(item,'mandatory_exceeds_budget')
         insufficient.append({'code':'mandatory_exceeds_budget','section':None,'refs':[i.ref for i in pinned]})
-        return BudgetOutcome(kept,omitted,insufficient,_report(items,kept,omitted,cost,strategy,estimator))
+        return BudgetOutcome(kept,omitted,insufficient,_report(items,kept,omitted,cost,strategy,estimator,fixed))
     def candidates(step):
         loose=[i for i in kept if not i.pinned]
         if step=='duplicate_evidence':
@@ -126,14 +139,14 @@ def apply_budget(items,strategy,*,estimator=None):
             if used()<=available:break
             drop(item,'core_exceeds_budget');trimmed.append(item.ref)
         insufficient.append({'code':'core_trimmed','section':None,'refs':trimmed})
-    return BudgetOutcome(kept,omitted,insufficient,_report(items,kept,omitted,cost,strategy,estimator))
+    return BudgetOutcome(kept,omitted,insufficient,_report(items,kept,omitted,cost,strategy,estimator,fixed))
 
 
-def _report(items,kept,omitted,cost,strategy,estimator):
+def _report(items,kept,omitted,cost,strategy,estimator,fixed=0):
     sections={}
     for name in SECTIONS:
         k=[i for i in kept if i.section==name]
         sections[name]={'included':len(k),'omitted':sum(1 for o in omitted if o['section']==name),'tokens':sum(cost[id(i)] for i in k)}
     return {'estimator':estimator.estimator_id,'input_token_budget':strategy['input_token_budget'],'output_reserve':strategy['output_reserve'],
         'framing_reserve':strategy['framing_reserve'],'available':strategy['input_token_budget']-strategy['framing_reserve'],
-        'used':sum(cost[id(i)] for i in kept),'sections':sections,'omitted':omitted}
+        'used':fixed+sum(cost[id(i)] for i in kept),'sections':sections,'omitted':omitted}

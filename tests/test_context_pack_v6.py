@@ -231,3 +231,19 @@ def test_outreach_is_an_optional_exact_section():
                 {'purposes':[{**purpose,'body':'您好'}]},{'purposes':[{**purpose,'kind':'reminder'}]},
                 {'purposes':[{**purpose,'content_rules':{'max_chars':5,'unsubscribe_notice_required':False}}]}):
         assert not VALID.is_valid({**EXAMPLE,'outreach':{**OUTREACH,**bad}}),bad
+
+
+def test_s87_used_is_the_items_plus_the_fixed_sections_of_the_pack():
+    """S87: used = the kept items as the pack carries them + every section that is not an item list (budget_report and insufficient
+    aside), so used <= available bounds the whole pack."""
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    body,_=assemble_v6(**inputs())
+    half=lambda value:-(-len(canonical_payload(value).encode())//2)
+    items=('constraints','consumer_state','open_work','evidence','semantics','experience')
+    fixed=half({k:v for k,v in body.items() if k not in items and k not in ('budget_report','insufficient')})
+    kept=sum(half(entry) for name in items for entry in body[name])
+    assert body['budget_report']['estimator']=='conservative-bytes-half-v2'
+    assert body['budget_report']['used']==fixed+kept and fixed>kept/2
+    assert sum(s['tokens'] for s in body['budget_report']['sections'].values())==kept
+    whole=half({k:v for k,v in body.items() if k!='budget_report'})
+    assert body['budget_report']['used']<=whole<=body['budget_report']['used']+half(body['insufficient'])+64  # only separators apart
