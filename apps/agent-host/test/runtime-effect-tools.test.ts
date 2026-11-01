@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import {afterEach,describe,expect,it} from 'vitest';
-import {ENTERPRISE_RESULT_GUIDE,RuntimeEffectClient} from '../src/runtime-effect-tools.ts';
+import {ENTERPRISE_FIND_RESULT_NOTE,ENTERPRISE_RESULT_GUIDE,RuntimeEffectClient} from '../src/runtime-effect-tools.ts';
 import {command} from './pi-runtime-support.ts';
 
 const resources:{server:Server;directory:string}[]=[];
@@ -175,9 +175,12 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
   });
   it('tells the model the result fields, that pending is not a failure, no second order, and the customer\'s language',async()=>{
     const {client,cmd}=await bridge();
+    // S84 (S83 G1, L6): deliver carries the whole guide; find refers to it for the status glossary. Every other assertion holds for both.
+    expect(tool(client,cmd,'nexloop.enterprise.deliver').description).toContain(ENTERPRISE_RESULT_GUIDE);
+    expect(tool(client,cmd,'nexloop.enterprise.find').description).toContain(ENTERPRISE_FIND_RESULT_NOTE);
+    expect(tool(client,cmd,'nexloop.enterprise.find').description).toMatch(/same result fields as nexloop.enterprise.deliver/);
     for(const name of ['nexloop.enterprise.deliver','nexloop.enterprise.find']){
       const description=tool(client,cmd,name).description;
-      expect(description).toContain(ENTERPRISE_RESULT_GUIDE);
       expect(description).toMatch(/not a failure/);
       expect(description).toMatch(/Within this Run, once the result is back, do not request the same order again/);
       expect(description).not.toMatch(/place the order again yourself/);  // 10/18: no longer read as "never order again"
