@@ -31,6 +31,13 @@ state: it is kept only on the staff page and in this endpoint's own store, and G
 NexLoop, e.g. as an inbound event, is a follow-up after v0.1). Login sets an HttpOnly, Secure, SameSite=Strict
 session cookie; marks need the session's CSRF token.
 
+Entry ticket (S81 / ADR-043, optional --entry-ticket-key-file): POST /staff/entry (form body ticket=...) opens a READ-ONLY staff
+session for the NexLoop owner's test staff, without the staff token. The ticket is base64url(payload) '.' base64url(HMAC-SHA256(key,
+'nexloop-entry-ticket/1|' + payload)), payload {v:1, aud:reference_staff, sub:<label>, jti, iat, exp} with exp-iat at most 60 s
+(5 s clock skew); the jti is kept in this endpoint's store (primary key, so a replay after a restart is refused too). A read-only
+session lists the tickets but cannot mark them (403). Every refusal is one fixed page (401) that names no field of the ticket; the
+outcome is kept in the local audit (entry_ticket_uses) for 30 days. No key file: the route answers 404.
+
 Drill ("result temporarily unknown", for the 3 unknown_reconciliation interactions): only the local `drill` command can switch
 it, by writing a private control file in the data directory; no API route can. `--delay-next-posts N` makes the next N new
 POSTs persist first and answer only after --delay-seconds (default 5, beyond NexLoop's 2 s deadline); `--get-unavailable-seconds
@@ -115,6 +122,9 @@ class Store:
                     db.execute(f'alter table effects add column {column} text')
             db.execute('create table if not exists events(sequence integer primary key, intent_id text not null, '
                        'kind text not null, at text not null)')
+            # S81: entry ticket redemptions (jti unique: one use), kept 30 days; no address, no ticket.
+            db.execute('create table if not exists entry_ticket_uses(sequence integer primary key, jti text unique, staff_label text, '
+                       'outcome text not null, at text not null)')
         os.chmod(self.path, 0o600)
 
     def connect(self):
@@ -124,6 +134,18 @@ class Store:
         if db.execute('pragma synchronous').fetchone()[0] != 2:
             raise RuntimeError('synchronous FULL required')
         return db
+
+    def entry_use(self, jti, label, outcome):
+        """Record one redemption; False when the jti was already used (the replay is recorded without it). Purges 30-day-old rows."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        with self.lock, self.connect() as db:
+            db.execute('delete from entry_ticket_uses where at<?', (cutoff,))
+            try:
+                db.execute('insert into entry_ticket_uses(jti,staff_label,outcome,at) values(?,?,?,?)', (jti, label, outcome, now()))
+                return True
+            except sqlite3.IntegrityError:
+                db.execute('insert into entry_ticket_uses(jti,staff_label,outcome,at) values(null,?,?,?)', (label, 'used', now()))
+                return False
 
     @staticmethod
     def receipt(row):
@@ -344,8 +366,49 @@ PAGE_STYLE = (
 )
 
 
+ENTRY_CONTEXT = b'nexloop-entry-ticket/1|'
+ENTRY_TICKET = re.compile(r'([A-Za-z0-9_-]{1,512})\.([A-Za-z0-9_-]{43})')
+ENTRY_LABEL = re.compile(r'[a-z][a-z0-9-]{0,31}')
+ENTRY_FAILED = '<h1>服务工单（员工）</h1><p>自动登录失败，请用员工凭据登录。</p><p><a href="/staff">返回登录</a></p>'
+
+
+def _b64decode(text):
+    import base64
+    return base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
+
+
+def entry_claims(key, ticket, *, at=None):
+    """The verified claims of a staff entry ticket, or (None, reason). The reason goes to the local audit only."""
+    match = ENTRY_TICKET.fullmatch(ticket or '')
+    if not match:
+        return None, 'malformed'
+    try:
+        payload, mac = _b64decode(match.group(1)), _b64decode(match.group(2))
+    except ValueError:
+        return None, 'malformed'
+    import base64
+    if base64.urlsafe_b64encode(mac).rstrip(b'=').decode() != match.group(2) or base64.urlsafe_b64encode(payload).rstrip(b'=').decode() != match.group(1):
+        return None, 'malformed'  # canonical base64url only
+    if not hmac.compare_digest(mac, hmac.new(key, ENTRY_CONTEXT + payload, 'sha256').digest()):
+        return None, 'signature'
+    try:
+        claims = json.loads(payload)
+    except ValueError:
+        return None, 'malformed'
+    current = time.time() if at is None else at
+    if (type(claims) is not dict or set(claims) != {'v', 'aud', 'sub', 'jti', 'iat', 'exp'} or claims['v'] != 1
+            or type(claims['iat']) is not int or type(claims['exp']) is not int or type(claims['jti']) is not str
+            or not re.fullmatch(r'[a-f0-9]{32}', claims['jti']) or type(claims['sub']) is not str or not ENTRY_LABEL.fullmatch(claims['sub'])):
+        return None, 'malformed'
+    if claims['aud'] != 'reference_staff':
+        return None, 'wrong_target'
+    if not 0 < claims['exp'] - claims['iat'] <= 60 or claims['iat'] > current + 5 or claims['exp'] + 5 < current:
+        return None, 'expired'
+    return claims, None
+
+
 def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=None, tls_key_file=None, secure_cookie=True,
-                tenant_label=''):
+                tenant_label='', entry_ticket_key=None):
     if len(tenant_label) > 100:
         raise ValueError('tenant label')
     tenant_label = tenant_label.strip() or '未配置'
@@ -414,6 +477,8 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                 return self.staff_login()
             if self.path == '/staff/mark':
                 return self.staff_mark()
+            if self.path == '/staff/entry' and entry_ticket_key is not None:
+                return self.staff_entry()
             self.send_json(404, {'error': 'not_found'})
 
         def do_GET(self):
@@ -484,6 +549,31 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
             self.send_header('Content-Length', '0')
             self.end_headers()
 
+        def new_session(self, **extra):
+            session_id, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+            with sessions_lock:
+                sessions[session_id] = {'csrf': csrf, 'expires': time.time() + SESSION_SECONDS, **extra}
+            flags = 'HttpOnly; SameSite=Strict; Path=/staff' + ('; Secure' if secure_cookie else '')
+            return f're_session={session_id}; {flags}; Max-Age={SESSION_SECONDS}'
+
+        def staff_entry(self):
+            # S81: a refusal is one fixed page whatever the cause; the cause is kept in the local audit only.
+            try:
+                form = parse_qs(self.body().decode('ascii'), strict_parsing=True)
+                ticket = form['ticket'][0] if set(form) == {'ticket'} and len(form['ticket']) == 1 else ''
+            except (ValueError, KeyError, UnicodeDecodeError):
+                ticket = ''
+            claims, reason = entry_claims(entry_ticket_key, ticket)
+            if claims is None:
+                store.entry_use(None, None, reason)
+                return self.send_html(401, ENTRY_FAILED)
+            if not store.entry_use(claims['jti'], claims['sub'], 'session'):
+                return self.send_html(401, ENTRY_FAILED)
+            cookie = self.new_session(readonly=True, label=claims['sub'])
+            # 200 and a same-site step to /staff (not 303): the SameSite=Strict cookie set on this cross-site POST is sent on the next request.
+            self.send_html(200, '<meta http-equiv="refresh" content="0;url=/staff"><p>已登录（只读测试员工）。<a href="/staff">进入员工页面</a></p>',
+                           extra=(('Set-Cookie', cookie), ('Referrer-Policy', 'no-referrer')))
+
         def staff_page(self):
             current = self.session()
             if current is None:
@@ -501,7 +591,9 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                 if not in_view(view, state, summary):
                     continue
                 label = {'accepted': '待处理', 'fulfilled': '已处理', 'failed': '处理失败'}[state]
-                if state == 'accepted':
+                if state == 'accepted' and current.get('readonly'):
+                    result = '只读会话，不能标记'
+                elif state == 'accepted':
                     result = (f'<form class="mark" method="post" action="/staff/mark">'
                               f'<input type="hidden" name="csrf" value="{html.escape(current["csrf"])}">'
                               f'<input type="hidden" name="intent_id" value="{html.escape(intent)}">'
@@ -521,7 +613,8 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                             f'<td data-label="状态"><span class="badge s-{state}">{label}</span></td><td data-label="处理结果与备注">{result}</td></tr>')
             links = ''.join(f'<a href="/staff?view={v}"{" class=on" if v == view else ""}>{text}（{counts[v]}）</a>' for v, text in VIEWS.items())
             body = ''.join(rows) or '<tr><td colspan="6">没有工单。</td></tr>'
-            self.send_html(200, '<h1>服务工单（员工）</h1><p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。'
+            banner = (f'<p class="note">当前是只读测试员工（{html.escape(current["label"])}），只能查看，不能标记。</p>' if current.get('readonly') else '')
+            self.send_html(200, '<h1>服务工单（员工）</h1>' + banner + '<p>这是企业侧系统的替身，不属于 NexLoop。请在工作时间内处理，并标记处理结果。'
                                 '处理结果只保存在本系统，不回传 NexLoop。时间为北京时间，鼠标悬停可看 UTC。</p>'
                                 f'<nav class="views">{links}</nav>'
                                 '<table><tr><th>请求摘要</th><th>来源租户 / 意图 id</th><th>收到时间（北京时间）</th><th>处理人</th><th>状态</th>'
@@ -531,6 +624,8 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
             current = self.session()
             if current is None:
                 return self.send_html(401, '<p>请先登录。</p>')
+            if current.get('readonly'):
+                return self.send_html(403, '<p>只读会话不能标记。</p>')
             try:
                 form = parse_qs(self.body().decode(), strict_parsing=True)
                 csrf, intent, state = form['csrf'][0], form['intent_id'][0], form['state'][0]
@@ -572,6 +667,8 @@ def main(argv=None):
     s.add_argument('--tls-key-file', required=True)
     s.add_argument('--service-token-file', required=True)
     s.add_argument('--staff-token-file', required=True)
+    s.add_argument('--entry-ticket-key-file', default=os.environ.get('ENDPOINT_ENTRY_TICKET_KEY_FILE', ''),
+                   help='S81: private HMAC key shared with NexLoop (32 bytes hex); enables POST /staff/entry')
     s.add_argument('--tenant-label', default=os.environ.get('ENDPOINT_TENANT_LABEL', ''),
                    help='source tenant shown on the staff page (one endpoint serves one enterprise)')
     d = sub.add_parser('drill')
@@ -596,8 +693,14 @@ def main(argv=None):
         service, staff = token_file(args.service_token_file), token_file(args.staff_token_file)
         if hmac.compare_digest(service.encode(), staff.encode()):
             raise ValueError('service and staff tokens must differ')
+        entry_key = None
+        if args.entry_ticket_key_file:
+            entry_key = bytes.fromhex(private_text(args.entry_ticket_key_file, maximum=128).strip())
+            if len(entry_key) != 32:
+                raise ValueError('entry ticket key: 32 bytes')
         server = make_server(data_dir=args.data_dir, listen=args.listen, service_token=service, staff_token=staff,
-                             tls_cert_file=args.tls_cert_file, tls_key_file=args.tls_key_file, tenant_label=args.tenant_label)
+                             tls_cert_file=args.tls_cert_file, tls_key_file=args.tls_key_file, tenant_label=args.tenant_label,
+                             entry_ticket_key=entry_key)
         print(json.dumps({'ready': True}), flush=True)
         server.serve_forever()
         return 0
