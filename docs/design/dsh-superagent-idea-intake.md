@@ -68,7 +68,7 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 **需要的决定。** Q-1（§7），已决定：采纳三态，启用状态（目的清单 v1 的 `default_enabled` 与租户状态表的 `enabled`）并入 `mode`，观察记录沿用派发拒绝表保留期。
 
 **L6 注记（第 2 版增补）。**
-- **N1**：`observe` 不得改变 `live` 路径的短路语义与拒绝码。前 10 道闸门在两种模式下的判定与顺序相同；单测断言同一输入在 `observe` 与 `live` 下**首个拒绝码一致**（`live` 被某道闸门拒绝时，`observe` 记录的首个拒绝也是这道闸门、这个码），`purpose_observe_only` 只出现在全部闸门通过之后。
+- **N1**：`observe` 不得改变 `live` 路径的短路语义与拒绝码。前 10 道闸门在两种模式下的判定与顺序相同；单测断言同一输入在 `observe` 与 `live` 下**首个拒绝码一致**（`live` 被某道闸门拒绝时，`observe` 记录的首个拒绝也是这道闸门、这个码），`purpose_observe_only` 只出现在全部闸门通过之后。observe 模式仍会运行真实的复评 Run（有模型成本），并产生 `world=real` 的意图记录，仅派发被观察而非执行。
 - **N1（成本）**：`observe` 不是零成本。复评 Run 照常执行，产生真实的模型与 Run 预算成本；意图照常以 `world=real` 记录（只是派发终结于 `purpose_observe_only`）。负责人开启 `observe` 前应知晓这部分成本，成本视图照常计入。
 - **N2**：启用状态（目的清单 v1 的 `default_enabled` 与租户状态表的 `enabled`）并入 `mode` 是对主动触达设计稿 §2 目的字段的修订，已在 [主动触达设计稿](proactive-outreach.md) 修订记录中登记并指向本稿。
 
@@ -146,7 +146,7 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 | 队列行按 (kind, key) 合并，带 `generation` 计数 | 同 key 再次入队替换载荷、置为立即到期但保留队列位置；`generation` 递增，正在运行的尝试完成后不会删除更新的载荷 | Effect Worker 与后台服务的待办表（`effect_dispatch.py`、`plan_reevaluation.py` 的“同一计划只保留一条待办复评”）是否区分“覆盖待办载荷”与“运行中尝试完成后的删除”；若用 `FOR UPDATE SKIP LOCKED` 领取并带 fence，可能已等价 |
 | “稍后再试”与“失败”分开 | 抛 `Later` 表示现在不能做（暂停、槽位满、来源关闭），重排不计失败次数；真失败才计数并指数退避，连续三次才上报健康 | 派发拒绝码中 `real_dispatch_closed`、`quiet_hours`、`budget_exhausted` 等是否计入失败重试计数与告警；若计入，勿扰时段会制造假告警 |
 
-核对由实现线在 §8 的 K0 完成。第 2 版写入 L7 的 K0 结论（L7 只读核对于 main 366295aa）：
+核对由实现线在 §8 的 K0 完成。第 2 版写入 L7 的 K0 结论，原记录位置：L7 K0 只读核对记录（2026-11-01，调度线 notes 目录 `l7-k0-dsh-details/`：`k0-findings.md`、`k0-section4-v2.md`，对照 main 366295aa）。
 
 **4.1 队列合并与 generation：不需要新机制。** NexLoop 的后台工作队列 `runtime.nexloop_work_feed`（迁移 0093 起）已经按 (租户, 世界, feed, item_key) 合并：同 key 再次入队（`authz.nexloop_work_feed_touch`）替换载荷、`change_seq` 加一、立即到期并清零次数；领取时把当时的 `change_seq` 记为租约 fence，完成时只有 fence 仍等于 `change_seq` 才删除，否则保留新载荷为待办（返回 `changed`），过期或被替换的租约返回 `lease_lost`。这与 dsh 的 generation 等价，`plan_reevaluation.py` 的"同一计划只保留一条待办复评"就是它。差别只在 dsh 保留队列位置、NexLoop 把到期时间置为现在，对正确性无影响。Run 任务队列（`runtime.jobs`，按入站事件去重、`fencing_token` 围栏）和 Effect 派发（`runtime.nexloop_effect_intents`，同一业务意图只重放、载荷不同即 `effect_payload_conflict`）**不应**合并：前者每个事件独立，后者涉及外部副作用，必须保持"稳定意图 ID、未知结果先查询"。因此本条不新增迁移。
 
@@ -165,7 +165,7 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 | `feed_backlog_age` | 积压的正确信号；`defer` 后长期推迟由它体现 | 不受影响 |
 | `queue_dead_letter` | 只来自 `runtime.jobs` 租约耗尽，拒绝码不进入 | 不受影响 |
 
-勿扰时段不是派发拒绝码，而是外呼闸门（0304）每轮重算的一项，`control_paused`、`contact_restricted`、`taken_over`、`real_dispatch_closed` 均无告警规则，不产生假告警。明细见 L7 的 K0 核对记录。
+勿扰时段不是派发拒绝码，而是外呼闸门（0304）每轮重算的一项，`control_paused`、`contact_restricted`、`taken_over`、`real_dispatch_closed` 均无告警规则，不产生假告警。明细见L7 K0 只读核对记录（2026-11-01，调度线 notes 目录 `l7-k0-dsh-details/`：`k0-findings.md`、`k0-section4-v2.md`，对照 main 366295aa）。
 
 ## 5. 否决的做法
 
