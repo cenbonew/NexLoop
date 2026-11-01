@@ -646,6 +646,10 @@ REGISTRY = [
             ((re.escape("v_ctx boolean;v_est text;"), "v_ctx boolean;"),
              (r"  -- S87: compare packs of one estimator only.*?limit 1;\n", ""),
              (re.escape(" and budget_report->>'estimator' is not distinct from v_est;"), ";"))),
+    # S89 (0398): the dispatch denial of a plan's own reevaluation Run is self-caused (throttled), not external.
+    Allowed('plan_denial_self_cause', 'runtime.nexloop_plan_on_job_failed', "cause 'self' instead of 'external'; nothing else",
+            ((r"   -- S89: the denied task is this plan's own reevaluation Run.*?one Run per worker tick\.\n", ""),
+             (re.escape("'cause','self','code'"), "'cause','external','code'"))),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
