@@ -118,10 +118,15 @@ services:
               --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key, --identity-token-key-file, /run/secrets/api_identity_token_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}",
               --browser-application-id, "${BROWSER_APPLICATION_ID:?application}", --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}",
               --browser-origin, "${BROWSER_ORIGIN:?https origin}", --web-root, /opt/nexloop/web,
-              --reference-endpoint-staff-url, "${REFERENCE_ENDPOINT_STAFF_URL:-}"]
+              --reference-endpoint-staff-url, "${REFERENCE_ENDPOINT_STAFF_URL:-}",
+              --entry-test-webchat-principal, "${ENTRY_TEST_WEBCHAT_PRINCIPAL:-}", --entry-ticket-key-file, /run/secrets/api_entry_ticket_key]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, api_identity_token_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, api_identity_token_key, api_entry_ticket_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    # S81 / ADR-043: entry tickets only when the host's private compose env sets this to stage (default off).
+    environment:
+      <<: *environment
+      NEXLOOP_ENTRY_TICKETS: ${NEXLOOP_ENTRY_TICKETS:-off}
     labels:
       nexloop.budget-service: "api,api-browser-identity"
   api-2:
@@ -136,10 +141,15 @@ services:
               /run/secrets/api_identity_dsn, --identity-pool-max, "2", --trusted-proxy-peer, 127.0.0.1, --browser-rate-key-file, /run/secrets/api_browser_rate_key,
               --identity-token-key-file, /run/secrets/api_identity_token_key, --browser-tenant-id, "${BROWSER_TENANT_ID:?tenant}", --browser-application-id, "${BROWSER_APPLICATION_ID:?application}",
               --workbench-application-id, "${WORKBENCH_APPLICATION_ID:?workbench application}", --browser-origin, "${BROWSER_ORIGIN:?https origin}",
-              --web-root, /opt/nexloop/web, --reference-endpoint-staff-url, "${REFERENCE_ENDPOINT_STAFF_URL:-}"]
+              --web-root, /opt/nexloop/web, --reference-endpoint-staff-url, "${REFERENCE_ENDPOINT_STAFF_URL:-}",
+              --entry-test-webchat-principal, "${ENTRY_TEST_WEBCHAT_PRINCIPAL:-}", --entry-ticket-key-file, /run/secrets/api_entry_ticket_key]
     volumes:
       - ${NEXLOOP_ROOT:?root}/data/artifacts:/var/lib/nexloop/artifacts
-    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, api_identity_token_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    secrets: [api_dsn, api_pg_client_cert, api_pg_client_key, api_identity_dsn, api_identity_pg_client_cert, api_identity_pg_client_key, api_browser_rate_key, api_identity_token_key, api_entry_ticket_key, signing_key, pg_ca, host_ca, host_control_key, api_loopback_cert, api_loopback_key]
+    # S81 / ADR-043: entry tickets only when the host's private compose env sets this to stage (default off).
+    environment:
+      <<: *environment
+      NEXLOOP_ENTRY_TICKETS: ${NEXLOOP_ENTRY_TICKETS:-off}
     labels:
       nexloop.budget-service: "api,api-browser-identity"
   domain-worker:
@@ -538,6 +548,7 @@ secrets:
   api_browser_rate_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/browser-rate.key"}
   # NX-058: the HMAC key of one-time workbench secrets (reset codes, invitations); 64 hex characters, separate from browser-rate.key.
   api_identity_token_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/identity-token.key"}
+  api_entry_ticket_key: {file: "${NEXLOOP_ROOT:?root}/secrets/api/entry-ticket.key"}
   signing_key: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/signing.key"}
   pg_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/db-ca.crt"}
   host_ca: {file: "${NEXLOOP_ROOT:?root}/secrets/shared/host-ca.crt"}

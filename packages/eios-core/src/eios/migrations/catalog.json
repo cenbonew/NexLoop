@@ -1955,6 +1955,11 @@
       "version": "0391",
       "name": "0391_service_credential_rescoped_rotation.sql",
       "sha256": "c4d60e0eb962642ef56fb831aa12fdbd83d531f6acd2f9300a04b535fff797d5"
+    },
+    {
+      "version": "0392",
+      "name": "0392_entry_tickets.sql",
+      "sha256": "c17524f71e21869af1ee58785c34a5ae0627e1c9a8b28c4621690fb146646469"
     }
   ]
 }

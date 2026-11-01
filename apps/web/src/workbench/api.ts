@@ -1331,11 +1331,38 @@ export function experiments(value:unknown):Experiment[]{return list(exactKeys(ob
 export const readExperiments=()=>get('/api/v1/workbench/experiments',experiments);
 
 // ---- owner S73: deployment links of the 入口 page (GET /api/v1/workbench/entries; the deployment's REFERENCE_ENDPOINT_STAFF_URL) ----
-export type EntryLinks={reference_endpoint_staff_url:string|null};
-/** Only a plain HTTPS URL becomes a link; anything else reads as no link (the server already refuses it at start). */
+export type EntryTarget='webchat'|'reference_staff';
+export type EntryLinks={reference_endpoint_staff_url:string|null;entry_tickets:EntryTarget[]};
+/** Only a plain HTTPS URL becomes a link; anything else reads as no link (the server already refuses it at start). S81: the targets
+ *  the deployment offers an entry ticket for (absent or unknown values read as none). */
 export function entryLinks(value:unknown):EntryLinks{
-  const raw=maybeText(object(value).reference_endpoint_staff_url);let url:string|null=null;
+  const v=object(value);const raw=maybeText(v.reference_endpoint_staff_url);let url:string|null=null;
   if(raw){try{const u=new URL(raw);if(u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash)url=u.href;}catch{url=null;}}
-  return {reference_endpoint_staff_url:url};
+  const targets=Array.isArray(v.entry_tickets)?v.entry_tickets.filter((x):x is EntryTarget=>x==='webchat'||x==='reference_staff'):[];
+  return {reference_endpoint_staff_url:url,entry_tickets:targets};
+}
+// ---- S81 / ADR-043: a one-time entry ticket (owner only; POST /api/v1/workbench/entry-tickets). The ticket lives only in memory and
+// in the form body it is posted with; the action is the WebChat's /api/v1/auth/entry or an HTTPS /staff/entry. ----
+export type EntryTicket={action:string;ticket:string};
+export function entryTicket(value:unknown,target:EntryTarget):EntryTicket{
+  const v=object(value);const action=text(v.action);const ticket=text(v.ticket);
+  if(v.target!==target)throw new Error('响应无效');
+  if(target==='webchat'){if(action!=='/api/v1/auth/entry'||!/^[A-Za-z0-9_-]{43}$/.test(ticket))throw new Error('响应无效');}
+  else{const u=new URL(action);if(u.protocol!=='https:'||u.pathname!=='/staff/entry'||u.search||u.hash||u.username||!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(ticket))throw new Error('响应无效');}
+  return {action,ticket};
+}
+export async function issueEntryTicket(target:EntryTarget):Promise<EntryTicket>{
+  let token:string;
+  try{
+    const csrf=await fetch('/api/v1/workbench/auth/csrf',{method:'POST',credentials:'same-origin',cache:'no-store'});
+    if(!csrf.ok)throw new WorkbenchWriteError(csrf.status===401?'unauthenticated':'not_sent');
+    token=text(object(await csrf.json()).csrf_token);
+  }catch(error){if(error instanceof WorkbenchWriteError)throw error;throw new WorkbenchWriteError('not_sent');}
+  let response:Response;
+  try{response=await fetch('/api/v1/workbench/entry-tickets',{method:'POST',credentials:'same-origin',cache:'no-store',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':token},body:JSON.stringify({target})});}
+  catch{throw new WorkbenchWriteError('unavailable');}
+  if(!response.ok)throw new WorkbenchWriteError(writeFailureOf(response.status,null));
+  try{return entryTicket(await response.json(),target);}catch{throw new WorkbenchWriteError('invalid');}
 }
 export function readEntryLinks():Promise<EntryLinks>{return get('/api/v1/workbench/entries',entryLinks);}

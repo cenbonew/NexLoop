@@ -261,7 +261,10 @@ def router(config, *, ports_for_workbench):
             return error('forbidden', 403)
         except Exception:
             return error('dependency_unavailable', 503)
-        return JSONResponse({'reference_endpoint_staff_url': config.reference_endpoint_staff_url}, headers=HEADERS)
+        # S81 / ADR-043: the targets this deployment offers an entry ticket for (the issue itself checks the owner role in SQL).
+        offered = [t for t, ready in (('webchat', bool(config.entry_test_webchat_principal)),
+                   ('reference_staff', bool(config.entry_ticket_key_file and config.reference_endpoint_staff_url))) if config.entry_tickets and ready]
+        return JSONResponse({'reference_endpoint_staff_url': config.reference_endpoint_staff_url, 'entry_tickets': offered}, headers=HEADERS)
 
     @routes.get('/capabilities')
     async def capabilities(request: Request):

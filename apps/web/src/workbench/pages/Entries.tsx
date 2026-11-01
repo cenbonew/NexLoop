@@ -5,9 +5,12 @@
  * opens in a new window and says so. No link changes state.
  * The reference endpoint's staff page (deploy/stage/reference-endpoint §6) is another host whose address only the deployment knows
  * (GET /api/v1/workbench/entries, compose REFERENCE_ENDPOINT_STAFF_URL): linked in a new window when given, left out when not.
+ * S81 / ADR-043: where the deployment offers it (entry_tickets), the owner can open the WebChat as the synthetic test customer or the
+ * staff page as the read-only test staff: a one-time ticket is posted in a form body into a new window, never put in a URL.
  */
+import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {readEntryLinks} from '../api';
+import {issueEntryTicket,readEntryLinks,type EntryTarget} from '../api';
 import {PAGES} from '../route';
 import {PageHeader} from '../kit';
 
@@ -27,15 +30,36 @@ function EntryList({entries}:{entries:Entry[]}){
     {e.note?<span className="note">{e.note}</span>:null}</li>)}</ul>;
 }
 
+/** Opens a named blank window inside the click (so it is not blocked), then posts the ticket into it; the form is removed at once. */
+export async function enterWithTicket(target:EntryTarget,doc:Document=document,open:(name:string)=>Window|null=name=>window.open('about:blank',name)){
+  const name='entry-'+target+'-'+Date.now();const opened=open(name);
+  try{
+    const {action,ticket}=await issueEntryTicket(target);
+    if(opened)opened.opener=null;
+    const form=doc.createElement('form');form.method='post';form.action=action;form.target=opened?name:'_blank';form.style.display='none';
+    const field=doc.createElement('input');field.type='hidden';field.name='ticket';field.value=ticket;form.append(field);
+    doc.body.append(form);form.submit();form.remove();
+  }catch(error){opened?.close();throw error;}
+}
+const ENTRY_LABELS:Record<EntryTarget,string>={webchat:'以测试客户身份直接进入 WebChat',reference_staff:'以只读测试员工身份直接进入员工页面'};
+function EntryButtons({targets}:{targets:EntryTarget[]}){
+  const [failed,setFailed]=useState<EntryTarget|null>(null);
+  if(!targets.length)return null;
+  return <div className="entry-direct">{targets.map(t=><p key={t}><button type="button" onClick={()=>{setFailed(null);enterWithTicket(t).catch(()=>setFailed(t));}}>
+    {ENTRY_LABELS[t]}</button>{failed===t?<span className="note" role="alert">没能直接进入，请用上面的链接手动登录。</span>:null}</p>)}
+    <p className="note">只限负责人；进入的是专用的合成测试账号，票据 30 秒内有效、只能用一次。</p></div>;
+}
+
 export function Entries({origin=window.location.origin}:{origin?:string}){
   const links=useQuery({queryKey:['workbench','entries'],queryFn:readEntryLinks,retry:false,refetchOnWindowFocus:false});
   const external=externalEntries(links.data?.reference_endpoint_staff_url);
   return <section className="workbench-page" aria-labelledby="workbench-page-title">
     <PageHeader title={PAGES.entries} lead="列出同一网关的其他页面与外部系统的入口，只读跳转，不会改动任何状态，均在新窗口打开。"/>
     <div className="entries">
-      <section className="entry-group" aria-labelledby="entry-origin"><h2 id="entry-origin">同一网关的其他页面</h2><EntryList entries={originEntries(origin)}/></section>
+      <section className="entry-group" aria-labelledby="entry-origin"><h2 id="entry-origin">同一网关的其他页面</h2><EntryList entries={originEntries(origin)}/>
+        <EntryButtons targets={(links.data?.entry_tickets??[]).filter(t=>t==='webchat')}/></section>
       {external.length?<section className="entry-group" aria-labelledby="entry-external"><h2 id="entry-external">外部系统</h2>
-        <EntryList entries={external}/></section>:null}
+        <EntryList entries={external}/><EntryButtons targets={(links.data?.entry_tickets??[]).filter(t=>t==='reference_staff')}/></section>:null}
     </div>
   </section>;
 }

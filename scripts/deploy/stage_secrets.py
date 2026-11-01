@@ -368,6 +368,42 @@ def add_identity_token_key(out, *, rotate=False):
     return {'rotated' if rotate else 'added': ['app:api/identity-token.key']}
 
 
+def add_entry_ticket_key(out, *, rotate=False):
+    """S81 / ADR-043: app/secrets/api/entry-ticket.key (32 random bytes as 64 hex) for a tree generated before it existed (generate writes
+    it for new trees, from the Compose secret), and the same value in management/endpoint/entry_ticket_key for the reference endpoint's
+    private secrets dir (installed by hand, owner 10002, 0600; compose.entry-ticket.example.yaml). --rotate replaces both: every
+    unused staff ticket stops working; restart api-1, api-2 and the endpoint together. No value is printed."""
+    out = Path(out)
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    target = out / 'app' / 'secrets' / 'api' / 'entry-ticket.key'
+    copy = out / 'management' / 'endpoint' / 'entry_ticket_key'
+    present = target.exists() or any(f['path'] == 'api/entry-ticket.key' for f in manifest['files'])
+    if present and not rotate and copy.exists():
+        raise Refused('the tree already holds the entry ticket key (--rotate replaces it)')
+    if rotate and not present:
+        raise Refused('nothing to rotate: the tree holds no entry ticket key')
+    if present and not rotate:
+        # generate wrote the api file (Compose secret); only the endpoint copy is missing.
+        value = target.read_text().strip()
+    else:
+        target.unlink(missing_ok=True)
+        manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/entry-ticket.key']
+        value = secrets.token_hex(32)
+        _write(target, value)
+        entry = {'host': 'app', 'path': 'api/entry-ticket.key', 'secret': 'api_entry_ticket_key', 'service': 'api', 'owner': _owner('api')}
+        entry['kind'], entry['phase'], entry['note'] = classify('app', 'api', 'entry-ticket.key')
+        entry.update(generated=True, sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+        manifest['files'].append(entry)
+        manifest_path.chmod(0o600)
+        manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    copy.parent.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(copy.parent, 0o700)
+    copy.unlink(missing_ok=True)
+    _write(copy, value)
+    return {'rotated' if rotate else 'added': ['app:api/entry-ticket.key', 'management/endpoint/entry_ticket_key']}
+
+
 def add_metrics(out, ca_dir, params_file):
     """G-METRICS-DSN for a tree generated before the metrics client existed (generate writes it for new trees): management/metrics
     (APP_HOST, certificate only), data/secrets/backup/metrics.dsn (DATA_HOST socket, SCRAM) and management/metrics-role-password.sql,
@@ -1294,6 +1330,9 @@ def main(argv=None):
     m.add_argument('--out', type=Path, required=True)
     m.add_argument('--ca-dir', type=Path, required=True)
     m.add_argument('--params', type=Path, required=True)
+    etk = sub.add_parser('entry-ticket-key', help='S81: the entry ticket key shared by the api and the reference endpoint (ADR-043)')
+    etk.add_argument('--out', type=Path, required=True)
+    etk.add_argument('--rotate', action='store_true', help='replace the key: every unused staff ticket stops working; restart api and endpoint')
     itk = sub.add_parser('identity-token-key', help='NX-058: add the workbench one-time secret key to a tree generated before it existed')
     itk.add_argument('--out', type=Path, required=True)
     itk.add_argument('--rotate', action='store_true', help='replace the key: every unused code and invitation stops working; restart api and api-2 together')
@@ -1357,6 +1396,8 @@ def main(argv=None):
             out, code = add_service(args.out, args.ca_dir, args.params, args.service), 0
         elif args.command in ('rotate-credential', 'revoke-credential'):
             out, code = credential_main(args), 0
+        elif args.command == 'entry-ticket-key':
+            out, code = add_entry_ticket_key(args.out, rotate=args.rotate), 0
         elif args.command == 'identity-token-key':
             out, code = add_identity_token_key(args.out, rotate=args.rotate), 0
         elif args.command == 'metrics':
