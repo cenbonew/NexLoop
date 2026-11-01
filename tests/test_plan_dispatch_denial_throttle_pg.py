@@ -26,7 +26,8 @@ def deny(admin, plan, run_id, code):
     admin.execute("update runtime.jobs set status='failed',result=%s where job_id=%s", (Jsonb({'code': code}), job))  # the trigger fires
 
 
-CODES = ('control_paused', 'goal_version_stale', 'control_revision_stale', 'object_revision_stale', 'budget_exhausted', 'control_snapshot_missing')
+# budget_exhausted: since S90 a denial for an exhausted budget is deferred, not throttled (tests/test_plan_feed_defer_pg.py).
+CODES = ('control_paused', 'goal_version_stale', 'control_revision_stale', 'object_revision_stale', 'control_snapshot_missing')
 
 
 @pytest.mark.parametrize('code', CODES)

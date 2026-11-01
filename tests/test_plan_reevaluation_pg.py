@@ -131,9 +131,12 @@ def test_pause_waits_without_a_run_and_resume_is_not_replay(planning):
     consumer=f['plan']['consumer'];launcher=FakeLauncher(f['plan'])
     owner_change(admin,f['tenant'],{'operation':'set_control','scope_kind':'consumer','scope_ref':consumer,'paused':True,'reason':'owner pause'},'nx024-pause')
     (key,payload,_,_),=feed(admin);assert payload['triggers'][-1]['kind']=='control_paused'
-    assert f['worker'](launcher).run_once()['paused']==1 and launcher.activated==[] and feed(admin)==[]
+    # S90: paused is later, not done - the item waits (deferred, no attempt spent) until the resume re-registers it.
+    assert f['worker'](launcher).run_once()['deferred']==1 and launcher.activated==[]
+    (key,payload,status,future),=feed(admin);assert status=='pending' and future
+    assert admin.execute('select attempts,last_code from runtime.nexloop_work_feed where item_key=%s',(key,)).fetchone()==(0,'control_paused')
     owner_change(admin,f['tenant'],{'operation':'set_control','scope_kind':'consumer','scope_ref':consumer,'paused':False,'reason':'owner resume'},'nx024-resume')
-    assert feed(admin)[0][1]['triggers'][-1]['kind']=='resume'
+    assert feed(admin)[0][1]['triggers'][0]['kind']=='resume' and feed(admin)[0][3] is False  # newest first; due now
     assert f['worker'](launcher).run_once()['launched']==1
     assert launcher.activated[0][1]['reasons']==['control_revision_stale']
     # An unrelated consumer's pause does not touch this plan.

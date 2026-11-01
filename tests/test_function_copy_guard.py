@@ -657,6 +657,12 @@ REGISTRY = [
     Allowed('plan_denial_self_cause', 'runtime.nexloop_plan_on_job_failed', "cause 'self' instead of 'external'; nothing else",
             ((r"   -- S89: the denied task is this plan's own reevaluation Run.*?one Run per worker tick\.\n", ""),
              (re.escape("'cause','self','code'"), "'cause','external','code'"))),
+    # S90 (0401): the work feed's defer verb (later, not a failure) and a real retry clearing deferred_since.
+    Allowed('work_feed_defer', 'authz.nexloop_work_feed', 'one more verb, defer; retry clears deferred_since; nothing else',
+            ((re.escape("('claim','complete','retry','defer','backlog')"), "('claim','complete','retry','backlog')"),
+             (re.escape("in ('complete','retry','defer') then"), "in ('complete','retry') then"),
+             (r"  elsif v_verb='defer' then\n.*?    v_result:=jsonb_build_object\('status','deferred'\);\n   end if;\n", ""),
+             (re.escape(" else 0 end,deferred_since=null\n"), " else 0 end\n"))),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
