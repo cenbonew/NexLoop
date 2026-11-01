@@ -1965,6 +1965,11 @@
       "version": "0393",
       "name": "0393_context_input_ratio.sql",
       "sha256": "0afc9cdedebbd33cdd75e7fd9eb88f7e8bd027ab2c64d2c93677391a24ebe7b7"
+    },
+    {
+      "version": "0394",
+      "name": "0394_erasure_undated_commitment_backfill.sql",
+      "sha256": "ed942ba03a3a1ac0bbbddc7cc4e7d779276fb71958077f3d38b4700f737194b9"
     }
   ]
 }
