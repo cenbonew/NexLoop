@@ -180,6 +180,21 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'actions', **arguments)
 
+    @routes.get('/pending')
+    async def pending(request: Request):
+        # K4d (workbench-pending v1): the home "waiting for me" read; `after` is the last question_id of the previous page.
+        try:
+            q = query(request, ('after', 'limit'))
+            if 'after' in q and not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', q['after']):
+                raise ValueError()
+            limit = limit_of(q['limit']) if 'limit' in q else 20
+            if limit > 20:
+                raise ValueError()
+            arguments = {'after': q.get('after'), 'limit': limit}
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'pending', **arguments)
+
     @routes.get('/remediations')
     async def remediations(request: Request):
         # NX-057 R1: remediation intents (state filter, limit); counts and codes only, no reason text.
