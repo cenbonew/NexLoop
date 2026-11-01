@@ -16,6 +16,7 @@ import pytest
 
 from support.copy_guard import Allowed, MIGRATIONS, check, migrations, normalize, redefinitions
 from support.remediation_r2_edits import EDITS as R2_EDITS
+from support.human_questions_edits import EDITS as HQ_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -222,6 +223,10 @@ REGISTRY = [
               "and i.world=p_world and i.created_at>now_at-interval '1 hour' and i.state in ('fulfilled','confirmed','unknown','failed') and not "
               "(i.state='failed' and exists(select 1 from runtime.nexloop_dispatch_refusals r where r.tenant_id=i.tenant_id and r.world=i.world "
               "and r.intent_id=i.intent_id)) group by 1),"))),
+    # K4b (human_questions): the outcome port accepts run-outcome 1.1 and opens its question; the retention keeper gains questions_expire.
+    *[Allowed('human_questions', name, 'K4b: run-outcome 1.1 with its question (outcome port) / the questions_expire verb (retention keeper); nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in HQ_EDITS.items()],
     # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
     *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
