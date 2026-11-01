@@ -40,3 +40,4 @@
 - 测试须覆盖：收尾复查在租约丢失、Run 凭据撤销、来源权威变化后仍拒绝并回滚意图与额度；上下文读证明在 guard_before 失效时仍拒绝；同载荷再提交返回同一意图且额度只预留一次；不同载荷仍报冲突；`find` 再查不改变状态。
 - 200 客户模板对比每次效应调用的语句数与耗时；1000 客户模板对比失败码分布。
 - 被拒绝：直接把效应客户端时限放宽到超过 2 s（违反 ADR-022 §4，且掩盖成本问题）；对 `submit` 做无界重试。
+- 补记（S84，2026-11-01）：Host 提供给模型的工具参数 schema（`toolsAdded[].parameters`）可以是契约的精简写法，**可以比契约更严，但不能更宽**；校验源始终是契约本身——Host 自己的参数检查（`runOutcome`、激励与 request_scope 的检查）和 guard 端的契约校验（`RunOutcome.model_validate`），从不引用给模型的 schema。等价性与"只严不宽"由 `apps/agent-host/test/model-schema.test.ts` 在 pi-durable 的实际参数检查下验证。
