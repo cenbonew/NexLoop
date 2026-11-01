@@ -5,7 +5,8 @@
 --   question          open human questions (K4b) whose kind lists the member's role, before due_by (an erased one, its text blanked, is not listed)
 --   approval          approval requests waiting, before due_by, that another member asked for (NX-056)   owner
 --   remediation       remediation intents proposed or escalated to the owner (NX-057)                    owner
---   reply_escalation  reply escalations (ADR-023 §2.7) whose message still has no bound reply             owner, operator
+--   reply_escalation  reply escalations (ADR-023 §2.7) whose message has no bound reply the channel accepted or delivered (a reply
+--                     persisted, dispatching, unknown or failed leaves it waiting: the customer may not have it)   owner, operator
 --   takeover_expiry   takeovers in effect that end within the next hour (owner: all; operator: own)      owner, operator
 --   candidate_review  candidate definitions pending review (ADR-019)                                      owner, reviewer
 -- A category the role cannot act on answers count 0. Alert acknowledgement is not a category.
@@ -38,7 +39,8 @@ begin
   union all
   select 'reply_escalation',1,4,e.escalated_at,'message:'||e.message_id from control.nexloop_reply_escalations e
    where p_role in ('owner','operator') and e.tenant_id=p_tenant and e.world=p_world
-    and not exists(select 1 from runtime.nexloop_outbound_messages o where o.tenant_id=e.tenant_id and o.world=e.world and o.trigger_message_id=e.message_id)
+    and not exists(select 1 from runtime.nexloop_outbound_messages o where o.tenant_id=e.tenant_id and o.world=e.world and o.trigger_message_id=e.message_id
+     and o.delivery_state in ('provider_accepted','delivered'))
   union all
   select 'takeover_expiry',1,5,t.started_at,'takeover:'||t.takeover_id from control.nexloop_takeovers t
    where p_role in ('owner','operator') and t.tenant_id=p_tenant and t.world=p_world and t.ended_at is null

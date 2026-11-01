@@ -131,6 +131,22 @@ def test_questions_page_by_after_and_limit(members):
         assert pending(w, 'operator', bad).status_code == 422, bad
 
 
+def test_a_reply_escalation_waits_until_a_bound_reply_is_accepted_or_delivered(members):
+    """L6 P1: a bound reply that is only persisted, dispatching, unknown or failed does not settle the escalation."""
+    w = members; admin = w['admin']
+    replica(admin, """insert into control.nexloop_reply_escalations(tenant_id,world,message_id,conversation_id,consumer_id,reason,detail)
+        values(%s,'real',%s,%s,%s,'fallback_failed','{}')""", (TENANT, 'a' * 64, 'b' * 64, 'd' * 64))
+    def outbound(state):
+        replica(admin, """insert into runtime.nexloop_outbound_messages(tenant_id,world,intent_id,receipt_id,conversation_id,trigger_message_id,run_id,sender_kind,
+            sender_principal,role_ref,body_digest,delivery_state) select %s,'real',%s,%s,%s,%s,%s,'agent','relay-synthetic','role:reply',repeat('f',64),%s""", (TENANT, uuid.uuid4(), uuid.uuid4(), 'b' * 64, 'a' * 64, uuid.uuid4(), state))
+    outbound('persisted')  # one bound reply per inbound message; its delivery state moves (set as admin, triggers off)
+    for state in ('persisted', 'dispatching', 'unknown', 'failed', 'provider_accepted'):
+        replica(admin, "update runtime.nexloop_outbound_messages set delivery_state=%s where trigger_message_id=%s", (state, 'a' * 64))
+        assert counts(pending(w, 'operator').json())['reply_escalation'] == (0 if state == 'provider_accepted' else 1), state
+    replica(admin, "update runtime.nexloop_outbound_messages set delivery_state='delivered' where trigger_message_id=%s", ('a' * 64,))
+    assert counts(pending(w, 'operator').json())['reply_escalation'] == 0
+
+
 def test_the_read_writes_nothing_and_outsiders_are_refused(members):
     w = members; admin = w['admin']
     seed_others(admin, w)
