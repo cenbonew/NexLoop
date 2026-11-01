@@ -681,3 +681,6 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .entries{display:grid;gap:24px}.entry-group h2{font-size:16px;line-height:24px;margin:0 0 8px}
 .entry-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}.entry-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
 .entry-list .note{margin:0;font-size:14px}.entry-new{font-size:13px;color:var(--muted);margin-left:4px}
+/* K4e: 待我处理 on the home page, one row per category with work. */
+.pending-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}.pending-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.pending-list .note{margin:0;font-size:14px}.pending-label{font-weight:600}
