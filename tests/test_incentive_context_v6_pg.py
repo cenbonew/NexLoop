@@ -51,3 +51,21 @@ def test_sql_refuses_a_pack_that_widens_an_incentive(role_planning,monkeypatch):
     run=w.launcher.issue(decision,budget)
     with pytest.raises(ContextArtifactUnavailable):w.launcher.activate(run,decision,budget,[])
     assert seen[-1].last_diagnostic[1]=='context source content mismatch'
+
+
+@pytest.mark.parametrize('withdrawn', ['IncentiveOffering', 'ConsumerIncentiveOffering'])
+def test_a_withdrawn_incentive_is_not_in_the_context_so_the_tool_is_not_offered(role_planning, withdrawn):
+    """S85 (S83 batch 2, L6 acceptance): the Host offers nexloop.incentive.issue only for an IncentiveOffering in open work
+    (runtime-host.ts incentiveOffered). An offering, or its binding to the customer, withdrawn (active false) is not derived into
+    the pack, so the Run gets no incentive tool."""
+    f=role_planning;admin=f['admin']
+    s=f['establish'](steps=[within_ceiling()]);tenant=f['plan']['tenant'];consumer=consumer_of(f,s['plan_id'])
+    offer=seed_catalog(admin,tenant,consumer)
+    target=offer['incentive_offering_id'] if withdrawn=='IncentiveOffering' else offer['binding_id']
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("update ontology.objects set properties=properties||'{\"active\":false}' where tenant_id=%s and object_id=%s",(tenant,target))
+    summary=f['worker']().run_once();assert summary['launched']==1,summary
+    (run_id,)=admin.execute('select run_id::text from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()
+    pack=json.loads(admin.execute("select pack_text from runtime.nexloop_role_context_artifacts where run_id=%s and pack_text like '%%budget_report%%'",(run_id,)).fetchone()[0])
+    assert not any(i['subsection']=='incentive' for i in pack['open_work'])
