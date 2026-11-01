@@ -34,6 +34,12 @@ MESSAGE_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': {
                 'effect_supplies': [{'action': 'nexloop.enterprise.deliver:1', 'offering_id': 'o' * 64, 'offering_revision': 1,
                                      'properties': {'service_code': 'enterprise.synthetic', 'title': '合成企业交付', 'price_amount': '100.00'}}]}
 PLAN_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': None, 'current_event': TRIGGER}
+# S85 (S83 batch 2): the incentive tool only with an IncentiveOffering of the customer in open work, the reply's request_scope only
+# with a guarantee or discount the supply allows. The budgets below are for the widest surface, so these packs carry both.
+WIDEST = {'open_work': [{'subsection': 'incentive', 'ref': 'eios:object:IncentiveOffering/' + '1' * 64}],
+          'supply': {'properties': {'allowed_guarantees': ['synthetic-guarantee'], 'allowed_discounts': []}}}
+MESSAGE_PACK = {**MESSAGE_PACK, **WIDEST}
+PLAN_PACK = {**PLAN_PACK, **WIDEST}
 SIM_PACK = {'schema_version': 'nexloop.context-pack.sim.v1', 'data_mode': 'simulation', 'current_event': None, 'consumer_state': [], 'evidence': []}
 TOOLS = {'effect_tools': True, 'plan_outcome_tool': True, 'incentive_tool': True}
 RUNS = {
@@ -182,3 +188,28 @@ def test_framing_fits_the_context_strategy_framing_reserve(requests, kind):
 def test_the_reserve_covers_every_run_kind_budget():
     # Every strategy may serve every Run kind (relay --context-strategy, the reply guarantee's fallback), so each reserves the largest.
     assert all(s['framing_reserve'] >= max(FRAMING_BUDGET.values()) for s in json.loads(CONTEXT_STRATEGIES.read_text())['strategies'])
+
+
+NARROW = {kind: {**run, 'pack': {k: v for k, v in run['pack'].items() if k not in WIDEST}} for kind, run in RUNS.items() if kind != 'simulation_reply'}
+
+
+@pytest.fixture(scope='module')
+def narrow_requests(tmp_path_factory):
+    node = shutil.which('node')
+    path = tmp_path_factory.mktemp('model-surface-narrow') / 'runs.json'
+    path.write_text(json.dumps(NARROW, ensure_ascii=False))
+    result = subprocess.run([node, '--no-warnings', str(DUMP), str(path)], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr[-2000:]
+    return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize('kind', NARROW)
+def test_tools_are_offered_only_when_the_context_needs_them(requests, narrow_requests, kind):
+    """S85: without an IncentiveOffering in open work no incentive tool; without allowed terms the reply has no request_scope
+    (a stricter schema: request_scope is refused by the argument check). The surface shrinks; the widest still bounds the budget."""
+    names = {t['name'] for t in _tools(narrow_requests[kind])}
+    assert 'nexloop.incentive.issue' not in names and 'nexloop.incentive.issue' in {t['name'] for t in _tools(requests[kind])}
+    (reply,) = [t for t in _tools(narrow_requests[kind]) if t['name'] == 'nexloop.service.request']
+    assert set(reply['parameters']['properties']) == {'message'} and reply['parameters']['additionalProperties'] is False
+    assert 'request_scope' not in reply['description']
+    assert framing_tokens(narrow_requests[kind]) < framing_tokens(requests[kind]) - 700

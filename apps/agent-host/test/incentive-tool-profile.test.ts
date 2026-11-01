@@ -17,12 +17,38 @@ const toolNames=(h:RuntimeHost)=>{
  const adapter=(h as unknown as {adapter:{options:{toolsForRun?:(c:unknown)=>readonly {name:string}[]}}}).adapter;
  return (adapter.options.toolsForRun?.(command())??[]).map(tool=>tool.name);
 };
+const tools=(h:RuntimeHost,cmd:unknown)=>{
+ const adapter=(h as unknown as {adapter:{options:{toolsForRun?:(c:unknown)=>readonly {name:string}[]}}}).adapter;
+ return adapter.options.toolsForRun?.(cmd)??[];
+};
+const toolNamesFor=(h:RuntimeHost,cmd:unknown)=>tools(h,cmd).map(tool=>tool.name);
+const activate=(h:RuntimeHost,cmd:{run_id:string},pack:Record<string,unknown>)=>
+ (h as unknown as {activations:Map<string,{ref:string;input:string}>}).activations.set(cmd.run_id,{ref:'activation_synthetic',input:JSON.stringify(pack)});
 describe('incentive tool configuration',()=>{
  it('is not offered unless the Host configuration turns it on',()=>{
   expect(toolNames(open())).not.toContain('nexloop.incentive.issue');
   expect(toolNames(open())).toContain('nexloop.service.request');
  });
- it('is offered with incentive_tool true',()=>{expect(toolNames(open({incentive_tool:true}))).toContain('nexloop.incentive.issue');});
+ it('is offered with incentive_tool true when the Run\'s Context has an IncentiveOffering (S85)',()=>{
+  const h=open({incentive_tool:true});const cmd=command();
+  // No activation input, or a Context without an offering in open work (SQL lists only bound, active, valid ones): not offered.
+  expect(toolNamesFor(h,cmd)).not.toContain('nexloop.incentive.issue');
+  activate(h,cmd,{open_work:[{subsection:'commitment',ref:'eios:object:Commitment/'+'2'.repeat(64)}]});
+  expect(toolNamesFor(h,cmd)).not.toContain('nexloop.incentive.issue');
+  activate(h,cmd,{open_work:[{subsection:'incentive',ref:'eios:object:IncentiveOffering/'+'1'.repeat(64)}]});
+  expect(toolNamesFor(h,cmd)).toContain('nexloop.incentive.issue');
+ });
+ it('offers the reply\'s request_scope only when the supply allows a guarantee or a discount (S85)',()=>{
+  const h=open({});const cmd=command();
+  const scope=()=>{const reply=tools(h,cmd).find(t=>t.name==='nexloop.service.request') as unknown as {parameters:{properties:Record<string,unknown>};description:string};
+   return [Object.keys(reply.parameters.properties).sort(),reply.description.includes('request_scope')];};
+  activate(h,cmd,{supply:{properties:{allowed_guarantees:[],allowed_discounts:[]}}});
+  expect(scope()).toEqual([['message'],false]);
+  activate(h,cmd,{supply:{properties:{allowed_guarantees:[],allowed_discounts:['loyalty']}}});
+  expect(scope()).toEqual([['message','request_scope'],true]);
+  activate(h,cmd,{supply:{properties:{allowed_guarantees:['refund'],allowed_discounts:[]}}});
+  expect(scope()[0]).toEqual(['message','request_scope']);
+ });
  it.each([{incentive_tool:false},{incentive_tool:'yes'},{incentive_tool:true,effect_tools:false}])('rejects %j',extra=>{
   expect(()=>open(extra)).toThrow('runtime configuration refused');
  });
