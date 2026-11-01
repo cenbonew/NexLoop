@@ -188,6 +188,8 @@ def create_app(config:ApiConfiguration):
                 raise BackendClosed('backend is unavailable')
             return backend.authenticate_workbench(inspected_session)
         app.include_router(workbench_router(config.workbench, ports_for_workbench=workbench_ports))
+        from nexloop_eios.entry_tickets import router as entry_ticket_router
+        app.include_router(entry_ticket_router(config.workbench))
         from nexloop_eios.data_export_http import ExportPorts, router as export_router
         def export_ports(request, inspected_session):
             backend = getattr(request.app.state, 'backend', None)
@@ -342,6 +344,11 @@ def parse(argv=None,environ=None):
     p.add_argument('--workbench-application-id')
     # Owner S73: the reference endpoint staff page linked from the workbench 入口 page; empty = no link (compose default).
     p.add_argument('--reference-endpoint-staff-url',default='')
+    # S81 / ADR-043: entry tickets, on only when the environment says NEXLOOP_ENTRY_TICKETS set to stage (stage compose only).
+    p.add_argument('--entry-test-webchat-principal',default='')
+    p.add_argument('--entry-test-staff-label',default='entry-test')
+    p.add_argument('--entry-ticket-key-file',type=Path,help='S81: private HMAC key shared with the reference endpoint (staff entry tickets)')
+    p.add_argument('--entry-ticket-ttl',type=int,default=30)
     p.add_argument('--workbench-oidc-providers-file',type=Path,help='NX-058 slice F: private provider file of workbench single sign-on (off without it)')
     # L6 C11: the gateway peers (address or CIDR, repeatable) whose X-NexLoop-Client-IP the login rate limit trusts; none = the socket peer.
     p.add_argument('--trusted-proxy-peer',action='append',default=[])
@@ -364,6 +371,10 @@ def parse(argv=None,environ=None):
             read_private_text(a.tls_certificate_file,maximum=32768);read_private_text(a.tls_key_file,maximum=32768)
         except Exception:p.error('private service-owned TLS files required')
         tls={'ssl_certfile':str(a.tls_certificate_file),'ssl_keyfile':str(a.tls_key_file)}
+    from nexloop_eios.entry_tickets import switch_enabled
+    try:entry=switch_enabled(environ)
+    except ValueError:p.error('NEXLOOP_ENTRY_TICKETS must be stage or off')
+    if entry and a.workbench_application_id is None:p.error('entry tickets need the workbench')
     browser=None
     if a.trusted_proxy_peer and not (a.identity_database_url_file or a.browser_origin):p.error('trusted proxy peers need the browser realm')
     browser_values=(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.browser_application_id,a.browser_origin)
@@ -378,7 +389,9 @@ def parse(argv=None,environ=None):
         from nexloop_eios.browser_http import BrowserConfiguration
         try:workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin,
             trusted_proxy_peers=tuple(a.trusted_proxy_peer),identity_token_key_file=a.identity_token_key_file,
-            oidc_providers_file=a.workbench_oidc_providers_file,reference_endpoint_staff_url=a.reference_endpoint_staff_url or None)
+            oidc_providers_file=a.workbench_oidc_providers_file,reference_endpoint_staff_url=a.reference_endpoint_staff_url or None,
+            entry_tickets=entry,entry_test_webchat_principal=a.entry_test_webchat_principal or None,entry_test_staff_label=a.entry_test_staff_label,
+            entry_ticket_key_file=a.entry_ticket_key_file,entry_ticket_ttl=a.entry_ticket_ttl)
         except ValueError:p.error('plain HTTPS reference endpoint staff URL required')
     elif a.reference_endpoint_staff_url:p.error('the reference endpoint staff URL needs the workbench')
     host_control=None

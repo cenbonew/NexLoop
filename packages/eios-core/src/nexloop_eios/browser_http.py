@@ -33,6 +33,13 @@ class BrowserConfiguration:
     # Owner S73 (2026-10-31): the reference endpoint staff page the workbench 入口 page links to (compose REFERENCE_ENDPOINT_STAFF_URL);
     # None = no link. A plain HTTPS URL, no credentials, query or fragment.
     reference_endpoint_staff_url:str|None=None
+    # S81 / ADR-043: entry tickets (process switch NEXLOOP_ENTRY_TICKETS set to stage), the pinned synthetic test customer of the WebChat and the
+    # reference endpoint's test staff label, the HMAC key shared with the reference endpoint, and the ticket lifetime (owner Q1: 30 s, at most 60).
+    entry_tickets:bool=False
+    entry_test_webchat_principal:str|None=None
+    entry_test_staff_label:str='entry-test'
+    entry_ticket_key_file:Path|None=None
+    entry_ticket_ttl:int=30
     def __post_init__(self):
         u=urlsplit(self.origin)
         if u.scheme!='https' or not u.netloc or u.username or u.password or u.path or u.query or u.fragment:raise ValueError('canonical HTTPS origin required')
@@ -43,6 +50,11 @@ class BrowserConfiguration:
             r=self.reference_endpoint_staff_url;s=urlsplit(r) if type(r) is str else None
             if s is None or len(r)>512 or r!=r.strip() or s.scheme!='https' or not s.hostname or s.username or s.password or s.query or s.fragment:
                 raise ValueError('plain HTTPS reference endpoint staff URL required')
+        if type(self.entry_ticket_ttl) is not int or not 1<=self.entry_ticket_ttl<=60:raise ValueError('entry ticket lifetime 1..60 seconds')
+        import re as _re
+        if not _re.fullmatch(r'[a-z][a-z0-9-]{0,31}',self.entry_test_staff_label or ''):raise ValueError('entry test staff label')
+        p=self.entry_test_webchat_principal
+        if p is not None and (type(p) is not str or not 0<len(p)<=320 or p!=p.strip()):raise ValueError('entry test principal')
 
 
 def client_ip_resolver(config):

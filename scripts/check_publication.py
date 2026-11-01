@@ -31,6 +31,13 @@ def violation(name, raw):
         return 'private key'
     if re.search(r'(?m)^MODEL_API_KEY=\S+',content):
         return 'model credential'
+    # S81 / ADR-043 (A3): the entry ticket switch is turned on only in a host's private stage env; no published file turns it on,
+    # and no deployment file outside the stage templates names it.
+    if 'NEXLOOP_ENTRY_TICKETS' in content:
+        if re.search(r'NEXLOOP_ENTRY_TICKETS\s*[=:]\s*["\']?stage\b',content):
+            return 'entry ticket switch enabled'
+        if (path.suffix in ('.yaml','.yml','.template') or path.name.endswith('.env.example')) and name!='deploy/stage/compose.app.example.yaml':
+            return 'entry ticket switch outside the stage compose'
     return None
 
 
