@@ -24,7 +24,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DUMP = ROOT / 'tests' / 'support' / 'model_surface_dump.mjs'
-CONTEXT_STRATEGIES = ROOT / 'deploy' / 'configuration' / 'context-strategies.v1.json'
+# The latest strategies manifest: the one a stage publishes next (S82: v2).
+CONTEXT_STRATEGIES = max((ROOT / 'deploy' / 'configuration').glob('context-strategies.v*.json'), key=lambda p: int(p.stem.rsplit('.v', 1)[1]))
 
 TRIGGER = {'kind': 'service_trigger'}
 MESSAGE_PACK = {'schema_version': 'nexloop.context-pack.v6', 'user_statement': {'message_id': 'm' * 64, 'body': '你好，我想问一下订单。'},
@@ -155,10 +156,14 @@ def test_object_type_names_the_model_reads_are_in_a_glossary(requests, kind):
     assert camel <= terms, f'{kind}: undefined terms {sorted(camel - terms)}'
 
 
-@pytest.mark.xfail(strict=True, reason='K1 finding: the framing (instructions + tool schemas) of every Run kind is larger than the '
-                   'context strategies\' framing_reserve (1500), so pack plus framing can exceed input_token_budget. Not fixed here '
-                   '(no instruction text change); passes, and must then lose this mark, once the reserve or the framing changes.')
+# S82 (owner 2026-11-01): context strategies v2 reserve 3900 for framing, the K1 maximum (3409) plus 15%; v1's 1500 was below every
+# Run kind's framing, so pack plus framing could exceed input_token_budget.
 @pytest.mark.parametrize('kind', RUNS)
 def test_framing_fits_the_context_strategy_framing_reserve(requests, kind):
     reserve = min(s['framing_reserve'] for s in json.loads(CONTEXT_STRATEGIES.read_text())['strategies'])
     assert framing_tokens(requests[kind]) <= reserve
+
+
+def test_the_reserve_covers_every_run_kind_budget():
+    # Every strategy may serve every Run kind (relay --context-strategy, the reply guarantee's fallback), so each reserves the largest.
+    assert all(s['framing_reserve'] >= max(FRAMING_BUDGET.values()) for s in json.loads(CONTEXT_STRATEGIES.read_text())['strategies'])
