@@ -1995,6 +1995,11 @@
       "version": "0399",
       "name": "0399_plan_denial_self_cause.sql",
       "sha256": "d10cb09ae8e898d5e605d06e741f0cf8515b87eae2f607a0fc67acf7ce8aeea2"
+    },
+    {
+      "version": "0400",
+      "name": "0400_workbench_pending.sql",
+      "sha256": "cd09d4a1ce3713cbce673e1f0f521a59b40ef2aef55e59f3e83dac193f361b10"
     }
   ]
 }
