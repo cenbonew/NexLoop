@@ -1,0 +1,45 @@
+{
+  "schema_version": "nexloop-context-strategies/1",
+  "manifest_version": 2,
+  "decision": "docs/05 §9 baselines. Published by the human owner through nexloop.context.strategy.publish:1 (NX-023); both share goals and mandatory constraints and differ only in research-relevant evidence selection. v2 (S82, owner 2026-11-01 as L6 recommended; K1 tests/test_model_surface.py measured framing): framing_reserve 1500 -> 3900 in both strategies, version 2 of each. The reserve is the largest K1 framing of the Run kinds a strategy serves plus 15%: message reply 3409 -> 3900, plan reevaluation 2822 -> 3250, fallback reply 1997 -> 2300, outreach 3375 -> 3900; both strategies may serve every Run kind (the relay's --context-strategy, the reply guarantee's fallback strategy), so each takes the largest, 3900. input_token_budget and output_reserve unchanged: the pack budget (budget_report.available = input_token_budget - framing_reserve) becomes 12100 tokens (was 14500). v1 stays published; v2 is the next version of each strategy (0088: dense, immutable).",
+  "strategies": [
+    {
+      "strategy_id": "recent_plus_required",
+      "version": 2,
+      "protocol": "nexloop.context-pack.v6",
+      "input_token_budget": 16000,
+      "output_reserve": 4000,
+      "framing_reserve": 3900,
+      "sections": {
+        "consumer_state": {"max_items": 32},
+        "open_work": {"max_items": 16},
+        "evidence": {"max_items": 12, "recent_turns": 6},
+        "semantics": {"max_items": 0},
+        "experience": {"max_items": 0}
+      },
+      "trim_order": ["duplicate_evidence", "experience", "hypotheses", "semantics_low_relevance", "older_conversation", "older_claim_evidence", "low_score_recall"],
+      "semantic": {"enabled": false, "top_k": 5, "ambiguity_margin": 0.05},
+      "include_hypotheses": false,
+      "include_rejected_definitions": false
+    },
+    {
+      "strategy_id": "ontology_hybrid",
+      "version": 2,
+      "protocol": "nexloop.context-pack.v6",
+      "input_token_budget": 16000,
+      "output_reserve": 4000,
+      "framing_reserve": 3900,
+      "sections": {
+        "consumer_state": {"max_items": 32},
+        "open_work": {"max_items": 16},
+        "evidence": {"max_items": 24, "recent_turns": 6},
+        "semantics": {"max_items": 8},
+        "experience": {"max_items": 0}
+      },
+      "trim_order": ["duplicate_evidence", "experience", "hypotheses", "semantics_low_relevance", "older_conversation", "older_claim_evidence", "low_score_recall"],
+      "semantic": {"enabled": true, "top_k": 5, "ambiguity_margin": 0.05},
+      "include_hypotheses": false,
+      "include_rejected_definitions": false
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import {useEffect,useRef,useState,type FormEvent,type KeyboardEvent} from 'react
 import {useMutation,useQuery,useQueryClient} from '@tanstack/react-query';
 import {STATE_TEXT,kindOf,offers,readMe,readWorkbenchSession,workbenchLogin,workbenchLogout} from './api';
 import {PAGES,WORLD_SECTIONS,parseRoute,routePath,type PageKey,type Route} from './route';
-import {Overview} from './pages/Overview';
+import {Home} from './pages/Home';
 import {Personas} from './pages/Personas';
 import {Goals,Plans} from './pages/Goals';
 import {ConsumerDetail,Consumers,Conversation} from './pages/Consumers';
@@ -52,7 +52,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
   const slot=slots[route.page];const a=typeof slot==='function'?slot(route):slot;
   const setQuery=(query:Route['query'])=>go({page:route.page,query},{replace:true});
   switch(route.page){
-    case 'overview':return <Overview actions={a} onOpen={page=>go({page:page as PageKey})}/>;
+    case 'home':return <Home actions={a} query={route.query} onQuery={setQuery} go={r=>go(r)}/>;
     case 'goals':return <Goals actions={a}/>;
     case 'consumers':
       if(route.sub==='conversation'&&route.id)return <Conversation conversationId={route.id} actions={a} onContext={onContext}/>;
@@ -81,7 +81,7 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
     case 'data_health':return <DataHealth/>;
     case 'capabilities':return <Capabilities query={route.query} onQuery={setQuery}/>;
     case 'glossary':return <Glossary/>;
-    case 'entries':return <Entries groups={NAV_GROUPS} offered={navOffered} go={r=>go(r)}/>;
+    case 'entries':return <Entries/>;
     case 'experiments':return <Experiments title={PAGES.experiments}/>;
   }
 }
@@ -89,10 +89,10 @@ export function WorkbenchPage({route,go,slots={},onContext=()=>{}}:{route:Route;
 /** Navigation in four groups (walkthrough F08; world model design §5: 模型与资产 next to 运营); the next-stage page last, marked "未启用".
  * 企业世界模型 is an expandable entry (EIOS navigation, owner review 2026-10-20): its summary page and one page per concept. */
 export const NAV_GROUPS:{title:string;pages:PageKey[]}[]=[
-  {title:'运营',pages:['overview','consumers','commitments','actions','approvals','plans','goals','contact']},
+  {title:'运营',pages:['home','consumers','commitments','actions','approvals','plans','goals','contact']},
   {title:'模型与资产',pages:['ontology','data_assets','data_health','knowledge']},
   {title:'监控',pages:['alerts','operations','audit']},
-  {title:'管理',pages:['settings','members','account','personas','capabilities','glossary','entries','experiments']}];
+  {title:'管理',pages:['settings','members','account','personas','capabilities','experiments','glossary','entries']}];
 /** Pages offered only to a member whose role carries the operation (R57 W5: the glossary page, the owner's). */
 const NAV_NEEDS:Partial<Record<PageKey,Parameters<typeof offers>[1]>>={glossary:'world_glossary_set'};
 export const navOffered=(page:PageKey,member:Parameters<typeof offers>[0])=>{const need=NAV_NEEDS[page];return !need||offers(member,need);};
@@ -150,6 +150,8 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
   const [menu,setMenu]=useState(false);
   const [opened,setOpened]=useState<Partial<Record<PageKey,boolean>>>({});  // a sub-entry list the member opened or closed
   const toggle=useRef<HTMLButtonElement>(null);
+  // K4f: an old /workbench/overview bookmark opens the 健康 tab under its new address, without an extra history entry.
+  useEffect(()=>{if(/^\/workbench\/overview\/?$/.test(window.location.pathname))window.history.replaceState(window.history.state,'',routePath(route));},[route]);
   useEffect(()=>{const back=(event:PopStateEvent)=>{setContext(null);setRoute(here());restoreScroll(Number(event.state?.scroll)||0);focusPageTitle();};
     window.addEventListener('popstate',back);return ()=>window.removeEventListener('popstate',back);},[]);
   const signedIn=!!session.data;
@@ -200,7 +202,8 @@ export function WorkbenchApp({slots=GOVERNED_SLOTS}:{slots?:ActionSlots}){
           <ResetNotice notices={session.data.reset_notices}/>
           {crumbs(route,context,sections).length?<nav className="breadcrumbs" aria-label="面包屑"><ol>{crumbs(route,context,sections).map((c,i)=><li key={i}>{c.to?<a href={routePath(c.to)}
             onClick={event=>{event.preventDefault();go(c.to!);}}>{c.label}</a>:<span aria-current="page">{c.label}</span>}</li>)}</ol></nav>:null}
-          <PageErrorBoundary key={routePath(route)}><WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></PageErrorBoundary></div>
+          {/* Keyed by page and object, not by list filters: a tab or filter change must not re-mount the page (F14: focus stays on the tab). */}
+          <PageErrorBoundary key={routePath({...route,query:undefined})} resetKey={routePath(route)}><WorkbenchPage route={route} go={go} slots={slots} onContext={setContext}/></PageErrorBoundary></div>
       </div>}
   </main><footer>NexLoop · 持续运营<span className="footer-tz"> · 时间均为北京时间</span></footer></div>;
 }

@@ -24,13 +24,14 @@ PROTOCOL = 'nexloop-workbench-read-v1'
 WORKBENCH_READ = 'nexloop.workbench.read'
 COMMITMENT_READ = 'nexloop.commitment.read'
 CONTACT_READ = 'nexloop.contact.read'
+SCHEMA_REVIEW = 'ontology.schema.review'
 OPEN_STATUSES = ('conditional', 'open', 'in_progress', 'breached')
 VERBS = {'goals': WORKBENCH_READ, 'consumers': WORKBENCH_READ, 'consumer': WORKBENCH_READ, 'conversation': WORKBENCH_READ,
          'plans': WORKBENCH_READ, 'actions': WORKBENCH_READ, 'takeovers': WORKBENCH_READ, 'settings': WORKBENCH_READ, 'me': WORKBENCH_READ,
          'world_model': WORKBENCH_READ,
          'capabilities': WORKBENCH_READ, 'objects': WORKBENCH_READ, 'object_neighbors': WORKBENCH_READ, 'artifacts': WORKBENCH_READ,
          'object_fields': WORKBENCH_READ,
-         'remediations': WORKBENCH_READ, 'remediation_evidence': WORKBENCH_READ,
+         'remediations': WORKBENCH_READ, 'remediation_evidence': WORKBENCH_READ, 'pending': WORKBENCH_READ,
          'commitments': COMMITMENT_READ, 'commitment': COMMITMENT_READ, 'contact': CONTACT_READ}
 
 
@@ -60,9 +61,18 @@ class WorkbenchReader:
         try:
             claims = action_claims(self.pool, self.session, VERBS[verb])
         except Exception as error:
-            if _denied(error):
+            if not _denied(error):
+                raise
+            # K4d: the reviewer holds no workbench read; its home read is authorized by its review Action (SQL then answers the
+            # candidate category only).
+            if verb != 'pending':
                 raise WorkbenchForbidden(verb) from None
-            raise
+            try:
+                claims = action_claims(self.pool, self.session, SCHEMA_REVIEW)
+            except Exception as again:
+                if _denied(again):
+                    raise WorkbenchForbidden(verb) from None
+                raise
         body = canonical_payload({'verb': verb, **payload})
         claims = {**claims, 'protocol': PROTOCOL, 'key_id': self.signer.key_id,
                   'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
@@ -405,6 +415,10 @@ class WorkbenchQueries:
     def remediations(self, *, state=None, limit=50):
         # NX-057 R1 (remediation_intents): remediation intents for the Actions page; the Consumer only where the role derives READ.
         return self.reader.call('remediations', limit=limit, **({'state': state} if state else {}))
+
+    def pending(self, *, after=None, limit=20):
+        # K4d (workbench-pending v1): what the member may act on, counts per category and the oldest open questions (read only).
+        return self.reader.call('pending', limit=limit, **({'after': after} if after else {}))
 
     def remediation_evidence(self, *, remediation_id):
         # NX-057 R4 (remediation_claims): one remediation's evidence chain, ids, codes and times only (None: unknown or erasing).

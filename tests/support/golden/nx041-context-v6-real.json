@@ -11,7 +11,7 @@
  },
  "budget_report": {
   "available": 14500,
-  "estimator": "conservative-bytes-half-v1",
+  "estimator": "conservative-bytes-half-v2",
   "framing_reserve": 1500,
   "input_token_budget": 16000,
   "omitted": [],
@@ -30,7 +30,7 @@
    "consumer_state": {
     "included": 1,
     "omitted": 0,
-    "tokens": 26
+    "tokens": 218
    },
    "current_event": {
     "included": 0,
@@ -68,7 +68,7 @@
     "tokens": 0
    }
   },
-  "used": 26
+  "used": 1876
  },
  "constraints": [],
  "consumer_state": [

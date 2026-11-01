@@ -528,6 +528,7 @@ class Backend:
             'capabilities',  # world model W3: the tenant's capability catalog (metadata only)
             'object_values',  # D-G1 (owner 2026-10-20): one object's property values, per-property READ, audited
             'remediations',  # NX-057 R1 (remediation_intents): remediation intents of final effect failures (every member; Consumer per ADR-025)
+            'pending',  # K4d (workbench_pending): the home "waiting for me" read (owner, operator; the reviewer its candidate category)
             'remediation_evidence',  # NX-057 R4 (remediation_claims): one remediation's evidence chain (every member; Consumer per ADR-025)
             'objects', 'object_neighbors', 'artifacts'}  # world model W2: instances and depth-1 neighbourhood, per-object READ (ADR-025)
         with self._lock, authority_request_scope(), request_connection_scope(self._pool):

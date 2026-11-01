@@ -139,7 +139,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # S42 option A (0376): the owner settles pending inbound messages no relay will serve (owner only).
     'settle_relay_backlog':'relay.backlog_settle',
     # Stale action claims (2026-10-31): the owner ends a stale active claim whose result is settled (owner only).
-    'settle_action_claim':'action_claim.settle'}
+    'settle_action_claim':'action_claim.settle',
+    # K4b (human_questions): answer, correct or withdraw the answer to a reevaluation Run's question (owner and operator; kind checked in SQL).
+    'answer_human_question':'human_question.answer'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -434,6 +436,18 @@ class GoalGovernedActions:
             raise ValueError('claim action, intent, category and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'settle_action_claim','action_name':claim_action,
                                                         'intent_id':intent_id,'category':category,'reason':reason})
+
+    # K4b (human_questions): the handler (SQL) decides from the question's kind and the member's current role who may answer, never from
+    # the Run's audience; an option when the question offered options, else a short text; withdraw carries neither.
+    def answer_human_question(self,*,action_name,action_version,request_id,question_id,answer_kind,option_index=None,text=None):
+        if (not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(question_id)) or answer_kind not in ('answer','withdraw')
+                or not (option_index is None or (type(option_index) is int and 0<=option_index<=3))
+                or not (text is None or (type(text) is str and 1<=len(text)<=500))
+                or (answer_kind=='withdraw' and (option_index is not None or text is not None))
+                or (answer_kind=='answer' and (option_index is None)==(text is None))):
+            raise ValueError('question, answer kind and exactly one of option index or text required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'answer_human_question','question_id':str(question_id),
+                                                        'answer_kind':answer_kind,'option_index':option_index,'text':text})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):

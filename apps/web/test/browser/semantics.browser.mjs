@@ -19,7 +19,7 @@ const text=(page,selector)=>page.evaluate(s=>[...document.querySelectorAll(s)].m
 const nameOf=(page,scope)=>page.evaluate(s=>{const e=document.querySelector(s+' .consumer-name');return e?e.textContent.replace(/\s+/g,'').trim():null;},scope);
 try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:session.origin,viewport:{width:1440,height:900}});const page=await context.newPage();
-  await page.goto('/workbench/overview');await page.locator('#wb-username').waitFor({timeout:20000});
+  await page.goto('/workbench/home');await page.locator('#wb-username').waitFor({timeout:20000});
   await page.fill('#wb-username',session.owner.username);await page.fill('#wb-password',readFileSync(session.owner.password_file,'utf8').trim());await page.click('button[type=submit]');
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
 

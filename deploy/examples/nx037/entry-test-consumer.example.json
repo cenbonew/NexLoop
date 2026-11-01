@@ -1,0 +1,22 @@
+{
+  "note": "S81 / ADR-043: the WebChat test customer the workbench 入口 page enters with a one-time ticket. Two governed steps with the existing recipes (docs/release/run-entry-tickets.md §2): identity_human goes to the identity operator exactly as identity-human.example.json (username entry-test-consumer; the password is generated and goes only to the Keychain and the host's private secrets, never here), webchat_consumers to nexloop_eios.webchat_consumers --apply. After its first conversation the owner marks its Consumer simulated_agent (consumer.set_persona, ADR-034): the entry ticket refuses any other target, and the outreach candidates skip it. Then ENTRY_TEST_WEBCHAT_PRINCIPAL=<PRINCIPAL_ID> in the private compose env. Synthetic placeholders only.",
+  "marker": "entry-test",
+  "identity_human": {
+    "schema_version": "1.0",
+    "tenant_id": "<TENANT_ID>",
+    "application_id": "<BROWSER_APPLICATION_ID>",
+    "request_id": "<NEW_UUID>",
+    "operator_label": "<OPERATOR_LABEL>",
+    "subject": {"subject_id": "<SUBJECT_ID>", "kind": "human", "status": "active", "created_at": "<NOW_UTC_ISO>", "updated_at": "<NOW_UTC_ISO>", "revision": 1},
+    "membership": {"tenant_id": "<TENANT_ID>", "subject_id": "<SUBJECT_ID>", "principal_id": "<PRINCIPAL_ID>", "kind": "home", "status": "active", "valid_from": "<NOW_UTC_ISO>", "valid_until": null, "trusted_attributes": {}, "revision": 1},
+    "account": {"tenant_id": "<TENANT_ID>", "local_account_id": "<LOCAL_ACCOUNT_ID>", "subject_id": "<SUBJECT_ID>", "username": "entry-test-consumer", "verified_email": "<EMAIL>", "status": "active", "failed_attempts": 0, "lockout_level": 0, "locked_until": null, "must_change_password": false, "session_epoch": 1, "created_at": "<NOW_UTC_ISO>", "updated_at": "<NOW_UTC_ISO>", "revision": 1}
+  },
+  "webchat_consumers": {
+    "schema_version": "nexloop-webchat-consumers/1",
+    "tenant_id": "<TENANT_ID>",
+    "browser_application_id": "<BROWSER_APPLICATION_ID>",
+    "caller_application_id": "eios:application:nexloop-webchat",
+    "consumers": [{"principal_id": "<PRINCIPAL_ID>", "subject_id": "<SUBJECT_ID>", "persona": "simulated_agent"}]
+  },
+  "reference_staff": {"label": "entry-test", "access": "read_only", "credential": "none: the staff entry ticket is signed with the shared entry ticket key"}
+}

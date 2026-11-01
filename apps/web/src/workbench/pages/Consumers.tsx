@@ -131,8 +131,9 @@ function DetailSection({id,title,empty,children}:{id:string;title:string;empty?:
 }
 const RECENT_CONVERSATIONS=5;
 
-/** UX audit B11: the customer, then what is used most (latest conversations, commitments), the operations, then persona and
- * preferences, properties and the contact restriction - which moves up to second place with a warning while it is in force. */
+/** UX audit B11: the customer, then what is used most (latest conversations, commitments), its properties (F02, K4g: the facts come
+ * before the operations), the operations, then persona and preferences and the contact restriction - which moves up to second place
+ * with a warning while it is in force. */
 export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,onContext}:{consumerId:string;actions?:ReactNode;onConversation:(conversationId:string)=>void;
   onCommitments?:(consumerId:string)=>void;onContext?:(context:Context)=>void}){
   const query=useQuery({queryKey:['workbench','consumer',consumerId],queryFn:()=>readConsumer(consumerId)});
@@ -166,13 +167,13 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
     {data.commitments.length?<DetailSection id="consumer-commitments" title="承诺">
       <p>{data.commitments.length} 条 · {onCommitments?<button type="button" className="link-count" onClick={()=>onCommitments(data.consumer_id)}>查看这位客户的承诺</button>:'见“承诺 / 交付”'}</p>
     </DetailSection>:<DetailSection id="consumer-commitments" title="承诺" empty="没有承诺"/>}
-    <Operations actions={actions} title="对这位客户的操作"/>
-    <ConsumerPersona consumerId={data.consumer_id}/>
     {props.status==='ok'&&Object.keys(props.values).length?<DetailSection id="consumer-properties" title="属性">
         <KeyValue label="客户的 Property" items={Object.entries(props.values).map(([k,v])=>({key:k,
           value:typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):<code className="id-code">{JSON.stringify(v)}</code>}))}/>
         {withheld?<p className="note">{withheld}</p>:null}</DetailSection>
       :<DetailSection id="consumer-properties" title="属性" empty={<>{props.status==='ok'?'没有可读的 Property':'当前账号没有 Property 读取权限，字段与证据不显示'}{withheld?<>；{withheld}</>:null}</>}/>}
+    <Operations actions={actions} title="对这位客户的操作"/>
+    <ConsumerPersona consumerId={data.consumer_id}/>
     {active?null:restriction}
   </>;}}</Page>;
 }

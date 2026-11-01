@@ -14,6 +14,10 @@ from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied
 
 EXPIRE_ACTION='eios:action:nexloop.takeover.expire:1'
 FEED='takeover-expiry'
+# S91 (owner D1/D3): a takeover that has not expired yet is 'later', not a failure - its item is deferred until expires_at (no attempt
+# spent). Ending does not depend on this worker (SQL compares expires_at itself); 7 days covers the longest takeover SQL admits
+# (0126: max_seconds at most 604800), asserted by test.
+ACTIVE_MAX_DEFER_SECONDS=7*86400
 
 
 class TakeoverPort(_SignedPort):
@@ -29,7 +33,7 @@ class TakeoverExpiryWorker:
 
     @authority_request_scoped
     def run_once(self):
-        summary={'expired':0,'ended':0,'waiting':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
+        summary={'expired':0,'ended':0,'waiting':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0,'deferred':0}
         for item in self.feed.claim(limit=self.batch,lease_seconds=self.lease_seconds):
             try:result=self.port.expire(item['payload']['takeover_id'])
             except WorkFeedDenied:raise
@@ -39,8 +43,11 @@ class TakeoverExpiryWorker:
             if result['status']=='active':
                 # Not yet (the item was moved forward): wait until it expires.
                 left=(datetime.fromisoformat(str(result['expires_at']))-datetime.now(UTC)).total_seconds()
-                status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='takeover_active',delay_seconds=max(1,min(3600,int(left)+1)),max_attempts=20)
-                summary['waiting' if status=='pending' else status]+=1;continue
+                delay=max(1,min(21600,int(left)+1))
+                status=self.feed.defer(item_key=item['item_key'],fence=item['fence'],code='takeover_active',delay_seconds=delay,max_defer_seconds=ACTIVE_MAX_DEFER_SECONDS)
+                if status=='defer_limit':
+                    status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code='takeover_active',delay_seconds=min(3600,delay),max_attempts=20)
+                summary['waiting' if status in ('pending','deferred') else status]+=1;summary['deferred']+=status=='deferred';continue
             # Ending a takeover removes its own expiry item in the same transaction, so 'lease_lost' here is the normal outcome.
             status=self.feed.complete(item_key=item['item_key'],fence=item['fence'])
             summary[('expired' if result['status']=='expired' else 'ended') if status in ('completed','lease_lost') else status]+=1

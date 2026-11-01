@@ -240,7 +240,7 @@ button:disabled{cursor:wait;opacity:.7}
 .message-receipt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:10px}
 .chat .message-receipt button{margin-top:0;height:36px;padding:0 14px;font-size:14px}
 .message-receipt p{margin:0;font-size:14px}.message-receipt small{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
-@media (max-height:600px){.chat .chat-composer textarea{min-height:2.75rem}.chat .chat-composer label{margin-bottom:4px}.chat .chat-composer .note{margin:4px 0 6px;font-size:13px}}
+@media (max-height:600px){.chat .chat-composer{padding:8px 0 4px;margin-top:8px}.chat .chat-composer textarea{min-height:2.75rem}.chat .chat-composer label{margin-bottom:4px}.chat .chat-composer .note{margin:2px 0 4px;font-size:13px}}  /* K4g: at 390×480 the pinned composer stays under half the screen */
 
 /* Web layout batch 3 (details). Overview and operations: cards keep their own height (no stretched empty blocks), two columns at
    1024, the action button at the foot of the card; empty and unavailable states look the same everywhere; conversation bubbles use
@@ -677,7 +677,10 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 /* R57 W5: the glossary page's kind switch wraps on narrow screens and keeps 16 px before the search box. */
 .workbench .glossary-kinds{flex-wrap:wrap;margin-bottom:var(--space-4)}
 .workbench .panel-head-end>.note{margin:0;white-space:nowrap}
-/* 管理 › 入口 (S73): read-only links grouped by where they lead. */
+/* 管理 › 关联系统入口 (S73/S80): read-only links grouped by where they lead. */
 .entries{display:grid;gap:24px}.entry-group h2{font-size:16px;line-height:24px;margin:0 0 8px}
 .entry-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}.entry-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
 .entry-list .note{margin:0;font-size:14px}.entry-new{font-size:13px;color:var(--muted);margin-left:4px}
+/* K4e: 待我处理 on the home page, one row per category with work. */
+.pending-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}.pending-list li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.pending-list .note{margin:0;font-size:14px}.pending-label{font-weight:600}

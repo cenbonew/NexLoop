@@ -74,11 +74,11 @@ test('workbench session uses its own realm and treats 401 as signed out',async()
 });
 
 test('routes are URL state and reject malformed ids',()=>{
-  expect(parseRoute('/workbench')).toEqual({page:'overview'});
+  expect(parseRoute('/workbench')).toEqual({page:'home'});
   expect(parseRoute('/workbench/commitments/'+id('a'))).toEqual({page:'commitments',id:id('a')});
   expect(parseRoute('/workbench/consumers/conversations/'+id('b'))).toEqual({page:'consumers',id:id('b'),sub:'conversation'});
   expect(parseRoute('/workbench/commitments/not-an-id')).toEqual({page:'commitments'});
-  expect(parseRoute('/workbench/unknown')).toEqual({page:'overview'});
+  expect(parseRoute('/workbench/unknown')).toEqual({page:'home'});
   expect(routePath({page:'consumers',id:id('c'),sub:'conversation'})).toBe('/workbench/consumers/conversations/'+id('c'));
 });
 

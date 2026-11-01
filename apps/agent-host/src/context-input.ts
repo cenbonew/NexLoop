@@ -10,7 +10,10 @@ export const CONTEXT_PROTOCOL_V3='nexloop.context-pack.v3';
 export const CONTEXT_PROTOCOL_V4='nexloop.context-pack.v4';
 export const CONTEXT_PROTOCOL_V5='nexloop.context-pack.v5';
 export const CONTEXT_PROTOCOL_V6='nexloop.context-pack.v6';
-export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5|typeof CONTEXT_PROTOCOL_V6;
+// K4c: v7 = v6 + evidence.human_answers (staff answers to a plan Run's question: statements, never facts; plan Runs only). A Host
+// configured for v7 reads v6 and v7 packs; one configured for v6 reads v6 only.
+export const CONTEXT_PROTOCOL_V7='nexloop.context-pack.v7';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5|typeof CONTEXT_PROTOCOL_V6|typeof CONTEXT_PROTOCOL_V7;
 export type RelationshipItem={assessment_ref:string;revision:number;relation_type_ref:string|null;source_ref:string;target_ref:string;epistemic_kind:'hypothesis'|'user_statement';resolution_state:'resolved'|'awaiting_definition'|'unresolved';conclusion:string;valid_from:string;valid_to:string|null;source_message_ref:string|null;source_content_hash:string|null};
 export type RelationshipZone={current_statements:RelationshipItem[];evidence:RelationshipItem[]};
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
@@ -117,6 +120,33 @@ export function validateOperatorPersona(value:unknown):void{
     ||typeof ai.block_human_claims!=='boolean'||typeof ai.content_label!=='boolean')fail();
 }
 
+/** K4c (the Host's own line, before SQL's): every staff answer of a pack is a v7 plan-Run (Role Run) evidence.human_answers user
+ *  statement - never in a v6 pack, a message Run's pack or another section. Throws runtime_context_invalid. */
+export function assertHumanAnswers(protocol:unknown,roleRun:boolean,pack:Record<string,unknown>):void{
+  for(const section of ['constraints','consumer_state','open_work','evidence','semantics','experience']){
+    const rows=pack[section];if(!Array.isArray(rows))continue;
+    for(const value of rows){
+      const item=value as Record<string,unknown>;
+      if(item&&(item.subsection==='human_answers'||String(item.ref).startsWith('nexloop:human_answer:')))
+        validateHumanAnswer(protocol===CONTEXT_PROTOCOL_V7&&roleRun,section,item);
+    }
+  }
+}
+/** K4c: one evidence.human_answers item (content re-derived and compared whole by SQL at bind; here its shape only). */
+function validateHumanAnswer(v7:boolean,section:string,item:Record<string,unknown>):void{
+  if(!v7||section!=='evidence'||item.subsection!=='human_answers'||item.evidence_kind!=='user_statement'||(item.tags as unknown[]).length!==0)fail();
+  const ref=text(item.ref,64,/^nexloop:human_answer:([0-9a-f-]{36})@([1-9][0-9]{0,8})$/),[,question,revision]=/^nexloop:human_answer:([0-9a-f-]{36})@([1-9][0-9]{0,8})$/.exec(ref)!;
+  if(item.revision!==revision)fail();
+  const c=exact(item.content,['question_ref','question_kind','question_text','answer','answerer_role','answered_at','plan_ref']);
+  if(c.question_ref!=='nexloop:human_question:'+question)fail();
+  text(c.question_kind,32,/^[a-z][a-z_]{0,31}$/);text(c.question_text,300);strictUtc(c.answered_at);text(c.plan_ref,64,/^nexloop:plan:[0-9a-f-]{36}@[1-9][0-9]{0,5}$/);
+  if(!['owner','operator'].includes(String(c.answerer_role))||item.at!==c.answered_at)fail();
+  const kind=(c.answer&&typeof c.answer==='object'&&!Array.isArray(c.answer)?(c.answer as Record<string,unknown>).kind:undefined);
+  if(kind==='option'){const a=exact(c.answer,['kind','option_index','option_text']);if(!Number.isSafeInteger(a.option_index)||(a.option_index as number)<0||(a.option_index as number)>3)fail();text(a.option_text,60);}
+  else if(kind==='text'){const a=exact(c.answer,['kind','text']);text(a.text,500);}
+  else fail();
+}
+
 export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>;effect_supplies?:EffectSupply[]}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
@@ -152,10 +182,12 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     }
     return {...validated,relationship_context:zone as RelationshipZone};
   }
-  if(protocol===CONTEXT_PROTOCOL_V6){
+  if(protocol===CONTEXT_PROTOCOL_V6||protocol===CONTEXT_PROTOCOL_V7){
     // v6 = frozen v2 core (validated below exactly as v2) + labelled, server-verified sections.
     // Everything here is data for the model; none of it is authority.
-    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V6)return fail();
+    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V6&&expectedProtocol!==CONTEXT_PROTOCOL_V7)return fail();
+    if(protocol===CONTEXT_PROTOCOL_V7&&expectedProtocol===CONTEXT_PROTOCOL_V6)return fail();
+    const v7=protocol===CONTEXT_PROTOCOL_V7;
     // Optional v4 relationship section (message Runs only): validated by the v4 rules below.
     const withRelationships=Object.hasOwn(parsed as Record<string,unknown>,'relationship_context');
     // ADR-030: the enterprise slot's offering (message Runs on the v2 core only), validated by the v2 rules below.
@@ -175,6 +207,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     // Message Run: v2 core + pointer event. Role Run: v3/v5 core (role section, service trigger).
     const roleRun=pack.role!==null;
     if(roleRun&&(withRelationships||withEffectSupplies))return fail();
+    if(v7&&!roleRun)return fail();  // K4c Q2: plan Runs only
     if(!roleRun&&withOutreach)return fail();
     if(withOperatorPersona)validateOperatorPersona(pack.operator_persona);
     if(withOutreach)validateOutreach(pack.outreach);
@@ -210,6 +243,8 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
         if(item.tags.some(tag=>!['negation','contact_limit','unconfirmed','latest_consumer_turn'].includes(String(tag))))return fail();
       }
     }
+    // K4c: a staff answer is a v7 plan-Run evidence.human_answers user statement and nothing else.
+    assertHumanAnswers(protocol,roleRun,pack);
     exact(pack.budget_report,['estimator','input_token_budget','output_reserve','framing_reserve','available','used','sections','omitted']);
     const core={bindings:pack.bindings,formal_facts:pack.formal_facts,current_constraints:pack.current_constraints,supply:pack.supply};
     const role=pack.role as Record<string,unknown>|null;

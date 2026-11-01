@@ -98,6 +98,42 @@ def degraded_fallback_items(items):
     return [safety+latest,safety],extra
 
 
+# S88 (owner 2026-11-01, S87 decision A = 4, option 1): when the pinned sources and the fixed sections exceed the token budget,
+# a message or plan Run keeps the newest DEGRADED_OPEN_WORK_KEEP pinned open work items in full and names the rest by reference
+# under mandatory_exceeds_budget (section open_work), as 0212 allowed the fallback reply Run; contact limits and refusals never
+# go. The value is code, not strategy: a strategy's keys are fixed (0088 and context_engine.strategy.validate).
+DEGRADED_OPEN_WORK_KEEP=5
+
+
+def budget_degraded_items(items,keep=DEGRADED_OPEN_WORK_KEEP):
+    """(items, extra insufficient): the pinned open work beyond the newest `keep` (by at, then ref) is left out and named."""
+    pinned=sorted([i for i in items if i.section=='open_work' and i.pinned],key=lambda i:(i.at,i.ref),reverse=True)
+    deferred=pinned[keep:]
+    if not deferred:return list(items),[]
+    left={id(i) for i in deferred}
+    return [i for i in items if id(i) not in left],[{'code':'mandatory_exceeds_budget','section':'open_work','refs':sorted(i.ref for i in deferred)}]
+
+
+def over_budget(outcome):
+    """The budget's own mandatory_exceeds_budget (section None): pinned sources + fixed sections over the pack budget."""
+    return any(x['code']=='mandatory_exceeds_budget' and x['section'] is None for x in outcome.insufficient)
+
+
+def assemble_within_budget(build,items):
+    """S88: build(items, extra) once; over the token budget, again with the open work degraded (newest k kept, then none).
+    A degradation is taken only when it brings the pack within the budget: when the contact limits and refusals alone exceed it,
+    leaving open work out would lose what the model must know (an unconfirmed order) and gain nothing, so the full pack stays,
+    reported as before (mandatory_exceeds_budget, section None)."""
+    body,outcome=build(items,())
+    if not over_budget(outcome):return body,outcome,items
+    for keep in (DEGRADED_OPEN_WORK_KEEP,0):
+        trimmed,extra=budget_degraded_items(items,keep)
+        if not extra:continue
+        degraded=build(trimmed,extra)
+        if not over_budget(degraded[1]):return degraded[0],degraded[1],trimmed
+    return body,outcome,items
+
+
 class ContextArtifactUnavailable(RuntimeError):
     def __init__(self):super().__init__('context_artifact_unavailable')
 class ContextArtifactConflict(RuntimeError):
@@ -250,7 +286,8 @@ def v6_call(db,authority,session,signer,function,payload,proofs,run=None):
     With ``run`` the assemble authority is the one issued with that Run (0104), which SQL
     accepts only for the pack's own Run; without it, the Source's standing grant.
     """
-    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command','authz.nexloop_context_v6_fallback_command'):raise ValueError('v6 bind function')
+    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command','authz.nexloop_role_context_v7_command',
+                        'authz.nexloop_context_v6_fallback_command'):raise ValueError('v6 bind function')
     body=canonical_payload(payload)
     from nexloop_eios.context_engine.authority import run_assemble_claims
     assemble=authority._proof(session,ASSEMBLE_RESOURCE) if run is None else run_assemble_claims(session,run)
@@ -321,8 +358,8 @@ class ContextV6ArtifactProducer(ContextArtifactProducer):
                 extra_insufficient=list(found.insufficient)+list(extra),relationship_context=core.get('relationship_context'),effect_supplies=core.get('effect_supplies'),
                 operator_persona=persona)
         try:
-            body,outcome=build(found.items)
-            return body,outcome,found.items,found.proofs
+            body,outcome,kept=assemble_within_budget(build,found.items)
+            return body,outcome,kept,found.proofs
         except ValueError as error:
             if str(error)!='context_pack_too_large' or not self.degrade:raise
         # ADR-023 degraded fallback (draft, owner 2026-10-18): the pinned sources alone exceed the bound input size. Every

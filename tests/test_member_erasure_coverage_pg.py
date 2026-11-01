@@ -20,7 +20,8 @@ STAFF_KEPT = {
     'control.nexloop_alert_silences': _ACT, 'control.nexloop_approval_consumptions': _ACT, 'control.nexloop_approval_decisions': _ACT,
     'control.nexloop_world_glossary_revisions': _ACT,  # world-model glossary (0374): who corrected a gloss
     'runtime.nexloop_relay_backlog_settlements': _ACT,  # S42 (0376): who settled a message no relay would serve
-    'runtime.nexloop_action_claim_settlements': _ACT,  # stale action claims (0385): who ended a stale claim
+    'runtime.nexloop_action_claim_settlements': _ACT,
+    'runtime.nexloop_human_answers': _ACT + ' (K4b: who answered a reevaluation question; the answer text follows the Consumer erasure)',  # stale action claims (0385): who ended a stale claim
     'control.nexloop_budget_consumption': _ACT, 'control.nexloop_control_events': _ACT, 'control.nexloop_remediation_switches': _ACT,
     'control.nexloop_run_goal_bindings': _ACT, 'control.nexloop_sim_clock_events': _ACT, 'runtime.nexloop_commitment_events': _ACT,
     'runtime.nexloop_effect_query_admissions': _ACT, 'runtime.nexloop_effect_submissions': _ACT, 'runtime.nexloop_human_requests': _ACT,
@@ -38,6 +39,10 @@ STAFF_KEPT = {
     'control.nexloop_workbench_external_identities': 'single sign-on links (NX-058 slice F): a trigger deletes the link when the membership is revoked, so a revoked member - the only kind erased - has none left',
     'control.nexloop_workbench_sso_pending': 'SSO-only invitees awaiting their link (NX-058 slice F; subject_id is the internal subject id, not the IdP sub): a trigger deletes the row when the membership is revoked, so a revoked member has none left',
     'control.nexloop_workbench_external_identity_events': _ACT + ' (link history: principals, provider and mode; never the IdP subject)',
+    # S81 / ADR-043 (0392): the trigger nexloop_entry_ticket_member_erase on the member erasure ledger pseudonymizes the issuing member
+    # and clears the client digest (tested in test_entry_tickets_pg, T14); the target is a synthetic test customer, erased with its Consumer.
+    'control.nexloop_entry_tickets': 'pseudonymized by the trigger on control.nexloop_workbench_member_erasures (0392, T14)',
+    'control.nexloop_entry_ticket_events': 'pseudonymized by the trigger on control.nexloop_workbench_member_erasures (0392, T14)',
 }
 
 

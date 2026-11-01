@@ -68,6 +68,9 @@ class RetentionPort(_SignedPort):
     def approvals_expire(self):return self._signed({'verb':'approvals_expire'})
     # NX-058 slice E2: the failed-login snapshots of members erased 90 days ago or more (username and email become the pseudonym).
     def member_login_clear(self):return self._signed({'verb':'member_login_clear'})
+    def entry_tickets_clear(self):return self._signed({'verb':'entry_tickets_clear'})
+    # K4b (D2): open human questions past due_by expire and wake their plan once.
+    def questions_expire(self):return self._signed({'verb':'questions_expire'})
     def status(self):return self._signed({'verb':'status'})
 
 
@@ -129,7 +132,8 @@ class RetentionKeeper:
         due=self.port.due();ref='sweep:'+str(uuid.uuid4())
         summary={'classes':0,'passes':0,'processed':0,'incomplete':0,'erasure_steps':0,'runs_purged':0,'runs_failed':0,
             'artifacts_deleted':0,'artifacts_failed':0,'approvals_expired':0,'approvals_redacted':0,'approvals_failed':0,
-            'member_logins_cleared':0,'member_login_events':0,'member_login_failed':0}
+            'member_logins_cleared':0,'member_login_events':0,'member_login_failed':0,
+            'entry_tickets_cleared':0,'entry_ticket_events_cleared':0,'entry_tickets_failed':0,'questions_expired':0,'questions_failed':0}
         for item_class in due['due']:
             summary['classes']+=1
             for _ in range(due['max_passes']):
@@ -174,6 +178,19 @@ class RetentionKeeper:
         except Exception as error:
             summary['member_login_failed']=1
             _log.warning('member login clearing failed: %s',type(error).__name__)
+        # S81 (ADR-043): entry tickets and their events after 30 days; counted, never stops the tick.
+        try:
+            cleared=self.port.entry_tickets_clear()
+            summary['entry_tickets_cleared'],summary['entry_ticket_events_cleared']=cleared['tickets'],cleared['events']
+        except Exception as error:
+            summary['entry_tickets_failed']=1
+            _log.warning('entry ticket clearing failed: %s',type(error).__name__)
+        # K4b (D2): human questions past due_by expire and wake their plan once; counted like the expiry, never stops the tick.
+        try:
+            summary['questions_expired']=self.port.questions_expire()['expired']
+        except Exception as error:
+            summary['questions_failed']=1
+            _log.warning('human question expiry failed: %s',type(error).__name__)
         return summary
 
 

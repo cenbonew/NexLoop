@@ -38,3 +38,26 @@ c10176d4 之后，非必带条目会按配额裁剪，直到 pack 不超过 64 K
 
 - 第 2 条的取舍：是否在降级上下文中保留最近一轮原话。
 - 第 3 条中“读不到 Claim 时是否仍然降级回复”。
+
+## 5. 修订记录
+
+### 2026-11-01（负责人拍板，S87 决策 A = ④ 保守版，选项 ①；S88，迁移 0396（组批定号））
+
+S87 把上下文估算改为 v2（条目按包中完整对象计、固定段计入 `used`）后，长历史客户的必带条目加固定段可能超过 **token 预算**（不只是 64 KiB）。负责人拍板：
+
+1. **例外推广到 message 与 plan Run。** 0396 重定义 `authz.nexloop_context_v6_sections`：去掉"Run 必须在 `authz.nexloop_message_fallback_issuances` 中"的条件，其余照 §2 第 4 条——只有 `open_work` 的必带事项、只有在 insufficient 中以 `mandatory_exceeds_budget`（section `open_work`）按引用列出时，才接受其缺省；联系限制与拒收（constraints、evidence）任何 Run 都不能缺。
+2. **触发条件改为 token 预算。** 主路径与 plan Run 组包时，若预算报告给出 `mandatory_exceeds_budget`（必带 + 固定段超过 `available`），依次尝试：保留最新 k 条必带进行中事项的正文、其余按引用列出；再不行，全部按引用列出。**只有降级能让整包回到预算内时才采用**；若联系限制与拒收本身已超预算，降级没有收益且会让模型看不到"已有未确认订单"，此时保留完整包，按原样报 `mandatory_exceeds_budget`（section 为空）。兜底回复在 64 KiB 字节上限上的原有降级（§2）不变。
+3. **k 的默认值与位置**：`DEGRADED_OPEN_WORK_KEEP = 5`（`packages/eios-core/src/nexloop_eios/context_artifacts.py`），按 `at` 取最新；它是代码常量而非策略字段——策略的键由 0088 与 `context_engine.strategy.validate` 固定，改为可配置需另发策略结构。
+4. 模型仍能从 insufficient 的 `refs` 知道还有哪些未确认意图与出站（数量即 refs 条数），因此"历史上有未确认订单时不重复下单"（f4e3629a）的依据仍在；真实模型行为在 S84 运行单的对话回归中验证。
+
+### 否决的做法（本次）
+
+| 做法 | 理由 |
+|---|---|
+| ② 待决意图 / 承诺做摘要条目 | 摘要是新的事实来源，需要可追溯到原条目的来源证明与新的 SQL 核对规则，改动最大；暂不做 |
+| ③ 直接提高 `input_token_budget` | 成本决策：覆盖 stage p95（18095）需 ≥ 22000（预留 3900），先观察 v2 估算 7 天的 `context_input_ratio` 与裁剪率再定 |
+| 降级联系限制或拒收 | 违反 §2 第 2 条，任何 Run 都不允许 |
+
+### 2026-11-01 补记（S85，按条件提供工具）
+
+**降级兜底 Run 不提供激励工具。** Host 只在上下文 open_work 有该客户的 IncentiveOffering 条目时提供 `nexloop.incentive.issue`（S85）。激励条目不是必选条目，§2 的降级上下文只保留安全条目，激励条目在降级时被丢掉，模型手上没有可用的 offering_id、binding_id 与可发放范围；此时不提供工具，可避免模型在不知道目录的情况下承诺或尝试发放激励。正常（未降级）的兜底 Run 与消息 Run 一样，有目录即提供。

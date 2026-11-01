@@ -155,3 +155,29 @@ def test_reply_port_reports_takeover_and_customer_sees_only_handled_by(commitmen
         other=c.conversation('8'*64)
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             api.execute('select authz.nexloop_conversation_takeover_state(%s,%s,%s)',(human.token_digest,'real',other))
+
+
+def test_a_takeover_not_yet_expired_is_deferred_and_ends_by_its_time_alone(commitments,admin,identity,uow):
+    """S91 (owner D3): an expiry item handled before its takeover ends is deferred until expires_at - no attempt spent, never
+    dead-lettered - and the takeover is over at expires_at whether the worker ran or not (SQL compares the time)."""
+    from nexloop_eios.takeovers import TakeoverExpiryWorker
+    c=commitments;actions,_=owner(c,identity,uow)
+    conversation=c.conversation(c['consumer'])
+    started=take(actions,'conversation',conversation,'take-defer',duration_seconds=3600)
+    _,token=seed_multi_authority(admin,c['worker'],[(r,ResourceType.ACTION,Operation.EXECUTE) for r in
+        ('eios:action:NexLoop.feed.takeover-expiry:1','eios:action:nexloop.takeover.expire:1')],identity_suffix='-takeover-defer',tenant=TENANT)
+    worker=lambda:TakeoverExpiryWorker(c['worker'],authenticate_service(c['worker'],token,world='real'),c['signer'])
+    admin.execute("update runtime.nexloop_work_feed set available_at=clock_timestamp() where feed='takeover-expiry'")  # handled early
+    summary=worker().run_once()
+    assert summary['deferred']==1 and summary['waiting']==1 and summary['retry']==0,summary
+    row=admin.execute("select status,attempts,deferred_since is not null,last_code,available_at from runtime.nexloop_work_feed where feed='takeover-expiry'").fetchone()
+    expires=datetime.fromisoformat(str(started['expires_at']))
+    assert row[:4]==('pending',0,True,'takeover_active') and abs((row[4]-expires).total_seconds())<5
+    # The worker has not ended it; at expires_at the takeover is over anyway (no NXC06 for an Agent reply).
+    with admin.transaction():
+        admin.execute('alter table control.nexloop_takeovers disable trigger nx028_takeover_guard')
+        admin.execute("update control.nexloop_takeovers set started_at=started_at-interval '2 hours',expires_at=clock_timestamp()-interval '1 second' where takeover_id=%s",(started['takeover_id'],))
+        admin.execute('alter table control.nexloop_takeovers enable trigger nx028_takeover_guard')
+    assert admin.execute('select ended_at from control.nexloop_takeovers where takeover_id=%s',(started['takeover_id'],)).fetchone()==(None,)
+    reply=c.outbound('Agent 回复')
+    assert contact_check(c,reply['intent_id'])=='pass'

@@ -1955,6 +1955,61 @@
       "version": "0391",
       "name": "0391_service_credential_rescoped_rotation.sql",
       "sha256": "c4d60e0eb962642ef56fb831aa12fdbd83d531f6acd2f9300a04b535fff797d5"
+    },
+    {
+      "version": "0392",
+      "name": "0392_entry_tickets.sql",
+      "sha256": "c17524f71e21869af1ee58785c34a5ae0627e1c9a8b28c4621690fb146646469"
+    },
+    {
+      "version": "0393",
+      "name": "0393_context_input_ratio.sql",
+      "sha256": "0afc9cdedebbd33cdd75e7fd9eb88f7e8bd027ab2c64d2c93677391a24ebe7b7"
+    },
+    {
+      "version": "0394",
+      "name": "0394_erasure_undated_commitment_backfill.sql",
+      "sha256": "ed942ba03a3a1ac0bbbddc7cc4e7d779276fb71958077f3d38b4700f737194b9"
+    },
+    {
+      "version": "0395",
+      "name": "0395_schema_watch_one_estimator.sql",
+      "sha256": "98e989015ecfbee25630b46b7be5d9b36dd686a5c8fe83a43fb89f65809a47ea"
+    },
+    {
+      "version": "0396",
+      "name": "0396_context_degraded_any_run.sql",
+      "sha256": "519407456906e5011c50fc01de8808d698bc4e0216aad5091b2f3228bccbfe3d"
+    },
+    {
+      "version": "0397",
+      "name": "0397_human_questions.sql",
+      "sha256": "ae4835f6380851e72662e9e6044f5a7e37ef4f9eaaa3e1d7069f5f5e9dc27aec"
+    },
+    {
+      "version": "0398",
+      "name": "0398_context_pack_v7.sql",
+      "sha256": "ba463aa3e39b45b2ab0d7d3bdab0ec0630e3276ef0ce0ba3288e0cda3e74e2c7"
+    },
+    {
+      "version": "0399",
+      "name": "0399_plan_denial_self_cause.sql",
+      "sha256": "d10cb09ae8e898d5e605d06e741f0cf8515b87eae2f607a0fc67acf7ce8aeea2"
+    },
+    {
+      "version": "0400",
+      "name": "0400_workbench_pending.sql",
+      "sha256": "1292fd02e40a064f9ab1d3c9c5220db6674c36e14c7d6bdd16bff2902d7f1246"
+    },
+    {
+      "version": "0401",
+      "name": "0401_work_feed_defer.sql",
+      "sha256": "0ccdc4e1a3a7cab12a69cff395e5f8c9e460548f5477d659124aee6a9633bba7"
+    },
+    {
+      "version": "0402",
+      "name": "0402_plan_question_context_v7.sql",
+      "sha256": "6b1a7bac49aaa2a4c08f05430f167f0744c041dfbee08ff3c7727a15c36f1109"
     }
   ]
 }

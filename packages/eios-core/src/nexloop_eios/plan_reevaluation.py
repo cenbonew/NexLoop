@@ -132,7 +132,7 @@ class PlanOutcomePort(_SignedPort):
     def record(self,*,activation_ref,command,outcome):
         from nexloop_eios.contracts import RunOutcome
         if not isinstance(activation_ref,str) or re.fullmatch(r'activation_[a-f0-9-]{36}',activation_ref) is None:raise ValueError('activation reference')
-        RunOutcome.model_validate(outcome)  # exact run-outcome 1.0 shape before anything is signed
+        RunOutcome.model_validate(outcome)  # exact run-outcome 1.0 or 1.1 shape before anything is signed
         return self._signed({'activation_ref':activation_ref,'command_text':canonical_payload(command),'outcome':outcome})
 
 
@@ -141,6 +141,21 @@ class LaunchedRun:
     run_id:str
     token:object
     expires_at:datetime
+
+
+# S90 (owner 2026-11-01): how long a plan that must wait (paused, budget exhausted) is put off per deferral, and how long a run of
+# deferrals may last before it falls back to counted retries. Code constants: the settings file's keys are fixed (load_settings).
+DEFER_SECONDS=900
+# S91 (L6): the model budget period on stage is 7 days; a budget used up at its start needs 7 days plus one deferral step to reach the
+# next period, so the bound is 7 days plus an hour (not exactly 7 days, which would spend an attempt minutes before the budget opens).
+MAX_DEFER_SECONDS=7*86400+3600
+
+
+def _budget_denied(triggers):
+    """The latest trigger is a dispatch denial of this plan's own Run for an exhausted (or closed) budget. authz.nexloop_plan_feed_touch
+    (0106) keeps the newest trigger first."""
+    last=triggers[0] if triggers else None
+    return type(last) is dict and last.get('kind')=='dispatch_denied' and last.get('code')=='budget_exhausted'
 
 
 class PlanReevaluationWorker:
@@ -152,6 +167,12 @@ class PlanReevaluationWorker:
         self.pool,self.session=pool,session
         self.settings,self.launcher=settings,launcher
 
+    def _later(self,item,code):
+        """S90: a plan that cannot be reevaluated now (paused, or its last Run denied for an exhausted budget) waits without
+        spending attempts; past MAX_DEFER_SECONDS it falls back to a counted retry. None when the feed says defer_limit."""
+        status=self.feed.defer(item_key=item['item_key'],fence=item['fence'],code=code,delay_seconds=DEFER_SECONDS,max_defer_seconds=MAX_DEFER_SECONDS)
+        return None if status=='defer_limit' else status
+
     def _retry(self,item,code,delay=None,max_attempts=None):
         return self.feed.retry(item_key=item['item_key'],fence=item['fence'],code=code,
             delay_seconds=retry_delay(item['attempts'],self.settings['retry_base_seconds']) if delay is None else delay,
@@ -159,12 +180,27 @@ class PlanReevaluationWorker:
 
     @authority_request_scoped
     def run_once(self):
-        summary={'closed':0,'paused':0,'invalidated':0,'throttled':0,'launched':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0}
+        summary={'closed':0,'paused':0,'invalidated':0,'throttled':0,'launched':0,'retry':0,'dead_lettered':0,'changed':0,'lease_lost':0,'deferred':0}
         for item in self.feed.claim(limit=self.settings['batch'],lease_seconds=self.settings['lease_seconds']):
             plan_id=item['payload']['plan_id'];triggers=item['payload'].get('triggers',[])
             try:
                 decision=self.port.precheck(plan_id,triggers)
                 kind=decision['decision']
+                # S90: later, not a failure. The latest trigger is this plan's own Run denied for an exhausted budget (S89: cause
+                # self) - a new Run would be denied again; Budget.set appends an external trigger, then it runs. Paused: the
+                # resume control event re-registers it. Neither spends attempts nor counts in the self window (no Run).
+                later='control_paused' if kind=='paused' else 'budget_exhausted' if kind in ('reevaluate','throttled') and _budget_denied(triggers) else None
+                if later is not None:
+                    status=self._later(item,later)
+                    if status is not None:
+                        summary['deferred']+=1 if status=='deferred' else 0
+                        if status!='deferred':summary[status]+=1
+                        continue
+                    if kind=='paused':
+                        status=self.feed.complete(item_key=item['item_key'],fence=item['fence'])
+                        summary['paused' if status=='completed' else status]+=1;continue
+                    status=self._retry(item,'budget_exhausted')
+                    summary['retry' if status=='pending' else status]+=1;continue
                 if kind=='throttled':
                     # Self-caused triggers only: wait for the window instead of counting it as a failure.
                     status=self._retry(item,'self_trigger_throttled',delay=min(3600,decision['retry_after_seconds']),max_attempts=20)

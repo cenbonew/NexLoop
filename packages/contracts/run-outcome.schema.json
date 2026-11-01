@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:run-outcome",
   "title": "run-outcome",
-  "description": "NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Identity (tenant, world, Run, plan) is derived by the server from the Run's live activation; this body carries none. Grants nothing.",
+  "description": "NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Version 1.1 (K4, owner 2026-11-01, dsh intake §3.3 and Q-2) adds an optional question for escalate and needs_information: one structured question to a human. audience is the Run's claim of who should see it first and grants nothing; who may answer is decided by the server from question_kind and the answerer's current role, never from audience. 1.0 bodies are unchanged and never carry question. Identity (tenant, world, Run, plan) is derived by the server from the Run's live activation; this body carries none. Grants nothing.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"enum": ["1.0", "1.1"]},
     "kind": {"enum": ["no_action", "needs_information", "waiting_external", "escalate", "plan_update", "action_intent"]},
     "reasons": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 500}},
     "reassess_at": {"anyOf": [{"type": "null"}, {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|\\+00:00)$"}]},
@@ -53,12 +53,26 @@
         }}
       },
       "required": ["steps", "strategy"]
-    }]}
+    }]},
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audience": {"enum": ["owner", "operator"]},
+        "question_kind": {"enum": ["schedule_change", "fulfilment_confirm", "customer_fact", "budget", "contact_release", "erasure", "other"]},
+        "text": {"type": "string", "minLength": 1, "maxLength": 300},
+        "options": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 60}},
+        "subject_ref": {"anyOf": [{"type": "null"}, {"type": "string", "minLength": 3, "maxLength": 512, "pattern": "^[A-Za-z][A-Za-z0-9_.-]*:[^\\s]+$"}]},
+        "withdrawable": {"type": "boolean"}
+      },
+      "required": ["audience", "question_kind", "text", "options", "subject_ref", "withdrawable"]
+    }
   },
   "required": ["schema_version", "kind", "reasons", "reassess_at", "evidence_refs", "intent_ref", "plan_update"],
   "allOf": [
     {"if": {"properties": {"kind": {"const": "plan_update"}}}, "then": {"properties": {"plan_update": {"type": "object"}}}, "else": {"properties": {"plan_update": {"type": "null"}}}},
     {"if": {"properties": {"kind": {"const": "action_intent"}}}, "then": {"properties": {"intent_ref": {"type": "string"}}}},
-    {"if": {"properties": {"kind": {"const": "waiting_external"}}}, "then": {"anyOf": [{"properties": {"reassess_at": {"type": "string"}}}, {"properties": {"intent_ref": {"type": "string"}}}]}}
+    {"if": {"properties": {"kind": {"const": "waiting_external"}}}, "then": {"anyOf": [{"properties": {"reassess_at": {"type": "string"}}}, {"properties": {"intent_ref": {"type": "string"}}}]}},
+    {"if": {"required": ["question"]}, "then": {"properties": {"schema_version": {"const": "1.1"}, "kind": {"enum": ["escalate", "needs_information"]}}}}
   ]
 }

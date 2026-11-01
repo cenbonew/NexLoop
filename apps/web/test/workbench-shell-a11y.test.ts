@@ -16,7 +16,7 @@ const json=(status:number,body:unknown)=>new Response(JSON.stringify(body),{stat
 const hex='a'.repeat(64);
 
 test('the tab title: page, then the detail it shows, then the application; signed out it is the sign-in',()=>{
-  expect(pageTitle({page:'overview'})).toBe('总览 · 负责人工作台 · NexLoop');
+  expect(pageTitle({page:'home'})).toBe('待我处理 · 负责人工作台 · NexLoop');
   expect(pageTitle({page:'ontology',section:'object_types'})).toBe('Object Type · 企业世界模型 · 负责人工作台 · NexLoop');
   expect(pageTitle({page:'ontology',section:'object_types'},null,{'Object Type':'对象类型'})).toBe('Object Type（对象类型） · 企业世界模型 · 负责人工作台 · NexLoop');
   expect(pageTitle({page:'consumers',id:hex,sub:'conversation'},{consumerId:hex,label:'客户 甲'})).toBe('会话 · 客户 甲 · 客户 · 负责人工作台 · NexLoop');
@@ -37,7 +37,7 @@ async function mount(){act(()=>root.render(h(QueryClientProvider,{client:new Que
 
 test('signed in: the title names the page, the skip link comes first and targets the content',async()=>{
   await mount();
-  expect(document.title).toBe('总览 · 负责人工作台 · NexLoop');
+  expect(document.title).toBe('待我处理 · 负责人工作台 · NexLoop');
   const first=box.querySelector('a,button,[tabindex]:not([tabindex="-1"])') as HTMLAnchorElement;
   expect(first.textContent).toBe('跳到主要内容');expect(first.getAttribute('href')).toBe('#workbench-content');
   const main=box.querySelector('main#workbench-content');

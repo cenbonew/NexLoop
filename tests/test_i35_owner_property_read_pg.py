@@ -8,6 +8,8 @@ from psycopg.types.json import Jsonb
 
 from support.tenants import TENANT_A as TENANT
 from test_workbench_read_pg import ROLES
+
+CUR = ROLES['manifest_version']
 from test_workbench_read_pg import browser_business, conversations, identity, provision, published_action, uow, workbench  # noqa: F401
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/ops/i35_owner_property_read.sql'
@@ -159,14 +161,15 @@ def test_a_configuration_without_its_read_lists_is_refused_by_apply_and_reported
         'configured': False, 'missing': 0}
     report = workbench_read_types(dsn)
     assert report['checks'] == {'metrics_export': True, 'workbench_read_types_reported': True, 'workbench_read_types_present': True}
-    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 52, 'present': True, 'missing': 0}
+    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': CUR, 'present': True, 'missing': 0}
     members = members_file((w['owner'], 'owner'), (w['operator'], 'operator'))
-    v53 = copy.deepcopy(ROLES); v53['manifest_version'] = 53
-    # The write skipped: --apply refuses and nothing of v53 is committed.
+    # The current roles version comes from deploy/authorization/workbench-roles.v1.json (never a literal); the next one is CUR + 1.
+    v53 = copy.deepcopy(ROLES); v53['manifest_version'] = CUR + 1
+    # The write skipped: --apply refuses and nothing of the next version is committed.
     monkeypatch.setattr(workbench_roles, 'write_read_types', lambda db, tenant, roles: {'recorded': 0})
-    with pytest.raises(workbench_roles.WorkbenchRolesRejected, match='read_types_missing: roles version 53'):
+    with pytest.raises(workbench_roles.WorkbenchRolesRejected, match=f'read_types_missing: roles version {CUR + 1}'):
         workbench_roles.apply_members(v53, members, database_url_file=w['configurator'])
-    assert workbench_read_types(dsn)['details']['workbench_read_types'][TENANT]['roles_version'] == 52
+    assert workbench_read_types(dsn)['details']['workbench_read_types'][TENANT]['roles_version'] == CUR
     # A configuration written without its lists (the configuration call alone): doctor fails.
     roles_payload, members_payload = workbench_roles.configuration_payloads(v53, members)
     with psycopg.connect(Path(w['configurator']).read_text().strip()) as db:
@@ -174,6 +177,6 @@ def test_a_configuration_without_its_read_lists_is_refused_by_apply_and_reported
                    (TENANT, workbench_roles.canonical_payload(roles_payload), workbench_roles.canonical_payload(members_payload)))
     report = workbench_read_types(dsn)
     assert report['checks']['workbench_read_types_present'] is False
-    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': 53, 'present': False, 'missing': 1}
+    assert report['details']['workbench_read_types'][TENANT] == {'configured': True, 'roles_version': CUR + 1, 'present': False, 'missing': 1}
     assert may(admin, 'owner', 'eios:object:Conversation/' + admin.execute(
         "select object_id from ontology.objects where tenant_id=%s and world='real' and type_name='Conversation' limit 1", (TENANT,)).fetchone()[0]) is False

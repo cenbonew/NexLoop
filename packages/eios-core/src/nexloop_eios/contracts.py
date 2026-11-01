@@ -721,6 +721,405 @@ class ContextPackV6Outreach(BaseModel):
     purposes: list[ContextPackV6OutreachPurposesItem]
     marketing: ContextPackV6OutreachMarketing
 
+class ContextPackV7Bindings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    tenant_id: str
+    world_id: Literal['real']
+    run_id: str
+    source_principal: str
+    context_id: str
+    namespace: str
+    artifact_id: str
+    command_digest: str
+
+class ContextPackV7Role1RoleBindingBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    run_id: str
+    tenant_id: str
+    world: Literal['real']
+    consumer_id: str
+    link_id: str
+    role_id: str
+    step_id: str
+    link_revision: int
+    role_revision: int
+    step_revision: int
+    role_ref: str
+    scope: str
+    expires_at: str
+
+class ContextPackV7Role1RoleBindingDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    responsibility: str
+    ceiling_ref: str
+    active: Literal[True]
+    valid_from: str
+    valid_until: str
+
+class ContextPackV7Role1RoleBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    binding: ContextPackV7Role1RoleBindingBinding
+    definition: ContextPackV7Role1RoleBindingDefinition
+    definition_provenance: str
+    mapping_provenance: str
+    grants_authority: Literal[False]
+
+class ContextPackV7Role1RolePolicy1Binding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    run_id: str
+    tenant_id: str
+    world: Literal['real']
+    ceiling_id: str
+    ceiling_revision: int
+    scope_id: str
+    scope_revision: int
+    budget: dict[str, Any]
+    effect_units: int
+    expires_at: str
+
+class ContextPackV7Role1RolePolicy1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    binding: ContextPackV7Role1RolePolicy1Binding
+    ceiling: dict[str, Any]
+    scope: dict[str, Any]
+    ceiling_provenance: str
+    scope_provenance: str
+    grants_authority: Literal[False]
+
+class ContextPackV7Role1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    role_binding: ContextPackV7Role1RoleBinding
+    role_policy: None | ContextPackV7Role1RolePolicy1
+
+class ContextPackV7CurrentEvent0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['consumer_message']
+    message_id: str
+    provenance: str
+
+class ContextPackV7CurrentEvent1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['service_trigger']
+    event_id: str
+    source_principal: str
+    body: str
+    provenance: str
+
+class ContextPackV7UserStatement0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    message_id: str
+    conversation_id: str
+    sequence: int
+    body: str
+    provenance: str
+
+class ContextPackV7GoalControlSnapshot1ScopesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['role', 'consumer', 'strategy', 'action_type']
+    ref: str
+
+class ContextPackV7GoalControlSnapshot1GoalsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    goal_id: str
+    version: int
+
+class ContextPackV7GoalControlSnapshot1ObjectsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type_name: str
+    object_id: str
+    revision: int
+
+class ContextPackV7GoalControlSnapshot1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    control_revision: int
+    scopes: list[ContextPackV7GoalControlSnapshot1ScopesItem]
+    goals: list[ContextPackV7GoalControlSnapshot1GoalsItem]
+    objects: list[ContextPackV7GoalControlSnapshot1ObjectsItem]
+    budgets: list[Literal['model', 'incentive']]
+
+class ContextPackV7Goal(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    goal_version_refs: list[str]
+    control_snapshot: None | ContextPackV7GoalControlSnapshot1
+
+class ContextPackV7FormalFactsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal['Consumer', 'Goal', 'PlanStep', 'EffectControl']
+    id: str
+    revision: int
+    provenance: str
+
+class ContextPackV7CurrentConstraints(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    action: Literal['nexloop.service.request:1', 'nexloop.enterprise.deliver:1']
+    allow_effect: Literal[True]
+    budget_units: int
+    reserved_units: int
+    valid_until: str
+    executor_principal: str
+
+class ContextPackV7SupplyProperties(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    service_code: Literal['local.json-export']
+    title: str
+    delivery_action: Literal['nexloop.service.request:1', 'nexloop.enterprise.deliver:1']
+    content_kind: Literal['json-message-export']
+    price_amount: Literal['0']
+    currency: Literal['CNY']
+    eligibility: Literal['current_consumer_plan']
+    allowed_guarantees: list[Any]
+    allowed_discounts: list[Any]
+    evidence_kind: Literal['fsynced_json_export']
+    active: Literal[True]
+    valid_until: str
+
+class ContextPackV7Supply(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    offering_id: str
+    offering_revision: int
+    binding_id: str
+    binding_revision: int
+    provenance: str
+    properties: ContextPackV7SupplyProperties
+
+class ContextPackV7EffectSuppliesItemProperties(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    service_code: str
+    title: str
+    delivery_action: Literal['nexloop.enterprise.deliver:1']
+    content_kind: Literal['enterprise-delivery']
+    price_amount: str
+    currency: Literal['CNY']
+    eligibility: Literal['current_consumer_plan']
+    allowed_guarantees: list[Any]
+    allowed_discounts: list[Any]
+    evidence_kind: Literal['enterprise_receipt']
+    active: Literal[True]
+    valid_until: str
+
+class ContextPackV7EffectSuppliesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    action: Literal['nexloop.enterprise.deliver:1']
+    offering_id: str
+    offering_revision: int
+    binding_id: str
+    binding_revision: int
+    provenance: str
+    properties: ContextPackV7EffectSuppliesItemProperties
+
+class ContextPackV7RelationshipContextCurrentStatementsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    assessment_ref: str
+    revision: int
+    relation_type_ref: str | None
+    source_ref: str
+    target_ref: str
+    epistemic_kind: Literal['hypothesis', 'user_statement']
+    resolution_state: Literal['resolved', 'awaiting_definition', 'unresolved']
+    conclusion: str
+    valid_from: str
+    valid_to: str | None
+    source_message_ref: str | None
+    source_content_hash: str | None
+
+class ContextPackV7RelationshipContextEvidenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    assessment_ref: str
+    revision: int
+    relation_type_ref: str | None
+    source_ref: str
+    target_ref: str
+    epistemic_kind: Literal['hypothesis', 'user_statement']
+    resolution_state: Literal['resolved', 'awaiting_definition', 'unresolved']
+    conclusion: str
+    valid_from: str
+    valid_to: str | None
+    source_message_ref: str | None
+    source_content_hash: str | None
+
+class ContextPackV7RelationshipContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    current_statements: list[ContextPackV7RelationshipContextCurrentStatementsItem]
+    evidence: list[ContextPackV7RelationshipContextEvidenceItem]
+
+class ContextPackV7ConstraintsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['formal_object', 'policy']
+    access_decision_ref: str
+    relevance_permille: int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed', 'latest_consumer_turn']]
+
+class ContextPackV7ConsumerStateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['formal_object', 'policy']
+    access_decision_ref: str
+    relevance_permille: int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed', 'latest_consumer_turn']]
+
+class ContextPackV7OpenWorkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['formal_object', 'execution_state', 'policy']
+    access_decision_ref: str
+    relevance_permille: int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed', 'latest_consumer_turn']]
+
+class ContextPackV7EvidenceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: Literal['conversation', 'claim_evidence', 'relationships', 'recall', 'hypotheses', 'human_answers']
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['user_statement', 'conversation', 'hypothesis', 'memory']
+    access_decision_ref: str
+    relevance_permille: int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed', 'latest_consumer_turn']]
+
+class ContextPackV7SemanticsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['schema']
+    access_decision_ref: str
+    relevance_permille: int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed', 'latest_consumer_turn']]
+
+class ContextPackV7ExperienceItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    subsection: str
+    ref: str
+    revision: str
+    content: Any
+    content_hash: str
+    evidence_kind: Literal['memory']
+    access_decision_ref: str
+    relevance_permille: int
+    at: str
+    tags: list[Literal['negation', 'contact_limit', 'unconfirmed', 'latest_consumer_turn']]
+
+class ContextPackV7BudgetReportOmittedItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    section: str
+    subsection: str
+    ref: str
+    reason: Literal['section_quota', 'mandatory_exceeds_budget', 'core_exceeds_budget', 'duplicate_evidence', 'experience', 'hypotheses', 'semantics_low_relevance', 'older_conversation', 'older_claim_evidence', 'low_score_recall']
+
+class ContextPackV7BudgetReport(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    estimator: str
+    input_token_budget: int
+    output_reserve: int
+    framing_reserve: int
+    available: int
+    used: int
+    sections: dict[str, Any]
+    omitted: list[ContextPackV7BudgetReportOmittedItem]
+
+class ContextPackV7InsufficientItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    code: Literal['mandatory_exceeds_budget', 'core_trimmed', 'required_source_unreadable', 'required_source_stale', 'goal_not_current', 'control_paused', 'semantic_ambiguous_required']
+    section: None | str
+    refs: list[str]
+
+class ContextPackV7OperatorPersonaDocumentExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    max_chars: int
+    emoji: Literal['none', 'few', 'allowed']
+    vocabulary: str | None = None
+    forbidden_phrases: list[str] | None = None
+    language: str | None = None
+
+class ContextPackV7OperatorPersonaDocumentAiDisclosure(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    statement: str | None = None
+    deflect_statement: str | None = None
+
+class ContextPackV7OperatorPersonaDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    display_name: str
+    signature: str | None = None
+    self_intro: str | None = None
+    tone: str
+    values: list[str] | None = None
+    expression: ContextPackV7OperatorPersonaDocumentExpression
+    scenarios: list[str] | None = None
+    not_for: list[str] | None = None
+    ai_disclosure: ContextPackV7OperatorPersonaDocumentAiDisclosure | None = None
+
+class ContextPackV7OperatorPersonaAiDisclosure(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    mode: Literal['none', 'first_contact', 'always']
+    when_asked: Literal['deflect', 'handoff']
+    block_human_claims: bool
+    content_label: bool
+
+class ContextPackV7OperatorPersonaPreferencesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    claim_id: str
+    dimension: Literal['quiet_hours', 'frequency', 'channel', 'topic', 'tone']
+    polarity: Literal['affirmed', 'negated']
+    value: str | int
+
+class ContextPackV7OperatorPersona(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    persona_ref: str
+    persona_id: str
+    version: int
+    source: Literal['owner_assign', 'rule', 'default']
+    document: ContextPackV7OperatorPersonaDocument
+    ai_disclosure: ContextPackV7OperatorPersonaAiDisclosure
+    preferences: list[ContextPackV7OperatorPersonaPreferencesItem] | None = None
+
+class ContextPackV7OutreachPurposesItemContentRules(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    max_chars: int
+    unsubscribe_notice_required: bool
+
+class ContextPackV7OutreachPurposesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    purpose_id: str
+    kind: Literal['commitment_followup', 'service_followup', 'plan_defined', 'marketing']
+    topic: str
+    frequency_class: Literal['service', 'marketing']
+    requires_approval: bool
+    content_rules: ContextPackV7OutreachPurposesItemContentRules
+
+class ContextPackV7OutreachMarketing(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool
+    consent_mode: Literal['opt_out', 'opt_in']
+
+class ContextPackV7Outreach(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    schema: Literal['nexloop-outreach-context/1']
+    list_version: int
+    purposes: list[ContextPackV7OutreachPurposesItem]
+    marketing: ContextPackV7OutreachMarketing
+
 class ConversationMessageProvider1(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     namespace: str
@@ -930,6 +1329,15 @@ class RunOutcomePlanUpdate1(BaseModel):
     strategy: None | str
     steps: list[RunOutcomePlanUpdate1StepsItem]
 
+class RunOutcomeQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    audience: Literal['owner', 'operator']
+    question_kind: Literal['schedule_change', 'fulfilment_confirm', 'customer_fact', 'budget', 'contact_release', 'erasure', 'other']
+    text: str
+    options: list[str]
+    subject_ref: None | str
+    withdrawable: bool
+
 class SchemaProposalSource(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     input_snapshot_digest: str
@@ -1128,6 +1536,30 @@ class WorkbenchObjectValuesPropertiesItem(BaseModel):
     value: str | None = None
     value_type: Literal['text', 'json'] | None = None
     truncated: Literal[True] | None = None
+
+class WorkbenchPendingCategoriesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    category: Literal['question', 'approval', 'remediation', 'reply_escalation', 'takeover_expiry', 'candidate_review']
+    count: int
+    oldest_waiting_seconds: None | int
+    oldest_ref: None | str
+
+class WorkbenchPendingQuestionsItemAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    operation: Literal['nexloop.human_question.answer:1']
+
+class WorkbenchPendingQuestionsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    question_id: str
+    audience: Literal['owner', 'operator']
+    question_kind: Literal['schedule_change', 'fulfilment_confirm', 'customer_fact', 'budget', 'contact_release', 'erasure', 'other']
+    text: str
+    options: list[str]
+    subject_ref: None | str
+    withdrawable: bool
+    created_at: str
+    due_by: str
+    answer: WorkbenchPendingQuestionsItemAnswer
 
 class WorkbenchWorldModelV2ObjectTypesItemPropertiesItem0(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -1460,6 +1892,31 @@ class ContextPackV6(_Contract):
     operator_persona: ContextPackV6OperatorPersona | None = None
     outreach: ContextPackV6Outreach | None = None
 
+class ContextPackV7(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:context-pack-v7","title":"context-pack-v7","description":"NX-023 Context pack v6. Message Runs: the frozen v2 core (bindings, user_statement, formal_facts, current_constraints, supply), or the v4 core when the optional relationship_context section is present (current statements are resolved user statements only; hypotheses are evidence only), re-derived by SQL at bind; Role Runs: the frozen v3/v5 core under role and a service-trigger current_event, plus strategy, goal/control snapshot, labelled item sections, budget report and explicit insufficiency. Every item cites its source revision, canonical content hash and the current READ decision it was read under; SQL re-verifies each against the source row. Formal sections carry only governed objects/policy/ledger state; Claims under review appear only as source text; hypotheses never enter a real-world Context. No floating-point numbers. Server-assembled; grants nothing. v2-v5 stay frozen and old Runs keep using them.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"nexloop.context-pack.v7"},"strategy_ref":{"type":"string","pattern":"^context-strategy:[a-z][a-z0-9_]{0,63}@[1-9][0-9]{0,6}$"},"bindings":{"type":"object","properties":{"tenant_id":{"type":"string","format":"uuid"},"world_id":{"const":"real"},"run_id":{"type":"string","format":"uuid"},"source_principal":{"type":"string","minLength":1,"maxLength":512},"context_id":{"type":"string","format":"uuid"},"namespace":{"type":"string","pattern":"^[a-f0-9]{64}$"},"artifact_id":{"type":"string","pattern":"^[a-f0-9]{32}$"},"command_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"}},"required":["artifact_id","command_digest","context_id","namespace","run_id","source_principal","tenant_id","world_id"],"additionalProperties":false},"role":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"role_binding":{"type":"object","properties":{"binding":{"type":"object","properties":{"run_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world":{"const":"real"},"consumer_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"link_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"role_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"step_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"link_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"role_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"step_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"role_ref":{"type":"string","pattern":"^role:[a-f0-9]{64}:mapping:[a-f0-9]{64}$"},"scope":{"type":"string","minLength":1,"maxLength":8192},"expires_at":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"}},"required":["consumer_id","expires_at","link_id","link_revision","role_id","role_ref","role_revision","run_id","scope","step_id","step_revision","tenant_id","world"],"additionalProperties":false},"definition":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":8192},"responsibility":{"type":"string","minLength":1,"maxLength":8192},"ceiling_ref":{"type":"string","minLength":1,"maxLength":8192},"active":{"const":true},"valid_from":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"},"valid_until":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"}},"required":["active","ceiling_ref","name","responsibility","valid_from","valid_until"],"additionalProperties":false},"definition_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"mapping_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"grants_authority":{"const":false}},"required":["binding","definition","definition_provenance","grants_authority","mapping_provenance"],"additionalProperties":false},"role_policy":{"anyOf":[{"type":"null"},{"type":"object","properties":{"binding":{"type":"object","properties":{"run_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"world":{"const":"real"},"ceiling_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"ceiling_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"scope_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"scope_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"budget":{"type":"object"},"effect_units":{"type":"integer","minimum":1,"maximum":1000000},"expires_at":{"type":"string","format":"date-time","pattern":"(Z|\\\\+00:00)$"}},"required":["budget","ceiling_id","ceiling_revision","effect_units","expires_at","run_id","scope_id","scope_revision","tenant_id","world"],"additionalProperties":false},"ceiling":{"type":"object"},"scope":{"type":"object"},"ceiling_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"scope_provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"grants_authority":{"const":false}},"required":["binding","ceiling","ceiling_provenance","grants_authority","scope","scope_provenance"],"additionalProperties":false}]}},"required":["role_binding","role_policy"]}]},"current_event":{"anyOf":[{"type":"object","properties":{"kind":{"const":"consumer_message"},"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"}},"required":["kind","message_id","provenance"],"additionalProperties":false},{"type":"object","properties":{"kind":{"const":"service_trigger"},"event_id":{"type":"string","format":"uuid"},"source_principal":{"type":"string","minLength":1,"maxLength":512},"body":{"type":"string","minLength":1,"maxLength":8192},"provenance":{"type":"string","pattern":"^eios:role-trigger:[a-f0-9-]{36}$"}},"required":["body","event_id","kind","provenance","source_principal"],"additionalProperties":false}]},"user_statement":{"anyOf":[{"type":"object","properties":{"message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"sequence":{"type":"integer","minimum":1,"maximum":9007199254740991},"body":{"type":"string","maxLength":32768},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"}},"required":["body","conversation_id","message_id","provenance","sequence"],"additionalProperties":false},{"type":"null"}]},"goal":{"type":"object","additionalProperties":false,"properties":{"goal_version_refs":{"type":"array","items":{"type":"string","pattern":"^goal:[a-z0-9][a-z0-9._-]{0,127}@[1-9][0-9]*$"},"maxItems":16,"uniqueItems":true},"control_snapshot":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"control_revision":{"type":"integer","minimum":0},"scopes":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"kind":{"enum":["role","consumer","strategy","action_type"]},"ref":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}$"}},"required":["kind","ref"]}},"goals":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"goal_id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,127}$"},"version":{"type":"integer","minimum":1}},"required":["goal_id","version"]}},"objects":{"type":"array","maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"type_name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","minLength":1,"maxLength":128},"revision":{"type":"integer","minimum":1}},"required":["object_id","revision","type_name"]}},"budgets":{"type":"array","maxItems":2,"uniqueItems":true,"items":{"enum":["model","incentive"]}}},"required":["budgets","control_revision","goals","objects","scopes"]}]}},"required":["control_snapshot","goal_version_refs"]},"formal_facts":{"type":"array","items":{"type":"object","properties":{"type":{"enum":["Consumer","Goal","PlanStep","EffectControl"]},"id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"}},"required":["id","provenance","revision","type"],"additionalProperties":false},"minItems":4,"maxItems":4},"current_constraints":{"type":"object","properties":{"action":{"enum":["nexloop.service.request:1","nexloop.enterprise.deliver:1"]},"allow_effect":{"const":true},"budget_units":{"type":"integer","minimum":0,"maximum":9007199254740991},"reserved_units":{"type":"integer","minimum":0,"maximum":9007199254740991},"valid_until":{"type":"string","format":"date-time"},"executor_principal":{"type":"string","minLength":1,"maxLength":512}},"required":["action","allow_effect","budget_units","executor_principal","reserved_units","valid_until"],"additionalProperties":false},"supply":{"type":"object","properties":{"offering_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"offering_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"binding_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"binding_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"properties":{"type":"object","properties":{"service_code":{"const":"local.json-export"},"title":{"type":"string","minLength":1,"maxLength":256},"delivery_action":{"enum":["nexloop.service.request:1","nexloop.enterprise.deliver:1"]},"content_kind":{"const":"json-message-export"},"price_amount":{"const":"0"},"currency":{"const":"CNY"},"eligibility":{"const":"current_consumer_plan"},"allowed_guarantees":{"type":"array","maxItems":0},"allowed_discounts":{"type":"array","maxItems":0},"evidence_kind":{"const":"fsynced_json_export"},"active":{"const":true},"valid_until":{"type":"string","format":"date-time"}},"required":["active","allowed_discounts","allowed_guarantees","content_kind","currency","delivery_action","eligibility","evidence_kind","price_amount","service_code","title","valid_until"],"additionalProperties":false}},"required":["binding_id","binding_revision","offering_id","offering_revision","properties","provenance"],"additionalProperties":false},"effect_supplies":{"type":"array","maxItems":4,"items":{"type":"object","properties":{"action":{"const":"nexloop.enterprise.deliver:1"},"offering_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"offering_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"binding_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"binding_revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"provenance":{"type":"string","pattern":"^eios:object:[a-f0-9]{64}$"},"properties":{"type":"object","properties":{"service_code":{"type":"string","pattern":"^enterprise\\\\.[a-z0-9][a-z0-9.-]{0,62}$"},"title":{"type":"string","minLength":1,"maxLength":256},"delivery_action":{"const":"nexloop.enterprise.deliver:1"},"content_kind":{"const":"enterprise-delivery"},"price_amount":{"type":"string","pattern":"^(0|[1-9][0-9]{0,11})(\\\\.[0-9]{1,2})?$"},"currency":{"const":"CNY"},"eligibility":{"const":"current_consumer_plan"},"allowed_guarantees":{"type":"array","maxItems":0},"allowed_discounts":{"type":"array","maxItems":0},"evidence_kind":{"const":"enterprise_receipt"},"active":{"const":true},"valid_until":{"type":"string","format":"date-time"}},"required":["active","allowed_discounts","allowed_guarantees","content_kind","currency","delivery_action","eligibility","evidence_kind","price_amount","service_code","title","valid_until"],"additionalProperties":false}},"required":["action","binding_id","binding_revision","offering_id","offering_revision","properties","provenance"],"additionalProperties":false},"allOf":[{"contains":{"properties":{"action":{"const":"nexloop.enterprise.deliver:1"}}},"minContains":0,"maxContains":1}]},"relationship_context":{"type":"object","properties":{"current_statements":{"type":"array","items":{"type":"object","properties":{"assessment_ref":{"type":"string","pattern":"^eios:object:RelationshipAssessment/[a-f0-9]{64}$"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"relation_type_ref":{"type":["string","null"],"pattern":"^eios:link_type:[A-Za-z][A-Za-z0-9_]*:[1-9][0-9]*$"},"source_ref":{"type":"string","pattern":"^eios:object:[A-Za-z][A-Za-z0-9_]*/[a-f0-9]{64}$"},"target_ref":{"type":"string","pattern":"^eios:object:[A-Za-z][A-Za-z0-9_]*/[a-f0-9]{64}$"},"epistemic_kind":{"enum":["hypothesis","user_statement"]},"resolution_state":{"enum":["resolved","awaiting_definition","unresolved"]},"conclusion":{"type":"string","minLength":1,"maxLength":8192},"valid_from":{"type":"string","format":"date-time"},"valid_to":{"type":["string","null"],"format":"date-time"},"source_message_ref":{"type":["string","null"],"pattern":"^eios:object:Message/[a-f0-9]{64}$"},"source_content_hash":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$"}},"required":["assessment_ref","conclusion","epistemic_kind","relation_type_ref","resolution_state","revision","source_content_hash","source_message_ref","source_ref","target_ref","valid_from","valid_to"],"additionalProperties":false},"maxItems":4},"evidence":{"type":"array","items":{"type":"object","properties":{"assessment_ref":{"type":"string","pattern":"^eios:object:RelationshipAssessment/[a-f0-9]{64}$"},"revision":{"type":"integer","minimum":1,"maximum":9007199254740991},"relation_type_ref":{"type":["string","null"],"pattern":"^eios:link_type:[A-Za-z][A-Za-z0-9_]*:[1-9][0-9]*$"},"source_ref":{"type":"string","pattern":"^eios:object:[A-Za-z][A-Za-z0-9_]*/[a-f0-9]{64}$"},"target_ref":{"type":"string","pattern":"^eios:object:[A-Za-z][A-Za-z0-9_]*/[a-f0-9]{64}$"},"epistemic_kind":{"enum":["hypothesis","user_statement"]},"resolution_state":{"enum":["resolved","awaiting_definition","unresolved"]},"conclusion":{"type":"string","minLength":1,"maxLength":8192},"valid_from":{"type":"string","format":"date-time"},"valid_to":{"type":["string","null"],"format":"date-time"},"source_message_ref":{"type":["string","null"],"pattern":"^eios:object:Message/[a-f0-9]{64}$"},"source_content_hash":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$"}},"required":["assessment_ref","conclusion","epistemic_kind","relation_type_ref","resolution_state","revision","source_content_hash","source_message_ref","source_ref","target_ref","valid_from","valid_to"],"additionalProperties":false},"maxItems":4}},"required":["current_statements","evidence"],"additionalProperties":false},"constraints":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["formal_object","policy"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance_permille":{"type":"integer","minimum":0,"maximum":1000},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed","latest_consumer_turn"]},"uniqueItems":true,"maxItems":4}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance_permille","revision","subsection","tags"]},"maxItems":64},"consumer_state":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["formal_object","policy"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance_permille":{"type":"integer","minimum":0,"maximum":1000},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed","latest_consumer_turn"]},"uniqueItems":true,"maxItems":4}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance_permille","revision","subsection","tags"]},"maxItems":256},"open_work":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["formal_object","execution_state","policy"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance_permille":{"type":"integer","minimum":0,"maximum":1000},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed","latest_consumer_turn"]},"uniqueItems":true,"maxItems":4}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance_permille","revision","subsection","tags"]},"maxItems":128},"evidence":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"enum":["conversation","claim_evidence","relationships","recall","hypotheses","human_answers"]},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["user_statement","conversation","hypothesis","memory"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance_permille":{"type":"integer","minimum":0,"maximum":1000},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed","latest_consumer_turn"]},"uniqueItems":true,"maxItems":4}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance_permille","revision","subsection","tags"],"allOf":[{"if":{"properties":{"evidence_kind":{"const":"hypothesis"}}},"then":{"properties":{"subsection":{"const":"hypotheses"}}}},{"if":{"properties":{"subsection":{"const":"hypotheses"}}},"then":{"properties":{"evidence_kind":{"const":"hypothesis"}}}},{"if":{"properties":{"subsection":{"const":"human_answers"}}},"then":{"properties":{"evidence_kind":{"const":"user_statement"},"ref":{"pattern":"^nexloop:human_answer:[0-9a-f-]{36}@[1-9][0-9]{0,8}$"},"tags":{"maxItems":0}}}},{"if":{"properties":{"ref":{"pattern":"^nexloop:human_answer:"}}},"then":{"properties":{"subsection":{"const":"human_answers"}}}}]},"maxItems":256},"semantics":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["schema"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance_permille":{"type":"integer","minimum":0,"maximum":1000},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed","latest_consumer_turn"]},"uniqueItems":true,"maxItems":4}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance_permille","revision","subsection","tags"]},"maxItems":64},"experience":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"subsection":{"type":"string","minLength":1,"maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"revision":{"type":"string","minLength":1,"maxLength":128},"content":{},"content_hash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"evidence_kind":{"enum":["memory"]},"access_decision_ref":{"type":"string","pattern":"^decision:[0-9a-f]{64}$"},"relevance_permille":{"type":"integer","minimum":0,"maximum":1000},"at":{"type":"string","maxLength":64},"tags":{"type":"array","items":{"enum":["negation","contact_limit","unconfirmed","latest_consumer_turn"]},"uniqueItems":true,"maxItems":4}},"required":["access_decision_ref","at","content","content_hash","evidence_kind","ref","relevance_permille","revision","subsection","tags"]},"maxItems":64},"budget_report":{"type":"object","additionalProperties":false,"properties":{"estimator":{"type":"string","minLength":1,"maxLength":64},"input_token_budget":{"type":"integer","minimum":1024},"output_reserve":{"type":"integer","minimum":128},"framing_reserve":{"type":"integer","minimum":0},"available":{"type":"integer"},"used":{"type":"integer","minimum":0},"sections":{"type":"object"},"omitted":{"type":"array","maxItems":1024,"items":{"type":"object","additionalProperties":false,"properties":{"section":{"type":"string","maxLength":32},"subsection":{"type":"string","maxLength":64},"ref":{"type":"string","minLength":1,"maxLength":512},"reason":{"enum":["section_quota","mandatory_exceeds_budget","core_exceeds_budget","duplicate_evidence","experience","hypotheses","semantics_low_relevance","older_conversation","older_claim_evidence","low_score_recall"]}},"required":["reason","ref","section","subsection"]}}},"required":["available","estimator","framing_reserve","input_token_budget","omitted","output_reserve","sections","used"]},"insufficient":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"code":{"enum":["mandatory_exceeds_budget","core_trimmed","required_source_unreadable","required_source_stale","goal_not_current","control_paused","semantic_ambiguous_required"]},"section":{"anyOf":[{"type":"null"},{"type":"string","maxLength":32}]},"refs":{"type":"array","maxItems":512,"items":{"type":"string","minLength":1,"maxLength":512}}},"required":["code","refs","section"]}},"operator_persona":{"description":"0227 operator persona slice 1 (docs/design/operator-persona-design.md): how the operator speaks to this Consumer, persona@version, re-derived and checked by SQL at bind; absent when the tenant has no usable persona.","type":"object","additionalProperties":false,"required":["persona_ref","persona_id","version","source","document","ai_disclosure"],"properties":{"persona_ref":{"type":"string","pattern":"^operator-persona:[a-z][a-z0-9_-]{0,63}@[1-9][0-9]{0,5}$"},"persona_id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"},"version":{"type":"integer","minimum":1,"maximum":999999},"source":{"enum":["owner_assign","rule","default"]},"document":{"type":"object","additionalProperties":false,"required":["display_name","tone","expression"],"properties":{"display_name":{"type":"string","minLength":1,"maxLength":40},"signature":{"type":"string","minLength":0,"maxLength":40},"self_intro":{"type":"string","minLength":0,"maxLength":500},"tone":{"type":"string","minLength":1,"maxLength":200},"values":{"type":"array","maxItems":5,"items":{"type":"string","minLength":1,"maxLength":200}},"expression":{"type":"object","additionalProperties":false,"required":["max_chars","emoji"],"properties":{"max_chars":{"type":"integer","minimum":20,"maximum":2000},"emoji":{"enum":["none","few","allowed"]},"vocabulary":{"type":"string","minLength":0,"maxLength":500},"forbidden_phrases":{"type":"array","maxItems":50,"items":{"type":"string","minLength":1,"maxLength":100}},"language":{"type":"string","minLength":0,"maxLength":16}}},"scenarios":{"type":"array","maxItems":10,"items":{"type":"string","minLength":1,"maxLength":60}},"not_for":{"type":"array","maxItems":10,"items":{"type":"string","minLength":1,"maxLength":60}},"ai_disclosure":{"type":"object","additionalProperties":false,"properties":{"statement":{"type":"string","minLength":0,"maxLength":300},"deflect_statement":{"type":"string","minLength":0,"maxLength":300}}}}},"ai_disclosure":{"type":"object","additionalProperties":false,"required":["mode","when_asked","block_human_claims","content_label"],"properties":{"mode":{"enum":["none","first_contact","always"]},"when_asked":{"enum":["deflect","handoff"]},"block_human_claims":{"type":"boolean"},"content_label":{"type":"boolean"}}},"preferences":{"description":"0228: the consumer\'s own communication preferences (from their Claims, not dismissed by the owner); data for the model; quiet hours, frequency, channel and topic are also enforced at dispatch.","type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"required":["claim_id","dimension","polarity","value"],"properties":{"claim_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"dimension":{"enum":["quiet_hours","frequency","channel","topic","tone"]},"polarity":{"enum":["affirmed","negated"]},"value":{"anyOf":[{"type":"string","minLength":1,"maxLength":64},{"type":"integer","minimum":0,"maximum":1000}]}}}}}},"outreach":{"description":"Outreach slice 5 (docs/design/proactive-outreach.md §3.3): only in a plan reevaluation Run whose Role execution ceiling holds nexloop.outreach.send:1; the purposes this tenant has enabled in the current purpose list and the tenant\'s marketing state, re-derived and checked by SQL at bind. Whether to contact the customer at all is the Run\'s judgement (no_action is normal); every gate is rechecked at dispatch.","type":"object","additionalProperties":false,"required":["schema","list_version","purposes","marketing"],"properties":{"schema":{"const":"nexloop-outreach-context/1"},"list_version":{"type":"integer","minimum":1,"maximum":999999},"purposes":{"type":"array","maxItems":64,"items":{"type":"object","additionalProperties":false,"required":["purpose_id","kind","topic","frequency_class","requires_approval","content_rules"],"properties":{"purpose_id":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"kind":{"enum":["commitment_followup","service_followup","plan_defined","marketing"]},"topic":{"type":"string","pattern":"^[a-z][a-z0-9_.]{0,63}$"},"frequency_class":{"enum":["service","marketing"]},"requires_approval":{"type":"boolean"},"content_rules":{"type":"object","additionalProperties":false,"required":["max_chars","unsubscribe_notice_required"],"properties":{"max_chars":{"type":"integer","minimum":20,"maximum":2000},"unsubscribe_notice_required":{"type":"boolean"}}}}}},"marketing":{"type":"object","additionalProperties":false,"required":["enabled","consent_mode"],"properties":{"enabled":{"type":"boolean"},"consent_mode":{"enum":["opt_out","opt_in"]}}}}}},"required":["bindings","budget_report","constraints","consumer_state","current_constraints","current_event","evidence","experience","formal_facts","goal","insufficient","open_work","role","schema_version","semantics","strategy_ref","supply","user_statement"]}')
+    schema_version: Literal['nexloop.context-pack.v7']
+    strategy_ref: str
+    bindings: ContextPackV7Bindings
+    role: None | ContextPackV7Role1
+    current_event: ContextPackV7CurrentEvent0 | ContextPackV7CurrentEvent1
+    user_statement: ContextPackV7UserStatement0 | None
+    goal: ContextPackV7Goal
+    formal_facts: list[ContextPackV7FormalFactsItem]
+    current_constraints: ContextPackV7CurrentConstraints
+    supply: ContextPackV7Supply
+    effect_supplies: list[ContextPackV7EffectSuppliesItem] | None = None
+    relationship_context: ContextPackV7RelationshipContext | None = None
+    constraints: list[ContextPackV7ConstraintsItem]
+    consumer_state: list[ContextPackV7ConsumerStateItem]
+    open_work: list[ContextPackV7OpenWorkItem]
+    evidence: list[ContextPackV7EvidenceItem]
+    semantics: list[ContextPackV7SemanticsItem]
+    experience: list[ContextPackV7ExperienceItem]
+    budget_report: ContextPackV7BudgetReport
+    insufficient: list[ContextPackV7InsufficientItem]
+    operator_persona: ContextPackV7OperatorPersona | None = None
+    outreach: ContextPackV7Outreach | None = None
+
 class ConversationMessage(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:conversation-message","title":"conversation-message","description":"NX-051 (AT-014). The read projection of one conversation Message, as the conversation read API returns it. `sequence` and `accepted_at` are this system\'s receipt order and time (assigned at commit, never rewritten). `provider` is the channel\'s own order, time and reference as evidence (trust: server = produced here, signed = a verified signed channel, client = what the browser client stated; client values never order anything and are never a time anchor). `reply_to_message_id` is the resolved reply target in the same conversation: for an Agent reply it mirrors the server-derived trigger_message_id; for an inbound message it is the reference the channel carried, once resolved (null while pending, for another conversation, or none). Server-derived; grants nothing. NX-028 (ruling B, approved contract change): an outbound message is an Agent reply (sender_kind=agent, with its governed intent_id) or a staff reply written during the author\'s own takeover of a native WebChat conversation (sender_kind=human_takeover, no intent: it does not go through the effect ledger); both carry the server-checked trigger_message_id.","type":"object","additionalProperties":false,"properties":{"id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"conversation_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"sequence":{"type":"integer","minimum":1},"actor":{"type":"string","minLength":1,"maxLength":512},"body":{"type":"string","minLength":1,"maxLength":8192},"accepted_at":{"type":"string","minLength":1,"maxLength":64,"description":"This system\'s acceptance time as stored with the Message (PostgreSQL timestamptz text)."},"status":{"const":"accepted"},"direction":{"const":"outbound"},"sender_kind":{"enum":["agent","human_takeover"]},"intent_id":{"type":"string","format":"uuid"},"trigger_message_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"reply_to_message_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"provider":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"namespace":{"type":"string","pattern":"^[a-z][a-z0-9.-]{1,63}$"},"message_ref":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":256}]},"sequence":{"anyOf":[{"type":"null"},{"type":"integer","minimum":1,"maximum":9007199254740991}]},"sent_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time"}]},"trust":{"enum":["server","signed","client"]},"skewed":{"type":"boolean"}},"required":["namespace","message_ref","sequence","sent_at","trust","skewed"]}]}},"required":["id","conversation_id","sequence","actor","body","accepted_at","status"],"allOf":[{"if":{"required":["direction"]},"then":{"required":["sender_kind","trigger_message_id"]}},{"if":{"required":["sender_kind"],"properties":{"sender_kind":{"const":"agent"}}},"then":{"required":["intent_id"]}},{"if":{"required":["sender_kind"],"properties":{"sender_kind":{"const":"human_takeover"}}},"then":{"not":{"required":["intent_id"]}}}]}')
     id: str
@@ -1646,14 +2103,15 @@ class RunCommand(_Contract):
     runtime_owner_epoch: int
 
 class RunOutcome(_Contract):
-    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:run-outcome","title":"run-outcome","description":"NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Identity (tenant, world, Run, plan) is derived by the server from the Run\'s live activation; this body carries none. Grants nothing.","type":"object","additionalProperties":false,"properties":{"schema_version":{"const":"1.0"},"kind":{"enum":["no_action","needs_information","waiting_external","escalate","plan_update","action_intent"]},"reasons":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":500}},"reassess_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|\\\\+00:00)$"}]},"evidence_refs":{"type":"array","maxItems":32,"items":{"type":"string","minLength":3,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"intent_ref":{"anyOf":[{"type":"null"},{"type":"string","format":"uuid","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"plan_update":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"strategy":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"steps":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"step_key":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"step_object_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"prerequisites":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":500}},"expected_result":{"type":"string","minLength":1,"maxLength":2000},"stop_if":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"type_name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"property":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"equals":{}},"required":["type_name","object_id","property","equals"]}},"reassess_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|\\\\+00:00)$"}]},"budget":{"type":"object","additionalProperties":false,"properties":{"maximum_model_turns":{"type":"integer","minimum":1,"maximum":64},"maximum_tool_calls":{"type":"integer","minimum":1,"maximum":128},"active_timeout_seconds":{"type":"integer","minimum":1,"maximum":3600}},"required":["maximum_model_turns","maximum_tool_calls","active_timeout_seconds"]},"intent_ref":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]}},"required":["step_key","step_object_id","prerequisites","expected_result","stop_if","reassess_at","budget","intent_ref"]}}},"required":["steps","strategy"]}]}},"required":["schema_version","kind","reasons","reassess_at","evidence_refs","intent_ref","plan_update"],"allOf":[{"if":{"properties":{"kind":{"const":"plan_update"}}},"then":{"properties":{"plan_update":{"type":"object"}}},"else":{"properties":{"plan_update":{"type":"null"}}}},{"if":{"properties":{"kind":{"const":"action_intent"}}},"then":{"properties":{"intent_ref":{"type":"string"}}}},{"if":{"properties":{"kind":{"const":"waiting_external"}}},"then":{"anyOf":[{"properties":{"reassess_at":{"type":"string"}}},{"properties":{"intent_ref":{"type":"string"}}}]}}]}')
-    schema_version: Literal['1.0']
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:run-outcome","title":"run-outcome","description":"NX-024. The result a plan reevaluation Run records through its Host for the current plan version. no_action, needs_information, waiting_external and escalate are normal results, not failures; plan_update supersedes the plan with new steps; action_intent names an intent this very Run submitted. Version 1.1 (K4, owner 2026-11-01, dsh intake §3.3 and Q-2) adds an optional question for escalate and needs_information: one structured question to a human. audience is the Run\'s claim of who should see it first and grants nothing; who may answer is decided by the server from question_kind and the answerer\'s current role, never from audience. 1.0 bodies are unchanged and never carry question. Identity (tenant, world, Run, plan) is derived by the server from the Run\'s live activation; this body carries none. Grants nothing.","type":"object","additionalProperties":false,"properties":{"schema_version":{"enum":["1.0","1.1"]},"kind":{"enum":["no_action","needs_information","waiting_external","escalate","plan_update","action_intent"]},"reasons":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":500}},"reassess_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|\\\\+00:00)$"}]},"evidence_refs":{"type":"array","maxItems":32,"items":{"type":"string","minLength":3,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}},"intent_ref":{"anyOf":[{"type":"null"},{"type":"string","format":"uuid","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]},"plan_update":{"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"properties":{"strategy":{"anyOf":[{"type":"null"},{"type":"string","minLength":1,"maxLength":8192}]},"steps":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","additionalProperties":false,"properties":{"step_key":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"step_object_id":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[a-f0-9]{64}$"}]},"prerequisites":{"type":"array","maxItems":32,"items":{"type":"string","minLength":1,"maxLength":500}},"expected_result":{"type":"string","minLength":1,"maxLength":2000},"stop_if":{"type":"array","maxItems":16,"items":{"type":"object","additionalProperties":false,"properties":{"type_name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"property":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"equals":{}},"required":["type_name","object_id","property","equals"]}},"reassess_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|\\\\+00:00)$"}]},"budget":{"type":"object","additionalProperties":false,"properties":{"maximum_model_turns":{"type":"integer","minimum":1,"maximum":64},"maximum_tool_calls":{"type":"integer","minimum":1,"maximum":128},"active_timeout_seconds":{"type":"integer","minimum":1,"maximum":3600}},"required":["maximum_model_turns","maximum_tool_calls","active_timeout_seconds"]},"intent_ref":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}]}},"required":["step_key","step_object_id","prerequisites","expected_result","stop_if","reassess_at","budget","intent_ref"]}}},"required":["steps","strategy"]}]},"question":{"type":"object","additionalProperties":false,"properties":{"audience":{"enum":["owner","operator"]},"question_kind":{"enum":["schedule_change","fulfilment_confirm","customer_fact","budget","contact_release","erasure","other"]},"text":{"type":"string","minLength":1,"maxLength":300},"options":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":60}},"subject_ref":{"anyOf":[{"type":"null"},{"type":"string","minLength":3,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}]},"withdrawable":{"type":"boolean"}},"required":["audience","question_kind","text","options","subject_ref","withdrawable"]}},"required":["schema_version","kind","reasons","reassess_at","evidence_refs","intent_ref","plan_update"],"allOf":[{"if":{"properties":{"kind":{"const":"plan_update"}}},"then":{"properties":{"plan_update":{"type":"object"}}},"else":{"properties":{"plan_update":{"type":"null"}}}},{"if":{"properties":{"kind":{"const":"action_intent"}}},"then":{"properties":{"intent_ref":{"type":"string"}}}},{"if":{"properties":{"kind":{"const":"waiting_external"}}},"then":{"anyOf":[{"properties":{"reassess_at":{"type":"string"}}},{"properties":{"intent_ref":{"type":"string"}}}]}},{"if":{"required":["question"]},"then":{"properties":{"schema_version":{"const":"1.1"},"kind":{"enum":["escalate","needs_information"]}}}}]}')
+    schema_version: Literal['1.0', '1.1']
     kind: Literal['no_action', 'needs_information', 'waiting_external', 'escalate', 'plan_update', 'action_intent']
     reasons: list[str]
     reassess_at: None | str
     evidence_refs: list[str]
     intent_ref: None | str
     plan_update: None | RunOutcomePlanUpdate1
+    question: RunOutcomeQuestion | None = None
 
 class SchemaProposal(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:schema-proposal","title":"schema-proposal","description":"NX-040 F2 (docs/implementation/NX-040-design.md §3, §9; D21-D27, owner 2026-10-20): the frozen content of one Schema proposal, the input of the EIOS Schema review. Built from one ontology_schema evolution candidate; it changes no Schema, publishes nothing and grants nothing. Frozen at creation: a changed change is a new proposal. Ids, digests, codes and counts only; the structured change itself is held by the server and named here by its digest. Evaluation state lives on the candidate; the proposal records only frozen, published or withdrawn.","type":"object","additionalProperties":false,"required":["schema_version","proposal_id","tenant_id","candidate_id","operation","target_ref","parent_schema_version","parent_schema_digest","change_digest","source","compatibility_report_digest","permission_proof_digest","status","permit_ref","frozen_at"],"properties":{"schema_version":{"const":"1.0"},"proposal_id":{"type":"string","format":"uuid"},"tenant_id":{"type":"string","format":"uuid"},"candidate_id":{"type":"string","format":"uuid","description":"The ontology_schema evolution candidate this proposal was frozen from."},"operation":{"enum":["add_optional_property","add_vocabulary_value","add_object_type"],"description":"§4.1 whitelist; anything else is refused (add_relation_type is out of scope, D24)."},"target_ref":{"type":"string","pattern":"^eios:(object_type|property):[A-Za-z][A-Za-z0-9_.]{0,200}$","maxLength":512},"parent_schema_version":{"type":"integer","minimum":0,"description":"The Object Type version the change applies to, fixed at freeze; 0 for a new Object Type."},"parent_schema_digest":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"Digest of the parent definition, computed by the server at freeze."},"change_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"source":{"type":"object","additionalProperties":false,"required":["input_snapshot_digest","candidate_definition_ids","claim_ids"],"properties":{"input_snapshot_digest":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"The NX-038 diagnosis snapshot of the candidate."},"candidate_definition_ids":{"type":"array","maxItems":64,"uniqueItems":true,"items":{"type":"string","pattern":"^[0-9a-f-]{36}$"}},"claim_ids":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}},"compatibility_report_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"permission_proof_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"status":{"enum":["frozen","published","withdrawn"]},"permit_ref":{"type":["string","null"],"pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$","description":"The NX-039 release permit used when published; null until then."},"frozen_at":{"type":"string","format":"date-time"}}}')
@@ -1777,6 +2235,13 @@ class WorkbenchObjectValues(_Contract):
     schema_version: int
     revision: int
     properties: list[WorkbenchObjectValuesPropertiesItem]
+
+class WorkbenchPending(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-pending","title":"workbench-pending","description":"K4 (owner 2026-11-01, dsh intake §3.3, Q-2 and Q-3): the workbench home \'waiting for me\' read of one tenant, GET /api/v1/workbench/pending (workbench read verb `pending`). Read-only: every count comes from an existing read projection or the K4 question register, filtered by what the signed-in member may act on as the server derives their current role; a question\'s audience only orders the list and never widens it. Six fixed categories (questions, approvals, remediations, reply escalations, takeovers expiring, candidate definitions awaiting review); alert acknowledgement is not part of it. questions carries at most the 20 oldest open questions this member may answer, text cut to 120 characters, the subject as a reference only. all_clear is true exactly when every count is zero. answer.operation names the governed Action that answers a question; holding it grants nothing by itself, the server checks question_kind against the member\'s role at dispatch. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["all_clear","last_health_check_at","categories","questions"],"properties":{"all_clear":{"type":"boolean"},"last_health_check_at":{"anyOf":[{"type":"null"},{"type":"string","format":"date-time"}]},"categories":{"type":"array","minItems":6,"maxItems":6,"items":{"type":"object","additionalProperties":false,"required":["category","count","oldest_waiting_seconds","oldest_ref"],"properties":{"category":{"enum":["question","approval","remediation","reply_escalation","takeover_expiry","candidate_review"]},"count":{"type":"integer","minimum":0},"oldest_waiting_seconds":{"anyOf":[{"type":"null"},{"type":"integer","minimum":0}]},"oldest_ref":{"anyOf":[{"type":"null"},{"type":"string","minLength":3,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}]}}}},"questions":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["question_id","audience","question_kind","text","options","subject_ref","withdrawable","created_at","due_by","answer"],"properties":{"question_id":{"type":"string","format":"uuid","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"audience":{"enum":["owner","operator"]},"question_kind":{"enum":["schedule_change","fulfilment_confirm","customer_fact","budget","contact_release","erasure","other"]},"text":{"type":"string","minLength":1,"maxLength":120},"options":{"type":"array","maxItems":4,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":60}},"subject_ref":{"anyOf":[{"type":"null"},{"type":"string","minLength":3,"maxLength":512,"pattern":"^[A-Za-z][A-Za-z0-9_.-]*:[^\\\\s]+$"}]},"withdrawable":{"type":"boolean"},"created_at":{"type":"string","format":"date-time"},"due_by":{"type":"string","format":"date-time"},"answer":{"type":"object","additionalProperties":false,"required":["operation"],"properties":{"operation":{"const":"nexloop.human_question.answer:1"}}}}}}}}')
+    all_clear: bool
+    last_health_check_at: None | str
+    categories: list[WorkbenchPendingCategoriesItem]
+    questions: list[WorkbenchPendingQuestionsItem]
 
 class WorkbenchWorldModelV2(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v2:workbench-world-model","title":"workbench-world-model-v2","description":"Enterprise world model W1 (docs/design/workbench-world-model-design.md; owner 2026-10-19 D1-D7). GET /api/v1/workbench/world-model: a read-only snapshot of the tenant\'s published model metadata for a workbench member holding nexloop.workbench.read (SQL authz.nexloop_workbench_read verb world_model). The current version of each object type (with its properties), relation type and event type; the active Actions and Functions of the read world; instance counts per type. Metadata only: no instance content. A property in an owner-restricted group is listed by name with withheld=true and nothing else (AT-003). Server-derived from the authenticated session; grants nothing; there is no write counterpart (schema changes stay candidate review and trusted configuration). v2 (world-model glossary, owner 2026-10-29, docs/design/world-model-glossary.md): every identifier carries its Chinese gloss for display only (gloss, gloss_source manual | machine | null; a manual empty string is a deliberate English-only), relation types also inverse_gloss / inverse_gloss_source, and the snapshot carries glossary {manifest_version, sections}. Display metadata, never a business fact; v1 is kept unchanged.","type":"object","additionalProperties":false,"required":["world","computed_at","object_types","relation_types","event_types","actions","functions","glossary"],"properties":{"world":{"const":"real"},"computed_at":{"type":"string"},"object_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","display_name","description","title_property","primary_key","objects","properties","gloss","gloss_source"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"display_name":{"type":"string"},"description":{"type":"string"},"title_property":{"type":"string"},"primary_key":{"type":"array","items":{"type":"string"}},"objects":{"type":"integer","minimum":0},"properties":{"type":"array","items":{"anyOf":[{"type":"object","additionalProperties":false,"required":["name","withheld","value_type","required","nullable","group","visibility","description","gloss","gloss_source"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"withheld":{"const":false},"value_type":{"type":"string"},"required":{"type":"boolean"},"nullable":{"type":"boolean"},"group":{"type":["string","null"]},"visibility":{"type":"string"},"description":{"type":"string"},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]}}},{"type":"object","additionalProperties":false,"required":["name","withheld","gloss","gloss_source"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"withheld":{"const":true},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]}}}]}},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]}}}},"relation_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","source_type","target_type","cardinality","inverse_name","description","property_count","gloss","gloss_source","inverse_gloss","inverse_gloss_source"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"source_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"target_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"cardinality":{"enum":["one_to_one","one_to_many","many_to_one","many_to_many"]},"inverse_name":{"type":"string"},"description":{"type":"string"},"property_count":{"type":"integer","minimum":0},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]},"inverse_gloss":{"type":["string","null"],"maxLength":24},"inverse_gloss_source":{"enum":["manual","machine",null]}}}},"event_types":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","version","object_type","description","payload_property_count","gloss","gloss_source"],"properties":{"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"object_type":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"description":{"type":"string"},"payload_property_count":{"type":"integer","minimum":0},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]}}}},"actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","name","version","risk_level","approval_mode","change_scope","has_side_effects","object_types","required_scopes","contract_digest","gloss","gloss_source"],"properties":{"resource_id":{"type":"string","pattern":"^eios:action:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"risk_level":{"type":["string","null"]},"approval_mode":{"type":["string","null"]},"change_scope":{"type":["string","null"]},"has_side_effects":{"type":"boolean"},"object_types":{"type":"array","items":{"type":"string"}},"required_scopes":{"type":"array","items":{"type":"string"}},"contract_digest":{"type":["string","null"]},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]}}}},"functions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["resource_id","name","version","applies_to","required_scopes","contract_digest","gloss","gloss_source"],"properties":{"resource_id":{"type":"string","pattern":"^eios:function:[A-Za-z][A-Za-z0-9_.]{0,159}:[1-9][0-9]{0,8}$"},"name":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_.]{0,159}$"},"version":{"type":"integer","minimum":1},"applies_to":{"type":"array","items":{"type":["string","null"]}},"required_scopes":{"type":"array","items":{"type":"string"}},"contract_digest":{"type":["string","null"]},"gloss":{"type":["string","null"],"maxLength":24},"gloss_source":{"enum":["manual","machine",null]}}}},"glossary":{"type":"object","additionalProperties":false,"required":["manifest_version","sections"],"properties":{"manifest_version":{"type":"integer","minimum":0},"sections":{"type":"object","propertyNames":{"enum":["Object Type","Object","Property","Link","Function","Action","Object Set","Event Type","Payload Property","Table","Graph","Object View","Interface","Shared Property"]},"additionalProperties":{"type":"string","maxLength":24}}}}}}')

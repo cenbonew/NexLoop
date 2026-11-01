@@ -707,3 +707,36 @@ def test_add_service_reuses_the_principals_token_when_it_already_has_one(tree, t
     monkeypatch.setattr(S, '_stage_principals', lambda *a, **k: principals)
     S.add_service(old, tree['ca'], tree['params'], 'outreach-sender')
     assert (old / 'app/secrets/outreach-sender/service-credential').read_text() == 'synthetic-existing-principal-token-0123456789'
+
+
+def test_entry_ticket_key_is_generated_with_the_endpoint_copy_and_rotates(tree, tmp_path, capsys):
+    """S81 / ADR-043: a new tree holds app/secrets/api/entry-ticket.key (the Compose secret api_entry_ticket_key, 64 hex, 0600);
+    `entry-ticket-key` adds the reference endpoint's copy (management/endpoint/entry_ticket_key, same value, 0600) - or both to an
+    older tree - prints no value, refuses a second run and replaces both on --rotate (check still passes)."""
+    import shutil
+    from nexloop_eios.entry_tickets import load_key
+    key = tree['out'] / 'app' / 'secrets' / 'api' / 'entry-ticket.key'
+    assert len(load_key(key)) == 32 and oct(key.stat().st_mode)[-3:] == '600'
+    entry = next(f for f in json.loads((tree['out'] / 'manifest.json').read_text())['files'] if f['path'] == 'api/entry-ticket.key')
+    assert (entry['kind'], entry['generated'], entry['secret']) == ('hex_key', True, 'api_entry_ticket_key')
+    copy = tree['out'] / 'management' / 'endpoint' / 'entry_ticket_key'
+    capsys.readouterr()
+    assert S.main(['entry-ticket-key', '--out', str(tree['out'])]) == 0
+    assert copy.read_text() == key.read_text() and oct(copy.stat().st_mode)[-3:] == '600' and oct(copy.parent.stat().st_mode)[-3:] == '700'
+    assert key.read_text() not in capsys.readouterr().out and S.check(tree['out'])['ok']
+    assert S.main(['entry-ticket-key', '--out', str(tree['out'])]) == 2
+    old = tmp_path / 'old'
+    shutil.copytree(tree['out'], old)
+    (old / 'app' / 'secrets' / 'api' / 'entry-ticket.key').unlink()
+    (old / 'management' / 'endpoint' / 'entry_ticket_key').unlink()
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/entry-ticket.key']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    assert S.main(['entry-ticket-key', '--out', str(old)]) == 0 and S.check(old)['ok']
+    value = (old / 'app' / 'secrets' / 'api' / 'entry-ticket.key').read_text()
+    assert (old / 'management' / 'endpoint' / 'entry_ticket_key').read_text() == value
+    capsys.readouterr()
+    assert S.main(['entry-ticket-key', '--out', str(old), '--rotate']) == 0
+    rotated = (old / 'app' / 'secrets' / 'api' / 'entry-ticket.key').read_text()
+    assert rotated != value and rotated not in capsys.readouterr().out and S.check(old)['ok']
+    assert (old / 'management' / 'endpoint' / 'entry_ticket_key').read_text() == rotated

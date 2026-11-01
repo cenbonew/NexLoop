@@ -16,6 +16,8 @@ import pytest
 
 from support.copy_guard import Allowed, MIGRATIONS, check, migrations, normalize, redefinitions
 from support.remediation_r2_edits import EDITS as R2_EDITS
+from support.human_questions_edits import EDITS as HQ_EDITS
+from support.plan_question_v7_edits import EDITS as PQ_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -222,6 +224,14 @@ REGISTRY = [
               "and i.world=p_world and i.created_at>now_at-interval '1 hour' and i.state in ('fulfilled','confirmed','unknown','failed') and not "
               "(i.state='failed' and exists(select 1 from runtime.nexloop_dispatch_refusals r where r.tenant_id=i.tenant_id and r.world=i.world "
               "and r.intent_id=i.intent_id)) group by 1),"))),
+    # K4b (human_questions): the outcome port accepts run-outcome 1.1 and opens its question; the retention keeper gains questions_expire.
+    *[Allowed('human_questions', name, 'K4b: run-outcome 1.1 with its question (outcome port) / the questions_expire verb (retention keeper); nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in HQ_EDITS.items()],
+    # K4h K1 (plan_question_context_v7): the outcome port refuses a question from a Run whose context pack is not v7.
+    *[Allowed('plan_question_context_v7', name, 'K4h K1: a 1.1 question only from a Run bound to context-pack v7; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in PQ_EDITS.items()],
     # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
     *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
@@ -628,6 +638,36 @@ REGISTRY = [
     Allowed('service_credential_rescoped_rotation', 'authz.nexloop_service_credential_rows_guard',
             'the second token is also accepted from inside control.nexloop_rotate_service_credential_scopes; nothing else',
             ((r"\s*and position\('function control\.nexloop_rotate_service_credential_scopes\(' in v_stack\)=0", ""),)),
+    # S81 (0392, ADR-043): the retention keeper also clears entry tickets older than 30 days.
+    Allowed('entry_tickets', 'authz.nexloop_retention_command', 'one more verb, entry_tickets_clear; nothing else',
+            ((r"\n elsif c->>'verb'='entry_tickets_clear' then\n  -- S81 \(0392, ADR-043\).*?return control\.nexloop_entry_tickets_clear\(t,\(s->'sweep'->>'batch'\)::integer\);", ""),)),
+    # S88 (0396): the degraded Context's open work exception holds for any Run, not only a fallback reply Run.
+    Allowed('context_degraded_any_run', 'authz.nexloop_context_v6_sections', 'the open work exception without its fallback-issuance condition; nothing else',
+            ((r" S88: any Run \(message, plan, fallback\) over its\n   -- token budget, by the same rule\.", ""),
+             (re.escape("   and not (required.section='open_work'\n"),
+              "   and not (required.section='open_work'\n    and exists(select 1 from authz.nexloop_message_fallback_issuances f where f.tenant_id=p_tenant and f.world=p_world and f.run_id=p_run)\n"))),
+    # S87 (0395): the Schema watch compares Context packs of the newest pack's estimator only.
+    Allowed('schema_watch_one_estimator', 'runtime.nexloop_schema_watch', "both Context averages filtered to the newest pack's estimator; nothing else",
+            ((re.escape("v_ctx boolean;v_est text;"), "v_ctx boolean;"),
+             (r"  -- S87: compare packs of one estimator only.*?limit 1;\n", ""),
+             (re.escape(" and budget_report->>'estimator' is not distinct from v_est;"), ";"))),
+    # K4c (0398): a v7 plan Run's model requests are recorded like a v6 Run's.
+    Allowed('context_pack_v7', 'authz.nexloop_runtime_activation_command_before_inspect_scope_v0360', 'the snapshot check also accepts v7; nothing else',
+            ((re.escape("not in ('nexloop.context-pack.v6','nexloop.context-pack.v7') then"), "is distinct from 'nexloop.context-pack.v6' then"),)),
+    Allowed('context_pack_v7', 'control.nexloop_context_strategy_shape', 'protocol v7 too (and pg_temp last in search_path); nothing else',
+            ((r"\s*in \('nexloop\.context-pack\.v6','nexloop\.context-pack\.v7'\)", "='nexloop.context-pack.v6'"),), PG_TEMP),
+    Allowed('context_pack_v7', 'runtime.nexloop_context_v6_binding', 'Role packs of v7 too; nothing else',
+            ((r"\s*in \('nexloop\.context-pack\.v6','nexloop\.context-pack\.v7'\)", "='nexloop.context-pack.v6'"),)),
+    # S89 (0399): the dispatch denial of a plan's own reevaluation Run is self-caused (throttled), not external.
+    Allowed('plan_denial_self_cause', 'runtime.nexloop_plan_on_job_failed', "cause 'self' instead of 'external'; nothing else",
+            ((r"   -- S89: the denied task is this plan's own reevaluation Run.*?one Run per worker tick\.\n", ""),
+             (re.escape("'cause','self','code'"), "'cause','external','code'"))),
+    # S90 (0401): the work feed's defer verb (later, not a failure) and a real retry clearing deferred_since.
+    Allowed('work_feed_defer', 'authz.nexloop_work_feed', 'one more verb, defer; retry clears deferred_since; nothing else',
+            ((re.escape("('claim','complete','retry','defer','backlog')"), "('claim','complete','retry','backlog')"),
+             (re.escape("in ('complete','retry','defer') then"), "in ('complete','retry') then"),
+             (r"  elsif v_verb='defer' then\n.*?    v_result:=jsonb_build_object\('status','deferred'\);\n   end if;\n", ""),
+             (re.escape(" else 0 end,deferred_since=null\n"), " else 0 end\n"))),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
