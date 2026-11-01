@@ -7,7 +7,9 @@ import {createRoot,type Root} from 'react-dom/client';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,beforeEach,expect,test,vi} from 'vitest';
 import {PageErrorBoundary} from '../src/workbench/kit';
-import {RemediationSwitchForm} from '../src/workbench/actions';
+import {PAUSE_DEFAULT_REASON,RemediationSwitchForm} from '../src/workbench/actions';
+import {readFileSync,readdirSync,statSync} from 'node:fs';
+import {join,resolve} from 'node:path';
 import {me,OPERATION_ACTION} from '../src/workbench/api';
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
@@ -38,4 +40,24 @@ test('pausing remediation: one confirmation, the reason optional; resuming: the 
   expect(submit().disabled).toBe(false);
   act(()=>root.unmount());root=createRoot(box);mountSwitch(true);open();
   expect(box.querySelector('textarea')!.required).toBe(true);expect(submit().disabled).toBe(true);
+});
+
+const settle=async()=>{for(let i=0;i<6;i++)await act(async()=>{await new Promise(r=>setTimeout(r,10));});};
+test('K4i: an empty pause reason is sent as PAUSE_DEFAULT_REASON, the panel says so, and it is the only default reason in the source',async()=>{
+  const bodies:unknown[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(path:string,init?:RequestInit)=>{
+    if(path==='/api/v1/workbench/auth/csrf')return new Response(JSON.stringify({csrf_token:'synthetic-token'}),{status:200});
+    if(path==='/api/v1/workbench/actions/switch_remediation'){bodies.push(JSON.parse(String(init!.body)));return new Response(JSON.stringify({status:'executed'}),{status:200});}
+    return new Response('{}',{status:503});}));
+  mountSwitch(false);open();
+  expect(box.querySelector('[data-default-reason]')!.textContent).toBe(`留空时记录为“${PAUSE_DEFAULT_REASON}”。`);
+  act(()=>submit().click());await settle();
+  expect(bodies).toHaveLength(1);expect(JSON.stringify(bodies[0])).toContain(JSON.stringify(PAUSE_DEFAULT_REASON));
+  vi.unstubAllGlobals();
+  // The text itself appears once in the source: the constant.
+  const files=(d:string):string[]=>readdirSync(d).flatMap(f=>{const x=join(d,f);return statSync(x).isDirectory()?files(x):/\.tsx?$/.test(f)?[x]:[];});
+  const hits=files(resolve(__dirname,'../src')).filter(f=>readFileSync(f,'utf8').includes(PAUSE_DEFAULT_REASON));
+  expect(hits.map(f=>f.replace(/.*\/src\//,''))).toEqual(['workbench/actions.tsx']);
+  expect(readFileSync(resolve(__dirname,'../src/workbench/actions.tsx'),'utf8').split(PAUSE_DEFAULT_REASON).length-1).toBe(1);
+  expect(PAUSE_DEFAULT_REASON).toBe('暂停补救（未填写原因）');
 });
