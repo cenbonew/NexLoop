@@ -631,6 +631,11 @@ REGISTRY = [
     # S81 (0392, ADR-043): the retention keeper also clears entry tickets older than 30 days.
     Allowed('entry_tickets', 'authz.nexloop_retention_command', 'one more verb, entry_tickets_clear; nothing else',
             ((r"\n elsif c->>'verb'='entry_tickets_clear' then\n  -- S81 \(0392, ADR-043\).*?return control\.nexloop_entry_tickets_clear\(t,\(s->'sweep'->>'batch'\)::integer\);", ""),)),
+    # S87 (0394): the Schema watch compares Context packs of the newest pack's estimator only.
+    Allowed('schema_watch_one_estimator', 'runtime.nexloop_schema_watch', "both Context averages filtered to the newest pack's estimator; nothing else",
+            ((re.escape("v_ctx boolean;v_est text;"), "v_ctx boolean;"),
+             (r"  -- S87: compare packs of one estimator only.*?limit 1;\n", ""),
+             (re.escape(" and budget_report->>'estimator' is not distinct from v_est;"), ";"))),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),

@@ -1965,6 +1965,11 @@
       "version": "0393",
       "name": "0393_context_input_ratio.sql",
       "sha256": "0afc9cdedebbd33cdd75e7fd9eb88f7e8bd027ab2c64d2c93677391a24ebe7b7"
+    },
+    {
+      "version": "0394",
+      "name": "0394_schema_watch_one_estimator.sql",
+      "sha256": "98e989015ecfbee25630b46b7be5d9b36dd686a5c8fe83a43fb89f65809a47ea"
     }
   ]
 }
