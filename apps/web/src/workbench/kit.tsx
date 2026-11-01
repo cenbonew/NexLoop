@@ -64,8 +64,11 @@ export function Notice({tone='info',title,children,live,id}:{tone?:NoticeTone;ti
 // ---- page error boundary (UX audit A1) ----
 /** A render error in one page replaces that page's content with a state, never the whole workbench: the navigation stays, the
  * member can retry or go elsewhere. The caller keys it by route so another page starts clean. Technical details folded away. */
-export class PageErrorBoundary extends Component<{children:ReactNode},{error:Error|null;trace:string}>{
+/** `resetKey` (K4g G1): the full route. The boundary is keyed by page and object only (F14: a filter change does not re-mount the page),
+ * so a filter change clears an error shown under the previous filter here instead; without an error nothing is re-mounted. */
+export class PageErrorBoundary extends Component<{children:ReactNode;resetKey?:string},{error:Error|null;trace:string}>{
   state:{error:Error|null;trace:string}={error:null,trace:''};
+  componentDidUpdate(previous:{resetKey?:string}){if(this.state.error&&previous.resetKey!==this.props.resetKey)this.setState({error:null,trace:''});}
   /** L6 review of S0: the screen shows only the error's class and a short trace id; the message (which may carry internal detail)
    * goes to the console under that id, so a member can quote the id and support can find the entry. */
   static getDerivedStateFromError(error:Error){return {error,trace:traceId()};}
