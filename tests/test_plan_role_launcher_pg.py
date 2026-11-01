@@ -146,3 +146,44 @@ def test_launch_through_the_deployed_launcher_api_pool(role_planning,tmp_path):
     assert summary['launched']==1,summary
     (run_id,)=admin.execute('select run_id::text from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()
     assert admin.execute('select count(*) from runtime.nexloop_context_packs where run_id=%s',(run_id,)).fetchone()==(1,)
+
+
+def _unknown_intents(admin,tenant,consumer,n):
+    """n unconfirmed (unknown) service intents of the plan's Consumer, the oldest first (test data only, as a stuck ledger leaves them)."""
+    import uuid
+    context=admin.execute('select context_id from control.nexloop_effect_contexts where tenant_id=%s limit 1',(tenant,)).fetchone()[0]
+    run=admin.execute('select run_id from authz.nexloop_run_credentials limit 1').fetchone()[0]
+    out=[]
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        for k in range(n):
+            intent=uuid.uuid4();out.append('nexloop:intent:'+str(intent))
+            admin.execute('''insert into runtime.nexloop_effect_intents(intent_id,receipt_id,context_id,tenant_id,world,consumer_id,goal_identity,plan_step_identity,slot_identity,
+                action_name,action_version,business_digest,provider_payload_digest,frozen_request,action_definition,capability,executor_principal,control_revision,created_at,state,origin_run_id)
+                values(%s,%s,%s,%s,'real',%s,'g','s',%s,'nexloop.service.request',1,%s,%s,'{}','{}','{}','x',1,clock_timestamp()-make_interval(hours=>%s),'unknown',%s)''',
+                (intent,uuid.uuid4(),context,tenant,consumer,'slot-'+str(k),'a'*64,'b'*64,48-k,run))
+    return out
+
+
+def test_a_plan_run_over_the_token_budget_degrades_its_open_work_and_is_issued(role_planning):
+    """S88 (owner 2026-11-01) / L6 P1: a plan reevaluation Run whose pinned open work (its plan and 8 unconfirmed intents) and
+    fixed sections exceed the token budget keeps its plan and the newest intents in full (DEGRADED_OPEN_WORK_KEEP = 5 items),
+    names the 4 oldest by reference under mandatory_exceeds_budget (section open_work), binds through 0396 (the plan Context
+    binding calls authz.nexloop_context_v6_sections) and is issued."""
+    import copy
+    from nexloop_eios.context_artifacts import DEGRADED_OPEN_WORK_KEEP
+    f=role_planning;admin=f['admin'];tenant=f['plan']['tenant']
+    tight=copy.deepcopy(STRATEGY);tight.update(version=2,input_token_budget=4800,framing_reserve=0)  # fixed ~3.1k + plan ~0.5k + 4 intents fit, 8 do not
+    seed_strategy(admin,tenant,tight)
+    intents=_unknown_intents(admin,tenant,f['plan']['role_selection'][f['principal']]['consumer_id'],8)
+    s=f['establish'](steps=[within_ceiling()])
+    summary=f['worker']().run_once()
+    assert summary['launched']==1,summary
+    (run_id,)=admin.execute('select run_id::text from runtime.nexloop_plan_runs where plan_id=%s',(s['plan_id'],)).fetchone()
+    assert admin.execute('select count(*) from authz.nexloop_runtime_run_bindings where run_id=%s',(run_id,)).fetchone()==(1,)  # issued and queued
+    pack=json.loads(admin.execute('select pack_text from runtime.nexloop_role_context_artifacts where run_id=%s and pack_text like %s',(run_id,'%budget_report%')).fetchone()[0])
+    assert pack['strategy_ref']=='context-strategy:recent_plus_required@2' and pack['budget_report']['used']<=pack['budget_report']['available']
+    kept=[i['ref'] for i in pack['open_work']]
+    assert len(kept)==DEGRADED_OPEN_WORK_KEEP and f"nexloop:plan:{s['plan_id']}@1" in kept and set(kept)-{f"nexloop:plan:{s['plan_id']}@1"}==set(intents[4:])
+    (named,)=[x for x in pack['insufficient'] if x['code']=='mandatory_exceeds_budget']
+    assert named=={'code':'mandatory_exceeds_budget','section':'open_work','refs':sorted(intents[:4])}

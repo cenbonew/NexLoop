@@ -202,3 +202,41 @@ def test_conversation_items_tag_only_the_named_latest_consumer_turn():
     got=conversation_items(rows,decision=D,latest_consumer='a'*64)
     assert [sorted(i.tags) for i in got]==[['latest_consumer_turn'],[]]
     assert [sorted(i.tags) for i in conversation_items(rows,decision=D)]==[[],[]]
+
+
+def test_s87_v2_counts_the_item_envelope_and_the_fixed_sections():
+    """S87 (S86 (a)): an item costs what the pack carries (its envelope included); the fixed sections count toward used and are
+    never trimmed, so used <= available means the whole pack fits. The v2 strategies' reserve (3900) is unchanged."""
+    from pathlib import Path
+    from nexloop_eios.context_engine.budget import wire_item
+    from nexloop_eios.context_engine.strategy import load_builtins
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    one=item('evidence','conversation','m1',40)
+    est=ConservativeEstimator()
+    assert est.estimator_id=='conservative-bytes-half-v2'
+    assert est.estimate(one)==-(-len(canonical_payload(wire_item(one)).encode())//2)>-(-len(canonical_payload(one.content).encode())//2)+8
+    s=strategy(budget=4000)
+    plain=apply_budget([one],s)
+    with_fixed=apply_budget([one],s,fixed=1000)
+    assert with_fixed.report['used']==plain.report['used']+1000 and with_fixed.report['available']==plain.report['available']
+    assert with_fixed.report['sections']==plain.report['sections']  # per-section tokens stay the items' own
+    # Fixed sections that leave no room for a pinned item: mandatory_exceeds_budget, nothing pinned cut.
+    pinned=item('constraints','policy','no-contact',10)
+    out=apply_budget([pinned,one],s,fixed=s['input_token_budget']-s['framing_reserve'])
+    assert out.insufficient==[{'code':'mandatory_exceeds_budget','section':None,'refs':['no-contact']}] and [i.ref for i in out.kept]==['no-contact']
+    with pytest.raises(ValueError):apply_budget([one],s,fixed=-1)
+    conf=Path(__file__).resolve().parents[1]/'deploy/configuration'
+    assert {s['framing_reserve'] for s in load_builtins(conf/'context-strategies.v2.json')}=={3900}
+
+
+def test_s88_the_newest_open_work_stays_and_the_rest_is_named():
+    from nexloop_eios.context_artifacts import DEGRADED_OPEN_WORK_KEEP,budget_degraded_items
+    work=[item('open_work','intent',f'nexloop:intent:{n}',10,at=f'2026-10-0{n}T00:00:00Z',tags={'unconfirmed'}) for n in range(1,8)]
+    safety=item('constraints','policy','no-contact',10)
+    assert all(i.pinned for i in work) and DEGRADED_OPEN_WORK_KEEP==5
+    kept,extra=budget_degraded_items(work+[safety])
+    assert [i.ref for i in kept if i.section=='open_work']==[f'nexloop:intent:{n}' for n in range(3,8)] and safety in kept
+    assert extra==[{'code':'mandatory_exceeds_budget','section':'open_work','refs':['nexloop:intent:1','nexloop:intent:2']}]
+    kept,extra=budget_degraded_items(work+[safety],0)
+    assert kept==[safety] and len(extra[0]['refs'])==7
+    assert budget_degraded_items([safety],0)==([safety],[])  # nothing to name: no degradation

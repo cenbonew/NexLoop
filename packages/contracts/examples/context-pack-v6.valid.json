@@ -232,12 +232,12 @@
   ],
   "experience": [],
   "budget_report": {
-    "estimator": "conservative-bytes-half-v1",
+    "estimator": "conservative-bytes-half-v2",
     "input_token_budget": 16000,
     "output_reserve": 4000,
     "framing_reserve": 1500,
     "available": 14500,
-    "used": 407,
+    "used": 3186,
     "sections": {
       "bindings": {
         "included": 0,
@@ -262,27 +262,27 @@
       "constraints": {
         "included": 1,
         "omitted": 0,
-        "tokens": 40
+        "tokens": 232
       },
       "consumer_state": {
         "included": 1,
         "omitted": 0,
-        "tokens": 42
+        "tokens": 234
       },
       "open_work": {
         "included": 1,
         "omitted": 0,
-        "tokens": 48
+        "tokens": 235
       },
       "evidence": {
         "included": 2,
         "omitted": 0,
-        "tokens": 214
+        "tokens": 623
       },
       "semantics": {
         "included": 1,
         "omitted": 0,
-        "tokens": 63
+        "tokens": 227
       },
       "experience": {
         "included": 0,
