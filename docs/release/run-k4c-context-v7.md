@@ -16,8 +16,9 @@
 3. **发布声明 v7 的策略版本**：受治理的策略发布，在当前计划策略的基础上新增一个版本，只把 `protocol` 改为 v7，其余不变。
 4. **打开 v7（先让 Run 能读到回答）**：私有 compose env 写 `NEXLOOP_CONTEXT_V7=plan`，然后 `up -d --no-deps plan-reevaluator`。
    - 核对：`ro "select protocol, count(*) from runtime.nexloop_context_packs where tenant_id='<TENANT_ID>' and created_at>now()-interval '1 hour' group by 1"`，在下一次计划 Run 之后出现 v7。
-5. **再打开提问**：Host 的 planQuestion 开关（K4a/b）。这一步**必须在第 4 步之后**：否则会有一段时间问了问题，答案却进不了下一次计划 Run。
-   - **注意：planQuestion 目前没有任何配置可以打开**（f656e6ce：默认关，没有任何 Host 配置会设置它）。启用 K4 需要另做一个受控的配置入口（代码改动），并另行审查；在那之前第 5 步无法执行，第 1–4 步可以先做，没有问题也就没有回答，v7 包与 v6 只差 schema_version。
+5. **最后打开提问**：Host 运行配置的 `plan_question_tool`（K4h），按 [run-k4h-plan-question-enable.md](run-k4h-plan-question-enable.md) 执行。这一步**必须在第 4 步之后**：否则会有一段时间问了问题，答案却进不了下一次计划 Run。
+   - 完整的启用顺序：迁移（含 K4h K1 的 0402：数据库只接受绑定 v7 包的 Run 提问）→ Host 改读 v7（第 2 步）→ 发布声明 v7 的策略（第 3 步）→ `NEXLOOP_CONTEXT_V7=plan`（第 4 步）→ 最后打开 `plan_question_tool`。
+   - 回退按相反顺序：先关 `plan_question_tool`，再关 `NEXLOOP_CONTEXT_V7`；策略版本不撤回；Host 的 `context_input_protocol` 可以保持 v7；迁移不回退。
 6. 与之同批：K4c 读接口（工作台的问题列表）、L9 首页的问题卡片、L6 复审。
 7. **只读核对**：
    - 回答一个问题后，下一次该客户的计划 Run 的包里，`evidence` 中有对应的 `human_answers` 条目：
@@ -26,7 +27,7 @@
 
 ## 回退（关两个开关）
 
-1. 关提问：Host 的 planQuestion 关闭。
+1. 关提问：删掉 Host 运行配置的 `plan_question_tool` 并重启 agent-host（见 run-k4h-plan-question-enable.md 的回退）。
 2. 关 v7：私有 compose env 删掉 `NEXLOOP_CONTEXT_V7` 或改为 off，然后重建 plan-reevaluator。之后的计划 Run 回到 v6。
 3. Host 的 `context_input_protocol` 可以保持 v7（它也读 v6），也可以改回 v6。
 4. 已有的问题和回答留在表里，按 7 天到期或计划关闭时清理。策略版本不撤回：v6 包也可以引用声明 v7 的策略。

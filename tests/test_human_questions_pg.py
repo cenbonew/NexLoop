@@ -51,10 +51,19 @@ def wakes(admin, plan_id):
     return [t['kind'] for t in row[0]['triggers']] if row else []
 
 
+def bind_pack(admin, tenant, run_id, protocol='nexloop.context-pack.v7'):
+    """The context pack bound to the Run (K4h K1: a question needs a v7 pack), seeded as admin: its artifact is not seeded."""
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into runtime.nexloop_context_packs(tenant_id,world,context_id,run_id,protocol,strategy_ref,pack_digest,artifact_id,budget_report,insufficient)
+            values(%s,'real',%s,%s,%s,'context-strategy:plan@1',repeat('e',64),repeat('f',32),'{}','[]')""", (tenant, uuid.uuid4(), run_id, protocol))
+
+
 @pytest.fixture
 def asked(outcomes):  # noqa: F811
     f = outcomes
     members(f['admin'], f['plan']['tenant'])
+    bind_pack(f['admin'], f['plan']['tenant'], f['run'].run_id)
     yield f
 
 
@@ -157,6 +166,7 @@ def test_withdraw_only_an_answered_withdrawable_question(asked):
         answer(admin, tenant, OPERATOR, qid, 'withdraw')
     # A withdrawable question: withdrawn, the plan wakes, and it can be answered again.
     run2, command2, ref2, _ = reevaluation_run(f['plan'], f['worker'], 'k4b-w')
+    bind_pack(admin, tenant, run2.run_id)
     f['port']().link_run(plan_id=plan_id, version=1, run_id=run2.run_id, triggers=[{'kind': 'reassess_due', 'cause': 'system'}])
     f['worker'].record_plan_outcome(activation_ref=ref2, command=command2, outcome=asking())
     q2 = question(admin, run2.run_id)[0]
@@ -250,3 +260,19 @@ def test_with_no_question_an_answer_is_not_found_and_writes_and_wakes_nothing(as
             answer(admin, tenant, principal, uuid.uuid4(), kind, **body)
     assert admin.execute('select (select count(*) from runtime.nexloop_human_questions),(select count(*) from runtime.nexloop_human_answers)').fetchone() == (0, 0)
     assert admin.execute("select count(*) from runtime.nexloop_work_feed where feed='plan-reevaluate'").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('packs', [['nexloop.context-pack.v6'], [], ['nexloop.context-pack.v7', 'nexloop.context-pack.v6']])
+def test_a_question_needs_a_run_bound_to_context_pack_v7_only(outcomes, packs):  # noqa: F811
+    """K4h K1: the outcome port refuses a 1.1 question from a Run not bound to v7 (v6, none, or mixed) and opens no question; the same
+    Run records 1.1 without a question and 1.0 as before."""
+    f = outcomes; admin = f['admin']; tenant = f['plan']['tenant']
+    members(admin, tenant)
+    for protocol in packs:
+        bind_pack(admin, tenant, f['run'].run_id, protocol)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='run outcome invalid'):
+        f['worker'].record_plan_outcome(activation_ref=f['ref'], command=f['command'], outcome=asking())
+    assert admin.execute('select (select count(*) from runtime.nexloop_human_questions),(select count(*) from runtime.nexloop_plan_outcomes)').fetchone() == (0, 0)
+    without = {k: v for k, v in asking().items() if k != 'question'}
+    assert f['worker'].record_plan_outcome(activation_ref=f['ref'], command=f['command'], outcome=without)['kind'] == 'escalate'
+    assert admin.execute('select count(*) from runtime.nexloop_human_questions').fetchone()[0] == 0

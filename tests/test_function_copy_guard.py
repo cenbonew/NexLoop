@@ -17,6 +17,7 @@ import pytest
 from support.copy_guard import Allowed, MIGRATIONS, check, migrations, normalize, redefinitions
 from support.remediation_r2_edits import EDITS as R2_EDITS
 from support.human_questions_edits import EDITS as HQ_EDITS
+from support.plan_question_v7_edits import EDITS as PQ_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -227,6 +228,10 @@ REGISTRY = [
     *[Allowed('human_questions', name, 'K4b: run-outcome 1.1 with its question (outcome port) / the questions_expire verb (retention keeper); nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
       for name, edits in HQ_EDITS.items()],
+    # K4h K1 (plan_question_context_v7): the outcome port refuses a question from a Run whose context pack is not v7.
+    *[Allowed('plan_question_context_v7', name, 'K4h K1: a 1.1 question only from a Run bound to context-pack v7; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in PQ_EDITS.items()],
     # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
     *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
