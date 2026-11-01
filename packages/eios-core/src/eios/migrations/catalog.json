@@ -2000,6 +2000,11 @@
       "version": "0400",
       "name": "0400_workbench_pending.sql",
       "sha256": "1292fd02e40a064f9ab1d3c9c5220db6674c36e14c7d6bdd16bff2902d7f1246"
+    },
+    {
+      "version": "0401",
+      "name": "0401_work_feed_defer.sql",
+      "sha256": "0ccdc4e1a3a7cab12a69cff395e5f8c9e460548f5477d659124aee6a9633bba7"
     }
   ]
 }
