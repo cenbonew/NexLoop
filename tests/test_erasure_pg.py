@@ -249,6 +249,45 @@ def test_existing_stock_of_an_erased_consumer_is_cancelled_once(commitments,admi
     assert count()==after and status(undated)=='cancelled'
 
 
+def test_stock_without_a_registry_row_is_cancelled_once(commitments,admin):
+    """I36-e (0394): an erasure that completed after 0306 and before 0388 deleted the registry rows; its undated open commitment kept
+    made_to 'erasure:<request id>' and no keeper could move it. 0394's block (0388 d without the registry row condition) cancels it with
+    the same request and transition; a dated one without a request stays open, an already cancelled one is left alone, and a second
+    run writes nothing (one cancel request, one status event)."""
+    import re as _re
+    from pathlib import Path
+    c=commitments
+    undated,_=fresh(c,due_in=None,reply='好的，我会给您回电。',quote='我会给您回电',predicate='回电')
+    dated,_=fresh(c)
+    done,_=fresh(c,due_in=None,reply='好的，我会在后天前给您寄出。',quote='我会在后天前给您寄出',predicate='寄出')
+    with admin.transaction():
+        admin.execute("select runtime.nexloop_erasure_open('ontology.objects',array['commitment_erasure'],false,'consumer-erasure:mid-1')")
+        admin.execute("update ontology.objects set properties=properties||jsonb_build_object('made_to','erasure:workbench-erase-synthetic-'||repeat('a',48),'condition',null) where object_id=any(%s)",
+                      ([undated,dated,done],))
+        admin.execute('select runtime.nexloop_erasure_close()')
+    # Already cancelled through the shared transition (a request, then cancel_apply), before the block runs.
+    admin.execute("insert into runtime.nexloop_commitment_events(tenant_id,world,subject_ref,kind,ref,detail,principal_id) values(%s,'real',%s,'cancel_requested','intent:x','{\"reason\":\"t\"}','synthetic-owner')",
+        (TENANT,'commitment:'+done))
+    admin.execute("select runtime.nexloop_commitment_cancel_apply(%s,'real',%s,null)",(TENANT,done))
+    fault(admin,'delete from runtime.nexloop_commitments where commitment_id=any(%s)',([undated,dated,done],))  # what 0306 left behind
+    sql=Path(__file__).resolve().parents[1].joinpath('packages/eios-core/src/eios/migrations/0394_erasure_undated_commitment_backfill.sql').read_text()
+    block=_re.search(r'do \$stock\$.*?\$stock\$;',sql,_re.S).group(0)
+    status=lambda x:admin.execute("select properties->>'status' from ontology.objects where object_id=%s",(x,)).fetchone()[0]
+    events=lambda:admin.execute("select subject_ref,kind,coalesce(detail->>'source',detail->>'reason') from runtime.nexloop_commitment_events where subject_ref=any(%s)"
+        " and kind in ('cancel_requested','status') order by event_number",(['commitment:'+x for x in (undated,dated,done)],)).fetchall()
+    before=events()
+    admin.execute(block)
+    assert (status(undated),status(dated),status(done))==('cancelled','open','cancelled')
+    after=events()
+    assert after[len(before):]==[('commitment:'+undated,'cancel_requested','consumer_erasure'),('commitment:'+undated,'status','consumer_erasure')]
+    admin.execute(block)
+    assert events()==after  # replay: nothing written
+    assert admin.execute("select ref from runtime.nexloop_commitment_events where subject_ref=%s and kind='cancel_requested'",
+                         ('commitment:'+undated,)).fetchall()==[('erasure:workbench-erase-synthetic-'+'a'*48,)]
+    c.tick()
+    assert events()==after and status(undated)=='cancelled'
+
+
 def test_a_dated_commitment_of_an_erased_consumer_breaches_contacts_no_one_and_expires(erasing,admin):
     """I36-c (owner, option one): after the erasure completes, a dated commitment keeps its registry row under the pseudonym; the keeper
     moves it at its due time (breached, D4) without port_unavailable although the pseudonym reads as erasing (0383), contacts no one,
