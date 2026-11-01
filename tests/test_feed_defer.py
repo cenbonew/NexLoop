@@ -44,7 +44,7 @@ def test_an_exhausted_budget_defers_the_item_and_the_rest_of_the_tick():
     summary=w.run_once()
     assert len(seen)==1  # no provider call after the refusal
     assert [c[0] for c in feed.calls]==['defer','defer','defer'] and summary['deferred']==3 and summary['retry']==0
-    assert all(c[1]['code']=='embedding_budget' and c[1]['max_defer_seconds']==7*86400 and c[1]['delay_seconds']==R.BUDGET_DEFER_SECONDS for c in feed.calls)
+    assert all(c[1]['code']=='embedding_budget' and c[1]['max_defer_seconds']==R.BUDGET_MAX_DEFER_SECONDS and c[1]['delay_seconds']==R.BUDGET_DEFER_SECONDS for c in feed.calls)
 
 
 def test_past_seven_days_the_budget_falls_back_to_a_counted_retry():
@@ -94,6 +94,13 @@ def test_takeover_unknown_error_or_denied_authority_is_retried_and_counted(error
     feed=Feed(1);summary=takeover(feed,error).run_once()
     assert [c[0] for c in feed.calls]==['retry'] and feed.calls[0][1]['code']=='takeover_unavailable' and feed.calls[0][1]['max_attempts']==10
     assert summary['retry']==1 and summary['deferred']==0
+
+
+def test_the_budget_bounds_outlast_a_seven_day_period_used_up_at_its_start():
+    # L6: stage's model budget period is 7 days; a deferral must survive the whole period plus one deferral step.
+    from nexloop_eios import plan_reevaluation as P
+    assert R.BUDGET_MAX_DEFER_SECONDS>7*86400+R.BUDGET_DEFER_SECONDS and P.MAX_DEFER_SECONDS>7*86400+P.DEFER_SECONDS
+    assert R.BUDGET_MAX_DEFER_SECONDS==P.MAX_DEFER_SECONDS==7*86400+3600
 
 
 def test_the_takeover_bound_covers_the_longest_takeover_sql_admits():

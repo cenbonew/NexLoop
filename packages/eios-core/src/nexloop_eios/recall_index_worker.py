@@ -20,7 +20,8 @@ FEED='recall-instance'
 # S91 (owner D1/D2): an exhausted model budget is 'later', not a failure - the item is deferred (no attempt spent) and picked up when
 # the budget opens again (a closed budget claims nothing); a run of deferrals longer than 7 days falls back to counted retries.
 BUDGET_DEFER_SECONDS=900
-BUDGET_MAX_DEFER_SECONDS=7*86400
+# 7 days plus an hour (L6): a 7-day budget used up at its start opens again only after 7 days plus up to one deferral step.
+BUDGET_MAX_DEFER_SECONDS=7*86400+3600
 # (credential digest, world, profile) already activated by this process; the worker object is rebuilt every tick.
 _activated=set()
 # S55: types found still stale right after their rebuild, over the process lifetime.
