@@ -16,6 +16,7 @@ from support.tenants import TENANT_A as TENANT
 
 RULES = Path(__file__).resolve().parents[1] / 'deploy/configuration'
 NEW = ('context_input_ratio_p95', 'context_input_ratio_max')
+USAGE_RULE = 'context_input_usage_missing'
 # The evaluator's extraction (0131): metric 'a.b.*.c' iterates the children of a.b, the child key is the selector, numbers only.
 FIRED = """
 with rule as (select x from jsonb_array_elements(%s::jsonb) x),
@@ -48,6 +49,14 @@ def fired(admin, snapshot):
     return [tuple(r) for r in admin.execute(FIRED, (json.dumps(v28_rules()), json.dumps(snapshot))).fetchall()]
 
 
+def usage_rule_fires(snapshot):
+    [r] = [x for x in load_rules(RULES / 'alert-rules.v28.json')['rules'] if x['rule_id'] == USAGE_RULE]
+    value = snapshot
+    for part in r['metric'].split('.'):
+        value = value.get(part) if type(value) is dict else None
+    return type(value) in (int, float) and value > r['threshold']
+
+
 def strategy(admin):
     d = {'strategy_id': 'recent_plus_required', 'version': 1}
     with admin.transaction():
@@ -56,7 +65,7 @@ def strategy(admin):
                       "values(%s,'real','recent_plus_required',1,%s,%s,'synthetic-human-owner','seed-strategy')", (TENANT, Jsonb(d), 'a' * 64))
 
 
-def request(admin, *, provider_input, budget=16000, model='deepseek-flash', kind=None, cache_read=0, age="0 seconds", usage=None):
+def request(admin, *, provider_input, budget=16000, model='deepseek-flash', kind=None, cache_read=0, age="0 seconds", usage=None, status='succeeded'):
     run, context = uuid.uuid4(), uuid.uuid4()
     with admin.transaction():
         admin.execute('set local session_replication_role=replica')  # no Run credential, route or artifact rows behind the synthetic ones
@@ -65,8 +74,8 @@ def request(admin, *, provider_input, budget=16000, model='deepseek-flash', kind
                       (TENANT, context, run, 'b' * 64, 'c' * 32, Jsonb({'input_token_budget': budget, 'output_reserve': 4000, 'framing_reserve': 3900, 'used': 1})))
         admin.execute("insert into runtime.nexloop_model_requests(tenant_id,world,run_id,call_sequence,context_id,model_provider,model_id,tool_manifest_digest,"
                       "request_digest,prompt_artifact_id,input_token_budget,output_token_budget,settings_digest,requested_at,result_status,usage,completed_at) "
-                      f"values(%s,'real',%s,1,%s,'deepseek',%s,%s,%s,%s,%s,4000,%s,clock_timestamp()-interval '{age}','succeeded',%s,clock_timestamp())",
-                      (TENANT, run, context, model, 'd' * 64, 'e' * 64, 'f' * 32, budget, '0' * 64,
+                      f"values(%s,'real',%s,1,%s,'deepseek',%s,%s,%s,%s,%s,4000,%s,clock_timestamp()-interval '{age}',%s,%s,clock_timestamp())",
+                      (TENANT, run, context, model, 'd' * 64, 'e' * 64, 'f' * 32, budget, '0' * 64, status,
                        Jsonb(usage if usage is not None else {'input': provider_input, 'output': 10, 'cache_read': cache_read, 'cache_write': 0})))
         if kind == 'plan':
             admin.execute("insert into runtime.nexloop_plan_runs(tenant_id,world,run_id,plan_id,version,triggers) values(%s,'real',%s,%s,1,'[]')",
@@ -76,9 +85,11 @@ def request(admin, *, provider_input, budget=16000, model='deepseek-flash', kind
 
 def test_v28_adds_exactly_the_two_ratio_rules_on_v27():
     v27, v28 = json.loads((RULES / 'alert-rules.v27.json').read_text()), load_rules(RULES / 'alert-rules.v28.json')
-    assert v28['version'] == 28 and len(v27['rules']) == 93 and len(v28['rules']) == 95 and v28['rules'][:93] == v27['rules']
+    assert v28['version'] == 28 and len(v27['rules']) == 93 and len(v28['rules']) == 96 and v28['rules'][:93] == v27['rules']
     assert v28['decision'].startswith(v27['decision'] + ' v28 ')
-    p95, mx = v28['rules'][93:]
+    p95, mx, usage = v28['rules'][93:]
+    assert (usage['rule_id'], usage['metric'], usage['condition'], usage['threshold'], usage['severity']) == (
+        USAGE_RULE, 'context_input_ratio.requests_without_usage_24h', 'gt', 0, 'warning')
     assert (p95['rule_id'], p95['metric'], p95['condition'], p95['threshold'], p95['severity']) == (
         'context_input_ratio_p95', 'context_input_ratio.groups.*.p95', 'ge', 0.9, 'warning')
     assert (mx['rule_id'], mx['metric'], mx['condition'], mx['threshold'], mx['severity']) == (
@@ -86,16 +97,33 @@ def test_v28_adds_exactly_the_two_ratio_rules_on_v27():
 
 
 def test_without_a_measured_request_the_block_says_so_and_carries_no_ratio(db):
-    assert block(db) == {'configured': False, 'present': False, 'requests_24h': 0}
+    assert block(db) == {'configured': False, 'present': False, 'requests_24h': 0, 'requests_without_usage_24h': 0}
     strategy(db)
-    assert block(db) == {'configured': True, 'present': False, 'requests_24h': 0}
+    assert block(db) == {'configured': True, 'present': False, 'requests_24h': 0, 'requests_without_usage_24h': 0}
     # Not measured: older than 24 hours, a usage without a numeric input, or another world.
     request(db, provider_input=20000, age='25 hours')
-    request(db, provider_input=None, usage={'output': 10})
-    assert block(db) == {'configured': True, 'present': False, 'requests_24h': 0}
+    request(db, provider_input=None, usage={'output': 10}, status='failed')  # a failed call has no usage: not counted
+    assert block(db) == {'configured': True, 'present': False, 'requests_24h': 0, 'requests_without_usage_24h': 0}
     assert 'context_input_ratio' not in db.execute("select runtime.nexloop_metrics_snapshot(%s,'test')", (TENANT,)).fetchone()[0]
     snapshot = db.execute("select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,)).fetchone()[0]
-    assert fired(db, snapshot) == []  # nothing to compare: the rules see no number (the block's present: false says why)
+    assert fired(db, snapshot) == [] and not usage_rule_fires(snapshot)  # nothing to compare (the block's present: false says why)
+
+
+def test_requests_without_usage_are_counted_not_mistaken_for_no_requests(db):
+    """L6 M1: a succeeded request without a numeric provider usage is not 'no request'."""
+    strategy(db)
+    request(db, provider_input=None, usage={'output': 10})            # no input
+    request(db, provider_input=None, usage={'input': '9000'})         # input not a number
+    b = block(db)
+    assert b == {'configured': True, 'present': False, 'requests_24h': 0, 'requests_without_usage_24h': 2}
+    snapshot = db.execute("select runtime.nexloop_metrics_snapshot(%s,'real')", (TENANT,)).fetchone()[0]
+    assert usage_rule_fires(snapshot) and fired(db, snapshot) == []
+    # Positive control the other way: the same snapshot with the count at 0 does not fire.
+    quiet = json.loads(json.dumps(snapshot)); quiet['context_input_ratio']['requests_without_usage_24h'] = 0
+    assert not usage_rule_fires(quiet)
+    request(db, provider_input=8000)
+    b = block(db)
+    assert (b['present'], b['requests_24h'], b['requests_without_usage_24h']) == (True, 1, 2)
 
 
 def test_ratios_per_model_and_run_kind_and_the_rules_fire_on_them(db):

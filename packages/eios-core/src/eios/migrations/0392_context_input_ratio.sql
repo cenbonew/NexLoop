@@ -10,6 +10,8 @@
 -- other). Numbers and codes only: no request, prompt or pack body is read.
 -- Not silent: configured says whether the tenant has a published Context strategy, present whether any request was measured;
 -- without a sample p95/max/groups are absent (never a 0 that would read as healthy).
+-- M1 (L6): a succeeded model request of the 24 hours whose usage is missing or has no numeric input is counted in
+-- requests_without_usage_24h (always a number), so "requests but no usage" never looks like "no request".
 alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_context_input_ratio;
 revoke all on function runtime.nexloop_metrics_snapshot_before_context_input_ratio(text,text) from public;
 create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
@@ -36,12 +38,15 @@ begin
   g as (
    select model||'|'||kind k,jsonb_build_object('requests',count(*),'p95',round((percentile_cont(0.95) within group (order by ratio))::numeric,4),
           'max',round(max(ratio),4)) gv from r group by model,kind),
-  t as (select count(*) n,percentile_cont(0.95) within group (order by ratio) p95,max(ratio) mx from r)
+  t as (select count(*) n,percentile_cont(0.95) within group (order by ratio) p95,max(ratio) mx from r),
+  u as (select count(*) n from runtime.nexloop_model_requests q where q.tenant_id=p_tenant and q.world=p_world
+         and q.requested_at>clock_timestamp()-interval '24 hours' and q.result_status='succeeded'
+         and (q.usage is null or jsonb_typeof(q.usage->'input') is distinct from 'number'))
  select jsonb_build_object('configured',exists(select 1 from control.nexloop_context_strategies s where s.tenant_id=p_tenant and s.world=p_world),
-          'present',t.n>0,'requests_24h',t.n)
+          'present',t.n>0,'requests_24h',t.n,'requests_without_usage_24h',u.n)
         ||case when t.n>0 then jsonb_build_object('p95',round(t.p95::numeric,4),'max',round(t.mx,4),'groups',(select jsonb_object_agg(g.k,g.gv) from g))
           else '{}'::jsonb end
-   into o from t;
+   into o from t,u;
  perform set_config('eios.tenant_id',coalesce(prior,''),true);
  return v||jsonb_build_object('context_input_ratio',o);
 end $$;
