@@ -8,7 +8,7 @@
   - ADR-016（自有代码 Apache-2.0，第三方保留原许可）、ADR-023（联系限制与回复保证）、ADR-039（统一审批）、ADR-040（补救意图）；
   - `docs/design/proactive-outreach.md`（负责人已拍板 P1–P8，实施排在 v0.1 冻结之后）；
   - NX-023（上下文 v6 与请求快照）、NX-024（计划复评与 `run-outcome` 契约）、NX-022（控制面）。
-  - 第 2 版：2026-11-01，正文保留第 1 版原意，只做增补：写入负责人对 Q-1 至 Q-4 的拍板（§7 改为“已决定”）；落 L6 复核注记 N1–N5（§3.1、§3.3、§3.4、§4）；§4 为 K0 结论留占位（待 L7）；§5 按 §3.5 格式补拍板日期列。N2 同时在 [主动触达设计稿](proactive-outreach.md) 的修订记录中登记。
+  - 第 2 版：2026-11-01，正文保留第 1 版原意，只做增补：写入负责人对 Q-1 至 Q-4 的拍板（§7 改为“已决定”）；落 L6 复核注记 N1–N5（§3.1、§3.3、§3.4、§4）；§4 写入 L7 的 K0 结论（第一条不需要新机制；第二条需要给 work_feed 增加 `defer`）与 N5 受影响告警规则表；§5 按 §3.5 格式补拍板日期列。N2 同时在 [主动触达设计稿](proactive-outreach.md) 的修订记录中登记。
 
 ## 0. 背景与结论
 
@@ -146,10 +146,26 @@ dsh-superagent 是“面向单个 GitHub 仓库的主动编码 Agent”，作为
 | 队列行按 (kind, key) 合并，带 `generation` 计数 | 同 key 再次入队替换载荷、置为立即到期但保留队列位置；`generation` 递增，正在运行的尝试完成后不会删除更新的载荷 | Effect Worker 与后台服务的待办表（`effect_dispatch.py`、`plan_reevaluation.py` 的“同一计划只保留一条待办复评”）是否区分“覆盖待办载荷”与“运行中尝试完成后的删除”；若用 `FOR UPDATE SKIP LOCKED` 领取并带 fence，可能已等价 |
 | “稍后再试”与“失败”分开 | 抛 `Later` 表示现在不能做（暂停、槽位满、来源关闭），重排不计失败次数；真失败才计数并指数退避，连续三次才上报健康 | 派发拒绝码中 `real_dispatch_closed`、`quiet_hours`、`budget_exhausted` 等是否计入失败重试计数与告警；若计入，勿扰时段会制造假告警 |
 
-核对由实现线在 §8 的 K0 完成，结论写回本稿。第 2 版时 K0 已派给 L7，结论尚未返回，以下为占位，不作推断：
+核对由实现线在 §8 的 K0 完成。第 2 版写入 L7 的 K0 结论（L7 只读核对于 main 366295aa）：
 
-- **第一条（队列合并与 `generation`）**：K0 结论（待 L7）。
-- **第二条（“稍后再试”与“失败”分开）**：K0 结论（待 L7）。按 L6 注记 N5，结论须列出受影响的告警规则 `rule_id`（若拒绝码计入失败计数或告警，列出会因此误报的规则；若不计入，写明依据）。
+**4.1 队列合并与 generation：不需要新机制。** NexLoop 的后台工作队列 `runtime.nexloop_work_feed`（迁移 0093 起）已经按 (租户, 世界, feed, item_key) 合并：同 key 再次入队（`authz.nexloop_work_feed_touch`）替换载荷、`change_seq` 加一、立即到期并清零次数；领取时把当时的 `change_seq` 记为租约 fence，完成时只有 fence 仍等于 `change_seq` 才删除，否则保留新载荷为待办（返回 `changed`），过期或被替换的租约返回 `lease_lost`。这与 dsh 的 generation 等价，`plan_reevaluation.py` 的"同一计划只保留一条待办复评"就是它。差别只在 dsh 保留队列位置、NexLoop 把到期时间置为现在，对正确性无影响。Run 任务队列（`runtime.jobs`，按入站事件去重、`fencing_token` 围栏）和 Effect 派发（`runtime.nexloop_effect_intents`，同一业务意图只重放、载荷不同即 `effect_payload_conflict`）**不应**合并：前者每个事件独立，后者涉及外部副作用，必须保持"稳定意图 ID、未知结果先查询"。因此本条不新增迁移。
+
+**4.2 "稍后再试"与"失败"：派发拒绝码已分开，后台队列的"稍后"仍占失败次数，部分需要。** 13 个派发拒绝码（0131）在 Run 路径上让任务以终态结束、在 Effect 路径上记一次拒绝，都不重试、不计次数、不进死信；0324 把它们分成结果类别，失败率只计 transient、authorization、defect 和未分类码。勿扰时段不是拒绝码，而是外呼闸门（0304）每轮重算的一项，不留计数也没有告警，所以不会制造假告警；`control_paused`、`contact_restricted`、`taken_over`、`real_dispatch_closed` 同样没有告警规则。v27 中直接读拒绝码的规则是 `refusal_budget_exhausted`（critical，保留：预算满需要负责人处理，告警理由是"可操作"而非"失败"）、`refusal_control_stale` 与 `refusal_goal_stale`（被取代的量异常，warning）和 `effect_route_unconfigured`（配置缺失，属失败）。真正的缺口在后台工作队列：它只有一个 `retry` 动词，嵌入预算满（`embedding_budget`，300 秒×20 次）、人工接管中（`takeover_active`）、回复对账/降级中（`reply_reconciling`、`fallback_started`）和计划复评节流都按重试计次，到上限即死信并触发 critical 的 `feed_dead_letter`（`feed_attempts_over_ceiling` 同受影响）。建议给 work_feed 新增 `defer` 动词：只推迟到期时间、记录原因码、退回本次领取的次数，另设推迟起点与独立上限，长期推迟由 `feed_backlog_age` 体现；上述"稍后"调用处改用 `defer`，端口不可用、异常和配置缺失继续走 `retry`。影响仅 `runtime.nexloop_work_feed` 的函数（新迁移，可能加一列 `deferred_since`），已发布迁移不改。
+
+**N5：受影响的告警规则（alert-rules v27）。**
+
+| `rule_id` | 与本条的关系 | 处理 |
+|---|---|---|
+| `feed_dead_letter`（critical） | work_feed 的“稍后”（`embedding_budget`、`takeover_active`、`reply_reconciling`、`fallback_started`、计划复评节流）走 `retry` 计次，到上限死信即触发；例：嵌入预算耗尽约 100 分钟（20 × 300 s）即误报 | 受影响；`defer` 落地后不再由“稍后”触发 |
+| `feed_attempts_over_ceiling` | 同上，次数被“稍后”占用 | 受影响 |
+| `data_health_*` | 经 recall / extraction 条目死信间接受影响 | 受影响（间接） |
+| `refusal_budget_exhausted`（critical） | 直接读 NXB01 `budget_exhausted` | 保留；告警理由是“可操作”（需负责人加预算），不是“失败” |
+| `refusal_control_stale`、`refusal_goal_stale`（warning） | 读 NXC02 / NXC03，被取代的量异常 | 不受影响，保留 |
+| `effect_route_unconfigured`（warning） | 读 NXE01，配置缺失，属失败 | 不受影响，保留 |
+| `feed_backlog_age` | 积压的正确信号；`defer` 后长期推迟由它体现 | 不受影响 |
+| `queue_dead_letter` | 只来自 `runtime.jobs` 租约耗尽，拒绝码不进入 | 不受影响 |
+
+勿扰时段不是派发拒绝码，而是外呼闸门（0304）每轮重算的一项，`control_paused`、`contact_restricted`、`taken_over`、`real_dispatch_closed` 均无告警规则，不产生假告警。明细见 L7 的 K0 核对记录。
 
 ## 5. 否决的做法
 
