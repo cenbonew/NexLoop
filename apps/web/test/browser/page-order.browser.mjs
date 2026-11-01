@@ -19,7 +19,7 @@ async function open(page,path,name){await page.goto(path);await page.locator('.w
   await page.screenshot({path:`${shots}/${name}.png`,fullPage:true});}
 try{
   const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:session.origin,viewport:{width:1440,height:900}});const page=await context.newPage();
-  await page.goto('/workbench/overview');await page.locator('#wb-username').waitFor({timeout:20000});
+  await page.goto('/workbench/home');await page.locator('#wb-username').waitFor({timeout:20000});
   await page.fill('#wb-username',session.owner.username);await page.fill('#wb-password',readFileSync(session.owner.password_file,'utf8').trim());await page.click('button[type=submit]');
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
   // F02 consumer detail: what this customer is (restriction, properties) inside the first screen, the operations after the facts.
@@ -30,9 +30,9 @@ try{
   const firing=page.locator('table').first();
   result.alerts={table:await top(page,'table'),ops:await top(page,'.workbench-ops'),text:(await firing.innerText()).replace(/\s+/g,' '),
     link:await firing.locator('a[href="/workbench/operations"]').count()};
-  // F02 no task, no form.
+  // F02 no task, no form. The first summary is the Action one; the remediation block below has its own.
   await open(page,'/workbench/actions','order-actions');
-  result.actions={summary:await page.locator('.workbench-summary').innerText(),textareas:await page.locator('.workbench-page textarea').count()};
+  result.actions={summary:await page.locator('.workbench-summary').first().innerText(),textareas:await page.locator('.workbench-page textarea').count()};
   await open(page,'/workbench/plans','order-plans');
   result.plans={textareas:await page.locator('.workbench-page textarea').count(),empty:await page.locator('.workbench-page .state[data-state="empty"]').innerText()};
   // F06 pause/resume: nothing chosen by default; the impact appears once scope and operation are chosen; still nothing submitted.
