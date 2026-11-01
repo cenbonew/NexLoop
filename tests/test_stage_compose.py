@@ -255,13 +255,14 @@ def test_the_remediation_switch_is_one_compose_variable_of_the_plan_reevaluator_
     raw = yaml.safe_load(text)
     reference = '${REMEDIATION_ENABLED:-false}'
     assert sorted(n for n, s in raw['services'].items() if 'REMEDIATION_ENABLED' in (s.get('environment') or {})) == ['plan-reevaluator']
-    assert raw['services']['plan-reevaluator']['environment'] == {'REAL_DISPATCH_ENABLED': '${REAL_DISPATCH_ENABLED:-false}', 'REMEDIATION_ENABLED': reference}
+    assert raw['services']['plan-reevaluator']['environment'] == {'REAL_DISPATCH_ENABLED': '${REAL_DISPATCH_ENABLED:-false}', 'REMEDIATION_ENABLED': reference,
+                                                                  'NEXLOOP_CONTEXT_V7': '${NEXLOOP_CONTEXT_V7:-off}'}  # K4c, default off
     assert 'REMEDIATION_ENABLED' not in raw['x-service']['environment'] and text.count(reference) == 1
     env = STAGE / 'compose.app.env.example'
     assert 'REMEDIATION_ENABLED=false' in env.read_text().splitlines()
     for overrides, want in (({}, 'false'), ({'REMEDIATION_ENABLED': ''}, 'false'), ({'REMEDIATION_ENABLED': 'true'}, 'true')):
         rendered = yaml.safe_load(interpolate(text, env, overrides))
-        assert rendered['services']['plan-reevaluator']['environment'] == {'REAL_DISPATCH_ENABLED': 'false', 'REMEDIATION_ENABLED': want}
+        assert rendered['services']['plan-reevaluator']['environment'] == {'REAL_DISPATCH_ENABLED': 'false', 'REMEDIATION_ENABLED': want, 'NEXLOOP_CONTEXT_V7': 'off'}
         assert all('REMEDIATION_ENABLED' not in (s.get('environment') or {}) for n, s in rendered['services'].items() if n != 'plan-reevaluator')
     docker = shutil.which('docker')
     if docker:

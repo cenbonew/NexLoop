@@ -157,6 +157,9 @@ def test_the_sim_entry_reads_no_real_source_and_the_real_entries_are_unchanged(s
     own = next(m for m in migrations if m.name.endswith('_nx041_sim_context.sql'))
     later = [m for m in migrations if m.name >= own.name]
     redefined = [(m.name, name) for m in later for name in REAL_ENTRIES if re.search(rf'function\s+authz\.{name}\w*\s*\(', m.read_text())]
-    assert redefined == []
+    # K4c V1 (0398): the Role v6 entry is re-created as a one-line call of authz.nexloop_role_context_command_core, whose body is the
+    # previous entry's exactly but for the protocol (test_context_v7: each core reverts to its source body; the v6 golden still passes).
+    moved = {('0398_context_pack_v7.sql', 'nexloop_role_context_v6_command')}
+    assert [r for r in redefined if r not in moved] == [] and moved <= set(redefined)
     # Positive control: the scan finds the real entries where they are defined.
     assert any(re.search(r'function\s+authz\.nexloop_context_v6_command\s*\(', m.read_text()) for m in migrations if m.name < own.name)

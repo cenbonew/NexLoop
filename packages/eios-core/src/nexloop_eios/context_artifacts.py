@@ -286,7 +286,8 @@ def v6_call(db,authority,session,signer,function,payload,proofs,run=None):
     With ``run`` the assemble authority is the one issued with that Run (0104), which SQL
     accepts only for the pack's own Run; without it, the Source's standing grant.
     """
-    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command','authz.nexloop_context_v6_fallback_command'):raise ValueError('v6 bind function')
+    if function not in ('authz.nexloop_context_v6_command','authz.nexloop_role_context_v6_command','authz.nexloop_role_context_v7_command',
+                        'authz.nexloop_context_v6_fallback_command'):raise ValueError('v6 bind function')
     body=canonical_payload(payload)
     from nexloop_eios.context_engine.authority import run_assemble_claims
     assemble=authority._proof(session,ASSEMBLE_RESOURCE) if run is None else run_assemble_claims(session,run)

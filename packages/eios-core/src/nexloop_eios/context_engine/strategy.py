@@ -22,6 +22,8 @@ from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 PROTOCOL='nexloop.context-pack.v6'
+# K4c: context-pack v7 = v6 + evidence.human_answers (plan Runs only; a strategy may declare it, the deployment switch turns it on).
+PROTOCOL_V7='nexloop.context-pack.v7'
 PUBLISH_ACTION='nexloop.context.strategy.publish'
 PUBLISH_CAPABILITY='context.strategy.publish'
 ASSEMBLE_ACTION='nexloop.context.assemble'
@@ -58,7 +60,7 @@ def validate(definition,*,world):
     if type(d) is not dict or set(d)!=KEYS:raise StrategyRejected('strategy keys')
     if type(d['strategy_id']) is not str or not re.fullmatch('[a-z][a-z0-9_]{0,63}',d['strategy_id']):raise StrategyRejected('strategy_id')
     _int(d['version'],1,1000000,'version')
-    if d['protocol']!=PROTOCOL:raise StrategyRejected('protocol')
+    if d['protocol'] not in (PROTOCOL,PROTOCOL_V7):raise StrategyRejected('protocol')
     budget=_int(d['input_token_budget'],1024,1000000,'input_token_budget');_int(d['output_reserve'],128,200000,'output_reserve')
     if _int(d['framing_reserve'],0,budget,'framing_reserve')>budget-512:raise StrategyRejected('framing_reserve leaves no room for content')
     if type(d['sections']) is not dict or set(d['sections'])!=set(SECTIONS):raise StrategyRejected('sections')

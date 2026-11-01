@@ -646,6 +646,13 @@ REGISTRY = [
             ((re.escape("v_ctx boolean;v_est text;"), "v_ctx boolean;"),
              (r"  -- S87: compare packs of one estimator only.*?limit 1;\n", ""),
              (re.escape(" and budget_report->>'estimator' is not distinct from v_est;"), ";"))),
+    # K4c (0398): a v7 plan Run's model requests are recorded like a v6 Run's.
+    Allowed('context_pack_v7', 'authz.nexloop_runtime_activation_command_before_inspect_scope_v0360', 'the snapshot check also accepts v7; nothing else',
+            ((re.escape("not in ('nexloop.context-pack.v6','nexloop.context-pack.v7') then"), "is distinct from 'nexloop.context-pack.v6' then"),)),
+    Allowed('context_pack_v7', 'control.nexloop_context_strategy_shape', 'protocol v7 too (and pg_temp last in search_path); nothing else',
+            ((r"\s*in \('nexloop\.context-pack\.v6','nexloop\.context-pack\.v7'\)", "='nexloop.context-pack.v6'"),), PG_TEMP),
+    Allowed('context_pack_v7', 'runtime.nexloop_context_v6_binding', 'Role packs of v7 too; nothing else',
+            ((r"\s*in \('nexloop\.context-pack\.v6','nexloop\.context-pack\.v7'\)", "='nexloop.context-pack.v6'"),)),
     # I35 (roles v52 read_types): the audited member read audits an object of any type ('object' for the newly readable types).
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
