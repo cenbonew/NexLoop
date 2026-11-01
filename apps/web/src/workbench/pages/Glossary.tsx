@@ -7,6 +7,7 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {offers,readWorldModel,type WorldModel as Model} from '../api';
 import {Page} from './Page';
+import {PAGES} from '../route';
 import {DataTable} from '../DataTable';
 import {Keyword,StatusBadge} from '../ui';
 import {EmptyState} from '../kit';
@@ -43,9 +44,9 @@ function SourceBadge({row,kind}:{row:Row;kind:GlossKind}){
 
 export function Glossary(){
   const result=useQuery({queryKey:['workbench','world-model'],queryFn:readWorldModel});
-  return <Page title="世界模型译名" query={result}
+  return <Page title={PAGES.glossary} query={result}
     lead="世界模型各标识的中文译名：按种类浏览和查找，标出机翻或人工；改正后作为人工译名，机翻不会再覆盖。">{m=><WithMember>{member=>offers(member,'world_glossary_set')
-      ?<GlossaryBody model={m}/>:<EmptyState kind="forbidden" subject="世界模型译名" reason="你的角色没有管理世界模型译名的权限。"/>}</WithMember>}</Page>;
+      ?<GlossaryBody model={m}/>:<EmptyState kind="forbidden" subject={PAGES.glossary} reason="你的角色没有译名管理的权限。"/>}</WithMember>}</Page>;
 }
 
 function GlossaryBody({model:m}:{model:Model}){
