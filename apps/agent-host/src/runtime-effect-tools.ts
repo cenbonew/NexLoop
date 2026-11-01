@@ -158,8 +158,6 @@ export const INCENTIVE_PARAMETERS=Type.Object({incentive_offering_id:Type.String
         binding_id:Type.String({pattern:'^[a-f0-9]{64}$'}),amount_minor:Type.String({pattern:'^[1-9][0-9]{0,15}$'}),currency:Type.String({pattern:'^[A-Z]{3}$'}),
         notification_text:Type.String({maxLength:2000})},{additionalProperties:false});
 export const REPLY_PARAMETERS=Type.Object({message:Type.String({minLength:1,maxLength:8192}),request_scope:Type.Optional(Type.Object({offering_id:Type.String({pattern:'^[a-f0-9]{64}$'}),offering_revision:Type.Integer({minimum:1,maximum:Number.MAX_SAFE_INTEGER}),requested_guarantees:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true}),requested_discounts:Type.Array(Type.String({minLength:1,maxLength:128}),{maxItems:16,uniqueItems:true})},{additionalProperties:false}))},{additionalProperties:false});
-/** S85 (S83 batch 2): the reply without request_scope, offered when the supply allows no guarantee and no discount (stricter). */
-export const REPLY_PARAMETERS_WITHOUT_SCOPE=Type.Object({message:Type.String({minLength:1,maxLength:8192})},{additionalProperties:false});
 const REQUEST_STATUS:Record<string,'sending'|'order_placed'|'checking'|'not_placed'>={accepted:'sending',dispatching:'sending',observed_fulfilled:'order_placed',
   fulfilled:'order_placed',confirmed:'order_placed',unknown:'checking',failed:'not_placed'};
 const NEXT_STEP={
@@ -476,9 +474,7 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;planQuestion?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean;requestScope?:boolean}={}):readonly ToolRegistration[]{
-    // S85: request_scope only when the Run's supply allows a guarantee or a discount (absent option: offered, as before).
-    const withScope=options.requestScope!==false;
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;planQuestion?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
     const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
       try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
@@ -561,8 +557,8 @@ export class RuntimeEffectClient{
       ...incentiveTool,
       ...outreachTool,
       ...enterpriseTools,
-      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key.'+(withScope?' request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.':''),
-        parameters:withScope?compact(REPLY_PARAMETERS):REPLY_PARAMETERS_WITHOUT_SCOPE,replay:'safe',execute:async args=>invoke('submit',args)}),
+      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key. request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.',
+        parameters:compact(REPLY_PARAMETERS),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt of a reply this Run sent (an intent_id nexloop.service.request returned in this Run; any other gives effect_intent_unavailable). Does not send or create a new effect.',
         parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),
     ];
