@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'deploy/configuration'
 V1, V2, V3 = (load_refusal_rules(ROOT / f'contact-refusal-rules.v{n}.json') for n in (1, 2, 3))
 BACKFILL = 'eios:action:nexloop.contact.refusal_backfill:1'
 
-REFUSE = [('不要再主动联系我', 'stop-contact'), ('以后请不要再主动联系我，有需要我会自己来问。', 'stop-contact'), ('别再联系我了', 'stop-contact'),
+REFUSE = [('不要再主动联系我', 'stop-contact'), ('晚上不要打电话也别再联系我', 'stop-contact'), ('以后请不要再主动联系我，有需要我会自己来问。', 'stop-contact'), ('别再联系我了', 'stop-contact'),
           ("Please don't contact me", 'stop-contact-en'), ("Please don't proactively contact me anymore", 'stop-contact-en'),
           ('stop messaging me', 'stop-contact-en'), ("PLEASE DON'T CONTACT ME", 'stop-contact-en'), ('Please don’t contact me again', 'stop-contact-en')]
 UNCERTAIN = [('少联系我', 'less-contact'), ("I'll reach out myself when I need something", 'self-initiated-only'), ('有需要我会自己来问', 'self-initiated-only')]
@@ -132,20 +132,35 @@ def test_backfill_restricts_through_the_control_writer_counts_only_and_is_repeat
         assert again['counts']['already_hit'] == 1 and again['counts']['restricted'] == 0 and restriction(admin, consumer)[4] == revision
         # The owner's release stands: an earlier message is not used to restrict again.
         admin.execute("update control.nexloop_contact_restrictions set active=false,released_at=clock_timestamp(),released_by='synthetic-owner' where consumer_id=%s", (consumer,))
-        # Service seeding advanced the realm epoch (the fixture's port is stale): copy an earlier inbound row as one more unchecked message.
-        admin.execute('alter table runtime.nexloop_conversation_messages disable trigger nx025_inbound_message_protect')
-        try:
-            admin.execute("select set_config('eios.tenant_id',(select tenant_id from runtime.nexloop_conversation_messages where message_id=%s),false)", (ids[1],))
-            admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
-                select tenant_id,world,conversation_id,sequence+100,encode(sha256(convert_to(message_id||'-later','UTF8')),'hex'),idempotency_key||'-later',payload_digest,jsonb_set(record,'{body}','"别再联系我了"')
-                from runtime.nexloop_conversation_messages where message_id=%s""", (ids[1],))
-        finally:
-            admin.execute('alter table runtime.nexloop_conversation_messages enable trigger nx025_inbound_message_protect')
+        # Service seeding advanced the realm epoch (the fixture's port is stale): copy an earlier inbound row as more unchecked messages.
+        def later(suffix, body, offset, accepted_at=None):
+            admin.execute('alter table runtime.nexloop_conversation_messages disable trigger nx025_inbound_message_protect')
+            try:
+                admin.execute("select set_config('eios.tenant_id',(select tenant_id from runtime.nexloop_conversation_messages where message_id=%s),false)", (ids[1],))
+                admin.execute("""insert into runtime.nexloop_conversation_messages(tenant_id,world,conversation_id,sequence,message_id,idempotency_key,payload_digest,record)
+                    select tenant_id,world,conversation_id,sequence+%s,encode(sha256(convert_to(message_id||%s,'UTF8')),'hex'),idempotency_key||%s,payload_digest,
+                     jsonb_set(jsonb_set(record,'{body}',to_jsonb(%s::text)),'{accepted_at}',coalesce(to_jsonb(%s::text),record->'accepted_at'))
+                    from runtime.nexloop_conversation_messages where message_id=%s returning message_id""", (offset, suffix, suffix, body, accepted_at, ids[1]))
+            finally:
+                admin.execute('alter table runtime.nexloop_conversation_messages enable trigger nx025_inbound_message_protect')
+        later('-later', '别再联系我了', 100)
+        unsubscribe = admin.execute("select encode(sha256(convert_to(%s||'-unsubscribe','UTF8')),'hex')", (ids[1],)).fetchone()[0]
+        later('-unsubscribe', '退订', 101)
         released = port().run(rule_version=3, apply=True)
         assert released['counts']['skipped_released'] == 1 and restriction(admin, consumer)[0] is False
+        # Marketing-only words get neither a restriction nor a hit row (marketing stops through runtime.nexloop_marketing_optouts).
+        assert released['counts']['skipped_marketing_only'] == 1
+        assert admin.execute('select count(*) from control.nexloop_contact_refusal_hits where message_id=%s', (unsubscribe,)).fetchone() == (0,)
+        # A refusal accepted after the release is a new refusal: restricted again, as the inbound trigger would.
+        after = admin.execute("select (clock_timestamp()+interval '1 minute')::text").fetchone()[0]
+        later('-after-release', '别再联系我了', 102, after)
+        renewed = port().run(rule_version=3, apply=True)
+        assert renewed['counts']['restricted'] == 1 and renewed['counts']['skipped_released'] == 1
+        active, version, rule, _, revision2 = restriction(admin, consumer)
+        assert (active, version, rule) == (True, 3, 'stop-contact') and revision2 > revision
         # A Consumer with an erasure request is skipped.
         admin.execute("insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark) "
                       "select tenant_id,world,'erasure-v3-synthetic',consumer_id,'owner','synthetic-owner','synthetic','pending_confirmation',0 "
                       "from runtime.nexloop_conversations where consumer_id=%s limit 1", (consumer,))
         erased = port().run(rule_version=3)
-        assert erased['counts']['skipped_erasure'] == 1 and erased['counts']['skipped_released'] == 0
+        assert erased['counts']['skipped_erasure'] >= 1 and erased['counts']['restricted'] == 0

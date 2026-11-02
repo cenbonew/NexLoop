@@ -1,7 +1,7 @@
 {
   "schema": "nexloop-contact-refusal-rules/1",
   "version": 3,
-  "decision": "ADR-023 §4 (owner 2026-11-02, plan claim-to-consumer-property §9.6/§10/§11): v2 and its marketing_only exception unchanged, extended. stop-contact accepts one adverb between the negation and the verb (主动 / 随便 / 没事: 不要再主动联系我) and is not a refusal when the object is someone else (不要联系我同事). stop-contact-en (new, case-insensitive) covers English refusals (don't (proactively) contact me, stop messaging me), not when 'me' is followed by a form of address, a time, a channel object or a preposition (don't call me sir / at night / before 9; don't email me the invoice). self-initiated-only (new, uncertain, restricts as well): the customer says they will reach out themselves. New exclusions remove time-limited phrases (晚上不要打电话: quiet hours, a 0228 preference) and channel-only phrases (不要电话和短信: a 0228 channel preference) before matching. Deterministic, no model call.",
+  "decision": "ADR-023 §4 (owner 2026-11-02, plan claim-to-consumer-property §9.6/§10/§11): v2 and its marketing_only exception unchanged, extended. stop-contact accepts one adverb between the negation and the verb (主动 / 随便 / 没事: 不要再主动联系我) and is not a refusal when the object is someone else (不要联系我同事). stop-contact-en (new, case-insensitive) covers English refusals (don't (proactively) contact me, stop messaging me), not when 'me' is followed by a form of address, a time, a channel object or a preposition (don't call me sir / at night / before 9; don't email me the invoice). self-initiated-only (new, uncertain, restricts as well): the customer says they will reach out themselves. New exclusions remove time-limited phrases up to their verb and object only, so a refusal in the same clause still counts (晚上不要打电话也别再联系我), (晚上不要打电话: quiet hours, a 0228 preference) and channel-only phrases (不要电话和短信: a 0228 channel preference) before matching. Deterministic, no model call.",
   "refuse": [
     {
       "id": "stop-contact",
@@ -57,11 +57,11 @@
     },
     {
       "id": "time-limited",
-      "pattern": "(晚上|夜里|夜间|深夜|半夜|早上|早晨|上午|中午|下午|周末|节假日|休息日|上班时间|工作时间|午休|[0-9一二三四五六七八九十]+\\s*点\\s*(以前|之前|以后|之后|前|后)?)\\s*(的时候)?\\s*(请)?\\s*(不要|别|勿|请勿)\\s*(给我)?\\s*(发|打|联系|打扰|推送|推)[^，。,.!！?？;；]*"
+      "pattern": "(晚上|夜里|夜间|深夜|半夜|早上|早晨|上午|中午|下午|周末|节假日|休息日|上班时间|工作时间|午休|[0-9一二三四五六七八九十]+\\s*点\\s*(以前|之前|以后|之后|前|后)?)\\s*(的时候)?\\s*(请)?\\s*(不要|别|勿|请勿)\\s*(给我)?\\s*(发|打|联系|打扰|推送|推)\\s*(电话|短信|消息|信息|邮件|微信|我)?"
     },
     {
       "id": "time-limited-after",
-      "pattern": "(不要|别|勿|请勿)\\s*在\\s*(晚上|夜里|夜间|深夜|半夜|早上|早晨|上午|中午|下午|周末|节假日|休息日|上班时间|工作时间|午休|[0-9一二三四五六七八九十]+\\s*点\\s*(以前|之前|以后|之后|前|后)?)[^，。,.!！?？;；]*"
+      "pattern": "(不要|别|勿|请勿)\\s*在\\s*(晚上|夜里|夜间|深夜|半夜|早上|早晨|上午|中午|下午|周末|节假日|休息日|上班时间|工作时间|午休|[0-9一二三四五六七八九十]+\\s*点\\s*(以前|之前|以后|之后|前|后)?)\\s*(给我)?\\s*(发|打|联系|打扰|推送|推)?\\s*(电话|短信|消息|信息|邮件|微信|我)?"
     },
     {
       "id": "channel-only",
