@@ -10,7 +10,8 @@ import {Keyword,Pager,StatusBadge,Time,relative} from '../ui';
 import {EmptyState,IdText,KeyValue,Notice,shorten as shortenId} from '../kit';
 import {commitmentSummary} from './Commitments';
 import {DataTable} from '../DataTable';
-import {CONSUMER_NO_VALUES,ProfileCard} from './ConsumerEvidence';
+import {CONSUMER_NO_VALUES,EvidenceSection,ProfileCard} from './ConsumerEvidence';
+import {ConversationMetricsCard,MessageTraceToggle} from './ConversationEvidence';
 import {Operations} from './PageOps';
 
 /** The customer's readable name, or the stable non-identifying alias with the one reason no name is shown (F04: 受限 / 未登记 / 加载失败;
@@ -173,6 +174,7 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
       <p>{data.commitments.length} 条 · {onCommitments?<button type="button" className="link-count" onClick={()=>onCommitments(data.consumer_id)}>查看这位客户的承诺</button>:'见“承诺 / 交付”'}</p>
     </DetailSection>:<DetailSection id="consumer-commitments" title="承诺" empty="没有承诺"/>}
     <ProfileCard data={data} fallback={fallbackProps} groups={withheld}/>
+    <EvidenceSection consumerId={data.consumer_id}/>
     <Operations actions={actions} title="对这位客户的操作"/>
     <ConsumerPersona consumerId={data.consumer_id}/>
     {active?null:restriction}
@@ -189,6 +191,7 @@ export function Conversation({conversationId,actions,onContext}:{conversationId:
     {/* F10: the current conversation first; earlier exchanges in a side column (after it below 1024 px), summaries first, so opening
         or paging the history never moves what is being read. */}
     <div className="conversation-layout"><div className="conversation-main">
+    <ConversationMetricsCard conversationId={data.conversation_id}/>
     <h2>本会话消息</h2>
     {data.messages.length?<ol className="workbench-messages">
     {data.messages.map(m=><li key={m.id} className={'message-'+m.direction}>
@@ -196,6 +199,7 @@ export function Conversation({conversationId,actions,onContext}:{conversationId:
         {m.provider?` · 渠道 ${m.provider.namespace}${m.provider.sequence!==null?` 序号 ${m.provider.sequence}`:''}${m.provider.trust==='client'?'（客户端陈述）':''}${m.provider.skewed?'（时间偏差）':''}`:''}
         {m.reply_to_message_id?<> · 回复 <IdText kind="消息" value={m.reply_to_message_id}/></>:null}</p>
       {m.content.status==='ok'?<p>{m.content.body}</p>:<p className="note">{RESTRICTED_TEXT}</p>}
+      {m.direction==='inbound'?<MessageTraceToggle messageId={m.id}/>:null}
     </li>)}
   </ol>:<EmptyState kind="empty" subject="消息"/>}</div>
     <aside className="side-tabs" aria-label="历史往来"><CustomerHistory consumerId={data.consumer_id} currentConversationId={data.conversation_id}/></aside></div>

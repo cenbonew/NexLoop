@@ -39,7 +39,7 @@ const headings=(html:string)=>[...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>/g)].map(
 
 test('the order: conversations, commitments, properties (F02), operations, persona, then the restriction; empty sections are one line',()=>{
   const html=page(client(detail({conversations:[conv(1)],commitments:['d'.repeat(64)]})));
-  expect(headings(html)).toEqual(['会话','承诺','画像','对这位客户的操作','运营人设与沟通偏好','联系限制']);
+  expect(headings(html)).toEqual(['会话','承诺','画像','关系与证据','对这位客户的操作','运营人设与沟通偏好','联系限制']);
   expect(html).toMatch(/<section class="detail-section detail-empty" aria-labelledby="consumer-restriction"><h2 id="consumer-restriction">联系限制<\/h2><p class="note">无<\/p><\/section>/);
   expect(html).not.toContain('这位客户受联系限制');
   const empty=page(client(detail()));
@@ -49,7 +49,7 @@ test('the order: conversations, commitments, properties (F02), operations, perso
 
 test('an active restriction comes second with a warning; a paused customer is said once, as a notice',()=>{
   const html=page(client(detail({restriction,paused:true,conversations:[conv(1)]})));
-  expect(headings(html)).toEqual(['联系限制','会话','承诺','画像','对这位客户的操作','运营人设与沟通偏好']);
+  expect(headings(html)).toEqual(['联系限制','会话','承诺','画像','关系与证据','对这位客户的操作','运营人设与沟通偏好']);
   expect(html).toContain('这位客户受联系限制');expect(html).toContain('stop-contact');
   expect(html.indexOf('主动联系已暂停')).toBeLessThan(html.indexOf('<h2 id="consumer-restriction">'));
   const released=page(client(detail({restriction:{...restriction,active:false,released_at:'2026-10-21T08:00:00+00:00'}})));

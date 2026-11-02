@@ -7,8 +7,11 @@
  */
 import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {kindOf,readCommitments,readObjectValues,type ConsumerDetail} from '../api';
-import {EmptyState,KeyValue} from '../kit';
+import {COMMITMENT_STATUS_TEXT,INTENT_STATE_TEXT,kindOf,readCommitments,readEvidenceGraph,readObjectValues,type ConsumerDetail,type EvidenceAction,type EvidenceCandidate,
+  type EvidenceClaim,type EvidenceCommitment,type EvidenceGraph,type EvidenceGroup,type EvidenceKind,type EvidenceOutreach} from '../api';
+import {DataTable} from '../DataTable';
+import {Time} from '../ui';
+import {EmptyState,IdText,KeyValue,shorten} from '../kit';
 import {commitmentSummary,dueText} from './Commitments';
 import {NO_VALUES_TEXT,PropertyCell} from './WorldInstances';
 import {glossText,useWorldGlosses} from '../Gloss';
@@ -49,5 +52,140 @@ export function ProfileCard({data,fallback,groups}:{data:ConsumerDetail;fallback
     <h3>即将发生的承诺</h3><Upcoming consumerId={data.consumer_id}/>
     <h3 id="consumer-properties">属性</h3><Properties consumerId={data.consumer_id} fallback={fallback}/>
     {groups?<p className="note">{groups}</p>:null}
+  </section>;
+}
+
+// ---- K5 §2.2: the evidence graph of one consumer (GET /consumers/{id}/evidence-graph, world real only) ----
+/** Codes come from the server as codes; a code without a label is shown as it is (never an error). */
+export const OPERATION_TEXT:Record<string,string>={'commitment.fulfil':'履行承诺','commitment.cancel':'取消承诺','commitment.extend':'延期承诺','message.send':'发送消息','outreach.send':'主动联系'};
+export const ITEM_STATE_TEXT:Record<string,string>={...INTENT_STATE_TEXT,succeeded:'已成功',pending:'待处理',approved:'已批准',rejected:'已拒绝',cancelled:'已取消',queued:'排队中',open:'进行中'};
+export const PURPOSE_TEXT:Record<string,string>={reminder:'提醒',follow_up:'跟进',renewal:'续约',care:'关怀'};
+export const label=(map:Record<string,string>,code:string|null)=>code===null?'—':map[code]??code;
+export const KIND_TEXT:Record<EvidenceKind,string>={claim:'事实（Claim）',commitment:'承诺',action:'Action',outreach:'主动触发',candidate:'候选'};
+const CLAIM_STATE_TEXT={active:'有效',corrected:'已更正',superseded:'已取代'} as const;
+const QUOTE_TEXT:Record<EvidenceClaim['source']['quote_status'],string>={ok:'',reviewer_only:'原文只对审核人和有知识只读权限的成员显示',
+  restricted:'原文受限（缺少该消息的读取权限）',corrected:'已更正：原文不再显示，见更正后的 Claim',superseded:'已取代：原文不再显示，见取代它的 Claim',none:'没有原文'};
+const EPISTEMIC_TEXT:Record<string,string>={user_statement:'客户陈述',verified_fact:'已核实事实',preference:'偏好',constraint:'约束',intent:'意图',need_problem:'需求 / 问题',
+  commitment:'承诺',hypothesis:'推测',correction:'更正'};
+const COMMITMENT_TEXT:Record<string,string>={...COMMITMENT_STATUS_TEXT};
+const CANDIDATE_TEXT:Record<string,string>={proposal:'本体更新提案',definition:'候选定义'};
+/** Why a group shows fewer than its total: said as what it is (L6: invisible is a permission, not lost data). */
+export function groupNote(g:EvidenceGroup):string|null{
+  const parts:string[]=[];
+  if(g.restricted_reason==='owner_only'&&g.invisible)parts.push(`仅负责人可见 ${g.invisible} 个`);
+  else if(g.invisible)parts.push(g.kind==='claim'?`不可见 ${g.invisible} 个：涉及你没有读取权限的属性（或其属性组受限），不是数据丢失`
+    :g.kind==='commitment'||g.kind==='candidate'?`不可见 ${g.invisible} 个：来源 Claim 涉及你没有读取权限的属性，不是数据丢失`:`不可见 ${g.invisible} 个：你的角色不能读取`);
+  if(g.erased)parts.push(`已删除 ${g.erased} 个`);  // a number for the owner only; null is never said
+  if(g.collapsed)parts.push(`另有 ${g.collapsed} 个未载入`);
+  return parts.length?parts.join(' · '):null;
+}
+export function nodeId(kind:EvidenceKind,item:EvidenceGroup['items'][number]):string{
+  const key=kind==='claim'?(item as EvidenceClaim).claim_id:kind==='commitment'?(item as EvidenceCommitment).commitment_id
+    :kind==='candidate'?(item as EvidenceCandidate).candidate_id:(item as EvidenceAction|EvidenceOutreach).intent_id;
+  return `${kind}:${key}`;
+}
+function nodeLabel(kind:EvidenceKind,item:EvidenceGroup['items'][number]):string{
+  switch(kind){
+    case 'claim':{const c=item as EvidenceClaim;return c.state!=='active'?CLAIM_STATE_TEXT[c.state]:c.predicate??EPISTEMIC_TEXT[c.epistemic_kind]??c.epistemic_kind;}
+    case 'commitment':return label(COMMITMENT_TEXT,(item as EvidenceCommitment).status);
+    case 'action':return label(OPERATION_TEXT,(item as EvidenceAction).operation);
+    case 'outreach':return label(PURPOSE_TEXT,(item as EvidenceOutreach).purpose);
+    case 'candidate':return CANDIDATE_TEXT[(item as EvidenceCandidate).candidate_kind];
+  }
+}
+
+/** One page of a group appended to what is shown (cursor ?kind=&after=); edges come only between listed ids. */
+function merge(base:EvidenceGraph,more:Partial<Record<EvidenceKind,EvidenceGraph>>):EvidenceGraph{
+  const groups=base.groups.map(g=>{const page=more[g.kind]?.groups.find(x=>x.kind===g.kind);
+    return page?{...g,items:[...g.items,...page.items] as never,next_cursor:page.next_cursor,collapsed:page.collapsed}:g;});
+  const edges=[...base.edges];for(const p of Object.values(more))for(const e of p?.edges??[])if(!edges.some(x=>x.from===e.from&&x.to===e.to&&x.rel===e.rel))edges.push(e);
+  return {...base,groups,edges};
+}
+
+const RADIUS=210,CENTER={x:330,y:250},DRAWN=8;
+/** Five fixed sectors around the consumer, each group's first DRAWN nodes on its arc; the rest are in the table. Deterministic. */
+export function radialLayout(graph:EvidenceGraph){
+  const nodes:{id:string;kind:EvidenceKind;label:string;x:number;y:number}[]=[];
+  graph.groups.forEach((g,gi)=>{const centre=-Math.PI/2+gi*2*Math.PI/5;const shown=g.items.slice(0,DRAWN);
+    shown.forEach((item,i)=>{const a=centre+(shown.length>1?(i/(shown.length-1)-0.5)*(Math.PI/3):0);const r=RADIUS-(i%2)*48;
+      nodes.push({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item),x:Math.round(CENTER.x+r*Math.cos(a)),y:Math.round(CENTER.y+r*Math.sin(a))});});});
+  const at=new Map(nodes.map(n=>[n.id,n]));
+  const edges=graph.edges.filter(e=>at.has(e.from)&&at.has(e.to));
+  const sectors=graph.groups.map((g,gi)=>{const a=-Math.PI/2+gi*2*Math.PI/5;return {kind:g.kind,x:Math.round(CENTER.x+(RADIUS+62)*Math.cos(a)),y:Math.round(CENTER.y+(RADIUS+62)*Math.sin(a)),shown:Math.min(g.items.length,DRAWN),total:g.total};});
+  return {nodes,edges,sectors,at};
+}
+const KIND_HUE:Record<EvidenceKind,number>={claim:1,commitment:2,action:3,outreach:4,candidate:5};
+
+function EvidenceSvg({graph,selected,onSelect}:{graph:EvidenceGraph;selected:string|null;onSelect:(id:string)=>void}){
+  const {nodes,edges,sectors,at}=radialLayout(graph);
+  return <svg className="evidence-graph" viewBox="0 0 660 520" role="group" aria-label={`客户关系与证据图：${nodes.length} 个节点，${edges.length} 条关系`} data-nodes={nodes.length} data-edges={edges.length}>
+    {nodes.map(n=><line key={'c'+n.id} x1={CENTER.x} y1={CENTER.y} x2={n.x} y2={n.y} className="evidence-spoke"/>)}
+    {edges.map(e=>{const a=at.get(e.from)!,b=at.get(e.to)!;return <line key={e.from+e.to+e.rel} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="evidence-edge" data-rel={e.rel}/>;})}
+    <g className="evidence-center"><circle cx={CENTER.x} cy={CENTER.y} r={34}/><text x={CENTER.x} y={CENTER.y+5} textAnchor="middle">Consumer</text></g>
+    {sectors.map(s=><text key={s.kind} x={s.x} y={s.y} textAnchor="middle" className="evidence-sector">{KIND_TEXT[s.kind]} {s.shown}/{s.total}</text>)}
+    {nodes.map(n=><g key={n.id} role="button" tabIndex={0} data-node={n.id} aria-pressed={selected===n.id} aria-label={`${KIND_TEXT[n.kind]}：${n.label}`}
+      className={'evidence-node'+(selected===n.id?' selected':'')} style={{['--node-hue' as string]:`var(--hue-${KIND_HUE[n.kind]})`}}
+      onClick={()=>onSelect(n.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(n.id);}}}>
+      <rect x={n.x-58} y={n.y-15} width={116} height={30} rx={6}/><text x={n.x} y={n.y+5} textAnchor="middle">{n.label.length>9?n.label.slice(0,8)+'…':n.label}</text></g>)}
+  </svg>;
+}
+
+/** The side panel: the evidence chain of the chosen node, from the fields the server returned (nothing inferred). */
+function EvidencePanel({graph,id,onSelect,onClose}:{graph:EvidenceGraph;id:string;onSelect:(id:string)=>void;onClose:()=>void}){
+  const [kind]=id.split(':') as [EvidenceKind];const g=graph.groups.find(x=>x.kind===kind);const item=g?.items.find(x=>nodeId(kind,x)===id);
+  if(!g||!item)return null;
+  const listed=(ref:string)=>graph.groups.some(x=>x.items.some(i=>nodeId(x.kind,i)===ref));
+  const link=(ref:string)=>listed(ref)?<button type="button" className="link" onClick={()=>onSelect(ref)}>{shorten(ref.split(':')[1])}</button>:null;
+  let rows:{key:string;value:ReactNode}[]=[];
+  if(kind==='claim'){const c=item as EvidenceClaim;rows=[{key:'状态',value:CLAIM_STATE_TEXT[c.state]},{key:'类型',value:label(EPISTEMIC_TEXT,c.epistemic_kind)},
+    ...(c.predicate!==null?[{key:'内容',value:c.predicate}]:[]),{key:'来源',value:<>原文第 {c.source.sequence??'—'} 轮 · {c.source.speaker==='consumer'?'客户说的':'AI 说的'}</>},
+    {key:'原文片段',value:c.source.quote_status==='ok'&&c.source.quote?<q>{c.source.quote}</q>:<span className="note">{QUOTE_TEXT[c.source.quote_status]}</span>},
+    {key:'置信度',value:c.confidence===null?'—':c.confidence.toFixed(2)},{key:'解析',value:c.resolution_state},
+    ...(c.successor_claim_ids.length?[{key:'更正 / 取代为',value:<>{c.successor_claim_ids.map(s=><span key={s}>{link('claim:'+s)} </span>)}</>}]:[])];}
+  if(kind==='commitment'){const c=item as EvidenceCommitment;rows=[{key:'状态',value:label(COMMITMENT_TEXT,c.status)},{key:'截止',value:c.due_at?<Time value={c.due_at}/>:'无期限'},
+    {key:'如何推导',value:c.origin==='claim'?(c.claim_id?<>由 Claim {link('claim:'+c.claim_id)} 推导</>:'由 Claim 推导（来源未显示）'):'由延期产生'},
+    ...(c.replaces_commitment_id?[{key:'取代',value:<IdText kind="承诺" value={c.replaces_commitment_id}/>}]:[]),{key:'修订',value:`r${c.revision}`}];}
+  if(kind==='action'){const a=item as EvidenceAction;rows=[{key:'操作',value:label(OPERATION_TEXT,a.operation)},{key:'状态',value:label(ITEM_STATE_TEXT,a.state)},{key:'时间',value:<Time value={a.created_at}/>}];}
+  if(kind==='outreach'){const o=item as EvidenceOutreach;rows=[{key:'目的',value:label(PURPOSE_TEXT,o.purpose)},{key:'状态',value:label(ITEM_STATE_TEXT,o.state)},{key:'时间',value:<Time value={o.created_at}/>}];}
+  if(kind==='candidate'){const c=item as EvidenceCandidate;rows=[{key:'类型',value:CANDIDATE_TEXT[c.candidate_kind]},{key:'状态',value:c.status},
+    {key:'为什么还是候选',value:c.match_decision||c.match_reason_code?<>{c.match_decision??''}{c.match_reason_code?<> · <code>{c.match_reason_code}</code></>:null}</>:'没有匹配结论'},
+    ...(c.dependent_claim_ids.length?[{key:'依据的 Claim',value:<>{c.dependent_claim_ids.map(s=><span key={s}>{link('claim:'+s)} </span>)}</>}]:[])];}
+  const incoming=graph.edges.filter(e=>e.to===id&&listed(e.from));
+  return <aside className="evidence-panel" aria-label={`${KIND_TEXT[kind]} 证据`}>
+    <div className="card-head"><h3>{KIND_TEXT[kind]} <IdText value={id.split(':')[1]}/></h3>
+      <button type="button" className="btn-secondary panel-close" onClick={onClose}>关闭</button></div>
+    <KeyValue label="证据链" items={rows}/>
+    {incoming.length?<p className="note">被引用：{incoming.map(e=><span key={e.from}>{link(e.from)} </span>)}</p>:null}
+  </aside>;
+}
+
+export function EvidenceSection({consumerId}:{consumerId:string}){
+  const base=useQuery({queryKey:['workbench','evidence-graph',consumerId],queryFn:()=>readEvidenceGraph(consumerId),retry:false});
+  const [more,setMore]=useState<Partial<Record<EvidenceKind,EvidenceGraph>>>({});
+  const [graphView,setGraphView]=useState(true);const [selected,setSelected]=useState<string|null>(null);
+  const [loading,setLoading]=useState<EvidenceKind|null>(null);
+  const head=<h2 id="consumer-evidence">关系与证据</h2>;
+  if(base.isPending)return <section className="detail-section" aria-labelledby="consumer-evidence">{head}<EmptyState kind="loading" subject="关系与证据" compact/></section>;
+  if(base.isError){const k=kindOf(base.error);return <section className="detail-section" aria-labelledby="consumer-evidence">{head}
+    {k==='not_found'?<p className="note">关系与证据只在真实世界提供；当前客户不在真实世界、正在删除或不存在。</p>
+      :<EmptyState kind={k==='forbidden'?'forbidden':'unavailable'} subject="关系与证据" onRetry={()=>void base.refetch()} compact/>}</section>;}
+  const graph=merge(base.data,more);
+  const next=async(g:EvidenceGroup)=>{if(!g.next_cursor)return;setLoading(g.kind);
+    try{const page=await readEvidenceGraph(consumerId,{kind:g.kind,after:g.next_cursor});setMore(m=>({...m,[g.kind]:m[g.kind]?merge(m[g.kind]!,{[g.kind]:page}):page}));}finally{setLoading(null);}};
+  return <section className="detail-section evidence-section" aria-labelledby="consumer-evidence">{head}
+    <div className="segmented" role="group" aria-label="查看方式">
+      {([[true,'图'],[false,'表格']] as const).map(([v,t])=><button key={t} type="button" aria-pressed={graphView===v} onClick={()=>setGraphView(v)}>{t}</button>)}</div>
+    <ul className="evidence-groups">{graph.groups.map(g=>{const note=groupNote(g);return <li key={g.kind} data-kind={g.kind}>
+      <strong>{KIND_TEXT[g.kind]}</strong> 共 {g.total} 个 · 显示 {g.items.length} 个{note?<span className="note"> · {note}</span>:null}
+      {g.kind==='candidate'&&g.total===0?<span className="note"> · 还没有候选：提取的事实尚未产生本体更新提案</span>:null}
+      {g.next_cursor?<button type="button" className="btn-secondary" disabled={loading===g.kind} onClick={()=>void next(g)}>{loading===g.kind?'正在载入…':'载入更多'}</button>:null}</li>;})}</ul>
+    <div className={'evidence-body'+(selected?' with-aside':'')}>
+      {graphView?<EvidenceSvg graph={graph} selected={selected} onSelect={setSelected}/>
+        :<DataTable label="关系与证据" rows={graph.groups.flatMap(g=>g.items.map(item=>({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item)})))} rowKey={r=>r.id}
+          rowClass={r=>r.id===selected?'row-selected':undefined} columns={[{label:'类别',cell:r=>KIND_TEXT[r.kind]},
+            {label:'节点',main:true,cell:r=><button type="button" className="link" aria-pressed={r.id===selected} onClick={()=>setSelected(r.id)}>{r.label}</button>},
+            {label:'标识',cell:r=><IdText value={r.id.split(':')[1]}/>}]}/>}
+      {selected?<EvidencePanel graph={graph} id={selected} onSelect={setSelected} onClose={()=>setSelected(null)}/>:null}
+    </div>
   </section>;
 }

@@ -143,6 +143,17 @@ try{
   // K5 §2.3: the profile card - upcoming commitments first, then the properties with the object revision.
   result.k5_profile={heads:await page.locator('section.profile-card h3').allInnerTexts(),revision:await page.locator('.profile-card .profile-revision').count()?await page.locator('.profile-card .profile-revision').innerText():null};
   await page.locator('section.profile-card').screenshot({path:`${shots}/wb-consumer-profile-1440.png`});
+  // K5 §2.2/§2.4/§2.5: the evidence section on the detail; on the conversation, the metrics card and a message's trace toggle.
+  // (The three reads are L2's; until they are served here each block says its state - recorded, not asserted as data.)
+  await page.locator('#consumer-evidence').waitFor({timeout:20000});await page.locator('section[aria-labelledby=consumer-evidence] [data-state="loading"]').waitFor({state:'detached',timeout:20000});
+  result.k5_evidence=await page.locator('section[aria-labelledby=consumer-evidence]').innerText();
+  await page.locator('section[aria-labelledby=consumer-evidence]').screenshot({path:`${shots}/wb-consumer-evidence-1440.png`});
+  await page.locator('.conversation-item').first().click();await page.locator('#conversation-metrics').waitFor({timeout:20000});
+  await page.locator('section[aria-labelledby=conversation-metrics] [data-state="loading"]').waitFor({state:'detached',timeout:20000});
+  result.k5_conversation={metrics:await page.locator('section[aria-labelledby=conversation-metrics]').innerText(),toggles:await page.locator('.trace-toggle button').count()};
+  if(result.k5_conversation.toggles){await page.locator('.trace-toggle button').first().click();await page.locator('.trace-toggle [data-state="loading"]').waitFor({state:'detached',timeout:20000});
+    result.k5_conversation.trace=await page.locator('.trace-toggle').first().innerText();result.k5_conversation.steps=await page.locator('.trace-steps li').count();}
+  await page.screenshot({path:`${shots}/wb-conversation-k5-1440.png`,fullPage:true});
   await page.goto('/workbench/ontology/objects');await page.locator('#world-instance-type').waitFor({timeout:20000});
   await page.selectOption('#world-instance-type','Consumer');await page.locator('table[aria-label="Consumer Object"]').waitFor({timeout:20000});
   const objectHeads=()=>page.locator('table[aria-label="Consumer Object"] thead th').allInnerTexts();
