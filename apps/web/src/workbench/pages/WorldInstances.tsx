@@ -7,6 +7,7 @@
  * said as they are: "本页不可见 N 个" for unreadable objects of a page, per group "不可见 N 个" (checked, unreadable) and
  * "折叠 N 个" (beyond the 25 checked a group). Type, page cursor and the open object live in the URL (deep links; Back walks pages).
  */
+import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
 import {readObjectNeighbors,readObjectValues,readObjectView,readObjects,type NeighborGroup,type ObjectNeighbors,type ObjectView,type PropertyValue,type WorldObjectType} from '../api';
 import {routePath,type Route} from '../route';
@@ -41,6 +42,13 @@ export function propertyColumns(rows:{properties:PropertyValue[]}[]):string[]{
   const names:string[]=[];for(const r of rows)for(const p of r.properties)if(!names.includes(p.name))names.push(p.name);return names;
 }
 
+/** K4l (owner 2026-11-02): a page with no value in a column reads as broken. A column is empty only when no row of the page has a value and
+ * none is withheld: a withheld property is a permission, never collapsed as empty (it keeps its 受限 badge). */
+export const NO_VALUES_TEXT='这些对象还没有任何属性值。属性来自企业系统同步或受治理的 Action；对话里客户说过的话先作为 Claim 记录。';
+export function emptyColumns(rows:{properties:PropertyValue[]}[],names:string[]):string[]{
+  return names.filter(name=>rows.every(r=>{const v=r.properties.find(x=>x.name===name);return !v||v.status==='missing'||(v.status==='ok'&&v.value===undefined);}));
+}
+
 export type InstanceState={type:string|null;after:string|null;object:string|null};
 
 export function Instances({types,state,onState}:{types:WorldObjectType[];state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
@@ -56,17 +64,23 @@ export function Instances({types,state,onState}:{types:WorldObjectType[];state:I
 
 function InstanceList({type,state,onState}:{type:string;state:InstanceState;onState:(change:Partial<InstanceState>)=>void}){
   const glosses=useWorldGlosses();
+  const [showEmpty,setShowEmpty]=useState(false);  // this page only: never stored, gone with the page
   const page=useQuery({queryKey:['workbench','objects',type,state.after??''],queryFn:()=>readObjects(type,state.after??undefined)});
   if(page.isPending)return <EmptyState kind="loading" subject="Object"/>;
   if(page.isError)return kindOf(page.error)==='forbidden'?<EmptyState kind="forbidden" subject="这些 Object"/>:<EmptyState kind="unavailable" subject="这些 Object" onRetry={()=>void page.refetch()}/>;
   const p=page.data;
+  const names=propertyColumns(p.items);const empty=emptyColumns(p.items,names);
+  const shown=showEmpty?names:names.filter(n=>!empty.includes(n));const allEmpty=empty.length===names.length;  // no property column at all reads the same
   return <div className={'world-instance-grid object-view'+(state.object?' object-view-detail':'')}>
     <div>
       <p className="workbench-summary" role="status"><Term id={type} gloss={glosses.type(type).gloss} source={glosses.type(type).gloss_source} inline/> 共 {p.total} 个 Object · 本页显示 {p.items.length} 个{p.invisible?<> · <StatusBadge text={`本页不可见 ${p.invisible} 个`} tone="limited" code="invisible"/></>:null}</p>
+      {p.items.length&&allEmpty||empty.length?<div className="empty-columns">
+        <p className="note" role="note">{allEmpty?NO_VALUES_TEXT:`有 ${empty.length} 个属性在本页都还没有值，已收起`}</p>
+        {empty.length?<label className="toggle"><input type="checkbox" checked={showEmpty} onChange={e=>setShowEmpty(e.target.checked)}/>显示空列</label>:null}</div>:null}
       {p.items.length?<DataTable label={`${type} Object`} rows={p.items} rowKey={r=>r.object_id} rowClass={r=>r.object_id===state.object?'row-selected':undefined} columns={[
         {label:'Object',main:true,cell:r=><button type="button" className="link" aria-pressed={r.object_id===state.object} title={r.object_id}
           onClick={()=>onState({object:r.object_id===state.object?null:r.object_id})}><code className="id-code">{shortId(r.object_id)}</code></button>},
-        ...propertyColumns(p.items).map(name=>({label:glossText(name,glosses.property(type,name).gloss),cell:(r:typeof p.items[number])=>{const v=r.properties.find(x=>x.name===name);return v?<PropertyCell p={v}/>:<span className="note">—</span>;}})),
+        ...shown.map(name=>({label:glossText(name,glosses.property(type,name).gloss),cell:(r:typeof p.items[number])=>{const v=r.properties.find(x=>x.name===name);return v?<PropertyCell p={v}/>:<span className="note">—</span>;}})),
         {label:'Schema 版本',num:true,cell:r=>`v${r.schema_version}`},{label:'修订',num:true,cell:r=>r.revision},
         {label:'更新时间',cell:r=><Time value={r.updated_at}/>}]}/>
         :p.invisible?<EmptyState kind="forbidden" subject="本页的 Object" reason={`${p.invisible} 个 Object 你没有读取权限`}/>:<EmptyState kind="empty" subject="这一页的 Object"/>}

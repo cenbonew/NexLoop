@@ -130,6 +130,14 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # Operator persona pages: published through the page's own form; the consumer detail names persona@version and its source.
     assert observed['persona']['published'] == 1
     assert 'xiaohe@1' in observed['persona']['consumer'] and '租户默认' in observed['persona']['consumer'], observed['persona']
+    # K4l: the WebChat Consumer has no property value: said as "no value yet" (not as a permission); the Object page collapses the
+    # columns empty on the page, keeps Object and the record columns, and 显示空列 brings the property columns back.
+    k4l = observed['k4l']
+    assert '这位客户还没有任何属性值' in k4l['consumer_props'] and '读取权限' not in k4l['consumer_props'], k4l
+    assert k4l['note'] and '还没有任何属性值' in k4l['note'], k4l
+    assert k4l['heads'] == ['Object', 'Schema 版本', '修订', '更新时间'] and k4l['dashes'] == 0, k4l
+    # Locally the page may carry no property entry at all (then no switch); with entries, 显示空列 shows them.
+    assert k4l.get('heads_all') is None or len(k4l['heads_all']) > len(k4l['heads']), k4l
     # K4j (R67 walkthrough): stacked operation blocks keep at least 8 px between them (the remediation switch below its empty state;
     # the customer's pause form and takeover bar), and the takeover bar is sticky on a conversation only.
     tight = {k: v['stack_gaps'] for k, v in pages.items() if any(g < 8 for g in v['stack_gaps'])}

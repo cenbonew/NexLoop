@@ -10,6 +10,7 @@ import {Keyword,Pager,StatusBadge,Time,relative} from '../ui';
 import {EmptyState,IdText,KeyValue,Notice,shorten as shortenId} from '../kit';
 import {commitmentSummary} from './Commitments';
 import {DataTable} from '../DataTable';
+import {NO_VALUES_TEXT} from './WorldInstances';
 import {Operations} from './PageOps';
 
 /** The customer's readable name, or the stable non-identifying alias with the one reason no name is shown (F04: 受限 / 未登记 / 加载失败;
@@ -171,7 +172,7 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
         <KeyValue label="客户的 Property" items={Object.entries(props.values).map(([k,v])=>({key:k,
           value:typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):<code className="id-code">{JSON.stringify(v)}</code>}))}/>
         {withheld?<p className="note">{withheld}</p>:null}</DetailSection>
-      :<DetailSection id="consumer-properties" title="属性" empty={<>{props.status==='ok'?'没有可读的 Property':'当前账号没有 Property 读取权限，字段与证据不显示'}{withheld?<>；{withheld}</>:null}</>}/>}
+      :<DetailSection id="consumer-properties" title="属性" empty={<>{props.status!=='ok'?'当前账号没有 Property 读取权限，字段与证据不显示':withheld?'没有你能读取的属性值':NO_VALUES_TEXT.replace('这些对象','这位客户')}{withheld?<>；{withheld}</>:null}</>}/>}
     <Operations actions={actions} title="对这位客户的操作"/>
     <ConsumerPersona consumerId={data.consumer_id}/>
     {active?null:restriction}
