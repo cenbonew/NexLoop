@@ -2030,6 +2030,11 @@
       "version": "0406",
       "name": "0406_k5_evidence_views.sql",
       "sha256": "064458652fd8b4105d03f35bb9504ed7d234415acb70c65a9bc0d3e95084eabe"
+    },
+    {
+      "version": "0407",
+      "name": "0407_contact_refusal_rules_v3.sql",
+      "sha256": "2ebeac37a37b5baed8de6396521daf25ddd44d98d787aea98fb9c657c9fedae1"
     }
   ]
 }

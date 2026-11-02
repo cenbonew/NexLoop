@@ -29,8 +29,9 @@ COUNTER=['你好，我想问一下续费价格','好的，谢谢','明天下午�
 MISJUDGMENT=['别发错货了','不要发顺丰，发中通','别发漏了配件','不要寄到公司','能不能别打折了，直接原价也行','不用找零了','别打包太紧']
 # Accepted over-blocking (ADR-023 §3, when in doubt restrict): documented, owner releases them.
 OVERBLOCK=['不用找了','别找借口']
-# ADR-023 §4: the current rule set is v2 (v1 stays published); without a marketing send every hit still restricts (tests/test_contact_refusal_v2_pg.py).
-CURRENT=2
+# ADR-023 §4: the current rule set is v3 (v1, v2 stay published; tests/test_contact_refusal_v2_pg.py, tests/test_contact_refusal_v3_pg.py);
+# without a marketing send every hit still restricts.
+CURRENT=3
 
 
 def match(admin,body):
