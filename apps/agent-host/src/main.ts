@@ -6,6 +6,7 @@ import {readPrivateMaterial} from './private-material.js';
 import {join, resolve} from 'node:path';
 import {randomUUID, timingSafeEqual} from 'node:crypto';
 import {admissionMetrics} from './run-admission-gate.js';
+import {effectMetrics} from './effect-metrics.js';
 
 async function serve() {
   if (process.versions.node.split('.')[0] !== '24') throw new Error('Node 24 required');
@@ -57,7 +58,8 @@ async function serve() {
       if (request.headersDistinct.authorization?.length!==1 || !header || !/^Bearer [0-9a-f]{64}$/.test(header)
           || !timingSafeEqual(key,Buffer.from(header.slice(7),'hex'))) {error(response,401);return;}
       // NX-030 M09: concurrency counters only (numbers), same loopback + key as every internal route.
-      if(metrics){respond(response,200,{host:runtime?admissionMetrics():{available:false}});return;}
+      // NX-064: plus the effect request counters per operation (numbers only).
+      if(metrics){respond(response,200,{host:runtime?{...admissionMetrics(),...effectMetrics()}:{available:false}});return;}
       if(worldPurge){
         try{respond(response,200,await runtime!.purgeWorld(await runtimeModule!.readRuntimeBody(request)));}
         catch(cause){const code=(cause as {code?:string}).code??'dependency_unavailable';const status=code==='runtime_run_active'?409:code.startsWith('invalid_')?400:503;respond(response,status,{code,message:'Resource unavailable',trace_id:randomUUID(),retryable:status!==400,details:{}});}

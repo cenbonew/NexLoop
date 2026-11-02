@@ -68,6 +68,10 @@ def probe_host(config: HostControlConfiguration):
 
 
 HOST_METRICS = ('available', 'active_runs', 'waiting', 'max_active_runs', 'runs_started', 'admission_timeouts')
+# NX-064: the Host's effect request counters (cumulative): over every operation, then per operation with its histogram buckets.
+EFFECT_OPERATIONS = ('effect_submit', 'enterprise_submit', 'effect_find', 'incentive')
+EFFECT_METRIC = re.compile(r'^(effect_(calls|ambiguous|unavailable)|(' + '|'.join(EFFECT_OPERATIONS)
+                           + r')_(calls|ambiguous|unavailable|h_(0|[1-9][0-9]?|10[0-9]|11[0-6])))$')
 
 
 def read_host_metrics(config: HostControlConfiguration):
@@ -82,12 +86,12 @@ def read_host_metrics(config: HostControlConfiguration):
         opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPSHandler(context=context))
         request = Request(config.origin + '/internal/v1/metrics', headers={'Authorization': 'Bearer ' + key}, method='GET')
         with opener.open(request, timeout=1) as response:
-            raw = response.read(4097)
-            if response.code != 200 or len(raw) > 4096:
+            raw = response.read(16385)
+            if response.code != 200 or len(raw) > 16384:
                 return None
         value = json.loads(raw)
         host = value.get('host') if type(value) is dict and set(value) == {'host'} else None
-        if type(host) is not dict or not set(host) <= set(HOST_METRICS) or 'available' not in host:
+        if type(host) is not dict or not all(k in HOST_METRICS or EFFECT_METRIC.match(k) for k in host) or 'available' not in host:
             return None
         if any(type(v) is not (bool if k == 'available' else int) for k, v in host.items()):
             return None

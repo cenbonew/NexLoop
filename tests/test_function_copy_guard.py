@@ -207,6 +207,12 @@ REGISTRY = [
             ((r"\s*when 'api' then array\['calls','errors','slow','p50_ms','p95_ms','max_ms'\]", ''),
              (r"\s*or \(p_kind='api' and p_service not in \('read','write'\)\)", ''),
              (r"\('guard','guard_op','relay_step','api'\)", "('guard','guard_op','relay_step')"))),
+    # NX-064 (0405): the Host's effect request counters - kind 'host' gains effect_calls/_ambiguous/_unavailable and the new kind
+    # 'host_op' (four operations; calls, ambiguous, unavailable, the guard histogram); nothing else.
+    Allowed('effect_request_metrics', 'authz.nexloop_record_process_sample', "the Host effect counters (kind 'host' keys, kind 'host_op')",
+            ((r",'effect_calls','effect_ambiguous','effect_unavailable'\]\s*when 'host_op' then array\['calls','ambiguous','unavailable'\]", ']'),
+             (r"\s*or \(p_kind='host_op' and p_service not in \('effect_submit','enterprise_submit','effect_find','incentive'\)\)", ''),
+             (r"\('guard','guard_op','relay_step','api','host_op'\)", "('guard','guard_op','relay_step','api')"))),
     # NX-057 R0 (effect_failures): the three paths that fail an effect intent write its failure row; nothing else.
     *[Allowed('effect_failures', name, 'NX-057 R0: the failure row (reason and evidence ids) in the same transaction; nothing else',
               ((r'\s*insert into runtime\.nexloop_effect_failures\(.*?\);', ''),))

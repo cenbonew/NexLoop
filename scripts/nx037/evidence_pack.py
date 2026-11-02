@@ -59,7 +59,14 @@ def _vocabulary():
                       'effect_intent_unavailable', 'request_scope_wrong_service',  # 10/18: corrected tool errors (option B, 0208)
                       # 10/18: the effect_reconciliation item (scripts/nx037/effect_reconciliation.py): outbox and delivery states, 0210
                       'nexloop.nx037-effect-reconciliation.v1', 'pending', 'leased', 'query_pending', 'persisted', 'provider_accepted', 'delivered',
-                      'not_found', 'confirmed_not_delivered'))
+                      'not_found', 'confirmed_not_delivered',
+                      # NX-064: the Host now records a thrown tool's own code (pi-durable's <harness>[error] wrapping), so every code
+                      # a tool can end with may appear as failure_detail; and the tools that can fail (tests/test_nx037_evidence_codes.py).
+                      'incentive_unavailable', 'invalid_incentive_request', 'incentive_payload_conflict',
+                      'outreach_unavailable', 'invalid_outreach_request', 'purpose_not_allowed', 'body_too_long', 'intent_exists', 'consumer_unavailable',
+                      'run_outcome_unavailable', 'invalid_run_outcome', 'plan_version_not_current', 'reply_already_submitted',
+                      'runtime_tool_refused', 'runtime_tool_model_access_refused',
+                      'nexloop.incentive.issue', 'nexloop.outreach.send', 'nexloop.plan.outcome'))
 
 
 VOCABULARY = _vocabulary()
