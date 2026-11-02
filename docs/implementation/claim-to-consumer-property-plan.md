@@ -417,3 +417,33 @@ select left(source_message_id,12) msg, span_start, span_end, count(*) claims, co
 | 单列 | 重复抽取去重 | §9.7 | 约 1.5 人日 |
 
 顺序 2 与 3 互不依赖，可以并行。顺序 8 依赖 1、3，以及（8ecad01e 部分）单列的去重任务。合计约 12–14 人日，另加每批一次 stage 部署。
+
+## 11. L6 对 v2 的补充条件（11-02）
+
+### 11.1 历史重跑的身份与写入路径（替换 §9.6 “历史重跑”一段的身份描述）
+
+- 不用 owner 或迁移凭据写入。写联系限制是业务状态变更，由专用服务身份调用定义者函数完成。
+- 身份选 **reply_guarantor**，不新增主体。理由：它是 ADR-023 的服务主体，已持有 `nexloop.contact.read:1`，负责“每条入站都有回复”和联系限制的读取。历史重跑是同一条 ADR 的补跑，职责一致。新增主体需要新的凭据发放、stage-principals 映射和 compose 秘密，收益只是更细的隔离。
+- 新增授权只有一条：`service-grants.v1.json` 中 `reply_guarantor → eios:action:nexloop.contact.refusal_backfill:1 execute`。这一条碰到 `deploy/`，策略确认由调度员处理。
+- 函数 `authz.nexloop_contact_refusal_backfill(p_digest, p_world, p_text, p_signature, p_payload)` 走 `authz.nexloop_plan_port_tenant` 的签名授权：tenant 来自凭据，world 为凭据绑定的那个，调用角色只能是 `nexloop_domain_worker`，浏览器令牌和带 run_context 的身份拒绝。写入与 0109/0244 的入站触发器走同一条控制写入路径：`control.nexloop_nx022_bump` 推进控制版本，幂等键 `contact-refusal:<message_id>` 与实时路径相同；然后写 `control.nexloop_contact_restrictions` 和 `control.nexloop_contact_refusal_hits`。
+- CLI 以 `nexloop_domain_worker` 受限角色连接（与 reply-guarantor 服务同一 DSN），读取都在定义者函数内、RLS 生效，不使用 owner 或迁移角色。
+- 跳过：擦除中或已完成擦除的客户（`control.nexloop_consumer_erasures` 有任何记录）；persona 为 `simulated_agent` 或 `synthetic` 的客户；限制被负责人解除过的客户（`released_at` 非空，负责人的决定不被历史消息推翻）；已有命中记录的消息；当前已在限制中的客户（只计数，不重复设限）；marketing-only 命中（退订、TD，历史上无法判断当时的营销窗口，不补设，只计数）。
+- 可以重复执行：同一条消息已有命中记录就跳过，同一个客户已在限制中就不再推进版本。
+- dry-run 和执行都只输出数量（按跳过原因、按规则），不输出原文和 id。
+- stage 的三个相关客户都是 `simulated_agent`，所以 stage 上执行预期为 0 设限；e411740e 的“产品上未生效”由 v3 实时规则覆盖今后的消息。
+
+### 11.2 v3 英文规则的反例与期望
+
+| 样例 | 期望 |
+|---|---|
+| don't call me sir | 不命中（宾语后接称呼） |
+| don't call me at night | 不命中（时段偏好，走 0228 quiet_hours） |
+| don't call me before 9 | 不命中（时段偏好） |
+| don't email me the invoice, message me here | 不命中（渠道偏好） |
+| PLEASE DON'T CONTACT ME | 命中 stop-contact-en（大小写不敏感，全大写断言） |
+
+中文同理：时段限定（晚上、早上、周末、几点以前/以后等）不算全面拒绝，作为排除项先去掉。
+
+### 11.3 重复抽取单独开单（S-DUP）
+
+§9.7 从阶段一移出，单独开单 S-DUP。诊断结论：去重键（`claim_id` 和 `correlation_key`）不应包含模型生成的自由文本 predicate，应以消息、原文区间、kind、polarity 和规范化后的值为准。修好之前，Claim 计数不能当指标；本计划中所有基于 Claim 条数的验收改为按“客户数或消息数”计。
