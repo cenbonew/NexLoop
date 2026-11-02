@@ -121,11 +121,13 @@
     },
     "claims": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "description": "Claims of this conversation visible to the member under the evidence-graph filter (invisible and erased ones not counted). Not a metric: extraction currently repeats claims (about 20 from one message, L3 ticket), so this is a raw count until that is fixed."
     },
     "commitments": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "description": "Commitments derived from this conversation visible to the member under the evidence-graph filter."
     },
     "gate_blocks": {
       "type": "object",
