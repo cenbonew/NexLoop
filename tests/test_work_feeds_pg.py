@@ -33,6 +33,7 @@ from support.tenants import SIM_WORLD
 from multi_authority_fixture import seed_multi_authority
 from test_claim_extraction_jobs_pg import EXTRACT_TARGET,QUEUE_TARGET,make_window,registered_provider
 from test_claim_matching_pg import decision,env,matcher,obj,publish_action,resolution  # noqa: F401
+from support.auto_write import allow_published_properties
 from test_claim_store_pg import source_targets
 from test_conversation_messages import conversations  # noqa: F401
 from test_browser_business_authorization import browser_business  # noqa: F401
@@ -212,6 +213,7 @@ def pipeline(conversations,admin):
     schema=ObjectTypeDefinition.model_validate(admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1",
         (tenant,)).fetchone()[0])
     assert [p.property_name for p in schema.properties]==['preference']
+    allow_published_properties(admin)  # the owner's auto-write manifest (migration claim_auto_write) for this end-to-end write
     publish_action(admin,tenant,'Consumer.edit',schema,'ontology.object.edit')
     with open_core(make_conninfo(fixture['pg'],user='nexloop_domain_worker')) as worker_pool:
         provider=DeterministicTestEmbeddingProvider(64)
@@ -303,7 +305,7 @@ def test_match_worker_matches_marked_conversation_then_glues_staged_candidates(e
     session,_=seed_multi_authority(admin,f['worker'],matcher_targets(f)+[MATCH_FEED],identity_suffix='-match-worker',tenant=f['tenant'])
     recall=OntologyRecall(f['worker'],session,authorizer=EiosRecallAuthorizer(f['worker'],session),provider=f['provider'],expected_dimension=64)
     m=ClaimMatcher(f['worker'],session,f['signer'],recall=recall,
-        provider=ScriptedMatchProvider({far:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')}),
+        provider=ScriptedMatchProvider({far:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')}),
         configuration=MatchConfiguration(edit_actions={'Consumer':('Consumer.edit',1)},create_actions={'Product':('Product.create',1)}))
     from nexloop_eios.candidate_merge import CandidateGluer
     gluer=CandidateGluer(f['worker'],session,f['signer'],indexer=f['indexer'],matcher=m,provider=f['provider'])

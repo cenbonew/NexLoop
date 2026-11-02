@@ -37,7 +37,7 @@ def to_review(f,label,predicate,value,quote,prop):
 
 def test_reject_cooldown_keeps_evidence_and_blocks_requeue_until_expiry(env):
     """AT-068 (data): rejected → Claims rejected_definition; same text within cooldown not queued; re-opens after."""
-    f=env;first,d1=to_review(f,'rej-1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=env;first,d1=to_review(f,'rej-1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     m,gluer=setup(f,{first:d1})
     candidate=m.process_conversation(f['conversation'])['matches'][first]['candidate_id'];gluer.process_staged()
     revision=candidates(f['admin'])[candidate][8]
@@ -47,19 +47,19 @@ def test_reject_cooldown_keeps_evidence_and_blocks_requeue_until_expiry(env):
     cooldown=f['admin'].execute('select cooldown_until-rejected_at,config_version from ontology.nexloop_candidate_rejections').fetchone()
     assert cooldown==(timedelta(days=30),CONFIG['config_version'])
     # Same text again inside the cooldown: evidence kept, nothing queued, no new candidate.
-    again,d2=to_review(f,'rej-2','常用付款方式','微信支付','我常用付款方式是微信支付','payment_method')
+    again,d2=to_review(f,'rej-2','常用付款方式','微信支付','我常用付款方式是微信支付','checkout_habit')
     m.provider.decisions[again]=d2
     result=m.process_conversation(f['conversation'])['matches'][again]
     assert result['outcome']=='no_match' and result['candidate_id']==candidate
     assert resolution(f['admin'],again)=='rejected_definition' and len(candidates(f['admin']))==1
     assert gluer.process_staged()==[] and reviewer(f).pending()==[]
     assert candidates(f['admin'])[candidate][7]==sorted(['claim:'+first,'claim:'+again])
-    assert 'payment_method' not in obj(f['admin'],f['consumer'])[0]
+    assert 'checkout_habit' not in obj(f['admin'],f['consumer'])[0]
     # After the cooldown the same text re-opens as a new candidate and is queued again.
     # Time passes: the whole rejection record moves 31 days into the past (keeps the single-instant invariant).
     f['admin'].execute("update ontology.nexloop_candidate_rejections set rejected_at=rejected_at-interval '31 days',cooldown_until=cooldown_until-interval '31 days'")
     m,gluer=rebuild(f,m,'-matcher-after-review')
-    later,d3=to_review(f,'rej-3','常用付款方式','银行卡','常用付款方式换成银行卡了','payment_method')
+    later,d3=to_review(f,'rej-3','常用付款方式','银行卡','常用付款方式换成银行卡了','checkout_habit')
     m.provider.decisions[later]=d3
     reopened=m.process_conversation(f['conversation'])['matches'][later]['candidate_id']
     assert reopened!=candidate and resolution(f['admin'],later)=='awaiting_definition'
@@ -94,7 +94,7 @@ def test_merge_into_reflow_entry_reindexes_and_applies(env):
 
 def test_publish_reflow_entry_reindexes_and_rematches(env):
     """NX-044 approve path: publish effects → reflow_published refreshes recall; apply waits for the published Action bundle."""
-    f=env;claim,d=to_review(f,'pub','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=env;claim,d=to_review(f,'pub','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     m,gluer=setup(f,{claim:d})
     candidate=m.process_conversation(f['conversation'])['matches'][claim]['candidate_id'];gluer.process_staged()
     revision=candidates(f['admin'])[candidate][8]
@@ -102,17 +102,17 @@ def test_publish_reflow_entry_reindexes_and_rematches(env):
         human(f,"select ontology.nexloop_candidate_publish_effects(%s,'real',%s)",f['tenant'],candidate)
     # Stand-in for the EIOS Schema registration NX-044 performs before marking published.
     schema=consumer_schema().model_copy(update={'version':2,'properties':consumer_schema().properties+(
-        PropertyDefinition(property_name='payment_method',value_type=PropertyValueType.STRING,display_name='常用付款方式'),)})
+        PropertyDefinition(property_name='checkout_habit',value_type=PropertyValueType.STRING,display_name='常用付款方式'),)})
     f['admin'].execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,2,%s)',(f['tenant'],'Consumer',Jsonb(schema.model_dump(mode='json'))))
     human(f,"select ontology.nexloop_candidate_transition(%s,'real',%s,%s,'pending_review','published','human','human:synthetic-reviewer','approve',null)",f['tenant'],candidate,revision)
     assert human(f,"select ontology.nexloop_candidate_publish_effects(%s,'real',%s)",f['tenant'],candidate)=={'claims':[claim]}
     m,gluer=rebuild(f,m,'-matcher-after-publish')
     outcome=gluer.reflow_published(candidate)
     # Recall now indexes the published property (visible to principals granted its READ).
-    assert f['admin'].execute("select count(*) from ontology.nexloop_recall_entries where ref='eios:property:Consumer/payment_method' and source_revision=2").fetchone()[0]>0
+    assert f['admin'].execute("select count(*) from ontology.nexloop_recall_entries where ref='eios:property:Consumer/checkout_habit' and source_revision=2").fetchone()[0]>0
     # The edit Action bundle still binds Consumer v1: the NX-020 guards refuse to write.
     assert outcome.rematched=={claim:{'outcome':'needs_resolution','applied':None}}
-    assert 'payment_method' not in obj(f['admin'],f['consumer'])[0]
+    assert 'checkout_habit' not in obj(f['admin'],f['consumer'])[0]
 
 
 def test_workbench_detail_shows_span_recall_scores_dependents_and_similar(env):
@@ -141,7 +141,7 @@ def test_cooldown_fields_come_from_one_instant(env):
     # The trigger takes the time exactly once.
     body=admin.execute("select pg_get_functiondef('ontology.nexloop_candidate_rejected()'::regprocedure)").fetchone()[0]
     assert body.count('clock_timestamp()')==1 and 'v_now+make_interval' in body
-    claim,d=to_review(f,'inst-1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    claim,d=to_review(f,'inst-1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     m,gluer=setup(f,{claim:d})
     candidate=m.process_conversation(f['conversation'])['matches'][claim]['candidate_id'];gluer.process_staged()
     admin.execute('update ontology.nexloop_merge_configurations set reject_cooldown_seconds=7 where tenant_id=%s and active',(f['tenant'],))

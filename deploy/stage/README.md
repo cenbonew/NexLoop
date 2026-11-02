@@ -114,7 +114,7 @@ N=4 时，DSN、服务凭据、签名密钥、guard 密钥和 guard TLS 私钥�
 
 | 主机文件 | 读取方 | 来源 |
 |---|---|---|
-| `claim-match.json` | claim-matcher（`background_services.load_match_configuration`） | 复制 `deploy/stage/claim-match.example.json`，内容是 `{}`：两个键 `edit_actions`、`create_actions` 都可以省略，即不配置匹配 Action。要启用时写成 `{"edit_actions": {"<类型>": ["<Action>", 1]}, "create_actions": {...}}`，所列 Action 须已发布 |
+| `claim-match.json` | claim-matcher（`background_services.load_match_configuration`） | 复制 `deploy/stage/claim-match.example.json`，内容是 `{"edit_actions": {"Consumer": ["Consumer.edit", 1]}}`（Claim → Consumer 属性阶段一）。两个键 `edit_actions`、`create_actions` 都可以省略（`{}` 即不配置匹配 Action）；所列 Action 须已发布。哪些属性可以不经审核写入，由数据库里的自动写入白名单决定（`scripts/deploy/auto_write_apply.py`，`deploy/configuration/auto-write.v*.json`，默认为空），这个文件不能放宽 |
 | `recall-types.json` | recall-indexer（`background_services.load_types`） | publish 之后执行 `scripts/deploy/tenant_config.py recall-types --tenant <UUID> --bootstrap-dsn-file <F> --out recall-types.json [--types Consumer,...]`。只接受已为该租户发布的类型，默认 `{"Consumer": null}` |
 | `relay-run-profile.json` | 两个 message-relay、reply-guarantor（`message_relay.validate_run_profile`） | 租户组装之后执行 `tenant_config.py relay-run-profile --tenant <UUID> --bootstrap-dsn-file <F> --out relay-run-profile.json --role-id <RoleDefinition 对象 ID> --maximum-cost <每 Run 上限> --currency <币种>` |
 
