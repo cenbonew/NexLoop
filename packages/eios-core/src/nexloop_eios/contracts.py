@@ -1497,6 +1497,158 @@ class WorkbenchCapabilitiesRealDispatch(BaseModel):
     tenant: None | WorkbenchCapabilitiesRealDispatchTenant1
     actions: list[WorkbenchCapabilitiesRealDispatchActionsItem]
 
+class WorkbenchConsumerEvidenceGroupsItem0ItemsItemSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    conversation_id: str
+    sequence: int | None
+    speaker: Literal['consumer', 'agent']
+    quote: str | None
+    quote_status: Literal['ok', 'reviewer_only', 'restricted', 'corrected', 'superseded', 'none']
+
+class WorkbenchConsumerEvidenceGroupsItem0ItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    claim_id: str
+    state: Literal['active', 'corrected', 'superseded']
+    predicate: str | None
+    epistemic_kind: Literal['user_statement', 'verified_fact', 'preference', 'constraint', 'intent', 'need_problem', 'commitment', 'hypothesis', 'correction']
+    resolution_state: Literal['unresolved', 'hypothesis_only', 'needs_resolution', 'awaiting_definition', 'rejected_definition', 'resolved', 'superseded']
+    confidence: float | int | None
+    source: WorkbenchConsumerEvidenceGroupsItem0ItemsItemSource
+    successor_claim_ids: list[str]
+
+class WorkbenchConsumerEvidenceGroupsItem0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['claim']
+    total: int
+    invisible: int
+    erased: int
+    collapsed: int
+    restricted_reason: Literal['owner_only'] | None
+    next_cursor: str | None
+    items: list[WorkbenchConsumerEvidenceGroupsItem0ItemsItem]
+
+class WorkbenchConsumerEvidenceGroupsItem1ItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    commitment_id: str
+    revision: int
+    status: Literal['conditional', 'open', 'in_progress', 'fulfilled', 'breached', 'cancelled', 'superseded']
+    due_at: str | None
+    origin: Literal['claim', 'extend']
+    claim_id: str | None
+    replaces_commitment_id: str | None
+
+class WorkbenchConsumerEvidenceGroupsItem1(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['commitment']
+    total: int
+    invisible: int
+    erased: int
+    collapsed: int
+    restricted_reason: Literal['owner_only'] | None
+    next_cursor: str | None
+    items: list[WorkbenchConsumerEvidenceGroupsItem1ItemsItem]
+
+class WorkbenchConsumerEvidenceGroupsItem2ItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    intent_id: str
+    operation: str
+    state: str
+    created_at: str
+
+class WorkbenchConsumerEvidenceGroupsItem2(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['action']
+    total: int
+    invisible: int
+    erased: int
+    collapsed: int
+    restricted_reason: Literal['owner_only'] | None
+    next_cursor: str | None
+    items: list[WorkbenchConsumerEvidenceGroupsItem2ItemsItem]
+
+class WorkbenchConsumerEvidenceGroupsItem3ItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    intent_id: str
+    purpose: str
+    state: str
+    created_at: str
+
+class WorkbenchConsumerEvidenceGroupsItem3(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['outreach']
+    total: int
+    invisible: int
+    erased: int
+    collapsed: int
+    restricted_reason: Literal['owner_only'] | None
+    next_cursor: str | None
+    items: list[WorkbenchConsumerEvidenceGroupsItem3ItemsItem]
+
+class WorkbenchConsumerEvidenceGroupsItem4ItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    candidate_kind: Literal['proposal', 'definition']
+    candidate_id: str
+    status: str
+    match_decision: str | None
+    match_reason_code: str | None
+    dependent_claim_ids: list[str]
+
+class WorkbenchConsumerEvidenceGroupsItem4(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    kind: Literal['candidate']
+    total: int
+    invisible: int
+    erased: int
+    collapsed: int
+    restricted_reason: Literal['owner_only'] | None
+    next_cursor: str | None
+    items: list[WorkbenchConsumerEvidenceGroupsItem4ItemsItem]
+
+class WorkbenchConsumerEvidenceEdgesItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    from: str
+    to: str
+    rel: Literal['derived_from', 'depends_on', 'fulfils', 'corrected_by']
+
+class WorkbenchConversationMetricsResponseMs0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    p50: int
+    p90: int
+    samples: int
+
+class WorkbenchConversationMetricsModelCost0TotalsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    currency: str
+    amount: str
+    amount_unit: Literal['major', 'minor']
+    entries: int
+
+class WorkbenchConversationMetricsModelCost0(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    totals: list[WorkbenchConversationMetricsModelCost0TotalsItem]
+    runs: int
+    unpriced_entries: int
+
+class WorkbenchConversationMetricsGateBlocksByCodeItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    code: str
+    count: int
+
+class WorkbenchConversationMetricsGateBlocks(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    total: int
+    by_code: list[WorkbenchConversationMetricsGateBlocksByCodeItem]
+
+class WorkbenchMessageTraceStepsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    step: Literal['message', 'relay', 'context', 'run', 'action', 'receipt', 'extraction', 'matching', 'ontology_update']
+    status: Literal['done', 'running', 'failed', 'skipped', 'none', 'restricted']
+    at: str | None
+    finished_at: str | None
+    refs: list[str]
+    more: int
+    code: str | None
+
 class WorkbenchObjectNeighborsGroupsItemItemsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     type_name: str
@@ -2211,6 +2363,34 @@ class WorkbenchCapabilities(_Contract):
     routes: list[WorkbenchCapabilitiesRoutesItem]
     provider_routes: Literal['deployment_configuration']
     real_dispatch: WorkbenchCapabilitiesRealDispatch
+
+class WorkbenchConsumerEvidence(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-consumer-evidence","title":"workbench-consumer-evidence","description":"K5 (design docs/design/k5-consumer-evidence-views.md v2, L6 PASS): the evidence graph of one consumer, GET /api/v1/workbench/consumers/{id}/evidence-graph (purpose consumer_evidence; world real only, other worlds 404 real_world_only; an erasing consumer 404). Five groups in this order: claim, commitment, action, outreach, candidate. Filtered on the server for the member\'s current role: a node the member may not see is counted in `invisible` and never listed, and no edge reaches it; a claim whose matched property (or, without a match, whose type has any withheld property or owner-restricted group) is withheld is invisible, and so are the commitments and candidates derived from it; erased claims are counted in `erased` only. A claim quote is returned only to ontology.schema.review or nexloop.knowledge.read with READ of the source message, otherwise null with quote_status reviewer_only/restricted; corrected and superseded claims never carry predicate or quote. The outreach group is owner only: other roles get total with items empty, invisible=total and restricted_reason owner_only. At most 25 items a group; `collapsed` counts the visible ones beyond the page, the next page is ?kind=<group>&after=<next_cursor>. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["consumer_id","world","generated_at","group_limit","groups","edges"],"properties":{"consumer_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"world":{"const":"real"},"generated_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"group_limit":{"const":25},"groups":{"type":"array","minItems":5,"maxItems":5,"items":{"anyOf":[{"type":"object","additionalProperties":false,"required":["kind","total","invisible","erased","collapsed","restricted_reason","next_cursor","items"],"properties":{"kind":{"const":"claim"},"total":{"type":"integer","minimum":0},"invisible":{"type":"integer","minimum":0},"erased":{"type":"integer","minimum":0},"collapsed":{"type":"integer","minimum":0},"restricted_reason":{"anyOf":[{"enum":["owner_only"]},{"type":"null"}]},"next_cursor":{"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,200}$"},{"type":"null"}]},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["claim_id","state","predicate","epistemic_kind","resolution_state","confidence","source","successor_claim_ids"],"properties":{"claim_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"state":{"enum":["active","corrected","superseded"]},"predicate":{"anyOf":[{"type":"string","minLength":1,"maxLength":120},{"type":"null"}]},"epistemic_kind":{"enum":["user_statement","verified_fact","preference","constraint","intent","need_problem","commitment","hypothesis","correction"]},"resolution_state":{"enum":["unresolved","hypothesis_only","needs_resolution","awaiting_definition","rejected_definition","resolved","superseded"]},"confidence":{"anyOf":[{"type":"number","minimum":0,"maximum":1},{"type":"null"}]},"source":{"type":"object","additionalProperties":false,"required":["conversation_id","sequence","speaker","quote","quote_status"],"properties":{"conversation_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"sequence":{"anyOf":[{"type":"integer","minimum":0},{"type":"null"}]},"speaker":{"enum":["consumer","agent"]},"quote":{"anyOf":[{"type":"string","minLength":1,"maxLength":8192},{"type":"null"}]},"quote_status":{"enum":["ok","reviewer_only","restricted","corrected","superseded","none"]}}},"successor_claim_ids":{"type":"array","items":{"type":"string","pattern":"^[0-9a-f]{64}$"},"uniqueItems":true,"maxItems":10}}}}}},{"type":"object","additionalProperties":false,"required":["kind","total","invisible","erased","collapsed","restricted_reason","next_cursor","items"],"properties":{"kind":{"const":"commitment"},"total":{"type":"integer","minimum":0},"invisible":{"type":"integer","minimum":0},"erased":{"type":"integer","minimum":0},"collapsed":{"type":"integer","minimum":0},"restricted_reason":{"anyOf":[{"enum":["owner_only"]},{"type":"null"}]},"next_cursor":{"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,200}$"},{"type":"null"}]},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["commitment_id","revision","status","due_at","origin","claim_id","replaces_commitment_id"],"properties":{"commitment_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"revision":{"type":"integer","minimum":1},"status":{"enum":["conditional","open","in_progress","fulfilled","breached","cancelled","superseded"]},"due_at":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"origin":{"enum":["claim","extend"]},"claim_id":{"anyOf":[{"type":"string","pattern":"^[0-9a-f]{64}$"},{"type":"null"}]},"replaces_commitment_id":{"anyOf":[{"type":"string","pattern":"^[0-9a-f]{64}$"},{"type":"null"}]}}}}}},{"type":"object","additionalProperties":false,"required":["kind","total","invisible","erased","collapsed","restricted_reason","next_cursor","items"],"properties":{"kind":{"const":"action"},"total":{"type":"integer","minimum":0},"invisible":{"type":"integer","minimum":0},"erased":{"type":"integer","minimum":0},"collapsed":{"type":"integer","minimum":0},"restricted_reason":{"anyOf":[{"enum":["owner_only"]},{"type":"null"}]},"next_cursor":{"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,200}$"},{"type":"null"}]},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["intent_id","operation","state","created_at"],"properties":{"intent_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"operation":{"type":"string","minLength":1,"maxLength":200},"state":{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}}}}}},{"type":"object","additionalProperties":false,"required":["kind","total","invisible","erased","collapsed","restricted_reason","next_cursor","items"],"properties":{"kind":{"const":"outreach"},"total":{"type":"integer","minimum":0},"invisible":{"type":"integer","minimum":0},"erased":{"type":"integer","minimum":0},"collapsed":{"type":"integer","minimum":0},"restricted_reason":{"anyOf":[{"enum":["owner_only"]},{"type":"null"}]},"next_cursor":{"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,200}$"},{"type":"null"}]},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["intent_id","purpose","state","created_at"],"properties":{"intent_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"purpose":{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},"state":{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},"created_at":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"}}}}}},{"type":"object","additionalProperties":false,"required":["kind","total","invisible","erased","collapsed","restricted_reason","next_cursor","items"],"properties":{"kind":{"const":"candidate"},"total":{"type":"integer","minimum":0},"invisible":{"type":"integer","minimum":0},"erased":{"type":"integer","minimum":0},"collapsed":{"type":"integer","minimum":0},"restricted_reason":{"anyOf":[{"enum":["owner_only"]},{"type":"null"}]},"next_cursor":{"anyOf":[{"type":"string","pattern":"^[A-Za-z0-9_-]{1,200}$"},{"type":"null"}]},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["candidate_kind","candidate_id","status","match_decision","match_reason_code","dependent_claim_ids"],"properties":{"candidate_kind":{"enum":["proposal","definition"]},"candidate_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"status":{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},"match_decision":{"anyOf":[{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},{"type":"null"}]},"match_reason_code":{"anyOf":[{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},{"type":"null"}]},"dependent_claim_ids":{"type":"array","items":{"type":"string","pattern":"^[0-9a-f]{64}$"},"uniqueItems":true,"maxItems":25}}}}}}]}},"edges":{"type":"array","maxItems":500,"items":{"type":"object","additionalProperties":false,"required":["from","to","rel"],"properties":{"from":{"type":"string","pattern":"^(claim|commitment|action|outreach|candidate):[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"to":{"type":"string","pattern":"^(claim|commitment|action|outreach|candidate):[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"rel":{"enum":["derived_from","depends_on","fulfils","corrected_by"]}}}}}}')
+    consumer_id: str
+    world: Literal['real']
+    generated_at: str
+    group_limit: Literal[25]
+    groups: list[WorkbenchConsumerEvidenceGroupsItem0 | WorkbenchConsumerEvidenceGroupsItem1 | WorkbenchConsumerEvidenceGroupsItem2 | WorkbenchConsumerEvidenceGroupsItem3 | WorkbenchConsumerEvidenceGroupsItem4]
+    edges: list[WorkbenchConsumerEvidenceEdgesItem]
+
+class WorkbenchConversationMetrics(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-conversation-metrics","title":"workbench-conversation-metrics","description":"K5 (design §2.5, Q3): fixed-size metrics of one conversation, GET /api/v1/workbench/conversations/{id}/metrics (purpose conversation_metrics; world real only, other worlds 404 real_world_only; requires READ of the conversation, an erasing consumer 404). response_ms: inbound accepted to the first following outbound, null without a sample. model_cost: owner only, model cost entries of the runs issued from this conversation\'s messages, summed per currency (amount a decimal string in the entry\'s own unit); other roles get null and `model_cost` in withheld. gate_blocks: scope denials, contact restrictions and dispatch refusals of this conversation, at most 20 codes. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["conversation_id","world","as_of","response_ms","model_cost","claims","commitments","gate_blocks","withheld"],"properties":{"conversation_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"world":{"const":"real"},"as_of":{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},"response_ms":{"anyOf":[{"type":"object","additionalProperties":false,"required":["p50","p90","samples"],"properties":{"p50":{"type":"integer","minimum":0},"p90":{"type":"integer","minimum":0},"samples":{"type":"integer","minimum":1}}},{"type":"null"}]},"model_cost":{"anyOf":[{"type":"object","additionalProperties":false,"required":["totals","runs","unpriced_entries"],"properties":{"totals":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["currency","amount","amount_unit","entries"],"properties":{"currency":{"type":"string","pattern":"^[A-Z]{3}$"},"amount":{"type":"string","pattern":"^\\\\d{1,16}(\\\\.\\\\d{1,8})?$"},"amount_unit":{"enum":["major","minor"]},"entries":{"type":"integer","minimum":1}}}},"runs":{"type":"integer","minimum":0},"unpriced_entries":{"type":"integer","minimum":0}}},{"type":"null"}]},"claims":{"type":"integer","minimum":0},"commitments":{"type":"integer","minimum":0},"gate_blocks":{"type":"object","additionalProperties":false,"required":["total","by_code"],"properties":{"total":{"type":"integer","minimum":0},"by_code":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["code","count"],"properties":{"code":{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},"count":{"type":"integer","minimum":1}}}}}},"withheld":{"type":"array","uniqueItems":true,"maxItems":1,"items":{"enum":["model_cost"]}}}}')
+    conversation_id: str
+    world: Literal['real']
+    as_of: str
+    response_ms: WorkbenchConversationMetricsResponseMs0 | None
+    model_cost: WorkbenchConversationMetricsModelCost0 | None
+    claims: int
+    commitments: int
+    gate_blocks: WorkbenchConversationMetricsGateBlocks
+    withheld: list[Literal['model_cost']]
+
+class WorkbenchMessageTrace(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-message-trace","title":"workbench-message-trace","description":"K5 (design §2.4, Q4 no trace table): the processing trace of one message, GET /api/v1/workbench/messages/{id}/trace (purpose message_trace; world real only, other worlds 404 real_world_only; requires READ of the message\'s conversation, an erasing consumer 404). Always the nine steps in order: message, relay, context, run, action, receipt, extraction, matching, ontology_update, each found by the existing correlation keys. `skipped` = not applicable, `none` = expected but not recorded, `restricted` = the member\'s role does not read that step (action and receipt follow the /effect-determination roles). Identifiers, codes and times only; at most 10 refs a step, `more` counts the rest. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["message_id","conversation_id","world","steps"],"properties":{"message_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"conversation_id":{"type":"string","pattern":"^[0-9a-f]{64}$"},"world":{"const":"real"},"steps":{"type":"array","minItems":9,"maxItems":9,"items":{"type":"object","additionalProperties":false,"required":["step","status","at","finished_at","refs","more","code"],"properties":{"step":{"enum":["message","relay","context","run","action","receipt","extraction","matching","ontology_update"]},"status":{"enum":["done","running","failed","skipped","none","restricted"]},"at":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"finished_at":{"anyOf":[{"type":"string","format":"date-time","pattern":"^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}(\\\\.\\\\d{1,9})?(Z|[+-]\\\\d{2}:\\\\d{2})$"},{"type":"null"}]},"refs":{"type":"array","maxItems":10,"uniqueItems":true,"items":{"type":"string","pattern":"^(message|run|context|model|intent|receipt|claim|match|proposal):[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}},"more":{"type":"integer","minimum":0},"code":{"anyOf":[{"type":"string","pattern":"^[a-z][a-z0-9_.:-]{0,79}$"},{"type":"null"}]}}}}}}')
+    message_id: str
+    conversation_id: str
+    world: Literal['real']
+    steps: list[WorkbenchMessageTraceStepsItem]
 
 class WorkbenchObjectNeighbors(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:workbench-object-neighbors","title":"workbench-object-neighbors","description":"Enterprise world model W2 (owner 2026-10-19, D3): the depth-1 neighbourhood of one object, GET /api/v1/workbench/objects/{type}/{id}/neighbors (workbench read verb `object_neighbors`). Groups by direction, edge (a governed relation name, or `property:<name>` for a reference property) and neighbour type. At most 25 candidates a group are checked: a neighbour is listed only when its ADR-025 READ holds and, for a property edge, the READ of the referencing property; the other checked candidates are `invisible`, those beyond 25 are `collapsed` (not checked, not shown). Identifiers only. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.","type":"object","additionalProperties":false,"required":["type_name","object_id","depth","group_limit","groups"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"},"depth":{"const":1},"group_limit":{"const":25},"groups":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["direction","via","type_name","items","invisible","collapsed"],"properties":{"direction":{"enum":["outgoing","incoming"]},"via":{"type":"string","pattern":"^(property:[A-Za-z][A-Za-z0-9_]{0,63}|[A-Za-z][A-Za-z0-9_.:-]{0,127})$"},"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"items":{"type":"array","maxItems":25,"items":{"type":"object","additionalProperties":false,"required":["type_name","object_id"],"properties":{"type_name":{"type":"string","pattern":"^[A-Z][A-Za-z0-9_]{0,63}$"},"object_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"}}}},"invisible":{"type":"integer","minimum":0,"maximum":25},"collapsed":{"type":"integer","minimum":0}}}}}}')
