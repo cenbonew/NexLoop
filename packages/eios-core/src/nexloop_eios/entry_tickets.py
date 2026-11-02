@@ -164,6 +164,20 @@ FAILED_PAGE = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><t
 _TICKET = re.compile(r'[A-Za-z0-9_-]{43}')
 
 
+def same_origin_navigation(headers, origin):
+    """The redemption form is posted from the workbench document, which is served with Referrer-Policy: no-referrer; under that
+    policy a browser serializes the Origin of a navigating non-GET form post as "null" (Fetch, "serializing a request origin";
+    R67). So the post is accepted when Host is the canonical origin's and either Origin is exactly the canonical origin, or Origin
+    is "null" and the browser itself says the navigation is same-origin (Sec-Fetch-Site / Sec-Fetch-Mode are forbidden header names
+    a page cannot set). A cross-site page gets Sec-Fetch-Site cross-site or same-site; a browser sending no Sec-Fetch-Site with
+    Origin null is refused. "null" alone is never enough."""
+    if headers.get('host') != urlsplit(origin).netloc:
+        return False
+    if headers.get('origin') == origin:
+        return True
+    return headers.get('origin') == 'null' and headers.get('sec-fetch-site') == 'same-origin' and headers.get('sec-fetch-mode') == 'navigate'
+
+
 def redemption_routes(routes, config, *, cookie, services, resolver):
     """POST <auth prefix>/entry (form body ticket=..., same origin): take the ticket once in SQL, open the pinned test customer's
     session (authentication_methods [entry_ticket]) and go to the WebChat (303 /); any refusal is FAILED_PAGE (401)."""
@@ -215,7 +229,7 @@ def redemption_routes(routes, config, *, cookie, services, resolver):
     async def entry(request: Request):
         if not config.entry_tickets:
             return failed()
-        if request.headers.get('origin') != config.origin or request.headers.get('host') != urlsplit(config.origin).netloc:
+        if not same_origin_navigation(request.headers, config.origin):
             return failed()
         try:
             if request.query_params or request.headers.get('content-type', '').split(';')[0] != 'application/x-www-form-urlencoded':
