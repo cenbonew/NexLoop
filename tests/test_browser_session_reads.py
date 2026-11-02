@@ -26,7 +26,7 @@ def test_session_inspect_actual_token_reopen_and_no_write(uow,identity,admin):
 
 @pytest.mark.parametrize('table,changes',[
  ('subjects',{'status':'disabled'}),('accounts',{'session_epoch':2}),('memberships',{'status':'revoked'}),
- ('memberships',{'revision':2}),('accounts',{'revision':2})])
+ ('memberships',{'revision':2})])
 def test_canonical_identity_revocation_denies_session(uow,identity,admin,table,changes):
     issued=create(uow,identity,authenticate(uow,identity).evidence)
     original=admin.execute(f'select payload from control.nexloop_browser_{table}').fetchone()[0]
@@ -34,6 +34,17 @@ def test_canonical_identity_revocation_denies_session(uow,identity,admin,table,c
     assert uow.get_session(issued.session.session_id) is None
     service=BrowserSessionService(uow,uow,application_id=uow.application_id,operator=OP)
     with pytest.raises(CredentialInvalid):service.inspect(issued.session_token.get_secret_value())
+
+
+@pytest.mark.parametrize('changes',[{'revision':2},{'locked_until':'2999-01-01T00:00:00Z','lockout_level':1}])
+def test_account_revision_and_lockout_keep_the_session(uow,identity,admin,changes):
+    """AUTH-DOS (ADR-044): the row version (raised by every failed login) and a lockout (new logins only) do not end a session."""
+    issued=create(uow,identity,authenticate(uow,identity).evidence)
+    original=admin.execute('select payload from control.nexloop_browser_accounts').fetchone()[0]
+    admin.execute('update control.nexloop_browser_accounts set payload=%s',(Jsonb({**original,**changes}),))
+    assert uow.get_session(issued.session.session_id) is not None
+    service=BrowserSessionService(uow,uow,application_id=uow.application_id,operator=OP)
+    assert service.inspect(issued.session_token.get_secret_value()).session_id==issued.session.session_id
 
 
 def test_application_revision_and_wrong_realm_denied(uow,identity,admin):

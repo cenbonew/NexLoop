@@ -36,7 +36,7 @@ docker logs --since 30m <PostgreSQL 容器> 2>&1 | grep -cE 'browser (action aut
 ## 局限
 
 - 没有单独的 membership 版本用例，membership 整行仍在指纹里。
-- 他人输错密码会让账户 revision 加 1（0023），该账户所有会话随即被判为 stale，这与指纹无关，另行处理。
+- 他人输错密码会让账户 revision 加 1（0023），该账户所有会话随即被判为 stale，这与指纹无关；AUTH-DOS（0404，`run-auth-session-epoch.md`）修复。
 
 ## 证据
 

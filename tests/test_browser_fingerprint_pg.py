@@ -118,9 +118,8 @@ def account_payload(admin, principal):
                          (principal,)).fetchone()[0]
 
 
-def test_lockout_restriction_and_revocation_refuse_a_held_claim(actual_chat, admin):
-    # A failed login of someone else is not tested as "the claim stays valid": 0023 raises the account revision on every failure,
-    # and the snapshot then refuses every live session of the account as stale (reported separately, AUTH-FP follow-up).
+def test_restriction_and_revocation_refuse_a_held_claim_and_a_lockout_does_not(actual_chat, admin):
+    # Someone else's failed logins below the lockout keep the claim valid since AUTH-DOS (test_browser_session_epoch_pg).
     from nexloop_eios.conversation_messages import ConversationMessagePort, ConversationUnavailable
     client, headers, fixture = actual_chat
     created = create_actual(client, headers)
@@ -137,10 +136,12 @@ def test_lockout_restriction_and_revocation_refuse_a_held_claim(actual_chat, adm
             held.read_messages(conversation_id=created['id'])
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
             snapshot(fixture, token)
-    # Locked (locked_until in the future): refused.
-    admin.execute("update control.nexloop_browser_accounts set payload=payload||jsonb_build_object('locked_until',to_jsonb(now()+interval '10 minutes'))"
+    # Locked (locked_until in the future): new password logins only (owner 2026-11-02, ADR-044 §4); the held claim and the session stay.
+    hashed = snapshot(fixture, token)['directory_hash']
+    admin.execute("update control.nexloop_browser_accounts set payload=payload||jsonb_build_object('locked_until',to_jsonb(now()+interval '10 minutes'),'lockout_level',1)"
                   " where local_account_id=%s", (account['local_account_id'],))
-    refused()
+    assert held.read_messages(conversation_id=created['id'])['items'] == [] and client.get(path).status_code == 200
+    assert snapshot(fixture, token)['directory_hash'] == hashed
     admin.execute("update control.nexloop_browser_accounts set payload=payload||jsonb_build_object('locked_until',null) where local_account_id=%s",
                   (account['local_account_id'],))
     assert client.get(path).status_code == 200
