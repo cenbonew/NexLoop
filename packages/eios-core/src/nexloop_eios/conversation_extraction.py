@@ -270,8 +270,8 @@ CHANNEL_VALUES=(('native.webchat',re.compile(r'(native\.webchat|站内|app\s*内
 
 # An affirmed channel statement is exclusive in 0228 (only these channels); without an exclusive word in the quote it is only an
 # allowance ("可以用微信联系我") and must not stop the other channels, so it keeps a predicate outside the 0228 vocabulary.
-# 不只 / 不仅 / not only are not exclusive.
-EXCLUSIVE_CHANNEL=re.compile(r'((?<!不)(只|仅)|就用|唯一|(?<!not )\bonly\b|\bjust\b)',re.I)
+# 不只 / 不仅 / 不仅仅 / not only are not exclusive.
+EXCLUSIVE_CHANNEL=re.compile(r'((?<!不)(?<!不仅)(只|仅)|就用|唯一|(?<!not )\bonly\b|\bjust\b)',re.I)
 CHANNEL_ALLOWED='contact_channel_allowed'
 
 
