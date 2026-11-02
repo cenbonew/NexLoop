@@ -7,6 +7,15 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def field_name(key):
+    # A Python model field must be a plain identifier: a keyword (`from`) or a leading underscore would make the generated module
+    # unimportable or drop the field. Contracts name such fields differently (workbench-consumer-evidence edges: source/target).
+    import keyword
+    if not key.isidentifier() or keyword.iskeyword(key) or key.startswith('_'):
+        raise ValueError('contract property is not a Python field name: '+key)
+    return key
+
+
 def type_name(name):return ''.join(part.title() for part in name.split('-'))
 
 
@@ -81,7 +90,7 @@ def python_models(components):
             fields=[];required=set(schema.get('required',[]))
             for key,value in schema['properties'].items():
                 typ=annotation(value,name+type_name(key.replace('_','-')))
-                fields.append('    '+key+': '+typ+('' if key in required else ' | None = None'))
+                fields.append('    '+field_name(key)+': '+typ+('' if key in required else ' | None = None'))
             emitted.append('class '+name+'(BaseModel):\n    model_config = ConfigDict(extra="'+('forbid' if schema.get('additionalProperties') is False else 'allow')+'", strict=True)\n'+'\n'.join(fields)+'\n')
             return name
         if kind in {'string','number','integer','boolean','null'}:return {'string':'str','number':'float | int','integer':'int','boolean':'bool','null':'None'}[kind]
@@ -92,7 +101,7 @@ def python_models(components):
         fields=[];required=set(schema.get('required',[]))
         for key,value in schema['properties'].items():
             typ=annotation(value,name+type_name(key.replace('_','-')))
-            fields.append('    '+key+': '+typ+('' if key in required else ' | None = None'))
+            fields.append('    '+field_name(key)+': '+typ+('' if key in required else ' | None = None'))
         top.append('class '+name+'(_Contract):\n    _canonical_schema = json.loads('+repr(json.dumps(schema,ensure_ascii=False,separators=(',',':')))+')\n'+'\n'.join(fields)+'\n')
     return '\n'.join(lines+emitted+top)
 

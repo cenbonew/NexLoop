@@ -109,18 +109,18 @@
   ],
   "edges": [
     {
-      "from": "commitment:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      "to": "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "source": "commitment:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "target": "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "rel": "derived_from"
     },
     {
-      "from": "claim:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "to": "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "source": "claim:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "target": "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "rel": "corrected_by"
     },
     {
-      "from": "action:intent-1",
-      "to": "commitment:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "source": "action:intent-1",
+      "target": "commitment:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "rel": "fulfils"
     }
   ]
