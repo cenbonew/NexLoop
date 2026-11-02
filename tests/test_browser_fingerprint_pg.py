@@ -110,3 +110,43 @@ def test_sign_out_revocation_and_authority_changes_still_count(actual_chat, admi
     assert client.get(path).status_code == 401
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         snapshot(fixture, token)
+
+
+def account_payload(admin, principal):
+    return admin.execute("select a.payload from control.nexloop_browser_accounts a join control.nexloop_browser_sessions s"
+                         " on s.payload->>'credential_id'=a.local_account_id and s.tenant_id=a.tenant_id where s.payload->>'principal_id'=%s limit 1",
+                         (principal,)).fetchone()[0]
+
+
+def test_lockout_restriction_and_revocation_refuse_a_held_claim(actual_chat, admin):
+    # A failed login of someone else is not tested as "the claim stays valid": 0023 raises the account revision on every failure,
+    # and the snapshot then refuses every live session of the account as stale (reported separately, AUTH-FP follow-up).
+    from nexloop_eios.conversation_messages import ConversationMessagePort, ConversationUnavailable
+    client, headers, fixture = actual_chat
+    created = create_actual(client, headers)
+    path = '/api/v1/conversations/'+created['id']+'/messages'
+    backend = client.app.state.backend
+    token = digest(admin, fixture['principal'])
+    held = ConversationMessagePort(backend._pool, authenticate_browser_business(backend._pool, inspect(client)), backend._signer)
+    account = account_payload(admin, fixture['principal'])
+    assert held.read_messages(conversation_id=created['id'])['items'] == [] and client.get(path).status_code == 200
+
+    def refused():
+        assert client.get(path).status_code != 200
+        with pytest.raises(ConversationUnavailable):
+            held.read_messages(conversation_id=created['id'])
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            snapshot(fixture, token)
+    # Locked (locked_until in the future): refused.
+    admin.execute("update control.nexloop_browser_accounts set payload=payload||jsonb_build_object('locked_until',to_jsonb(now()+interval '10 minutes'))"
+                  " where local_account_id=%s", (account['local_account_id'],))
+    refused()
+    admin.execute("update control.nexloop_browser_accounts set payload=payload||jsonb_build_object('locked_until',null) where local_account_id=%s",
+                  (account['local_account_id'],))
+    assert client.get(path).status_code == 200
+    # restricted=true, then revoked_at set: refused.
+    for change in ("jsonb_build_object('restricted',true)", "jsonb_build_object('revoked_at',to_jsonb(now()))"):
+        admin.execute(f"update control.nexloop_browser_sessions set payload=payload||{change} where session_token_digest=decode(%s,'hex')", (token,))
+        refused()
+        admin.execute("update control.nexloop_browser_sessions set payload=payload||jsonb_build_object('restricted',false,'revoked_at',null)"
+                      " where session_token_digest=decode(%s,'hex')", (token,))
