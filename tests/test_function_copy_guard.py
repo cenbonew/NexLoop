@@ -237,6 +237,20 @@ REGISTRY = [
             'AUTH-FP: only the browser_authentication record_hash changes (without expires_at; payload and every check unchanged); definer search_path gains pg_temp',
             ((r"convert_to\(\(case when p_kind='browser_authentication' then value-'expires_at' else value end\)::text,'UTF8'\)", "convert_to(value::text,'UTF8')"),),
             PG_TEMP),
+    # AUTH-DOS (browser_session_epoch): sessions bind session_epoch, not the account row's revision (a failed login raises it).
+    Allowed('browser_session_epoch', 'control.nexloop_read_browser_session',
+            'AUTH-DOS: the account revision and lockout comparisons removed (session_epoch and every other check unchanged); definer search_path gains pg_temp',
+            ((r"  or account_body->'session_epoch'", "  or account_body->'revision' is distinct from body->'credential_revision' or account_body->'session_epoch'"),
+             (r"is distinct from body->'restricted' then return null;end if;",
+              "is distinct from body->'restricted' or (account_body->>'locked_until')::timestamptz>now_at then return null;end if;")), PG_TEMP),
+    Allowed('browser_session_epoch', 'authz.nexloop_browser_identity_snapshot',
+            'AUTH-DOS: the account revision and lockout comparisons removed (owner 2026-11-02: a lockout stops new password logins only); every other check unchanged',
+            ((r"  or acc->'session_epoch'", "  or acc->'revision' is distinct from b->'credential_revision' or acc->'session_epoch'"),
+             (r"'false'::jsonb\s+then raise exception 'browser business account stale'",
+              "'false'::jsonb\n  or (acc->>'locked_until')::timestamptz>now_at then raise exception 'browser business account stale'"))),
+    Allowed('browser_session_epoch', 'authz.nexloop_browser_fingerprint_account_keys',
+            'AUTH-DOS: revision, lockout_level and locked_until leave the account fingerprint (a failed login or a lockout no longer makes a held claim stale)',
+            ((r"'subject_id','status','session_epoch','must_change_password'\]", "'subject_id','status','revision','session_epoch','must_change_password','lockout_level','locked_until']"),)),
     # K4h K1 (plan_question_context_v7): the outcome port refuses a question from a Run whose context pack is not v7.
     *[Allowed('plan_question_context_v7', name, 'K4h K1: a 1.1 question only from a Run bound to context-pack v7; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))

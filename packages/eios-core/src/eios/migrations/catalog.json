@@ -2015,6 +2015,11 @@
       "version": "0403",
       "name": "0403_browser_fingerprint.sql",
       "sha256": "93bb7be9db5d8189780085b6725b8fd4475414a546ed64a22875092dc77c74e8"
+    },
+    {
+      "version": "0404",
+      "name": "0404_browser_session_epoch.sql",
+      "sha256": "7efa385448c5a652140e97f67109c300b96cc05198b3193c997c2d50281b8c08"
     }
   ]
 }
