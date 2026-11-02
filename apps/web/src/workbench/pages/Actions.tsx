@@ -62,9 +62,10 @@ export function Remediations(){
       :<EmptyState kind="empty" subject="补救"/>}
     {selected?<RemediationEvidencePanel id={selected}/>:null}
     {data.held_rules.length?<p className="note" role="status">熔断中的规则：{data.held_rules.map(h=><span key={h.rule_id}><code className="id-code">{h.rule_id}</code> <StatusBadge domain="remediation_hold" code={h.reason_code}/> </span>)}</p>:null}
-    <WithMember>{member=><>{open.map(r=><RemediationResolveForm key={r.remediation_id} member={member} remediationId={r.remediation_id} kind={r.kind}/>)}
+    {/* K4j: the remediation operations keep their distance from the list or empty state above them (R67 walkthrough). */}
+    <div className="section-ops"><WithMember>{member=><>{open.map(r=><RemediationResolveForm key={r.remediation_id} member={member} remediationId={r.remediation_id} kind={r.kind}/>)}
       {data.held_rules.map(h=><RemediationRuleReleaseForm key={h.rule_id} member={member} ruleId={h.rule_id}/>)}
-      <RemediationSwitchForm member={member} paused={data.paused}/></>}</WithMember>
+      <RemediationSwitchForm member={member} paused={data.paused}/></>}</WithMember></div>
   </section>;
 }
 

@@ -39,8 +39,8 @@ def ticket(entry, target='webchat'):
         return r.json()['ticket']
 
 
-def redeem(c, value, *, origin=ORIGIN, content_type='application/x-www-form-urlencoded', body=None, path='/api/v1/auth/entry'):
-    return c.post(path, headers={'Origin': origin, 'Content-Type': content_type}, content=body if body is not None else 'ticket=' + value,
+def redeem(c, value, *, origin=ORIGIN, content_type='application/x-www-form-urlencoded', body=None, path='/api/v1/auth/entry', fetch=None):
+    return c.post(path, headers={'Origin': origin, 'Content-Type': content_type, **(fetch or {})}, content=body if body is not None else 'ticket=' + value,
                   follow_redirects=False)
 
 
@@ -107,3 +107,16 @@ def test_malformed_requests_and_other_origins_get_the_same_fixed_page(entry):  #
         assert redeem(c, value).status_code == 303
     with entry['client'](on=False) as c:
         refused(redeem(c, ticket(entry)))
+
+
+NAVIGATE = {'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'navigate'}
+
+
+def test_origin_null_passes_only_as_a_same_origin_navigation(entry):  # R67: the workbench's no-referrer policy makes the form's Origin null
+    value = ticket(entry)
+    with entry['client']() as c:
+        for fetch in ({}, {**NAVIGATE, 'Sec-Fetch-Site': 'cross-site'}, {**NAVIGATE, 'Sec-Fetch-Site': 'same-site'}, {**NAVIGATE, 'Sec-Fetch-Site': 'none'},
+                      {**NAVIGATE, 'Sec-Fetch-Mode': 'cors'}, {'Sec-Fetch-Mode': 'navigate'}):
+            refused(redeem(c, value, origin='null', fetch=fetch), value)
+        refused(redeem(c, value, origin='https://elsewhere.example.invalid', fetch=NAVIGATE), value)  # an explicit other origin stays refused
+        assert redeem(c, value, origin='null', fetch=NAVIGATE).status_code == 303

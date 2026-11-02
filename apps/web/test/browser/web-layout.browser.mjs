@@ -50,6 +50,13 @@ const measure=()=>{const vw=innerWidth;
     // UI batch 1/3: the earlier Empty (.workbench-empty, data-empty) and the kit's EmptyState (.state, data-state) alike.
     empties:[...document.querySelectorAll('.workbench-empty, .state:not(.state-loading)')].map(e=>({kind:e.dataset.empty??e.dataset.state??null,next:!!(e.querySelector('.empty-next')??e.querySelector('.state-next'))?.textContent.trim(),compact:e.classList.contains('state-compact')})),
     badges_worded:[...document.querySelectorAll('.status-badge')].every(b=>b.textContent.replace(/[✓✕…!–]/g,'').trim().length>0&&!/^[a-z_]+$/.test(b.textContent.replace(/[✓✕…!–]/g,'').trim())),
+    // K4j (R67 walkthrough): vertically stacked blocks of the operations areas never touch or overlap - the gap from each block to
+    // the next (remediation list/empty state -> its operations; the customer's operation forms and takeover bar) and whether the
+    // takeover bar is sticky.
+    stack_gaps:[...document.querySelectorAll('.section-ops, .section-ops>*, .workbench-actions>*')].filter(e=>e.getBoundingClientRect().height>0).map(e=>{
+      let p=e.previousElementSibling;while(p&&!(p.getBoundingClientRect().height>0))p=p.previousElementSibling;
+      return p?Math.round(e.getBoundingClientRect().top-p.getBoundingClientRect().bottom):null;}).filter(g=>g!==null),
+    takeover_position:(b=>b?getComputedStyle(b).position:null)(document.querySelector('.takeover-bar')),
     h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')
       // UI spec §8: an unavailable state (not compact) is dashed, an empty one solid.

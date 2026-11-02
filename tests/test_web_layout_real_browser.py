@@ -127,3 +127,10 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # Operator persona pages: published through the page's own form; the consumer detail names persona@version and its source.
     assert observed['persona']['published'] == 1
     assert 'xiaohe@1' in observed['persona']['consumer'] and '租户默认' in observed['persona']['consumer'], observed['persona']
+    # K4j (R67 walkthrough): stacked operation blocks keep at least 8 px between them (the remediation switch below its empty state;
+    # the customer's pause form and takeover bar), and the takeover bar is sticky on a conversation only.
+    tight = {k: v['stack_gaps'] for k, v in pages.items() if any(g < 8 for g in v['stack_gaps'])}
+    assert tight == {}, tight
+    assert all(pages[f'wb-actions-{w}']['stack_gaps'] for w in (1440, 1024, 390)), {w: pages[f'wb-actions-{w}']['stack_gaps'] for w in (1440, 1024, 390)}
+    assert [pages[f'wb-consumer-{w}']['takeover_position'] for w in (1440, 1024, 390)] == ['static'] * 3
+    assert pages['wb-conversation-1440']['takeover_position'] == 'sticky'

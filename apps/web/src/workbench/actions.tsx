@@ -378,7 +378,7 @@ function TakeoverControls({member,scopeKind,scopeRef,consumerId,conversationId}:
   const {policy,takeovers:list}=takeovers.data;
   const current=conversationId?takeoverOf(list,conversationId,consumerId):list.find(t=>t.consumer_id===consumerId)??null;
   const value=minutes??Math.round(policy.default_seconds/60);
-  return <section className={'takeover-bar'+(current?' takeover-on':'')} aria-label="人工接管">
+  return <section className={'takeover-bar'+(scopeKind==='conversation'?' takeover-sticky':'')+(current?' takeover-on':'')} aria-label="人工接管">
     <div className="takeover-status" role="status">
       <span className={'takeover-pill'+(current?' takeover-pill-on':'')}>{current?'人工接管中':'Agent 处理中'}</span>
       <span>{current?takeoverText(current):scopeKind==='consumer'?'该客户的会话由 Agent 回复。':'本会话由 Agent 回复；接管后 Agent 暂停回复，客户看到“人工客服处理中”。'}</span>

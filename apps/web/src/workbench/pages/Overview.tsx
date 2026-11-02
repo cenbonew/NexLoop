@@ -1,8 +1,10 @@
 import {ageText,type Backlog,type Commercial,type Overview as OverviewData} from '../api';
 import {Money,StatusBadge} from '../ui';
-import {CardGrid,EmptyState,KeyValue,Notice,ScopeText,SectionCard} from '../kit';
+import {Card,CardGrid,EmptyState,KeyValue,Notice,ScopeText,SectionCard} from '../kit';
 import {statusLabel} from '../status-labels';
 import {takeoverText} from '../actions';
+
+export const COMMERCIAL_NOT_CONNECTED='商业事件与费用尚未接入';
 
 /** K4f: the former 总览, now the 健康 tab of the home page (pages/Home): the cards of GET /api/v1/workbench/overview. */
 export function HealthCards({data,onOpen}:{data:OverviewData;onOpen:(page:string)=>void}){
@@ -22,7 +24,10 @@ export function HealthCards({data,onOpen}:{data:OverviewData;onOpen:(page:string
       <p>受限客户 {c.restricted} 位；来信必回升级 {c.escalations} 条</p>}</SectionCard>
     <SectionCard title="人工接管" section={data.takeovers}>{t=>t.length?<ul>{t.map(x=><li key={x.takeover_id}>{takeoverText(x)}</li>)}</ul>:<EmptyState kind="empty" subject="人工接管" compact/>}</SectionCard>
     <SectionCard title="队列积压" section={data.backlog}>{b=><BacklogView backlog={b}/>}</SectionCard>
-    <SectionCard title="商业事件与费用" section={data.commercial}>{c=><CommercialView commercial={c}/>}</SectionCard>
+    {/* K4j: the server does not serve this block yet (NX-027 not wired, workbench_reads.overview): said as not connected, in the
+        neutral style, never as a failure. A served block (ok or forbidden) shows as any other card. */}
+    {data.commercial.status==='unavailable'?<Card title="商业事件与费用"><EmptyState kind="not_enabled" title={COMMERCIAL_NOT_CONNECTED} next="费用汇总还没有接到工作台，这不是故障；商业事件的接收情况见“数据健康”。" compact/></Card>
+      :<SectionCard title="商业事件与费用" section={data.commercial}>{c=><CommercialView commercial={c}/>}</SectionCard>}
   </CardGrid>;
 }
 
