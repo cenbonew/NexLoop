@@ -88,6 +88,7 @@ ro "select target, outcome, count(*) from control.nexloop_entry_ticket_events wh
   - `webchat issued`
   - `webchat session`
   - `reference_staff issued`
+- `reference_staff` 只有 `issued`，没有 `session` 行，这是预期的：员工页的只读会话由参考端点在它自己的存储里记录，NexLoop 只签发入场票，事件表不写员工侧会话。
 - 不应出现 `not_synthetic`。如果出现，说明第 2 步的 persona 或钉住的 principal 有问题，停下报告。
 
 ## 5. 走查（负责人）

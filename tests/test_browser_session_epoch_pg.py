@@ -95,6 +95,36 @@ def test_a_lockout_stops_new_password_logins_only(actual_chat, admin):
     refused(client, fixture, conversation, path, held, token)
 
 
+def good_login(client, fixture):
+    return TestClient(client.app, base_url=ORIGIN).post('/api/v1/auth/login', headers={'Origin': ORIGIN}, json={
+        'username': fixture['base']['identity'][3].username, 'password': fixture['base']['identity'][-1]}).status_code
+
+
+@pytest.mark.parametrize('cause', ['failure_reset', 'rehash'])
+def test_a_good_login_elsewhere_that_saves_the_account_keeps_the_session(actual_chat, admin, cause):
+    """Path (b): a good login in another browser that saves the account through save_browser_account_password (0024, revision + 1)
+    - after one wrong password (the failure reset), or with a stored hash whose parameters need a rehash - leaves the established
+    session's read, a held claim and the fingerprint as they were."""
+    from argon2 import PasswordHasher
+    client, fixture, conversation, path, held, account, token = setup(actual_chat, admin)
+    if cause == 'failure_reset':
+        assert wrong_password(client, fixture) == 401
+    else:  # the right password under weaker argon2id parameters still inside the model range (0024 accepts it): the real login's check_needs_rehash is true
+        weak = PasswordHasher(time_cost=2, memory_cost=19_456, parallelism=1).hash(fixture['base']['identity'][-1])
+        admin.execute('update control.nexloop_browser_accounts set password_hash=%s where local_account_id=%s', (weak, account['local_account_id']))
+    before, hashed = revision(admin, account), snapshot(fixture, token)['directory_hash']
+    saved = admin.execute("select count(*) from control.nexloop_browser_login_events where event_type='local_password_state'").fetchone()[0]
+    assert good_login(client, fixture) == 200
+    assert admin.execute("select count(*) from control.nexloop_browser_login_events where event_type='local_password_state'").fetchone()[0] == saved + 1
+    assert revision(admin, account) == before + 1
+    if cause == 'rehash':
+        assert admin.execute('select password_hash from control.nexloop_browser_accounts where local_account_id=%s',
+                             (account['local_account_id'],)).fetchone()[0] != weak
+    assert client.get(path).status_code == 200
+    assert held.read_messages(conversation_id=conversation)['items'] == []
+    assert snapshot(fixture, token)['directory_hash'] == hashed
+
+
 @pytest.mark.parametrize('change', ['password_reset', 'kick', 'disabled', 'erasure'])
 def test_writes_that_end_sessions_still_end_them(actual_chat, admin, change):
     client, fixture, conversation, path, held, account, token = setup(actual_chat, admin)
@@ -111,9 +141,9 @@ def test_writes_that_end_sessions_still_end_them(actual_chat, admin, change):
                       (account['local_account_id'],))
     else:
         admin.execute('select control.nexloop_workbench_member_erase(%s,%s,%s,%s,now())', (TENANT_A, account['subject_id'], uuid.uuid4(), 'synthetic-owner'))
-    if change != 'disabled':
-        assert admin.execute('select (payload->>\'session_epoch\')::bigint from control.nexloop_browser_accounts where local_account_id=%s',
-                             (account['local_account_id'],)).fetchone()[0] == epoch + 1
+    # A disabled account keeps its session_epoch: the retained status check (0404) refuses it directly.
+    assert admin.execute('select (payload->>\'session_epoch\')::bigint from control.nexloop_browser_accounts where local_account_id=%s',
+                         (account['local_account_id'],)).fetchone()[0] == epoch + (change != 'disabled')
     if change == 'erasure':  # the sessions are deleted as well
         assert client.get(path).status_code != 200
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
