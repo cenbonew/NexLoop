@@ -37,6 +37,7 @@ test('no hand-made shortened ID outside a link or button (they use IdText, which
 const EXCERPTS:Record<string,string>={
   'pages/Consumers.tsx':'a message body excerpt with 展开全文',
   'pages/Commitments.tsx':'a quoted commitment text',
+  'pages/ConsumerEvidence.tsx':'an evidence graph node label (the node is a button; the table view and the panel give the full ID)',
   'graph/SchemaGraph.tsx':'a node label (the full name is in the node title and the table view)',
   'ui.tsx':'CopyId: the head…tail sits next to its own copy button',
   'kit.tsx':'IdText itself',

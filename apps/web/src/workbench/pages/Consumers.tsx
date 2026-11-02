@@ -10,7 +10,8 @@ import {Keyword,Pager,StatusBadge,Time,relative} from '../ui';
 import {EmptyState,IdText,KeyValue,Notice,shorten as shortenId} from '../kit';
 import {commitmentSummary} from './Commitments';
 import {DataTable} from '../DataTable';
-import {NO_VALUES_TEXT} from './WorldInstances';
+import {CONSUMER_NO_VALUES,EvidenceSection,ProfileCard} from './ConsumerEvidence';
+import {ConversationMetricsCard,MessageTraceToggle} from './ConversationEvidence';
 import {Operations} from './PageOps';
 
 /** The customer's readable name, or the stable non-identifying alias with the one reason no name is shown (F04: 受限 / 未登记 / 加载失败;
@@ -153,6 +154,10 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
     const conversations=[...data.conversations].sort((a,b)=>(b.last_message_at??'').localeCompare(a.last_message_at??''));
     const shown=allConversations?conversations:conversations.slice(0,RECENT_CONVERSATIONS);
     const props=data.properties;
+    // K5 §2.3: the profile card reads the Object; this is what the consumer read says when that read is not available to the member.
+    const fallbackProps=props.status==='ok'&&Object.keys(props.values).length?<KeyValue label="客户的 Property" items={Object.entries(props.values).map(([k,v])=>({key:k,
+          value:typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):<code className="id-code">{JSON.stringify(v)}</code>}))}/>
+      :<>{props.status!=='ok'?'当前账号没有 Property 读取权限，字段与证据不显示':props.withheld.length?'没有你能读取的属性值':CONSUMER_NO_VALUES}</>;
     const withheld=props.withheld.length?<>负责人标为受限的属性组不显示：{props.withheld.map((g,i)=><span key={g}>{i?'、':''}<code className="id-code">{g}</code></span>)}</>:null;
     return <>
     {data.paused?<Notice tone="info" title="主动联系已暂停">恢复之前，不会主动联系这位客户；客户发来的消息照常处理。</Notice>:null}
@@ -168,11 +173,8 @@ export function ConsumerDetail({consumerId,actions,onConversation,onCommitments,
     {data.commitments.length?<DetailSection id="consumer-commitments" title="承诺">
       <p>{data.commitments.length} 条 · {onCommitments?<button type="button" className="link-count" onClick={()=>onCommitments(data.consumer_id)}>查看这位客户的承诺</button>:'见“承诺 / 交付”'}</p>
     </DetailSection>:<DetailSection id="consumer-commitments" title="承诺" empty="没有承诺"/>}
-    {props.status==='ok'&&Object.keys(props.values).length?<DetailSection id="consumer-properties" title="属性">
-        <KeyValue label="客户的 Property" items={Object.entries(props.values).map(([k,v])=>({key:k,
-          value:typeof v==='string'?v:typeof v==='number'||typeof v==='boolean'?String(v):<code className="id-code">{JSON.stringify(v)}</code>}))}/>
-        {withheld?<p className="note">{withheld}</p>:null}</DetailSection>
-      :<DetailSection id="consumer-properties" title="属性" empty={<>{props.status!=='ok'?'当前账号没有 Property 读取权限，字段与证据不显示':withheld?'没有你能读取的属性值':NO_VALUES_TEXT.replace('这些对象','这位客户')}{withheld?<>；{withheld}</>:null}</>}/>}
+    <ProfileCard data={data} fallback={fallbackProps} groups={withheld}/>
+    <EvidenceSection consumerId={data.consumer_id}/>
     <Operations actions={actions} title="对这位客户的操作"/>
     <ConsumerPersona consumerId={data.consumer_id}/>
     {active?null:restriction}
@@ -189,6 +191,7 @@ export function Conversation({conversationId,actions,onContext}:{conversationId:
     {/* F10: the current conversation first; earlier exchanges in a side column (after it below 1024 px), summaries first, so opening
         or paging the history never moves what is being read. */}
     <div className="conversation-layout"><div className="conversation-main">
+    <ConversationMetricsCard conversationId={data.conversation_id}/>
     <h2>本会话消息</h2>
     {data.messages.length?<ol className="workbench-messages">
     {data.messages.map(m=><li key={m.id} className={'message-'+m.direction}>
@@ -196,6 +199,7 @@ export function Conversation({conversationId,actions,onContext}:{conversationId:
         {m.provider?` · 渠道 ${m.provider.namespace}${m.provider.sequence!==null?` 序号 ${m.provider.sequence}`:''}${m.provider.trust==='client'?'（客户端陈述）':''}${m.provider.skewed?'（时间偏差）':''}`:''}
         {m.reply_to_message_id?<> · 回复 <IdText kind="消息" value={m.reply_to_message_id}/></>:null}</p>
       {m.content.status==='ok'?<p>{m.content.body}</p>:<p className="note">{RESTRICTED_TEXT}</p>}
+      {m.direction==='inbound'?<MessageTraceToggle messageId={m.id}/>:null}
     </li>)}
   </ol>:<EmptyState kind="empty" subject="消息"/>}</div>
     <aside className="side-tabs" aria-label="历史往来"><CustomerHistory consumerId={data.consumer_id} currentConversationId={data.conversation_id}/></aside></div>

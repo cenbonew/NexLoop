@@ -1394,3 +1394,75 @@ export function pending(value:unknown):Pending{
   return {all_clear:o.all_clear,last_health_check_at:maybeText(o.last_health_check_at),categories,questions};
 }
 export function readPending():Promise<Pending>{return get('/api/v1/workbench/pending',pending);}
+
+// ---- K5 (docs/design/k5-consumer-evidence-views.md v2): evidence graph, message trace, conversation metrics; world real only ----
+/** Filtered on the server: what is not listed is counted, never inferred here. References name only ids listed in the same response. */
+export const EVIDENCE_KINDS=['claim','commitment','action','outreach','candidate'] as const;
+export type EvidenceKind=typeof EVIDENCE_KINDS[number];
+export type EvidenceClaim={claim_id:string;state:'active'|'corrected'|'superseded';predicate:string|null;epistemic_kind:string;resolution_state:string;confidence:number|null;
+  source:{conversation_id:string;sequence:number|null;speaker:'consumer'|'agent';quote:string|null;quote_status:'ok'|'reviewer_only'|'restricted'|'corrected'|'superseded'|'none'};successor_claim_ids:string[]};
+export type EvidenceCommitment={commitment_id:string;revision:number;status:string;due_at:string|null;origin:'claim'|'extend';claim_id:string|null;replaces_commitment_id:string|null};
+export type EvidenceAction={intent_id:string;operation:string;state:string;created_at:string};
+export type EvidenceOutreach={intent_id:string;purpose:string;state:string;created_at:string};
+export type EvidenceCandidate={candidate_kind:'proposal'|'definition';candidate_id:string;status:string;match_decision:string|null;match_reason_code:string|null;dependent_claim_ids:string[]};
+type GroupBase={total:number;invisible:number;erased:number|null;collapsed:number;restricted_reason:'owner_only'|null;next_cursor:string|null};
+export type EvidenceGroup=GroupBase&({kind:'claim';items:EvidenceClaim[]}|{kind:'commitment';items:EvidenceCommitment[]}|{kind:'action';items:EvidenceAction[]}
+  |{kind:'outreach';items:EvidenceOutreach[]}|{kind:'candidate';items:EvidenceCandidate[]});
+export type EvidenceEdge={source:string;target:string;rel:'derived_from'|'depends_on'|'fulfils'|'corrected_by'};
+export type EvidenceGraph={consumer_id:string;generated_at:string;group_limit:number;groups:EvidenceGroup[];edges:EvidenceEdge[]};
+function evidenceItem(kind:EvidenceKind,x:unknown){const o=object(x);
+  switch(kind){
+    case 'claim':{const s=object(o.source);return {claim_id:text(o.claim_id),state:oneOf(o.state,['active','corrected','superseded'] as const),predicate:maybeText(o.predicate),
+      epistemic_kind:text(o.epistemic_kind),resolution_state:text(o.resolution_state),confidence:o.confidence===null?null:typeof o.confidence==='number'?o.confidence:(()=>{throw new WorkbenchError('invalid');})(),
+      source:{conversation_id:text(s.conversation_id),sequence:maybeCount(s.sequence),speaker:oneOf(s.speaker,['consumer','agent'] as const),quote:maybeText(s.quote),
+        quote_status:oneOf(s.quote_status,['ok','reviewer_only','restricted','corrected','superseded','none'] as const)},successor_claim_ids:list(o.successor_claim_ids).map(text)};}
+    case 'commitment':return {commitment_id:text(o.commitment_id),revision:count(o.revision),status:text(o.status),due_at:maybeText(o.due_at),origin:oneOf(o.origin,['claim','extend'] as const),
+      claim_id:maybeText(o.claim_id),replaces_commitment_id:maybeText(o.replaces_commitment_id)};
+    case 'action':return {intent_id:text(o.intent_id),operation:text(o.operation),state:text(o.state),created_at:text(o.created_at)};
+    case 'outreach':return {intent_id:text(o.intent_id),purpose:text(o.purpose),state:text(o.state),created_at:text(o.created_at)};
+    case 'candidate':return {candidate_kind:oneOf(o.candidate_kind,['proposal','definition'] as const),candidate_id:text(o.candidate_id),status:text(o.status),
+      match_decision:maybeText(o.match_decision),match_reason_code:maybeText(o.match_reason_code),dependent_claim_ids:list(o.dependent_claim_ids).map(text)};
+  }
+}
+export function evidenceGraph(value:unknown):EvidenceGraph{
+  const v=object(value);if(v.world!=='real')throw new WorkbenchError('invalid');
+  const groups=list(v.groups).map((g,i)=>{const o=object(g);const kind=oneOf(o.kind,EVIDENCE_KINDS);if(kind!==EVIDENCE_KINDS[i])throw new WorkbenchError('invalid');  // fixed order
+    return {kind,total:count(o.total),invisible:count(o.invisible),erased:maybeCount(o.erased),collapsed:count(o.collapsed),
+      restricted_reason:o.restricted_reason===null?null:oneOf(o.restricted_reason,['owner_only'] as const),next_cursor:maybeText(o.next_cursor),
+      items:list(o.items).map(x=>evidenceItem(kind,x))} as EvidenceGroup;});
+  if(groups.length!==EVIDENCE_KINDS.length)throw new WorkbenchError('invalid');
+  return {consumer_id:id(v.consumer_id),generated_at:text(v.generated_at),group_limit:count(v.group_limit),groups,
+    edges:list(v.edges).map(x=>{const o=object(x);return {source:text(o.source),target:text(o.target),rel:oneOf(o.rel,['derived_from','depends_on','fulfils','corrected_by'] as const)};})};
+}
+export const readEvidenceGraph=(consumerId:string,page?:{kind:EvidenceKind;after:string})=>get(`/api/v1/workbench/consumers/${encodeURIComponent(consumerId)}/evidence-graph`
+  +(page?`?kind=${page.kind}&after=${encodeURIComponent(page.after)}`:''),evidenceGraph);
+
+export const TRACE_STEPS=['message','relay','context','run','action','receipt','extraction','matching','ontology_update'] as const;
+export type TraceStatus='done'|'running'|'failed'|'skipped'|'none'|'restricted';
+export type TraceStep={step:typeof TRACE_STEPS[number];status:TraceStatus;at:string|null;finished_at:string|null;refs:string[];more:number;code:string|null};
+export type MessageTrace={message_id:string;conversation_id:string;steps:TraceStep[]};
+export function messageTrace(value:unknown):MessageTrace{
+  const v=object(value);if(v.world!=='real')throw new WorkbenchError('invalid');
+  const steps=list(v.steps).map((x,i)=>{const o=object(x);const step=oneOf(o.step,TRACE_STEPS);if(step!==TRACE_STEPS[i])throw new WorkbenchError('invalid');  // fixed order
+    return {step,status:oneOf(o.status,['done','running','failed','skipped','none','restricted'] as const),at:maybeText(o.at),finished_at:maybeText(o.finished_at),
+      refs:list(o.refs).map(text),more:count(o.more),code:maybeText(o.code)};});
+  if(steps.length!==TRACE_STEPS.length)throw new WorkbenchError('invalid');
+  return {message_id:text(v.message_id),conversation_id:id(v.conversation_id),steps};
+}
+export const readMessageTrace=(messageId:string)=>get(`/api/v1/workbench/messages/${encodeURIComponent(messageId)}/trace`,messageTrace);
+
+/** Amounts stay decimal strings as the server gives them (never parsed to a float). */
+export type ConversationMetrics={conversation_id:string;as_of:string;response_ms:{p50:number;p90:number;samples:number}|null;
+  model_cost:{totals:{currency:string;amount:string;amount_unit:'major'|'minor';entries:number}[];runs:number;unpriced_entries:number}|null;
+  claims:number;commitments:number;gate_blocks:{total:number;by_code:{code:string;count:number}[]};withheld:'model_cost'[]};
+export function conversationMetrics(value:unknown):ConversationMetrics{
+  const v=object(value);if(v.world!=='real')throw new WorkbenchError('invalid');
+  const r=v.response_ms===null?null:object(v.response_ms);const c=v.model_cost===null?null:object(v.model_cost);const g=object(v.gate_blocks);
+  return {conversation_id:id(v.conversation_id),as_of:text(v.as_of),response_ms:r?{p50:count(r.p50),p90:count(r.p90),samples:count(r.samples)}:null,
+    model_cost:c?{totals:list(c.totals).map(x=>{const o=object(x);const amount=text(o.amount);if(!/^-?\d+(\.\d+)?$/.test(amount))throw new WorkbenchError('invalid');
+      return {currency:text(o.currency),amount,amount_unit:oneOf(o.amount_unit,['major','minor'] as const),entries:count(o.entries)};}),runs:count(c.runs),unpriced_entries:count(c.unpriced_entries)}:null,
+    claims:count(v.claims),commitments:count(v.commitments),
+    gate_blocks:{total:count(g.total),by_code:list(g.by_code).map(x=>{const o=object(x);return {code:text(o.code),count:count(o.count)};})},
+    withheld:list(v.withheld).map(x=>oneOf(x,['model_cost'] as const))};
+}
+export const readConversationMetrics=(conversationId:string)=>get(`/api/v1/workbench/conversations/${encodeURIComponent(conversationId)}/metrics`,conversationMetrics);

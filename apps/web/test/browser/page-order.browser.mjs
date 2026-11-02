@@ -24,7 +24,7 @@ try{
   await page.locator('.workbench-page h1').waitFor({timeout:20000});
   // F02 consumer detail: what this customer is (restriction, properties) inside the first screen, the operations after the facts.
   await open(page,`/workbench/consumers/${session.consumer_id}`,'order-consumer');await page.locator('.workbench-ops').waitFor({timeout:20000});
-  result.consumer={facts:await h2Top(page,'属性'),conversations:await h2Top(page,'会话'),ops:await top(page,'.workbench-ops')};
+  result.consumer={facts:await h2Top(page,'画像'),conversations:await h2Top(page,'会话'),ops:await top(page,'.workbench-ops')};
   // F07 alerts: the firing alert first, in business words with unit, threshold and where to go; the silence form after it.
   await open(page,'/workbench/alerts','order-alerts');
   const firing=page.locator('table').first();
