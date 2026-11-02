@@ -1,6 +1,6 @@
 # NX-064 设计：效应请求时限（Host 2 s）在高负载下超时的产品处理与按 p99 定值
 
-- 状态：**设计稿，未实现**。执行人：L4。判定人：L6（待审）。基于 main 2bad63f9。
+- 状态：**设计稿 v2，未实现**。执行人：L4。判定人：L6。v1（d89d0645）条件 PASS，同意方案 C；v2 补入条件 C1–C5，以及兜底 Run 预算的验收。基于 main 2bad63f9。
 - 关联：ADR-022 §4（2 s 工具时限、不放宽）；ADR-028（结果不明确时同载荷再试一次）；ADR-029b §3a（`effect_timeout_ms` 可配置 1000–5000，按 p99 定值另写 ADR）；`docs/implementation/ci-flake-audit.md` 候选 1；AT-060（guard 按操作的时延样本）。
 - 本文只读代码与文档，不连主机。下文的命令是给执行人的只读命令，主机只写角色名。
 
@@ -18,12 +18,12 @@
 | `apps/agent-host/src/runtime-host.ts:21` | `GUARD_TIMEOUT_MS=2000`（授权调用 start/model/tool/outcome） | **不在 NX-064 范围**：这是 ADR-022 的授权时限，不随 `effect_timeout_ms` 变 |
 | `packages/eios-core/src/nexloop_eios/observability.py:30` | `GUARD_DEADLINE_MS=2000`：guard 样本里 `timeouts` 按这个常量计数 | 只影响观测；配置了 `effect_timeout_ms` 时口径会和实际时限不一致（见 §5 第 4 条） |
 
-激励工具（`runtime-effect-tools.ts:372,390`）写死 `2000`，走自己的端点，没有接 `effect_timeout_ms`。它不在 NX-064 的用例里，但属于同一类风险，列为遗留。
+激励工具（`runtime-effect-tools.ts:372,390`，端点 `/internal/v1/runtime/incentives/issue`）写死 `2000`，没有接 `effect_timeout_ms`，超时后直接报 `incentive_unavailable`，不再试。**纳入本单（C5）**，见 §3 第 7 条。
 
 ### 1.2 超时后的路径（`runtime-effect-tools.ts:225-240, 283`）
 
 1. 第一次请求超过时限：`request.destroy()` 触发 `error`，记为 `runtime_effect_ambiguous`（结果不明确）。
-2. 如果 Run 的 `not_after` 还晚于“现在 + 时限”，用**完全相同的请求体**再发一次（ADR-028）。guard 按 0040 的唯一键（Run 的 consumer、goal、step、slot）推导意图：载荷相同，返回的就是同一个 intent，不会再预留额度，也不会产生第二个效应；载荷不同则冲突（409）。所以这一次重发在语义上是**查询**，不是盲目重试。
+2. 如果 Run 的 `not_after` 还晚于“现在 + 时限”，用**完全相同的请求体**再发一次（ADR-028）。guard 按 0040 的唯一键（Run 的 consumer、goal、step、slot）推导意图：载荷相同，返回的就是同一个 intent，不会再预留额度，也不会产生第二个效应；载荷不同则冲突（409）。所以这一次是**按 0040 键的幂等重发，等价于查询或首次创建**：第一次已经落库时，它查到那个 intent；第一次没有落库时，由它首次创建。它不是盲目重试。
 3. 第二次仍不明确：Host 在 stderr 写一行诊断 `{event:'runtime_effect_unavailable', run_id, operation, effect_timeout_ms, elapsed_ms}`，工具抛出 `runtime_effect_unavailable`。
 4. `runtime_effect_unavailable` **不在** `RECOVERABLE_TOOL_CODES` 里（`pi-runtime-adapter.ts:15`），所以 Run 以 `runtime_tool_error` 失败，调度端记为 `runtime_failed`（`runtime_dispatch.py:62,344`）。
 
@@ -84,23 +84,37 @@ from c, unnest(array[0.5,0.95,0.99]) q where cum >= q*tot group by q order by q;
 | 做法 | 用 stage 测得的 Host 端 p99 乘以余量（例如 1.5），作为代码里的新默认值 | Host 按近期时延或在途数动态放宽时限 | 保留默认 2000 和 1000–5000 上限；每个部署按自己测得的 p99 写 `effect_timeout_ms`；补齐观测和告警 |
 | 好处 | 简单，一个数 | 负载尖峰时少失败 | 已有实现（ADR-029b）；值随部署走，可回退；不改代码默认值，也就不放宽 ADR-022 |
 | 风险 | 一个默认值套所有部署，硬件不同时偏紧或偏松；改代码默认值等于放宽 ADR-022 §4，需要新 ADR | 时限变得不可预测，同一请求在不同时刻的判定不同；负载越高，时限越长，在途越多，形成正反馈；难以测试和复现；会掩盖性能回退 | 需要人看数据定值；值偏大时，Run 在一次工具调用上最多耗时 2×时限（再试一次）；值写错时 Host 拒绝启动，这是已有行为 |
-| 结论 | 不单独采用 | **不采用** | **推荐** |
+| 结论 | 不单独采用 | **不采用** | **推荐**（L6 同意） |
 
 ### 推荐：C，具体内容
 
 1. **定值规则**（写入运行单，不进代码）：
    - `effect_timeout_ms = clamp(ceil(p99_host × 1.5 / 100) × 100, 2000, 5000)`。
-   - `p99_host` 取 stage 7 天里 Host 端的 p99。没有 Host 端数据时，用 guard 端 p99 加 300 ms 估算 TLS 和排队时间。
+   - `p99_host` 取 stage 7 天里 Host 端的 p99。没有 Host 端数据时，用 guard 端 p99 加 300 ms 估算 TLS 和排队时间，**证据里写明“估算（guard p99 + 300 ms）”**。
+   - **样本不足不定值（C4）**：§2 的 SQL 没有返回行，或者 `calls < 1000` 时，不写 `effect_timeout_ms`，保持默认 2000，并在证据里标“未测”（附 calls 数）。下一轮测量再判断。
    - 结果低于 2000 时不收紧，保持 2000（ADR-022 的下限语义）；高于 5000 时**不**提高上限，转为性能问题（ADR-029b 的信封预刷新或 guard 拓扑），另行处理。
 2. **补 Host 端时延直方图**（小改动）：效应客户端在每次请求结束时（无论成功还是失败）按操作记一条，用与 AT-060 相同的对数分桶，进 Host 的进程样本（kind `host`）。这样 p99 才是 Host 实际看到的时间，不只是 guard 处理时间。只有数字。
 3. **观测口径对齐**：guard 样本的 `timeouts` 现在按常量 2000 计数（`observability.py:30`）。效应操作改为按两档计数：超过 2000，以及超过一个告警阈值（例如 0.8 × 部署时限，由告警规则给值）。guard 端拿不到 Host 的配置，不读它。
-4. **告警**：新增一条规则，7 天内 `effect_submit` 中超过 2000 的比例 > 1%，或者 Host 诊断行 `runtime_effect_unavailable` 的计数 > 0。规则按“未配置不得静默”：没有 `guard_op` 样本时报“无数据”，不报通过。
+4. **告警（C2、C3）**：数据只取进程样本，**不读 docker logs**（告警读不到日志，读不到时会静默通过）。
+   - 数据源：第 2 条新增的 Host 端计数，记在 kind `host` 的进程样本里（stage 上 service `agent-host` 已有 10058 个窗口），按操作分别记 `calls`、`ambiguous`（第一次不明确）、`unavailable`（再试后仍不明确）；guard 端 `guard_op` 的 `effect_submit`、`effect_find` 样本。
+   - **三项分别判断**：`effect_submit`（guard_op）、`effect_find`（guard_op）、`host`（Host 端计数）。任何一项在窗口内没有样本，就报“无数据”，不算通过。
+   - 回复与 find：7 天内超过 2000 的比例 > 1%，或者 Host 端 `unavailable` > 0，报警告。
+   - **`nexloop.enterprise.deliver` 单独报负责人**：只要出现一次 `unavailable`，就单独发给负责人一条，附 run_id（Host 样本按操作记 run_id 列表，最多 16 个，只有 id）。通知里写明两种可能：
+     - (a) **单子已下，但客户没被告知**：guard 事务已经提交，intent 落库，企业照常收到单子；Run 已经失败，模型没有拿到结果，没有告诉客户单子已下，客户可能以为没下成；
+     - (b) **没有单子**：guard 事务没有提交。
+
+     通知请负责人到 intent 列表按 run_id 核对是哪一种。**只通知，不自动补单**：补单会把情况 (a) 变成两张单。
 5. **产品行为不改**：超时后仍是“同载荷再试一次，仍不明确则 Run 失败”。下面两种做法都不采用：
    - 把 `runtime_effect_unavailable` 加入可恢复码，让模型再调一次：模型拿不到 intent_id，第二次 submit 的载荷可能不同，会触发 409 冲突或产生另一个意图，违背“先查询”。
    - 超时后给模型一个“checking”结果：Host 不知道 intent 是否存在，这个结果对客户来说可能是错的。
 
-   回复已有兜底 Run。企业单的失败，由第 4 条的告警和 Run 失败诊断暴露给负责人。
-6. **ADR**：第 1 条（按 p99 定值的规则）和第 2、3 条（观测口径）写成 ADR-029c（或新号），作为 ADR-029b §3a 末尾“以后另写 ADR”的落点。不改 ADR-022 §4 的默认值。
+   回复已有兜底 Run。企业单的失败，由第 4 条单独发给负责人的通知暴露出来。
+6. **激励工具纳入本单（C5）**：
+   - 接上 `effect_timeout_ms`：`issueIncentive` 改用 `this.timeoutMs`，不再写死 2000。
+   - 超时后采用同样的规则：先判为不明确，用**同一请求体只再发一次**，仍不明确才报 `incentive_unavailable`。
+   - 前提已核对，**成立**：Run 入口 `authz.nexloop_run_incentive_command`（0145:237，之后没有迁移改过）的 intent 键由服务端定为 `'incentive-run:'||run_id||':'||incentive_offering_id`；`runtime.nexloop_incentive_accept`（0145:136-141）遇到同键，参数相同时返回已存的 intent（`replayed:true`），参数不同时报 NXB02（Host 收到 `incentive_payload_conflict`）。所以同一 Run、同一 offering 的重发，等价于查询或首次创建，和 0040 式的键效果相同。
+   - 和 0040 的差别要写进 ADR-029c：键里没有 step 和 slot，同一 Run 对同一 offering 只能发一次；比较的参数不含 `notification_text`，同键、只有通知文字不同的重发按重放处理。这两点对“只再发一次、请求体相同”的规则没有影响。
+7. **ADR**：第 1 条（按 p99 定值的规则）和第 2、3 条（观测口径）写成 ADR-029c（或新号），作为 ADR-029b §3a 末尾“以后另写 ADR”的落点。不改 ADR-022 §4 的默认值。
 
 ## 4. 测试计划
 
@@ -112,7 +126,15 @@ from c, unnest(array[0.5,0.95,0.99]) q where cum >= q*tot group by q order by q;
    - Run 为 `runtime_failed`；
    - action worker 派发一次，消息算已答复，不起兜底 Run。
 
-   另一组：第一次没有提交时，断言到期后起一个兜底 Run。用 `taskpolicy` 或 CPU 抢占来制造负载不稳定，所以不用。
+   另一组：第一次没有提交时，断言到期后起一个兜底 Run。
+
+   **第三组（C1）**：第一次的事务还没提交、仍持有锁时，第二次请求到达（guard 注入延迟停在提交之前，第二次在这期间发出）。断言：
+   - 第二次要么返回同一个 intent，要么仍然不明确；
+   - 无论哪种，**绝不出现第二个 intent**，额度也**不重复预留**（预留行数和金额不变）。
+
+   激励工具同样补三组：已落库、未落库、第一次仍持锁。断言 `incentive_issues` 只有一行、预算只预留一次。
+
+   不用 `taskpolicy` 或 CPU 抢占来制造负载：这样造出的负载不稳定。
 3. **高负载回归（不进每个 PR，挂在 NX-031 矩阵上）**：
    - 在负载矩阵里加一格“效应路径”：按部署并发跑真实 Pi 的回复 Run，从 `process_samples.jsonl` 的 `guard_op` 直方图补算 `effect_submit` 的 p99，再加上新的 Host 端直方图。
    - 门槛：p99 × 1.5 不超过部署时限。
@@ -122,9 +144,22 @@ from c, unnest(array[0.5,0.95,0.99]) q where cum >= q*tot group by q order by q;
    - 挪回的条件：第 2 条的 Host 端直方图上线后，在 CI 主机上全并行跑 20 轮，这个用例所在 worker 的 `effect_submit` 最大值 < 0.8 × 时限，并且 20 轮全部通过。达到之前，它留在低并行阶段：时限和断言不变（ci-flake-audit 候选 1 的建议）。
    - 不在测试配置里把 `effect_timeout_ms` 调大：那会放宽被测的时限。
 
+### 验收
+
+1. §4 第 1、2 条的用例，包括 C1 的“第一次仍持锁”这一组和激励工具的三组，全部通过；变异检查：去掉“只再发一次”的次数限制，或者让第二次换一个请求体，至少有一个用例失败。
+2. 告警三项（`effect_submit`、`effect_find`、`host`）各自的“无数据”反向用例：空样本报“无数据”，不报通过。enterprise.deliver 出现一次 unavailable，就生成一条带 run_id 的负责人通知，并且不产生任何新 intent。
+3. **兜底 Run 预算**：时限取上限 5000 时，一次工具调用最多 2 × 5000 ms = 10 s，仍在兜底 Run 的 `active_timeout_seconds`（v1 为 60 s）之内。并且回复保障策略的装载检查 `start_after_seconds + 兜底 Run 最长时长 < reply_window_seconds` 不受影响（测试：用上限时限装载 v1 策略，仍被接受）。
+4. 定值规则按 C4：样本不足时证据标“未测”，用估算时证据标“估算”。
+
 ## 5. 待定与遗留
 
-1. stage 的实际分布还没有测：§2 的 SQL 由调度员（执行人）只读跑一次，结果写回本文，然后再定 §3 第 1 条的具体值。
-2. 激励工具的 2 s 写死在 `runtime-effect-tools.ts:372,390`，没有接 `effect_timeout_ms`：建议在实现时一并接入，或者写明它不随配置变化的理由。
-3. 兜底 Run 的预算是 `active_timeout_seconds` 60 s。时限提高到 5000 时，一次工具调用最多 10 s，仍在预算之内；实现时要核对 `start_after_seconds + 兜底 Run 最长时长 < reply_window_seconds` 的装载检查不受影响。
-4. guard 样本的 `timeouts` 口径（常量 2000）在部署配置了别的时限后会失真：见 §3 第 3 条。
+1. **stage 只读结果**（调度员执行 §2 的 SQL，最近 7 天，查询日 2026-11-02）：
+   - `effect_submit`：calls 25，p50 ≈ 1102 ms，p95 ≈ 1334 ms，p99 ≈ 1334 ms；
+   - `effect_find`：0 行，无数据；
+   - kind `host`（service `agent-host`）：10058 个样本窗口，可作为 §3 第 4 条的数据源；
+   - `guard_op` 的其他 service：inspect 72、model 43、model_result 26、start 47、tool 38、outcome 1。
+
+   按 C4，样本不足（25 < 1000），**不定值，保持 2000，标“未测”**。
+
+   需要注意：在这样低的负载下，guard 端的 p50 已经约 1.1 s，离 2 s 的余量不大；加上 Host 到 guard 的时间以后，余量更小。负载上来时，超时会先在这里出现。
+2. guard 样本的 `timeouts` 口径（常量 2000）在部署配置了别的时限后会失真：见 §3 第 3 条。
