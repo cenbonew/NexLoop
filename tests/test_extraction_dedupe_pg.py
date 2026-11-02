@@ -154,3 +154,20 @@ def test_due_returns_the_pending_targets_and_up_to_ten_earlier_messages_as_conte
     assert item['message_ids'] == ids[14:] and item['context_message_ids'] == ids[4:14]
     (narrow,) = feed.due(quiet_seconds=0, limit=10, window=2)  # window bounds the targets; context ends before the first target
     assert narrow['message_ids'] == ids[15:] and narrow['context_message_ids'] == ids[5:15]
+
+
+@pytest.mark.parametrize('value', [
+    {'type': 'string', 'value': ' 站内 消息 '}, {'type': 'string', 'value': 'AB　12'}, {'type': 'string', 'value': 'Ab C'},
+    {'type': 'string', 'value': '3'}, {'type': 'number', 'value': 3}, {'type': 'number', 'value': 3.5}, {'type': 'boolean', 'value': False},
+    {'type': 'none', 'value': None}, {'type': 'money', 'value': {'currency': 'CNY', 'amount': 12.5}}])
+@pytest.mark.parametrize('condition', ['', '解决后'])
+def test_python_and_sql_statement_keys_are_the_same_text(admin, value, condition):
+    """The one key: conversation_extraction.statement_key (Python, K5 folding) equals ontology.nexloop_claim_statement_key (0412 dedupe)."""
+    from nexloop_eios.bootstrap import bootstrap
+    from nexloop_eios.conversation_extraction import statement_key
+    from psycopg.types.json import Jsonb
+    bootstrap(admin)
+    args = dict(source_message_id='a' * 64, span_start=0, span_end=5, kind='preference', polarity='affirmed', modality='requested', condition=condition, value=value)
+    sql = admin.execute('select ontology.nexloop_claim_statement_key(%s,%s,%s,%s,%s,%s,%s,%s)',
+                        (args['source_message_id'], 0, 5, 'preference', 'affirmed', 'requested', condition, Jsonb(value))).fetchone()[0]
+    assert statement_key(**args) == sql

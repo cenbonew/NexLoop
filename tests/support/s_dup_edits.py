@@ -55,9 +55,9 @@ begin"""
   v_dup:=null;
   if src is not null and not v_refs ? (cl->>'claim_id') then
    select x.claim_id into v_dup from ontology.nexloop_claims x where x.tenant_id=v_tenant and x.world=p_world and x.source_message_id=cl->>'source_message_id'
-     and x.span_start=v_start and x.span_end=v_end and x.epistemic_kind=v_kind and x.polarity=cl->>'polarity' and x.modality=cl->>'modality'
-     and (x.condition_text<>'')=(coalesce(cl->>'condition','')<>'') and x.claim_id<>cl->>'claim_id'
-     and ontology.nexloop_claim_value_key(x.value)=ontology.nexloop_claim_value_key(cl->'value')
+     and x.span_start=v_start and x.span_end=v_end and x.epistemic_kind=v_kind and x.claim_id<>cl->>'claim_id'
+     and ontology.nexloop_claim_statement_key(x.source_message_id,x.span_start,x.span_end,x.epistemic_kind,x.polarity,x.modality,x.condition_text,x.value)
+       =ontology.nexloop_claim_statement_key(cl->>'source_message_id',v_start,v_end,v_kind,cl->>'polarity',cl->>'modality',coalesce(cl->>'condition',''),cl->'value')
      and x.superseded_at is null and x.resolution_state<>'superseded'
     order by x.recorded_at,x.claim_id limit 1;
   end if;

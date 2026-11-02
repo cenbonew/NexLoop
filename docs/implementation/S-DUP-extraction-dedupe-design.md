@@ -128,3 +128,11 @@ select left(source_message_id,12), span_start, span_end, epistemic_kind, polarit
 - 折叠视图（§5）暂不做，等负责人决定。
 - copy guard：0411 对 0069 的取窗函数、0412 对 0066 记录函数的改动，登记在 `tests/support/s_dup_edits.py`。0115 的包装函数改名为 `..._v0115`，由新的包装函数替代（改名后重建，不算 redefinition）。
 - 已知局限：取窗仍以 `window` 为目标上限。一次积压超过 `window` 条待抽消息时，最早的那些会被 mark 而不抽取，这与原来的滑动窗口相同。
+
+### 去重键的单一来源（负责人 2026-11-02：历史重复只在显示上折叠，由 L2 在 K5 证据图接口里做）
+
+- SQL：`ontology.nexloop_claim_statement_key(source_message_id, span_start, span_end, kind, polarity, modality, condition_text, value)`，定义在 0412，只读、immutable，已授权给 `nexloop_api`、`nexloop_domain_worker`。0412 的写入去重直接用它比较。取值部分是 `ontology.nexloop_claim_value_key(value)`。
+- Python：`nexloop_eios.conversation_extraction.statement_key(...)`（取值部分是 `claim_value_key`），生成与 SQL 完全相同的文本：`v1|消息|起|止|kind|polarity|modality|有无condition(0/1)|类型:规范化取值`。
+- 两边的规范化规则相同：字符串去掉 Python `\s` 那一组 Unicode 空白（SQL 侧写成同一显式字符集）并转小写；其他值用 jsonb 文本形式（键按长度再按字节排序）。`test_extraction_dedupe_pg::test_python_and_sql_statement_keys_are_the_same_text` 用 18 组取值逐字比较两边的结果，包括全角空格、不换行空格、"3" 与 3、金额对象、有无 condition。
+- K5 折叠应使用这个键：SQL 里调用 `ontology.nexloop_claim_statement_key`，Python 里调用 `statement_key`，不要另写一套。
+- 局限：大小写转换依赖数据库的区域设置，个别特殊字母（如土耳其语 İ）两边可能不同；超大或指数形式的数字，jsonb 与 Python 的文本形式可能不同。这两类不会出现在常规取值里。

@@ -539,6 +539,30 @@ def normalize_value_key(value):
     return canonical({'type':value['type'],'value':item})
 
 
+def _jsonb_text(item):
+    """PostgreSQL's jsonb text form of a JSON value (keys by length then bytes, ', ' and ': ' separators)."""
+    if isinstance(item,dict):
+        keys=sorted(item,key=lambda k:(len(k.encode()),k.encode()))
+        return '{'+', '.join(json.dumps(k,ensure_ascii=False)+': '+_jsonb_text(item[k]) for k in keys)+'}'
+    if isinstance(item,list):return '['+', '.join(_jsonb_text(x) for x in item)+']'
+    return json.dumps(item,ensure_ascii=False)
+
+
+def claim_value_key(value):
+    """S-DUP C2: the value part of the statement key, as ontology.nexloop_claim_value_key: the type, then a string without any whitespace
+    (normalize_value_key's rule) and lower-cased, any other value as its jsonb text. "3" and 3 differ."""
+    item=value['value']
+    if isinstance(item,str):return value['type']+':'+re.sub(r'\s+','',item).lower()
+    return value['type']+':'+_jsonb_text(item)
+
+
+def statement_key(*,source_message_id,span_start,span_end,kind,polarity,modality,condition,value):
+    """S-DUP C2: the one statement key - write-time dedupe (0412, ontology.nexloop_claim_statement_key, the same text) and display folding
+    (K5). Same Message span, kind, polarity, modality, condition presence and normalized value: the same statement."""
+    return '|'.join(['v1',source_message_id or '','' if span_start is None else str(span_start),'' if span_end is None else str(span_end),
+        kind,polarity,modality,'1' if condition else '0',claim_value_key(value)])
+
+
 def normalize(raw_output,messages,context):
     """Apply all deterministic guards. Returns (topics, claims, rejected)."""
     _validate_messages(messages)

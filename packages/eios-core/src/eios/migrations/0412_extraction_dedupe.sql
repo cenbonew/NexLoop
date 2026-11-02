@@ -1,8 +1,10 @@
 -- S-DUP (docs/implementation/S-DUP-extraction-dedupe-design.md §2, §3): the recorder writes the same statement once, a correction may point
 -- at an earlier current Claim of the Conversation, and no Claim may cite a context Message. The migration number lives only in the file name
 -- and the catalog; nothing below repeats it.
--- 1. ontology.nexloop_claim_value_key(value): the normalized value of the dedupe key, as conversation_extraction.normalize_value_key:
---    type plus, for a string, the text without any whitespace and lower-cased; any other value as its JSON (so "3" and 3 differ).
+-- 1. ontology.nexloop_claim_value_key(value): the normalized value, as conversation_extraction.normalize_value_key: type plus, for a
+--    string, the text without any whitespace and lower-cased; any other value as its JSON (so "3" and 3 differ).
+--    ontology.nexloop_claim_statement_key(...): the whole statement key (span, kind, polarity, modality, condition presence, value key),
+--    the single source for write-time dedupe and display folding; conversation_extraction.statement_key is the same in Python.
 -- 2. authz.nexloop_record_claim_extraction_v0066 (0066 body, changes marked "S-DUP", registered in tests/support/s_dup_edits.py): a Claim with
 --    the same Message span, kind, polarity, modality, condition presence and normalized value as a current Claim (not superseded) is not
 --    written again; the run links the earlier Claim. Claims cited by another Claim of the same run (derivation, correction) are always
@@ -12,10 +14,19 @@
 --    same Conversation outside the window, from an earlier Message (receipt order), not erased or superseded.
 
 create function ontology.nexloop_claim_value_key(p_value jsonb) returns text language sql immutable set search_path=pg_catalog,pg_temp as $$
- select coalesce(p_value->>'type','')||':'||case when jsonb_typeof(p_value->'value')='string' then lower(regexp_replace(p_value->>'value','\s+','','g'))
+ select coalesce(p_value->>'type','')||':'||case when jsonb_typeof(p_value->'value')='string' then lower(regexp_replace(p_value->>'value','[ \t\n\r\f\v\u001c-\u001f\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+','','g'))
   else coalesce((p_value->'value')::text,'null') end
 $$;
 alter function ontology.nexloop_claim_value_key(jsonb) owner to nexloop_owner;
+-- The statement key (S-DUP C2), the one source for write-time dedupe here and for display folding (K5): same as
+-- conversation_extraction.statement_key in Python. Read-only.
+create function ontology.nexloop_claim_statement_key(p_message text,p_start integer,p_end integer,p_kind text,p_polarity text,p_modality text,
+  p_condition text,p_value jsonb) returns text language sql immutable set search_path=pg_catalog,pg_temp as $$
+ select concat_ws('|','v1',coalesce(p_message,''),coalesce(p_start::text,''),coalesce(p_end::text,''),p_kind,p_polarity,p_modality,
+  case when coalesce(p_condition,'')<>'' then '1' else '0' end,ontology.nexloop_claim_value_key(p_value))
+$$;
+alter function ontology.nexloop_claim_statement_key(text,integer,integer,text,text,text,text,jsonb) owner to nexloop_owner;
+grant execute on function ontology.nexloop_claim_statement_key(text,integer,integer,text,text,text,text,jsonb) to nexloop_api,nexloop_domain_worker;
 create index nexloop_claims_statement on ontology.nexloop_claims(tenant_id,world,source_message_id,span_start,span_end,epistemic_kind);
 
 create or replace function authz.nexloop_record_claim_extraction_v0066(p_digest text,p_world text,p_text text,p_signature text,p_payload text)
@@ -143,9 +154,9 @@ begin
   v_dup:=null;
   if src is not null and not v_refs ? (cl->>'claim_id') then
    select x.claim_id into v_dup from ontology.nexloop_claims x where x.tenant_id=v_tenant and x.world=p_world and x.source_message_id=cl->>'source_message_id'
-     and x.span_start=v_start and x.span_end=v_end and x.epistemic_kind=v_kind and x.polarity=cl->>'polarity' and x.modality=cl->>'modality'
-     and (x.condition_text<>'')=(coalesce(cl->>'condition','')<>'') and x.claim_id<>cl->>'claim_id'
-     and ontology.nexloop_claim_value_key(x.value)=ontology.nexloop_claim_value_key(cl->'value')
+     and x.span_start=v_start and x.span_end=v_end and x.epistemic_kind=v_kind and x.claim_id<>cl->>'claim_id'
+     and ontology.nexloop_claim_statement_key(x.source_message_id,x.span_start,x.span_end,x.epistemic_kind,x.polarity,x.modality,x.condition_text,x.value)
+       =ontology.nexloop_claim_statement_key(cl->>'source_message_id',v_start,v_end,v_kind,cl->>'polarity',cl->>'modality',coalesce(cl->>'condition',''),cl->'value')
      and x.superseded_at is null and x.resolution_state<>'superseded'
     order by x.recorded_at,x.claim_id limit 1;
   end if;
