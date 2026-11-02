@@ -27,7 +27,8 @@
             "quote": null,
             "quote_status": "reviewer_only"
           },
-          "successor_claim_ids": []
+          "successor_claim_ids": [],
+          "duplicate_count": 2
         },
         {
           "claim_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",

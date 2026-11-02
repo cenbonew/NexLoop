@@ -2060,6 +2060,11 @@
       "version": "0412",
       "name": "0412_extraction_dedupe.sql",
       "sha256": "532514bc8e936874350c5dae6a8013bcac48804f571e9d406c7f5ae78523058c"
+    },
+    {
+      "version": "0413",
+      "name": "0413_k5_claim_statement_key.sql",
+      "sha256": "25ab18e0f2f5fa8c69d04275665c832fdc448b37ac326c6a20bf9725c237df83"
     }
   ]
 }
