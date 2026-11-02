@@ -158,3 +158,62 @@ select left(claim_id,12), epistemic_kind, modality, guard_flags, predicate, left
 | 可选 | TENTATIVE 误伤修正 | 0.5 人日 | §4 SQL 结果 |
 
 合计约 6–7 人日，外加一次 stage 部署（新迁移、发布与注册的 dry-run 期望变化、重启 claim-matcher 与 api）。
+
+## 8. 联系偏好（补充，调度员 11-02 只读结果）
+
+### 8.1 现象
+
+`modality_not_asserted` 中 preference 有 requested 16 条，constraint 有 requested 22 条。样本是客户对联系方式的明确指令，例如“以后只接收站内消息”“以后请不要再主动联系我”“you only message me here”。它们被标成 requested，进不了匹配器。need_problem 的 269 条 requested 都是提问，标注正确，不在关键路径上。
+
+### 8.2 原因：提取器提示词没有定义 modality
+
+- `conversation_extraction.py:23` 只声明了 `MODALITIES=('asserted','conditional','tentative','requested')`；提示词第 5 条（`:43-44`）只讲 conditional 与 tentative；输出格式（`:60`）只列出取值。**没有任何一处说明 requested 的含义**，也没有区分“客户请求服务或提问”和“客户对自己的处理方式下指令”。模型把祈使句一律归为 requested，属于提示词欠规定，不是定义本来如此。
+- 后处理（`:560-630`）只会强制改为 conditional / tentative，不会改为 requested，所以 requested 完全来自模型。tentative 中带 `time_source:rule` 的那条，是 `:629` 的 TENTATIVE 正则误伤。
+- 匹配器守卫（`claim_matching.py:267`）只接受 asserted，这是对的：提问不应写成属性。
+
+### 8.3 “这位客户自己说过的沟通偏好”是另一条链路
+
+- 页面：`apps/web/src/workbench/pages/Personas.tsx:249-263` →`GET /api/v1/workbench/consumers/{id}/contact-preferences`（`workbench_http.py:442`）→ observe 动词 `contact_preferences`（`workbench_reads.py:757`）→ SQL `runtime.nexloop_contact_preferences`（`0228_contact_preferences.sql:53-66`）。
+- 它在检查时**直接读 Claim**，没有投影，也不经匹配器。条件是 speaker=consumer、kind 为 preference/constraint、modality 为 **asserted 或 requested**（`:61`，已经接受 requested），并且 predicate 必须是固定词表之一（`:44-50`）：`contact_quiet_hours|勿扰时段|免打扰时段`、`contact_frequency_max|联系频率上限`、`contact_channel|联系渠道`、`contact_topic|联系主题`、`communication_tone|沟通语气`。派发时由 `control.nexloop_contact_assert_intent` 强制执行（只收紧，不放宽）。
+- 为什么页面也是空的：提取器提示词从未要求使用这套 predicate 词表（`conversation_extraction.py` 和 agent-host 里都找不到这些词），模型输出的是“联系方式”“不要再联系我”一类自由文本，`nexloop_contact_preference_dimension` 返回 null，于是被过滤掉。所以这 38 条**目前也没有进入这条链路**。
+- 与 Consumer 属性 `contact_preferences` 的关系：这个属性是 v1 的“仅引用”字段，创建 schema 只允许空数组（`consumer_profile.py:13-21`），没有任何读写方。如果再经匹配器把联系偏好写进这个属性，就会和 0228 的“从 Claim 实时派生、派发时强制”形成两个事实源，dismiss（`contact_preference.dismiss`）、更正、删除传播都要做两遍。**推荐 0228 链路作为联系偏好的唯一来源**，`contact_preferences` 属性保持为空、不进 `edit_actions` 的写入范围，画像页的“沟通偏好”继续用 0228 的视图。
+
+### 8.4 修正（排进阶段一）
+
+1. **提取器提示词**（约 0.5–1 人日，`PROMPT_VERSION` → `/4`，`EXTRACTOR_VERSION` 同步升级）：
+   - 新增 modality 定义：asserted 表示陈述事实、偏好或约束，包括客户对**自己将来如何被联系、被称呼、被服务**的指令（“以后只发站内信”“别再打电话”）；requested 只用于客户请求企业做一件事或提问（“帮我查一下”“怎么修改？”）。
+   - 新增联系偏好 predicate 词表：涉及联系时段、频率、渠道、主题、语气时，predicate 必须取 0228 的五个标准名，value 按 0228 的格式（时段 `HH:MM-HH:MM`，频率为数字，渠道为渠道名，否定用 polarity=negated）。
+   - “不要再联系我”这种全面拒绝不属于这五个维度，它是联系限制（ADR-023）。提取为 constraint，predicate 用 `contact_channel`、polarity=negated、value=`all` 不合适；推荐另起 predicate `contact_opt_out`，只作证据，由负责人在工作台执行联系限制 Action（见 §8.6 决策）。
+   - 回归样本：上面四句，加上 need_problem 提问两句（必须仍为 requested）。
+2. **TENTATIVE 正则误伤**（`:629`，约 0.5 人日）：带“以后/只/不要”的指令句不强制改为 tentative。可与第 1 项同批。
+3. **历史 38 条**：0228 已经接受 requested，阻塞只在 predicate。可选两种做法（推荐 a）：
+   - a. 对含联系偏好的对话按新提示词重新抽取，会产生新 Claim，旧 Claim 作为证据保留。需要确认抽取调度器是否支持按对话、按 `EXTRACTOR_VERSION` 重抽；若不支持，补一个只读选择加入队的运维命令（约 0.5 人日）。
+   - b. 在 0228 词表里加自由文本同义词：不可控、会误匹配，不推荐。
+
+匹配器的 Consumer 属性写入（阶段一到三）**不处理**联系偏好，避免重复。
+
+### 8.5 验收（只读 SQL）
+
+```sql
+-- 新抽取的联系类 Claim 使用标准 predicate、modality 为 asserted
+select predicate, modality, polarity, count(*) from ontology.nexloop_claims
+ where tenant_id='stage' and world='real' and epistemic_kind in ('preference','constraint') and extractor_version='<新版本>'
+ group by 1,2,3 order by 4 desc;
+-- 页面数据来源：每个 Consumer 的有效联系偏好数
+select consumer_id, jsonb_array_length(runtime.nexloop_contact_preferences('stage','real',consumer_id))
+ from (select distinct consumer_id from ontology.nexloop_claims where tenant_id='stage' and world='real') c;
+-- 提问仍为 requested（不应变化）
+select modality, count(*) from ontology.nexloop_claims where tenant_id='stage' and world='real' and epistemic_kind='need_problem'
+ and extractor_version='<新版本>' group by 1;
+```
+
+预期：样本客户在页面上看到“联系渠道：站内消息”一类条目；对其发起非站内渠道的主动联系时，派发被 `NXC06 contact preference: preference_channel` 拒绝（合成测试客户上验证）。
+
+### 8.6 新增的负责人决策
+
+4. **联系偏好的唯一来源**：推荐 0228 链路（Claim 实时派生、派发强制、负责人可 dismiss），`Consumer.contact_preferences` 属性不写。
+5. **“不要再联系我”**：推荐提取为证据（`contact_opt_out`），在工作台“待处理”里提示负责人，由负责人执行现有的联系限制 Action；不从对话自动设置全面联系限制，因为这是最强的停止，误判代价高。也可以选择自动设置，但需要 ADR。
+
+### 8.7 工作量调整
+
+阶段一增加“提取器提示词与 TENTATIVE 修正，加历史联系类对话重抽”，约 1.5–2 人日。阶段一合计约 3 人日，总计约 8–9 人日。
