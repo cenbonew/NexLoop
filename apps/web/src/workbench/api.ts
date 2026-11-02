@@ -1400,7 +1400,7 @@ export function readPending():Promise<Pending>{return get('/api/v1/workbench/pen
 export const EVIDENCE_KINDS=['claim','commitment','action','outreach','candidate'] as const;
 export type EvidenceKind=typeof EVIDENCE_KINDS[number];
 export type EvidenceClaim={claim_id:string;state:'active'|'corrected'|'superseded';predicate:string|null;epistemic_kind:string;resolution_state:string;confidence:number|null;
-  source:{conversation_id:string;sequence:number|null;speaker:'consumer'|'agent';quote:string|null;quote_status:'ok'|'reviewer_only'|'restricted'|'corrected'|'superseded'|'none'};successor_claim_ids:string[]};
+  source:{conversation_id:string;sequence:number|null;speaker:'consumer'|'agent';quote:string|null;quote_status:'ok'|'reviewer_only'|'restricted'|'corrected'|'superseded'|'none'};successor_claim_ids:string[];duplicate_count:number};
 export type EvidenceCommitment={commitment_id:string;revision:number;status:string;due_at:string|null;origin:'claim'|'extend';claim_id:string|null;replaces_commitment_id:string|null};
 export type EvidenceAction={intent_id:string;operation:string;state:string;created_at:string};
 export type EvidenceOutreach={intent_id:string;purpose:string;state:string;created_at:string};
@@ -1415,7 +1415,8 @@ function evidenceItem(kind:EvidenceKind,x:unknown){const o=object(x);
     case 'claim':{const s=object(o.source);return {claim_id:text(o.claim_id),state:oneOf(o.state,['active','corrected','superseded'] as const),predicate:maybeText(o.predicate),
       epistemic_kind:text(o.epistemic_kind),resolution_state:text(o.resolution_state),confidence:o.confidence===null?null:typeof o.confidence==='number'?o.confidence:(()=>{throw new WorkbenchError('invalid');})(),
       source:{conversation_id:text(s.conversation_id),sequence:maybeCount(s.sequence),speaker:oneOf(s.speaker,['consumer','agent'] as const),quote:maybeText(s.quote),
-        quote_status:oneOf(s.quote_status,['ok','reviewer_only','restricted','corrected','superseded','none'] as const)},successor_claim_ids:list(o.successor_claim_ids).map(text)};}
+        quote_status:oneOf(s.quote_status,['ok','reviewer_only','restricted','corrected','superseded','none'] as const)},successor_claim_ids:list(o.successor_claim_ids).map(text),
+        duplicate_count:o.duplicate_count===undefined?1:(()=>{const n=count(o.duplicate_count);if(n<1)throw new WorkbenchError('invalid');return n;})()};}
     case 'commitment':return {commitment_id:text(o.commitment_id),revision:count(o.revision),status:text(o.status),due_at:maybeText(o.due_at),origin:oneOf(o.origin,['claim','extend'] as const),
       claim_id:maybeText(o.claim_id),replaces_commitment_id:maybeText(o.replaces_commitment_id)};
     case 'action':return {intent_id:text(o.intent_id),operation:text(o.operation),state:text(o.state),created_at:text(o.created_at)};
