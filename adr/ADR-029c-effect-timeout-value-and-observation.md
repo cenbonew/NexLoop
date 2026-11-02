@@ -67,3 +67,4 @@
   - `tests/test_effect_resend_pg.py`：效应路径三组。
   - `tests/test_incentive_resend_pg.py`：激励三组，第三组断言实测的 `unique_violation`。
 - 兜底 Run 预算：`tests/test_effect_timeout_fallback_budget.py`。时限取上限 5000 ms 时，兜底 Run 最多 2 次工具调用，每次最多 2 个请求，合计 20 s，小于 `active_timeout_seconds` 60 s；所有回复保障策略仍能装载。
+- enterprise 告警读取的字段：`apps/agent-host/test/enterprise-unavailable-failure.test.ts` 用真实的 `nexloop.enterprise.deliver` 工具，让 guard 一直不答复，断言 inspection 为 `runtime_tool_error`、`nexloop.enterprise.deliver`、`runtime_effect_unavailable`。这个测试同时修正了一个已有缺陷：pi-durable 包装过的错误码原来被记成 `tool_error`。

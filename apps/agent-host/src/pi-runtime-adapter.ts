@@ -357,6 +357,10 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     const toolCode=(message:{content?:unknown}):string=>{
       const text=Array.isArray(message.content)?message.content.find((part:{type?:string;text?:unknown})=>part?.type==='text')?.text:undefined;
       // A returned {code} JSON, or a thrown tool's fixed runtime code (the whole text is the code), else tool_error.
+      // NX-064 (L6 condition 2): pi-durable hands a thrown tool's message back wrapped as "<harness>\n[error] <message>\n</harness>";
+      // the code inside is read the same way (before, every thrown code - runtime_effect_unavailable among them - became tool_error).
+      const harness=/^<harness>\s*\[error\]\s*(\S+)\s*<\/harness>$/.exec(String(text).trim());
+      if(harness)return code(harness[1])??'tool_error';
       try{return code((JSON.parse(String(text)) as {code?:unknown}).code)??'tool_error';}catch{return code(String(text).trim())??'tool_error';}
     };
     // 10/18: which tool failed, by its canonical registered name; a name this Run never offered is unregistered_tool.

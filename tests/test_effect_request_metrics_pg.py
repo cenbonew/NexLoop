@@ -142,3 +142,21 @@ def test_v29_keeps_v28_and_adds_the_effect_rules():
     assert added['enterprise_deliver_unavailable']['severity'] == 'critical'
     assert all(added[r]['severity'] == 'warning' for r in NEW if r != 'enterprise_deliver_unavailable')
     assert 'never re-order' in added['enterprise_deliver_unavailable']['purpose']
+
+
+def test_the_alert_matches_the_literals_the_host_and_the_dispatcher_write():
+    """L6 condition 2: the SQL matches the values a real failed enterprise Run carries (apps/agent-host/test/
+    enterprise-unavailable-failure.test.ts runs the real tool to them): the Host's tool name and code, kept by the dispatcher."""
+    import re
+    from nexloop_eios.runtime_dispatch import _DETAIL, _TOOL
+    root = Path(__file__).resolve().parents[1]
+    sql = next((root / 'packages/eios-core/src/eios/migrations').glob('*_effect_request_metrics.sql')).read_text()
+    host = (root / 'apps/agent-host/src/runtime-effect-tools.ts').read_text()
+    host_test = (root / 'apps/agent-host/test/enterprise-unavailable-failure.test.ts').read_text()
+    assert "j.result->>'failure_tool'='nexloop.enterprise.deliver' and j.result->>'failure_detail'='runtime_effect_unavailable'" in sql
+    assert "defineTool({name:'nexloop.enterprise.deliver'," in host and "throw new RuntimeError('runtime_effect_unavailable');" in host
+    assert "['runtime_tool_error','nexloop.enterprise.deliver','runtime_effect_unavailable']" in host_test
+    assert _TOOL.fullmatch('nexloop.enterprise.deliver') and _DETAIL.fullmatch('runtime_effect_unavailable')
+    dispatch = (root / 'packages/eios-core/src/nexloop_eios/runtime_dispatch.py').read_text()
+    assert re.search(r"if failure_detail is not None:result\['failure_detail'\]=failure_detail", dispatch)
+    assert re.search(r"if failure_tool is not None:result\['failure_tool'\]=failure_tool", dispatch)
