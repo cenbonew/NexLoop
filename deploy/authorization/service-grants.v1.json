@@ -210,6 +210,8 @@
      "purpose": "Record Claims through authz.nexloop_record_claim_extraction.", "source_task": "NX-019"},
     {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.match:1", "operations": ["execute"],
      "purpose": "Record match proposals and staged candidates.", "source_task": "NX-020"},
+    {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.supersede_duplicates:1", "operations": ["execute"],
+     "purpose": "Supersede the still-active duplicates (same statement key) of Claims a correction superseded before S-DUP-2; counts only (S-DUP design §11).", "source_task": "S-DUP-2"},
     {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:Consumer.edit:1", "operations": ["execute"],
      "purpose": "Governed formal Consumer property write of an accepted match (object/property EDIT still required per object).", "source_task": "NX-020", "follow_latest_version": true},
     {"principal": "claim_matcher", "resource_type": "action", "resource_id": "eios:action:Product.create:1", "operations": ["execute"],
