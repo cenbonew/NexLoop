@@ -169,7 +169,7 @@ def test_end_to_end_through_the_matcher_apply_path(env):
 @pytest.mark.parametrize('published_action', ['with-preference'], indirect=True)
 def test_end_to_end_through_the_extraction_recorder_then_a_later_supersede(conversations, admin):
     """The correction is recorded by authz.nexloop_record_claim_extraction (corrects_claim_id set after the insert, same transaction);
-    the corrected Claim is superseded later in its own statement; its duplicates follow at commit."""
+    the corrected Claim is superseded later in its own statement; its duplicates follow in that statement."""
     import json as _json
     from nexloop_eios.claim_store import ConversationClaimExtractor
     from nexloop_eios.conversation_extraction import SYSTEM_PROMPT
@@ -218,3 +218,46 @@ def test_a_correction_linked_after_the_supersede_still_reaches_the_duplicates(co
     assert [state(admin, d) for d in c['dups']] == ['superseded', 'unresolved', 'unresolved']
     admin.execute("update ontology.nexloop_claims set corrects_claim_id=%s where claim_id=%s", (c['dups'][0], c['fix']))
     assert [state(admin, d) for d in c['dups']] == ['superseded'] * 3
+
+
+def add_commitment(admin, c, claim, label):
+    """A commitment registered from a Claim (0111 origin claim)."""
+    cid = oid('commitment-' + label)
+    admin.execute("""insert into runtime.nexloop_commitments(tenant_id,world,commitment_id,dedupe_key,origin,claim_id,message_id,consumer_id,correlation_key,intent_id,properties)
+        select tenant_id,world,%s,%s,'claim',claim_id,source_message_id,consumer_id,correlation_key,%s,'{}' from ontology.nexloop_claims where claim_id=%s""",
+                  (cid, 'sdup2-' + label, 'sdup2-intent-' + label, claim))
+    return cid
+
+
+def exceptions(admin, commitment):
+    return admin.execute("select reason,detail->>'claim_id' from runtime.nexloop_commitment_exceptions where subject_ref=%s", ('commitment:' + commitment,)).fetchall()
+
+
+@pytest.mark.parametrize('published_action', ['with-preference'], indirect=True)
+def test_a_commitment_from_a_duplicate_is_raised_source_superseded_and_seen_in_the_same_transaction(corrected, admin):
+    c = corrected
+    commitment = add_commitment(admin, c, c['dups'][2], 'live')
+    assert exceptions(admin, commitment) == []
+    with admin.transaction():
+        admin.execute("update ontology.nexloop_claims set resolution_state='superseded' where claim_id=%s", (c['dups'][0],))
+        # Read in the same transaction, before commit: the duplicates are already superseded.
+        assert admin.execute("select count(*) from ontology.nexloop_claims where claim_id=any(%s) and resolution_state<>'superseded'", (c['dups'],)).fetchone() == (0,)
+    assert exceptions(admin, commitment) == [('source_superseded', c['dups'][2])]
+
+
+@pytest.mark.parametrize('published_action', ['with-preference'], indirect=True)
+def test_backfill_reports_the_commitment_it_would_raise_and_raises_it(corrected, admin):
+    c = corrected
+    commitment = add_commitment(admin, c, c['dups'][1], 'backfill')
+    earlier_correction(admin, c)
+    f = c['conversations']
+    with open_core(make_conninfo(f['pg'], user='nexloop_domain_worker')) as worker:
+        _, token = seed_multi_authority(admin, worker, [(ACTION, ResourceType.ACTION, Operation.EXECUTE)], identity_suffix='-claim-matcher')
+        port = lambda: ClaimDuplicateSupersedePort(worker, authenticate_service(worker, token, world='real'), f['reader'].signer)
+        dry = port().run()
+        assert dry['counts'] == {'corrected': 1, 'duplicates': 2, 'superseded': 0, 'skipped_erasure': 0, 'commitments': 1}
+        assert exceptions(admin, commitment) == []
+        done = port().run(apply=True)
+        assert done['counts'] == {'corrected': 1, 'duplicates': 2, 'superseded': 2, 'skipped_erasure': 0, 'commitments': 1}
+    assert exceptions(admin, commitment) == [('source_superseded', c['dups'][1])]
+    assert state(admin, c['dups'][1]) == 'superseded'

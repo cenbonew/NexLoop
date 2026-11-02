@@ -233,10 +233,11 @@ select count(*) from ontology.nexloop_claims s join ontology.nexloop_claims d on
 
 ### 11.6 L6 条件（S-DUP-2 条件 PASS）
 
-- **先后顺序（C1）**：核对过两条真实路径。匹配器 apply 和审核 applied 现在都走 0410 的 `authz.nexloop_record_claim_match`，都是先把提案改成 `applied`、再把 `supersedes_claim` 改为 superseded；更正 Claim 的 `corrects_claim_id` 由抽取包装函数在同一事务里、插入之后写入，比任何 apply 都早。所以当前顺序没有反。为了不依赖语句先后，两处触发器都改为**提交时触发的延迟约束触发器**（`deferrable initially deferred`），并增加一个 `corrects_claim_id` 更新触发器：被更正的 Claim 已经是 superseded、更正后补链接时，同样连带取代。
+- **先后顺序（C1）**：核对过两条真实路径。匹配器 apply 和审核 applied 现在都走 0410 的 `authz.nexloop_record_claim_match`，都是先把提案改成 `applied`、再把 `supersedes_claim` 改为 superseded；更正 Claim 的 `corrects_claim_id` 由抽取包装函数在同一事务里、插入之后写入，比任何 apply 都早。所以当前顺序没有反。两处触发器（`resolution_state` 与 `corrects_claim_id` 的更新）都是**普通的 after update、立即触发**：同一事务里取代之后接着读的路径（匹配器接着算陈述或候选、work feed touch、上下文包）在提交前就能看到重复已被取代（L6 2026-11-02，曾改为延迟触发，已改回）。`corrects_claim_id` 更新触发器负责“被更正的 Claim 已经 superseded、更正后补链接”的情形。
 - **端到端用例**：
   - `test_end_to_end_through_the_matcher_apply_path`：匹配器真实 apply 一条更正，两条重复被连带取代，追溯行的 `correction_claim_id` 是这条更正；
   - `test_end_to_end_through_the_extraction_recorder_then_a_later_supersede`：更正由 `authz.nexloop_record_claim_extraction` 写入（`corrects_existing`），之后在另一条语句里取代被更正的 Claim，重复在提交时跟着取代；
   - `test_a_correction_linked_after_the_supersede_still_reaches_the_duplicates`：先取代、后补链接，结果相同。
+- **承诺用例**：`test_a_commitment_from_a_duplicate_is_raised_source_superseded_and_seen_in_the_same_transaction`（由重复推导出的承诺在连带取代后有 `source_superseded` 的负责人提示，同事务读取已看到取代）；`test_backfill_reports_the_commitment_it_would_raise_and_raises_it`（补跑 dry-run 的 `commitments` 为 1，执行后提示出现）。
 - **承诺的连带后果**：0111 的触发器会把来源 Claim 是这些重复的承诺标记为 `source_superseded` 并提示负责人。语义上是对的，但负责人能看到。补跑的 dry-run 和执行结果里都有 `commitments`：会连带受影响的承诺数。部署单：先看 dry-run 的 `commitments`，不为 0 时先告知负责人，再执行 `--apply`。
 - **register 计数**：`nexloop.claim.supersede_duplicates:1` 是协议 Action（签名端口用的资源 id），不是发布的业务 Action，不计入 register；`test_stage_register_pg` 计数不变。
