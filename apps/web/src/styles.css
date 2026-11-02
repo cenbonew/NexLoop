@@ -691,3 +691,10 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .empty-columns{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin:0 0 var(--space-2)}
 .workbench .empty-columns .note{margin:0;flex:1 1 20em}
 .workbench .empty-columns label{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin:0;font-weight:400}
+/* K5 §2.3: the consumer profile card - the upcoming commitments first, then the properties with the object revision. */
+.workbench .profile-card h3{margin:var(--space-3) 0 var(--space-2);font-size:15px}
+.workbench .profile-card h2{margin-bottom:var(--space-2)}
+.workbench .profile-card>.note,.workbench .profile-card>div.note{margin:0 0 var(--space-2)}
+.workbench .profile-upcoming{margin:0;padding-left:1.4em;display:grid;gap:6px}
+.workbench .profile-due{font-variant-numeric:tabular-nums;font-weight:600}
+.workbench .profile-card .profile-revision{margin:0 0 6px}

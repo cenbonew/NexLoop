@@ -137,7 +137,12 @@ try{
   result.persona.consumer=await page.locator('section[aria-labelledby=consumer-persona-title] dl.facts').innerText();
   await page.screenshot({path:`${shots}/wb-consumer-persona-1440.png`,fullPage:true});
   // K4l: the consumer's properties say "no value yet" vs "no permission"; the Object page collapses columns with no value on it.
-  result.k4l={consumer_props:await page.locator('#consumer-properties').locator('xpath=..').innerText()};
+  await page.locator('.profile-card .profile-revision, .profile-card .profile-upcoming, .profile-card h3 + p.note').first().waitFor({timeout:20000});
+  await page.locator('.profile-card [data-state="loading"]').waitFor({state:'detached',timeout:20000});
+  result.k4l={consumer_props:await page.locator('section.profile-card').innerText()};
+  // K5 §2.3: the profile card - upcoming commitments first, then the properties with the object revision.
+  result.k5_profile={heads:await page.locator('section.profile-card h3').allInnerTexts(),revision:await page.locator('.profile-card .profile-revision').count()?await page.locator('.profile-card .profile-revision').innerText():null};
+  await page.locator('section.profile-card').screenshot({path:`${shots}/wb-consumer-profile-1440.png`});
   await page.goto('/workbench/ontology/objects');await page.locator('#world-instance-type').waitFor({timeout:20000});
   await page.selectOption('#world-instance-type','Consumer');await page.locator('table[aria-label="Consumer Object"]').waitFor({timeout:20000});
   const objectHeads=()=>page.locator('table[aria-label="Consumer Object"] thead th').allInnerTexts();

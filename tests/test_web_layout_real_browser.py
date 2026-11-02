@@ -131,6 +131,9 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # columns empty on the page, keeps Object and the record columns, and 显示空列 brings the property columns back.
     k4l = observed['k4l']
     assert '这位客户还没有任何属性值' in k4l['consumer_props'] and '读取权限' not in k4l['consumer_props'], k4l
+    # K5 §2.3: the profile card leads with the upcoming commitments, then the properties under the object revision.
+    k5 = observed['k5_profile']
+    assert k5['heads'] == ['即将发生的承诺', '属性'] and k5['revision'] and k5['revision'].startswith('修订 r'), k5
     assert k4l['note'] and '还没有任何属性值' in k4l['note'], k4l
     assert k4l['heads'] == ['Object', 'Schema 版本', '修订', '更新时间'] and k4l['dashes'] == 0, k4l
     # Locally the page may carry no property entry at all (then no switch); with entries, 显示空列 shows them.
