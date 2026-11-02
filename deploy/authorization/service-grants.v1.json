@@ -232,6 +232,8 @@
      "purpose": "Read the state of one pending reply; start its fallback reply Run or escalate it with evidence (0109).", "source_task": "NX-025"},
     {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:nexloop.contact.read:1", "operations": ["execute"],
      "purpose": "Read contact restrictions and reply escalations (query port before NX-028).", "source_task": "NX-025"},
+    {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:nexloop.contact.refusal_backfill:1", "operations": ["execute"],
+     "purpose": "Re-check earlier inbound messages with the current ADR-023 refusal rules and restrict through the inbound trigger's control writer; counts only (plan claim-to-consumer-property §11.1).", "source_task": "S-CLAIM"},
     {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:NexLoop.feed.takeover-expiry:1", "operations": ["execute"],
      "purpose": "Lease human takeovers when they reach expires_at (0152).", "source_task": "NX-028"},
     {"principal": "reply_guarantor", "resource_type": "action", "resource_id": "eios:action:nexloop.takeover.expire:1", "operations": ["execute"],

@@ -20,6 +20,8 @@ from test_restore_fence_pg import restoring  # noqa: F401
 pytestmark = pytest.mark.parametrize('execution_plan', ['commitment-service'], indirect=True)
 ROOT = Path(__file__).resolve().parents[1] / 'deploy/configuration'
 V1, V2 = (load_refusal_rules(ROOT / f'contact-refusal-rules.v{n}.json') for n in (1, 2))
+# v3 keeps v2's marketing_only exception; the hits carry the current version.
+CURRENT = 3
 
 
 def service_reaches(c, admin, origin):
@@ -28,11 +30,11 @@ def service_reaches(c, admin, origin):
 
 def test_v2_is_published_beside_v1_and_the_switch_is_recorded(outreach, admin):
     rows = dict(admin.execute('select version,definition from control.nexloop_contact_refusal_rules').fetchall())
-    assert rows == {1: V1, 2: V2}  # v1 unchanged, v2 the published file
+    assert {k: v for k, v in rows.items() if k <= 2} == {1: V1, 2: V2}  # v1 unchanged, v2 the published file (v3: test_contact_refusal_v3_pg)
     assert V2['marketing_only'] == {'rule_ids': ['unsubscribe', 'sms-stop-keyword'], 'window_days': 30}
     assert [r['id'] for r in V2['refuse']] == ['stop-contact', 'unsubscribe', 'block-or-erase', 'threat-if-contacted', 'sms-stop-keyword']
     assert V2['uncertain'] == V1['uncertain'] and V2['exclusions'] == V1['exclusions']
-    assert admin.execute('select from_version,to_version,decision_ref from control.nexloop_contact_refusal_rule_switches').fetchall() == [
+    assert admin.execute('select from_version,to_version,decision_ref from control.nexloop_contact_refusal_rule_switches where to_version=2').fetchall() == [
         (1, 2, 'adr/ADR-023-explicit-refusal-hard-stop.md §4; docs/implementation/outreach-impl-plan.md §7')]
     with pytest.raises(Exception, match='append-only'):
         admin.execute("update control.nexloop_contact_refusal_rule_switches set decision='x'")
@@ -44,7 +46,7 @@ def test_right_after_marketing_these_words_stop_marketing_only(marketing, admin,
     first = sent(c, admin)
     c.inbound(body)
     assert not restricted(admin, c)
-    assert admin.execute('select source,rule_version,rule_id,outreach_intent from runtime.nexloop_marketing_optouts').fetchall() == [('refusal_rule', 2, rule, first)]
+    assert admin.execute('select source,rule_version,rule_id,outreach_intent from runtime.nexloop_marketing_optouts').fetchall() == [('refusal_rule', CURRENT, rule, first)]
     assert admin.execute('select count(*) from control.nexloop_contact_refusal_hits where consumer_id=%s', (c['consumer'],)).fetchone() == (0,)
     assert row(admin, sent(c, admin, origin='owner:summer'))[:2] == ('refused', 'marketing_opted_out')
     assert service_reaches(c, admin, 'commitment:synthetic-1')  # service outreach goes on
@@ -57,7 +59,7 @@ def test_outside_the_window_or_when_the_latest_was_not_marketing_everything_stop
         admin.execute('update runtime.nexloop_outreach_sends set admitted_at=admitted_at-%s where intent_id=%s', (timedelta(days=31), old))
     c.inbound('退订')
     assert restricted(admin, c) and optouts(admin) == []
-    assert admin.execute('select rule_version,rule_id from control.nexloop_contact_refusal_hits where consumer_id=%s', (c['consumer'],)).fetchone() == (2, 'unsubscribe')
+    assert admin.execute('select rule_version,rule_id from control.nexloop_contact_refusal_hits where consumer_id=%s', (c['consumer'],)).fetchone() == (CURRENT, 'unsubscribe')
 
 
 def test_when_the_latest_proactive_message_was_service_everything_stops(marketing, admin):
@@ -83,7 +85,7 @@ def test_other_refusals_and_mixed_messages_stop_everything_even_after_marketing(
     assert restricted(admin, c)
     assert not any(o[1] == 'refusal_rule' for o in optouts(admin))  # a full-stop hit wins: no marketing-only record
     hit = admin.execute('select rule_version,rule_id from control.nexloop_contact_refusal_hits where consumer_id=%s', (c['consumer'],)).fetchone()
-    assert hit[0] == 2 and (hit[1] == rule or rule == 'annoyed')
+    assert hit[0] == CURRENT and (hit[1] == rule or rule == 'annoyed')
     assert row(admin, sent(c, admin, purpose='commitment_followup', origin='commitment:synthetic-1'))[:2] == ('refused', 'contact_restricted')
 
 
