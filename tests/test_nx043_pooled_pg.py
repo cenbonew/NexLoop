@@ -4,7 +4,7 @@ refused; a Consumer in two rounds counts once (earliest allocation); a pool chan
 Allocations are written directly (X4 caps a round at 20 candidates); synthetic ids."""
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import psycopg
 import pytest
@@ -12,14 +12,13 @@ from psycopg.types.json import Jsonb
 
 from support.tenants import TENANT_A
 from test_nx043_experiments_pg import db, publish, ready, register, registration, strategy  # noqa: F401
-from test_nx043_reports_pg import pay, replica, sha
+from test_nx043_reports_pg import pay, replica, sha, today
 
-TODAY = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 PAYMENT = {'key': 'payment', 'direction': 'increase'}
 
 
 def day(n):
-    return TODAY - timedelta(days=n)
+    return today() - timedelta(days=n)
 
 
 def online(admin, experiment, **changes):
@@ -41,7 +40,7 @@ def pooled(admin, experiments, as_of=None):
     return admin.execute("select control.nexloop_governed_read_experiment_report(%s,'real','owner-principal','owner-subject',%s,%s)",
                          (TENANT_A, 'intent-' + uuid.uuid4().hex[:12], Jsonb({'operation': 'read_experiment_report', 'request_id': uuid.uuid4().hex,
                                                                               'kind': 'pooled', 'experiment_ids': experiments,
-                                                                              'as_of': (as_of or TODAY).isoformat()}))).fetchone()[0]
+                                                                              'as_of': (as_of or today()).isoformat()}))).fetchone()[0]
 
 
 @pytest.fixture
@@ -59,7 +58,7 @@ def rounds(ready, db):  # noqa: F811
 def test_two_rounds_of_twenty_report_together(rounds):
     admin = rounds['admin']
     assert rounds['notice'].startswith('single_round_below_minimum_sample')  # the registration said so (and was not refused)
-    single = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'pool.r1', TODAY, 'owner-principal')).fetchone()[0]
+    single = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'pool.r1', today(), 'owner-principal')).fetchone()[0]
     assert single['reason'] == 'insufficient_sample'
     r = pooled(admin, ['pool.r1', 'pool.r2'])
     assert (r['conclusion'], r['level'], r['experiment_ids']) == ('reported', 'pooled', ['pool.r1', 'pool.r2'])
@@ -89,7 +88,7 @@ def test_a_consumer_in_both_arms_is_left_out_and_one_arm_twice_counts_once(round
     # L6 pooled review 2.2: the 20 exposed to both strategies (round 1 control, round 3 candidate) are in neither arm.
     assert r['scores']['candidate']['matured'] == 40 and r['scores']['control']['matured'] == 40
     assert r['left_out'] == {'erased': 'none', 'cross_allocated': 'some'}
-    single = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'pool.r3', TODAY, 'owner-principal')).fetchone()[0]
+    single = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'pool.r3', today(), 'owner-principal')).fetchone()[0]
     assert single['left_out'] == {'erased': 'none', 'cross_allocated': 'some'}  # round 3 alone leaves them out too
 
 
@@ -104,7 +103,7 @@ def test_a_pool_change_below_the_minimum_increase_gives_no_new_result(rounds):
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='as_of_not_after_last'), admin.transaction():
         pooled(admin, ['pool.r1', 'pool.r2'], day(2))
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='window_not_on_grid'), admin.transaction():
-        pooled(admin, ['pool.r1', 'pool.r2'], TODAY - timedelta(hours=3))
+        pooled(admin, ['pool.r1', 'pool.r2'], today() - timedelta(hours=3))
     allocate(admin, 'pool.r4', 'candidate', people('pool.r4-c2', 10), days_ago=16)
     allocate(admin, 'pool.r4', 'control', people('pool.r4-k2', 10), days_ago=16)
     assert pooled(admin, ['pool.r1', 'pool.r2', 'pool.r4'])['scores']['candidate']['matured'] == 55  # 15 more per arm
@@ -147,7 +146,7 @@ def test_an_erased_consumer_leaves_numerator_and_denominator(relaxed):
     assert after['left_out'] == {'erased': 'some', 'cross_allocated': 'none'}
     assert erased not in json.dumps(after) and 'pseudonym' not in json.dumps(after)
     # The single-experiment report leaves the tombstone out too.
-    single = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'pool.r1', TODAY, 'owner-principal')).fetchone()[0]
+    single = admin.execute('select runtime.nexloop_experiment_report_freeze(%s,%s,%s,%s)', (TENANT_A, 'pool.r1', today(), 'owner-principal')).fetchone()[0]
     assert single['left_out'] == {'erased': 'some', 'cross_allocated': 'none'}
 
 
