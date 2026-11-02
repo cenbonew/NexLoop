@@ -194,11 +194,14 @@ def committed(sequence):
     return {'items': [{'id': str(sequence), 'type': 'message.accepted', 'data': {'sequence': sequence}}]}
 
 
-def test_stream_survives_a_transient_read_failure(browser, identity, tmp_path):
+def test_stream_survives_a_transient_read_failure(browser, identity, tmp_path, caplog):
     empty = {'items': []}
+    caplog.set_level('WARNING', logger='nexloop.webchat')
     text, reads = scripted_stream(browser, identity, tmp_path, [empty, RuntimeError('synthetic'), RuntimeError('synthetic'), committed(1), empty], 5)
     assert 'event: unavailable' not in text and 'id: 1\nevent: committed\n' in text and 'synthetic' not in text
     assert reads == [0, 0, 0, 0, 1]
+    logged = [r.getMessage() for r in caplog.records if r.name == 'nexloop.webchat']
+    assert logged == ["events read failed {'reason': 'RuntimeError', 'consecutive': 1}", "events read failed {'reason': 'RuntimeError', 'consecutive': 2}"]
 
 
 def test_stream_ends_after_consecutive_failures_or_a_signed_out_session(browser, identity, tmp_path):

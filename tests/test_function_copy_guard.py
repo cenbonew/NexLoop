@@ -228,6 +228,15 @@ REGISTRY = [
     *[Allowed('human_questions', name, 'K4b: run-outcome 1.1 with its question (outcome port) / the questions_expire verb (retention keeper); nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
       for name, edits in HQ_EDITS.items()],
+    # AUTH-FP (browser_fingerprint): the directory hash covers only the session's and the account's authority-deciding keys.
+    Allowed('browser_fingerprint', 'authz.nexloop_browser_identity_snapshot',
+            'AUTH-FP: the session and account of the directory hash projected on authz.nexloop_browser_fingerprint_*_keys(); nothing else',
+            ((r"'session',\(select jsonb_object_agg\(e\.key,e\.value\) from jsonb_each\(b\) e where e\.key=any\(authz\.nexloop_browser_fingerprint_session_keys\(\)\)\)", "'session',b"),
+             (r"'account',\(select jsonb_object_agg\(e\.key,e\.value\) from jsonb_each\(acc\) e where e\.key=any\(authz\.nexloop_browser_fingerprint_account_keys\(\)\)\)", "'account',acc"))),
+    Allowed('browser_fingerprint', 'authz.nexloop_browser_authority_fact_snapshot',
+            'AUTH-FP: the browser_authentication record hash without expires_at; definer search_path gains pg_temp; nothing else',
+            ((r"convert_to\(\(case when p_kind='browser_authentication' then value-'expires_at' else value end\)::text,'UTF8'\)", "convert_to(value::text,'UTF8')"),),
+            PG_TEMP),
     # K4h K1 (plan_question_context_v7): the outcome port refuses a question from a Run whose context pack is not v7.
     *[Allowed('plan_question_context_v7', name, 'K4h K1: a 1.1 question only from a Run bound to context-pack v7; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
