@@ -136,6 +136,16 @@ try{
   await page.getByText('下次对话起',{exact:true}).waitFor({timeout:20000});
   result.persona.consumer=await page.locator('section[aria-labelledby=consumer-persona-title] dl.facts').innerText();
   await page.screenshot({path:`${shots}/wb-consumer-persona-1440.png`,fullPage:true});
+  // K4l: the consumer's properties say "no value yet" vs "no permission"; the Object page collapses columns with no value on it.
+  result.k4l={consumer_props:await page.locator('#consumer-properties').locator('xpath=..').innerText()};
+  await page.goto('/workbench/ontology/objects');await page.locator('#world-instance-type').waitFor({timeout:20000});
+  await page.selectOption('#world-instance-type','Consumer');await page.locator('table[aria-label="Consumer Object"]').waitFor({timeout:20000});
+  const objectHeads=()=>page.locator('table[aria-label="Consumer Object"] thead th').allInnerTexts();
+  result.k4l.note=await page.locator('.empty-columns .note').count()?await page.locator('.empty-columns .note').innerText():null;
+  result.k4l.heads=await objectHeads();result.k4l.dashes=await page.locator('table[aria-label="Consumer Object"] tbody td .note').count();
+  await page.screenshot({path:`${shots}/wb-objects-empty-1440.png`,fullPage:true});
+  if(await page.locator('.empty-columns input[type=checkbox]').count()){await page.locator('.empty-columns input[type=checkbox]').check();result.k4l.heads_all=await objectHeads();
+    await page.screenshot({path:`${shots}/wb-objects-all-1440.png`,fullPage:true});await page.locator('.empty-columns input[type=checkbox]').uncheck();}
   await page.goto('/workbench/personas');await page.locator('[role=tab]',{hasText:'AI 身份披露'}).click();
   await page.locator('#ai-mode').waitFor({timeout:20000});await page.screenshot({path:`${shots}/wb-personas-disclosure-1440.png`,fullPage:true});
   // The menu below 1024 px: a visible button; the navigation hidden until it is opened; a click on an entry navigates and closes it.

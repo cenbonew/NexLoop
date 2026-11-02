@@ -41,7 +41,7 @@ test('the order: conversations, commitments, properties (F02), operations, perso
   const html=page(client(detail({conversations:[conv(1)],commitments:['d'.repeat(64)]})));
   expect(headings(html)).toEqual(['会话','承诺','属性','对这位客户的操作','运营人设与沟通偏好','联系限制']);
   expect(html).toMatch(/<section class="detail-section detail-empty" aria-labelledby="consumer-restriction"><h2 id="consumer-restriction">联系限制<\/h2><p class="note">无<\/p><\/section>/);
-  expect(html).toMatch(/<h2 id="consumer-properties">属性<\/h2><p class="note">没有可读的 Property<\/p>/);
+  expect(html).toMatch(/<h2 id="consumer-properties">属性<\/h2><p class="note">这位客户还没有任何属性值。属性来自企业系统同步或受治理的 Action；对话里客户说过的话先作为 Claim 记录。<\/p>/);
   expect(html).not.toContain('这位客户受联系限制');
   const empty=page(client(detail()));
   expect(empty).toContain('<h2 id="consumer-conversations">会话</h2><p class="note">还没有会话</p>');
@@ -58,7 +58,7 @@ test('an active restriction comes second with a warning; a paused customer is sa
 });
 
 test('withheld property groups are still named when nothing else is readable; forbidden properties are one line',()=>{
-  expect(page(client(detail({properties:{status:'ok',values:{},withheld:['finance']}})))).toMatch(/没有可读的 Property；负责人标为受限的属性组不显示：<span><code class="id-code">finance<\/code>/);
+  expect(page(client(detail({properties:{status:'ok',values:{},withheld:['finance']}})))).toMatch(/没有你能读取的属性值；负责人标为受限的属性组不显示：<span><code class="id-code">finance<\/code>/);
   expect(page(client(detail({properties:{status:'forbidden',values:null,withheld:[]}})))).toContain('<h2 id="consumer-properties">属性</h2><p class="note">当前账号没有 Property 读取权限');
 });
 
