@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:workbench-message-trace",
+  "title": "workbench-message-trace",
+  "description": "K5 (design §2.4, Q4 no trace table): the processing trace of one message, GET /api/v1/workbench/messages/{id}/trace (purpose message_trace; world real only, other worlds 404 real_world_only; requires READ of the message's conversation, an erasing consumer 404). Always the nine steps in order: message, relay, context, run, action, receipt, extraction, matching, ontology_update, each found by the existing correlation keys. `skipped` = not applicable, `none` = expected but not recorded, `restricted` = the member's role does not read that step (action and receipt follow the /effect-determination roles). Identifiers, codes and times only; at most 10 refs a step, `more` counts the rest. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "message_id",
+    "conversation_id",
+    "world",
+    "steps"
+  ],
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "conversation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "world": {
+      "const": "real"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step",
+          "status",
+          "at",
+          "finished_at",
+          "refs",
+          "more",
+          "code"
+        ],
+        "properties": {
+          "step": {
+            "enum": [
+              "message",
+              "relay",
+              "context",
+              "run",
+              "action",
+              "receipt",
+              "extraction",
+              "matching",
+              "ontology_update"
+            ]
+          },
+          "status": {
+            "enum": [
+              "done",
+              "running",
+              "failed",
+              "skipped",
+              "none",
+              "restricted"
+            ]
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refs": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^(message|run|context|model|intent|receipt|claim|match|proposal):[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+            }
+          },
+          "more": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.:-]{0,79}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

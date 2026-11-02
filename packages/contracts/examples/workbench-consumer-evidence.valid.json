@@ -1,0 +1,127 @@
+{
+  "consumer_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "world": "real",
+  "generated_at": "2026-11-02T08:00:00Z",
+  "group_limit": 25,
+  "groups": [
+    {
+      "kind": "claim",
+      "total": 4,
+      "invisible": 2,
+      "erased": null,
+      "collapsed": 0,
+      "restricted_reason": null,
+      "next_cursor": null,
+      "items": [
+        {
+          "claim_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "state": "active",
+          "predicate": "prefers morning delivery",
+          "epistemic_kind": "preference",
+          "resolution_state": "resolved",
+          "confidence": 0.8,
+          "source": {
+            "conversation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sequence": 3,
+            "speaker": "consumer",
+            "quote": null,
+            "quote_status": "reviewer_only"
+          },
+          "successor_claim_ids": []
+        },
+        {
+          "claim_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "state": "corrected",
+          "predicate": null,
+          "epistemic_kind": "user_statement",
+          "resolution_state": "unresolved",
+          "confidence": null,
+          "source": {
+            "conversation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sequence": 1,
+            "speaker": "consumer",
+            "quote": null,
+            "quote_status": "corrected"
+          },
+          "successor_claim_ids": [
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "commitment",
+      "total": 1,
+      "invisible": 0,
+      "erased": null,
+      "collapsed": 0,
+      "restricted_reason": null,
+      "next_cursor": null,
+      "items": [
+        {
+          "commitment_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "revision": 1,
+          "status": "open",
+          "due_at": "2026-11-02T08:00:00Z",
+          "origin": "claim",
+          "claim_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "replaces_commitment_id": null
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "total": 1,
+      "invisible": 0,
+      "erased": null,
+      "collapsed": 0,
+      "restricted_reason": null,
+      "next_cursor": null,
+      "items": [
+        {
+          "intent_id": "intent-1",
+          "operation": "commitment.fulfil",
+          "state": "succeeded",
+          "created_at": "2026-11-02T08:00:00Z"
+        }
+      ]
+    },
+    {
+      "kind": "outreach",
+      "total": 2,
+      "invisible": 2,
+      "erased": null,
+      "collapsed": 0,
+      "restricted_reason": "owner_only",
+      "next_cursor": null,
+      "items": []
+    },
+    {
+      "kind": "candidate",
+      "total": 0,
+      "invisible": 0,
+      "erased": null,
+      "collapsed": 0,
+      "restricted_reason": null,
+      "next_cursor": null,
+      "items": []
+    }
+  ],
+  "edges": [
+    {
+      "source": "commitment:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "target": "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rel": "derived_from"
+    },
+    {
+      "source": "claim:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "target": "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rel": "corrected_by"
+    },
+    {
+      "source": "action:intent-1",
+      "target": "commitment:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "rel": "fulfils"
+    }
+  ]
+}

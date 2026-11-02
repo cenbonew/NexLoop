@@ -696,3 +696,36 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .empty-columns{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin:0 0 var(--space-2)}
 .workbench .empty-columns .note{margin:0;flex:1 1 20em}
 .workbench .empty-columns label{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin:0;font-weight:400}
+/* K5 §2.3: the consumer profile card - the upcoming commitments first, then the properties with the object revision. */
+.workbench .profile-card h3{margin:var(--space-3) 0 var(--space-2);font-size:15px}
+.workbench .profile-card h2{margin-bottom:var(--space-2)}
+.workbench .profile-card>.note,.workbench .profile-card>div.note{margin:0 0 var(--space-2)}
+.workbench .profile-upcoming{margin:0;padding-left:1.4em;display:grid;gap:6px}
+.workbench .profile-due{font-variant-numeric:tabular-nums;font-weight:600}
+.workbench .profile-card .profile-revision{margin:0 0 6px}
+/* K5 §2.2: the consumer's evidence graph - five sectors around the consumer, the chosen node's evidence chain beside it. */
+.workbench .evidence-groups{list-style:none;margin:0 0 var(--space-2);padding:0;display:grid;gap:4px}
+.workbench .evidence-groups li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.workbench .evidence-groups .btn-secondary{min-height:32px;padding:0 10px;margin:0}
+.workbench .evidence-body{display:grid;gap:var(--space-3)}
+.workbench .evidence-body.with-aside{grid-template-columns:minmax(0,1fr) minmax(260px,340px)}
+.workbench .evidence-graph{width:100%;max-width:660px;height:auto;display:block}
+.workbench .evidence-spoke{stroke:var(--border);stroke-width:1}
+.workbench .evidence-edge{stroke:var(--accent);stroke-width:2}
+.workbench .evidence-center circle{fill:var(--surface);stroke:var(--text);stroke-width:2}
+.workbench .evidence-center text,.workbench .evidence-node text{font-size:13px;fill:var(--text)}
+.workbench .evidence-sector{font-size:12px;fill:var(--muted)}
+.workbench .evidence-node{cursor:pointer}
+.workbench .evidence-node rect{fill:var(--surface);stroke:var(--node-hue);stroke-width:1.5}
+.workbench .evidence-node.selected rect,.workbench .evidence-node:focus-visible rect{stroke-width:3}
+.workbench .evidence-node:focus{outline:none}
+.workbench .evidence-panel{min-width:0;border:1px solid var(--border);border-radius:8px;padding:var(--space-3)}
+.workbench .evidence-panel .card-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.workbench .evidence-panel h3{margin:0;font-size:15px}
+@media (max-width:1023px){.workbench .evidence-body.with-aside{grid-template-columns:minmax(0,1fr)}}
+/* K5 §2.4 / §2.5: the conversation's metrics and a message's nine-step trace. */
+.workbench .trace-toggle{margin-top:4px}
+.workbench .trace-steps{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:4px}
+.workbench .trace-steps li{display:grid;grid-template-columns:8em auto 11em minmax(0,1fr);gap:8px;align-items:baseline}
+.workbench .trace-detail code{margin-right:4px}
+@media (max-width:640px){.workbench .trace-steps li{grid-template-columns:7em auto;}.workbench .trace-time,.workbench .trace-detail{grid-column:1/-1}}

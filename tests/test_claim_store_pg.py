@@ -288,6 +288,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # its pinned-Claim requirement is unchanged. K4c 0398 moves that body into the shared v6/v7 sections core with the same
         # pinned-Claim requirement; the v7 human_answers items are staff answers, not Claims. No Claim value is read or projected.
         '_context_degraded_any_run','_context_pack_v7',
+        # K5 0406 returns a consumer's, a conversation's or a message's Claims (identifiers, kinds, states, the matched type and
+        # property refs, the predicate and quote) to the workbench evidence views, which show the predicate and quote only as raw
+        # evidence under the per-node rules (matched property READ, reviewer-only quote); no structured value, nothing formal.
+        '_k5_evidence_views',
         # Operator persona 0227 copies the latest erasure step (0145, Claim erasure unchanged) to add the persona tables to the
         # consumer phase; no Claim value is read or projected.
         '_operator_persona',
