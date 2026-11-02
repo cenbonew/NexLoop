@@ -215,6 +215,9 @@ REGISTRY = [
             ((r",'effect_calls','effect_ambiguous','effect_unavailable'\]\s*when 'host_op' then array\['calls','ambiguous','unavailable'\]", ']'),
              (r"\s*or \(p_kind='host_op' and p_service not in \('effect_submit','enterprise_submit','effect_find','incentive'\)\)", ''),
              (r"\('guard','guard_op','relay_step','api','host_op'\)", "('guard','guard_op','relay_step','api')"))),
+    # K5 duplicate folding (0413): runtime.nexloop_k5_claims also returns each Claim's S-DUP statement key (null when erased); nothing else.
+    Allowed('k5_claim_statement_key', 'runtime.nexloop_k5_claims', 'the statement key for display folding (S-DUP 0412 key, null when erased)',
+            ((r"'statement_key',\s*case\s+when\s+c\.value\s*\?\s*'erased'\s+then\s+null\s+else\s+ontology\.nexloop_claim_statement_key\([^)]*\)\s+end,\s*", ''),)),
     # NX-057 R0 (effect_failures): the three paths that fail an effect intent write its failure row; nothing else.
     *[Allowed('effect_failures', name, 'NX-057 R0: the failure row (reason and evidence ids) in the same transaction; nothing else',
               ((r'\s*insert into runtime\.nexloop_effect_failures\(.*?\);', ''),))
