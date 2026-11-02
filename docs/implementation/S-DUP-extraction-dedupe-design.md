@@ -78,3 +78,53 @@ select left(source_message_id,12), span_start, span_end, epistemic_kind, polarit
 - 上下文从“最近 50 条全量”降到“目标加最多 10 条上下文”，模型可能看漏更早的指代。`context` 设为参数，可以按回归结果调大。
 - 模型可能不遵守 `context: true`。由 §2 的服务端守卫兜住，代价只是被丢弃的 Claim 计入 rejected。
 - `existing_claims` 会把上下文消息上已有 Claim 的原文再交给模型一次。这些原文本来就在上下文消息正文里，不增加新的数据暴露。
+
+## 9. L6 条件（2026-11-02，条件 PASS）与实现
+
+本节覆盖 §2、§3 中与它冲突的写法。实现在同一分支，迁移临时号 0411（`extraction_target_context`）和 0412（`extraction_dedupe`）。
+
+### C1 existing_claims 的范围
+
+- `existing_claims` 不随 10 条上下文走，而是取**这个会话当前有效的 Claim**：显式、未被取代、取值未擦除、有来源消息；按来源序号取最近 30 条（`claim_store.EXISTING_CLAIMS_LIMIT`），在 payload 中按 kind 分组，ref 为 `e1`、`e2`……
+- 模型用 `corrects_existing: "<ref>"` 指回 10 条之前的内容。客户端（`normalize`）和服务端（0412 的包装函数）各校验一次：更正的种类必须是 correction；目标属于同一会话、不是 hypothesis、未擦除、未被取代、来源消息早于本消息。窗口外的消息不在本窗口的有效顺序里，所以这里按受理序号比较。
+- 只有带上下文的窗口才附 existing_claims。冻结集都是单窗口，payload 不变。
+- 用例：`test_extraction_dedupe_pg::test_context_is_never_extracted_and_a_correction_reaches_a_claim_outside_the_window`，被更正的 Claim 在 10 条上下文之前。
+
+### C2 去重键改为包含 modality 和“有无 condition”
+
+- §3 中“modality 不同算同一条、保留先记录的”**作废**。键为（消息、原文区间、kind、polarity、**modality**、**是否有 condition**、规范化取值）。
+- 所以先 requested“只接收站内消息可以吗？”、后 asserted“只接收站内消息”会是两条，后一条进入 0228 偏好并生效。用例：`test_a_requested_then_asserted_statement_is_two_claims_and_the_later_one_counts`。
+- 规范化取值：`ontology.nexloop_claim_value_key`（0412）与 `conversation_extraction.normalize_value_key` 一致。取值类型是键的一部分，所以字符串 `"3"` 和数字 `3` 不同。字符串去掉所有空白并转小写，所以 `"AB 12"` 等于 `"ab12"`，`" 站内消息 "` 等于 `"站内消息"`。其他类型（数字、布尔、金额）按 JSON 比较。用例覆盖“取值不同但规范化后相同”会被合并，以及 `"3"` 与 `3` 不会被合并。
+
+### C3 部署顺序（部署单）
+
+1. 停止 claim-extraction-worker（见 C4，不是必须，但这样最简单）。
+2. 备份后执行迁移 0411、0412：兜底（0412）**不晚于** worker 升级。
+3. 升级并启动 claim-extraction-scheduler 和 claim-extraction-worker（backend 镜像）。
+4. 验收：§6 的查询，另查一次旧任务处理期间新增的 `/5` Claim 有没有重复：
+
+```sql
+select left(source_message_id,12), span_start, span_end, epistemic_kind, polarity, modality, (condition_text<>'') has_condition,
+       ontology.nexloop_claim_value_key(value), count(*)
+  from ontology.nexloop_claims
+ where tenant_id='stage' and world='real' and extractor_version='nx019-extractor/5'
+ group by 1,2,3,4,5,6,7,8 having count(*)>1;
+```
+
+预期 0 行。
+
+5. 主修部署之后，才执行 2 号线的渠道偏好重抽：`contact_channel_reextract.py --apply`。它使用部署代码中的提取器版本，输出中的 `extractor_version` 必须是 `nx019-extractor/5`，否则停下。先 dry-run。
+
+### C4 旧 worker 与新载荷
+
+- 旧 worker（`/4`）只读 `payload['message_ids']`，忽略 `context_message_ids`。它会把目标当作完整窗口来抽取，没有上下文，**不会进死信**。0412 之后，它写入的重复也会被去重拦下。
+- 新 worker 拿到 0411 之前入队的旧任务（没有 `context_message_ids`）时，按全部为目标处理。
+- 所以不是必须先停 worker。部署单仍建议按 C3 停一下，迁移完与新 worker 一起起来，避免升级期间旧 worker 在没有上下文的情况下处理窗口。
+
+### 其他
+
+- AT-064 白名单加入 `_extraction_target_context` 和 `_extraction_dedupe`，并写明理由（`tests/test_claim_store_pg.py`）。
+- 冻结集 `tests/data/nx019_extraction_cases.json` 是回归门槛，在 `/5` 下全部通过，用例文件未改动。
+- 折叠视图（§5）暂不做，等负责人决定。
+- copy guard：0411 对 0069 的取窗函数、0412 对 0066 记录函数的改动，登记在 `tests/support/s_dup_edits.py`。0115 的包装函数改名为 `..._v0115`，由新的包装函数替代（改名后重建，不算 redefinition）。
+- 已知局限：取窗仍以 `window` 为目标上限。一次积压超过 `window` 条待抽消息时，最早的那些会被 mark 而不抽取，这与原来的滑动窗口相同。

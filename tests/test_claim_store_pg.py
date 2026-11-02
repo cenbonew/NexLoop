@@ -298,6 +298,11 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # Contact preferences 0228 read the consumer's own preference Claims (predicate vocabulary, polarity, short value) to refuse
         # a contact at dispatch and to show them to the model; never a formal value, nothing projected into business state.
         '_contact_preferences',
+        # S-DUP 0411 splits extraction windows into targets and context (the feed port; no Claim is read). 0412 makes the recorder link an
+        # already recorded identical statement instead of writing it again (it reads span, kind, polarity, modality, condition presence and
+        # value of the same Message's Claims), lets a correction point at an earlier current Claim of the same Conversation and refuses a
+        # Claim citing a context Message; claims stay evidence, nothing becomes formal or is projected.
+        '_extraction_target_context','_extraction_dedupe',
         # Contact channel re-extraction 0408 reads predicate, quote, kind, speaker and source Message of consumer preference/constraint Claims
         # that the 0228 vocabulary cannot read, only to choose extraction windows; it returns Message ids and counts, never a Claim value or
         # quote, writes nothing, and the extractor records new evidence Claims as before (plan claim-to-consumer-property §8.4).

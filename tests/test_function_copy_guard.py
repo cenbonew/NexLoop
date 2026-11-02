@@ -19,6 +19,7 @@ from support.remediation_r2_edits import EDITS as R2_EDITS
 from support.human_questions_edits import EDITS as HQ_EDITS
 from support.plan_question_v7_edits import EDITS as PQ_EDITS
 from support.claim_auto_write_edits import EDITS as AW_EDITS
+from support.s_dup_edits import FEED as SDUP_FEED, RECORDER as SDUP_RECORDER
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -266,6 +267,14 @@ REGISTRY = [
     *[Allowed('claim_auto_write', name, 'auto-write whitelist: a proposal outside it is recorded for review and never moved to applying (and pg_temp last in search_path); nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)), PG_TEMP)
       for name, edits in AW_EDITS.items()],
+    # S-DUP (extraction_target_context / extraction_dedupe): the feed port splits windows into targets and context; the 0066 recorder
+    # links an already recorded identical statement instead of writing it again.
+    *[Allowed('extraction_target_context', name, 'S-DUP: due returns the pending targets and up to `context` earlier Messages as context (and pg_temp last in search_path); nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)), PG_TEMP)
+      for name, edits in SDUP_FEED.items()],
+    *[Allowed('extraction_dedupe', name, 'S-DUP: the same statement (span, kind, polarity, modality, condition presence, normalized value) is linked, not written again (and pg_temp last in search_path); nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)), PG_TEMP)
+      for name, edits in SDUP_RECORDER.items()],
     # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
     *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))

@@ -16,8 +16,8 @@ from zoneinfo import ZoneInfo
 
 from nexloop_eios.time_normalization import merge as merge_time
 
-EXTRACTOR_VERSION='nx019-extractor/4'
-PROMPT_VERSION='nx019-conversation-extraction-prompt/4'
+EXTRACTOR_VERSION='nx019-extractor/5'
+PROMPT_VERSION='nx019-conversation-extraction-prompt/5'
 EPISTEMIC_KINDS=('user_statement','preference','constraint','intent','need_problem','commitment','hypothesis','correction')
 FORBIDDEN_KINDS=('verified_fact',)
 MODALITIES=('asserted','conditional','tentative','requested')
@@ -58,6 +58,9 @@ SYSTEM_PROMPT="""<prompt>
        native.webchat(站内消息/这里/App 内)、phone、sms、email、wechat 之一；只有排他的说法("只要/只接收/只用 X")才是 polarity=affirmed，
        它会停掉其他渠道；"也可以用/可以用 X 联系我"只是允许，不写 contact_channel(可用 predicate contact_channel_allowed)；"不要 X"是 polarity=negated；
        一句话涉及几个渠道就拆成几条 Claim(如"不要电话和短信"拆成 phone 与 sms 两条 negated)。全面拒绝联系("别再联系我")不是渠道偏好。
+    12. 上下文：conversation_data 中标有 "context": true 的消息只用来理解指代和更正，**不要**为它们提取 Claim，message_ref 只能指向没有该标记的消息。
+    13. 已有 Claim：existing_claims 按 kind 列出这个对话里已记录、仍有效的 Claim(ref 形如 "e1")。新消息更正其中一条时，用 kind=correction，
+       并写 "corrects_existing": "<ref>"(不要用 corrects)；不要重复提取已有 Claim。
   </instruction>
   <output_format>
     {"topics":[{"topic":"","conversation_summary":"","user_valid_reply":true,"message_refs":[1]}],
@@ -99,6 +102,8 @@ class SourceMessage:
     # NX-051 provider evidence (runtime projection) and the resolved reply target in this conversation, if any.
     provider: dict|None=None
     reply_to: str|None=None
+    # S-DUP: shown to the model as context only; no Claim may cite it.
+    context: bool=False
 
     @property
     def content_hash(self):return hashlib.sha256(self.body.encode()).hexdigest()
@@ -144,6 +149,8 @@ class ExtractionContext:
     consumer_id: str
     timezone: str='UTC'
     working_day_margin_days: int=7
+    # S-DUP: current Claims of the Conversation a new Message may correct ({ref, claim_id, kind, predicate, value, quote, source_sequence}).
+    existing_claims: tuple=()
 
 
 @dataclass
@@ -233,13 +240,21 @@ def build_user_payload(messages,context):
             elif evidence['trust']=='client' and ('sequence' in evidence or 'sent_at' in evidence):
                 row['customer_stated']={k:evidence[k] for k in ('sequence','sent_at') if k in evidence}
             if m.reply_to is not None:row['reply_to_ref']=by_id.get(m.reply_to,'outside_window')
+        if m.context:row['context']=True
         rows.append(row)
-    return canonical({'conversation_data':rows,'timezone':context.timezone,'output':'JSON only'})
+    payload={'conversation_data':rows,'timezone':context.timezone,'output':'JSON only'}
+    if context.existing_claims:
+        groups={}
+        for e in context.existing_claims:
+            groups.setdefault(e['kind'],[]).append({'ref':e['ref'],'predicate':e['predicate'],'value':e['value'],'quote':e['quote']})
+        payload['existing_claims']=groups
+    return canonical(payload)
 
 
 def input_digest(messages,context,provider):
     return digest({'tenant_id':context.tenant_id,'world':context.world,'conversation_id':context.conversation_id,
-        'messages':[[m.message_id,m.sequence,m.content_hash,m.speaker]+([_provider_evidence(m)] if _provider_evidence(m) is not None else []) for m in messages],'timezone':context.timezone,
+        'messages':[[m.message_id,m.sequence,m.content_hash,m.speaker]+([_provider_evidence(m)] if _provider_evidence(m) is not None else [])+(['context'] if m.context else []) for m in messages],'timezone':context.timezone,
+        **({'existing_claims':[e['claim_id'] for e in context.existing_claims]} if context.existing_claims else {}),
         'extractor_version':EXTRACTOR_VERSION,'prompt_version':PROMPT_VERSION,'prompt_digest':PROMPT_DIGEST,
         'provider':provider.provider,'model_id':provider.model_id})
 
@@ -486,7 +501,7 @@ def _string(value,limit,*,allow_empty=False):
 
 TOP_KEYS={'topics','claims'}
 TOPIC_KEYS={'topic','conversation_summary','user_valid_reply','message_refs'}
-CLAIM_KEYS={'topic_index','message_ref','quote','kind','explicit','subject','predicate','value','polarity','modality','condition','time_expression','time','confidence','derived_from','corrects'}
+CLAIM_KEYS={'topic_index','message_ref','quote','kind','explicit','subject','predicate','value','polarity','modality','condition','time_expression','time','confidence','derived_from','corrects','corrects_existing'}
 SELF_WORDS=('','我','本人','自己')
 CORRECTION_MARKER=re.compile(r'(说错|写错|搞错|弄错|记错|更正|纠正|不对|改成|改为|撤回|收回|作废|不算|取消|其实|不是.{0,12}是|是.{0,12}不是)')
 
@@ -604,6 +619,7 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
         if not derived_ids and not quote:raise _Drop('hypothesis_without_basis')
     elif derived:raise _Drop('explicit_claim_cannot_be_derived')
     if message is None:raise _Drop('message_ref_invalid')
+    if message.context:raise _Drop('context_message')
     if not topic['first_sequence']<=message.sequence<=topic['last_sequence']:raise _Drop('message_outside_topic')
     span_start=span_end=None
     if quote:
@@ -624,7 +640,15 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
         kind='user_statement';flags.append('correction_without_marker')
     corrects=item.get('corrects')
     corrects_id=None
-    if corrects is not None:
+    existing_ref=item.get('corrects_existing')
+    if existing_ref is not None:
+        # S-DUP: a correction of a current Claim recorded earlier for this Conversation (outside the window).
+        target=next((e for e in context.existing_claims if e['ref']==existing_ref),None) if type(existing_ref) is str else None
+        if (corrects is not None or kind!='correction' or target is None or target['kind']=='hypothesis' or target['source_sequence'] is None
+                or target['source_sequence']>=message.sequence):
+            raise _Drop('correction_target_unavailable')
+        corrects_id=target['claim_id'];flags.append('correction_of_existing_claim')
+    elif corrects is not None:
         if type(corrects) is not int or kind!='correction':raise _Drop('corrects_invalid')
         target=accepted.get(corrects)
         rank,trusted=effective_rank(list(by_ref.values()))

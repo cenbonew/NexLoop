@@ -5,6 +5,7 @@ projection. Claims are recorded through one signed definer that re-proves the
 service's current EXECUTE and every source READ and re-checks every evidence
 span against the stored Message body. Claims never become formal objects here.
 """
+import dataclasses
 from datetime import UTC,datetime,timedelta
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
 import hmac
@@ -32,6 +33,9 @@ EXTRACT_ACTION='nexloop.claim.extract'
 MESSAGE_FIELDS=('accepted_at','actor','body','conversation_id','sequence')
 CONVERSATION_FIELDS=('consumer_id','owner_principal')
 
+
+# S-DUP C1: at most this many current Claims of the Conversation are offered for corrects_existing.
+EXISTING_CLAIMS_LIMIT=30
 
 class ClaimExtractionUnavailable(RuntimeError):
     def __init__(self):super().__init__('claim_extraction_unavailable')
@@ -93,9 +97,11 @@ class ConversationClaimExtractor:
             proofs+=[self.reader._authority(ResourceType.PROPERTY,'Message/'+message_id+'/'+f) for f in MESSAGE_FIELDS]
         return proofs
 
-    def load_window(self,conversation_id,message_ids):
-        """Current authorized Message window in receipt (sequence) order."""
+    def load_window(self,conversation_id,message_ids,context_message_ids=()):
+        """Current authorized Message window in receipt (sequence) order; context Messages (S-DUP) are marked and never extracted."""
         conversation_id=_id(conversation_id)
+        context_ids=set(context_message_ids or ())
+        message_ids=list(context_message_ids or ())+list(message_ids)
         if type(message_ids) not in (list,tuple) or not 1<=len(message_ids)<=200 or len(set(message_ids))!=len(message_ids):
             raise ValueError('bounded distinct message window required')
         conversation=self.reader.get('Conversation',conversation_id,fields=CONVERSATION_FIELDS)['properties']
@@ -105,17 +111,28 @@ class ConversationClaimExtractor:
             if values['conversation_id']!=conversation_id:raise ClaimExtractionDenied()
             messages.append(SourceMessage(message_id=message_id,sequence=values['sequence'],
                 speaker='consumer' if values['actor']==conversation['owner_principal'] else 'agent',
-                body=values['body'],accepted_at=_timestamp(values['accepted_at'])))
+                body=values['body'],accepted_at=_timestamp(values['accepted_at']),context=message_id in context_ids))
         messages.sort(key=lambda m:m.sequence)
+        if all(m.context for m in messages):raise ValueError('a window needs at least one target Message')
         messages=self._with_provider_evidence(messages)
         context=ExtractionContext(tenant_id=self.session.authentication.tenant_id,world=self.session.world,
             conversation_id=conversation_id,consumer_id=conversation['consumer_id'],timezone=self.timezone)
         return context,messages
 
+    def existing_claims(self,conversation_id,limit=EXISTING_CLAIMS_LIMIT):
+        """S-DUP: the Conversation's current explicit Claims (most recent `limit`) a new Message may correct, as refs e1, e2, ..."""
+        rows=[c for c in self.read(conversation_id=conversation_id)['statements']
+              if c['resolution_state']!='superseded' and c['value']['type']!='erased' and c.get('source')]
+        rows=sorted(rows,key=lambda c:(c['source']['sequence'],c['claim_id']))[-limit:]
+        return tuple({'ref':f'e{i}','claim_id':c['claim_id'],'kind':c['epistemic_kind'],'predicate':c['predicate'],'value':c['value'],
+                      'quote':c['source']['quote'],'source_sequence':c['source']['sequence']} for i,c in enumerate(rows,start=1))
+
     @authority_request_scoped
-    def extract(self,*,conversation_id,message_ids):
+    def extract(self,*,conversation_id,message_ids,context_message_ids=()):
         try:
-            context,messages=self.load_window(conversation_id,message_ids)
+            context,messages=self.load_window(conversation_id,message_ids,context_message_ids)
+            if context_message_ids:
+                context=dataclasses.replace(context,existing_claims=self.existing_claims(context.conversation_id))
             digest=input_digest(messages,context,self.provider)
             existing=self.read(conversation_id=conversation_id,input_digest=digest)
             if existing['runs']:
@@ -127,7 +144,7 @@ class ConversationClaimExtractor:
             payload={'verb':'record','conversation_id':context.conversation_id,'input_digest':digest,
                 'extractor_version':EXTRACTOR_VERSION,'prompt_version':PROMPT_VERSION,'provider':self.provider.provider,
                 'model_id':self.provider.model_id,'timezone':context.timezone,
-                'messages':[{'message_id':m.message_id,'sequence':m.sequence,'content_hash':m.content_hash,'speaker':m.speaker} for m in messages],
+                'messages':[{'message_id':m.message_id,'sequence':m.sequence,'content_hash':m.content_hash,'speaker':m.speaker,**({'context':True} if m.context else {})} for m in messages],
                 'topics':topics,'claims':claims,'rejected':rejected}
             body=canonical_payload(payload)
             claims_text=self._action_claims()

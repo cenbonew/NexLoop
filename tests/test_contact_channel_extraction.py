@@ -24,7 +24,7 @@ def S(value):
 
 
 def test_versions_and_prompt_name_the_vocabulary():
-    assert EXTRACTOR_VERSION == 'nx019-extractor/4' and PROMPT_VERSION == 'nx019-conversation-extraction-prompt/4'
+    assert EXTRACTOR_VERSION == 'nx019-extractor/5' and PROMPT_VERSION == 'nx019-conversation-extraction-prompt/5'
     assert 'predicate 固定写 contact_channel' in SYSTEM_PROMPT and 'native.webchat' in SYSTEM_PROMPT
     assert 'requested 只用于顾客请企业做一件事或提问' in SYSTEM_PROMPT
     assert '只有排他的说法' in SYSTEM_PROMPT and 'contact_channel_allowed' in SYSTEM_PROMPT
