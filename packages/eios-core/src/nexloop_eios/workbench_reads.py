@@ -805,3 +805,16 @@ class WorkbenchQueries:
 
     def human_actions(self, *, limit=100):
         return self.reader.observe('human_actions', limit=limit)
+
+    # K5 (0406, docs/design/k5-consumer-evidence-views.md): read-only evidence views, world real only, filtered per node.
+    def consumer_evidence(self, *, consumer_id, kind=None, after=None):
+        from nexloop_eios.workbench_evidence import EvidenceViews
+        return EvidenceViews(self).consumer_evidence(consumer_id=consumer_id, kind=kind, after=after)
+
+    def message_trace(self, *, message_id):
+        from nexloop_eios.workbench_evidence import EvidenceViews
+        return EvidenceViews(self).message_trace(message_id=message_id)
+
+    def conversation_metrics(self, *, conversation_id):
+        from nexloop_eios.workbench_evidence import EvidenceViews
+        return EvidenceViews(self).conversation_metrics(conversation_id=conversation_id)

@@ -60,11 +60,14 @@ def router(config, *, ports_for_workbench):
 
     async def invoke(request, method, **arguments):
         from nexloop_eios.workbench_reads import WorkbenchForbidden
+        from nexloop_eios.workbench_evidence import RealWorldOnly
         try:
             value = await run_in_threadpool(lambda: getattr(ports(request), method)(**arguments))
             if value is None:
                 return error('not_found', 404)
             return JSONResponse(value, headers=HEADERS)
+        except RealWorldOnly:
+            return error('real_world_only', 404)
         except CredentialInvalid:
             return error('unauthenticated', 401)
         except (WorkbenchForbidden, PermissionError, psycopg.errors.InsufficientPrivilege):
@@ -549,6 +552,32 @@ def router(config, *, ports_for_workbench):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', candidate_id) or request.query_params:
             return error('invalid_request', 422)
         return await invoke(request, 'review_evidence', candidate_id=candidate_id)
+
+    @routes.get('/consumers/{consumer_id}/evidence-graph')
+    async def consumer_evidence(consumer_id: str, request: Request):
+        # K5 A: the consumer's claims, commitments, actions, outreach and candidates, filtered per node; 25 a group, ?kind=&after=.
+        try:
+            q = query(request, ('kind', 'after'))
+            if not _ID.fullmatch(consumer_id) or ('kind' in q) != ('after' in q) or 'kind' in q and (
+                    q['kind'] not in ('claim', 'commitment', 'action', 'outreach', 'candidate') or not re.fullmatch(r'[1-9][0-9]{0,5}', q['after'])):
+                raise ValueError()
+        except ValueError:
+            return error('invalid_request', 422)
+        return await invoke(request, 'consumer_evidence', consumer_id=consumer_id, kind=q.get('kind'), after=q.get('after'))
+
+    @routes.get('/messages/{message_id}/trace')
+    async def message_trace(message_id: str, request: Request):
+        # K5 B: the nine processing steps of one message, ids, codes and times only.
+        if not _OBJECT.fullmatch(message_id) or request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'message_trace', message_id=message_id)
+
+    @routes.get('/conversations/{conversation_id}/metrics')
+    async def conversation_metrics(conversation_id: str, request: Request):
+        # K5 C: fixed-size metrics of one conversation; the model cost is the owner's.
+        if not _ID.fullmatch(conversation_id) or request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'conversation_metrics', conversation_id=conversation_id)
 
     @routes.get('/audit')
     async def audit(request: Request):
