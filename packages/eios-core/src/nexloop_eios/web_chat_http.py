@@ -6,6 +6,7 @@ No router registration or fallback provider is installed by this module.
 """
 import asyncio
 import json
+import logging
 import re
 import uuid
 from urllib.parse import urlsplit
@@ -223,8 +224,10 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
                             result = await run_in_threadpool(read)
                         except CredentialInvalid:
                             raise
-                        except Exception:
+                        except Exception as failure:
                             failures += 1
+                            # Only the exception class: no message, session, conversation or principal.
+                            logging.getLogger('nexloop.webchat').warning('events read failed %s', {'reason': type(failure).__name__, 'consecutive': failures})
                             if failures >= STREAM_FAILURES:
                                 raise
                             yield ': heartbeat\n\n'
