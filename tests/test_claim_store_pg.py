@@ -306,6 +306,10 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # value of the same Message's Claims), lets a correction point at an earlier current Claim of the same Conversation and refuses a
         # Claim citing a context Message; claims stay evidence, nothing becomes formal or is projected.
         '_extraction_target_context','_extraction_dedupe',
+        # S-DUP-2 0414: when a correction supersedes a Claim, its active duplicates (same 0412 statement key) are superseded too, recorded
+        # by id in ontology.nexloop_claim_supersessions; a governed backfill does the same for earlier corrections. Only resolution_state
+        # changes (evidence kept); nothing becomes formal or is projected.
+        '_claim_duplicate_supersede',
         # Contact channel re-extraction 0408 reads predicate, quote, kind, speaker and source Message of consumer preference/constraint Claims
         # that the 0228 vocabulary cannot read, only to choose extraction windows; it returns Message ids and counts, never a Claim value or
         # quote, writes nothing, and the extractor records new evidence Claims as before (plan claim-to-consumer-property §8.4).

@@ -2065,6 +2065,11 @@
       "version": "0413",
       "name": "0413_k5_claim_statement_key.sql",
       "sha256": "25ab18e0f2f5fa8c69d04275665c832fdc448b37ac326c6a20bf9725c237df83"
+    },
+    {
+      "version": "0414",
+      "name": "0414_claim_duplicate_supersede.sql",
+      "sha256": "a72a0c1c47f470153cbbbf209a631a6e3a76bdb343fbbb01f75a26cb94fd6530"
     }
   ]
 }

@@ -180,3 +180,63 @@ select (d.claim_id in (select claim_id from cited)) cited_in_run, coalesce(run.h
 
 - **被引用的 Claim 不走去重**：同一次运行里被推导（`derived_from`）或更正（`corrects_claim_id`）引用的 Claim 照常写新行，这是一个小旁路。后续做法：对它们也去重，并把同一次运行中的 `derived_from` 和 `corrects_claim_id` 改指到已有的 `claim_id`。
 - **先查再插、不加锁**：写入时先按键查找、再插入，没有锁或唯一约束。两个 worker 并发处理同一条消息时，可能各写一条。现在每个会话只有一个 worker（取窗按会话、队列按任务），可以接受；如果以后同一会话并行抽取，需要按（租户、会话）加咨询锁。
+
+## 11. S-DUP-2：更正生效时一并取代同键重复
+
+### 11.1 问题
+
+0412 之前的重复抽取留下了同一句话的多条 Claim。更正只指向其中一条，那一条被取代后，其余几条仍是有效状态。匹配器、0228 偏好和上下文包都会读到这些仍有效的旧说法；页面上同一句话会同时出现“已更正”和“有效”两项。
+
+### 11.2 设计（迁移临时号 0414，`claim_duplicate_supersede`）
+
+- **判断依据只用 0412 的键**：`ontology.nexloop_claim_statement_key`（来源消息、原文区间、kind、polarity、modality、有无 condition、规范化取值）。
+- **触发点**：在 `ontology.nexloop_claims` 上加 `after update of resolution_state` 触发器（与 0111 承诺的取代触发器同一做法）。只有当一条 Claim 变成 superseded，**并且是更正造成的**才动作，判断方法是：存在 `corrects_claim_id` 指向它的 Claim，或存在一个已 applied、`supersedes_claim` 指向它的提案。满足时，把同键、仍有效的其余 Claim 一并改为 superseded。
+  - 走的是现有的取代写入：只更新 `resolution_state`，`superseded_at` 由 0139 的触发器盖时间戳，与单条更正一致。匹配器 apply、审核等任何取代路径都覆盖到。
+  - 被连带取代的重复自己没有更正指向它，所以不会继续级联。
+  - 没有更正的取代（例如提案被新提案替代）不连带。
+- **可追溯**：新表 `ontology.nexloop_claim_supersessions`，每条被连带取代的重复写一行：`claim_id`、`corrected_claim_id`（被更正的那一条）、`correction_claim_id`（做更正的 Claim，或提案对应的 Claim）、`cause='statement_duplicate'`、时间。只存 id，不存原文；只追加。证据链由此可以从任何一条重复追溯到更正。
+- **共用函数**：`ontology.nexloop_supersede_statement_duplicates(tenant, world, claim, correction)` 由触发器和补跑共用，返回取代条数。
+- **历史补跑**：`authz.nexloop_claim_duplicate_supersede_backfill`，Action 为 `eios:action:nexloop.claim.supersede_duplicates:1`，协议 `nexloop-claim-duplicate-supersede-v1`。
+  - 身份用 claim_matcher（取代本来由匹配器写入），新增一条授权；`deploy/` 的策略确认由调度员处理。
+  - tenant 和 world 由凭据推导，只允许 `nexloop_domain_worker` 角色调用。
+  - 跳过有擦除记录的客户；人设不跳过，因为这是数据一致性修正，不产生外发。
+  - 可重复执行，被取代的重复不再有效。dry-run 和执行都只输出数量。
+  - 命令行：`scripts/deploy/claim_duplicate_backfill.py`，先 dry-run 再 `--apply`。
+- AT-064 白名单加入 `_claim_duplicate_supersede`。这里只改 `resolution_state`，不形成正式值。
+
+### 11.3 部署
+
+1. 迁移 0414 与第 116 批一起或紧随其后执行。
+2. 用 claim_matcher 凭据执行补跑：先 dry-run，记录 `corrected / duplicates / skipped_erasure`，再 `--apply`。第二次执行预期全为 0。
+3. 只读核对：有更正的已取代 Claim，同键下不应再有仍有效的重复。
+
+```sql
+select count(*) from ontology.nexloop_claims s join ontology.nexloop_claims d on d.tenant_id=s.tenant_id and d.world=s.world
+  and d.source_message_id=s.source_message_id and d.span_start=s.span_start and d.span_end=s.span_end and d.epistemic_kind=s.epistemic_kind
+  and d.claim_id<>s.claim_id and d.resolution_state<>'superseded'
+  and ontology.nexloop_claim_statement_key(d.source_message_id,d.span_start,d.span_end,d.epistemic_kind,d.polarity,d.modality,d.condition_text,d.value)
+     =ontology.nexloop_claim_statement_key(s.source_message_id,s.span_start,s.span_end,s.epistemic_kind,s.polarity,s.modality,s.condition_text,s.value)
+ where s.tenant_id='stage' and s.world='real' and s.resolution_state='superseded'
+   and ontology.nexloop_claim_correction_of(s.tenant_id,s.world,s.claim_id) is not null;
+```
+
+预期 0（有擦除记录的客户除外）。
+
+### 11.4 第 116 批部署单应注明的已知问题（修好之前）
+
+> 已知问题（S-DUP-2）：0412 之前重复抽取留下的同一句话，更正只取代其中一条，其余重复仍是有效状态，匹配器、0228 偏好和上下文包仍会读到已被更正的旧说法；页面会同时显示“已更正”和“有效”。修正在 S-DUP-2（迁移 `claim_duplicate_supersede` 加补跑 `claim_duplicate_backfill.py`），部署后执行补跑。
+
+### 11.5 局限
+
+- 连带范围只限同一条来源消息、同一原文区间的同键重复。不同消息里说过的同一句话不在此列，那是不同的陈述，需要各自的更正。
+- 补跑一次扫描整个租户的已取代 Claim，在同一事务里执行；表变大后要按会话分批。
+
+### 11.6 L6 条件（S-DUP-2 条件 PASS）
+
+- **先后顺序（C1）**：核对过两条真实路径。匹配器 apply 和审核 applied 现在都走 0410 的 `authz.nexloop_record_claim_match`，都是先把提案改成 `applied`、再把 `supersedes_claim` 改为 superseded；更正 Claim 的 `corrects_claim_id` 由抽取包装函数在同一事务里、插入之后写入，比任何 apply 都早。所以当前顺序没有反。为了不依赖语句先后，两处触发器都改为**提交时触发的延迟约束触发器**（`deferrable initially deferred`），并增加一个 `corrects_claim_id` 更新触发器：被更正的 Claim 已经是 superseded、更正后补链接时，同样连带取代。
+- **端到端用例**：
+  - `test_end_to_end_through_the_matcher_apply_path`：匹配器真实 apply 一条更正，两条重复被连带取代，追溯行的 `correction_claim_id` 是这条更正；
+  - `test_end_to_end_through_the_extraction_recorder_then_a_later_supersede`：更正由 `authz.nexloop_record_claim_extraction` 写入（`corrects_existing`），之后在另一条语句里取代被更正的 Claim，重复在提交时跟着取代；
+  - `test_a_correction_linked_after_the_supersede_still_reaches_the_duplicates`：先取代、后补链接，结果相同。
+- **承诺的连带后果**：0111 的触发器会把来源 Claim 是这些重复的承诺标记为 `source_superseded` 并提示负责人。语义上是对的，但负责人能看到。补跑的 dry-run 和执行结果里都有 `commitments`：会连带受影响的承诺数。部署单：先看 dry-run 的 `commitments`，不为 0 时先告知负责人，再执行 `--apply`。
+- **register 计数**：`nexloop.claim.supersede_duplicates:1` 是协议 Action（签名端口用的资源 id），不是发布的业务 Action，不计入 register；`test_stage_register_pg` 计数不变。
