@@ -270,7 +270,8 @@ CHANNEL_VALUES=(('native.webchat',re.compile(r'(native\.webchat|站内|app\s*内
 
 # An affirmed channel statement is exclusive in 0228 (only these channels); without an exclusive word in the quote it is only an
 # allowance ("可以用微信联系我") and must not stop the other channels, so it keeps a predicate outside the 0228 vocabulary.
-EXCLUSIVE_CHANNEL=re.compile(r'(只|仅|就用|唯一|\bonly\b|\bjust\b)',re.I)
+# 不只 / 不仅 / not only are not exclusive.
+EXCLUSIVE_CHANNEL=re.compile(r'((?<!不)(只|仅)|就用|唯一|(?<!not )\bonly\b|\bjust\b)',re.I)
 CHANNEL_ALLOWED='contact_channel_allowed'
 
 
@@ -285,7 +286,7 @@ def contact_channel(kind,predicate,value):
 
 TENTATIVE=re.compile(r'(考虑|可能|也许|或许|大概|看看|想想|再说|不一定|说不定|犹豫|暂不|暂时不|先不|暂且不|目前不|现在不)')
 NEGATION=re.compile(r'(不|没|别|无需|勿|甭|莫)')
-NOT_NEGATION=re.compile(r'不错|不少|不久|不断|不仅|不过|不管|差不多|忍不住|了不起|不得了')  # lexicalized, not negation
+NOT_NEGATION=re.compile(r'不错|不少|不久|不断|不仅|不只|不过|不管|差不多|忍不住|了不起|不得了')  # lexicalized, not negation
 A_NOT_A=re.compile(r'(要|是|能|会|行|好|可|需|想|用)不\1')  # 要不要/是不是: a question, not negation
 INSTRUCTION_LIKE=[re.compile(p,re.I) for p in (
     r'(忽略|无视|忘记|跳过|绕过).{0,12}(规则|指令|政策|限制|设定|提示|要求)',

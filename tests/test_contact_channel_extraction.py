@@ -77,3 +77,9 @@ def test_exclusive_and_negated_statements_keep_the_0228_predicate():
         {'quote': '不要电话', 'kind': 'constraint', 'predicate': 'contact_channel', 'value': S('phone'), 'polarity': 'negated'}])
     assert sorted((c['predicate'], c['value']['value'], c['polarity']) for c in claims) == [
         ('contact_channel', 'phone', 'negated'), ('contact_channel', 'wechat', 'affirmed')]
+
+
+@pytest.mark.parametrize('quote', ['不只用微信联系我', '不仅可以用微信', 'not only wechat'])
+def test_not_only_is_not_exclusive(quote):
+    claims = run(quote, [{'quote': quote, 'kind': 'preference', 'predicate': '联系方式', 'value': S('微信')}])
+    assert [(c['predicate'], 'contact_channel_not_exclusive' in c['guard_flags']) for c in claims] == [('contact_channel_allowed', True)]
