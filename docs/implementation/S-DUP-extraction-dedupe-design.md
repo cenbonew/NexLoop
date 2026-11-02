@@ -136,3 +136,47 @@ select left(source_message_id,12), span_start, span_end, epistemic_kind, polarit
 - 两边的规范化规则相同：字符串去掉 Python `\s` 那一组 Unicode 空白（SQL 侧写成同一显式字符集）并转小写；其他值用 jsonb 文本形式（键按长度再按字节排序）。`test_extraction_dedupe_pg::test_python_and_sql_statement_keys_are_the_same_text` 用 18 组取值逐字比较两边的结果，包括全角空格、不换行空格、"3" 与 3、金额对象、有无 condition。
 - K5 折叠应使用这个键：SQL 里调用 `ontology.nexloop_claim_statement_key`，Python 里调用 `statement_key`，不要另写一套。
 - 局限：大小写转换依赖数据库的区域设置，个别特殊字母（如土耳其语 İ）两边可能不同；超大或指数形式的数字，jsonb 与 Python 的文本形式可能不同。这两类不会出现在常规取值里。
+
+## 10. 组批前补充（L6 2026-11-02 PASS 后）
+
+### 10.1 退回方法
+
+迁移只往前，不回退。已发布的 0411、0412 不改。
+
+- 需要退回去重时，新写一个迁移：
+  1. 把当前的 `authz.nexloop_record_claim_extraction` 改名（例如改为 `..._s_dup`），收回其授权；
+  2. 把 `authz.nexloop_record_claim_extraction_v0115` 改名回 `authz.nexloop_record_claim_extraction`，恢复 `nexloop_api`、`nexloop_domain_worker` 的执行授权；
+  3. `..._v0066` 的去重改动再以登记过的反向编辑重建（copy guard 登记）。
+- 需要退回取窗拆分时，同样新写迁移，以 0069 的 due 分支重建取窗函数（copy guard 登记）。
+- 代码侧回到 `/4` 的 backend 镜像即可，旧 worker 与新载荷兼容（§9 C4）。已写入的 `/5` Claim 不删除。
+
+### 10.2 验收第三条只读 SQL：被同一次运行引用的重复
+
+部署后，`/5` 里如果还有键相同的多条 Claim，只应来自两类：被同一次运行的推导或更正引用、因而不走去重的 Claim，以及重试或 0411 之前入队的旧任务。
+
+```sql
+with v5 as (
+  select c.claim_id, c.first_input_digest,
+         ontology.nexloop_claim_statement_key(c.source_message_id,c.span_start,c.span_end,c.epistemic_kind,c.polarity,c.modality,c.condition_text,c.value) k
+    from ontology.nexloop_claims c
+   where c.tenant_id='stage' and c.world='real' and c.extractor_version='nx019-extractor/5' and c.source_message_id is not null),
+dup as (select * from v5 where k in (select k from v5 group by k having count(*)>1)),
+cited as (
+  select distinct d.claim_id from dup d
+    join ontology.nexloop_claims o on o.tenant_id='stage' and o.world='real' and o.first_input_digest=d.first_input_digest
+     and (o.corrects_claim_id=d.claim_id or o.derived_from ? ('claim:'||d.claim_id) or o.derived_from ? d.claim_id)),
+run as (
+  select r.input_digest, bool_or(m->'context'='true'::jsonb) has_context
+    from ontology.nexloop_extraction_runs r cross join lateral jsonb_array_elements(r.message_refs) m
+   where r.tenant_id='stage' and r.world='real' group by r.input_digest)
+select (d.claim_id in (select claim_id from cited)) cited_in_run, coalesce(run.has_context,false) new_window, count(*)
+  from dup d left join run on run.input_digest=d.first_input_digest
+ group by 1,2 order by 1,2;
+```
+
+预期：只有 `cited_in_run=true`，或者 `new_window=false`（旧任务、首个窗口重试）的行；`cited_in_run=false and new_window=true` 为 0。否则说明去重有漏洞，停下报告。
+
+### 10.3 局限（补充）
+
+- **被引用的 Claim 不走去重**：同一次运行里被推导（`derived_from`）或更正（`corrects_claim_id`）引用的 Claim 照常写新行，这是一个小旁路。后续做法：对它们也去重，并把同一次运行中的 `derived_from` 和 `corrects_claim_id` 改指到已有的 `claim_id`。
+- **先查再插、不加锁**：写入时先按键查找、再插入，没有锁或唯一约束。两个 worker 并发处理同一条消息时，可能各写一条。现在每个会话只有一个 worker（取窗按会话、队列按任务），可以接受；如果以后同一会话并行抽取，需要按（租户、会话）加咨询锁。
