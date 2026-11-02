@@ -312,3 +312,41 @@ def test_pages_of_25_and_a_commitment_follows_its_claim(workbench):
         g = groups_of(view)
         # The source Claim is hidden (restricted group): the commitment derived from it is counted, never listed.
         assert g['commitment']['items'] == [] and g['commitment']['invisible'] == 1 and derived not in json.dumps(view)
+
+
+def test_the_sql_refuses_another_world_with_42501(workbench, monkeypatch):
+    """The 0403 backstop: a correctly signed observe call of a K5 verb for a world other than real is refused by SQL itself (42501
+    'k5: real_world_only'), past the Python check. The reader's own observe body, with only the world argument changed."""
+    import hashlib as _hashlib
+    import hmac as _hmac
+    import psycopg
+    from nexloop_eios.assembly import verify_application_role
+    from nexloop_eios.context_engine.authority import action_claims
+    from nexloop_eios.postgres_artifacts import canonical_payload
+    from nexloop_eios.workbench_reads import WORKBENCH_READ, WorkbenchReader
+    refused = []
+
+    def observe(self, verb, **payload):
+        claims = action_claims(self.pool, self.session, WORKBENCH_READ)
+        body = canonical_payload({'verb': verb, **payload})
+        claims = {**claims, 'protocol': 'nexloop-workbench-observe-v1', 'key_id': self.signer.key_id, 'parameters_digest': _hashlib.sha256(body.encode()).hexdigest()}
+        text = canonical_payload(claims)
+        signature = _hmac.new(self.signer.material, ('nexloop-workbench-observe-v1:' + text).encode(), 'sha256').hexdigest()
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_workbench_observe_read(%s,%s,%s,%s,%s)', (self.session.token_digest, 'shadow', text, signature, body)).fetchone()[0]
+        except psycopg.Error as error:
+            refused.append((error.sqlstate, str(error).splitlines()[0]))
+            raise
+
+    w = workbench
+    provision(w)
+    seed(w)
+    monkeypatch.setattr(WorkbenchReader, 'observe', observe)
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        assert client.get(f'/api/v1/workbench/consumers/{w["f"]["consumer"]}/evidence-graph').status_code == 403
+        assert client.get(f'/api/v1/workbench/messages/{w["refusal"]["id"]}/trace').status_code == 403
+        assert client.get(f'/api/v1/workbench/conversations/{w["conversation"]["id"]}/metrics').status_code == 403
+    assert refused == [('42501', 'k5: real_world_only')] * 3
