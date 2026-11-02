@@ -332,7 +332,10 @@ Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在�
   3. `sudo rmdir <主机路径>`，只删空目录；
   4. 放入正确的文件，属主和权限按服务要求；
   5. `docker compose -p <项目> up -d <服务>`。
-- **预防**：启动前先 `docker compose … config -q`，并逐一核对每个绑定源存在且类型正确（文件或目录）。`secrets:` 中 `file:` 指向的源文件缺失时，Compose 会直接拒绝启动，比绑定挂载更安全。
+- **预防**：启动前先 `docker compose … config -q`，并逐一核对每个绑定源存在且类型正确（文件或目录）。
+- **数据目录**（D-LEDGER，2026-11-02）：APP_HOST compose 绑定的 `${NEXLOOP_ROOT}/data/*` 目录在部署准备时显式建好，属服务账户、0700。
+  - `python3 scripts/deploy/data_dirs.py plan --stage-env <私有 stage.env>` 列出每个目录的 `install -d` 行（以 root 执行）；
+  - `data_dirs.py check`（只读）与 `post_deploy_check.py` 的 `data_dirs` 项核对：目录缺失、属 root、属主不对或属主不可写都判失败；compose 里一个数据目录都找不到也判失败。`secrets:` 中 `file:` 指向的源文件缺失时，Compose 会直接拒绝启动，比绑定挂载更安全。
 
 ### 8a.6 `sed -i` 会换 inode：容器看不到新内容
 

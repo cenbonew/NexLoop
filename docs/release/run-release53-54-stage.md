@@ -144,6 +144,8 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 3. `python3 <检出>/scripts/deploy/stage_secrets.py check --out <树>`：预期 ok。
 4. **装到 APP_HOST**：`$NEXLOOP_ROOT/secrets/outreach-sender/` 目录 0700、属 10001；四个文件用 `install -o 10001 -g 10001 -m 0600` 逐个装入（与其他服务的文件相同，OPERATIONS §8a.5：源文件缺失时 Docker 会自建同名空目录，所以必须在 S9 之前装好）。
 5. **outbox 目录**：`install -d -o 10001 -g 10001 -m 0700 "$NEXLOOP_ROOT/data/outreach-outbox"`。若由 Docker 自动创建，目录属 root，执行器会拒绝启动（它要求目录属本用户、0700）。
+   - 激励账本目录同样处理（D-LEDGER，2026-11-02 补）：`install -d -o 10001 -g 10001 -m 0700 "$NEXLOOP_ROOT/data/incentive-ledger"`。由 Docker 自动创建时属 root、0755，incentive-issuer 写不进去，第一次发放被判为确定失败。
+   - 全部数据目录以 `python3 <检出>/scripts/deploy/data_dirs.py plan --stage-env <私有 stage.env>` 的输出为准（每个目录一行 `install -d`），装好后 `data_dirs.py check` 预期 pass。
 6. 同步到 DATA_HOST 的 `$RUN`（register 读的是 `$RUN` 下的树），做法同 run-nx054-s8-backfill 第 14 步第 3 条。
 
 - **撤回**：
