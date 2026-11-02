@@ -478,6 +478,8 @@ services:
     labels:
       nexloop.budget-service: alert-evaluator
   incentive-issuer:
+    # ${NEXLOOP_ROOT}/data/incentive-ledger must exist, 0700, owned by 10001 (D-LEDGER: left to Docker it is root 0755 and the first
+    # issuance fails). scripts/deploy/data_dirs.py plan prints every data directory; post_deploy_check data_dirs checks them.
     <<: *service
     entrypoint: [nexloop-incentive-issuer]
     command: [--database-url-file, /run/secrets/incentive_issuer_dsn, --service-credential-file, /run/secrets/incentive_issuer_credential,

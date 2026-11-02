@@ -21,6 +21,9 @@ Checks (each pass or fail, with its evidence as counts, codes and container name
                 midpoint of its round trip (skew = clock_timestamp() - (sent + received) / 2), the sample with the shortest round trip
                 kept; |skew| above --clock-skew-fail (2 s) fails, above --clock-skew-warn (0.5 s) passes with a warning. Signed
                 requests between the hosts carry a few seconds of tolerance; a skew past it refuses every signature.
+8. data_dirs    (D-LEDGER) every ${NEXLOOP_ROOT}/data directory the Compose file binds exists, is a directory and is owned (rwx) by
+                the account of the services binding it (data_dirs.py; NEXLOOP_ROOT and AGENT_HOST_UID from the stage env). Missing,
+                root-owned (Docker created it) or no directory found at all fails.
 It never writes, never prints a secret, a log line, an address or a credential: addresses and ports come from the stage env or the
 arguments. Reuses running_snapshot (docker CLI, Compose labels), deploy (stage env) and bootstrap (catalog, verify).
 Prints one JSON object. Exit 0 pass, 1 fail, 2 input error.
@@ -37,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'packages/eios-core/src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from running_snapshot import PROJECT_LABEL, SERVICE_LABEL, _labels  # noqa: E402
+import data_dirs  # noqa: E402
 
 COMPOSE = ROOT / 'deploy/stage/compose.app.example.yaml'
 LOG_PATTERNS = {'tick_failed': re.compile(r'tick failed', re.I), 'traceback': re.compile(r'Traceback \(most recent call last\)'),
@@ -68,9 +72,13 @@ class Live:
         result = subprocess.run([*command, url], capture_output=True, text=True, timeout=20)
         return int(result.stdout) if result.stdout.strip().isdigit() else 0
 
+    def stat(self, path):
+        return data_dirs.live_stat(path)
+
 
 class Capture:
-    """Saved outputs: {"docker": {"<args joined by space>": "<stdout>"}, "http": {"<url>": <status>}} (tests and review)."""
+    """Saved outputs: {"docker": {"<args joined by space>": "<stdout>"}, "http": {"<url>": <status>}, "stat": {"<path>": {kind, uid, mode}}}
+    (tests and review); a path absent from "stat" does not exist."""
 
     def __init__(self, value):
         self.value = value
@@ -83,6 +91,9 @@ class Capture:
 
     def status(self, url):
         return int(self.value.get('http', {}).get(url, 0))
+
+    def stat(self, path):
+        return self.value.get('stat', {}).get(path)
 
 
 # ---- the checks ----
@@ -279,7 +290,7 @@ def check_sim_roles(dsns, required=None):
 
 
 def run_checks(run, *, project, compose, https_base, http_base, routes, control, minutes, database_url=None, expected_revision=None, sim_dsns=None,
-               sim_required=None, clock_skew=(0.5, 2.0)):
+               sim_required=None, clock_skew=(0.5, 2.0), data_directories=None):
     results = {}
     try:
         rows = containers(run, project)
@@ -297,6 +308,8 @@ def run_checks(run, *, project, compose, https_base, http_base, routes, control,
     if database_url is not None:
         results['database'] = check_database(database_url, expected_revision)
         results['clock_skew'] = check_clock_skew(database_url, *clock_skew)
+    if data_directories is not None:
+        results['data_dirs'] = data_dirs.check(data_directories, run.stat)
     if sim_dsns is not None:
         results['sim_roles'] = check_sim_roles(sim_dsns, sim_required)
     failed = sorted(k for k, v in results.items() if not v['pass'])
@@ -341,6 +354,10 @@ def main(argv=None):
         if not 0 < args.clock_skew_warn <= args.clock_skew_fail <= 60:
             raise InputError('clock skew thresholds: 0 < warn <= fail <= 60 seconds')
         routes = _routes(args)
+        try:
+            data_directories = data_dirs.bind_dirs(args.compose, env)
+        except data_dirs.InputError as error:
+            raise InputError(str(error)) from error
         import yaml
         project = args.project or yaml.safe_load(Path(args.compose).read_text()).get('name')
         if not project:
@@ -361,7 +378,8 @@ def main(argv=None):
         return 2
     out = run_checks(runner, project=project, compose=args.compose, https_base=f'https://{host}:{https_port}', http_base=f'http://{host}:{http_port}',
                      routes=routes, control=args.control_route, minutes=args.log_minutes, database_url=database_url, expected_revision=expected,
-                     sim_dsns=sim_dsns, sim_required=sim_required, clock_skew=(args.clock_skew_warn, args.clock_skew_fail))
+                     sim_dsns=sim_dsns, sim_required=sim_required, clock_skew=(args.clock_skew_warn, args.clock_skew_fail),
+                     data_directories=data_directories)
     print(json.dumps(out, ensure_ascii=False, sort_keys=True))
     return 0 if out['pass'] else 1
 

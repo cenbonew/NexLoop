@@ -82,17 +82,31 @@ def test_no_container_and_a_docker_failure_fail_closed():
 
 
 def test_cli_reads_the_stage_env_and_routes_and_refuses_bad_input(tmp_path, capsys):
-    env = tmp_path / 'stage.env';env.write_text(f'APP_HOST_NAME={HOST}\nGATEWAY_HTTPS_PORT=8443\nGATEWAY_REDIRECT_PORT=8080\n')
-    cap = tmp_path / 'capture.json';cap.write_text(json.dumps(capture()))
+    env = tmp_path / 'stage.env'
+    env.write_text(f'APP_HOST_NAME={HOST}\nGATEWAY_HTTPS_PORT=8443\nGATEWAY_REDIRECT_PORT=8080\nNEXLOOP_ROOT=/srv/nexloop\nAGENT_HOST_UID=10020\n')
+    dirs = P.data_dirs.bind_dirs(P.COMPOSE, {'NEXLOOP_ROOT': '/srv/nexloop', 'AGENT_HOST_UID': '10020'})
+    prepared = {d['path']: {'kind': 'directory', 'uid': d['uid'], 'mode': 0o700} for d in dirs}
+    cap = tmp_path / 'capture.json';cap.write_text(json.dumps({**capture(), 'stat': prepared}))
     routes = tmp_path / 'routes.txt';routes.write_text('# release 25\n/api/v1/workbench/data-health\n')
     assert P.main(['--stage-env', str(env), '--capture', str(cap), '--routes-file', str(routes)]) == 0
     assert json.loads(capsys.readouterr().out)['pass'] is True
-    bad = copy.deepcopy(capture());bad['http'][HTTP + '/'] = 200;cap.write_text(json.dumps(bad))
+    bad = {**copy.deepcopy(capture()), 'stat': prepared};bad['http'][HTTP + '/'] = 200;cap.write_text(json.dumps(bad))
     assert P.main(['--stage-env', str(env), '--capture', str(cap), '--routes-file', str(routes)]) == 1
     assert json.loads(capsys.readouterr().out)['failed'] == ['gateway']
+    # D-LEDGER: the stage env gives the data directories; incentive-ledger left to Docker (root, 0755) fails data_dirs.
+    ledger = {**prepared, '/srv/nexloop/data/incentive-ledger': {'kind': 'directory', 'uid': 0, 'mode': 0o755}}
+    cap.write_text(json.dumps({**capture(), 'stat': ledger}))
+    assert P.main(['--stage-env', str(env), '--capture', str(cap), '--routes-file', str(routes)]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out['failed'] == ['data_dirs'] and [(f['path'], f['reason']) for f in out['checks']['data_dirs']['failing']] == [
+        ('/srv/nexloop/data/incentive-ledger', 'owned_by_root')]
     assert P.main(['--stage-env', str(env), '--capture', str(cap), '--route', 'https://elsewhere/x']) == 2
     capsys.readouterr()
     env.write_text('APP_HOST_NAME=\n');assert P.main(['--stage-env', str(env), '--capture', str(cap)]) == 2
+    capsys.readouterr()
+    # Without NEXLOOP_ROOT the data directories are unknown: an input error, never a pass that checked nothing.
+    env.write_text(f'APP_HOST_NAME={HOST}\nGATEWAY_HTTPS_PORT=8443\nGATEWAY_REDIRECT_PORT=8080\nAGENT_HOST_UID=10020\n')
+    assert P.main(['--stage-env', str(env), '--capture', str(cap), '--routes-file', str(routes)]) == 2
 
 
 def test_database_lineage_in_a_read_only_transaction(pg, admin):
