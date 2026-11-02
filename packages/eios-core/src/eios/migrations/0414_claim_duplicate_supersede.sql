@@ -6,7 +6,8 @@
 -- 2. ontology.nexloop_supersede_statement_duplicates(tenant, world, claim, correction): supersedes the active Claims with the corrected
 --    Claim's statement key (same Message span, kind, polarity, modality, condition presence, normalized value) through the usual
 --    resolution_state update (the 0139 trigger stamps superseded_at) and records each. Returns the count.
--- 3. Deferred constraint triggers (fired at commit, so the order of statements in a transaction does not matter): after update of
+-- 3. Triggers, fired at once (a read later in the same transaction - the matcher's next statement or candidate, a work feed touch, a
+--    context pack - already sees the duplicates superseded; the real paths link the correction before superseding): after update of
 --    resolution_state, a Claim that became superseded and has a correction (a Claim whose corrects_claim_id is it, or an applied proposal
 --    that supersedes it) supersedes its duplicates; after update of corrects_claim_id, a correction linked to an already superseded Claim
 --    does the same. A duplicate superseded here has no correction of its own, so nothing cascades further. Every path that supersedes a
@@ -83,8 +84,8 @@ begin
 end $$;
 alter function ontology.nexloop_claim_on_superseded_duplicates() owner to nexloop_owner;
 revoke all on function ontology.nexloop_claim_on_superseded_duplicates() from public;
-create constraint trigger claim_superseded_duplicates after update of resolution_state on ontology.nexloop_claims
- deferrable initially deferred for each row execute function ontology.nexloop_claim_on_superseded_duplicates();
+create trigger claim_superseded_duplicates after update of resolution_state on ontology.nexloop_claims
+ for each row execute function ontology.nexloop_claim_on_superseded_duplicates();
 
 create function ontology.nexloop_claim_on_correction_linked() returns trigger
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -102,8 +103,8 @@ begin
 end $$;
 alter function ontology.nexloop_claim_on_correction_linked() owner to nexloop_owner;
 revoke all on function ontology.nexloop_claim_on_correction_linked() from public;
-create constraint trigger claim_correction_linked after update of corrects_claim_id on ontology.nexloop_claims
- deferrable initially deferred for each row execute function ontology.nexloop_claim_on_correction_linked();
+create trigger claim_correction_linked after update of corrects_claim_id on ontology.nexloop_claims
+ for each row execute function ontology.nexloop_claim_on_correction_linked();
 
 create function authz.nexloop_claim_duplicate_supersede_backfill(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
