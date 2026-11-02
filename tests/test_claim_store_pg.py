@@ -292,6 +292,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # property refs, the predicate and quote) to the workbench evidence views, which show the predicate and quote only as raw
         # evidence under the per-node rules (matched property READ, reviewer-only quote); no structured value, nothing formal.
         '_k5_evidence_views',
+        # K5 0413 adds each Claim's statement key (0412's function over span, kind, polarity, modality, condition presence and value key)
+        # so the evidence view folds duplicates for display; the key is compared, never returned, and no value is shown or projected.
+        '_k5_claim_statement_key',
         # Operator persona 0227 copies the latest erasure step (0145, Claim erasure unchanged) to add the persona tables to the
         # consumer phase; no Claim value is read or projected.
         '_operator_persona',
