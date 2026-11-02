@@ -2020,6 +2020,11 @@
       "version": "0404",
       "name": "0404_browser_session_epoch.sql",
       "sha256": "7efa385448c5a652140e97f67109c300b96cc05198b3193c997c2d50281b8c08"
+    },
+    {
+      "version": "0405",
+      "name": "0405_effect_request_metrics.sql",
+      "sha256": "85800c551b4c742dc7c435015f0933eeff00c630046520a9cbdb3f163b7c01ff"
     }
   ]
 }

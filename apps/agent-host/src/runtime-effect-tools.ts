@@ -4,6 +4,7 @@ import {Type} from '@earendil-works/pi-ai';
 import {defineTool,type ToolRegistration} from '@earendil-works/pi-durable';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
 import {ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
+import {countEffect,timedRequest,type EffectMetricOperation} from './effect-metrics.js';
 const ENTERPRISE=ENTERPRISE_ACTION;
 
 export type OutreachReceipt={run_id:string;intent_id:string;state:'accepted'|'dispatching'|'unknown'|'fulfilled'|'failed'|'refused';replayed:boolean;business_action_success:false};
@@ -191,6 +192,8 @@ export class RuntimeEffectClient{
   readonly timeoutMs:number;
   async call(command:RunCommand,operation:'submit'|'find',arguments_:unknown,action?:typeof ENTERPRISE):Promise<EffectReceipt>{
     const began=Date.now();
+    const metric:EffectMetricOperation=operation==='find'?'effect_find':action===ENTERPRISE?'enterprise_submit':'effect_submit';
+    countEffect(metric,'calls');
     try{
       const valid=validateRunCommand(command);
       const ref=this.configuration.activationForRun(valid.run_id);
@@ -228,13 +231,16 @@ export class RuntimeEffectClient{
       // body, within the Run's time limit. The guard keys the intent on the Run's consumer, goal, step and slot (0040): the same
       // payload returns the same intent and reserves nothing again, a different one is a conflict; find is a read. Each request
       // keeps the 2 s limit (ADR-022 §4). Still ambiguous: runtime_effect_unavailable.
-      try{return await this.once(url,ca,key,body,valid,operation,arguments_);}
+      try{return await timedRequest(metric,()=>this.once(url,ca,key,body,valid,operation,arguments_));}
       catch(error){
-        if(!(error instanceof RuntimeError)||error.code!=='runtime_effect_ambiguous'||Date.parse(valid.not_after)<=Date.now()+this.timeoutMs)throw error;
-        return await this.once(url,ca,key,body,valid,operation,arguments_);
+        if(!(error instanceof RuntimeError)||error.code!=='runtime_effect_ambiguous')throw error;
+        countEffect(metric,'ambiguous');
+        if(Date.parse(valid.not_after)<=Date.now()+this.timeoutMs)throw error;
+        return await timedRequest(metric,()=>this.once(url,ca,key,body,valid,operation,arguments_));
       }
     }catch(error){
       if(error instanceof RuntimeError&&['intent_payload_conflict','outside_catalog_terms','invalid_effect_request','effect_intent_unavailable'].includes(error.code))throw error;
+      countEffect(metric,'unavailable');
       // ADR-029b diagnosis: one line per unavailable effect request - the limit in use and the time spent (numbers and codes only).
       effectUnavailableLine(command,operation,this.timeoutMs,Date.now()-began);
       throw new RuntimeError('runtime_effect_unavailable');
@@ -350,9 +356,14 @@ export class RuntimeEffectClient{
         execute:async args=>answer({intent_id:String(parametersOf(args).intent_id)})}),
     ];
   }
-  /** AT-043: issue a catalog incentive inside this Run; accepted is not issued (the executor admits it at dispatch under the budget). */
+  /** AT-043: issue a catalog incentive inside this Run; accepted is not issued (the executor admits it at dispatch under the budget).
+   * NX-064 (ADR-029c): each request keeps this client's effect limit (effect_timeout_ms); an ambiguous answer (timeout, connection
+   * error, 503) is followed by exactly one more request with the same body, within the Run's time limit. The Run entry keys the
+   * intent on the Run and the offering ('incentive-run:<run>:<offering>', 0145): the same parameters return the stored intent, other
+   * parameters are a conflict. Still ambiguous: incentive_unavailable. */
   async issueIncentive(command:RunCommand,arguments_:unknown):Promise<IncentiveReceipt>{
     const valid=validateRunCommand(command);
+    countEffect('incentive','calls');
     try{
       const row=exact(arguments_,['incentive_offering_id','offering_revision','binding_id','amount_minor','currency','notification_text']);
       if(typeof row.incentive_offering_id!=='string'||!sha.test(row.incentive_offering_id)||typeof row.binding_id!=='string'||!sha.test(row.binding_id)
@@ -367,14 +378,16 @@ export class RuntimeEffectClient{
       const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,parameters:row}));
       if(body.length>65536)throw new Error();
       const url=new URL('/internal/v1/runtime/incentives/issue',this.origin);
-      return await new Promise<IncentiveReceipt>((resolve,reject)=>{
+      const send=()=>timedRequest('incentive',()=>new Promise<IncentiveReceipt>((resolve,reject)=>{
         const fail=(code='incentive_unavailable')=>reject(new RuntimeError(code));
-        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(2000),
+        const ambiguous=()=>reject(new RuntimeError('incentive_ambiguous'));
+        const request=httpsRequest(url,{method:'POST',ca,minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(this.timeoutMs),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':body.length}},response=>{
           let size=0;const chunks:Buffer[]=[];
+          if(response.statusCode===503){response.resume();ambiguous();return;}
           if(response.headers['content-type']!=='application/json'||response.headers['content-encoding']!==undefined){response.destroy();fail();return;}
           response.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>8192){response.destroy();request.destroy();fail();}else chunks.push(chunk);});
-          response.on('error',()=>fail());
+          response.on('error',ambiguous);
           response.on('end',()=>{try{
             const result=JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
             if(response.statusCode!==200){const denied=exact(result,['code']);
@@ -387,10 +400,18 @@ export class RuntimeEffectClient{
             resolve(out as IncentiveReceipt);
           }catch{fail();}});
         });
-        request.setTimeout(2000,()=>request.destroy());request.on('error',()=>fail());request.end(body);
-      });
+        request.setTimeout(this.timeoutMs,()=>request.destroy());request.on('error',ambiguous);request.end(body);
+      }));
+      try{return await send();}
+      catch(error){
+        if(!(error instanceof RuntimeError)||error.code!=='incentive_ambiguous')throw error;
+        countEffect('incentive','ambiguous');
+        if(Date.parse(valid.not_after)<=Date.now()+this.timeoutMs)throw error;
+        return await send();
+      }
     }catch(error){
       if(error instanceof RuntimeError&&['outside_catalog_terms','incentive_payload_conflict','invalid_incentive_request'].includes(error.code))throw error;
+      countEffect('incentive','unavailable');
       throw new RuntimeError('incentive_unavailable');
     }
   }
