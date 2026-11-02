@@ -1,7 +1,7 @@
 # K5 客户证据视图：关系图、画像卡、消息处理链路、会话指标（草案，2026-11-02）
 
 - **用途**：让工作台在真实数据上做到对外演示页（www.zingnex.com/nexloop/）的四块效果。演示页由浏览器本地生成合成数据，只作形态参照；代码与数据都不照搬。读者是负责人、调度员、后端各线和 L6 审查。
-- **状态**：草案，只有设计，没有实现。
+- **状态**：草案 v2，只有设计，没有实现。v1（f8424930）经 L6 条件 PASS，v2 写入了五个条件，见 §2.10。
 - **依据**：K4l（51ad9af4，Object 页空列与「没有值 / 没有权限」的区分）；D-G1（逐属性 READ、withheld）；ADR-025（负责人限制的属性组）；NX-019、NX-020、NX-023、NX-026、NX-027、NX-028、NX-030、NX-045/046、NX-054；`docs/design/workbench-world-model-design.md`。
 
 文中路径简写：WH = `packages/eios-core/src/nexloop_eios/workbench_http.py`，WR = `.../workbench_reads.py`，M = `packages/eios-core/src/eios/migrations/`。
@@ -51,7 +51,8 @@
       edges: [{ from:"<kind>:<id>", to:"<kind>:<id>", rel: derived_from|depends_on|fulfils }] }
     claim item:      { claim_id, predicate, epistemic_kind, resolution_state, confidence,
                        source: { conversation_id, sequence, speaker,
-                                 quote|null, quote_status: ok|restricted|erasing } }
+                                 quote|null, quote_status: ok|reviewer_only|restricted|corrected|superseded|erased },
+                       state: active|corrected|superseded|erased }
     commitment item: 沿用 commitment-view 的摘要字段 + origin
     action item:     { intent_id, operation, state, created_at }
     outreach item:   { intent_id, purpose, state, created_at }   // 仅负责人：其他角色这一组 total 照计、items 为空、invisible=total
@@ -112,6 +113,22 @@
 - 画像卡的属性沿用 D-G1 和 K4l：withheld 不当作空值，空值不当作受限。
 - 每次读取都按现有方式记入读取审计。新接口的 purpose 分别为 `consumer_evidence`、`message_trace` 和 `conversation_metrics`。
 
+### 2.6a v2 补充的权限规则（L6 条件 1–3）
+
+- **原文片段只给审核人看（条件 1）**：
+  - 新接口返回 `quote` 的条件是：成员有 `ontology.schema.review` 或 `nexloop.knowledge.read`，并且对来源消息有 READ。这和 `/review/{candidate_id}` 以及前端的 `REVIEWER_ONLY_TEXT`（`pages/Knowledge.tsx:17`）一致。
+  - 其他角色（包括 operator）只看到轮次和说话人，`quote=null`，`quote_status=reviewer_only`。侧栏的文字和 `REVIEWER_ONLY_TEXT` 一致，并说明需要什么角色。
+  - 承诺自带的 quote 仍按 `commitment-view` 的现有规则返回。是否放宽 Claim 原文，交负责人决定（Q5）。
+- **属性受限时，相关 Claim 一并受限（条件 2）**：
+  - 判断 Claim 对应哪个属性，唯一依据是匹配结论里的 `eios:property:<Type>/<name>`。它在 `claim_matching.py:304-310` 解析，记录在 M/0070 的 `nexloop_claim_matches`。
+  - 这个属性对成员是 withheld 时（D-G1，原因可能是 `restricted`、`not_permitted` 或 `erasing`），或者属于负责人限制的属性组时（ADR-025，即 `/consumers/{id}` 的 `withheld` 组），该 Claim 不返回，只计入本组的 `invisible`。由它推导出的承诺和候选也一样，不能从这些节点反推出来。
+  - 还没有匹配结论的 Claim：`predicate` 是抽取器写的自由文本（M/0066，最长 120 字），没有可靠的属性对应关系。只要该类型有任何对当前成员 withheld 的属性或受限属性组，这类 Claim 就只计入 `invisible`，不返回 predicate 和原文。
+  - 宁可多挡，不按字面猜测对应关系。前端不做任何推断。
+- **更正、取代和删除（条件 3）**：
+  - Claim 被更正时，有 `epistemic_kind=correction` 的后继，经 `derived_from` 关联（M/0069、M/0115）。被取代时 `resolution_state=superseded`。这两种情况的节点分别显示「已更正」和「已取代」，不再返回原文和 predicate 的值，只给出后继 Claim 的引用（后继同样受上面的规则约束）。
+  - 来源消息或客户被删除的 Claim，按 NX-029 和 M/0144 的删除传播处理，显示「已删除」，只计数，不返回任何内容。
+  - 消息「撤回（withdrawn）」：`claim.schema.json` 和 M/0066 都没有这个状态。设计不新造，由后端确认有没有对应事实（Q6）；在确认之前不显示这个状态。
+
 ### 2.7 没有数据时（回答 c）
 
 - 现在 stage 上 claims 约 1480 条，mutation_proposals 是 0 条，所以第①块的「候选」组和第③块的「匹配 → 本体更新」两步都没有数据。
@@ -140,6 +157,18 @@
 
 画像卡不依赖任何新接口，可以和后端并行。
 
+### 2.10 v2：接口范围与实现要求（L6 条件 4、5）
+
+- **只服务真实世界**：三个新接口都只在 world=real 时提供。sim 或 shadow 世界返回 404，并带说明代码 `real_world_only`。前端在模拟世界里显示「只在真实世界提供」。
+- **上限与分页**：参照 `/neighbors`（WR:590）。
+  - 证据图每组最多 25 项，超出的部分记为 `collapsed`，取下一页用 `?kind=<组>&after=<游标>`。
+  - 处理链路每步的 `refs` 最多 10 个，超出的记为 `more`。
+  - 指标接口是固定大小的聚合，按会话计算，`gate_blocks.by_code` 最多 20 项。
+- **实现时必须做的**：
+  - 读 `nexloop_claims` 的 SQL 要更新 `tests/test_claim_store_pg.py` 里 AT-064 的白名单。
+  - 三个新契约各配一个 `packages/contracts/examples/<name>.valid.json`，并跑 test_contracts、test_published_contracts 和 `generate --check`。
+  - 新读取的审计 purpose 加入现有的 purpose 列表。
+
 ## 3. 验收要点
 
 - 四块都只读真实接口。用一个合成租户的真实写入（WebChat 对话加 business_setup）跑真实浏览器测试，并截图 1440 和 390 两种宽度。
@@ -147,6 +176,7 @@
   - withheld 属性、受限原文和不可见节点都不在 DOM 里出现值或片段，只出现计数或徽标。
 - 第③块在 mutation_proposals 为 0 的租户上，九步齐全：「匹配」和「本体更新」显示 `none` 的文字，没有任何占位值。
 - 关系图可以只用键盘操作，表格视图与图的节点数一致。新契约的 example 通过 test_contracts、test_published_contracts 和 `generate --check`。
+- 权限测试再加三种情况：operator 看不到 Claim 原文；属性受限时相关 Claim 只计数；被更正或取代的 Claim 不返回原文。sim 世界下接口返回 404。
 - 测试里没有 xfail 或 skip。prepush-scan 4 项 PASS。
 
 ## 4. 需要负责人决定的问题
@@ -157,6 +187,8 @@
 | Q2 | 画像卡要不要逐属性修订号（需要改 EIOS 对象读取的契约）？ | 第一版只显示对象修订号，逐属性的以后再做。 |
 | Q3 | 会话指标里的模型费用，operator 能不能看？ | 不能，沿用 `/metrics` 只给负责人看的规则。 |
 | Q4 | 处理链路要不要统一的 trace id 表？ | 第一版不加，服务端按现有关联键逐段查。等查询成本有实测数据后再议。 |
+| Q5 | Claim 原文要不要对 operator 放宽（现在只给审核人和知识只读角色看）？ | 不放宽。operator 处理对话时本来就能看到消息原文，证据图只给出轮次，需要时回到对话里查看。 |
+| Q6 | 消息或 Claim 有没有「撤回」这个事实？现有 schema 没有。 | 由后端（NX-019）确认。没有的话，设计里不出现「撤回」。 |
 
 ## 5. 否决的做法
 
