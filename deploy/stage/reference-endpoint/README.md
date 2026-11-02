@@ -20,28 +20,35 @@
 | 服务凭据（NexLoop 调用时的 Bearer） | 随机生成 32 字节以上、只含 `[A-Za-z0-9._~-]`，写入私有文件 `service_token`；同一个值写进 NexLoop 效应 worker 的 provider 凭据文件 |
 | 员工凭据（员工页面登录） | 另生成一个，写入 `staff_token`；必须与服务凭据不同（程序会拒绝相同的值） |
 | TLS 证书与私钥 | 用内部 CA 签发服务证书，SAN 为端点的主机名或地址：`scripts/deploy/issue_certs.py server --ca-dir "$CA_DIR" --out "$CERT_DIR" --name reference-endpoint --san "DNS:$ENDPOINT_HOST_NAME" --san "IP:$APP_HOST_ADDR"`；链文件为 `server.chain.crt`，私钥为 `server.key` |
-| 私有 Compose env | 复制 [`compose.env.example`](compose.env.example) 到私有目录，填写项目名、按 digest 的镜像引用、绑定地址与端口、秘密目录 |
+| 私有 Compose env | 复制 [`compose.env.example`](compose.env.example) 到私有目录，填写项目名、绑定地址与端口、秘密目录（镜像引用来自 release 的 `endpoint.images.env`，见第 2 节） |
 
-秘密目录中的四个文件都必须是 **0600、属主为 UID 10002** 的普通文件（程序在容器内以该用户读取，并拒绝非私有文件）。
+秘密目录中的五个文件（含入口票据密钥 `entry_ticket_key`，开关关闭时也要存在）都必须是 **0600、属主为 UID 10002** 的普通文件（程序在容器内以该用户读取，并拒绝非私有文件）。
 
-## 2. 构建镜像
+## 2. 镜像：只用 release 构建产物（REL-EP）
 
-构建上下文只包含 `apps/reference-endpoint/` 目录；`PYTHON_IMAGE` 取 `versions.lock.json` 中按 digest 固定的 Python 基础镜像：
+镜像由 release 构建（`scripts/release/release.py build`，`deploy/release/images.v1.json` 的 `reference-endpoint`）：构建上下文只有 `apps/reference-endpoint/` 下的 `Dockerfile` 和 `reference_endpoint.py`，`PYTHON_IMAGE` 取 `versions.lock.json` 中按 digest 固定的 `python-build-base`，与其他镜像一起做 SBOM、扫描、签名，写进同一份 manifest。
 
-```bash
-docker build --pull=false --build-arg PYTHON_IMAGE=<PYTHON_IMAGE_BY_DIGEST> -t <ENDPOINT_IMAGE_TAG> apps/reference-endpoint
-```
+部署时不手工构建、不改镜像。APP_HOST 的 `deploy.py dry-run --host-role app` 把 manifest 里的 `nexloop/reference-endpoint@<digest>` 写进 `endpoint.images.env`（`details.endpoint_image` 同值；为 null 表示这个 release 早于 REL-EP，不能用它部署端点）。私有 env 里不再写 `ENDPOINT_IMAGE`。
 
-部署时用 `docker image inspect` 得到的 digest 写入 `ENDPOINT_IMAGE`。
+### 2.1 替换 R67 的手工镜像（一次性）
+
+R67 在 stage 上手工建了 `nexloop/reference-endpoint:e862dc41`，它不在任何 release manifest 里。**在替换之前，不要再改这个手工镜像**（不重建、不打补丁、不重新打标签）；端点有改动时等下一个 release。替换步骤（APP_HOST，负责人授权后执行）：
+
+1. `deploy.py dry-run --host-role app --load-check ...` 的 `ready` 为 true，`details.endpoint_image` 非空，`endpoint.images.env` 中的 digest 等于 manifest `images[name=reference-endpoint].digest`；
+2. 私有 env 删除 `ENDPOINT_IMAGE` 一行；入口票据仍开着时写 `ENDPOINT_ENTRY_TICKET_KEY_FILE=/run/secrets/entry_ticket_key`，秘密目录里的 `entry_ticket_key` 保留（现在总是挂载）；
+3. 删除私有副本中的叠加文件 `compose.entry-ticket.yaml`（仓库里的 `compose.entry-ticket.example.yaml` 已删除），只用 `compose.example.yaml`；
+4. `docker compose -f compose.example.yaml --env-file <私有 env> --env-file endpoint.images.env config -q`，再 `... up -d`；
+5. 核对：`docker inspect -f '{{.Image}}' <端点容器>` 等于 manifest 中的 digest；一致性检查（第 4 节）`ok: true`；入口票据开着时无效票据请求 `/staff/entry` 返回 401，否则 404；
+6. 核对通过后才删除手工镜像（`docker image rm nexloop/reference-endpoint:e862dc41`）；撤销：用原私有 env 与叠加文件的备份重新 `up -d`。
 
 ## 3. 启动
 
 ```bash
-docker compose -f deploy/stage/reference-endpoint/compose.example.yaml --env-file <PRIVATE_COMPOSE_ENV> config -q
+docker compose -f deploy/stage/reference-endpoint/compose.example.yaml --env-file <PRIVATE_COMPOSE_ENV> --env-file <OUT>/endpoint.images.env config -q
 ```
 
 ```bash
-docker compose -f deploy/stage/reference-endpoint/compose.example.yaml --env-file <PRIVATE_COMPOSE_ENV> up -d
+docker compose -f deploy/stage/reference-endpoint/compose.example.yaml --env-file <PRIVATE_COMPOSE_ENV> --env-file <OUT>/endpoint.images.env up -d
 ```
 
 - 容器根文件系统只读、去掉全部 capability、`no-new-privileges`，只发布一个 TLS 端口到 `ENDPOINT_BIND_ADDR`；
