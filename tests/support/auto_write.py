@@ -7,8 +7,8 @@ tests/test_claim_auto_write_pg.py tests the whitelist itself without these helpe
 def allow(admin, tenant, pairs, world='real'):
     """Whitelist the given (type, property) pairs for one tenant and world."""
     for type_name, property_name in pairs:
-        admin.execute("""insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,set_by)
-            values(%s,%s,%s,%s,1,'synthetic-test-manifest') on conflict do nothing""", (tenant, world, type_name, property_name))
+        admin.execute("""insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,reason,set_by)
+            values(%s,%s,%s,%s,1,'synthetic test whitelist','synthetic-test-manifest') on conflict do nothing""", (tenant, world, type_name, property_name))
 
 
 def allow_published_properties(admin, world='real'):
@@ -16,8 +16,8 @@ def allow_published_properties(admin, world='real'):
     except a sensitive one: the owner whitelisted the whole published schema."""
     admin.execute("""create or replace function public.nexloop_test_auto_write_published() returns trigger language plpgsql security definer set search_path=pg_catalog as $t$
         begin
-         insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,set_by)
-          select new.tenant_id,tg_argv[0],new.type_name,p->>'property_name',1,'synthetic-test-manifest'
+         insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,reason,set_by)
+          select new.tenant_id,tg_argv[0],new.type_name,p->>'property_name',1,'synthetic test whitelist','synthetic-test-manifest'
           from jsonb_array_elements(coalesce(new.definition->'properties','[]'::jsonb)) p
           where not control.nexloop_auto_write_sensitive(new.type_name,p->>'property_name')
           on conflict do nothing;
@@ -26,7 +26,7 @@ def allow_published_properties(admin, world='real'):
     admin.execute('drop trigger if exists nexloop_test_auto_write_published on ontology.object_type_versions')
     admin.execute(f"create trigger nexloop_test_auto_write_published after insert on ontology.object_type_versions for each row "
                   f"execute function public.nexloop_test_auto_write_published('{world}')")
-    admin.execute("""insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,set_by)
-        select v.tenant_id,%s,v.type_name,p->>'property_name',1,'synthetic-test-manifest'
+    admin.execute("""insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,reason,set_by)
+        select v.tenant_id,%s,v.type_name,p->>'property_name',1,'synthetic test whitelist','synthetic-test-manifest'
         from ontology.object_type_versions v,jsonb_array_elements(coalesce(v.definition->'properties','[]'::jsonb)) p
         where not control.nexloop_auto_write_sensitive(v.type_name,p->>'property_name') on conflict do nothing""", (world,))

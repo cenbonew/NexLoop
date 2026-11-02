@@ -14,13 +14,15 @@
 --   (edit_actions) cannot loosen this. Nothing else changes.
 create table control.nexloop_auto_write_properties (
  tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null check(world~'^[A-Za-z][A-Za-z0-9_.:-]{0,127}$'),
- type_name text not null check(type_name~'^[A-Z][A-Za-z0-9_]{0,63}$'),property_name text not null check(property_name~'^[a-z][a-z0-9_]{0,63}$'),
- revision bigint not null check(revision>0),set_by text not null,set_at timestamptz not null default clock_timestamp(),
+ type_name text not null check(type_name~'^[A-Z][A-Za-z0-9_]{0,63}$'),property_name text not null check(property_name~'^[A-Za-z][A-Za-z0-9_]{0,63}$'),
+ revision bigint not null check(revision>0),reason text not null check(char_length(reason) between 1 and 500),
+ set_by text not null,set_at timestamptz not null default clock_timestamp(),
  primary key(tenant_id,world,type_name,property_name)
 );
 create table control.nexloop_auto_write_publications (
  tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null,revision bigint not null check(revision>0),
  manifest_sha256 text not null check(manifest_sha256~'^[0-9a-f]{64}$'),properties integer not null check(properties>=0),
+ approved_by_decision text not null check(approved_by_decision~'^[A-Za-z0-9][A-Za-z0-9 ._:#/-]{2,127}$'),
  published_by text not null,published_at timestamptz not null default clock_timestamp(),primary key(tenant_id,world,revision)
 );
 do $tables$
@@ -37,11 +39,14 @@ end $tables$;
 
 create function control.nexloop_auto_write_sensitive(p_type text,p_property text) returns boolean
  language sql immutable set search_path=pg_catalog,pg_temp as $$
- select p_property is null or (p_type,p_property) in (('Consumer','display_name'),('Consumer','external_id_refs'),('Consumer','contact_preferences'))
+ -- L6: camelCase is split and lower-cased first (homeAddress -> home_address, Email -> email), so a naming style never hides one.
+ with n(p) as (select lower(regexp_replace(p_property,'([a-z0-9])([A-Z])','\1_\2','g')))
+ select p_property is null or (p_type,n.p) in (('Consumer','display_name'),('Consumer','external_id_refs'),('Consumer','contact_preferences'))
   -- contact, address, payment and identity documents, on every type
-  or p_property ~ '(^|_)(email|emails|phone|phones|mobile|tel|telephone|fax|wechat|whatsapp|telegram|qq|contact|contacts|address|addresses|street|city|province|country|postal|postcode|zip|location|locations|geo|latitude|longitude|card|cards|iban|swift|bank|payment|payments|billing|account|accounts|wallet|passport|national|ssn|tax|id_number|birth|birthday|birthdate|dob|password|credential|credentials|token|tokens|secret|secrets)(_|$)'
+  or n.p ~ '(^|_)(email|emails|phone|phones|mobile|tel|telephone|fax|wechat|whatsapp|telegram|qq|contact|contacts|address|addresses|street|city|province|country|postal|postcode|zip|location|locations|geo|latitude|longitude|card|cards|iban|swift|bank|payment|payments|billing|account|accounts|wallet|passport|national|ssn|tax|id_number|birth|birthday|birthdate|dob|password|credential|credentials|token|tokens|secret|secrets)(_|$)'
   -- a person's identity on the Consumer
-  or (p_type='Consumer' and p_property ~ '(^|_)(name|names|nickname|id|ids|identity|identities|external|gender|age)(_|$)')
+  or (p_type='Consumer' and n.p ~ '(^|_)(name|names|nickname|id|ids|identity|identities|external|gender|age)(_|$)')
+ from n
 $$;
 
 alter function control.nexloop_auto_write_sensitive(text,text) owner to nexloop_owner;
@@ -75,27 +80,54 @@ end $$;
 alter function ontology.nexloop_auto_write_allowed(text,text,text,text[]) owner to nexloop_owner;
 revoke all on function ontology.nexloop_auto_write_allowed(text,text,text,text[]) from public;
 
--- Manifest deploy/configuration/auto-write.v<N>.json: {schema_version 'nexloop-auto-write/1', version N, world, properties
--- [{type_name, property_name}]}. Trusted configuration identity only. A version is immutable (same content again: no change;
--- other content under it: refused) and must be newer than the current one; the whitelist is replaced as a whole.
+-- Manifest deploy/configuration/auto-write.v<N>.json: {schema_version 'nexloop-auto-write/1', version N, world, approved_by_decision
+-- (the owner's decision it follows, e.g. '2026-11-02#claim-consumer-s10-1'), properties [{type_name, property_name, reason}]}.
+-- Trusted configuration identity only. Every listed property must be a property of the type's latest published version (L6: what
+-- is opened is shown before it is opened, control.nexloop_auto_write_definitions). A version is immutable (same content again: no
+-- change; other content under it: refused) and must be newer than the current one; the whitelist is replaced as a whole and the
+-- publication keeps its decision reference, so every widening is traceable.
+create function control.nexloop_auto_write_definitions(p_tenant text,p_manifest jsonb) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare prior text:=current_setting('eios.tenant_id',true);out jsonb;
+begin
+ if session_user<>'nexloop_configurator' then raise exception 'auto write requires trusted configuration' using errcode='42501';end if;
+ if jsonb_typeof(p_manifest->'properties') is distinct from 'array' then raise exception 'auto write manifest invalid' using errcode='22023';end if;
+ perform set_config('eios.tenant_id',coalesce(p_tenant,''),true);
+ select coalesce(jsonb_agg(jsonb_build_object('type_name',e->>'type_name','property_name',e->>'property_name',
+   'published',d.prop is not null,'type_version',d.version,'value_type',d.prop->>'value_type','display_name',d.prop->>'display_name',
+   'description',d.prop->>'description','sensitive',control.nexloop_auto_write_sensitive(e->>'type_name',e->>'property_name')) order by o),'[]'::jsonb)
+  into out from jsonb_array_elements(p_manifest->'properties') with ordinality x(e,o)
+  left join lateral (select v.version,(select p from jsonb_array_elements(v.definition->'properties') p where p->>'property_name'=e->>'property_name') prop
+    from ontology.object_type_versions v where v.tenant_id=p_tenant and v.type_name=e->>'type_name' order by v.version desc limit 1) d on true;
+ perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ return out;
+end $$;
+alter function control.nexloop_auto_write_definitions(text,jsonb) owner to nexloop_owner;
+revoke all on function control.nexloop_auto_write_definitions(text,jsonb) from public;
+grant execute on function control.nexloop_auto_write_definitions(text,jsonb) to nexloop_configurator;
+
 create function control.nexloop_configure_auto_write(p_tenant text,p_manifest jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare m jsonb:=p_manifest;v bigint;w text;sha text:=encode(sha256(convert_to(p_manifest::text,'UTF8')),'hex');cur control.nexloop_auto_write_publications%rowtype;
  head bigint;x jsonb;n integer;
 begin
  if session_user<>'nexloop_configurator' then raise exception 'auto write requires trusted configuration' using errcode='42501';end if;
- if jsonb_typeof(m) is distinct from 'object' or exists(select 1 from jsonb_object_keys(m) k where k not in ('schema_version','version','world','properties'))
+ if jsonb_typeof(m) is distinct from 'object' or exists(select 1 from jsonb_object_keys(m) k where k not in ('schema_version','version','world','approved_by_decision','properties'))
+  or coalesce(m->>'approved_by_decision','')!~'^[A-Za-z0-9][A-Za-z0-9 ._:#/-]{2,127}$'
   or m->>'schema_version' is distinct from 'nexloop-auto-write/1' or jsonb_typeof(m->'version') is distinct from 'number'
   or coalesce(m->>'version','')!~'^[1-9][0-9]{0,8}$' or jsonb_typeof(m->'properties') is distinct from 'array' or jsonb_array_length(m->'properties')>64
   or coalesce(m->>'world','')!~'^[A-Za-z][A-Za-z0-9_.:-]{0,127}$' then
   raise exception 'auto write manifest invalid' using errcode='22023';end if;
  for x in select e from jsonb_array_elements(m->'properties') e loop
-  if jsonb_typeof(x) is distinct from 'object' or (select count(*) from jsonb_object_keys(x))<>2
-   or coalesce(x->>'type_name','')!~'^[A-Z][A-Za-z0-9_]{0,63}$' or coalesce(x->>'property_name','')!~'^[a-z][a-z0-9_]{0,63}$' then
+  if jsonb_typeof(x) is distinct from 'object' or exists(select 1 from jsonb_object_keys(x) k where k not in ('type_name','property_name','reason'))
+   or coalesce(x->>'type_name','')!~'^[A-Z][A-Za-z0-9_]{0,63}$' or coalesce(x->>'property_name','')!~'^[A-Za-z][A-Za-z0-9_]{0,63}$'
+   or jsonb_typeof(x->'reason') is distinct from 'string' or char_length(btrim(x->>'reason')) not between 1 and 500 then
    raise exception 'auto write manifest invalid' using errcode='22023';end if;
   if control.nexloop_auto_write_sensitive(x->>'type_name',x->>'property_name') then
    raise exception 'auto write property sensitive: %/%',x->>'type_name',x->>'property_name' using errcode='22023';end if;
  end loop;
+ if exists(select 1 from jsonb_array_elements(control.nexloop_auto_write_definitions(p_tenant,m)) d where not (d->>'published')::boolean) then
+  raise exception 'auto write property not published' using errcode='22023';end if;
  if (select count(*) from (select distinct e->>'type_name',e->>'property_name' from jsonb_array_elements(m->'properties') e) d)<>jsonb_array_length(m->'properties') then
   raise exception 'auto write manifest invalid' using errcode='22023';end if;
  v:=(m->>'version')::bigint;w:=m->>'world';
@@ -105,16 +137,17 @@ begin
  select * into cur from control.nexloop_auto_write_publications where tenant_id=p_tenant and world=w and revision=v;
  if found then
   if cur.manifest_sha256<>sha then raise exception 'auto write version is immutable' using errcode='42501';end if;
-  return jsonb_build_object('version',v,'world',w,'changed',false,'properties',cur.properties,'manifest_sha256',sha);
+  return jsonb_build_object('version',v,'world',w,'changed',false,'properties',cur.properties,'approved_by_decision',cur.approved_by_decision,'manifest_sha256',sha);
  end if;
  select max(revision) into head from control.nexloop_auto_write_publications where tenant_id=p_tenant and world=w;
  if head is not null and v<=head then raise exception 'auto write version must be newer than %',head using errcode='42501';end if;
  delete from control.nexloop_auto_write_properties where tenant_id=p_tenant and world=w;
- insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,set_by)
-  select p_tenant,w,e->>'type_name',e->>'property_name',v,session_user from jsonb_array_elements(m->'properties') e;
+ insert into control.nexloop_auto_write_properties(tenant_id,world,type_name,property_name,revision,reason,set_by)
+  select p_tenant,w,e->>'type_name',e->>'property_name',v,btrim(e->>'reason'),session_user from jsonb_array_elements(m->'properties') e;
  get diagnostics n=row_count;
- insert into control.nexloop_auto_write_publications(tenant_id,world,revision,manifest_sha256,properties,published_by) values(p_tenant,w,v,sha,n,session_user);
- return jsonb_build_object('version',v,'world',w,'changed',true,'properties',n,'manifest_sha256',sha);
+ insert into control.nexloop_auto_write_publications(tenant_id,world,revision,manifest_sha256,properties,approved_by_decision,published_by)
+  values(p_tenant,w,v,sha,n,m->>'approved_by_decision',session_user);
+ return jsonb_build_object('version',v,'world',w,'changed',true,'properties',n,'approved_by_decision',m->>'approved_by_decision','manifest_sha256',sha);
 end $$;
 alter function control.nexloop_configure_auto_write(text,jsonb) owner to nexloop_owner;
 revoke all on function control.nexloop_configure_auto_write(text,jsonb) from public;

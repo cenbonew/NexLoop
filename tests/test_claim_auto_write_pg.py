@@ -11,7 +11,7 @@ import psycopg
 import pytest
 from psycopg.conninfo import make_conninfo
 
-from nexloop_eios.auto_write import AutoWriteRejected, apply_manifest, load_manifest, validate_manifest
+from nexloop_eios.auto_write import AutoWriteRejected, apply_manifest, definitions, load_manifest, validate_manifest
 from support.auto_write import allow
 from test_claim_matching_pg import decision, env, matcher, obj, resolution  # noqa: F401
 
@@ -41,9 +41,12 @@ def configurator(f, tmp_path):
     return dsn
 
 
-def manifest(version, *pairs, world='real'):
-    return {'schema_version': 'nexloop-auto-write/1', 'version': version, 'world': world,
-            'properties': [{'type_name': t, 'property_name': p} for t, p in pairs]}
+DECISION = '2026-11-02#synthetic-owner-decision'
+
+
+def manifest(version, *pairs, world='real', decision=DECISION):
+    return {'schema_version': 'nexloop-auto-write/1', 'version': version, 'world': world, 'approved_by_decision': decision,
+            'properties': [{'type_name': t, 'property_name': p, 'reason': f'synthetic: {p} from a plain statement'} for t, p in pairs]}
 
 
 def test_with_an_empty_whitelist_a_match_is_only_a_proposal_for_review(env):
@@ -70,7 +73,12 @@ def test_the_owner_manifest_whitelists_a_property_and_the_waiting_proposal_appli
     m, _ = matcher(f, {claim: decision(BUDGET, '两千元以内')})
     m.process_conversation(f['conversation'])
     dsn = configurator(f, tmp_path)
+    shown = definitions(manifest(1, ('Consumer', 'budget_level')), f['tenant'], database_url_file=dsn)
+    assert shown == [{'type_name': 'Consumer', 'property_name': 'budget_level', 'published': True, 'type_version': 1, 'value_type': 'string',
+                      'display_name': '预算区间', 'description': '顾客可接受的价格档位', 'sensitive': False}]
     assert apply_manifest(manifest(1, ('Consumer', 'budget_level')), f['tenant'], database_url_file=dsn)['changed'] is True
+    assert admin.execute('select revision,properties,approved_by_decision from control.nexloop_auto_write_publications').fetchall() == [(1, 1, DECISION)]
+    assert admin.execute('select reason from control.nexloop_auto_write_properties').fetchall() == [('synthetic: budget_level from a plain statement',)]
     assert list(m.process_conversation(f['conversation'])['applied'].values()) == ['applied']
     assert obj(admin, f['consumer'])[0]['budget_level'] == '两千元以内' and resolution(admin, claim) == 'resolved' and edits(admin) == 1
     # Versions are immutable and move forward; the same content again changes nothing; a newer empty one takes it back.
@@ -89,7 +97,9 @@ def test_the_owner_manifest_whitelists_a_property_and_the_waiting_proposal_appli
 
 @pytest.mark.parametrize('pair', [('Consumer', 'display_name'), ('Consumer', 'external_id_refs'), ('Consumer', 'contact_preferences'),
                                   ('Consumer', 'phone'), ('Consumer', 'home_address'), ('Consumer', 'checkout_payment_card'),
-                                  ('Consumer', 'nickname'), ('Consumer', 'id_number'), ('Order', 'delivery_address'), ('Order', 'billing_email')])
+                                  ('Consumer', 'nickname'), ('Consumer', 'id_number'), ('Order', 'delivery_address'), ('Order', 'billing_email'),
+                                  # L6: camelCase is split before matching
+                                  ('Consumer', 'Email'), ('Consumer', 'phoneNumber'), ('Consumer', 'homeAddress'), ('Consumer', 'displayName')])
 def test_a_sensitive_property_is_refused_in_the_manifest_and_never_applies(env, tmp_path, pair):
     f = env;admin = f['admin'];deny_all(admin)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='auto write property sensitive'):
@@ -98,6 +108,19 @@ def test_a_sensitive_property_is_refused_in_the_manifest_and_never_applies(env, 
     # Even a row written past the manifest never makes it writable: the check is repeated at every use.
     allow(admin, f['tenant'], [pair])
     assert admin.execute('select ontology.nexloop_auto_write_allowed(%s,%s,%s,%s)', (f['tenant'], 'real', pair[0], [pair[1]])).fetchone() == (False,)
+
+
+def test_a_property_the_ontology_does_not_publish_is_refused_and_every_entry_needs_its_reason_and_decision(env, tmp_path):
+    f = env;admin = f['admin'];deny_all(admin);dsn = configurator(f, tmp_path)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='not published'):
+        apply_manifest(manifest(1, ('Consumer', 'shoe_size')), f['tenant'], database_url_file=dsn)
+    assert definitions(manifest(1, ('Consumer', 'shoe_size')), f['tenant'], database_url_file=dsn)[0]['published'] is False
+    for bad in ({**manifest(1, ('Consumer', 'budget_level')), 'approved_by_decision': ''},
+                {**manifest(1), 'properties': [{'type_name': 'Consumer', 'property_name': 'budget_level'}]},
+                {**manifest(1), 'properties': [{'type_name': 'Consumer', 'property_name': 'budget_level', 'reason': '  '}]}):
+        with psycopg.connect(dsn.read_text()) as conn, pytest.raises(psycopg.errors.InvalidParameterValue, match='manifest invalid'):
+            conn.execute('select control.nexloop_configure_auto_write(%s,%s::jsonb)', (f['tenant'], json.dumps(bad)))
+    assert admin.execute('select count(*) from control.nexloop_auto_write_publications').fetchone() == (0,)
 
 
 def test_a_non_personal_name_on_another_type_is_not_sensitive(env):
@@ -112,9 +135,12 @@ def test_a_non_personal_name_on_another_type_is_not_sensitive(env):
 
 def test_the_shipped_manifest_is_empty_and_the_shape_is_checked():
     shipped = load_manifest(ROOT / 'deploy/configuration/auto-write.v1.json')
-    assert shipped == manifest(1)
-    for bad in ({**manifest(1), 'tenant_id': 'x'}, {**manifest(0)}, {**manifest(1), 'properties': [{'type_name': 'consumer', 'property_name': 'x'}]},
-                {**manifest(1), 'properties': [{'type_name': 'Consumer', 'property_name': 'x'}] * 2}, {**manifest(True)}):
+    assert shipped == manifest(1, decision='2026-11-02#claim-consumer-plan-s10-1')  # phase one: empty, under the owner's decision
+    no_decision = manifest(1);del no_decision['approved_by_decision']
+    for bad in ({**manifest(1), 'tenant_id': 'x'}, {**manifest(0)}, {**manifest(1), 'properties': [{'type_name': 'consumer', 'property_name': 'x', 'reason': 'r'}]},
+                {**manifest(1), 'properties': [{'type_name': 'Consumer', 'property_name': 'x', 'reason': 'r'}] * 2}, {**manifest(True)},
+                no_decision, manifest(1, decision='x'), {**manifest(1), 'properties': [{'type_name': 'Consumer', 'property_name': 'x'}]},
+                {**manifest(1), 'properties': [{'type_name': 'Consumer', 'property_name': 'x', 'reason': ' '}]}):
         with pytest.raises(AutoWriteRejected):
             validate_manifest(bad)
 
@@ -124,6 +150,23 @@ def test_the_apply_command_checks_without_connecting_and_never_prints_a_dsn(tmp_
     sys.path.insert(0, str(ROOT / 'scripts/deploy'))
     import auto_write_apply as A
     assert A.main(['--manifest', str(ROOT / 'deploy/configuration/auto-write.v1.json'), '--check']) == 0
-    assert json.loads(capsys.readouterr().out) == {'valid': True, 'version': 1, 'world': 'real', 'properties': 0}
+    assert json.loads(capsys.readouterr().out) == {'valid': True, 'version': 1, 'world': 'real', 'properties': 0,
+                                                   'approved_by_decision': '2026-11-02#claim-consumer-plan-s10-1', 'entries': []}
+    # Publishing shows the definitions first, then the result.
+    order = []
+    out = __import__('io').StringIO()
+    path = tmp_path / 'auto-write.v2.json'
+    path.write_text(json.dumps(manifest(2, ('Consumer', 'budget_level'))))
+
+    class Window:
+        def __init__(self, *_, **__): pass
+        def __enter__(self): return 'dsn-file'
+        def __exit__(self, *_): return False
+    assert A.main(['--manifest', str(path), '--tenant', 't', '--bootstrap-dsn-file', 'b'], out=out, window=Window,
+                  describe=lambda *a, **k: order.append('describe') or [{'property_name': 'budget_level', 'description': 'd'}],
+                  apply=lambda *a, **k: order.append('apply') or {'changed': True}) == 0
+    lines = [json.loads(line) for line in out.getvalue().splitlines()]
+    assert order == ['describe', 'apply'] and lines[0] == {'definitions': [{'property_name': 'budget_level', 'description': 'd'}]}
+    assert lines[1]['applied'] is True and lines[1]['approved_by_decision'] == DECISION
     assert A.main(['--manifest', str(ROOT / 'deploy/configuration/auto-write.v1.json')]) == 2
     assert json.loads(capsys.readouterr().out)['applied'] is False

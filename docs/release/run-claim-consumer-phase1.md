@@ -17,10 +17,17 @@
 docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/auto_write_apply.py --manifest /opt/release/deploy/configuration/auto-write.v1.json --check
 ```
 
-去掉 `--check`，加上 `--tenant <TENANT_ID> --bootstrap-dsn-file <同 alert_rules_apply 的路径>` 正式发布。预期 `{"applied": true, "version": 1, "world": "real", "properties": 0, ...}`。
+去掉 `--check`，加上 `--tenant <TENANT_ID> --bootstrap-dsn-file <同 alert_rules_apply 的路径>` 正式发布。输出两行：第一行 `definitions` 是清单里每个属性在本体中的当前定义（v1 为空数组）；第二行预期 `{"applied": true, "version": 1, "world": "real", "properties": 0, "approved_by_decision": "2026-11-02#claim-consumer-plan-s10-1", ...}`。
 
+- **阶段一的白名单为空**（v1 引用负责人 2026-11-02 的决定，计划 §10 第 1 项）。
+- **往清单新增属性，必须引用负责人决定**：
+  - `approved_by_decision` 写负责人决定的引用（日期 + 编号）；
+  - 每一项写 `reason`。
+
+  两者都是必填，数据库连同版本号、清单摘要一起记进 `control.nexloop_auto_write_publications`，每次放宽都能追溯。
+- **发布前核对定义**：`--check` 列出各项及其 reason；正式发布时，先打印每个属性在本体里的定义（类型版本、值类型、显示名、说明），再发布。本体里没有发布的属性会被拒绝（`auto write property not published`）。
 - 白名单只由负责人维护：改 `deploy/configuration/auto-write.v<N+1>.json`，再用同一条命令发布。版本号只能递增；同一版本内容不同会被拒绝。
-- 身份、联系方式、地址、支付类属性写进 manifest 会被数据库整份拒绝（`auto write property sensitive: <类型>/<属性>`），写进去也不会生效。
+- 身份、联系方式、地址、支付类属性写进 manifest 会被数据库整份拒绝（`auto write property sensitive: <类型>/<属性>`），写进去也不会生效。判断前先拆驼峰、再转小写（`homeAddress` 按 `home_address` 判断）。
 - 阶段二发布 `Consumer.delivery_windows` 后，白名单 v2 才加入它（计划 §10.1 第 6 项），不在本单。
 
 ## 3. 打开前核对（只读）
@@ -38,7 +45,8 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/auto_write
 
    ```sql
    select count(*) from control.nexloop_auto_write_properties where tenant_id='<TENANT_ID>' and world='real';   -- 预期 0
-   select revision, properties from control.nexloop_auto_write_publications where tenant_id='<TENANT_ID>' and world='real';   -- 预期 1, 0
+   select revision, properties, approved_by_decision from control.nexloop_auto_write_publications where tenant_id='<TENANT_ID>' and world='real';
+   -- 预期 1, 0, 2026-11-02#claim-consumer-plan-s10-1
    ```
 
 ## 4. claim-match.json 与重启 claim-matcher（APP_HOST）
