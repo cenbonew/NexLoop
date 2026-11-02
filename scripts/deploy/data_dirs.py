@@ -14,6 +14,13 @@ ${NEXLOOP_ROOT}/data that a service binds must exist before the first `up`, owne
 The account of a service is its Compose `user:` (variables from the stage env) or, without one, the backend image's USER 10001
 (deploy/community/Dockerfile). No directory found is a failure, never a pass (an empty or unreadable Compose file checks nothing).
 post_deploy_check.py runs the same check as `data_dirs`. Standard library and PyYAML only.
+
+Order before every APP_HOST `up` (OPERATIONS §8a.5): plan (install -d the new directories as root) -> check, exit 0 required -> up;
+after it, post_deploy_check item 8 checks again.
+
+Scope: only the ${NEXLOOP_ROOT}/data/* binds of the APP_HOST Compose file (deploy/stage/compose.app.example.yaml). The bind
+directories of the DATA_HOST Compose file and of the reference endpoint Compose files are not covered; a new bind there must be
+wired into a check for its own Compose file.
 """
 import argparse
 import json

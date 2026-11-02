@@ -335,7 +335,13 @@ Compose 的绑定挂载（`volumes:` 中 `<主机路径>:<容器路径>`）在�
 - **预防**：启动前先 `docker compose … config -q`，并逐一核对每个绑定源存在且类型正确（文件或目录）。
 - **数据目录**（D-LEDGER，2026-11-02）：APP_HOST compose 绑定的 `${NEXLOOP_ROOT}/data/*` 目录在部署准备时显式建好，属服务账户、0700。
   - `python3 scripts/deploy/data_dirs.py plan --stage-env <私有 stage.env>` 列出每个目录的 `install -d` 行（以 root 执行）；
-  - `data_dirs.py check`（只读）与 `post_deploy_check.py` 的 `data_dirs` 项核对：目录缺失、属 root、属主不对或属主不可写都判失败；compose 里一个数据目录都找不到也判失败。`secrets:` 中 `file:` 指向的源文件缺失时，Compose 会直接拒绝启动，比绑定挂载更安全。
+  - `data_dirs.py check`（只读）与 `post_deploy_check.py` 的 `data_dirs` 项核对：目录缺失、属 root、属主不对或属主不可写都判失败；compose 里一个数据目录都找不到也判失败。
+  - **APP_HOST 每次 `up` 前的固定步骤**（本节是现行的部署要点；NX-032-deploy-runbook 自 10-16 起未再更新）：
+    1. `data_dirs.py plan`，新目录以 root 执行 `install -d`；
+    2. `data_dirs.py check`，必须 exit 0，否则不 `up`；
+    3. `up -d`；
+    4. 之后 `post_deploy_check.py` 第 8 项 `data_dirs` 再查一次。
+  - **范围**：只覆盖 APP_HOST compose 中 `${NEXLOOP_ROOT}/data/*` 的 bind。DATA_HOST 和参考端点 compose 的 bind 目录不在范围内。`secrets:` 中 `file:` 指向的源文件缺失时，Compose 会直接拒绝启动，比绑定挂载更安全。
 
 ### 8a.6 `sed -i` 会换 inode：容器看不到新内容
 
