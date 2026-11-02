@@ -6,7 +6,7 @@ suppression and no Consumer id; windows are whole UTC days. Real PostgreSQL; fix
 """
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import psycopg
 import pytest
@@ -14,11 +14,10 @@ from psycopg.types.json import Jsonb
 
 from support.tenants import TENANT_A, TENANT_B
 from test_nx043_experiments_pg import publish, register, registration, strategy
-from test_nx043_reports_pg import EXPERIMENT, allocate, consumer, pay
+from test_nx043_reports_pg import EXPERIMENT, allocate, consumer, pay, today
 from test_nx043_shadow_pg import decide, inbound, key, sha, switch, x3  # noqa: F401
 
 ROOT = __import__('pathlib').Path(__file__).resolve().parents[1]
-TODAY = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 HANDLER = 'control.nexloop_governed_read_experiment_report(text,text,text,text,text,jsonb)'
 
 
@@ -28,7 +27,8 @@ def read(admin, body, tenant=TENANT_A, world='real', principal='owner-principal'
                                                                                               **body}))).fetchone()[0]
 
 
-def shadow_body(f, since=TODAY, until=None):
+def shadow_body(f, since=None, until=None):
+    since = since or today()
     return {'kind': 'shadow', 'world': f['shadow'], 'strategy_id': 'followup.later', 'strategy_version': 1, 'since': since.isoformat(),
             'until': (until or since + timedelta(days=1)).isoformat()}
 
@@ -59,7 +59,7 @@ def test_the_owner_reads_both_reports_as_aggregates_with_no_person(both):
     admin = f['admin']
     s = read(admin, shadow_body(f))
     assert s['cells'] == [{'shadow': 'reply', 'real': 'reply', 'events': 31, 'consumers': 31}] and s['suppressed_cells'] == 'some'
-    e = read(admin, {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': TODAY.isoformat()})
+    e = read(admin, {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': today().isoformat()})
     assert e['conclusion'] == 'reported' and e['scores']['candidate']['successes'] == 8 and e['scores']['control']['unknown'] == 'none'
     text = json.dumps([s, e])
     assert not any(x in text for x in f['ids'])  # no Consumer, conversation or message id
@@ -96,14 +96,14 @@ def test_another_tenant_reads_nothing_of_this_one(both):
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='world_unknown'), admin.transaction():
         read(admin, shadow_body(f), tenant=TENANT_B)  # tenant A's shadow world
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='not_found'), admin.transaction():
-        read(admin, {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': TODAY.isoformat()}, tenant=TENANT_B)
+        read(admin, {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': today().isoformat()}, tenant=TENANT_B)
 
 
 def test_windows_off_the_grid_are_refused(both):
     f = both
     admin = f['admin']
-    for body in (shadow_body(f, since=TODAY + timedelta(hours=3)), shadow_body(f, until=TODAY + timedelta(hours=5)),
-                 {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': (TODAY - timedelta(hours=2)).isoformat()}):
+    for body in (shadow_body(f, since=today() + timedelta(hours=3)), shadow_body(f, until=today() + timedelta(hours=5)),
+                 {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': (today() - timedelta(hours=2)).isoformat()}):
         with pytest.raises(psycopg.errors.InvalidParameterValue, match='window_not_on_grid'), admin.transaction():
             read(admin, body)
     with pytest.raises(psycopg.errors.InvalidParameterValue, match='experiment report: invalid'), admin.transaction():

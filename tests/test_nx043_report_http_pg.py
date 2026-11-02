@@ -15,8 +15,8 @@ from test_browser_http import ORIGIN
 from test_browser_identity_reads import identity  # noqa: F401
 from test_browser_session_creation import uow  # noqa: F401
 from test_nx043_pooled_pg import allocate as pool_allocate, online, people
-from test_nx043_report_action_pg import TODAY, both, shadow_body  # noqa: F401
-from test_nx043_reports_pg import EXPERIMENT, pay
+from test_nx043_report_action_pg import both, shadow_body  # noqa: F401
+from test_nx043_reports_pg import EXPERIMENT, pay, today
 from test_nx043_shadow_pg import x3  # noqa: F401
 from test_real_dispatch_switch_pg import switching  # noqa: F401
 from test_workbench_actions_http import act
@@ -38,8 +38,8 @@ def reports(switching, both):  # noqa: F811
 
 def bodies(f):
     return {'shadow': shadow_body(f),
-            'experiment': {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': TODAY.isoformat()},
-            'pooled': {'kind': 'pooled', 'experiment_ids': ['pool.r1', 'pool.r2'], 'as_of': TODAY.isoformat()}}
+            'experiment': {'kind': 'experiment', 'experiment_id': EXPERIMENT, 'as_of': today().isoformat()},
+            'pooled': {'kind': 'pooled', 'experiment_ids': ['pool.r1', 'pool.r2'], 'as_of': today().isoformat()}}
 
 
 def test_every_report_kind_is_read_through_the_workbench_and_a_wrong_key_set_is_refused(reports, admin):
@@ -74,6 +74,6 @@ def test_a_window_the_handler_refuses_answers_with_its_reason(reports):
     switching, f = reports
     with TestClient(create_app(switching['config']), base_url=ORIGIN) as client:
         csrf = workbench_login(client, switching['owner_member']).json()['csrf_token']
-        off_grid = shadow_body(f, since=TODAY + timedelta(hours=3))
+        off_grid = shadow_body(f, since=today() + timedelta(hours=3))
         refused = act(client, csrf, 'read_experiment_report', off_grid)
         assert refused.status_code == 409 and refused.json()['code'] == 'not_allowed_in_state', refused.json()
