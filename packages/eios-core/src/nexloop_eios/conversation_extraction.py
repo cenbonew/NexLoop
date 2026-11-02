@@ -16,8 +16,8 @@ from zoneinfo import ZoneInfo
 
 from nexloop_eios.time_normalization import merge as merge_time
 
-EXTRACTOR_VERSION='nx019-extractor/3'
-PROMPT_VERSION='nx019-conversation-extraction-prompt/3'
+EXTRACTOR_VERSION='nx019-extractor/4'
+PROMPT_VERSION='nx019-conversation-extraction-prompt/4'
 EPISTEMIC_KINDS=('user_statement','preference','constraint','intent','need_problem','commitment','hypothesis','correction')
 FORBIDDEN_KINDS=('verified_fact',)
 MODALITIES=('asserted','conditional','tentative','requested')
@@ -52,6 +52,11 @@ SYSTEM_PROMPT="""<prompt>
     8. 代词(它/这个/那款)指代的对象写在 subject.text 中，且必须是该话题内某条消息里出现过的原词；无法确定就留空。
        顾客提到的人名不等于顾客身份，subject.kind=consumer 只指当前对话的顾客本人。
     9. 撤回或更正(说错了/不是…是/作废/撤回)用 kind=correction，并用 corrects 指向被更正的显性 Claim 下标；前后矛盾但没有更正词时两条都保留，不要合并或删除。
+    10. modality：asserted 是陈述(事实、偏好、约束)，包括顾客对**自己以后如何被联系、被称呼、被服务**下的指令(如"以后只发站内消息""不要打电话")；
+       requested 只用于顾客请企业做一件事或提问(如"帮我查一下""怎么修改？")；conditional、tentative 见第 5 条。
+    11. 联系偏好：顾客对联系渠道的要求用 kind=preference(或 constraint)，predicate 固定写 contact_channel，value 为 string，取值只能是
+       native.webchat(站内消息/这里/App 内)、phone、sms、email、wechat 之一；"只要/只接收 X"是 polarity=affirmed，"不要 X"是 polarity=negated；
+       一句话涉及几个渠道就拆成几条 Claim(如"不要电话和短信"拆成 phone 与 sms 两条 negated)。全面拒绝联系("别再联系我")不是渠道偏好。
   </instruction>
   <output_format>
     {"topics":[{"topic":"","conversation_summary":"","user_valid_reply":true,"message_refs":[1]}],
@@ -253,6 +258,24 @@ WAIT_CONDITION=re.compile(r'等到?(.{1,16}?)(再|才)')
 SUFFIX_CONDITION=re.compile(r'(之后|以后|后)[，,]?\s*(我们|我)?(再|才)|的话')
 SITUATIONAL=re.compile(r'看情况|视情况')
 BOUNDARY='，,。；;！!？?'
+# 0228 contact preferences: a channel statement whose predicate the model wrote as free text is given the standard predicate
+# contact_channel and a channel code when its value names exactly one channel (plan claim-to-consumer-property §8.4).
+CONTACT_CHANNEL_PREDICATES=('contact_channel','联系渠道')
+CHANNEL_PREDICATE=re.compile(r'((联系|沟通|通知|接收|消息|通讯|触达)\s*(渠道|方式|途径)(偏好)?|(contact|communication|notification|preferred)\s*(channel|method)s?|channels?)',re.I)
+CHANNEL_VALUES=(('native.webchat',re.compile(r'(native\.webchat|站内|app\s*内|应用内|平台内|webchat|in[- ]app|\bhere\b|这里)',re.I)),
+    ('phone',re.compile(r'(电话|来电|致电|\bphone\b|\bcalls?\b)',re.I)),('sms',re.compile(r'(短信|\bsms\b|\btexts?\b)',re.I)),
+    ('email',re.compile(r'(邮件|邮箱|\be-?mail\b)',re.I)),('wechat',re.compile(r'(微信|\bwechat\b)',re.I)))
+
+
+def contact_channel(kind,predicate,value):
+    """(predicate, value) in the 0228 channel vocabulary, or None when this is not a single-channel contact statement."""
+    if kind not in ('preference','constraint') or value['type']!='string' or type(value['value']) is not str:return None
+    if predicate.strip().lower() not in CONTACT_CHANNEL_PREDICATES and not CHANNEL_PREDICATE.search(predicate):return None
+    found=[code for code,pattern in CHANNEL_VALUES if pattern.search(value['value'])]
+    if len(found)!=1:return None
+    return 'contact_channel',{'type':'string','value':found[0]}
+
+
 TENTATIVE=re.compile(r'(考虑|可能|也许|或许|大概|看看|想想|再说|不一定|说不定|犹豫|暂不|暂时不|先不|暂且不|目前不|现在不)')
 NEGATION=re.compile(r'(不|没|别|无需|勿|甭|莫)')
 NOT_NEGATION=re.compile(r'不错|不少|不久|不断|不仅|不过|不管|差不多|忍不住|了不起|不得了')  # lexicalized, not negation
@@ -647,6 +670,8 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     valid_time,time_flags=merge_time(valid_time,item.get('time'),expression=time_expression,anchor=anchor,timezone=context.timezone)
     flags+=time_flags
     if kind=='hypothesis':confidence=min(confidence,0.6)
+    channel=contact_channel(kind,predicate,value) if speaker=='consumer' else None
+    if channel is not None and channel!=(predicate,value):predicate,value=channel;flags.append('contact_channel_normalized')
     subject_ref=context.consumer_id if subject['kind']=='consumer' else ''
     claim={'subject_kind':subject['kind'],'subject_ref':subject_ref,'subject_text':subject_text,'corrects_claim_id':corrects_id,
         'predicate':predicate,'value':value,'speaker':speaker,'polarity':polarity,'modality':modality,'condition':condition,

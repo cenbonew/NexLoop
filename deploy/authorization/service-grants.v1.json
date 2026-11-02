@@ -200,6 +200,8 @@
      "purpose": "Read the extraction feed (due/mark/backlog) bound to the extract Action.", "source_task": "NX-019"},
     {"principal": "claim_extraction_scheduler", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.claim-extraction:1", "operations": ["execute"],
      "purpose": "Accept one idempotent queue event per extraction window.", "source_task": "NX-019"},
+    {"principal": "claim_extraction_scheduler", "resource_type": "action", "resource_id": "eios:action:nexloop.claim.reextract_contact:1", "operations": ["execute"],
+     "purpose": "Choose re-extraction windows for consumer channel statements the 0228 vocabulary cannot read (message ids and counts only) and enqueue them on its own queue (plan claim-to-consumer-property §8.4).", "source_task": "S-CLAIM"},
     {"principal": "world_glossary_translator", "resource_type": "action", "resource_id": "eios:action:nexloop.world_glossary.translate:1", "operations": ["execute"],
      "purpose": "The world glossary port (scan, due, reserve, record) of authz.nexloop_world_glossary_port; no other Action, no table.", "source_task": "NX-064"},
     {"principal": "claim_extraction_worker", "resource_type": "action", "resource_id": "eios:action:NexLoop.queue.claim-extraction:1", "operations": ["execute"],

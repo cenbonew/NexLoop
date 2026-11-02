@@ -2010,6 +2010,11 @@
       "version": "0402",
       "name": "0402_plan_question_context_v7.sql",
       "sha256": "6b1a7bac49aaa2a4c08f05430f167f0744c041dfbee08ff3c7727a15c36f1109"
+    },
+    {
+      "version": "0409",
+      "name": "0409_contact_channel_reextract.sql",
+      "sha256": "6656c820f936c1c1c8262f99addba1004b481bf9ae94b7d79c9d1d0a4abbdefc"
     }
   ]
 }
