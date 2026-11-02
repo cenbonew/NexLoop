@@ -217,3 +217,103 @@ select modality, count(*) from ontology.nexloop_claims where tenant_id='stage' a
 ### 8.7 工作量调整
 
 阶段一增加“提取器提示词与 TENTATIVE 修正，加历史联系类对话重抽”，约 1.5–2 人日。阶段一合计约 3 人日，总计约 8–9 人日。
+
+## 9. L6 条件 PASS 的四个条件（11-02）
+
+### 9.1 按属性的自动写入白名单（阶段一打开写入之前必须完成）
+
+现状：`edit_actions` 是按类型授权的（`MatchConfiguration`，`claim_matching.py:111-126`；`load_match_configuration` 只接受 `edit_actions` / `create_actions`，`background_services.py:171-176`）。服务端的 `authz.nexloop_record_claim_match`（0070，后由 0074 替换）和 apply 只校验 Action 权限和对象/属性 EDIT 授权。`service-grants.v1.json:323` 给了 `claim_matcher` 对 Consumer 的 `edit`，没有逐属性限制。也就是说，配置一打开，匹配器就能写 Consumer 的任何属性。
+
+产品改动（约 2 人日，新迁移，配套测试）：
+
+1. 新表 `control.nexloop_auto_write_properties(tenant_id, world, type_name, property_name, revision, set_by, set_at)`，默认没有任何行（默认拒绝）。
+2. 负责人的受治理 Action `ontology.auto_write.set:1`（human_owner）用来增删条目。服务端硬拒绝敏感属性：一份写在迁移里的固定拒绝表，包括 `external_id_refs`、`contact_preferences`、`display_name`，以及 owner-property-restrictions 里列出的身份、联系方式、地址、支付类属性。新类型的属性默认不进白名单。
+3. 在 `authz.nexloop_record_claim_match` 的 full_match / partial_match 分支，以及 `transition → applying`，都检查 `(type_name, property_name)` 是否在白名单内。不在白名单内的：proposal 照常记录，但状态停在 `proposed`，`reason='auto_write_not_allowed'`，Claim 保持 `needs_resolution`，进审核视图，由负责人在工作台批准后执行同一个 `Consumer.edit`。匹配器端的配置不能放宽这一层。
+4. 第一批只放 `Consumer.delivery_windows`，等阶段二发布之后再加。阶段一打开 `edit_actions` 时白名单为空，因此阶段一**不会自动写入任何属性**，只产生待批准的提案。
+
+验收：
+
+```sql
+select type_name, property_name, revision from control.nexloop_auto_write_properties where tenant_id='stage' and world='real';
+select status, reason, property_name, count(*) from ontology.nexloop_mutation_proposals where tenant_id='stage' and world='real' group by 1,2,3;
+```
+
+预期：白名单只有 delivery_windows（阶段二之后）；其他属性的提案全部是 `proposed / auto_write_not_allowed`，没有 `applied`。
+
+§6 决策 1 改为：自动写入以白名单为准，由负责人维护，敏感属性不能加入。
+
+### 9.2 最高优先级：“不要再联系我”和“只接收站内消息”
+
+AGENTS.md 要求联系约束在派发时生效。这两类陈述不能只写成属性，也不能因为匹配未通过就停在 requested、不起作用。
+
+**现有链路（不经 Claim）：**
+
+- 全面拒绝：ADR-023 的确定性规则。入站消息持久化的同一事务里，行触发器跑 `control.nexloop_contact_refusal_match`（`0109_nx025_contact_refusal_and_replies.sql:68-87`；当前规则 v2：`deploy/configuration/contact-refusal-rules.v2.json`，迁移 `0244_contact_refusal_rules_v2.sql`）。命中后写入 `control.nexloop_contact_restrictions`（`0109:96,151`），派发时只放行与入站消息绑定的回复。解除只能由负责人执行受治理 Action `release_contact_restriction`（`goal_controls.py:292`）。
+- 渠道、时段、频率、主题偏好：0228 从 Claim 实时派生，在派发时由 `control.nexloop_contact_assert_intent` 强制执行（见 §8.3）。它只认固定 predicate。
+
+**已知漏洞：**
+
+- v2 规则 `stop-contact` 是 `(不要|别|…)\s*(再|在|继续)?\s*(给我|…)?\s*(发|打|推送|推|联系|…)`。“以后请不要再**主动**联系我”中间多了“主动”，**不命中**；“以后不要再联系我了”命中。
+- “只接收站内消息”“you only message me here”不属于全面拒绝，规则本来就不管。0228 需要 predicate `contact_channel`，但提取器给的是自由文本（§8.3），所以**也不生效**。
+
+**请跑的只读 SQL（38 条 = preference 16 + constraint 22 的 requested）：**
+
+```sql
+-- 每条 Claim 的来源消息是否触发了联系限制，客户当前是否处于限制中
+with c as (
+ select claim_id, epistemic_kind, consumer_id, source_message_id, left(quote,40) q
+  from ontology.nexloop_claims
+  where tenant_id='stage' and world='real' and epistemic_kind in ('preference','constraint') and modality='requested')
+select c.epistemic_kind, (r_msg.message_id is not null) restricted_by_this_message, coalesce(r_now.active,false) consumer_restricted_now,
+       runtime.nexloop_contact_preference_dimension(cl.predicate) is not null preference_parsed, count(*)
+ from c join ontology.nexloop_claims cl on cl.tenant_id='stage' and cl.world='real' and cl.claim_id=c.claim_id
+ left join control.nexloop_contact_restrictions r_msg on r_msg.tenant_id='stage' and r_msg.world='real' and r_msg.message_id=c.source_message_id
+ left join control.nexloop_contact_restrictions r_now on r_now.tenant_id='stage' and r_now.world='real' and r_now.consumer_id=c.consumer_id and r_now.active
+ group by 1,2,3,4 order by 5 desc;
+-- 未生效的样本（只给调度员看）
+select left(cl.claim_id,12), cl.epistemic_kind, cl.predicate, left(cl.quote,40)
+ from ontology.nexloop_claims cl
+ where cl.tenant_id='stage' and cl.world='real' and cl.epistemic_kind in ('preference','constraint') and cl.modality='requested'
+  and not exists(select 1 from control.nexloop_contact_restrictions r where r.tenant_id=cl.tenant_id and r.world=cl.world and r.consumer_id=cl.consumer_id and r.active)
+  and runtime.nexloop_contact_preference_dimension(cl.predicate) is null
+ order by cl.recorded_at desc limit 10;
+```
+
+（`control.nexloop_contact_restrictions` 可能一个客户有多行历史，`active` 表示当前状态；列名取自 0109。）
+
+**补法与推荐：**
+
+| 漏洞 | A. 自动生效 | B. 先审核 | 推荐 |
+|---|---|---|---|
+| 全面拒绝的措辞漏判（“主动”等插入词） | 发布规则 v3：`stop-contact` 允许 `(主动|随便|没事|老是)?` 一类插入词，新增 `only-reply`（“有事我找你们”）作 uncertain；附正反样本回归。约 0.5–1 人日，新迁移加新规则文件 | 不适用：ADR-023 规定命中即限制，宁可错拦 | **A**：仍是确定性规则、同事务生效，符合 ADR-023 |
+| 历史漏判（已入库、未触发的消息） | 运维命令：对历史入站消息用 v3 规则重跑匹配（只读），命中的客户经受治理的控制写入路径设置限制。约 1 人日 | 命中的客户列入工作台“待处理”，由负责人一键执行限制 Action。约 1 人日 | **A**，先 dry-run 报数量；拒绝联系是最强的停止，宁可错拦 |
+| 渠道偏好（“只接收站内消息”） | 提取器 predicate 词表与 modality 定义修正（§8.4），新 Claim 由 0228 在派发时强制执行。约 1 人日 | 0228 已支持负责人 dismiss（只能取消、不能新增），审核语义已经覆盖 | **A**：0228 只收紧不放宽，误判的代价只是少发一条主动消息 |
+| 提取器失败时的兜底 | 渠道类也加确定性规则（“只(接收|要|用)…(站内|App|微信)”），命中时把 Claim 作为 0228 输入。约 1 人日 | — | 后续项，先看 §8.4 的效果 |
+
+这一节排在阶段一的**最前面**，先于 §1 的 `edit_actions` 配置：v3 规则、历史重跑、提取器修正，合计约 3 人日。生效方式（A 或 B）由负责人决定，新增 §6 决策 6，推荐 A。
+
+### 9.3 rematch 迁移的约束（替换 §1.3a 的描述）
+
+- 函数 `authz.nexloop_claim_rematch(p_digest, p_world, p_text, p_signature, p_payload)` 沿用 `nexloop_assert_claim_match_authority` 的签名授权模式（0070:55-75）。tenant 从凭据推导（`a->>'tenant_id'`），world 只能是凭据绑定的那个，**payload 不接受 tenant 和 world**。调用方只能是 `claim_matcher` 服务主体（action 资源为新的 `nexloop.claim.rematch:1`，只授权给 claim_matcher），浏览器令牌一律拒绝。
+- payload 只接受 `{"verb":"dry_run"|"release","reason":"type_not_writable","matcher_version":"nx020-matcher/1"}`，reason 用白名单枚举。
+- 选择条件：`resolution_state='needs_resolution'` 且最新匹配结果为该原因；以下几类排除：
+  - 擦除中或已擦除的客户：`runtime.nexloop_consumer_erasures`（或 0132 的擦除状态）中未完成或已完成的；
+  - 已撤回或已更正的：`superseded`，以及被 correction 指向的 Claim；
+  - 模拟客户：Consumer persona 为 `simulated_agent`，以及 `world<>'real'`。
+- 输出只有数量：`{"eligible":N,"released":N,"conversations":N}`，dry-run 不写任何东西，不返回 Claim id 和原文。
+- 读取 `ontology.nexloop_claims`：在 `test_claim_store_pg` 的 AT-064 白名单里加入新函数名，写明理由：“rematch 只读 resolution_state、epistemic_kind 与 consumer，用于选择重新匹配的 Claim；不读 quote/value，不对外返回 Claim 内容”。
+- 工作量仍约 1 人日，加 0.5 人日用于排除条件的测试（擦除、更正、模拟客户各一条反例）。
+
+### 9.4 历史回放的顺序
+
+历史回放（§6 决策 3、§1.3 的 78 条、§8.4 的 38 条重抽）只在 **9.1 白名单上线**和 **9.2 联系约束补齐**之后进行。回放前先 dry-run 报数量，再由负责人确认。
+
+### 9.5 修订后的阶段一顺序与工作量
+
+1. §9.2 联系约束：v3 规则、历史重跑、提取器修正，约 3 人日；
+2. §9.1 白名单，约 2 人日；
+3. §1 `edit_actions` 配置与重启（白名单为空），0.5 人日；
+4. §9.3 rematch 工具，约 1.5 人日；
+5. 回放（9.4）。
+
+阶段一合计约 7 人日，全部计划约 12–13 人日。
