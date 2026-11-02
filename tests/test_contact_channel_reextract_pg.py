@@ -48,7 +48,7 @@ class Fixed:
                           ensure_ascii=False)
 
 
-def old_claim(admin, f, conversation, message):
+def old_claim(admin, f, conversation, message, label='old-channel-claim'):
     """The free-text Claim an earlier extractor version recorded for that message."""
     seq = admin.execute('select sequence from runtime.nexloop_conversation_messages where message_id=%s', (message,)).fetchone()[0]
     admin.execute("""insert into ontology.nexloop_claims(tenant_id,world,claim_id,conversation_id,consumer_id,first_input_digest,topic_key,subject_kind,subject_ref,subject_text,
@@ -56,9 +56,9 @@ def old_claim(admin, f, conversation, message):
         extractor_version,confidence,epistemic_kind,resolution_state,derived_from,correlation_key,guard_flags)
         select tenant_id,world,%s,conversation_id,consumer_id,%s,%s,'consumer',consumer_id,'','通知方式',%s,'consumer','affirmed','requested','','',%s,%s,%s,0,%s,%s,%s,
         'nx019-extractor/3',0.9,'preference','needs_resolution','[]',%s,'[]' from runtime.nexloop_conversations where conversation_id=%s""",
-        (hashlib.sha256(b'old-channel-claim').hexdigest(), '0' * 64, '1' * 64, Jsonb({'type': 'string', 'value': '站内消息'}),
+        (hashlib.sha256(label.encode()).hexdigest(), '0' * 64, '1' * 64, Jsonb({'type': 'string', 'value': '站内消息'}),
          Jsonb({'kind': 'none', 'status': 'absent', 'start': None, 'end': None, 'anchor': '2026-10-30T00:00:00+00:00', 'timezone': 'Asia/Shanghai', 'expression': ''}),
-         message, seq, len(BODY), hashlib.sha256(BODY.encode()).hexdigest(), BODY, hashlib.sha256(b'old-corr').hexdigest(), conversation))
+         message, seq, len(BODY), hashlib.sha256(BODY.encode()).hexdigest(), BODY, hashlib.sha256((label + '-corr').encode()).hexdigest(), conversation))
 
 
 def preferences(admin, f):
@@ -118,3 +118,20 @@ def test_simulated_personas_and_erasures_are_skipped(conversations, admin):
                   "select tenant_id,world,'erasure-channel-synthetic',consumer_id,'owner','synthetic-owner','synthetic','pending_confirmation',0 "
                   "from runtime.nexloop_conversations where conversation_id=%s", (conversation,))
     assert run() == {'candidate_claims': 1, 'skipped_erasure': 1, 'skipped_persona': 0, 'consumers': 0, 'messages': 0, 'windows': 0, 'accepted': 0}
+
+
+@pytest.mark.parametrize('published_action', ['with-preference'], indirect=True)
+def test_a_window_holds_at_most_50_messages_and_ends_at_its_own_last_one(conversations, admin):
+    f = conversations
+    conversation, ids = make_window(f, [BODY] * 52, 'channel-many')
+    for index, message in enumerate(ids):
+        old_claim(admin, f, conversation, message, f'old-channel-{index}')
+    api = f['reader'].pool
+    _, token = seed_multi_authority(admin, api, [(REEXTRACT_ACTION, ResourceType.ACTION, Operation.EXECUTE), QUEUE_TARGET], identity_suffix='-claim-scheduler')
+    from nexloop_eios.claim_extraction_jobs import _signed_port
+    found = _signed_port()(api, authenticate_service(api, token, world='real'), f['reader'].signer).windows(EXTRACTOR_VERSION)
+    (window,) = found['windows']
+    sequences = dict(admin.execute('select message_id,sequence from runtime.nexloop_conversation_messages where conversation_id=%s', (conversation,)).fetchall())
+    assert len(window['message_ids']) == 50 and window['message_ids'] == ids[:50]
+    assert window['through_sequence'] == sequences[ids[49]] < sequences[ids[51]] and found['counts']['messages'] == 52
+    assert admin.execute("select runtime.nexloop_contact_preference_dimension('contact_channel_allowed')").fetchone() == (None,)

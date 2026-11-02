@@ -55,7 +55,8 @@ SYSTEM_PROMPT="""<prompt>
     10. modality：asserted 是陈述(事实、偏好、约束)，包括顾客对**自己以后如何被联系、被称呼、被服务**下的指令(如"以后只发站内消息""不要打电话")；
        requested 只用于顾客请企业做一件事或提问(如"帮我查一下""怎么修改？")；conditional、tentative 见第 5 条。
     11. 联系偏好：顾客对联系渠道的要求用 kind=preference(或 constraint)，predicate 固定写 contact_channel，value 为 string，取值只能是
-       native.webchat(站内消息/这里/App 内)、phone、sms、email、wechat 之一；"只要/只接收 X"是 polarity=affirmed，"不要 X"是 polarity=negated；
+       native.webchat(站内消息/这里/App 内)、phone、sms、email、wechat 之一；只有排他的说法("只要/只接收/只用 X")才是 polarity=affirmed，
+       它会停掉其他渠道；"也可以用/可以用 X 联系我"只是允许，不写 contact_channel(可用 predicate contact_channel_allowed)；"不要 X"是 polarity=negated；
        一句话涉及几个渠道就拆成几条 Claim(如"不要电话和短信"拆成 phone 与 sms 两条 negated)。全面拒绝联系("别再联系我")不是渠道偏好。
   </instruction>
   <output_format>
@@ -265,6 +266,12 @@ CHANNEL_PREDICATE=re.compile(r'((联系|沟通|通知|接收|消息|通讯|触�
 CHANNEL_VALUES=(('native.webchat',re.compile(r'(native\.webchat|站内|app\s*内|应用内|平台内|webchat|in[- ]app|\bhere\b|这里)',re.I)),
     ('phone',re.compile(r'(电话|来电|致电|\bphone\b|\bcalls?\b)',re.I)),('sms',re.compile(r'(短信|\bsms\b|\btexts?\b)',re.I)),
     ('email',re.compile(r'(邮件|邮箱|\be-?mail\b)',re.I)),('wechat',re.compile(r'(微信|\bwechat\b)',re.I)))
+
+
+# An affirmed channel statement is exclusive in 0228 (only these channels); without an exclusive word in the quote it is only an
+# allowance ("可以用微信联系我") and must not stop the other channels, so it keeps a predicate outside the 0228 vocabulary.
+EXCLUSIVE_CHANNEL=re.compile(r'(只|仅|就用|唯一|\bonly\b|\bjust\b)',re.I)
+CHANNEL_ALLOWED='contact_channel_allowed'
 
 
 def contact_channel(kind,predicate,value):
@@ -672,6 +679,8 @@ def _normalize_claim(item,index,by_ref,topics,topic_map,accepted,context):
     if kind=='hypothesis':confidence=min(confidence,0.6)
     channel=contact_channel(kind,predicate,value) if speaker=='consumer' else None
     if channel is not None and channel!=(predicate,value):predicate,value=channel;flags.append('contact_channel_normalized')
+    if predicate.strip().lower() in CONTACT_CHANNEL_PREDICATES and polarity=='affirmed' and not EXCLUSIVE_CHANNEL.search(quote):
+        predicate=CHANNEL_ALLOWED;flags.append('contact_channel_not_exclusive')
     subject_ref=context.consumer_id if subject['kind']=='consumer' else ''
     claim={'subject_kind':subject['kind'],'subject_ref':subject_ref,'subject_text':subject_text,'corrects_claim_id':corrects_id,
         'predicate':predicate,'value':value,'speaker':speaker,'polarity':polarity,'modality':modality,'condition':condition,

@@ -27,6 +27,7 @@ def test_versions_and_prompt_name_the_vocabulary():
     assert EXTRACTOR_VERSION == 'nx019-extractor/4' and PROMPT_VERSION == 'nx019-conversation-extraction-prompt/4'
     assert 'predicate 固定写 contact_channel' in SYSTEM_PROMPT and 'native.webchat' in SYSTEM_PROMPT
     assert 'requested 只用于顾客请企业做一件事或提问' in SYSTEM_PROMPT
+    assert '只有排他的说法' in SYSTEM_PROMPT and 'contact_channel_allowed' in SYSTEM_PROMPT
 
 
 @pytest.mark.parametrize('kind,predicate,value,expected', [
@@ -59,3 +60,20 @@ def test_free_text_channel_claims_are_normalized_in_extraction():
 def test_an_agent_sentence_or_another_preference_is_not_rewritten():
     claims = run('我一般用花呗付款', [{'quote': '我一般用花呗付款', 'kind': 'preference', 'predicate': '常用付款方式', 'value': S('花呗')}])
     assert [(c['predicate'], c['value']['value']) for c in claims] == [('常用付款方式', '花呗')]
+
+
+def test_an_allowance_never_stops_the_other_channels():
+    """0228 reads an affirmed channel as "only these channels"; "可以用微信联系我" is an allowance and keeps a predicate outside that vocabulary."""
+    claims = run('可以用微信联系我，也可以用电话', [
+        {'quote': '可以用微信联系我', 'kind': 'preference', 'predicate': '联系方式', 'value': S('微信')},
+        {'quote': '也可以用电话', 'kind': 'preference', 'predicate': 'contact_channel', 'value': S('phone')}])
+    assert sorted((c['predicate'], c['value']['value'], 'contact_channel_not_exclusive' in c['guard_flags']) for c in claims) == [
+        ('contact_channel_allowed', 'phone', True), ('contact_channel_allowed', 'wechat', True)]
+
+
+def test_exclusive_and_negated_statements_keep_the_0228_predicate():
+    claims = run('只用微信联系我，不要电话', [
+        {'quote': '只用微信联系我', 'kind': 'preference', 'predicate': '联系方式', 'value': S('微信')},
+        {'quote': '不要电话', 'kind': 'constraint', 'predicate': 'contact_channel', 'value': S('phone'), 'polarity': 'negated'}])
+    assert sorted((c['predicate'], c['value']['value'], c['polarity']) for c in claims) == [
+        ('contact_channel', 'phone', 'negated'), ('contact_channel', 'wechat', 'affirmed')]

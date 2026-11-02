@@ -34,8 +34,9 @@ begin
      and not exists(select 1 from ontology.nexloop_claims n where n.tenant_id=cl.tenant_id and n.world=cl.world and n.source_message_id=cl.source_message_id
        and n.extractor_version=v_version)),
  eligible as (select distinct conversation_id,source_message_id,source_sequence from candidates where not erased and not simulated),
- grouped as (select conversation_id,max(source_sequence) through_sequence,
-   (array_agg(source_message_id order by source_sequence))[1:50] message_ids from eligible group by conversation_id)
+ grouped as (select conversation_id,(array_agg(source_message_id order by source_sequence))[1:50] message_ids,
+   -- through_sequence is the last of the (at most 50) messages in the window, not of every candidate.
+   (select max(x) from unnest((array_agg(source_sequence order by source_sequence))[1:50]) x) through_sequence from eligible group by conversation_id)
  select coalesce(jsonb_agg(jsonb_build_object('conversation_id',g.conversation_id,'through_sequence',g.through_sequence,'message_ids',to_jsonb(g.message_ids))
           order by g.conversation_id),'[]'::jsonb),
         jsonb_build_object('candidate_claims',(select count(*) from candidates),
