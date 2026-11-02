@@ -1,9 +1,14 @@
 # Reference enterprise delivery endpoint (NX-037): an external stand-in, NOT part of NexLoop. Runs on APP_HOST as its own Compose project, own volume,
-# no NexLoop network, database or credential. Every value comes from the private env file (compose.env.example).
+# no NexLoop network, database or credential. Every value comes from the private env file (compose.env.example), except ENDPOINT_IMAGE:
+# REL-EP, the signed release's nexloop/reference-endpoint@<digest>, rendered by `deploy.py dry-run --host-role app` into endpoint.images.env
+# (`--env-file <private env> --env-file endpoint.images.env`). Never a hand-built image.
+# S81 / ADR-043 staff entry tickets (POST /staff/entry): the key file entry_ticket_key is always mounted (installed with the rest of the
+# private secrets, like NexLoop's api/entry-ticket.key) but read only when the private env sets
+# ENDPOINT_ENTRY_TICKET_KEY_FILE=/run/secrets/entry_ticket_key; unset or empty, the route answers 404.
 name: ${ENDPOINT_PROJECT:?project name}
 services:
   endpoint:
-    image: ${ENDPOINT_IMAGE:?endpoint image by digest}
+    image: ${ENDPOINT_IMAGE:?endpoint image by digest from endpoint.images.env}
     restart: unless-stopped
     user: "10002:10002"
     read_only: true
@@ -16,7 +21,8 @@ services:
       - endpoint_data:/var/lib/reference-endpoint
     environment:
       ENDPOINT_TENANT_LABEL: ${ENDPOINT_TENANT_LABEL:?tenant label}
-    secrets: [endpoint_cert, endpoint_key, service_token, staff_token]
+      ENDPOINT_ENTRY_TICKET_KEY_FILE: ${ENDPOINT_ENTRY_TICKET_KEY_FILE:-}
+    secrets: [endpoint_cert, endpoint_key, service_token, staff_token, entry_ticket_key]
 volumes:
   endpoint_data: {}
 secrets:
@@ -24,3 +30,4 @@ secrets:
   endpoint_key: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/server.key"}
   service_token: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/service_token"}
   staff_token: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/staff_token"}
+  entry_ticket_key: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/entry_ticket_key"}

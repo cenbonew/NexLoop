@@ -16,7 +16,7 @@
 5. **备份**：按部署单做迁移前备份。
 6. **迁移**：执行 0392。
 7. **publish / register 的 dry-run**：本批没有新增 Action、类型或授权，预期没有变化（test_stage_register_pg 的计数仍是 22/135/2）。路由清单 `api-routes.v1.json`（v9）是随代码审阅的文件，不需要发布或注册。
-8. **配置**：在 APP_HOST 的私有 env 里打开开关并写入钉住的 principal；参考端点叠加 `compose.entry-ticket.example.yaml`，即提供 `--entry-ticket-key-file`（第 3 步）。
+8. **配置**：在 APP_HOST 的私有 env 里打开开关并写入钉住的 principal；参考端点的私有 env 写入 `ENDPOINT_ENTRY_TICKET_KEY_FILE=/run/secrets/entry_ticket_key`，即提供 `--entry-ticket-key-file`（第 3 步；REL-EP 起密钥文件总是挂载，叠加文件已删除）。
 9. **重启**：api-1、api-2 和参考端点。
 10. **走查 7 项**：
     1. owner 点 WebChat 直接进入，已登录为测试客户，地址栏是 `/`；
@@ -70,8 +70,8 @@ python3 <检出>/scripts/deploy/stage_secrets.py entry-ticket-key --out <树>
    - `docker compose ... up -d --no-deps api-1 api-2`；
    - 核对：`docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' <api-1 容器> | grep -c ENTRY_TICKETS` 预期 1，**不要**打印这一行的值。
 4. 参考端点：
-   - 叠加 `deploy/stage/reference-endpoint/compose.entry-ticket.example.yaml` 重建：`docker compose -f compose.example.yaml -f compose.entry-ticket.example.yaml --env-file <私有 env> up -d`；
-   - 核对：用一个无效票据请求 `/staff/entry`，预期 401，返回固定页"自动登录失败"。不叠加这个文件时预期 404。
+   - 在参考端点的私有 env 里写 `ENDPOINT_ENTRY_TICKET_KEY_FILE=/run/secrets/entry_ticket_key`，再重建：`docker compose -f compose.example.yaml --env-file <私有 env> --env-file endpoint.images.env up -d`（REL-EP：不再叠加文件，镜像来自 release）；
+   - 核对：用一个无效票据请求 `/staff/entry`，预期 401，返回固定页"自动登录失败"。这一行未设或为空时预期 404。
 
 ## 4. 只读核对
 
