@@ -32,6 +32,7 @@ from nexloop_eios.postgres_artifacts import AuthoritySigner
 from nexloop_eios.recall import EiosRecallAuthorizer,OntologyRecall,RecallIndexer
 from multi_authority_fixture import seed_multi_authority
 from test_postgres_action_claims import governance_inputs
+from support.auto_write import allow_published_properties
 from support.tenants import TENANT_A
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -115,6 +116,9 @@ def env(admin,pg,request):
     # Optional indirect parameter: share the tenant with a browser-identity fixture (NX-044).
     bootstrap(admin);tenant=getattr(request,'param',None) or str(uuid.uuid4())
     admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active')",(tenant,))
+    # The auto-write whitelist (migration claim_auto_write) stands in for the owner's manifest: these tests are about matching and
+    # applying; tests/test_claim_auto_write_pg.py tests the whitelist itself.
+    allow_published_properties(admin)
     for schema in (consumer_schema(),product_schema()):
         admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
     publish_action(admin,tenant,'Consumer.edit',consumer_schema(),'ontology.object.edit')
@@ -273,7 +277,7 @@ def test_unmatched_property_candidate_and_model_cannot_pick_unrecalled_definitio
     f=env;c=f['claims']
     new=c.add('new-prop','常用付款方式','花呗',kind='user_statement',quote='我一般用花呗付款')
     outside=c.add('outside','喜欢的运动','爬山',quote='喜欢爬山')
-    m,_=matcher(f,{new:decision(new_prop={'name':'payment_method','display_name':'常用付款方式','description':'顾客常用的付款方式',
+    m,_=matcher(f,{new:decision(new_prop={'name':'checkout_habit','display_name':'常用付款方式','description':'顾客常用的付款方式',
         'value_type':'string','closed_vocabulary':False,'property_group':'支付偏好'},value='花呗'),
         outside:decision('eios:property:Consumer/no_such_property','爬山')})
     result=m.process_conversation(f['conversation'])

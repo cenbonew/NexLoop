@@ -18,6 +18,7 @@ from support.copy_guard import Allowed, MIGRATIONS, check, migrations, normalize
 from support.remediation_r2_edits import EDITS as R2_EDITS
 from support.human_questions_edits import EDITS as HQ_EDITS
 from support.plan_question_v7_edits import EDITS as PQ_EDITS
+from support.claim_auto_write_edits import EDITS as AW_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -232,6 +233,10 @@ REGISTRY = [
     *[Allowed('plan_question_context_v7', name, 'K4h K1: a 1.1 question only from a Run bound to context-pack v7; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
       for name, edits in PQ_EDITS.items()],
+    # Claim → Consumer property phase one (claim_auto_write): the match recorder checks the per-property auto-write whitelist.
+    *[Allowed('claim_auto_write', name, 'auto-write whitelist: a proposal outside it is recorded for review and never moved to applying (and pg_temp last in search_path); nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)), PG_TEMP)
+      for name, edits in AW_EDITS.items()],
     # NX-057 R2 (remediation_wake): three R1 functions re-created with exactly the edits listed in support/remediation_r2_edits.py.
     *[Allowed('remediation_wake', name, 'NX-057 R2: reevaluate opens, the wake, origin, breaker and the manual wake; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))

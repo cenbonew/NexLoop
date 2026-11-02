@@ -35,6 +35,7 @@ from multi_authority_fixture import seed_multi_authority
 from test_candidate_merge_pg import publish_config
 from test_claim_extraction_jobs_pg import EXTRACT_TARGET,QUEUE_TARGET
 from test_claim_matching_pg import CONSUMER_PROPS,consumer_schema,publish_action
+from support.auto_write import allow_published_properties
 from test_claim_store_pg import source_targets
 from test_review_http import REVIEW,grant_human
 from test_browser_session_reads import authenticate,create
@@ -143,6 +144,7 @@ def closure(conversations,identity,uow,admin):
     consumer=fixture['consumer'];api=fixture['reader'].pool;signer=fixture['reader'].signer
     stored=admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1",(TENANT,)).fetchone()[0]
     assert [p['property_name'] for p in stored['properties']]==list(CONSUMER_PROPS)
+    allow_published_properties(admin)  # the owner's auto-write manifest (migration claim_auto_write) for the closure loop
     publish_action(admin,TENANT,'Consumer.edit',consumer_schema(),'ontology.object.edit')
     with open_core(make_conninfo(fixture['pg'],user='nexloop_domain_worker')) as worker:
         provider=DeterministicTestEmbeddingProvider(64)

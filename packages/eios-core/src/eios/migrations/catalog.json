@@ -2010,6 +2010,16 @@
       "version": "0402",
       "name": "0402_plan_question_context_v7.sql",
       "sha256": "6b1a7bac49aaa2a4c08f05430f167f0744c041dfbee08ff3c7727a15c36f1109"
+    },
+    {
+      "version": "0408",
+      "name": "0408_claim_rematch.sql",
+      "sha256": "f997482c77b9741b59c92014b0d8430d3d3b78c0fa7543a017218d61c49447f5"
+    },
+    {
+      "version": "0409",
+      "name": "0409_claim_auto_write.sql",
+      "sha256": "efa5128698331b34580334f1ecbfff8206a3041f4d2dc287fcc385061461d2c3"
     }
   ]
 }

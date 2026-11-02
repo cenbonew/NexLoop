@@ -313,7 +313,12 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         '_erasure_identity_residue',
         # NX-054 P4c 0358 copies the latest Consumer erasure step with the relation targets fixed at its start; its claims phase is
         # unchanged (blanks the quote, texts and value of the erased Consumer's Claims); no Claim value is read or projected.
-        '_relation_purge_union')) for name in migrations)
+        '_relation_purge_union',
+        # Claim → Consumer property phase one: 0408 claim_rematch selects the Claims to release for rematching by reading only
+        # resolution_state, superseded_at, corrects_claim_id, consumer_id and conversation_id (never quote or value), sets the selected
+        # ones back to unresolved and returns counts only - no Claim id or content. 0409 claim_auto_write copies the 0074 match
+        # recorder with the auto-write whitelist added (its Claim lines unchanged); no Claim value becomes formal without the whitelist.
+        '_claim_rematch','_claim_auto_write')) for name in migrations)
 
 
 def correction_window(conversations):
