@@ -317,3 +317,78 @@ select left(cl.claim_id,12), cl.epistemic_kind, cl.predicate, left(cl.quote,40)
 5. 回放（9.4）。
 
 阶段一合计约 7 人日，全部计划约 12–13 人日。
+
+### 9.6 两个客户逐条定性（调度员 11-02 只读结果，补充 §9.2）
+
+三个客户都是 `simulated_agent` 人设，主动外发会被人设闸门排除，所以 stage 上没有真实风险。但从产品看，客户说过的话没有生效。
+
+| 客户 | 原话（来源消息前 12 位） | 定性 | 现状 | 补法 |
+|---|---|---|---|---|
+| 684b6b5c（s6c-2） | B-tier #16 的拒绝说法 | 全面拒绝 | 已生效：有 1 条联系限制、1 次规则命中，来自入站关键词规则，不来自 Claim | 无需补 |
+| e411740e | “以后请不要再主动联系我，有需要我会自己来问。”（de3b822f1629）；“以后请不要再主动联系我”；“Please don't proactively contact me anymore”（d7f57c5269ea，3 条） | **全面拒绝** | v2 全部漏判（中间夹“主动”；英文完全没有覆盖）；没有联系限制 | 规则 v3 + 历史重跑（下文） |
+| e411740e | “I'll reach out myself when I need something”；“如果我以后只想自己来咨询”（conditional） | 拒绝主动联系的佐证（uncertain） | 未生效 | v3 新增 uncertain 规则 `self-initiated-only` |
+| 8ecad01e | “以后我只想通过站内消息收到通知”“不要电话和短信”（多为 asserted）；“以后只接收站内消息，可以吗？”“you only message me here”（requested） | **渠道偏好**，不是全面拒绝 | `pref_dimension` 全为空，0228 接不上；v2 正确地没有命中 | §8.4 提取器修正（predicate=`contact_channel`、modality 定义），之后重抽 |
+
+#### 规则 v3（`deploy/configuration/contact-refusal-rules.v3.json`，新迁移发布；规则行只追加，不修改）
+
+修改与新增：
+
+- `stop-contact`（refuse）：否定词和动词之间允许一个插入副词，`(主动|随便|没事|老是|总是|一直)?`；“再”前面允许“以后/今后/请”。
+- `stop-contact-en`（refuse，新增，不区分大小写）：`\b(don'?t|do not|please don'?t|stop)\s+(ever\s+)?(proactively\s+|again\s+)?(contact|message|messaging|text|texting|call|calling|email)(ing)?\s+me\b`。
+- `self-initiated-only`（uncertain，新增）：`(有(需要|事)(我)?(会)?自己(来)?(问|找|联系))|(I'?ll reach out (myself|when))`。
+- `less-contact`（uncertain，保留）：覆盖“少联系我”。
+
+正例（必须命中，并设置限制）：
+
+| 样例 | 期望规则 | 档位 |
+|---|---|---|
+| 不要再主动联系我 | stop-contact | refuse |
+| 以后请不要再主动联系我，有需要我会自己来问。 | stop-contact | refuse |
+| 别再联系我了 | stop-contact | refuse |
+| Please don't contact me | stop-contact-en | refuse |
+| Please don't proactively contact me anymore | stop-contact-en | refuse |
+| stop messaging me | stop-contact-en | refuse |
+| 少联系我 | less-contact | uncertain（按 ADR-023 也设限） |
+| I'll reach out myself when I need something | self-initiated-only | uncertain |
+
+反例（必须不命中）：
+
+| 样例 | 原因 | 应走的路径 |
+|---|---|---|
+| 不要电话和短信 | 渠道偏好，不是全面拒绝 | 0228 `contact_channel` negated（§8.4） |
+| 以后只接收站内消息 | 渠道偏好 | 0228 `contact_channel` affirmed |
+| 不要联系我同事 | 不是本人拒绝 | 不处理（宾语不是“我”） |
+| 别发错货了 / 不要寄顺丰 | 物流，已有排除项 | 不处理 |
+| 不要打折了吗？ | 已有排除项 | 不处理 |
+
+注意：“不要电话和短信”与 `stop-contact` 的动词集合（发、打）不重叠，但“不要打电话”会命中“打”。v3 需要新增排除项 `channel-only`：`不要\s*(打)?\s*(电话|短信)(和|或|、)?(电话|短信)?$`，只在整句没有“联系我/找我”时生效。这条用正反例一起回归。
+
+`test_contact_refusal_rules`（或现有的 0109/0244 规则测试）加入上面两张表；每条样例都通过 `control.nexloop_contact_refusal_match` 断言 `rule_id` 和 `certainty`。
+
+#### 历史重跑
+
+运维命令 `contact_refusal_backfill.py`，以 owner 迁移角色的只读加受治理写入方式运行。先 dry-run：用 v3 对擦除未完成、world=real 的历史入站消息重新匹配，输出“会新设限制的客户数”和按规则的分布，不输出原文。确认后执行：经与 0109 相同的控制写入路径设置限制，记录 `rule_version=3`、`message_id`、`rule_id`。预期 e411740e 被设限。约 1 人日。
+
+### 9.7 另一个问题：同一消息被重复抽取（e0822a72dd45 约 20 条）
+
+原因（代码）：`claim_id` 的摘要包含 `predicate`、`value`、`modality`、`condition`、`subject_text` 和 `EXTRACTOR_VERSION`（`conversation_extraction.py:661-662`）。抽取器每次被调度都会重新抽取对话窗口里的旧消息，模型对同一段原文给出的自由文本 predicate 每次略有不同（如“通知渠道”“联系方式偏好”），于是产生新的 `claim_id`，`on conflict` 去不了重。`correlation_key`（`:660`）也包含 predicate，同样会分裂。
+
+影响：Claim 数量虚高；匹配器对每一条都调用一次模型；0228 若接通，多条重复偏好不会出错（同维度同值），但会显示多行。
+
+请跑这条只读 SQL 确认：
+
+```sql
+select left(source_message_id,12) msg, span_start, span_end, count(*) claims, count(distinct predicate) predicates,
+       count(distinct first_input_digest) extraction_inputs, min(recorded_at), max(recorded_at)
+  from ontology.nexloop_claims
+ where tenant_id='stage' and world='real' and source_message_id is not null
+ group by 1,2,3 having count(*)>3 order by 4 desc limit 15;
+```
+
+如果 `extraction_inputs` 接近 `claims`，说明每次重抽都产生了新 Claim。修法（产品改动，约 1.5 人日，不在本计划的关键路径上，建议单列任务）：
+
+- 抽取时，对同一 `(source_message_id, span_start, span_end, kind, polarity)` 已有当前 Claim 的，只有 value 或 modality 变化才写新 Claim，并用 `derived_from`/supersede 关联；只是 predicate 措辞变化的不写。
+- 调度器只抽取新消息及其上下文，已抽取过的消息不再作为抽取对象（只作上下文）。
+- 历史重复项不删除（保留证据），只在视图里折叠。
+
+§8.4 的“重抽 8ecad01e”要在这项修好之后再做，否则会再产生一批重复。
