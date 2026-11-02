@@ -420,22 +420,41 @@ def flush_api(pool, timings=None):
 
 class HostCounters:
     """Agent Host counters → one window's sample: gauges as read, cumulative counters as the increase since the last
-    read (a Host restart resets them: the current value is the increase)."""
-    CUMULATIVE = ('runs_started', 'admission_timeouts')
+    read (a Host restart resets them: the current value is the increase).
+    NX-064: the effect counters over every operation (effect_calls/_ambiguous/_unavailable) go into the same 'host' sample; the
+    per-operation counters and histogram buckets become one 'host_op' sample per operation that had requests in the window."""
+    CUMULATIVE = ('runs_started', 'admission_timeouts', 'effect_calls', 'effect_ambiguous', 'effect_unavailable')
 
     def __init__(self):
         self.previous = None
+        self.operations = {}
+
+    def _increase(self, host, key):
+        now = host.get(key, 0)
+        before = (self.previous or {}).get(key)
+        return now if before is None or now < before else now - before
 
     def sample(self, host):
+        self.operations = {}
         if host is None or not host.get('available'):
             self.previous = None
             return None
         out = {k: host[k] for k in ('active_runs', 'waiting', 'max_active_runs') if k in host}
         for k in self.CUMULATIVE:
-            now = host.get(k, 0)
-            before = (self.previous or {}).get(k)
-            out[k] = now if before is None or now < before else now - before
-        if self.previous is None:
+            if k in host or k in ('runs_started', 'admission_timeouts'):
+                out[k] = self._increase(host, k)
+        if self.previous is not None:
+            from nexloop_eios.host_control import EFFECT_OPERATIONS
+            restarted = any(host.get(k, 0) < self.previous.get(k, 0) for k in host if k.endswith(('_calls', '_ambiguous', '_unavailable')) or '_h_' in k)
+            for operation in EFFECT_OPERATIONS:
+                prefix = operation + '_'
+                keys = {k for k in set(host) | set(self.previous) if k.startswith(prefix)
+                        and (k[len(prefix):] in ('calls', 'ambiguous', 'unavailable') or k[len(prefix):].startswith('h_'))}
+                value = {k[len(prefix):]: host.get(k, 0) - (0 if restarted else self.previous.get(k, 0)) for k in keys}
+                value = {k: v for k, v in value.items() if v > 0 or k in ('calls', 'ambiguous', 'unavailable')}
+                if any(v > 0 for k, v in value.items() if k == 'calls' or k.startswith('h_')):
+                    self.operations[operation] = {k: max(0, v) for k, v in sorted(value.items())}
+        else:
             out = {k: v for k, v in out.items() if k not in self.CUMULATIVE}  # the first read only sets the baseline
         self.previous = dict(host)
         out['available'] = True
@@ -447,6 +466,11 @@ def flush_host(pool, config, counters, service='agent-host'):
     sample = counters.sample(read_host_metrics(config))
     if sample is not None:
         record_sample(pool, 'host', service, sample)
+        for operation, value in counters.operations.items():  # NX-064: best effort per item, as the guard's operations
+            try:
+                record_sample(pool, 'host_op', operation, value)
+            except Exception:
+                pass
 
 
 # ---- optional loopback text export (D1, off by default; read-only role D4) -------------------------------------------------

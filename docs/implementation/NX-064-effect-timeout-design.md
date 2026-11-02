@@ -1,6 +1,6 @@
 # NX-064 设计：效应请求时限（Host 2 s）在高负载下超时的产品处理与按 p99 定值
 
-- 状态：**设计稿 v2，未实现**。执行人：L4。判定人：L6。v1（d89d0645）条件 PASS，同意方案 C；v2 补入条件 C1–C5，以及兜底 Run 预算的验收。基于 main 2bad63f9。
+- 状态：**设计稿 v2，L6 PASS；已实现**（见 §6）。执行人：L4。判定人：L6。v1（d89d0645）条件 PASS，同意方案 C；v2 补入条件 C1–C5，以及兜底 Run 预算的验收。基于 main 2bad63f9。
 - 关联：ADR-022 §4（2 s 工具时限、不放宽）；ADR-028（结果不明确时同载荷再试一次）；ADR-029b §3a（`effect_timeout_ms` 可配置 1000–5000，按 p99 定值另写 ADR）；`docs/implementation/ci-flake-audit.md` 候选 1；AT-060（guard 按操作的时延样本）。
 - 本文只读代码与文档，不连主机。下文的命令是给执行人的只读命令，主机只写角色名。
 
@@ -163,3 +163,17 @@ from c, unnest(array[0.5,0.95,0.99]) q where cum >= q*tot group by q order by q;
 
    需要注意：在这样低的负载下，guard 端的 p50 已经约 1.1 s，离 2 s 的余量不大；加上 Host 到 guard 的时间以后，余量更小。负载上来时，超时会先在这里出现。
 2. guard 样本的 `timeouts` 口径（常量 2000）在部署配置了别的时限后会失真：见 §3 第 3 条。
+
+## 6. 实现记录（2026-11-02，ADR-029c）
+
+按设计 v2 实现。与设计措辞不同、或者按实测改了断言的地方：
+
+1. **Host 端样本分两种 kind**：合计计数 `effect_calls`、`effect_ambiguous`、`effect_unavailable` 进 kind `host`，这就是 C3 说的“kind=host 的进程样本”。按操作的计数和直方图进新 kind `host_op`（service 为操作名），因为 kind `host` 每个窗口只有一条，没有按操作区分的维度。
+2. **enterprise 通知的 run_id 来自失败 Run 的任务结果**（`runtime.jobs.result` 的 `failure_tool` 和 `failure_detail`），不来自 Host 样本：进程样本的 SQL 只接受数字，不能放 run_id。
+3. **超过 2 s 的计数用 guard 已有的 `timeouts`**（≥ 2000 ms）。§3 第 3 条里“0.8 × 部署时限”的第二档没有做：guard 拿不到 Host 的配置。Host 端的直方图（`host_op` 的 `h_<i>`）可以按任意阈值离线计算。
+4. **第一次仍持锁时（C1）的实测结果**：
+   - 效应路径：重发在 Run 的 advisory 锁上等待，第一次提交后拿到同一个 intent；
+   - 激励：重发以 `unique_violation` 失败（L6 的预判），guard 回 403 `incentive_unavailable`，Host 不再发。
+
+   两种情况都只有一条 intent。测试按实测结果断言。
+5. 激励工具：503、连接错误、超时都判为不明确，只再发一次；冲突立即结束。
