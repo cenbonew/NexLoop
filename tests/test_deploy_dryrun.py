@@ -59,7 +59,7 @@ def test_app_dry_run_verifies_the_release_renders_the_host_and_executes_nothing(
     assert 'https://app.stage.invalid:8443' in caddy and 'reverse_proxy https://127.0.0.1:8000' in caddy and 'respond "Not found" 404' in caddy
     assert '__' not in caddy and 'tls1.3' in caddy
     assert [s['step'] for s in out['steps']] == ['inventory_before', 'load_images', 'install_configuration', 'firewall', 'backup_gate',
-                                                 'stop_old_agent_host', 'start_app', 'inventory_after_and_gate', 'promote']
+                                                 'stop_old_agent_host', 'start_app', 'start_reference_endpoint', 'inventory_after_and_gate', 'promote']
     assert all('$SSH_ALIAS' in s['command'] or 'docker' in s['command'] or 'inventory' in s['command'] or 'backup' in s['command']
                or s['command'].startswith('deploy.py ') for s in out['steps'])  # promote: local release root only (NX-034 part 2)
 
@@ -186,3 +186,48 @@ def test_a_two_host_release_verifies_on_each_host_and_nothing_else_may_be_left_o
     # Only the other role's images may be absent: an app mapping that leaves out an app image is still refused.
     partial = run(signed_both, stage, 'both-partial', image_vars={'BACKEND_IMAGE': 'backend', 'AGENT_HOST_IMAGE': 'agent-host'})
     assert partial['ready'] is False and 'image_not_deployed_from_manifest:gateway' in partial['details']['release_refused']
+
+
+DIGEST_ENDPOINT = 'sha256:' + '7' * 64
+
+
+@pytest.fixture
+def signed_with_endpoint(inputs):  # noqa: F811
+    """REL-EP: the release also carries nexloop/reference-endpoint (APP_HOST, its own Compose project)."""
+    digests = {'backend': DIGEST_API, 'agent-host': DIGEST_HOST, 'gateway': DIGEST_GATEWAY, 'postgres': DIGEST_POSTGRES, 'reference-endpoint': DIGEST_ENDPOINT}
+    images = {name: {'archive': str(oci_archive(inputs['tmp'] / f'{name}.tar', digest)), 'digest': digest} for name, digest in digests.items()}
+    images['postgres']['base'] = 'postgres'
+    inputs['images'].write_text(json.dumps(images))
+    make(inputs)
+    rel = inputs['tmp'] / 'release'
+    key, allowed = keypair(inputs['tmp'], 'release-key')
+    release.sign(rel, key)
+    return {**inputs, 'release': rel, 'allowed': allowed}
+
+
+def test_the_reference_endpoint_image_is_rendered_from_the_release_into_its_own_env_file(signed_with_endpoint, stage):
+    app = run(signed_with_endpoint, stage, 'ep-app', image_vars=None)
+    assert app['ready'] is True and app['checks']['release_verified'] is True, app
+    plan = signed_with_endpoint['tmp'] / 'ep-app'
+    assert app['details']['endpoint_image'] == f'nexloop/reference-endpoint@{DIGEST_ENDPOINT}' and 'endpoint.images.env' in app['rendered']
+    assert (plan / 'endpoint.images.env').read_text() == f'ENDPOINT_IMAGE=nexloop/reference-endpoint@{DIGEST_ENDPOINT}\n'
+    assert 'ENDPOINT_IMAGE' not in (plan / 'compose.images.env').read_text()  # never in the NexLoop project's env
+    data = run_data(signed_with_endpoint, stage, 'ep-data')
+    assert data['ready'] is True and data['checks']['release_verified'] is True, data  # deployed on the other host role
+    assert not (signed_with_endpoint['tmp'] / 'ep-data' / 'endpoint.images.env').exists() and data['details']['endpoint_image'] is None
+
+
+def test_a_release_without_the_endpoint_image_says_so_and_renders_no_endpoint_env(signed, stage):
+    out = run(signed, stage, 'no-ep')
+    assert out['ready'] is True and out['details']['endpoint_image'] is None
+    assert not (signed['tmp'] / 'no-ep' / 'endpoint.images.env').exists()
+
+
+def test_the_endpoint_compose_takes_its_image_from_the_release_and_reads_the_entry_key_only_when_switched_on():
+    compose = (ROOT / 'deploy/stage/reference-endpoint/compose.example.yaml').read_text()
+    env = (ROOT / 'deploy/stage/reference-endpoint/compose.env.example').read_text()
+    assert '${ENDPOINT_IMAGE:?' in compose and not [line for line in env.splitlines() if line.startswith('ENDPOINT_IMAGE=')]
+    assert 'ENDPOINT_ENTRY_TICKET_KEY_FILE: ${ENDPOINT_ENTRY_TICKET_KEY_FILE:-}' in compose  # empty: the route answers 404
+    assert 'entry_ticket_key: {file: "${ENDPOINT_SECRETS_DIR:?private secrets dir}/entry_ticket_key"}' in compose
+    assert '# ENDPOINT_ENTRY_TICKET_KEY_FILE=/run/secrets/entry_ticket_key' in env  # off unless the owner uncomments it
+    assert not (ROOT / 'deploy/stage/reference-endpoint/compose.entry-ticket.example.yaml').exists()

@@ -46,6 +46,10 @@ DEFAULT_APP_IMAGES = {'BACKEND_IMAGE': 'backend', 'AGENT_HOST_IMAGE': 'agent-hos
 DATA_RELEASE_IMAGES = {'POSTGRES_IMAGE': 'postgres'}
 DATA_LOCK_IMAGES = {'VALKEY_IMAGE': 'valkey'}
 DATA_IMAGES = {**DATA_RELEASE_IMAGES, **DATA_LOCK_IMAGES}
+# APP_HOST, own Compose project (deploy/stage/reference-endpoint): the stand-in enterprise endpoint from the same signed release
+# (REL-EP), rendered into endpoint.images.env for that project, never into the NexLoop compose.images.env. A release built before
+# REL-EP has no such image; details.endpoint_image is then null and the endpoint must not be redeployed from this release.
+ENDPOINT_RELEASE_IMAGES = {'ENDPOINT_IMAGE': 'reference-endpoint'}
 # The Compose file of each host role; every `${*_IMAGE:?...}` it requires must be rendered from the manifest (or the lock).
 COMPOSE = {'app': STAGE / 'compose.app.example.yaml', 'data': STAGE / 'compose.data.example.yaml'}
 _REQUIRED_IMAGE = re.compile(r'\$\{([A-Z][A-Z0-9_]*_IMAGE):\?')
@@ -68,12 +72,15 @@ STEPS = {
         ('inventory_before', 'python3 - --phase before --planned-ports "$GATEWAY_HTTPS_PORT,$GATEWAY_REDIRECT_PORT,$API_INTERNAL_PORT,$API_INTERNAL_PORT_2,$HOST_INTERNAL_PORT,$GUARD_PORT" '
                              '--data-root "$NEXLOOP_ROOT" --out <private> < scripts/deploy/inventory.py', None),
         ('load_images', 'deploy.py load-check --release-dir <release> (docker load each archive; nexloop/<name>@<digest> must resolve to the manifest digest)', 'docker image rm <digest>'),
-        ('install_configuration', 'scp <out>/{Caddyfile,compose.images.env} "$SSH_ALIAS_APP:$NEXLOOP_ROOT/config/"', 'restore the previous files'),
+        ('install_configuration', 'scp <out>/{Caddyfile,compose.images.env,endpoint.images.env} "$SSH_ALIAS_APP:$NEXLOOP_ROOT/config/"', 'restore the previous files'),
         ('firewall', 'ssh "$SSH_ALIAS_APP" sudo nft -c -f <app-host.nft> && sudo nft -f <app-host.nft>', 'sudo nft delete table inet nexloop_stage'),
         ('backup_gate', 'verified backup before any migration (D5; nexloop-migrate refuses without one, AT-056)', None),
         ('stop_old_agent_host', 'docker compose -p nexloop-app stop agent-host (one SQLite owner at a time)', 'docker compose -p nexloop-app start agent-host'),
         ('start_app', 'docker compose -p nexloop-app -f compose.app.yaml --env-file compose.app.env --env-file compose.images.env up -d (REAL_DISPATCH_ENABLED=false)',
          'docker compose -p nexloop-app up -d with the previous compose.images.env'),
+        ('start_reference_endpoint', 'docker compose -p "$ENDPOINT_PROJECT" -f reference-endpoint/compose.yaml --env-file <private endpoint env> '
+                                     '--env-file endpoint.images.env up -d (the release image, never a hand-built one)',
+         'docker compose -p "$ENDPOINT_PROJECT" up -d with the previous endpoint.images.env'),
         ('inventory_after_and_gate', 'inventory.py --phase after …; nexloop-doctor --deploy-gate <app spec>; doctor --release (running digests = manifest)', None),
         ('promote', 'deploy.py promote --release-root <RELEASE_ROOT> --release-id <id> --allowed-signers <F> (previous current → known_good, this → current)',
          'deploy.py rollback-check … then promote the known_good release')],
@@ -112,11 +119,16 @@ def dry_run(*, host_role, stage_env, out, release_dir=None, allowed_signers=None
         mapping = image_vars or (DEFAULT_APP_IMAGES if host_role == 'app' else DATA_RELEASE_IMAGES)
         by_name = {i['name']: i for i in manifest['images']}
         images = {var: f'nexloop/{name}@{by_name[name]["digest"]}' for var, name in mapping.items() if name in by_name}
+        endpoint = {var: f'nexloop/{name}@{by_name[name]["digest"]}' for var, name in ENDPOINT_RELEASE_IMAGES.items()
+                    if host_role == 'app' and name in by_name}
+        details['endpoint_image'] = endpoint.get('ENDPOINT_IMAGE')
+        deployed = [*mapping.values(), *(ENDPOINT_RELEASE_IMAGES.values() if endpoint else ())]
         try:
             # The release is shared by both hosts: the other role's images may be absent here, nothing else may.
-            elsewhere = DATA_RELEASE_IMAGES.values() if host_role == 'app' else DEFAULT_APP_IMAGES.values()
+            elsewhere = (DATA_RELEASE_IMAGES.values() if host_role == 'app'
+                         else [*DEFAULT_APP_IMAGES.values(), *ENDPOINT_RELEASE_IMAGES.values()])
             verified = release.verify(release_dir, allowed_signers=allowed_signers, deploy_sha=trusted_sha,
-                                      deploy_images={name: by_name[name]['digest'] for name in mapping.values() if name in by_name},
+                                      deploy_images={name: by_name[name]['digest'] for name in deployed if name in by_name},
                                       deployed_elsewhere=elsewhere)
             checks['release_verified'] = True
             details['release'] = {'release_id': verified['release_id'], 'commit': verified['commit']}
@@ -163,6 +175,9 @@ def dry_run(*, host_role, stage_env, out, release_dir=None, allowed_signers=None
         rendered.append(name)
     (out / 'compose.images.env').write_text(''.join(f'{k}={v}\n' for k, v in sorted(images.items())))
     rendered.append('compose.images.env')
+    if details.get('endpoint_image'):
+        (out / 'endpoint.images.env').write_text(f'ENDPOINT_IMAGE={details["endpoint_image"]}\n')
+        rendered.append('endpoint.images.env')
     steps = [{'step': s, 'command': c, 'undo': u} for s, c, u in STEPS[host_role]]
     ready = all(checks.values())
     return {'ready': ready, 'executed': False, 'host_role': host_role, 'checks': checks, 'details': details, 'rendered': rendered, 'steps': steps}
