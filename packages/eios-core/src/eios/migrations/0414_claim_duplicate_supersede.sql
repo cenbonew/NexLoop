@@ -6,13 +6,17 @@
 -- 2. ontology.nexloop_supersede_statement_duplicates(tenant, world, claim, correction): supersedes the active Claims with the corrected
 --    Claim's statement key (same Message span, kind, polarity, modality, condition presence, normalized value) through the usual
 --    resolution_state update (the 0139 trigger stamps superseded_at) and records each. Returns the count.
--- 3. Trigger after update of resolution_state: a Claim becoming superseded because a correction points at it (a Claim whose
---    corrects_claim_id is it, or an applied proposal that supersedes it) supersedes its duplicates. A duplicate superseded here has no
---    correction of its own, so nothing cascades further. Any path that supersedes a corrected Claim (matcher apply, review) is covered.
+-- 3. Deferred constraint triggers (fired at commit, so the order of statements in a transaction does not matter): after update of
+--    resolution_state, a Claim that became superseded and has a correction (a Claim whose corrects_claim_id is it, or an applied proposal
+--    that supersedes it) supersedes its duplicates; after update of corrects_claim_id, a correction linked to an already superseded Claim
+--    does the same. A duplicate superseded here has no correction of its own, so nothing cascades further. Every path that supersedes a
+--    corrected Claim (matcher apply, review: both authz.nexloop_record_claim_match) is covered. 0111 then raises the commitments whose
+--    source Claim is a superseded duplicate (source_superseded), as for any superseded Claim.
 -- 4. authz.nexloop_claim_duplicate_supersede_backfill (eios:action:nexloop.claim.supersede_duplicates:1, protocol
 --    nexloop-claim-duplicate-supersede-v1): the claim matcher service applies 2. to corrections that took effect before this migration.
 --    Tenant from the credential, world from its binding, nexloop_domain_worker only. Skips Consumers with any erasure request. Repeatable
---    (a superseded duplicate is not active any more). verb dry_run writes nothing; both verbs return counts only.
+--    (a superseded duplicate is not active any more). verb dry_run writes nothing; both verbs return counts only, including the
+--    commitments whose source Claim is one of those duplicates (0111 raises them as source_superseded).
 
 create table ontology.nexloop_claim_supersessions (
  tenant_id text not null,world text not null,claim_id text not null,corrected_claim_id text not null,correction_claim_id text not null,
@@ -79,15 +83,34 @@ begin
 end $$;
 alter function ontology.nexloop_claim_on_superseded_duplicates() owner to nexloop_owner;
 revoke all on function ontology.nexloop_claim_on_superseded_duplicates() from public;
-create trigger claim_superseded_duplicates after update of resolution_state on ontology.nexloop_claims
- for each row execute function ontology.nexloop_claim_on_superseded_duplicates();
+create constraint trigger claim_superseded_duplicates after update of resolution_state on ontology.nexloop_claims
+ deferrable initially deferred for each row execute function ontology.nexloop_claim_on_superseded_duplicates();
+
+create function ontology.nexloop_claim_on_correction_linked() returns trigger
+ language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare prior text:=current_setting('eios.tenant_id',true);
+begin
+ if new.corrects_claim_id is not null and old.corrects_claim_id is distinct from new.corrects_claim_id then
+  perform set_config('eios.tenant_id',new.tenant_id,true);
+  if exists(select 1 from ontology.nexloop_claims x where x.tenant_id=new.tenant_id and x.world=new.world and x.claim_id=new.corrects_claim_id
+     and x.resolution_state='superseded') then
+   perform ontology.nexloop_supersede_statement_duplicates(new.tenant_id,new.world,new.corrects_claim_id,new.claim_id);
+  end if;
+  perform set_config('eios.tenant_id',coalesce(prior,''),true);
+ end if;
+ return null;
+end $$;
+alter function ontology.nexloop_claim_on_correction_linked() owner to nexloop_owner;
+revoke all on function ontology.nexloop_claim_on_correction_linked() from public;
+create constraint trigger claim_correction_linked after update of corrects_claim_id on ontology.nexloop_claims
+ deferrable initially deferred for each row execute function ontology.nexloop_claim_on_correction_linked();
 
 create function authz.nexloop_claim_duplicate_supersede_backfill(p_digest text,p_world text,p_text text,p_signature text,p_payload text) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signature,p_payload,'nexloop-claim-duplicate-supersede-v1',
   'eios:action:nexloop.claim.supersede_duplicates:1',array['nexloop_domain_worker']);
  c jsonb:=p_payload::jsonb;apply boolean;r record;v_correction text;v_key text;v_found integer;
- n jsonb:=jsonb_build_object('corrected',0,'duplicates',0,'superseded',0,'skipped_erasure',0);
+ n jsonb:=jsonb_build_object('corrected',0,'duplicates',0,'superseded',0,'skipped_erasure',0,'commitments',0);v_dups text[];
 begin
  if jsonb_typeof(c) is distinct from 'object' or (select count(*) from jsonb_object_keys(c))<>1 or c->>'verb' not in ('dry_run','apply') then
   raise exception 'claim duplicate supersede invalid' using errcode='22023';end if;
@@ -97,7 +120,7 @@ begin
   v_correction:=ontology.nexloop_claim_correction_of(t,p_world,r.claim_id);
   if v_correction is null then continue;end if;
   v_key:=ontology.nexloop_claim_statement_key(r.source_message_id,r.span_start,r.span_end,r.epistemic_kind,r.polarity,r.modality,r.condition_text,r.value);
-  select count(*) into v_found from ontology.nexloop_claims x where x.tenant_id=t and x.world=p_world and x.source_message_id=r.source_message_id
+  select count(*),coalesce(array_agg(x.claim_id),'{}') into v_found,v_dups from ontology.nexloop_claims x where x.tenant_id=t and x.world=p_world and x.source_message_id=r.source_message_id
     and x.span_start=r.span_start and x.span_end=r.span_end and x.epistemic_kind=r.epistemic_kind and x.claim_id<>r.claim_id
     and x.resolution_state<>'superseded' and x.superseded_at is null
     and ontology.nexloop_claim_statement_key(x.source_message_id,x.span_start,x.span_end,x.epistemic_kind,x.polarity,x.modality,x.condition_text,x.value)=v_key;
@@ -106,6 +129,8 @@ begin
   if exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=t and e.world=p_world and e.consumer_id=r.consumer_id) then
    n:=jsonb_set(n,'{skipped_erasure}',to_jsonb((n->>'skipped_erasure')::integer+v_found));continue;end if;
   n:=jsonb_set(n,'{duplicates}',to_jsonb((n->>'duplicates')::integer+v_found));
+  n:=jsonb_set(n,'{commitments}',to_jsonb((n->>'commitments')::integer+(select count(*) from runtime.nexloop_commitments m
+    where m.tenant_id=t and m.world=p_world and m.claim_id=any(v_dups))::integer));
   if apply then
    n:=jsonb_set(n,'{superseded}',to_jsonb((n->>'superseded')::integer+ontology.nexloop_supersede_statement_duplicates(t,p_world,r.claim_id,v_correction)));
   end if;
