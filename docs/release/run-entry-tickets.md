@@ -92,6 +92,9 @@ ro "select target, outcome, count(*) from control.nexloop_entry_ticket_events wh
 
 ## 5. 走查（负责人）
 
+- 浏览器要用较新的 Chromium、Firefox 或 Safari。WebChat 兑换认的是浏览器自己加的 `Sec-Fetch-Site`；旧浏览器不发这个头，会看到固定的拒绝页，这是设计如此，不是故障。
+- 员工页面的 `/staff/entry` 在参考端点上。参考端点只是 stage 上的外部替身，不校验 Origin，不能拿来当生产入口的写法；以后接真实的外部入口，必须做同等的 Origin/Sec-Fetch 检查（另开单）。
+
 1. 以 owner 登录工作台，打开「管理 › 关联系统入口」。
 2. 点"以测试客户身份直接进入 WebChat"：新窗口打开 WebChat，已登录为 entry-test-consumer，地址栏是 `/`，不带票据。
 3. 点"以只读测试员工身份直接进入员工页面"：新窗口打开员工页，顶部提示"只读测试员工（entry-test）"，工单没有标记按钮。
