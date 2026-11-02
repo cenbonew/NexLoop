@@ -1408,7 +1408,7 @@ export type EvidenceCandidate={candidate_kind:'proposal'|'definition';candidate_
 type GroupBase={total:number;invisible:number;erased:number|null;collapsed:number;restricted_reason:'owner_only'|null;next_cursor:string|null};
 export type EvidenceGroup=GroupBase&({kind:'claim';items:EvidenceClaim[]}|{kind:'commitment';items:EvidenceCommitment[]}|{kind:'action';items:EvidenceAction[]}
   |{kind:'outreach';items:EvidenceOutreach[]}|{kind:'candidate';items:EvidenceCandidate[]});
-export type EvidenceEdge={from:string;to:string;rel:'derived_from'|'depends_on'|'fulfils'|'corrected_by'};
+export type EvidenceEdge={source:string;target:string;rel:'derived_from'|'depends_on'|'fulfils'|'corrected_by'};
 export type EvidenceGraph={consumer_id:string;generated_at:string;group_limit:number;groups:EvidenceGroup[];edges:EvidenceEdge[]};
 function evidenceItem(kind:EvidenceKind,x:unknown){const o=object(x);
   switch(kind){
@@ -1432,7 +1432,7 @@ export function evidenceGraph(value:unknown):EvidenceGraph{
       items:list(o.items).map(x=>evidenceItem(kind,x))} as EvidenceGroup;});
   if(groups.length!==EVIDENCE_KINDS.length)throw new WorkbenchError('invalid');
   return {consumer_id:id(v.consumer_id),generated_at:text(v.generated_at),group_limit:count(v.group_limit),groups,
-    edges:list(v.edges).map(x=>{const o=object(x);return {from:text(o.from),to:text(o.to),rel:oneOf(o.rel,['derived_from','depends_on','fulfils','corrected_by'] as const)};})};
+    edges:list(v.edges).map(x=>{const o=object(x);return {source:text(o.source),target:text(o.target),rel:oneOf(o.rel,['derived_from','depends_on','fulfils','corrected_by'] as const)};})};
 }
 export const readEvidenceGraph=(consumerId:string,page?:{kind:EvidenceKind;after:string})=>get(`/api/v1/workbench/consumers/${encodeURIComponent(consumerId)}/evidence-graph`
   +(page?`?kind=${page.kind}&after=${encodeURIComponent(page.after)}`:''),evidenceGraph);

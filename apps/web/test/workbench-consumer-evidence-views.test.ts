@@ -65,7 +65,7 @@ test('the graph draws listed nodes and only edges between them; the panel shows 
 });
 
 test('a commitment whose source is not listed says no more than that; paging asks ?kind=&after= and appends',async()=>{
-  const g=structuredClone(graphEx);g.groups[1].items[0].claim_id=null;g.edges=g.edges.filter((e:{from:string})=>!e.from.startsWith('commitment:'));
+  const g=structuredClone(graphEx);g.groups[1].items[0].claim_id=null;g.edges=g.edges.filter((e:{source:string})=>!e.source.startsWith('commitment:'));
   g.groups[0].next_cursor='cur-1';g.groups[0].collapsed=1;
   const page=structuredClone(graphEx);page.groups[0].items=[{...graphEx.groups[0].items[0],claim_id:'f'.repeat(64)}];page.groups[0].next_cursor=null;page.groups[0].collapsed=0;
   stub(url=>Response.json(url.includes('after=')?page:g));await mount(h(EvidenceSection,{consumerId:cid}));

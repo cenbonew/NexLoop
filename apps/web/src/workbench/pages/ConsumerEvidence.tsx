@@ -98,7 +98,7 @@ function nodeLabel(kind:EvidenceKind,item:EvidenceGroup['items'][number]):string
 function merge(base:EvidenceGraph,more:Partial<Record<EvidenceKind,EvidenceGraph>>):EvidenceGraph{
   const groups=base.groups.map(g=>{const page=more[g.kind]?.groups.find(x=>x.kind===g.kind);
     return page?{...g,items:[...g.items,...page.items] as never,next_cursor:page.next_cursor,collapsed:page.collapsed}:g;});
-  const edges=[...base.edges];for(const p of Object.values(more))for(const e of p?.edges??[])if(!edges.some(x=>x.from===e.from&&x.to===e.to&&x.rel===e.rel))edges.push(e);
+  const edges=[...base.edges];for(const p of Object.values(more))for(const e of p?.edges??[])if(!edges.some(x=>x.source===e.source&&x.target===e.target&&x.rel===e.rel))edges.push(e);
   return {...base,groups,edges};
 }
 
@@ -110,7 +110,7 @@ export function radialLayout(graph:EvidenceGraph){
     shown.forEach((item,i)=>{const a=centre+(shown.length>1?(i/(shown.length-1)-0.5)*(Math.PI/3):0);const r=RADIUS-(i%2)*48;
       nodes.push({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item),x:Math.round(CENTER.x+r*Math.cos(a)),y:Math.round(CENTER.y+r*Math.sin(a))});});});
   const at=new Map(nodes.map(n=>[n.id,n]));
-  const edges=graph.edges.filter(e=>at.has(e.from)&&at.has(e.to));
+  const edges=graph.edges.filter(e=>at.has(e.source)&&at.has(e.target));
   const sectors=graph.groups.map((g,gi)=>{const a=-Math.PI/2+gi*2*Math.PI/5;return {kind:g.kind,x:Math.round(CENTER.x+(RADIUS+62)*Math.cos(a)),y:Math.round(CENTER.y+(RADIUS+62)*Math.sin(a)),shown:Math.min(g.items.length,DRAWN),total:g.total};});
   return {nodes,edges,sectors,at};
 }
@@ -120,7 +120,7 @@ function EvidenceSvg({graph,selected,onSelect}:{graph:EvidenceGraph;selected:str
   const {nodes,edges,sectors,at}=radialLayout(graph);
   return <svg className="evidence-graph" viewBox="0 0 660 520" role="group" aria-label={`客户关系与证据图：${nodes.length} 个节点，${edges.length} 条关系`} data-nodes={nodes.length} data-edges={edges.length}>
     {nodes.map(n=><line key={'c'+n.id} x1={CENTER.x} y1={CENTER.y} x2={n.x} y2={n.y} className="evidence-spoke"/>)}
-    {edges.map(e=>{const a=at.get(e.from)!,b=at.get(e.to)!;return <line key={e.from+e.to+e.rel} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="evidence-edge" data-rel={e.rel}/>;})}
+    {edges.map(e=>{const a=at.get(e.source)!,b=at.get(e.target)!;return <line key={e.source+e.target+e.rel} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="evidence-edge" data-rel={e.rel}/>;})}
     <g className="evidence-center"><circle cx={CENTER.x} cy={CENTER.y} r={34}/><text x={CENTER.x} y={CENTER.y+5} textAnchor="middle">Consumer</text></g>
     {sectors.map(s=><text key={s.kind} x={s.x} y={s.y} textAnchor="middle" className="evidence-sector">{KIND_TEXT[s.kind]} {s.shown}/{s.total}</text>)}
     {nodes.map(n=><g key={n.id} role="button" tabIndex={0} data-node={n.id} aria-pressed={selected===n.id} aria-label={`${KIND_TEXT[n.kind]}：${n.label}`}
@@ -150,12 +150,12 @@ function EvidencePanel({graph,id,onSelect,onClose}:{graph:EvidenceGraph;id:strin
   if(kind==='candidate'){const c=item as EvidenceCandidate;rows=[{key:'类型',value:CANDIDATE_TEXT[c.candidate_kind]},{key:'状态',value:c.status},
     {key:'为什么还是候选',value:c.match_decision||c.match_reason_code?<>{c.match_decision??''}{c.match_reason_code?<> · <code>{c.match_reason_code}</code></>:null}</>:'没有匹配结论'},
     ...(c.dependent_claim_ids.length?[{key:'依据的 Claim',value:<>{c.dependent_claim_ids.map(s=><span key={s}>{link('claim:'+s)} </span>)}</>}]:[])];}
-  const incoming=graph.edges.filter(e=>e.to===id&&listed(e.from));
+  const incoming=graph.edges.filter(e=>e.target===id&&listed(e.source));
   return <aside className="evidence-panel" aria-label={`${KIND_TEXT[kind]} 证据`}>
     <div className="card-head"><h3>{KIND_TEXT[kind]} <IdText value={id.split(':')[1]}/></h3>
       <button type="button" className="btn-secondary panel-close" onClick={onClose}>关闭</button></div>
     <KeyValue label="证据链" items={rows}/>
-    {incoming.length?<p className="note">被引用：{incoming.map(e=><span key={e.from}>{link(e.from)} </span>)}</p>:null}
+    {incoming.length?<p className="note">被引用：{incoming.map(e=><span key={e.source}>{link(e.source)} </span>)}</p>:null}
   </aside>;
 }
 
