@@ -371,7 +371,7 @@ def add_identity_token_key(out, *, rotate=False):
 def add_entry_ticket_key(out, *, rotate=False):
     """S81 / ADR-043: app/secrets/api/entry-ticket.key (32 random bytes as 64 hex) for a tree generated before it existed (generate writes
     it for new trees, from the Compose secret), and the same value in management/endpoint/entry_ticket_key for the reference endpoint's
-    private secrets dir (installed by hand, owner 10002, 0600; compose.entry-ticket.example.yaml). --rotate replaces both: every
+    private secrets dir (installed by hand, owner 10002, 0600; always mounted by compose.example.yaml, read only with ENDPOINT_ENTRY_TICKET_KEY_FILE set). --rotate replaces both: every
     unused staff ticket stops working; restart api-1, api-2 and the endpoint together. No value is printed."""
     out = Path(out)
     manifest_path = out / 'manifest.json'

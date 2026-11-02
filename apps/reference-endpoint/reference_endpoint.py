@@ -477,6 +477,8 @@ def make_server(*, data_dir, listen, service_token, staff_token, tls_cert_file=N
                 return self.staff_login()
             if self.path == '/staff/mark':
                 return self.staff_mark()
+            # A stage stand-in only: no Origin/Sec-Fetch check here, so not a pattern for a production entry; a real external entry
+            # needs the same check as NexLoop's /entry (entry_tickets.same_origin_navigation) - its own task.
             if self.path == '/staff/entry' and entry_ticket_key is not None:
                 return self.staff_entry()
             self.send_json(404, {'error': 'not_found'})

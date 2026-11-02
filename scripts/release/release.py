@@ -903,6 +903,9 @@ def _prepare(context, target):
     elif context == 'gateway':
         from prepare_gateway_build import prepare_gateway
         prepare_gateway(target)
+    elif context == 'reference-endpoint':
+        from prepare_endpoint_build import prepare_endpoint
+        prepare_endpoint(target)
     else:
         raise InputError('unknown build context ' + context)
     return target

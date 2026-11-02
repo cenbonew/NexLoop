@@ -326,3 +326,36 @@ def test_staff_page_cells_name_their_columns(tmp_path):
         page = h.get('/staff').text
         for label in ('请求摘要', '来源租户 / 意图 id', '收到时间（北京时间）', '处理人', '状态', '处理结果与备注'):
             assert f'<td data-label="{label}">' in page, label
+
+
+def test_the_release_builds_the_endpoint_image_from_its_own_directory_on_the_locked_python_base(tmp_path):
+    """REL-EP: nexloop/reference-endpoint is a release image (built, SBOM, scanned, signed with the others), never hand-built."""
+    import json
+    import zlib
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    sys.path.insert(0, str(ROOT / 'scripts/release'))
+    import prepare_endpoint_build
+    import release
+    from test_release_build_archive import Docker
+    from test_release_local import head_sha
+    config = json.loads((ROOT / 'deploy/release/images.v1.json').read_text())
+    lock = json.loads((ROOT / 'versions.lock.json').read_text())
+    assert config['images']['reference-endpoint'] == {'kind': 'build', 'context': 'reference-endpoint', 'base': 'python-build-base',
+                                                      'build_args': {'PYTHON_IMAGE': 'python-build-base'}}
+    context = prepare_endpoint_build.prepare_endpoint(tmp_path / 'ctx')
+    assert sorted(p.name for p in context.iterdir()) == ['.dockerignore', 'Dockerfile', 'reference_endpoint.py']
+    assert (context / 'reference_endpoint.py').read_bytes() == (ROOT / 'apps/reference-endpoint/reference_endpoint.py').read_bytes()
+    with pytest.raises(ValueError):
+        prepare_endpoint_build.prepare_endpoint(context)
+    ci = tmp_path / 'ci.json'
+    ci.write_text(json.dumps({'sha': head_sha(), 'status': 'passed', 'policy_version': 2, 'deadline_gate': 'passed', 'counts': {'passed': 1}}))
+    docker = Docker()
+    out = release.build(head_sha(), ci, tmp_path / 'release-root', sequence=8000 + zlib.crc32(str(tmp_path).encode()) % 1000,
+                        only=['reference-endpoint'], root=ROOT, docker=docker, checkout_check=lambda r, s: None, lock=lock, environ={})
+    built = next(c for c in docker.calls if c[0] == 'build')
+    assert [built[i + 1] for i, a in enumerate(built) if a == '--build-arg'] == ['PYTHON_IMAGE=' + release.pinned_reference(lock, 'python-build-base')]
+    assert '@sha256:' in release.pinned_reference(lock, 'python-build-base')
+    manifest = json.loads((Path(out['release_dir']) / 'manifest.json').read_text())
+    (image,) = manifest['images']
+    assert image['name'] == 'reference-endpoint' and image['reference'] == 'nexloop/reference-endpoint@' + image['digest']
+    assert image['base_digest'] == lock['images']['python-build-base']['digest']
