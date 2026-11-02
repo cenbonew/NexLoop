@@ -447,3 +447,10 @@ select left(source_message_id,12) msg, span_start, span_end, count(*) claims, co
 ### 11.3 重复抽取单独开单（S-DUP）
 
 §9.7 从阶段一移出，单独开单 S-DUP。诊断结论：去重键（`claim_id` 和 `correlation_key`）不应包含模型生成的自由文本 predicate，应以消息、原文区间、kind、polarity 和规范化后的值为准。修好之前，Claim 计数不能当指标；本计划中所有基于 Claim 条数的验收改为按“客户数或消息数”计。
+
+### 11.4 L6 对 5a1b27da 的条件（已在 0c4323c0 落实）
+
+- **解除后的新拒绝**：补跑只跳过受理时间不晚于负责人解除时间的消息；解除之后客户再说“别联系我”是新的拒绝，照常设限（与入站触发器一致）。
+- **只停营销的命中（退订、TD）**：补跑不写命中行，也不写限制。营销闸门（`runtime.nexloop_marketing_state`，0243/0304）读的是 `runtime.nexloop_marketing_optouts` 和 `runtime.nexloop_marketing_consents`，不读命中表。营销停止由入站时的 0244 拒绝触发器和第 7 片退订触发器写入 optouts 来保证，它们在消息到达时已经执行；v3 的 marketing_only 条目与 v2 相同，补跑不改变营销口径。
+- **“晚上不要打电话也别再联系我”**：期望判为拒绝。时段排除改为只去掉“时段 + 否定 + 动词 + 宾语”，不再吞到下一个标点；样例已加入。
+- **已知局限**：补跑在一个事务里循环整个租户的入站消息；表变大后需要改为按会话分批。
