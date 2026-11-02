@@ -2050,6 +2050,16 @@
       "version": "0410",
       "name": "0410_claim_auto_write.sql",
       "sha256": "bd7d9fbd4ab2c9d6336894a56636457fe0623b541200563c294046b88474cb87"
+    },
+    {
+      "version": "0411",
+      "name": "0411_extraction_target_context.sql",
+      "sha256": "c863b41a639eb6f0ccce8597e40d2b5e83557e7f9942a9b3f84d443e0c13122e"
+    },
+    {
+      "version": "0412",
+      "name": "0412_extraction_dedupe.sql",
+      "sha256": "532514bc8e936874350c5dae6a8013bcac48804f571e9d406c7f5ae78523058c"
     }
   ]
 }

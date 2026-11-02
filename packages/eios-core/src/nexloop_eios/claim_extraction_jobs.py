@@ -74,6 +74,8 @@ class ClaimExtractionScheduler:
         enqueued=[]
         for item in self.feed.due(quiet_seconds=self.quiet_seconds,limit=limit,window=self.window):
             payload={'conversation_id':item['conversation_id'],'through_sequence':item['through_sequence'],'message_ids':item['message_ids']}
+            # S-DUP: context only when there is some (the payload of a first window stays the shape it always had).
+            if item.get('context_message_ids'):payload['context_message_ids']=item['context_message_ids']
             accepted=self.queue.accept(source_id=SOURCE,event_id=item['conversation_id']+':'+str(item['through_sequence']),
                 payload=payload,max_attempts=self.max_attempts)
             self.feed.mark(conversation_id=item['conversation_id'],through_sequence=item['through_sequence'],task_id=accepted['task_id'])
@@ -93,7 +95,9 @@ class ClaimExtractionWorker:
         if item is None:return 'idle'
         payload=item['payload'];retry=min(3600,self.retry_base_seconds*2**max(0,item['attempts']-1))
         try:
-            result=self.extractor.extract(conversation_id=payload['conversation_id'],message_ids=payload['message_ids'])
+            # S-DUP: a task from before the split has no context_message_ids (all targets).
+            result=self.extractor.extract(conversation_id=payload['conversation_id'],message_ids=payload['message_ids'],
+                context_message_ids=payload.get('context_message_ids') or [])
             status,body,delay='succeeded',{'code':'recorded','input_digest':result['input_digest'],'claims':len(result['claim_ids']),'replay':result['replay']},0
         except (ClaimExtractionDenied,ActionAuthorizationDenied):
             # Missing or revoked authority is a decision, not a transient fault.

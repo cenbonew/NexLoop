@@ -24,7 +24,7 @@ def S(value):
 
 
 def test_versions_and_prompt_name_the_vocabulary():
-    assert EXTRACTOR_VERSION == 'nx019-extractor/4' and PROMPT_VERSION == 'nx019-conversation-extraction-prompt/4'
+    assert EXTRACTOR_VERSION == 'nx019-extractor/5' and PROMPT_VERSION == 'nx019-conversation-extraction-prompt/5'
     assert 'predicate 固定写 contact_channel' in SYSTEM_PROMPT and 'native.webchat' in SYSTEM_PROMPT
     assert 'requested 只用于顾客请企业做一件事或提问' in SYSTEM_PROMPT
     assert '只有排他的说法' in SYSTEM_PROMPT and 'contact_channel_allowed' in SYSTEM_PROMPT
@@ -79,7 +79,7 @@ def test_exclusive_and_negated_statements_keep_the_0228_predicate():
         ('contact_channel', 'phone', 'negated'), ('contact_channel', 'wechat', 'affirmed')]
 
 
-@pytest.mark.parametrize('quote', ['不只用微信联系我', '不仅可以用微信', 'not only wechat'])
+@pytest.mark.parametrize('quote', ['不只用微信联系我', '不仅可以用微信', '不仅仅用微信', 'not only wechat'])
 def test_not_only_is_not_exclusive(quote):
     claims = run(quote, [{'quote': quote, 'kind': 'preference', 'predicate': '联系方式', 'value': S('微信')}])
     assert [(c['predicate'], 'contact_channel_not_exclusive' in c['guard_flags']) for c in claims] == [('contact_channel_allowed', True)]
