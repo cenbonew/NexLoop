@@ -20,6 +20,9 @@ from nexloop_eios.browser_http import COOKIE
 from nexloop_eios.conversation_messages import ConversationConflict
 
 
+STREAM_FAILURES = 3
+
+
 def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=180):
     """ports_for_browser(request, actual_session) must recheck live authority."""
     if not callable(ports_for_browser):
@@ -201,6 +204,7 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
         async def committed():
             cursor = int(raw)
             first_page = first
+            failures = 0
             for _ in range(stream_seconds):
                 if await request.is_disconnected():
                     return
@@ -211,7 +215,22 @@ def router(config, *, ports_for_browser, execution_profile=None, stream_seconds=
                     if first_page is not None:
                         result, first_page = first_page, None
                     else:
-                        result = await run_in_threadpool(read)
+                        # SSE-DROP: the session's directory hash covers the whole session row, so a concurrent request of the
+                        # same browser (a send's CSRF refresh touches the session) between this read's authentication and its
+                        # authority facts fails one read. Each read re-authenticates in full; only a signed-out session ends
+                        # the stream at once, any other failure only after STREAM_FAILURES consecutive reads.
+                        try:
+                            result = await run_in_threadpool(read)
+                        except CredentialInvalid:
+                            raise
+                        except Exception:
+                            failures += 1
+                            if failures >= STREAM_FAILURES:
+                                raise
+                            yield ': heartbeat\n\n'
+                            await asyncio.sleep(1)
+                            continue
+                        failures = 0
                     for item in result['items']:
                         event_id = item['id']
                         if type(event_id) is not str or not re.fullmatch(r'[1-9][0-9]{0,18}', event_id):

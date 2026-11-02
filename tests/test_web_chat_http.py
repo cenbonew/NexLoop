@@ -166,3 +166,44 @@ def test_actual_http_wrong_owner_and_current_revoke_no_business_fallback(actual_
     replace_fact(admin, TENANT_A, 'grants', [fixture['principal'], 'eios:action:'+READ+':1'], F.GrantFacts, grants=[])
     assert client.get('/api/v1/conversations/'+created['id']+'/messages').status_code == 403
     assert client.get('/api/v1/conversations/'+created['id']+'/events').status_code == 403
+
+
+def scripted_stream(browser, identity, tmp_path, script, seconds):
+    """SSE-DROP: the events stream over the actual PG session, its port scripted per read (a list of results or exceptions)."""
+    from nexloop_eios.browser_http import router as authentication_router
+    reads = []
+    class Port:
+        def read_events(self, *, conversation_id, after_sequence):
+            outcome = script[min(len(reads), len(script)-1)]
+            reads.append(after_sequence)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+    config = BrowserConfiguration(tmp_path/'unused-dsn', tmp_path/'unused-key', TENANT_A, 'synthetic-browser-app', ORIGIN)
+    boundary = FastAPI()
+    boundary.state.browser_store = browser.app.state.browser_store
+    boundary.state.browser_rate_key = browser.app.state.browser_rate_key
+    boundary.include_router(authentication_router(config))
+    boundary.include_router(router(config, ports_for_browser=lambda request, session: Port(), stream_seconds=seconds))
+    with TestClient(boundary, base_url=ORIGIN) as client:
+        assert login(client, identity).status_code == 200
+        return client.get('/api/v1/conversations/'+'a'*64+'/events').text, reads
+
+
+def committed(sequence):
+    return {'items': [{'id': str(sequence), 'type': 'message.accepted', 'data': {'sequence': sequence}}]}
+
+
+def test_stream_survives_a_transient_read_failure(browser, identity, tmp_path):
+    empty = {'items': []}
+    text, reads = scripted_stream(browser, identity, tmp_path, [empty, RuntimeError('synthetic'), RuntimeError('synthetic'), committed(1), empty], 5)
+    assert 'event: unavailable' not in text and 'id: 1\nevent: committed\n' in text and 'synthetic' not in text
+    assert reads == [0, 0, 0, 0, 1]
+
+
+def test_stream_ends_after_consecutive_failures_or_a_signed_out_session(browser, identity, tmp_path):
+    from eios.identity.errors import CredentialInvalid
+    text, reads = scripted_stream(browser, identity, tmp_path, [{'items': []}, RuntimeError('synthetic')], 6)
+    assert text.count('event: unavailable') == 1 and text.rstrip().endswith('data: {"code":"stream_unavailable"}') and len(reads) == 4
+    text, reads = scripted_stream(browser, identity, tmp_path, [{'items': []}, CredentialInvalid('synthetic')], 6)
+    assert text.count('event: unavailable') == 1 and len(reads) == 2

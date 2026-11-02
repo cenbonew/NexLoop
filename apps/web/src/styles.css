@@ -103,6 +103,8 @@ button:disabled{cursor:wait;opacity:.7}
 .workbench-page h1{font-size:24px;line-height:32px;letter-spacing:-.3px;margin-bottom:12px}
 .workbench-page h2{font-size:16px;line-height:24px;margin:20px 0 8px}
 .workbench form{margin-top:0}
+/* K4k: a hint line inside a form ("请先选择范围和操作。") sits close under the control it follows and apart from the field below. */
+.workbench form>.note{margin:var(--space-2) 0 var(--space-3)}
 .workbench .field{margin-bottom:12px}
 .workbench label{font-size:13px;line-height:20px;margin-bottom:4px}
 .workbench input:not([type=radio]):not([type=checkbox]),.workbench select,.workbench textarea{height:auto;min-height:36px;font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;width:100%;max-width:32rem;background:var(--input-bg);color:inherit}
@@ -243,6 +245,9 @@ button:disabled{cursor:wait;opacity:.7}
 .message-receipt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:10px}
 .chat .message-receipt button{margin-top:0;height:36px;padding:0 14px;font-size:14px}
 .message-receipt p{margin:0;font-size:14px}.message-receipt small{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+/* K4k: while the live stream reconnects, its one-line notice takes the place of the composer's limit note on a short screen, so the
+   pinned composer stays under half the screen (the rare composer_pinned False in web-layout was this notice, 292 px of 480). */
+@media (max-height:600px){.chat .chat-composer .chat-stream-note{margin:2px 0 4px;font-size:13px;line-height:18px}.chat .chat-composer:has(.chat-stream-note) #chat-limit{display:none}}
 @media (max-height:600px){.chat .chat-composer{padding:8px 0 4px;margin-top:8px}.chat .chat-composer textarea{min-height:2.75rem}.chat .chat-composer label{margin-bottom:4px}.chat .chat-composer .note{margin:2px 0 4px;font-size:13px}}  /* K4g: at 390×480 the pinned composer stays under half the screen */
 
 /* Web layout batch 3 (details). Overview and operations: cards keep their own height (no stretched empty blocks), two columns at

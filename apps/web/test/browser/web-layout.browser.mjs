@@ -57,6 +57,11 @@ const measure=()=>{const vw=innerWidth;
       let p=e.previousElementSibling;while(p&&!(p.getBoundingClientRect().height>0))p=p.previousElementSibling;
       return p?Math.round(e.getBoundingClientRect().top-p.getBoundingClientRect().bottom):null;}).filter(g=>g!==null),
     takeover_position:(b=>b?getComputedStyle(b).position:null)(document.querySelector('.takeover-bar')),
+    // K4k: inside the workbench forms, the gap from each visible block to the next one below it (a hint line never touches the
+    // field under it). Side-by-side items (a row of fields, a button beside them) are not stacked and are left out.
+    form_gaps:[...document.querySelectorAll('.workbench-page form')].flatMap(f=>{const kids=[...f.children].filter(e=>e.getBoundingClientRect().height>0);
+      return kids.slice(1).map((e,i)=>{const a=kids[i].getBoundingClientRect(),b=e.getBoundingClientRect();
+        return b.top>=a.bottom-1?{gap:Math.round(b.top-a.bottom),tags:kids[i].tagName+'.'+kids[i].className+'>'+e.tagName+'.'+e.className}:null;}).filter(Boolean);}),
     h1_top:(h=>h?Math.round(h.getBoundingClientRect().top):null)(document.querySelector('.workbench-page h1')),
     empty_styled:[...document.querySelectorAll('.workbench-empty')].filter(e=>!e.closest('.workbench-block')).every(e=>getComputedStyle(e).borderTopStyle==='dashed')
       // UI spec §8: an unavailable state (not compact) is dashed, an empty one solid.
@@ -87,8 +92,25 @@ try{
     await page.waitForFunction(n=>document.querySelectorAll('.messages li').length>n,before,{timeout:20000});}
   result.chat.sent_through_composer=await page.locator('.messages li').count()>=5;
   await page.setViewportSize({width:390,height:480});await page.evaluate(()=>document.querySelector('.messages').scrollIntoView());await page.waitForTimeout(300);
-  result.chat.composer_pinned=await page.evaluate(()=>{const r=document.querySelector('.chat-composer').getBoundingClientRect();
-    const list=document.querySelector('.messages').getBoundingClientRect();return list.bottom>r.top&&Math.abs(r.bottom-innerHeight)<=1&&r.height<=innerHeight/2;});
+  // K4k: numbers only (viewport, the composer's and the list's boxes, scroll, ms since the load event) to track the rare False.
+  const pinned=await page.evaluate(()=>{const r=document.querySelector('.chat-composer').getBoundingClientRect();
+    const list=document.querySelector('.messages').getBoundingClientRect();const nav=performance.getEntriesByType('navigation')[0];
+    const round=n=>Math.round(n*10)/10;
+    return {pinned:list.bottom>r.top&&Math.abs(r.bottom-innerHeight)<=1&&r.height<=innerHeight/2,
+      diag:{viewport:[innerWidth,innerHeight],composer:[round(r.top),round(r.bottom),round(r.height)],list:[round(list.top),round(list.bottom)],
+        scroll_y:round(scrollY),scroll_height:document.documentElement.scrollHeight,ms_since_load:Math.round(performance.now()-(nav?.loadEventEnd??0)),
+        status_lines:document.querySelectorAll('.chat-composer [role=status]').length,alert_lines:document.querySelectorAll('.chat-composer [role=alert]').length}};});
+  result.chat.composer_pinned=pinned.pinned;result.chat_diag=pinned.diag;
+  // K4k: the same check with the reconnect notice in the composer (the state behind the rare False: the stream closed and is
+  // reopened 5 s later). The notice node is the one WebChat renders, placed here so the layout is checked every run.
+  const reconnecting=()=>page.evaluate(()=>{const c=document.querySelector('.chat-composer');
+    const n=Object.assign(document.createElement('p'),{className:'chat-stream-note',textContent:'实时连接暂不可用，正在重连；可点“刷新消息”。'});n.setAttribute('role','status');
+    c.prepend(n);const r=c.getBoundingClientRect();const lines=Math.round(n.getBoundingClientRect().height/parseFloat(getComputedStyle(n).lineHeight));
+    const ok=Math.abs(r.bottom-innerHeight)<=1&&r.height<=innerHeight/2;n.remove();return {ok,lines};});
+  const at390=await reconnecting();result.chat.composer_pinned_reconnecting=at390.ok;
+  // L6: the narrowest phones (320 px, not one of SIZES): the notice is still one line and the composer under half the screen.
+  await page.setViewportSize({width:320,height:480});await page.waitForTimeout(300);result.chat_reconnect_320=await reconnecting();
+  result.chat_reconnect_390_lines=at390.lines;await page.setViewportSize({width:390,height:480});
   await page.screenshot({path:`${shots}/customer-webchat-390x480.png`});
   await context.close();
   context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:session.origin});page=await context.newPage();

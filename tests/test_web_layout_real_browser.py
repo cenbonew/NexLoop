@@ -85,7 +85,10 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert all(not t['cards'] and not t['head_hidden'] for w in (1440, 1024) for t in consumers[w])
     narrow = [t for k, v in pages.items() if k.endswith(('-390', '-390-dark')) for t in v['tables'] if t['rows']]
     assert narrow and all(t['cards'] and t['head_hidden'] and t['labelled'] for t in narrow), narrow
-    assert observed['chat'] == {'option_texts_without_ids': True, 'meta_in_bar': True, 'sent_through_composer': True, 'composer_pinned': True}
+    print('K4k chat_diag', observed.get('chat_diag'))
+    # K4k: the composer diagnostics (numbers only) travel with a failure.
+    assert observed['chat'] == {'option_texts_without_ids': True, 'meta_in_bar': True, 'sent_through_composer': True, 'composer_pinned': True,
+                                'composer_pinned_reconnecting': True}, observed.get('chat_diag')
     # Batch 3 (K4f: the former overview is the home page's 健康 tab, wb-health): cards in 3+/2/1 columns and of their own height; operations likewise; bubbles within 80 % of the list (92 % on
     # phones); every empty/unavailable state in the one dashed style.
     assert [pages[f'wb-health-{w}']['grid']['cols'] for w in (1440, 1024, 390)] == [3, 2, 1], {w: pages[f'wb-health-{w}']['grid'] for w in (1440, 1024, 390)}
@@ -134,3 +137,9 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert all(pages[f'wb-actions-{w}']['stack_gaps'] for w in (1440, 1024, 390)), {w: pages[f'wb-actions-{w}']['stack_gaps'] for w in (1440, 1024, 390)}
     assert [pages[f'wb-consumer-{w}']['takeover_position'] for w in (1440, 1024, 390)] == ['static'] * 3
     assert pages['wb-conversation-1440']['takeover_position'] == 'sticky'
+    # K4k: stacked blocks inside a workbench form keep at least 8 px (the 暂停 / 恢复 hint line above 原因 on the goals page).
+    # L6: the reconnect notice is one line at 390 and at 320 px, the composer under half of a 480 px screen at 320 too.
+    assert observed['chat_reconnect_390_lines'] == 1 and observed['chat_reconnect_320'] == {'ok': True, 'lines': 1}, (observed['chat_reconnect_390_lines'], observed['chat_reconnect_320'])
+    tight_forms = {k: [g for g in v['form_gaps'] if g['gap'] < 8] for k, v in pages.items() if any(g['gap'] < 8 for g in v['form_gaps'])}
+    assert tight_forms == {}, tight_forms
+    assert all(pages[f'wb-goals-{w}']['form_gaps'] for w in (1440, 1024, 390))

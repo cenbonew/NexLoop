@@ -48,7 +48,7 @@ export function WebChat(){
       {messages.isPending?<p role="status">正在读取消息…</p>:messages.isError?<p role="alert">{chatError(messages.error)}</p>:<ol className="messages">{messages.data?.items.map(item=>{const view=messagePresentation(item);return <li key={item.id} className={item.direction==='outbound'?'message outbound':'message inbound'} data-direction={item.direction}><span>{view.sender}</span><time dateTime={item.accepted_at}>{localTime(item.accepted_at)}</time><p>{item.body}</p>{view.status?<small>{view.status}</small>:null}{view.receipt&&<MessageReceipt messageId={item.id}/>}</li>;})}</ol>}
       {messages.data?.next_cursor&&<button type="button" disabled={more.isPending} onClick={()=>more.mutate()}>{more.isPending?'正在读取…':'加载更多消息'}</button>}{more.isError&&<p role="alert">{chatError(more.error)}</p>}
       <div className="chat-composer">
-        {streamUnavailable&&<p role="status">实时连接暂不可用，正在重新连接；可以点“刷新消息”查看最新消息。</p>}
+        {streamUnavailable&&<p role="status" className="chat-stream-note">实时连接暂不可用，正在重连；可点“刷新消息”。</p>}
         <form onSubmit={event=>{event.preventDefault();submit();}}><label htmlFor="chat-message">消息</label><textarea id="chat-message" value={pending?.body??draft} maxLength={8192} disabled={!!pending} onChange={event=>setDraft(event.target.value)} aria-describedby="chat-limit"/><p id="chat-limit" className="note">目前只支持文字消息。退订推广或删除个人信息的请求暂时需要另行联系企业。</p><div className="chat-composer-actions"><button type="button" className="btn-secondary" onClick={()=>void messages.refetch()}>刷新消息</button><button disabled={send.isPending||(!pending&&!draft.trim())}>{send.isPending?'正在发送…':pending?'重新发送这条消息':'发送'}</button></div></form>
         {send.isError&&<p role="alert">{chatError(send.error)}</p>}
       </div>
