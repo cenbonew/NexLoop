@@ -2035,6 +2035,11 @@
       "version": "0407",
       "name": "0407_contact_refusal_rules_v3.sql",
       "sha256": "2ebeac37a37b5baed8de6396521daf25ddd44d98d787aea98fb9c657c9fedae1"
+    },
+    {
+      "version": "0408",
+      "name": "0408_contact_channel_reextract.sql",
+      "sha256": "a1f45aca65f12fe2818f57cfe083935c725b45329a2a26898639100c34d41319"
     }
   ]
 }
