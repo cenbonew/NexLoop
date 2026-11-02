@@ -45,6 +45,15 @@ docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rule
 - `host_effect_no_data`：第 1 节的三样都上线、runtime worker 写出第一条带效应计数的 host 样本后（约 1–2 分钟），在下一个评估周期恢复。**超过 10 分钟还在报**，就说明 Host 或 worker 版本不对，或者采样停了，需要排查。
 - `enterprise_deliver_unavailable`（critical）：出现时，按告警说明到 intent 列表按 run_id 核对是哪一种：(a) 单子已下但客户没被告知，或 (b) 没有单子。**只通知，不自动补单。**
 
+## 3a. 失败 Run 记录里的错误码分布会变（这是修正，不是回归）
+
+部署后，失败 Run 的 `failure_detail`（`runtime.jobs.result`，以及 NX-037 证据包里的 failures）中，**`tool_error` 的计数会下降，具体错误码的计数会上升**，例如：
+
+- `runtime_effect_unavailable`、`incentive_unavailable`、`incentive_payload_conflict`、`outreach_unavailable`、`run_outcome_unavailable`；
+- `runtime_tool_unavailable`：工具抛出普通错误时，`pi-runtime-adapter.ts` 里包装工具的那一段给出的错误码。
+
+原因是 Host 现在能读出 pi-durable 包装过的错误码；以前这些失败一律记成 `tool_error`。`tool_error` 今后只表示工具结果的文字里没有任何错误码。按错误码统计的看板或对比，在部署前后不能直接相加。证据包的白名单已经补上这些错误码（`scripts/nx037/evidence_pack.py`，由 `tests/test_nx037_evidence_codes.py` 从 Host 源码核对），不会把它们当成未知值丢掉。
+
 ## 4. 只读核对
 
 ```sql

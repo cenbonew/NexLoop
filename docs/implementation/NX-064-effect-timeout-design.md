@@ -177,4 +177,8 @@ from c, unnest(array[0.5,0.95,0.99]) q where cum >= q*tot group by q order by q;
 
    两种情况都只有一条 intent。测试按实测结果断言。
 5. 激励工具：503、连接错误、超时都判为不明确，只再发一次；冲突立即结束。
-6. **L6 条件 2 发现的已有缺陷**：用真实的 enterprise 工具跑一次失败 Run（`apps/agent-host/test/enterprise-unavailable-failure.test.ts`），发现 `failure_detail` 记成的是 `tool_error`，不是 `runtime_effect_unavailable`。原因是 pi-durable 把工具抛出的错误包装成 `<harness>\n[error] <code>\n</harness>`，Host 只认整段文字就是错误码的情况。这样一来，0405 的 enterprise 告警永远不会触发。现在 `pi-runtime-adapter.ts` 的 `toolCode` 也会识别这种包装，没有错误码时仍记 `runtime_tool_unavailable` 或 `tool_error`，不会带出任何文字。三方用的字面值由 `tests/test_effect_request_metrics_pg.py` 钉住。部署单：`docs/release/run-nx064-effect-request-metrics.md`。
+6. **L6 条件 2 发现的已有缺陷**：用真实的 enterprise 工具跑一次失败 Run（`apps/agent-host/test/enterprise-unavailable-failure.test.ts`），发现 `failure_detail` 记成的是 `tool_error`，不是 `runtime_effect_unavailable`。原因是 pi-durable 把工具抛出的错误包装成 `<harness>\n[error] <code>\n</harness>`，Host 只认整段文字就是错误码的情况。这样一来，0405 的 enterprise 告警永远不会触发。现在 `pi-runtime-adapter.ts` 的 `toolCode` 也会识别这种包装。另外两种情况要分清：
+   - 工具抛出的不是带错误码的 `RuntimeError`（例如普通的 `Error`）时，`pi-runtime-adapter.ts` 里包装工具的那一段，会在 pi-durable 包装之前把它换成 `RuntimeError('runtime_tool_unavailable')`。所以记录里是 `runtime_tool_unavailable`，这和 `toolCode` 无关；
+   - `tool_error` 只在 `toolCode` 从工具结果的文字里找不到任何错误码时出现，例如返回的 isError 结果不是 `{code}` JSON。
+
+   两种情况都不会带出任何文字。三方用的字面值由 `tests/test_effect_request_metrics_pg.py` 钉住。部署单：`docs/release/run-nx064-effect-request-metrics.md`。
