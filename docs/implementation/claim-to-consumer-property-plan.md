@@ -454,3 +454,11 @@ select left(source_message_id,12) msg, span_start, span_end, count(*) claims, co
 - **只停营销的命中（退订、TD）**：补跑不写命中行，也不写限制。营销闸门（`runtime.nexloop_marketing_state`，0243/0304）读的是 `runtime.nexloop_marketing_optouts` 和 `runtime.nexloop_marketing_consents`，不读命中表。营销停止由入站时的 0244 拒绝触发器和第 7 片退订触发器写入 optouts 来保证，它们在消息到达时已经执行；v3 的 marketing_only 条目与 v2 相同，补跑不改变营销口径。
 - **“晚上不要打电话也别再联系我”**：期望判为拒绝。时段排除改为只去掉“时段 + 否定 + 动词 + 宾语”，不再吞到下一个标点；样例已加入。
 - **已知局限**：补跑在一个事务里循环整个租户的入站消息；表变大后需要改为按会话分批。
+
+#### 11.4a 部署前只读核对（调度员 2026-11-02，DATA_HOST，tenant stage，world real）
+
+- 入站消息（`record` 没有 `direction` 键）共 198 条，用 `runtime.nexloop_unsubscribe_match` 匹配，命中 0 条；外发共 138 条（agent 133，human_takeover 5）。
+- `runtime.nexloop_outreach_sends` 只有 service 类：fulfilled 1，refused 4；marketing 类 0 条。
+- `runtime.nexloop_marketing_optouts` 0 行。
+- 结论：L6 的核对查询结果为 0。**这个 0 来自空集**：stage 上从来没有过 marketing 外发，也没有入站退订，因此没有正例可以对照，它只说明 stage 上没有被补跑漏掉的营销退订，不能证明“只停营销”的处理在有数据时正确（这一点由 `test_contact_refusal_v2_pg` 和 `test_contact_refusal_v3_pg` 的合成数据覆盖）。
+- 生产环境部署前必须重跑这条核对查询；消息时间用 `record->>'accepted_at'`，不是 `created_at`（`runtime.nexloop_conversation_messages` 没有 `created_at` 列）。
