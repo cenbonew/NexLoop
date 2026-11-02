@@ -2030,6 +2030,26 @@
       "version": "0406",
       "name": "0406_k5_evidence_views.sql",
       "sha256": "064458652fd8b4105d03f35bb9504ed7d234415acb70c65a9bc0d3e95084eabe"
+    },
+    {
+      "version": "0407",
+      "name": "0407_contact_refusal_rules_v3.sql",
+      "sha256": "2ebeac37a37b5baed8de6396521daf25ddd44d98d787aea98fb9c657c9fedae1"
+    },
+    {
+      "version": "0408",
+      "name": "0408_contact_channel_reextract.sql",
+      "sha256": "a1f45aca65f12fe2818f57cfe083935c725b45329a2a26898639100c34d41319"
+    },
+    {
+      "version": "0409",
+      "name": "0409_claim_rematch.sql",
+      "sha256": "f997482c77b9741b59c92014b0d8430d3d3b78c0fa7543a017218d61c49447f5"
+    },
+    {
+      "version": "0410",
+      "name": "0410_claim_auto_write.sql",
+      "sha256": "bd7d9fbd4ab2c9d6336894a56636457fe0623b541200563c294046b88474cb87"
     }
   ]
 }

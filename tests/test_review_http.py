@@ -53,7 +53,7 @@ def grant_human(admin,uow,identity,resource):
 def put_candidate(admin,world,label,claims,*,status='pending_review',superseded_by=None):
     candidate_id=str(uuid.uuid5(uuid.NAMESPACE_URL,'nx046-'+label))
     candidate={'candidate_id':candidate_id,'kind':'property','world_id':world,'status':'staged',
-        'proposed':{'name':'payment_method','display_name':label,'owner_type_ref':'eios:object_type:Consumer','value_type':'string','closed_vocabulary':False,'property_group':'purchase_behavior'},
+        'proposed':{'name':'checkout_habit','display_name':label,'owner_type_ref':'eios:object_type:Consumer','value_type':'string','closed_vocabulary':False,'property_group':'purchase_behavior'},
         'recall':[{'ref':'eios:property:Consumer/favorite_sport','method':'fts','score':0.21}]}
     scores={'lexical_similarity':0.1,'core_term_containment':0.0,'vector_cluster':0.2,'rule_whitelist':0.0,'weighted_total':0.06,
         'best_match_ref':'eios:property:Consumer/favorite_sport','threshold':0.375,'config_version':'nx045-glue-v1-test64'}
@@ -175,7 +175,7 @@ def test_reviewer_approves_through_http_and_sees_the_wait_for_grants(review_app)
             json={'decision':'approve','expected_revision':1,'rationale':'新增付款方式属性'})
         assert decided.status_code==200,decided.text
         body=decided.json()
-        assert body['outcome']=='published' and body['reflow_status']=='pending' and 'eios:property:Consumer/payment_method' in body['publication']['published_refs']
+        assert body['outcome']=='published' and body['reflow_status']=='pending' and 'eios:property:Consumer/checkout_habit' in body['publication']['published_refs']
         waiting=client.get('/api/v1/review/awaiting')
         assert waiting.status_code==200
         assert [(i['candidate_id'],i['reflow_status'],i['waiting_claim_count']) for i in waiting.json()['items']]==[(f['pending'],'pending',2)]

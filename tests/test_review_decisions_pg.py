@@ -74,7 +74,7 @@ def decisions(admin):
 
 def test_human_reject_records_decision_cooldown_and_replays(review):
     """AT-068 decision: rejected by a governed human decision; Claims kept as evidence; cooldown; audit; idempotent."""
-    f=review;claim,cid,_,_=pending(f,'r1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=review;claim,cid,_,_=pending(f,'r1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     port=human(f);revision=candidates(f['admin'])[cid][8]
     result=port.decide(candidate_id=cid,decision='reject',expected_revision=revision,rationale='不是业务概念',idempotency_key='synthetic-reject-0001')
     assert result['outcome']=='rejected' and result['replay'] is False and result['reflow_status']=='none'
@@ -92,7 +92,7 @@ def test_human_reject_records_decision_cooldown_and_replays(review):
 
 def test_service_agent_and_ungranted_principals_cannot_decide(review):
     """AT-067 negative: no review decision without a granted Human; nothing changes."""
-    f=review;claim,cid,_,_=pending(f,'n1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=review;claim,cid,_,_=pending(f,'n1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     revision=candidates(f['admin'])[cid][8]
     # A service credential holding the very same review EXECUTE grant.
     service,_=seed_multi_authority(f['admin'],f['api'],[(REVIEW,ResourceType.ACTION,Operation.EXECUTE)],identity_suffix='-svc-reviewer',tenant=f['tenant'])
@@ -124,25 +124,25 @@ def test_human_merge_into_reflows_and_applies(review):
 
 def test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant(review):
     """AT-067 / AT-069 publish path: gates, Schema v2 + successor Action, no authority change; Claims wait for grants, then apply."""
-    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'a1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'a1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     port=human(f);revision=candidates(admin)[cid][8]
     facts_before=admin.execute("select authz.nexloop_tenant_authority_fingerprint(%s)",(TENANT,)).fetchone()[0]
     result=port.decide(candidate_id=cid,decision='approve',expected_revision=revision,rationale='新增付款方式属性',idempotency_key='synthetic-approve-0001')
     assert result['outcome']=='published',result['publication']
     pub=result['publication']
     assert pub['schema_revision_before']=='Consumer@1' and pub['schema_revision_after']=='Consumer@2' and pub['gate_failures']==[]
-    assert set(pub['published_refs'])>={'eios:property:Consumer/payment_method','eios:object_type:Consumer:2','eios:action:Consumer.edit:2'}
+    assert set(pub['published_refs'])>={'eios:property:Consumer/checkout_habit','eios:object_type:Consumer:2','eios:action:Consumer.edit:2'}
     assert not list(RECORD.iter_errors(result['record']))
     assert admin.execute("select authz.nexloop_tenant_authority_fingerprint(%s)",(TENANT,)).fetchone()[0]==facts_before
     schema=admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=2",(TENANT,)).fetchone()[0]
-    assert [p['property_name'] for p in schema['properties']][-1]=='payment_method' and schema['properties'][-1]['required'] is False
+    assert [p['property_name'] for p in schema['properties']][-1]=='checkout_habit' and schema['properties'][-1]['required'] is False
     assert admin.execute("select schema_version from ontology.objects where object_id=%s",(f['consumer'],)).fetchone()==(2,)
     assert admin.execute("select count(*) from control.nexloop_action_definitions where resource_id='eios:action:Consumer.edit:2' and active").fetchone()==(1,)
     # Two steps (ADR-020 §3): published now, applied only after trusted configuration grants.
     assert candidates(admin)[cid][2]=='published' and resolution(admin,claim)=='awaiting_definition'
     first=worker(f,edit_version=2,suffix='-reflow-nogrant').run_pending()
     assert first[result['decision_id']]['status']=='waiting' and first[result['decision_id']]['reason']=='awaiting_grants'
-    assert 'payment_method' not in obj(admin,f['consumer'])[0] and resolution(admin,claim)=='awaiting_definition'
+    assert 'checkout_habit' not in obj(admin,f['consumer'])[0] and resolution(admin,claim)=='awaiting_definition'
     shown=human(f).awaiting()
     assert [(i['decision_id'],i['reflow_status'],i['reason']) for i in shown]==[(result['decision_id'],'waiting','awaiting_grants')]
     # Read-only doctor for the scheduler: the successor Action is not in the service grant manifest yet.
@@ -160,12 +160,12 @@ def test_human_approve_publishes_additively_and_waiting_claims_apply_after_grant
     manifest['grants'].append({**next(g for g in manifest['grants'] if g['resource_id']=='eios:action:Consumer.edit:1'),'resource_id':'eios:action:Consumer.edit:2'})
     assert uncovered_actions(manifest,TENANT,database_url_file=dsn)['covered'] is True
     # Trusted configuration grants the successor Action and the new property (ADR-020 §3), then reflow applies.
-    grants=[('eios:action:Consumer.edit:2',ResourceType.ACTION,Operation.EXECUTE),('eios:property:Consumer/payment_method',ResourceType.PROPERTY,Operation.READ)]
-    grants+=[(f"eios:property:Consumer/{f['consumer']}/payment_method",ResourceType.PROPERTY,op) for op in (Operation.READ,Operation.EDIT)]
+    grants=[('eios:action:Consumer.edit:2',ResourceType.ACTION,Operation.EXECUTE),('eios:property:Consumer/checkout_habit',ResourceType.PROPERTY,Operation.READ)]
+    grants+=[(f"eios:property:Consumer/{f['consumer']}/checkout_habit",ResourceType.PROPERTY,op) for op in (Operation.READ,Operation.EDIT)]
     second=worker(f,edit_version=2,extra_targets=grants,suffix='-reflow-granted').run_pending()
     assert second[result['decision_id']]=={'status':'done','applied':1,'claims':{claim:{'outcome':'partial_match','applied':'applied'}},
         'published_refs':pub['published_refs']}
-    assert obj(admin,f['consumer'])[0]['payment_method']=='花呗' and resolution(admin,claim)=='resolved'
+    assert obj(admin,f['consumer'])[0]['checkout_habit']=='花呗' and resolution(admin,claim)=='resolved'
     stored=decisions(admin)[0]
     assert stored[5]=='done' and stored[4]['applied_claim_count']==1 and stored[3]['publication']['applied_claim_count']==1
     assert human(f).awaiting()==[]
@@ -218,7 +218,7 @@ def test_agent_and_run_bound_credentials_cannot_decide_and_cause_no_side_effects
     from nexloop_eios.authorization import authenticate_service
     from eios.ontology.models import ObjectTypeDefinition
     from test_claim_matching_pg import publish_action
-    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'ar1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'ar1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     revision=candidates(admin)[cid][8]
     from nexloop_eios.review_actions import build_publication
     publication=build_publication(human(f).basis(cid))  # a well-formed publication, so only the principal can be refused

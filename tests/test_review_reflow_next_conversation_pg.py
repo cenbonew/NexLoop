@@ -62,25 +62,25 @@ def test_after_human_merge_the_next_conversation_hits_the_alias_and_applies(revi
 
 
 def test_after_human_publish_the_next_conversation_hits_the_new_property_and_applies(review):
-    """Publish path: the reviewer approves payment_method (Consumer v2 + Consumer.edit:2); with the grants configured, a later
+    """Publish path: the reviewer approves checkout_habit (Consumer v2 + Consumer.edit:2); with the grants configured, a later
     conversation recalls the new property and applies; proposing it as new again lands on the published property."""
-    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'p69','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    f=review;admin=f['admin'];claim,cid,_,_=pending(f,'p69','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     result=human(f).decide(candidate_id=cid,decision='approve',expected_revision=candidates(admin)[cid][8],rationale='新增付款方式属性',idempotency_key='synthetic-approve-069-1')
     assert result['outcome']=='published'
-    grants=[('eios:action:Consumer.edit:2',ResourceType.ACTION,EXECUTE),('eios:property:Consumer/payment_method',ResourceType.PROPERTY,READ)]
-    grants+=[(f"eios:property:Consumer/{f['consumer']}/payment_method",ResourceType.PROPERTY,op) for op in (READ,EDIT)]
+    grants=[('eios:action:Consumer.edit:2',ResourceType.ACTION,EXECUTE),('eios:property:Consumer/checkout_habit',ResourceType.PROPERTY,READ)]
+    grants+=[(f"eios:property:Consumer/{f['consumer']}/checkout_habit",ResourceType.PROPERTY,op) for op in (READ,EDIT)]
     assert worker(f,edit_version=2,extra_targets=grants,suffix='-reflow-069p').run_pending()[result['decision_id']]['status']=='done'
-    assert obj(admin,f['consumer'])[0]['payment_method']=='花呗' and resolution(admin,claim)=='resolved'
+    assert obj(admin,f['consumer'])[0]['checkout_habit']=='花呗' and resolution(admin,claim)=='resolved'
     before=len(candidates(admin))
     conversation,claims=next_conversation(f,'p69-next')
     later=claims.add('p69-later','常用付款方式','微信支付',quote='现在常用付款方式是微信支付')
     again=claims.add('p69-again','常用付款方式','银行卡',quote='常用付款方式也会用银行卡')
-    m,_=matcher_for(f,conversation,{later:decision('eios:property:Consumer/payment_method','微信支付'),
-        again:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='银行卡')},suffix='-match-069p',edit_version=2,extra=grants)
-    assert m.recall.recall('常用付款方式 微信支付',instances=False).definitions[0].ref=='eios:property:Consumer/payment_method'
+    m,_=matcher_for(f,conversation,{later:decision('eios:property:Consumer/checkout_habit','微信支付'),
+        again:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='银行卡')},suffix='-match-069p',edit_version=2,extra=grants)
+    assert m.recall.recall('常用付款方式 微信支付',instances=False).definitions[0].ref=='eios:property:Consumer/checkout_habit'
     out=m.process_conversation(conversation)
     assert out['matches'][later]['outcome']=='partial_match' and out['matches'][again]['outcome']=='partial_match'
     assert sorted(out['applied'].values())==['applied','applied']
     assert resolution(admin,later)=='resolved' and resolution(admin,again)=='resolved'
-    assert obj(admin,f['consumer'])[0]['payment_method'] in ('微信支付','银行卡')
+    assert obj(admin,f['consumer'])[0]['checkout_habit'] in ('微信支付','银行卡')
     assert len(candidates(admin))==before  # no duplicate candidate for the published concept

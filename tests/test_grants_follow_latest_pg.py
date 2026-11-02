@@ -32,7 +32,7 @@ def allowed(pool,session,resource):
 
 def test_declared_service_grant_follows_reviewed_successor_idempotently(review):
     f=review;admin=f['admin']
-    _,cid,_,_=pending(f,'fl1','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    _,cid,_,_=pending(f,'fl1','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     revision=admin.execute('select revision from ontology.nexloop_candidate_definitions where candidate_id=%s',(cid,)).fetchone()[0]
     published=human(f).decide(candidate_id=cid,decision='approve',expected_revision=revision,rationale='新增付款方式属性',idempotency_key='synthetic-follow-approve-01')
     assert published['outcome']=='published' and 'eios:action:Consumer.edit:2' in published['publication']['published_refs']
