@@ -193,3 +193,16 @@ stage 上的客户都是模拟客户（persona `simulated_agent`），rematch �
   - `scripts/load/stack.py:206`、`tests/test_background_services_pg.py:43`、`tests/test_business_actions.py:160` 保留为 v1 基线。
   - 工作台人工编辑没有写死 `Consumer.edit` 的版本（`git grep` 在前端和 `review_*` 中只找到测试数据里的 `:2`），由 `follow_latest` 授权覆盖。
 - **创建 schema**（`consumer_profile.py`）这次不改：Consumer v1 由它发布，必须保持不变；`delivery_windows` 只由匹配器在 v2 上写入，新建客户时不需要它。
+
+## 7. 实现记录（第 3、4 后端、5 项）
+
+- **白名单 v2 草案**：`deploy/configuration/auto-write.v2.json` 只含 `Consumer.delivery_windows`，带 reason，`approved_by_decision` 为 `2026-11-02#claim-consumer-plan-s10-1`。正式发布要负责人确认，见部署单第 6 步。用例覆盖两种情况：Consumer v2 发布前应用这份清单被拒绝；发布后只打开这一个属性。
+- **画像读取**：现有客户详情只给出属性值，没有来源和时间。
+  - 新增迁移 `workbench_property_sources`（临时号 0417），函数为 `authz.nexloop_workbench_property_sources`，只有 owner 和 operator 能调用。
+  - 客户详情新增 `property_sources` 块，契约为 `packages/contracts/workbench-consumer-property-sources.schema.json`，附 example。
+  - 字段：`value`、`display`、`source`（claim、conversation、message 的 id）、`stated_at`、`effective_at`、`status`（applied、corrected、unknown）。
+  - 不带引用原文：原文由证据图按 K5 的规则决定谁能读，前端用 `source` 跳过去看。
+  - owner 限制组里的属性不出现在列表中。
+  - 设计 §4.3 原来写的 `evidence_excerpt` 因此改为不提供，`applied_by` 和 `proposal_id` 也不提供。
+- **提案工具**：`s6_stage_schema.py r8` 新增可选的 `inputs.property_change`，用来冻结 `delivery_windows` 这类带描述符和文字的提案；不填时行为与原来相同。
+- **部署单**：`docs/release/run-claim-consumer-phase2.md`。

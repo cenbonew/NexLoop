@@ -247,3 +247,23 @@ def test_two_statements_of_the_same_time_that_disagree_are_left_for_review(revie
     assert m.apply(row(admin, first)[0]) == 'applied'
     assert m.apply(row(admin, second)[0]) == 'same_time_statements'
     assert row(admin, second)[1] == 'proposed' and obj(admin, f['consumer'])[0]['delivery_windows'] == FRI_DAY
+
+
+# ----------------------------------------------------------------------------------------------- item 3: the whitelist v2 draft
+def test_the_whitelist_v2_draft_opens_only_delivery_windows_and_only_once_published(review, tmp_path):  # noqa: F811
+    from pathlib import Path
+    from nexloop_eios.auto_write import apply_manifest, load_manifest
+    from test_claim_auto_write_pg import configurator
+    f = review;admin = f['admin']
+    draft = load_manifest(Path(__file__).resolve().parents[1] / 'deploy/configuration/auto-write.v2.json')
+    assert draft['version'] == 2 and draft['approved_by_decision'] == '2026-11-02#claim-consumer-plan-s10-1'
+    assert [(p['type_name'], p['property_name']) for p in draft['properties']] == [('Consumer', 'delivery_windows')] and draft['properties'][0]['reason']
+    dsn = configurator(f, tmp_path)
+    with pytest.raises(psycopg.errors.InvalidParameterValue, match='not published'):  # before Consumer v2: refused
+        apply_manifest(draft, f['tenant'], database_url_file=dsn)
+    publish(f)
+    assert apply_manifest(draft, f['tenant'], database_url_file=dsn)['changed'] is True
+    assert admin.execute("select type_name,property_name from control.nexloop_auto_write_properties where tenant_id=%s and world='real'",
+                         (f['tenant'],)).fetchall() == [('Consumer', 'delivery_windows')]
+    assert admin.execute("select revision,approved_by_decision from control.nexloop_auto_write_publications where tenant_id=%s and world='real'",
+                         (f['tenant'],)).fetchall() == [(2, '2026-11-02#claim-consumer-plan-s10-1')]

@@ -118,3 +118,19 @@ def normalize(text) -> list[dict] | None:
         windows += [{'weekday': d, 'part': 'any'} for d in pending]
     out = canonical(windows)
     return out if 0 < len(out) <= MAX_ITEMS else None
+
+
+_DAY_LABEL = {'mon': '周一', 'tue': '周二', 'wed': '周三', 'thu': '周四', 'fri': '周五', 'sat': '周六', 'sun': '周日', 'any': '每天'}
+_PART_LABEL = {'morning': '上午', 'daytime': '白天', 'afternoon': '下午', 'evening': '晚上', 'any': '任意时段'}
+
+
+def display(value) -> str | None:
+    """The profile page text of a canonical value ("周五 白天；周六 晚上"; any/any is "随时"); None for no value."""
+    if not isinstance(value, list) or not value:
+        return None
+    parts = []
+    for item in value:
+        if not isinstance(item, dict) or item.get('weekday') not in _DAY_LABEL or item.get('part') not in _PART_LABEL:
+            return None
+        parts.append('随时' if item['weekday'] == item['part'] == 'any' else f"{_DAY_LABEL[item['weekday']]} {_PART_LABEL[item['part']]}")
+    return '；'.join(parts)[:200]

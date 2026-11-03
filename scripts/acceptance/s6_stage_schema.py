@@ -16,6 +16,9 @@ inputs (configuration):
     candidate_template   private JSON: a valid evolution candidate body of this tenant (diagnosis_id, candidate, category, patch,
                          case_groups, regroups, source_consumer_ids) - L3's NX-038 stage step produces it from an open diagnosis
     schema_type          an existing Object Type of the tenant (e.g. Consumer); new_property: a property name it does not have
+    property_change      r8, optional: the frozen add_optional_property change instead of {new_property, string} - e.g.
+                         Consumer.delivery_windows with its structured descriptor, display_name and description (migration
+                         schema_structured_property; docs/release/run-claim-consumer-phase2.md); its property_name must be new_property
     new_type             an Object Type name that does not exist; escalation_action: an Action ref (default eios:action:Grant.issue:1)
     restricted           optional {type_name, property_name}: a property name in an owner-restricted group (AT-024 re-exposure)
     semantic             r6: {candidate_id (accepted_for_release), items: [{kind, ref, text}], reason}
@@ -209,7 +212,9 @@ def gates_inputs(basis, reserved, cost='0'):
                   {'id': name + '-invalid', 'action': name, 'params': [], 'expect': 'invalid'}]
     name = basis['type_name']
     prop = publication['schema']['properties'][-1]
-    change = {'op': 'add_optional_property', 'type_name': name, 'property': {k: prop[k] for k in ('property_name', 'value_type', 'required', 'nullable')},
+    descriptor = (basis.get('change') or {}).get('type_descriptor')  # F1 judges the proposal's own (minimal) descriptor
+    change = {'op': 'add_optional_property', 'type_name': name, 'property': {**{k: prop[k] for k in ('property_name', 'value_type', 'required', 'nullable')},
+                                                                         **({'type_descriptor': descriptor} if descriptor is not None else {})},
               'successor_actions': [{'stable_name': a['stable_name'], 'replaces': a['version'] - 1, **a} for a in _f1_actions(publication['actions'])]}
     parent = {'types': {name: basis['schema']}, 'object_counts': {name: basis.get('object_count') or 0}, 'actions': _f1_actions(basis['actions']),
               'restricted_names': basis.get('restricted_names') or []}
@@ -222,7 +227,10 @@ def check_r8(ports, inputs, r, *, publish=False):
     t, p = inputs['schema_type'], inputs['new_property']
     before = ports.verify()
     cid = property_candidate(ports, inputs)
-    pid = ports.freeze_proposal(freeze_body(cid, 'add_optional_property', t, {'property_name': p, 'value_type': 'string'}))['proposal']['proposal_id']
+    proposed = inputs.get('property_change') or {'property_name': p, 'value_type': 'string'}
+    if proposed.get('property_name') != p:
+        raise Refused('inputs.property_change.property_name must be inputs.new_property')
+    pid = ports.freeze_proposal(freeze_body(cid, 'add_optional_property', t, proposed))['proposal']['proposal_id']
     frozen = ports.freeze_bundle(cid, inputs.get('seed') or hashlib.sha256(('s6-stage:' + cid).encode()).hexdigest()[:32])
     r.step('bundle_freezes_nx040_gates', 'hard_gates_version nx040-gates-1', {'hard_gates_version': frozen['bundle'].get('hard_gates_version')},
            frozen['bundle'].get('hard_gates_version') == 'nx040-gates-1', bundle_digest=frozen['bundle_digest'])
