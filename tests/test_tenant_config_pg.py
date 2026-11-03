@@ -137,10 +137,12 @@ def test_the_claim_match_example_is_the_minimal_configuration_the_matcher_loads(
     import yaml
     from nexloop_eios.background_services import load_match_configuration
     example = ROOT / 'deploy/stage/claim-match.example.json'
-    assert json.loads(example.read_text()) == {}
+    # Claim → Consumer property phase one (plan §1.1, §10): the Consumer edit Action; what may be written without review is the
+    # SQL auto-write whitelist (empty until the owner publishes one), never this file.
+    assert json.loads(example.read_text()) == {'edit_actions': {'Consumer': ['Consumer.edit', 1]}}
     installed = tmp_path / 'claim-match.json'  # installed as the service's private file (0600), as the loader requires
     S.write_private(installed, example.read_text())
     configuration = load_match_configuration(installed)
-    assert (configuration.edit_actions, configuration.create_actions) == ({}, {})
+    assert (dict(configuration.edit_actions), dict(configuration.create_actions)) == ({'Consumer': ('Consumer.edit', 1)}, {})
     compose = yaml.safe_load((ROOT / 'deploy/stage/compose.app.example.yaml').read_text())
     assert any(v.endswith('/config/claim-match.json:/etc/nexloop/claim-match.json:ro') for v in compose['services']['claim-matcher']['volumes'])

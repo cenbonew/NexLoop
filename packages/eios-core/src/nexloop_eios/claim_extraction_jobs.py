@@ -106,3 +106,62 @@ class ClaimExtractionWorker:
             status,body,delay='retry_wait',{'code':'unexpected'},retry
         finished=self.queue.finish(task_id=item['task_id'],fence=item['fence'],status=status,result=body,retry_seconds=delay)
         return finished['status']
+
+
+REEXTRACT_ACTION='eios:action:nexloop.claim.reextract_contact:1'
+
+
+def _signed_port():
+    from nexloop_eios.plan_reevaluation import _SignedPort
+
+    class ContactChannelReextractPort(_SignedPort):
+        PROTOCOL='nexloop-contact-channel-reextract-v1';ACTION=REEXTRACT_ACTION;FUNCTION='nexloop_contact_channel_reextract'
+
+        def windows(self,extractor_version):return self._signed({'extractor_version':extractor_version})
+    return ContactChannelReextractPort
+
+
+@authority_request_scoped
+def reextract_contact_channels(pool,session,signer,*,apply=False,max_attempts=3):
+    """Plan claim-to-consumer-property §8.4: enqueue one extraction window per Conversation whose consumer channel statements the 0228
+    vocabulary cannot read, under the current extractor version (the scheduler's own queue; event ids make it repeatable). Counts only."""
+    from nexloop_eios.conversation_extraction import EXTRACTOR_VERSION
+    found=_signed_port()(pool,session,signer).windows(EXTRACTOR_VERSION)
+    counts={**found['counts'],'windows':len(found['windows']),'accepted':0}
+    if apply:
+        queue=PostgresDurableQueue(pool,session,signer,queue=QUEUE)
+        for window in found['windows']:
+            queue.accept(source_id=SOURCE,event_id=f"reextract:{EXTRACTOR_VERSION}:{window['conversation_id']}:{window['through_sequence']}",
+                payload={'conversation_id':window['conversation_id'],'through_sequence':window['through_sequence'],'message_ids':window['message_ids']},
+                max_attempts=max_attempts)
+            counts['accepted']+=1
+    return {'extractor_version':EXTRACTOR_VERSION,'apply':apply,'counts':counts}
+
+
+def reextract_main(argv=None):
+    """contact_channel_reextract.py --database-url-file F --signing-key-file F --service-credential-file F --artifact-root D [--apply]
+    as the claim extraction scheduler (nexloop_api); prints counts only."""
+    import argparse
+    import json
+    from contextlib import ExitStack
+    from pathlib import Path
+    from nexloop_eios.backend import open_backend
+    from nexloop_eios.private_configuration import read_private_text
+
+    class _Parser(argparse.ArgumentParser):
+        def error(self,message):self.exit(2,'contact channel reextract configuration unavailable\n')
+
+    p=_Parser(description='Contact channel re-extraction (signed port; counts only)')
+    for name in ('database-url-file','signing-key-file','service-credential-file','artifact-root'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--signing-key-id',default='active')
+    p.add_argument('--apply',action='store_true',help='enqueue; without it a dry run that writes nothing')
+    a=p.parse_args(argv)
+    with ExitStack() as stack:
+        backend=stack.enter_context(open_backend(database_url=read_private_text(a.database_url_file,maximum=16384),artifact_root=a.artifact_root,
+            signing_key_file=a.signing_key_file,signing_key_id=a.signing_key_id,pool_max_size=1))
+        with backend._pool.connection() as connection:
+            if verify_application_role(connection)!='nexloop_api':raise SystemExit('restricted service role required')
+        current=backend.authenticate(read_private_text(a.service_credential_file,maximum=16384),world='real')
+        result=reextract_contact_channels(current._backend._pool,current._session,current._backend._signer,apply=a.apply)
+        print(json.dumps(result,sort_keys=True,separators=(',',':')),flush=True)
+    return 0

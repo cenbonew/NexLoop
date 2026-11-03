@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:workbench-conversation-metrics",
+  "title": "workbench-conversation-metrics",
+  "description": "K5 (design §2.5, Q3): fixed-size metrics of one conversation, GET /api/v1/workbench/conversations/{id}/metrics (purpose conversation_metrics; world real only, other worlds 404 real_world_only; requires READ of the conversation, an erasing consumer 404). response_ms: inbound accepted to the first following outbound, null without a sample. model_cost: owner only, model cost entries of the runs issued from this conversation's messages, summed per currency (amount a decimal string in the entry's own unit); other roles get null and `model_cost` in withheld. gate_blocks: scope denials, contact restrictions and dispatch refusals of this conversation, at most 20 codes. NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "conversation_id",
+    "world",
+    "as_of",
+    "response_ms",
+    "model_cost",
+    "claims",
+    "commitments",
+    "gate_blocks",
+    "withheld"
+  ],
+  "properties": {
+    "conversation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "world": {
+      "const": "real"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "response_ms": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "p50",
+            "p90",
+            "samples"
+          ],
+          "properties": {
+            "p50": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "p90": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "samples": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "model_cost": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "totals",
+            "runs",
+            "unpriced_entries"
+          ],
+          "properties": {
+            "totals": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "currency",
+                  "amount",
+                  "amount_unit",
+                  "entries"
+                ],
+                "properties": {
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^\\d{1,16}(\\.\\d{1,8})?$"
+                  },
+                  "amount_unit": {
+                    "enum": [
+                      "major",
+                      "minor"
+                    ]
+                  },
+                  "entries": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            },
+            "runs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unpriced_entries": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "claims": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Claims of this conversation visible to the member under the evidence-graph filter (invisible and erased ones not counted). Not a metric: extraction currently repeats claims (about 20 from one message, L3 ticket), so this is a raw count until that is fixed."
+    },
+    "commitments": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Commitments derived from this conversation visible to the member under the evidence-graph filter."
+    },
+    "gate_blocks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "by_code"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_code": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "count"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.:-]{0,79}$"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "withheld": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 1,
+      "items": {
+        "enum": [
+          "model_cost"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "message_id": "m-1",
+  "conversation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "world": "real",
+  "steps": [
+    {
+      "step": "message",
+      "status": "done",
+      "at": "2026-11-02T08:00:00Z",
+      "finished_at": "2026-11-02T08:00:00Z",
+      "refs": [
+        "message:m-1"
+      ],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "relay",
+      "status": "skipped",
+      "at": null,
+      "finished_at": null,
+      "refs": [],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "context",
+      "status": "done",
+      "at": "2026-11-02T08:00:00Z",
+      "finished_at": "2026-11-02T08:00:00Z",
+      "refs": [
+        "context:p-1"
+      ],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "run",
+      "status": "done",
+      "at": "2026-11-02T08:00:00Z",
+      "finished_at": "2026-11-02T08:00:00Z",
+      "refs": [
+        "run:00000000-0000-4000-8000-000000000001"
+      ],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "action",
+      "status": "restricted",
+      "at": null,
+      "finished_at": null,
+      "refs": [],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "receipt",
+      "status": "restricted",
+      "at": null,
+      "finished_at": null,
+      "refs": [],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "extraction",
+      "status": "done",
+      "at": "2026-11-02T08:00:00Z",
+      "finished_at": "2026-11-02T08:00:00Z",
+      "refs": [
+        "claim:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      ],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "matching",
+      "status": "none",
+      "at": null,
+      "finished_at": null,
+      "refs": [],
+      "more": 0,
+      "code": null
+    },
+    {
+      "step": "ontology_update",
+      "status": "none",
+      "at": null,
+      "finished_at": null,
+      "refs": [],
+      "more": 0,
+      "code": null
+    }
+  ]
+}

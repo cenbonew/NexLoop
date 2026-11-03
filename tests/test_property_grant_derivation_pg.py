@@ -62,7 +62,7 @@ def restrict(admin,groups=()):
 
 
 def published(f,label='pd'):
-    claim,cid,_,_=pending(f,label,'常用付款方式','花呗','我一般用花呗付款','payment_method')
+    claim,cid,_,_=pending(f,label,'常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     result=human(f).decide(candidate_id=cid,decision='approve',expected_revision=candidates(f['admin'])[cid][8],rationale='新增付款方式属性',
         idempotency_key=f'synthetic-derive-{label}-approve')
     assert result['outcome']=='published',result['publication']
@@ -92,14 +92,14 @@ def reflow(f,session):
     return ReviewReflowWorker(f['worker'],session,f['signer'],gluer=gluer)
 
 
-def resource(f,prop='payment_method'):return f"eios:property:Consumer/{f['consumer']}/{prop}"
+def resource(f,prop='checkout_habit'):return f"eios:property:Consumer/{f['consumer']}/{prop}"
 
 
-def proof(f,session,prop='payment_method',op=EDIT):
+def proof(f,session,prop='checkout_habit',op=EDIT):
     return AuthorizedObjectReader(f['worker'],session,f['signer'])._authority(ResourceType.PROPERTY,f"Consumer/{f['consumer']}/{prop}",op)
 
 
-def basis(f,session,prop='payment_method',op='edit'):return property_access_basis(f['worker'],session,resource(f,prop),op)
+def basis(f,session,prop='checkout_habit',op='edit'):return property_access_basis(f['worker'],session,resource(f,prop),op)
 
 
 def assert_edit(admin,session,claims):
@@ -130,15 +130,15 @@ def test_reviewed_property_applies_by_type_derivation_without_object_grants(revi
     assert all(property_access_basis(f['worker'],session,'eios:object:Consumer/'+f['consumer'],op)['mode']=='derived' for op in ('read','edit'))
     # Configured per-object READ of an existing property wins over derivation (even for EDIT, which it lacks).
     assert basis(f,session,'favorite_sport',op='edit')=={'mode':'configured'}
-    assert property_access_basis(f['worker'],session,'eios:property:Consumer/payment_method','read')['mode']=='derived'
-    assert property_access_basis(f['worker'],session,'eios:property:Consumer/payment_method','edit')=={'mode':'configured'}
-    readable=EiosRecallAuthorizer(f['worker'],session).readable(ResourceType.PROPERTY,['Consumer/payment_method',f"Consumer/{f['consumer']}/payment_method"])
-    assert readable==frozenset({'Consumer/payment_method',f"Consumer/{f['consumer']}/payment_method"})
+    assert property_access_basis(f['worker'],session,'eios:property:Consumer/checkout_habit','read')['mode']=='derived'
+    assert property_access_basis(f['worker'],session,'eios:property:Consumer/checkout_habit','edit')=={'mode':'configured'}
+    readable=EiosRecallAuthorizer(f['worker'],session).readable(ResourceType.PROPERTY,['Consumer/checkout_habit',f"Consumer/{f['consumer']}/checkout_habit"])
+    assert readable==frozenset({'Consumer/checkout_habit',f"Consumer/{f['consumer']}/checkout_habit"})
     report=reflow(f,session).run_pending()
     assert report[result['decision_id']]['status']=='done' and report[result['decision_id']]['applied']==1,report
-    assert obj(admin,f['consumer'])[0]['payment_method']=='花呗' and resolution(admin,claim)=='resolved'
+    assert obj(admin,f['consumer'])[0]['checkout_habit']=='花呗' and resolution(admin,claim)=='resolved'
     # Nothing per object was written; the new property/object did not move the authority epoch.
-    assert admin.execute("select count(*) from authz.nexloop_authority_facts where entity_key[1]=%s and array_to_string(entity_key,'|') like '%%payment_method%%'",
+    assert admin.execute("select count(*) from authz.nexloop_authority_facts where entity_key[1]=%s and array_to_string(entity_key,'|') like '%%checkout_habit%%'",
         (principal,)).fetchone()==(0,)
     assert fingerprint(admin)==epoch and basis(f,session)['mode']=='derived'
 
@@ -183,7 +183,7 @@ def test_property_not_published_by_review_is_not_derived(review):
     session=service(f);principal=session.authentication.subject_principal_id
     rule(admin,principal);restrict(admin);session=current(f)
     definition=copy.deepcopy(admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=2",(TENANT,)).fetchone()[0])
-    extra=copy.deepcopy(next(p for p in definition['properties'] if p['property_name']=='payment_method'));extra['property_name']='hidden_note'
+    extra=copy.deepcopy(next(p for p in definition['properties'] if p['property_name']=='checkout_habit'));extra['property_name']='hidden_note'
     definition['properties'].append(extra);definition['version']=3
     for group in definition['property_groups']:
         if group['group_name']=='purchase_behavior':group['property_names'].append('hidden_note')
@@ -204,7 +204,7 @@ def test_scope_tenant_world_object_and_caller_kind(review):
     assert derive(TENANT,'real',resource(f))['mode']=='derived'
     assert derive(TENANT,'shadow',resource(f)) is None and derive(TENANT,'simulation',resource(f)) is None
     assert derive(TENANT_OTHER,'real',resource(f)) is None
-    assert derive(TENANT,'real','eios:property:Consumer/'+'0'*64+'/payment_method') is None  # no such (or deleted) object
+    assert derive(TENANT,'real','eios:property:Consumer/'+'0'*64+'/checkout_habit') is None  # no such (or deleted) object
     assert derive(TENANT,'real',f"eios:property:Product/{f['product']}/name") is None  # other type: no rule
     assert derive(TENANT,'real',resource(f),'delete') is None and derive(TENANT,'real',resource(f),'execute') is None
     # A Human browser session never derives (service-only path).
@@ -247,7 +247,7 @@ def test_old_proof_is_rejected_after_rule_or_restriction_change(review):
 def test_review_workbench_reports_derivation_impact_before_approve(review):
     """Approved design decision 6: before approve the reviewer sees who would automatically read/write, the group, and whether it is restricted."""
     f=review;admin=f['admin']
-    _,cid,_,_=pending(f,'wi','常用付款方式','花呗','我一般用花呗付款','payment_method')
+    _,cid,_,_=pending(f,'wi','常用付款方式','花呗','我一般用花呗付款','checkout_habit')
     session=service(f);principal=session.authentication.subject_principal_id
     assert human(f).derivation_impact(cid)=={'applies':True,'type_name':'Consumer','property_group':'purchase_behavior',
         'restriction_configured':False,'restricted':False,'auto_access':[]}

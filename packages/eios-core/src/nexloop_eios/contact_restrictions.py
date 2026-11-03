@@ -22,6 +22,7 @@ from nexloop_eios.plan_reevaluation import PlanUnavailable,_SignedPort
 from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied
 
 READ_ACTION='eios:action:nexloop.contact.read:1'
+BACKFILL_ACTION='eios:action:nexloop.contact.refusal_backfill:1'
 REPLY_ACTION='eios:action:nexloop.reply.guarantee:1'
 FEED='reply-due'
 _BUDGET=('maximum_model_turns','maximum_tool_calls','active_timeout_seconds','maximum_cost','currency')
@@ -92,6 +93,15 @@ def fallback_duration(policy):
     """Longest a fallback reply Run may live: its credential TTL or its active budget, whichever is longer."""
     fallback=policy['fallback']
     return max(fallback['run_ttl_seconds'],fallback['run_budget']['active_timeout_seconds'])
+
+
+class ContactRefusalBackfillPort(_SignedPort):
+    """Re-check earlier inbound messages with the current refusal rules (plan claim-to-consumer-property §11.1); counts only."""
+    PROTOCOL='nexloop-contact-refusal-backfill-v1';ACTION=BACKFILL_ACTION;FUNCTION='nexloop_contact_refusal_backfill'
+
+    def run(self,*,rule_version,apply=False):
+        if type(rule_version) is not int or rule_version<1:raise ValueError('rule version')
+        return self._signed({'verb':'apply' if apply else 'dry_run','rule_version':rule_version})
 
 
 class ContactReadPort(_SignedPort):
@@ -184,4 +194,4 @@ class ReplyGuaranteeWorker:
         return summary
 
 
-__all__=['ContactReadPort','ReplyGuaranteeWorker','ReplyPort','PlanUnavailable','load_refusal_rules','load_reply_policy']
+__all__=['ContactReadPort','ContactRefusalBackfillPort','ReplyGuaranteeWorker','ReplyPort','PlanUnavailable','load_refusal_rules','load_reply_policy']

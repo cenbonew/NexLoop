@@ -83,24 +83,45 @@ def test_typed_outside_terms_refused_with_current_scope_and_no_intent(offering_d
     assert admin.execute('select sum(reserved_units) from control.nexloop_effect_control_ledger').fetchone()==(0,)
 
 
-def test_real_insert_then_catalog_read_proof_expires_rolls_back_quota(context_message,admin,tmp_path,monkeypatch):
-    import nexloop_eios.service_offerings as catalog
+# The signed catalog read proofs below expire PROOF_SECONDS after they are read (within the 25 s the guards accept), far beyond any
+# load-induced delay before the write; the write's trigger records that it ran, then sleeps until every proof read so far has expired
+# (control.offering_proof_expiry, filled by short_read), so the check after the write always meets an expired proof. No wall-clock race.
+PROOF_SECONDS=8
+
+
+def expiring_after_write(admin,seen,table):
+    admin.execute(f'create sequence control.{seen}')
+    admin.execute('create table if not exists control.offering_proof_expiry(expires_at timestamptz not null)')
+    admin.execute("grant select on control.offering_proof_expiry to public")
+    admin.execute(f"""create function control.{seen}_wait() returns trigger language plpgsql security definer set search_path=pg_catalog as $$
+      declare until timestamptz;
+      begin perform nextval('control.{seen}');
+       select max(expires_at) into until from control.offering_proof_expiry;
+       perform pg_sleep(greatest(0,extract(epoch from until-clock_timestamp()))+0.2);return NEW;end $$""")
+    admin.execute(f'create trigger {seen}_wait after insert on {table} for each row execute function control.{seen}_wait()')
+
+
+def short_reader(admin,original):
     from nexloop_eios.postgres_artifacts import canonical_payload
     import hmac
-    from nexloop_eios.effect_intents import EffectIntentUnavailable
-    f=context_message;assert f['relay'].run_once()=='queued'
-    admin.execute('create sequence control.offering_actual_insert_seen')
-    admin.execute("create function control.offering_insert_delay() returns trigger language plpgsql security definer as $$ begin perform nextval('control.offering_actual_insert_seen');perform pg_sleep(2);return NEW;end $$")
-    admin.execute('create trigger offering_insert_delay after insert on runtime.nexloop_effect_intents for each row execute function control.offering_insert_delay()')
-    original=catalog._read_envelope
     def short_read(source,*args):
         envelope=original(source,*args);claims=json.loads(envelope['text'])
-        until=(datetime.now(UTC)+timedelta(seconds=1.2)).isoformat()
-        claims['expires_at']=until
-        for proof in claims['property_authorities']:proof['expires_at']=until
-        text=canonical_payload(claims);envelope['text']=text
-        envelope['signature']=hmac.new(source._backend._signer.material,('nexloop-object-read-v1:'+text).encode(),'sha256').hexdigest()
+        until=datetime.now(UTC)+timedelta(seconds=PROOF_SECONDS)
+        admin.execute('insert into control.offering_proof_expiry values(%s)',(until,))
+        claims['expires_at']=until.isoformat()
+        for proof in claims['property_authorities']:proof['expires_at']=until.isoformat()
+        envelope['text']=canonical_payload(claims)
+        envelope['signature']=hmac.new(source._backend._signer.material,('nexloop-object-read-v1:'+envelope['text']).encode(),'sha256').hexdigest()
         return envelope
+    return short_read
+
+
+def test_real_insert_then_catalog_read_proof_expires_rolls_back_quota(context_message,admin,tmp_path,monkeypatch):
+    import nexloop_eios.service_offerings as catalog
+    from nexloop_eios.effect_intents import EffectIntentUnavailable
+    f=context_message;assert f['relay'].run_once()=='queued'
+    expiring_after_write(admin,'offering_actual_insert_seen','runtime.nexloop_effect_intents')
+    short_read=short_reader(admin,catalog._read_envelope)
     with active_worker(f,tmp_path) as (worker,activation,command,text):
         monkeypatch.setattr(catalog,'_read_envelope',short_read)
         with pytest.raises(EffectIntentUnavailable):worker.runtime_effect_tool(activation_ref=activation['activation_ref'],command=command,tool_operation='submit',parameters={'message':'Must roll back after actual signed catalog read expiry.'})
@@ -113,21 +134,12 @@ def test_real_insert_then_catalog_read_proof_expires_rolls_back_quota(context_me
 
 def test_actual_admit_write_then_current_catalog_read_expiry_rolls_back_attempt(context_message,admin,tmp_path,monkeypatch):
     import nexloop_eios.service_offerings as catalog
-    from nexloop_eios.postgres_artifacts import canonical_payload
-    import hmac
     f=context_message;receipt=accepted(f,tmp_path);o=f['original']
-    admin.execute('create sequence control.offering_actual_attempt_seen')
-    admin.execute("create function control.offering_attempt_delay() returns trigger language plpgsql security definer as $$ begin perform nextval('control.offering_actual_attempt_seen');perform pg_sleep(2);return NEW;end $$")
-    admin.execute('create trigger offering_attempt_delay after insert on runtime.nexloop_effect_attempts for each row execute function control.offering_attempt_delay()')
+    expiring_after_write(admin,'offering_actual_attempt_seen','runtime.nexloop_effect_attempts')
     with open_backend(database_url=make_conninfo(o['pg'],user='nexloop_action_worker'),artifact_root=tmp_path/'admit-worker',signing_key_file=o['paths']['backend_signing'],signing_key_id='explicit-configuration') as backend:
         executor=backend.authenticate(f['f']['tokens']['assembly-executor'],world='real')
         claim=executor.claim_effect(lease_seconds=30);assert claim['intent_id']==receipt['intent_id']
-        original=catalog._read_envelope
-        def short_read(source,*args):
-            envelope=original(source,*args);claims=json.loads(envelope['text']);until=(datetime.now(UTC)+timedelta(seconds=1.2)).isoformat();claims['expires_at']=until
-            for proof in claims['property_authorities']:proof['expires_at']=until
-            envelope['text']=canonical_payload(claims);envelope['signature']=hmac.new(source._backend._signer.material,('nexloop-object-read-v1:'+envelope['text']).encode(),'sha256').hexdigest()
-            return envelope
+        short_read=short_reader(admin,catalog._read_envelope)
         monkeypatch.setattr(catalog,'_read_envelope',short_read)
         with pytest.raises(EffectExecutionUnavailable):executor.prepare_effect_dispatch(intent_id=claim['intent_id'],fence=claim['fence'],provider_profile_digest='a'*64)
     assert admin.execute('select is_called from control.offering_actual_attempt_seen').fetchone()==(True,)

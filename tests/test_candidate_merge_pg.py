@@ -70,7 +70,7 @@ def test_glue_merges_above_threshold_and_reviews_below(env):
     near=c.add('near','喜欢的运动项目','登山',quote='喜欢的运动项目是登山')
     far=c.add('far','常用付款方式','花呗',kind='user_statement',quote='我一般用花呗付款')
     m,gluer=setup(f,{near:decision(new_prop=new_property('sport_item','喜欢的运动项目'),value='登山'),
-        far:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')})
+        far:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')})
     matched=m.process_conversation(f['conversation'])['matches']
     assert matched[near]['outcome']==matched[far]['outcome']=='no_match' and resolution(f['admin'],near)=='awaiting_definition'
     outcomes={o.candidate_id:o for o in gluer.process_staged()}
@@ -86,7 +86,7 @@ def test_glue_merges_above_threshold_and_reviews_below(env):
     # Re-pointed Claim went through the NX-020 guards and the governed edit Action.
     assert outcomes[merged[0]].rematched=={near:{'outcome':'partial_match','applied':'applied'}}
     assert obj(f['admin'],f['consumer'])[0]['favorite_sport']=='登山' and resolution(f['admin'],near)=='resolved'
-    assert resolution(f['admin'],far)=='awaiting_definition' and 'payment_method' not in obj(f['admin'],f['consumer'])[0]
+    assert resolution(f['admin'],far)=='awaiting_definition' and 'checkout_habit' not in obj(f['admin'],f['consumer'])[0]
     events=f['admin'].execute('select candidate_id,from_status,to_status,actor_kind from ontology.nexloop_candidate_events order by event_id').fetchall()
     assert {(e[1],e[2],e[3]) for e in events}=={('staged','merged','service'),('staged','pending_review','service')}
     # Idempotent: a second glue pass changes nothing.
@@ -158,7 +158,7 @@ def test_review_queue_scoped_to_tenant_world_and_review_permission(env):
     """NX-046 read API: pending_review only, own tenant/world, current review EXECUTE; simulation candidates never in real."""
     f=env;c=f['claims']
     far=c.add('queue','常用付款方式','花呗',kind='user_statement',quote='我一般用花呗付款')
-    m,gluer=setup(f,{far:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')})
+    m,gluer=setup(f,{far:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')})
     m.process_conversation(f['conversation']);gluer.process_staged()
     # A simulation-world candidate (fixture row) must not reach the real queue.
     real=f['admin'].execute("select candidate,dependent_claims from ontology.nexloop_candidate_definitions").fetchone()
@@ -179,7 +179,7 @@ def test_human_only_transitions_and_no_application_entry(env):
     """pending_review decisions are NX-044's human Actions; services cannot reach them."""
     f=env;c=f['claims']
     far=c.add('human','常用付款方式','花呗',kind='user_statement',quote='我一般用花呗付款')
-    m,gluer=setup(f,{far:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')})
+    m,gluer=setup(f,{far:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')})
     candidate_id=m.process_conversation(f['conversation'])['matches'][far]['candidate_id'];gluer.process_staged()
     revision=candidates(f['admin'])[candidate_id][8]
     with f['worker'].connection() as conn,pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -198,7 +198,7 @@ def test_human_only_transitions_and_no_application_entry(env):
 def test_glue_requires_active_configuration_and_match_grant(env):
     f=env;c=f['claims']
     far=c.add('noconf','常用付款方式','花呗',kind='user_statement',quote='我一般用花呗付款')
-    m,_=matcher(f,{far:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')})
+    m,_=matcher(f,{far:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')})
     m.process_conversation(f['conversation'])
     gluer=CandidateGluer(f['worker'],m.session,f['signer'],indexer=f['indexer'],matcher=m,provider=f['provider'])
     with pytest.raises(LookupError):gluer.process_staged()

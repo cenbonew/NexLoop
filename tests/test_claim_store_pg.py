@@ -288,12 +288,20 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # its pinned-Claim requirement is unchanged. K4c 0398 moves that body into the shared v6/v7 sections core with the same
         # pinned-Claim requirement; the v7 human_answers items are staff answers, not Claims. No Claim value is read or projected.
         '_context_degraded_any_run','_context_pack_v7',
+        # K5 0406 returns a consumer's, a conversation's or a message's Claims (identifiers, kinds, states, the matched type and
+        # property refs, the predicate and quote) to the workbench evidence views, which show the predicate and quote only as raw
+        # evidence under the per-node rules (matched property READ, reviewer-only quote); no structured value, nothing formal.
+        '_k5_evidence_views',
         # Operator persona 0227 copies the latest erasure step (0145, Claim erasure unchanged) to add the persona tables to the
         # consumer phase; no Claim value is read or projected.
         '_operator_persona',
         # Contact preferences 0228 read the consumer's own preference Claims (predicate vocabulary, polarity, short value) to refuse
         # a contact at dispatch and to show them to the model; never a formal value, nothing projected into business state.
         '_contact_preferences',
+        # Contact channel re-extraction 0408 reads predicate, quote, kind, speaker and source Message of consumer preference/constraint Claims
+        # that the 0228 vocabulary cannot read, only to choose extraction windows; it returns Message ids and counts, never a Claim value or
+        # quote, writes nothing, and the extractor records new evidence Claims as before (plan claim-to-consumer-property §8.4).
+        '_contact_channel_reextract',
         # NX-041 S1 copies the 0155 Claim contract projection with only its mode expression changed (the world -> data mode mapping
         # through the one world check); no Claim value is read beyond what 0155 already returns, nothing new is projected.
         '_nx041_world_check',
@@ -313,7 +321,12 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         '_erasure_identity_residue',
         # NX-054 P4c 0358 copies the latest Consumer erasure step with the relation targets fixed at its start; its claims phase is
         # unchanged (blanks the quote, texts and value of the erased Consumer's Claims); no Claim value is read or projected.
-        '_relation_purge_union')) for name in migrations)
+        '_relation_purge_union',
+        # Claim → Consumer property phase one: 0409 claim_rematch selects the Claims to release for rematching by reading only
+        # resolution_state, superseded_at, corrects_claim_id, consumer_id and conversation_id (never quote or value), sets the selected
+        # ones back to unresolved and returns counts only - no Claim id or content. 0410 claim_auto_write copies the 0074 match
+        # recorder with the auto-write whitelist added (its Claim lines unchanged); no Claim value becomes formal without the whitelist.
+        '_claim_rematch','_claim_auto_write')) for name in migrations)
 
 
 def correction_window(conversations):

@@ -464,7 +464,12 @@ class ClaimMatcher:
                 if isinstance(args,tuple):
                     status,reason=args
                     self._transition(row,row['status'],status,reason=reason);return status
-                self._transition(row,row['status'],'applying',apply_args=args)
+                # Claim auto-write whitelist (SQL, migration claim_auto_write): a property outside it is never applied here; the
+                # proposal stays as it is for review and its Claim in needs_resolution. Not an error: nothing to retry.
+                try:self._transition(row,row['status'],'applying',apply_args=args)
+                except psycopg.errors.InsufficientPrivilege as error:
+                    if (error.diag.message_primary or '')=='auto write not allowed':return 'auto_write_not_allowed'
+                    raise
             try:receipt=self._execute(args)
             except psycopg.errors.SerializationFailure:
                 # Another writer moved the object revision: never blind-retry, reassess.
@@ -510,6 +515,17 @@ class ClaimMatcher:
 
     def _transition(self,row,from_status,to_status,**extra):
         return self.port.record({'verb':'transition','proposal_id':row['proposal_id'],'from':from_status,'to':to_status,**extra})
+
+
+REMATCH_REASONS=('type_not_writable',)
+
+
+def rematch(pool,session,signer,*,verb,reason,matcher_version=MATCHER_VERSION):
+    """Operator release of the Claims whose latest match ended with `reason` (migration claim_rematch): counts only. The service is
+    the claim matcher's own (nexloop.claim.match EXECUTE); tenant and world come from its credential, never from the payload."""
+    if verb not in ('dry_run','release') or reason not in REMATCH_REASONS:raise ValueError('claim rematch request')
+    if session.authentication.subject_kind is not SubjectKind.SERVICE or session.run_context is not None:raise PermissionError('service credential required')
+    return _Port(pool,session,signer).call('nexloop_claim_rematch',{'verb':verb,'reason':reason,'matcher_version':matcher_version})
 
 
 def vocabulary_ref_for(type_name,property_name,value):

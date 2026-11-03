@@ -1,0 +1,25 @@
+{
+  "conversation_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "world": "real",
+  "as_of": "2026-11-02T08:00:00Z",
+  "response_ms": {
+    "p50": 1200,
+    "p90": 4100,
+    "samples": 7
+  },
+  "model_cost": null,
+  "claims": 4,
+  "commitments": 1,
+  "gate_blocks": {
+    "total": 2,
+    "by_code": [
+      {
+        "code": "contact_restricted",
+        "count": 2
+      }
+    ]
+  },
+  "withheld": [
+    "model_cost"
+  ]
+}

@@ -50,11 +50,11 @@ def test_conversation_to_ontology_to_next_conversation(closure):
     c.reindex()
     worker,_,provider=c.match_worker({budget:decision('eios:property:Consumer/budget_level','两千元以内'),
         sport:decision('eios:property:Consumer/favorite_sport','徒步'),
-        payment:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')},[conversation],suffix='-a')
+        payment:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')},[conversation],suffix='-a')
     summary=worker.run_once()
     assert summary['conversations']==1 and summary['matched']==3 and summary['applied']==2,summary
     props,revision=c.consumer_row()
-    assert props['budget_level']=='两千元以内' and props['favorite_sport']=='徒步' and 'payment_method' not in props  # AT-061 / AT-063
+    assert props['budget_level']=='两千元以内' and props['favorite_sport']=='徒步' and 'checkout_habit' not in props  # AT-061 / AT-063
     assert resolution(admin,budget)=='resolved' and resolution(admin,sport)=='resolved' and resolution(admin,payment)=='awaiting_definition'
     (cid,row),=candidates(admin).items()
     assert row[2]=='pending_review' and row[1]=='property'  # glued to review, not merged (no similar definition)
@@ -64,10 +64,10 @@ def test_conversation_to_ontology_to_next_conversation(closure):
     # AT-067 in the chain: the Human reviewer approves; the Schema is published through the EIOS registration chain.
     result=c.reviewer().decide(candidate_id=cid,decision='approve',expected_revision=row[8],rationale='新增付款方式属性',idempotency_key='nx025-approve-payment')
     assert result['outcome']=='published'
-    report=c.reflow([conversation],suffix='-reflow',edit_version=2,extra_properties=('payment_method',)).run_pending()
+    report=c.reflow([conversation],suffix='-reflow',edit_version=2,extra_properties=('checkout_habit',)).run_pending()
     assert report[result['decision_id']]['status']=='done'
     props,revision2=c.consumer_row()
-    assert props['payment_method']=='花呗' and revision2>revision and resolution(admin,payment)=='resolved'
+    assert props['checkout_habit']=='花呗' and revision2>revision and resolution(admin,payment)=='resolved'
     before=c.counts()
     # AT-069 in the chain: a later conversation recalls the published definition and applies; no new candidate.
     c.reindex()
@@ -75,12 +75,12 @@ def test_conversation_to_ontology_to_next_conversation(closure):
         'claims':[claim(1,'常用付款方式换成微信支付','preference','常用付款方式','微信支付')]}
     assert c.extract(later_conversation,later_ids,later_window,suffix='-b')[1]==['succeeded']
     (later,)=[r[1] for r in c.claims(later_conversation).values()]
-    worker,m,_=c.match_worker({later:decision('eios:property:Consumer/payment_method','微信支付')},[conversation,later_conversation],
-        suffix='-b',edit_version=2,extra_properties=('payment_method',))
+    worker,m,_=c.match_worker({later:decision('eios:property:Consumer/checkout_habit','微信支付')},[conversation,later_conversation],
+        suffix='-b',edit_version=2,extra_properties=('checkout_habit',))
     hits=m.recall.recall('常用付款方式 微信支付',instances=False).definitions
-    assert hits[0].ref=='eios:property:Consumer/payment_method'
+    assert hits[0].ref=='eios:property:Consumer/checkout_habit'
     assert worker.run_once()['applied']==1
-    assert c.consumer_row()[0]['payment_method']=='微信支付' and resolution(admin,later)=='resolved'
+    assert c.consumer_row()[0]['checkout_habit']=='微信支付' and resolution(admin,later)=='resolved'
     after=c.counts()
     assert after['candidates']==before['candidates'] and after['revision']==before['revision']+1
 
@@ -94,7 +94,7 @@ def test_duplicate_extraction_window_changes_nothing_downstream(closure):
     c.extract(conversation,ids,body,suffix='-d1')
     budget,sport,payment=(c.claims(conversation)[q][1] for q in ('预算在两千元以内','喜欢徒步','一般用花呗付款'))
     decisions={budget:decision('eios:property:Consumer/budget_level','两千元以内'),sport:decision('eios:property:Consumer/favorite_sport','徒步'),
-        payment:decision(new_prop=new_property('payment_method','常用付款方式','purchase_behavior'),value='花呗')}
+        payment:decision(new_prop=new_property('checkout_habit','常用付款方式','purchase_behavior'),value='花呗')}
     c.reindex()
     worker,_,provider=c.match_worker(decisions,[conversation],suffix='-d1')
     assert worker.run_once()['applied']==2
