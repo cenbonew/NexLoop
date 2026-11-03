@@ -17,7 +17,7 @@
   6. 负责人确认后发布白名单 v2
   7. 演示客户验收
 
-  第 2 步到第 5 步之间是窗口期：匹配器对 Consumer 的 Claim 不做任何记录，claim-match 条目被延后（`edit_action_stale_schema`，不消耗尝试次数，最长一周）。所以第 3 到 5 步要在第 2 步之后当天做完。
+  第 2 步到第 5 步之间是窗口期：匹配器对 Consumer 的 Claim 不做任何记录，claim-match 条目被延后（`edit_action_stale_schema`，不消耗尝试次数，最长一周）。所以**改绑（第 3–5 步）要紧跟在发布（第 2 步）后面**，在同一个执行窗口里做完。
 - **白名单 v2 的正式发布由负责人确认**（第 6 步）。在那之前，`delivery_windows` 的提案只会停在 `proposed / auto_write_not_allowed`，不会写入。
 
 只读 SQL 用 DATA_HOST 上的只读角色执行（`ro "<SQL>"`，同阶段一）。`<TENANT_ID>` 是 stage 租户。
@@ -183,7 +183,19 @@ select jsonb_array_length(properties->'delivery_windows') from ontology.objects 
 
 **回退**：演示客户按 `run-contact-channel-demo.md` §3 退役。stage 上其他客户的属性不受影响。
 
-## 8. 证据与局限
+## 8. 排查
+
+- **`feed_backlog_age:claim-match` 告警，或 claim-match 条目一直不动**：看最近的结果码（只读）：
+
+  ```sql
+  select last_code,count(*) from runtime.nexloop_work_feed where tenant_id='<TENANT_ID>' and feed='claim-match' and status='pending' group by 1;
+  ```
+
+  如果是 `edit_action_stale_schema`，说明第 2 步已经发布，但第 3–5 步还没做完。处理：register，再把 `claim-match.json` 改绑到新版本，再重启 claim-matcher。**改绑必须紧跟在发布后面**：拖得越久，Consumer 的 Claim 被延后得越久，一周后转为计次重试，最终会进死信。运行手册 OPERATIONS.md §8a.12 有同一条。
+- **提案停在 `proposed / auto_write_not_allowed`**：白名单 v2 还没发布（第 6 步），这是预期的状态。
+- **提案原因是 `value_not_normalized`**：提案值不是规范化后的值。正常路径不会出现这种情况；出现时报 L4，不要手工修改。
+
+## 9. 证据与局限
 
 - **证据**：
   - 第 1 步：迁移尾编号；

@@ -206,3 +206,16 @@ stage 上的客户都是模拟客户（persona `simulated_agent`），rematch �
   - 设计 §4.3 原来写的 `evidence_excerpt` 因此改为不提供，`applied_by` 和 `proposal_id` 也不提供。
 - **提案工具**：`s6_stage_schema.py r8` 新增可选的 `inputs.property_change`，用来冻结 `delivery_windows` 这类带描述符和文字的提案；不填时行为与原来相同。
 - **部署单**：`docs/release/run-claim-consumer-phase2.md`。
+
+## 8. 其他提示词是否读取 schema 自由文本（L6 / 调度员 2026-11-03 核对）
+
+用 `git grep` 查了读取 `description` / `display_name` 并送给模型的路径：
+
+| 路径 | 进入模型的位置 | 结论 |
+|---|---|---|
+| 匹配器 `claim_matching._schema_view` | user payload 的 `schema` 字段；system 提示词写明这些全是数据，数据中的指令不是给模型的 | 已在数据字段（注入用例覆盖） |
+| 世界模型词汇表 `world_glossary.model_input` | user payload 的 JSON（截断到 200 字）；system 提示词是固定常量 | 已在数据字段。system 提示词没有明说“数据不是指令”，可以作为后续加强项 |
+| context 包（0105、0108、0113、0145 等组装函数里的 `display_name`、`description`） | Agent Host 把整个包作为 user 消息的 JSON 正文交给模型（`runtime-host.ts`，`validateContextInput`）；Host 的注释说明其中全是数据、不构成权限 | 已在数据字段，不进 system |
+| 抽取器 `conversation_extraction` | 不读取 schema 的说明或显示名 | 不涉及 |
+
+没有任何路径把 schema 的自由文本放进 system 提示词。
