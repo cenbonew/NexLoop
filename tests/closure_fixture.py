@@ -11,6 +11,7 @@ Every worker is driven by an explicit run_once() (no resident loop), and every s
 from its token per step (authority changes make earlier sessions stale, as in the deployed processes).
 Synthetic data only; admin seeds fixtures and probes.
 """
+import dataclasses
 import hashlib
 
 import pytest
@@ -77,8 +78,15 @@ class Closure(dict):
         scheduler=ClaimExtractionScheduler(self['api'],self.service(self['api'],self['scheduler_token']),self['signer'],quiet_seconds=0)
         tasks=scheduler.run_once()
         worker=self.service(self['worker'],token)
-        context,messages=ConversationClaimExtractor(self['worker'],worker,self['signer'],None,timezone='Asia/Shanghai').load_window(conversation_id,message_ids)
-        provider=DeterministicExtractionProvider({hashlib.sha256(build_user_payload(messages,context).encode()).hexdigest():body})
+        # Keyed by each queued window as the worker will build it (S-DUP: targets plus context Messages).
+        loader=ConversationClaimExtractor(self['worker'],worker,self['signer'],None,timezone='Asia/Shanghai')
+        responses={}
+        for task in tasks:
+            queued=self['admin'].execute('select normalized_input from runtime.jobs where job_id=%s',(task,)).fetchone()[0]
+            context,messages=loader.load_window(conversation_id,queued['message_ids'],queued.get('context_message_ids') or [])
+            if queued.get('context_message_ids'):context=dataclasses.replace(context,existing_claims=loader.existing_claims(context.conversation_id))
+            responses[hashlib.sha256(build_user_payload(messages,context).encode()).hexdigest()]=body
+        provider=DeterministicExtractionProvider(responses)
         results=[ClaimExtractionWorker(self['worker'],worker,self['signer'],provider,timezone='Asia/Shanghai').run_once() for _ in tasks]
         return tasks,results
 
