@@ -16,7 +16,7 @@ import re
 import uuid
 
 from eios.ontology.definitions import ActionDefinition
-from eios.ontology.models import ObjectTypeDefinition
+from eios.ontology.models import ObjectTypeDefinition, PropertyTypeDescriptor
 from eios.ontology.semantics import SchemaCompatibilityError, assert_object_compatible, schema_contract_digest
 from nexloop_eios.candidate_merge import ReviewQueueReader
 from nexloop_eios.evolution.schema_compat import judge
@@ -39,6 +39,16 @@ def _f1_actions(rows):
                     for r in d['object_types']], 'input_schema_hash': _h(d.get('input_schema')), 'capability_schema_hash': _h(row['capability']),
                     'risk_level': (d.get('governance') or {}).get('risk_level'), 'effect_categories': sorted((row['capability'] or {}).get('effect_categories') or [])})
     return out
+
+
+def _descriptor_dump(descriptor):
+    """The EIOS dump of a proposal's descriptor; one EIOS refuses stays as given (F1 then refuses it: value_type_not_allowed)."""
+    if descriptor is None:
+        return None
+    try:
+        return PropertyTypeDescriptor.model_validate(descriptor).model_dump(mode='json')
+    except ValueError:
+        return descriptor
 
 
 def successors(basis, new_schema: dict) -> list[dict]:
@@ -74,10 +84,15 @@ def build(basis: dict, kind: str, property_name: str | None = None, *, batch: bo
             report = {'op': 'hide_property', 'allowed': False, 'change_class': 'major', 'codes': ['breaking_change']}
         return {'schema': new, 'actions': successors(basis, new)}, report
     if op == 'add_optional_property':
+        # Display name, description and a structured descriptor come from the proposal (migration schema_structured_property); the
+        # descriptor is published in its EIOS dump form, as SQL expands it.
+        descriptor = change.get('type_descriptor')
         np = {'property_name': change['property_name'], 'value_type': change['value_type'], 'required': False, 'nullable': True, 'default_value': None,
-              'description': '', 'display_name': '', 'render_hint': 'plain', 'visibility': 'normal', 'type_descriptor': None}
+              'description': change.get('description', ''), 'display_name': change.get('display_name', ''), 'render_hint': 'plain', 'visibility': 'normal',
+              'type_descriptor': _descriptor_dump(descriptor)}
         new = {**old, 'version': old['version'] + 1, 'properties': list(old['properties']) + [np]}
-        f1 = {'op': op, 'type_name': name, 'property': {k: np[k] for k in ('property_name', 'value_type', 'required', 'nullable')}}
+        f1 = {'op': op, 'type_name': name, 'property': {**{k: np[k] for k in ('property_name', 'value_type', 'required', 'nullable')},
+                                                         **({'type_descriptor': descriptor} if descriptor is not None else {})}}
     elif op == 'add_vocabulary_value':
         props = []
         for p in old['properties']:

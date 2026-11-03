@@ -28,9 +28,11 @@ import json
 import re
 import uuid
 from types import MappingProxyType
+from nexloop_eios import delivery_windows
 
 import psycopg
 from eios.authz import facts as F
+from eios.authz.errors import AuthorizationUnavailable
 from eios.authz.operations import Operation
 from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
@@ -45,7 +47,7 @@ from nexloop_eios.object_reads import AuthorizedObjectReader
 from nexloop_eios.postgres_artifacts import canonical_payload
 
 MATCHER_VERSION='nx020-matcher/1'
-PROMPT_VERSION='nx020-match-prompt/1'
+PROMPT_VERSION='nx020-match-prompt/2'
 MATCH_ACTION='nexloop.claim.match'
 NAMESPACE=uuid.UUID('6f2c1c1e-5a0e-4f6b-9a39-2a8d7c0e2020')
 # Kinds whose asserted, affirmed content may become a formal property value.
@@ -68,6 +70,7 @@ SYSTEM_PROMPT="""<prompt>
     3. property.ref：从 schema 的属性中选择；没有合适属性时 ref=null，并在 property.new 给出
        {name(snake_case英文),display_name,description,value_type(string|integer|decimal|boolean|datetime|enum),closed_vocabulary,property_group}。
     4. value：开放属性直接使用 Claim 的值；封闭词表属性只能选该属性 enum 中与原意相同的成员，没有相同成员时给出原值。
+       结构化属性(schema 中带 value_shape)只能原样使用 normalized_values 里该属性的值；那里没有该属性时 value=null。
   </instruction>
   <output_format>
     {"type":{"ref":null,"new":null},"instance":{"strong_id":null,"name":null},"property":{"ref":null,"new":null},"value":null,"rationale":""}
@@ -82,6 +85,32 @@ class MatchProviderUnavailable(RuntimeError):
 
 class MatchRejected(ValueError):
     """Provider output violates the decision schema; the Claim is not written."""
+
+
+class EditActionStale(RuntimeError):
+    """The configured edit Action is bound to an older Schema version than the object (between a Schema publication and the
+    claim-match.json rebinding, design claim-consumer-delivery-windows §2.3): nothing is recorded; the worker defers the item."""
+    code='edit_action_stale_schema'
+
+
+# Structured properties (closed-vocabulary struct arrays, migration schema_structured_property): the only values the matcher may
+# write are those of their deterministic normalizer; a newer value replaces an older one by the time it was stated (the cited
+# Message's acceptance time), never by the time it was applied.
+STRUCTURED={('Consumer','delivery_windows'):delivery_windows.normalize}
+
+
+def _structured(prop):
+    d=prop.type_descriptor
+    return d is not None and d.kind.value=='array' and d.element is not None and d.element.kind.value=='struct'
+
+
+def _stated_at(claim):
+    """The cited Message's server acceptance time (the time-normalization anchor)."""
+    raw=(claim.get('valid_time') or {}).get('anchor')
+    if not raw:raise MatchRejected('claim has no statement time')
+    stamp=datetime.fromisoformat(raw)
+    if stamp.tzinfo is None:raise MatchRejected('naive statement time')
+    return stamp.astimezone(UTC)
 
 
 
@@ -195,7 +224,7 @@ class ClaimMatcher:
         self.recall,self.provider,self.configuration=recall,provider,configuration
         self.port=_Port(pool,session,signer);self.reader=AuthorizedObjectReader(pool,session,signer)
         self.claims=ConversationClaimExtractor(pool,session,signer,None)
-        self._schemas={}
+        self._schemas={};self._object_versions={}
 
     # ------------------------------------------------------------ schema view
     def _schema(self,type_name):
@@ -216,7 +245,8 @@ class ClaimMatcher:
             if schema is None:continue
             view.append({'ref':'eios:object_type:'+type_name,'display_name':schema.display_name,'description':schema.description,'primary_key':list(schema.primary_key),
                 'properties':[{'ref':f'eios:property:{type_name}/{p.property_name}','display_name':p.display_name,'description':p.description,
-                    'value_type':p.value_type.value,'enum':list(p.type_descriptor.enum) if p.type_descriptor else []} for p in schema.properties]})
+                    'value_type':p.value_type.value,'enum':list(p.type_descriptor.enum) if p.type_descriptor else [],
+                    **({'value_shape':p.type_descriptor.model_dump(mode='json')} if _structured(p) else {})} for p in schema.properties]})
         return view
 
     def _current(self,type_name,object_id,property_name):
@@ -229,6 +259,22 @@ class ClaimMatcher:
         try:current=self.reader.get(type_name,object_id,fields=(property_name,))
         except psycopg.errors.InsufficientPrivilege:return revision,False,None
         return current['revision'],True,current['properties'][property_name]
+
+    def _object_version(self,type_name,object_id,refresh=False):
+        key=(type_name,object_id)
+        if refresh or key not in self._object_versions:
+            self._object_versions[key]=self.reader.get(type_name,object_id).get('schema_version')
+        return self._object_versions[key]
+
+    def _assert_edit_action_current(self,type_name,object_id):
+        """A Consumer already on a newer Schema than the configured edit Action: nothing is matched (EditActionStale). Checked before
+        recall and the model call. An object the matcher cannot read is left to the later layers, as before."""
+        schema=self._schema(type_name) if self.configuration.edit_actions.get(type_name) else None
+        if schema is None:return
+        try:version=self._object_version(type_name,object_id)
+        except (PermissionError,psycopg.errors.InsufficientPrivilege,F.AuthorizationFactDenied,AuthorizationUnavailable,LookupError):return
+        if version is not None and version>schema.version:
+            raise EditActionStale(f'{type_name} edit Action is behind the object Schema')
 
     # ----------------------------------------------------------------- match
     def match_conversation(self,conversation_id):
@@ -272,6 +318,8 @@ class ClaimMatcher:
     def _classify(self,claim,provider):
         reason=self._guard_reason(claim)
         if reason:return _Outcome('needs_resolution',reason),{},[]
+        if claim['subject']['kind']=='consumer' and claim.get('consumer_id'):
+            self._assert_edit_action_current(self.configuration.consumer_type,claim['consumer_id'])
         value=_claim_value(claim)
         text=' '.join(str(x) for x in (claim['predicate'],value if value is not None else '',claim['subject']['text'] or '') if str(x).strip())
         recalled=self.recall.recall(text)
@@ -280,6 +328,8 @@ class ClaimMatcher:
         payload={'claim':{'claim_id':claim['claim_id'],'epistemic_kind':claim['epistemic_kind'],'subject_kind':claim['subject']['kind'],'subject_text':claim['subject']['text'],
             'predicate':claim['predicate'],'value':claim['value'],'quote':_quote(claim),'polarity':claim['polarity'],'modality':claim['modality']},
             'recall':hits,'schema':self._schema_view(definition_refs|({'eios:object_type:'+self.configuration.consumer_type} if claim['subject']['kind']=='consumer' else set()))}
+        normalized={f'eios:property:{t}/{n}':v for (t,n),f in STRUCTURED.items() for v in [f(value)] if v is not None}
+        if normalized:payload['normalized_values']=normalized
         try:decision=_decision(provider.complete(SYSTEM_PROMPT,canonical_payload(payload)))
         except MatchRejected as error:return _Outcome('needs_resolution','decision_rejected:'+str(error)),{},hits
         return self._judge(claim,decision,recalled,definition_refs),decision,hits
@@ -337,7 +387,12 @@ class ClaimMatcher:
         # Layer 4: value.
         enum=tuple(prop.type_descriptor.enum) if prop.type_descriptor else ()
         chosen=d['value']
-        if enum:
+        if _structured(prop):
+            normalizer=STRUCTURED.get((type_name,prop.property_name))
+            expected=normalizer(_claim_value(claim)) if normalizer else None
+            if expected is None:return _Outcome('needs_resolution','value_not_normalized')
+            if chosen!=expected:return _Outcome('needs_resolution','value_not_from_evidence')
+        elif enum:
             if chosen not in enum:return self._candidate_vocabulary(claim,type_name,prop,_claim_value(claim),recalled)
             if chosen!=_claim_value(claim) and vocabulary_ref_for(type_name,prop.property_name,chosen) not in definition_refs:
                 return _Outcome('needs_resolution','vocabulary_member_not_recalled')
@@ -350,7 +405,7 @@ class ClaimMatcher:
     # ------------------------------------------------------------- proposals
     def _proposal(self,claim,d,type_name,object_id,create,property_name,value,verdict):
         schema=self._schema(type_name);tenant=self.session.authentication.tenant_id;world=self.session.world
-        effective=_effective_at(claim)
+        effective=_stated_at(claim) if (type_name,property_name) in STRUCTURED else _effective_at(claim)
         evidence=['claim:'+claim['claim_id'],'message:'+claim['source']['message_id']]
         if create is not None:
             op='create_object';properties=dict(create)
@@ -463,6 +518,9 @@ class ClaimMatcher:
                 args=self._fresh_args(row)
                 if isinstance(args,tuple):
                     status,reason=args
+                    # Left as it is (no transition): the edit Action is behind the object's Schema, or two statements of the same
+                    # time disagree (for review).
+                    if status=='hold':return reason
                     self._transition(row,row['status'],status,reason=reason);return status
                 # Claim auto-write whitelist (SQL, migration claim_auto_write): a property outside it is never applied here; the
                 # proposal stays as it is for review and its Claim in needs_resolution. Not an error: nothing to retry.
@@ -494,11 +552,17 @@ class ClaimMatcher:
         action,version=self.configuration.edit_actions.get(row['type_name']) or (None,None)
         if action is None:return ('rejected','edit_action_not_configured')
         object_id=row['target_ref'].rsplit('/',1)[1]
-        # Late evidence never overwrites newer applied evidence (docs/04 §7.3); a correction may.
+        schema=self._schema(row['type_name'])
+        if schema is None or (self._object_version(row['type_name'],object_id,refresh=True) or 0)>schema.version:
+            return ('hold',EditActionStale.code)
+        # Late evidence never overwrites newer applied evidence (docs/04 §7.3); a correction may. A structured property orders by
+        # the statement time (its effective_at); a statement of the same time with another value is left for review.
         latest=self.port.read({'verb':'latest_applied','target_ref':row['target_ref'],'property_name':row['property_name']})
-        if (latest and row['proposal']['epistemic_kind']!='correction'
-                and datetime.fromisoformat(latest['effective_at'])>datetime.fromisoformat(row['effective_at'])):
-            return ('superseded','late_evidence')
+        stated=(row['type_name'],row['property_name']) in STRUCTURED
+        if latest and row['proposal']['epistemic_kind']!='correction':
+            newer,mine=datetime.fromisoformat(latest['effective_at']),datetime.fromisoformat(row['effective_at'])
+            if newer>mine:return ('superseded','superseded_by_newer_statement' if stated else 'late_evidence')
+            if stated and newer==mine and latest['claim_id']!=row['claim_id']:return ('hold','same_time_statements')
         revision,present,current=self._current(row['type_name'],object_id,row['property_name'])
         if present and current==op['value']:return ('superseded','value_already_current')
         expected=op['expected_revision'] if row['status']=='proposed' else revision

@@ -23,6 +23,41 @@ WHITELIST = {'add_optional_property': ('minor', True), 'add_vocabulary_value': (
 REFUSED_OPS = ('add_relation_type',)
 SCALARS = {PropertyValueType.STRING, PropertyValueType.INTEGER, PropertyValueType.NUMBER, PropertyValueType.BOOLEAN, PropertyValueType.DATETIME}
 MIGRATION_LIMIT = 10_000  # D25: objects migrated by one publication
+# The one composite shape a new property may have (migration schema_structured_property, L6 condition C1): a closed-vocabulary struct
+# array. Same limits as runtime.nexloop_structured_descriptor_valid; tests/support/structured_descriptor_cases.py drives both.
+_NAME_FIRST, _NAME_REST = frozenset('abcdefghijklmnopqrstuvwxyz'), frozenset('abcdefghijklmnopqrstuvwxyz0123456789_')
+MAX_STRUCT_ITEMS, MAX_STRUCT_FIELDS, MAX_ENUM = 64, 8, 16
+
+
+def _ascii_name(value) -> bool:
+    """^[a-z][a-z0-9_]{0,31}$ (this package imports no regular expressions)."""
+    return type(value) is str and 1 <= len(value) <= 32 and value[0] in _NAME_FIRST and set(value) <= _NAME_REST
+
+
+def structured_descriptor_valid(d) -> bool:
+    """{kind array, element {kind struct, fields [{name, required true, descriptor {kind string, enum}}]}, max_items}, exactly."""
+    if type(d) is not dict or set(d) != {'kind', 'element', 'max_items'} or d['kind'] != 'array':
+        return False
+    if type(d['max_items']) is not int or not 1 <= d['max_items'] <= MAX_STRUCT_ITEMS:
+        return False
+    element = d['element']
+    if type(element) is not dict or set(element) != {'kind', 'fields'} or element['kind'] != 'struct':
+        return False
+    fields = element['fields']
+    if type(fields) is not list or not 1 <= len(fields) <= MAX_STRUCT_FIELDS:
+        return False
+    names = []
+    for f in fields:
+        if type(f) is not dict or set(f) != {'name', 'required', 'descriptor'} or not _ascii_name(f['name']) or f['required'] is not True:
+            return False
+        desc = f['descriptor']
+        if type(desc) is not dict or set(desc) != {'kind', 'enum'} or desc['kind'] != 'string':
+            return False
+        enum = desc['enum']
+        if type(enum) is not list or not 1 <= len(enum) <= MAX_ENUM or not all(_ascii_name(v) for v in enum) or len(set(enum)) != len(enum):
+            return False
+        names.append(f['name'])
+    return len(set(names)) == len(names)
 # Fixed codes: the §6 breaking codes, the closure of anything off the whitelist, and the per-dimension failures.
 BREAKING = ('breaking_remove_property', 'breaking_change_value_type', 'breaking_required_property', 'breaking_remove_vocabulary_value',
             'breaking_primary_key', 'breaking_relation_endpoints', 'breaking_metric_definition', 'requires_ddl', 'authority_content')
@@ -109,9 +144,12 @@ def _whitelist_rules(change: dict, parent_types: dict[str, ObjectTypeDefinition]
             codes.append('property_exists')
         if prop.get('required'):
             codes.append('breaking_required_property')
-        if prop.get('value_type') not in {v.value for v in SCALARS}:
+        if prop.get('value_type') == PropertyValueType.JSON.value:
+            if not structured_descriptor_valid(prop.get('type_descriptor')):
+                codes.append('value_type_not_allowed')
+        elif prop.get('value_type') not in {v.value for v in SCALARS}:
             codes.append('value_type_not_allowed')
-        if (prop.get('type_descriptor') or {}).get('enum'):
+        if isinstance(prop.get('type_descriptor'), dict) and prop['type_descriptor'].get('enum'):
             codes.append('vocabulary_on_new_property')
         if prop.get('visibility', 'normal') == PropertyVisibility.PROMINENT.value:
             codes.append('visibility_above_normal')

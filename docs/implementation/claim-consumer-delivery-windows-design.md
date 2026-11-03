@@ -171,3 +171,25 @@ stage 上的客户都是模拟客户（persona `simulated_agent`），rematch �
 - 自由文本：说明里写指令样式文本，Context 组装中只出现在数据字段（§2.5）。
 - 值校验函数：乱序、重复、空数组、未知词、多余字段都被拒绝。
 - 变异检查：去掉闸门的形态限制、去掉值校验，相关用例必须失败。
+
+## 6. 实现记录（第 1、2 项，基线 main `50427429`）
+
+- **迁移 `schema_structured_property`**（临时号 0416）：
+  - `runtime.nexloop_structured_descriptor_valid` 按 C1 的硬上限判定；
+  - `runtime.nexloop_structured_descriptor_expand` 把描述符展开成 EIOS 的导出形态，0054 比较的两边因此一致；
+  - `runtime.nexloop_schema_change_valid`（0252 函数体）和 `ontology.nexloop_schema_publication_gates`（0257 函数体）只改了登记在 copy guard 里的几行；
+  - `ontology.nexloop_property_value_valid` 加上提案表上的触发器：值不规范时，记录的提案原因为 `value_not_normalized`，进入 applying 时被拒绝。
+- **vendored EIOS**：只改了 `ontology/models.py`。
+  - `PropertyTypeDescriptor.max_items` 只允许数组使用，未设置时不出现在导出结果里，写入时校验数组长度。
+  - `PROVENANCE.json` 已更新 `nexloop_sha256` 和 adaptations；上游哈希和 `versions.lock` 的 commit 都没动。
+  - 摘要回归用例：已发布的 Consumer v1 的两个摘要与改动前逐字节相同。
+  - SQL 侧没有按描述符重建或比较摘要的地方：`git grep type_descriptor` 列出的迁移逐一核对过，都只读 `enum`，或者用 `jsonb_set` 原样保留其余键。新增属性由 0416 的 expand 构造，`max_items` 只在设置时出现。
+- **匹配器**：
+  - 提示词升到 `nx020-match-prompt/2`。结构化属性在 schema 视图里带上 `value_shape`；payload 带上 `normalized_values`；模型的值必须与规范化结果完全相同。
+  - 窗口期判定：Consumer 对象的 Schema 版本高于所配 edit Action 绑定的版本时，抛出 `EditActionStale`。这一步在召回和模型调用之前，所以什么都不记录；worker 用 0401 的 defer 把条目延后（每次 60 秒，不消耗尝试次数，最长一周）。已有提案在 apply 时返回 `edit_action_stale_schema`，保持原状态。
+  - 结构化属性的 `effective_at` 取陈述时间（消息受理时间 anchor）。较旧的陈述记为 `superseded_by_newer_statement`，Claim 随现有 superseded 路径变为 `superseded`；同一时刻的两条不同陈述不做转移，留待审核。
+- **`Consumer.edit:1` 的其他写入方**（C2 清单的结论）：
+  - `deploy/stage/claim-match.example.json` 这次不改：在 Consumer v2 发布之前改成 2，会让匹配器指向一个还不存在的 Action。部署单（第 5 项）按“发布 → register → 改为 2 → 重启”同时修改样例和私有文件。
+  - `scripts/load/stack.py:206`、`tests/test_background_services_pg.py:43`、`tests/test_business_actions.py:160` 保留为 v1 基线。
+  - 工作台人工编辑没有写死 `Consumer.edit` 的版本（`git grep` 在前端和 `review_*` 中只找到测试数据里的 `:2`），由 `follow_latest` 授权覆盖。
+- **创建 schema**（`consumer_profile.py`）这次不改：Consumer v1 由它发布，必须保持不变；`delivery_windows` 只由匹配器在 v2 上写入，新建客户时不需要它。

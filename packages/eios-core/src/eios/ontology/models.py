@@ -5,7 +5,7 @@ from enum import Enum
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 
 _NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
@@ -96,6 +96,16 @@ class PropertyTypeDescriptor(BaseModel):
     enum: tuple[Any, ...] = ()
     format: str = ""
     unit: str = ""
+    # NexLoop adaptation (additive): an optional array length bound. Omitted
+    # from dumps while None, so definitions without it keep their digests.
+    max_items: int | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_default_max_items(self, handler: Any) -> Any:
+        payload = handler(self)
+        if isinstance(payload, dict) and payload.get("max_items") is None:
+            payload.pop("max_items", None)
+        return payload
 
     @model_validator(mode="after")
     def validate_definition(self) -> "PropertyTypeDescriptor":
@@ -105,6 +115,11 @@ class PropertyTypeDescriptor(BaseModel):
     def _validate_shape(self, *, depth: int) -> None:
         if depth > _MAX_TYPE_DEPTH:
             raise ValueError("type descriptor is too deep")
+        if self.max_items is not None:
+            if self.kind is not PropertyTypeKind.ARRAY:
+                raise ValueError("only array descriptors declare max_items")
+            if isinstance(self.max_items, bool) or self.max_items < 1:
+                raise ValueError("max_items must be a positive integer")
         if self.kind is PropertyTypeKind.ARRAY:
             if self.element is None:
                 raise ValueError("array descriptor requires an element type")
@@ -249,6 +264,10 @@ def _normalize_typed_value(
     if kind is PropertyTypeKind.ARRAY:
         if not isinstance(value, list):
             raise OntologyValidationError(f"{field_name} must be an array")
+        if descriptor.max_items is not None and len(value) > descriptor.max_items:
+            raise OntologyValidationError(
+                f"{field_name} has more than {descriptor.max_items} items"
+            )
         assert descriptor.element is not None  # shape invariant
         return [
             _normalize_typed_value(
