@@ -1,9 +1,10 @@
 """Claim-extraction failures by code (migration extraction_failed_codes, temporary number; L6 follow-up to S-DUP 2026-11-03): the worker
 finishes a job the recorder refused for citing a context Message as failed / context_cited (not denied, never retried); the data health
-extraction block counts failed jobs of 24 hours by code, context_cited_24h, finished_24h and no_data; alert rules v30 warn on
-context_cited and on no data (nothing measured is not a pass). Real PostgreSQL with the NX-030 observability fixture; admin seeds the
+extraction block counts failed jobs of 24 hours by code, context_cited_24h, finished_24h, inputs_24h, no_data and idle; alert rules v30
+warn on context_cited and on no data (input arrived, nothing measured: not a pass); a tenant with no input is idle, not no data. Real PostgreSQL with the NX-030 observability fixture; admin seeds the
 synthetic jobs in replica mode."""
 import json
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,7 +16,7 @@ from nexloop_eios.claim_extraction_jobs import ClaimExtractionWorker
 from nexloop_eios.claim_store import ClaimExtractionContextCited, ClaimExtractionDenied
 from nexloop_eios.observability import load_rules
 from support.tenants import TENANT_B
-from test_data_health_pg import health, replica
+from test_data_health_pg import health, replica, stale_feed
 from test_observability_pg import TENANT, observed  # noqa: F401
 from test_workbench_read_pg import browser_business, conversations, identity, published_action, uow, workbench  # noqa: F401
 
@@ -56,10 +57,23 @@ def test_v30_adds_exactly_the_two_rules_on_v29():
         ('extraction_no_data', 'data_health.extraction.no_data', 'gt', 0, 'warning')]
 
 
-def test_no_extraction_is_no_data_not_a_pass(observed):  # noqa: F811
-    x = health(observed['admin'])['extraction']
-    assert (x['failed_24h'], x['context_cited_24h'], x['finished_24h'], x['no_data']) == ({}, 0, 0, 1)
+def test_no_input_at_all_is_idle_not_no_data(observed):  # noqa: F811
+    x = health(observed['admin'], TENANT_B)['extraction']  # the fixture's own tenant has a Message waiting; the other has no traffic
+    assert (x['failed_24h'], x['context_cited_24h'], x['finished_24h'], x['inputs_24h'], x['no_data'], x['idle']) == ({}, 0, 0, 0, 0, 1)
+    assert fired({'data_health': {'extraction': x}}) == set()  # a quiet tenant raises nothing
+
+
+def test_input_without_any_finished_job_is_no_data_not_a_pass(observed):  # noqa: F811
+    admin = observed['admin']
+    before = health(admin)['extraction']['inputs_24h']  # the fixture's Message, if any
+    stale_feed(admin, secrets.token_hex(16))  # a Message waiting for extraction (feed row of two hours ago)
+    job(admin, 'pending')  # and a job no worker took
+    x = health(admin)['extraction']
+    assert (x['finished_24h'], x['inputs_24h'], x['no_data'], x['idle']) == (0, before + 2, 1, 0)
     assert fired({'data_health': {'extraction': x}}) == {'extraction_no_data'}
+    job(admin, 'succeeded', code='recorded')  # one job ends: measured again
+    x = health(admin)['extraction']
+    assert (x['finished_24h'], x['no_data'], x['idle']) == (1, 0, 0) and fired({'data_health': {'extraction': x}}) == set()
 
 
 def test_failed_jobs_count_by_code_and_context_cited_warns(observed):  # noqa: F811

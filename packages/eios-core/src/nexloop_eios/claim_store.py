@@ -45,6 +45,10 @@ class ClaimExtractionDenied(ClaimExtractionUnavailable,PermissionError):
     pass
 
 
+# The 0412 recorder's refusal of a Claim citing a context Message (0412_*.sql:202, raise ... errcode 42501).
+CONTEXT_CITED_MESSAGE='claim source is context'
+
+
 class ClaimExtractionContextCited(ClaimExtractionUnavailable):
     """The recorder refused a Claim citing a context Message (S-DUP): the client filter failed. Not a denial, not retryable."""
 
@@ -182,7 +186,7 @@ class ConversationClaimExtractor:
 
     @staticmethod
     def _raise(error):
-        if isinstance(error,psycopg.errors.InsufficientPrivilege) and error.diag.message_primary=='claim source is context':
+        if isinstance(error,psycopg.errors.InsufficientPrivilege) and error.diag.message_primary==CONTEXT_CITED_MESSAGE:
             raise ClaimExtractionContextCited() from None
         # Authority that is missing, stale or revoked is a denial, never a retryable success.
         if isinstance(error,(PermissionError,AuthorizationError,ActionAuthorizationDenied,psycopg.errors.InsufficientPrivilege)):raise ClaimExtractionDenied() from None
