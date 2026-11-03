@@ -5,7 +5,8 @@ so the interactive path never waits for a model. The scheduler (nexloop_api serv
 debounces each conversation, accepts one idempotent queue event per window and marks
 the feed. The worker (nexloop_domain_worker service) claims leased tasks, extracts,
 and finishes succeeded / retry_wait (exponential backoff, dead_lettered when attempts
-are exhausted) / failed (denied authority is not retried). Backlog is observable.
+are exhausted) / failed (denied authority, or a Claim citing a context Message - context_cited - is not
+retried; failed counts by code are in data_health.extraction). Backlog is observable.
 """
 from datetime import UTC,datetime,timedelta
 from nexloop_eios.signing import SIGNED_COMMAND_TTL
@@ -18,7 +19,7 @@ from eios.authz.resources import ResourceType,resource_id
 from eios.authz.service import AuthorizationDecisionService
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.authorization import PostgresAuthorityProvider,resolve_authority,authority_request_scoped
-from nexloop_eios.claim_store import EXTRACT_ACTION,ClaimExtractionDenied,ConversationClaimExtractor
+from nexloop_eios.claim_store import EXTRACT_ACTION,ClaimExtractionContextCited,ClaimExtractionDenied,ConversationClaimExtractor
 from nexloop_eios.conversation_extraction import ExtractionProviderUnavailable,ExtractionRejected
 from nexloop_eios.durable_queue import PostgresDurableQueue
 from nexloop_eios.postgres_action_claims import ActionAuthorizationDenied
@@ -99,6 +100,9 @@ class ClaimExtractionWorker:
             result=self.extractor.extract(conversation_id=payload['conversation_id'],message_ids=payload['message_ids'],
                 context_message_ids=payload.get('context_message_ids') or [])
             status,body,delay='succeeded',{'code':'recorded','input_digest':result['input_digest'],'claims':len(result['claim_ids']),'replay':result['replay']},0
+        except ClaimExtractionContextCited:
+            # The 0412 recorder's backstop: a Claim cited a context Message past the client filter. Its own code, never retried.
+            status,body,delay='failed',{'code':'context_cited'},0
         except (ClaimExtractionDenied,ActionAuthorizationDenied):
             # Missing or revoked authority is a decision, not a transient fault.
             status,body,delay='failed',{'code':'denied'},0

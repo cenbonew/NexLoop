@@ -2070,6 +2070,11 @@
       "version": "0414",
       "name": "0414_claim_duplicate_supersede.sql",
       "sha256": "54ffa4f85f0e8992e8a664b3117bd2e95186f2eb90c7ab119809e46cf47145e6"
+    },
+    {
+      "version": "0415",
+      "name": "0415_extraction_failed_codes.sql",
+      "sha256": "e0b6e57c794f74f2ab08cc326daa9be84606c7c898e83b0de28e1d6936d73d53"
     }
   ]
 }
