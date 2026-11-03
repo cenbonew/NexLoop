@@ -84,6 +84,10 @@ export function nodeId(kind:EvidenceKind,item:EvidenceGroup['items'][number]):st
     :kind==='candidate'?(item as EvidenceCandidate).candidate_id:(item as EvidenceAction|EvidenceOutreach).intent_id;
   return `${kind}:${key}`;
 }
+/** Claims recorded more than once before write-time dedupe are folded for display only; the server keeps every record. */
+export function duplicates(kind:EvidenceKind,item:EvidenceGroup['items'][number]):number{return kind==='claim'?(item as EvidenceClaim).duplicate_count:1;}
+export const duplicateHint=(n:number)=>`同一说法被记录了 ${n} 次，已合并显示；原始记录保留为证据`;
+function DuplicateMark({n}:{n:number}){return n>1?<span className="dup-mark" title={duplicateHint(n)} aria-label={duplicateHint(n)}>×{n}</span>:null;}
 function nodeLabel(kind:EvidenceKind,item:EvidenceGroup['items'][number]):string{
   switch(kind){
     case 'claim':{const c=item as EvidenceClaim;return c.state!=='active'?CLAIM_STATE_TEXT[c.state]:c.predicate??EPISTEMIC_TEXT[c.epistemic_kind]??c.epistemic_kind;}
@@ -105,10 +109,10 @@ function merge(base:EvidenceGraph,more:Partial<Record<EvidenceKind,EvidenceGraph
 const RADIUS=210,CENTER={x:330,y:250},DRAWN=8;
 /** Five fixed sectors around the consumer, each group's first DRAWN nodes on its arc; the rest are in the table. Deterministic. */
 export function radialLayout(graph:EvidenceGraph){
-  const nodes:{id:string;kind:EvidenceKind;label:string;x:number;y:number}[]=[];
+  const nodes:{id:string;kind:EvidenceKind;label:string;dup:number;x:number;y:number}[]=[];
   graph.groups.forEach((g,gi)=>{const centre=-Math.PI/2+gi*2*Math.PI/5;const shown=g.items.slice(0,DRAWN);
     shown.forEach((item,i)=>{const a=centre+(shown.length>1?(i/(shown.length-1)-0.5)*(Math.PI/3):0);const r=RADIUS-(i%2)*48;
-      nodes.push({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item),x:Math.round(CENTER.x+r*Math.cos(a)),y:Math.round(CENTER.y+r*Math.sin(a))});});});
+      nodes.push({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item),dup:duplicates(g.kind,item),x:Math.round(CENTER.x+r*Math.cos(a)),y:Math.round(CENTER.y+r*Math.sin(a))});});});
   const at=new Map(nodes.map(n=>[n.id,n]));
   const edges=graph.edges.filter(e=>at.has(e.source)&&at.has(e.target));
   const sectors=graph.groups.map((g,gi)=>{const a=-Math.PI/2+gi*2*Math.PI/5;return {kind:g.kind,x:Math.round(CENTER.x+(RADIUS+62)*Math.cos(a)),y:Math.round(CENTER.y+(RADIUS+62)*Math.sin(a)),shown:Math.min(g.items.length,DRAWN),total:g.total};});
@@ -123,10 +127,11 @@ function EvidenceSvg({graph,selected,onSelect}:{graph:EvidenceGraph;selected:str
     {edges.map(e=>{const a=at.get(e.source)!,b=at.get(e.target)!;return <line key={e.source+e.target+e.rel} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="evidence-edge" data-rel={e.rel}/>;})}
     <g className="evidence-center"><circle cx={CENTER.x} cy={CENTER.y} r={34}/><text x={CENTER.x} y={CENTER.y+5} textAnchor="middle">Consumer</text></g>
     {sectors.map(s=><text key={s.kind} x={s.x} y={s.y} textAnchor="middle" className="evidence-sector">{KIND_TEXT[s.kind]} {s.shown}/{s.total}</text>)}
-    {nodes.map(n=><g key={n.id} role="button" tabIndex={0} data-node={n.id} aria-pressed={selected===n.id} aria-label={`${KIND_TEXT[n.kind]}：${n.label}`}
+    {nodes.map(n=><g key={n.id} role="button" tabIndex={0} data-node={n.id} aria-pressed={selected===n.id} aria-label={`${KIND_TEXT[n.kind]}：${n.label}${n.dup>1?'，'+duplicateHint(n.dup):''}`}
       className={'evidence-node'+(selected===n.id?' selected':'')} style={{['--node-hue' as string]:`var(--hue-${KIND_HUE[n.kind]})`}}
       onClick={()=>onSelect(n.id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(n.id);}}}>
-      <rect x={n.x-58} y={n.y-15} width={116} height={30} rx={6}/><text x={n.x} y={n.y+5} textAnchor="middle">{n.label.length>9?n.label.slice(0,8)+'…':n.label}</text></g>)}
+      <rect x={n.x-58} y={n.y-15} width={116} height={30} rx={6}/><text x={n.x} y={n.y+5} textAnchor="middle">{n.label.length>9?n.label.slice(0,8)+'…':n.label}</text>
+      {n.dup>1?<g className="dup-badge" data-dup={n.dup}><title>{duplicateHint(n.dup)}</title><rect x={n.x+38} y={n.y-24} width={30} height={16} rx={8}/><text x={n.x+53} y={n.y-12} textAnchor="middle">×{n.dup}</text></g>:null}</g>)}
   </svg>;
 }
 
@@ -137,7 +142,7 @@ function EvidencePanel({graph,id,onSelect,onClose}:{graph:EvidenceGraph;id:strin
   const listed=(ref:string)=>graph.groups.some(x=>x.items.some(i=>nodeId(x.kind,i)===ref));
   const link=(ref:string)=>listed(ref)?<button type="button" className="link" onClick={()=>onSelect(ref)}>{shorten(ref.split(':')[1])}</button>:null;
   let rows:{key:string;value:ReactNode}[]=[];
-  if(kind==='claim'){const c=item as EvidenceClaim;rows=[{key:'状态',value:CLAIM_STATE_TEXT[c.state]},{key:'类型',value:label(EPISTEMIC_TEXT,c.epistemic_kind)},
+  if(kind==='claim'){const c=item as EvidenceClaim;rows=[{key:'状态',value:CLAIM_STATE_TEXT[c.state]},...(c.duplicate_count>1?[{key:'重复记录',value:<><DuplicateMark n={c.duplicate_count}/> <span className="note">{duplicateHint(c.duplicate_count)}</span></>}]:[]),{key:'类型',value:label(EPISTEMIC_TEXT,c.epistemic_kind)},
     ...(c.predicate!==null?[{key:'内容',value:c.predicate}]:[]),{key:'来源',value:<>原文第 {c.source.sequence??'—'} 轮 · {c.source.speaker==='consumer'?'客户说的':'AI 说的'}</>},
     {key:'原文片段',value:c.source.quote_status==='ok'&&c.source.quote?<q>{c.source.quote}</q>:<span className="note">{QUOTE_TEXT[c.source.quote_status]}</span>},
     {key:'置信度',value:c.confidence===null?'—':c.confidence.toFixed(2)},{key:'解析',value:c.resolution_state},
@@ -181,9 +186,9 @@ export function EvidenceSection({consumerId}:{consumerId:string}){
       {g.next_cursor?<button type="button" className="btn-secondary" disabled={loading===g.kind} onClick={()=>void next(g)}>{loading===g.kind?'正在载入…':'载入更多'}</button>:null}</li>;})}</ul>
     <div className={'evidence-body'+(selected?' with-aside':'')}>
       {graphView?<EvidenceSvg graph={graph} selected={selected} onSelect={setSelected}/>
-        :<DataTable label="关系与证据" rows={graph.groups.flatMap(g=>g.items.map(item=>({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item)})))} rowKey={r=>r.id}
+        :<DataTable label="关系与证据" rows={graph.groups.flatMap(g=>g.items.map(item=>({id:nodeId(g.kind,item),kind:g.kind,label:nodeLabel(g.kind,item),dup:duplicates(g.kind,item)})))} rowKey={r=>r.id}
           rowClass={r=>r.id===selected?'row-selected':undefined} columns={[{label:'类别',cell:r=>KIND_TEXT[r.kind]},
-            {label:'节点',main:true,cell:r=><button type="button" className="link" aria-pressed={r.id===selected} onClick={()=>setSelected(r.id)}>{r.label}</button>},
+            {label:'节点',main:true,cell:r=><><button type="button" className="link" aria-pressed={r.id===selected} onClick={()=>setSelected(r.id)}>{r.label}</button>{r.dup>1?' ':null}<DuplicateMark n={r.dup}/></>},
             {label:'标识',cell:r=><IdText value={r.id.split(':')[1]}/>}]}/>}
       {selected?<EvidencePanel graph={graph} id={selected} onSelect={setSelected} onClose={()=>setSelected(null)}/>:null}
     </div>

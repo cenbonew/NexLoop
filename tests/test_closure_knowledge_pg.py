@@ -86,8 +86,8 @@ def test_conversation_to_ontology_to_next_conversation(closure):
 
 
 def test_duplicate_extraction_window_changes_nothing_downstream(closure):
-    """AT-020 in the chain: a new message re-runs the window over the same messages; the same Claims replay and
-    nothing downstream is duplicated (proposal, candidate, governed edit, object revision)."""
+    """AT-020 in the chain: a new message re-runs the window with the earlier messages as context; Claims citing them
+    are dropped and nothing downstream is duplicated (proposal, candidate, governed edit, object revision)."""
     c=closure;admin=c['admin']
     conversation,ids=c.conversation('dup',BODIES[:3])
     body=first_window();body['claims']=body['claims'][:3];body['topics'][0]['message_refs']=[1,2,3]
@@ -99,12 +99,15 @@ def test_duplicate_extraction_window_changes_nothing_downstream(closure):
     worker,_,provider=c.match_worker(decisions,[conversation],suffix='-d1')
     assert worker.run_once()['applied']==2
     snapshot=c.counts();calls=provider.calls
-    # The Human adds “好的”: the next window covers all four messages and the model proposes the same three Claims again.
+    # The Human adds “好的”: the next window targets only message 4 with 1–3 as context, and the model proposes the same
+    # three Claims again, citing the context messages. They are dropped (context_message), not recorded, and the run succeeds.
     ids=ids+[c.say(conversation,'dup-4','好的')]
     again=first_window();again['claims']=again['claims'][:3];again['topics'][0]['message_refs']=[1,2,3,4]
     tasks,results=c.extract(conversation,ids,again,suffix='-d2')
     assert len(tasks)==1 and results==['succeeded']
-    assert c.counts()['claims']==snapshot['claims']  # same claim identity: no new Claim rows
+    queued,result=admin.execute('select normalized_input,result from runtime.jobs where job_id=%s',(tasks[0],)).fetchone()
+    assert queued['message_ids']==ids[3:] and queued['context_message_ids']==ids[:3] and result['claims']==0
+    assert c.counts()['claims']==snapshot['claims']  # no new Claim rows
     worker,_,provider2=c.match_worker(decisions,[conversation],suffix='-d2')
     worker.run_once()
     assert provider2.calls==0  # already-resolved Claims are not re-asked

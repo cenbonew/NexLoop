@@ -98,3 +98,18 @@ test('the metrics card: cost owner only, claims as a raw visible count with the 
   await mount(h(ConversationMetricsCard,{conversationId:metricsEx.conversation_id}));
   expect(box.textContent).toContain('12.3400 CNY；另有未定价 1 条');
 });
+
+test('a folded duplicate claim shows ×N on the node, the panel and the table with the hint; a missing count is 1',async()=>{
+  const hint='同一说法被记录了 2 次，已合并显示；原始记录保留为证据';
+  const g=evidenceGraph(graphEx);const claims=g.groups[0].items as {claim_id:string;duplicate_count:number}[];
+  expect(claims.find(c=>c.claim_id===C)!.duplicate_count).toBe(2);expect(claims.find(c=>c.claim_id==='d'.repeat(64))!.duplicate_count).toBe(1);
+  const bad=structuredClone(graphEx);bad.groups[0].items[0].duplicate_count=0;expect(()=>evidenceGraph(bad)).toThrow(WorkbenchError);
+  stub(()=>Response.json(graphEx));await mount(h(EvidenceSection,{consumerId:cid}));
+  const node=box.querySelector(`[data-node="claim:${C}"]`)!;
+  expect(node.querySelector('.dup-badge')!.textContent).toBe(hint+'×2');expect(node.getAttribute('aria-label')).toContain(hint);
+  expect(box.querySelectorAll('.dup-badge')).toHaveLength(1);
+  await click(node);
+  const mark=box.querySelector('.evidence-panel .dup-mark')!;expect(mark.textContent).toBe('×2');expect(mark.getAttribute('title')).toBe(hint);
+  await click([...box.querySelectorAll('button')].find(b=>b.textContent==='表格')!);
+  const marks=[...box.querySelectorAll('table .dup-mark')];expect(marks.map(m=>m.textContent)).toEqual(['×2']);expect(marks[0].getAttribute('title')).toBe(hint);
+});

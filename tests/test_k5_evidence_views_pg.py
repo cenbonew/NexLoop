@@ -32,10 +32,11 @@ def hexid(label):
 QUOTE = '请不要再给我'
 
 
-def claim(w, label, *, predicate='联系偏好', kind='preference', corrects=None, erased=False, resolution='awaiting_definition'):
+def claim(w, label, *, predicate='联系偏好', kind='preference', corrects=None, erased=False, resolution='awaiting_definition', said=None):
+    """One Claim of the refusal message; its value is the label unless `said` gives one (equal `said`, kind and state: one statement)."""
     admin, f = w['admin'], w['f']
     claim_id = hexid('k5-' + label)
-    value = {'type': 'erased', 'value': None, 'erased': True} if erased else {'type': 'string', 'value': 'synthetic'}
+    value = {'type': 'erased', 'value': None, 'erased': True} if erased else {'type': 'string', 'value': said or 'synthetic ' + label}
     valid_time = {'expression': '', 'kind': 'none', 'status': 'absent', 'start': None, 'end': None, 'timezone': 'Asia/Shanghai',
                   'anchor': datetime.now(UTC).isoformat()}
     admin.execute("""insert into ontology.nexloop_claims(tenant_id,world,claim_id,conversation_id,consumer_id,first_input_digest,topic_key,subject_kind,subject_ref,subject_text,
@@ -350,3 +351,50 @@ def test_the_sql_refuses_another_world_with_42501(workbench, monkeypatch):
         assert client.get(f'/api/v1/workbench/messages/{w["refusal"]["id"]}/trace').status_code == 403
         assert client.get(f'/api/v1/workbench/conversations/{w["conversation"]["id"]}/metrics').status_code == 403
     assert refused == [('42501', 'k5: real_world_only')] * 3
+
+
+def test_duplicate_claims_fold_to_the_earliest_visible_one(workbench):
+    """Owner decision 2026-11-02: duplicates stay in the data and are folded when shown. Same statement key (0412) and state: one item,
+    the earliest recorded, with duplicate_count; a duplicate the member may not see is not counted; references to a folded duplicate
+    name its representative; a corrected or superseded duplicate, or another value, is not folded with the active ones; pages count
+    folded items."""
+    w = workbench
+    provision(w)
+    consumer = w['f']['consumer']
+    c, _ = seed(w)
+    same = [claim(w, f'dup-{n}', said='每周二') for n in range(4)]
+    matched(w, same[3], 'eios:property:Consumer/not_declared')  # invisible to every role: never folded in, never counted
+    other = claim(w, 'dup-other-value', said='每周三')
+    old = [claim(w, f'dup-old-{n}', said='每周二') for n in range(2)]
+    fixes = [claim(w, f'dup-fix-{n}', kind='correction', corrects=x, said='每周二') for n, x in enumerate(old)]
+    gone = claim(w, 'dup-superseded', said='每周二', resolution='superseded')
+    derived = commitment(w, 'dup', same[2])
+    cand = candidate(w, 'dup', [same[1], old[1]])
+    for n in range(30):
+        claim(w, f'dup-page-{n}', said='每天')
+    with w['client']() as client:
+        assert workbench_login(client, w['owner']).status_code == 200
+        view = evidence(client, consumer)
+        g = groups_of(view)
+        items = {x['claim_id']: x for x in g['claim']['items']}
+        # dup-0..2 visible (dup-3 is matched to an undeclared property): one item, the earliest, standing for three.
+        assert items[same[0]]['duplicate_count'] == 3 and not {same[1], same[2], same[3]} & set(items)
+        assert g['claim']['invisible'] == 1 and same[3] not in json.dumps(view)
+        assert items[other]['duplicate_count'] == 1
+        # The corrected ones fold among themselves only (state corrected), their successors fold too (correction kind, active).
+        assert items[old[0]]['state'] == 'corrected' and items[old[0]]['duplicate_count'] == 2 and old[1] not in items
+        assert items[fixes[0]]['duplicate_count'] == 2 and fixes[1] not in items
+        assert items[old[0]]['successor_claim_ids'] == [fixes[0]]
+        assert items[gone]['state'] == 'superseded' and items[gone]['duplicate_count'] == 1
+        # 30 equal page claims are one item: plain, sport, fix, dup, other, old, fixes, superseded, page = 9 items, one page.
+        assert len(g['claim']['items']) == 9 and g['claim']['collapsed'] == 0 and g['claim']['next_cursor'] is None
+        assert g['claim']['total'] == 4 + 4 + 1 + 2 + 2 + 1 + 30
+        # References to a folded duplicate name its representative.
+        assert [x['claim_id'] for x in g['commitment']['items'] if x['commitment_id'] == derived] == [same[0]]
+        assert [x['dependent_claim_ids'] for x in g['candidate']['items'] if x['candidate_id'] == cand] == [[same[0], old[0]]]
+    restrict(w)
+    with w['client']() as client:
+        assert workbench_login(client, w['operator']).status_code == 200
+        g = groups_of(evidence(client, consumer))
+        # Every unmatched claim is hidden once a Consumer group is restricted: nothing folds, nothing leaks through a count.
+        assert g['claim']['items'] == [] and g['claim']['invisible'] == g['claim']['total']
