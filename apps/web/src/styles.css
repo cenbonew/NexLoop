@@ -719,6 +719,9 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .evidence-node rect{fill:var(--surface);stroke:var(--node-hue);stroke-width:1.5}
 .workbench .evidence-node.selected rect,.workbench .evidence-node:focus-visible rect{stroke-width:3}
 .workbench .evidence-node:focus{outline:none}
+.workbench .evidence-node .dup-badge rect{fill:var(--node-hue);stroke:none}
+.workbench .evidence-node .dup-badge text{font-size:11px;font-weight:600;fill:var(--surface)}
+.workbench .dup-mark{display:inline-block;padding:0 6px;border-radius:8px;font-size:12px;font-weight:600;background:var(--surface-2,var(--border));color:var(--text);cursor:help}
 .workbench .evidence-panel{min-width:0;border:1px solid var(--border);border-radius:8px;padding:var(--space-3)}
 .workbench .evidence-panel .card-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .workbench .evidence-panel h3{margin:0;font-size:15px}

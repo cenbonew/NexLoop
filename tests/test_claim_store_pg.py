@@ -292,12 +292,24 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # property refs, the predicate and quote) to the workbench evidence views, which show the predicate and quote only as raw
         # evidence under the per-node rules (matched property READ, reviewer-only quote); no structured value, nothing formal.
         '_k5_evidence_views',
+        # K5 0413 adds each Claim's statement key (0412's function over span, kind, polarity, modality, condition presence and value key)
+        # so the evidence view folds duplicates for display; the key is compared, never returned, and no value is shown or projected.
+        '_k5_claim_statement_key',
         # Operator persona 0227 copies the latest erasure step (0145, Claim erasure unchanged) to add the persona tables to the
         # consumer phase; no Claim value is read or projected.
         '_operator_persona',
         # Contact preferences 0228 read the consumer's own preference Claims (predicate vocabulary, polarity, short value) to refuse
         # a contact at dispatch and to show them to the model; never a formal value, nothing projected into business state.
         '_contact_preferences',
+        # S-DUP 0411 splits extraction windows into targets and context (the feed port; no Claim is read). 0412 makes the recorder link an
+        # already recorded identical statement instead of writing it again (it reads span, kind, polarity, modality, condition presence and
+        # value of the same Message's Claims), lets a correction point at an earlier current Claim of the same Conversation and refuses a
+        # Claim citing a context Message; claims stay evidence, nothing becomes formal or is projected.
+        '_extraction_target_context','_extraction_dedupe',
+        # S-DUP-2 0414: when a correction supersedes a Claim, its active duplicates (same 0412 statement key) are superseded too, recorded
+        # by id in ontology.nexloop_claim_supersessions; a governed backfill does the same for earlier corrections. Only resolution_state
+        # changes (evidence kept); nothing becomes formal or is projected.
+        '_claim_duplicate_supersede',
         # Contact channel re-extraction 0408 reads predicate, quote, kind, speaker and source Message of consumer preference/constraint Claims
         # that the 0228 vocabulary cannot read, only to choose extraction windows; it returns Message ids and counts, never a Claim value or
         # quote, writes nothing, and the extractor records new evidence Claims as before (plan claim-to-consumer-property §8.4).

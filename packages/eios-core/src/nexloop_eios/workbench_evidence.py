@@ -150,6 +150,27 @@ class EvidenceViews:
                           '_successors': successors.get(c['claim_id'], [])})
         return items, invisible, erased
 
+    @staticmethod
+    def _fold(items, raw_claims):
+        """Display folding of duplicate Claims (owner decision 2026-11-02; data untouched): among the visible items, those with the
+        same statement key (0412's ontology.nexloop_claim_statement_key, returned by 0413) and the same state are one item, the
+        earliest recorded (the raw order), with duplicate_count. Returns (folded items, alias: folded claim id -> its representative)."""
+        keys = {c['claim_id']: c.get('statement_key') for c in raw_claims}
+        first, folded, alias = {}, [], {}
+        for item in items:
+            key = keys.get(item['claim_id'])
+            rep = first.get((key, item['state'])) if key else None
+            if rep is None:
+                item['duplicate_count'] = 1
+                folded.append(item)
+                if key:
+                    first[(key, item['state'])] = item
+                continue
+            rep['duplicate_count'] += 1
+            rep['_successors'] += [s for s in item['_successors'] if s not in rep['_successors']]
+            alias[item['claim_id']] = rep['claim_id']
+        return folded, alias
+
     # -- A: evidence graph --------------------------------------------------------------------------------------------------------------
     def consumer_evidence(self, *, consumer_id, kind=None, after=None):
         raw = self._observe('consumer_evidence', consumer_id=consumer_id)
@@ -162,6 +183,7 @@ class EvidenceViews:
             raise WorkbenchForbidden('consumer')
         claims, claim_invisible, claim_erased = self._claim_items(raw['claims'], consumer_id, 'consumer_evidence')
         visible_claims = {c['claim_id'] for c in claims}
+        claims, alias = self._fold(claims, raw['claims'])
         all_claims = {c['claim_id'] for c in raw['claims']}
 
         commitments, commitment_invisible = [], 0
@@ -222,11 +244,13 @@ class EvidenceViews:
         listed = {c['claim_id'] for c in shown['claim']}
         edges = []
         for c in shown['claim']:
-            c['successor_claim_ids'] = [s for s in c.pop('_successors') if s in listed][:REF_LIMIT]
+            successors = dict.fromkeys(alias.get(s, s) for s in c.pop('_successors'))
+            c['successor_claim_ids'] = [s for s in successors if s in listed and s != c['claim_id']][:REF_LIMIT]
             edges += [{'source': 'claim:' + c['claim_id'], 'target': 'claim:' + s, 'rel': 'corrected_by'} for s in c['successor_claim_ids']]
         listed_commitments = {}
         for r in shown['commitment']:
             intent = r.pop('_intent')
+            r['claim_id'] = alias.get(r['claim_id'], r['claim_id'])
             if r['claim_id'] not in listed:
                 r['claim_id'] = None
             else:
@@ -236,7 +260,7 @@ class EvidenceViews:
             if a['intent_id'] in listed_commitments:
                 edges.append({'source': 'action:' + a['intent_id'], 'target': 'commitment:' + listed_commitments[a['intent_id']], 'rel': 'fulfils'})
         for d in shown['candidate']:
-            d['dependent_claim_ids'] = [x for x in d['dependent_claim_ids'] if x in listed][:GROUP_LIMIT]
+            d['dependent_claim_ids'] = [x for x in dict.fromkeys(alias.get(x, x) for x in d['dependent_claim_ids']) if x in listed][:GROUP_LIMIT]
             edges += [{'source': 'candidate:' + d['candidate_id'], 'target': 'claim:' + x, 'rel': 'depends_on'} for x in d['dependent_claim_ids']]
         from datetime import UTC, datetime
         return {'consumer_id': consumer_id, 'world': 'real', 'generated_at': datetime.now(UTC).isoformat().replace('+00:00', 'Z'),
