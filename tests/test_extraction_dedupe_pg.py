@@ -130,7 +130,7 @@ def test_sql_refuses_a_claim_citing_a_context_message_even_past_the_client_guard
         import dataclasses
         return real(raw, [dataclasses.replace(m, context=False) for m in messages], context)
     monkeypatch.setattr(claim_store, 'normalize', blind)
-    with pytest.raises(Exception):
+    with pytest.raises(claim_store.ClaimExtractionContextCited):  # its own code, never a denial (claim_store._raise)
         c['run']('g1', [1], answer([1, 2], claim(1, '只接收站内消息可以吗？', 'preference', '联系方式', S('站内消息'))), context=[0])
     assert admin.execute('select count(*) from ontology.nexloop_claims where source_message_id=%s', (c['ids'][0],)).fetchone() == (0,)
 
