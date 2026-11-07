@@ -79,6 +79,7 @@ export function Counts({values,labels,domain,subject='记录'}:{values:Record<st
 /** NX-061 B5: the hour's failure rate only when enough outcomes were decided; otherwise said as not judged, never 0% or 正常. */
 export function OutcomesCard({outcomes}:{outcomes:OutcomeGate|null}){
   return <Card title="运行结果（最近 1 小时）">{outcomes===null?<p className="note" data-gate="no_data">无数据</p>
+    :outcomes.gate==='invalid'?<p className="note" data-gate="invalid">格式无法识别</p>
     :outcomes.gate==='insufficient_data'?<p data-gate="insufficient_data">样本不足（{outcomes.decided}/{outcomes.min_decided}），未判定</p>
     :<p data-gate="measured">失败率 <span className="num">{(outcomes.failure_rate*100).toFixed(1)}%</span>，样本 <span className="num">{outcomes.decided}</span> 个</p>}</Card>;
 }

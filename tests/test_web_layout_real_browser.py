@@ -135,7 +135,7 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # NX-061 B5: the outcome gate on 运行状态; insufficient data is never shown as a rate.
     og = observed['outcome_gate']
     print('outcome_gate', og)
-    assert og['gate'] in ('measured', 'insufficient_data', 'no_data'), og
+    assert og['gate'] in ('measured', 'insufficient_data', 'no_data', 'invalid'), og
     assert og['gate'] != 'insufficient_data' or ('未判定' in og['text'] and '%' not in og['text']), og
     assert og['gate'] != 'no_data' or og['text'] == '无数据', og
     k4l = observed['k4l']

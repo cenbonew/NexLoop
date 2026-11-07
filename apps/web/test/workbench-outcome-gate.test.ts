@@ -4,7 +4,7 @@
 import {createElement as h,act} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {afterEach,beforeEach,expect,test} from 'vitest';
-import {WorkbenchError,outcomeGate} from '../src/workbench/api';
+import {outcomeGate} from '../src/workbench/api';
 import {OutcomesCard} from '../src/workbench/pages/Observability';
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
@@ -16,12 +16,12 @@ const block=(decided:number,rate:number)=>({...older,decided,failure_rate:rate,m
   gate:decided>=10?'measured':'insufficient_data',insufficient_data:decided>=10?0:1});
 const show=(value:unknown)=>{act(()=>root.render(h(OutcomesCard,{outcomes:outcomeGate(value)})));return box.querySelector('[data-gate]')!;};
 
-test('parser: the gate as served; no block or an older block without gate is null; a measured gate without a number is refused',()=>{
+test('parser: the gate as served; no block or an older block without gate is null; a malformed block is invalid, never thrown',()=>{
   expect(outcomeGate(block(12,0.25))).toEqual({gate:'measured',decided:12,min_decided:10,failure_rate:0.25});
   expect(outcomeGate(block(3,0))).toEqual({gate:'insufficient_data',decided:3,min_decided:10});
   expect(outcomeGate(undefined)).toBeNull();expect(outcomeGate(older)).toBeNull();
-  expect(()=>outcomeGate({...block(12,0.25),failure_rate_gated:null})).toThrow(WorkbenchError);
-  expect(()=>outcomeGate({...block(3,0),gate:'within'})).toThrow(WorkbenchError);
+  expect(outcomeGate({...block(12,0.25),failure_rate_gated:null})).toEqual({gate:'invalid'});
+  expect(outcomeGate({...block(3,0),gate:'within'})).toEqual({gate:'invalid'});expect(outcomeGate('x')).toEqual({gate:'invalid'});
 });
 
 test('measured shows the rate and samples; insufficient data is not judged and shows no rate; no data says 无数据',()=>{
@@ -29,4 +29,8 @@ test('measured shows the rate and samples; insufficient data is not judged and s
   const i=show(block(3,0));expect(i.getAttribute('data-gate')).toBe('insufficient_data');expect(i.textContent).toBe('样本不足（3/10），未判定');
   expect(box.textContent).not.toContain('%');expect(box.textContent).not.toContain('正常');
   expect(show(undefined).textContent).toBe('无数据');expect(show(older).textContent).toBe('无数据');expect(box.textContent).not.toContain('%');
+});
+
+test('an invalid block says 格式无法识别',()=>{
+  const v=show({...block(3,0),gate:'within'});expect(v.getAttribute('data-gate')).toBe('invalid');expect(v.textContent).toBe('格式无法识别');
 });

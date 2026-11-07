@@ -751,14 +751,17 @@ export function metrics(value:unknown):Metrics{
 }
 /** NX-061 B5 (0418): the failure rate is judged only on at least min_decided decided outcomes of the hour. Without an outcomes block, or
  * an older snapshot without `gate`, there is nothing judged: null (无数据). Insufficient data is never a rate of 0. */
-export type OutcomeGate={gate:'measured';decided:number;min_decided:number;failure_rate:number}|{gate:'insufficient_data';decided:number;min_decided:number};
+export type OutcomeGate={gate:'measured';decided:number;min_decided:number;failure_rate:number}|{gate:'insufficient_data';decided:number;min_decided:number}|{gate:'invalid'};
+/** A malformed block is its own state (invalid, 格式无法识别) and never fails the rest of the metrics read (AT-045: no guilt by association). */
 export function outcomeGate(value:unknown):OutcomeGate|null{
   if(value===undefined||value===null)return null;
-  const o=object(value);if(o.gate===undefined)return null;
-  const gate=oneOf(o.gate,['measured','insufficient_data'] as const);const decided=count(o.decided),min_decided=count(o.min_decided);
-  if(gate==='insufficient_data')return {gate,decided,min_decided};
-  if(typeof o.failure_rate_gated!=='number')throw new WorkbenchError('invalid');
-  return {gate,decided,min_decided,failure_rate:o.failure_rate_gated};
+  try{
+    const o=object(value);if(o.gate===undefined)return null;
+    const gate=oneOf(o.gate,['measured','insufficient_data'] as const);const decided=count(o.decided),min_decided=count(o.min_decided);
+    if(gate==='insufficient_data')return {gate,decided,min_decided};
+    if(typeof o.failure_rate_gated!=='number')throw new WorkbenchError('invalid');
+    return {gate,decided,min_decided,failure_rate:o.failure_rate_gated};
+  }catch{return {gate:'invalid'};}
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
 /** The real dispatch switches from the same metrics read (states and revisions only, 0153). */
