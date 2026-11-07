@@ -254,6 +254,11 @@ def test_cli_dispatch_loops_share_the_queue_each_task_claimed_once(accepted_inpu
     tasks=(accepted['task_id'],following['task_id'])
     with stack(pg,tmp_path,synthetic_credentials) as (runtime,_,arguments,_):
         arguments[arguments.index('--poll-seconds')+1]='1';arguments+=['--dispatch-loops','2']
+        # Each task is claimed exactly once (fence 1, one running event): a Host request past a 1 s --request-timeout under load
+        # (two Runs at once) ends the attempt runtime_transport_timeout and the task is retried at fence 2, a different path. The
+        # per-request bound is not what this test measures; 5 s stays inside --total-timeout 10, and the dispatcher requires a
+        # request timeout of at most a third of the lease, so the lease is 15 s.
+        arguments[arguments.index('--request-timeout')+1]='5';arguments[arguments.index('--lease-seconds')+1]='15'
         with worker_process(arguments) as (process,out,err):
             # Both Runs in flight at once is a condition on the shared queue, not a time: polled, with a ceiling
             # far above an unloaded run (about 2 s) so only a loop that never claims fails.
