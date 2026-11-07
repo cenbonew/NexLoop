@@ -103,13 +103,68 @@ def settle(executor,provider):
         return result
 
 
+def _run_worker_finalize_unavailable_once(configuration,origin,pipe):
+    # The terminal settle's first catalog read (in the finalization) meets AuthorizationUnavailable once, as a loaded PG's authority
+    # read does (authorization.py folds any error into it): the product keeps the observation and defers the finalization.
+    from nexloop_eios.authorization import AuthorizationUnavailable
+    from nexloop_eios.effect_execution import EffectExecutionPort
+    from test_effect_dispatch import _run_worker
+    original=EffectExecutionPort._catalog_envelope;calls=[]
+    def once(self,metadata):
+        calls.append(1)
+        if len(calls)==1:raise AuthorizationUnavailable('injected once')
+        return original(self,metadata)
+    EffectExecutionPort._catalog_envelope=once
+    _run_worker(configuration,origin,pipe)
+
+
+@contextmanager
+def finalize_unavailable_worker(fixture,origin):
+    import multiprocessing
+    context=multiprocessing.get_context('spawn');parent,child=context.Pipe()
+    process=context.Process(target=_run_worker_finalize_unavailable_once,args=(fixture.executor_configuration(),origin,child))
+    process.start();child.close()
+    try:
+        assert parent.poll(15) and parent.recv()=={'event':'worker_ready'}
+        yield process,parent
+    finally:
+        if process.is_alive():process.kill()
+        process.join(10);parent.close();assert not process.is_alive()
+
+
+def settle_fulfilled(executor,provider,admin,intent,*,unavailable_once=False):
+    """The terminal settle, then convergence: a settle whose finalization meets unavailable authority stops at observed_fulfilled
+    (evidence kept, no business success, outbox still leased); once that lease ends (an explicit state, polled) the next worker
+    claims the intent in the reconcile stage, queries the provider again and finalizes. Returns (result, provider GETs made)."""
+    if unavailable_once:
+        with finalize_unavailable_worker(executor,provider.origin) as (process,pipe):
+            assert pipe.poll(15);result=pipe.recv();process.join(10)
+            assert process.exitcode==0 and result['event']=='settled' and result['claimed'] is True
+    else:result=settle(executor,provider)
+    gets=1
+    while result['status']=='observed_fulfilled':
+        assert gets<3 and result['provider_state']=='fulfilled' and result['business_action_success'] is False
+        observed=admin.execute('select i.state,i.governed_claim_finalized,o.state from runtime.nexloop_effect_intents i join runtime.nexloop_effect_outbox o using(intent_id) where i.intent_id=%s',(intent,)).fetchone()
+        assert observed==('observed_fulfilled',False,'leased'),observed
+        await_lease_ended(admin,intent)
+        result=settle(executor,provider);gets+=1
+    return result,gets
+
+
+def await_lease_ended(admin,intent):
+    deadline=time.monotonic()+10
+    while admin.execute('select lease_until>clock_timestamp() from runtime.nexloop_effect_outbox where intent_id=%s',(intent,)).fetchone()[0]:
+        assert time.monotonic()<deadline;time.sleep(.05)
+
+
 def await_available(admin,intent):
     deadline=time.monotonic()+5
     while admin.execute('select available_at>clock_timestamp() from runtime.nexloop_effect_outbox where intent_id=%s',(intent,)).fetchone()[0]:
         assert time.monotonic()<deadline;time.sleep(.05)
 
 
-def test_same_message_pi_effect_worker_and_current_human_receipt(receipt_plan,admin,tmp_path):
+@pytest.mark.parametrize('finalize_unavailable_once',[False,True],ids=['finalized','finalize_deferred_then_reconciled'])
+def test_same_message_pi_effect_worker_and_current_human_receipt(receipt_plan,admin,tmp_path,finalize_unavailable_once):
     f=receipt_plan;command=f['command'];runtime,key=files(tmp_path)
     guard_key=tmp_path/'guard-key';guard_key.write_text(secrets.token_hex(32));guard_key.chmod(0o600)
     assert f['receipt_query']()=={'message_id':f['message']['id'],'run':None,'receipt':None}
@@ -150,13 +205,14 @@ def test_same_message_pi_effect_worker_and_current_human_receipt(receipt_plan,ad
                     # Fulfillment is a real independent provider ledger change;
                     # only actual subsequent HTTP GET supplies PG observation.
                     provider.control('fulfill',intent_id=intent);await_available(admin,intent)
-                    terminal=settle(executor,provider)
+                    terminal,gets=settle_fulfilled(executor,provider,admin,intent,unavailable_once=finalize_unavailable_once)
+                    if finalize_unavailable_once:assert gets==2
                     assert terminal['status']=='fulfilled' and terminal['provider_state']=='fulfilled' and terminal['business_action_success'] is True
                     final=f['receipt_query']()['receipt']
                     assert final['intent_id']==intent and final['receipt_id']==receipt_id and final['state']=='fulfilled'
                     assert final['provider_state']=='fulfilled' and final['governed_claim_finalized'] is True and final['business_action_success'] is True
                     snapshot=provider.control('snapshot')
-                    assert snapshot['effects']==1 and snapshot['requests']==[('POST',intent,202),('GET',intent,200)]
+                    assert snapshot['effects']==1 and snapshot['requests']==[('POST',intent,202)]+[('GET',intent,200)]*gets
                     assert snapshot['persistence']=={'journal_mode':'wal','synchronous':2}
                     principal=f['issued'].session.principal_id
                     replace_fact(admin,f['tenant'],'grants',[principal,'eios:function:'+FUNCTION+':1'],F.GrantFacts,grants=[])

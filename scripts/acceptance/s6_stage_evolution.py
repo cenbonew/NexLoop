@@ -17,6 +17,14 @@ writes a formal object; L1 runs are the D16 synthetic stand-in. Registering prin
     (r7: prepare, then the owner erases the synthetic Consumer with scripts/deploy/erase_synthetic_consumer.py, then verify;
      candidate-template writes inputs.candidate_template, the open candidate body L2's NX-040 checks start from)
 
+    candidate-template --mode schema_only --property Type.property   (owner 2026-11-07, docs/implementation/schema-only-candidate-template.md)
+    An owner-directed Schema proposal (a property in inputs.owner_directed_properties) skips "the candidate comes from a failure": the
+    diagnosis takes every synthetic Run of the window, clustered by Consumer (near duplicates joined), at least 2 units; the candidate's
+    category is owner_directed_schema (0419: ontology_schema only). The template file is {mode, property, decision, created_at, body};
+    only s6_stage_schema.py r8 accepts it - every acceptance check here refuses a configuration whose candidate_template is one. The
+    snapshot digest also covers the mode, the property and the generation time, so a regenerated template opens a new diagnosis (the
+    30-minute deadline of the old one passes on its own); a rerun of the same step opens one more diagnosis, which is normal.
+
 Configuration (s6_common, nexloop-s6-stage/1; deploy/examples/s6-stage.example.json): roles.writer / roles.evaluator
 {dsn_file, token_file}, roles.reader {dsn_file, token_file}, roles.inspector {dsn_file}, roles.evaluation {token_file} (the
 test-only evaluation credential), roles.registrar {dsn_file} (optional, R5's registration negative only); inputs.evolution {window
@@ -68,6 +76,8 @@ ACCEPTANCE = {'at046': ['AT-046'], 'r5': ['S6-R5'], 'at048': ['AT-048'], 'r4': [
               'r7-prepare': ['S6-R7'], 'r7-verify': ['S6-R7'], 'candidate-template': ['AT-024', 'S6-R8', 'S6-R10']}
 HEX = re.compile(r'[0-9a-f]{64}')
 LABEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
+SCHEMA_ONLY = 'schema_only'
+OWNER_DIRECTED = 'owner_directed_schema'  # the candidate category of 0419 (ontology_schema only)
 Refused = C.Refused
 
 
@@ -122,13 +132,14 @@ def load_config(path):
     template = inputs.get('candidate_template')
     if template is not None and (type(template) is not str or not os.path.isabs(template)):
         raise Refused('inputs.candidate_template: an absolute path')
+    owner_directed = C.owner_directed_properties(inputs)
     connections = {n: v['dsn_file'] for n, v in rw.items()} | {'inspector': inspector['dsn_file']} | ({'registrar': registrar['dsn_file']} if registrar else {})
     credentials = {n: v['token_file'] for n, v in rw.items()} | {'evaluation': evaluation['token_file']}
     ev = {'connections': connections, 'credentials': credentials, 'window': {'since': since, 'until': until}, 'personas': e['personas'],
           'label': e['label'], 'parent_revision': e['parent_revision'], 'evaluator_version': e['evaluator_version'], 'model_profile': e['model_profile'],
           'created_at': e['created_at'], 'l0_inputs': e['l0_inputs'], 'protected_refs': e['protected_refs'],
           'erasure': {'consumer_id': e['erasure_consumer_id']}, 'state_dir': str(Path(config['results_dir']) / 'state'), 'tenant_id': config['tenant_id'],
-          'candidate_template': template, 'extraction_file': extraction_file}
+          'candidate_template': template, 'extraction_file': extraction_file, 'owner_directed': owner_directed}
     return config, ev
 
 
@@ -308,6 +319,8 @@ class Stage:
         return hashlib.sha256(f"{self.cfg['label']}:{label}".encode()).hexdigest()[:32]
 
     def propose(self, draft):
+        if draft.category == OWNER_DIRECTED:  # an acceptance check never proposes an owner-directed candidate
+            raise Refused('an owner_directed_schema candidate is not acceptance evidence')
         diag = self.writer.open_diagnosis(self.inputs()['diagnosis'], self.inputs()['samples'], parent_revision=self.cfg['parent_revision'],
                                           evaluator_version=self.cfg['evaluator_version'], model_profile=self.cfg['model_profile'])
         return diag, self.writer.propose(diagnosis_id(self.inputs()['diagnosis'].snapshot_digest), draft)
@@ -667,6 +680,85 @@ def candidate_template(st, r):
 COMMANDS['candidate-template'] = candidate_template
 
 
+def template_mode(path):
+    """The mode of the configured candidate template: 'schema_only' for an owner-directed one, None for a plain body or no file."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        value = json.loads(read_private_text(path, maximum=1048576))
+    except (ValueError, OSError):
+        return None
+    return value.get('mode') if type(value) is dict and 'body' in value else None
+
+
+def schema_only_template(st, r, prop):
+    """The owner-directed Schema template (owner 2026-11-07): every synthetic Run of the window, by Consumer, no failure needed."""
+    from nexloop_eios.evolution.attribution import MAXIMUM_ROUNDS, freeze_digest, split_cases
+    path = st.cfg.get('candidate_template')
+    if not path:
+        raise Precondition('inputs.candidate_template: the path to write is not configured')
+    cfg = st.cfg
+    read = st.reader.read(cfg['window']['since'], cfg['window']['until'], personas=tuple(cfg['personas']))
+    samples = [x for x in read.samples if x.get('run_id') and not x.get('test_stack')]
+    runs = {x['run_id'] for x in samples}
+    with st.connect['reader']() as db:
+        rows = db.execute('select authz.nexloop_semantic_access_read(%s,%s,%s,%s)',
+                          (_digest_of(cfg['credentials']['reader']), 'real', cfg['window']['since'], 1000)).fetchone()[0]
+    accesses = [a for a in rows if a.get('run_id') in runs]
+    consumer = {x['run_id']: x.get('consumer_id') for x in samples}
+    clusters = {run: ('consumer:' + consumer[run]) if consumer[run] else 'run:' + run for run in sorted(runs)}  # AT-048's _cluster
+    terms = {}
+    for a in accesses:
+        if a.get('kind') == 'access':
+            terms.setdefault(a['run_id'], set()).update(a.get('term_hashes') or [])
+    parent = {c: c for c in set(clusters.values())}
+
+    def find(x):
+        while parent[x] != x:
+            x = parent[x]
+        return x
+    for a, b in itertools.combinations(sorted(terms), 2):  # near duplicates (the evaluation's open check 3) are one unit
+        if terms[a] and terms[a] == terms[b]:
+            parent[find(clusters[a])] = find(clusters[b])
+    groups = {run: find(c) for run, c in clusters.items()}
+    units = len(set(groups.values()))
+    r.step('inputs', True, runs=len(runs), accesses=len(accesses), units=units, mode=SCHEMA_ONLY)
+    if units < 2:
+        raise Precondition(f'{units} cluster units of synthetic Runs in the window; a schema_only template needs at least 2 (design and validation)')
+    generated = datetime.now(UTC).isoformat().replace('+00:00', 'Z')
+    ref = f"{prop['type_name']}.{prop['property_name']}"
+    # The snapshot digest covers the mode, the property and the generation time: a regenerated template opens a new diagnosis.
+    digest = hashlib.sha256(f'{freeze_digest(samples, accesses)}|{SCHEMA_ONLY}|{ref}|{generated}'.encode()).hexdigest()
+    design, validation, regroups = split_cases(groups, digest + ':' + SCHEMA_ONLY)
+    cid = str(uuid.uuid5(uuid.NAMESPACE_URL, f'nexloop:evolution:{digest}:{OWNER_DIRECTED}:{ref}'))
+    scope = [f"eios:object_type:{prop['type_name']}", f"eios:property:{prop['type_name']}.{prop['property_name']}"]
+    cases = design + validation
+    candidate = {'schema_version': '1.0', 'candidate_id': cid, 'tenant_id': st._tenant(), 'parent_revision': cfg['parent_revision'],
+                 'candidate_revision': f"{cfg['parent_revision']}+own.{cid[:8]}", 'dimension': 'ontology_schema',
+                 'primary_hypothesis': f'owner-directed Schema proposal: add {ref} ({prop["decision"]}); no failure signal is claimed.',
+                 'patch_artifact_ref': 'evolution-patch:pending', 'input_snapshot_digest': digest, 'design_case_ids': design,
+                 'validation_case_ids': validation, 'evaluator_version': cfg['evaluator_version'], 'model_profile': cfg['model_profile'],
+                 'maximum_rounds': MAXIMUM_ROUNDS, 'allowed_change_scope': scope, 'status': 'proposed', 'publication_permit_ref': None,
+                 'created_at': cfg['created_at']}
+    body = {'diagnosis_id': diagnosis_id(digest), 'candidate': candidate, 'category': OWNER_DIRECTED,
+            'patch': {'change_kind': 'add_optional_property', 'target_refs': [scope[0]], 'term_hashes': [], 'run_ids': cases},
+            'case_groups': {c: groups[c] for c in cases}, 'regroups': regroups,
+            'source_consumer_ids': sorted({consumer[c] for c in cases if consumer[c]})}
+    r.step('plan', True, candidate=cid, design=len(design), validation=len(validation))
+    if r.dry_run:
+        return
+    diagnosis = attribute(samples, accesses)
+    diagnosis = type(diagnosis)(digest, diagnosis.attributions, {**diagnosis.counts, SCHEMA_ONLY: 1}, diagnosis.weak_tool_signals, diagnosis.marked)
+    st.writer.open_diagnosis(diagnosis, samples, parent_revision=cfg['parent_revision'], evaluator_version=cfg['evaluator_version'],
+                             model_profile=cfg['model_profile'])
+    wrapper = {'mode': SCHEMA_ONLY, 'property': {'type_name': prop['type_name'], 'property_name': prop['property_name']},
+               'decision': prop['decision'], 'created_at': generated, 'body': body}
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        json.dump(wrapper, stream)
+    r.check('schema_only template written (the diagnosis is open for 30 minutes)', True, os.path.isfile(path))
+
+
 def run_command(stage, config, command, dry_run, out):
     r = Result(command, config, dry_run)
     try:
@@ -688,13 +780,38 @@ def main(argv=None, out=sys.stdout):
     p.add_argument('check', choices=sorted(COMMANDS) + ['all'])
     p.add_argument('--config', required=True)
     p.add_argument('--dry-run', action='store_true')
+    p.add_argument('--mode', choices=['default', SCHEMA_ONLY], default='default', help='candidate-template only')
+    p.add_argument('--property', help='with --mode schema_only: Type.property, one of inputs.owner_directed_properties')
     a = p.parse_args(argv)
     try:
         config, ev = load_config(a.config)
+        if (a.mode == SCHEMA_ONLY or a.property) and a.check != 'candidate-template':
+            raise Refused('--mode schema_only / --property go with candidate-template')
+        prop = None
+        if a.mode == SCHEMA_ONLY:
+            prop = next((x for x in ev['owner_directed'] if a.property and f"{x['type_name']}.{x['property_name']}" == a.property), None)
+            if prop is None:
+                raise Refused('--property: a Type.property listed in inputs.owner_directed_properties (the owner\'s decision)')
+        elif a.property:
+            raise Refused('--property goes with --mode schema_only')
+        if a.mode != SCHEMA_ONLY and template_mode(ev['candidate_template']) == SCHEMA_ONLY:
+            # An owner-directed template is for the Schema proposal (s6_stage_schema.py r8) alone, never acceptance evidence.
+            raise Refused('inputs.candidate_template is a schema_only template: it is for owner-directed Schema proposals (r8) only, '
+                          'never for an acceptance check')
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2
     stage = Stage(ev)
+    if prop is not None:
+        r = Result('candidate-template', config, a.dry_run)
+        try:
+            stage.roles(r)
+            schema_only_template(stage, r, prop)
+        except Precondition as error:
+            r.block('precondition', str(error))
+        except psycopg.Error as error:
+            r.res.step('database refusal', None, C.refusal(error), False)
+        return r.write(out)
     codes = [run_command(stage, config, c, a.dry_run, out) for c in (ALL if a.check == 'all' else (a.check,))]
     return max(codes)
 

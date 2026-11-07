@@ -132,6 +132,17 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert 'xiaohe@1' in observed['persona']['consumer'] and '租户默认' in observed['persona']['consumer'], observed['persona']
     # K4l: the WebChat Consumer has no property value: said as "no value yet" (not as a permission); the Object page collapses the
     # columns empty on the page, keeps Object and the record columns, and 显示空列 brings the property columns back.
+    # NX-061 B5: the outcome gate on 运行状态; insufficient data is never shown as a rate.
+    og = observed['outcome_gate']
+    print('outcome_gate', og)
+    assert og['gate'] in ('measured', 'insufficient_data', 'no_data', 'invalid'), og
+    assert og['gate'] != 'insufficient_data' or ('未判定' in og['text'] and '%' not in og['text']), og
+    assert og['gate'] != 'no_data' or og['text'] == '无数据', og
+    bh = observed['budget_health']
+    print('budget_health', bh)
+    assert bh['state'] in ('ok', 'yellow', 'red', 'no_data', 'invalid'), bh
+    assert bh['state'] != 'red' or 'approver3 set_budget' in bh['text'], bh
+    assert bh['state'] != 'no_data' or bh['text'] == '无数据', bh
     k4l = observed['k4l']
     assert '这位客户还没有任何属性值' in k4l['consumer_props'] and '读取权限' not in k4l['consumer_props'], k4l
     # K5 §2.3: the profile card leads with the upcoming commitments, then the properties under the object revision.

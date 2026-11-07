@@ -148,3 +148,11 @@ test('C6: the alerts page has a lead, says "真实数据", and shows the silence
   expect(page(operator,alertsBody(false))).not.toContain('>静默告警</h2>');
   expect(page(owner,{...alertsBody(false),firing:[]})).not.toContain('>静默告警</h2>');
 });
+
+test('operations: an outcomes block with an unknown gate is its own card state; the other cards render as usual (AT-045)',()=>{
+  const m=metrics({...metricsBody,outcomes:{decided:3,min_decided:10,failure_rate_gated:null,gate:'within',insufficient_data:1}});
+  expect(m.outcomes).toEqual({gate:'invalid'});
+  const html=render(client([[['workbench','metrics'],m]]),h(Operations,{}));
+  expect(html).toContain('data-gate="invalid"');expect(html).toContain('格式无法识别');
+  expect(html).toContain('超时率 3.00%');expect(html).toContain('备份记录暂不可用');expect(html).toContain('<span title="NXC01">已暂停</span>');
+});

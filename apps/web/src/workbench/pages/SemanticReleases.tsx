@@ -8,7 +8,7 @@
  */
 import {useState} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {kindOf,readSemanticReleases,readSemanticReview,type PublishableCandidate,type ReleaseWatch,type ReviewCandidate,type SemanticRelease,type SemanticReview} from '../api';
+import {kindOf,readSemanticReleases,readSemanticReview,type EvoCategory,type PublishableCandidate,type ReleaseWatch,type ReviewCandidate,type SemanticRelease,type SemanticReview} from '../api';
 import {ConfirmedForm,Form,WithMember} from '../actions';
 import {offers,readMe} from '../api';
 import {DataTable} from '../DataTable';
@@ -140,6 +140,15 @@ export function niText(c:ReviewCandidate):string{
 
 /** The review queue: each candidate's latest report as the evaluator wrote it. Codes are Chinese labels; the change class is the
  * evaluator's classify_change result, shown and never set here (D39-7); digests and counts only (D39-11). */
+export const CATEGORY_TEXT:Record<string,string>={retrieval_miss:'检索未命中',ambiguity_unresolved:'歧义未解决',owner_directed_schema:'负责人指定'};
+export const OWNER_DIRECTED_NOTE='负责人指定加的属性，不是从失败中归纳的候选；证据是快照里的属性使用。人工审核和发布许可照常，门槛不变';
+/** The candidate's category; an unknown one shows its raw text with 未识别类别, never an error. */
+export function CategoryBadge({category}:{category:EvoCategory|null}){
+  if(!category)return null;
+  if(!category.known)return <span className="evo-category" data-category="unknown"><StatusBadge text={`${category.code}（未识别类别）`} tone="neutral" code={category.code}/></span>;
+  return <span className="evo-category" data-category={category.code} title={category.code==='owner_directed_schema'?OWNER_DIRECTED_NOTE:undefined}>
+    <StatusBadge text={CATEGORY_TEXT[category.code]} tone={category.code==='owner_directed_schema'?'pending':'neutral'} code={category.code}/></span>;
+}
 export function ReviewQueue(){
   const query=useQuery({queryKey:['workbench','semantic-review'],queryFn:readSemanticReview});
   return <Card title="评估与审核" label="评估与审核">
@@ -158,7 +167,7 @@ export function ReviewBody({review}:{review:SemanticReview}){
       <StopForm dimension={s.dimension} stopped={s.stopped}/></li>)}</ul>:<EmptyState kind="empty" subject="开放的演进维度" compact/>}
     <h3>评估报告</h3>
     {review.candidates.length?<DataTable label="评估报告" rows={review.candidates} rowKey={c=>c.candidate_id} columns={[
-      {label:'候选',main:true,cell:c=><IdText value={c.candidate_id} kind="候选"/>},
+      {label:'候选',main:true,cell:c=>c.category?<><IdText value={c.candidate_id} kind="候选"/> <CategoryBadge category={c.category}/></>:<IdText value={c.candidate_id} kind="候选"/>},
       {label:'状态',cell:c=><><StatusBadge domain="evo_candidate_status" code={c.status}/>{c.end_reason?<span className="kv-hint">{statusLabel('evo_end_reason',c.end_reason)}</span>:null}</>},
       {label:'结论',cell:c=><><StatusBadge domain="evo_conclusion" code={c.conclusion}/>{c.reason?<span className="kv-hint">{statusLabel('evo_report_reason',c.reason)}</span>:null}</>},
       {label:'分级',cell:c=>c.change_class?<span title="由评估器评定，不能修改"><StatusBadge domain="evo_change_class" code={c.change_class}/></span>:'—'},
@@ -169,6 +178,7 @@ export function ReviewBody({review}:{review:SemanticReview}){
 }
 export function ReportDetail({c}:{c:ReviewCandidate}){
   return <details className="report-detail"><summary>{c.level} 报告 · {statusLabel('evo_dimension',c.dimension)}{c.published_version?` · 已发布为 v${c.published_version}`:''}</summary>
+    {c.category?<KeyValue label="候选类别" items={[{key:'类别',value:<><CategoryBadge category={c.category}/>{c.category.code==='owner_directed_schema'?<span className="kv-hint">{OWNER_DIRECTED_NOTE}</span>:null}</>}]}/>:null}
     <KeyValue label="门槛逐项结论" items={c.gates.map(g=>({key:statusLabel('evo_gate',g.gate),value:<StatusBadge domain="evo_gate_result" code={g.result}/>}))}/>
     <KeyValue label="指标与判定" items={[
       {key:'非劣判定',value:niText(c)},{key:'歧义率',value:pct(c.scores.ambiguity_rate)},{key:'回归数',value:c.scores.regressions??'—'},

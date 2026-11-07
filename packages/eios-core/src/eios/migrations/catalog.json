@@ -2085,6 +2085,31 @@
       "version": "0417",
       "name": "0417_workbench_property_sources.sql",
       "sha256": "e3ba9761483877b21d8adcd7c55a8553de682ad32fe415b783faa75ac0f88049"
+    },
+    {
+      "version": "0418",
+      "name": "0418_outcome_failure_rate_gate.sql",
+      "sha256": "67b3f0164eeb364340e6123dbf93aa88c4631c32fe88f6dfe4c0c9f6083679d2"
+    },
+    {
+      "version": "0419",
+      "name": "0419_evo_owner_directed_schema.sql",
+      "sha256": "44426df32984e0b0183e895d8153f516f5d9eec9d396b07be3bbf66730decba5"
+    },
+    {
+      "version": "0420",
+      "name": "0420_evo_review_summary_category.sql",
+      "sha256": "a28953802eb9d866ee5daf06494de9d44b0bf8f4d6c5c9518794d8ed84f25d98"
+    },
+    {
+      "version": "0421",
+      "name": "0421_relation_read_only.sql",
+      "sha256": "09b04317e9f578c67e259e6fff3ecd8ca5f1da51d91b4f00c4900ba6ed8ed12e"
+    },
+    {
+      "version": "0422",
+      "name": "0422_budget_health.sql",
+      "sha256": "c6ae4f8bbb497d626f246ae2404d9d7e91d7f9f31b7dff624abb55504647ace0"
     }
   ]
 }
