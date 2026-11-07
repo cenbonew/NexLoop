@@ -15,7 +15,7 @@
 ## 2. 决定
 
 1. **故障点在 Agent Host 发起模型请求之前**：
-   - 命中时，这一次模型调用直接以模型错误结束，Run 记 `model.failed > 0`；
+   - 命中时，Host 在**登记这次模型调用之前**就让 Run 失败，Run 的 failure 记为 `synthetic_model_fault`；不再记 `model.failed`，以免伪造一条 provider 结果记录（调度员 2026-11-07 同意）；
    - 不调用任何工具，不发任何效应，不产生不明结果，因此也没有要对账的东西。
    - 失败口径不变：这些 Run 按现行规则算作 error 失败。
 2. **只对测试顾客生效，由服务端判定，只在 Run 首次 start 时判定一次，resume 沿用首次结果**：
@@ -27,11 +27,13 @@
    - 打开时必须给出 Consumer 名单（1–8 个）、剩余次数 N（1–50）、有效时长（最长 2 小时）；
    - 次数用完或到期，开关自动失效，不需要人工关闭；
    - 每次打开、关闭、命中、失效都写入只追加的审计表。
-4. **生产隔离**：真正的依据是**生产库没有这个 Action、开关表是空的**，每次生产发布后只读确认（L6）。下面两道只是补充：Host 的运行档案限制挡不住生产（生产也可能是 deepseek-flash 加 real），check_publication 也看不到私有的运行时配置。
-   - 具体做法：
-     - Action 只出现在 stage 专用的发布清单里；
-     - Host 只有在运行时配置写了 stage 专用键 `synthetic_model_fault: true` 时，才执行准入应答带来的故障标记；没有这个键时，带标记的准入一律拒绝；
-     - check_publication 新增一条规则：stage 部署文件之外，任何公开文件出现这个键或这个 Action 都拒绝（同 ADR-043 的做法）。
+4. **生产隔离：生产库里没有这个 Action**（L6；调度员 2026-11-07 选定 (A)）：
+   - **机制是 stage 专用能力清单** `deploy/stage/capabilities.stage.v1.json`，这个 Action 只在这份清单里，不进系统目录 `deploy/configuration/capabilities.v1.json`；
+   - 只有 `scripts/deploy/stage_secrets.py publish` 在显式带上 `--stage-capabilities` 时才合并它，并且在发布记录里写明合并了哪份 stage 清单（文件名和 sha256）；
+   - 其他发布入口（`catalog_publish` 的通用入口、部署工具）遇到 `deploy/stage/` 下的清单一律拒绝；
+   - check_publication 新增规则：`deploy/stage/` 之外的部署文件引用这份清单、`synthetic_model_fault` 键或这个 Action，都拒绝；
+   - 每次生产发布后只读确认：Action 定义 0 行，开关表、判定表、审计表都是 0 行。
+   - Host 的运行时配置键 `synthetic_model_fault` 只是补充：生产也可能是 deepseek-flash 加 real，所以档案限制挡不住生产；check_publication 也看不到私有的运行时配置。
 5. **这是对 ADR-034 §2 第 4 条（"persona 不改变受治理路径"）的一个受控例外**：
    - 只在负责人打开开关、并且在有效期内才生效；
    - 只让测试顾客的模型调用失败，不放宽任何授权、联系限制、预算或派发约束；
@@ -40,6 +42,7 @@
 ## 3. 理由与代价
 
 否决的替代：
+- **Action 放进系统目录，在生产上发布但用部署开关挡住（ADR-043 的做法）**：隔离依据就从"生产库没有这个 Action"退化成"靠开关挡住"，攻击面留在了生产上，和 L6 的判定对不上（调度员 2026-11-07 否决）。
 - **参考端点延迟演练**：不明结果会被查询和对账收敛，Run 不失败（2026-11-07 实测）。
 - **同时让对账失败（`--get-unavailable-seconds`）**：违背"不明结果先对账"，而且是用"不明"演练去伪造失败结局。
 - **改失败口径**：负责人 10-29 决定不改。
@@ -53,7 +56,7 @@
 
 - 迁移 0423（临时号）：开关表、审计表、Action 的 SQL 入口、准入函数的重定义（登记 copy guard）、快照块。
 - Agent Host：新增一个运行时配置键，模型请求前加一处检查。
-- stage 发布清单：新增这个 Action。
+- 新增 stage 专用能力清单 `deploy/stage/capabilities.stage.v1.json`（只含这个 Action），`stage_secrets publish --stage-capabilities` 合并它并写进发布记录。
 - 新增 check_publication 规则。
 - 运行单：`docs/release/run-synthetic-model-fault.md`（草稿）。
 - 契约不变：准入应答是内部的 SQL、守卫、Host 通道，不在 `packages/contracts` 里。

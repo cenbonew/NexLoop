@@ -1,6 +1,6 @@
 # 设计：测试顾客的模型调用故障开关（ADR-045）
 
-- **状态**：设计稿 v2（v1 b2f7225a 由 L6 判条件 PASS；D1–D4 及生产隔离依据见 §8），待 L6 再看一眼，通过后实现。作者：L7。依据：main 7cee60cc。迁移临时号 0423（0421 为第 129 批，0422 为 L2 的预算健康）。
+- **状态**：设计稿 v3（v2 7d1a4de1 由 L6 判 PASS；v3 的增量是 stage 专用能力清单和 Host 的失败位置，见 §8 v3），待 L6 看这一处增量。作者：L7。依据：main 7cee60cc。迁移临时号 0423（0421 为第 129 批，0422 为 L2 的预算健康）。
 - **目标**：
   - 在 stage 上让指定测试顾客的若干个消息 Run 真的失败（outcome error），失败口径不变，从而满足 NX-038/039 验收的前提 P5；
   - 不发效应，不碰对账，真实顾客不受任何影响，不进入生产配置。
@@ -19,7 +19,7 @@
   1. world 为 real，Run 是消息 Run（`runtime.nexloop_message_routes` 里有它）；
   2. 这个 Run 的 Consumer 经 `runtime.nexloop_evo_run_consumer` 得出，persona 经 `runtime.nexloop_consumer_persona` 得出，属于 `synthetic` 或 `simulated_agent`；
   3. 租户有一个打开的开关：`closed_at is null`，现在早于 `expires_at`，`remaining > 0`，并且这个 Consumer 在开关的 `consumer_ids` 里；
-  4. **只在首次 start 时判定（D2）**：判定结果（命中或未命中）按 run_id 写入 `runtime.nexloop_synthetic_fault_decisions(run_id, injected boolean)`；resume 一律沿用首次结果，不重新判定、不扣次数。这样 start 时开关关闭、之后才打开开关的 Run，resume 时也不会中途变成故障。
+  4. **只在首次 start 时判定（D2）**：只有 start 时存在生效的开关，才把判定结果（命中或未命中）按 run_id 写入 `runtime.nexloop_synthetic_fault_decisions(run_id, injected boolean)`；resume 一律沿用首次结果，**查不到判定行就当作未命中**，不重新判定、不扣次数。没开开关时完全不写表。这样 start 时开关关闭、之后才打开开关的 Run，resume 时也不会中途变成故障。
 - 命中时，在同一个事务里：`remaining` 减 1，审计表写一条 `injected` 事件（run_id、consumer 的摘要、剩余次数），准入应答加上 `synthetic_model_fault: true`。
 - 次数扣到 0 时写一条 `exhausted` 事件。到期时间过后第一次被判定时写一条 `expired` 事件，同时把开关记为关闭。
 - **开关"是否生效"一律实时计算（D1）**：判定、快照和 Action 都按"`closed_at` 为空、现在早于 `expires_at`、`remaining > 0`"计算，不只看 `closed_at` 这一列。过期以后即使没有任何 Run 来触发它，也已经不生效。
@@ -27,6 +27,7 @@
 
 ## 2. Host：模型请求之前
 
+- **失败位置（v3）**：在 `pi-runtime-adapter.ts` 的 `guardedModels.streamSimple` 里，**在 `consume('model')` 之前**检查：这次模型调用不经守卫登记、不编号、不连 provider，Run 直接以 `RuntimeError('synthetic_model_fault')` 失败。worker 把它写进 job 结果，S6 证据的 `failure`（`runtime.nexloop_nx037_run_evidence`，按失败 job 的 failure_code）不为空，归因按现行口径判为失败（`attribution._failed` 的 failures 分支）。`model.calls`、`model.failed` 都是 0，不伪造任何 provider 结果记录，模型费用预留也不涉及。
 - **新增运行时配置键 `synthetic_model_fault`**（布尔值）：
   - 只接受 true；
   - 只在 runtime_profile 为 deepseek-flash、world_group 为 real 时接受，其他组合在启动时拒绝；
@@ -35,7 +36,7 @@
   - Host 没开这个配置键：拒绝这次准入，报 `invalid_runtime_request`。fail closed：配置不一致时 Run 不开始，比静默忽略标记更安全；
   - Host 开了这个配置键：在这个 Run 的**第一次**模型请求之前（`model-fetch.ts`），直接以模型错误结束这次调用，错误码 `synthetic_model_fault`。
 - **结果**：
-  - Run 记 `model.failed = 1`、`model.calls = 1`，outcome 为 error；
+  - Run 的 failure 为 `synthetic_model_fault`，`model.calls = 0`，按现行口径算 error 失败；
   - 没有工具调用，没有效应，没有不明结果；
   - 消息 Run 失败以后，按现有逻辑由回复保证在 300 秒后发起兜底回复。
 - 演练只伪造模型这一侧的错误，不改变 Host 的其他行为。错误码 `synthetic_model_fault` 进入证据包白名单，便于和真实的模型故障区分。
@@ -52,7 +53,16 @@
   - 打开时逐个核对 `consumer_ids` 的 persona 都是 synthetic 或 simulated_agent，有一个是 real 就整体拒绝（`consumer_not_synthetic`）；
   - **打开前先清理旧开关（D1）**：已过期或次数已用完、但 `closed_at` 还为空的旧开关，先记为关闭（close_reason expired 或 exhausted）并写审计，然后再新建。只有仍然生效的开关存在时，才拒绝（`switch_open`）。部分唯一索引只约束 `closed_at is null` 的行，所以必须先关旧的；
   - 关闭操作幂等。
-- **Action 只发布到 stage**：放进 stage 专用的发布清单（`deploy/stage/...`），系统目录和生产清单都不含它。check_publication 新增规则：公开文件里，stage 部署文件之外出现 `synthetic_model_fault` 或 `nexloop.synthetic_fault.set` 都拒绝。
+- **Action 只发布到 stage（v3，调度员 2026-11-07 选定 (A)）**：
+  - 新建 **stage 专用能力清单** `deploy/stage/capabilities.stage.v1.json`，格式与 `capabilities.v1.json` 相同，只含 `nexloop.synthetic_fault.set:1`。系统目录不含它；
+  - `stage_secrets.py publish --stage-capabilities deploy/stage/capabilities.stage.v1.json`：`catalog_publish.compile_catalog` 增加一个可选参数 `stage_capabilities_path`，把它合并进编译结果，名字重复就拒绝。发布结果和发布记录（catalog publication 的审计）写上 `stage_manifest: {path, sha256}`。不带这个参数时，与现在完全一样；
+  - 其他调用方拒绝：`compile_catalog` 只接受位于 `deploy/stage/` 下、文件名为 `capabilities.stage.v*.json` 的 stage 清单；只有 `stage_secrets` 这个入口会传这个参数，其他入口传了就拒绝；
+  - check_publication 新增规则：`deploy/` 之下、`deploy/stage/` 之外的文件提到 `capabilities.stage`、`synthetic_model_fault` 或 `nexloop.synthetic_fault.set` 就拒绝（docs、adr、tests 不受限）；
+  - 以后其他 stage 专用的演练能力也放进这份清单。
+- **全局注册的处理（v3）**：
+  - `workbench_actions_http` 的参数校验、`goal_controls` 的 operation 映射和 `api-routes` 的路由都是全局的，生产上也有这条路由；
+  - 但 Action 在 SQL 层不存在时，工作台入口按现有逻辑返回 **404 `Action not published`**，不会 500，也不会静默通过；
+  - route inventory 的测试要覆盖这一点：未合并 stage 清单的租户调这条路由，得到 404 且什么都不写。
 - **准入函数**：在当前最新定义里加一处调用和一个应答字段，copy guard 按 `Allowed(stem, fn, why, reverts)` 登记。
 - **擦除**：两张新表都含 consumer_id 或其摘要，要加进 consumer 擦除覆盖（erasure coverage）：擦除时从名单里移除该 Consumer，审计表只保留摘要。
 
@@ -100,6 +110,11 @@
 6. Host 没有配置键而准入带标记：拒绝准入；配置键只在 deepseek-flash 和 real 时被接受。
 7. Action：只有负责人能执行；名单里有 real 就拒绝；已有打开的开关时拒绝；关闭幂等；审计只追加。
 8. 快照：`synthetic_fault` 块（active 实时计算）；B5 的 outcomes 不变（D3）。
+8a. **v3**：命中的 Run 在 S6 归因里判为失败（`failures` 非空、`model.calls` 为 0）；
+    - 只有 `stage_secrets publish --stage-capabilities` 会发布这个 Action，发布结果里写有 stage 清单的 sha256；
+    - `compile_catalog` 收到其他路径的 stage 清单会拒绝；
+    - 不带 stage 清单发布时，这条路由返回 404 `Action not published`；
+    - check_publication 拒绝 `deploy/` 下、`deploy/stage/` 外的引用。
 9. check_publication 规则：stage 之外的文件出现这个键或 Action 就拒绝。
 10. 擦除覆盖；copy guard；bootstrap、published migrations、claim_store、tenant_fk、search_path、Host vitest。
 
@@ -114,7 +129,12 @@ ro "select count(*) from control.nexloop_action_definitions where resource_id li
 ```bash
 ro "select count(*) from control.nexloop_synthetic_fault_switches"
 ```
-  两条都应为 0。这一步写进生产部署单，每次生产发布都要做。
+  两条都应为 0。另外判定表和审计表也应为 0 行：
+
+```bash
+ro "select (select count(*) from runtime.nexloop_synthetic_fault_decisions), (select count(*) from runtime.nexloop_synthetic_fault_events)"
+```
+  这一步写进生产部署单，每次生产发布都要做。
 - 0423 已部署；stage Host 的运行时配置加了 `synthetic_model_fault: true`，重建 Host；Action 已发布。
 - 两个 relay 用 `ontology_hybrid`（已核对，2026-11-07）。
 - run 入口没有在运行。
@@ -173,3 +193,13 @@ uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config ~/nx-s6/s6
   - Host 的运行档案限制挡不住生产：生产也可能是 deepseek-flash 加 real。
   - check_publication 只看仓库里的公开文件，看不到私有的运行时配置。
   - 这两道只是补充；生产部署单要加一步只读确认（§7 前提）。
+
+### v3（2026-11-07，调度员选定 (A)；L6 对 v2 的实现前提）
+
+- **生产隔离的机制**：stage 专用能力清单 `deploy/stage/capabilities.stage.v1.json`，只有 `stage_secrets publish --stage-capabilities` 显式合并它，并写进发布记录；其他入口拒绝；check_publication 禁止 `deploy/stage/` 之外引用它（§3）。
+- **隔离依据不变**：生产库里没有这个 Action。
+- **否决的 (B)**：把 Action 放进系统目录、靠部署开关挡住，隔离依据就退化成"靠开关挡住"，攻击面留在生产上（调度员 2026-11-07）。
+- **全局注册**：Action 未发布时，路由返回 404 `Action not published`，route inventory 测试覆盖（§3）。
+- **Host 的失败位置**：在登记模型调用之前，Run 的 failure 为 `synthetic_model_fault`，不再记 `model.failed`（§2）；补测试证明 S6 归因仍判为失败（§6 第 8a 项）。
+- **判定表不随每个 Run 增长（L6 实现前提 1）**：只有 start 时存在生效的开关才写判定行；resume 查不到判定行就当作未命中。没开开关时完全不写表。判定表不含顾客数据（只有 run_id、是否命中、开关 id），在擦除覆盖里注明，保留 30 天后由 retention keeper 清理；审计表含 Consumer 摘要，纳入 consumer 和 member 擦除覆盖。
+- **生产只读确认（L6 实现前提 2）**：Action 定义、开关表、判定表、审计表都应为 0 行（§7 前提）。
