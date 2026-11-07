@@ -151,3 +151,20 @@ def test_provider_file_shape_and_fingerprint(tmp_path):
     assert len(p.fingerprint()) == 64 and str(tmp_path) not in json.dumps(p.fingerprint())
     env = O.parse_providers({'version': 1, 'providers': [{**{k: v for k, v in item.items() if k != 'client_secret_file'}, 'client_secret_env': 'NEXLOOP_OIDC_TEST_SECRET'}]})['corp']
     assert env.fingerprint() == p.fingerprint()  # the secret's location is not part of it
+
+
+def test_the_deploy_example_is_a_valid_provider_file_once_filled():
+    """docs/release/run-nx058-oidc-enable.md: deploy/examples/nx058-oidc-providers.example.json holds placeholders only and, filled,
+    is accepted by the same parser the api uses (a client secret file, never a value)."""
+    import re
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / 'deploy/examples/nx058-oidc-providers.example.json').read_text()
+    assert not re.search(r'\b\d{1,3}(\.\d{1,3}){3}\b', text)
+    assert all('client_secret_env' not in p and set(p) <= O.FIELDS for p in json.loads(text)['providers'])
+    filled = {'PROVIDER_ID': 'synthetic-idp', 'DISPLAY_NAME': 'Synthetic IdP', 'IDP_HOST': 'idp.example.test', 'ISSUER_PATH': 'realms/nexloop',
+              'CLIENT_ID': 'nexloop-workbench', 'AUTHORIZATION_PATH': 'auth', 'TOKEN_PATH': 'token', 'JWKS_PATH': 'certs'}
+    for key, value in filled.items():
+        text = text.replace('<' + key + '>', value)
+    assert '<' not in text
+    providers = O.parse_providers(json.loads(text))
+    assert list(providers) == ['synthetic-idp'] and providers['synthetic-idp'].client_secret_file == '/run/secrets/api_oidc_client_secret'

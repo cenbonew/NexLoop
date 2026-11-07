@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "provider_id": "<PROVIDER_ID>",
+      "display_name": "<DISPLAY_NAME>",
+      "issuer": "https://<IDP_HOST>/<ISSUER_PATH>",
+      "client_id": "<CLIENT_ID>",
+      "authorization_endpoint": "https://<IDP_HOST>/<AUTHORIZATION_PATH>",
+      "token_endpoint": "https://<IDP_HOST>/<TOKEN_PATH>",
+      "jwks_uri": "https://<IDP_HOST>/<JWKS_PATH>",
+      "token_endpoint_auth": "client_secret_basic",
+      "client_secret_file": "/run/secrets/api_oidc_client_secret"
+    }
+  ]
+}
