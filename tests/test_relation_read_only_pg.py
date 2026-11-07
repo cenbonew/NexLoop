@@ -149,3 +149,25 @@ def test_the_workbench_member_read_follows_the_relations_only_mode(published, ad
     mark_erasing(admin, TENANT, consumer)
     assert member_may_read(admin, 'Goal', by_relation) is False
     assert member_may_read(admin, 'Goal', by_property) is True
+
+
+def test_a_run_that_skipped_an_erasing_consumers_objects_covers_nothing(published, admin):
+    """L6 C3: the backfill passes over objects of an erasing Consumer and only counts them (skipped_erasure, 0349); the run still
+    completes. Those objects have no relation, so the run must not count as coverage: the fallback stays and they are refused."""
+    consumer = published['f']['consumer']
+    goal = hexid('p5-c3-goal')
+    put(admin, 'Goal', goal, {'consumer_id': consumer})  # passed over by the backfill: no relation
+    mark_erasing(admin, TENANT, consumer)
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("""insert into control.nexloop_relation_backfill_runs(tenant_id,backfill_run,derivations_digest,state,started_by)
+            values(%s,'p5-c3',control.nexloop_relation_backfill_digest(%s),'running','synthetic')""", (TENANT, TENANT))
+        admin.execute("""insert into control.nexloop_relation_backfill_counts(tenant_id,backfill_run,relation_name,world,scanned,skipped_erasure)
+            values(%s,'p5-c3','goal_of','real',1,1)""", (TENANT,))
+        admin.execute("update control.nexloop_relation_backfill_runs set state='completed' where tenant_id=%s and backfill_run='p5-c3'", (TENANT,))
+    assert admin.execute("select count(*) from control.nexloop_relation_backfill_coverage where backfill_run='p5-c3'").fetchone()[0] == 0
+    assert guard(admin, 'Goal', goal) == ERASING and fields(admin, 'Goal', goal)['readable'] is False
+    assert member_may_read(admin, 'Goal', goal) is False
+    # A later run that passed over nothing covers, and the type switches to relations only (here the object is the gap the check counts).
+    assert backfilled(admin, 'p5-c3-again') > 0
+    assert guard(admin, 'Goal', goal) is None

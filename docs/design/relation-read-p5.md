@@ -13,9 +13,9 @@
   - tenant **没有已发布的关系目录**：仍按 0315 的属性规则解析。从未发布过关系的 tenant 无关系可读，如果此时去掉属性，读守卫就什么也拒绝不了。
   - 已发布关系目录：读归属关系（0319 的 `nexloop_relation_object_consumers`，按传递链走到 Consumer）。
   - **回填覆盖之前不去掉属性（L6 C1）**：对象的归属链上（它的源类型，以及从它出发经归属派生能到的类型）只要有一个带源属性的归属派生，还没有被一次已完成的回填覆盖，就仍然并上属性规则。新发布的归属类型（例如目录 v2 的 `assessment_evidence`）因此在它自己的回填完成之前不会有空窗。
-    - 覆盖记录在新表 `control.nexloop_relation_backfill_coverage`（按关系类型版本）。回填 run 进入 `completed` 时由触发器写入：这一刻派生映射正是 run 开始时的那一份（门控在 `catalog_changed` 时会停下 run），而且所有 cursor 都已完成、没有跳过的对象。run 进入 `reverting` 或 `reverted` 时，删除这个 run 的覆盖记录。
-    - 迁移时，对派生映射仍是其 digest 的已完成 run（stage 的 p3-2）补记覆盖。
-    - verify 的平衡不在读路径里重算（每次受守卫的读取都要全表扫描）。代码层面的条件是：run 完成，并且重扫后没有跳过的对象；告警靠每日缺口核对。唯一的例外是 RelationshipAssessment 的 `source_id` / `target_id`：首批没有对应的关系（ADR-038 §3 第 6 点），这两个字段继续按属性解析。它的 `evidence_message_id` 走关系；但在 tenant 还没有发布 `assessment_evidence` 时，也按属性规则解析。stage 发布时推迟了这个类型（NX-054-stage-publish.md §8 第 4 步），所以 P5 不依赖目录版本 2。
+    - 覆盖记录在新表 `control.nexloop_relation_backfill_coverage`（按关系类型版本）。回填 run 进入 `completed` 时由触发器写入，条件有三条：这一刻派生映射正是 run 开始时的那一份（门控在 `catalog_changed` 时会停下 run）；所有 cursor 都已完成，重扫后跳过表为空（这些是没能锁上的对象）；并且（L6 C3）`skipped_erasure` 在所有关系和 world 上合计为 0。回填会跳过擦除中客户的对象（包括 `completed_with_holds`），只计数，不建关系，run 照样能完成；这样的 run 不算覆盖，属性后备继续保留（`test_a_run_that_skipped_an_erasing_consumers_objects_covers_nothing`）。run 进入 `reverting` 或 `reverted` 时，删除这个 run 的覆盖记录。
+    - 迁移时，对已完成的 run（stage 的 p3-2）按同样的条件补记覆盖（见 §2.1）。
+    - verify 的平衡不在读路径里重算（每次受守卫的读取都要全表扫描）。代码层面的条件是：run 完成，跳过表为空，并且没有跳过擦除中客户的对象；告警靠每日缺口核对。唯一的例外是 RelationshipAssessment 的 `source_id` / `target_id`：首批没有对应的关系（ADR-038 §3 第 6 点），这两个字段继续按属性解析。它的 `evidence_message_id` 走关系；但在 tenant 还没有发布 `assessment_evidence` 时，也按属性规则解析。stage 发布时推迟了这个类型（NX-054-stage-publish.md §8 第 4 步），所以 P5 不依赖目录版本 2。
 - 新增 `runtime.nexloop_object_ownership_uncovered(tenant, type)`，判断上面这一条。
 - P4a 的并集函数改名为 `runtime.nexloop_object_consumers_read_p4union` 保留下来，供回退使用。
 - **不变的东西**：
@@ -31,6 +31,18 @@
 | 2 | stage 每日的 verify 为 0 | 同上 |
 | 3 | 全库擦除测试在只读关系模式下通过 | 组批时跑 `test_erasure_whole_database_pg` 和本草案的测试 |
 | 4 | 负责人确认 | 调度员记录确认的时间 |
+
+### 2.1 部署前的只读核对（调度员，stage）
+
+迁移会为已完成的回填 run 补记覆盖，但只有同时满足下面两条的 run 才会被补记：派生映射仍是它的 digest；它在所有关系和 world 上的 `skipped_erasure` 合计为 0（L6 C3：回填会跳过擦除中客户的对象，只计数，不建关系）。部署前在 DATA_HOST 用 `ro`（`run-nx057-remediation-stage.md` §0.3）查：
+
+```
+ro "select r.backfill_run,r.state,r.derivations_digest=control.nexloop_relation_backfill_digest(r.tenant_id) as digest_current,coalesce(sum(k.skipped_erasure),0) as skipped_erasure from control.nexloop_relation_backfill_runs r left join control.nexloop_relation_backfill_counts k on k.tenant_id=r.tenant_id and k.backfill_run=r.backfill_run where r.tenant_id='$TENANT_ID' group by 1,2,3 order by 1"
+```
+
+- p3-2 一行应当是 `completed`、`digest_current` 为 `t`、`skipped_erasure` 为 0：迁移后覆盖表里会有它的 25 行，P5 在这个租户上生效。
+- `skipped_erasure` 不为 0，或者 `digest_current` 为 `f`：迁移不会补记覆盖。这个结果是安全的：三个读方继续使用“关系 ∪ 属性”，只是 P5 在这个租户上暂不生效。要让它生效，需要在相关客户的擦除结束之后（或者目录变动之后）新开一次回填 run，并且这次 run 没有跳过任何擦除中客户的对象。新 run 需要回填主体，属于部署配置变更。
+- 迁移后的核对：`ro "select backfill_run,count(*) from control.nexloop_relation_backfill_coverage group by 1"`。
 
 ## 3. 行为变化（测试 `tests/test_relation_read_only_pg.py`）
 
