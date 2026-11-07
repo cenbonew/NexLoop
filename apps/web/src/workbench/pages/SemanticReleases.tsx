@@ -141,7 +141,7 @@ export function niText(c:ReviewCandidate):string{
 /** The review queue: each candidate's latest report as the evaluator wrote it. Codes are Chinese labels; the change class is the
  * evaluator's classify_change result, shown and never set here (D39-7); digests and counts only (D39-11). */
 export const CATEGORY_TEXT:Record<string,string>={retrieval_miss:'检索未命中',ambiguity_unresolved:'歧义未解决',owner_directed_schema:'负责人指定'};
-export const OWNER_DIRECTED_NOTE='不是从失败中归纳的候选，证据是快照里的属性使用';
+export const OWNER_DIRECTED_NOTE='负责人指定加的属性，不是从失败中归纳的候选；证据是快照里的属性使用。人工审核和发布许可照常，门槛不变';
 /** The candidate's category; an unknown one shows its raw text with 未识别类别, never an error. */
 export function CategoryBadge({category}:{category:EvoCategory|null}){
   if(!category)return null;
@@ -167,7 +167,7 @@ export function ReviewBody({review}:{review:SemanticReview}){
       <StopForm dimension={s.dimension} stopped={s.stopped}/></li>)}</ul>:<EmptyState kind="empty" subject="开放的演进维度" compact/>}
     <h3>评估报告</h3>
     {review.candidates.length?<DataTable label="评估报告" rows={review.candidates} rowKey={c=>c.candidate_id} columns={[
-      {label:'候选',main:true,cell:c=><><IdText value={c.candidate_id} kind="候选"/> <CategoryBadge category={c.category}/></>},
+      {label:'候选',main:true,cell:c=>c.category?<><IdText value={c.candidate_id} kind="候选"/> <CategoryBadge category={c.category}/></>:<IdText value={c.candidate_id} kind="候选"/>},
       {label:'状态',cell:c=><><StatusBadge domain="evo_candidate_status" code={c.status}/>{c.end_reason?<span className="kv-hint">{statusLabel('evo_end_reason',c.end_reason)}</span>:null}</>},
       {label:'结论',cell:c=><><StatusBadge domain="evo_conclusion" code={c.conclusion}/>{c.reason?<span className="kv-hint">{statusLabel('evo_report_reason',c.reason)}</span>:null}</>},
       {label:'分级',cell:c=>c.change_class?<span title="由评估器评定，不能修改"><StatusBadge domain="evo_change_class" code={c.change_class}/></span>:'—'},

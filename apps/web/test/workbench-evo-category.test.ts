@@ -27,6 +27,8 @@ test('owner_directed_schema is labelled 负责人指定 in the queue and its det
   const out=html(review(candidate(C,{category:'owner_directed_schema'})));
   expect(out).toContain('data-category="owner_directed_schema"');expect(out).toContain('负责人指定');
   expect(out).toContain(OWNER_DIRECTED_NOTE);expect(out).toContain('候选类别');
+  expect(OWNER_DIRECTED_NOTE).toBe('负责人指定加的属性，不是从失败中归纳的候选；证据是快照里的属性使用。人工审核和发布许可照常，门槛不变');
+  expect(out).toContain(`title="${OWNER_DIRECTED_NOTE}"`);
 });
 
 test('an unknown category shows its raw text with 未识别类别; the other rows and the stop switch render as usual',()=>{
@@ -39,5 +41,7 @@ test('an unknown category shows its raw text with 未识别类别; the other row
 test('the current backend sends no category: no category shown, the queue unchanged',()=>{
   const out=html(review(candidate(C,{})));
   expect(semanticReview(review(candidate(C,{}))).candidates[0].category).toBeNull();
-  expect(out).not.toContain('data-category');expect(out).not.toContain('候选类别');expect(out).toContain('report-detail');
+  expect(out).not.toContain('data-category');
+  // the candidate cell is the same markup as before the category (no extra whitespace node)
+  expect(out).not.toMatch(/<\/span> <\/td>|<\/code> <\/td>/);expect(out).not.toContain('候选类别');expect(out).toContain('report-detail');
 });
