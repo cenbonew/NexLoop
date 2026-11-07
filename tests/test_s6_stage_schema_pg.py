@@ -304,3 +304,46 @@ def test_r6_through_the_workbench_http_entry(stage, tmp_path):
     # The operator cannot: 403 through the same entry.
     status, _ = s['ports']('operator').owner_post('/api/v1/workbench/actions/rollback_semantic_release', {'target_version': '0.1.1', 'reason': 'x'}, 's6-r6-http-operator-01')
     assert status == 403
+
+
+def owner_directed(stage, tmp_path, property_name='delivery_windows'):
+    """An owner-directed schema_only template (s6_stage_evolution.py candidate-template --mode schema_only) around the fixture's open
+    candidate body: its category is owner_directed_schema, its property the one the owner decided on (2026-11-07)."""
+    body = json.loads(Path(stage['inputs']['candidate_template']).read_text())
+    body['category'] = 'owner_directed_schema'
+    path = tmp_path / 'schema-only-template.json'
+    path.write_text(json.dumps({'mode': 'schema_only', 'property': {'type_name': 'Consumer', 'property_name': property_name},
+                                'decision': 'owner 2026-11-07 / claim-consumer-plan §10-2', 'created_at': '2026-11-07T00:00:00Z', 'body': body}))
+    path.chmod(0o600)
+    return {**stage['inputs'], 'candidate_template': str(path), 'new_property': property_name}
+
+
+def test_r8_takes_an_owner_directed_template_for_its_own_property_only(stage, tmp_path):
+    s = stage
+    inputs = owner_directed(s, tmp_path)
+    count = lambda: s['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0]  # noqa: E731
+    before = count()
+    for other in ({**inputs, 'new_property': 's6_shoe_size'}, {**inputs, 'schema_type': 'Product'},
+                  {**inputs, 'property_change': {'property_name': 's6_shoe_size', 'value_type': 'string'}}):
+        code, doc = run(tmp_path, 'r8', s['ports'](), other)
+        assert code == 2 and 'another property' in doc['refused']
+    assert count() == before  # the refusals wrote nothing
+    code, doc = run(tmp_path, 'r8', s['ports'](), inputs)
+    assert code == 0 and doc['passed'] is True, json.dumps(doc, ensure_ascii=False)
+    st = steps(doc)
+    assert st['template']['observed'] == {'mode': 'schema_only', 'property': 'Consumer.delivery_windows', 'decision': 'owner 2026-11-07 / claim-consumer-plan §10-2'}
+    assert st['accepted_for_release_with_a_permit']['passed'] and st['g9_g13_accept']['observed']['conclusion'] == 'accept'
+    assert s['admin'].execute("select category,dimension from runtime.nexloop_evo_candidates where status='accepted_for_release'").fetchall() == [
+        ('owner_directed_schema', 'ontology_schema')]
+    summary = s['admin'].execute("select runtime.nexloop_evo_review_summary(%s,'real')", (TENANT,)).fetchone()[0]  # the review queue reads it
+    assert [(c['dimension'], c['change_kind'], c['status']) for c in summary['candidates']] == [('ontology_schema', 'add_optional_property', 'accepted_for_release')]
+
+
+@pytest.mark.parametrize('check', ['at024', 'r10'])
+def test_acceptance_checks_refuse_an_owner_directed_template(stage, tmp_path, check):
+    s = stage
+    before = s['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0]
+    for extra in ((), ('--dry-run',)):
+        code, doc = run(tmp_path, check, s['ports'](), owner_directed(s, tmp_path), *extra)
+        assert code == 2 and 'r8) only' in doc['refused']
+    assert s['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0] == before

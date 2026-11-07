@@ -14,7 +14,10 @@ formal Schema unless --publish (r8 only, the owner's B-class step).
 
 inputs (configuration):
     candidate_template   private JSON: a valid evolution candidate body of this tenant (diagnosis_id, candidate, category, patch,
-                         case_groups, regroups, source_consumer_ids) - L3's NX-038 stage step produces it from an open diagnosis
+                         case_groups, regroups, source_consumer_ids) - L3's NX-038 stage step produces it from an open diagnosis;
+                         or an owner-directed schema_only template {mode, property, decision, created_at, body}
+                         (s6_stage_evolution.py candidate-template --mode schema_only, owner 2026-11-07): r8 alone accepts it, and
+                         only for its own property (schema_type, new_property and property_change.property_name); at024 and r10 refuse it
     schema_type          an existing Object Type of the tenant (e.g. Consumer); new_property: a property name it does not have
     property_change      r8, optional: the frozen add_optional_property change instead of {new_property, string} - e.g.
                          Consumer.delivery_windows with its structured descriptor, display_name and description (migration
@@ -110,7 +113,10 @@ class Ports:
         return self.owner._call('POST', path, body, {'X-CSRF-Token': self.owner.csrf, 'Idempotency-Key': key})
 
 
-def _template(inputs):
+SCHEMA_ONLY = 'schema_only'
+
+
+def _template_file(inputs):
     path = inputs.get('candidate_template')
     if not path:
         raise Blocked('inputs.candidate_template missing (L3 NX-038 stage step: a candidate body of an open diagnosis)')
@@ -118,6 +124,31 @@ def _template(inputs):
         return json.loads(read_private(path))
     except ValueError:
         raise Refused('candidate_template: not JSON') from None
+
+
+def _template(inputs):
+    value = _template_file(inputs)
+    return value['body'] if type(value) is dict and value.get('mode') == SCHEMA_ONLY else value
+
+
+def template_guard(check, inputs):
+    """An owner-directed schema_only template (owner 2026-11-07) serves r8 alone and only for its own property; None otherwise."""
+    if not inputs.get('candidate_template'):
+        return None
+    try:
+        value = _template_file(inputs)
+    except (Blocked, Refused):  # unreadable or not JSON: the check itself reports it (blocked or refused) when it reads the template
+        return None
+    if type(value) is not dict or value.get('mode') != SCHEMA_ONLY:
+        return None
+    if check != 'r8':
+        raise Refused('candidate_template mode schema_only is for owner-directed Schema proposals (r8) only')
+    prop = value.get('property') or {}
+    change = inputs.get('property_change') or {}
+    if (inputs.get('schema_type') != prop.get('type_name') or inputs.get('new_property') != prop.get('property_name')
+            or change.get('property_name', prop.get('property_name')) != prop.get('property_name')):
+        raise Refused('the schema_only template is for another property: schema_type, new_property and property_change must name its property')
+    return {'mode': SCHEMA_ONLY, 'property': f"{prop.get('type_name')}.{prop.get('property_name')}", 'decision': value.get('decision')}
 
 
 def candidate_body(inputs, scope, change_kind, targets):
@@ -379,6 +410,9 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             raise Refused('--publish goes with r8')
         inputs = config.get('inputs') or {}
         result = Result('s6-schema-' + args.check, CHECKS[args.check], config, dry_run=args.dry_run)
+        owner_directed = template_guard(args.check, inputs)
+        if owner_directed:
+            result.step('template', 'an owner-directed schema_only template for this property', owner_directed, True)
         if args.dry_run:
             result.step('plan', 'the governed entries this check calls', {'calls': plan(args.check, inputs), 'publish': args.publish}, True)
             return result.write(out)

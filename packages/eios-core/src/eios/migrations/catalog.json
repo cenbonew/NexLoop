@@ -2085,6 +2085,11 @@
       "version": "0417",
       "name": "0417_workbench_property_sources.sql",
       "sha256": "e3ba9761483877b21d8adcd7c55a8553de682ad32fe415b783faa75ac0f88049"
+    },
+    {
+      "version": "0419",
+      "name": "0419_evo_owner_directed_schema.sql",
+      "sha256": "44426df32984e0b0183e895d8153f516f5d9eec9d396b07be3bbf66730decba5"
     }
   ]
 }

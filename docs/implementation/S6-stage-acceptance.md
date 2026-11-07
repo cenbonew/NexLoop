@@ -45,6 +45,15 @@ uv run --frozen python scripts/acceptance/s6_stage_evolution.py <检查> --confi
 - AT-048 的 (b) 路线要求窗口里有一对近重复 Run；R3 要求某次读取的结果超过 10 条，并包含配置的受保护定义。
 - 用新的 `label` 重跑时，要换一批新的合成数据：旧的留出集已经用过。同一个 `label` 重跑则全部按重放处理。
 
+## 负责人直接决定的 Schema 提案（schema_only，0419）
+
+- `candidate-template --mode schema_only --property Type.property` 只为 `inputs.owner_directed_properties` 里的属性生成模板（负责人 2026-11-07）。它不要求失败 Run，候选的 category 是 `owner_directed_schema`，按 0419 只能是 ontology_schema。设计见 `schema-only-candidate-template.md`。
+- 这种模板只能给 `s6_stage_schema.py r8` 用，而且只用于它自己记下的属性。配置里的 `candidate_template` 是 schema_only 时，`at024`、`r10` 和本脚本的每个验收项都拒绝运行。
+- **证据口径**：
+  - AT-023、AT-048、S6-R1 等演进验收的证据只引用验收脚本自己提的候选；
+  - 统计候选、accept、许可的数量时，排除 `category='owner_directed_schema'`，或单独列为"负责人直接决定的 Schema 提案"。
+  - 目前没有按 category 统计的查询；工作台审核队列（`runtime.nexloop_evo_review_summary`）列出全部候选，其中这类候选显示为 ontology_schema / add_optional_property。
+
 ## 本地发现与限制
 
 - **AT-048 的缺口（已修复，迁移 `0286_at048_consumer_leakage.sql`）**：原来开评时只检查 writer 给出的分组和近重复 Run，writer 按 Run 分组就能把同一消费者的 Run 放在两侧而不被发现。现在开评由服务端推导每个用例 Run 的消费者（`runtime.nexloop_evo_run_consumer`，与 trace reader 0233 的推导相同：消息路由、fallback 绑定或角色绑定）。同一消费者的 Run 同时落在两侧时，一律返回 `leakage_detected`；推导不出消费者（null）的 Run 不算同一消费者。`s6_stage.py` 的 AT-048 现在四条断言都要求通过：(a) 按 Run 分组的泄漏、(b) 近重复泄漏、按消费者分组、重分组。测试见 `tests/test_at048_consumer_leakage_pg.py`。
