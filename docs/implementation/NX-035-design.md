@@ -150,6 +150,7 @@
 - **Pi Run 目录**：
   - 只备份已终态的 Run，此时 Host 已经关闭存储，WAL 已经 checkpoint。复制前用 SQLite 的 `PRAGMA integrity_check` 校验文件副本；
   - 活跃 Run 不备份。运行中只复制 `.sqlite` 而丢掉 WAL 是被禁止的做法（`06:64`）；
+  - 已终态、但 Host 没有正常关闭（WAL 非空且 30 分钟没有变化）的 Run：数据库与 WAL 成对复制，复制前后 stat 不变，在 staging 副本上 checkpoint 后再做 `integrity_check`；源文件只读（2026-11-08，[诊断](NX-035-file-backup-runtime-wal.md)）；
   - 若以后要备份活跃 Run，需要 Host 提供在线备份 API（D7）。
 
 ## 5. 保留期与不复活

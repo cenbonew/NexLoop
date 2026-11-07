@@ -9,7 +9,12 @@ One run backs up one kind into one restic repository and records one manifest ro
   queued or done). Only ``runtime.sqlite`` is copied, and only when no non-empty ``-wal`` file is beside it (the Host has
   closed and checkpointed the store); the copy must pass SQLite ``PRAGMA integrity_check``. An active Run is never listed,
   and copying a database without its WAL is refused (design §4.3). A listed Run whose directory is gone is counted as
-  absent: an NX-029 purge or a Run that never created its store.
+  absent: an NX-029 purge or a Run that never created its store; absent is reported, never a failure.
+  A finished Run whose store still has a non-empty WAL that has not changed for WAL_QUIET_SECONDS (the Host stopped without
+  closing it - killed, or its Run ended in PG first - so nothing will ever checkpoint it) is copied with its WAL as one pair: both
+  files are stat'ed before and after the copy and must be unchanged, the staged copy is checkpointed (wal_checkpoint TRUNCATE) and
+  must pass the integrity check; the source is only read. It is counted as recovered_wal. A younger WAL may still be written:
+  skipped as not_checkpointed, as before, and the next round sees it again.
 
 Then restic backs up the staging directory (client-side encryption, ``--no-cache``), ``restic check`` verifies the
 repository, and the row is written: ``verified`` only when restic and the check both succeeded and nothing was left out,
@@ -148,7 +153,123 @@ def _integrity_ok(path):
         db.close()
 
 
-def stage_runs(entries, source_root, staging):
+WAL_QUIET_SECONDS = 1800
+_WAL_HEADER = 32
+
+
+def wal_committed(path):
+    """What SQLite would replay from a WAL file (sqlite.org/fileformat2.html#walformat), read from the file itself: frames whose
+    salts match the header, whose page number is not 0 and whose cumulative checksums hold, up to the last commit frame.
+    {frames, pages: {page number: the page's last committed content}, database_pages: the last commit frame's database size,
+    page_size}; frames 0 for no WAL magic, another format version than 3007000, a bad page size or a header that does not check.
+    Not from wal_checkpoint: opening the copy already recovers the WAL, so the pragma answers 0 frames whether or not they were read,
+    and frames already written back by an earlier checkpoint leave the database bytes unchanged."""
+    import struct
+    empty = {'frames': 0, 'pages': {}, 'database_pages': 0, 'page_size': 0}
+    data = Path(path).read_bytes()
+    if len(data) < _WAL_HEADER or data[:4] not in (b'\x37\x7f\x06\x82', b'\x37\x7f\x06\x83'):
+        return empty
+    order = '>' if data[3] == 0x83 else '<'
+    version, page = struct.unpack('>II', data[4:12])
+    if version != 3007000 or page < 512 or page > 65536 or page & (page - 1):
+        return empty
+
+    def checksum(chunk, s0, s1):
+        for x0, x1 in struct.iter_unpack(order + 'II', chunk):
+            s0 = (s0 + x0 + s1) & 0xFFFFFFFF
+            s1 = (s1 + x1 + s0) & 0xFFFFFFFF
+        return s0, s1
+    salts = data[16:24]
+    s0, s1 = checksum(data[:24], 0, 0)
+    if (s0, s1) != struct.unpack('>II', data[24:32]):
+        return empty
+    frames, committed, pending, pages, database_pages = 0, 0, {}, {}, 0
+    offset, size = _WAL_HEADER, 24 + page
+    while offset + size <= len(data):
+        head = data[offset:offset + 24]
+        number, commit = struct.unpack('>II', head[:8])
+        if number == 0 or head[8:16] != salts:
+            break
+        s0, s1 = checksum(head[:8] + data[offset + 24:offset + size], s0, s1)
+        if (s0, s1) != struct.unpack('>II', head[16:24]):
+            break
+        frames += 1
+        pending[number] = data[offset + 24:offset + size]
+        if commit:
+            committed, database_pages = frames, commit
+            pages.update(pending);pending = {}
+        offset += size
+    if not committed:
+        return empty
+    return {'frames': committed, 'pages': {n: b for n, b in pages.items() if n <= database_pages}, 'database_pages': database_pages, 'page_size': page}
+
+
+def committed_wal_frames(path):
+    return wal_committed(path)['frames']
+
+
+def _checkpoint(target):
+    """wal_checkpoint(TRUNCATE) on the staged copy; True when it was busy."""
+    db = sqlite3.connect(target)
+    try:
+        return bool(db.execute('pragma wal_checkpoint(TRUNCATE)').fetchone()[0])
+    finally:
+        db.close()
+
+
+def _merged_as_replayed(target, replay):
+    """After the checkpoint (fail closed): the copy's page count is the last commit's database size, and every committed page is
+    byte for byte the WAL's last version of it. A WAL written back before and not truncated holds the same pages: it passes."""
+    db = sqlite3.connect(f'file:{target}?mode=ro&immutable=1', uri=True)
+    try:
+        count, size = db.execute('pragma page_count').fetchone()[0], db.execute('pragma page_size').fetchone()[0]
+    finally:
+        db.close()
+    if count != replay['database_pages'] or size != replay['page_size']:
+        return False
+    with open(target, 'rb') as stream:
+        for number, content in replay['pages'].items():
+            stream.seek((number - 1) * size)
+            if stream.read(size) != content:
+                return False
+    return True
+
+
+def _signature(path):
+    info = os.lstat(path)
+    return (stat.S_ISREG(info.st_mode), info.st_size, info.st_mtime_ns, info.st_ino)
+
+
+def _stage_with_wal(source_root, ref, target):
+    """A quiet finished store with its WAL: copy the pair, checkpoint the copy. 'recovered', 'not_checkpointed' or 'integrity'."""
+    base = Path(source_root) / ref
+    before = (_signature(base / 'runtime.sqlite'), _signature(base / 'runtime.sqlite-wal'))
+    if not (before[0][0] and before[1][0]):
+        return 'not_checkpointed'
+    if datetime.now(UTC).timestamp() - max(before[0][2], before[1][2]) / 1e9 < WAL_QUIET_SECONDS:
+        return 'not_checkpointed'
+    _copy(_open_source(source_root, f'{ref}/runtime.sqlite'), target)
+    _copy(_open_source(source_root, f'{ref}/runtime.sqlite-wal'), target.with_name('runtime.sqlite-wal'))
+    if (_signature(base / 'runtime.sqlite'), _signature(base / 'runtime.sqlite-wal')) != before:
+        return 'not_checkpointed'  # it changed while copied: a writer is still there
+    # A WAL SQLite would not replay (no magic, a header or first frame that does not check) would be dropped silently and the copy
+    # would be short: refused. Frames already written back by an earlier checkpoint still check, and replaying them is harmless.
+    replay = wal_committed(target.with_name('runtime.sqlite-wal'))
+    if replay['frames'] == 0:
+        return 'integrity'
+    try:
+        if _checkpoint(target):
+            return 'integrity'
+        for leftover in ('runtime.sqlite-wal', 'runtime.sqlite-shm'):
+            target.with_name(leftover).unlink(missing_ok=True)
+        if not _merged_as_replayed(target, replay):
+            return 'integrity'
+    except sqlite3.Error:
+        return 'integrity'
+    return 'recovered'
+
+
+def stage_runs(entries, source_root, staging, recovered=None):
     rows, skipped, absent = [], {'missing': 0, 'not_checkpointed': 0, 'integrity': 0}, 0
     for entry in entries:
         ref = entry.get('ref')
@@ -162,20 +283,36 @@ def stage_runs(entries, source_root, staging):
         if not stat.S_ISDIR(info.st_mode):
             skipped['missing'] += 1
             continue
+        target = staging / 'runs' / ref / 'runtime.sqlite'
         try:
             wal = os.lstat(Path(source_root) / ref / 'runtime.sqlite-wal')
-            if not stat.S_ISREG(wal.st_mode) or wal.st_size > 0:
+            if not stat.S_ISREG(wal.st_mode):
                 skipped['not_checkpointed'] += 1
                 continue
+            pending = wal.st_size > 0
         except FileNotFoundError:
-            pass
-        try:
-            source = _open_source(source_root, f'{ref}/runtime.sqlite')
-        except (FileNotFoundError, NotADirectoryError, OSError):
-            skipped['missing'] += 1
-            continue
-        target = staging / 'runs' / ref / 'runtime.sqlite'
-        sha256, size = _copy(source, target)
+            pending = False
+        if pending:
+            try:
+                outcome = _stage_with_wal(source_root, ref, target)
+            except (FileNotFoundError, NotADirectoryError, OSError):
+                outcome = 'missing'
+            if outcome != 'recovered':
+                shutil.rmtree(target.parent, ignore_errors=True)
+                skipped[outcome] += 1
+                continue
+            if recovered is not None:
+                recovered.append(ref)
+            with open(target, 'rb') as merged:
+                digest = hashlib.sha256(merged.read())
+            sha256, size = digest.hexdigest(), target.stat().st_size
+        else:
+            try:
+                source = _open_source(source_root, f'{ref}/runtime.sqlite')
+            except (FileNotFoundError, NotADirectoryError, OSError):
+                skipped['missing'] += 1
+                continue
+            sha256, size = _copy(source, target)
         if not _integrity_ok(target):
             shutil.rmtree(target.parent)
             skipped['integrity'] += 1
@@ -242,8 +379,9 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     staging = Path(staging_root) / ('stage-' + uuid.uuid4().hex)
     staging.mkdir(mode=0o700)
     try:
-        stage = stage_artifacts if kind == 'artifact' else stage_runs
-        rows, skipped, absent = stage(entries, source_root, staging)
+        recovered = []
+        rows, skipped, absent = (stage_artifacts(entries, source_root, staging) if kind == 'artifact'
+                                 else stage_runs(entries, source_root, staging, recovered))
         digest = manifest_digest(rows)
         body = json.dumps({'schema': MANIFEST_SCHEMA, 'kind': manifest_kind, 'file_manifest_digest': digest,
                            'entries': sorted(rows)}, separators=(',', ':'), sort_keys=True)
@@ -271,6 +409,7 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     record(recorder_conninfo, entry)
     return {'kind': manifest_kind, 'backup_id': backup_id, 'verify_status': status, 'file_count': len(rows), 'bytes': entry['bytes'],
             'file_manifest_digest': digest, 'listed': len(entries), 'skipped': skipped, 'absent': absent,
+            **({'recovered_wal': len(recovered)} if kind == 'runtime' else {}),
             'restic': 'ok' if snapshot else 'failed', 'check': 'ok' if checked else ('failed' if snapshot else 'not_run')}
 
 
