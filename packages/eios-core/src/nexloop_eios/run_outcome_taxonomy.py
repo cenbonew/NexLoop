@@ -79,3 +79,22 @@ def classify(code: str | None) -> RunOutcomeClass:
 def counts_as_failure(outcome: RunOutcomeClass) -> bool:
     return outcome in FAILURE_CLASSES
 
+
+
+#: NX-061 B5 threshold (owner 2026-11-07, as recommended): judged only on at least MIN_DECIDED decided outcomes in the hour, a warning
+#: above FAILURE_RATE_WARNING (alert rules v31 outcomes_failure_rate_high reads outcomes.failure_rate_gated, migration 0418).
+MIN_DECIDED = 10
+FAILURE_RATE_WARNING = 0.2
+
+
+def failure_rate_gate(snapshot) -> str:
+    """How the B5 threshold reads one metrics snapshot: 'warning' | 'within' | 'insufficient_data' | 'no_data'. Only 'within' and
+    'warning' are judgements; insufficient data (fewer than MIN_DECIDED decided) and no data (no snapshot, no outcomes block) are not a
+    pass. The same reading as the SQL evaluator: only a JSON number is compared."""
+    outcomes = snapshot.get('outcomes') if isinstance(snapshot, dict) else None
+    if not isinstance(outcomes, dict) or type(outcomes.get('decided')) not in (int, float):
+        return 'no_data'
+    gated = outcomes.get('failure_rate_gated')
+    if outcomes['decided'] < MIN_DECIDED or type(gated) not in (int, float):
+        return 'insufficient_data'
+    return 'warning' if gated > FAILURE_RATE_WARNING else 'within'
