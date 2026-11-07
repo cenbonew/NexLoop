@@ -69,3 +69,18 @@ def test_a_timer_no_rule_watches_is_not_counted(observed):  # noqa: F811
     h = metrics(o['admin'])
     assert 'data_host:synthetic-unwatched' in h['timer_success_age_seconds'] and h['timers_not_reported'] == 0
     assert not firing(o)
+
+
+def test_no_host_reporting_at_all_counts_every_watched_timer(observed):  # noqa: F811
+    """L6 C1: with no probe tick from any host the report is empty, not absent: every timer the rules watch is unreported."""
+    o = observed
+    apply_rules(load_rules(V33), TENANT, database_url_file=o['w']['configurator'])
+    assert o['admin'].execute('select count(*) from runtime.nexloop_host_probe_ticks').fetchone()[0] == 0
+    h = metrics(o['admin'])
+    expected = sorted(f'{host}:{name}' for host, names in watched().items() for name in names)
+    assert h['timer_success_age_seconds'] == {} and h['timers_not_reported'] == len(expected) and h['timers_not_reported_names'] == expected
+    assert firing(o)
+    # 0318 writes the block even with no tick at all (the wrapped snapshot below), so this empty report is the reachable case;
+    # 0424's branch for a snapshot without the block (treated as this same empty report) is defensive.
+    snapshot = o['admin'].execute("""select runtime.nexloop_metrics_snapshot_before_timers_not_reported(%s,'real')""", (TENANT,)).fetchone()[0]
+    assert snapshot['host_health']['timer_success_age_seconds'] == {}
