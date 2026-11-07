@@ -7,7 +7,9 @@
 -- * the new function: the Consumer itself; else, while the tenant has no published relation catalog, the property rule as before
 --   (nothing to read through: never fewer than 0315 for a tenant that never published relations); else the relations
 --   (runtime.nexloop_relation_object_consumers, 0319), plus a RelationshipAssessment's source_id and target_id by property - the
---   first relation batch has no relation for them (ADR-038 §3 point 6); its evidence Message goes through the relations.
+--   first relation batch has no relation for them (ADR-038 §3 point 6); its evidence Message goes through the relations, or by
+--   the property rule too while the tenant has not published assessment_evidence (deferred on stage, so P5 does not wait for
+--   catalog version 2).
 -- The purge keeps relations united with properties for good (ADR-038 §2.3, 0361: not touched). The daily gap check (0357
 -- authz.nexloop_relation_read_gaps) and its alert stay.
 -- Gate (one way; owner confirmation): gaps 0 for 7 days in a row after P4a, daily verify 0, the whole-database erasure test in
@@ -27,8 +29,13 @@ begin
  end if;
  out:=runtime.nexloop_relation_object_consumers(p_tenant,p_world,p_type,p_object);
  if p_type='RelationshipAssessment' then
-  out:=out||coalesce((select array_remove(array[o.properties->>'source_id',o.properties->>'target_id'],null) from ontology.objects o
-   where o.tenant_id=p_tenant and o.world=p_world and o.type_name=p_type and o.object_id=p_object),'{}');
+  if exists(select 1 from control.nexloop_relation_type_profiles p where p.tenant_id=p_tenant and p.relation_name='assessment_evidence') then
+   out:=out||coalesce((select array_remove(array[o.properties->>'source_id',o.properties->>'target_id'],null) from ontology.objects o
+    where o.tenant_id=p_tenant and o.world=p_world and o.type_name=p_type and o.object_id=p_object),'{}');
+  else
+   -- assessment_evidence not published (stage: deferred, NX-054-stage-publish.md §8 step 4): the evidence Message as well by the property rule.
+   out:=out||runtime.nexloop_object_consumers(p_tenant,p_world,p_type,p_object);
+  end if;
  end if;
  return coalesce((select array_agg(distinct x order by x) from unnest(out) x where x~'^[a-f0-9]{64}$'),'{}');
 end $$;

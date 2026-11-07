@@ -68,3 +68,22 @@ def test_the_rollback_brings_the_property_fallback_back(published, admin):
         where p.proname like 'nexloop_object_consumers_read%%'""").fetchone()
     assert (owner, proc) == ('nexloop_owner', 'nexloop_object_consumers_read')
     assert admin.execute("select count(*) from pg_proc where proname like 'nexloop_object_consumers_read%%'").fetchone()[0] == 1
+
+
+def test_an_unpublished_assessment_evidence_resolves_the_evidence_message_by_property(published, admin):
+    """Stage published the catalog with assessment_evidence deferred (NX-054-stage-publish.md §8 step 4): an assessment's evidence
+    Message still ties it to its Consumer by the property rule, so P5 does not wait for catalog version 2."""
+    consumer = published['f']['consumer']
+    message = admin.execute("""select m.message_id from runtime.nexloop_conversation_messages m join runtime.nexloop_conversations c
+        on c.tenant_id=m.tenant_id and c.world=m.world and c.conversation_id=m.conversation_id where c.tenant_id=%s and c.consumer_id=%s limit 1""",
+                            (TENANT, consumer)).fetchone()
+    assert message is not None, 'the fixture has a Message of the Consumer'
+    assessment = hexid('p5-deferred-evidence')
+    put(admin, 'RelationshipAssessment', assessment, {'source_id': hexid('p5-c'), 'target_id': hexid('p5-d'), 'evidence_message_id': message[0]})
+    assert consumer not in consumers(admin, 'RelationshipAssessment', assessment)  # published: the evidence goes through relations only (none here)
+    with admin.transaction():
+        admin.execute("delete from control.nexloop_relation_type_profiles where tenant_id=%s and relation_name='assessment_evidence'", (TENANT,))
+    assert consumers(admin, 'RelationshipAssessment', assessment) == sorted([consumer, hexid('p5-c'), hexid('p5-d')])
+    mark_erasing(admin, TENANT, consumer)
+    assert guard(admin, 'RelationshipAssessment', assessment) == ERASING
+    assert fields(admin, 'RelationshipAssessment', assessment)['readable'] is False

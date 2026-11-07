@@ -8,7 +8,7 @@
 - 新的解析规则：
   - 对象本身是 Consumer：结果就是它自己。
   - tenant **没有已发布的关系目录**：仍按 0315 的属性规则解析。从未发布过关系的 tenant 无关系可读，如果此时去掉属性，读守卫就什么也拒绝不了。
-  - 已发布关系目录：只读归属关系（0319 的 `nexloop_relation_object_consumers`，按传递链走到 Consumer）。唯一的例外是 RelationshipAssessment 的 `source_id` / `target_id`：首批没有对应的关系（ADR-038 §3 第 6 点），这两个字段继续按属性解析。它的 `evidence_message_id` 走关系。
+  - 已发布关系目录：只读归属关系（0319 的 `nexloop_relation_object_consumers`，按传递链走到 Consumer）。唯一的例外是 RelationshipAssessment 的 `source_id` / `target_id`：首批没有对应的关系（ADR-038 §3 第 6 点），这两个字段继续按属性解析。它的 `evidence_message_id` 走关系；但在 tenant 还没有发布 `assessment_evidence` 时，也按属性规则解析。stage 发布时推迟了这个类型（NX-054-stage-publish.md §8 第 4 步），所以 P5 不依赖目录版本 2。
 - P4a 的并集函数改名为 `runtime.nexloop_object_consumers_read_p4union` 保留下来，供回退使用。
 - **不变的东西**：
   - purge 永久使用“关系 ∪ 属性”（0361，ADR-038 §2.3）；
