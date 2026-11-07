@@ -2115,6 +2115,11 @@
       "version": "0423",
       "name": "0423_synthetic_model_fault.sql",
       "sha256": "2255833e47af798de6e0cd66485110a6e4cb4e092040347324c6ad221f694d2b"
+    },
+    {
+      "version": "0424",
+      "name": "0424_timers_not_reported.sql",
+      "sha256": "0d916d3c942d0efd4606df71b003f5068b03aaea884beddfb9c8a1435e13180d"
     }
   ]
 }
