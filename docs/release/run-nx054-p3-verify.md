@@ -33,7 +33,7 @@ P5 的前提之一是 P3 回填的 verify 平衡（`docs/design/relation-read-p4
 
 ```
 ro "select control.nexloop_relation_backfill_preflight('$TENANT_ID')->'blocking'"
-ro "select r->>'relation',r->>'world',r->>'hex' from jsonb_array_elements(control.nexloop_relation_backfill_preflight('$TENANT_ID')->'report') r where (r->>'hex')::bigint>0 order by 1,2"
+ro "select r->>'relation',r->>'world',r->>'hex' from jsonb_array_elements(control.nexloop_relation_backfill_preflight('$TENANT_ID')->'report') r where (r->>'hex')::bigint>0 order by 1,2" | tail -n +2 > "$RUN/p3-preflight-hex.txt"
 ```
 
 - 预期：`blocking` 为 `[]`。`report` 每项对应一组（关系，world），只列出源类型在该 world 有对象的组合。第二条只列出 `hex` > 0 的组合，也就是 verify 必须出现的那些行，留给 §3.3 对照。
@@ -42,12 +42,21 @@ ro "select r->>'relation',r->>'world',r->>'hex' from jsonb_array_elements(contro
 ### 3.2 verify（只读）
 
 ```
-ro "select control.nexloop_relation_backfill_verify('$TENANT_ID')" | tail -1 > "$RUN/p3-verify.json"
-python3 -c "import json,sys;v=json.load(open(sys.argv[1]));bad=[r for r in v['relations'] if r['a']!=r['b'] or r['extra']!=0];print(json.dumps({'rows':len(v['relations']),'relations':len({r['relation'] for r in v['relations']}),'unbalanced':len(bad),'skipped_remaining':v['skipped_remaining'],'a_total':sum(r['a'] for r in v['relations']),'dangling':sum(r['dangling'] for r in v['relations']),'erasing':sum(r['erasing'] for r in v['relations'])}));[print(r['relation'],r['world'],r['a'],r['b'],r['extra']) for r in bad]" "$RUN/p3-verify.json"
+ro "select control.nexloop_relation_backfill_verify('$TENANT_ID')::text" | tail -1 > "$RUN/p3-verify.json"
+head -c 20 "$RUN/p3-verify.json"; echo
+python3 -c "import ast,json,sys;t=open(sys.argv[1]).read().strip();v=json.loads(t) if t.startswith('{\"') else ast.literal_eval(t);bad=[r for r in v['relations'] if r['a']!=r['b'] or r['extra']!=0];print(json.dumps({'rows':len(v['relations']),'relations':len({r['relation'] for r in v['relations']}),'unbalanced':len(bad),'skipped_remaining':v['skipped_remaining'],'a_total':sum(r['a'] for r in v['relations']),'dangling':sum(r['dangling'] for r in v['relations']),'erasing':sum(r['erasing'] for r in v['relations'])}));[print(r['relation'],r['world'],r['a'],r['b'],r['extra']) for r in bad]" "$RUN/p3-verify.json"
 ```
 
 - `ro` 输出的第一行是 `set_config` 返回的租户 ID，所以用 `tail -1` 取结果。
-- 输出只有关系名、world 名和计数，没有对象 id 或属性值。`$RUN/p3-verify.json` 留作证据；取回管理机 `local-only/nx054/` 之后，在 DATA_HOST 上删除。
+- **输出格式**（stage 2026-11-07 实际执行时发现）：某些执行环境下，不加 `::text` 时输出的是 Python 字面量格式（单引号，例如 `{'relations': [{'a': 119, ...`），`json.load` 会报 JSONDecodeError。所以 SQL 里转成 `::text` 再输出。`head -c 20` 那一行用来确认格式：开头是 `{"relations"` 就是标准 JSON；如果仍是单引号，解析会自动改用 `ast.literal_eval`，判读不受影响。证据记录时写明实际是哪一种。
+- 对照用的一行（读 §3.1 的 `p3-preflight-hex.txt`；`-At` 输出的字段两侧可能带空格，例如 `goal_of | real`，所以按 `|` 切分后要 strip，否则每一组都会被判成缺失）：
+
+  ```
+  python3 -c "import ast,json,sys;t=open(sys.argv[2]).read().strip();v=json.loads(t) if t.startswith('{\"') else ast.literal_eval(t);seen={(r['relation'],r['world']) for r in v['relations']};want=[tuple(x.strip() for x in l.split('|')[:2]) for l in open(sys.argv[1]) if l.strip()];miss=[w for w in want if w not in seen];print(json.dumps({'preflight_hex_groups':len(want),'missing_in_verify':len(miss),'verify_only':len(seen-set(want))}));[print('missing',*w) for w in miss]" "$RUN/p3-preflight-hex.txt" "$RUN/p3-verify.json"
+  ```
+
+  `missing_in_verify` 必须为 0。
+- 输出只有关系名、world 名和计数，没有对象 id 或属性值。`$RUN/p3-verify.json` 留作证据；取回管理机 `local-only/nx054/` 之后，在 DATA_HOST 上删除；`p3-preflight-hex.txt` 同样处理。
 
 ### 3.3 判读
 
@@ -59,6 +68,7 @@ python3 -c "import json,sys;v=json.load(open(sys.argv[1]));bad=[r for r in v['re
   - 只列出有 hex 源值、且所在 world 不在清除中的（关系，world）组合；
   - 所以关系数可以少于 25。10-27 那次 stage verify 是 20 个，preflight 是 22 个（`run-nx054-s8-backfill.md` "verify 怎么看"）；
   - 对照 §3.1：第二条命令列出的每一组（关系，world），都必须在 verify 中出现（清除中的 world 除外）。缺了就是 verify 漏行，判失败。
+  - 反过来不要求：verify 可以比 preflight 的 `hex` > 0 组多出一些行（上面输出的 `verify_only`），这些行在 preflight 中 `hex` 为 0。只要它们本身平衡，就不算异常。stage 2026-11-07 多出 `assignment_control` 一组，平衡。
 - `dangling`（目标不存在）和 `erasing`（属于擦除中的 Consumer）照实记录，不计入 `a`，所以不影响平衡。
 - **不平衡怎么处理**（按顺序，前几步都是只读）：
   1. 对不平衡的那一行：
