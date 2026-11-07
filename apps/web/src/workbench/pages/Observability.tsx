@@ -4,7 +4,7 @@
  */
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMe,readMetrics,offers,type Backup,type Process} from '../api';
+import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMe,readMetrics,offers,type Backup,type OutcomeGate,type Process} from '../api';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
 import {Card,CardGrid,EmptyState,IdText,KeyValue,Notice} from '../kit';
@@ -76,11 +76,18 @@ export function Counts({values,labels,domain,subject='记录'}:{values:Record<st
   return entries.length?<ul>{entries.map(([k,n])=><li key={k}>{labels?.[k]?`${labels[k]}（${k}）`:k}：{n}</li>)}</ul>:<p className="note">无。</p>;
 }
 
+/** NX-061 B5: the hour's failure rate only when enough outcomes were decided; otherwise said as not judged, never 0% or 正常. */
+export function OutcomesCard({outcomes}:{outcomes:OutcomeGate|null}){
+  return <Card title="运行结果（最近 1 小时）">{outcomes===null?<p className="note" data-gate="no_data">无数据</p>
+    :outcomes.gate==='insufficient_data'?<p data-gate="insufficient_data">样本不足（{outcomes.decided}/{outcomes.min_decided}），未判定</p>
+    :<p data-gate="measured">失败率 <span className="num">{(outcomes.failure_rate*100).toFixed(1)}%</span>，样本 <span className="num">{outcomes.decided}</span> 个</p>}</Card>;
+}
 export function Operations({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','metrics'],queryFn:readMetrics});
   return <Page title="运行状态" query={query} actions={actions} lead="系统此刻是否健康：派发拒绝、外部动作、来信必回、承诺异常、队列与后台任务、进程样本、数据库连接与备份。只含计数、时长和比率，不含原文。">{m=><>
     <p className="note">快照时间 <Time value={m.computed_at}/>。</p>
     <CardGrid label="运行状态">
+      <OutcomesCard outcomes={m.outcomes}/>
       <Card title="派发拒绝（最近 1 小时）"><Counts values={m.refusals.last_hour} domain="refusal_code" subject="派发拒绝"/></Card>
       <Card title="外部动作" footer={m.effects.unknown.count?<a href={routePath({page:'actions'})}>去 Action 页查询执行结果</a>:null}>
         <p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>

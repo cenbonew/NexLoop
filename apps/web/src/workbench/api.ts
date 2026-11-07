@@ -688,7 +688,7 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
   guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string;
   /** 0216 (absent from an older backend: null, shown as 不可用) */ candidates:Candidates|null;
-  /** W4 0224 (absent: null) */ data_assets:DataAssets|null};
+  /** W4 0224 (absent: null) */ data_assets:DataAssets|null;outcomes:OutcomeGate|null};
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
@@ -746,7 +746,19 @@ export function metrics(value:unknown):Metrics{
     commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
     guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at),
-    candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets)};
+    candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets),
+    outcomes:outcomeGate(v.outcomes)};
+}
+/** NX-061 B5 (0418): the failure rate is judged only on at least min_decided decided outcomes of the hour. Without an outcomes block, or
+ * an older snapshot without `gate`, there is nothing judged: null (无数据). Insufficient data is never a rate of 0. */
+export type OutcomeGate={gate:'measured';decided:number;min_decided:number;failure_rate:number}|{gate:'insufficient_data';decided:number;min_decided:number};
+export function outcomeGate(value:unknown):OutcomeGate|null{
+  if(value===undefined||value===null)return null;
+  const o=object(value);if(o.gate===undefined)return null;
+  const gate=oneOf(o.gate,['measured','insufficient_data'] as const);const decided=count(o.decided),min_decided=count(o.min_decided);
+  if(gate==='insufficient_data')return {gate,decided,min_decided};
+  if(typeof o.failure_rate_gated!=='number')throw new WorkbenchError('invalid');
+  return {gate,decided,min_decided,failure_rate:o.failure_rate_gated};
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
 /** The real dispatch switches from the same metrics read (states and revisions only, 0153). */
