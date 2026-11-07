@@ -38,7 +38,7 @@ ro "select (select count(*) from control.nexloop_synthetic_fault_switches),(sele
 
    然后按现行发布流程去掉 `--dry-run` 正式发布，`--configurator-dsn-file` 或 `--bootstrap-dsn-file`、`--signing-key-id` 与平常相同。预期 `actions_to_publish` 里只多出 `nexloop.synthetic_fault.set`。
 
-5. **工作台角色**：按现行流程执行 `workbench_roles --apply`，**加上同样两个参数** `--stage-capabilities deploy/stage/capabilities.stage.v1.json --deployment-marker <私有树>/deployment-marker.json`，负责人角色才会加上这个 Action 的授权。全局的角色清单 `workbench-roles.v1.json` 里没有它，所以生产不会写这条授权；**以后每次在 stage 执行 `workbench_roles --apply`（包括与本演练无关的成员变更）都要带这两个参数**，否则这条授权会被收回；只带了 `--deployment-marker`、漏了 `--stage-capabilities` 时，命令会在 stderr 打印一条提醒，但不会中止。
+5. **工作台角色**：按现行流程执行 `workbench_roles --apply`，**加上同样两个参数** `--stage-capabilities deploy/stage/capabilities.stage.v1.json --deployment-marker <私有树>/deployment-marker.json`，负责人角色才会加上这个 Action 的授权。全局的角色清单 `workbench-roles.v1.json` 里没有它，所以生产不会写这条授权；合并后的角色版本号是 `全局版本 × 1000 + stage 清单版本`（例如 53001），所以不会与已发布的全局版本冲突。**以后每次在 stage 执行 `workbench_roles --apply`（包括与本演练无关的成员变更）都要带这两个参数**：合并过一次之后，不带参数的 apply 会以版本倒退被拒，否则这条授权会被收回；只带了 `--deployment-marker`、漏了 `--stage-capabilities` 时，命令会在 stderr 打印一条提醒，但不会中止。
 6. **Host 配置**：在 stage 的 agent-host 运行时配置里加 `"synthetic_model_fault": true`，重建 agent-host。没有这个键时，Host 会拒绝带故障标记的准入，Run 不会开始。
 7. 只读核对：
 
