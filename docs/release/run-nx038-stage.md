@@ -19,6 +19,8 @@
 
 ## 0. 前提（不满足就不开始）
 
+先跑一次只读预检：`uv run --frozen python scripts/acceptance/s6_preflight.py --config <S6 配置>`。它一次报告 P1–P5 各项的 ok、missing、expired 或 no_data，无数据不算通过，全部 ok 才退出 0。下表是各项的含义和手工核对办法。
+
 | # | 前提 | 怎么核对 |
 |---|---|---|
 | P1 | stage 部署的是 main 17aa74c1 或之后、含迁移 0235/0237/0241/0248/0286（AT-048 修复）的发布 | 部署单；`ro "select version from control.schema_migrations where version in ('0235','0237','0241','0248')"` 返回 4 行（`ro` 见 run-nx057 §0.3）；0286 按集成后的实际编号核对 |
