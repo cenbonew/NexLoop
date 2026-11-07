@@ -47,6 +47,14 @@
 - 告警从 10-30 起反复触发，说明 10-30 前后就有过同样的情况：每出现一个滞留 WAL 的 Run，失败会一直持续到它被清理为止，期间可能自愈过（那个 Run 被清理后恢复），之后又来了新的。
 - 准确的时间线用 §4 第 6 步查：`runtime.nexloop_backup_manifests` 按时间看 `files_runtime` 的 verified 和 failed 交替，再和 Host 的重建时间对照（第 4 步）。
 
+## 3a. stage 实情（调度员 2026-11-08 核对）
+
+- `files_runtime` 在本地时间 2026-11-08 06:40 那一轮仍是 `ok=false`、`not_checkpointed=1`。从 06:55 起（之后 07:03、07:13、07:22、07:32 各轮）全部 `ok=true`、`not_checkpointed=0`，`absent` 一直是 8。
+- 之后 `find` 已经找不到任何非空的 `runtime.sqlite-wal`。
+- 时间吻合：R71 在 2026-11-07T22:41Z（本地 06:41）重建了 agent-host 容器，下一轮备份就恢复了。
+- **推断**：这个 WAL 不是“Host 被杀后没人认领”，而是一直被旧 Host 进程开着，也就是有一个僵尸 Run 持有这个存储。旧 Host 一退出，SQLite 关闭连接时做了 checkpoint 并截断了 WAL。所以 §2 列的几种原因里，这次对应的是“Run 在 PG 里先结束、Host 这边的 Run 没有走正常关闭路径”这一种，并且 Host 进程还活着。
+- §4 第 3 步的只读命令（查有没有进程打开这个存储）现在查不到东西了，因为 WAL 已经不存在，无法再对这一次做核实。
+
 ## 4. 在 APP_HOST 上执行的只读命令（调度员执行）
 
 都不写 `/srv` 下的任何文件。凡是要打开 SQLite 的，一律用 `immutable=1`，避免生成或修改 `-shm`。`ro` 是 DATA_HOST 上已有的只读会话（定义同 run-nx057 §0.3）。
@@ -135,9 +143,20 @@
 
 ### 5.2 部署后
 
-- 修好的执行器部署后，下一轮（15 分钟内）预期 `verify_status: verified`、`recovered_wal: 1`、`absent: 8`。
-- 如果 §4 第 3 步发现还有进程打开着这个存储，修法不会复制它（文件在变化，或者不到 30 分钟），需要先处理 Host 里那个僵尸 Run。
+- 修好的执行器部署后，下一轮（15 分钟内）预期 `verify_status: verified`、`absent: 8`。stage 上这一次已经因为 R71 重建 Host 而自愈（§3a），所以预期 `recovered_wal` 为 0。
+- 30 分钟没有变化、复制前后 stat 一致，这条规则仍然必要：僵尸 Run 开着存储但不再写入时，执行器照样能拿到一致的快照（成对复制并在副本上合并），备份不再卡住。
+- 如果持有存储的进程还在写，文件会变，执行器不复制，照旧计为 `not_checkpointed`。这时要处理的是那个僵尸 Run，见 §5.4。
 - 不需要、也不应该手工删除 `/srv` 下的 WAL：那里面是已提交但还没写回数据库的数据。
+
+### 5.4 排查：备份长时间卡在 not_checkpointed
+
+连续多轮（超过 1 小时）都是同一个 `not_checkpointed`，或者 `recovered_wal` 每轮都有同一个 Run，就说明 Host 里可能有一个僵尸 Run 还持有这个存储。**先查这一点，不要先动备份**：
+
+1. 用 §4 第 2 步找出这个 Run 的目录；
+2. 用 §4 第 3 步看 agent-host 容器里有没有进程打开着这个 Run 的 `runtime.sqlite`；
+3. 用 §4 第 5 步看这个 Run 在 PG 里的状态。已经终态、但 Host 还开着它，就是僵尸 Run。
+
+处理僵尸 Run 走 Host 的正常途径（排空后重建 agent-host 容器，这次 R71 的效果就是这样），不在 `/srv` 下手工删文件，也不在源目录上 checkpoint。僵尸 Run 为什么没有被 Host 关掉，另开一项查（Host 侧问题，不属于备份）。
 
 ### 5.3 不建议的做法
 
