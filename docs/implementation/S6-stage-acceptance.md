@@ -40,7 +40,7 @@ uv run --frozen python scripts/acceptance/s6_stage_evolution.py <检查> --confi
 
 ## stage 前提（dry-run 会逐项报告）
 
-- 负责人已登记 writer、evaluator 两个服务主体和一张只含 test 的评估凭据，并设置了 evolution 预算。这些都属于受信配置，脚本自己不登记。负责人此前定了“stage 暂不注册演进服务主体”，调度员会另行请示。
+- 已登记 writer、evaluator（及 reader）服务主体和一张只含 test 的评估凭据（负责人 2026-10-21 定案在 stage 登记，见 `evolution-stage-enrollment.md`，用 `evolution_enroll.py --check` 核对），并设置了 evolution 预算。这些都属于受信配置，脚本自己不登记。dry-run 只核对各连接的角色，**不报告**预算行、所需迁移和 owner 授权；这几项按 run-nx038 §0 的只读查询核对（核对清单见 `docs/planning-drafts/s6-prereq-audit-20261107.md`）。
 - 时间窗口里要有合成顾客（persona 由配置指定，例如 simulated_agent）的失败 Run，并且带检索未命中的语义读取记录，足以产生一个 semantic_content 草稿；还要至少 4 个“簇单元”，才能给 7 个 AT 各分一个留出集（每个留出集最多判定 5 个候选，D39-3）。
 - AT-048 的 (b) 路线要求窗口里有一对近重复 Run；R3 要求某次读取的结果超过 10 条，并包含配置的受保护定义。
 - 用新的 `label` 重跑时，要换一批新的合成数据：旧的留出集已经用过。同一个 `label` 重跑则全部按重放处理。
