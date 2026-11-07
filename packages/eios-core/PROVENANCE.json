@@ -549,8 +549,10 @@
       "source_path": "src/eios/ontology/models.py",
       "destination": "packages/eios-core/src/eios/ontology/models.py",
       "upstream_sha256": "6b3958f07cf22868adbbc7dd7dcb21a7bceb7f5f4a49d7e453ed6a7e66e6254f",
-      "adaptations": [],
-      "nexloop_sha256": "6b3958f07cf22868adbbc7dd7dcb21a7bceb7f5f4a49d7e453ed6a7e66e6254f"
+      "adaptations": [
+        "Optional array max_items added to PropertyTypeDescriptor; omitted from dumps while unset so existing definitions keep their digests; array values longer than it are refused on write (Claim to Consumer delivery_windows)"
+      ],
+      "nexloop_sha256": "3271570b5a82777dc93d70d8e0d12e1b411c1740bf11ca3bb77c2af959742b2c"
     },
     {
       "source_path": "src/eios/ontology/registry.py",

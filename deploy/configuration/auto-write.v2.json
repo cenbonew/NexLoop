@@ -1,0 +1,13 @@
+{
+  "schema_version": "nexloop-auto-write/1",
+  "version": 2,
+  "world": "real",
+  "approved_by_decision": "2026-11-02#claim-consumer-plan-s10-1",
+  "properties": [
+    {
+      "type_name": "Consumer",
+      "property_name": "delivery_windows",
+      "reason": "Low-risk delivery preference (owner decision 2026-11-02, plan §10 items 1-2): values come only from the deterministic delivery_windows rule table, no clock times; asserted, affirmed statements with source evidence; replaced by statement time; withdrawn through the correction chain."
+    }
+  ]
+}

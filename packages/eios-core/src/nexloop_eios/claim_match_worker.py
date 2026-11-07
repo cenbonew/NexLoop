@@ -15,13 +15,17 @@ from eios.authz import facts as F
 from eios.authz.errors import AuthorizationUnavailable
 from nexloop_eios.authorization import authority_request_scoped
 from nexloop_eios.candidate_merge import MergeConfigurationMissing
-from nexloop_eios.claim_matching import MatchProviderUnavailable,MatchRejected
+from nexloop_eios.claim_matching import EditActionStale,MatchProviderUnavailable,MatchRejected
 from nexloop_eios.work_feed import WorkFeed,WorkFeedDenied,retry_delay
 
 FEED='claim-match'
 log=logging.getLogger(__name__)
 # Missing merge configuration: one log line per interval per process (the worker object is rebuilt every tick).
 MISSING_LOG_SECONDS=600
+# Between a Schema publication and the claim-match.json rebinding (EditActionStale): later, not a failure (0401 defer, no attempt
+# spent); past a week the feed answers defer_limit and the item falls back to a counted retry.
+STALE_DEFER_SECONDS=60
+STALE_MAX_DEFER_SECONDS=7*24*3600
 _missing_logged_at=None
 
 
@@ -62,7 +66,15 @@ class ClaimMatchWorker:
                     status=self.feed.complete(item_key=item['item_key'],fence=item['fence'])
                     summary['settled' if status=='completed' else status]+=1;continue
                 result=self.matcher.process_conversation(item['payload']['conversation_id'])
+                if any(s==EditActionStale.code for s in result['applied'].values()):raise EditActionStale('proposal waits for the edit Action')
             except WorkFeedDenied:raise
+            except EditActionStale:
+                status=self.feed.defer(item_key=item['item_key'],fence=item['fence'],code=EditActionStale.code,
+                    delay_seconds=STALE_DEFER_SECONDS,max_defer_seconds=STALE_MAX_DEFER_SECONDS)
+                if status=='defer_limit':
+                    status=self.feed.retry(item_key=item['item_key'],fence=item['fence'],code=EditActionStale.code,
+                        delay_seconds=retry_delay(item['attempts'],self.retry_base_seconds),max_attempts=self.max_attempts)
+                key={'deferred':'deferred','pending':'retry'}.get(status,status);summary[key]=summary.get(key,0)+1;continue
             except Exception as error:
                 code=('provider_unavailable' if isinstance(error,MatchProviderUnavailable) else 'output_rejected' if isinstance(error,MatchRejected)
                     else 'denied' if isinstance(error,(PermissionError,F.AuthorizationFactDenied,AuthorizationUnavailable)) else 'match_failed')

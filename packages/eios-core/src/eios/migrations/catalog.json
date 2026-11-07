@@ -2075,6 +2075,16 @@
       "version": "0415",
       "name": "0415_extraction_failed_codes.sql",
       "sha256": "e59956602b6cf253108dd1ca4b43c5ee7e23b47b7f723dd78fa3495dc994a62c"
+    },
+    {
+      "version": "0416",
+      "name": "0416_schema_structured_property.sql",
+      "sha256": "cdf300b63c2e875323f66944489222812b2395ff409f3eeb6c456cf0dedab111"
+    },
+    {
+      "version": "0417",
+      "name": "0417_workbench_property_sources.sql",
+      "sha256": "e3ba9761483877b21d8adcd7c55a8553de682ad32fe415b783faa75ac0f88049"
     }
   ]
 }

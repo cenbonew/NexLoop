@@ -11617,6 +11617,154 @@
           }
         }
       },
+      "WorkbenchConsumerPropertySources": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:workbench-consumer-property-sources",
+        "title": "workbench-consumer-property-sources",
+        "description": "Claim to Consumer phase three (design docs/implementation/claim-consumer-delivery-windows-design.md v2 §4.3, L6 condition C3): the `property_sources` block of GET /api/v1/workbench/consumers/{id} - where each structured Consumer property (a closed-vocabulary struct array such as delivery_windows) came from. Owner and operator only (authz.nexloop_workbench_property_sources); a property the member may not read is not listed; status restricted when the member may not read the Consumer. value is the current value; display its profile-page text (delivery_windows: \"周五 白天；周六 晚上\", any/any is \"随时\"). source names the Claim of the latest applied proposal, its Conversation and source Message - identifiers only: the quote is read from the evidence graph, which decides who may read it. stated_at is the Claim valid_time anchor (anchor_time(): the signed channel time when within the skew window, else the server acceptance time) (\"来自 X 月 X 日的对话\"; a newer statement replaces an older one by it); effective_at is when the value was applied, for display only. status applied (a value), corrected (no value, withdrawn through the correction chain) or unknown (never obtained: \"暂无（未从对话中获得）\"). NexLoop target contract; server-derived identity required. This is not an existing upstream EIOS/Pi API.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "consumer_id",
+          "status",
+          "items"
+        ],
+        "properties": {
+          "consumer_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "restricted"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "property_name",
+                "value",
+                "display",
+                "status",
+                "source",
+                "stated_at",
+                "effective_at"
+              ],
+              "properties": {
+                "property_name": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 64,
+                      "items": {
+                        "type": "object",
+                        "maxProperties": 8,
+                        "additionalProperties": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "display": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "enum": [
+                    "applied",
+                    "corrected",
+                    "unknown"
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "claim_id",
+                        "conversation_id",
+                        "message_id"
+                      ],
+                      "properties": {
+                        "claim_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "conversation_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "message_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "stated_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "effective_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?(Z|[+-]\\d{2}:\\d{2})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
       "WorkbenchConversationMetrics": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:workbench-conversation-metrics",
@@ -13283,6 +13431,7 @@
     "workbench-artifacts.schema.json": "ee3e94da47800e7fea52d7dd58a7353382f8e46c4e5f6b5797fc4074e9d3d760",
     "workbench-capabilities.schema.json": "2e7777e030fa0ee2c1a1ddff13b1705522d099e73db2c8309dd99444b3ebfe60",
     "workbench-consumer-evidence.schema.json": "a794501edfc0539c05cc652021280dc8cb3a4693bc3fab7804b4d9cfb661d8ac",
+    "workbench-consumer-property-sources.schema.json": "4edff6c74a0cb18abf4e8640452fc20d053c4783644b61fd24825943b6fdbf47",
     "workbench-conversation-metrics.schema.json": "f53f7b2cec8b5dad45fa34ac7788b86da8eab694abc3abc373819a08e11ccb2f",
     "workbench-message-trace.schema.json": "2117e20dc6e8b4ec643052adef612e0bd058875d0115b8981a808152ce9e04f8",
     "workbench-object-neighbors.schema.json": "658414b148404f7d62a16564eee47bdf32559b83b04a96a6d29a02e7c9959fc0",

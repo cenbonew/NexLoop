@@ -1,0 +1,28 @@
+{
+  "consumer_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "ok",
+  "items": [
+    {
+      "property_name": "delivery_windows",
+      "value": [
+        {
+          "weekday": "fri",
+          "part": "daytime"
+        },
+        {
+          "weekday": "sat",
+          "part": "evening"
+        }
+      ],
+      "display": "周五 白天；周六 晚上",
+      "status": "applied",
+      "source": {
+        "claim_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "conversation_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "message_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "stated_at": "2026-11-02T03:15:00+00:00",
+      "effective_at": "2026-11-02T03:15:04.218331Z"
+    }
+  ]
+}

@@ -127,6 +127,16 @@ class WorkbenchReader:
         except psycopg.errors.InsufficientPrivilege:
             raise WorkbenchForbidden('consumer fields') from None
 
+    def property_sources(self, consumer_id):
+        """Claim → Consumer phase three (0417): where each structured Consumer property came from; ids and times only."""
+        from nexloop_eios.assembly import verify_application_role
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                return db.execute('select authz.nexloop_workbench_property_sources(%s,%s,%s)', (self.session.token_digest, self.session.world, consumer_id)).fetchone()[0]
+        except psycopg.errors.InsufficientPrivilege:
+            raise WorkbenchForbidden('property sources') from None
+
     def observe(self, verb, **payload):
         """NX-030 (D7): metrics, alerts and the human-action audit through their own function (0151); 0117 unchanged."""
         from nexloop_eios.assembly import verify_application_role
@@ -347,6 +357,7 @@ class WorkbenchQueries:
         props = value['properties']
         value['display'] = ({'status': 'restricted', 'reason': 'forbidden'} if fields is None or props['status'] != 'ok'
                             else self.display_state(consumer_id, fields, props['values']))
+        value['property_sources'] = self._property_sources(consumer_id)
         # Desktop usability: each conversation's last message time through the conversation read (same WORKBENCH_READ),
         # newest first; a conversation without messages sorts last.
         for item in value['conversations']:
@@ -356,6 +367,20 @@ class WorkbenchQueries:
             item['messages'] = len(messages)
         value['conversations'].sort(key=lambda c: (c['last_message_at'] is not None, c['last_message_at'] or '', c['conversation_id']), reverse=True)
         return value
+
+    def _property_sources(self, consumer_id):
+        """contracts/workbench-consumer-property-sources: the profile page's structured properties with their source, stated_at and
+        effective_at (display only); the quote stays in the evidence graph."""
+        from nexloop_eios import delivery_windows
+        try:
+            items = self.reader.property_sources(consumer_id)
+        except WorkbenchForbidden:
+            items = None
+        if items is None:
+            return {'consumer_id': consumer_id, 'status': 'restricted', 'items': []}
+        for item in items:
+            item['display'] = delivery_windows.display(item['value']) if item['property_name'] == 'delivery_windows' else None
+        return {'consumer_id': consumer_id, 'status': 'ok', 'items': items}
 
     def _consumer_properties(self, consumer_id, fields):
         # ADR-025: owner-restricted groups are listed as withheld, never read; SQL re-checks every field it returns.

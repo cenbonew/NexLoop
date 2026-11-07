@@ -19,6 +19,7 @@ from support.remediation_r2_edits import EDITS as R2_EDITS
 from support.human_questions_edits import EDITS as HQ_EDITS
 from support.plan_question_v7_edits import EDITS as PQ_EDITS
 from support.claim_auto_write_edits import EDITS as AW_EDITS
+from support.schema_structured_property_edits import EDITS as SSP_EDITS
 from support.s_dup_edits import FEED as SDUP_FEED, RECORDER as SDUP_RECORDER
 
 BASE = '0259'
@@ -270,6 +271,11 @@ REGISTRY = [
     *[Allowed('claim_auto_write', name, 'auto-write whitelist: a proposal outside it is recorded for review and never moved to applying (and pg_temp last in search_path); nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)), PG_TEMP)
       for name, edits in AW_EDITS.items()],
+    # Claim → Consumer phase two (schema_structured_property): a new optional property may be a closed-vocabulary struct array and
+    # carries the proposal's display name and description.
+    *[Allowed('schema_structured_property', name, 'structured property: the change check and the gate accept the closed-vocabulary struct array and the proposal text; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in SSP_EDITS.items()],
     # S-DUP (extraction_target_context / extraction_dedupe): the feed port splits windows into targets and context; the 0066 recorder
     # links an already recorded identical statement instead of writing it again.
     *[Allowed('extraction_target_context', name, 'S-DUP: due returns the pending targets and up to `context` earlier Messages as context (and pg_temp last in search_path); nothing else',

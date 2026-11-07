@@ -499,6 +499,7 @@ docker compose -p nexloop-app -f $NEXLOOP_ROOT/compose.app.yaml --env-file $NEXL
 - **循环失败有日志**（发布 17）：后台服务（告警评估、回复保证、claim-matcher 等）的某次循环失败时，第一次失败和此后每连续 30 次失败，各写一条结构化警告 `background tick failed`，只含异常类名、SQLSTATE 和连续失败次数，不含消息或数据；恢复后写一条 `background tick recovered`，带失败次数。以前失败被静默吞掉，容器照常运行，日志为空。
 - **告警评估不再随数据增长超时**（0215）：观测样本改为增量汇总。判断告警评估是否停摆，看 `control.nexloop_alert_state` 的 `last_evaluated_at`：正常时每分钟前进。
 - **claim-matcher 缺合并配置时空闲**（0216，告警规则 v5）：租户没有生效的候选合并配置时，claim-matcher 进入明确的空闲状态，不再每次循环都失败。有候选在等待合并超过 10 分钟时，告警 `candidates_without_merge_configuration` 触发（warning），`nexloop-doctor` 的 `candidates_glueable` 不通过，并列出缺配置的租户。处理方法：按 §8a.11 第 5 步下发合并配置。
+- **claim-match 积压，结果码是 `edit_action_stale_schema`**（Claim → Consumer 阶段二）：`feed_backlog_age:claim-match` 告警时，先看最近的结果码：`select last_code,count(*) from runtime.nexloop_work_feed where feed='claim-match' and status='pending' group by 1`。如果是 `edit_action_stale_schema`，说明 Consumer 新的 Schema 版本已经发布，但 `claim-match.json` 还指向旧的 `Consumer.edit` 版本。这时匹配器什么都不记录，只是把条目延后（不消耗尝试次数，一周后转为计次重试）。处理：执行 `stage_secrets.py register`（先 dry-run，预期新增 `claim_matcher → Consumer.edit:<新版本>`），把私有 `config/claim-match.json` 改绑到新版本，再执行 `up -d --no-deps claim-matcher`。改绑必须紧跟在 Schema 发布之后，见 [run-claim-consumer-phase2](release/run-claim-consumer-phase2.md) 第 3–5 步。
 - **召回 profile 激活**（发布 18）：召回索引服务在每个进程首次运行时，经受治理入口激活租户配置的召回 embedding profile。这一步是幂等的；租户已有另一个生效的 profile 时，服务报错，不会静默切换。
 
 ## 9. NX-037 受控真实闭环操作说明（负责人本人执行）
