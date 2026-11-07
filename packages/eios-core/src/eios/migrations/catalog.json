@@ -2105,6 +2105,11 @@
       "version": "0421",
       "name": "0421_relation_read_only.sql",
       "sha256": "09b04317e9f578c67e259e6fff3ecd8ca5f1da51d91b4f00c4900ba6ed8ed12e"
+    },
+    {
+      "version": "0422",
+      "name": "0422_budget_health.sql",
+      "sha256": "c6ae4f8bbb497d626f246ae2404d9d7e91d7f9f31b7dff624abb55504647ace0"
     }
   ]
 }

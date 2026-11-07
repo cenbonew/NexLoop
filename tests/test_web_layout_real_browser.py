@@ -138,6 +138,11 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert og['gate'] in ('measured', 'insufficient_data', 'no_data', 'invalid'), og
     assert og['gate'] != 'insufficient_data' or ('未判定' in og['text'] and '%' not in og['text']), og
     assert og['gate'] != 'no_data' or og['text'] == '无数据', og
+    bh = observed['budget_health']
+    print('budget_health', bh)
+    assert bh['state'] in ('ok', 'yellow', 'red', 'no_data', 'invalid'), bh
+    assert bh['state'] != 'red' or 'approver3 set_budget' in bh['text'], bh
+    assert bh['state'] != 'no_data' or bh['text'] == '无数据', bh
     k4l = observed['k4l']
     assert '这位客户还没有任何属性值' in k4l['consumer_props'] and '读取权限' not in k4l['consumer_props'], k4l
     # K5 §2.3: the profile card leads with the upcoming commitments, then the properties under the object revision.
