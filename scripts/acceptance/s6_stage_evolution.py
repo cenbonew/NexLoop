@@ -76,7 +76,6 @@ ACCEPTANCE = {'at046': ['AT-046'], 'r5': ['S6-R5'], 'at048': ['AT-048'], 'r4': [
               'r7-prepare': ['S6-R7'], 'r7-verify': ['S6-R7'], 'candidate-template': ['AT-024', 'S6-R8', 'S6-R10']}
 HEX = re.compile(r'[0-9a-f]{64}')
 LABEL = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
-NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')  # an Object Type or property name of an owner-directed Schema proposal
 SCHEMA_ONLY = 'schema_only'
 OWNER_DIRECTED = 'owner_directed_schema'  # the candidate category of 0419 (ontology_schema only)
 Refused = C.Refused
@@ -133,11 +132,7 @@ def load_config(path):
     template = inputs.get('candidate_template')
     if template is not None and (type(template) is not str or not os.path.isabs(template)):
         raise Refused('inputs.candidate_template: an absolute path')
-    owner_directed = inputs.get('owner_directed_properties') or []
-    if type(owner_directed) is not list or any(type(x) is not dict or set(x) != {'type_name', 'property_name', 'decision'}
-                                               or any(type(x[k]) is not str or not x[k] for k in x) or not NAME.fullmatch(x['type_name'])
-                                               or not NAME.fullmatch(x['property_name']) or len(x['decision']) > 200 for x in owner_directed):
-        raise Refused('inputs.owner_directed_properties: [{type_name, property_name, decision}] (the owner\'s decision, at most 200 characters)')
+    owner_directed = C.owner_directed_properties(inputs)
     connections = {n: v['dsn_file'] for n, v in rw.items()} | {'inspector': inspector['dsn_file']} | ({'registrar': registrar['dsn_file']} if registrar else {})
     credentials = {n: v['token_file'] for n, v in rw.items()} | {'evaluation': evaluation['token_file']}
     ev = {'connections': connections, 'credentials': credentials, 'window': {'since': since, 'until': until}, 'personas': e['personas'],

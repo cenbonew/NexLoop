@@ -115,6 +115,20 @@ def connect_from(path):
     return lambda: psycopg.connect(dsn, autocommit=True, connect_timeout=10)
 
 
+OWNER_DIRECTED_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_]{0,63}')
+
+
+def owner_directed_properties(inputs):
+    """inputs.owner_directed_properties (owner 2026-11-07): [{type_name, property_name, decision}], the properties an owner-directed
+    schema_only template may name; shared by s6_stage_evolution (generation) and s6_stage_schema (r8's check)."""
+    value = (inputs or {}).get('owner_directed_properties') or []
+    if type(value) is not list or any(type(x) is not dict or set(x) != {'type_name', 'property_name', 'decision'}
+                                      or any(type(x[k]) is not str or not x[k] for k in x) or not OWNER_DIRECTED_NAME.fullmatch(x['type_name'])
+                                      or not OWNER_DIRECTED_NAME.fullmatch(x['property_name']) or len(x['decision']) > 200 for x in value):
+        raise Refused("inputs.owner_directed_properties: [{type_name, property_name, decision}] (the owner's decision, at most 200 characters)")
+    return value
+
+
 def connect_read_only(path, *, who='inspector'):
     """One connection from a private DSN file, read only before its first query: set default_transaction_read_only, then show it;
     anything but on closes the connection and refuses (shared by the S6 and NX-043 stage scripts)."""

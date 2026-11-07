@@ -54,7 +54,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
-from s6_common import Blocked, Redactor, Refused, Result, connect_from, digest, load_config, read_private, refusal, token_digest  # noqa: E402
+from s6_common import (Blocked, Redactor, Refused, Result, connect_from, digest, load_config, owner_directed_properties, read_private,  # noqa: E402
+                       refusal, token_digest)
 
 ESCALATION = 'eios:action:Grant.issue:1'
 CHECKS = {'at024': ['AT-024', 'S6-R9'], 'r8': ['S6-R8'], 'r10': ['S6-R10'], 'r6': ['S6-R6']}
@@ -144,6 +145,11 @@ def template_guard(check, inputs):
     if check != 'r8':
         raise Refused('candidate_template mode schema_only is for owner-directed Schema proposals (r8) only')
     prop = value.get('property') or {}
+    # The exemption is the configuration's list, not the template's word: a template naming a property (or a decision) the list does
+    # not hold is refused, however the inputs are written.
+    listed = [x for x in owner_directed_properties(inputs) if (x['type_name'], x['property_name']) == (prop.get('type_name'), prop.get('property_name'))]
+    if not listed or listed[0]['decision'] != value.get('decision'):
+        raise Refused('the schema_only template names a property or decision not in inputs.owner_directed_properties')
     change = inputs.get('property_change') or {}
     if (inputs.get('schema_type') != prop.get('type_name') or inputs.get('new_property') != prop.get('property_name')
             or change.get('property_name', prop.get('property_name')) != prop.get('property_name')):

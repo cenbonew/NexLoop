@@ -306,16 +306,19 @@ def test_r6_through_the_workbench_http_entry(stage, tmp_path):
     assert status == 403
 
 
-def owner_directed(stage, tmp_path, property_name='delivery_windows'):
+LISTED = {'type_name': 'Consumer', 'property_name': 'delivery_windows', 'decision': 'owner 2026-11-07 / claim-consumer-plan §10-2'}
+
+
+def owner_directed(stage, tmp_path, property_name='delivery_windows', decision=LISTED['decision']):
     """An owner-directed schema_only template (s6_stage_evolution.py candidate-template --mode schema_only) around the fixture's open
     candidate body: its category is owner_directed_schema, its property the one the owner decided on (2026-11-07)."""
     body = json.loads(Path(stage['inputs']['candidate_template']).read_text())
     body['category'] = 'owner_directed_schema'
     path = tmp_path / 'schema-only-template.json'
     path.write_text(json.dumps({'mode': 'schema_only', 'property': {'type_name': 'Consumer', 'property_name': property_name},
-                                'decision': 'owner 2026-11-07 / claim-consumer-plan §10-2', 'created_at': '2026-11-07T00:00:00Z', 'body': body}))
+                                'decision': decision, 'created_at': '2026-11-07T00:00:00Z', 'body': body}))
     path.chmod(0o600)
-    return {**stage['inputs'], 'candidate_template': str(path), 'new_property': property_name}
+    return {**stage['inputs'], 'candidate_template': str(path), 'new_property': property_name, 'owner_directed_properties': [LISTED]}
 
 
 def test_r8_takes_an_owner_directed_template_for_its_own_property_only(stage, tmp_path):
@@ -347,3 +350,16 @@ def test_acceptance_checks_refuse_an_owner_directed_template(stage, tmp_path, ch
         code, doc = run(tmp_path, check, s['ports'](), owner_directed(s, tmp_path), *extra)
         assert code == 2 and 'r8) only' in doc['refused']
     assert s['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0] == before
+
+
+def test_r8_refuses_an_owner_directed_template_for_a_property_or_decision_not_in_the_list(stage, tmp_path):
+    """L6 C1 on 5cb24efb: the exemption is the configuration's owner_directed_properties, not the template's word. A template edited
+    by hand to name another property (or decision), with inputs written to match, is refused before anything is written."""
+    s = stage
+    count = lambda: s['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0]  # noqa: E731
+    before = count()
+    for template in (owner_directed(s, tmp_path, property_name='s6_shoe_size'), owner_directed(s, tmp_path, decision='owner 2026-11-08 (edited)')):
+        for inputs in (template, {**template, 'owner_directed_properties': []}):
+            code, doc = run(tmp_path, 'r8', s['ports'](), inputs)
+            assert code == 2 and 'not in inputs.owner_directed_properties' in doc['refused'], json.dumps(doc, ensure_ascii=False)
+    assert count() == before
