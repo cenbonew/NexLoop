@@ -10,6 +10,7 @@ p99 x 1.5 must not exceed it. Read-only: it reads one file and prints one JSON l
                 on the CI host, or the stage export of runtime.nexloop_process_samples (docs/release/run-nx064-effect-request-metrics.md
                 §6). Samples are per-minute deltas and are summed. --kind guard_op reads the guard-side histogram instead (the
                 ADR-029c estimate; the output says so).
+--since/--until ISO times with a time zone (refused without one).
 --host-metrics  one Host metrics document (the authenticated loopback /internal/v1/metrics answer, cumulative since that Host
                 started): keys <operation>_h_<i>.
 
@@ -124,6 +125,14 @@ def judge(counts, limit_ms, *, operation, source, kind):
     return {**out, 'gate': 'pass' if upper * 1.5 <= limit_ms else 'fail', 'reason': None if upper * 1.5 <= limit_ms else 'p99_x_1.5_over_the_limit'}
 
 
+def _aware(text, name):
+    """--since / --until must carry a time zone: window_start does, and comparing the two would raise TypeError."""
+    value = datetime.fromisoformat(text.replace('Z', '+00:00'))
+    if value.tzinfo is None:
+        raise Refused(f'{name} needs a time zone (e.g. +00:00)')
+    return value
+
+
 def main(argv=None, out=sys.stdout):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group(required=True)
@@ -138,8 +147,7 @@ def main(argv=None, out=sys.stdout):
     try:
         if not 1000 <= args.limit_ms <= 5000:
             raise Refused('limit-ms must be 1000-5000 (runtime-effect-tools.ts)')
-        since = datetime.fromisoformat(args.since) if args.since else None
-        until = datetime.fromisoformat(args.until) if args.until else None
+        since, until = (_aware(args.since, '--since') if args.since else None), (_aware(args.until, '--until') if args.until else None)
         path = args.samples or args.host_metrics
         try:
             text = path.read_text(encoding='utf-8')
@@ -158,6 +166,9 @@ def main(argv=None, out=sys.stdout):
             counts = from_host_metrics(document, args.operation)
     except (Refused, ValueError) as error:
         print(json.dumps({'gate': 'refused', 'reason': str(error)[:200]}), file=out)
+        return 3
+    except Exception as error:  # noqa: BLE001 - anything unexpected is refused input (3), never 1, which means the gate failed
+        print(json.dumps({'gate': 'refused', 'reason': 'unexpected ' + type(error).__name__}), file=out)
         return 3
     result = judge(counts, args.limit_ms, operation=args.operation, source='samples' if args.samples else 'host_metrics', kind=args.kind)
     print(json.dumps(result, sort_keys=True), file=out)

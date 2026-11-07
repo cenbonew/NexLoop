@@ -99,7 +99,7 @@ select kind, service, count(*) from runtime.nexloop_process_samples
    ```
 
    需要时，把 `--operation` 换成 `effect_find` 或 `incentive` 再跑一次。
-4. **没有 Host 端数据时**（gate 为 insufficient，reason 为 `empty_histogram`）：可以用 guard 端估算。第 2 步把 `kind='host_op'` 换成 `kind='guard_op'`（0186/0188：guard 按操作的样本，service 为操作名，同样带 `h_<i>`），第 3 步加 `--kind guard_op`。输出会带 `estimate: guard p99 + 300 ms`，证据里照写“估算”。
+4. **没有 Host 端数据时**（gate 为 insufficient，reason 为 `empty_histogram`）：可以用 guard 端估算。第 2 步把 `kind='host_op'` 换成 `kind='guard_op'`（0186/0188：guard 按操作的样本，service 为操作名，同样带 `h_<i>`），第 3 步加 `--kind guard_op`。输出会带 `estimate: guard p99 + 300 ms`，证据里照写“估算”。**用 `--kind guard_op` 得出的 pass 只是估算，不能代替 Host 端的实测**：证据里记为“估算（guard p99 + 300 ms）”，不能记为“通过”。按它定的值，等 Host 端样本够 1000 次后要用第 2、3 步重新判定。
 5. **CI 主机的负载矩阵**：跑完一格后，直接用该格结果目录里的 `process_samples.jsonl`：`--samples <结果目录>/process_samples.jsonl`。
 
 **证据**：只记脚本输出的那一行 JSON，以及部署时限的来源（“私有配置第 1 步的值”或“默认 2000”）。

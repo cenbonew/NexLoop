@@ -114,3 +114,18 @@ def test_refused_input_is_neither_pass_nor_insufficient(tmp_path, label, row):
     assert code == 3 and out['gate'] == 'refused', label
     code, _ = run('--samples', path, '--limit-ms', 6000)
     assert code == 3
+
+
+@pytest.mark.parametrize('flag', ['--since', '--until'])
+def test_a_window_bound_without_a_time_zone_is_refused_not_a_failed_gate(tmp_path, flag):
+    path = samples_file(tmp_path, {histogram_bucket(300): 1200})
+    code, out = run('--samples', path, '--limit-ms', 2000, flag, '2026-11-07T10:01:00')
+    assert code == 3 and out['gate'] == 'refused' and 'time zone' in out['reason']
+
+
+def test_an_unexpected_error_is_refused_input_never_exit_1(tmp_path, monkeypatch):
+    def broken(*args, **kwargs):
+        raise TypeError('synthetic')
+    monkeypatch.setattr(G, 'from_samples', broken)
+    code, out = run('--samples', samples_file(tmp_path, {histogram_bucket(300): 1200}), '--limit-ms', 2000)
+    assert code == 3 and out == {'gate': 'refused', 'reason': 'unexpected TypeError'}
