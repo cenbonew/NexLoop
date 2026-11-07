@@ -244,3 +244,24 @@ def test_null_action_proofs_cannot_authorize_activation_through_protected_sql(au
         port._call('operations','authorize',activation_ref=result['activation_ref'],
             command_text=text,command_digest=hashlib.sha256(text.encode()).hexdigest(),
             input_digest=None,operation='model',run_proofs=None)
+
+
+def test_a_failing_fault_decision_never_changes_the_admission(authority,synthetic_credentials,admin,caplog):
+    """ADR-045 (L6 C1 on 4bf5e38a): the stage-only fault decision runs on every real start and resume; when it fails (here: its grant
+    revoked, as a database without the migration or with a dropped connection would fail) the admission still succeeds, carries no
+    synthetic_model_fault, and the failure is one log line (error type, run id) and one count."""
+    import logging
+    from nexloop_eios import runtime_activation as RA
+    result=activation(authority,synthetic_credentials);_,command,worker,issued,_=authority
+    plain=authorize(worker,result['activation_ref'],command,'start')
+    assert plain['authorized'] and 'synthetic_model_fault' not in plain  # the decision ran: no live switch, no field
+    admin.execute('revoke execute on function authz.nexloop_synthetic_fault_decide(text,text,uuid,text) from nexloop_api,nexloop_domain_worker')
+    before=RA.SYNTHETIC_FAULT_DECISION_FAILURES['count']
+    with caplog.at_level(logging.WARNING,logger='nexloop.synthetic_fault'):
+        for operation in ('start','resume'):
+            allowed=authorize(worker,result['activation_ref'],command,operation)
+            assert allowed['authorized'] and allowed['run_id']==issued.run_id and 'synthetic_model_fault' not in allowed
+    assert RA.SYNTHETIC_FAULT_DECISION_FAILURES['count']==before+2
+    lines=[r.getMessage() for r in caplog.records if r.name=='nexloop.synthetic_fault']
+    assert len(lines)==2 and all('InsufficientPrivilege' in line and str(issued.run_id) in line for line in lines)
+    assert issued.token not in ' '.join(lines)

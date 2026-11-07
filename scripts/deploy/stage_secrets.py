@@ -1218,8 +1218,15 @@ def emit_worker_config(directory):
 
 def publish_main(args):
     from nexloop_eios import catalog_publish as P
-    compiled = P.compile_catalog(args.tenant, **CATALOG)
-    counts = {'object_types': len(compiled['object_types']), 'actions': len(compiled['actions']), 'functions': len(compiled['functions'])}
+    # ADR-045 C1: the stage-only manifest only for a deployment explicitly marked stage, refused before anything is compiled or sent.
+    try:
+        path = P.stage_only(args.stage_capabilities, args.deployment_marker)
+    except P.CatalogPublishRefused as refused:
+        raise Refused(str(refused)) from None
+    stage = {} if path is None else {'stage_capabilities_path': path}
+    compiled = P.compile_catalog(args.tenant, **CATALOG, **stage)
+    counts = {'object_types': len(compiled['object_types']), 'actions': len(compiled['actions']), 'functions': len(compiled['functions']),
+              **({'stage_manifest': compiled['stage_manifest']} if 'stage_manifest' in compiled else {})}
     emitted = emit_worker_config(args.emit_config) if args.emit_config else None
     if args.dry_run and not (args.configurator_dsn_file or args.bootstrap_dsn_file):
         return {'dry_run': True, 'compared': False, **counts, 'emitted': emitted}
@@ -1316,6 +1323,8 @@ def main(argv=None):
     q.add_argument('--signing-key-id')
     q.add_argument('--dry-run', action='store_true', help='compare only; without a DSN file only the compiled counts')
     q.add_argument('--emit-config', type=Path, help='write the worker configuration files the catalog makes valid (design §4)')
+    q.add_argument('--stage-capabilities', type=Path, help='ADR-045: merge deploy/stage/capabilities.stage.v*.json (stage only)')
+    q.add_argument('--deployment-marker', type=Path, help='ADR-045: the private marker file of the target deployment (environment stage)')
     rr = sub.add_parser('reissue-role', help='re-issue one service\'s DSN and client certificate for its current PRIMARY_ROLE')
     rr.add_argument('--out', type=Path, required=True)
     rr.add_argument('--ca-dir', type=Path, required=True)

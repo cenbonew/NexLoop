@@ -151,6 +151,12 @@ OPERATIONS={
     # 0220 (ADR-034 first step): owner-only persona marking, and the erasure of a Consumer whose persona is not real.
     'set_consumer_persona':{'consumer_id':_id(_HEX),'persona':lambda v:v if v in ('real','simulated_agent','synthetic') else (_ for _ in ()).throw(ValueError('persona')),'reason':_reason},
     'erase_synthetic_consumer':{'consumer_id':_id(_HEX),'reason':_reason},
+    # ADR-045 (stage only): the test-Consumer model fault switch; where the Action is not published (production) the route answers 404.
+    'set_synthetic_fault':{'state':lambda v:v if v in ('open','closed') else (_ for _ in ()).throw(ValueError('state')),
+        'consumer_ids':lambda v:v if type(v) is list and len(v)<=8 and all(type(c) is str and re.fullmatch(r'[a-f0-9]{64}',c) for c in v) else (_ for _ in ()).throw(ValueError('consumer_ids')),
+        'remaining':lambda v:v if type(v) is int and 0<=v<=50 else (_ for _ in ()).throw(ValueError('remaining')),
+        'duration_seconds':lambda v:v if type(v) is int and 0<=v<=7200 else (_ for _ in ()).throw(ValueError('duration_seconds')),
+        'reason':_reason},
     # 0227 operator persona slice 1 (owner only): versions, assignment (persona_id null clears it), rules, AI disclosure.
     'publish_operator_persona':{'persona_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,63}')),'version':lambda v:v if type(v) is int and 1<=v<=999999 else (_ for _ in ()).throw(ValueError('version')),
         'status':lambda v:v if v in ('published','retired') else (_ for _ in ()).throw(ValueError('status')),

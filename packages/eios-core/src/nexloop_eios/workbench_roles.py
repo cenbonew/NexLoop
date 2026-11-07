@@ -387,6 +387,31 @@ def apply_revocations(roles, members, revoked, *, database_url_file, signing_key
     return {**applied, 'revoked': sorted(revoked), 'revoked_grant_sets': len(facts), 'revocation_revision': revision}
 
 
+def with_stage_owner_actions(roles, stage_capabilities, deployment_marker):
+    """ADR-045: the stage manifest's owner_actions join the owner role, only for a deployment marked stage (refused otherwise, before
+    anything is compiled or applied); without the flags the roles are unchanged."""
+    from nexloop_eios import catalog_publish as P
+    if stage_capabilities is None and deployment_marker is not None:
+        # The marker alone merges nothing; on a stage deployment that drops the stage-only owner grants, so say so (not an error).
+        try:
+            stage = P.deployment_environment(deployment_marker) == 'stage'
+        except P.CatalogPublishRefused as refused:
+            raise WorkbenchRolesRejected(str(refused)) from None
+        if stage:
+            print('workbench_roles: the deployment is marked stage but --stage-capabilities is missing: the stage-only owner grants '
+                  '(deploy/stage/capabilities.stage.v1.json owner_actions) are not applied and an existing one is withdrawn', file=sys.stderr)
+        return roles
+    try:
+        path = P.stage_only(stage_capabilities, deployment_marker)
+        if path is None:
+            return roles
+        stage, _ = P.load_stage_manifest(path)
+    except P.CatalogPublishRefused as refused:
+        raise WorkbenchRolesRejected(str(refused)) from None
+    owner = roles['roles']['owner'] + [a for a in stage['owner_actions'] if a not in roles['roles']['owner']]
+    return validate_roles({**roles, 'roles': {**roles['roles'], 'owner': owner}})
+
+
 def main(argv=None, *, window=None):
     p = argparse.ArgumentParser(description='Workbench roles → Human Action grants (NX-028 D1/D2), trusted configuration only')
     p.add_argument('--roles', type=Path, required=True)
@@ -401,11 +426,14 @@ def main(argv=None, *, window=None):
     p.add_argument('--bootstrap-dsn-file', type=Path)
     p.add_argument('--signing-key-file', type=Path)
     p.add_argument('--signing-key-id')
+    p.add_argument('--stage-capabilities', type=Path, help='ADR-045: add the stage manifest\'s owner_actions to the owner role (stage only)')
+    p.add_argument('--deployment-marker', type=Path, help='ADR-045: the private marker file of the target deployment (environment stage)')
     p.add_argument('--revoke-member', action='append', metavar='PRINCIPAL_ID',
                    help='with --apply: empty grant sets for this member first, then the members file (which must not list it); repeatable')
     a = p.parse_args(argv)
     try:
         roles = validate_roles(load(a.roles))
+        roles = with_stage_owner_actions(roles, a.stage_capabilities, a.deployment_marker)
         if a.check:
             if a.members is not None:
                 validate_members(load(a.members), roles)

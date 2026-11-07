@@ -124,7 +124,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # Stale action claims (2026-10-31): the owner ends a stale active claim whose result is settled.
     'action_claim.settle':'human_owner',
     # K4b (human_questions): a workbench member answers a reevaluation Run's question (owner and operator; the handler checks the kind).
-    'human_question.answer':'human_owner'}
+    'human_question.answer':'human_owner',
+    # ADR-045 (owner 2026-11-07): the stage-only test-Consumer model fault switch; its Action is only in deploy/stage/capabilities.stage.v1.json.
+    'synthetic_fault.set':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

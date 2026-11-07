@@ -98,6 +98,10 @@ IDENTITY_KEPT = {
     # NX-057: who switched or resolved a remediation (the owner or the planner's service principal); the remediation holds no consumer id.
     'control.nexloop_remediation_switches': _STAFF + ' (the owner who paused or resumed remediation)',
     'runtime.nexloop_remediation_events': _STAFF + ' (the planner service or the owner who moved a remediation)',
+    # ADR-045 (0423, stage only): the owner who opened or closed the test-Consumer fault switch; the switch's Consumers are in
+    # control.nexloop_synthetic_fault_members, deleted by the erasure trigger; the audit events hold no Consumer.
+    'control.nexloop_synthetic_fault_switches': _STAFF + ' (the owner who opened the fault switch)',
+    'runtime.nexloop_synthetic_fault_events': _STAFF + ' (the owner who opened or closed the fault switch; no Consumer in the audit)',
 }
 # Known JSON paths that name the Consumer or their principal, and how the erasure treats each (a table of IDENTITY_KEPT or one the
 # erasure writes; the whole-database search proves the values are gone).

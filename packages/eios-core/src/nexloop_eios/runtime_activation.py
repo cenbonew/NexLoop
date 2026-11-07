@@ -90,6 +90,26 @@ def _execution_lock(db,run_id):
     db.execute('select pg_advisory_xact_lock(hashtextextended(%s,0))',('nexloop-runtime-execution:'+run_id,))
 
 
+# ADR-045 (L6 C1 on 4bf5e38a): the stage-only fault decision runs on every real start and resume, so it never decides the admission:
+# any error of it (a missing grant or migration, a dropped connection) is no hit, one log line (the error type and the run id only)
+# and one count in this process. The admission's own result is unchanged.
+SYNTHETIC_FAULT_DECISION_FAILURES={'count':0}
+
+
+def _synthetic_fault(pool,session,run_id,operation):
+    try:
+        with pool.connection() as db,db.transaction():
+            verify_application_role(db)
+            return db.execute('select authz.nexloop_synthetic_fault_decide(%s,%s,%s,%s)',
+                              (session.token_digest,session.world,str(run_id),operation)).fetchone()[0] is True
+    except Exception as error:
+        SYNTHETIC_FAULT_DECISION_FAILURES['count']+=1
+        import logging
+        logging.getLogger('nexloop.synthetic_fault').warning('synthetic fault decision failed (%s) for run %s; no fault, admission unchanged',
+                                                             type(error).__name__,run_id)
+        return False
+
+
 class RuntimeActivationPort:
     def __init__(self,pool,session,signer):
         if session.run_context is not None:raise AuthorizationUnavailable('runtime activation unavailable')
@@ -237,7 +257,12 @@ class RuntimeActivationPort:
                 except Exception:
                     if reused:forget_run_envelopes(first['_run_digest'])
                     raise
-            return {key:value for key,value in result.items() if not key.startswith('_')}
+            result={key:value for key,value in result.items() if not key.startswith('_')}
+            if operation in ('start','resume') and self.session.world=='real' and result.get('authorized') is True:
+                # ADR-045: after SQL authorized the start or resume, the stage-only test-Consumer fault switch is decided in SQL from
+                # the Consumer's governed persona (a resume keeps the start's decision); only a hit adds the field.
+                if _synthetic_fault(self.pool,self.session,result['run_id'],operation):result['synthetic_model_fault']=True
+            return result
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
     def _context_read_proof(self,resolved):

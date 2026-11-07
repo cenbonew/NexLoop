@@ -49,7 +49,8 @@ def config(pg,tmp_path,tokens,guard_port,origin,key):
 @contextmanager
 def worker_process(arguments,*,ready=True):
     child=subprocess.Popen(arguments,cwd=ROOT,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
-        env={key:value for key,value in os.environ.items() if not key.startswith(('MODEL_','DATABASE_'))})
+        # PYTHONFAULTHANDLER: a Worker that will not exit is aborted with SIGABRT and dumps every thread's stack to stderr.
+        env={key:value for key,value in os.environ.items() if not key.startswith(('MODEL_','DATABASE_'))}|{'PYTHONFAULTHANDLER':'1'})
     events=queue.Queue();stdout=[];stderr=[]
     def read(stream,target):
         for line in stream:
@@ -253,6 +254,11 @@ def test_cli_dispatch_loops_share_the_queue_each_task_claimed_once(accepted_inpu
     tasks=(accepted['task_id'],following['task_id'])
     with stack(pg,tmp_path,synthetic_credentials) as (runtime,_,arguments,_):
         arguments[arguments.index('--poll-seconds')+1]='1';arguments+=['--dispatch-loops','2']
+        # Each task is claimed exactly once (fence 1, one running event): a Host request past a 1 s --request-timeout under load
+        # (two Runs at once) ends the attempt runtime_transport_timeout and the task is retried at fence 2, a different path. The
+        # per-request bound is not what this test measures; 5 s stays inside --total-timeout 10, and the dispatcher requires a
+        # request timeout of at most a third of the lease, so the lease is 15 s.
+        arguments[arguments.index('--request-timeout')+1]='5';arguments[arguments.index('--lease-seconds')+1]='15'
         with worker_process(arguments) as (process,out,err):
             # Both Runs in flight at once is a condition on the shared queue, not a time: polled, with a ceiling
             # far above an unloaded run (about 2 s) so only a loop that never claims fails.
@@ -267,9 +273,16 @@ def test_cli_dispatch_loops_share_the_queue_each_task_claimed_once(accepted_inpu
             process.terminate()
             try:code=process.wait(timeout=120)
             except subprocess.TimeoutExpired:
-                process.kill();process.wait(timeout=10)  # so worker_process's own cleanup cannot raise over this failure
+                # Where it waits (CI 10-28, 11-07; not reproduced locally): SIGABRT makes faulthandler dump every thread's stack.
+                process.send_signal(signal.SIGABRT)
+                try:process.wait(timeout=10)
+                except subprocess.TimeoutExpired:process.kill();process.wait(timeout=10)  # so worker_process's own cleanup cannot raise
+                drained=time.monotonic()+5  # the stderr reader drains the dump the process wrote before it ended (pipe EOF)
+                while not any('Current thread' in line or 'Thread 0x' in line for line in err) and time.monotonic()<drained:
+                    process.poll();threading.Event().wait(.05)
                 states=admin.execute('select job_id,status from runtime.jobs where job_id=any(%s)',(list(tasks),)).fetchall()
-                pytest.fail(f'the Worker did not exit within 120 s of SIGTERM; tasks {states}')
+                stacks=''.join(line for line in err if 'File ' in line or 'Thread' in line or 'Current thread' in line)
+                pytest.fail(f'the Worker did not exit within 120 s of SIGTERM; tasks {states}; thread stacks:\n{stacks}')
             assert code==0
         assert_redacted(out,err,args,synthetic_credentials,issued)
         for task_id,run_id in zip(tasks,(issued.run_id,second.run_id)):
