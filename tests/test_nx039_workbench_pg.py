@@ -117,3 +117,23 @@ def test_only_the_owner_reads_the_review_and_stops(restoring, admin):
         assert stop_of(client.get('/api/v1/workbench/semantic-review', headers={'Origin': ORIGIN}).json()['stops'], 'semantic_content')['stopped'] is True
     audited = admin.execute("select count(*) from runtime.nexloop_action_claims where action_name='nexloop.semantic_release.stop'").fetchone()[0]
     assert audited >= 1
+
+
+CANDIDATE_KEYS = {'candidate_id', 'category', 'status', 'end_reason', 'dimension', 'change_kind', 'report_digest', 'level', 'conclusion', 'reason',
+                  'change_class', 'hard_gates_version', 'gates', 'scores', 'non_inferiority', 'cases', 'cases_digest', 'published_version', 'recorded_at'}
+
+
+@pytest.mark.parametrize('category,dimension', [('retrieval_miss', 'semantic_content'), ('ambiguity_unresolved', 'semantic_content'),
+                                                ('owner_directed_schema', 'ontology_schema')])
+def test_the_review_read_carries_the_candidate_category(accepted, category, dimension):
+    """The review queue shows each candidate's category (the latest migration copies the 0255 read with only 'category' added); every
+    other field is the one it was."""
+    f = accepted
+    admin = f['admin']
+    before = next(x for x in summary(admin)['candidates'] if x['candidate_id'] == f['candidate'])
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')  # seeded as the evolution pipeline would leave it (0419 pairs the two)
+        admin.execute('update runtime.nexloop_evo_candidates set category=%s,dimension=%s where candidate_id=%s', (category, dimension, f['candidate']))
+    (c,) = [x for x in summary(admin)['candidates'] if x['candidate_id'] == f['candidate']]
+    assert set(c) == CANDIDATE_KEYS and c['category'] == category and c['dimension'] == dimension
+    assert {k: v for k, v in c.items() if k not in ('category', 'dimension')} == {k: v for k, v in before.items() if k not in ('category', 'dimension')}

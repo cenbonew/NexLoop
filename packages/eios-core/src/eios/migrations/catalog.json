@@ -2095,6 +2095,11 @@
       "version": "0419",
       "name": "0419_evo_owner_directed_schema.sql",
       "sha256": "44426df32984e0b0183e895d8153f516f5d9eec9d396b07be3bbf66730decba5"
+    },
+    {
+      "version": "0420",
+      "name": "0420_evo_review_summary_category.sql",
+      "sha256": "a28953802eb9d866ee5daf06494de9d44b0bf8f4d6c5c9518794d8ed84f25d98"
     }
   ]
 }

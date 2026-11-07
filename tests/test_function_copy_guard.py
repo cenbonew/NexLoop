@@ -724,6 +724,9 @@ REGISTRY = [
     Allowed('workbench_read_types', 'authz.nexloop_assert_workbench_member_read', "any type name in the audited object; kind 'object' for the new types; nothing else",
             ((re.escape("([A-Za-z][A-Za-z0-9_]{0,63}/[a-f0-9]{64})"), "((?:Message|Consumer|Goal|PlanStep|Commitment|ServiceOffering)/[a-f0-9]{64})"),
              (re.escape("when 'ServiceOffering' then 'service_offering' else 'object' end"), "else 'service_offering' end"))),
+    # The review queue shows the candidate category (L9 labels; 0419 owner_directed_schema).
+    Allowed('evo_review_summary_category', 'runtime.nexloop_evo_review_summary', "'category' in each candidate object; nothing else",
+            ((re.escape("'candidate_id',x.candidate_id,'category',x.category,"), "'candidate_id',x.candidate_id,"),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),
