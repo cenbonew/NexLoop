@@ -352,3 +352,65 @@ def test_a_wal_with_a_broken_checksum_counts_no_frames(env):
     assert fb.committed_wal_frames(wal) == 0
     result = run(e, 'runtime')
     assert result['skipped']['integrity'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'
+
+
+
+def _aged(e, run_id):
+    old = (e['source'] / run_id / 'runtime.sqlite').stat().st_mtime
+    os.utime(e['source'] / run_id / 'runtime.sqlite-wal', (old, old))
+
+
+def test_a_copy_changed_after_the_checkpoint_is_an_integrity_failure(env, monkeypatch):
+    e = env
+    stranded = stranded_store(e, rows=6)
+    original = fb._checkpoint
+
+    def tampered(target):
+        busy = original(target)
+        with open(target, 'r+b') as stream:  # the WAL checked; one committed page of the merged copy is not what it held
+            stream.seek(4096 + 200)
+            stream.write(b'\xaa' * 16)
+        return busy
+    monkeypatch.setattr(fb, '_checkpoint', tampered)
+    result = run(e, 'runtime')
+    assert result['skipped']['integrity'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'
+    assert not (snapshot(e, result) / 'runs' / stranded).exists()
+
+
+def test_a_wal_of_another_format_version_counts_no_frames(env):
+    e = env
+    stranded = stranded_store(e)
+    wal = e['source'] / stranded / 'runtime.sqlite-wal'
+    data = bytearray(wal.read_bytes())
+    data[4:8] = (3007001).to_bytes(4, 'big')
+    wal.write_bytes(bytes(data));_aged(e, stranded)
+    assert fb.committed_wal_frames(wal) == 0
+    assert run(e, 'runtime')['skipped']['integrity'] == 1
+
+
+def test_a_frame_with_page_number_0_ends_the_replay(env):
+    e = env
+    stranded = stranded_store(e)
+    wal = e['source'] / stranded / 'runtime.sqlite-wal'
+    data = bytearray(wal.read_bytes())
+    data[32:36] = (0).to_bytes(4, 'big')  # the first frame's page number
+    wal.write_bytes(bytes(data));_aged(e, stranded)
+    assert fb.wal_committed(wal) == {'frames': 0, 'pages': {}, 'database_pages': 0, 'page_size': 0}
+    assert run(e, 'runtime')['skipped']['integrity'] == 1
+
+
+def test_the_replay_reports_the_last_version_of_each_committed_page():
+    import tempfile
+    directory = Path(tempfile.mkdtemp())
+    db = sqlite3.connect(directory / 'w.sqlite')
+    db.execute('pragma journal_mode=wal');db.execute('pragma wal_autocheckpoint=0')
+    db.execute('create table t(x)');db.commit()
+    db.execute("insert into t values('first')");db.commit()
+    db.execute("update t set x='second'");db.commit()
+    replay = fb.wal_committed(directory / 'w.sqlite-wal')
+    count = db.execute('pragma page_count').fetchone()[0]
+    db.execute('pragma wal_checkpoint(TRUNCATE)')
+    merged = (directory / 'w.sqlite').read_bytes()
+    db.close()
+    assert replay['frames'] >= 3 and replay['database_pages'] == count and replay['page_size'] == 4096
+    assert all(merged[(n - 1) * 4096:n * 4096] == content for n, content in replay['pages'].items())

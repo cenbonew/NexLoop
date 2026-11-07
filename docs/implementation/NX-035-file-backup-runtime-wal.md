@@ -113,7 +113,12 @@
 
 1. 复制前、复制后，各取一次两个文件的 stat（类型、大小、mtime、inode），必须完全相同；不同就说明还有写入者，照旧计为 `not_checkpointed`。
 2. 在 staging 的副本上执行 `PRAGMA wal_checkpoint(TRUNCATE)`，删掉 staging 里的 `-wal` 和 `-shm`；快照里只有一个已合并的 `runtime.sqlite`，然后照常做 `integrity_check`。
-3. **不会少复制**：SQLite 遇到读不懂的 WAL 会静默丢弃。所以合并前先按 SQLite 的 WAL 格式自己校验：magic、页大小、头部校验和，以及逐帧的 salt 和累积校验和；能重放的已提交帧为 0 时，计为 `integrity`，不进快照。合并后 `wal_checkpoint` 返回 busy 也计为 `integrity`。
+3. **不会少复制**：SQLite 遇到读不懂的 WAL 会静默丢弃。所以合并前先按 SQLite 的 WAL 格式自己重放一遍（`wal_committed`）：
+   - 校验 magic、格式版本 3007000、页大小、头部校验和，以及逐帧的 salt 和累积校验和；页号为 0 的帧视为无效，到此停止；
+   - 一直数到最后一个提交帧，得出每个页号最后一次提交的内容，以及最后那个提交帧记录的数据库页数；
+   - 能重放的已提交帧为 0 时计为 `integrity`，不进快照；`wal_checkpoint` 返回 busy 也计为 `integrity`。
+
+   合并后核对（fail closed）：副本的 `page_count` 必须等于最后那个提交帧记录的页数，每个提交过的页必须和 WAL 里最后一次的版本逐字节相同，否则计为 `integrity`。已经写回过、但没截断的 WAL，页内容相同，能通过。
    - 不用“合并前后数据库字节相同”来判断（L6 C1）：之前已被自动 checkpoint 写回过、但没截断的 WAL，合并后字节本来就不变。
    - 也不用 `wal_checkpoint(TRUNCATE)` 的帧数来判断：实测在副本上打开连接时 SQLite 已经先做了恢复，不论帧有没有写回过，返回都是 `(0, 0, 0)`。
 4. 源文件只读，不在源目录做 checkpoint。复制源存储是只读的；在 staging 打开副本会改动的是副本，不是 `/srv`。
