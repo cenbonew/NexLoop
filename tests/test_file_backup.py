@@ -246,3 +246,81 @@ def test_repo1_over_the_rest_server_pins_the_stage_ca_with_cacert(env, tmp_path,
     capsys.readouterr()
     assert fb.main([*base, '--cacert', str(tmp_path / 'absent.crt')]) == 1  # a CA file that is not there: no run, no row
     assert 'BackupUnavailable' in capsys.readouterr().out
+
+
+def stranded_store(e, *, rows=3, age=3600):
+    """A finished Run whose Host stopped without closing the store: the database and a real, non-empty WAL with committed frames
+    that were never checkpointed (copied from a connection still open), both last modified `age` seconds ago."""
+    run_id = str(uuid.uuid4())
+    directory = e['source'] / run_id
+    directory.mkdir(mode=0o700)
+    live = e['source'].parent / ('live-' + run_id)
+    live.mkdir()
+    db = sqlite3.connect(live / 'runtime.sqlite')
+    db.execute('pragma journal_mode=wal')
+    db.execute('pragma wal_autocheckpoint=0')
+    db.execute('create table t(x)')
+    db.executemany('insert into t values(?)', [(f'synthetic {n}',) for n in range(rows)])
+    db.commit()
+    for name in ('runtime.sqlite', 'runtime.sqlite-wal'):
+        (directory / name).write_bytes((live / name).read_bytes())
+    db.close()
+    old = (directory / 'runtime.sqlite').stat().st_mtime - age
+    for name in ('runtime.sqlite', 'runtime.sqlite-wal'):
+        os.utime(directory / name, (old, old))
+    assert (directory / 'runtime.sqlite-wal').stat().st_size > 0
+    e['listed']['files_runtime'].append({'ref': run_id})
+    return run_id
+
+
+def test_a_quiet_stranded_wal_is_copied_with_its_store_checkpointed_in_staging_and_verified(env):
+    e = env
+    good = run_store(e)
+    stranded = stranded_store(e, rows=5)
+    source = sorted(p.name for p in (e['source'] / stranded).iterdir())
+    before = {p.name: p.read_bytes() for p in (e['source'] / stranded).iterdir()}
+    e['listed']['files_runtime'].append({'ref': str(uuid.uuid4())})  # an absent one alongside: reported, not a failure
+    result = run(e, 'runtime')
+    assert result['verify_status'] == 'verified' and result['recovered_wal'] == 1 and result['absent'] == 1
+    assert result['skipped'] == {'missing': 0, 'not_checkpointed': 0, 'integrity': 0} and result['file_count'] == 2
+    copied = snapshot(e, result) / 'runs' / stranded
+    assert sorted(p.name for p in copied.iterdir()) == ['runtime.sqlite']  # one checkpointed file, no WAL or shm in the snapshot
+    db = sqlite3.connect(f'file:{copied / "runtime.sqlite"}?mode=ro&immutable=1', uri=True)
+    assert db.execute('select count(*) from t').fetchone() == (5,)  # the WAL's committed rows are in the copy
+    db.close()
+    # The source is only read: the same files, the same bytes.
+    assert sorted(p.name for p in (e['source'] / stranded).iterdir()) == source
+    assert {p.name: p.read_bytes() for p in (e['source'] / stranded).iterdir()} == before
+    assert (snapshot(e, result) / 'runs' / good / 'runtime.sqlite').exists()
+
+
+def test_a_recent_wal_is_still_not_checkpointed(env):
+    e = env
+    stranded_store(e, age=60)  # changed a minute ago: the Host may still be writing
+    result = run(e, 'runtime')
+    assert result['skipped']['not_checkpointed'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'
+
+
+def test_an_unreadable_old_wal_is_an_integrity_failure_never_a_short_copy(env):
+    e = env
+    run_id = run_store(e, wal=b'\x00' * 4096)  # frames SQLite cannot read: it would drop them silently
+    old = (e['source'] / run_id / 'runtime.sqlite').stat().st_mtime - 3600
+    for name in ('runtime.sqlite', 'runtime.sqlite-wal'):
+        os.utime(e['source'] / run_id / name, (old, old))
+    result = run(e, 'runtime')
+    assert result['skipped']['integrity'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'
+    assert not (snapshot(e, result) / 'runs' / run_id).exists()
+
+
+def test_a_wal_that_changes_while_it_is_copied_is_not_checkpointed(env, monkeypatch):
+    e = env
+    stranded_store(e)
+    original, calls = fb._signature, [0]
+
+    def moving(path):
+        calls[0] += 1
+        value = original(path)
+        return value if calls[0] <= 2 else (value[0], value[1] + 1, value[2], value[3])  # after the copy: another size
+    monkeypatch.setattr(fb, '_signature', moving)
+    result = run(e, 'runtime')
+    assert result['skipped']['not_checkpointed'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'

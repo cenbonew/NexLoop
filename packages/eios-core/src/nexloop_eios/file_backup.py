@@ -9,7 +9,12 @@ One run backs up one kind into one restic repository and records one manifest ro
   queued or done). Only ``runtime.sqlite`` is copied, and only when no non-empty ``-wal`` file is beside it (the Host has
   closed and checkpointed the store); the copy must pass SQLite ``PRAGMA integrity_check``. An active Run is never listed,
   and copying a database without its WAL is refused (design §4.3). A listed Run whose directory is gone is counted as
-  absent: an NX-029 purge or a Run that never created its store.
+  absent: an NX-029 purge or a Run that never created its store; absent is reported, never a failure.
+  A finished Run whose store still has a non-empty WAL that has not changed for WAL_QUIET_SECONDS (the Host stopped without
+  closing it - killed, or its Run ended in PG first - so nothing will ever checkpoint it) is copied with its WAL as one pair: both
+  files are stat'ed before and after the copy and must be unchanged, the staged copy is checkpointed (wal_checkpoint TRUNCATE) and
+  must pass the integrity check; the source is only read. It is counted as recovered_wal. A younger WAL may still be written:
+  skipped as not_checkpointed, as before, and the next round sees it again.
 
 Then restic backs up the staging directory (client-side encryption, ``--no-cache``), ``restic check`` verifies the
 repository, and the row is written: ``verified`` only when restic and the check both succeeded and nothing was left out,
@@ -148,7 +153,48 @@ def _integrity_ok(path):
         db.close()
 
 
-def stage_runs(entries, source_root, staging):
+WAL_QUIET_SECONDS = 1800
+_WAL_HEADER = 32
+
+
+def _signature(path):
+    info = os.lstat(path)
+    return (stat.S_ISREG(info.st_mode), info.st_size, info.st_mtime_ns, info.st_ino)
+
+
+def _stage_with_wal(source_root, ref, target):
+    """A quiet finished store with its WAL: copy the pair, checkpoint the copy. 'recovered', 'not_checkpointed' or 'integrity'."""
+    base = Path(source_root) / ref
+    before = (_signature(base / 'runtime.sqlite'), _signature(base / 'runtime.sqlite-wal'))
+    if not (before[0][0] and before[1][0]):
+        return 'not_checkpointed'
+    if datetime.now(UTC).timestamp() - max(before[0][2], before[1][2]) / 1e9 < WAL_QUIET_SECONDS:
+        return 'not_checkpointed'
+    _copy(_open_source(source_root, f'{ref}/runtime.sqlite'), target)
+    _copy(_open_source(source_root, f'{ref}/runtime.sqlite-wal'), target.with_name('runtime.sqlite-wal'))
+    if (_signature(base / 'runtime.sqlite'), _signature(base / 'runtime.sqlite-wal')) != before:
+        return 'not_checkpointed'  # it changed while copied: a writer is still there
+    with open(target.with_name('runtime.sqlite-wal'), 'rb') as stream:
+        header = stream.read(_WAL_HEADER)
+    unmerged = target.read_bytes()
+    try:
+        db = sqlite3.connect(target)
+        try:
+            busy = db.execute('pragma wal_checkpoint(TRUNCATE)').fetchone()[0]
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return 'integrity'
+    # A WAL SQLite does not read (no WAL magic, or frames it rejects) would be dropped silently and the copy would be short: a WAL
+    # with at least one frame always changes a page of the database, so an unchanged database after the checkpoint is refused.
+    if busy or header[:4] not in (b'\x37\x7f\x06\x82', b'\x37\x7f\x06\x83') or (before[1][1] > _WAL_HEADER and target.read_bytes() == unmerged):
+        return 'integrity'
+    for leftover in ('runtime.sqlite-wal', 'runtime.sqlite-shm'):
+        target.with_name(leftover).unlink(missing_ok=True)
+    return 'recovered'
+
+
+def stage_runs(entries, source_root, staging, recovered=None):
     rows, skipped, absent = [], {'missing': 0, 'not_checkpointed': 0, 'integrity': 0}, 0
     for entry in entries:
         ref = entry.get('ref')
@@ -162,20 +208,36 @@ def stage_runs(entries, source_root, staging):
         if not stat.S_ISDIR(info.st_mode):
             skipped['missing'] += 1
             continue
+        target = staging / 'runs' / ref / 'runtime.sqlite'
         try:
             wal = os.lstat(Path(source_root) / ref / 'runtime.sqlite-wal')
-            if not stat.S_ISREG(wal.st_mode) or wal.st_size > 0:
+            if not stat.S_ISREG(wal.st_mode):
                 skipped['not_checkpointed'] += 1
                 continue
+            pending = wal.st_size > 0
         except FileNotFoundError:
-            pass
-        try:
-            source = _open_source(source_root, f'{ref}/runtime.sqlite')
-        except (FileNotFoundError, NotADirectoryError, OSError):
-            skipped['missing'] += 1
-            continue
-        target = staging / 'runs' / ref / 'runtime.sqlite'
-        sha256, size = _copy(source, target)
+            pending = False
+        if pending:
+            try:
+                outcome = _stage_with_wal(source_root, ref, target)
+            except (FileNotFoundError, NotADirectoryError, OSError):
+                outcome = 'missing'
+            if outcome != 'recovered':
+                shutil.rmtree(target.parent, ignore_errors=True)
+                skipped[outcome] += 1
+                continue
+            if recovered is not None:
+                recovered.append(ref)
+            with open(target, 'rb') as merged:
+                digest = hashlib.sha256(merged.read())
+            sha256, size = digest.hexdigest(), target.stat().st_size
+        else:
+            try:
+                source = _open_source(source_root, f'{ref}/runtime.sqlite')
+            except (FileNotFoundError, NotADirectoryError, OSError):
+                skipped['missing'] += 1
+                continue
+            sha256, size = _copy(source, target)
         if not _integrity_ok(target):
             shutil.rmtree(target.parent)
             skipped['integrity'] += 1
@@ -242,8 +304,9 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     staging = Path(staging_root) / ('stage-' + uuid.uuid4().hex)
     staging.mkdir(mode=0o700)
     try:
-        stage = stage_artifacts if kind == 'artifact' else stage_runs
-        rows, skipped, absent = stage(entries, source_root, staging)
+        recovered = []
+        rows, skipped, absent = (stage_artifacts(entries, source_root, staging) if kind == 'artifact'
+                                 else stage_runs(entries, source_root, staging, recovered))
         digest = manifest_digest(rows)
         body = json.dumps({'schema': MANIFEST_SCHEMA, 'kind': manifest_kind, 'file_manifest_digest': digest,
                            'entries': sorted(rows)}, separators=(',', ':'), sort_keys=True)
@@ -271,6 +334,7 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     record(recorder_conninfo, entry)
     return {'kind': manifest_kind, 'backup_id': backup_id, 'verify_status': status, 'file_count': len(rows), 'bytes': entry['bytes'],
             'file_manifest_digest': digest, 'listed': len(entries), 'skipped': skipped, 'absent': absent,
+            **({'recovered_wal': len(recovered)} if kind == 'runtime' else {}),
             'restic': 'ok' if snapshot else 'failed', 'check': 'ok' if checked else ('failed' if snapshot else 'not_run')}
 
 
