@@ -43,6 +43,8 @@ HEAVY_TESTS=(
   'tests/test_read_assert_memo.py::test_concurrent_revocation_never_serves_a_stale_allow'
   'tests/test_runtime_effect_recovery.py::test_same_pi_run_survives_host_and_effect_worker_kill_query_first'
   'tests/test_backend_lifecycle_capacity.py::test_eight_concurrent_requests_complete_on_pool_of_four'
+  # NX-064 high-load regression (ADR-029c): effect requests at the NX-031 matrix concurrency, deployed limit, same-body resend once.
+  'tests/test_nx064_effect_load_pg.py::test_effect_requests_at_matrix_concurrency_complete_or_end_as_adr029c_says'
   'tests/test_effect_origin_expired_pg.py::test_a_dispatched_unknown_intent_stops_requery_and_unknown_backs_off'
   'tests/test_effect_provider_transport.py::test_numeric_https_silent_tls_handshake_obeys_absolute_deadline'
   'tests/test_effect_provider_transport.py::test_tls_trickle_close_response_cannot_extend_absolute_deadline'
