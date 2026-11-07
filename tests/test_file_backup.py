@@ -248,7 +248,7 @@ def test_repo1_over_the_rest_server_pins_the_stage_ca_with_cacert(env, tmp_path,
     assert 'BackupUnavailable' in capsys.readouterr().out
 
 
-def stranded_store(e, *, rows=3, age=3600):
+def stranded_store(e, *, rows=3, age=3600, written_back=False):
     """A finished Run whose Host stopped without closing the store: the database and a real, non-empty WAL with committed frames
     that were never checkpointed (copied from a connection still open), both last modified `age` seconds ago."""
     run_id = str(uuid.uuid4())
@@ -262,6 +262,8 @@ def stranded_store(e, *, rows=3, age=3600):
     db.execute('create table t(x)')
     db.executemany('insert into t values(?)', [(f'synthetic {n}',) for n in range(rows)])
     db.commit()
+    if written_back:  # an earlier automatic checkpoint wrote every frame back; the Host was killed before the WAL was truncated
+        assert db.execute('pragma wal_checkpoint(PASSIVE)').fetchone()[2] > 0
     for name in ('runtime.sqlite', 'runtime.sqlite-wal'):
         (directory / name).write_bytes((live / name).read_bytes())
     db.close()
@@ -324,3 +326,29 @@ def test_a_wal_that_changes_while_it_is_copied_is_not_checkpointed(env, monkeypa
     monkeypatch.setattr(fb, '_signature', moving)
     result = run(e, 'runtime')
     assert result['skipped']['not_checkpointed'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'
+
+
+def test_a_wal_whose_frames_were_already_written_back_is_recovered_not_an_integrity_failure(env):
+    e = env
+    stranded = stranded_store(e, rows=4, written_back=True)
+    assert fb.committed_wal_frames(e['source'] / stranded / 'runtime.sqlite-wal') > 0
+    result = run(e, 'runtime')
+    assert result['verify_status'] == 'verified' and result['recovered_wal'] == 1 and result['skipped']['integrity'] == 0
+    db = sqlite3.connect(f'file:{snapshot(e, result) / "runs" / stranded / "runtime.sqlite"}?mode=ro&immutable=1', uri=True)
+    assert db.execute('select count(*) from t').fetchone() == (4,)
+    db.close()
+
+
+def test_a_wal_with_a_broken_checksum_counts_no_frames(env):
+    e = env
+    stranded = stranded_store(e)
+    wal = e['source'] / stranded / 'runtime.sqlite-wal'
+    data = bytearray(wal.read_bytes())
+    assert fb.committed_wal_frames(wal) > 0
+    data[32 + 24 + 100] ^= 0xFF  # one byte of the first frame's page
+    wal.write_bytes(bytes(data))
+    old = (e['source'] / stranded / 'runtime.sqlite').stat().st_mtime
+    os.utime(wal, (old, old))
+    assert fb.committed_wal_frames(wal) == 0
+    result = run(e, 'runtime')
+    assert result['skipped']['integrity'] == 1 and result['recovered_wal'] == 0 and result['verify_status'] == 'failed'

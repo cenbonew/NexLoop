@@ -157,6 +157,45 @@ WAL_QUIET_SECONDS = 1800
 _WAL_HEADER = 32
 
 
+def committed_wal_frames(path):
+    """How many frames of a WAL file SQLite would replay: frames whose salts match the header and whose cumulative checksums hold
+    (sqlite.org/fileformat2.html#walformat), up to the last commit frame. 0 for no WAL magic or a header that does not check.
+    Read from the file itself, not from wal_checkpoint: opening the copy already recovers the WAL, so the pragma answers 0 frames
+    whether or not they were read, and frames already written back by an earlier checkpoint leave the database bytes unchanged."""
+    import struct
+    data = Path(path).read_bytes()
+    if len(data) < _WAL_HEADER or data[:4] not in (b'\x37\x7f\x06\x82', b'\x37\x7f\x06\x83'):
+        return 0
+    order = '>' if data[3] == 0x83 else '<'
+    page = struct.unpack('>I', data[8:12])[0]
+    if page < 512 or page > 65536 or page & (page - 1):
+        return 0
+
+    def checksum(chunk, s0, s1):
+        for x0, x1 in struct.iter_unpack(order + 'II', chunk):
+            s0 = (s0 + x0 + s1) & 0xFFFFFFFF
+            s1 = (s1 + x1 + s0) & 0xFFFFFFFF
+        return s0, s1
+    salts = data[16:24]
+    s0, s1 = checksum(data[:24], 0, 0)
+    if (s0, s1) != struct.unpack('>II', data[24:32]):
+        return 0
+    frames = committed = 0
+    offset, size = _WAL_HEADER, 24 + page
+    while offset + size <= len(data):
+        head = data[offset:offset + 24]
+        if head[8:16] != salts:
+            break
+        s0, s1 = checksum(head[:8] + data[offset + 24:offset + size], s0, s1)
+        if (s0, s1) != struct.unpack('>II', head[16:24]):
+            break
+        frames += 1
+        if struct.unpack('>I', head[4:8])[0]:
+            committed = frames
+        offset += size
+    return committed
+
+
 def _signature(path):
     info = os.lstat(path)
     return (stat.S_ISREG(info.st_mode), info.st_size, info.st_mtime_ns, info.st_ino)
@@ -174,9 +213,10 @@ def _stage_with_wal(source_root, ref, target):
     _copy(_open_source(source_root, f'{ref}/runtime.sqlite-wal'), target.with_name('runtime.sqlite-wal'))
     if (_signature(base / 'runtime.sqlite'), _signature(base / 'runtime.sqlite-wal')) != before:
         return 'not_checkpointed'  # it changed while copied: a writer is still there
-    with open(target.with_name('runtime.sqlite-wal'), 'rb') as stream:
-        header = stream.read(_WAL_HEADER)
-    unmerged = target.read_bytes()
+    # A WAL SQLite would not replay (no magic, a header or first frame that does not check) would be dropped silently and the copy
+    # would be short: refused. Frames already written back by an earlier checkpoint still check, and replaying them is harmless.
+    if committed_wal_frames(target.with_name('runtime.sqlite-wal')) == 0:
+        return 'integrity'
     try:
         db = sqlite3.connect(target)
         try:
@@ -185,9 +225,7 @@ def _stage_with_wal(source_root, ref, target):
             db.close()
     except sqlite3.Error:
         return 'integrity'
-    # A WAL SQLite does not read (no WAL magic, or frames it rejects) would be dropped silently and the copy would be short: a WAL
-    # with at least one frame always changes a page of the database, so an unchanged database after the checkpoint is refused.
-    if busy or header[:4] not in (b'\x37\x7f\x06\x82', b'\x37\x7f\x06\x83') or (before[1][1] > _WAL_HEADER and target.read_bytes() == unmerged):
+    if busy:
         return 'integrity'
     for leftover in ('runtime.sqlite-wal', 'runtime.sqlite-shm'):
         target.with_name(leftover).unlink(missing_ok=True)
