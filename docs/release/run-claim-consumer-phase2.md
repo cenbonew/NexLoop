@@ -42,7 +42,20 @@ select runtime.nexloop_schema_change_valid('add_optional_property','Consumer','{
 
 ## 2. Consumer v2 发布（NX-040 提案与人工审核）
 
-1. **提案**：照 NX-040 运行单 §3.3 跑 `s6_stage_schema.py r8`，不带 `--publish`。私有配置的 `inputs` 写：
+0. **生成负责人直接决定的 Schema 模板**（负责人 2026-11-07 方案 A；`docs/implementation/schema-only-candidate-template.md`，L6 PASS）。stage 的合成 Run 没有失败结局，现有的 candidate-template 生成不出模板，所以改用 schema_only 模式：
+   - 私有配置的 `inputs` 加 `owner_directed_properties: [{"type_name": "Consumer", "property_name": "delivery_windows", "decision": "owner 2026-11-07 / claim-consumer-plan §10-2"}]`；
+   - 然后执行（DATA_HOST，调度员；先加 `--dry-run` 看规划，再去掉正式跑）：
+
+   ```bash
+   uv run --frozen python scripts/acceptance/s6_stage_evolution.py candidate-template --mode schema_only --property Consumer.delivery_windows --config <S6 配置>
+   ```
+
+   - 它会对 window 内全部合成 Run 开一个诊断（不扣费，至少要 2 个簇单元），把模板写到 `inputs.candidate_template`（0600）。这个模板只有下面的 r8 能用；S6 的各项验收遇到它都会拒绝。
+   - **生成模板后紧接着跑第 1 步的 r8，中间不插人工步骤**：诊断开启 30 分钟后截止。审核和发布（第 2、3 步）在 r8 之后，r8 结束时候选已是 accepted_for_release、许可已签发，不受这个截止时间限制。
+   - r8 报 `budget_exhausted`（`diagnosis_time`）时，直接重新执行本步（会新开一个诊断，不扣费），再跑 r8。旧诊断自然失效，不用清理。
+   - 重跑本步（例如网络中断后重试）会多出一个诊断，属于正常现象：它 30 分钟后自然截止，也不扣费。
+
+1. **提案**：照 NX-040 运行单 §3.3 跑 `s6_stage_schema.py r8`，不带 `--publish`。r8 会核对 `schema_type`、`new_property` 和 `property_change.property_name` 是否就是模板记下的属性，不一致就在写入前拒绝。私有配置的 `inputs` 写：
    - `schema_type`：`Consumer`；
    - `new_property`：`delivery_windows`；
    - `property_change`：下面这个变更，原文取自设计 §1，经调度员和 L6 审过，不要改动：

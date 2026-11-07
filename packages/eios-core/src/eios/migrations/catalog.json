@@ -2090,6 +2090,11 @@
       "version": "0418",
       "name": "0418_outcome_failure_rate_gate.sql",
       "sha256": "67b3f0164eeb364340e6123dbf93aa88c4631c32fe88f6dfe4c0c9f6083679d2"
+    },
+    {
+      "version": "0419",
+      "name": "0419_evo_owner_directed_schema.sql",
+      "sha256": "44426df32984e0b0183e895d8153f516f5d9eec9d396b07be3bbf66730decba5"
     }
   ]
 }
