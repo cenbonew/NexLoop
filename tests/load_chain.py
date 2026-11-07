@@ -333,3 +333,67 @@ def load_plans(admin, api, worker, identity_pool, tenant, owner_identity, plan_t
         PlanPort(service._backend._pool, service._session, service._backend._signer).establish(plan)
         established += 1
     return {'established': established, 'seconds': {'goal_strategy': round(goals_seconds, 1), 'establish': round(time.monotonic() - started, 1)}}
+
+
+# -- NX-064 high-load regression: effect requests at the matrix concurrency (ADR-029c) -----------------------------------------
+EFFECT_BODY = {'message': 'nx064 load: one governed reply'}
+
+
+def deployment_effect_limit_seconds():
+    """The deployed effect limit: deploy/stage/agent-host.runtime-config.example.json's effect_timeout_ms, else the Host default
+    (EFFECT_TIMEOUT_MS in apps/agent-host/src/runtime-effect-tools.ts); never raised for the test (that would widen what is tested)."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / 'deploy/stage/agent-host.runtime-config.example.json').read_text())
+    if 'effect_timeout_ms' in config:
+        return config['effect_timeout_ms'] / 1000
+    source = (root / 'apps/agent-host/src/runtime-effect-tools.ts').read_text()
+    return int(re.search(r'export const EFFECT_TIMEOUT_MS=(\d+);', source).group(1)) / 1000
+
+
+def matrix_gate_concurrency():
+    """The host concurrency of the NX-031 matrix's gate cells (deploy/load/matrix.v2.json): the deployment's run limit."""
+    from pathlib import Path
+    matrix = json.loads((Path(__file__).resolve().parents[1] / 'deploy/load/matrix.v2.json').read_text())
+    return sorted({c['host_concurrency'] for c in matrix['cells'] if c['role'] == 'gate'})
+
+
+def activate_runs(worker, count):
+    """Claim `count` queued message Runs as the runtime worker and activate each (as the dispatcher does before starting the Host)."""
+    runs = []
+    for _ in range(count):
+        job = worker.claim_task(queue='operations', lease_seconds=300)
+        assert job is not None, 'fewer queued Runs than consumers'
+        command, text = job['payload']['run_command'], job['payload']['input']
+        activation = worker.create_runtime_activation(queue='operations', task_id=job['task_id'], fence=job['fence'], run_id=command['run_id'],
+                                                      command=command, input=text, owner_epoch=1)
+        runs.append({'run_id': command['run_id'], 'command': command, 'activation': activation})
+    return runs
+
+
+def submit_like_the_host(call, limit_seconds, executor):
+    """One effect tool call under ADR-029c, as the Host makes it: each request keeps the limit; an ambiguous answer (no answer within
+    the limit, or 'unavailable') sends the same body once more; ambiguous again ends with runtime_effect_unavailable. A definite
+    refusal ends at once. The abandoned requests keep running on the guard (they are returned so the caller can wait for them)."""
+    from concurrent.futures import TimeoutError as Late
+    from nexloop_eios.effect_intents import EffectIntentUnavailable
+    abandoned, timings, bodies = [], [], []
+    for attempt in (1, 2):
+        body = dict(EFFECT_BODY)
+        bodies.append(body)
+        started = time.monotonic()
+        future = executor.submit(call, body)
+        try:
+            answer = future.result(timeout=limit_seconds)
+        except Late:
+            timings.append(time.monotonic() - started);abandoned.append(future);continue
+        except EffectIntentUnavailable:
+            timings.append(time.monotonic() - started);continue
+        except Exception as error:  # a definite refusal: explicit, never retried
+            timings.append(time.monotonic() - started)
+            return {'outcome': 'refused', 'code': type(error).__name__, 'attempts': attempt, 'timings': timings, 'bodies': bodies, 'abandoned': abandoned}
+        timings.append(time.monotonic() - started)
+        return {'outcome': 'ok' if attempt == 1 else 'ok_after_resend', 'receipt': answer['receipt'], 'attempts': attempt, 'timings': timings,
+                'bodies': bodies, 'abandoned': abandoned}
+    return {'outcome': 'runtime_effect_unavailable', 'attempts': 2, 'timings': timings, 'bodies': bodies, 'abandoned': abandoned}
