@@ -1342,6 +1342,24 @@
         "ref": "tests/test_context_v6_pg.py",
         "summary": "Synthetic test environment, merged at 4448c40: test_v6_binds_verified_sources_and_keeps_claims_out_of_formal_state; test_sql_refuses_tampered_v6_packs; tests/test_context_v6_relationships_pg.py::test_v6_carries_v4_relationships_with_hypotheses_as_evidence_only.",
         "recorded_at": "2026-10-10T03:52:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "13dbcf7177cd",
+        "summary": "第 73 批：0388 的 AT-064 claims 边界白名单已处理，回归通过；执行 L2，判定 L6 PASS。",
+        "recorded_at": "2026-10-31T20:11:21+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ce9f45a9ca48",
+        "summary": "第 116 批：S-DUP（0411/0412）批次回归含 claim store AT-064，通过；判定 L6 PASS。",
+        "recorded_at": "2026-11-02T19:31:52+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "50427429355c",
+        "summary": "第 119 批：0415 批次回归含 claim store AT-064，通过；判定 L6 有条件 PASS（C1 已满足）。",
+        "recorded_at": "2026-11-03T15:10:41+08:00"
       }
     ]
   },
