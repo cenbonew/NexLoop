@@ -9,7 +9,7 @@ import {resolve} from 'node:path';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {afterEach,beforeEach,expect,test,vi} from 'vitest';
 import {WorkbenchError,consumer,propertySources} from '../src/workbench/api';
-import {ProfileCard,SOURCE_EMPTY,windowsText} from '../src/workbench/pages/ConsumerEvidence';
+import {ProfileCard,QUOTE_ELSEWHERE,SOURCE_EMPTY,monthDay,windowsText} from '../src/workbench/pages/ConsumerEvidence';
 
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 const json=(name:string)=>JSON.parse(readFileSync(resolve(__dirname,`../../../packages/contracts/examples/${name}.valid.json`),'utf8'));
@@ -40,9 +40,12 @@ const row=()=>box.querySelector('.property-source')!;
 test('parser: the example, a missing block is null, an unknown status is refused; windows read as 周五 白天、周六 晚上',()=>{
   const p=propertySources(ex);expect(p.items[0].status).toBe('applied');
   expect(windowsText(p.items[0])).toBe('周五 白天、周六 晚上');
-  expect(windowsText({...p.items[0],value:[{weekday:'any',part:'any'},{weekday:'sat',part:'any'}]})).toBe('随时、周六 任意');
+  expect(windowsText({...p.items[0],value:[{weekday:'any',part:'any'},{weekday:'sat',part:'any'}]})).toBe('随时、周六 全天');
   expect(windowsText({...p.items[0],value:[{weekday:'holiday',part:'any'}]})).toBe(p.items[0].display);
   expect(consumer({consumer_id:cid,paused:false,restriction:null,conversations:[],commitments:[],properties:{status:'ok',values:{},withheld:[]}}).property_sources).toBeNull();
+  // Asia/Shanghai, not the browser: 16:00Z is midnight there, 15:59:59Z the day before.
+  expect(monthDay('2026-11-01T16:00:00Z')).toBe('11 月 2 日');expect(monthDay('2026-11-01T15:59:59Z')).toBe('11 月 1 日');
+  expect(monthDay('2026-12-31T16:30:00+00:00')).toBe('1 月 1 日');
   const bad=structuredClone(ex);bad.items[0].status='stale';expect(()=>propertySources(bad)).toThrow(WorkbenchError);
 });
 
@@ -56,10 +59,12 @@ test('an applied value: 送货时间, 来自 the stated day, 记入 secondary, t
   expect(row().querySelector('.source-quote')!.textContent).toBe('原文受限');
 });
 
-test('the quote for a reviewer comes from the evidence graph; a graph that is not available is 原文受限',async()=>{
+test('the quote for a reviewer comes from the evidence graph; a graph that is not available is 原文受限, a claim it does not list 原文见证据视图',async()=>{
   await mount(ex,graphWith('ok'));expect(row().querySelector('q.source-quote')!.textContent).toBe('周五白天我在家');
   act(()=>root.unmount());root=createRoot(box);
   await mount(ex,null);expect(row().querySelector('.source-quote')!.textContent).toBe('原文受限');
+  act(()=>root.unmount());root=createRoot(box);
+  await mount(ex,graphWith(null));expect(row().querySelector('.source-quote')!.textContent).toBe(QUOTE_ELSEWHERE);
 });
 
 test('corrected shows its state and never the old value; unknown, restricted and no items are said as such',async()=>{
