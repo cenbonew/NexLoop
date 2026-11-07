@@ -136,7 +136,9 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     assert '这位客户还没有任何属性值' in k4l['consumer_props'] and '读取权限' not in k4l['consumer_props'], k4l
     # K5 §2.3: the profile card leads with the upcoming commitments, then the properties under the object revision.
     k5 = observed['k5_profile']
-    assert k5['heads'] == ['即将发生的承诺', '属性'] and k5['revision'] and k5['revision'].startswith('修订 r'), k5
+    # Claim to Consumer §4.3: the consumer read carries property_sources; its rows (or their stated empty state) sit before the properties.
+    assert k5['sources'] and any(t in k5['sources'] for t in ('来自', '暂无（未从对话中获得）', '没有权限查看属性来源', '还没有从对话中获得的结构化属性')), k5
+    assert k5['heads'] == ['即将发生的承诺', '来自对话', '属性'] and k5['revision'] and k5['revision'].startswith('修订 r'), k5
     # K5 §2.2/§2.4/§2.5: the blocks are on their pages; a message has its 处理链路 toggle; each block is either the data or its stated state.
     print('k5', observed['k5_evidence'][:300], observed['k5_conversation'])
     assert '关系与证据' in observed['k5_evidence'] and observed['k5_conversation']['toggles'] >= 1, observed['k5_conversation']

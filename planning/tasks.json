@@ -3473,6 +3473,30 @@
         "ref": "docs/implementation/S6-stage-acceptance.md",
         "summary": "更正笔误：2026-10-21 与 2026-10-26 两条 note 中的“S6-R1、R2、R5、R7”应为“S6-R1、R5、R7”；S6-R2 在仓库中没有定义（仓库只定义 S6-R1、R3–R7）。原证据保留不改。更正人：L4；判定人：调度员。",
         "recorded_at": "2026-10-28T20:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7039230a8be7",
+        "summary": "第 69 批：I26 语义读取按定义术语逐词检索、译名并入召回（0377–0379）；执行 L3，判定 L6 PASS。",
+        "recorded_at": "2026-10-31T00:56:34+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "5df334b04a88",
+        "summary": "第 70 批：S60 语义读取健康告警（0380）与定义读取规则（0381）；执行 L3，判定 L6 PASS。",
+        "recorded_at": "2026-10-31T08:16:20+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "51820ab663b8",
+        "summary": "第 72 批：I34 语义读取记录 extraction 与回退覆盖率、演化遗漏规则（0386）；执行 L3/L2，判定 L6 PASS。",
+        "recorded_at": "2026-10-31T12:50:12+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/I26-semantic-terms-glossary-recall.md",
+        "summary": "I26 语义术语与译名召回的实现说明；作者 L3。",
+        "recorded_at": "2026-10-30T18:35:21+08:00"
       }
     ]
   },
@@ -3619,6 +3643,54 @@
         "ref": "32b5667b",
         "summary": "Schema publication via the workbench domain (SchemaPublicationPort) and the owner CLI schema_proposal.py; corrects the 10-21 note: CLI and HTTP exist, no web page. Remaining: s6_stage_schema.py at024/r6/r8/r10 on stage. Checked by L7, judged by the dispatcher.",
         "recorded_at": "2026-10-26T05:25:18.970711+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "28e7689a8444",
+        "summary": "第 57 批：世界模型译名（0374，304 条人工译名、负责人 Action nexloop.world_glossary.set、译者定时任务）；执行 L2/L9，判定 L6 PASS。",
+        "recorded_at": "2026-10-29T08:47:07+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b9f895b20c10",
+        "summary": "第 58 批：release 54 运行单与译者独立计费副本；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-10-29T09:36:08+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c5bd1fe91397",
+        "summary": "第 60 批：译名内容替换第 57–59 批（修复 CI 211）；执行 L2/L9/L7/L3/L8，判定 L6 PASS。",
+        "recorded_at": "2026-10-29T15:14:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6b47ce760acf",
+        "summary": "第 61 批：add-service 生成译者计费副本；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-10-29T16:02:49+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "0ed02ca5a372",
+        "summary": "第 63 批：替换第 60–62 批（修复 CI 218 的 compose 变量读取），译名与 release 54/55 内容；判定 L6 PASS（29f00cea 为仅测试修复）。",
+        "recorded_at": "2026-10-29T20:13:33+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e3fa92b7982d",
+        "summary": "第 65 批：带译名标识符的统一排版规则；执行 L9，判定 L6 PASS。",
+        "recorded_at": "2026-10-30T06:45:50+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7b316753cd2b",
+        "summary": "第 75 批：0390 按 ADR-042 的仅分组对象类型增量入口（随 S77 激励目录）；执行 L2/L4，判定 L6 有条件 PASS，K1 复核 PASS。",
+        "recorded_at": "2026-10-31T23:25:03+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-world-glossary-stage.md",
+        "summary": "世界模型译名的 stage 运行单。",
+        "recorded_at": "2026-10-29T08:19:49+08:00"
       }
     ]
   },
@@ -3739,6 +3811,18 @@
         "ref": "migration 0364 (batch 49 5988b5be)",
         "summary": "第 10 项预算演练已实现（0364），负责人选方案 A；L6 复核 PASS，等 stage 执行。执行人：实现线；判定人：L6；决定人：负责人。",
         "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c77b51295c22",
+        "summary": "第 56 批：实验护栏按契约解析、登记表单可取消；执行 L9，判定 L6 PASS。",
+        "recorded_at": "2026-10-29T08:34:38+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e72ea779b72e",
+        "summary": "第 108 批：nx043 报告测试在运行时取今天/现在，修复 CI 跨 UTC 零点的偶发失败（仅测试）；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-02T09:33:44+08:00"
       }
     ]
   },
@@ -4404,6 +4488,12 @@
         "ref": "local-only/evidence/deploy-20261015/release9-deploy-20261017.txt",
         "summary": "§8 第 4 步于 2026-10-27 10:09Z 发布：catalog v1 共 25 个类型，assessment_evidence 推迟（--defer，L6 PASS dfe3e07d）。第 5 步负责人部分完成：派生 sim 0.694 s；perf-2 擦除 sync_purge 3.111 s（空闲 3.154 s）；24 h relay p95 未取。缺口检查已升级到 83c096e5，gaps 687 待回填。执行人：调度员（第 3、5 步含负责人部分）；判定人：L6，待判定。状态保持 in_progress。",
         "recorded_at": "2026-10-28T09:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "13dbcf7177cd",
+        "summary": "第 73 批：I35 owner 读取全部已发布类型，relation_neighbors 测试随放宽的读取更新（操作员不变）；执行 L7/L2 等，判定 L6 PASS。",
+        "recorded_at": "2026-10-31T20:11:21+08:00"
       }
     ]
   },
@@ -4454,6 +4544,12 @@
         "ref": "dispatcher stage evidence log, post-R53 phase 2/3",
         "summary": "E2 崩溃循环演练 stage 结果 PASS：10-28 23:09:02Z 起演练容器，RestartCount 5、状态 exited，restarts_1h 5；23:12:20Z crash_loop 触发，00:12:18Z resolved；现有 29 个容器无重启；无 host_unit_missing。执行者：调度员；判定者：L6。任务保持 in_progress：E3（定时产物新鲜度、每主机独立 recorder）尚无单独的 stage 验收记录；acceptance-tests.json 中没有映射到 NX-055 的 AT，故未改 AT 状态。",
         "recorded_at": "2026-10-29T08:13:41+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c77b51295c22",
+        "summary": "第 56 批：planning 中 NX-055 E1/E2 的 stage 证据（a2bf00ae）与 run-nx055 第 1 节加固（c78c4e97）；执行 L4/L7，判定 L6 PASS。",
+        "recorded_at": "2026-10-29T08:34:38+08:00"
       }
     ]
   },
@@ -4518,6 +4614,12 @@
         "ref": "migration 0369 (batch 49 5988b5be)",
         "summary": "预算审批 Q1–Q8 由负责人决定，实现为 0369，作为 real 上线的前置条件。执行人：实现线；判定人：L6；决定人：负责人。",
         "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "18840af644a6",
+        "summary": "第 86 批：S74b 跟进，contact-release 不需要第二位 owner 审批（K1，只读核实无审批策略）；仅文档；执行 L3，判定 L6 条件已满足。",
+        "recorded_at": "2026-11-01T10:12:35+08:00"
       }
     ]
   },
@@ -4563,6 +4665,30 @@
         "ref": "dispatcher stage evidence log, post-R53 phase 3/3",
         "summary": "REM 补救启用 stage 结果 PASS：规则 v1（sha 00e1af95…）；10-28 23:06:28Z 部署层开关 REMEDIATION_ENABLED=true；4.4 无失败、无补救。执行者：调度员；判定者：L6。任务保持 in_progress：L6 I1 要求 24 小时内复查一次（负责人：调度员），复查后再判 done；acceptance-tests.json 中没有映射到 NX-057 的 AT，故未改 AT 状态。",
         "recorded_at": "2026-10-29T08:13:41+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "c77b51295c22",
+        "summary": "第 56 批：NX-057 REM 的 stage 证据（a2bf00ae）与 run-nx057 P5 措辞（ff5d69c1）；判定 L6 PASS。",
+        "recorded_at": "2026-10-29T08:34:38+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "378325463095",
+        "summary": "第 100 批：K4g 补救暂停一次确认、原因可选（空原因记固定文本）；执行 L9，判定 L6 PASS。",
+        "recorded_at": "2026-11-01T15:36:31+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "817020f22a61",
+        "summary": "第 103 批：K4i 暂停补救的默认原因为导出常量 PAUSE_DEFAULT_REASON；执行 L9，判定 L6 PASS。",
+        "recorded_at": "2026-11-01T19:12:22+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "afc841116b7c",
+        "summary": "第 105 批：K4j 补救操作区排版；执行 L9，判定 L6 有条件 PASS（需在 stage 上看到有条目/暂停的补救）。",
+        "recorded_at": "2026-11-02T07:28:32+08:00"
       }
     ]
   },
@@ -4606,6 +4732,66 @@
         "ref": "migration 0365 (batch 49 5988b5be)",
         "summary": "片 F 的 OIDC 实现（0365）默认不启用，只支持 RS256（负责人决定）；L6 复核 PASS。执行人：nx058-oidc 线；判定人：L6；决定人：负责人。",
         "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d196a10882d3",
+        "summary": "第 82 批：S81 入口票据登录合成测试账号（0392，owner 专用签发、仅 stage 开关），ADR-043 采纳；执行 L2，判定 L6 PASS。",
+        "recorded_at": "2026-11-01T09:23:51+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4cab4a2175c1",
+        "summary": "第 106 批：S81 入口票据在网关后兑换（Origin null 仅限同源导航）；执行 L2，判定 L6 PASS；问题在 stage R67 发现。",
+        "recorded_at": "2026-11-02T08:40:48+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e93522b0aec5",
+        "summary": "第 107 批：REL-EP 参考端点镜像进入发布构建、入口票据 overlay；执行 L3/L2，判定 L6 有条件 PASS（首次 CI 主机构建需通过 SBOM、扫描、签名）。",
+        "recorded_at": "2026-11-02T09:21:04+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "79456af6ebae",
+        "summary": "第 110 批：AUTH-FP 浏览器授权指纹只覆盖决定授权的字段（0403）；执行 L2，判定 L6 PASS。",
+        "recorded_at": "2026-11-02T11:59:44+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "754f03b280bb",
+        "summary": "第 111 批：AUTH-DOS 会话绑定 session_epoch，输错密码不再结束会话，锁定只拦新登录（0404，负责人 2026-11-02 决定），ADR-044；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-02T12:23:55+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4f0392305257",
+        "summary": "第 112 批：AUTH-DOS 复核用例（他处正常登录保持会话）与 ADR-044 补记；执行 L2/L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-02T14:16:56+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-entry-tickets.md",
+        "summary": "S81 入口票据运行单。",
+        "recorded_at": "2026-11-01T08:59:13+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-auth-fingerprint.md",
+        "summary": "AUTH-FP 运行单（部署时每个浏览器 claim 被拒一次，前后计数）。",
+        "recorded_at": "2026-11-02T11:46:58+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-auth-session-epoch.md",
+        "summary": "AUTH-DOS 运行单（合成账号验证锁定不影响已有会话）。",
+        "recorded_at": "2026-11-02T12:19:57+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-auth-fingerprint.md; docs/release/run-auth-session-epoch.md",
+        "summary": "R69（2026-11-03）部署 0403/0404 的只读计数：部署前 30 分钟 SSE 读取失败 0/0、PG 浏览器授权拒绝 0；部署后 +6 分钟与 +44 分钟均为 0/0、0，未出现旧 claim 拒绝尖峰。锁定只拦新登录的浏览器走查待负责人。执行：调度员；判定：调度员（计数）。",
+        "recorded_at": "2026-11-07T10:33:25+08:00"
       }
     ]
   },
@@ -4722,6 +4908,12 @@
         "ref": "batch 49 5988b5be",
         "summary": "CLI 影响清单 F1 已修复，L6 复核 PASS；剩余 B5 的阈值观察一周后再定。执行人：实现线；判定人：L6；决定人：负责人（B5 阈值）。",
         "recorded_at": "2026-10-28T10:26:25+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "1e33a86eca8d",
+        "summary": "第 88 批：S87 上下文估算 v2，Schema 发布观察只在同一估算器内比较（0395），避免估算器切换被误判为回归；执行 L7，判定 L6 有条件 PASS。",
+        "recorded_at": "2026-11-01T10:57:05+08:00"
       }
     ]
   },
@@ -4762,6 +4954,30 @@
         "ref": "adr/ADR-041-machine-access-channel.md",
         "summary": "ADR-041 采纳（负责人 2026-10-28，Q-1 至 Q-9 全部选 A）；威胁评审 docs/design/NX-062-threat-review.md 完成（T-1 至 T-12，L6 复核 6950f93f 与复审 92393e60 均 PASS）；F1–F3 实现待排期，现在不开工。执行人：L4；判定人：L6；决定人：负责人。",
         "recorded_at": "2026-10-28T22:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "80b1009baedf",
+        "summary": "第 71 批：I31 服务凭据续期（0384，rotate/revoke-credential，告警 v25）；执行 L4，判定 L6 PASS。",
+        "recorded_at": "2026-10-31T11:02:39+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "366295aac709",
+        "summary": "第 76 批：S79 服务凭据轮换按当前授权范围收窄并吊销被替换令牌（0391）；执行 L2，判定 L6 有条件 PASS（P1–P3 已应用）。",
+        "recorded_at": "2026-11-01T05:28:55+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-i31-credential-renewal-stage.md",
+        "summary": "I31 服务凭据续期 stage 运行单。",
+        "recorded_at": "2026-10-31T10:38:01+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-credential-scope-rotation.md",
+        "summary": "S79 凭据范围轮换运行单（R66 catalog_maintainer 收尾）。",
+        "recorded_at": "2026-11-01T05:21:53+08:00"
       }
     ]
   },
@@ -4802,13 +5018,37 @@
       "M23"
     ],
     "deliverable": "stage 上测得效应请求 p99；按 p99 加余量重定时限，或定下超时后的产品行为（重试、降级、告警），必要时另写 ADR；补一个高负载下的回归（优先复用 NX-031 的并发矩阵）",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": [
       {
         "type": "note",
         "ref": "adr/ADR-029b-effect-tool-envelope-reuse.md §3a; docs/implementation/ci-flake-audit.md (l5/ci-flake-audit 882fe2c7)",
         "summary": "L6 I1 登记。背景：v6 relationships 用例在 CI 全并行负载下超过 Host 2 秒的效应时限，重试一次后仍 runtime_failed；为 CI 稳定已挪入 HEAVY_TESTS（低并行阶段），但“高负载下 2 秒会超时”是真实产品风险，单独跟踪。阶段选 S6：可靠执行先于模拟，属当前阶段。执行人、判定人待派。",
         "recorded_at": "2026-10-28T20:43:05+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a575f57ccc99",
+        "summary": "第 113 批：按部署配置的效应时限、Host 效应指标、0405 effect_requests 快照、告警 v29、ADR-029c；执行 L4，设计 v2 与实现经 L6 PASS（C1–C3 后）。",
+        "recorded_at": "2026-11-02T16:57:00+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/implementation/NX-064-effect-timeout-design.md",
+        "summary": "NX-064 效应时限设计（v2，L6 PASS）。",
+        "recorded_at": "2026-11-02T16:11:44+08:00"
+      },
+      {
+        "type": "file",
+        "ref": "docs/release/run-nx064-effect-request-metrics.md",
+        "summary": "NX-064 stage 测 p99 的运行单（尚未执行）。",
+        "recorded_at": "2026-11-02T16:42:56+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx064-effect-request-metrics.md",
+        "summary": "调度员改为 in_progress：设计 v2 与实现经 L6 PASS，随第 113 批（a575f57c）合入，2026-11-03 随 R69（20261103-e0fa184d224a-1）部署到 stage，告警 v29 已启用。done 还缺 stage 实测 p99（样本 ≥1000）与据此定的时限，以及高负载回归。执行：L4；判定：L6；状态变更：调度员。",
+        "recorded_at": "2026-11-07T10:33:25+08:00"
       }
     ]
   }

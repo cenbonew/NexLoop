@@ -163,7 +163,8 @@ try{
   await page.locator('.profile-card [data-state="loading"]').waitFor({state:'detached',timeout:20000});
   result.k4l={consumer_props:await page.locator('section.profile-card').innerText()};
   // K5 §2.3: the profile card - upcoming commitments first, then the properties with the object revision.
-  result.k5_profile={heads:await page.locator('section.profile-card h3').allInnerTexts(),revision:await page.locator('.profile-card .profile-revision').count()?await page.locator('.profile-card .profile-revision').innerText():null};
+  result.k5_profile={heads:await page.locator('section.profile-card h3').allInnerTexts(),revision:await page.locator('.profile-card .profile-revision').count()?await page.locator('.profile-card .profile-revision').innerText():null,
+    sources:await page.locator('#consumer-property-sources').count()?await page.locator('#consumer-property-sources + *').innerText():null};
   await page.locator('section.profile-card').screenshot({path:`${shots}/wb-consumer-profile-1440.png`});
   // K5 §2.2/§2.4/§2.5: the evidence section on the detail; on the conversation, the metrics card and a message's trace toggle.
   // (The three reads are L2's; until they are served here each block says its state - recorded, not asserted as data.)

@@ -7,7 +7,7 @@
  */
 import {useState,type ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {COMMITMENT_STATUS_TEXT,INTENT_STATE_TEXT,kindOf,readCommitments,readEvidenceGraph,readObjectValues,type ConsumerDetail,type EvidenceAction,type EvidenceCandidate,
+import {COMMITMENT_STATUS_TEXT,INTENT_STATE_TEXT,kindOf,readCommitments,readEvidenceGraph,readObjectValues,type ConsumerDetail,type PropertySource,type PropertySources,type EvidenceAction,type EvidenceCandidate,
   type EvidenceClaim,type EvidenceCommitment,type EvidenceGraph,type EvidenceGroup,type EvidenceKind,type EvidenceOutreach} from '../api';
 import {DataTable} from '../DataTable';
 import {Time} from '../ui';
@@ -44,12 +44,56 @@ function Properties({consumerId,fallback}:{consumerId:string;fallback:ReactNode}
   </>;
 }
 
+// ---- Claim to Consumer: structured properties with where they came from (property_sources block of the consumer read) ----
+const DAY_TEXT:Record<string,string>={mon:'周一',tue:'周二',wed:'周三',thu:'周四',fri:'周五',sat:'周六',sun:'周日',any:'每天'};
+const PART_TEXT:Record<string,string>={morning:'上午',daytime:'白天',afternoon:'下午',evening:'晚上',any:'全天'};
+export const QUOTE_ELSEWHERE='原文见证据视图';
+export const PROPERTY_SOURCE_TEXT:Record<string,string>={delivery_windows:'送货时间'};
+export const SOURCE_EMPTY={unknown:'暂无（未从对话中获得）',corrected:'已更正：原来的值已撤回，不再显示',restricted:'没有权限查看属性来源',
+  none:'还没有从对话中获得的结构化属性'} as const;
+/** "周五 白天、周六 任意"; any/any is 随时. A code outside the vocabulary falls back to the server's display text. */
+export function windowsText(p:PropertySource):string|null{
+  if(!p.value)return null;
+  const parts=p.value.map(w=>w.weekday==='any'&&w.part==='any'?'随时':DAY_TEXT[w.weekday]&&PART_TEXT[w.part]?`${DAY_TEXT[w.weekday]} ${PART_TEXT[w.part]}`:null);
+  return parts.every(x=>x!==null)?parts.join('、'):p.display;
+}
+/** Dates in the tenant's time zone, not the browser's: a statement just after midnight there keeps its day. */
+export const TENANT_TZ='Asia/Shanghai';
+const MD=new Intl.DateTimeFormat('en-US',{timeZone:TENANT_TZ,month:'numeric',day:'numeric'});
+export const monthDay=(at:string)=>{const p=Object.fromEntries(MD.formatToParts(new Date(at)).map(x=>[x.type,x.value]));return `${p.month} 月 ${p.day} 日`;};
+/** The quote follows K5: read from the evidence graph, which returns it to reviewers only (otherwise 原文受限). A claim the graph does not list
+ * (folded as a duplicate, or corrected) is not a permission matter: 原文见证据视图. */
+function SourceQuote({consumerId,claimId}:{consumerId:string;claimId:string}){
+  const q=useQuery({queryKey:['workbench','evidence-graph',consumerId],queryFn:()=>readEvidenceGraph(consumerId),retry:false});
+  if(q.isPending)return null;
+  const claim=q.data?.groups.find(g=>g.kind==='claim')?.items.find(i=>(i as EvidenceClaim).claim_id===claimId) as EvidenceClaim|undefined;
+  if(q.data&&!claim)return <span className="note source-quote">{QUOTE_ELSEWHERE}</span>;
+  return claim?.source.quote_status==='ok'&&claim.source.quote?<q className="source-quote">{claim.source.quote}</q>:<span className="note source-quote">原文受限</span>;
+}
+function SourceRow({consumerId,p}:{consumerId:string;p:PropertySource}){
+  if(p.status==='unknown')return <span className="note">{SOURCE_EMPTY.unknown}</span>;
+  if(p.status==='corrected')return <><strong className="property-source-state">已更正</strong> <span className="note">{SOURCE_EMPTY.corrected}</span></>;
+  return <div className="property-source">
+    <span className="property-source-value">{p.property_name==='delivery_windows'?windowsText(p):p.display??'—'}</span>
+    {p.stated_at?<span className="property-source-when">来自 {monthDay(p.stated_at)}的对话</span>:<span className="property-source-when">来自对话</span>}
+    {p.effective_at?<span className="note property-source-effective">{monthDay(p.effective_at)}记入</span>:null}
+    {p.source?<SourceQuote consumerId={consumerId} claimId={p.source.claim_id}/>:null}
+  </div>;
+}
+export function PropertySourcesList({consumerId,data}:{consumerId:string;data:PropertySources|null}){
+  if(!data)return null;
+  if(data.status==='restricted')return <p className="note">{SOURCE_EMPTY.restricted}</p>;
+  if(!data.items.length)return <p className="note">{SOURCE_EMPTY.none}</p>;
+  return <KeyValue label="来自对话的属性" items={data.items.map(p=>({key:PROPERTY_SOURCE_TEXT[p.property_name]??p.property_name,value:<SourceRow consumerId={consumerId} p={p}/>}))}/>;
+}
+
 /** The card; `fallback` is the consumer read's own wording for when the Object read is not available to this member, `groups` the
  * owner-restricted property groups (ADR-025), named only. */
 export function ProfileCard({data,fallback,groups}:{data:ConsumerDetail;fallback:ReactNode;groups:ReactNode}){
   return <section className="detail-section profile-card" aria-labelledby="consumer-profile">
     <h2 id="consumer-profile">画像</h2>
     <h3>即将发生的承诺</h3><Upcoming consumerId={data.consumer_id}/>
+    {data.property_sources?<><h3 id="consumer-property-sources">来自对话</h3><PropertySourcesList consumerId={data.consumer_id} data={data.property_sources}/></>:null}
     <h3 id="consumer-properties">属性</h3><Properties consumerId={data.consumer_id} fallback={fallback}/>
     {groups?<p className="note">{groups}</p>:null}
   </section>;

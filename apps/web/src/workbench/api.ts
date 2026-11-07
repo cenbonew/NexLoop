@@ -211,7 +211,8 @@ export function consumerQueryString(q:ConsumerQuery,limit=50):string{
 }
 export const readConsumers=(q:ConsumerQuery={},limit=50)=>get('/api/v1/workbench/consumers?'+consumerQueryString(q,limit),consumers);
 export type ConsumerDetail={consumer_id:string;paused:boolean;restriction:{active:boolean;control_revision:number;rule_id:string;restricted_at:string;released_at:string|null}|null;
-  display:DisplayName;conversations:{conversation_id:string;last_sequence:number;last_message_at:string|null}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>;withheld:string[]}|{status:'forbidden';values:null;withheld:string[]}};
+  display:DisplayName;conversations:{conversation_id:string;last_sequence:number;last_message_at:string|null}[];commitments:string[];properties:{status:'ok';values:Record<string,unknown>;withheld:string[]}|{status:'forbidden';values:null;withheld:string[]};
+  property_sources:PropertySources|null};
 export function consumer(value:unknown):ConsumerDetail{
   const v=object(value);const p=object(v.properties);
   const restriction=v.restriction===null?null:(()=>{const r=object(v.restriction);return {active:flag(r.active),control_revision:count(r.control_revision),rule_id:text(r.rule_id),restricted_at:text(r.restricted_at),released_at:maybeText(r.released_at)};})();
@@ -219,7 +220,20 @@ export function consumer(value:unknown):ConsumerDetail{
   const withheld=list(p.withheld??[]).map(text);
   const properties=p.status==='ok'?{status:'ok' as const,values:object(p.values),withheld}:p.status==='forbidden'&&p.values===null?{status:'forbidden' as const,values:null,withheld}:(()=>{throw new WorkbenchError('invalid');})();
   return {consumer_id:id(v.consumer_id),paused:flag(v.paused),restriction,display:displayName(v.display),conversations:list(v.conversations).map(x=>{const o=object(x);return {conversation_id:id(o.conversation_id),last_sequence:count(o.last_sequence),last_message_at:o.last_message_at===undefined?null:maybeText(o.last_message_at)};}),
-    commitments:list(v.commitments).map(id),properties};
+    commitments:list(v.commitments).map(id),properties,property_sources:v.property_sources===undefined?null:propertySources(v.property_sources)};
+}
+/** Claim to Consumer (contracts/workbench-consumer-property-sources): where a structured Consumer property came from; identifiers only,
+ * the quote is read from the evidence graph (K5 rules). Absent on a server without the block. */
+export type PropertySource={property_name:string;value:Record<string,string>[]|null;display:string|null;status:'applied'|'corrected'|'unknown';
+  source:{claim_id:string;conversation_id:string;message_id:string|null}|null;stated_at:string|null;effective_at:string|null};
+export type PropertySources={consumer_id:string;status:'ok'|'restricted';items:PropertySource[]};
+export function propertySources(value:unknown):PropertySources{
+  const v=object(value);
+  return {consumer_id:id(v.consumer_id),status:oneOf(v.status,['ok','restricted'] as const),items:list(v.items).map(x=>{const o=object(x);
+    return {property_name:text(o.property_name),value:o.value===null?null:list(o.value).map(e=>{const r=object(e);return Object.fromEntries(Object.entries(r).map(([k,c])=>[k,text(c)]));}),
+      display:maybeText(o.display),status:oneOf(o.status,['applied','corrected','unknown'] as const),
+      source:o.source===null?null:(()=>{const s=object(o.source);return {claim_id:id(s.claim_id),conversation_id:id(s.conversation_id),message_id:s.message_id===null?null:id(s.message_id)};})(),
+      stated_at:maybeText(o.stated_at),effective_at:maybeText(o.effective_at)};})};
 }
 export const readConsumer=(consumerId:string)=>get('/api/v1/workbench/consumers/'+consumerId,consumer);
 
