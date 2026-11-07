@@ -10,7 +10,7 @@
 - **结论先说**：两件事会让执行直接被拦下（判 blocked），开跑前必须先解决。
   1. **P3 的 evolution 预算已经过期**：C1 记录的期间是 10-01 到 11-01，今天是 11-07。
   2. **P5 的合成 Consumer 不够**：只剩 customer-1/2/3 能发言，而 at048、r5、r7、candidate-template 都要 4 个簇单元。
-- 其余前提有命令能只读核对，但大多**不在** `s6_stage_evolution.py --dry-run` 里，要按下表分别跑。
+- 其余前提有命令能只读核对，但大多**不在** `s6_stage_evolution.py --dry-run` 里。现在可以用 `s6_preflight.py` 一次报完 P1–P5（见 §1 末）。
 
 ## 1. 逐项：能否由脚本只读报告
 
@@ -38,10 +38,21 @@
 
 任何一步不满足，相关项判 blocked，不开始正式执行。
 
-### 可以补的工具缺口（开发，可选，约 0.5 人日）
+### 一条命令：`s6_preflight.py`（已补）
 
-- 给 `s6_stage_evolution.py` 加一个只读 `preflight` 子命令：一次报告 P1 所需迁移（含 0252）、P3 预算行和期间、P4 授权与 Action 发布、审批策略版本。这样 1–2 步合成一条命令。
-- 这些查询都已经写在运行单里，脚本只是把它们执行一遍。是否做由调度员决定，本次只改文档。
+`uv run --frozen python scripts/acceptance/s6_preflight.py --config <S6 配置> [--owner-principal stage-principal-approver3]`
+
+- 只用 `roles.inspector`，连接后先设只读；读同一配置里的令牌文件，只比较摘要。
+- 一次报告 P1–P5，每项给出 ok、missing、expired 或 no_data，只给数量，不含令牌、DSN、主机、路径、用户名或正文。
+  - **P1**：所需迁移是否都在（0235、0237、0241、0248、0252、0286）。
+  - **P2**：与 `evolution_enroll.py --check` 同样的三项检查，加三个 LOGIN 角色。
+  - **P3**：预算行的金额与期间。期间已结束判 expired，并给出续期办法；没有这一行，或期间还没开始，判 missing。
+  - **P4**：approver3 的三项授权、两个预算 Action 已发布且启用、审批策略版本 ≥ 5。approver2 的投票冷却仍只能在批准那一步看到。
+  - **P5**：有检索未命中的合成 Consumer 数（需要 ≥ 4），以及跨 Consumer 的近重复对数。近重复对为 0 时判 no_data：AT-048 的 (b) 路线不规划。
+- **无数据不算通过**：只有 ok 计入通过；全部 ok 才退出 0，否则退出 1，配置被拒退出 2。
+- 测试：`tests/test_s6_preflight_pg.py`，覆盖预算过期、预算缺失或未开始、只有 3 个合成 Consumer、缺迁移、令牌不可读，以及只读、不泄露。
+
+它取代了上面顺序中的第 1、2 步，以及第 3 步里与 P5 有关的部分。window、protected_refs 等输入值仍由 `s6_stage_inputs.py` 给出。
 
 ## 2. 负责人和调度员要准备什么
 
