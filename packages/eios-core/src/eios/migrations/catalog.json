@@ -2100,6 +2100,11 @@
       "version": "0420",
       "name": "0420_evo_review_summary_category.sql",
       "sha256": "a28953802eb9d866ee5daf06494de9d44b0bf8f4d6c5c9518794d8ed84f25d98"
+    },
+    {
+      "version": "0421",
+      "name": "0421_relation_read_only.sql",
+      "sha256": "09b04317e9f578c67e259e6fff3ecd8ca5f1da51d91b4f00c4900ba6ed8ed12e"
     }
   ]
 }
