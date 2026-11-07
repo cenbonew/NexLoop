@@ -241,3 +241,74 @@ sudo journalctl -p err -u nexloop-host-health --since '<T_DRILL>' --no-pager    
 - 执行者（调度员）和判定者（L6）分开写。
 - E1：`$RELEASE_COMMIT`、快照的条目数和 `catalog_revision`、两边的 sha256；第一次 1.3 的退出码和最后一行；`missing`、`extra` 的分类摘要（R/D/V 各多少条）；如有 `IGNORED` 提交，写它的哈希和 L6 的审查结论；最终通过那一次的最后一行。完整 JSON 留在 `local-only/nx055/`，不公开。
 - E2：`T_INSTALL`、`T_DRILL`；`docker inspect` 的最终输出；`restarts_1h` 的最大值；`crash_loop` 触发和恢复事件的时间；journal 那一行；演练前后的容器状态比对结论；收尾核对结果。
+
+## 4. E3：定时产物新鲜度与每主机独立 recorder（只读，2026-11-07 追加）
+
+E1、E2 已有 stage 记录（任务证据 10-28）。E3 在 stage 上一直在运行：两台主机的探针、告警规则 v13 及之后的 `timer_stale_*` 和 `timer_scheduled_failure` 都已启用。但它还没有单独的验收记录。本节只做一次只读检查，并记录结果。
+
+- **执行者**：调度员。**判定者**：L6。负责人不需要操作。
+- **工具**：`scripts/acceptance/nx055_e3_check.py`，测试见 `tests/test_nx055_e3_check.py`（判定逻辑）和 `tests/test_nx055_e3_check_pg.py`（真实 PG，含无数据、通过、过期、身份不符四种情形）。
+- **连接身份**：只读的 `nexloop_metrics` 登录，在只读事务中执行。它只读两样东西：一是 `authz.nexloop_metrics_export()` 里的 `host_health` 块，二是 `pg_catalog` 里两个 recorder 角色的属性、成员关系和 ACL。其他登录一律拒绝，退出码 2。
+- **输出**：只有数量和状态，不含主机名、地址、DSN 或 timer 名称。
+
+### 4.1 前提
+
+| # | 前提 | 怎么核对 |
+|---|---|---|
+| E3-P1 | stage 已发布的告警规则版本 `$RULES_VERSION`，与本单要用的规则文件版本相同 | 告警评估器状态里的 `rules_version`（`nexloop-doctor --observability` 的 `alert_rules_current` 为 true），等于 `/opt/release/deploy/configuration/alert-rules.v$RULES_VERSION.json` 的 `version` |
+| E3-P2 | DATA_HOST 上有 `$RUN/metrics.dsn`（只读 metrics 登录，0600），与 NX-054 S8 各单用的是同一个 | `stat -c '%a' "$RUN/metrics.dsn"` 为 `600` |
+| E3-P3 | 两台主机的探针在记录 | 同本单 P5：`probe_age_seconds` 两台都在 120 秒以内 |
+
+变量与本单 §0 相同（`RUN`、`BACKEND_IMAGE`、`COMMON`），另加 `RULES_VERSION`。
+
+### 4.2 检查（DATA_HOST，一次性容器，A）
+
+```
+docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /opt/release/scripts/acceptance/nx055_e3_check.py \
+  --metrics-database-url-file /run/metrics-dsn --alert-rules /opt/release/deploy/configuration/alert-rules.v$RULES_VERSION.json --json; echo "exit=$?"
+docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /opt/release/scripts/acceptance/nx055_e3_check.py \
+  --metrics-database-url-file /run/metrics-dsn --alert-rules /opt/release/deploy/configuration/alert-rules.v$RULES_VERSION.json
+```
+
+工具做两项检查：
+
+1. **freshness（定时产物新鲜度）**
+   - 规则文件里每条 `timer_stale_*` 规则（选择器为 `<host_role>:<timer>`）都对应一个 timer。每个 timer 都必须在 `host_health.timer_success_age_seconds` 中出现，并且不超过该规则的阈值。
+   - 这个年龄从最近一次**定时**成功算起。手工补跑不会刷新它（0318）；如果从未见过定时成功，就从这个 timer 第一次被期望时算起（fail closed）。
+   - 这些 timer 在 24 小时内的 `timer_scheduled_failures_24h` 之和必须为 0。
+   - 计数含义：`fresh` 是未超阈值的个数，`stale` 是超过阈值的个数，`not_reported` 是规则在看、但快照里没有的个数。
+2. **recorders（每主机独立 recorder）**：规则提到的每个 host_role 都要满足以下条件。
+   - 角色 `nexloop_host_recorder_<host_role>` 存在，能登录，不是超级用户，不是任何角色的成员；
+   - 它对 `authz.nexloop_record_host_observation` 有 EXECUTE 权限，对三张主机表没有 SELECT 权限（直接授予和授予 PUBLIC 都算）；
+   - 该主机的探针在 300 秒内有记录。
+   - 为什么这能证明两台主机用的是不同身份：0318 按 `session_user` 推出 host_role，记录里不能自报主机。所以两个 host_role 都有新记录，就说明两台主机各自用自己的身份写入。一台主机的凭据写不了另一台主机的记录，这一点由 `test_a_host_writes_only_its_own_ticks` 覆盖。
+
+### 4.3 预期与判定
+
+- **退出码**：
+  - 0：两项都是 pass；
+  - 1：至少一项 fail；
+  - 3：没有 fail，但至少一项是 no_data；
+  - 2：被拒绝（不是 metrics 登录、规则文件无效或连不上），输出只有错误类型。
+- **no_data 不算通过**。以下情况都报 no_data：快照没有 real 世界、规则不看任何 timer、规则在看的 timer 一个都没出现在快照里、有主机从未记录过。
+- **通过条件**：第一条命令输出 `exit=0`，JSON 中 `status` 为 `pass`，并且同时满足：
+  - `freshness.fresh` 等于 `freshness.timers_watched`（v30 为 11）；
+  - `stale`、`not_reported`、`scheduled_failures_24h` 都为 0；
+  - `recorders.roles_restricted` 和 `recorders.hosts_recording` 都等于 `hosts_expected`（2）；
+  - `hosts_probe_stale` 为 0。
+
+### 4.4 失败处理（只读，不改任何服务）
+
+| 结果 | 先查什么 |
+|---|---|
+| `stale` > 0 或 `scheduled_failures_24h` > 0 | 告警 `timer_stale_*` 和 `timer_scheduled_failure` 也应当正在触发。按 host-health.md §4.6 第 4、5 条区分：是真的定时失败，还是从未定时成功过（fail closed）。手工补跑不能用来修好这一项 |
+| `not_reported` > 0 | 那台主机的探针配置里没有这个 timer（host-health 配置缺少对应键），快照中就没有这个键。补配置属于部署变更，另开一单 |
+| `roles_restricted` < `hosts_expected` | 角色属性或授权与 0318 不一致（多了成员关系或表权限）。这是安全问题，报 L6 和负责人，不要现场修改 |
+| `hosts_recording` < `hosts_expected`（退出码 3）或 `hosts_probe_stale` > 0 | 那台主机的 `nexloop-host-health.timer` 没有运行，或者 DSN 失效。查 `journalctl -u nexloop-host-health -n 5`（host-health.md §4.6 第 1 条），修好后重跑本节 |
+| 退出码 2 | `error` 字段为 `PermissionError`，说明 DSN 不是 metrics 登录；为其他值时，检查规则文件路径和网络挂载 |
+
+### 4.5 证据（记入 NX-055 任务证据；不含 DSN）
+
+- 执行者（调度员）和判定者（L6）分开写。
+- 记录：`$RELEASE_COMMIT`、`$RULES_VERSION`，第一条命令的退出码和完整 JSON（其中只有数量和状态），第二条命令的最后一行，以及执行时间（取自 `date -u`）。
+- E1、E2、E3 都有判定为 PASS 的记录后，NX-055 才可以改为 done。
