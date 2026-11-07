@@ -688,7 +688,7 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
   guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string;
   /** 0216 (absent from an older backend: null, shown as 不可用) */ candidates:Candidates|null;
-  /** W4 0224 (absent: null) */ data_assets:DataAssets|null;outcomes:OutcomeGate|null};
+  /** W4 0224 (absent: null) */ data_assets:DataAssets|null;outcomes:OutcomeGate|null;budget_health:BudgetHealth|null};
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
@@ -747,7 +747,26 @@ export function metrics(value:unknown):Metrics{
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
     guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at),
     candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets),
-    outcomes:outcomeGate(v.outcomes)};
+    outcomes:outcomeGate(v.outcomes),budget_health:budgetHealth(v.budget_health)};
+}
+/** Budget health (0422): per budget kind its period end and use; model always required, the rest of `required` as the server says. Absent from an older snapshot: null
+ * (无数据, never 正常). A malformed block is its own invalid state and never fails the rest of the metrics read (AT-045). */
+export type BudgetKind={kind:string;configured:boolean;period_end:string|null;expires_in_seconds:number|null;expired:boolean;ratio:number|null};
+export type BudgetHealth={status:'ok';kinds:BudgetKind[];expiring_7d:number;expired:number;unconfigured:number;exhausted:number;exhausted_refusals_1h:number}|{status:'invalid'};
+export function budgetHealth(value:unknown):BudgetHealth|null{
+  if(value===undefined||value===null)return null;
+  try{
+    const o=object(value);const k=object(o.kinds);const required=list(o.required).map(text);
+    const bit=(x:unknown)=>{if(x!==0&&x!==1)throw new WorkbenchError('invalid');return x===1;};
+    const num=(x:unknown)=>{if(x===null)return null;if(typeof x!=='number'||!Number.isFinite(x))throw new WorkbenchError('invalid');return x;};
+    if(!required.includes('model')||!required.every(r=>r in k))throw new WorkbenchError('invalid');  // the required list is the server's (evolution only for tenants registered for it)
+    const order=[...required,...Object.keys(k).filter(x=>!required.includes(x)).sort()];
+    const kinds=order.map(kind=>{const e=object(k[kind]);const b={kind,configured:bit(e.configured),period_end:maybeText(e.period_end),
+      expires_in_seconds:num(e.expires_in_seconds),expired:bit(e.expired),ratio:num(e.ratio)};
+      if(b.configured&&(b.period_end===null||b.expires_in_seconds===null))throw new WorkbenchError('invalid');return b;});
+    return {status:'ok',kinds,expiring_7d:count(o.expiring_7d),expired:count(o.expired),unconfigured:count(o.unconfigured),exhausted:count(o.exhausted),
+      exhausted_refusals_1h:count(o.exhausted_refusals_1h)};
+  }catch{return {status:'invalid'};}
 }
 /** NX-061 B5 (0418): the failure rate is judged only on at least min_decided decided outcomes of the hour. Without an outcomes block, or
  * an older snapshot without `gate`, there is nothing judged: null (无数据). Insufficient data is never a rate of 0. */

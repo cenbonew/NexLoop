@@ -185,3 +185,40 @@ def test_an_erasure_held_back_by_a_hold_completes_when_the_hold_is_released(eras
     assert request(admin, consumer)[1] == 'purging'
     assert complete(c, admin, consumer) == 'completed'
     assert_nothing_left(admin, consumer, needles, principal0)
+
+
+def test_the_same_erasure_in_relation_only_mode(erasing, admin, pg, identity, uow):  # noqa: F811
+    """NX-054 P5 gate (relation_read_only): the same walk and erasure with the first relation batch published and a backfill completed
+    over it, so the erasing readers resolve through relations only. During the erasure the Consumer's objects are refused through the
+    relations; after it nothing of the Consumer is left anywhere."""
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    from psycopg.types.json import Jsonb
+    from nexloop_eios import relation_catalog as R
+    c = erasing
+    consumer = c['consumer']
+    for t in sorted({t for spec in R.FIRST_BATCH for t in (spec.source_type, spec.target_type)}):  # the types the batch names
+        admin.execute("""insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)
+            on conflict do nothing""", (TENANT, t, Jsonb({'type_name': t, 'version': 1, 'properties': []})))
+    admin.execute('alter role nexloop_configurator login')
+    with psycopg.connect(make_conninfo(pg, user='nexloop_configurator'), autocommit=True) as db:
+        assert R.publish(db, TENANT)['published'] is True
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("""insert into control.nexloop_relation_backfill_runs(tenant_id,backfill_run,derivations_digest,state,started_by)
+            values(%s,'p5-whole',control.nexloop_relation_backfill_digest(%s),'running','synthetic')""", (TENANT, TENANT))
+        admin.execute("update control.nexloop_relation_backfill_runs set state='completed' where tenant_id=%s and backfill_run='p5-whole'", (TENANT,))
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        assert admin.execute("select runtime.nexloop_object_ownership_uncovered(%s,'Commitment')", (TENANT,)).fetchone()[0] is False
+    needles, principal0 = walk(c, admin)
+    commitment = admin.execute("""select r.source_object_id from ontology.relations r where r.tenant_id=%s and r.relation_name='commitment_to'
+        and r.target_object_id=%s limit 1""", (TENANT, consumer)).fetchone()
+    assert commitment is not None, 'the commitment is tied to the Consumer by a derived relation'
+    owner, _ = c.owner(identity, uow)  # a fresh owner session: publishing the catalog moved the authority revision
+    act(owner, 'erase_consumer', 'erase-relations', consumer_id=consumer, reason='顾客要求删除')
+    with pytest.raises(psycopg.errors.InsufficientPrivilege), admin.transaction():
+        admin.execute("select runtime.nexloop_assert_not_erasing('real',%s)",
+                      (Jsonb({'tenant_id': TENANT, 'resource_id': f'eios:object:Commitment/{commitment[0]}'}),))
+    assert complete(c, admin, consumer) == 'completed'
+    assert_nothing_left(admin, consumer, needles, principal0)
