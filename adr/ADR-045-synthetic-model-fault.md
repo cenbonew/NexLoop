@@ -29,7 +29,7 @@
    - 每次打开、关闭、命中、失效都写入只追加的审计表。
 4. **生产隔离：生产库里没有这个 Action**（L6；调度员 2026-11-07 选定 (A)）：
    - **机制是 stage 专用能力清单** `deploy/stage/capabilities.stage.v1.json`，这个 Action 只在这份清单里，不进系统目录 `deploy/configuration/capabilities.v1.json`；
-   - 只有 `scripts/deploy/stage_secrets.py publish` 在显式带上 `--stage-capabilities` 时才合并它，并且在发布记录里写明合并了哪份 stage 清单（文件名和 sha256）；
+   - 只有 `scripts/deploy/stage_secrets.py publish` 在显式带上 `--stage-capabilities`、并且 `--deployment-marker` 指向的私有标记文件写明 `environment: stage` 时，才合并它；发布结果里写明合并了哪份 stage 清单（文件名和 sha256）。标记不是 stage 或缺失，在编译和发送之前就拒绝；不读环境变量（L6 C1）；
    - 其他发布入口（`catalog_publish` 的通用入口、部署工具）遇到 `deploy/stage/` 下的清单一律拒绝；
    - check_publication 新增规则：`deploy/stage/` 之外的部署文件引用这份清单、`synthetic_model_fault` 键或这个 Action，都拒绝；
    - 每次生产发布后只读确认：Action 定义 0 行，开关表、判定表、审计表都是 0 行。

@@ -237,7 +237,16 @@ class RuntimeActivationPort:
                 except Exception:
                     if reused:forget_run_envelopes(first['_run_digest'])
                     raise
-            return {key:value for key,value in result.items() if not key.startswith('_')}
+            result={key:value for key,value in result.items() if not key.startswith('_')}
+            if operation in ('start','resume') and self.session.world=='real' and result.get('authorized') is True:
+                # ADR-045: after SQL authorized the start or resume, the stage-only test-Consumer fault switch is decided in SQL from
+                # the Consumer's governed persona (a resume keeps the start's decision); only a hit adds the field.
+                with self.pool.connection() as db,db.transaction():
+                    verify_application_role(db)
+                    hit=db.execute('select authz.nexloop_synthetic_fault_decide(%s,%s,%s,%s)',
+                                   (self.session.token_digest,self.session.world,str(result['run_id']),operation)).fetchone()[0]
+                if hit is True:result['synthetic_model_fault']=True
+            return result
         except Exception:raise AuthorizationUnavailable('runtime activation unavailable') from None
 
     def _context_read_proof(self,resolved):

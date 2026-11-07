@@ -67,6 +67,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'release_remediation_rule':'remediation.rule_release',
     # 0220 (ADR-034 first step): persona marking and the erasure of a synthetic Consumer (persona checked in SQL).
     'set_consumer_persona':'consumer.set_persona','erase_synthetic_consumer':'consumer.erase_synthetic',
+    'set_synthetic_fault':'synthetic_fault.set',  # ADR-045: the Action exists only where the stage manifest was published
     # 0227 operator persona slice 1 (document, rules and settings checked in SQL).
     'publish_operator_persona':'operator_persona.publish','assign_operator_persona':'operator_persona.assign',
     'publish_persona_rules':'operator_persona.rules_publish','set_ai_disclosure':'ai_disclosure.set',
@@ -454,6 +455,14 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[a-f0-9]{64}',str(consumer_id)) or persona not in ('real','simulated_agent','synthetic') or type(reason) is not str or not 1<=len(reason)<=500:
             raise ValueError('consumer, persona and reason required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_consumer_persona','consumer_id':consumer_id,'persona':persona,'reason':reason})
+
+    # ADR-045 (owner 2026-11-07, stage only): open or close the test-Consumer model fault switch; SQL checks every Consumer's persona.
+    def set_synthetic_fault(self,*,action_name,action_version,request_id,state,consumer_ids,remaining,duration_seconds,reason):
+        if state not in ('open','closed') or type(consumer_ids) is not list or any(not re.fullmatch(r'[a-f0-9]{64}',str(c)) for c in consumer_ids) \
+                or type(remaining) is not int or type(duration_seconds) is not int or type(reason) is not str or not 1<=len(reason)<=500:
+            raise ValueError('state, consumer_ids, remaining, duration_seconds and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_synthetic_fault','state':state,'consumer_ids':consumer_ids,
+                                                        'remaining':remaining,'duration_seconds':duration_seconds,'reason':reason})
 
     # 0220: owner only; SQL refuses a Consumer whose persona is real, then runs the NX-029 erasure.
     def erase_synthetic_consumer(self,*,action_name,action_version,request_id,consumer_id,reason):

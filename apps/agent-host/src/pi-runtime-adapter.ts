@@ -56,6 +56,9 @@ export type PiRuntimeOptions={
   recordModelRequests?:boolean|((command:RunCommand)=>boolean);
   /** 10/18: each model request's own timeout (the provider's timeoutMs), never past the Run's active deadline. No retry. */
   modelRequestTimeoutMs?:number;
+  /** ADR-045 (stage only): true for a Run the guard admitted with synthetic_model_fault; its model call fails before it is
+   * registered (no guard record, no provider request, no cost), so the Run ends with synthetic_model_fault. */
+  modelFault?:(runId:string)=>boolean;
   /** 10/18 (release 14): the model provider's connector bounds TCP + TLS (timeoutMs) and retries a connection-phase failure at
    * most `retries` times on a new connection; nothing after the request was written is retried. */
   modelConnect?:{timeoutMs:number;retries:number;ca?:string|Buffer};
@@ -245,7 +248,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       }})]}:{})});
       const guardedModels=new Proxy(this.options.models,{get:(target,property)=>{
         const value=Reflect.get(target,property,target);
-        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});const began=Date.now();
+        if(property==='streamSimple'&&typeof value==='function')return (...args:unknown[])=>safeProviderStream(lazyStream(args[0] as Model<Api>,async()=>{if(this.options.modelFault?.(command.run_id)===true)throw new RuntimeError('synthetic_model_fault');const call=await consume('model',{model:args[0] as Model<Api>,context:args[1],options:args[2]});const began=Date.now();
           const timeout=this.options.modelRequestTimeoutMs;
           if(timeout!==undefined){
             const deadline=Math.min(Date.parse(command.not_after),began+command.budget.active_timeout_seconds*1000);  // the Run's own timer still aborts at its real deadline

@@ -23,6 +23,8 @@ STAFF_KEPT = {
     'runtime.nexloop_action_claim_settlements': _ACT,
     'runtime.nexloop_human_answers': _ACT + ' (K4b: who answered a reevaluation question; the answer text follows the Consumer erasure)',  # stale action claims (0385): who ended a stale claim
     'control.nexloop_budget_consumption': _ACT, 'control.nexloop_control_events': _ACT, 'control.nexloop_remediation_switches': _ACT,
+    'control.nexloop_synthetic_fault_switches': _ACT + ' (ADR-045: the owner who opened the fault switch)',
+    'runtime.nexloop_synthetic_fault_events': _ACT + ' (ADR-045: the owner who opened or closed the fault switch)',
     'control.nexloop_run_goal_bindings': _ACT, 'control.nexloop_sim_clock_events': _ACT, 'runtime.nexloop_commitment_events': _ACT,
     'runtime.nexloop_effect_query_admissions': _ACT, 'runtime.nexloop_effect_submissions': _ACT, 'runtime.nexloop_human_requests': _ACT,
     'runtime.nexloop_incentive_issues': _ACT, 'runtime.nexloop_outreach_sends': _ACT, 'runtime.nexloop_workbench_read_audit': _ACT + ' (the member who read)',

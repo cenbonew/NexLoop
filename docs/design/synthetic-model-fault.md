@@ -1,6 +1,6 @@
 # 设计：测试顾客的模型调用故障开关（ADR-045）
 
-- **状态**：设计稿 v3（v2 7d1a4de1 由 L6 判 PASS；v3 的增量是 stage 专用能力清单和 Host 的失败位置，见 §8 v3），待 L6 看这一处增量。作者：L7。依据：main 7cee60cc。迁移临时号 0423（0421 为第 129 批，0422 为 L2 的预算健康）。
+- **状态**：v3 已实现（v3 1d13726e 由 L6 判条件 PASS，C1/C2 在实现中完成，见 §8 实现记录）。作者：L7。依据：main 7cee60cc。迁移临时号 0423（0421 为第 129 批，0422 为 L2 的预算健康）。
 - **目标**：
   - 在 stage 上让指定测试顾客的若干个消息 Run 真的失败（outcome error），失败口径不变，从而满足 NX-038/039 验收的前提 P5；
   - 不发效应，不碰对账，真实顾客不受任何影响，不进入生产配置。
@@ -203,3 +203,24 @@ uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config ~/nx-s6/s6
 - **Host 的失败位置**：在登记模型调用之前，Run 的 failure 为 `synthetic_model_fault`，不再记 `model.failed`（§2）；补测试证明 S6 归因仍判为失败（§6 第 8a 项）。
 - **判定表不随每个 Run 增长（L6 实现前提 1）**：只有 start 时存在生效的开关才写判定行；resume 查不到判定行就当作未命中。没开开关时完全不写表。判定表不含顾客数据（只有 run_id、是否命中、开关 id），在擦除覆盖里注明，保留 30 天后由 retention keeper 清理；审计表含 Consumer 摘要，纳入 consumer 和 member 擦除覆盖。
 - **生产只读确认（L6 实现前提 2）**：Action 定义、开关表、判定表、审计表都应为 0 行（§7 前提）。
+
+### 实现记录（2026-11-07，L6 对 v3 的 C1、C2 及实现中定下的细节）
+
+- **C1 事前拦截**：
+  - `stage_secrets.py publish --stage-capabilities` 必须同时给出 `--deployment-marker <私有文件>`；
+  - 标记文件为 0600 JSON：`{"schema": "nexloop-deployment-marker/1", "environment": "stage" | "production"}`。仓库里原来没有现成的部署环境标记（stage_secrets 的私有 params 没有 environment 字段），所以新增这个文件，由调度员放在 stage 的私有部署目录里；
+  - 不是 stage、文件缺失、读不了或形状不对，一律在编译和发送之前拒绝，退出码非 0；
+  - 只看命令行参数和这个文件，不读任何环境变量。
+- **C2 404 不写入**：
+  - 没发布这个 Action 的租户调 `set_synthetic_fault`，得到 404 `not_found`；
+  - authz、control、runtime、ontology 四个 schema 的**每一张表**行数都不变（含 `runtime.audit_events`、`runtime.nexloop_action_claims`、受治理入口的意图和回执表、审批表，以及开关、名单、判定、审计四张表）；
+  - **实际写入**：工作台会话的活动时间（`last_seen_at` / `idle_expires_at`，更新已有的会话行），每个已登录的工作台请求都会这样；这条路由没有速率计数。测试 `tests/test_synthetic_fault_route_pg.py`。
+- **Host 的失败码**：失败的 Run 记 `failure_code: runtime_task_failed`、`failure_detail: synthetic_model_fault`。Host 的 provider 边界有一个错误码白名单（`runtime-provider-boundary.ts` 的 `safeCodes`），白名单外的码都会被换成 `runtime_model_unavailable`，所以把 `synthetic_model_fault` 加进白名单；证据包白名单（`scripts/nx037/evidence_pack.py`）也加上了。S6 归因按 failures 判为失败（`tests/test_stage_capabilities.py`）。
+- **表结构**（与 §3 的差异）：
+  - 开关的 Consumer 名单拆成子表 `control.nexloop_synthetic_fault_members(consumer_id)`；Consumer 擦除登记（`control.nexloop_consumer_erasures` 的插入）由触发器 `control.nexloop_synthetic_fault_erasure_members` 立即删掉这个 Consumer，纳入 consumer 擦除覆盖；
+  - 审计表**不存 Consumer 摘要**，只有开关、Run、剩余次数和负责人的 principal，没有顾客数据；
+  - 开关表和审计表的 `principal_id` 是负责人，作为员工操作登记进 consumer 和 member 两份擦除覆盖。
+- **判定表的保留**：只存 run_id、开关 id 和是否命中，不含顾客数据，没有身份列，所以不在擦除范围内，也不清理；只有开关生效期间才写，每个开关最多 50 次命中。原 §8 v3 里"保留 30 天"的说法作废。
+- **判定的接入点**：不重定义准入函数 `authz.nexloop_runtime_activation_command`，它包了很多层，又授权给 sim 等多个角色。改为在服务端 `nexloop_eios.runtime_activation.RuntimeActivationPort.authorize` 里：SQL 授权 start 或 resume 通过之后，在 real 世界调用 `authz.nexloop_synthetic_fault_decide`（授权给 nexloop_api 和 nexloop_domain_worker：真实守卫跑在 runtime-worker 进程里，角色是后者），命中才在应答里加 `synthetic_model_fault: true`。判定仍完全在服务端由数据库完成，Host 改不了。
+- **请求体**：受治理能力登记表里一个能力只对应一个 operation，所以开和关合成一个 operation `set_synthetic_fault`，用 `state: open | closed` 区分，键集合固定：`state, consumer_ids, remaining, duration_seconds, reason`；关闭时 `consumer_ids` 为 `[]`，另两个数为 0。
+- **负责人的授权**：全局角色清单 `workbench-roles.v1.json` 不含这个 Action，否则生产库也会写入一条指向不存在 Action 的授权。stage 清单里的 `owner_actions` 由 `nexloop_eios.workbench_roles --apply --stage-capabilities --deployment-marker` 合并进负责人角色，规则与发布相同（标记必须是 stage，否则在应用之前拒绝）。

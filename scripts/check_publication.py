@@ -38,6 +38,13 @@ def violation(name, raw):
             return 'entry ticket switch enabled'
         if (path.suffix in ('.yaml','.yml','.template') or path.name.endswith('.env.example')) and name!='deploy/stage/compose.app.example.yaml':
             return 'entry ticket switch outside the stage compose'
+    # ADR-045: the stage-only capability manifest, the Host's synthetic_model_fault key and the fault Action live under deploy/stage/
+    # alone; no other deployment file (a production render's input) names them. The global route entry (api-routes: operation and
+    # capability synthetic_fault.set) is allowed: without the Action it answers 404.
+    if name.startswith('deploy/') and not name.startswith('deploy/stage/'):
+        for token in ('capabilities.stage', 'synthetic_model_fault', 'nexloop.synthetic_fault.set'):
+            if token in content:
+                return 'stage-only capability outside deploy/stage'
     return None
 
 

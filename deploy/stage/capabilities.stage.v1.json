@@ -1,0 +1,57 @@
+{
+  "schema_version": "nexloop-stage-capabilities/1",
+  "manifest_version": 1,
+  "decision": "ADR-045 (owner 2026-11-07, option A of the dispatcher 2026-11-07): stage-only capabilities and Actions. Merged only by scripts/deploy/stage_secrets.py publish --stage-capabilities with a deployment marker environment stage; never part of the system catalog, so a production database has none of them. owner_actions join the owner role only through nexloop_eios.workbench_roles --apply --stage-capabilities with the same marker.",
+  "capabilities": [
+    {
+      "capability_name": "synthetic_fault.set",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "set_synthetic_fault",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "259b170800c886e5121b5992c4c2a54fd24f369e4979b40b8f551c4a32607bd0",
+      "side_effects_reason": null
+    }
+  ],
+  "business_actions": [
+    {
+      "stable_name": "nexloop.synthetic_fault.set",
+      "version": 1,
+      "object_type": {
+        "stable_name": "Consumer",
+        "version": 1
+      },
+      "capability_name": "synthetic_fault.set",
+      "authority": "human_owner",
+      "risk_level": "low",
+      "approval_mode": "none",
+      "policy_refs": [],
+      "idempotency_key_fields": [
+        "request_id"
+      ],
+      "target_systems": [
+        "postgres"
+      ],
+      "executor_role": "human_owner",
+      "purpose": "ADR-045 (owner 2026-11-07, stage only): the owner opens or closes the test-Consumer model fault switch (consumer list 1-8, remaining 1-50, at most 2 hours); every open, close, injection and lapse is audited. Published only from this stage manifest.",
+      "source_task": "NX-038"
+    }
+  ],
+  "owner_actions": [
+    "eios:action:nexloop.synthetic_fault.set:1"
+  ]
+}
