@@ -65,6 +65,49 @@ select kind, service, count(*) from runtime.nexloop_process_samples
 - 预期：`host` 一行，每分钟约 1 条；`host_op` 只有在这段时间内有效应请求的操作才有。
 - `effect_requests.host.present` 为 true，`effect_requests.effect_find.no_data` 为 1（见第 3 节）。
 
+## 6. 度量门禁：Host 端 p99 与部署时限（设计 §4.3，ADR-029c §1.2）
+
+- **执行者**：调度员。全部只读，不改任何配置。判定者：L6。
+- **脚本**：`scripts/acceptance/nx064_p99_gate.py`。它只读一个文件，不连接任何东西，输出一行 JSON：`samples`、`p50_ms`、`p99_ms`、`p99_upper_ms`、`gate`、`reason`、`suggested_effect_timeout_ms`。
+  - `gate` 的判定：
+    - `pass`：p99 所在桶的上界 × 1.5 不超过部署时限；
+    - `fail`：超过；
+    - `insufficient`：请求不足 1000 次、直方图为空，或者读不到来源。
+  - **insufficient 不算通过**：证据里照 ADR-029c 标“未测”，附上 `samples`，`effect_timeout_ms` 保持不写。
+  - 判定用的是桶的上界，不是几何中点，所以不会因为直方图约 4.9% 的估计误差而误判通过。
+  - 退出码：0 pass，1 fail，2 insufficient，3 输入被拒。
+- **需要的入口与凭据**：不需要新凭据。
+  - 直方图：DATA_HOST 上第 4 节已经在用的只读会话 `ro`（bootstrap socket、`begin read only`、`set local role nexloop_owner`，最后 rollback；定义同 run-nx057 §0.3）。
+  - 部署时限：APP_HOST 上私有 Agent Host 运行配置里的 `effect_timeout_ms`，只读这一个键。
+  - 不走 Host 的 `/internal/v1/metrics`：那个端点只在回环上，要 runtime worker 的 metrics 凭据，而且计数从 Host 启动时累计，重启就清零；进程样本表里已经有同样的数据（每分钟一份增量）。如果以后要用这个端点，需要的凭据是 runtime worker 读 Host metrics 用的那一份，由负责人决定是否发放，L4 不去拿。
+
+步骤：
+
+1. **部署时限**（APP_HOST，只读）：`jq '.effect_timeout_ms // 2000' <私有 agent-host 运行配置>`。没有这个键时就是 Host 默认的 2000。
+2. **导出 7 天的 Host 端直方图**（DATA_HOST，只读）。`ro` 输出的第一行是租户 ID，用 `tail -n +2` 去掉：
+
+   ```bash
+   ro "select json_build_object('kind',kind,'service',service,'window_start',window_start,'sample',sample) from runtime.nexloop_process_samples
+        where kind='host_op' and service='effect_submit' and window_start>now()-interval '7 days' order by window_start" | tail -n +2 > nx064-host-op.jsonl
+   ```
+
+   文件里只有计数和桶号，没有 Run id、消息或参数；它只在执行机上留存，证据里不放原文件。
+3. **判定**：
+
+   ```bash
+   python3 scripts/acceptance/nx064_p99_gate.py --samples nx064-host-op.jsonl --limit-ms <第 1 步的值>
+   ```
+
+   需要时，把 `--operation` 换成 `effect_find` 或 `incentive` 再跑一次。
+4. **没有 Host 端数据时**（gate 为 insufficient，reason 为 `empty_histogram`）：可以用 guard 端估算。第 2 步把 `kind='host_op'` 换成 `kind='guard_op'`（0186/0188：guard 按操作的样本，service 为操作名，同样带 `h_<i>`），第 3 步加 `--kind guard_op`。输出会带 `estimate: guard p99 + 300 ms`，证据里照写“估算”。**用 `--kind guard_op` 得出的 pass 只是估算，不能代替 Host 端的实测**：证据里记为“估算（guard p99 + 300 ms）”，不能记为“通过”。按它定的值，等 Host 端样本够 1000 次后要用第 2、3 步重新判定。
+5. **CI 主机的负载矩阵**：跑完一格后，直接用该格结果目录里的 `process_samples.jsonl`：`--samples <结果目录>/process_samples.jsonl`。
+
+**证据**：只记脚本输出的那一行 JSON，以及部署时限的来源（“私有配置第 1 步的值”或“默认 2000”）。
+
+- `pass`：可以按 `suggested_effect_timeout_ms`，经负责人确认后写进部署配置。它按 ADR-029c 的公式算出：clamp(ceil(p99 × 1.5 / 100) × 100, 2000, 5000)；超过 5000 时为 null，转为性能问题处理。
+- `fail`：说明当前时限偏紧，按 ADR-029c 重新定值，不要改脚本的门槛。
+- `insufficient`：标“未测”。
+
 ## 5. 回退
 
 1. 告警规则回到 v28：用同一个工具发布 `alert-rules.v28.json`，规则按文件版本发布，不手工删除。

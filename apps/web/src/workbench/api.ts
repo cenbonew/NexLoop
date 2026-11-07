@@ -943,7 +943,17 @@ const SHA=/^[0-9a-f]{64}$/;
 const rate=(v:unknown):number|null=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v))throw new WorkbenchError('invalid');return v;};
 const digestOf=(v:unknown)=>{const t=text(v);if(!SHA.test(t))throw new WorkbenchError('invalid');return t;};
 export type ReviewSide={cases:number|null;parent:number|null;candidate:number|null};
-export type ReviewCandidate={candidate_id:string;status:string;end_reason:string|null;dimension:string;change_kind:string|null;report_digest:string;level:'L0'|'L1';
+/** 0419: a candidate's category. owner_directed_schema is the owner's own Schema proposal (ontology_schema only), not induced from failures.
+ * An unknown or malformed category is kept as its raw text and marked unknown, never thrown (the outcomeGate invalid pattern). Absent from
+ * the review read until the backend projects it: null. */
+export const EVO_CATEGORIES=['retrieval_miss','ambiguity_unresolved','owner_directed_schema'] as const;
+export type EvoCategory={code:string;known:boolean};
+export function evoCategory(value:unknown):EvoCategory|null{
+  if(value===undefined||value===null)return null;
+  const code=typeof value==='string'?value:JSON.stringify(value)??String(value);
+  return {code,known:(EVO_CATEGORIES as readonly string[]).includes(code)};
+}
+export type ReviewCandidate={candidate_id:string;status:string;end_reason:string|null;dimension:string;category:EvoCategory|null;change_kind:string|null;report_digest:string;level:'L0'|'L1';
   conclusion:string;reason:string|null;change_class:string|null;hard_gates_version:string|null;gates:{gate:string;result:'pass'|'fail'}[];
   scores:{design:ReviewSide;validation:ReviewSide;ambiguity_rate:number|null;regressions:number|null;missing_cases:number|null};
   non_inferiority:{primary_metric:string;margin:number;ties_accept:boolean}|null;cases:number;cases_digest:string;published_version:string|null;recorded_at:string};
@@ -957,7 +967,7 @@ export function semanticReview(value:unknown):SemanticReview{
   const o=object(value);
   return {candidates:list(o.candidates).map(x=>{const c=object(x);const s=object(c.scores);const ni=c.non_inferiority==null?null:object(c.non_inferiority);
       const n=(v:unknown)=>v===null||v===undefined?null:count(v);
-      return {candidate_id:text(c.candidate_id),status:text(c.status),end_reason:maybeText(c.end_reason),dimension:text(c.dimension),change_kind:maybeText(c.change_kind),
+      return {candidate_id:text(c.candidate_id),status:text(c.status),end_reason:maybeText(c.end_reason),dimension:text(c.dimension),category:evoCategory(c.category),change_kind:maybeText(c.change_kind),
         report_digest:digestOf(c.report_digest),level:oneOfText(c.level,['L0','L1'] as const),conclusion:text(c.conclusion),reason:maybeText(c.reason),change_class:maybeText(c.change_class),
         hard_gates_version:maybeText(c.hard_gates_version),
         gates:list(c.gates).map(g=>{const v=object(g);if(Object.keys(v).sort().join()!=='gate,result')throw new WorkbenchError('invalid');

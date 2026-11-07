@@ -242,7 +242,7 @@ P4a（读侧并集，0357）与 P4c（purge 取并集、开始时固定目标，
 | 步 | 在哪里 | 谁执行 | 做什么 | 通过条件 | 不通过时 |
 | --- | --- | --- | --- | --- | --- |
 | 0 | DATA_HOST | 调度员 | 引用每日缺口证据：`$NEXLOOP_ROOT/evidence/relation-read-gaps/` 中最近的文件（§9 的执行顺序之后：目录已发布、0360 与新脚本已部署） | **最近连续 7 天**每天 `ownership_types` 不少于 14、`gaps` 为 0（`gaps_erasing`、`dangling`、`relation_only` 照实记录，不作为条件） | 不上 P4b；按缺口查原因（回填、派生） |
-| 1 | APP_HOST | 调度员 | 引用 P3 的 verify：`relation_backfill.py ... verify`（§8 第 11、13 步的输出，或者当天重跑一次） | **全部 26 个 derivation**、每个 world 都是 `a == b`、`extra == 0`、`skipped_remaining == 0`（不只带归属标记的 14 个） | 不上 P4b；补回填（新的 run），再 verify |
+| 1 | APP_HOST | 调度员 | 引用 P3 的 verify：`relation_backfill.py ... verify`（§8 第 11、13 步的输出，或者当天重跑一次；`relation_backfiller` 撤销之后，只读复核按 `docs/release/run-nx054-p3-verify.md`） | **全部 26 个 derivation**、每个 world 都是 `a == b`、`extra == 0`、`skipped_remaining == 0`（不只带归属标记的 14 个） | 不上 P4b；补回填（新的 run），再 verify |
 | 2 | DATA_HOST | 调度员 | 备份：`sudo -n /usr/bin/systemctl start nexloop-pg-diff.service`，`systemctl show -p Result,ExecMainStatus nexloop-pg-diff.service` | `Result=success`、`ExecMainStatus=0` | 不部署 |
 | 3 | — | 调度员 | 按 ack-policy 部署迁移 0359（工作台读路径） | 迁移头含 0359；一个已知 Consumer 的邻居中，被覆盖的链接只出现在关系分组里 | 回退：一个新迁移把 `authz.nexloop_workbench_read` 改回 `nexloop_workbench_read_before_relation_neighbors` 的调用（删除包装函数并把旧函数改回原名），由 L5 准备 |
 
