@@ -46,7 +46,7 @@ test('expired, unconfigured and recent refusals are red with the renewal hint',(
 
 test('no block is 无数据 (never 正常 or 有效); a malformed block is 格式无法识别',()=>{
   const none=card(undefined);expect(state(none)).toBe('no_data');expect(none).toContain('无数据');expect(none).not.toContain('有效');expect(none).not.toContain('正常');
-  for(const bad of [{...block(),required:['model']},{...block(),kinds:{model:kind()}},block({configured:2}),block({ratio:'45%'}),block({period_end:null}),'x']){
+  for(const bad of [{...block(),required:['evolution']},{...block(),required:['model','evolution','extra']},{...block(),kinds:{model:kind()}},block({configured:2}),block({ratio:'45%'}),block({period_end:null}),'x']){
     expect(budgetHealth(bad)).toEqual({status:'invalid'});expect(state(card(bad))).toBe('invalid');}
 });
 
@@ -56,4 +56,19 @@ test('a malformed block leaves the other operations cards as usual; an older sna
   expect(bad).toContain('<span title="NXC01">已暂停</span>');expect(bad).toContain('data-gate="no_data"');
   expect(page(metricsBody)).toContain('data-budget="no_data"');
   expect(page({...metricsBody,budget_health:block()})).toContain('data-budget="ok"');
+});
+
+test('W1: required is the server\'s list; only model is required on the client, a model-only tenant renders normally',()=>{
+  const only={kinds:{model:kind()},required:['model'],expiring_7d:0,expired:0,unconfigured:0,exhausted:0,exhausted_refusals_1h:0};
+  const p=budgetHealth(only);expect(p!.status).toBe('ok');expect(p!.status==='ok'&&p!.kinds.map(k=>k.kind)).toEqual(['model']);
+  const html=card(only);expect(state(html)).toBe('ok');expect(html).not.toContain('格式无法识别');expect(html).toContain('模型');expect(html).not.toContain('演进');
+  expect(budgetHealth({...only,required:['model','evolution']})).toEqual({status:'invalid'});  // a required kind missing from kinds
+});
+
+test('W2: a budget used up inside its period is red 已用完 with the renewal hint, never 有效',()=>{
+  for(const ratio of [1,1.25]){
+    const html=card(block({ratio},{},{exhausted:1}));
+    expect(state(html)).toBe('red');expect(html).toContain('已用完');expect(html).toContain(BUDGET_RENEW);expect(html).toContain('data-code="exhausted"');
+  }
+  expect(state(card(block({ratio:0.9999})))).toBe('ok');
 });

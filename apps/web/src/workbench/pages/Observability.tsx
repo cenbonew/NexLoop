@@ -86,10 +86,11 @@ export function OutcomesCard({outcomes}:{outcomes:OutcomeGate|null}){
 export const BUDGET_RENEW='需要负责人续期（approver3 set_budget）';
 const BUDGET_KIND_TEXT:Record<string,string>={model:'模型',evolution:'演进'};
 const DAY=86400,WEEK=7*DAY;
-/** A kind's state: unconfigured and expired are red, ending within 7 days yellow. */
+/** A kind's state: unconfigured, expired and used up (ratio ≥ 1) are red, ending within 7 days yellow. */
 export function budgetState(b:BudgetKind):{text:string;tone:'ok'|'limited'|'fail';code:string}{
   if(!b.configured)return {text:'未配置',tone:'fail',code:'unconfigured'};
   if(b.expired)return {text:'已过期',tone:'fail',code:'expired'};
+  if(b.ratio!==null&&b.ratio>=1)return {text:'已用完',tone:'fail',code:'exhausted'};
   if(b.expires_in_seconds!==null&&b.expires_in_seconds<=WEEK)return {text:'7 天内到期',tone:'limited',code:'expiring'};
   return {text:'有效',tone:'ok',code:'ok'};
 }

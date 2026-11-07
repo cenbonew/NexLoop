@@ -749,7 +749,7 @@ export function metrics(value:unknown):Metrics{
     candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets),
     outcomes:outcomeGate(v.outcomes),budget_health:budgetHealth(v.budget_health)};
 }
-/** Budget health (0422): per budget kind its period end and use; model and evolution always present. Absent from an older snapshot: null
+/** Budget health (0422): per budget kind its period end and use; model always required, the rest of `required` as the server says. Absent from an older snapshot: null
  * (无数据, never 正常). A malformed block is its own invalid state and never fails the rest of the metrics read (AT-045). */
 export type BudgetKind={kind:string;configured:boolean;period_end:string|null;expires_in_seconds:number|null;expired:boolean;ratio:number|null};
 export type BudgetHealth={status:'ok';kinds:BudgetKind[];expiring_7d:number;expired:number;unconfigured:number;exhausted:number;exhausted_refusals_1h:number}|{status:'invalid'};
@@ -759,7 +759,7 @@ export function budgetHealth(value:unknown):BudgetHealth|null{
     const o=object(value);const k=object(o.kinds);const required=list(o.required).map(text);
     const bit=(x:unknown)=>{if(x!==0&&x!==1)throw new WorkbenchError('invalid');return x===1;};
     const num=(x:unknown)=>{if(x===null)return null;if(typeof x!=='number'||!Number.isFinite(x))throw new WorkbenchError('invalid');return x;};
-    if(!['model','evolution'].every(r=>required.includes(r)&&r in k))throw new WorkbenchError('invalid');
+    if(!required.includes('model')||!required.every(r=>r in k))throw new WorkbenchError('invalid');  // the required list is the server's (evolution only for tenants registered for it)
     const order=[...required,...Object.keys(k).filter(x=>!required.includes(x)).sort()];
     const kinds=order.map(kind=>{const e=object(k[kind]);const b={kind,configured:bit(e.configured),period_end:maybeText(e.period_end),
       expires_in_seconds:num(e.expires_in_seconds),expired:bit(e.expired),ratio:num(e.ratio)};
