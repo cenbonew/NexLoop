@@ -2100,6 +2100,11 @@
       "version": "0420",
       "name": "0420_evo_review_summary_category.sql",
       "sha256": "a28953802eb9d866ee5daf06494de9d44b0bf8f4d6c5c9518794d8ed84f25d98"
+    },
+    {
+      "version": "0422",
+      "name": "0422_budget_health.sql",
+      "sha256": "ac0f2291fe4a3b8b1a58975b51cad91a2d0f27fdf72b28b012abdd7e6830eaa6"
     }
   ]
 }
