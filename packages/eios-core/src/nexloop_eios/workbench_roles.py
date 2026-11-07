@@ -399,7 +399,8 @@ def with_stage_owner_actions(roles, stage_capabilities, deployment_marker):
             raise WorkbenchRolesRejected(str(refused)) from None
         if stage:
             print('workbench_roles: the deployment is marked stage but --stage-capabilities is missing: the stage-only owner grants '
-                  '(deploy/stage/capabilities.stage.v1.json owner_actions) are not applied and an existing one is withdrawn', file=sys.stderr)
+                  '(deploy/stage/capabilities.stage.v1.json owner_actions) are not applied; on a database where they were applied this '
+                  'apply is refused (roles version going back)', file=sys.stderr)
         return roles
     try:
         path = P.stage_only(stage_capabilities, deployment_marker)
@@ -409,7 +410,14 @@ def with_stage_owner_actions(roles, stage_capabilities, deployment_marker):
     except P.CatalogPublishRefused as refused:
         raise WorkbenchRolesRejected(str(refused)) from None
     owner = roles['roles']['owner'] + [a for a in stage['owner_actions'] if a not in roles['roles']['owner']]
-    return validate_roles({**roles, 'roles': {**roles['roles'], 'owner': owner}})
+    # R71: the role templates are published per roles manifest version with their sha256 (0335), so the merged roles need a version
+    # of their own - never the global one (same version, other content: manifest_conflict). Global version x 1000 + the stage
+    # manifest's version: above the global one and rising with it (54 -> 54001). Once merged, a plain apply on that database (53, 54)
+    # is refused as a version going back instead of silently withdrawing the stage grants.
+    if not 1 <= stage['manifest_version'] <= 999:
+        raise WorkbenchRolesRejected('stage capabilities: manifest_version 1..999')
+    return validate_roles({**roles, 'manifest_version': roles['manifest_version'] * 1000 + stage['manifest_version'],
+                           'roles': {**roles['roles'], 'owner': owner}})
 
 
 def main(argv=None, *, window=None):
