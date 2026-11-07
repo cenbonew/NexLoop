@@ -305,6 +305,7 @@ docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /o
 | `not_reported` > 0 | 那台主机的探针配置里没有这个 timer（host-health 配置缺少对应键），快照中就没有这个键。补配置属于部署变更，另开一单 |
 | `roles_restricted` < `hosts_expected` | 角色属性或授权与 0318 不一致（多了成员关系或表权限）。这是安全问题，报 L6 和负责人，不要现场修改 |
 | `hosts_recording` < `hosts_expected`（退出码 3）或 `hosts_probe_stale` > 0 | 那台主机的 `nexloop-host-health.timer` 没有运行，或者 DSN 失效。查 `journalctl -u nexloop-host-health -n 5`（host-health.md §4.6 第 1 条），修好后重跑本节 |
+| JSON 中有 `reason: rules_version_below_30`（退出码 1） | 用的规则文件版本低于 v30。旧文件看的 timer 更少，跑出的“通过”不算数。换成 stage 已发布的版本（E3-P1）后重跑 |
 | 退出码 2 | `error` 字段为 `PermissionError`，说明 DSN 不是 metrics 登录；为其他值时，检查规则文件路径和网络挂载 |
 
 ### 4.5 证据（记入 NX-055 任务证据；不含 DSN）

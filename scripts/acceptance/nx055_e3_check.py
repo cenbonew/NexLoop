@@ -16,7 +16,8 @@ catalog rows of the two host recorder roles. Two checks:
 
 Output: counts and statuses only (no host name, address, DSN or timer name). Each check is pass, fail or no_data; nothing to judge
 (no real snapshot, no timer reported, no host recording) is no_data, which is not a pass.
-Exit 0: both pass. Exit 1: a check failed. Exit 3: no failure but a check has no data. Exit 2: refused (role, rules file, connection).
+A rules file older than v30 (MIN_RULES_VERSION) is a fail with reason rules_version_below_30, whatever the checks say.
+Exit 0: both pass. Exit 1: a check failed or the rules file is too old. Exit 3: no failure but a check has no data. Exit 2: refused (role, rules file, connection).
 """
 import argparse
 import json
@@ -26,6 +27,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'packages/eios-core/src'))
 
 PROBE_MAX_AGE = 300  # host_probe_stale (alert rules v13 on)
+# The rules file judged against: an older file watches fewer timers (v30: 11) and could pass on a subset (L6, batch 122).
+MIN_RULES_VERSION = 30
 RECORD_FUNCTION = ('authz', 'nexloop_record_host_observation')
 HOST_TABLES = ('nexloop_host_probe_ticks', 'nexloop_host_unit_samples', 'nexloop_host_timer_runs')  # schema runtime
 # From the catalog ACLs (pg_catalog is readable by the metrics login; has_*_privilege would need USAGE on authz and runtime). A grant
@@ -106,8 +109,11 @@ def evaluate(export, rules, roles):
     f, r = freshness(host_health, watched), recorders(host_health, hosts, roles)
     if host_health is None:
         f['status'] = r['status'] = 'no_data'
-    return {'check': 'nx055-e3', 'rules_version': rules['version'], 'status': overall(f['status'], r['status']),
-            'freshness': f, 'recorders': r}
+    out = {'check': 'nx055-e3', 'rules_version': rules['version'], 'status': overall(f['status'], r['status']),
+           'freshness': f, 'recorders': r}
+    if type(rules['version']) is not int or rules['version'] < MIN_RULES_VERSION:
+        out.update(status='fail', reason=f'rules_version_below_{MIN_RULES_VERSION}')
+    return out
 
 
 def read(dsn_file, hosts):
@@ -145,6 +151,8 @@ def main(argv=None):
               f"{f['scheduled_failures_24h']} scheduled failures in 24 h")
         print(f"recorders {r['status']}: {r['roles_restricted']}/{r['hosts_expected']} restricted roles, "
               f"{r['hosts_recording']}/{r['hosts_expected']} hosts recording, {r['hosts_probe_stale']} stale")
+        if 'reason' in result:
+            print(f"rules {result['reason']}: alert rules v{result['rules_version']} (at least v{MIN_RULES_VERSION} required)")
         print({'pass': 'E3 PASS', 'fail': 'E3 FAIL', 'no_data': 'E3 无数据（不算通过）'}[result['status']])
     return {'pass': 0, 'fail': 1, 'no_data': 3}[result['status']]
 

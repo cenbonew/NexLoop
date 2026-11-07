@@ -78,3 +78,12 @@ def test_the_output_has_counts_and_statuses_only():
     text = json.dumps(E.evaluate(healthy(), RULES, roles()))
     for word in [h for h in HOSTS] + [t for _, t in WATCHED] + ['nexloop_host_recorder', 'host=', '@']:
         assert word not in text
+
+
+def test_an_older_rules_file_fails_with_its_reason():
+    """An old rules file (v29) watches the same or fewer timers; a healthy snapshot must still not pass against it."""
+    old = load_rules(ROOT / 'deploy/configuration/alert-rules.v29.json')
+    r = E.evaluate(healthy(), old, roles())
+    assert (r['status'], r['reason'], r['rules_version']) == ('fail', 'rules_version_below_30', 29)
+    assert r['freshness']['status'] == 'pass' and r['recorders']['status'] == 'pass'  # the checks themselves passed
+    assert 'reason' not in E.evaluate(healthy(), RULES, roles())
