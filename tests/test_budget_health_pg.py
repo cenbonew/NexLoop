@@ -61,6 +61,11 @@ def ruled(observed):  # noqa: F811
     return observed
 
 
+def enrolled(admin):
+    """The tenant takes part in evolution: a registered evolution principal (as evolution enrollment writes it)."""
+    admin.execute("insert into authz.nexloop_evo_principals(principal_id,tenant_id,purpose,registered_by) values('synthetic-evo-writer',%s,'writer','test')", (TENANT,))
+
+
 def test_a_healthy_configuration_fires_none(ruled):
     healthy(ruled['admin'])
     h = health(ruled['admin'])
@@ -70,10 +75,26 @@ def test_a_healthy_configuration_fires_none(ruled):
     assert firing(ruled) == set()
 
 
-def test_a_required_kind_without_a_row_is_unconfigured_never_a_pass(ruled):
-    budget(ruled['admin'], 'model', '-1 day', '30 days')  # evolution has no row
+def test_without_evolution_only_model_is_required(ruled):
+    budget(ruled['admin'], 'model', '-1 day', '30 days')  # no evolution principal, no evolution row
     h = health(ruled['admin'])
-    assert h['unconfigured'] == 1 and h['kinds']['evolution'] == {'configured': 0, 'period_end': None, 'expires_in_seconds': None, 'expired': 0, 'ratio': None}
+    assert h['required'] == ['model'] and h['unconfigured'] == 0 and 'evolution' not in h['kinds']
+    assert firing(ruled) == set()
+
+
+def test_a_missing_model_budget_is_unconfigured_never_a_pass(ruled):
+    h = health(ruled['admin'])
+    assert h['required'] == ['model'] and h['unconfigured'] == 1
+    assert h['kinds']['model'] == {'configured': 0, 'period_end': None, 'expires_in_seconds': None, 'expired': 0, 'ratio': None}
+    assert firing(ruled) == {'budget_unconfigured'}
+
+
+def test_an_enrolled_tenant_without_an_evolution_budget_is_unconfigured(ruled):
+    budget(ruled['admin'], 'model', '-1 day', '30 days')
+    enrolled(ruled['admin'])
+    h = health(ruled['admin'])
+    assert h['required'] == ['model', 'evolution'] and h['unconfigured'] == 1
+    assert h['kinds']['evolution'] == {'configured': 0, 'period_end': None, 'expires_in_seconds': None, 'expired': 0, 'ratio': None}
     assert firing(ruled) == {'budget_unconfigured'}
 
 
