@@ -1,8 +1,7 @@
 """NX-054 P4a (the relation read union migration; docs/design/relation-read-p4.md v2): the erasing read guard and object_fields
 resolve an object's Consumers as relations united with the property rule. On the workbench fixture with the first relation batch
 published: an object linked to the erasing Consumer only by a relation (no property) is now refused and unreadable; one linked only
-by its property was too under P4a and is not after P5 (relation_read_only: relations only once a catalog is published, its own
-tests in test_relation_read_only_pg); another Consumer's objects read as before. The gap check
+by its property still is (never fewer than 0315); another Consumer's objects read as before. The gap check
 authz.nexloop_relation_read_gaps: the metrics login only, counts only, gaps / gaps_erasing / relation_only per world and type, and a
 backfilled gap goes to 0."""
 import hashlib
@@ -61,11 +60,9 @@ def test_a_relation_alone_now_ties_an_object_to_the_erasing_consumer(published, 
     put(admin, 'Commitment', theirs, {'made_to': other})
     assert guard(admin, 'Commitment', by_relation) is None and fields(admin, 'Commitment', by_relation)['readable'] is True
     mark_erasing(admin, TENANT, consumer)
-    assert guard(admin, 'Commitment', by_relation) == 'consumer is being erased'
-    assert fields(admin, 'Commitment', by_relation)['readable'] is False
-    # NX-054 P5 (relation_read_only): with the catalog published the property is no longer a fallback - the object it alone ties
-    # to the erasing Consumer is a gap (counted by the daily check, the P5 gate), not a refusal. Under P4a it was refused too.
-    assert guard(admin, 'Commitment', by_property) is None and fields(admin, 'Commitment', by_property)['readable'] is True
+    for object_id in (by_relation, by_property):
+        assert guard(admin, 'Commitment', object_id) == 'consumer is being erased'
+        assert fields(admin, 'Commitment', object_id)['readable'] is False
     assert guard(admin, 'Commitment', theirs) is None and fields(admin, 'Commitment', theirs)['readable'] is True
 
 

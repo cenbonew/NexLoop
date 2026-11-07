@@ -21,8 +21,25 @@ def consumers(admin, type_name, object_id):
         return admin.execute("select runtime.nexloop_object_consumers_read(%s,'real',%s,%s)", (TENANT, type_name, object_id)).fetchone()[0]
 
 
+def backfilled(admin, run='p5-backfill'):
+    """A backfill run over the current derivation map reaching completed (the coverage trigger records every derivation)."""
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("""insert into control.nexloop_relation_backfill_runs(tenant_id,backfill_run,derivations_digest,state,started_by)
+            values(%s,%s,control.nexloop_relation_backfill_digest(%s),'running','synthetic')""", (TENANT, run, TENANT))
+        admin.execute("update control.nexloop_relation_backfill_runs set state='completed' where tenant_id=%s and backfill_run=%s", (TENANT, run))
+    return admin.execute('select count(*) from control.nexloop_relation_backfill_coverage where backfill_run=%s', (run,)).fetchone()[0]
+
+
+def member_may_read(admin, type_name, object_id):
+    with admin.transaction():
+        return admin.execute("select authz.nexloop_workbench_member_may_read(%s,'real','owner',%s)",
+                             (TENANT, f'eios:object:{type_name}/{object_id}')).fetchone()[0]
+
+
 def test_relations_only_once_the_catalog_is_published(published, admin):
     consumer = published['f']['consumer']
+    assert backfilled(admin) > 0
     other = hexid('p5-other-consumer')
     obj(admin, 'Consumer', other, {})
     goal_rel, goal_prop, goal_theirs = hexid('p5-goal-relation'), hexid('p5-goal-property'), hexid('p5-goal-theirs')
@@ -57,6 +74,7 @@ def test_relations_only_once_the_catalog_is_published(published, admin):
 
 def test_the_rollback_brings_the_property_fallback_back(published, admin):
     consumer = published['f']['consumer']
+    backfilled(admin)
     goal = hexid('p5-rollback-goal')
     put(admin, 'Goal', goal, {'consumer_id': consumer})
     mark_erasing(admin, TENANT, consumer)
@@ -80,10 +98,54 @@ def test_an_unpublished_assessment_evidence_resolves_the_evidence_message_by_pro
     assert message is not None, 'the fixture has a Message of the Consumer'
     assessment = hexid('p5-deferred-evidence')
     put(admin, 'RelationshipAssessment', assessment, {'source_id': hexid('p5-c'), 'target_id': hexid('p5-d'), 'evidence_message_id': message[0]})
-    assert consumer not in consumers(admin, 'RelationshipAssessment', assessment)  # published: the evidence goes through relations only (none here)
-    with admin.transaction():
-        admin.execute("delete from control.nexloop_relation_type_profiles where tenant_id=%s and relation_name='assessment_evidence'", (TENANT,))
+    backfilled(admin)
+    assert consumer not in consumers(admin, 'RelationshipAssessment', assessment)  # published and backfilled: the evidence goes through relations only (none here)
+    with admin.transaction():  # as on stage: the catalog published without assessment_evidence, so it has no derivation
+        admin.execute("delete from control.nexloop_relation_derivations where tenant_id=%s and relation_name='assessment_evidence'", (TENANT,))
     assert consumers(admin, 'RelationshipAssessment', assessment) == sorted([consumer, hexid('p5-c'), hexid('p5-d')])
     mark_erasing(admin, TENANT, consumer)
     assert guard(admin, 'RelationshipAssessment', assessment) == ERASING
     assert fields(admin, 'RelationshipAssessment', assessment)['readable'] is False
+
+
+def test_a_published_type_keeps_the_property_rule_until_its_backfill_completes(published, admin):
+    """C1: relation types published but not yet backfilled (stock objects have no relation) keep the property rule; a completed
+    backfill switches them to relations only; a type that its backfill no longer covers (a new version published after it, or the
+    run reverted) has the fallback back."""
+    consumer = published['f']['consumer']
+    goal = hexid('p5-c1-goal')
+    put(admin, 'Goal', goal, {'consumer_id': consumer})  # a stock object: property, no relation yet
+    mark_erasing(admin, TENANT, consumer)
+    assert guard(admin, 'Goal', goal) == ERASING and fields(admin, 'Goal', goal)['readable'] is False  # published, not backfilled
+    assert member_may_read(admin, 'Goal', goal) is False
+    backfilled(admin, 'p5-c1')
+    assert guard(admin, 'Goal', goal) is None  # relations only now: this stock object is a gap the backfill would have closed
+    # A newer version of goal_of published after the backfill: not covered, the fallback is back for Goals only.
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("delete from control.nexloop_relation_backfill_coverage where tenant_id=%s and relation_name='goal_of'", (TENANT,))
+    assert guard(admin, 'Goal', goal) == ERASING
+    commitment = hexid('p5-c1-commitment')
+    put(admin, 'Commitment', commitment, {'made_to': consumer})
+    assert guard(admin, 'Commitment', commitment) is None  # commitment_to still covered: relations only
+    # The run reverted: none of its coverage remains.
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("update control.nexloop_relation_backfill_runs set state='reverting' where tenant_id=%s and backfill_run='p5-c1'", (TENANT,))
+    assert admin.execute("select count(*) from control.nexloop_relation_backfill_coverage where backfill_run='p5-c1'").fetchone()[0] == 0
+    assert guard(admin, 'Commitment', commitment) == ERASING
+
+
+def test_the_workbench_member_read_follows_the_relations_only_mode(published, admin):
+    """C2: the third reader, authz.nexloop_workbench_member_may_read (0387), resolves through the same function: in relation-only
+    mode a member still cannot read an object tied to the erasing Consumer by a relation; one tied only by a property is a gap."""
+    consumer = published['f']['consumer']
+    by_relation, by_property = hexid('p5-c2-relation'), hexid('p5-c2-property')
+    put(admin, 'Goal', by_relation, {})
+    relation(admin, 'goal_of', 'Goal', by_relation, 'Consumer', consumer)
+    put(admin, 'Goal', by_property, {'consumer_id': consumer})
+    backfilled(admin)
+    assert member_may_read(admin, 'Goal', by_relation) is True
+    mark_erasing(admin, TENANT, consumer)
+    assert member_may_read(admin, 'Goal', by_relation) is False
+    assert member_may_read(admin, 'Goal', by_property) is True
