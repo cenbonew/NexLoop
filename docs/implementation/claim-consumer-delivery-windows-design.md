@@ -219,3 +219,7 @@ stage 上的客户都是模拟客户（persona `simulated_agent`），rematch �
 | 抽取器 `conversation_extraction` | 不读取 schema 的说明或显示名 | 不涉及 |
 
 没有任何路径把 schema 的自由文本放进 system 提示词。
+
+## 9. stated_at 的来源（L6 2026-11-07）
+
+`stated_at` 和替换顺序用的是 Claim 的 `valid_time.anchor`，也就是 `anchor_time()` 的结果：签名渠道的时间在偏差窗口内时取渠道时间，否则取服务端接收时间。所以它和“消息接收时间”不完全相同；在签名渠道上，可能比接收时间早几秒到几分钟。画像页上“来自 X 月 X 日的对话”显示的就是这个时间。

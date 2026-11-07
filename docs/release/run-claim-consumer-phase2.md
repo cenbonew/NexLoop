@@ -178,7 +178,7 @@ select jsonb_array_length(properties->'delivery_windows') from ontology.objects 
 - `delivery_windows` 的 `status` 为 `applied`；
 - `display` 为“周六 上午；周日 上午”；
 - `source` 只有 id；
-- `stated_at` 是第二句消息的受理时间；
+- `stated_at` 是第二句消息的陈述时间（Claim 的 `valid_time.anchor`：签名渠道时间在偏差窗口内时取渠道时间，否则取接收时间，见设计 §9）；
 - `effective_at` 是应用时间。
 
 **回退**：演示客户按 `run-contact-channel-demo.md` §3 退役。stage 上其他客户的属性不受影响。

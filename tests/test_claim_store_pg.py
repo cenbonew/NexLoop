@@ -338,7 +338,9 @@ def test_claims_are_not_wired_into_context_or_formal_projection():
         # resolution_state, superseded_at, corrects_claim_id, consumer_id and conversation_id (never quote or value), sets the selected
         # ones back to unresolved and returns counts only - no Claim id or content. 0410 claim_auto_write copies the 0074 match
         # recorder with the auto-write whitelist added (its Claim lines unchanged); no Claim value becomes formal without the whitelist.
-        '_claim_rematch','_claim_auto_write')) for name in migrations)
+        # Claim → Consumer phase three: 0417 workbench_property_sources - 工作台画像页按属性 READ 只给出来源 Claim 的 id 和时间，不给原文，也不进
+        # Context (it reads claim_id, conversation_id, source_message_id and valid_time's anchor of the latest applied proposal's Claim).
+        '_claim_rematch','_claim_auto_write','_workbench_property_sources')) for name in migrations)
 
 
 def correction_window(conversations):
