@@ -1,6 +1,6 @@
 # 设计：测试顾客的模型调用故障开关（ADR-045）
 
-- **状态**：设计稿 v1，待 L6 复核，通过后实现。作者：L7。依据：main 7cee60cc。迁移临时号 0423（0421 为第 129 批，0422 为 L2 的预算健康）。
+- **状态**：设计稿 v2（v1 b2f7225a 由 L6 判条件 PASS；D1–D4 及生产隔离依据见 §8），待 L6 再看一眼，通过后实现。作者：L7。依据：main 7cee60cc。迁移临时号 0423（0421 为第 129 批，0422 为 L2 的预算健康）。
 - **目标**：
   - 在 stage 上让指定测试顾客的若干个消息 Run 真的失败（outcome error），失败口径不变，从而满足 NX-038/039 验收的前提 P5；
   - 不发效应，不碰对账，真实顾客不受任何影响，不进入生产配置。
@@ -19,9 +19,10 @@
   1. world 为 real，Run 是消息 Run（`runtime.nexloop_message_routes` 里有它）；
   2. 这个 Run 的 Consumer 经 `runtime.nexloop_evo_run_consumer` 得出，persona 经 `runtime.nexloop_consumer_persona` 得出，属于 `synthetic` 或 `simulated_agent`；
   3. 租户有一个打开的开关：`closed_at is null`，现在早于 `expires_at`，`remaining > 0`，并且这个 Consumer 在开关的 `consumer_ids` 里；
-  4. 这个 Run 还没有被判定过：按 run_id 幂等，resume 时返回同样的结果，不再扣次数。
+  4. **只在首次 start 时判定（D2）**：判定结果（命中或未命中）按 run_id 写入 `runtime.nexloop_synthetic_fault_decisions(run_id, injected boolean)`；resume 一律沿用首次结果，不重新判定、不扣次数。这样 start 时开关关闭、之后才打开开关的 Run，resume 时也不会中途变成故障。
 - 命中时，在同一个事务里：`remaining` 减 1，审计表写一条 `injected` 事件（run_id、consumer 的摘要、剩余次数），准入应答加上 `synthetic_model_fault: true`。
 - 次数扣到 0 时写一条 `exhausted` 事件。到期时间过后第一次被判定时写一条 `expired` 事件，同时把开关记为关闭。
+- **开关"是否生效"一律实时计算（D1）**：判定、快照和 Action 都按"`closed_at` 为空、现在早于 `expires_at`、`remaining > 0`"计算，不只看 `closed_at` 这一列。过期以后即使没有任何 Run 来触发它，也已经不生效。
 - 兜底回复 Run（`runtime.nexloop_fallback_context_bindings`）、角色 Run 和计划 Run 都不判定，保证"每条来信都有回复"（§5）。
 
 ## 2. Host：模型请求之前
@@ -49,7 +50,7 @@
   - 只有负责人能执行；
   - 请求体 `{operation: open | close, consumer_ids, remaining, duration_seconds (60..7200), reason, request_id}`；
   - 打开时逐个核对 `consumer_ids` 的 persona 都是 synthetic 或 simulated_agent，有一个是 real 就整体拒绝（`consumer_not_synthetic`）；
-  - 已经有打开的开关时拒绝（`switch_open`）；
+  - **打开前先清理旧开关（D1）**：已过期或次数已用完、但 `closed_at` 还为空的旧开关，先记为关闭（close_reason expired 或 exhausted）并写审计，然后再新建。只有仍然生效的开关存在时，才拒绝（`switch_open`）。部分唯一索引只约束 `closed_at is null` 的行，所以必须先关旧的；
   - 关闭操作幂等。
 - **Action 只发布到 stage**：放进 stage 专用的发布清单（`deploy/stage/...`），系统目录和生产清单都不含它。check_publication 新增规则：公开文件里，stage 部署文件之外出现 `synthetic_model_fault` 或 `nexloop.synthetic_fault.set` 都拒绝。
 - **准入函数**：在当前最新定义里加一处调用和一个应答字段，copy guard 按 `Allowed(stem, fn, why, reverts)` 登记。
@@ -69,11 +70,7 @@
 - **S6 归因**：按现行口径，这些 Run 记为失败。带检索未命中的，进入 retrieval_miss 草稿。S6 的证据要写明"失败来自 ADR-045 故障开关"，并引用审计表的 injected 事件。
 - **错误类指标和 B5 失败率会被污染，处理办法**：
   1. **单列**：快照新增 `synthetic_fault` 块：`{active: 0|1, injected_last_hour, remaining}`，都是数字。告警说明和运行单写明：`active=1` 期间的错误类告警属于预期。
-  2. **B5 门控排除**：
-     - 0418 的 `outcomes` 统计的是派发拒绝、效应意图和队列死信，本身不含模型失败的 Run；
-     - 但兜底和失败的 job 可能进入死信计数，所以 0423 让 outcomes 的 `decided` 和 `failures` 减去同一小时内 injected 的 Run，并在块里加 `excluded_synthetic_fault`；
-     - 这一处按 0418 的 rename-and-wrap 方式实现，不重定义现有函数；
-     - 如果 L6 认为这样太宽，就退回只做第 1 条"单列"。
+  2. **B5 不做扣减，只单列（D3，L6）**：0418 的 `outcomes` 统计的是派发拒绝、效应意图和队列死信，本身不含模型失败的 Run；再减去被注入的 Run，会低估失败率，甚至算出负数。所以 B5 不改，只靠上面的 `synthetic_fault` 块单列；B5 的证据里注明那段时间开关打开着。
   3. **error_rate 自动暂停**：NX-037 试运行入口（`run_interactions.py`）在错误率高时会自动暂停。本次演练不用它观察（直接用 `speak-turn.sh` 发言），运行单里写明不要同时开着 run 入口。
 - **语义读取冷池超时**（2026-11-07 实测：两个 relay 各超时 1 次，时限 0.5 秒）：
   - relay 刚启动后的第一次读取可能超时，这个 Run 就没有 access 记录，也就没有检索未命中；
@@ -93,6 +90,8 @@
 
 ## 6. 测试（实现时）
 
+0. **D1**：开关过期后，没有任何 Run 触发它，快照照样显示 `active = 0`；再打开新开关能成功，旧开关被记为 expired 关闭并有审计。
+0a. **D2**：start 时开关关闭（判定为未命中并记录），之后打开开关，再 resume 这个 Run：不受影响，次数不变。
 1. **真实顾客不受影响**：persona 为 real 的 Consumer，即使在名单里（打开时就会被拒绝，这里直接写表构造），也在有效期内、剩余次数大于 0，准入照常，Host 不报错，次数不变。
 2. 测试顾客命中：准入应答带标记；Host 在第一次模型请求前失败，`model.failed = 1`，没有工具调用，没有效应意图；审计表有 injected；次数减 1。
 3. 次数用完、到期、已关闭、不在名单里：都不命中。
@@ -100,13 +99,22 @@
 5. 兜底 Run、角色 Run、计划 Run 不判定。
 6. Host 没有配置键而准入带标记：拒绝准入；配置键只在 deepseek-flash 和 real 时被接受。
 7. Action：只有负责人能执行；名单里有 real 就拒绝；已有打开的开关时拒绝；关闭幂等；审计只追加。
-8. 快照：`synthetic_fault` 块；B5 门控排除注入的 Run（或只单列，按 L6 的意见）。
+8. 快照：`synthetic_fault` 块（active 实时计算）；B5 的 outcomes 不变（D3）。
 9. check_publication 规则：stage 之外的文件出现这个键或 Action 就拒绝。
 10. 擦除覆盖；copy guard；bootstrap、published migrations、claim_store、tenant_fk、search_path、Host vitest。
 
 ## 7. stage 运行单草稿（实现后写进 `docs/release/run-synthetic-model-fault.md`）
 
 **前提**
+- **生产隔离核对**：生产渲染之后，只读确认生产库没有发布这个 Action，两张开关表都是空的：
+
+```bash
+ro "select count(*) from control.nexloop_action_definitions where resource_id like 'eios:action:nexloop.synthetic_fault.set:%'"
+```
+```bash
+ro "select count(*) from control.nexloop_synthetic_fault_switches"
+```
+  两条都应为 0。这一步写进生产部署单，每次生产发布都要做。
 - 0423 已部署；stage Host 的运行时配置加了 `synthetic_model_fault: true`，重建 Host；Action 已发布。
 - 两个 relay 用 `ontology_hybrid`（已核对，2026-11-07）。
 - run 入口没有在运行。
@@ -141,3 +149,27 @@ uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config ~/nx-s6/s6
 
 7. 按 run-nx038 的顺序执行 at023、r1；r5、r7 按 S6-stage-acceptance 的顺序和前提执行。
 8. **证据**：injected 审计条数、run_id 前缀、各验收项的结果。明确写"失败由 ADR-045 故障开关注入"，执行者和判定者分开写。
+
+## 8. 修订记录
+
+### v2（2026-11-07，L6 对 v1 的条件 PASS：D1–D4）
+
+- **D1 开关过期后会卡住**：打开前先把已过期或次数用完、但 `closed_at` 还为空的旧开关记为关闭再新建；"是否生效"一律按"未关闭、未到期、剩余次数大于 0"实时计算（§1、§3）。用例见 §6 第 0 项。
+- **D2 resume 中途变成故障**：只在首次 start 时判定，结果（命中或未命中）按 run_id 记下，resume 一律沿用（§1）。用例见 §6 第 0a 项。
+- **D3 B5 不做扣减**：只单列 `synthetic_fault` 块，B5 证据里注明开关打开的时段（§5）。
+- **D4 persona 的写入方**（main 7cee60cc，git grep `control.nexloop_consumer_personas`）：
+  - 写入：
+    - 0220 `control.nexloop_governed_set_consumer_persona`，即受治理 Action `nexloop.consumer.set_persona`，只有负责人能执行，带修订号和审计（`nexloop_consumer_persona_events`）；
+    - 0261 仿真生成（`runtime.nexloop_sim_*`），只写 sim 世界的合成 Consumer，0261:255 的 world 约束保证它不写 real。开关只在 real 判定，所以这条路径与本开关无关。
+  - 删除：0227:716、0358:262，都在擦除清理里，删除后视为 real。
+  - Python、脚本里没有直接写这张表的语句（`webchat_consumers.py`、`entry_tickets.py` 只读 persona）。
+  - 所以 persona 只能由负责人的受治理 Action 改动，顾客消息、渠道输入和上下文包都影响不了它。
+- **D4 已知局限（0061 consumer identity link）**：
+  - `nexloop.consumer.link_authenticated_identity` 只允许已登录的本人，把自己的浏览器身份关联到**自己名下**的 Consumer（`control.nexloop_consumer_owners` 的 principal 与登录会话一致）。所以一个真实的人不能被关联到别人名下的模拟顾客上。
+  - 但持有测试账号口令或入口票据的人，就是以这个模拟顾客的身份在说话。如果真人登录了测试账号，开关打开期间他的消息 Run 会失败。
+  - 这时兜底回复在 300 秒后照常回复，影响有限；运行单要求演练期间测试账号只由执行者使用。
+- **生产隔离的真正依据（L6）**：
+  - 是"**生产库没有这个 Action，两张表是空的**"：没有 Action 就打不开开关，没有打开的开关就不会有任何判定命中。
+  - Host 的运行档案限制挡不住生产：生产也可能是 deepseek-flash 加 real。
+  - check_publication 只看仓库里的公开文件，看不到私有的运行时配置。
+  - 这两道只是补充；生产部署单要加一步只读确认（§7 前提）。
