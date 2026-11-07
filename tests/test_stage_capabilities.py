@@ -134,7 +134,7 @@ def test_the_stage_manifest_is_valid_and_names_only_stage_entries():
     assert 'synthetic_fault.set' not in json.dumps(json.loads((ROOT / 'deploy/configuration/capabilities.v1.json').read_text()))
 
 
-def test_the_owner_role_gets_the_stage_actions_only_for_a_deployment_marked_stage(tmp_path):
+def test_the_owner_role_gets_the_stage_actions_only_for_a_deployment_marked_stage(tmp_path, capsys):
     from nexloop_eios import workbench_roles as R
     roles = R.validate_roles(R.load(ROOT / 'deploy/authorization/workbench-roles.v1.json'))
     grant = 'eios:action:nexloop.synthetic_fault.set:1'
@@ -142,7 +142,11 @@ def test_the_owner_role_gets_the_stage_actions_only_for_a_deployment_marked_stag
     staged = R.with_stage_owner_actions(roles, STAGE, marker(tmp_path, 'stage'))
     assert set(staged['roles']['owner']) - set(roles['roles']['owner']) == {grant}
     assert all(grant not in actions for role, actions in staged['roles'].items() if role != 'owner')
-    for args in ((STAGE, marker(tmp_path, 'production', 'p.json')), (STAGE, None), (None, marker(tmp_path, 'stage', 's.json'))):
+    for args in ((STAGE, marker(tmp_path, 'production', 'p.json')), (STAGE, None)):
         with pytest.raises(R.WorkbenchRolesRejected):
             R.with_stage_owner_actions(roles, *args)
     assert grant not in json.dumps(json.loads((ROOT / 'deploy/authorization/workbench-roles.v1.json').read_text()))
+    # The stage marker without the manifest: nothing merged, and a clear reminder (the stage grants would be withdrawn).
+    assert R.with_stage_owner_actions(roles, None, marker(tmp_path, 'stage', 's.json')) is roles
+    assert '--stage-capabilities is missing' in capsys.readouterr().err
+    assert R.with_stage_owner_actions(roles, None, marker(tmp_path, 'production', 'q.json')) is roles and capsys.readouterr().err == ''

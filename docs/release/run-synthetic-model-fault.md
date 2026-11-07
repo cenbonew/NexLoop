@@ -38,7 +38,7 @@ ro "select (select count(*) from control.nexloop_synthetic_fault_switches),(sele
 
    然后按现行发布流程去掉 `--dry-run` 正式发布，`--configurator-dsn-file` 或 `--bootstrap-dsn-file`、`--signing-key-id` 与平常相同。预期 `actions_to_publish` 里只多出 `nexloop.synthetic_fault.set`。
 
-5. **工作台角色**：按现行流程执行 `workbench_roles --apply`，**加上同样两个参数** `--stage-capabilities deploy/stage/capabilities.stage.v1.json --deployment-marker <私有树>/deployment-marker.json`，负责人角色才会加上这个 Action 的授权。全局的角色清单 `workbench-roles.v1.json` 里没有它，所以生产不会写这条授权；以后每次在 stage 重新执行 `workbench_roles --apply` 都要带这两个参数，否则这条授权会被收回。
+5. **工作台角色**：按现行流程执行 `workbench_roles --apply`，**加上同样两个参数** `--stage-capabilities deploy/stage/capabilities.stage.v1.json --deployment-marker <私有树>/deployment-marker.json`，负责人角色才会加上这个 Action 的授权。全局的角色清单 `workbench-roles.v1.json` 里没有它，所以生产不会写这条授权；**以后每次在 stage 执行 `workbench_roles --apply`（包括与本演练无关的成员变更）都要带这两个参数**，否则这条授权会被收回；只带了 `--deployment-marker`、漏了 `--stage-capabilities` 时，命令会在 stderr 打印一条提醒，但不会中止。
 6. **Host 配置**：在 stage 的 agent-host 运行时配置里加 `"synthetic_model_fault": true`，重建 agent-host。没有这个键时，Host 会拒绝带故障标记的准入，Run 不会开始。
 7. 只读核对：
 
@@ -86,6 +86,8 @@ ro "select (select count(*) from control.nexloop_synthetic_fault_switches),(sele
 **说明**
 - 重跑开关的打开请求（例如网络中断后重试）用同一个 Idempotency-Key 会按重放处理，不会多开一个开关。
 - 开关打开期间，错误类告警属于预期，快照的 `synthetic_fault.active` 为 1。B5 的失败率不受影响（它不统计模型失败的 Run），证据里注明开关打开的时段。
+
+**判定失败不影响准入**：判定函数出错（授权缺失、迁移未上、连接中断）时，准入照常成功、不注入，guard 的日志里有一行 `synthetic fault decision failed (<错误类型>) for run <run_id>`，进程内计数 `SYNTHETIC_FAULT_DECISION_FAILURES` 加 1。演练时如果 Run 没有失败，先查这行日志。
 
 ## 3. 回退
 

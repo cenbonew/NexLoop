@@ -391,6 +391,16 @@ def with_stage_owner_actions(roles, stage_capabilities, deployment_marker):
     """ADR-045: the stage manifest's owner_actions join the owner role, only for a deployment marked stage (refused otherwise, before
     anything is compiled or applied); without the flags the roles are unchanged."""
     from nexloop_eios import catalog_publish as P
+    if stage_capabilities is None and deployment_marker is not None:
+        # The marker alone merges nothing; on a stage deployment that drops the stage-only owner grants, so say so (not an error).
+        try:
+            stage = P.deployment_environment(deployment_marker) == 'stage'
+        except P.CatalogPublishRefused as refused:
+            raise WorkbenchRolesRejected(str(refused)) from None
+        if stage:
+            print('workbench_roles: the deployment is marked stage but --stage-capabilities is missing: the stage-only owner grants '
+                  '(deploy/stage/capabilities.stage.v1.json owner_actions) are not applied and an existing one is withdrawn', file=sys.stderr)
+        return roles
     try:
         path = P.stage_only(stage_capabilities, deployment_marker)
         if path is None:
