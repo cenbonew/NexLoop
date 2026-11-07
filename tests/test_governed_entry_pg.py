@@ -52,6 +52,7 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'contact_key.revoke':'revoke_contact_key',  # NX-053 (0154)
         'service.confirm_not_delivered':'confirm_effect_not_delivered',  # 0210
         'consumer.set_persona':'set_consumer_persona','consumer.erase_synthetic':'erase_synthetic_consumer',  # 0220
+        'synthetic_fault.set':'set_synthetic_fault',  # ADR-045 (stage only: its Action is in deploy/stage/capabilities.stage.v1.json alone)
         'operator_persona.publish':'publish_operator_persona','operator_persona.assign':'assign_operator_persona',
         'operator_persona.rules_publish':'publish_persona_rules','ai_disclosure.set':'set_ai_disclosure',  # 0227
         'contact_preference.dismiss':'dismiss_contact_preference',

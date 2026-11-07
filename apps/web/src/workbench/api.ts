@@ -688,7 +688,7 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
   guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string;
   /** 0216 (absent from an older backend: null, shown as 不可用) */ candidates:Candidates|null;
-  /** W4 0224 (absent: null) */ data_assets:DataAssets|null};
+  /** W4 0224 (absent: null) */ data_assets:DataAssets|null;outcomes:OutcomeGate|null;budget_health:BudgetHealth|null};
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
@@ -746,7 +746,41 @@ export function metrics(value:unknown):Metrics{
     commitments:{exceptions:counts(cm.exceptions),exceptions_last_hour:counts(cm.exceptions_last_hour)},
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
     guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at),
-    candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets)};
+    candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets),
+    outcomes:outcomeGate(v.outcomes),budget_health:budgetHealth(v.budget_health)};
+}
+/** Budget health (0422): per budget kind its period end and use; model always required, the rest of `required` as the server says. Absent from an older snapshot: null
+ * (无数据, never 正常). A malformed block is its own invalid state and never fails the rest of the metrics read (AT-045). */
+export type BudgetKind={kind:string;configured:boolean;period_end:string|null;expires_in_seconds:number|null;expired:boolean;ratio:number|null};
+export type BudgetHealth={status:'ok';kinds:BudgetKind[];expiring_7d:number;expired:number;unconfigured:number;exhausted:number;exhausted_refusals_1h:number}|{status:'invalid'};
+export function budgetHealth(value:unknown):BudgetHealth|null{
+  if(value===undefined||value===null)return null;
+  try{
+    const o=object(value);const k=object(o.kinds);const required=list(o.required).map(text);
+    const bit=(x:unknown)=>{if(x!==0&&x!==1)throw new WorkbenchError('invalid');return x===1;};
+    const num=(x:unknown)=>{if(x===null)return null;if(typeof x!=='number'||!Number.isFinite(x))throw new WorkbenchError('invalid');return x;};
+    if(!required.includes('model')||!required.every(r=>r in k))throw new WorkbenchError('invalid');  // the required list is the server's (evolution only for tenants registered for it)
+    const order=[...required,...Object.keys(k).filter(x=>!required.includes(x)).sort()];
+    const kinds=order.map(kind=>{const e=object(k[kind]);const b={kind,configured:bit(e.configured),period_end:maybeText(e.period_end),
+      expires_in_seconds:num(e.expires_in_seconds),expired:bit(e.expired),ratio:num(e.ratio)};
+      if(b.configured&&(b.period_end===null||b.expires_in_seconds===null))throw new WorkbenchError('invalid');return b;});
+    return {status:'ok',kinds,expiring_7d:count(o.expiring_7d),expired:count(o.expired),unconfigured:count(o.unconfigured),exhausted:count(o.exhausted),
+      exhausted_refusals_1h:count(o.exhausted_refusals_1h)};
+  }catch{return {status:'invalid'};}
+}
+/** NX-061 B5 (0418): the failure rate is judged only on at least min_decided decided outcomes of the hour. Without an outcomes block, or
+ * an older snapshot without `gate`, there is nothing judged: null (无数据). Insufficient data is never a rate of 0. */
+export type OutcomeGate={gate:'measured';decided:number;min_decided:number;failure_rate:number}|{gate:'insufficient_data';decided:number;min_decided:number}|{gate:'invalid'};
+/** A malformed block is its own state (invalid, 格式无法识别) and never fails the rest of the metrics read (AT-045: no guilt by association). */
+export function outcomeGate(value:unknown):OutcomeGate|null{
+  if(value===undefined||value===null)return null;
+  try{
+    const o=object(value);if(o.gate===undefined)return null;
+    const gate=oneOf(o.gate,['measured','insufficient_data'] as const);const decided=count(o.decided),min_decided=count(o.min_decided);
+    if(gate==='insufficient_data')return {gate,decided,min_decided};
+    if(typeof o.failure_rate_gated!=='number')throw new WorkbenchError('invalid');
+    return {gate,decided,min_decided,failure_rate:o.failure_rate_gated};
+  }catch{return {gate:'invalid'};}
 }
 export const readMetrics=()=>get('/api/v1/workbench/metrics',metrics);
 /** The real dispatch switches from the same metrics read (states and revisions only, 0153). */
@@ -928,7 +962,17 @@ const SHA=/^[0-9a-f]{64}$/;
 const rate=(v:unknown):number|null=>{if(v===null||v===undefined)return null;if(typeof v!=='number'||!Number.isFinite(v))throw new WorkbenchError('invalid');return v;};
 const digestOf=(v:unknown)=>{const t=text(v);if(!SHA.test(t))throw new WorkbenchError('invalid');return t;};
 export type ReviewSide={cases:number|null;parent:number|null;candidate:number|null};
-export type ReviewCandidate={candidate_id:string;status:string;end_reason:string|null;dimension:string;change_kind:string|null;report_digest:string;level:'L0'|'L1';
+/** 0419: a candidate's category. owner_directed_schema is the owner's own Schema proposal (ontology_schema only), not induced from failures.
+ * An unknown or malformed category is kept as its raw text and marked unknown, never thrown (the outcomeGate invalid pattern). Absent from
+ * the review read until the backend projects it: null. */
+export const EVO_CATEGORIES=['retrieval_miss','ambiguity_unresolved','owner_directed_schema'] as const;
+export type EvoCategory={code:string;known:boolean};
+export function evoCategory(value:unknown):EvoCategory|null{
+  if(value===undefined||value===null)return null;
+  const code=typeof value==='string'?value:JSON.stringify(value)??String(value);
+  return {code,known:(EVO_CATEGORIES as readonly string[]).includes(code)};
+}
+export type ReviewCandidate={candidate_id:string;status:string;end_reason:string|null;dimension:string;category:EvoCategory|null;change_kind:string|null;report_digest:string;level:'L0'|'L1';
   conclusion:string;reason:string|null;change_class:string|null;hard_gates_version:string|null;gates:{gate:string;result:'pass'|'fail'}[];
   scores:{design:ReviewSide;validation:ReviewSide;ambiguity_rate:number|null;regressions:number|null;missing_cases:number|null};
   non_inferiority:{primary_metric:string;margin:number;ties_accept:boolean}|null;cases:number;cases_digest:string;published_version:string|null;recorded_at:string};
@@ -942,7 +986,7 @@ export function semanticReview(value:unknown):SemanticReview{
   const o=object(value);
   return {candidates:list(o.candidates).map(x=>{const c=object(x);const s=object(c.scores);const ni=c.non_inferiority==null?null:object(c.non_inferiority);
       const n=(v:unknown)=>v===null||v===undefined?null:count(v);
-      return {candidate_id:text(c.candidate_id),status:text(c.status),end_reason:maybeText(c.end_reason),dimension:text(c.dimension),change_kind:maybeText(c.change_kind),
+      return {candidate_id:text(c.candidate_id),status:text(c.status),end_reason:maybeText(c.end_reason),dimension:text(c.dimension),category:evoCategory(c.category),change_kind:maybeText(c.change_kind),
         report_digest:digestOf(c.report_digest),level:oneOfText(c.level,['L0','L1'] as const),conclusion:text(c.conclusion),reason:maybeText(c.reason),change_class:maybeText(c.change_class),
         hard_gates_version:maybeText(c.hard_gates_version),
         gates:list(c.gates).map(g=>{const v=object(g);if(Object.keys(v).sort().join()!=='gate,result')throw new WorkbenchError('invalid');

@@ -13,7 +13,9 @@ already published identically is not sent again. Object types and Functions have
 same 0050 manifest as the Actions, so when every Action is already published identically the previous publication (atomic) has
 published them too and nothing is sent (changed=False); otherwise all of them are sent and 0162 accepts the identical ones.
 """
+import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -36,13 +38,72 @@ def _schemas_of(value):
     return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
-def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_actions_path, system_types_path, business_types_path):
-    """{'object_types': [...], 'actions': [...], 'functions': [...]} in the 0050 manifest shape, plus the counts."""
+STAGE_SCHEMA = 'nexloop-stage-capabilities/1'
+STAGE_DIRECTORY = Path(__file__).resolve().parents[4] / 'deploy' / 'stage'
+STAGE_NAME = re.compile(r'capabilities\.stage\.v[1-9][0-9]{0,3}\.json')
+
+
+def load_stage_manifest(path):
+    """ADR-045: a stage-only capability manifest (deploy/stage/capabilities.stage.v*.json): {schema_version, manifest_version, decision,
+    capabilities, business_actions}. Any other file, place or shape is refused; returns (manifest, {path, sha256})."""
+    path = Path(path).resolve()
+    if path.parent != STAGE_DIRECTORY.resolve() or not STAGE_NAME.fullmatch(path.name):
+        raise CatalogPublishRefused('stage capabilities: only deploy/stage/capabilities.stage.v*.json')
+    raw = path.read_bytes()
+    value = json.loads(raw)
+    if (type(value) is not dict or set(value) != {'schema_version', 'manifest_version', 'decision', 'capabilities', 'business_actions', 'owner_actions'}
+            or type(value['owner_actions']) is not list or any(type(a) is not str or not a.startswith('eios:action:') for a in value['owner_actions'])
+            or value['schema_version'] != STAGE_SCHEMA or type(value['manifest_version']) is not int or value['manifest_version'] < 1
+            or type(value['decision']) is not str or not value['decision'].strip() or type(value['capabilities']) is not list
+            or not value['capabilities'] or type(value['business_actions']) is not list or not value['business_actions']):
+        raise CatalogPublishRefused('stage capabilities: manifest shape')
+    return value, {'path': 'deploy/stage/' + path.name, 'sha256': hashlib.sha256(raw).hexdigest()}
+
+
+DEPLOYMENT_MARKER = 'nexloop-deployment-marker/1'
+
+
+def deployment_environment(path):
+    """ADR-045 (L6 C1): the environment of the target deployment from its private marker file (0600, the caller's):
+    {"schema": "nexloop-deployment-marker/1", "environment": "stage" | "production"}. No environment variable is read."""
+    from nexloop_eios.trusted_configuration import read_private_text
+    try:
+        value = json.loads(read_private_text(path, maximum=4096))
+    except Exception:
+        raise CatalogPublishRefused('--deployment-marker: a private (0600) JSON file {schema, environment}') from None
+    if (type(value) is not dict or set(value) != {'schema', 'environment'} or value['schema'] != DEPLOYMENT_MARKER
+            or value['environment'] not in ('stage', 'production')):
+        raise CatalogPublishRefused('--deployment-marker: {"schema": "nexloop-deployment-marker/1", "environment": "stage" | "production"}')
+    return value['environment']
+
+
+def stage_only(stage_capabilities, deployment_marker):
+    """The stage manifest path when both are given and the marker says stage; None when neither is given; refused otherwise."""
+    if stage_capabilities is None and deployment_marker is None:
+        return None
+    if stage_capabilities is None or deployment_marker is None:
+        raise CatalogPublishRefused('--stage-capabilities needs --deployment-marker (and the marker alone changes nothing)')
+    if deployment_environment(deployment_marker) != 'stage':
+        raise CatalogPublishRefused('--stage-capabilities: the target deployment is not marked stage')
+    return stage_capabilities
+
+
+def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_actions_path, system_types_path, business_types_path,
+                    stage_capabilities_path=None):
+    """{'object_types': [...], 'actions': [...], 'functions': [...]} in the 0050 manifest shape, plus the counts. stage_capabilities_path
+    (ADR-045; only scripts/deploy/stage_secrets.py publish passes it, for a deployment marked stage) merges a stage-only manifest:
+    its capabilities and business Actions join the system ones (a name twice is refused) and the result names it (stage_manifest)."""
     builders = system_catalog.builders()
     capabilities = catalog_manifests.load(capabilities_path)
+    stage = None
+    if stage_capabilities_path is not None:
+        stage, stage_record = load_stage_manifest(stage_capabilities_path)
+        capabilities = catalog_manifests.validate({**capabilities, 'capabilities': capabilities['capabilities'] + stage['capabilities']})
     snapshots = catalog_manifests.snapshots(capabilities)
     ontology_rows = system_object_types.trusted_object_types(system_types_path) + business_object_types.trusted_object_types(business_types_path)
     business = business_actions.load(business_actions_path)
+    if stage is not None:
+        business = business_actions.validate({**business, 'actions': business['actions'] + stage['business_actions']})
     system = catalog_manifests.load_system_actions(system_actions_path, capabilities=capabilities,
         other_object_types=[(r['type_name'], r['version']) for r in ontology_rows], other_actions=[a['stable_name'] for a in business['actions']],
         builders=builders)
@@ -97,8 +158,9 @@ def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_
     names = [a['definition']['stable_name'] for a in actions]
     if len(names) != len(set(names)):
         raise CatalogPublishRefused('Action declared twice')
-    return {'object_types': [types[k] for k in sorted(types)], 'actions': sorted(actions, key=lambda a: a['definition']['stable_name']),
-            'functions': functions}
+    compiled = {'object_types': [types[k] for k in sorted(types)], 'actions': sorted(actions, key=lambda a: a['definition']['stable_name']),
+                'functions': functions}
+    return compiled if stage is None else {**compiled, 'stage_manifest': stage_record}
 
 
 def diff(compiled, lineage):
@@ -126,7 +188,8 @@ def publish(compiled, tenant, *, database_url_file, signing_key_file, signing_ke
         raise CatalogPublishRefused('tenant not configured yet: run register first')
     pending, conflicts = diff(compiled, G.action_lineage(database_url_file, tenant))
     summary = {'object_types': len(compiled['object_types']), 'actions': len(compiled['actions']), 'functions': len(compiled['functions']),
-               'actions_to_publish': sorted(a['definition']['stable_name'] for a in pending), 'conflicts': conflicts}
+               'actions_to_publish': sorted(a['definition']['stable_name'] for a in pending), 'conflicts': conflicts,
+               **({'stage_manifest': compiled['stage_manifest']} if 'stage_manifest' in compiled else {})}  # ADR-045: named in every result
     if conflicts:
         raise CatalogPublishRefused('published with other content (same name and version): ' + ', '.join(conflicts))
     if dry_run:

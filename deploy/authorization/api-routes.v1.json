@@ -1535,6 +1535,10 @@
    "capability": "consumer.set_persona"
   },
   {
+   "operation": "set_synthetic_fault",
+   "capability": "synthetic_fault.set"
+  },
+  {
    "operation": "set_budget",
    "capability": "goals.budget.set"
   },

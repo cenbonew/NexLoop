@@ -16,7 +16,7 @@ import {RunAdmissionGate,validateAdmissionConfiguration} from './run-admission-g
 import {worldGroupAccepts,type WorldGroup} from './worlds.js';
 import {CONTEXT_PROTOCOL_SIM,SIM_RUN_INSTRUCTIONS,declaresSimContextPack,parseSimContextPack,renderSimContextPack} from './sim-context.js';
 
-type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation};
+type Activation={ref:string;input?:string;command?:RunCommand;context?:ContextAttestation;fault?:boolean};
 // ADR-022 §4: each guard call keeps its 2 s limit; an unanswered call is retried a bounded number of times.
 export const GUARD_TIMEOUT_MS=2000,GUARD_ATTEMPTS=3,GUARD_BACKOFF_MS=100;
 type Material=(path:string,maximum:number,allowEmpty?:boolean)=>Buffer;
@@ -104,9 +104,12 @@ export class RuntimeHost{
   constructor(root:string,configPath:string,privateMaterial:Material,assertOwner:()=>void){
     const config=record(JSON.parse(privateMaterial(configPath,32768).toString('utf8')));
     const required=['guard_ca_file','guard_key_file','guard_url','runtime_profile'];
-    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','plan_question_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','effect_timeout_ms','world_group','host_id','world_purge_key_file'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
+    if(required.some(key=>!Object.hasOwn(config,key))||Object.keys(config).some(key=>!required.includes(key)&&!['effect_tools','incentive_tool','outreach_tool','model_request_timeout_ms','model_connect_timeout_ms','maximum_active_runs','run_admission_wait_ms','deterministic_effect_request_scope','deterministic_effect_message','deterministic_message_from_input','deterministic_relationship_from_context','context_input_protocol','model_configuration_file','maximum_request_cost','plan_outcome_tool','plan_question_tool','deterministic_plan_outcome','deterministic_reply_once','deterministic_latency','deterministic_protocols','cost_currency','model_tariff_file','deterministic_enterprise_deliver','effect_timeout_ms','world_group','host_id','world_purge_key_file','synthetic_model_fault'].includes(key))||!['deterministic-test','deepseek-flash'].includes(String(config.runtime_profile)))throw new Error('runtime configuration refused');
     // NX-041 S6 (D3): one Host process serves one world group; real (the default) never a simulation Run, simulation never real or test.
     if(config.world_group!==undefined&&config.world_group!=='real'&&config.world_group!=='simulation')throw new Error('runtime configuration refused');
+    // ADR-045 (stage only): honour a guard admission's synthetic_model_fault; true only, and never on a simulation Host.
+    if(config.synthetic_model_fault!==undefined&&(config.synthetic_model_fault!==true||config.world_group==='simulation'))throw new Error('runtime configuration refused');
+    this.syntheticModelFault=config.synthetic_model_fault===true;
     this.worldGroup=config.world_group==='simulation'?'simulation':'real';
     // Review 2.3/3.2: a simulation Host has its own id and purge key (registered in authz.nexloop_sim_hosts); a real Host has neither.
     if(this.worldGroup==='simulation'?typeof config.host_id!=='string'||!/^[a-z][a-z0-9-]{2,62}$/.test(config.host_id)||typeof config.world_purge_key_file!=='string'
@@ -220,7 +223,7 @@ export class RuntimeHost{
     };
     const guardOnce=(payload:Buffer,key:string,command:RunCommand,operation:string,input:string|undefined,active:Activation|undefined)=>{
       const unavailable=()=>new RuntimeError('runtime_authorization_unavailable'),denied=()=>new RuntimeError('runtime_authorization_denied');
-      return new Promise<{ever_execution_authorized:boolean}>((resolve,reject)=>{
+      return new Promise<{ever_execution_authorized:boolean;synthetic_model_fault?:boolean}>((resolve,reject)=>{
         const request=httpsRequest(this.guard,{method:'POST',ca:privateMaterial(this.caPath,32768),minVersion:'TLSv1.2',agent:false,signal:AbortSignal.timeout(GUARD_TIMEOUT_MS),
           headers:{Authorization:'Bearer '+key,'Content-Type':'application/json','Content-Length':payload.length}},response=>{
           let size=0;const chunks:Buffer[]=[];
@@ -240,7 +243,9 @@ export class RuntimeHost{
             }
             if(active){active.context=attestation;active.command=command;}
           }
-          resolve({ever_execution_authorized:result.ever_execution_authorized});}catch{reject(denied());}});
+          // ADR-045: only true, only on a start or resume; anything else is a denial.
+          if(result.synthetic_model_fault!==undefined&&(result.synthetic_model_fault!==true||!['start','resume'].includes(operation)))throw new Error();
+          resolve({ever_execution_authorized:result.ever_execution_authorized,...(result.synthetic_model_fault===true?{synthetic_model_fault:true}:{})});}catch{reject(denied());}});
         });
         request.setTimeout(GUARD_TIMEOUT_MS,()=>request.destroy());request.on('error',()=>reject(unavailable()));request.end(payload);
       });
@@ -407,7 +412,7 @@ export class RuntimeHost{
     const plan=(command:RunCommand)=>this.worldGroup==='simulation'?!messageRun(this.activations.get(command.run_id)?.input)
       :planRun(command,this.activations.get(command.run_id)?.input);
     this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true&&plan(command),
-      planQuestion:config.plan_question_tool===true&&plan(command)&&declared(this.activations.get(command.run_id)?.input)===CONTEXT_PROTOCOL_V7,incentive:config.incentive_tool===true&&(this.simulationContext||incentiveOffered(this.activations.get(command.run_id)?.input)),outreach:config.outreach_tool===true&&plan(command),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,
+      planQuestion:config.plan_question_tool===true&&plan(command)&&declared(this.activations.get(command.run_id)?.input)===CONTEXT_PROTOCOL_V7,incentive:config.incentive_tool===true&&(this.simulationContext||incentiveOffered(this.activations.get(command.run_id)?.input)),outreach:config.outreach_tool===true&&plan(command),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,modelFault:runId=>this.activations.get(runId)?.fault===true,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       // NX-041 (L6 host-sim-context 3b): a simulation Host's Runs get the simulation instructions, never the real ones.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:this.simulationContext?SIM_RUN_INSTRUCTIONS:RUN_INSTRUCTIONS}:{}),
@@ -417,7 +422,8 @@ export class RuntimeHost{
       recordModelRequests:multi?(command:RunCommand)=>sixFamily(runProtocol(command.run_id)):sixFamily(contextProtocol),
       authorize:async(command,operation,request,result)=>guard(command,operation,undefined,undefined,request,result)});
   }
-  private readonly authorizeAdmission:(command:RunCommand,operation:string,input?:string,ref?:string)=>Promise<{ever_execution_authorized:boolean}>;
+  private readonly authorizeAdmission:(command:RunCommand,operation:string,input?:string,ref?:string)=>Promise<{ever_execution_authorized:boolean;synthetic_model_fault?:boolean}>;
+  private readonly syntheticModelFault:boolean;
   async dispatch(operation:string,body:Record<string,unknown>){
     if(!['start','resume','inspect','cancel'].includes(operation))throw new RuntimeError('invalid_runtime_request');
     const expected=operation==='start'||operation==='resume'?['activation_ref','command','input']:['activation_ref','command'];
@@ -437,8 +443,11 @@ export class RuntimeHost{
     // A new Run waits for a slot before any guard request (no proof is built while waiting).
     let slot=operation==='start'||operation==='resume'?await this.admission.acquire(command.run_id,Date.parse(command.not_after)).catch(error=>{this.pending--;throw error;}):undefined;
     try{
-      await this.authorizeAdmission(command,operation,body.input as string|undefined,body.activation_ref);
-      this.activations.set(command.run_id,{ref:body.activation_ref,input:typeof body.input==='string'?body.input:this.activations.get(command.run_id)?.input,command,context:this.activations.get(command.run_id)?.context});
+      const admitted=await this.authorizeAdmission(command,operation,body.input as string|undefined,body.activation_ref);
+      // ADR-045: a Host without the stage key refuses a fault admission (fail closed: the Run does not start).
+      if(admitted.synthetic_model_fault===true&&!this.syntheticModelFault)throw new RuntimeError('invalid_runtime_request');
+      this.activations.set(command.run_id,{ref:body.activation_ref,input:typeof body.input==='string'?body.input:this.activations.get(command.run_id)?.input,command,context:this.activations.get(command.run_id)?.context,
+        ...(admitted.synthetic_model_fault===true?{fault:true}:{})});
       if(operation==='start'||operation==='resume'){
         // NX-041: the model reads the simulation pack only as rendered with its simulation preamble and markers.
         const receipt=await this.adapter[operation](command,this.simulationContext?renderSimContextPack(parseSimContextPack(body.input,command)):body.input as string);

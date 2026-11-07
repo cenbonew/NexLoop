@@ -732,3 +732,4 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .trace-steps li{display:grid;grid-template-columns:8em auto 11em minmax(0,1fr);gap:8px;align-items:baseline}
 .workbench .trace-detail code{margin-right:4px}
 @media (max-width:640px){.workbench .trace-steps li{grid-template-columns:7em auto;}.workbench .trace-time,.workbench .trace-detail{grid-column:1/-1}}
+.workbench .budget-alert[data-tone=fail]{color:var(--danger);margin:8px 0 0}
