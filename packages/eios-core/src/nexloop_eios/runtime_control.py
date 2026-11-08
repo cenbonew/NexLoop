@@ -218,6 +218,12 @@ def create_runtime_guard_server(worker, *, port, key_file, certificate_file, tls
                     self.send(503,{'authorized':False});return
                 # Never serialize the backend object or a raw EIOS identity row.
                 projected={'authorized':True,'run_id':result['run_id'],'ever_execution_authorized':result['ever_execution_authorized']}
+                # ADR-045 (stage only): the SQL fault decision of a start or resume is passed on as true only; any other value, or the
+                # field on any other operation, fails closed (as the Host refuses it, runtime-host.ts).
+                if 'synthetic_model_fault' in result:
+                    if result['synthetic_model_fault'] is not True or body['operation'] not in ('start','resume'):
+                        self.send(503,{'authorized':False});return
+                    projected['synthetic_model_fault']=True
                 if 'context_artifact' in result:
                     artifact=result['context_artifact']
                     if (type(artifact) is not dict or set(artifact)!={'artifact_ref','sha256','command_binding_digest'}
