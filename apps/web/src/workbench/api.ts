@@ -688,7 +688,7 @@ export type Metrics={refusals:{last_5m:Record<string,number>;last_hour:Record<st
   queues:Record<string,Record<string,number|null>>;feeds:Record<string,Record<string,number|null>>;extraction:{pending_messages:number;oldest_pending_seconds:number|null};
   guard:Process;host:Process;pool:Process;connections:{total:number};backup:Backup;computed_at:string;
   /** 0216 (absent from an older backend: null, shown as 不可用) */ candidates:Candidates|null;
-  /** W4 0224 (absent: null) */ data_assets:DataAssets|null;outcomes:OutcomeGate|null;budget_health:BudgetHealth|null};
+  /** W4 0224 (absent: null) */ data_assets:DataAssets|null;outcomes:OutcomeGate|null;budget_health:BudgetHealth|null;synthetic_fault:SyntheticFault|null;timers:TimersNotReported|null};
 /** NX-035 M12 backup block (runtime.nexloop_backup_metrics): numbers and states only. A metric without an observation is absent
  * (null here) and is shown as “无”, never as 0; no PG backup recorded at all is status unavailable (AT-045). */
 export const BACKUP_FIELDS=['age_seconds','full_backup_age_seconds','wal_last_archived_age_seconds','journal_export_lag_seconds','file_backup_age_seconds',
@@ -747,7 +747,26 @@ export function metrics(value:unknown):Metrics{
     queues:nested(v.queues),feeds:nested(v.feeds),extraction:{pending_messages:count(ex.pending_messages),oldest_pending_seconds:maybeCount(ex.oldest_pending_seconds)},
     guard:processSection(v.guard),host:processSection(v.host),pool:processSection(v.pool),connections:{total:count(cn.total)},backup:backup(v.backup),computed_at:text(v.computed_at),
     candidates:v.candidates===undefined?null:candidates(v.candidates),data_assets:v.data_assets===undefined?null:dataAssets(v.data_assets),
-    outcomes:outcomeGate(v.outcomes),budget_health:budgetHealth(v.budget_health)};
+    outcomes:outcomeGate(v.outcomes),budget_health:budgetHealth(v.budget_health),
+    synthetic_fault:syntheticFault(v.synthetic_fault),timers:timersNotReported(v.host_health)};
+}
+/** ADR-045 (0423): the test-Consumer fault switch, block synthetic_fault {active 0/1, remaining, injected_last_hour}. The snapshot carries
+ * neither the expiry nor the member count. Absent: null (无数据, never 未开启); malformed: invalid, never thrown (AT-045). */
+export type SyntheticFault={status:'ok';active:boolean;remaining:number;injected_last_hour:number}|{status:'invalid'};
+export function syntheticFault(value:unknown):SyntheticFault|null{
+  if(value===undefined||value===null)return null;
+  try{const o=object(value);if(o.active!==0&&o.active!==1)throw new WorkbenchError('invalid');
+    return {status:'ok',active:o.active===1,remaining:count(o.remaining),injected_last_hour:count(o.injected_last_hour)};}
+  catch{return {status:'invalid'};}
+}
+/** 0424: timers the alert rules watch that no host reports, as role:timer selectors. Absent block or fields: null; malformed: invalid. */
+export type TimersNotReported={status:'ok';count:number;names:string[]}|{status:'invalid'};
+export function timersNotReported(hostHealth:unknown):TimersNotReported|null{
+  if(hostHealth===undefined||hostHealth===null)return null;
+  try{const o=object(hostHealth);if(o.timers_not_reported===undefined&&o.timers_not_reported_names===undefined)return null;
+    const names=list(o.timers_not_reported_names).map(text);const n=count(o.timers_not_reported);
+    if(n!==names.length)throw new WorkbenchError('invalid');return {status:'ok',count:n,names};}
+  catch{return {status:'invalid'};}
 }
 /** Budget health (0422): per budget kind its period end and use; model always required, the rest of `required` as the server says. Absent from an older snapshot: null
  * (无数据, never 正常). A malformed block is its own invalid state and never fails the rest of the metrics read (AT-045). */

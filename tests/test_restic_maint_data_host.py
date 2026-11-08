@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import stat as st
 import sys
 from datetime import UTC, datetime, timedelta
@@ -242,7 +243,7 @@ def test_the_rest_server_is_stopped_before_the_guard_and_started_after_forget_on
         ('ExecStart', f'{common} {R.NEW}'),
         ('ExecStart', f'+/usr/bin/systemctl start {S.UNIT}'),
         ('ExecStart', f'{common} check --retry-lock 10m'),
-        ('ExecStart', f'/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {common} check --read-data-subset 1/10; fi\''),
+        ('ExecStart', f'/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {common} check {R.ROTATING_SUBSET}; fi\''),
         ('ExecStopPost', f'+/usr/bin/systemctl start {S.UNIT}'),
         ('ExecStopPost', '/bin/sleep 3'),
         ('ExecStopPost', f'+/usr/bin/systemctl is-active --quiet {S.UNIT}'),
@@ -393,3 +394,99 @@ def test_an_empty_answer_counts_as_no_snapshot_only_after_a_guard_count_of_0_and
                               runner=Runner(answer, exit_code=exit_code, guard=guard))
     assert code == 1 and 'nothing written' in text and path.read_text() == DEPLOYED, text
     assert ['systemctl', 'daemon-reload'] not in runner.calls
+
+
+# 2026-11-08: the stage unit is the deploy days' copy - repo1 only, Sunday's deep check on the fixed first tenth.
+STAGE = ''.join(line for line in DEPLOYED.replace(R.ROTATING_SUBSET, R.FIXED_SUBSET).splitlines(keepends=True) if 'REPO2' not in line)
+REPO2_ENV = 'RESTIC_REPO1_REPOSITORY_FILE=/srv/x/r1\nRESTIC_REPO1_PASSWORD_FILE=/srv/x/p1\nRESTIC_REPO2_REPOSITORY_FILE=/srv/x/r2\n' \
+    'RESTIC_REPO2_PASSWORD_FILE=/srv/x/p2\nAWS_ACCESS_KEY_ID=synthetic\nRESTIC_REPO2_OPTIONS="-o s3.bucket-lookup=dns"\n'
+
+
+def environment(tmp_path, text=REPO2_ENV):
+    path = tmp_path / 'etc/nexloop/restic.env'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    os.chmod(path, 0o600)
+    return path
+
+
+def service_lines(text):
+    return [v for s, k, v in R.sections(text) if s == 'Service' and k == 'ExecStart']
+
+
+def test_repo2_is_added_once_with_its_options_guard_retention_checks_and_rotating_deep_checks(tmp_path):
+    path = unit(tmp_path, STAGE)
+    environment(tmp_path)
+    assert 'REPO2' not in STAGE and STAGE.count(R.FIXED_SUBSET) == 1
+    code, text, runner = main(path, '--repo2')
+    assert code == 0, text
+    written = path.read_text()
+    lines = service_lines(written)
+    repo2 = [line for line in lines if 'REPO2' in line]
+    # guard, forget/prune, check, Sunday deep check - every restic call of repo2 carries its options from the EnvironmentFile.
+    assert len(repo2) == 4 and all('RESTIC_REPO2_OPTIONS' in line for line in repo2)
+    assert R.is_guard('ExecStart=' + repo2[0]) and repo2[1].endswith(R.NEW) and repo2[2].endswith(' check')
+    assert repo2[3].startswith('/bin/sh -c ') and f'check {R.ROTATING_SUBSET}; fi' in repo2[3] and ' exec ' in repo2[3]
+    # repo1's Sunday deep check rotates too; no fixed tenth is left.
+    assert R.FIXED_SUBSET not in written and written.count(R.ROTATING_SUBSET) == 2
+    # The guard and the forget of repo2 were previewed in the unit's sandbox before the rewrite.
+    previews = [c for c in runner.calls if c[0] == 'systemd-run']
+    assert len(previews) == 4 and any('$RESTIC_REPO2_OPTIONS' in c and '--dry-run' in c for c in previews)
+    assert 'preview repo2:' in text and 'restore journal repo2' in text
+    assert 'synthetic' not in text and '/srv/x' not in text  # names only were read from the EnvironmentFile
+    # Same shape as the example's repo2 lines (only the mark comment is new).
+    assert [line for line in service_lines(EXAMPLE) if 'REPO2' in line] == repo2
+    code, text, _ = main(path, '--repo2')
+    assert code == 2 and 'already has repo2 lines' in text and path.read_text() == written
+
+
+def test_repo2_goes_before_the_files_repository_block(tmp_path):
+    path = unit(tmp_path, STAGE)
+    repo, password, _ = files_setup(tmp_path)
+    code, text, _ = main(path, '--files-repo', str(repo), '--files-password-file', str(password))
+    assert code == 0, text
+    environment(tmp_path)
+    code, text, _ = main(path, '--repo2')
+    assert code == 0, text
+    written = path.read_text()
+    assert written.index(R.REPO2_MARK) < written.index(R.FILES_MARK) and written.count(R.NEW) == 3
+    assert R.FIXED_SUBSET not in written and written.count(R.ROTATING_SUBSET) == 3
+
+
+@pytest.mark.parametrize('env,reason', [(None, 'lacks RESTIC_REPO2_REPOSITORY_FILE'),
+                                        ('RESTIC_REPO2_REPOSITORY_FILE=/srv/x/r2\n', 'lacks RESTIC_REPO2_PASSWORD_FILE')])
+def test_repo2_without_its_secrets_in_the_environment_file_is_refused_untouched(tmp_path, env, reason):
+    path = unit(tmp_path, STAGE)
+    environment(tmp_path, env if env is not None else 'RESTIC_REPO1_REPOSITORY_FILE=/srv/x/r1\n')
+    code, text, runner = main(path, '--repo2')
+    assert code == 2 and reason in text and path.read_text() == STAGE and runner.calls == []
+
+
+def test_repo2_does_not_go_with_revert(tmp_path):
+    path = unit(tmp_path, STAGE)
+    code, text, _ = main(path, '--repo2', '--revert')
+    assert code == 2 and 'does not go with --revert' in text and path.read_text() == STAGE
+
+
+def test_a_plain_run_rotates_a_fixed_deep_check(tmp_path):
+    path = unit(tmp_path, STAGE)
+    code, text, _ = main(path)
+    assert code == 0, text
+    assert R.FIXED_SUBSET not in path.read_text() and path.read_text().count(R.ROTATING_SUBSET) == 1 and 'REPO2' not in path.read_text()
+
+
+@pytest.mark.parametrize('week,subset', [('01', '2/10'), ('08', '9/10'), ('09', '10/10'), ('10', '1/10'), ('53', '4/10')])
+def test_the_rotating_subset_is_the_iso_week_mod_10_plus_1_in_the_hosts_shell(week, subset):
+    """The unit's text with systemd's escapes undone and date stubbed: /bin/sh computes N/10 (08 and 09 are not octal)."""
+    shell = R.ROTATING_SUBSET.replace('$$', '$').replace('%%', '%').replace('$(date +%V)', week)
+    out = subprocess.run(['/bin/sh', '-c', f'echo {shell}'], capture_output=True, text=True, check=True).stdout.strip()
+    assert out == f'--read-data-subset {subset}'
+
+
+def test_a_failing_sunday_deep_check_fails_its_line():
+    """Each step is its own ExecStart of the oneshot unit; the Sunday line execs restic, so its exit status is the line's."""
+    line = next(v for v in service_lines(EXAMPLE) if 'REPO2' in v and v.startswith('/bin/sh -c '))
+    script = line[len("/bin/sh -c '"):-1].replace('$$', '$').replace('%%', '%')
+    script = script.replace('$(date +%u)', '7').replace('$(date +%V)', '45')
+    script = script.replace('/usr/local/bin/restic', 'false').replace('${RESTIC_REPO2_OPTIONS}', '')
+    assert subprocess.run(['/bin/sh', '-c', script]).returncode != 0

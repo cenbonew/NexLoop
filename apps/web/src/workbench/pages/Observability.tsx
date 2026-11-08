@@ -4,7 +4,7 @@
  */
 import type {ReactNode} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMe,readMetrics,offers,type Backup,type BudgetHealth,type BudgetKind,type OutcomeGate,type Process} from '../api';
+import {BACKUP_FIELDS,BACKUP_LABELS,BACKUP_UNAVAILABLE_TEXT,EVALUATOR_STALE_TEXT,ageText,PROCESS_UNAVAILABLE_TEXT,REFUSAL_TEXT,SEVERITY_TEXT,readAlerts,readHumanActions,readMe,readMetrics,offers,type Backup,type BudgetHealth,type BudgetKind,type SyntheticFault,type TimersNotReported,type OutcomeGate,type Process} from '../api';
 import {Page} from './Page';
 import {StatusBadge,Time} from '../ui';
 import {Card,CardGrid,EmptyState,IdText,KeyValue,Notice} from '../kit';
@@ -117,13 +117,33 @@ export function BudgetHealthCard({health}:{health:BudgetHealth|null}){
     {red?<p className="budget-alert" data-tone="fail">{BUDGET_RENEW}</p>:null}
     </div></Card>;
 }
+/** ADR-045: a live fault switch is a banner over the page (a drill is on); off says 未开启; no block 无数据; malformed 格式无法识别. */
+export function SyntheticFaultBanner({fault}:{fault:SyntheticFault|null}){
+  if(fault===null)return <p className="note" data-fault="no_data">测试顾客故障开关：无数据</p>;
+  if(fault.status==='invalid')return <p className="note" data-fault="invalid">测试顾客故障开关：格式无法识别</p>;
+  if(!fault.active)return <p className="note" data-fault="off">测试顾客故障开关：未开启</p>;
+  return <div className="drill-banner" role="status" data-fault="active"><strong>演练中</strong>：测试顾客故障开关已开启，剩余 <span className="num">{fault.remaining}</span> 次，
+    近 1 小时已注入 <span className="num">{fault.injected_last_hour}</span> 次。<span className="note">到期时间和名单人数快照未提供。</span></div>;
+}
+/** 0424: watched timers no host reports, listed as role:timer in yellow; none is said as such; no data is 无数据. */
+export function HostHealthCard({timers}:{timers:TimersNotReported|null}){
+  return <Card title="主机健康" badge={timers?.status==='ok'&&timers.count?<StatusBadge text={`${timers.count} 个定时任务未上报`} tone="limited"/>:null}>
+    {timers===null?<p className="note" data-timers="no_data">无数据</p>
+      :timers.status==='invalid'?<p className="note" data-timers="invalid">格式无法识别</p>
+      :timers.count?<div data-timers="missing"><p>告警规则在看、但没有主机上报的定时任务：</p>
+        <ul className="timer-list">{timers.names.map(n=><li key={n}><StatusBadge text={n} tone="limited" code="timer_not_reported"/></li>)}</ul></div>
+      :<p data-timers="ok">告警规则在看的定时任务都有主机上报</p>}
+  </Card>;
+}
 export function Operations({actions}:{actions?:ReactNode}){
   const query=useQuery({queryKey:['workbench','metrics'],queryFn:readMetrics});
   return <Page title="运行状态" query={query} actions={actions} lead="系统此刻是否健康：派发拒绝、外部动作、来信必回、承诺异常、队列与后台任务、进程样本、数据库连接与备份。只含计数、时长和比率，不含原文。">{m=><>
     <p className="note">快照时间 <Time value={m.computed_at}/>。</p>
+    <SyntheticFaultBanner fault={m.synthetic_fault}/>
     <CardGrid label="运行状态">
       <OutcomesCard outcomes={m.outcomes}/>
       <BudgetHealthCard health={m.budget_health}/>
+      <HostHealthCard timers={m.timers}/>
       <Card title="派发拒绝（最近 1 小时）"><Counts values={m.refusals.last_hour} domain="refusal_code" subject="派发拒绝"/></Card>
       <Card title="外部动作" footer={m.effects.unknown.count?<a href={routePath({page:'actions'})}>去 Action 页查询执行结果</a>:null}>
         <p>待核对 {m.effects.unknown.count} 个，最久 {age(m.effects.unknown.oldest_age_seconds)}；超过 24 小时 {m.effects.unknown.over_24h} 个</p>
