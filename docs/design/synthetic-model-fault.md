@@ -150,12 +150,12 @@ ro "select (select count(*) from runtime.nexloop_synthetic_fault_decisions), (se
 - 只读查询哪些 Consumer 既有可登录的账号、又有读会话授权（DATA_HOST）：
 
 ```bash
-ro "select left(o.consumer_id,8), p.persona, a.payload->>'status' account_status from control.nexloop_consumer_owners o join control.nexloop_consumer_personas p on p.tenant_id=o.tenant_id and p.world='real' and p.consumer_id=o.consumer_id join control.nexloop_browser_memberships m on m.tenant_id=o.tenant_id and m.principal_id=o.principal_id join control.nexloop_browser_accounts a on a.tenant_id=m.tenant_id and a.subject_id=m.subject_id where o.tenant_id='$TENANT_ID' and p.persona in ('simulated_agent','synthetic') and exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=o.tenant_id and f.fact_kind='grants' and f.entity_key[1]=o.principal_id and f.entity_key[2]='eios:action:nexloop.conversation.read:1' and jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0) order by 1"
+ro "select left(o.consumer_id,8), p.persona, a.payload->>'status' account_status from control.nexloop_consumer_owners o join control.nexloop_consumer_personas p on p.tenant_id=o.tenant_id and p.world='real' and p.consumer_id=o.consumer_id join control.nexloop_browser_memberships m on m.tenant_id=o.tenant_id and m.principal_id=o.principal_id join control.nexloop_browser_accounts a on a.tenant_id=m.tenant_id and a.subject_id=m.subject_id where o.tenant_id='$TENANT_ID' and p.persona in ('simulated_agent','synthetic') and not exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=o.tenant_id and e.consumer_id=o.consumer_id) and exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=o.tenant_id and f.fact_kind='grants' and f.entity_key[1]=o.principal_id and f.entity_key[2]='eios:action:nexloop.conversation.read:1' and jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0) order by 1"
 ```
-  - `consumer_owners` 的列名请先在 stage 上 `\d` 确认。授权条件与 customer-1 诊断时在 stage 上核对过的查询相同（`grants` 事实的 `grants` 数组非空）。
+  - `consumer_owners` 的列名请先在 stage 上 `\d` 确认。授权条件与 customer-1 诊断时在 stage 上核对过的查询相同（`grants` 事实的 `grants` 数组非空）。擦除不撤授权，stage 补撤销之前 customer-4、refusal-1/2 仍满足授权条件，所以另用 `control.nexloop_consumer_erasures`（擦除登记，有任何一行即视为已擦除或擦除中）排除。
 
 **步骤**
-1. **预热**（开关关闭）：s6c-1、s6c-2、s6c-3 和第 4 个顾客各发一轮普通问题，让两个 relay 的语义读取池热起来。
+1. **预热**（开关关闭）：s6c-1、s6c-2、s6c-3 和第 4 个顾客各发一轮普通问题，让两个 relay 的语义读取池热起来。只有 3 个顾客时省略第 4 个。
 2. **打开开关**：负责人执行 `nexloop.synthetic_fault.set`（open），`consumer_ids` 为这 4 个，`remaining` 12，`duration_seconds` 3600，reason 写"NX-038/039 S6 P5（ADR-045）"。
 3. **发言**：4 个顾客各发 3 轮，间隔不少于 1 分钟。
    - 每轮都带同一个未知词，例如"霁蓝釉陶片拼贴"；
