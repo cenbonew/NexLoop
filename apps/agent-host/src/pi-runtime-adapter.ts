@@ -62,6 +62,9 @@ export type PiRuntimeOptions={
   /** 10/18 (release 14): the model provider's connector bounds TCP + TLS (timeoutMs) and retries a connection-phase failure at
    * most `retries` times on a new connection; nothing after the request was written is retried. */
   modelConnect?:{timeoutMs:number;retries:number;ca?:string|Buffer};
+  /** 2026-11-08 (stage files_runtime): a settled Run's storage untouched this long is checkpointed and closed (default 10 minutes);
+   * it is reopened on its next request. */
+  finishedIdleCloseMs?:number;
   /** Trusted server implementation must check current identity, PG lease/fence and control revisions. */
   authorize:(command:RunCommand,operation:RuntimeOperation,request?:ModelRequestSnapshot,result?:ModelResult)=>Promise<{ever_execution_authorized:boolean}>;
 };
@@ -82,19 +85,50 @@ function privateDirectory(path:string){
 }
 function syncDirectory(path:string){const fd=openSync(path,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);try{fsyncSync(fd);}finally{closeSync(fd);}}
 const liveStorageOwners=new Set<string>();
-type OpenRun={path:string;device:number;inode:number;timer?:ReturnType<typeof setTimeout>;settled?:Promise<void>;db:Awaited<ReturnType<typeof openNodeSqliteDatabase>>;harness:Harness;command:RunCommand;binding:Binding};
+type OpenRun={path:string;device:number;inode:number;timer?:ReturnType<typeof setTimeout>;settled?:Promise<void>;
+  /** Nothing of the Run executes in this process (no admitted submission still running); lastUsed: its last request here. */
+  idle:boolean;lastUsed:number;settleToken?:object;db:Awaited<ReturnType<typeof openNodeSqliteDatabase>>;harness:Harness;command:RunCommand;binding:Binding};
 export class PiRuntimeAdapter implements RuntimeAdapter{
   private readonly options:PiRuntimeOptions;
   private readonly root:string;
   private readonly runs=new Map<string,OpenRun>();
   private tail:Promise<void>=Promise.resolve();
   private closed=false;
+  // An ECMAScript private field: never serialized with the adapter (a Timeout object is circular).
+  readonly #sweeper:ReturnType<typeof setInterval>;
+  private readonly finishedIdleCloseMs:number;
   constructor(options:PiRuntimeOptions){
     if(process.versions.node.split('.')[0]!=='24')throw new RuntimeError('runtime_node_version');
     this.options={...options,model:{...options.model},costPolicy:options.costPolicy?{...options.costPolicy}:undefined,tools:(options.tools??[]).map(tool=>({...tool}))};this.root=resolve(options.root);
     if(typeof options.assertOwner!=='function'||typeof options.authorize!=='function')throw new RuntimeError('runtime_authority_required');
     this.owner();privateDirectory(this.root);
     for(const tool of this.options.tools??[])if(!/^nexloop\.[A-Za-z0-9_.-]+$/.test(tool.name))throw new RuntimeError('runtime_tool_refused');
+    this.finishedIdleCloseMs=options.finishedIdleCloseMs??600_000;
+    if(!Number.isInteger(this.finishedIdleCloseMs)||this.finishedIdleCloseMs<1)throw new RuntimeError('runtime_configuration_refused');
+    // Idle eviction: a settled Run nobody asked about for finishedIdleCloseMs (its outcome was settled elsewhere - a lease taken
+    // over, a fallback - so no final inspect closed it here) is closed in the serial queue, never one with a running submission.
+    this.#sweeper=setInterval(()=>{void this.serial(async()=>{
+      if(this.closed)return;
+      for(const [runId,run] of [...this.runs.entries()])if(run.idle&&Date.now()-run.lastUsed>=this.finishedIdleCloseMs)await this.closeFinished(runId,run);
+    }).catch(()=>{});},Math.min(60_000,this.finishedIdleCloseMs));
+    this.#sweeper.unref();
+  }
+  /** Checkpoints (TRUNCATE: the WAL is emptied) and closes one settled Run's storage; it is reopened by its next request. Called in
+   * the serial queue only. A busy checkpoint or a failed close leaves the Run open for the next sweep and never fails the caller. */
+  private async closeFinished(runId:string,run:OpenRun):Promise<boolean>{
+    try{
+      // TRUNCATE calls the busy handler: with the connection's busy_timeout a reader would hold this inspect for seconds. It is
+      // tried once without waiting (busy_timeout 0, restored after) and a busy result is left to the next sweep.
+      const timeout=(await run.db.get<{timeout:number}>('PRAGMA busy_timeout'))?.timeout??0;
+      let checkpoint:{busy:number}|undefined;
+      try{await run.db.exec('PRAGMA busy_timeout = 0');checkpoint=await run.db.get<{busy:number}>('PRAGMA wal_checkpoint(TRUNCATE)');}
+      finally{await run.db.exec(`PRAGMA busy_timeout = ${Number.isInteger(timeout)&&timeout>=0?timeout:0}`);}
+      if(!checkpoint||checkpoint.busy!==0){process.stderr.write(`agent-host storage_close_deferred run_id=${runId} reason=checkpoint_busy\n`);return false;}
+      if(run.timer)clearTimeout(run.timer);
+      await run.harness.close(BACKGROUND_CONTEXT);
+    }catch{process.stderr.write(`agent-host storage_close_deferred run_id=${runId} reason=close_failed\n`);return false;}
+    liveStorageOwners.delete(run.path);this.runs.delete(runId);
+    return true;
   }
   private owner(){try{this.options.assertOwner();}catch{throw new RuntimeError('runtime_owner_unavailable');}}
   private serial<T>(operation:()=>Promise<T>):Promise<T>{
@@ -122,7 +156,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       const existingPath=join(base,command.run_id.toLowerCase(),'runtime.sqlite');
       try{privateDirectory(join(base,command.run_id.toLowerCase()));const info=lstatSync(existingPath);if(info.dev!==existing.device||info.ino!==existing.inode||info.isSymbolicLink()||info.nlink!==1)throw new RuntimeError('runtime_storage_refused');}
       catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')throw new RuntimeError('runtime_state_missing');throw error;}
-      return existing;
+      existing.lastUsed=Date.now();return existing;
     }
     const directory=join(base,command.run_id.toLowerCase()),file=join(directory,'runtime.sqlite');
     let fresh=false;
@@ -278,7 +312,7 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
         },BACKGROUND_CONTEXT);
         if(!empty)throw new RuntimeError('runtime_state_missing');
       }
-      const run={path:file,device:before.dev,inode:before.ino,db,harness,command,binding:binding??{model_cost_reserved:'0',command_digest:'',run_id:'',request_id:'',payload_digest:'',conversation_id:0,submission_id:0,started_at:0,model_calls:0,tool_calls:0}};
+      const run:OpenRun={path:file,device:before.dev,inode:before.ino,idle:true,lastUsed:Date.now(),db,harness,command,binding:binding??{model_cost_reserved:'0',command_digest:'',run_id:'',request_id:'',payload_digest:'',conversation_id:0,submission_id:0,started_at:0,model_calls:0,tool_calls:0}};
       this.runs.set(command.run_id.toLowerCase(),run);return run;
     }catch(error){try{if(harness)await harness.close(BACKGROUND_CONTEXT);else if(storage)await storage.close(BACKGROUND_CONTEXT);else await db.close();}finally{liveStorageOwners.delete(file);}throw error;}
   }
@@ -316,7 +350,10 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     const submission=await conversation.submit({type:'input',requestId:valid.request_id,content:input},BACKGROUND_CONTEXT);
     // ADR-022 §4: the Run counts as active until its submission settled and no task of it is live.
     // A closed harness or an abort at the deadline also ends it here.
-    run.settled=(async()=>{try{await submission.wait(BACKGROUND_CONTEXT);await run.harness.waitForIdle(BACKGROUND_CONTEXT);}catch{/* no longer executing here */}})();
+    run.idle=false;
+    // Only the latest admitted submission's settlement marks the Run idle (a resume replaces the token).
+    const token={};run.settleToken=token;run.settled=(async()=>{try{await submission.wait(BACKGROUND_CONTEXT);await run.harness.waitForIdle(BACKGROUND_CONTEXT);}catch{/* no longer executing here */}
+      finally{if(run.settleToken===token){run.idle=true;run.lastUsed=Date.now();}}})();
     await run.harness.commit(async tx=>{const state=await tx.doc(BindingDoc);state.submission_id=submission.id;},BACKGROUND_CONTEXT);
     run.binding=(await run.harness.snapshot(BindingDoc,BACKGROUND_CONTEXT))!;
     return this.receipt(run);
@@ -420,9 +457,13 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
       return 'succeeded' as const;
     },BACKGROUND_CONTEXT);
     // NX-031 A2: numbers only, from the same durable task records (a restarted Host reports the same figure).
-    return {...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
+    const inspected:RuntimeInspection={...this.receipt(run),submission_status:status.status,scheduling:inspection.scheduling,active_tasks:inspection.tasks.length,runtime_outcome:runtimeOutcome,persistence:{journal_mode:'wal',synchronous:2},
       model_timing:modelTiming(scanned),...(runtimeOutcome==='succeeded'&&recovered.length>0?{recovered_tool_errors:recovered.slice(0,16)}:{}),...(runtimeOutcome!=='failed'?{}:unavailable?{failure_code:'runtime_authorization_unavailable' as const}:denied?{failure_code:'runtime_authorization_denied' as const}
         :toolError?{failure_code:'runtime_tool_error' as const,failure_detail:toolError,failure_tool:failedTool}:taskError?{failure_code:'runtime_task_failed' as const,failure_detail:taskError}:{})};
+    // 2026-11-08 (stage files_runtime): a finished Run that executes nothing here any more is checkpointed and closed now; a busy or
+    // failed close is retried by the idle sweep and never changes this answer.
+    if(['succeeded','failed','cancelled'].includes(runtimeOutcome)&&run.idle)await this.closeFinished(valid.run_id.toLowerCase(),run);
+    return inspected;
   });}
   cancel(command:unknown):Promise<{run_id:string;status:'cancel_requested'}>{return this.serial(async()=>{
     const valid=validateRunCommand(command);await this.authorize(valid,'cancel');const run=await this.open(valid,false);this.check(run,valid);
@@ -485,5 +526,5 @@ export class PiRuntimeAdapter implements RuntimeAdapter{
     }
     return purgeRunDirectory(this.options.worldDirectories?this.worldBase(world):this.root,runId);
   });}
-  close(){return this.serial(async()=>{this.closed=true;for(const run of this.runs.values())if(run.timer)clearTimeout(run.timer);const results=await Promise.allSettled([...this.runs.values()].map(async run=>{await run.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(run.path);}));this.runs.clear();if(results.some(r=>r.status==='rejected'))throw new RuntimeError('runtime_close_failed');});}
+  close(){clearInterval(this.#sweeper);return this.serial(async()=>{this.closed=true;for(const run of this.runs.values())if(run.timer)clearTimeout(run.timer);const results=await Promise.allSettled([...this.runs.values()].map(async run=>{await run.harness.close(BACKGROUND_CONTEXT);liveStorageOwners.delete(run.path);}));this.runs.clear();if(results.some(r=>r.status==='rejected'))throw new RuntimeError('runtime_close_failed');});}
 }
