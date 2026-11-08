@@ -92,3 +92,56 @@
    - 只解决“看不见”，不解决“单轮比周期长”。备份实际上是背靠背在跑，没有任何空闲，RPO 已经是单轮时长，而不是 15 分钟。
 
 **建议**：第 3 节结果出来后，先做方案 1（找出慢段）。方案 2 作为负责人确认 RPO 之后的快速办法。方案 3 不单独做，因为它会掩盖节奏问题。告警评估这边不需要改。
+
+## 5. 调度员核对的结果（2026-11-08）与结论
+
+| 项 | 结果 |
+|---|---|
+| timer 与 service | `LastTriggerUSec` 可以从 bus 读到；service 处于 `activating`，`InactiveExitTimestamp = StateChangeTimestamp`（本轮刚开始） |
+| 开始与结束 | **情况 A 已确认**：每轮的 Starting 都紧跟在上一轮 Finished 之后，相隔约 10 毫秒（07:41:43.349→.359，08:00:47.948→.956，08:20:16.069→.080） |
+| 08:00:47 那一轮各段耗时 | artifact repo1 约 36 秒；artifact repo2 约 9 分钟（file_count 0）；runtime repo1 约 36 秒；runtime repo2 约 9 分钟 |
+| 探针 | 08:00 以后 `trigger_unparsed` 出现 28 次 |
+| `nexloop_host_timer_runs` | 最后一条记录是 2026-11-07T22:15:45Z 开始的一轮（failure，scheduled）。R71 之后**一条都没有**：故障期间每轮约 10 分钟，在周期之内，所以那时能被认作定时运行 |
+
+**这次比 §2 多查出一层：成功的几轮根本没被记录，而不只是“被记成手工运行”**。
+- 每轮背靠背地开始，service 在探针每分钟一次的采样里**总是** `activating`。
+- 探针只在 service 回到 `inactive` 或 `failed` 之后才记录一轮，所以一轮都记不下来。
+- 即使记下来了，开始时间也不在 trigger 后 5 秒内（情况 A），同样不算定时运行。
+
+### 5.1 repo2 为什么慢
+
+两段 repo2 各约 9 分钟，而 artifact 那一段一个文件都没有，也要 9 分钟。所以时间花在每次调用 restic 的**固定开销**上，而不是上传量：
+
+- 执行器对每个 restic 命令都带 `--no-cache`（`file_backup.py` 的 `_restic`）。没有缓存时，`backup` 每次都要从 TOS 下载全部索引文件；`check` 也要重新下载索引，列出 `data/` 下的全部对象，并读取所有快照引用到的 tree blob。
+- 对象存储上，这些都是大量小请求和分页列举，延迟累加起来就是这 9 分钟；repo1 走 DATA_HOST 的 rest-server，延迟低，只要 36 秒。
+- **没有更轻的 check**：`restic check` 不带 `--read-data` 时已经只查结构，是最轻的模式。能省时间的是 **缓存**：
+  - 去掉 `--no-cache`，用一个持久的缓存目录（systemd `CacheDirectory=nexloop-file-backup`，0700，属备份用户）；
+  - `check` 加 `--with-cache`。默认情况下，check 会新建一个临时缓存，等于没有缓存。
+- restic 的缓存里存的是仓库文件的原样，也就是**加密后的**索引、快照和 tree 包，不含明文。仓库代码和文档里没有找到当初选 `--no-cache` 的理由；推测是因为 sandbox 里备份用户的 home 不可写，用 `CacheDirectory` 就能解决这个问题。
+
+### 5.2 三个方案的比较
+
+| | A. check 挪到每日维护 | B. repo2 拆成每小时一次的独立 timer | C. 周期改为 30 分钟 | **D. 启用 restic 缓存（新增，推荐）** |
+|---|---|---|---|---|
+| 单轮时长 | 少了 check，但 repo2 的 backup 仍要下载全部索引，估计每段仍要几分钟 | 15 分钟这一轮只剩 repo1，约 1–2 分钟；repo2 每小时一轮，约 18 分钟 | 不变，约 19 分钟，小于 30 分钟，能被认作定时运行 | 预计 repo2 每段降到 1–2 分钟（第一次运行时要建缓存，仍然慢） |
+| RPO | 不变（15 分钟） | repo1 仍是 15 分钟；**repo2（异地）变成 1 小时** | **全部变成 30 分钟** | 不变（15 分钟） |
+| 设计变化 | “每轮 verified 依赖 check”（NX-035 §4.3）放松为“每日 check”；需要 **L6 判** | 异地副本的 RPO 变化，需要**负责人决定** | NX-035 D2 定下的 RPO 15 分钟变化，需要**负责人决定**；告警阈值也要改 | 无：仍然每轮 check，只是读缓存；缓存是加密的，需要 **L6 确认** |
+| 改动量 | 执行器和维护任务 | 两个 unit、installer、host-health 加一个 timer key、告警规则加一条 | timer 和告警阈值（新规则版本） | 执行器加 `--cache-dir`，check 加 `--with-cache`；unit 加 `CacheDirectory` |
+| 风险 | TOS 上的问题要到每日维护才发现 | repo2 的失败晚一小时才看到 | 无 | 缓存损坏时 restic 会自己重建；缓存所在磁盘需要几百 MB |
+
+**推荐 D**：不改 RPO，不改“每轮 check”的设计，只消除每次调用 restic 的固定开销。
+
+- 先在 APP_HOST 上只读测一次：以备份用户执行 `restic snapshots` 预热缓存，再对 repo2 计时一次 `restic check --with-cache`。两条命令都只读仓库；缓存写在本机，不写 `/srv`。
+- 如果带缓存后一轮仍然超过 10 分钟，再在 B 和 C 之间请负责人决定。
+- A 不推荐：它放松了现有设计，而且只省掉一半的时间。
+
+### 5.3 已经提交的代码修复（探针）
+
+1. **`trigger_unparsed`**：探针调用 `systemctl`、`busctl` 和 `docker` 时，环境变量设为 `TZ=UTC`、`LC_ALL=C`。
+   - 这样 busctl 读不到时，systemctl 输出的可读时间是 `Sun 2026-11-08 00:15:00 UTC`，`last_trigger` 能按 UTC 解析；其他时区仍然不猜测，照样报 unparsed。
+   - 28 次 unparsed 是哪个 timer，请从 err 行里的 `timer=` 字段确认。如果是 file-backup，可能是它一直处于 `activating` 时 bus 那一侧读失败；修复后这种情况会走 systemctl 的 UTC 回退。
+2. **`timer_overrun`**（新的本地告警行，不改 SQL）：service 还在运行，而 timer 的上一次 trigger 晚于本轮开始时，说明这一轮比周期长，探针写一行 `<3>nexloop-host-health timer_overrun host=… timer=…`。以后这种“永远不计入”的情况会直接在 journal 里看到，不需要再从 freshness 倒推。
+3. 测试：
+   - UTC 可读时间能解析，其他时区仍是 unparsed；
+   - 命令以 UTC 和 C locale 运行；
+   - 跨周期的一轮报 overrun，周期内的一轮不报。
