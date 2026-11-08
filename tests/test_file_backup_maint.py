@@ -74,11 +74,11 @@ def test_forget_per_tag_with_prune_and_a_lock_wait_then_check_and_the_deep_check
     bin_, log = restic(tmp_path)
     code, out = run(['--restic', bin_, *setup(tmp_path), '--s3-bucket-lookup', 'dns'], clock=SUNDAY)
     doc = json.loads(out)
-    assert code == 0 and doc == {'ok': True, 'forget': 'ok', 'removed': 2, 'dry_run': False, 'check': 'ok', 'deep': True, 'deep_check': 'ok'}
+    assert code == 0 and doc == {'ok': True, 'forget': 'ok', 'removed': 2, 'dry_run': False, 'check': 'ok', 'deep': True, 'deep_check': 'ok', 'deep_subset': '5/10'}
     seen = calls(log)
     commands = [c['args'][c['args'].index('--password-file') + 2:] for c in seen]
     assert commands == [['snapshots', '--json', '--no-lock'], ['forget', '--retry-lock', '10m', '--group-by', 'host,tags', '--keep-within', '14d', '--keep-monthly', '1', '--prune', '--json'],
-                        ['check', '--retry-lock', '10m'], ['check', '--retry-lock', '10m', '--read-data-subset', '1/10']]
+                        ['check', '--retry-lock', '10m'], ['check', '--retry-lock', '10m', '--read-data-subset', '5/10']]  # 2026-11-01: ISO week 44
     assert all(c['args'][:3] == ['--no-cache', '-o', 's3.bucket-lookup=dns'] for c in seen)
     assert all(set(c['env']) - {'LC_CTYPE', '__CF_USER_TEXT_ENCODING'} <= {'PATH', 'LANG', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_DEFAULT_REGION'}
                for c in seen)
@@ -167,3 +167,18 @@ def test_a_failed_snapshot_listing_never_passes(tmp_path):
     bin_, log = restic(tmp_path, codes={'snapshots': 1})
     code, out = run(['--restic', bin_, *setup(tmp_path), '--dry-run'])
     assert code == 1 and json.loads(out)['forget'] == 'snapshots exit 1'
+
+
+
+def test_the_sunday_subset_rotates_through_all_ten_parts():
+    sundays = [time.struct_time((2026, 1, 4, 4, 7, 0, 6, 4, 0))]
+    import datetime as dt
+    parts = [M.rotating_subset((dt.date(2026, 1, 4) + dt.timedelta(weeks=n)).timetuple()) for n in range(10)]
+    assert sorted(parts, key=lambda p: int(p.split('/')[0])) == [f'{n}/10' for n in range(1, 11)] and len(set(parts)) == 10
+    assert M.rotating_subset(sundays[0]) == '2/10'  # ISO week 1
+
+
+def test_the_daily_check_never_uses_a_cache(tmp_path):
+    bin_, log = restic(tmp_path)
+    run(['--restic', bin_, *setup(tmp_path)], clock=MONDAY)
+    assert all(c['args'][0] == '--no-cache' and '--cache-dir' not in c['args'] and '--with-cache' not in c['args'] for c in calls(log))

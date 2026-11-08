@@ -490,3 +490,32 @@ def test_a_cache_directory_readable_by_others_is_refused(env):
     cache = cached(e);cache.chmod(0o755)
     with pytest.raises(PermissionError):
         run(e, 'runtime', cache_dir=cache)
+
+
+
+def test_the_cache_is_never_inside_the_backed_up_or_staging_trees(env):
+    e = env
+    run_store(e)
+    for inside in (e['source'] / 'cache', e['staging'] / 'cache'):
+        inside.mkdir(mode=0o700)
+        with pytest.raises(fb.BackupUnavailable, match='overlaps'):
+            run(e, 'runtime', cache_dir=inside)
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts/deploy'))
+    import file_backup_install as I
+    assert not any(I.CACHE == root or I.CACHE.startswith(root + '/') or root.startswith(I.CACHE + '/') for root in (*I.DATA_ROOTS, I.STAGING))
+
+
+def test_a_cache_held_by_another_process_is_not_shared(env):
+    import fcntl
+    e = env
+    run_store(e)
+    cache = cached(e)
+    held = os.open(cache / fb.CACHE_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(held, fcntl.LOCK_EX)
+    try:
+        result = run(e, 'runtime', cache_dir=cache)
+    finally:
+        os.close(held)
+    assert result['verify_status'] == 'verified' and result['cache'] == 'busy' and not any(c['cache'] for c in calls(e))
+    assert run(e, 'runtime', cache_dir=cache)['cache'] == 'used'  # released: the next run uses it

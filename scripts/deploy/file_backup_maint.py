@@ -10,7 +10,9 @@ refuses a repository location that is not an S3 one. One run:
   1 forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune: each file kind (files_artifact,
     files_runtime: their tags) keeps D4's window. Under restic's default grouping (host,paths) every file snapshot, each from a new
     staging directory, is a group of one and is never forgotten.
-  2 check --retry-lock 10m; on Sundays (host time) check --read-data-subset 1/10 as well.
+  2 check --retry-lock 10m, without a cache (--no-cache: never the 15-minute round's cache, and every day a check that reads nothing
+    from it); on Sundays (host time) check --read-data-subset N/10 as well, N = ISO week % 10 + 1, so ten Sundays read every pack
+    once (a fixed 1/10 would read the same tenth every week).
 
 --retry-lock: prune takes the exclusive lock; a file backup round (every 15 minutes, its shared lock) is waited for instead of failing
 this run, and the timer runs between two rounds. --dry-run (installer step 5): forget --dry-run only, nothing removed, no check.
@@ -37,6 +39,12 @@ import restic_future_guard as guard  # noqa: E402
 
 RETENTION = ['--group-by', 'host,tags', '--keep-within', '14d', '--keep-monthly', '1']
 LOCK = ['--retry-lock', '10m']
+
+
+def rotating_subset(now):
+    """'N/10' with N = ISO week % 10 + 1 of the host time `now` (a struct_time): week after week every tenth of the packs is read."""
+    week = datetime(now.tm_year, now.tm_mon, now.tm_mday).isocalendar()[1]
+    return f'{week % 10 + 1}/10'
 
 
 class NotRepo2(ValueError):
@@ -94,8 +102,10 @@ def maintain(*, restic, repository_file, password_file, environment_file, s3_buc
     result['check'] = 'ok' if checked.returncode == 0 else f'exit {checked.returncode}'
     result['deep'] = deep == 'always' or (deep == 'auto' and clock().tm_wday == 6)
     if result['deep'] and checked.returncode == 0:
-        subset = _restic(restic, ['check', *LOCK, '--read-data-subset', '1/10'], **common)
+        part = rotating_subset(clock())
+        subset = _restic(restic, ['check', *LOCK, '--read-data-subset', part], **common)
         result['deep_check'] = 'ok' if subset.returncode == 0 else f'exit {subset.returncode}'
+        result['deep_subset'] = part
     return result
 
 

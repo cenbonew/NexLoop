@@ -363,9 +363,32 @@ def _snapshot_id(stdout):
     return None
 
 
+CACHE_LOCK = '.nexloop-cache.lock'
+
+
+def _cache_lock(cache_dir):
+    """An exclusive, non-blocking flock on the cache directory's lock file: the fd, or None when another process holds it (that run
+    then goes without the cache - two restic processes never share it, and a run never waits on another one)."""
+    import fcntl
+    fd = os.open(Path(cache_dir) / CACHE_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def _inside(path, roots):
+    target = Path(path).resolve()
+    return any(target == Path(r).resolve() or Path(r).resolve() in target.parents or target in Path(r).resolve().parents for r in roots)
+
+
 def _clear_cache(cache_dir):
-    """Empty the executor's own cache directory (never the directory itself): restic builds it again from the repository."""
+    """Empty the executor's own cache directory (never the directory itself, nor its lock file): restic builds it again."""
     for child in Path(cache_dir).iterdir():
+        if child.name == CACHE_LOCK:
+            continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child, ignore_errors=True)
         else:
@@ -385,12 +408,16 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     _private_directory(staging_root)
     if cache_dir is not None:
         _private_directory(cache_dir)
+        # The cache is never backed up: it may not be (or hold, or sit inside) the source or the staging tree.
+        if _inside(cache_dir, (source_root, staging_root)):
+            raise BackupUnavailable('cache directory overlaps the source or the staging tree')
     if not Path(source_root).is_dir():
         raise BackupUnavailable('source root missing')
     started = _now()
     entries = inventory(recorder_conninfo, manifest_kind)
     staging = Path(staging_root) / ('stage-' + uuid.uuid4().hex)
     staging.mkdir(mode=0o700)
+    lock = None
     try:
         recovered = []
         rows, skipped, absent = (stage_artifacts(entries, source_root, staging) if kind == 'artifact'
@@ -410,7 +437,11 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
         # With a cache (--cache-dir, the unit's own 0700 directory; restic keeps the repository's files there as they are, encrypted)
         # repo2's fixed cost per call falls from minutes to seconds; check reads it with --with-cache. A failed call with the cache
         # is made once more without it after the cache is emptied, so a damaged cache never fails a round, nor every round after it.
-        cache = 'off' if cache_dir is None else 'used'
+        lock = _cache_lock(cache_dir) if cache_dir is not None else None
+        if cache_dir is not None and lock is None:
+            cache_dir, cache = None, 'busy'  # another process holds the cache: this run goes without it
+        else:
+            cache = 'off' if cache_dir is None else 'used'
 
         def call(arguments, cached, **extra):
             return _restic(restic, arguments + (['--with-cache'] if cached and arguments[0] == 'check' else []), cache_dir=cache_dir if cached else None,
@@ -428,6 +459,8 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
                 _clear_cache(cache_dir);cache = 'rebuilt'
                 checked = call(['check', '--retry-lock', '5m'], False).returncode == 0
     finally:
+        if lock is not None:
+            os.close(lock)
         shutil.rmtree(staging, ignore_errors=True)
     left_out = sum(skipped.values())
     status = 'verified' if checked and left_out == 0 else 'failed'
