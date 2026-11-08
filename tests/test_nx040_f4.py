@@ -9,6 +9,7 @@ import jsonschema
 import pytest
 
 from nexloop_eios.evolution.evaluation import GATE_VERSIONS
+from nexloop_eios import schema_gates as gates
 from nexloop_eios.schema_gates import GATES, GATES_VERSION, evaluate_schema, replay_tools
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,7 +91,7 @@ def test_a_batched_publication_passes_the_migration_bound():
 
 
 def test_the_tool_regression_set_valid_and_invalid_cases():
-    assert replay_tools(CASES, SCHEMAS) == {'failures': [], 'incomplete': [], 'cases': 2}
+    assert replay_tools(CASES, SCHEMAS) == {'failures': [], 'incomplete': [], 'cases': 2, 'open_input': []}
     wrong = [{**CASES[0], 'expect': 'invalid'}, CASES[1]]
     assert replay_tools(wrong, SCHEMAS)['failures'] == ['case:edit-valid:Consumer.edit']  # a valid case expected invalid is a failure
     assert replay_tools([{'id': 'n', 'action': 'Nope.do', 'params': {}, 'expect': 'valid'}], SCHEMAS)['failures'] == ['case:n:unknown']
@@ -107,3 +108,53 @@ def test_only_an_nx040_bundle_is_answered():
     b['hard_gates_version'] = 'nx039-gates-1'
     with pytest.raises(ValueError):
         evaluate_schema(b, 'd' * 64, change(), parent(), inputs=GOOD, created_at='2026-10-20T14:00:00Z')
+
+
+# D23 as revised by the owner 2026-11-09 (option A, docs/implementation/d23-open-input-schemas.md): an Action whose input schema is the
+# same in both revisions and refuses no probe value needs its valid case only; computed from action_schemas, never from the inputs.
+def _open(schema, candidate=None):
+    return {'Open.do': {'parent': schema, 'candidate': schema if candidate is None else candidate}}
+
+
+VALID_ONLY = [{'id': 'open-valid', 'action': 'Open.do', 'params': {'any': 1}, 'expect': 'valid'}]
+
+
+def test_an_open_input_schema_in_both_revisions_needs_its_valid_case_only():
+    got = replay_tools(VALID_ONLY, _open({}))
+    assert got == {'failures': [], 'incomplete': [], 'cases': 1, 'open_input': ['Open.do']}
+    assert replay_tools([], _open({}))['incomplete'] == ['action:Open.do']  # the valid case is still required and replayed
+
+
+def test_one_byte_of_difference_keeps_the_original_rule():
+    for candidate in ({'description': 'x'}, {'type': 'object'}, {'$comment': ' '}):
+        got = replay_tools(VALID_ONLY, _open({}, candidate))
+        assert got['open_input'] == [] and got['incomplete'] == ['action:Open.do'], candidate
+    assert replay_tools(VALID_ONLY, _open({'a': 1, 'b': 2}, {'b': 2, 'a': 1}))['open_input'] == ['Open.do']  # key order is canonical
+
+
+def test_a_schema_that_refuses_a_probe_needs_an_invalid_case():
+    got = replay_tools([{'id': 'v', 'action': 'Open.do', 'params': 'ab', 'expect': 'valid'}], _open({'maxLength': 3}))
+    assert got['open_input'] == [] and got['incomplete'] == ['action:Open.do']  # the 4096-character probe is refused
+
+
+def test_a_non_local_reference_is_never_exempt():
+    for schema in ({'$ref': 'https://example.invalid/any.json'}, {'properties': {'a': {'$dynamicRef': '#meta'}}}):
+        assert gates.open_input(schema, schema) is False, schema
+    assert gates.open_input({'$defs': {'any': {}}, '$ref': '#/$defs/any'}, {'$defs': {'any': {}}, '$ref': '#/$defs/any'}) is True  # local
+
+
+def test_an_open_marker_in_the_inputs_is_ignored():
+    schemas = {'Strict.do': {'parent': {'maxLength': 3}, 'candidate': {'maxLength': 3}, 'open_input': True}}
+    cases = [{'id': 'v', 'action': 'Strict.do', 'params': 'ab', 'expect': 'valid', 'open_input': True}]
+    got = replay_tools(cases, schemas)
+    assert got['open_input'] == [] and got['incomplete'] == ['action:Strict.do']
+    r = run(inputs={**GOOD, 'open_input': ['Consumer.edit'], 'tool_cases': GOOD['tool_cases'][:1]})
+    assert 'tool_context_compatible' in r['failed_gates']
+
+
+def test_the_open_input_evidence_keeps_its_count_within_64_ids():
+    names = {f'Open.a{i:03d}': {'parent': {}, 'candidate': {}} for i in range(91)}
+    tools = replay_tools([{'id': n + '-v', 'action': n, 'params': {}, 'expect': 'valid'} for n in names], names)
+    assert len(tools['open_input']) == 91 and tools['incomplete'] == []
+    gate = gates._gate('tool_context_compatible', True, *('open_input:' + n for n in tools['open_input']), keep=('tools:regression_set', 'tools:open_input:91'))
+    assert gate['evidence_ids'][:2] == ['tools:regression_set', 'tools:open_input:91'] and len(gate['evidence_ids']) == 64

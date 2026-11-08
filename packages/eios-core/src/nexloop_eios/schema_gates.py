@@ -6,6 +6,11 @@ the results must agree with the expectation and with each other) and the Context
 reservation (G11, counted as evolution by authz.nexloop_evo_reflow_reserve, D26) and the migration plan (G10, D25: at most 10 000
 objects, or a batched publication). The report is an `evolution-evaluation-report` value for authz.nexloop_evo_evaluation_conclude.
 Run twice (D39-2): the second pass reads the cases in reverse order; a different report is incomplete/not_reproducible.
+
+D23 as revised by the owner 2026-11-09 (option A, docs/implementation/d23-open-input-schemas.md): an Action whose input schema is the
+same under both revisions (canonical JSON, byte for byte), has no non-local $ref and no $dynamicRef, and whose Parent accepts every
+value of OPEN_PROBES has no input to refuse - it needs its valid case only (replayed under both revisions) and is listed as open_input,
+not incomplete. Computed here from action_schemas alone; nothing in the inputs can claim it. Any difference keeps the original rule.
 """
 from __future__ import annotations
 
@@ -38,8 +43,38 @@ _BY_GATE = {
 }
 
 
-def _gate(gate, ok, *evidence):
-    return {'gate': gate, 'result': 'pass' if ok else 'fail', 'evidence_ids': sorted(set(evidence))[:64]}
+def _gate(gate, ok, *evidence, keep=()):
+    """keep: evidence ids that always come first and are never cut by the 64-id bound (the rest sorted, as before)."""
+    kept = list(dict.fromkeys(keep))[:64]
+    return {'gate': gate, 'result': 'pass' if ok else 'fail', 'evidence_ids': kept + sorted(set(evidence) - set(kept))[:64 - len(kept)]}
+
+
+# D23 (revised 2026-11-09): the values an input schema must accept, all of them, to count as accepting every value. The one set: the
+# r8 checker (scripts/acceptance/s6_stage_schema.py) picks its invalid cases from it.
+OPEN_PROBES = ([], None, 'x', 0, {}, {'s6_unexpected_field': 1}, True, '', -1, 1.5, 'x' * 4096, {'a': {'b': {'c': [1, 'x', None]}}},
+               [1, 'x', None, {}, [], True])
+
+
+def _canonical(schema) -> str:
+    return json.dumps(schema, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+
+
+def _non_local_reference(schema) -> bool:
+    """A $dynamicRef anywhere, or a $ref that is not a local JSON pointer (#...): such a schema is never exempt."""
+    if isinstance(schema, dict):
+        if '$dynamicRef' in schema or (isinstance(schema.get('$ref'), str) and not schema['$ref'].startswith('#')):
+            return True
+        return any(_non_local_reference(v) for v in schema.values())
+    if isinstance(schema, list):
+        return any(_non_local_reference(v) for v in schema)
+    return False
+
+
+def open_input(parent, candidate) -> bool:
+    """D23 (2026-11-09): the same schema in both revisions that refuses no probe value (one validator, one format setting)."""
+    if _canonical(parent) != _canonical(candidate) or _non_local_reference(parent):
+        return False
+    return all(_valid(parent, value) for value in OPEN_PROBES)
 
 
 def _valid(schema, params) -> bool:
@@ -58,9 +93,11 @@ def _case_id(case) -> str:
 
 
 def replay_tools(cases: list[dict], schemas: dict[str, dict]) -> dict:
-    """D23. schemas: {stable_name: {'parent': input schema, 'candidate': input schema}}. Every Action needs one valid and one invalid case;
-    each case must meet its expectation under both revisions, with the same result."""
+    """D23. schemas: {stable_name: {'parent': input schema, 'candidate': input schema}}. Every Action needs one valid and one invalid case
+    (an open_input Action, computed here: its valid case only); each case must meet its expectation under both revisions, with the
+    same result."""
     failures, incomplete = set(), []
+    open_names = sorted(name for name, s in schemas.items() if open_input(s.get('parent'), s.get('candidate')))
     seen: dict[str, set] = {name: set() for name in schemas}
     for case in cases:
         name, expect = case.get('action'), case.get('expect')
@@ -72,9 +109,9 @@ def replay_tools(cases: list[dict], schemas: dict[str, dict]) -> dict:
         if parent != candidate or parent != (expect == 'valid'):
             failures.add(f'case:{_case_id(case)}:{name}')
     for name, kinds in sorted(seen.items()):
-        if kinds != {'valid', 'invalid'}:
+        if not ({'valid'} if name in open_names else {'valid', 'invalid'}) <= kinds:
             incomplete.append('action:' + name)
-    return {'failures': sorted(failures), 'incomplete': incomplete, 'cases': len(cases)}
+    return {'failures': sorted(failures), 'incomplete': incomplete, 'cases': len(cases), 'open_input': open_names}
 
 
 def _one(bundle, bundle_digest, change, parent, inputs, created_at, elapsed_ms, order):
@@ -95,7 +132,9 @@ def _one(bundle, bundle_digest, change, parent, inputs, created_at, elapsed_ms, 
     gates['reflow_budget'] = _gate('reflow_budget', not (codes & _BY_GATE['reflow_budget']) and inputs.get('reflow_reserved') is True,
                                    'reflow:reserved' if inputs.get('reflow_reserved') is True else 'reflow:not_reserved', *sorted(codes & _BY_GATE['reflow_budget']))
     gates['tool_context_compatible'] = _gate('tool_context_compatible', not (codes & _BY_GATE['tool_context_compatible']) and not tools['failures']
-                                             and not tools['incomplete'] and ctx_ok, 'tools:regression_set', *tools['incomplete'], *tools['failures'])
+                                             and not tools['incomplete'] and ctx_ok, *tools['incomplete'], *tools['failures'],
+                                             *('open_input:' + n for n in tools['open_input']),
+                                             keep=('tools:regression_set', f"tools:open_input:{len(tools['open_input'])}"))
     hard = [gates[g] for g in bundle['hard_gates']]
     failed = [g['gate'] for g in hard if g['result'] == 'fail']
     change_class = verdict['change_class'] if verdict['change_class'] in ('major', 'refused') else 'minor'  # F1 decides the class (D39-7)
