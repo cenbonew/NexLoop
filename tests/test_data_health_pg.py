@@ -198,3 +198,35 @@ def test_glossary_aliases_are_counted_apart_and_never_missing_embeddings(observe
     r = health(admin)['recall']
     assert (r['entries'], r['missing_embeddings'], r['gloss_aliases'], r['coverage_ratio'], r['status'], r['reasons']) == (2, 0, 4, 1, 'ok', [])
     assert r['active_profile'] == 'synthetic-model@3' and 'last_backfill_at' in r  # the other fields are 0245's
+
+
+def test_the_top_level_attention_counts_the_blocks_as_they_are_returned(observed):
+    """L6 C1 on 10bae3cf: the top-level attention (the workbench's "N need attention", DataHealth.tsx) is recounted from the six blocks
+    after the wrappers rewrote recall (0428) and extraction (0355, 0415), so it always names a block that is in attention."""
+    import secrets
+    from test_extraction_dead_letters_pg import T0, ids, job
+    o = observed; admin = o['admin']
+    count = lambda h: sum(h[s]['status'] == 'attention' for s in SECTIONS)  # noqa: E731
+    # Recall: a gap made only of alias rows - attention under 0245's count, ok now - takes nothing from the total.
+    recall(admin, TENANT, 'synthetic-model@3', 'mine')
+    admin.execute("insert into ontology.nexloop_recall_settings(tenant_id,active_profile_id) values(%s,'synthetic-model@3')", (TENANT,))
+    gloss_alias(admin, 'consumer_revision')
+    h = health(admin)
+    assert h['recall']['status'] == 'attention' and h['attention'] == count(h) == 1  # the real definition still lacks a vector
+    entry = admin.execute("select entry_id from ontology.nexloop_recall_entries where tenant_id=%s and index_kind='definition' and gloss_source is null",
+                          (TENANT,)).fetchone()[0]
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("insert into ontology.nexloop_recall_embeddings(entry_id,tenant_id,profile_id,embedding) values(%s,%s,'synthetic-model@3','[1,0,0]')", (entry, TENANT))
+    before = owner_sql(admin, "select runtime.nexloop_data_health_before_gloss_not_missing(%s,'real')", (TENANT,))
+    h = health(admin)
+    assert before['recall']['status'] == 'attention' and before['attention'] == 1  # 0245 counted the alias as missing
+    assert h['recall']['status'] == 'ok' and h['attention'] == count(h) == 0
+    # Extraction: a dead letter a later success fully covers is attention under 0245, ok after 0355 - not counted either.
+    conversation, messages = secrets.token_hex(32), ids(2)
+    job(admin, 'dead_lettered', conversation, messages, at=T0, code='provider_unavailable')
+    job(admin, 'succeeded', conversation, messages, at=T0 + timedelta(hours=1))
+    before = owner_sql(admin, "select runtime.nexloop_data_health_before_dead_letter_resolve(%s,'real')", (TENANT,))
+    h = health(admin)
+    assert before['extraction']['status'] == 'attention' and h['extraction']['status'] == 'ok'
+    assert h['attention'] == count(h) == 0

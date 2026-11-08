@@ -4,7 +4,8 @@
 -- write and no path embeds them; vector recall reaches the definition entry each alias names. runtime.nexloop_data_health is renamed
 -- once and wrapped: the recall block's entries, missing_embeddings, other_profile_vectors, coverage_ratio, reasons and status are
 -- computed as in 0245 without those rows, and gloss_aliases counts them. A definition or instance entry without a vector of the
--- active profile is still missing; every other block and field is unchanged.
+-- active profile is still missing. The top-level attention is recounted from the six blocks' current status (L6 C1: 0355, 0415
+-- and this rewrite changed block statuses after 0245 counted them); every other block and field is unchanged.
 alter function runtime.nexloop_data_health(text,text) rename to nexloop_data_health_before_gloss_not_missing;
 revoke all on function runtime.nexloop_data_health_before_gloss_not_missing(text,text) from public;
 create function runtime.nexloop_data_health(p_tenant text,p_world text) returns jsonb
@@ -27,7 +28,11 @@ begin
  r:=coalesce(h->'recall','{}'::jsonb)||jsonb_build_object('entries',v_entries,'missing_embeddings',v_missing,'other_profile_vectors',v_other,
   'gloss_aliases',v_gloss,'coverage_ratio',case when v_entries>0 then round((v_entries-v_missing)::numeric/v_entries,4) end,
   'status',case when cardinality(reasons)=0 then 'ok' else 'attention' end,'reasons',to_jsonb(reasons));
- return jsonb_set(h,'{recall}',r);
+ h:=jsonb_set(h,'{recall}',r);
+ -- L6 C1: 0245's top-level attention (the workbench's "N need attention") counted the blocks as 0245 left them; 0355 and 0415
+ -- rewrote extraction's status and this rewrites recall's, so it is counted again here, the outermost wrapper, from the six blocks.
+ return h||jsonb_build_object('attention',(select count(*) from unnest(array['extraction','recall','reflow','ingestion','artifacts','erasure']) b
+  where h->b->>'status'='attention'));
 end $$;
 alter function runtime.nexloop_data_health(text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_data_health(text,text) from public;
