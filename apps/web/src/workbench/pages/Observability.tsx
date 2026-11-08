@@ -118,12 +118,17 @@ export function BudgetHealthCard({health}:{health:BudgetHealth|null}){
     </div></Card>;
 }
 /** ADR-045: a live fault switch is a banner over the page (a drill is on); off says 未开启; no block 无数据; malformed 格式无法识别. */
+export function minutesLeft(at:string,now=Date.now()):string{
+  const m=Math.ceil((Date.parse(at)-now)/60000);return m>0?`还剩 ${m} 分钟`:'已到期';
+}
 export function SyntheticFaultBanner({fault}:{fault:SyntheticFault|null}){
   if(fault===null)return <p className="note" data-fault="no_data">测试顾客故障开关：无数据</p>;
   if(fault.status==='invalid')return <p className="note" data-fault="invalid">测试顾客故障开关：格式无法识别</p>;
   if(!fault.active)return <p className="note" data-fault="off">测试顾客故障开关：未开启</p>;
   return <div className="drill-banner" role="status" data-fault="active"><strong>演练中</strong>：测试顾客故障开关已开启，剩余 <span className="num">{fault.remaining}</span> 次，
-    近 1 小时已注入 <span className="num">{fault.injected_last_hour}</span> 次。<span className="note">到期时间和名单人数快照未提供。</span></div>;
+    近 1 小时已注入 <span className="num">{fault.injected_last_hour}</span> 次。
+    {fault.expires_at&&fault.members!=null?<>名单 <span className="num">{fault.members}</span> 人，<Time value={fault.expires_at}/> 到期（{minutesLeft(fault.expires_at)}）。</>
+      :<span className="note">到期时间和名单人数快照未提供。</span>}</div>;
 }
 /** 0424: watched timers no host reports, listed as role:timer in yellow; none is said as such; no data is 无数据. */
 export function HostHealthCard({timers}:{timers:TimersNotReported|null}){
