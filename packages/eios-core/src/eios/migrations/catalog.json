@@ -2125,6 +2125,16 @@
       "version": "0425",
       "name": "0425_alert_notify_export.sql",
       "sha256": "14a24bbaf1c02b06c7145bd3b24e2907db14975d6347609dff167c118df37ca6"
+    },
+    {
+      "version": "0426",
+      "name": "0426_evo_reader_migrations_select.sql",
+      "sha256": "3ae2e2b5aa2ef3fe925df689dc80d80820b396fce241d3c519a2ab921021dff0"
+    },
+    {
+      "version": "0427",
+      "name": "0427_synthetic_fault_snapshot_fields.sql",
+      "sha256": "6837118ebf0bb8816c52607af2b3516e81ed89a3ec26cb4d8df8b88f056c2a74"
     }
   ]
 }

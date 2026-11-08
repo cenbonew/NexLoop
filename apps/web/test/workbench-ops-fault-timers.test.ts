@@ -4,9 +4,9 @@
 import {createElement as h,type ReactNode} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {expect,test} from 'vitest';
+import {afterEach,expect,test,vi} from 'vitest';
 import {metrics,syntheticFault,timersNotReported} from '../src/workbench/api';
-import {HostHealthCard,Operations,SyntheticFaultBanner} from '../src/workbench/pages/Observability';
+import {HostHealthCard,Operations,SyntheticFaultBanner,minutesLeft} from '../src/workbench/pages/Observability';
 
 const metricsBody={tenant_id:'t',world:'real',computed_at:'2026-11-08T09:05:00+00:00',refusals:{last_5m:{},last_hour:{NXC01:2}},
   effects:{by_state:{},unknown:{count:0,oldest_age_seconds:null,over_24h:0}},replies:{pending:{count:0,oldest_age_seconds:null},escalations_last_hour:{},escalations_total:0},
@@ -47,4 +47,24 @@ test('on the page: both blocks shown; malformed blocks leave the other cards as 
   expect(bad).toContain('超时率 3.00%');expect(bad).toContain('备份记录暂不可用');expect(bad).toContain('<span title="NXC01">已暂停</span>');
   expect(bad).toContain('data-gate="no_data"');expect(bad).toContain('data-budget="no_data"');
   const old=page(metricsBody);expect(old).toContain('data-fault="no_data"');expect(old).toContain('data-timers="no_data"');expect(old).not.toContain('演练中');
+});
+
+afterEach(()=>vi.useRealTimers());
+test('0427: a live switch shows its end in Beijing time with the minutes left and its member count',()=>{
+  vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-08T02:17:30Z'));
+  const live=banner({active:1,remaining:4,injected_last_hour:1,expires_at:'2026-11-08T03:00:00Z',members:3});
+  expect(attr(live,'fault')).toBe('active');expect(live).toContain('名单 <span class="num">3</span> 人');
+  expect(live).toMatch(/<time dateTime="2026-11-08T03:00:00.000Z" title="北京时间 [^"]*11:00[^"]*">/);expect(live).toContain('（还剩 43 分钟）');
+  expect(live).not.toContain('快照未提供');
+  expect(minutesLeft('2026-11-08T03:00:00Z',Date.parse('2026-11-08T03:00:01Z'))).toBe('已到期');
+});
+
+test('0427: an older backend keeps 快照未提供; off with nulls is 未开启; null with active=1 or one field alone is malformed',()=>{
+  expect(banner({active:1,remaining:4,injected_last_hour:1})).toContain('到期时间和名单人数快照未提供');
+  expect(attr(banner({active:0,remaining:0,injected_last_hour:0,expires_at:null,members:null}),'fault')).toBe('off');
+  for(const bad of [{expires_at:null,members:null},{expires_at:'2026-11-08T03:00:00Z',members:null},{expires_at:null,members:2},
+    {expires_at:'2026-11-08T03:00:00Z'},{members:2},{expires_at:'soon',members:2},{expires_at:'2026-11-08T03:00:00Z',members:-1}])
+    expect(attr(banner({active:1,remaining:4,injected_last_hour:1,...bad}),'fault')).toBe('invalid');
+  const page_=page({...metricsBody,synthetic_fault:{active:1,remaining:4,injected_last_hour:0,expires_at:null,members:null}});
+  expect(page_).toContain('data-fault="invalid"');expect(page_).toContain('超时率 3.00%');expect(page_).toContain('备份记录暂不可用');
 });

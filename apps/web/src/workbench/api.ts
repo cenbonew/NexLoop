@@ -752,11 +752,19 @@ export function metrics(value:unknown):Metrics{
 }
 /** ADR-045 (0423): the test-Consumer fault switch, block synthetic_fault {active 0/1, remaining, injected_last_hour}. The snapshot carries
  * neither the expiry nor the member count. Absent: null (无数据, never 未开启); malformed: invalid, never thrown (AT-045). */
-export type SyntheticFault={status:'ok';active:boolean;remaining:number;injected_last_hour:number}|{status:'invalid'};
+export type SyntheticFault={status:'ok';active:boolean;remaining:number;injected_last_hour:number;
+  /** 0427: the live switch's end (UTC) and its member count; undefined from an older backend (快照未提供), null without a live switch. */
+  expires_at?:string|null;members?:number|null}|{status:'invalid'};
 export function syntheticFault(value:unknown):SyntheticFault|null{
   if(value===undefined||value===null)return null;
   try{const o=object(value);if(o.active!==0&&o.active!==1)throw new WorkbenchError('invalid');
-    return {status:'ok',active:o.active===1,remaining:count(o.remaining),injected_last_hour:count(o.injected_last_hour)};}
+    const active=o.active===1;const out:SyntheticFault={status:'ok',active,remaining:count(o.remaining),injected_last_hour:count(o.injected_last_hour)};
+    if(o.expires_at!==undefined||o.members!==undefined){  // 0427: both or neither; a live switch has both
+      const expires_at=maybeText(o.expires_at),members=o.members===null?null:count(o.members);
+      if(o.expires_at===undefined||o.members===undefined||(active&&(expires_at===null||members===null))||(expires_at!==null&&Number.isNaN(Date.parse(expires_at))))
+        throw new WorkbenchError('invalid');
+      Object.assign(out,{expires_at,members});}
+    return out;}
   catch{return {status:'invalid'};}
 }
 /** 0424: timers the alert rules watch that no host reports, as role:timer selectors. Absent block or fields: null; malformed: invalid. */
