@@ -733,3 +733,6 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 .workbench .trace-detail code{margin-right:4px}
 @media (max-width:640px){.workbench .trace-steps li{grid-template-columns:7em auto;}.workbench .trace-time,.workbench .trace-detail{grid-column:1/-1}}
 .workbench .budget-alert[data-tone=fail]{color:var(--danger);margin:8px 0 0}
+.workbench .drill-banner{margin:0 0 12px;padding:10px 14px;border:2px solid var(--warn-text);border-radius:8px;background:var(--warn-soft);color:var(--warn-text)}
+.workbench .drill-banner .note{margin-left:6px}
+.workbench .timer-list{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:6px 0 0;padding:0}

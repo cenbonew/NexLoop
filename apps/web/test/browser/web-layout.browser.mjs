@@ -127,6 +127,9 @@ try{
   // Budget health (0422): the card is one of its states, never silently absent.
   await page.locator('[data-budget]').waitFor({timeout:20000});
   result.budget_health={state:await page.locator('[data-budget]').getAttribute('data-budget'),text:await page.locator('[data-budget]').innerText()};
+  // ADR-045 / 0424: the fault switch line and the timer list each say one of their states.
+  result.ops_fault={state:await page.locator('[data-fault]').getAttribute('data-fault'),text:await page.locator('[data-fault]').innerText()};
+  result.ops_timers={state:await page.locator('[data-timers]').getAttribute('data-timers'),text:await page.locator('[data-timers]').innerText()};
   // Batch 5 shell at 1440: three navigation groups, the next-stage pages last and marked; tabs on commitments: arrow keys,
   // Home/End and Enter/Space move the selection, aria-selected and the roving tabindex follow, focus stays on the selected tab,
   // and the tab list is the same element (not re-mounted) after the other list loads.
