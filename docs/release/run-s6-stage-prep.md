@@ -60,6 +60,13 @@
 | `inputs.schema_type` 等 NX-040 字段 | `s6_stage_inputs.py` 输出 | — | — |
 | `inputs.semantic` | at023 之后用 `--only semantic` 取 | — | 总序第 5 步 |
 
+**`roles.verify` 在 stage 上的取法（L6，R72 条件 PASS）**：stage 的 DATA_HOST 上没有应用角色的 DSN。`roles.verify` 直接引用 inspector 那个 bootstrap DSN 文件（同一个路径），**不要另外复制一份，也不要把 APP_HOST 的应用凭据搬到 DATA_HOST**。理由：
+- 应用凭据只属于 APP_HOST 上的服务，搬过去会多一个凭据副本，违背"运行时以外不持有应用凭据"；
+- 多复制一份 bootstrap DSN，只会多一个要保管和清理的高权限文件；
+- 只读由脚本强制并验证：`s6_stage_schema.py` 的 verify 连接经 `s6_common.connect_read_only(path, who='verify')` 建立，先设 `default_transaction_read_only=on` 并读回，不是 on 就拒绝；`verify()` 在事务里再确认一次 `transaction_read_only`。这个连接只跑 `bootstrap.verify`，r8 的任何写入都不经过它（`tests/test_s6_verify_read_only_pg.py`）。
+- 它仍然是 bootstrap 角色，不是应用角色：只读是脚本保证的，不是角色本身的权限。
+- **后续项（不在这次做）**：给 evo reader 或一个专用只读角色授权 `control.schema_migrations` 的 SELECT，之后 `roles.verify` 改用它。这需要一个迁移，并送 L6 复核。
+
 口令的写法：每个演进角色的口令已在钥匙串里（`nexloop/stage/evo-writer` 等，以 `~/.nexloop/vault-index.md` 的条目为准）。passfile 由调度员在管理机上生成，写入 DATA_HOST，命令形态是 `security … -w | ssh <DATA_HOST> 'umask 077; cat > <EVO>/<role>/pgpass'`。口令不进 argv，也不放进 heredoc，并且要先把 `pgpass` 的格式行拼好（`*:*:<stage 库>:<role>:` 加上口令）。如果 10-22 已经有这三份 passfile，就直接复用。
 
 ## 2. 造出满足 P5/P7/P9 的合成交互

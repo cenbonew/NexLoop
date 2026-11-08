@@ -54,7 +54,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
-from s6_common import (Blocked, Redactor, Refused, Result, connect_from, digest, load_config, owner_directed_properties, read_private,  # noqa: E402
+from s6_common import (Blocked, Redactor, Refused, Result, connect_from, connect_read_only, digest, load_config, owner_directed_properties, read_private,  # noqa: E402
                        refusal, token_digest)
 
 ESCALATION = 'eios:action:Grant.issue:1'
@@ -98,8 +98,12 @@ class Ports:
         from nexloop_eios.bootstrap import verify
         if not self.verify_connect:
             raise Blocked('verify connection not configured')
+        # L6 (R72): the verify connection is read only by construction (s6_common.connect_read_only, who='verify') and checked here
+        # again; it serves bootstrap.verify alone - no write of any check goes through it.
         with self.verify_connect() as db, db.transaction():
             db.execute('set transaction read only')
+            if db.execute('show transaction_read_only').fetchone()[0] != 'on':
+                raise Refused('verify is not read only')
             got = verify(db)
         return {'revision': got['revision'], 'migration_count': got['migration_count'], 'digest': digest(got)}
 
@@ -395,7 +399,7 @@ def ports_from(config, password):
     return Ports(writer_connect=connect_from(w['dsn_file']) if w.get('dsn_file') else None,
                  writer_digest=token_digest(w['token_file']) if w.get('token_file') else None, writer_credential=w.get('token_file'),
                  evaluator_connect=connect_from(e['dsn_file']) if e.get('dsn_file') else None, evaluator_credential=e.get('token_file'),
-                 verify_connect=connect_from(v['dsn_file']) if v.get('dsn_file') else None, owner=owner)
+                 verify_connect=(lambda path=v['dsn_file']: connect_read_only(path, who='verify')) if v.get('dsn_file') else None, owner=owner)
 
 
 def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
