@@ -1,8 +1,9 @@
 """r8's D23 tool regression set (scripts/acceptance/s6_stage_schema.py tool_cases), on the Consumer-bound Actions as the catalog builds
 them - the stage shape of 2026-11-09 (R72): most Actions have the open input schema {}, a few have patterns, uuid formats, consts,
 lengths and bounds. A valid case is built from the schema's own constraints and checked against the Parent (refused when none can be
-built); an invalid case is one the Parent refuses; an Action whose Parent accepts every value gets no invented invalid case - it is
-named and the replay reports it incomplete (D23 decision pending, never a silent pass). A tightened candidate is still a regression.
+built); an invalid case is one the Parent refuses; an Action whose Parent accepts every value gets no invented invalid case - schema_gates
+lists it open_input (D23 as revised by the owner 2026-11-09: valid case only, same schema in both revisions). A tightened candidate is
+still a regression.
 No database."""
 import importlib.util
 import sys
@@ -57,15 +58,13 @@ def test_every_constrained_action_gets_a_valid_and_an_invalid_case_that_the_pare
     assert len(bind['message_id']) == 64 and bind['run_id'] == S._SAMPLE_UUID
 
 
-def test_the_replay_passes_every_constrained_action_and_names_every_open_one_incomplete(consumer_schemas):
+def test_the_replay_passes_the_stage_shape_with_every_open_action_exempt(consumer_schemas):
     cases, open_actions = S.tool_cases(consumer_schemas)
     started = time.monotonic()
     tools = G.replay_tools(cases, consumer_schemas)
     assert time.monotonic() - started < 5  # ~100 Actions, two passes in the report: well under a second each
-    assert tools['failures'] == []
-    assert tools['incomplete'] == ['action:' + n for n in sorted(open_actions)]  # not a pass: tool_context_compatible fails on them
-    gate = G._gate('tool_context_compatible', not tools['incomplete'], 'tools:regression_set', *tools['incomplete'])
-    assert gate['result'] == 'fail' and len(gate['evidence_ids']) <= 64  # the evidence stays bounded
+    assert tools['failures'] == [] and tools['incomplete'] == []
+    assert tools['open_input'] == sorted(open_actions)  # D23 as revised 2026-11-09: exempt from the invalid case, listed apart
 
 
 def test_a_tightened_candidate_is_still_a_regression(consumer_schemas):

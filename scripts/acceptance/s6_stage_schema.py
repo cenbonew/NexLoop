@@ -236,8 +236,6 @@ def check_at024(ports, inputs, r):
 
 _SAMPLE_UUID = '00000000-0000-4000-8000-000000000000'
 _SAMPLE_STRINGS = ('a' * 64, _SAMPLE_UUID, 'x', 'synthetic', '1', 'a')
-# The values tried, in order, for an input the Parent refuses (D23's invalid case); a schema that accepts all of them accepts any value.
-_INVALID_PROBES = ([], None, 'x', 0, {}, {'s6_unexpected_field': 1}, True)
 
 
 def _accepts(schema, value):
@@ -281,16 +279,18 @@ def _sample(schema):
 
 def tool_cases(schemas):
     """D23 cases per Action: a valid one the Parent input schema accepts (refused here when none can be built: never a case the gate
-    would misjudge) and an invalid one the Parent refuses. A Parent that accepts every value has no input to refuse: no invalid case
-    is made up for it - it is returned in `open` and the replay reports it incomplete (never a silent pass; D23 decision pending)."""
+    would misjudge) and an invalid one the Parent refuses, picked from schema_gates.OPEN_PROBES (the one probe set). A Parent that
+    refuses no probe gets no invented invalid case and is returned in `open`; whether it is exempt (D23 as revised 2026-11-09: the
+    same schema in both revisions, no non-local reference) is decided by schema_gates alone - otherwise the replay reports it incomplete."""
+    from nexloop_eios.schema_gates import OPEN_PROBES
     cases, open_actions = [], []
     for name, s in sorted(schemas.items()):
         valid = _sample(s['parent'])
         if not _accepts(s['parent'], valid):
             raise Refused(f'tool cases: no valid sample for the Parent input schema of {name}')
         cases.append({'id': name + '-valid', 'action': name, 'params': valid, 'expect': 'valid'})
-        invalid = next((v for v in _INVALID_PROBES if not _accepts(s['parent'], v)), _INVALID_PROBES)
-        if invalid is _INVALID_PROBES:
+        invalid = next((v for v in OPEN_PROBES if not _accepts(s['parent'], v)), OPEN_PROBES)
+        if invalid is OPEN_PROBES:
             open_actions.append(name)
         else:
             cases.append({'id': name + '-invalid', 'action': name, 'params': invalid, 'expect': 'invalid'})
@@ -338,10 +338,12 @@ def check_r8(ports, inputs, r, *, publish=False):
     amount = str(inputs.get('reflow_amount') or '0.01')
     reserved = ev.reflow_reserve(cid, 'reflow:' + cid, amount, 'CNY')
     change, parent, gate_inputs, open_actions = gates_inputs(basis, reserved.get('reserved') is True, amount)
-    # D23: an Action whose Parent input schema accepts every value has no invalid case; named here, the replay reports it incomplete.
-    r.step('tool_cases_built', 'a valid case per Action; an invalid one wherever the Parent input schema refuses some input',
-           {'actions': len(gate_inputs['action_schemas']), 'cases': len(gate_inputs['tool_cases']), 'open_input_actions': len(open_actions)}, True,
-           open_input_actions=open_actions[:64])
+    # D23 (revised 2026-11-09): schema_gates decides which Actions are open_input (valid case only); the rest need both cases.
+    from nexloop_eios.schema_gates import open_input
+    exempt = sorted(n for n, s in gate_inputs['action_schemas'].items() if open_input(s['parent'], s['candidate']))
+    r.step('tool_cases_built', 'a valid case per Action; an invalid one unless schema_gates counts the Action open_input',
+           {'actions': len(gate_inputs['action_schemas']), 'cases': len(gate_inputs['tool_cases']), 'open_input': len(exempt),
+            'no_invalid_case': len(open_actions)}, True, open_input=exempt[:64])
     created = datetime.datetime.now(datetime.UTC).isoformat().replace('+00:00', 'Z')
     report = evaluate_schema(frozen['bundle'], frozen['bundle_digest'], change, parent, created_at=created, inputs=gate_inputs)
     gates = {g['gate']: g['result'] for g in report['hard_gates']}
