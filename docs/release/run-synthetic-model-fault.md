@@ -54,7 +54,8 @@ ro "select (select count(*) from control.nexloop_synthetic_fault_switches),(sele
 - 两个 relay 都用 `ontology_hybrid`（2026-11-07 已核对）。
 - 没有在运行的 NX-037 run 入口：它在错误率高时会自动暂停。
 - 模型预算和 evolution 预算都有效。
-- 四个测试顾客：s6c-1、s6c-2、s6c-3，以及第 4 个（候选见设计 §7）。
+- 四个测试顾客：s6c-1、s6c-2、s6c-3，以及第 4 个（候选见设计 §7：新加 customer-5，或用 entry-test-consumer；候选查询必须带读会话授权条件）。customer-1..4 不能用：customer-1/2/3 的授权已在 10-30 撤销（能登录，读会话 403），customer-4 已擦除。
+- **只有 3 个顾客时**：只用 s6c-1/2/3，`remaining` 改为 3×3=9，下面的“四个 / 4 个 / 12”相应改为 3 个 / 9；预期 `consumers: 3`、审计 9 条 injected。2026-11-09 第一次演练就是这样做的。
 
 **步骤**
 1. **预热**（开关关闭）：四个顾客各发一轮普通问题，让两个 relay 的语义读取池热起来。冷池时第一次读取可能超过 0.5 秒而不留记录。

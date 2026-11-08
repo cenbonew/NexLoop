@@ -4633,7 +4633,7 @@
       "M23"
     ],
     "deliverable": "移植上游 authz/identity 测试（C3）；线上授权与干净 bootstrap 集群 ACL 的只读漂移检查（E1）；主机侧崩溃循环与定时产物新鲜度告警、每主机独立 recorder 身份（E2+E3）；无副作用外部调用的硬期限（D2，trust_env=False、CA 由调用方指定）",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -4694,6 +4694,18 @@
         "ref": "docs/release/run-nx055-stage.md §4",
         "summary": "E3 stage 检查 FAIL（2026-11-08）：recorders 通过；freshness 不通过——file-backup 定时失败 45 次（Host 不关闭已结束 Run 的存储，WAL 一直被持有），journal-restic-repo2 与 provider-drift 两个 timer 未安装。已处理：两个 timer 已安装并上报；Host 修复在批次 134；文件备份 06:55 起每轮成功，但单轮约 19 分钟，监控不计，方案 D 缓存在批次 134。E3 待重跑。执行：调度员；判定：调度员（结果 FAIL）。",
         "recorded_at": "2026-11-08T01:39:17Z"
+      },
+      {
+        "type": "note",
+        "ref": "local-only/evidence (dispatcher record, NX-055 E3 rerun 2026-11-08T23:32:23Z); docs/release/run-nx055-stage.md §4",
+        "summary": "E3 stage 重跑 PASS。release cff5985f09a3（RID 20261108-cff5985f09a3-1），告警规则 v34，DATA_HOST 一次性容器。第一次 exit 2（OperationalError，未挂 PG socket），挂上后重跑：status pass，exit 0；freshness fresh 12 / timers_watched 12 / timers_reported 12，stale 0、not_reported 0、scheduled_failures_24h 0；recorders hosts_expected 2、roles_present 2、roles_restricted 2、hosts_recording 2、hosts_probe_stale 0；第二条命令最后一行 E3 PASS（23:32:59Z）。metrics.dsn 权限 600。相对 11-08 FAIL 的修复：文件备份缓存方案 D 与 Host 关闭已结束 Run（批次 134），journal-restic@repo2 与 provider-drift timer 已安装，告警通知器纳入 host-health；timer 由 11 增至 12 是 v34 多看了新装的 timer。执行：调度员；判定：L6 PASS（2026-11-09）。",
+        "recorded_at": "2026-11-08T23:38:41Z"
+      },
+      {
+        "type": "note",
+        "ref": "NX-055 done summary",
+        "summary": "NX-055 done：C3（8ab83897）与 D2（814db636..de12fabc）代码已审并合入第二十批；E1 PASS、E2 PASS（2026-10-29，执行调度员、判定 L6）；E3 PASS（2026-11-09，执行调度员、判定 L6）。运行单 §4 末尾条件（E1/E2/E3 均有 PASS 判定记录）满足。acceptance-tests.json 无映射到 NX-055 的 AT，无需改 AT 状态。运行单 §4.2–4.4 修订（socket 挂载、timer 条数写法、退出码 2 排查）另派 L3，提交后追加。",
+        "recorded_at": "2026-11-08T23:38:41Z"
       }
     ]
   },

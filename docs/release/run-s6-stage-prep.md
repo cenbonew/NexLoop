@@ -78,7 +78,7 @@
 | A1 | C7：语义读取会被写入 | **负责人 10-29：启用 `ontology_hybrid`（top_k 5）**，按第 7 节执行并核对后才发言。不要用播种工具直接插读取记录 |
 | A2 | R3 需要一次占满浏览上限（**10 条**）的读取（`s6_stage_inputs.py` 的 `WIDE = 10`），而 Run 路径的读取上限是策略的 `top_k`，`ontology_hybrid` 是 **5**，到不了 10 条 | **负责人 10-29：不发布 top_k ≥ 10 的版本，r3 判 blocked**（原因：Run 路径读取上限 5 < 浏览上限 10，P7 不可满足），其余项照做（plan §5：单项只判这一项） |
 | A3 | 失败口径（负责人 10-22 选 A）：`attribution._failed` 把 sample 的 `outcome` 属于 `FAILED_OUTCOMES = {error, reply_fallback}` 的 Run 算作失败。`error`：Run 有 failures、outcome 为 error 或模型调用失败；`reply_fallback`：入站消息后来发起了兜底回复 Run（stage 在 300 秒后发起，`reply-guarantee.v3`）。真实模型一般几秒内就成功回复，两种都不出现时 Run 不算失败，**也就不会产生 retrieval_miss 草稿** | **负责人 10-29：照常发言并观测，不改失败口径。** 再跑 `s6_stage_inputs.py` 后 window 仍 blocked 且 `runs_with_miss=0` 时，把依赖 window / 草稿的项判 blocked（原因写“合成 Run 无 error / reply_fallback 结局，未产生检索未命中”），其余照做；不加轮次碰运气，不改模型档案或超时 |
-| A4 | 至少 4 个 simulated_agent 合成 Consumer 能发言（P9 要 4 个簇单元）。customer-4、refusal-1 已擦除；**10-30 起按 §2.1a 只用 customer-1/2/3**，customer-5 是条件分支 | `synthetic_customer.py` 预检会报 `conversation_unavailable`；customer-5 不存在时，按 S6-stage-acceptance 用 `webchat_consumers.py` 加一个，并用 `erase_synthetic_consumer.py mark` 标为 simulated_agent（approver3） |
+| A4 | 至少 4 个 simulated_agent 合成 Consumer 能发言（P9 要 4 个簇单元）。customer-4、refusal-1 已擦除；customer-1/2/3 的 WebChat 授权在 10-30 rebuild-s6c R2 中撤销（能登录，读会话 403）；**10-30 起按 §2.1a 只用 s6c-1/2/3**，customer-1..4 只作对照，customer-5 是条件分支 | `synthetic_customer.py` 预检会报 `conversation_unavailable`；customer-5 不存在时，按 S6-stage-acceptance 用 `webchat_consumers.py` 加一个，并用 `erase_synthetic_consumer.py mark` 标为 simulated_agent（approver3） |
 | A5 | 没有正在运行的 online 实验；real 外发的三层开关与 run 入口计划一致；routes 里企业端点指向参考替身 | 照 S6-stage-acceptance“副作用”一节。确认不了时请负责人临时关闭 `nexloop.enterprise.deliver:1` |
 | A6 | OUT 还没开始（X5） | OUT 已开始就等 OUT §4.4 结束，并且整个窗口要避开 OUT 的 Run |
 
@@ -86,7 +86,7 @@
 
 ### 2.1a 3 账号路径（负责人 2026-10-30，L6 同意）
 
-refusal-1 的 Consumer 已擦除，customer-4 也已擦除。今天只用 customer-1/2/3 发言，共 9 轮。
+refusal-1 的 Consumer 已擦除，customer-4 也已擦除；customer-1/2/3 的 WebChat 授权在同日 rebuild-s6c R2 中撤销（账号仍 active、能登录，但 `GET /api/v1/conversations` 返回 403，`synthetic_customer.py` 预检报 `conversations forbidden`）。10-30 起只用 s6c-1/2/3 发言，共 9 轮；customer-1..4 只作“没有误发”的对照（与 run-outreach-slice5-stage 一致）。下文表格里写作 customer-1/2/3 的账号，一律按 s6c-1/2/3 执行。
 
 - **blocked**（plan §5，单项只判这一项）：依赖 4 个簇单元的 at048、r5、r7、template，照实判 blocked，原因写“只有 3 个合成 Consumer 能发言”。
 - **r7 一律不做**：它的擦除不可逆，没有第 4 个簇单元时不执行。

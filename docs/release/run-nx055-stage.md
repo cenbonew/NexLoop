@@ -259,14 +259,14 @@ E1、E2 已有 stage 记录（任务证据 10-28）。E3 在 stage 上一直在�
 | E3-P2 | DATA_HOST 上有 `$RUN/metrics.dsn`（只读 metrics 登录，0600），与 NX-054 S8 各单用的是同一个 | `stat -c '%a' "$RUN/metrics.dsn"` 为 `600` |
 | E3-P3 | 两台主机的探针在记录 | 同本单 P5：`probe_age_seconds` 两台都在 120 秒以内 |
 
-变量与本单 §0 相同（`RUN`、`BACKEND_IMAGE`、`COMMON`），另加 `RULES_VERSION`。
+变量与本单 §0 相同（`RUN`、`BACKEND_IMAGE`、`COMMON`），另加 `RULES_VERSION`，以及 `PG_SOCKET_DIR`：DATA_HOST 上 PG 的 socket 目录，与 §1 `$WINDOW` 中挂到 `/var/run/postgresql` 的是同一个目录。`$COMMON` 带 `--network none`，metrics 登录只能经这个 socket 连库，所以两条命令都要挂它（同 §1.3 的说明）。
 
 ### 4.2 检查（DATA_HOST，一次性容器，A）
 
 ```
-docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /opt/release/scripts/acceptance/nx055_e3_check.py \
+docker run $COMMON -v "$PG_SOCKET_DIR:/var/run/postgresql" -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /opt/release/scripts/acceptance/nx055_e3_check.py \
   --metrics-database-url-file /run/metrics-dsn --alert-rules /opt/release/deploy/configuration/alert-rules.v$RULES_VERSION.json --json; echo "exit=$?"
-docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /opt/release/scripts/acceptance/nx055_e3_check.py \
+docker run $COMMON -v "$PG_SOCKET_DIR:/var/run/postgresql" -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /opt/release/scripts/acceptance/nx055_e3_check.py \
   --metrics-database-url-file /run/metrics-dsn --alert-rules /opt/release/deploy/configuration/alert-rules.v$RULES_VERSION.json
 ```
 
@@ -292,7 +292,7 @@ docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /o
   - 2：被拒绝（不是 metrics 登录、规则文件无效或连不上），输出只有错误类型。
 - **no_data 不算通过**。以下情况都报 no_data：快照没有 real 世界、规则不看任何 timer、规则在看的 timer 一个都没出现在快照里、有主机从未记录过。
 - **通过条件**：第一条命令输出 `exit=0`，JSON 中 `status` 为 `pass`，并且同时满足：
-  - `freshness.fresh` 等于 `freshness.timers_watched`（v30 为 11）；
+  - `freshness.fresh` 等于 `freshness.timers_watched`（等于该版本规则里 `timer_stale_*` 的条数，例如 v30 为 11、v34 为 12）；
   - `stale`、`not_reported`、`scheduled_failures_24h` 都为 0；
   - `recorders.roles_restricted` 和 `recorders.hosts_recording` 都等于 `hosts_expected`（2）；
   - `hosts_probe_stale` 为 0。
@@ -306,7 +306,7 @@ docker run $COMMON -v "$RUN/metrics.dsn:/run/metrics-dsn:ro" "$BACKEND_IMAGE" /o
 | `roles_restricted` < `hosts_expected` | 角色属性或授权与 0318 不一致（多了成员关系或表权限）。这是安全问题，报 L6 和负责人，不要现场修改 |
 | `hosts_recording` < `hosts_expected`（退出码 3）或 `hosts_probe_stale` > 0 | 那台主机的 `nexloop-host-health.timer` 没有运行，或者 DSN 失效。查 `journalctl -u nexloop-host-health -n 5`（host-health.md §4.6 第 1 条），修好后重跑本节 |
 | JSON 中有 `reason: rules_version_below_30`（退出码 1） | 用的规则文件版本低于 v30。旧文件看的 timer 更少，跑出的“通过”不算数。换成 stage 已发布的版本（E3-P1）后重跑 |
-| 退出码 2 | `error` 字段为 `PermissionError`，说明 DSN 不是 metrics 登录；为其他值时，检查规则文件路径和网络挂载 |
+| 退出码 2 | `error` 字段为 `PermissionError`，说明 DSN 不是 metrics 登录；为 `OperationalError` 时，先检查 socket 挂载（`$PG_SOCKET_DIR` 和 `metrics.dsn` 的挂载，同 §1 故障表 1.3 那一行），不要改用网络 DSN；为其他值时，检查规则文件路径 |
 
 ### 4.5 证据（记入 NX-055 任务证据；不含 DSN）
 

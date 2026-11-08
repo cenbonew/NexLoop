@@ -144,16 +144,18 @@ ro "select (select count(*) from runtime.nexloop_synthetic_fault_decisions), (se
 - 失败发生在模型这一侧，不需要下单，所以不要求这个顾客能下单，只要能经 WebChat 发言、persona 为 simulated_agent 即可。
 - 候选：
   - **entry-test-consumer**（1456b530，simulated_agent）：负责人签发入口票据后在浏览器里发言（ADR-043）；
-  - 其余没被擦除的 simulated_agent Consumer（0c7c4410、6db782c3、8ecad01e、ac8a9011、e411740e）里，有 active 的 WebChat 账号的那个，按负责人保管的口令走 `speak-turn.sh`。
-- 只读查询哪些 Consumer 有可登录的账号（DATA_HOST）：
+  - **新加 customer-5**：按 S6-stage-acceptance 用 `webchat_consumers.py` 加一个，并用 `erase_synthetic_consumer.py mark` 标为 simulated_agent。
+- **不能用 customer-1..4**：customer-1/2/3（含 0c7c4410）的 WebChat 授权已在 10-30 rebuild-s6c R2 中撤销，账号仍 active、能登录，但读会话 403（2026-11-09 演练预检 `customer-1 conversations forbidden`）；customer-4 的 Consumer 已擦除。账号 active 不代表能发言，候选必须同时有 `nexloop.conversation.read:1` 的非空授权。
+- **只有 3 个顾客也可以演练**：s6c-1/2/3 各 3 轮，`remaining` 改为 3×3=9，其余步骤里的“4 个”相应改为 3 个。2026-11-09 第一次演练就是这样做的。
+- 只读查询哪些 Consumer 既有可登录的账号、又有读会话授权（DATA_HOST）：
 
 ```bash
-ro "select left(o.consumer_id,8), p.persona, a.payload->>'status' account_status from control.nexloop_consumer_owners o join control.nexloop_consumer_personas p on p.tenant_id=o.tenant_id and p.world='real' and p.consumer_id=o.consumer_id join control.nexloop_browser_memberships m on m.tenant_id=o.tenant_id and m.principal_id=o.principal_id join control.nexloop_browser_accounts a on a.tenant_id=m.tenant_id and a.subject_id=m.subject_id where o.tenant_id='$TENANT_ID' and p.persona in ('simulated_agent','synthetic') order by 1"
+ro "select left(o.consumer_id,8), p.persona, a.payload->>'status' account_status from control.nexloop_consumer_owners o join control.nexloop_consumer_personas p on p.tenant_id=o.tenant_id and p.world='real' and p.consumer_id=o.consumer_id join control.nexloop_browser_memberships m on m.tenant_id=o.tenant_id and m.principal_id=o.principal_id join control.nexloop_browser_accounts a on a.tenant_id=m.tenant_id and a.subject_id=m.subject_id where o.tenant_id='$TENANT_ID' and p.persona in ('simulated_agent','synthetic') and not exists(select 1 from control.nexloop_consumer_erasures e where e.tenant_id=o.tenant_id and e.consumer_id=o.consumer_id) and exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=o.tenant_id and f.fact_kind='grants' and f.entity_key[1]=o.principal_id and f.entity_key[2]='eios:action:nexloop.conversation.read:1' and jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0) order by 1"
 ```
-  - `consumer_owners` 的列名请先在 stage 上 `\d` 确认。
+  - `consumer_owners` 的列名请先在 stage 上 `\d` 确认。授权条件与 customer-1 诊断时在 stage 上核对过的查询相同（`grants` 事实的 `grants` 数组非空）。擦除不撤授权，stage 补撤销之前 customer-4、refusal-1/2 仍满足授权条件，所以另用 `control.nexloop_consumer_erasures`（擦除登记，有任何一行即视为已擦除或擦除中）排除。
 
 **步骤**
-1. **预热**（开关关闭）：s6c-1、s6c-2、s6c-3 和第 4 个顾客各发一轮普通问题，让两个 relay 的语义读取池热起来。
+1. **预热**（开关关闭）：s6c-1、s6c-2、s6c-3 和第 4 个顾客各发一轮普通问题，让两个 relay 的语义读取池热起来。只有 3 个顾客时省略第 4 个。
 2. **打开开关**：负责人执行 `nexloop.synthetic_fault.set`（open），`consumer_ids` 为这 4 个，`remaining` 12，`duration_seconds` 3600，reason 写"NX-038/039 S6 P5（ADR-045）"。
 3. **发言**：4 个顾客各发 3 轮，间隔不少于 1 分钟。
    - 每轮都带同一个未知词，例如"霁蓝釉陶片拼贴"；
