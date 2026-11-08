@@ -36,7 +36,7 @@
 | **派发时的输入校验**（`action_governor.py` 48–61 行） | **不只影响闸门**：governor 在派发每个请求时，就用已发布版本的 `input_schema` 校验（`Draft202012Validator`，开着 `FORMAT_CHECKER`），不过就报 `published Action input rejected`。所以新版本一旦发布，过严的模式**当场**就会拒掉真实请求，不是等到下一次 Schema 变更才暴露 | 这就是 §3 的影子校验和 C3 门槛必须在新版本发布**之前**满足的原因；生成规则只导出一一对应的约束，并且不导出 format（C1） |
 | **工作台取 Action**（`authz.nexloop_workbench_action_for`，0125） | 它要求同一个 capability **只有一个 active 定义**，有两个就报 `published more than once` | **确实不支持**：`catalog_publish.publish` 只发布缺少的定义，不会把旧版本设为 inactive。所以**第 0 批需要补一个迁移**：可信配置发布 `previous_version` 指向旧版本的新定义时，在同一事务里把旧版本设为 inactive，并且只允许这样一对一地替换。否则新版本一发布，工作台就报 `published more than once` |
 | **人工授权**（`workbench-roles.v1.json`，`workbench_roles.py`） | 角色里的资源写的是精确版本（`eios:action:nexloop.real_dispatch.set:1` 等），`action_for` 也按精确版本查 grant | 同一批里把角色清单改为 `:2`，`manifest_version` 加 1，与新版本同一次 register 应用；`owner_only` 集合同步改。漏一个，对应的工作台操作就是 403 |
-| **服务授权**（`service-grants`，`follow_latest_version`） | 带 follow_latest 的（例如 `claim_matcher → Consumer.edit`）在下一次 register 时解析成新版本 | 部署单写明“发布后必须 register”，dry-run 预期新增的授权逐条列出（同 Consumer v2 那次） |
+| **服务授权**（`service-grants`，`follow_latest_version`） | **不会跟随**（第 0 批实现时核实）：`service_grants.resolve_follow` 只跟随人工审核决定发布的、纯 Schema 重绑定的后继版本；改了 `input_schema` 的新版本不是重绑定，会被列为 refused、链在这里停住 | 每个被替换的、有服务授权的 Action（例如 `claim_matcher → Consumer.edit`），都要在 service-grants 里**显式**加上新版本的授权，与替换同一次 register；`tests/test_d23_input_schemas.py` 有用例 |
 | **Capability 快照** | 不变：`capability_binding` 的 `schema_hash` 是 capability 的，不含 Action 的 input_schema | 无 |
 | **publish / register 计数** | `test_stage_register_pg` 的 `(20, N, 2)` 按 Action 定义数计；新版本会让定义数增加（旧版本仍在表里，只是 inactive） | 每批同步改计数，见 memory 中 “new-action-register-count” 的做法 |
 | **已有 effect intent、receipt、governed intent** | 都指向旧版本的 resource id，保留不动，查询和对账照常 | 无 |
@@ -52,9 +52,13 @@
 | `authz.nexloop_workbench_action_for`（0125） | 返回新版本（只剩一个 active）；按新版本的精确 resource id 查 grant | 角色清单同步改为新版本。测试：发布 `:2` 后 `action_for` 返回 `:2` 且 `granted`；角色没改时返回 `granted: false`（403），不报 `published more than once` |
 | service-grants 的 `follow_latest_version`（register 时解析） | register 解析到新的 active 版本，授予新版本、撤销旧版本 | 测试：发布 `:2` 后 register 的 dry-run 列出“新增 `:2`、撤销 `:1`”，不会两个都留着或都没有 |
 | 0183 effect 版本精确匹配（`control.nexloop_effect_actions` 白名单按精确 resource id 比对） | 这 91 个都**不在** effect 白名单里：effect Action（`nexloop.service.request`、`enterprise.deliver` 等）本来就有输入模式，不在本项范围内。所以切换不影响 0183 | 测试：第 0 批断言这 91 个都不在 effect 白名单中；如果以后某个 effect Action 也要换版本，白名单行必须同一次更新（另开一项） |
-| Pi 侧工具清单（`apps/agent-host/src/runtime-effect-tools.ts`） | Host 的工具定义是代码里写死的，不由 `input_schema` 生成，只对应 effect、激励、外联、计划结果这几类工具，都不在这 91 个里。**不受影响** | 测试：第 0 批 grep 断言 Host 源码里没有引用这 91 个 Action 的 stable_name |
+| Pi 侧工具清单（`apps/agent-host/src/runtime-effect-tools.ts`） | Host 的工具定义是代码里写死的，不由 `input_schema` 生成。**但其中两个在这 91 个之内**（第 0 批实现时发现）：`nexloop.incentive.issue` 和 `nexloop.outreach.send`，它们是 Run 工具，也是模拟世界的替身工具。Run 的凭据和 Role 上限写的是精确版本 `:1`（Host 注释和 SQL 各处共 25 处引用） | 这两个放在第 3 批，同一批把 Run 凭据、Role 上限和 SQL 里的 `:1` 引用一起改到新版本；模型看到的工具参数仍由 Host 定义，不变。测试断言 Host 引用的开放 Action 恰好是这两个 |
 | Capability 绑定（`capability_binding`） | 新版本绑定同一个 capability 快照（`schema_hash` 不变） | 测试：新旧版本的 `capability_binding` 逐字节相同 |
 | **代码里写死版本号的调用方** | 写死 `:1` 的调用在旧版本停用后会被拒（definition reader 读不到 active 的 `:1`）。在这 91 个里，本机 grep 找到：`business_setup.py:71`（`Consumer.create`，`action_version=1`）、`scripts/nx037/real_tenant_init.py:113`（`nexloop.budget.loosen`，`action_version: 1`）、`scripts/perf/test_micro_authz.py`（`Consumer.create`），以及大量测试 fixture | 写死版本的生产代码改为“取当前 active 版本”，与对应批次一起改；测试 fixture 自己发布定义，不受 stage 切换影响，但第 0 批要 grep 出所有引用并列成清单 |
+
+**可信配置清单只能列最新版本**（第 0 批实现时发现）：`control.nexloop_configure_manifest` 要求清单里的每个 Action 在库里都是 active 的，所以旧版本被替换后，catalog 清单只能列新版本；否则重跑同一份清单就报 `configuration conflict`。第 1 批起，catalog 编译要改为每个 stable_name 只输出最新版本。
+
+**`previous_version` 是一个精确引用**（stable_name、version、contract_digest），不是整数。迁移按它核对上一版的摘要。
 
 ## 3. 分批
 
@@ -98,10 +102,43 @@
   2. **版本切换的窗口**：旧版本没及时 inactive 会让工作台报 `published more than once`；角色清单漏改会 403；跨版本重试会被拒绝；
   3. **正则方言差异**：生成器只接受两边语义相同的子集；
   4. **计数和清单的连带修改**：每批都要改 register 计数、角色清单的版本和 NX-040 的后继规则测试。
-- **需要负责人决定（B 类）**：
+- **负责人 2026-11-09 的决定**（原话所选选项）：
+  1. “做，空闲线先做第 0 批（推荐）”；
+  2. 第 3 批：“接受 7 天 + 至少 1 次（推荐）”；
+  3. 没有真实调用时：“允许合成调用（推荐）”：用合成租户、非 real 的 persona，走受治理的路径，不产生真实效果；
+  4. 切换窗口：“跟随普通部署，调度员定（推荐）”。
+
+- **原先列出的待决定项**（已由上面四条决定）：
   1. 是否做方案 B，以及排在哪个阶段：它不阻塞任何已排的工作（方案 A 已解锁 Consumer v2）；
   2. 第 3 批（有业务或外部效果的操作）是否接受“7 天影子观察计数为 0 才发布”的节奏；
   3. 版本切换要求人工操作停一个窗口，请定窗口时间；
   4. **第 3 批里有外部或业务效果的 Action，如果 7 天内一直没有真实调用**：是允许用 stage 合成调用补足覆盖（合成租户、非 real 的 persona，不产生真实效果），还是必须等真实流量。
 
   其余（生成规则、分批顺序、验收标准）由 L6 判定即可。
+
+## 5. 第 0 批的实现（前置部分）
+
+- **迁移 `action_version_replace`**（临时号 0430）：在 `control.nexloop_action_definitions` 上加一个 before insert 触发器。只在配置员（`session_user = nexloop_configurator`）插入带 `previous_version` 的 Action 时生效：
+  - 校验一对一替换：上一版本存在、摘要一致、处于 active、与新版本同一个 capability，并且是这个 stable_name 唯一的 active 定义；新版本号是上一版本号加 1；
+  - 通过就把上一版本设为 inactive，不通过就报 `action replacement invalid`，什么都不改；
+  - 同一份清单重放时什么都不改；
+  - 其他写入路径（NX-040 的后继版本、模拟世界的目录、测试）不受影响；
+  - 已发布的定义仍然不可变，只改 `active`。
+- **生成器** `nexloop_eios/input_schemas.py`：从 `workbench_actions_http.OPERATIONS` 导出候选模式。
+  - 认识的检查导出为对应约束：`_id` 的正则（只接受两边语义相同的写法）、`_bool`、`_text`、`_reason`、`_scope`、`_kind`、UTC 时间（只写 `type: string`，不导出 format）；
+  - 不认识的检查导出为 `{}`，只会更宽；
+  - 正则按 `^(p)$` 导出；
+  - 由请求体决定 spec 的操作（`read_experiment_report`、`invite_workbench_member`）和超出共同写法的正则（`invite_workbench_owner`、`send_outreach`）拒绝导出，留给人工处理。
+  - 本机结果：80 个操作导出，4 个留给人工；240 个字段里有 144 个是 `{}`（lambda 检查）。这些要在各批里逐个和 `GoalGovernedActions` 构造的请求体比对后补上。
+- **测试**：
+  - `tests/test_d23_input_schemas.py`（纯测试）：
+    - C1：没有 format、锚点、末尾换行这一点有意宽于运行时、超出共同写法的正则被拒；
+    - 每个导出的模式至少拒绝一个探测值；
+    - C2：follow_latest 不跟随、Capability 绑定不变、91 个都不是 effect Action、Host 只引用那两个工具；
+    - C4：Context 组装从不把 `input_schema` 放进 Context。只有绑定 Action 的授权检查读它，测试按这一点区分。
+  - `tests/test_d23_action_replace_pg.py`：
+    - 一对一替换后，同一个 capability 只剩 1 个 active 定义（这正是 `action_for` 计的数）；
+    - 重放什么都不改；六种不合法的替换都被拒、什么都不改；
+    - 非配置员路径不受影响；
+    - 变异检查：去掉“停用上一版本”那一行，替换用例按预期失败。
+- **没有改任何已发布的 Action**。
