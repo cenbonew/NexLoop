@@ -109,7 +109,7 @@ def test_the_file_backup_unit_is_the_installers_and_sandboxed_as_d3():
     assert service['AmbientCapabilities'] == service['CapabilityBoundingSet'] == ['CAP_DAC_READ_SEARCH']
     assert service['TemporaryFileSystem'] == ['/srv/nexloop:ro'] and 'ReadOnlyPaths' not in service
     assert service['BindReadOnlyPaths'][0].split() == ['/srv/nexloop/data/artifacts', '/srv/nexloop/data/runtime', '/srv/nexloop/secrets/backup']
-    assert service['ReadWritePaths'] == ['/var/lib/nexloop-file-backup/staging'] and service['MemoryDenyWriteExecute'] == ['@MDWE@']
+    assert service['ReadWritePaths'] == ['/var/lib/nexloop-file-backup/staging /var/lib/nexloop-file-backup/cache'] and service['MemoryDenyWriteExecute'] == ['@MDWE@']
     hidden = service['InaccessiblePaths'][0].split()
     # /etc/nexloop must exist (no "-"): the host-health DSN and every other private configuration of this host are under it.
     assert '/etc/nexloop' in hidden and {'-/etc/shadow', '-/srv/nexloop-backup', '-/var/lib/docker', '-/etc/ssh/ssh_host_ed25519_key'} <= set(hidden)

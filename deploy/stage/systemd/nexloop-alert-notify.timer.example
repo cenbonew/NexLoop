@@ -1,0 +1,9 @@
+[Unit]
+Description=NexLoop out-of-workbench alert notification, every 15 minutes (minutes 07, 22, 37, 52 - away from the backups)
+
+[Timer]
+OnCalendar=*-*-* *:07/15:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target

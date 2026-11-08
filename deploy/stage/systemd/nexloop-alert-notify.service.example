@@ -1,0 +1,25 @@
+# Out-of-workbench alert notification (owner 2026-11-08; docs/implementation/alert-notifier-design.md,
+# docs/release/run-alert-notifier.md): one read of the firing alerts as the read-only nexloop_metrics login and, when something
+# changed, one message to the group-robot webhook. Example only: copy to /etc/systemd/system/ without the .example suffix,
+# `systemctl daemon-reload` and `systemctl enable --now nexloop-alert-notify.timer`.
+# - Interpreter: the host-health venv (psycopg only, /opt/nexloop/host-health/current); the script from the release checkout.
+# - Its files: /etc/nexloop/alert-notify.json, the metrics DSN file and the webhook URL file (all 0600 root); state in
+#   /var/lib/nexloop-alert-notify. The URL is only in its file: not in this unit, the process arguments or the journal.
+# - A failed read or send exits 1: the unit fails, host health sees the timer stale (timer key alert-notify, timer_stale_alert_notify).
+[Unit]
+Description=NexLoop out-of-workbench alert notification (one round)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nexloop/host-health/current/venv/bin/python -I -B /srv/nexloop/release/scripts/deploy/alert_notify.py --config /etc/nexloop/alert-notify.json
+SyslogIdentifier=nexloop-alert-notify
+StateDirectory=nexloop-alert-notify
+StateDirectoryMode=0700
+TimeoutStartSec=2min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nexloop-alert-notify

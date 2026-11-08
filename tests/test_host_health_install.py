@@ -179,7 +179,8 @@ def test_the_data_host_needs_the_socket_and_its_owner_steps(tmp_path):
 def test_the_examples_match_the_newest_alert_rules_selectors():
     # v13 named the timers of E3; v19 adds data_host:relation-read-gaps (NX-054 P4a); v20 no timer; v21 adds app_host:file-backup-maint;
     # v22 adds app_host:world-glossary (the translator's --once timer). The newest rules, both ways.
-    rules = json.loads((ROOT / 'deploy/configuration/alert-rules.v22.json').read_text())['rules']
+    # v34 adds app_host:alert-notify (the out-of-workbench notifier; v23-v33 add no timer).
+    rules = json.loads((ROOT / 'deploy/configuration/alert-rules.v34.json').read_text())['rules']
     stale = {r['selector'] for r in rules if r['rule_id'].startswith('timer_stale_')}
     names = set()
     for name, host in (('app-host', 'app_host'), ('data-host', 'data_host')):
