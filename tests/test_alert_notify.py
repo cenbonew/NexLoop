@@ -201,3 +201,14 @@ def test_v34_adds_exactly_timer_stale_alert_notify_on_v33():
     added = v34['rules'][-1]
     assert (added['rule_id'], added['selector'], added['metric'], added['severity']) == (
         'timer_stale_alert_notify', 'app_host:alert-notify', 'host_health.timer_success_age_seconds', 'warning')
+
+
+
+@pytest.mark.parametrize('data', [[], [{'tenant_id': 'tenant-a', 'world': 'sim-1', 'last_evaluated_at': 'now', 'firing': []}]])
+def test_no_real_world_entry_is_the_evaluator_stopped(setup, data):
+    tmp, configure = setup;config = configure();robot = Robot()
+    code, out, _ = tick(config, data, robot, T0)
+    assert code == 0 and out['fired'] == 1 and len(robot.posts) == 1
+    assert [e['rule_id'] for e in robot.posts[0][1]['events']] == ['evaluator_stale'] and robot.posts[0][1]['events'][0]['severity'] == 'critical'
+    _, out, _ = tick(config, data, robot, T0 + timedelta(minutes=15))
+    assert out['events'] == 0  # once, then every 24 hours like any critical

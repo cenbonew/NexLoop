@@ -12,7 +12,8 @@ Run by a systemd timer on APP_HOST every 15 minutes (deploy/stage/systemd/nexloo
        fired       a firing alert not notified yet (or fired again: another first_fired_at);
        resolved    a notified alert that no longer fires;
        repeat      a critical alert still firing 24 hours (critical_repeat_seconds) after its last notification;
-       evaluator   the evaluator has not evaluated for 10 minutes (no alert can fire then): critical, with the same rules;
+       evaluator   the evaluator has not evaluated for 10 minutes, or the export has no real-world entry at all (never ran, state
+                   emptied, empty export): no alert can fire then, so it is critical, with the same rules;
      severities not in `levels` are kept in the state but never sent;
   3. writes the state only after the webhook accepted the message, so a failed send is sent again next round.
 
@@ -118,6 +119,10 @@ def current(export, now, evaluator_stale_seconds):
         if scope['world'] == 'real' and (last is None or (now - last).total_seconds() > evaluator_stale_seconds):
             out[base + 'evaluator_stale'] = {'rule_id': 'evaluator_stale', 'severity': 'critical',
                                              'first_fired_at': scope.get('last_evaluated_at'), 'fire_count': 1}
+    # No real-world entry at all (the evaluator never ran, its state was emptied, or the export is empty): nothing can fire, so
+    # that is the evaluator stopped too - never a quiet pass.
+    if not any(scope.get('world') == 'real' for scope in export or []):
+        out['*/real/evaluator_stale'] = {'rule_id': 'evaluator_stale', 'severity': 'critical', 'first_fired_at': None, 'fire_count': 1}
     return out
 
 
