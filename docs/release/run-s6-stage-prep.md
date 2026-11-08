@@ -43,7 +43,7 @@
 | `roles.reader` | 同上，`evolution-reader/…` | DATA_HOST | 同上 |
 | `roles.evaluation` | `{token_file: <EVO>/evolution-evaluation/test-credential}` | DATA_HOST | enroll 生成，只含 test |
 | `roles.inspector` | `{dsn_file: <bootstrap 只读 DSN 文件>}` | DATA_HOST | 10-22 用过的那份 bootstrap DSN（socket 形式）；脚本连上后自己设为只读并核对 |
-| `roles.verify` | `{dsn_file: <只读应用 DSN 文件>}` | DATA_HOST | NX-040 的 r8/r6 用 `bootstrap.verify`；与 run-nx040 §2 相同 |
+| `roles.verify` | `{dsn_file: <EVO>/evolution-reader/database-url}`（与 `roles.reader` 同一个 DSN） | DATA_HOST | NX-040 的 r8/r6 用 `bootstrap.verify`，在只读事务里读 `control.schema_migrations` 并核对。迁移 `evo_reader_migrations_select`（临时号 0426）之后，`nexloop_evo_reader` 只多了这一张表的 SELECT，其他权限不变，所以用它的 DSN 做 verify。**历史**：在这次迁移之前（批次 136 及以前），verify 借用的是 bootstrap 只读 DSN，这只是过渡做法，迁移上线后不再使用 |
 | `roles.registrar` | 可选，不填 | — | R5 的登记负例可以不做（S6-stage-acceptance） |
 | `owner.origin` | `https://<APP_HOST_NAME>:<PORT>`（stage 工作台） | 管理机 | 与 run-nx056 相同 |
 | `owner.ca_file` | 网关 CA | 管理机 | 与 run-nx056 相同 |

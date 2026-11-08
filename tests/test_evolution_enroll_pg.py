@@ -280,3 +280,29 @@ def test_the_test_world_evaluation_credential_gets_no_artifact_read(enroll):
                               (principal,)).fetchone()[0] == 0
     assert f['admin'].execute("select count(*) from authz.nexloop_authority_facts where fact_kind in ('grants','scope','policies','controls') and entity_key[1]=%s",
                               (principal,)).fetchone()[0] == 0
+
+
+def test_the_reader_role_verifies_the_migration_catalog_read_only_and_gains_nothing_else(enroll):
+    """S6 r8/r6 roles.verify (L6 follow-up, migration evo_reader_migrations_select): nexloop_evo_reader reads control.schema_migrations in
+    a read-only transaction and bootstrap.verify passes as with the bootstrap DSN; its only table privilege is that SELECT; it writes
+    nothing there, reads no other control table, and enrollment's four self-checks stay true."""
+    from nexloop_eios.bootstrap import verify
+    f = enroll
+    assert f['call']()[0] == 0
+    code, out, _ = f['call']('--check')
+    assert code == 0 and out['checks'] == {'writer_evaluator_exclusive': True, 'evaluation_credential_test_only': True,
+                                           'no_effect_authority': True, 'reader_distinct_real_only': True}
+    expected = verify(f['admin'])
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_evo_reader')) as reader:
+        reader.read_only = True
+        with reader.transaction():
+            assert verify(reader) == expected
+            assert reader.execute('show transaction_read_only').fetchone()[0] == 'on'
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_evo_reader'), autocommit=True) as reader:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            reader.execute("insert into control.schema_migrations(version,checksum) values('9999','y')")
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            reader.execute('select count(*) from control.nexloop_tenants')
+    grants = f['admin'].execute("""select table_schema,table_name,privilege_type from information_schema.role_table_grants
+        where grantee='nexloop_evo_reader' order by 1,2,3""").fetchall()
+    assert grants == [('control', 'schema_migrations', 'SELECT')]
