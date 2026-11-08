@@ -234,23 +234,77 @@ def check_at024(ports, inputs, r):
                status == 200 and 'property_security_bypass' in (codes or []))
 
 
+_SAMPLE_UUID = '00000000-0000-4000-8000-000000000000'
+_SAMPLE_STRINGS = ('a' * 64, _SAMPLE_UUID, 'x', 'synthetic', '1', 'a')
+# The values tried, in order, for an input the Parent refuses (D23's invalid case); a schema that accepts all of them accepts any value.
+_INVALID_PROBES = ([], None, 'x', 0, {}, {'s6_unexpected_field': 1}, True)
+
+
+def _accepts(schema, value):
+    import jsonschema
+    try:
+        jsonschema.Draft202012Validator(schema).validate(value)
+        return True
+    except jsonschema.ValidationError:
+        return False
+
+
 def _sample(schema):
-    kind = (schema or {}).get('type')
+    """A value built from the schema's own constraints (const, enum, required properties, pattern, lengths, bounds, items)."""
+    import re as _re
+    schema = schema or {}
+    if 'const' in schema:
+        return schema['const']
+    if schema.get('enum'):
+        return schema['enum'][0]
+    kind = schema.get('type')
+    if isinstance(kind, list):
+        kind = next((k for k in kind if k != 'null'), kind[0] if kind else None)
     if kind == 'object':
         return {k: _sample((schema.get('properties') or {}).get(k, {})) for k in schema.get('required', [])}
-    return {'string': 'x', 'integer': 1, 'number': 1, 'boolean': True, 'array': []}.get(kind, 'x')
+    if kind == 'string':
+        if schema.get('format') == 'uuid':
+            return _SAMPLE_UUID
+        pattern, low = schema.get('pattern'), schema.get('minLength', 0)
+        for text in _SAMPLE_STRINGS:
+            if (pattern is None or _re.search(pattern, text)) and low <= len(text) <= schema.get('maxLength', len(text)):
+                return text
+        return 'x' * max(low, 1)
+    if kind in ('integer', 'number'):
+        return max(schema.get('minimum', 1), 1) if schema.get('maximum', 1) >= 1 else schema.get('minimum', 0)
+    if kind == 'boolean':
+        return True
+    if kind == 'array':
+        return [_sample(schema.get('items') or {}) for _ in range(schema.get('minItems', 0))]
+    return 'x'
+
+
+def tool_cases(schemas):
+    """D23 cases per Action: a valid one the Parent input schema accepts (refused here when none can be built: never a case the gate
+    would misjudge) and an invalid one the Parent refuses. A Parent that accepts every value has no input to refuse: no invalid case
+    is made up for it - it is returned in `open` and the replay reports it incomplete (never a silent pass; D23 decision pending)."""
+    cases, open_actions = [], []
+    for name, s in sorted(schemas.items()):
+        valid = _sample(s['parent'])
+        if not _accepts(s['parent'], valid):
+            raise Refused(f'tool cases: no valid sample for the Parent input schema of {name}')
+        cases.append({'id': name + '-valid', 'action': name, 'params': valid, 'expect': 'valid'})
+        invalid = next((v for v in _INVALID_PROBES if not _accepts(s['parent'], v)), _INVALID_PROBES)
+        if invalid is _INVALID_PROBES:
+            open_actions.append(name)
+        else:
+            cases.append({'id': name + '-invalid', 'action': name, 'params': invalid, 'expect': 'invalid'})
+    return cases, open_actions
 
 
 def gates_inputs(basis, reserved, cost='0'):
-    """The F4 inputs from the publication basis (as the evaluator's regression set): F1 change, Parent and per-Action cases."""
+    """The F4 inputs from the publication basis (as the evaluator's regression set): F1 change, Parent and per-Action cases, and the
+    Actions whose Parent input schema accepts every value (no invalid case: tool_cases)."""
     from nexloop_eios.schema_publication import _f1_actions, build
     publication, _ = build(basis, 'publish')
     schemas = {row['definition']['stable_name']: {'parent': row['definition'].get('input_schema') or {}, 'candidate': succ['definition'].get('input_schema') or {}}
                for row, succ in zip(basis['actions'], publication['actions'])}
-    cases = []
-    for name, s in schemas.items():
-        cases += [{'id': name + '-valid', 'action': name, 'params': _sample(s['parent']), 'expect': 'valid'},
-                  {'id': name + '-invalid', 'action': name, 'params': [], 'expect': 'invalid'}]
+    cases, open_actions = tool_cases(schemas)
     name = basis['type_name']
     prop = publication['schema']['properties'][-1]
     descriptor = (basis.get('change') or {}).get('type_descriptor')  # F1 judges the proposal's own (minimal) descriptor
@@ -260,7 +314,7 @@ def gates_inputs(basis, reserved, cost='0'):
     parent = {'types': {name: basis['schema']}, 'object_counts': {name: basis.get('object_count') or 0}, 'actions': _f1_actions(basis['actions']),
               'restricted_names': basis.get('restricted_names') or []}
     inputs = {'tool_cases': cases, 'action_schemas': schemas, 'context_volume': {'parent': 1000, 'candidate': 1000}, 'reflow_reserved': reserved, 'reflow_cost': cost}
-    return change, parent, inputs
+    return change, parent, inputs, open_actions
 
 
 def check_r8(ports, inputs, r, *, publish=False):
@@ -283,7 +337,11 @@ def check_r8(ports, inputs, r, *, publish=False):
         raise Blocked(f'owner basis read answered {status}')
     amount = str(inputs.get('reflow_amount') or '0.01')
     reserved = ev.reflow_reserve(cid, 'reflow:' + cid, amount, 'CNY')
-    change, parent, gate_inputs = gates_inputs(basis, reserved.get('reserved') is True, amount)
+    change, parent, gate_inputs, open_actions = gates_inputs(basis, reserved.get('reserved') is True, amount)
+    # D23: an Action whose Parent input schema accepts every value has no invalid case; named here, the replay reports it incomplete.
+    r.step('tool_cases_built', 'a valid case per Action; an invalid one wherever the Parent input schema refuses some input',
+           {'actions': len(gate_inputs['action_schemas']), 'cases': len(gate_inputs['tool_cases']), 'open_input_actions': len(open_actions)}, True,
+           open_input_actions=open_actions[:64])
     created = datetime.datetime.now(datetime.UTC).isoformat().replace('+00:00', 'Z')
     report = evaluate_schema(frozen['bundle'], frozen['bundle_digest'], change, parent, created_at=created, inputs=gate_inputs)
     gates = {g['gate']: g['result'] for g in report['hard_gates']}
