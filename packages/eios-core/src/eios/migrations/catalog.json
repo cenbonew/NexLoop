@@ -2135,6 +2135,11 @@
       "version": "0427",
       "name": "0427_synthetic_fault_snapshot_fields.sql",
       "sha256": "6837118ebf0bb8816c52607af2b3516e81ed89a3ec26cb4d8df8b88f056c2a74"
+    },
+    {
+      "version": "0428",
+      "name": "0428_recall_gloss_not_missing.sql",
+      "sha256": "4c300dec7659b15a261d698271ff0abdda934432643e41af741f67f6cb1cbc7b"
     }
   ]
 }

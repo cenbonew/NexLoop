@@ -166,3 +166,35 @@ def test_the_read_is_the_owners_and_counts_only(observed):
     with w['client']() as client:
         assert workbench_login(client, w['customer']).status_code == 200
         assert client.get('/api/v1/workbench/data-health').status_code == 403
+
+
+def gloss_alias(admin, identifier, kind='property'):
+    """A 0378 glossary alias row (lexical only by design: the SQL reflow writes it, nothing embeds it)."""
+    replica(admin, """insert into ontology.nexloop_recall_entries(tenant_id,world,index_kind,source_key,source_revision,ref,target_kind,gate_type,
+        field,body,tokenizer_version,tsv,ngrams,gloss_source) values(%s,'real','definition',%s,1,'eios:object_type:Consumer',%s,'Consumer','alias',
+        '客户',ontology.nexloop_recall_tokenizer(),to_tsvector('simple','synthetic'),'{}','manual')""",
+            (TENANT, f'glossary:{kind}/{identifier}', 'property' if kind == 'property' else 'object_type'))
+
+
+def test_glossary_aliases_are_counted_apart_and_never_missing_embeddings(observed):
+    """Stage 2026-11-08 (migration recall_gloss_not_missing): 161 manual glossary alias rows made data_health_recall_missing_embeddings
+    fire. Alias rows are counted in gloss_aliases, never in entries or missing_embeddings; a real definition or instance entry without
+    a vector of the active profile is still missing."""
+    o = observed; admin = o['admin']
+    recall(admin, TENANT, 'synthetic-model@3', 'mine')  # a definition entry without a vector, an instance entry with one
+    admin.execute("insert into ontology.nexloop_recall_settings(tenant_id,active_profile_id) values(%s,'synthetic-model@3')", (TENANT,))
+    for identifier in ('consumer_revision', 'amount_minor', 'external_id'):
+        gloss_alias(admin, identifier)
+    gloss_alias(admin, 'Consumer', kind='object_type')
+    r = health(admin)['recall']
+    assert (r['entries'], r['missing_embeddings'], r['gloss_aliases'], r['coverage_ratio']) == (2, 1, 4, 0.5)
+    assert r['reasons'] == ['missing_embeddings'] and r['status'] == 'attention'  # the real definition gap still reports
+    # The real gap closed: only aliases are without vectors, and the block is healthy.
+    entry = admin.execute("select entry_id from ontology.nexloop_recall_entries where tenant_id=%s and index_kind='definition' and gloss_source is null",
+                          (TENANT,)).fetchone()[0]
+    with admin.transaction():
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (TENANT,))
+        admin.execute("insert into ontology.nexloop_recall_embeddings(entry_id,tenant_id,profile_id,embedding) values(%s,%s,'synthetic-model@3','[1,0,0]')", (entry, TENANT))
+    r = health(admin)['recall']
+    assert (r['entries'], r['missing_embeddings'], r['gloss_aliases'], r['coverage_ratio'], r['status'], r['reasons']) == (2, 0, 4, 1, 'ok', [])
+    assert r['active_profile'] == 'synthetic-model@3' and 'last_backfill_at' in r  # the other fields are 0245's
