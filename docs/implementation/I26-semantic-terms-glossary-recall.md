@@ -56,6 +56,7 @@
 - 因此整租户重写不会触发模型调用，换 entry_id 也没有成本。
 - 代价是 vector 方法看不到 gloss 行，只有 fts 和 trgm 能命中。relay 的语义读取本来就只用全文检索（不调用 embedding），所以不受影响。
 - 如果以后要让 gloss 行参与 vector 检索，需要先把同步改成差量（保留未变化行的 entry_id），再接入 backfill。
+- 别名只做词法检索，这是 0378 的设计；vector 检索命中别名指向的定义条目即可。因此 data_health 的 recall 块不把别名算作缺向量：迁移 `recall_gloss_not_missing`（临时号 0428）之后，`entries`、`missing_embeddings` 和 `coverage_ratio` 都不含 gloss 行，别名另计在 `gloss_aliases` 里。起因是 2026-11-08 stage 上的 `data_health_recall_missing_embeddings`：缺向量的 161 条全是 manual 别名。
 
 ## 世界隔离证据
 
