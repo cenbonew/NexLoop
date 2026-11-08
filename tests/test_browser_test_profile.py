@@ -18,6 +18,7 @@ def options(pg,tmp_path):
                 origin='https://localhost:8443',password=secrets.token_urlsafe(40))
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_fresh_canonical_test_identity_actual_pg_login_no_business_grants(admin,pg,tmp_path):
     core=settings(pg,tmp_path);initialize_test_profile(admin,**core)
     opt=options(pg,tmp_path);report=initialize_browser_test_profile(admin,**opt)
@@ -54,6 +55,7 @@ def test_fresh_canonical_test_identity_actual_pg_login_no_business_grants(admin,
     assert before=={p.name:p.read_bytes() for p in server.iterdir()}
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 @pytest.mark.parametrize('mutation',['foreign-origin','wrong-endpoint','foreign-directory'])
 def test_bootstrap_refuses_foreign_configuration_before_auth_writes(admin,pg,tmp_path,mutation):
     initialize_test_profile(admin,**settings(pg,tmp_path));opt=options(pg,tmp_path)

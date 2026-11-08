@@ -52,6 +52,7 @@ def test_background_services_refuse_the_variant_outside_test_mode(deployment,tmp
         assert code==1 and out=='' and service_stderr(err)==B.SERVICES[service][0]+' unavailable\n'
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_stage_doctor_fails_the_variant(pg,tmp_path):
     from nexloop_eios.doctor import diagnose
     (tmp_path/'artifacts').mkdir(mode=0o700)

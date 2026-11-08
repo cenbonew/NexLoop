@@ -519,6 +519,7 @@ def test_concurrent_submissions_of_one_business_intent_keep_one(sim, pg):
             two.execute('select authz.nexloop_sim_effect_submit(%s,%s,%s)', (digest(f['token_a']), f['a'], Jsonb(intent(business_digest=body['business_digest']))))
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_an_existing_stand_in_role_is_brought_to_its_shape(admin):
     """Review fixes 2 (N2): a role named nexloop_stand_in_worker that exists before the migration with other attributes, a role
     membership and a table privilege leaves it with exactly the declared shape and the three stand-in entries."""

@@ -106,6 +106,7 @@ def doctor(*arguments):
         env={k:v for k,v in os.environ.items() if not k.startswith(('DATABASE_','NEXLOOP_DATABASE'))})
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_doctor_budget_gate_against_real_postgres(pg,tmp_path):
     dsn=private(tmp_path/'dsn',pg)
     passed=doctor('--budget-only','--connection-budget',str(STAGE/'connection-budget.v1.json'),'--database-url-file',str(dsn))

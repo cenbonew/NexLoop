@@ -66,6 +66,7 @@ def test_wheel_preserves_licenses_provenance_and_all_catalog_files(installed_cor
         assert not any(x.endswith(('.pyc','.sqlite')) or '/.git/' in x for x in names)
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_noneditable_wheel_bootstraps_and_runs_actual_pg_artifact_smoke(installed_core_wheel,admin,pg,tmp_path):
     owned,python,_=installed_core_wheel
     program='''

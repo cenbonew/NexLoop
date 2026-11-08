@@ -12,6 +12,7 @@ from test_compose_bootstrap import settings
 ROOT=Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_container_check_job_uses_real_core_and_ignores_model_key(admin,pg,tmp_path,monkeypatch):
     import nexloop_eios.container_entrypoint as entry
     options=settings(pg,tmp_path);initialize_test_profile(admin,**options)

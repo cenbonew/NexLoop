@@ -10,6 +10,7 @@ from psycopg.conninfo import make_conninfo
 from nexloop_eios.bootstrap import bootstrap,verify,catalog
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_42_actual_bootstrap_and_publication_checksum(admin):
     locked_head=json.loads((Path(__file__).resolve().parents[1]/'versions.lock.json').read_text())['packages']['nexloop-eios-core']['bootstrap_revision']
     revisions=bootstrap(admin)

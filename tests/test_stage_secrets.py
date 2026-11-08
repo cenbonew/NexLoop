@@ -114,6 +114,7 @@ def test_shared_values_are_identical_and_key_formats_are_what_the_readers_accept
     assert len(raw) == 32 and (tree['out'] / 'management' / 'signing.key.hex').read_text() == raw.hex()
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_role_passwords_leave_as_scram_verifiers_that_postgresql_stores_as_given(tree, admin):
     sql = (tree['out'] / 'management' / 'role-passwords.sql').read_text()
     verifiers = dict(re.findall(r"ALTER ROLE (\w+) PASSWORD '([^']+)';", sql))

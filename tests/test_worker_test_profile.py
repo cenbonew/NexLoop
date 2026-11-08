@@ -6,6 +6,7 @@ from nexloop_eios.worker_test_profile import initialize_worker_test_profile,chec
 from test_compose_bootstrap import settings
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_actual_worker_profile_and_job_use_independent_test_authority(admin,pg,tmp_path,monkeypatch):
     import nexloop_eios.worker_test_profile as module
     core=settings(pg,tmp_path);initialize_test_profile(admin,**core)
@@ -36,6 +37,7 @@ def test_actual_worker_profile_and_job_use_independent_test_authority(admin,pg,t
     assert (root/'service_credential').read_text() not in json.dumps(report)
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 @pytest.mark.parametrize('mutation',['wrong-endpoint','foreign-root','signer-drift'])
 def test_worker_profile_denies_foreign_inputs_before_authority_write(admin,pg,tmp_path,mutation):
     core=settings(pg,tmp_path);initialize_test_profile(admin,**core)
