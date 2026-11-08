@@ -475,7 +475,20 @@ def test_the_port_bounds_the_round_at_5_seconds_and_the_planner_reports_it(remed
     started = time.monotonic()
     with pytest.raises(psycopg.errors.QueryCanceled):
         Slow(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN).round()
-    assert 4.5 < time.monotonic() - started < 7.5
+    # The bound is the product's: PG cancels the round (QueryCanceled above, 57014 below) after its 5 s statement timeout, so it
+    # waited at least that long; how much later the cancellation reaches this process is load, not the bound, and is not asserted.
+    assert time.monotonic() - started > 4.5
+    # The bound itself, read in the port's own session (L6 C1 on 040d1a8a): a change of the 5 s is caught whatever the load.
+    admin.execute("create function authz.nexloop_synthetic_timeout_probe(text,text,text,text,text) returns jsonb language sql as $$"
+                  " select jsonb_build_object('statement_timeout',current_setting('statement_timeout')) $$")
+    admin.execute('grant execute on function authz.nexloop_synthetic_timeout_probe(text,text,text,text,text) to nexloop_domain_worker')
+
+    class Probe(RemediationPort):
+        FUNCTION = 'nexloop_synthetic_timeout_probe'
+    try:
+        assert Probe(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN).round() == {'statement_timeout': '5s'}
+    finally:
+        admin.execute('drop function authz.nexloop_synthetic_timeout_probe(text,text,text,text,text)')
     planner = RemediationPlanner(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN, clock=lambda: 9000.0, rounds={})
     planner.port = Slow(r['domain'], session, r['w']['f']['reader'].signer, environ=OPEN)
     try:

@@ -275,6 +275,7 @@ def test_the_clock_skew_check_runs_with_the_database_check_and_its_warning_is_li
     assert run(capture(), database_url='x', expected_revision='0001')['failed'] == ['clock_skew']
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_clock_skew_against_a_real_database_is_near_zero(pg):
     out = P.check_clock_skew(pg)
     assert out['pass'] is True and 'warning' not in out and abs(out['skew_seconds']) < 0.5 and out['round_trip_seconds'] < 1

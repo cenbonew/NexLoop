@@ -214,6 +214,7 @@ def test_the_role_checked_functions_differ_from_their_latest_earlier_definition_
     assert re.sub(r'authz\.nexloop_app_role\(p_world\)', 'session_user', redefined) == latest(name, host.name), name
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_roles_made_before_the_migration_are_brought_to_their_shape(admin):
     """Review 1.2 (as S4 N2): same-named roles with other attributes, a membership and table privileges end with exactly the declared
     shape and only their whitelist."""

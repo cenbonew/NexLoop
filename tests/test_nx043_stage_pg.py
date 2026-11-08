@@ -324,6 +324,7 @@ def test_online_drain_fails_while_a_real_send_is_in_flight(stage):
     assert code == 1 and steps(doc)['online_nothing_in_flight']['observed'] == {'outreach_sends': 1, 'outreach_in_flight': 1, 'effects_in_flight': 0}
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_a_read_only_role_is_made_read_only_by_the_script(pg, tmp_path):
     """L6 review 1.1: even a DSN without default_transaction_read_only connects read only, checked with show."""
     dsn = tmp_path / 'dsn'

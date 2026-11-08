@@ -24,6 +24,7 @@ def test_missing_private_configuration_keeps_liveness_but_not_readiness(tmp_path
     assert not config.artifact_root.exists()
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_real_backend_health_rechecks_revocation(api,admin):
     config,root,options=api
     with TestClient(create_app(config)) as client:
@@ -35,6 +36,7 @@ def test_real_backend_health_rechecks_revocation(api,admin):
         assert client.get('/health/live').status_code==200
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_http_artifact_uses_actual_service_permission_and_revocation(api,admin):
     config,root,options=api
     token=(root/'service_credential').read_text()
@@ -54,6 +56,7 @@ def test_http_artifact_uses_actual_service_permission_and_revocation(api,admin):
         assert client.get('/session').status_code==404
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_artifact_directory_permission_drift_not_ready(api):
     config,root,options=api
     with TestClient(create_app(config)) as client:
@@ -63,6 +66,7 @@ def test_artifact_directory_permission_drift_not_ready(api):
         finally:config.artifact_root.chmod(0o700)
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_actual_local_http_process_and_owned_shutdown(api,admin):
     import httpx
     import sys
@@ -97,6 +101,7 @@ def test_actual_local_http_process_and_owned_shutdown(api,admin):
     assert (root/'service_credential').read_text() not in stdout+stderr
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_closed_backend_is_unavailable_without_false_authentication_error(api):
     config,root,options=api
     app=create_app(config)

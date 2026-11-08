@@ -376,6 +376,7 @@ def test_at046_forged_context_resume_guard_and_activation_paths(s7):
     assert answers == ['activation denied'] * 3
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_an_existing_port_role_is_brought_to_its_shape(admin):
     """S7 review 1.4 (as S4 N2): a role named nexloop_twin_port that exists before the migration with other attributes, a role
     membership and a privilege leaves it with exactly the declared shape and its port entries (NX-042 T3: the twin entries, no raw act)."""

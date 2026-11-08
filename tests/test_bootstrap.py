@@ -4,6 +4,7 @@ from eios.adapters.postgres.migrations import MigrationDrift
 from eios.persistence.settings import StorageSettings, StorageConfigurationError
 from nexloop_eios.bootstrap import bootstrap, verify, catalog
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_clean_bootstrap_and_exact_reopen(admin):
     assert bootstrap(admin)==[f'{revision:04d}' for revision in range(1,int(BOOTSTRAP_REVISION)+1)]
     assert verify(admin)=={'lineage':'nexloop-eios-v1','revision':BOOTSTRAP_REVISION,'migration_count':int(BOOTSTRAP_REVISION)}
@@ -21,6 +22,7 @@ def test_missing_dsn_and_memory_fail_closed():
     with pytest.raises(StorageConfigurationError):StorageSettings(mode='postgres',database_url='')
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_original_eios_roles_abort_before_schema_or_grants(admin):
     admin.execute('create role nex_eios_runtime nologin')
     with pytest.raises(MigrationDrift,match='isolated NexLoop cluster'):

@@ -17,6 +17,7 @@ def settings(pg,tmp_path):
     return dict(config_root=tmp_path/'config',artifact_root=tmp_path/'artifacts',host=fields['host'],port=int(fields['port']),dbname=fields['dbname'])
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_fresh_profile_real_restricted_artifact_smoke_and_readonly_reopen(admin,pg,tmp_path):
     options=settings(pg,tmp_path)
     first=initialize_test_profile(admin,**options)
@@ -44,6 +45,7 @@ def test_existing_catalog_without_matching_config_is_not_seeded(admin,pg,tmp_pat
     assert not (tmp_path/'config').exists()
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_foreign_database_is_refused_before_filesystem_change(admin,pg,tmp_path):
     admin.execute('create table public.synthetic_existing_configuration(value integer)')
     with pytest.raises(PermissionError,match='fresh empty'):initialize_test_profile(admin,**settings(pg,tmp_path))
@@ -51,6 +53,7 @@ def test_foreign_database_is_refused_before_filesystem_change(admin,pg,tmp_path)
     assert admin.execute("select to_regclass('control.schema_migrations')").fetchone()[0] is None
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_changed_private_config_and_new_endpoint_are_refused(admin,pg,tmp_path):
     options=settings(pg,tmp_path);initialize_test_profile(admin,**options)
     with pytest.raises(PermissionError,match='endpoints'):initialize_test_profile(admin,**(options|{'host':'different-host'}))
@@ -88,6 +91,7 @@ def test_cli_names_the_refusal_reason_with_a_hint(admin,pg,tmp_path):
     assert code==1 and out['reason']=='endpoint_mismatch' and '--postgres-port' in out['hint']
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_cli_refuses_a_non_empty_database_by_reason(admin,pg,tmp_path):
     admin.execute('create table public.synthetic_existing_configuration(value integer)')
     code,out=_cli(pg,tmp_path,pg)

@@ -223,6 +223,7 @@ def test_lease_lapse_fails_closed_with_operator_diagnosis(role_runtime_plan, adm
     assert intents() == 1
 
 
+@pytest.mark.pg_empty  # starts from an empty cluster (tests/conftest.py)
 def test_unavailable_diagnosis_classifies_deadline_and_transient_causes(admin):
     """The classifier behind retryable/deadline_exceeded, on real PG errors (no timing)."""
     import psycopg
