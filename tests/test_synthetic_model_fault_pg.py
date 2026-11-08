@@ -61,8 +61,9 @@ def events(admin):
     return [k for (k,) in admin.execute('select kind from runtime.nexloop_synthetic_fault_events order by event_id')]
 
 
-def snapshot(admin):
-    return admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'synthetic_fault'", (TENANT,)).fetchone()[0]
+def snapshot(admin, fields=('active', 'remaining', 'injected_last_hour')):
+    block = admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'synthetic_fault'", (TENANT,)).fetchone()[0]
+    return block if fields is None else {k: block[k] for k in fields}
 
 
 def test_a_listed_synthetic_message_run_is_injected_once_and_a_resume_keeps_it(fault):
@@ -159,3 +160,31 @@ def test_the_decision_is_the_guard_s_alone(fault, pg):
     with pytest.raises(psycopg.errors.InsufficientPrivilege):
         f['decide'](uuid.uuid4(), 'model')
     assert f['decide'](uuid.uuid4()) is False  # an unknown Run: no live switch, nothing written
+
+
+def test_the_snapshot_names_expiry_and_member_count_of_the_live_switch_only(fault):
+    """0427 (L9's run-state page): expires_at (UTC, seconds) and members (a count, never an id) describe the live switch; both are null
+    when none is live - expired, exhausted or closed - never a stale value."""
+    f, admin = fault, fault['admin']
+    nulls = {'expires_at': None, 'members': None}
+    assert {k: snapshot(admin, None)[k] for k in nulls} == nulls  # no switch at all
+    f['governed']('open', ('synthetic', 'agent'), remaining=2, seconds=600)
+    block = snapshot(admin, None)
+    expires = admin.execute("select to_char(expires_at at time zone 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from control.nexloop_synthetic_fault_switches").fetchone()[0]
+    assert (block['active'], block['members'], block['expires_at']) == (1, 2, expires)
+    assert f['consumers']['synthetic'] not in str(block) and f['consumers']['agent'] not in str(block)
+    # An erasure removes one Consumer from the live switch: the count follows.
+    admin.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
+        values(%s,'real','fault-erasure-count',%s,'owner','owner-principal','synthetic erasure','pending_confirmation',0)""", (TENANT, f['consumers']['agent']))
+    assert snapshot(admin, ('members',)) == {'members': 1}
+    # Exhausted (remaining 0, closed_at still empty until the next decision or open): not live, so null.
+    replica(admin, 'update control.nexloop_synthetic_fault_switches set remaining=0')
+    assert {k: snapshot(admin, None)[k] for k in ('active', 'expires_at', 'members')} == {'active': 0, **nulls}
+    # Expired (closed_at still empty): null as well.
+    replica(admin, "update control.nexloop_synthetic_fault_switches set remaining=2,opened_at=opened_at-interval '2 hours',expires_at=expires_at-interval '2 hours'")
+    assert {k: snapshot(admin, None)[k] for k in ('active', 'expires_at', 'members')} == {'active': 0, **nulls}
+    # Closed: a new live switch shows its own values, then the close returns them to null.
+    f['governed']('open', ('synthetic',), remaining=3, seconds=300)
+    assert snapshot(admin, ('active', 'members')) == {'active': 1, 'members': 1} and snapshot(admin, None)['expires_at'] is not None
+    f['governed']('closed')
+    assert {k: snapshot(admin, None)[k] for k in ('active', 'expires_at', 'members')} == {'active': 0, **nulls}
