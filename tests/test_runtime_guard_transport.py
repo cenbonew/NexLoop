@@ -231,3 +231,43 @@ def test_actual_pg_activation_guard_rechecks_current_authority(authority, synthe
         assert denied.status_code == 503
         assert denied.json() == {'authorized': False}
         assert issued.token not in denied.text
+
+
+def test_actual_pg_activation_guard_passes_the_synthetic_fault_decision_on(authority, synthetic_credentials, admin, tmp_path):
+    """ADR-045: the guard's answer to a start or resume carries the SQL fault decision (R72: it was dropped here, so the Host never
+    failed the Run). No live switch: no field. A decided injection: start and resume both carry it (a resume keeps the start's)."""
+    import uuid as _uuid
+    result = activation(authority, synthetic_credentials)
+    _, command, worker, issued, _ = authority
+    _, key = files(tmp_path)
+    def body(operation):
+        return {'activation_ref': result['activation_ref'], 'command': command, 'operation': operation, 'input': 'synthetic activation input'}
+    with guard_server(worker, tmp_path, key) as port, client(key) as http:
+        url = f'https://127.0.0.1:{port}{PATH}'
+        headers = {'Authorization': 'Bearer ' + key.read_text()}
+        plain = http.post(url, headers=headers, json=body('start'))
+        assert plain.status_code == 200 and set(plain.json()) == {'authorized', 'run_id', 'ever_execution_authorized'} and plain.json()['authorized'] is True
+        admin.execute('insert into runtime.nexloop_synthetic_fault_decisions(tenant_id,world,run_id,switch_id,injected) values(%s,%s,%s,%s,true)',
+                      (command['tenant_id'], 'real', issued.run_id, str(_uuid.uuid4())))
+        for operation in ('start', 'resume'):
+            hit = http.post(url, headers=headers, json=body(operation))
+            assert hit.status_code == 200, operation
+            assert set(hit.json()) == {'authorized', 'run_id', 'ever_execution_authorized', 'synthetic_model_fault'}
+            assert hit.json()['synthetic_model_fault'] is True and hit.json()['run_id'] == issued.run_id
+            assert issued.token not in hit.text
+
+
+class FaultWorker:
+    def __init__(self, value):self.value = value
+    def authorize_runtime_activation(self, **parameters):
+        return {'authorized': True, 'run_id': parameters['command']['run_id'], 'ever_execution_authorized': True, 'synthetic_model_fault': self.value}
+
+
+@pytest.mark.parametrize('value,operation', [('yes', 'start'), (False, 'resume'), (1, 'start'), (True, 'model'), (True, 'inspect')])
+def test_any_other_fault_value_or_operation_fails_closed(tmp_path, value, operation):
+    _, key = files(tmp_path)
+    body = {**BODY, 'operation': operation}
+    if operation in ('start', 'resume'):body['input'] = 'x'
+    with guard_server(FaultWorker(value), tmp_path, key) as port, client(key) as http:
+        response = http.post(f'https://127.0.0.1:{port}{PATH}', headers={'Authorization': 'Bearer ' + key.read_text()}, json=body)
+    assert response.status_code == 503 and response.json() == {'authorized': False}
