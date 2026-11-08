@@ -16,7 +16,8 @@ One run backs up one kind into one restic repository and records one manifest ro
   must pass the integrity check; the source is only read. It is counted as recovered_wal. A younger WAL may still be written:
   skipped as not_checkpointed, as before, and the next round sees it again.
 
-Then restic backs up the staging directory (client-side encryption, ``--no-cache``), ``restic check`` verifies the
+Then restic backs up the staging directory (client-side encryption; with ``--cache-dir`` a persistent private cache of the repository's
+encrypted metadata and ``check --with-cache``, else ``--no-cache``), ``restic check`` verifies the
 repository, and the row is written: ``verified`` only when restic and the check both succeeded and nothing was left out,
 otherwise ``failed`` (the file_backup_age alert keeps counting from the last verified row). The staging directory is
 removed afterwards. The row carries the restic snapshot id as backup_id, the file manifest digest (sha256 of the sorted
@@ -344,8 +345,9 @@ def _environment(environment_file):
 BUCKET_LOOKUPS = ('auto', 'dns', 'path')
 
 
-def _restic(restic, arguments, *, repository_file, password_file, environment, cwd=None, timeout=3600, options=()):
-    return subprocess.run([restic, '--no-cache', *options, '--repository-file', str(repository_file), '--password-file', str(password_file), *arguments],
+def _restic(restic, arguments, *, repository_file, password_file, environment, cwd=None, timeout=3600, options=(), cache_dir=None):
+    cache = ('--cache-dir', str(cache_dir)) if cache_dir is not None else ('--no-cache',)
+    return subprocess.run([restic, *cache, *options, '--repository-file', str(repository_file), '--password-file', str(password_file), *arguments],
                           cwd=cwd, env=environment, capture_output=True, text=True, timeout=timeout)
 
 
@@ -361,8 +363,17 @@ def _snapshot_id(stdout):
     return None
 
 
+def _clear_cache(cache_dir):
+    """Empty the executor's own cache directory (never the directory itself): restic builds it again from the repository."""
+    for child in Path(cache_dir).iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child, ignore_errors=True)
+        else:
+            child.unlink(missing_ok=True)
+
+
 def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repository_file, password_file, environment_file=None,
-                    repo='repo1', key_ref=None, restic='restic', s3_bucket_lookup=None, cacert=None):
+                    repo='repo1', key_ref=None, restic='restic', s3_bucket_lookup=None, cacert=None, cache_dir=None):
     if kind not in KINDS or repo not in ('repo1', 'repo2') or (key_ref is not None and not _LABEL.fullmatch(key_ref)) \
             or (s3_bucket_lookup is not None and s3_bucket_lookup not in BUCKET_LOOKUPS) or (cacert is not None and not Path(cacert).is_file()):
         raise BackupUnavailable('file backup arguments invalid')
@@ -372,6 +383,8 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     read_private_text(password_file, maximum=4096)
     environment = _environment(environment_file)
     _private_directory(staging_root)
+    if cache_dir is not None:
+        _private_directory(cache_dir)
     if not Path(source_root).is_dir():
         raise BackupUnavailable('source root missing')
     started = _now()
@@ -394,9 +407,26 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
                   'options': (('-o', 's3.bucket-lookup=' + s3_bucket_lookup) if s3_bucket_lookup else ()) + (('--cacert', str(cacert)) if cacert else ())}
         # --retry-lock: repo2's daily maintenance (APP_HOST) and DATA_HOST's (repo1) prune under the exclusive lock; a round waits for it
         # instead of recording a failed row.
-        saved = _restic(restic, ['backup', '--json', '--tag', manifest_kind, '--host', 'nexloop', '--retry-lock', '5m', '.'], cwd=staging, **common)
+        # With a cache (--cache-dir, the unit's own 0700 directory; restic keeps the repository's files there as they are, encrypted)
+        # repo2's fixed cost per call falls from minutes to seconds; check reads it with --with-cache. A failed call with the cache
+        # is made once more without it after the cache is emptied, so a damaged cache never fails a round, nor every round after it.
+        cache = 'off' if cache_dir is None else 'used'
+
+        def call(arguments, cached, **extra):
+            return _restic(restic, arguments + (['--with-cache'] if cached and arguments[0] == 'check' else []), cache_dir=cache_dir if cached else None,
+                           **common, **extra)
+        backup = ['backup', '--json', '--tag', manifest_kind, '--host', 'nexloop', '--retry-lock', '5m', '.']
+        saved = call(backup, cache_dir is not None, cwd=staging)
+        if saved.returncode != 0 and cache_dir is not None:
+            _clear_cache(cache_dir);cache = 'rebuilt'
+            saved = call(backup, False, cwd=staging)
         snapshot = _snapshot_id(saved.stdout) if saved.returncode == 0 else None
-        checked = snapshot is not None and _restic(restic, ['check', '--retry-lock', '5m'], **common).returncode == 0
+        checked = False
+        if snapshot is not None:
+            checked = call(['check', '--retry-lock', '5m'], cache == 'used').returncode == 0
+            if not checked and cache == 'used':
+                _clear_cache(cache_dir);cache = 'rebuilt'
+                checked = call(['check', '--retry-lock', '5m'], False).returncode == 0
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     left_out = sum(skipped.values())
@@ -410,7 +440,7 @@ def run_file_backup(*, kind, recorder_conninfo, source_root, staging_root, repos
     return {'kind': manifest_kind, 'backup_id': backup_id, 'verify_status': status, 'file_count': len(rows), 'bytes': entry['bytes'],
             'file_manifest_digest': digest, 'listed': len(entries), 'skipped': skipped, 'absent': absent,
             **({'recovered_wal': len(recovered)} if kind == 'runtime' else {}),
-            'restic': 'ok' if snapshot else 'failed', 'check': 'ok' if checked else ('failed' if snapshot else 'not_run')}
+            'restic': 'ok' if snapshot else 'failed', 'check': 'ok' if checked else ('failed' if snapshot else 'not_run'), 'cache': cache}
 
 
 class _Parser(argparse.ArgumentParser):
@@ -429,12 +459,14 @@ def main(argv=None):
     parser.add_argument('--restic', default='restic')
     parser.add_argument('--s3-bucket-lookup', choices=BUCKET_LOOKUPS)
     parser.add_argument('--cacert', type=Path)
+    parser.add_argument('--cache-dir', type=Path)
     args = parser.parse_args(argv)
     try:
         result = run_file_backup(kind=args.kind, recorder_conninfo=read_private_text(args.recorder_dsn_file, maximum=4096),
                                  source_root=args.source_root, staging_root=args.staging_root, repository_file=args.repository_file,
                                  password_file=args.password_file, environment_file=args.environment_file, repo=args.repo,
-                                 key_ref=args.key_ref, restic=args.restic, s3_bucket_lookup=args.s3_bucket_lookup, cacert=args.cacert)
+                                 key_ref=args.key_ref, restic=args.restic, s3_bucket_lookup=args.s3_bucket_lookup, cacert=args.cacert,
+                                 cache_dir=args.cache_dir)
     except Exception as error:
         print(json.dumps({'ok': False, 'error': type(error).__name__}))
         return 1

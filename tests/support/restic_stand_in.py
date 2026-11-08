@@ -4,7 +4,9 @@ Speaks just the part of restic the executor calls: ``--no-cache --repository-fil
 --host H .`` and ``... check``. The repository file holds a local directory; a snapshot is a plain copy of the working
 directory under ``<repo>/snapshots/<id>/``, and the summary line has restic's ``message_type`` and ``snapshot_id`` shape.
 Each call appends {args without file contents, environment key names} to ``<repo>/calls.jsonl`` so tests can check what
-the executor passed. Files ``<repo>/FAIL_BACKUP`` / ``<repo>/FAIL_CHECK`` make the matching command fail. Not encryption,
+the executor passed. Files ``<repo>/FAIL_BACKUP`` / ``<repo>/FAIL_CHECK`` make the matching command fail; ``<repo>/FAIL_WITH_CACHE``
+makes any command fail while it is given ``--cache-dir`` (a damaged cache). ``--cache-dir D`` in place of ``--no-cache`` is recorded as
+cache=True and leaves one file in D, as restic's cache does. Not encryption,
 not deduplication: it stands in for the interface only.
 
     write_executable(path) -> a script that runs this module with the current interpreter
@@ -19,6 +21,10 @@ from pathlib import Path
 
 def main(argv):
     args = list(argv)
+    cache = None
+    if args[:1] == ['--cache-dir'] and len(args) > 1:
+        cache = Path(args[1])
+        args[0:2] = ['--no-cache']
     # Extended options (`-o s3.bucket-lookup=dns`) between --no-cache and the repository file are recorded and removed.
     options = []
     while args[1:2] in (['-o'], ['--cacert']) and len(args) > 2:  # --cacert: repo1 over the rest-server, recorded as cacert=<path>
@@ -34,7 +40,12 @@ def main(argv):
         return 1
     repo.mkdir(parents=True, exist_ok=True)
     with open(repo / 'calls.jsonl', 'a') as log:
-        log.write(json.dumps({'command': command, 'options': options, 'environment_keys': sorted(os.environ), 'cwd_is_staging': Path.cwd().name.startswith('stage-')}) + '\n')
+        log.write(json.dumps({'command': command, 'cache': cache is not None, 'options': options, 'environment_keys': sorted(os.environ), 'cwd_is_staging': Path.cwd().name.startswith('stage-')}) + '\n')
+    if cache is not None:
+        (cache / 'repository-metadata').write_text('encrypted index, as the repository holds it')
+        if (repo / 'FAIL_WITH_CACHE').exists():
+            print('Fatal: cache file damaged', file=sys.stderr)
+            return 1
     if command[:1] == ['backup']:
         if (repo / 'FAIL_BACKUP').exists():
             print('Fatal: unable to save snapshot', file=sys.stderr)

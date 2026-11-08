@@ -414,3 +414,79 @@ def test_the_replay_reports_the_last_version_of_each_committed_page():
     db.close()
     assert replay['frames'] >= 3 and replay['database_pages'] == count and replay['page_size'] == 4096
     assert all(merged[(n - 1) * 4096:n * 4096] == content for n, content in replay['pages'].items())
+
+
+
+def cached(e):
+    directory = e['staging'].parent / 'cache'
+    directory.mkdir(mode=0o700, exist_ok=True)
+    return directory
+
+
+def calls(e):
+    return [json.loads(line) for line in (e['repo'] / 'calls.jsonl').read_text().splitlines()]
+
+
+def test_a_persistent_cache_is_used_by_backup_and_check(env):
+    e = env
+    run_store(e)
+    cache = cached(e)
+    result = run(e, 'runtime', cache_dir=cache)
+    assert result['verify_status'] == 'verified' and result['cache'] == 'used'
+    made = calls(e)
+    assert [c['command'][0] for c in made] == ['backup', 'check'] and all(c['cache'] for c in made)
+    assert made[1]['command'] == ['check', '--retry-lock', '5m', '--with-cache']
+    assert (cache / 'repository-metadata').exists()  # kept for the next round
+
+
+def test_without_a_cache_directory_nothing_changes(env):
+    e = env
+    run_store(e)
+    result = run(e, 'runtime')
+    assert result['cache'] == 'off' and not any(c['cache'] for c in calls(e)) and calls(e)[1]['command'] == ['check', '--retry-lock', '5m']
+
+
+@pytest.mark.parametrize('step', ['backup', 'check'])
+def test_a_damaged_cache_is_emptied_and_the_call_made_once_more_without_it(env, step):
+    e = env
+    run_store(e)
+    cache = cached(e)
+    (cache / 'stale').write_text('damaged')
+    e['repo'].mkdir(parents=True, exist_ok=True)
+    (e['repo'] / 'FAIL_WITH_CACHE').write_text('')
+    if step == 'check':  # backup with the cache works, then the cache goes bad
+        original = fb._restic
+
+        def first_backup_ok(restic, arguments, **kw):
+            if arguments[0] == 'backup' and kw.get('cache_dir') is not None:
+                (e['repo'] / 'FAIL_WITH_CACHE').unlink()
+                done = original(restic, arguments, **kw)
+                (e['repo'] / 'FAIL_WITH_CACHE').write_text('')
+                return done
+            return original(restic, arguments, **kw)
+        fb_restic, fb._restic = fb._restic, first_backup_ok
+    try:
+        result = run(e, 'runtime', cache_dir=cache)
+    finally:
+        if step == 'check':
+            fb._restic = fb_restic
+    assert result['verify_status'] == 'verified' and result['cache'] == 'rebuilt' and result['check'] == 'ok'
+    assert not (cache / 'stale').exists() and cache.is_dir()  # emptied, kept
+    made = [(c['command'][0], c['cache']) for c in calls(e)]
+    assert made == ([('backup', True), ('backup', False), ('check', False)] if step == 'backup' else [('backup', True), ('check', True), ('check', False)])
+
+
+def test_a_real_check_failure_still_fails_after_the_retry(env):
+    e = env
+    run_store(e)
+    e['repo'].mkdir(parents=True, exist_ok=True)
+    (e['repo'] / 'FAIL_CHECK').write_text('')
+    result = run(e, 'runtime', cache_dir=cached(e))
+    assert result['verify_status'] == 'failed' and result['check'] == 'failed' and result['cache'] == 'rebuilt'
+
+
+def test_a_cache_directory_readable_by_others_is_refused(env):
+    e = env
+    cache = cached(e);cache.chmod(0o755)
+    with pytest.raises(PermissionError):
+        run(e, 'runtime', cache_dir=cache)

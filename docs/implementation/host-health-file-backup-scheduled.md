@@ -100,7 +100,7 @@
 | timer 与 service | `LastTriggerUSec` 可以从 bus 读到；service 处于 `activating`，`InactiveExitTimestamp = StateChangeTimestamp`（本轮刚开始） |
 | 开始与结束 | **情况 A 已确认**：每轮的 Starting 都紧跟在上一轮 Finished 之后，相隔约 10 毫秒（07:41:43.349→.359，08:00:47.948→.956，08:20:16.069→.080） |
 | 08:00:47 那一轮各段耗时 | artifact repo1 约 36 秒；artifact repo2 约 9 分钟（file_count 0）；runtime repo1 约 36 秒；runtime repo2 约 9 分钟 |
-| 探针 | 08:00 以后 `trigger_unparsed` 出现 28 次 |
+| 探针 | 没有 trigger 解析失败。最初报的“28 次”是**误报**：grep 数到的是 JSON 键名，各行实际都是 `"trigger_unparsed": []`（调度员 2026-11-08 更正） |
 | `nexloop_host_timer_runs` | 最后一条记录是 2026-11-07T22:15:45Z 开始的一轮（failure，scheduled）。R71 之后**一条都没有**：故障期间每轮约 10 分钟，在周期之内，所以那时能被认作定时运行 |
 
 **这次比 §2 多查出一层：成功的几轮根本没被记录，而不只是“被记成手工运行”**。
@@ -139,9 +139,57 @@
 
 1. **`trigger_unparsed`**：探针调用 `systemctl`、`busctl` 和 `docker` 时，环境变量设为 `TZ=UTC`、`LC_ALL=C`。
    - 这样 busctl 读不到时，systemctl 输出的可读时间是 `Sun 2026-11-08 00:15:00 UTC`，`last_trigger` 能按 UTC 解析；其他时区仍然不猜测，照样报 unparsed。
-   - 28 次 unparsed 是哪个 timer，请从 err 行里的 `timer=` 字段确认。如果是 file-backup，可能是它一直处于 `activating` 时 bus 那一侧读失败；修复后这种情况会走 systemctl 的 UTC 回退。
+   - stage 上其实没有解析失败（见上表，“28 次”是误报）。这一项保留下来作为加固：以后 bus 读不到时，不会因为时区缩写或本地语言而报 unparsed。
 2. **`timer_overrun`**（新的本地告警行，不改 SQL）：service 还在运行，而 timer 的上一次 trigger 晚于本轮开始时，说明这一轮比周期长，探针写一行 `<3>nexloop-host-health timer_overrun host=… timer=…`。以后这种“永远不计入”的情况会直接在 journal 里看到，不需要再从 freshness 倒推。
 3. 测试：
    - UTC 可读时间能解析，其他时区仍是 unparsed；
    - 命令以 UTC 和 C locale 运行；
    - 跨周期的一轮报 overrun，周期内的一轮不报。
+
+## 6. 方案 D 的实测与实现
+
+**实测**（调度员 2026-11-08，APP_HOST，repo2）：
+
+- 以 root 身份临时执行。原因是口令文件只在 unit 的 sandbox 里可读；仓库一直被背靠背的备份锁着，所以都加了 `--no-lock`；缓存放在临时目录，跑完已删除。
+- 结果：
+
+  | 命令 | 不带缓存 | 第一次建缓存 | 有缓存后 |
+  |---|---|---|---|
+  | `snapshots` | 10 秒 | 10 秒 | 2 秒 |
+  | `check` | 478 秒 | — | 24 秒（`--with-cache`） |
+
+- 缓存大小 60 MB。按这个算，repo2 每段从约 9 分钟降到 1 分钟以内，单轮远低于 15 分钟。
+
+**实现**（等 L6 确认缓存的安全性后再上线）：
+
+- **执行器** `nexloop_eios/file_backup.py`：新增 `--cache-dir`。
+  - 给了这个参数时，所有 restic 调用都用这个缓存目录，`check` 加 `--with-cache`；不给时和原来一样，用 `--no-cache`。
+  - 缓存目录必须是调用者自己的 0700 目录，否则拒绝运行。
+  - 结果行新增 `cache` 字段，取值为 `used`、`rebuilt` 或 `off`。
+- **缓存损坏不会导致每轮失败**：
+  - 带缓存的 `backup` 或 `check` 一旦失败，就清空缓存目录（只清内容，不删目录本身），再不带缓存把同一个命令重做一次，结果行记 `cache: rebuilt`。下一轮会重新建缓存。
+  - 真正的仓库问题在不带缓存重做时仍然失败，照常记为 failed，不会被掩盖。
+  - 不依赖 restic 自己能否发现缓存损坏：restic 校验缓存里的文件时，能否自动改从后端读取，各版本行为不一，所以执行器自己兜底。
+- **unit 与安装器**：
+  - 缓存目录是 `/var/lib/nexloop-file-backup/cache`，与 staging 并列，由安装器创建（0700，属 `nexloop-file-backup`）；
+  - unit 的 `ReadWritePaths` 加上它；`/etc/nexloop/file-backup.env` 新增 `FILE_BACKUP_CACHE`；四条 ExecStart 都加 `--cache-dir ${FILE_BACKUP_CACHE}`；
+  - `--uninstall` 时与 staging 一样整棵删除（不跟随链接）。
+- **为什么用 `ReadWritePaths` 加安装器建目录，而不用 systemd 的 `CacheDirectory=`**：
+  - 两者都能让 `ProtectSystem=strict` 的 sandbox 可写；
+  - 但安装器第 5 步要用 `systemd-run -p …` 在同样的 sandbox 里自检，也要负责卸载。沿用 staging 的做法，自检、卸载和“目录不能是链接”的检查都能同样覆盖缓存目录；
+  - `CacheDirectory=` 会落在 `/var/cache`，那是另一套生命周期，安装器和卸载都还要另外处理。
+- **安全性**：
+  - 缓存里存的是仓库文件的原样，即 restic 加密后的索引、快照和 tree 包，没有明文；
+  - 目录 0700，只有备份用户能读写；
+  - 仓库口令仍只在 sandbox 里可读。
+
+**测试**：
+
+- `tests/test_file_backup.py`：
+  - 带缓存时 backup 和 check 都用缓存，check 带 `--with-cache`，缓存保留到下一轮；
+  - 不给缓存目录时行为不变；
+  - 缓存损坏时，backup 那一步和 check 那一步各一个用例：都会清空缓存、不带缓存重做，结果 verified、`cache: rebuilt`；
+  - 真正的 check 失败重做后仍然 failed；
+  - 缓存目录不是 0700 时拒绝运行。
+- `tests/test_file_backup_install.py`：unit 的 `ReadWritePaths`、四条 `--cache-dir`、安装器建目录、卸载时删除。
+- 测试用的 restic 替身（`tests/support/restic_stand_in.py`）现在也接受 `--cache-dir`，并能模拟“带缓存才失败”的情况。
