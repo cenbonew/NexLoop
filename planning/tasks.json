@@ -3497,6 +3497,30 @@
         "ref": "docs/implementation/I26-semantic-terms-glossary-recall.md",
         "summary": "I26 语义术语与译名召回的实现说明；作者 L3。",
         "recorded_at": "2026-10-30T18:35:21+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e53533c9f73a",
+        "summary": "第 122 批：剩余工作清单与 S6 前提审计（l7/remaining-work 16f6e923、l7/s6-prereq-audit 8b67b479）；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:40:11+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bb0be5e049aa",
+        "summary": "第 123 批：NX-038/039/040 stage 运行单的 S6 只读前提核对（迁移、演化主体、演化预算周期、approver3 授权、合成顾客与近似重复对，no_data 不算通过；82321615）；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:42:42+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "deaaed5919c7",
+        "summary": "第 126 批：负责人指定 Schema 提案的 schema_only 候选模板（0419，类别 owner_directed_schema，只有 r8 接受；ce2dee27）；设计 v2 d0f79f44 L6 PASS，实现 5cb24efb 条件 PASS，C1 在 ce2dee27 修完；执行 L7，判定 L6。",
+        "recorded_at": "2026-11-07T16:59:42+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7cee60cc6d82",
+        "summary": "第 128 批：审核队列显示候选类别（0420，47efad72，L6 PASS），owner_directed_schema 显示为“负责人指定”（4678baa8，L6 PASS）；执行 L2、L9，判定 L6。",
+        "recorded_at": "2026-11-07T18:33:51+08:00"
       }
     ]
   },
@@ -3579,6 +3603,12 @@
         "ref": "91233ea5",
         "summary": "更正 2026-10-21 与 2026-10-26 两条 note 中“V5 还留三个 V4 钩子没接”：0250 已经接上（L2 核对）。核对人：L2；判定人：调度员。",
         "recorded_at": "2026-10-27T15:00:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bb0be5e049aa",
+        "summary": "第 123 批：S6 只读前提核对覆盖 NX-039 的运行单；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:42:42+08:00"
       }
     ]
   },
@@ -3691,6 +3721,30 @@
         "ref": "docs/release/run-world-glossary-stage.md",
         "summary": "世界模型译名的 stage 运行单。",
         "recorded_at": "2026-10-29T08:19:49+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bb96449b38bd",
+        "summary": "第 120 批：Claim → Consumer 第二阶段，Consumer.delivery_windows 经硬限的 NX-040 门发布（0416），工作台属性来源（0417），自动写入白名单 v2 草稿（750985e9）；设计 6d25728c 与实现 df90daeb L6 PASS，a09ea90d 条件 PASS（C1 已修）；执行 L4，判定 L6。归入 NX-040 为调度员采纳的推断。",
+        "recorded_at": "2026-11-07T10:32:11+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "83ce06b986d6",
+        "summary": "第 121 批：world_glossary 系统提示 v2 把输入标为非指令数据，OPERATIONS 9a 列出外部文本到达模型的位置（d585a353，f0aed160 L6 PASS）；执行 L2，判定 L6。",
+        "recorded_at": "2026-11-07T10:35:36+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bb0be5e049aa",
+        "summary": "第 123 批：S6 只读前提核对覆盖 NX-040 的运行单；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:42:42+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "deaaed5919c7",
+        "summary": "第 126 批：schema_only 模板是 NX-040 运行单第 0 步的入口（见 NX-038 同批条目）；执行 L7，判定 L6。",
+        "recorded_at": "2026-11-07T16:59:42+08:00"
       }
     ]
   },
@@ -4494,6 +4548,36 @@
         "ref": "13dbcf7177cd",
         "summary": "第 73 批：I35 owner 读取全部已发布类型，relation_neighbors 测试随放宽的读取更新（操作员不变）；执行 L7/L2 等，判定 L6 PASS。",
         "recorded_at": "2026-10-31T20:11:21+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7cee60cc6d82",
+        "summary": "第 128 批：P3 verify 只读运行单 run-nx054-p3-verify.md（88443158；92b88993 L6 PASS，按 stage 实跑修了文本输出与 strip）；执行 L3，判定 L6。",
+        "recorded_at": "2026-11-07T18:33:51+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bb0174c6754e",
+        "summary": "第 129 批：P5 读方只读关系（0421；按关系类型回填覆盖之后才去掉属性后备，跳过擦除中客户对象的 run 不算覆盖，第三个读方 0387；59eebcb4）。负责人 2026-11-07 确认 P5；L6 草案条件 PASS（C1/C2），ef1df5ff 因 C3 FAIL，59eebcb4 PASS；执行 L3，判定 L6。",
+        "recorded_at": "2026-11-07T18:58:45+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/implementation/NX-054-stage-publish.md §9",
+        "summary": "每日缺口核对 10-28 至 11-06 连续 10 天 gaps=0，ownership_types=expected_ownership_types=13（assessment_evidence 推迟）。执行：调度员；判定：调度员。",
+        "recorded_at": "2026-11-07T18:58:45+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx054-p3-verify.md",
+        "summary": "P3 verify 2026-11-07T10:30:43Z 在 stage 执行：22 行全部平衡（unbalanced 0、skipped_remaining 0），goal_of real 独立复算一致。执行：调度员；判定：L6 PASS。",
+        "recorded_at": "2026-11-07T10:30:43Z"
+      },
+      {
+        "type": "note",
+        "ref": "R71; docs/design/relation-read-p5.md §2.1",
+        "summary": "P5 已上线（R71，0421）：覆盖表含 p3-2 共 25 行，读方在该租户进入只读关系模式。执行：调度员；判定：调度员（2026-11-08 核对）。",
+        "recorded_at": "2026-11-08T01:39:17Z"
       }
     ]
   },
@@ -4550,6 +4634,24 @@
         "ref": "c77b51295c22",
         "summary": "第 56 批：planning 中 NX-055 E1/E2 的 stage 证据（a2bf00ae）与 run-nx055 第 1 节加固（c78c4e97）；执行 L4/L7，判定 L6 PASS。",
         "recorded_at": "2026-10-29T08:34:38+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e53533c9f73a",
+        "summary": "第 122 批：E3 只读验收脚本 scripts/acceptance/nx055_e3_check.py（定时产物新鲜度、每主机独立 recorder，只出数量和状态，no_data 不算通过）与 run-nx055-stage.md §4（a4d42f74）；执行 L3，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:40:11+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "bb0be5e049aa",
+        "summary": "第 123 批：E3 检查拒绝低于 v30 的告警规则文件（431eeea9）；执行 L3，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:42:42+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx055-stage.md §4",
+        "summary": "E3 stage 检查 FAIL（2026-11-08）：recorders 通过；freshness 不通过——file-backup 定时失败 45 次（Host 不关闭已结束 Run 的存储，WAL 一直被持有），journal-restic-repo2 与 provider-drift 两个 timer 未安装。已处理：两个 timer 已安装并上报；Host 修复在批次 134；文件备份 06:55 起每轮成功，但单轮约 19 分钟，监控不计，方案 D 缓存在批次 134。E3 待重跑。执行：调度员；判定：调度员（结果 FAIL）。",
+        "recorded_at": "2026-11-08T01:39:17Z"
       }
     ]
   },
@@ -4792,6 +4894,12 @@
         "ref": "docs/release/run-auth-fingerprint.md; docs/release/run-auth-session-epoch.md",
         "summary": "R69（2026-11-03）部署 0403/0404 的只读计数：部署前 30 分钟 SSE 读取失败 0/0、PG 浏览器授权拒绝 0；部署后 +6 分钟与 +44 分钟均为 0/0、0，未出现旧 claim 拒绝尖峰。锁定只拦新登录的浏览器走查待负责人。执行：调度员；判定：调度员（计数）。",
         "recorded_at": "2026-11-07T10:33:25+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e53533c9f73a",
+        "summary": "第 122 批：OIDC 单点登录启用运行单与 provider 示例，不启用、不改迁移（67c383b3）；执行 L2，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:40:11+08:00"
       }
     ]
   },
@@ -4914,6 +5022,30 @@
         "ref": "1e33a86eca8d",
         "summary": "第 88 批：S87 上下文估算 v2，Schema 发布观察只在同一估算器内比较（0395），避免估算器切换被误判为回归；执行 L7，判定 L6 有条件 PASS。",
         "recorded_at": "2026-11-01T10:57:05+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "d44ab192c672",
+        "summary": "第 124 批：B5 阈值（负责人 2026-11-07 按推荐）：告警规则 v31 outcomes_failure_rate_high（一小时内至少 10 个已判结果且失败率 > 0.2 报 warning），0418 快照门槛（insufficient_data / 无数据都不触发也不算通过），运行单 run-nx061-b5-threshold.md（987519f9）；执行 L7，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T13:37:04+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "abb6ee2f7637",
+        "summary": "第 125 批：运营页结果门槛卡片（样本不足显示未判定，格式错误显示“格式无法识别”且不影响整页，512f25b2；AT-045）；41eb878c 条件 PASS，C1 已修；执行 L9，判定 L6。",
+        "recorded_at": "2026-11-07T13:43:00+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "515ed1929c1b",
+        "summary": "第 131 批：ADR-045 仅限 stage 的合成模型故障开关（0423；fface320），供 B5 演练打标签，不计入失败率；设计 v1–v3 与实现 4bf5e38a 经 L6 条件 PASS，C1 在 fface320 修完；执行 L7，判定 L6。归入 NX-061 为调度员采纳的推断。",
+        "recorded_at": "2026-11-07T22:30:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "R71",
+        "summary": "R71 promote 2026-11-07T22:43:10Z：门禁 21/22，迁移 0418–0423，告警规则 v32（含 v31 起的 outcomes_failure_rate_high），budget_expiring 已触发作为阳性对照。B5 已部署，规则 v31 起生效。执行：调度员；判定：调度员。",
+        "recorded_at": "2026-11-07T22:43:10Z"
       }
     ]
   },
@@ -5049,6 +5181,24 @@
         "ref": "docs/release/run-nx064-effect-request-metrics.md",
         "summary": "调度员改为 in_progress：设计 v2 与实现经 L6 PASS，随第 113 批（a575f57c）合入，2026-11-03 随 R69（20261103-e0fa184d224a-1）部署到 stage，告警 v29 已启用。done 还缺 stage 实测 p99（样本 ≥1000）与据此定的时限，以及高负载回归。执行：L4；判定：L6；状态变更：调度员。",
         "recorded_at": "2026-11-07T10:33:25+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "e53533c9f73a",
+        "summary": "第 122 批：NX-031 矩阵并发下的效应请求高负载回归（HEAVY，e577fff9）；执行 L4，判定 L6 PASS。",
+        "recorded_at": "2026-11-07T11:40:11+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7cee60cc6d82",
+        "summary": "第 128 批：p99 测量门槛脚本（0405 直方图 Host 侧 p99 对部署时限，392f83ad）；25b4225c 条件 PASS，C1 已修；执行 L4，判定 L6。",
+        "recorded_at": "2026-11-07T18:33:51+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-nx064-effect-request-metrics.md",
+        "summary": "stage p99 门槛 2026-11-08 结果 insufficient：host_op 0 个样本、guard_op 2 个，样本不足，未判定。执行：调度员；判定：调度员。",
+        "recorded_at": "2026-11-08T01:39:17Z"
       }
     ]
   }
