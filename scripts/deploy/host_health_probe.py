@@ -59,8 +59,10 @@ class Refused(ValueError):
 
 def run(command):
     """stdout of a fixed read-only command; '' when it is not there or refuses (the caller decides what nothing means)."""
+    # TZ=UTC and LC_ALL=C: a timestamp systemctl prints readable (LastTriggerUSec ignores --timestamp=unix on stage's systemd) comes
+    # out as 'Sun 2026-11-08 00:15:00 UTC', which last_trigger can parse - never a local zone abbreviation or a translated day name.
     try:
-        done = subprocess.run(command, capture_output=True, text=True, timeout=20, check=False)
+        done = subprocess.run(command, capture_output=True, text=True, timeout=20, check=False, env={**os.environ, 'TZ': 'UTC', 'LC_ALL': 'C'})
     except (OSError, subprocess.TimeoutExpired):
         return ''
     return done.stdout
@@ -201,11 +203,20 @@ def last_trigger(timer, shown, runner):
     value = (shown or '').strip()
     if value in ('', 'n/a', '0', '@0'):
         return True, None
-    when = _unix(value)
+    when = _unix(value) or _utc_readable(value)
     return when is not None, when
 
 
-def sample_timers(items, grace, runner=run, unparsed=None):
+_READABLE_UTC = re.compile(r'(?:[A-Z][a-z]{2} )?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC')
+
+
+def _utc_readable(value):
+    """systemctl's readable timestamp under TZ=UTC, LC_ALL=C ('Sun 2026-11-08 00:15:00 UTC'); any other zone is not guessed."""
+    match = _READABLE_UTC.fullmatch(value)
+    return datetime.strptime(match.group(1), '%Y-%m-%d %H:%M:%S').replace(tzinfo=UTC) if match else None
+
+
+def sample_timers(items, grace, runner=run, unparsed=None, overrun=None):
     if not items:
         return []
     units = [u for i in items for u in (i['timer'], i['service'])]
@@ -225,7 +236,12 @@ def sample_timers(items, grace, runner=run, unparsed=None):
             out.append(None)
             continue
         if s.get('ActiveState') not in ('inactive', 'failed') or started is None or finished is None or finished < started:
-            out.append(None)  # seen, no finished run to record (running now, or never ran)
+            # Seen, no finished run to record (running now, or never ran). A trigger after this run's start means the round outlasts
+            # the timer's period: its next round starts queued right after it, never within grace of a trigger, so no round of
+            # this timer can ever count as scheduled (and back to back it is never inactive at a probe tick) - say so locally.
+            if overrun is not None and trigger and started and s.get('ActiveState') in ('activating', 'active', 'reloading') and trigger > started:
+                overrun.append(item['name'])
+            out.append(None)
             continue
         delay = (started - trigger).total_seconds() if trigger else None
         out.append({'name': item['name'], 'run_started_at': started.isoformat(), 'run_finished_at': finished.isoformat(),
@@ -237,14 +253,14 @@ def sample_timers(items, grace, runner=run, unparsed=None):
 def observe(config, runner=run):
     containers, services, timers = config.get('containers', []), config.get('services', []), config.get('timers', [])
     units = sample_containers(containers, runner) + sample_services(services, runner)
-    unparsed = []
-    seen_timers = sample_timers(timers, config.get('grace_seconds', 5), runner, unparsed)
+    unparsed, overrun = [], []
+    seen_timers = sample_timers(timers, config.get('grace_seconds', 5), runner, unparsed, overrun)
     expected_units = [i['name'] for i in containers + services]
     # Blind (ported): what we expect to see and do not is not healthy. Under half of the expected units and timers seen.
     expected, seen = len(expected_units) + len(timers), len(units) + len(seen_timers)
     blind = expected > 0 and seen * 2 < expected
     return {'blind': blind, 'expected_units': expected_units, 'expected_timers': [i['name'] for i in timers],
-            'units': units, 'timers': [r for r in seen_timers if r is not None], 'trigger_unparsed': unparsed}
+            'units': units, 'timers': [r for r in seen_timers if r is not None], 'trigger_unparsed': unparsed, 'timer_overrun': overrun}
 
 
 def load_state(path):
@@ -324,7 +340,7 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, cl
     host = config['host_role']
     entry = observe(config, runner)
     # Journal and summary only: the recorder (0318) refuses fields it does not know (22023) - stage 2026-10-25.
-    unparsed = entry.pop('trigger_unparsed')
+    unparsed, overrun = entry.pop('trigger_unparsed'), entry.pop('timer_overrun')
     now = (clock or (lambda: datetime.now(UTC).timestamp()))()
     loops, anchors = local_crash_loops(load_state(config['state_file']), entry['units'], now,
                                        window=config.get('local_window_seconds', 900), minimum=config.get('local_min_restarts', 3))
@@ -336,7 +352,9 @@ def main(argv=None, runner=run, connect=None, out=sys.stdout, err=sys.stderr, cl
         local_alarm(err, f'blind host={host} seen={len(entry["units"]) + len(entry["timers"])} expected={len(entry["expected_units"]) + len(entry["expected_timers"])}')
     for name in unparsed:
         local_alarm(err, f'trigger_unparsed host={host} timer={name}')
-    summary = {'trigger_unparsed': unparsed, 'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
+    for name in overrun:
+        local_alarm(err, f'timer_overrun host={host} timer={name}')
+    summary = {'trigger_unparsed': unparsed, 'timer_overrun': overrun, 'host_role': host, 'blind': entry['blind'], 'local_crash_loops': [n for n, _ in loops], 'units': len(entry['units']),
                'expected_units': len(entry['expected_units']), 'timer_runs': len(entry['timers']), 'expected_timers': len(entry['expected_timers'])}
     if a.dry_run:
         print(json.dumps({**summary, 'dry_run': True, 'entry': entry}, sort_keys=True), file=out)

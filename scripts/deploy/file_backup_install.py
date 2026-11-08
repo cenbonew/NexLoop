@@ -91,6 +91,7 @@ SCHEMA = 'nexloop-file-backup-install/1'
 USER = 'nexloop-file-backup'
 HOME = '/var/lib/nexloop-file-backup'
 STAGING = HOME + '/staging'
+CACHE = HOME + '/cache'  # restic's persistent cache (encrypted repository files; host-health-file-backup-scheduled.md §5)
 SECRETS = '/srv/nexloop/secrets/backup'
 ENV_FILE = '/etc/nexloop/file-backup.env'
 BASE = '/opt/nexloop/file-backup'
@@ -438,12 +439,13 @@ def ensure_user(root, runner, trust):
     home.mkdir(parents=True, exist_ok=True)
     trust(home, what='home')  # no link on the way, root's, before any chmod
     os.chmod(home, 0o755)
-    staging = home / 'staging'
-    if os.path.islink(staging):
-        raise Refused(f'{staging} is a symbolic link')
-    staging.mkdir(exist_ok=True)
-    os.chmod(staging, 0o700)
-    runner(['chown', f'{USER}:{USER}', str(staging)])
+    for name in ('staging', 'cache'):
+        private = home / name
+        if os.path.islink(private):
+            raise Refused(f'{private} is a symbolic link')
+        private.mkdir(exist_ok=True)
+        os.chmod(private, 0o700)
+        runner(['chown', f'{USER}:{USER}', str(private)])
 
 
 def remove_old_ssh(root):
@@ -554,7 +556,7 @@ def env_file(root, config):
     if path.exists():
         # FILE_BACKUP_REPO2_OPTIONS belongs to install_repo2_secrets.sh files (BUCKET_LOOKUP): kept as it wrote it.
         kept = [line for line in path.read_text().splitlines() if OPTIONS.fullmatch(line)]
-    lines = [f'BACKUP_SECRETS={SECRETS}', f'FILE_BACKUP_STAGING={STAGING}', f'FILE_BACKUP_KEY_REF={config["key_ref"]}',
+    lines = [f'BACKUP_SECRETS={SECRETS}', f'FILE_BACKUP_STAGING={STAGING}', f'FILE_BACKUP_CACHE={CACHE}', f'FILE_BACKUP_KEY_REF={config["key_ref"]}',
              f'RESTIC_REPO1_REPOSITORY_FILE={SECRETS}/restic-files-repo1.repository', f'RESTIC_REPO1_PASSWORD_FILE={SECRETS}/restic-files-repo1.pass',
              f'RESTIC_REPO2_REPOSITORY_FILE={SECRETS}/{REPO2[0]}', f'RESTIC_REPO2_PASSWORD_FILE={SECRETS}/{REPO2[1]}',
              f'OFFSITE_ENVIRONMENT_FILE={SECRETS}/{REPO2[2]}', *kept[:1],
@@ -897,7 +899,7 @@ def uninstall(root, config, runner, out):
     files = [(p, n) for p, n in host_health_files(root, config) if p.exists()]
     for path, nested in files:  # a malformed host-health file is refused before anything is removed
         timers_of(read_private_json(path), nested, path)
-    for path in (under(root, SECRETS), under(root, BASE), under(root, STAGING)):
+    for path in (under(root, SECRETS), under(root, BASE), under(root, STAGING), under(root, CACHE)):
         if os.path.islink(path):
             raise Refused(f'{path} is a symbolic link: nothing removed')
     runner(['systemctl', 'disable', '--now', TIMER, MAINT_TIMER], check=False)
@@ -910,8 +912,9 @@ def uninstall(root, config, runner, out):
         if path.exists() or path.is_symlink():
             path.unlink()
     # L6 S2: the staging tree is the service user's: removed as it is (rmtree does not follow links), never chmod'ed first.
-    if under(root, STAGING).exists():
-        shutil.rmtree(under(root, STAGING))
+    for tree in (STAGING, CACHE):  # the service user's trees: removed as they are
+        if under(root, tree).exists():
+            shutil.rmtree(under(root, tree))
     base = under(root, BASE)
     if base.exists():
         for path in [base, *base.rglob('*')]:  # root's own read-only release tree (and restic): writable before removal

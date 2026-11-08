@@ -270,3 +270,37 @@ def test_a_stopped_but_loaded_service_is_seen(tmp_path):
     _, doc = probe(config(tmp_path), runner(services=[stopped]), '--dry-run')
     [unit] = [u for u in doc['entry']['units'] if u['name'] == 'runtime-worker']
     assert unit['running'] is False and unit['restart_count'] == 2
+
+
+def test_a_readable_utc_trigger_is_parsed_when_the_bus_does_not_answer(tmp_path):
+    # run() gives systemctl TZ=UTC and LC_ALL=C, so a readable LastTriggerUSec is UTC with an English day name.
+    utc = {**DATA_HOST_TIMER, 'LastTriggerUSec': 'Sun 2026-10-25 03:38:00 UTC'}
+    err = io.StringIO()
+    code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer=utc, run=DATA_HOST_RUN, bus=''), '--dry-run', err=err)
+    assert code == 0 and doc['trigger_unparsed'] == [] and 'trigger_unparsed' not in err.getvalue()
+    assert doc['entry']['timers'][0]['scheduled'] is True and doc['entry']['timers'][0]['last_trigger_at'] == '2026-10-25T03:38:00+00:00'
+    # Another zone is never guessed.
+    cst = {**DATA_HOST_TIMER, 'LastTriggerUSec': 'Sun 2026-10-25 11:38:00 CST'}
+    assert probe(config(tmp_path, timers=JOURNAL), runner(timer=cst, run=DATA_HOST_RUN, bus=''), '--dry-run')[1]['trigger_unparsed'] == ['journal']
+
+
+def test_commands_run_with_utc_and_the_c_locale(monkeypatch):
+    seen = {}
+
+    class Done:
+        stdout = 'ok'
+    monkeypatch.setattr(P.subprocess, 'run', lambda command, **kw: seen.update(kw) or Done())
+    assert P.run(['systemctl', 'show']) == 'ok'
+    assert seen['env']['TZ'] == 'UTC' and seen['env']['LC_ALL'] == 'C' and 'PATH' in seen['env']
+
+
+def test_a_round_that_outlasts_its_period_is_alarmed_as_overrun(tmp_path):
+    # file-backup on stage 2026-11-08: back to back, the service is activating at every tick and its trigger is after its start.
+    running = {**DATA_HOST_RUN, 'ActiveState': 'activating', 'InactiveExitTimestamp': f'@{TRIGGER - 300}', 'StateChangeTimestamp': f'@{TRIGGER - 300}'}
+    err = io.StringIO()
+    code, doc = probe(config(tmp_path, timers=JOURNAL), runner(timer=DATA_HOST_TIMER, run=running, bus=f't {TRIGGER}000000\n'), '--dry-run', err=err)
+    assert code == 0 and doc['timer_overrun'] == ['journal'] and doc['entry']['timers'] == []
+    assert '<3>nexloop-host-health timer_overrun host=data_host timer=journal' in err.getvalue()
+    # A round still inside its period (started at its trigger) is not an overrun.
+    inside = {**running, 'InactiveExitTimestamp': f'@{TRIGGER + 1}', 'StateChangeTimestamp': f'@{TRIGGER + 1}'}
+    assert probe(config(tmp_path, timers=JOURNAL), runner(timer=DATA_HOST_TIMER, run=inside, bus=f't {TRIGGER}000000\n'), '--dry-run')[1]['timer_overrun'] == []

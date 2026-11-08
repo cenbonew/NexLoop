@@ -316,7 +316,7 @@ def test_installs_reruns_and_never_shows_a_secret(tmp_path):
     props = [dry[i + 1] for i, a in enumerate(dry) if a == '-p']
     for p in ('User=nexloop-file-backup', 'AmbientCapabilities=CAP_DAC_READ_SEARCH', 'SystemCallFilter=~open_by_handle_at name_to_handle_at',
               'SystemCallErrorNumber=EPERM', 'SystemCallArchitectures=native', 'CapabilityBoundingSet=CAP_DAC_READ_SEARCH',
-              'TemporaryFileSystem=/srv/nexloop:ro', 'EnvironmentFile=/etc/nexloop/file-backup.env', 'ReadWritePaths=/var/lib/nexloop-file-backup/staging',
+              'TemporaryFileSystem=/srv/nexloop:ro', 'EnvironmentFile=/etc/nexloop/file-backup.env', 'ReadWritePaths=/var/lib/nexloop-file-backup/staging /var/lib/nexloop-file-backup/cache',
               'BindReadOnlyPaths=/srv/nexloop/data/artifacts /srv/nexloop/data/runtime /srv/nexloop/secrets/backup'):
         assert p in props, p
     hidden = [dry[i + 1] for i, a in enumerate(dry) if a == '--hidden']
@@ -614,7 +614,7 @@ def test_uninstall_removes_everything_but_the_user(tmp_path):
     assert runner.calls[0] == ['systemctl', 'disable', '--now', 'nexloop-file-backup.timer', 'nexloop-file-backup-maint.timer']
     for gone in ('etc/systemd/system/nexloop-file-backup.service', 'etc/systemd/system/nexloop-file-backup.timer', 'etc/nexloop/file-backup.env',
                  'etc/systemd/system/nexloop-file-backup-maint.service', 'etc/systemd/system/nexloop-file-backup-maint.timer',
-                 'opt/nexloop/file-backup', 'var/lib/nexloop-file-backup/staging', f'{SECRETS}/recorder.dsn', f'{SECRETS}/offsite.env'):
+                 'opt/nexloop/file-backup', 'var/lib/nexloop-file-backup/staging', 'var/lib/nexloop-file-backup/cache', f'{SECRETS}/recorder.dsn', f'{SECRETS}/offsite.env'):
         assert not (root / gone).exists(), gone
     assert (root / 'var/lib/nexloop-file-backup').is_dir() and 'its home stay' in text
     assert [t['name'] for t in json.loads((root / 'etc/nexloop/host-health.json').read_text())['timers']] == ['provider-drift']
@@ -703,7 +703,8 @@ def test_the_unit_and_the_installer_agree(tmp_path):
     """The secret file names, the staging directory and the data roots the installer writes are the ones the unit names."""
     service = (ROOT / 'deploy/stage/systemd/nexloop-file-backup.service.example').read_text()
     props = dict(I.sandbox(service.replace('@MDWE@', 'true')))
-    assert props['BindReadOnlyPaths'].split() == [*I.DATA_ROOTS, I.SECRETS] and props['ReadWritePaths'] == I.STAGING
+    assert props['BindReadOnlyPaths'].split() == [*I.DATA_ROOTS, I.SECRETS] and props['ReadWritePaths'].split() == [I.STAGING, I.CACHE]
+    assert service.count('--cache-dir ${FILE_BACKUP_CACHE}') == 4  # every run keeps restic's cache in the installer's private directory
     assert '${BACKUP_SECRETS}/recorder.dsn' in service and 'recorder.dsn' in I.OWN and service.count('/opt/nexloop/file-backup/current/') == 4
     assert all(f in I.FILES for f in ('scripts/deploy/file_backup_run.py', 'scripts/deploy/file_backup_sandbox_check.py'))
 
