@@ -161,6 +161,11 @@
         "name": "world-glossary",
         "timer": "nexloop-world-glossary.timer",
         "service": "nexloop-world-glossary.service"
+      },
+      {
+        "name": "alert-notify",
+        "timer": "nexloop-alert-notify.timer",
+        "service": "nexloop-alert-notify.service"
       }
     ]
   }

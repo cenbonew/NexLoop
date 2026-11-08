@@ -1,0 +1,12 @@
+{
+  "schema": "nexloop-alert-notify/1",
+  "host_label": "stage",
+  "metrics_dsn_file": "/etc/nexloop/alert-notify-metrics-dsn",
+  "webhook_url_file": "/etc/nexloop/alert-notify-webhook-url",
+  "format": "feishu",
+  "state_file": "/var/lib/nexloop-alert-notify/state.json",
+  "levels": ["critical", "warning"],
+  "critical_repeat_seconds": 86400,
+  "evaluator_stale_seconds": 600,
+  "timeout_seconds": 10
+}

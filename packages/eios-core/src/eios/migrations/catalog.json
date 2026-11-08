@@ -2120,6 +2120,11 @@
       "version": "0424",
       "name": "0424_timers_not_reported.sql",
       "sha256": "3df98e35c56c6754c2dec95a6f4c66715f0e5fe7eff9adf9be13369c27a6bf13"
+    },
+    {
+      "version": "0425",
+      "name": "0425_alert_notify_export.sql",
+      "sha256": "14a24bbaf1c02b06c7145bd3b24e2907db14975d6347609dff167c118df37ca6"
     }
   ]
 }
