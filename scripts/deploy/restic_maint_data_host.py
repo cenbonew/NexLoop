@@ -27,6 +27,14 @@ timer_scheduled_failure alerts. A file backup round that starts while the server
 L6 S5: the block also sets TimeoutStartSec=6h - a hanging forget or prune is killed (the unit fails) and the rest-server does not stay
 stopped; a unit with a TimeoutStartSec of its own is refused.
 --files-repo requires the rest-server unit active.
+--repo2 (2026-11-08: the restore journal's repo2 on TOS was connected while the installed unit, the deploy days' copy, maintained repo1
+only) adds repo2's block once, as the example has it: forget per tag with --prune (D4's retention, as repo1) behind its guard, check,
+and the weekly deep check; $RESTIC_REPO2_OPTIONS (e.g. -o s3.bucket-lookup=dns, from the EnvironmentFile; empty adds nothing) is
+passed to every repo2 restic call. It requires RESTIC_REPO2_REPOSITORY_FILE and RESTIC_REPO2_PASSWORD_FILE in the unit's
+EnvironmentFile (names only are read; install_repo2_secrets.sh writes them) and is refused when the unit already has repo2 lines.
+Weekly deep checks (every run, with or without --repo2): `check --read-data-subset N/10` on Sundays, N rotating with the ISO week
+(week mod 10, plus 1), so ten Sundays read the whole repository instead of the same tenth every week; a fixed 1/10 is rewritten.
+Every step is its own ExecStart line of the oneshot unit: any failing step fails the unit (timer_scheduled_failure).
 
 Steps:
   1 preflight: the unit a regular file, it and every directory above it root's and not group/other-writable (lstat, no link); exactly
@@ -67,6 +75,11 @@ WAIT_SECONDS = 600
 FILES_KEYS = ('ExecStart=', 'ExecStopPost=', 'ReadWritePaths=', 'TimeoutStartSec=')
 TIMEOUT = '6h'  # L6 S5: a forget or prune that hangs is killed, and ExecStopPost starts the rest-server again
 FILES_MARK = '# NX-035 files repository (APP_HOST\'s file backup through the rest-server; restic_maint_data_host.py --files-repo)'
+REPO2_MARK = '# NX-035 restore journal repo2 (TOS; restic_maint_data_host.py --repo2)'
+REPO2_KEYS = ('RESTIC_REPO2_REPOSITORY_FILE', 'RESTIC_REPO2_PASSWORD_FILE')
+# Sunday's deep check reads a tenth chosen by the ISO week: expr reads "08" as eight (no octal), $$ and %% are systemd's escapes.
+FIXED_SUBSET = '--read-data-subset 1/10'
+ROTATING_SUBSET = '--read-data-subset $$(expr $$(date +%%V) %% 10 + 1)/10'
 HERE = Path(__file__).resolve().parent
 
 
@@ -213,7 +226,7 @@ def files_block(restic, repo, password_file):
             f'ExecStart={PYTHON} -I -B {GUARD} --wait-unlocked {WAIT_SECONDS} -- {common}\n'
             f'ExecStart=+{SYSTEMCTL} stop {REST_UNIT}\n'
             f'ExecStart={common} {NEW}\nExecStart=+{SYSTEMCTL} start {REST_UNIT}\nExecStart={common} check --retry-lock 10m\n'
-            f'ExecStart=/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {common} check --read-data-subset 1/10; fi\'\n'
+            f'ExecStart=/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {common} check {ROTATING_SUBSET}; fi\'\n'
             f'ExecStopPost=+{SYSTEMCTL} start {REST_UNIT}\nExecStopPost=/bin/sleep 3\nExecStopPost=+{SYSTEMCTL} is-active --quiet {REST_UNIT}\n'
             f'ReadWritePaths={repo}\nTimeoutStartSec={TIMEOUT}\n')
 
@@ -247,6 +260,58 @@ def with_files(text, repo, password_file):
     while end > start + 1 and not lines[end - 1].strip():
         end -= 1
     return ''.join(lines[:end]) + files_block(restic, repo, password_file) + ''.join(lines[end:])
+
+
+def rotated(text):
+    """Every Sunday deep check reads the ISO week's tenth instead of a fixed first tenth."""
+    return ''.join(line.replace(FIXED_SUBSET, ROTATING_SUBSET) if line.startswith('ExecStart=/bin/sh -c ') else line
+                   for line in text.splitlines(keepends=True))
+
+
+def repo2_block(restic):
+    common = (f'{restic} --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${{RESTIC_REPO2_REPOSITORY_FILE}} '
+              '--password-file ${RESTIC_REPO2_PASSWORD_FILE}')
+    shell = common.replace('$RESTIC_REPO2_OPTIONS', '${RESTIC_REPO2_OPTIONS}')  # inside sh -c: systemd substitutes it as text
+    return (f'{REPO2_MARK}\nExecStart={common} {NEW}\nExecStart={common} check\n'
+            f'ExecStart=/bin/sh -c \'if [ "$$(date +%%u)" = 7 ]; then exec {shell} check {ROTATING_SUBSET}; fi\'\n')
+
+
+def environment_names(text, root, trust):
+    """The variable names (never values) of the unit's EnvironmentFile(s); an optional (-) file that is missing gives none."""
+    names = set()
+    for section, key, value in sections(text):
+        if section != 'Service' or key != 'EnvironmentFile':
+            continue
+        optional, name = value.startswith('-'), value.lstrip('-')
+        path = Path(str(root).rstrip('/') + name)
+        if optional and not path.exists():
+            continue
+        trust(path, what='EnvironmentFile')
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                names.add(line.partition('=')[0].strip().removeprefix('export ').strip())
+    return names
+
+
+def with_repo2(text, root, trust):
+    """repo2's block once, before the files repository's block (or at the end of [Service]); the guard is added like for every forget."""
+    if 'REPO2' in text:
+        raise Refused('the unit already has repo2 lines: nothing to add (or change them by hand)')
+    missing = [k for k in REPO2_KEYS if k not in environment_names(text, root, trust)]
+    if missing:
+        raise Refused(f'the unit\'s EnvironmentFile lacks {", ".join(missing)}: run install_repo2_secrets.sh first')
+    first = next(v for s, k, v in sections(text) if s == 'Service' and k == 'ExecStart' and ' forget ' in f' {v} ')
+    block = repo2_block(first.split()[0])
+    lines = text.splitlines(keepends=True)
+    if FILES_MARK + '\n' in lines:
+        at = lines.index(FILES_MARK + '\n')
+    else:
+        start = next(i for i, l in enumerate(lines) if l.strip() == '[Service]')
+        at = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith('[')), len(lines))
+        while at > start + 1 and not lines[at - 1].strip():
+            at -= 1
+    return ''.join(lines[:at]) + block + ''.join(lines[at:])
 
 
 def reverted(text):
@@ -293,12 +358,15 @@ def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, roo
     p.add_argument('--revert', action='store_true')
     p.add_argument('--files-repo', type=Path)
     p.add_argument('--files-password-file', type=Path)
+    p.add_argument('--repo2', action='store_true', help='add the restore journal repo2 maintenance (forget/prune, check, weekly deep check)')
     a = p.parse_args(argv)
     os.umask(0o022)
     path = Path(unit)
     try:
         if (a.files_repo is None) != (a.files_password_file is None) or (a.revert and a.files_repo):
             raise Refused('--files-repo and --files-password-file go together (and not with --revert)')
+        if a.revert and a.repo2:
+            raise Refused('--repo2 adds maintenance and does not go with --revert')
         trust(path, what='unit')
         if not stat.S_ISREG(os.lstat(path).st_mode):
             raise Refused(f'{path}: a regular file')
@@ -327,7 +395,9 @@ def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, roo
                 text_files = with_files(text, a.files_repo, a.files_password_file)
             else:
                 text_files = text
-            new_text = guarded(text_files)
+            if a.repo2:
+                text_files = with_repo2(text_files, root, trust)
+            new_text = rotated(guarded(text_files))
             trust_python(PYTHON, what='python')
             install_guard(root, runner, trust, out, Path(guard_source))
         if new_text == text:
@@ -345,7 +415,9 @@ def main(argv=None, out=sys.stdout, runner=run, unit=UNIT, trust=root_owned, roo
         write_atomic(path, new_text)
         runner(['systemctl', 'daemon-reload'])
         print(f'step 3: {path.name} rewritten ({"restic default grouping, no guard" if a.revert else "--group-by host,tags, a guard before every forget"}'
-              f'{", the files repository (the rest-server stopped around its guard and forget)" if a.files_repo else ""}), daemon-reload; the previous text kept as {backup.name}', file=out)
+              f'{", the files repository (the rest-server stopped around its guard and forget)" if a.files_repo else ""}'
+              f'{", the restore journal repo2 (forget/prune, check, weekly deep check)" if a.repo2 else ""}'
+              f'{"" if a.revert else ", Sunday deep checks rotating by ISO week"}), daemon-reload; the previous text kept as {backup.name}', file=out)
     except Refused as error:
         print(json.dumps({'refused': str(error)}), file=out)
         return 2

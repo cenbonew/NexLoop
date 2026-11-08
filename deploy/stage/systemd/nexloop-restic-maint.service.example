@@ -6,7 +6,7 @@
 # no secret is written in this unit. RequiresMountsFor lists the LUKS mount points of NX-035 step 1 (example paths: keep them
 # equal to the private env), so the unit never starts on an unmounted, unencrypted directory.
 # /etc/nexloop/restic.env (0600) holds the paths RESTIC_REPO1_/RESTIC_REPO2_REPOSITORY_FILE and _PASSWORD_FILE and repo2's
-# AWS_* keys, and optionally RESTIC_REPO2_OPTIONS="-o s3.bucket-lookup=dns" (repo2 on TOS; unset or empty adds nothing). Retention as D4 (14 days, one monthly, at most 35 days); `check` daily, `check --read-data-subset 1/10` weekly.
+# AWS_* keys, and optionally RESTIC_REPO2_OPTIONS="-o s3.bucket-lookup=dns" (repo2 on TOS; unset or empty adds nothing). Retention as D4 (14 days, one monthly, at most 35 days); `check` daily; on Sundays `check --read-data-subset N/10`, N rotating with the ISO week (week mod 10, plus 1), so ten Sundays read it all.
 # Retention per tag (--group-by host,tags; L7 2026-10-26): the restore journal (tag journal, one fixed path) here; the APP_HOST file
 # snapshots (tags files_artifact / files_runtime, each from a new staging directory) in their own repository since the owner's
 # 2026-10-27 change of D4 (restic_maint_data_host.sh --files-repo adds its lines). restic's default grouping is host,paths, under
@@ -31,11 +31,11 @@ EnvironmentFile=/etc/nexloop/restic.env
 ExecStart=/usr/bin/python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py --max-ahead-seconds 3600 -- /usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE}
 ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune
 ExecStart=/usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check
-ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check --read-data-subset 1/10; fi'
+ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache --repository-file ${RESTIC_REPO1_REPOSITORY_FILE} --password-file ${RESTIC_REPO1_PASSWORD_FILE} check --read-data-subset $$(expr $$(date +%%V) %% 10 + 1)/10; fi'
 ExecStart=/usr/bin/python3 -I -B /opt/nexloop/restic-maint/restic_future_guard.py --max-ahead-seconds 3600 -- /usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE}
 ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} forget --retry-lock 10m --group-by host,tags --keep-within 14d --keep-monthly 1 --prune
 ExecStart=/usr/local/bin/restic --no-cache $RESTIC_REPO2_OPTIONS --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check
-ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache ${RESTIC_REPO2_OPTIONS} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check --read-data-subset 1/10; fi'
+ExecStart=/bin/sh -c 'if [ "$$(date +%%u)" = 7 ]; then exec /usr/local/bin/restic --no-cache ${RESTIC_REPO2_OPTIONS} --repository-file ${RESTIC_REPO2_REPOSITORY_FILE} --password-file ${RESTIC_REPO2_PASSWORD_FILE} check --read-data-subset $$(expr $$(date +%%V) %% 10 + 1)/10; fi'
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
