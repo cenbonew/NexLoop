@@ -9,7 +9,8 @@
 - **persona**：每个消费者有一个人设值 `real`、`simulated_agent` 或 `synthetic`。没有记录即为 `real`。只能经负责人 Action `nexloop.consumer.set_persona:1` 修改，每次修改有修订号和一条只追加的事件（原值、新值、执行人、请求、理由）。改回 `real` 即撤销。
 - **合成删除**：负责人 Action `nexloop.consumer.erase_synthetic:1`。SQL 先读 persona，为 `real` 时拒绝（工作台返回 409，`details.reason` 为 `persona_real`）；否则调用原有的 NX-029 删除处理函数，阻断立即生效，清除由保留期 keeper 完成。
 - **不变的部分**：真实顾客的删除请求仍走原有的 `nexloop.consumer.erase:1`，不受 persona 影响。恢复后的删除重放（0135）直接调用原处理函数，不再检查 persona。
-- **只读预查**：`GET /api/v1/workbench/erasure-precheck/<consumer_id>`，仅负责人可用。返回 persona 及其修订号、删除请求的状态（不含理由），以及仍保留的数量：会话、消息、仍带正文的消息、Claim、值尚未清除的 Claim、数据导出。不返回姓名或正文。
+- **只读预查**：`GET /api/v1/workbench/erasure-precheck/<consumer_id>`，仅负责人可用。返回 persona 及其修订号、删除请求的状态（不含理由），以及仍保留的数量：会话、消息、仍带正文的消息、Claim、值尚未清除的 Claim、数据导出，以及 `grants_held`（迁移 0429，临时编号）：这个顾客的登录主体仍有非空授权的 WebChat 资源数。不返回姓名、正文或登录主体。
+- **删除不撤销 WebChat 授权**：0220 的删除清掉顾客的数据和它与登录主体的对应，但不动 0050 发布的授权事实；只有私有配方里写 `revoke: true` 并用 `webchat_consumers.py` 发布一次，授权才会清空（stage 2026-11-09：customer-4 删除后仍有 `nexloop.conversation.read:1` 等 5 个授权）。删除后对应关系已不在，`grants_held` 经删除请求记录的联系键（按租户加盐的 HMAC）找回原来的登录主体。
 
 ## 顺序
 
@@ -20,8 +21,9 @@
 | 3 | AT-050：记录恢复点 | 调度员 | — |
 | 4 | `erase --dry-run`：核对 persona 与将删除的数量 | 负责人 | — |
 | 5 | `erase`：执行删除 | 负责人 | — |
-| 6 | keeper 跑完后再次 `erase --dry-run`，作为事后核对 | 负责人 | — |
-| 7 | AT-050：恢复到第 3 步的恢复点，执行删除重放；再做一次第 6 步，应看到删除已重放 | 调度员、负责人 | — |
+| 6 | 在私有 webchat-consumers 配方里把这个顾客改为 `revoke: true`，用 `webchat_consumers.py` 发布一次（技术配置员） | 负责人 | — |
+| 6a | keeper 跑完后再次 `erase --dry-run`，作为事后核对 | 负责人 | — |
+| 7 | AT-050：恢复到第 3 步的恢复点，执行删除重放；重做第 6 步（授权撤销写在数据库里，恢复到第 3 步的恢复点会把它一起回退），再做一次第 6a 步，应看到删除已重放、`grants_held` 为 0 | 调度员、负责人 | — |
 
 第 2 步要放在恢复点之前：恢复后的数据库里仍保留 persona 标记，与恢复前一致。重放本身不依赖 persona。
 
@@ -60,7 +62,7 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 | 子命令 | 取值 |
 |---|---|
 | `mark` | `would_mark`、`marked`、`already_marked`、`unchanged`、`not_in_recipe`、`refused` |
-| `erase` | `would_erase`、`erasing`、`replayed`、`already_erasing`、`already_erased`、`persona_real`、`consumer_unavailable`、`refused` |
+| `erase` | `would_erase`、`erasing`、`replayed`、`already_erasing`、`already_erased`、`erased_grants_held`（已删除但授权未撤销，退出码 1）、`persona_real`、`consumer_unavailable`、`refused` |
 
 ## 事后核对
 
@@ -70,7 +72,8 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 - `held.messages_with_body` 为 0；
 - `held.claims_not_erased` 为 0；
 - `held.data_exports` 为 0；
-- `consumer_object` 为 false。
+- `consumer_object` 为 false；
+- `held.grants_held` 为 0（不为 0 时结果是 `erased_grants_held`、退出码 1：先完成第 6 步的撤销发布）。
 
 删除完成后 persona 标记行也随之删除，`persona` 显示为 `real`；它的修改事件保留取值和时间，顾客 ID 换成假名，理由清空（0227）。
 

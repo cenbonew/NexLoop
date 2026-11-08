@@ -25,7 +25,11 @@ A Consumer the precheck shows as real is not sent at all. Configuration (deploy/
     {"schema": "nexloop-erase-synthetic-consumer/1", "confirmation_ref": "at050-erase:20261018-1", "reason": "...",
      "consumers": ["<64 hex>"]}
 Rerunning the same configuration replays (the Idempotency-Key is derived from the Consumer and the confirmation reference); after
-the erasure, --dry-run is the post-check (erasure state, Claims not yet erased, messages still carrying a body, data exports).
+the erasure, --dry-run is the post-check (erasure state, Claims not yet erased, messages still carrying a body, data exports,
+grants_held: WebChat grant sets still non-empty for the Consumer's principal, migration 0429). The erasure never revokes the
+principal's WebChat grants (stage 2026-11-09, customer-4): after `erase` succeeds, set the Consumer to `revoke: true` in the private
+webchat-consumers recipe and apply it once with webchat_consumers.py. An erased Consumer whose grants_held is above zero fails the
+post-check (result erased_grants_held, exit 1) until that revocation is published.
 
 Output: one JSON object (IDs, personas, states and counts; never a name, the username, password, cookie, CSRF token or the reason).
 Exit: 0 done (or dry run with every Consumer acceptable); 1 a Consumer was refused or not acceptable; 2 input refused.
@@ -50,7 +54,7 @@ HEX = re.compile(r'[a-f0-9]{64}')
 REF = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,127}')
 NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,190}')
 SYNTHETIC = ('simulated_agent', 'synthetic')
-HELD = ('conversations', 'messages', 'messages_with_body', 'claims', 'claims_not_erased', 'data_exports')
+HELD = ('conversations', 'messages', 'messages_with_body', 'claims', 'claims_not_erased', 'data_exports', 'grants_held')
 
 
 def _json(text, schema, keys):
@@ -165,6 +169,10 @@ def erase(workbench, config, *, dry_run=False):
         before = entry['before']
         if before['erasure'] and before['erasure']['state'] != 'pending_confirmation':
             entry['result'] = 'already_erasing' if before['erasure']['state'] not in ('completed', 'completed_with_holds') else 'already_erased'
+            if entry['result'] == 'already_erased' and before['held']['grants_held'] != 0:
+                # 0429: erased, but the principal still holds WebChat grants (revoke it in the recipe, apply webchat_consumers.py).
+                entry['result'] = 'erased_grants_held'
+                failed = True
         elif before['persona'] not in SYNTHETIC:
             entry['result'] = 'persona_real'  # never sent: SQL would refuse it too
             failed = True

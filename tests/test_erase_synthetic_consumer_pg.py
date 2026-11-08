@@ -181,3 +181,73 @@ def test_the_post_check_shows_messages_claims_and_exports_cleared(restoring, adm
     # 0227 (Codex review, PR 13): the marker row leaves with the Consumer (its events keep a pseudonym); a replayed erasure is not
     # checked again, so nothing depends on it after the erasure.
     assert after['persona'] == 'real' and after['persona_revision'] == 0
+
+
+@PLAN
+def test_an_erased_consumer_whose_principal_still_holds_webchat_grants_fails_the_post_check_until_revoked(restoring, admin, tmp_path, capsys):
+    """0429 (stage 2026-11-09, customer-4): the erasure never empties the principal's 0050 WebChat grants. The precheck counts them as
+    held.grants_held, before the erasure through the owner link, after it through the contact keys the erasure request recorded (the
+    owner link is gone); the owner tool's post-check fails while it is above zero and passes once webchat_consumers' revoke is in."""
+    from nexloop_eios import webchat_consumers as W
+    from test_workbench_read_pg import add_human, write_facts
+    c = restoring
+    publish_registry_actions(admin, ACTIONS)
+    consumer = c['consumer']
+    role = json.loads((Path(__file__).resolve().parents[1] / 'deploy/authorization/webchat-consumer-role.v1.json').read_text())
+    customer, bystander = add_human(admin, 'erased-customer'), add_human(admin, 'other-customer')
+
+    def recipe(*entries):
+        return {'schema_version': W.CONSUMERS_SCHEMA, 'tenant_id': TENANT, 'browser_application_id': 'synthetic-webchat',
+                'caller_application_id': 'eios:application:nexloop-webchat', 'consumers': list(entries)}
+
+    def entry(h, **kw):
+        return {'principal_id': h['principal_id'], 'subject_id': h['subject_id'], 'persona': 'simulated_agent', **kw}
+    write_facts(admin, W.compile_recipe(role, recipe(entry(customer), entry(bystander)))['authority_facts'])
+    held = len(role['resources'])
+    # Before the erasure the owner link names the principal (the guard trigger is bypassed: only the link is under test here).
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute('insert into control.nexloop_consumer_owners(tenant_id,world,principal_id,consumer_id,ownership_id,idempotency_key) '
+                      "values(%s,'real',%s,%s,%s,%s)", (TENANT, customer['principal_id'], consumer, 'own-' + secrets.token_hex(8), 'owner-key-' + secrets.token_hex(8)))
+    with c['app']() as client:
+        csrf = workbench_login(client, c['owner_member']).json()['csrf_token']
+        assert precheck(client, consumer).json()['held']['grants_held'] == held  # the bystander's grants are not this Consumer's
+        assert act(client, csrf, 'set_consumer_persona', {'consumer_id': consumer, 'persona': 'synthetic', 'reason': '合成'}).status_code == 200
+        assert act(client, csrf, 'erase_synthetic_consumer', {'consumer_id': consumer, 'reason': '合成删除'}).status_code == 200
+    request_id = admin.execute('select request_id from control.nexloop_consumer_erasures where consumer_id=%s', (consumer,)).fetchone()[0]
+    # What the completion leaves (0358 D5 and the owner-link delete), written as the keeper writes it: the owner link goes, each
+    # identity reference of the Consumer becomes a salted HMAC under the request, the request completes.
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute('delete from control.nexloop_consumer_owners where consumer_id=%s', (consumer,))
+        admin.execute('insert into control.nexloop_erasure_salts(tenant_id,salt) values(%s,extensions.gen_random_bytes(32)) on conflict do nothing', (TENANT,))
+        admin.execute("""insert into control.nexloop_erased_contact_keys(tenant_id,world,key_digest,request_id)
+            select %s,'real',encode(extensions.hmac(convert_to(r,'UTF8'),s.salt,'sha256'),'hex'),%s
+            from unnest(control.nexloop_principal_identity_refs(%s,'real',%s)) r, control.nexloop_erasure_salts s where s.tenant_id=%s""",
+                      (TENANT, request_id, TENANT, customer['principal_id'], TENANT))
+        admin.execute("update control.nexloop_consumer_erasures set state='completed',phase=null,completed_at=clock_timestamp() where request_id=%s", (request_id,))
+    erase_cfg = {'schema': T.ERASE_SCHEMA, 'confirmation_ref': 'at050-erase:grants-1', 'reason': '合成顾客删除', 'consumers': [consumer]}
+
+    def post_check():
+        cfg = private_text(tmp_path, 'erase-' + secrets.token_hex(4) + '.json', json.dumps(erase_cfg))
+        user = private_text(tmp_path, 'user-' + secrets.token_hex(4), c['owner_member']['username'] + '\n')
+        with c['app']() as client:
+            code = T.main(['erase', '--origin', ORIGIN, '--password-stdin', '--username-file', str(user), '--config', str(cfg), '--dry-run'],
+                          stdin=io.StringIO(c['owner_member']['password'] + '\n'), transport=AppTransport(client))
+        out = json.loads(capsys.readouterr().out)
+        assert customer['principal_id'] not in json.dumps(out)
+        return code, out['consumers'][0]
+    # Positive: erased, owner link gone, grants still there -> found through the contact keys; the post-check fails.
+    code, result = post_check()
+    assert (code, result['result'], result['before']['held']['grants_held']) == (1, 'erased_grants_held', held), result
+    # A key of another request does not name this Consumer's principal (negative control on the request filter).
+    admin.execute('update control.nexloop_erased_contact_keys set request_id=%s where request_id=%s', ('other-request', request_id))
+    assert post_check()[1]['before']['held']['grants_held'] == 0
+    admin.execute('update control.nexloop_erased_contact_keys set request_id=%s where request_id=%s', (request_id, 'other-request'))
+    assert post_check()[0] == 1
+    # The revocation published (revoke: true, empty grant sets): the post-check passes; the bystander keeps its grants.
+    write_facts(admin, W.compile_recipe(role, recipe(entry(customer, revoke=True), entry(bystander)))['authority_facts'])
+    code, result = post_check()
+    assert (code, result['result'], result['before']['held']['grants_held']) == (0, 'already_erased', 0), result
+    assert admin.execute("select count(*) from authz.nexloop_authority_facts where fact_kind='grants' and entity_key[1]=%s "
+                         "and jsonb_array_length(payload->'grants')>0", (bystander['principal_id'],)).fetchone() == (held,)
