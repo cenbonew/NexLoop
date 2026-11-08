@@ -4487,7 +4487,7 @@
       "M23"
     ],
     "deliverable": "ADR-038 采用：系统目录发布首批关系类型（全部 many_to_one），objects 上延迟约束触发器在提交时派生关系、BEFORE DELETE 先删关系；归属解析单一来源（读守卫/object_fields 只读关系，purge 永久用关系∪属性）；受治理 unlink 入口；低权限回填身份与可撤销回填；切读后观察 7 天再移除属性后备；P1–P5 分阶段上线与验收",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -4578,6 +4578,48 @@
         "ref": "R71; docs/design/relation-read-p5.md §2.1",
         "summary": "P5 已上线（R71，0421）：覆盖表含 p3-2 共 25 行，读方在该租户进入只读关系模式。执行：调度员；判定：调度员（2026-11-08 核对）。",
         "recorded_at": "2026-11-08T01:39:17Z"
+      },
+      {
+        "type": "test_report",
+        "ref": "CI 41684401 attempt-1 (batches 124-131 incl. P5 0421)",
+        "summary": "Executor CI (dispatcher-queued); judge L6. Whole-database erasure in relation-only mode and the P5 read-only cases passed in the merge check: test_erasure_whole_database_pg 3 passed, test_relation_read_only_pg 6 passed; check 8729 passed / 0 failed.",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "stage read-only, run-nx054-p3-verify.md",
+        "summary": "Executor dispatcher, 2026-11-07T10:30:43Z; judge L6 PASS 2026-11-07. P3 verify: 22 rows all balanced (a=b, extra 0), skipped_remaining 0, a_total 1854; independent recount goal_of real 126/126.",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "stage read-only after R71",
+        "summary": "Executor dispatcher; judge L6 2026-11-07. P5 (0421) live with R71 (promote 2026-11-07T22:43Z): control.nexloop_relation_backfill_coverage holds 25 rows for p3-2 (completed, digest current, skipped_erasure 0).",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "stage read-only authority facts",
+        "summary": "Executor dispatcher, 2026-11-08; judge L6 2026-11-09. Backfill principal revoked: nexloop-service-relation-backfiller-principal / eios:action:nexloop.relation.backfill:1 has 0 grants; no grants fact mentions relation.backfill.",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "stage daily relation-read-gaps (journal nexloop-relation-read-gaps)",
+        "summary": "Executor dispatcher; judge L6 2026-11-09. Daily gaps 0 for all 13 ownership types every day 2026-10-28..2026-11-08; first run after P5: 2026-11-09T03:40:05+08:00, 13 types all 0, Result=success (also after R72 2026-11-08T16:26Z). Earlier backfill evidence in planning backfill c81a02ee.",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "NX-054-stage-publish.md threshold table",
+        "summary": "Known limitation: relay write-step p95 not decidable - fewer than 200 calls on both sides of the publication (stage has almost no relay traffic); the threshold table records this as not decidable and not blocking. Re-judge when real traffic reaches 200 write calls in a 24 h window (relation_derive_timing.py relay).",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "L6 judgement 2026-11-09",
+        "summary": "Done: L6 PASS 2026-11-09 - the 7-day observation after the read switch (P4a) was met before P5 (10-28..11-06, owner confirmed 11-07); P5 needs no further observation; daily gap check and its alert stay on; rollback is a new migration restoring the P4a union. Executor dispatcher; judge L6.",
+        "recorded_at": "2026-11-09T04:26:12+08:00"
       }
     ]
   },
