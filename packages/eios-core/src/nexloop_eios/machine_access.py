@@ -21,3 +21,59 @@ def forbidden(capability):
     """The Python form of control.nexloop_machine_capability_forbidden (tests assert they agree)."""
     return not isinstance(capability, str) or any(m in capability.lower() for m in NEVER_GRANT_MARKERS)
 
+
+
+# ---- NX-062 M3: the machine rate policy (L6 C4) -------------------------------------------------------------------------------
+RATE_SCHEMA = 'nexloop-machine-rate-limits/1'
+RATE_KEYS = {'schema_version', 'manifest_version', 'per_key_per_minute', 'per_tenant_per_minute'}
+
+
+class RatePolicyRejected(ValueError):
+    pass
+
+
+def validate_rate_policy(value):
+    """deploy/configuration/machine-rate-limits.v<N>.json; the same rules as control.nexloop_publish_machine_rate_policy."""
+    if type(value) is not dict or set(value) != RATE_KEYS or value['schema_version'] != RATE_SCHEMA:
+        raise RatePolicyRejected('shape')
+    for name, high in (('manifest_version', 10 ** 6), ('per_key_per_minute', 10000), ('per_tenant_per_minute', 100000)):
+        if type(value[name]) is not int or not 1 <= value[name] <= high:
+            raise RatePolicyRejected(name)
+    if value['per_tenant_per_minute'] < value['per_key_per_minute']:
+        raise RatePolicyRejected('per_tenant_per_minute')
+    return value
+
+
+def publish_rate_policy(path, *, database_url_file):
+    """Publish the policy through the configurator (trusted configuration); an unchanged file writes nothing."""
+    import json
+    from pathlib import Path
+
+    import psycopg
+
+    from nexloop_eios.private_configuration import read_private_text
+    policy = validate_rate_policy(json.loads(Path(path).read_text(encoding='utf-8')))
+    with psycopg.connect(read_private_text(database_url_file, maximum=16384), autocommit=True) as db:
+        return db.execute('select control.nexloop_publish_machine_rate_policy(%s::jsonb)', (json.dumps(policy, sort_keys=True),)).fetchone()[0]
+
+
+def main(argv=None):
+    import argparse
+    import json
+    from pathlib import Path
+    p = argparse.ArgumentParser(prog='python -m nexloop_eios.machine_access')
+    sub = p.add_subparsers(dest='command', required=True)
+    pub = sub.add_parser('publish-rate-policy', help='NX-062 M3: publish deploy/configuration/machine-rate-limits.v<N>.json (configurator DSN file)')
+    pub.add_argument('--policy', type=Path, required=True)
+    pub.add_argument('--database-url-file', type=Path, required=True)
+    a = p.parse_args(argv)
+    try:
+        print(json.dumps(publish_rate_policy(a.policy, database_url_file=a.database_url_file)))
+    except (RatePolicyRejected, ValueError, OSError):
+        print(json.dumps({'error': 'policy_rejected_or_unavailable'}))
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

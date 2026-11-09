@@ -269,6 +269,23 @@ def test_the_gateway_passes_the_public_host_to_the_api():
     assert 'header_up Host {http.request.hostport}' in proxy
 
 
+def test_c9_the_gateway_logs_no_uri_and_the_machine_realm_gets_no_identity_header():
+    """NX-062 M3 (L6 C9): Caddy would record the whole URI of a request before the API sees it; the gateway has no access log at all
+    (no log directive, so no URI and no query is ever written), and /machine/* is proxied without any client-supplied identity or
+    forwarding header (the key travels only in Authorization; the API answers 400 to any query string there)."""
+    text = (ROOT / 'deploy/stage/config/Caddyfile.template').read_text()
+    code = [line.split('#', 1)[0] for line in text.splitlines()]
+    assert not [line for line in code if re.match(r'\s*(log|log_skip|skip_log|log_append|log_name)\b', line)]
+    assert 'output' not in ''.join(code) and 'access' not in ''.join(code)
+    start = text.index('handle /machine/* {')
+    assert start < text.index('    handle {')  # matched before the catch-all
+    block = text[start:text.index('\n    }\n', start)]
+    for header in ('X-Forwarded-For', 'X-Forwarded-User', 'X-Real-IP', 'X-NexLoop-Client-IP', 'X-NexLoop-Principal', 'X-NexLoop-Tenant',
+                   'X-NexLoop-World', 'X-NexLoop-Actor', 'Cookie'):
+        assert f'header_up -{header}' in block, header
+    assert 'header_up X-NexLoop-Client-IP' not in block and 'header_up Host {http.request.hostport}' in block
+
+
 # G-APP-SUBNET (run sheet 4.2 external probe, 2026-10-15): the nft rules match container networks by source CIDR; a Compose network
 # without a fixed subnet gets whatever Docker picks and every rule for it silently misses. Host-side sources are not container networks.
 HOST_SOURCE_CIDRS = {'TRUSTED_LAN_CIDR', 'MGMT_SOURCE_CIDR'}

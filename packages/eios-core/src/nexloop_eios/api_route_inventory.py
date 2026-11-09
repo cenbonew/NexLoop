@@ -41,6 +41,8 @@ REALM_KINDS = {
     'workbench_session': {'port', 'workbench_operation', 'session_only'},
     'service_bearer': {'service_bearer'},
     'webhook_signature': {'webhook_signature'},
+    # NX-062 M3: /machine/v1, a machine key only (ADR-041 §2.4); its port is the route's SQL entry.
+    'machine_key': {'machine_capability'},
 }
 
 

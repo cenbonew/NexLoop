@@ -1,0 +1,6 @@
+{
+  "schema_version": "nexloop-machine-rate-limits/1",
+  "manifest_version": 1,
+  "per_key_per_minute": 60,
+  "per_tenant_per_minute": 600
+}

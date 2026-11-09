@@ -25,7 +25,7 @@
         "method": {"enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "MOUNT"]},
         "path": {"type": "string", "pattern": "^/([A-Za-z0-9_.{}:-]+(/[A-Za-z0-9_.{}:-]+)*)?$"},
         "handler": {"type": "string", "pattern": "^(static|[a-z_][a-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*)$"},
-        "realm": {"enum": ["public", "public_static", "pre_session", "consumer_session", "workbench_session", "service_bearer", "webhook_signature"]},
+        "realm": {"enum": ["public", "public_static", "pre_session", "consumer_session", "workbench_session", "service_bearer", "webhook_signature", "machine_key"]},
         "authorization": {
           "oneOf": [
             {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "public"}}},
@@ -35,7 +35,8 @@
             {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "port"}, "port": {"$ref": "#/$defs/port"}}},
             {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "workbench_operation"}}},
             {"type": "object", "additionalProperties": false, "required": ["kind", "world", "port"], "properties": {"kind": {"const": "service_bearer"}, "world": {"enum": ["test", "real"]}, "port": {"$ref": "#/$defs/port"}}},
-            {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "webhook_signature"}, "port": {"$ref": "#/$defs/port"}}}
+            {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "webhook_signature"}, "port": {"$ref": "#/$defs/port"}}},
+            {"type": "object", "additionalProperties": false, "required": ["kind", "port"], "properties": {"kind": {"const": "machine_capability"}, "port": {"$ref": "#/$defs/port"}}}
           ]
         },
         "modes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["test", "stage"]}},

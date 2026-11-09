@@ -20,6 +20,27 @@ https://__APP_HOST_NAME__:8443 {
     handle /internal/* {
         respond "Not found" 404
     }
+    # NX-062 M3 (ADR-041 §2.5, L6 C9): the machine_key realm. The key travels only in Authorization (the API answers 400 to any query
+    # string there); no client-supplied identity header reaches the API, and no forwarding header is trusted. This gateway writes no
+    # access log at all (no `log` directive anywhere in this file; tests/test_deploy_render.py asserts it), so no URI is ever recorded.
+    handle /machine/* {
+        reverse_proxy https://127.0.0.1:__API_INTERNAL_PORT__ https://127.0.0.1:__API_INTERNAL_PORT_2__ {
+            transport http {
+                tls_trusted_ca_certs /run/secrets/api_loopback_ca
+                tls_server_name 127.0.0.1
+            }
+            header_up Host {http.request.hostport}
+            header_up -X-Forwarded-For
+            header_up -X-Forwarded-User
+            header_up -X-Real-IP
+            header_up -X-NexLoop-Client-IP
+            header_up -X-NexLoop-Principal
+            header_up -X-NexLoop-Tenant
+            header_up -X-NexLoop-World
+            header_up -X-NexLoop-Actor
+            header_up -Cookie
+        }
+    }
     handle {
         reverse_proxy https://127.0.0.1:__API_INTERNAL_PORT__ https://127.0.0.1:__API_INTERNAL_PORT_2__ {
             transport http {
