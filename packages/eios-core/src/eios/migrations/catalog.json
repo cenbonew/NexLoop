@@ -2140,6 +2140,11 @@
       "version": "0428",
       "name": "0428_recall_gloss_not_missing.sql",
       "sha256": "3c593d2f8900fd18d74f486ca825db4c4d0db0be60989392cd0b22a40af65481"
+    },
+    {
+      "version": "0429",
+      "name": "0429_erasure_precheck_grants_held.sql",
+      "sha256": "d0ef72c997017b1a5e43317c74ef442ee1d0e56eaf3720439178835f402c0ed6"
     }
   ]
 }
