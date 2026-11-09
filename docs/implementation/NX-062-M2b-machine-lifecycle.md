@@ -4,6 +4,17 @@
 - **迁移**：`0435_nx062_machine_lifecycle.sql`（临时号）。内容是统一受治理入口 0124 的 6 行注册和对应的 handler，没有改入口本身，也没有复制已有函数体。
 - **范围调整（已报调度员）**：机器主体的 EIOS 授权事实、机器专用的事实快照，与 M5 的 0124 机器分支（C7）一起做。原因是 C1 要求 service 快照拒绝机器摘要，所以现有的事实读取路径读不到机器的事实；先按模板写入事实，到 M5 很可能要返工。本片不写任何 EIOS 事实。
 
+## M5 之前机器主体什么也做不了（调度员 2026-11-09 要求的说明）
+
+M2b 上线后，到 M5 之前：
+
+- 机器主体**没有任何 EIOS 授权事实**，也**没有任何可用的读取或写入能力**。负责人可以登记主体、签发密钥，但这把密钥调用任何受治理入口都会被拒，也没有任何 HTTP 路由接受它（machine_key realm 在 M3 才有）。
+- 证明用的测试是 `test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact`：
+  - 经工作台签发一把 real world 的有效密钥；
+  - 遍历 `nexloop_api` 能调用、第一个参数是 token 摘要的全部 SQL 入口（当前 131 个，少于 100 即判失败），以 `nexloop_api` 身份用这把密钥的摘要逐个调用：130 个抛错；唯一的例外 `authz.nexloop_definition_read` 对未知摘要也只返回空列表，对这把密钥同样是空列表；
+  - 同时断言 authority_facts 和 workbench grant instances 里没有任何行指向机器主体，api-routes 清单里没有 machine_key realm。
+- 这个测试证明的是“任何入口都不接受”。机器摘要之所以被拒，有两层原因：一是 service credentials 里根本没有它，二是 0434 的包装函数显式拒绝。只删掉其中一层时，另一层仍然生效，所以这项测试对“删除包装函数判断”这类单点变异不会变红。单点变异由 `test_machine_access_pg` 的 C1 用例负责。
+
 ## 新增的 Action（全部只属负责人）
 
 | capability | 操作 | 说明 |
@@ -42,7 +53,7 @@
 
 ## 测试
 
-- `tests/test_machine_lifecycle_pg.py`（真实 PG，经真实工作台 HTTP 入口），4 个用例：
+- `tests/test_machine_lifecycle_pg.py`（真实 PG，经真实工作台 HTTP 入口），5 个用例（第 5 个见上一节）：
   - 完整生命周期：登记、重复登记、签发（只显示一次，库和审计里查不到密钥和摘要）、同一请求重试（409，不显示密钥）、第二把密钥要求轮换、轮换、超过 2 把上限、吊销、重复吊销、停用级联、停用后轮换被拒、重新启用不恢复，以及审计序列与 actor。
   - 固定原因码与封闭的请求体：身份字段、自带 digest 或 prefix、91 天、sim world、空 scope、布尔天数一律 422；scope 不在允许表、永不授予、主体不存在、密钥不存在返回对应原因码。
   - 操作者 403。直接调用 handler 时，非负责人或机器主体返回 owner_required，test world 返回 owner_world_only，sim 和 shadow 的 key world 返回 world_not_allowed；注册行全部是 human；任何应用角色都没有 handler 的执行权限。

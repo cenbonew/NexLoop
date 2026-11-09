@@ -178,3 +178,49 @@ def test_issue_without_a_pepper_file_is_unavailable(desk):
         r = act(client, csrf, 'issue_machine_key', {'client_id': 'acme-agent', 'world': 'test', 'scope': [VERB], 'expires_in_days': 30})
         assert r.status_code == 503 and 'key' not in r.json()
     assert w['admin'].execute('select count(*) from authz.nexloop_machine_keys').fetchone()[0] == 0
+
+
+SAMPLE = {'text': "'x'", 'jsonb': "'{}'::jsonb", 'integer': '1', 'bigint': '1', 'uuid': "'00000000-0000-4000-8000-000000000001'::uuid",
+          'timestamp with time zone': 'clock_timestamp()', 'text[]': "array['x']", 'boolean': 'false'}
+# The one digest entry that answers an unknown digest with an empty list instead of raising; a machine digest gets the same empty answer.
+EMPTY_FOR_UNKNOWN = {'authz.nexloop_definition_read(text,text,text,text[])'}
+
+
+def test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact(desk):
+    """Dispatcher 2026-11-09: after M2b and before M5 a machine principal has no authority fact and no usable read or write. Every function
+    nexloop_api may call whose first argument is a token digest refuses a live machine key's digest (or, like for an unknown digest, returns
+    nothing); the sweep fails if it finds fewer than 100 such entries, so it can never pass empty."""
+    w = desk
+    admin = w['admin']
+    with w['client']() as client:
+        csrf = owner(client, w)
+        assert act(client, csrf, 'register_machine_client', {'client_id': 'acme-agent', 'display_name': 'A', 'purpose': 'p'}).status_code == 200
+        token = act(client, csrf, 'issue_machine_key', {'client_id': 'acme-agent', 'world': 'real', 'scope': [VERB], 'expires_in_days': 30}).json()['key']
+    assert snapshot(admin, token, w['peppers'])  # the key is live
+    digest = K.digest(K.parse(token), w['peppers'], 1).hex()
+    # No authority fact, no grant, no workbench grant instance names the machine principal.
+    assert admin.execute("select count(*) from authz.nexloop_authority_facts where payload::text like '%%nexloop-machine%%' or entity_key::text like '%%nexloop-machine%%'").fetchone()[0] == 0
+    assert admin.execute("select count(*) from control.nexloop_workbench_grant_instances where principal_id like 'nexloop-machine:%%'").fetchone()[0] == 0
+    # No HTTP route takes a machine key yet (the machine_key realm arrives with M3).
+    import json
+    from pathlib import Path
+    inventory = json.loads((Path(__file__).resolve().parents[1] / 'deploy/authorization/api-routes.v1.json').read_text())
+    assert 'machine_key' not in {r['realm'] for r in inventory['routes']}
+    rows = admin.execute("""select p.oid::regprocedure::text,p.oid::regproc::text,array(select format_type(t,null) from unnest(p.proargtypes) t)
+        from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('authz','control','runtime')
+        and has_function_privilege('nexloop_api',p.oid,'execute') and p.pronargs>=1 and p.proargtypes[0]='text'::regtype
+        and p.proargnames[1] ~ 'digest|token'""").fetchall()
+    assert len(rows) >= 100, len(rows)
+    answered = {}
+    admin.execute('set role nexloop_api')
+    try:
+        for signature, name, types in rows:
+            args = ['%s'] + [("'real'" if i == 1 and t == 'text' else SAMPLE[t]) for i, t in enumerate(types) if i > 0]
+            try:
+                with admin.transaction():
+                    answered[signature] = admin.execute(f"select {name}({','.join(args)})", (digest,)).fetchone()[0]
+            except psycopg.Error:
+                pass
+    finally:
+        admin.execute('reset role')
+    assert set(answered) <= EMPTY_FOR_UNKNOWN and all(v in (None, [], {}) for v in answered.values()), answered

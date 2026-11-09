@@ -269,4 +269,13 @@ M1 → M2 → M3 → {M4, M5} → M6。M4 与 M5 可两条线并行（文件不�
 | C8 | M5 | 机器不能当审批人：在审批决定入口的 SQL 里强制，不能只靠 Action 允许表；solo 模式排除机器自批，并要有测试 | M5 |
 | C9 | M3 | Caddy 会在应用拿到请求前把完整 URI 记进访问日志：给 `/machine/*` 配置日志脱敏，或者不记录 query；在 deploy 测试里断言 | M3 |
 
+分片调整（调度员 2026-11-09 同意）：
+
+- 原设计的 M2 拆成 M2a 和 M2b。
+  - M2a（0434）：存储、身份函数、realm 互斥、能力允许表（C1–C3）。
+  - M2b（0435）：6 个负责人受治理 Action（machine_client.register/deactivate/activate，machine_key.issue/rotate/revoke），以及审计、注册计数、操作登记和“部署前先 publish”的说明。
+- **机器主体的 EIOS 授权事实、事实模板实例化和机器专用的事实快照，从 M2 挪到 M5**，与 C7 的 0124 机器分支一起做。C7 要求“assert_action_authority 通过”，靠的就是这套事实和快照。
+- 原因：C1 要求 service 身份快照拒绝机器摘要。现有的 `nexloop_load_authority_fact_snapshot(s)` 和 `nexloop_assert_action_authority` 都要经过 service 快照，所以读不到机器的事实；机器必须有自己的事实快照（与 browser realm 同一做法）。这套快照只有 M5 的机器分支会用，提前在 M2 写入事实，等到 M5 定下读取方式时很可能要返工。
+- **M2b 上线后到 M5 之前**：机器主体没有任何授权事实，也没有任何可用的读取或写入能力。`tests/test_machine_lifecycle_pg.py::test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact` 证明了这一点：它遍历 `nexloop_api` 能调用、第一个参数是 token 摘要的全部受治理入口（少于 100 个即判失败），用一把有效机器密钥的摘要逐个调用，全部被拒；唯一的例外对未知摘要也只返回空结果。同时断言没有任何事实、授权实例或路由与机器主体相关。
+
 范围调整（Q-C）：M5 的写入能力只有对象备注；“用户陈述登记为待核实 Claim”不在这一期，要等 AT-064 白名单处理好之后再开，届时只能经现有的 Claim 受治理 Action 写入。
