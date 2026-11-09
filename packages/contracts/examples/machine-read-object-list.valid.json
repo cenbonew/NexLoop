@@ -1,0 +1,19 @@
+{
+  "type_name": "Commitment",
+  "items": [
+    {
+      "object_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "revision": 1,
+      "updated_at": "2026-11-09T12:00:00+00:00",
+      "properties": {
+        "status": {
+          "value": "open",
+          "value_type": "string"
+        }
+      }
+    }
+  ],
+  "total": 2,
+  "next_after": null,
+  "invisible": 1
+}

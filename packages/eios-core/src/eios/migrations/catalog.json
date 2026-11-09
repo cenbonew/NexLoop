@@ -2185,6 +2185,11 @@
       "version": "0437",
       "name": "0437_nx062_machine_realm.sql",
       "sha256": "e16cff2214e5c31e9963d7223029e25e99960ede5c1fc69b9ef0cd12ffdcd8d6"
+    },
+    {
+      "version": "0440",
+      "name": "0440_nx062_machine_reads.sql",
+      "sha256": "a6a847454dae7b2fd899acc31c24858d7b85b4affb2ca82419cec46971a8779a"
     }
   ]
 }

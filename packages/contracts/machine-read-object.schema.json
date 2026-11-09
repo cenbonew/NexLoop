@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-read-object",
+  "title": "machine-read-object",
+  "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.get - one object of the key's world. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type_name",
+    "object_id",
+    "schema_version",
+    "revision",
+    "updated_at",
+    "properties"
+  ],
+  "properties": {
+    "type_name": {
+      "enum": [
+        "Commitment",
+        "CommercialRecord"
+      ]
+    },
+    "object_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "revision": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "updated_at": {
+      "type": "string"
+    },
+    "properties": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "value",
+          "value_type"
+        ],
+        "properties": {
+          "value": {},
+          "value_type": {
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "array",
+              "object"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

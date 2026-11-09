@@ -344,6 +344,11 @@ OPERATIONS={
         'scope':_machine_scope,'expires_in_days':_days(1,90)},
     'rotate_machine_key':{'previous_key_id':_id(_UUID),'overlap_days':_days(0,7),'scope':_machine_scope,'expires_in_days':_days(1,90)},
     'revoke_machine_key':{'key_id':_id(_UUID),'reason':_reason},
+    # NX-062 M4a (0440, owner only): grant or revoke one machine read capability (ADR-041 A1).
+    'grant_machine_capability':{'client_id':_id(_MACHINE_CLIENT),'capability':_id(_MACHINE_SCOPE),
+        'object_types':lambda v:v if type(v) is list and 1<=len(v)<=32 and len(set(v))==len(v) and all(type(t) is str and re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}',t) for t in v)
+        else (_ for _ in ()).throw(ValueError('object types'))},
+    'revoke_machine_grant':{'client_id':_id(_MACHINE_CLIENT),'capability':_id(_MACHINE_SCOPE),'reason':_reason},
     # Extraction dead letters (0355, owner only): requeue or dismiss one dead-lettered claim-extraction job.
     'resolve_extraction_dead_letter':{'task_id':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}')),
         'disposition':lambda v:v if v in ('requeue','dismiss') else (_ for _ in ()).throw(ValueError('disposition')),'reason':_reason},

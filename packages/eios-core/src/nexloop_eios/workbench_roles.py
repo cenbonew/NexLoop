@@ -117,6 +117,8 @@ def validate_roles(value):
                   'eios:action:nexloop.machine_key.issue:1',  # NX-062 M2b: machine access is the owner's (Q-4)
                   'eios:action:nexloop.machine_key.rotate:1',  # NX-062 M2b: machine access is the owner's (Q-4)
                   'eios:action:nexloop.machine_key.revoke:1',  # NX-062 M2b: machine access is the owner's (Q-4)
+                  'eios:action:nexloop.machine_client.grant:1',  # NX-062 M4a: machine grants are the owner's (ADR-041 A1)
+                  'eios:action:nexloop.machine_client.revoke_grant:1',
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')

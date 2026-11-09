@@ -25,7 +25,7 @@ from test_stage_register_pg import registered  # noqa: F401
 from test_stage_secrets import tree  # noqa: F401
 
 TENANT = TENANT_A
-VERB = 'object.get'
+VERB = 'synthetic.read'  # a test-only read verb (object.get and object.list are registered by migration nx062_machine_reads)
 WRITE = 'goals.agent.propose'  # a governed capability with subject rule agent_or_human (0124)
 HUMAN = 'goals.metric.approve'  # subject rule human
 ROLES = ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_runtime', 'nexloop_identity',
@@ -204,10 +204,10 @@ def test_world_binding_scope_and_identity_immutability(db, peppers):
            (TENANT, 'acme-agent', uuid.uuid4(), K.generate().prefix_id, secrets.token_hex(32), 1, 'no world!', [VERB], '1 day', 'o', 'r'))
     with pytest.raises(psycopg.errors.InsufficientPrivilege, match='scope outside the allowlist'):
         with db.transaction():
-            issue(db, peppers, scope=(VERB, 'object.list'))
+            issue(db, peppers, scope=(VERB, 'synthetic.unregistered'))
     key, key_id = issue(db, peppers, world='real')
     assert authenticate(db, key, peppers)['world'] == 'real'
-    for column, value in (('world', 'test'), ('scope', '{object.get,object.list}'), ('client_id', 'other-agent'), ('pepper_version', '1')):
+    for column, value in (('world', 'test'), ('scope', '{synthetic.read,synthetic.unregistered}'), ('client_id', 'other-agent'), ('pepper_version', '1')):
         denied(db, f'update authz.nexloop_machine_keys set {column}=%s where key_id=%s', (value, key_id))
     denied(db, "update authz.nexloop_machine_clients set principal_id='nexloop-machine:other'", ())
     denied(db, 'delete from authz.nexloop_machine_keys', (), 'append-only')
@@ -327,7 +327,7 @@ def test_c3_revisions_append_only_latest_wins(db, peppers):
 
 
 def test_c3_whitelist_and_blacklist(db):
-    denied(db, CAP, ('object.list', 1, 'active', 'read', MIGRATION), 'not a registered read verb')
+    denied(db, CAP, ('synthetic.unregistered', 1, 'active', 'read', MIGRATION), 'not a registered read verb')
     denied(db, CAP, (HUMAN, 1, 'active', 'write', MIGRATION), 'not a non-human governed capability')
     denied(db, CAP, ('nexloop.unknown', 1, 'active', 'write', MIGRATION), 'not a non-human governed capability')
     denied(db, CAP, (VERB, 2, 'active', 'write', MIGRATION), 'not a non-human governed capability')
@@ -339,7 +339,7 @@ def test_c3_whitelist_and_blacklist(db):
         assert A.forbidden(name)
     denied(db, CAP, ('approval.decide', 1, 'active', 'read', MIGRATION), 'never granted')
     # The source must name a migration or a governed request; nothing else.
-    denied(db, CAP, ('object.get', 2, 'active', 'read', 'api:direct'), 'check')
+    denied(db, CAP, ('synthetic.read', 2, 'active', 'read', 'api:direct'), 'check')
 
 
 def test_c3_never_grant_list_locked_to_python_and_covers_service_grants(db):

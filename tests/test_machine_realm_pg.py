@@ -64,10 +64,10 @@ def counts(w):
     return dict(w['admin'].execute("select outcome,sum(calls)::int from runtime.nexloop_machine_call_counts group by outcome").fetchall())
 
 
-def valid(response):
+def valid(response, success='machine-capabilities'):
     """The response body against its published contract (packages/contracts machine-capabilities or machine-error)."""
     from jsonschema import Draft202012Validator, FormatChecker
-    name = 'machine-capabilities' if response.status_code == 200 else 'machine-error'
+    name = success if response.status_code == 200 else 'machine-error'
     schema = json.loads((ROOT / f'packages/contracts/{name}.schema.json').read_text())
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(response.json())
     return response
@@ -133,7 +133,8 @@ def test_g5_credential_matrix_machine_realm_is_exclusive(realm):
             cells[(r['path'], 'consumer_cookie')] = send(client, r)
     assert len(cells) == len(machine) * len(KINDS) and set(k for _, k in cells) == set(KINDS)
     for r in machine:
-        assert cells[(r['path'], 'machine_key')] == 200, r['path']
+        # The live key passes authentication: 200, or the read's own answer for an ungranted verb or absent object (403/404).
+        assert cells[(r['path'], 'machine_key')] in ((200,) if r['method'] == 'GET' else (200, 403, 404)), (r['path'], cells[(r['path'], 'machine_key')])
         assert cells[(r['path'], 'none')] == 401, r['path']
         assert cells[(r['path'], 'workbench_cookie')] == 401, r['path']
         assert cells[(r['path'], 'consumer_cookie')] == 401, r['path']

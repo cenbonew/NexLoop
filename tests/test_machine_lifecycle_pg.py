@@ -21,7 +21,7 @@ from test_workbench_read_pg import (ORIGIN, browser_business, conversations, ide
 
 ACTIONS = tuple('nexloop.' + c for c in ('machine_client.register', 'machine_client.deactivate', 'machine_client.activate',
                                          'machine_key.issue', 'machine_key.rotate', 'machine_key.revoke'))
-VERB = 'object.get'
+VERB = 'synthetic.read'  # a test-only read verb (object.get and object.list are registered by migration nx062_machine_reads)
 MIGRATION = 'migration:0434_nx062_machine_access.sql'
 
 
@@ -127,7 +127,7 @@ def test_refusals_are_fixed_codes_and_the_body_is_closed(desk):
                 ('issue_machine_key', {'client_id': 'acme-agent', 'world': 'test', 'scope': [VERB], 'expires_in_days': True}),
                 ('rotate_machine_key', {'previous_key_id': 'x', 'overlap_days': 8, 'scope': [VERB], 'expires_in_days': 1})):
             assert act(client, csrf, operation, body).status_code == 422, (operation, body)
-        scope = act(client, csrf, 'issue_machine_key', {'client_id': 'acme-agent', 'world': 'test', 'scope': ['object.list'], 'expires_in_days': 30})
+        scope = act(client, csrf, 'issue_machine_key', {'client_id': 'acme-agent', 'world': 'test', 'scope': ['synthetic.unregistered'], 'expires_in_days': 30})
         assert scope.status_code == 409 and scope.json()['details'] == {'reason': 'scope_not_allowed'}
         never = act(client, csrf, 'issue_machine_key', {'client_id': 'acme-agent', 'world': 'test', 'scope': ['approval.decide'], 'expires_in_days': 30})
         assert never.status_code == 409 and never.json()['details'] == {'reason': 'scope_not_allowed'}
@@ -156,13 +156,14 @@ def test_operator_refused_and_the_handler_requires_an_active_owner(desk):
     owner_p = w['owner']['principal_id']
     admin.execute('select control.nexloop_governed_register_machine_client(%s,%s,%s,%s,%s,%s::jsonb)', (TENANT, 'real', owner_p, 's', 'i2', body))
     for world in ('sim:x', 'shadow:y'):
-        issue = ('{"operation":"issue_machine_key","request_id":"r2","client_id":"acme-agent","world":"%s","scope":["object.get"],"expires_in_days":5,'
+        issue = ('{"operation":"issue_machine_key","request_id":"r2","client_id":"acme-agent","world":"%s","scope":["synthetic.read"],"expires_in_days":5,'
                  '"prefix_id":"%s","digest":"%s","pepper_version":1}') % (world, K.generate().prefix_id, secrets.token_hex(32))
         with pytest.raises(psycopg.errors.InvalidParameterValue, match='world_not_allowed'):
             with admin.transaction():
                 admin.execute('select control.nexloop_governed_issue_machine_key(%s,%s,%s,%s,%s,%s::jsonb)', (TENANT, 'real', owner_p, 's', 'i3', issue))
     # No application role may call a handler directly; all six are human-only registry rows.
-    rows = admin.execute("select capability,subject_rule,source_task from control.nexloop_governed_capabilities where capability like 'machine\\_%' order by 1").fetchall()
+    rows = admin.execute("select capability,subject_rule,source_task from control.nexloop_governed_capabilities where capability=any(%s) order by 1",
+                         ([a.removeprefix('nexloop.') for a in ACTIONS],)).fetchall()
     assert rows == [(c, 'human', 'NX-062') for c in sorted(a.removeprefix('nexloop.') for a in ACTIONS)]
     for (handler,) in admin.execute("select distinct handler::text from control.nexloop_governed_capabilities where capability like 'machine\\_%'").fetchall():
         for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_runtime', 'nexloop_identity', 'nexloop_configurator'):
@@ -229,7 +230,9 @@ def test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact(desk
     import json
     from pathlib import Path
     inventory = json.loads((Path(__file__).resolve().parents[1] / 'deploy/authorization/api-routes.v1.json').read_text())
-    assert {(r['method'], r['path']) for r in inventory['routes'] if r['realm'] == 'machine_key'} <= {('GET', '/machine/v1/capabilities')}
+    # M4a adds POST /machine/v1/read: it answers only what a grant (authz.nexloop_machine_client_grants, ADR-041 A1) opens - none here.
+    assert {(r['method'], r['path']) for r in inventory['routes'] if r['realm'] == 'machine_key'} <= {('GET', '/machine/v1/capabilities'), ('POST', '/machine/v1/read')}
+    assert admin.execute('select count(*) from authz.nexloop_machine_client_grants').fetchone()[0] == 0
     rows = admin.execute("""select p.oid::regprocedure::text,p.oid::regproc::text,array(select format_type(t,null) from unnest(p.proargtypes) t)
         from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('authz','control','runtime')
         and has_function_privilege('nexloop_api',p.oid,'execute') and p.pronargs>=1 and p.proargtypes[0]='text'::regtype

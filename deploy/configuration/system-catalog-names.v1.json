@@ -1029,6 +1029,16 @@
       "stable_name": "nexloop.machine_key.revoke",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_client.grant",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_client.revoke_grant",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
     }
   ],
   "functions": [

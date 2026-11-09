@@ -72,7 +72,7 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'relay.backlog_settle':'settle_relay_backlog','action_claim.settle':'settle_action_claim',
         'human_question.answer':'answer_human_question',
         # NX-062 M2b
-'machine_client.register':'register_machine_client','machine_client.deactivate':'deactivate_machine_client','machine_client.activate':'activate_machine_client','machine_key.issue':'issue_machine_key','machine_key.rotate':'rotate_machine_key','machine_key.revoke':'revoke_machine_key'}  # K4b  # stale action claims; S42; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
+'machine_client.register':'register_machine_client','machine_client.deactivate':'deactivate_machine_client','machine_client.activate':'activate_machine_client','machine_key.issue':'issue_machine_key','machine_key.rotate':'rotate_machine_key','machine_key.revoke':'revoke_machine_key','machine_client.grant':'grant_machine_capability','machine_client.revoke_grant':'revoke_machine_grant'}  # K4b  # stale action claims; S42; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):

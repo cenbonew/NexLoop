@@ -35,6 +35,7 @@ STAFF_KEPT = {
     # issued_by_principal is the owner who registered the client or issued the key, kept for audit like the other staff actions.
     'authz.nexloop_machine_clients': _ACT + ' (machine principal: a service; issued_by_principal: the registering owner)',
     'authz.nexloop_machine_keys': _ACT + ' (issued_by_principal: the issuing owner; the key itself is never stored)',
+    'authz.nexloop_machine_client_grants': _ACT + ' (NX-062 M4a, 0440: issued_by_principal is the owner who granted or revoked; kept like the client and key rows)',
     'authz.nexloop_evo_principals': _SERVICE, 'runtime.nexloop_local_artifacts': _SERVICE, 'runtime.nexloop_message_relay_leases': _SERVICE,
     'runtime.nexloop_orphan_sweeps': _SERVICE,
     'control.nexloop_browser_rate_policies': 'the identity operator (a service) per limiter; no member',

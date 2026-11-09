@@ -29,7 +29,7 @@ _SHARED = {
     'public': {('GET', '/health/live'), ('GET', '/health/ready')},
     'public_static': {('GET', '/workbench'), ('GET', '/workbench/{rest:path}'), ('MOUNT', '/')},
     'webhook_signature': {('POST', '/api/v1/webhooks/commercial/{connector_id}')},
-    'machine_key': {('GET', '/machine/v1/capabilities')},  # NX-062 M3: a machine key only, every mode
+    'machine_key': {('GET', '/machine/v1/capabilities'), ('POST', '/machine/v1/read')},  # NX-062 M3/M4a: a machine key only, every mode
     'pre_session': {('POST', '/api/v1/auth/login'), ('POST', '/api/v1/auth/csrf'), ('POST', '/api/v1/workbench/auth/login'),
                     ('POST', '/api/v1/workbench/auth/csrf'), ('POST', '/api/v1/workbench/auth/invitation/accept'),
                     ('POST', '/api/v1/workbench/auth/password/reset'),
@@ -52,7 +52,7 @@ def app(tmp_path_factory):
 
 
 def test_the_inventory_follows_its_schema_and_refuses_what_the_schema_cannot_say(inventory, tmp_path):
-    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 107   # 106 routes and one mount (NX-062 M3 the machine capability list, K4d the pending read, batch 32 added the members read, NX-058 slice F the three SSO routes, batch 50 the experiments read, S73 the 入口 links, S81 the entry ticket and its WebChat redemption, K5 the evidence graph, message trace and conversation metrics)
+    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 108   # 107 routes (NX-062 M4a the machine read) and one mount (NX-062 M3 the machine capability list, K4d the pending read, batch 32 added the members read, NX-058 slice F the three SSO routes, batch 50 the experiments read, S73 the 入口 links, S81 the entry ticket and its WebChat redemption, K5 the evidence graph, message trace and conversation metrics)
     def refused(change):
         bad = copy.deepcopy(inventory)
         change(bad)
@@ -74,7 +74,7 @@ def test_g1_each_mode_mounts_exactly_its_inventory_and_no_openapi(inventory, mod
     mounted = I.routes(I.complete_app(tmp_path, mode))
     assert I.diff(inventory, mounted, mode) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
     assert (('GET', '/api/v1/artifacts/{artifact_id}') in mounted) is (mode == 'test')                    # F-2
-    assert len(mounted) == {'test': 107, 'stage': 106}[mode]
+    assert len(mounted) == {'test': 108, 'stage': 107}[mode]
     assert not {p for _, p in mounted} & {'/openapi.json', '/docs', '/redoc', '/docs/oauth2-redirect'}
 
 
@@ -142,7 +142,7 @@ def test_f2_the_test_world_artifact_read_is_not_mounted_outside_test_mode(tmp_pa
 def test_g3_every_port_exists_and_every_handler_is_bound_to_its_port(inventory):
     operations, sql = I.backend_operations(), I._sql_functions()
     ported = [r for r in inventory['routes'] if 'port' in r['authorization']]
-    assert len(ported) == 84                                       # NX-062 M3 the machine capability list; 81 port routes (K4d the pending read, batch 32 added the members read, batch 50 the experiments read, K5 three reads), the service token and the webhook
+    assert len(ported) == 85                                       # NX-062 M3 the machine capability list; 81 port routes (K4d the pending read, batch 32 added the members read, batch 50 the experiments read, K5 three reads), the service token and the webhook
     for r in ported:
         port = r['authorization']['port']
         assert I.port_exists(port, operations, sql), port
