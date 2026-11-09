@@ -35,7 +35,9 @@ export function MessageTrace({messageId}:{messageId:string}){
     <span className="trace-name">{STEP_TEXT[s.step]}</span>
     <StatusBadge text={STATUS_TEXT[s.status]} tone={STATUS_TONE[s.status]} code={s.status}/>
     <span className="trace-time">{s.at?<Time value={s.at}/>:'—'}</span>
-    <span className="note trace-detail">{stepDetail(s)}{s.refs.length?<> {s.refs.map(r=><IdText key={r} kind={r.split(':')[0]} value={r.slice(r.indexOf(':')+1)}/>)}</>:null}{s.more?` 等另 ${s.more} 个`:''}</span>
+    <span className="note trace-detail">{stepDetail(s)?<span className="trace-note">{stepDetail(s)}</span>:null}
+      {s.refs.length?<span className="trace-refs">{s.refs.map(r=><IdText key={r} kind={r.split(':')[0]} value={r.slice(r.indexOf(':')+1)}/>)}</span>:null}
+      {s.more?<span className="trace-more">等另 {s.more} 个</span>:null}</span>
   </li>)}</ol>;
 }
 

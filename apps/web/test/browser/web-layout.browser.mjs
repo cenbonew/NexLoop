@@ -185,6 +185,29 @@ try{
   result.k5_conversation={metrics:await page.locator('section[aria-labelledby=conversation-metrics]').innerText(),toggles:await page.locator('.trace-toggle button').count()};
   if(result.k5_conversation.toggles){await page.locator('.trace-toggle button').first().click();await page.locator('.trace-toggle [data-state="loading"]').waitFor({state:'detached',timeout:20000});
     result.k5_conversation.trace=await page.locator('.trace-toggle').first().innerText();result.k5_conversation.steps=await page.locator('.trace-steps li').count();}
+  // Owner 2026-11-09: the trace card layout at 1440 / 1024 / 390. Without a served trace (the read is real-world only) the contract
+  // example is routed in, with long ids, so the layout is checked on a full trace (recorded as source:'fixture').
+  {const source=await page.locator('.trace-steps li').count()?'served':'fixture';
+   if(source==='fixture'){const ex=JSON.parse(readFileSync(new URL('../../../../packages/contracts/examples/workbench-message-trace.valid.json',import.meta.url),'utf8'));
+     const hex='8c96ed5c'+'0'.repeat(52)+'294e';ex.steps[0].refs=[`message:${hex}`];ex.steps[2].refs=[`context:${'c'.repeat(64)}`];
+     await page.route('**/api/v1/workbench/messages/*/trace',r=>r.fulfill({json:ex}));
+     await page.locator('.trace-toggle button').first().click();await page.locator('.trace-toggle button').first().click();
+     await page.locator('.trace-steps li').first().waitFor({timeout:20000});}
+   result.trace_layout={source,widths:{}};
+   for(const width of [1440,1024,390]){
+     await page.setViewportSize({width,height:900});await page.waitForTimeout(300);
+     result.trace_layout.widths[width]=await page.locator('.trace-steps').first().evaluate(ol=>{
+       const msg=ol.closest('li');const lh=el=>parseFloat(getComputedStyle(el).lineHeight)||parseFloat(getComputedStyle(el).fontSize)*1.6;
+       const oneLine=el=>el.getBoundingClientRect().height<=lh(el)*1.6;
+       const ids=[...ol.querySelectorAll('.id-code,.id-kind')];const notes=[...ol.querySelectorAll('.trace-note')];const times=[...ol.querySelectorAll('.trace-time')];
+       const copies=[...ol.querySelectorAll('button.id-copy')];const card=ol.getBoundingClientRect();
+       return {trace_width:Math.round(card.width),message_width:Math.round(msg.getBoundingClientRect().width),
+         ids_one_line:ids.every(oneLine),times_one_line:times.every(oneLine),
+         notes_min_chars:Math.min(...notes.map(n=>Math.floor(n.getBoundingClientRect().width/parseFloat(getComputedStyle(n).fontSize)))),
+         copies_inside:copies.every(b=>{const r=b.getBoundingClientRect();return r.left>=card.left-1&&r.right<=card.right+1;})};});
+     await page.locator('.trace-steps').first().evaluate(el=>el.closest('li').scrollIntoView());
+     await page.locator('.trace-steps').first().evaluate(el=>el.closest('li')).then(()=>page.locator('.workbench-messages li:has(.trace-steps)').first().screenshot({path:`${shots}/wb-trace-${width}.png`}));}
+   await page.setViewportSize({width:1440,height:900});}
   await page.screenshot({path:`${shots}/wb-conversation-k5-1440.png`,fullPage:true});
   await page.goto('/workbench/ontology/objects');await page.locator('#world-instance-type').waitFor({timeout:20000});
   await page.selectOption('#world-instance-type','Consumer');await page.locator('table[aria-label="Consumer Object"]').waitFor({timeout:20000});
