@@ -2210,6 +2210,11 @@
       "version": "0442",
       "name": "0442_nx062_machine_writes.sql",
       "sha256": "a44af116a5585f5cf449c3a5105b639a255d2b536475793481bb094c2defe31c"
+    },
+    {
+      "version": "0443",
+      "name": "0443_nx062_object_notes.sql",
+      "sha256": "a8dabc3ce45eda20b5c07e6eec6d05e0712e98a694181e1d144a5681cfe781e3"
     }
   ]
 }

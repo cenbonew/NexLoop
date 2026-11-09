@@ -1,7 +1,7 @@
 {
   "schema_version": "nexloop-capabilities/1",
-  "manifest_version": 11,
-  "decision": "NX-032 A2 (docs/implementation/NX-032-stage-publish-design.md §2.2, owner-approved 2026-10-15): the frozen capability snapshots the stage publication binds Actions and Functions to. schema_hash is computed by nexloop_eios.catalog_manifests from the contract (never written by hand); a snapshot is immutable once published, so a contract change is a new capability_version and a new Action version. Governed capabilities must be registered in control.nexloop_governed_capabilities by a migration, and their contract names the registered operation. Version 1 holds the capabilities of business-actions.v1.json, the six workbench goal capabilities, and the system Actions and Functions of system-actions.v1.json (T1 list). Function snapshots are side-effect free (conversation_effect_receipts and conversation_scope_denials require it); read-only Actions say why they are side-effecting. NX-056 A1 (owner 2026-10-22 Q1 option A, ADR-039 draft): nexloop.approvals.decide (approve or reject one waiting unified Approval with a reason; an active member whose current workbench role is one of the policy's approver roles, never the requester by subject, once) and nexloop.approvals.cancel (the requester withdraws their own waiting Approval with a reason). Nothing is executed by either: a request runs only when its requester resubmits it and consumes the approved Approval (A2). v3 (NX-056 A5): consumer.erase_on_request, the governed operation erase_consumer_on_request. v4 (NX-056 A7): approvals.solo_mode.set, the governed operation set_approval_solo_mode. v5 (extraction dead letters): claim_extraction.dead_letter_resolve, the governed operation resolve_extraction_dead_letter. v6 (world-model glossary): world_glossary.set, the governed operation set_world_glossary. v7 (S42 option A): relay.backlog_settle, the governed operation settle_relay_backlog. v8: action_claim.settle (stale action claims, 2026-10-31). v9: human_question.answer (K4b, 2026-11-01), the governed operation answer_human_question. v10 (NX-062 M2b): the six machine access lifecycle capabilities machine_client.register/deactivate/activate and machine_key.issue/rotate/revoke (governed, human_owner, postgres). v11 (NX-062 M4a): machine_client.grant and machine_client.revoke_grant (governed, human_owner, postgres).",
+  "manifest_version": 12,
+  "decision": "NX-032 A2 (docs/implementation/NX-032-stage-publish-design.md §2.2, owner-approved 2026-10-15): the frozen capability snapshots the stage publication binds Actions and Functions to. schema_hash is computed by nexloop_eios.catalog_manifests from the contract (never written by hand); a snapshot is immutable once published, so a contract change is a new capability_version and a new Action version. Governed capabilities must be registered in control.nexloop_governed_capabilities by a migration, and their contract names the registered operation. Version 1 holds the capabilities of business-actions.v1.json, the six workbench goal capabilities, and the system Actions and Functions of system-actions.v1.json (T1 list). Function snapshots are side-effect free (conversation_effect_receipts and conversation_scope_denials require it); read-only Actions say why they are side-effecting. NX-056 A1 (owner 2026-10-22 Q1 option A, ADR-039 draft): nexloop.approvals.decide (approve or reject one waiting unified Approval with a reason; an active member whose current workbench role is one of the policy's approver roles, never the requester by subject, once) and nexloop.approvals.cancel (the requester withdraws their own waiting Approval with a reason). Nothing is executed by either: a request runs only when its requester resubmits it and consumes the approved Approval (A2). v3 (NX-056 A5): consumer.erase_on_request, the governed operation erase_consumer_on_request. v4 (NX-056 A7): approvals.solo_mode.set, the governed operation set_approval_solo_mode. v5 (extraction dead letters): claim_extraction.dead_letter_resolve, the governed operation resolve_extraction_dead_letter. v6 (world-model glossary): world_glossary.set, the governed operation set_world_glossary. v7 (S42 option A): relay.backlog_settle, the governed operation settle_relay_backlog. v8: action_claim.settle (stale action claims, 2026-10-31). v9: human_question.answer (K4b, 2026-11-01), the governed operation answer_human_question. v10 (NX-062 M2b): the six machine access lifecycle capabilities machine_client.register/deactivate/activate and machine_key.issue/rotate/revoke (governed, human_owner, postgres). v11 (NX-062 M4a): machine_client.grant and machine_client.revoke_grant (governed, human_owner, postgres). v12 (NX-062 M5c): object.add_note (governed, human_owner, postgres), the governed operation object_note_add - an unverified note on a visible object by a workbench owner or operator or a machine client.",
   "capabilities": [
     {
       "capability_name": "NexLoop.queue.operations",
@@ -2817,6 +2817,29 @@
         ]
       },
       "schema_hash": "7388cebc213f7352bc9a8b5c70ea830974aa2210e2babe0adc3fddda55bb0686",
+      "side_effects_reason": null
+    },
+    {
+      "capability_name": "object.add_note",
+      "capability_version": "1.0.0",
+      "kind": "atomic",
+      "has_side_effects": true,
+      "idempotent": true,
+      "required_scopes": [
+        "action.execute"
+      ],
+      "risk_level": "low",
+      "binds": "action",
+      "governed": true,
+      "contract": {
+        "governed_operation": "object_note_add",
+        "entry": "control.nexloop_governed_entry",
+        "authority": "human_owner",
+        "target_systems": [
+          "postgres"
+        ]
+      },
+      "schema_hash": "2dea7cb436476a18cfbaa7af6e9be2b1705ca8844f30a18ffe8f1c3e41afdd6f",
       "side_effects_reason": null
     }
   ]
