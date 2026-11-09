@@ -15,7 +15,8 @@ Policy exclusions (ADR-020 §3) reject the whole manifest: Human principals,
 follow_latest_version: an Action grant may declare it. Before diffing, the
 manifest is expanded into an *effective* manifest: the same service principal
 gets the same operations on each successor version of that Action that a human
-review decision (NX-044) published as a pure schema re-binding (same stable
+review decision (NX-044) or a human NX-040 F3 Schema publication (permission digest
+unchanged) published as a pure schema re-binding (same stable
 name, version+1, same capability, definition unchanged except version / bound
 schema references / derived digests, same object types). The first successor
 that is not such a re-binding stops the chain and is reported, never followed.
@@ -294,7 +295,9 @@ def manifest_digest(manifest):return hashlib.sha256(canonical_payload(manifest).
 def _rebinding_reason(pred,succ):
     """None when succ is pred's successor as a pure schema re-binding; otherwise the refusal reason."""
     if not succ['active']:return 'successor_inactive'
-    if not succ.get('review_decision_id'):return 'not_published_by_review_decision'
+    # NX-044 review decision, or NX-040 F3 Schema publication by a human with an unchanged permission digest (lineage, migration
+    # schema_publication_successor_coexistence): either is a governed human publication.
+    if not succ.get('review_decision_id') and not succ.get('schema_publication_id'):return 'not_published_by_review_decision'
     if succ['world']!=pred['world']:return 'world_changed'
     if succ['capability']!=pred['capability']:return 'capability_changed'
     strip=lambda d:{k:v for k,v in d.items() if k not in ('version','object_types','governance','contract_digest','previous_version','created_at')}
@@ -312,6 +315,11 @@ def _rebinding_reason(pred,succ):
                 if {k:v for k,v in x.items() if k not in ('version','schema_digest')}!={k:v for k,v in y.items() if k not in ('version','schema_digest')}:
                     return 'resource_scope_changed'
     return None
+
+
+def _published_by(succ):
+    if succ.get('review_decision_id'):return ' (review decision '+str(succ['review_decision_id'])+')'
+    return ' (schema publication '+str(succ['schema_publication_id'])+')'
 
 
 def resolve_follow(manifest,lineage):
@@ -333,7 +341,7 @@ def resolve_follow(manifest,lineage):
                 refused.append({'principal':grant['principal'],'base':grant['resource_id'],'successor':succ['resource_id'],'reason':reason});break
             if (grant['principal'],succ['resource_id']) not in listed:
                 derived.append({'principal':grant['principal'],'resource_type':'action','resource_id':succ['resource_id'],'operations':list(grant['operations']),
-                    'purpose':'follow_latest_version of '+grant['resource_id']+' (review decision '+succ['review_decision_id']+')',
+                    'purpose':'follow_latest_version of '+grant['resource_id']+_published_by(succ),
                     'source_task':'derived:'+grant['source_task']})
                 listed.add((grant['principal'],succ['resource_id']))
             pred,version=succ,version+1

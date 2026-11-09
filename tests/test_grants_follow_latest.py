@@ -10,13 +10,13 @@ ROOT=Path(__file__).resolve().parents[1]
 MANIFEST=json.loads((ROOT/'deploy/authorization/service-grants.v1.json').read_text())
 
 
-def action(name,version,*,schema=1,active=True,decision='d',capability=None,change=None,types=('Consumer',)):
+def action(name,version,*,schema=1,active=True,decision='d',publication=None,capability=None,change=None,types=('Consumer',)):
     refs=[{'tenant_id':'t','schema_type':'object_type','stable_name':t,'version':schema,'schema_digest':str(schema)*64} for t in types]
     definition={'tenant_id':'t','stable_name':name,'version':version,'status':'published','contract_digest':'c'*64,'object_types':refs,
         'required_scopes':['action.execute'],'governance':{'risk_level':'low','change_scope':{'object_types':copy.deepcopy(refs),'target_systems':['postgres'],'properties':[]}}}
     if change:change(definition)
     return {'resource_id':f'eios:action:{name}:{version}','stable_name':name,'version':version,'world':'real','active':active,'definition':definition,
-        'capability':capability or {'capability_name':'ontology.object.edit'},'review_decision_id':decision if version>1 else None}
+        'capability':capability or {'capability_name':'ontology.object.edit'},'review_decision_id':decision if version>1 else None,'schema_publication_id':publication if version>1 else None}
 
 
 def derived_ids(lineage,manifest=MANIFEST):
@@ -69,3 +69,19 @@ def test_declaration_only_on_action_grants_and_policy_still_applies():
     bad['grants'].append({'principal':'claim_matcher','resource_type':'action','resource_id':'eios:action:ontology.schema.review:1','operations':['execute'],
         'purpose':'x','source_task':'x','follow_latest_version':True})
     with pytest.raises(G.ServiceGrantsRejected,match='excluded_by_policy'):G.validate(bad)
+
+
+def test_a_human_schema_publication_is_a_source_like_a_review_decision():
+    """NX-040 F3 (stage R73, Consumer v2): the successor has no review decision but a Schema publication (the lineage lists one only
+    when it was published by a human with an unchanged permission digest). It is followed, named in the purpose; with neither it is
+    refused as before, and every other re-binding check still applies."""
+    lineage=[action('Consumer.edit',1),action('Consumer.edit',2,schema=2,decision=None,publication='p2')]
+    derived,refused=derived_ids(lineage)
+    assert derived==[('claim_matcher','eios:action:Consumer.edit:2')] and refused==[]
+    effective,_=G.effective_manifest(G.validate(copy.deepcopy(MANIFEST)),lineage)
+    added=[g for g in effective['grants'] if g['resource_id']=='eios:action:Consumer.edit:2']
+    assert len(added)==1 and 'schema publication p2' in added[0]['purpose'] and 'review decision' not in added[0]['purpose']
+    assert derived_ids([action('Consumer.edit',1),action('Consumer.edit',2,schema=2,decision=None)])==(
+        [],[('eios:action:Consumer.edit:2','not_published_by_review_decision')])
+    widened=action('Consumer.edit',2,schema=2,decision=None,publication='p2',capability={'capability_name':'consumer.delete'})
+    assert derived_ids([action('Consumer.edit',1),widened])==([],[('eios:action:Consumer.edit:2','capability_changed')])

@@ -511,6 +511,11 @@ REGISTRY = [
             ((r"\s*when 'goals\.budget\.loosen' then array\[[^\]]*\]", ''),)),
     Allowed('budget_loosen', 'control.nexloop_approval_open', 'a budget loosening opens only against the current row it names; nothing else',
             ((r"\n if p_capability='goals\.budget\.loosen' then perform control\.nexloop_budget_loosen_check\(p_tenant,p_world,p_body,false\);end if;", ''),)),
+    # schema_publication_successor_coexistence (stage R73 2026-11-09, Consumer v2 through NX-040 F3): the follow-latest lineage also names
+    # the human Schema publication (unchanged permission digest) that published a successor; review decisions unchanged.
+    Allowed('schema_publication_successor_coexistence', 'control.nexloop_service_grant_action_lineage',
+            'schema_publication_id beside review_decision_id on each row, pg_temp last on the search_path; nothing else',
+            ((r",\n   'schema_publication_id',\(select p\.publication_id from ontology\.nexloop_schema_publications p .*?order by p\.published_at limit 1\)\)", ")"),), PG_TEMP),
     # erasure_precheck_grants_held (0429, stage 2026-11-09 customer-4): a new synthetic erasure is refused while the Consumer's owner
     # principals hold a non-empty WebChat grant set, and records grants_cleared on the new request; replays and the rest unchanged.
     Allowed('erasure_precheck_grants_held', 'control.nexloop_governed_erase_synthetic_consumer',

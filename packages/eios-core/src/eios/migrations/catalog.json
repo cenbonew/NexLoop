@@ -2145,6 +2145,11 @@
       "version": "0429",
       "name": "0429_erasure_precheck_grants_held.sql",
       "sha256": "d0ef72c997017b1a5e43317c74ef442ee1d0e56eaf3720439178835f402c0ed6"
+    },
+    {
+      "version": "0430",
+      "name": "0430_schema_publication_successor_coexistence.sql",
+      "sha256": "d813ddd4b8f3ded7f846f37abe55990a2b9b5460fa47ea979edcb76438871787"
     }
   ]
 }
