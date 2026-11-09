@@ -60,3 +60,7 @@
 
 - 授权守卫（`authz.nexloop_machine_grant_guard`）目前只接受读取动词，M5b 要把它扩展到允许表里 kind 为 write 的能力。
 - 0327 审批门用 `nexloop_approval_subject_of` 推导请求人；机器主体没有成员身份，推导结果为空。M5b 需要给机器请求一个请求人 subject（机器主体表的 subject_id），这样待审批路径才走得通。
+
+## 合入记录
+
+- 批次 156 合入 main：origin/main = 23f3e2b9（本地 CI 8994 passed / 0 failed，catalog head 0441），2026-11-10 由调度员通知。按 L10 的线路规则，`planning/` 里的任务证据由调度员写入，本行只在这里记录。

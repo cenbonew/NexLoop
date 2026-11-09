@@ -144,3 +144,10 @@
 - 回归：
   - 一轮 410 项：机器相关与备注、路由清单、工作台（角色、操作、读取）、清单、契约、stage_register、全局守护、审批门。第一轮里唯一的失败是 owner 角色 Action 数从 106 变为 107，改完后通过。
   - 另一轮 43 项：其他读取角色清单的测试。
+
+## L6 记录项（77728430..35c85613 PASS 后，迁移 0444）
+
+- `runtime.nexloop_machine_intent_audit` 自己设置并恢复租户，不再依赖调用方。
+- `runtime.nexloop_object_note_member_erasure` 执行完后，恢复会话原来的租户设置。
+- 两个函数都是原地重定义，copy guard 登记了这两处改动。
+- 测试 `test_tenant_hygiene_of_the_intent_audit_and_the_member_erasure`：以 nexloop_owner 身份、在租户为空时调用审计函数可以写入，调用后租户设置不变；成员擦除之后，会话的租户还是原来的值。

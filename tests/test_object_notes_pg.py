@@ -207,3 +207,26 @@ def test_only_the_workbench_reads_notes(notes):
     assert set(hits) <= {'workbench_reads.py'}, hits
     for module in ('conversation_extraction.py', 'data_export.py', 'data_export_http.py', 'machine_http.py', 'machine_writes.py'):
         assert 'object_note' not in (package / module).read_text(encoding='utf-8'), module
+
+
+def test_tenant_hygiene_of_the_intent_audit_and_the_member_erasure(notes):
+    """L6 records (77728430..35c85613): the intent audit needs no tenant from its caller and leaves the caller's setting; the member
+    erasure trigger restores the session's tenant."""
+    w = notes
+    admin = w['admin']
+    limits(admin)
+    note(w, 'hygiene-0001')
+    with psycopg.connect(admin.info.dsn) as c:
+        c.execute('set role nexloop_owner')
+        c.execute("select set_config('eios.tenant_id','',false)")
+        c.execute("select runtime.nexloop_machine_intent_audit(i,'nexloop-machine:acme-agent','hygiene') from runtime.nexloop_machine_intents i limit 0")
+        row = admin.execute("select to_jsonb(i) from runtime.nexloop_machine_intents i where intent_id='hygiene-0001'").fetchone()
+        assert row is not None
+        c.execute("select runtime.nexloop_machine_intent_audit(jsonb_populate_record(null::runtime.nexloop_machine_intents,%s::jsonb),'x','hygiene')",
+                  (json.dumps(row[0]),))
+        assert c.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == ''
+        c.rollback()
+    admin.execute("select set_config('eios.tenant_id','synthetic-other',false)")
+    admin.execute("""insert into control.nexloop_workbench_member_erasures(tenant_id,subject_id,principals,erased_at) values(%s,%s,%s,clock_timestamp())""",
+                  (TENANT, w['operator']['subject_id'], [w['operator']['principal_id']]))
+    assert admin.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == 'synthetic-other'

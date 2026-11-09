@@ -52,6 +52,13 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-062 (L6 records): the intent audit sets and restores the tenant itself; the note member erasure restores the prior tenant.
+    Allowed('nx062_tenant_hygiene', 'runtime.nexloop_machine_intent_audit', 'the audit sets the tenant and restores the prior one; nothing else',
+            ((r"declare prior text:=current_setting\('eios\.tenant_id',true\);\s*begin\s*perform set_config\('eios\.tenant_id',i\.tenant_id,true\);", 'begin'),
+             (r"\s*perform set_config\('eios\.tenant_id',coalesce\(prior,''\),true\);\s*end", '\nend'))),
+    Allowed('nx062_tenant_hygiene', 'runtime.nexloop_object_note_member_erasure', 'the prior tenant is restored afterwards; nothing else',
+            ((r"declare p text;v text;prior text:=current_setting\('eios\.tenant_id',true\);", 'declare p text;v text;'),
+             (r"\s*perform set_config\('eios\.tenant_id',coalesce\(prior,''\),true\);\s*return null;", '\n return null;'))),
     # NX-062 M5b: the grant guard and the grant handler accept a grantable capability (a read verb, or an allowlisted write capability).
     Allowed('nx062_machine_writes', 'authz.nexloop_machine_grant_guard', 'the read-verb check becomes control.nexloop_machine_grantable; nothing else',
             ((r"not control\.nexloop_machine_grantable\(new\.capability\)", "not exists(select 1 from control.nexloop_machine_read_verbs v where v.verb=new.capability)"),)),
