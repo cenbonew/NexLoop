@@ -21,7 +21,7 @@ from nexloop_eios.goal_controls import GoalGovernedActions
 from nexloop_eios.schema_publication import successors
 from nexloop_eios.workbench_roles import application_facts, compile_members
 from test_alert_silence_pg import TENANT, silenced, until  # noqa: F401
-from system_catalog_fixture import publish_successor_actions
+from system_catalog_fixture import insert_active_actions
 from commitment_fixture import commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
@@ -42,7 +42,7 @@ def publish_successors(admin):
     assert any(d['stable_name'] == 'nexloop.alert.silence' for d, _ in rows)
     v2 = {**consumer, 'version': 2}
     admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',2,%s)", (TENANT, Jsonb(v2)))
-    publish_successor_actions(admin, TENANT, successors({'actions': [{'definition': d, 'capability': c} for d, c in rows]}, v2))
+    insert_active_actions(admin, TENANT, successors({'actions': [{'definition': d, 'capability': c} for d, c in rows]}, v2))
     return len(rows)
 
 
@@ -132,7 +132,7 @@ def test_two_actions_with_one_human_capability_are_still_refused(silenced):  # n
     # The silence Action active a second time under another name (the same capability), through the catalog fixture's helper.
     definition, capability = admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",
                                            (TENANT, SILENCE + '1')).fetchone()
-    publish_successor_actions(admin, TENANT, [{'definition': {**definition, 'stable_name': 'nexloop.alert.silence_copy'}, 'capability': capability}])
+    insert_active_actions(admin, TENANT, [{'definition': {**definition, 'stable_name': 'nexloop.alert.silence_copy'}, 'capability': capability}])
     assert admin.execute("select count(*) from control.nexloop_action_definitions where tenant_id=%s and active and resource_id=%s",
                          (TENANT, 'eios:action:nexloop.alert.silence_copy:1')).fetchone()[0] == 1
     with s['app']() as client:
@@ -140,3 +140,30 @@ def test_two_actions_with_one_human_capability_are_still_refused(silenced):  # n
         failed = act(client, csrf, 'silence_alert', body('两个不同动作'), key='wb-successor-silence-0004')
         assert failed.status_code >= 400, failed.text
     assert silences(admin) == 0
+
+
+def grant_on_successor(admin, principal, change):
+    """The owner's grants fact for :1 copied onto :2 with `change` applied to its one grant (a read-only or expired grant on :2)."""
+    payload = admin.execute("select payload from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key=%s",
+                            (TENANT, [principal, SILENCE + '1'])).fetchone()[0]
+    assert len(payload['grants']) == 1 and 'execute' in payload['grants'][0]['operations']
+    change(payload['grants'][0])
+    write_facts(admin, [{'kind': 'grants', 'key': [principal, SILENCE + '2'], 'payload': payload}])
+
+
+@pytest.mark.parametrize('change', [
+    pytest.param(lambda g: g.update(operations=['read']), id='read-only'),
+    pytest.param(lambda g: g.update(valid_from='2026-01-01T00:00:00Z', valid_until='2026-01-02T00:00:00Z'), id='expired'),
+    pytest.param(lambda g: g.update(valid_from='2099-01-01T00:00:00Z'), id='not-yet-valid'),
+])
+def test_a_successor_grant_that_is_not_a_live_execute_grant_is_not_chosen(silenced, executed, change):  # noqa: F811
+    """L6 B1: execute on :1, and on :2 only read, an expired or a future grant - the write stays on :1 and succeeds."""
+    s = silenced
+    seen, _ = executed
+    publish_successors(s['admin'])
+    grant_on_successor(s['admin'], s['owner']['principal_id'], change)
+    with s['app']() as client:
+        csrf = workbench_login(client, s['owner']).json()['csrf_token']
+        done = act(client, csrf, 'silence_alert', body('第二版无有效执行授权'), key='wb-successor-silence-0005')
+        assert done.status_code == 200, done.text
+    assert seen == [1] and silences(s['admin']) == 1

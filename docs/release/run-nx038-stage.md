@@ -103,6 +103,207 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
 - 第 1–4 步各用自己的留出集；同一个 `label` 重跑按重放处理，结果相同。换 `label` 就要换一批新的合成数据（P5）。
 - 不在本单内：`at046`、`r4`、`r3`（NX-039 的项）、`r8`、`r10`、`r6`（NX-040/039）。`all` 会跑 at046/r4/r3，所以第 2.2 节逐条执行，不用 `all`。
 
+### 2.2b 操作日执行单（R74 之后）
+
+负责人 2026-11-09 定的顺序：**段 A customer-5 → 段 B 4 个顾客的 ADR-045 演练 → 段 C P5 判定 → 段 D r5 → 段 E at048 → 段 F at023 → 段 G r1 → 段 H r7**。前一段没有通过，后一段不开始。AT-024（§2.2 第 5、6 步）不在这一天。
+
+**通用约定**
+- **执行者**：凡是要口令登录的步骤，都在**负责人终端**执行，口令从 Keychain 经 stdin 传入，不进参数、文件或输出。调度员只用文件凭据（bootstrap DSN 文件、签名密钥文件、S6 配置里的服务 DSN 文件），不登录任何人的账号。
+- **占位符**：`<APP_ORIGIN>` 是 stage 工作台的 https 源；`<CA>` 是 CA 文件；`<RUN>` 是 `local-only/` 下当天的私有目录（0700）；`$T` 是租户 ID；`ro "…"` 是 DATA_HOST 上的只读会话（run-nx057 §0.3）；`S6=<RUN>/s6-stage.json`。
+- **证据**：两个窗口分开记录：`$S6` 的 window 用于段 D、F、G、H，`$S6_AT048` 的 window 用于段 E，并注明 at048 用的是合并后 3 个单元的划分。每段写清执行者和判定者。段 B 由调度员执行、L6 判定；段 C 由 S6 工具判定、L6 复核；段 D–H 由调度员执行、负责人判定（§4）。
+
+**互斥（任何时刻只做一件）**
+- ADR-045 开关只在段 B 打开。段 C 开始前必须已经关掉，段 D–H 期间也必须一直关着。
+- NX-056 真实派发窗口：整天不开。每段开始前都跑一次下面的查询，结果必须是 0 行：
+
+  ```bash
+  ro "select r.status, r.action_resource from control.nexloop_approval_requests r left join control.nexloop_approval_consumptions c using (tenant_id, world, approval_id) where r.tenant_id='$T' and r.action_resource like 'eios:action:nexloop.real_dispatch.set:%' and (r.status='waiting_approval' or (r.status='approved' and c.approval_id is null))"
+  ```
+
+- X7（NX-043 整链重跑）和任何部署（gate、promote、迁移）都不和本单同时进行。开始前向调度员的部署队列确认当天没有排定的部署；如果中途要部署，等当前段结束再做。段 H 之后才能再部署。
+- 每段开始前确认 ADR-045 开关的状态：
+
+  ```bash
+  ro "select runtime.nexloop_metrics_snapshot('$T','real')->'synthetic_fault'"
+  ```
+
+  段 B 第 2 步之前、以及段 C–H 期间，`active` 都必须是 0。
+
+**耗时与负责人在场**
+
+| 段 | 估计耗时 | 负责人在场 |
+|---|---|---|
+| A customer-5 | 60–90 分钟 | 开头约 20 分钟：口令写入 Keychain、mark；结尾约 10 分钟：预检发言 |
+| B ADR-045 演练 | 约 50 分钟：预热 10 + 3 轮 × 4 人（每轮间隔 ≥ 1 分钟，加上约 5 分钟的兜底回复） | 全程：开关、发言、关开关都要登录 |
+| C P5 判定 | 10 分钟 | 不需要 |
+| D r5 | 10 分钟 | 不需要 |
+| E at048 | 近重复那一对 15 分钟 + 运行 10 分钟 | 造近重复那一对时约 15 分钟（两个顾客各发一条） |
+| F at023 | 15 分钟 | 不需要 |
+| G r1 | 10 分钟 | 不需要 |
+| H r7 | 准备 5 分钟 + 撤销 10 分钟 + 擦除 10 分钟 + 等 keeper 一轮 + 核对 10 分钟 | 擦除和核对（approver3 登录），约 20 分钟 |
+
+合计约 4–5 小时，负责人要在场的时间约 2 小时，主要集中在上午的 A、B。
+
+#### 段 A customer-5
+
+- **前提**：R74 已经部署，含 0429（`ro "select version from control.schema_migrations where version='0429'"` 返回 1 行）；ADR-045 开关是关的。
+- **执行**：按 `run-add-synthetic-customer.md` 的 §0–§9 执行，不在这里重复。负责人的步骤（口令写入 Keychain、`mark`）在负责人终端执行；授权发布（§4 `webchat_consumers.py --apply`）由调度员用文件凭据执行。
+- **命令**（§9 的预检发言，负责人终端）：
+
+  ```bash
+  printf 'customer-5\t%s\n' "$(security find-generic-password -s nexloop/stage/customer-5 -w)" | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <RUN>/synthetic-customer.json --plan <RUN>/plan-a-customer-5.json
+  ```
+
+  `synthetic_customer.py` 只有 `--config` 和 `--plan` 两个参数。口令从 stdin 传入，每行一个，格式是 `别名<TAB>口令`。它在发任何消息之前都会先做预检。`plan-a-customer-5.json` 只放 customer-5 的一轮普通问题，按 `nexloop-synthetic-customer-plan/1` 的格式写。
+- **四人口令行**（段 B 和段 E 共用；在负责人终端，不落盘）：
+
+  ```bash
+  pw() { for a in s6c-1 s6c-2 s6c-3 customer-5; do printf '%s\t%s\n' "$a" "$(security find-generic-password -s nexloop/stage/$a -w)"; done; }
+  ```
+
+  Keychain 的服务名以 `~/.nexloop/vault-index.md` 里登记的为准。
+- **预期**：预检通过，customer-5 的 persona 是 `simulated_agent`，会话的 consumer 和配置一致。
+- **只读核对**：run-add-synthetic-customer §8 的三条（`n_grants` 5、`n_facts` 5；擦除登记 0 条；persona 是 `simulated_agent`，revision 1）。
+- **失败时**：配额已满、账号状态不是 active，或者 §8 有任何一条不满足，就停下。段 B 退回用 3 个顾客做（`remaining` 9），P5 很可能会是 blocked，照实记录。
+
+#### 段 B 4 个顾客的 ADR-045 演练
+
+- **前提**：段 A 通过；`run-synthetic-model-fault.md` §2 的前提都满足（两个 relay 都是 `ontology_hybrid`，没有在运行的 NX-037 run 入口，模型预算和 evolution 预算都有效）；4 个顾客是 s6c-1、s6c-2、s6c-3、customer-5。
+- **执行者**：负责人终端（开关、发言、关开关都要登录）；只读核对由调度员做。
+- **命令**：
+  1. 预热：开关关着，4 个顾客各发一轮普通问题：`pw | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <RUN>/synthetic-customer.json --plan <RUN>/plan-b-warm.json`。
+  2. 打开开关（approver3，驱动方式同 §2.0）：
+
+     ```bash
+     "${D3[@]}" request --operation set_synthetic_fault --body-json '{"state":"open","consumer_ids":["<4 个 consumer_id>"],"remaining":12,"duration_seconds":3600,"reason":"NX-038/039 S6 P5（ADR-045）"}'
+     ```
+
+     `set_synthetic_fault` 是 `deploy/authorization/api-routes.v1.json` 里这个能力对应的 operation。也可以改用工作台操作。
+  3. `pw | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <RUN>/synthetic-customer.json --plan <RUN>/plan-b-fault.json`：4 个顾客各发 3 轮，每轮间隔至少 1 分钟（间隔写在 plan 里）。每轮都带同一个未知词，每个顾客再各加一个**只有自己用**的词。这样每个顾客的词组都不一样，演练出来的 Run 不会被当成近重复；近重复那一对放到段 E 去造。
+  4. 关开关：
+
+     ```bash
+     "${D3[@]}" request --operation set_synthetic_fault --body-json '{"state":"closed","consumer_ids":[],"remaining":0,"duration_seconds":0,"reason":"演练结束"}'
+     ```
+
+- **预期**：打开时返回 200，`opened: true`，`consumers: 4`；每个 Run 以 `runtime_task_failed` / `synthetic_model_fault` 结束；关掉后快照的 `active` 是 0。
+- **只读核对**：
+  - 每轮跑一次 run-synthetic-model-fault §2 第 4 步的查询（failure 和检索未命中数大于等于 1）。
+  - 结束时：`ro "select kind, count(*) from runtime.nexloop_synthetic_fault_events where tenant_id='$T' group by 1"`，应该是 12 条 injected，加 1 条 closed 或 exhausted。
+- **失败时**：
+  - Run 没有失败：先查 guard 日志里的 `synthetic fault decision failed`（run-synthetic-model-fault §2 的说明）。
+  - Run 失败了但没有检索未命中：多半是冷池，记下来，不在开关打开期间补轮次。
+  - 不管哪种情况，最后都要先关开关，再进入段 C。
+
+#### 段 C 先关开关，再跑 s6_stage_inputs，最后判 P5
+
+- **前提**：段 B 第 4 步已经执行，快照的 `active` 是 0，兜底回复都已发出。
+- **执行者**：调度员（文件凭据）。
+- **命令**：
+
+  ```bash
+  uv run --frozen python scripts/acceptance/s6_stage_inputs.py --config "$S6"
+  ```
+
+- **预期**：`sources.window.status` 是 `ok`，`evidence.consumers_with_miss` 大于等于 4；`erasure_consumer_id` 是 `ok`。`semantic` 此时是 blocked，属于正常（§0 P5）。
+- **P5 的判定**：以这个工具的输出为准（L6 2026-11-09）。带检索未命中的失败 Run 要覆盖 4 个不同的簇单元。不够的话，**照实判 blocked，不为了凑数加轮次**。演练证据和 P5 证据可以引用同一批 Run，但要分开记录。按 0418，这些 Run 不计入 B5 的失败率，这是预期。
+- **只读核对**：把输出里的 `window` 和 `erasure_consumer_id` 填进 `$S6` 的 `inputs.evolution`（§1）。**`$S6` 的 window 从这里起固定不变**（L6 C1）：`until` 要在段 E 造近重复对之前，取工具给出的 `until` 和当前时间中较早的那个；段 D、F、G、H 都用这个窗口。`erasure_consumer_id` **必须是段 B 里 4 个顾客中的一个**，不能是 customer-1..4。工具只会挑 persona 不是 real 的顾客；如果它挑中的是 customer-1..4，就从 `candidates` 里换一个段 B 的顾客。
+- **失败时**：`window` 是 blocked，就把 P5 判 blocked，段 D–H 当天不做，向负责人报告 `consumers_with_miss` 的实际值。
+
+#### 段 D r5
+
+- **前提**：段 C 的 P5 判定通过；§0 的 P1–P4、P6 通过（先跑一次 `s6_preflight.py`）。
+- **执行者**：调度员。
+- **命令**：
+
+  ```bash
+  uv run --frozen python scripts/acceptance/s6_stage_evolution.py r5 --config "$S6"
+  ```
+
+- **预期与失败处理**：预期见 §3 的 S6-R5 一行；失败按 §5 F2 处理。
+- **只读核对**：结果行 `passed: true`、`blocked: false`，并记下结果文件的 sha256。
+
+#### 段 E at048（包括 (b) 路线要的近重复那一对）
+
+- **造近重复的一对**（负责人终端，开关关着）：AT-048 的 (b) 路线需要两个**不同顾客**的 Run，它们读取的词组完全相同（`s6_stage_evolution.py` 按 `term_hashes` 的集合是否相等来判定）。做法是从段 B 的 4 个顾客里挑两个（不要挑段 C 选出的 `erasure_consumer_id`），各发**一条**措辞完全相同、只含两个固定未知词的消息，例如“请介绍霁蓝釉陶片拼贴和鎏金錾花”，两条间隔至少 1 分钟，不要加别的词。命令：`pw | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <RUN>/synthetic-customer.json --plan <RUN>/plan-e-pair.json`，plan 里只写这两个顾客的各一轮；其余两个顾客的口令行没有用到，工具会忽略它们，这一点以工具实际的处理为准，不行就只给这两行。发完后，复制一份 `$S6` 作为 `$S6_AT048`（`<RUN>/s6-stage-at048.json`，0600），只改两处：window 的 `since` 不变，`until` 延到近重复对的两条 Run 都结束之后；`label` 用一个新值（例如加上 `-at048` 后缀）。**`$S6` 本身不改。**
+- **近重复对选哪两个顾客**（L6 C2）：不能选 `erasure_consumer_id`；也不能选段 B 里只有一条带未命中 Run 的顾客，因为合并之后它的单元可能撑不起留出集。只能从段 B 里有两条或以上带未命中 Run 的顾客中挑；可选的不到两个就判 blocked。
+- **簇单元的合并**：诊断会把近重复的两个 Run 并成一个簇（`s6_stage_evolution.py` 的 `find`），连带它们各自顾客的簇也会合并，所以在 `$S6_AT048` 的窗口里只有 3 个单元。at048 用的是这 3 个单元的划分（L6：at048 的序号是 4，3 个单元能给出 6 个子集，够用）。其他段用 `$S6` 的窗口，那个窗口里没有近重复对，仍然是 4 个单元。at048 如果仍然报单元数不够，照实判 blocked，不再造数据。
+- **命令**（调度员）：
+
+  ```bash
+  uv run --frozen python scripts/acceptance/s6_stage_evolution.py at048 --config "$S6_AT048"
+  ```
+
+- **预期**：(a) 和 (b) 都返回 `leakage_detected`；按顾客分组、把近重复并成一簇的候选开评通过（§3）。结果里 `near_duplicate_pairs` 至少为 1，不能出现 note `route near_duplicate not planned`。
+- **失败时**：出现 `not planned` 说明那一对的词组不完全相同，判 blocked，不再重发；如果返回的不是 `leakage_detected`，按 §5 F6 判 failed。
+
+#### 段 F at023
+
+- **命令**（调度员）：
+
+  ```bash
+  uv run --frozen python scripts/acceptance/s6_stage_evolution.py at023 --config "$S6"
+  ```
+
+- **预期**：见 §3 的 AT-023 一行；结果里有 L0 候选的 id。
+- **只读核对**：受保护表的 digest 前后不变（结果的 step 里已经比对）。
+- **失败时**：按 §5 的 F1、F2、F7 处理。
+
+#### 段 G r1
+
+- **命令**（调度员）：
+
+  ```bash
+  uv run --frozen python scripts/acceptance/s6_stage_evolution.py r1 --config "$S6"
+  ```
+
+- **预期**：两次 L0 报告的 digest 相同（§3）。
+- **失败时**：连接错误按 F9 重跑同一 `label`；digest 不同判 failed。
+
+#### 段 H r7（顺序：撤销授权 → 擦除 → 核对）
+
+- **对象**：只擦 `$S6` 的 `inputs.evolution.erasure_consumer_id`，它是段 B 的 4 个顾客之一。**customer-1..4 只作对照，不擦，也不发言。**下面用 `<C>` 表示这个顾客，`<P>` 表示它的登录主体。
+- **执行者**：撤销由调度员执行（配置者窗口，用文件凭据）；擦除和核对在负责人终端执行（approver3，口令经 stdin）。
+- **步骤**：
+  1. **准备**（调度员）：
+
+     ```bash
+     uv run --frozen python scripts/acceptance/s6_stage_evolution.py r7-prepare --config "$S6"
+     ```
+
+  2. **撤销**（调度员）：在私有 webchat-consumers 配方里给 `<P>` 那一项加 `"revoke": true`，其余项不动；然后 `--check`，再 `--apply`，命令同 run-add-synthetic-customer §4。预期 `configured: true`，`revoked` 比上次多 1。核对：
+
+     ```bash
+     ro "select count(*) filter (where jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0) n_grants, count(*) n_facts from authz.nexloop_authority_facts f where f.tenant_id='$T' and f.fact_kind='grants' and f.entity_key[1]='<P>'"
+     ```
+
+     `n_grants` 应为 0，`n_facts` 仍为 5。
+  3. **擦除前预检**（负责人终端）：
+
+     ```bash
+     security find-generic-password -s nexloop/stage/approver3 -w | python3 scripts/deploy/erase_synthetic_consumer.py erase --origin <APP_ORIGIN> --ca-file <CA> --username-file <RUN>/approver3.username --password-stdin --config <RUN>/erase-r7.json --dry-run
+     ```
+
+     预期 persona 不是 real，`grants_held` 为 0，`grants_trace` 为 `owner_link`。如果结果是 `grants_held_revoke_first`，回到第 2 步。
+  4. **擦除**（负责人终端）：同第 3 步的命令，去掉 `--dry-run`。这一步不可逆。
+  5. **核对**（负责人终端，等 keeper 跑完一轮后）：再执行一次第 3 步的命令（带 `--dry-run`），应为 `already_erased`，`grants_trace` 为 `cleared_at_erasure`。然后调度员只读核对：
+
+     ```bash
+     ro "select grants_cleared from control.nexloop_consumer_erasures where tenant_id='$T' and consumer_id='<C>'"
+     ```
+
+     应为 `t`。最后跑：
+
+     ```bash
+     uv run --frozen python scripts/acceptance/s6_stage_evolution.py r7-verify --config "$S6"
+     ```
+
+- **预期**：S6-R7 一行见 §3。
+- **失败时**：
+  - 第 3 步显示 persona 是 real，或者对象是 customer-1..4：停下，按 §5 F5 处理，第 4 步不执行。
+  - `grants_cleared` 不是 `t`：判 failed，报给负责人（说明擦除时授权没有核对清空）。
+  - r7-verify 按 §5 F8 处理。
+
 ## 3. 预期输出与通过条件
 
 每条命令输出一行 JSON 并写进 `results_dir`（0600）：`{check, acceptance, release, executor, executed_at, dry_run:false, world, passed, blocked, steps:[{name, expected, observed, passed, evidence}]}`。

@@ -5,6 +5,7 @@
   - 0083 的 lineage 只认 NX-044 的审核决定，所以 register 报 `follow_latest_refused`。
 - **迁移的改动**（临时编号，组批时由调度员重新编号）：
   - `action_for` 改名后包一层：同一 Action 有多个版本时，选调用者持有授权的最高版本；一个版本都没有授权时返回 `granted: false`；不同 Action 共用同一个能力时，照旧拒绝。
+  - 后续迁移 `workbench_action_for_live_execute_grant`（L6 B1）：只有当前有效的 execute 授权才算“持有授权”；只有 read、已过期或尚未生效的授权不会让后继版本被选中。随下一次部署执行，步骤同下。
   - lineage 增加 `schema_publication_id` 字段：取 human 发布、权限 digest 前后相等的那次 F3 发布。
   - 不改授权，不停用任何定义。治理入口仍按精确 resource 检查执行权限。
 - **测试**：

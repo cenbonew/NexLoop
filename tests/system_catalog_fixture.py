@@ -100,7 +100,7 @@ def copy_catalog_to_world(admin, tenant, world):
                                          'reason': 'the simulation world catalog'}))).fetchone()[0]
 
 
-def publish_successor_actions(admin, tenant, rows, world='real'):
+def insert_active_actions(admin, tenant, rows, world='real'):
     """Inserts active Action definitions beside the published ones, e.g. successors as authz.nexloop_schema_proposal_publish (NX-040 F3) inserts them - active beside their predecessors -
     from rows built by the publication backend's own nexloop_eios.schema_publication.successors(); for tests of the coexistence
     the F3 transaction leaves (the transaction itself is tests/test_nx040_*)."""
