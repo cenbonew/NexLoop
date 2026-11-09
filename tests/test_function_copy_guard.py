@@ -516,6 +516,14 @@ REGISTRY = [
     Allowed('schema_publication_successor_coexistence', 'control.nexloop_service_grant_action_lineage',
             'schema_publication_id beside review_decision_id on each row, pg_temp last on the search_path; nothing else',
             ((r",\n   'schema_publication_id',\(select p\.publication_id from ontology\.nexloop_schema_publications p .*?order by p\.published_at limit 1\)\)", ")"),), PG_TEMP),
+    # workbench_action_for_live_execute_grant (L6 B1 on 0432): a version counts only on a live execute grant, not any non-empty grant set.
+    Allowed('workbench_action_for_live_execute_grant', 'authz.nexloop_workbench_action_for',
+            'the grant predicate requires operation execute and current validity (grant and grants fact); nothing else',
+            ((r"\n v_now timestamptz:=clock_timestamp\(\);", ''),
+             (r"holds a live execute grant on;", 'is granted;'),
+             (r"exists\(select 1 from authz\.nexloop_authority_facts f cross join lateral .*?timestamptz>v_now\)\)\n",
+              "exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=v_tenant and f.fact_kind='grants'\n"
+              "    and f.entity_key=array[v_principal,d.resource_id] and jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0)\n"))),
     # erasure_precheck_grants_held (0429, stage 2026-11-09 customer-4): a new synthetic erasure is refused while the Consumer's owner
     # principals hold a non-empty WebChat grant set, and records grants_cleared on the new request; replays and the rest unchanged.
     Allowed('erasure_precheck_grants_held', 'control.nexloop_governed_erase_synthetic_consumer',

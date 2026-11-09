@@ -2160,6 +2160,11 @@
       "version": "0432",
       "name": "0432_schema_publication_successor_coexistence.sql",
       "sha256": "d813ddd4b8f3ded7f846f37abe55990a2b9b5460fa47ea979edcb76438871787"
+    },
+    {
+      "version": "0433",
+      "name": "0433_workbench_action_for_live_execute_grant.sql",
+      "sha256": "2c82e62550a2576c4b1afc13c0189662f84cec0ffe3101014a48fc5ffe9b9156"
     }
   ]
 }
