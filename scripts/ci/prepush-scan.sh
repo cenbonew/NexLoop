@@ -157,11 +157,12 @@ scan_ref() {
     if [[ "$status" -ne 1 ]]; then printf 'FAIL history scan could not complete\n'; return 1; fi
   fi
   printf 'PASS restricted identifiers in every outgoing commit\n'
+  # nxm_: an NX-062 machine key (nexloop_eios.machine_keys.KEY); tests build keys at run time, never as literals.
   # -m: a merge's own changes (an "evil" conflict resolution) against each parent; plain git log -p shows no merge diff.
   # grep decides a match on its own (git may then end on SIGPIPE); with no match, git log itself must have succeeded.
   local codes
   set +e
-  git log -p -m "$range" | grep -qE '^\+.*(sk-[A-Za-z0-9]{20,}|xz[z]n|(MODEL|EMBEDDING)_API_KEY="?[A-Za-z0-9-]{8,})'
+  git log -p -m "$range" | grep -qE '^\+.*(sk-[A-Za-z0-9]{20,}|xz[z]n|(MODEL|EMBEDDING)_API_KEY="?[A-Za-z0-9-]{8,}|nxm_[a-z2-7]{12}_[A-Za-z0-9_-]{43})'
   codes="${PIPESTATUS[0]} ${PIPESTATUS[1]}"
   set -e
   if [[ "${codes#* }" == 0 ]]; then printf 'FAIL credential values in outgoing added lines (content redacted)\n'; return 1; fi
