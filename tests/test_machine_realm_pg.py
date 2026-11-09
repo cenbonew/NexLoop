@@ -77,48 +77,74 @@ def bearer(token):
     return {'Authorization': 'Bearer ' + token}
 
 
+KINDS = ('none', 'machine_key', 'workbench_cookie', 'consumer_cookie', 'service_token', 'channel_signature')
+
+
 def test_g5_credential_matrix_machine_realm_is_exclusive(realm):
+    """L6 H1: every machine_key route x the six credential kinds of the design, each cell asserted. Only a live machine key passes
+    (200); no credential, a workbench cookie session, a consumer (WebChat) cookie session, a real service token that authenticates as a
+    service principal, and a validly signed channel (connector) request are all 401. Every other inventoried route refuses a live machine
+    key (401/403). The matrix fails when empty or when its machine part is not routes x 6."""
+    from eios.authz.operations import Operation
+    from eios.authz.resources import ResourceType
+    from multi_authority_fixture import seed_multi_authority
+    from nexloop_eios.authorization import authenticate_service
     w = realm
     publish(w)
-    # A configured connector, so the webhook's answer is its signature check (an unknown connector is a 404 first), as in G-5.
+    # A configured connector, so a signed channel request is a real channel credential and the webhook answers its signature check.
     key = Path(w['peppers_file']).parent / 'probe-connector-key'
     key.write_text(secrets.token_hex(32))
     key.chmod(0o600)
     commercial.configure_connector(w['configurator'], tenant=TENANT, world='real', connector_id=PARAMETERS['connector_id'], data_mode='real',
                                    event_types=['order.paid'], currencies=['CNY'], key_id='k1', key_file=key, owner_confirmation='synthetic owner confirmation')
+    # A real service token: it authenticates as a service principal through the service realm.
+    reader = w['f']['reader']
+    _, service_token = seed_multi_authority(w['admin'], reader.pool, [('eios:action:Consumer.create:1', ResourceType.ACTION, Operation.EXECUTE)],
+                                            identity_suffix='-g5-machine-probe')
+    assert authenticate_service(reader.pool, service_token, world='real').authentication.subject_kind.value == 'service'
+    stamp = str(int(__import__('time').time()))
+    signed = {'X-NexLoop-Timestamp': stamp, 'X-NexLoop-Signature': commercial.sign(bytes.fromhex(key.read_text()), stamp, b'')}
     inventory = I.load()
     routes = [r for r in I.listed(inventory, 'test') if r['realm'] not in EXEMPT]
     machine = [r for r in routes if r['realm'] == 'machine_key']
     other = [r for r in routes if r['realm'] != 'machine_key']
     assert machine and other
-    # A revoked key of the same client for the "revoked machine key" credential.
-    with w['client']() as client:
-        csrf = owner(client, w)
-        rotated = act(client, csrf, 'rotate_machine_key', {'previous_key_id': w['key_id'], 'overlap_days': 1, 'scope': [VERB], 'expires_in_days': 30}).json()
-        assert act(client, csrf, 'revoke_machine_key', {'key_id': w['key_id'], 'reason': 'matrix'}).json()['changed'] is True
-    live, revoked = rotated['key'], w['key']
-    matrix = {}
-    with w['client']() as client:
-        for r in machine:
-            path = concrete(r['path'])
-            matrix[(r['path'], 'none')] = client.get(path).status_code
-            matrix[(r['path'], 'other_bearer')] = client.get(path, headers=bearer(secrets.token_urlsafe(48))).status_code
-            matrix[(r['path'], 'revoked_machine_key')] = client.get(path, headers=bearer(revoked)).status_code
-            assert client.get(path, headers=bearer(live)).status_code == 200  # the live key passes, so the refusals are real
-        workbench_login(client, w['owner'])  # the client now holds a workbench cookie session
-        for r in machine:
-            matrix[(r['path'], 'workbench_cookie')] = client.get(concrete(r['path'])).status_code
+    live = w['key']
+    cells = {}
+
+    def send(client, r, headers=None):
+        path = concrete(r['path'])
+        if r['method'] == 'GET':
+            return client.get(path, headers=headers or {}).status_code
+        return client.request(r['method'], path, json=BODIES.get(r['path'], {}), headers={**WRITE_HEADERS, **(headers or {})}).status_code
+
+    for r in machine:
+        with w['client']() as client:
+            cells[(r['path'], 'none')] = send(client, r)
+            cells[(r['path'], 'machine_key')] = send(client, r, bearer(live))
+            cells[(r['path'], 'service_token')] = send(client, r, bearer(service_token))
+            cells[(r['path'], 'channel_signature')] = send(client, r, signed)
+        with w['client']() as client:
+            assert workbench_login(client, w['owner']).status_code == 200
+            cells[(r['path'], 'workbench_cookie')] = send(client, r)
+        with w['client']() as client:
+            login = client.post('/api/v1/auth/login', headers={'Origin': ORIGIN}, json={'username': w['customer']['username'], 'password': w['customer']['password']})
+            assert login.status_code == 200, login.text
+            cells[(r['path'], 'consumer_cookie')] = send(client, r)
+    assert len(cells) == len(machine) * len(KINDS) and set(k for _, k in cells) == set(KINDS)
+    for r in machine:
+        assert cells[(r['path'], 'machine_key')] == 200, r['path']
+        assert cells[(r['path'], 'none')] == 401, r['path']
+        assert cells[(r['path'], 'workbench_cookie')] == 401, r['path']
+        assert cells[(r['path'], 'consumer_cookie')] == 401, r['path']
+        assert cells[(r['path'], 'service_token')] == 401, r['path']
+        assert cells[(r['path'], 'channel_signature')] == 401, r['path']
+    refused = {}
     with w['client']() as client:
         for r in other:
-            path = concrete(r['path'])
-            if r['method'] == 'GET':
-                status = client.get(path, headers=bearer(live)).status_code
-            else:
-                status = client.request(r['method'], path, json=BODIES.get(r['path'], {}), headers={**WRITE_HEADERS, **bearer(live)}).status_code
-            matrix[(r['path'] + ' ' + r['method'], 'machine_key')] = status
-    assert len(matrix) == len(machine) * 4 + len(other) and len(matrix) > 0
-    wrong = {k: v for k, v in matrix.items() if v not in ((401,) if k[1] != 'machine_key' else (401, 403))}
-    assert wrong == {}, wrong
+            refused[(r['method'], r['path'])] = send(client, r, bearer(live))
+    assert len(refused) == len(other) > 0
+    assert {k: v for k, v in refused.items() if v not in (401, 403)} == {}
 
 
 def test_c4_no_policy_fails_closed_and_is_counted_then_the_policy_limits(realm):

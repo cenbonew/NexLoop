@@ -373,6 +373,32 @@ def add_identity_token_key(out, *, rotate=False):
     return {'rotated' if rotate else 'added': ['app:api/identity-token.key']}
 
 
+def _replace_private_durable(target, text):
+    """L6 H2: replace a private file atomically - a new 0600 file beside it, written and fsynced, then renamed over the target and the
+    directory fsynced. Until the rename the target keeps its old content; a crash leaves the old file (and at most a stray .tmp file,
+    removed by the next run), never no file."""
+    target = Path(target)
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = target.with_name('.' + target.name + '.tmp')
+    temporary.unlink(missing_ok=True)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(text.encode())
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    directory = os.open(target.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 def add_machine_key_peppers(out, *, rotate=False):
     """NX-062 M3: app/secrets/api/machine-key-peppers for a tree generated before it existed (version 1), or --rotate: append the next
     version (the previous versions stay, so every issued key keeps verifying; new keys use the new version after both api processes
@@ -389,8 +415,7 @@ def add_machine_key_peppers(out, *, rotate=False):
     lines = target.read_text().splitlines() if rotate else []
     versions = [int(line.split(' ', 1)[0]) for line in lines if line.strip()]
     lines.append(f'{(max(versions) if versions else 0) + 1} {secrets.token_hex(32)}')
-    target.unlink(missing_ok=True)
-    _write(target, '\n'.join(lines) + '\n')
+    _replace_private_durable(target, '\n'.join(lines) + '\n')
     manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/machine-key-peppers']
     entry = {'host': 'app', 'path': 'api/machine-key-peppers', 'secret': 'api_machine_key_peppers', 'service': 'api', 'owner': _owner('api')}
     entry['kind'], entry['phase'], entry['note'] = classify('app', 'api', 'machine-key-peppers')

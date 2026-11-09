@@ -52,3 +52,15 @@
 - **契约**：线路规则禁止本线改 `packages/contracts`。`machine-capabilities.schema.json`（响应 `{capabilities:[{capability,kind,description}]}`）和统一错误体 `{code,message,trace_id,retryable,details}` 作为提案，请调度员决定由谁加入。
 - **实地验证**：本机没有 caddy，无法 `caddy validate`；新增的 header_up 用的都是已有用法（逐个列出头名，不用通配）。上 stage 前，gate 阶段的 gateway 启动会验证配置。
 - **没有改动**：M5 的授权与事实快照、写入（M5）、MCP 与 SDK（M6）。
+
+## L6 条件 H1、H2（82b7919a 条件 PASS）
+
+- **H1**：G-5 矩阵改为逐格断言 6 种凭据：无凭据、机器密钥、workbench cookie、consumer（WebChat）cookie、真实 service 令牌、经过签名的渠道（connector）请求。
+  - service 令牌由 `seed_multi_authority` 现场签发。测试先断言它能经 `authenticate_service` 认证为 service 主体，再用它访问机器路由。
+  - 渠道请求使用已配置 connector 的密钥，按 `commercial.sign` 生成签名。
+  - 结果：只有机器密钥返回 200，其余 5 种一律 401。断言行数 = 机器路由数 × 6，且 6 种凭据都出现。其他每条非豁免路由带有效机器密钥一律返回 401 或 403。
+- **H2**：`stage_secrets.add_machine_key_peppers` 改用 `_replace_private_durable`：先在同目录写 0600 临时文件并 fsync，再 rename 覆盖目标，最后 fsync 目录。rename 失败时删除临时文件，目标保持原样。
+  - 新测试 `test_machine_key_pepper_rotation_replaces_atomically` 在 rename 时模拟崩溃，断言四点：rename 前目标仍是旧内容；临时文件已含旧内容加新版本，并已 fsync；崩溃后目标不变，且没有残留的临时文件；正常重跑后多出一行、权限 0600。
+  - 变异检查：改回“先 unlink 再写”，测试变红；去掉 fsync，测试变红。
+  - 文件里已有一个同名的 `_replace_private`，被凭据轮换使用，不 fsync。这个函数不在本条件范围内，没有改动，作为后续项列出。
+- 测试：`test_machine_realm_pg` 和 `test_stage_secrets` 共 36 passed（Node 24，`-n 2`）。
