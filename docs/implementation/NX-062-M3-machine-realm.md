@@ -64,3 +64,11 @@
   - 变异检查：改回“先 unlink 再写”，测试变红；去掉 fsync，测试变红。
   - 文件里已有一个同名的 `_replace_private`，被凭据轮换使用，不 fsync。这个函数不在本条件范围内，没有改动，作为后续项列出。
 - 测试：`test_machine_realm_pg` 和 `test_stage_secrets` 共 36 passed（Node 24，`-n 2`）。
+
+## 守护测试修复（调度员 2026-11-09，批次 154 本地复现）
+
+- **问题**：`test_tenant_fk_pg::test_every_table_with_tenant_id_has_a_tenant_path_or_a_recorded_exception` 失败。`runtime.nexloop_machine_call_counts` 有 tenant_id 列，但没有租户外键：认证失败的请求用空串作为租户。
+- **修复**（直接改 0437，它尚未发布）：tenant_id 改为外键指向 `control.nexloop_tenants`，认证失败时为 null，并加约束“只有 denied 可以为 null”。唯一键改为 `(day, coalesce(tenant_id,''), outcome)` 的唯一索引，计数函数和指标块随之修改。
+- **`test_db_boundary`**：在 6fd1bda9 上本地通过，包括“所有 runtime 表开启 force RLS”这一项。0437 的三张新表都已 enable 并 force RLS，应用角色没有任何表权限。批次 154 上的那次失败可能另有原因，需要调度员把输出发我，我再查。
+- **检查其他新表**：M2a 的 machine_clients 有租户外键；machine_keys 经 (tenant_id, client_id) 外键接到 clients，满足链式规则。M4a 的 machine_client_grants 同理。M4a 的 `runtime.nexloop_machine_read_counts` 有同样的问题，在 M4 分支的 0440 里一并修复。
+- **测试**：test_db_boundary、test_tenant_fk_pg、三个机器测试、三项擦除覆盖、copy guard、sim roles 共 172 passed；definer 0 problems。

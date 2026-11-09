@@ -7,7 +7,7 @@
 --   force. With no revision every machine request is refused (rate_policy_missing) and counted - never unlimited (C4).
 -- * runtime.nexloop_machine_rate_buckets: fixed one-minute windows per key and per tenant, keyed by the key id and the tenant derived
 --   from the authenticated key (never a client address); rows older than a day are deleted by the admission itself.
--- * runtime.nexloop_machine_call_counts: per UTC day, tenant ('' when the key did not authenticate) and outcome (admitted, denied,
+-- * runtime.nexloop_machine_call_counts: per UTC day, tenant (a tenant key; null when the key did not authenticate) and outcome (admitted, denied,
 --   rate_limited, rate_policy_missing), for the metrics block machine_access and the alert rules.
 -- * authz.nexloop_machine_admit(prefix, digest): the realm's first step for nexloop_api. It never raises for a refused key: it returns
 --   {status} - ok with the identity, denied, rate_limited with retry_after, rate_policy_missing - and commits the count, so a refusal is
@@ -35,11 +35,13 @@ create table runtime.nexloop_machine_rate_buckets (
 );
 create table runtime.nexloop_machine_call_counts (
  day date not null,
- tenant_id text not null,
+ -- The tenant of the authenticated key; null for a key that did not authenticate (denied), the only outcome without one (NX-052 FK).
+ tenant_id text references control.nexloop_tenants(tenant_id),
  outcome text not null check(outcome in ('admitted','denied','rate_limited','rate_policy_missing')),
  calls bigint not null check(calls>=0),
- primary key(day,tenant_id,outcome)
+ check((tenant_id is null)=(outcome='denied'))
 );
+create unique index nexloop_machine_call_counts_key on runtime.nexloop_machine_call_counts(day,coalesce(tenant_id,''),outcome);
 create trigger nx062_append_only before update or delete on control.nexloop_machine_rate_policies for each row execute function control.nexloop_nx022_append_only();
 create trigger nx062_no_truncate before truncate on control.nexloop_machine_rate_policies for each statement execute function control.nexloop_nx022_append_only();
 do $$declare t text;begin
@@ -76,8 +78,8 @@ end $$;
 
 create function runtime.nexloop_machine_count(p_tenant text,p_outcome text) returns void
  language sql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
- insert into runtime.nexloop_machine_call_counts(day,tenant_id,outcome,calls) values((clock_timestamp() at time zone 'UTC')::date,coalesce(p_tenant,''),p_outcome,1)
-  on conflict(day,tenant_id,outcome) do update set calls=runtime.nexloop_machine_call_counts.calls+1
+ insert into runtime.nexloop_machine_call_counts(day,tenant_id,outcome,calls) values((clock_timestamp() at time zone 'UTC')::date,nullif(p_tenant,''),p_outcome,1)
+  on conflict(day,coalesce(tenant_id,''),outcome) do update set calls=runtime.nexloop_machine_call_counts.calls+1
 $$;
 
 -- One window step: count this call in its minute; the calls of the window after this one.
@@ -134,7 +136,7 @@ create function runtime.nexloop_machine_access_snapshot(p_tenant text) returns j
  language sql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
  select jsonb_build_object(
   'rate_policy_missing',case when exists(select 1 from control.nexloop_machine_rate_policies) then 0 else 1 end,
-  'denied_24h',coalesce((select sum(calls) from runtime.nexloop_machine_call_counts where outcome='denied' and tenant_id=''
+  'denied_24h',coalesce((select sum(calls) from runtime.nexloop_machine_call_counts where outcome='denied' and tenant_id is null
      and day>=((clock_timestamp()-interval '1 day') at time zone 'UTC')::date),0),
   'refused_policy_missing_24h',coalesce((select sum(calls) from runtime.nexloop_machine_call_counts where outcome='rate_policy_missing' and tenant_id=p_tenant
      and day>=((clock_timestamp()-interval '1 day') at time zone 'UTC')::date),0),
