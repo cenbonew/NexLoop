@@ -2,7 +2,7 @@
 
 - **状态**：设计稿第 2 版。L6 审 c52993cb 判条件 PASS（C1–C9，见 §10）；负责人 2026-11-09 已决定 Q-A 至 Q-G（§7）。按 M1→M6 分片实现，**§10 优先于正文中与之冲突的表述**。
 - **来源**：负责人 2026-11-09 选项 7B：“NX-062 现在开工，可以新开线程：先出设计稿，交 L6 审，再分片实现”。执行：L10。
-- **基线**：main 038dba21（catalog 尾部 0429；0430–0432 被在途批次占用，本设计的迁移临时号从 0433 起）。
+- **基线**：main 038dba21（catalog 尾部 0429；0430–0432 被在途批次占用，本设计的迁移临时号从 0433 起；调度员 2026-11-09 更新为 0434 起，0430–0433 已被在途批次占用）。
 - **上位决定（不重议）**：`adr/ADR-041-machine-access-channel.md`（负责人 2026-10-28，Q-1 至 Q-9 全部 A）与威胁评审 `docs/design/NX-062-threat-review.md`（T-1 至 T-12）。本稿把它们落到现有代码上，回答“具体怎么做、分几片、每片怎么验收”。文中 `T-n` 指威胁评审条目，`ADR §n` 指 ADR-041 的小节。
 - **已完成的前置**：C8-1 路由清单与发布门（`deploy/authorization/api-routes.v1.json`，当前 manifest_version 12，106 条，realm 7 种；G-1 至 G-6，`docs/implementation/NX-062-C8-1-route-inventory.md`）；I31 / S79 服务凭据续期与范围轮换（0384、0391）；NX-056 统一审批（0327、0347、0369 等）。
 
@@ -268,5 +268,14 @@ M1 → M2 → M3 → {M4, M5} → M6。M4 与 M5 可两条线并行（文件不�
 | C7 | M5 | 0124 包装用改名加委托的方式实现，非机器路径的行为完全不变，原有回归测试保留；机器分支同时要求能力在允许表中、密钥 scope 包含该能力、`assert_action_authority` 通过；`subject_rule` 为 `human` 的能力一律 42501；变异检查：删掉其中任何一条都要有测试变红 | M5 |
 | C8 | M5 | 机器不能当审批人：在审批决定入口的 SQL 里强制，不能只靠 Action 允许表；solo 模式排除机器自批，并要有测试 | M5 |
 | C9 | M3 | Caddy 会在应用拿到请求前把完整 URI 记进访问日志：给 `/machine/*` 配置日志脱敏，或者不记录 query；在 deploy 测试里断言 | M3 |
+
+分片调整（调度员 2026-11-09 同意）：
+
+- 原设计的 M2 拆成 M2a 和 M2b。
+  - M2a（0434）：存储、身份函数、realm 互斥、能力允许表（C1–C3）。
+  - M2b（0435）：6 个负责人受治理 Action（machine_client.register/deactivate/activate，machine_key.issue/rotate/revoke），以及审计、注册计数、操作登记和“部署前先 publish”的说明。
+- **机器主体的 EIOS 授权事实、事实模板实例化和机器专用的事实快照，从 M2 挪到 M5**，与 C7 的 0124 机器分支一起做。C7 要求“assert_action_authority 通过”，靠的就是这套事实和快照。
+- 原因：C1 要求 service 身份快照拒绝机器摘要。现有的 `nexloop_load_authority_fact_snapshot(s)` 和 `nexloop_assert_action_authority` 都要经过 service 快照，所以读不到机器的事实；机器必须有自己的事实快照（与 browser realm 同一做法）。这套快照只有 M5 的机器分支会用，提前在 M2 写入事实，等到 M5 定下读取方式时很可能要返工。
+- **M2b 上线后到 M5 之前**：机器主体没有任何授权事实，也没有任何可用的读取或写入能力。`tests/test_machine_lifecycle_pg.py::test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact` 证明了这一点：它遍历 `nexloop_api` 能调用、第一个参数是 token 摘要的全部受治理入口（少于 100 个即判失败），用一把有效机器密钥的摘要逐个调用：除一个逐条登记的签名命令外，全部是身份拒绝（42501）；两个对未知摘要不抛错的入口，对机器摘要的回答与对未知摘要完全相同（L6 F1）。同时断言没有任何事实、授权实例或路由与机器主体相关。
 
 范围调整（Q-C）：M5 的写入能力只有对象备注；“用户陈述登记为待核实 Claim”不在这一期，要等 AT-064 白名单处理好之后再开，届时只能经现有的 Claim 受治理 Action 写入。

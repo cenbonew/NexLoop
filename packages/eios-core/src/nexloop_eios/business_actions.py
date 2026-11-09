@@ -126,7 +126,14 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     # K4b (human_questions): a workbench member answers a reevaluation Run's question (owner and operator; the handler checks the kind).
     'human_question.answer':'human_owner',
     # ADR-045 (owner 2026-11-07): the stage-only test-Consumer model fault switch; its Action is only in deploy/stage/capabilities.stage.v1.json.
-    'synthetic_fault.set':'human_owner'}
+    'synthetic_fault.set':'human_owner',
+    # NX-062 M2b (0435): the machine access lifecycle - register, deactivate and activate a machine client; issue, rotate and revoke its keys.
+    'machine_client.register':'human_owner',
+    'machine_client.deactivate':'human_owner',
+    'machine_client.activate':'human_owner',
+    'machine_key.issue':'human_owner',
+    'machine_key.rotate':'human_owner',
+    'machine_key.revoke':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

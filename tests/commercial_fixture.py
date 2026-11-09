@@ -105,7 +105,14 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.world_glossary.set':('Consumer','world_glossary.set'),
     'nexloop.relay.backlog_settle':('Consumer','relay.backlog_settle'),
     'nexloop.action_claim.settle':('Consumer','action_claim.settle'),
-    'nexloop.human_question.answer':('Consumer','human_question.answer')}  # K4b  # stale action claims; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary; S42
+    'nexloop.human_question.answer':('Consumer','human_question.answer'),
+    # NX-062 M2b: the machine access lifecycle
+    'nexloop.machine_client.register':('Consumer','machine_client.register'),
+    'nexloop.machine_client.deactivate':('Consumer','machine_client.deactivate'),
+    'nexloop.machine_client.activate':('Consumer','machine_client.activate'),
+    'nexloop.machine_key.issue':('Consumer','machine_key.issue'),
+    'nexloop.machine_key.rotate':('Consumer','machine_key.rotate'),
+    'nexloop.machine_key.revoke':('Consumer','machine_key.revoke')}  # K4b  # stale action claims; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary; S42
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

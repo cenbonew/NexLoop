@@ -71,6 +71,7 @@ IDENTITY_COLUMNS = ('principal_id', 'actor_id', 'actor', 'subject_principal_id',
 _STAFF = 'a staff member, the owner or a service principal - never the customer'
 _KEPT = 'kept on purpose with the erasure itself (see tests/test_erasure_whole_database_pg.py KEPT_ON_PURPOSE)'
 IDENTITY_KEPT = {
+    'authz.nexloop_machine_clients': _STAFF + ' (NX-062 0434: an enterprise program registered by the owner; no Consumer)',
     'authz.nexloop_evo_principals': _STAFF, 'control.nexloop_alert_silences': _STAFF, 'control.nexloop_budget_consumption': _STAFF,
     'control.nexloop_run_goal_bindings': _STAFF, 'control.nexloop_sim_clock_events': _STAFF, 'runtime.nexloop_effect_attempts': _STAFF,
     'runtime.nexloop_effect_query_admissions': _STAFF, 'runtime.nexloop_effect_submissions': _STAFF, 'runtime.nexloop_human_requests': _STAFF,

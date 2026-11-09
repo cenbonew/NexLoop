@@ -62,7 +62,13 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.budget.loosen':'goals.budget.loosen',
     'nexloop.world_glossary.set':'world_glossary.set',
     'nexloop.relay.backlog_settle':'relay.backlog_settle',
-    'nexloop.action_claim.settle':'action_claim.settle'}  # stale action claims (0385); S42 relay backlog settlement (0376); world-model glossary (0374); NX-056 budget approval; NX-053 (0154), 0210, 0220, 0227, 0228, NX-057 R1/R2; owner only
+    'nexloop.action_claim.settle':'action_claim.settle',
+    'nexloop.machine_client.register':'machine_client.register',
+    'nexloop.machine_client.deactivate':'machine_client.deactivate',
+    'nexloop.machine_client.activate':'machine_client.activate',
+    'nexloop.machine_key.issue':'machine_key.issue',
+    'nexloop.machine_key.rotate':'machine_key.rotate',
+    'nexloop.machine_key.revoke':'machine_key.revoke'}  # NX-062 M2b machine access lifecycle (0435); stale action claims (0385); S42 relay backlog settlement (0376); world-model glossary (0374); NX-056 budget approval; NX-053 (0154), 0210, 0220, 0227, 0228, NX-057 R1/R2; owner only
 
 
 def object_types():
