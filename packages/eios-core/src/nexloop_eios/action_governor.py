@@ -33,11 +33,16 @@ def create_action_governor(pool,session,signer,*,object_reader=None):
         clock=database_clock,object_reader=object_reader)
 
 
+# Shadow validations that could not run (L6 G1 on 0431): dispatch went on and nothing was counted; this process-local counter and
+# the warning keep the failure visible.
+SHADOW_FAILURES={'count':0}
+
+
 def shadow_validate(pool,session,definition,request):
     """D23 option B (migration action_input_shadow): when trusted configuration set a candidate input schema for this exact Action
     version, validate the request with it as dispatch would (same validator, format checker on), count the call and whether the
     candidate would have refused it - never enforce it. Only the Action and two counts are recorded: no request, no principal. A
-    shadow that cannot run never affects dispatch; it logs the failure's class only."""
+    shadow that cannot run never affects dispatch and counts nothing; it logs the failure's class only and counts it in SHADOW_FAILURES."""
     import logging
     from jsonschema import Draft202012Validator
     from referencing import Registry
@@ -60,6 +65,7 @@ def shadow_validate(pool,session,definition,request):
                 (session.token_digest,session.world,resource,candidate['candidate_digest'],rejected))
             return rejected
     except Exception as error:
+        SHADOW_FAILURES['count']+=1
         logging.getLogger(__name__).warning('action input shadow unavailable %s',{'action':resource,'error':type(error).__name__})
         return None
 

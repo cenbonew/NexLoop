@@ -89,3 +89,46 @@ def test_the_report_is_the_metrics_login_s_and_a_caller_without_a_tenant_counts_
         assert api.execute('select authz.nexloop_action_input_shadow_record(%s,%s,%s,%s,true)', ('0' * 64, 'real', RESOURCE, digest)).fetchone()[0] is False
         assert api.execute('select authz.nexloop_action_input_candidate(%s,%s,%s)', ('0' * 64, 'real', RESOURCE)).fetchone()[0] is None
     assert shadow_rows(f) == []
+
+
+class _Rollback(Exception):
+    pass
+
+
+def test_only_an_identity_refusal_means_no_tenant_any_other_error_is_raised(env):
+    """L6 G1 on 0431: authz.nexloop_action_input_tenant turns only 42501 (the identity refusal) into "no tenant"; a database fault or
+    a bug (here an injected 22P02 inside the identity resolution, in a transaction that is rolled back) is raised, never hidden as
+    a missing tenant."""
+    f = env
+    assert f['admin'].execute('select authz.nexloop_action_input_tenant(%s,%s)', ('0' * 64, 'real')).fetchone()[0] is None  # 42501
+    with pytest.raises(_Rollback):
+        with f['admin'].transaction():
+            # Same function (same oid, so the caller's cached plan reaches it), another body; the rollback restores it.
+            f['admin'].execute("""create or replace function authz.nexloop_service_identity(p_digest text,p_world text) returns jsonb language plpgsql
+                as $$ begin return jsonb_build_object('binding', jsonb_build_object('tenant_id', 'not-a-number'::int)); end $$""")
+            with pytest.raises(psycopg.errors.InvalidTextRepresentation):
+                with f['admin'].transaction():
+                    f['admin'].execute('select authz.nexloop_action_input_tenant(%s,%s)', ('0' * 64, 'real'))
+            raise _Rollback
+    assert 'not-a-number' not in f['admin'].execute("select pg_get_functiondef('authz.nexloop_service_identity(text,text)'::regprocedure)").fetchone()[0]
+
+
+def test_a_shadow_that_fails_leaves_dispatch_untouched_counts_nothing_and_counts_the_failure(env):
+    """The governor side: a shadow error other than an identity refusal (an injected 22P02 in the candidate lookup) never blocks the
+    governed write, records no shadow row, and is counted in action_governor.SHADOW_FAILURES (with a warning)."""
+    from nexloop_eios import action_governor as G
+    f = env
+    configure(f, [{'resource_id': RESOURCE, 'input_schema': REFUSE_ALL}])
+    original = f['admin'].execute("select pg_get_functiondef('authz.nexloop_action_input_candidate(text,text,text)'::regprocedure)").fetchone()[0]
+    f['admin'].execute("""create or replace function authz.nexloop_action_input_candidate(p_digest text,p_world text,p_resource text) returns jsonb
+        language plpgsql stable security definer set search_path=pg_catalog,pg_temp as $$ begin return jsonb_build_object('n', 'x'::int); end $$""")
+    try:
+        before = G.SHADOW_FAILURES['count']
+        claim = f['claims'].add('shadow-fault', '预算区间', '两千元以内', quote='预算在两千元以内')
+        m, _ = matcher(f, {claim: decision('eios:property:Consumer/budget_level', '两千元以内')}, suffix='-shadow-fault')
+        assert list(m.process_conversation(f['conversation'])['applied'].values()) == ['applied']
+        assert obj(f['admin'], f['consumer'])[0]['budget_level'] == '两千元以内'
+        assert shadow_rows(f) == []
+        assert G.SHADOW_FAILURES['count'] == before + 1
+    finally:
+        f['admin'].execute(original)
