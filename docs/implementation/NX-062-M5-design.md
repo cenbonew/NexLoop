@@ -257,3 +257,8 @@ L6 同意 D-2 至 D-5 的方向。以下各条覆盖前文中与之冲突的说�
 **审计**
 - 备注写入的审计事件只记 note_id、作者（principal、作者类型、机器的 client_id 和 key_prefix）、对象（type_name、object_id）、intent 或 request ID，**不记正文**，也不记正文的长度或摘要。
 - 测试：写入一条带标记值的备注，断言 `runtime.audit_events` 里所有相关行的 payload 都不含这个标记值，字段集合等于上面的清单。
+
+## 12. 实现时的调整（M5b）
+
+- 对象备注拆到 M5c，与 HTTP 路由和契约一起交付。
+- NX-056 的审批策略只能配给 human 能力，所以机器请求在生产中目前不会进入审批；pending_approval 路径用测试证明可用。第二期效应能力需要放宽策略守卫，届时另行设计。详见 [NX-062-M5b-machine-writes.md](NX-062-M5b-machine-writes.md)。

@@ -52,6 +52,11 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-062 M5b: the grant guard and the grant handler accept a grantable capability (a read verb, or an allowlisted write capability).
+    Allowed('nx062_machine_writes', 'authz.nexloop_machine_grant_guard', 'the read-verb check becomes control.nexloop_machine_grantable; nothing else',
+            ((r"not control\.nexloop_machine_grantable\(new\.capability\)", "not exists(select 1 from control.nexloop_machine_read_verbs v where v.verb=new.capability)"),)),
+    Allowed('nx062_machine_writes', 'control.nexloop_governed_grant_machine_capability', 'the read-verb check becomes control.nexloop_machine_grantable; nothing else',
+            ((r"not control\.nexloop_machine_grantable\(body->>'capability'\)", "not exists(select 1 from control.nexloop_machine_read_verbs v where v.verb=body->>'capability')"),)),
     # NX-062 M4a (ADR-041 A1, L6 M4-3): the capability list's grant term is the client's latest active grant (was false until the grants).
     Allowed('nx062_machine_reads', 'authz.nexloop_machine_capability_list', 'the grant term reads authz.nexloop_machine_grant_types; nothing else',
             ((r"and authz\.nexloop_machine_grant_types\(ident->'binding'->>'tenant_id',ident->>'client_id',c\.capability\) is not null;", 'and false;'),)),
