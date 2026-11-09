@@ -55,14 +55,14 @@ security find-generic-password -s <keychain 服务名> -a <负责人账号> -w |
 | `login.unlinked_refused` | passed |
 | `login.linked_signs_in.link`、`login.linked_signs_in` | passed，`methods` 为 `["oidc"]` |
 | `login.callback_one_time` | passed |
-| `groups.no_role_from_idp` | passed（http 403） |
+| `groups.no_role_from_idp` | passed（会话和 csrf 都是 200，错误 CSRF 的对照请求 401，真实请求 403 `forbidden`） |
 | `groups.mapping` | gap（产品不读组 claim） |
 | `disable.idp_refuses` | passed |
-| `disable.sync` | gap（session_http 200：停用后已有会话还在） |
+| `disable.sync` | gap（session_http `[200, 200]`：停用前后会话都在）；停用前不是 200 记 failed |
 | `epoch.unlink_ends_sessions` | passed（两个会话都是 401） |
 | `epoch.relink_new_only` | passed（`[200, 401, 401]`） |
 
-退出码：0 表示全部通过且没有缺口；3 表示检查都通过但还有缺口（现状预期就是 3）；1 表示有检查失败，原样记录，不要重跑覆盖；2 表示输入被拒。
+9 项检查必须全部出现，缺一项记 `run.incomplete` 失败；中途出异常只记一行 `run.aborted`（只写异常类型），清理步骤仍逐个执行。退出码：0 表示全部通过且没有缺口；3 表示检查都通过但还有缺口（现状预期就是 3）；1 表示有检查失败，原样记录，不要重跑覆盖；2 表示输入被拒。
 
 ## 4. 脚本之外还要手工做的
 

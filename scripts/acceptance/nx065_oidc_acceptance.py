@@ -23,12 +23,16 @@ Checks (one JSON line each, then a summary; no subject, code, state, cookie, tok
   login.unlinked_refused      B (never linked) is sent back to /workbench?sso=failed and has no session
   login.linked_signs_in       the owner links the member to A (sso_or_password); A signs in as the member, methods ["oidc"]
   login.callback_one_time     the same callback a second time is refused and opens no session
-  groups.no_role_from_idp     A, placed in owner_group at the IdP, still cannot run an owner Action (403)
+  groups.no_role_from_idp     A, placed in owner_group at the IdP, still cannot run an owner Action: its session and CSRF fetch are 200,
+                              a control call with a wrong CSRF token is 401 (so the Origin was accepted) and the attempt is 403 forbidden
   groups.mapping              GAP: the product maps no IdP group to a role (roles come only from the workbench roles manifest)
   disable.idp_refuses         A disabled at the IdP: a new SSO sign-in does not complete
-  disable.sync                GAP: an existing SSO session outlives the IdP-side disable (no back-channel, no periodic check)
+  disable.sync                the first SSO session is 200 before the disable and 401 after (passed); 200 after is a GAP (the session
+                              outlives the disable); anything else failed
   epoch.unlink_ends_sessions  the owner unlinks the member: both SSO sessions end (401)
   epoch.relink_new_only       A re-enabled and re-linked signs in again; the sessions ended before stay ended
+All nine checks must appear, else run.incomplete fails the run; an exception ends the run with one failed line (its type
+only) and the clean-up steps still run one by one.
 Exit: 0 every check passed and no gap; 3 every check passed but gaps remain (NX-065 is not complete); 1 a check failed;
 2 input refused.
 """
@@ -46,6 +50,8 @@ SCHEMA = 'nexloop-nx065-oidc-acceptance/1'
 AUTH = '/api/v1/workbench/auth'
 START, CALLBACK = AUTH + '/oidc/start', AUTH + '/oidc/callback'
 FAILED = '/workbench?sso=failed'
+REQUIRED = frozenset({'login.unlinked_refused', 'login.linked_signs_in', 'login.callback_one_time', 'groups.no_role_from_idp', 'groups.mapping',
+                      'disable.idp_refuses', 'disable.sync', 'epoch.unlink_ends_sessions', 'epoch.relink_new_only'})
 
 
 class InputRefused(Exception):
@@ -185,13 +191,18 @@ class Acceptance:
         owner, csrf = self.owner()
         try:
             self._run(owner, csrf, member, users)
+        except Exception as failure:  # L6 X3: one failed line with the exception type only (httpx text may carry the callback URL)
+            self.record('run.aborted', 'failed', error=type(failure).__name__)
         finally:
-            self.unlink(owner, csrf)  # leave the synthetic member unlinked (404/409 when already unlinked is fine)
-            try:
-                self.idp.set_enabled('A', True)
-                self.idp.set_group('A', self.config['owner_group'], False)
-            finally:
-                owner.post(AUTH + '/logout', headers=self._headers(csrf))
+            # Each clean-up step on its own: one that raises must not skip the others.
+            for step in (lambda: self.unlink(owner, csrf),  # leave the synthetic member unlinked (404/409 when already unlinked is fine)
+                         lambda: self.idp.set_enabled('A', True),
+                         lambda: self.idp.set_group('A', self.config['owner_group'], False),
+                         lambda: owner.post(AUTH + '/logout', headers=self._headers(csrf))):
+                try:
+                    step()
+                except Exception as failure:
+                    self.record('cleanup', 'failed', error=type(failure).__name__)
         return self.summary()
 
     def _run(self, owner, csrf, member, users):
@@ -216,13 +227,23 @@ class Acceptance:
         # groups: an IdP group never grants a workbench role
         self.idp.set_group('A', self.config['owner_group'], True)
         grouped, done, _ = self.sign_in('A')
+        grouped_session, _ = self.session(grouped)
         member_csrf = grouped.post(AUTH + '/csrf', headers=self._headers())
-        attempt = self.act(grouped, member_csrf.json().get('csrf_token', '') if member_csrf.status_code == 200 else '', 'link_workbench_external',
-                           {'target_principal': member, 'provider_id': self.config['provider_id'], 'external_subject': users['B']['subject'],
-                            'login_mode': 'sso_or_password'})
-        self.expect('groups.no_role_from_idp', done.status_code == 303 and attempt.status_code == 403, http=attempt.status_code)
+        token = member_csrf.json().get('csrf_token', '') if member_csrf.status_code == 200 else ''
+        owner_only = {'target_principal': member, 'provider_id': self.config['provider_id'], 'external_subject': users['B']['subject'],
+                      'login_mode': 'sso_or_password'}
+        # L6 X2: a 403 is a permission refusal only when the session and its CSRF token were good. The control request (same session,
+        # same Origin, a wrong CSRF token) must be refused as unauthenticated (401): the Origin check (403) comes before the CSRF check,
+        # so the real attempt's 403 can then only be the grant check.
+        control = self.act(grouped, 'not-' + secrets.token_hex(16), 'link_workbench_external', owner_only)
+        attempt = self.act(grouped, token, 'link_workbench_external', owner_only)
+        body = attempt.json() if attempt.headers.get('content-type', '').startswith('application/json') else {}
+        self.expect('groups.no_role_from_idp', done.status_code == 303 and grouped_session == 200 and member_csrf.status_code == 200
+                    and control.status_code == 401 and attempt.status_code == 403 and body.get('code') == 'forbidden',
+                    http=attempt.status_code, csrf_http=member_csrf.status_code, control_http=control.status_code, session_http=grouped_session)
         self.record('groups.mapping', 'gap', observed='roles come only from the workbench roles manifest; no ID token group claim is read')
-        # disable at the IdP
+        # disable at the IdP (L6 X1: the session must be live before the disable, else the result proves nothing)
+        before, _ = self.session(first)
         self.idp.set_enabled('A', False)
         try:
             _, done, _ = self.sign_in('A')
@@ -230,9 +251,14 @@ class Acceptance:
         except IdpRefused:
             completed = False
         self.expect('disable.idp_refuses', not completed)
-        code, _ = self.session(first)
-        self.record('disable.sync', 'gap' if code == 200 else 'passed', session_http=code,
-                    observed='an SSO session outlives the IdP-side disable until the owner unlinks the member' if code == 200 else None)
+        after, _ = self.session(first)
+        if before == 200 and after == 401:
+            self.record('disable.sync', 'passed', session_http=[before, after])
+        elif before == 200 and after == 200:
+            self.record('disable.sync', 'gap', session_http=[before, after],
+                        observed='an SSO session outlives the IdP-side disable until the owner unlinks the member')
+        else:
+            self.record('disable.sync', 'failed', session_http=[before, after])
         # session epoch: unlinking ends every SSO session of the member
         unlinked = self.unlink(owner, csrf)
         codes = [self.session(c)[0] for c in (first, grouped)]
@@ -247,6 +273,10 @@ class Acceptance:
 
     def summary(self):
         statuses = [r['status'] for r in self.results]
+        missing = sorted(REQUIRED - {r['check'] for r in self.results})
+        if missing:  # every one of the nine checks must have run
+            self.record('run.incomplete', 'failed', missing=missing)
+            statuses.append('failed')
         exit_code = 1 if 'failed' in statuses else 3 if 'gap' in statuses else 0
         print(json.dumps({'summary': {s: statuses.count(s) for s in ('passed', 'failed', 'gap')}, 'exit': exit_code}, sort_keys=True), flush=True)
         return exit_code
