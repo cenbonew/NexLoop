@@ -157,17 +157,21 @@ WRITE = r'(insert\s+into|update|delete\s+from)\s+control\.nexloop_action_definit
 def test_a_simulation_definition_has_two_write_paths_only(db):
     """L6 sim-catalog-publish review 1.3: a simulation world's definitions do not advance the authority revision, which is safe only while
     they are written by the catalog publication (insert) and leave with the world (S2 whole deletion, after its credentials are revoked).
-    Every other function writing the table writes world 'real' only, and nothing updates the table at all (no deactivation path). A new
-    writer turns this red: it must then get a per-world revision (review §5) before it may touch a simulation world."""
+    Every other function writing the table writes world 'real' only; the one deactivation path is D23 option B's one-for-one version
+    replacement (migration action_version_replace), world 'real' only too. A new writer turns this red: it must then get a per-world
+    revision (review §5) before it may touch a simulation world."""
     admin = db
     writers = dict(admin.execute(r"""select p.oid::regprocedure::text, p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~* %s""", (WRITE,)).fetchall())
     assert sorted(writers) == ['authz.nexloop_review_decide_v0082(text,text,text,text,text)', 'authz.nexloop_schema_proposal_publish(text,text,text,text,text)',
-                               'control.nexloop_configure_manifest(text,text,text,text,bytea,jsonb)',
+                               'control.nexloop_action_version_replace()', 'control.nexloop_configure_manifest(text,text,text,text,bytea,jsonb)',
                                'control.nexloop_governed_publish_sim_catalog(text,text,text,text,text,jsonb)']
     import re
     for name, source in writers.items():
         statements = [m.group(0) for m in re.finditer(WRITE.replace(r'\M', r'\b') + r'[^;]*', source, re.I)]
+        if name == 'control.nexloop_action_version_replace()':  # the one deactivation: active only, world real only
+            assert statements and all(s.lower().startswith('update') and "set active=false" in s and "world='real'" in s for s in statements), statements
+            continue
         assert statements and not any(s.lower().startswith('update') for s in statements), name  # no deactivation of any definition
         if 'publish_sim_catalog' not in name:
             assert all("'real'" in s for s in statements), (name, statements)
