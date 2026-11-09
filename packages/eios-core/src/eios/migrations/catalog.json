@@ -2175,6 +2175,11 @@
       "version": "0435",
       "name": "0435_nx062_machine_lifecycle.sql",
       "sha256": "58f0f491a8bd8e7205169fba4f75e848c4856fb60512c30daea21ed86aa371f3"
+    },
+    {
+      "version": "0436",
+      "name": "0436_nx062_service_snapshot_grants.sql",
+      "sha256": "c8bad33a06c0c376b85a171adf6364ec79e0ba687a34ad0d5e68a66a52b489f8"
     }
   ]
 }

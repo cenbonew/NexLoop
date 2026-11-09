@@ -70,3 +70,11 @@
 - 一处首次失败：whole database 测试报 `IdentityUnavailable`，原因是排除触发器在 browser token realms 上读了 `new.binding`（plpgsql 会规划整条 IF 表达式），已改为嵌套 IF 并补了用例。
 - `tests/test_bootstrap.py`：用临时号 0434 时有 2 项失败，因为 catalog 版本必须连续、长度必须等于 `bootstrap_revision`，而 0430–0433 是空号。把编号临时改成 0430 再跑，`test_bootstrap` 等 40 项全部 passed，跑完已恢复。组批重新编号后这两项会通过。
 - 无 xfail 或 skip。
+
+## 修复（M3 期间发现，2026-11-09）：包装函数漏掉了模拟角色的 grant
+
+- **问题**：0434 把 `authz.nexloop_service_identity_snapshot` 改名为 `..._before_machine`，新建的包装函数只 grant 给 api、domain、action、scheduler 四个角色。NX-041 的三个模拟角色（`nexloop_sim_api`、`nexloop_sim_worker`、`nexloop_sim_guard`，0268 逐个函数授权）的 EXECUTE 留在了改名后的内层函数上，调用不到包装函数，结果模拟 world 的服务认证被拒。
+- **漏测**：M2a 交付时没有跑 `test_nx041_sim_roles_pg` 和 `test_nx041_sim_pi_run_pg`。
+- **修复**：迁移 `0436_nx062_service_snapshot_grants.sql`（临时号）。内层函数上除属主外的每个 EXECUTE 持有者，都授予包装函数，并从内层函数收回。修复后只有属主能调用内层函数；0434 之前能调用快照的角色，现在都能调用包装函数。
+- **测试**：新增 `test_machine_access_pg::test_the_wrapper_keeps_every_grantee_of_the_snapshot_and_the_inner_function_has_none`。修复后，machine_access、nx041 sim roles、nx041 sim Pi Run、bootstrap 和 copy guard 共 139 passed。变异检查：把修复循环改成什么都不做，有 6 项变红，即新增用例、sim roles 的两项和 sim Pi Run 的三项。
+- **以后的改名包装**：0436 之后的 M3 metrics snapshot 包装，也按“复制被包装函数的全部 grant”处理。

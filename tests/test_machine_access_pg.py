@@ -227,6 +227,16 @@ def test_c1_machine_digest_refused_by_the_service_snapshot(db, peppers):
         assert db.execute("select has_function_privilege(%s,'authz.nexloop_service_identity_snapshot(text,text)','execute')", (role,)).fetchone()[0]
 
 
+def test_the_wrapper_keeps_every_grantee_of_the_snapshot_and_the_inner_function_has_none(db):
+    """0434 fix (nx062_service_snapshot_grants): every role that may call the service snapshot calls the wrapper - the four service
+    roles and the NX-041 simulation roles - and no role but the owner holds EXECUTE on the renamed inner function."""
+    holders = lambda f: {r for (r,) in db.execute("""select r.rolname from pg_proc p cross join aclexplode(p.proacl) a join pg_roles r on r.oid=a.grantee
+        where p.oid=%s::regprocedure and a.privilege_type='EXECUTE' and a.grantee<>p.proowner""", (f,)).fetchall()}
+    assert holders('authz.nexloop_service_identity_snapshot_before_machine(text,text)') == set()
+    assert {'nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_sim_api', 'nexloop_sim_worker',
+            'nexloop_sim_guard'} <= holders('authz.nexloop_service_identity_snapshot(text,text)')
+
+
 def test_c1_write_side_exclusion(db, peppers):
     register(db)
     key, _ = issue(db, peppers)
