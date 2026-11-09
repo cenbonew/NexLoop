@@ -214,7 +214,24 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 
 5. **其他顾客不受影响**：用同一条 SQL 查 s6c-1/2/3 的登录主体，`n_grants` 应与撤销前相同（大于 0）。ADR-045 演练要用这三个账号。
 
+6. **0429 在真实数据上的阳性核对**（负责人，只读预查，不发删除请求）：对 customer-4 跑一次 `erase --dry-run`（命令同 `run-erase-synthetic-consumer.md`，配置里只放 customer-4）：
+
+   ```bash
+   security find-generic-password -s <keychain 服务名> -a <账号> -w | \
+     python3 <检出>/scripts/deploy/erase_synthetic_consumer.py erase --origin https://<APP_HOST 工作台>:<PORT> --ca-file <CA> \
+     --username-file <用户名文件> --password-stdin --config <只含 customer-4 的删除配置> --dry-run
+   ```
+
+   预期结果为 **`erased_grants_unknown`，退出码 1**：customer-4 在 0429 之前已删除，登记上没有 `grants_cleared`，删除后也追溯不到登录主体，预查给出 `grants_held` null、`grants_trace` `untraceable`。这是预期结果，**不能当作 0，也不算失败**；授权是否清空以第 4 步按登录主体的只读 SQL 为准（`n_grants` 0、`n_facts` 5）。得到别的结果时停下：
+   - `already_erased` 且 `grants_held` 为 0：0429 没有生效（看 S7 的函数核对）；
+   - `erased_grants_held`：仍追溯到非空授权，回到第 2 步；
+   - `refused` 或 `consumer_unavailable`：配置或账号问题，交调度员。
+
 回退：用 `.before-r73` 配方再 `--apply` 一次，三个顾客恢复授权（只有在误撤了其他顾客时才需要）。
+
+### 不在 R73 里：customer-5
+
+customer-5 不放进 R73。等 R73 promote 和 S10 撤销都完成之后，按 `run-add-synthetic-customer.md`（L2 3227783e）单独执行。S10 第 2 步改配方时也不要顺手加 customer-5 的条目。
 
 ## 3. 部署之后由负责人执行的两件事（调度员通知，不在本单的步骤里）
 
@@ -222,7 +239,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 
 - 脚本：`local-only/nx040/consumer-v2-r8.sh`，按 R72 的做法生成模板，并加上 r8。
 - 预期：
-  - r8 结果 `tool_cases_built` 一步有 `open_input` 计数（stage 形状下约 90，以实际为准）和 `no_invalid_case` 名单，`actions` 为 Consumer 绑定的 Action 总数；
+  - r8 结果 `tool_cases_built` 一步有 `open_input` 计数（stage 应为 **91**：98 个 Consumer 绑定的 active Action 中输入模式为 `{}` 的那些，含 stage 专用的 `nexloop.synthetic_fault.set`）和 `no_invalid_case` 名单；**`no_invalid_case` 必须等于 `open_input`**（同一份名单、同一个总数：没有非法用例的 Action 恰好就是开放模式的 Action），不等就停下，交 L7，`actions` 为 Consumer 绑定的 Action 总数；
   - 评估报告 14 个闸门全部 pass，其中 `tool_context_compatible` 的 evidence 前两条是 `tools:regression_set` 和 `tools:open_input:<N>`；
   - 结论为 `accepted_for_release`。
 - 仍被 `tool_context_compatible` 拒绝：看 `incomplete` 与 `failures` 名单，交 L7。不要改模板来凑通过。
@@ -248,7 +265,7 @@ python3 <检出>/scripts/deploy/stage_release.py --config <私有配置> --step 
 | S6 | 签名清单与加载后的 digest、agent-host 的 `StartedAt` | backend 是新 digest，agent-host 不变、未重启 |
 | S7 | recall 块、attention、0429 的三条 SQL 输出 | `missing_embeddings` 0，`gloss_aliases` 161，attention 小于 A0；权限为 `t, f, f, f` |
 | S8–S9 | gate 失败名单、promote 与 post 的输出 | 只有预期失败项，post 为 `pass: true` |
-| S10 | 撤销前后的 `n_grants` 与 `n_facts`、apply 的 summary、s6c 三人的读数 | 3 行 5→0，`n_facts` 仍为 5；s6c 三人不变 |
+| S10 | 撤销前后的 `n_grants` 与 `n_facts`、apply 的 summary、s6c 三人的读数、customer-4 的 `erase --dry-run` 输出与退出码 | 3 行 5→0，`n_facts` 仍为 5；s6c 三人不变；customer-4 为 `erased_grants_unknown`、exit 1 |
 
 ## 5. 回退
 
