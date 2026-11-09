@@ -87,3 +87,19 @@
 - 守护：db_boundary、tenant_fk、system_catalog、copy guard、bootstrap、三项擦除覆盖、nx041 sim roles 和 pi_run、claim_store_pg；
 - 审批：NX-056 审批全套、budget、instance、outreach；
 - 机器与注册：机器相关的全部测试、stage_register、workbench_actions_http。
+
+## L6 条件 PASS 的修改（77728430）
+
+- **Y1（必须）**：`authz.nexloop_machine_commit` 只在下面两种 42501 时把意图终结为 refused / not_permitted：
+  - 机器授权断言拒绝（`machine action authority denied`：授权撤销、不在 scope、允许表退役、主体停用）；
+  - human 能力（`human goal authority required`）。
+
+  其他情况原样报错，意图保持原来的阶段，可以用同一 intent 重新签名再 commit：签名过期或密钥轮换（`command_rejected`、`goal authority expired at commit`）、Action 定义变化、API 读到的事实在提交前已变化（`changed`、`stale`）。
+
+  测试 `test_a_signature_failure_is_no_decision_and_the_same_intent_commits_later`：过期命令和伪造签名都返回 `command_rejected`，意图仍是 prepare，handler 没有被调用；之后用同一 intent 正常 commit，成功。
+
+  这次变异检查还发现一个真问题：签名失败发生在设置租户上下文之前，被拒路径写审计时会撞上 RLS。现在被拒路径在写审计前先设置租户。删掉 Y1 的判断后，这个测试会变红。
+- **建议一**：全库检查“谁在调用 handler”，从只匹配 `cap.handler::oid::regproc` 一种写法，改为“引用 `nexloop_governed_capabilities`、出现 handler、并且有动态 execute 的函数”。断言这样的函数只有 `_before_machine` 和机器核心两个。
+- **有意保留的双重检查**：签名命令里的 tenant、client、world，在机器核心里核对一次，在 M5a 机器授权断言里又核对一次。只删掉核心里那一处时，断言仍会拒绝，所以变异检查不会变红；这是有意保留的两道检查。
+- **一期现状**：NX-056 的审批策略只接受 human 能力，所以机器请求一期进不了审批，L6 已接受（方向是安全的）。测试用 replica 模式绕过策略守卫，只是为了证明路径可用，生产中不留任何后门。将来要开放时另立任务。
+- **AT-064 白名单**：0442 只写 `runtime.nexloop_action_claims`（Action 认领），不碰 `nexloop_claims`（知识 Claim）。`test_claim_store_pg` 每一轮都通过，不需要登记。

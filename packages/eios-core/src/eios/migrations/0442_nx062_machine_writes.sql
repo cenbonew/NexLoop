@@ -408,7 +408,11 @@ begin
  begin
   v:=authz.nexloop_goal_governed_action('nxm:'||p_prefix||':'||p_digest,ident->>'world',p_text,p_signature,v_payload);
  exception when insufficient_privilege then
-  -- Refused by authority now (revoked, out of scope, retired, a human capability): recorded, the handler's writes rolled back.
+  -- L6 Y1: only a refusal by authority now ends the intent - the machine authority assertion denying (revoked, out of scope, retired,
+  -- inactive) or a human capability. An expired or rotated signature, a changed Action definition or facts read before a change are
+  -- no decision: re-raised, the intent keeps its phase and the same intent may be committed again with a new command.
+  if sqlerrm not in ('machine action authority denied','human goal authority required') then raise;end if;
+  perform set_config('eios.tenant_id',v_tenant,true);
   update runtime.nexloop_machine_intents set phase='refused',result_code='not_permitted',committed_at=clock_timestamp()
    where tenant_id=i.tenant_id and client_id=i.client_id and intent_id=i.intent_id returning * into i;
   perform runtime.nexloop_machine_intent_audit(i,ident->'binding'->>'subject_principal_id','refused');

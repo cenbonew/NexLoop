@@ -188,6 +188,27 @@ def test_every_authority_check_runs_again_at_commit(writes):
     assert commit(w, 'intent-0005', p)['result_code'] == 'not_permitted' and calls(w) == 0
 
 
+def test_a_signature_failure_is_no_decision_and_the_same_intent_commits_later(writes):
+    """L6 Y1: an expired signed command (and a forged one) is refused without ending the intent; the same intent with a new command
+    commits. Only the authority assertion's denial or a human capability ends an intent (the tests above)."""
+    import hmac
+    from datetime import datetime, timedelta, UTC
+    w = writes
+    admin = w['admin']
+    p = prepare(w, 'intent-y1-01')
+    with w['pool'].connection() as c:
+        text, _ = W.signed_command(c, w['signer'], **ids(w), capability=PROBE, intent_id='intent-y1-01', prepare_digest=p['prepare_digest'])
+    stale = json.dumps({**json.loads(text), 'expires_at': (datetime.now(UTC) - timedelta(seconds=1)).isoformat()}, sort_keys=True, separators=(',', ':'))
+    for t, sig in ((stale, hmac.new(w['signer'].material, (W.PROTOCOL + ':' + stale).encode(), 'sha256').hexdigest()), (text, '0' * 64)):
+        with w['pool'].connection() as c:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege, match='command_rejected'):
+                c.execute('select authz.nexloop_machine_commit(%s,%s,%s,%s,%s::jsonb,%s,%s,%s)',
+                          (w['prefix'], w['digest'], PROBE, 'intent-y1-01', json.dumps(params(w)), p['prepare_digest'], t, sig))
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT,))
+    assert admin.execute("select phase from runtime.nexloop_machine_intents where intent_id='intent-y1-01'").fetchone()[0] == 'prepare' and calls(w) == 0
+    assert commit(w, 'intent-y1-01', p)['phase'] == 'committed' and calls(w) == 1
+
+
 def test_a_human_capability_is_refused_even_when_misregistered(writes):
     """C7: the core's own subject_rule check, with the allowlist and the write registry bypassed (a mis-registration)."""
     w = writes
@@ -300,8 +321,9 @@ def test_entry_parity_and_no_other_handler_caller(writes):
     assert shared.strip() and shared in core  # the gate, the handler and the consumption are the base text unchanged
     all_defs = defs(admin)
     assert {n for n, s in all_defs.items() if 'nexloop_goal_governed_action_before_machine' in s} == {'authz.nexloop_goal_governed_action(text,text,text,text,text)'}
-    assert {n for n, s in all_defs.items() if 'cap.handler::oid::regproc' in s} == {
-        'authz.nexloop_goal_governed_action_before_machine(text,text,text,text,text)', 'authz.nexloop_machine_governed_core(text,text,text,text,text,text)'}
+    # L6 (77728430): any function reading the registry's handler column and executing dynamically, whatever the spelling.
+    callers = {n for n, s in all_defs.items() if 'nexloop_governed_capabilities' in s and re.search(r'\bhandler\b', s) and re.search(r'\bexecute\b', s, re.I)}
+    assert callers == {'authz.nexloop_goal_governed_action_before_machine(text,text,text,text,text)', 'authz.nexloop_machine_governed_core(text,text,text,text,text,text)'}, callers
 
 
 def holders(admin, f):
