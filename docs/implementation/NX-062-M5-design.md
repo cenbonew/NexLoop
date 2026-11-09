@@ -173,3 +173,60 @@ L6 同意 D-2 至 D-5 的方向。以下各条覆盖前文中与之冲突的说�
 
 - 审批决定的排除改为在 `control.nexloop_approval_decisions` 上加触发器（见 [NX-062-M5a-machine-authority.md](NX-062-M5a-machine-authority.md)）。原因：handler 在注册表里按 oid 登记，改名包装不生效，而整段重写原函数又过不了 copy guard。
 - 机器事实采用 §2 表中的六类机器专属事实；controls、resource_graph、revision 这三类租户级事实不纳入机器断言。租户级的控制在 handler 和派发时照常检查。
+
+## 11. 对象备注（负责人 2026-11-10 选 A，送 L6 审）
+
+负责人原话“A，按推荐”：新建人和机器共用的对象备注。本节取代 §1 中“需要负责人确认”的部分，L6 列的四条作为验收项（V-1 至 V-4）。
+
+### 11.1 数据与 Action
+- 表 `runtime.nexloop_object_notes`：
+  - 列：tenant_id、world、note_id、type_name、object_id、author_kind（human|machine）、author_principal_id、author_subject_id、client_id（机器才有）、text、created_at、request_ref。
+  - 主键 (tenant_id, world, note_id)，租户外键，RLS 和强制 RLS，只有 nexloop_owner 的策略。所有应用角色都没有直接读写权限，读写都经 SECURITY DEFINER 函数。
+  - append-only，只有擦除改写和随对象删除两条例外，都经专用函数，函数里核对调用来源。
+- 受治理 Action `nexloop.object.add_note:1`：operation `object_note_add`，`subject_rule` 为 `agent_or_human`，handler `runtime.nexloop_governed_object_note`。
+  - 参数只有 type_name、object_id、text、request_id，未知字段 422。
+  - 目标必须是 Commitment 或 CommercialRecord，并且对作者可见。人类按工作台对对象的读取权限判断，机器按授权类型和 M4 的可见性函数判断。不可见、不存在、他人租户一律 404。
+  - 正文 1–2000 字符，去掉控制字符和双向控制符。
+  - 不改对象、不改 revision，不触发通知、派发或任何外部效应，所以不需要审批策略。
+- 机器写入走 M5b 的 prepare / commit。授权守卫扩展后，授权类型限定为上面两类。
+
+### 11.2 V-1 纯文本显示与标注
+- 工作台对象页新增备注列表和输入框。正文按纯文本渲染：只用文本节点，不用 innerHTML 或 Markdown，不把链接转成可点击。
+- 每条备注显示作者类型。机器写的标为“机器客户端 <client_id> 的备注 · 未核实陈述”，人写的标为“<成员显示名> 的备注 · 未核实陈述”。
+- 测试：
+  - 前端单测：正文为 `<img src=x onerror=…>`、`javascript:` 链接、Markdown 链接时，DOM 里只有文本节点；
+  - HTTP 测试：读取接口返回的正文原样，不做 HTML 转换，`Content-Type` 为 JSON；
+  - 标注文本出现在页面上。
+
+### 11.3 V-2 不进 agent 提示的指令区，不作为事实证据
+- 读取函数只授权给工作台读取路径（`nexloop_api` 经工作台会话）。不授权给 `nexloop_runtime`、`nexloop_domain_worker`、`nexloop_action_worker`、`nexloop_scheduler`，Pi Runtime 的上下文构造读不到备注。
+- 备注不是 ontology 对象，不能被 Claim、Commitment 的 evidence 或 fulfillment_evidence 引用。证据引用的校验函数不接受 note_id 形状的引用。
+- 守护测试：
+  - 遍历 pg_proc，断言只有登记的几个函数引用这张表；
+  - Runtime 角色直读这张表、调用读取函数都是 42501；
+  - 用 note_id 构造证据引用，被拒。
+- 以后如果要让 agent 看到备注，必须另立任务，放进上下文的“数据区”并标注来源和未核实，不在本期。
+
+### 11.4 V-3 擦除
+- 消费者擦除：
+  - 目标对象关联到被擦除消费者的备注，正文改写为固定标记，作者字段保留；
+  - 判定复用 NX-054 的对象到消费者关联函数（`runtime.nexloop_object_consumers_read`）；
+  - 正文里写了消费者 ID 但对象没有关联的情况，按擦除时对正文做该消费者 ID 精确匹配，也改写。
+- 成员擦除：作者是被擦除成员的备注，作者的 principal 和 subject 改写为擦除占位，正文改写为固定标记。
+- 两张覆盖表都登记这张表，整库擦除测试覆盖。
+- 保留期：对象删除时，同一事务里删除它的备注，包括保留期到期的删除。legal hold 期间对象不删，备注也不删。
+- 测试：两种擦除各一条（擦除前后正文和作者），对象删除带走备注，legal hold 期间不删。
+
+### 11.5 V-4 人类入口
+- 工作台走现有的受治理 Action 通道（`/workbench/actions/...`），CSRF 头、会话、Origin 检查沿用现有中间件。
+- 权限：工作台角色清单新增 `object.add_note`，给 owner 和 operator（reviewer 只读）。SQL 侧 handler 再核对一次当前角色和对象可见性。
+- 测试：
+  - 没有 CSRF、CSRF 错误、跨 Origin 都返回 403；
+  - reviewer 返回 403；
+  - 看不到的对象返回 404；
+  - 正常提交 200，并写一条审计。
+
+### 11.6 切片
+- M5b：意图表、prepare / commit / 查询、0124 机器分支、授权守卫扩展到写能力、机器请求的审批请求人，加上备注表和 Action 的 SQL 与擦除（V-3）、V-2 的守护。
+- M5c：HTTP 路由与契约、工作台备注入口（V-1、V-4）、stage test world 演练、运行单。
+- 新 Action 要更新 `test_stage_register_pg` 的计数，部署说明写明先 publish 再验证。
