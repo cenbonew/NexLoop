@@ -163,3 +163,8 @@ L6 同意 D-2 至 D-5 的方向。以下各条覆盖前文中与之冲突的说�
 - 验证用的写能力 `test.machine.write_probe` 只在测试夹具里登记（注册行、handler、允许表行都由夹具在测试 PG 中写入），迁移、发布目录和 allowlist 里都没有。
 - 守护测试：从空库跑完全部迁移后，发布目录和 allowlist 里不存在任何 `agent_or_human`、kind 为 write 的机器能力；读取部署目录里的 manifest 时也断言没有这个能力。M5b 合入后，生产中的机器写入实际上是关闭的。
 - 如果负责人选做法一（人机共用备注），另开一片，L6 列的条件作为验收项：纯文本转义渲染、标明“机器客户端备注 / 未核实陈述”、不进 agent 提示的指令区、不作为事实证据、擦除覆盖消费者与成员、人类入口的 CSRF 和权限检查。
+
+## 10. 实现时的调整（M5a）
+
+- 审批决定的排除改为在 `control.nexloop_approval_decisions` 上加触发器（见 [NX-062-M5a-machine-authority.md](NX-062-M5a-machine-authority.md)）。原因：handler 在注册表里按 oid 登记，改名包装不生效，而整段重写原函数又过不了 copy guard。
+- 机器事实采用 §2 表中的六类机器专属事实；controls、resource_graph、revision 这三类租户级事实不纳入机器断言。租户级的控制在 handler 和派发时照常检查。
