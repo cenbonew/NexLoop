@@ -107,6 +107,25 @@ IdP 停用用户后，这个用户已有的 SSO 会话最晚在以下时间内�
 3. back-channel 直接让 `session_epoch` 加一，口令会话一起结束（3.3）。
 4. `max_session_seconds` 默认 8 小时（3.1）。
 
+## 6. L6 复核后补充（Z1–Z5，2026-11-10）
+
+L6 判设计条件 PASS，第 5 节四点都同意。负责人的产品取舍先按设计现值做：没有命中映射时锁住全部权限；最长时长默认 8 小时，每个 provider 可以在 900–43200 秒之间调；只有清空映射才把上限清回 null。这几个值都写成一处常量或 provider 字段，方便以后修改。
+
+- **Z1 上限只从当前绑定行读取**：`nexloop_workbench_effective_actions` 每次调用都直接读 `control.nexloop_workbench_external_identities.role_ceiling`，不缓存，也不另存一份到会话或授权事实里。成员被提升为 owner 时，0365 的触发器 `nx058_unlink_promoted` 会删掉绑定行，上限随之消失。之后 back-channel 再用这个 sub 也找不到绑定（返回 200，但没有任何效果），owner 的会话不受影响。测试同时断言这两点。
+- **Z2 映射修改时强制重新 SSO**：`set_sso_group_mapping` 在同一个事务里：
+  - 映射改成另一个非空映射时：这个 provider 的每个绑定，上限设为 `{}`，成员账号的 `session_epoch` 加一，结束它的全部会话，各写一条上限事件（原因 `mapping_changed`）。成员要重新 SSO 登录，才能按新映射算出上限。**不会**清回 null。
+  - 清空映射（`mappings` 为 `{}`）：才把这个 provider 的所有上限清回 null（原因 `mapping_cleared`）。会话不结束，因为这一步只会放回清单角色，不会放宽到超出清单。
+  - 第一次设置映射（之前没有映射）也按“修改”处理：上限设为 `{}`，`session_epoch` 加一。否则在成员重新登录之前，已有会话不受新映射约束。
+- **Z3 JWKS 刷新限频与密钥轮换**：沿用 `OidcClient.keys` 现有的做法，写明并测试：
+  - 每个 provider 缓存一份 JWKS，超过 300 秒视为过期，下次用到时重新拉取。
+  - 遇到未知的 kid 时立即刷新，但同一个 provider 两次拉取至少间隔 `JWKS_MIN_REFETCH_SECONDS`（60 秒）。间隔内再遇到未知 kid 直接判 `id_token_invalid`，不发请求，所以伪造 kid 打不出拉取风暴。
+  - 轮换期间，IdP 会在 JWKS 里同时发布新旧两把 key，我们按 kid 选 key，两把都能验证；旧 key 从 JWKS 中移除后，下一次刷新就不再接受它。拉取失败时保留旧缓存，但只用到它过期为止。
+  - logout token 和 ID token 共用这份缓存和限频。
+- **Z4 验收脚本分开报告**：
+  - `groups.mapping`：provider 没有配置映射时报 `not_configured`，算 gap，退出码 3，不能报 passed。配置了映射时，按第 2 节真正检查：组只降不升、没有命中会被拒。
+  - `disable.sync` 拆成两项：`disable.sync.backchannel`（provider 没开 back-channel 时报 `not_configured`，算 gap）和 `disable.sync.max_session`（证明会话在 `max_session_seconds` 加 60 秒内失效）。只有两项都通过时退出码才是 0。
+- **Z5 调用点守护**：所有判断“成员能不能执行某个 workbench Action”的 SQL 函数，都必须经过 `nexloop_workbench_effective_actions`。用守护测试固定这一点：从 `pg_proc` 里列出所有引用 `nexloop_workbench_granted` 或 `nexloop_workbench_actions` 的函数，与登记表对比，多出未登记的就失败。派发时还会再调用一次，测试断言：规划时有权限、派发前上限被收窄，派发会被拒绝。
+
 ## 否决的做法
 
 | 做法 | 否决理由 |
