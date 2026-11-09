@@ -32,6 +32,10 @@ create table runtime.nexloop_action_input_shadow_failures (
 );
 alter table runtime.nexloop_action_input_shadow_failures owner to nexloop_owner;
 revoke all on runtime.nexloop_action_input_shadow_failures from public;
+-- No tenant column: only the owner-owned definer recorder, summary and snapshot touch it (pattern of 0434 nx062 tables).
+alter table runtime.nexloop_action_input_shadow_failures enable row level security;
+alter table runtime.nexloop_action_input_shadow_failures force row level security;
+create policy nx_shadow_failures_owner on runtime.nexloop_action_input_shadow_failures to nexloop_owner using(true) with check(true);
 
 create function authz.nexloop_action_input_shadow_failure(p_world text,p_reason text) returns boolean
  language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
