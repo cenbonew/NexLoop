@@ -393,7 +393,9 @@ begin
  if not found then raise exception 'machine write: intent_not_found' using errcode='P0002';end if;
  -- R4: a finished intent answers first (its first result for the same digest), before any expiry.
  if i.phase in ('committed','refused') then
-  if i.prepare_digest=p_prepare_digest and i.capability=p_capability then return runtime.nexloop_machine_intent_view(i)||jsonb_build_object('replayed',true);end if;
+  if i.prepare_digest=p_prepare_digest and i.capability=p_capability
+   and i.params_digest=runtime.nexloop_machine_params_digest(runtime.nexloop_canonical_json(p_params)::jsonb) then
+   return runtime.nexloop_machine_intent_view(i)||jsonb_build_object('replayed',true);end if;
   raise exception 'machine write: digest_mismatch' using errcode='NX409';
  end if;
  if i.capability is distinct from p_capability or i.prepare_digest is distinct from p_prepare_digest then

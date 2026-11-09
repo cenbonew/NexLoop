@@ -93,6 +93,9 @@ def test_prepare_commit_query_and_replay(writes):
     assert admin.execute('select subject from runtime.nexloop_test_probe_calls').fetchone()[0] == 'machine'
     again = commit(w, 'intent-0001', p)
     assert again == {**done, 'replayed': True} and calls(w) == 1  # the first result, the handler not run again
+    with pytest.raises(psycopg.Error) as e:  # finished, the same prepare digest, other parameters: 409, never the first result
+        commit(w, 'intent-0001', p, params(w, 'other'))
+    assert e.value.sqlstate == 'NX409'
     assert W.intent(w['pool'], **ids(w), intent_id='intent-0001') == {**{k: v for k, v in done.items() if k != 'replayed'}, 'approval_status': None}
     # R3: the governed entry's intent id is the business intent of (tenant, client, intent).
     business = 'machine:' + hashlib.sha256(json.dumps(['nexloop-machine-intent-v1', TENANT, 'acme-agent', 'intent-0001'], separators=(',', ':')).encode()).hexdigest()

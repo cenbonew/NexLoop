@@ -30,6 +30,9 @@
 | machine-read-object-list.schema.json | NX-062 M4a：object.list 返回体，每页最多 50 条，按对象 ID 排序，`next_after` 是下一页游标；看不到的对象直接略过、不计数，不返回总数，也不返回隐藏数（L6 N2）；属性规则同上 |
 | machine-read-object-neighbors.schema.json | NX-062 M4b：object.neighbors 返回体，即一个可见对象的一跳邻居，经受治理关系与登记的引用属性连接。只给类型和 ID；邻居的类型必须已授权且可见；每组最多 20 个，`more` 表示还有没有更多可见邻居；看不到的一律不计数（L6 N2） |
 | machine-read-commitment-list.schema.json | NX-062 M4b：commitment.list 返回体，即可见的承诺（open、ended 或 all），每页 50 条。只给 ID、revision、登记时间和登记属性；不给承诺原话、客户姓名、事件、证据引用和异常文本；不返回总数 |
+| machine-write-request.schema.json | NX-062 M5c：POST /machine/v1/prepare 与 /commit 的请求体（capability、intent_id、params，commit 另带 prepare_digest）。commit 时重传完整参数，服务端只存摘要并重算；参数只能是能力登记的键，出现身份字段返回 422 |
+| machine-prepare.schema.json | NX-062 M5c：prepare 返回体：prepare 摘要（在 SQL 里绑定租户、客户端、world、能力、意图和规范化参数）、10 分钟有效期、规范化参数；服务端不存参数 |
+| machine-intent.schema.json | NX-062 M5c：写入意图的状态，即 commit 的返回（待审批时 202）和 GET /machine/v1/intents/{id} 的返回。phase 为 prepare、pending_approval、committed、refused；已结束的意图对同一 commit 返回首次结果，即使已过 prepare 有效期；只含结果码和 ID |
 
 ## Schema之外必须实现的语义检查
 

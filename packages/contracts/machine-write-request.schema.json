@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-write-request",
+  "title": "machine-write-request",
+  "description": "NX-062 M5c (ADR-041 §6; design §4): the body of POST /machine/v1/prepare (capability, intent_id, params) and of POST /machine/v1/commit (the same, plus the prepare_digest prepare returned). The client resends the full parameters at commit; the server keeps only their digest (C6) and recomputes it. intent_id is the client's own stable id of the business intent (8-128 characters), unique per machine client; the same intent with the same content answers its first result, with other content 409. The parameters are the capability's registered keys only; a field naming tenant, world, actor or client is refused (422). NexLoop target contract; server-derived identity required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "capability",
+    "intent_id",
+    "params"
+  ],
+  "properties": {
+    "capability": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "maxLength": 160
+    },
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+    },
+    "params": {
+      "type": "object",
+      "maxProperties": 16
+    },
+    "prepare_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

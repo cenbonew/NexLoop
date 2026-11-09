@@ -42,6 +42,9 @@ BODIES = {
     '/api/v1/workbench/schema-proposals/{proposal_id}/hide': {'rationale': PROBE},
     '/api/v1/webhooks/commercial/{connector_id}': {'event_id': 'evt-probe'},
     '/machine/v1/read': {'verb': 'object.get', 'params': {'type_name': 'Commitment', 'object_id': HEX64}},  # NX-062 M4a
+    '/machine/v1/prepare': {'capability': 'object.add_note', 'intent_id': UUID, 'params': {'type_name': 'Commitment', 'object_id': HEX64, 'text': PROBE}},  # M5c
+    '/machine/v1/commit': {'capability': 'object.add_note', 'intent_id': UUID, 'params': {'type_name': 'Commitment', 'object_id': HEX64, 'text': PROBE},
+                           'prepare_digest': HEX64},
 }
 WRITE_HEADERS = {'Idempotency-Key': 'synthetic-probe-key-0001'}
 
@@ -89,7 +92,7 @@ def test_g5_no_credential_no_access_on_every_inventoried_route(workbench, tmp_pa
             else:
                 answers[(route['method'], route['path'], 'none')] = status
     # Every route outside public, public_static and pre_session; the test-world Artifact read in --mode test only (F-2).
-    assert probed == {'test': 104 - 3 - 2 - 6, 'stage': 103 - 3 - 2 - 6}[mode]  # NX-062 M4a the machine read, M3 the machine capability list (no key: 401), K4d the pending read, batch 32 added the members read, batch 50 the experiments read, S73 the 入口 links, S81 the entry tickets, K5 the three evidence reads
+    assert probed == {'test': 107 - 3 - 2 - 6, 'stage': 106 - 3 - 2 - 6}[mode]  # NX-062 M5c the three machine write routes, M4a the machine read, M3 the machine capability list (no key: 401), K4d the pending read, batch 32 added the members read, batch 50 the experiments read, S73 the 入口 links, S81 the entry tickets, K5 the three evidence reads
     refused = {key: status for key, status in answers.items() if status in (401, 403)}
     leftover = sorted(f'{m} {p} ({how}): {status}' for (m, p, how), status in answers.items() if (m, p, how) not in refused)
     assert leftover == [], '\n'.join(leftover)

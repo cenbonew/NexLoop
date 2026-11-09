@@ -1,7 +1,7 @@
 {
  "schema_version": "nexloop-api-routes/1",
- "manifest_version": 15,
- "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version. v2 (dispatcher 2026-10-26, F-2 option 1): GET /api/v1/artifacts/{artifact_id}, the test-world service-token read, is mounted in --mode test only; routes without modes are mounted in every mode. v3 (NX-058 slice F): GET /api/v1/workbench/auth/oidc/providers, /oidc/start and /oidc/callback, the workbench single sign-on (pre-session; 404 sso_unavailable while no provider file is configured). v4 (batch 50, NX-043 experiment space slice 1): GET /api/v1/workbench/experiments, the owner's experiments read (port backend.workbench:experiments). v5 (world-model glossary): the workbench operation set_world_glossary (capability world_glossary.set, owner only) on POST /api/v1/workbench/actions/{operation}. v6 (S42 option A): the workbench operation settle_relay_backlog (capability relay.backlog_settle, owner only) on POST /api/v1/workbench/actions/{operation}. v7 (stale action claims): the workbench operation settle_action_claim (capability action_claim.settle, owner only) on POST /api/v1/workbench/actions/{operation}. v8 (S81, ADR-043): POST /api/v1/workbench/entry-tickets, the owner's one-time entry ticket (session and CSRF; owner role and pinned synthetic target re-checked in SQL; 404 unless NEXLOOP_ENTRY_TICKETS set to stage). v9 (S81 C2): POST /api/v1/auth/entry, the WebChat redemption of an entry ticket (pre-session; one fixed refusal page). v10 (K4b, 2026-11-01): the governed operation answer_human_question (capability human_question.answer) on the workbench Actions route. v11 (K4d, 2026-11-01): GET /api/v1/workbench/pending, the workbench home \"waiting for me\" read (workbench-pending v1). v13 (NX-062 M2b): the workbench operations register_machine_client, deactivate_machine_client, activate_machine_client, issue_machine_key, rotate_machine_key and revoke_machine_key (capabilities machine_client.* and machine_key.*, owner only) on POST /api/v1/workbench/actions/{operation}. v14 (NX-062 M3, ADR-041 §2.4): the realm machine_key and its first route GET /machine/v1/capabilities (a machine key only; every other credential 401, and a machine key is no credential on any other route); kind machine_capability names the route's SQL entry. v15 (NX-062 M4a): the workbench operations grant_machine_capability and revoke_machine_grant (owner only), and POST /machine/v1/read (machine_key realm; the verb and its parameters in the body, never in a URL; SQL entry authz.nexloop_machine_read).",
+ "manifest_version": 16,
+ "decision": "NX-062 C8-1 (docs/design/c8-route-capability-inventory.md v2, L6 PASS 2026-10-26; dispatcher 2026-10-26): every route nexloop-api mounts in the complete configuration (both browser realms and a built web root, as the stage runs) with its realm and what authorizes it; /openapi.json, /docs and /redoc are not mounted (openapi_url=None, Q-a). Reviewed by hand, never generated in place; a route change edits this file in the same commit and bumps manifest_version. v2 (dispatcher 2026-10-26, F-2 option 1): GET /api/v1/artifacts/{artifact_id}, the test-world service-token read, is mounted in --mode test only; routes without modes are mounted in every mode. v3 (NX-058 slice F): GET /api/v1/workbench/auth/oidc/providers, /oidc/start and /oidc/callback, the workbench single sign-on (pre-session; 404 sso_unavailable while no provider file is configured). v4 (batch 50, NX-043 experiment space slice 1): GET /api/v1/workbench/experiments, the owner's experiments read (port backend.workbench:experiments). v5 (world-model glossary): the workbench operation set_world_glossary (capability world_glossary.set, owner only) on POST /api/v1/workbench/actions/{operation}. v6 (S42 option A): the workbench operation settle_relay_backlog (capability relay.backlog_settle, owner only) on POST /api/v1/workbench/actions/{operation}. v7 (stale action claims): the workbench operation settle_action_claim (capability action_claim.settle, owner only) on POST /api/v1/workbench/actions/{operation}. v8 (S81, ADR-043): POST /api/v1/workbench/entry-tickets, the owner's one-time entry ticket (session and CSRF; owner role and pinned synthetic target re-checked in SQL; 404 unless NEXLOOP_ENTRY_TICKETS set to stage). v9 (S81 C2): POST /api/v1/auth/entry, the WebChat redemption of an entry ticket (pre-session; one fixed refusal page). v10 (K4b, 2026-11-01): the governed operation answer_human_question (capability human_question.answer) on the workbench Actions route. v11 (K4d, 2026-11-01): GET /api/v1/workbench/pending, the workbench home \"waiting for me\" read (workbench-pending v1). v13 (NX-062 M2b): the workbench operations register_machine_client, deactivate_machine_client, activate_machine_client, issue_machine_key, rotate_machine_key and revoke_machine_key (capabilities machine_client.* and machine_key.*, owner only) on POST /api/v1/workbench/actions/{operation}. v14 (NX-062 M3, ADR-041 §2.4): the realm machine_key and its first route GET /machine/v1/capabilities (a machine key only; every other credential 401, and a machine key is no credential on any other route); kind machine_capability names the route's SQL entry. v15 (NX-062 M4a): the workbench operations grant_machine_capability and revoke_machine_grant (owner only), and POST /machine/v1/read (machine_key realm; the verb and its parameters in the body, never in a URL; SQL entry authz.nexloop_machine_read). v16 (NX-062 M5c): POST /machine/v1/prepare, POST /machine/v1/commit and GET /machine/v1/intents/{intent_id} (machine_key realm; parameters in the body, never in a URL; SQL entries authz.nexloop_machine_prepare, authz.nexloop_machine_commit - the API signs the command, SQL re-runs every check - and authz.nexloop_machine_intent).",
  "routes": [
   {
    "method": "MOUNT",
@@ -1299,6 +1299,42 @@
    },
    "purpose": "NX-062 M4a: one machine read verb (object.get, object.list) - scope, allowlist, the client grant and its types, the key world, projection in SQL; admission first",
    "source_task": "NX-062"
+  },
+  {
+   "method": "POST",
+   "path": "/machine/v1/prepare",
+   "handler": "nexloop_eios.machine_http:prepare",
+   "realm": "machine_key",
+   "authorization": {
+    "kind": "machine_capability",
+    "port": "sql:authz.nexloop_machine_prepare"
+   },
+   "purpose": "NX-062 M5c: prepare one machine write (scope, allowlist, grant, types, visibility, parameters in SQL); the digests only are kept; admission first",
+   "source_task": "NX-062"
+  },
+  {
+   "method": "POST",
+   "path": "/machine/v1/commit",
+   "handler": "nexloop_eios.machine_http:commit",
+   "realm": "machine_key",
+   "authorization": {
+    "kind": "machine_capability",
+    "port": "sql:authz.nexloop_machine_commit"
+   },
+   "purpose": "NX-062 M5c: commit a prepared machine write - the API signs a command bound to client, intent, prepare digest and world; SQL re-runs every check through the governed entry machine core; admission first",
+   "source_task": "NX-062"
+  },
+  {
+   "method": "GET",
+   "path": "/machine/v1/intents/{intent_id}",
+   "handler": "nexloop_eios.machine_http:intent",
+   "realm": "machine_key",
+   "authorization": {
+    "kind": "machine_capability",
+    "port": "sql:authz.nexloop_machine_intent"
+   },
+   "purpose": "NX-062 M5c: the state of one machine write intent (codes and ids only); query before committing again after an unknown result; admission first",
+   "source_task": "NX-062"
   }
  ],
  "operations": [
@@ -1716,6 +1752,11 @@
    "capability": "retention.release_hold",
    "reached_by": "nexloop_eios.goal_controls.GoalGovernedActions.release_retention_hold only (exercised by tests)",
    "reason": "Registered and governed; outside tests nothing calls this GoalGovernedActions method in this release (searched packages, scripts and apps); not on HTTP"
+  },
+  {
+   "capability": "object.add_note",
+   "reached_by": "POST /machine/v1/commit (machine clients, NX-062 M5c); the workbench operation follows in M5c-3",
+   "reason": "Machine clients reach it through the machine_key realm write routes; the workbench operation (owner and operator) is added in the next slice"
   }
  ],
  "port_operations_not_on_http": [

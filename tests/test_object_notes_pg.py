@@ -56,7 +56,7 @@ def notes(desk, pg):
     obj = put(admin, 'Commitment', commitment(consumer))
     try:
         yield {**w, 'pool': pool, 'signer': w['f']['reader'].signer, 'prefix': key.prefix_id, 'digest': K.digest(key, w['peppers'], 1).hex(),
-               'object': obj, 'consumer': consumer, 'pg': pg}
+               'object': obj, 'consumer': consumer, 'pg': pg, 'key': issued.json()['key']}
     finally:
         pool.close()
 

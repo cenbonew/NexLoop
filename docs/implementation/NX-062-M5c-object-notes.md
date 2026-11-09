@@ -73,3 +73,34 @@
 - workbench_actions_http。
 
 本地 `test_model_surface` 一开始失败，原因是这个 worktree 里的 agent-host 编译产物停在 10-21；重新编译后 32 passed，与这次改动无关。
+
+## M5c-2 交付：机器写入 HTTP 路由与契约
+
+- **路由**（machine_key realm，先过 M3 准入和限速；URL 里不能带查询串；参数只能放在请求体里，请求体上限 16 KB）：
+  - `POST /machine/v1/prepare`：请求体 {capability, intent_id, params}，返回 `machine-prepare`；
+  - `POST /machine/v1/commit`：请求体同上，另加 prepare_digest。由 API 代签后调用 SQL。返回 `machine-intent`：待审批时 202，其他情况 200，包括 refused；
+  - `GET /machine/v1/intents/{intent_id}`：返回 `machine-intent`。
+- **错误映射**：422 invalid_request，404 not_found，403 not_permitted / approval_policy_required，401 unauthenticated，409 intent_conflict / intent_committed / digest_mismatch，410 prepare_expired，429 note_limit / note_limit_policy_missing（带 `Retry-After: 3600`），503 unavailable。错误体只有结果码，不回显请求里的任何值。
+- **契约**：
+  - 新增 `machine-write-request`、`machine-prepare`、`machine-intent`，各带一个示例，README 同步；
+  - `machine-error` 的 code 枚举增加上述写入结果码（只增加，不删改）；
+  - `scripts/generate_contracts.py --check` 通过。
+- **路由清单 v16**：新增 3 条路由，SQL 端口分别为 `authz.nexloop_machine_prepare`、`authz.nexloop_machine_commit`、`authz.nexloop_machine_intent`。
+  - `object.add_note` 暂时登记在 `capabilities_not_on_http`，M5c-3 加上工作台操作后移出。
+  - 路由计数改为 111 和 110，端口计数改为 88，探测计数加 3。
+  - G-5 凭据矩阵覆盖新路由：只有机器密钥能通过认证，其余五种凭据都返回 401。
+- **修正 M5b**：已结束的意图如果参数变了，即使 prepare 摘要相同，也返回 409，不再返回首次结果。0442 还没发布，所以直接修改；测试已补。
+
+### 测试（M5c-2）
+
+`tests/test_machine_write_http.py`，真实 HTTP 与真实 PG，每个响应都按契约校验，并检查 `Cache-Control: no-store`：
+- prepare → commit → 重放 → 查询；
+- 冲突、身份字段、多余字段、坏 JSON、查询串、无密钥、对象不可见、读取动词、未知意图、意图 ID 太短、commit 缺 prepare_digest，以上每种都核对状态码和结果码；
+- 错误体里查不到请求正文；
+- prepare 过期返回 410；超过上限返回 429，带 Retry-After。
+
+一轮回归 329 passed：
+- 路由清单（单元与 PG）、契约与已发布契约、G-5 矩阵；
+- 机器生命周期、机器读取与写入、备注；
+- 全局守护：db_boundary、tenant_fk、system_catalog、copy guard、bootstrap、三项擦除覆盖、nx041 sim roles 和 pi_run、claim_store_pg；
+- stage_register。
