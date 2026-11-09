@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-read-commitment-list",
+  "title": "machine-read-commitment-list",
+  "description": "NX-062 M4b (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb commitment.list - the visible Commitments of the key's world, open (default), ended or all (params.status_group), at most 50 a page in id order (params.after = next_after). Each carries its id, revision, registration time and the registered properties only: never the promised words, the customer's name, events, evidence references or exception text. No total and no hidden count (L6 N2). NexLoop target contract; server-derived identity required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "commitments",
+    "next_after"
+  ],
+  "properties": {
+    "commitments": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commitment_id",
+          "revision",
+          "registered_at",
+          "properties"
+        ],
+        "properties": {
+          "commitment_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "registered_at": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "maxProperties": 64,
+            "propertyNames": {
+              "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "value_type"
+              ],
+              "properties": {
+                "value": {},
+                "value_type": {
+                  "enum": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "array",
+                    "object"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "next_after": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

@@ -28,6 +28,8 @@
 | machine-error.schema.json | NX-062 M3：machine_key realm（`/machine/v1/*`）的统一拒绝体。只给固定错误码，从不回显请求值、密钥、摘要或内部标识；只有 429 与 503 可重试，429 另带 `Retry-After`。错误码：unauthenticated、query_not_allowed、rate_limited、rate_policy_missing、unavailable、busy |
 | machine-read-object.schema.json | NX-062 M4a：`POST /machine/v1/read` 的 object.get 返回体，即密钥所在 world 中的一个对象。只返回元数据，以及读取动词投影中为该类型登记的属性，投影在 SQL 内执行；不返回正文、消息引用、外部订单号、联系方式和内部执行主体。首批只开放 Commitment 与 CommercialRecord |
 | machine-read-object-list.schema.json | NX-062 M4a：object.list 返回体，每页最多 50 条，按对象 ID 排序，`next_after` 是下一页游标；看不到的对象直接略过、不计数，不返回总数，也不返回隐藏数（L6 N2）；属性规则同上 |
+| machine-read-object-neighbors.schema.json | NX-062 M4b：object.neighbors 返回体，即一个可见对象的一跳邻居，经受治理关系与登记的引用属性连接。只给类型和 ID；邻居的类型必须已授权且可见；每组最多 20 个，`more` 表示还有没有更多可见邻居；看不到的一律不计数（L6 N2） |
+| machine-read-commitment-list.schema.json | NX-062 M4b：commitment.list 返回体，即可见的承诺（open、ended 或 all），每页 50 条。只给 ID、revision、登记时间和登记属性；不给承诺原话、客户姓名、事件、证据引用和异常文本；不返回总数 |
 
 ## Schema之外必须实现的语义检查
 

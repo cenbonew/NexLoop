@@ -1241,12 +1241,32 @@ class MachineCapabilitiesCapabilitiesItem(BaseModel):
     kind: Literal['read', 'write']
     description: str
 
+class MachineReadCommitmentListCommitmentsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    commitment_id: str
+    revision: int | None
+    registered_at: str
+    properties: dict[str, Any]
+
 class MachineReadObjectListItemsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     object_id: str
     revision: int | None
     updated_at: str
     properties: dict[str, Any]
+
+class MachineReadObjectNeighborsGroupsItemItemsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type_name: Literal['Commitment', 'CommercialRecord']
+    object_id: str
+
+class MachineReadObjectNeighborsGroupsItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    direction: Literal['outgoing', 'incoming']
+    via: str
+    type_name: Literal['Commitment', 'CommercialRecord']
+    items: list[MachineReadObjectNeighborsGroupsItemItemsItem]
+    more: bool
 
 class OntologyMutationOperationsItem(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -2229,11 +2249,23 @@ class MachineError(_Contract):
     retryable: bool
     details: dict[str, Any]
 
+class MachineReadCommitmentList(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:machine-read-commitment-list","title":"machine-read-commitment-list","description":"NX-062 M4b (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb commitment.list - the visible Commitments of the key\'s world, open (default), ended or all (params.status_group), at most 50 a page in id order (params.after = next_after). Each carries its id, revision, registration time and the registered properties only: never the promised words, the customer\'s name, events, evidence references or exception text. No total and no hidden count (L6 N2). NexLoop target contract; server-derived identity required.","type":"object","additionalProperties":false,"required":["commitments","next_after"],"properties":{"commitments":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"required":["commitment_id","revision","registered_at","properties"],"properties":{"commitment_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"revision":{"type":["integer","null"]},"registered_at":{"type":"string"},"properties":{"type":"object","maxProperties":64,"propertyNames":{"pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["value","value_type"],"properties":{"value":{},"value_type":{"enum":["string","number","boolean","array","object"]}}}}}}},"next_after":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$"}}}')
+    commitments: list[MachineReadCommitmentListCommitmentsItem]
+    next_after: str | None
+
 class MachineReadObjectList(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:machine-read-object-list","title":"machine-read-object-list","description":"NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.list - one page (at most 50) of a type\'s objects of the key\'s world, in object id order; an object the key may not see is left out and never counted - there is no total and no hidden count (L6 N2), so a page may hold fewer items than it scanned; next_after is the cursor of the next page (params.after) or null. Only metadata and the properties registered for the object\'s type in the verb\'s projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.","type":"object","additionalProperties":false,"required":["type_name","items","next_after"],"properties":{"type_name":{"enum":["Commitment","CommercialRecord"]},"items":{"type":"array","maxItems":50,"items":{"type":"object","additionalProperties":false,"required":["object_id","revision","updated_at","properties"],"properties":{"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"revision":{"type":["integer","null"]},"updated_at":{"type":"string"},"properties":{"type":"object","maxProperties":64,"propertyNames":{"pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["value","value_type"],"properties":{"value":{},"value_type":{"enum":["string","number","boolean","array","object"]}}}}}}},"next_after":{"type":["string","null"],"pattern":"^[a-f0-9]{64}$"}}}')
     type_name: Literal['Commitment', 'CommercialRecord']
     items: list[MachineReadObjectListItemsItem]
     next_after: str | None
+
+class MachineReadObjectNeighbors(_Contract):
+    _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:machine-read-object-neighbors","title":"machine-read-object-neighbors","description":"NX-062 M4b (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.neighbors - the depth-1 neighbours of one visible object of the key\'s world, through governed relations (via = the relation name) and the reference properties the verb registers (via = \'property:<name>\'). A neighbour is listed only when its type is granted for this verb and it is visible (world, NX-029/NX-054 erasure); type and id only, never a value. At most 20 items a group; more says whether further visible neighbours exist. Nothing is counted of what the key may not see (no invisible, collapsed or total count, L6 N2) and a group without a visible neighbour is left out. NexLoop target contract; server-derived identity required.","type":"object","additionalProperties":false,"required":["type_name","object_id","depth","groups"],"properties":{"type_name":{"enum":["Commitment","CommercialRecord"]},"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"depth":{"const":1},"groups":{"type":"array","maxItems":200,"items":{"type":"object","additionalProperties":false,"required":["direction","via","type_name","items","more"],"properties":{"direction":{"enum":["outgoing","incoming"]},"via":{"type":"string","minLength":1,"maxLength":200},"type_name":{"enum":["Commitment","CommercialRecord"]},"items":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["type_name","object_id"],"properties":{"type_name":{"enum":["Commitment","CommercialRecord"]},"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"}}}},"more":{"type":"boolean"}}}}}}')
+    type_name: Literal['Commitment', 'CommercialRecord']
+    object_id: str
+    depth: Literal[1]
+    groups: list[MachineReadObjectNeighborsGroupsItem]
 
 class MachineReadObject(_Contract):
     _canonical_schema = json.loads('{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:nexloop:contracts:v1:machine-read-object","title":"machine-read-object","description":"NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.get - one object of the key\'s world. Only metadata and the properties registered for the object\'s type in the verb\'s projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.","type":"object","additionalProperties":false,"required":["type_name","object_id","schema_version","revision","updated_at","properties"],"properties":{"type_name":{"enum":["Commitment","CommercialRecord"]},"object_id":{"type":"string","pattern":"^[a-f0-9]{64}$"},"schema_version":{"type":"integer","minimum":1},"revision":{"type":["integer","null"]},"updated_at":{"type":"string"},"properties":{"type":"object","maxProperties":64,"propertyNames":{"pattern":"^[A-Za-z][A-Za-z0-9_]{0,63}$"},"additionalProperties":{"type":"object","additionalProperties":false,"required":["value","value_type"],"properties":{"value":{},"value_type":{"enum":["string","number","boolean","array","object"]}}}}}}')

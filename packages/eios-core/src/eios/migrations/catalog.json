@@ -2190,6 +2190,11 @@
       "version": "0440",
       "name": "0440_nx062_machine_reads.sql",
       "sha256": "dadde274f2b5361e02f17cd4a50ae15120b079008046d64a5912b50233bced62"
+    },
+    {
+      "version": "0441",
+      "name": "0441_nx062_machine_reads_b.sql",
+      "sha256": "5519cb0a8636f935bb681ccddfeb2323af123ed1ba4a012bbddacc72fadc131f"
     }
   ]
 }

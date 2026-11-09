@@ -1,0 +1,19 @@
+{
+  "type_name": "Commitment",
+  "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "depth": 1,
+  "groups": [
+    {
+      "direction": "outgoing",
+      "via": "property:supersedes",
+      "type_name": "Commitment",
+      "items": [
+        {
+          "type_name": "Commitment",
+          "object_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "more": false
+    }
+  ]
+}
