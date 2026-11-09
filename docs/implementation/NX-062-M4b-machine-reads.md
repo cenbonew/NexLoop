@@ -10,7 +10,7 @@
   - 边有两种：受治理关系（`ontology.relations`，按密钥 world 过滤），和本动词登记的引用属性（Commitment.supersedes、CommercialRecord.related_record_id），出向、入向都算。
   - 邻居只在类型已为本动词授权、且可见时列出（`machine_object_visible`：world 与 NX-029/054 擦除）。只给类型和 ID，不给任何值。
   - 每组最多 20 个；`more` 表示还有没有更多可见邻居。看不到的一律不计数，没有 invisible、collapsed 或 total（遵循 N2）；没有可见邻居的组整组省略。Consumer 等类型永远不会出现在邻居里。
-- **commitment.list**：列出可见的 Commitment，`status_group` 取 open（默认）、ended 或 all，open 与工作台同口径（conditional、open、in_progress、breached）。每页 50 条，按 ID 排序，没有 total。
+- **commitment.list**：列出可见的 Commitment，`status_group` 取 open（默认）、ended 或 all，open 与工作台同口径（conditional、open、in_progress、breached）。每页 50 条，按 ID 排序，没有 total。可见性判断写在 WHERE 里，50 条上限只计可见行；`next_after` 是本页最后一个可见对象的 ID，只有后面还有可见行时才给出，所以既不会带出隐藏对象的 ID，也不会暴露隐藏了多少条（L6 Q1）。status 为空或取值未知的 Commitment 归入 ended（L6 Q2）。
   - 每项只给 commitment_id、revision、registered_at 和登记属性，属性与 object.get 的 Commitment 投影相同。
   - **与草案的差异**：草案原本还打算返回 evidence 的 kind、occurred_at 以及 events 的 kind。为了不在这一片里另造一套证据账本的读取，本片不返回这些字段；需要时作为新的投影修订加入。quote、consumer_display、events.detail、events.principal_id、evidence.ref、exceptions.detail 本来就不返回。
 - 两个动词都按天、key_prefix、动词、类型计数（T-12）。HTTP 层先执行 M3 的准入，再进入读取函数。
@@ -63,3 +63,9 @@
 ## 部署
 
 迁移 0441 自带两个读取动词的登记与允许表行。没有新 Action，也没有新路由，仍是 `POST /machine/v1/read`，所以注册计数与清单都不变。负责人授权之前，任何主体都读不到这两个动词的数据。
+
+## L6 条件 PASS 的修改（bafb23dd）
+
+- Q1：commitment.list 的可见性判断移入 WHERE，上限只计可见行，`next_after` 取最后一个可见 ID（查 51 行判断是否还有下一页）。新增测试：第 50 个候选行不可见时，`next_after` 不含它的 ID，且一页仍有 50 条。
+- Q2：status 为空或未知的 Commitment 归入 ended，不再只有 all 才看得到。
+- Q3 性能边界：object.neighbors 按登记的引用属性反查入边（例如谁的 `supersedes` 指向中心对象）时，对中心对象所在租户和 world 的同类对象做一次 jsonb 属性扫描，没有专门索引；commitment.list 对每个候选行调用一次可见性函数（擦除判定）。首批数据量下可接受；租户对象量到十万级时，应为登记的引用属性加表达式索引，或改为物化的边表，届时另开任务。

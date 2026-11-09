@@ -165,3 +165,28 @@ def test_the_earlier_verbs_are_unchanged_and_the_wrapper_keeps_its_grantees(read
     assert holders('authz.nexloop_machine_read(text,text,text,jsonb)') == {'nexloop_api'}
     for f in ('authz.nexloop_machine_read_gate(text,text,text,text)', 'authz.nexloop_machine_neighbors(text,text,text,text,text[])'):
         assert holders(f) == set()
+
+
+def test_commitment_list_page_counts_visible_rows_only_and_never_names_a_hidden_one(reads):
+    """L6 Q1: the 50th candidate row is hidden; the page still holds 50 visible commitments and next_after is a visible id.
+    L6 Q2: a commitment without a known status is listed as ended."""
+    w = reads
+    admin = w['admin']
+    consumer, erasing = hexid(), hexid()
+    ids = sorted(hexid() for _ in range(52))
+    hidden = ids[49]
+    for i in ids:
+        put(admin, 'Commitment', commitment(erasing if i == hidden else consumer), object_id=i)
+    admin.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
+        values(%s,'real','m4b-page',%s,'owner','synthetic','synthetic','blocking',1)""", (TENANT, erasing))
+    unknown = put(admin, 'Commitment', {**commitment(consumer), 'status': None})
+    visible = [i for i in ids if i != hidden]
+    grant(w, 'commitment.list', ['Commitment'])
+    with w['client']() as client:
+        first = read(client, w, 'commitment.list')
+        assert first.status_code == 200, first.text
+        assert [c['commitment_id'] for c in first.json()['commitments']] == visible[:50]
+        assert first.json()['next_after'] == visible[49] and hidden not in first.text
+        second = read(client, w, 'commitment.list', after=first.json()['next_after']).json()
+        assert [c['commitment_id'] for c in second['commitments']] == visible[50:] and second['next_after'] is None
+        assert [c['commitment_id'] for c in read(client, w, 'commitment.list', status_group='ended').json()['commitments']] == [unknown]

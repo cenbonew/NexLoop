@@ -118,16 +118,19 @@ begin
    or (p_params ? 'after' and coalesce(p_params->>'after','')!~'^[a-f0-9]{64}$')
    or coalesce(p_params->>'status_group','open') not in ('open','ended','all') then raise exception 'machine read: invalid' using errcode='22023';end if;
   v_group:=coalesce(p_params->>'status_group','open');v_after:=coalesce(p_params->>'after','');
+  -- Visibility is part of the WHERE (L6 Q1): the page limit counts visible rows only, and next_after is the last visible id,
+  -- set only when one more visible row exists. A status that is null or unknown counts as ended (L6 Q2).
   for o in select * from ontology.objects x where x.tenant_id=v_tenant and x.world=v_world and x.type_name='Commitment' and x.object_id>v_after
-    and (v_group='all' or (v_group='open')=(x.properties->>'status' in ('conditional','open','in_progress','breached')))
-    order by x.object_id limit v_limit loop
-   if authz.nexloop_machine_object_visible(v_tenant,v_world,'Commitment',o.object_id) then
-    v_items:=v_items||jsonb_build_array(jsonb_build_object('commitment_id',o.object_id,'revision',o.nexloop_revision,'registered_at',to_jsonb(o.created_at),
-     'properties',authz.nexloop_machine_object_properties(v_tenant,v_world,o,v_props)));
-   end if;
-   v_scanned:=v_scanned+1;v_after:=o.object_id;
+    and (v_group='all' or (v_group='open')=coalesce(x.properties->>'status' in ('conditional','open','in_progress','breached'),false))
+    and authz.nexloop_machine_object_visible(v_tenant,v_world,'Commitment',x.object_id)
+    order by x.object_id limit v_limit+1 loop
+   v_scanned:=v_scanned+1;
+   exit when v_scanned>v_limit;
+   v_items:=v_items||jsonb_build_array(jsonb_build_object('commitment_id',o.object_id,'revision',o.nexloop_revision,'registered_at',to_jsonb(o.created_at),
+    'properties',authz.nexloop_machine_object_properties(v_tenant,v_world,o,v_props)));
+   v_after:=o.object_id;
   end loop;
-  v_result:=jsonb_build_object('commitments',v_items,'next_after',case when v_scanned=v_limit then to_jsonb(v_after) else 'null'::jsonb end);
+  v_result:=jsonb_build_object('commitments',v_items,'next_after',case when v_scanned>v_limit then to_jsonb(v_after) else 'null'::jsonb end);
  end if;
  perform runtime.nexloop_machine_read_count(v_tenant,gate->>'key_prefix',p_verb,v_type);
  if exists(select 1 from jsonb_object_keys(v_result) k where not (k=any(array(select jsonb_array_elements_text(gate->'fields'))))) then
