@@ -150,6 +150,11 @@ L6 同意 D-2 至 D-5 的方向。以下各条覆盖前文中与之冲突的说�
 - phase 增加 `pending_approval`。审批门返回“等待审批”时，意图行记为 `pending_approval` 并记下 `approval_id`，HTTP 返回 202。
 - 后续写回：负责人批准后，客户端用同一 intent 和同一 prepare_digest 再次 commit。pending_approval 不再判 prepare 过期，因为摘要在第一次 commit 时已核对过；能否执行由审批本身的有效期决定，审批门会消费这次批准。执行结果把意图行写成 committed 或 refused。审批被拒或过期时，审批门返回不可执行，意图行写成 refused 并记结果码。`GET /machine/v1/intents/{id}` 返回 phase 和 approval 状态，不返回审批人。
 
+- **审批通过后的执行重跑全部检查**（L6 复核 R2 时的附加要求）：
+  - 调研结果（bbe5175b）：受治理 handler 只由统一入口调用，0124、0327、0347、0348 各版入口都是如此。审批通过后的执行，也是请求人再次经入口提交、由审批门消费这次批准。没有 domain_worker 或其他路径绕开入口直接调用 handler。M5b 加一条测试锁定这一点：遍历 `pg_proc`，除入口与机器核心外，没有函数体按注册表的 handler 动态调用。
+  - 机器请求的执行（pending_approval 之后再次 commit）走机器核心，重跑 C5 的全部检查：身份、密钥 scope、允许表、授权行（机器授权断言，带 FOR SHARE）、`subject_rule`，然后才由审批门消费批准。prepare 阶段和第一次 commit 的判定都不沿用。
+  - 测试：机器请求进入待审批，负责人批准；批准之后、执行之前撤销授权，执行被拒（42501），handler 没有被调用，意图行记为 refused。从 scope 里去掉该能力（轮换为窄 scope 的密钥）的情况同样测一次。
+
 ### R5 API 代签
 - 机器路径的签名命令由 API 进程用现有签名密钥构造。签名内容在原有字段之外，绑定 `client_id`、`intent_id`、`prepare_digest`、`world`；机器核心逐项核对它们与本次 commit 的参数一致。
 - 有效期沿用 20 秒。签名密钥只在 API 进程里，不进 Runtime（Pi 没有这个密钥）。现有的部署检查已经保证这一点，测试再断言一次。
