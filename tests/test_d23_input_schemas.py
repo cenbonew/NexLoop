@@ -164,3 +164,29 @@ def test_no_context_assembly_reads_an_action_input_schema():
             if uses != body.count("pub.definition->'input_schema'") or "'input_schema'," in body:
                 projected.append(f'{path.name}:{match.group(1)}')
     assert projected == [] and checked > 0
+
+
+
+@pytest.mark.parametrize('flags', [re.IGNORECASE, re.VERBOSE, re.DOTALL, re.ASCII])
+def test_a_runtime_pattern_with_flags_is_refused(flags):
+    with pytest.raises(I.NotDerivable, match='flags'):
+        I.field_schema(W._id(re.compile(r'[a-z]{1,8}', flags)))
+    assert I.field_schema(W._id(re.compile(r'[a-z]{1,8}')))['pattern'] == '^([a-z]{1,8})$'
+
+
+def test_the_catalog_lists_one_version_per_action_the_newest_with_its_exact_predecessor(open_actions):
+    from nexloop_eios import catalog_publish as P
+    catalog = _catalog()
+    names = [a['definition']['stable_name'] for a in catalog['actions']]
+    assert len(names) == len(set(names))  # one version per Action
+    v1 = open_actions['Consumer.edit']
+    body = {k: v for k, v in v1['definition'].items() if k != 'contract_digest'}
+    v2 = {**v1, 'definition': {**body, 'version': 2, 'input_schema': {'type': 'object'}}}
+    out = P.latest_only([v1, v2])
+    assert len(out) == 1 and out[0]['definition']['version'] == 2
+    assert out[0]['definition']['previous_version'] == {'tenant_id': v1['definition']['tenant_id'], 'definition_type': 'action',
+        'stable_name': 'Consumer.edit', 'version': 1, 'contract_digest': v1['definition']['contract_digest']}
+    for bad in ([v1, v1], [v2], [v1, {**v2, 'definition': {**v2['definition'], 'version': 3}}],
+                [v1, {**v2, 'definition': {**v2['definition'], 'capability_binding': {**v2['definition']['capability_binding'], 'capability_version': '2.0.0'}}}]):
+        with pytest.raises(P.CatalogPublishRefused):
+            P.latest_only(bad)

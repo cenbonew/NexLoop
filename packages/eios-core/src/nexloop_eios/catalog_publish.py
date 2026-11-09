@@ -88,6 +88,41 @@ def stage_only(stage_capabilities, deployment_marker):
     return stage_capabilities
 
 
+def latest_only(actions):
+    """D23 option B (design §2a, L6 2026-11-09): the catalog lists one version per Action - the newest. control.nexloop_configure_manifest
+    requires every listed Action to be stored active, and migration action_version_replace deactivates a replaced version, so an
+    older version may never be listed again. A declaration that keeps the old version next to its replacement (the way a batch
+    adds one) yields only the new one, with previous_version set to the exact reference of the old one it replaces (version - 1);
+    the same name and version twice, a gap, a new version without its predecessor declared, or another capability is refused."""
+    from eios.ontology.definitions import DefinitionReference, DefinitionType
+    by_name = {}
+    for action in actions:
+        d = action['definition']
+        by_name.setdefault(d['stable_name'], []).append(action)
+    out = []
+    for name, group in by_name.items():
+        group.sort(key=lambda a: a['definition']['version'])
+        versions = [a['definition']['version'] for a in group]
+        if len(versions) != len(set(versions)):
+            raise CatalogPublishRefused('Action declared twice')
+        newest = group[-1]
+        if len(group) == 1:
+            if newest['definition']['version'] > 1 and newest['definition'].get('previous_version') is None:
+                raise CatalogPublishRefused(f'{name}: a version above 1 needs the version it replaces declared')
+            out.append(newest)
+            continue
+        old = group[-2]
+        if (len(group) > 2 or old['definition']['version'] != newest['definition']['version'] - 1
+                or old['definition']['capability_binding'] != newest['definition']['capability_binding']):
+            raise CatalogPublishRefused(f'{name}: not a one-for-one replacement')
+        previous = DefinitionReference(tenant_id=old['definition']['tenant_id'], definition_type=DefinitionType.ACTION, stable_name=name,
+                                       version=old['definition']['version'], contract_digest=old['definition']['contract_digest'])
+        body = {k: v for k, v in newest['definition'].items() if k != 'contract_digest'}
+        body['previous_version'] = previous.model_dump(mode='json')
+        out.append({**newest, 'definition': ActionDefinition.model_validate_json(json.dumps(body)).model_dump(mode='json')})
+    return out
+
+
 def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_actions_path, system_types_path, business_types_path,
                     stage_capabilities_path=None):
     """{'object_types': [...], 'actions': [...], 'functions': [...]} in the 0050 manifest shape, plus the counts. stage_capabilities_path
@@ -155,9 +190,7 @@ def compile_catalog(tenant, *, capabilities_path, system_actions_path, business_
             applies_to=tuple({'object_type': ref(n, v)} for n, v in item['object_types']), input_schema=input_schema, output_schema=output_schema)
         validate_capability_binding(definition, capability)
         functions.append({'definition': definition.model_dump(mode='json'), 'capability': capability.model_dump(mode='json')})
-    names = [a['definition']['stable_name'] for a in actions]
-    if len(names) != len(set(names)):
-        raise CatalogPublishRefused('Action declared twice')
+    actions = latest_only(actions)
     compiled = {'object_types': [types[k] for k in sorted(types)], 'actions': sorted(actions, key=lambda a: a['definition']['stable_name']),
                 'functions': functions}
     return compiled if stage is None else {**compiled, 'stage_manifest': stage_record}

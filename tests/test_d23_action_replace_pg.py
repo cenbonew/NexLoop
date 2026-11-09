@@ -33,6 +33,7 @@ def env(admin, pg):
     admin.execute("""create function public.d23_configure(p_tenant text,p_definition jsonb) returns void language plpgsql security definer
         set search_path=pg_catalog,pg_temp as $$ begin
          perform set_config('eios.tenant_id',p_tenant,true);
+         -- catalog-exception: synthetic definition rows for the version replacement trigger (D23 option B)
          insert into control.nexloop_action_definitions values(p_tenant,'real','eios:action:'||(p_definition->>'stable_name')||':'||(p_definition->>'version'),
           p_definition,jsonb_build_object('capability_name',p_definition->'capability_binding'->>'capability_name'),true) on conflict do nothing;
         end $$""")
@@ -40,6 +41,7 @@ def env(admin, pg):
     admin.execute('grant execute on function public.d23_configure(text,jsonb) to nexloop_configurator')
     admin.execute('alter role nexloop_configurator login')  # the configurator window opens it for one call on stage
     v1 = definition(tenant, 1)
+    # catalog-exception: synthetic definition rows for the version replacement trigger (D23 option B)
     admin.execute("insert into control.nexloop_action_definitions values(%s,'real',%s,%s,%s,true)",
                   (tenant, f'eios:action:{NAME}:1', Jsonb(v1), Jsonb({'capability_name': CAPABILITY})))
     with psycopg.connect(make_conninfo(pg, user='nexloop_configurator'), autocommit=True) as configurator:
@@ -68,7 +70,8 @@ def test_the_next_version_replaces_the_previous_one_for_one_and_a_replay_changes
     assert stored == f['v1']  # published definitions stay as they were: only active moved
 
 
-@pytest.mark.parametrize('label', ['gap', 'other digest', 'other capability', 'other name', 'previous inactive', 'two active'])
+@pytest.mark.parametrize('label', ['gap', 'other digest', 'other capability', 'other name', 'previous inactive', 'two active',
+                                   'no digest', 'null digests', 'other tenant', 'other type', 'other capability version', 'later version replacing nothing'])
 def test_anything_but_a_one_for_one_replacement_is_refused_and_changes_nothing(env, label):
     f = env;t = f['tenant'];digest = f['v1']['contract_digest']
     candidate = definition(t, 2, previous=(1, digest))
@@ -82,8 +85,26 @@ def test_anything_but_a_one_for_one_replacement_is_refused_and_changes_nothing(e
         candidate['previous_version']['stable_name'] = 'nexloop.other.action'
     elif label == 'previous inactive':
         f['admin'].execute("update control.nexloop_action_definitions set active=false where tenant_id=%s", (t,))
+    elif label == 'no digest':
+        candidate['previous_version'].pop('contract_digest')
+    elif label == 'null digests':  # null equal to null is not a match
+        f['admin'].execute("delete from control.nexloop_action_definitions where tenant_id=%s", (t,))
+        bare = {k: v for k, v in f['v1'].items() if k != 'contract_digest'}
+        # catalog-exception: synthetic definition rows for the version replacement trigger (D23 option B)
+        f['admin'].execute("insert into control.nexloop_action_definitions values(%s,'real',%s,%s,%s,true)",
+                           (t, f'eios:action:{NAME}:1', Jsonb(bare), Jsonb({'capability_name': CAPABILITY})))
+        candidate['previous_version']['contract_digest'] = None
+    elif label == 'other tenant':
+        candidate['previous_version']['tenant_id'] = str(uuid.uuid4())
+    elif label == 'other type':
+        candidate['previous_version']['definition_type'] = 'function'
+    elif label == 'other capability version':
+        candidate['capability_binding'] = {**candidate['capability_binding'], 'capability_version': '2.0.0'}
+    elif label == 'later version replacing nothing':  # C5: no previous_version, while version 1 is active
+        candidate.pop('previous_version')
     elif label == 'two active':
         other = definition(t, 7)
+        # catalog-exception: synthetic definition rows for the version replacement trigger (D23 option B)
         f['admin'].execute("insert into control.nexloop_action_definitions values(%s,'real',%s,%s,%s,true)",
                            (t, f'eios:action:{NAME}:7', Jsonb(other), Jsonb({'capability_name': CAPABILITY})))
     before = state(f)
@@ -96,6 +117,7 @@ def test_other_inserting_paths_are_untouched(env):
     """An NX-040 successor (inserted by the API's publication, not the configurator) keeps the previous version active, as before."""
     f = env
     v2 = definition(f['tenant'], 2, previous=(1, f['v1']['contract_digest']))
+    # catalog-exception: synthetic definition rows for the version replacement trigger (D23 option B)
     f['admin'].execute("insert into control.nexloop_action_definitions values(%s,'real',%s,%s,%s,true)",
                        (f['tenant'], f'eios:action:{NAME}:2', Jsonb(v2), Jsonb({'capability_name': CAPABILITY})))
     assert state(f) == {f'eios:action:{NAME}:1': True, f'eios:action:{NAME}:2': True}

@@ -66,12 +66,16 @@
 
 | 批 | 内容 | 个数 | 理由 |
 |---|---|---|---|
-| 0 | **前置**：补迁移，让可信配置发布新版本时在同一事务里停用旧版本（见 §2）；写导出生成器和比对测试；写**影子校验**（见下）；核查 §2a 列的全部读取方 | — | 后面所有批次都依赖它 |
+| 0a | **前置**：补迁移，让可信配置发布新版本时在同一事务里停用旧版本（见 §2）；写导出生成器和比对测试；核查 §2a 列的全部读取方 | — | 后面所有批次都依赖它 |
+| 0b | **影子校验**（见下），以及 **catalog 编译每个 Action 只输出最新版本**（并带上它所替换的上一版本的精确引用）。0b 交付并上 stage 之后，第 0 批才算完成 | — | 第 1 批发布前必须完成 |
 | 1 | C 组中有 `goal_controls` 方法的 6 个（Budget、Contact、Control、Goal.propose、Goal.publish、Metric），加上 D 组 1 个 | 7 | 字段少、调用路径单一，用来跑通流程 |
 | 2 | A 组里只读或可逆的操作：`alert.silence`、`experiment.report`、`approvals.*`、`object_set` / `object_view` / `semantic_release` 等 | 约 25 | 风险低 |
-| 3 | A 组里有外部或业务效果的操作：`incentive.issue`、`outreach.*`、`real_dispatch.set`、`consumer.erase*`、`message.*` 等 | 约 38 | 一次拒错就是业务中断，放在影子校验积累了数据之后 |
+| 3a | A 组里有外部或业务效果、但**不涉及 Run 工具**的操作：`outreach.approve`、`real_dispatch.set`、`consumer.erase*`、`message.*` 等 | 约 36 | 一次拒错就是业务中断，放在影子校验积累了数据之后 |
+| 3b | **`nexloop.incentive.issue` 和 `nexloop.outreach.send`**：它们同时是 Pi 的 Run 工具（§2a）。和这两个 Action 一起改：SQL 与 Host 里写死的 25 处 `:1`、Run 凭据和 Role 上限的版本，以及 Host 的部署 | 2 | **独立的回滚方案**：回滚 Host 镜像、Run 凭据和 Role 上限，并重新启用旧版本；新旧两边要能互相切换。**重新判断是否要进 0183 的 effect 白名单**（它们的 Run 路径在 SQL 里受理，和 effect Action 相似）。影子校验看不到它们的 Run 路径（§5.1），要在 SQL 受理路径上加同样的计数 |
 | 4 | `workbench_member.*`（含执行期字段的两个） | 17 | 要与 NX-058 的审批策略一起核对 |
 | 5 | B 组与 `Consumer.create`（外层模式，`properties` 开放）、`NexLoop.queue.operations`、`nexloop.service.query` | 4 | 需要人工核对服务端构造点；`Consumer.*` 还会影响 claim matcher 的改绑（同 Consumer v2 那次的窗口问题） |
+
+**每批固定的一步**：在 `service-grants` 里**显式**加上新版本的授权、撤销旧版本的授权（follow_latest 不会跟随，见 §2），与替换在同一次 register 里应用；工作台角色清单也同步改为新版本。
 
 **每批的验收**：
 
@@ -86,7 +90,7 @@
 
 ## 3a. Context 体积（C4）
 
-- **模型看不到这些模式**：Context 组装不带 Action 的 `input_schema`，`nexloop_eios/context_engine` 和各个 context 包函数里都没有引用它；Pi 侧的工具定义是 Host 代码里写死的（§2a）。这 91 个 Action 都是人工治理操作或服务写入，不是模型工具。所以补模式**不会让模型看到的工具定义变大**，对真实 Context 的体积影响为 0。
+- **模型看不到这些模式**：Context 组装不带 Action 的 `input_schema`，`nexloop_eios/context_engine` 和各个 context 包函数里都没有引用它；Pi 侧的工具定义是 Host 代码里写死的（§2a）。91 个 Action 里只有 `nexloop.incentive.issue` 和 `nexloop.outreach.send` 是模型工具（第 3b 批），它们的工具参数也是 Host 定义的，不由 Action 的 `input_schema` 生成；其余都是人工治理操作或服务写入。所以补模式**不会让模型看到的工具定义变大**，对真实 Context 的体积影响为 0。
 - **r8 的 `context_volume`**：`s6_stage_schema.py` 里写死为父、候选各 1000，表示“Context 体积不变”。补模式之后这个判断仍然成立，**不需要改**。
 - **前提**：以后如果 Context 开始携带 Action 的输入模式（例如给模型展示可用的人工操作），这个数就要改为实测，届时另行评估。第 0 批加一条测试，断言 Context 包里不含任何 Action 的 `input_schema`，这样前提一旦变化，测试会提醒。
 
@@ -124,7 +128,7 @@
   - 同一份清单重放时什么都不改；
   - 其他写入路径（NX-040 的后继版本、模拟世界的目录、测试）不受影响；
   - 已发布的定义仍然不可变，只改 `active`。
-- **生成器** `nexloop_eios/input_schemas.py`：从 `workbench_actions_http.OPERATIONS` 导出候选模式。
+- **生成器** `nexloop_eios/input_schemas.py`：从 `workbench_actions_http.OPERATIONS` 导出候选模式。**它的结果不能直接发布**（L6 C4）：第 1 批起，每个 Action 的模式要从 `GoalGovernedActions` 构造的请求体推出来，或者逐项比对；测试必须断言“这些方法构造出的请求体能通过候选模式”。运行时正则带有非默认 flags（不是 `re.UNICODE`）时拒绝导出（C3）。
   - 认识的检查导出为对应约束：`_id` 的正则（只接受两边语义相同的写法）、`_bool`、`_text`、`_reason`、`_scope`、`_kind`、UTC 时间（只写 `type: string`，不导出 format）；
   - 不认识的检查导出为 `{}`，只会更宽；
   - 正则按 `^(p)$` 导出；
@@ -170,3 +174,13 @@
   - 全部接受的候选：状态 `pass`；换一个候选后从 `no_data` 重新计数；
   - 只能由可信配置写入候选，只能针对 active 的版本，版本停用后状态为 `stale`；
   - 报告只有 metrics 登录能读；推导不出租户的调用方什么都不计。
+
+### 5.2 L6 对 99c227fb 的条件（2026-11-09，已落实）
+
+- **触发器 C1**：引用里和上一版本里的 `contract_digest` 都必须非空，不再出现 null 对 null 判相等；引用的 `tenant_id` 必须是本租户，`definition_type` 必须是 `action`。
+- **触发器 C2**：比较整个 `capability_binding`，包括 capability 的名字、版本和 schema hash。
+- **触发器 C5**：配置员插入版本号 ≥ 2、不带 `previous_version` 的定义，而同名已有启用定义时，直接拒绝。
+- 触发器只处理 world `real`，模拟世界的定义永远不会被停用。NX-041 的守护测试 `test_a_simulation_definition_has_two_write_paths_only` 改为允许这一条“只改 active、只限 real”的停用路径，其余写入方仍然不能 update。
+- **生成器 C3、C4**：见 §5。
+- **catalog 只输出最新版本**（0b）：`catalog_publish.latest_only`。同一个声明里保留旧版本、加上新版本时，只输出新版本，并把 `previous_version` 设为旧版本的精确引用；同名同版本出现两次、版本号跳跃、新版本没有声明它替换的旧版本、capability 绑定不同，都拒绝编译。
+- **测试**：触发器的拒绝用例从 6 个增加到 12 个（新增缺摘要、两边摘要都为空、其他租户、其他类型、capability 版本不同、版本 ≥ 2 却不替换任何版本）；生成器的 flags 用例；`latest_only` 的正反例。测试 `test_d23_action_replace_pg.py` 也已登记进 `DIRECT_DEFINITION_WRITERS`（它直接写定义行，标为 exception）。

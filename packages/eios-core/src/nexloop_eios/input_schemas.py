@@ -19,7 +19,10 @@ A pattern outside the safe dialect (lookaround, inline flags, backreferences, \\
 a person, never guessed. A spec chosen by the body (a callable spec) is refused too.
 
 Only the HTTP fields are derived here; the request body the governed Action validates is built by GoalGovernedActions.<operation>
-(request_id, operation and the fields, sometimes transformed). Each later batch compares the two before publishing (design §3).
+(request_id, operation and the fields, sometimes transformed). **operation_schema's result is never published as it is** (L6 C4):
+from batch 1 on, each Action's schema is derived from (or compared item by item with) the body GoalGovernedActions builds, and its
+test asserts that the bodies those methods build pass the candidate (design §3, §5).
+A runtime pattern compiled with flags other than the default (re.UNICODE) is refused (C3).
 """
 import re
 
@@ -60,14 +63,18 @@ def field_schema(check):
         return {'type': 'string'}
     code = getattr(check, '__code__', None)
     if code is not None and code is W._id(re.compile('x')).__code__:
-        return {'type': 'string', 'pattern': safe_pattern(_cell(check, re.Pattern).pattern)}
+        compiled = _cell(check, re.Pattern)
+        if compiled.flags != re.UNICODE:  # C3: IGNORECASE, VERBOSE, DOTALL... change what the text means; JSON Schema has no flags
+            raise NotDerivable('pattern flags')
+        return {'type': 'string', 'pattern': safe_pattern(compiled.pattern)}
     if code is not None and code is W._kind('x').__code__:
         return {'const': _cell(check, str)}
     return {}
 
 
 def operation_schema(operation):
-    """The candidate schema of one workbench operation's HTTP fields: exact field set, each field's derived schema."""
+    """The candidate schema of one workbench operation's HTTP fields: exact field set, each field's derived schema. A starting point
+    for a batch, never a publishable Action input schema: that one validates the body GoalGovernedActions builds (C4)."""
     spec = W.OPERATIONS[operation]
     if callable(spec):
         raise NotDerivable('spec chosen by the body')
