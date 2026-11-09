@@ -12,6 +12,7 @@
   - **第 0 天**：第 1–6 步（核对备份与迁移、发布 Action、加入第二位测试 owner、告警规则、策略 `--check`），末尾做 §6a 的只读核对，记下两位 owner 的 `vote_eligible_from` 和 D1 的部署时刻；
   - **第 1 天**：先做 §6b 的前提检查，全部满足才执行第 7 步（发布策略 v1）和第 8 步（双人演练）。
   - 两天之间至少隔 24 小时：第二位 owner 在第 0 天第 4 步才获得 owner 角色，冷却从那时起算；D1 本身也要部署满 24 小时。
+- **第 2 天**（2026-11-09 补写，§8b）：在当前发布上重做第 8 步，按原因码判定，并加做 8.8 过期作废（负责人 2026-11-08 决定），跨 24 小时核对。
 - **时长**：第 0 天约 1 小时；第 1 天的演练（第 8 步）至少需要 2 小时，因为 8.6 要等待超过 1 小时才能看到告警，加上第 7 步，第 1 天约 2.5 小时。
 - **镜像**：需要 94baecc3 或更新的发布（含 NX-056 B1 `0342_nx056_target_member` 与 NX-058 D1 `0343_vote_cooldown`），其中包含 `alert_rules_apply.py` 和 `approval_policies_apply.py`。
 - 每一步标注 **A**（只读，可以随时执行）或 **B**（写入，按顺序执行，执行前确认上一步通过）。
@@ -405,6 +406,76 @@ ro "select recorded_at, rule_id, kind, selector, value, rules_version from contr
 - `approval_waiting` 告警的触发和解除时间；
 - `$TMPDIR/drill-evidence.jsonl`（驱动脚本的输出）；
 - 执行者：调度员（第 1–7 步、approver2 和 approver3 的全部操作）；负责人不参与；判定者：L6（只看证据）。
+
+## 8b. 第 2 天：按原因码重做演练，加做 8.8 过期作废（2026-11-09 补写）
+
+第 1 天（2026-10-27，L6 PASS）用的发布还没有原因码，所以自批和冷却只按"409、`mine` 里没有新的等待请求、审计里没有新的 `approval.requested`"判定，而且演练里没有覆盖 deliverable 中的"超时作废"。第 2 天在当前发布上重做第 8 步，**按原因码判定**，并加做 **8.8 过期作废**（负责人 2026-11-08 决定加做）。8.8 跨 24 小时，第二天做核对。
+
+- **执行者**：调度员。按 §D1R 操作两个合成 owner：approver3 发起，approver2 批准。**负责人账号全程不参与**，也不能被选作批准人。
+- **判定者**：L6，只看证据。
+- **工具**：同第 8 步，`scripts/stage/approval_drill.py`。口令从 Keychain 写进 0600 临时文件，退出时由 trap 删除；每一步先 `--dry-run`，再正式执行；HTTP 状态或原因码不符合预期就停。调度员的私有包装脚本放在 `local-only/`，不进仓库。
+- **时长**：8.1–8.7 约 2.5 小时，其中 1 小时是等告警；8.8 发起约 5 分钟，次日核对约 15 分钟。
+
+### 8b.1 前提（任何一条不满足就不开始）
+
+| # | 前提 | 只读核对（`ro` 见 §0.3；最后两行在管理机执行） | 预期 |
+|---|---|---|---|
+| N1 | 原因码（0362）和预算审批（0369）已部署 | `ro "select version from control.schema_migrations where version in ('0362','0369') order by 1"` | 两行都在 |
+| N2 | 审批策略清单已发布到当前版本 | `ro "select manifest_version,published_at from control.nexloop_approval_policy_publications order by 1"` | 最大版本等于 main 上 `approval-policies.v1.json` 的 `version`（写这一节时为 5）。部署时如果又发了新版本，先核对，再开始 |
+| N3 | approver2、approver3 都有投票资格 | §6b 的第二条查询 | approver2 那一行必须为 `t`；approver3 那一行照录。`vote_eligible_from` 如果比第 0 天记录的晚，说明角色中断过，冷却已重新计时（§9 第 3 行） |
+| N4 | 没有遗留的等待中请求 | `ro "select capability,status,count(*) from control.nexloop_approval_requests where tenant_id='$TENANT_ID' group by 1,2 order by 1,2"` | 没有 `waiting_approval`。有的话先由发起人撤回或等它过期，否则会混进 `approval_waiting` |
+| N5 | 审批类告警当前都没在触发 | `ro "select rule_id,selector,firing from control.nexloop_alert_state where tenant_id='$TENANT_ID' and world='real' and rule_id like 'approval_%' order by 1,2"` | 都是 `f`，或者没有行 |
+| N6 | 告警规则为当前版本（含 `approval_waiting`） | `nexloop-doctor --observability --metrics-database-url-file <metrics DSN> --alert-rules <当前规则文件>` | `alert_rules_current` 为 true |
+| N7 | 演练用的开关当前是关的 | `ro "select scope_kind, scope_ref, enabled from control.nexloop_real_dispatch_switches where tenant_id='$TENANT_ID' and world='real' order by 1,2"` | `eios:action:nexloop.service.request:1` 没有打开 |
+| N8 | 告警评估器和保留期服务在运行 | APP_HOST：`docker compose -p nexloop-app ps` | `alert-evaluator`、`retention-keeper` 都是 running |
+| N9 | Keychain 里有两个测试账号的条目 | `security find-generic-password -s nexloop/stage/approver3 >/dev/null && security find-generic-password -s nexloop/stage/approver2 >/dev/null && echo present` | `present`（只检查是否存在，不读值） |
+| N10 | 单人模式是关的 | approver3 执行 `list` | `solo_mode.enabled` 为 `false` |
+
+**同一天的约束**：
+- **ADR-045 测试顾客模型故障开关必须是关着的**（或已到期）。核对快照的 `synthetic_fault` 块，或者工作台"运行状态"里的演练横幅：不能有生效中的开关。
+- **8.3 到 8.4 之间不能有任何产生 Run 的演练**。这段时间里 `service.request` 的 action_type 开关是打开的；stage 的租户层真实派发是开着的（第 1 天的 P2 偏差，负责人选择"照做并记录"），所以这时有 Run 调用这个 Action 就会真实派发。8.3、8.4 要在几分钟内连续做完。
+- **演练期间不要发起 `goals.budget.loosen`**：它在审批策略里，会生成一条等待中的请求，混进 N4 和 `approval_waiting`。同额续期（`set_budget`）不需要审批，不受影响。
+- 部署（发布新的策略版本、重新应用角色清单、切换告警规则、重启 alert-evaluator）不要和演练同一时段：它们会改变等待中请求绑定的策略版本、投票资格的计时，以及告警的触发时刻。
+
+### 8b.2 步骤与判定
+
+原因文本照第 8 步的 R1、R2、R3、W，另加 **R4 = `演练四：过期作废`**。审计查询、告警查询和开关查询都同第 8 步，时间下限改为第 2 天 8.1 的时刻（下称 T81）。
+
+| # | 谁 | 命令（驱动脚本子命令） | 预期与判定 | 之后的只读核对 |
+|---|---|---|---|---|
+| 8.1 | approver3 | `request --operation set_real_dispatch`，开关打开，原因 R1 | 2xx，返回 `approval_id`（A1），状态"等待审批" | 审计多一行 `approval.requested`，`actor_id` 为 `stage-principal-approver3` |
+| 8.2a | approver3 | `list`，然后对 A1 `decide approve`（自批） | `list` 中 A1 只在 `mine`，不在 `to_decide`；`solo_mode.enabled` 为 `false`。自批：**409 `not_allowed_in_state`，`details_reason=self_approval`** | 审计没有新增 `approval.decided` |
+| 8.2 | approver2 | `list`，然后对 A1 `decide approve`，原因"演练一：同意" | A1 在 `to_decide`；2xx | 审计多一行 `approval.decided`，`actor_id` 为 `stage-principal-approver2`，outcome 为 approved。`approval_first_time_approver` 这次**不应**触发（approver2 第 1 天已经批过；规则只看最近 24 小时）；如果出现，照实记录，不算失败 |
+| 8.3 | approver3 | `execute --approval-id A1` | 2xx，`approval: consumed` | 开关查询：该 Action 已打开。审计多一行 `approval.consumed`，`actor_id` 为 `stage-principal-approver3`，`payload.actor` 为 `stage-human-approver3`，`approved_by` 为 `["stage-human-approver2"]`。**马上做 8.4** |
+| 8.4 | approver3 | `request`，开关关闭，原因"演练一：关闭" | 2xx，没有 `approval_id`（关闭不在策略条件内，立即生效） | 开关查询：该 Action 已关闭 |
+| 8.5 | approver3 | `request`，原因 R2 → A2；`cancel A2`，原因 W；再以 R2 发同一请求 | 第一次 2xx（A2）；撤回 2xx；第二次 **409 `not_allowed_in_state`，`details_reason=cooldown`** | 审计多 `approval.requested`、`approval.cancelled` 两行，都是 approver3；冷却那一次不写审计；N4 查询里没有新的 `waiting_approval` |
+| 8.6 | approver3 | `request`，原因 R3 → A3，记下发起时刻 T86 | 2xx，等待审批 | 约 61 分钟后，告警查询出现 `approval_waiting` 的 `firing`。拖过 24 小时的话 A3 会过期，换原因"演练三（重做）：等待告警"，从 8.6 重做 |
+| 8.7 | approver2 | 告警出现后，`decide reject --approval-id A3`，原因"演练三：拒绝" | 2xx，状态"已拒绝" | 审计多一行 `approval.decided`，outcome 为 rejected；下一轮评估后 `approval_waiting` 出现 `resolved` |
+| 8.8 | approver3 | 8.7 之后：`request`，原因 R4 → A4，记下发起时刻 T88。**不审批，不撤回** | 2xx，等待审批 | 超过 1 小时后，`approval_waiting` 会再次 `firing`，这是预期 |
+| 8.8 核对（次日，T88 + 24 小时之后） | approver3 与调度员 | `list` 看 A4；然后对 A4 `execute` | A4 的状态为过期；`execute` 被拒（A4 不在 `to_execute`，驱动脚本报 `not_in_to_execute`，或者返回 409） | `ro "select status from control.nexloop_approval_requests where tenant_id='$TENANT_ID' and approval_id='<A4>'"` 为 `expired`；审计有一行 `approval.expired`；`approval_waiting` 在过期之后的下一轮评估出现 `resolved`；N4 查询里没有 `waiting_approval` |
+
+**判定标准**（L6）：
+- 上表每一步的预期都成立，原因码与表中一致：8.2a 为 `self_approval`，8.5 为 `cooldown`。
+- 审计逐行核对：8.1、8.2、8.3、8.5（两行）、8.6、8.7、8.8 各自一行或两行，次日再加 `approval.expired` 一行。`actor_id` 与第 8 步审计表的规则相同。**负责人的 principal 和 subject 出现在任何一行（`actor_id`、`payload.actor`、`approved_by`），都判失败。**
+- `approval_waiting` 出现两次 `firing`、`resolved`：一次是 A3（8.6 到 8.7），一次是 A4（8.8 到过期）。
+- 8.3 到 8.4 之间，开关打开的时长记入证据，应当只有几分钟；这段时间里没有别的演练产生 Run。
+- 8.8 核对：A4 为 `expired`，已过期的请求不能再执行。
+
+### 8b.3 证据（记入 NX-056；不含口令、DSN 和用户名）
+
+- 执行者：调度员（N1–N10，两个合成 owner 的全部操作）；判定者：L6。负责人账号不参与。
+- N1、N2 的输出，N3 的两行，N10 的 `solo_mode`。
+- 驱动脚本的证据文件（每步的时刻、账号标签、HTTP 状态、`approval_id`、`status`/`approval`、`details_reason`）。
+- 审计查询结果（第 2 天 7 类行，次日再加 `approval.expired`）。
+- `approval_waiting` 两次的 `firing`、`resolved` 时刻；`approval_first_time_approver` 有没有出现。
+- 8.3、8.4 两个时刻的开关查询结果。
+- 8.8 核对：A4 的状态、`approval.expired` 的时刻、`execute` 被拒的返回。
+
+### 8b.4 失败与回退
+
+同 §9。另外：
+- 8.2a 或 8.5 返回 409 但没有 `details_reason`，说明部署的发布不含 0362，这时 N1 应当已经拦下。停下，不要按第 1 天的口径判定。
+- 8.8 的 A4 在 24 小时后仍是 `waiting_approval`，说明过期清理没有运行。先核对 N8（`retention-keeper`）和运行手册 §7，A4 由发起人撤回，结论交 L6。
 
 ## 9. 回退
 
