@@ -110,7 +110,7 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
 **通用约定**
 - **执行者**：凡是要口令登录的步骤，都在**负责人终端**执行，口令从 Keychain 经 stdin 传入，不进参数、文件或输出。调度员只用文件凭据（bootstrap DSN 文件、签名密钥文件、S6 配置里的服务 DSN 文件），不登录任何人的账号。
 - **占位符**：`<APP_ORIGIN>` 是 stage 工作台的 https 源；`<CA>` 是 CA 文件；`<RUN>` 是 `local-only/` 下当天的私有目录（0700）；`$T` 是租户 ID；`ro "…"` 是 DATA_HOST 上的只读会话（run-nx057 §0.3）；`S6=<RUN>/s6-stage.json`。
-- **证据**：每段写清执行者和判定者。段 B 由调度员执行、L6 判定；段 C 由 S6 工具判定、L6 复核；段 D–H 由调度员执行、负责人判定（§4）。
+- **证据**：两个窗口分开记录：`$S6` 的 window 用于段 D、F、G、H，`$S6_AT048` 的 window 用于段 E，并注明 at048 用的是合并后 3 个单元的划分。每段写清执行者和判定者。段 B 由调度员执行、L6 判定；段 C 由 S6 工具判定、L6 复核；段 D–H 由调度员执行、负责人判定（§4）。
 
 **互斥（任何时刻只做一件）**
 - ADR-045 开关只在段 B 打开。段 C 开始前必须已经关掉，段 D–H 期间也必须一直关着。
@@ -207,7 +207,7 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
 
 - **预期**：`sources.window.status` 是 `ok`，`evidence.consumers_with_miss` 大于等于 4；`erasure_consumer_id` 是 `ok`。`semantic` 此时是 blocked，属于正常（§0 P5）。
 - **P5 的判定**：以这个工具的输出为准（L6 2026-11-09）。带检索未命中的失败 Run 要覆盖 4 个不同的簇单元。不够的话，**照实判 blocked，不为了凑数加轮次**。演练证据和 P5 证据可以引用同一批 Run，但要分开记录。按 0418，这些 Run 不计入 B5 的失败率，这是预期。
-- **只读核对**：把输出里的 `window` 和 `erasure_consumer_id` 填进 `$S6` 的 `inputs.evolution`（§1）。`erasure_consumer_id` **必须是段 B 里 4 个顾客中的一个**，不能是 customer-1..4。工具只会挑 persona 不是 real 的顾客；如果它挑中的是 customer-1..4，就从 `candidates` 里换一个段 B 的顾客。
+- **只读核对**：把输出里的 `window` 和 `erasure_consumer_id` 填进 `$S6` 的 `inputs.evolution`（§1）。**`$S6` 的 window 从这里起固定不变**（L6 C1）：`until` 要在段 E 造近重复对之前，取工具给出的 `until` 和当前时间中较早的那个；段 D、F、G、H 都用这个窗口。`erasure_consumer_id` **必须是段 B 里 4 个顾客中的一个**，不能是 customer-1..4。工具只会挑 persona 不是 real 的顾客；如果它挑中的是 customer-1..4，就从 `candidates` 里换一个段 B 的顾客。
 - **失败时**：`window` 是 blocked，就把 P5 判 blocked，段 D–H 当天不做，向负责人报告 `consumers_with_miss` 的实际值。
 
 #### 段 D r5
@@ -225,12 +225,13 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
 
 #### 段 E at048（包括 (b) 路线要的近重复那一对）
 
-- **造近重复的一对**（负责人终端，开关关着）：AT-048 的 (b) 路线需要两个**不同顾客**的 Run，它们读取的词组完全相同（`s6_stage_evolution.py` 按 `term_hashes` 的集合是否相等来判定）。做法是从段 B 的 4 个顾客里挑两个（不要挑段 C 选出的 `erasure_consumer_id`），各发**一条**措辞完全相同、只含两个固定未知词的消息，例如“请介绍霁蓝釉陶片拼贴和鎏金錾花”，两条间隔至少 1 分钟，不要加别的词。命令：`pw | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <RUN>/synthetic-customer.json --plan <RUN>/plan-e-pair.json`，plan 里只写这两个顾客的各一轮；其余两个顾客的口令行没有用到，工具会忽略它们，这一点以工具实际的处理为准，不行就只给这两行。发完后重跑一次段 C 的命令，确认 `window` 还是 ok；如果这两条落在了原来的窗口之外，就按工具的输出更新 `$S6` 里的 window。
-- **注意簇单元的合并**：诊断会把近重复的两个 Run 并成一个簇（`s6_stage_evolution.py` 的 `find`），连带它们各自顾客的簇也会合并，所以 4 个顾客在诊断里可能只剩 3 个单元。**如果 at048 或之后的段因为单元数不够而报 blocked，就照实记录，不再额外造数据**，报给负责人和 L6 决定。
+- **造近重复的一对**（负责人终端，开关关着）：AT-048 的 (b) 路线需要两个**不同顾客**的 Run，它们读取的词组完全相同（`s6_stage_evolution.py` 按 `term_hashes` 的集合是否相等来判定）。做法是从段 B 的 4 个顾客里挑两个（不要挑段 C 选出的 `erasure_consumer_id`），各发**一条**措辞完全相同、只含两个固定未知词的消息，例如“请介绍霁蓝釉陶片拼贴和鎏金錾花”，两条间隔至少 1 分钟，不要加别的词。命令：`pw | uv run --frozen python scripts/acceptance/synthetic_customer.py --config <RUN>/synthetic-customer.json --plan <RUN>/plan-e-pair.json`，plan 里只写这两个顾客的各一轮；其余两个顾客的口令行没有用到，工具会忽略它们，这一点以工具实际的处理为准，不行就只给这两行。发完后，复制一份 `$S6` 作为 `$S6_AT048`（`<RUN>/s6-stage-at048.json`，0600），只改两处：window 的 `since` 不变，`until` 延到近重复对的两条 Run 都结束之后；`label` 用一个新值（例如加上 `-at048` 后缀）。**`$S6` 本身不改。**
+- **近重复对选哪两个顾客**（L6 C2）：不能选 `erasure_consumer_id`；也不能选段 B 里只有一条带未命中 Run 的顾客，因为合并之后它的单元可能撑不起留出集。只能从段 B 里有两条或以上带未命中 Run 的顾客中挑；可选的不到两个就判 blocked。
+- **簇单元的合并**：诊断会把近重复的两个 Run 并成一个簇（`s6_stage_evolution.py` 的 `find`），连带它们各自顾客的簇也会合并，所以在 `$S6_AT048` 的窗口里只有 3 个单元。at048 用的是这 3 个单元的划分（L6：at048 的序号是 4，3 个单元能给出 6 个子集，够用）。其他段用 `$S6` 的窗口，那个窗口里没有近重复对，仍然是 4 个单元。at048 如果仍然报单元数不够，照实判 blocked，不再造数据。
 - **命令**（调度员）：
 
   ```bash
-  uv run --frozen python scripts/acceptance/s6_stage_evolution.py at048 --config "$S6"
+  uv run --frozen python scripts/acceptance/s6_stage_evolution.py at048 --config "$S6_AT048"
   ```
 
 - **预期**：(a) 和 (b) 都返回 `leakage_detected`；按顾客分组、把近重复并成一簇的候选开评通过（§3）。结果里 `near_duplicate_pairs` 至少为 1，不能出现 note `route near_duplicate not planned`。
