@@ -181,13 +181,59 @@ def test_the_failure_recorder_takes_only_a_world_and_an_error_class(env):
     assert f['admin'].execute('select reason, failures from runtime.nexloop_action_input_shadow_failures').fetchall() == [('OperationalError', 1)]
 
 
-def test_rules_v36_are_v34_plus_the_shadow_failure_warning():
+def test_rules_v36_are_v35_plus_the_shadow_failure_warning():
     from pathlib import Path
     from nexloop_eios.observability import load_rules, validate_rules
     root = Path(__file__).resolve().parents[1] / 'deploy/configuration'
-    v34, v36 = json.loads((root / 'alert-rules.v34.json').read_text()), load_rules(root / 'alert-rules.v36.json')
+    v35, v36 = json.loads((root / 'alert-rules.v35.json').read_text()), load_rules(root / 'alert-rules.v36.json')
     validate_rules(v36)
-    assert v36['version'] == 36 and v36['rules'][:-1] == v34['rules']
+    assert v36['version'] == 36 and v36['rules'][:-1] == v35['rules'] and v36['decision'].startswith(v35['decision'])
+    assert {'machine_rate_policy_missing', 'machine_key_denials'} <= {r['rule_id'] for r in v36['rules']}
     assert {k: v36['rules'][-1][k] for k in ('rule_id', 'metric', 'condition', 'threshold', 'for_seconds', 'severity')} == {
         'rule_id': 'action_input_shadow_failures', 'metric': 'action_input_shadow.failures_24h', 'condition': 'gt', 'threshold': 0,
         'for_seconds': 0, 'severity': 'warning'}
+    assert 'one day more' in v36['rules'][-1]['purpose']
+
+
+# The metrics snapshot's EXECUTE grantees after 0437: none besides its owner. Its callers are owner-owned definer functions (the alert
+# evaluation authz.nexloop_alert_evaluate, the workbench and metrics reads, 0131/0133/0259/0260), so the evaluator reaches it through
+# them (tests/test_d23_shadow_alert_pg.py). The 0438 wrapper copies whatever the wrapped function had - today the empty set - and the
+# renamed functions keep nothing.
+SNAPSHOT_GRANTEES_EXPECTED = set()
+ROLES = ('nexloop_api', 'nexloop_runtime', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler', 'nexloop_metrics')
+
+
+def _holders(db, function):
+    return {r for (r,) in db.execute("""select r.rolname from pg_proc p cross join aclexplode(p.proacl) a join pg_roles r on r.oid=a.grantee
+        where p.oid=%s::regprocedure and a.privilege_type='EXECUTE' and a.grantee<>p.proowner""", (function,)).fetchall()}
+
+
+def test_the_snapshot_wrapper_keeps_the_grantees_and_nothing_calls_past_it(env):
+    """L6 P1 on a6692f1c: the wrapper has exactly the grantees of the 0437 wrapper; the renamed functions have none, so no service
+    role reaches the renamed snapshot (42501)."""
+    f = env
+    db = f['admin']
+    assert _holders(db, 'runtime.nexloop_metrics_snapshot(text,text)') == SNAPSHOT_GRANTEES_EXPECTED
+    for renamed in ('runtime.nexloop_metrics_snapshot_before_shadow_failures(text,text)', 'runtime.nexloop_metrics_snapshot_before_machine_access(text,text)'):
+        assert _holders(db, renamed) == set()
+    for role in ROLES:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            with db.transaction():
+                db.execute(f'set local role {role}')
+                db.execute('select runtime.nexloop_metrics_snapshot_before_shadow_failures(%s,%s)', (f['tenant'], 'real'))
+
+
+def test_every_rules_version_keeps_the_rules_of_the_one_before():
+    """A new alert rules version drops or changes a rule only when it says so here (v18 moved one threshold)."""
+    import glob
+    import re as _re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1] / 'deploy/configuration'
+    files = {int(_re.search(r'v(\d+)\.json$', p).group(1)): json.loads(Path(p).read_text()) for p in glob.glob(str(root / 'alert-rules.v*.json'))}
+    removed, changed = {}, {18: {'data_health_extraction_dead_letters'}}
+    assert sorted(files) == list(range(1, max(files) + 1))
+    for n in sorted(files)[1:]:
+        before = {r['rule_id']: r for r in files[n - 1]['rules']}
+        after = {r['rule_id']: r for r in files[n]['rules']}
+        assert set(before) - set(after) == removed.get(n, set()), n
+        assert {k for k in before if k in after and before[k] != after[k]} == changed.get(n, set()), n

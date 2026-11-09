@@ -68,9 +68,11 @@ alter function authz.nexloop_action_input_shadow_summary(text,text,timestamptz) 
 revoke all on function authz.nexloop_action_input_shadow_summary(text,text,timestamptz) from public;
 grant execute on function authz.nexloop_action_input_shadow_summary(text,text,timestamptz) to nexloop_metrics;
 
--- The metrics snapshot gains the block action_input_shadow {failures_24h} (the 0427 rename-and-wrap pattern), read by the alert
+-- The metrics snapshot gains the block action_input_shadow {failures_24h} (the 0427 and 0437 rename-and-wrap pattern, on top of 0437's
+-- _before_machine_access wrapper; one public name remains), read by the alert
 -- rule action_input_shadow_failures (rules v36: > 0 in 24 hours, warning). Shadow failures are recorded per world only, so the
--- block is the same for every tenant of the world.
+-- block is the same for every tenant of the world. failures_24h sums the days whose last failure is within 24 hours, so it may count
+-- up to one day more than the last 24 hours (it only feeds a > 0 rule).
 alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_shadow_failures;
 revoke all on function runtime.nexloop_metrics_snapshot_before_shadow_failures(text,text) from public;
 create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
@@ -84,3 +86,14 @@ begin
 end $$;
 alter function runtime.nexloop_metrics_snapshot(text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_metrics_snapshot(text,text) from public;
+-- L6 P1 on a6692f1c: as 0437 (nx062_machine_realm) and the 0434 fix, the wrapper gets every EXECUTE grantee of the function it wraps
+-- (the alert evaluator, the API, the metrics login), and the renamed function keeps none: nothing calls past the wrapper.
+do $$declare g text;
+begin
+ for g in select r.rolname from pg_proc p cross join aclexplode(p.proacl) a join pg_roles r on r.oid=a.grantee
+   where p.oid='runtime.nexloop_metrics_snapshot_before_shadow_failures(text,text)'::regprocedure and a.privilege_type='EXECUTE'
+    and a.grantee<>p.proowner group by r.rolname loop
+  execute format('grant execute on function runtime.nexloop_metrics_snapshot(text,text) to %I',g);
+  execute format('revoke execute on function runtime.nexloop_metrics_snapshot_before_shadow_failures(text,text) from %I',g);
+ end loop;
+end $$;
