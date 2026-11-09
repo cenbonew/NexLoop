@@ -2184,12 +2184,12 @@
     {
       "version": "0437",
       "name": "0437_nx062_machine_realm.sql",
-      "sha256": "e16cff2214e5c31e9963d7223029e25e99960ede5c1fc69b9ef0cd12ffdcd8d6"
+      "sha256": "61f24649858187410e6926020585096fb2ca63c3ad8f6c0fc9d402b10eafb619"
     },
     {
       "version": "0440",
       "name": "0440_nx062_machine_reads.sql",
-      "sha256": "dadde274f2b5361e02f17cd4a50ae15120b079008046d64a5912b50233bced62"
+      "sha256": "b18afb4e78fdb574a8ca4f69371c82145c188e3457201227f34de87e4a8f3657"
     },
     {
       "version": "0441",

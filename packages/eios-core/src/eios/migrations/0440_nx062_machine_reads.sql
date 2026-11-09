@@ -41,7 +41,7 @@ create table authz.nexloop_machine_client_grants (
 
 create table runtime.nexloop_machine_read_counts (
  day date not null,
- tenant_id text not null,
+ tenant_id text not null references control.nexloop_tenants(tenant_id),  -- NX-052 tenant path
  key_prefix text not null check(key_prefix~'^[a-z2-7]{12}$'),
  verb text not null,
  object_type text not null,
