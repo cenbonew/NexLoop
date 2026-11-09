@@ -731,6 +731,26 @@ def browser_entries(*, browser_application_id, workbench_application_id, seal_di
                                      'idempotency_key_digest': seal_digest} for a, n in apps]}
 
 
+def additional_application_entries(*, application_id, browser_application_id, workbench_application_id, seal_digest, accounts,
+                                   operator_label='stage-owner'):
+    """One more browser application with its own initial identity allowance (0050), nothing else.
+
+    0050 keys an allowance by (tenant, application) and never raises, resets or reopens it (0381 configure_manifest: 'configuration
+    conflict' when maximum_accounts, operator_label or the digest differ, or a closed allowance is sent enabled; 0352
+    initial_identity_create closes it at the maximum). More initial accounts therefore need a new application id: login reads an
+    account by tenant and username and only requires the login application to be active (0021 read_browser_identity), so an account
+    created under this id signs in through the existing WebChat application. No rate policy is sent: they are per tenant and action."""
+    if not _APP_ID.fullmatch(application_id or '') or application_id in (browser_application_id, workbench_application_id):
+        raise Refused('--additional-application-id: a new application id, different from the WebChat and workbench ids')
+    if not re.fullmatch('[0-9a-f]{64}', seal_digest or '') or not _APP_ID.fullmatch(operator_label or ''):
+        raise Refused('seal digest (sha256 of the initial identity idempotency key) and operator label are required')
+    if type(accounts) is not int or not 1 <= accounts <= 100:
+        raise Refused('--additional-accounts: 1..100')
+    return {'browser_applications': [{'application_id': application_id, 'active': True}], 'browser_rate_policies': [],
+            'identity_allowances': [{'application_id': application_id, 'enabled': True, 'maximum_accounts': accounts,
+                                     'operator_label': operator_label, 'idempotency_key_digest': seal_digest}]}
+
+
 def browser_state(connection, tenant):
     """Read-only current values of the managed browser rows (for the idempotency check; the window's bootstrap session)."""
     apps = {a: act for a, act in connection.execute('select application_id, active from control.nexloop_browser_applications where tenant_id=%s', (tenant,))}
@@ -1078,9 +1098,14 @@ def browser_main(args):
     seal = bytes.fromhex(read_private_text(args.identity_seal_file, maximum=128).strip())
     if len(seal) != 32:
         raise Refused('--identity-seal-file: 32 bytes as 64 hex')
-    entries = browser_entries(browser_application_id=args.browser_application_id, workbench_application_id=args.workbench_application_id,
-                              seal_digest=_h.sha256(seal).hexdigest(), webchat_accounts=args.webchat_accounts,
-                              workbench_accounts=args.workbench_accounts, operator_label=args.operator_label)
+    if args.additional_application_id:
+        entries = additional_application_entries(application_id=args.additional_application_id, browser_application_id=args.browser_application_id,
+                                                 workbench_application_id=args.workbench_application_id, seal_digest=_h.sha256(seal).hexdigest(),
+                                                 accounts=args.additional_accounts, operator_label=args.operator_label)
+    else:
+        entries = browser_entries(browser_application_id=args.browser_application_id, workbench_application_id=args.workbench_application_id,
+                                  seal_digest=_h.sha256(seal).hexdigest(), webchat_accounts=args.webchat_accounts,
+                                  workbench_accounts=args.workbench_accounts, operator_label=args.operator_label)
     if args.dry_run:
         return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=None, dry_run=True)
     if not args.signing_key_id or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
@@ -1303,6 +1328,8 @@ def main(argv=None):
     b.add_argument('--webchat-accounts', type=int, default=10)
     b.add_argument('--workbench-accounts', type=int, default=5)
     b.add_argument('--operator-label', default='stage-owner')
+    b.add_argument('--additional-application-id', help='publish only one more application with its own allowance (a full allowance is never raised)')
+    b.add_argument('--additional-accounts', type=int, default=5)
     b.add_argument('--configurator-dsn-file', type=Path)
     b.add_argument('--bootstrap-dsn-file', type=Path)
     b.add_argument('--signing-key-id')

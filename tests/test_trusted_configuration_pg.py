@@ -124,6 +124,38 @@ def test_wrong_password_replay_quota_closed_and_crosstenant_deny(configured,admi
     assert admin.execute('select enabled,created_accounts from control.nexloop_initial_identity_allowances').fetchone()==(False,1)
 
 
+
+def test_a_full_allowance_is_never_raised_or_reopened_and_a_new_application_adds_accounts_that_sign_in_through_the_first(configured,admin):
+    # run-add-synthetic-customer step 0: the WebChat allowance on stage is full and closed; more accounts come from a new application id.
+    import sys
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'/'deploy'))
+    import stage_secrets as S
+    f=configured;create_human(f,identity_manifest(f))
+    assert admin.execute('select enabled,created_accounts,maximum_accounts from control.nexloop_initial_identity_allowances').fetchone()==(False,1,1)
+    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets
+    def apply(f,manifest):  # as stage_secrets.apply_browser publishes: no service credential, an empty secret map
+        return apply_manifest_with_secrets(manifest,database_url_file=f['paths']['dsn'],signing_key_file=f['paths']['signing'],signing_key_id='explicit-configuration',service_secrets={})
+    def body(**categories):
+        revision=admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(f['tenant'],)).fetchone()[0]
+        empty={k:[] for k in ('object_types','actions','functions','authority_facts','service_credentials','browser_applications','browser_business_applications','browser_rate_policies','identity_allowances')}
+        return {'schema_version':'1.0','manifest_id':str(uuid.uuid4()),'tenant_id':f['tenant'],'expected_revision':revision,'tenant_status':'active',**empty,**categories}
+    allowance=f['manifest']['identity_allowances'][0]
+    for changed in ({**allowance,'maximum_accounts':2},{**allowance,'enabled':True}):
+        with pytest.raises(ConfigurationRejected):apply(f,body(identity_allowances=[changed]))
+    assert admin.execute('select enabled,created_accounts,maximum_accounts from control.nexloop_initial_identity_allowances').fetchone()==(False,1,1)
+    entries=S.additional_application_entries(application_id='explicit-local-login-b',browser_application_id=f['application'],workbench_application_id='explicit-workbench',
+        seal_digest=allowance['idempotency_key_digest'],accounts=5,operator_label=allowance['operator_label'])
+    apply(f,body(**entries))
+    assert admin.execute("select enabled,created_accounts,maximum_accounts from control.nexloop_initial_identity_allowances where application_id='explicit-local-login-b'").fetchone()==(True,0,5)
+    second=identity_manifest(f);second['application_id']='explicit-local-login-b';second['account']['username']='explicit-user-b'
+    created=create_human(f,second);assert created['created'] is True
+    assert admin.execute("select created_accounts from control.nexloop_initial_identity_allowances where application_id='explicit-local-login-b'").fetchone()[0]==1
+    with open_browser_identity(make_conninfo(f['pg'],user='nexloop_identity')) as pool:
+        uow=PostgresBrowserSessionUnitOfWork(pool,tenant_id=f['tenant'],application_id=f['application'])
+        identity=(make_conninfo(f['pg'],user='nexloop_identity'),uow.get_subject(created['subject_id']),uow.get_membership(f['tenant'],created['principal_id']),uow.get_local_account(f['tenant'],created['account_id']),f['paths']['password'].read_text())
+        issued=create(uow,identity,authenticate(uow,identity).evidence)
+        assert issued.session.principal_id==created['principal_id']
+
 @pytest.mark.parametrize('role',['nexloop_api','nexloop_identity','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler','nexloop_runtime'])
 def test_runtime_and_service_roles_cannot_publish_or_read_configuration(configured,role):
     with psycopg.connect(make_conninfo(configured['pg'],user=role)) as db:
