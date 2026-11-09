@@ -111,6 +111,12 @@ def validate_roles(value):
                   'eios:action:nexloop.world_glossary.set:1',  # world-model glossary: the Chinese glosses are the owner's
                   'eios:action:nexloop.relay.backlog_settle:1',  # S42: settling messages no relay will serve is the owner's
                   'eios:action:nexloop.action_claim.settle:1',  # stale action claims: ending one is the owner's
+                  'eios:action:nexloop.machine_client.register:1',  # NX-062 M2b: machine access is the owner's (Q-4)
+                  'eios:action:nexloop.machine_client.deactivate:1',  # NX-062 M2b: machine access is the owner's (Q-4)
+                  'eios:action:nexloop.machine_client.activate:1',  # NX-062 M2b: machine access is the owner's (Q-4)
+                  'eios:action:nexloop.machine_key.issue:1',  # NX-062 M2b: machine access is the owner's (Q-4)
+                  'eios:action:nexloop.machine_key.rotate:1',  # NX-062 M2b: machine access is the owner's (Q-4)
+                  'eios:action:nexloop.machine_key.revoke:1',  # NX-062 M2b: machine access is the owner's (Q-4)
                   'eios:action:nexloop.knowledge.read:1'}  # NX-028 D2 revision (2026-10-18): the owner reads the knowledge workbench
     if owner_only & (set(value['roles']['operator']) | set(value['roles']['reviewer'])):
         raise WorkbenchRolesRejected('owner-only Action in another role')

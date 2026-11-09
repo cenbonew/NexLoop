@@ -349,6 +349,7 @@ def parse(argv=None,environ=None):
     p.add_argument('--entry-test-staff-label',default='entry-test')
     p.add_argument('--entry-ticket-key-file',type=Path,help='S81: private HMAC key shared with the reference endpoint (staff entry tickets)')
     p.add_argument('--entry-ticket-ttl',type=int,default=30)
+    p.add_argument('--machine-key-peppers-file',type=Path,help='NX-062: private pepper file of machine keys (issuing and rotating them is unavailable without it)')
     p.add_argument('--workbench-oidc-providers-file',type=Path,help='NX-058 slice F: private provider file of workbench single sign-on (off without it)')
     # L6 C11: the gateway peers (address or CIDR, repeatable) whose X-NexLoop-Client-IP the login rate limit trusts; none = the socket peer.
     p.add_argument('--trusted-proxy-peer',action='append',default=[])
@@ -389,7 +390,7 @@ def parse(argv=None,environ=None):
         from nexloop_eios.browser_http import BrowserConfiguration
         try:workbench=BrowserConfiguration(a.identity_database_url_file,a.browser_rate_key_file,a.browser_tenant_id,a.workbench_application_id,a.browser_origin,
             trusted_proxy_peers=tuple(a.trusted_proxy_peer),identity_token_key_file=a.identity_token_key_file,
-            oidc_providers_file=a.workbench_oidc_providers_file,reference_endpoint_staff_url=a.reference_endpoint_staff_url or None,
+            oidc_providers_file=a.workbench_oidc_providers_file,machine_key_peppers_file=a.machine_key_peppers_file,reference_endpoint_staff_url=a.reference_endpoint_staff_url or None,
             entry_tickets=entry,entry_test_webchat_principal=a.entry_test_webchat_principal or None,entry_test_staff_label=a.entry_test_staff_label,
             entry_ticket_key_file=a.entry_ticket_key_file,entry_ticket_ttl=a.entry_ticket_ttl)
         except ValueError:p.error('plain HTTPS reference endpoint staff URL required')

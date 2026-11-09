@@ -142,12 +142,22 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     # Stale action claims (2026-10-31): the owner ends a stale active claim whose result is settled (owner only).
     'settle_action_claim':'action_claim.settle',
     # K4b (human_questions): answer, correct or withdraw the answer to a reevaluation Run's question (owner and operator; kind checked in SQL).
-    'answer_human_question':'human_question.answer'}
+    'answer_human_question':'human_question.answer',
+    # NX-062 M2b (0435): the machine access lifecycle (owner only; SQL also requires an active owner).
+    'register_machine_client':'machine_client.register',
+    'deactivate_machine_client':'machine_client.deactivate',
+    'activate_machine_client':'machine_client.activate',
+    'issue_machine_key':'machine_key.issue',
+    'rotate_machine_key':'machine_key.rotate',
+    'revoke_machine_key':'machine_key.revoke'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
                   'workbench_member.invite_owner':('token_hmac','issuer_source_hmac')}
 _ID=re.compile(r'[a-z0-9][a-z0-9._-]{0,127}')
+_MACHINE_CLIENT=re.compile(r'[a-z][a-z0-9-]{2,62}')
+_MACHINE_SCOPE=re.compile(r'[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+')
+_UUID=re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 _KR=re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 _REF=re.compile(r'[A-Za-z0-9][A-Za-z0-9._:/@-]{0,254}')
 _DECIMAL=re.compile(r'-?\d{1,18}(\.\d{1,12})?')
@@ -449,6 +459,51 @@ class GoalGovernedActions:
             raise ValueError('question, answer kind and exactly one of option index or text required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'answer_human_question','question_id':str(question_id),
                                                         'answer_kind':answer_kind,'option_index':option_index,'text':text})
+
+    # NX-062 M2b (0435): the machine access lifecycle, owner only. The key never comes here: issue and rotate receive its prefix, HMAC
+    # digest and pepper version, drawn by the workbench entry (nexloop_eios.machine_keys); SQL checks everything again.
+    def register_machine_client(self,*,action_name,action_version,request_id,client_id,display_name,purpose):
+        if (type(client_id) is not str or not _MACHINE_CLIENT.fullmatch(client_id) or type(display_name) is not str or not 1<=len(display_name.strip())<=120
+                or type(purpose) is not str or not 1<=len(purpose.strip())<=400):
+            raise ValueError('client id, display name and purpose required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'register_machine_client','client_id':client_id,
+                                                        'display_name':display_name,'purpose':purpose})
+
+    def _machine_client_status(self,operation,action_name,action_version,request_id,client_id,reason):
+        if type(client_id) is not str or not _MACHINE_CLIENT.fullmatch(client_id) or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('client id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':operation,'client_id':client_id,'reason':reason})
+
+    def deactivate_machine_client(self,*,action_name,action_version,request_id,client_id,reason):
+        return self._machine_client_status('deactivate_machine_client',action_name,action_version,request_id,client_id,reason)
+
+    def activate_machine_client(self,*,action_name,action_version,request_id,client_id,reason):
+        return self._machine_client_status('activate_machine_client',action_name,action_version,request_id,client_id,reason)
+
+    @staticmethod
+    def _machine_key_fields(scope,expires_in_days,prefix_id,digest,pepper_version):
+        if (type(scope) is not list or not 1<=len(scope)<=64 or len(set(scope))!=len(scope) or not all(type(s) is str and _MACHINE_SCOPE.fullmatch(s) for s in scope)
+                or type(expires_in_days) is not int or not 1<=expires_in_days<=90 or type(prefix_id) is not str or not re.fullmatch(r'[a-z2-7]{12}',prefix_id)
+                or type(digest) is not str or not re.fullmatch(r'[0-9a-f]{64}',digest) or type(pepper_version) is not int or not 1<=pepper_version<=999999999):
+            raise ValueError('scope, 1-90 days and the drawn key fields required')
+        return {'scope':scope,'expires_in_days':expires_in_days,'prefix_id':prefix_id,'digest':digest,'pepper_version':pepper_version}
+
+    def issue_machine_key(self,*,action_name,action_version,request_id,client_id,world,scope,expires_in_days,prefix_id,digest,pepper_version):
+        if type(client_id) is not str or not _MACHINE_CLIENT.fullmatch(client_id) or world not in ('real','test'):
+            raise ValueError('client id and world real or test required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'issue_machine_key','client_id':client_id,'world':world,
+                                                        **self._machine_key_fields(scope,expires_in_days,prefix_id,digest,pepper_version)})
+
+    def rotate_machine_key(self,*,action_name,action_version,request_id,previous_key_id,overlap_days,scope,expires_in_days,prefix_id,digest,pepper_version):
+        if type(previous_key_id) is not str or not _UUID.fullmatch(previous_key_id) or type(overlap_days) is not int or not 0<=overlap_days<=7:
+            raise ValueError('previous key id and 0-7 overlap days required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'rotate_machine_key','previous_key_id':previous_key_id,
+                                                        'overlap_days':overlap_days,**self._machine_key_fields(scope,expires_in_days,prefix_id,digest,pepper_version)})
+
+    def revoke_machine_key(self,*,action_name,action_version,request_id,key_id,reason):
+        if type(key_id) is not str or not _UUID.fullmatch(key_id) or type(reason) is not str or not 1<=len(reason.strip())<=500:
+            raise ValueError('key id and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'revoke_machine_key','key_id':key_id,'reason':reason})
 
     # 0220 (ADR-034 first step): owner only; the handler (SQL) checks the Consumer and records the revision and event.
     def set_consumer_persona(self,*,action_name,action_version,request_id,consumer_id,persona,reason):

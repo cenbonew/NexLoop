@@ -2150,6 +2150,11 @@
       "version": "0434",
       "name": "0434_nx062_machine_access.sql",
       "sha256": "62649e2045dab56fb9ef6fd61746bcd3469f511b3fee394b53054b025ba07a6e"
+    },
+    {
+      "version": "0435",
+      "name": "0435_nx062_machine_lifecycle.sql",
+      "sha256": "58f0f491a8bd8e7205169fba4f75e848c4856fb60512c30daea21ed86aa371f3"
     }
   ]
 }
