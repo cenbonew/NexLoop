@@ -509,6 +509,45 @@ def test_the_browser_registration_carries_the_reset_completion_rate_policy():
     assert all(p['operator_principal_id'] == 'nexloop_identity' and p['active'] for p in entries['browser_rate_policies'])
 
 
+
+def test_an_additional_application_carries_only_its_own_allowance_and_differs_from_both_ids():
+    e = S.additional_application_entries(application_id='webchat-b', browser_application_id='webchat', workbench_application_id='workbench',
+                                         seal_digest='a' * 64, accounts=5)
+    assert e == {'browser_applications': [{'application_id': 'webchat-b', 'active': True}], 'browser_rate_policies': [],
+                 'identity_allowances': [{'application_id': 'webchat-b', 'enabled': True, 'maximum_accounts': 5, 'operator_label': 'stage-owner',
+                                          'idempotency_key_digest': 'a' * 64}]}
+    for bad in ('webchat', 'workbench', '', 'bad id'):
+        with pytest.raises(S.Refused):
+            S.additional_application_entries(application_id=bad, browser_application_id='webchat', workbench_application_id='workbench',
+                                             seal_digest='a' * 64, accounts=5)
+    with pytest.raises(S.Refused):
+        S.additional_application_entries(application_id='webchat-b', browser_application_id='webchat', workbench_application_id='workbench',
+                                         seal_digest='a' * 64, accounts=0)
+    # The full, closed WebChat allowance is left alone: only the new row is pending; a rerun publishes nothing.
+    state = {'applications': {'webchat': True, 'workbench': True}, 'rates': {},
+             'allowances': {'webchat': (False, 10, 'stage-owner', 'a' * 64), 'workbench': (True, 5, 'stage-owner', 'a' * 64)}}
+    pending, conflicts = S._browser_pending(e, state)
+    assert conflicts == [] and pending == e
+    state['applications']['webchat-b'] = True
+    state['allowances']['webchat-b'] = (True, 5, 'stage-owner', 'a' * 64)
+    assert S._browser_pending(e, state) == ({'browser_applications': [], 'browser_rate_policies': [], 'identity_allowances': []}, [])
+    # Raising the full allowance instead is refused before any write (0050 never resets it).
+    raised = S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench', seal_digest='a' * 64, webchat_accounts=15)
+    assert 'webchat' in S._browser_pending(raised, state)[1]
+
+
+def test_the_additional_allowance_example_names_every_value_the_command_takes():
+    text = (ROOT / 'deploy/examples/webchat-allowance-additional.example.env').read_text()
+    values = dict(line.split('=', 1) for line in text.splitlines() if line and not line.startswith('#'))
+    assert set(values) == {'TENANT_ID', 'BROWSER_APPLICATION_ID', 'WORKBENCH_APPLICATION_ID', 'ADDITIONAL_APPLICATION_ID', 'ADDITIONAL_ACCOUNTS',
+                           'OPERATOR_LABEL', 'SIGNING_KEY_ID'}
+    assert values['ADDITIONAL_ACCOUNTS'] == '5' and values['OPERATOR_LABEL'] == 'stage-owner'
+    filled = {k: v.replace('<WEBCHAT_APPLICATION_ID>', 'nexloop-webchat').replace('<WORKBENCH_APPLICATION_ID>', 'nexloop-workbench') for k, v in values.items()}
+    e = S.additional_application_entries(application_id=filled['ADDITIONAL_APPLICATION_ID'], browser_application_id=filled['BROWSER_APPLICATION_ID'],
+                                         workbench_application_id=filled['WORKBENCH_APPLICATION_ID'], seal_digest='b' * 64,
+                                         accounts=int(filled['ADDITIONAL_ACCOUNTS']), operator_label=filled['OPERATOR_LABEL'])
+    assert e['identity_allowances'][0]['maximum_accounts'] == 5
+
 def _accepted_roles():
     """The SQL login each stage entry point accepts, read from the code (verify_application_role checks)."""
     from nexloop_eios.background_services import SERVICES

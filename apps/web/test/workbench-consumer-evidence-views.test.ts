@@ -113,3 +113,22 @@ test('a folded duplicate claim shows ×N on the node, the panel and the table wi
   await click([...box.querySelectorAll('button')].find(b=>b.textContent==='表格')!);
   const marks=[...box.querySelectorAll('table .dup-mark')];expect(marks.map(m=>m.textContent)).toEqual(['×2']);expect(marks[0].getAttribute('title')).toBe(hint);
 });
+
+test('trace layout (owner 2026-11-09): refs and notes in their own blocks; ids never break per letter; the detail column has a minimum width',async()=>{
+  stub(()=>Response.json(traceEx));await mount(h(MessageTrace,{messageId:'m-1'}));
+  const rows=[...box.querySelectorAll('.trace-steps li')];
+  for(const r of rows)expect(r.children).toHaveLength(4);
+  const withRefs=rows.filter(r=>r.querySelector('.trace-refs'));expect(withRefs.length).toBeGreaterThan(0);
+  for(const r of withRefs){const ids=[...r.querySelectorAll('.trace-refs .id-text')];expect(ids.length).toBeGreaterThan(0);
+    for(const id of ids){expect(id.querySelector('code.id-code')!.getAttribute('title')).toContain(id.getAttribute('data-id')!);expect(id.querySelector('button.id-copy')).not.toBeNull();}}
+  expect(rows[1].querySelector('.trace-note')!.textContent).toBeTruthy();
+  const css=readFileSync(resolve(__dirname,'../src/styles.css'),'utf8');
+  const rule=(sel:string)=>{const m=css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\{([^}]*)\\}'));expect(m,sel).not.toBeNull();return m![1];};
+  expect(rule('.workbench .trace-steps li')).toMatch(/grid-template-columns:7\.5em max-content max-content minmax\(12rem,1fr\)/);
+  expect(rule('.workbench .trace-steps li')).toContain('overflow-wrap:normal');expect(rule('.workbench .trace-steps li')).toContain('max-width:none');
+  expect(rule('.workbench .trace-detail')).toContain('min-width:12rem');
+  expect(rule('.workbench .trace-refs code.id-code')).toMatch(/white-space:nowrap;overflow:hidden;text-overflow:ellipsis/);
+  expect(rule('.workbench .trace-refs .id-kind')).toContain('white-space:nowrap');
+  expect(rule('.workbench .trace-name,.workbench .trace-time')).toContain('white-space:nowrap');
+  expect(rule('.workbench .workbench-messages li:has(.trace-steps)')).toContain('width:100%');
+});

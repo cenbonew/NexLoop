@@ -728,10 +728,35 @@ code.term-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:v
 @media (max-width:1023px){.workbench .evidence-body.with-aside{grid-template-columns:minmax(0,1fr)}}
 /* K5 §2.4 / §2.5: the conversation's metrics and a message's nine-step trace. */
 .workbench .trace-toggle{margin-top:4px}
-.workbench .trace-steps{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:4px}
-.workbench .trace-steps li{display:grid;grid-template-columns:8em auto 11em minmax(0,1fr);gap:8px;align-items:baseline}
-.workbench .trace-detail code{margin-right:4px}
-@media (max-width:640px){.workbench .trace-steps li{grid-template-columns:7em auto;}.workbench .trace-time,.workbench .trace-detail{grid-column:1/-1}}
+/* Owner 2026-11-09: the trace used to take half of a shrink-to-fit message and its last column collapsed (ids one letter a line).
+   A message with its trace open takes the full width; the steps are a grid with fixed name/badge/time and a detail column of at least
+   12rem; ids and kinds never break inside (ellipsis, full value in title and the copy button); a narrow card puts time and detail on
+   their own full rows (container query on the toggle, so it follows the card, not the window). */
+.workbench .workbench-messages li:has(.trace-steps){max-width:none;width:100%}
+.workbench .trace-toggle{container-type:inline-size}
+.workbench .trace-steps{margin:6px 0 0;padding:0;list-style:none;display:grid;gap:6px;width:100%}
+.workbench .trace-steps li{max-width:none;overflow-wrap:normal;display:grid;
+  grid-template-columns:7.5em max-content max-content minmax(12rem,1fr);gap:4px 10px;align-items:baseline;padding:6px 10px}
+.workbench .trace-name,.workbench .trace-time{white-space:nowrap}
+.workbench .trace-time .time-rel{white-space:nowrap}
+.workbench .trace-detail{min-width:12rem;margin:0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.workbench .trace-note{overflow-wrap:break-word;word-break:normal;line-break:strict}
+.workbench .trace-refs{display:flex;flex-wrap:wrap;gap:4px 10px;min-width:0;max-width:100%}
+.workbench .trace-refs .id-text{white-space:nowrap;min-width:0;max-width:100%}
+.workbench .trace-refs .id-kind{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:8em}
+.workbench .trace-refs code.id-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.workbench .trace-refs button.id-copy{flex:none}
+/* A card narrower than four columns: name, badge and time on the first row, the detail on its own full row. */
+@container (max-width:44rem){.workbench .trace-steps li{grid-template-columns:7.5em max-content minmax(0,1fr)}
+  .workbench .trace-time{overflow:hidden;text-overflow:ellipsis}
+  .workbench .trace-detail{grid-column:1/-1;min-width:0}}
+/* A phone: name and badge, then the time (it may wrap before its relative part, never inside it), then the detail. */
+@container (max-width:26rem){.workbench .trace-steps li{grid-template-columns:minmax(0,1fr) max-content}
+  .workbench .trace-name{overflow:hidden;text-overflow:ellipsis}
+  .workbench .trace-time{grid-column:1/-1;white-space:normal;overflow:visible}}
+/* Between 1024 and 1279 px the side column leaves the conversation too narrow for an open trace: the side column goes below the
+   conversation while a trace is open (it never moves what is being read: it is after it). */
+@media (min-width:1024px) and (max-width:1279px){.conversation-layout:has(.trace-steps){grid-template-columns:minmax(0,1fr)}}
 .workbench .budget-alert[data-tone=fail]{color:var(--danger);margin:8px 0 0}
 .workbench .drill-banner{margin:0 0 12px;padding:10px 14px;border:2px solid var(--warn-text);border-radius:8px;background:var(--warn-soft);color:var(--warn-text)}
 .workbench .drill-banner .note{margin-left:6px}

@@ -156,6 +156,12 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
     # K5 §2.2/§2.4/§2.5: the blocks are on their pages; a message has its 处理链路 toggle; each block is either the data or its stated state.
     print('k5', observed['k5_evidence'][:300], observed['k5_conversation'])
     assert '关系与证据' in observed['k5_evidence'] and observed['k5_conversation']['toggles'] >= 1, observed['k5_conversation']
+    tl = observed['trace_layout']
+    print('trace_layout', tl)
+    for width, w in tl['widths'].items():
+        assert w['ids_one_line'] and w['times_one_line'] and w['copies_inside'], (width, w)
+        assert w['notes_min_chars'] >= 8, (width, w)
+        assert w['trace_width'] >= w['message_width'] - 40, (width, w)
     conv = observed['k5_conversation']
     assert '本会话指标' in conv['metrics'] and (conv.get('steps') == 9 or '处理链路' in conv.get('trace', '')), conv
     assert k4l['note'] and '还没有任何属性值' in k4l['note'], k4l

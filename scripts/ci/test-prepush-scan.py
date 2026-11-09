@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix='nexloop-prepush-') as temp:
     check(True)
     values = ['10.0.99.' + '7', 'example-host-' + '42',
               'SHA256:' + 'ZqWxYz', 'MODEL_API_KEY=' + 'abcdefgh1234',
-              'sk-' + 'a' * 24, 'xz' + 'zn']
+              'sk-' + 'a' * 24, 'xz' + 'zn', 'nxm_' + 'a' * 12 + '_' + 'B' * 43]
     for value in values:
         run('git', 'reset', '--hard', baseline, cwd=root)
         (root / 'safe').write_text(value + '\n')
