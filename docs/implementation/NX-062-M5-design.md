@@ -119,3 +119,47 @@ C7 要求机器分支的 `assert_action_authority` 通过。按 F-2，机器需�
 - D-3：0124 机器分支用“改名包装 + 机器核心副本 + 副本一致性测试”，不用 GUC 或临时表打开 C1 例外。
 - D-4：认领行由机器核心在同一事务内创建，不走租约。
 - D-5：审批的三处排除都在 SQL 内实现。
+
+## 9. L6 条件 PASS 的补充（63bb2c85，R1–R6）
+
+L6 同意 D-2 至 D-5 的方向。以下各条覆盖前文中与之冲突的说法。
+
+### R1 授权事实的 hash 与并发撤销
+- `grants` 事实的 payload 包含最新授权行的 `grant_id` 和 `revision`，不只是类型列表。撤销后再用相同类型重新授权，hash 也会改变。
+- 机器核心末尾的二次断言对机器主体行、密钥行、该能力的最新授权行加 `FOR SHARE`。授权与撤销的 handler 本来就要对同一行做 `FOR UPDATE`，两者因此串行：撤销一旦提交，之后开始的 commit 必然被拒；与撤销并发的 commit 要么先完成，要么等撤销提交后被拒。测试用两个连接：一个连接持有撤销事务不提交，另一个发起 commit，断言它阻塞，撤销提交后得到 42501。
+- 禁止写事实行的触发器按 `authz.nexloop_machine_clients` 判定机器主体（principal 在主体表里即拒绝），不看 payload 的 actor 字段。
+
+### R2 改名包装的前置核对与双重防线
+- 0441 改名前用 `pg_proc` 核对 `authz.nexloop_goal_governed_action` 当前函数体的 sha256 等于 0348 版本的值，不一致就中止迁移，让迁移作者先合入新改动。
+- 调用链核对：`authz.nexloop_workbench_action_for`（0430、0433）只用来查能力对应的 Action 版本，不调用入口。入口的调用方是 API 进程里的 SQL 文本。测试遍历 `pg_proc`，断言除新包装外，没有任何函数体引用 `_before_machine`。
+- 改名后的 `_before_machine` 保留 C1：它内部调用的 service 快照对机器摘要本来就抛 42501。测试断言“用机器摘要直调 `_before_machine` 得到 42501”（以 owner 身份直调，因为 `nexloop_api` 没有它的执行权）。
+- 副本一致性测试锁定**基准函数体的哈希**：`_before_machine` 的规范化函数体哈希写在测试里，原入口有任何改动都会变红；同时比对机器核心与基准的差异只在登记的四段里。
+
+### R3 业务意图 ID 与认领行
+- 业务意图 ID 为 `sha256(canonical[tenant_id, client_id, intent_id])`。
+- 机器核心写 `runtime.nexloop_action_claims`。实现时核对 AT-064 的边界白名单（`test_claim_store_pg`），新函数若出现在白名单检查的范围里，就逐条登记并写明理由。
+
+### R4 commit 顺序与待审批
+- commit 的顺序改为：
+  1. 重跑 2.1–2.6；
+  2. 锁意图行；
+  3. 已 committed 或 refused：摘要相同返回首次结果，不同返回 409；
+  4. 再判过期：phase 为 prepare 且已过期，返回 410；
+  5. 比对摘要，进入机器核心。
+  这样客户端在 10 分钟之后重试，或在 unknown 后补查，拿到的都是首次结果，不会是 410。
+- phase 增加 `pending_approval`。审批门返回“等待审批”时，意图行记为 `pending_approval` 并记下 `approval_id`，HTTP 返回 202。
+- 后续写回：负责人批准后，客户端用同一 intent 和同一 prepare_digest 再次 commit。pending_approval 不再判 prepare 过期，因为摘要在第一次 commit 时已核对过；能否执行由审批本身的有效期决定，审批门会消费这次批准。执行结果把意图行写成 committed 或 refused。审批被拒或过期时，审批门返回不可执行，意图行写成 refused 并记结果码。`GET /machine/v1/intents/{id}` 返回 phase 和 approval 状态，不返回审批人。
+
+### R5 API 代签
+- 机器路径的签名命令由 API 进程用现有签名密钥构造。签名内容在原有字段之外，绑定 `client_id`、`intent_id`、`prepare_digest`、`world`；机器核心逐项核对它们与本次 commit 的参数一致。
+- 有效期沿用 20 秒。签名密钥只在 API 进程里，不进 Runtime（Pi 没有这个密钥）。现有的部署检查已经保证这一点，测试再断言一次。
+
+### R6 审批排除的判定依据
+- 审批决定、solo 判定、可审批人员名单三处，都按 `authz.nexloop_machine_clients`（服务端身份）判定机器主体，不读请求 payload。
+- 变异检查：三处分别删掉，各有一个测试变红。
+
+### 写能力的范围（负责人未定备注之前）
+- 对象备注的两种做法负责人还没定（L6 的安全对比见判词），M5a/M5b 先只做与备注无关的机制。
+- 验证用的写能力 `test.machine.write_probe` 只在测试夹具里登记（注册行、handler、允许表行都由夹具在测试 PG 中写入），迁移、发布目录和 allowlist 里都没有。
+- 守护测试：从空库跑完全部迁移后，发布目录和 allowlist 里不存在任何 `agent_or_human`、kind 为 write 的机器能力；读取部署目录里的 manifest 时也断言没有这个能力。M5b 合入后，生产中的机器写入实际上是关闭的。
+- 如果负责人选做法一（人机共用备注），另开一片，L6 列的条件作为验收项：纯文本转义渲染、标明“机器客户端备注 / 未核实陈述”、不进 agent 提示的指令区、不作为事实证据、擦除覆盖消费者与成员、人类入口的 CSRF 和权限检查。
