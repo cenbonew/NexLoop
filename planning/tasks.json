@@ -4954,6 +4954,24 @@
         "ref": "e53533c9f73a",
         "summary": "第 122 批：OIDC 单点登录启用运行单与 provider 示例，不启用、不改迁移（67c383b3）；执行 L2，判定 L6 PASS。",
         "recorded_at": "2026-11-07T11:40:11+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "docs/release/run-auth-session-epoch.md §2",
+        "summary": "锁定走查（stage，approver2 测试账号，/workbench）：无痕窗口输错 5 次后正确口令也被拒，页面为统一的 401「账号或密码不正确。」（与密码错误、账号不存在不可区分，防账号枚举，符合 ADR-044）；普通窗口刷新后仍保持登录；锁定到期后正常登录。执行：负责人；判定：L6 PASS（2026-11-09）。",
+        "recorded_at": "2026-11-09T07:15:01Z"
+      },
+      {
+        "type": "note",
+        "ref": "stage read-only (browser account of the approver2 test account) + run-auth-fingerprint.md 计数方法",
+        "summary": "只读读数：2026-11-09T06:46:06Z lockout_level 1、locked_until 06:56:34Z（15 分钟）、failed_attempts 0、session_epoch 1 未变；07:00:17Z 到期后登录 lockout_level 0、locked_until null；07:13:10Z 同。计数（30 分钟窗口）：06:46:15Z 与 07:13:10Z 两个 API 的 events read failed 均 0、PG 浏览器授权拒绝 0。部署前基线见 R69 note（11-07）。执行：调度员；判定：L6 PASS（2026-11-09）。",
+        "recorded_at": "2026-11-09T07:15:01Z"
+      },
+      {
+        "type": "note",
+        "ref": "planning NX-065",
+        "summary": "企业单点登录从 NX-058 拆出另立 NX-065：负责人 2026-11-09 决定（原话选项「另开任务（推荐）」，决定人负责人）。片 F 的 OIDC 启用运行单与 provider 示例（第 122 批 e53533c9，迁移 0365）在 NX-065 中引用。NX-058 剩余：stage 上真实浏览器走一遍邀请、重置、成员变更（10-26 note 所列，尚无证据；R74 工作台写入修复后由负责人执行）。",
+        "recorded_at": "2026-11-09T07:15:01Z"
       }
     ]
   },
@@ -5255,5 +5273,35 @@
         "recorded_at": "2026-11-08T01:39:17Z"
       }
     ]
+  },
+  {
+    "id": "NX-065",
+    "stage": "S6",
+    "title": "企业单点登录（OIDC）在 stage 启用与合成 IdP 验收",
+    "dependencies": [
+      "NX-058"
+    ],
+    "modules": [
+      "M01"
+    ],
+    "deliverable": "按 OIDC 启用运行单（第 122 批 e53533c9；迁移 0365 已在 stage）选定 IdP 并在 stage 启用；合成 IdP 验收（登录、组映射、停用同步、会话 epoch 行为）；负责人决定 IdP 与启用时间（2026-11-09 定为从 NX-058 拆出另开任务）",
+    "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-066",
+    "stage": "S6",
+    "title": "Schema 发布后停用前驱 Action 与工作台角色授权跟随新版本（ADR）",
+    "dependencies": [
+      "NX-038",
+      "NX-039",
+      "NX-040"
+    ],
+    "modules": [
+      "M23"
+    ],
+    "deliverable": "ADR：F3 schema 发布时停用被取代的前驱 Action（发布与授权跟随在同一治理决定内，修订 NX-040 设计 §5「发布不写授权」）以及 workbench roles 的 follow 支持；草稿见 docs/planning-drafts/nx040-predecessor-retire-adr-draft-20261109.md；负责人 2026-11-09 决定（3A）排在 NX-038/039/040 收尾之后，不进 R74 急修",
+    "status": "not_started",
+    "evidence": []
   }
 ]
