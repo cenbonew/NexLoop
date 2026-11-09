@@ -9,8 +9,11 @@
 - **persona**：每个消费者有一个人设值 `real`、`simulated_agent` 或 `synthetic`。没有记录即为 `real`。只能经负责人 Action `nexloop.consumer.set_persona:1` 修改，每次修改有修订号和一条只追加的事件（原值、新值、执行人、请求、理由）。改回 `real` 即撤销。
 - **合成删除**：负责人 Action `nexloop.consumer.erase_synthetic:1`。SQL 先读 persona，为 `real` 时拒绝（工作台返回 409，`details.reason` 为 `persona_real`）；否则调用原有的 NX-029 删除处理函数，阻断立即生效，清除由保留期 keeper 完成。
 - **不变的部分**：真实顾客的删除请求仍走原有的 `nexloop.consumer.erase:1`，不受 persona 影响。恢复后的删除重放（0135）直接调用原处理函数，不再检查 persona。
-- **只读预查**：`GET /api/v1/workbench/erasure-precheck/<consumer_id>`，仅负责人可用。返回 persona 及其修订号、删除请求的状态（不含理由），以及仍保留的数量：会话、消息、仍带正文的消息、Claim、值尚未清除的 Claim、数据导出，以及 `grants_held`（迁移 0429，临时编号）：这个顾客的登录主体仍有非空授权的 WebChat 资源数。不返回姓名、正文或登录主体。
-- **删除不撤销 WebChat 授权**：0220 的删除清掉顾客的数据和它与登录主体的对应，但不动 0050 发布的授权事实；只有私有配方里写 `revoke: true` 并用 `webchat_consumers.py` 发布一次，授权才会清空（stage 2026-11-09：customer-4 删除后仍有 `nexloop.conversation.read:1` 等 5 个授权）。删除后对应关系已不在，`grants_held` 经删除请求记录的联系键（按租户加盐的 HMAC）找回原来的登录主体。
+- **只读预查**：`GET /api/v1/workbench/erasure-precheck/<consumer_id>`，仅负责人可用。返回 persona 及其修订号、删除请求的状态（不含理由），以及仍保留的数量：会话、消息、仍带正文的消息、Claim、值尚未清除的 Claim、数据导出，以及 `grants_held` / `grants_trace`（迁移 0429，临时编号）。不返回姓名、正文或登录主体。
+- **删除不撤销 WebChat 授权，删除后也追溯不到登录主体**（0429）：0220 的删除清掉顾客的数据和它与登录主体的对应，但不动 0050 发布的授权事实，只有私有配方里写 `revoke: true` 并用 `webchat_consumers.py` 发布一次，授权才会清空（stage 2026-11-09：customer-4 删除后仍有 `nexloop.conversation.read:1` 等 5 个授权）。删除完成后，对应关系已删除；联系键只来自 Consumer 的 `external_id_refs`，而 WebChat 顾客从不做浏览器身份关联，里面没有浏览器本地引用，所以删除后无从找回登录主体（`tests/test_erase_synthetic_consumer_pg.py::test_after_a_real_erasure_a_webchat_principal_is_untraceable`，真实流程）。因此顺序固定为**撤销 → 删除 → 核对**，并在删除时把关：
+  - 合成删除（`nexloop.consumer.erase_synthetic:1`）在登记新请求前查这个顾客的登录主体：仍有非空授权时拒绝（工作台 409，`details.reason` 为 `grants_held`），什么都不写；
+  - 通过时在删除登记上记一个布尔值 `grants_cleared`（不含登录主体）：登录主体已知、并且每个都有授权事实且全部为空时为 true；没有登录主体，或登录主体没有任何授权事实（从未配置，不能证明已撤销）时为 false；0429 之前的登记、`nexloop.consumer.erase:1` 和恢复后的删除重放为空。
+  - `grants_trace` 取值：`owner_link`（删除前，按对应关系计数）、`contact_keys`（删除后经联系键找回，WebChat 顾客通常不会出现）、`no_grant_facts`（找到了登录主体但没有任何授权事实，`grants_held` 为 null）、`cleared_at_erasure`（删除时已核对清空，`grants_held` 为 0）、`untraceable`（已删除、追溯不到、也没有 true 标记，`grants_held` 为 null）、`no_owner`（未删除、没有登录主体，只出现在删除前）。
 
 ## 顺序
 
@@ -19,11 +22,11 @@
 | 1 | 部署含 0220 的版本；`stage_secrets publish` 发布 business-actions（新增两个 Action）；按 workbench-roles 清单 v14 应用成员与授权 | 调度员 | B 类 |
 | 2 | `mark`：从私有配方补标测试账号为 `simulated_agent`（先 `--dry-run`） | 负责人 | — |
 | 3 | AT-050：记录恢复点 | 调度员 | — |
-| 4 | `erase --dry-run`：核对 persona 与将删除的数量 | 负责人 | — |
-| 5 | `erase`：执行删除 | 负责人 | — |
-| 6 | 在私有 webchat-consumers 配方里把这个顾客改为 `revoke: true`，用 `webchat_consumers.py` 发布一次（技术配置员） | 负责人 | — |
-| 6a | keeper 跑完后再次 `erase --dry-run`，作为事后核对 | 负责人 | — |
-| 7 | AT-050：恢复到第 3 步的恢复点，执行删除重放；重做第 6 步（授权撤销写在数据库里，恢复到第 3 步的恢复点会把它一起回退），再做一次第 6a 步，应看到删除已重放、`grants_held` 为 0 | 调度员、负责人 | — |
+| 4 | **撤销**：在私有 webchat-consumers 配方里把这个顾客改为 `revoke: true`，用 `webchat_consumers.py` 发布一次（技术配置员） | 负责人 | — |
+| 5 | `erase --dry-run`：核对 persona、将删除的数量，以及 `grants_held` 为 0、`grants_trace` 为 `owner_link`（不为 0 时结果是 `grants_held_revoke_first`，回到第 4 步） | 负责人 | — |
+| 6 | **删除**：`erase` | 负责人 | — |
+| 7 | **核对**：keeper 跑完后再次 `erase --dry-run`，作为事后核对（`grants_trace` 应为 `cleared_at_erasure`） | 负责人 | — |
+| 8 | AT-050：恢复到第 3 步的恢复点，执行删除重放。撤销和 `grants_cleared` 都在数据库里：恢复会把撤销一起回退，重放不经合成删除、不写标记。所以先重做第 4 步，再按下文“存量顾客”的只读 SQL 按登录主体核对授权为 0；这时的 `erase --dry-run` 会是 `erased_grants_unknown`（预期，不当作 0） | 调度员、负责人 | — |
 
 第 2 步要放在恢复点之前：恢复后的数据库里仍保留 persona 标记，与恢复前一致。重放本身不依赖 persona。
 
@@ -62,7 +65,7 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 | 子命令 | 取值 |
 |---|---|
 | `mark` | `would_mark`、`marked`、`already_marked`、`unchanged`、`not_in_recipe`、`refused` |
-| `erase` | `would_erase`、`erasing`、`replayed`、`already_erasing`、`already_erased`、`erased_grants_held`（已删除但授权未撤销，退出码 1）、`persona_real`、`consumer_unavailable`、`refused` |
+| `erase` | `would_erase`、`erasing`、`replayed`、`already_erasing`、`already_erased`、`grants_held_revoke_first`（授权未撤销，不发送；服务端也会 409 拒绝）、`erased_grants_held`（已删除但仍追溯到非空授权）、`erased_grants_unknown`（已删除，无法证明授权已清空：`grants_held` 为 null），后三者退出码 1、`persona_real`、`consumer_unavailable`、`refused` |
 
 ## 事后核对
 
@@ -73,7 +76,22 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 - `held.claims_not_erased` 为 0；
 - `held.data_exports` 为 0；
 - `consumer_object` 为 false；
-- `held.grants_held` 为 0（不为 0 时结果是 `erased_grants_held`、退出码 1：先完成第 6 步的撤销发布）。
+- `held.grants_held` 为 0，`held.grants_trace` 为 `cleared_at_erasure`。为 null 时是 `erased_grants_unknown`，不当作 0：按下节用只读 SQL 按登录主体核对。
+
+## 存量顾客（0429 之前删除的 customer-4、refusal-1、refusal-2）
+
+它们删除时没有把关，也没有 `grants_cleared` 标记，事后核对一律是 `erased_grants_unknown`。改为直接撤销，再按登录主体只读核对（阳性对照，由调度员执行；`$T` 为租户，`<PRINCIPAL>` 取自私有配方）：
+
+1. 撤销前（预期每个登录主体都大于 0，stage 11-09 读数为 5）：
+
+   ```bash
+   ro "select f.entity_key[1] principal, count(*) filter (where jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0) n_grants, count(*) n_facts from authz.nexloop_authority_facts f where f.tenant_id='$T' and f.fact_kind='grants' and f.entity_key[1] in ('<PRINCIPAL-customer-4>','<PRINCIPAL-refusal-1>','<PRINCIPAL-refusal-2>') group by 1 order by 1"
+   ```
+
+2. 在私有配方里把这三个改为 `revoke: true`，用 `webchat_consumers.py` 发布一次。
+3. 撤销后再跑第 1 步的 SQL：`n_grants` 为 0，`n_facts` 不变（5，空授权集，证明是撤销而不是查不到）。`n_facts` 为 0 时不算通过：说明登录主体写错或事实不在。
+
+以后的删除一律按上文顺序：撤销 → 删除 → 核对。
 
 删除完成后 persona 标记行也随之删除，`persona` 显示为 `real`；它的修改事件保留取值和时间，顾客 ID 换成假名，理由清空（0227）。
 

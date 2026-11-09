@@ -511,6 +511,13 @@ REGISTRY = [
             ((r"\s*when 'goals\.budget\.loosen' then array\[[^\]]*\]", ''),)),
     Allowed('budget_loosen', 'control.nexloop_approval_open', 'a budget loosening opens only against the current row it names; nothing else',
             ((r"\n if p_capability='goals\.budget\.loosen' then perform control\.nexloop_budget_loosen_check\(p_tenant,p_world,p_body,false\);end if;", ''),)),
+    # erasure_precheck_grants_held (0429, stage 2026-11-09 customer-4): a new synthetic erasure is refused while the Consumer's owner
+    # principals hold a non-empty WebChat grant set, and records grants_cleared on the new request; replays and the rest unchanged.
+    Allowed('erasure_precheck_grants_held', 'control.nexloop_governed_erase_synthetic_consumer',
+            'the grants_held gate before a new request and the grants_cleared marker after it; nothing else',
+            ((r";v_persona text;g jsonb;v_new boolean;r jsonb;", ";v_persona text;"),
+             (r"\n -- 0429: a new request is refused.*?\n r:=control\.nexloop_governed_erase_consumer\(", "\n return control.nexloop_governed_erase_consumer("),
+             (r"\n if v_new then\n  update control\.nexloop_consumer_erasures set grants_cleared=.*?\n end if;\n return r;", ""))),
     # single_clock_issue (L6 S1 after CI seq 186): one clock reading per issued invitation, reset code, OIDC state and remediation.
     Allowed('single_clock_issue', 'control.nexloop_governed_invite_workbench_member', 'issued_at, expires_at and the audit time from one clock reading; nothing else',
             ((r"v_hours integer;v_now timestamptz;", "v_hours integer;"),
