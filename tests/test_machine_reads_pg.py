@@ -159,8 +159,8 @@ def test_reads_return_exactly_the_projection_and_never_a_marker(reads):
         other = read(client, w, 'object.get', type_name='CommercialRecord', object_id=rec)
         assert set(other.json()['properties']) == RECORD_FIELDS & set(record())
         listed = read(client, w, 'object.list', type_name='Commitment')
-        assert listed.status_code == 200 and set(listed.json()) == {'type_name', 'items', 'total', 'next_after', 'invisible'}
-        assert {i['object_id'] for i in listed.json()['items']} == {c1, c2} and listed.json()['total'] == 2 and listed.json()['next_after'] is None
+        assert listed.status_code == 200 and set(listed.json()) == {'type_name', 'items', 'next_after'}  # no total, no hidden count (L6 N2)
+        assert {i['object_id'] for i in listed.json()['items']} == {c1, c2} and listed.json()['next_after'] is None
         assert all(set(i['properties']) <= COMMITMENT_FIELDS for i in listed.json()['items'])
         text = got.text + other.text + listed.text
         assert not [m for m in MARKERS.values() if m in text]
@@ -213,8 +213,19 @@ def test_scope_allowlist_grant_and_revocation_on_two_connections(reads, pg):
                                                          'overlap_days': 1, 'scope': ['object.list'], 'expires_in_days': 10}).json()
         narrow = {**w, 'key': keys['key']}
         assert read(client, narrow, 'object.get', type_name='Commitment', object_id=c1).status_code == 403
-        # Revoked on another connection: the very next read is refused.
-        grant(w, 'object.get', [], revoke=True)
+        # Revoked through the API's connection; read on a second, separate connection (as nexloop_api, the SQL entry itself): the
+        # very next read after the revocation's commit is refused - nothing is cached anywhere (L6 M4-5 (i)).
+        from nexloop_eios import machine_keys as K
+        key = K.parse(w['key'])
+        digest = K.digest(key, w['peppers'], 1).hex()
+        with psycopg.connect(pg, autocommit=True) as second:
+            second.execute('set role nexloop_api')
+            sql = "select authz.nexloop_machine_read(%s,%s,'object.get',%s::jsonb)"
+            params = json.dumps({'type_name': 'Commitment', 'object_id': c1})
+            assert second.execute(sql, (key.prefix_id, digest, params)).fetchone()[0]['object_id'] == c1
+            grant(w, 'object.get', [], revoke=True)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege, match='not_permitted'):
+                second.execute(sql, (key.prefix_id, digest, params))
         assert read(client, w, 'object.get', type_name='Commitment', object_id=c1).status_code == 403
         grant(w, 'object.get', ['Commitment'])
         # Retired in the allowlist while granted: refused, and dropped from the list.
@@ -247,3 +258,47 @@ def test_machine_and_workbench_reads_agree(reads):
         value = entry['value']
         assert shown[name]['value'] == (value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True)), name
     assert machine['revision'] == page.json()['revision'] and machine['schema_version'] == page.json()['schema_version']
+
+
+def test_hold_expiry_and_erasure_match_the_workbench(reads):
+    """L6 N1. NX-029/NX-054 semantics on ontology.objects, followed as they are (no second judgment):
+    * a legal hold (control.nexloop_retention_holds, 0132) only keeps data from deletion - the workbench shows a held object, so does the
+      machine read, with the same values;
+    * retention expiry deletes the expired object (the keeper's CommercialRecord delete, 0129 nexloop_retention_purge) - the workbench
+      finds nothing and the machine read answers 404, as for an absent object;
+    * a Consumer being erased hides its objects - the workbench refuses the read and the machine read answers the same 404.
+    object.list leaves the hidden ones out and reports no count of them (L6 N2)."""
+    from test_workbench_read_pg import workbench_login
+    w = reads
+    admin = w['admin']
+    held_consumer, erased_consumer = hexid(), hexid()
+    held = put(admin, 'Commitment', commitment(held_consumer))
+    expired = put(admin, 'CommercialRecord', record())
+    erased = put(admin, 'Commitment', commitment(erased_consumer))
+    admin.execute("""insert into control.nexloop_retention_holds(tenant_id,world,hold_id,scope_kind,scope_ref,basis,held_by)
+        values(%s,'real','m4a-hold','consumer',%s,'synthetic legal hold','synthetic-owner')""", (TENANT, held_consumer))
+    admin.execute("""insert into control.nexloop_consumer_erasures(tenant_id,world,request_id,consumer_id,source,requested_by,reason,state,watermark)
+        values(%s,'real','m4a-erased',%s,'owner','synthetic','synthetic','completed_with_holds',1)""", (TENANT, erased_consumer))
+    grant(w, 'object.get', ['Commitment', 'CommercialRecord'])
+    grant(w, 'object.list', ['Commitment'])
+    # Expiry: what the retention keeper does to an expired CommercialRecord (0129: the row is deleted, a tombstone without content kept).
+    admin.execute("set session_replication_role=replica")
+    try:
+        admin.execute("delete from ontology.objects where tenant_id=%s and world='real' and type_name='CommercialRecord' and object_id=%s", (TENANT, expired))
+    finally:
+        admin.execute("set session_replication_role=origin")
+    with w['client']() as client:
+        machine = {name: read(client, w, 'object.get', type_name=t, object_id=i) for name, t, i in
+                   (('held', 'Commitment', held), ('expired', 'CommercialRecord', expired), ('erased', 'Commitment', erased))}
+        listed = read(client, w, 'object.list', type_name='Commitment').json()
+        workbench_login(client, w['owner'])
+        bench = {name: client.get(f'/api/v1/workbench/objects/{t}/{i}') for name, t, i in
+                 (('held', 'Commitment', held), ('expired', 'CommercialRecord', expired), ('erased', 'Commitment', erased))}
+    assert machine['held'].status_code == bench['held'].status_code == 200
+    shown = {p['name']: p['value'] for p in bench['held'].json()['properties'] if p['status'] == 'ok'}
+    assert {k: v['value'] for k, v in machine['held'].json()['properties'].items()} == {k: shown[k] if not isinstance(v['value'], bool) else json.loads(shown[k])
+                                                                                       for k, v in machine['held'].json()['properties'].items()}
+    assert machine['expired'].status_code == 404 and bench['expired'].status_code == 404
+    assert machine['erased'].status_code == 404 and bench['erased'].status_code in (403, 404)
+    assert machine['expired'].json()['code'] == machine['erased'].json()['code'] == 'not_found'
+    assert [i['object_id'] for i in listed['items']] == [held] and set(listed) == {'type_name', 'items', 'next_after'}

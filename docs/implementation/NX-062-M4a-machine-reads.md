@@ -78,3 +78,15 @@
 ## M4b（下一片）
 
 object.neighbors（深度 1、每组上限、属性边可见性、未登记类型只计入 invisible）和 commitment.list（排除 quote、consumer_display、events.detail 和 principal_id、evidence.ref、exceptions.detail），按投影草案实施。迁移号在 0440 之后顺延。
+
+## L6 条件 N1、N2（de9235ad 条件 PASS）
+
+- **N1（legal hold 与保留期）**：我核对了 NX-029/NX-054 在 `ontology.objects` 上的语义，并照它原样执行，没有另写判定。
+  - **legal hold**（`control.nexloop_retention_holds`，0132）：只阻止删除与擦除，从不隐藏对象。工作台照常显示被 hold 的对象，机器读取也照常返回，值相同。
+  - **保留期到期**：保留守护进程直接删除过期对象（0129 中 CommercialRecord 的 `delete from ontology.objects`，只留无内容的墓碑）。删除后工作台查不到，机器读取返回 404，与不存在的对象相同。
+  - **擦除**：Consumer 擦除中或已擦除（包括 completed_with_holds）时，工作台拒绝读取，机器读取返回同一个 404。
+  - 新对照测试 `test_hold_expiry_and_erasure_match_the_workbench`：对同一个对象，分别做机器读取和工作台读取，覆盖 hold、过期、擦除三种情况，并断言 object.list 中只列出被 hold 的那一个。
+- **N2（total 泄露数量）**：object.list 不再返回 `total`，也不再返回 `invisible`，因为两者都会透露看不到的对象有多少。一页可能少于扫描数，`next_after` 仍是扫描游标。投影、契约 `machine-read-object-list`、示例、README 和投影草案都已同步修改。变异检查：加回 total，有 2 项测试变红。
+- **(i) 两个连接**：原先的撤销用例改为显式用两个连接。负责人经 API 的连接撤销授权；第二个独立连接（以 nexloop_api 身份直接调用 `authz.nexloop_machine_read`）撤销前读取成功，撤销提交后的下一次读取立即抛出 `not_permitted`。
+- **(ii) 机器读取与工作台读取逐字段一致**：`test_machine_and_workbench_reads_agree` 原本就有。新的 N1 对照测试又在 hold 场景下逐字段比对了一次。
+- 测试：test_machine_reads_pg 6 passed；契约相关测试全部通过，共 61 passed（Node 24，`-n 2`）。

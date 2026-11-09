@@ -31,9 +31,8 @@
 |---|---|---|
 | type_name、items[].object_id、items[].revision、items[].updated_at | 是 | |
 | items[].properties | 是 | 同 object.get 的属性白名单 |
-| total | 是 | 只计可见且已登记类型的对象 |
 | next_after | 是 | 不透明游标 |
-| invisible | 是 | 只给计数，不给 ID |
+| total、invisible | **否** | L6 N2：两者都会泄露看不到的对象数量；一页可能少于扫描数 |
 
 ### object.neighbors：一跳关系
 

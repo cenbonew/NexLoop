@@ -27,7 +27,7 @@
 | machine-capabilities.schema.json | NX-062 M3：`GET /machine/v1/capabilities` 的返回体，即一把机器密钥当前能调用的能力：密钥 scope ∩ 当前机器能力允许表 ∩ 机器主体当前授权，由 SQL 在每次请求时计算。这是 MCP 与 SDK 工具清单的唯一来源；kind read 是一次调用，write 是 prepare 加 commit（M5）。M5 之前对所有密钥都是空列表；租户、world、actor 只由服务端从密钥推出，不出现在返回体里 |
 | machine-error.schema.json | NX-062 M3：machine_key realm（`/machine/v1/*`）的统一拒绝体。只给固定错误码，从不回显请求值、密钥、摘要或内部标识；只有 429 与 503 可重试，429 另带 `Retry-After`。错误码：unauthenticated、query_not_allowed、rate_limited、rate_policy_missing、unavailable、busy |
 | machine-read-object.schema.json | NX-062 M4a：`POST /machine/v1/read` 的 object.get 返回体，即密钥所在 world 中的一个对象。只返回元数据，以及读取动词投影中为该类型登记的属性，投影在 SQL 内执行；不返回正文、消息引用、外部订单号、联系方式和内部执行主体。首批只开放 Commitment 与 CommercialRecord |
-| machine-read-object-list.schema.json | NX-062 M4a：object.list 返回体，每页最多 50 条，按对象 ID 排序，`next_after` 是下一页游标；擦除中的 Consumer 的对象只计入 invisible，不列出；属性规则同上 |
+| machine-read-object-list.schema.json | NX-062 M4a：object.list 返回体，每页最多 50 条，按对象 ID 排序，`next_after` 是下一页游标；看不到的对象直接略过、不计数，不返回总数，也不返回隐藏数（L6 N2）；属性规则同上 |
 
 ## Schema之外必须实现的语义检查
 

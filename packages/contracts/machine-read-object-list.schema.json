@@ -2,15 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:nexloop:contracts:v1:machine-read-object-list",
   "title": "machine-read-object-list",
-  "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.list - one page (at most 50) of a type's objects of the key's world, in object id order; an object whose Consumer is being erased is counted in invisible, never listed; next_after is the cursor of the next page (params.after) or null. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
+  "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.list - one page (at most 50) of a type's objects of the key's world, in object id order; an object the key may not see is left out and never counted - there is no total and no hidden count (L6 N2), so a page may hold fewer items than it scanned; next_after is the cursor of the next page (params.after) or null. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "type_name",
     "items",
-    "total",
-    "next_after",
-    "invisible"
+    "next_after"
   ],
   "properties": {
     "type_name": {
@@ -75,20 +73,12 @@
         }
       }
     },
-    "total": {
-      "type": "integer",
-      "minimum": 0
-    },
     "next_after": {
       "type": [
         "string",
         "null"
       ],
       "pattern": "^[a-f0-9]{64}$"
-    },
-    "invisible": {
-      "type": "integer",
-      "minimum": 0
     }
   }
 }

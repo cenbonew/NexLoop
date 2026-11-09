@@ -8275,15 +8275,13 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:machine-read-object-list",
         "title": "machine-read-object-list",
-        "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.list - one page (at most 50) of a type's objects of the key's world, in object id order; an object whose Consumer is being erased is counted in invisible, never listed; next_after is the cursor of the next page (params.after) or null. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
+        "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.list - one page (at most 50) of a type's objects of the key's world, in object id order; an object the key may not see is left out and never counted - there is no total and no hidden count (L6 N2), so a page may hold fewer items than it scanned; next_after is the cursor of the next page (params.after) or null. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
         "type": "object",
         "additionalProperties": false,
         "required": [
           "type_name",
           "items",
-          "total",
-          "next_after",
-          "invisible"
+          "next_after"
         ],
         "properties": {
           "type_name": {
@@ -8348,20 +8346,12 @@
               }
             }
           },
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
           "next_after": {
             "type": [
               "string",
               "null"
             ],
             "pattern": "^[a-f0-9]{64}$"
-          },
-          "invisible": {
-            "type": "integer",
-            "minimum": 0
           }
         }
       },
@@ -13672,7 +13662,7 @@
     "experiment-registration.schema.json": "c8f53e0626a304318afc1ea7fb9dcb9e8d218f98e908b98e646937fe38d30dc0",
     "machine-capabilities.schema.json": "3cef5da33e4e23b9f02f129af1c8285dd45c4398b9724600d10254bbacba9262",
     "machine-error.schema.json": "7a48b97adf403c53874e12548179d0480aeddafeee080b7456040aa034bc6566",
-    "machine-read-object-list.schema.json": "4172fbb00806f3289ec00e24d2244ce2e18ff4b3fc65c9c794e8b31a89075bb8",
+    "machine-read-object-list.schema.json": "b57e96fa1edbedfa004dcc269f9c256177858de38841b33b0117bce07336611c",
     "machine-read-object.schema.json": "a069d3fc811b630bd60aec28936670d16f13a4e9631fa318a9615f778b7a2620",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",

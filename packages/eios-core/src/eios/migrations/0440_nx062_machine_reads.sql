@@ -14,7 +14,9 @@
 --   data's world; every time is clock_timestamp(), nothing cached. A projection that resolves to nothing refuses (fail closed). An object
 --   that does not exist, of another tenant or world, whose Consumer is being erased or erased (runtime.nexloop_object_consumers_read
 --   and runtime.nexloop_consumer_erasing, the NX-029/NX-054 functions the workbench derivation calls), or a value naming such a
---   Consumer: the same not found / omitted value. A property in an owner-restricted group is never returned. Each read counts per day,
+--   Consumer: the same not found / omitted value. A property in an owner-restricted group is never returned. A legal hold never hides
+--   an object (it only keeps it from deletion) and an expired object is deleted by the retention keeper (0129), exactly as the workbench
+--   sees them; object.list returns no total and no hidden count (L6 N2). Each read counts per day,
 --   key prefix, verb and type (T-12); admission (M3: rate policy, windows) runs before it in the API.
 -- * authz.nexloop_machine_capability_list (0437): the grant term is now the client's latest active grant (M4-3) - the list is scope ∩
 --   allowlist ∩ grants.
@@ -139,7 +141,7 @@ insert into control.nexloop_machine_read_verbs(verb,projection,description,sourc
    {"type_name":"Commitment","properties":["due_at","due_precision","fulfillment_basis","late","made_to","promised_at","related_goal_ref","status","supersedes"]},
    {"type_name":"CommercialRecord","properties":["amount_minor","connector_id","currency","data_mode","event_count","kind","late_event_count","link_state","occurred_at","refunded_minor","status","status_at","verification_state"]}]',
   'Read one object of the world model by type and id: metadata and the registered properties of its type only (no text, contact or reference to a message).','NX-062'),
- ('object.list','["type_name","items","total","next_after","invisible",
+ ('object.list','["type_name","items","next_after",
    {"type_name":"Commitment","properties":["due_at","due_precision","fulfillment_basis","late","made_to","promised_at","related_goal_ref","status","supersedes"]},
    {"type_name":"CommercialRecord","properties":["amount_minor","connector_id","currency","data_mode","event_count","kind","late_event_count","link_state","occurred_at","refunded_minor","status","status_at","verification_state"]}]',
   'List the objects of one type, at most 50 a page, each with the registered properties of its type only.','NX-062');
@@ -178,7 +180,7 @@ end $$;
 create function authz.nexloop_machine_read(p_prefix text,p_digest text,p_verb text,p_params jsonb) returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare ident jsonb:=authz.nexloop_machine_identity_snapshot(p_prefix,p_digest);v_tenant text;v_world text;v_client text;v_types text[];v_type text;
- v_props text[];v_fields text[];o ontology.objects;v_result jsonb;v_after text;v_limit integer:=50;v_items jsonb:='[]'::jsonb;v_invisible integer:=0;v_total bigint;
+ v_props text[];v_fields text[];o ontology.objects;v_result jsonb;v_after text;v_limit integer:=50;v_items jsonb:='[]'::jsonb;v_scanned integer:=0;
 begin
  v_tenant:=ident->'binding'->>'tenant_id';v_world:=ident->>'world';v_client:=ident->>'client_id';
  if p_verb is null or not (ident->'scope' ? p_verb) then raise exception 'machine read: not_permitted' using errcode='42501';end if;
@@ -206,16 +208,15 @@ begin
   if exists(select 1 from jsonb_object_keys(p_params) k where k not in ('type_name','after')) or (p_params ? 'after' and coalesce(p_params->>'after','')!~'^[a-f0-9]{64}$') then
    raise exception 'machine read: invalid' using errcode='22023';end if;
   v_after:=coalesce(p_params->>'after','');
-  select count(*) into v_total from ontology.objects where tenant_id=v_tenant and world=v_world and type_name=v_type;
   for o in select * from ontology.objects where tenant_id=v_tenant and world=v_world and type_name=v_type and object_id>v_after order by object_id limit v_limit loop
    if authz.nexloop_machine_object_visible(v_tenant,v_world,v_type,o.object_id) then
     v_items:=v_items||jsonb_build_array(jsonb_build_object('object_id',o.object_id,'revision',o.nexloop_revision,'updated_at',to_jsonb(o.updated_at),
      'properties',authz.nexloop_machine_object_properties(v_tenant,v_world,o,v_props)));
-   else v_invisible:=v_invisible+1;end if;
-   v_after:=o.object_id;
+   end if;
+   v_scanned:=v_scanned+1;v_after:=o.object_id;
   end loop;
-  v_result:=jsonb_build_object('type_name',v_type,'items',v_items,'total',v_total,'invisible',v_invisible,
-   'next_after',case when jsonb_array_length(v_items)+v_invisible=v_limit then to_jsonb(v_after) else 'null'::jsonb end);
+  -- L6 N2: no total and no count of hidden objects (either would tell how many objects the key may not see); a page may be short.
+  v_result:=jsonb_build_object('type_name',v_type,'items',v_items,'next_after',case when v_scanned=v_limit then to_jsonb(v_after) else 'null'::jsonb end);
  else
   raise exception 'machine read: not_permitted' using errcode='42501';
  end if;
