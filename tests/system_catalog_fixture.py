@@ -98,3 +98,13 @@ def copy_catalog_to_world(admin, tenant, world):
     return admin.execute("select control.nexloop_governed_publish_sim_catalog(%s,'real','owner-principal','owner-subject','i-catalog',%s)",
                          (tenant, Jsonb({'operation': 'publish_sim_catalog', 'request_id': 'catalog-' + world, 'world': world,
                                          'reason': 'the simulation world catalog'}))).fetchone()[0]
+
+
+def publish_successor_actions(admin, tenant, rows, world='real'):
+    """Inserts active Action definitions beside the published ones, e.g. successors as authz.nexloop_schema_proposal_publish (NX-040 F3) inserts them - active beside their predecessors -
+    from rows built by the publication backend's own nexloop_eios.schema_publication.successors(); for tests of the coexistence
+    the F3 transaction leaves (the transaction itself is tests/test_nx040_*)."""
+    for row in rows:
+        d = row['definition']
+        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active) values(%s,%s,%s,%s,%s,true)',
+                      (tenant, world, f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))
