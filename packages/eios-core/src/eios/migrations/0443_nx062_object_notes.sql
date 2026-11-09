@@ -156,6 +156,34 @@ insert into control.nexloop_machine_write_capabilities(capability,object_types,p
  ('object.add_note',array['Commitment','CommercialRecord'],array['object_id','text','type_name'],
   'One note of 1-2000 characters on a visible object; an unverified statement, never a property or evidence; do not write personal data.','NX-062');
 
+-- The workbench resolves an Action by its capability only for human capabilities (0125). A registered machine write capability is also
+-- one people use (agent_or_human): for those - and only those - the same lookup, the same human session check, one published
+-- definition, the member's own grant fact. Every other capability goes to the unchanged function.
+alter function authz.nexloop_workbench_action_for(text,text,text) rename to nexloop_workbench_action_for_before_notes;
+create function authz.nexloop_workbench_action_for(p_digest text,p_world text,p_capability text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare ident jsonb;v_tenant text;n integer;v_result jsonb;
+begin
+ if not exists(select 1 from control.nexloop_machine_write_capabilities w join control.nexloop_governed_capabilities g on g.capability=w.capability
+   where w.capability=p_capability and g.subject_rule='agent_or_human') then
+  return authz.nexloop_workbench_action_for_before_notes(p_digest,p_world,p_capability);
+ end if;
+ ident:=authz.nexloop_service_identity_snapshot(p_digest,p_world);v_tenant:=ident->'binding'->>'tenant_id';
+ if ident->'binding'->>'subject_kind' is distinct from 'human' then raise exception 'workbench requires a human session' using errcode='42501';end if;
+ select count(*),min(jsonb_build_object('stable_name',d.definition->>'stable_name','version',(d.definition->>'version')::integer)::text)::jsonb into n,v_result
+  from control.nexloop_action_definitions d where d.tenant_id=v_tenant and d.world=p_world and d.active
+   and d.definition->'capability_binding'->>'capability_name'=p_capability;
+ if n=0 then return null;end if;
+ if n>1 then raise exception 'workbench capability published more than once' using errcode='22023';end if;
+ return v_result||jsonb_build_object('granted',exists(select 1 from authz.nexloop_authority_facts f where f.tenant_id=v_tenant and f.fact_kind='grants'
+  and f.entity_key=array[ident->'binding'->>'subject_principal_id','eios:action:'||(v_result->>'stable_name')||':'||(v_result->>'version')]
+  and jsonb_array_length(coalesce(f.payload->'grants','[]'::jsonb))>0));
+end $$;
+alter function authz.nexloop_workbench_action_for(text,text,text) owner to nexloop_owner;
+revoke all on function authz.nexloop_workbench_action_for(text,text,text) from public;
+revoke all on function authz.nexloop_workbench_action_for_before_notes(text,text,text) from public,nexloop_api;
+grant execute on function authz.nexloop_workbench_action_for(text,text,text) to nexloop_api;
+
 -- The workbench read: the notes of one object, for a member who may read it now (owner, operator, reviewer), plain values only.
 create function control.nexloop_workbench_object_notes(p_digest text,p_world text,p_type text,p_object text) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$

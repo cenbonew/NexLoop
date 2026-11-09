@@ -53,7 +53,7 @@ def app(tmp_path_factory):
 
 
 def test_the_inventory_follows_its_schema_and_refuses_what_the_schema_cannot_say(inventory, tmp_path):
-    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 111   # 110 routes (NX-062 M5c the three machine write routes, M4a the machine read) and one mount (NX-062 M3 the machine capability list, K4d the pending read, batch 32 added the members read, NX-058 slice F the three SSO routes, batch 50 the experiments read, S73 the 入口 links, S81 the entry ticket and its WebChat redemption, K5 the evidence graph, message trace and conversation metrics)
+    assert inventory['schema_version'] == 'nexloop-api-routes/1' and len(inventory['routes']) == 112   # 111 routes (NX-062 M5c the notes read and the three machine write routes, M4a the machine read) and one mount (NX-062 M3 the machine capability list, K4d the pending read, batch 32 added the members read, NX-058 slice F the three SSO routes, batch 50 the experiments read, S73 the 入口 links, S81 the entry ticket and its WebChat redemption, K5 the evidence graph, message trace and conversation metrics)
     def refused(change):
         bad = copy.deepcopy(inventory)
         change(bad)
@@ -75,7 +75,7 @@ def test_g1_each_mode_mounts_exactly_its_inventory_and_no_openapi(inventory, mod
     mounted = I.routes(I.complete_app(tmp_path, mode))
     assert I.diff(inventory, mounted, mode) == {'unlisted': [], 'not_mounted': [], 'handler_differs': []}
     assert (('GET', '/api/v1/artifacts/{artifact_id}') in mounted) is (mode == 'test')                    # F-2
-    assert len(mounted) == {'test': 111, 'stage': 110}[mode]
+    assert len(mounted) == {'test': 112, 'stage': 111}[mode]
     assert not {p for _, p in mounted} & {'/openapi.json', '/docs', '/redoc', '/docs/oauth2-redirect'}
 
 
@@ -143,7 +143,7 @@ def test_f2_the_test_world_artifact_read_is_not_mounted_outside_test_mode(tmp_pa
 def test_g3_every_port_exists_and_every_handler_is_bound_to_its_port(inventory):
     operations, sql = I.backend_operations(), I._sql_functions()
     ported = [r for r in inventory['routes'] if 'port' in r['authorization']]
-    assert len(ported) == 88                                       # NX-062 M5c the three machine write routes; M3 the machine capability list; 81 port routes (K4d the pending read, batch 32 added the members read, batch 50 the experiments read, K5 three reads), the service token and the webhook
+    assert len(ported) == 89                                       # NX-062 M5c the notes read and the three machine write routes; M3 the machine capability list; 81 port routes (K4d the pending read, batch 32 added the members read, batch 50 the experiments read, K5 three reads), the service token and the webhook
     for r in ported:
         port = r['authorization']['port']
         assert I.port_exists(port, operations, sql), port
@@ -172,7 +172,7 @@ def test_g4_every_governed_capability_is_reached_or_explained(inventory):
     on_http = {x['capability'] for x in inventory['operations']}
     explained = {x['capability'] for x in inventory['capabilities_not_on_http']}
     assert not on_http & explained and on_http | explained == registry
-    assert len(explained) == 10  # NX-062 M5c object.add_note until its workbench operation (M5c-3); NX-038 G1: goals.budget.set is on HTTP (set_budget)
+    assert len(explained) == 9  # NX-038 G1: goals.budget.set is on HTTP (set_budget)
 
 
 def test_f1_no_runtime_openapi_document_and_the_schema_still_builds(app):

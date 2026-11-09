@@ -137,6 +137,18 @@ class WorkbenchReader:
         except psycopg.errors.InsufficientPrivilege:
             raise WorkbenchForbidden('property sources') from None
 
+    def object_notes(self, type_name, object_id):
+        """NX-062 M5c (0443): the notes of one visible object - unverified statements, plain values; the member's current role decides."""
+        from nexloop_eios.assembly import verify_application_role
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                return db.execute('select control.nexloop_workbench_object_notes(%s,%s,%s,%s)', (self.session.token_digest, self.session.world, type_name, object_id)).fetchone()[0]
+        except psycopg.errors.InsufficientPrivilege:
+            raise WorkbenchForbidden('object notes') from None
+        except psycopg.errors.NoDataFound:
+            return None
+
     def observe(self, verb, **payload):
         """NX-030 (D7): metrics, alerts and the human-action audit through their own function (0151); 0117 unchanged."""
         from nexloop_eios.assembly import verify_application_role
@@ -697,6 +709,10 @@ class WorkbenchQueries:
         page = [{**self._commitment(v), 'consumer_display': names[v.get('consumer_id')]} for v in page]
         return {'commitments': page, 'exceptions': exceptions, 'counts': counts, 'total': len(rows), 'status_group': group,
                 'next_cursor': str(start + limit) if start + limit < len(rows) else None}
+
+    def object_notes(self, *, type_name, object_id):
+        notes = self.reader.object_notes(type_name, object_id)
+        return None if notes is None else {'type_name': type_name, 'object_id': object_id, 'notes': notes}
 
     def commitment(self, *, commitment_id):
         value = self.reader.call('commitment', commitment_id=commitment_id)

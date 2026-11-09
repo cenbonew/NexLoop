@@ -204,6 +204,6 @@ def test_only_the_workbench_reads_notes(notes):
     assert readers == set()
     package = ROOT / 'packages/eios-core/src/nexloop_eios'
     hits = sorted(p.name for p in package.glob('*.py') if re.search(r'nexloop_(workbench_)?object_notes', p.read_text(encoding='utf-8')))
-    assert set(hits) <= {'workbench_read_http.py', 'workbench_notes.py'}, hits
+    assert set(hits) <= {'workbench_reads.py'}, hits
     for module in ('conversation_extraction.py', 'data_export.py', 'data_export_http.py', 'machine_http.py', 'machine_writes.py'):
         assert 'object_note' not in (package / module).read_text(encoding='utf-8'), module

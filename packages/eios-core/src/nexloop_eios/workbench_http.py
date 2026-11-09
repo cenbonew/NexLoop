@@ -241,6 +241,14 @@ def router(config, *, ports_for_workbench):
             return error('invalid_request', 422)
         return await invoke(request, 'commitment', commitment_id=commitment_id)
 
+    @routes.get('/objects/{type_name}/{object_id}/notes')
+    async def object_notes(type_name: str, object_id: str, request: Request):
+        """NX-062 M5c: the notes of one Commitment or CommercialRecord (WorkbenchQueries.object_notes; plain text, unverified statements)."""
+        # The session is checked first (invoke); SQL admits only the two note types and a 64-hex id, and answers 404 for anything else.
+        if len(type_name) > 64 or len(object_id) > 128 or request.query_params:
+            return error('invalid_request', 422)
+        return await invoke(request, 'object_notes', type_name=type_name, object_id=object_id)
+
     @routes.get('/contact')
     async def contact(request: Request):
         try:

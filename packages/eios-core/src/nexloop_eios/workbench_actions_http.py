@@ -335,6 +335,9 @@ OPERATIONS={
     'answer_human_question':{'question_id':_id(_UUID),'answer_kind':lambda v:v if v in ('answer','withdraw') else (_ for _ in ()).throw(ValueError('answer kind')),
         'option_index':lambda v:v if v is None or (type(v) is int and 0<=v<=3) else (_ for _ in ()).throw(ValueError('option index')),
         'text':lambda v:v if v is None or (type(v) is str and 1<=len(v)<=500) else (_ for _ in ()).throw(ValueError('text'))},
+    # NX-062 M5c (0443, owner and operator): one unverified note on a visible Commitment or CommercialRecord (plain text, no personal data).
+    'object_note_add':{'type_name':lambda v:v if v in ('Commitment','CommercialRecord') else (_ for _ in ()).throw(ValueError('type')),
+        'object_id':_id(re.compile(r'[a-f0-9]{64}')),'text':lambda v:v if type(v) is str and 1<=len(v)<=2000 else (_ for _ in ()).throw(ValueError('text'))},
     # NX-062 M2b (0435, owner only): the machine access lifecycle. issue and rotate take no key fields from the body: the entry draws the key
     # (nexloop_eios.machine_keys) and passes only its prefix, digest and pepper version on; the key is shown once, in a response that executed.
     'register_machine_client':{'client_id':_id(_MACHINE_CLIENT),'display_name':_text,'purpose':_reason},
@@ -507,9 +510,11 @@ def router(config,*,ports_for_browser):
             return error('unauthenticated',401)
         except LookupError:
             return error('not_found',404)
+        except psycopg.errors.NoDataFound:
+            return error('not_found',404)  # NX-062 M5c: a handler's not_found (e.g. a note on an object the member cannot see)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question|machine access): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question|machine access|object note): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited

@@ -104,3 +104,43 @@
 - 机器生命周期、机器读取与写入、备注；
 - 全局守护：db_boundary、tenant_fk、system_catalog、copy guard、bootstrap、三项擦除覆盖、nx041 sim roles 和 pi_run、claim_store_pg；
 - stage_register。
+
+## M5c-3 交付：工作台备注入口与运行单
+
+- **工作台写入**（V-4）：
+  - 新增工作台操作 `object_note_add`，走现有的受治理 Action 通道，CSRF、会话、Origin 检查沿用现有中间件。
+  - 角色清单 v56：`nexloop.object.add_note` 给 owner 和 operator（slice object_notes），不在仅限 owner 的集合里；reviewer 只能读。
+  - SQL handler 会按成员当前的角色再核对一次。
+  - 工作台查找 Action 的函数（`authz.nexloop_workbench_action_for`）原本只接受 human 能力。0443 改名加包装：只对已登记的机器写能力（目前只有 `object.add_note`）用同一套查找逻辑，即 human 会话、恰好一个已发布定义、成员自己的授权事实；其他能力原样委托给原函数。
+  - 工作台操作的错误映射增加了 `NoDataFound → 404`，以及 `object note:` 结果码。
+- **工作台读取**：
+  - 新路由 `GET /api/v1/workbench/objects/{type_name}/{object_id}/notes`，走 `WorkbenchQueries.object_notes` 和 `control.nexloop_workbench_object_notes`。
+  - 先核对会话；SQL 只接受两种备注类型和 64 位十六进制的 ID，其他一律 404。
+  - 路由清单 v17：`object_note_add` 进入 operations，`object.add_note` 从 `capabilities_not_on_http` 移出。路由计数改为 112 和 111，端口计数 89。
+- **前端**（V-1）：
+  - `apps/web/src/workbench/ObjectNotes.tsx`，挂在承诺详情页上。
+  - 正文只渲染为文本节点，不解析 HTML、Markdown 或链接。
+  - 每条标注作者：机器写的显示“机器客户端 <client_id> 的备注 · 未核实陈述”，人写的显示“成员的备注 · 未核实陈述”。
+  - 输入框上限 2000 字符，带“不要写入姓名、电话等个人信息”提示。只有角色带这个 Action 时才显示输入框。
+  - CommercialRecord 在工作台还没有详情页，所以这一轮只能经 API 读写它的备注。
+- **运行单**：[run-nx062-machine-access.md](../release/run-nx062-machine-access.md) §4，包括部署步骤（先 publish、角色 v56、备注上限发布、gate 之后再 promote）、stage test world 的验收演练（B 类，只准备，不执行）、给负责人的隐私说明（含 W2 限制）。
+
+### 测试（M5c-3）
+
+- `tests/test_object_notes_http.py`，真实工作台 HTTP 与真实 PG：
+  - owner 保存一条含 HTML、`javascript:` 链接和 Markdown 的备注；
+  - 缺 CSRF、CSRF 错误、跨 Origin 都被拒（401 或 403），什么都不写入；
+  - 不可见的对象被拒；
+  - 读取接口原样返回正文，机器备注带 client_id、不带作者 principal；
+  - 不存在的对象、Consumer 类型都返回 404，带查询串返回 422，无会话返回 401；
+  - operator 可以写；
+  - 审计里有 3 条，都不含正文。
+- `apps/web/test/workbench-object-notes.test.ts`（vitest + jsdom）：
+  - 恶意正文只渲染为文本：没有 img、a、b 元素，脚本没有执行；
+  - 作者标注正确；
+  - 输入框提示和长度上限正确，提交时发送去掉首尾空白后的正文；
+  - reviewer 看不到输入框，但能读备注。
+  - `tsc --noEmit` 通过，全部 web 测试 72 个文件、400 项通过。
+- 回归：
+  - 一轮 410 项：机器相关与备注、路由清单、工作台（角色、操作、读取）、清单、契约、stage_register、全局守护、审批门。第一轮里唯一的失败是 owner 角色 Action 数从 106 变为 107，改完后通过。
+  - 另一轮 43 项：其他读取角色清单的测试。

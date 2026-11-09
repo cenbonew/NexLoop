@@ -505,7 +505,7 @@ class Backend:
         from nexloop_eios.browser_authorization import authenticate_browser_business
         from nexloop_eios.workbench_reads import WorkbenchQueries, WorkbenchReader
         allowed = {'overview', 'goals', 'consumers', 'consumer', 'conversation', 'plans', 'actions', 'takeovers', 'settings',
-            'commitments', 'commitment', 'contact', 'audit', 'review_queue', 'review_evidence', 'me', 'metrics', 'alerts', 'human_actions',
+            'commitments', 'commitment', 'object_notes', 'contact', 'audit', 'review_queue', 'review_evidence', 'me', 'metrics', 'alerts', 'human_actions',
             'effect_determination',  # 0210: the owner's precheck before confirming an unknown effect did not happen
             'erasure_precheck',  # 0220: the owner's precheck before and after erasing a synthetic Consumer
             'operator_personas',  # 0227: the owner's operator persona overview

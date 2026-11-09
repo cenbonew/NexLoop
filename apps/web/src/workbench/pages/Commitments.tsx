@@ -10,6 +10,7 @@ import {EmptyState,IdText} from '../kit';
 import {ConsumerHeader,ConsumerName,when} from './Consumers';
 import {DataTable} from '../DataTable';
 import {Operations} from './PageOps';
+import {ObjectNotes} from '../ObjectNotes';
 
 /** The promised words: shown only with the source Message's READ while it exists. */
 export function quoteText(view:CommitmentView):string{
@@ -132,6 +133,7 @@ export function CommitmentDetail({commitmentId,actions,onContext,onConsumer}:{co
       {label:'事件',main:true,cell:e=><StatusBadge domain="commitment_event" code={e.kind}/>},{label:'时间',cell:e=><Time value={e.recorded_at}/>},
       {label:'操作人',cell:e=>e.principal_id?<IdText kind="成员" value={e.principal_id} head={6} tail={4}/>:'—'}]}/>
     {c.exceptions.length?<><h2>异常</h2><ul>{c.exceptions.map(e=><li key={e.reason}><StatusBadge domain="commitment_exception" code={e.reason}/> <Time value={e.raised_at}/></li>)}</ul></>:null}
+    <ObjectNotes type="Commitment" objectId={c.commitment_id}/>
     <Operations actions={actions} title="对这条承诺的操作"/>
   </>}</Page>;
 }

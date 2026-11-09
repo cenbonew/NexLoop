@@ -143,6 +143,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'settle_action_claim':'action_claim.settle',
     # K4b (human_questions): answer, correct or withdraw the answer to a reevaluation Run's question (owner and operator; kind checked in SQL).
     'answer_human_question':'human_question.answer',
+    'object_note_add':'object.add_note',  # NX-062 M5c (0443): an unverified note on a visible object (owner, operator; machine clients via prepare/commit)
     # NX-062 M2b (0435): the machine access lifecycle (owner only; SQL also requires an active owner).
     'register_machine_client':'machine_client.register',
     'deactivate_machine_client':'machine_client.deactivate',
@@ -464,6 +465,12 @@ class GoalGovernedActions:
 
     # NX-062 M2b (0435): the machine access lifecycle, owner only. The key never comes here: issue and rotate receive its prefix, HMAC
     # digest and pepper version, drawn by the workbench entry (nexloop_eios.machine_keys); SQL checks everything again.
+    # NX-062 M5c (0443): owner or operator; the handler checks the role now, the object's visibility and cleans the text.
+    def object_note_add(self,*,action_name,action_version,request_id,type_name,object_id,text):
+        if type_name not in ('Commitment','CommercialRecord') or not re.fullmatch(r'[a-f0-9]{64}',str(object_id)) or type(text) is not str or not 1<=len(text)<=2000:
+            raise ValueError('object and text required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'object_note_add','type_name':type_name,'object_id':object_id,'text':text})
+
     def register_machine_client(self,*,action_name,action_version,request_id,client_id,display_name,purpose):
         if (type(client_id) is not str or not _MACHINE_CLIENT.fullmatch(client_id) or type(display_name) is not str or not 1<=len(display_name.strip())<=120
                 or type(purpose) is not str or not 1<=len(purpose.strip())<=400):
