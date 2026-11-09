@@ -5285,7 +5285,7 @@
       "M01"
     ],
     "deliverable": "按 OIDC 启用运行单（第 122 批 e53533c9；迁移 0365 已在 stage）选定 IdP 并在 stage 启用；合成 IdP 验收（登录、组映射、停用同步、会话 epoch 行为）；负责人决定 IdP 与启用时间（2026-11-09 定为从 NX-058 拆出另开任务）",
-    "status": "not_started",
+    "status": "in_progress",
     "evidence": []
   },
   {
@@ -5302,6 +5302,20 @@
     ],
     "deliverable": "ADR：F3 schema 发布时停用被取代的前驱 Action（发布与授权跟随在同一治理决定内，修订 NX-040 设计 §5「发布不写授权」）以及 workbench roles 的 follow 支持；草稿见 docs/planning-drafts/nx040-predecessor-retire-adr-draft-20261109.md；负责人 2026-11-09 决定（3A）排在 NX-038/039/040 收尾之后，不进 R74 急修",
     "status": "not_started",
+    "evidence": []
+  },
+  {
+    "id": "NX-067",
+    "stage": "S6",
+    "title": "工作台 SSO：IdP 组只降不升的角色上限与 IdP 停用同步",
+    "dependencies": [
+      "NX-058"
+    ],
+    "modules": [
+      "M01"
+    ],
+    "deliverable": "补 NX-065 验收发现的两项缺口（负责人 2026-11-10 决定另开任务）：IdP 组映射只能收窄工作台角色清单的权限（无命中映射锁住全部 Action，映射由负责人受治理 Action 修改，清空映射恢复清单权限）；IdP 停用同步 = SSO 会话最长时长（默认 8 小时，按 provider 可调）加 OIDC back-channel logout（结束成员全部会话）；设计见 docs/design/nx067-oidc-group-roles-and-disable-sync.md；NX-065 验收脚本两项缺口检查改为真实检查",
+    "status": "in_progress",
     "evidence": []
   }
 ]
