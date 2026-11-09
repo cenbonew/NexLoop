@@ -142,3 +142,31 @@
     - 非配置员路径不受影响；
     - 变异检查：去掉“停用上一版本”那一行，替换用例按预期失败。
 - **没有改任何已发布的 Action**。
+
+### 5.1 影子校验（第 0 批，第 1 批发布前完成）
+
+- **迁移 `action_input_shadow`**（临时号 0431）：
+  - `control.nexloop_action_input_candidates`：候选输入模式，按租户、world 和精确 Action 版本存放，只能由可信配置写入（`control.nexloop_configure_input_candidates`，配置员身份）。整组替换并递增 revision；只接受处于 active 的 Action 版本。
+  - `runtime.nexloop_action_input_shadow`：按租户、world、Action 版本、候选摘要和 UTC 日期计数，只有两个数：调用次数和“候选会拒绝”的次数。
+  - `authz.nexloop_action_input_candidate` 和 `authz.nexloop_action_input_shadow_record`：租户从调用方的凭据推导（服务身份或浏览器会话的 realm），不由调用方提供；推导不出租户时，不返回候选，也不计数。
+  - `authz.nexloop_action_input_shadow_report`：只读的 metrics 登录按候选读取 calls、would_reject 和状态，状态取值为：
+    - `no_data`：没有调用，按 C3 不能发布；
+    - `fail`：有“候选会拒绝”；
+    - `pass`；
+    - `stale`：这个 Action 版本已经不再 active。
+- **派发**（`action_governor.shadow_validate`）：
+  - 已发布模式的校验通过之后，如果这个 Action 版本有候选，就用和派发相同的校验器（开着 format 校验）再校验一次，只计数、不拒绝；
+  - 不能用的候选按“全部拒绝”计，不会让影子关卡误判通过；
+  - 影子本身出错不影响派发，只记一行警告（Action 名和异常类名）。
+- **不记什么**：
+  - 不记请求体、principal 或 Consumer；
+  - 表里只有租户、world、Action 版本、候选摘要、日期和两个计数，测试逐列核对过。
+  - 这张表不点名任何 Consumer 或成员，所以不在擦除覆盖范围内（`docs/implementation/erasure-coverage.md` 只针对点名 Consumer 或成员的表）；它随租户一起删除（有租户外键，`test_tenant_fk_pg` 通过）。
+- **已知局限**：
+  1. 影子只覆盖经过 `govern_published_action` 的调用。`nexloop.incentive.issue` 和 `nexloop.outreach.send` 的 Run 工具路径在 SQL 里受理（0145、外联的受理函数），不经过这里。这两个本来就在第 3 批（§2a），第 3 批要在 SQL 受理路径上加同样的计数，或者明确只看人工路径的调用。
+  2. 每次受治理的调用多一次数据库往返（查候选）；没有候选时只读不写。
+- **测试**：`tests/test_d23_action_input_shadow_pg.py`，在 `Consumer.edit` 的真实受治理写入路径上验证：
+  - 全部拒绝的候选：写入照常 applied，计 1 次调用、1 次会拒绝，状态 `fail`；
+  - 全部接受的候选：状态 `pass`；换一个候选后从 `no_data` 重新计数；
+  - 只能由可信配置写入候选，只能针对 active 的版本，版本停用后状态为 `stale`；
+  - 报告只有 metrics 登录能读；推导不出租户的调用方什么都不计。

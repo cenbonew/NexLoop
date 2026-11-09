@@ -33,6 +33,37 @@ def create_action_governor(pool,session,signer,*,object_reader=None):
         clock=database_clock,object_reader=object_reader)
 
 
+def shadow_validate(pool,session,definition,request):
+    """D23 option B (migration action_input_shadow): when trusted configuration set a candidate input schema for this exact Action
+    version, validate the request with it as dispatch would (same validator, format checker on), count the call and whether the
+    candidate would have refused it - never enforce it. Only the Action and two counts are recorded: no request, no principal. A
+    shadow that cannot run never affects dispatch; it logs the failure's class only."""
+    import logging
+    from jsonschema import Draft202012Validator
+    from referencing import Registry
+    from referencing.exceptions import NoSuchResource
+    resource=f'eios:action:{definition.stable_name}:{definition.version}'
+    def no_external_schema(uri):
+        raise NoSuchResource(ref=uri)
+    try:
+        with pool.connection() as c,c.transaction():
+            verify_application_role(c)
+            candidate=c.execute('select authz.nexloop_action_input_candidate(%s,%s,%s)',(session.token_digest,session.world,resource)).fetchone()[0]
+            if candidate is None:return None
+            try:
+                Draft202012Validator.check_schema(candidate['input_schema'])
+                rejected=not Draft202012Validator(candidate['input_schema'],registry=Registry(retrieve=no_external_schema),
+                    format_checker=Draft202012Validator.FORMAT_CHECKER).is_valid(request)
+            except Exception:
+                rejected=True  # an unusable candidate refuses everything: it must never pass the shadow gate
+            c.execute('select authz.nexloop_action_input_shadow_record(%s,%s,%s,%s,%s)',
+                (session.token_digest,session.world,resource,candidate['candidate_digest'],rejected))
+            return rejected
+    except Exception as error:
+        logging.getLogger(__name__).warning('action input shadow unavailable %s',{'action':resource,'error':type(error).__name__})
+        return None
+
+
 def govern_published_action(pool,session,signer,*,claim_request,request,object_reader=None):
     """Resolve published contracts and server scopes; no caller risk/definition override.
 
@@ -60,6 +91,7 @@ def govern_published_action(pool,session,signer,*,claim_request,request,object_r
             format_checker=Draft202012Validator.FORMAT_CHECKER).validate(request)
     except Exception:
         raise ActionAuthorizationDenied('published Action input rejected') from None
+    shadow_validate(pool,session,definition,request)
     if definition.governance.policy_refs:
         raise ActionAuthorizationDenied('authoritative Action policy evidence unavailable')
     with pool.connection() as c,c.transaction():
