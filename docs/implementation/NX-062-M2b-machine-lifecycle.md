@@ -11,7 +11,11 @@ M2b 上线后，到 M5 之前：
 - 机器主体**没有任何 EIOS 授权事实**，也**没有任何可用的读取或写入能力**。负责人可以登记主体、签发密钥，但这把密钥调用任何受治理入口都会被拒，也没有任何 HTTP 路由接受它（machine_key realm 在 M3 才有）。
 - 证明用的测试是 `test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact`：
   - 经工作台签发一把 real world 的有效密钥；
-  - 遍历 `nexloop_api` 能调用、第一个参数是 token 摘要的全部 SQL 入口（当前 131 个，少于 100 即判失败），以 `nexloop_api` 身份用这把密钥的摘要逐个调用：130 个抛错；唯一的例外 `authz.nexloop_definition_read` 对未知摘要也只返回空列表，对这把密钥同样是空列表；
+  - 遍历 `nexloop_api` 能调用、第一个参数是 token 摘要的全部 SQL 入口（当前 131 个，少于 100 即判失败），以 `nexloop_api` 身份用这把密钥的摘要逐个调用。L6 F1 之后，结果按类别分别断言：
+    - **身份拒绝（SQLSTATE 42501）**：128 个。另有 5 个入口的形状检查排在身份检查之前（artifact cleanup、claim deletion、reserve、read_object、batch fact load），为它们给了能通过形状检查的参数（`SHAPED`），确保拒绝来自身份检查。
+    - **非身份拒绝**：只允许 `NON_IDENTITY_ALLOWED` 中逐条登记的入口，目前只有 `authz.nexloop_native_client_facts`。原因：它是签名命令，协议、Action 资源和参数摘要都在调用 service 快照之前检查。出现任何其他非身份拒绝，测试即失败。
+    - **不抛错**：只允许两个入口——`definition_read` 返回空列表，O2b 批量事实读取返回逐项 error 状态（只是提示，调用方随后逐条重读并被拒）。测试断言这把机器密钥得到的结果，与随机未知摘要得到的结果完全相同。
+    - 首次按旧写法统计时，74 个“拒绝”其实是 22P02（文本参数不是合法 JSON），正是 L6 F1 指出的问题。修正为合法 JSON 参数并加上 SHAPED 后，其余全部为 42501。
   - 同时断言 authority_facts 和 workbench grant instances 里没有任何行指向机器主体，api-routes 清单里没有 machine_key realm。
 - 这个测试证明的是“任何入口都不接受”。机器摘要之所以被拒，有两层原因：一是 service credentials 里根本没有它，二是 0434 的包装函数显式拒绝。只删掉其中一层时，另一层仍然生效，所以这项测试对“删除包装函数判断”这类单点变异不会变红。单点变异由 `test_machine_access_pg` 的 C1 用例负责。
 

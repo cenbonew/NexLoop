@@ -1,7 +1,7 @@
 # NX-062 M2a：机器主体与密钥存储、身份函数、realm 互斥、能力允许表
 
 - **依据**：`docs/implementation/NX-062-design.md` §1、§2.2、§3.2、§6 M2，§10 中的 L6 条件 C1、C2、C3。执行：L10。基线 038dba21，接在 M1（d826b53c）之后。
-- **迁移**：`0434_nx062_machine_access.sql`（临时号，调度员 2026-11-09 指定从 0434 起）。只新增对象；对现有对象的唯一改动，是把 `authz.nexloop_service_identity_snapshot` 改名一次并包装（`..._before_machine_v0434`，收回所有 grant）。没有复制已有函数体，因此不触发 copy guard。
+- **迁移**：`0434_nx062_machine_access.sql`（临时号，调度员 2026-11-09 指定从 0434 起）。只新增对象；对现有对象的唯一改动，是把 `authz.nexloop_service_identity_snapshot` 改名一次并包装（`..._before_machine`，收回所有 grant）。没有复制已有函数体，因此不触发 copy guard。
 - **M2 拆成两步**：本片 M2a 只做存储、身份和授权边界。M2b 再做两件事：一是把生命周期函数登记为受治理 Action（负责人执行，Q-4）；二是给机器主体写 EIOS 授权事实。M2b 的做法沿用工作台角色模板（0335 `nexloop_workbench_role_templates` + `nexloop_workbench_fact_instance`）：每个能力的事实模板由可信配置预先编译，SQL 只按主体做实例化，API 不能自己构造事实。这样拆，是因为事实的生成方式需要单独审查。M2a 不开放任何路由，生命周期函数不授权给任何角色，所以本片没有可用的入口。
 
 ## 对象

@@ -11,7 +11,7 @@
 --   the other expires within 7 days (Q-2). A revoked key stays revoked; prefix, digest, client, world and scope never change.
 -- * authz.nexloop_machine_key_pepper_version(prefix) and authz.nexloop_machine_identity_snapshot(prefix, digest) for nexloop_api (C2:
 --   the API computes the HMAC once, with the row's version). Every validity test reads clock_timestamp().
--- * authz.nexloop_service_identity_snapshot is renamed once (..._before_machine_v0434, no grants) and wrapped: a machine key digest or a
+-- * authz.nexloop_service_identity_snapshot is renamed once (..._before_machine, no grants) and wrapped: a machine key digest or a
 --   machine client principal is refused there (C1), so no service, Run or browser path can authenticate a machine and the machine
 --   snapshot refuses any digest or principal of those realms.
 -- * control.nexloop_machine_read_verbs and control.nexloop_machine_capabilities (C3): append-only; a capability changes by appending its
@@ -228,14 +228,14 @@ do $$declare t text;begin
 end $$;
 
 -- C1 read side: the service snapshot refuses machine digests and machine principals -------------------------------------------
-alter function authz.nexloop_service_identity_snapshot(text,text) rename to nexloop_service_identity_snapshot_before_machine_v0434;
-revoke all on function authz.nexloop_service_identity_snapshot_before_machine_v0434(text,text) from public,nexloop_api,nexloop_identity,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler;
+alter function authz.nexloop_service_identity_snapshot(text,text) rename to nexloop_service_identity_snapshot_before_machine;
+revoke all on function authz.nexloop_service_identity_snapshot_before_machine(text,text) from public,nexloop_api,nexloop_identity,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler;
 create function authz.nexloop_service_identity_snapshot(p_digest text,p_world text) returns jsonb
 language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v jsonb;
 begin
  if exists(select 1 from authz.nexloop_machine_keys k where k.digest=p_digest) then raise exception 'authentication kind conflict' using errcode='42501';end if;
- v:=authz.nexloop_service_identity_snapshot_before_machine_v0434(p_digest,p_world);
+ v:=authz.nexloop_service_identity_snapshot_before_machine(p_digest,p_world);
  if v is not null and exists(select 1 from authz.nexloop_machine_clients c
    where c.principal_id=v->'binding'->>'subject_principal_id' or c.subject_id=v->'binding'->>'subject_id') then
   raise exception 'authentication kind conflict' using errcode='42501';end if;

@@ -180,16 +180,36 @@ def test_issue_without_a_pepper_file_is_unavailable(desk):
     assert w['admin'].execute('select count(*) from authz.nexloop_machine_keys').fetchone()[0] == 0
 
 
-SAMPLE = {'text': "'x'", 'jsonb': "'{}'::jsonb", 'integer': '1', 'bigint': '1', 'uuid': "'00000000-0000-4000-8000-000000000001'::uuid",
+SAMPLE = {'text': "'{}'", 'jsonb': "'{}'::jsonb", 'integer': '1', 'bigint': '1', 'uuid': "'00000000-0000-4000-8000-000000000001'::uuid",
           'timestamp with time zone': 'clock_timestamp()', 'text[]': "array['x']", 'boolean': 'false'}
-# The one digest entry that answers an unknown digest with an empty list instead of raising; a machine digest gets the same empty answer.
-EMPTY_FOR_UNKNOWN = {'authz.nexloop_definition_read(text,text,text,text[])'}
+HEX32, HEX64 = "'" + 'a' * 32 + "'", 'a' * 64
+# Arguments (after the digest) that pass an entry's shape check, so that its identity check is what refuses (L6 F1).
+SHAPED = {
+    'authz.nexloop_artifact_cleanup_candidates(text,text,text,text)': ["'real'", "'{}'", """'{"limit":1,"after":""}'"""],
+    'authz.nexloop_claim_artifact_deletion(text,text,text,text,text,integer)': ["'real'", "'{}'", """'{"artifact_id":"%s"}'""" % ('a' * 32), HEX32, '1'],
+    'authz.nexloop_reserve_local_artifact(text,text,text,text,text,integer)': ["'real'", "'{}'",
+        """'{"artifact_id":"%s","sha256":"%s","size_bytes":0,"retention_until":"2030-01-01T00:00:00Z"}'""" % ('a' * 32, HEX64), HEX32, '1'],
+    'authz.nexloop_read_object(text,text,text,text)': ["'real'", """'{"fields":[]}'""", "'{}'"],
+    'authz.nexloop_load_authority_facts(text,text,jsonb)': ["'real'", """'[{"kind":"subject","key":["x"]}]'::jsonb"""],
+}
+# Entries whose fixed shape check (no identity involved) refuses before any identity is resolved, each with why that still proves nothing
+# is reachable: they are signed commands whose signature is checked against the authority signing key before the digest is resolved,
+# and their identity resolution is the same service snapshot the other entries use.
+NON_IDENTITY_ALLOWED = {
+    'authz.nexloop_native_client_facts(text,text,text,text,text)':
+        'signed native-client command: protocol, Action resource and parameter digest are checked before the service snapshot it then calls',
+}
+# Entries that answer an unknown digest without raising: definition_read with an empty list, the O2b batch fact load with a per-item
+# error status (a hint only; the caller re-reads singly and is refused). The test asserts a machine digest gets exactly the answer a
+# random unknown digest gets.
+EMPTY_FOR_UNKNOWN = {'authz.nexloop_definition_read(text,text,text,text[])', 'authz.nexloop_load_authority_facts(text,text,jsonb)'}
 
 
 def test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact(desk):
     """Dispatcher 2026-11-09: after M2b and before M5 a machine principal has no authority fact and no usable read or write. Every function
-    nexloop_api may call whose first argument is a token digest refuses a live machine key's digest (or, like for an unknown digest, returns
-    nothing); the sweep fails if it finds fewer than 100 such entries, so it can never pass empty."""
+    nexloop_api may call whose first argument is a token digest refuses a live machine key's digest with an identity refusal (SQLSTATE
+    42501) - or, like for an unknown digest, returns nothing; a refusal of any other class is a failure unless listed with its reason
+    (L6 F1: a wrong argument must never count as a refusal). The sweep fails if it finds fewer than 100 entries, so it can never pass empty."""
     w = desk
     admin = w['admin']
     with w['client']() as client:
@@ -211,16 +231,29 @@ def test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact(desk
         and has_function_privilege('nexloop_api',p.oid,'execute') and p.pronargs>=1 and p.proargtypes[0]='text'::regtype
         and p.proargnames[1] ~ 'digest|token'""").fetchall()
     assert len(rows) >= 100, len(rows)
-    answered = {}
+    assert set(SHAPED) | set(NON_IDENTITY_ALLOWED) | EMPTY_FOR_UNKNOWN <= {r[0] for r in rows}  # no stale list entry
+    answered, identity, other = {}, {}, {}
     admin.execute('set role nexloop_api')
     try:
         for signature, name, types in rows:
-            args = ['%s'] + [("'real'" if i == 1 and t == 'text' else SAMPLE[t]) for i, t in enumerate(types) if i > 0]
+            args = ['%s'] + SHAPED.get(signature, [("'real'" if i == 1 and t == 'text' else SAMPLE[t]) for i, t in enumerate(types) if i > 0])
             try:
                 with admin.transaction():
                     answered[signature] = admin.execute(f"select {name}({','.join(args)})", (digest,)).fetchone()[0]
-            except psycopg.Error:
-                pass
+            except psycopg.Error as error:
+                (identity if error.sqlstate == '42501' else other)[signature] = (error.sqlstate, error.diag.message_primary)
     finally:
         admin.execute('reset role')
-    assert set(answered) <= EMPTY_FOR_UNKNOWN and all(v in (None, [], {}) for v in answered.values()), answered
+    assert set(answered) <= EMPTY_FOR_UNKNOWN, answered
+    unknown = {}
+    admin.execute('set role nexloop_api')
+    try:
+        for signature, name, types in rows:
+            if signature in answered:
+                args = ['%s'] + SHAPED.get(signature, [("'real'" if i == 1 and t == 'text' else SAMPLE[t]) for i, t in enumerate(types) if i > 0])
+                unknown[signature] = admin.execute(f"select {name}({','.join(args)})", (secrets.token_hex(32),)).fetchone()[0]
+    finally:
+        admin.execute('reset role')
+    assert answered == unknown and all(v in ([], [{'status': 'error'}]) for v in answered.values()), (answered, unknown)
+    assert set(other) == set(NON_IDENTITY_ALLOWED), other
+    assert len(identity) == len(rows) - len(answered) - len(other) and len(identity) >= 100, len(identity)

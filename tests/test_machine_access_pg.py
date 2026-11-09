@@ -223,7 +223,7 @@ def test_c1_machine_digest_refused_by_the_service_snapshot(db, peppers):
     denied(db, 'select authz.nexloop_service_identity_snapshot(%s,%s)', (digest, 'test'), 'authentication kind conflict')
     # The inner (pre-0434) snapshot has no grant left for any application role.
     for role in ('nexloop_api', 'nexloop_domain_worker', 'nexloop_action_worker', 'nexloop_scheduler'):
-        assert not db.execute("select has_function_privilege(%s,'authz.nexloop_service_identity_snapshot_before_machine_v0434(text,text)','execute')", (role,)).fetchone()[0]
+        assert not db.execute("select has_function_privilege(%s,'authz.nexloop_service_identity_snapshot_before_machine(text,text)','execute')", (role,)).fetchone()[0]
         assert db.execute("select has_function_privilege(%s,'authz.nexloop_service_identity_snapshot(text,text)','execute')", (role,)).fetchone()[0]
 
 
