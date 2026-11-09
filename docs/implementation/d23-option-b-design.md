@@ -87,6 +87,12 @@
 3. **能拒绝**：每个新模式至少拒绝一个 `schema_gates.OPEN_PROBES` 探测值，`schema_gates.open_input` 对它返回 False。
 4. **r8**：在 catalog 编译出的 Consumer Action 上，`tool_cases_built.open_input` 降为上一批的值减去本批个数；回放 0 失败；收紧候选的阳性对照仍判为回归。
 5. **部署后**：工作台每个操作抽一次成功调用；跨版本重试的拒绝计数如实记录。
+6. **影子报告逐个对照（L6 C2）**：验收时把本批的 Action 清单和 `authz.nexloop_action_input_shadow_report` 逐个对照。报告只列出已经配了候选模式的 Action，清单里有、报告里没有的 Action 一律按 `no_data` 处理，不能发布。
+
+**“带 0430/0431 那次部署”的前提**（这两个迁移不进 R73，R73 的部署单只覆盖到 0429，放到下一次部署）：
+
+- **L6 C1**：部署前在 stage 上只读查询一次，确认 world `real` 里没有哪个 `stable_name` 同时有两个或更多启用的定义（`select tenant_id, definition->>'stable_name', count(*) from control.nexloop_action_definitions where world='real' and active group by 1,2 having count(*)>1` 必须为空）。有的话，替换触发器会把它们按“两个启用”拒绝，要先由人处理。
+- **L6 C3**：`shadow_validate` 会让每次治理派发多开一次连接、多一个事务。第 1 批上 stage 之前，量一次治理派发的 p95，和没有影子校验时对比；明显变慢的话，改为“这个租户配了候选模式才去查”。
 
 ## 3a. Context 体积（C4）
 
