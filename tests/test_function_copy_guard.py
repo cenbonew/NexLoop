@@ -747,6 +747,9 @@ REGISTRY = [
     # The review queue shows the candidate category (L9 labels; 0419 owner_directed_schema).
     Allowed('evo_review_summary_category', 'runtime.nexloop_evo_review_summary', "'category' in each candidate object; nothing else",
             ((re.escape("'candidate_id',x.candidate_id,'category',x.category,"), "'candidate_id',x.candidate_id,"),)),
+    # L6 G1 on 0431: the shadow's tenant lookup catches only the identity refusal (42501); any other error is raised.
+    Allowed('action_input_tenant_narrow', 'authz.nexloop_action_input_tenant', 'exception when insufficient_privilege instead of others; nothing else',
+            ((re.escape('exception when insufficient_privilege then'), 'exception when others then'),)),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

@@ -130,5 +130,64 @@ def test_a_shadow_that_fails_leaves_dispatch_untouched_counts_nothing_and_counts
         assert obj(f['admin'], f['consumer'])[0]['budget_level'] == '两千元以内'
         assert shadow_rows(f) == []
         assert G.SHADOW_FAILURES['count'] == before + 1
+        # J1: recorded in PostgreSQL by world and error class, shown by the snapshot (alert rule v36) and the summary is not_ready.
+        assert f['admin'].execute('select world, reason, failures from runtime.nexloop_action_input_shadow_failures').fetchall() == [
+            ('real', 'InvalidTextRepresentation', 1)]
+        snapshot = f['admin'].execute('select runtime.nexloop_metrics_snapshot(%s,%s)', (f['tenant'], 'real')).fetchone()[0]
+        assert snapshot['action_input_shadow'] == {'failures_24h': 1}
+        assert summary(f)['status'] == 'not_ready' and summary(f)['shadow_failures'] == 1
     finally:
         f['admin'].execute(original)
+
+
+def summary(f):
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_metrics'), autocommit=True) as c:
+        return c.execute('select authz.nexloop_action_input_shadow_summary(%s,%s,%s)',
+                         (f['tenant'], 'real', datetime.now(UTC) - timedelta(days=7))).fetchone()[0]
+
+
+def test_the_summary_is_never_pass_without_coverage(env):
+    """L6 J2 (G1 point 2): no candidate configured, or none validated a dispatch, is not_ready - never a clean pass; one covered
+    candidate with no would-reject is pass, a would-reject is fail. No shadow failure and the snapshot shows 0."""
+    f = env
+    assert summary(f) == {'candidates': 0, 'covered': 0, 'coverage': 0, 'validated_calls': 0, 'would_reject': 0, 'shadow_failures': 0,
+                          'status': 'not_ready'}
+    configure(f, [{'resource_id': RESOURCE, 'input_schema': ACCEPT_ALL}])
+    assert (summary(f)['coverage'], summary(f)['status']) == (0, 'not_ready')
+    claim = f['claims'].add('shadow-cover', '预算区间', '两千元以内', quote='预算在两千元以内')
+    m, _ = matcher(f, {claim: decision('eios:property:Consumer/budget_level', '两千元以内')}, suffix='-shadow-cover')
+    m.process_conversation(f['conversation'])
+    s1 = summary(f)
+    assert (s1['candidates'], s1['covered'], s1['coverage'], s1['validated_calls'], s1['status']) == (1, 1, 1, 1, 'pass')
+    configure(f, [{'resource_id': RESOURCE, 'input_schema': REFUSE_ALL}])
+    f['admin'].execute("update runtime.nexloop_action_input_shadow set candidate_digest=(select candidate_digest from control.nexloop_action_input_candidates "
+                       "where tenant_id=%s), would_reject=calls where tenant_id=%s", (f['tenant'], f['tenant']))
+    assert summary(f)['status'] == 'fail'
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_api'), autocommit=True) as api:
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            api.execute('select authz.nexloop_action_input_shadow_summary(%s,%s,now())', (f['tenant'], 'real'))
+    assert f['admin'].execute('select runtime.nexloop_metrics_snapshot(%s,%s)', (f['tenant'], 'real')).fetchone()[0]['action_input_shadow'] == {
+        'failures_24h': 0}
+
+
+def test_the_failure_recorder_takes_only_a_world_and_an_error_class(env):
+    f = env
+    with psycopg.connect(make_conninfo(f['pg'], user='nexloop_api'), autocommit=True) as api:
+        for world, reason in (('real', 'not a class'), ('real', 'x' * 65), ('Real', 'OperationalError'), ('real', None)):
+            assert api.execute('select authz.nexloop_action_input_shadow_failure(%s,%s)', (world, reason)).fetchone()[0] is False
+        assert api.execute('select authz.nexloop_action_input_shadow_failure(%s,%s)', ('real', 'OperationalError')).fetchone()[0] is True
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            api.execute('select * from runtime.nexloop_action_input_shadow_failures')
+    assert f['admin'].execute('select reason, failures from runtime.nexloop_action_input_shadow_failures').fetchall() == [('OperationalError', 1)]
+
+
+def test_rules_v36_are_v34_plus_the_shadow_failure_warning():
+    from pathlib import Path
+    from nexloop_eios.observability import load_rules, validate_rules
+    root = Path(__file__).resolve().parents[1] / 'deploy/configuration'
+    v34, v36 = json.loads((root / 'alert-rules.v34.json').read_text()), load_rules(root / 'alert-rules.v36.json')
+    validate_rules(v36)
+    assert v36['version'] == 36 and v36['rules'][:-1] == v34['rules']
+    assert {k: v36['rules'][-1][k] for k in ('rule_id', 'metric', 'condition', 'threshold', 'for_seconds', 'severity')} == {
+        'rule_id': 'action_input_shadow_failures', 'metric': 'action_input_shadow.failures_24h', 'condition': 'gt', 'threshold': 0,
+        'for_seconds': 0, 'severity': 'warning'}
