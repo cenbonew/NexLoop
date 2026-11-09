@@ -8180,6 +8180,94 @@
           }
         }
       },
+      "MachineCapabilities": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:machine-capabilities",
+        "title": "machine-capabilities",
+        "description": "NX-062 M3 (ADR-041 §2.4, §2.9): the answer of GET /machine/v1/capabilities, the capabilities one machine key may call now - its scope, intersected with the current machine capability allowlist and the machine client's current grant, computed in SQL at every request (authz.nexloop_machine_capability_list). It is the only source of a machine client's tool list (the MCP client and the SDK never carry their own). kind read is one call; kind write is a prepare and a commit (M5). The description is the allowlist's own text, never a client's. Until the machine grants of M5 the list is empty for every key. Tenant, world and actor are derived from the key by the server and never appear here. NexLoop target contract; server-derived identity required.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "capability",
+                "kind",
+                "description"
+              ],
+              "properties": {
+                "capability": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+                  "maxLength": 160
+                },
+                "kind": {
+                  "enum": [
+                    "read",
+                    "write"
+                  ]
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                }
+              }
+            }
+          }
+        }
+      },
+      "MachineError": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:machine-error",
+        "title": "machine-error",
+        "description": "NX-062 M3 (ADR-041 §2.5, threat review T-11): every refusal of the machine_key realm (/machine/v1/*). A fixed code only - never a value of the request, a key, a digest or an internal identifier; retryable is true for 429 and 503 only, and a 429 also carries the Retry-After header. Codes: unauthenticated (401: no machine key, another credential, an unknown, revoked or expired key or one of a deactivated client - one answer for all), query_not_allowed (400: a query string is never accepted, so a key never travels in a URL), rate_limited (429), rate_policy_missing (503: no rate policy is published, the realm is closed, never unlimited), unavailable (503: no pepper file or no database) and busy (503: the process's machine concurrency limit). message is a fixed display text. NexLoop target contract.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "trace_id",
+          "retryable",
+          "details"
+        ],
+        "properties": {
+          "code": {
+            "enum": [
+              "unauthenticated",
+              "query_not_allowed",
+              "rate_limited",
+              "rate_policy_missing",
+              "unavailable",
+              "busy"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "trace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          }
+        }
+      },
       "OntologyMutation": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:ontology-mutation",
@@ -13417,6 +13505,8 @@
     "evolution-evaluation-bundle.schema.json": "2646c8f203bc67e6a7902b38e1987376127ecdb7ac9c92767c20a894f250851e",
     "evolution-evaluation-report.schema.json": "ba73327b1ee9d06d493543935c355764d90d893c71a8af791aff436d2cb6369e",
     "experiment-registration.schema.json": "c8f53e0626a304318afc1ea7fb9dcb9e8d218f98e908b98e646937fe38d30dc0",
+    "machine-capabilities.schema.json": "2b802e9d2a69a3044b4801b6b90744215ee8dafb4a807f81865f86a27e16a9c2",
+    "machine-error.schema.json": "a97444694698488b43251bc2e860d01147eb7edc0ff45c9ea33c3cf577709d33",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",

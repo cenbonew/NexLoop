@@ -1,0 +1,5 @@
+{
+  "capabilities": [
+    {"capability": "object.get", "kind": "read", "description": "Read one object of the tenant's world model by its id (registered fields only)."}
+  ]
+}

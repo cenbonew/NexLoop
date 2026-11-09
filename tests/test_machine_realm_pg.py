@@ -64,6 +64,15 @@ def counts(w):
     return dict(w['admin'].execute("select outcome,sum(calls)::int from runtime.nexloop_machine_call_counts group by outcome").fetchall())
 
 
+def valid(response):
+    """The response body against its published contract (packages/contracts machine-capabilities or machine-error)."""
+    from jsonschema import Draft202012Validator, FormatChecker
+    name = 'machine-capabilities' if response.status_code == 200 else 'machine-error'
+    schema = json.loads((ROOT / f'packages/contracts/{name}.schema.json').read_text())
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(response.json())
+    return response
+
+
 def bearer(token):
     return {'Authorization': 'Bearer ' + token}
 
@@ -120,7 +129,7 @@ def test_c4_no_policy_fails_closed_and_is_counted_then_the_policy_limits(realm):
     assert rule['metric'] == 'machine_access.rate_policy_missing' and rule['threshold'] == 0 and rule['severity'] == 'critical'
     assert apply_rules(v35, TENANT, database_url_file=w['configurator'])['configured'] is True  # the SQL configurator accepts v35
     with w['client']() as client:
-        refused = client.get('/machine/v1/capabilities', headers=bearer(w['key']))
+        refused = valid(client.get('/machine/v1/capabilities', headers=bearer(w['key'])))
         assert refused.status_code == 503 and refused.json()['code'] == 'rate_policy_missing' and w['key'] not in refused.text
     assert counts(w) == {'rate_policy_missing': 1} and metrics(w)['refused_policy_missing_24h'] == 1
     assert metrics(w)['rate_policy_missing'] > rule['threshold']  # the v35 rule fires
@@ -129,9 +138,9 @@ def test_c4_no_policy_fails_closed_and_is_counted_then_the_policy_limits(realm):
     assert metrics(w)['rate_policy_missing'] == 0
     with w['client']() as client:
         for _ in range(3):
-            ok = client.get('/machine/v1/capabilities', headers=bearer(w['key']))
+            ok = valid(client.get('/machine/v1/capabilities', headers=bearer(w['key'])))
             assert ok.status_code == 200 and ok.json() == {'capabilities': []} and ok.headers['cache-control'] == 'no-store'
-        limited = client.get('/machine/v1/capabilities', headers=bearer(w['key']))
+        limited = valid(client.get('/machine/v1/capabilities', headers=bearer(w['key'])))
         assert limited.status_code == 429 and 1 <= int(limited.headers['retry-after']) <= 60
     assert counts(w) == {'rate_policy_missing': 1, 'admitted': 3, 'rate_limited': 1}
     assert metrics(w)['admitted_24h'] == 3 and metrics(w)['rate_limited_24h'] == 1
@@ -148,11 +157,11 @@ def test_denials_query_strings_and_the_empty_list_until_m5(realm):
     with w['client']() as client:
         # The key in a URL is never accepted, and nothing is read or counted for it.
         for query in ('?key=' + w['key'], '?x=1'):
-            r = client.get('/machine/v1/capabilities' + query, headers=bearer(w['key']))
+            r = valid(client.get('/machine/v1/capabilities' + query, headers=bearer(w['key'])))
             assert r.status_code == 400 and r.json()['code'] == 'query_not_allowed' and w['key'] not in r.text
         assert counts(w) == {}
         other = K.generate()
-        unknown = client.get('/machine/v1/capabilities', headers=bearer(other.token))  # unknown prefix
+        unknown = valid(client.get('/machine/v1/capabilities', headers=bearer(other.token)))  # unknown prefix
         forged = client.get('/machine/v1/capabilities', headers=bearer(K.MachineKey(K.parse(w['key']).prefix_id, other.secret).token))
         assert unknown.status_code == forged.status_code == 401 and unknown.json()['code'] == forged.json()['code'] == 'unauthenticated'
         # Identity headers change nothing.
@@ -171,7 +180,7 @@ def test_without_peppers_the_realm_is_unavailable(realm):
     publish(w)
     config = dataclasses.replace(w['config'], machine_key_peppers_file=None, mode='test')
     with TestClient(create_app(config), base_url=ORIGIN) as client:
-        r = client.get('/machine/v1/capabilities', headers=bearer(w['key']))
+        r = valid(client.get('/machine/v1/capabilities', headers=bearer(w['key'])))
         assert r.status_code == 503 and r.json()['code'] == 'unavailable'
         assert client.get('/machine/v1/capabilities').status_code == 401  # no credential is still 401
 
