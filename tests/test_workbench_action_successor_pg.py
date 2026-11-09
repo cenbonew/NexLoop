@@ -21,6 +21,7 @@ from nexloop_eios.goal_controls import GoalGovernedActions
 from nexloop_eios.schema_publication import successors
 from nexloop_eios.workbench_roles import application_facts, compile_members
 from test_alert_silence_pg import TENANT, silenced, until  # noqa: F401
+from system_catalog_fixture import publish_successor_actions
 from commitment_fixture import commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
 from test_browser_identity_reads import identity  # noqa: F401
@@ -41,10 +42,7 @@ def publish_successors(admin):
     assert any(d['stable_name'] == 'nexloop.alert.silence' for d, _ in rows)
     v2 = {**consumer, 'version': 2}
     admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',2,%s)", (TENANT, Jsonb(v2)))
-    for row in successors({'actions': [{'definition': d, 'capability': c} for d, c in rows]}, v2):
-        d = row['definition']
-        admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active) values(%s,%s,%s,%s,%s,true)',
-            (TENANT, 'real', f"eios:action:{d['stable_name']}:{d['version']}", Jsonb(d), Jsonb(row['capability'])))
+    publish_successor_actions(admin, TENANT, successors({'actions': [{'definition': d, 'capability': c} for d, c in rows]}, v2))
     return len(rows)
 
 
@@ -131,11 +129,12 @@ def test_the_governed_entry_still_checks_the_exact_version_it_executes(silenced,
 def test_two_actions_with_one_human_capability_are_still_refused(silenced):  # noqa: F811
     s = silenced
     admin = s['admin']
+    # The silence Action active a second time under another name (the same capability), through the catalog fixture's helper.
     definition, capability = admin.execute("select definition,capability from control.nexloop_action_definitions where tenant_id=%s and resource_id=%s",
                                            (TENANT, SILENCE + '1')).fetchone()
-    other = {**definition, 'stable_name': 'nexloop.alert.silence_copy'}
-    admin.execute('insert into control.nexloop_action_definitions(tenant_id,world,resource_id,definition,capability,active) values(%s,%s,%s,%s,%s,true)',
-                  (TENANT, 'real', 'eios:action:nexloop.alert.silence_copy:1', Jsonb(other), Jsonb(capability)))
+    publish_successor_actions(admin, TENANT, [{'definition': {**definition, 'stable_name': 'nexloop.alert.silence_copy'}, 'capability': capability}])
+    assert admin.execute("select count(*) from control.nexloop_action_definitions where tenant_id=%s and active and resource_id=%s",
+                         (TENANT, 'eios:action:nexloop.alert.silence_copy:1')).fetchone()[0] == 1
     with s['app']() as client:
         csrf = workbench_login(client, s['owner']).json()['csrf_token']
         failed = act(client, csrf, 'silence_alert', body('两个不同动作'), key='wb-successor-silence-0004')
