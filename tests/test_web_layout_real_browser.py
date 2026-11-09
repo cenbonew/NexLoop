@@ -162,6 +162,12 @@ def test_real_chromium_web_layout_batches_one_and_two(conversations, admin, pg, 
         assert w['ids_one_line'] and w['times_one_line'] and w['copies_inside'], (width, w)
         assert w['notes_min_chars'] >= 8, (width, w)
         assert w['trace_width'] >= w['message_width'] - 40, (width, w)
+        # L6 T1: messages without an open trace keep the bubble limit (80%; 92% on a phone, as bubble_ratio above); no horizontal overflow.
+        assert w['plain_count'] > 0 and w['plain_max_ratio'] <= (0.93 if width == '390' else 0.81), (width, w)
+        assert w['page_overflow'] <= 0, (width, w)
+    # L6 T2: at 1024 the side column sits below the conversation column while a trace is open.
+    w1024 = tl['widths']['1024']
+    assert w1024['side_top'] is not None and w1024['main_bottom'] is not None and w1024['side_top'] > w1024['main_bottom'], w1024
     conv = observed['k5_conversation']
     assert '本会话指标' in conv['metrics'] and (conv.get('steps') == 9 or '处理链路' in conv.get('trace', '')), conv
     assert k4l['note'] and '还没有任何属性值' in k4l['note'], k4l

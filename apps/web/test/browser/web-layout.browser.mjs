@@ -204,7 +204,15 @@ try{
        return {trace_width:Math.round(card.width),message_width:Math.round(msg.getBoundingClientRect().width),
          ids_one_line:ids.every(oneLine),times_one_line:times.every(oneLine),
          notes_min_chars:Math.min(...notes.map(n=>Math.floor(n.getBoundingClientRect().width/parseFloat(getComputedStyle(n).fontSize)))),
-         copies_inside:copies.every(b=>{const r=b.getBoundingClientRect();return r.left>=card.left-1&&r.right<=card.right+1;})};});
+         copies_inside:copies.every(b=>{const r=b.getBoundingClientRect();return r.left>=card.left-1&&r.right<=card.right+1;}),
+         // L6 T1: messages without an open trace keep the bubble width (at most 80% of the list); the page has no horizontal overflow.
+         plain_max_ratio:Math.max(0,...[...document.querySelectorAll('.workbench-messages > li')].filter(li=>!li.querySelector('.trace-steps'))
+           .map(li=>li.getBoundingClientRect().width/li.parentElement.clientWidth)),
+         plain_count:[...document.querySelectorAll('.workbench-messages > li')].filter(li=>!li.querySelector('.trace-steps')).length,
+         page_overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,
+         // L6 T2: the side column's top and the conversation column's bottom (the first grid child holds the conversation).
+         side_top:(()=>{const l=ol.closest('.conversation-layout');const s=l&&l.querySelector(':scope > .side-tabs');return s?Math.round(s.getBoundingClientRect().top):null;})(),
+         main_bottom:(()=>{const l=ol.closest('.conversation-layout');const m=l&&[...l.children].find(c=>c.contains(ol));return m?Math.round(m.getBoundingClientRect().bottom):null;})()};});
      await page.locator('.trace-steps').first().evaluate(el=>el.closest('li').scrollIntoView());
      await page.locator('.trace-steps').first().evaluate(el=>el.closest('li')).then(()=>page.locator('.workbench-messages li:has(.trace-steps)').first().screenshot({path:`${shots}/wb-trace-${width}.png`}));}
    await page.setViewportSize({width:1440,height:900});}
