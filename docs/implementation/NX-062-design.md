@@ -1,6 +1,6 @@
 # NX-062 设计稿：企业自有 Agent / 程序的授权接入（API 密钥、MCP、SDK）
 
-- **状态**：设计稿第 1 版，待 L6 审。**只是文档，不开放任何接口，不含迁移。** 审过之后按 §6 分片实现。
+- **状态**：设计稿第 2 版。L6 审 c52993cb 判条件 PASS（C1–C9，见 §10）；负责人 2026-11-09 已决定 Q-A 至 Q-G（§7）。按 M1→M6 分片实现，**§10 优先于正文中与之冲突的表述**。
 - **来源**：负责人 2026-11-09 选项 7B：“NX-062 现在开工，可以新开线程：先出设计稿，交 L6 审，再分片实现”。执行：L10。
 - **基线**：main 038dba21（catalog 尾部 0429；0430–0432 被在途批次占用，本设计的迁移临时号从 0433 起）。
 - **上位决定（不重议）**：`adr/ADR-041-machine-access-channel.md`（负责人 2026-10-28，Q-1 至 Q-9 全部 A）与威胁评审 `docs/design/NX-062-threat-review.md`（T-1 至 T-12）。本稿把它们落到现有代码上，回答“具体怎么做、分几片、每片怎么验收”。文中 `T-n` 指威胁评审条目，`ADR §n` 指 ADR-041 的小节。
@@ -239,6 +239,9 @@ M1 → M2 → M3 → {M4, M5} → M6。M4 与 M5 可两条线并行（文件不�
 | Q-D | SDK 语言 | A. 只做 Python（SDK + MCP）<br>B. 同时做 TypeScript | **A** | MCP 与 SDK 共用一套 Python 代码；TS 客户端等有真实需求再做，HTTP 契约已足够 |
 | Q-E | 来源网段白名单的地址来源 | A. 只信 Gateway 写入的可信头（Gateway 覆盖客户端同名头）<br>B. 一期不实现网段白名单 | **B** | Q-8 定的是“可选，默认关”；stage 反代会去掉转发头，可信头链路需要单独审查，等有固定出口的接入方再做 |
 | Q-F | 客户端是否接受明文环境变量 | A. 只接受 0600 密钥文件路径<br>B. 也接受 `NEXLOOP_MACHINE_KEY` 明文环境变量 | **A** | 环境变量容易被进程列表、CI 日志、崩溃转储带出；文件路径同样适配容器 secret 挂载 |
+| Q-G | prepare 是否保存规范化参数（L6 新增，对应 C6） | A. 不保存，commit 时客户端重传完整参数，服务端重算摘要比对<br>B. 保存，进擦除覆盖并按 TTL 清除 | **A** | prepare 行不含消费者正文，擦除面最小 |
+
+**负责人 2026-11-09 决定**：Q-A、Q-B、Q-D、Q-E、Q-F、Q-G 全部按推荐，即 A（按 C7 的条件包装 0124）、A（pepper 用私有文件，纳入恢复演练）、A（只做 Python）、B（一期不做网段白名单）、A（只接受 0600 密钥文件）、A（不保存参数，commit 时重传）。Q-C 选“读 + 写对象备注”：读取开放对象详情、列表、邻居和承诺列表；写入只开放对象备注。Claim 登记等 AT-064 白名单处理好之后再开，不在这一期。
 
 ## 8. 不做（沿用 ADR §5）
 
@@ -249,3 +252,21 @@ M1 → M2 → M3 → {M4, M5} → M6。M4 与 M5 可两条线并行（文件不�
 - `nexloop_assert_action_authority` 对 machine_client 的 `SERVICE` 主体是否需要额外的 actor 事实字段；M2 先写失败测试再定。
 - 0327 审批门 `requester_subject` 对服务主体的取值路径（当前注释称服务、Agent、Run 凭据在入口即被拒）；M5 需要确认机器请求进入待审批的路径可达。
 - 工作台 human / service 主体区分处显示机器主体的方式（`machine` 标签），M3 对照现有审批视图与审计视图实现。
+
+## 10. L6 条件（c52993cb，条件 PASS）与落实位置
+
+负责人 2026-11-09 的决定见 §7 表下。以下条件由 L6 在对应分片的审查中逐条核对。
+
+| # | 片 | 条件 | 落实 |
+|---|---|---|---|
+| C1 | M2/M3 | realm 互斥在 SQL 层保证：机器身份函数只认 `machine_keys` 的 HMAC 摘要；`nexloop_service_identity_snapshot` 不认机器的 EIOS 认证事实，反之亦然 | 机器主体的 authentication 事实不写进 service snapshot 可查到的位置（或 snapshot 显式排除 machine_client）；真实 PG 交叉测试：nxm 密钥走 service_bearer、service token 走 machine，两边都 401 |
+| C2 | M2 | 先按 `prefix_id` 找行，再用该行的 `pepper_version` 算**一次** HMAC 做等值比较；不按多个 pepper 逐个试；过期、吊销、停用都用 `clock_timestamp()` | 替代 §1.3 中“候选摘要”的说法：API 传 `(prefix_id, digest)`，SQL 用 `prefix_id` 定位后比较 digest |
+| C3 | M2 | 允许表不设 `enabled` 列，改为追加 revision 行（`revision`、`state active|retired`），取每个能力最新一行；只能经迁移或负责人的受治理 Action 写入，machine 主体不能写；“永不授予”黑名单之外再加白名单触发器：只接受已注册的读取动词和 `subject_rule` 不是 `human` 的 governed capability；名单锁进清单检查 | 替代 §3.1 第 3 步与 §3.2 中的 `enabled` |
+| C4 | M3/M4 | 限速阈值配置缺失或解析失败时拒绝请求并告警（失败关闭），不得变成不限速；capabilities 为空返回空列表可以；G-5 矩阵为空或行数不等于路由数 × 凭据种类数判失败 | M3 测试：删掉配置后请求被拒，并产生告警 |
+| C5 | M5 | commit 时重跑 §3.1 的 2.1–2.6，不沿用 prepare 的判定；`prepare_digest` 绑定 tenant、client、capability、规范化参数和 world；prepare 过期返回 410；0124 的业务意图 ID 由 `(client_id, intent_id)` 确定性推导，0124 调用与意图行更新在同一事务里；崩溃重启后用同一 intent 查询，结果与首次一致 | M5 |
+| C6 | M5 | 采用 Q-G A：prepare 不保存规范化参数，只存摘要；commit 时客户端重传完整参数，服务端重算摘要比对；意图行不含消费者正文。意图表仍进入擦除覆盖检查 | 替代 §3.3 中 prepare 保存 `normalized` 的说法（响应里可以返回给客户端，但服务端不保存） |
+| C7 | M5 | 0124 包装用改名加委托的方式实现，非机器路径的行为完全不变，原有回归测试保留；机器分支同时要求能力在允许表中、密钥 scope 包含该能力、`assert_action_authority` 通过；`subject_rule` 为 `human` 的能力一律 42501；变异检查：删掉其中任何一条都要有测试变红 | M5 |
+| C8 | M5 | 机器不能当审批人：在审批决定入口的 SQL 里强制，不能只靠 Action 允许表；solo 模式排除机器自批，并要有测试 | M5 |
+| C9 | M3 | Caddy 会在应用拿到请求前把完整 URI 记进访问日志：给 `/machine/*` 配置日志脱敏，或者不记录 query；在 deploy 测试里断言 | M3 |
+
+范围调整（Q-C）：M5 的写入能力只有对象备注；“用户陈述登记为待核实 Claim”不在这一期，要等 AT-064 白名单处理好之后再开，届时只能经现有的 Claim 受治理 Action 写入。
