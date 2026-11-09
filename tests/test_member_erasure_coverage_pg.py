@@ -31,6 +31,10 @@ STAFF_KEPT = {
     'runtime.nexloop_action_claims': _ACT + ' (claims bind a request digest, never the body)',
     'control.nexloop_consumer_identity_link_receipts': _CUSTOMER, 'control.nexloop_consumer_owners': _CUSTOMER, 'runtime.nexloop_conversations': _CUSTOMER,
     'runtime.nexloop_native_web_events': _CUSTOMER, 'runtime.nexloop_native_web_transports': _CUSTOMER,
+    # NX-062 M2a (0434): the machine client's principal is an enterprise program (a service principal, never a member);
+    # issued_by_principal is the owner who registered the client or issued the key, kept for audit like the other staff actions.
+    'authz.nexloop_machine_clients': _ACT + ' (machine principal: a service; issued_by_principal: the registering owner)',
+    'authz.nexloop_machine_keys': _ACT + ' (issued_by_principal: the issuing owner; the key itself is never stored)',
     'authz.nexloop_evo_principals': _SERVICE, 'runtime.nexloop_local_artifacts': _SERVICE, 'runtime.nexloop_message_relay_leases': _SERVICE,
     'runtime.nexloop_orphan_sweeps': _SERVICE,
     'control.nexloop_browser_rate_policies': 'the identity operator (a service) per limiter; no member',

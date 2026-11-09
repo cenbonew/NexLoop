@@ -999,6 +999,36 @@
       "stable_name": "nexloop.human_question.answer",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_client.register",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_client.deactivate",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_client.activate",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_key.issue",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_key.rotate",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.machine_key.revoke",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
     }
   ],
   "functions": [

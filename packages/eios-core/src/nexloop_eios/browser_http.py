@@ -30,6 +30,8 @@ class BrowserConfiguration:
     identity_token_key_file:Path|None=None
     # NX-058 slice F: the private provider file of workbench single sign-on (nexloop_eios.workbench_oidc); None = SSO off (the default).
     oidc_providers_file:Path|None=None
+    # NX-062 M2b: the private pepper file of machine keys (nexloop_eios.machine_keys); None = issuing and rotating machine keys is unavailable.
+    machine_key_peppers_file:Path|None=None
     # Owner S73 (2026-10-31): the reference endpoint staff page the workbench 入口 page links to (compose REFERENCE_ENDPOINT_STAFF_URL);
     # None = no link. A plain HTTPS URL, no credentials, query or fragment.
     reference_endpoint_staff_url:str|None=None

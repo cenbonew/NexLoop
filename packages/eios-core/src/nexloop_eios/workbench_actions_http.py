@@ -69,6 +69,23 @@ def _scope(value):
     return value
 
 
+_MACHINE_CLIENT=re.compile(r'[a-z][a-z0-9-]{2,62}')
+_MACHINE_SCOPE=re.compile(r'[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+')
+
+
+def _machine_scope(value):
+    if (type(value) is not list or not 1<=len(value)<=64 or len(set(value))!=len(value)
+            or not all(type(s) is str and _MACHINE_SCOPE.fullmatch(s) for s in value)):raise ValueError('scope')
+    return value
+
+
+def _days(low,high):
+    def check(value):
+        if type(value) is not int or type(value) is bool or not low<=value<=high:raise ValueError('days')
+        return value
+    return check
+
+
 def _text(value):
     if type(value) is not str or not 1<=len(value)<=255:raise ValueError('text')
     return value
@@ -318,6 +335,15 @@ OPERATIONS={
     'answer_human_question':{'question_id':_id(_UUID),'answer_kind':lambda v:v if v in ('answer','withdraw') else (_ for _ in ()).throw(ValueError('answer kind')),
         'option_index':lambda v:v if v is None or (type(v) is int and 0<=v<=3) else (_ for _ in ()).throw(ValueError('option index')),
         'text':lambda v:v if v is None or (type(v) is str and 1<=len(v)<=500) else (_ for _ in ()).throw(ValueError('text'))},
+    # NX-062 M2b (0435, owner only): the machine access lifecycle. issue and rotate take no key fields from the body: the entry draws the key
+    # (nexloop_eios.machine_keys) and passes only its prefix, digest and pepper version on; the key is shown once, in a response that executed.
+    'register_machine_client':{'client_id':_id(_MACHINE_CLIENT),'display_name':_text,'purpose':_reason},
+    'deactivate_machine_client':{'client_id':_id(_MACHINE_CLIENT),'reason':_reason},
+    'activate_machine_client':{'client_id':_id(_MACHINE_CLIENT),'reason':_reason},
+    'issue_machine_key':{'client_id':_id(_MACHINE_CLIENT),'world':lambda v:v if v in ('real','test') else (_ for _ in ()).throw(ValueError('world')),
+        'scope':_machine_scope,'expires_in_days':_days(1,90)},
+    'rotate_machine_key':{'previous_key_id':_id(_UUID),'overlap_days':_days(0,7),'scope':_machine_scope,'expires_in_days':_days(1,90)},
+    'revoke_machine_key':{'key_id':_id(_UUID),'reason':_reason},
     # Extraction dead letters (0355, owner only): requeue or dismiss one dead-lettered claim-extraction job.
     'resolve_extraction_dead_letter':{'task_id':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,199}')),
         'disposition':lambda v:v if v in ('requeue','dismiss') else (_ for _ in ()).throw(ValueError('disposition')),'reason':_reason},
@@ -442,6 +468,15 @@ def router(config,*,ports_for_browser):
                 code=W.new_token() if invite else W.new_code()
                 fields={**fields,('token_hmac' if invite else 'code_hmac'):W.digest(secret_key,W.INVITE if invite else W.RESET,config.tenant_id,code),
                         'issuer_source_hmac':W.source_digest(secret_key,config.tenant_id,client_ip_resolver(config).resolve(request))}
+            if operation in ('issue_machine_key','rotate_machine_key'):
+                # NX-062 M2b: the key is drawn here and shown once in this response; SQL stores its HMAC digest under the current pepper only.
+                from nexloop_eios import machine_keys as MK
+                try:peppers=MK.load_peppers(config.machine_key_peppers_file) if config.machine_key_peppers_file is not None else None
+                except MK.MachineKeyInvalid:peppers=None
+                if peppers is None:return error('unavailable',503)
+                drawn=MK.generate()
+                code=drawn.token
+                fields={**fields,'prefix_id':drawn.prefix_id,'digest':MK.digest(drawn,peppers,peppers.current).hex(),'pepper_version':peppers.current}
             if operation=='link_workbench_external' or (operation=='invite_workbench_member' and 'sso_provider' in fields):
                 # Only a configured provider (the same file the login uses); its issuer, never the body's.
                 from nexloop_eios.workbench_oidc import OidcClient,load_providers
@@ -461,7 +496,7 @@ def router(config,*,ports_for_browser):
                     # ADR-039 R3 §8.4: a replay never shows the code or token again; the client revokes it and requests anew (new request id).
                     result={**result,'secret':'not_shown_again','next':'revoke_and_request_again'}
             elif code is not None and isinstance(result,dict) and result.get('replayed') is False:
-                result={**result,('token' if operation=='invite_workbench_member' else 'code'):code}
+                result={**result,('key' if operation in ('issue_machine_key','rotate_machine_key') else 'token' if operation=='invite_workbench_member' else 'code'):code}
             return JSONResponse(json.loads(json.dumps(result,default=str)),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
         except CredentialInvalid:
             return error('unauthenticated',401)
@@ -469,7 +504,7 @@ def router(config,*,ports_for_browser):
             return error('not_found',404)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question|machine access): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited
