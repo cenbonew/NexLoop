@@ -16,7 +16,71 @@
    ro "select application_id, created_accounts from control.nexloop_initial_identity_allowances where tenant_id='$T'"
    ```
 
-   WebChat 那一行的 `created_accounts` 必须小于 10，否则停下，先请负责人发布新配额（run-34 §2.2）。
+   WebChat 那一行要同时满足：`enabled` 为 true，并且 `created_accounts` 小于 `maximum_accounts`。不满足时，走下面的 0a。2026-11-09 stage 读数：WebChat `enabled=false`，10/10，已满且已关闭，所以要走 0a。
+
+### 0a. 名额不足时：负责人发布一个新的 WebChat 应用 id，带 5 个名额（负责人 2026-11-09 决定 5A）
+
+**为什么不能把 10 改成 15**：
+- 配额以 (tenant, application_id) 为主键，每个应用只有一行（`0050_trusted_configuration.sql:32-37`）。
+- 0050 清单的写入只插入新行（`on conflict do nothing`）。行已存在时，只要 `maximum_accounts`、`operator_label`、种子摘要有任何一项不同，或者给已关闭的行发送 `enabled: true`，就拒绝（`configuration conflict`，40001）。当前定义在 `0381_definition_read_rule.sql:236-247`，注释原话是 “never reset/reopened, nor quota replenished by revision”。
+- 建账号时，计数加 1 后达到上限就自动关闭（`0352_member_erasure.sql:501-502`）；已关闭或已满的配额拒绝 `initial identity closed`（同文件 480 行）。
+- `stage_secrets.py browser` 在发送前也会拒绝：`identity allowance exists with other values (never reset)`（`_browser_pending`、`apply_browser`）。
+- 所以在现有的 WebChat 应用上加名额，没有受治理的路径；要加，只能改迁移。本次不改。
+
+**可行的受治理路径：新应用 id、新配额行**：
+- 0050 的同一入口（配置者签名清单）登记一个新的浏览器应用 `<WebChat 应用 id>-b`（active），同时给它一行配额：enabled，`maximum_accounts` 5，`operator_label` 和种子摘要与 run-34 §2.2 相同。这是新的主键，不触发上面的冲突。原来两行不动：WebChat 仍为 false、10/10，工作台不变。
+- 新账号能从现有的 WebChat 登录：登录只要求“登录用的那个应用” active，按 tenant 加 username 找账号，账号本身不带应用 id（`0021_browser_identity_canonical_reads.sql` 的 `control.nexloop_read_browser_identity`）。WebChat 前端和 api 的 `BROWSER_APPLICATION_ID` 不用改。新应用 id 只在 `initial_identity --create` 时用来扣名额，并记在 receipt 里。
+- 不发送限速策略：限速按租户加 action 计，已经登记过。
+- 证据：
+  - `tests/test_trusted_configuration_pg.py::test_a_full_allowance_is_never_raised_or_reopened_and_a_new_application_adds_accounts_that_sign_in_through_the_first`，在真实 PG 上验证四件事：
+    - 已满的配额改为更大的上限，或者重新 enabled，都被拒绝，原行不变；
+    - 新应用加 5 个名额被接受；
+    - 新应用下建出的账号计数为 1；
+    - 这个账号经第一个应用登录、发会话成功。
+  - `tests/test_stage_secrets.py`：新参数只发送新应用这一行；重跑不发布；把 WebChat 改成 15 会被拒绝。
+
+**工具**：`stage_secrets.py browser` 新增 `--additional-application-id`、`--additional-accounts`（默认 5）。带这两个参数时，只发布新应用及其配额，其余部分与 run-34 §2.2 完全相同：同一个配置者窗口、同一个 identity-seal、同一个签名密钥。
+
+**步骤**（负责人，DATA_HOST 配置者窗口，与 run-34 §2.2 同一个一次性容器形态）：
+
+1. 填私有值：复制 `deploy/examples/webchat-allowance-additional.example.env` 到 `local-only/`，0600，填入占位符，然后 `source`。文件里没有秘密，种子和 bootstrap DSN 仍是文件（`$RUN/identity-seal`、`$RUN/boot.dsn`）。新 id 必须是没有登记过的，例如 `<WebChat 应用 id>-b`。
+2. dry-run（不连库，只打印将要发布的内容）：
+
+   ```bash
+   docker run $COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py browser --out /stage --tenant "$TENANT_ID" \
+     --browser-application-id "$BROWSER_APPLICATION_ID" --workbench-application-id "$WORKBENCH_APPLICATION_ID" \
+     --additional-application-id "$ADDITIONAL_APPLICATION_ID" --additional-accounts "$ADDITIONAL_ACCOUNTS" --operator-label "$OPERATOR_LABEL" \
+     --identity-seal-file /stage/identity-seal --dry-run
+   ```
+
+   预期：`dry_run: true`，`applications` 只有新 id，`rate_policies` 为空，`allowances` 为 `{新 id: 5}`。
+
+3. 正式发布（写入只经配置者窗口；当前值经 bootstrap socket 在只读事务里读取）：
+
+   ```bash
+   docker run $COMMON -v "$NEXLOOP_ROOT/run/postgresql:/var/run/postgresql" -v "$RUN/boot.dsn:/run/bootstrap-dsn:ro" \
+     "$BACKEND_IMAGE" /opt/release/scripts/deploy/stage_secrets.py browser --out /stage --tenant "$TENANT_ID" \
+     --browser-application-id "$BROWSER_APPLICATION_ID" --workbench-application-id "$WORKBENCH_APPLICATION_ID" \
+     --additional-application-id "$ADDITIONAL_APPLICATION_ID" --additional-accounts "$ADDITIONAL_ACCOUNTS" --operator-label "$OPERATOR_LABEL" \
+     --identity-seal-file /stage/identity-seal --bootstrap-dsn-file /run/bootstrap-dsn --signing-key-id "$SIGNING_KEY_ID"
+   ```
+
+   预期：第一次 `changed: true`，`authority_revision` 加 1；重跑 `changed: false`。如果报 `never reset`，说明新 id 已经登记过、但值不同：停下，不要换参数重试，先只读查清楚。
+
+4. 只读核对（`ro "…"`）：
+
+   ```bash
+   ro "select application_id, enabled, maximum_accounts, created_accounts from control.nexloop_initial_identity_allowances where tenant_id='$T' order by 1"
+   ro "select application_id, active from control.nexloop_browser_applications where tenant_id='$T' order by 1"
+   ```
+
+   - 新 id：`enabled` true，`maximum_accounts` 5，`created_accounts` 0；在应用表里 active。
+   - 原 WebChat：仍为 false、10/10；工作台不变；配置者恢复为 NOLOGIN。
+   - 合计 WebChat 名额 10+5=15，已用 10。这就是“maximum 15、created 10、enabled true”的落地形式：分成两行，不是一行。
+
+5. 后续第 3 步建账号时，`identity-customer-5.json` 的 `application_id` 填新 id，不填 `$BROWSER_APPLICATION_ID`。`operator_label` 和 identity-seal 不变。建成后，新 id 那一行 `created_accounts` 为 1；登录仍走现有 WebChat。
+
+**备选（不做，只列出）**：如果一定要单行 15，需要新迁移重定义 `control.nexloop_configure_manifest`，允许“提高上限并重新启用”。这会改变 0050 “never reset” 的不变量，要有 ADR 和负责人批准。最小方案是：只允许 `maximum_accounts` 增大，同时带新的种子摘要，并写一条审计记录。目前不需要。
 
 2. **customer-5 是否已经存在**：钥匙串里已有同名旧条目 `nexloop/stage/customer-5`，可能是 11-07 按 §2.2a 第 1 步生成的。先查账号是否已经建过：
 
@@ -53,7 +117,7 @@
 
 ## 3. 浏览器账号（负责人在终端执行，APP_HOST）
 
-1. 调度员用第 1 步的值，由 `deploy/examples/nx037/identity-human.example.json` 填出 `identity-customer-5.json`：`application_id` 为 `$BROWSER_APPLICATION_ID`，`operator_label` 与组装单 §1 相同，`NOW_UTC_ISO` 取当前时刻减几秒。放到 APP_HOST 的 `/in/identity-customer-5.json`（10001，0600），同时放一份 `identity-seal`（组装单 §1，本步结束后删除）。
+1. 调度员用第 1 步的值，由 `deploy/examples/nx037/identity-human.example.json` 填出 `identity-customer-5.json`：`application_id` 为 `$BROWSER_APPLICATION_ID`（走了 0a 时，填 0a 的新 id），`operator_label` 与组装单 §1 相同，`NOW_UTC_ISO` 取当前时刻减几秒。放到 APP_HOST 的 `/in/identity-customer-5.json`（10001，0600），同时放一份 `identity-seal`（组装单 §1，本步结束后删除）。
 2. 负责人先执行 §2.2a 脚本的 dry-run（不带参数），清单 `--check` 通过后，再执行 `--apply identity`。口令经 ssh 的 stdin 进入容器内的 tmpfs，不落盘。
 3. 预期 `created: true`。重跑同一清单是幂等的。
 4. 核对：第 0 步第 2 条的 SQL 应返回一行，状态 active，`principal_id` 等于清单里的值。
@@ -149,5 +213,5 @@ ro "select persona, revision from control.nexloop_consumer_personas where tenant
 
 ## 限制
 
-- 账号不能删除，配额只增不减（组装单 §1）。第 3 步执行前，务必先核对清单。
+- 账号不能删除，配额只增不减（组装单 §1）；已有配额不能提高，只能按 0a 新增应用 id。第 3 步执行前，务必先核对清单。
 - 本单没有在 stage 上实际执行过，命令都取自组装单和 §2.2a 已经执行过的版本。第 6 步 `relay_enrollments` 的列名，要在 stage 上 `\d` 确认。
