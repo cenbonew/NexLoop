@@ -8184,7 +8184,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:machine-capabilities",
         "title": "machine-capabilities",
-        "description": "NX-062 M3 (ADR-041 §2.4, §2.9): the answer of GET /machine/v1/capabilities, the capabilities one machine key may call now - its scope, intersected with the current machine capability allowlist and the machine client's current grant, computed in SQL at every request (authz.nexloop_machine_capability_list). It is the only source of a machine client's tool list (the MCP client and the SDK never carry their own). kind read is one call; kind write is a prepare and a commit (M5). The description is the allowlist's own text, never a client's. Until the machine grants of M5 the list is empty for every key. Tenant, world and actor are derived from the key by the server and never appear here. NexLoop target contract; server-derived identity required.",
+        "description": "NX-062 M3 (ADR-041 §2.4, §2.9): the answer of GET /machine/v1/capabilities, the capabilities one machine key may call now - its scope, intersected with the current machine capability allowlist and the machine client's current grant, computed in SQL at every request (authz.nexloop_machine_capability_list). It is the only source of a machine client's tool list (the MCP client and the SDK never carry their own). kind read is one call; kind write is a prepare and a commit (M5). The description is the allowlist's own text, never a client's. A capability appears only while the client holds an active grant of it (authz.nexloop_machine_client_grants, ADR-041 amendment A1; empty for a client with no grant). Tenant, world and actor are derived from the key by the server and never appear here. NexLoop target contract; server-derived identity required.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -8228,7 +8228,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "urn:nexloop:contracts:v1:machine-error",
         "title": "machine-error",
-        "description": "NX-062 M3 (ADR-041 §2.5, threat review T-11): every refusal of the machine_key realm (/machine/v1/*). A fixed code only - never a value of the request, a key, a digest or an internal identifier; retryable is true for 429 and 503 only, and a 429 also carries the Retry-After header. Codes: unauthenticated (401: no machine key, another credential, an unknown, revoked or expired key or one of a deactivated client - one answer for all), query_not_allowed (400: a query string is never accepted, so a key never travels in a URL), rate_limited (429), rate_policy_missing (503: no rate policy is published, the realm is closed, never unlimited), unavailable (503: no pepper file or no database) and busy (503: the process's machine concurrency limit). message is a fixed display text. NexLoop target contract.",
+        "description": "NX-062 M3 (ADR-041 §2.5, threat review T-11): every refusal of the machine_key realm (/machine/v1/*). A fixed code only - never a value of the request, a key, a digest or an internal identifier; retryable is true for 429 and 503 only, and a 429 also carries the Retry-After header. Codes: unauthenticated (401: no machine key, another credential, an unknown, revoked or expired key or one of a deactivated client - one answer for all), query_not_allowed (400: a query string is never accepted, so a key never travels in a URL), rate_limited (429), rate_policy_missing (503: no rate policy is published, the realm is closed, never unlimited), unavailable (503: no pepper file or no database) busy (503: the process's machine concurrency limit), invalid_request (422: a body that is not exactly {verb, params}, an unknown parameter, or any field naming an identity - tenant, world, actor, principal, subject, on_behalf_of, client), not_permitted (403: the verb is outside the key's scope, not current in the allowlist, or not granted to the client) and not_found (404: an object that does not exist, is of another tenant or world, outside the grant's types, or whose Consumer is being erased - one answer for all, NX-062 M4a). message is a fixed display text. NexLoop target contract.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -8246,7 +8246,10 @@
               "rate_limited",
               "rate_policy_missing",
               "unavailable",
-              "busy"
+              "busy",
+              "invalid_request",
+              "not_permitted",
+              "not_found"
             ]
           },
           "message": {
@@ -8265,6 +8268,326 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {}
+          }
+        }
+      },
+      "MachineReadCommitmentList": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:machine-read-commitment-list",
+        "title": "machine-read-commitment-list",
+        "description": "NX-062 M4b (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb commitment.list - the visible Commitments of the key's world, open (default), ended or all (params.status_group), at most 50 a page in id order (params.after = next_after). Each carries its id, revision, registration time and the registered properties only: never the promised words, the customer's name, events, evidence references or exception text. No total and no hidden count (L6 N2). NexLoop target contract; server-derived identity required.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commitments",
+          "next_after"
+        ],
+        "properties": {
+          "commitments": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commitment_id",
+                "revision",
+                "registered_at",
+                "properties"
+              ],
+              "properties": {
+                "commitment_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "revision": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "registered_at": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object",
+                  "maxProperties": 64,
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value",
+                      "value_type"
+                    ],
+                    "properties": {
+                      "value": {},
+                      "value_type": {
+                        "enum": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "array",
+                          "object"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "next_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "MachineReadObjectList": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:machine-read-object-list",
+        "title": "machine-read-object-list",
+        "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.list - one page (at most 50) of a type's objects of the key's world, in object id order; an object the key may not see is left out and never counted - there is no total and no hidden count (L6 N2), so a page may hold fewer items than it scanned; next_after is the cursor of the next page (params.after) or null. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "items",
+          "next_after"
+        ],
+        "properties": {
+          "type_name": {
+            "enum": [
+              "Commitment",
+              "CommercialRecord"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "object_id",
+                "revision",
+                "updated_at",
+                "properties"
+              ],
+              "properties": {
+                "object_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "revision": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object",
+                  "maxProperties": 64,
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value",
+                      "value_type"
+                    ],
+                    "properties": {
+                      "value": {},
+                      "value_type": {
+                        "enum": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "array",
+                          "object"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "next_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      },
+      "MachineReadObjectNeighbors": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:machine-read-object-neighbors",
+        "title": "machine-read-object-neighbors",
+        "description": "NX-062 M4b (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.neighbors - the depth-1 neighbours of one visible object of the key's world, through governed relations (via = the relation name) and the reference properties the verb registers (via = 'property:<name>'). A neighbour is listed only when its type is granted for this verb and it is visible (world, NX-029/NX-054 erasure); type and id only, never a value. At most 20 items a group; more says whether further visible neighbours exist. Nothing is counted of what the key may not see (no invisible, collapsed or total count, L6 N2) and a group without a visible neighbour is left out. NexLoop target contract; server-derived identity required.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "object_id",
+          "depth",
+          "groups"
+        ],
+        "properties": {
+          "type_name": {
+            "enum": [
+              "Commitment",
+              "CommercialRecord"
+            ]
+          },
+          "object_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "depth": {
+            "const": 1
+          },
+          "groups": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "direction",
+                "via",
+                "type_name",
+                "items",
+                "more"
+              ],
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "outgoing",
+                    "incoming"
+                  ]
+                },
+                "via": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "type_name": {
+                  "enum": [
+                    "Commitment",
+                    "CommercialRecord"
+                  ]
+                },
+                "items": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type_name",
+                      "object_id"
+                    ],
+                    "properties": {
+                      "type_name": {
+                        "enum": [
+                          "Commitment",
+                          "CommercialRecord"
+                        ]
+                      },
+                      "object_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    }
+                  }
+                },
+                "more": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "MachineReadObject": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:nexloop:contracts:v1:machine-read-object",
+        "title": "machine-read-object",
+        "description": "NX-062 M4a (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.get - one object of the key's world. Only metadata and the properties registered for the object's type in the verb's projection (control.nexloop_machine_read_verbs), applied in SQL (authz.nexloop_machine_read): never a free text, a message reference, an external order id, a contact or an internal executor; a value naming a Consumer being erased is left out; an owner-restricted property group is never returned. Machine reads are open for Commitment and CommercialRecord only. Tenant, world and actor come from the key. NexLoop target contract; server-derived identity required.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type_name",
+          "object_id",
+          "schema_version",
+          "revision",
+          "updated_at",
+          "properties"
+        ],
+        "properties": {
+          "type_name": {
+            "enum": [
+              "Commitment",
+              "CommercialRecord"
+            ]
+          },
+          "object_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "maxProperties": 64,
+            "propertyNames": {
+              "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "value_type"
+              ],
+              "properties": {
+                "value": {},
+                "value_type": {
+                  "enum": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "array",
+                    "object"
+                  ]
+                }
+              }
+            }
           }
         }
       },
@@ -13505,8 +13828,12 @@
     "evolution-evaluation-bundle.schema.json": "2646c8f203bc67e6a7902b38e1987376127ecdb7ac9c92767c20a894f250851e",
     "evolution-evaluation-report.schema.json": "ba73327b1ee9d06d493543935c355764d90d893c71a8af791aff436d2cb6369e",
     "experiment-registration.schema.json": "c8f53e0626a304318afc1ea7fb9dcb9e8d218f98e908b98e646937fe38d30dc0",
-    "machine-capabilities.schema.json": "2b802e9d2a69a3044b4801b6b90744215ee8dafb4a807f81865f86a27e16a9c2",
-    "machine-error.schema.json": "a97444694698488b43251bc2e860d01147eb7edc0ff45c9ea33c3cf577709d33",
+    "machine-capabilities.schema.json": "3cef5da33e4e23b9f02f129af1c8285dd45c4398b9724600d10254bbacba9262",
+    "machine-error.schema.json": "7a48b97adf403c53874e12548179d0480aeddafeee080b7456040aa034bc6566",
+    "machine-read-commitment-list.schema.json": "f54f7b1901495f1a7ebd3cf798d9d7737abe261b02264259f215fbbc2f5ba3e6",
+    "machine-read-object-list.schema.json": "b57e96fa1edbedfa004dcc269f9c256177858de38841b33b0117bce07336611c",
+    "machine-read-object-neighbors.schema.json": "a07b421bc5389b474fb63c9d20a58fc1d069ccc07531bdb4b1c218bc48315ae3",
+    "machine-read-object.schema.json": "a069d3fc811b630bd60aec28936670d16f13a4e9631fa318a9615f778b7a2620",
     "ontology-mutation.schema.json": "5ae9a80c32596fa7a201fc0b549abd561f1486b0e7d67b627e4cefef3c6f93dc",
     "outreach-purposes.schema.json": "5d25a000313cc85d8387cc42e51c086420754e4b2b64acfccf860420b6665c6e",
     "outreach-send.schema.json": "e05d7b715bae50b89b2f199f5a2ba8bf3bebca712b68861830783fee8cb8bca8",

@@ -133,7 +133,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'machine_client.activate':'human_owner',
     'machine_key.issue':'human_owner',
     'machine_key.rotate':'human_owner',
-    'machine_key.revoke':'human_owner'}
+    'machine_key.revoke':'human_owner',
+    # NX-062 M4a (0440, ADR-041 A1): grant or revoke one machine read capability for a set of object types.
+    'machine_client.grant':'human_owner','machine_client.revoke_grant':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

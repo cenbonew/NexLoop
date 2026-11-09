@@ -26,6 +26,10 @@
 | twin-calibration-report.schema.json | NX-042 T5：一个孪生版本的冻结校准报告——只用 real 的聚合指标（T4：real 世界、real 人设、每组至少 30 个消费者，只有计数和比率），1–3 个互不重叠、都在版本发布之后的校准窗口，各自按时间与参考窗口切分并按消费者分组，报告列出每个窗口贡献的单元数；每个（行为，窗口，分组）单元给出区间、观察比率、是否覆盖和 Brier；覆盖率对照名义值（80% 区间为 70%–90%，D3）；结论 passed / failed / insufficient_sample（少于 16 个单元，不下结论）/ not_calibratable（没有真实聚合数据的行为、或只有一个可校准行为，保持未校准，D4）；小于 30 的排除计数记为“<30”；同一版本用过的窗口不能再用，报告记录尝试序号和最近 3 次结论，最近 3 次里有 failed 就不可选用（K=3）；只有 passed / failed 追加校准事件，passed 才可被 NX-043 选用（D7）；写入后不可修改 |
 | machine-capabilities.schema.json | NX-062 M3：`GET /machine/v1/capabilities` 的返回体，即一把机器密钥当前能调用的能力：密钥 scope ∩ 当前机器能力允许表 ∩ 机器主体当前授权，由 SQL 在每次请求时计算。这是 MCP 与 SDK 工具清单的唯一来源；kind read 是一次调用，write 是 prepare 加 commit（M5）。M5 之前对所有密钥都是空列表；租户、world、actor 只由服务端从密钥推出，不出现在返回体里 |
 | machine-error.schema.json | NX-062 M3：machine_key realm（`/machine/v1/*`）的统一拒绝体。只给固定错误码，从不回显请求值、密钥、摘要或内部标识；只有 429 与 503 可重试，429 另带 `Retry-After`。错误码：unauthenticated、query_not_allowed、rate_limited、rate_policy_missing、unavailable、busy |
+| machine-read-object.schema.json | NX-062 M4a：`POST /machine/v1/read` 的 object.get 返回体，即密钥所在 world 中的一个对象。只返回元数据，以及读取动词投影中为该类型登记的属性，投影在 SQL 内执行；不返回正文、消息引用、外部订单号、联系方式和内部执行主体。首批只开放 Commitment 与 CommercialRecord |
+| machine-read-object-list.schema.json | NX-062 M4a：object.list 返回体，每页最多 50 条，按对象 ID 排序，`next_after` 是下一页游标；看不到的对象直接略过、不计数，不返回总数，也不返回隐藏数（L6 N2）；属性规则同上 |
+| machine-read-object-neighbors.schema.json | NX-062 M4b：object.neighbors 返回体，即一个可见对象的一跳邻居，经受治理关系与登记的引用属性连接。只给类型和 ID；邻居的类型必须已授权且可见；每组最多 20 个，`more` 表示还有没有更多可见邻居；看不到的一律不计数（L6 N2） |
+| machine-read-commitment-list.schema.json | NX-062 M4b：commitment.list 返回体，即可见的承诺（open、ended 或 all），每页 50 条。只给 ID、revision、登记时间和登记属性；不给承诺原话、客户姓名、事件、证据引用和异常文本；不返回总数 |
 
 ## Schema之外必须实现的语义检查
 

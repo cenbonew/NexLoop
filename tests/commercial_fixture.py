@@ -112,7 +112,9 @@ REGISTRY_ACTIONS={'nexloop.commitment.bind_commercial':('Commitment','commitment
     'nexloop.machine_client.activate':('Consumer','machine_client.activate'),
     'nexloop.machine_key.issue':('Consumer','machine_key.issue'),
     'nexloop.machine_key.rotate':('Consumer','machine_key.rotate'),
-    'nexloop.machine_key.revoke':('Consumer','machine_key.revoke')}  # K4b  # stale action claims; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary; S42
+    'nexloop.machine_key.revoke':('Consumer','machine_key.revoke'),
+    'nexloop.machine_client.grant':('Consumer','machine_client.grant'),
+    'nexloop.machine_client.revoke_grant':('Consumer','machine_client.revoke_grant')}  # K4b  # stale action claims; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary; S42
 
 
 def publish_registry_actions(admin,names=tuple(REGISTRY_ACTIONS),tenant=TENANT):

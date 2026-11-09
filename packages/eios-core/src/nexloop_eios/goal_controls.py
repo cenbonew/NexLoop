@@ -149,7 +149,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'activate_machine_client':'machine_client.activate',
     'issue_machine_key':'machine_key.issue',
     'rotate_machine_key':'machine_key.rotate',
-    'revoke_machine_key':'machine_key.revoke'}
+    'revoke_machine_key':'machine_key.revoke',
+    # NX-062 M4a (0440): the machine client grants (owner only).
+    'grant_machine_capability':'machine_client.grant','revoke_machine_grant':'machine_client.revoke_grant'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -499,6 +501,22 @@ class GoalGovernedActions:
             raise ValueError('previous key id and 0-7 overlap days required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'rotate_machine_key','previous_key_id':previous_key_id,
                                                         'overlap_days':overlap_days,**self._machine_key_fields(scope,expires_in_days,prefix_id,digest,pepper_version)})
+
+    # NX-062 M4a (0440, ADR-041 A1): the one authority of machine authorization; SQL checks the capability and the types again.
+    def grant_machine_capability(self,*,action_name,action_version,request_id,client_id,capability,object_types):
+        if (type(client_id) is not str or not _MACHINE_CLIENT.fullmatch(client_id) or type(capability) is not str or not _MACHINE_SCOPE.fullmatch(capability)
+                or type(object_types) is not list or not 1<=len(object_types)<=32 or len(set(object_types))!=len(object_types)
+                or not all(type(t) is str and re.fullmatch(r'[A-Z][A-Za-z0-9_]{0,63}',t) for t in object_types)):
+            raise ValueError('client id, capability and 1-32 object types required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'grant_machine_capability','client_id':client_id,
+                                                        'capability':capability,'object_types':object_types})
+
+    def revoke_machine_grant(self,*,action_name,action_version,request_id,client_id,capability,reason):
+        if (type(client_id) is not str or not _MACHINE_CLIENT.fullmatch(client_id) or type(capability) is not str or not _MACHINE_SCOPE.fullmatch(capability)
+                or type(reason) is not str or not 1<=len(reason.strip())<=500):
+            raise ValueError('client id, capability and reason required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'revoke_machine_grant','client_id':client_id,
+                                                        'capability':capability,'reason':reason})
 
     def revoke_machine_key(self,*,action_name,action_version,request_id,key_id,reason):
         if type(key_id) is not str or not _UUID.fullmatch(key_id) or type(reason) is not str or not 1<=len(reason.strip())<=500:

@@ -52,6 +52,9 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-062 M4a (ADR-041 A1, L6 M4-3): the capability list's grant term is the client's latest active grant (was false until the grants).
+    Allowed('nx062_machine_reads', 'authz.nexloop_machine_capability_list', 'the grant term reads authz.nexloop_machine_grant_types; nothing else',
+            ((r"and authz\.nexloop_machine_grant_types\(ident->'binding'->>'tenant_id',ident->>'client_id',c\.capability\) is not null;", 'and false;'),)),
     # S1 (0259): one world check (D1, D9).
     Allowed('nx041_world_check', 'runtime.nexloop_cost_data_mode', 'S1: the data mode from runtime.nexloop_world_data_mode',
             ((r'runtime\.nexloop_world_data_mode\(p_world\)', "case when p_world='real' then 'real' when p_world in ('simulation','shadow') then 'simulation' else 'test' end"),)),

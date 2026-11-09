@@ -2190,6 +2190,16 @@
       "version": "0438",
       "name": "0438_action_input_tenant_narrow.sql",
       "sha256": "696be73046bad147797a7d011ba4c6e1662af7d2d056e53181dc146a70901119"
+    },
+    {
+      "version": "0439",
+      "name": "0439_nx062_machine_reads.sql",
+      "sha256": "daa6022e24e2f820afbfae4c8bc9302f66771d0bc156611e1b08402f5dc8bd54"
+    },
+    {
+      "version": "0440",
+      "name": "0440_nx062_machine_reads_b.sql",
+      "sha256": "38369de8f57dbcbf429e83e98f9cd37945a3ba8dab15c862558da68052770e87"
     }
   ]
 }

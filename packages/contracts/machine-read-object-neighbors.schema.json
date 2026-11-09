@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-read-object-neighbors",
+  "title": "machine-read-object-neighbors",
+  "description": "NX-062 M4b (ADR-041 amendment A1): the answer of POST /machine/v1/read with verb object.neighbors - the depth-1 neighbours of one visible object of the key's world, through governed relations (via = the relation name) and the reference properties the verb registers (via = 'property:<name>'). A neighbour is listed only when its type is granted for this verb and it is visible (world, NX-029/NX-054 erasure); type and id only, never a value. At most 20 items a group; more says whether further visible neighbours exist. Nothing is counted of what the key may not see (no invisible, collapsed or total count, L6 N2) and a group without a visible neighbour is left out. NexLoop target contract; server-derived identity required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type_name",
+    "object_id",
+    "depth",
+    "groups"
+  ],
+  "properties": {
+    "type_name": {
+      "enum": [
+        "Commitment",
+        "CommercialRecord"
+      ]
+    },
+    "object_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "depth": {
+      "const": 1
+    },
+    "groups": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "direction",
+          "via",
+          "type_name",
+          "items",
+          "more"
+        ],
+        "properties": {
+          "direction": {
+            "enum": [
+              "outgoing",
+              "incoming"
+            ]
+          },
+          "via": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type_name": {
+            "enum": [
+              "Commitment",
+              "CommercialRecord"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type_name",
+                "object_id"
+              ],
+              "properties": {
+                "type_name": {
+                  "enum": [
+                    "Commitment",
+                    "CommercialRecord"
+                  ]
+                },
+                "object_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          },
+          "more": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

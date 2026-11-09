@@ -14,17 +14,23 @@ Tenant, world and actor come only from the key (SQL). Request headers naming an 
 concurrency limit keeps machine calls from taking the workbench's connections (T-8). Responses carry error codes only, never a value of
 the request, and Cache-Control: no-store.
 """
+import asyncio
+import json
 import threading
 import uuid
 
 import psycopg
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from nexloop_eios import machine_keys as K
 
 PREFIX = '/machine/v1'
 CONCURRENCY = 8
+BODY_LIMIT = 4096
+# ADR-041 §2.5 / T-5: identity is derived from the key only; a body naming one is refused (422), never read.
+IDENTITY_FIELDS = frozenset({'tenant_id', 'world', 'world_id', 'actor', 'actor_id', 'principal_id', 'subject_id', 'on_behalf_of', 'client_id'})
 _UNKNOWN_DIGEST = '0' * 64  # an unknown prefix is still admitted (and counted) as denied, with a digest no row holds
 
 
@@ -86,6 +92,58 @@ def router(*, peppers_for, pool_for):
             except (psycopg.OperationalError, psycopg.InterfaceError):
                 return _error('unavailable', 503)
             return JSONResponse({'capabilities': listed}, headers={'Cache-Control': 'no-store'})
+        finally:
+            gate.release()
+
+    def _identity_named(value):
+        if isinstance(value, dict):
+            return any(k in IDENTITY_FIELDS or _identity_named(v) for k, v in value.items())
+        if isinstance(value, list):
+            return any(_identity_named(v) for v in value)
+        return False
+
+    @routes.post('/read')
+    async def read(request: Request):
+        """NX-062 M4a: {"verb": <read verb>, "params": {...}} - the verb's SQL entry decides (authz.nexloop_machine_read)."""
+        if request.url.query:
+            return _error('query_not_allowed', 400)
+        try:
+            data = b''
+            async with asyncio.timeout(5):
+                async for part in request.stream():
+                    data += part
+                    if len(data) > BODY_LIMIT:
+                        raise ValueError()
+            body = json.loads(data)
+            if type(body) is not dict or set(body) != {'verb', 'params'} or type(body['verb']) is not str or type(body['params']) is not dict:
+                raise ValueError()
+        except (ValueError, TimeoutError, UnicodeError):
+            return _error('invalid_request', 422)
+        if _identity_named(body):
+            return _error('invalid_request', 422)
+        return await run_in_threadpool(lambda: _read(request, body))
+
+    def _read(request, body):
+        if not gate.acquire(blocking=False):
+            return _error('busy', 503, {'Retry-After': '1'})
+        try:
+            credential, refusal = admitted(request)
+            if refusal is not None:
+                return refusal
+            try:
+                with pool_for(request).connection() as db:
+                    value = db.execute('select authz.nexloop_machine_read(%s,%s,%s,%s::jsonb)',
+                                       (*credential, body['verb'], json.dumps(body['params']))).fetchone()[0]
+            except psycopg.errors.NoDataFound:
+                return _error('not_found', 404)
+            except psycopg.errors.InvalidParameterValue:
+                return _error('invalid_request', 422)
+            except psycopg.errors.InsufficientPrivilege as refused:
+                return _error('not_permitted' if 'not_permitted' in (refused.diag.message_primary or '') else 'unauthenticated',
+                              403 if 'not_permitted' in (refused.diag.message_primary or '') else 401)
+            except (psycopg.OperationalError, psycopg.InterfaceError, psycopg.errors.ObjectNotInPrerequisiteState):
+                return _error('unavailable', 503)
+            return JSONResponse(value, headers={'Cache-Control': 'no-store'})
         finally:
             gate.release()
 
