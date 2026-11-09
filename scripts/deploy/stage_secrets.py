@@ -138,6 +138,9 @@ def classify(host, service, name):
     if stem in MANUAL or name in MANUAL:
         phase, note = MANUAL.get(stem) or MANUAL[name]
         return 'config', phase, note
+    if name == 'machine-key-peppers':
+        # NX-062 M3: '<version> <64 hex>' per line, the highest version is current; machine-key-peppers --rotate appends the next.
+        return 'machine_key_peppers', 'A', 'machine key HMAC peppers, version 1 at generation; private backup with the audit seal key'
     if name in ('embedding.env', 'embedding-tariff.json'):
         # Owner 2026-10-18 (option B): empty = embedding disabled (FTS + n-gram); scripts/deploy/install_embedding_key.sh writes the
         # profile with the key from a pipe and the owner's tariff (phase C).
@@ -288,6 +291,8 @@ def generate(out, ca_dir, params_file, *, compose_app=COMPOSE_APP, compose_data=
                 tokens[f"{e['host']}:{e['path']}"] = data
         elif kind == 'signing_key':
             data = signing
+        elif kind == 'machine_key_peppers':
+            data = f'1 {secrets.token_hex(32)}\n'
         elif kind == 'hex_key':
             stem = name.rsplit('.', 1)[0]
             data = shared['host-control'] if stem in ('host-control', 'transport') else shared['guard-transport'] if stem == 'guard-transport' \
@@ -366,6 +371,59 @@ def add_identity_token_key(out, *, rotate=False):
     manifest_path.chmod(0o600)
     manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
     return {'rotated' if rotate else 'added': ['app:api/identity-token.key']}
+
+
+def _replace_private_durable(target, text):
+    """L6 H2: replace a private file atomically - a new 0600 file beside it, written and fsynced, then renamed over the target and the
+    directory fsynced. Until the rename the target keeps its old content; a crash leaves the old file (and at most a stray .tmp file,
+    removed by the next run), never no file."""
+    target = Path(target)
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = target.with_name('.' + target.name + '.tmp')
+    temporary.unlink(missing_ok=True)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(text.encode())
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    directory = os.open(target.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def add_machine_key_peppers(out, *, rotate=False):
+    """NX-062 M3: app/secrets/api/machine-key-peppers for a tree generated before it existed (version 1), or --rotate: append the next
+    version (the previous versions stay, so every issued key keeps verifying; new keys use the new version after both api processes
+    restart). A version is retired only by hand once no active key uses it (docs/release/run-nx062-machine-access.md). No value is printed."""
+    out = Path(out)
+    manifest_path = out / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    target = out / 'app' / 'secrets' / 'api' / 'machine-key-peppers'
+    present = target.exists() or any(f['path'] == 'api/machine-key-peppers' for f in manifest['files'])
+    if present and not rotate:
+        raise Refused('the tree already holds the machine key peppers (--rotate appends the next version)')
+    if rotate and not target.exists():
+        raise Refused('nothing to rotate: the tree holds no machine key peppers')
+    lines = target.read_text().splitlines() if rotate else []
+    versions = [int(line.split(' ', 1)[0]) for line in lines if line.strip()]
+    lines.append(f'{(max(versions) if versions else 0) + 1} {secrets.token_hex(32)}')
+    _replace_private_durable(target, '\n'.join(lines) + '\n')
+    manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/machine-key-peppers']
+    entry = {'host': 'app', 'path': 'api/machine-key-peppers', 'secret': 'api_machine_key_peppers', 'service': 'api', 'owner': _owner('api')}
+    entry['kind'], entry['phase'], entry['note'] = classify('app', 'api', 'machine-key-peppers')
+    entry.update(generated=True, sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+    manifest['files'].append(entry)
+    manifest_path.chmod(0o600)
+    manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    return {'rotated' if rotate else 'added': ['app:api/machine-key-peppers'], 'versions': len(lines)}
 
 
 def add_entry_ticket_key(out, *, rotate=False):
@@ -1366,6 +1424,9 @@ def main(argv=None):
     m.add_argument('--out', type=Path, required=True)
     m.add_argument('--ca-dir', type=Path, required=True)
     m.add_argument('--params', type=Path, required=True)
+    mkp = sub.add_parser('machine-key-peppers', help='NX-062 M3: add the machine key peppers to a tree generated before them, or append a version')
+    mkp.add_argument('--out', type=Path, required=True)
+    mkp.add_argument('--rotate', action='store_true', help='append the next pepper version (old versions keep verifying issued keys); restart api-1 and api-2')
     etk = sub.add_parser('entry-ticket-key', help='S81: the entry ticket key shared by the api and the reference endpoint (ADR-043)')
     etk.add_argument('--out', type=Path, required=True)
     etk.add_argument('--rotate', action='store_true', help='replace the key: every unused staff ticket stops working; restart api and endpoint')
@@ -1432,6 +1493,8 @@ def main(argv=None):
             out, code = add_service(args.out, args.ca_dir, args.params, args.service), 0
         elif args.command in ('rotate-credential', 'revoke-credential'):
             out, code = credential_main(args), 0
+        elif args.command == 'machine-key-peppers':
+            out, code = add_machine_key_peppers(args.out, rotate=args.rotate), 0
         elif args.command == 'entry-ticket-key':
             out, code = add_entry_ticket_key(args.out, rotate=args.rotate), 0
         elif args.command == 'identity-token-key':

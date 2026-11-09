@@ -500,6 +500,64 @@ def test_identity_token_key_is_generated_and_added_to_an_older_tree(tree, tmp_pa
     assert oct((old / 'app' / 'secrets' / 'api' / 'identity-token.key').stat().st_mode)[-3:] == '600'
 
 
+def test_machine_key_peppers_are_generated_added_and_rotated_by_appending(tree, tmp_path, capsys):
+    """NX-062 M3: a new tree holds app/secrets/api/machine-key-peppers (version 1, 0600, the api's, loadable by machine_keys); the
+    machine-key-peppers command adds it to an older tree, never overwrites it, and --rotate appends version 2 keeping version 1, so
+    every issued key keeps verifying. No value is printed; check passes."""
+    import shutil
+    from nexloop_eios.machine_keys import load_peppers
+    path = tree['out'] / 'app' / 'secrets' / 'api' / 'machine-key-peppers'
+    assert load_peppers(path).versions == (1,) and oct(path.stat().st_mode)[-3:] == '600'
+    entry = next(f for f in json.loads((tree['out'] / 'manifest.json').read_text())['files'] if f['path'] == 'api/machine-key-peppers')
+    assert (entry['kind'], entry['generated'], entry['secret']) == ('machine_key_peppers', True, 'api_machine_key_peppers')
+    old = tmp_path / 'old'
+    shutil.copytree(tree['out'], old)
+    target = old / 'app' / 'secrets' / 'api' / 'machine-key-peppers'
+    target.unlink()
+    manifest = json.loads((old / 'manifest.json').read_text())
+    manifest['files'] = [f for f in manifest['files'] if f['path'] != 'api/machine-key-peppers']
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    capsys.readouterr()
+    assert S.main(['machine-key-peppers', '--out', str(old)]) == 0
+    first = target.read_text()
+    assert first.split()[1] not in capsys.readouterr().out and S.check(old)['ok'] and load_peppers(target).versions == (1,)
+    assert S.main(['machine-key-peppers', '--out', str(old)]) == 2 and target.read_text() == first
+    capsys.readouterr()
+    assert S.main(['machine-key-peppers', '--out', str(old), '--rotate']) == 0
+    rotated = load_peppers(target)
+    assert rotated.versions == (1, 2) and rotated.current == 2 and target.read_text().startswith(first)
+    assert target.read_text().split()[3] not in capsys.readouterr().out and S.check(old)['ok'] and oct(target.stat().st_mode)[-3:] == '600'
+
+
+def test_machine_key_pepper_rotation_replaces_atomically(tree, tmp_path, monkeypatch):
+    """L6 H2: --rotate writes a new fsynced file beside the peppers and renames it over them; until the rename the old content is there,
+    and a crash at the rename (simulated) leaves the old file intact and no temporary file."""
+    import shutil
+    old = tmp_path / 'old'
+    shutil.copytree(tree['out'], old)
+    target = old / 'app' / 'secrets' / 'api' / 'machine-key-peppers'
+    before = target.read_text()
+    seen = {}
+    real_replace, real_fsync = S.os.replace, S.os.fsync
+    synced = []
+    monkeypatch.setattr(S.os, 'fsync', lambda fd: (synced.append(fd), real_fsync(fd))[1])
+
+    def crash(source, destination):
+        seen['target'] = Path(destination).read_text()  # the old content, right before the rename
+        seen['temporary'] = Path(source).read_text()
+        seen['synced'] = len(synced)
+        raise OSError('simulated crash at the rename')
+    monkeypatch.setattr(S.os, 'replace', crash)
+    with pytest.raises(OSError, match='simulated crash'):
+        S.add_machine_key_peppers(old, rotate=True)
+    assert seen['target'] == before and seen['temporary'].startswith(before) and seen['synced'] >= 1
+    assert target.read_text() == before and not list(target.parent.glob('.machine-key-peppers*'))
+    monkeypatch.setattr(S.os, 'replace', real_replace)
+    S.add_machine_key_peppers(old, rotate=True)
+    assert target.read_text().startswith(before) and len(target.read_text().splitlines()) == len(before.splitlines()) + 1
+    assert oct(target.stat().st_mode)[-3:] == '600' and not list(target.parent.glob('.machine-key-peppers*'))
+
+
 def test_the_browser_registration_carries_the_reset_completion_rate_policy():
     entries = S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench', seal_digest='a' * 64)
     assert [p['action'] for p in entries['browser_rate_policies']] == ['local_login', 'password_reset_complete', 'invitation_accept', 'oidc_start']

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-error",
+  "title": "machine-error",
+  "description": "NX-062 M3 (ADR-041 §2.5, threat review T-11): every refusal of the machine_key realm (/machine/v1/*). A fixed code only - never a value of the request, a key, a digest or an internal identifier; retryable is true for 429 and 503 only, and a 429 also carries the Retry-After header. Codes: unauthenticated (401: no machine key, another credential, an unknown, revoked or expired key or one of a deactivated client - one answer for all), query_not_allowed (400: a query string is never accepted, so a key never travels in a URL), rate_limited (429), rate_policy_missing (503: no rate policy is published, the realm is closed, never unlimited), unavailable (503: no pepper file or no database) and busy (503: the process's machine concurrency limit). message is a fixed display text. NexLoop target contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "message", "trace_id", "retryable", "details"],
+  "properties": {
+    "code": {"enum": ["unauthenticated", "query_not_allowed", "rate_limited", "rate_policy_missing", "unavailable", "busy"]},
+    "message": {"type": "string", "minLength": 1, "maxLength": 40},
+    "trace_id": {"type": "string", "format": "uuid"},
+    "retryable": {"type": "boolean"},
+    "details": {"type": "object", "additionalProperties": false, "properties": {}}
+  }
+}

@@ -225,11 +225,11 @@ def test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact(desk
     # No authority fact, no grant, no workbench grant instance names the machine principal.
     assert admin.execute("select count(*) from authz.nexloop_authority_facts where payload::text like '%%nexloop-machine%%' or entity_key::text like '%%nexloop-machine%%'").fetchone()[0] == 0
     assert admin.execute("select count(*) from control.nexloop_workbench_grant_instances where principal_id like 'nexloop-machine:%%'").fetchone()[0] == 0
-    # No HTTP route takes a machine key yet (the machine_key realm arrives with M3).
+    # The only machine_key route (M3) is the read-only capability list, empty until M5 (tests/test_machine_realm_pg.py).
     import json
     from pathlib import Path
     inventory = json.loads((Path(__file__).resolve().parents[1] / 'deploy/authorization/api-routes.v1.json').read_text())
-    assert 'machine_key' not in {r['realm'] for r in inventory['routes']}
+    assert {(r['method'], r['path']) for r in inventory['routes'] if r['realm'] == 'machine_key'} <= {('GET', '/machine/v1/capabilities')}
     rows = admin.execute("""select p.oid::regprocedure::text,p.oid::regproc::text,array(select format_type(t,null) from unnest(p.proargtypes) t)
         from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('authz','control','runtime')
         and has_function_privilege('nexloop_api',p.oid,'execute') and p.pronargs>=1 and p.proargtypes[0]='text'::regtype

@@ -40,6 +40,9 @@ class ApiConfiguration:
     workbench:object|None=None
     # EIOS gap E4: a loopback port for this process's per-route request metrics (eios.api.metrics); None = no export (default).
     api_metrics_port:int|None=None
+    # NX-062 M3: the private pepper file of machine keys (nexloop_eios.machine_keys), read once at start; None or unreadable = the
+    # machine_key realm answers 503 to every key (fail closed), the rest of the API is unaffected.
+    machine_key_peppers_file:Path|None=None
     # 'test' (the foundation console and container tests; readiness stays 503 with diagnostics) or 'stage' (deployment:
     # /health/ready is the real readiness of nexloop_eios.deployment_readiness, fixed reason codes only). Required and keyword-only
     # (NX-062 C8, L6 S-4): what is mounted depends on it (the test-world Artifact read exists in 'test' only), so no caller gets a
@@ -79,6 +82,12 @@ def create_app(config:ApiConfiguration):
             app.state.backend=None
             app.state.browser_store=None
             app.state.workbench_store=None
+            app.state.machine_peppers=None
+            if config.machine_key_peppers_file is not None:
+                try:
+                    from nexloop_eios.machine_keys import load_peppers
+                    app.state.machine_peppers=load_peppers(config.machine_key_peppers_file)
+                except Exception:pass
             try:
                 dsn=read_private_text(config.database_url_file,maximum=16384)
                 app.state.backend=stack.enter_context(open_backend(database_url=dsn,
@@ -228,6 +237,12 @@ def create_app(config:ApiConfiguration):
     # NX-027 signed commercial webhook: the connector signature authenticates (no session).
     from nexloop_eios.commercial_http import router as commercial_router
     app.include_router(commercial_router())
+    # NX-062 M3: the machine_key realm (/machine/v1), in every mode; only a machine key is a credential there.
+    from nexloop_eios.machine_http import router as machine_router
+    def machine_pool(request):
+        backend=getattr(request.app.state,'backend',None)
+        return None if backend is None else backend._pool
+    app.include_router(machine_router(peppers_for=lambda request:getattr(request.app.state,'machine_peppers',None),pool_for=machine_pool))
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')
@@ -407,7 +422,7 @@ def parse(argv=None,environ=None):
         except Exception:p.error('private cache configuration unavailable')
     return ApiConfiguration(a.database_url_file,a.signing_key_file,a.artifact_root,a.signing_key_id,browser,a.web_root,host_control,
         execution_profile=a.execution_profile,cache_wakeup=cache,workbench=workbench,mode=a.mode,identity_pool_max=a.identity_pool_max,
-        api_metrics_port=a.api_metrics_port),a.port,tls
+        api_metrics_port=a.api_metrics_port,machine_key_peppers_file=a.machine_key_peppers_file),a.port,tls
 
 
 def main():

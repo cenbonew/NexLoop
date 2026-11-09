@@ -1,0 +1,7 @@
+{
+  "code": "rate_limited",
+  "message": "请求未完成",
+  "trace_id": "8a3f1c2e-4b5d-4e6f-9a7b-1c2d3e4f5a6b",
+  "retryable": true,
+  "details": {}
+}

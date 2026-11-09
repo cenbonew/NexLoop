@@ -24,6 +24,8 @@
 | experiment-registration.schema.json | NX-043 X1：实验的预登记（D3）——假设（只是假设）、候选与对照策略版本、筛选用的孪生版本、主要指标、护栏、样本量、成熟窗口、预算、结束时间与分配种子，全部必填，登记后冻结；护栏与成熟窗口留空的成员取 D4、D6 默认值，填写的只能更严；候选组不超过 20 人、对照组不少于候选组（D2）；首批没有优惠预算（D1、D5）；开始时再查一次，选用的孪生必须当前已校准（D9）；不能打开任何一层真实派发 |
 | twin-sample.schema.json | NX-042 T2：模拟世界中种子化群体抽样的一个孪生实例——每个行为给出区间与名义覆盖率（不给单一概率，D4）和在区间内抽出的一次模拟结果（抽到的概率不输出）；同一种子与孪生版本逐字节一致；一律为模拟输出（origin twin、data_mode simulation），带孪生版本与校准状态，未校准的孪生可以运行但输出标明“未校准”，NX-043 不能选用（D7）；永远不是事实、用户陈述或 Claim |
 | twin-calibration-report.schema.json | NX-042 T5：一个孪生版本的冻结校准报告——只用 real 的聚合指标（T4：real 世界、real 人设、每组至少 30 个消费者，只有计数和比率），1–3 个互不重叠、都在版本发布之后的校准窗口，各自按时间与参考窗口切分并按消费者分组，报告列出每个窗口贡献的单元数；每个（行为，窗口，分组）单元给出区间、观察比率、是否覆盖和 Brier；覆盖率对照名义值（80% 区间为 70%–90%，D3）；结论 passed / failed / insufficient_sample（少于 16 个单元，不下结论）/ not_calibratable（没有真实聚合数据的行为、或只有一个可校准行为，保持未校准，D4）；小于 30 的排除计数记为“<30”；同一版本用过的窗口不能再用，报告记录尝试序号和最近 3 次结论，最近 3 次里有 failed 就不可选用（K=3）；只有 passed / failed 追加校准事件，passed 才可被 NX-043 选用（D7）；写入后不可修改 |
+| machine-capabilities.schema.json | NX-062 M3：`GET /machine/v1/capabilities` 的返回体，即一把机器密钥当前能调用的能力：密钥 scope ∩ 当前机器能力允许表 ∩ 机器主体当前授权，由 SQL 在每次请求时计算。这是 MCP 与 SDK 工具清单的唯一来源；kind read 是一次调用，write 是 prepare 加 commit（M5）。M5 之前对所有密钥都是空列表；租户、world、actor 只由服务端从密钥推出，不出现在返回体里 |
+| machine-error.schema.json | NX-062 M3：machine_key realm（`/machine/v1/*`）的统一拒绝体。只给固定错误码，从不回显请求值、密钥、摘要或内部标识；只有 429 与 503 可重试，429 另带 `Retry-After`。错误码：unauthenticated、query_not_allowed、rate_limited、rate_policy_missing、unavailable、busy |
 
 ## Schema之外必须实现的语义检查
 
