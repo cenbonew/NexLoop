@@ -320,7 +320,9 @@ def test_entry_parity_and_no_other_handler_caller(writes):
     shared = base[base.index(' -- NX-056 A2 (design v5 §2, §4)'):base.index(' v_id:=encode(sha256(')]
     assert shared.strip() and shared in core  # the gate, the handler and the consumption are the base text unchanged
     all_defs = defs(admin)
-    assert {n for n, s in all_defs.items() if 'nexloop_goal_governed_action_before_machine' in s} == {'authz.nexloop_goal_governed_action(text,text,text,text,text)'}
+    # NX-067: the M5b dispatcher is wrapped by the role-ceiling check (renamed _before_role_ceiling); it alone calls _before_machine.
+    assert {n for n, s in all_defs.items() if 'nexloop_goal_governed_action_before_machine' in s} == {'authz.nexloop_goal_governed_action_before_role_ceiling(text,text,text,text,text)'}
+    assert {n for n, s in all_defs.items() if 'nexloop_goal_governed_action_before_role_ceiling(' in s} == {'authz.nexloop_goal_governed_action(text,text,text,text,text)'}
     # L6 (77728430): any function reading the registry's handler column and executing dynamically, whatever the spelling.
     callers = {n for n, s in all_defs.items() if 'nexloop_governed_capabilities' in s and re.search(r'\bhandler\b', s) and re.search(r'\bexecute\b', s, re.I)}
     assert callers == {'authz.nexloop_goal_governed_action_before_machine(text,text,text,text,text)', 'authz.nexloop_machine_governed_core(text,text,text,text,text,text)'}, callers
@@ -334,6 +336,7 @@ def holders(admin, f):
 def test_grantees(writes):
     admin = writes['admin']
     for f in ('authz.nexloop_goal_governed_action_before_machine(text,text,text,text,text)', 'authz.nexloop_machine_governed_core(text,text,text,text,text,text)',
+              'authz.nexloop_goal_governed_action_before_role_ceiling(text,text,text,text,text)',
               'control.nexloop_approval_subject_of_before_machine(text,text)', 'control.nexloop_machine_verb_types_before_writes(text)'):
         assert holders(admin, f) == set(), f
     assert 'nexloop_api' in holders(admin, 'authz.nexloop_goal_governed_action(text,text,text,text,text)')

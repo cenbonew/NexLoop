@@ -290,6 +290,13 @@ OPERATIONS={
         'external_subject':lambda v:v if type(v) is str and 0<len(v)<=255 and v==v.strip() and v.isprintable() else (_ for _ in ()).throw(ValueError('subject')),
         'login_mode':lambda v:v if v in ('sso_only','sso_or_password') else (_ for _ in ()).throw(ValueError('mode'))},
     'unlink_workbench_external':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
+    # NX-067 (owner only): a configured provider's IdP group mapping {group: operator|reviewer}; {} clears it. expected_revision is the
+    # current revision (0 before the first), so two owners never overwrite each other.
+    'set_sso_group_mapping':{'provider_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,31}')),
+        'group_claim':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.:/-]{0,127}')),
+        'mappings':lambda v:v if type(v) is dict and len(v)<=64 and all(type(k) is str and 0<len(k)<=256 and k==k.strip() and k.isprintable()
+            and x in ('operator','reviewer') for k,x in v.items()) else (_ for _ in ()).throw(ValueError('mappings')),
+        'expected_revision':lambda v:v if type(v) is int and type(v) is not bool and 0<=v<=1000000 else (_ for _ in ()).throw(ValueError('revision'))},
     # NX-058 slice D2 (owner only, NX-056 approval): owner targets; demote's new role is operator or reviewer (S2, SQL checks it again).
     'promote_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'demote_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason,
@@ -485,7 +492,7 @@ def router(config,*,ports_for_browser):
                 drawn=MK.generate()
                 code=drawn.token
                 fields={**fields,'prefix_id':drawn.prefix_id,'digest':MK.digest(drawn,peppers,peppers.current).hex(),'pepper_version':peppers.current}
-            if operation=='link_workbench_external' or (operation=='invite_workbench_member' and 'sso_provider' in fields):
+            if operation in ('link_workbench_external','set_sso_group_mapping') or (operation=='invite_workbench_member' and 'sso_provider' in fields):
                 # Only a configured provider (the same file the login uses); its issuer, never the body's.
                 from nexloop_eios.workbench_oidc import OidcClient,load_providers
                 try:

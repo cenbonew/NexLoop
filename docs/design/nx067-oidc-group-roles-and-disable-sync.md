@@ -45,8 +45,12 @@
 ### 2.4 在哪里执行上限
 
 - `control.nexloop_workbench_role` 不改，它只回答清单角色。
-- 新函数 `control.nexloop_workbench_effective_actions(tenant, principal)`：返回清单角色的 Action 集合与上限的交集。所有用到 `nexloop_workbench_granted` 或 `nexloop_workbench_actions` 判断成员能否执行某个 Action 的地方都改为经过它；实现时逐一列出这些调用点，并用测试断言没有遗漏（按 copy guard 的方式登记）。
-- 派发时再检查一次（AGENTS：权限在派发时执行），不只看规划时的结果。
+- 实现为 `control.nexloop_workbench_action_permitted(tenant, principal, resource)`：按单个 Action 判断，结果与“清单角色的 Action 集合与上限的交集”相同。只管工作台角色里的 Action；`nexloop.workbench.read` 只要求上限非空（reviewer 的角色里没有这个 Action）。
+- 在三个地方执行（实现时核实：工作台成员的授权都经过这三处）：
+  1. 工作台入口挑选 Action（`authz.nexloop_workbench_action_for`）：被排除时返回 `granted: false`，入口回 403。
+  2. 浏览器授权读取 grant 事实（`authz.nexloop_browser_authority_fact_snapshot`）：被排除时不返回这条事实。存储的事实自带快照校验和，不能改写，所以只能不给；于是这次授权判定无法完成，按“不可用”失败关闭（503，什么都不执行）。读接口也经过这里。
+  3. 受治理 Action 的派发事务（`authz.nexloop_goal_governed_action`）：用签名命令里的租户、主体和 Action 资源再查一次，被排除时报 42501，入口回 403。这是派发时的复核。
+- 守护测试 `tests/test_nx067_ceiling_guard_pg.py`：从 `pg_proc` 里找出所有读写 grant 事实的函数（27 个），逐个登记是否适用上限、以及原因；新增的函数没登记就失败。三个执行点必须调用 `nexloop_workbench_action_permitted`，被包装的原函数不能再有任何直接授权。
 
 ### 2.5 审计
 
@@ -86,10 +90,10 @@ IdP 停用用户后，这个用户已有的 SSO 会话最晚在以下时间内�
   - 必须有 `sub`。只有 `sid` 的 token 拒绝，因为我们不保存 IdP 的 sid；
   - 不能有 `nonce`（规范禁止）；
   - `jti` 必填，1–255 字符。
-- 防重放：新表 `control.nexloop_workbench_oidc_logout_jti`（tenant, provider_id, jti_hmac, expires_at），只存 HMAC；主键冲突即视为重放，返回 400。保留到 `iat + 10 分钟 + 容差`，过期的由已有的保留期清理任务删除。
+- 防重放：新表 `control.nexloop_workbench_oidc_logout_jti`（tenant, provider_id, jti_hmac, expires_at），只存 HMAC；主键冲突即视为重放，返回 400。保留到 `iat + 10 分钟 + 容差`；过期的在每次收到 back-channel 请求时由同一个函数删除。
 - 效果：在一个事务里按 (provider, issuer, sub) 找到绑定；找到就让成员账号的 `session_epoch` 加一，写登录事件 `oidc_backchannel_logout`（不含 sub 和令牌）。sub 没有绑定的也返回 200，避免通过响应探测哪些 sub 已经绑定。
 - 响应：成功 200，`Cache-Control: no-store`；验证失败 400，错误体只有 `invalid_request`，原因写进审计。
-- 限速：新的限速策略 `oidc_backchannel`，按来源地址计数（取值方式与 `oidc_start` 相同），由 `stage_secrets.py browser` 注册；没有注册这条策略时，端点返回 503（与 `oidc_start` 一样失败关闭）。验签失败也计入次数。
+- 限速：沿用已注册的 `oidc_start` 策略，按来源地址计数，但用单独的键前缀 `backchannel-ip:`，和登录的计数分开（与 callback 的 `callback-ip:` 做法相同）。没有另建 `oidc_backchannel` 策略：限速函数只接受固定的几种 action，加一种要改动已发布的函数。没有这条策略时端点返回 503（失败关闭）。验签失败也计入次数。
 - 让 `session_epoch` 加一会结束这个成员的全部会话，口令会话也包括在内：IdP 停用通常意味着人已经离开，这样处理更保守，和解绑的效果一致。
 
 ## 4. 测试计划（mock IdP，没有任何外部请求）
@@ -106,6 +110,13 @@ IdP 停用用户后，这个用户已有的 SSO 会话最晚在以下时间内�
 2. 没有命中映射时把上限设为空集（2.2），这会把成员的口令会话也锁住，直到重新 SSO 或被解绑。
 3. back-channel 直接让 `session_epoch` 加一，口令会话一起结束（3.3）。
 4. `max_session_seconds` 默认 8 小时（3.1）。
+
+## 负责人 2026-11-10 确认（取舍 a–d，“都按推荐”）
+
+- a：一个映射都没命中时，锁住这个成员的全部工作台 Action（上限设为空集）。
+- b：SSO 会话最长时长默认 8 小时，每个 provider 可以在 900–43200 秒之间调（`max_session_seconds`）。
+- c：接受 IdP 管理员能够让成员降级，也能通过 back-channel 结束成员的全部会话，口令会话也包括在内。
+- d：清空映射后，恢复角色清单给的权限（上限清回 null）。
 
 ## 6. L6 复核后补充（Z1–Z5，2026-11-10）
 

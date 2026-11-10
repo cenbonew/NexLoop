@@ -152,7 +152,9 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'rotate_machine_key':'machine_key.rotate',
     'revoke_machine_key':'machine_key.revoke',
     # NX-062 M4a (0440): the machine client grants (owner only).
-    'grant_machine_capability':'machine_client.grant','revoke_machine_grant':'machine_client.revoke_grant'}
+    'grant_machine_capability':'machine_client.grant','revoke_machine_grant':'machine_client.revoke_grant',
+    # NX-067 (0446): a provider's IdP group mapping (owner only; groups only narrow the manifest role).
+    'set_sso_group_mapping':'workbench_member.set_sso_group_mapping'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
 EXECUTION_FIELDS={'workbench_member.issue_owner_reset':('code_hmac','issuer_source_hmac'),
@@ -837,6 +839,16 @@ class GoalGovernedActions:
     def unlink_workbench_external(self,*,action_name,action_version,request_id,target_principal):
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)):raise ValueError('target principal required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'unlink_workbench_external','target_principal':target_principal})
+
+    # NX-067 (0446): the owner's IdP group mapping of one configured provider; SQL checks it again (roles operator and reviewer only).
+    def set_sso_group_mapping(self,*,action_name,action_version,request_id,provider_id,group_claim,mappings,expected_revision):
+        if (not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}',str(provider_id)) or type(group_claim) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.:/-]{0,127}',group_claim)
+                or type(mappings) is not dict or len(mappings)>64
+                or not all(type(k) is str and 0<len(k)<=256 and k==k.strip() and v in ('operator','reviewer') for k,v in mappings.items())
+                or type(expected_revision) is not int or type(expected_revision) is bool or not 0<=expected_revision<=1000000):
+            raise ValueError('provider, group claim, at most 64 group mappings to operator or reviewer and the expected revision required')
+        return self._submit(action_name,action_version,{'request_id':request_id,'operation':'set_sso_group_mapping','provider_id':provider_id,
+                                                        'group_claim':group_claim,'mappings':mappings,'expected_revision':expected_revision})
 
     def revoke_workbench_invitation(self,*,action_name,action_version,request_id,invitation_id):
         if not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',str(invitation_id)):raise ValueError('invitation id required')

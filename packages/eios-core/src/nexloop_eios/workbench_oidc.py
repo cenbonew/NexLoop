@@ -36,10 +36,20 @@ STATE = 'nexloop-oidc-state/1'
 BINDING = 'nexloop-oidc-binding/1'
 NONCE = 'nexloop-oidc-nonce/1'
 PKCE = 'nexloop-oidc-pkce/1'
+LOGOUT_JTI = 'nexloop-oidc-logout-jti/1'
 CALLBACK_PATH = '/api/v1/workbench/auth/oidc/callback'
-REASONS = ('state_invalid', 'provider_error', 'token_exchange_failed', 'id_token_invalid', 'not_linked', 'member_unavailable')
+REASONS = ('state_invalid', 'provider_error', 'token_exchange_failed', 'id_token_invalid', 'not_linked', 'member_unavailable',
+           'groups_invalid', 'no_mapped_role', 'logout_token_invalid')
 LEEWAY = 60
 MAX_TOKEN_AGE = 600
+# NX-067 (docs/design/nx067-oidc-group-roles-and-disable-sync.md): one place for the values the owner may still change.
+MAX_SESSION_SECONDS_DEFAULT = 28800  # an SSO session ends at most this long after sign-in (8 hours); per provider 900-43200
+MAX_SESSION_SECONDS_RANGE = (900, 43200)
+JWKS_CACHE_SECONDS = 300  # the cached JWKS of a provider is refetched when older than this
+JWKS_MIN_REFETCH_SECONDS = 60  # Z3: an unknown kid refetches at most once per this interval per provider
+BACKCHANNEL_EVENT = 'http://schemas.openid.net/event/backchannel-logout'
+LOGOUT_TOKEN_MAX_AGE = 600
+BACKCHANNEL_PATH = '/api/v1/workbench/auth/oidc/backchannel/'
 _ID = re.compile(r'[a-z][a-z0-9_-]{0,31}')
 _B64 = re.compile(r'[A-Za-z0-9_-]*')
 _DIGEST_INFO = bytes.fromhex('3031300d060960864801650304020105000420')  # DER prefix of a SHA-256 DigestInfo (RFC 8017 §9.2)
@@ -84,6 +94,8 @@ class Provider:
     client_secret_env: str | None = None
     token_endpoint_auth: str = 'client_secret_basic'
     display_name: str = ''
+    max_session_seconds: int = MAX_SESSION_SECONDS_DEFAULT  # NX-067: the SSO session's absolute lifetime
+    backchannel_logout: bool = False  # NX-067: the provider pushes OIDC back-channel logout tokens
 
     def __post_init__(self):
         if type(self.provider_id) is not str or not _ID.fullmatch(self.provider_id):
@@ -100,6 +112,11 @@ class Provider:
             raise OidcConfigurationError('client_secret_env: an environment variable name')
         if type(self.display_name) is not str or len(self.display_name) > 80:
             raise OidcConfigurationError('display_name: at most 80 characters')
+        low, high = MAX_SESSION_SECONDS_RANGE
+        if type(self.max_session_seconds) is not int or not low <= self.max_session_seconds <= high:
+            raise OidcConfigurationError(f'max_session_seconds: an integer from {low} to {high}')
+        if type(self.backchannel_logout) is not bool:
+            raise OidcConfigurationError('backchannel_logout: true or false')
 
     def fingerprint(self):
         """sha256 of the provider's public configuration (no secret, no secret location): recorded with each SSO login."""
@@ -117,7 +134,7 @@ class Provider:
 
 
 FIELDS = {'provider_id', 'issuer', 'client_id', 'authorization_endpoint', 'token_endpoint', 'jwks_uri', 'client_secret_file', 'client_secret_env',
-          'token_endpoint_auth', 'display_name'}
+          'token_endpoint_auth', 'display_name', 'max_session_seconds', 'backchannel_logout'}
 
 
 def parse_providers(document):
@@ -254,7 +271,44 @@ def verify_id_token(token, *, provider, keys, nonce, now):
             or type(claims.get('nonce')) is not str or not hmac.compare_digest(claims['nonce'].encode(), nonce.encode())
             or type(claims.get('sub')) is not str or not 0 < len(claims['sub']) <= 255 or claims['sub'] != claims['sub'].strip()):
         raise OidcFailure('id_token_invalid')
-    return {'subject': claims['sub'], 'issued_at': iat, 'expires_at': exp}
+    # NX-067: the verified claims too, for the group claim a mapping names (read by the caller, never stored).
+    return {'subject': claims['sub'], 'issued_at': iat, 'expires_at': exp, 'claims': claims}
+
+
+def _signed_claims(token, keys, reason):
+    try:
+        if type(token) is not str or len(token) > 16384 or token.count('.') != 2:
+            raise ValueError('compact JWS')
+        head, body, sig = token.split('.')
+        header = _strict_json(_unb64(head))
+        if header.get('alg') != 'RS256' or 'crit' in header or ('kid' in header and type(header['kid']) is not str):
+            raise ValueError('header')
+        signing_input = (head + '.' + body).encode('ascii')
+        if not any(rs256_valid(k, signing_input, _unb64(sig)) for k in keys(header.get('kid'))):
+            raise ValueError('signature')
+        return _strict_json(_unb64(body))
+    except Exception:  # a JWKS failure too: the caller's fixed reason
+        raise OidcFailure(reason) from None
+
+
+def verify_logout_token(token, *, provider, keys, now):
+    """NX-067: an OIDC Back-Channel Logout 1.0 logout token. RS256 by the provider's JWKS; iss, aud (azp as for ID tokens); iat within
+    the leeway and at most LOGOUT_TOKEN_MAX_AGE old; exp (when present) not passed; events holding the back-channel logout event as an
+    object; sub required (sid alone is refused: no IdP session id is kept); no nonce; jti 1-255 characters. Returns {subject, jti, issued_at}."""
+    claims = _signed_claims(token, keys, 'logout_token_invalid')
+    aud = claims.get('aud')
+    audiences = [aud] if type(aud) is str else aud if type(aud) is list and all(type(a) is str for a in aud) else []
+    iat, exp, events, jti = claims.get('iat'), claims.get('exp'), claims.get('events'), claims.get('jti')
+    if (claims.get('iss') != provider.issuer or provider.client_id not in audiences
+            or (('azp' in claims or len(audiences) > 1) and claims.get('azp') != provider.client_id)
+            or not _number(iat) or iat > now + LEEWAY or now - iat > LOGOUT_TOKEN_MAX_AGE
+            or (exp is not None and (not _number(exp) or now >= exp + LEEWAY))
+            or type(events) is not dict or type(events.get(BACKCHANNEL_EVENT)) is not dict
+            or 'nonce' in claims
+            or type(claims.get('sub')) is not str or not 0 < len(claims['sub']) <= 255 or claims['sub'] != claims['sub'].strip()
+            or type(jti) is not str or not 0 < len(jti) <= 255):
+        raise OidcFailure('logout_token_invalid')
+    return {'subject': claims['sub'], 'jti': jti, 'issued_at': iat}
 
 
 class OidcClient:
@@ -295,8 +349,8 @@ class OidcClient:
             with self._lock:
                 fetched_at, found = self._jwks.get(provider.provider_id, (None, {}))
                 now = self.clock()
-                stale = fetched_at is None or now - fetched_at > 300
-                unknown = (kid not in found if kid is not None else not found) and (fetched_at is None or now - fetched_at > 60)
+                stale = fetched_at is None or now - fetched_at > JWKS_CACHE_SECONDS
+                unknown = (kid not in found if kid is not None else not found) and (fetched_at is None or now - fetched_at > JWKS_MIN_REFETCH_SECONDS)
                 if stale or unknown:
                     try:
                         found = self._fetch_jwks(provider)

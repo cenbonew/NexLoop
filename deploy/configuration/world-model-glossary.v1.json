@@ -125,6 +125,7 @@
     "nexloop.workbench_member.revoke": "撤销成员",
     "nexloop.workbench_member.revoke_invitation": "撤回邀请",
     "nexloop.workbench_member.revoke_owner": "撤销负责人",
+    "nexloop.workbench_member.set_sso_group_mapping": "设定单点登录组映射",
     "nexloop.workbench_member.suspend": "暂停成员",
     "nexloop.workbench_member.suspend_owner": "暂停负责人",
     "nexloop.workbench_member.unlink_external": "解除外部身份关联",

@@ -343,9 +343,13 @@ def test_uncommitted_takes_only_the_proven_single_transaction_actions(desk):
     # NX-062 M5b (0442): the entry is a dispatcher that executes nothing itself; the function that runs the handler and ends the claim
     # is the 0348 body (people and services, renamed _before_machine) or the machine core (machine clients). In both, one function:
     # the handler first, then the terminal claim - the same transaction.
+    # NX-067 (role ceiling): the entry is the ceiling check, which executes nothing and calls the M5b dispatcher.
     entry = body('authz.nexloop_goal_governed_action')
     assert 'cap.handler' not in entry and terminal not in entry
-    assert 'authz.nexloop_goal_governed_action_before_machine(' in entry and 'authz.nexloop_machine_governed_core(' in entry
+    assert 'control.nexloop_workbench_action_permitted(' in entry and 'authz.nexloop_goal_governed_action_before_role_ceiling(' in entry
+    dispatcher = body('authz.nexloop_goal_governed_action_before_role_ceiling')
+    assert 'cap.handler' not in dispatcher and terminal not in dispatcher
+    assert 'authz.nexloop_goal_governed_action_before_machine(' in dispatcher and 'authz.nexloop_machine_governed_core(' in dispatcher
     runners = {'authz.nexloop_goal_governed_action_before_machine': body('authz.nexloop_goal_governed_action_before_machine'),
                'authz.nexloop_machine_governed_core': admin.execute("select prosrc from pg_proc where oid='authz.nexloop_machine_governed_core(text,text,text,text,text,text)'::regprocedure").fetchone()[0]}
     for name, src in runners.items():

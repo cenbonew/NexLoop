@@ -66,7 +66,7 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'remediation.rule_release':'release_remediation_rule',  # NX-057 R2
         'workbench_member.promote_owner':'promote_workbench_member','workbench_member.demote_owner':'demote_workbench_owner','workbench_member.suspend_owner':'suspend_workbench_owner','workbench_member.resume_owner':'resume_workbench_owner','workbench_member.revoke_owner':'revoke_workbench_owner',
         'workbench_member.issue_owner_reset':'issue_workbench_owner_reset','workbench_member.invite_owner':'invite_workbench_owner','workbench_member.erase_member':'erase_workbench_member',
-        'workbench_member.link_external':'link_workbench_external','workbench_member.unlink_external':'unlink_workbench_external',
+        'workbench_member.link_external':'link_workbench_external','workbench_member.unlink_external':'unlink_workbench_external','workbench_member.set_sso_group_mapping':'set_sso_group_mapping',
         'claim_extraction.dead_letter_resolve':'resolve_extraction_dead_letter',
         'goals.budget.loosen':'loosen_budget','world_glossary.set':'set_world_glossary',
         'relay.backlog_settle':'settle_relay_backlog','action_claim.settle':'settle_action_claim',

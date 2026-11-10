@@ -2220,6 +2220,11 @@
       "version": "0444",
       "name": "0444_nx062_tenant_hygiene.sql",
       "sha256": "7e1c6e08d0edc8b015754d4a840c5cf0fe050a7be63a2e8760609dbe0224cac0"
+    },
+    {
+      "version": "0445",
+      "name": "0445_nx067_oidc_gaps.sql",
+      "sha256": "b947a23b07449622faed6d5c4127ce927a961baa53a3f18efb535c67a1f40425"
     }
   ]
 }

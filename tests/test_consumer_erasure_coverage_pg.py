@@ -92,6 +92,7 @@ IDENTITY_KEPT = {
     # tests/test_member_erasure_coverage_pg.py; kept there with their reason, E5).
     'control.nexloop_workbench_grant_instances': _STAFF + ' (a workbench member\'s instantiated role grants)',
     'control.nexloop_workbench_role_history': _STAFF + ' (when a workbench member held a role)',
+    'control.nexloop_workbench_role_ceiling_events': _STAFF + ' (NX-067: a workbench member\'s SSO role ceiling changes; roles and mapping revision only)',
     # NX-058 slice F: single sign-on of workbench members - staff, never a Consumer (staff erasure: tests/test_member_erasure_coverage_pg.py).
     # The link holds the member's IdP subject in clear (external_subject, not an HMAC); a trigger deletes it when the membership is revoked.
     'control.nexloop_workbench_external_identities': _STAFF + ' (a workbench member\'s SSO link: provider, issuer and IdP subject in clear; deleted on revocation)',

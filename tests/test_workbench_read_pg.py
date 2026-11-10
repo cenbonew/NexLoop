@@ -250,14 +250,14 @@ def test_read_port_refuses_services_and_other_applications(workbench):
         db.execute("select authz.nexloop_workbench_read('x','real','{}','x','{}')")
 
 
-def test_a_role_of_107_actions_configures_and_129_is_refused_by_sql(workbench):
-    """NX-043 X1 follow-up (dispatcher 2026-10-21): the owner role holds 107 Actions (NX-062 M5c: nexloop.object.add_note; NX-062 M4a: machine_client.grant and revoke_grant; NX-062 M2b: the six machine access lifecycle Actions; K4b: nexloop.human_question.answer; stale action claims: nexloop.action_claim.settle; S42: nexloop.relay.backlog_settle; world-model glossary: nexloop.world_glossary.set; NX-056 budget approval: nexloop.budget.loosen) (experiments scope, with the X3 shadow copy switch and the report read and the report Action; NX-057 the three remediation Actions; NX-056 A1 approvals.decide and approvals.cancel, A5 consumer.erase_on_request, A7 approvals.solo_mode.set; NX-058 the member reset code, invitations and their revocation; NX-058 slice C change_role, suspend, resume and revoke; slice F link_external and unlink_external); SQL allows up to 128 per role,
+def test_a_role_of_108_actions_configures_and_129_is_refused_by_sql(workbench):
+    """NX-043 X1 follow-up (dispatcher 2026-10-21): the owner role holds 108 Actions (NX-067: workbench_member.set_sso_group_mapping; NX-062 M5c: nexloop.object.add_note; NX-062 M4a: machine_client.grant and revoke_grant; NX-062 M2b: the six machine access lifecycle Actions; K4b: nexloop.human_question.answer; stale action claims: nexloop.action_claim.settle; S42: nexloop.relay.backlog_settle; world-model glossary: nexloop.world_glossary.set; NX-056 budget approval: nexloop.budget.loosen) (experiments scope, with the X3 shadow copy switch and the report read and the report Action; NX-057 the three remediation Actions; NX-056 A1 approvals.decide and approvals.cancel, A5 consumer.erase_on_request, A7 approvals.solo_mode.set; NX-058 the member reset code, invitations and their revocation; NX-058 slice C change_role, suspend, resume and revoke; slice F link_external and unlink_external); SQL allows up to 128 per role,
     as nexloop_eios.workbench_roles does, so the deployed manifest configures and a 129-Action role is refused by the database itself."""
     w = workbench
-    assert len(ROLES['roles']['owner']) == 107
+    assert len(ROLES['roles']['owner']) == 108
     assert configure(w, (w['owner'], 'owner'))['members'] == 1
     forged = {**ROLES, 'manifest_version': ROLES['manifest_version'] + 1,
-              'roles': {**ROLES['roles'], 'owner': ROLES['roles']['owner'] + [f'eios:action:nexloop.synthetic_{i}.x:1' for i in range(22)]}}
+              'roles': {**ROLES['roles'], 'owner': ROLES['roles']['owner'] + [f'eios:action:nexloop.synthetic_{i}.x:1' for i in range(21)]}}
     assert len(forged['roles']['owner']) == 129
     members = {'schema_version': 'nexloop-workbench-members/1', 'tenant_id': TENANT, 'application_id': WORKBENCH_APP,
                'members': [{'principal_id': w['owner']['principal_id'], 'role': 'owner'}]}

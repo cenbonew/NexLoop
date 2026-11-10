@@ -52,6 +52,9 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-067: the SSO refusal audit accepts the group-mapping and back-channel reasons.
+    Allowed('nx067_oidc_gaps', 'control.nexloop_workbench_oidc_failed', 'the reason list gains groups_invalid, no_mapped_role and logout_token_invalid; nothing else',
+            ((r",'groups_invalid','no_mapped_role','logout_token_invalid'\)", ')'),)),
     # NX-062 (L6 records): the intent audit sets and restores the tenant itself; the note member erasure restores the prior tenant.
     Allowed('nx062_tenant_hygiene', 'runtime.nexloop_machine_intent_audit', 'the audit sets the tenant and restores the prior one; nothing else',
             ((r"declare prior text:=current_setting\('eios\.tenant_id',true\);\s*begin\s*perform set_config\('eios\.tenant_id',i\.tenant_id,true\);", 'begin'),

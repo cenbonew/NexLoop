@@ -258,9 +258,11 @@ def test_sso_is_off_without_a_provider_file(sso, admin):
 def test_identity_role_only_for_the_login_functions(sso, admin):
     login = ('control.nexloop_workbench_oidc_begin(text,text,text,text)', 'control.nexloop_workbench_oidc_take(text,text,text)',
              'control.nexloop_workbench_oidc_resolve(text,text,text,text,text)',
-             'control.nexloop_create_workbench_oidc_session(text,text,text,text,text,text,jsonb,bytea,bytea,text)',
+             # NX-067 (0446): the bounded session function and the back-channel replace the 0365 session function for the identity role.
+             'control.nexloop_create_workbench_oidc_session_bounded(text,text,text,text,text,text,jsonb,bytea,bytea,text,integer,text,jsonb)',
+             'control.nexloop_workbench_oidc_backchannel(text,text,text,text,text,timestamptz,text)',
              'control.nexloop_workbench_oidc_failed(text,text,text,text)')
-    internal = ('control.nexloop_governed_link_workbench_external(text,text,text,text,text,jsonb)',
+    internal = ('control.nexloop_create_workbench_oidc_session(text,text,text,text,text,text,jsonb,bytea,bytea,text)','control.nexloop_governed_link_workbench_external(text,text,text,text,text,jsonb)',
                 'control.nexloop_governed_unlink_workbench_external(text,text,text,text,text,jsonb)', 'control.nexloop_workbench_password_allowed(text,text)')
     can = lambda role, fn: admin.execute("select has_function_privilege(%s,%s,'execute')", (role, fn)).fetchone()[0]  # noqa: E731
     assert all(can('nexloop_identity', f) and not can('nexloop_api', f) for f in login)

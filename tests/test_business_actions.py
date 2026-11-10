@@ -57,7 +57,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.remediation.rule_release':'remediation.rule_release',
     'nexloop.workbench_member.promote_owner':'workbench_member.promote_owner','nexloop.workbench_member.demote_owner':'workbench_member.demote_owner','nexloop.workbench_member.suspend_owner':'workbench_member.suspend_owner','nexloop.workbench_member.resume_owner':'workbench_member.resume_owner','nexloop.workbench_member.revoke_owner':'workbench_member.revoke_owner',
     'nexloop.workbench_member.issue_owner_reset':'workbench_member.issue_owner_reset','nexloop.workbench_member.invite_owner':'workbench_member.invite_owner','nexloop.workbench_member.erase_member':'workbench_member.erase_member',
-    'nexloop.workbench_member.link_external':'workbench_member.link_external','nexloop.workbench_member.unlink_external':'workbench_member.unlink_external',
+    'nexloop.workbench_member.link_external':'workbench_member.link_external','nexloop.workbench_member.unlink_external':'workbench_member.unlink_external','nexloop.workbench_member.set_sso_group_mapping':'workbench_member.set_sso_group_mapping',
     'nexloop.claim_extraction.dead_letter_resolve':'claim_extraction.dead_letter_resolve',
     'nexloop.budget.loosen':'goals.budget.loosen',
     'nexloop.world_glossary.set':'world_glossary.set',

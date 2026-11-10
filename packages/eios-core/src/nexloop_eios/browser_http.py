@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 import uuid
+from datetime import datetime,timedelta,timezone
 from fastapi import APIRouter,Request
 from fastapi.responses import JSONResponse
 from eios.identity.local_accounts import LocalAccountService
@@ -421,6 +422,8 @@ def _oidc_routes(routes,config,*,cookie,services,resolver,response):
             verify_identity_role(c)
             facts=c.execute('select control.nexloop_workbench_oidc_resolve(%s,%s,%s,%s,%s)',(config.tenant_id,config.application_id,provider.provider_id,
                 provider.issuer,claims['subject'])).fetchone()[0]
+            # NX-067: the claim the provider's group mapping names (none without a mapping); SQL decides the ceiling from it.
+            group_claim=c.execute('select control.nexloop_workbench_oidc_group_claim(%s,%s)',(config.tenant_id,provider.provider_id)).fetchone()[0]
         if facts is None:return failed('not_linked')
         if facts['unavailable']:return failed('member_unavailable')
         membership=TenantMembership.model_validate_json(json.dumps(facts['membership']))  # strict model: JSON mode, as list_memberships reads it
@@ -428,18 +431,24 @@ def _oidc_routes(routes,config,*,cookie,services,resolver,response):
             tenant_id=config.tenant_id,credential_id=facts['credential_id'],credential_revision=facts['credential_revision'],
             credential_session_epoch=facts['credential_session_epoch'],provider_id=None,provider_revision=None,provider_configuration_fingerprint=None,
             restricted=facts['restricted'])
+        # NX-067: the SSO session ends at most the provider's max_session_seconds after sign-in (the IdP is asked again after that).
+        now=store.current_time()
         issued=sessions._new_session(membership,application_id=config.application_id,authentication_methods=('oidc',),identity_binding=binding_facts,
-            now=store.current_time())
+            now=now,absolute_expires_at=now+min(timedelta(seconds=provider.max_session_seconds),timedelta(days=30)))
         body=issued.session.model_dump(mode='json')
         try:
             with store.pool.connection() as c,c.transaction():
                 verify_identity_role(c)
-                created=c.execute('select control.nexloop_create_workbench_oidc_session(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,config.application_id,
+                created=c.execute('select control.nexloop_create_workbench_oidc_session_bounded(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,config.application_id,
                     provider.provider_id,provider.issuer,claims['subject'],provider.fingerprint(),Jsonb(body),
-                    issued.session.session_token_digest.get_secret_value(),issued.session.csrf_token_digest.get_secret_value(),trace)).fetchone()[0]
+                    issued.session.session_token_digest.get_secret_value(),issued.session.csrf_token_digest.get_secret_value(),trace,
+                    provider.max_session_seconds,group_claim,
+                    None if group_claim is None or group_claim not in claims['claims'] else Jsonb(claims['claims'][group_claim]))).fetchone()[0]
+            if isinstance(created,dict) and created.get('refused')=='no_mapped_role':return failed('no_mapped_role')
             if created!=body:raise ValueError()
         except Exception as error:
             if getattr(error,'sqlstate',None)=='EID03':return failed('member_unavailable')
+            if getattr(error,'sqlstate',None)=='EID04':return failed('groups_invalid')
             raise
         result=go(SSO_DONE)
         result.set_cookie(cookie,issued.session_token.get_secret_value(),secure=True,httponly=True,samesite='strict',path='/')
@@ -458,6 +467,55 @@ def _oidc_routes(routes,config,*,cookie,services,resolver,response):
         if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)
         try:return start_work(request)
         except Exception:return response('dependency_unavailable',503)
+    def backchannel_work(request,provider_id,raw):
+        # NX-067 (design 3.3): an IdP's server posts a logout token. No cookie, CSRF or Origin: the token's signature is the only
+        # authentication. Only a provider that enabled backchannel_logout has the endpoint. 200 for every valid token (linked or not);
+        # 400 invalid_request for anything else, the reason in the audit only; 429 by the oidc_start policy under its own key prefix.
+        from urllib.parse import parse_qs
+        from nexloop_eios.browser_identity import verify_identity_role
+        trace=str(uuid.uuid4())
+        client=client_for(request)
+        provider=None if client is None else client.providers.get(provider_id)
+        if provider is None or not provider.backchannel_logout:return response('not_found',404)
+        store,op,sessions=services(request)
+        refused=limited(request,store,op,'backchannel-ip:')
+        if refused is not None:return refused
+        key=W.load_key(config.identity_token_key_file)
+        def invalid():
+            try:
+                with store.pool.connection() as c,c.transaction():
+                    verify_identity_role(c)
+                    c.execute('select control.nexloop_workbench_oidc_failed(%s,%s,%s,%s)',(config.tenant_id,provider.provider_id,'logout_token_invalid',trace))
+            except Exception as failure:
+                log.warning('sso failure audit unavailable %s',{'reason':type(failure).__name__})
+            return JSONResponse({'error':'invalid_request'},status_code=400,headers={'Cache-Control':'no-store'})
+        try:
+            form=parse_qs(raw.decode('ascii'),strict_parsing=True,max_num_fields=4)
+        except Exception:return invalid()
+        if set(form)!={'logout_token'} or len(form['logout_token'])!=1:return invalid()
+        try:claims=O.verify_logout_token(form['logout_token'][0],provider=provider,keys=client.keys(provider),now=client.clock())
+        except O.OidcFailure:return invalid()
+        expires=datetime.fromtimestamp(claims['issued_at']+O.LOGOUT_TOKEN_MAX_AGE+O.LEEWAY,tz=timezone.utc)
+        with store.pool.connection() as c,c.transaction():
+            verify_identity_role(c)
+            outcome=c.execute('select control.nexloop_workbench_oidc_backchannel(%s,%s,%s,%s,%s,%s,%s)',(config.tenant_id,provider.provider_id,provider.issuer,
+                claims['subject'],W.digest(key,O.LOGOUT_JTI,config.tenant_id,provider.provider_id+':'+claims['jti']),expires,trace)).fetchone()[0]
+        if outcome=='replayed':return invalid()
+        return JSONResponse({},status_code=200,headers={'Cache-Control':'no-store'})
+    @routes.post('/oidc/backchannel/{provider_id}')
+    async def oidc_backchannel(provider_id:str,request:Request):
+        if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)
+        if request.headers.get('content-type','').split(';')[0].strip()!='application/x-www-form-urlencoded':
+            return JSONResponse({'error':'invalid_request'},status_code=400,headers={'Cache-Control':'no-store'})
+        raw=b''
+        async for chunk in request.stream():
+            raw+=chunk
+            if len(raw)>16384:return JSONResponse({'error':'invalid_request'},status_code=400,headers={'Cache-Control':'no-store'})
+        from starlette.concurrency import run_in_threadpool
+        try:return await run_in_threadpool(backchannel_work,request,provider_id,raw)
+        except Exception as failure:
+            log.warning('sso back-channel unavailable %s',{'reason':type(failure).__name__})
+            return response('dependency_unavailable',503)
     @routes.get('/oidc/callback')
     def oidc_callback(request:Request):
         if request.headers.get('host')!=urlsplit(config.origin).netloc:return response('forbidden',403)
