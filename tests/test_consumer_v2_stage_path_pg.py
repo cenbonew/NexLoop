@@ -37,6 +37,11 @@ def owner_publishes_consumer_v2(st, admin):
         return SchemaPublicationPort(api._pool, human, api._signer).publish(pid, rationale='顾客常提送货时间', idempotency_key='stage-path-consumer-v2-' + str(uuid.uuid4()))
 
 
+def grant_keys(admin):
+    return {tuple(k) for (k,) in admin.execute("""select entity_key from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants'
+        and (payload->'grants') is distinct from '[]'::jsonb""", (TENANT,)).fetchall()}
+
+
 def register(st, *, dry_run, principals_path=S.PRINCIPALS):
     from configurator_window import configurator_window
     expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
@@ -60,8 +65,17 @@ def test_after_the_owners_publication_and_register_the_existing_customer_is_serv
     diff = json.dumps([{'type': 'Consumer', 'from': 1, 'to': 2}])
     assert derived == [('relay_planner', BIND2, diff), ('role_planner', BIND2, diff)] and preview['refused'] == []
     assert all(f"(schema publication {published['publication_id']})" in d['purpose'] for d in preview['derived'] if 'bind_effect_context' in d['resource_id'])
+    grants_before = grant_keys(admin)
     applied = register(st, dry_run=False)
-    assert applied['grants_added'] >= 2
+    # R76 step 9 (L6 C3): nothing revoked, no credential created, no grant outside the manifest, and the grants added are exactly the
+    # derived :2 grants - the three of this run sheet (registrar x2, business_owner Consumer.create) plus claim_matcher -> Consumer.edit:2,
+    # which stage already holds since R74 step 4 (so on stage grants_added is 3).
+    assert (applied['grants_revoked'], applied['credentials_created'], applied['extra_grants_outside_manifest']) == (0, [], 0), applied
+    assert applied['grants_added'] == len(added := grant_keys(admin) - grants_before) == 4, (applied, added)
+    manifest, _ = S.merged_manifest()
+    roles = {p['principal_id']: p['role'] for p in manifest['principals']}
+    assert sorted((roles[k[0]], k[1]) for k in added) == [('business_owner', 'eios:action:Consumer.create:2'), ('claim_matcher', 'eios:action:Consumer.edit:2'),
+                                                          ('relay_planner', BIND2), ('role_planner', BIND2)]
     holders = sorted(k[0] for (k,) in admin.execute("select entity_key from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[2]=%s",
                                                      (TENANT, BIND2)).fetchall())
     manifest, _ = S.merged_manifest()
