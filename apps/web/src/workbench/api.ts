@@ -485,6 +485,25 @@ export function me(value:unknown):Me{
 }
 export const readMe=()=>get('/api/v1/workbench/me',me);
 
+// ---- NX-062 M5c: object notes (unverified statements; plain text, never a fact or evidence) ----
+export type NoteObjectType='Commitment'|'CommercialRecord';
+export type ObjectNote={note_id:string;author_kind:'human'|'machine';client_id:string|null;author_principal_id:string|null;text:string;erased:boolean;created_at:string};
+export const NOTE_INPUT_HINT='不要写入姓名、电话等个人信息；备注是未核实陈述，不会写进对象，也不作为证据。';
+function objectNote(value:unknown):ObjectNote{
+  const v=object(value);
+  if(v.author_kind!=='human'&&v.author_kind!=='machine')throw new WorkbenchError('invalid');
+  return {note_id:text(v.note_id),author_kind:v.author_kind,client_id:v.client_id==null?null:text(v.client_id),
+    author_principal_id:v.author_principal_id==null?null:text(v.author_principal_id),text:text(v.text),erased:v.erased===true,created_at:text(v.created_at)};
+}
+export function objectNotes(value:unknown):ObjectNote[]{return list(object(value).notes).map(objectNote);}
+/** Who wrote it, always marked as an unverified statement (L6 V-1). */
+export function noteAuthorText(note:ObjectNote):string{
+  if(note.erased)return '已擦除的备注';
+  return note.author_kind==='machine'?`机器客户端 ${note.client_id??'未知'} 的备注 · 未核实陈述`:'成员的备注 · 未核实陈述';
+}
+export const readObjectNotes=(type:NoteObjectType,objectId:string)=>
+  get(`/api/v1/workbench/objects/${encodeURIComponent(type)}/${encodeURIComponent(objectId)}/notes`,objectNotes);
+
 // ---- takeovers in effect (slice 3, 0126/0160) ----
 export type Takeover={takeover_id:string;scope_kind:'conversation'|'consumer';scope_ref:string;consumer_id:string;taken_by:string;mine:boolean;reason:string;started_at:string;expires_at:string};
 export type Takeovers={takeovers:Takeover[];policy:{default_seconds:number;max_seconds:number}};
@@ -518,6 +537,8 @@ export const OPERATION_ACTION={
   silence_alert:'eios:action:nexloop.alert.silence:1',
   // 0220: owner only; the real dispatch switches (tenant and Action layers).
   set_real_dispatch:'eios:action:nexloop.real_dispatch.set:1',
+  // NX-062 M5c: owner and operator; an unverified note on a visible Commitment or CommercialRecord.
+  object_note_add:'eios:action:nexloop.object.add_note:1',
   // 0227/0228: operator persona and communication preferences (owner only).
   publish_operator_persona:'eios:action:nexloop.operator_persona.publish:1',assign_operator_persona:'eios:action:nexloop.operator_persona.assign:1',
   publish_persona_rules:'eios:action:nexloop.operator_persona.rules_publish:1',set_ai_disclosure:'eios:action:nexloop.ai_disclosure.set:1',

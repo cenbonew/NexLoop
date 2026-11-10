@@ -57,6 +57,33 @@ def publish_rate_policy(path, *, database_url_file):
         return db.execute('select control.nexloop_publish_machine_rate_policy(%s::jsonb)', (json.dumps(policy, sort_keys=True),)).fetchone()[0]
 
 
+# ---- NX-062 M5c: the machine note caps (W3) ----------------------------------------------------------------------------------------
+NOTE_SCHEMA = 'nexloop-machine-note-limits/1'
+NOTE_KEYS = {'schema_version', 'manifest_version', 'notes_per_client_per_day', 'notes_per_object_per_day'}
+
+
+def validate_note_limits(value):
+    """deploy/configuration/machine-note-limits.v<N>.json; the same rules as control.nexloop_publish_machine_note_limits."""
+    if type(value) is not dict or set(value) != NOTE_KEYS or value['schema_version'] != NOTE_SCHEMA:
+        raise RatePolicyRejected('shape')
+    for name, high in (('manifest_version', 10 ** 6), ('notes_per_client_per_day', 100000), ('notes_per_object_per_day', 10000)):
+        if type(value[name]) is not int or not 1 <= value[name] <= high:
+            raise RatePolicyRejected(name)
+    return value
+
+
+def publish_note_limits(path, *, database_url_file):
+    import json
+    from pathlib import Path
+
+    import psycopg
+
+    from nexloop_eios.private_configuration import read_private_text
+    policy = validate_note_limits(json.loads(Path(path).read_text(encoding='utf-8')))
+    with psycopg.connect(read_private_text(database_url_file, maximum=16384), autocommit=True) as db:
+        return db.execute('select control.nexloop_publish_machine_note_limits(%s::jsonb)', (json.dumps(policy, sort_keys=True),)).fetchone()[0]
+
+
 def main(argv=None):
     import argparse
     import json
@@ -66,9 +93,13 @@ def main(argv=None):
     pub = sub.add_parser('publish-rate-policy', help='NX-062 M3: publish deploy/configuration/machine-rate-limits.v<N>.json (configurator DSN file)')
     pub.add_argument('--policy', type=Path, required=True)
     pub.add_argument('--database-url-file', type=Path, required=True)
+    notes = sub.add_parser('publish-note-limits', help='NX-062 M5c: publish deploy/configuration/machine-note-limits.v<N>.json (configurator DSN file)')
+    notes.add_argument('--policy', type=Path, required=True)
+    notes.add_argument('--database-url-file', type=Path, required=True)
     a = p.parse_args(argv)
+    publish = publish_note_limits if a.command == 'publish-note-limits' else publish_rate_policy
     try:
-        print(json.dumps(publish_rate_policy(a.policy, database_url_file=a.database_url_file)))
+        print(json.dumps(publish(a.policy, database_url_file=a.database_url_file)))
     except (RatePolicyRejected, ValueError, OSError):
         print(json.dumps({'error': 'policy_rejected_or_unavailable'}))
         return 1

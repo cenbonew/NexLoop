@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-prepare",
+  "title": "machine-prepare",
+  "description": "NX-062 M5c (design §4, C5, C6): the answer of POST /machine/v1/prepare - the intent's prepare digest (binding tenant, client, world, capability, intent and the normalized parameters, computed in SQL), its expiry (10 minutes) and the normalized parameters for the client to show before it confirms. The server stores the digests only, never the parameters. replayed: the same intent and parameters were prepared already and are still unexpired. NexLoop target contract; server-derived identity required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent_id",
+    "prepare_digest",
+    "expires_at",
+    "normalized",
+    "replayed"
+  ],
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+    },
+    "prepare_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "normalized": {
+      "type": "object",
+      "maxProperties": 16
+    },
+    "replayed": {
+      "type": "boolean"
+    }
+  }
+}

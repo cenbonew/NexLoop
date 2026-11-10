@@ -231,7 +231,9 @@ def test_until_m5_a_machine_key_reaches_no_governed_entry_and_holds_no_fact(desk
     from pathlib import Path
     inventory = json.loads((Path(__file__).resolve().parents[1] / 'deploy/authorization/api-routes.v1.json').read_text())
     # M4a adds POST /machine/v1/read: it answers only what a grant (authz.nexloop_machine_client_grants, ADR-041 A1) opens - none here.
-    assert {(r['method'], r['path']) for r in inventory['routes'] if r['realm'] == 'machine_key'} <= {('GET', '/machine/v1/capabilities'), ('POST', '/machine/v1/read')}
+    # M5c adds the write routes: they reach only an allowlisted write the client is granted (none here) through prepare and commit.
+    assert {(r['method'], r['path']) for r in inventory['routes'] if r['realm'] == 'machine_key'} <= {('GET', '/machine/v1/capabilities'), ('POST', '/machine/v1/read'),
+        ('POST', '/machine/v1/prepare'), ('POST', '/machine/v1/commit'), ('GET', '/machine/v1/intents/{intent_id}')}
     assert admin.execute('select count(*) from authz.nexloop_machine_client_grants').fetchone()[0] == 0
     rows = admin.execute("""select p.oid::regprocedure::text,p.oid::regproc::text,array(select format_type(t,null) from unnest(p.proargtypes) t)
         from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('authz','control','runtime')

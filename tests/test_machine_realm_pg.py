@@ -133,8 +133,8 @@ def test_g5_credential_matrix_machine_realm_is_exclusive(realm):
             cells[(r['path'], 'consumer_cookie')] = send(client, r)
     assert len(cells) == len(machine) * len(KINDS) and set(k for _, k in cells) == set(KINDS)
     for r in machine:
-        # The live key passes authentication: 200, or the read's own answer for an ungranted verb or absent object (403/404).
-        assert cells[(r['path'], 'machine_key')] in ((200,) if r['method'] == 'GET' else (200, 403, 404)), (r['path'], cells[(r['path'], 'machine_key')])
+        # The live key passes authentication: 200, or the route's own answer for an ungranted capability or absent object or intent (403/404).
+        assert cells[(r['path'], 'machine_key')] in ((200,) if r['path'] == '/machine/v1/capabilities' else (200, 403, 404)), (r['path'], cells[(r['path'], 'machine_key')])
         assert cells[(r['path'], 'none')] == 401, r['path']
         assert cells[(r['path'], 'workbench_cookie')] == 401, r['path']
         assert cells[(r['path'], 'consumer_cookie')] == 401, r['path']

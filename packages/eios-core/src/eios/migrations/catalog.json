@@ -2205,6 +2205,21 @@
       "version": "0441",
       "name": "0441_nx062_machine_authority.sql",
       "sha256": "1c7e864495d7112035e8473b64f0c723850577b2193181997567bddbecc15a95"
+    },
+    {
+      "version": "0442",
+      "name": "0442_nx062_machine_writes.sql",
+      "sha256": "9184e995a97bf5ae05e2db26c46e8cf59c6f81406296f49d45ad18e99ed391e6"
+    },
+    {
+      "version": "0443",
+      "name": "0443_nx062_object_notes.sql",
+      "sha256": "febf197456a6627f0449b20f6882d96bbb6cc158ea75dab6975790aac7300c01"
+    },
+    {
+      "version": "0444",
+      "name": "0444_nx062_tenant_hygiene.sql",
+      "sha256": "7e1c6e08d0edc8b015754d4a840c5cf0fe050a7be63a2e8760609dbe0224cac0"
     }
   ]
 }
