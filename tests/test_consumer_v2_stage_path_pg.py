@@ -1,13 +1,16 @@
 """P0 2026-11-10 (L6 P4 on A'): the stage path with no simulated step. The NX-032 assembly (bootstrap, stage_secrets register, browser,
 system catalog, business/catalog/enterprise setup, relay enrollment) then the owner's real Schema publication of Consumer v2 through
 SchemaPublicationPort (the owner's workbench browser session, which holds ontology.schema.review; F3 authz.nexloop_schema_proposal_publish
-moves the Consumer to v2 and publishes every successor), then stage_secrets register again: its dry run derives exactly the registrar
-successor grants (relay_planner and role_planner -> nexloop.plan.bind_effect_context:2, scope Consumer 1 -> 2) and its apply writes them.
+moves the Consumer to v2 and publishes every successor), then stage_secrets register again: its dry run derives the registrar
+successor grants (relay_planner and role_planner -> nexloop.plan.bind_effect_context:2, scope Consumer 1 -> 2) and, by Q5' (owner
+2026-11-10), business_owner -> Consumer.create:2, and its apply writes them.
 The existing customer's next message then passes the real message relay worker (issue, effect_bind with the registrar :2, context,
 runtime accept: queued), where stage failed with 'registrar schema scope unavailable'. The proposal and its release permit are seeded as
 tests/test_nx040_* seed them (F2/F4 are not this path); everything after is production code. Synthetic data."""
 import json
 import uuid
+
+import pytest
 from datetime import UTC, datetime, timedelta
 
 from test_stage_secrets import S  # noqa: F401  (puts scripts/deploy on sys.path)
@@ -34,11 +37,12 @@ def owner_publishes_consumer_v2(st, admin):
         return SchemaPublicationPort(api._pool, human, api._signer).publish(pid, rationale='顾客常提送货时间', idempotency_key='stage-path-consumer-v2-' + str(uuid.uuid4()))
 
 
-def register(st, *, dry_run):
+def register(st, *, dry_run, principals_path=S.PRINCIPALS):
     from configurator_window import configurator_window
     expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
     with configurator_window(st.bootstrap_dsn) as dsn:
-        return S.register(st.out, tenant=TENANT, database_url_file=dsn, signing_key_id='stage-1', credential_expires_at=expires, dry_run=dry_run)
+        return S.register(st.out, tenant=TENANT, database_url_file=dsn, signing_key_id='stage-1', credential_expires_at=expires, dry_run=dry_run,
+                          principals_path=principals_path)
 
 
 def test_after_the_owners_publication_and_register_the_existing_customer_is_served(assembled, admin, capsys):  # noqa: F811
@@ -73,19 +77,67 @@ def test_after_the_owners_publication_and_register_the_existing_customer_is_serv
         where tenant_id=%s and action_name='nexloop.plan.bind_effect_context'""", (TENANT,)).fetchall()}) == ['2']
 
 
-def test_a_new_customer_after_the_publication_is_refused_until_the_business_owner_follows_consumer_create(assembled, admin):  # noqa: F811
-    """L6 Q6 on the stage path: business_owner holds Consumer.create:1 only, and L6 Q5 lets only the registrar's Actions follow, so after
-    the publication a new customer is refused - no Consumer at v1 (no version inversion), no half setup. R76 step 7 (the new customer)
-    needs the owner's decision first: a follow declaration on business_owner -> Consumer.create:1, or an explicit grant of :2."""
-    st = assembled
-    owner_workbench(st, admin)
-    owner_publishes_consumer_v2(st, admin)
-    register(st, dry_run=False)
+CREATE2 = 'eios:action:Consumer.create:2'
+
+
+def second_customer(st):
     from test_assembly_dryrun_pg import create_human
     human = create_human(st, username='dryrun-second', label='second')
     business = A.private(st.root, 'business-recipe-2.json', json.dumps(A.filled('business-recipe.example.json', NEW_UUID=A.new_uuid(),
                          CONSUMER_PRINCIPAL_ID=human, TRIAL_PERIOD_END_UTC_ISO=A.end_of_trial())))
-    code, out, err = A.run_tool('nexloop_eios.business_setup', [*st.backend_args(), '--owner-credential-file', str(st.setup_file('business-owner-credential')),
-                                '--executor-credential-file', str(st.setup_file('business-executor-credential')), '--recipe-file', str(business)])
+    return A.run_tool('nexloop_eios.business_setup', [*st.backend_args(), '--owner-credential-file', str(st.setup_file('business-owner-credential')),
+                      '--executor-credential-file', str(st.setup_file('business-executor-credential')), '--recipe-file', str(business)])
+
+
+def consumer_versions(admin):
+    return admin.execute("select schema_version,count(*) from ontology.objects where tenant_id=%s and type_name='Consumer' group by 1 order by 1",
+                         (TENANT,)).fetchall()
+
+
+def create2_holders(admin):
+    return admin.execute("select count(*) from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='grants' and entity_key[2]=%s",
+                         (TENANT, CREATE2)).fetchone()[0]
+
+
+def test_a_new_customer_after_the_publication_is_written_at_v2_through_the_followed_consumer_create(assembled, admin):  # noqa: F811
+    """Q5' (owner 2026-11-10 "按推荐"): business_owner -> Consumer.create:1 declares follow_latest_version; after the owner's publication
+    the dry run derives business_owner -> Consumer.create:2 (scope Consumer 1 -> 2, the publication named), register writes it, and the
+    next business setup creates the new customer at v2 (L6 Q6: never v1)."""
+    st = assembled
+    owner_workbench(st, admin)
+    published = owner_publishes_consumer_v2(st, admin)
+    assert CREATE2 in published['successor_actions']
+    preview = register(st, dry_run=True)['follow_latest']
+    create = [(d['principal'], d['scope_diff'], d['purpose']) for d in preview['derived'] if d['resource_id'] == CREATE2]
+    assert create == [('business_owner', [{'type': 'Consumer', 'from': 1, 'to': 2}],
+                       f"follow_latest_version of eios:action:Consumer.create:1 (schema publication {published['publication_id']})")]
+    assert preview['refused'] == []
+    register(st, dry_run=False)
+    assert create2_holders(admin) == 1
+    code, out, err = second_customer(st)
+    assert code == 0, out + err
+    assert consumer_versions(admin) == [(2, 2)]
+
+
+def test_without_the_create_follow_a_new_customer_is_refused_and_nothing_half_done(assembled, admin, tmp_path, monkeypatch):  # noqa: F811
+    """Reverse control: with Consumer.create taken off the FOLLOWABLE list the declaration itself is refused before anything is written;
+    with the declaration also removed register derives no Consumer.create:2, and the new customer is refused - no Consumer at v1 (no
+    version inversion), no half setup."""
+    st = assembled
+    owner_workbench(st, admin)
+    owner_publishes_consumer_v2(st, admin)
+    monkeypatch.setattr(S, 'FOLLOWABLE', S.FOLLOWABLE - {'eios:action:Consumer.create:1'})
+    with pytest.raises(S.Refused, match='follow_latest_version outside the listed Actions'):
+        register(st, dry_run=False)
+    assert create2_holders(admin) == 0
+    stage = json.loads(S.PRINCIPALS.read_text())
+    for g in stage['grants']:
+        if g['resource_id'] == 'eios:action:Consumer.create:1':
+            del g['follow_latest_version']
+    principals = tmp_path / 'stage-principals.json'
+    principals.write_text(json.dumps(stage))
+    register(st, dry_run=False, principals_path=principals)
+    assert create2_holders(admin) == 0
+    code, out, err = second_customer(st)
     assert code != 0 and 'Business setup unavailable' in out + err
-    assert admin.execute("select schema_version,count(*) from ontology.objects where tenant_id=%s and type_name='Consumer' group by 1", (TENANT,)).fetchall() == [(2, 1)]
+    assert consumer_versions(admin) == [(2, 1)]

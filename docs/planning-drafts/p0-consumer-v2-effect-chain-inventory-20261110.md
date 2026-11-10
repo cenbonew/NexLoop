@@ -254,4 +254,5 @@ select v1.version as v1, v2.version as v2,
   - 旧顾客的下一条消息经真实 message-relay worker 处理，结果 `queued`，registrar claim 的版本为 2。
 - **反向对照**：把 registrar 选版强制为 `:1`（即修复前），同一测试失败，原因为 `EffectContextUnavailable`、stage 为 `before_context`，与 stage 现象一致。
 - **发现**：发布后用 business_owner 新建顾客会被拒。它只有 `Consumer.create:1`，Q5 不允许它跟随，Q6 也不回落到 v1；同一文件的第二个测试固定了这一现状。R76 第 7 步“新建顾客”这一条，要等负责人决定（加 follow 声明，或显式授予 `:2`）后才能做。
+- **决定与实现（Q5′，负责人 2026-11-10 “按推荐”）**：business_owner → `Consumer.create:1` 声明 follow；FOLLOWABLE 逐条 3 条；create 后继的 scope 只允许该类型版本变化（`create_scope_other_type`）。stage 路径测试改为：发布后 dry-run 派生 `Consumer.create:2`，register 后新顾客为 v2；反向对照（白名单去掉 create 时 register 被拒且不写授权；去掉声明后新顾客被拒、无半成品）。待 L6 复审。
 - **未覆盖**：效应 intent（Host 和模型那一段）没有在 stage 夹具里跑；intent 的 A′ 证明由 `tests/test_effect_scope_successor_proof_pg.py` 的真实 relay 和 guard 链覆盖。

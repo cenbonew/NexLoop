@@ -638,8 +638,11 @@ def summary(manifest):
 
 # ---- phase B: registration (trusted configuration, configurator role only) ---------------------------------------------------
 STAGE_SCHEMA = 'nexloop-stage-principals/1'
-# The stage grants that may follow successor versions (L6 Q5): the effect context registrar's two Actions only.
-FOLLOWABLE = re.compile(r'eios:action:(nexloop\.plan\.bind_effect_context|nexloop\.effect\.configure_control):1')
+# The stage grants that may follow successor versions, listed one by one: the effect context registrar's two Actions (L6 Q5) and
+# business_owner's Consumer.create (Q5', owner 2026-11-10 "按推荐"): a create follows only a successor whose definition equals :1
+# without versions and whose scope moves only the version of the type it creates (service_grants.resolve_follow). No other Action.
+FOLLOWABLE = frozenset({'eios:action:nexloop.plan.bind_effect_context:1', 'eios:action:nexloop.effect.configure_control:1',
+                        'eios:action:Consumer.create:1'})
 # Resource type -> operations a stage principal may hold (the service grants manifest allows action execute and object_type read
 # only; the Run holders and the effect executor also need what ADR-020 §3 keeps out of that manifest).
 STAGE_ALLOWED = {'action': {'execute'}, 'object_type': {'read'}, 'artifact': {'create', 'read', 'delete'}}
@@ -679,9 +682,9 @@ def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
     for g in stage['grants']:
         if set(g) - {G.FOLLOW} != G.GRANT or g['principal'] not in roles:
             raise Refused('stage grant shape or principal: ' + str(g.get('principal')))
-        # L6 Q5 (P0 2026-11-10): follow_latest_version only on the registrar Actions, declared grant by grant.
-        if G.FOLLOW in g and (g[G.FOLLOW] is not True or g['resource_type'] != 'action' or not FOLLOWABLE.fullmatch(g['resource_id'])):
-            raise Refused(f"stage follow_latest_version outside the registrar Actions: {g['principal']} {g['resource_id']}")
+        # L6 Q5/Q5' (P0 2026-11-10): follow_latest_version only on the listed Actions, declared grant by grant.
+        if G.FOLLOW in g and (g[G.FOLLOW] is not True or g['resource_type'] != 'action' or g['resource_id'] not in FOLLOWABLE):
+            raise Refused(f"stage follow_latest_version outside the listed Actions: {g['principal']} {g['resource_id']}")
         if g['resource_type'] not in STAGE_ALLOWED or not set(g['operations']) <= STAGE_ALLOWED[g['resource_type']] or not g['operations']:
             raise Refused(f"stage grant resource type or operation: {g['principal']} {g['resource_id']}")
         effect = any(m in g['resource_id'] for m in G.FORBIDDEN_MARKERS)
