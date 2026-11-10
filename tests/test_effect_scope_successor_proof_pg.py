@@ -50,21 +50,7 @@ def publish_v2(f, admin, *, v2=None, follow=True, edit_successor=None, objects=T
     insert_active_actions(admin, tenant, rows)
     published['successors'] = [f"eios:action:{r['definition']['stable_name']}:{r['definition']['version']}" for r in rows]
     if follow:  # register's follow_latest_version: the planner's registrar authority facts follow to :2 (digests recomputed)
-        for kind, key, payload in admin.execute("select fact_kind,entity_key,payload from authz.nexloop_authority_facts where tenant_id=%s and %s=any(entity_key)",
-                                                (tenant, BIND1)).fetchall():
-            body = json.loads(json.dumps(payload).replace(BIND1, BIND2))
-            body.pop('snapshot_digest', None)
-            fact = MODELS[kind].model_validate_json(json.dumps(body))
-            admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',
-                          (tenant, kind, [BIND2 if k == BIND1 else k for k in key], Jsonb(fact.model_dump(mode='json'))))
-        # The caller application's resource restrictions also name :1; :2 is added beside it (restriction digests recomputed).
-        for kind, key, payload in admin.execute("""select fact_kind,entity_key,payload from authz.nexloop_authority_facts
-                where tenant_id=%s and not (%s=any(entity_key)) and payload::text like %s""", (tenant, BIND1, '%' + BIND1 + '%')).fetchall():
-            body = beside(payload)
-            body.pop('snapshot_digest', None)
-            fact = MODELS[kind].model_validate_json(json.dumps(body))
-            admin.execute('update authz.nexloop_authority_facts set payload=%s where tenant_id=%s and fact_kind=%s and entity_key=%s',
-                          (Jsonb(fact.model_dump(mode='json')), tenant, kind, key))
+        follow_facts(admin, tenant, BIND1, BIND2)
     reauthenticate(f)
     if objects:
         admin.execute("update ontology.objects set schema_version=2 where tenant_id=%s and world='real' and type_name='Consumer' and schema_version=1", (tenant,))
@@ -78,18 +64,37 @@ def publish_v2(f, admin, *, v2=None, follow=True, edit_successor=None, objects=T
     return published
 
 
-def beside(value):
-    """Each list entry naming the registrar :1 gets a copy naming :2 next to it (its own digest dropped, recomputed on validation)."""
+def beside(value, old, new):
+    """Each list entry naming `old` gets a copy naming `new` next to it (its own digest dropped, recomputed on validation)."""
     if isinstance(value, dict):
-        return {k: beside(v) for k, v in value.items()}
+        return {k: beside(v, old, new) for k, v in value.items()}
     if isinstance(value, list):
         out = []
         for item in value:
-            out.append(beside(item))
-            if isinstance(item, dict) and BIND1 in item.values():
-                out.append({k: (BIND2 if v == BIND1 else v) for k, v in item.items() if k != 'restriction_digest'})
+            out.append(beside(item, old, new))
+            if isinstance(item, dict) and old in item.values():
+                out.append({k: (new if v == old else v) for k, v in item.items() if k != 'restriction_digest'})
         return out
     return value
+
+
+def follow_facts(admin, tenant, old, new):
+    """What register's follow_latest_version derives, at the fact level: every authority fact keyed by `old` copied for `new`, and
+    the caller application's resource restrictions naming `new` beside `old` (snapshot and restriction digests recomputed)."""
+    for kind, key, payload in admin.execute("select fact_kind,entity_key,payload from authz.nexloop_authority_facts where tenant_id=%s and %s=any(entity_key)",
+                                            (tenant, old)).fetchall():
+        body = json.loads(json.dumps(payload).replace(old, new))
+        body.pop('snapshot_digest', None)
+        fact = MODELS[kind].model_validate_json(json.dumps(body))
+        admin.execute('insert into authz.nexloop_authority_facts(tenant_id,fact_kind,entity_key,payload) values(%s,%s,%s,%s)',
+                      (tenant, kind, [new if k == old else k for k in key], Jsonb(fact.model_dump(mode='json'))))
+    for kind, key, payload in admin.execute("""select fact_kind,entity_key,payload from authz.nexloop_authority_facts
+            where tenant_id=%s and not (%s=any(entity_key)) and payload::text like %s""", (tenant, old, '%' + old + '%')).fetchall():
+        body = beside(payload, old, new)
+        body.pop('snapshot_digest', None)
+        fact = MODELS[kind].model_validate_json(json.dumps(body))
+        admin.execute('update authz.nexloop_authority_facts set payload=%s where tenant_id=%s and fact_kind=%s and entity_key=%s',
+                      (Jsonb(fact.model_dump(mode='json')), tenant, kind, key))
 
 
 def reauthenticate(f):

@@ -19,6 +19,7 @@ import uuid
 
 from nexloop_eios.plan_reevaluation import _SignedPort
 from nexloop_eios.postgres_artifacts import canonical_payload
+from nexloop_eios.create_versions import create_current
 
 FALLBACK_ACTION='eios:action:nexloop.reply.fallback:1'
 EFFECT='eios:action:nexloop.service.request:1'
@@ -62,7 +63,7 @@ class FallbackReplyLauncher:
     def _create(self,planner,type_name,message_id,properties,recipe=None):
         recipe=self.recipe if recipe is None else recipe
         intent='reply-fallback-'+hashlib.sha256(canonical_payload([message_id,type_name,recipe]).encode()).hexdigest()
-        return planner.create_object(action_name=type_name+'.create',action_version=1,intent_id=intent,type_name=type_name,properties=properties)['object_id']
+        return create_current(planner,intent_id=intent,type_name=type_name,properties=properties)['object_id']
 
     def start(self,*,message_id,state):
         from nexloop_eios.context_artifacts import FallbackContextV6Producer

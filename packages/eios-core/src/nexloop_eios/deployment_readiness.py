@@ -3,14 +3,18 @@
 Ready means: PostgreSQL reachable as the service's own restricted role; the applied migration list equals this release's
 catalog exactly; no restore in progress (NX-035: restored or replayed is not ready; verified_readonly is ready for reads and
 inbound only, reported as mode read_only); no deletion replay open (NX-029); and the real-dispatch master switch
-(REAL_DISPATCH_ENABLED) is a valid value and closed while the restore keeps dispatch closed. The body also reports how many
+(REAL_DISPATCH_ENABLED) is a valid value and closed while the restore keeps dispatch closed; and (P0 2026-11-10) every type's latest
+published version has an active create Action (schema_create_uncovered otherwise, logged as an error). The body also reports how many
 tenants and tenant Actions have real dispatch open (0153), as counts only. A service adds its own checks
 (the API: signer and Artifact directory) as extra (code, passed) pairs.
 """
+import logging
+
 from eios.adapters.postgres.migrations import MigrationDrift
 
 REASONS = ('database_unavailable', 'database_role_invalid', 'migration_drift', 'restore_in_progress', 'deletion_replay_open',
-           'dispatch_switch_invalid', 'dispatch_switch_open_during_restore', 'signer_unavailable', 'artifact_directory_unavailable')
+           'dispatch_switch_invalid', 'dispatch_switch_open_during_restore', 'signer_unavailable', 'artifact_directory_unavailable',
+           'schema_create_uncovered')
 
 
 def dispatch_switch(environ):
@@ -46,10 +50,15 @@ def evaluate(connection_factory, *, environ, extra=()):
             facts = connection.execute('select authz.nexloop_service_readiness()').fetchone()[0]
             # 0153: the real dispatch switches, as counts only (reported, never a readiness condition).
             real = connection.execute('select authz.nexloop_real_dispatch_summary()').fetchone()[0]
+            # P0 2026-11-10 (L6 Q6): a type whose latest published version no active create Action covers.
+            coverage = connection.execute('select authz.nexloop_schema_create_coverage()').fetchone()[0]
     except Exception:
         if not set(reasons) & {'database_role_invalid', 'migration_drift'}:
             reasons.append('database_unavailable')
-        facts = real = None
+        facts = real = coverage = None
+    if coverage is not None and coverage.get('uncovered') != 0:
+        reasons.append('schema_create_uncovered')
+        logging.getLogger('nexloop.readiness').error('schema create coverage failed %s', {'uncovered': coverage.get('uncovered')})
     if facts is not None:
         restore = facts.get('restore') or {}
         if restore.get('ready') is not True:

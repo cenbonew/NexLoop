@@ -382,3 +382,57 @@ end $$;
 alter function authz.nexloop_effect_registrar_version(text,text,text,jsonb) owner to nexloop_owner;
 revoke all on function authz.nexloop_effect_registrar_version(text,text,text,jsonb) from public;
 grant execute on function authz.nexloop_effect_registrar_version(text,text,text,jsonb) to nexloop_api,nexloop_domain_worker;
+
+-- 4. The create Action version for a new object (L6 Q6): new objects are written at the type's latest published version (rows of
+--    ontology.object_type_versions are published versions only: F3 and the trusted configuration write them, a proposal never), by
+--    the active `<Type>.create` whose scope holds exactly that version and that the calling session holds a live execute grant on.
+--    Neither: raised - never an older version (no new object a governed Action cannot edit, no version inversion).
+create function authz.nexloop_create_action_version(p_digest text,p_world text,p_type text) returns integer
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare ident jsonb:=authz.nexloop_service_identity_snapshot(p_digest,p_world);v_tenant text:=ident->'binding'->>'tenant_id';
+ v_principal text:=ident->'binding'->>'subject_principal_id';latest integer;v integer;v_now timestamptz:=clock_timestamp();
+begin
+ if session_user not in ('nexloop_api','nexloop_domain_worker') or p_type !~ '^[A-Za-z][A-Za-z0-9_]{0,63}$' then
+  raise exception 'create version unavailable' using errcode='42501';end if;
+ perform set_config('eios.tenant_id',v_tenant,true);
+ select max(version) into latest from ontology.object_type_versions where tenant_id=v_tenant and type_name=p_type;
+ if latest is null then raise exception 'object type unavailable' using errcode='42501';end if;
+ select (d.definition->>'version')::integer into v from control.nexloop_action_definitions d
+  where d.tenant_id=v_tenant and d.world=p_world and d.active and d.definition->>'stable_name'=p_type||'.create'
+   and exists(select 1 from jsonb_array_elements(d.definition->'governance'->'change_scope'->'object_types') t
+    where t->>'tenant_id'=v_tenant and t->>'stable_name'=p_type and (t->>'version')::integer=latest)
+   and exists(select 1 from authz.nexloop_authority_facts f cross join lateral jsonb_array_elements(coalesce(f.payload->'grants','[]'::jsonb)) g
+    where f.tenant_id=v_tenant and f.fact_kind='grants' and f.entity_key=array[v_principal,d.resource_id]
+     and (f.payload->>'valid_until' is null or (f.payload->>'valid_until')::timestamptz>v_now)
+     and coalesce(g->'operations','[]'::jsonb) ? 'execute'
+     and (g->>'valid_from' is null or (g->>'valid_from')::timestamptz<=v_now)
+     and (g->>'valid_until' is null or (g->>'valid_until')::timestamptz>v_now))
+  order by (d.definition->>'version')::integer desc limit 1;
+ if v is null then raise exception 'create Action for the published version unavailable' using errcode='42501';end if;
+ return v;
+end $$;
+alter function authz.nexloop_create_action_version(text,text,text) owner to nexloop_owner;
+revoke all on function authz.nexloop_create_action_version(text,text,text) from public;
+grant execute on function authz.nexloop_create_action_version(text,text,text) to nexloop_api,nexloop_domain_worker;
+
+-- 5. Readiness self-check (L6 Q6): the (tenant, type) pairs whose latest published version no active `<Type>.create` covers while an
+--    older version has one - a publication that left object creation without a governed Action. A count only.
+create function authz.nexloop_schema_create_coverage() returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare t text;n integer:=0;k integer;
+begin
+ for t in select tenant_id from control.nexloop_tenants order by tenant_id loop
+  perform set_config('eios.tenant_id',t,true);
+  select count(*) into k from (select type_name,max(version) latest from ontology.object_type_versions where tenant_id=t group by type_name) v
+   where exists(select 1 from control.nexloop_action_definitions d where d.tenant_id=t and d.world='real' and d.active and d.definition->>'stable_name'=v.type_name||'.create')
+    and not exists(select 1 from control.nexloop_action_definitions d where d.tenant_id=t and d.world='real' and d.active and d.definition->>'stable_name'=v.type_name||'.create'
+     and exists(select 1 from jsonb_array_elements(d.definition->'governance'->'change_scope'->'object_types') r
+      where r->>'stable_name'=v.type_name and (r->>'version')::integer=v.latest));
+  n:=n+k;
+ end loop;
+ perform set_config('eios.tenant_id','',true);
+ return jsonb_build_object('uncovered',n);
+end $$;
+alter function authz.nexloop_schema_create_coverage() owner to nexloop_owner;
+revoke all on function authz.nexloop_schema_create_coverage() from public;
+grant execute on function authz.nexloop_schema_create_coverage() to nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_metrics;

@@ -14,6 +14,7 @@ from nexloop_eios.conversation_runtime_bridge import ConversationRuntimeBridge, 
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.run_credential_vault import RunCredentialVault
 from nexloop_eios.runtime_activation import RuntimeActivationPort
+from nexloop_eios.create_versions import create_current
 
 EFFECT = 'eios:action:nexloop.service.request:1'
 # ADR-030: the enterprise slot of a Message Run (only for consumers enrolled with a currently valid enterprise slot).
@@ -192,8 +193,7 @@ class MessageRelay:
         # The reply slot's objects keep their original intent ids; another slot's objects are distinct (ADR-030).
         key=[message_id,type_name,recipe] if slot is None else [message_id,type_name,recipe,slot]
         intent='message-relay-'+hashlib.sha256(canonical_payload(key).encode()).hexdigest()
-        result=self.planner.create_object(action_name=type_name+'.create',action_version=1,
-            intent_id=intent,type_name=type_name,properties=properties)
+        result=create_current(self.planner,intent_id=intent,type_name=type_name,properties=properties)
         return result['object_id']
 
     def _handoff(self,message_id,fence,reason):
