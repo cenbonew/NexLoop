@@ -638,6 +638,8 @@ def summary(manifest):
 
 # ---- phase B: registration (trusted configuration, configurator role only) ---------------------------------------------------
 STAGE_SCHEMA = 'nexloop-stage-principals/1'
+# The stage grants that may follow successor versions (L6 Q5): the effect context registrar's two Actions only.
+FOLLOWABLE = re.compile(r'eios:action:(nexloop\.plan\.bind_effect_context|nexloop\.effect\.configure_control):1')
 # Resource type -> operations a stage principal may hold (the service grants manifest allows action execute and object_type read
 # only; the Run holders and the effect executor also need what ADR-020 §3 keeps out of that manifest).
 STAGE_ALLOWED = {'action': {'execute'}, 'object_type': {'read'}, 'artifact': {'create', 'read', 'delete'}}
@@ -675,8 +677,11 @@ def merged_manifest(grants_path=GRANTS, principals_path=PRINCIPALS):
         roles.add(item['role'])
     seen = {(g['principal'], g['resource_id']) for g in base['grants']}
     for g in stage['grants']:
-        if set(g) != G.GRANT or g['principal'] not in roles:
+        if set(g) - {G.FOLLOW} != G.GRANT or g['principal'] not in roles:
             raise Refused('stage grant shape or principal: ' + str(g.get('principal')))
+        # L6 Q5 (P0 2026-11-10): follow_latest_version only on the registrar Actions, declared grant by grant.
+        if G.FOLLOW in g and (g[G.FOLLOW] is not True or g['resource_type'] != 'action' or not FOLLOWABLE.fullmatch(g['resource_id'])):
+            raise Refused(f"stage follow_latest_version outside the registrar Actions: {g['principal']} {g['resource_id']}")
         if g['resource_type'] not in STAGE_ALLOWED or not set(g['operations']) <= STAGE_ALLOWED[g['resource_type']] or not g['operations']:
             raise Refused(f"stage grant resource type or operation: {g['principal']} {g['resource_id']}")
         effect = any(m in g['resource_id'] for m in G.FORBIDDEN_MARKERS)
@@ -893,8 +898,14 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     from nexloop_eios import service_grants as G
     manifest, stage = merged_manifest(grants_path, principals_path)
     expires = datetime.fromisoformat(credential_expires_at) if isinstance(credential_expires_at, str) else credential_expires_at
+    follow = None
+    if dry_run and database_url_file and any(g.get(G.FOLLOW) for g in manifest['grants']):
+        # L6 Q4: the dry run lists every derived grant with its scope difference; a refused successor stops register here too.
+        follow = G.follow_preview(manifest, G.action_lineage(database_url_file, tenant))
+        if follow['refused']:
+            raise G.ServiceGrantsRejected('follow_latest_refused')
     if dry_run:
-        return {'dry_run': True, 'principals': sorted(p['role'] for p in manifest['principals']),
+        return {'dry_run': True, 'follow_latest': follow, 'principals': sorted(p['role'] for p in manifest['principals']),
                 'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in manifest['grants']),
                 'message_read_rules': [r['principal'] for r in stage.get('source_message_read_rules', [])],
                 'role_source_read_rules': [r['principal'] for r in stage.get('role_source_read_rules', [])],

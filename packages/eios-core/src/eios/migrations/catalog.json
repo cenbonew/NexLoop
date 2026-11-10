@@ -2225,6 +2225,16 @@
       "version": "0445",
       "name": "0445_nx067_oidc_gaps.sql",
       "sha256": "b947a23b07449622faed6d5c4127ce927a961baa53a3f18efb535c67a1f40425"
+    },
+    {
+      "version": "0446",
+      "name": "0446_effect_scope_successor_proof.sql",
+      "sha256": "f02c7aef8278a383431cf22e2dde139ae10892dbc7d83d49b8c7de77306a6f47"
+    },
+    {
+      "version": "0447",
+      "name": "0447_erasure_owner_residue.sql",
+      "sha256": "8bb7678984ec0d8a44ea5a4d7064ea0f63e554b4f834cddaa9b7b9ab3cc11e38"
     }
   ]
 }

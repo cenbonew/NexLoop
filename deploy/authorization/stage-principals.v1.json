@@ -241,7 +241,8 @@
         "execute"
       ],
       "purpose": "bind the effect context(s) (message_relay.py 303-313; reply_fallback.py 103).",
-      "source_task": "NX-031"
+      "source_task": "NX-031",
+      "follow_latest_version": true
     },
     {
       "principal": "role_source",
@@ -282,7 +283,8 @@
         "execute"
       ],
       "purpose": "bind the Role Run effect context (plan_reevaluation.py 222).",
-      "source_task": "NX-025"
+      "source_task": "NX-025",
+      "follow_latest_version": true
     },
     {
       "principal": "role_queue",
@@ -332,7 +334,8 @@
         "execute"
       ],
       "purpose": "configure the control for the executor credential (business_setup.py 82; backend.configure_effect_control, effect_contexts.CONFIGURE).",
-      "source_task": "NX-032 A3"
+      "source_task": "NX-032 A3",
+      "follow_latest_version": true
     },
     {
       "principal": "business_owner",
