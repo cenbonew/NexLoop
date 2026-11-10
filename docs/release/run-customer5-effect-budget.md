@@ -128,7 +128,7 @@ select status, control_id from control.nexloop_relay_enrollments
 
 | reason | 状态 | 处理 |
 |---|---|---|
-| `configure_unavailable` | edit 已提交，configure 没成功：对象是新 revision，账本还是旧的，customer-5 的每条回复都会在 bind 时被拒 | 立刻用**同一份配方**重跑：edit 是同一个 intent 的重放（claim 返回原结果，不会再改），configure 再执行一次，输出 `phase: configure`。重跑仍失败，先按 R5 查令牌，再报调度员。不要回退对象：回退本身也是一次 edit，会让 revision 再加 1 |
+| `configure_unavailable` | edit 已提交，configure 没成功：对象是新 revision，账本还是旧的，customer-5 的每条回复都会在 bind 时被拒 | 重跑前先请调度员跑 R5：两列都为 t 才重跑；有 f 就停下，报调度员（换过的令牌不能再 configure，重跑也没用）。R5 通过后，立刻用**同一份配方**重跑：edit 是同一个 intent 的重放（claim 返回原结果，不会再改），configure 再执行一次，输出 `phase: configure`。重跑仍失败，先按 R5 查令牌，再报调度员。不要回退对象：回退本身也是一次 edit，会让 revision 再加 1 |
 | `edit_unavailable` | 什么都没写 | editor 授权不全（R3），或者对象已经被另一个 intent 改过 |
 | `below_reserved` / `below_current_cap` / `unchanged` | 什么都没写 | 改配方里的 `budget_units` |
 | `revision_moved` / `ledger_behind` | 什么都没写 | 重读 R1、R2：`from_revision` 已经不是当前值，或者账本处在别的半成品状态。报调度员 |
@@ -154,3 +154,11 @@ select status, control_id from control.nexloop_relay_enrollments
   - `--dry-run` 不写；
   - CLI 输出一行，不含任何令牌；
   - `plan()` 覆盖全部拒绝原因和三个阶段。
+
+### 6.1 本地证据（2026-11-10T07:55:16Z，`date -u`；只在本地跑，不是 stage 的证据）
+
+- `scripts/check_definer_search_path.py`（`LC_ALL=C.UTF-8`）：1513 个例程都固定了 search_path，其中 SECURITY DEFINER 1205 个，0 处问题。
+- `pytest -n 2 tests/test_bootstrap.py tests/test_published_migrations.py tests/test_function_copy_guard.py`：114 passed。这几项覆盖 bootstrap 到 catalog 尾部、已发布迁移的校验和、函数复制守卫。
+- 测试没有写死迁移号：`git grep 0448 -- tests` 没有结果；新迁移只出现在 catalog 和 `versions.lock`，合批时由调度员重编。
+- `tests/test_effect_control_budget_pg.py`：18 passed，此外还跑过一组守卫测试，198 passed（ae970304 的报告里列出了文件清单）。
+
