@@ -95,6 +95,10 @@ change_scope 含 Consumer 的系统 Action 共 16 个（共 41 个）：Budget.s
    5. 发布的权限 digest 前后不等（写不进去，CheckViolation）；
    6. 后继与 `:1` 的 operation、target_systems、input_schema 或 capability 不同；
    7. 后继在另一个租户或另一个 world。
+   8. `:2` 不存在（只有 `:1`，对象已经是 v2）。
+   9. `:2` 的 scope 比 `:1` 多出一个类型（type 集合不同）。
+   10. 累计比较（D1）：v1→v2 是 hide，v2→v3 是 add_optional_property，`:3` 覆盖 v3；用 `:1` 处理 v3 对象 ⇒ 拒绝（与 v2 相邻比较时会误放行）。
+   11. 新增属性 visibility=hidden，或者带 default（D2）⇒ 拒绝。
 8. Consumer 升到 v3，但只有 `:2` 覆盖 v2 ⇒ 拒绝（必须精确版本，不能“任一后继”）。
 9. 选择和绑定之间并发发布：Consumer 在选择之后被升级 ⇒ 0179 在同一事务里重新检查并拒绝（Q3），不产生部分 context。
 10. register 的 follow（Q4/Q5）：
@@ -113,7 +117,7 @@ change_scope 含 Consumer 的系统 Action 共 16 个（共 41 个）：Budget.s
   - Metric.approve、Goal.publish、Control.set（scope_kind=consumer，指向这个 v2 顾客）、Budget.set（在已批准预算之下调低）都成功；
   - Contact.release 停在自身的业务规则 `no active contact restriction`，这已经越过了治理入口的全部检查；
   - 没有一项因 schema scope 失败。原因：这些 handler 写的是 control 表，治理提交路径不按对象的 schema_version 比对 Action 的 scope。
-- NexLoop.queue.operations：只做了静态核对，没有运行测试。当前定义是 0312 的 `authz.nexloop_runtime_activation_command_v0037`，target 固定为 `NexLoop.queue.<q>:1`，加上 `nexloop_assert_action_authority`（0107）。两者都不读 `ontology.objects`、schema_version 或 change_scope，所以不受 Consumer 版本影响。
+- NexLoop.queue.operations：**只做了静态核对，没有运行测试**（如实标注）。当前定义是 0312 的 `authz.nexloop_runtime_activation_command_v0037`，target 固定为 `NexLoop.queue.<q>:1`，加上 `nexloop_assert_action_authority`（0107）。两者都不读 `ontology.objects`、schema_version 或 change_scope，所以不受 Consumer 版本影响。
 - 结论：同类故障只在效应链上，即 0179 registrar 和 0183 intent 两处。这与 A′-2 “只在这两处使用”的要求一致。
 
 ## 5. A′ 的条件（L6 11-10 判定）与数据兼容（A′-3）
@@ -140,7 +144,12 @@ change_scope 含 Consumer 的系统 Action 共 16 个（共 41 个）：Budget.s
   - 0183 intent 读：`object_id`、`nexloop_revision`（expected_versions）、`schema_version`（只用于 scope 比对）；不读 properties。
   - 效应 worker（`effect_execution.py`）不读 Consumer 的 properties。
   - 因此，在“只追加可空属性”的前提下，`:1` handler 在 v2 对象上读写的字段，含义与 v1 完全相同。
-- **A′ 的 SQL 实现**：除 5.1 的条件外，还要比对 v1 和 v2 的 Consumer 类型定义：v2 的 properties 必须以 v1 的 properties 为前缀（逐元素相等），追加的每个属性都是 `required=false` 且 `nullable=true`，其余键（type_name、only_edit_via_actions、primary_key）相同。这样 add_vocabulary_value 和 hide 自动被拒绝；这一项也做变异检查。
+- **A′ 的 SQL 实现**：除 5.1 的条件外，还要累计比较 `:1` scope 中的 Consumer 版本 b（不是 v−1，L6 D1）与对象当前版本 v 的类型定义：
+  - v 的 properties 必须以 b 的 properties 为前缀（逐元素相等）；
+  - b 之后追加的每个属性都必须 `required=false`、`nullable=true`、visibility 不是 `hidden`、`default_value` 为 null 或不存在（L6 D2）；
+  - 其余键（type_name、only_edit_via_actions、primary_key）相同。
+  - 这样 b→v 之间的任一次 add_vocabulary_value 或 hide 都会被拒绝；每一项都做变异检查（§3 第 7 组第 10、11 项）。
+- **relay/context 读 Consumer properties**（L6 建议项）：构造上下文时，`consumer_profile.py` 和 `context_engine/sources.py` 通过受授权的对象读取来读 Consumer 属性，这与效应 Action 的版本无关；新增属性只在存在对应的属性读取授权时才会出现。效应 intent 和 `:1` handler 不读 properties，所以 v2 新增的可选属性在 `:1` 的读写路径上被忽略。这一点目前是阅读代码得出的结论，没有测试证明，实现时补一条测试：v2 顾客的 `delivery_windows` 有值时，`:1` 的效应负载和 intent 不受影响。
 - **stage 实际的 v2**：我无法读取 stage。请调度员只读执行下面的查询（预期 `prefix_unchanged = true`，`added` 中每一项都是 required=false、nullable=true）：
 
 ```sql

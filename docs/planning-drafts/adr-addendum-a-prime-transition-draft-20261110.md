@@ -16,7 +16,7 @@ F3 发布 Consumer 的新版本时，会把真实世界中的全部 Consumer 对
 1. 后继 `:N` active；与被执行的 `:1` 是同一 stable_name；去掉版本号后两者的定义逐字段相等（operation、handler、input_schema、target_systems、policy_refs、approval_mode、capability，以及 change_scope 的 type 集合）。
 2. `:N` 出自一次人工的 F3 发布：在 `ontology.nexloop_schema_publications.successor_actions` 中，`published_by` 为 human，`permission_digest_before = permission_digest_after`。
 3. `:N` 的 scope 精确包含对象的当前版本 v。
-4. 类型 v 相对于 v−1 只增不改：前缀属性逐项相等，新增属性可空、非必填。所以 add_vocabulary_value 和 hide 产生的版本不适用。
+4. 类型 v 相对于 `:1` scope 中的 Consumer 版本（记作 b）累计只增不改（L6 D1：不是逐版相邻比较）。条件：b 的属性是 v 属性的前缀，逐项相等；在 b 之后新增的每个属性都非必填、可空、visibility 不是 hidden、没有 default（L6 D2）；其余键相同。因此只要 b→v 之间有一次 add_vocabulary_value 或 hide，就不适用。例：v1→v2 是 hide，v2→v3 是 add，执行 :1 处理 v3 对象时仍然拒绝，因为 b=1 的某个属性在 v3 中已变为 hidden，前缀不再相等。
 5. 留痕：执行的资源（`:1`）和证明的资源（`:N`，含 publication_id）都要写入 intent/context 的 claims 和审计。
 
 授权不变：执行者仍须持有 `:1` 的有效授权；registrar 自身按 L6 Q1/Q2 精确选版本，SQL 精确比对。
