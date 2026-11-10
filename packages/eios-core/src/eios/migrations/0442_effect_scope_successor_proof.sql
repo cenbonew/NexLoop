@@ -436,3 +436,32 @@ end $$;
 alter function authz.nexloop_schema_create_coverage() owner to nexloop_owner;
 revoke all on function authz.nexloop_schema_create_coverage() from public;
 grant execute on function authz.nexloop_schema_create_coverage() to nexloop_api,nexloop_domain_worker,nexloop_action_worker,nexloop_scheduler,nexloop_metrics;
+
+-- 6. Relay reply alert (L6 Q10; stage 11-09/10: 20 hours of failed replies raised no alert): the metrics snapshot gains relay_replies
+--    - failed relay attempts and attempts_exhausted hand-offs in the last 15 minutes, reply intents created in the same window, and
+--    failing_without_success_15m (the failures when there was no success, else 0) for alert rule relay_reply_failing. Stacked on
+--    0438's wrapper the same way (the wrapper takes every EXECUTE grantee, the renamed function keeps none).
+alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_metrics_snapshot_before_relay_replies;
+revoke all on function runtime.nexloop_metrics_snapshot_before_relay_replies(text,text) from public;
+create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
+ language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+declare v jsonb:=runtime.nexloop_metrics_snapshot_before_relay_replies(p_tenant,p_world);failed bigint;handed bigint;ok bigint;since timestamptz:=clock_timestamp()-interval '15 minutes';
+begin
+ if jsonb_typeof(v) is distinct from 'object' then return v;end if;
+ select count(*) into failed from runtime.nexloop_relay_attempts a where a.tenant_id=p_tenant and a.world=p_world and a.last_failure_at>since;
+ select count(*) into handed from runtime.nexloop_relay_handoffs h where h.tenant_id=p_tenant and h.world=p_world and h.reason='attempts_exhausted' and h.handed_at>since;
+ select count(*) into ok from runtime.nexloop_effect_intents i where i.tenant_id=p_tenant and i.world=p_world and i.created_at>since;
+ return v||jsonb_build_object('relay_replies',jsonb_build_object('failures_15m',failed,'exhausted_15m',handed,'intents_15m',ok,
+  'failing_without_success_15m',case when ok=0 then failed+handed else 0 end));
+end $$;
+alter function runtime.nexloop_metrics_snapshot(text,text) owner to nexloop_owner;
+revoke all on function runtime.nexloop_metrics_snapshot(text,text) from public;
+do $$declare g text;
+begin
+ for g in select r.rolname from pg_proc p cross join aclexplode(p.proacl) a join pg_roles r on r.oid=a.grantee
+   where p.oid='runtime.nexloop_metrics_snapshot_before_relay_replies(text,text)'::regprocedure and a.privilege_type='EXECUTE'
+    and a.grantee<>p.proowner group by r.rolname loop
+  execute format('grant execute on function runtime.nexloop_metrics_snapshot(text,text) to %I',g);
+  execute format('revoke execute on function runtime.nexloop_metrics_snapshot_before_relay_replies(text,text) from %I',g);
+ end loop;
+end $$;
