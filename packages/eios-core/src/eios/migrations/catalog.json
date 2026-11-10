@@ -2205,6 +2205,11 @@
       "version": "0441",
       "name": "0441_nx062_machine_authority.sql",
       "sha256": "1c7e864495d7112035e8473b64f0c723850577b2193181997567bddbecc15a95"
+    },
+    {
+      "version": "0442",
+      "name": "0442_effect_scope_successor_proof.sql",
+      "sha256": "cfc255785e7797953b175cc9172ce855f5e448c74ed1ccb66825f98f2475cf5f"
     }
   ]
 }

@@ -519,6 +519,18 @@ REGISTRY = [
     Allowed('schema_publication_successor_coexistence', 'control.nexloop_service_grant_action_lineage',
             'schema_publication_id beside review_decision_id on each row, pg_temp last on the search_path; nothing else',
             ((r",\n   'schema_publication_id',\(select p\.publication_id from ontology\.nexloop_schema_publications p .*?order by p\.published_at limit 1\)\)", ")"),), PG_TEMP),
+    # effect_scope_successor_proof (ADR addendum A', owner 2026-11-10): the registrar names an exact active version of its stable
+    # name (was ':1'); the effect intent's Consumer scope may be proven by a published successor (transitional, removed with option B).
+    Allowed('effect_scope_successor_proof', 'authz.nexloop_effect_context_command',
+            'the registrar resource and reference version are an exact active version of the verb\'s stable name; nothing else',
+            ((r"  or c->>'resource_id' !~ \('\^eios:action:'\|\|\(case p->>'verb' when 'configure' then 'nexloop\\\.effect\\\.configure_control' else 'nexloop\\\.plan\\\.bind_effect_context' end\)\|\|':\[1-9\]\[0-9\]\{0,3\}\$'\)",
+              "  or c->>'resource_id' is distinct from (case p->>'verb' when 'configure' then 'eios:action:nexloop.effect.configure_control:1' else 'eios:action:nexloop.plan.bind_effect_context:1' end)"),
+             (r"is distinct from pub\.definition->>'version'\n  or pub\.resource_id is distinct from 'eios:action:'\|\|\(pub\.definition->>'stable_name'\)\|\|':'\|\|\(pub\.definition->>'version'\)",
+              "is distinct from '1'"))),
+    Allowed('effect_scope_successor_proof', 'authz.nexloop_effect_intent_command_v0040',
+            'the Consumer scope check also accepts authz.nexloop_effect_scope_successor_proof; nothing else',
+            ((r"\)\n  and authz\.nexloop_effect_scope_successor_proof\(ctx\.context_id,ctx\.tenant_id,p_world,published,consumer\.schema_version\) is null then",
+              ") then"),)),
     # workbench_action_for_live_execute_grant (L6 B1 on 0432): a version counts only on a live execute grant, not any non-empty grant set.
     Allowed('workbench_action_for_live_execute_grant', 'authz.nexloop_workbench_action_for',
             'the grant predicate requires operation execute and current validity (grant and grants fact); nothing else',

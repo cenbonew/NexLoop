@@ -87,7 +87,8 @@ class EffectContextRegistrar:
         return text,hmac.new(self.signer.material,(protocol+':'+text).encode(),'sha256').hexdigest()
 
     def _claim(self,db,command,verb):
-        target='eios:action:'+command.binding.action_reference.stable_name+':1'
+        reference=command.binding.action_reference
+        target='eios:action:'+reference.stable_name+':'+str(reference.version)
         proof=self._proof(self.session,target);decision_id=proof.pop('_decision_id')
         payload=canonical_payload(command.model_dump(mode='json'))
         text,signature=self._sign('nexloop-action-command-v1',{**proof,'permit_id':decision_id,'verb':verb,
@@ -95,10 +96,28 @@ class EffectContextRegistrar:
         return db.execute('select authz.nexloop_action_claim_command(%s,%s,%s,%s,%s)',
             (self.session.token_digest,self.session.world,text,signature,payload)).fetchone()[0]
 
+    def _version(self,db,verb,payload):
+        """The registrar version to name (L6 Q1-Q3): chosen in SQL on the bind's own transaction - the highest active version whose
+        scope holds every object's exact (type, version) and that this session holds a live execute grant on. Advisory only: the
+        registrar command still checks the exact resource, so a wrong choice is refused, never widened."""
+        from psycopg.types.json import Jsonb
+        version=db.execute('select authz.nexloop_effect_registrar_version(%s,%s,%s,%s)',
+            (self.session.token_digest,self.session.world,verb,Jsonb(payload))).fetchone()[0]
+        if type(version) is not int or version<1:raise EffectContextUnavailable('effect context unavailable')
+        return version
+
     def _execute(self,*,verb,payload,executor_session,run_session=None,db=None):
+        if db is None:
+            # Q3: the version choice and the registration share one transaction (one connection).
+            try:
+                with self.pool.connection() as own,own.transaction():
+                    return self._execute(verb=verb,payload=payload,executor_session=executor_session,run_session=run_session,db=own)
+            except (EffectContextUnavailable,EffectContextConflict):raise
+            except Exception:raise EffectContextUnavailable('effect context unavailable') from None
         try:
             action=CONFIGURE if verb=='configure' else BIND
-            definition,capability,schemas=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get_with_schemas(action,1)
+            version=self._version(db,verb,{'verb':verb,**payload})
+            definition,capability,schemas=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get_with_schemas(action,version)
             g=definition.governance
             if g.approval_mode.value!='none' or g.risk_level.value!='low' or g.policy_refs or definition.preconditions or definition.parameters:raise ValueError()
             needed=set(definition.required_scopes)|set(capability.required_scopes)
@@ -133,7 +152,7 @@ class EffectContextRegistrar:
                 if reservation.disposition not in (M.ActionClaimDisposition.CLAIMED,M.ActionClaimDisposition.REPLAY):raise ValueError()
                 if reservation.terminal_outcome is not None and reservation.terminal_outcome.status is not M.TerminalOutcomeStatus.SUCCEEDED:raise ValueError()
                 def register():
-                    proof=self._proof(self.session,'eios:action:'+action+':1');proof.pop('_decision_id')
+                    proof=self._proof(self.session,'eios:action:'+action+':'+str(version));proof.pop('_decision_id')
                     executor_proof=self._proof(executor_session,'eios:action:'+self.action+':1');executor_proof.pop('_decision_id')
                     claims={**proof,'parameters_digest':hashlib.sha256(text_payload.encode()).hexdigest(),
                         'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json'),
