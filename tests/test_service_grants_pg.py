@@ -77,7 +77,8 @@ def test_clean_bootstrap_apply_lets_nx019_nx020_services_authorize_without_seed(
     assert before==0
     report=d['apply']()
     assert report['changed'] is True and sorted(report['credentials_created'])==sorted(d['tokens'])
-    assert len(report['grants_added'])==len(d['manifest']['grants'])
+    # control_budget_editor's object grants name the private target; unresolved here, they are not applied (stage_secrets resolves them).
+    assert len(report['grants_added'])==len([g for g in d['manifest']['grants'] if G.PRIVATE_TARGET not in g['resource_id']])
     # The write is an audited trusted-configuration publication by the configurator.
     assert admin.execute('select count(*),min(operator_role) from control.nexloop_configuration_publications').fetchone()==(1,'nexloop_configurator')
     # NX-019 scheduler: real feed + queue authority paths (empty feed, nothing due).

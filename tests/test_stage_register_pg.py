@@ -40,7 +40,7 @@ def test_every_compose_credential_file_has_exactly_one_principal_and_the_merge_h
     assert {f for f in stage['credential_files'] if not f.startswith(S.SETUP_PREFIX)} == credential_files_of_compose()
     assert sorted(f for f in stage['credential_files'] if f.startswith(S.SETUP_PREFIX)) == [
         'setup/business-executor-credential', 'setup/business-owner-credential', 'setup/catalog-maintainer-credential', 'setup/catalog-source-credential',
-        'setup/role-assembler-credential']
+        'setup/control-budget-editor-credential', 'setup/role-assembler-credential']
     roles = [p['role'] for p in manifest['principals']]
     assert len(roles) == len(set(roles)) and set(stage['credential_files'].values()) == set(roles)
     keys = [(g['principal'], g['resource_id']) for g in manifest['grants']]
@@ -64,13 +64,20 @@ def registered(pg, admin, tree):  # noqa: F811
 
     def register(**kw):
         return S.register(tree['out'], tenant=TENANT, database_url_file=dsn, signing_key_id='stage-1', credential_expires_at=expires, **kw)
+    # The private control_budget_editor target (stage data, never in the public manifest): one synthetic control id.
+    target = random.token_hex(32)
+    targets = tree['out'] / 'management' / S.CONTROL_BUDGET_TARGETS
+    targets.write_text(json.dumps({'control_ids': [target]}))
+    targets.chmod(0o600)
     first = register()
     roles = ('nexloop_api', 'nexloop_domain_worker', 'nexloop_scheduler', 'nexloop_action_worker')
     pools = {}
     with open_core(make_conninfo(pg, user=roles[0])) as a, open_core(make_conninfo(pg, user=roles[1])) as b, \
          open_core(make_conninfo(pg, user=roles[2])) as c, open_core(make_conninfo(pg, user=roles[3])) as d:
         pools.update(zip(roles, (a, b, c, d)))
-        yield dict(tree=tree, first=first, register=register, pools=pools, manifest=S.merged_manifest()[0], stage=S.merged_manifest()[1], admin=admin)
+        from nexloop_eios.service_grants import resolve_private_targets
+        yield dict(tree=tree, first=first, register=register, pools=pools, manifest=resolve_private_targets(S.merged_manifest()[0], [target])[0],
+                   stage=S.merged_manifest()[1], admin=admin, target=target, targets=targets)
 
 
 def session(r, role):
@@ -133,7 +140,7 @@ def test_register_is_idempotent_and_dry_run_writes_nothing(registered):
     assert again == {**again, 'changed': False, 'message_read_rules_written': 0, 'definition_read_rules_written': 0, 'credentials_created': [], 'grants_added': 0, 'grants_revoked': 0}
     count = r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0]
     dry = r['register'](dry_run=True)
-    assert dry['dry_run'] is True and len(dry['principals']) == 26 and dry['credential_files'] == 35
+    assert dry['dry_run'] is True and len(dry['principals']) == 27 and dry['credential_files'] == 36
     assert r['admin'].execute('select count(*) from control.nexloop_configuration_publications').fetchone()[0] == count
 
 
@@ -393,3 +400,35 @@ def test_publish_dry_run_without_a_database_compiles_and_emits_the_worker_config
     assert (result['compared'], result['object_types'], result['actions'], result['functions']) == (False, 22, 146, 2)
     assert sorted(p.name for p in out.iterdir()) == sorted(result['emitted']) and all(oct(p.stat().st_mode)[-3:] == '600' for p in out.iterdir())
     assert json.loads((out / 'claim-match.json').read_text()) == {}
+
+
+def test_control_budget_editor_holds_edit_on_the_private_target_only_and_dry_run_never_prints_it(registered):
+    r = registered
+    assert r['first']['control_budget_targets'] == 1 and r['first']['private_object_grants'] == 3
+    pool, s = session(r, 'control_budget_editor')
+    target, other = r['target'], random.token_hex(32)
+    assert allowed(pool, s, 'eios:action:EffectControl.edit:1')
+    assert allowed(pool, s, 'eios:object:EffectControl/' + target, ResourceType.OBJECT, Operation.EDIT)
+    for field in ('budget_units', 'valid_until'):
+        assert allowed(pool, s, f'eios:property:EffectControl/{target}/{field}', ResourceType.PROPERTY, Operation.EDIT)
+    assert not allowed(pool, s, f'eios:property:EffectControl/{target}/executor_principal', ResourceType.PROPERTY, Operation.EDIT)
+    assert not allowed(pool, s, 'eios:object:EffectControl/' + other, ResourceType.OBJECT, Operation.EDIT)
+    # business_owner gains nothing (its token and scopes are unchanged: no rotation).
+    pool, owner = session(r, 'business_owner')
+    assert not allowed(pool, owner, 'eios:action:EffectControl.edit:1')
+    assert set(owner.authentication.requested_scopes) == {'action.execute'}
+    dry = r['register'](dry_run=True)
+    assert dry['control_budget_targets'] == 1 and dry['private_object_grants'] == 3 and target not in json.dumps(dry)
+    assert 'control_budget_editor object eios:object:EffectControl/{control_budget_target} edit' in dry['grants']
+
+
+def test_removing_the_private_target_revokes_the_object_grants_without_any_rotation(registered):
+    r = registered
+    r['targets'].write_text(json.dumps({'control_ids': []}))
+    after = r['register']()
+    assert after['grants_revoked'] == 3 and after['credentials_created'] == [] and after['private_object_grants'] == 0
+    pool, s = session(r, 'control_budget_editor')
+    assert allowed(pool, s, 'eios:action:EffectControl.edit:1')
+    assert not allowed(pool, s, 'eios:object:EffectControl/' + r['target'], ResourceType.OBJECT, Operation.EDIT)
+    assert r['register']()['changed'] is False
+

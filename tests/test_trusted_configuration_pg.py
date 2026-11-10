@@ -156,6 +156,37 @@ def test_a_full_allowance_is_never_raised_or_reopened_and_a_new_application_adds
         issued=create(uow,identity,authenticate(uow,identity).evidence)
         assert issued.session.principal_id==created['principal_id']
 
+def test_browser_rates_publishes_only_the_missing_rate_policies_and_leaves_applications_and_a_closed_allowance_alone(configured,admin):
+    # Stage 11-10: G1 registered local_login only; NX-058 invitation_accept / password_reset_complete / oidc_start failed closed (0032 42501).
+    import sys
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'/'deploy'))
+    import stage_secrets as S
+    from nexloop_eios.trusted_configuration import apply_manifest_with_secrets
+    f=configured;create_human(f,identity_manifest(f))
+    def snapshot():
+        return (admin.execute('select application_id,active from control.nexloop_browser_applications order by 1').fetchall(),
+                admin.execute('select application_id,enabled,maximum_accounts,created_accounts,operator_label,idempotency_key_digest from control.nexloop_initial_identity_allowances order by 1').fetchall())
+    def rates():
+        return dict((a,(m,w,act)) for a,m,w,act in admin.execute("select action,maximum_attempts,window_seconds,active from control.nexloop_browser_rate_policies where operator_principal_id='nexloop_identity'"))
+    def state():
+        return S.browser_state(admin,f['tenant'])
+    # As on stage: local_login 20/60 only (the fixture publishes local_login alone), the allowance full and closed.
+    admin.execute("update control.nexloop_browser_rate_policies set maximum_attempts=20 where action='local_login'")
+    assert set(rates())=={'local_login'}
+    before=snapshot();assert before[1][0][1:4]==(False,1,1)
+    entries=S.rate_policy_entries()
+    pending,conflicts=S._browser_pending(entries,state())
+    assert conflicts==[] and sorted(p['action'] for p in pending['browser_rate_policies'])==['invitation_accept','oidc_start','password_reset_complete']
+    revision=admin.execute('select authority_revision from control.nexloop_tenants where tenant_id=%s',(f['tenant'],)).fetchone()[0]
+    import uuid as _u
+    body={'schema_version':'1.0','manifest_id':str(_u.uuid4()),'tenant_id':f['tenant'],'expected_revision':revision,'tenant_status':'active',
+          'object_types':[],'actions':[],'functions':[],'authority_facts':[],'service_credentials':[],'browser_business_applications':[],**pending}
+    apply_manifest_with_secrets(body,database_url_file=f['paths']['dsn'],signing_key_file=f['paths']['signing'],signing_key_id='explicit-configuration',service_secrets={})
+    assert rates()=={'local_login':(20,60,True),'password_reset_complete':(10,300,True),'invitation_accept':(10,300,True),'oidc_start':(20,300,True)}
+    assert snapshot()==before  # no application and no allowance touched; the closed allowance stays closed
+    assert S._browser_pending(entries,state())==({'browser_applications':[],'browser_rate_policies':[],'identity_allowances':[]},[])  # a rerun publishes nothing
+
+
 @pytest.mark.parametrize('role',['nexloop_api','nexloop_identity','nexloop_domain_worker','nexloop_action_worker','nexloop_scheduler','nexloop_runtime'])
 def test_runtime_and_service_roles_cannot_publish_or_read_configuration(configured,role):
     with psycopg.connect(make_conninfo(configured['pg'],user=role)) as db:

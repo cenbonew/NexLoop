@@ -431,7 +431,7 @@ def test_setup_credentials_reuse_the_principal_token_and_are_idempotent(tree, tm
     setup = {k: v for k, v in tokens.items() if k.startswith('setup:')}
     assert sorted(setup) == ['setup:setup/business-executor-credential', 'setup:setup/business-owner-credential',
                              'setup:setup/catalog-maintainer-credential', 'setup:setup/catalog-source-credential',
-                             'setup:setup/role-assembler-credential']
+                             'setup:setup/control-budget-editor-credential', 'setup:setup/role-assembler-credential']
     assert setup['setup:setup/business-executor-credential'] == tokens['app:action-worker/service-credential']
     assert setup['setup:setup/catalog-source-credential'] == tokens['app:message-relay/source-credential']
     assert len({setup['setup:setup/business-owner-credential'], setup['setup:setup/catalog-maintainer-credential'], setup['setup:setup/role-assembler-credential'], *[
@@ -440,7 +440,7 @@ def test_setup_credentials_reuse_the_principal_token_and_are_idempotent(tree, tm
         path = out / key.split(':', 1)[1]
         assert path.read_text() == token and path.stat().st_mode & 0o777 == 0o600
     assert (out / 'management' / 'service-secrets.json').stat().st_mode & 0o777 == 0o600
-    assert S.setup_credentials(out) == {'changed': False, 'added': [], 'setup_files': 5}
+    assert S.setup_credentials(out) == {'changed': False, 'added': [], 'setup_files': 6}
     assert S.check(out)['ok'] is True
     (out / 'setup' / 'business-owner-credential').unlink()
     S.write_private(out / 'setup' / 'business-owner-credential', 'tampered')
@@ -838,3 +838,29 @@ def test_entry_ticket_key_is_generated_with_the_endpoint_copy_and_rotates(tree, 
     rotated = (old / 'app' / 'secrets' / 'api' / 'entry-ticket.key').read_text()
     assert rotated != value and rotated not in capsys.readouterr().out and S.check(old)['ok']
     assert (old / 'management' / 'endpoint' / 'entry_ticket_key').read_text() == rotated
+
+
+def test_browser_rates_sends_only_the_rate_policies_and_only_the_missing_ones():
+    # Stage 11-10 (NX-058 walk-through 1.4): G1 registered local_login only, so invitation_accept, password_reset_complete and oidc_start
+    # had no policy (0032 refuses 42501). browser-rates publishes those and touches no application and no allowance.
+    e = S.rate_policy_entries()
+    assert e['browser_applications'] == [] and e['identity_allowances'] == []
+    assert e['browser_rate_policies'] == S.browser_entries(browser_application_id='webchat', workbench_application_id='workbench',
+                                                           seal_digest='a' * 64)['browser_rate_policies']
+    state = {'applications': {'webchat': True, 'workbench': True}, 'rates': {'local_login': (20, 60, True)},
+             'allowances': {'webchat': (False, 10, 'stage-owner', 'a' * 64)}}
+    pending, conflicts = S._browser_pending(e, state)
+    assert conflicts == [] and pending['browser_applications'] == [] and pending['identity_allowances'] == []
+    assert [p['action'] for p in pending['browser_rate_policies']] == ['password_reset_complete', 'invitation_accept', 'oidc_start']
+    for p in pending['browser_rate_policies']:
+        state['rates'][p['action']] = (p['maximum_attempts'], p['window_seconds'], True)
+    assert S._browser_pending(e, state) == ({'browser_applications': [], 'browser_rate_policies': [], 'identity_allowances': []}, [])
+    assert S.apply_browser(None, tenant='t', entries=e, database_url_file=None, signing_key_id=None, state=state) == {
+        'changed': False, 'applications': [], 'rate_policies': ['local_login', 'password_reset_complete', 'invitation_accept', 'oidc_start'], 'allowances': {}}
+
+
+def test_browser_rates_dry_run_needs_no_seal_and_no_database(capsys):
+    assert S.main(['browser-rates', '--out', '/nonexistent', '--tenant', 't', '--dry-run']) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == {'dry_run': True, 'applications': [], 'rate_policies': ['local_login', 'password_reset_complete', 'invitation_accept', 'oidc_start'],
+                   'allowances': {}}

@@ -817,6 +817,18 @@ def additional_application_entries(*, application_id, browser_application_id, wo
                                      'operator_label': operator_label, 'idempotency_key_digest': seal_digest}]}
 
 
+def rate_policy_entries():
+    """Only the nexloop_identity browser rate policies (0050 browser_rate_policies; 0381 upserts them by (tenant, action, operator)).
+
+    For a stage whose browser configuration predates a rate policy (G1 registered local_login only; NX-058 slices A, B and F added
+    invitation_accept, password_reset_complete and oidc_start, and 0032 nexloop_consume_browser_rate_limit refuses 42501 'identity rate
+    limit unavailable' for an action without an active policy, so those routes fail closed). No application and no allowance is sent:
+    a full, closed allowance stays as it is (re-running `browser` would be refused for it anyway, never reopen it)."""
+    return {'browser_applications': [], 'browser_rate_policies': [{**rate, 'operator_principal_id': 'nexloop_identity', 'active': True}
+                                                                  for rate in (LOGIN_RATE, RESET_RATE, INVITE_RATE, OIDC_RATE)],
+            'identity_allowances': []}
+
+
 def browser_state(connection, tenant):
     """Read-only current values of the managed browser rows (for the idempotency check; the window's bootstrap session)."""
     apps = {a: act for a, act in connection.execute('select application_id, active from control.nexloop_browser_applications where tenant_id=%s', (tenant,))}
@@ -892,6 +904,27 @@ def _reference_secrets(out, manifest, stage):
     return {reference[role]: token for role, token in by_role.items()}
 
 
+CONTROL_BUDGET_TARGETS = 'control-budget-targets.json'
+
+
+def control_budget_targets(out):
+    """The private control ids of control_budget_editor (management/control-budget-targets.json, 0600, {"control_ids": [...]});
+    none when the file is absent. Stage data: never in the public manifest."""
+    if out is None:  # a dry run without a tree
+        return []
+    path = Path(out) / 'management' / CONTROL_BUDGET_TARGETS
+    if not path.exists():
+        return []
+    from nexloop_eios.trusted_configuration import read_private_text
+    try:
+        value = json.loads(read_private_text(path, maximum=8192))
+    except Exception:
+        raise Refused('control budget targets unreadable (private file, 0600)') from None
+    if type(value) is not dict or set(value) != {'control_ids'}:
+        raise Refused('control budget targets: exactly {"control_ids": [...]}')
+    return value['control_ids']
+
+
 def register(out, *, tenant, database_url_file, signing_key_id, credential_expires_at, dry_run=False,
              grants_path=GRANTS, principals_path=PRINCIPALS):
     """Phase B: the service principals of the stage, their grants and their credentials through the trusted configuration
@@ -900,6 +933,9 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     from datetime import datetime
     from nexloop_eios import service_grants as G
     manifest, stage = merged_manifest(grants_path, principals_path)
+    targets = control_budget_targets(out)
+    listed = manifest
+    manifest, private_grants = G.resolve_private_targets(manifest, targets)
     expires = datetime.fromisoformat(credential_expires_at) if isinstance(credential_expires_at, str) else credential_expires_at
     follow = None
     if dry_run and database_url_file and any(g.get(G.FOLLOW) for g in manifest['grants']):
@@ -909,7 +945,9 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
             raise G.ServiceGrantsRejected('follow_latest_refused')
     if dry_run:
         return {'dry_run': True, 'follow_latest': follow, 'principals': sorted(p['role'] for p in manifest['principals']),
-                'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in manifest['grants']),
+                # The public form: a private target id is never printed, only counted.
+                'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in listed['grants']),
+                'control_budget_targets': len(targets), 'private_object_grants': private_grants,
                 'message_read_rules': [r['principal'] for r in stage.get('source_message_read_rules', [])],
                 'role_source_read_rules': [r['principal'] for r in stage.get('role_source_read_rules', [])],
                 'definition_read_rules': {r['principal']: len(r['type_names']) for r in stage.get('definition_read_rules', [])},
@@ -943,6 +981,7 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra.count('message_read_rule'),
             'role_source_read_rules_written': extra.count('role_source_read_rule'),
             'definition_read_rules_written': extra.count('definition_read_rule'), 'credentials_created': sorted(report['credentials_created']),
+            'control_budget_targets': len(targets), 'private_object_grants': private_grants,
             'grants_added': len(report['grants_added']), 'grants_revoked': len(report['grants_revoked']),
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
 
@@ -1043,6 +1082,7 @@ def rotation_apply(out, role, *, tenant, database_url_file, signing_key_id, cred
     # previous token still authenticates but its decisions are stale (EIOS compares the binding with the shared fact) until
     # revoke-credential --previous: switch right after apply.
     manifest, _ = merged_manifest(grants_path, principals_path)
+    manifest, _ = G.resolve_private_targets(manifest, [])  # scopes only; control_budget_editor's are fixed whatever the targets
     expires_at = datetime.fromisoformat(credential_expires_at)
     scopes = sorted(G.compile_principal(manifest, tenant, principal, credential_expires_at=expires_at)[0].requested_scopes)
     result = G.rotate_credential(tenant, credential_id=principal['credential_id'], current_secret=current['token'], new_secret=pending['token'],
@@ -1162,10 +1202,35 @@ def metrics_problems(directory):
     return problems
 
 
+def _browser_publish(args, entries):
+    import psycopg
+    from nexloop_eios.trusted_configuration import read_private_text
+    if args.dry_run:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=None, dry_run=True)
+    if not args.signing_key_id or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
+        raise Refused('browser needs one of --configurator-dsn-file / --bootstrap-dsn-file and --signing-key-id (or --dry-run)')
+    if args.configurator_dsn_file:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=args.configurator_dsn_file, signing_key_id=args.signing_key_id)
+    # Window mode: the current rows are read (read-only transaction) through the bootstrap socket, so an unchanged configuration
+    # publishes nothing; the writes go through the configurator's own login only.
+    with psycopg.connect(read_private_text(args.bootstrap_dsn_file, maximum=16384).strip(), connect_timeout=5) as reader:
+        reader.execute('set transaction read only')
+        state = browser_state(reader, args.tenant)
+    pending, conflicts = _browser_pending(entries, state)
+    if not any(pending.values()) and not conflicts:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=args.signing_key_id, state=state)
+    with configurator_window(args.bootstrap_dsn_file) as dsn:
+        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=dsn, signing_key_id=args.signing_key_id, state=state)
+
+
+def browser_rates_main(args):
+    """browser-rates: publish only the missing or differing nexloop_identity rate policies (rate_policy_entries)."""
+    return _browser_publish(args, rate_policy_entries())
+
+
 def browser_main(args):
     import hashlib as _h
 
-    import psycopg
     from nexloop_eios.trusted_configuration import read_private_text
     seal = bytes.fromhex(read_private_text(args.identity_seal_file, maximum=128).strip())
     if len(seal) != 32:
@@ -1178,21 +1243,7 @@ def browser_main(args):
         entries = browser_entries(browser_application_id=args.browser_application_id, workbench_application_id=args.workbench_application_id,
                                   seal_digest=_h.sha256(seal).hexdigest(), webchat_accounts=args.webchat_accounts,
                                   workbench_accounts=args.workbench_accounts, operator_label=args.operator_label)
-    if args.dry_run:
-        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=None, dry_run=True)
-    if not args.signing_key_id or bool(args.configurator_dsn_file) == bool(args.bootstrap_dsn_file):
-        raise Refused('browser needs one of --configurator-dsn-file / --bootstrap-dsn-file and --signing-key-id (or --dry-run)')
-    if args.configurator_dsn_file:
-        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=args.configurator_dsn_file, signing_key_id=args.signing_key_id)
-    # Window mode: the current rows are read (read-only transaction) through the bootstrap socket, so an unchanged configuration
-    # publishes nothing; the writes go through the configurator's own login only.
-    with psycopg.connect(read_private_text(args.bootstrap_dsn_file, maximum=16384).strip(), connect_timeout=5) as reader:
-        reader.execute('set transaction read only')
-        state = browser_state(reader, args.tenant)
-    if not any(_browser_pending(entries, state)[0].values()) and not _browser_pending(entries, state)[1]:
-        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=None, signing_key_id=args.signing_key_id, state=state)
-    with configurator_window(args.bootstrap_dsn_file) as dsn:
-        return apply_browser(args.out, tenant=args.tenant, entries=entries, database_url_file=dsn, signing_key_id=args.signing_key_id, state=state)
+    return _browser_publish(args, entries)
 
 
 # Signing key rotation (run-34, 2026-10-15): register one more Authority signing key without changing any authority. 0050/0162
@@ -1406,6 +1457,13 @@ def main(argv=None):
     b.add_argument('--bootstrap-dsn-file', type=Path)
     b.add_argument('--signing-key-id')
     b.add_argument('--dry-run', action='store_true')
+    br = sub.add_parser('browser-rates', help='publish only the nexloop_identity browser rate policies (no application, no allowance)')
+    br.add_argument('--out', type=Path, required=True)
+    br.add_argument('--tenant', required=True)
+    br.add_argument('--configurator-dsn-file', type=Path)
+    br.add_argument('--bootstrap-dsn-file', type=Path)
+    br.add_argument('--signing-key-id')
+    br.add_argument('--dry-run', action='store_true')
     sk = sub.add_parser('signing-key', help='register management/signing.key.hex under a new key id (empty manifest; no authority change)')
     sk.add_argument('--out', type=Path, required=True)
     sk.add_argument('--tenant', required=True)
@@ -1498,6 +1556,8 @@ def main(argv=None):
             code = 0
         elif args.command == 'browser':
             out, code = browser_main(args), 0
+        elif args.command == 'browser-rates':
+            out, code = browser_rates_main(args), 0
         elif args.command == 'signing-key':
             out, code = signing_key_main(args), 0
         elif args.command == 'setup-credentials':
