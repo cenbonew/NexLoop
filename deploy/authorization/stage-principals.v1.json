@@ -314,7 +314,8 @@
         "execute"
       ],
       "purpose": "create the Consumer (business_setup.py 71).",
-      "source_task": "NX-032 A3"
+      "source_task": "NX-032 A3",
+      "follow_latest_version": true
     },
     {
       "principal": "business_owner",

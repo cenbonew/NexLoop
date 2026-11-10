@@ -18,14 +18,16 @@
    - `bootstrap.verify` 通过；
    - 各服务 `/health/ready` 为 200，`reasons` 中没有 `schema_create_uncovered`。
 3. **`stage_secrets.py register --dry-run --configurator-dsn-file …`**（必须带 DSN，才会计算派生授权），输出存档为证据。预期：
-   - `follow_latest.derived` 恰好 2 条：`relay_planner` 和 `role_planner` 的 `eios:action:nexloop.plan.bind_effect_context:2`；
+   - `follow_latest.derived` 中本次新增恰好 3 条，来源均为 `stage-principals.v1.json` 的逐条 follow 声明（FOLLOWABLE 白名单，共 3 条）：
+     - `relay_planner` 和 `role_planner` 的 `eios:action:nexloop.plan.bind_effect_context:2`（L6 Q5，registrar）；
+     - `business_owner` 的 `eios:action:Consumer.create:2`（Q5′，负责人 2026-11-10 选定方案 1）；
      - 每条的 `scope_diff` 都是 `[{"type":"Consumer","from":1,"to":2}]`；
      - purpose 都以 `(schema publication <id>)` 结尾；
    - `refused` 为空；
    - 还会列出 `claim_matcher → Consumer.edit:2`：它来自 `service-grants.v1.json` 中 claim_matcher 对 `Consumer.edit:1` 的 follow 声明，R74 第 4 步已经写入，所以 dry-run 里会出现，但 register 不会重复新增；不要把它当成本次的新增派生；
    - `business_owner → configure_control` 不派生：EffectControl 没有新版本，configure_control 没有 `:2`。
    - 结果不同，或命令以 `follow_latest_refused` 退出，就停下，报调度员。
-4. **`register`**：去掉 `--dry-run` 后执行。预期 `grants_added` 只有上面派生的 `:2` 授权。
+4. **`register`**：去掉 `--dry-run` 后执行。预期 `grants_added` 只有上面派生的 3 条 `:2` 授权。
 5. **规则**：用 configurator 发布 `deploy/configuration/alert-rules.v37.json`。预期下一次评估的 `rules_version` 为 37。
 6. **只读核对**（tenant 替换为实际值）：
    ```sql
@@ -41,10 +43,7 @@
 7. **三条验证消息**（负责人），每条都要在 60 秒内收到回复：
    1. s6c-1（旧顾客，Consumer v2）：预期 `control.nexloop_effect_scope_proofs` 新增一行，executed 为 `…service.request:1`，proof 为 `…service.request:2`；
    2. customer-5（Consumer v1）：预期走 `:1`，不新增证明行；
-   3. 新建顾客（按 `run-add-synthetic-customer.md`）：**先要负责人决定**。business_owner 只持有 `Consumer.create:1`，L6 Q5 只允许 registrar 跟随，所以发布后新建顾客会被拒（Q6：不回落 v1）。本地 stage 路径测试 `tests/test_consumer_v2_stage_path_pg.py` 已证实这一点。两个做法任选其一，选定后再做这一条：
-      - 给 business_owner → `Consumer.create:1` 加 follow 声明，走同一套 Q4 校验；
-      - 显式授予 `Consumer.create:2`。
-      - 选定之后的预期：新 Consumer 的 `schema_version=2`，回复成功，并新增一行证明。
+   3. 新建顾客（按 `run-add-synthetic-customer.md`）：**在 L6 复审 Q5′ 之后执行**。负责人 2026-11-10 选定方案 1：business_owner → `Consumer.create:1` 声明 follow，经第 3、4 步派生 `Consumer.create:2`（同一套 Q4 dry-run 校验；Q5′ 另要求后继的 scope 只变该类型的版本）。预期：新 Consumer 的 `schema_version=2`，回复成功，并新增一行证明。本地 stage 路径测试 `tests/test_consumer_v2_stage_path_pg.py` 已覆盖正向与反向对照。
    - 核对：
      ```sql
      select executed_resource,scope_proof_resource,publication_id,consumer_version,recorded_at from control.nexloop_effect_scope_proofs

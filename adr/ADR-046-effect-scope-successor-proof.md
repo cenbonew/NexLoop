@@ -4,7 +4,7 @@
 - **依据**：
   - 设计清单：`docs/planning-drafts/p0-consumer-v2-effect-chain-inventory-20261110.md`。
   - 迁移：`effect_scope_successor_proof`（0446）。
-  - 测试：`tests/test_effect_scope_successor_proof_pg.py`、`tests/test_create_versions_pg.py`、`tests/test_stage_follow_registrar.py`、`tests/test_relay_reply_alert_pg.py`。
+  - 测试：`tests/test_effect_scope_successor_proof_pg.py`、`tests/test_create_versions_pg.py`、`tests/test_stage_follow_registrar.py`、`tests/test_consumer_v2_stage_path_pg.py`、`tests/test_relay_reply_alert_pg.py`。
   - 关联：NX-040 F3（发布不写授权，§5）、ADR-030（效应 slot）。
   - 运行单：`docs/release/run-r76-consumer-v2-effect-chain.md`。
 
@@ -44,6 +44,7 @@
    - registrar 的两个 Action 在 `stage-principals.v1.json` 中逐条声明 `follow_latest_version`。
    - register 经 lineage 派生 `:N` 授权，dry-run 列出每条派生授权的 scope 差异；遇到被拒的后继时退出，从不派生 scope 扩大的后继（Q4/Q5）。
    - 发布本身仍不写授权。
+   - **Q5′（负责人 2026-11-10 “按推荐”）**：follow 另放宽到 business_owner → `Consumer.create:1`，不推广到其他效应或 create Action。FOLLOWABLE 白名单逐条列出，共 3 条，测试断言集合相等。`<Type>.create` 的后继除上述等价条件（去掉版本号后定义相等、人工发布且权限摘要不变）外，scope 中只允许 `<Type>` 的版本变化，否则拒绝（`create_scope_other_type`），register 不写任何授权。
 5. **新对象写最新已发布版本（Q6）**：
    - 新建对象由覆盖最新已发布版本、且调用方有授权的 `<Type>.create` 写入；不满足时抛错，不回落到 v1。
    - 就绪检查报告“最新版本没有 create Action 覆盖”的类型（`schema_create_uncovered`）。

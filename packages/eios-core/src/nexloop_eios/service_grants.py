@@ -317,6 +317,16 @@ def _rebinding_reason(pred,succ):
     return None
 
 
+def _create_scope_reason(name,pred,succ):
+    """Q5' (owner 2026-11-10): a followed <Type>.create may move only the version of <Type> in its scope."""
+    created=_CREATE.fullmatch(name)
+    if created and any(d['type']!=created.group(1) for d in scope_diff(pred,succ)):return 'create_scope_other_type'
+    return None
+
+
+_CREATE=re.compile(r'([A-Za-z][A-Za-z0-9_]*)\.create')
+
+
 def _published_by(succ):
     if succ.get('review_decision_id'):return ' (review decision '+str(succ['review_decision_id'])+')'
     return ' (schema publication '+str(succ['schema_publication_id'])+')'
@@ -336,7 +346,7 @@ def resolve_follow(manifest,lineage):
         if pred is None:continue  # base Action not published in this tenant yet: nothing to follow
         while (name,version+1) in versions:
             succ=versions[(name,version+1)]
-            reason=_rebinding_reason(pred,succ)
+            reason=_rebinding_reason(pred,succ) or _create_scope_reason(name,pred,succ)
             if reason:
                 refused.append({'principal':grant['principal'],'base':grant['resource_id'],'successor':succ['resource_id'],'reason':reason});break
             if (grant['principal'],succ['resource_id']) not in listed:
