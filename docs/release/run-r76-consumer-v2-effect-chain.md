@@ -41,7 +41,10 @@
 7. **三条验证消息**（负责人），每条都要在 60 秒内收到回复：
    1. s6c-1（旧顾客，Consumer v2）：预期 `control.nexloop_effect_scope_proofs` 新增一行，executed 为 `…service.request:1`，proof 为 `…service.request:2`；
    2. customer-5（Consumer v1）：预期走 `:1`，不新增证明行；
-   3. 新建顾客（按 `run-add-synthetic-customer.md`）：预期新 Consumer 的 `schema_version=2`（Q6），回复同样成功，并新增一行证明。
+   3. 新建顾客（按 `run-add-synthetic-customer.md`）：**先要负责人决定**。business_owner 只持有 `Consumer.create:1`，L6 Q5 只允许 registrar 跟随，所以发布后新建顾客会被拒（Q6：不回落 v1）。本地 stage 路径测试 `tests/test_consumer_v2_stage_path_pg.py` 已证实这一点。两个做法任选其一，选定后再做这一条：
+      - 给 business_owner → `Consumer.create:1` 加 follow 声明，走同一套 Q4 校验；
+      - 显式授予 `Consumer.create:2`。
+      - 选定之后的预期：新 Consumer 的 `schema_version=2`，回复成功，并新增一行证明。
    - 核对：
      ```sql
      select executed_resource,scope_proof_resource,publication_id,consumer_version,recorded_at from control.nexloop_effect_scope_proofs
