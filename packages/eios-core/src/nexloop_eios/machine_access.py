@@ -84,43 +84,22 @@ def publish_note_limits(path, *, database_url_file):
         return db.execute('select control.nexloop_publish_machine_note_limits(%s::jsonb)', (json.dumps(policy, sort_keys=True),)).fetchone()[0]
 
 
-def _configurator_window(bootstrap_dsn_file):
-    """The configurator login window of the deploy tools (scripts/deploy/configurator_window.py, the same one stage_secrets opens):
-    the publication runs inside it and the window closes after. It lives in the repository checkout, not in this package."""
-    import sys
-    from pathlib import Path
-    deploy = Path(__file__).resolve().parents[4] / 'scripts' / 'deploy'
-    if not (deploy / 'configurator_window.py').is_file():
-        raise ValueError('--bootstrap-dsn-file needs the repository checkout (scripts/deploy/configurator_window.py)')
-    if str(deploy) not in sys.path:
-        sys.path.insert(0, str(deploy))
-    from configurator_window import configurator_window
-    return configurator_window(bootstrap_dsn_file)
-
-
 def main(argv=None):
     import argparse
     import json
     from pathlib import Path
     p = argparse.ArgumentParser(prog='python -m nexloop_eios.machine_access')
     sub = p.add_subparsers(dest='command', required=True)
-    pub = sub.add_parser('publish-rate-policy', help='NX-062 M3: publish deploy/configuration/machine-rate-limits.v<N>.json (configurator DSN file or bootstrap window)')
-    notes = sub.add_parser('publish-note-limits', help='NX-062 M5c: publish deploy/configuration/machine-note-limits.v<N>.json (configurator DSN file or bootstrap window)')
-    for parser in (pub, notes):
-        parser.add_argument('--policy', type=Path, required=True)
-        # R76 step 5: a host with only the bootstrap DSN opens the configurator window for this call (exactly one of the two).
-        dsn = parser.add_mutually_exclusive_group(required=True)
-        dsn.add_argument('--database-url-file', type=Path)
-        dsn.add_argument('--bootstrap-dsn-file', type=Path)
+    pub = sub.add_parser('publish-rate-policy', help='NX-062 M3: publish deploy/configuration/machine-rate-limits.v<N>.json (configurator DSN file)')
+    pub.add_argument('--policy', type=Path, required=True)
+    pub.add_argument('--database-url-file', type=Path, required=True)
+    notes = sub.add_parser('publish-note-limits', help='NX-062 M5c: publish deploy/configuration/machine-note-limits.v<N>.json (configurator DSN file)')
+    notes.add_argument('--policy', type=Path, required=True)
+    notes.add_argument('--database-url-file', type=Path, required=True)
     a = p.parse_args(argv)
     publish = publish_note_limits if a.command == 'publish-note-limits' else publish_rate_policy
     try:
-        if a.bootstrap_dsn_file:
-            with _configurator_window(a.bootstrap_dsn_file) as configurator:
-                result = publish(a.policy, database_url_file=configurator)
-        else:
-            result = publish(a.policy, database_url_file=a.database_url_file)
-        print(json.dumps(result))
+        print(json.dumps(publish(a.policy, database_url_file=a.database_url_file)))
     except (RatePolicyRejected, ValueError, OSError):
         print(json.dumps({'error': 'policy_rejected_or_unavailable'}))
         return 1
