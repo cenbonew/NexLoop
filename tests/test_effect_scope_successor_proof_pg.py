@@ -217,3 +217,53 @@ def test_the_transitional_rule_goes_with_option_b(admin):
     assert key == ['stable_name']
     assert admin.execute('select count(*) from control.nexloop_effect_actions where version<>1').fetchone()[0] == 0
     assert admin.execute("select count(*) from pg_proc where proname='nexloop_effect_scope_successor_proof'").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize('versions,expected', [
+    ({}, 1),                                       # all four objects v1: the registrar :1
+    ({'Consumer': 2}, 2),                          # an existing customer after the publication: :2 holds Consumer:2 and the v1 rest
+    ({'Consumer': 2, 'Goal': 2}, None),            # no registrar version holds Goal:2
+    ({'EffectControl': 2}, None),                  # Consumer v1 but EffectControl v2: neither :1 nor :2 holds both
+], ids=['all_v1', 'consumer_v2', 'consumer_and_goal_v2', 'control_v2'])
+def test_the_registrar_version_covers_each_objects_exact_version(context_message, admin, tmp_path, versions, expected):  # noqa: F811
+    """L6 Q2: the highest version whose scope holds the four objects' exact (type, version), not the highest version then a check."""
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    from psycopg.types.json import Jsonb as J
+    f = context_message
+    tenant = f['original']['tenant']
+    publish_v2(f, admin, objects=False)  # :2 published and granted; the objects still v1
+    reply(f, tmp_path)                    # a bound step to ask about
+    step = admin.execute("select object_id,properties from ontology.objects where tenant_id=%s and type_name='PlanStep' order by created_at desc limit 1", (tenant,)).fetchone()
+    ids = {'PlanStep': step[0], 'Goal': step[1]['goal_id'], 'EffectControl': step[1]['control_id'], 'Consumer': step[1]['consumer_id']}
+    for type_name, version in versions.items():
+        old = admin.execute('select definition from ontology.object_type_versions where tenant_id=%s and type_name=%s and version=1', (tenant, type_name)).fetchone()[0]
+        admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,%s,%s) on conflict do nothing',
+                      (tenant, type_name, version, J({**old, 'version': version})))
+        admin.execute('update ontology.objects set schema_version=%s where tenant_id=%s and object_id=%s', (version, tenant, ids[type_name]))
+    session = f['planner']._session
+    with psycopg.connect(make_conninfo(f['original']['pg'], user='nexloop_api'), autocommit=True) as api:
+        chosen = api.execute('select authz.nexloop_effect_registrar_version(%s,%s,%s,%s)',
+                             (session.token_digest, session.world, 'bind', J({'verb': 'bind', 'step_id': step[0]}))).fetchone()[0]
+    assert chosen == expected
+
+
+def test_the_added_optional_property_is_ignored_on_the_1_path(context_message, admin, tmp_path):  # noqa: F811
+    """A'-3 (L6 suggestion): a v2 customer whose new optional property holds a value is answered at :1 exactly as before - the
+    registrar, the intent and the proof do not read Consumer properties - and the value reaches neither the Run's context input nor
+    its command. Limitation: in this fixture the Source's context carries no Consumer property at all (checked: an existing property's
+    value does not appear either), so the context half shows only that nothing new is read; property reads of context assembly stay
+    governed by property grants, independent of the Action version."""
+    import json as _json
+    f = context_message
+    tenant = f['original']['tenant']
+    publish_v2(f, admin)
+    marker = 'tuesday-evening-window'
+    admin.execute("""update ontology.objects set properties=properties||jsonb_build_object('delivery_windows',%s::text)
+        where tenant_id=%s and type_name='Consumer' and schema_version=2""", (marker, tenant))
+    assert f['relay'].run_once() == 'queued'
+    with active_worker(f, tmp_path) as (worker, activation, command, text):
+        assert marker not in text and marker not in _json.dumps(command)
+        receipt = worker.runtime_effect_tool(activation_ref=activation['activation_ref'], command=command, tool_operation='submit',
+                                             parameters={'message': 'v2 reply'})['receipt']
+    assert receipt['intent_id'] and [p[0] for p in proofs(admin)] == [f'eios:action:{EFFECT}:1']
