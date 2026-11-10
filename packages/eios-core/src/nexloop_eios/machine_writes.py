@@ -59,4 +59,4 @@ def commit(pool, signer, *, prefix, digest, capability, intent_id, params, prepa
                      (prefix, digest, capability, intent_id, canonical_payload(params), prepare_digest, text, signature))
 
 
-assert SIGNED_COMMAND_TTL <= timedelta(seconds=25)  # the SQL bound is 30 s (M5a); 20 s leaves room for clock and call time
+assert SIGNED_COMMAND_TTL.total_seconds() <= 25  # the SQL bound is 30 s (M5a); 20 s leaves room for clock and call time

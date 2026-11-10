@@ -18,7 +18,7 @@ from psycopg_pool import ConnectionPool
 from commercial_fixture import publish_registry_actions
 from nexloop_eios import machine_keys as K
 from nexloop_eios import machine_writes as W
-from support.tenants import TENANT_A as TENANT
+from support.tenants import TENANT_A as TENANT, TENANT_OTHER
 from test_machine_lifecycle_pg import desk, owner  # noqa: F401
 from test_machine_reads_pg import commitment, hexid, publish_types, put
 from test_machine_realm_pg import publish
@@ -226,7 +226,7 @@ def test_tenant_hygiene_of_the_intent_audit_and_the_member_erasure(notes):
                   (json.dumps(row[0]),))
         assert c.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == ''
         c.rollback()
-    admin.execute("select set_config('eios.tenant_id','synthetic-other',false)")
+    admin.execute("select set_config('eios.tenant_id',%s,false)", (TENANT_OTHER,))
     admin.execute("""insert into control.nexloop_workbench_member_erasures(tenant_id,subject_id,principals,erased_at) values(%s,%s,%s,clock_timestamp())""",
                   (TENANT, w['operator']['subject_id'], [w['operator']['principal_id']]))
-    assert admin.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == 'synthetic-other'
+    assert admin.execute("select current_setting('eios.tenant_id',true)").fetchone()[0] == TENANT_OTHER
