@@ -92,7 +92,7 @@
 | 6 | **Action publish**：`stage_secrets.py publish` 先 dry-run | 调度员 | 计划**只**新增第 1 节的 10 个 Action（business-actions v60、capabilities v13），同名同版本冲突 0。**另核**：stage 的 Consumer 已有 F3 发布的 v2（不在仓库清单里），dry-run 不得出现 Consumer 类型的新增或冲突；出现就停下。本地已用 `tests/test_r76_catalog_publish_after_consumer_v2_pg.py` 复现这一状态（不含这 10 个 Action 的目录 → 负责人 F3 发布 Consumer v2 → register），真实 `publish` 的 dry-run 只计划这 10 个，冲突为 0；正式 publish 前后 Consumer 的类型行、对象版本、`:2` 后继和 `:2` 授权逐字节不变；`workbench_roles --apply` 之后，owner 对 10 个 Action 都可达（已发布、已授权），并经受治理入口执行成功一个。确认后正式执行。未发布之前，工作台对这些 Action 返回 404 |
 | 7 | **工作台角色**：`workbench_roles.py --roles deploy/authorization/workbench-roles.v1.json --members <私有成员文件> --apply …`（参数同 run-34 §2） | 调度员 | owner 授权 108 个，operator 14 个 |
 | 8 | **register dry-run**：`stage_secrets.py register --dry-run --configurator-dsn-file …`（必须带 DSN，才会计算派生授权），输出存档 | 调度员 | 见下方“第 8 步预期” |
-| 9 | **register**：去掉 `--dry-run` 后执行。执行前后各跑一次第 4 节的“非空授权事实”只读查询并存档 | 调度员 | 输出 `grants_added` 为 3，`grants_revoked` 为 0，`credentials_created` 为空，`extra_grants_outside_manifest` 为 0（register 的输出只给计数，没有名为 grants_removed 的字段，撤销计数即 `grants_revoked`）。前后两次查询的差集**恰好**是第 8 步的 3 条，没有消失的行。本地 `tests/test_consumer_v2_stage_path_pg.py` 用同一差集断言（测试库没有 R74，所以多一条 `claim_matcher → Consumer.edit:2`，共 4 条） |
+| 9 | **register**：去掉 `--dry-run` 后执行。执行前后各跑一次第 4 节的“非空授权事实”只读查询并存档 | 调度员 | 输出 `grants_added` 为 3，`grants_revoked` 为 0，`credentials_created` 为空，`extra_grants_outside_manifest` 与上次 register 相同（6，即 nexloop-sim-* 模拟主体的授权；L6 判第 9 步时修正）（register 的输出只给计数，没有名为 grants_removed 的字段，撤销计数即 `grants_revoked`）。前后两次查询的差集**恰好**是第 8 步的 3 条，没有消失的行。本地 `tests/test_consumer_v2_stage_path_pg.py` 用同一差集断言（测试库没有 R74，所以多一条 `claim_matcher → Consumer.edit:2`，共 4 条）。首次 register 若遇 `nexloop_tenants` 锁超时（`configuration_rejected`，无写入），可重试一次；仍失败则停 |
 | 10 | **重启 api-1、api-2、gateway**，然后跑 **deploy gate**（与 R75 同款参数，`--before` 用当期阶段基线） | 调度员 | 见第 3 节。**gate 与 promote 分开执行，不串联** |
 | 11 | gate 结果经 L6 判定之后，单独执行 **promote** | 调度员 | promote 成功；部署 SHA/digest 与测试过的 release manifest 一致 |
 | 12 | **只读核对**（第 4 节） | 调度员执行，L6 判定 | 全部符合 |
@@ -210,7 +210,7 @@ select runtime.nexloop_metrics_snapshot('<TENANT_ID>','real')->'relay_replies';
 ## 6. 三条验证消息（负责人执行，L6 判定），每条都要在 60 秒内收到回复
 
 1. **s6c-1**（旧顾客，Consumer v2）：`control.nexloop_effect_scope_proofs` 新增一行，executed 为 `…service.request:1`，proof 为 `…service.request:2`。
-2. **customer-5**（Consumer v1）：走 `:1`，不新增证明行。
+2. **customer-5**（Consumer v1）：走 `:1`，不新增证明行。**注：customer-5 验证移到 R76.1 收尾（L6 有条件同意），本次不执行。**
 3. **新建顾客**（按 `run-add-synthetic-customer.md`），**在 L6 复审 Q5′ 之后执行**（L6 已于 2026-11-10 给出 PASS）：
    - 负责人 2026-11-10 选定方案 1：business_owner → `Consumer.create:1` 声明 follow，经第 8、9 步派生 `Consumer.create:2`，校验与第 8 步相同。Q5′ 另要求后继的 scope 只变化该类型的版本。
    - 预期：新 Consumer 的 `schema_version=2`；回复成功；新增一行证明。
