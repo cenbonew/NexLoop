@@ -120,6 +120,15 @@ class MockIdp:
         key = self.tamper.get('sign_with', self.key)
         return jws(key, self.kid, claims, self.tamper.get('header'))
 
+    def logout_token(self, subject, *, sign_with=None, header=None, **overrides):
+        """NX-067: an OIDC back-channel logout token for `subject`; a claim set to None in overrides is left out."""
+        now = int(time.time())
+        claims = {'iss': self.issuer, 'aud': self.client_id, 'iat': now, 'exp': now + 120, 'jti': secrets.token_urlsafe(12), 'sub': subject,
+                  'events': {'http://schemas.openid.net/event/backchannel-logout': {}}}
+        claims.update(overrides)
+        claims = {k: v for k, v in claims.items() if v is not None}
+        return jws(sign_with or self.key, self.kid, claims, header)
+
     def handle(self, request):
         path = urlsplit(str(request.url)).path
         if request.method == 'GET' and str(request.url) == self.base + '/jwks':

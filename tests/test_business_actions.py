@@ -57,7 +57,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.remediation.rule_release':'remediation.rule_release',
     'nexloop.workbench_member.promote_owner':'workbench_member.promote_owner','nexloop.workbench_member.demote_owner':'workbench_member.demote_owner','nexloop.workbench_member.suspend_owner':'workbench_member.suspend_owner','nexloop.workbench_member.resume_owner':'workbench_member.resume_owner','nexloop.workbench_member.revoke_owner':'workbench_member.revoke_owner',
     'nexloop.workbench_member.issue_owner_reset':'workbench_member.issue_owner_reset','nexloop.workbench_member.invite_owner':'workbench_member.invite_owner','nexloop.workbench_member.erase_member':'workbench_member.erase_member',
-    'nexloop.workbench_member.link_external':'workbench_member.link_external','nexloop.workbench_member.unlink_external':'workbench_member.unlink_external',
+    'nexloop.workbench_member.link_external':'workbench_member.link_external','nexloop.workbench_member.unlink_external':'workbench_member.unlink_external','nexloop.workbench_member.set_sso_group_mapping':'workbench_member.set_sso_group_mapping',
     'nexloop.claim_extraction.dead_letter_resolve':'claim_extraction.dead_letter_resolve',
     'nexloop.budget.loosen':'goals.budget.loosen',
     'nexloop.world_glossary.set':'world_glossary.set',
@@ -70,7 +70,7 @@ NX053_REVOKE={'nexloop.contact_key.revoke':'contact_key.revoke','nexloop.effect.
     'nexloop.machine_key.rotate':'machine_key.rotate',
     'nexloop.machine_key.revoke':'machine_key.revoke',
     'nexloop.machine_client.grant':'machine_client.grant',
-    'nexloop.machine_client.revoke_grant':'machine_client.revoke_grant'}  # NX-062 M2b machine access lifecycle (0435); stale action claims (0385); S42 relay backlog settlement (0376); world-model glossary (0374); NX-056 budget approval; NX-053 (0154), 0210, 0220, 0227, 0228, NX-057 R1/R2; owner only
+    'nexloop.machine_client.revoke_grant':'machine_client.revoke_grant','nexloop.object.add_note':'object.add_note'}  # NX-062 M5c object note (0443); NX-062 M2b machine access lifecycle (0435); stale action claims (0385); S42 relay backlog settlement (0376); world-model glossary (0374); NX-056 budget approval; NX-053 (0154), 0210, 0220, 0227, 0228, NX-057 R1/R2; owner only
 
 
 def object_types():

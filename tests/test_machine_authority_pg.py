@@ -237,10 +237,12 @@ def test_approvals_never_let_a_machine_decide_count_or_approve_alone(machine):
 
 
 def test_no_machine_writable_capability_is_published_anywhere(pg):
-    """The probe capability lives in fixtures only (L6 on 63bb2c85): after every migration no allowlist row is a write and no governed
-    capability is a test one; no deployment manifest names one either."""
+    """The probe capability lives in fixtures only (L6 on 63bb2c85): after every migration the only allowlisted write is the object note
+    (M5c) and no governed capability is a test one; no deployment manifest names one either."""
     with psycopg.connect(pg, autocommit=True) as admin:
-        assert admin.execute("select capability from control.nexloop_machine_capabilities where kind='write'").fetchall() == []
+        # NX-062 M5c (0443): the one published write is the object note; nothing else, and nothing named test.
+        assert admin.execute("select distinct capability from control.nexloop_machine_capabilities where kind='write'").fetchall() == [('object.add_note',)]
+        assert admin.execute("select capability from control.nexloop_machine_write_capabilities").fetchall() == [('object.add_note',)]
         assert admin.execute("select capability from control.nexloop_governed_capabilities where capability like 'test.%'").fetchall() == []
     for path in list((ROOT / 'deploy').rglob('*.json')) + list((ROOT / 'packages/eios-core/src/eios/migrations').glob('*.sql')):
         assert 'test.machine' not in path.read_text(encoding='utf-8'), path

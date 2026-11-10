@@ -78,3 +78,46 @@
 | P-6 | 清理：删除演练用的 pepper 文件和明文文件，在源端吊销这把合成密钥 | 吊销后源端返回 401 |
 
 演练记录写进演练报告，需要包含：执行人、判定人、时间（取自 `date`）、各步的状态码。
+
+## 4. M5：机器写入与对象备注（B 类，本单只准备，不执行）
+
+- **适用**：NX-062 M5a（机器授权事实、审批排除）、M5b（prepare / commit / 查询与 0124 机器分支）、M5c（对象备注、写入路由、工作台入口）。执行：调度员；判定：L6。
+- **迁移**：本批 NX-062 M5 的三个迁移（0441 机器授权、0442 机器写入、0443 对象备注；组批时会重新编号）。和以前一样，先备份再迁移。
+
+### 4.1 部署步骤（按顺序）
+
+1. 备份：`sudo -n systemctl start nexloop-pg-diff.service`，确认成功后再迁移。
+2. 迁移。
+3. **新 Action 先 publish**：`stage_secrets.py publish` 先 dry-run，确认计划里有 `nexloop.object.add_note`（business-actions v59、capabilities v12），然后正式执行。没发布之前：工作台的“保存备注”返回 404，机器 commit 返回 403 `not_permitted`（找不到 Action 定义）。
+4. 工作台角色清单 v56：重新配置（owner 拥有 107 个 Action，operator 14 个；reviewer 只能读备注）。
+5. 机器备注上限：以 configurator 身份发布。**不发布就是关闭**：所有机器备注返回 429 `note_limit_policy_missing`，人写的备注不受影响。
+
+   ```bash
+   python -m nexloop_eios.machine_access publish-note-limits --policy deploy/configuration/machine-note-limits.v1.json --database-url-file <configurator DSN 文件>
+   ```
+
+6. 重启 api-1、api-2。先跑 deploy gate，通过后再 promote，两步不要连在一起执行。
+7. 路由清单 v17 已包含三条机器写入路由和备注读取路由。Gateway 不需要改：`/machine/*` 已经转发，转发时删除身份头，也不记 URI。
+
+### 4.2 验收演练（stage test world、合成主体；待调度员安排执行）
+
+1. 负责人在工作台登记 `s6c-machine`（或沿用已有的），给它授予 `object.add_note`，类型选 Commitment。
+2. 签发一把 world 为 test、scope 为 `object.add_note` 的密钥。
+3. 用这把密钥依次调用：
+   - `POST /machine/v1/prepare`，带一个合成 Commitment 的 ID 和一句不含个人信息的备注：返回 200，带 prepare_digest。
+   - `POST /machine/v1/commit`，用同一个 intent 并带上这个 prepare_digest：返回 200，phase 为 committed。
+   - `GET /machine/v1/intents/<intent>`：结果与 commit 相同。同一请求再 commit 一次：返回首次结果，replayed 为 true。
+4. 换参数再 commit：返回 409。把 prepare 放过 10 分钟再 commit：返回 410。
+5. 工作台打开这条承诺：备注显示为“机器客户端 s6c-machine 的备注 · 未核实陈述”，正文是纯文本。owner 在页面上加一条备注，可以成功保存。
+6. 收回授权后再 prepare：返回 403。
+7. 审计里有 `machine.intent.prepare`、`machine.intent.commit`、`object.note.add`，三条记录都不含正文。
+
+### 4.3 隐私说明（给负责人）
+
+- 备注是**未核实陈述**：不会写进对象属性，不作为证据，不进入 agent 的提示，不出现在机器读取的结果里，也不包含在消费者导出和 NX-054 导出包里。
+- 正文里**不要写姓名、电话等个人信息**，工作台输入框和机器能力说明都有这句提示。
+- 擦除规则：
+  - 消费者擦除：挂在该消费者对象上的备注，以及正文里写了该消费者 ID 的备注，正文都会改写为“[已擦除]”。
+  - 成员擦除：改写该成员写的备注。
+  - 对象删除（例如保留期到期）：备注随对象一起删除。
+- **无法擦除的情况**：正文里写了某人的姓名或电话，而备注所在的对象没有关联到该消费者、正文也没有写出消费者 ID 时，消费者擦除识别不出这条备注，只有等对象删除才会消失。这是已知限制。

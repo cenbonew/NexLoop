@@ -1,0 +1,6 @@
+{
+  "schema_version": "nexloop-machine-note-limits/1",
+  "manifest_version": 1,
+  "notes_per_client_per_day": 200,
+  "notes_per_object_per_day": 20
+}

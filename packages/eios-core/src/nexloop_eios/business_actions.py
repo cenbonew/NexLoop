@@ -113,6 +113,7 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'workbench_member.erase_member':'human_owner',
     # NX-058 slice F: linking and unlinking an operator's or reviewer's IdP subject (single sign-on).
     'workbench_member.link_external':'human_owner','workbench_member.unlink_external':'human_owner',
+    'workbench_member.set_sso_group_mapping':'human_owner',  # NX-067 (migration nx067_oidc_gaps)
     # Extraction dead letters (2026-10-26): the owner requeues or dismisses one dead-lettered claim-extraction job.
     'claim_extraction.dead_letter_resolve':'human_owner',
     # NX-056 budget approval: loosening a budget, under an NX-056 approval policy.
@@ -135,7 +136,9 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'machine_key.rotate':'human_owner',
     'machine_key.revoke':'human_owner',
     # NX-062 M4a (0440, ADR-041 A1): grant or revoke one machine read capability for a set of object types.
-    'machine_client.grant':'human_owner','machine_client.revoke_grant':'human_owner'}
+    'machine_client.grant':'human_owner','machine_client.revoke_grant':'human_owner',
+    # NX-062 M5c (0443): the object note, workbench owner and operator, and machine clients through prepare and commit.
+    'object.add_note':'human_owner'}
 HUMAN_OWNER='human_owner'
 
 

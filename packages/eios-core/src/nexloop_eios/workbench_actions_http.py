@@ -290,6 +290,13 @@ OPERATIONS={
         'external_subject':lambda v:v if type(v) is str and 0<len(v)<=255 and v==v.strip() and v.isprintable() else (_ for _ in ()).throw(ValueError('subject')),
         'login_mode':lambda v:v if v in ('sso_only','sso_or_password') else (_ for _ in ()).throw(ValueError('mode'))},
     'unlink_workbench_external':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}'))},
+    # NX-067 (owner only): a configured provider's IdP group mapping {group: operator|reviewer}; {} clears it. expected_revision is the
+    # current revision (0 before the first), so two owners never overwrite each other.
+    'set_sso_group_mapping':{'provider_id':_id(re.compile(r'[a-z][a-z0-9_-]{0,31}')),
+        'group_claim':_id(re.compile(r'[A-Za-z][A-Za-z0-9_.:/-]{0,127}')),
+        'mappings':lambda v:v if type(v) is dict and len(v)<=64 and all(type(k) is str and 0<len(k)<=256 and k==k.strip() and k.isprintable()
+            and x in ('operator','reviewer') for k,x in v.items()) else (_ for _ in ()).throw(ValueError('mappings')),
+        'expected_revision':lambda v:v if type(v) is int and type(v) is not bool and 0<=v<=1000000 else (_ for _ in ()).throw(ValueError('revision'))},
     # NX-058 slice D2 (owner only, NX-056 approval): owner targets; demote's new role is operator or reviewer (S2, SQL checks it again).
     'promote_workbench_member':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason},
     'demote_workbench_owner':{'target_principal':_id(re.compile(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}')),'reason':_reason,
@@ -335,6 +342,9 @@ OPERATIONS={
     'answer_human_question':{'question_id':_id(_UUID),'answer_kind':lambda v:v if v in ('answer','withdraw') else (_ for _ in ()).throw(ValueError('answer kind')),
         'option_index':lambda v:v if v is None or (type(v) is int and 0<=v<=3) else (_ for _ in ()).throw(ValueError('option index')),
         'text':lambda v:v if v is None or (type(v) is str and 1<=len(v)<=500) else (_ for _ in ()).throw(ValueError('text'))},
+    # NX-062 M5c (0443, owner and operator): one unverified note on a visible Commitment or CommercialRecord (plain text, no personal data).
+    'object_note_add':{'type_name':lambda v:v if v in ('Commitment','CommercialRecord') else (_ for _ in ()).throw(ValueError('type')),
+        'object_id':_id(re.compile(r'[a-f0-9]{64}')),'text':lambda v:v if type(v) is str and 1<=len(v)<=2000 else (_ for _ in ()).throw(ValueError('text'))},
     # NX-062 M2b (0435, owner only): the machine access lifecycle. issue and rotate take no key fields from the body: the entry draws the key
     # (nexloop_eios.machine_keys) and passes only its prefix, digest and pepper version on; the key is shown once, in a response that executed.
     'register_machine_client':{'client_id':_id(_MACHINE_CLIENT),'display_name':_text,'purpose':_reason},
@@ -482,7 +492,7 @@ def router(config,*,ports_for_browser):
                 drawn=MK.generate()
                 code=drawn.token
                 fields={**fields,'prefix_id':drawn.prefix_id,'digest':MK.digest(drawn,peppers,peppers.current).hex(),'pepper_version':peppers.current}
-            if operation=='link_workbench_external' or (operation=='invite_workbench_member' and 'sso_provider' in fields):
+            if operation in ('link_workbench_external','set_sso_group_mapping') or (operation=='invite_workbench_member' and 'sso_provider' in fields):
                 # Only a configured provider (the same file the login uses); its issuer, never the body's.
                 from nexloop_eios.workbench_oidc import OidcClient,load_providers
                 try:
@@ -507,9 +517,11 @@ def router(config,*,ports_for_browser):
             return error('unauthenticated',401)
         except LookupError:
             return error('not_found',404)
+        except psycopg.errors.NoDataFound:
+            return error('not_found',404)  # NX-062 M5c: a handler's not_found (e.g. a note on an object the member cannot see)
         except psycopg.errors.InvalidParameterValue as refused:
             # 0210: a determination refusal names its fixed code (never a value); other handlers stay without details.
-            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question|machine access): ([a-z_]{1,40})',refused.diag.message_primary or '')
+            code=re.fullmatch(r'(?:effect determination|remediation|shadow copy|experiment report|consumer twin|strategy|experiment|consumer erasure|operator persona|contact preference|outreach controls|outreach purposes|outreach send|outreach approval|marketing consent|object sets|semantic release|evolution stop|object views|sim world|sim generation|sim clock|workbench member|extraction dead letter|approval|budget|relay backlog|action claim settle|human question|machine access|object note): ([a-z_]{1,40})',refused.diag.message_primary or '')
             if code and code.group(1)=='rate_limited':
                 # L6 B-1/A-10: an issuing limit answers like the browser limiter (429 with Retry-After: the 15-minute window).
                 limited=error('rate_limited',429,{'reason':'rate_limited'});limited.headers['Retry-After']='900';return limited

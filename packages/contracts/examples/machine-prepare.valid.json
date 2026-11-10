@@ -1,0 +1,11 @@
+{
+  "intent_id": "crm-sync-2026-11-10-0001",
+  "prepare_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "expires_at": "2026-11-10T07:10:00.000+00:00",
+  "normalized": {
+    "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "text": "客户确认周五前收货",
+    "type_name": "Commitment"
+  },
+  "replayed": false
+}

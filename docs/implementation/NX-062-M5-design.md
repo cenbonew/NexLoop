@@ -173,3 +173,92 @@ L6 同意 D-2 至 D-5 的方向。以下各条覆盖前文中与之冲突的说�
 
 - 审批决定的排除改为在 `control.nexloop_approval_decisions` 上加触发器（见 [NX-062-M5a-machine-authority.md](NX-062-M5a-machine-authority.md)）。原因：handler 在注册表里按 oid 登记，改名包装不生效，而整段重写原函数又过不了 copy guard。
 - 机器事实采用 §2 表中的六类机器专属事实；controls、resource_graph、revision 这三类租户级事实不纳入机器断言。租户级的控制在 handler 和派发时照常检查。
+
+## 11. 对象备注（负责人 2026-11-10 选 A，送 L6 审）
+
+负责人原话“A，按推荐”：新建人和机器共用的对象备注。本节取代 §1 中“需要负责人确认”的部分，L6 列的四条作为验收项（V-1 至 V-4）。
+
+### 11.1 数据与 Action
+- 表 `runtime.nexloop_object_notes`：
+  - 列：tenant_id、world、note_id、type_name、object_id、author_kind（human|machine）、author_principal_id、author_subject_id、client_id（机器才有）、text、created_at、request_ref。
+  - 主键 (tenant_id, world, note_id)，租户外键，RLS 和强制 RLS，只有 nexloop_owner 的策略。所有应用角色都没有直接读写权限，读写都经 SECURITY DEFINER 函数。
+  - append-only，只有擦除改写和随对象删除两条例外，都经专用函数，函数里核对调用来源。
+- 受治理 Action `nexloop.object.add_note:1`：operation `object_note_add`，`subject_rule` 为 `agent_or_human`，handler `runtime.nexloop_governed_object_note`。
+  - 参数只有 type_name、object_id、text、request_id，未知字段 422。
+  - 目标必须是 Commitment 或 CommercialRecord，并且对作者可见。人类按工作台对对象的读取权限判断，机器按授权类型和 M4 的可见性函数判断。不可见、不存在、他人租户一律 404。
+  - 正文 1–2000 字符，去掉控制字符和双向控制符。
+  - 不改对象、不改 revision，不触发通知、派发或任何外部效应，所以不需要审批策略。
+- 机器写入走 M5b 的 prepare / commit。授权守卫扩展后，授权类型限定为上面两类。
+
+### 11.2 V-1 纯文本显示与标注
+- 工作台对象页新增备注列表和输入框。正文按纯文本渲染：只用文本节点，不用 innerHTML 或 Markdown，不把链接转成可点击。
+- 每条备注显示作者类型。机器写的标为“机器客户端 <client_id> 的备注 · 未核实陈述”，人写的标为“<成员显示名> 的备注 · 未核实陈述”。
+- 测试：
+  - 前端单测：正文为 `<img src=x onerror=…>`、`javascript:` 链接、Markdown 链接时，DOM 里只有文本节点；
+  - HTTP 测试：读取接口返回的正文原样，不做 HTML 转换，`Content-Type` 为 JSON；
+  - 标注文本出现在页面上。
+
+### 11.3 V-2 不进 agent 提示的指令区，不作为事实证据
+- 读取函数只授权给工作台读取路径（`nexloop_api` 经工作台会话）。不授权给 `nexloop_runtime`、`nexloop_domain_worker`、`nexloop_action_worker`、`nexloop_scheduler`，Pi Runtime 的上下文构造读不到备注。
+- 备注不是 ontology 对象，不能被 Claim、Commitment 的 evidence 或 fulfillment_evidence 引用。证据引用的校验函数不接受 note_id 形状的引用。
+- 守护测试：
+  - 遍历 pg_proc，断言只有登记的几个函数引用这张表；
+  - Runtime 角色直读这张表、调用读取函数都是 42501；
+  - 用 note_id 构造证据引用，被拒。
+- 以后如果要让 agent 看到备注，必须另立任务，放进上下文的“数据区”并标注来源和未核实，不在本期。
+
+### 11.4 V-3 擦除
+- 消费者擦除：
+  - 目标对象关联到被擦除消费者的备注，正文改写为固定标记，作者字段保留；
+  - 判定复用 NX-054 的对象到消费者关联函数（`runtime.nexloop_object_consumers_read`）；
+  - 正文里写了消费者 ID 但对象没有关联的情况，按擦除时对正文做该消费者 ID 精确匹配，也改写。
+- 成员擦除：作者是被擦除成员的备注，作者的 principal 和 subject 改写为擦除占位，正文改写为固定标记。
+- 两张覆盖表都登记这张表，整库擦除测试覆盖。
+- 保留期：对象删除时，同一事务里删除它的备注，包括保留期到期的删除。legal hold 期间对象不删，备注也不删。
+- 测试：两种擦除各一条（擦除前后正文和作者），对象删除带走备注，legal hold 期间不删。
+
+### 11.5 V-4 人类入口
+- 工作台走现有的受治理 Action 通道（`/workbench/actions/...`），CSRF 头、会话、Origin 检查沿用现有中间件。
+- 权限：工作台角色清单新增 `object.add_note`，给 owner 和 operator（reviewer 只读）。SQL 侧 handler 再核对一次当前角色和对象可见性。
+- 测试：
+  - 没有 CSRF、CSRF 错误、跨 Origin 都返回 403；
+  - reviewer 返回 403；
+  - 看不到的对象返回 404；
+  - 正常提交 200，并写一条审计。
+
+### 11.6 切片
+- M5b：意图表、prepare / commit / 查询、0124 机器分支、授权守卫扩展到写能力、机器请求的审批请求人，加上备注表和 Action 的 SQL 与擦除（V-3）、V-2 的守护。
+- M5c：HTTP 路由与契约、工作台备注入口（V-1、V-4）、stage test world 演练、运行单。
+- 新 Action 要更新 `test_stage_register_pg` 的计数，部署说明写明先 publish 再验证。
+
+### 11.7 L6 条件 PASS 的补充（4db1be86，W1–W3 与审计）
+
+**W1 机器读取不返回备注；API 进程内没有能读到备注的 LLM 功能**
+- 本期四个机器读取动词（object.get、object.list、object.neighbors、commitment.list）都不返回备注。守护测试：遍历 `pg_proc`，`authz.nexloop_machine_%` 读取路径的函数体不引用 `nexloop_object_notes` 或备注读取函数；读取结果的字段集合与登记的投影相等（M4 已有），投影里没有 notes。
+- 核实结果（bbe5175b）：`nexloop_eios` 包里调用模型的只有会话抽取 `conversation_extraction.py`（NX-019，输入是会话消息，把模型当不可信的提议者）。`consumer_channel.py` 里出现的 `/api/v1/messages` 是渠道接口地址，不是模型调用。WebChat（`webchat_consumers.py`）没有模型调用，也没有助手类功能经 API 角色读取工作台数据。
+- 守护测试：Python 侧在 `nexloop_eios` 包内 grep，除备注模块、工作台读取和 HTTP 模块外，没有模块引用备注读取函数名或备注表名；会话抽取模块尤其不能引用。
+
+**W2 正文里的个人信息**
+- 限制写明：正文里写了某人的姓名或电话，而对象没有关联到该消费者，也没有写出消费者 ID 时，消费者擦除无法识别这条备注，正文擦不掉。对象删除时备注才会被删除。
+  - 这条限制写进运行单和隐私说明（`docs/` 下面向负责人的隐私说明，M5c 一起改）。
+  - 工作台输入框提示“不要写入姓名、电话等个人信息；备注是未核实陈述”。
+  - 机器的 capabilities 返回里，对 `object.add_note` 的说明里写同一句话。
+- 导出：NX-029 的消费者导出（`data_export.py`）和 NX-054 的导出包都只经已有的受治理读取组装，本期都**不包含备注**。守护测试：两个导出模块和它们调用的 SQL 函数不引用备注表或备注读取函数。以后要把备注加进导出，必须走同一套擦除，并另立任务。
+
+**W3 机器写入上限（必须）**
+- M3 的限速仍然适用：每把密钥每分钟 60 次，每个租户每分钟 600 次（`deploy/configuration/machine-rate-limits.v1.json` v1），prepare 和 commit 各计一次。
+- 另设备注条数上限，由 handler 在 SQL 里按备注表计数，超过就拒绝，错误码 `note_limit`，HTTP 429，不消耗意图：
+  - 每个机器客户端每个自然日（UTC）最多 200 条；
+  - 每个对象每个自然日，所有机器客户端合计最多 20 条；
+  - 人类作者不受这两个上限约束，只受工作台已有的限流。
+- 两个数值放进同一份 machine-rate-limits manifest（manifest_version +1，新增 `notes_per_client_per_day`、`notes_per_object_per_day`），由现有的发布命令写进 PG 的限速策略表。策略缺失时机器写入拒绝（与 M3 的 fail-closed 一致）。
+- 测试：第 201 条和同一对象的第 21 条被拒，不写备注、不改意图；人类作者不受影响；策略缺失时拒绝。
+
+**审计**
+- 备注写入的审计事件只记 note_id、作者（principal、作者类型、机器的 client_id 和 key_prefix）、对象（type_name、object_id）、intent 或 request ID，**不记正文**，也不记正文的长度或摘要。
+- 测试：写入一条带标记值的备注，断言 `runtime.audit_events` 里所有相关行的 payload 都不含这个标记值，字段集合等于上面的清单。
+
+## 12. 实现时的调整（M5b）
+
+- 对象备注拆到 M5c，与 HTTP 路由和契约一起交付。
+- NX-056 的审批策略只能配给 human 能力，所以机器请求在生产中目前不会进入审批；pending_approval 路径用测试证明可用。第二期效应能力需要放宽策略守卫，届时另行设计。详见 [NX-062-M5b-machine-writes.md](NX-062-M5b-machine-writes.md)。

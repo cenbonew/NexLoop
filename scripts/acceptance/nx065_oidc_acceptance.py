@@ -17,7 +17,13 @@ Configuration (private JSON, 0600, owned by the runner):
      "provider_id": "<PROVIDER_ID>", "owner_username_file": "<0600 file>",
      "member": {"principal_id": "<synthetic operator or reviewer principal>"},
      "users": {"A": {"subject": "<IdP sub of A>"}, "B": {"subject": "<IdP sub of B, never linked>"}},
-     "owner_group": "<name of the IdP group A is put in that would mean owner, if groups mapped to roles>"}
+     "owner_group": "<name of the IdP group A is put in that would mean owner, if groups mapped to roles>",
+     "group_mapping": null | {"operator_group": "<IdP group mapped to operator>", "reviewer_group": "<IdP group mapped to reviewer>",
+                              "expected_revision": <the provider's current mapping revision, 0 before the first>},
+     "backchannel": true | false, "backchannel_wait_seconds": 60, "max_session_seconds": <the provider's, 900-43200>}
+With group_mapping the script sets {operator_group: operator, reviewer_group: reviewer} by the owner's governed Action and clears it at
+the end (NX-067); without it groups.mapping is reported not_configured. With backchannel false disable.sync.backchannel is reported
+not_configured. disable.sync.max_session waits max_session_seconds + 60 seconds (use an acceptance provider with 900).
 
 Checks (one JSON line each, then a summary; no subject, code, state, cookie, token, username or password is printed):
   login.unlinked_refused      B (never linked) is sent back to /workbench?sso=failed and has no session
@@ -25,13 +31,17 @@ Checks (one JSON line each, then a summary; no subject, code, state, cookie, tok
   login.callback_one_time     the same callback a second time is refused and opens no session
   groups.no_role_from_idp     A, placed in owner_group at the IdP, still cannot run an owner Action: its session and CSRF fetch are 200,
                               a control call with a wrong CSRF token is 401 (so the Origin was accepted) and the attempt is 403 forbidden
-  groups.mapping              GAP: the product maps no IdP group to a role (roles come only from the workbench roles manifest)
+  groups.mapping              with group_mapping: A in operator_group signs in and its operator Action is not refused; A in
+                              reviewer_group only is refused (operator and reviewer share no Action) and the session it had loses the
+                              operator Action (403); back in operator_group it signs in again. Without group_mapping: GAP not_configured
   disable.idp_refuses         A disabled at the IdP: a new SSO sign-in does not complete
-  disable.sync                the first SSO session is 200 before the disable and 401 after (passed); 200 after is a GAP (the session
-                              outlives the disable); anything else failed
+  disable.sync.backchannel    the first SSO session is 200 before the disable and 401 within backchannel_wait_seconds after the IdP's
+                              back-channel logout (passed); still 200 is failed; backchannel false: GAP not_configured
+  disable.sync.max_session    a fresh SSO session is 200 and 401 after max_session_seconds + 60 seconds (the upper bound without a
+                              back-channel)
   epoch.unlink_ends_sessions  the owner unlinks the member: both SSO sessions end (401)
   epoch.relink_new_only       A re-enabled and re-linked signs in again; the sessions ended before stay ended
-All nine checks must appear, else run.incomplete fails the run; an exception ends the run with one failed line (its type
+All ten checks must appear, else run.incomplete fails the run; an exception ends the run with one failed line (its type
 only) and the clean-up steps still run one by one.
 Exit: 0 every check passed and no gap; 3 every check passed but gaps remain (NX-065 is not complete); 1 a check failed;
 2 input refused.
@@ -51,7 +61,9 @@ AUTH = '/api/v1/workbench/auth'
 START, CALLBACK = AUTH + '/oidc/start', AUTH + '/oidc/callback'
 FAILED = '/workbench?sso=failed'
 REQUIRED = frozenset({'login.unlinked_refused', 'login.linked_signs_in', 'login.callback_one_time', 'groups.no_role_from_idp', 'groups.mapping',
-                      'disable.idp_refuses', 'disable.sync', 'epoch.unlink_ends_sessions', 'epoch.relink_new_only'})
+                      'disable.idp_refuses', 'disable.sync.backchannel', 'disable.sync.max_session', 'epoch.unlink_ends_sessions',
+                      'epoch.relink_new_only'})
+QUESTION_PROBE = '00000000-0000-4000-8000-000000000065'  # an operator Action on a question that does not exist: 403 only when refused
 
 
 class InputRefused(Exception):
@@ -77,9 +89,21 @@ def load_config(path):
         raise
     except Exception:
         raise InputRefused('configuration: not JSON') from None
-    needed = {'schema', 'origin', 'provider_id', 'owner_username_file', 'member', 'users', 'owner_group'}
-    if type(config) is not dict or not needed <= set(config) or not set(config) <= needed | {'ca_file'} or config['schema'] != SCHEMA:
-        raise InputRefused('configuration: fields ' + ', '.join(sorted(needed)) + ' (and ca_file)')
+    needed = {'schema', 'origin', 'provider_id', 'owner_username_file', 'member', 'users', 'owner_group', 'group_mapping', 'backchannel',
+              'max_session_seconds'}
+    if type(config) is not dict or not needed <= set(config) or not set(config) <= needed | {'ca_file', 'backchannel_wait_seconds'} or config['schema'] != SCHEMA:
+        raise InputRefused('configuration: fields ' + ', '.join(sorted(needed)) + ' (and ca_file, backchannel_wait_seconds)')
+    mapping = config['group_mapping']
+    if mapping is not None and (type(mapping) is not dict or set(mapping) != {'operator_group', 'reviewer_group', 'expected_revision'}
+                                or not all(type(mapping[k]) is str and mapping[k] for k in ('operator_group', 'reviewer_group'))
+                                or mapping['operator_group'] == mapping['reviewer_group']
+                                or type(mapping['expected_revision']) is not int or mapping['expected_revision'] < 0):
+        raise InputRefused('configuration: group_mapping null or {operator_group, reviewer_group, expected_revision}')
+    if type(config['backchannel']) is not bool or type(config['max_session_seconds']) is not int or not 900 <= config['max_session_seconds'] <= 43200:
+        raise InputRefused('configuration: backchannel true or false, max_session_seconds 900-43200')
+    wait = config.get('backchannel_wait_seconds', 60)
+    if type(wait) is not int or not 1 <= wait <= 600:
+        raise InputRefused('configuration: backchannel_wait_seconds 1-600')
     if not str(config['origin']).startswith('https://') or type(config['member']) is not dict or not config['member'].get('principal_id'):
         raise InputRefused('configuration: https origin and member.principal_id')
     users = config['users']
@@ -121,7 +145,8 @@ class TerminalIdp:
                   f'{"to" if member else "from"} group {group}, then press Enter: ')
 
     def set_enabled(self, user, enabled):
-        self._ask(f'\nAt the IdP admin console {"enable" if enabled else "disable"} synthetic user {user}, then press Enter: ')
+        what = 'enable' if enabled else 'disable (and end every IdP session of)'
+        self._ask(f'\nAt the IdP admin console {what} synthetic user {user}, then press Enter: ')
 
 
 def http_client(config):
@@ -130,8 +155,9 @@ def http_client(config):
 
 
 class Acceptance:
-    def __init__(self, config, owner_password, idp, client_factory):
-        self.config, self.idp, self.new_client = config, idp, client_factory
+    def __init__(self, config, owner_password, idp, client_factory, sleep=None):
+        import time
+        self.config, self.idp, self.new_client, self.sleep = config, idp, client_factory, sleep or time.sleep
         self._password = owner_password
         self.origin = config['origin'].rstrip('/')
         self.results = []
@@ -160,6 +186,23 @@ class Acceptance:
 
     def unlink(self, client, csrf):
         return self.act(client, csrf, 'unlink_workbench_external', {'target_principal': self.config['member']['principal_id']})
+
+    def set_mapping(self, owner, csrf, mappings, revision):
+        return self.act(owner, csrf, 'set_sso_group_mapping', {'provider_id': self.config['provider_id'], 'group_claim': 'groups',
+                                                                'mappings': mappings, 'expected_revision': revision})
+
+    def clear_mapping(self, owner, csrf):
+        if getattr(self, 'mapping_revision', None) is not None:
+            if self.set_mapping(owner, csrf, {}, self.mapping_revision).status_code == 200:
+                self.mapping_revision = None
+
+    def operator_action(self, client):
+        """403 when the member may not run its operator Action; anything else (the question does not exist) when it may."""
+        token = client.post(AUTH + '/csrf', headers=self._headers())
+        if token.status_code != 200:
+            return token.status_code
+        return self.act(client, token.json()['csrf_token'], 'answer_human_question',
+                        {'question_id': QUESTION_PROBE, 'answer_kind': 'withdraw', 'option_index': None, 'text': None}).status_code
 
     def sign_in(self, user):
         """A fresh browser: start, sign in at the IdP, come back. Returns (client, callback response, query) or raises IdpRefused."""
@@ -196,6 +239,8 @@ class Acceptance:
         finally:
             # Each clean-up step on its own: one that raises must not skip the others.
             for step in (lambda: self.unlink(owner, csrf),  # leave the synthetic member unlinked (404/409 when already unlinked is fine)
+                         lambda: self.clear_mapping(owner, csrf),
+                         lambda: self.config['group_mapping'] and self.idp.set_group('A', self.config['group_mapping']['operator_group'], False),
                          lambda: self.idp.set_enabled('A', True),
                          lambda: self.idp.set_group('A', self.config['owner_group'], False),
                          lambda: owner.post(AUTH + '/logout', headers=self._headers(csrf))):
@@ -241,7 +286,7 @@ class Acceptance:
         self.expect('groups.no_role_from_idp', done.status_code == 303 and grouped_session == 200 and member_csrf.status_code == 200
                     and control.status_code == 401 and attempt.status_code == 403 and body.get('code') == 'forbidden',
                     http=attempt.status_code, csrf_http=member_csrf.status_code, control_http=control.status_code, session_http=grouped_session)
-        self.record('groups.mapping', 'gap', observed='roles come only from the workbench roles manifest; no ID token group claim is read')
+        self.idp.set_group('A', self.config['owner_group'], False)
         # disable at the IdP (L6 X1: the session must be live before the disable, else the result proves nothing)
         before, _ = self.session(first)
         self.idp.set_enabled('A', False)
@@ -251,14 +296,16 @@ class Acceptance:
         except IdpRefused:
             completed = False
         self.expect('disable.idp_refuses', not completed)
-        after, _ = self.session(first)
-        if before == 200 and after == 401:
-            self.record('disable.sync', 'passed', session_http=[before, after])
-        elif before == 200 and after == 200:
-            self.record('disable.sync', 'gap', session_http=[before, after],
-                        observed='an SSO session outlives the IdP-side disable until the owner unlinks the member')
+        if not self.config['backchannel']:
+            after, _ = self.session(first)
+            self.record('disable.sync.backchannel', 'gap' if before == 200 else 'failed', observed='not_configured', session_http=[before, after])
         else:
-            self.record('disable.sync', 'failed', session_http=[before, after])
+            waited, after = 0, self.session(first)[0]
+            while after == 200 and waited < self.config.get('backchannel_wait_seconds', 60):
+                self.sleep(5)
+                waited += 5
+                after = self.session(first)[0]
+            self.expect('disable.sync.backchannel', before == 200 and after == 401, session_http=[before, after], waited_seconds=waited)
         # session epoch: unlinking ends every SSO session of the member
         unlinked = self.unlink(owner, csrf)
         codes = [self.session(c)[0] for c in (first, grouped)]
@@ -270,6 +317,39 @@ class Acceptance:
         codes = [self.session(c)[0] for c in (fresh, first, grouped)]
         self.expect('epoch.relink_new_only', relinked.status_code == 200 and done.status_code == 303 and codes == [200, 401, 401],
                     http=relinked.status_code, session_http=codes)
+        # Groups after the epoch checks: setting a mapping ends the provider's sessions (Z2). A stays in operator_group from here on.
+        self.groups_mapping(owner, csrf)
+        # The upper bound without a back-channel: a new SSO session ends max_session_seconds (+ 60 s leeway) after sign-in.
+        last, done, _ = self.sign_in('A')
+        live = self.session(last)[0]
+        self.sleep(self.config['max_session_seconds'] + 60)
+        ended = self.session(last)[0]
+        self.expect('disable.sync.max_session', live == 200 and ended == 401, session_http=[live, ended],
+                    waited_seconds=self.config['max_session_seconds'] + 60)
+
+    def groups_mapping(self, owner, csrf):
+        mapping = self.config['group_mapping']
+        if mapping is None:
+            self.record('groups.mapping', 'gap', observed='not_configured')
+            return
+        set_ = self.set_mapping(owner, csrf, {mapping['operator_group']: 'operator', mapping['reviewer_group']: 'reviewer'}, mapping['expected_revision'])
+        if set_.status_code != 200:
+            self.record('groups.mapping', 'failed', http=set_.status_code)
+            return
+        self.mapping_revision = set_.json()['revision']
+        self.idp.set_group('A', mapping['operator_group'], True)
+        mapped, done, _ = self.sign_in('A')
+        allowed = self.operator_action(mapped) if done.status_code == 303 and done.headers.get('location') == '/workbench' else None
+        self.idp.set_group('A', mapping['operator_group'], False)
+        self.idp.set_group('A', mapping['reviewer_group'], True)
+        _, narrowed, _ = self.sign_in('A')
+        refused_after = self.operator_action(mapped)
+        self.idp.set_group('A', mapping['reviewer_group'], False)
+        self.idp.set_group('A', mapping['operator_group'], True)
+        _, again, _ = self.sign_in('A')
+        self.expect('groups.mapping', allowed not in (None, 401, 403, 503) and narrowed.headers.get('location') == FAILED and refused_after == 403
+                    and again.headers.get('location') == '/workbench', operator_action_http=[allowed, refused_after],
+                    narrowed=narrowed.headers.get('location') == FAILED)
 
     def summary(self):
         statuses = [r['status'] for r in self.results]
@@ -282,7 +362,7 @@ class Acceptance:
         return exit_code
 
 
-def main(argv=None, *, stdin=None, idp=None, client_factory=None):
+def main(argv=None, *, stdin=None, idp=None, client_factory=None, sleep=None):
     parser = argparse.ArgumentParser(description='NX-065 OIDC acceptance against a synthetic IdP (owner password on stdin)')
     parser.add_argument('--config', required=True)
     args = parser.parse_args(argv)
@@ -291,7 +371,7 @@ def main(argv=None, *, stdin=None, idp=None, client_factory=None):
         password = (stdin or sys.stdin).readline().rstrip('\n')
         if not password:
             raise InputRefused('owner password: one line on stdin')
-        run = Acceptance(config, password, idp or TerminalIdp(), client_factory or (lambda: http_client(config)))
+        run = Acceptance(config, password, idp or TerminalIdp(), client_factory or (lambda: http_client(config)), sleep)
         return run.run()
     except InputRefused as refused:
         print(json.dumps({'refused': str(refused)}), flush=True)

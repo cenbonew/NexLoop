@@ -2,7 +2,7 @@
 
 - 状态：设计稿，2026-11-10，L4，**待 L6 审**。负责人 11-10 决定：NX-065 的两项缺口另开任务补上。
 - 基线：迁移 0365（OIDC 登录与绑定）、0404（AUTH-DOS：会话绑定 `session_epoch`）、0116 和 0287（角色清单与授权事实）、`nexloop_eios/workbench_oidc.py`；NX-065 验收脚本 `scripts/acceptance/nx065_oidc_acceptance.py`。
-- 迁移临时号从 0446 起。
+- 迁移 `nx067_oidc_gaps`（临时号，合入时由调度员重排，排在 NX-062 M5b/M5c 之后）。
 
 ## 1. 不变的部分
 
@@ -45,8 +45,12 @@
 ### 2.4 在哪里执行上限
 
 - `control.nexloop_workbench_role` 不改，它只回答清单角色。
-- 新函数 `control.nexloop_workbench_effective_actions(tenant, principal)`：返回清单角色的 Action 集合与上限的交集。所有用到 `nexloop_workbench_granted` 或 `nexloop_workbench_actions` 判断成员能否执行某个 Action 的地方都改为经过它；实现时逐一列出这些调用点，并用测试断言没有遗漏（按 copy guard 的方式登记）。
-- 派发时再检查一次（AGENTS：权限在派发时执行），不只看规划时的结果。
+- 实现为 `control.nexloop_workbench_action_permitted(tenant, principal, resource)`：按单个 Action 判断，结果与“清单角色的 Action 集合与上限的交集”相同。只管工作台角色里的 Action；`nexloop.workbench.read` 只要求上限非空（reviewer 的角色里没有这个 Action）。
+- 在三个地方执行（实现时核实：工作台成员的授权都经过这三处）：
+  1. 工作台入口挑选 Action（`authz.nexloop_workbench_action_for`）：被排除时返回 `granted: false`，入口回 403。
+  2. 浏览器授权读取 grant 事实（`authz.nexloop_browser_authority_fact_snapshot`）：被排除时不返回这条事实。存储的事实自带快照校验和，不能改写，所以只能不给；于是这次授权判定无法完成，按“不可用”失败关闭（503，什么都不执行）。读接口也经过这里。
+  3. 受治理 Action 的派发事务（`authz.nexloop_goal_governed_action`）：用签名命令里的租户、主体和 Action 资源再查一次，被排除时报 42501，入口回 403。这是派发时的复核。批次 158（NX-062 M5b/M5c）之后，被包装的是 0442 的机器分发函数，入口顺序为：上限检查 → 机器分发（人和服务进 0348 函数体，机器客户端进机器核心）；`nexloop_workbench_action_for` 同理叠在 0443 的 notes 包装之上。机器命令里没有 principal，机器主体也不会有 SSO 绑定，上限检查对它恒为通过（L6 C1）。
+- 守护测试 `tests/test_nx067_ceiling_guard_pg.py`：从 `pg_proc` 里找出所有读写 grant 事实的函数（批次 158 之后 29 个），逐个登记是否适用上限、以及原因；新增的函数没登记就失败。三个执行点必须调用 `nexloop_workbench_action_permitted`，被包装的原函数不能再有任何直接授权。
 
 ### 2.5 审计
 
@@ -86,10 +90,10 @@ IdP 停用用户后，这个用户已有的 SSO 会话最晚在以下时间内�
   - 必须有 `sub`。只有 `sid` 的 token 拒绝，因为我们不保存 IdP 的 sid；
   - 不能有 `nonce`（规范禁止）；
   - `jti` 必填，1–255 字符。
-- 防重放：新表 `control.nexloop_workbench_oidc_logout_jti`（tenant, provider_id, jti_hmac, expires_at），只存 HMAC；主键冲突即视为重放，返回 400。保留到 `iat + 10 分钟 + 容差`，过期的由已有的保留期清理任务删除。
+- 防重放：新表 `control.nexloop_workbench_oidc_logout_jti`（tenant, provider_id, jti_hmac, expires_at），只存 HMAC；主键冲突即视为重放，返回 400。保留到 `iat + 10 分钟 + 容差`；过期的在每次收到 back-channel 请求时由同一个函数删除。
 - 效果：在一个事务里按 (provider, issuer, sub) 找到绑定；找到就让成员账号的 `session_epoch` 加一，写登录事件 `oidc_backchannel_logout`（不含 sub 和令牌）。sub 没有绑定的也返回 200，避免通过响应探测哪些 sub 已经绑定。
 - 响应：成功 200，`Cache-Control: no-store`；验证失败 400，错误体只有 `invalid_request`，原因写进审计。
-- 限速：新的限速策略 `oidc_backchannel`，按来源地址计数（取值方式与 `oidc_start` 相同），由 `stage_secrets.py browser` 注册；没有注册这条策略时，端点返回 503（与 `oidc_start` 一样失败关闭）。验签失败也计入次数。
+- 限速：沿用已注册的 `oidc_start` 策略，按来源地址计数，但用单独的键前缀 `backchannel-ip:`，和登录的计数分开（与 callback 的 `callback-ip:` 做法相同）。没有另建 `oidc_backchannel` 策略：限速函数只接受固定的几种 action，加一种要改动已发布的函数。没有这条策略时端点返回 503（失败关闭）。验签失败也计入次数。
 - 让 `session_epoch` 加一会结束这个成员的全部会话，口令会话也包括在内：IdP 停用通常意味着人已经离开，这样处理更保守，和解绑的效果一致。
 
 ## 4. 测试计划（mock IdP，没有任何外部请求）
@@ -106,6 +110,32 @@ IdP 停用用户后，这个用户已有的 SSO 会话最晚在以下时间内�
 2. 没有命中映射时把上限设为空集（2.2），这会把成员的口令会话也锁住，直到重新 SSO 或被解绑。
 3. back-channel 直接让 `session_epoch` 加一，口令会话一起结束（3.3）。
 4. `max_session_seconds` 默认 8 小时（3.1）。
+
+## 负责人 2026-11-10 确认（取舍 a–d，“都按推荐”）
+
+- a：一个映射都没命中时，锁住这个成员的全部工作台 Action（上限设为空集）。
+- b：SSO 会话最长时长默认 8 小时，每个 provider 可以在 900–43200 秒之间调（`max_session_seconds`）。
+- c：接受 IdP 管理员能够让成员降级，也能通过 back-channel 结束成员的全部会话，口令会话也包括在内。
+- d：清空映射后，恢复角色清单给的权限（上限清回 null）。
+
+## 6. L6 复核后补充（Z1–Z5，2026-11-10）
+
+L6 判设计条件 PASS，第 5 节四点都同意。负责人的产品取舍先按设计现值做：没有命中映射时锁住全部权限；最长时长默认 8 小时，每个 provider 可以在 900–43200 秒之间调；只有清空映射才把上限清回 null。这几个值都写成一处常量或 provider 字段，方便以后修改。
+
+- **Z1 上限只从当前绑定行读取**：`nexloop_workbench_effective_actions` 每次调用都直接读 `control.nexloop_workbench_external_identities.role_ceiling`，不缓存，也不另存一份到会话或授权事实里。成员被提升为 owner 时，0365 的触发器 `nx058_unlink_promoted` 会删掉绑定行，上限随之消失。之后 back-channel 再用这个 sub 也找不到绑定（返回 200，但没有任何效果），owner 的会话不受影响。测试同时断言这两点。
+- **Z2 映射修改时强制重新 SSO**：`set_sso_group_mapping` 在同一个事务里：
+  - 映射改成另一个非空映射时：这个 provider 的每个绑定，上限设为 `{}`，成员账号的 `session_epoch` 加一，结束它的全部会话，各写一条上限事件（原因 `mapping_changed`）。成员要重新 SSO 登录，才能按新映射算出上限。**不会**清回 null。
+  - 清空映射（`mappings` 为 `{}`）：才把这个 provider 的所有上限清回 null（原因 `mapping_cleared`）。会话不结束，因为这一步只会放回清单角色，不会放宽到超出清单。
+  - 第一次设置映射（之前没有映射）也按“修改”处理：上限设为 `{}`，`session_epoch` 加一。否则在成员重新登录之前，已有会话不受新映射约束。
+- **Z3 JWKS 刷新限频与密钥轮换**：沿用 `OidcClient.keys` 现有的做法，写明并测试：
+  - 每个 provider 缓存一份 JWKS，超过 300 秒视为过期，下次用到时重新拉取。
+  - 遇到未知的 kid 时立即刷新，但同一个 provider 两次拉取至少间隔 `JWKS_MIN_REFETCH_SECONDS`（60 秒）。间隔内再遇到未知 kid 直接判 `id_token_invalid`，不发请求，所以伪造 kid 打不出拉取风暴。
+  - 轮换期间，IdP 会在 JWKS 里同时发布新旧两把 key，我们按 kid 选 key，两把都能验证；旧 key 从 JWKS 中移除后，下一次刷新就不再接受它。拉取失败时保留旧缓存，但只用到它过期为止。
+  - logout token 和 ID token 共用这份缓存和限频。
+- **Z4 验收脚本分开报告**：
+  - `groups.mapping`：provider 没有配置映射时报 `not_configured`，算 gap，退出码 3，不能报 passed。配置了映射时，按第 2 节真正检查：组只降不升、没有命中会被拒。
+  - `disable.sync` 拆成两项：`disable.sync.backchannel`（provider 没开 back-channel 时报 `not_configured`，算 gap）和 `disable.sync.max_session`（证明会话在 `max_session_seconds` 加 60 秒内失效）。只有两项都通过时退出码才是 0。
+- **Z5 调用点守护**：所有判断“成员能不能执行某个 workbench Action”的 SQL 函数，都必须经过 `nexloop_workbench_effective_actions`。用守护测试固定这一点：从 `pg_proc` 里列出所有引用 `nexloop_workbench_granted` 或 `nexloop_workbench_actions` 的函数，与登记表对比，多出未登记的就失败。派发时还会再调用一次，测试断言：规划时有权限、派发前上限被收窄，派发会被拒绝。
 
 ## 否决的做法
 

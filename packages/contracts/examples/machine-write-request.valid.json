@@ -1,0 +1,9 @@
+{
+  "capability": "object.add_note",
+  "intent_id": "crm-sync-2026-11-10-0001",
+  "params": {
+    "type_name": "Commitment",
+    "object_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "text": "客户确认周五前收货"
+  }
+}

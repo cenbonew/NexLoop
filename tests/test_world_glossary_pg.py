@@ -1,5 +1,5 @@
 """World-model glossary (migration 0374; docs/design/world-model-glossary.md r2): real PostgreSQL, the real workbench and the real
-configurator. The v1 manifest (304 entries) is published from its exact text; a later manifest keeps what it leaves out, restores to
+configurator. The v1 manifest (305 entries; NX-067 added set_sso_group_mapping) is published from its exact text; a later manifest keeps what it leaves out, restores to
 machine translation what it gives as null and clears by hand what it gives as ''. The owner corrects one gloss through
 nexloop.world_glossary.set (operators refused, exact keys, tenant and world from the session, the identifier checked at dispatch). The
 world-glossary-translator reaches PostgreSQL only through its signed port: a quota reservation before every model call (a full day
@@ -76,10 +76,10 @@ def test_v1_is_published_from_its_exact_text_and_the_world_model_carries_the_glo
     code, out = publish(w['configurator'], V1, 1)
     assert code == 2 and 'expected revision 1, current 0' in out['reason']
     code, out = publish(w['configurator'], V1, 0)
-    assert code == 0 and out['entries'] == 304 and out['manifest_sha256'] == digest and out['result']['manual_entries'] == 304
+    assert code == 0 and out['entries'] == 305 and out['manifest_sha256'] == digest and out['result']['manual_entries'] == 305
     manifest = json.loads(V1.read_text())
-    assert len(manifest['actions']) == 129 and manifest['actions']['nexloop.world_glossary.set'] == '设定世界模型译名'
-    assert admin.execute('select count(*) from control.nexloop_world_glossary where tenant_id=%s and source=%s', (TENANT, 'manual')).fetchone()[0] == 304
+    assert len(manifest['actions']) == 130 and manifest['actions']['nexloop.world_glossary.set'] == '设定世界模型译名'
+    assert admin.execute('select count(*) from control.nexloop_world_glossary where tenant_id=%s and source=%s', (TENANT, 'manual')).fetchone()[0] == 305
     code, again = publish(w['configurator'], V1, 0)  # a replay writes nothing
     assert code == 0 and again['result']['replay'] is True
     other = g['tmp'] / 'other.json'

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nexloop:contracts:v1:machine-intent",
+  "title": "machine-intent",
+  "description": "NX-062 M5c (design §4, R4): the state of one machine write intent - the answer of POST /machine/v1/commit (200; 202 while waiting for approval) and of GET /machine/v1/intents/{intent_id}. phase: prepare, pending_approval (an approval was opened; commit again with the same intent after it is approved), committed (outcome_id is the governed outcome) or refused (result_code a fixed code, e.g. not_permitted when the grant, scope or allowlist no longer allows it at commit). A finished intent answers its first result to the same commit (replayed true), even after the prepare's expiry. After a network error or an unknown result the client queries the intent before committing again. Codes and ids only: never parameters or text; approval_status is the approval's state, never who decided. NexLoop target contract; server-derived identity required.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent_id",
+    "capability",
+    "phase",
+    "result_code",
+    "outcome_id",
+    "approval_id",
+    "expires_at",
+    "committed_at"
+  ],
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+    },
+    "capability": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "maxLength": 160
+    },
+    "phase": {
+      "enum": [
+        "prepare",
+        "pending_approval",
+        "committed",
+        "refused"
+      ]
+    },
+    "result_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z_:0-9A-Z]{1,80}$"
+    },
+    "outcome_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "approval_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "committed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "replayed": {
+      "type": "boolean"
+    },
+    "approval_status": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "waiting_approval",
+        "approved",
+        "rejected",
+        "cancelled",
+        "expired",
+        null
+      ]
+    }
+  }
+}

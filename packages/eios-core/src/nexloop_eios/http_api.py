@@ -242,7 +242,11 @@ def create_app(config:ApiConfiguration):
     def machine_pool(request):
         backend=getattr(request.app.state,'backend',None)
         return None if backend is None else backend._pool
-    app.include_router(machine_router(peppers_for=lambda request:getattr(request.app.state,'machine_peppers',None),pool_for=machine_pool))
+    def machine_signer(request):
+        backend=getattr(request.app.state,'backend',None)
+        return None if backend is None else backend._signer
+    app.include_router(machine_router(peppers_for=lambda request:getattr(request.app.state,'machine_peppers',None),pool_for=machine_pool,
+        signer_for=machine_signer))
     @app.get('/health/live')
     def live():return {'alive':True}
     @app.get('/health/ready')

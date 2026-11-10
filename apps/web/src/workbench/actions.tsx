@@ -72,6 +72,7 @@ export const DONE_TEXT:Record<Operation,string>={
   start_experiment:'已开始实验；分配从现在起按登记执行，护栏和预算随时可能自动停止它。',
   stop_experiment:'已停止实验；所有客户回到对照策略，已发生的花费和分配记录保留。',
   world_glossary_set:'已保存译名；页面已刷新。这是人工译名，机翻不会再覆盖它。',
+  object_note_add:'已保存备注；它是未核实陈述，不会写进对象，也不作为证据。',
 };
 
 /** One governed write as a plain function (the hook below and the tests use it). `pending` keeps the request key while the

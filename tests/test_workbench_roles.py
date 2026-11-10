@@ -105,9 +105,9 @@ def test_i35_read_types_list_every_published_type_for_the_owner_only_and_are_val
     roles = load(root / 'deploy/authorization/workbench-roles.v1.json')
     published = set(object_types()) | {t['type_name'] for f in ('business', 'system') for t in
                                        json.loads((root / f'deploy/ontology/{f}-object-types.v1.json').read_text())['object_types']}
-    assert roles['manifest_version'] == 55 and roles['read_types']['owner'] == sorted(published) and len(published) == 20
-    assert roles['read_types']['operator'] == roles['read_types']['reviewer'] == [] and len(roles['roles']['owner']) == 106 and len(roles['roles']['operator']) == 13  # v53 (K4b): + nexloop.human_question.answer; v54 (NX-062 M2b): + 6 machine access Actions; v55 (M4a): + grant, revoke_grant
-    assert read_types_payload(roles) == {'manifest_version': 55, 'read_types': roles['read_types']}  # v53 (K4b) and v54 (NX-062 M2b) leave the v52 read types unchanged
+    assert roles['manifest_version'] == 57 and roles['read_types']['owner'] == sorted(published) and len(published) == 20
+    assert roles['read_types']['operator'] == roles['read_types']['reviewer'] == [] and len(roles['roles']['owner']) == 108 and len(roles['roles']['operator']) == 14  # v56 (M5c): + nexloop.object.add_note for both; v53 (K4b): + nexloop.human_question.answer; v54 (NX-062 M2b): + 6 machine access Actions; v55 (M4a): + grant, revoke_grant
+    assert read_types_payload(roles) == {'manifest_version': 57, 'read_types': roles['read_types']}  # v56 (M5c), v53 (K4b) and v54 (NX-062 M2b) leave the v52 read types unchanged
     for bad in (['*'], ['Goal', 'Consumer'], ['Goal', 'Goal'], 'Goal'):
         forged = copy.deepcopy(roles)
         forged['read_types']['owner'] = bad

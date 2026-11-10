@@ -981,6 +981,11 @@
       "source": "deploy/configuration/business-actions.v1.json"
     },
     {
+      "stable_name": "nexloop.workbench_member.set_sso_group_mapping",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
       "stable_name": "nexloop.budget.loosen",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
@@ -1037,6 +1042,11 @@
     },
     {
       "stable_name": "nexloop.machine_client.revoke_grant",
+      "version": 1,
+      "source": "deploy/configuration/business-actions.v1.json"
+    },
+    {
+      "stable_name": "nexloop.object.add_note",
       "version": 1,
       "source": "deploy/configuration/business-actions.v1.json"
     }

@@ -66,13 +66,13 @@ def test_registry_is_the_single_capability_source_and_refuses_bad_handlers(commi
         'remediation.rule_release':'release_remediation_rule',  # NX-057 R2
         'workbench_member.promote_owner':'promote_workbench_member','workbench_member.demote_owner':'demote_workbench_owner','workbench_member.suspend_owner':'suspend_workbench_owner','workbench_member.resume_owner':'resume_workbench_owner','workbench_member.revoke_owner':'revoke_workbench_owner',
         'workbench_member.issue_owner_reset':'issue_workbench_owner_reset','workbench_member.invite_owner':'invite_workbench_owner','workbench_member.erase_member':'erase_workbench_member',
-        'workbench_member.link_external':'link_workbench_external','workbench_member.unlink_external':'unlink_workbench_external',
+        'workbench_member.link_external':'link_workbench_external','workbench_member.unlink_external':'unlink_workbench_external','workbench_member.set_sso_group_mapping':'set_sso_group_mapping',
         'claim_extraction.dead_letter_resolve':'resolve_extraction_dead_letter',
         'goals.budget.loosen':'loosen_budget','world_glossary.set':'set_world_glossary',
         'relay.backlog_settle':'settle_relay_backlog','action_claim.settle':'settle_action_claim',
         'human_question.answer':'answer_human_question',
         # NX-062 M2b
-'machine_client.register':'register_machine_client','machine_client.deactivate':'deactivate_machine_client','machine_client.activate':'activate_machine_client','machine_key.issue':'issue_machine_key','machine_key.rotate':'rotate_machine_key','machine_key.revoke':'revoke_machine_key','machine_client.grant':'grant_machine_capability','machine_client.revoke_grant':'revoke_machine_grant'}  # K4b  # stale action claims; S42; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
+'machine_client.register':'register_machine_client','machine_client.deactivate':'deactivate_machine_client','machine_client.activate':'activate_machine_client','machine_key.issue':'issue_machine_key','machine_key.rotate':'rotate_machine_key','machine_key.revoke':'revoke_machine_key','machine_client.grant':'grant_machine_capability','machine_client.revoke_grant':'revoke_machine_grant','object.add_note':'object_note_add'}  # NX-062 M5c; K4b  # stale action claims; S42; NX-058 slices D2, D3, E, F; extraction dead letters; NX-056 budget approval; world-model glossary
     # Append-only; a handler must be an owner function in control/runtime with the one signature.
     with pytest.raises(psycopg.Error,match='append-only'),admin.transaction():admin.execute("update control.nexloop_governed_capabilities set subject_rule='agent_or_human'")
     for handler in ('pg_catalog.lower(text)','control.nexloop_nx022_owner_change(text,text,text,text,jsonb)'):
