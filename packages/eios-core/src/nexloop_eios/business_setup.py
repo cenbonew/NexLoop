@@ -18,6 +18,7 @@ from nexloop_eios.backend import open_backend
 from nexloop_eios.conversation_messages import ConversationOwnershipRegistrar
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.private_configuration import read_private_text
+from nexloop_eios.create_versions import create_current
 
 
 class BusinessSetupUnavailable(RuntimeError):
@@ -68,14 +69,13 @@ def setup_business(backend,*,owner_credential_file,executor_credential_file,reci
             if (current._session.authentication.tenant_id,current._session.authentication.subject_principal_id)!=(tenant,owner_principal):raise ValueError()
             return current
         prefix='business-setup-'+recipe['request_id']
-        consumer=fresh_owner().create_object(action_name='Consumer.create',action_version=1,
-            intent_id=prefix+'-consumer',type_name='Consumer',properties={})
+        owner_now=fresh_owner()
+        consumer=create_current(owner_now,intent_id=prefix+'-consumer',type_name='Consumer',properties={})
         if consumer.get('type_name')!='Consumer' or consumer.get('world')!='real' or not re.fullmatch('[a-f0-9]{64}',consumer['object_id']):raise ValueError()
         properties={'consumer_id':consumer['object_id'],'owner_principal':owner_principal,
             'executor_principal':executor_principal,'budget_units':recipe['control']['budget_units'],
             'allow_effect':True,'valid_until':recipe['control']['valid_until']}
-        control=fresh_owner().create_object(action_name='EffectControl.create',action_version=1,
-            intent_id=prefix+'-control',type_name='EffectControl',properties=properties)
+        control=create_current(fresh_owner(),intent_id=prefix+'-control',type_name='EffectControl',properties=properties)
         if control.get('type_name')!='EffectControl' or control.get('world')!='real' or not re.fullmatch('[a-f0-9]{64}',control['object_id']):raise ValueError()
         executor=_service(backend,executor_credential_file)
         if (executor._session.authentication.tenant_id,executor._session.authentication.subject_principal_id)!=(tenant,executor_principal):raise ValueError()

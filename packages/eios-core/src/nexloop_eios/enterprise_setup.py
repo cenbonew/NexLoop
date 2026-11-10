@@ -24,6 +24,7 @@ from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.backend import open_backend
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.private_configuration import read_private_text
+from nexloop_eios.create_versions import create_current
 
 ACTION = 'nexloop.enterprise.deliver'
 _STAMP = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)')
@@ -109,7 +110,7 @@ def setup_enterprise(backend, *, owner_credential_file, executor_credential_file
         binding = _service(backend, maintainer_credential_file).create_object(action_name='ConsumerServiceOffering.create', action_version=1,
             intent_id=prefix + '-binding', type_name='ConsumerServiceOffering', properties={'consumer_id': recipe['consumer_id'],
             'offering_id': offering['object_id'], 'offering_revision': 1, 'source_principal': ids['source'].subject_principal_id, 'active': True})
-        control = _service(backend, owner_credential_file).create_object(action_name='EffectControl.create', action_version=1, intent_id=prefix + '-control',
+        control = create_current(_service(backend, owner_credential_file), intent_id=prefix + '-control',
             type_name='EffectControl', properties={'consumer_id': recipe['consumer_id'], 'owner_principal': ids['owner'].subject_principal_id,
             'executor_principal': ids['executor'].subject_principal_id, 'budget_units': recipe['control']['budget_units'], 'allow_effect': True,
             'valid_until': recipe['control']['valid_until']})

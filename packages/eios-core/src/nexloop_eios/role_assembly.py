@@ -30,6 +30,7 @@ from pathlib import Path
 
 from eios.identity.models import SubjectKind
 from nexloop_eios.private_configuration import read_private_text
+from nexloop_eios.create_versions import create_current
 
 SCHEMA = 'nexloop-role-assembly/1'
 STEP_ACTION = 'nexloop.service.request'
@@ -89,7 +90,7 @@ def assemble_role(service, recipe):
     valid = dict(valid_from=recipe['valid_from'], valid_until=until)
 
     def create(name, part, properties):
-        created = service().create_object(action_name=name + '.create', action_version=1, intent_id=f'{prefix}-{part}', type_name=name, properties=properties)
+        created = create_current(service(), intent_id=f'{prefix}-{part}', type_name=name, properties=properties)
         if created.get('type_name') != name or created.get('world') != 'real' or not _ID.fullmatch(created.get('object_id', '')):
             raise RoleAssemblyUnavailable(name)
         return created['object_id']

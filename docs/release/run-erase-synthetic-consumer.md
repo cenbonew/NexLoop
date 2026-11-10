@@ -25,7 +25,7 @@
 | 4 | **撤销**：在私有 webchat-consumers 配方里把这个顾客改为 `revoke: true`，用 `webchat_consumers.py` 发布一次（技术配置员） | 负责人 | — |
 | 5 | `erase --dry-run`：核对 persona、将删除的数量，以及 `grants_held` 为 0、`grants_trace` 为 `owner_link`（不为 0 时结果是 `grants_held_revoke_first`，回到第 4 步） | 负责人 | — |
 | 6 | **删除**：`erase` | 负责人 | — |
-| 7 | **核对**：keeper 跑完后再次 `erase --dry-run`，作为事后核对（`grants_trace` 应为 `cleared_at_erasure`） | 负责人 | — |
+| 7 | **核对**：keeper 跑完后再次 `erase --dry-run`，作为事后核对（`grants_held` 为 0，`grants_trace` 属于 {`owner_link`, `contact_keys`, `cleared_at_erasure`}，新删除的应为 `cleared_at_erasure`；见“事后核对”） | 负责人 | — |
 | 8 | AT-050：恢复到第 3 步的恢复点，执行删除重放。撤销和 `grants_cleared` 都在数据库里：恢复会把撤销一起回退，重放不经合成删除、不写标记。所以先重做第 4 步，再按下文“存量顾客”的只读 SQL 按登录主体核对授权为 0；这时的 `erase --dry-run` 会是 `erased_grants_unknown`（预期，不当作 0） | 调度员、负责人 | — |
 
 第 2 步要放在恢复点之前：恢复后的数据库里仍保留 persona 标记，与恢复前一致。重放本身不依赖 persona。
@@ -76,7 +76,11 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 - `held.claims_not_erased` 为 0；
 - `held.data_exports` 为 0；
 - `consumer_object` 为 false；
-- `held.grants_held` 为 0，`held.grants_trace` 为 `cleared_at_erasure`。为 null 时是 `erased_grants_unknown`，不当作 0：按下节用只读 SQL 按登录主体核对。
+- `held.grants_held` 为 0，并且 `held.grants_trace` 属于 {`owner_link`, `contact_keys`, `cleared_at_erasure`}（L6 2026-11-10）。三种取值都表示“追溯到了登录主体、它们的授权集都为空”，或者“删除时已核对清空”：
+  - 新删除的顾客应为 `cleared_at_erasure`；
+  - `owner_link` 出现在 0306 之前完成的删除上：owner 行残留，迁移 0447会清理，清理后变为 `cleared_at_erasure`；
+  - `contact_keys` 是删除后经联系键找回的。
+- `grants_held` 为 null（`untraceable`、`no_grant_facts`）时是 `erased_grants_unknown`，不当作 0：按下节用只读 SQL 按登录主体核对。大于 0 时是 `erased_grants_held`：先撤销。
 
 ## 存量顾客（0429 之前删除的 customer-4、refusal-1、refusal-2）
 
@@ -92,6 +96,34 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 3. 撤销后再跑第 1 步的 SQL：`n_grants` 为 0，`n_facts` 不变（5，空授权集，证明是撤销而不是查不到）。`n_facts` 为 0 时不算通过：说明登录主体写错或事实不在。
 
 以后的删除一律按上文顺序：撤销 → 删除 → 核对。
+
+## 已删除顾客的 owner 行残留（迁移 0447）
+
+- **现象**：stage 2026-11-10，customer-4 的 dry-run 结果是 `already_erased`、`grants_held` 0、`grants_trace` `owner_link`。它的 Consumer 已在 10-19 删除，`control.nexloop_consumer_owners` 里却还有它的一行（world real，幂等键为 `business-setup-<uuid>-ownership`，是建档时写入的那一行）。
+- **原因：历史残留**。
+  - 10-19 的删除跑在发布 22 上（bootstrap 修订号 0221）。
+  - 删除 owner 行是 0306 才加的（10-21）。它挂在删除登记表的 AFTER UPDATE 触发器上，只在状态**变为** `completed` 的那一刻执行（0306 第 72 行，0388 保留了这个条件）。0306 之前已经完成的删除不会再被处理。
+  - 删除之后无法重新绑定：受治理的 `ConsumerOwnership.create`（0138 `commit_owner`）要求 Consumer 对象存在，而删除流程会删掉这个对象（0138 第 268 行）。
+- **清理（受治理，不写 SQL）**：迁移 0447 部署时，对每个租户执行一次 `control.nexloop_erasure_owner_residue_settle`：
+  - 对象是已完成、不在保留期内、仍有 owner 行的删除。
+  - 登录主体已没有非空授权：把 0429 的 `grants_cleared` 标记按同一规则补上（只补原来为 null 的），再删除 owner 行。
+  - 仍有授权：保留这一行，预查继续显示 `grants_held` 大于 0；先撤销，再由下一次部署或负责人请求的再次执行处理。
+  - 同时新增守卫：删除请求确认之后（`pending_confirmation` 以外的任何状态），不允许再给这个 Consumer 插入或改写 owner 行（`consumer erased`）。
+- **部署后只读核对**（调度员）：
+
+  ```bash
+  ro "select e.consumer_id, e.grants_cleared, (select count(*) from control.nexloop_consumer_owners o where o.tenant_id=e.tenant_id and o.world=e.world and o.consumer_id=e.consumer_id) owners from control.nexloop_consumer_erasures e where e.tenant_id='$T' and e.state='completed' order by e.completed_at"
+  ```
+
+  - 预期每行 `owners` 都为 0。customer-4 的 `grants_cleared` 为 true，它的 dry-run 变为 `cleared_at_erasure`。
+  - refusal-1、refusal-2 当初没有 owner 行可以追溯的，`grants_cleared` 仍为 null，事后核对仍按上节的只读 SQL 进行。
+  - 审计（部署证据）：每个被清理或保留的 Consumer 有一条 `nexloop.consumer_erasure.owner_residue`（只有 tenant、world、consumer_id、request_id、outcome，不含登录主体）；每个租户还有一条 `nexloop.consumer_erasure.owner_residue_run`，带 settled 和 kept 数，同时写一条迁移日志 NOTICE：
+
+    ```bash
+    ro "select action, payload from runtime.audit_events where tenant_id='$T' and action like 'nexloop.consumer_erasure.owner_residue%' order by created_at"
+    ```
+
+    预期：customer-4 一条 `outcome=settled`；run 一条 `settled=1, kept_grants_held=0`。
 
 删除完成后 persona 标记行也随之删除，`persona` 显示为 `real`；它的修改事件保留取值和时间，顾客 ID 换成假名，理由清空（0227）。
 

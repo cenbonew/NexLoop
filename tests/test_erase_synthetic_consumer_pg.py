@@ -342,3 +342,75 @@ def test_an_erased_consumer_without_the_marker_or_without_any_grant_fact_fails_t
     _, cleared = finish_erasure(c, admin, bare)
     code, result, _ = post_check(c, bare, tmp_path, capsys, '--dry-run')
     assert cleared is False and (code, result['result'], result['before']['held']['grants_held']) == (1, 'erased_grants_unknown', None), result
+
+
+def _legacy_owner_row(admin, consumer, principal, key):
+    """An erasure completed before 0306 (stage customer-4, 2026-10-19): the owner row was never deleted and the 0429 marker is null.
+    Recreated with triggers off (session_replication_role replica), the state 0306/0447 found on stage."""
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("insert into control.nexloop_consumer_owners values(%s,'real',%s,%s,%s,%s)", (TENANT, principal, consumer, 'ownership-' + key, key))
+        admin.execute('update control.nexloop_consumer_erasures set grants_cleared=null where consumer_id=%s', (consumer,))
+
+
+def _owner_rows(admin, consumer):
+    return admin.execute('select count(*) from control.nexloop_consumer_owners where consumer_id=%s', (consumer,)).fetchone()[0]
+
+
+@PLAN
+def test_a_completed_erasure_leaves_no_owner_link_and_none_can_be_added_afterwards(restoring, admin):
+    """0447 guard: erased => no owner row. After the real completion the link is gone, and neither the governed registrar (the Consumer
+    object is gone) nor a direct insert as the owner role (the trigger) puts one back."""
+    c = restoring
+    publish_registry_actions(admin, ACTIONS)
+    human, consumer, _ = webchat_customer(c, admin, 'guarded-customer', grants='revoked')
+    assert erase_as_owner(c, consumer).status_code == 200
+    finish_erasure(c, admin, consumer)
+    assert _owner_rows(admin, consumer) == 0
+    with pytest.raises(psycopg.errors.InsufficientPrivilege, match='consumer erased'):
+        owner_sql(admin, "insert into control.nexloop_consumer_owners values(%s,'real',%s,%s,'rebound','rebound-key') returning 1",
+                  (TENANT, human['principal_id'], consumer))
+    assert _owner_rows(admin, consumer) == 0
+    # Every completed erasure in the database: no owner row (the invariant the settle function restores for older erasures).
+    assert admin.execute("""select count(*) from control.nexloop_consumer_erasures e join control.nexloop_consumer_owners o
+        on o.tenant_id=e.tenant_id and o.world=e.world and o.consumer_id=e.consumer_id where e.state='completed'""").fetchone() == (0,)
+
+
+@PLAN
+def test_the_residue_of_an_erasure_completed_before_0306_is_settled_and_the_trace_becomes_cleared_at_erasure(restoring, admin, tmp_path, capsys):
+    """Stage customer-4: erased under 0221, owner row left, no marker. Precheck: grants_held 0 via owner_link. The 0447 settle function
+    sets the marker from the revoked grants and deletes the row; the precheck then reports cleared_at_erasure and the post-check passes.
+    With grants still held the row stays (and the precheck keeps showing them), so the owner revokes first; a rerun settles nothing new."""
+    from nexloop_eios import webchat_consumers as W
+    from test_workbench_read_pg import write_facts
+    c = restoring
+    publish_registry_actions(admin, ACTIONS)
+    human, consumer, n = webchat_customer(c, admin, 'residue-customer', grants='revoked')
+    assert erase_as_owner(c, consumer).status_code == 200
+    finish_erasure(c, admin, consumer)
+    _legacy_owner_row(admin, consumer, human['principal_id'], 'business-setup-legacy-ownership')
+    held = owner_precheck(c, consumer)['held']
+    assert (held['grants_held'], held['grants_trace']) == (0, 'owner_link'), held
+    role = json.loads(ROLE_FILE.read_text())
+    grant = W.compile_recipe(role, {'schema_version': W.CONSUMERS_SCHEMA, 'tenant_id': TENANT, 'browser_application_id': 'synthetic-webchat',
+        'caller_application_id': 'eios:application:nexloop-webchat', 'consumers': [{'principal_id': human['principal_id'], 'subject_id': human['subject_id'],
+        'persona': 'simulated_agent'}]})['authority_facts']
+    write_facts(admin, grant)  # granted again: the settle function keeps the row
+    assert owner_sql(admin, 'select control.nexloop_erasure_owner_residue_settle(%s)', (TENANT,)) == {'settled': 0, 'kept_grants_held': 1}
+    assert _owner_rows(admin, consumer) == 1 and owner_precheck(c, consumer)['held']['grants_held'] == n
+    write_facts(admin, W.compile_recipe(role, {'schema_version': W.CONSUMERS_SCHEMA, 'tenant_id': TENANT, 'browser_application_id': 'synthetic-webchat',
+        'caller_application_id': 'eios:application:nexloop-webchat', 'consumers': [{'principal_id': human['principal_id'], 'subject_id': human['subject_id'],
+        'persona': 'simulated_agent', 'revoke': True}]})['authority_facts'])
+    assert owner_sql(admin, 'select control.nexloop_erasure_owner_residue_settle(%s)', (TENANT,)) == {'settled': 1, 'kept_grants_held': 0}
+    assert _owner_rows(admin, consumer) == 0
+    assert admin.execute('select grants_cleared from control.nexloop_consumer_erasures where consumer_id=%s', (consumer,)).fetchone() == (True,)
+    code, result, _ = post_check(c, consumer, tmp_path, capsys, '--dry-run')
+    assert (code, result['result'], result['before']['held']['grants_held'], result['before']['held']['grants_trace']) == (0, 'already_erased', 0, 'cleared_at_erasure'), result
+    assert owner_sql(admin, 'select control.nexloop_erasure_owner_residue_settle(%s)', (TENANT,)) == {'settled': 0, 'kept_grants_held': 0}
+    # R1 (L6): one audit row per settled or kept Consumer, with tenant, world, Consumer and request only - never a principal.
+    audits = admin.execute("""select payload from runtime.audit_events where action='nexloop.consumer_erasure.owner_residue'
+        and payload->>'consumer_id'=%s order by created_at""", (consumer,)).fetchall()
+    request_id = admin.execute('select request_id from control.nexloop_consumer_erasures where consumer_id=%s', (consumer,)).fetchone()[0]
+    assert [a for (a,) in audits] == [{'tenant_id': TENANT, 'world': 'real', 'consumer_id': consumer, 'request_id': request_id, 'outcome': o}
+                                      for o in ('kept', 'settled')]
+    assert all(human['principal_id'] not in json.dumps(a) for (a,) in audits)
