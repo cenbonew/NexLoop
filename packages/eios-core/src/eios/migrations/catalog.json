@@ -2240,6 +2240,11 @@
       "version": "0448",
       "name": "0448_effect_control_owner_read.sql",
       "sha256": "69ba48eab13e23ab90f033d93b99d5863cd95ad8bdea18c8b572e1b22f3c49e9"
+    },
+    {
+      "version": "0449",
+      "name": "0449_nx068_publish_gate_smoke.sql",
+      "sha256": "19dcd147cdecb00344f13f88ccbcaf334fb9dab325d0b00535600088d98e4dd3"
     }
   ]
 }

@@ -184,3 +184,14 @@ E1 返回的结果（E2 拒绝时，错误信息里也是同样的 code 列表�
 - **N3**：E2 是权威拒绝，任何路径都不写部分发布，也不消耗 permit；V3 定下之前不实现审计（§3、测试 11）。
 - **N4**：S3 用纯判定，不调用 0446 的 proof 函数，也不写 proofs（§4.1、测试 7a）。
 - **合并顺序**：NX-068 是第 1 步，内容是拆出函数、门禁和外包函数（G1 走 A′ 分支）、冒烟。B 的 M2 把 G1 和 S3 切到“能否准入”，M4 删除 A′ 分支。
+
+## 10. 实现记录（合并顺序第 1 步，2026-11-11）
+
+负责人 2026-11-11 “设计拍板表都按推荐”：N2 用方案 1，提示项不拒绝、需勾选“已知晓”，冒烟第二轮 15 分钟，审计在 V3 定下前不做。迁移 `nx068_publish_gate_smoke`（临时编号）。与设计稿不同的地方：
+
+- **V3 已核实**：F3 原有的约定是结构化拒绝。`nexloop_schema_proposal_publish` 遇到 permit 或 gates 的拒绝，返回 `{published:false, codes, source}`，此时还没有写入任何东西，permit 也没有被使用。所以 E2 不外包整个发布函数，而是外包它调用的 `ontology.nexloop_schema_publication_gates`：门禁的 refuse 项变成 `publish_gate:<code>`，经 `source: gates` 返回。这样 N3 自然成立，permit 不会被消耗，也不写审计。
+- **E1 不新增路由**：现有的 `GET …/schema-proposals/{id}/check` 返回里多了 `readiness`（verdict、items、每项的 remedy、acknowledge_required）。审核读的 payload 上限是 64 KB，所以 E1 只发送新的 Schema，后继由 SQL 按 F3 的规则推出（`authz.nexloop_schema_successor_preview`）。对类型本身有改动的变更，F3 重建的后继里类型引用的顺序可能不同（按摘要排序），register 的 Q4 判定也按顺序比较，因此 E2 可能比 E1 多报 `registrar_successor_not_rebinding`。E1 只是参考，E2 才是依据。
+- **follow 标记**：写在 grant fact 的 `grant_id` 后缀 `:follow_latest_version` 上（SQL 不读 grant_id，fact 模型不变）。`service_grants.FOLLOWABLE` 与 `stage_secrets.FOLLOWABLE` 必须相同（有测试断言）。stage register 在剥离声明之前，把声明集合传给 `apply`。claim_matcher → `Consumer.edit:1` 声明了 follow，但不在 FOLLOWABLE 内，所以没有标记。**部署注意**：下一次 register 会重写 3 条授权 fact（relay_planner、role_planner 的 registrar `:1`，business_owner 的 `Consumer.create:1`），授权内容不变，只是 fact 摘要变了。
+- **G4**：没有做工作台角色的 warn。G1 至 G3 以外的 Action 一律只给 info `successor_coexists`（0432 处理前任与后继并存）。工作台 F3 对话框的界面（置灰、勾选“已知晓”）留给前端，后端已经返回 `acknowledge_required`。
+- **冒烟**：持有者授权检查（S1/S2 的“每个持有者都持有覆盖版本”）挪到第二轮。原因是第一轮在发布后 1 分钟执行，通常还没有 register，放在第一轮会误报。第一轮只查版本覆盖和 S3。冒烟由告警评估器每分钟的 maintenance 执行；maintenance 失败时被捕获，冒烟保持 pending，30 分钟后按逾期告警。告警规则 v38 `schema_publish_smoke_failed`。
+- **非 Consumer 类型**：效应 Action 的 scope 里有被发布的类型，但这个类型不是 Consumer 时，A′ 证明不了，G1 拒绝（`type_not_provable`）。这是安全的方向，B 交付后改为判断能否准入。
