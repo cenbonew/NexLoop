@@ -2235,6 +2235,11 @@
       "version": "0447",
       "name": "0447_erasure_owner_residue.sql",
       "sha256": "8bb7678984ec0d8a44ea5a4d7064ea0f63e554b4f834cddaa9b7b9ab3cc11e38"
+    },
+    {
+      "version": "0448",
+      "name": "0448_effect_control_owner_read.sql",
+      "sha256": "69ba48eab13e23ab90f033d93b99d5863cd95ad8bdea18c8b572e1b22f3c49e9"
     }
   ]
 }
