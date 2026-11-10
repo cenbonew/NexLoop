@@ -22,7 +22,7 @@
      - 每条的 `scope_diff` 都是 `[{"type":"Consumer","from":1,"to":2}]`；
      - purpose 都以 `(schema publication <id>)` 结尾；
    - `refused` 为空；
-   - 还会列出 R74 已派生的 `claim_matcher → Consumer.edit:2`；
+   - 还会列出 `claim_matcher → Consumer.edit:2`：它来自 `service-grants.v1.json` 中 claim_matcher 对 `Consumer.edit:1` 的 follow 声明，R74 第 4 步已经写入，所以 dry-run 里会出现，但 register 不会重复新增；不要把它当成本次的新增派生；
    - `business_owner → configure_control` 不派生：EffectControl 没有新版本，configure_control 没有 `:2`。
    - 结果不同，或命令以 `follow_latest_refused` 退出，就停下，报调度员。
 4. **`register`**：去掉 `--dry-run` 后执行。预期 `grants_added` 只有上面派生的 `:2` 授权。
@@ -49,6 +49,18 @@
      select status,last_code,count(*) from runtime.nexloop_work_feed where tenant_id='<TENANT_ID>' and feed='claim-match' group by 1,2;
      ```
    - 任一条失败，就停下，取 relay 日志中 `message relay attempt failed` 的 stage 和 reason，报调度员。
+
+## 失败时的处理
+
+- **第 7 步失败时，派生出的 `:2` 授权保留，不撤销**：
+  - 这些授权只是 registrar 跟随到人工发布的等价后继，没有新增任何权限面；
+  - 撤销后，旧顾客（v2）依然无法绑定，回到故障前的状态，反而失去复现条件；
+  - 需要撤销时，从 `stage-principals.v1.json` 去掉对应的 follow 声明，然后重跑 register：派生授权随声明一起撤销（Q5），不手工删授权事实。
+- **迁移不回滚**：迁移只新增函数、表和规则，并替换两个函数体，不改任何业务数据。出问题时按以下方式恢复：
+  - **代码层**：回到上一个 release 的镜像。旧代码不调用 `authz.nexloop_effect_registrar_version` 和 `authz.nexloop_create_action_version`，仍按 `:1` 走，状态与部署前相同，旧顾客的回复仍然失败。
+  - **数据层**：第 1 步的备份（`nexloop-pg-diff.service`）是唯一的数据恢复点，按 NX-035 恢复演练流程执行，不手工改 SQL。
+  - **告警**：规则 v37 可以单独回退，用 configurator 重新发布 v36。
+
 
 ## 不做的事
 

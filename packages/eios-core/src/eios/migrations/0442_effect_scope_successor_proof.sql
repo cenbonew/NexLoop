@@ -22,13 +22,15 @@ create table control.nexloop_effect_scope_proofs (
 alter table control.nexloop_effect_scope_proofs owner to nexloop_owner;
 alter table control.nexloop_effect_scope_proofs enable row level security;
 alter table control.nexloop_effect_scope_proofs force row level security;
-create policy effect_scope_proofs_owner on control.nexloop_effect_scope_proofs to nexloop_owner using(true) with check(true);
+create policy effect_scope_proofs_tenant on control.nexloop_effect_scope_proofs to nexloop_owner
+ using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
 revoke all on control.nexloop_effect_scope_proofs from public,nexloop_api,nexloop_domain_worker,nexloop_scheduler,nexloop_action_worker,nexloop_identity,nexloop_metrics;
 
 create function authz.nexloop_effect_scope_successor_proof(p_context uuid,p_tenant text,p_world text,p_executed control.nexloop_action_definitions,p_version integer)
  returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare b integer;tb jsonb;tv jsonb;nb integer;s control.nexloop_action_definitions;v_pub uuid;
 begin
+ perform set_config('eios.tenant_id',p_tenant,true);  -- the intent's own tenant (ctx.tenant_id): the tables below are tenant-policied
  -- The executed Action's own Consumer version (exactly one Consumer reference).
  select min((r->>'version')::integer),count(*) into b,nb from jsonb_array_elements(p_executed.definition->'governance'->'change_scope'->'object_types') r
   where r->>'tenant_id'=p_tenant and r->>'stable_name'='Consumer';
@@ -54,6 +56,7 @@ begin
   order by (d.definition->>'version')::integer desc limit 1;
  if not found then return null;end if;
  select p.publication_id into v_pub from ontology.nexloop_schema_publications p where p.tenant_id=p_tenant and p.world=p_world
+  and p.type_name='Consumer' and p.version_after=p_version
   and s.resource_id=any(p.successor_actions) and p.published_by like 'human:%' and p.permission_digest_before=p.permission_digest_after
   order by p.published_at limit 1;
  if v_pub is null then return null;end if;
@@ -384,7 +387,9 @@ revoke all on function authz.nexloop_effect_registrar_version(text,text,text,jso
 grant execute on function authz.nexloop_effect_registrar_version(text,text,text,jsonb) to nexloop_api,nexloop_domain_worker;
 
 -- 4. The create Action version for a new object (L6 Q6): new objects are written at the type's latest published version (rows of
---    ontology.object_type_versions are published versions only: F3 and the trusted configuration write them, a proposal never), by
+--    ontology.object_type_versions are published versions only: only publication paths insert them - the trusted configuration
+--    (0050 and its copies, group increments 0390, the simulation manifest 0274), the NX-044 review publication (0082) and F3 (0254/
+--    0257, inside the publish transaction); a proposal or candidate lives in ontology.nexloop_schema_proposals, never here), by
 --    the active `<Type>.create` whose scope holds exactly that version and that the calling session holds a live execute grant on.
 --    Neither: raised - never an older version (no new object a governed Action cannot edit, no version inversion).
 create function authz.nexloop_create_action_version(p_digest text,p_world text,p_type text) returns integer

@@ -178,3 +178,72 @@ select v1.version as v1, v2.version as v2,
   - Host 和 contracts 中的 `:1` 改为版本白名单；
   - 需要 ADR、改 contracts、Host 发版，以及 context-pack 新版本。
 - **C：退回 v1。** 走受治理的降级或撤回发布路径（目前不存在），需要负责人决定。
+
+## 7. A′ 实现的证据（L6 P1–P3，2026-11-10，本地 PG，`-n 2`）
+
+### 7.1 拒绝测试（P1）
+`tests/test_effect_scope_successor_proof_pg.py`，共 36 例，全部通过。
+- **成功**：
+  - v2 旧顾客回复成功，registrar 用 `:2`，留痕 `:1`/`:2`；
+  - v1 顾客走 `:1`，不留痕；
+  - v1→v2→v3 的累计追加链由 `:3` 证明。
+- **拒绝（参数化 22 项）**，每项只破坏一个条件：
+  - 发布记录：无发布记录、非人工发布、发布记录的类型不是 Consumer、发布记录的版本不是 v；
+  - 后继定义：输入模式不同、scope 多出一个类型、target_systems 不同、capability 不同、idempotency 不同；
+  - 后继本身：后继 scope 的 Consumer 版本不是 v（7.2）、后继非 active（7.1）、后继不存在、后继在另一个 world、后继在另一个租户（7.7）；
+  - 新增属性：必填、必填但可空、不可空、hidden、带 default；
+  - 类型定义：已有属性被修改、类型的其他键被修改。
+- **单列的拒绝和检查**：
+  - Consumer 升到 v3、但只有 `:2` 覆盖 v2（§3 第 8 项）：断言在 effect_bind 失败（EffectContextUnavailable）；
+  - D1 累计：v1→v2 hide、v2→v3 add，执行 `:1` 被拒；
+  - §3 第 9 项：选版本之后发生并发升级，0179 在同一事务内拒绝，不留 effect context，也没有 terminal claim；
+  - 7.5：权限摘要不等的发布记录写入时报 CheckViolation（表约束），所以这种发布不可能存在；
+  - Q1：故意选错 registrar 版本被拒；
+  - Q2：四个混合组合；
+  - `:1` 路径忽略新增属性；
+  - B 守护测试。
+
+### 7.2 变异检查（P2）
+每次只删一个 SQL 条件，跑整个测试文件。下表列出变红的用例：
+
+| 删除的条件 | 结果 | 变红的用例 |
+|---|---|---|
+| A′-1 后继 active | 1 failed | `successor_inactive` |
+| A′-1 同 world | 1 failed | `successor_other_world` |
+| A′-1 scope 含 Consumer:v | 1 failed | `successor_scope_wrong_version` |
+| A′-1 capability 相等 | 1 failed | `successor_capability_differs` |
+| A′-1 去掉版本号后定义相等 | 4 failed | `successor_policy_differs`、`successor_receipt_differs`、`successor_scope_extra_type`、`successor_target_systems_differ` |
+| A′-2 人工发布 | 1 failed | `publisher_not_human` |
+| A′-2 发布记录的类型和版本 | 2 failed | `publication_other_type`、`publication_other_version` |
+| D1 前缀相等 | 2 failed | `test_the_comparison_is_cumulative_from_the_executed_scope`、`existing_property_changed` |
+| D1 其余键相同 | 1 failed | `other_type_key_changed` |
+| D2 非必填 | 1 failed | `added_property_required_nullable` |
+| D2 可空 | 1 failed | `added_property_not_nullable` |
+| D2 非 hidden | 1 failed | `added_property_hidden` |
+| D2 无 default | 1 failed | `added_property_default` |
+| Q2 精确 (type, version) | 6 failed | 四个组合、v1 顾客走 `:1`、并发升级 |
+| Q1 registrar 的 scope 和快照检查（两层同时删） | 2 failed | 故意选错版本、并发升级 |
+| Q4 scope 扩大即拒绝（`service_grants._rebinding_reason`） | 1 failed | `test_dry_run_stops_on_a_refused_successor[scope_widened]` |
+
+单删一项抓不到的四个条件。每一项都有另一层防线，下面写明了另一层是什么、怎样验证：
+- **A′-1 同 stable_name**：stable_name 本身在定义里，“去掉版本号后定义相等”已经覆盖它，所以单删不会变红。
+- **A′-1 同租户**：proof 函数在入口设置 `eios.tenant_id=p_tenant`，新表和读到的表都有租户 RLS（force），单删这个谓词仍被 RLS 挡住。两层同时删（谓词加 row_security=off）时，owner 在 force RLS 下无法执行，函数本身失效，正常用例变红。所以这一项无法得到“只让拒绝用例变红”的结果，如实记录。
+- **A′-2 权限摘要不变**：表 CHECK 约束保证摘要不等的行写不进去，单删不会变红。7.5 的断言证明了这一点。
+- **A′-2 “发布记录为空即拒绝”**：publication_id 的 NOT NULL 也会拒绝。之前做过组合变异（删除判空并放开 NOT NULL），`no_publication_record` 和 `publisher_not_human` 变红。
+
+### 7.3 新表守护（P3）
+- `control.nexloop_effect_scope_proofs` 的 policy 改为租户 policy：`tenant_id=current_setting('eios.tenant_id',true)`，RLS enable 且 force。proof 函数入口设置 `eios.tenant_id` 为 intent 自己的租户。
+- `tests/test_db_boundary.py` 只要求 ontology/runtime 下的表开启并强制 RLS；新表在 control 下，也已开启并强制。
+- 这张表没有 consumer_id，也没有任何身份列（只有 context_id、资源 id、publication_id 和版本）。consumer、member 两个 erasure coverage 只检查带 consumer_id 或身份列的表，所以无须登记，测试通过。
+- 跑过的测试共 365 个，全部通过：
+  - db_boundary、tenant_fk、system_catalog、function_copy_guard；
+  - consumer、member、erasure、erasure_references 四个 coverage；
+  - claim_store；
+  - nx041 sim（全部 `test_nx041_sim_*`）；
+  - bootstrap、published_migrations；
+  - 本节的三个新测试文件，以及 api_stage_ready。
+- definer 检查 0 个问题。
+
+### 7.4 未完成：P4
+- 真实的 `nexloop_schema_proposal_publish` 加 `stage_secrets register` 端到端测试还没有写。它需要把人工评审会话（review 夹具）和 relay 夹具（context_message）放进同一个租户。L6 允许在 R76 前补完。
+- 在此之前，R76 第 3 步（register --dry-run）是 stage 上第一次真实派生 `:2` 授权，所以运行单要求 dry-run 输出存证，并且失败即停。

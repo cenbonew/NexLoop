@@ -30,16 +30,24 @@ ADDED = {'property_name': 'delivery_windows', 'value_type': 'string', 'required'
 
 
 
-def publish_v2(f, admin, *, v2=None, follow=True, edit_successor=None, objects=True, publisher='human:synthetic-reviewer', record=True):
+def publish_v2(f, admin, *, v2=None, **kwargs):
     """Consumer v2 published as F3 leaves it (F3 writes these rows itself; the trusted configuration accepts no property increment);
     each keyword breaks one condition for the refusal cases."""
+    return publish_version(f, admin, 1, 2, schema=v2, **kwargs)
+
+
+def publish_version(f, admin, before, after, *, schema=None, follow=True, edit_successor=None, objects=True, publisher='human:synthetic-reviewer',
+                    record=True, effect=None, record_as=None):
+    """Consumer `after` published over `before` as F3 leaves it. effect places the effect Action's successor for the refusal cases:
+    'skip' (not published), 'inactive', ('world', name) or ('tenant', id) (published elsewhere)."""
     tenant = f['original']['tenant']
     published = {}
-    old = admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=1", (tenant,)).fetchone()[0]
-    new = v2(old) if v2 else {**old, 'version': 2, 'properties': list(old['properties']) + [ADDED]}
-    admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',2,%s)", (tenant, Jsonb(new)))
+    old = admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=%s", (tenant, before)).fetchone()[0]
+    new = schema(old) if schema else {**old, 'version': after, 'properties': list(old['properties']) + [ADDED if after == 2 else {**ADDED, 'property_name': f'added_v{after}'}]}
+    admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',%s,%s)", (tenant, after, Jsonb(new)))
     bound = [{'definition': d, 'capability': c} for d, c in admin.execute("""select definition,capability from control.nexloop_action_definitions
-        where tenant_id=%s and world='real' and active and definition->'object_types' @> '[{"stable_name":"Consumer"}]'""", (tenant,)).fetchall()]
+        where tenant_id=%s and world='real' and active and definition->'object_types' @> %s::jsonb""",
+        (tenant, json.dumps([{'stable_name': 'Consumer', 'version': before}]))).fetchall()]
     rows = successors({'actions': bound}, new)
     if edit_successor:
         for row in rows:
@@ -47,20 +55,33 @@ def publish_v2(f, admin, *, v2=None, follow=True, edit_successor=None, objects=T
                 edit_successor(row)
                 row['definition'].pop('contract_digest', None)
                 row['definition'] = ActionDefinition.model_validate_json(json.dumps(row['definition'])).model_dump(mode='json')
-    insert_active_actions(admin, tenant, rows)
+    effect_rows = [r for r in rows if r['definition']['stable_name'] == EFFECT]
+    insert_active_actions(admin, tenant, [r for r in rows if r['definition']['stable_name'] != EFFECT])
+    if effect in (None, 'inactive'):
+        insert_active_actions(admin, tenant, effect_rows)
+        if effect == 'inactive':
+            admin.execute("update control.nexloop_action_definitions set active=false where tenant_id=%s and resource_id=%s",
+                          (tenant, f'eios:action:{EFFECT}:{after}'))
+    elif effect != 'skip' and effect[0] == 'world':
+        insert_active_actions(admin, tenant, effect_rows, world=effect[1])
+    elif effect != 'skip' and effect[0] == 'tenant':
+        admin.execute("insert into control.nexloop_tenants(tenant_id,status) values(%s,'active') on conflict(tenant_id) do nothing", (effect[1],))
+        insert_active_actions(admin, effect[1], json.loads(json.dumps(effect_rows).replace(tenant, effect[1])))
     published['successors'] = [f"eios:action:{r['definition']['stable_name']}:{r['definition']['version']}" for r in rows]
-    if follow:  # register's follow_latest_version: the planner's registrar authority facts follow to :2 (digests recomputed)
-        follow_facts(admin, tenant, BIND1, BIND2)
+    if follow:  # register's follow_latest_version: the planner's registrar authority facts follow (digests recomputed)
+        follow_facts(admin, tenant, BIND1[:-1] + str(before), BIND1[:-1] + str(after))
     reauthenticate(f)
     if objects:
-        admin.execute("update ontology.objects set schema_version=2 where tenant_id=%s and world='real' and type_name='Consumer' and schema_version=1", (tenant,))
+        admin.execute("update ontology.objects set schema_version=%s where tenant_id=%s and world='real' and type_name='Consumer' and schema_version=%s",
+                      (after, tenant, before))
     if record:
         with admin.transaction():
             admin.execute('set local session_replication_role=replica')  # the proposal row of the F3 transaction is not part of this setup
             admin.execute("""insert into ontology.nexloop_schema_publications(tenant_id,world,publication_id,proposal_id,kind,type_name,version_before,version_after,
                 successor_actions,permission_digest_before,permission_digest_after,compatibility_report_digest,published_by,rationale)
-                values(%s,'real',%s,%s,'publish','Consumer',1,2,%s,%s,%s,%s,%s,'synthetic publication')""",
-                (tenant, published.setdefault('publication', str(uuid.uuid4())), str(uuid.uuid4()), published['successors'], 'a' * 64, 'a' * 64, 'b' * 64, publisher))
+                values(%s,'real',%s,%s,'publish',%s,%s,%s,%s,%s,%s,%s,%s,'synthetic publication')""",
+                (tenant, published.setdefault('publication', str(uuid.uuid4())), str(uuid.uuid4()), *(record_as or ('Consumer', before, after)), published['successors'],
+                 'a' * 64, 'a' * 64, 'b' * 64, publisher))
     return published
 
 
@@ -156,6 +177,8 @@ def test_without_the_followed_grant_the_registrar_does_not_bind(context_message,
 @pytest.mark.parametrize('case', [
     'no_publication_record', 'publisher_not_human', 'successor_policy_differs', 'successor_scope_extra_type',
     'added_property_required', 'added_property_hidden', 'added_property_default', 'existing_property_changed',
+    'added_property_required_nullable', 'added_property_not_nullable', 'other_type_key_changed', 'successor_scope_wrong_version', 'publication_other_type', 'publication_other_version', 'successor_inactive', 'successor_missing', 'successor_other_world', 'successor_other_tenant',
+    'successor_target_systems_differ', 'successor_capability_differs', 'successor_receipt_differs',
 ])
 def test_the_successor_proof_refuses_when_one_condition_fails(context_message, admin, tmp_path, case):  # noqa: F811
     f = context_message
@@ -168,11 +191,35 @@ def test_the_successor_proof_refuses_when_one_condition_fails(context_message, a
         'added_property_hidden': dict(v2=lambda old: appended(old, visibility='hidden')),
         'added_property_default': dict(v2=lambda old: appended(old, default_value='morning')),
         'existing_property_changed': dict(v2=lambda old: changed_first(old)),
+        'added_property_required_nullable': dict(v2=lambda old: appended(old, required=True)),
+        'added_property_not_nullable': dict(v2=lambda old: appended(old, nullable=False)),
+        'other_type_key_changed': dict(v2=lambda old: {**appended(old), 'description': (old.get('description') or '') + ' changed'}),
+        'successor_scope_wrong_version': dict(edit_successor=lambda row: consumer_ref_version(row, 1)),
+        'publication_other_type': dict(record_as=('Goal', 1, 2)),
+        'publication_other_version': dict(record_as=('Consumer', 4, 5)),
+        'successor_inactive': dict(effect='inactive'),
+        'successor_missing': dict(effect='skip'),
+        'successor_other_world': dict(effect=('world', 'shadow')),
+        'successor_other_tenant': dict(effect=('tenant', str(uuid.uuid4()))),
+        'successor_target_systems_differ': dict(edit_successor=lambda row: row['definition']['governance']['change_scope'].update(
+            target_systems=row['definition']['governance']['change_scope']['target_systems'] + ['postgres'])),
+        'successor_capability_differs': dict(edit_successor=lambda row: row.update(capability={**row['capability'], 'idempotent': not row['capability']['idempotent']})),
+        'successor_receipt_differs': dict(edit_successor=lambda row: row['definition']['governance'].update(
+            idempotency={**row['definition']['governance']['idempotency'], 'key_fields': list(row['definition']['governance']['idempotency']['key_fields']) + ['message']})),
     }[case]
     publish_v2(f, admin, **kwargs)
     outcome = reply(f, tmp_path)
     assert not isinstance(outcome, dict), outcome
     assert proofs(admin) == [] and admin.execute('select count(*) from runtime.nexloop_effect_intents').fetchone()[0] == 0
+
+
+def consumer_ref_version(row, version):
+    """7.2: the successor equal to :1 without versions, but its scope names Consumer:`version`, not the published v2."""
+    d = row['definition']
+    for refs in (d['object_types'], d['governance']['change_scope']['object_types']):
+        for ref in refs:
+            if ref['stable_name'] == 'Consumer':
+                ref['version'] = version
 
 
 def appended(old, **change):
@@ -267,3 +314,84 @@ def test_the_added_optional_property_is_ignored_on_the_1_path(context_message, a
         receipt = worker.runtime_effect_tool(activation_ref=activation['activation_ref'], command=command, tool_operation='submit',
                                              parameters={'message': 'v2 reply'})['receipt']
     assert receipt['intent_id'] and [p[0] for p in proofs(admin)] == [f'eios:action:{EFFECT}:1']
+
+
+def test_a_successor_scope_without_the_consumers_version_is_refused(context_message, admin, tmp_path):  # noqa: F811
+    """§3 item 8 / 7.2: Consumer moved to v3 while only :2 (Consumer:2) is published - no successor holds Consumer:3."""
+    f = context_message
+    tenant = f['original']['tenant']
+    publish_v2(f, admin)
+    old = admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=2", (tenant,)).fetchone()[0]
+    admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',3,%s)",
+                  (tenant, Jsonb({**old, 'version': 3, 'properties': list(old['properties']) + [{**ADDED, 'property_name': 'added_v3'}]})))
+    admin.execute("update ontology.objects set schema_version=3 where tenant_id=%s and type_name='Consumer'", (tenant,))
+    reauthenticate(f)  # a new published type version moves the directory hash
+    with pytest.raises(MessageRelayUnavailable):  # the registrar has no version holding Consumer:3 either: nothing is bound
+        f['relay'].run_once()
+    assert f['relay']._diagnostic_failure[1] == 'EffectContextUnavailable'
+    assert proofs(admin) == [] and admin.execute('select count(*) from runtime.nexloop_effect_intents').fetchone()[0] == 0
+
+
+def test_the_comparison_is_cumulative_from_the_executed_scope(context_message, admin, tmp_path):  # noqa: F811
+    """L6 D1: v1 -> v2 hides a property, v2 -> v3 appends one. Executing :1 (Consumer:1) on a v3 object is refused: v1's properties
+    are no prefix of v3's, although v3 extends v2 additively."""
+    f = context_message
+    publish_version(f, admin, 1, 2, schema=lambda old: {**old, 'version': 2, 'properties': [dict(p, visibility='hidden') if i == 0 else p
+                                                                                          for i, p in enumerate(old['properties'])]})
+    publish_version(f, admin, 2, 3)
+    outcome = reply(f, tmp_path)
+    assert not isinstance(outcome, dict), outcome
+    assert proofs(admin) == [] and admin.execute('select count(*) from runtime.nexloop_effect_intents').fetchone()[0] == 0
+
+
+def test_a_cumulative_additive_chain_is_proven_by_the_latest_successor(context_message, admin, tmp_path):  # noqa: F811
+    """The positive twin of the D1 case: v1 -> v2 -> v3 each append a property; :1 on a v3 object is proven by :3."""
+    f = context_message
+    publish_version(f, admin, 1, 2)
+    third = publish_version(f, admin, 2, 3)
+    receipt = reply(f, tmp_path)
+    assert isinstance(receipt, dict), receipt
+    assert proofs(admin) == [(f'eios:action:{EFFECT}:1', f'eios:action:{EFFECT}:3', third['publication'], 3)]
+
+
+def test_a_concurrent_upgrade_after_the_choice_is_refused_and_leaves_no_context(context_message, admin, tmp_path, monkeypatch):  # noqa: F811
+    """§3 item 9 (Q3): the registrar version is chosen, then the Consumer moves on before the registration; 0179 re-checks in the
+    same transaction and refuses, and no effect context or finalized claim is left."""
+    import psycopg
+    from nexloop_eios.effect_contexts import EffectContextRegistrar
+    f = context_message
+    tenant = f['original']['tenant']
+    publish_v2(f, admin, objects=False)
+    old = admin.execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='Consumer' and version=2", (tenant,)).fetchone()[0]
+    admin.execute("insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,'Consumer',3,%s)",
+                  (tenant, Jsonb({**old, 'version': 3, 'properties': list(old['properties']) + [{**ADDED, 'property_name': 'added_v3'}]})))
+    reauthenticate(f)  # a new published type version moves the directory hash
+    chosen = []
+    original = EffectContextRegistrar._version
+
+    def choose_then_upgrade(self, db, verb, payload):
+        version = original(self, db, verb, payload)
+        chosen.append(version)
+        with psycopg.connect(f['original']['pg'], autocommit=True) as other:  # a concurrent publication's object migration
+            other.execute("update ontology.objects set schema_version=3 where tenant_id=%s and type_name='Consumer'", (tenant,))
+        return version
+    monkeypatch.setattr(EffectContextRegistrar, '_version', choose_then_upgrade)
+    with pytest.raises(MessageRelayUnavailable):
+        f['relay'].run_once()
+    assert chosen == [1] and f['relay']._diagnostic_failure[1] == 'EffectContextUnavailable'
+    assert admin.execute('select count(*) from control.nexloop_effect_contexts').fetchone()[0] == 0
+    assert admin.execute("""select count(*) from runtime.nexloop_action_claims where action_name='nexloop.plan.bind_effect_context'
+        and claim->>'state'='terminal'""").fetchone()[0] == 0
+
+
+def test_a_publication_with_a_changed_permission_digest_cannot_be_recorded(context_message, admin):  # noqa: F811
+    """7.5: the proof needs permission_digest_before = permission_digest_after; the table refuses any other row, so no such
+    publication can exist to be found."""
+    import psycopg
+    f = context_message
+    with pytest.raises(psycopg.errors.CheckViolation), admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("""insert into ontology.nexloop_schema_publications(tenant_id,world,publication_id,proposal_id,kind,type_name,version_before,version_after,
+            successor_actions,permission_digest_before,permission_digest_after,compatibility_report_digest,published_by,rationale)
+            values(%s,'real',%s,%s,'publish','Consumer',1,2,%s,%s,%s,%s,'human:synthetic','digest changed')""",
+            (f['original']['tenant'], str(uuid.uuid4()), str(uuid.uuid4()), [f'eios:action:{EFFECT}:2'], 'a' * 64, 'c' * 64, 'b' * 64))
