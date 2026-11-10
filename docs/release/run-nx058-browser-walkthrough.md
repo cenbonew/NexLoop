@@ -29,8 +29,13 @@
    ```bash
    python3 -I scripts/dev/keychain_new_password.py --service nexloop/stage/walk-op-<YYYYMMDD> --account walk-op-<YYYYMMDD>
    ```
-   - 条目已存在时，脚本拒绝执行（`exists`）。按负责人自己的 Keychain 规则先删除，vault-index 同步。
-   - 浏览器里从 Keychain 复制、粘贴。②需要新口令时，先删除旧条目，再执行同一条命令。
+   - 条目已存在时，脚本拒绝执行（`exists`）。不要手动删除 Keychain 条目。
+   - 浏览器里从 Keychain 复制、粘贴。
+   - ② 需要新口令时，改用新的 account 名（加 `-r` 后缀），旧条目保留，并同步 vault-index：
+     ```bash
+     python3 -I scripts/dev/keychain_new_password.py --service nexloop/stage/walk-op-<YYYYMMDD> --account walk-op-<YYYYMMDD>-r
+     ```
+     登录用户名仍是 `walk-op-<YYYYMMDD>`，`-r` 只用来区分 Keychain 里的条目。
 3. **剪贴板（K2）**：每次粘贴口令、邀请链接或重置码之后，立即清空剪贴板（例如复制一段无关文字覆盖）。截图前，先关掉显示链接或重置码的表单。
 4. **两个浏览器上下文**：负责人用常规窗口登录 owner；受邀人用一个隐私窗口（或另一个浏览器配置）。会话 cookie 分开，才能看到“变更让对方下线”的效果。
 5. **前置读数**（调度员）：
@@ -72,7 +77,7 @@ ro "select event_type, outcome, created_at from control.nexloop_browser_login_ev
 | 2.1 | 隐私窗口保持 `walk-op` 已登录，停在任意页 | — | — |
 | 2.2 | owner 窗口：成员表里 `walk-op` 那一行 → “选择操作…” → “签发重置码”，提交；把重置码复制进剪贴板，**关掉表单后**再截“最近 90 天的重置码”表 | 表单下方出现“重置码（只显示这一次）”；“最近 90 天的重置码”表里多一行，状态为“未使用” | 菜单里没有这一项：这一行的账户不是 active，或者 owner 的角色没有 `workbench_member.issue_reset`。报“尝试太频繁”：同一签发人 15 分钟内超过 10 次 |
 | 2.3 | 隐私窗口：随便点一个页面或刷新 | 回到登录页，因为签发重置码时会话就已失效 | 仍然能操作：缺陷，说明会话没有失效 |
-| 2.4 | 负责人删除旧 Keychain 条目，用第 0 步第 2 条的脚本生成新口令。隐私窗口在登录页点“用重置码设置新密码”，进入 `/workbench/reset`，粘贴重置码，再从 Keychain 粘贴新口令两次，提交；随即清空剪贴板 | “密码已重置，之前的登录都已失效。请用新密码登录。” | “未能完成：……”：重置码过期（30 分钟）、已用过或输错；新口令和最近用过的口令相同也报这条 |
+| 2.4 | 负责人按第 0 步第 2 条，用 account `walk-op-<YYYYMMDD>-r` 生成新口令（不删除旧条目，同步 vault-index）。隐私窗口在登录页点“用重置码设置新密码”，进入 `/workbench/reset`，粘贴重置码，再从 Keychain 粘贴新口令两次，提交；随即清空剪贴板 | “密码已重置，之前的登录都已失效。请用新密码登录。” | “未能完成：……”：重置码过期（30 分钟）、已用过或输错；新口令和最近用过的口令相同也报这条 |
 | 2.5 | 用新口令登录 | 进入工作台；顶部出现一条不能关闭的提示：“你的密码在 … 通过负责人签发的重置码重置……”；“管理 → 账号安全”里列出这次重置 | 没有提示：缺陷（V3 要求 7 天内每次登录都显示） |
 | 2.6 | 用旧口令登录（负谓词）；再用同一个重置码提交一次（负谓词） | 两次都失败 | 任何一次成功都是缺陷 |
 
@@ -120,5 +125,5 @@ ro "select state, revoked_reason from control.nexloop_workbench_reset_codes wher
 ## 收尾
 
 - `walk-op-<YYYYMMDD>` 停在“已撤销”。账号不能删除；需要时另行按审批发起擦除。
-- 负责人删除 Keychain 条目，或者标为作废。
+- 负责人在 vault-index 里把两条 Keychain 条目（`walk-op-<YYYYMMDD>`、`walk-op-<YYYYMMDD>-r`）标为作废。
 - 本单没有在 stage 上执行过。页面文案取自 main 77c1b924 的源码，实际文案以 stage 部署的版本为准。
