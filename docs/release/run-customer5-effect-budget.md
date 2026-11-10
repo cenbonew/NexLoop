@@ -40,15 +40,15 @@
 1. 部署的版本要包含本分支的提交：迁移 `effect_control_owner_read`（临时号 0448，按合批后的编号）、`effect_control_budget` 模块、service-grants v25 和 stage-principals v11。
 2. 写私有目标文件 `management/control-budget-targets.json`：权限 0600，内容为 `{"control_ids": ["<CTL 的完整 64 位 id>"]}`。这个文件只放在管理树里，不进仓库，不进证据。
 3. `stage_secrets.py setup-credentials --out <树>`：只新增 `setup/control-budget-editor-credential`，输出里的 `added` 只有它这一个文件。
-4. `stage_secrets.py register --dry-run --configurator-dsn-file …`。预期：
-   - `principals` 比上次多一个 `control_budget_editor`；
+4. **（F1，必做）正式 register 之前，先对真实库跑一次 dry-run 并存档**：`stage_secrets.py register --dry-run`，用窗口模式 `--bootstrap-dsn-file`（L7 96775667 的写法，参数以那张单为准）。本步只读。预期如下，任何一项不符就停下，报调度员：
+   - `principals` 比上一次存档多出且只多出 `control_budget_editor`（数目 +1）；
    - `control_budget_targets: 1`，`private_object_grants: 3`；
    - `grants` 里那 3 条对象和属性授权是占位符的形式，输出里不出现 id；
-   - 输出存档为证据。
+   - 轮换为 0。dry-run 本身不比对库里的凭据 binding，所以“轮换 0”分两层核对：一是本分支的测试已经锁定其他主体的 binding 不变；二是正式 register 在写入之前算出 `credential_rotation_required` 就会拒绝、什么都不写（`service_grants.apply` 的 blocking findings）。所以第 5 步只要成功执行，就说明轮换为 0。
 5. `register`（去掉 `--dry-run`）。预期：
-   - `credentials_created` 只有 `control_budget_editor`；
-   - `grants_added` 为 5，即 edit:1、类型 read，加上 3 条对象和属性授权；
-   - 不出现 `credential_rotation_required`。如果出现，就停下，报调度员；本单要求不轮换任何凭据。
+   - `credentials_created` 只有 `control_budget_editor`，`private_object_grants: 3`；
+   - `grants_added` 以 dry-run 的计划为准：edit:1、类型 read，加上 3 条对象和属性授权；
+   - 以 `credential_rotation_required` 拒绝，或者 `no token generated for principals: control_budget_editor`（说明第 3 步没做）时，什么都没写入。停下，报调度员。
 6. 新凭据按惯例存入 Keychain（`nexloop/…`，同步 vault-index），之后照第 3 步写入 `/in/`。
 
 ## 2. 执行前只读核对（调度员在 stage 跑，`$T` 为租户）
@@ -159,12 +159,13 @@ select status, control_id from control.nexloop_relay_enrollments
 | `control_not_configured` | 什么都没写 | 这个控制从来没有 configure 过，不属于本单的情况 |
 | `credential_unavailable` / `recipe_invalid` / `backend_unavailable` / `verify_failed` | 前三个什么都没写；`verify_failed` 在两步之后读回时不一致 | 报调度员，附上 P1、P2 |
 
-## 5a. 演练结束后（可选）：撤销 control_budget_editor 的对象授权和凭据
+## 5a. 收尾：撤销 control_budget_editor 的对象授权（必做）和凭据（由负责人决定）
 
-1. 把私有目标文件改成 `{"control_ids": []}`，然后 register。
-   - 预期 `grants_revoked: 3`，`private_object_grants: 0`，`credentials_created: []`，没有轮换。
+1. **（F2，必做）加完预算、第 4 节核对通过后**，删除私有目标文件 `management/control-budget-targets.json`，然后 register。
+   - 预期 `grants_revoked: 3`，`private_object_grants: 0`，`credentials_created: []`，不轮换。
    - 主体仍然保留 edit:1 和类型 read，但没有任何对象可改。
-2. （可选）撤销凭据：在 service-grants 下一个版本里把 `control_budget_editor` 移到 `retired_principals`，register 时会撤销它的凭据；同时在 stage-principals 里删掉对应的 setup 凭据文件。这是新的部署配置变更，另起一个提交，不在本单内做。
+   - 跑下面第 4 步的第一条只读查询，确认这个主体的对象和属性授权已经空了。
+2. **撤销凭据由负责人决定**，决定写进演练记录。撤销的做法：在 service-grants 下一个版本里把 `control_budget_editor` 移到 `retired_principals`，register 时会撤销它的凭据；同时在 stage-principals 里删掉对应的 setup 凭据文件。这是新的部署配置变更，另起一个提交，不在本单内做。
 3. Keychain 里的这条凭据，在 vault-index 中标为作废。
 4. 只读核对（调度员）：
 
