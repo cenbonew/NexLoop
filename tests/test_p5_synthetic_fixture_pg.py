@@ -2,7 +2,7 @@
 can a synthetic fixture type make the relay's semantic read extract a term and still report coverage below 1, reproducibly?
 
 The relay reads as context_artifacts._semantic_read does: full text only (no embedding provider), extract_terms, limit = the strategy
-top_k. A fixture type holds five properties whose display name is the crowding term F and one property, sorted after them by ref,
+top_k. A fixture type holds its marker property (fixture_marker, no display name: s6_stage_schema FIXTURE_CHANGE), five properties whose display name is the crowding term F and one property, sorted after them by ref,
 whose display name is the shared term T. Synthetic phrases only; the fixture type has no object and no Action (A2)."""
 import hashlib
 
@@ -30,7 +30,8 @@ def fixture_schema(version=1,hidden=()):
         visibility='hidden' if name in hidden else 'normal')
     return ObjectTypeDefinition(type_name=FIXTURE,version=version,title_property=TARGET,primary_key=(),
         description='stage synthetic acceptance fixture (NX-038 P5); no business fact',
-        properties=tuple(p(n,F) for n in CROWD)+(p(TARGET,T),))
+        properties=(PropertyDefinition(property_name='fixture_marker',value_type=PropertyValueType.STRING),)  # s6_stage_schema FIXTURE_CHANGE
+        +tuple(p(n,F) for n in CROWD)+(p(TARGET,T),))
 
 
 def fixture_targets():
@@ -78,6 +79,8 @@ def test_q1_same_score_ref_order_and_top_k_push_t_out(semantic):
     assert len(scores)==1, scores  # the same score for all six exact matches
     # Ranking: score descending, ref ascending - the five F refs sort before zz_t, the merged list is cut at top_k.
     assert [h.ref for h in result.definitions]==[fixture_ref(n) for n in CROWD]
+    # The marker (ref .../fixture_marker sorts before fx_*) has no display name and matches neither term: it takes no slot.
+    assert fixture_ref('fixture_marker') not in {h.ref for g in result.term_hits for h in g}
     out,(extraction,coverage,hashes)=browse(f,session,signer,F+'和'+T)
     assert [i['ref'] for i in out['items']]==[fixture_ref(n) for n in CROWD]
     assert extraction=='terms' and float(coverage)==0.5 and sorted(hashes)==sorted([term_hash(T),term_hash(F)])

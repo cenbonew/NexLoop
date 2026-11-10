@@ -51,7 +51,7 @@ ro "select count(*) from control.nexloop_action_definitions where tenant_id='$TE
 
 ## 2. 定义读规则（Q5-1）
 
-1. **改清单**：这是一个单独的提交，走批次。在 `deploy/authorization/stage-principals.v1.json` 的 `definition_read_rules`，**只在 relay_source 那一条**的 `type_names` 里加 `S6SyntheticFixture`，并在 `purpose` 里写明“NX-038 P5 合成夹具，A4 退役时移除”。不加别的类型，不加别的主体。
+1. **改清单**：这是一个单独的提交，走批次。在 `deploy/authorization/stage-principals.v1.json` 的 `definition_read_rules`，**只在 relay_source 那一条**的 `type_names` 里加 `S6SyntheticFixture`，并在 `purpose` 里写明“NX-038 P5 合成夹具，A4 退役时移除”。不加别的类型，不加别的主体。规则是按类型给的：类型下全部非受限属性的定义都可读，标记属性 `fixture_marker` 也包括在内（M2）。它没有显示名，中文句子抽不到它，可读也不会影响抽词。
 2. **保存前快照（调度员，`ro`）**：
    ```
    ro "select entity_key, fact from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
@@ -66,7 +66,7 @@ ro "select count(*) from control.nexloop_action_definitions where tenant_id='$TE
 ro "select source_revision, field, count(*) from ontology.nexloop_recall_entries where tenant_id='$TENANT_ID' and source_key='type:S6SyntheticFixture' group by 1,2 order by 1,2"
 ```
 
-预期：只有 source_revision 7 一个版本；display_name 行共 6 条（5 条 F、1 条 T），另有 name 行。不是 7，或者行数不对，就停下，等下一个 reflow tick 再查；仍然不对就报 L6。
+预期：只有 source_revision 7 一个版本（1.1 建出 v1，1.2–1.7 各加一版，所以是 7）；display_name 行共 6 条（5 条 F、1 条 T），另有 name 行，其中包括没有显示名的标记属性 `fixture_marker`。不是 7，或者行数不对，就停下，等下一个 reflow tick 再查；仍然不对就报 L6。
 
 ## 3. A2：上线前的只读核对（调度员）
 
@@ -120,7 +120,7 @@ REMAINING=8 DURATION=3600 REASON='NX-038 P5 synthetic fixture' local-only/opday/
    ro "select entity_key, fact->'type_names' from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
    ```
    并核对清单：在 main 910c2b6d 上只有 relay_source 一条（20 个类型）。**R2（代码出处，main 910c2b6d）**：在 Python 代码里，读 definition_read_rule 的只有服务凭据的语义读取路径：召回门控 `nexloop_eios/recall.py:116`，以及定义详情 `context_engine/authority.py:67`（由 `context_engine/semantic.py:170` 调用）。两者都调用 0381 的 `authz.nexloop_definition_read`，参数是服务凭据的 digest。工作台的代码里没有任何地方引用 definition_read_rule（`git grep definition_read_rule` 的全部结果）。所以工作台浏览器会话不经这条规则，夹具规则对它们没有影响。把查询结果记入证据；出现其他主体就逐个写明，并在第 2 步一并处理。
-2. **撤掉定义读权限**：再走一个批次提交，从 relay_source 的 `type_names` 删去 `S6SyntheticFixture`。register 先 dry-run，差异只有这一项，没有新建或轮换凭据；然后正式执行，取前后快照存档。这是让运行时抽不到 F 和 T 的唯一有效步骤（Q6）。
+2. **撤掉定义读权限**：再走一个批次提交，从 relay_source 的 `type_names` 删去 `S6SyntheticFixture`（按类型撤，标记属性一并撤掉）。register 先 dry-run，差异只有这一项，没有新建或轮换凭据；然后正式执行，取前后快照存档。这是让运行时抽不到 F 和 T 的唯一有效步骤（Q6）。
 3. **隐藏属性**：负责人经 F3 的 hide，对 6 个夹具属性各提交一次。**R3（与召回 hidden 迁移的时序，按 H-d）**：那个迁移不得在 §4 预热到 §6 r2 之间部署。如果它在退役之前已经上线，hide 本身就会让召回停止抽这些词，成为有效的退役手段：届时第 2 步和第 3 步都做，并在第 4 步核对里确认抽词已经停止；同时按那份设计稿 §5 更新 Q6 测试和本节文字。如果它还没上线，这一步只是展示上的收尾，只有第 2 步有效。
 4. **只读确认（调度员）**：
    - definition_read_rule 事实里已经没有夹具类型；
