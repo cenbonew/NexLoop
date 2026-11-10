@@ -22,6 +22,12 @@ REGISTRY = {
     'authz.nexloop_load_authority_fact(text,text,text,text[])': SERVICE,
     'authz.nexloop_load_authority_fact_with_identity(jsonb,text,text,text,text[])': SERVICE,
     'authz.nexloop_claim_match_settled(text,text,text,bigint)': SERVICE + ' (claim matcher)',
+    # ADR-046 (0446): both choose a version only and decide nothing - the registrar command (0179) and the governed create re-authorize
+    # the exact resource. Real callers are service credentials: effect_contexts (relay_planner, role_planner, business_owner configure)
+    # and create_versions.create_current (business_setup, enterprise_setup, the relay and fallback planners, role_assembly); no
+    # workbench route reaches either, and a browser member's grant is only ever read through the browser snapshot.
+    'authz.nexloop_effect_registrar_version(text,text,text,jsonb)': SERVICE + ' (advisory registrar version; 0179 re-checks the exact resource)',
+    'authz.nexloop_create_action_version(text,text,text)': SERVICE + ' (advisory create version; the governed create re-checks the exact resource)',
     'authz.nexloop_evo_l1_open(text,uuid,text)': SERVICE + ' (evolution L1 test world)',
     'control.nexloop_revoke_service_credential(text,jsonb,text,bytea)': SERVICE + ' (service credential rotation)',
     'control.nexloop_consumer_webchat_grants(text,text,text,text)': 'WebChat customer grants; a customer principal is never a workbench member',

@@ -25,6 +25,10 @@ alter table control.nexloop_effect_scope_proofs force row level security;
 create policy effect_scope_proofs_tenant on control.nexloop_effect_scope_proofs to nexloop_owner
  using(tenant_id=current_setting('eios.tenant_id',true)) with check(tenant_id=current_setting('eios.tenant_id',true));
 revoke all on control.nexloop_effect_scope_proofs from public,nexloop_api,nexloop_domain_worker,nexloop_scheduler,nexloop_action_worker,nexloop_identity,nexloop_metrics;
+-- NX-041 outbound guard: written by the effect intent command (through the proof); an append-only audit of ids, resource ids, the
+-- publication and the Consumer version, any world - it reaches nothing outside, so no stand-in is needed.
+insert into control.nexloop_real_effect_tables(table_name,guarded,reason) values
+ ('control.nexloop_effect_scope_proofs',false,'append-only audit of the ADR-046 scope proof (context id, executed and proving Action resources, publication id, Consumer version); written inside the effect intent command, no external effect');
 
 create function authz.nexloop_effect_scope_successor_proof(p_context uuid,p_tenant text,p_world text,p_executed control.nexloop_action_definitions,p_version integer)
  returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
