@@ -1,6 +1,6 @@
 # 草稿：方案 B——效应 Action 跟随 Consumer 的 schema 版本（含删除 A′）
 
-- **状态**：L7 设计稿，2026-11-11，基于 main 910c2b6d。只是设计，不含实现，不改 planning、contracts 和迁移。送 L6 审。
+- **状态**：L7 设计稿，2026-11-11，基于 main 910c2b6d。只是设计，不含实现，不改 planning、contracts 和迁移。L6 2026-11-11 判条件 PASS（同意 B2、B5、B6）；本版按判词 H1–H3、B3 和“合并实施顺序”改稿。B1 待负责人批，H1 待负责人定。
 - **来源**：负责人 2026-11-10 定 P0 方向 A′ 时把 B 另立任务（ADR-046 §3、§4）。验收含“删除 A′”：ADR-046 的过渡规则，以及 B 落地就会变红的守卫 `test_the_transitional_rule_goes_with_option_b`。
 - **依据**：
   - `adr/ADR-046-effect-scope-successor-proof.md`；
@@ -75,7 +75,29 @@
 
 - 所有 `get('nexloop.service.request', 1)` 或 `…:1` 常量，改为从以下来源取：
   - 已有 context：读 binding / context 中的 `action_resource`（新增只读函数，或扩展现有 context 读取）。
-  - 尚未有 context（relay 首次组装）：由 SQL 在 bind 中选定，Python 不预先选。Run 的签发需要 Action 版本时，在 bind 之后再签发；如果现有顺序是先签发再 bind，就改为签发 stable_name 级别的 Run 能力，或在 bind 后补签。**【待定 B3】**这一点要先核实 0179 中 Run proof 和 bind 的先后顺序，实施前给出时序图。
+  - 尚未有 context（relay 首次组装）：见下面的 0179 时序（B3，L6 要求实施前给出；已按 main 910c2b6d 的 `effect_contexts.py` 和 0446 核实）。
+
+**0179 时序（B3）**。今天效应 Action 的版本在 SQL 之前就已经被 Python 签进两个 proof：`effect_contexts.py:156` 的 executor_proof 和 `:163` 的 run_proof，都写死 `:1`。所以不能“SQL 在 bind 里选、Python 事后取”，必须照 registrar 的 `_version`（`:99`，0446 的 `nexloop_effect_registrar_version`）的做法：在同一个事务里先选版本，再签名，SQL 再复核。
+
+```
+message_relay / reply_fallback                     PG（一个事务，effect_contexts._execute 的 db）
+1. 签发 Run（run 凭证、run_context；
+   Run 的授权按精确 resource，见 §3.3）
+2. EffectContexts.bind(...) 开始事务 ─────────────▶
+3. _version(db,'bind',payload)          ─────────▶ nexloop_effect_registrar_version   → R（现有，0446）
+4. [B] _effect_version(db,payload)      ─────────▶ nexloop_effect_action_version      → E（新增：准入表中唯一一个精确含 Consumer:v 的版本）
+5. 签 proof：registrar :R、executor :E、run :E（Python 本地 HMAC，不经 SQL）
+6. nexloop_effect_context_command('bind') ──────▶ 复核：R、E 用同一函数重算，必须相等，否则 42501
+                                                   断言三个 proof 的授权（精确 resource）
+                                                   insert nexloop_effect_contexts(..., action_resource=E)
+7. 提交事务
+8. context pack 带 action=<stable>:E（v8）→ Host → runtime accept
+9. effect intent（resource=E）           ─────────▶ 0183：c.resource_id = ctx.action_resource，scope 精确含 Consumer:v
+```
+
+- 第 3、4、6 步在同一个事务里，Consumer 行在第 6 步 `for share`。第 4 步到第 6 步之间如果有并发发布，第 6 步重算出的 E 会不同，于是拒绝，不留下部分 context（Q3）。
+- `configure` 动词也签 executor_proof（`:156`）。configure 时按该 EffectControl 指向的 Consumer 的版本选 E，规则同第 4 步。
+- 第 1 步的 Run 签发不需要知道 E：Run 只是 run 凭证；对效应 Action 的授权在第 5 步按 E 签 proof 时，由第 6 步校验。所以签发顺序不用改。
 - `reply_fallback.py:24` 遵循 ADR-023（唯一的回复工具）。工具名按 stable_name 识别，版本跟随 context。
 - `service_offerings.py`、`contracts.py` 里的 `:1` 改为 stable_name 加“当前 context 版本”；生成的 schema 随 v8 一起更新。
 
@@ -117,9 +139,17 @@
   3. `:N` 在该次发布的 `successor_actions` 中，且该发布 `published_by` 为 human，`permission_digest_before = permission_digest_after`（A′-2）；
   4. `:N` 的 scope 精确包含 Consumer:v；
   5. Consumer v 相对前一个已准入版本的 Consumer 版本累计只增不改（D1），且新增属性满足 D2。
-- **任一条不满足，不准入，也不写任何东西**：
-  - 这时该租户的效应链会在 intent 处报 `effect Consumer outside Action`，等同于 2026-11-09 的事故形态。
-  - 所以 F3 发布前的就绪检查要增加一项：“发布会产生效应 Action 后继但不可准入”时，发布被拒绝或给出明确警告。**【待定 B4】**推荐拒绝发布：在 `nexloop_schema_proposal_publish` 中，对效应类型（Consumer）的 `add_vocabulary_value` 和 `hide` 操作直接拒绝，在发布前就挡住，而不是在运行时失败。
+- **判定函数共用（L6 N1）**：以上 5 条由同一个纯判定函数 `effect_successor_admissible(...)` 实现。它由 NX-068 从 0446 中拆出，不写任何行。
+  - A′ 判定（B 之前）、准入函数、NX-068 的发布 gate（G1）和 S3 冒烟，四处都调用它。
+  - 准入函数只是在它判定通过后写准入行。
+- **任一条不满足，不准入，也不写任何东西**。
+- **不可准入的发布（原 B4，按 L6 H3 不另写）**：这就是 NX-068 的 G1 refuse，由同一个判定函数在发布事务内拒绝。B 不另做实现，只在 G1 由“A′ 可证”切换到“可准入”时（§4 第 2 步）跟着切换。
+- **发布到准入之间的窗口（L6 H1，待负责人定）**：A′ 删除后，从每次 Consumer 发布到准入完成之前，新版本的顾客（包括 Q6 新建的）在 bind 时选不到版本，效应链会断，即 P0 形态的常设窗口；A′ 期间这个窗口由 `:1` 兜住。两种处理：
+  - **(a) 推荐**：发布事务内，由 NX-068 的 gate wrapper 在 `effect_successor_admissible` 判定通过时，同时写准入行；判定不通过就拒绝发布（即 G1 refuse）。
+    - 准入不是授权，所以不违反“发布不写授权”。
+    - 授权侧的窗口（发布到 register 之间）与今天 registrar 的窗口相同，沿用 Q4/Q5 的 register 流程。
+    - 这样 `effect_action_admit.py` 只用于补录：对 B 之前已完成的发布（stage 2026-11-09 那次）补写准入行，以及准入行被退役后重新准入。
+  - **(b)**：负责人明确接受这个窗口。运行单把“发布 → admit → register → 冒烟”绑成一个不可拆分的序列，NX-068 的 Q9 冒烟要检查准入行是否存在，冒烟逾期也告警。
 - **每个 Consumer 版本只准入一个效应 Action 版本**：用唯一约束 (tenant, world, stable_name, consumer_version) 保证。
 - 准入写一条修订（谁、何时、哪次发布、检查摘要），留作审计。这是 A′-4 留痕的替代：A′ 是每次 intent 写一条，B 是每次准入写一条。
 
@@ -136,14 +166,16 @@
   - 结果是“准入”和“授权”两把钥匙都要有：只有准入没有授权会失败在授权；只有授权没有准入，`:N` 选不中。
 - 与 `follow_latest_version` 的关系：B 不改 follow 的语义，只扩展白名单并增加 `not_admitted` 拒绝原因。发布仍不写授权，派生只发生在 register。
 
-## 4. 迁移顺序与回退（扩展—收缩，A′ 在过渡期一直保留）
+## 4. 迁移顺序与回退（按 L6 2026-11-11 的“合并实施顺序”1–4；A′ 在过渡期一直保留）
 
-| 步 | 内容 | 能否独立回退 |
+| 顺序 | 内容 | 能否独立回退 |
 |---|---|---|
-| M1 | 新迁移：准入表、允许名单兼容视图、`nexloop_effect_contexts.action_resource`（回填 `:1`）、选择函数、准入函数。intent 同时接受“`ctx.action_resource` 精确匹配”和旧条件；**A′ 保留** | 是：新列和新表都不被旧代码读取；回退即停用新函数（released migration 冻结，回退要写新迁移，只改函数体） |
-| M2 | Python 和 Host 改为使用 context 的版本；contract v8 加入，Host 同时接受 v7/v8 | 是：回到上一个镜像。context 中的 `action_resource` 此时都是 `:1`，行为与以前相同 |
-| M3 | stage：对 2026-11-09 那次 Consumer v2 发布执行准入（`effect_action_admit.py --dry-run`，然后正式执行），然后 register 派生效应 Action `:2` 的授权 | 是：把准入行标为 inactive（退役函数）。之后的 bind 又选回 `:1`，再由 A′ 证明 |
-| M4 | 删除 A′（§5）。守卫翻转 | 否：删除之后回退需要新迁移重建 A′（0446 的函数体原样恢复）。所以 M4 必须在 M3 在 stage 上稳定运行 ≥ 7 天、没有 `effect Consumer outside Action` 之后再做。**【待定 B6】**观察期长度 |
+| 1（NX-068，先于 B） | 从 0446 拆出纯判定函数 `effect_successor_admissible(...)`，行为不变，由 0446 现有测试证明；NX-068 的 gate/wrapper，G1 走 A′ 分支；冒烟 S3 用这个纯判定函数，不调用会写 proof 的 0446 函数（N4） | 归 NX-068，不在本稿范围 |
+| 2a（B M1） | 新迁移：租户级准入表（B2）、全局允许名单的兼容视图、`nexloop_effect_contexts.action_resource`（回填 `:1`）、选择函数 `nexloop_effect_action_version`、准入函数（调用判定函数后写行）。intent 同时接受“`ctx.action_resource` 精确匹配”和旧条件；**A′ 保留** | 是：新列和新表都不被旧代码读取。released migration 已冻结，回退要写新迁移，只改函数体 |
+| 2b（B M2） | Python 按 §2.4 的时序先选 E 再签名；Host 接受 v7/v8；contract v8（B1，待负责人批）。G1 和 S3 从“A′ 可证”切换到“可准入”。按 H1 选定的方式处理窗口：选 (a) 时 gate wrapper 在发布事务内写准入行 | 是：回到上一个镜像。此时 context 中的 `action_resource` 都是 `:1`，行为与以前相同 |
+| 2c（B M3） | stage：对 2026-11-09 那次 Consumer v2 发布补写准入（`effect_action_admit.py --dry-run`，然后正式执行），再 register 派生效应 Action `:2` 的授权，然后冒烟 | 是：把准入行标为 inactive（退役函数）。之后的 bind 又选回 `:1`，再由 A′ 证明 |
+| 3 | 观察：stage 上 ≥ 7 天没有 `effect Consumer outside Action`（B6，L6 已同意） | — |
+| 4（B M4） | 删除 A′（§5），proofs 按 §6 处理，守卫翻转；同时删除 NX-068 gate 中的 A′ 分支，NX-068 增加的相关断言在此一起翻转 | 否：删除后要回退，需要新迁移重建 A′（0446 的函数体原样恢复） |
 
 - M1–M3 期间，旧顾客的 effect context 有两条路：
   - 新建的 context 选 `:2`，精确通过；
@@ -165,7 +197,7 @@
    - 删除 `test_the_transitional_rule_goes_with_option_b`；
    - 新增 `test_option_b_left_no_successor_proof`，断言以下各项：
      - `pg_proc` 中没有 `nexloop_effect_scope_successor_proof`；
-     - `control.nexloop_effect_scope_proofs` 不存在（或按 §6 的推荐方案，只存在归档表）；
+     - `control.nexloop_effect_scope_proofs` 不存在（§6 推荐方案；若负责人改选归档，则断言只存在归档表且只有 erasure 能删）；
      - 允许名单或准入表的主键含 version；
      - intent 命令的函数体（`pg_get_functiondef`）中不含 `successor_proof`。
 6. **其他文件**：
@@ -176,17 +208,15 @@
 ## 6. stage 上现有 proof 行的处理
 
 - 现状：R76 之后，stage 每一条旧顾客的效应 intent 都在 `control.nexloop_effect_scope_proofs` 写一行（context_id、`:1`、`:2`、publication_id、consumer_version）。行里没有个人信息，只有 id 和 resource。
-- **【待定 B7】推荐**：M4 不直接删表，而是：
-  1. 迁移中先把这张表改名为 `control.nexloop_effect_scope_proofs_archive`；
-  2. 撤销所有写权限，加触发器拒绝 insert/update/delete，保留 RLS；
-  3. 新增的守卫断言“只存在 archive、不能写入”。
-- 理由：这些行是“哪段时间里哪些效应执行靠的是过渡规则”的唯一证据，对事故复盘和 R76 的验收证据有用；直接 drop 会让这段证据只剩审计日志里的间接痕迹。
-- 备选：
-  - 先导出计数和摘要（每个租户的行数、最早和最晚时间、publication_id 集合）存入运行单证据，然后 drop。这样更干净，但证据只剩摘要。
-- erasure：表里没有 consumer_id，context_id 能经 `nexloop_effect_contexts` 关联到 Consumer。归档表要纳入成员 erasure 覆盖：
-  - 删除顾客时，按 context 关联删除其行；
-  - 或者确认 context 删除时级联删除。
-  - 批次回归跑 erasure coverage。
+- **推荐（按 L6 H2）**：stage 上只有 2 行。
+  1. M4 之前，由负责人用只读 SQL 导出摘要，存入 M4 运行单的证据：每个租户的行数、最早和最晚的 `recorded_at`、publication_id 集合、consumer_version 集合。不导出 context_id。
+  2. M4 迁移 `drop table control.nexloop_effect_scope_proofs`，并同步删除它在 `nexloop_real_effect_tables`、erasure 覆盖、system_catalog 等处的登记。
+  3. 守卫 `test_option_b_left_no_successor_proof` 断言表不存在（`to_regclass(...) is null`）。
+- **备选（不推荐）：保留为归档表**。原稿的写法自相矛盾：触发器拒绝 delete，同时又要求 erasure 能删行。如果坚持归档，必须做到：
+  1. 改名为 `control.nexloop_effect_scope_proofs_archive`，撤销运行时角色的全部权限，保留 RLS；
+  2. 触发器拒绝 insert 和 update，**delete 只对 erasure 路径放行**：判定条件是会话处于 erasure 定义者函数内（例如 `current_setting('nexloop.erasure', true)='on'`，由 erasure 函数在事务内设置），其他 delete 一律拒绝；
+  3. erasure 按 `context_id → nexloop_effect_contexts.consumer_id` 删除该顾客的行；
+  4. 测试：普通 delete 被拒绝；erasure 删除顾客时，其归档行被删除、别的顾客的行不动；erasure coverage 包含这张表。
 
 ## 7. 测试与变异清单
 
@@ -223,7 +253,7 @@
 7. Host：
    - v8 pack 的 action 是别的 stable_name、版本为 0 或非数字 ⇒ fail；
    - `delivery_action` 的 stable_name 不同 ⇒ fail。
-8. 【B4】效应类型的 `add_vocabulary_value` 或 `hide` 发布 ⇒ 被拒绝（或给出警告，以负责人的选择为准）。
+8. 不可准入的发布由 NX-068 G1 拒绝（测试归 NX-068）。B 只补一条：G1 切换到“可准入”之后，同样的拒绝场景仍然被拒绝。H1 选 (a) 时还要补：发布判定通过的同一事务内写入准入行；发布被拒绝时不写准入行、不消耗 permit。
 9. M4 前置断言：
    - 构造一个靠 A′ 才能通过的未过期 context ⇒ 迁移拒绝；
    - 构造一个缺准入行的 v2 租户 ⇒ 迁移拒绝。
@@ -242,6 +272,7 @@
 - register：去掉 `not_admitted`；FOLLOWABLE 去掉或增加一条。
 - Host：把 pattern 放宽为任意 stable_name；`delivery_action` 恢复为全字符串比对（v2 pack 下应该失败）。
 - M4：去掉前置断言。
+- 判定函数：A′、准入、gate、S3 四处必须调用同一个 `effect_successor_admissible`。守卫断言四处的函数体都引用它，并且不存在第二份判定实现（L6 N1）。
 
 ## 8. 不在本任务内
 - ServiceOffering、ConsumerServiceOffering 等对象中 `delivery_action` 字符串的数据迁移。
@@ -255,8 +286,9 @@
 |---|---|---|
 | B1 | contracts 变更（context-pack v8） | 新增 v8 加 example，Host 同时接受 v7/v8，一个周期后退役 v7；需要负责人批准契约变更 |
 | B2 | 允许名单是全局的，还是按租户准入 | 新建租户级准入表，全局表只留 stable_name 级别的身份 |
-| B3 | Run 签发与 bind 的先后（Python 在哪里得到版本） | 实施前核实 0179 的时序并给出时序图；优先由 SQL 在 bind 中选定，Run 在 bind 后取版本 |
-| B4 | 对效应类型的不可准入发布（vocabulary 或 hide） | 在 F3 发布时直接拒绝 |
+| B3 | Run 签发与 bind 的先后（Python 在哪里得到版本） | 已给出时序图（§2.4）：同一事务内先选 E，再签名，SQL 复核；Run 签发顺序不变 |
+| B4 | 对效应类型的不可准入发布 | 取消独立实现（L6 H3）：就是 NX-068 G1 refuse，共用 `effect_successor_admissible` |
+| H1 | 发布到准入之间的窗口 | 推荐 (a)：gate wrapper 在发布事务内判定通过时写准入行，否则拒绝发布；(b) 由运行单绑定序列并由冒烟检查准入。**待负责人定** |
 | B5 | 效应 Action 的授权跟随 | FOLLOWABLE 增加 2 条，共 5 条；只派生已准入的后继（`not_admitted`） |
-| B6 | M3 → M4 的观察期 | stage 上 ≥ 7 天没有 `effect Consumer outside Action` |
-| B7 | proof 表处理 | 改名为只读归档表，并纳入 erasure 覆盖；备选为导出摘要后 drop |
+| B6 | M3 → M4 的观察期 | ≥ 7 天（L6 已同意） |
+| B7 / H2 | proof 表处理 | 推荐：stage 2 行的摘要存运行单证据后 drop，守卫断言表不存在；备选归档时触发器须对 erasure 放行并有测试（§6） |
