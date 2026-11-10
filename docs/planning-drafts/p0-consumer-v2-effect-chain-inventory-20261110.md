@@ -1,6 +1,6 @@
 # 草稿：Consumer v2 发布后效应链中断——方案 A 的改动面、写死版本清单、拒绝场景测试（只读准备）
 
-- **状态**：L7 草稿，2026-11-10，基于 main 23f3e2b9。只是设计准备，不含实现，不改 planning。L6 判定：A 照原样不接受，可接受更窄的 A′（§5）；方向待负责人决定。
+- **状态**：L7 草稿，2026-11-10，基于 main 23f3e2b9。只是设计准备，不含实现，不改 planning。L6 判定：A 照原样不接受，可接受更窄的 A′（§5）。负责人 2026-11-10 选定 A′，已定稿为 `adr/ADR-046-effect-scope-successor-proof.md`，运行单 `docs/release/run-r76-consumer-v2-effect-chain.md`。
 - **现象**：stage 11-09 04:53:49Z 发布 Consumer v2（NX-040 F3）。之后对旧顾客的 relay 回复全部失败，失败点在 effect_bind（`registrar schema scope unavailable`）。customer-5（Consumer v1）正常。
 - **原因链**：
   - F3 把真实世界中该类型的对象全部升到 v2，并为 change_scope 含 Consumer 的 Action 生成 `:2`；`:1` 保持 active。
@@ -68,7 +68,8 @@ change_scope 含 Consumer 的系统 Action 共 16 个（共 41 个）：Budget.s
 
 ### 2.4 不受影响或单独判断
 - `reply_fallback.py:103` 的 `step_revision=1, goal_revision=1`：是对象的 nexloop_revision（刚创建的 Goal/PlanStep 恒为 1），不是 schema 版本，不改（L6 Q6）。`message_relay.py:319` 同理。
-- `message_relay._create` 和 `reply_fallback.py:65`：创建 Goal / PlanStep / MessageAssignment 时用 `action_version=1`。这些类型这次没有发布 v2；但它们属于同一类风险，改为走 Q6 helper（发布这些类型的新版本时，同样会倒挂）。
+- `message_relay._create` 和 `reply_fallback.py:65`：创建 Goal / PlanStep / MessageAssignment 时用 `action_version=1`。这些类型这次没有发布 v2；但它们属于同一类风险，已改走 Q6 helper（`create_versions.create_current`），同时改的还有 business_setup（Consumer、EffectControl）、enterprise_setup（EffectControl）和 role_assembly（Goal、PlanStep）。
+- 仍写死 `action_version=1` 的 create（不在 P0 范围，列为后续）：ServiceOffering / ConsumerServiceOffering（`enterprise_setup.py`、`service_offerings.py`）、IncentiveOffering / ConsumerIncentiveOffering（`incentive_setup.py`）、RoleDefinition / ConsumerRoleLink（`role_mapping.py`）、Role 策略（`role_policies.py`）。这些类型被发布新版本时，同样需要改走 helper。
 - `outreach.py:17–19`、`plan_reevaluation.py:35–36`、`sim_world_credentials.py:68`（NexLoop.queue.operations:1）：
   - outreach.* 和 plan.* 的 object_types 不含 Consumer，不受这次发布影响；
   - NexLoop.queue.operations 含 Consumer，但它是队列操作，需要核实其 SQL 是否检查 Consumer 的 scope。
@@ -132,7 +133,7 @@ change_scope 含 Consumer 的系统 Action 共 16 个（共 41 个）：Budget.s
 - **A′-3 数据兼容**：见 5.2。只有 `add_optional_property` 可以用 A′。
 - **A′-4 留痕**：intent 的 claims、effect context 和审计中，同时记录 `executed_resource = …:1` 和 `scope_proof_resource = …:2`，并记录 publication_id。
 - **A′-5 拒绝测试**：对应 §3 的第 7 组，并补上“`:2` 不存在”和“scope 多出一个类型”两项；每一项都做变异检查。v1 和 v2 两类顾客都要端到端成功。
-- **A′-6 期限**：ADR 附注写明这是过渡规则（草稿见 `docs/planning-drafts/adr-addendum-a-prime-transition-draft-20261110.md`）。另加一个守护测试：一旦效应 Action 的允许名单接受 (stable_name, version>1)，即 B 合入，测试就变红，要求删除 A′。
+- **A′-6 期限**：ADR 附注写明这是过渡规则（定稿：`adr/ADR-046-effect-scope-successor-proof.md`）。另加一个守护测试：一旦效应 Action 的允许名单接受 (stable_name, version>1)，即 B 合入，测试就变红，要求删除 A′。
 
 ### 5.2 Consumer v1→v2 的差异，以及 `:1` 的读写在 v2 下是否不变
 - **F3 只有三种发布操作**（`schema_publication.build`，以及 0257 中逐字段核对的 `expected`）。各自的后果：
