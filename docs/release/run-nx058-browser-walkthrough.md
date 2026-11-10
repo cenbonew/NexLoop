@@ -43,6 +43,11 @@
    ro "select count(*) from control.nexloop_browser_accounts where tenant_id='$T' and username like 'walk-op-%'"
    ```
    用户名必须未被使用，结果应为 0。
+   限速策略必须齐全（stage 曾只有 `local_login`，接受邀请和完成重置因此失败关闭；补法见 `run-34-20261015.md` §2.3）：
+   ```bash
+   ro "select action, maximum_attempts, window_seconds, active from control.nexloop_browser_rate_policies where tenant_id='$T' and operator_principal_id='nexloop_identity' order by 1"
+   ```
+   必须有 `invitation_accept`、`local_login`、`oidc_start`、`password_reset_complete` 四行，并且都是 active。缺任何一行就停下，先按 §2.3 补齐。
 6. **stage web 版本**（调度员，只读）：从 stage 当前发布清单（`release.json` 的 commit）确认，部署的 web 构建包含 77c1b924。在仓库里执行 `git merge-base --is-ancestor 77c1b924 <发布 commit>`，退出码必须为 0。不满足就停下：本单的页面文案和行为取自 77c1b924。
 
 ## ① 成员邀请
