@@ -160,6 +160,8 @@ select v1.version as v1, v2.version as v2,
 
 （列名已对照 0254 的表结构：publications 有 `proposal_id`、`type_name`，proposals 有 `operation`。）
 
+- **stage 核对结果**（调度员只读执行上面的 SQL，另加 other_keys_same，2026-11-10 08:5x）：v1=1、v2=2；`prefix_unchanged=true`；属性从 6 个变为 7 个，新增 `delivery_windows`（required=false，nullable=true，visibility=normal）；`other_keys_same=true`；operation=`add_optional_property`。**A′-3 在 stage 成立。**
+
 ## 6. 方案 B 和 C（不在 P0 内，只做记录）
 - **B：效应 Action 随 schema 升版。**
   - 允许名单改为按 (stable_name, version) 存储，slot 支持多个版本；
