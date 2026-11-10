@@ -1,6 +1,6 @@
 # 草稿：Consumer v2 发布后效应链中断——方案 A 的改动面、写死版本清单、拒绝场景测试（只读准备）
 
-- **状态**：L7 草稿，2026-11-10，基于 main 23f3e2b9。只是设计准备，不含实现，不改 planning。方案 A 待 L6 判定、负责人决定。
+- **状态**：L7 草稿，2026-11-10，基于 main 23f3e2b9。只是设计准备，不含实现，不改 planning。L6 判定：A 照原样不接受，可接受更窄的 A′（§5）；方向待负责人决定。
 - **现象**：stage 11-09 04:53:49Z 发布 Consumer v2（NX-040 F3）。之后对旧顾客的 relay 回复全部失败，失败点在 effect_bind（`registrar schema scope unavailable`）。customer-5（Consumer v1）正常。
 - **原因链**：
   - F3 把真实世界中该类型的对象全部升到 v2，并为 change_scope 含 Consumer 的 Action 生成 `:2`；`:1` 保持 active。
@@ -16,12 +16,12 @@
 | 同上 | 0179 | 114–118 | configure：registrar 的 scope 和 schemas 快照必须包含 EffectControl:当前版本 | 不改（只要选到覆盖的版本即可）；Consumer 发布不影响 EffectControl |
 | 同上 | 0179 | 165–171 | bind：registrar 的 scope 和快照必须精确包含 step/goal/control/consumer 四个对象的 (type, version) | 不改。Python 选出覆盖四个对象的最高版本（L6 Q2），SQL 仍逐对象精确比对（Q1） |
 | `authz.nexloop_effect_intent_command_v0040` | 0183 | 23 | 效应 Action 必须在全局允许名单 `control.nexloop_effect_actions` 中（stable_name 是主键，version 固定为 1） | 不改。A 不升级效应 Action |
-| 同上 | 0183 | 49–51 | 效应 Action（`:1`）的 scope 必须包含 Consumer:当前 schema_version，否则报 `effect Consumer outside Action` | **A 的核心放宽**：原条件不成立时，若同时满足以下条件，仍放行 `:1`：①同一租户、同一 world 下，存在同 stable_name 的 active 后继，其 scope 精确包含 Consumer:v；②该后继出现在一条 `ontology.nexloop_schema_publications` 的 successor_actions 中，且这条发布由 human 发布、`permission_digest_before = permission_digest_after`；③后继与 `:1` 的 operation、target_systems、input_schema 和 capability 相同，scope 只有版本号上升（与 L6 Q4 同一条件） |
+| 同上 | 0183 | 49–51 | 效应 Action（`:1`）的 scope 必须包含 Consumer:当前 schema_version，否则报 `effect Consumer outside Action` | **A′（替代 A，见 §5）**：原条件不成立时，只有 §5 的 A′-1 至 A′-4 全部在 SQL 中成立，才执行 `:1`，并留痕“执行 :1 / 证明 :2” |
 | `control.nexloop_effect_actions`（表） | 0178 | 13–24 | 全局表，append-only，stable_name 唯一，version=1 | A 不改。方案 B 才改 |
 
 另外需要核实的检查（未发现写死 `:1`，但同样按“Action 版本的 scope 包含对象当前版本”比对，Consumer 升到 v2 后可能受影响）：
 - 通用受治理对象写入：0010（create）、0015/0054（edit：`v_object.schema_version <> s->>'version'` 时拒绝）。v2 顾客只能用 `Consumer.edit:2` 编辑。claim_matcher 已经由 R74 移到 `:2`；runtime 的 Python 代码里没有调用 Consumer.edit 的地方。
-- 0124/0150 治理入口上的工作台 Action（Budget.set、Control.set、Goal.publish、Contact.release、Metric.approve 等），它们的 object_types 都包含 Consumer。要逐个核实 handler 是否按对象 schema_version 比对 scope。若比对，旧顾客在工作台上的这些写入同样会失败。0432 只解决了“选哪个版本”，没有解决 scope。
+- 0124/0150 治理入口上的工作台 Action（Budget.set、Control.set、Goal.publish、Contact.release、Metric.approve）：**已复现，不受影响**，见 §4.5。
 
 ## 2. 写死版本的清单
 
@@ -105,7 +105,62 @@ change_scope 含 Consumer 的系统 Action 共 16 个（共 41 个）：Budget.s
 
 每一条放宽条件（7.1–7.7）、Q2 的四个组合和 Q4 的“scope 扩大 ⇒ 不派生”，都要做变异检查。
 
-## 4. 方案 B 和 C（不在 P0 内，只做记录）
+## 4. 复现结果：工作台 Action 与队列（③）
+
+- 测试：`tests/test_consumer_v2_goal_actions_pg.py`（本地 PG）。
+  - 步骤：用 Consumer.create:1 建一个顾客；按 F3 的做法发布 Consumer v2（写入 v2 类型行，用 `schema_publication.successors()` 生成每个绑定 Consumer 的 Action 的 `:2`，再把对象升到 schema_version 2）；然后由 owner 以 `:1` 依次执行五个 Action。
+- 结果：
+  - Metric.approve、Goal.publish、Control.set（scope_kind=consumer，指向这个 v2 顾客）、Budget.set（在已批准预算之下调低）都成功；
+  - Contact.release 停在自身的业务规则 `no active contact restriction`，这已经越过了治理入口的全部检查；
+  - 没有一项因 schema scope 失败。原因：这些 handler 写的是 control 表，治理提交路径不按对象的 schema_version 比对 Action 的 scope。
+- NexLoop.queue.operations：只做了静态核对，没有运行测试。当前定义是 0312 的 `authz.nexloop_runtime_activation_command_v0037`，target 固定为 `NexLoop.queue.<q>:1`，加上 `nexloop_assert_action_authority`（0107）。两者都不读 `ontology.objects`、schema_version 或 change_scope，所以不受 Consumer 版本影响。
+- 结论：同类故障只在效应链上，即 0179 registrar 和 0183 intent 两处。这与 A′-2 “只在这两处使用”的要求一致。
+
+## 5. A′ 的条件（L6 11-10 判定）与数据兼容（A′-3）
+
+### 5.1 条件（全部在 SQL 中判定；只用于 0183 的 intent 和 0179 的 registrar）
+- **A′-1 等价性**：`:2` 与 `:1` 是同一 stable_name，并且以下各项相同：
+  - operation、handler、input_schema（比对摘要）、target_systems、policy_refs、approval_mode；
+  - change_scope 的 type 集合相同，只有版本号不同。
+  - 任一项不同即拒绝。实现方式：两个定义各去掉 version、contract_digest 和 object_types/change_scope 里的版本号后，必须完全相等（jsonb 比较），而不是只比对挑选出来的几个字段。
+- **A′-2**：`:2` 是 active 的；它出现在某条 `ontology.nexloop_schema_publications` 的 successor_actions 中，且这条发布 `published_by like 'human:%'`、`permission_digest_before = permission_digest_after`；`:2` 的 scope 精确包含 Consumer 的当前版本 v。
+  - 只在 0183 的 intent 和 0179 的 registrar 使用。§4 已复现，其他入口没有这个需要。
+- **A′-3 数据兼容**：见 5.2。只有 `add_optional_property` 可以用 A′。
+- **A′-4 留痕**：intent 的 claims、effect context 和审计中，同时记录 `executed_resource = …:1` 和 `scope_proof_resource = …:2`，并记录 publication_id。
+- **A′-5 拒绝测试**：对应 §3 的第 7 组，并补上“`:2` 不存在”和“scope 多出一个类型”两项；每一项都做变异检查。v1 和 v2 两类顾客都要端到端成功。
+- **A′-6 期限**：ADR 附注写明这是过渡规则（草稿见 `docs/planning-drafts/adr-addendum-a-prime-transition-draft-20261110.md`）。另加一个守护测试：一旦效应 Action 的允许名单接受 (stable_name, version>1)，即 B 合入，测试就变红，要求删除 A′。
+
+### 5.2 Consumer v1→v2 的差异，以及 `:1` 的读写在 v2 下是否不变
+- **F3 只有三种发布操作**（`schema_publication.build`，以及 0257 中逐字段核对的 `expected`）。各自的后果：
+  - `add_optional_property`：只在末尾追加一个属性，`required=false`、`nullable=true`、无默认值；已有属性逐字段不变（SQL 核对 `new = old || {version+1, properties: old || [np]}`）。**只增不改，A′-3 成立。**
+  - `add_vocabulary_value`：给已有的封闭词表增加一个枚举值。v2 对象中可能出现 v1 词表里没有的值，读到这个属性的 `:1` 消费方语义会变。**A′-3 不成立，A′ 必须拒绝。**
+  - `hide`：把一个属性的 visibility 改为 hidden。展示和读取的语义会变。**A′-3 不成立，A′ 必须拒绝。**
+- **效应链在这两处读写 Consumer 的哪些字段**：
+  - 0179 registrar（bind）读：`object_id`、`type_name`、`nexloop_revision`、`schema_version`（只用于 scope 比对）、`tenant_id`/`world`；不读任何 properties。
+  - 0183 intent 读：`object_id`、`nexloop_revision`（expected_versions）、`schema_version`（只用于 scope 比对）；不读 properties。
+  - 效应 worker（`effect_execution.py`）不读 Consumer 的 properties。
+  - 因此，在“只追加可空属性”的前提下，`:1` handler 在 v2 对象上读写的字段，含义与 v1 完全相同。
+- **A′ 的 SQL 实现**：除 5.1 的条件外，还要比对 v1 和 v2 的 Consumer 类型定义：v2 的 properties 必须以 v1 的 properties 为前缀（逐元素相等），追加的每个属性都是 `required=false` 且 `nullable=true`，其余键（type_name、only_edit_via_actions、primary_key）相同。这样 add_vocabulary_value 和 hide 自动被拒绝；这一项也做变异检查。
+- **stage 实际的 v2**：我无法读取 stage。请调度员只读执行下面的查询（预期 `prefix_unchanged = true`，`added` 中每一项都是 required=false、nullable=true）：
+
+```sql
+select v1.version as v1, v2.version as v2,
+       (v2.definition->'properties') @> (v1.definition->'properties')
+         and jsonb_array_length(v2.definition->'properties') > jsonb_array_length(v1.definition->'properties') as superset,
+       (select bool_and(a.e = b.e) from jsonb_array_elements(v1.definition->'properties') with ordinality a(e,n)
+          join jsonb_array_elements(v2.definition->'properties') with ordinality b(e,m) on a.n = b.m) as prefix_unchanged,
+       (select jsonb_agg(jsonb_build_object('name', e->>'property_name', 'required', e->'required', 'nullable', e->'nullable', 'visibility', e->'visibility'))
+          from jsonb_array_elements(v2.definition->'properties') with ordinality q(e,n)
+         where n > jsonb_array_length(v1.definition->'properties')) as added,
+       (select operation from ontology.nexloop_schema_proposals pr join ontology.nexloop_schema_publications pu using (proposal_id)
+         where pu.tenant_id = v2.tenant_id and pu.type_name = 'Consumer' order by pu.published_at desc limit 1) as operation
+  from ontology.object_type_versions v1 join ontology.object_type_versions v2 using (tenant_id, type_name)
+ where tenant_id = '<TENANT_ID>' and type_name = 'Consumer' and v1.version = 1 and v2.version = 2;
+```
+
+（列名已对照 0254 的表结构：publications 有 `proposal_id`、`type_name`，proposals 有 `operation`。）
+
+## 6. 方案 B 和 C（不在 P0 内，只做记录）
 - **B：效应 Action 随 schema 升版。**
   - 允许名单改为按 (stable_name, version) 存储，slot 支持多个版本；
   - Host 和 contracts 中的 `:1` 改为版本白名单；
