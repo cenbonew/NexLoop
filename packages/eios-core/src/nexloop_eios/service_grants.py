@@ -348,6 +348,28 @@ def resolve_follow(manifest,lineage):
     return derived,refused
 
 
+def scope_diff(pred,succ):
+    """The object type references a derived grant moves across (L6 Q4: shown by register --dry-run): [{type, from, to}] for each
+    reference whose version changes; every other part of the scope is equal, or the successor is refused (_rebinding_reason)."""
+    out=[]
+    for x,y in zip(pred['definition']['governance']['change_scope']['object_types'],succ['definition']['governance']['change_scope']['object_types']):
+        if x['version']!=y['version']:out.append({'type':x['stable_name'],'from':x['version'],'to':y['version']})
+    return out
+
+
+def follow_preview(manifest,lineage):
+    """register --dry-run (L6 Q4): each derived grant with its scope difference, and the refused successors."""
+    derived,refused=resolve_follow(manifest,lineage)
+    rows={row['resource_id']:row for row in lineage if row['world']==manifest['world']}
+    preview=[]
+    for grant in derived:
+        succ=rows[grant['resource_id']]
+        pred=rows.get('eios:action:'+succ['stable_name']+':'+str(succ['version']-1))
+        preview.append({'principal':grant['principal'],'resource_id':grant['resource_id'],'purpose':grant['purpose'],
+            'scope_diff':scope_diff(pred,succ) if pred else None})
+    return {'derived':preview,'refused':refused}
+
+
 def effective_manifest(manifest,lineage):
     derived,refused=resolve_follow(manifest,lineage)
     effective=validate({**manifest,'grants':manifest['grants']+derived})
