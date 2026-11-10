@@ -1487,7 +1487,10 @@ def main(argv=None):
             def run(dsn):
                 return register(args.out, tenant=args.tenant, database_url_file=dsn, signing_key_id=args.signing_key_id,
                                 credential_expires_at=args.credential_expires_at, dry_run=args.dry_run)
-            if args.bootstrap_dsn_file and not args.dry_run:
+            # R76 step 8: a dry run with --bootstrap-dsn-file opens the configurator window too - the follow preview reads the
+            # Action lineage through the configurator role (service_grants.action_lineage); the dry run writes nothing and the
+            # window closes as usual.
+            if args.bootstrap_dsn_file:
                 with configurator_window(args.bootstrap_dsn_file) as dsn:
                     out = run(dsn)
             else:
