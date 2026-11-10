@@ -60,6 +60,26 @@
 - 告警规则 v34 → v37：累积版本，只发布 v37。
 - 一个新 secret，两份 configurator 配置（速率策略、备注上限），Caddyfile 一处新增。
 
+**10 个新 Action 与 Consumer v2（L6 C1）**：
+- 逐个核对 `business-actions.v1.json`：10 个 Action 的 `object_type` 和 change_scope **都**是 `Consumer:1`。这是业务 Action 的惯例写法，105 个业务 Action 里有 91 个这样写。
+- stage 上 Consumer 已是 v2，而这 10 个 Action 是在 F3 发布之后才发布的，所以没有 `:2`，只能以 `:1` 执行。A′ 只覆盖效应链，不覆盖它们。
+- 它们的处理函数不读写任何 Consumer 对象，Consumer 版本不进入校验：
+  - 机器客户端、密钥、授权：写 `authz.nexloop_machine_*` 表；
+  - SSO 组映射：写 `control.nexloop_workbench_oidc_group_mappings`；
+  - 对象备注：只作用于 Commitment 和 CommercialRecord（0443 的 `type_name` check），备注所挂对象可以指向 v2 顾客。
+- 本地证明：`tests/test_r76_catalog_publish_after_consumer_v2_pg.py`。在全部 Consumer 为 v2、库中只有这 10 个 Action 的 `:1` 时，owner 依次以 `:1` 执行了全部 10 个，每个都返回 outcome_id。执行顺序：register、issue、rotate、revoke key、grant、revoke_grant、deactivate、activate、set_sso_group_mapping，最后在指向 v2 顾客的 Commitment 上加备注。Consumer 的类型行、对象版本、`:2` 后继和 `:2` 授权前后不变。
+- 不需要扩大 follow。
+
+**system-catalog-names 与 world-model-glossary 的生效方式（L6 C2）**：
+- **`deploy/configuration/system-catalog-names.v1.json`**（新增 10 个 Action 名）：不单独发布，也不由 configurator 写入数据库。
+  - 它是系统目录的名单清单，`nexloop_eios.system_catalog` 与 `tests/test_catalog_manifests.py`、`test_system_catalog_pg.py`、`test_workbench_roles.py` 用它核对：目录、角色清单与 business-actions 三者的名单必须一致。
+  - 新名字随第 6 步的 Action publish（定义写入数据库）和第 7 步的角色清单真正生效。
+- **`deploy/configuration/world-model-glossary.v1.json`**（新增一条 `nexloop.workbench_member.set_sso_group_mapping` 的人工译名）：只影响显示，由 configurator 经 `scripts/deploy/world_glossary_apply.py` 发布，不随镜像生效。
+  - 这次改动没有提升 `manifest_version`，仍为 1。0374 的 `control.nexloop_world_glossary_publish` 规定：同一版本号换了文本，就以“published with another text”拒绝（40001）。
+  - 所以 stage 若已发布过词表 v1，**本单不发布词表**。这条 Action 的中文名由 `world_glossary_translator` 机翻补上，或暂时为空，不影响任何功能。
+  - 要让人工译名上 stage，需要另做一个把 `manifest_version` 提到 2 的改动，另行组批。
+  - 只读核对 stage 是否发布过：`select manifest_version, manifest_sha256 from control.nexloop_world_glossary_publications where tenant_id='<TENANT_ID>'`。
+
 ## 2. 步骤
 
 | 步 | 内容 | 执行者 | 预期（不符即停） |
@@ -72,7 +92,7 @@
 | 6 | **Action publish**：`stage_secrets.py publish` 先 dry-run | 调度员 | 计划**只**新增第 1 节的 10 个 Action（business-actions v60、capabilities v13），同名同版本冲突 0。**另核**：stage 的 Consumer 已有 F3 发布的 v2（不在仓库清单里），dry-run 不得出现 Consumer 类型的新增或冲突；出现就停下。本地已用 `tests/test_r76_catalog_publish_after_consumer_v2_pg.py` 复现这一状态（不含这 10 个 Action 的目录 → 负责人 F3 发布 Consumer v2 → register），真实 `publish` 的 dry-run 只计划这 10 个，冲突为 0；正式 publish 前后 Consumer 的类型行、对象版本、`:2` 后继和 `:2` 授权逐字节不变；`workbench_roles --apply` 之后，owner 对 10 个 Action 都可达（已发布、已授权），并经受治理入口执行成功一个。确认后正式执行。未发布之前，工作台对这些 Action 返回 404 |
 | 7 | **工作台角色**：`workbench_roles.py --roles deploy/authorization/workbench-roles.v1.json --members <私有成员文件> --apply …`（参数同 run-34 §2） | 调度员 | owner 授权 108 个，operator 14 个 |
 | 8 | **register dry-run**：`stage_secrets.py register --dry-run --configurator-dsn-file …`（必须带 DSN，才会计算派生授权），输出存档 | 调度员 | 见下方“第 8 步预期” |
-| 9 | **register**：去掉 `--dry-run` 后执行 | 调度员 | `grants_added` 只包含第 8 步本次新增的 3 条 `:2` 授权 |
+| 9 | **register**：去掉 `--dry-run` 后执行。执行前后各跑一次第 4 节的“非空授权事实”只读查询并存档 | 调度员 | 输出 `grants_added` 为 3，`grants_revoked` 为 0，`credentials_created` 为空，`extra_grants_outside_manifest` 为 0（register 的输出只给计数，没有名为 grants_removed 的字段，撤销计数即 `grants_revoked`）。前后两次查询的差集**恰好**是第 8 步的 3 条，没有消失的行。本地 `tests/test_consumer_v2_stage_path_pg.py` 用同一差集断言（测试库没有 R74，所以多一条 `claim_matcher → Consumer.edit:2`，共 4 条） |
 | 10 | **重启 api-1、api-2、gateway**，然后跑 **deploy gate**（与 R75 同款参数，`--before` 用当期阶段基线） | 调度员 | 见第 3 节。**gate 与 promote 分开执行，不串联** |
 | 11 | gate 结果经 L6 判定之后，单独执行 **promote** | 调度员 | promote 成功；部署 SHA/digest 与测试过的 release manifest 一致 |
 | 12 | **只读核对**（第 4 节） | 调度员执行，L6 判定 | 全部符合 |
@@ -81,7 +101,26 @@
 
 ### 第 4 步核对
 
-- `control.schema_migrations` 的尾部是 0447（编号以组批后的 catalog 为准），共新增 14 行。
+- `control.schema_migrations` 的尾部是 0447，共新增 14 行。
+  - **编号说明（L6 C4）**：本单的迁移号是组批重编号后的名字。0442 是 `nx062_machine_writes`，0446 是 `effect_scope_successor_proof`；之前判词里的“0442（successor proof）”是 L7 分支上的临时号，已重编为 0446，二者不是同一个文件。
+  - 按 c58f723e 的 `packages/eios-core/src/eios/migrations/catalog.json` 核对每一行的 checksum（只读）：`select version, checksum from control.schema_migrations where version>='0434' order by version`。预期与下表逐字相等，任一不等就停下：
+
+    | 迁移 | sha256（c58f723e catalog） |
+    |---|---|
+    | 0434_nx062_machine_access | `7f59c87d5daae41771e73ad1f1828cd8261d67f69d77a1a643bce136f4f07a8e` |
+    | 0435_nx062_machine_lifecycle | `58f0f491a8bd8e7205169fba4f75e848c4856fb60512c30daea21ed86aa371f3` |
+    | 0436_nx062_service_snapshot_grants | `c8bad33a06c0c376b85a171adf6364ec79e0ba687a34ad0d5e68a66a52b489f8` |
+    | 0437_nx062_machine_realm | `61f24649858187410e6926020585096fb2ca63c3ad8f6c0fc9d402b10eafb619` |
+    | 0438_action_input_tenant_narrow | `696be73046bad147797a7d011ba4c6e1662af7d2d056e53181dc146a70901119` |
+    | 0439_nx062_machine_reads | `daa6022e24e2f820afbfae4c8bc9302f66771d0bc156611e1b08402f5dc8bd54` |
+    | 0440_nx062_machine_reads_b | `38369de8f57dbcbf429e83e98f9cd37945a3ba8dab15c862558da68052770e87` |
+    | 0441_nx062_machine_authority | `1c7e864495d7112035e8473b64f0c723850577b2193181997567bddbecc15a95` |
+    | 0442_nx062_machine_writes | `9184e995a97bf5ae05e2db26c46e8cf59c6f81406296f49d45ad18e99ed391e6` |
+    | 0443_nx062_object_notes | `febf197456a6627f0449b20f6882d96bbb6cc158ea75dab6975790aac7300c01` |
+    | 0444_nx062_tenant_hygiene | `7e1c6e08d0edc8b015754d4a840c5cf0fe050a7be63a2e8760609dbe0224cac0` |
+    | 0445_nx067_oidc_gaps | `b947a23b07449622faed6d5c4127ce927a961baa53a3f18efb535c67a1f40425` |
+    | 0446_effect_scope_successor_proof | `f02c7aef8278a383431cf22e2dde139ae10892dbc7d83d49b8c7de77306a6f47` |
+    | 0447_erasure_owner_residue | `8bb7678984ec0d8a44ea5a4d7064ea0f63e554b4f834cddaa9b7b9ab3cc11e38` |
 - `bootstrap.verify` 通过。
 - 各服务 `/health/ready` 为 200，`reasons` 中没有 `schema_create_uncovered`。
 - migrate 日志里 0447 输出每个租户一行 NOTICE：`erasure owner residue: tenant <T> settled <n> kept <m>`，存档。stage 租户预期 `settled 1 kept 0`。
@@ -109,8 +148,11 @@
 ## 4. 只读核对（调度员执行，L6 判定；把 `<TENANT_ID>` 换成实际值）
 
 ```sql
--- 迁移尾部
-select version from control.schema_migrations order by version desc limit 15;
+-- 迁移尾部与 checksum（与第 4 步核对表比对）
+select version, checksum from control.schema_migrations where version>='0434' order by version;
+-- 非空授权事实（第 9 步 register 前后各一次，比较差集）
+select entity_key[1], entity_key[2] from authz.nexloop_authority_facts
+ where tenant_id='<TENANT_ID>' and fact_kind='grants' and (payload->'grants') is distinct from '[]'::jsonb order by 1,2;
 -- registrar :2 与 Consumer.create:2 的派生授权
 select entity_key[1],entity_key[2] from authz.nexloop_authority_facts
  where tenant_id='<TENANT_ID>' and fact_kind='grants'

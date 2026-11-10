@@ -3,8 +3,10 @@ published without the ten Actions of batches 152b-160 (NX-062 M2b/M4a/M5c, NX-06
 (not in the repository manifests, which declare Consumer v1 only) and register deriving the :2 grants. The real publish command's dry
 run plans exactly the ten Actions with no conflict and no Consumer type change; the real publish adds them and leaves the Consumer v2
 publication, its successor Actions and the derived :2 grants as they were; after workbench_roles --apply the owner reaches each of the
-ten Actions (action_for: published and granted, not 404) and executes one through the governed entry. Synthetic data."""
+ten Actions (action_for: published and granted, not 404) and executes every one of them at :1 although they bind Consumer:1 and every
+Consumer is at v2 (L6 C1: their handlers never touch a Consumer object). Synthetic data."""
 import json
+import secrets
 import subprocess
 import sys
 
@@ -14,6 +16,7 @@ from test_stage_secrets import S  # noqa: F401  (puts scripts/deploy on sys.path
 import assembly_dryrun_fixture as A  # noqa: E402
 from test_assembly_dryrun_pg import TENANT, assemble, owner_workbench, stage, tree  # noqa: F401
 from test_consumer_v2_stage_path_pg import owner_publishes_consumer_v2, register
+from test_machine_reads_pg import commitment, put
 
 NEW_ACTIONS = {  # stable name -> workbench operation (goal_controls.CAPABILITIES key)
     'nexloop.machine_client.register': 'register_machine_client', 'nexloop.machine_client.deactivate': 'deactivate_machine_client',
@@ -107,10 +110,35 @@ def test_publish_after_the_owners_consumer_v2_adds_only_the_ten_actions(stage_be
                                          (human.token_digest, human.world, CAPABILITIES[operation])).fetchone()[0]
         assert {n: (a or {}).get('granted') for n, a in found.items()} == {n: True for n in NEW_ACTIONS}
         assert {n: (a['stable_name'], a['version']) for n, a in found.items()} == {n: (n, 1) for n in NEW_ACTIONS}
-        action = found['nexloop.machine_client.register']
-        result = GoalGovernedActions(api._pool, human, api._signer).register_machine_client(
-            action_name=action['stable_name'], action_version=action['version'], request_id='r76-publish-check',
-            client_id='r76-check', display_name='R76 check', purpose='R76 step 6 local check (synthetic)')
-    assert result['client_id'] == 'r76-check' and result['status'] == 'active' and result['outcome_id'], result
+        # L6 C1: all ten bind Consumer:1 in their scope (business-actions.v1.json object_type) while every real Consumer is at v2 and no :2
+        # of them exists (they were published after the F3 publication). Each executes at :1: their handlers touch machine clients, keys,
+        # grants, the SSO mapping or a note on a Commitment - never a Consumer object - so the Consumer version never enters the check.
+        G = GoalGovernedActions(api._pool, human, api._signer)
+        results = {}
+
+        def run(name, **fields):
+            action = found[name]
+            results[name] = getattr(G, NEW_ACTIONS[name])(action_name=action['stable_name'], action_version=action['version'],
+                                                         request_id='r76-' + NEW_ACTIONS[name], **fields)
+            return results[name]
+
+        def key_fields():
+            from nexloop_eios import machine_keys as K
+            return {'prefix_id': K.generate().prefix_id, 'digest': secrets.token_hex(32), 'pepper_version': 1}
+        run('nexloop.machine_client.register', client_id='r76-check', display_name='R76 check', purpose='R76 step 6 local check (synthetic)')
+        issued = run('nexloop.machine_key.issue', client_id='r76-check', world='test', scope=['object.add_note'], expires_in_days=30, **key_fields())
+        rotated = run('nexloop.machine_key.rotate', previous_key_id=issued['key_id'], overlap_days=1, scope=['object.add_note'], expires_in_days=30, **key_fields())
+        run('nexloop.machine_key.revoke', key_id=rotated['key_id'], reason='R76 本地核对')
+        run('nexloop.machine_client.grant', client_id='r76-check', capability='object.add_note', object_types=['Commitment'])
+        run('nexloop.machine_client.revoke_grant', client_id='r76-check', capability='object.add_note', reason='R76 本地核对')
+        run('nexloop.machine_client.deactivate', client_id='r76-check', reason='R76 本地核对')
+        run('nexloop.machine_client.activate', client_id='r76-check', reason='R76 本地核对')
+        run('nexloop.workbench_member.set_sso_group_mapping', provider_id='corp', group_claim='groups', mappings={'ops': 'reviewer'}, expected_revision=0)
+        consumer = admin.execute("select object_id from ontology.objects where tenant_id=%s and world='real' and type_name='Consumer'", (TENANT,)).fetchone()[0]
+        target = put(admin, 'Commitment', commitment(consumer), tenant=TENANT)  # a note on a Commitment made to the v2 Consumer
+        run('nexloop.object.add_note', type_name='Commitment', object_id=target, text='R76 本地核对的合成备注')
+    assert set(results) == set(NEW_ACTIONS) and all(type(r) is dict and r.get('outcome_id') for r in results.values()), results
     assert admin.execute('select count(*) from authz.nexloop_machine_clients where tenant_id=%s', (TENANT,)).fetchone() == (1,)
+    assert admin.execute('select count(*) from runtime.nexloop_object_notes where tenant_id=%s and object_id=%s', (TENANT, target)).fetchone() == (1,)
+    assert admin.execute("select schema_version from ontology.objects where tenant_id=%s and object_id=%s", (TENANT, consumer)).fetchone() == (2,)
     assert consumer_state(admin) == after
