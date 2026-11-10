@@ -889,6 +889,27 @@ def _reference_secrets(out, manifest, stage):
     return {reference[role]: token for role, token in by_role.items()}
 
 
+CONTROL_BUDGET_TARGETS = 'control-budget-targets.json'
+
+
+def control_budget_targets(out):
+    """The private control ids of control_budget_editor (management/control-budget-targets.json, 0600, {"control_ids": [...]});
+    none when the file is absent. Stage data: never in the public manifest."""
+    if out is None:  # a dry run without a tree
+        return []
+    path = Path(out) / 'management' / CONTROL_BUDGET_TARGETS
+    if not path.exists():
+        return []
+    from nexloop_eios.trusted_configuration import read_private_text
+    try:
+        value = json.loads(read_private_text(path, maximum=8192))
+    except Exception:
+        raise Refused('control budget targets unreadable (private file, 0600)') from None
+    if type(value) is not dict or set(value) != {'control_ids'}:
+        raise Refused('control budget targets: exactly {"control_ids": [...]}')
+    return value['control_ids']
+
+
 def register(out, *, tenant, database_url_file, signing_key_id, credential_expires_at, dry_run=False,
              grants_path=GRANTS, principals_path=PRINCIPALS):
     """Phase B: the service principals of the stage, their grants and their credentials through the trusted configuration
@@ -897,6 +918,9 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     from datetime import datetime
     from nexloop_eios import service_grants as G
     manifest, stage = merged_manifest(grants_path, principals_path)
+    targets = control_budget_targets(out)
+    listed = manifest
+    manifest, private_grants = G.resolve_private_targets(manifest, targets)
     expires = datetime.fromisoformat(credential_expires_at) if isinstance(credential_expires_at, str) else credential_expires_at
     follow = None
     if dry_run and database_url_file and any(g.get(G.FOLLOW) for g in manifest['grants']):
@@ -906,7 +930,9 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
             raise G.ServiceGrantsRejected('follow_latest_refused')
     if dry_run:
         return {'dry_run': True, 'follow_latest': follow, 'principals': sorted(p['role'] for p in manifest['principals']),
-                'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in manifest['grants']),
+                # The public form: a private target id is never printed, only counted.
+                'grants': sorted(f"{g['principal']} {g['resource_type']} {g['resource_id']} {','.join(g['operations'])}" for g in listed['grants']),
+                'control_budget_targets': len(targets), 'private_object_grants': private_grants,
                 'message_read_rules': [r['principal'] for r in stage.get('source_message_read_rules', [])],
                 'role_source_read_rules': [r['principal'] for r in stage.get('role_source_read_rules', [])],
                 'definition_read_rules': {r['principal']: len(r['type_names']) for r in stage.get('definition_read_rules', [])},
@@ -940,6 +966,7 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     return {'changed': report['changed'] or bool(extra), 'message_read_rules_written': extra.count('message_read_rule'),
             'role_source_read_rules_written': extra.count('role_source_read_rule'),
             'definition_read_rules_written': extra.count('definition_read_rule'), 'credentials_created': sorted(report['credentials_created']),
+            'control_budget_targets': len(targets), 'private_object_grants': private_grants,
             'grants_added': len(report['grants_added']), 'grants_revoked': len(report['grants_revoked']),
             'extra_grants_outside_manifest': len(report['extra_grants_outside_manifest']), 'authority_revision': report['authority_revision']}
 
@@ -1040,6 +1067,7 @@ def rotation_apply(out, role, *, tenant, database_url_file, signing_key_id, cred
     # previous token still authenticates but its decisions are stale (EIOS compares the binding with the shared fact) until
     # revoke-credential --previous: switch right after apply.
     manifest, _ = merged_manifest(grants_path, principals_path)
+    manifest, _ = G.resolve_private_targets(manifest, [])  # scopes only; control_budget_editor's are fixed whatever the targets
     expires_at = datetime.fromisoformat(credential_expires_at)
     scopes = sorted(G.compile_principal(manifest, tenant, principal, credential_expires_at=expires_at)[0].requested_scopes)
     result = G.rotate_credential(tenant, credential_id=principal['credential_id'], current_secret=current['token'], new_secret=pending['token'],

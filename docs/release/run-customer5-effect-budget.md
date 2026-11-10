@@ -21,15 +21,35 @@
   - **editor**：持有 `EffectControl.edit:1` 的服务主体，并且对这个对象、对 `budget_units`（配方改 `valid_until` 时还要加上它）有 EDIT 权限。
     - 不要把这些授权加给 `business_owner`：会改变它的 requested_scopes，stage 上 register 会报 `credential_rotation_required`，轮换之后就触发上面那条 owner 令牌限制。
   - **executor**：`effect_executor`，与当初 configure 时是同一个令牌。
-- **stage 的前置条件（本单之外，需要负责人决定）**：66139a41 上没有任何主体持有 EffectControl 的 EDIT。
-  - `stage-principals.v1.json` 只允许 `action/execute`、`object_type/read` 和 artifact（`stage_secrets.STAGE_ALLOWED`），不能给单个对象或属性授 EDIT。
-  - 走 `service-grants.v1.json` 的路径（与 catalog_maintainer、S77 相同）：给一个**新的**专用主体 `control_budget_editor` 授予：
+- **stage 授权（负责人 2026-11-10 选 A：按对象授权）**：新增专用主体 `control_budget_editor`，写在 `service-grants.v1.json` v25，setup 凭据文件是 `setup/control-budget-editor-credential`（`stage-principals.v1.json` v11）。
+  - 授权内容：
     - `EffectControl.edit:1` execute；
     - `eios:object_type:EffectControl` read；
-    - 一条 `property_access_rules`：EffectControl，`edit`，`budget_units` 和 `valid_until` 所在的属性组（属性组名先按发布的 EffectControl schema 核实）。
-  - 新主体会得到一份新凭据，不会轮换任何已有主体的凭据。
-  - 这是部署授权变更：需要负责人 ack，然后 register。
+    - 对目标控制的对象 EDIT，以及它的 `budget_units`、`valid_until` 两个属性的 EDIT。
+  - **控制 id 不进公开仓库**。公开 manifest 里只写占位符 `{control_budget_target}`。`stage_secrets.py register` 从管理树的私有文件 `management/control-budget-targets.json`（0600，内容为 `{"control_ids": ["<64 位 id>"]}`）逐个展开。没有这个文件时不授任何对象权限，输出里的 `private_object_grants` 为 0。dry-run 只打印个数，不打印 id。
+  - 其他主体一律不能拿到对象或属性授权（`service_grants.OBJECT_GRANT_ROLES`，有测试锁定）。
+  - 不选属性组规则的原因：EffectControl v1 没有属性组，0084 规定没有属性组的属性永远不派生，所以写了规则也派生不出任何 EDIT。
+  - **不会引起轮换**：
+    - `control_budget_editor` 的 requested_scopes 固定为 `action.execute`、`object_type.read`、`object.edit`、`property.edit`，与私有文件里有几个 id 无关，所以增减目标都不会要求它轮换；
+    - 其他主体的 binding 逐个比对，与加新主体前完全相同；
+    - `business_owner` 没有任何变化。
 - **不可以做的事**：直接改 ledger 的 SQL、借用超级用户、为了预算新建一个 Consumer（会换 consumer_id，演练对照就断了）。
+
+## 2.0 授权准备（调度员，管理树所在的机器，configurator；R76 部署之后、第 3 步之前）
+
+1. 部署的版本要包含本分支的提交：迁移 `effect_control_owner_read`（临时号 0448，按合批后的编号）、`effect_control_budget` 模块、service-grants v25 和 stage-principals v11。
+2. 写私有目标文件 `management/control-budget-targets.json`：权限 0600，内容为 `{"control_ids": ["<CTL 的完整 64 位 id>"]}`。这个文件只放在管理树里，不进仓库，不进证据。
+3. `stage_secrets.py setup-credentials --out <树>`：只新增 `setup/control-budget-editor-credential`，输出里的 `added` 只有它这一个文件。
+4. `stage_secrets.py register --dry-run --configurator-dsn-file …`。预期：
+   - `principals` 比上次多一个 `control_budget_editor`；
+   - `control_budget_targets: 1`，`private_object_grants: 3`；
+   - `grants` 里那 3 条对象和属性授权是占位符的形式，输出里不出现 id；
+   - 输出存档为证据。
+5. `register`（去掉 `--dry-run`）。预期：
+   - `credentials_created` 只有 `control_budget_editor`；
+   - `grants_added` 为 5，即 edit:1、类型 read，加上 3 条对象和属性授权；
+   - 不出现 `credential_rotation_required`。如果出现，就停下，报调度员；本单要求不轮换任何凭据。
+6. 新凭据按惯例存入 Keychain（`nexloop/…`，同步 vault-index），之后照第 3 步写入 `/in/`。
 
 ## 2. 执行前只读核对（调度员在 stage 跑，`$T` 为租户）
 
@@ -42,11 +62,14 @@ select control_id, consumer_id, control_revision, budget_units, reserved_units, 
 -- R2 对象：revision 应等于 R1 的 control_revision；记下 owner_principal、executor_principal
 select nexloop_revision, properties from ontology.objects
  where tenant_id='$T' and world='real' and type_name='EffectControl' and object_id='<CTL>';
--- R3 授权：owner 持有 configure，editor 主体持有 EffectControl.edit:1 和它的 property_access_rule；每行的数都应大于 0
+-- R3 授权：owner 持有 configure；control_budget_editor 持有 edit:1，以及 <CTL> 的对象和两个属性的 EDIT。预期 5 行，每行的数都大于 0
 select entity_key[1], entity_key[2], jsonb_array_length(coalesce(payload->'grants','[]'::jsonb)) from authz.nexloop_authority_facts
  where tenant_id='$T' and fact_kind='grants' and (entity_key[1], entity_key[2]) in
-  (('<R2 owner_principal>','eios:action:nexloop.effect.configure_control:1'),('<editor principal>','eios:action:EffectControl.edit:1'));
-select entity_key from authz.nexloop_authority_facts where tenant_id='$T' and fact_kind='property_access_rule' and entity_key[2]='EffectControl';
+  (('<R2 owner_principal>','eios:action:nexloop.effect.configure_control:1'),
+   ('nexloop-service-control-budget-editor-principal','eios:action:EffectControl.edit:1'),
+   ('nexloop-service-control-budget-editor-principal','eios:object:EffectControl/<CTL>'),
+   ('nexloop-service-control-budget-editor-principal','eios:property:EffectControl/<CTL>/budget_units'),
+   ('nexloop-service-control-budget-editor-principal','eios:property:EffectControl/<CTL>/valid_until'));
 -- R5 令牌没换过：账本记的 owner_digest 和 executor_digest，都应等于对应主体当前 active 凭据的 token_digest（两列都应为 t）
 select l.owner_digest in (select token_digest from authz.nexloop_service_credentials c where c.tenant_id='$T' and c.status='active'
          and c.binding->>'subject_principal_id'=l.owner_principal),
@@ -60,7 +83,7 @@ select status, count(*) from runtime.nexloop_work_feed
 
 - R4 的列名（`feed`、`payload`、`updated_at`）先在 stage 上用 `\d runtime.nexloop_work_feed` 确认。
 - R3 或 R5 不满足就停下：
-  - R3 缺授权，按第 1 节“stage 的前置条件”处理；
+  - R3 缺授权，回到第 2.0 节，核对私有目标文件，然后重新 register；
   - R5 为 f，说明 owner 或 executor 的令牌已经换过，这个控制不能再 configure，报调度员。只有这种情况才考虑另建控制，需要另外设计。
 - 只读的计划也可以用 CLI 的 `--dry-run` 打印（第 3 步的命令加上这个参数），输出 `phase`、`reserved_units`、`remaining` 和计划后的 `planned_remaining`。
 - 如果 R1 的 `valid_until` 已经过期或快到期，第 3 步要同时把 `valid_until` 延后：同一次 edit 一起改，configure 会一起写进账本。
@@ -87,7 +110,7 @@ select status, count(*) from runtime.nexloop_work_feed
   - `intent_id` 也固定，重跑用同一个。
 - **凭据**：从 Keychain 用 stdin 写入一次性容器的 `/in/`（10001，0600），全部步骤结束后删除。
   - `business-owner-credential`：与 run-assembly §6 是同一份（R5 为 t）。
-  - `control-budget-editor-credential`：第 1 节新主体的 setup 凭据。
+  - `control-budget-editor-credential`：第 2.0 节生成的 `setup/control-budget-editor-credential`。
   - `business-executor-credential`：与 run-assembly §6 是同一份。
 - **命令**（`$APPTOOL`、`$BACKEND` 与 run-assembly §0 相同）：先加 `--dry-run` 看计划，确认 `phase` 为 `edit`、`planned_remaining` 约等于 30，再去掉 `--dry-run` 执行。
 
@@ -136,6 +159,24 @@ select status, control_id from control.nexloop_relay_enrollments
 | `control_not_configured` | 什么都没写 | 这个控制从来没有 configure 过，不属于本单的情况 |
 | `credential_unavailable` / `recipe_invalid` / `backend_unavailable` / `verify_failed` | 前三个什么都没写；`verify_failed` 在两步之后读回时不一致 | 报调度员，附上 P1、P2 |
 
+## 5a. 演练结束后（可选）：撤销 control_budget_editor 的对象授权和凭据
+
+1. 把私有目标文件改成 `{"control_ids": []}`，然后 register。
+   - 预期 `grants_revoked: 3`，`private_object_grants: 0`，`credentials_created: []`，没有轮换。
+   - 主体仍然保留 edit:1 和类型 read，但没有任何对象可改。
+2. （可选）撤销凭据：在 service-grants 下一个版本里把 `control_budget_editor` 移到 `retired_principals`，register 时会撤销它的凭据；同时在 stage-principals 里删掉对应的 setup 凭据文件。这是新的部署配置变更，另起一个提交，不在本单内做。
+3. Keychain 里的这条凭据，在 vault-index 中标为作废。
+4. 只读核对（调度员）：
+
+```sql
+-- 撤销对象授权后：对 <CTL> 的对象和属性授权都不在了（数为 0，或者没有行）
+select entity_key[2], jsonb_array_length(coalesce(payload->'grants','[]'::jsonb)) from authz.nexloop_authority_facts
+ where tenant_id='$T' and fact_kind='grants' and entity_key[1]='nexloop-service-control-budget-editor-principal' and entity_key[2] like 'eios:%:EffectControl/%';
+-- 撤销凭据后（第 2 步做过时）：这个主体没有 active 凭据
+select status, count(*) from authz.nexloop_service_credentials
+ where tenant_id='$T' and binding->>'subject_principal_id'='nexloop-service-control-budget-editor-principal' group by 1;
+```
+
 ## 6. 实现与测试（本分支）
 
 - `packages/eios-core/src/nexloop_eios/effect_control_budget.py`：CLI。模块文档写明了顺序、半成品的补完方式和三份凭据的约束。
@@ -161,4 +202,10 @@ select status, control_id from control.nexloop_relay_enrollments
 - `pytest -n 2 tests/test_bootstrap.py tests/test_published_migrations.py tests/test_function_copy_guard.py`：114 passed。这几项覆盖 bootstrap 到 catalog 尾部、已发布迁移的校验和、函数复制守卫。
 - 测试没有写死迁移号：`git grep 0448 -- tests` 没有结果；新迁移只出现在 catalog 和 `versions.lock`，合批时由调度员重编。
 - `tests/test_effect_control_budget_pg.py`：18 passed，此外还跑过一组守卫测试，198 passed（ae970304 的报告里列出了文件清单）。
+- service-grants v25（E2）：`tests/test_control_budget_editor_grants.py` 锁定以下几点：
+  - 公开 manifest 里没有控制 id；
+  - 其他主体拿不到对象或属性授权，editor 也只能改 EffectControl 的这两个属性，操作只能是 edit；
+  - 未解析的占位符不会被编译；
+  - 增减目标不改变 editor 的 binding，其他主体的 binding 不变。
+- `tests/test_stage_register_pg.py`：register 之后 editor 只对私有目标有 EDIT；dry-run 不打印 id；清空目标后再 register，撤销 3 条授权、不轮换；计数从 26 和 35 改为 27 和 36。
 

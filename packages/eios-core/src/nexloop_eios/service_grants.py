@@ -99,6 +99,13 @@ DATABASE_ROLES={'nexloop_api','nexloop_domain_worker','nexloop_action_worker','n
 # Resource type -> the only operation a service principal may hold on it.
 ALLOWED={'action':('execute',re.compile(r'eios:action:[A-Za-z0-9][A-Za-z0-9._-]{0,159}:[1-9][0-9]{0,8}')),
     'object_type':('read',re.compile(r'eios:object_type:[A-Z][A-Za-z0-9_]{0,63}'))}
+# Object and property EDIT (owner 2026-11-10, option A): only the roles listed here, only on their type and properties, and the object
+# id is never in the public manifest - the grant names PRIVATE_TARGET and resolve_private_targets expands it from a private file
+# (stage_secrets: management/control-budget-targets.json). An unresolved grant never compiles (private_target_unresolved).
+PRIVATE_TARGET='{control_budget_target}'
+OBJECT_GRANT_ROLES={'control_budget_editor':('EffectControl',('budget_units','valid_until'))}
+_OBJECT_GRANT=re.compile(r'eios:object:([A-Z][A-Za-z0-9_]{0,63})/(\{control_budget_target\}|[a-f0-9]{64})')
+_PROPERTY_GRANT=re.compile(r'eios:property:([A-Z][A-Za-z0-9_]{0,63})/(\{control_budget_target\}|[a-f0-9]{64})/([a-z][a-z0-9_]{0,63})')
 # ADR-020 §3 boundary: never granted by this path, whatever the manifest says.
 # NX-037 gap B: nexloop.enterprise.deliver is an effect Action like service.request: granted only by the tenant's trusted
 # configuration (authority facts of the executor and Run holders), never through this service grants manifest.
@@ -153,11 +160,14 @@ def validate(value):
         if type(item) is not dict or set(item)-{FOLLOW}!=GRANT or item['principal'] not in principals:_reject('grant_shape')
         if FOLLOW in item and (item[FOLLOW] is not True or item['resource_type']!='action'):_reject('follow_latest_version_shape')
         if any(type(item[k]) is not str or not item[k] for k in GRANT-{'operations'}):_reject('grant_shape')
-        allowed=ALLOWED.get(item['resource_type'])
-        if allowed is None:_reject('excluded_by_policy:resource_type')
-        operation,pattern=allowed
-        if pattern.fullmatch(item['resource_id']) is None:_reject('grant_resource')
-        if item['operations']!=[operation]:_reject('excluded_by_policy:operation')
+        if item['resource_type'] in ('object','property'):
+            _validate_object_grant(item)
+        else:
+            allowed=ALLOWED.get(item['resource_type'])
+            if allowed is None:_reject('excluded_by_policy:resource_type')
+            operation,pattern=allowed
+            if pattern.fullmatch(item['resource_id']) is None:_reject('grant_resource')
+            if item['operations']!=[operation]:_reject('excluded_by_policy:operation')
         key=(item['principal'],item['resource_id'])
         if key in seen:_reject('grant_duplicate')
         seen.add(key)
@@ -168,6 +178,32 @@ def validate(value):
     _validate_relay_source_rules(value,principals,identifiers)
     _validate_retired(value,principals,identifiers)
     return value
+
+
+def _validate_object_grant(item):
+    """Object/property EDIT only for a role of OBJECT_GRANT_ROLES, on its type and listed properties; every other role is refused."""
+    scope=OBJECT_GRANT_ROLES.get(item['principal'])
+    if scope is None:_reject('excluded_by_policy:resource_type')
+    type_name,properties=scope
+    match=(_OBJECT_GRANT if item['resource_type']=='object' else _PROPERTY_GRANT).fullmatch(item['resource_id'])
+    if match is None or match.group(1)!=type_name:_reject('grant_resource')
+    if item['resource_type']=='property' and match.group(3) not in properties:_reject('grant_resource')
+    if item['operations']!=['edit']:_reject('excluded_by_policy:operation')
+
+
+def resolve_private_targets(manifest,control_ids):
+    """Each grant naming PRIVATE_TARGET becomes one grant per private control id (64 hex, distinct, at most 16); with no ids the
+    grants are dropped (the principal keeps its other grants). Returns (manifest, number of resolved grants)."""
+    if type(control_ids) is not list or len(control_ids)>16 or len(set(control_ids))!=len(control_ids) \
+            or any(type(c) is not str or re.fullmatch('[a-f0-9]{64}',c) is None for c in control_ids):
+        _reject('private_targets_invalid')
+    grants=[];resolved=0
+    for g in manifest['grants']:
+        if PRIVATE_TARGET not in g['resource_id']:
+            grants.append(g);continue
+        for control in control_ids:
+            grants.append({**g,'resource_id':g['resource_id'].replace(PRIVATE_TARGET,control)});resolved+=1
+    return {**manifest,'grants':grants},resolved
 
 
 def _validate_rules(value,principals):
@@ -401,6 +437,9 @@ def compile_principal(manifest,tenant,principal,*,credential_expires_at):
     world=manifest['world'];past=datetime.fromisoformat(manifest['valid_from'])
     grants=sorted((g for g in manifest['grants'] if g['principal']==principal['role']),key=lambda g:g['resource_id'])
     scopes=frozenset(f"{g['resource_type']}.{op}" for g in grants for op in g['operations'])|frozenset(principal.get(EXTRA_SCOPES,()))
+    if principal['role'] in OBJECT_GRANT_ROLES:
+        # Fixed, whatever the private targets: adding or removing a target never changes the binding (no rotation).
+        scopes|=frozenset({'object.edit','property.edit'})
     subject,pid,app=principal['subject_id'],principal['principal_id'],principal['application_id']
     base=dict(tenant_id=tenant,repository_witness=WITNESS)
     version_digest=_digest({'schema':SCHEMA,'application':app,'version':'1','principal':pid,'world':world})
@@ -430,6 +469,7 @@ def compile_principal(manifest,tenant,principal,*,credential_expires_at):
     canonical=canonicalize_policy_expression(condition)
     for g in grants:
         kind=ResourceType(g['resource_type']);rid=g['resource_id']
+        if PRIVATE_TARGET in rid:_reject('private_target_unresolved')
         ref=ResourceReference(tenant_id=tenant,resource_id=rid,resource_type=kind,security_revision=1)
         ops=frozenset(Operation(op) for op in g['operations'])
         facts.append(('resource_graph',[rid],F.ResourceGraphFacts(**base,root=F.ResourceNodeFact(resource=ref,parent=None,active=True),ancestors=(),dependencies=(),
@@ -572,6 +612,10 @@ def _service_grant_triples(inventory):
 
 def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictions=None):
     """Pure diff: facts to write (incl. revocations), credentials to create, findings."""
+    if any(PRIVATE_TARGET in g['resource_id'] for g in manifest['grants']):
+        # Not resolved by the caller (stage_secrets register resolves the private targets): no object grants, so earlier ones
+        # are revoked; the principal's scopes stay fixed (compile_principal), so this never asks for a rotation.
+        manifest,_=resolve_private_targets(manifest,[])
     human=set(inventory.get('human_identifiers',[]))
     current={(r['kind'],tuple(r['key'])):r['payload'] for r in inventory['facts']}
     # I31 (0384): a rotation leaves one credential_id with two tokens for a while; the credential is its active token that expires last.
