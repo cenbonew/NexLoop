@@ -117,6 +117,13 @@ security find-generic-password -s <keychain 服务名> -a <账号> -w | \
 
   - 预期每行 `owners` 都为 0。customer-4 的 `grants_cleared` 为 true，它的 dry-run 变为 `cleared_at_erasure`。
   - refusal-1、refusal-2 当初没有 owner 行可以追溯的，`grants_cleared` 仍为 null，事后核对仍按上节的只读 SQL 进行。
+  - 审计（部署证据）：每个被清理或保留的 Consumer 有一条 `nexloop.consumer_erasure.owner_residue`（只有 tenant、world、consumer_id、request_id、outcome，不含登录主体）；每个租户还有一条 `nexloop.consumer_erasure.owner_residue_run`，带 settled 和 kept 数，同时写一条迁移日志 NOTICE：
+
+    ```bash
+    ro "select action, payload from runtime.audit_events where tenant_id='$T' and action like 'nexloop.consumer_erasure.owner_residue%' order by created_at"
+    ```
+
+    预期：customer-4 一条 `outcome=settled`；run 一条 `settled=1, kept_grants_held=0`。
 
 删除完成后 persona 标记行也随之删除，`persona` 显示为 `real`；它的修改事件保留取值和时间，顾客 ID 换成假名，理由清空（0227）。
 

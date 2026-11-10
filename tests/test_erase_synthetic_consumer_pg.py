@@ -407,3 +407,10 @@ def test_the_residue_of_an_erasure_completed_before_0306_is_settled_and_the_trac
     code, result, _ = post_check(c, consumer, tmp_path, capsys, '--dry-run')
     assert (code, result['result'], result['before']['held']['grants_held'], result['before']['held']['grants_trace']) == (0, 'already_erased', 0, 'cleared_at_erasure'), result
     assert owner_sql(admin, 'select control.nexloop_erasure_owner_residue_settle(%s)', (TENANT,)) == {'settled': 0, 'kept_grants_held': 0}
+    # R1 (L6): one audit row per settled or kept Consumer, with tenant, world, Consumer and request only - never a principal.
+    audits = admin.execute("""select payload from runtime.audit_events where action='nexloop.consumer_erasure.owner_residue'
+        and payload->>'consumer_id'=%s order by created_at""", (consumer,)).fetchall()
+    request_id = admin.execute('select request_id from control.nexloop_consumer_erasures where consumer_id=%s', (consumer,)).fetchone()[0]
+    assert [a for (a,) in audits] == [{'tenant_id': TENANT, 'world': 'real', 'consumer_id': consumer, 'request_id': request_id, 'outcome': o}
+                                      for o in ('kept', 'settled')]
+    assert all(human['principal_id'] not in json.dumps(a) for (a,) in audits)
