@@ -8,7 +8,7 @@ ENFORCEMENT = {
     'authz.nexloop_browser_authority_fact_snapshot(text,text,text,text[])': 'every browser authorization reads a grant here: withheld',
     'authz.nexloop_goal_governed_action(text,text,text,text,text)': 'the governed dispatch transaction: 42501',
 }
-WRAPPED = 'wrapped by an enforcement point of the same name (0446) and callable only through it'
+WRAPPED = 'wrapped by an enforcement point of the same name (nx067_oidc_gaps) and callable only through it'
 SERVICE = 'service, Agent or Run credentials only; a browser member is authorized through the browser snapshot'
 OBJECT_BASIS = ('object and property read grants (eios:object / eios:property), never a workbench Action grant; a member reaches them only '
                 'after the workbench read Action, whose grant the browser snapshot withholds under an empty ceiling')
@@ -17,6 +17,8 @@ REGISTRY = {
     'authz.nexloop_browser_authority_fact_snapshot_before_role_ceiling(text,text,text,text[])': WRAPPED,
     'authz.nexloop_workbench_action_for_before_role_ceiling(text,text,text)': WRAPPED,
     'authz.nexloop_workbench_action_for_single_version(text,text,text)': WRAPPED + ' (the wrapped body calls it for one-version Actions)',
+    'authz.nexloop_workbench_action_for_before_notes(text,text,text)': WRAPPED + ' (NX-062 M5c, 0443: the notes wrapper sits between the ceiling and this body)',
+    'authz.nexloop_machine_authority_fact_snapshot(text,text,text,text[])': 'machine clients only (NX-062): a machine subject is no person and never has an SSO link',
     'authz.nexloop_load_authority_fact(text,text,text,text[])': SERVICE,
     'authz.nexloop_load_authority_fact_with_identity(jsonb,text,text,text,text[])': SERVICE,
     'authz.nexloop_claim_match_settled(text,text,text,bigint)': SERVICE + ' (claim matcher)',
@@ -63,7 +65,7 @@ def test_the_enforcement_points_check_the_ceiling_and_the_wrapped_bodies_are_rea
         holders = admin.execute("""select coalesce(array_agg(r.rolname order by r.rolname),'{}') from pg_proc p cross join aclexplode(p.proacl) a
             join pg_roles r on r.oid=a.grantee where p.oid=%s::regprocedure and a.privilege_type='EXECUTE' and a.grantee<>p.proowner""", (wrapped,)).fetchone()[0]
         assert holders == [], (wrapped, holders)
-    # The wrappers hold what the wrapped functions held before 0446 (each was callable by the API).
+    # The wrappers hold what the wrapped functions held before nx067_oidc_gaps (each was callable by the API).
     for name in ENFORCEMENT:
         assert admin.execute("select has_function_privilege('nexloop_api',%s,'execute')", (name,)).fetchone()[0], name
 

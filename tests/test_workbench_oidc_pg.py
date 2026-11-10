@@ -258,7 +258,7 @@ def test_sso_is_off_without_a_provider_file(sso, admin):
 def test_identity_role_only_for_the_login_functions(sso, admin):
     login = ('control.nexloop_workbench_oidc_begin(text,text,text,text)', 'control.nexloop_workbench_oidc_take(text,text,text)',
              'control.nexloop_workbench_oidc_resolve(text,text,text,text,text)',
-             # NX-067 (0446): the bounded session function and the back-channel replace the 0365 session function for the identity role.
+             # NX-067 (migration nx067_oidc_gaps): the bounded session function and the back-channel replace the 0365 session function for the identity role.
              'control.nexloop_create_workbench_oidc_session_bounded(text,text,text,text,text,text,jsonb,bytea,bytea,text,integer,text,jsonb)',
              'control.nexloop_workbench_oidc_backchannel(text,text,text,text,text,timestamptz,text)',
              'control.nexloop_workbench_oidc_failed(text,text,text,text)')

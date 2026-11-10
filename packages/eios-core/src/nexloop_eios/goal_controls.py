@@ -153,7 +153,7 @@ CAPABILITIES={'approve_metric':'goals.metric.approve','publish_goal':'goals.vers
     'revoke_machine_key':'machine_key.revoke',
     # NX-062 M4a (0440): the machine client grants (owner only).
     'grant_machine_capability':'machine_client.grant','revoke_machine_grant':'machine_client.revoke_grant',
-    # NX-067 (0446): a provider's IdP group mapping (owner only; groups only narrow the manifest role).
+    # NX-067 (migration nx067_oidc_gaps): a provider's IdP group mapping (owner only; groups only narrow the manifest role).
     'set_sso_group_mapping':'workbench_member.set_sso_group_mapping'}
 # ADR-039 R3 §8.1-8.4: the execution-time fields of a capability (control.nexloop_approval_capability_settings, 0348; tests compare the two).
 # The claim's request digest leaves them out, so a retry of the same request id with a newly drawn HMAC replays the claim (option a).
@@ -840,7 +840,7 @@ class GoalGovernedActions:
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:@-]{0,319}',str(target_principal)):raise ValueError('target principal required')
         return self._submit(action_name,action_version,{'request_id':request_id,'operation':'unlink_workbench_external','target_principal':target_principal})
 
-    # NX-067 (0446): the owner's IdP group mapping of one configured provider; SQL checks it again (roles operator and reviewer only).
+    # NX-067 (migration nx067_oidc_gaps): the owner's IdP group mapping of one configured provider; SQL checks it again (roles operator and reviewer only).
     def set_sso_group_mapping(self,*,action_name,action_version,request_id,provider_id,group_claim,mappings,expected_revision):
         if (not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}',str(provider_id)) or type(group_claim) is not str or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.:/-]{0,127}',group_claim)
                 or type(mappings) is not dict or len(mappings)>64

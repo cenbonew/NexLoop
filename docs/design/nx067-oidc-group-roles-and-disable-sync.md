@@ -2,7 +2,7 @@
 
 - 状态：设计稿，2026-11-10，L4，**待 L6 审**。负责人 11-10 决定：NX-065 的两项缺口另开任务补上。
 - 基线：迁移 0365（OIDC 登录与绑定）、0404（AUTH-DOS：会话绑定 `session_epoch`）、0116 和 0287（角色清单与授权事实）、`nexloop_eios/workbench_oidc.py`；NX-065 验收脚本 `scripts/acceptance/nx065_oidc_acceptance.py`。
-- 迁移临时号从 0446 起。
+- 迁移 `nx067_oidc_gaps`（临时号，合入时由调度员重排，排在 NX-062 M5b/M5c 之后）。
 
 ## 1. 不变的部分
 
@@ -49,8 +49,8 @@
 - 在三个地方执行（实现时核实：工作台成员的授权都经过这三处）：
   1. 工作台入口挑选 Action（`authz.nexloop_workbench_action_for`）：被排除时返回 `granted: false`，入口回 403。
   2. 浏览器授权读取 grant 事实（`authz.nexloop_browser_authority_fact_snapshot`）：被排除时不返回这条事实。存储的事实自带快照校验和，不能改写，所以只能不给；于是这次授权判定无法完成，按“不可用”失败关闭（503，什么都不执行）。读接口也经过这里。
-  3. 受治理 Action 的派发事务（`authz.nexloop_goal_governed_action`）：用签名命令里的租户、主体和 Action 资源再查一次，被排除时报 42501，入口回 403。这是派发时的复核。
-- 守护测试 `tests/test_nx067_ceiling_guard_pg.py`：从 `pg_proc` 里找出所有读写 grant 事实的函数（27 个），逐个登记是否适用上限、以及原因；新增的函数没登记就失败。三个执行点必须调用 `nexloop_workbench_action_permitted`，被包装的原函数不能再有任何直接授权。
+  3. 受治理 Action 的派发事务（`authz.nexloop_goal_governed_action`）：用签名命令里的租户、主体和 Action 资源再查一次，被排除时报 42501，入口回 403。这是派发时的复核。批次 158（NX-062 M5b/M5c）之后，被包装的是 0442 的机器分发函数，入口顺序为：上限检查 → 机器分发（人和服务进 0348 函数体，机器客户端进机器核心）；`nexloop_workbench_action_for` 同理叠在 0443 的 notes 包装之上。机器命令里没有 principal，机器主体也不会有 SSO 绑定，上限检查对它恒为通过（L6 C1）。
+- 守护测试 `tests/test_nx067_ceiling_guard_pg.py`：从 `pg_proc` 里找出所有读写 grant 事实的函数（批次 158 之后 29 个），逐个登记是否适用上限、以及原因；新增的函数没登记就失败。三个执行点必须调用 `nexloop_workbench_action_permitted`，被包装的原函数不能再有任何直接授权。
 
 ### 2.5 审计
 

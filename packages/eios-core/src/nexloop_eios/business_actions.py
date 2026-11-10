@@ -113,7 +113,7 @@ PROFILES={'ontology.object.create':'service','ontology.object.edit':'service','c
     'workbench_member.erase_member':'human_owner',
     # NX-058 slice F: linking and unlinking an operator's or reviewer's IdP subject (single sign-on).
     'workbench_member.link_external':'human_owner','workbench_member.unlink_external':'human_owner',
-    'workbench_member.set_sso_group_mapping':'human_owner',  # NX-067 (0446)
+    'workbench_member.set_sso_group_mapping':'human_owner',  # NX-067 (migration nx067_oidc_gaps)
     # Extraction dead letters (2026-10-26): the owner requeues or dismisses one dead-lettered claim-extraction job.
     'claim_extraction.dead_letter_resolve':'human_owner',
     # NX-056 budget approval: loosening a budget, under an NX-056 approval policy.

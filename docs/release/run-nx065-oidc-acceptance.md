@@ -2,7 +2,7 @@
 
 - 依据：
   - `docs/design/nx065-synthetic-idp.md`：合成 IdP 设计、TLS 限制、密钥与撤除；
-  - `docs/design/nx067-oidc-group-roles-and-disable-sync.md`：组映射只降不升、停用同步，迁移 0446；
+  - `docs/design/nx067-oidc-group-roles-and-disable-sync.md`：组映射只降不升、停用同步，迁移 `nx067_oidc_gaps`；
   - `docs/release/run-nx058-oidc-enable.md`：启用和回退的具体做法，本单不重复。
 - 执行者：负责人（IdP 侧操作和浏览器登录）、调度员（部署）。判定者：L6。决定者：负责人。
 - **B 类步骤**要等负责人在对话里明确确认后才能做，表里已经标出。
@@ -38,7 +38,7 @@
 
 | 步 | 内容 | 由谁 | 类别 |
 |---|---|---|---|
-| 10 | 部署带迁移 0446 的版本（迁移前按部署单做备份）。用 `stage_secrets.py publish` 先 dry-run，再正式发布 business-actions：新增的 `nexloop.workbench_member.set_sso_group_mapping` 发布之前会是 404。再按角色清单 v56 应用成员和授权 | 调度员 | **B 类** |
+| 10 | 部署带迁移 `nx067_oidc_gaps` 的版本（迁移前按部署单做备份）。用 `stage_secrets.py publish` 先 dry-run，再正式发布 business-actions：新增的 `nexloop.workbench_member.set_sso_group_mapping` 发布之前会是 404。再按角色清单 v56 应用成员和授权 | 调度员 | **B 类** |
 | 11 | 安装两个 secrets 文件到 APP_HOST（run-nx058 第 1 节和第 3 节第 4 步）：值从 Keychain 用管道传入，只比较摘要 | 调度员 | **B 类** |
 | 12 | compose 改动走 feature 分支和 PR（run-nx058 第 3 节第 5 步），需要负责人 ack-policy | 调度员 | **B 类** |
 | 13 | 重建 api-1、api-2。`oidc/providers` 返回刚配置的 provider；`POST .../oidc/backchannel/<provider_id>` 不带参数时返回 400（开了 back-channel）或 404（没开） | 调度员 | **B 类** |
@@ -92,7 +92,7 @@ run-nx058 第 4 节表里的第 6、7、8、10、11、12、13 条（负责人不
 按 NX-065 设计稿第 5 节。另外：
 - 映射由脚本清空；手工设置过的映射，用 `set_sso_group_mapping` 传 `{}` 清空，所有上限回到 null。
 - 关闭 SSO 是 **B 类**（改 compose、重建 api），做之前也要负责人确认。
-- 迁移 0446 不回退。没有映射、没开 back-channel 时，它只把 SSO 会话限定在 `max_session_seconds` 之内。
+- 迁移 `nx067_oidc_gaps` 不回退。没有映射、没开 back-channel 时，它只把 SSO 会话限定在 `max_session_seconds` 之内。
 
 ## 证据
 
