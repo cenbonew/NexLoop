@@ -244,6 +244,14 @@ select v1.version as v1, v2.version as v2,
   - 本节的三个新测试文件，以及 api_stage_ready。
 - definer 检查 0 个问题。
 
-### 7.4 未完成：P4
-- 真实的 `nexloop_schema_proposal_publish` 加 `stage_secrets register` 端到端测试还没有写。它需要把人工评审会话（review 夹具）和 relay 夹具（context_message）放进同一个租户。L6 允许在 R76 前补完。
-- 在此之前，R76 第 3 步（register --dry-run）是 stage 上第一次真实派生 `:2` 授权，所以运行单要求 dry-run 输出存证，并且失败即停。
+### 7.4 P4：真实发布、真实 register、真实 relay worker
+- **测试**：`tests/test_consumer_v2_stage_path_pg.py`。
+- **流程**（都在 NX-032 stage 组装夹具里运行）：
+  - stage 组装：bootstrap、`stage_secrets register`、browser、目录发布、business/catalog/enterprise setup、relay enrollment；
+  - owner 的工作台浏览器会话（持有 ontology.schema.review）经 `SchemaPublicationPort.publish` 发布 Consumer v2（F3 `nexloop_schema_proposal_publish`）；proposal 和 release permit 按 test_nx040 的方式预置；
+  - `stage_secrets.register --dry-run` 派生出且只派生出 relay_planner 和 role_planner 的 `nexloop.plan.bind_effect_context:2`，scope_diff 为 Consumer 1→2，purpose 写明这次 publication；
+  - 去掉 dry-run 后执行 register，写入这两条授权；
+  - 旧顾客的下一条消息经真实 message-relay worker 处理，结果 `queued`，registrar claim 的版本为 2。
+- **反向对照**：把 registrar 选版强制为 `:1`（即修复前），同一测试失败，原因为 `EffectContextUnavailable`、stage 为 `before_context`，与 stage 现象一致。
+- **发现**：发布后用 business_owner 新建顾客会被拒。它只有 `Consumer.create:1`，Q5 不允许它跟随，Q6 也不回落到 v1；同一文件的第二个测试固定了这一现状。R76 第 7 步“新建顾客”这一条，要等负责人决定（加 follow 声明，或显式授予 `:2`）后才能做。
+- **未覆盖**：效应 intent（Host 和模型那一段）没有在 stage 夹具里跑；intent 的 A′ 证明由 `tests/test_effect_scope_successor_proof_pg.py` 的真实 relay 和 guard 链覆盖。
