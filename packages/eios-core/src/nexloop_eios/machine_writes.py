@@ -5,7 +5,6 @@ capability's Action resource and the six machine authority facts (M5a), signs a 
 (R5) with the authority signing key, and calls authz.nexloop_machine_commit, which re-runs every check in SQL. The signing key stays in
 the API process (never in a runtime); the command lives 20 s on the database clock. Nothing here decides authority."""
 import hmac
-from datetime import timedelta
 
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.postgres_artifacts import canonical_payload
@@ -59,4 +58,4 @@ def commit(pool, signer, *, prefix, digest, capability, intent_id, params, prepa
                      (prefix, digest, capability, intent_id, canonical_payload(params), prepare_digest, text, signature))
 
 
-assert SIGNED_COMMAND_TTL.total_seconds() <= 25  # the SQL bound is 30 s (M5a); 20 s leaves room for clock and call time
+assert SIGNED_COMMAND_TTL.total_seconds() <= 25  # the TTL is 20 s; the SQL check (0442) refuses an expiry more than 30 s ahead, and capping at 25 s keeps at least 5 s for clock skew and call time
