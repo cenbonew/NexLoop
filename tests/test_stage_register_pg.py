@@ -122,11 +122,11 @@ def test_register_gives_every_credential_file_its_principal_and_exactly_the_decl
     rule = r['admin'].execute("select payload from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='message_read_rule' and entity_key=%s",
                               (TENANT, [source])).fetchone()
     assert rule and rule[0]['fields'] == ['accepted_at', 'actor', 'body', 'conversation_id', 'sequence'] and rule[0]['active'] is True
-    # I29 (0381): relay_source's definition_read_rule through the same 0050 path, the 20 types listed; its scopes hold no definition READ.
+    # I29 (0381): relay_source's definition_read_rule through the same 0050 path, the 20 types and the P5 synthetic fixture listed; its scopes hold no definition READ.
     assert r['first']['definition_read_rules_written'] == 1
     definitions = r['admin'].execute("select payload from authz.nexloop_authority_facts where tenant_id=%s and fact_kind='definition_read_rule' and entity_key=%s",
                                      (TENANT, [source])).fetchone()[0]
-    assert definitions['type_names'] == r['stage']['definition_read_rules'][0]['type_names'] and len(definitions['type_names']) == 20
+    assert definitions['type_names'] == r['stage']['definition_read_rules'][0]['type_names'] and len(definitions['type_names']) == 21
     _, relay = session(r, 'relay_source')
     assert not {'object_type.read', 'property.read'} & set(relay.authentication.requested_scopes)
     # Only digests are stored.
