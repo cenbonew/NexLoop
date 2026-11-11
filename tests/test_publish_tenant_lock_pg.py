@@ -20,7 +20,7 @@ from test_observability_pg import TENANT, observed  # noqa: F401
 from test_schema_publication_http_pg import BASE, post
 from test_workbench_read_pg import browser_business, conversations, identity, published_action, uow, workbench, workbench_login  # noqa: F401
 
-SLOW = 4.5  # seconds: longer than the API lock_timeout (3 s), shorter than the evaluator's statement_timeout (10 s)
+SLOW = 6.0  # seconds: well over the API lock_timeout (3 s) under CI load, under the evaluator's statement_timeout (10 s)
 
 
 def publishable(o):
@@ -108,12 +108,21 @@ def test_a_short_evaluation_and_a_publication_both_go_through(observed):  # noqa
     o = observed
     admin = o['admin']
     pid = publishable(o)
-    slow_smokes(admin, 1)
+    slow_smokes(admin, 1.5)
     with o['w']['client']() as client:
         assert workbench_login(client, o['w']['owner']).status_code == 200
         thread, evaluation = evaluate_in_background(o)
         time.sleep(0.3)
+        holders = {}
+        watcher = threading.Thread(target=lambda: holders.update(rows=blocker_of_publication(admin)))
+        watcher.start()
+        started = time.monotonic()
         answer = post(client, f'{BASE}/{pid}/publish', {'rationale': 'synthetic lock control'}, 'synthetic-lock-ctrl-00001')
+        waited = time.monotonic() - started
+        watcher.join()
         thread.join()
     assert answer.status_code == 200 and answer.json()['published'] is True, answer.json()
     assert evaluation['result']
+    # L6 K1: the publication really waited for the evaluation (the same holder as above), then went through.
+    assert holders['rows'] and all(user == 'nexloop_domain_worker' and 'authz.nexloop_alert_evaluate' in query for _, user, query in holders['rows']), holders
+    assert waited >= 0.5, waited
