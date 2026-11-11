@@ -129,22 +129,18 @@ def terms_of(f,session,text):
     return recall_for(f,session,provider=None).recall(text,instances=False,extract_terms=True).terms
 
 
-def test_q6_retirement_hide_keeps_the_terms_removing_the_read_takes_them_away(semantic):
-    """Q6 (A4): hiding the fixture properties (the only retirement a Schema publication offers, NX-040 F3 hide) publishes the next
-    version, but nexloop_recall_definition_rows (0067) has no visibility filter: F and T stay in the recall index and recall_terms
-    still extracts them. What ends them for the relay is the end of its definition READ (the definition_read_rules entry removed);
-    the index rows stay, unreadable."""
+def test_q6_retirement_hide_takes_the_terms_away_and_so_does_removing_the_read(semantic):
+    """Q6 (A4, after 0450): hiding the fixture properties (NX-040 F3 hide, the next published version) takes them out of recall -
+    0450 keeps hidden properties out of the recall terms - so recall_terms no longer extracts F or T for a reader that still holds
+    the definition READ. Removing the definition READ (the definition_read_rules entry) still ends them on its own as well."""
     f,_,_=semantic;publish_fixture(f)
     session=relay(f,fixture_targets(),'-q6')
     assert terms_of(f,session,F+'和'+T)==(T,F)
+    retired=relay(f,[],'-q6-retired')
+    assert terms_of(f,retired,F+'和'+T)==()  # no definition READ: nothing extracted, before any hide
     publish_fixture(f,fixture_schema(version=2,hidden=CROWD+(TARGET,)))
     session=relay(f,fixture_targets(),'-q6-after')  # the next publication moves the authority revision: a fresh session
-    assert terms_of(f,session,F+'和'+T)==(T,F)  # hidden, still a term
-    rows=f['admin'].execute("select count(*) from ontology.nexloop_recall_entries where tenant_id=%s and gate_type=%s and body in (%s,%s)",
-        (A,FIXTURE,F,T)).fetchone()[0]
-    assert rows>=6
-    retired=relay(f,[],'-q6-retired')
-    assert terms_of(f,retired,F+'和'+T)==()
+    assert terms_of(f,session,F+'和'+T)==()  # hidden: no longer a term, although the READ is still held
 
 
 def test_the_chosen_words_hash_order_is_computed_offline():
