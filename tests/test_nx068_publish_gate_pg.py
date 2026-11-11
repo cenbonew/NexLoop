@@ -190,7 +190,9 @@ WRAPPED = {
         'ontology.nexloop_schema_publication_gates_before_publish_gate(text,ontology.nexloop_schema_proposals,text,jsonb,text)',
     'runtime.nexloop_schema_watch_start(text,text,uuid,text)': 'runtime.nexloop_schema_watch_start_before_publish_smoke(text,text,uuid,text)',
     'runtime.nexloop_observability_maintain()': 'runtime.nexloop_observability_maintain_before_publish_smoke()',
-    'runtime.nexloop_metrics_snapshot(text,text)': 'runtime.nexloop_metrics_snapshot_before_publish_smoke(text,text)',
+    # alert_evaluate_split stacks one more snapshot wrapper on top of nx068's (now runtime.nexloop_metrics_snapshot_before_alert_split).
+    'runtime.nexloop_metrics_snapshot_before_alert_split(text,text)': 'runtime.nexloop_metrics_snapshot_before_publish_smoke(text,text)',
+    'runtime.nexloop_metrics_snapshot(text,text)': 'runtime.nexloop_metrics_snapshot_before_alert_split(text,text)',
 }
 
 

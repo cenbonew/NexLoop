@@ -22,6 +22,7 @@ from support.claim_auto_write_edits import EDITS as AW_EDITS
 from support.schema_structured_property_edits import EDITS as SSP_EDITS
 from support.s_dup_edits import FEED as SDUP_FEED, RECORDER as SDUP_RECORDER
 from support.nx068_edits import EDITS as NX068_EDITS
+from support.alert_split_edits import EDITS as ALERT_SPLIT_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -53,6 +54,11 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-068 defect A+B: the alert evaluation runs over a snapshot taken in its own transaction (tests/test_alert_evaluate_split_pg.py).
+    *[Allowed('alert_evaluate_split', name, 'NX-068 defect A+B: maintenance and snapshot leave the authorized transaction; the snapshot is checked, '
+              'consumed and its taken_at is the observation time, monotonic per state; a body without snapshot_id keeps the old path; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in ALERT_SPLIT_EDITS.items()],
     # NX-068 N1: the A' proof asks the single judgement authz.nexloop_effect_successor_admissible for each candidate (0446's tests).
     *[Allowed('nx068_publish_gate_smoke', name, "NX-068 N1: the proof's A' conditions move into authz.nexloop_effect_successor_admissible; same result; nothing else",
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
