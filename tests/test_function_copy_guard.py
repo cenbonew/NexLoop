@@ -780,6 +780,10 @@ REGISTRY = [
     # L6 G1 on 0431: the shadow's tenant lookup catches only the identity refusal (42501); any other error is raised.
     Allowed('action_input_tenant_narrow', 'authz.nexloop_action_input_tenant', 'exception when insufficient_privilege instead of others; nothing else',
             ((re.escape('exception when insufficient_privilege then'), 'exception when others then'),)),
+    # 0449 (recall of hidden properties, L6 2026-11-11): a property hidden in the version read yields no definition row.
+    Allowed('recall_hidden_properties', 'ontology.nexloop_recall_definition_rows',
+            "a property whose visibility is 'hidden' is skipped (and pg_temp last in search_path); nothing else",
+            ((r"\n  continue when p->>'visibility' is not distinct from 'hidden';", ""),), PG_TEMP),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

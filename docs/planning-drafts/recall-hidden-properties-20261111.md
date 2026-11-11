@@ -151,14 +151,14 @@ from runtime.nexloop_semantic_accesses a cross join jsonb_array_elements(a.resul
 where a.tenant_id='$TENANT_ID' and a.kind='access' and a.recorded_at>=now()-interval '30 days' group by 1,2,3 order by 4 desc"
 ```
 
-**S4：待审候选里以 hidden 属性为合并目标或归属的数量**（0082 的行为变化）
+**S4：引用 hidden 属性或其枚举值的候选**，按 status、kind 分组（0082 的行为变化；`like` 宽匹配，可能多算不会漏算）
 
 ```
 ro "with l as (select tenant_id,type_name,max(version) v from ontology.object_type_versions where tenant_id='$TENANT_ID' group by 1,2),
-h as (select 'eios:property:'||l.type_name||'/'||(p->>'property_name') ref from l join ontology.object_type_versions o on o.tenant_id=l.tenant_id and o.type_name=l.type_name and o.version=l.v
+h as (select l.type_name,p->>'property_name' prop from l join ontology.object_type_versions o on o.tenant_id=l.tenant_id and o.type_name=l.type_name and o.version=l.v
  cross join jsonb_array_elements(coalesce(o.definition->'properties','[]')) p where p->>'visibility'='hidden')
 select c.status,c.kind,count(*) from ontology.nexloop_candidate_definitions c join h
- on c.candidate->'proposed'->>'property_ref'=h.ref or c.candidate::text like '%\"'||h.ref||'\"%'
+ on c.candidate::text like '%eios:property:'||h.type_name||'/'||h.prop||'%' or c.candidate::text like '%nexloop:vocabulary:'||h.type_name||'/'||h.prop||'/%'
 where c.tenant_id='$TENANT_ID' group by 1,2 order by 1,2"
 ```
 
@@ -207,3 +207,19 @@ where c.tenant_id='$TENANT_ID' group by 1,2 order by 1,2"
 2. **改法**：改 definition_rows 一处（推荐，0082 的合并目标会一起收紧），还是另建一个只给召回用的函数。
 3. **回填**：只删 `type:` 行，别名类的行靠查询时失效（推荐）；还是把别名类的行也一起删。
 4. **S4 非 0 时**：先处理待审候选再上线，还是允许上线后由审核人改判。
+
+## 9. 实现（L6 2026-11-11 条件 PASS 之后）
+
+- **迁移**：`0449_recall_hidden_properties.sql`，临时号，由调度员重编。内容：
+  - 用 `create or replace` 重定义 `definition_rows`。属性循环开头加 `continue when p->>'visibility' is not distinct from 'hidden'`，search_path 加上 pg_temp。
+  - 回填：DO 块按租户执行，只删 `type:` 行里位于最新版本、且已不在定义行里的属性行和枚举值行。
+  - catalog 和 `versions.lock.json` 的 bootstrap_revision 改为 0449。
+- **H-a**：ADR-019 追加 §9“修订 A1”；`PropertyVisibility` 的注释同步更新。
+- **H-b**：`tests/test_recall_hidden_property_pg.py` 中 CURRENT 断言已翻转为新行为，并新增：
+  - 回填：hidden 行连同向量被删，其他行和向量数不变，第二次执行不变；
+  - 恢复：v3 改回 normal 之后，terms 和保留的别名都恢复；
+  - S1–S4 SQL 冒烟：在测试库上运行本稿 §5 的四条查询。
+- **H-c**：S1–S4 只读脚本已交调度员，存档前不部署本迁移。S1 为空时，存档里写明“只对今后的 hide 生效”。
+- **H-d**：部署时序只能在 P5 执行单 §1 之前或 §8 之后，不得落在 §4 预热到 §6 r2 之间。部署后，L3 的 Q6 测试和 A4 文本要按 P5 执行单 §5 同步更新。
+- **S4 非 0**：上线前把 S4p 明细列给审核人，改判 reject 或换目标；也可以上线后处理，但须记入运行单。
+- **0082 merge_into 收紧**：没有单独写测试。它的判断直接用 `definition_rows`，复现测试已证明 hidden 属性不再出现在定义行里。
