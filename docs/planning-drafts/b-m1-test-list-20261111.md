@@ -84,3 +84,12 @@
   - 企业交付字段只接受 enterprise；
   - v8 相对 v7 只改了 5 个效应 Action 字段，加上 schema_version、$id、title、description。
 - **未登记到 `published.json`**：登记后 sha 冻结，所以在 M2 实现合入时再登记，与 v7 当初的做法一致。
+
+## 5. M1 实施相对设计稿与本清单的偏离（2026-11-11，基于 main a7869325）
+1. **基线 `:1` 不 seed**：准入表只存后继（version>1）；`:1` 仍由全局允许名单 0178 准入。这样后建的租户不需要 seed 或触发器。因此 `test_seed_admissions_are_version_1_per_tenant` 不做，选择函数把“允许名单 `:1`”加“未退役的准入行”一起作为候选。
+2. **全局允许名单不动，也就不需要兼容视图**：M1 不改 0178 的主键和 version 列。A′ 的守卫 `test_the_transitional_rule_goes_with_option_b` 在 M1 不变红，§3 第 1 条的改法推迟到 M4 一起翻转。
+3. **`action_resource` 在 M1 可空**：由 insert 触发器按 slot 填允许名单的 resource，并且不可改。测试夹具在 `session_replication_role=replica` 下直接写 context（触发器关闭），所以 not null 推迟到 M4：先断言所有未过期 context 都有值，再加约束。
+4. **bind 与 intent 推迟到 M2**：§2.4 的 bind 选版本、SQL 重算和 proof 签 `:E`，以及“intent 接受 `ctx.action_resource`”，都要和 Python 先选 E 一起改。M1 期间 Python 仍签 `:1`，context 全是 `:1`，intent 新分支会是死代码，而且要复制 0179/0446 的大函数。M1 只提供选择函数，不改 0179/0183/0446 的函数体（function copy guard 无新登记）。
+5. **退役不追加新行，只在原行置 `retired_at`**：只能置一次，其他列不可改，不可删除或 truncate。部分唯一索引只约束未退役行，所以退役后可以重新准入，留下新行。
+6. **准入函数签名多两个参数**：`(tenant, publication_id, stable_name, version, actor, dry_run)`。actor 必须是 `human:…`，作为修订里的“谁”；dry_run 供 M3 的 `effect_action_admit.py --dry-run` 使用。修订就是准入行本身：admitted_by、publication_id、consumer_version、predecessor_resource、judgement（判定函数的结果）。
+7. **两条拒绝码是准入函数自己的**：发布不是 Consumer 的 publish（`publication_not_consumer`），以及该发布的 `successor_actions` 不含 `:N`（`successor_not_in_publication`）。这是“用哪次发布”的选择条件（与 0446 proof 的 where 相同），不是第二份等价判定，等价判定只在 `effect_successor_admissible` 中。
