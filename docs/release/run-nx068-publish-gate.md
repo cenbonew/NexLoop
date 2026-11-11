@@ -33,6 +33,7 @@
 
    每条只是 `grant_id` 加后缀 `:follow_latest_version`，business_owner 的两条在同一条 fact 里（共 3 条 fact）。**不新建凭据、不轮换、没有其他差异。** claim_matcher 的 `Consumer.edit:1` 虽然声明了 follow，但不在 `FOLLOWABLE` 内，不会改。
    - dry-run 出现 `credential_rotation_required`、新主体、其他授权差异，或者改写数不是 4：**停止**，不要正式执行，把输出交给调度员。
+   - 注意：dry-run 的输出不含 `grant_id`，看不到上面 4 条改写本身。正式执行前后各取一次全量 `grant_id` 快照（每行：主体、资源、`grant_id`、去掉 `grant_id` 后授权内容的 md5），两次快照的 diff 应恰好是这 4 行，且只差 `:follow_latest_version` 后缀、md5 不变（R77 采用此法，L6 R1）。
 2. 正式执行，命令同 dry-run 去掉 `--dry-run`，加上最近一次部署单里的 bootstrap DSN 文件、签名 key id 和凭据到期时间参数。
 3. 再跑一次 dry-run，应当没有差异（幂等）。
 4. 只读核对标记：
