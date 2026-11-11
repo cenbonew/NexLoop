@@ -13,15 +13,43 @@
 - **失败即停**：任何一步不符合预期，都停在那一步报调度员，不要跳步，不要重试写操作。
 - **全程不变（A3/P1）**：从 §4 预热到 §6 r2 结束，不得有部署、目录、词表、策略或 top_k 的任何变更。
 
+## 执行包（R77 复核，2026-11-11）
+
+**对照 stage 现状的复核**：
+- 部署：R77 = main 4deeb61c。0449 和 0450 都在线，所以：NX-068 门禁会判夹具提案；新类型没有 Action，successor 为空，预期 pass。§8 第 3 步的 hide 是有效的退役手段（R3 条件已满足）。
+- 开关：仍是 `REMAINING=8`，即 4 人 × 2 轮。名单 `fault-consumers.txt` 4 行。`DURATION=3600` 是脚本上限；如果 r1 到 r2 预计超过 50 分钟，就不要开。
+- 窗口和 label：since 取 r1 的 round start，不含预热。label 按 §7 第 1 条。parent_revision 仍按 L6 段 C 第 3 条（无已发布语义版本时用 `sem-0`；如果 11-11 之后已有发布，就用最新版本，以 `ro` 查到的为准）。
+- 告警规则 v38、authority_revision 6441（4 条 follow）：§2 的 register 会让 authority_revision 增加；这是预期内的，§4 起必须不再变化（A3）。在 §4 预热前记一次，§6 后再记一次，两次必须相等。
+- readiness：04239b2a 的 pass 只说明 readiness 可用，P5 不用它发布（V1）。
+
+**逐段执行者与核对**（“前”“后”都是调度员的只读核对；任何一项不符合就停在那一段）：
+
+| 段 | 执行者 | 执行前核对 | 执行后核对 |
+|---|---|---|---|
+| §0 前提 | 调度员 | — | P0.1–P0.8 全部符合 |
+| §1.1 夹具类型 | 负责人终端（`fixture-type --publish`，approver3 口令从 Keychain 经 stdin） | P0.4、P0.8 为 0；预算（R4） | V2 为 0/0；published、version_after=1、successor_actions=[]；max(version)=1 |
+| §1.2–1.7 六个属性 | 调度员生成模板（DATA_HOST 容器），负责人终端执行 r8 `--publish` | R4 预算；上一步 max(version)=n | V2 为 n/n；version_after=n+1；全部完成后执行 §1 的三条核对（7、0、0） |
+| §2 定义读规则 | L3 交清单提交，经批次合入；调度员执行 register | `q5-before` 快照；dry-run 差异只有 1 项 | `q5-after` diff 只有这 1 项；R1 索引行为 v7 |
+| §3 A2 | 调度员 | §4 的选词已定 | 三条都为 0 |
+| §4 选词与预热 | 调度员 `p5-probe.dh.sh check`；负责人终端 `p5-speak.sh warm` | 开关关闭（P0.2）；记下 authority_revision、策略版本和 top_k；W2 before | reads：4 条都是 terms，coverage<1，key=hash(T)，集合两两不同；W2 after 无变化 |
+| §5 开开关 | 负责人终端 | §4 判定通过 | opened、consumers 4、remaining 8 |
+| §6 两轮 | 负责人终端 r1、r2；调度员核对 | 开关为 open | status：remaining 0、active 0；8 条 reads 满足 P1；authority_revision、策略版本和 top_k 与 §4 相同 |
+| §7 判定 | 调度员（DATA_HOST 容器） | 两份配置的 window、label 和 parent 已同步，记下 sha256 | inputs 退出码 0，consumers_with_miss ≥ 4；r5 dry-run units ≥ 4、pairs = 0 → 交 L6 |
+| §8 退役 | 负责人终端（hide）；L3 交清单撤回提交，调度员执行 register | Q5-2 主体清单 | 规则事实中不再有夹具；退役后合成读取不含 hash(F) 和 hash(T) |
+
 ## 0. 前提
 
 | # | 前提 | 核对 |
 |---|---|---|
-| P0.1 | stage 的发布包含 910c2b6d 或之后的代码 | 部署单 |
+| P0.1 | stage 的发布是 R77 = main 4deeb61c（批次 166d，release `20261111-4deeb61c80e5-1`），迁移目录到 0450：含 NX-068 发布门禁 0449、召回 hidden 0450、G1 的 `fixture-type` | 部署单；`ro "select max(version) from control.schema_migrations"`，预期 0450 |
 | P0.2 | ADR-045 开关已关 | `fault-switch.sh status` 打印的 SQL：active 为 0 |
 | P0.3 | evolution 预算在期内，并且够 7 次 r8 各 0.01 CNY 的 reflow | run-nx038 §0 P3 的查询 |
 | P0.4 | `S6SyntheticFixture` 不存在 | `ro "select count(*) from ontology.object_type_versions where tenant_id='$TENANT_ID' and type_name='S6SyntheticFixture'"`：0 |
-| P0.5 | stage 的发布包含 G1 的 `s6_stage_schema.py fixture-type` | 部署单；管理机上执行 `s6_stage_schema.py fixture-type --config "$S6" --dry-run`，退出码 0 |
+| P0.5 | stage 的发布包含 G1 的 `s6_stage_schema.py fixture-type` | 管理机上执行 `s6_stage_schema.py fixture-type --config "$S6" --dry-run`，退出码 0 |
+| P0.6 | 部署冻结：§4 预热到 §6 r2 之间不部署（调度员已确认；批次 167 只改测试和文档，不部署） | 调度员记录冻结开始和结束的 `date` |
+| P0.7 | 不复用测试提案 04239b2a（L6 V1）：P5 只发布 §1 自己冻结的夹具提案 | §1 每步的 proposal_id 都是本次新冻结的，类型都是 `S6SyntheticFixture` |
+| P0.8 | 没有遗留的夹具提案：`ro "select count(*) from ontology.nexloop_schema_proposals where tenant_id='$TENANT_ID' and type_name='S6SyntheticFixture'"` | 0 |
+| P0.8a | 对照（L6 P2，防止 `$TENANT_ID` 为空或写错导致 count=0 被误判成“没有遗留”）：`ro "select count(*) from ontology.nexloop_schema_proposals where tenant_id='$TENANT_ID' and type_name='Consumer'"`；证据里记 `printf %s "$TENANT_ID" \| wc -c`（只记长度，不记值） | ≥ 2（11-11 读到 2 个 frozen）；小于 2 就说明租户变量不对，P0.4、P0.8 和 V2 的结果都不能采信，停下 |
 
 **G1（已补，L6 判词 G1）**：`s6_stage_schema.py fixture-type` 和 r8 走同一条 G9–G13 链路：提案、gates、release permit，加上 `--publish` 时由负责人在 F3 发布。
 - 只接受 `inputs.fixture.type_name`，而且必须匹配 `^S6Synthetic[A-Za-z]*$`；dry-run 也先校验，不符合就直接拒绝，什么都不写。
@@ -46,6 +74,14 @@ ro "select max(version) from ontology.object_type_versions where tenant_id='$TEN
 ro "select count(*) from ontology.objects where tenant_id='$TENANT_ID' and type_name='S6SyntheticFixture'"                             -- 0
 ro "select count(*) from control.nexloop_action_definitions where tenant_id='$TENANT_ID' and definition::text like '%S6SyntheticFixture%'"  -- 0（A2）
 ```
+
+**V2（stale-parent，每次发布之前，调度员，`ro`）**：0254 只发布“冻结时的父版本仍是最新版本”的提案，父版本移动了就拒绝。为了让失败发生在发布之前，每次 `--dry-run` 冻结出提案之后、去掉 `--dry-run` 之前，都核对一次：
+```
+ro "select p.parent_schema_version, (select coalesce(max(version),0) from ontology.object_type_versions v where v.tenant_id=p.tenant_id and v.type_name=p.type_name) from ontology.nexloop_schema_proposals p where p.tenant_id='$TENANT_ID' and p.proposal_id='<本步 proposal_id>'"
+```
+两列必须相等：1.1 是 0 和 0，1.2–1.7 依次是 1…6。不相等就停，不要发布。
+
+**发布后（L6 P1，每一步都做，调度员）**：对本步的 proposal_id 再跑一次上面的查询，记录 `parent_schema_version`。它必须等于发布前的最新版本 n；第二列此时应为 n+1。证据写 proposal_id、parent_schema_version=n、发布后 max(version)=n+1，不能只写“已发布”。如果 dry-run 不写提案、发布前查不到，证据就写三项：`published=true`、`version_after=n+1`、发布后 `max(version)=n+1`，再加上发布后查到的 parent_schema_version=n。V2 查询同样依赖 `$TENANT_ID`，先过 P0.8a。注意：Consumer 的 04239b2a 的父版本是 v1，当前已是 v2，属于 stale，不得发布（V1、V2），与本单无关，只是不要误用。
 
 **R4（每次 r8 之前，调度员）**：先用 run-nx038 §0 P3 的查询确认 evolution 预算在期内并且还有余量，不足就不开始这一次。7 次发布中**任何一次失败都停下，不要从中间续跑**：把已发布的版本号和失败那一步的结果文件报给 L6，由 L6 决定怎么接续。半成品的夹具（少几个属性）只要没有 definition_read_rule 就不会被运行时读到，不必回滚。
 
@@ -107,7 +143,7 @@ REMAINING=8 DURATION=3600 REASON='NX-038 P5 synthetic fixture' local-only/opday/
 
 1. 两份配置的 `inputs.evolution`：
    - `window.since` 取 r1 的 round start，until 取 r2 之后；
-   - label 用新的，例如 `s6-stage-<日期>-2`；
+   - label 用新的：执行当天如果是 2026-11-11，就用 `s6-stage-20261111-2`，因为 `-1` 已被 11-11 第一次的窗口（since 2026-11-10T22:06Z）占用；其他日期用 `s6-stage-<执行日期>-1`。执行前在两份配置里 grep 一遍，确认 label 没用过；
    - parent_revision 按 L6 段 C 第 3 条处理（没有已发布版本时用 `sem-0`）。
 2. 执行 `local-only/s6-stage-20261111/run-inputs.sh`（s6_stage_inputs）：退出码 0，consumers_with_miss ≥ 4。
 3. 执行 `s6_stage_evolution.py r5 --config <容器内配置> --dry-run`（U1）：units ≥ 4，pairs = 0。草案的 target_refs 应落在夹具定义上（A1）。
@@ -119,7 +155,7 @@ REMAINING=8 DURATION=3600 REASON='NX-038 P5 synthetic fixture' local-only/opday/
    ```
    ro "select entity_key, fact->'type_names' from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
    ```
-   并核对清单：在 main 910c2b6d 上只有 relay_source 一条（20 个类型）。**R2（代码出处，main 910c2b6d）**：在 Python 代码里，读 definition_read_rule 的只有服务凭据的语义读取路径：召回门控 `nexloop_eios/recall.py:116`，以及定义详情 `context_engine/authority.py:67`（由 `context_engine/semantic.py:170` 调用）。两者都调用 0381 的 `authz.nexloop_definition_read`，参数是服务凭据的 digest。工作台的代码里没有任何地方引用 definition_read_rule（`git grep definition_read_rule` 的全部结果）。所以工作台浏览器会话不经这条规则，夹具规则对它们没有影响。把查询结果记入证据；出现其他主体就逐个写明，并在第 2 步一并处理。
+   并核对清单：在 main 910c2b6d 上只有 relay_source 一条（20 个类型），4deeb61c 上未变；§2 之后应为 21 个，其中含夹具。**R2（代码出处，main 910c2b6d）**：在 Python 代码里，读 definition_read_rule 的只有服务凭据的语义读取路径：召回门控 `nexloop_eios/recall.py:116`，以及定义详情 `context_engine/authority.py:67`（由 `context_engine/semantic.py:170` 调用）。两者都调用 0381 的 `authz.nexloop_definition_read`，参数是服务凭据的 digest。工作台的代码里没有任何地方引用 definition_read_rule（`git grep definition_read_rule` 的全部结果）。所以工作台浏览器会话不经这条规则，夹具规则对它们没有影响。把查询结果记入证据；出现其他主体就逐个写明，并在第 2 步一并处理。
 2. **撤掉定义读权限**：再走一个批次提交，从 relay_source 的 `type_names` 删去 `S6SyntheticFixture`（按类型撤，标记属性一并撤掉）。register 先 dry-run，差异只有这一项，没有新建或轮换凭据；然后正式执行，取前后快照存档。这是让运行时抽不到 F 和 T 的有效步骤之一（Q6）。
 3. **隐藏属性**：负责人经 F3 的 hide，对 6 个夹具属性各提交一次。召回 hidden 迁移（0450）已在批次 166 合入：hidden 属性不再进召回，所以 hide 本身就让召回停止抽 F 和 T，是有效的退役手段（Q6 测试断言：hide 之后即使仍有定义读权限，recall_terms 也为空）。第 2 步和第 3 步都做，任一步都足以停止抽词，两步一起做是双保险；第 4 步确认抽词已经停止。**R3**：0450 不得在 §4 预热到 §6 r2 之间才部署到 stage；执行前核对 stage 的迁移目录已含 0450，如果没有，这一步只是展示收尾，只有第 2 步有效。
 4. **只读确认（调度员）**：
@@ -130,7 +166,8 @@ REMAINING=8 DURATION=3600 REASON='NX-038 P5 synthetic fixture' local-only/opday/
 
 ## 9. 证据（执行者和判定者分开写，不含口令、DSN、用户名和主机名）
 
-- 7 次发布的 publication_id 和 version_after；
+- 7 次发布的 publication_id、proposal_id、发布前后的 V2 结果（parent_schema_version=n，发布后 max(version)=n+1）和 version_after（L6 P1）；
+- `$TENANT_ID` 的长度（不记值）和 P0.8a 的 Consumer 提案数（L6 P2）；
 - q5-before、q5-after 两份快照，以及 register dry-run 的差异；
 - A2 的三条结果；
 - 策略版本和 top_k；

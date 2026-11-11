@@ -51,7 +51,13 @@ def test_the_stage_rule_lists_the_twenty_published_types_and_adds_no_grant():
     glossary = json.loads((ROOT / 'deploy/configuration/world-model-glossary.v1.json').read_text())
     [rule] = stage['definition_read_rules']
     # A new published type is added here explicitly: this assertion fails until both lists agree.
-    assert rule['principal'] == 'relay_source' and rule['type_names'] == sorted(glossary['object_types']) and len(rule['type_names']) == 20
+    # NX-038 P5 route A: the synthetic acceptance fixture (^S6Synthetic, no object, no Action) is listed until its A4 retirement; it is
+    # not a business type, so the glossary does not name it.
+    synthetic = [t for t in rule['type_names'] if t.startswith('S6Synthetic')]
+    assert synthetic == ['S6SyntheticFixture']
+    business = [t for t in rule['type_names'] if t not in synthetic]
+    assert rule['principal'] == 'relay_source' and business == sorted(glossary['object_types']) and len(business) == 20
+    assert rule['type_names'] == sorted(rule['type_names']) and len(rule['type_names']) == 21
     assert not any(g['principal'] == 'relay_source' and g['resource_type'] in ('object_type', 'property') for g in stage['grants'])
 
 
@@ -60,7 +66,7 @@ def test_register_dry_run_shows_the_rule_and_unchanged_grants():
     sys.path.insert(0, str(ROOT / 'scripts/deploy'))
     import stage_secrets
     report = stage_secrets.register(None, tenant=A, database_url_file=None, signing_key_id='k', credential_expires_at=None, dry_run=True)
-    assert report['definition_read_rules'] == {'relay_source': 20}
+    assert report['definition_read_rules'] == {'relay_source': 21}
     assert not any(g.startswith('relay_source ') and (' object_type ' in g or ' property ' in g) for g in report['grants'])
     facts = stage_secrets._definition_read_facts(*stage_secrets.merged_manifest(), A)
     assert [(k, key) for k, key, _ in facts] == [('definition_read_rule', ['nexloop-service-relay-source-principal'])]
