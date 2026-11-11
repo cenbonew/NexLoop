@@ -75,6 +75,12 @@ EXTRA_SCOPES='requested_scopes'
 ALLOWED_EXTRA_SCOPES=frozenset({'ontology.roles.manage'})
 GRANT={'principal','resource_type','resource_id','operations','purpose','source_task'}
 FOLLOW='follow_latest_version'
+# NX-068 N2 (owner 2026-11-11, option 1): the declared grants that may follow, one by one (scripts/deploy/stage_secrets.FOLLOWABLE
+# refuses any other stage declaration; the test asserts both sets equal). register writes the follow marker into the grant fact
+# (grant_id suffix FOLLOW_MARKER) for these only; the pre-publication gate (authz.nexloop_schema_publish_gate) trusts the marker alone.
+FOLLOWABLE=frozenset({'eios:action:nexloop.plan.bind_effect_context:1','eios:action:nexloop.effect.configure_control:1',
+                      'eios:action:Consumer.create:1'})
+FOLLOW_MARKER=':follow_latest_version'
 RULES='property_access_rules'
 RULE={'principal','type_name','operations','property_groups','include_review_published','basis_schema_version','valid_until','purpose','source_task'}
 MESSAGE_RULES='message_read_rules'
@@ -442,8 +448,12 @@ def expected_grants(manifest):
 def _digest(value):return F.canonical_authority_digest(value)
 
 
-def compile_principal(manifest,tenant,principal,*,credential_expires_at):
-    """Deterministic EIOS authority facts and credential binding for one service principal."""
+def compile_principal(manifest,tenant,principal,*,credential_expires_at,follow_marked=None):
+    """Deterministic EIOS authority facts and credential binding for one service principal. follow_marked: the (role, resource)
+    pairs declared follow_latest_version (default: the manifest's own declarations; stage_secrets register passes them, it resolves
+    the follow itself and strips the key); only those in FOLLOWABLE get the marker (NX-068 N2)."""
+    if follow_marked is None:
+        follow_marked={(g['principal'],g['resource_id']) for g in manifest['grants'] if g.get(FOLLOW) is True}
     world=manifest['world'];past=datetime.fromisoformat(manifest['valid_from'])
     grants=sorted((g for g in manifest['grants'] if g['principal']==principal['role']),key=lambda g:g['resource_id'])
     scopes=frozenset(f"{g['resource_type']}.{op}" for g in grants for op in g['operations'])|frozenset(principal.get(EXTRA_SCOPES,()))
@@ -484,7 +494,8 @@ def compile_principal(manifest,tenant,principal,*,credential_expires_at):
         ops=frozenset(Operation(op) for op in g['operations'])
         facts.append(('resource_graph',[rid],F.ResourceGraphFacts(**base,root=F.ResourceNodeFact(resource=ref,parent=None,active=True),ancestors=(),dependencies=(),
             registry_revision=1,registry_digest=_digest(ref),closure_complete=True,next_cursor=None)))
-        grant=F.EffectiveGrantFact(grant_id=f"{principal['role']}:{rid}",subject_kind=GrantSubjectKind.SERVICE,subject_id=pid,role_id=role_id,
+        marker=FOLLOW_MARKER if (principal['role'],rid) in follow_marked and rid in FOLLOWABLE else ''
+        grant=F.EffectiveGrantFact(grant_id=f"{principal['role']}:{rid}{marker}",subject_kind=GrantSubjectKind.SERVICE,subject_id=pid,role_id=role_id,
             role_revision=1,role_digest=role_digest,resource=ref,operations=ops,inherited=False,valid_from=past,valid_until=None,revision=1,
             digest=_digest({'grant':rid,'principal':pid,'operations':sorted(op.value for op in ops)}))
         facts.append(('grants',[pid,rid],F.GrantFacts(**base,subject_kind=GrantSubjectKind.SERVICE,principal_id=pid,grants=(grant,),valid_until=None,complete=True,next_cursor=None,revision=1)))
@@ -620,7 +631,7 @@ def _service_grant_triples(inventory):
     return triples
 
 
-def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictions=None):
+def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictions=None,follow_marked=None):
     """Pure diff: facts to write (incl. revocations), credentials to create, findings."""
     if any(PRIVATE_TARGET in g['resource_id'] for g in manifest['grants']):
         # Not resolved by the caller (stage_secrets register resolves the private targets): no object grants, so earlier ones
@@ -639,7 +650,7 @@ def plan(manifest,tenant,inventory,*,credential_expires_at=None,owner_restrictio
         elif credential_expires_at is not None:expiry=credential_expires_at
         else:expiry=None
         binding,facts=compile_principal(manifest,tenant,principal,
-            credential_expires_at=expiry or datetime(2000,1,1,tzinfo=UTC))
+            credential_expires_at=expiry or datetime(2000,1,1,tzinfo=UTC),follow_marked=follow_marked)
         if existing is None:
             findings.append({'credential':principal['credential_reference'],'state':'missing'})
             new_credentials.append((principal,binding,expiry))
@@ -706,11 +717,14 @@ def doctor(manifest,tenant,*,database_url_file,owner_restrictions=None):
     return report
 
 
-def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,service_secrets_file,credential_expires_at=None,owner_restrictions=None):
+def apply(manifest,tenant,*,database_url_file,signing_key_file,signing_key_id,service_secrets_file,credential_expires_at=None,owner_restrictions=None,
+          follow_marked=None):
     """Idempotent apply through the 0050 configurator; returns an auditable change report."""
     current=inventory(database_url_file,tenant)
     effective,follow=_expand(manifest,tenant,database_url_file)
-    result=plan(effective,tenant,current,credential_expires_at=credential_expires_at,owner_restrictions=owner_restrictions)
+    if follow_marked is None:
+        follow_marked={(g['principal'],g['resource_id']) for g in manifest['grants'] if g.get(FOLLOW) is True}
+    result=plan(effective,tenant,current,credential_expires_at=credential_expires_at,owner_restrictions=owner_restrictions,follow_marked=follow_marked)
     blocking=[f for f in result['findings'] if f['state'] in ('credential_rotation_required','world_mismatch')]
     if blocking:_reject('credential_rotation_required')
     if result['new_credentials'] and any(expiry is None for _,_,expiry in result['new_credentials']):_reject('credential_expiry_required')

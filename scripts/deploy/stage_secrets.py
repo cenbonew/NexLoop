@@ -955,6 +955,8 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     secrets_map = _reference_secrets(out, manifest, stage)
     # service_grants.apply re-validates a manifest whose grants follow the latest Action version, and that validation refuses the
     # effect Actions of the stage roles; resolve those grants first (same lineage, configurator role) and apply the resolved list.
+    # NX-068 N2: the declarations register marks in the grant facts (service_grants.compile_principal keeps the FOLLOWABLE ones).
+    follow_marked = {(g['principal'], g['resource_id']) for g in manifest['grants'] if g.get(G.FOLLOW) is True}
     if any(g.get(G.FOLLOW) for g in manifest['grants']):
         lineage = G.action_lineage(database_url_file, tenant)
         derived, refused = G.resolve_follow(manifest, lineage)
@@ -970,7 +972,8 @@ def register(out, *, tenant, database_url_file, signing_key_id, credential_expir
     try:
         report = G.apply(manifest, tenant, database_url_file=database_url_file, signing_key_file=management / 'signing.key.hex',
                          signing_key_id=signing_key_id, service_secrets_file=staged, credential_expires_at=expires,
-                         owner_restrictions=G.load_owner_restrictions(ROOT / 'deploy/authorization/owner-property-restrictions.json'))
+                         owner_restrictions=G.load_owner_restrictions(ROOT / 'deploy/authorization/owner-property-restrictions.json'),
+                         follow_marked=follow_marked)
     finally:
         staged.unlink(missing_ok=True)
         scratch.rmdir()

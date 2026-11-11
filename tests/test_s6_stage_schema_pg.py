@@ -32,6 +32,7 @@ from test_evolution_e4_pg import NOW, body_of, hexid, miss_case, opened  # noqa:
 from test_evolution_traces_pg import run as trace_run  # noqa: E402
 from test_evolution_traces_pg import private  # noqa: E402,F811
 from test_evolution_v1_pg import register  # noqa: E402
+from nx068_fixture import mark  # noqa: E402
 from test_workbench_read_pg import ROLES, members_file, workbench, write_facts, configure  # noqa: E402,F401
 from test_workbench_read_pg import TENANT, browser_business, conversations, identity, published_action, uow  # noqa: E402,F401
 
@@ -88,6 +89,8 @@ def stage(workbench, pg, tmp_path):
     template.chmod(0o600)
     token, _ = seed_authority(admin, TENANT, 'eios:artifact:' + 'f' * 32, identity_suffix='-s6-evaluator')
     register(admin, hexid(token), 'evaluator')
+    # NX-068 K1: register writes the follow marker on the Consumer.create holders before any F3 publication (the gate refuses without it).
+    mark(admin, TENANT, 'Consumer.create')
     # D23 needs a valid and an invalid case per Action: the fixture's Consumer Action takes any input ({}); a real input schema first (an
     # Action that accepts everything fails G12 for ever - F4's known limitation, also on stage).
     with admin.transaction():
@@ -363,3 +366,66 @@ def test_r8_refuses_an_owner_directed_template_for_a_property_or_decision_not_in
             code, doc = run(tmp_path, 'r8', s['ports'](), inputs)
             assert code == 2 and 'not in inputs.owner_directed_properties' in doc['refused'], json.dumps(doc, ensure_ascii=False)
     assert count() == before
+
+
+# --- NX-038 P5 route A (L6 G1): fixture-type creates the synthetic fixture type (marker property only) through the r8 chain --------------------------
+
+FIXTURE_LISTED = {'type_name': 'S6SyntheticFixture', 'property_name': 'zz_t', 'decision': 'owner 2026-11-11 P5 route A'}
+
+
+def fixture_inputs(stage, tmp_path, **fixture):
+    body = json.loads(Path(stage['inputs']['candidate_template']).read_text())
+    body['category'] = 'owner_directed_schema'
+    path = tmp_path / 'fixture-template.json'
+    path.write_text(json.dumps({'mode': 'schema_only', 'property': {'type_name': 'S6SyntheticFixture', 'property_name': 'zz_t'},
+                                'decision': FIXTURE_LISTED['decision'], 'created_at': '2026-11-11T00:00:00Z', 'body': body}))
+    path.chmod(0o600)
+    return {**stage['inputs'], 'candidate_template': str(path), 'owner_directed_properties': [FIXTURE_LISTED],
+            'fixture': {'type_name': 'S6SyntheticFixture', **fixture}}
+
+
+def test_fixture_type_goes_through_g9_g13_and_the_owner_publishes_it_with_its_marker_only(stage, tmp_path):
+    s = stage
+    inputs = fixture_inputs(s, tmp_path)
+    code, doc = run(tmp_path, 'fixture-type', s['ports'](), inputs, '--dry-run')
+    assert code == 0 and doc['dry_run'] is True and not doc['blocked']
+    before = schema_counts(s['admin'])
+    code, doc = run(tmp_path, 'fixture-type', s['ports'](), inputs)
+    assert code == 0 and doc['passed'] is True, json.dumps(doc, ensure_ascii=False)
+    st = steps(doc)
+    assert st['g9_g13_accept']['observed']['conclusion'] == 'accept' and st['accepted_for_release_with_a_permit']['passed']
+    assert st['fixture_type_publishes_no_action']['observed']['successor_actions'] == 0
+    assert schema_counts(s['admin']) == before  # no publication without --publish
+    code, doc = run(tmp_path, 'fixture-type', s['ports'](), fixture_inputs(s, tmp_path), '--publish')
+    assert code == 0 and doc['passed'] is True, json.dumps(doc, ensure_ascii=False)
+    out = steps(doc)['owner_publishes_the_empty_fixture_type']['observed']
+    assert (out['published'], out['version_after'], out['successor_actions']) == (True, 1, [])
+    schema = s['admin'].execute("select definition from ontology.object_type_versions where tenant_id=%s and type_name='S6SyntheticFixture'", (TENANT,)).fetchone()[0]
+    assert [p['property_name'] for p in schema['properties']] == ['fixture_marker'] and schema['version'] == 1
+    assert s['admin'].execute("select count(*) from control.nexloop_action_definitions where tenant_id=%s and definition::text like '%%S6SyntheticFixture%%'",
+                              (TENANT,)).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('label,fixture', [
+    ('another type name', {'type_name': 'S6Voucher'}),
+    ('a name outside the pattern', {'type_name': 'S6Synthetic_Fixture'}),
+    ('a real type', {'type_name': 'Consumer'}),
+    ('another change', {'change': {'properties': [{'property_name': 'amount', 'value_type': 'number'}]}}),
+    ('an empty change', {'change': {'properties': []}}),
+])
+def test_fixture_type_refuses_any_other_name_or_change_before_writing(stage, tmp_path, label, fixture):
+    s = stage
+    inputs = fixture_inputs(s, tmp_path, **fixture)
+    count = lambda: s['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0]  # noqa: E731
+    before = count()
+    for extra in ((), ('--dry-run',), ('--publish',)):
+        code, doc = run(tmp_path, 'fixture-type', s['ports'](), inputs, *extra)
+        assert code == 2 and ('inputs.fixture' in doc.get('refused', '') or 'another type' in doc.get('refused', '')), (label, code, doc)
+    assert count() == before
+
+
+def test_at024_still_refuses_a_new_type_without_accepted_gates(stage, tmp_path):
+    """fixture-type does not loosen AT-024: a non-fixture new type still meets permit_missing at the publication gate."""
+    s = stage
+    code, doc = run(tmp_path, 'at024', s['ports'](), s['inputs'])
+    assert code == 0 and steps(doc)['publication_gate_refuses_without_accepted_gates']['passed'], json.dumps(doc, ensure_ascii=False)

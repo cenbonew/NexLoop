@@ -6,6 +6,7 @@ SchemaPublicationPort. Real PG, real workbench login cookies and the production 
 - Every publication goes through the F4 permit (an accepted nx040-gates-1 report): without it, permit_missing and nothing written.
 - A refused change (F1) answers its code through check and publish and writes nothing.
 """
+from nx068_fixture import mark
 from nexloop_eios.workbench_roles import compile_members
 from test_browser_http import ORIGIN
 from test_nx040_schema_publication_pg import proposal
@@ -58,7 +59,15 @@ def test_the_owner_reads_checks_and_publishes_through_the_port_and_the_operator_
         assert basis.status_code == 200 and basis.json()['operation'] == 'add_optional_property' and basis.json()['type_name'] == 'Consumer'
         check = client.get(f'{BASE}/{pid}/check').json()
         assert check['compatibility']['allowed'] is True and check['next_version'] == check['parent_version'] + 1
+        # NX-068 Q8: the fixture's Consumer.create holders carry no follow marker (register writes it for FOLLOWABLE declarations only),
+        # so the precheck refuses with a remedy for each; the publication would be refused alike (tests/test_nx068_publish_path_pg.py).
+        readiness = check['readiness']
+        assert readiness['verdict'] == 'refuse' and all(i['remedy'] for i in readiness['items'])
+        assert {i['code'].split(':')[0] for i in readiness['items'] if i['level'] == 'refuse'} == {'create_holder_without_follow'}
         assert counts(admin) == before  # reads write nothing
+        for name in ('Consumer.create', 'nexloop.plan.bind_effect_context'):
+            mark(admin, f['tenant'], name)
+        assert not [i for i in client.get(f'{BASE}/{pid}/check').json()['readiness']['items'] if i['level'] == 'refuse']
         # Input checks before the port: no CSRF, a bad key, a bad body, a malformed id.
         assert client.post(f'{BASE}/{pid}/publish', headers={'Origin': ORIGIN, 'Idempotency-Key': 'synthetic-schema-0001'}, json={'rationale': 'x'}).status_code == 401
         assert post(client, f'{BASE}/{pid}/publish', {'rationale': 'x'}, 'short').status_code == 422
