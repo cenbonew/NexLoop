@@ -114,8 +114,10 @@ def test_publication_holder_inspection_reads_service_grants_only(admin):
         keyed = len(re.findall(r"fact_kind='grants' and g\.entity_key\[1\]=holder", src))
         assert reads == len(loops) + keyed, (name, reads, len(loops), keyed)
         assert 'nexloop_browser_authority_fact_snapshot' not in src and 'nexloop_load_authority_fact' not in src
-        holders = admin.execute("""select coalesce(array_agg(r.rolname order by r.rolname),'{}') from pg_proc p cross join aclexplode(p.proacl) a
-            join pg_roles r on r.oid=a.grantee where p.oid=%s::regprocedure and a.privilege_type='EXECUTE' and a.grantee<>p.proowner""", (name,)).fetchone()[0]
-        assert holders == [], (name, holders)
+        # proacl NULL means PostgreSQL's default (PUBLIC may execute) and aclexplode(NULL) is empty; PUBLIC is grantee 0, not in pg_roles.
+        acl, grantees = admin.execute("""select p.proacl is not null,coalesce((select array_agg(a.grantee::regrole::text order by a.grantee::regrole::text)
+            from aclexplode(p.proacl) a where a.privilege_type='EXECUTE' and a.grantee<>p.proowner),'{}') from pg_proc p where p.oid=%s::regprocedure""",
+                                      (name,)).fetchone()
+        assert acl is True and grantees == [], (name, acl, grantees)
     readiness = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_read_schema_publish_readiness(text,text,text,text,text)'::regprocedure").fetchone()[0]
     assert 'authz.nexloop_assert_review_read(' in readiness and 'authz.nexloop_schema_publish_gate(' in readiness
