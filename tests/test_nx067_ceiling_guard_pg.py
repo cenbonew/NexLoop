@@ -36,6 +36,7 @@ REGISTRY = {
     # and create_versions.create_current (business_setup, enterprise_setup, the relay and fallback planners, role_assembly); no
     # workbench route reaches either, and a browser member's grant is only ever read through the browser snapshot.
     'authz.nexloop_effect_registrar_version(text,text,text,jsonb)': SERVICE + ' (advisory registrar version; 0179 re-checks the exact resource)',
+    'authz.nexloop_effect_bind_action_resource(text,text,text,integer)': SERVICE + ' (option B M2.1: whether register followed every :1 grant to the admitted :N; the registrar and Run issuance re-check the exact resource)',
     'authz.nexloop_create_action_version(text,text,text)': SERVICE + ' (advisory create version; the governed create re-checks the exact resource)',
     'authz.nexloop_evo_l1_open(text,uuid,text)': SERVICE + ' (evolution L1 test world)',
     'control.nexloop_revoke_service_credential(text,jsonb,text,bytea)': SERVICE + ' (service credential rotation)',

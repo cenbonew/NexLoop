@@ -352,7 +352,10 @@ class RuntimeActivationPort:
                 run=_identity(db,resolved['_run_digest'],self.session.world)
                 if run.run_context is None or run.run_context.run_id!=command['run_id']:raise ValueError()
                 # ADR-030: a Run may use only the effect Actions its credential grants (the enterprise slot is optional).
-                if f'eios:action:{action}:1' not in run.run_context.allowed_resources:raise ValueError()
+                # Option B M2.1: the Run carries the effect Action version selected for its Consumer at issuance.
+                versions=[r.rsplit(':',1)[1] for r in run.run_context.allowed_resources if r.rsplit(':',1)[0]==f'eios:action:{action}']
+                if len(versions)!=1 or not versions[0].isdigit():raise ValueError()
+                effect_version=int(versions[0])
                 # Same-Run tool requests serialize here, before the first guard, in one lock
                 # order (same key as the 0085 submit lock, reentrant in this transaction); this
                 # removes the 0039 execution-marker / row-lock cycle between concurrent guards.
@@ -375,7 +378,7 @@ class RuntimeActivationPort:
                         raise
                 stage='intent'
                 receipt=EffectIntentPort(self.pool,run,self.signer,action=action)._execute_in_transaction(
-                    db,tool_operation,action_version=1,runtime_refs={'consumer_ref':command['consumer_ref'],
+                    db,tool_operation,action_version=effect_version,runtime_refs={'consumer_ref':command['consumer_ref'],
                         'goal_version_ref':command['goal_version_ref']},**arguments)
                 stage='guard_after'
                 # ADR-028 (0173): the final recheck after the intent is the activation core only (credential, Run proofs and

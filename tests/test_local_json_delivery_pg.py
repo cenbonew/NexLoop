@@ -23,7 +23,7 @@ from test_local_json_delivery_files import _snapshot
 
 
 @pytest.fixture
-def delivery_plan(business_plan,admin,tmp_path):
+def delivery_plan(business_plan,admin,tmp_path,request):
     f=business_plan;tenant=f['f']['tenant'];m=f['manifest']
     base=next(a for a in m['actions'] if a['definition']['stable_name']=='Consumer.create')
     schemas={s['type_name']:s for s in m['object_types']}
@@ -70,15 +70,23 @@ def delivery_plan(business_plan,admin,tmp_path):
             suffix='-local-source',manifest=manifest,paths=p)
         manifest=catalog['manifest'];source_token=catalog['source_token']
         planner_service=api.authenticate(planner_token,world='real');source_service=catalog['source']
+        effect_version=1
+        if getattr(request,'param',None) in ('consumer-v2','consumer-v2-undeclared','consumer-v2-wide-run','consumer-v2-wide-unbound'):  # option B M2.1: Consumer v2, effect Action :2 admitted
+            from task_b_fixture import bump_consumer_v2
+            bump_consumer_v2(admin,tenant,categories=request.param!='consumer-v2-undeclared');effect_version=2
+            planner_service=api.authenticate(planner_token,world='real');source_service=api.authenticate(source_token,world='real')
         expires=(datetime.now(UTC)+timedelta(seconds=180)).isoformat()
         goal=planner_service.create_object(action_name='Goal.create',action_version=1,intent_id='local-goal',type_name='Goal',
             properties={'consumer_id':setup['consumer_id'],'state':'active','valid_until':expires})['object_id']
         step=planner_service.create_object(action_name='PlanStep.create',action_version=1,intent_id='local-step',type_name='PlanStep',properties={
             'consumer_id':setup['consumer_id'],'goal_id':goal,'control_id':setup['control_id'],'submitter_principals':[source.subject_principal_id],
             'action_name':'nexloop.service.request','state':'ready'})['object_id']
-        run=source_service.issue_run_credential(action_resources=['eios:action:nexloop.service.request:1'])
-        planner_service.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,
-            run_id=run.run_id,run_token=run.token,executor_token=delivery_token)
+        run=source_service.issue_run_credential(action_resources=[f'eios:action:nexloop.service.request:{effect_version}']
+            +(['eios:action:nexloop.service.request:1'] if getattr(request,'param',None) in ('consumer-v2-wide-run','consumer-v2-wide-unbound') else []))
+        def bind():
+            return planner_service.bind_effect_context(step_id=step,step_revision=1,goal_revision=1,consumer_revision=1,control_revision=1,
+                run_id=run.run_id,run_token=run.token,executor_token=delivery_token)
+        if getattr(request,'param',None)!='consumer-v2-wide-unbound':bind()  # unbound: the test binds (option B M2-a)
         submitter=api.authenticate_run(run.token,world='real',run_id=run.run_id)
         executor_service=worker.authenticate(delivery_token,world='real')
         credential=private(tmp_path,'local-executor-token',delivery_token)
@@ -91,7 +99,7 @@ def delivery_plan(business_plan,admin,tmp_path):
         store=JsonExportStore(root)
         yield PrivateConfiguration(api=api,worker=worker,provider_backend=provider_backend,executor=executor_service,submitter=submitter,
             authority=authority,store=store,root=root,provider=provider,server_config=config,control=setup['control_id'],run=run,
-            manifest=manifest,publication_paths=p,manifest_pg=f['f']['pg'],credential_file=credential,source_principal=source.subject_principal_id,executor_principal=executor.subject_principal_id)
+            manifest=manifest,publication_paths=p,manifest_pg=f['f']['pg'],credential_file=credential,effect_version=effect_version,owner_token=f['owner_token'],bind=bind,source_principal=source.subject_principal_id,executor_principal=executor.subject_principal_id)
         store.close()
 
 

@@ -87,14 +87,15 @@ class FallbackReplyLauncher:
         goal=self._create(planner,'Goal',message_id,{'consumer_id':recipe['consumer_id'],'state':'active','valid_until':recipe['valid_until']},recipe)
         step=self._create(planner,'PlanStep',message_id,{'consumer_id':recipe['consumer_id'],'goal_id':goal,'control_id':recipe['control_id'],
             'submitter_principals':[principal],'action_name':'nexloop.service.request','state':'ready'},recipe)
+        effect=MessageRelayPort(route).effect_resources(source,recipe['consumer_id'])['nexloop.service.request']
         assignment={'message_id':message_id,'consumer_id':recipe['consumer_id'],'goal_id':goal,'goal_revision':1,'step_id':step,'step_revision':1,
             'control_id':recipe['control_id'],'control_revision':recipe['control_revision'],'consumer_revision':recipe['consumer_revision'],
             'source_principal':principal,'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(recipe).encode()).hexdigest(),
-            'allowed_actions':[EFFECT],'state':'active','valid_until':recipe['valid_until']}
+            'allowed_actions':[effect],'state':'active','valid_until':recipe['valid_until']}
         assignment_id=self._create(planner,'MessageAssignment',message_id,assignment,recipe)
         assignment_text=canonical_payload(assignment)
         run_id=str(uuid.uuid4());token=secrets.token_hex(48);token_digest=hashlib.sha256(token.encode()).hexdigest()
-        source_digest,proofs,definition,capability=MessageRelayPort(route).source_proofs(source)
+        source_digest,proofs,definition,capability=MessageRelayPort(route).source_proofs(source,(effect,))
         port=FallbackIssuePort(route._backend._pool,route._session,route._backend._signer)
         issued=port.issue(message_id=message_id,run_id=run_id,request_id=request_id(tenant,message_id),issuance_nonce=secrets.token_hex(32),
             assignment_id=assignment_id,assignment_revision=1,assignment_digest=hashlib.sha256(assignment_text.encode()).hexdigest(),assignment_text=assignment_text,
