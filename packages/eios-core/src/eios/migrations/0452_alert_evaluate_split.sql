@@ -31,7 +31,7 @@ create table runtime.nexloop_alert_evaluation_runs (
  run_id bigint generated always as identity primary key,
  tenant_id text not null references control.nexloop_tenants(tenant_id),world text not null check(world='real'),
  at timestamptz not null default clock_timestamp(),
- outcome text not null check(outcome in ('evaluated','snapshot_unknown','snapshot_stale','snapshot_consumed','snapshot_missing'))
+ outcome text not null check(outcome in ('evaluated','legacy_single_transaction','snapshot_unknown','snapshot_stale','snapshot_consumed','snapshot_missing'))
 );
 create index nexloop_alert_evaluation_runs_at on runtime.nexloop_alert_evaluation_runs(tenant_id,world,at);
 alter table runtime.nexloop_alert_evaluation_runs owner to nexloop_owner;
@@ -51,19 +51,22 @@ alter function runtime.nexloop_metrics_snapshot(text,text) rename to nexloop_met
 revoke all on function runtime.nexloop_metrics_snapshot_before_alert_split(text,text) from public;
 create function runtime.nexloop_metrics_snapshot(p_tenant text,p_world text) returns jsonb
  language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
-declare v jsonb:=runtime.nexloop_metrics_snapshot_before_alert_split(p_tenant,p_world);failed bigint;skipped bigint;since numeric;
+declare v jsonb:=runtime.nexloop_metrics_snapshot_before_alert_split(p_tenant,p_world);failed bigint;skipped bigint;legacy bigint;since numeric;
  last_ok timestamptz;first_skip timestamptz;
 begin
  if jsonb_typeof(v) is distinct from 'object' then return v;end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  select count(*) into failed from runtime.nexloop_alert_snapshots
   where tenant_id=p_tenant and world=p_world and maintenance_failed and taken_at>clock_timestamp()-interval '1 hour';
- select count(*) filter (where outcome<>'evaluated' and at>clock_timestamp()-interval '1 hour'),max(at) filter (where outcome='evaluated'),
-        min(at) filter (where outcome<>'evaluated')
-   into skipped,last_ok,first_skip from runtime.nexloop_alert_evaluation_runs where tenant_id=p_tenant and world=p_world;
+ -- A legacy single-transaction evaluation (an evaluator of the previous release, E1) is a success, counted on its own.
+ select count(*) filter (where outcome not in ('evaluated','legacy_single_transaction') and at>clock_timestamp()-interval '1 hour'),
+        count(*) filter (where outcome='legacy_single_transaction' and at>clock_timestamp()-interval '1 hour'),
+        max(at) filter (where outcome in ('evaluated','legacy_single_transaction')),
+        min(at) filter (where outcome not in ('evaluated','legacy_single_transaction'))
+   into skipped,legacy,last_ok,first_skip from runtime.nexloop_alert_evaluation_runs where tenant_id=p_tenant and world=p_world;
  -- Minutes without a successful evaluation: since the last success; never evaluated but skipped, since the first skip; nothing yet, 0.
  since:=floor(extract(epoch from clock_timestamp()-coalesce(last_ok,first_skip,clock_timestamp()))/60);
- return v||jsonb_build_object('alert_evaluation',jsonb_build_object('maintenance_failed_1h',failed,'skipped_1h',skipped,'minutes_since_success',since));
+ return v||jsonb_build_object('alert_evaluation',jsonb_build_object('maintenance_failed_1h',failed,'skipped_1h',skipped,'legacy_1h',legacy,'minutes_since_success',since));
 end $$;
 alter function runtime.nexloop_metrics_snapshot(text,text) owner to nexloop_owner;
 revoke all on function runtime.nexloop_metrics_snapshot(text,text) from public;
@@ -78,6 +81,8 @@ begin
 end $$;
 
 -- 3. T1 and T2 (no credential; the alert evaluator's database role only) ----------------------------------------------------------------
+-- (c) Neither function is authorized: no credential, no signed command. They sit in authz only because nexloop_domain_worker has
+-- USAGE on authz and not on runtime; EXECUTE is the domain worker's alone, and neither reads or writes authority.
 create function authz.nexloop_alert_maintain_unbound() returns jsonb
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 begin
@@ -87,6 +92,7 @@ alter function authz.nexloop_alert_maintain_unbound() owner to nexloop_owner;
 revoke all on function authz.nexloop_alert_maintain_unbound() from public;
 grant execute on function authz.nexloop_alert_maintain_unbound() to nexloop_domain_worker;
 
+-- (c) Not authorized either (see above): in authz only for the domain worker's schema USAGE.
 create function authz.nexloop_alert_snapshot_take(p_tenant text,p_maintenance_failed boolean) returns uuid
  language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare id uuid;prior text:=current_setting('eios.tenant_id',true);
@@ -118,13 +124,14 @@ declare t text:=authz.nexloop_plan_port_tenant(p_digest,p_world,p_text,p_signatu
   array['nexloop_domain_worker']);
  snap jsonb;rs control.nexloop_alert_rules;r jsonb;base jsonb;item record;v_value numeric;v_key text;st control.nexloop_alert_state;
  v_breach boolean;now_at timestamptz;seen text[]:='{}';v_fired integer:=0;v_resolved integer:=0;sid uuid;sn runtime.nexloop_alert_snapshots;
- v_skip text;v_kept integer:=0;
+ v_skip text;v_kept integer:=0;v_legacy boolean:=false;
 begin
  if p_world is distinct from 'real' then return jsonb_build_object('evaluated',false,'reason','alerts_real_world_only');end if;
  perform set_config('eios.tenant_id',t,true);
  -- An evaluator of the previous release signs no snapshot_id (rolling deploy or rollback): the old single transaction - maintenance and
  -- snapshot here, under this authorization - so its alerts are never skipped; only a present but malformed id is snapshot_missing.
  if not (p_payload::jsonb ? 'snapshot_id') then
+  v_legacy:=true;  -- E1: recorded as legacy_single_transaction (rule alert_evaluation_legacy); removed in the next release
   perform runtime.nexloop_observability_maintain();
   sid:=authz.nexloop_alert_snapshot_take(t,false);
   perform set_config('eios.tenant_id',t,true);
@@ -144,7 +151,7 @@ begin
   return jsonb_build_object('evaluated',false,'reason',v_skip);
  end if;
  update runtime.nexloop_alert_snapshots set consumed_at=clock_timestamp() where snapshot_id=sid;
- insert into runtime.nexloop_alert_evaluation_runs(tenant_id,world,outcome) values(t,p_world,'evaluated');
+ insert into runtime.nexloop_alert_evaluation_runs(tenant_id,world,outcome) values(t,p_world,case when v_legacy then 'legacy_single_transaction' else 'evaluated' end);
  delete from runtime.nexloop_alert_snapshots where tenant_id=t and world=p_world and taken_at<clock_timestamp()-interval '1 day';
  delete from runtime.nexloop_alert_evaluation_runs where tenant_id=t and world=p_world and at<clock_timestamp()-interval '1 day';
  snap:=sn.snapshot;now_at:=sn.taken_at;

@@ -30,7 +30,7 @@ rollback;
 ## 2. 部署
 
 1. 部署包含本提交的镜像并迁移。迁移尾与 `versions.lock.json` 的 `bootstrap_revision` 相同。
-   - 旧评估器配新迁移（滚动部署或回退）：签名载荷里没有 snapshot_id，T3 按旧方式在同一事务里先维护、再拍快照，然后评估，不计为跳过。
+   - 旧评估器配新迁移（滚动部署或回退）：签名载荷里没有 snapshot_id，T3 按旧方式在同一事务里先维护、再拍快照，然后评估。这一次记为 `legacy_single_transaction`，算成功评估，不算跳过，并触发 warning `alert_evaluation_legacy`（E1）。
    - 新评估器配旧迁移：找不到 `authz.nexloop_alert_snapshot_take`，评估失败。所以先迁移，再换评估器。
 2. 告警规则 v39，与第 1 步在同一次部署里完成：
 
@@ -38,18 +38,29 @@ rollback;
    docker run $CHECK_COMMON "$BACKEND_IMAGE" /opt/release/scripts/deploy/alert_rules_apply.py --manifest /opt/release/deploy/configuration/alert-rules.v39.json --check
    ```
 
-   `--check` 应显示版本 39，只比 v38 多三条：`alert_maintenance_failed`、`alert_evaluation_skipped`、`alert_evaluation_stalled`。然后去掉 `--check` 正式应用。
+   `--check` 应显示版本 39，只比 v38 多四条：`alert_maintenance_failed`、`alert_evaluation_skipped`、`alert_evaluation_stalled`、`alert_evaluation_legacy`。然后去掉 `--check` 正式应用。
 
 ## 3. 上线后只读核对
+
+**先确认告警通知器的定时任务在运行（E2）**：评估器整个停下来时，`alert_evaluation_stalled` 自己无法触发，只能靠通知器兜底。通知器读 `authz.nexloop_alerts_firing_export()` 里的 `last_evaluated_at`，超过 `evaluator_stale_seconds`（默认 600 秒）就发出通知。
+
+```bash
+systemctl is-active nexloop-alert-notify.timer
+systemctl list-timers nexloop-alert-notify.timer --no-pager
+journalctl -t nexloop-alert-notify -n 3 --no-pager
+```
+
+- 预期：timer 为 `active`，下次触发时间在几分钟以内，最近一条日志的 `ok` 为 true。
+- 不符合时**不要继续上线**，先按 `run-alert-notifier.md` 恢复通知器。
 
 ```sql
 begin transaction read only;
 select runtime.nexloop_metrics_snapshot(:'tenant','real')->'alert_evaluation';
--- 预期 maintenance_failed_1h 0、skipped_1h 0、minutes_since_success 0 或 1
+-- 预期 maintenance_failed_1h 0、skipped_1h 0、legacy_1h 0、minutes_since_success 0 或 1
 select count(*) filter (where consumed_at is null) open,count(*) total,max(taken_at) from runtime.nexloop_alert_snapshots where tenant_id=:'tenant';
 -- 预期 open 为 0 或 1，max(taken_at) 在 1 分钟以内
 select outcome,count(*) from runtime.nexloop_alert_evaluation_runs where tenant_id=:'tenant' and at>now()-interval '15 minutes' group by 1;
--- 预期只有 evaluated
+-- 预期只有 evaluated；出现 legacy_single_transaction 说明还有旧评估器在跑
 rollback;
 ```
 
@@ -74,3 +85,7 @@ select calls,round(mean_exec_time::numeric,1) mean_ms,round(max_exec_time::numer
 重新部署上一版镜像，并重新应用 v38。迁移不回退：
 - 两张新表留着不用；
 - 旧评估器调用新版 `authz.nexloop_alert_evaluate` 时走兼容路径，告警照常评估，但又回到“授权后持锁做维护和快照”的旧行为。
+
+## 6. 兼容路径的期限（E1）
+
+**下一个发布版本删除兼容路径**：`authz.nexloop_alert_evaluate` 里“签名载荷没有 snapshot_id 就走旧的单事务”这一段，以及 `legacy_single_transaction` 这个取值和 `alert_evaluation_legacy` 规则，都在下一个版本删除。删除之前，`alert_evaluation_legacy` 只要触发过，就说明还有旧评估器在跑，要先处理掉。

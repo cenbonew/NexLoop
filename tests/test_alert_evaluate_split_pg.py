@@ -10,6 +10,7 @@ that snapshot. Real PostgreSQL, the real evaluator service credential on the dom
 - D4: a snapshot is evaluated once; a second use is refused and changes nothing. Monotonic: an older snapshot never overwrites a newer state.
 Synthetic data."""
 import hashlib
+import json
 import hmac
 import re
 import threading
@@ -322,13 +323,31 @@ def test_t3_refuses_a_missing_or_foreign_snapshot(split):
     assert evaluate_snapshot(s, uuid.uuid4()) == {'evaluated': False, 'reason': 'snapshot_unknown'}
 
 
-def test_the_previous_releases_evaluator_still_evaluates(split):
+def test_the_previous_releases_evaluator_still_evaluates_and_leaves_a_trace(split):
     """Rolling deploy or rollback: a body without snapshot_id runs the old single transaction (maintenance and snapshot under the
-    authorization) and evaluates; nothing is counted as skipped."""
+    authorization) and evaluates. E1: it is recorded as legacy_single_transaction (a success, not a skip), counted in the snapshot as
+    alert_evaluation.legacy_1h and fires the v39 warning alert_evaluation_legacy; the path is removed in the next release."""
     s = split
     admin = s['admin']
     seed_state(admin, s['w']['f'])
     result = evaluate_snapshot(s, None, legacy=True)
     assert result['evaluated'] is True and result['fired'] > 0, result
-    assert admin.execute('select outcome from runtime.nexloop_alert_evaluation_runs where tenant_id=%s', (TENANT,)).fetchall() == [('evaluated',)]
+    assert admin.execute('select outcome from runtime.nexloop_alert_evaluation_runs where tenant_id=%s', (TENANT,)).fetchall() == [('legacy_single_transaction',)]
     assert admin.execute('select count(*) from runtime.nexloop_alert_snapshots where tenant_id=%s and consumed_at is not null', (TENANT,)).fetchone()[0] == 1
+    block = admin.execute("select runtime.nexloop_metrics_snapshot(%s,'real')->'alert_evaluation'", (TENANT,)).fetchone()[0]
+    assert block == {'maintenance_failed_1h': 0, 'skipped_1h': 0, 'legacy_1h': 1, 'minutes_since_success': 0}, block
+    s['fresh']().run_once()  # the current evaluator: its snapshot counts the legacy run
+    assert firing(admin, 'alert_evaluation_legacy') == [(True, 1)]
+    assert firing(admin, 'alert_evaluation_skipped') == [(False, 0)] and firing(admin, 'alert_evaluation_stalled') == [(False, 0)]
+    rule = next(r for r in load_rules(V39)['rules'] if r['rule_id'] == 'alert_evaluation_legacy')
+    assert (rule['metric'], rule['condition'], rule['threshold'], rule['severity']) == ('alert_evaluation.legacy_1h', 'gt', 0, 'warning')
+    sheet = (Path(__file__).resolve().parents[1] / 'docs/release/run-alert-evaluate-split.md').read_text()
+    assert '下一个发布版本删除兼容路径' in sheet
+
+
+def test_rules_v39_are_v38_plus_the_four_evaluation_rules():
+    v38, v39 = json.loads((V39.parent / 'alert-rules.v38.json').read_text()), load_rules(V39)
+    O.validate_rules(v39)
+    assert v39['version'] == 39 and v39['rules'][:len(v38['rules'])] == v38['rules'] and v39['decision'].startswith(v38['decision'])
+    assert [r['rule_id'] for r in v39['rules'][len(v38['rules']):]] == ['alert_maintenance_failed', 'alert_evaluation_skipped', 'alert_evaluation_stalled',
+                                                                      'alert_evaluation_legacy']
