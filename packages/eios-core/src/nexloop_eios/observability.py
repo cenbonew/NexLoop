@@ -85,11 +85,6 @@ class AlertEvaluator:
     def run_once(self):
         from nexloop_eios.assembly import verify_application_role
         from nexloop_eios.context_engine.authority import action_claims
-        body = canonical_payload({'evaluate': True})
-        claims = {**action_claims(self.pool, self.session, EVALUATE_ACTION), 'protocol': EVALUATE_PROTOCOL, 'key_id': self.signer.key_id,
-                  'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
-        text = canonical_payload(claims)
-        signature = hmac.new(self.signer.material, (EVALUATE_PROTOCOL + ':' + text).encode(), 'sha256').hexdigest()
         # The skew between this host's clock and the database clock is sampled first, so this evaluation already sees it (rule clock_skew).
         record_clock_sample(self.pool, 'alert-evaluator')
         # NX-043 X5: guardrails stop running experiments first, so this evaluation already sees an automatic stop (experiment_auto_stopped).
@@ -98,10 +93,28 @@ class AlertEvaluator:
             guard = self.guard_experiments()
         except Exception:  # noqa: BLE001 - any failure of the guard pass; the evaluation below goes on
             guard = {'checked': 0, 'stopped': 0, 'failed': 1, 'guard_error': True}
+        # NX-068 defect (alert-evaluate-split): T1 maintenance and T2 snapshot run without a credential and hold no tenant row lock;
+        # only T3 below (authorized: the tenant row's FOR SHARE) applies the rules to that snapshot, so a Schema publication is not
+        # held behind the maintenance or the snapshot. A failed maintenance is counted in the snapshot (rule alert_maintenance_failed).
+        try:
+            with self.pool.connection() as db, db.transaction():
+                verify_application_role(db)
+                maintenance = db.execute('select authz.nexloop_alert_maintain_unbound()').fetchone()[0] or {}
+            maintenance_failed = False
+        except Exception:  # noqa: BLE001 - any failure of the maintenance; the evaluation below goes on and counts it
+            maintenance, maintenance_failed = {}, True
+        with self.pool.connection() as db, db.transaction():
+            verify_application_role(db)
+            snapshot_id = str(db.execute('select authz.nexloop_alert_snapshot_take(%s,%s)', (self.session.authentication.tenant_id, maintenance_failed)).fetchone()[0])
+        body = canonical_payload({'evaluate': True, 'snapshot_id': snapshot_id})
+        claims = {**action_claims(self.pool, self.session, EVALUATE_ACTION), 'protocol': EVALUATE_PROTOCOL, 'key_id': self.signer.key_id,
+                  'parameters_digest': hashlib.sha256(body.encode()).hexdigest()}
+        text = canonical_payload(claims)
+        signature = hmac.new(self.signer.material, (EVALUATE_PROTOCOL + ':' + text).encode(), 'sha256').hexdigest()
         with self.pool.connection() as db, db.transaction():
             verify_application_role(db)
             result = db.execute('select authz.nexloop_alert_evaluate(%s,%s,%s,%s,%s)', (self.session.token_digest, self.session.world, text, signature, body)).fetchone()[0]
-        result = {**result, 'experiments_checked': guard.get('checked', 0), 'experiments_stopped': guard.get('stopped', 0),
+        result = {**result, 'maintenance': maintenance, 'maintenance_failed': maintenance_failed, 'experiments_checked': guard.get('checked', 0), 'experiments_stopped': guard.get('stopped', 0),
                   'experiments_guard_failed': guard.get('failed', 0),
                   'experiments_guard_sqlstates': ','.join(guard.get('failed_sqlstates') or ([] if not guard.get('guard_error') else ['guard_call']))}
         record_pool_sample(self.pool, 'alert-evaluator')

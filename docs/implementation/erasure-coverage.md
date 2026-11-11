@@ -216,3 +216,7 @@
 | `control.nexloop_workbench_member_login_clearances` | 新表 | 清除记录（subject、时间、条数），只追加，判定幂等；恢复丢失后由下一轮重做 |
 | `control.nexloop_workbench_grant_instances`、`control.nexloop_workbench_role_history` | 保留（E5） | 只含 principal 与摘要；撤销时已写撤销实例与 stop，擦除不做空写入 |
 | 其余带员工身份列的表 | 保留 | 动作者的 principal（审计可追溯）、客户或服务的 principal，理由见覆盖测试 `STAFF_KEPT` |
+
+## 告警评估快照（NX-068 缺陷 A+B，迁移 alert_evaluate_split）
+
+`runtime.nexloop_alert_snapshots` 和 `runtime.nexloop_alert_evaluation_runs` 不含个人数据：只有计数、代码和时间，快照入表前去掉了 tenant_id 标签。两张表保留 1 天，由告警评估自己清理，不在擦除范围内。依据是 `tests/test_alert_evaluate_split_pg.py::test_d3_the_snapshot_holds_counts_codes_and_times_only`，它逐项检查字段，并锁定列清单。

@@ -2255,6 +2255,11 @@
       "version": "0451",
       "name": "0451_effect_action_admissions.sql",
       "sha256": "65ade1f22a4e9a06ebe52d53457142e5365466a7050abb1a4e1651e0d56034e7"
+    },
+    {
+      "version": "0452",
+      "name": "0452_alert_evaluate_split.sql",
+      "sha256": "dcb7687d6875894bad3a411b425710c1cfd27318833a1955468b5f2eeafb77e0"
     }
   ]
 }
