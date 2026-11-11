@@ -49,6 +49,7 @@
 | P0.6 | 部署冻结：§4 预热到 §6 r2 之间不部署（调度员已确认；批次 167 只改测试和文档，不部署） | 调度员记录冻结开始和结束的 `date` |
 | P0.7 | 不复用测试提案 04239b2a（L6 V1）：P5 只发布 §1 自己冻结的夹具提案 | §1 每步的 proposal_id 都是本次新冻结的，类型都是 `S6SyntheticFixture` |
 | P0.8 | 没有遗留的夹具提案：`ro "select count(*) from ontology.nexloop_schema_proposals where tenant_id='$TENANT_ID' and type_name='S6SyntheticFixture'"` | 0 |
+| P0.8a | 对照（L6 P2，防止 `$TENANT_ID` 为空或写错导致 count=0 被误判成“没有遗留”）：`ro "select count(*) from ontology.nexloop_schema_proposals where tenant_id='$TENANT_ID' and type_name='Consumer'"`；证据里记 `printf %s "$TENANT_ID" \| wc -c`（只记长度，不记值） | ≥ 2（11-11 读到 2 个 frozen）；小于 2 就说明租户变量不对，P0.4、P0.8 和 V2 的结果都不能采信，停下 |
 
 **G1（已补，L6 判词 G1）**：`s6_stage_schema.py fixture-type` 和 r8 走同一条 G9–G13 链路：提案、gates、release permit，加上 `--publish` 时由负责人在 F3 发布。
 - 只接受 `inputs.fixture.type_name`，而且必须匹配 `^S6Synthetic[A-Za-z]*$`；dry-run 也先校验，不符合就直接拒绝，什么都不写。
@@ -78,7 +79,9 @@ ro "select count(*) from control.nexloop_action_definitions where tenant_id='$TE
 ```
 ro "select p.parent_schema_version, (select coalesce(max(version),0) from ontology.object_type_versions v where v.tenant_id=p.tenant_id and v.type_name=p.type_name) from ontology.nexloop_schema_proposals p where p.tenant_id='$TENANT_ID' and p.proposal_id='<本步 proposal_id>'"
 ```
-两列必须相等：1.1 是 0 和 0，1.2–1.7 依次是 1…6。不相等就停，不要发布。dry-run 不写提案时，就在正式运行打印的 proposal_id 上核对，并以发布结果 `published=true`、`version_after` 符合预期作为父版本未移动的证据。注意：Consumer 的 04239b2a 的父版本是 v1，当前已是 v2，属于 stale，不得发布（V1、V2），与本单无关，只是不要误用。
+两列必须相等：1.1 是 0 和 0，1.2–1.7 依次是 1…6。不相等就停，不要发布。
+
+**发布后（L6 P1，每一步都做，调度员）**：对本步的 proposal_id 再跑一次上面的查询，记录 `parent_schema_version`。它必须等于发布前的最新版本 n；第二列此时应为 n+1。证据写 proposal_id、parent_schema_version=n、发布后 max(version)=n+1，不能只写“已发布”。如果 dry-run 不写提案、发布前查不到，证据就写三项：`published=true`、`version_after=n+1`、发布后 `max(version)=n+1`，再加上发布后查到的 parent_schema_version=n。V2 查询同样依赖 `$TENANT_ID`，先过 P0.8a。注意：Consumer 的 04239b2a 的父版本是 v1，当前已是 v2，属于 stale，不得发布（V1、V2），与本单无关，只是不要误用。
 
 **R4（每次 r8 之前，调度员）**：先用 run-nx038 §0 P3 的查询确认 evolution 预算在期内并且还有余量，不足就不开始这一次。7 次发布中**任何一次失败都停下，不要从中间续跑**：把已发布的版本号和失败那一步的结果文件报给 L6，由 L6 决定怎么接续。半成品的夹具（少几个属性）只要没有 definition_read_rule 就不会被运行时读到，不必回滚。
 
@@ -163,7 +166,8 @@ REMAINING=8 DURATION=3600 REASON='NX-038 P5 synthetic fixture' local-only/opday/
 
 ## 9. 证据（执行者和判定者分开写，不含口令、DSN、用户名和主机名）
 
-- 7 次发布的 publication_id 和 version_after；
+- 7 次发布的 publication_id、proposal_id、发布前后的 V2 结果（parent_schema_version=n，发布后 max(version)=n+1）和 version_after（L6 P1）；
+- `$TENANT_ID` 的长度（不记值）和 P0.8a 的 Consumer 提案数（L6 P2）；
 - q5-before、q5-after 两份快照，以及 register dry-run 的差异；
 - A2 的三条结果；
 - 策略版本和 top_k；
