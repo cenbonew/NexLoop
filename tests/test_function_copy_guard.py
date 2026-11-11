@@ -21,6 +21,7 @@ from support.plan_question_v7_edits import EDITS as PQ_EDITS
 from support.claim_auto_write_edits import EDITS as AW_EDITS
 from support.schema_structured_property_edits import EDITS as SSP_EDITS
 from support.s_dup_edits import FEED as SDUP_FEED, RECORDER as SDUP_RECORDER
+from support.nx068_edits import EDITS as NX068_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -52,6 +53,10 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-068 N1: the A' proof asks the single judgement authz.nexloop_effect_successor_admissible for each candidate (0446's tests).
+    *[Allowed('nx068_publish_gate_smoke', name, "NX-068 N1: the proof's A' conditions move into authz.nexloop_effect_successor_admissible; same result; nothing else",
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in NX068_EDITS.items()],
     # NX-067: the SSO refusal audit accepts the group-mapping and back-channel reasons.
     Allowed('nx067_oidc_gaps', 'control.nexloop_workbench_oidc_failed', 'the reason list gains groups_invalid, no_mapped_role and logout_token_invalid; nothing else',
             ((r",'groups_invalid','no_mapped_role','logout_token_invalid'\)", ')'),)),
