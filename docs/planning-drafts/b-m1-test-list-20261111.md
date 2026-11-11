@@ -93,3 +93,9 @@
 5. **退役不追加新行，只在原行置 `retired_at`**：只能置一次，其他列不可改，不可删除或 truncate。部分唯一索引只约束未退役行，所以退役后可以重新准入，留下新行。
 6. **准入函数签名多两个参数**：`(tenant, publication_id, stable_name, version, actor, dry_run)`。actor 必须是 `human:…`，作为修订里的“谁”；dry_run 供 M3 的 `effect_action_admit.py --dry-run` 使用。修订就是准入行本身：admitted_by、publication_id、consumer_version、predecessor_resource、judgement（判定函数的结果）。
 7. **两条拒绝码是准入函数自己的**：发布不是 Consumer 的 publish（`publication_not_consumer`），以及该发布的 `successor_actions` 不含 `:N`（`successor_not_in_publication`）。这是“用哪次发布”的选择条件（与 0446 proof 的 where 相同），不是第二份等价判定，等价判定只在 `effect_successor_admissible` 中。
+8. **L6 C1：操作者标签**：admitted_by、retired_by 只接受 `human:owner`、`human:operator` 两个角色标签。函数参数校验、列 check 和列注释三处一致，`test_only_role_labels_are_recorded_never_a_member_identifier` 用测试固定。表只能追加，成员删除清不掉，所以从源头不让成员标识写进来。
+9. **L6 C2**：前任版本 scope 不含 Consumer 时判拒绝（`executed_scope_not_single`），不写任何东西。由 `test_a_predecessor_scope_without_consumer_is_refused` 固定。
+
+## 6. M2 前置条件（L6 2026-11-11 记录，M1 不改）
+- **M2-a**：bind 显式写 `action_resource` 时，SQL 必须断言它等于 `nexloop_effect_action_version` 的选择结果，并配一个删掉该断言的变异测试。
+- **M2-b**：退役一个仍被未过期 context 引用的版本时，要么拒绝退役，要么让 context 重新选版本。在 M2 设计里二选一，写明理由，并用测试固定。

@@ -18,7 +18,7 @@ from test_effect_scope_successor_proof_pg import (EFFECT, appended, changed_firs
                                                   reply)
 
 SLOT = 'service.request:primary'
-ACTOR = 'human:synthetic-configurator'
+ACTOR = 'human:owner'
 
 
 def admit(admin, tenant, publication, version=2, *, name=EFFECT, actor=ACTOR, dry_run=False):
@@ -155,7 +155,7 @@ def test_admissions_are_append_only_and_a_retired_one_is_not_selected(context_me
     with admin.transaction():
         admin.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
         for statement in ("update control.nexloop_effect_action_admissions set consumer_version=3",
-                          "update control.nexloop_effect_action_admissions set admitted_by='human:other'",
+                          "update control.nexloop_effect_action_admissions set admitted_by='human:operator'",
                           'delete from control.nexloop_effect_action_admissions'):
             with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
                 with admin.transaction():
@@ -241,3 +241,36 @@ def test_a_successor_the_publication_does_not_name_is_refused(context_message, a
                       (f'eios:action:{EFFECT}:2', published['publication']))
     outcome = admit(admin, tenant, published['publication'])
     assert (outcome['admitted'], outcome['code']) == (False, 'successor_not_in_publication') and admissions(admin) == []
+
+
+@pytest.mark.parametrize('actor', ['human:dryrun-owner', 'human:' + 'a' * 64, 'human:wb-member-7', 'human:owner ', 'service:owner'])
+def test_only_role_labels_are_recorded_never_a_member_identifier(admin, actor):
+    """L6 C1: the rows are append-only, so a member principal, username or digest written here could not be cleared by the staff
+    erasure; the function and the column checks accept the role labels human:owner and human:operator only."""
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    tenant = str(uuid.uuid4())
+    with pytest.raises(psycopg.errors.InvalidParameterValue):
+        admit(admin, tenant, str(uuid.uuid4()), actor=actor)
+    for column in ('admitted_by', 'retired_by'):
+        check = admin.execute("""select pg_get_constraintdef(c.oid) from pg_constraint c where c.conrelid='control.nexloop_effect_action_admissions'::regclass
+            and c.contype='c' and pg_get_constraintdef(c.oid) like %s""", (f'%({column} ~%',)).fetchone()[0]
+        assert '^human:(owner|operator)$' in check, check
+        comment = admin.execute("select col_description('control.nexloop_effect_action_admissions'::regclass,a.attnum) from pg_attribute a "
+                                "where a.attrelid='control.nexloop_effect_action_admissions'::regclass and a.attname=%s", (column,)).fetchone()[0]
+        assert 'never a workbench member identifier' in comment
+
+
+def test_a_predecessor_scope_without_consumer_is_refused(context_message, admin):  # noqa: F811
+    """L6 C2: when the predecessor's change_scope names no Consumer its baseline type is null; the judgement refuses, nothing is written."""
+    f = context_message
+    tenant = f['original']['tenant']
+    published = publish_v2(f, admin)
+    with admin.transaction():
+        admin.execute('set local session_replication_role=replica')
+        admin.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
+        admin.execute("""update control.nexloop_action_definitions set definition=jsonb_set(definition,'{governance,change_scope,object_types}',
+            coalesce((select jsonb_agg(r) from jsonb_array_elements(definition->'governance'->'change_scope'->'object_types') r where r->>'stable_name'<>'Consumer'),'[]'::jsonb))
+            where tenant_id=%s and world='real' and resource_id=%s""", (tenant, f'eios:action:{EFFECT}:1'))
+    outcome = admit(admin, tenant, published['publication'])
+    assert (outcome['admitted'], outcome['code']) == (False, 'executed_scope_not_single') and admissions(admin) == []

@@ -23,13 +23,17 @@ create table control.nexloop_effect_action_admissions (
  resource_id text generated always as ('eios:action:'||stable_name||':'||version) stored,
  predecessor_resource text not null check(predecessor_resource ~ '^eios:action:[a-z0-9_.]+:[1-9][0-9]*$'),
  publication_id uuid not null,
- admitted_by text not null check(admitted_by ~ '^human:[^[:space:]]{1,200}$'),
+ admitted_by text not null check(admitted_by ~ '^human:(owner|operator)$'),
  judgement jsonb not null check(jsonb_typeof(judgement)='object' and judgement->>'admissible'='true'),
  admitted_at timestamptz not null default clock_timestamp(),
- retired_at timestamptz,retired_by text check(retired_by ~ '^human:[^[:space:]]{1,200}$'),
+ retired_at timestamptz,retired_by text check(retired_by ~ '^human:(owner|operator)$'),
  retired_reason text check(char_length(retired_reason) between 1 and 500),
  check((retired_at is null)=(retired_by is null) and (retired_at is null)=(retired_reason is null))
 );
+-- admitted_by / retired_by are role labels (human:owner, human:operator), never a member principal, subject, username or digest: the
+-- rows are append-only and the staff erasure (NX-058) could not clear them, so the check keeps member identifiers out.
+comment on column control.nexloop_effect_action_admissions.admitted_by is 'role label only (human:owner|human:operator), never a workbench member identifier; not reached by the staff erasure';
+comment on column control.nexloop_effect_action_admissions.retired_by is 'role label only (human:owner|human:operator), never a workbench member identifier; not reached by the staff erasure';
 -- Each Consumer version admits one effect Action version, and each version is admitted once (while active).
 create unique index effect_action_admissions_consumer_version on control.nexloop_effect_action_admissions(tenant_id,world,stable_name,consumer_version) where retired_at is null;
 create unique index effect_action_admissions_version on control.nexloop_effect_action_admissions(tenant_id,world,stable_name,version) where retired_at is null;
@@ -113,7 +117,7 @@ declare ea control.nexloop_effect_actions;p ontology.nexloop_schema_publications
  d control.nexloop_action_definitions;tb jsonb;tv jsonb;r jsonb;cur control.nexloop_effect_action_admissions;res text;
 begin
  if session_user is distinct from 'nexloop_configurator' then raise exception 'trusted configuration only' using errcode='42501';end if;
- if coalesce(p_actor,'') !~ '^human:[^[:space:]]{1,200}$' or p_tenant is null or p_publication is null or p_version is null then
+ if coalesce(p_actor,'') !~ '^human:(owner|operator)$' or p_tenant is null or p_publication is null or p_version is null then
   raise exception 'invalid effect Action admission' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  select * into ea from control.nexloop_effect_actions where stable_name=p_stable_name;
@@ -165,7 +169,7 @@ create function control.nexloop_retire_effect_action_admission(p_tenant text,p_s
 declare cur control.nexloop_effect_action_admissions;
 begin
  if session_user is distinct from 'nexloop_configurator' then raise exception 'trusted configuration only' using errcode='42501';end if;
- if coalesce(p_actor,'') !~ '^human:[^[:space:]]{1,200}$' or char_length(coalesce(p_reason,'')) not between 1 and 500 then
+ if coalesce(p_actor,'') !~ '^human:(owner|operator)$' or char_length(coalesce(p_reason,'')) not between 1 and 500 then
   raise exception 'invalid effect Action retirement' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
  update control.nexloop_effect_action_admissions set retired_at=clock_timestamp(),retired_by=p_actor,retired_reason=p_reason
