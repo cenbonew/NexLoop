@@ -5,6 +5,8 @@ only :1 admitted nothing changes (test_effect_action_admissions_pg.test_a_prime_
 Synthetic data, actual PostgreSQL."""
 import json
 
+import psycopg
+
 import pytest
 
 from local_message_assembly_fixture import assembled_message, business_plan, configured  # noqa: F401
@@ -163,3 +165,51 @@ def test_a_bind_proving_another_version_than_the_selection_is_refused_by_the_rec
     assert admin.execute('select count(*) from control.nexloop_effect_contexts').fetchone() == (0,)
     f['bind']()
     assert admin.execute('select action_resource from control.nexloop_effect_contexts').fetchall() == [(f'eios:action:{EFFECT}:2',)]
+
+
+def test_a_retirement_waits_for_a_bind_reading_the_admission(context_message, admin, pg):  # noqa: F811
+    """L6 F2: the selection reads the active admissions for share until its transaction ends; a retirement locks the admission
+    for update before its context check, so it waits for the bind and then sees the bind's context (refused, nothing retired)."""
+    import threading
+    import time
+    f = context_message
+    tenant = f['original']['tenant']
+    bump_consumer_v2(admin, tenant)
+    select = 'select authz.nexloop_effect_bind_action_resource(%s,%s,%s,%s)'
+    outcome = {}
+    with psycopg.connect(pg) as binder:
+        with binder.transaction():
+            assert binder.execute(select, (tenant, 'real', 'service.request:primary', 2)).fetchone()[0] == f'eios:action:{EFFECT}:2'
+            # The bind's context naming :2 (as the registrar writes it), committed only after the retirement started waiting.
+            binder.execute("""insert into control.nexloop_effect_contexts(context_id,tenant_id,world,consumer_id,goal_identity,goal_version_ref,plan_step_identity,
+                slot_identity,consumer_revision,control_revision,allow_effect,valid_until,budget_units,reserved_units,expected_versions,executor_principal,action_resource)
+                values(gen_random_uuid(),%s,'real','synthetic-consumer','g','goal:g@1','p','service.request:primary',1,1,true,clock_timestamp()+interval '5 minutes',
+                1,0,'[1]','synthetic-executor',%s)""", (tenant, f'eios:action:{EFFECT}:2'))
+
+            def retire():
+                with psycopg.connect(pg, autocommit=True) as configurator:
+                    configurator.execute('set session authorization nexloop_configurator')
+                    outcome['result'] = configurator.execute("select control.nexloop_retire_effect_action_admission(%s,%s,2,'human:owner','合成退役')",
+                                                             (tenant, EFFECT)).fetchone()[0]
+            worker = threading.Thread(target=retire)
+            worker.start()
+            deadline = time.monotonic() + 10
+            while not admin.execute("""select count(*) from pg_stat_activity where wait_event_type='Lock'
+                    and query like '%%nexloop_retire_effect_action_admission%%'""").fetchone()[0]:
+                assert time.monotonic() < deadline and worker.is_alive(), 'the retirement did not wait for the bind'
+                time.sleep(0.05)
+            assert 'result' not in outcome
+        worker.join(10)
+    assert outcome['result'] == {'retired': False, 'admission_id': None, 'code': 'referenced_by_unexpired_context'}
+    assert admin.execute(select, (tenant, 'real', 'service.request:primary', 2)).fetchone()[0] == f'eios:action:{EFFECT}:2'
+
+
+def test_the_admission_table_states_why_no_erasure_reaches_it(admin):
+    """L6 note: the erasure basis is recorded on the table - role labels only (the column checks enforce it), never a member identity."""
+    from nexloop_eios.bootstrap import bootstrap
+    bootstrap(admin)
+    comment = admin.execute("select obj_description('control.nexloop_effect_action_admissions'::regclass,'pg_class')").fetchone()[0]
+    assert 'role labels only' in comment and 'never a member identity' in comment
+    checks = [r[0] for r in admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='control.nexloop_effect_action_admissions'::regclass
+        and contype='c' and pg_get_constraintdef(oid) ~ '(admitted|retired)_by ~'""").fetchall()]
+    assert len(checks) == 2 and all('human:(owner|operator)' in c for c in checks), checks

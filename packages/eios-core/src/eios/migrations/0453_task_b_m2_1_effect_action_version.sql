@@ -31,11 +31,16 @@ revoke all on function authz.nexloop_effect_resource_slot(text) from public;
 
 -- 2. -------------------------------------------------------------------------------------------------------------------------
 create function authz.nexloop_effect_bind_action_resource(p_tenant text,p_world text,p_slot text,p_consumer_version integer) returns text
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql volatile security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare v_name text;v integer;v_base text;
 begin
  select ea.stable_name into v_name from control.nexloop_effect_actions ea where ea.slot_identity=p_slot;
  if v_name is null then return null;end if;
+ -- L6 F2: the active admissions of this effect Action are read under a share lock until the caller's transaction ends (bind,
+ -- issuance), so a retirement (for update) waits for it, and a bind after a retirement sees the retirement.
+ perform set_config('eios.tenant_id',p_tenant,true);
+ perform 1 from control.nexloop_effect_action_admissions a where a.tenant_id=p_tenant and a.world=p_world and a.stable_name=v_name
+  and a.retired_at is null for share;
  begin
   v:=authz.nexloop_effect_action_version(p_tenant,p_world,p_slot,p_consumer_version);
  exception when insufficient_privilege then
@@ -65,7 +70,7 @@ alter function authz.nexloop_effect_bind_action_resource(text,text,text,integer)
 revoke all on function authz.nexloop_effect_bind_action_resource(text,text,text,integer) from public;
 
 create function authz.nexloop_effect_action_resource_for(p_digest text,p_world text,p_verb text,p_payload jsonb,p_action text) returns text
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql volatile security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare ident jsonb:=authz.nexloop_service_identity_snapshot(p_digest,p_world);v_tenant text:=ident->'binding'->>'tenant_id';v_consumer text;v integer;
 begin
  if session_user not in ('nexloop_api','nexloop_domain_worker') or p_verb not in ('configure','bind') or jsonb_typeof(p_payload) is distinct from 'object' then
@@ -1029,7 +1034,7 @@ begin
 end $$;
 
 create function authz.nexloop_effect_consumer_action_resources(p_digest text,p_world text,p_consumer text) returns jsonb
- language plpgsql stable security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
+ language plpgsql volatile security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
 declare ident jsonb:=authz.nexloop_service_identity_snapshot(p_digest,p_world);v_tenant text:=ident->'binding'->>'tenant_id';v integer;
 begin
  if session_user not in ('nexloop_api','nexloop_domain_worker') then raise exception 'effect registration unavailable' using errcode='42501';end if;
@@ -1042,6 +1047,8 @@ alter function authz.nexloop_effect_consumer_action_resources(text,text,text) ow
 revoke all on function authz.nexloop_effect_consumer_action_resources(text,text,text) from public;
 grant execute on function authz.nexloop_effect_consumer_action_resources(text,text,text) to nexloop_api,nexloop_domain_worker;
 
+comment on table control.nexloop_effect_action_admissions is 'option B effect Action admissions; erasure: admitted_by and retired_by hold role labels only (checks: human:owner or human:operator, admitted_by also publication from M2.3), never a member identity, so neither the staff nor the Consumer erasure needs to reach this table';
+
 -- 6. -------------------------------------------------------------------------------------------------------------------------
 create or replace function control.nexloop_retire_effect_action_admission(p_tenant text,p_stable_name text,p_version integer,p_actor text,p_reason text)
  returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp set row_security=on as $$
@@ -1051,6 +1058,8 @@ begin
  if coalesce(p_actor,'') !~ '^human:(owner|operator)$' or char_length(coalesce(p_reason,'')) not between 1 and 500 then
   raise exception 'invalid effect Action retirement' using errcode='22023';end if;
  perform set_config('eios.tenant_id',p_tenant,true);
+ perform 1 from control.nexloop_effect_action_admissions where tenant_id=p_tenant and world='real' and stable_name=p_stable_name
+  and version=p_version and retired_at is null for update;
  if exists(select 1 from control.nexloop_effect_contexts x where x.tenant_id=p_tenant and x.world='real'
    and x.action_resource='eios:action:'||p_stable_name||':'||p_version and x.valid_until>clock_timestamp()) then
   return jsonb_build_object('retired',false,'admission_id',null,'code','referenced_by_unexpired_context');end if;

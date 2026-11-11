@@ -53,6 +53,9 @@ RETIRE = [
     # M2-b: a version an unexpired context still names is not retired (contexts are immutable; they expire within minutes).
     (" perform set_config('eios.tenant_id',p_tenant,true);\n update control.nexloop_effect_action_admissions",
      " perform set_config('eios.tenant_id',p_tenant,true);\n"
+     # L6 F2: the admission row is locked first; a bind holding it (for share) finishes before the context check below.
+     " perform 1 from control.nexloop_effect_action_admissions where tenant_id=p_tenant and world='real' and stable_name=p_stable_name\n"
+     "  and version=p_version and retired_at is null for update;\n"
      " if exists(select 1 from control.nexloop_effect_contexts x where x.tenant_id=p_tenant and x.world='real'\n"
      "   and x.action_resource='eios:action:'||p_stable_name||':'||p_version and x.valid_until>clock_timestamp()) then\n"
      "  return jsonb_build_object('retired',false,'admission_id',null,'code','referenced_by_unexpired_context');end if;\n"
