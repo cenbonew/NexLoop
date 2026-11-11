@@ -3,7 +3,7 @@
 S6-R10 breaking changes closed, S6-R6 semantic release rollback and watch. The NX-038/039 parts are L3's (same configuration and
 result formats: scripts/acceptance/s6_common.py).
 
-    s6_stage_schema.py <at024|r8|r10|r6> --config PRIVATE.json [--dry-run] [--publish]      (owner password from stdin)
+    s6_stage_schema.py <at024|r8|r10|r6|fixture-type> --config PRIVATE.json [--dry-run] [--publish]      (owner password from stdin)
 
 Everything runs through the governed entries a deployment has, never SQL on tables: the evolution writer (nexloop_evo_writer with the
 writer's service credential: candidate proposal, Schema proposal freeze, bundle freeze), the evaluator (nexloop_evo_evaluator with
@@ -48,6 +48,7 @@ import copy
 import hashlib
 import datetime
 import json
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -58,7 +59,12 @@ from s6_common import (Blocked, Redactor, Refused, Result, connect_from, connect
                        refusal, token_digest)
 
 ESCALATION = 'eios:action:Grant.issue:1'
-CHECKS = {'at024': ['AT-024', 'S6-R9'], 'r8': ['S6-R8'], 'r10': ['S6-R10'], 'r6': ['S6-R6']}
+CHECKS = {'at024': ['AT-024', 'S6-R9'], 'r8': ['S6-R8'], 'r10': ['S6-R10'], 'r6': ['S6-R6'], 'fixture-type': ['NX-038-P5']}
+# NX-038 P5 route A (owner 2026-11-11, L6 G1): the synthetic fixture type only, created through the r8 chain.
+FIXTURE_TYPE = re.compile(r'^S6Synthetic[A-Za-z]*$')
+# 0416 runtime.nexloop_schema_change_valid admits add_object_type only with 1-64 properties of {property_name, value_type}: the type carries
+# one marker property without a display name (an ASCII name is a term only as a whole word); the fixture properties follow through r8.
+FIXTURE_CHANGE = {'properties': [{'property_name': 'fixture_marker', 'value_type': 'string'}]}
 
 
 class Ports:
@@ -146,19 +152,33 @@ def template_guard(check, inputs):
         return None
     if type(value) is not dict or value.get('mode') != SCHEMA_ONLY:
         return None
-    if check != 'r8':
-        raise Refused('candidate_template mode schema_only is for owner-directed Schema proposals (r8) only')
+    if check not in ('r8', 'fixture-type'):
+        raise Refused('candidate_template mode schema_only is for owner-directed Schema proposals (r8) only (and fixture-type)')
     prop = value.get('property') or {}
     # The exemption is the configuration's list, not the template's word: a template naming a property (or a decision) the list does
     # not hold is refused, however the inputs are written.
     listed = [x for x in owner_directed_properties(inputs) if (x['type_name'], x['property_name']) == (prop.get('type_name'), prop.get('property_name'))]
     if not listed or listed[0]['decision'] != value.get('decision'):
         raise Refused('the schema_only template names a property or decision not in inputs.owner_directed_properties')
+    if check == 'fixture-type':
+        # The type entry belongs to the same owner decision as the fixture's properties: a listed property of the fixture type.
+        if prop.get('type_name') != fixture_type_name(inputs):
+            raise Refused('the schema_only template is for another type than inputs.fixture.type_name')
+        return {'mode': SCHEMA_ONLY, 'property': f"{prop.get('type_name')}.{prop.get('property_name')}", 'decision': value.get('decision')}
     change = inputs.get('property_change') or {}
     if (inputs.get('schema_type') != prop.get('type_name') or inputs.get('new_property') != prop.get('property_name')
             or change.get('property_name', prop.get('property_name')) != prop.get('property_name')):
         raise Refused('the schema_only template is for another property: schema_type, new_property and property_change must name its property')
     return {'mode': SCHEMA_ONLY, 'property': f"{prop.get('type_name')}.{prop.get('property_name')}", 'decision': value.get('decision')}
+
+
+def fixture_type_name(inputs):
+    name = (inputs.get('fixture') or {}).get('type_name')
+    if type(name) is not str or not FIXTURE_TYPE.fullmatch(name):
+        raise Refused('inputs.fixture.type_name: a name matching ^S6Synthetic[A-Za-z]*$')
+    if (inputs.get('fixture') or {}).get('change', FIXTURE_CHANGE) != FIXTURE_CHANGE:
+        raise Refused('inputs.fixture.change: the fixture type is created with its marker property only')
+    return name
 
 
 def candidate_body(inputs, scope, change_kind, targets):
@@ -306,6 +326,11 @@ def gates_inputs(basis, reserved, cost='0'):
                for row, succ in zip(basis['actions'], publication['actions'])}
     cases, open_actions = tool_cases(schemas)
     name = basis['type_name']
+    inputs = {'tool_cases': cases, 'action_schemas': schemas, 'context_volume': {'parent': 1000, 'candidate': 1000}, 'reflow_reserved': reserved, 'reflow_cost': cost}
+    if basis.get('operation') == 'add_object_type':  # P5 fixture: a new type, no Parent version, no Action
+        change = {'op': 'add_object_type', 'type_name': name, 'definition': publication['schema'], 'successor_actions': []}
+        parent = {'types': {}, 'object_counts': {name: 0}, 'actions': _f1_actions(basis['actions']), 'restricted_names': basis.get('restricted_names') or []}
+        return change, parent, inputs, open_actions
     prop = publication['schema']['properties'][-1]
     descriptor = (basis.get('change') or {}).get('type_descriptor')  # F1 judges the proposal's own (minimal) descriptor
     change = {'op': 'add_optional_property', 'type_name': name, 'property': {**{k: prop[k] for k in ('property_name', 'value_type', 'required', 'nullable')},
@@ -317,15 +342,9 @@ def gates_inputs(basis, reserved, cost='0'):
     return change, parent, inputs, open_actions
 
 
-def check_r8(ports, inputs, r, *, publish=False):
+def _gates_and_permit(ports, inputs, r, cid, pid, before):
+    """G9-G13 on the frozen proposal (bundle, evaluation, F4 report, conclude, release permit), the catalog unchanged: r8 and fixture-type."""
     from nexloop_eios.schema_gates import evaluate_schema
-    t, p = inputs['schema_type'], inputs['new_property']
-    before = ports.verify()
-    cid = property_candidate(ports, inputs)
-    proposed = inputs.get('property_change') or {'property_name': p, 'value_type': 'string'}
-    if proposed.get('property_name') != p:
-        raise Refused('inputs.property_change.property_name must be inputs.new_property')
-    pid = ports.freeze_proposal(freeze_body(cid, 'add_optional_property', t, proposed))['proposal']['proposal_id']
     frozen = ports.freeze_bundle(cid, inputs.get('seed') or hashlib.sha256(('s6-stage:' + cid).encode()).hexdigest()[:32])
     r.step('bundle_freezes_nx040_gates', 'hard_gates_version nx040-gates-1', {'hard_gates_version': frozen['bundle'].get('hard_gates_version')},
            frozen['bundle'].get('hard_gates_version') == 'nx040-gates-1', bundle_digest=frozen['bundle_digest'])
@@ -356,6 +375,17 @@ def check_r8(ports, inputs, r, *, publish=False):
            {'status': concluded.get('status'), 'permit_issued': permit.get('issued')}, concluded.get('status') == 'accepted_for_release' and permit.get('issued') is True)
     after = ports.verify()
     r.step('catalog_and_verify_unchanged', 'the same revision, migration count and verify digest', {'before': before, 'after': after}, before == after)
+
+
+def check_r8(ports, inputs, r, *, publish=False):
+    t, p = inputs['schema_type'], inputs['new_property']
+    before = ports.verify()
+    cid = property_candidate(ports, inputs)
+    proposed = inputs.get('property_change') or {'property_name': p, 'value_type': 'string'}
+    if proposed.get('property_name') != p:
+        raise Refused('inputs.property_change.property_name must be inputs.new_property')
+    pid = ports.freeze_proposal(freeze_body(cid, 'add_optional_property', t, proposed))['proposal']['proposal_id']
+    _gates_and_permit(ports, inputs, r, cid, pid, before)
     if publish:
         status, out = ports.owner_post(f'/api/v1/workbench/schema-proposals/{pid}/publish', {'rationale': 'S6-R8 add_optional_property (synthetic)'},
                                        's6-r8-publish-' + pid.replace('-', '')[:24])
@@ -363,6 +393,29 @@ def check_r8(ports, inputs, r, *, publish=False):
         r.step('owner_publication_changes_no_catalog', 'published, catalog and verify still unchanged',
                {'status': status, 'published': out.get('published') if isinstance(out, dict) else None, 'version_after': out.get('version_after') if isinstance(out, dict) else None,
                 'verify': published}, status == 200 and out.get('published') is True and published == before)
+    return pid
+
+
+def check_fixture_type(ports, inputs, r, *, publish=False):
+    """NX-038 P5 route A (L6 G1): the synthetic fixture type, created with its marker property only, through the same chain as r8 - proposal, G9-G13, release
+    permit and, with --publish, the owner's F3 publication. Only inputs.fixture.type_name (^S6Synthetic[A-Za-z]*$), only FIXTURE_CHANGE."""
+    n = fixture_type_name(inputs)
+    before = ports.verify()
+    body = candidate_body(inputs, [f'eios:object_type:{n}'], 'add_object_type', [f'eios:object_type:{n}'])
+    cid = ports.propose(body)['candidate']['candidate_id']
+    pid = ports.freeze_proposal(freeze_body(cid, 'add_object_type', n, copy.deepcopy(FIXTURE_CHANGE)))['proposal']['proposal_id']
+    _gates_and_permit(ports, inputs, r, cid, pid, before)
+    status, check = ports.owner_get(f'/api/v1/workbench/schema-proposals/{pid}/check')
+    r.step('fixture_type_publishes_no_action', 'the next version carries 0 Actions',
+           {'status': status, 'successor_actions': check.get('successor_actions') if status == 200 else None}, status == 200 and check.get('successor_actions') == 0)
+    if publish:
+        status, out = ports.owner_post(f'/api/v1/workbench/schema-proposals/{pid}/publish', {'rationale': 'NX-038 P5 synthetic fixture type'},
+                                       'p5-fixture-type-' + pid.replace('-', '')[:24])
+        published = ports.verify()
+        r.step('owner_publishes_the_empty_fixture_type', 'published, version 1, no successor Action, catalog and verify unchanged',
+               {'status': status, 'published': out.get('published') if isinstance(out, dict) else None, 'version_after': out.get('version_after') if isinstance(out, dict) else None,
+                'successor_actions': out.get('successor_actions') if isinstance(out, dict) else None, 'verify': published},
+               status == 200 and out.get('published') is True and out.get('version_after') == 1 and out.get('successor_actions') == [] and published == before)
     return pid
 
 
@@ -432,13 +485,17 @@ def plan(check, inputs):
             'r8': ['verify (read only)', writer + ', bundle freeze', evaluator + ': open, reflow_reserve, conclude, permit_issue',
                    owner + ': GET schema-proposals/{id}/basis', 'verify (read only)'],
             'r10': [writer + ' (when no proposal_id)', owner + ': GET schema-proposals/{id}/basis', 'F1 judge (local, pure)'],
+            'fixture-type': ['inputs.fixture.type_name (^S6Synthetic[A-Za-z]*$), change: the marker property fixture_marker only', 'verify (read only)',
+                             writer + ', bundle freeze', evaluator + ': open, reflow_reserve, conclude, permit_issue',
+                             owner + ': GET schema-proposals/{id}/basis, GET .../check', 'verify (read only)'],
             'r6': [owner + ': GET semantic-releases', owner + ': publish_semantic_release, rollback_semantic_release', owner + ': GET semantic-review (watch)']}[check]
 
 
 def run(check, ports, inputs, result, *, publish=False):
     try:
         {'at024': lambda: check_at024(ports, inputs, result), 'r8': lambda: check_r8(ports, inputs, result, publish=publish),
-         'r10': lambda: check_r10(ports, inputs, result), 'r6': lambda: check_r6(ports, inputs, result)}[check]()
+         'r10': lambda: check_r10(ports, inputs, result), 'r6': lambda: check_r6(ports, inputs, result),
+         'fixture-type': lambda: check_fixture_type(ports, inputs, result, publish=publish)}[check]()
     except Blocked as error:
         result.block(check, str(error))
     except Refused:
@@ -476,9 +533,11 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
     config = {}
     try:
         config = load_config(args.config)
-        if args.publish and args.check != 'r8':
-            raise Refused('--publish goes with r8')
+        if args.publish and args.check not in ('r8', 'fixture-type'):
+            raise Refused('--publish goes with r8 or fixture-type')
         inputs = config.get('inputs') or {}
+        if args.check == 'fixture-type':
+            fixture_type_name(inputs)  # refused before anything, dry run included
         result = Result('s6-schema-' + args.check, CHECKS[args.check], config, dry_run=args.dry_run)
         owner_directed = template_guard(args.check, inputs)
         if owner_directed:

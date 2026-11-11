@@ -126,6 +126,27 @@ def build(basis: dict, kind: str, property_name: str | None = None, *, batch: bo
     return publication, report
 
 
+# NX-068 Q8: what the reviewer must do first, by gate code prefix (authz.nexloop_schema_publish_gate; codes before ':' are fixed,
+# what follows names the A' refusal or the holder). Every code the gate can return has an entry (tests/test_nx068_publish_gate_pg.py).
+GATE_REMEDIES = {
+    'effect_successor_unprovable': '效应 Action 只能用 A′ 跨版本证明（ADR-046），A′ 只接受追加可选属性：把这次变更改为追加可选属性，或等方案 B 交付',
+    'registrar_successor_missing': '这次发布没有给效应 context 登记 Action 生成后继：先检查提案的 Parent 版本',
+    'registrar_successor_not_rebinding': '登记 Action 的后继不只是改了类型版本（L6 Q4），register 不会跟随：先查明后继为何不同',
+    'registrar_successor_scope_other_type': '登记 Action 的后继改了其他类型的版本（L6 Q4），register 不会跟随',
+    'registrar_holder_without_follow': '这个服务主体持有登记 Action 却没有 follow 标记：在 stage-principals 为它声明 follow_latest_version（必须在 FOLLOWABLE 内，需负责人决定），register 之后再发布',
+    'create_successor_missing': '这次发布没有给 <类型>.create 生成后继：先检查提案的 Parent 版本',
+    'create_successor_not_rebinding': '<类型>.create 的后继不只是改了类型版本，register 不会跟随',
+    'create_successor_scope_other_type': '<类型>.create 的后继改了其他类型的版本（create_scope_other_type），register 不会跟随',
+    'create_holder_without_follow': '这个服务主体持有 <类型>.create 却没有 follow 标记，发布后它不能新建对象（Q6 不回落）：声明 follow（必须在 FOLLOWABLE 内，需负责人决定）并 register，再发布',
+    'scope_lineage_gap': '没有任何 Action 绑定当前版本，但有 Action 绑定其他版本：先确认这些 Action 是否需要后继',
+    'successor_coexists': '后继与前任并存（0432），无需处理；角色清单若只授予旧版本，发布后应用新角色清单',
+}
+
+
+def gate_remedy(code: str) -> str | None:
+    return GATE_REMEDIES.get(code.split(':', 1)[0])
+
+
 class SchemaPublicationPort(ReviewQueueReader):
     """The reviewer's governed Schema publication (by hand only, D22)."""
 
@@ -138,6 +159,19 @@ class SchemaPublicationPort(ReviewQueueReader):
     def dependents(self, proposal_id: str) -> dict | None:
         """A1: the published Definitions that mention the proposal's type (0322), for nexloop_eios.schema_impact."""
         return self._call('nexloop_read_schema_dependents', {'proposal_id': proposal_id})
+
+    def readiness(self, proposal_id: str) -> dict | None:
+        """NX-068 Q8 precheck (read only): the pre-publication gate on the proposal's next Schema version, each item with its remedy.
+        The publish transaction runs the same gate on the real successors and refuses there (published:false, source gates)."""
+        basis = self.basis(proposal_id)
+        if basis is None:
+            return None
+        publication, _ = build(basis, 'publish')
+        value = self._call('nexloop_read_schema_publish_readiness', {'proposal_id': proposal_id, 'schema': publication['schema']})
+        if value is None:
+            return None
+        return {**value, 'items': [{**item, 'remedy': gate_remedy(item['code'])} for item in value['items']],
+                'acknowledge_required': value['verdict'] == 'warn'}
 
     def _publish(self, proposal_id, kind, rationale, idempotency_key, property_name=None, batch=False):
         if type(rationale) is not str or not 1 <= len(rationale.strip()) <= 2000:

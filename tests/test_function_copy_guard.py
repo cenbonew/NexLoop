@@ -21,6 +21,7 @@ from support.plan_question_v7_edits import EDITS as PQ_EDITS
 from support.claim_auto_write_edits import EDITS as AW_EDITS
 from support.schema_structured_property_edits import EDITS as SSP_EDITS
 from support.s_dup_edits import FEED as SDUP_FEED, RECORDER as SDUP_RECORDER
+from support.nx068_edits import EDITS as NX068_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -52,6 +53,10 @@ TWIN_POS = ((r"runtime\.nexloop_experiment_twin_ok\(p_tenant,(\w+(?:\.\w+)?)\)",
 
 
 REGISTRY = [
+    # NX-068 N1: the A' proof asks the single judgement authz.nexloop_effect_successor_admissible for each candidate (0446's tests).
+    *[Allowed('nx068_publish_gate_smoke', name, "NX-068 N1: the proof's A' conditions move into authz.nexloop_effect_successor_admissible; same result; nothing else",
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
+      for name, edits in NX068_EDITS.items()],
     # NX-067: the SSO refusal audit accepts the group-mapping and back-channel reasons.
     Allowed('nx067_oidc_gaps', 'control.nexloop_workbench_oidc_failed', 'the reason list gains groups_invalid, no_mapped_role and logout_token_invalid; nothing else',
             ((r",'groups_invalid','no_mapped_role','logout_token_invalid'\)", ')'),)),
@@ -780,6 +785,10 @@ REGISTRY = [
     # L6 G1 on 0431: the shadow's tenant lookup catches only the identity refusal (42501); any other error is raised.
     Allowed('action_input_tenant_narrow', 'authz.nexloop_action_input_tenant', 'exception when insufficient_privilege instead of others; nothing else',
             ((re.escape('exception when insufficient_privilege then'), 'exception when others then'),)),
+    # 0450 (recall of hidden properties, L6 2026-11-11): a property hidden in the version read yields no definition row.
+    Allowed('recall_hidden_properties', 'ontology.nexloop_recall_definition_rows',
+            "a property whose visibility is 'hidden' is skipped (and pg_temp last in search_path); nothing else",
+            ((r"\n  continue when p->>'visibility' is not distinct from 'hidden';", ""),), PG_TEMP),
 ] + [Allowed('nx043_online_open', name, 'D9 waived online: the twin check through runtime.nexloop_experiment_twin_ok; nothing else', reverts)
      for name, reverts in (('runtime.nexloop_experiment_assign', TWIN_NEG), ('runtime.nexloop_experiment_strategy_for', TWIN_POS),
                            ('runtime.nexloop_experiment_guardrails_hit', TWIN_NEG), ('runtime.nexloop_experiment_guard', TWIN_NEG),

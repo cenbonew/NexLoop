@@ -12,6 +12,15 @@ WRAPPED = 'wrapped by an enforcement point of the same name (nx067_oidc_gaps) an
 SERVICE = 'service, Agent or Run credentials only; a browser member is authorized through the browser snapshot'
 OBJECT_BASIS = ('object and property read grants (eios:object / eios:property), never a workbench Action grant; a member reaches them only '
                 'after the workbench read Action, whose grant the browser snapshot withholds under an empty ceiling')
+# NX-068 (0449): both read the grant facts of SERVICE holders only (subject_kind 'service') as data about a Schema publication - whether
+# every holder of a registrar or create Action carries register's follow marker (gate) or holds the covering version (smoke round 2).
+# They authorize nobody: no subject's own grant is consulted and their result can only add refusals or smoke problems. The gate is
+# reached by the owner through the workbench (F3 publish transaction via the gates wrapper, and the readiness precheck route), but the
+# owner is authorized there by the review read guard (authz.nexloop_assert_review_read), not by a grant read here; the smoke checks are
+# reached only by the alert evaluator's maintenance. A browser member's workbench Action grant - the thing the ceiling narrows - is never
+# read, so the ceiling has nothing to apply to; test_publication_holder_inspection_reads_service_grants_only pins that.
+HOLDER_INSPECTION = ('reads service holders\' grant facts (subject_kind service) as publication data, authorizes no subject; reachable '
+                     'only inside another function (no direct EXECUTE)')
 CONFIGURATION = 'writes or checks the configured grants (trusted configuration), decides no request'
 REGISTRY = {
     'authz.nexloop_browser_authority_fact_snapshot_before_role_ceiling(text,text,text,text[])': WRAPPED,
@@ -45,6 +54,8 @@ REGISTRY = {
     'authz.nexloop_property_access_basis(text,text,text,text)': OBJECT_BASIS,
     'authz.nexloop_property_access_basis_before_relay_source_v0161(text,text,text,text)': OBJECT_BASIS,
     'authz.nexloop_property_access_basis_before_role_source_v0211(text,text,text,text)': OBJECT_BASIS,
+    'authz.nexloop_schema_publish_gate(text,text,jsonb)': HOLDER_INSPECTION + ' (F3 gates wrapper and readiness precheck)',
+    'runtime.nexloop_schema_publish_smoke_checks(text,text,text,boolean)': HOLDER_INSPECTION + ' (smoke rounds of the alert maintenance)',
     'authz.nexloop_workbench_grant_guard()': CONFIGURATION,
     'control.nexloop_configure_workbench(text,jsonb,jsonb)': CONFIGURATION,
     'control.nexloop_workbench_fact_instance(jsonb,text,text)': CONFIGURATION,
@@ -86,3 +97,25 @@ def test_a_machine_command_passes_the_ceiling_check_untouched(admin):
                              (tenant, principal, 'eios:action:nexloop.object.add_note:1')).fetchone()[0] is True
     entry = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_goal_governed_action(text,text,text,text,text)'::regprocedure").fetchone()[0]
     assert "a->>'principal_id'" in entry and 'authz.nexloop_goal_governed_action_before_role_ceiling(' in entry
+
+
+def test_publication_holder_inspection_reads_service_grants_only(admin):
+    """NX-068 functions classified HOLDER_INSPECTION: every holder loop over grant facts is restricted to subject_kind 'service' (the
+    inner per-holder lookups are keyed by such a holder), no role but the owner may execute them directly, and their callers authorize
+    the human by the review read guard, not by a grant."""
+    import re
+    names = [name for name, why in REGISTRY.items() if why.startswith(HOLDER_INSPECTION)]
+    assert len(names) == 2
+    for name in names:
+        src = admin.execute('select prosrc from pg_proc where oid=%s::regprocedure', (name,)).fetchone()[0]
+        loops = re.findall(r"for holder in select distinct f\.entity_key\[1\] from authz\.nexloop_authority_facts f where (.*?) loop", src, re.S)
+        assert loops and all("f.payload->>'subject_kind'='service'" in w for w in loops), name
+        reads = len(re.findall(r"fact_kind='grants'", src))
+        keyed = len(re.findall(r"fact_kind='grants' and g\.entity_key\[1\]=holder", src))
+        assert reads == len(loops) + keyed, (name, reads, len(loops), keyed)
+        assert 'nexloop_browser_authority_fact_snapshot' not in src and 'nexloop_load_authority_fact' not in src
+        holders = admin.execute("""select coalesce(array_agg(r.rolname order by r.rolname),'{}') from pg_proc p cross join aclexplode(p.proacl) a
+            join pg_roles r on r.oid=a.grantee where p.oid=%s::regprocedure and a.privilege_type='EXECUTE' and a.grantee<>p.proowner""", (name,)).fetchone()[0]
+        assert holders == [], (name, holders)
+    readiness = admin.execute("select prosrc from pg_proc where oid='authz.nexloop_read_schema_publish_readiness(text,text,text,text,text)'::regprocedure").fetchone()[0]
+    assert 'authz.nexloop_assert_review_read(' in readiness and 'authz.nexloop_schema_publish_gate(' in readiness
