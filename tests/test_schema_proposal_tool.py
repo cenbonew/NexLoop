@@ -216,6 +216,7 @@ class AppTransport:
 # PG part --------------------------------------------------------------------------------------------------------------------------
 from psycopg.types.json import Jsonb  # noqa: E402
 from nexloop_eios.workbench_roles import compile_members  # noqa: E402
+from nx068_fixture import mark  # noqa: E402
 from test_browser_http import ORIGIN  # noqa: E402
 from test_nx040_schema_publication_pg import proposal  # noqa: E402
 from test_workbench_read_pg import ROLES, members_file, workbench, workbench_login, write_facts, configure  # noqa: E402,F401
@@ -229,6 +230,7 @@ def test_check_verify_reject_and_publish_end_to_end(workbench, tmp_path, capsys,
     members = ((w['owner'], 'owner'), (w['operator'], 'operator'))
     configure(w, *members)
     write_facts(admin, compile_members(ROLES, members_file(*members)))
+    mark(admin, TENANT, 'Consumer.create')  # NX-068 K1: register's follow marker before an F3 publication
     f = {'admin': admin, 'tenant': TENANT}
     good = proposal(f, 'add_optional_property', 'Consumer', {'property_name': 'preferred_store', 'value_type': 'string'})
     bad = proposal(f, 'add_optional_property', 'Consumer', {'property_name': 'raw_blob', 'value_type': 'json'})

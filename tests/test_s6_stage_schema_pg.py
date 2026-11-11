@@ -32,6 +32,7 @@ from test_evolution_e4_pg import NOW, body_of, hexid, miss_case, opened  # noqa:
 from test_evolution_traces_pg import run as trace_run  # noqa: E402
 from test_evolution_traces_pg import private  # noqa: E402,F811
 from test_evolution_v1_pg import register  # noqa: E402
+from nx068_fixture import mark  # noqa: E402
 from test_workbench_read_pg import ROLES, members_file, workbench, write_facts, configure  # noqa: E402,F401
 from test_workbench_read_pg import TENANT, browser_business, conversations, identity, published_action, uow  # noqa: E402,F401
 
@@ -88,6 +89,8 @@ def stage(workbench, pg, tmp_path):
     template.chmod(0o600)
     token, _ = seed_authority(admin, TENANT, 'eios:artifact:' + 'f' * 32, identity_suffix='-s6-evaluator')
     register(admin, hexid(token), 'evaluator')
+    # NX-068 K1: register writes the follow marker on the Consumer.create holders before any F3 publication (the gate refuses without it).
+    mark(admin, TENANT, 'Consumer.create')
     # D23 needs a valid and an invalid case per Action: the fixture's Consumer Action takes any input ({}); a real input schema first (an
     # Action that accepts everything fails G12 for ever - F4's known limitation, also on stage).
     with admin.transaction():
