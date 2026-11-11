@@ -210,7 +210,7 @@ where c.tenant_id='$TENANT_ID' group by 1,2 order by 1,2"
 
 ## 9. 实现（L6 2026-11-11 条件 PASS 之后）
 
-- **迁移**：`0449_recall_hidden_properties.sql`，临时号，由调度员重编。内容：
+- **迁移**：`0450_recall_hidden_properties.sql`（合批重编号）。内容：
   - 用 `create or replace` 重定义 `definition_rows`。属性循环开头加 `continue when p->>'visibility' is not distinct from 'hidden'`，search_path 加上 pg_temp。
   - 回填：DO 块按租户执行，只删 `type:` 行里位于最新版本、且已不在定义行里的属性行和枚举值行。
   - catalog 和 `versions.lock.json` 的 bootstrap_revision 改为 0449。

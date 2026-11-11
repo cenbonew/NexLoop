@@ -1,6 +1,6 @@
 # 执行单：NX-068 发布前门禁与发布后冒烟上线
 
-内容：迁移 `nx068_publish_gate_smoke`（临时号 0449，以合批后的编号为准）、stage register 写 follow 标记、告警规则 v38。设计见 `docs/planning-drafts/nx068-publish-gate-and-smoke-20261111.md` §10。
+内容：迁移 `nx068_publish_gate_smoke`（0449）、stage register 写 follow 标记、告警规则 v38。设计见 `docs/planning-drafts/nx068-publish-gate-and-smoke-20261111.md` §10。
 
 ## 0. 时间窗口（C4 / H-d）
 

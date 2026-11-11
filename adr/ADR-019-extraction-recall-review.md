@@ -100,7 +100,7 @@ AT-061～AT-070（`planning/acceptance-tests.json`）。关键不可变条件：
 
 ## 9. 修订 A1（2026-11-11）：hidden 属性在语义层退役
 
-- **依据**：L3 P5 Q6（933f8f82）；设计稿 `docs/planning-drafts/recall-hidden-properties-20261111.md`；L6 判词 2026-11-11 条件 PASS（H-a 要求写入 ADR）；迁移 0449（临时号）。
+- **依据**：L3 P5 Q6（933f8f82）；设计稿 `docs/planning-drafts/recall-hidden-properties-20261111.md`；L6 判词 2026-11-11 条件 PASS（H-a 要求写入 ADR）；迁移 0450。
 - **背景**：`PropertyVisibility` 原本只是 UI 提示（prominent / normal / hidden）。在 NexLoop 中，hidden 唯一的写入路径是 NX-040 F3 的 hide（0254），它是已发布可选属性的回退手段，Schema 发布没有删除属性的操作。召回的定义行（0067 `nexloop_recall_definition_rows`）不看 visibility，所以被 hide 的属性仍会被召回、抽词，也仍能作为别名和合并的目标。
 - **决定**：
   - 一个属性在类型**最新版本**中是 hidden，它在语义层就退役：不产生召回定义行（name、display_name、description、枚举值）。

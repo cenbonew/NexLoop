@@ -179,7 +179,7 @@ class PropertyRenderHint(str, Enum):
 class PropertyVisibility(str, Enum):
     """How prominently a UI should surface one property.
 
-    NexLoop (ADR-019 amendment A1, migration 0449): HIDDEN in a type's latest version also retires the property in the semantic
+    NexLoop (ADR-019 amendment A1, migration 0450): HIDDEN in a type's latest version also retires the property in the semantic
     layer - no recall definition row, no recall term, no live alias, no merge target. Authorization, object reads and writes, Action
     bindings and Context projections do not read visibility.
     """

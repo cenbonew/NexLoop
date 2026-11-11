@@ -19,7 +19,7 @@ from test_recall_pg import A,consumer_schema,put_schema,recall_db,recall_for,ref
 HIDDEN=('budget_level','waterproof_concern')
 WATER='eios:property:Consumer/waterproof_concern'
 SENTENCE='我很关注防水，预算两千元以内'
-MIGRATION=Path(__file__).resolve().parents[1]/'packages/eios-core/src/eios/migrations/0449_recall_hidden_properties.sql'
+MIGRATION=Path(__file__).resolve().parents[1]/'packages/eios-core/src/eios/migrations/0450_recall_hidden_properties.sql'
 
 
 def schema(version,hidden=HIDDEN):

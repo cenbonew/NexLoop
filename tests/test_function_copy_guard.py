@@ -785,7 +785,7 @@ REGISTRY = [
     # L6 G1 on 0431: the shadow's tenant lookup catches only the identity refusal (42501); any other error is raised.
     Allowed('action_input_tenant_narrow', 'authz.nexloop_action_input_tenant', 'exception when insufficient_privilege instead of others; nothing else',
             ((re.escape('exception when insufficient_privilege then'), 'exception when others then'),)),
-    # 0449 (recall of hidden properties, L6 2026-11-11): a property hidden in the version read yields no definition row.
+    # 0450 (recall of hidden properties, L6 2026-11-11): a property hidden in the version read yields no definition row.
     Allowed('recall_hidden_properties', 'ontology.nexloop_recall_definition_rows',
             "a property whose visibility is 'hidden' is skipped (and pg_temp last in search_path); nothing else",
             ((r"\n  continue when p->>'visibility' is not distinct from 'hidden';", ""),), PG_TEMP),
