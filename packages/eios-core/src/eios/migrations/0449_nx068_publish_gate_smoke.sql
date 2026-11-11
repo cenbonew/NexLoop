@@ -144,6 +144,9 @@ begin
   select min((x->>'version')::integer) into b from jsonb_array_elements(ex.definition->'governance'->'change_scope'->'object_types') x
    where x->>'tenant_id'=p_tenant and x->>'stable_name'=p_type;
   select definition into tb from ontology.object_type_versions where tenant_id=p_tenant and type_name=p_type and version=b;
+  -- K4: synthetic publication record (published_by human:publish-gate, permission digest unchanged). Before publication A'-2 is taken
+  -- as holding because F3 can only be published by a human and a publication writes no grants; at intent time A'-2 is still judged
+  -- on the real publication record (0446 proof tests).
   r:=authz.nexloop_effect_successor_admissible(p_tenant,p_type,
    jsonb_build_object('resource_id',ex.resource_id,'capability',ex.capability,'definition',ex.definition),succ,tb,tv,v,
    jsonb_build_object('published_by','human:publish-gate','permission_digest_before','unchanged','permission_digest_after','unchanged'));
