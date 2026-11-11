@@ -2250,6 +2250,11 @@
       "version": "0450",
       "name": "0450_recall_hidden_properties.sql",
       "sha256": "bac231837e2e1ddc84b0729ff8997a68a75f6b22a1223fdd0c91279b67a1a0e1"
+    },
+    {
+      "version": "0451",
+      "name": "0451_effect_action_admissions.sql",
+      "sha256": "65ade1f22a4e9a06ebe52d53457142e5365466a7050abb1a4e1651e0d56034e7"
     }
   ]
 }
