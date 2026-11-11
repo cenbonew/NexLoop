@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import uuid
 from urllib.parse import urlsplit
@@ -89,10 +90,11 @@ def router(config, *, ports_for_browser, cookie, store_attribute='workbench_stor
     if not callable(ports_for_browser):
         raise ValueError('governed browser ports required')
     routes = APIRouter(prefix=prefix)
+    log = logging.getLogger('nexloop.workbench')
     origin = urlsplit(config.origin)
 
-    def error(code, status):
-        return JSONResponse({'code': code, 'message': '请求未完成', 'trace_id': str(uuid.uuid4()), 'retryable': status == 503, 'details': {}},
+    def error(code, status, trace_id=None):
+        return JSONResponse({'code': code, 'message': '请求未完成', 'trace_id': trace_id or str(uuid.uuid4()), 'retryable': status == 503, 'details': {}},
                             status_code=status, headers={'Cache-Control': 'no-store'})
 
     def ports(request, *, write):
@@ -129,7 +131,12 @@ def router(config, *, ports_for_browser, cookie, store_attribute='workbench_stor
         except Exception as failure:
             if type(failure).__name__ in ('ActionAuthorizationDenied', 'AuthorizationFactDenied'):
                 return error('forbidden', 403)
-            return error('unavailable', 503)
+            # The 503 leaves a trace (request id = the answer's trace_id, the route, the exception type and SQLSTATE), never a value: the
+            # stage lock timeout of 2026-11-11 (55P03, the tenant row behind an alert evaluation) left none.
+            trace_id = str(uuid.uuid4())
+            log.warning('schema publication unavailable %s', {'request_id': trace_id, 'method': method, 'exception': type(failure).__name__,
+                                                              'sqlstate': getattr(failure, 'sqlstate', None)})
+            return error('unavailable', 503, trace_id)
 
     async def body_of(request, allowed, required):
         if request.headers.get('content-type', '').split(';')[0] != 'application/json':
