@@ -90,7 +90,7 @@ ro "select p.parent_schema_version, (select coalesce(max(version),0) from ontolo
 1. **改清单**：这是一个单独的提交，走批次。在 `deploy/authorization/stage-principals.v1.json` 的 `definition_read_rules`，**只在 relay_source 那一条**的 `type_names` 里加 `S6SyntheticFixture`，并在 `purpose` 里写明“NX-038 P5 合成夹具，A4 退役时移除”。不加别的类型，不加别的主体。规则是按类型给的：类型下全部非受限属性的定义都可读，标记属性 `fixture_marker` 也包括在内（M2）。它没有显示名，中文句子抽不到它，可读也不会影响抽词。
 2. **保存前快照（调度员，`ro`）**：
    ```
-   ro "select entity_key, fact from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
+   ro "select entity_key, payload from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
    ```
    输出存档为 `q5-before`。
 3. **register dry-run**（DATA_HOST，调度员，命令形态同 run-34 §1.5）：差异**只有**这一条规则多了 `S6SyntheticFixture`；没有新建凭据，没有轮换，没有其他差异。多出任何一项都停下。
@@ -153,7 +153,7 @@ REMAINING=8 DURATION=3600 REASON='NX-038 P5 synthetic fixture' local-only/opday/
 
 1. **列出其他有全类型定义读权限的主体（Q5-2，调度员，`ro`）**：
    ```
-   ro "select entity_key, fact->'type_names' from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
+   ro "select entity_key, payload->'type_names' from authz.nexloop_authority_facts where tenant_id='$TENANT_ID' and fact_kind='definition_read_rule'"
    ```
    并核对清单：在 main 910c2b6d 上只有 relay_source 一条（20 个类型），4deeb61c 上未变；§2 之后应为 21 个，其中含夹具。**R2（代码出处，main 910c2b6d）**：在 Python 代码里，读 definition_read_rule 的只有服务凭据的语义读取路径：召回门控 `nexloop_eios/recall.py:116`，以及定义详情 `context_engine/authority.py:67`（由 `context_engine/semantic.py:170` 调用）。两者都调用 0381 的 `authz.nexloop_definition_read`，参数是服务凭据的 digest。工作台的代码里没有任何地方引用 definition_read_rule（`git grep definition_read_rule` 的全部结果）。所以工作台浏览器会话不经这条规则，夹具规则对它们没有影响。把查询结果记入证据；出现其他主体就逐个写明，并在第 2 步一并处理。
 2. **撤掉定义读权限**：再走一个批次提交，从 relay_source 的 `type_names` 删去 `S6SyntheticFixture`（按类型撤，标记属性一并撤掉）。register 先 dry-run，差异只有这一项，没有新建或轮换凭据；然后正式执行，取前后快照存档。这是让运行时抽不到 F 和 T 的有效步骤之一（Q6）。
