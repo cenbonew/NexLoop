@@ -97,3 +97,15 @@ AT-061～AT-070（`planning/acceptance-tests.json`）。关键不可变条件：
 ## 8. 任务影响
 
 修改：NX-019、NX-020、NX-021、NX-023、NX-025（依赖）、NX-028（依赖）。新增：NX-044（审批与 Schema 发布路径对齐）、NX-045（候选暂存、粘合与队列）、NX-046（最小审核工作台与回流）。NX-044 先对已完成的 NX-012 / NX-015 做差距检查，再改。
+
+## 9. 修订 A1（2026-11-11）：hidden 属性在语义层退役
+
+- **依据**：L3 P5 Q6（933f8f82）；设计稿 `docs/planning-drafts/recall-hidden-properties-20261111.md`；L6 判词 2026-11-11 条件 PASS（H-a 要求写入 ADR）；迁移 0449（临时号）。
+- **背景**：`PropertyVisibility` 原本只是 UI 提示（prominent / normal / hidden）。在 NexLoop 中，hidden 唯一的写入路径是 NX-040 F3 的 hide（0254），它是已发布可选属性的回退手段，Schema 发布没有删除属性的操作。召回的定义行（0067 `nexloop_recall_definition_rows`）不看 visibility，所以被 hide 的属性仍会被召回、抽词，也仍能作为别名和合并的目标。
+- **决定**：
+  - 一个属性在类型**最新版本**中是 hidden，它在语义层就退役：不产生召回定义行（name、display_name、description、枚举值）。
+  - 结果：不被召回、不被抽成 recall term；已有别名、词表释义和发布别名在查询时失效（行保留）；不能写新别名；候选不能 merge_into 到它。
+  - 判断只看最新版本。之后的版本把属性改回非 hidden，重建索引后一切恢复，包括保留下来的别名。
+  - **不变**：授权、对象读写、Action 绑定、Context 包的属性投影都不读 visibility。
+- **否决的替代**：另建一个只给召回用的“活定义”函数，让合并检查继续用旧口径。否决理由是会出现两个口径，改动面约为六倍（L6 2026-11-11）。
+- **影响**：迁移回填会删除各类型最新版本 `type:` 行中 hidden 属性的行，向量随之级联删除。部署时序须避开 P5 执行单 §4 预热到 §6 r2 之间（H-d）。
