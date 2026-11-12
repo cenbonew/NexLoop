@@ -22,6 +22,8 @@ describe('trusted explicit context with real provider configuration',()=>{
   expect(JSON.stringify(h)).not.toContain('synthetic-private-key');
  });
  it('constructs explicit v2 with genuine real provider without synthetic callback',()=>{expect(setup({context_input_protocol:'nexloop.context-pack.v2'}).open()).toBeInstanceOf(RuntimeHost);});
+ it('constructs v8 without enabling synthetic callbacks',()=>{expect(setup({context_input_protocol:'nexloop.context-pack.v8'}).open()).toBeInstanceOf(RuntimeHost);});
+ it('v8 preserves explicit plan question opt-in',()=>{expect(setup({context_input_protocol:'nexloop.context-pack.v8',plan_outcome_tool:true,plan_question_tool:true}).open()).toBeInstanceOf(RuntimeHost);});
  it.each([{context_input_protocol:'unknown'},{effect_tools:false},{deterministic_message_from_input:true},{deterministic_effect_message:'synthetic output'}])('rejects malformed/disabled/synthetic configuration %j',extra=>{
   const f=setup(extra);expect(()=>f.open()).toThrow('runtime configuration refused');
  });
