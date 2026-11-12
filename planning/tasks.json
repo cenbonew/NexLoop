@@ -3847,6 +3847,12 @@
         "ref": "73dac9bda9fb2ac9fcfaa22a993ebf2807062084: slice2a final input and scan verification",
         "summary": "L6补核关闭preflight局部收尾待项：20项overlay及3695基线文件吻合，3715运行输入未变，JUnit与固定HEAD扫描哈希匹配归档，最终四门扫描通过。补全此前“收尾scan/输入来源待归档”条件，不扩大owner-only局部PASS，不是生产组批或完整D3。typed claim下一切片仍在测试，未交最终HEAD。",
         "recorded_at": "2026-11-12T19:00:15.624189+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "dd50f3636b9ffc8f1f424471622098b9c4844115",
+        "summary": "typed worker claim局部切片L6条件PASS：真实domain_worker HMAC/EXECUTE与当前worker authority/epoch/proof/租约回查，gate→feed→generation，legacy委托；固定HEAD干净回归78 passed/0 failed/errors/skipped，217.57s，load5.521/-n2，4项变异目标failure/0error，四门scan通过，首轮15p/1f保留。未发Run、无API reserve/原子issue/旧入口闭包/完整reconcile；owner seed不算真实producer，claim COMMIT丢回包非Run未知恢复证明。完整D3与部署/准入冻结保持。",
+        "recorded_at": "2026-11-12T19:30:53.493272+08:00"
       }
     ]
   },
