@@ -5397,6 +5397,12 @@
         "ref": "docs/implementation/nx064-deadline-model-correction-20261112.md",
         "summary": "首轮实际load-8因新增Decimal诊断序列化失败22.42s，未跑后继held；仅修诊断序列化后load-8 1p23.29s/load5.1377，held-8 1p24.16s/load5.4165，-n0。纯可控时钟8p0.43s覆盖提交预算、晚观察成功/拒绝、timeout两次、准时拒绝。首败与每attempt时序/账本记录保留，不skip/调门槛。",
         "recorded_at": "2026-11-12T20:07:31.045419+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "31d4f58b6037049e6f213cea17883aacf787c097",
+        "summary": "L6对固定测试侧deadline整改最终局部条件PASS，允许纳入批172-r3新check；独立核对8项模型、load-8和held-8账本/次数/2秒约束及首败记录。观察时间模型不证明生产SLO或旧77ms具体成因。新集成HEAD须出站重扫、完整CI和独审，不自动授权merge；全部冻结保持。",
+        "recorded_at": "2026-11-12T20:09:19.672953+08:00"
       }
     ]
   },
