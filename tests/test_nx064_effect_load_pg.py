@@ -125,6 +125,9 @@ def test_effect_requests_at_matrix_concurrency_complete_or_end_as_adr029c_says(a
     first = sorted(r['timings'][0] for r in results)
     record_property('nx064_load', json.dumps({'guard': guard, 'concurrency': concurrency, 'runs': len(runs), 'limit_s': limit, 'wall_s': round(wall, 2),
         'outcomes': {k: outcomes.count(k) for k in set(outcomes)}, 'first_p50_s': round(first[len(first) // 2], 3), 'first_max_s': round(first[-1], 3)}))
+    record_property('nx064_attempts', json.dumps([r['attempt_traces'] for r in results]))
+    record_property('nx064_ledgers', json.dumps({'before': before, 'after': after,
+        'intent_counts_per_consumer': sorted(per_consumer.values())}, default=str))
     # Never silent: every Run ends explicitly - accepted (first time or after the one resend) or runtime_effect_unavailable.
     assert len(results) == len(runs) and set(outcomes) <= {'ok', 'ok_after_resend', 'runtime_effect_unavailable'}, outcomes
     for r in results:
