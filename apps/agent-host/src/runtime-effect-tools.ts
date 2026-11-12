@@ -3,7 +3,7 @@ import {request as httpsRequest} from 'node:https';
 import {Type} from '@earendil-works/pi-ai';
 import {defineTool,type ToolRegistration} from '@earendil-works/pi-durable';
 import {RuntimeError,validateRunCommand,type RunCommand} from './runtime-adapter.js';
-import {ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
+import {ENTERPRISE_ACTION,effectAction,effectStableName,type EffectAction,type EffectSupply} from './context-input.js';
 import {countEffect,timedRequest,type EffectMetricOperation} from './effect-metrics.js';
 const ENTERPRISE=ENTERPRISE_ACTION;
 
@@ -190,9 +190,9 @@ export class RuntimeEffectClient{
   }
   /** The effect limit this client actually uses (ADR-029b). */
   readonly timeoutMs:number;
-  async call(command:RunCommand,operation:'submit'|'find',arguments_:unknown,action?:typeof ENTERPRISE):Promise<EffectReceipt>{
+  async call(command:RunCommand,operation:'submit'|'find',arguments_:unknown,action?:EffectAction,exactVersion=false):Promise<EffectReceipt>{
     const began=Date.now();
-    const metric:EffectMetricOperation=operation==='find'?'effect_find':action===ENTERPRISE?'enterprise_submit':'effect_submit';
+    const metric:EffectMetricOperation=operation==='find'?'effect_find':action!==undefined&&effectStableName(action)==='nexloop.enterprise.deliver'?'enterprise_submit':'effect_submit';
     countEffect(metric,'calls');
     try{
       const valid=validateRunCommand(command);
@@ -200,8 +200,8 @@ export class RuntimeEffectClient{
       if(!ref||!/^activation_[A-Za-z0-9_-]{16,200}$/.test(ref)||Date.parse(valid.not_after)<=Date.now())throw new Error();
       let argumentsBody:Record<string,unknown>={};
       try{
-        if(action!==undefined&&action!==ENTERPRISE)throw new RuntimeError('invalid_effect_request');
-        if(operation==='submit'&&action===ENTERPRISE){
+        if(action!==undefined)effectAction(action);
+        if(operation==='submit'&&action!==undefined&&effectStableName(action)==='nexloop.enterprise.deliver'){
           // ADR-030: the enterprise delivery parameters (the Action's input_schema): summary, optional details, consumer_ref
           // (this Run's own consumer; filled when absent). No tenant_id; unknown keys refused. SQL re-checks everything.
           const row=arguments_ as Record<string,unknown>;
@@ -224,7 +224,7 @@ export class RuntimeEffectClient{
       const key=this.configuration.privateMaterial(this.configuration.keyPath,64).toString('utf8');
       if(!/^[0-9a-f]{64}$/.test(key))throw new Error();
       const ca=this.configuration.privateMaterial(this.configuration.caPath,32768);
-      const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,...argumentsBody,...(action!==undefined?{action:'nexloop.enterprise.deliver'}:{})}));
+      const body=Buffer.from(JSON.stringify({activation_ref:ref,command:valid,...argumentsBody,...(action!==undefined?{action:!exactVersion&&action===ENTERPRISE?'nexloop.enterprise.deliver':action}:{})}));
       if(body.length>65536)throw new Error();
       const url=new URL('/internal/v1/runtime/effects/'+operation,this.origin);
       // ADR-028: an ambiguous answer (timeout, connection error, 503) is followed by exactly one more request with the same
@@ -495,10 +495,10 @@ export class RuntimeEffectClient{
       throw new RuntimeError('run_outcome_unavailable');
     }
   }
-  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;planQuestion?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
+  toolsForRun(command:RunCommand,options:{planOutcome?:boolean;planQuestion?:boolean;incentive?:boolean;outreach?:boolean;enterprise?:EffectSupply;serviceAction?:EffectAction|null;replyEndsRun?:boolean}={}):readonly ToolRegistration[]{
     const bound=validateRunCommand(command);
-    const invokeAction=async(operation:'submit'|'find',args:unknown,action:typeof ENTERPRISE)=>{
-      try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action)))}]};}
+    const invokeAction=async(operation:'submit'|'find',args:unknown,action:EffectAction)=>{
+      try{return {content:[{type:'text' as const,text:JSON.stringify(presentEnterpriseReceipt(await this.call(bound,operation,args,action,options.enterprise?.exact_version===true)))}]};}
       catch(error){if(error instanceof RuntimeError&&['outside_catalog_terms','intent_payload_conflict','invalid_effect_request','effect_intent_unavailable'].includes(error.code))return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:error.code})}]};throw new RuntimeError('runtime_effect_unavailable');}
     };
     // 10/17 stage smoke: the service intent is keyed on this Run's slot (0040), so one Run has one reply. A second, different
@@ -518,7 +518,7 @@ export class RuntimeEffectClient{
       if(enterpriseOffering!==undefined&&scope&&typeof scope==='object'&&scope.offering_id===enterpriseOffering)
         return {isError:true,content:[{type:'text' as const,text:JSON.stringify({code:'request_scope_wrong_service',next:'request_scope is only for this reply\'s own catalog terms. Send the reply without request_scope; the enterprise order is placed with nexloop.enterprise.deliver.'})}]};
       try{
-        const receipt=await this.call(bound,operation,args);
+        const receipt=await this.call(bound,operation,args,options.serviceAction??undefined,options.serviceAction!==undefined);
         if(operation==='submit')submitted=receipt.intent_id;
         return {content:[{type:'text' as const,text:JSON.stringify(receipt)}],...(operation==='submit'?end:{})};
       }
@@ -562,15 +562,15 @@ export class RuntimeEffectClient{
     // ADR-030: offered only when this Run has the enterprise slot (its context names the enterprise offering, which it has
     // only when the Run credential grants nexloop.enterprise.deliver:1). Availability, not authority: the guard rechecks.
     const enterprise=options.enterprise;
-    const enterpriseTools=enterprise?.action===ENTERPRISE?[defineTool({name:'nexloop.enterprise.deliver',
+    const enterpriseTools=this.configuration.simulation!==true&&enterprise&&effectStableName(enterprise.action)==='nexloop.enterprise.deliver'?[defineTool({name:'nexloop.enterprise.deliver',
       description:`Ask the enterprise to deliver its catalog service "${enterprise.title}" (${enterprise.service_code}, ${enterprise.price_amount} CNY) to this customer through its own system. Only when the customer asked for this service; never for another service, price or customer. When the customer's current message clearly asks to order it, that is a new order: place it now with this tool, even if the conversation history shows an earlier order (an earlier order is never a reason to skip this one). Write summary and details in the customer's own language (the language of the customer's messages): the enterprise staff read them as the order. ${ENTERPRISE_RESULT_GUIDE}`,
       parameters:Type.Object({summary:Type.String({minLength:1,maxLength:200}),details:Type.Optional(Type.String({maxLength:2000})),
         consumer_ref:Type.Optional(Type.String({minLength:1,maxLength:80}))},{additionalProperties:false}),
-      replay:'safe',execute:async args=>invokeAction('submit',args,ENTERPRISE)}),
+      replay:'safe',execute:async args=>invokeAction('submit',args,enterprise.action)}),
       defineTool({name:'nexloop.enterprise.find',description:`Read the current state of an enterprise delivery this Run requested: only a request_id that nexloop.enterprise.deliver returned in this Run (earlier orders cannot be read here; effect_intent_unavailable means it is not this Run's). Not being able to read an earlier order never stops a new one: when the customer asks to order, use nexloop.enterprise.deliver. Does not send anything and never places it again. ${ENTERPRISE_FIND_RESULT_NOTE}`,
         parameters:Type.Object({request_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),
         replay:'safe',execute:async args=>invokeAction('find',args!==null&&typeof args==='object'&&!Array.isArray(args)&&Object.keys(args).length===1&&Object.hasOwn(args,'request_id')
-          ?{intent_id:(args as {request_id:unknown}).request_id}:args,ENTERPRISE)})]:[];
+          ?{intent_id:(args as {request_id:unknown}).request_id}:args,enterprise.action)})]:[];
     // NX-041 S6b: in a simulation Host every effect tool is its stand-in (the enterprise delivery has none and is not offered).
     if(this.configuration.simulation===true)return this.simulatedTools(bound,options,outcomeTool);
     return [
@@ -578,10 +578,10 @@ export class RuntimeEffectClient{
       ...incentiveTool,
       ...outreachTool,
       ...enterpriseTools,
-      defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key. request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.',
+      ...(options.serviceAction===null?[]:[defineTool({name:'nexloop.service.request',description:'Send your reply to the customer: message is the exact text the customer will read, in the customer\'s language. This is the only way anything reaches the customer; text you write outside a tool call is never delivered. Call it exactly once per Run; once it returns, the reply is sent and the Run is done: end without another call. It persists a governed service intent in the current plan slot; accepted is not fulfillment. Retries return the original receipt; never choose a new business key. request_scope is optional and only for this reply\'s own catalog service when the customer asked for a guarantee or discount: omit it otherwise, and never put the enterprise offering or a request_id in it.',
         parameters:compact(REPLY_PARAMETERS),replay:'safe',execute:async args=>invoke('submit',args)}),
       defineTool({name:'nexloop.service.find',description:'Read the current authorized receipt of a reply this Run sent (an intent_id nexloop.service.request returned in this Run; any other gives effect_intent_unavailable). Does not send or create a new effect.',
-        parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)}),
+        parameters:Type.Object({intent_id:Type.String({pattern:'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'})},{additionalProperties:false}),replay:'safe',execute:async args=>invoke('find',args)})]),
     ];
   }
 }
