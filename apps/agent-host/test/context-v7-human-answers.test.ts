@@ -1,7 +1,7 @@
 // K4c (L6 W2): the Host's own line on staff answers, apart from SQL's - an evidence.human_answers item is admitted only in a v7 plan
 // (Role) Run pack; in a message Run's pack, in a v6 pack or in another section it is refused.
 import {expect,test} from 'vitest';
-import {assertHumanAnswers,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7} from '../src/context-input.js';
+import {assertHumanAnswers,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7,CONTEXT_PROTOCOL_V8} from '../src/context-input.js';
 
 const question='0f0e0d0c-0b0a-4908-8706-050403020100';
 const answer={subsection:'human_answers',ref:'nexloop:human_answer:'+question+'@3',revision:'3',evidence_kind:'user_statement',tags:[],
@@ -11,8 +11,9 @@ const answer={subsection:'human_answers',ref:'nexloop:human_answer:'+question+'@
 const pack=(section:string,item:unknown)=>({constraints:[],consumer_state:[],open_work:[],evidence:[],semantics:[],experience:[],[section]:[item]});
 const refused=(protocol:string,roleRun:boolean,p:Record<string,unknown>)=>{try{assertHumanAnswers(protocol,roleRun,p);return false;}catch(error){return (error as {code?:string}).code==='runtime_context_invalid';}};
 
-test('a v7 plan Run pack admits a well-formed staff answer in evidence',()=>{
-  expect(refused(CONTEXT_PROTOCOL_V7,true,pack('evidence',answer))).toBe(false);
+test.each([CONTEXT_PROTOCOL_V7,CONTEXT_PROTOCOL_V8])('%s plan Run admits a staff answer as evidence',protocol=>{
+  expect(refused(protocol,true,pack('evidence',answer))).toBe(false);
+  expect(refused(protocol,false,pack('evidence',answer))).toBe(true);
 });
 
 test('a message Run pack with a staff answer is refused, also under v7',()=>{

@@ -8,14 +8,18 @@ import {once} from 'node:events';
 import {afterEach,describe,expect,it} from 'vitest';
 import {ENTERPRISE_FIND_RESULT_NOTE,ENTERPRISE_RESULT_GUIDE,RuntimeEffectClient} from '../src/runtime-effect-tools.ts';
 import {command} from './pi-runtime-support.ts';
+import type {RunCommand} from '../src/runtime-adapter.js';
+import {validateContextInput,CONTEXT_PROTOCOL_V8} from '../src/context-input.js';
+import {enterpriseSupply,serviceAction} from '../src/runtime-host.js';
+import {envelope,enterprise} from './context-v8-support.ts';
 
 const resources:{server:Server;directory:string}[]=[];
 const intent='11111111-1111-4111-8111-111111111111';
 const receipt={intent_id:intent,receipt_id:'22222222-2222-4222-8222-222222222222',state:'accepted',payload_digest:'a'.repeat(64),provider_payload_digest:'b'.repeat(64),scope:'effect_intent',business_action_success:false};
-async function bridge(options:{status?:number|((call:number)=>number);change?:(value:Record<string,unknown>)=>unknown;silent?:boolean}={}){
+async function bridge(options:{command?:RunCommand;status?:number|((call:number)=>number);change?:(value:Record<string,unknown>)=>unknown;silent?:boolean}={}){
   const directory=mkdtempSync(join(tmpdir(),'nexloop-effect-tls-'));
   execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',join(directory,'key'),'out',join(directory,'cert')].map(value=>value==='out'?'-out':value).concat(['-days','1','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1']),{stdio:'ignore'});
-  const bodies:Record<string,unknown>[]=[];const cmd=command();let active='activation_'+'A'.repeat(24);
+  const bodies:Record<string,unknown>[]=[];const cmd=options.command??command();let active='activation_'+'A'.repeat(24);
   const server=createServer({key:readFileSync(join(directory,'key')),cert:readFileSync(join(directory,'cert'))},(request,response)=>{
     const chunks:Buffer[]=[];request.on('data',chunk=>chunks.push(chunk));request.on('end',()=>{
       bodies.push(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string,unknown>);
@@ -235,4 +239,38 @@ describe('ADR-030 enterprise delivery tool (NX-037 gap B)',()=>{
       await expect(client.call(cmd,'submit',args,'nexloop.enterprise.deliver:1')).rejects.toThrow('invalid_effect_request');
     expect(bodies).toEqual([]);
   });
+});
+
+
+describe('v8 exact Action resources on actual HTTPS, no downgrade',()=>{
+ it.each([1,2,37,9999])('sends exact bound service and enterprise version %i for submit and find',async n=>{
+  // Parsing is exercised before tool construction; the transport fixture is not an EIOS authorization test.
+  const f=envelope(),v=f.check(p=>{p.current_constraints.action='nexloop.service.request:'+n;p.effect_supplies=[enterprise('nexloop.enterprise.deliver:'+n)];});
+  validateContextInput(v.input,f.cmd,v.proof,CONTEXT_PROTOCOL_V8);
+  const {client,cmd,bodies}=await bridge({command:f.cmd});
+  const tools=client.toolsForRun(cmd,{serviceAction:serviceAction(v.input),enterprise:enterpriseSupply(v.input)});
+  const call=async(name:string,args:unknown)=>{
+   const tool=tools.find(t=>t.name===name) as unknown as {execute:(args:unknown)=>Promise<unknown>};
+   expect(tool).toBeDefined();await tool.execute(args);
+  };
+  await call('nexloop.service.request',{message:'Exact bound reply'});
+  await call('nexloop.service.find',{intent_id:intent});
+  await call('nexloop.enterprise.deliver',{summary:'Exact bound enterprise request'});
+  await call('nexloop.enterprise.find',{request_id:intent});
+  expect(bodies.map(b=>b.action)).toEqual(['nexloop.service.request:'+n,'nexloop.service.request:'+n,'nexloop.enterprise.deliver:'+n,'nexloop.enterprise.deliver:'+n]);
+  expect(bodies.every(b=>JSON.stringify(b.command)===JSON.stringify(cmd))).toBe(true);
+  // A model cannot override the bound resource through tool arguments.
+  const before=bodies.length;await call('nexloop.enterprise.deliver',{summary:'Denied override',action:'nexloop.enterprise.deliver:9999'});
+  expect(bodies.length).toBe(before);
+ });
+ it('does not retry a rejected exact resource under stable name or version 1',async()=>{
+  const {client,cmd,bodies}=await bridge({status:400});
+  const tools=client.toolsForRun(cmd,{serviceAction:'nexloop.service.request:37'});
+  const tool=tools.find(t=>t.name==='nexloop.service.request') as unknown as {execute:(args:unknown)=>Promise<unknown>};
+  await expect(tool.execute({message:'No downgrade'})).rejects.toThrow('runtime_effect_unavailable');
+  expect(bodies.map(b=>b.action)).toEqual(['nexloop.service.request:37']);
+ });
+ it('does not offer service tools for an enterprise primary action',async()=>{
+  const {client,cmd}=await bridge();expect(client.toolsForRun(cmd,{serviceAction:null}).map(t=>t.name)).not.toContain('nexloop.service.request');
+ });
 });
