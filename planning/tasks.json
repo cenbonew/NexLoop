@@ -3805,6 +3805,18 @@
         "ref": "042e28fa9e58b6d7924a083a5ba3b02bd6cf48ba",
         "summary": "Role安全切片2接口差异设计，L6独立复审条件PASS，允许本地分片实现；先形成正常E/READ/current可恢复依赖，再严格签名preflight、typed claim、同gate原子issue及完整核对的无签发终态。TTL须沿真实客户端20秒/SQL25秒及proof expiry，不按文档30秒放宽。本提交仅文档、无新PG实现证据；完整D3/producer/真实注册/retention-erasure-restore仍未完成，不接生产launcher/清理，部署与准入冻结不变。",
         "recorded_at": "2026-11-12T17:01:03.824431+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "5bee809443fcd139af025270ca3bae8e0a343b10",
+        "summary": "正常Role E/READ/current依赖独立净化提交，L6局部条件PASS，可供下一安全切片使用；固定干净基线+14源文件最终84 passed/189.07s，默认inactive SQL未加载路径15 passed，7钩子变异9目标失败/0错误。首轮79p/2f/1error保留。SQL未入catalog，仅隔离依赖；完整恢复/D3、真实register未完成，不单独生产发布。",
+        "recorded_at": "2026-11-12T17:32:02.798156+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "f69893ccefb59b03bd825236bb533f7135bd20b2: CI608 attempt-1 integration-parallel",
+        "summary": "批172首轮集成阶段8257项出现3失败：模型surface两项enterprise工具缺失已交Host线最小整改；Role post-accept unbound_query_id起始dispatch缺provider_state，同SHA单条复跑1p仍不足以消除首次失败，待独立诊断。整体CI尚未终态，禁止按局部729项通过宣称批次通过/合入；冻结不变。",
+        "recorded_at": "2026-11-12T17:32:02.798156+08:00"
       }
     ]
   },
