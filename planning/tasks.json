@@ -3787,6 +3787,18 @@
         "ref": "docs/implementation/host-v7-v8-delivery-20261112.md",
         "summary": "Host候选本地48文件569 passed，0 failed/errors/skipped；五文件契约160 passed，50 canonical生成一致。保留模拟早拒绝与夹具trigger错配首败及工具链扫描首败；L6独立核验JUnit/hash。仅Host与契约局部测试，非AT-024/027整体验收，集成HEAD全量CI待运行；部署及准入冻结。",
         "recorded_at": "2026-11-12T16:05:58.973535+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a8c4d39fef3de596b499a118f8deea236d7afc5e",
+        "summary": "Role恢复inactive owner-core切片S1/S2整改，L6独立审查局部PASS：SQL阻断queued前代与其它未明预留，测试依赖可从精确9e6c572d基线及两个提交文件恢复。仅本地检查点，尚未集成；真实身份wrapper、原子Run+policy+attempt issue、完整恢复/D3未完成，NX-040保持in_progress。",
+        "recorded_at": "2026-11-12T16:31:19.265630+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/role-recovery-owner-core-slice1-20261112.md at a8c4d39fef3de596b499a118f8deea236d7afc5e",
+        "summary": "固定提交隔离复验12 passed/0 failed/errors/skipped，15.68秒，load7.862/-n2；真实双向Lock barrier与乱序/重放覆盖。旧SQL同基线负例1 failed，高load13.796拒启独立保留；dirty 7p降为历史不作验收。未注册catalog/接生产launcher/开放应用权限，清理封停、部署及准入冻结继续。",
+        "recorded_at": "2026-11-12T16:31:19.265630+08:00"
       }
     ]
   },
