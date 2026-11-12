@@ -213,3 +213,48 @@ def test_the_admission_table_states_why_no_erasure_reaches_it(admin):
     checks = [r[0] for r in admin.execute("""select pg_get_constraintdef(oid) from pg_constraint where conrelid='control.nexloop_effect_action_admissions'::regclass
         and contype='c' and pg_get_constraintdef(oid) ~ '(admitted|retired)_by ~'""").fetchall()]
     assert len(checks) == 2 and all('human:(owner|operator)' in c for c in checks), checks
+
+
+def test_g1_owner_read_guard_rejects_hidden_or_nonzero_admissions(context_message, admin, pg):
+    """Actual FORCE RLS, non-superuser owner, and the run sheet SQL: missing GUC is a false zero,
+    active admissions must stop the gate, an empty synthetic tenant passes, application ACL errors never mean zero."""
+    from pathlib import Path
+    import re
+    f = context_message
+    tenant = f['original']['tenant']
+    bump_consumer_v2(admin, tenant)
+    assert admin.execute('select count(*) from control.nexloop_effect_action_admissions where retired_at is null').fetchone()[0] == 1
+    with psycopg.connect(pg, autocommit=True) as db:
+        with db.transaction():
+            db.execute('set local role nexloop_owner')
+            db.execute("select set_config('eios.tenant_id','',true)")
+            assert db.execute('select count(*) from control.nexloop_effect_actions').fetchone()[0] > 0
+            assert db.execute('select count(*) from control.nexloop_effect_action_admissions').fetchone()[0] == 0
+        text = (Path(__file__).resolve().parents[1] / 'docs/release/run-task-b-m2-1.md').read_text()
+        script = re.search(r'```sql\n(.*?)```', text, re.S)[1]
+        def run(tenant_id):
+            # psql variable quoting is represented by the driver's SQL literal, never string interpolation of input.
+            from psycopg import sql
+            statements = script.split('    do $guard$')
+            before, after = statements[0], statements[1]
+            guard, tail = after.split('end $guard$;', 1)
+            try:
+                for statement in before.split(';'):
+                    if statement.strip():
+                        db.execute(sql.SQL(statement.replace(":'tenant_id'", '{}')).format(sql.Literal(tenant_id)))
+                db.execute('do $guard$' + guard + 'end $guard$;')
+                return db.execute(tail.strip().removesuffix('rollback;').strip()).fetchone()
+            finally:
+                db.execute('rollback')
+        with pytest.raises(psycopg.errors.RaiseException, match='active admissions present'):
+            run(tenant)
+        with pytest.raises(psycopg.errors.RaiseException, match='owner / tenant'):
+            run('')
+        result = run('synthetic-g1-empty-tenant')
+        assert result[0:2] == ('nexloop_owner', 'synthetic-g1-empty-tenant') and result[2] > 0 and result[3] == 0
+        with db.transaction():
+            db.execute('set local role nexloop_api')
+            db.execute("select set_config('eios.tenant_id',%s,true)", (tenant,))
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with db.transaction():
+                    db.execute('select count(*) from control.nexloop_effect_action_admissions')

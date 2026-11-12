@@ -5,17 +5,42 @@
 ## 0. 时间窗口与部署约束
 
 - **部署不得落在 P5 执行单 §4–§6 之间。**
-- **L6 F1：从 M2.1 上线到 M2.2 上线这段时间里，stage 上不得通过 configurator 手动准入任何 `:N`。**
+- **L6 F1 / R1：禁止通过人工、脚本或自动入口准入任何 `:N`；只有 M2.2 与 Role 签发链补项均完成并经独立复核后，才可评估解除此禁令。**
   - 也就是不得调用 `control.nexloop_admit_effect_action_successor`，也不得运行任何会调用它的脚本。
-  - 原因：准入了 `:N` 并完成 follow 之后，bind、签发和执行都会切到 `:N`，但 context pack 在 M2.2 之前仍写 `:1`（契约 v7）。M2.2 上线、Host 能接受 v8 之后，才能开始准入。
-  - 只读核对（迁移后执行一次，M2.2 上线前每次部署都要再执行）：
+  - 原因：准入了 `:N` 并完成 follow 之后，bind、签发和执行都会切到 `:N`，但 context pack 在 M2.2 之前仍写 `:1`（契约 v7）。Host 接受 v8 不能修复 Role launcher 仍签发配置 `:1` 的遗漏；M2.2 上线本身不构成准入授权。Role 补项属于 M2.1 签发链，可在 M2.2 集成，但须修复和独立复核后另行决定准入。
+  - **G1 选 (a)：逐租户 owner 只读核对**。使用已授权且可 `SET ROLE nexloop_owner` 的维护连接；不授予应用角色表权限，不使用超级用户或绕过 RLS。`tenant_id` 来自已核实的部署租户清单，全局 effect_actions 阳性只证明表可读，不证明清单完整。清单必须具有可信来源、覆盖范围与核对时间；清单为空、遗漏任一租户或角色验证失败均 blocked，单租户结果不能称全库为零。
+  - 对清单中每个租户执行以下 SQL（`psql -X -v ON_ERROR_STOP=1 -v tenant_id=<已核实租户> -f ...`；连接信息由现有安全环境提供）：
 
     ```sql
-    select count(*) from control.nexloop_effect_action_admissions where retired_at is null;
+    begin transaction read only;
+    set local role nexloop_owner;
+    set local row_security = on;
+    select set_config('eios.tenant_id', :'tenant_id', true);
+    do $guard$
+    begin
+      if current_user <> 'nexloop_owner'
+         or coalesce(current_setting('eios.tenant_id', true), '') = ''
+         or exists(select 1 from pg_roles where rolname=current_user and (rolsuper or rolbypassrls))
+         or not exists(select 1 from pg_class where oid='control.nexloop_effect_action_admissions'::regclass
+                       and relowner=current_user::regrole and relrowsecurity and relforcerowsecurity) then
+        raise exception 'G1 owner / tenant / FORCE RLS verification failed';
+      end if;
+      if (select count(*) from control.nexloop_effect_actions) = 0 then
+        raise exception 'G1 positive control is empty';
+      end if;
+      if (select count(*) from control.nexloop_effect_action_admissions where retired_at is null) <> 0 then
+        raise exception 'G1 active admissions present: stop before M2.2';
+      end if;
+    end $guard$;
+    select current_user, current_setting('eios.tenant_id') as verified_tenant,
+           (select count(*) from control.nexloop_effect_actions) as positive_control,
+           (select count(*) from control.nexloop_effect_action_admissions where retired_at is null) as active_admissions;
+    rollback;
     ```
 
-    结果应为 0。不为 0 就停止，并上报调度员。
-- M2.3（在发布事务内准入，H1 (a)）在 M2.1 和 M2.2 都上线之前不得部署。
+    **只有正常执行、阳性对照大于 0、全部租户 active_admissions 为 0 才满足此项。报错不等于 0**（包括权限不足、租户未设置、查询失败）；任何报错或非零结果均停止并上报调度员。禁止忽略 `ON_ERROR_STOP` 或把失败转换成零。
+    本地合成 PG 测试用实际非零准入验证该脚本会拒绝，并验证缺 GUC 时 owner 会静默看到零；不代表已在 stage 执行。
+- M2.3（在发布事务内准入，H1 (a)）在 M2.1、M2.2 及 Role 签发补项均完成并独立复核前不得启用；必须有阻止提前部署的机制。
 
 ## 1. 部署与迁移
 
