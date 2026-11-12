@@ -14,4 +14,4 @@ L6源码审查确认测试助手的确定缺口：started在executor.submit前�
 
 这是测试模型和观测修补，不能据局部通过称真实负载SLO达标、完整CI通过或原始首败已解释。需固定提交独立审查和新集成CI；当前不合并，不部署、不准入、不REAL_DISPATCH或外发。Role恢复代码完全不在本候选范围。
 
-最终有界PG验证（均-n0、程序load<12）：load-8为1 passed/23.29s，load5.1377，16 Run均ok，最大首请求观察0.704s；held_past_the_limit-8为1 passed/24.20s，load5.4165，8 ok_after_resend+8 ok，超时首请求最大观察2.006s被明确重试而非当准时成功。两者均16 intent/16 outbox/预算16，每consumer1 intent；held共24 attempt，无第三次重试。JUnit保留每attempt非敏感时序和账本计数，原所有断言执行通过。此为本地分支验证，非生产或完整CI证明。
+最终有界PG验证（均-n0、程序load<12）：load-8为1 passed/23.29s，load5.1377，16 Run均ok，最大首请求观察0.704s；held_past_the_limit-8为1 passed/24.16s，load5.4165，8 ok_after_resend+8 ok，超时首请求最大观察2.006s被明确重试而非当准时成功。两者均16 intent/16 outbox/预算16，每consumer1 intent；held共24 attempt，无第三次重试。JUnit保留每attempt非敏感时序和账本计数，原所有断言执行通过。此为本地分支验证，非生产或完整CI证明。

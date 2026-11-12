@@ -3853,6 +3853,12 @@
         "ref": "dd50f3636b9ffc8f1f424471622098b9c4844115",
         "summary": "typed worker claim局部切片L6条件PASS：真实domain_worker HMAC/EXECUTE与当前worker authority/epoch/proof/租约回查，gate→feed→generation，legacy委托；固定HEAD干净回归78 passed/0 failed/errors/skipped，217.57s，load5.521/-n2，4项变异目标failure/0error，四门scan通过，首轮15p/1f保留。未发Run、无API reserve/原子issue/旧入口闭包/完整reconcile；owner seed不算真实producer，claim COMMIT丢回包非Run未知恢复证明。完整D3与部署/准入冻结保持。",
         "recorded_at": "2026-11-12T19:30:53.493272+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:queue/results/5539819e0fac5f70e59acdbbf37be4a97b7cf98a/attempt-1/result.json",
+        "summary": "批172-r2 CI610首轮于2026-11-12 19:31:23 +08终态failed：9363 passed/1 failed/0 errors/skipped。Host574及并行8257通过；heavy load-8观测2.07715s超2.0+.05，已独立测试侧deadline模型修补送审，未合main。旧608全部首败保留，未复现的Role首败不改记为已解释。",
+        "recorded_at": "2026-11-12T11:31:23.132665Z"
       }
     ]
   },
@@ -5379,6 +5385,18 @@
         "ref": "docs/release/run-nx064-effect-request-metrics.md",
         "summary": "stage p99 门槛 2026-11-08 结果 insufficient：host_op 0 个样本、guard_op 2 个，样本不足，未判定。执行：调度员；判定：调度员。",
         "recorded_at": "2026-11-08T01:39:17Z"
+      },
+      {
+        "type": "commit",
+        "ref": "31d4f58b6037049e6f213cea17883aacf787c097",
+        "summary": "测试侧绝对观察deadline模型修补；不改Host/后端/SQL或2秒配置、0.05容差、同体最多重试一次和账本断言。旧助手确定性5f/2p，修后最终8p；load-8与held-8各1p，16 Run各1intent/outbox/预算，held 8次受控同体重试。原CI610超限具体调度成因仍未证，局部通过不等于生产SLO或完整CI验收，待L6固定提交独审。",
+        "recorded_at": "2026-11-12T20:07:31.045419+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/nx064-deadline-model-correction-20261112.md",
+        "summary": "首轮实际load-8因新增Decimal诊断序列化失败22.42s，未跑后继held；仅修诊断序列化后load-8 1p23.29s/load5.1377，held-8 1p24.16s/load5.4165，-n0。纯可控时钟8p0.43s覆盖提交预算、晚观察成功/拒绝、timeout两次、准时拒绝。首败与每attempt时序/账本记录保留，不skip/调门槛。",
+        "recorded_at": "2026-11-12T20:07:31.045419+08:00"
       }
     ]
   },
