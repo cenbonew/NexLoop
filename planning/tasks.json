@@ -3817,6 +3817,24 @@
         "ref": "f69893ccefb59b03bd825236bb533f7135bd20b2: CI608 attempt-1 integration-parallel",
         "summary": "批172首轮集成阶段8257项出现3失败：模型surface两项enterprise工具缺失已交Host线最小整改；Role post-accept unbound_query_id起始dispatch缺provider_state，同SHA单条复跑1p仍不足以消除首次失败，待独立诊断。整体CI尚未终态，禁止按局部729项通过宣称批次通过/合入；冻结不变。",
         "recorded_at": "2026-11-12T17:32:02.798156+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:queue/results/f69893ccefb59b03bd825236bb533f7135bd20b2/attempt-1/result.json",
+        "summary": "批172首轮权威CI608于2026-11-12 17:34:16 +08终态failed：9356 passed/3 failed/0 errors/skipped，9359 total。两项模型surface回归已定位并修；第三项Role post-accept起始dispatch缺provider_state未解释，单条重跑成功不解除。main未合入，完整失败和所有重跑证据保留。",
+        "recorded_at": "2026-11-12T09:34:16.104359Z"
+      },
+      {
+        "type": "commit",
+        "ref": "ccc6424631db3f367ac9f03e3b5972839548b342",
+        "summary": "Host首败最小修复：仅恢复legacy供给展示，保留v8严格delivery_action/精确版本与simulation隔离；L6限域条件PASS。Host574项和原model_surface32项零失败/跳过，红绿对照与两组四门scan齐。待新集成HEAD权威check；第三项首败仍未解除，不据局部结果合并或启用v8。",
+        "recorded_at": "2026-11-12T18:02:28.744105+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4853388fa650e29d13c7d03334e5cc3c2f51e1a3",
+        "summary": "批172修正版仅增加首次dispatch失败诊断，不改变执行/安全断言/时限/lease；L6接受诊断范围。原Role post-accept+model_surface39 passed/53.23s；缺key纯注入1 failed为预期红且诊断包含DB和独立provider账本，移除注入后真实PG单条1 passed/13.61s。不是首败复现或根因解除；只送含Host修补的新check，暂停merge，须完整CI与独立复审。",
+        "recorded_at": "2026-11-12T18:03:45.569338+08:00"
       }
     ]
   },
