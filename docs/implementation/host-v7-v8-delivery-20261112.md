@@ -4,6 +4,7 @@
 
 - 分支：`codex/host-v7-v8`。
 - BASE：`9e6c572d479f9c65134508270f9c4c91f878910f`，开工时 HEAD 与此一致、工作树干净。
+- 实现提交：`3ef0af961e270be2bd5364f402a483bbe766ea87`。
 - 候选 HEAD：以包含本文件的本地分支提交为准，`git rev-parse codex/host-v7-v8`；精确最终 hash 随调度短交付提供。
 - 范围：`apps/agent-host/src/context-input.ts`、`runtime-host.ts`、`runtime-effect-tools.ts`，以及 Host 对应测试和本文。未修改 Role 恢复文件、Python/SQL、迁移、catalog、版本锁、部署配置、planning 或任何契约文件。
 - 使用 main 已有的 `context-pack-v8.schema.json`、`examples/context-pack-v8.valid.json`、`generated/contracts.ts`；不修改 v7/v8 契约迁就 Host。
@@ -22,7 +23,7 @@
 
 ## 3. 实际工具链、命令与首次失败
 
-Node `v24.13.0`，pnpm `10.32.1`，TypeScript `6.0.2`，Vitest `4.1.11`，Python `3.12.10`，OpenSSL `3.6.4`。命令均在本线独立工作树运行。`PROJECT_PYTHON` 指向项目既有 Python 虚拟环境；TLS 测试 PATH 固定本地 OpenSSL 3。未运行全量 CI 或 PG 重型 lane。
+Node `v24.13.0`，pnpm `10.32.1`，TypeScript `6.0.2`，Vitest `4.1.11`，Python `3.12.10`，OpenSSL `3.6.4`，最终扫描使用 Git `2.52.0`。命令均在本线独立工作树运行。`PROJECT_PYTHON` 指向项目既有 Python 虚拟环境；TLS 测试 PATH 固定本地 OpenSSL 3。未运行全量 CI 或 PG 重型 lane。
 
 ```sh
 source ~/.nvm/nvm.sh && nvm use 24
@@ -36,7 +37,7 @@ PYTHONPATH=packages/eios-core/src:tests "$PROJECT_PYTHON" -m pytest -q -n 2 test
 "$PROJECT_PYTHON" scripts/check_docs.py
 "$PROJECT_PYTHON" scripts/check_publication.py
 "$PROJECT_PYTHON" scripts/check_definer_search_path.py
-PATH="$PROJECT_VENV/bin:$PATH" bash scripts/ci/prepush-scan.sh HEAD 9e6c572d479f9c65134508270f9c4c91f878910f
+PATH="$PROJECT_VENV/bin:/opt/homebrew/bin:$PATH" bash scripts/ci/prepush-scan.sh HEAD 9e6c572d479f9c65134508270f9c4c91f878910f
 ```
 
 - frozen 安装成功；首次因 vendor Pi 尚未 build，提示缺 `pi-ai/dist/cli.js` 的 bin 链接；按仓库 `build:pi` 构建后 Host build 成功，未提交产物或 symlink。
@@ -47,6 +48,7 @@ PATH="$PROJECT_VENV/bin:$PATH" bash scripts/ci/prepush-scan.sh HEAD 9e6c572d479f
 - 修正夹具后四文件定向：82 passed / 0 skipped，7.03s。
 - 契约生成检查：50 canonical contracts 一致；初轮三个消费文件 100 passed / 0 skipped，3.05s。已有 Pydantic `schema` 字段遮蔽 warning 保留。
 - 首次 prepush 扫描前三门 PASS，第四门因系统 `python3` 为 3.8.2，执行受信 gitleaks 配置结构检查时报 traceback 而失败；将项目 3.12.10 虚拟环境的 bin 前置 PATH 后重跑，不修改扫描规则或配置。
+- 实现提交后首次实际出站扫描：系统 Git `2.24.3` 不支持 `--path-format=absolute`，导致 restricted-identifier 文件路径解析时报 dirname 错误；改用本机 Git `2.52.0` 重跑精确 `BASE..HEAD`，不修改扫描脚本。
 - 最终完整结果见下节；所有首轮与重跑 JUnit/log 保存在 ignored `.ci-results/`，不提交运行产物。
 
 ## 4. 验收证据
