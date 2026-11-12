@@ -3775,6 +3775,18 @@
         "ref": "9e6c572d479f9c65134508270f9c4c91f878910f",
         "summary": "批次171由控制器merge606于2026-11-12 15:01:19 +08合入。调度读回origin/main与github/main均为该SHA，本地主检出ff且ahead=0、干净。NX-040仍in_progress；A prime/全入口禁止后继准入及P5部署冻结保留。",
         "recorded_at": "2026-11-12T07:01:19.090856Z"
+      },
+      {
+        "type": "commit",
+        "ref": "17206de288e9bced18d4032def195a0ef17f0b99",
+        "summary": "Host v7/v8限域候选：精确Action版本解析与受信activation透传，v7/v6兼容与模拟隔离；L6独立审查限域条件PASS。未改Python/SQL/契约/权限/部署；当前HTTP后端仍拒精确:N，真实v8集成blocked，禁止启用v8及后继准入；NX-040保持in_progress。",
+        "recorded_at": "2026-11-12T16:05:58.973535+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/host-v7-v8-delivery-20261112.md",
+        "summary": "Host候选本地48文件569 passed，0 failed/errors/skipped；五文件契约160 passed，50 canonical生成一致。保留模拟早拒绝与夹具trigger错配首败及工具链扫描首败；L6独立核验JUnit/hash。仅Host与契约局部测试，非AT-024/027整体验收，集成HEAD全量CI待运行；部署及准入冻结。",
+        "recorded_at": "2026-11-12T16:05:58.973535+08:00"
       }
     ]
   },
