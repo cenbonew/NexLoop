@@ -90,3 +90,17 @@ describe('v8 consumes the published contract and retains Role policy checks',()=
   else expect(()=>validateContextInput(v.input,f.cmd,v.proof,CONTEXT_PROTOCOL_V8)).toThrow('runtime_context_invalid');
  });
 });
+
+describe('legacy enterprise tool-surface projection compatibility',()=>{
+ it.each([6,7])('keeps the v%i enterprise display projection without revalidating the full offering',version=>{
+  const input=JSON.stringify({schema_version:'nexloop.context-pack.v'+version,effect_supplies:[{action:'nexloop.enterprise.deliver:1',offering_id:'o'.repeat(64),offering_revision:1,
+   properties:{service_code:'enterprise.synthetic',title:'Synthetic delivery',price_amount:'100.00'}}]});
+  expect(enterpriseSupply(input)).toEqual({action:'nexloop.enterprise.deliver:1',offering_id:'o'.repeat(64),offering_revision:1,service_code:'enterprise.synthetic',title:'Synthetic delivery',price_amount:'100.00'});
+ });
+ it('still refuses a v8 display projection with missing or mismatched delivery_action',()=>{
+  for(const delivery of [undefined,'nexloop.service.request:1']){
+   const offering=enterprise();offering.properties.delivery_action=delivery as string;
+   expect(enterpriseSupply(JSON.stringify({schema_version:CONTEXT_PROTOCOL_V8,effect_supplies:[offering]}))).toBeUndefined();
+  }
+ });
+});

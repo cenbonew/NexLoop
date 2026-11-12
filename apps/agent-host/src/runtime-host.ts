@@ -74,7 +74,9 @@ export function enterpriseSupply(input:unknown):EffectSupply|undefined{
     const properties=item?.properties as Record<string,unknown>|undefined;
     if(!item||!properties||typeof item.offering_id!=='string'||typeof item.offering_revision!=='number'||typeof properties.service_code!=='string'
       ||typeof properties.title!=='string'||typeof properties.price_amount!=='string')return undefined;
-    if(versioned?effectStableName(properties.delivery_action)!==effectStableName(item.action):properties.delivery_action!==ENTERPRISE_ACTION)return undefined;
+    // Legacy tool-surface projections contain display fields only. Admission validates
+    // the complete offering; only v8 needs the new stable-name check here.
+    if(versioned&&effectStableName(properties.delivery_action)!==effectStableName(item.action))return undefined;
     return {...(versioned?{exact_version:true as const}:{}),action:effectAction(item.action),offering_id:item.offering_id,offering_revision:item.offering_revision,service_code:properties.service_code,
       title:properties.title,price_amount:properties.price_amount};
   }catch{return undefined;}

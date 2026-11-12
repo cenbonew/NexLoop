@@ -39,9 +39,9 @@ async function guard(simulation:boolean|undefined,answer?:(path:string,body:Reco
 const tool=(tools:readonly unknown[],name:string)=>tools.find(t=>(t as Tool).name===name) as Tool;
 
 describe('NX-041 S6b simulation Host tools',()=>{
-  it('the reply, incentive and outreach tools only record stand-in intents and answer as simulated output',async()=>{
+  it.each(['nexloop.enterprise.deliver','nexloop.enterprise.deliver:1','nexloop.enterprise.deliver:37'])('with enterprise %s, tools only record stand-in intents and answer as simulated output',async action=>{
     const {client,cmd,calls}=await guard(true);
-    const tools=client.toolsForRun(cmd,{incentive:true,outreach:true,planOutcome:true,enterprise:{action:'nexloop.enterprise.deliver',offering_id:'o',offering_revision:1,service_code:'s',title:'t',price_amount:'1'}});
+    const tools=client.toolsForRun(cmd,{incentive:true,outreach:true,planOutcome:true,enterprise:{action,offering_id:'o',offering_revision:1,service_code:'s',title:'t',price_amount:'1'}});
     const names=tools.map(t=>(t as Tool).name);
     expect(names).toEqual(['nexloop.plan.outcome','nexloop.incentive.issue','nexloop.outreach.send','nexloop.service.request','nexloop.service.find']);  // no enterprise delivery (no stand-in)
     expect(names.filter(n=>n!=='nexloop.plan.outcome').every(n=>/^Simulation world:/.test(tool(tools,n).description))).toBe(true);

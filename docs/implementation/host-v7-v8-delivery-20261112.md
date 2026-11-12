@@ -65,3 +65,30 @@ NX-040 仅提供 Host 局部本地证据。AT-024/AT-027 的整体产品验收�
 ## 5. 局限与调度后续
 
 本候选停止在本地分支，不 push、不合 main、不连接服务器。现有 Python HTTP 的精确版本输入缺口须另行实现和审查；在此之前 v8 effects 调用 fail closed，不具备端到端可用性。无部署、持久迁移、`:N` 准入、REAL_DISPATCH、真实外发、release/tag 的新授权；Role 恢复产品策略及封停清理不在本线范围。
+
+## 6. 批次 172 model surface 最小回归修复
+
+修复基线固定为 `17206de288e9bced18d4032def195a0ef17f0b99`，不改写该提交；本节对应其后继本地候选。
+
+CI 首败为 `tests/test_model_surface.py` 的 `test_every_run_kind_is_assembled`、`test_host_only_tools_are_still_offered_and_not_actions`，message_reply 缺少 enterprise.deliver/find。原测试用展示字段投影经过实际 Host/Pi 装配测量模型工具面，不负责完整 pack 准入；本线此前把 offering 的 `delivery_action` 比较加到了 legacy `enterpriseSupply` 展示提取中，导致已有投影被拒绝。simulation 分支仍保持 stand-in 隔离，不是本次缺工具的来源。
+
+仅恢复 legacy 展示提取的既有行为；v8 的 stable_name 比较、精确版本与完整 pack 准入校验不变。未改 `tests/test_model_surface.py`、其 Python helper 或模型预算要求。模拟路径仍在构建真实 enterprise 工具前排除 simulation；模拟测试扩大到无版本占位、`:1`、`:37` 三类 enterprise 输入，均只暴露并调用 stand-in 工具，不提供 enterprise.deliver/find。
+
+实际证据（本节命令均沿用 §3 的 Node24、项目 Python、OpenSSL3、Git2.52 PATH）：
+
+```sh
+pnpm --filter @nexloop/agent-host build
+PYTHONPATH=packages/eios-core/src:tests python -m pytest -q -n 2 tests/test_model_surface.py --junitxml=.ci-results/host-model-surface-first.xml
+pnpm exec vitest run apps/agent-host/test/context-v8.test.ts --maxWorkers 2 --reporter default --reporter junit --outputFile.junit=.ci-results/host-model-surface-regression-red.xml
+pnpm exec vitest run apps/agent-host/test/context-v8.test.ts apps/agent-host/test/nx041-sim-host-tools.test.ts --maxWorkers 2 --reporter default --reporter junit --outputFile.junit=.ci-results/host-model-surface-targeted.xml
+pnpm exec vitest run apps/agent-host/test --exclude 'docs/tmp/**' --maxWorkers 2 --reporter default --reporter junit --outputFile.junit=.ci-results/host-model-surface-all-host.xml
+PYTHONPATH=packages/eios-core/src:tests python -m pytest -q -n 2 tests/test_model_surface.py --junitxml=.ci-results/host-model-surface-final.xml
+python scripts/generate_contracts.py --check
+```
+
+- 固定基线本地首次复现：30 passed / 2 failed，1.37s，与 CI 相同两项；启动 load1=4.669。
+- 新增回归用例先红：39 passed / 2 failed，0.766s，恰为 legacy v6/v7 展示投影；v8 缺失/错配 delivery_action 的负例通过。
+- 修复后定向：46 passed，1.07s；model surface 首次修复复核 32 passed，1.16s，启动 load1=6.793。
+- 最终完整 Host：48 文件、574 passed、0 failed/errors/skipped，33.04s；model surface：32 passed、0 failed/errors/skipped，1.26s；该轮启动 load1=6.285。Host build 成功，契约生成检查 50 canonical contracts 一致。首败、回归先红和最终 JUnit/log 均保留 ignored `.ci-results/`；固定候选四门扫描原始输出另存 `host-model-surface-final-prepush.log`。
+
+本修复不处理批次另一个 Role provider_state 失败，不改变 §2 的后端 wire/E2E 阻塞或任何冻结。只交本地候选，待 L6 独立复核。
