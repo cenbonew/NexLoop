@@ -3835,6 +3835,12 @@
         "ref": "4853388fa650e29d13c7d03334e5cc3c2f51e1a3",
         "summary": "批172修正版仅增加首次dispatch失败诊断，不改变执行/安全断言/时限/lease；L6接受诊断范围。原Role post-accept+model_surface39 passed/53.23s；缺key纯注入1 failed为预期红且诊断包含DB和独立provider账本，移除注入后真实PG单条1 passed/13.61s。不是首败复现或根因解除；只送含Host修补的新check，暂停merge，须完整CI与独立复审。",
         "recorded_at": "2026-11-12T18:03:45.569338+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "73dac9bda9fb2ac9fcfaa22a993ebf2807062084",
+        "summary": "Role preflight slice2a固定提交，L6局部条件PASS：仅owner-only共享严格READ/recipe/E验证及闭合reserve消息构造，不写attempt/Run/binding。干净固定HEAD109 passed/0 failed/errors/skipped、285.65s，load3.535/-n2；保留四轮夹具/epoch首败及4钩子变异目标失败。真实worker/typed claim/API reserve/原子issue/reconcile和完整D3未实现或未验收，收尾scan/输入归档另随短交付；不据此组生产迁移、部署或准入。",
+        "recorded_at": "2026-11-12T18:31:24.934341+08:00"
       }
     ]
   },
