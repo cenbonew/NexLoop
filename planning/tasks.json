@@ -3841,6 +3841,12 @@
         "ref": "73dac9bda9fb2ac9fcfaa22a993ebf2807062084",
         "summary": "Role preflight slice2a固定提交，L6局部条件PASS：仅owner-only共享严格READ/recipe/E验证及闭合reserve消息构造，不写attempt/Run/binding。干净固定HEAD109 passed/0 failed/errors/skipped、285.65s，load3.535/-n2；保留四轮夹具/epoch首败及4钩子变异目标失败。真实worker/typed claim/API reserve/原子issue/reconcile和完整D3未实现或未验收，收尾scan/输入归档另随短交付；不据此组生产迁移、部署或准入。",
         "recorded_at": "2026-11-12T18:31:24.934341+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "73dac9bda9fb2ac9fcfaa22a993ebf2807062084: slice2a final input and scan verification",
+        "summary": "L6补核关闭preflight局部收尾待项：20项overlay及3695基线文件吻合，3715运行输入未变，JUnit与固定HEAD扫描哈希匹配归档，最终四门扫描通过。补全此前“收尾scan/输入来源待归档”条件，不扩大owner-only局部PASS，不是生产组批或完整D3。typed claim下一切片仍在测试，未交最终HEAD。",
+        "recorded_at": "2026-11-12T19:00:15.624189+08:00"
       }
     ]
   },
