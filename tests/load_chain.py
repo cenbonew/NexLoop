@@ -373,27 +373,71 @@ def activate_runs(worker, count):
 
 
 def submit_like_the_host(call, limit_seconds, executor):
-    """One effect tool call under ADR-029c, as the Host makes it: each request keeps the limit; an ambiguous answer (no answer within
-    the limit, or 'unavailable') sends the same body once more; ambiguous again ends with runtime_effect_unavailable. A definite
-    refusal ends at once. The abandoned requests keep running on the guard (they are returned so the caller can wait for them)."""
+    """Test-only ADR-029c model using the Host's observed response deadline.
+
+    Each attempt starts before submission. Submission and waiter scheduling consume
+    its budget; even an already-completed answer observed late is ambiguous. This
+    is an observation-time model, not a claim that Python/Node timers are hard real
+    time. Abandoned guard work is drained by the caller before counting ledgers.
+    """
     from concurrent.futures import TimeoutError as Late
     from nexloop_eios.effect_intents import EffectIntentUnavailable
-    abandoned, timings, bodies = [], [], []
+    abandoned, timings, bodies, traces = [], [], [], []
+
+    def result(outcome, **fields):
+        return {'outcome': outcome, 'attempts': len(bodies), 'timings': timings,
+                'bodies': bodies, 'abandoned': abandoned, 'attempt_traces': traces, **fields}
+
     for attempt in (1, 2):
         body = dict(EFFECT_BODY)
         bodies.append(body)
         started = time.monotonic()
-        future = executor.submit(call, body)
+        deadline = started + limit_seconds
+        trace = {'attempt': attempt, 'submit_started_s': 0.0, 'deadline_s': limit_seconds}
+        traces.append(trace)
+
+        def observed_call(request_body, began=started, observation=trace):
+            observation['call_started_s'] = time.monotonic() - began
+            try:
+                return call(request_body)
+            finally:
+                observation['call_finished_s'] = time.monotonic() - began
+
+        future = executor.submit(observed_call, body)
+        trace['submit_return_s'] = time.monotonic() - started
+        future.add_done_callback(lambda _, began=started, observation=trace:
+                                 observation.update(future_done_s=time.monotonic() - began))
         try:
-            answer = future.result(timeout=limit_seconds)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise Late()
+            answer = future.result(timeout=remaining)
         except Late:
-            timings.append(time.monotonic() - started);abandoned.append(future);continue
+            elapsed = time.monotonic() - started
+            trace.update(wait_return_s=elapsed, outcome='timeout')
+            timings.append(elapsed);abandoned.append(future);continue
         except EffectIntentUnavailable:
-            timings.append(time.monotonic() - started);continue
+            elapsed = time.monotonic() - started
+            trace.update(wait_return_s=elapsed, outcome='unavailable')
+            timings.append(elapsed);continue
         except Exception as error:  # a definite refusal: explicit, never retried
-            timings.append(time.monotonic() - started)
-            return {'outcome': 'refused', 'code': type(error).__name__, 'attempts': attempt, 'timings': timings, 'bodies': bodies, 'abandoned': abandoned}
-        timings.append(time.monotonic() - started)
-        return {'outcome': 'ok' if attempt == 1 else 'ok_after_resend', 'receipt': answer['receipt'], 'attempts': attempt, 'timings': timings,
-                'bodies': bodies, 'abandoned': abandoned}
-    return {'outcome': 'runtime_effect_unavailable', 'attempts': 2, 'timings': timings, 'bodies': bodies, 'abandoned': abandoned}
+            elapsed = time.monotonic() - started
+            timings.append(elapsed)
+            # A refusal first observed after expiry was not available within the
+            # deadline either. Deadline wins; only an on-time refusal is definite.
+            if elapsed > limit_seconds:
+                trace.update(wait_return_s=elapsed, outcome='late_refusal', error_type=type(error).__name__)
+                abandoned.append(future)
+                continue
+            trace.update(wait_return_s=elapsed, outcome='refused', error_type=type(error).__name__)
+            return result('refused', code=type(error).__name__)
+        elapsed = time.monotonic() - started
+        timings.append(elapsed)
+        trace['wait_return_s'] = elapsed
+        if elapsed > limit_seconds:
+            trace['outcome'] = 'late_answer'
+            abandoned.append(future)
+            continue
+        trace['outcome'] = 'accepted'
+        return result('ok' if attempt == 1 else 'ok_after_resend', receipt=answer['receipt'])
+    return result('runtime_effect_unavailable')

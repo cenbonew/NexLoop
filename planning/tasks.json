@@ -3763,6 +3763,102 @@
         "ref": "tests/test_bootstrap.py; tests/test_function_copy_guard.py; tests/test_nx067_ceiling_guard_pg.py; tests/test_task_b_m2_1_pg.py; tests/test_effect_action_admissions_pg.py; tests/test_task_b_role_issuance_probe_pg.py; tests/test_task_b_role_r1_pg.py",
         "summary": "批次171集成本地复核：pytest -n 2 -q -p no:warnings，上列7文件173 passed，94.11秒；bootstrap/copy guard/ceiling/G1/并发/admissions/Role边界及R1对照通过。validator 81静态检查与publication零违规；先前系统Python缺zoneinfo仅准备脚本失败，改项目虚拟环境后完成。全量CI待排队，未部署。",
         "recorded_at": "2026-11-12T13:33:26.352104+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:queue/results/9e6c572d479f9c65134508270f9c4c91f878910f/attempt-1/result.json",
+        "summary": "批次171权威本地CI605首轮完整通过：9312 passed，0 failed/errors/skipped，全部阶段passed，2026-11-12 15:00:44 +08结束。取代候选证据中的“集成CI待运行”；仅代码集成验证，不是Role补项、Host后继兼容或真实stage验收。",
+        "recorded_at": "2026-11-12T07:00:44.433403Z"
+      },
+      {
+        "type": "commit",
+        "ref": "9e6c572d479f9c65134508270f9c4c91f878910f",
+        "summary": "批次171由控制器merge606于2026-11-12 15:01:19 +08合入。调度读回origin/main与github/main均为该SHA，本地主检出ff且ahead=0、干净。NX-040仍in_progress；A prime/全入口禁止后继准入及P5部署冻结保留。",
+        "recorded_at": "2026-11-12T07:01:19.090856Z"
+      },
+      {
+        "type": "commit",
+        "ref": "17206de288e9bced18d4032def195a0ef17f0b99",
+        "summary": "Host v7/v8限域候选：精确Action版本解析与受信activation透传，v7/v6兼容与模拟隔离；L6独立审查限域条件PASS。未改Python/SQL/契约/权限/部署；当前HTTP后端仍拒精确:N，真实v8集成blocked，禁止启用v8及后继准入；NX-040保持in_progress。",
+        "recorded_at": "2026-11-12T16:05:58.973535+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/host-v7-v8-delivery-20261112.md",
+        "summary": "Host候选本地48文件569 passed，0 failed/errors/skipped；五文件契约160 passed，50 canonical生成一致。保留模拟早拒绝与夹具trigger错配首败及工具链扫描首败；L6独立核验JUnit/hash。仅Host与契约局部测试，非AT-024/027整体验收，集成HEAD全量CI待运行；部署及准入冻结。",
+        "recorded_at": "2026-11-12T16:05:58.973535+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "a8c4d39fef3de596b499a118f8deea236d7afc5e",
+        "summary": "Role恢复inactive owner-core切片S1/S2整改，L6独立审查局部PASS：SQL阻断queued前代与其它未明预留，测试依赖可从精确9e6c572d基线及两个提交文件恢复。仅本地检查点，尚未集成；真实身份wrapper、原子Run+policy+attempt issue、完整恢复/D3未完成，NX-040保持in_progress。",
+        "recorded_at": "2026-11-12T16:31:19.265630+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/role-recovery-owner-core-slice1-20261112.md at a8c4d39fef3de596b499a118f8deea236d7afc5e",
+        "summary": "固定提交隔离复验12 passed/0 failed/errors/skipped，15.68秒，load7.862/-n2；真实双向Lock barrier与乱序/重放覆盖。旧SQL同基线负例1 failed，高load13.796拒启独立保留；dirty 7p降为历史不作验收。未注册catalog/接生产launcher/开放应用权限，清理封停、部署及准入冻结继续。",
+        "recorded_at": "2026-11-12T16:31:19.265630+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "042e28fa9e58b6d7924a083a5ba3b02bd6cf48ba",
+        "summary": "Role安全切片2接口差异设计，L6独立复审条件PASS，允许本地分片实现；先形成正常E/READ/current可恢复依赖，再严格签名preflight、typed claim、同gate原子issue及完整核对的无签发终态。TTL须沿真实客户端20秒/SQL25秒及proof expiry，不按文档30秒放宽。本提交仅文档、无新PG实现证据；完整D3/producer/真实注册/retention-erasure-restore仍未完成，不接生产launcher/清理，部署与准入冻结不变。",
+        "recorded_at": "2026-11-12T17:01:03.824431+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "5bee809443fcd139af025270ca3bae8e0a343b10",
+        "summary": "正常Role E/READ/current依赖独立净化提交，L6局部条件PASS，可供下一安全切片使用；固定干净基线+14源文件最终84 passed/189.07s，默认inactive SQL未加载路径15 passed，7钩子变异9目标失败/0错误。首轮79p/2f/1error保留。SQL未入catalog，仅隔离依赖；完整恢复/D3、真实register未完成，不单独生产发布。",
+        "recorded_at": "2026-11-12T17:32:02.798156+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "f69893ccefb59b03bd825236bb533f7135bd20b2: CI608 attempt-1 integration-parallel",
+        "summary": "批172首轮集成阶段8257项出现3失败：模型surface两项enterprise工具缺失已交Host线最小整改；Role post-accept unbound_query_id起始dispatch缺provider_state，同SHA单条复跑1p仍不足以消除首次失败，待独立诊断。整体CI尚未终态，禁止按局部729项通过宣称批次通过/合入；冻结不变。",
+        "recorded_at": "2026-11-12T17:32:02.798156+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:queue/results/f69893ccefb59b03bd825236bb533f7135bd20b2/attempt-1/result.json",
+        "summary": "批172首轮权威CI608于2026-11-12 17:34:16 +08终态failed：9356 passed/3 failed/0 errors/skipped，9359 total。两项模型surface回归已定位并修；第三项Role post-accept起始dispatch缺provider_state未解释，单条重跑成功不解除。main未合入，完整失败和所有重跑证据保留。",
+        "recorded_at": "2026-11-12T09:34:16.104359Z"
+      },
+      {
+        "type": "commit",
+        "ref": "ccc6424631db3f367ac9f03e3b5972839548b342",
+        "summary": "Host首败最小修复：仅恢复legacy供给展示，保留v8严格delivery_action/精确版本与simulation隔离；L6限域条件PASS。Host574项和原model_surface32项零失败/跳过，红绿对照与两组四门scan齐。待新集成HEAD权威check；第三项首败仍未解除，不据局部结果合并或启用v8。",
+        "recorded_at": "2026-11-12T18:02:28.744105+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "4853388fa650e29d13c7d03334e5cc3c2f51e1a3",
+        "summary": "批172修正版仅增加首次dispatch失败诊断，不改变执行/安全断言/时限/lease；L6接受诊断范围。原Role post-accept+model_surface39 passed/53.23s；缺key纯注入1 failed为预期红且诊断包含DB和独立provider账本，移除注入后真实PG单条1 passed/13.61s。不是首败复现或根因解除；只送含Host修补的新check，暂停merge，须完整CI与独立复审。",
+        "recorded_at": "2026-11-12T18:03:45.569338+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "73dac9bda9fb2ac9fcfaa22a993ebf2807062084",
+        "summary": "Role preflight slice2a固定提交，L6局部条件PASS：仅owner-only共享严格READ/recipe/E验证及闭合reserve消息构造，不写attempt/Run/binding。干净固定HEAD109 passed/0 failed/errors/skipped、285.65s，load3.535/-n2；保留四轮夹具/epoch首败及4钩子变异目标失败。真实worker/typed claim/API reserve/原子issue/reconcile和完整D3未实现或未验收，收尾scan/输入归档另随短交付；不据此组生产迁移、部署或准入。",
+        "recorded_at": "2026-11-12T18:31:24.934341+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "73dac9bda9fb2ac9fcfaa22a993ebf2807062084: slice2a final input and scan verification",
+        "summary": "L6补核关闭preflight局部收尾待项：20项overlay及3695基线文件吻合，3715运行输入未变，JUnit与固定HEAD扫描哈希匹配归档，最终四门扫描通过。补全此前“收尾scan/输入来源待归档”条件，不扩大owner-only局部PASS，不是生产组批或完整D3。typed claim下一切片仍在测试，未交最终HEAD。",
+        "recorded_at": "2026-11-12T19:00:15.624189+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "dd50f3636b9ffc8f1f424471622098b9c4844115",
+        "summary": "typed worker claim局部切片L6条件PASS：真实domain_worker HMAC/EXECUTE与当前worker authority/epoch/proof/租约回查，gate→feed→generation，legacy委托；固定HEAD干净回归78 passed/0 failed/errors/skipped，217.57s，load5.521/-n2，4项变异目标failure/0error，四门scan通过，首轮15p/1f保留。未发Run、无API reserve/原子issue/旧入口闭包/完整reconcile；owner seed不算真实producer，claim COMMIT丢回包非Run未知恢复证明。完整D3与部署/准入冻结保持。",
+        "recorded_at": "2026-11-12T19:30:53.493272+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "ci:queue/results/5539819e0fac5f70e59acdbbf37be4a97b7cf98a/attempt-1/result.json",
+        "summary": "批172-r2 CI610首轮于2026-11-12 19:31:23 +08终态failed：9363 passed/1 failed/0 errors/skipped。Host574及并行8257通过；heavy load-8观测2.07715s超2.0+.05，已独立测试侧deadline模型修补送审，未合main。旧608全部首败保留，未复现的Role首败不改记为已解释。",
+        "recorded_at": "2026-11-12T11:31:23.132665Z"
       }
     ]
   },
@@ -5289,6 +5385,24 @@
         "ref": "docs/release/run-nx064-effect-request-metrics.md",
         "summary": "stage p99 门槛 2026-11-08 结果 insufficient：host_op 0 个样本、guard_op 2 个，样本不足，未判定。执行：调度员；判定：调度员。",
         "recorded_at": "2026-11-08T01:39:17Z"
+      },
+      {
+        "type": "commit",
+        "ref": "31d4f58b6037049e6f213cea17883aacf787c097",
+        "summary": "测试侧绝对观察deadline模型修补；不改Host/后端/SQL或2秒配置、0.05容差、同体最多重试一次和账本断言。旧助手确定性5f/2p，修后最终8p；load-8与held-8各1p，16 Run各1intent/outbox/预算，held 8次受控同体重试。原CI610超限具体调度成因仍未证，局部通过不等于生产SLO或完整CI验收，待L6固定提交独审。",
+        "recorded_at": "2026-11-12T20:07:31.045419+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/nx064-deadline-model-correction-20261112.md",
+        "summary": "首轮实际load-8因新增Decimal诊断序列化失败22.42s，未跑后继held；仅修诊断序列化后load-8 1p23.29s/load5.1377，held-8 1p24.16s/load5.4165，-n0。纯可控时钟8p0.43s覆盖提交预算、晚观察成功/拒绝、timeout两次、准时拒绝。首败与每attempt时序/账本记录保留，不skip/调门槛。",
+        "recorded_at": "2026-11-12T20:07:31.045419+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "31d4f58b6037049e6f213cea17883aacf787c097",
+        "summary": "L6对固定测试侧deadline整改最终局部条件PASS，允许纳入批172-r3新check；独立核对8项模型、load-8和held-8账本/次数/2秒约束及首败记录。观察时间模型不证明生产SLO或旧77ms具体成因。新集成HEAD须出站重扫、完整CI和独审，不自动授权merge；全部冻结保持。",
+        "recorded_at": "2026-11-12T20:09:19.672953+08:00"
       }
     ]
   },

@@ -1,5 +1,5 @@
 /** Optional internal Run admission. Backend retains all EIOS/PG credentials. */
-import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation,ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
+import {CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7,CONTEXT_PROTOCOL_V8,effectAction,effectStableName,validateContextInput,validateContextProviderInput,validateContextAttestation,type ContextAttestation,ENTERPRISE_ACTION,type EffectSupply} from './context-input.js';
 import {request as httpsRequest} from 'node:https';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {type IncomingMessage} from 'node:http';
@@ -49,7 +49,7 @@ export function planRun(command:{run_id?:unknown;request_id?:unknown}|undefined,
   if(!command||typeof command.run_id!=='string'||command.request_id!=='plan-reevaluate-'+command.run_id||typeof input!=='string')return false;
   try{
     const pack=JSON.parse(input) as {schema_version?:unknown;user_statement?:unknown;current_event?:{kind?:unknown}|null};
-    return (pack.schema_version==='nexloop.context-pack.v6'||pack.schema_version==='nexloop.context-pack.v7')&&pack.user_statement===null&&pack.current_event?.kind==='service_trigger';
+    return (pack.schema_version==='nexloop.context-pack.v6'||pack.schema_version==='nexloop.context-pack.v7'||pack.schema_version==='nexloop.context-pack.v8')&&pack.user_statement===null&&pack.current_event?.kind==='service_trigger';
   }catch{return false;}
 }
 /** S85 (S83 batch 2): whether the Run's Context offers the incentive tool any use - an IncentiveOffering of this customer in open
@@ -66,17 +66,29 @@ export function incentiveOffered(input:unknown):boolean{
 export function enterpriseSupply(input:unknown):EffectSupply|undefined{
   if(typeof input!=='string')return undefined;
   try{
-    const supplies=(JSON.parse(input) as {effect_supplies?:unknown}).effect_supplies;
+    const pack=JSON.parse(input) as {schema_version?:unknown;effect_supplies?:unknown};
+    const supplies=pack.effect_supplies;
+    const versioned=pack.schema_version===CONTEXT_PROTOCOL_V8;
     if(!Array.isArray(supplies))return undefined;
-    const item=supplies.find(row=>row&&typeof row==='object'&&(row as {action?:unknown}).action===ENTERPRISE_ACTION) as Record<string,unknown>|undefined;
+    const item=supplies.find(row=>row&&typeof row==='object'&&(versioned?effectStableName((row as {action?:unknown}).action)==='nexloop.enterprise.deliver':(row as {action?:unknown}).action===ENTERPRISE_ACTION)) as Record<string,unknown>|undefined;
     const properties=item?.properties as Record<string,unknown>|undefined;
     if(!item||!properties||typeof item.offering_id!=='string'||typeof item.offering_revision!=='number'||typeof properties.service_code!=='string'
       ||typeof properties.title!=='string'||typeof properties.price_amount!=='string')return undefined;
-    return {action:ENTERPRISE_ACTION,offering_id:item.offering_id,offering_revision:item.offering_revision,service_code:properties.service_code,
+    // Legacy tool-surface projections contain display fields only. Admission validates
+    // the complete offering; only v8 needs the new stable-name check here.
+    if(versioned&&effectStableName(properties.delivery_action)!==effectStableName(item.action))return undefined;
+    return {...(versioned?{exact_version:true as const}:{}),action:effectAction(item.action),offering_id:item.offering_id,offering_revision:item.offering_revision,service_code:properties.service_code,
       title:properties.title,price_amount:properties.price_amount};
   }catch{return undefined;}
 }
 /** NX-037 synthetic protocol marker: the customer message asking for the enterprise delivery (deterministic-test only). */
+export function serviceAction(input:unknown){
+  if(typeof input!=='string')return undefined;
+  try{const pack=JSON.parse(input);if(pack.schema_version!==CONTEXT_PROTOCOL_V8)return undefined;
+    const action=effectAction(pack.current_constraints?.action);
+    return effectStableName(action)==='nexloop.service.request'?action:null;
+  }catch{return undefined;}
+}
 export const ENTERPRISE_MARKER='企业交付：';
 /** Whether this model request declares the tool: the context's own list, then each system message's additions and removals. */
 function offered(context:Context,name:string):boolean{
@@ -138,7 +150,7 @@ export class RuntimeHost{
     // delivery once, and only when this Run was offered the tool (its context's effect_supplies, which it has only with
     // nexloop.enterprise.deliver:1 in its credential); the guard and the effect Worker still recheck everything.
     if(config.deterministic_enterprise_deliver!==undefined&&(config.deterministic_enterprise_deliver!==true||config.runtime_profile!=='deterministic-test'
-      ||config.effect_tools!==true||config.deterministic_message_from_input!==true||config.context_input_protocol!==CONTEXT_PROTOCOL_V2))throw new Error('runtime configuration refused');
+      ||config.effect_tools!==true||config.deterministic_message_from_input!==true||(config.context_input_protocol!==CONTEXT_PROTOCOL_V2&&config.context_input_protocol!==CONTEXT_PROTOCOL_V8)))throw new Error('runtime configuration refused');
     // NX-031 D5: injected model latency, deterministic-test only (refused for any other profile) and only with a per-context
     // scripted protocol (message from input, plan outcome, fallback reply); it sleeps, it never changes a response.
     // NX-031 slice 3: one deterministic-test Host serves every Run kind of the load lane; each Run's protocol is the one its start
@@ -168,31 +180,31 @@ export class RuntimeHost{
     if(config.incentive_tool!==undefined&&(config.incentive_tool!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     // Outreach slice 5: the proactive message tool rides on the plan outcome tool (plan reevaluation Runs only).
     // K4h (owner: context C then A, Q2 plan Runs first): run-outcome 1.1 questions, off unless this key is exactly true; then the
-    // outcome tool must be on and the Host must read context-pack v7. A Run is offered the question only when it is a plan Run whose
-    // own pack declares v7; every other Run is offered 1.0 and a 1.1 body is refused before any request.
+    // outcome tool must be on and the Host must read context-pack v7 or v8. A Run is offered the question only when it is a plan Run whose
+    // own pack declares v7 or v8; every other Run is offered 1.0 and a 1.1 body is refused before any request.
     if(config.plan_question_tool!==undefined&&(config.plan_question_tool!==true||config.plan_outcome_tool!==true||config.effect_tools!==true
-      ||config.context_input_protocol!==CONTEXT_PROTOCOL_V7))throw new Error('runtime configuration refused');
+      ||(config.context_input_protocol!==CONTEXT_PROTOCOL_V7&&config.context_input_protocol!==CONTEXT_PROTOCOL_V8)))throw new Error('runtime configuration refused');
     if(config.outreach_tool!==undefined&&(config.outreach_tool!==true||config.effect_tools!==true||config.plan_outcome_tool!==true))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_message!==undefined&&(config.effect_tools!==true||typeof config.deterministic_effect_message!=='string'||[...config.deterministic_effect_message].length<1||[...config.deterministic_effect_message].length>8192))throw new Error('runtime configuration refused');
     if(config.deterministic_message_from_input!==undefined&&(config.deterministic_message_from_input!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     // NX-025: explicit synthetic plan-reevaluation protocol (test profile only; records a fixed run-outcome for the plan in the v6 pack).
     if(config.deterministic_plan_outcome!==undefined&&(!['no_action','action_intent'].includes(String(config.deterministic_plan_outcome))||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true
-      ||config.plan_outcome_tool!==true||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7&&!multi)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
+      ||config.plan_outcome_tool!==true||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7&&config.context_input_protocol!==CONTEXT_PROTOCOL_V8&&!multi)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined))throw new Error('runtime configuration refused');
     // NX-025 / ADR-023: explicit synthetic fallback-reply protocol (test profile only; one bound reply from the v6 message pack).
     if(config.deterministic_reply_once!==undefined&&(config.deterministic_reply_once!==true||config.runtime_profile!=='deterministic-test'||config.effect_tools!==true
-      ||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined
+      ||(config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7&&config.context_input_protocol!==CONTEXT_PROTOCOL_V8)||config.deterministic_message_from_input!==undefined||config.deterministic_effect_message!==undefined
       ||config.deterministic_plan_outcome!==undefined))throw new Error('runtime configuration refused');
-    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true&&config.deterministic_plan_outcome===undefined&&config.deterministic_reply_once===undefined)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
+    if(config.context_input_protocol!==undefined&&(![CONTEXT_PROTOCOL,CONTEXT_PROTOCOL_V2,CONTEXT_PROTOCOL_V3,CONTEXT_PROTOCOL_V4,CONTEXT_PROTOCOL_V5,CONTEXT_PROTOCOL_V6,CONTEXT_PROTOCOL_V7,CONTEXT_PROTOCOL_V8].includes(config.context_input_protocol as string)||(config.runtime_profile==='deterministic-test'&&config.deterministic_message_from_input!==true&&config.deterministic_plan_outcome===undefined&&config.deterministic_reply_once===undefined)||(config.runtime_profile==='deepseek-flash'&&config.effect_tools!==true)))throw new Error('runtime configuration refused');
     if(config.deterministic_effect_request_scope!==undefined&&(config.runtime_profile!=='deterministic-test'||config.deterministic_message_from_input!==true||config.effect_tools!==true))throw new Error('runtime configuration refused');
     const syntheticScope=config.deterministic_effect_request_scope===undefined?undefined:requestScope(config.deterministic_effect_request_scope);
-    if(config.deterministic_relationship_from_context!==undefined&&(config.deterministic_relationship_from_context!==true||config.runtime_profile!=='deterministic-test'||(config.context_input_protocol!==CONTEXT_PROTOCOL_V4&&config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7)||config.deterministic_message_from_input!==true))throw new Error('runtime configuration refused');
-    // Multi-protocol: no Host-wide protocol; each Run's pack is validated under its own declared protocol (v2 or v6 only).
-    const contextProtocol=multi?undefined:config.context_input_protocol===CONTEXT_PROTOCOL_V7?CONTEXT_PROTOCOL_V7:config.context_input_protocol===CONTEXT_PROTOCOL_V6?CONTEXT_PROTOCOL_V6:config.context_input_protocol===CONTEXT_PROTOCOL_V5?CONTEXT_PROTOCOL_V5:config.context_input_protocol===CONTEXT_PROTOCOL_V4?CONTEXT_PROTOCOL_V4:config.context_input_protocol===CONTEXT_PROTOCOL_V3?CONTEXT_PROTOCOL_V3:config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
-    const contextMode=multi||config.context_input_protocol===CONTEXT_PROTOCOL_V6||config.context_input_protocol===CONTEXT_PROTOCOL_V7||config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2||config.context_input_protocol===CONTEXT_PROTOCOL_V3||config.context_input_protocol===CONTEXT_PROTOCOL_V4||config.context_input_protocol===CONTEXT_PROTOCOL_V5;
-    const declared=(input:unknown)=>{if(typeof input!=='string')return undefined;try{const v=record(JSON.parse(input)).schema_version;return v===CONTEXT_PROTOCOL_V2||v===CONTEXT_PROTOCOL_V6||v===CONTEXT_PROTOCOL_V7?v:undefined;}catch{return undefined;}};
+    if(config.deterministic_relationship_from_context!==undefined&&(config.deterministic_relationship_from_context!==true||config.runtime_profile!=='deterministic-test'||(config.context_input_protocol!==CONTEXT_PROTOCOL_V4&&config.context_input_protocol!==CONTEXT_PROTOCOL_V6&&config.context_input_protocol!==CONTEXT_PROTOCOL_V7&&config.context_input_protocol!==CONTEXT_PROTOCOL_V8)||config.deterministic_message_from_input!==true))throw new Error('runtime configuration refused');
+    // Multi-protocol: no Host-wide protocol; each Run's pack is validated under its own declared protocol (v2 or the v6/v7/v8 family).
+    const contextProtocol=multi?undefined:config.context_input_protocol===CONTEXT_PROTOCOL_V8?CONTEXT_PROTOCOL_V8:config.context_input_protocol===CONTEXT_PROTOCOL_V7?CONTEXT_PROTOCOL_V7:config.context_input_protocol===CONTEXT_PROTOCOL_V6?CONTEXT_PROTOCOL_V6:config.context_input_protocol===CONTEXT_PROTOCOL_V5?CONTEXT_PROTOCOL_V5:config.context_input_protocol===CONTEXT_PROTOCOL_V4?CONTEXT_PROTOCOL_V4:config.context_input_protocol===CONTEXT_PROTOCOL_V3?CONTEXT_PROTOCOL_V3:config.context_input_protocol===CONTEXT_PROTOCOL_V2?CONTEXT_PROTOCOL_V2:CONTEXT_PROTOCOL;
+    const contextMode=multi||config.context_input_protocol===CONTEXT_PROTOCOL_V6||config.context_input_protocol===CONTEXT_PROTOCOL_V8||config.context_input_protocol===CONTEXT_PROTOCOL_V7||config.context_input_protocol===CONTEXT_PROTOCOL||config.context_input_protocol===CONTEXT_PROTOCOL_V2||config.context_input_protocol===CONTEXT_PROTOCOL_V3||config.context_input_protocol===CONTEXT_PROTOCOL_V4||config.context_input_protocol===CONTEXT_PROTOCOL_V5;
+    const declared=(input:unknown)=>{if(typeof input!=='string')return undefined;try{const v=record(JSON.parse(input)).schema_version;return v===CONTEXT_PROTOCOL_V2||v===CONTEXT_PROTOCOL_V6||v===CONTEXT_PROTOCOL_V7||v===CONTEXT_PROTOCOL_V8?v:undefined;}catch{return undefined;}};
     const runProtocol=(runId:string)=>multi?declared(this.activations.get(runId)?.input):contextProtocol;
     // K4c: a v7 Run (plan Runs) is recorded and authorized like a v6 Run; a v7-configured Host also serves v6 Runs.
-    const sixFamily=(protocol:string|undefined)=>protocol===CONTEXT_PROTOCOL_V6||protocol===CONTEXT_PROTOCOL_V7;
+    const sixFamily=(protocol:string|undefined)=>protocol===CONTEXT_PROTOCOL_V6||protocol===CONTEXT_PROTOCOL_V7||protocol===CONTEXT_PROTOCOL_V8;
     this.guard=new URL(String(config.guard_url));
     if(this.guard.protocol!=='https:'||this.guard.hostname!=='127.0.0.1'||!this.guard.port||Number(this.guard.port)<1024||Number(this.guard.port)>65535||this.guard.username||this.guard.password||this.guard.search||this.guard.hash||this.guard.pathname!=='/internal/v1/runtime/authorize')throw new Error('runtime guard refused');
     if(typeof config.guard_ca_file!=='string'||typeof config.guard_key_file!=='string')throw new Error('runtime guard files required');
@@ -412,7 +424,7 @@ export class RuntimeHost{
     const plan=(command:RunCommand)=>this.worldGroup==='simulation'?!messageRun(this.activations.get(command.run_id)?.input)
       :planRun(command,this.activations.get(command.run_id)?.input);
     this.adapter=new PiRuntimeAdapter({root,worldDirectories:this.worldGroup==='simulation',models:selection.models,model:selection.model,tools:[],toolsForRun:effects?command=>effects.toolsForRun(command,{planOutcome:config.plan_outcome_tool===true&&plan(command),
-      planQuestion:config.plan_question_tool===true&&plan(command)&&declared(this.activations.get(command.run_id)?.input)===CONTEXT_PROTOCOL_V7,incentive:config.incentive_tool===true&&(this.simulationContext||incentiveOffered(this.activations.get(command.run_id)?.input)),outreach:config.outreach_tool===true&&plan(command),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,modelFault:runId=>this.activations.get(runId)?.fault===true,
+      planQuestion:config.plan_question_tool===true&&plan(command)&&[CONTEXT_PROTOCOL_V7,CONTEXT_PROTOCOL_V8].includes(declared(this.activations.get(command.run_id)?.input)??''),incentive:config.incentive_tool===true&&(this.simulationContext||incentiveOffered(this.activations.get(command.run_id)?.input)),outreach:config.outreach_tool===true&&plan(command),serviceAction:serviceAction(this.activations.get(command.run_id)?.input),enterprise:enterpriseSupply(this.activations.get(command.run_id)?.input),replyEndsRun:config.runtime_profile!=='deterministic-test'&&messageRun(this.activations.get(command.run_id)?.input)}):undefined,costPolicy:selection.costPolicy,assertOwner,modelFault:runId=>this.activations.get(runId)?.fault===true,
       // A real model needs to be told that only tool calls act (10/16); the deterministic profiles script their turns.
       // NX-041 (L6 host-sim-context 3b): a simulation Host's Runs get the simulation instructions, never the real ones.
       ...(effects&&config.runtime_profile==='deepseek-flash'?{instructions:this.simulationContext?SIM_RUN_INSTRUCTIONS:RUN_INSTRUCTIONS}:{}),

@@ -13,7 +13,8 @@ export const CONTEXT_PROTOCOL_V6='nexloop.context-pack.v6';
 // K4c: v7 = v6 + evidence.human_answers (staff answers to a plan Run's question: statements, never facts; plan Runs only). A Host
 // configured for v7 reads v6 and v7 packs; one configured for v6 reads v6 only.
 export const CONTEXT_PROTOCOL_V7='nexloop.context-pack.v7';
-export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5|typeof CONTEXT_PROTOCOL_V6|typeof CONTEXT_PROTOCOL_V7;
+export const CONTEXT_PROTOCOL_V8='nexloop.context-pack.v8';
+export type ContextProtocol=typeof CONTEXT_PROTOCOL|typeof CONTEXT_PROTOCOL_V2|typeof CONTEXT_PROTOCOL_V3|typeof CONTEXT_PROTOCOL_V4|typeof CONTEXT_PROTOCOL_V5|typeof CONTEXT_PROTOCOL_V6|typeof CONTEXT_PROTOCOL_V7|typeof CONTEXT_PROTOCOL_V8;
 export type RelationshipItem={assessment_ref:string;revision:number;relation_type_ref:string|null;source_ref:string;target_ref:string;epistemic_kind:'hypothesis'|'user_statement';resolution_state:'resolved'|'awaiting_definition'|'unresolved';conclusion:string;valid_from:string;valid_to:string|null;source_message_ref:string|null;source_content_hash:string|null};
 export type RelationshipZone={current_statements:RelationshipItem[];evidence:RelationshipItem[]};
 export type ContextAttestation={artifact_ref:string;sha256:string;command_binding_digest:string};
@@ -59,7 +60,11 @@ export function validateContextAttestation(command:RunCommand,value:unknown):Con
 }
 export const ENTERPRISE_ACTION='nexloop.enterprise.deliver:1';
 /** ADR-030: an additional effect offering of a Message Run (today only the enterprise delivery). Not an authorization. */
-export type EffectSupply={action:typeof ENTERPRISE_ACTION;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string};
+export type EffectAction=`nexloop.service.request:${number}`|`nexloop.enterprise.deliver:${number}`;
+/** Only the two frozen effect families, with the v8 contract's exact version range. */
+export function effectAction(value:unknown):EffectAction{ return text(value,64,/^nexloop\.(service\.request|enterprise\.deliver):[1-9][0-9]{0,3}$/) as EffectAction; }
+export function effectStableName(value:unknown):string{return effectAction(value).split(':')[0]!;}
+export type EffectSupply={action:EffectAction;offering_id:string;offering_revision:number;service_code:string;title:string;price_amount:string;exact_version?:true};
 /** 0227: the operator persona section's exact shape (the contract's; SQL re-derives the values). */
 /** Outreach slice 5: the purposes a plan reevaluation Run may use and the marketing state (data only; every gate is SQL's at dispatch). */
 export function validateOutreach(value:unknown):void{
@@ -128,7 +133,7 @@ export function assertHumanAnswers(protocol:unknown,roleRun:boolean,pack:Record<
     for(const value of rows){
       const item=value as Record<string,unknown>;
       if(item&&(item.subsection==='human_answers'||String(item.ref).startsWith('nexloop:human_answer:')))
-        validateHumanAnswer(protocol===CONTEXT_PROTOCOL_V7&&roleRun,section,item);
+        validateHumanAnswer((protocol===CONTEXT_PROTOCOL_V7||protocol===CONTEXT_PROTOCOL_V8)&&roleRun,section,item);
     }
   }
 }
@@ -147,7 +152,12 @@ function validateHumanAnswer(v7:boolean,section:string,item:Record<string,unknow
   else fail();
 }
 
-export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>;effect_supplies?:EffectSupply[]}{
+export function validateContextInput(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol?:ContextProtocol){
+  return validateContextCore(input,untrustedCommand,untrustedAttestation,expectedProtocol,false);
+}
+// Versioned action semantics are private to a validated v8 envelope. Recursive core
+// checks keep the original exact resources; legacy entry points cannot opt into v8.
+function validateContextCore(input:unknown,untrustedCommand:unknown,untrustedAttestation:unknown,expectedProtocol:ContextProtocol|undefined,versioned:boolean):{body:string;run_id:string;relationship_context?:RelationshipZone;plans?:Array<{ref:string;plan_ref:string}>;effect_supplies?:EffectSupply[]}{
   const command=validateRunCommand(untrustedCommand);
   if(typeof input!=='string'||Buffer.byteLength(input,'utf8')>65536)return fail();
   let parsed:unknown;try{parsed=JSON.parse(input);}catch{return fail();}
@@ -162,7 +172,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(attestation.sha256!==createHash('sha256').update(input,'utf8').digest('hex')||canonicalContextJSON(pack)!==input)return fail();
     const base={...pack,schema_version:CONTEXT_PROTOCOL_V2};delete (base as Record<string,unknown>).relationship_context;
     const baseText=canonicalContextJSON(base);
-    const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V2);
+    const validated=validateContextCore(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V2,versioned);
     const zone=exact(pack.relationship_context,['current_statements','evidence']);
     if(!Array.isArray(zone.current_statements)||!Array.isArray(zone.evidence)||zone.current_statements.length+zone.evidence.length<1||zone.current_statements.length+zone.evidence.length>4)return fail();
     const seen=new Set<string>();
@@ -182,11 +192,13 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     }
     return {...validated,relationship_context:zone as RelationshipZone};
   }
-  if(protocol===CONTEXT_PROTOCOL_V6||protocol===CONTEXT_PROTOCOL_V7){
+  if(protocol===CONTEXT_PROTOCOL_V6||protocol===CONTEXT_PROTOCOL_V7||protocol===CONTEXT_PROTOCOL_V8){
     // v6 = frozen v2 core (validated below exactly as v2) + labelled, server-verified sections.
     // Everything here is data for the model; none of it is authority.
-    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V6&&expectedProtocol!==CONTEXT_PROTOCOL_V7)return fail();
+    if(expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V6&&expectedProtocol!==CONTEXT_PROTOCOL_V7&&expectedProtocol!==CONTEXT_PROTOCOL_V8)return fail();
     if(protocol===CONTEXT_PROTOCOL_V7&&expectedProtocol===CONTEXT_PROTOCOL_V6)return fail();
+    if(protocol===CONTEXT_PROTOCOL_V8&&expectedProtocol!==undefined&&expectedProtocol!==CONTEXT_PROTOCOL_V8)return fail();
+    versioned=protocol===CONTEXT_PROTOCOL_V8;
     const v7=protocol===CONTEXT_PROTOCOL_V7;
     // Optional v4 relationship section (message Runs only): validated by the v4 rules below.
     const withRelationships=Object.hasOwn(parsed as Record<string,unknown>,'relationship_context');
@@ -252,7 +264,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     const base=!roleRun?{schema_version:baseProtocol,...core,user_statement:pack.user_statement,...(withRelationships?{relationship_context:pack.relationship_context}:{}),...(withEffectSupplies?{effect_supplies:pack.effect_supplies}:{})}
       :{schema_version:baseProtocol,...core,role_binding:role!.role_binding,trigger_statement:pack.current_event,...(role!.role_policy===null?{}:{role_policy:role!.role_policy})};
     const baseText=canonicalContextJSON(base);
-    const validated=validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},baseProtocol);
+    const validated=validateContextCore(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},baseProtocol,versioned);
     const goalFact=(pack.formal_facts as Array<Record<string,unknown>>).find(row=>row.type==='Goal')!;
     if(goalRef!=='goal:'+goalFact.id+'@'+goalFact.revision)return fail();
     // NX-025: the Consumer's active plans (read-only open-work policy items, re-derived by SQL at bind).
@@ -287,7 +299,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(!includes(ceiling.consumer_ids,selected.consumer_id)||![ceiling,scope].every(p=>includes(p.goal_ids,facts.get('Goal'))&&includes(p.step_ids,facts.get('PlanStep'))))return fail();
     const base={...pack,schema_version:CONTEXT_PROTOCOL_V3};delete (base as Record<string,unknown>).role_policy;
     const baseText=canonicalContextJSON(base);
-    return validateContextInput(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V3);
+    return validateContextCore(baseText,command,{...attestation,sha256:createHash('sha256').update(baseText).digest('hex')},CONTEXT_PROTOCOL_V3,versioned);
   }
 
   if(protocol!==CONTEXT_PROTOCOL&&protocol!==CONTEXT_PROTOCOL_V2&&protocol!==CONTEXT_PROTOCOL_V3||expectedProtocol!==undefined&&protocol!==expectedProtocol)return fail();
@@ -324,7 +336,8 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
   const goal=/^goal:([a-f0-9]{64}):revision:([1-9][0-9]*):step:([1-9][0-9]*):control:([1-9][0-9]*)$/.exec(command.goal_version_ref);
   if(!goal||goal[1]!==facts.get('Goal')!.id||Number(goal[2])!==facts.get('Goal')!.revision||Number(goal[3])!==facts.get('PlanStep')!.revision||Number(goal[4])!==facts.get('EffectControl')!.revision)return fail();
   const constraints=exact(pack.current_constraints,['action','allow_effect','budget_units','reserved_units','valid_until','executor_principal']);
-  if(constraints.action!=='nexloop.service.request:1'||constraints.allow_effect!==true||integer(constraints.reserved_units,0)>integer(constraints.budget_units,0))return fail();
+  if(versioned)effectAction(constraints.action);
+  if((!versioned&&constraints.action!=='nexloop.service.request:1')||constraints.allow_effect!==true||integer(constraints.reserved_units,0)>integer(constraints.budget_units,0))return fail();
   text(constraints.executor_principal,512);
   const until=text(constraints.valid_until,64),date=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|\+00:00)$/.exec(until);
   if(!date||!Number.isFinite(Date.parse(until)))return fail();
@@ -337,7 +350,7 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(supply.provenance!=='eios:object:'+offering)return fail();
     const properties=exact(supply.properties,['service_code','title','delivery_action','content_kind','price_amount','currency','eligibility','allowed_guarantees','allowed_discounts','evidence_kind','active','valid_until']);
     text(properties.title,256);
-    if(properties.service_code!=='local.json-export'||properties.delivery_action!==constraints.action||properties.content_kind!=='json-message-export'||properties.price_amount!=='0'||properties.currency!=='CNY'||properties.eligibility!=='current_consumer_plan'||properties.evidence_kind!=='fsynced_json_export'||properties.active!==true||!Array.isArray(properties.allowed_guarantees)||properties.allowed_guarantees.length!==0||!Array.isArray(properties.allowed_discounts)||properties.allowed_discounts.length!==0)return fail();
+    if(properties.service_code!=='local.json-export'||(versioned?effectStableName(properties.delivery_action)!==effectStableName(constraints.action):properties.delivery_action!==constraints.action)||properties.content_kind!=='json-message-export'||properties.price_amount!=='0'||properties.currency!=='CNY'||properties.eligibility!=='current_consumer_plan'||properties.evidence_kind!=='fsynced_json_export'||properties.active!==true||!Array.isArray(properties.allowed_guarantees)||properties.allowed_guarantees.length!==0||!Array.isArray(properties.allowed_discounts)||properties.allowed_discounts.length!==0)return fail();
     const offeringUntil=text(properties.valid_until,64),offerDate=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|\+00:00)$/.exec(offeringUntil);
     if(!offerDate||!Number.isFinite(Date.parse(offeringUntil)))return fail();
     const calendarDate=new Date(offeringUntil),parts=[calendarDate.getUTCFullYear(),calendarDate.getUTCMonth()+1,calendarDate.getUTCDate(),calendarDate.getUTCHours(),calendarDate.getUTCMinutes(),calendarDate.getUTCSeconds()];
@@ -348,17 +361,17 @@ export function validateContextInput(input:unknown,untrustedCommand:unknown,untr
     if(!Array.isArray(pack.effect_supplies)||pack.effect_supplies.length<1||pack.effect_supplies.length>4)return fail();
     effectSupplies=pack.effect_supplies.map(item=>{
       const row=exact(item,['action','offering_id','offering_revision','binding_id','binding_revision','provenance','properties']);
-      if(row.action!==ENTERPRISE_ACTION)return fail();
+      if(versioned?effectStableName(row.action)!=='nexloop.enterprise.deliver':row.action!==ENTERPRISE_ACTION)return fail();
       const offering=text(row.offering_id,64,hex64),revision=integer(row.offering_revision);text(row.binding_id,64,hex64);integer(row.binding_revision);
       if(row.provenance!=='eios:object:'+offering)return fail();
       const properties=exact(row.properties,['service_code','title','delivery_action','content_kind','price_amount','currency','eligibility','allowed_guarantees','allowed_discounts','evidence_kind','active','valid_until']);
       const title=text(properties.title,256),code=text(properties.service_code,80,/^enterprise\.[a-z0-9][a-z0-9.-]{0,62}$/),price=text(properties.price_amount,16,/^(0|[1-9][0-9]{0,11})(\.[0-9]{1,2})?$/);
-      if(properties.delivery_action!==ENTERPRISE_ACTION||properties.content_kind!=='enterprise-delivery'||properties.currency!=='CNY'||properties.eligibility!=='current_consumer_plan'
+      if((versioned?effectStableName(properties.delivery_action)!==effectStableName(row.action):properties.delivery_action!==ENTERPRISE_ACTION)||properties.content_kind!=='enterprise-delivery'||properties.currency!=='CNY'||properties.eligibility!=='current_consumer_plan'
         ||properties.evidence_kind!=='enterprise_receipt'||properties.active!==true||!Array.isArray(properties.allowed_guarantees)||properties.allowed_guarantees.length!==0
         ||!Array.isArray(properties.allowed_discounts)||properties.allowed_discounts.length!==0||!Number.isFinite(Date.parse(text(properties.valid_until,64))))return fail();
-      return {action:ENTERPRISE_ACTION,offering_id:offering,offering_revision:revision,service_code:code,title,price_amount:price};
+      return {...(versioned?{exact_version:true as const}:{}),action:effectAction(row.action),offering_id:offering,offering_revision:revision,service_code:code,title,price_amount:price};
     });
-    if(new Set(effectSupplies.map(item=>item.action)).size!==effectSupplies.length)return fail();
+    if(new Set(effectSupplies.map(item=>effectStableName(item.action))).size!==effectSupplies.length)return fail();
   }
   if(protocol===CONTEXT_PROTOCOL_V3){
     const role=exact(pack.role_binding,['binding','definition','definition_provenance','mapping_provenance','grants_authority']);

@@ -56,7 +56,25 @@ def test_recovery_current_authority_and_atomicity(role_runtime_plan,admin,tmp_pa
         worker=backend.authenticate(plan['executor_token'],world='real')
         with effect_provider(tmp_path/'boundary-provider.sqlite') as provider:
             dispatcher=EffectDispatcher(worker,HttpEffectProvider(EffectProviderConfiguration(provider.origin,test_loopback_http=True,timeout=1)),lease_seconds=3)
-            assert dispatcher.run_once()['provider_state']=='accepted'
+            first_dispatch=dispatcher.run_once()
+            if 'provider_state' not in first_dispatch:
+                # Preserve the first result: this is diagnosis, never a retry or a synthesized acceptance.
+                diagnostic={'dispatch_result':first_dispatch}
+                try:
+                    diagnostic['database']=admin.execute(
+                        'select clock_timestamp(),i.state,o.state,o.fence,o.lease_until '
+                        'from runtime.nexloop_effect_intents i left join runtime.nexloop_effect_outbox o '
+                        'on o.intent_id=i.intent_id where i.intent_id=%s',(intent,)).fetchone()
+                except Exception as exc:
+                    diagnostic['database_error_type']=type(exc).__name__
+                try:
+                    snapshot=provider.control('snapshot')
+                    diagnostic['provider']={'effects':snapshot['effects'],
+                        'requests':[(row[0],row[2]) for row in snapshot['requests']]}
+                except Exception as exc:
+                    diagnostic['provider_error_type']=type(exc).__name__
+                pytest.fail('initial dispatch was not accepted: '+repr(diagnostic))
+            assert first_dispatch['provider_state']=='accepted',first_dispatch
             plan['end_role'](plan['runs'][0].run_id);provider.control('fulfill',intent_id=intent);time.sleep(3.1)
             # Withhold independent recovery only; GET observation must still persist.
             original=EffectExecutionPort.reconcile_effect_receipt
