@@ -65,3 +65,9 @@ R1：`.venv/bin/python local-only/l7-replacement-m21/run-r1-comparison.py` 首�
 - G1 运行单只在本地验证。未核实 stage 的租户清单与可 SET ROLE 的维护连接；缺少授权连接时应 blocked，不得临时授予 owner、改 RLS 或使用超级用户代替集成。报错不等于零。
 - P5 r2/§6/§7 没有本轮新证据，部署冻结持续；没有连接服务器、迁移持久环境、手动准入实际租户、切 REAL_DISPATCH、真实外发、push、合 main、公开 release/tag。
 - 替代 L6 已给 11:47 阶段 blocked（非最终 PASS），本轮按 R1 补归因；最终复审仍待进行，本候选不能自判正式 PASS 或自行组批。
+
+## G1 hash 追溯补正
+
+旧 `g1_sql_sha256=dd1c439a…` 的准确算法是 `text.split('```sql',1)[1].split('```',1)[0]`，保留 fence 后的一个 LF；测试使用 `re.search(r'```sql\n(.*?)```', text, re.S)[1]`，结果为 `d2e20c3c…`。UTF-8、无 BOM、不做 strip/dedent/换行归一化。两份输入为1367/1366字节，逐字节验证旧输入恰为一个 LF 加测试输入。旧字段及原记录保留，不抹去证据错误。
+
+`task-b-m21-g1-input/` 保存两份原始SQL字节、完整hash/算法/0ce9c43a来源及可重现verify.py。命令 `.venv/bin/python docs/implementation/task-b-m21-g1-input/verify.py` 通过；原G1命令补跑1 passed/7.92s。没有修改运行单、业务SQL、测试或产品代码；779项回归仍仅对应原受审输入，本提交只补证据。旧reviewed-file-hashes.json是过程快照，其四项旧hash不得作为最终HEAD证据；最终覆盖范围以原交付JSON逐项hash及此次补正为准。未重跑重型回归，未扩展Role/M2.2。

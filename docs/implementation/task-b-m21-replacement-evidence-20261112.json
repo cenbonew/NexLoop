@@ -499,5 +499,14 @@
     "local-only/l7-replacement-m21/definer-search-path.log": "4b10539d28100e86f78022121f892d6352f7ab3e0537cc5a476d65e7d8069e25",
     "local-only/l7-replacement-m21/precommit-scan.log": "fe0d3e7f4aa100aa50cfde3a75fb7236f92d89d85d41e73bdf410c1e28e9ee51",
     "local-only/l7-replacement-m21/precommit-scan-retry.log": "57a19b4c0dd9b54d8d8638916d4985c8e710c9763bbb37392204ab1c0f1b9192"
+  },
+  "g1_input_hash_clarification": {
+    "original_recorded_field_preserved": true,
+    "original_field_algorithm": "split fence retains leading LF",
+    "actual_test_input_sha256": "d2e20c3cb017471252f79b23e24faaef54ba2b0566580135a4ecf59d45a3ea01",
+    "comparison": "docs/implementation/task-b-m21-g1-input/comparison.json",
+    "verification_command": ".venv/bin/python docs/implementation/task-b-m21-g1-input/verify.py",
+    "followup_g1": "1 passed in 7.92s; same original test; no SQL or test edits",
+    "reviewed_head": "0ce9c43afc342aeb7ee6263c3d26bb9a1ef47c3b"
   }
 }

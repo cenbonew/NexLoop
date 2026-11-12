@@ -1,0 +1,13 @@
+{
+  "reviewed_head": "0ce9c43afc342aeb7ee6263c3d26bb9a1ef47c3b",
+  "encoding": "UTF-8 without BOM; no normalization; source read_bytes().decode(\"utf-8\")",
+  "legacy_algorithm": "text.split('```sql',1)[1].split('```',1)[0]",
+  "test_algorithm": "re.search(r'```sql\\n(.*?)```',text,re.S)[1]",
+  "legacy_sha256": "dd1c439a3ad2269b0eb1c891d01107aa3007af0c9d9b40313920d06713c37411",
+  "test_sha256": "d2e20c3cb017471252f79b23e24faaef54ba2b0566580135a4ecf59d45a3ea01",
+  "legacy_bytes": 1367,
+  "test_bytes": 1366,
+  "exact_difference": "legacy == b\"\\n\" + test; one leading LF only",
+  "source_sha256": "9a7e83cea3c081c9b1ab4e5fa2e1249d802d2733571b9a682cd63ef797a6248f",
+  "behavior_changed": false
+}
