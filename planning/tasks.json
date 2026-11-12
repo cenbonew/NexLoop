@@ -3799,6 +3799,12 @@
         "ref": "docs/implementation/role-recovery-owner-core-slice1-20261112.md at a8c4d39fef3de596b499a118f8deea236d7afc5e",
         "summary": "固定提交隔离复验12 passed/0 failed/errors/skipped，15.68秒，load7.862/-n2；真实双向Lock barrier与乱序/重放覆盖。旧SQL同基线负例1 failed，高load13.796拒启独立保留；dirty 7p降为历史不作验收。未注册catalog/接生产launcher/开放应用权限，清理封停、部署及准入冻结继续。",
         "recorded_at": "2026-11-12T16:31:19.265630+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "042e28fa9e58b6d7924a083a5ba3b02bd6cf48ba",
+        "summary": "Role安全切片2接口差异设计，L6独立复审条件PASS，允许本地分片实现；先形成正常E/READ/current可恢复依赖，再严格签名preflight、typed claim、同gate原子issue及完整核对的无签发终态。TTL须沿真实客户端20秒/SQL25秒及proof expiry，不按文档30秒放宽。本提交仅文档、无新PG实现证据；完整D3/producer/真实注册/retention-erasure-restore仍未完成，不接生产launcher/清理，部署与准入冻结不变。",
+        "recorded_at": "2026-11-12T17:01:03.824431+08:00"
       }
     ]
   },
