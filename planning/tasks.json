@@ -3745,6 +3745,24 @@
         "ref": "deaaed5919c7",
         "summary": "第 126 批：schema_only 模板是 NX-040 运行单第 0 步的入口（见 NX-038 同批条目）；执行 L7，判定 L6。",
         "recorded_at": "2026-11-07T16:59:42+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "3b95ee2f3018406d3ff1a4acd722f73f328ce5b3",
+        "summary": "批次171候选：效应Action版本选择贯穿message/fallback签发、bind、intent和投递，追加0453；L6于2026-11-12限域条件PASS。Role后继签发仍待补项；禁止所有入口准入后继版本，A prime保留。本条不是部署或NX-040完成证明。",
+        "recorded_at": "2026-11-12T13:30:58.669226+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/implementation/task-b-m21-replacement-evidence-20261112.json",
+        "summary": "候选本地隔离PG定向回归79个唯一文件779 passed，0 failed/errors/skipped；首轮775 passed/4个证书工具链errors保留，固定OpenSSL后完整重跑。G1输入提取相差首LF的追溯与补跑1 passed已完成；真实stage与完整产品验收未执行。执行L7，独立判定L6；集成CI待运行。",
+        "recorded_at": "2026-11-12T13:30:58.669226+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "tests/test_bootstrap.py; tests/test_function_copy_guard.py; tests/test_nx067_ceiling_guard_pg.py; tests/test_task_b_m2_1_pg.py; tests/test_effect_action_admissions_pg.py; tests/test_task_b_role_issuance_probe_pg.py; tests/test_task_b_role_r1_pg.py",
+        "summary": "批次171集成本地复核：pytest -n 2 -q -p no:warnings，上列7文件173 passed，94.11秒；bootstrap/copy guard/ceiling/G1/并发/admissions/Role边界及R1对照通过。validator 81静态检查与publication零违规；先前系统Python缺zoneinfo仅准备脚本失败，改项目虚拟环境后完成。全量CI待排队，未部署。",
+        "recorded_at": "2026-11-12T13:33:26.352104+08:00"
       }
     ]
   },

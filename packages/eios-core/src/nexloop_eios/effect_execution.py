@@ -260,7 +260,7 @@ class EffectExecutionPort:
             run=_identity(db,metadata['_run_digest'],self.session.world)
         if run.run_context is None or run.run_context.run_id!=metadata['origin_run_id']:raise ValueError()
         proof,_=self._proof(run,_send(metadata))
-        payload=canonical_payload({'verb':'find','intent_id':metadata['intent_id'],'action_version':1})
+        payload=canonical_payload({'verb':'find','intent_id':metadata['intent_id'],'action_version':metadata['action_definition']['version']})
         claims={'protocol':'nexloop-effect-intent-v1','key_id':self.signer.key_id,**proof,
             'parameters_digest':hashlib.sha256(payload.encode()).hexdigest()}
         text=canonical_payload(claims)

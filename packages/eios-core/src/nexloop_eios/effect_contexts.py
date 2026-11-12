@@ -106,6 +106,18 @@ class EffectContextRegistrar:
         if type(version) is not int or version<1:raise EffectContextUnavailable('effect context unavailable')
         return version
 
+    def _effect_version(self,db,verb,payload):
+        """The effect Action version to prove (option B, §2.4 step 4): chosen in SQL on the bind's own transaction for the Consumer's
+        current version (an admitted successor, else :1 while A' proves it). The registrar command recomputes it and refuses any
+        other (M2-a), so a wrong choice is refused, never widened."""
+        from psycopg.types.json import Jsonb
+        resource=db.execute('select authz.nexloop_effect_action_resource_for(%s,%s,%s,%s,%s)',
+            (self.session.token_digest,self.session.world,verb,Jsonb(payload),self.action)).fetchone()[0]
+        prefix='eios:action:'+self.action+':'
+        if type(resource) is not str or not resource.startswith(prefix) or not re.fullmatch('[1-9][0-9]{0,3}',resource[len(prefix):]):
+            raise EffectContextUnavailable('effect context unavailable')
+        return int(resource[len(prefix):])
+
     def _execute(self,*,verb,payload,executor_session,run_session=None,db=None):
         if db is None:
             # Q3: the version choice and the registration share one transaction (one connection).
@@ -117,6 +129,7 @@ class EffectContextRegistrar:
         try:
             action=CONFIGURE if verb=='configure' else BIND
             version=self._version(db,verb,{'verb':verb,**payload})
+            effect_version=self._effect_version(db,verb,{'verb':verb,**payload})
             definition,capability,schemas=PostgresActionDefinitionReader(self.pool,self.session,self.signer).get_with_schemas(action,version)
             g=definition.governance
             if g.approval_mode.value!='none' or g.risk_level.value!='low' or g.policy_refs or definition.preconditions or definition.parameters:raise ValueError()
@@ -126,10 +139,10 @@ class EffectContextRegistrar:
             for session in (executor_session,run_session):
                 if session is not None and (session.world!=self.session.world or session.authentication.tenant_id!=self.session.authentication.tenant_id):raise ValueError()
             # Validate current actual published effect contract, not a label.
-            PostgresActionDefinitionReader(self.pool,executor_session,self.signer).get(self.action,1)
+            PostgresActionDefinitionReader(self.pool,executor_session,self.signer).get(self.action,effect_version)
             if run_session is not None:
                 if run_session.run_context is None:raise ValueError()
-                PostgresActionDefinitionReader(self.pool,run_session,self.signer).get(self.action,1)
+                PostgresActionDefinitionReader(self.pool,run_session,self.signer).get(self.action,effect_version)
             payload={'verb':verb,**payload}
             schema=definition.model_dump(mode='json')['input_schema']
             if schema!=registrar_schema(verb):raise ValueError()
@@ -153,14 +166,14 @@ class EffectContextRegistrar:
                 if reservation.terminal_outcome is not None and reservation.terminal_outcome.status is not M.TerminalOutcomeStatus.SUCCEEDED:raise ValueError()
                 def register():
                     proof=self._proof(self.session,'eios:action:'+action+':'+str(version));proof.pop('_decision_id')
-                    executor_proof=self._proof(executor_session,'eios:action:'+self.action+':1');executor_proof.pop('_decision_id')
+                    executor_proof=self._proof(executor_session,'eios:action:'+self.action+':'+str(effect_version));executor_proof.pop('_decision_id')
                     claims={**proof,'parameters_digest':hashlib.sha256(text_payload.encode()).hexdigest(),
                         'definition':definition.model_dump(mode='json'),'capability':capability.model_dump(mode='json'),
                         'definition_reference':definition.reference().model_dump(mode='json'),'schemas':[schema.model_dump(mode='json') for schema in schemas],
                         'capability_binding':capability.binding().model_dump(mode='json'),'claim_id':claim_id,
                         'executor_digest':executor_session.token_digest,'executor_proof':executor_proof}
                     if run_session is not None:
-                        run_proof=self._proof(run_session,'eios:action:'+self.action+':1');run_proof.pop('_decision_id')
+                        run_proof=self._proof(run_session,'eios:action:'+self.action+':'+str(effect_version));run_proof.pop('_decision_id')
                         claims.update(run_digest=run_session.token_digest,run_proof=run_proof)
                     text,signature=self._sign('nexloop-effect-context-v1',claims)
                     return db.execute('select authz.nexloop_effect_context_command(%s,%s,%s,%s,%s)',

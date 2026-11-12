@@ -150,10 +150,21 @@ class MessageRelayPort:
             self._diagnostic_failure=(getattr(self,'_diagnostic_stage','before_context'),type(error).__name__,governance_code(error))
             raise MessageRelayUnavailable() from None
 
+    def effect_resources(self,source,consumer_id):
+        """Option B M2.1: the effect Action resource of each effect Action for the Consumer's current version (an admitted successor,
+        else :1 while A' proves it), chosen in SQL before the Run is issued; the issuance command recomputes and requires them."""
+        if source._backend is not self.backend or source._session.run_context is not None: raise MessageRelayUnavailable()
+        with self.backend._pool.connection() as db:
+            found=db.execute('select authz.nexloop_effect_consumer_action_resources(%s,%s,%s)',
+                (source._session.token_digest,source._session.world,consumer_id)).fetchone()[0]
+        if type(found) is not dict or not all(type(v) is str and v.startswith('eios:action:'+k+':') for k,v in found.items()): raise MessageRelayUnavailable()
+        return found
+
     def source_proofs(self,source,actions=(EFFECT,)):
         if source._backend is not self.backend or source._session.run_context is not None: raise MessageRelayUnavailable()
+        if not actions or not actions[0].startswith('eios:action:nexloop.service.request:'): raise MessageRelayUnavailable()
         reader=PostgresActionDefinitionReader(self.backend._pool,source._session,self.backend._signer)
-        definition,capability=reader.get('nexloop.service.request',1)
+        definition,capability=reader.get('nexloop.service.request',int(actions[0].rsplit(':',1)[1]))
         port=RuntimeActivationPort(self.backend._pool,source._session,self.backend._signer)
         proofs=[port._proof(source._session,action) for action in actions]
         return source._session.token_digest,proofs,definition.model_dump(mode='json'),capability.model_dump(mode='json')
@@ -289,12 +300,13 @@ class MessageRelay:
                 'control_id':enterprise['control_id'],'submitter_principals':[principal],
                 'action_name':'nexloop.enterprise.deliver','state':'ready'},recipe,slot='enterprise.deliver:primary')
             if enterprise_step is not None:self._mark('enterprise_step_create')
+            effects=self.port.effect_resources(self.source,recipe['consumer_id'])
             assignment={'message_id':message_id,'consumer_id':recipe['consumer_id'],
                 'goal_id':goal,'goal_revision':1,'step_id':step,'step_revision':1,
                 'control_id':recipe['control_id'],'control_revision':recipe['control_revision'],
                 'consumer_revision':recipe['consumer_revision'],'source_principal':principal,
                 'executor_principal':executor,'recipe_digest':hashlib.sha256(canonical_payload(recipe).encode()).hexdigest(),
-                'allowed_actions':[EFFECT] if enterprise is None else [EFFECT,DELIVER],'state':'active','valid_until':recipe['valid_until']}
+                'allowed_actions':[effects['nexloop.service.request']] if enterprise is None else [effects['nexloop.service.request'],effects['nexloop.enterprise.deliver']],'state':'active','valid_until':recipe['valid_until']}
             assignment_id=self._create('MessageAssignment',message_id,assignment,recipe)
             self._mark('assignment_create')
             key=self.vault.message_key(item['tenant_id'],'real',message_id)

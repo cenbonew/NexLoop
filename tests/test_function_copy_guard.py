@@ -23,6 +23,7 @@ from support.schema_structured_property_edits import EDITS as SSP_EDITS
 from support.s_dup_edits import FEED as SDUP_FEED, RECORDER as SDUP_RECORDER
 from support.nx068_edits import EDITS as NX068_EDITS
 from support.alert_split_edits import EDITS as ALERT_SPLIT_EDITS
+from support.task_b_m2_edits import EDITS as TASK_B_M2_EDITS
 
 BASE = '0259'
 WORLD_NOW = (r'runtime\.nexloop_world_now\((?:t|p_tenant),p_world\)', 'clock_timestamp()')
@@ -59,6 +60,11 @@ REGISTRY = [
               'consumed and its taken_at is the observation time, monotonic per state; a body without snapshot_id keeps the old path; nothing else',
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
       for name, edits in ALERT_SPLIT_EDITS.items()],
+    # Option B M2.1 (task B, ADR-046 §3): effect Actions follow the Consumer version selected in SQL - registrar, intent, Run
+    # issuance, effect catalog and retirement (tests/support/task_b_m2_edits.py lists each substitution and its reason).
+    *[Allowed('task_b_m2_1_effect_action_version', name, 'option B M2.1: the effect Action version selected for the Consumer replaces the allow-list :1; nothing else',
+              tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(entry[1])))
+      for name, entry in TASK_B_M2_EDITS.items()],
     # NX-068 N1: the A' proof asks the single judgement authz.nexloop_effect_successor_admissible for each candidate (0446's tests).
     *[Allowed('nx068_publish_gate_smoke', name, "NX-068 N1: the proof's A' conditions move into authz.nexloop_effect_successor_admissible; same result; nothing else",
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))

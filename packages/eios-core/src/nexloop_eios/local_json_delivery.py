@@ -27,7 +27,7 @@ from nexloop_eios.action_definitions import PostgresActionDefinitionReader
 from nexloop_eios.authorization import _identity
 from nexloop_eios.assembly import verify_application_role
 from nexloop_eios.backend import open_backend
-from nexloop_eios.effect_execution import EffectExecutionPort, SEND, QUERY
+from nexloop_eios.effect_execution import EffectExecutionPort, SEND, QUERY, _send
 from nexloop_eios.effect_provider import EffectProviderConfiguration, HttpEffectProvider
 from nexloop_eios.postgres_artifacts import canonical_payload
 from nexloop_eios.private_configuration import read_private_text
@@ -140,12 +140,14 @@ class DeliveryAuthorityPort:
                     run = _identity(db, metadata['_run_digest'], 'real')
                 if run.run_context is None or run.run_context.run_id != metadata['origin_run_id']:
                     raise DeliveryUnavailable()
-                proof, unused = port._proof(run, SEND)
+                send = _send(metadata)  # option B M2.1: the intent's own effect Action version
+                if send.rsplit(':', 1)[0] != SEND.rsplit(':', 1)[0]: raise DeliveryUnavailable()
+                proof, unused = port._proof(run, send)
                 args = dict(origin_proof=proof, payload_digest=digest, parameters_text=text,
                     effect_fence=metadata['effect_fence'], attempt_revision=metadata['attempt_revision'])
-                wire = self._envelope(port, 'deliver', SEND, intent_id, **args)
+                wire = self._envelope(port, 'deliver', send, intent_id, **args)
                 with port.pool.connection() as db, db.transaction():
-                    actual = self._execute(db, port, 'deliver', SEND, intent_id, wire=wire)
+                    actual = self._execute(db, port, 'deliver', send, intent_id, wire=wire)
                     # Authoritative frozen parameters, never an HTTP identity or
                     # material chosen solely by the server's broader privilege.
                     if actual['parameters'] != parameters or actual['payload_digest'] != digest:
@@ -153,7 +155,7 @@ class DeliveryAuthorityPort:
                     yield actual
                     # This reuses original source proof: expiry while rendering
                     # must fail, rather than minting a fresh permit after effect.
-                    self._execute(db, port, 'deliver', SEND, intent_id, wire=wire)
+                    self._execute(db, port, 'deliver', send, intent_id, wire=wire)
         except DeliveryConflict: raise
         except Exception: raise DeliveryUnavailable() from None
 
@@ -182,14 +184,16 @@ class DeliveryAuthorityPort:
                 with port.pool.connection() as db, db.transaction():
                     metadata = self._execute(db, port, 'resolve', QUERY, intent)
                 origin = port._origin_proof(metadata)
+                send = _send(metadata)
+                if send.rsplit(':', 1)[0] != SEND.rsplit(':', 1)[0]: raise DeliveryUnavailable()
                 args = dict(origin_proof=origin, payload_digest=digest,
                     parameters_text=canonical_payload(parameters), effect_fence=metadata['effect_fence'],
                     attempt_revision=metadata['attempt_revision'])
                 authority = self
                 class OriginalGovernorPort(EffectExecutionPort):
                     def _execute(self, db, verb, *, target, **arguments):
-                        if verb != 'finalize' or target != SEND: raise DeliveryUnavailable()
-                        return authority._execute(db, port, 'recover_reserve', SEND, intent, **arguments)
+                        if verb != 'finalize' or target != send: raise DeliveryUnavailable()
+                        return authority._execute(db, port, 'recover_reserve', send, intent, **arguments)
                 governed = OriginalGovernorPort(port.pool, port.session, port.signer)
                 # Genuine original Governor callback and nested reservation in
                 # one transaction, persisted BEFORE any product generation.
@@ -197,13 +201,13 @@ class DeliveryAuthorityPort:
                     reserved, unused_claim = governed._reserve_in_transaction(db, metadata, 'finalize',
                         lease_seconds=30, **args)
                 args['attempt_revision'] = reserved['attempt_revision']
-                wire = self._envelope(port, 'recover_deliver', SEND, intent, **args)
+                wire = self._envelope(port, 'recover_deliver', send, intent, **args)
                 with port.pool.connection() as db, db.transaction():
-                    actual = self._execute(db, port, 'recover_deliver', SEND, intent, wire=wire)
+                    actual = self._execute(db, port, 'recover_deliver', send, intent, wire=wire)
                     if actual['parameters'] != parameters or actual['payload_digest'] != digest:
                         raise DeliveryUnavailable()
                     store.deliver(intent, digest, actual['parameters'], self.profile_digest)
-                    self._execute(db, port, 'recover_deliver', SEND, intent, wire=wire)
+                    self._execute(db, port, 'recover_deliver', send, intent, wire=wire)
                 # Real QUERY observation and existing atomic dual-authority
                 # finalizer. Revoke/expiry cannot become a fabricated success.
                 port.record_effect_observation(intent_id=intent, fence=metadata['effect_fence'],
