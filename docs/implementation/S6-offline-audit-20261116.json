@@ -85,5 +85,16 @@
   "database_remote_real_READ_deploy_admission_Host_e972_retry_executed": false,
   "shared_planning_changed": false,
   "warnings": "11 existing Pydantic schema-shadowing warnings per final run; no errors",
-  "limitations": "component and synthetic only; no PG, actor isolation or stage acceptance"
+  "limitations": "component and synthetic only; no PG, actor isolation or stage acceptance",
+  "at024_judgment_boundary": {
+    "conflict": {
+      "planning/acceptance-tests.json": "负责人最终判定",
+      "docs/release/run-nx040-stage.md": "写为L6判定"
+    },
+    "owner_decision_changing_final_judge": "none recorded",
+    "current_handling": "负责人待判，L6技术复核",
+    "executor": "调度员",
+    "source_review": "2363b593 L6源码PASS，不是AT-024最终验收",
+    "planning_and_acceptance_status_changed": false
+  }
 }

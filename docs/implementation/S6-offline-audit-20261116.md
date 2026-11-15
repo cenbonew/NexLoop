@@ -13,7 +13,9 @@ live `planning/tasks.json` 中 NX-038/039/040 均为 `in_progress`；`planning/a
 | AT-048 | `attribution.split_cases`、E5 `check_bundle/replay_l0`；0286 consumer leakage 与0303性能修正；运行单 at048 | 按消费者簇重分组，冻结评估包再次拒绝跨侧同簇；近重复/服务端消费者推导另有 `test_at048_consumer_leakage_pg.py` | 直接复用现存 E4 分组用例（40个 seed）及 E5 BundleLeak 用例，无新增重复测试。PG 与 stage 泄漏/冻结留出验证仍未执行 |
 | NX-040 / AT-024 | `evolution/schema_compat.py` F1、`schema_gates.py` G9–G13；0252–0254；`run-nx040-stage.md` | design §4.4/§5：后继对象引用只允许版本变化、定义与权限分开；D22 首批全人工发布。D23 后来的开放输入例外已由现有工具回归实现，不在本批重做。ADR-046 A′/准入冻结不变 | 修复下述 F1 引用身份遗漏；运行现存 schema/F4 纯回归。没有修改 SQL/授权/发布入口；不能据此宣称实际发布可越权或完整 AT-024 已通过 |
 
-三个运行单共用演进主体、预算与合成窗口；schema_only/负责人指定模板不替代演进轨迹验收。`run-nx040-stage.md` 的共用总序把删除、语义发布/回退和可选正式 Schema 发布分开，保持原负责人/调度/L6边界。本批不运行其中任何命令、不读取凭据。旧文档中的迁移/部署数字只作历史，未当作当前目标事实。
+**AT-024 判定人冲突**：`planning/acceptance-tests.json` 的既有证据指定最终判定人为负责人，而 `docs/release/run-nx040-stage.md` 开头及证据段写为 L6。目前没有负责人变更最终判定人的裁定，不能以运行单文字或本批源码 PASS 自动改派；暂按**负责人待判、L6 技术复核**处理，调度员仍为执行人。2363b593 的 L6 源码 PASS 仅覆盖本地修复，不是 AT-024 最终验收。本次只在审计中显式记录冲突，不改共享 planning 或验收状态。
+
+三个运行单共用演进主体、预算与合成窗口；schema_only/负责人指定模板不替代演进轨迹验收。`run-nx040-stage.md` 的共用总序把删除、语义发布/回退和可选正式 Schema 发布分开，执行、技术复核与最终判定分开，AT-024 以上述冲突说明为准。本批不运行其中任何命令、不读取凭据。旧文档中的迁移/部署数字只作历史，未当作当前目标事实。
 
 ## 实际发现与修复
 
