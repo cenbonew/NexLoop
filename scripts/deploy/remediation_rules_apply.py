@@ -36,7 +36,8 @@ def main(argv=None, out=sys.stdout, window=configurator_window, publish=publish_
     p.add_argument('--check', action='store_true')
     a = p.parse_args(argv)
     try:
-        text = a.manifest.read_text(encoding='utf-8')
+        # Preserve CRLF too: the digest and publication must use the file's exact UTF-8 bytes.
+        text = a.manifest.read_bytes().decode('utf-8')
         manifest = validate_rules(json.loads(text))
         summary = {'manifest_version': manifest['manifest_version'], 'rules': len(manifest['rules']),
                    'manifest_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest()}
