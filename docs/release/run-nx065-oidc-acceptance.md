@@ -78,7 +78,7 @@ security find-generic-password -s <keychain 服务名> -a <负责人账号> -w |
 | `disable.sync.backchannel` | passed（`session_http` 为 `[200, 401]`）；`backchannel: false` 时为 gap `not_configured`；等满 `backchannel_wait_seconds` 仍是 200 记 failed |
 | `epoch.unlink_ends_sessions` | passed |
 | `epoch.relink_new_only` | passed（`[200, 401, 401]`） |
-| `groups.mapping` | passed（两次 CSRF 获取均为 200；`operator_action_http` 第一项为 2xx–4xx 且非 401/403，第二项为 Action 的 403，`narrowed` 为 true；CSRF 失败对应 null，5xx 不作权限阳性）；`group_mapping: null` 时为 gap `not_configured` |
+| `groups.mapping` | passed（两次 CSRF 获取均为 200；固定缺失 question 探针第一项必须为 409 / `not_allowed_in_state` / `details.reason=not_found`，`operator_probe_verified=true`；第二项为 Action 的 403，`narrowed=true`。裸404、408/422、重定向、限流或其他非预期状态均不算阳性；CSRF 失败对应 null）；`group_mapping: null` 时为 gap `not_configured` |
 | `disable.sync.max_session` | passed（`[200, 401]`） |
 
 10 项检查必须全部出现，缺一项记 `run.incomplete` 失败；中途出异常只记一行 `run.aborted`（只写异常类型），清理步骤仍逐个执行。退出码：0 表示全部通过且没有缺口（目标）；3 表示检查都通过但还有 not_configured 的缺口；1 表示有检查失败，原样记录，不要重跑覆盖；2 表示输入被拒。
@@ -101,3 +101,7 @@ run-nx058 第 4 节表里的第 6、7、8、10、11、12、13 条（负责人不
 - 第 4 节手工检查的逐条结果；
 - compose 提交的 hash、部署后 `origin/main` 的 hash；
 - 撤除做到了哪一步。
+
+### 离线判读补充（2026-11-16 P2）
+
+固定不存在 question 的受治理 handler（0397 `runtime.nexloop_governed_answer_human_question`）抛 `human question: not_found`/22023，经 HTTP 层映射为409、code=`not_allowed_in_state`、details.reason=`not_found`。此前404阳性 mock 不代表该 handler 的实际语义：`WorkbenchActions.run` 在 Action未发布、grant检查前也可 LookupError→404/not_found，故404→403仅保留为歧义负例。408/request_timeout及422/invalid_request也在 bound/run前产生。验收只输出状态码和固定布尔 `operator_probe_verified`，不输出或保存原响应正文、错误文字、trace_id或details。此为脚本判读修正，不修改身份/SQL/IdP策略，也不构成 stage 执行许可。

@@ -43,10 +43,12 @@ class Client:
 
 
 class GroupRun(A.Acceptance):
-    def __init__(self, initial_csrf=200, narrowed_csrf=200, initial_action=404):
+    def __init__(self, initial_csrf=200, narrowed_csrf=200, initial_action=409, initial_body=None, json_error=False, content_type='application/json'):
         config = {'origin': 'https://synthetic.invalid', 'group_mapping':
                   {'operator_group': 'synthetic-ops', 'reviewer_group': 'synthetic-review', 'expected_revision': 0}}
         self.client = Client((initial_csrf, narrowed_csrf), (initial_action, 403))
+        self.initial_body = initial_body if initial_body is not None else {'code': 'not_allowed_in_state', 'details': {'reason': 'not_found'}}
+        self.json_error, self.content_type = json_error, content_type
         idp = SimpleNamespace(set_group=lambda *args: None)
         super().__init__(config, '', idp, lambda: None, sleep=lambda _: None)
         self.logins = deque([Response(303), Response(303, location=A.FAILED), Response(303)])
@@ -55,7 +57,13 @@ class GroupRun(A.Acceptance):
     def sign_in(self, user):
         return self.client, self.logins.popleft(), {}
     def act(self, client, csrf, operation, body):
-        return Response(client.action.popleft())
+        response = Response(client.action.popleft(), self.initial_body)
+        response.headers['content-type'] = self.content_type
+        if self.json_error:
+            def malformed():
+                raise ValueError('synthetic malformed response')
+            response.json = malformed
+        return response
     def record(self, check, status, **observed):
         self.results.append({'check': check, 'status': status, **observed})
 
@@ -64,7 +72,8 @@ def test_groups_mapping_valid_action_then_refusal_passes():
     run = GroupRun()
     run.groups_mapping(None, None)
     assert run.results[0]['status'] == 'passed'
-    assert run.results[0]['operator_action_http'] == [404, 403]
+    assert run.results[0]['operator_action_http'] == [409, 403]
+    assert run.results[0]['operator_probe_verified'] is True
 
 
 @pytest.mark.parametrize('change', [{'narrowed_csrf': 403}, {'initial_csrf': 500}], ids=['csrf-is-not-grant-refusal', 'csrf-error-is-not-permission'])
@@ -142,3 +151,44 @@ def test_unconfigured_mechanism_is_gap_not_pass_and_epochs_need_exact_statuses()
     assert checks['groups.mapping']['status'] == 'gap'
     assert checks['epoch.unlink_ends_sessions']['session_http'] == [401, 401]
     assert checks['epoch.relink_new_only']['session_http'] == [200, 401, 401]
+
+
+@pytest.mark.parametrize('code', [408, 422])
+def test_pre_auth_request_error_is_not_operator_permission(code):
+    run = GroupRun(initial_action=code)
+    run.groups_mapping(None, None)
+    assert run.results[0]['status'] == 'failed'
+
+
+@pytest.mark.parametrize('code', [200, 204, 301, 302, 307, 400, 401, 403, 404, 410, 429])
+def test_non_probe_status_cannot_prove_permission(code):
+    run = GroupRun(initial_action=code)
+    run.groups_mapping(None, None)
+    assert run.results[0]['status'] == 'failed'
+    assert run.results[0]['operator_probe_verified'] is False
+
+
+def test_generic_404_not_found_then_403_is_ambiguous_not_positive():
+    # Same generic error as an unpublished Action (pre-grant LookupError).
+    run = GroupRun(initial_action=404, initial_body={'code': 'not_found', 'details': {}})
+    run.groups_mapping(None, None)
+    assert run.results[0]['operator_action_http'] == [404, 403]
+    assert run.results[0]['status'] == 'failed'
+
+
+@pytest.mark.parametrize('body', [{}, {'code': 'not_found', 'details': {'reason': 'not_found'}},
+                                 {'code': 'not_allowed_in_state', 'details': {}},
+                                 {'code': 'not_allowed_in_state', 'details': {'reason': 'other'}},
+                                 {'code': 'not_allowed_in_state', 'details': 'not_found'}, ['not_found']])
+def test_409_requires_exact_business_code_and_reason(body):
+    run = GroupRun(initial_body=body)
+    run.groups_mapping(None, None)
+    assert run.results[0]['status'] == 'failed'
+
+
+@pytest.mark.parametrize('change', [{'json_error': True}, {'content_type': 'text/html'}])
+def test_non_json_or_malformed_probe_fails_without_retaining_body(change):
+    run = GroupRun(**change)
+    run.groups_mapping(None, None)
+    assert run.results[0]['status'] == 'failed'
+    assert 'details' not in run.results[0] and 'code' not in run.results[0]
