@@ -1,0 +1,89 @@
+{
+  "base_commit": "6a5ef7a98a44be8babcba71940419e3391587ff1",
+  "scope": "NX-038/039/040 offline component audit; NX-040 F1 reference-identity fix",
+  "tasks": {
+    "NX-038": "in_progress unchanged",
+    "NX-039": "in_progress unchanged",
+    "NX-040": "in_progress unchanged"
+  },
+  "acceptance": {
+    "AT-023": "not_run unchanged",
+    "AT-024": "not_run unchanged",
+    "AT-048": "not_run unchanged"
+  },
+  "source_files": {
+    "packages/eios-core/src/nexloop_eios/evolution/schema_compat.py": "6759bb0313a1dce1a015e37811fb0dd4e66b326cbb5e14367e8769da87f986a1",
+    "tests/test_schema_compat.py": "c58c4a0ba5a830c41dbe99bce70e1b9f9809ce8e3082ef770a71160db1165cbb"
+  },
+  "first_failure": {
+    "tests": 3,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 0,
+    "name": "first-red",
+    "sha256": "4b5c9bfb71f62ce401a8a53631bed0a927b9be9881eeaef4c741d906db1767bb"
+  },
+  "final_reports": [
+    {
+      "tests": 100,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "name": "regression",
+      "sha256": "703e2e5e1a82fb0a4568a5f96c63187bb618a3a69588e9f8d52e5f3d99932b41"
+    },
+    {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "name": "at048-pure",
+      "sha256": "deaaccf1cde010382ca15bdef17579f712a35e6331648a636f4b36bc4702b614"
+    },
+    {
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "name": "s6-extra-pure",
+      "sha256": "1c62366ed5c79ade4f742b7fbdd19da6abe0188e617f304f59d6ad03ead53042"
+    }
+  ],
+  "unique_final_passed": 130,
+  "failed_errors_skipped": 0,
+  "guarded_selections": [
+    {
+      "exit": 0,
+      "forbidden_calls": 0,
+      "selected_pure_tests": 3,
+      "PG_tests_executed": 0
+    },
+    {
+      "exit": 0,
+      "forbidden_calls": 0,
+      "selection": "F4 pure file and three exact E5 pure nodes",
+      "PG_tests_executed": 0
+    }
+  ],
+  "private_artifact_sha256": {
+    "at048-guard.json": "1e9d31e87d2be6ffc42e66f715c9b652a13ac3bf84d98a7f90fc2e91e1e3d921",
+    "at048-pure.log": "8134f5982fb7c39dde5bd514e2cb26cc4267a6db1c9cb58947007db1bdbe4a7e",
+    "at048-pure.xml": "deaaccf1cde010382ca15bdef17579f712a35e6331648a636f4b36bc4702b614",
+    "commands.json": "06b67b7eb3662f05fe52fe2748f570e39d19c87d9d2b1a3149a7f765693ec179",
+    "first-red.log": "b7d0c6cbf5559947025309a9b96f65865c37c5d7a94eae42a24a284b6a5236a4",
+    "first-red.xml": "4b5c9bfb71f62ce401a8a53631bed0a927b9be9881eeaef4c741d906db1767bb",
+    "regression.log": "84f18a47efcbaee9259b33282e23354760350fb45cc4b7b7d8b7aca085d50a04",
+    "regression.xml": "703e2e5e1a82fb0a4568a5f96c63187bb618a3a69588e9f8d52e5f3d99932b41",
+    "report.json": "a0c1320c339f4e6567691a68154f48c96c6e9ade37e1db4a61985f7935a49d2a",
+    "run_at048_pure.py": "ceff115fb2a8acb9d2ff5d95c45823c5175892938f9da8f56c80a7774a58e35d",
+    "run_s6_remaining_pure.py": "85098eb52d33526f580e8bd9189e424c76ffb88a4a39ebc72904eac871fa8e9c",
+    "s6-extra-guard.json": "6f29aa0531652a2bbef179dfb870dfa9a4e8ad3c493fe0f67bb94a7870a6de79",
+    "s6-extra-pure.log": "2b5ebf245da5718fb4ce09007e6466423bf2c690aba514803aa0d882fa615059",
+    "s6-extra-pure.xml": "1c62366ed5c79ade4f742b7fbdd19da6abe0188e617f304f59d6ad03ead53042"
+  },
+  "original_tree_protected_files_unchanged": 17,
+  "database_remote_real_READ_deploy_admission_Host_e972_retry_executed": false,
+  "shared_planning_changed": false,
+  "warnings": "11 existing Pydantic schema-shadowing warnings per final run; no errors",
+  "limitations": "component and synthetic only; no PG, actor isolation or stage acceptance"
+}
