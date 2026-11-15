@@ -197,12 +197,23 @@ class Acceptance:
                 self.mapping_revision = None
 
     def operator_action(self, client):
-        """403 when the member may not run its operator Action; anything else (the question does not exist) when it may."""
+        """(HTTP, known business probe). Missing question is 22023 -> 409 with reason=not_found;
+        a generic 404 can also mean the Action was not published, before the grant check.
+        """
         token = client.post(AUTH + '/csrf', headers=self._headers())
         if token.status_code != 200:
-            return token.status_code
-        return self.act(client, token.json()['csrf_token'], 'answer_human_question',
-                        {'question_id': QUESTION_PROBE, 'answer_kind': 'withdraw', 'option_index': None, 'text': None}).status_code
+            return None, False  # No Action was attempted; not permission evidence.
+        response = self.act(client, token.json()['csrf_token'], 'answer_human_question',
+                            {'question_id': QUESTION_PROBE, 'answer_kind': 'withdraw', 'option_index': None, 'text': None})
+        known_probe = False
+        if response.status_code == 409 and response.headers.get('content-type', '').startswith('application/json'):
+            try:
+                body = response.json()
+                known_probe = (type(body) is dict and body.get('code') == 'not_allowed_in_state'
+                               and type(body.get('details')) is dict and body['details'].get('reason') == 'not_found')
+            except (ValueError, TypeError):
+                pass
+        return response.status_code, known_probe  # Never return/log raw response fields.
 
     def sign_in(self, user):
         """A fresh browser: start, sign in at the IdP, come back. Returns (client, callback response, query) or raises IdpRefused."""
@@ -339,17 +350,17 @@ class Acceptance:
         self.mapping_revision = set_.json()['revision']
         self.idp.set_group('A', mapping['operator_group'], True)
         mapped, done, _ = self.sign_in('A')
-        allowed = self.operator_action(mapped) if done.status_code == 303 and done.headers.get('location') == '/workbench' else None
+        allowed, known_probe = self.operator_action(mapped) if done.status_code == 303 and done.headers.get('location') == '/workbench' else (None, False)
         self.idp.set_group('A', mapping['operator_group'], False)
         self.idp.set_group('A', mapping['reviewer_group'], True)
         _, narrowed, _ = self.sign_in('A')
-        refused_after = self.operator_action(mapped)
+        refused_after, _ = self.operator_action(mapped)
         self.idp.set_group('A', mapping['reviewer_group'], False)
         self.idp.set_group('A', mapping['operator_group'], True)
         _, again, _ = self.sign_in('A')
-        self.expect('groups.mapping', allowed not in (None, 401, 403, 503) and narrowed.headers.get('location') == FAILED and refused_after == 403
+        self.expect('groups.mapping', known_probe and narrowed.headers.get('location') == FAILED and refused_after == 403
                     and again.headers.get('location') == '/workbench', operator_action_http=[allowed, refused_after],
-                    narrowed=narrowed.headers.get('location') == FAILED)
+                    narrowed=narrowed.headers.get('location') == FAILED, operator_probe_verified=known_probe)
 
     def summary(self):
         statuses = [r['status'] for r in self.results]

@@ -3859,6 +3859,12 @@
         "ref": "ci:queue/results/5539819e0fac5f70e59acdbbf37be4a97b7cf98a/attempt-1/result.json",
         "summary": "批172-r2 CI610首轮于2026-11-12 19:31:23 +08终态failed：9363 passed/1 failed/0 errors/skipped。Host574及并行8257通过；heavy load-8观测2.07715s超2.0+.05，已独立测试侧deadline模型修补送审，未合main。旧608全部首败保留，未复现的Role首败不改记为已解释。",
         "recorded_at": "2026-11-12T11:31:23.132665Z"
+      },
+      {
+        "type": "commit",
+        "ref": "6d48fd7f2457b28ff2ba2230884b6bea060c9b97",
+        "summary": "离线兼容性整改与 AT-024 文档澄清，独审回归 130 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
       }
     ]
   },
@@ -4890,6 +4896,12 @@
         "ref": "18840af644a6",
         "summary": "第 86 批：S74b 跟进，contact-release 不需要第二位 owner 审批（K1，只读核实无审批策略）；仅文档；执行 L3，判定 L6 条件已满足。",
         "recorded_at": "2026-11-01T10:12:35+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "3e95169be2999a1233d54922719da035280e5516",
+        "summary": "审批演练矛盾证据整改，独审离线回归 28 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
       }
     ]
   },
@@ -4959,6 +4971,12 @@
         "ref": "afc841116b7c",
         "summary": "第 105 批：K4j 补救操作区排版；执行 L9，判定 L6 有条件 PASS（需在 stage 上看到有条目/暂停的补救）。",
         "recorded_at": "2026-11-02T07:28:32+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "b824aca7f8cb129fb8f069b8cc1abe5184b7a461",
+        "summary": "规则文件原始字节摘要与异常输入，独审离线回归 26 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
       }
     ]
   },
@@ -5232,6 +5250,12 @@
         "ref": "R71",
         "summary": "R71 promote 2026-11-07T22:43:10Z：门禁 21/22，迁移 0418–0423，告警规则 v32（含 v31 起的 outcomes_failure_rate_high），budget_expiring 已触发作为阳性对照。B5 已部署，规则 v31 起生效。执行：调度员；判定：调度员。",
         "recorded_at": "2026-11-07T22:43:10Z"
+      },
+      {
+        "type": "commit",
+        "ref": "aea394267fe67dc7ab2828caa7ad8425305b87f2",
+        "summary": "畸形数字证据判读，独审离线回归 107 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
       }
     ]
   },
@@ -5403,6 +5427,12 @@
         "ref": "31d4f58b6037049e6f213cea17883aacf787c097",
         "summary": "L6对固定测试侧deadline整改最终局部条件PASS，允许纳入批172-r3新check；独立核对8项模型、load-8和held-8账本/次数/2秒约束及首败记录。观察时间模型不证明生产SLO或旧77ms具体成因。新集成HEAD须出站重扫、完整CI和独审，不自动授权merge；全部冻结保持。",
         "recorded_at": "2026-11-12T20:09:19.672953+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "2c825069478a6826259412772b7b95c6d7b5b6d5",
+        "summary": "p99 离线判读，独审回归 44 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
       }
     ]
   },
@@ -5418,7 +5448,14 @@
     ],
     "deliverable": "按 OIDC 启用运行单（第 122 批 e53533c9；迁移 0365 已在 stage）选定 IdP 并在 stage 启用；合成 IdP 验收（登录、组映射、停用同步、会话 epoch 行为）；负责人决定 IdP 与启用时间（2026-11-09 定为从 NX-058 拆出另开任务）",
     "status": "in_progress",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "68a2649776f29dd9636579db94e20fbbf260b37f",
+        "summary": "OIDC 探针精确授权阳性判读，独审离线回归 36 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
+      }
+    ]
   },
   {
     "id": "NX-066",
@@ -5448,6 +5485,13 @@
     ],
     "deliverable": "补 NX-065 验收发现的两项缺口（负责人 2026-11-10 决定另开任务）：IdP 组映射只能收窄工作台角色清单的权限（无命中映射锁住全部 Action，映射由负责人受治理 Action 修改，清空映射恢复清单权限）；IdP 停用同步 = SSO 会话最长时长（默认 8 小时，按 provider 可调）加 OIDC back-channel logout（结束成员全部会话）；设计见 docs/design/nx067-oidc-group-roles-and-disable-sync.md；NX-065 验收脚本两项缺口检查改为真实检查",
     "status": "in_progress",
-    "evidence": []
+    "evidence": [
+      {
+        "type": "commit",
+        "ref": "68a2649776f29dd9636579db94e20fbbf260b37f",
+        "summary": "OIDC 探针精确授权阳性判读，独审离线回归 36 项通过。",
+        "recorded_at": "2026-11-15T23:48:36+00:00"
+      }
+    ]
   }
 ]

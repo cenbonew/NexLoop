@@ -172,3 +172,27 @@ def test_every_code_has_a_case():
     for code in ('breaking_remove_property', 'breaking_change_value_type', 'breaking_remove_vocabulary_value'):
         SEEN.add(code)  # covered by test_boundaries_are_always_refused_with_their_fine_code
     assert set(S.CODES) <= SEEN, sorted(set(S.CODES) - SEEN)
+
+
+@pytest.mark.parametrize('slot', [0, 1], ids=['changed-type', 'untouched-type'])
+def test_successor_type_identity_cannot_change_while_versions_match(slot):
+    """NX-040 §4.4/§5 (AT-024): version-only successors cannot redirect either reference."""
+    p = parent()
+    p['actions'][0]['object_types'].append({'stable_name': 'Goal', 'version': 3})
+    successor = copy.deepcopy(SUCCESSOR)
+    successor['object_types'].append({'stable_name': 'Goal', 'version': 3})
+    successor['object_types'][slot]['stable_name'] = 'Unrelated'
+    v = verdict(add_property(successor_actions=[successor]), p)
+    assert 'tool_signature_changed' in v['codes']
+    assert v['allowed'] is False and v['candidate_definition'] is None
+    assert v['auto_publish_eligible'] is False
+
+
+def test_successor_type_identity_preserved_with_multiple_refs():
+    p = parent()
+    p['actions'][0]['object_types'].append({'stable_name': 'Goal', 'version': 3})
+    successor = copy.deepcopy(SUCCESSOR)
+    successor['object_types'].append({'stable_name': 'Goal', 'version': 3})
+    v = verdict(add_property(successor_actions=[successor]), p)
+    assert v['allowed'] is True and v['codes'] == []
+    assert v['dimensions']['tool_signature']['result'] == 'pass'

@@ -76,6 +76,7 @@ select kind, service, count(*) from runtime.nexloop_process_samples
   - **insufficient 不算通过**：证据里照 ADR-029c 标“未测”，附上 `samples`，`effect_timeout_ms` 保持不写。
   - 判定用的是桶的上界，不是几何中点，所以不会因为直方图约 4.9% 的估计误差而误判通过。
   - 退出码：0 pass，1 fail，2 insufficient，3 输入被拒。
+  - `--since/--until` 仅适用于 `--samples`，边界带时区、since 必须早于 until，范围为 `[since, until)`。累计 `--host-metrics` 不能限定时间段，带窗口时拒绝，不会静默忽略。重复 JSON 字段也拒绝（退出3），避免慢桶被覆盖后误判通过。
 - **需要的入口与凭据**：不需要新凭据。
   - 直方图：DATA_HOST 上第 4 节已经在用的只读会话 `ro`（bootstrap socket、`begin read only`、`set local role nexloop_owner`，最后 rollback；定义同 run-nx057 §0.3）。
   - 部署时限：APP_HOST 上私有 Agent Host 运行配置里的 `effect_timeout_ms`，只读这一个键。
