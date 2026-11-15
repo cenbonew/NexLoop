@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'deploy/configuration/remediation-rules.v1.json'
 spec = importlib.util.spec_from_file_location('remediation_rules_apply', ROOT / 'scripts/deploy/remediation_rules_apply.py')
@@ -68,3 +70,111 @@ def test_apply_publishes_the_files_exact_text_with_the_revision_and_reports_with
         raise SerializationFailure('postgresql://secret')
     code, out = run(*APPLY, '--expected-revision', '0', window=window, publish=refused)
     assert code == 2 and out == {'applied': False, 'reason': 'SerializationFailure: remediation rules: expected revision 0, current 1'}
+
+
+@pytest.fixture(autouse=True)
+def offline_only(monkeypatch):
+    """Fail rather than opening a connection if an offline case regresses."""
+    import socket
+    import psycopg
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('offline tests must not connect')
+
+    monkeypatch.setattr(socket.socket, 'connect', forbidden)
+    monkeypatch.setattr(socket.socket, 'connect_ex', forbidden)
+    monkeypatch.setattr(psycopg, 'connect', forbidden)
+
+
+@pytest.mark.parametrize('newline', ['\n', '\r\n'])
+def test_file_bytes_are_preserved_for_check_and_publication(tmp_path, newline):
+    manifest = tmp_path / 'synthetic.json'
+    raw = json.dumps(json.loads(MANIFEST.read_text()), ensure_ascii=False, indent=2).replace('\n', newline).encode('utf-8')
+    manifest.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('check must not open a window or publish')
+
+    code, out = run('--manifest', str(manifest), '--check', window=forbidden, publish=forbidden)
+    assert code == 0 and out['manifest_sha256'] == digest
+    calls = []
+
+    def publish(text, *args, **kwargs):
+        calls.append(text.encode('utf-8'))
+        return {'configured': True, 'expected_revision': 0}
+
+    code, out = run('--manifest', str(manifest), '--tenant', 'synthetic-tenant',
+                    '--bootstrap-dsn-file', 'synthetic-file', '--expected-revision', '0', window=window, publish=publish)
+    assert code == 0 and out['manifest_sha256'] == digest
+    assert calls == [raw]
+
+
+@pytest.mark.parametrize('field,value', [
+    ('failure_kinds', ['unknown']),
+    ('failure_kinds', ['permanent_failure']),
+    ('failure_kinds', ['refused_one_reply']),
+    ('failure_kinds', []),
+    ('failure_kinds', ['origin_expired', 'origin_expired']),
+    ('failure_kinds', [{}]),
+    ('kind', 'governed_action'),
+    ('mode', 'approval_required'),
+    ('approval_required', True),
+    ('due_after_seconds', True),
+    ('due_after_seconds', 3599),
+    ('due_after_seconds', 2592001),
+])
+def test_invalid_rule_inputs_are_refused_before_window_or_publication(tmp_path, field, value):
+    manifest = json.loads(MANIFEST.read_text())
+    manifest['rules'][0][field] = value
+    path = tmp_path / 'synthetic.json'
+    path.write_text(json.dumps(manifest))
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(True)
+        pytest.fail('invalid input must not open a window or publish')
+
+    for args in (('--check',), ('--tenant', 'synthetic-tenant', '--bootstrap-dsn-file', 'synthetic-file', '--expected-revision', '0')):
+        code, out = run('--manifest', str(path), *args, window=forbidden, publish=forbidden)
+        assert code == 2 and out['applied'] is False
+    assert calls == []
+
+
+@pytest.mark.parametrize('kind', ['reevaluate', 'escalate'])
+@pytest.mark.parametrize('mode', ['automatic', 'manual'])
+def test_open_kinds_and_modes_validate_offline(tmp_path, kind, mode):
+    manifest = json.loads(MANIFEST.read_text())
+    manifest['rules'][0].update(kind=kind, mode=mode)
+    path = tmp_path / 'synthetic.json'
+    path.write_text(json.dumps(manifest))
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('check must not open a window or publish')
+
+    code, out = run('--manifest', str(path), '--check', window=forbidden, publish=forbidden)
+    assert code == 0 and out['valid'] is True
+
+
+@pytest.mark.parametrize('sqlstate', ['22023', '40001', '42501', '08006', None])
+def test_publication_refusal_or_unknown_error_is_reported_once_without_retry(sqlstate):
+    calls = []
+
+    class PublicationError(Exception):
+        pass
+
+    error = PublicationError('synthetic-private-detail')
+    error.sqlstate = sqlstate
+    error.diag = SimpleNamespace(message_primary='synthetic database refusal')
+
+    def publish(*args, **kwargs):
+        calls.append(True)
+        raise error
+
+    code, out = run(*APPLY, '--expected-revision', '0', window=window, publish=publish)
+    expected = 'PublicationError'
+    if sqlstate in ('22023', '40001', '42501'):
+        expected += ': synthetic database refusal'
+    assert code == 2 and out == {'applied': False, 'reason': expected}
+    assert calls == [True]
+    assert 'synthetic-private-detail' not in json.dumps(out)
