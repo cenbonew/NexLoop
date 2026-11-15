@@ -227,7 +227,8 @@ def run_step(a, wb):
         if not rows:
             return {'http': None, 'approval_id': a.approval_id, 'error': 'not_in_to_execute'}, False
         row = rows[0]
-        if not isinstance(row.get('inputs'), dict) or not _OPERATION.fullmatch(str(row.get('operation'))):
+        # A contradictory/expired/rejected projection is not execution evidence.
+        if row.get('status') != 'approved' or not isinstance(row.get('inputs'), dict) or not _OPERATION.fullmatch(str(row.get('operation'))):
             return {'http': None, 'approval_id': a.approval_id, 'error': 'not_executable_from_workbench'}, False
         status, body = wb.act(row['operation'], row['inputs'])
         body = {**(body if isinstance(body, dict) else {}), 'operation': row['operation']}
