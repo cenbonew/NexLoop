@@ -197,10 +197,10 @@ class Acceptance:
                 self.mapping_revision = None
 
     def operator_action(self, client):
-        """403 when the member may not run its operator Action; anything else (the question does not exist) when it may."""
+        """Action HTTP status, or None if CSRF failed and no Action was attempted."""
         token = client.post(AUTH + '/csrf', headers=self._headers())
         if token.status_code != 200:
-            return token.status_code
+            return None  # No Action was attempted: CSRF/auth failure is not grant evidence.
         return self.act(client, token.json()['csrf_token'], 'answer_human_question',
                         {'question_id': QUESTION_PROBE, 'answer_kind': 'withdraw', 'option_index': None, 'text': None}).status_code
 
@@ -347,7 +347,7 @@ class Acceptance:
         self.idp.set_group('A', mapping['reviewer_group'], False)
         self.idp.set_group('A', mapping['operator_group'], True)
         _, again, _ = self.sign_in('A')
-        self.expect('groups.mapping', allowed not in (None, 401, 403, 503) and narrowed.headers.get('location') == FAILED and refused_after == 403
+        self.expect('groups.mapping', allowed is not None and 200 <= allowed < 500 and allowed not in (401, 403) and narrowed.headers.get('location') == FAILED and refused_after == 403
                     and again.headers.get('location') == '/workbench', operator_action_http=[allowed, refused_after],
                     narrowed=narrowed.headers.get('location') == FAILED)
 

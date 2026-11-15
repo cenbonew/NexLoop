@@ -78,7 +78,7 @@ security find-generic-password -s <keychain 服务名> -a <负责人账号> -w |
 | `disable.sync.backchannel` | passed（`session_http` 为 `[200, 401]`）；`backchannel: false` 时为 gap `not_configured`；等满 `backchannel_wait_seconds` 仍是 200 记 failed |
 | `epoch.unlink_ends_sessions` | passed |
 | `epoch.relink_new_only` | passed（`[200, 401, 401]`） |
-| `groups.mapping` | passed（`operator_action_http` 第一项不是 403，第二项是 403，`narrowed` 为 true）；`group_mapping: null` 时为 gap `not_configured` |
+| `groups.mapping` | passed（两次 CSRF 获取均为 200；`operator_action_http` 第一项为 2xx–4xx 且非 401/403，第二项为 Action 的 403，`narrowed` 为 true；CSRF 失败对应 null，5xx 不作权限阳性）；`group_mapping: null` 时为 gap `not_configured` |
 | `disable.sync.max_session` | passed（`[200, 401]`） |
 
 10 项检查必须全部出现，缺一项记 `run.incomplete` 失败；中途出异常只记一行 `run.aborted`（只写异常类型），清理步骤仍逐个执行。退出码：0 表示全部通过且没有缺口（目标）；3 表示检查都通过但还有 not_configured 的缺口；1 表示有检查失败，原样记录，不要重跑覆盖；2 表示输入被拒。
