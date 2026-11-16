@@ -4989,7 +4989,7 @@
       "M01"
     ],
     "deliverable": "工作台成员邀请、口令找回与重置的自助流程（替代运维 CLI 重置），之后接入企业单点登录",
-    "status": "in_progress",
+    "status": "done",
     "evidence": [
       {
         "type": "note",
@@ -5104,6 +5104,18 @@
         "ref": "planning NX-065",
         "summary": "企业单点登录从 NX-058 拆出另立 NX-065：负责人 2026-11-09 决定（原话选项「另开任务（推荐）」，决定人负责人）。片 F 的 OIDC 启用运行单与 provider 示例（第 122 批 e53533c9，迁移 0365）在 NX-065 中引用。NX-058 剩余：stage 上真实浏览器走一遍邀请、重置、成员变更（10-26 note 所列，尚无证据；R74 工作台写入修复后由负责人执行）。",
         "recorded_at": "2026-11-09T07:15:01Z"
+      },
+      {
+        "type": "commit",
+        "ref": "3ea6d65942c6eb9b570fc6e567e1388d466816d2",
+        "summary": "归档 2026-11-11 的真实浏览器走查及 L6 最终判词，补齐此前记录的邀请、重置及成员变更证据缺口。",
+        "recorded_at": "2026-11-16T05:37:17+00:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "docs/release/run-nx058-browser-walkthrough.md",
+        "summary": "stage web c58f723e。补齐限速策略后完成走查；再次提交同一邀请链接或重置码均被拒，状态不变，L6 判定通过。SSO 由 NX-065 单独验收。",
+        "recorded_at": "2026-11-16T05:37:17+00:00"
       }
     ]
   },

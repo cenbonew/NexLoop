@@ -131,4 +131,4 @@ ro "select state, revoked_reason from control.nexloop_workbench_reset_codes wher
 
 - `walk-op-<YYYYMMDD>` 停在“已撤销”。账号不能删除；需要时另行按审批发起擦除。
 - 负责人在 vault-index 里把两条 Keychain 条目（`walk-op-<YYYYMMDD>`、`walk-op-<YYYYMMDD>-r`）标为作废。
-- 本单没有在 stage 上执行过。页面文案取自 main 77c1b924 的源码，实际文案以 stage 部署的版本为准。
+- 2026-11-11 已执行 stage 浏览器走查，页面版本为 `c58f723e`。首次接受邀请时因缺少限速策略而被拒，按 run-34 §2.3 补齐后完成邀请、负责人签发的口令重置和成员变更。N1(a) 补走查确认重复使用邀请链接或重置码均被拒，原状态保持，L6 最终判定 PASS。企业单点登录由 NX-065 单独验收。
