@@ -129,3 +129,46 @@ def test_an_unexpected_error_is_refused_input_never_exit_1(tmp_path, monkeypatch
     monkeypatch.setattr(G, 'from_samples', broken)
     code, out = run('--samples', samples_file(tmp_path, {histogram_bucket(300): 1200}), '--limit-ms', 2000)
     assert code == 3 and out == {'gate': 'refused', 'reason': 'unexpected TypeError'}
+
+
+@pytest.mark.parametrize('source', ['samples', 'host-metrics'])
+def test_duplicate_json_fields_cannot_erase_a_slow_bucket(tmp_path, source):
+    # Last-key-wins would erase the slow tail and falsely pass1000 fast requests.
+    path = tmp_path / 'ambiguous.json'
+    if source == 'samples':
+        path.write_text('{"kind":"host_op","service":"effect_submit","sample":{"h_40":1000,"h_100":1000,"h_100":0}}\n')
+    else:
+        path.write_text('{"effect_submit_h_40":1000,"effect_submit_h_100":1000,"effect_submit_h_100":0}')
+    code, out = run('--' + source, path, '--limit-ms', 2000)
+    assert code == 3 and out['gate'] == 'refused'
+    assert 'suggested_effect_timeout_ms' not in out
+
+
+@pytest.mark.parametrize(('since', 'until'), [
+    ('2026-11-07T10:01:00Z', '2026-11-07T10:01:00Z'),
+    ('2026-11-07T10:02:00Z', '2026-11-07T10:01:00Z'),
+])
+def test_an_empty_or_reversed_requested_window_is_refused(tmp_path, since, until):
+    path = samples_file(tmp_path, {40: 1000})
+    code, out = run('--samples', path, '--limit-ms', 2000, '--since', since, '--until', until)
+    assert code == 3 and out['gate'] == 'refused'
+
+
+@pytest.mark.parametrize('flag', ['--since', '--until'])
+def test_a_cumulative_host_document_cannot_silently_ignore_a_window(tmp_path, flag):
+    path = tmp_path / 'cumulative.json'
+    path.write_text(json.dumps({'effect_submit_h_40': 1000}))
+    code, out = run('--host-metrics', path, '--limit-ms', 2000, flag, '2026-11-07T10:01:00Z')
+    assert code == 3 and out['gate'] == 'refused'
+
+
+def test_window_includes_since_excludes_until_and_normalizes_timezones(tmp_path):
+    path = samples_file(tmp_path, {100: 1000}, {40: 1000}, {100: 1000})
+    # The two slow neighboring minutes must not leak into the selected minute.
+    results = []
+    for since, until in [('2026-11-07T10:01:00Z', '2026-11-07T10:02:00Z'),
+                         ('2026-11-07T11:01:00+01:00', '2026-11-07T11:02:00+01:00')]:
+        code, out = run('--samples', path, '--limit-ms', 2000, '--since', since, '--until', until)
+        assert code == 0 and out['gate'] == 'pass' and out['samples'] == 1000
+        results.append(out)
+    assert results[0] == results[1]

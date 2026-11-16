@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures('reclaim_passed_tmp_path')
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts' / 'release'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -187,23 +189,32 @@ def test_any_failing_step_fails_the_preflight(tmp_path, failing, step):
     assert report['ok'] is False and report['steps'][step]['ok'] is False and report['steps']['summary']['ok'] is False
 
 
-def test_missing_conditions_fail_the_preflight(tmp_path):
-    first = preflight(tmp_path / 'a', Runner(), previous=None)
-    assert first['ok'] is False and 'full-history audit' in first['steps']['history_scan']['detail']['refused']
-
+@pytest.mark.parametrize('condition', ['history', 'tool', 'stale', 'drift', 'critical', 'images'])
+def test_missing_conditions_fail_the_preflight(tmp_path, condition):
+    # One real archive/extraction per condition; each case keeps its own failure evidence.
     def missing_tool():
         raise release.NotInstalled('syft not installed')
-    no_tool = preflight(tmp_path / 'b', Runner(), maker=missing_tool)
-    assert no_tool['steps']['source_sbom']['ok'] is False and no_tool['steps']['vulnerabilities']['ok'] is False and no_tool['ok'] is False
-    stale = preflight(tmp_path / 'c', Runner(), maker=lambda: (spdx('pkg:pypi/liba@1.0'), [], None))
-    assert stale['steps']['vulnerabilities']['ok'] is False
-    drift = preflight(tmp_path / 'd', Runner(), maker=lambda: (spdx('pkg:pypi/liba@1.0', 'pkg:pypi/other@2'), [], '2026-10-10'))
-    assert drift['steps']['source_sbom']['ok'] is False
-    critical = preflight(tmp_path / 'e', Runner(), maker=lambda: (spdx('pkg:pypi/liba@1.0'), [finding()], '2026-10-10'))
-    assert critical['steps']['vulnerabilities']['ok'] is False and critical['steps']['summary']['detail']['for_owner_confirmation']['blocking'] == ['CVE-2026-0001']
-    (tmp_path / 'empty-release' / 'sbom').mkdir(parents=True)
-    no_images = preflight(tmp_path / 'f', Runner(), release_dir=tmp_path / 'empty-release')
-    assert no_images['steps']['vulnerabilities']['ok'] is False
+    options = {
+        'history': {'previous': None},
+        'tool': {'maker': missing_tool},
+        'stale': {'maker': lambda: (spdx('pkg:pypi/liba@1.0'), [], None)},
+        'drift': {'maker': lambda: (spdx('pkg:pypi/liba@1.0', 'pkg:pypi/other@2'), [], '2026-10-10')},
+        'critical': {'maker': lambda: (spdx('pkg:pypi/liba@1.0'), [finding()], '2026-10-10')},
+        'images': {'release_dir': tmp_path / 'empty-release'},
+    }
+    if condition == 'images':
+        (tmp_path / 'empty-release' / 'sbom').mkdir(parents=True)
+    report = preflight(tmp_path, Runner(), **options[condition])
+    if condition == 'history':
+        assert report['ok'] is False and 'full-history audit' in report['steps']['history_scan']['detail']['refused']
+    elif condition == 'tool':
+        assert report['steps']['source_sbom']['ok'] is False and report['steps']['vulnerabilities']['ok'] is False and report['ok'] is False
+    elif condition in ('stale', 'images'):
+        assert report['steps']['vulnerabilities']['ok'] is False
+    elif condition == 'drift':
+        assert report['steps']['source_sbom']['ok'] is False
+    else:
+        assert report['steps']['vulnerabilities']['ok'] is False and report['steps']['summary']['detail']['for_owner_confirmation']['blocking'] == ['CVE-2026-0001']
 
 
 def test_public_preflight_cli_is_a_refusal_without_the_tools(tmp_path):
@@ -321,16 +332,17 @@ class WinOnlyRunner(Runner):
         return code, out
 
 
-def test_public_and_stage_preflight_agree_on_a_win32_only_package_and_on_a_real_difference(tmp_path):
-    public = preflight(tmp_path / 'p', WinOnlyRunner())
-    assert public['steps']['source_sbom']['ok'] is True and public['steps']['source_sbom']['detail']['problems'] == []
-    assert public['steps']['source_sbom']['detail']['platform_only'] == ['colorama', 'tzdata']
-    stage = release.stage_preflight('HEAD', tmp_path / 's', runner=WinOnlyRunner(), sbom_maker=sbom_ok, pinned_checker=lambda: [])
-    assert stage['steps']['source_sbom']['detail']['listed'] == [] and stage['steps']['source_sbom']['detail']['platform_only'] == ['colorama', 'tzdata']
-    # A package really missing from the SBOM: the public gate fails, the stage gate lists the same line.
+@pytest.mark.parametrize('difference', [False, True])
+def test_public_and_stage_preflight_agree_on_a_win32_only_package_and_on_a_real_difference(tmp_path, difference):
+    # Retain the direct public/stage comparison, with one pair per independently checked case.
     missing = lambda: (spdx(), [], '2026-10-10')  # noqa: E731
-    public = preflight(tmp_path / 'p2', WinOnlyRunner(), maker=missing)
-    stage = release.stage_preflight('HEAD', tmp_path / 's2', runner=WinOnlyRunner(), sbom_maker=missing, pinned_checker=lambda: [])
-    assert public['steps']['source_sbom']['ok'] is False
-    assert public['steps']['source_sbom']['detail']['problems'] == stage['steps']['source_sbom']['detail']['listed'] == [
-        'in the license inventory but not in the SBOM: python liba@1.0']
+    public = preflight(tmp_path / 'p', WinOnlyRunner(), maker=missing if difference else sbom_ok)
+    stage = release.stage_preflight('HEAD', tmp_path / 's', runner=WinOnlyRunner(), sbom_maker=missing if difference else sbom_ok, pinned_checker=lambda: [])
+    if difference:
+        assert public['steps']['source_sbom']['ok'] is False
+        assert public['steps']['source_sbom']['detail']['problems'] == stage['steps']['source_sbom']['detail']['listed'] == [
+            'in the license inventory but not in the SBOM: python liba@1.0']
+    else:
+        assert public['steps']['source_sbom']['ok'] is True and public['steps']['source_sbom']['detail']['problems'] == []
+        assert public['steps']['source_sbom']['detail']['platform_only'] == ['colorama', 'tzdata']
+        assert stage['steps']['source_sbom']['detail']['listed'] == [] and stage['steps']['source_sbom']['detail']['platform_only'] == ['colorama', 'tzdata']

@@ -25,6 +25,7 @@ from test_agent_host import files,free_port
 from test_runtime_effect_tools import effect_configuration,tool_evidence
 from test_message_runtime_effect_e2e import trusted_host_evidence
 from test_local_message_delivery_assembly import process,once,wait_live,reaped_host
+from fixture_failure_diagnostics import conversation_response_id
 
 REPLY='好的，我会在明天下午前给你处理进展。'
 TRANSITIONS={('persisted','dispatching'),('persisted','provider_accepted'),('persisted','delivered'),('persisted','unknown'),('persisted','failed'),
@@ -131,7 +132,7 @@ def chain(f,admin,tmp_path,*,body=REPLY,host_update=None,guard_workers=None):
             login=client.post('/api/v1/auth/login',headers={'Origin':origin},json={'username':'explicit-user','password':p['password'].read_text()})
             assert login.status_code==200
             headers={'Origin':origin,'X-CSRF-Token':login.json()['csrf_token'],'Idempotency-Key':'nx047-outbound-conversation-key'}
-            conversation_id=client.post('/api/v1/conversations',headers=headers,json={}).json()['id']
+            conversation_id=conversation_response_id(client.post('/api/v1/conversations',headers=headers,json={}))
             headers['Idempotency-Key']='nx047-outbound-message-key-1'
             consumer=client.post('/api/v1/conversations/'+conversation_id+'/messages',headers=headers,json={'body':body}).json()['message']
             recipe=private(tmp_path,'assembly-relay-recipe',json.dumps(f['recipe']));vault=tmp_path/'relay-vault';vault.mkdir(mode=0o700)

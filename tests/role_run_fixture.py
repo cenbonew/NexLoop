@@ -6,6 +6,7 @@ legacy until actual protected v3 Artifact bind is implemented and tested.
 from pathlib import Path
 from datetime import datetime,UTC,timedelta
 import pytest
+from fixture_failure_diagnostics import role_activation_diagnostic
 from eios.authz.resources import ResourceType
 from eios.authz.operations import Operation
 from nexloop_eios.backend import AuthenticatedServices
@@ -96,8 +97,9 @@ def role_runtime_plan(monkeypatch,admin,request):
             # Reconstruct no authority: actual issued Run token + ledger expiry,
             # authenticated again by the typed entry and owner SQL boundaries.
             credential=RunCredential(command['run_id'],AUDIENCE,__import__('datetime').datetime.fromisoformat(binding['expires_at']),kwargs['run_token'])
-            activated=activate_role_plan(source=source,queue_service=self,run=credential,command=command,body=kwargs['input'],
-                **roles[source._session.authentication.subject_principal_id],**catalogs[source._session.authentication.subject_principal_id])
+            with role_activation_diagnostic():
+                activated=activate_role_plan(source=source,queue_service=self,run=credential,command=command,body=kwargs['input'],
+                    **roles[source._session.authentication.subject_principal_id],**catalogs[source._session.authentication.subject_principal_id])
             command.clear();command.update(activated['command'])
             packs[command['run_id']]={**activated['context_attestation'],'input':activated['input']}
             return activated['admission']

@@ -250,6 +250,7 @@ def test_off_platform_records_in_the_policy_are_complete_and_bound_to_the_lock()
         assert record['license'] and record['license_basis'] and sum(k in record for k in ('license_file_sha256', 'license_text_from', 'license_text_absent')) == 1
 
 
+@pytest.mark.usefixtures('reclaim_passed_tmp_path')
 def test_assets_are_checked_in_a_git_archive_extraction_without_git(tmp_path):
     """The release preflight runs the license check in a `git archive` extraction of the commit (no .git; release.py
     _clean_checkout). The asset check reads that tree's files instead of `git ls-files`, ignoring what the dependency phase

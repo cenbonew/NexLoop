@@ -41,6 +41,18 @@ class Refused(ValueError):
     pass
 
 
+def _json(text):
+    # Ambiguous duplicate members must not silently overwrite histogram counts.
+    def pairs(items):
+        row = {}
+        for key, value in items:
+            if key in row:
+                raise Refused('duplicate JSON member')
+            row[key] = value
+        return row
+    return json.loads(text, object_pairs_hook=pairs)
+
+
 def _count(value, where):
     if type(value) is not int or value < 0:
         raise Refused(f'{where}: not a count')
@@ -59,7 +71,9 @@ def from_samples(lines, operation, kind, since=None, until=None):
         if not line.strip():
             continue
         try:
-            row = json.loads(line)
+            row = _json(line)
+        except Refused:
+            raise
         except ValueError:
             raise Refused(f'line {n}: not JSON') from None
         if type(row) is not dict or row.get('kind') != kind or row.get('service') != operation:
@@ -148,6 +162,10 @@ def main(argv=None, out=sys.stdout):
         if not 1000 <= args.limit_ms <= 5000:
             raise Refused('limit-ms must be 1000-5000 (runtime-effect-tools.ts)')
         since, until = (_aware(args.since, '--since') if args.since else None), (_aware(args.until, '--until') if args.until else None)
+        if args.host_metrics and (since is not None or until is not None):
+            raise Refused('window bounds require --samples, not cumulative --host-metrics')
+        if since is not None and until is not None and since >= until:
+            raise Refused('--since must be before --until')
         path = args.samples or args.host_metrics
         try:
             text = path.read_text(encoding='utf-8')
@@ -160,7 +178,9 @@ def main(argv=None, out=sys.stdout):
             counts = from_samples(text.splitlines(), args.operation, args.kind, since, until)
         else:
             try:
-                document = json.loads(text)
+                document = _json(text)
+            except Refused:
+                raise
             except ValueError:
                 raise Refused('host metrics: not JSON') from None
             counts = from_host_metrics(document, args.operation)
