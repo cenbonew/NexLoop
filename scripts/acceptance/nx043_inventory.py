@@ -6,7 +6,9 @@
 One line per file, tab separated: segment, file name, size, schema, check, executed_at, passed, blocked count, run nonce (first 6
 characters, only to tell runs apart), release (first 8 characters). Steps, observed values and the private state file's ids are never
 printed; for nx043-state.json only its presence, size and the run nonce prefix. Files that are not results of this tool are listed as
-`other` with their size only. Exit 0 always (a listing, not a judgement).
+`other` with their size only. Documents (including state) above MAX_BYTES are not parsed. The passed column shows True/False
+only for JSON booleans, None for JSON null, and - for missing/invalid values. Whole JSON documents and the existing last-line
+JSON format are supported. Exit 0 always (a listing, not a judgement).
 """
 from __future__ import annotations
 
@@ -27,28 +29,43 @@ def _short(value, n):
     return value[:n] if isinstance(value, str) else '-'
 
 
+def _document(path: Path, size: int, *, last_line=False):
+    if size > MAX_BYTES:
+        return None
+    try:
+        # Bound the actual read too, in case the file grew after stat().
+        with path.open('rb') as stream:
+            data = stream.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            return None
+        text = data.decode('utf-8')
+        try:
+            return json.loads(text)
+        except ValueError:
+            if last_line:
+                return json.loads(text.strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
 def describe(path: Path) -> list[str]:
     size = path.stat().st_size
     if path.name == 'nx043-state.json':
-        try:
-            run = json.loads(path.read_text()).get('run')
-        except (OSError, ValueError, AttributeError):
-            run = None
+        doc = _document(path, size)
+        run = doc.get('run') if isinstance(doc, dict) else None
         return ['state', path.name, str(size), '-', '-', '-', '-', '-', _short(run, 6), '-']
     if path.name == 'nx043-shadow-keys.json':
         return ['keys', path.name, str(size), '-', '-', '-', '-', '-', '-', '-']
-    doc = None
-    if path.suffix == '.json' and size <= MAX_BYTES:
-        try:
-            doc = json.loads(path.read_text().strip().splitlines()[-1])
-        except (OSError, ValueError, IndexError):
-            doc = None
+    doc = _document(path, size, last_line=True) if path.suffix == '.json' else None
     if not isinstance(doc, dict) or doc.get('schema') != RESULT_SCHEMA or not str(doc.get('check', '')).startswith('nx043-'):
         return ['other', path.name, str(size), '-', '-', '-', '-', '-', '-', '-']
     check = str(doc['check'])
     blocked = doc.get('blocked')
+    passed = doc.get('passed')
+    passed_text = str(passed) if 'passed' in doc and (type(passed) is bool or passed is None) else '-'
     return [SEGMENTS.get(check, '?'), path.name, str(size), RESULT_SCHEMA, check, _short(doc.get('executed_at'), 20),
-            str(doc.get('passed')), str(len(blocked)) if isinstance(blocked, list) else '-', _short(doc.get('run_nonce'), 6),
+            passed_text, str(len(blocked)) if isinstance(blocked, list) else '-', _short(doc.get('run_nonce'), 6),
             _short(doc.get('release'), 8)]
 
 
