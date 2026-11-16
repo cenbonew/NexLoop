@@ -66,6 +66,19 @@ def _start(bindir, data, root):
     return f'host={sock} port={port} dbname=postgres user=nexloop_bootstrap'
 
 
+def _discard_failed_pg_setup(root, prefix, failure):
+    """Only a root just returned by mkdtemp, before any server start attempt.
+
+    Cleanup failure must not replace the original setup error; leave a note so
+    the residual is not silently represented as successfully removed.
+    """
+    try:
+        assert root.name.startswith(prefix) and root.parent == pathlib.Path(tempfile.gettempdir())
+        shutil.rmtree(root)
+    except BaseException as cleanup_failure:
+        failure.add_note('PG setup cleanup failed: ' + type(cleanup_failure).__name__)
+
+
 def _template_directory(bindir):
     """This process's bootstrapped data directory (built once): initdb, loopback declaration, bootstrap, clean stop."""
     if 'data' not in _TEMPLATE:
@@ -73,7 +86,11 @@ def _template_directory(bindir):
         import nexloop_eios.bootstrap as _nexloop_bootstrap
         root = pathlib.Path(tempfile.mkdtemp(prefix='nexloop-pg-template-'))
         data = root / 'data'
-        subprocess.run([str(bindir / 'initdb'), '-D', str(data), '-U', 'nexloop_bootstrap', '--auth=trust', '--no-locale', '-E', 'UTF8'], check=True, stdout=subprocess.DEVNULL)
+        try:
+            subprocess.run([str(bindir / 'initdb'), '-D', str(data), '-U', 'nexloop_bootstrap', '--auth=trust', '--no-locale', '-E', 'UTF8'], check=True, stdout=subprocess.DEVNULL)
+        except BaseException as failure:
+            _discard_failed_pg_setup(root, 'nexloop-pg-template-', failure)
+            raise
         dsn = _start(bindir, data, root)
         try:
             declare_loopback_effects(dsn)
@@ -102,11 +119,15 @@ def pg(request):
     template = None if empty else _template_directory(bindir)
     root=pathlib.Path(tempfile.mkdtemp(prefix='nexloop-pg-'))
     data=root/'data'
-    if empty:
-        subprocess.run([str(bindir/'initdb'),'-D',str(data),'-U','nexloop_bootstrap','--auth=trust','--no-locale','-E','UTF8'],check=True,stdout=subprocess.DEVNULL)
-    else:
-        shutil.copytree(template, data, symlinks=True)
-        os.chmod(data, 0o700)
+    try:
+        if empty:
+            subprocess.run([str(bindir/'initdb'),'-D',str(data),'-U','nexloop_bootstrap','--auth=trust','--no-locale','-E','UTF8'],check=True,stdout=subprocess.DEVNULL)
+        else:
+            shutil.copytree(template, data, symlinks=True)
+            os.chmod(data, 0o700)
+    except BaseException as failure:
+        _discard_failed_pg_setup(root, 'nexloop-pg-', failure)
+        raise
     started=False
     try:
         dsn=_start(bindir,data,root)

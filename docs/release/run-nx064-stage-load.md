@@ -105,7 +105,7 @@
 1. 导出样本：
    - 方案 A：`<结果目录>/process_samples.jsonl`。
    - 方案 A：各格的文件按 §3 拼接成一个文件（C3）。
-   - 方案 B：只导出本次的时间段，用 `window_start between <开始> and <结束>`。
+   - 方案 B：只导出本次的时间段，用 `window_start >= <开始> and window_start < <结束>`，与判读工具的 `[since, until)` 边界一致。
 2. 判定：
 
    ```bash

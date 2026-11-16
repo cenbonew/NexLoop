@@ -250,7 +250,8 @@ def _tool_signature(change, parent, candidate_types) -> dict:
             evidence.append('action:' + action['stable_name'])
             continue
         s = succ[0]
-        bumped = all(t.get('version') == (o.get('version') + 1 if o.get('stable_name') == name else o.get('version'))
+        bumped = all(t.get('stable_name') == o.get('stable_name')
+                     and t.get('version') == (o.get('version') + 1 if o.get('stable_name') == name else o.get('version'))
                      for t, o in zip(s.get('object_types') or (), action.get('object_types') or ()))
         if (s.get('version') != action['version'] + 1 or not bumped or len(s.get('object_types') or ()) != len(action.get('object_types') or ())
                 or s.get('input_schema_hash') != action.get('input_schema_hash') or s.get('capability_schema_hash') != action.get('capability_schema_hash')

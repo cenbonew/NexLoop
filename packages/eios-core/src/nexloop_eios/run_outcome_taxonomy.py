@@ -90,11 +90,21 @@ FAILURE_RATE_WARNING = 0.2
 def failure_rate_gate(snapshot) -> str:
     """How the B5 threshold reads one metrics snapshot: 'warning' | 'within' | 'insufficient_data' | 'no_data'. Only 'within' and
     'warning' are judgements; insufficient data (fewer than MIN_DECIDED decided) and no data (no snapshot, no outcomes block) are not a
-    pass. The same reading as the SQL evaluator: only a JSON number is compared."""
+    pass. Counts must be finite nonnegative integers; at the measurement threshold the rate must be finite and in [0, 1].
+    Invalid numeric evidence is never measured. Missing legacy gated values remain insufficient_data."""
     outcomes = snapshot.get('outcomes') if isinstance(snapshot, dict) else None
     if not isinstance(outcomes, dict) or type(outcomes.get('decided')) not in (int, float):
+        return 'no_data'
+    decided = outcomes['decided']
+    # Evidence may be loaded from synthetic/archived JSON. NaN/inf, negative
+    # or fractional counts are not observed outcomes and must never be judged.
+    if decided < 0 or (type(decided) is float and not decided.is_integer()):
         return 'no_data'
     gated = outcomes.get('failure_rate_gated')
     if outcomes['decided'] < MIN_DECIDED or type(gated) not in (int, float):
         return 'insufficient_data'
+    # The bounded comparison also rejects NaN/inf without coercion. Missing
+    # gated values above retain the legacy 'insufficient_data' interpretation.
+    if not 0 <= gated <= 1:
+        return 'no_data'
     return 'warning' if gated > FAILURE_RATE_WARNING else 'within'
