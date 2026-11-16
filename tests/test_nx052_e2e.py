@@ -265,6 +265,7 @@ def test_a_database_without_the_keys_reports_its_name_and_the_right_one_drops_al
     assert len(tenant_fk_state.drop(admin, ['all'])) == sum(len(tenant_fk_state.constraints(b)) for b in tenant_fk_state.ALL) == 134
 
 
+@pytest.mark.usefixtures('reclaim_passed_tmp_path')
 def test_the_template_census_reads_a_copy_and_counts_the_nx052_keys(admin, pg, tmp_path):
     """scripts/load/template_fk_census.py (CI host N runs 2026-10-14): on a copy of a template's pgdata, started on its own socket
     with the bootstrap superuser, it counts per database the *_tenant_fk keys, the keys referencing the tenant table, the NX-052

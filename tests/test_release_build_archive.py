@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures('reclaim_passed_tmp_path')
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts' / 'release'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -237,19 +239,23 @@ def sbom_ok():
     return spdx('pkg:pypi/liba@1.0'), [finding(severity='Critical')], None
 
 
-def test_stage_preflight_blocks_on_licenses_and_tools_but_only_lists_sbom_differences(tmp_path):
-    ok = release.stage_preflight('HEAD', tmp_path / 'a', runner=Runner(), sbom_maker=sbom_ok, pinned_checker=PINNED)
-    assert ok['ok'] is True and list(ok['steps']) == list(release.STAGE_PREFLIGHT_STEPS) and ok['category'] == 'stage'
-    assert ok['steps']['vulnerabilities']['detail']['listed'] == ['CVE-2026-0001']  # stage: listed, not blocking (D5)
-    listed = release.stage_preflight('HEAD', tmp_path / 'b', runner=Runner(), sbom_maker=lambda: (spdx('pkg:pypi/liba@1.0', 'pkg:npm/x@1.0.0'), [], None),
-                                     pinned_checker=PINNED)
-    assert listed['ok'] is True and listed['steps']['source_sbom']['detail']['listed_count'] == 1
-    assert release.stage_preflight('HEAD', tmp_path / 'c', runner=Runner(['check_licenses.py']), sbom_maker=sbom_ok)['steps']['licenses']['ok'] is False
-
+@pytest.mark.parametrize('condition', ['ok', 'listed', 'licenses', 'tool'])
+def test_stage_preflight_blocks_on_licenses_and_tools_but_only_lists_sbom_differences(tmp_path, condition):
     def missing():
         raise release.NotInstalled('syft not installed')
-    no_tool = release.stage_preflight('HEAD', tmp_path / 'd', runner=Runner(), sbom_maker=missing)
-    assert no_tool['ok'] is False and no_tool['steps']['source_sbom']['ok'] is False and no_tool['steps']['vulnerabilities']['ok'] is False
+    maker = missing if condition == 'tool' else (
+        (lambda: (spdx('pkg:pypi/liba@1.0', 'pkg:npm/x@1.0.0'), [], None)) if condition == 'listed' else sbom_ok)
+    report = release.stage_preflight('HEAD', tmp_path / 'a', runner=Runner(['check_licenses.py'] if condition == 'licenses' else []),
+                                     sbom_maker=maker, pinned_checker=PINNED)
+    if condition == 'ok':
+        assert report['ok'] is True and list(report['steps']) == list(release.STAGE_PREFLIGHT_STEPS) and report['category'] == 'stage'
+        assert report['steps']['vulnerabilities']['detail']['listed'] == ['CVE-2026-0001']
+    elif condition == 'listed':
+        assert report['ok'] is True and report['steps']['source_sbom']['detail']['listed_count'] == 1
+    elif condition == 'licenses':
+        assert report['steps']['licenses']['ok'] is False
+    else:
+        assert report['ok'] is False and report['steps']['source_sbom']['ok'] is False and report['steps']['vulnerabilities']['ok'] is False
 
 
 def test_stage_preflight_fails_on_an_expired_waiver(tmp_path, monkeypatch):

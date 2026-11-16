@@ -3,6 +3,8 @@ import os, pathlib, shutil, socket, subprocess, tempfile
 import psycopg
 import pytest
 
+pytest_plugins = ['support.passed_tmp_cleanup']
+
 DEFAULT_PG_BIN='/opt/homebrew/opt/postgresql@18/bin'
 
 from support import read_object_compare as _compare
