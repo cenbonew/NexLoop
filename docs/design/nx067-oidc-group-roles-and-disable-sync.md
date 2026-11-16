@@ -1,8 +1,9 @@
 # NX-067 工作台 SSO：IdP 组只降不升，以及 IdP 停用后的同步
 
-- 状态：设计稿，2026-11-10，L4，**待 L6 审**。负责人 11-10 决定：NX-065 的两项缺口另开任务补上。
-- 基线：迁移 0365（OIDC 登录与绑定）、0404（AUTH-DOS：会话绑定 `session_epoch`）、0116 和 0287（角色清单与授权事实）、`nexloop_eios/workbench_oidc.py`；NX-065 验收脚本 `scripts/acceptance/nx065_oidc_acceptance.py`。
-- 迁移 `nx067_oidc_gaps`（临时号，合入时由调度员重排，排在 NX-062 M5b/M5c 之后）。
+- 状态：2026-11-10 设计，L4；**L6 设计条件 PASS，Z1–Z5 见 §6**，负责人取舍见下文确认段。2026-11-16 按源码基线 `236003b3` 对齐；源码已包含实现，NX-067 仍为 `in_progress`，不等于现场验收完成。
+- 历史设计基线：迁移 0365（OIDC 登录与绑定）、0404（AUTH-DOS：会话绑定 `session_epoch`）、0116 和 0287（角色清单与授权事实）。当前实现包括 `nexloop_eios/workbench_oidc.py`、正式迁移 `0445_nx067_oidc_gaps.sql` 和验收脚本 `scripts/acceptance/nx065_oidc_acceptance.py`。
+- 迁移名称早期以临时号流转；`236003b3` 的 Migration Catalog 登记为 **0445**。这仅是仓库事实，不证明 stage 已应用；部署核验与备份按[当前运行单](../release/run-nx065-oidc-acceptance.md) §2 执行。
+- 审查边界：探针修复 `68a26497` 的 L6 复审为 P2 CLOSED / 局部 PASS（36 项纯内存回归），只关闭离线判读问题。当前探针要求精确 `409 / not_allowed_in_state / details.reason=not_found`，不接受裸 404 作为授权阳性。PG/app 集成、真实 IdP、网络/TLS、组映射、停用同步与现场清理仍须取得运行单 §3–5 的证据；本设计不授权执行或把验收状态改为通过。
 
 ## 1. 不变的部分
 

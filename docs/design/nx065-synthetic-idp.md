@@ -1,28 +1,27 @@
 # NX-065 stage 验收用的合成 IdP
 
-- 状态：设计稿，2026-11-10，L4。和选哪家 IdP 无关的部分可以先做；IdP 选型和启用时间由负责人定。
-- 依据：`docs/release/run-nx058-oidc-enable.md`（启用、验收和回退），迁移 0365，`nexloop_eios/workbench_oidc.py`，`tests/support/mock_oidc_idp.py`。
+- 状态：2026-11-10 设计，2026-11-16 按源码基线 `236003b3` 对齐。负责人已选托管 IdP 的测试租户（见[当前运行单](../release/run-nx065-oidc-acceptance.md) §0）；启用时间仍待负责人确定。本次源码核对不证明 stage 已启用或验收完成。
+- 依据：[启用与回退运行单](../release/run-nx058-oidc-enable.md)、[NX-067 设计](nx067-oidc-group-roles-and-disable-sync.md)，迁移 0365 与正式 `0445_nx067_oidc_gaps.sql`（以 Migration Catalog 为准），`nexloop_eios/workbench_oidc.py`，`tests/support/mock_oidc_idp.py`。
 - 产出：验收脚本 `scripts/acceptance/nx065_oidc_acceptance.py`（本地测试 `tests/test_nx065_oidc_acceptance_pg.py`），运行单 `docs/release/run-nx065-oidc-acceptance.md`。
 
-## 1. 先看现状：任务里有两项产品目前不支持
+## 1. 历史缺口、当前实现与验收边界
 
-NX-065 要求验收“组映射到角色”和“IdP 侧停用后同步”。按 0365 和 `workbench_oidc.py` 的现状：
+**旧基线（0365，NX-067 实现之前）**：SSO 只绑定已有成员，不处理组映射；IdP 停用只阻止重新登录，已有会话等待解绑、撤销或过期。旧版验收脚本将组映射和停用同步记为 `gap`、退出码 3。当时提出的“把映射放进 provider 文件”只是未采用的方案，已由 NX-067 的受治理配置取代，不能据此配置当前系统。
 
-- **组映射**：ID token 只读 `iss`、`sub`、`aud`、`azp`、`exp`、`iat`、`nbf`、`nonce`，不读组 claim。成员的角色只来自工作台角色清单（workbench-roles），SSO 只决定“这个 IdP 用户是哪个已有成员”。
-- **停用同步**：没有 back-channel logout，没有 SCIM，也没有定期检查。IdP 停用用户后，这个用户发不起新的 SSO 登录（IdP 自己会拒绝），但已经建立的会话一直有效，直到负责人解绑、撤销成员，或者会话过期。
+**当前源码（`236003b3`）**：NX-067 已提供组角色上限、SSO 会话最长时长及 back-channel logout，正式迁移为 `0445_nx067_oidc_gaps.sql`。
 
-验收脚本把这两项如实报成 `gap`，不报 `passed`；只要还有 gap，脚本就以退出码 3 结束，NX-065 也就不能标成完成。脚本同时验证在现状下应该成立的事：IdP 侧的组不会给出任何角色（成员执行负责人才能做的 Action 会得到 403）；停用后无法再登录；解绑会结束所有 SSO 会话（session epoch）。
+- 组映射由负责人通过 `nexloop.workbench_member.set_sso_group_mapping:1` 设置或清空，**不写进 provider 私有文件**。有效权限取角色清单与组上限的 Action 交集，只降不升；未命中时锁住全部工作台 Action，清空映射才恢复清单权限。具体规则与派发复核见 NX-067 §2、§6。
+- 停用同步由两项共同覆盖：provider 的 `max_session_seconds`（默认 28800，允许 900–43200）和启用后的 back-channel logout。后者验证 logout token 后递增成员的 `session_epoch`，结束全部会话；前者给出无推送时的失效上限。SCIM 不在范围内。
+- 当前验收脚本分别报告 `groups.mapping`、`disable.sync.backchannel` 和 `disable.sync.max_session`；没有映射或未开 back-channel 仍是 `not_configured` gap，不能记为通过。全部必需检查通过且没有 gap 才退出 0；步骤、配置与清理以[当前运行单](../release/run-nx065-oidc-acceptance.md) §3–5 为准。
 
-要补上这两项，需要新的产品工作，包括新迁移（临时号从 0443 起）和新的契约，由负责人决定做不做、怎么做。可选做法：
-- 组映射：在 provider 文件里加 `group_claim` 和“组 → 角色”的映射，**只能降级、不能升级**（例如只允许映射到 operator 或 reviewer，并且不能超过清单里给的角色），每次登录时在 SQL 里比对。
-- 停用同步：支持 OIDC back-channel logout（IdP 推送 logout token，验证签名后让这个成员的 session epoch 加一）；或者设定 SSO 会话的最长时长，到期后必须重新经过 IdP。
+**审查与现场边界**：NX-067 设计经 L6 条件 PASS，Z1–Z5 及负责人取舍见 NX-067 §6。离线探针修复 `68a26497` 经 L6 复审为 P2 CLOSED / 局部 PASS（36 项纯内存回归）：只接受固定缺失 question 的精确 `409 / not_allowed_in_state / details.reason=not_found` 作为授权阳性，裸 404 不算。该结论只关闭判读缺口，不证明 PG/app 集成、真实 IdP、网络/TLS 或 stage 验收通过。NX-065/067 在该基线仍为 `in_progress`；部署、启用和现场验收仍按运行单执行并取得对应证据。
 
 ## 2. TLS：自建 IdP 要先解决证书信任
 
 `OidcClient` 建 httpx 客户端时用的是 `trust_env=False`，没有指定 `verify`，所以只信任 certifi 自带的公共 CA，不认 `SSL_CERT_FILE`，也不认 stage 网关的私有 CA。另外 issuer 和四个端点都必须是 HTTPS 主机名，不能是私网 IP 字面量（`_https`）。
 
 因此：
-- **方案 A（建议先用）：托管 IdP 的独立测试租户**。证书本来就是公共 CA 签发的，主机名也是公网域名，不需要在我们的主机上起任何服务。前提是 api 容器能出网访问它的 token 和 jwks 地址，要先用只读方式核实。
+- **方案 A（负责人已选）：托管 IdP 的独立测试租户**。证书本来就是公共 CA 签发的，主机名也是公网域名，不需要在我们的主机上起任何服务。前提是 api 容器能出网访问它的 token 和 jwks 地址，要先用只读方式核实。
 - **方案 B：自建的开源 IdP**，作为单独的 compose project 起在 APP_HOST 上（和 NexLoop 的 compose 分开，停掉或删掉都不影响 NexLoop）。前提是有一个公网可以解析的主机名和公共 CA 签发的证书（例如 ACME）。只有私有 CA 的话，需要改代码让 `OidcClient` 接受 CA 文件，这属于新的代码改动，要另开任务。
 - 两种方案都**不**放在 DATA_HOST 上：DATA_HOST 只放数据和备份，根权限的授权范围已经固定。
 
