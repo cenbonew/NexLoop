@@ -401,6 +401,26 @@ CATALOG_ENUMERATORS = {
 }
 
 
+def checked_metadata_only_enumerators(admin):
+    """A name alone is insufficient: pin the reviewed G1 body and its definer boundary.
+
+    0454's pg_class scan checks ACLs (including accidental simulated-ledger grants),
+    owners and FORCE RLS; it never uses discovered names to read table rows. Any body
+    change must be reviewed here again, not silently inherit this classification.
+    """
+    body, definer, volatility, owner, settings, nargs, result = admin.execute("""
+        select prosrc,prosecdef,provolatile,pg_get_userbyid(proowner),proconfig,pronargs,prorettype::regtype::text
+        from pg_proc where oid='nexloop_maintenance.nexloop_g1_verify()'::regprocedure""").fetchone()
+    assert hashlib.sha256(body.encode()).hexdigest() == '4b7aa394a41503c53d9de8dc203692126294cf2284d4c6ec2fa4febf0006d6ae', 'G1 metadata-only body changed'
+    assert (definer, volatility, owner, nargs, result) == (True, 's', 'nexloop_owner', 0, 'jsonb')
+    assert set(settings) == {'search_path=pg_catalog, pg_temp', 'row_security=on', 'eios.tenant_id='}
+    grantees = {r[0] for r in admin.execute("""select pg_get_userbyid(x.grantee)
+        from pg_proc p,aclexplode(p.proacl) x
+        where p.oid='nexloop_maintenance.nexloop_g1_verify()'::regprocedure""").fetchall()}
+    assert grantees == {'nexloop_owner', 'nexloop_g1_verifier'}
+    return {'nexloop_maintenance.nexloop_g1_verify'}
+
+
 def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_ledger(sim):
     """Review 2.2: no application role holds a privilege on the ledger; no view, policy or rule names it (other than its own tenant
     policies); functions naming it are S4's own; functions enumerating world tables dynamically are S2's snapshot and purge only."""
@@ -436,7 +456,50 @@ def test_only_the_stand_in_functions_and_the_whole_deletion_read_the_simulated_l
     # reach the ledger without naming it; every such function is registered in CATALOG_ENUMERATORS with what it reads.
     found = {r[0].split('(')[0] for r in admin.execute("""select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
         where n.nspname not in ('pg_catalog','information_schema') and p.prosrc ~ '(pg_class|pg_attribute|pg_tables|information_schema[.](tables|columns))'""").fetchall()}
-    assert found <= CATALOG_ENUMERATORS.keys(), sorted(found - CATALOG_ENUMERATORS.keys())
+    checked = CATALOG_ENUMERATORS.keys() | checked_metadata_only_enumerators(admin)
+    assert found <= checked, sorted(found - checked)
+
+
+def test_g1_metadata_classification_refuses_a_ledger_read_mutation(sim):
+    admin = sim['admin']
+    assert checked_metadata_only_enumerators(admin) == {'nexloop_maintenance.nexloop_g1_verify'}
+    # Disposable DDL fault only: even an extra ledger read in the same fixed name
+    # must fail classification, rather than acquire a permanent name exemption.
+    definition = admin.execute("select pg_get_functiondef('nexloop_maintenance.nexloop_g1_verify()'::regprocedure)").fetchone()[0]
+    changed = definition.replace('begin\n', 'begin\n perform count(*) from runtime.nexloop_sim_effect_intents;\n', 1)
+    assert changed != definition
+    admin.execute(changed)
+    with pytest.raises(AssertionError, match='metadata-only body changed'):
+        checked_metadata_only_enumerators(admin)
+
+
+def test_g1_checks_metadata_without_scanning_simulated_ledger_rows(sim):
+    admin = sim['admin']
+    submit(sim, sim['a'], sim['token_a'], intent())
+    admin.execute('alter role nexloop_g1_verifier login')  # disposable fixture only
+    # Resolve OIDs as the fixture admin: the verifier deliberately has no business
+    # schema USAGE, even for a regclass input cast in this statistics query.
+    ledger_oids = [admin.execute('select %s::regclass::oid', (t,)).fetchone()[0] for t in LEDGER]
+    with psycopg.connect(make_conninfo(sim['pg'], user='nexloop_g1_verifier'), autocommit=True) as db:
+        db.execute('begin isolation level repeatable read read only')
+        stats = """select relid,seq_scan,seq_tup_read,idx_scan,idx_tup_fetch,n_tup_ins,n_tup_upd,n_tup_del
+            from pg_stat_xact_user_tables where relid=any(%s::oid[]) order by relid"""
+        before = db.execute(stats, (ledger_oids,)).fetchall()
+        assert len(before) == len(LEDGER)
+        out = db.execute('select nexloop_maintenance.nexloop_g1_verify()').fetchone()[0]
+        assert out['status'] == 'clear' and out['tenants_checked'] == 2
+        assert db.execute(stats, (ledger_oids,)).fetchall() == before
+        db.execute('rollback')
+    # Positive control: the test populated an actual simulated ledger row.
+    assert admin.execute('select count(*) from runtime.nexloop_sim_effect_intents').fetchone()[0] == 1
+    # Why the metadata scan matters: even a latent grant, without schema USAGE,
+    # must be detected. No ledger SELECT is performed by the verifier.
+    admin.execute('grant select on runtime.nexloop_sim_effect_intents to nexloop_g1_verifier')
+    with psycopg.connect(make_conninfo(sim['pg'], user='nexloop_g1_verifier'), autocommit=True) as db:
+        db.execute('begin isolation level repeatable read read only')
+        with pytest.raises(psycopg.errors.InsufficientPrivilege, match='authority or coverage structure invalid'):
+            db.execute('select nexloop_maintenance.nexloop_g1_verify()')
+        db.execute('rollback')
 
 
 def test_the_stand_in_role_executes_the_stand_in_entries_only(sim):
