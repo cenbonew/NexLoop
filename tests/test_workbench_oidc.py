@@ -11,6 +11,14 @@ from nexloop_eios import workbench_oidc as O
 from support.mock_oidc_idp import MockIdp, b64, cached_keypair, jws
 
 
+def test_provider_accepts_the_inclusive_maximum_session_seconds():
+    provider = O.Provider(provider_id='corp', issuer='https://idp.example.test/r', client_id='c',
+                          authorization_endpoint='https://idp.example.test/a',
+                          token_endpoint='https://idp.example.test/t', jwks_uri='https://idp.example.test/j',
+                          client_secret_env='UNUSED', max_session_seconds=43200)
+    assert provider.max_session_seconds == 43200
+
+
 @pytest.fixture
 def idp(tmp_path):
     i = MockIdp()

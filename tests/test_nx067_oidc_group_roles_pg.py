@@ -223,3 +223,84 @@ def test_z5_the_ceiling_is_checked_again_at_execution_and_at_dispatch(groups, ad
         admin.execute('update control.nexloop_workbench_external_identities set role_ceiling=null where principal_id=%s', (operator,))
         assert operator_act(password) not in (403, 503)  # the control: without the ceiling the same call passes all three
     assert admin.execute("select count(*) from runtime.audit_events where action like 'nexloop.human_question%'").fetchone() == (0,)
+
+
+def _overlapping_role_fixture(c, admin):
+    """Only this disposable PG: publish intersecting templates through the existing configurator."""
+    from test_machine_reads_pg import commitment, hexid, publish_types, put
+
+    shared = 'eios:action:nexloop.object.add_note:1'
+    reviewer_only = 'eios:action:ontology.schema.review:1'
+    roles = {**ROLES, 'manifest_version': ROLES['manifest_version'] + 1,
+             'roles': {**ROLES['roles'], 'reviewer': [reviewer_only, shared]}}
+    assert shared in roles['roles']['operator'] and OPERATOR_ACTION not in roles['roles']['reviewer']
+    assert reviewer_only not in roles['roles']['operator']
+    apply_members(roles, members_file((c['owner_member'], 'owner'), (c['operator_member'], 'operator')),
+                  database_url_file=c['configurator'])
+    publish_registry_actions(admin, ('nexloop.object.add_note',))
+    publish_types(admin)
+    object_id = put(admin, 'Commitment', commitment(hexid()))
+    return shared, reviewer_only, object_id
+
+
+def _write_shared_note(member, admin, principal, object_id, text):
+    csrf = member.post('/api/v1/workbench/auth/csrf', headers={'Origin': ORIGIN})
+    assert csrf.status_code == 200
+    response = act(member, csrf.json()['csrf_token'], 'object_note_add',
+                   {'type_name': 'Commitment', 'object_id': object_id, 'text': text})
+    assert response.status_code == 200, response.json()
+    assert response.json()['replayed'] is False
+    row = admin.execute('select author_principal_id,object_id,text from runtime.nexloop_object_notes where note_id=%s',
+                        (response.json()['note_id'],)).fetchone()
+    assert row == (principal, object_id, text)
+
+
+def test_a_nonempty_partial_role_intersection_executes_only_the_shared_action(groups, admin):
+    c = groups
+    shared, reviewer_only, object_id = _overlapping_role_fixture(c, admin)
+    principal = c['operator_member']['principal_id']
+    with TestClient(app(c), base_url=ORIGIN) as owner, TestClient(app(c), base_url=ORIGIN) as member:
+        csrf = workbench_login(owner, c['owner_member']).json()['csrf_token']
+        assert link(owner, csrf, principal, SUBJECT).status_code == 200
+        assert mapping(owner, csrf, {'overlap-review': 'reviewer'}, 0).status_code == 200
+        assert login(member, c['idp'], ['overlap-review']) == '/workbench'
+        assert ceiling(admin, principal) == (['reviewer'],)
+        assert permitted(admin, principal, shared) is True
+        assert permitted(admin, principal, OPERATOR_ACTION) is False  # manifest only
+        assert permitted(admin, principal, reviewer_only) is False  # ceiling only
+        _write_shared_note(member, admin, principal, object_id, 'synthetic shared intersection')
+        assert operator_act(member) == 403
+        assert member.get(f'/api/v1/workbench/schema-proposals/{QUESTION}/basis').status_code == 403
+    assert admin.execute('select count(*) from runtime.nexloop_object_notes where object_id=%s', (object_id,)).fetchone() == (1,)
+
+
+def test_multiple_matched_groups_union_before_intersecting_the_manifest(groups, admin):
+    c = groups
+    shared, reviewer_only, object_id = _overlapping_role_fixture(c, admin)
+    principal = c['operator_member']['principal_id']
+    with TestClient(app(c), base_url=ORIGIN) as owner, TestClient(app(c), base_url=ORIGIN) as member:
+        csrf = workbench_login(owner, c['owner_member']).json()['csrf_token']
+        assert link(owner, csrf, principal, SUBJECT).status_code == 200
+        assert mapping(owner, csrf, {'union-ops': 'operator', 'union-review': 'reviewer'}, 0).status_code == 200
+        # A single review group excludes the manifest-only Action. Adding the operator group must restore it,
+        # not intersect the two ceiling roles or select only the first matching group.
+        assert login(member, c['idp'], ['union-review']) == '/workbench'
+        assert ceiling(admin, principal) == (['reviewer'],)
+        assert permitted(admin, principal, OPERATOR_ACTION) is False
+        assert operator_act(member) == 403
+        for index, claims in enumerate((['union-review', 'union-ops'], ['union-ops', 'union-review'])):
+            assert login(member, c['idp'], claims) == '/workbench'
+            assert ceiling(admin, principal) == (['operator', 'reviewer'],)
+            assert permitted(admin, principal, shared) is True
+            assert permitted(admin, principal, OPERATOR_ACTION) is True
+            assert permitted(admin, principal, reviewer_only) is False  # union cannot add a non-manifest Action
+            _write_shared_note(member, admin, principal, object_id, f'synthetic union intersection {index}')
+            # This fixed absent question reaches the governed handler; an unrelated HTTP error is not a positive.
+            token = member.post('/api/v1/workbench/auth/csrf', headers={'Origin': ORIGIN})
+            assert token.status_code == 200
+            answer = act(member, token.json()['csrf_token'], 'answer_human_question',
+                         {'question_id': QUESTION, 'answer_kind': 'withdraw', 'option_index': None, 'text': None})
+            assert answer.status_code == 409 and answer.json()['code'] == 'not_allowed_in_state'
+            assert answer.json()['details']['reason'] == 'not_found'
+            assert member.get(f'/api/v1/workbench/schema-proposals/{QUESTION}/basis').status_code == 403
+    assert admin.execute('select count(*) from runtime.nexloop_object_notes where object_id=%s', (object_id,)).fetchone() == (2,)
