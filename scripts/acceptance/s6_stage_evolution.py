@@ -325,9 +325,14 @@ class Stage:
                                           evaluator_version=self.cfg['evaluator_version'], model_profile=self.cfg['model_profile'])
         return diag, self.writer.propose(diagnosis_id(self.inputs()['diagnosis'].snapshot_digest), draft)
 
-    def freeze_open(self, draft, label, levels=('L0',)):
+    def freeze_open(self, draft, label, levels=('L0',), *, verify_cohort=False):
         self.propose(draft)
         frozen = self.writer.freeze_bundle(draft.candidate['candidate_id'], levels=levels, seed=self.seed(label))
+        if verify_cohort:
+            expected = {k: draft.candidate[k] for k in ('candidate_id', 'input_snapshot_digest', 'design_case_ids', 'validation_case_ids')}
+            expected['case_groups'] = draft.case_groups
+            if any(frozen['bundle'].get(k) != v for k, v in expected.items()):
+                raise Precondition('AT-048 frozen cohort differs from the current plan; old candidate evidence cannot verify this cohort')
         opened = self.evaluator.open(draft.candidate['candidate_id'], frozen['bundle_digest'])
         return frozen, opened
 
@@ -479,20 +484,27 @@ def at048(st, r):
             plans['near_duplicate'] = st.plan('at048-near-duplicate', units, groups=groups, design=sorted([a, other[0]]), validation=sorted([b, other[1]]))
             merged = {x: ('cluster:near-duplicates' if x in (a, b) else i['clusters'][x]) for x in runs}
             plans['regrouped'] = st.plan('at048-regrouped', units, groups=merged, design=sorted([a, b, other[0]]), validation=[other[1]])
-    r.step('plan', bool(plans), routes=sorted(plans), near_duplicate_pairs=len(i['pairs']))
-    if not same:
-        r.notes.append('route by_run not planned: no Consumer with two Runs in the holdout')
-    if not i['pairs']:
-        r.notes.append('route near_duplicate not planned: no two Runs of different Consumers asked the same terms in the window')
+    missing = sorted({'by_run', 'near_duplicate', 'regrouped'} - plans.keys())
+    r.step('plan', True, routes=sorted({'by_consumer', *plans}), near_duplicate_pairs=len(i['pairs']), missing_routes=missing)
+    if missing:
+        raise Precondition('AT-048 requires all four routes; not planned: ' + ', '.join(missing))
     if r.dry_run:
         return
-    for route in ('by_run', 'near_duplicate'):
-        if route in plans:
-            _, opened = st.freeze_open(plans[route], 'at048-' + route)
+    for route, plan in (('by_run', plans['by_run']), ('near_duplicate', plans['near_duplicate']),
+                        ('by_consumer', base), ('regrouped', plans['regrouped'])):
+        frozen, opened = st.freeze_open(plan, 'at048-' + route, verify_cohort=True)
+        bundle = frozen['bundle']
+        cohort = {k: bundle[k] for k in ('input_snapshot_digest', 'design_case_ids', 'validation_case_ids', 'case_groups')}
+        r.step('frozen cohort', True, route=route, candidate_id=bundle['candidate_id'], bundle_digest=frozen['bundle_digest'],
+               input_snapshot_digest=bundle['input_snapshot_digest'],
+               cohort_digest=hashlib.sha256(json.dumps(cohort, sort_keys=True).encode()).hexdigest(),
+               frozen_replayed=frozen.get('replayed'), opening_replayed=opened.get('replayed'))
+        if opened['opened'] and opened.get('replayed') is not False:
+            r.block(route, 'opening replay is historical evidence, not a new leakage check; use the runbook new cohort/label procedure')
+            continue
+        if route in ('by_run', 'near_duplicate'):
             r.check(f'{route}: opening returns leakage_detected', 'leakage_detected', opened.get('reason') if not opened['opened'] else 'opened')
-    for route, plan in (('by_consumer', base), ('regrouped', plans.get('regrouped'))):
-        if plan is not None:
-            _, opened = st.freeze_open(plan, 'at048-' + route)
+        else:
             r.check(f'{route}: opening passes', True, opened['opened'])
 
 

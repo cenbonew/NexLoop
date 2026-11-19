@@ -3521,6 +3521,18 @@
         "ref": "7cee60cc6d82",
         "summary": "第 128 批：审核队列显示候选类别（0420，47efad72，L6 PASS），owner_directed_schema 显示为“负责人指定”（4678baa8，L6 PASS）；执行 L2、L9，判定 L6。",
         "recorded_at": "2026-11-07T18:33:51+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7fe71c33a071509e888738884ba5ede00c440553",
+        "summary": "Local AT-048 evidence correction: incomplete routes block before writes; frozen cohort matches current plan; positive opening replay cannot count as a fresh leakage check. 18 offline/disposable-local-PG tests passed. No stage execution or acceptance status change; pending dispatcher/L6 review.",
+        "recorded_at": "2026-11-19T14:10:04.054152+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ed5d157534df5f64986e15e41df1dbabd048f69f",
+        "summary": "AT-048 wording and report metadata only: include by_consumer; missing near-duplicate blocks all four routes; successful blocked=[]; targeted evidence, evolution PG and preflight PG regression 23 passed (11 warnings). No stage execution or acceptance status change.",
+        "recorded_at": "2026-11-19T14:15:58.530157+00:00"
       }
     ]
   },
@@ -3609,6 +3621,12 @@
         "ref": "bb0be5e049aa",
         "summary": "第 123 批：S6 只读前提核对覆盖 NX-039 的运行单；执行 L7，判定 L6 PASS。",
         "recorded_at": "2026-11-07T11:42:42+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "7fe71c33a071509e888738884ba5ede00c440553",
+        "summary": "Local AT-048 evidence correction: incomplete routes block before writes; frozen cohort matches current plan; positive opening replay cannot count as a fresh leakage check. 18 offline/disposable-local-PG tests passed. No stage execution or acceptance status change; pending dispatcher/L6 review.",
+        "recorded_at": "2026-11-19T14:10:04.054152+00:00"
       }
     ]
   },

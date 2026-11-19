@@ -160,6 +160,14 @@ def test_at048_detects_both_leakage_routes_and_passes_regrouped(stage):
     assert set(got) == {'by_run: opening returns leakage_detected', 'near_duplicate: opening returns leakage_detected', 'by_consumer: opening passes',
                         'regrouped: opening passes'}
     assert code == 0 and r['passed'] is True and all(x['passed'] for x in got.values())
+    cohort = [step['evidence'] for step in r['steps'] if step['name'] == 'frozen cohort']
+    assert len(cohort) == 4 and len({e['candidate_id'] for e in cohort}) == 4
+    assert [e['opening_replayed'] for e in cohort] == [None, None, False, False]
+    code, [replay] = call('at048', '--config', stage['config'])
+    assert code == 1 and replay['passed'] is None and len(replay['blocked']) == 2
+    replay_cohort = [step['evidence'] for step in replay['steps'] if step['name'] == 'frozen cohort']
+    assert [e['cohort_digest'] for e in cohort] == [e['cohort_digest'] for e in replay_cohort]
+    assert all(e['frozen_replayed'] is True for e in replay_cohort)
 
 
 def test_r7_invalidates_the_holdout_and_the_snapshot_after_the_erasure(stage):
