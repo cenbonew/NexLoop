@@ -53,7 +53,7 @@ uv run --frozen python scripts/acceptance/s6_stage_evolution.py all --config "$S
 security find-generic-password -s nexloop/stage/approver3 -w | uv run --frozen python scripts/acceptance/s6_stage_schema.py at024 --config "$S6" --dry-run
 ```
 
-预期：每项一行 `nexloop-s6-stage-result/1`，`dry_run: true`，`blocked: false`，退出码 0。任何一项 blocked，按它的 `steps` 补前提后再来。
+预期：每项一行 `nexloop-s6-stage-result/1`，`dry_run: true`，`blocked: []`，退出码 0。任何一项 blocked，按它的 `steps` 补前提后再来。
 
 ### 2.0 设 evolution 预算（P3 不满足时；approver3 发起和执行，approver2 批准，各一次）
 
@@ -221,7 +221,7 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
   ```
 
 - **预期与失败处理**：预期见 §3 的 S6-R5 一行；失败按 §5 F2 处理。
-- **只读核对**：结果行 `passed: true`、`blocked: false`，并记下结果文件的 sha256。
+- **只读核对**：结果行 `passed: true`、`blocked: []`，并记下结果文件的 sha256。
 
 #### 段 E at048（包括 (b) 路线要的近重复那一对）
 
@@ -310,7 +310,7 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
 
 | 项 | 通过条件（全部满足） |
 |---|---|
-| 通用 | `passed: true`、`blocked: false`、退出码 0；每个 step 的 `passed` 都为 true |
+| 通用 | `passed: true`、`blocked: []`、退出码 0；每个 step 的 `passed` 都为 true |
 | S6-R5 | writer 凭据在 evaluator 端口开评被拒；writer 角色直接调用开评函数报 42501；evaluator 开评成功；非 test 凭据开 L1 报 `test-only evaluation credential`；登记的 test 凭据开 L1 成功 |
 | AT-048 | (a) 按 Run 分组、同一消费者落两侧 → `leakage_detected`；(b) 近重复分两侧 → `leakage_detected`；按消费者分组、近重复并簇的候选开评通过 |
 | AT-023 | L0 结论 accepted_for_release；L1 在 test world 开会话、结论 accepted、关闭并清快照；被拒候选（G7）状态 rejected；受保护表（正式定义与对象、Claims、候选定义、预算上限、授权事实、服务 grant）digest 前后不变 |

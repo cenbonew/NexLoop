@@ -485,7 +485,7 @@ def at048(st, r):
             merged = {x: ('cluster:near-duplicates' if x in (a, b) else i['clusters'][x]) for x in runs}
             plans['regrouped'] = st.plan('at048-regrouped', units, groups=merged, design=sorted([a, b, other[0]]), validation=[other[1]])
     missing = sorted({'by_run', 'near_duplicate', 'regrouped'} - plans.keys())
-    r.step('plan', True, routes=sorted(plans), near_duplicate_pairs=len(i['pairs']), missing_routes=missing)
+    r.step('plan', True, routes=sorted({'by_consumer', *plans}), near_duplicate_pairs=len(i['pairs']), missing_routes=missing)
     if missing:
         raise Precondition('AT-048 requires all four routes; not planned: ' + ', '.join(missing))
     if r.dry_run:

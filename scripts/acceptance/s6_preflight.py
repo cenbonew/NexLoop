@@ -13,7 +13,7 @@ item is ok | missing | expired | no_data with counts only (no token, DSN, host, 
   P4  the synthetic owner's grants (Budget.set, nexloop.budget.loosen, nexloop.consumer.erase_synthetic), the two budget Actions
       published and active, approval policy manifest >= 5
   P5  synthetic Consumers with a retrieval miss in the lookback (>= 4 for the holdouts) and near-duplicate Run pairs across Consumers
-      (AT-048 route b; 0 pairs is no_data: that route is not planned)
+      (AT-048 route b; 0 pairs is no_data: the four-route check is blocked before writes)
 
 No data is not a pass: only ok counts, and the exit is 0 only when every item is ok (1 otherwise, 2 for a refused configuration).
 """
@@ -140,7 +140,7 @@ def p5(db, tenant, now, days):
     if consumers < 4:
         return item('missing', **counts, remedy='run-s6-stage-prep §2.2a (customer-5) and §2.2 (synthetic interactions)')
     if not pairs:
-        return item('no_data', **counts, reason='no near-duplicate pair: AT-048 route b is not planned (route a still runs)')
+        return item('no_data', **counts, reason='no near-duplicate pair: AT-048 requires all four routes and is blocked before writes')
     return item('ok', **counts)
 
 

@@ -54,7 +54,10 @@ def test_old_positive_opening_cannot_be_a_fresh_pass():
 def test_fresh_four_routes_have_distinct_cohort_evidence():
     st, r = stage(), result()
     S.at048(st, r)
-    assert r.res.document()['passed'] is True
+    doc = r.res.document()
+    assert doc['passed'] is True and doc['blocked'] == []
+    plan = next(step['evidence'] for step in doc['steps'] if step['name'] == 'plan')
+    assert plan['routes'] == ['by_consumer', 'by_run', 'near_duplicate', 'regrouped']
     evidence = [s['evidence'] for s in r.res.steps if s['name'] == 'frozen cohort']
     assert len({e['candidate_id'] for e in evidence}) == 4
     assert len({e['cohort_digest'] for e in evidence}) == 4
