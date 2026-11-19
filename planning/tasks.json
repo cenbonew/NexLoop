@@ -3527,6 +3527,12 @@
         "ref": "7fe71c33a071509e888738884ba5ede00c440553",
         "summary": "Local AT-048 evidence correction: incomplete routes block before writes; frozen cohort matches current plan; positive opening replay cannot count as a fresh leakage check. 18 offline/disposable-local-PG tests passed. No stage execution or acceptance status change; pending dispatcher/L6 review.",
         "recorded_at": "2026-11-19T14:10:04.054152+00:00"
+      },
+      {
+        "type": "commit",
+        "ref": "ed5d157534df5f64986e15e41df1dbabd048f69f",
+        "summary": "AT-048 wording and report metadata only: include by_consumer; missing near-duplicate blocks all four routes; successful blocked=[]; targeted evidence, evolution PG and preflight PG regression 23 passed (11 warnings). No stage execution or acceptance status change.",
+        "recorded_at": "2026-11-19T14:15:58.530157+00:00"
       }
     ]
   },
