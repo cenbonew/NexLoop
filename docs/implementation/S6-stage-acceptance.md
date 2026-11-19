@@ -38,6 +38,13 @@ uv run --frozen python scripts/acceptance/s6_stage_evolution.py <检查> --confi
 | `r3` | S6-R3 | 先在内存中找到这样一个范围内的定义：给它加 alias，会把配置的受保护定义挤出浏览上限。用它构造 G5 失败的候选，再构造一个同 target、不带 term 的对照候选。G5 候选评分最高，但 G5 失败，结论被拒（`hard_gate_failed`，状态 rejected）。 |
 | `r7-prepare` / `r7-verify` | S6-R7 | prepare：建一个用例包含该合成顾客的候选，开评并开 L1 快照，状态写进私有状态文件。删除顾客后执行 verify：留出集被作废（missing_data），候选变为 incomplete/missing_data，L1 会话以 candidate_ended 关闭、快照清空，该顾客的 Run 离开 case_refs。 |
 
+### AT-048 证据判读
+
+- 四条路线必须齐备；任一路线无法规划时，在 propose/freeze/open 前返回 blocked（包括 dry-run），不能只看剩余断言通过。
+- 每路 `frozen cohort` 记录 route、candidate_id、bundle_digest、input_snapshot_digest、cohort_digest，以及 frozen_replayed/opening_replayed。cohort_digest覆盖输入快照、两侧用例和case_groups；它是运行单证据指纹，不替代数据库bundle_digest。开评前逐项核对冻结包与本次plan，一致才调用开评。
+- `opening_replayed=true` 的阳性只是既有开评回执，未重新执行泄漏检查，本次AT-048记blocked。冻结重放不必然是开评重放：负例此前仍为proposed，可以重新得到leakage_detected；拒绝响应未提供replayed时证据保留null。
+- 同label重跑仍不重复创建候选，但不能把旧阳性重放签成新检测通过。需要新检测时按既有审批与运行单更换cohort和label，不自动造数据或重试。旧结果、重新分组候选与新冻结摘要应分别保留。AT-023仍只比较正式受保护表前后digest，不将这些局部证据升格为S6验收完成。
+
 ## stage 前提（dry-run 会逐项报告）
 
 - 已登记 writer、evaluator（及 reader）服务主体和一张只含 test 的评估凭据（负责人 2026-10-21 定案在 stage 登记，见 `evolution-stage-enrollment.md`，用 `evolution_enroll.py --check` 核对），并设置了 evolution 预算。这些都属于受信配置，脚本自己不登记。dry-run 只核对各连接的角色，**不报告**预算行、所需迁移和 owner 授权；这几项按 run-nx038 §0 的只读查询核对（核对清单见 `docs/planning-drafts/s6-prereq-audit-20261107.md`）。

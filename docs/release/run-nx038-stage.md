@@ -234,8 +234,8 @@ BUDGET='{"budget_kind":"evolution","unit":"CNY","limit_amount":"50.00","period_s
   uv run --frozen python scripts/acceptance/s6_stage_evolution.py at048 --config "$S6_AT048"
   ```
 
-- **预期**：(a) 和 (b) 都返回 `leakage_detected`；按顾客分组、把近重复并成一簇的候选开评通过（§3）。结果里 `near_duplicate_pairs` 至少为 1，不能出现 note `route near_duplicate not planned`。
-- **失败时**：出现 `not planned` 说明那一对的词组不完全相同，判 blocked，不再重发；如果返回的不是 `leakage_detected`，按 §5 F6 判 failed。
+- **预期**：(a) 和 (b) 都返回 `leakage_detected`；按顾客分组、把近重复并成一簇的候选开评通过（§3）。四路线必须齐全，缺路线在写入前即 blocked。逐路保留 `frozen cohort` 的候选、输入快照、cohort 与冻结包摘要；阳性 `opening_replayed` 必须为 false。true 只证明旧开评回放，本次 blocked，不能当重新检测通过。
+- **失败时**：出现 `not planned` 或冻结包与当前 cohort 不符，判 blocked，不再重发；缺数据可能是同顾客多条 Run、近重复对或额外顾客不足，按 missing_routes 核对。阳性旧开评重放也记 blocked；更换 cohort/label 须遵守原数据与执行审批，不能自动补跑。如果负例返回的不是 `leakage_detected`，按 §5 F6 判 failed。
 
 #### 段 F at023
 
