@@ -67,8 +67,10 @@ import s6_common as C  # noqa: E402
 ROLES = {'reader': 'nexloop_evo_reader', 'writer': 'nexloop_evo_writer', 'evaluator': 'nexloop_evo_evaluator'}
 # The protected tables of AT-023 (formal definitions and objects, Claims, candidate definitions, budget limits, authority facts and
 # grants): the same set as the E4 test's PROTECTED.
-PROTECTED = ('ontology.object_type_versions', 'ontology.objects', 'ontology.nexloop_claims', 'ontology.nexloop_candidate_definitions',
-             'control.nexloop_budget_limits', 'authz.nexloop_authority_facts', 'authz.nexloop_service_grants')
+REQUIRED_PROTECTED = ('ontology.object_type_versions', 'ontology.objects', 'ontology.nexloop_claims', 'ontology.nexloop_candidate_definitions',
+             'control.nexloop_budget_limits', 'authz.nexloop_authority_facts')
+# Migration 0071 inventories service grants from authority facts. Also compare a separate relation if present.
+PROTECTED = (*REQUIRED_PROTECTED, 'authz.nexloop_service_grants')
 # One holdout (validation set) per AT that opens evaluations: at most 5 candidates are decided per holdout (D39-3), so the ATs never
 # share one (R4 spends its own on purpose).
 HOLDOUT_ORDER = ('at023', 'r1', 'r3', 'r4', 'at048', 'r5', 'r7', 'template')
@@ -528,6 +530,9 @@ def at023(st, r):
     plans = {k: st.plan('at023-' + k, units) for k in ('l0', 'l1', 'rejected')}
     r.step('plan', True, candidates={k: p.candidate['candidate_id'] for k, p in plans.items()}, holdout_uses=st.holdout_uses(plans['l0'].candidate['validation_case_ids']))
     r.digests['before'] = st.digests()
+    missing = sorted(set(REQUIRED_PROTECTED) - r.digests['before'].keys())
+    if missing:
+        raise Precondition('AT-023 baseline missing required protected tables: ' + ', '.join(missing))
     if r.dry_run:
         return
     frozen, opened = st.freeze_open(plans['l0'], 'at023-l0')
