@@ -11,6 +11,7 @@ import pytest
 SPEC = importlib.util.spec_from_file_location('nx065_offline', Path(__file__).parents[1] / 'scripts/acceptance/nx065_oidc_acceptance.py')
 A = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(A)
+REAL_ASK = A.TerminalIdp._ask
 
 
 @pytest.fixture(autouse=True)
@@ -221,3 +222,39 @@ def test_generic_denial_is_not_evidence_of_group_revocation():
     run.denial_body = {'code': 'proxy_denied'}
     run.groups_mapping(None, None)
     assert run.results[0]['status'] == 'failed'
+
+
+@pytest.mark.parametrize('line', ['', '\n'])
+def test_terminal_eof_and_enter(line):
+    tty = SimpleNamespace(write=lambda text: None, flush=lambda: None, readline=lambda: line)
+    if line:
+        assert REAL_ASK(A.TerminalIdp(tty), 'confirm') == ''
+    else:
+        with pytest.raises(EOFError):
+            REAL_ASK(A.TerminalIdp(tty), 'confirm')
+
+
+def test_manual_refusal_evidence():
+    row = SessionRun().checks()['disable.idp_refuses']
+    assert row == {'check': 'disable.idp_refuses', 'status': 'passed', 'source': 'operator_browser_observation',
+                   'provider_ref': 'synthetic-provider', 'user_slot': 'A'}
+
+
+def test_terminal_interruption_stops_before_cleanup(monkeypatch):
+    run = SessionRun()
+    monkeypatch.setattr(run, 'owner', lambda: (None, None))
+    def interrupted(*args):
+        raise EOFError
+    monkeypatch.setattr(run, '_run', interrupted)
+    monkeypatch.setattr(run, 'unlink', lambda *args: pytest.fail('operation after EOF'))
+    assert run.run() == 1
+    assert run.results[0]['manual_cleanup_required'] is True
+
+
+@pytest.mark.parametrize('provider', ['https://synthetic.invalid', 'invalid\nref', 7, 'a' * 33])
+def test_provider_reference_is_validated_before_use(monkeypatch, provider):
+    run = SessionRun()
+    config = dict(run.config, schema=A.SCHEMA, owner_username_file='unused', provider_id=provider)
+    monkeypatch.setattr(A, 'read_private', lambda path: A.json.dumps(config))
+    with pytest.raises(A.InputRefused, match='invalid provider identifier'):
+        A.load_config('unused')

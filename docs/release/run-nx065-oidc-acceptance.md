@@ -64,6 +64,7 @@ security find-generic-password -s "${keychain_service:?}" -a "${owner_account:?}
 ```
 
 - 脚本会在终端（不是 stdout）里提示：打开授权地址，以 A 或 B 的身份在 IdP 登录，再把浏览器跳回的地址粘贴回来；仅在浏览器明确显示 IdP 拒绝登录时输入 `refused`。用无痕窗口，每次登录前清掉 IdP 的会话，确保登录的是提示的那个用户。
+- 人工拒绝记录只含观察来源、配置中的 provider 标识和合成用户槽位。终端 EOF 或 Ctrl-C 中断验收或清理时，负责人须按下列清理项核对现场。
 - 中途会提示到 IdP 管理端把 A 加进组或移出组、停用 A（并结束 A 在 IdP 的全部会话，这一步会触发 back-channel）、启用 A，做完按回车。
 - `group_mapping` 会由脚本用负责人的受治理 Action 设置，脚本结束时清空。`expected_revision` 填这个 provider 当前的映射版本，第一次是 0。
 - 最后一项会等 `max_session_seconds + 60` 秒（900 秒时约 16 分钟），这期间不要关掉终端。

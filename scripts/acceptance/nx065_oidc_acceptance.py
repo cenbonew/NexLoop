@@ -51,6 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import stat
 import sys
@@ -93,6 +94,8 @@ def load_config(path):
               'max_session_seconds'}
     if type(config) is not dict or not needed <= set(config) or not set(config) <= needed | {'ca_file', 'backchannel_wait_seconds'} or config['schema'] != SCHEMA:
         raise InputRefused('configuration: fields ' + ', '.join(sorted(needed)) + ' (and ca_file, backchannel_wait_seconds)')
+    if type(config['provider_id']) is not str or not re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', config['provider_id']):
+        raise InputRefused('configuration: invalid provider identifier')
     mapping = config['group_mapping']
     if mapping is not None and (type(mapping) is not dict or set(mapping) != {'operator_group', 'reviewer_group', 'expected_revision'}
                                 or not all(type(mapping[k]) is str and mapping[k] for k in ('operator_group', 'reviewer_group'))
@@ -124,12 +127,16 @@ class TerminalIdp:
         if self.tty is not None:
             self.tty.write(text)
             self.tty.flush()
-            return self.tty.readline().strip()
-        with open('/dev/tty', 'w', encoding='utf-8') as prompt:
-            prompt.write(text)
-            prompt.flush()
-        with open('/dev/tty', 'r', encoding='utf-8') as reply:
-            return reply.readline().strip()
+            line = self.tty.readline()
+        else:
+            with open('/dev/tty', 'w', encoding='utf-8') as prompt:
+                prompt.write(text)
+                prompt.flush()
+            with open('/dev/tty', 'r', encoding='utf-8') as reply:
+                line = reply.readline()
+        if line == '':
+            raise EOFError
+        return line.strip()
 
     def authorize(self, location, user):
         answer = self._ask(f'\nOpen in the browser and sign in at the IdP as synthetic user {user}:\n{location}\n'
@@ -248,20 +255,25 @@ class Acceptance:
         owner, csrf = self.owner()
         try:
             self._run(owner, csrf, member, users)
+        except (EOFError, KeyboardInterrupt):
+            self.record('run.aborted', 'failed', error='terminal_interrupted', manual_cleanup_required=True)
+            return self.summary()
         except Exception as failure:  # L6 X3: one failed line with the exception type only (httpx text may carry the callback URL)
             self.record('run.aborted', 'failed', error=type(failure).__name__)
-        finally:
-            # Each clean-up step on its own: one that raises must not skip the others.
-            for step in (lambda: self.unlink(owner, csrf),  # leave the synthetic member unlinked (404/409 when already unlinked is fine)
-                         lambda: self.clear_mapping(owner, csrf),
-                         lambda: self.config['group_mapping'] and self.idp.set_group('A', self.config['group_mapping']['operator_group'], False),
-                         lambda: self.idp.set_enabled('A', True),
-                         lambda: self.idp.set_group('A', self.config['owner_group'], False),
-                         lambda: owner.post(AUTH + '/logout', headers=self._headers(csrf))):
-                try:
-                    step()
-                except Exception as failure:
-                    self.record('cleanup', 'failed', error=type(failure).__name__)
+        # Each clean-up step on its own: one that raises must not skip the others.
+        for step in (lambda: self.unlink(owner, csrf),  # leave the synthetic member unlinked (404/409 when already unlinked is fine)
+                     lambda: self.clear_mapping(owner, csrf),
+                     lambda: self.config['group_mapping'] and self.idp.set_group('A', self.config['group_mapping']['operator_group'], False),
+                     lambda: self.idp.set_enabled('A', True),
+                     lambda: self.idp.set_group('A', self.config['owner_group'], False),
+                     lambda: owner.post(AUTH + '/logout', headers=self._headers(csrf))):
+            try:
+                step()
+            except (EOFError, KeyboardInterrupt):
+                self.record('cleanup', 'failed', error='terminal_interrupted', manual_cleanup_required=True)
+                break
+            except Exception as failure:
+                self.record('cleanup', 'failed', error=type(failure).__name__)
         return self.summary()
 
     def _run(self, owner, csrf, member, users):
@@ -310,7 +322,8 @@ class Acceptance:
             idp_refused = True
         else:
             idp_refused = False
-        self.expect('disable.idp_refuses', idp_refused)
+        self.expect('disable.idp_refuses', idp_refused, provider_ref=self.config['provider_id'], user_slot='A',
+                    source='operator_browser_observation' if idp_refused else 'application_callback')
         if not self.config['backchannel']:
             after, _ = self.session(first)
             self.record('disable.sync.backchannel', 'gap' if before == 200 else 'failed', observed='not_configured', session_http=[before, after])
