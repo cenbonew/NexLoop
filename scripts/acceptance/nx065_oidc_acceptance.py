@@ -121,14 +121,15 @@ class TerminalIdp:
         self.tty = tty
 
     def _ask(self, text):
-        tty = self.tty or open('/dev/tty', 'r+', encoding='utf-8')
-        try:
-            tty.write(text)
-            tty.flush()
-            return tty.readline().strip()
-        finally:
-            if self.tty is None:
-                tty.close()
+        if self.tty is not None:
+            self.tty.write(text)
+            self.tty.flush()
+            return self.tty.readline().strip()
+        with open('/dev/tty', 'w', encoding='utf-8') as prompt:
+            prompt.write(text)
+            prompt.flush()
+        with open('/dev/tty', 'r', encoding='utf-8') as reply:
+            return reply.readline().strip()
 
     def authorize(self, location, user):
         answer = self._ask(f'\nOpen in the browser and sign in at the IdP as synthetic user {user}:\n{location}\n'
@@ -137,7 +138,7 @@ class TerminalIdp:
             raise IdpRefused(user)
         query = {k: v[0] for k, v in parse_qs(urlsplit(answer).query).items()}
         if not {'code', 'state'} <= set(query):
-            raise IdpRefused(user)
+            raise InputRefused('callback requires code and state')
         return {'code': query['code'], 'state': query['state']}
 
     def set_group(self, user, group, member):
@@ -206,11 +207,13 @@ class Acceptance:
         response = self.act(client, token.json()['csrf_token'], 'answer_human_question',
                             {'question_id': QUESTION_PROBE, 'answer_kind': 'withdraw', 'option_index': None, 'text': None})
         known_probe = False
-        if response.status_code == 409 and response.headers.get('content-type', '').startswith('application/json'):
+        if response.status_code in (409, 403) and response.headers.get('content-type', '').startswith('application/json'):
             try:
                 body = response.json()
-                known_probe = (type(body) is dict and body.get('code') == 'not_allowed_in_state'
+                known_probe = (response.status_code == 409 and type(body) is dict and body.get('code') == 'not_allowed_in_state'
                                and type(body.get('details')) is dict and body['details'].get('reason') == 'not_found')
+                if response.status_code == 403:
+                    known_probe = type(body) is dict and body.get('code') == 'forbidden'
             except (ValueError, TypeError):
                 pass
         return response.status_code, known_probe  # Never return/log raw response fields.
@@ -302,11 +305,12 @@ class Acceptance:
         before, _ = self.session(first)
         self.idp.set_enabled('A', False)
         try:
-            _, done, _ = self.sign_in('A')
-            completed = done.status_code == 303 and done.headers.get('location') == '/workbench'
+            self.sign_in('A')
         except IdpRefused:
-            completed = False
-        self.expect('disable.idp_refuses', not completed)
+            idp_refused = True
+        else:
+            idp_refused = False
+        self.expect('disable.idp_refuses', idp_refused)
         if not self.config['backchannel']:
             after, _ = self.session(first)
             self.record('disable.sync.backchannel', 'gap' if before == 200 else 'failed', observed='not_configured', session_http=[before, after])
@@ -354,12 +358,12 @@ class Acceptance:
         self.idp.set_group('A', mapping['operator_group'], False)
         self.idp.set_group('A', mapping['reviewer_group'], True)
         _, narrowed, _ = self.sign_in('A')
-        refused_after, _ = self.operator_action(mapped)
+        refused_after, known_refusal = self.operator_action(mapped)
         self.idp.set_group('A', mapping['reviewer_group'], False)
         self.idp.set_group('A', mapping['operator_group'], True)
         _, again, _ = self.sign_in('A')
-        self.expect('groups.mapping', known_probe and narrowed.headers.get('location') == FAILED and refused_after == 403
-                    and again.headers.get('location') == '/workbench', operator_action_http=[allowed, refused_after],
+        self.expect('groups.mapping', allowed == 409 and known_probe and narrowed.status_code == 303 and narrowed.headers.get('location') == FAILED and refused_after == 403
+                    and known_refusal and again.status_code == 303 and again.headers.get('location') == '/workbench', operator_action_http=[allowed, refused_after],
                     narrowed=narrowed.headers.get('location') == FAILED, operator_probe_verified=known_probe)
 
     def summary(self):
