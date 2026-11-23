@@ -149,7 +149,7 @@ def test_every_at_passes_on_the_local_stage(stage):
     # AT-023's protected-table digests (equal before and after) are in the result.
     code, [r] = call('at023', '--config', stage['config'])
     got = checks(r)['protected tables unchanged']
-    assert got['passed'] is True and got['expected'] == got['observed'] and len(got['expected']) >= 6
+    assert got['passed'] is True and got['expected'] == got['observed'] and set(S.REQUIRED_PROTECTED) <= got['expected'].keys()
 
 
 def test_at048_detects_both_leakage_routes_and_passes_regrouped(stage):
@@ -226,3 +226,30 @@ def test_the_unified_example_configuration_is_shaped_for_this_part(tmp_path):
     path.chmod(0o600)
     config, ev = S.load_config(path)
     assert ev['connections']['inspector'] == '/private/dsn_file' and ev['credentials']['evaluation'] == '/private/token_file'
+
+
+@pytest.mark.parametrize('fault', ['missing_both', 'missing_after', 'changed_after'])
+def test_at023_requires_complete_unchanged_protection(stage, monkeypatch, fault):
+    collect = S.Stage.digests
+    table = 'ontology.nexloop_claims'
+    samples = []
+
+    def sampled(st):
+        values = collect(st)
+        if fault == 'missing_both' or (samples and fault == 'missing_after'):
+            del values[table]
+        elif samples and fault == 'changed_after':
+            values[table] = 'changed'
+        samples.append(values)
+        return values
+
+    monkeypatch.setattr(S.Stage, 'digests', sampled)
+    code, [result] = call('at023', '--config', stage['config'])
+    assert code == 1, (fault, result['passed'])
+    if fault == 'missing_both':
+        assert len(samples) == 1
+        assert result['passed'] is None and table in ' '.join(result['blocked'])
+        assert 'L0: accepted_for_release' not in checks(result)
+    else:
+        assert len(samples) == 2 and result['passed'] is False
+        assert not checks(result)['protected tables unchanged']['passed']
