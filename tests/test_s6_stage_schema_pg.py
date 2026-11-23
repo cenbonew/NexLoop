@@ -429,3 +429,68 @@ def test_at024_still_refuses_a_new_type_without_accepted_gates(stage, tmp_path):
     s = stage
     code, doc = run(tmp_path, 'at024', s['ports'](), s['inputs'])
     assert code == 0 and steps(doc)['publication_gate_refuses_without_accepted_gates']['passed'], json.dumps(doc, ensure_ascii=False)
+
+
+@pytest.mark.parametrize('route,status,payload,expected', [
+    ('count', 200, {'successor_actions': 0, 'compatibility': {'allowed': True}}, True),
+    ('publish', 200, {'published': False, 'codes': ['parent_moved', 'synthetic unknown report marker', 'permit_missing', 'parent_moved']}, True),
+    ('publish', 200, {'published': False, 'codes': ['parent_moved', 'synthetic unknown report marker', 'parent_moved']}, False),
+    ('restricted', 200, {'compatibility': {'codes': ['edit_mode_open', 'synthetic unknown report marker', 'property_security_bypass', 'edit_mode_open']}}, True),
+    ('restricted', 200, {'compatibility': {'codes': ['edit_mode_open', 'synthetic unknown report marker', 'edit_mode_open']}}, False),
+    ('count', 200, {'successor_actions': False}, False),
+    ('count', 200, {'successor_actions': 0.0}, False),
+    ('count', 503, {'successor_actions': 0}, False),
+    ('count', 200, [], False),
+    ('publish', 200, {'published': False, 'codes': ['permit_missing']}, True),
+    ('publish', 200, {'published': False, 'codes': 'permit_missing'}, False),
+    ('publish', 200, {'published': False, 'codes': {'permit_missing': 1}}, False),
+    ('publish', 200, {'published': False, 'codes': ['permit_missing', 0]}, False),
+    ('publish', 403, {'published': False, 'codes': ['permit_missing']}, False),
+    ('restricted', 200, {'compatibility': {'codes': ['property_security_bypass']}}, True),
+    ('restricted', 200, {'compatibility': {'codes': 'property_security_bypass'}}, False),
+    ('restricted', 200, {'compatibility': {'codes': {'property_security_bypass': 1}}}, False),
+    ('restricted', 200, {'compatibility': {'codes': ['property_security_bypass', None]}}, False),
+    ('restricted', 200, {'compatibility': 'bad'}, False),
+    ('restricted', 403, {'compatibility': {'codes': ['property_security_bypass']}}, False),
+])
+def test_at024_owner_response_types(tmp_path, route, status, payload, expected):
+    template = tmp_path / 'template.json'
+    template.write_text('{"candidate": {}, "patch": {}}')
+    template.chmod(0o600)
+    inputs = dict(candidate_template=str(template), schema_type='T', new_property='p', new_type='N',
+                  restricted={'type_name': 'R', 'property_name': 'private'})
+
+    class SyntheticPorts(S.Ports):
+        def propose(self, body):
+            if S.ESCALATION in body['candidate']['allowed_change_scope']:
+                raise ValueError('change scope not allowed')
+            return {'candidate': {'candidate_id': body['candidate']['candidate_id']}}
+
+        def freeze_proposal(self, body):
+            if 'actions' in body:
+                raise ValueError('proposal invalid')
+            if body['operation'] == 'add_object_type' and not getattr(self, 'outside_refused', False):
+                self.outside_refused = True
+                raise ValueError('outside the candidate scope')
+            return {'proposal': {'proposal_id': body['type_name']}}
+
+        def owner_get(self, path):
+            if path.endswith('/R/check'):
+                return (status, payload) if route == 'restricted' else (200, {'compatibility': {'codes': ['property_security_bypass']}})
+            return (status, payload) if route == 'count' else (200, {'successor_actions': 0})
+
+        def owner_post(self, *args):
+            return (status, payload) if route == 'publish' else (200, {'published': False, 'codes': ['permit_missing']})
+
+    code, doc = run(tmp_path, 'at024', SyntheticPorts(), inputs)
+    name = {'count': 'new_type_publishes_no_action', 'publish': 'publication_gate_refuses_without_accepted_gates',
+            'restricted': 'publication_gate_refuses_a_restricted_re_exposure'}[route]
+    assert (code == 0) is expected and doc['passed'] is expected
+    step = steps(doc)[name]
+    assert step['passed'] is expected
+    assert all(s['passed'] for s in doc['steps'] if s['name'] != name)
+    assert step['observed']['response_digest'] == S.digest(payload)
+    if 'synthetic unknown report marker' in str(payload):
+        original = payload.get('compatibility', payload)['codes']
+        assert 'synthetic unknown report marker' not in json.dumps(doc)
+        assert step['observed']['codes'] == [code for code in original if code != 'synthetic unknown report marker']
