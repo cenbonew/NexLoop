@@ -223,7 +223,23 @@ def _reason_codes(body):
     return None
 
 
+# Fixed publication-only refusals from migrations 0257, 0416 and 0449.
+# Gate codes with a contextual suffix are represented by the response digest.
+_PUBLICATION_CODES = {
+    'breaking_change', 'permit_missing', 'permit_used', 'permit_expired', 'permit_mismatch',
+    'parent_moved', 'schema_not_the_proposal', 'not_published_property',
+    *(f'publish_gate:{kind}_successor_{reason}' for kind in ('registrar', 'create')
+      for reason in ('missing', 'not_rebinding', 'scope_other_type')),
+}
+
+
+def _reported_codes(codes, known):
+    return None if codes is None else [code for code in codes if code in known]
+
+
 def check_at024(ports, inputs, r):
+    from nexloop_eios.evolution.schema_compat import CODES
+
     t, p, n = inputs['schema_type'], inputs['new_property'], inputs['new_type']
     action = inputs.get('escalation_action') or ESCALATION
     # 1. The candidate write: an Action in the change scope.
@@ -255,7 +271,8 @@ def check_at024(ports, inputs, r):
     published = _response_field(out, 'published')
     codes = _reason_codes(out)
     r.step('publication_gate_refuses_without_accepted_gates', 'published false, codes [permit_missing]',
-           {'status': status, 'published': published if type(published) is bool else None, 'codes': codes, 'response_digest': digest(out)},
+           {'status': status, 'published': published if type(published) is bool else None, 'codes': _reported_codes(codes, _PUBLICATION_CODES.union(CODES)),
+            'response_digest': digest(out)},
            status == 200 and published is False and codes is not None and 'permit_missing' in codes)
     restricted = inputs.get('restricted')
     if restricted:
@@ -266,7 +283,7 @@ def check_at024(ports, inputs, r):
         status, check = ports.owner_get(f'/api/v1/workbench/schema-proposals/{rpid}/check')
         codes = _reason_codes(_response_field(check, 'compatibility'))
         r.step('publication_gate_refuses_a_restricted_re_exposure', 'codes include property_security_bypass',
-               {'status': status, 'codes': codes, 'response_digest': digest(check)},
+               {'status': status, 'codes': _reported_codes(codes, CODES), 'response_digest': digest(check)},
                status == 200 and codes is not None and 'property_security_bypass' in codes)
 
 

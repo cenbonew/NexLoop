@@ -433,6 +433,10 @@ def test_at024_still_refuses_a_new_type_without_accepted_gates(stage, tmp_path):
 
 @pytest.mark.parametrize('route,status,payload,expected', [
     ('count', 200, {'successor_actions': 0, 'compatibility': {'allowed': True}}, True),
+    ('publish', 200, {'published': False, 'codes': ['parent_moved', 'synthetic unknown report marker', 'permit_missing', 'parent_moved']}, True),
+    ('publish', 200, {'published': False, 'codes': ['parent_moved', 'synthetic unknown report marker', 'parent_moved']}, False),
+    ('restricted', 200, {'compatibility': {'codes': ['edit_mode_open', 'synthetic unknown report marker', 'property_security_bypass', 'edit_mode_open']}}, True),
+    ('restricted', 200, {'compatibility': {'codes': ['edit_mode_open', 'synthetic unknown report marker', 'edit_mode_open']}}, False),
     ('count', 200, {'successor_actions': False}, False),
     ('count', 200, {'successor_actions': 0.0}, False),
     ('count', 503, {'successor_actions': 0}, False),
@@ -486,3 +490,7 @@ def test_at024_owner_response_types(tmp_path, route, status, payload, expected):
     assert step['passed'] is expected
     assert all(s['passed'] for s in doc['steps'] if s['name'] != name)
     assert step['observed']['response_digest'] == S.digest(payload)
+    if 'synthetic unknown report marker' in str(payload):
+        original = payload.get('compatibility', payload)['codes']
+        assert 'synthetic unknown report marker' not in json.dumps(doc)
+        assert step['observed']['codes'] == [code for code in original if code != 'synthetic unknown report marker']
