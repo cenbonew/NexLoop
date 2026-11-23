@@ -518,6 +518,12 @@
         "ref": "CI seq 43（927c1ba6）",
         "summary": "状态保持 not_run：还没有 stage 实测；本地与 CI 证据：test_evolution_e4_pg、e5_pg 与 test_nx040_schema_publication_pg（F3 提权负例、定义与授权分开发布）、test_nx040_f4_pg，在 CI seq 43 全量通过。原记录中“S6 自动演进路径未实现”已过时。stage 实测要提交一个附带提权 Action 的 ontology_schema 候选，在候选写入、proposal 冻结、发布门槛三处都被拒；前提是补上 Schema proposal 审核与发布的命令行工具。执行人：调度员；判定人：负责人。",
         "recorded_at": "2026-10-21T12:00:00+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "scripts/deploy/schema_proposal.py; scripts/acceptance/s6_stage_schema.py:check_at024; docs/implementation/S6-offline-audit-20261116.md",
+        "summary": "ccffcad9 源码勘误：审核与发布 CLI 已提供 basis/check/publish/hide/migrate-batch；--verify-reject 仅执行 check。候选写入与提案冻结由演进入口覆盖。stage 需受授权的合成 owner、候选模板和独立 schema 样本，按 run-nx038-stage 第6步与 run-nx040-stage 共用同一次 at024：核写入及冻结拒绝、新类型 successor_actions=0、无许可发布返回 published=false 和 permit_missing；有受限属性样本时核 property_security_bypass。调度员执行、L6 技术复核、负责人最终判定。仅核源码，stage 未验收。",
+        "recorded_at": "2026-11-22T14:27:54.459242+00:00"
       }
     ]
   },

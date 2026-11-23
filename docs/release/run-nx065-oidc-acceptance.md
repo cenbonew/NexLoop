@@ -38,7 +38,7 @@
 
 | 步 | 内容 | 由谁 | 类别 |
 |---|---|---|---|
-| 10 | 部署带迁移 `nx067_oidc_gaps` 的版本（迁移前按部署单做备份）。用 `stage_secrets.py publish` 先 dry-run，再正式发布 business-actions：新增的 `nexloop.workbench_member.set_sso_group_mapping` 发布之前会是 404。再按角色清单 v56 应用成员和授权 | 调度员 | **B 类** |
+| 10 | 部署带迁移 `nx067_oidc_gaps` 的版本（迁移前按部署单做备份）。用 `stage_secrets.py publish` 指定 `--out` 和 `--tenant`；无 DSN 的 `--dry-run` 只核编译计数，有 DSN 才能比对现场。随后按部署单正式发布 business-actions：新增的 `nexloop.workbench_member.set_sso_group_mapping` 发布之前会是 404。再按本版本的角色清单 v57 应用成员和授权 | 调度员 | **B 类** |
 | 11 | 安装两个 secrets 文件到 APP_HOST（run-nx058 第 1 节和第 3 节第 4 步）：值从 Keychain 用管道传入，只比较摘要 | 调度员 | **B 类** |
 | 12 | compose 改动走 feature 分支和 PR（run-nx058 第 3 节第 5 步），需要负责人 ack-policy | 调度员 | **B 类** |
 | 13 | 重建 api-1、api-2。`oidc/providers` 返回刚配置的 provider；`POST .../oidc/backchannel/<provider_id>` 不带参数时返回 400（开了 back-channel）或 404（没开） | 调度员 | **B 类** |
@@ -57,11 +57,14 @@
  "backchannel": true, "backchannel_wait_seconds": 60, "max_session_seconds": 900}
 ```
 
+先在当前终端设置 `keychain_service`、`owner_account` 和 `acceptance_config`，分别指向钥匙串条目服务名、账号和验收配置路径。
+
 ```bash
-security find-generic-password -s <keychain 服务名> -a <负责人账号> -w | python3 scripts/acceptance/nx065_oidc_acceptance.py --config <配置文件>
+security find-generic-password -s "${keychain_service:?}" -a "${owner_account:?}" -w | python3 scripts/acceptance/nx065_oidc_acceptance.py --config "${acceptance_config:?}"
 ```
 
-- 脚本会在终端（不是 stdout）里提示：打开授权地址，以 A 或 B 的身份在 IdP 登录，再把浏览器跳回的地址粘贴回来；IdP 拒绝登录时输入 `refused`。用无痕窗口，每次登录前清掉 IdP 的会话，确保登录的是提示的那个用户。
+- 脚本会在终端（不是 stdout）里提示：打开授权地址，以 A 或 B 的身份在 IdP 登录，再把浏览器跳回的地址粘贴回来；仅在浏览器明确显示 IdP 拒绝登录时输入 `refused`。用无痕窗口，每次登录前清掉 IdP 的会话，确保登录的是提示的那个用户。
+- 人工拒绝记录只含观察来源、配置中的 provider 标识和合成用户槽位。终端 EOF 或 Ctrl-C 中断验收或清理时，负责人须按下列清理项核对现场。
 - 中途会提示到 IdP 管理端把 A 加进组或移出组、停用 A（并结束 A 在 IdP 的全部会话，这一步会触发 back-channel）、启用 A，做完按回车。
 - `group_mapping` 会由脚本用负责人的受治理 Action 设置，脚本结束时清空。`expected_revision` 填这个 provider 当前的映射版本，第一次是 0。
 - 最后一项会等 `max_session_seconds + 60` 秒（900 秒时约 16 分钟），这期间不要关掉终端。
