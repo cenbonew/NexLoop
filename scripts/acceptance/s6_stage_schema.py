@@ -212,6 +212,17 @@ def property_candidate(ports, inputs):
     return out['candidate']['candidate_id']
 
 
+def _response_field(body, key):
+    return body.get(key) if isinstance(body, dict) else None
+
+
+def _reason_codes(body):
+    codes = _response_field(body, 'codes')
+    if isinstance(codes, list) and all(isinstance(code, str) for code in codes):
+        return codes
+    return None
+
+
 def check_at024(ports, inputs, r):
     t, p, n = inputs['schema_type'], inputs['new_property'], inputs['new_type']
     action = inputs.get('escalation_action') or ESCALATION
@@ -233,15 +244,19 @@ def check_at024(ports, inputs, r):
     frozen = ports.freeze_proposal(freeze_body(new_cid, 'add_object_type', n, {'properties': [{'property_name': 'amount', 'value_type': 'number'}]}))
     pid = frozen['proposal']['proposal_id']
     status, check = ports.owner_get(f'/api/v1/workbench/schema-proposals/{pid}/check')
-    actions = check.get('successor_actions') if status == 200 else None
+    actions = _response_field(check, 'successor_actions')
+    allowed = _response_field(_response_field(check, 'compatibility'), 'allowed')
     r.step('new_type_publishes_no_action', 'the next version carries 0 Actions (definition and authority published apart)',
-           {'status': status, 'successor_actions': actions, 'allowed': (check.get('compatibility') or {}).get('allowed') if status == 200 else None},
-           status == 200 and actions == 0)
+           {'status': status, 'successor_actions': actions if type(actions) is int else None,
+            'allowed': allowed if type(allowed) is bool else None, 'response_digest': digest(check)},
+           status == 200 and type(actions) is int and actions == 0)
     status, out = ports.owner_post(f'/api/v1/workbench/schema-proposals/{pid}/publish', {'rationale': 'S6 AT-024 gate check (synthetic)'},
                                    's6-at024-gate-' + pid.replace('-', '')[:24])
+    published = _response_field(out, 'published')
+    codes = _reason_codes(out)
     r.step('publication_gate_refuses_without_accepted_gates', 'published false, codes [permit_missing]',
-           {'status': status, 'published': out.get('published') if isinstance(out, dict) else None, 'codes': out.get('codes') if isinstance(out, dict) else None},
-           status == 200 and out.get('published') is False and 'permit_missing' in (out.get('codes') or []))
+           {'status': status, 'published': published if type(published) is bool else None, 'codes': codes, 'response_digest': digest(out)},
+           status == 200 and published is False and codes is not None and 'permit_missing' in codes)
     restricted = inputs.get('restricted')
     if restricted:
         rt, rp = restricted['type_name'], restricted['property_name']
@@ -249,9 +264,10 @@ def check_at024(ports, inputs, r):
         rcid = ports.propose(body)['candidate']['candidate_id']
         rpid = ports.freeze_proposal(freeze_body(rcid, 'add_optional_property', rt, {'property_name': rp, 'value_type': 'string'}))['proposal']['proposal_id']
         status, check = ports.owner_get(f'/api/v1/workbench/schema-proposals/{rpid}/check')
-        codes = (check.get('compatibility') or {}).get('codes') if status == 200 else None
-        r.step('publication_gate_refuses_a_restricted_re_exposure', 'codes include property_security_bypass', {'status': status, 'codes': codes},
-               status == 200 and 'property_security_bypass' in (codes or []))
+        codes = _reason_codes(_response_field(check, 'compatibility'))
+        r.step('publication_gate_refuses_a_restricted_re_exposure', 'codes include property_security_bypass',
+               {'status': status, 'codes': codes, 'response_digest': digest(check)},
+               status == 200 and codes is not None and 'property_security_bypass' in codes)
 
 
 _SAMPLE_UUID = '00000000-0000-4000-8000-000000000000'
