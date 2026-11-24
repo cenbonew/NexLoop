@@ -39,6 +39,9 @@ class MockAdapter:
         self.idp, self.honour_disable, self.backchannel = idp, honour_disable, backchannel
         self.disabled, self.groups, self.calls, self.logouts = set(), {}, [], []
 
+    def verify_state(self, phase):
+        return not self.disabled and not any(self.groups.values())
+
     def authorize(self, location, user):
         if user in self.disabled and self.honour_disable:
             raise A.IdpRefused(user)
@@ -63,7 +66,7 @@ def configure(c, tmp_path, **changes):
     owner = c['owner_member']
     username = private(tmp_path / 'owner-username', owner['username'])
     config = {'schema': A.SCHEMA, 'origin': ORIGIN, 'provider_id': 'corp', 'owner_username_file': str(username),
-              'member': {'principal_id': c['operator_member']['principal_id']},
+              'member': {'principal_id': c['operator_member']['principal_id'], 'username_file': str(private(tmp_path / 'member-user', c['operator_member']['username']))},
               'users': {u: {'subject': s} for u, s in SUBJECTS.items()}, 'owner_group': 'nexloop-owner',
               'group_mapping': None, 'backchannel': False, 'max_session_seconds': 900, **changes}
     return private(tmp_path / 'nx065.json', json.dumps(config))
@@ -88,7 +91,7 @@ def run(c, tmp_path, adapter, capsys, admin=None, client=TestClient, **changes):
         factory = lambda: stack.enter_context(client(app(c), base_url=ORIGIN))  # noqa: E731
         if adapter.backchannel is True:
             adapter.backchannel = factory
-        code = A.main(['--config', str(configure(c, tmp_path, **changes))], stdin=io.StringIO(c['owner_member']['password'] + '\n'),
+        code = A.main(['--config', str(configure(c, tmp_path, **changes))], stdin=io.StringIO(c['owner_member']['password'] + '\n' + c['operator_member']['password'] + '\n'),
                       idp=adapter, client_factory=factory, sleep=expiring(admin, c) if admin is not None else (lambda s: None))
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     return code, {r['check']: r for r in lines if 'check' in r}, lines
@@ -106,11 +109,11 @@ def test_with_every_mechanism_configured_the_acceptance_exits_0(sso, admin, tmp_
     adapter = MockAdapter(sso['idp'], backchannel=True)
     code, checks, lines = run(sso, tmp_path, adapter, capsys, admin, group_mapping=MAPPING, backchannel=True)
     assert code == 0, lines
-    assert set(checks) == A.REQUIRED | {'login.linked_signs_in.link'} and {v['status'] for v in checks.values()} == {'passed'}
+    assert set(checks) == A.REQUIRED | {'login.linked_signs_in.link', 'cleanup'} and {v['status'] for v in checks.values()} == {'passed'}
     assert checks['groups.mapping']['operator_action_http'][1] == 403 and checks['groups.mapping']['narrowed'] is True
-    assert checks['disable.sync.backchannel']['session_http'] == [200, 401] and adapter.logouts == [200]
+    assert checks['disable.sync.backchannel']['session_http'] == [200, 401] and checks['disable.sync.backchannel']['password_http'] == [200, 401] and adapter.logouts == [200]
     assert checks['disable.sync.max_session']['session_http'] == [200, 401] and checks['disable.sync.max_session']['waited_seconds'] == 960
-    assert lines[-1] == {'summary': {'passed': 11, 'failed': 0, 'gap': 0}, 'exit': 0}
+    assert lines[-1] == {'summary': {'passed': 13, 'failed': 0, 'gap': 0}, 'exit': 0}
     # Clean-up: the mapping cleared (a revision with {}), A enabled and in no group, the member unlinked.
     assert admin.execute('select mappings from control.nexloop_workbench_oidc_group_mappings order by revision desc limit 1').fetchone() == ({},)
     assert adapter.disabled == set() and all(not g for g in adapter.groups.values())
@@ -126,12 +129,12 @@ def test_without_a_mapping_or_a_back_channel_both_are_reported_not_configured(ss
     assert code == 3, lines
     assert {k: v['status'] for k, v in checks.items()} == {
         'login.unlinked_refused': 'passed', 'login.linked_signs_in.link': 'passed', 'login.linked_signs_in': 'passed',
-        'login.callback_one_time': 'passed', 'groups.no_role_from_idp': 'passed', 'groups.mapping': 'gap',
-        'disable.idp_refuses': 'passed', 'disable.sync.backchannel': 'gap', 'epoch.unlink_ends_sessions': 'passed',
+        'login.callback_one_time': 'passed', 'groups.no_role_from_idp': 'passed', 'groups.mapping': 'gap', 'groups.unmapped': 'gap',
+        'cleanup': 'passed', 'disable.idp_refuses': 'passed', 'disable.sync.backchannel': 'gap', 'epoch.unlink_ends_sessions': 'passed',
         'epoch.relink_new_only': 'passed', 'disable.sync.max_session': 'passed'}
     assert checks['groups.mapping']['observed'] == checks['disable.sync.backchannel']['observed'] == 'not_configured'
     assert checks['login.linked_signs_in']['methods'] == ['oidc'] and checks['disable.sync.backchannel']['session_http'] == [200, 200]
-    assert lines[-1] == {'summary': {'passed': 9, 'failed': 0, 'gap': 2}, 'exit': 3}
+    assert lines[-1] == {'summary': {'passed': 10, 'failed': 0, 'gap': 3}, 'exit': 3}
     assert adapter.disabled == set() and adapter.groups == {'A': set()}
     assert admin.execute('select count(*) from control.nexloop_workbench_external_identities').fetchone() == (0,)
 
@@ -240,7 +243,7 @@ def test_x3_a_network_error_in_the_callback_is_one_failed_line_and_cleanup_still
     assert code == 1 and checks['run.aborted'] == {'check': 'run.aborted', 'status': 'failed', 'error': 'ConnectError'}, lines
     assert checks['run.incomplete']['status'] == 'failed' and 'disable.sync.backchannel' in checks['run.incomplete']['missing']
     assert 'SECRETCODE' not in json.dumps(lines) and 'SECRETSTATE' not in json.dumps(lines)
-    assert ('enabled', 'A', True) in adapter.calls and ('group', 'A', False) in adapter.calls
+    assert not adapter.calls  # callback failed before this run changed A
 
 
 def test_x3_an_unlink_that_raises_in_cleanup_skips_neither_the_idp_restore_nor_the_logout(sso, admin, tmp_path, capsys, monkeypatch):
@@ -255,8 +258,8 @@ def test_x3_an_unlink_that_raises_in_cleanup_skips_neither_the_idp_restore_nor_t
         return real(self, client, csrf)
     monkeypatch.setattr(A.Acceptance, 'unlink', unlink)
     code, checks, lines = run(sso, tmp_path, adapter, capsys, admin)
-    assert code == 1 and checks['cleanup'] == {'check': 'cleanup', 'status': 'failed', 'error': 'RuntimeError'}, lines
-    assert adapter.calls[-2:] == [('enabled', 'A', True), ('group', 'A', False)]
+    assert code == 1 and checks['cleanup'] == {'check': 'cleanup', 'status': 'failed', 'error': 'RuntimeError', 'step': 'unlink', 'manual_cleanup_required': True}, lines
+    assert adapter.verify_state('after')
 
 
 def test_x2_an_origin_refusal_403_is_told_apart_from_the_grant_check(sso, admin, tmp_path, capsys):
@@ -265,3 +268,32 @@ def test_x2_an_origin_refusal_403_is_told_apart_from_the_grant_check(sso, admin,
     code, checks, lines = run_wrapped(sso, tmp_path, MockAdapter(sso['idp']), capsys, bad_origin=True)
     check = checks['groups.no_role_from_idp']
     assert code == 1 and check['status'] == 'failed' and check['http'] == 403 and check['control_http'] == 403, lines
+
+
+def test_no_group_has_its_own_evidence(sso, admin, tmp_path, capsys):
+    enable_everything(sso, admin)
+    adapter = MockAdapter(sso['idp'], backchannel=True)
+    verify = adapter.verify_state
+    def keep_operator(phase):
+        if phase == 'unmapped':
+            adapter.set_group('A', MAPPING['operator_group'], True)
+        return verify(phase)
+    adapter.verify_state = keep_operator
+    code, checks, _ = run(sso, tmp_path, adapter, capsys, admin, group_mapping=MAPPING, backchannel=True)
+    assert code == 1
+    assert checks['groups.mapping']['status'] == 'passed'
+    assert checks['groups.unmapped']['status'] == 'failed'
+    assert checks['groups.unmapped']['empty_groups_verified'] is False
+    assert checks['groups.unmapped']['operator_action_http'] == [409, 409]
+
+
+def test_empty_backchannel_probe_requires_the_form_header(sso):
+    path = '/api/v1/workbench/auth/oidc/backchannel/corp'
+    with TestClient(app(sso), base_url=ORIGIN) as client:
+        assert client.post(path, content=b'').status_code == 400
+        assert client.post(path, content=b'', headers={'Content-Type': 'application/x-www-form-urlencoded'}).status_code == 404
+    document = json.loads(sso['providers'].read_text())
+    document['providers'][0]['backchannel_logout'] = True
+    sso['providers'].write_text(json.dumps(document))
+    with TestClient(app(sso), base_url=ORIGIN) as client:
+        assert client.post(path, content=b'', headers={'Content-Type': 'application/x-www-form-urlencoded'}).status_code == 400

@@ -38,10 +38,10 @@
 
 | 步 | 内容 | 由谁 | 类别 |
 |---|---|---|---|
-| 10 | 部署带迁移 `nx067_oidc_gaps` 的版本（迁移前按部署单做备份）。用 `stage_secrets.py publish` 指定 `--out` 和 `--tenant`；无 DSN 的 `--dry-run` 只核编译计数，有 DSN 才能比对现场。随后按部署单正式发布 business-actions：新增的 `nexloop.workbench_member.set_sso_group_mapping` 发布之前会是 404。再按本版本的角色清单 v57 应用成员和授权 | 调度员 | **B 类** |
+| 10 | 核对该次测试发布的 manifest、已部署版本及现场迁移回执；从对应 Migration Catalog 核对 0365、0371、`0445_nx067_oidc_gaps.sql`。若尚需部署或迁移，按批准的部署单和已验证备份执行；已应用的迁移不重复执行。用 `stage_secrets.py publish` 指定 `--out` 和 `--tenant`；无 DSN 的 `--dry-run` 只核编译计数，有 DSN 才能比对现场。随后按部署单正式发布 business-actions：新增的 `nexloop.workbench_member.set_sso_group_mapping` 发布之前会是 404。再按本版本的角色清单 v57 应用成员和授权 | 调度员 | **B 类** |
 | 11 | 安装两个 secrets 文件到 APP_HOST（run-nx058 第 1 节和第 3 节第 4 步）：值从 Keychain 用管道传入，只比较摘要 | 调度员 | **B 类** |
 | 12 | compose 改动走 feature 分支和 PR（run-nx058 第 3 节第 5 步），需要负责人 ack-policy | 调度员 | **B 类** |
-| 13 | 重建 api-1、api-2。`oidc/providers` 返回刚配置的 provider；`POST .../oidc/backchannel/<provider_id>` 不带参数时返回 400（开了 back-channel）或 404（没开） | 调度员 | **B 类** |
+| 13 | 重建 api-1、api-2。`oidc/providers` 返回刚配置的 provider；`POST .../oidc/backchannel/<provider_id>` 走登记的工作台 origin（正确 Host），显式带 `Content-Type: application/x-www-form-urlencoded`、空请求体时返回 400（已启用）或 404（未启用）。裸 POST 会在检查 provider 前被返回 400；429/503 等保留为未判定 | 调度员 | **B 类** |
 
 ## 3. 跑验收脚本
 
@@ -50,17 +50,23 @@
 ```json
 {"schema": "nexloop-nx065-oidc-acceptance/1", "origin": "https://<APP_HOST_NAME>:<PORT>", "ca_file": "<GATEWAY_CA_FILE>",
  "provider_id": "<PROVIDER_ID>", "owner_username_file": "<0600 文件>",
- "member": {"principal_id": "<M1 的 principal_id>"},
+ "member": {"principal_id": "<M1 的 principal_id>", "username_file": "<M1 用户名的 0600 文件>"},
  "users": {"A": {"subject": "<A 的 sub>"}, "B": {"subject": "<B 的 sub>"}},
  "owner_group": "<owner 组名>",
  "group_mapping": {"operator_group": "<operator 组名>", "reviewer_group": "<reviewer 组名>", "expected_revision": 0},
  "backchannel": true, "backchannel_wait_seconds": 60, "max_session_seconds": 900}
 ```
 
-先在当前终端设置 `keychain_service`、`owner_account` 和 `acceptance_config`，分别指向钥匙串条目服务名、账号和验收配置路径。
+先核对既有托管测试租户的非秘密配置和托管人，再按需准备 §1 的测试资源。使用此次专用 provider：从既有受治理记录确认当前映射为空及其 revision、provider 下没有其他绑定、M1 未绑定；在 IdP 控制台确认 A 已启用且不在三个测试组。设置非空映射会结束该 provider 所有绑定成员的会话。任一前置无从核对，停止在首次变更之前。控制台回调、组名、账号和私有配置原件均不进验收证据。
+
+负责人在已有安全终端中指定两个钥匙串条目的服务/账号及私有验收文件路径。第一行是工作台 owner 口令，启用 back-channel 时第二行必须是 M1 的工作台口令；两项只经管道交给脚本。M1 是现有独立合成 operator。
 
 ```bash
-security find-generic-password -s "${keychain_service:?}" -a "${owner_account:?}" -w | python3 scripts/acceptance/nx065_oidc_acceptance.py --config "${acceptance_config:?}"
+set -o pipefail
+{
+  security find-generic-password -s "${keychain_service:?}" -a "${owner_account:?}" -w &&
+  security find-generic-password -s "${member_keychain_service:?}" -a "${member_account:?}" -w
+} | python3 scripts/acceptance/nx065_oidc_acceptance.py --config "${acceptance_config:?}"
 ```
 
 - 脚本会在终端（不是 stdout）里提示：打开授权地址，以 A 或 B 的身份在 IdP 登录，再把浏览器跳回的地址粘贴回来；仅在浏览器明确显示 IdP 拒绝登录时输入 `refused`。用无痕窗口，每次登录前清掉 IdP 的会话，确保登录的是提示的那个用户。
@@ -68,7 +74,7 @@ security find-generic-password -s "${keychain_service:?}" -a "${owner_account:?}
 - 中途会提示到 IdP 管理端把 A 加进组或移出组、停用 A（并结束 A 在 IdP 的全部会话，这一步会触发 back-channel）、启用 A，做完按回车。
 - `group_mapping` 会由脚本用负责人的受治理 Action 设置，脚本结束时清空。`expected_revision` 填这个 provider 当前的映射版本，第一次是 0。
 - 最后一项会等 `max_session_seconds + 60` 秒（900 秒时约 16 分钟），这期间不要关掉终端。
-- 脚本结束时会清空映射、解绑 M1，并提示把 A 启用、移出各组。
+- 脚本按已确认的初态恢复其成功改变的组（含 reviewer）和 A 的启用状态；从 IdP 管理端及受治理的解绑、清空映射记录核对终态，再输入 `verified`。脚本另查 owner 登出后会话为 401。
 - stdout 每项检查一行 JSON，最后一行是汇总，不包含 sub、code、state、cookie、令牌、用户名、口令或组名。直接把 stdout 存成证据文件。
 
 | 检查 | 预期 |
@@ -78,23 +84,26 @@ security find-generic-password -s "${keychain_service:?}" -a "${owner_account:?}
 | `login.callback_one_time` | passed |
 | `groups.no_role_from_idp` | passed（会话和 csrf 都是 200，错误 CSRF 的对照请求 401，真实请求 403 `forbidden`） |
 | `disable.idp_refuses` | passed |
-| `disable.sync.backchannel` | passed（`session_http` 为 `[200, 401]`）；`backchannel: false` 时为 gap `not_configured`；等满 `backchannel_wait_seconds` 仍是 200 记 failed |
+| `disable.sync.backchannel` | passed（同一 M1 的 OIDC 与口令会话，`session_http`、`password_http` 均为 `[200, 401]`；测量从人工确认停用后开始）；`backchannel: false` 时为 gap `not_configured`；等满 `backchannel_wait_seconds` 仍是 200 记 failed |
 | `epoch.unlink_ends_sessions` | passed |
 | `epoch.relink_new_only` | passed（`[200, 401, 401]`） |
 | `groups.mapping` | passed（两次 CSRF 获取均为 200；固定缺失 question 探针第一项必须为 409 / `not_allowed_in_state` / `details.reason=not_found`，`operator_probe_verified=true`；第二项为 Action 的 403，`narrowed=true`。裸404、408/422、重定向、限流或其他非预期状态均不算阳性；CSRF 失败对应 null）；`group_mapping: null` 时为 gap `not_configured` |
+| `groups.unmapped` | passed：先确认 operator 会话具有探针权限，再将 A 移出两个映射组并在 IdP 控制台回读。新登录被拒、无会话，先前 operator 探针由精确 409 变为受治理的 403。此项独立于仅命中 reviewer 的检查 |
 | `disable.sync.max_session` | passed（`[200, 401]`） |
 
-10 项检查必须全部出现，缺一项记 `run.incomplete` 失败；中途出异常只记一行 `run.aborted`（只写异常类型），清理步骤仍逐个执行。退出码：0 表示全部通过且没有缺口（目标）；3 表示检查都通过但还有 not_configured 的缺口；1 表示有检查失败，原样记录，不要重跑覆盖；2 表示输入被拒。
+11 项业务检查必须全部出现，缺一项记 `run.incomplete` 失败；中途出异常只记一行 `run.aborted`（只写异常类型），已知结果的清理步骤独立执行；终端中断后停止，转人工核对。退出码：0 表示全部通过且没有缺口（目标）；3 表示检查都通过但还有 not_configured 的缺口；1 表示有检查失败，原样记录，不要重跑覆盖；2 表示输入被拒。
 
 ## 4. 脚本之外还要手工做的
 
-run-nx058 第 4 节表里的第 6、7、8、10、11、12、13 条（负责人不能绑定自己、重复绑定被拒、`sso_only`、仅 SSO 邀请、撤销、限速、证据检查），以及第 6 节“锁定期内 SSO 登录也会被拒”那一条，仍然按 run-nx058 手工做，用 C 和 M2、M3。
+run-nx058 第 4 节表里的第 6、7、8、10、11、12、13 条（负责人不能绑定自己、重复绑定被拒、`sso_only`、仅 SSO 邀请、撤销、限速、证据检查），以及第 6 节“锁定期内 SSO 登录也会被拒”那一条，仍然按 run-nx058 手工做，用 C 和 M2、M3。第 5 条 M1 普通口令登录可共用本次双会话的前置身份读回。第 9 条须在两个仍有效的 M1 会话（SSO、口令）上实测解绑前后状态；脚本在 back-channel 阶段取得的失效回执只证明停用。第 1、3、4、9 条的只读计数及审计字段仍按原单补齐。
 
 ## 5. 撤除和回退
 
 按 NX-065 设计稿第 5 节。另外：
-- 映射由脚本清空；手工设置过的映射，用 `set_sso_group_mapping` 传 `{}` 清空，所有上限回到 null。
+- 映射由脚本清空；手工设置过的映射，用 `set_sso_group_mapping` 传 `{}` 清空，该 provider 的上限回到 null。核受治理返回的 provider、对应新 revision 及 `cleared=true`。
+- 出现非预期 HTTP、回包不可读、超时或中断时，保留首份结果，核对已知的绑定、mapping revision、A 的启用与三个组、owner 会话。未知写入结果先从既有受治理记录及 IdP 管理端回读；仅处置确由本次变更且仍需恢复的项。终端中断不会自动清理。
 - 关闭 SSO 是 **B 类**（改 compose、重建 api），做之前也要负责人确认。
+- 关闭前先按 run-nx058 §5 处置测试成员（含仅 SSO 和待绑定成员）及其会话。阶段性复用已有应用、租户、账号、组或文件时，逐项回到已登记初态；删除专属临时资源须核实归属和撤除授权。仅关 API 参数不会吊销已有会话。
 - 迁移 `nx067_oidc_gaps` 不回退。没有映射、没开 back-channel 时，它只把 SSO 会话限定在 `max_session_seconds` 之内。
 
 ## 证据
