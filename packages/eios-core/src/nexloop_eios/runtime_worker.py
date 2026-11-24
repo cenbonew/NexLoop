@@ -234,7 +234,11 @@ def run(arguments,stop):
                 # --once stays one bounded tick; otherwise N loops, each settling its own current dispatch on SIGTERM.
                 loops=[threading.Thread(target=dispatch_loop,name=f'nexloop-runtime-dispatch-{n}',daemon=True) for n in range(arguments.dispatch_loops)]
                 for loop in loops:loop.start()
-                for loop in loops:loop.join()
+                # Python runs signal handlers on the main thread. If SIGTERM wakes another
+                # thread, an unbounded join here can keep stop_claiming from running.
+                for loop in loops:
+                    while loop.is_alive():
+                        loop.join(timeout=0.25)
             if pool is not None and pool.failed:
                 # Children kept exiting: stop claiming and leave restart to the service manager.
                 print('Runtime guard workers unavailable',file=sys.stderr,flush=True)
