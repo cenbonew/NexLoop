@@ -22,7 +22,13 @@ def test_actual_provider_accept_role_end_preserves_current_query_evidence(role_r
             plan['end_role'](plan['runs'][0].run_id)
             provider.control('fulfill',intent_id=intent);time.sleep(3.1)
             reconciled=dispatcher.run_once()
-            assert reconciled['business_action_success'] is True
+            # Preserve the dispatcher's first result: a failed query and an observed
+            # fulfillment awaiting governed finalization both report no business success.
+            assert reconciled['business_action_success'] is True, {
+                'step': 'dispatch_after_role_end', 'status': reconciled['status'],
+                'provider_state': reconciled.get('provider_state'),
+                'finalized': reconciled.get('governed_claim_finalized'),
+            }
             state=admin.execute('select state,governed_claim_finalized from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()
             assert state==('fulfilled',True)
             assert admin.execute("select count(*) from runtime.nexloop_effect_observations where intent_id=%s and provider_state='fulfilled'",(intent,)).fetchone()==(1,)
