@@ -291,7 +291,8 @@ def probe_after(ports, config, r, prior):
             time.sleep(10)
         r.step('guard_stops_at_the_end', 'the experiment guard (alert evaluator tick) stopped the shadow experiment at its end (D4)',
                {'stopped_by_guard': bool(stop) and stop[0] == 'nexloop:experiment-guard', 'reason': stop[1] if stop else None},
-               bool(stop) and stop[0] == 'nexloop:experiment-guard' and stop[1] == 'guardrail: ended')
+               bool(stop) and stop[0] == 'nexloop:experiment-guard' and stop[1] == 'guardrail: ended'
+               and datetime.now(UTC) >= datetime.fromisoformat(state['ends_at']))
     sent = ports.read("""select (select count(*) from runtime.nexloop_outbound_messages where tenant_id=%s and world=%s)
           +(select count(*) from runtime.nexloop_effect_intents where tenant_id=%s and world=%s)""", (tenant, world, tenant, world))[0][0]
     simulated = ports.read('select count(*) from runtime.nexloop_sim_effect_intents where tenant_id=%s and world=%s', (tenant, world))[0][0]
@@ -624,6 +625,62 @@ def gaps(ports, config, r, prior=None):
     r.step('no_gaps', 'every stage item has its phase; item 9 (other guardrails) stays local by design', {'blocked': []}, True)
 
 
+SHADOW_STEPS = {
+    'nx043-probe-before': {'real_side_quiet', 'real_digest_before'},
+    'nx043-shadow-keys': {'shadow_events_copied'},
+    'nx043-decide': {'shadow_decisions_recorded'},
+    'nx043-probe-after': {'guard_stops_at_the_end', 'shadow_sends_nothing', 'shadow_decisions_landed',
+                          'real_dispatch_switches_unchanged', 'real_alerts_in_window', 'real_side_unchanged'},
+}
+
+
+class ShadowResult(Result):
+    def bind(self, state):
+        candidate = state['strategies'].get('candidate')
+        experiment = state['experiments'].get('shadow')
+        if not experiment or not candidate:
+            raise Refused('shadow experiment and candidate required')
+        self.ends_at = datetime.fromisoformat(state['ends_at'])
+        binding = [self.config['tenant_id'], state['shadow_world'], experiment, candidate, state['ends_at']]
+        self.binding = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
+
+    def document(self):
+        doc = super().document()
+        if hasattr(self, 'binding'):
+            doc['shadow_binding'] = self.binding
+        return doc
+
+    def validate_part(self, doc):
+        if (doc.get('release') != self.config['release'] or doc.get('world') != self.world
+                or doc.get('shadow_binding') != self.binding):
+            raise Refused('--from: shadow result binding')
+        part = doc['check']
+        steps = doc.get('steps')
+        # A genuine failed or blocked part remains available to the offline merge.
+        if isinstance(steps, list) and (doc.get('blocked') or any(
+                isinstance(step, dict) and step.get('passed') is False for step in steps)):
+            if self.check == 'nx043-shadow':
+                return
+            raise Refused('--from: failed or blocked shadow observation')
+        if (part not in SHADOW_STEPS or doc.get('passed') is not True or doc.get('blocked') != []
+                or not isinstance(steps, list) or not all(isinstance(s, dict) and s.get('passed') is True
+                    and isinstance(s.get('observed'), dict) and s['observed'] for s in steps)
+                or len(steps) != len(SHADOW_STEPS[part]) or {s.get('name') for s in steps} != SHADOW_STEPS[part]):
+            raise Refused('--from: incomplete shadow observations')
+        if part in ('nx043-shadow-keys', 'nx043-decide'):
+            observed = steps[0].get('observed')
+            key = 'copied' if part == 'nx043-shadow-keys' else 'decisions'
+            if not isinstance(observed, dict) or type(observed.get(key)) is not int or observed[key] <= 0:
+                raise Refused('--from: positive shadow traffic required')
+        if part == 'nx043-probe-after':
+            try:
+                if datetime.fromisoformat(doc['executed_at']) >= self.ends_at:
+                    return
+            except (ValueError, TypeError, KeyError):
+                pass
+            raise Refused('--from: missing full shadow window')
+
+
 def merge(ports, config, r, prior=None):
     """No connection: the shadow parts of one run (probe-before, shadow-keys, decide, probe-after) as one result; load_chain checked them."""
 
@@ -705,7 +762,8 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
         from s6_common import load_config
         config = load_config(args.config)
         check = 'nx043-shadow' if args.phase == 'merge' else 'nx043-' + args.phase
-        result = Result(check, ACCEPTANCE[args.phase], config, dry_run=args.dry_run, world='simulation')
+        result_type = ShadowResult if check in SHADOW_STEPS or args.phase == 'merge' else Result
+        result = result_type(check, ACCEPTANCE[args.phase], config, dry_run=args.dry_run, world='simulation')
         if args.dry_run:
             result.step('plan', 'the entries this phase calls', {'calls': PLAN[args.phase]}, True)
             return result.write(out)
@@ -713,11 +771,15 @@ def main(argv=None, *, ports=None, stdin=None, out=sys.stdout):
             raise Refused(f'{args.phase}: --from the results of ' + ', '.join(NEEDS[args.phase]))
         if args.phase not in ('prepare', 'gaps', 'readiness'):
             try:
-                result.nonce = load_state(config)['run']  # the run nonce (L6 X7 review 3.1)
+                state = load_state(config)
+                if isinstance(result, ShadowResult):
+                    result.bind(state)
+                result.nonce = state['run']  # the run nonce (L6 X7 review 3.1)
             except Blocked as error:
                 result.block(args.phase, str(error))
                 return result.write(out)
-        prior, prior_blocked, _ = load_chain(args.prior, prefix='nx043-', order=list(NEEDS[args.phase]), nonce=result.nonce) if args.phase in NEEDS else ([], [], None)
+        prior, prior_blocked, _ = load_chain(args.prior, prefix='nx043-', order=list(NEEDS[args.phase]), nonce=result.nonce,
+            validate_part=result.validate_part if isinstance(result, ShadowResult) else None) if args.phase in NEEDS else ([], [], None)
         if args.phase == 'merge':
             result.steps, result.blocked = list(prior), list(prior_blocked)
             return result.write(out)
