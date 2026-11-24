@@ -5398,6 +5398,18 @@
         "ref": "0e6250cc4cbcb7ff2f90d01c3cc242b86b35bb12",
         "summary": "M6 Python HTTP SDK 与 stdio MCP 本地验收独审通过。在精确提交上用回环 HTTPS、真实 stdio 和临时 PostgreSQL 独立复跑七个文件，42 通过、零跳过。服务端完成提交后丢失响应时，只查一次原意图，数据库只新增一条备注。M5 stage 验收与整项结案另计。",
         "recorded_at": "2026-11-24T16:40:59+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "6a847f472a3bfc0f59d3801164f79884d658ec4b",
+        "summary": "负责人批准 M5 分项验收，已修订运行单 §4.2。测试世界的 stage 机器链与隔离真实浏览器的同对象读写各自取证。",
+        "recorded_at": "2026-11-24T18:30:53+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "sha256:f539d56f48948bef98d33d57531c0ee8dbe620a17b9ed5ccd8a0a7d6218dac51",
+        "summary": "M5 隔离浏览器分项独审通过。真实 SDK 写入机器备注，owner 在 Chromium 中读取署名和未核实标签、保存人工备注。刷新后两个备注 ID 与临时 PostgreSQL 及审计对应。首轮因 PG locale 无效中止，修正后通过；独立复跑 1 项通过、0 跳过。stage test 机器生命周期仍待验。",
+        "recorded_at": "2026-11-24T18:30:53+08:00"
       }
     ]
   },
