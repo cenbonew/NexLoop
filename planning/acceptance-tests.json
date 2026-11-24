@@ -524,6 +524,12 @@
         "ref": "scripts/deploy/schema_proposal.py; scripts/acceptance/s6_stage_schema.py:check_at024; docs/implementation/S6-offline-audit-20261116.md",
         "summary": "ccffcad9 源码勘误：审核与发布 CLI 已提供 basis/check/publish/hide/migrate-batch；--verify-reject 仅执行 check。候选写入与提案冻结由演进入口覆盖。stage 需受授权的合成 owner、候选模板和独立 schema 样本，按 run-nx038-stage 第6步与 run-nx040-stage 共用同一次 at024：核写入及冻结拒绝、新类型 successor_actions=0、无许可发布返回 published=false 和 permit_missing；有受限属性样本时核 property_security_bypass。调度员执行、L6 技术复核、负责人最终判定。仅核源码，stage 未验收。",
         "recorded_at": "2026-11-22T14:27:54.459242+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:650329bd6356a605c7c1fcad7d68ca57df76cac39413b8769141efbe2d8fd05d",
+        "summary": "获准的单次前检在正常模板检查处停止。当前可核归档没有完整同版验收回执，正式用例未执行。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
       }
     ]
   },
