@@ -9,6 +9,25 @@ from nexloop_eios.effect_provider import HttpEffectProvider,EffectProviderConfig
 from nexloop_eios.effect_dispatch import EffectDispatcher
 from support.effect_provider import effect_provider
 
+def _post_accept_evidence(provider, admin, intent):
+    """Best-effort reads after a failed assertion; unavailable evidence stays unknown."""
+    evidence = {'requests': None, 'fulfilled_observed': None, 'lease_expired_at_read': None}
+    try:
+        evidence['requests'] = [(method, code) for method, target, code in provider.control('snapshot')['requests']
+                                if target == intent and method in ('POST', 'GET') and type(code) is int]
+    except Exception:
+        pass  # Keep the original dispatch failure.
+    try:
+        observed, expired = admin.execute("""
+            select exists(select 1 from runtime.nexloop_effect_observations where intent_id=%s and provider_state='fulfilled'),
+                   (select lease_until <= clock_timestamp() from runtime.nexloop_effect_outbox where intent_id=%s)
+            """, (intent, intent)).fetchone()
+        evidence.update(fulfilled_observed=observed, lease_expired_at_read=expired)
+    except Exception:
+        pass
+    return evidence
+
+
 def test_actual_provider_accept_role_end_preserves_current_query_evidence(role_runtime_plan,admin,tmp_path):
     plan=role_runtime_plan
     receipt=plan['worker'].runtime_effect_tool(activation_ref=plan['activations'][0],command=plan['commands'][0],tool_operation='submit',parameters={'message':'real role-end recovery evidence'})
@@ -24,11 +43,12 @@ def test_actual_provider_accept_role_end_preserves_current_query_evidence(role_r
             reconciled=dispatcher.run_once()
             # Preserve the dispatcher's first result: a failed query and an observed
             # fulfillment awaiting governed finalization both report no business success.
-            assert reconciled['business_action_success'] is True, {
+            assert reconciled['business_action_success'] is True, str({
                 'step': 'dispatch_after_role_end', 'status': reconciled['status'],
                 'provider_state': reconciled.get('provider_state'),
                 'finalized': reconciled.get('governed_claim_finalized'),
-            }
+                **_post_accept_evidence(provider, admin, intent),
+            })
             state=admin.execute('select state,governed_claim_finalized from runtime.nexloop_effect_intents where intent_id=%s',(intent,)).fetchone()
             assert state==('fulfilled',True)
             assert admin.execute("select count(*) from runtime.nexloop_effect_observations where intent_id=%s and provider_state='fulfilled'",(intent,)).fetchone()==(1,)
