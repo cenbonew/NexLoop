@@ -31,6 +31,15 @@ import at046_stage  # noqa: E402
 import nx043_stage as X  # noqa: E402
 
 
+class FixtureProbe:
+    """Read a synthetic alternative relation through the same PostgreSQL query."""
+    def __init__(self, db, original, replacement):
+        self.db, self.original, self.replacement = db, original, replacement
+
+    def read(self, query, params=()):
+        return self.db.execute(query.replace(self.original, self.replacement), params).fetchall()
+
+
 class Owner:
     """The owner workbench, as the governed entry calls the handlers (tenant and principal server side, world real)."""
 
@@ -151,6 +160,22 @@ def test_the_screening_and_shadow_acceptance_end_to_end(stage):
     assert got['real_dispatch_switches_unchanged']['passed'] and got['real_side_unchanged']['observed']['changed'] == []
     code, merged, _ = phase(f, 'merge', '--from', before_path, '--from', keys_path, '--from', decide_path, '--from', after_path)
     assert code == 0 and merged['check'] == 'nx043-shadow' and merged['passed'] is True and merged['run_nonce'] == state['run']
+    # Keep the genuine successful chain, then vary one observation at a time.
+    steps(doc)['shadow_sends_nothing']['observed']['real_sends'] = 1
+    bad = f['tmp'] / 'contradiction.json'
+    bad.write_text(json.dumps(doc))
+    merge_code, _, _ = phase(f, 'merge', '--from', before_path, '--from', keys_path, '--from', decide_path, '--from', str(bad))
+    # Project synthetic alternative rows from this disposable database; source tables stay append-only.
+    admin.execute("""create temp view early_stops as select tenant_id,experiment_id,status,recorded_by,reason,
+                  recorded_at - interval '1 day' as recorded_at from control.nexloop_experiment_events""")
+    _, early, _ = phase(f, 'probe-after', '--from', before_path, '--from', keys_path, '--from', decide_path,
+                        ports=FixtureProbe(admin, 'control.nexloop_experiment_events', 'pg_temp.early_stops'))
+    admin.execute("""create temp view different_batch as select tenant_id,world,strategy_id,strategy_version,
+                  encode(sha256(event_key::bytea),'hex') as event_key,stand_in_intent from runtime.nexloop_shadow_decisions""")
+    _, substituted, _ = phase(f, 'probe-after', '--from', before_path, '--from', keys_path, '--from', decide_path,
+                              ports=FixtureProbe(admin, 'runtime.nexloop_shadow_decisions', 'pg_temp.different_batch'))
+    assert (merge_code, steps(early)['guard_stops_at_the_end']['passed'],
+            steps(substituted)['shadow_decisions_landed']['passed']) == (2, False, False)
     # Every write went through the owner's governed Actions.
     assert set(f['owner'].calls) == {'create_sim_world', 'publish_strategy', 'register_experiment', 'start_experiment', 'set_shadow_copy', 'read_experiment_report'}
 
