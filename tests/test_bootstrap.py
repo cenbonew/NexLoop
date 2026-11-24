@@ -28,3 +28,14 @@ def test_original_eios_roles_abort_before_schema_or_grants(admin):
     with pytest.raises(MigrationDrift,match='isolated NexLoop cluster'):
         bootstrap(admin)
     assert admin.execute("select count(*) from pg_namespace where nspname in ('ontology','runtime','control')").fetchone()[0]==0
+
+
+@pytest.mark.pg_empty
+def test_machine_world_upgrade_from_0454(admin):
+    from eios.adapters.postgres.migrations import apply_migrations
+
+    prior = [m for m in catalog() if m.version <= '0454']
+    apply_migrations(admin, migrations=prior)
+    assert bootstrap(admin)[0] == '0455'
+    assert verify(admin)['revision'] == BOOTSTRAP_REVISION
+    assert bootstrap(admin) == []
