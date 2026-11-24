@@ -142,7 +142,7 @@ class SessionRun(A.Acceptance):
 def test_disable_backchannel_requires_live_then_expired(before, after, expected):
     checks = SessionRun(before=before, after=after).checks()
     assert checks['disable.sync.backchannel']['status'] == expected
-    assert checks['disable.sync.backchannel']['session_http'] == [before, after]
+    assert checks['disable.sync.backchannel']['session_http'] == [before, after if before == 200 else None]
 
 
 @pytest.mark.parametrize('live,ended,expected', [(200, 401, 'passed'), (401, 401, 'failed'), (200, 500, 'failed'), (200, 200, 'failed')])
@@ -150,7 +150,7 @@ def test_max_session_requires_live_then_expired(live, ended, expected):
     run = SessionRun(live=live, ended=ended)
     checks = run.checks()
     assert checks['disable.sync.max_session']['status'] == expected
-    assert run.waits[-1] == 960  # memory recorder, no real sleep
+    assert run.waits == ([960] if live == 200 else [])  # no wait after a failed live precondition
 
 
 def test_unconfigured_mechanism_is_gap_not_pass_and_epochs_need_exact_statuses():
@@ -180,7 +180,7 @@ def test_generic_404_not_found_then_403_is_ambiguous_not_positive():
     # Same generic error as an unpublished Action (pre-grant LookupError).
     run = GroupRun(initial_action=404, initial_body={'code': 'not_found', 'details': {}})
     run.groups_mapping(None, None)
-    assert run.results[0]['operator_action_http'] == [404, 403]
+    assert run.results[0]['operator_action_http'] == [404, None]
     assert run.results[0]['status'] == 'failed'
 
 

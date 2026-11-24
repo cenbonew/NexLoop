@@ -178,6 +178,7 @@ class Acceptance:
         self.results = []
         self.link_state = 'unlinked'
         self.mapping_revision = None
+        self.last_request_id = None
         self.mapping_unknown = False
         self.idp_unknown = False
         self.dirty_groups = set()
@@ -199,7 +200,10 @@ class Acceptance:
         return client, r.json()['csrf_token']
 
     def act(self, client, csrf, operation, body):
-        return client.post('/api/v1/workbench/actions/' + operation, headers=self._headers(csrf), json=body)
+        headers = self._headers(csrf)
+        # workbench_actions_http persists this namespace with the governed request.
+        self.last_request_id = 'workbench-' + headers['Idempotency-Key'] if 'Idempotency-Key' in headers else None
+        return client.post('/api/v1/workbench/actions/' + operation, headers=headers, json=body)
 
     def link(self, client, csrf, subject):
         return self.act(client, csrf, 'link_workbench_external', {'target_principal': self.config['member']['principal_id'],
@@ -221,6 +225,7 @@ class Acceptance:
                     and receipt.get('provider_id') == self.config['provider_id']):
                 self.link_state = 'linked' if subject is not None else 'unlinked'
         if self.link_state == 'unknown':
+            self.record('link.receipt', 'failed', http=response.status_code, request_id=self.last_request_id)
             raise RuntimeError('link receipt unavailable')
         return response
 
@@ -340,25 +345,31 @@ class Acceptance:
             self.record('run.aborted', 'failed', error='terminal_interrupted', manual_cleanup_required=True)
             return self.summary()
         except Exception as failure:
-            self.record('run.aborted', 'failed', error=type(failure).__name__)
+            fields = {'request_id': self.last_request_id} if self.link_state == 'unknown' or self.mapping_unknown else {}
+            self.record('run.aborted', 'failed', error=type(failure).__name__, **fields)
 
         def logout():
             return owner.post(AUTH + '/logout', headers=self._headers(csrf)).status_code == 200 and owner.get(AUTH + '/session').status_code == 401
 
+        completed_cleanup = []
         for name, step in (('unlink', lambda: self.restore_link(owner, csrf)),
                            ('clear_mapping', lambda: self.restore_mapping(owner, csrf)),
                            ('idp', self.restore_idp),
                            ('readback', lambda: self.idp.verify_state('after')),
                            ('logout', logout)):
             try:
-                if not step():
+                if step():
+                    completed_cleanup.append(name)
+                else:
                     self.record('cleanup', 'failed', step=name, manual_cleanup_required=True)
             except (EOFError, KeyboardInterrupt):
                 self.record('cleanup', 'failed', step=name, error='terminal_interrupted', manual_cleanup_required=True)
                 break
             except Exception as failure:
                 self.record('cleanup', 'failed', step=name, error=type(failure).__name__, manual_cleanup_required=True)
-        if not any(row['check'] == 'cleanup' for row in self.results):
+        if any(row['check'] == 'cleanup' for row in self.results):
+            self.record('cleanup.progress', 'observed', confirmed_steps=completed_cleanup)
+        else:
             self.record('cleanup', 'passed', readback='operator_verified', owner_session_http=401)
         return self.summary()
 
@@ -366,21 +377,24 @@ class Acceptance:
         # login
         b, refused, _ = self.sign_in('B')
         code, _ = self.session(b)
-        self.expect('login.unlinked_refused', refused.status_code == 303 and refused.headers.get('location') == FAILED and code == 401,
-                    http=refused.status_code, session_http=code)
+        if not self.expect('login.unlinked_refused', refused.status_code == 303 and refused.headers.get('location') == FAILED and code == 401,
+                           http=refused.status_code, session_http=code):
+            return
         linked = self.change_link(owner, csrf, users['A']['subject'])
         if not self.expect('login.linked_signs_in.link', linked.status_code == 200, http=linked.status_code):
             return
         first, done, query = self.sign_in('A')
         code, view = self.session(first)
-        self.expect('login.linked_signs_in', done.status_code == 303 and done.headers.get('location') == '/workbench' and code == 200
+        if not self.expect('login.linked_signs_in', done.status_code == 303 and done.headers.get('location') == '/workbench' and code == 200
                     and view['principal_id'] == member and view.get('authentication_methods') == ['oidc'],
-                    http=done.status_code, session_http=code, methods=(view or {}).get('authentication_methods'))
+                           http=done.status_code, session_http=code, methods=(view or {}).get('authentication_methods')):
+            return
         replay = self.new_client()
         again = replay.get(CALLBACK, params=query, follow_redirects=False)
         code, _ = self.session(replay)
-        self.expect('login.callback_one_time', again.status_code == 303 and again.headers.get('location') == FAILED and code == 401,
-                    http=again.status_code, session_http=code)
+        if not self.expect('login.callback_one_time', again.status_code == 303 and again.headers.get('location') == FAILED and code == 401,
+                           http=again.status_code, session_http=code):
+            return
         # groups: an IdP group never grants a workbench role
         self.change_group(self.config['owner_group'], True)
         grouped, done, _ = self.sign_in('A')
@@ -395,9 +409,10 @@ class Acceptance:
         control = self.act(grouped, 'not-' + secrets.token_hex(16), 'link_workbench_external', owner_only)
         attempt = self.act(grouped, token, 'link_workbench_external', owner_only)
         body = attempt.json() if attempt.headers.get('content-type', '').startswith('application/json') else {}
-        self.expect('groups.no_role_from_idp', done.status_code == 303 and grouped_session == 200 and member_csrf.status_code == 200
+        if not self.expect('groups.no_role_from_idp', done.status_code == 303 and grouped_session == 200 and member_csrf.status_code == 200
                     and control.status_code == 401 and attempt.status_code == 403 and body.get('code') == 'forbidden',
-                    http=attempt.status_code, csrf_http=member_csrf.status_code, control_http=control.status_code, session_http=grouped_session)
+                    http=attempt.status_code, csrf_http=member_csrf.status_code, control_http=control.status_code, session_http=grouped_session):
+            return
         self.change_group(self.config['owner_group'], False)
         # disable at the IdP (L6 X1: the session must be live before the disable, else the result proves nothing)
         password_client = self.password_session() if self.config['backchannel'] else None
@@ -405,6 +420,9 @@ class Acceptance:
         password_before, password_view = self.session(password_client) if password_client is not None else (None, None)
         def matches(view, method):
             return bool(view and view.get('principal_id') == member and view.get('authentication_methods') == [method])
+        if not matches(first_view, 'oidc') or (password_client is not None and not matches(password_view, 'password')):
+            self.record('disable.sync.backchannel', 'failed', session_http=[before, None], password_http=[password_before, None])
+            return
         self.enable_a(False)
         # Sample both sessions before another interactive login can add unmeasured waiting time.
         after = self.session(first)[0]
@@ -418,40 +436,50 @@ class Acceptance:
                 self.sleep(delay)
                 waited += delay
                 after, password_after = self.session(first)[0], self.session(password_client)[0]
-            self.expect('disable.sync.backchannel',
+            if not self.expect('disable.sync.backchannel',
                         (before, password_before, after, password_after) == (200, 200, 401, 401)
                         and matches(first_view, 'oidc') and matches(password_view, 'password'),
-                        session_http=[before, after], password_http=[password_before, password_after], waited_seconds=waited)
+                        session_http=[before, after], password_http=[password_before, password_after], waited_seconds=waited):
+                return
         try:
             self.sign_in('A')
         except IdpRefused:
             idp_refused = True
         else:
             idp_refused = False
-        self.expect('disable.idp_refuses', idp_refused, provider_ref=self.config['provider_id'], user_slot='A',
-                    source='operator_browser_observation' if idp_refused else 'application_callback')
+        if not self.expect('disable.idp_refuses', idp_refused, provider_ref=self.config['provider_id'], user_slot='A',
+                    source='operator_browser_observation' if idp_refused else 'application_callback'):
+            return
         # Obtain a live control after the earlier back-channel may already have ended the original sessions.
         self.enable_a(True)
         epoch_client, _, _ = self.sign_in('A')
         epoch_before, epoch_view = self.session(epoch_client)
+        if not matches(epoch_view, 'oidc'):
+            self.record('epoch.unlink_ends_sessions', 'failed', control_http=[epoch_before, None])
+            return
         unlinked = self.change_link(owner, csrf)
         codes = [self.session(c)[0] for c in (first, grouped)]
         epoch_after = self.session(epoch_client)[0]
-        self.expect('epoch.unlink_ends_sessions', unlinked.status_code == 200 and codes == [401, 401]
+        if not self.expect('epoch.unlink_ends_sessions', unlinked.status_code == 200 and codes == [401, 401]
                     and (epoch_before, epoch_after) == (200, 401) and matches(epoch_view, 'oidc'),
-                    http=unlinked.status_code, session_http=codes, control_http=[epoch_before, epoch_after])
+                    http=unlinked.status_code, session_http=codes, control_http=[epoch_before, epoch_after]):
+            return
         self.change_group(self.config['owner_group'], False)
         relinked = self.change_link(owner, csrf, users['A']['subject'])
         fresh, done, _ = self.sign_in('A')
         codes = [self.session(c)[0] for c in (fresh, first, grouped)]
-        self.expect('epoch.relink_new_only', relinked.status_code == 200 and done.status_code == 303 and codes == [200, 401, 401],
-                    http=relinked.status_code, session_http=codes)
+        if not self.expect('epoch.relink_new_only', relinked.status_code == 200 and done.status_code == 303 and codes == [200, 401, 401],
+                    http=relinked.status_code, session_http=codes):
+            return
         # Groups after the epoch checks: setting a mapping ends the provider's sessions (Z2). A stays in operator_group from here on.
-        self.groups_mapping(owner, csrf)
-        self.unmapped_groups()
+        if not self.groups_mapping(owner, csrf) or not self.unmapped_groups():
+            return
         # The upper bound without a back-channel: a new SSO session ends max_session_seconds (+ 60 s leeway) after sign-in.
         last, done, _ = self.sign_in('A')
         live = self.session(last)[0]
+        if live != 200 or done.status_code != 303 or done.headers.get('location') != '/workbench':
+            self.record('disable.sync.max_session', 'failed', session_http=[live, None], waited_seconds=0)
+            return
         self.sleep(self.config['max_session_seconds'] + 60)
         ended = self.session(last)[0]
         self.expect('disable.sync.max_session', live == 200 and ended == 401, session_http=[live, ended],
@@ -461,51 +489,71 @@ class Acceptance:
         mapping = self.config['group_mapping']
         if mapping is None:
             self.record('groups.mapping', 'gap', observed='not_configured')
-            return
+            return True
         self.mapping_unknown = True
-        set_ = self.set_mapping(owner, csrf, {mapping['operator_group']: 'operator', mapping['reviewer_group']: 'reviewer'}, mapping['expected_revision'])
-        if set_.status_code != 200:
-            self.record('groups.mapping', 'failed', http=set_.status_code)
-            return
-        receipt = set_.json()
-        revision = receipt.get('revision')
-        if (receipt.get('provider_id') != self.config['provider_id'] or receipt.get('cleared') is not False
-                or type(revision) is not int or revision != mapping['expected_revision'] + 1):
-            raise RuntimeError('mapping receipt unavailable')
-        self.mapping_revision, self.mapping_unknown = revision, False
+        expected_revision = mapping['expected_revision']
+        try:
+            response = self.set_mapping(owner, csrf, {mapping['operator_group']: 'operator', mapping['reviewer_group']: 'reviewer'}, expected_revision)
+        except (EOFError, KeyboardInterrupt):
+            raise
+        except Exception as failure:
+            self.record('groups.mapping', 'failed', request_id=self.last_request_id, error=type(failure).__name__)
+            return False
+        try:
+            receipt = response.json() if response.status_code == 200 else None
+        except ValueError:
+            receipt = None
+        if (not isinstance(receipt, dict) or receipt.get('provider_id') != self.config['provider_id'] or receipt.get('cleared') is not False
+                or type(receipt.get('revision')) is not int or receipt['revision'] != expected_revision + 1):
+            self.record('groups.mapping', 'failed', http=response.status_code, request_id=self.last_request_id)
+            return False
+        self.mapping_revision, self.mapping_unknown = receipt['revision'], False
         self.change_group(mapping['operator_group'], True)
         mapped, done, _ = self.sign_in('A')
         allowed, known_probe = self.operator_action(mapped) if done.status_code == 303 and done.headers.get('location') == '/workbench' else (None, False)
+        if (allowed, known_probe) != (409, True):
+            self.record('groups.mapping', 'failed', operator_action_http=[allowed, None], operator_probe_verified=False)
+            return False
         self.change_group(mapping['operator_group'], False)
         self.change_group(mapping['reviewer_group'], True)
         _, narrowed, _ = self.sign_in('A')
         refused_after, known_refusal = self.operator_action(mapped)
+        if narrowed.status_code != 303 or narrowed.headers.get('location') != FAILED or (refused_after, known_refusal) != (403, True):
+            self.record('groups.mapping', 'failed', operator_action_http=[allowed, refused_after], operator_probe_verified=True)
+            return False
         self.change_group(mapping['reviewer_group'], False)
         self.change_group(mapping['operator_group'], True)
         _, again, _ = self.sign_in('A')
-        self.expect('groups.mapping', allowed == 409 and known_probe and narrowed.status_code == 303 and narrowed.headers.get('location') == FAILED and refused_after == 403
-                    and known_refusal and again.status_code == 303 and again.headers.get('location') == '/workbench', operator_action_http=[allowed, refused_after],
-                    narrowed=narrowed.headers.get('location') == FAILED, operator_probe_verified=known_probe)
+        return self.expect('groups.mapping', again.status_code == 303 and again.headers.get('location') == '/workbench',
+                           operator_action_http=[allowed, refused_after], narrowed=True, operator_probe_verified=True)
 
     def unmapped_groups(self):
         mapping = self.config['group_mapping']
         if mapping is None:
             self.record('groups.unmapped', 'gap', observed='not_configured')
-            return
+            return True
         if self.mapping_revision is None:
             self.record('groups.unmapped', 'failed', observed='mapping_unconfirmed')
-            return
+            return False
         # Start from a fresh authorized session: the reviewer-only check has already denied its previous one.
         active, sign_in, _ = self.sign_in('A')
         prior = self.operator_action(active) if sign_in.headers.get('location') == '/workbench' else (None, False)
+        if prior != (409, True):
+            self.record('groups.unmapped', 'failed', operator_action_http=[prior[0], None])
+            return False
         self.change_group(mapping['operator_group'], False)
         empty_groups_verified = self.idp.verify_state('unmapped')
+        if not empty_groups_verified:
+            self.record('groups.unmapped', 'failed', empty_groups_verified=False, operator_action_http=[prior[0], None])
+            return False
         empty, denied, _ = self.sign_in('A')
         refused = self.operator_action(active)
-        self.expect('groups.unmapped', empty_groups_verified and prior == (409, True) and denied.status_code == 303 and denied.headers.get('location') == FAILED
-                    and self.session(empty)[0] == 401 and refused == (403, True),
-                    operator_action_http=[prior[0], refused[0]], empty_groups_verified=empty_groups_verified)
-        self.change_group(mapping['operator_group'], True)
+        ok = self.expect('groups.unmapped', denied.status_code == 303 and denied.headers.get('location') == FAILED
+                         and self.session(empty)[0] == 401 and refused == (403, True),
+                         operator_action_http=[prior[0], refused[0]], empty_groups_verified=True)
+        if ok:
+            self.change_group(mapping['operator_group'], True)
+        return ok
 
     def summary(self):
         statuses = [r['status'] for r in self.results]

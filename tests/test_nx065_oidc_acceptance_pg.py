@@ -145,13 +145,16 @@ def test_a_back_channel_that_never_arrives_fails_and_a_session_outliving_its_max
     code, checks, lines = run(sso, tmp_path, MockAdapter(sso['idp']), capsys, None, backchannel=True)
     assert code == 1, lines
     assert checks['disable.sync.backchannel']['status'] == 'failed' and checks['disable.sync.backchannel']['session_http'] == [200, 200]
-    assert checks['disable.sync.max_session']['status'] == 'failed' and checks['disable.sync.max_session']['session_http'] == [200, 200]
+    assert 'disable.sync.max_session' in checks['run.incomplete']['missing']
+    # Independently exercise the maximum on a fresh run; the unconfirmed back-channel cannot advance to it.
+    code, checks, lines = run(sso, tmp_path, MockAdapter(sso['idp']), capsys)
+    assert code == 1 and checks['disable.sync.max_session']['session_http'] == [200, 200]
 
 
 def test_an_idp_that_ignores_the_disable_fails_the_run(sso, admin, tmp_path, capsys):
     code, checks, lines = run(sso, tmp_path, MockAdapter(sso['idp'], honour_disable=False), capsys, admin)
     assert code == 1 and checks['disable.idp_refuses']['status'] == 'failed', lines
-    assert lines[-1]['summary']['failed'] == 1
+    assert 'epoch.unlink_ends_sessions' in checks['run.incomplete']['missing']
 
 
 @pytest.mark.parametrize('change, mode', [
@@ -219,7 +222,7 @@ class ExpiringAdapter(MockAdapter):
         self.admin = admin
 
     def set_group(self, user, group, member):
-        if member:
+        if not member:
             self.admin.execute("update control.nexloop_browser_sessions set payload=jsonb_set(payload,'{revoked_at}',to_jsonb(now()))")
         super().set_group(user, group, member)
 
@@ -284,7 +287,8 @@ def test_no_group_has_its_own_evidence(sso, admin, tmp_path, capsys):
     assert checks['groups.mapping']['status'] == 'passed'
     assert checks['groups.unmapped']['status'] == 'failed'
     assert checks['groups.unmapped']['empty_groups_verified'] is False
-    assert checks['groups.unmapped']['operator_action_http'] == [409, 409]
+    assert checks['groups.unmapped']['operator_action_http'] == [409, None]
+    assert 'disable.sync.max_session' in checks['run.incomplete']['missing']
 
 
 def test_empty_backchannel_probe_requires_the_form_header(sso):
@@ -297,3 +301,46 @@ def test_empty_backchannel_probe_requires_the_form_header(sso):
     sso['providers'].write_text(json.dumps(document))
     with TestClient(app(sso), base_url=ORIGIN) as client:
         assert client.post(path, content=b'', headers={'Content-Type': 'application/x-www-form-urlencoded'}).status_code == 400
+
+
+def test_unknown_mapping_receipt_stops_business_steps_and_preserves_cleanup(sso, admin, tmp_path, capsys, monkeypatch):
+    import httpx
+    enable_everything(sso, admin)
+    adapter = MockAdapter(sso['idp'], backchannel=True)
+    original_mapping = A.Acceptance.set_mapping
+    original_sign_in = A.Acceptance.sign_in
+    original_verify = adapter.verify_state
+    sends, logins_after, waits_after, readbacks = [], [], [], []
+    def lose_receipt(self, owner, csrf, mappings, revision):
+        response = original_mapping(self, owner, csrf, mappings, revision)
+        assert response.status_code == 200
+        sends.append(revision)
+        sleep = self.sleep
+        def observed_sleep(seconds):
+            waits_after.append(seconds)
+            sleep(seconds)
+        self.sleep = observed_sleep
+        return httpx.Response(503)
+    def observe_login(self, user):
+        if sends:
+            logins_after.append(user)
+        return original_sign_in(self, user)
+    def verify(phase):
+        if phase == 'after':
+            current = admin.execute('select mappings from control.nexloop_workbench_oidc_group_mappings order by revision desc limit 1').fetchone()
+            readbacks.append(bool(current and current[0]))
+            return not readbacks[-1]
+        return original_verify(phase)
+    monkeypatch.setattr(A.Acceptance, 'set_mapping', lose_receipt)
+    monkeypatch.setattr(A.Acceptance, 'sign_in', observe_login)
+    monkeypatch.setattr(adapter, 'verify_state', verify)
+    code, checks, lines = run(sso, tmp_path, adapter, capsys, admin, group_mapping=MAPPING, backchannel=True)
+    assert (logins_after, waits_after, sends) == ([], [], [0])
+    assert code == 1 and checks['groups.mapping']['http'] == 503 and checks['groups.mapping']['status'] == 'failed'
+    assert {'groups.unmapped', 'disable.sync.max_session'} <= set(checks['run.incomplete']['missing'])
+    current_request = admin.execute('select request_id from control.nexloop_workbench_oidc_group_mappings order by revision desc limit 1').fetchone()[0]
+    assert checks['groups.mapping']['request_id'] == current_request
+    assert checks['cleanup.progress']['confirmed_steps'] == ['unlink', 'idp', 'logout']
+    assert readbacks == [True]
+    assert {r.get('step') for r in lines if r.get('check') == 'cleanup' and r['status'] == 'failed'} == {'clear_mapping', 'readback'}
+    assert admin.execute('select count(*) from control.nexloop_workbench_external_identities').fetchone() == (0,)
