@@ -1,3 +1,4 @@
+from datetime import datetime
 import http.client
 import json
 import os
@@ -67,6 +68,15 @@ def _intent_view(value, intent_id, capability=None):
     for field, pattern in (("result_code", "[a-z_:0-9A-Z]{1,80}"), ("outcome_id", "[0-9a-f]{64}")):
         if value[field] is not None and not re.fullmatch(pattern, value[field]):
             raise MachineError("Invalid intent result")
+    if value["phase"] == "committed":
+        if value["result_code"] != "succeeded" or value["outcome_id"] is None:
+            raise MachineError("Inconsistent committed intent")
+        try:
+            stamp = datetime.fromisoformat(value["committed_at"])
+        except (ValueError, TypeError):
+            raise MachineError("Invalid intent commit time") from None
+        if stamp.tzinfo is None:
+            raise MachineError("Invalid intent commit time")
     if value["phase"] == "pending_approval" and not value["approval_id"]:
         raise MachineError("Missing approval reference")
     return value

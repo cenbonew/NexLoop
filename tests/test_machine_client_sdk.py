@@ -137,7 +137,7 @@ class ClientTests(unittest.TestCase):
 
     def test_approved_continuation(self):
         waiting = self.view()
-        done = self.view("committed",committed_at="2026-01-01T00:01:00Z",outcome_id="a"*64)
+        done = self.view("committed",result_code="succeeded",committed_at="2026-01-01T00:01:00Z",outcome_id="a"*64)
         self.replies=[self.ready,waiting,dict(waiting,approval_status="approved"),done]
         self.client.prepare(self.cap,self.intent,note="original")
         self.assertEqual(self.client.commit(self.cap,self.intent,self.digest),waiting)
@@ -174,7 +174,7 @@ class ClientTests(unittest.TestCase):
     def test_stdio_resume_from_trusted_record(self):
         waiting = self.view()
         tool = {"capability":self.cap,"kind":"write","description":"note"}
-        done = self.view("committed",outcome_id="e"*64,committed_at="2026-01-01T00:03:00Z")
+        done = self.view("committed",result_code="succeeded",outcome_id="e"*64,committed_at="2026-01-01T00:03:00Z")
         self.replies=[{"capabilities":[tool]},dict(waiting,approval_status="approved"),done]
         args = {"intent_id":self.intent,"prepare_digest":self.digest,
                 "resume":{"approval_id":waiting["approval_id"],"params":{"note":"original"}}}
@@ -183,3 +183,36 @@ class ClientTests(unittest.TestCase):
         serve(self.client,io.StringIO(json.dumps(message)),out)
         self.assertEqual(json.loads(json.loads(out.getvalue())["result"]["content"][0]["text"]),done)
         self.assertEqual([p for _,p,_ in self.calls],["capabilities","intents/"+self.intent,"commit"])
+
+    def test_contradictory_commit_queries_once(self):
+        bad = self.view("committed")
+        good = self.view("committed", result_code="succeeded", outcome_id="a"*64,
+                         committed_at="2026-01-01T00:01:00+00:00")
+        self.replies = [self.ready, bad, good]
+        self.client.prepare(self.cap, self.intent)
+        self.assertEqual(self.client.commit(self.cap, self.intent, self.digest), good)
+        self.assertEqual([p for _,p,_ in self.calls], ["prepare","commit","intents/"+self.intent])
+
+    def test_contradictory_readback_stays_unknown(self):
+        bad = self.view("committed")
+        self.replies = [self.ready, bad, bad]
+        self.client.prepare(self.cap, self.intent)
+        with self.assertRaises(MachineError):
+            self.client.commit(self.cap, self.intent, self.digest)
+        self.assertEqual([p for _,p,_ in self.calls], ["prepare","commit","intents/"+self.intent])
+        self.replies = [bad]
+        with self.assertRaises(MachineError):
+            self.client.query(self.intent)
+
+    def test_finished_replay_and_individual_invariants(self):
+        good = self.view("committed", result_code="succeeded", outcome_id="b"*64,
+                         committed_at="2026-01-01T00:01:00.000001+00:00", replayed=True)
+        self.replies = [self.ready, good]
+        self.client.prepare(self.cap, self.intent)
+        self.assertEqual(self.client.commit(self.cap, self.intent, self.digest), good)
+        self.assertEqual([p for _,p,_ in self.calls], ["prepare","commit"])
+        for change in ({"result_code":"approval_required"}, {"outcome_id":None},
+                       {"committed_at":None}, {"committed_at":"invalid"}):
+            self.replies = [dict(good, **change)]
+            with self.assertRaises(MachineError):
+                self.client.query(self.intent)
