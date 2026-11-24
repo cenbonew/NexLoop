@@ -99,18 +99,20 @@
 6. 重启 api-1、api-2。先跑 deploy gate，通过后再 promote，两步不要连在一起执行。
 7. 路由清单 v17 已包含三条机器写入路由和备注读取路由。Gateway 不需要改：`/machine/*` 已经转发，转发时删除身份头，也不记 URI。
 
-### 4.2 验收演练（stage test world、合成主体；待调度员安排执行）
+### 4.2 M5 分项验收
 
-1. 负责人在工作台登记 `s6c-machine`（或沿用已有的），给它授予 `object.add_note`，类型选 Commitment。
-2. 签发一把 world 为 test、scope 为 `object.add_note` 的密钥。
-3. 用这把密钥依次调用：
-   - `POST /machine/v1/prepare`，带一个合成 Commitment 的 ID 和一句不含个人信息的备注：返回 200，带 prepare_digest。
-   - `POST /machine/v1/commit`，用同一个 intent 并带上这个 prepare_digest：返回 200，phase 为 committed。
-   - `GET /machine/v1/intents/<intent>`：结果与 commit 相同。同一请求再 commit 一次：返回首次结果，replayed 为 true。
-4. 换参数再 commit：返回 409。把 prepare 放过 10 分钟再 commit：返回 410。
-5. 工作台打开这条承诺：备注显示为“机器客户端 s6c-machine 的备注 · 未核实陈述”，正文是纯文本。owner 在页面上加一条备注，可以成功保存。
-6. 收回授权后再 prepare：返回 403。
-7. 审计里有 `machine.intent.prepare`、`machine.intent.commit`、`object.note.add`，三条记录都不含正文。
+负责人已批准以下两项验收口径。stage 机器密钥签发和写入须另获批准后执行。两项分别留存真实回执，均通过后才可判定 M5 演练通过。生产工作台继续只展示 real world。
+
+**第一份证据：stage test world 的机器生命周期**
+
+1. 使用合成机器主体 `s6c-machine`、同租户的合成 Commitment 和无个人信息的备注。登记或核对主体，授予仅限 Commitment 的 `object.add_note`，签发 world 为 test、scope 为 `object.add_note` 的临时密钥。
+2. 用该密钥调用 `POST /machine/v1/prepare`，核对 200 和 `prepare_digest`。以同一 intent 和摘要调用 `POST /machine/v1/commit`，核对 200 和 `committed`。通过 `GET /machine/v1/intents/<intent>` 读回终态。
+3. 原样重放 commit，核对首次结果及 `replayed=true`。同一 intent 改参数再 commit 应返回 409。另用新 intent 执行 prepare，超过 10 分钟再首次 commit，应返回 410。
+4. 收回授权，使用仍有效的密钥和新 intent 调用 prepare，应返回 403。吊销临时密钥并核对吊销状态。留存脱敏的状态码、意图终态及撤销回执，核对审计事件 `machine.intent.prepare`、`machine.intent.commit`、`object.note.add` 均不含备注正文。
+
+**第二份证据：隔离环境中的真实浏览器读写**
+
+在隔离环境使用真实后端、持久化存储和合成身份。先由机器通过受治理入口给合成 Commitment 添加备注，再由 owner 用真实浏览器打开隔离环境中的同一对象。核对页面从后端读到机器备注，作者显示为“机器客户端 s6c-machine 的备注 · 未核实陈述”，正文按纯文本显示。由 owner 在该页新增并保存一条人工备注，重新打开页面，从后端读回同一对象上的两条备注，分别核对正文和作者。留存可关联至该合成对象的浏览器观察及持久化读回回执。此项在隔离环境独立制备数据，无需生产工作台访问 stage test 对象。
 
 ### 4.3 隐私说明（给负责人）
 
