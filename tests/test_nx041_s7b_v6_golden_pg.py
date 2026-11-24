@@ -5,6 +5,7 @@ Fixed input (the v6 fixture of test_context_v6_pg: one customer message, the bui
 bound pack is normalized - identifiers, digests and times replaced by stable placeholders in order of first appearance - and compared
 byte for byte with tests/support/golden/nx041-context-v6-real.json. NEXLOOP_WRITE_GOLDEN=1 rewrites the file (a reviewed change).
 """
+from datetime import datetime
 import json
 import os
 import re
@@ -33,6 +34,10 @@ def normalize(pack):
 
 def test_the_real_v6_context_of_a_fixed_input_is_unchanged(v6, admin):  # noqa: F811
     f = v6
+    # PostgreSQL omits trailing fractional zeros when rendering this deadline in the metered core.
+    recipe = f['f']['recipe']
+    deadline = datetime.fromisoformat(recipe['valid_until'])
+    recipe['valid_until'] = deadline.replace(microsecond=123456).isoformat()
     assert f['v6_relay']().run_once() == 'queued'
     pack, _ = bound(admin)
     ContextPackV6.model_validate(pack)
