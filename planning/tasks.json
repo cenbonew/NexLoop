@@ -5392,6 +5392,12 @@
         "ref": "docs/release/run-credential-scope-rotation.md",
         "summary": "S79 凭据范围轮换运行单（R66 catalog_maintainer 收尾）。",
         "recorded_at": "2026-11-01T05:21:53+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "0e6250cc4cbcb7ff2f90d01c3cc242b86b35bb12",
+        "summary": "M6 Python HTTP SDK 与 stdio MCP 本地验收独审通过。在精确提交上用回环 HTTPS、真实 stdio 和临时 PostgreSQL 独立复跑七个文件，42 通过、零跳过。服务端完成提交后丢失响应时，只查一次原意图，数据库只新增一条备注。M5 stage 验收与整项结案另计。",
+        "recorded_at": "2026-11-24T16:40:59+08:00"
       }
     ]
   },
