@@ -47,6 +47,7 @@ import re
 import sys
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +57,7 @@ import psycopg  # noqa: E402
 
 from nexloop_eios.evolution import evaluation as E  # noqa: E402
 from nexloop_eios.evolution.attribution import attribute, draft_candidates, load_extraction, read_missed, with_extraction  # noqa: E402
-from nexloop_eios.evolution.l1 import run_l1  # noqa: E402
+from nexloop_eios.evolution.l1 import REPEATS, run_l1  # noqa: E402
 from nexloop_eios.evolution_store import CandidateStore, EvaluatorStore, diagnosis_id  # noqa: E402
 from nexloop_eios.evolution_traces import DatabaseTraceSource  # noqa: E402
 from nexloop_eios.private_configuration import read_private_text  # noqa: E402
@@ -225,16 +226,25 @@ class Stage:
             ro = db.execute('show default_transaction_read_only').fetchone()[0]
         result.step('inspector is read only', ro == 'on')
 
-    def inputs(self):
+    def inputs(self, *, fixed_window=False):
         """The reader's samples and access records of the window, the diagnosis and its drafts, the clusters and holdout units."""
         if self._inputs is None:
             cfg = self.cfg
+            if fixed_window and not set(cfg['personas']) <= {'synthetic', 'simulated_agent'}:
+                raise Precondition('AT-023 requires synthetic personas')
             read = self.reader.read(cfg['window']['since'], cfg['window']['until'], personas=tuple(cfg['personas']))
             runs = {s['run_id'] for s in read.samples}
             with self.connect['reader']() as db:
                 rows = db.execute('select authz.nexloop_semantic_access_read(%s,%s,%s,%s)',
                                   (_digest_of(cfg['credentials']['reader']), 'real', cfg['window']['since'], 1000)).fetchone()[0]
             accesses = [a for a in rows if a.get('run_id') in runs]
+            if fixed_window:
+                if len(rows) >= 1000 or 'over_limit' in read.excluded:
+                    raise Precondition('AT-023 fixed-window input completeness unknown')
+                try:
+                    accesses = [a for a in accesses if cfg['window']['since'] <= datetime.fromisoformat(a['recorded_at']) < cfg['window']['until']]
+                except (ValueError, KeyError, TypeError) as error:
+                    raise Precondition('AT-023 semantic access time unknown') from error
             if cfg.get('extraction_file'):  # I34 (c): the read's own extraction wins; only a null (older record) takes L3's derived value
                 with open(cfg['extraction_file'], encoding='utf-8') as f:
                     accesses = with_extraction(accesses, load_extraction(f.read()))
@@ -281,6 +291,47 @@ class Stage:
         if i >= len(subsets):
             raise Precondition(f'{len(units)} cluster units give {len(subsets)} holdouts; {len(HOLDOUT_ORDER)} are needed (synthetic Consumers from at least 4 units)')
         return sorted(c for u in subsets[i] for c in units[u])
+
+    def at023_capacity(self, plans):
+        """Read-only admission estimate. Actual opening and reservations still serialize in SQL."""
+        tenant = self._tenant()
+        l1 = plans['l1'].candidate
+        cases = l1['design_case_ids'] + l1['validation_case_ids']
+        candidates = [plan.candidate['candidate_id'] for plan in plans.values()]
+        reservations = [f'l1:{case}:{variant}:{i}' for case in cases
+                        for variant in ('parent', 'candidate') for i in range(REPEATS)]
+        source = 'evolution-candidate:' + l1['candidate_id']
+        with self.inspect() as db:
+            uses, new_slots, limit, final_already_opened = db.execute("""select count(*), %s - count(*) filter(where candidate_id=any(%s::uuid[])),
+                runtime.nexloop_evo_holdout_limit(), count(*) filter(where candidate_id=%s::uuid)>0
+                from runtime.nexloop_evo_holdout_uses
+                where tenant_id=%s and world='real' and holdout_digest=runtime.nexloop_evo_holdout_digest(%s)""",
+                (len(candidates), candidates, plans['rejected'].candidate['candidate_id'], tenant, l1['validation_case_ids'])).fetchone()
+            if uses + new_slots > limit:
+                raise Precondition('AT-023 insufficient holdout slots for the three candidates')
+            budget = db.execute("""select b.limit_amount-coalesce(sum(c.amount),0) from control.nexloop_budget_limits b
+                left join control.nexloop_budget_consumption c on (c.tenant_id,c.world,c.budget_kind)=(b.tenant_id,b.world,b.budget_kind)
+                and c.recorded_at>=b.period_start and c.recorded_at<b.period_end
+                where b.tenant_id=%s and b.world='real' and b.budget_kind='evolution' and b.unit='CNY'
+                and statement_timestamp()>=b.period_start and statement_timestamp()<b.period_end group by b.limit_amount""", (tenant,)).fetchone()
+            prior = db.execute("""select consumption_id,source_ref,unit,amount from control.nexloop_budget_consumption
+                where tenant_id=%s and world='real' and budget_kind='evolution' and consumption_id=any(%s)""",
+                (tenant, reservations)).fetchall()
+            if any(ref != source or unit != 'CNY' or amount != Decimal('0.01') for _, ref, unit, amount in prior):
+                raise Precondition('AT-023 L1 reservation belongs to a different evaluation')
+            needed = Decimal('0.01') * (len(reservations) - len(prior))
+            # 0303 refuses the final (G7) opening on a fully spent tenant budget.
+            if not budget or budget[0] < needed or (budget[0] == needed and not final_already_opened):
+                raise Precondition('AT-023 current CNY evolution balance missing or insufficient')
+            # 0253 caps a newly proposed candidate at 10 CNY. Existing candidates carry their own limit.
+            candidate_remaining = db.execute("""select coalesce((select cost_limit from runtime.nexloop_evo_candidates
+                where tenant_id=%s and world='real' and candidate_id=%s),10)-coalesce(sum(amount),0)
+                from control.nexloop_budget_consumption where tenant_id=%s and world='real' and budget_kind='evolution'
+                and source_ref=%s""", (tenant, l1['candidate_id'], tenant, source)).fetchone()[0]
+            if candidate_remaining < needed:
+                raise Precondition('AT-023 L1 candidate balance insufficient')
+        return dict(holdout_uses=uses, new_holdout_slots=new_slots, l1_cases=len(cases),
+                    l1_required_cny=str(needed), available_cny=str(budget[0]))
 
     def digests(self):
         out = {}
@@ -538,9 +589,11 @@ def r4(st, r):
 
 def at023(st, r):
     """AT-023: one L0 evaluation, one L1 evaluation (world test) and one rejected candidate; the protected tables do not change."""
+    if len(st.inputs()['units']) < 4:
+        raise Precondition('AT-023 needs four independent units in the fixed window')
     units = st.holdout_units('at023')
     plans = {k: st.plan('at023-' + k, units) for k in ('l0', 'l1', 'rejected')}
-    r.step('plan', True, candidates={k: p.candidate['candidate_id'] for k, p in plans.items()}, holdout_uses=st.holdout_uses(plans['l0'].candidate['validation_case_ids']))
+    r.step('plan', True, candidates={k: p.candidate['candidate_id'] for k, p in plans.items()}, **st.at023_capacity(plans))
     r.digests['before'] = st.digests()
     missing = sorted(set(REQUIRED_PROTECTED) - r.digests['before'].keys())
     if missing:
@@ -780,6 +833,11 @@ def run_command(stage, config, command, dry_run, out):
     r = Result(command, config, dry_run)
     try:
         stage.roles(r)
+        if command == 'at023':
+            # 'all' shares a Stage; other checks may have populated its ordinary input cache.
+            stage = copy.copy(stage)
+            stage._inputs = None
+            stage.inputs(fixed_window=True)
         if command != 'at046' and not command.startswith('r7'):
             i = stage.inputs()
             r.step('inputs', True, runs=len(i['samples']), accesses=len(i['accesses']), clusters=len(set(i['clusters'].values())), units=len(i['units']),

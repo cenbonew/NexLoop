@@ -13,6 +13,7 @@ import sys
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from decimal import Decimal
 
 import pytest
 from psycopg.conninfo import make_conninfo
@@ -62,7 +63,7 @@ def failed_run(admin, digest, consumer, minutes, now):
 
 
 @pytest.fixture
-def stage(admin, pg, tmp_path):
+def stage(admin, pg, tmp_path, request):
     bootstrap(admin)
     # The data and the window are both relative to the time the test runs (PG's clock), not to collection; only the budget
     # period (+29 days) depends on the real time.
@@ -74,8 +75,9 @@ def stage(admin, pg, tmp_path):
     register(admin, hexid(writer), 'writer')
     register(admin, hexid(evaluator), 'evaluator')
     evaluation, _ = eval_credential(admin, '-s6-stage')
-    admin.execute("""insert into control.nexloop_budget_limits(tenant_id,world,budget_kind,unit,limit_amount,period_start,period_end,revision)
-        values(%s,'real','evolution','CNY',100,%s,%s,1)""", (TENANT_A, now - timedelta(days=1), now + timedelta(days=29)))
+    if getattr(request, 'param', None) != 'without_budget':
+        admin.execute("""insert into control.nexloop_budget_limits(tenant_id,world,budget_kind,unit,limit_amount,period_start,period_end,revision)
+            values(%s,'real','evolution','CNY',100,%s,%s,1)""", (TENANT_A, now - timedelta(days=1), now + timedelta(days=29)))
     consumers = [hexid('s6-consumer-' + str(i)) for i in range(5)]
     runs = {}
     for i, c in enumerate(consumers):
@@ -253,3 +255,46 @@ def test_at023_requires_complete_unchanged_protection(stage, monkeypatch, fault)
     else:
         assert len(samples) == 2 and result['passed'] is False
         assert not checks(result)['protected tables unchanged']['passed']
+
+
+@pytest.mark.parametrize('fault', ['insufficient', 'spent_after_l1', 'period', 'late_misses', 'three_units'])
+def test_at023_prefreeze_refusal(stage, fault):
+    db = stage['admin']
+    if fault == 'insufficient':
+        db.execute("update control.nexloop_budget_limits set limit_amount=0.59 where budget_kind='evolution'")
+    elif fault == 'spent_after_l1':
+        db.execute("update control.nexloop_budget_limits set limit_amount=0.60 where budget_kind='evolution'")
+    elif fault == 'period':
+        db.execute("update control.nexloop_budget_limits set period_start=now()+interval '1 day' where budget_kind='evolution'")
+    elif fault == 'late_misses':
+        path = Path(stage['config'])
+        cfg = json.loads(path.read_text())
+        cfg['inputs']['evolution']['window']['until'] = (stage['now'] - timedelta(minutes=30)).isoformat()
+        path.write_text(json.dumps(cfg))
+    else:
+        db.execute('delete from control.nexloop_consumer_personas where consumer_id=%s', (stage['consumers'][-1],))
+    code, [result] = call('at023', '--config', stage['config'])
+    assert code != 0 and result['blocked']
+    assert not db.execute('select count(*) from runtime.nexloop_evo_diagnoses').fetchone()[0]
+
+
+@pytest.mark.parametrize('stage', ['without_budget'], indirect=True)
+def test_at023_missing_budget_blocks_before_proposal(stage):
+    code, [result] = call('at023', '--config', stage['config'])
+    assert code != 0 and any('CNY evolution balance' in reason for reason in result['blocked'])
+    assert not stage['admin'].execute('select count(*) from runtime.nexloop_evo_diagnoses').fetchone()[0]
+
+
+def test_at023_holdout_capacity_and_same_label_replay(stage):
+    assert call('at023', '--config', stage['config'])[0] == 0
+    code, [replay] = call('at023', '--config', stage['config'], '--dry-run')
+    plan = next(s['evidence'] for s in replay['steps'] if s['name'] == 'plan')
+    assert code == 0 and plan['new_holdout_slots'] == 0 and plan['holdout_uses'] == 3
+    assert Decimal(plan['l1_required_cny']) == 0
+    path = Path(stage['config'])
+    cfg = json.loads(path.read_text())
+    cfg['inputs']['evolution']['label'] += '-fresh'
+    path.write_text(json.dumps(cfg))
+    code, [result] = call('at023', '--config', stage['config'])
+    assert code != 0 and any('holdout slots' in reason for reason in result['blocked'])
+    assert stage['admin'].execute('select count(*) from runtime.nexloop_evo_candidates').fetchone()[0] == 3
