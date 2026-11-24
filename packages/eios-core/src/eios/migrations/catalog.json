@@ -2270,6 +2270,11 @@
       "version": "0454",
       "name": "0454_restricted_g1_verifier.sql",
       "sha256": "96fc6d69986683887ae5063eb6a10630d67392f2650d394d7da75d2941da3d2c"
+    },
+    {
+      "version": "0455",
+      "name": "0455_nx062_machine_intent_world.sql",
+      "sha256": "576228490a1b5f95ed1c86d69e85e1272af4bb290b1ddf6da690c2569aa30fab"
     }
   ]
 }

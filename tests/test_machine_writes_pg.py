@@ -345,3 +345,51 @@ def test_grantees(writes):
         assert holders(admin, f) == {'nexloop_api'}, f
     # The machine requester of an approval is its client subject; a person's is unchanged.
     assert admin.execute("select control.nexloop_approval_subject_of(%s,'nexloop-machine:acme-agent')", (TENANT,)).fetchone()[0] == 'nexloop-machine-subject:acme-agent'
+
+
+@pytest.mark.parametrize('phase', ['prepare', 'pending_approval', 'committed', 'refused'])
+def test_foreign_world_intent_is_immutable(writes, phase):
+    w = writes
+    admin = w['admin']
+    intent_id = 'world-isolated'
+    prepared = prepare(w, intent_id)
+    # Seed each persisted shape on the patched database, including an expired prepare.
+    admin.execute("""update runtime.nexloop_machine_intents set world='test',phase=%s,
+        committed_at=case when %s then now() end,expires_at=now()-interval '1 minute' where intent_id=%s""",
+                  (phase, phase in ('committed', 'refused'), intent_id))
+
+    def snapshot():
+        return (admin.execute('select * from runtime.nexloop_machine_intents where intent_id=%s', (intent_id,)).fetchone(),
+                admin.execute("select count(*) from runtime.audit_events where action like 'machine.intent.%'").fetchone(),
+                calls(w))
+
+    before = snapshot()
+    with pytest.raises(psycopg.errors.NoDataFound):
+        W.intent(w['pool'], **ids(w), intent_id=intent_id)
+    with pytest.raises(psycopg.errors.NoDataFound):
+        commit(w, intent_id, prepared)
+    with pytest.raises(psycopg.Error) as refused:
+        prepare(w, intent_id)
+    assert refused.value.sqlstate == 'NX409'
+    assert snapshot() == before
+
+
+def test_same_world_rotated_key_recovers_intent(writes):
+    from nexloop_eios import machine_keys
+    from test_workbench_actions_http import act
+
+    w = writes
+    intent_id = 'rotation-recovery'
+    prepared = prepare(w, intent_id)
+    with w['client']() as client:
+        response = act(client, owner(client, w), 'rotate_machine_key', {
+            'previous_key_id': w['key_id'], 'overlap_days': 0, 'scope': [PROBE], 'expires_in_days': 1})
+        assert response.status_code == 200
+        key = machine_keys.parse(response.json()['key'])
+    rotated = {**w, 'prefix': key.prefix_id, 'digest': machine_keys.digest(key, w['peppers'], 1).hex()}
+    assert rotated['prefix'] != w['prefix']
+    assert W.intent(w['pool'], **ids(rotated), intent_id=intent_id)['phase'] == 'prepare'
+    done = commit(rotated, intent_id, prepared)
+    assert done['phase'] == 'committed'
+    assert commit(rotated, intent_id, prepared)['outcome_id'] == done['outcome_id']
+    assert calls(w) == 1
