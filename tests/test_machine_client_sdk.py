@@ -43,7 +43,7 @@ class ClientTests(unittest.TestCase):
         caps = {"capabilities":[{"capability":name,"kind":kind,"description":"service description"}
                                 for name,kind in [("object.get","read"),(self.cap,"write"),
                                                   ("approval.decide","write"),("nexloop.machine_key.issue","write")]]}
-        done = {"intent_id":self.intent,"phase":"pending_approval"}
+        done = self.view()
         self.replies = [caps,caps,{"object":"fixture"},caps,self.ready,caps,done,{"capabilities":[]}]
         def call(name,args):
             return ("tools/call",{"name":name,"arguments":args})
@@ -67,12 +67,16 @@ class ClientTests(unittest.TestCase):
 
     def test_unknown_only_queries(self):
         for failure in (OSError(self.token), {"phase":"unknown"}, (503,None,b""), (200,None,b"broken")):
+            self.client = Client("https://synthetic.invalid", self.file)
+            self.client._exchange = self.exchange
             self.calls.clear()
-            self.replies=[self.ready,failure,{"intent_id":self.intent,"phase":"unknown"}]
+            self.replies=[self.ready,failure,self.view(approval_status="waiting_approval")]
             self.client.prepare(self.cap,self.intent)
-            self.assertEqual(self.client.commit(self.cap,self.intent,self.digest)["phase"],"unknown")
+            self.assertEqual(self.client.commit(self.cap,self.intent,self.digest)["phase"],"pending_approval")
             with self.assertRaises(MachineError):
                 self.client.commit(self.cap,self.intent,self.digest)
+            with self.assertRaises(MachineError):
+                self.client.prepare(self.cap,self.intent)
             self.assertEqual([p for _,p,_ in self.calls],["prepare","commit","intents/"+self.intent])
 
     def test_secret_and_retry_errors(self):
@@ -117,3 +121,65 @@ class ClientTests(unittest.TestCase):
             connection.request.assert_called_once_with("GET","/machine/v1/capabilities",body=None,
                 headers={"Authorization":"Bearer "+self.token,"Content-Type":"application/json"})
             connection.close.assert_called_once()
+
+    def view(self, phase="pending_approval", **updates):
+        value = dict(intent_id=self.intent, capability=self.cap, phase=phase, result_code=None,
+                     outcome_id=None, approval_id="00000000-0000-0000-0000-000000000001",
+                     expires_at="2026-01-01T01:00:00Z", committed_at=None)
+        return dict(value, **updates)
+
+    def test_query_wrong_intent_or_shape(self):
+        for bad in (self.view(intent_id="intent-other"), {"intent_id":self.intent,"phase":"committed"},
+                    self.view(replayed=1), self.view(extra=True), self.view(result_code=[])):
+            self.replies=[bad]
+            with self.assertRaises(MachineError):
+                self.client.query(self.intent)
+
+    def test_approved_continuation(self):
+        waiting = self.view()
+        done = self.view("committed",committed_at="2026-01-01T00:01:00Z",outcome_id="a"*64)
+        self.replies=[self.ready,waiting,dict(waiting,approval_status="approved"),done]
+        self.client.prepare(self.cap,self.intent,note="original")
+        self.assertEqual(self.client.commit(self.cap,self.intent,self.digest),waiting)
+        self.assertEqual(self.client.commit(self.cap,self.intent,self.digest),done)
+        self.assertEqual([p for _,p,_ in self.calls],["prepare","commit","intents/"+self.intent,"commit"])
+        self.assertEqual(self.calls[1],self.calls[-1])
+
+    def test_restart_and_unknown_continuation(self):
+        waiting = self.view()
+        restarted = Client("https://synthetic.invalid", self.file)
+        restarted._exchange = self.exchange
+        args = (self.cap,self.intent,self.digest,waiting["approval_id"],{"note":"original"})
+        for status in ("waiting_approval","cancelled","rejected","expired",None):
+            self.replies=[dict(waiting,approval_status=status)]
+            self.assertEqual(restarted.resume_pending(*args)["approval_status"],status)
+        self.assertTrue(all(method=="GET" for method,_,_ in self.calls))
+        self.calls.clear()
+        self.replies=[dict(waiting,approval_status="approved"),OSError("lost"),self.view(intent_id="intent-other")]
+        with self.assertRaises(MachineError):
+            restarted.resume_pending(*args)
+        self.assertEqual([p for _,p,_ in self.calls],["intents/"+self.intent,"commit","intents/"+self.intent])
+        self.assertEqual(self.calls[1][2],dict(capability=self.cap,intent_id=self.intent,
+                                               params=args[-1],prepare_digest=self.digest))
+        with self.assertRaises(MachineError):
+            restarted.commit(self.cap,self.intent,self.digest)
+
+    def test_reconcile_wrong_capability(self):
+        self.replies=[self.ready,OSError("lost"),self.view(capability="other.note")]
+        self.client.prepare(self.cap,self.intent)
+        with self.assertRaises(MachineError):
+            self.client.commit(self.cap,self.intent,self.digest)
+        self.assertEqual([p for _,p,_ in self.calls],["prepare","commit","intents/"+self.intent])
+
+    def test_stdio_resume_from_trusted_record(self):
+        waiting = self.view()
+        tool = {"capability":self.cap,"kind":"write","description":"note"}
+        done = self.view("committed",outcome_id="e"*64,committed_at="2026-01-01T00:03:00Z")
+        self.replies=[{"capabilities":[tool]},dict(waiting,approval_status="approved"),done]
+        args = {"intent_id":self.intent,"prepare_digest":self.digest,
+                "resume":{"approval_id":waiting["approval_id"],"params":{"note":"original"}}}
+        message = {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":self.cap+".commit","arguments":args}}
+        out = io.StringIO()
+        serve(self.client,io.StringIO(json.dumps(message)),out)
+        self.assertEqual(json.loads(json.loads(out.getvalue())["result"]["content"][0]["text"]),done)
+        self.assertEqual([p for _,p,_ in self.calls],["capabilities","intents/"+self.intent,"commit"])

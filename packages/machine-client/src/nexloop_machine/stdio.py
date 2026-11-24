@@ -29,6 +29,9 @@ def catalog(client):
             if op == "commit":
                 fields["prepare_digest"] = {"type": "string", "pattern": "^[0-9a-f]{64}$"}
                 required.append("prepare_digest")
+                fields["resume"] = {"type": "object", "properties": {
+                    "approval_id": {"type": "string"}, "params": {"type": "object"}},
+                    "required": ["approval_id", "params"], "additionalProperties": False}
             if name in tools:
                 raise MachineError("Ambiguous capability catalog")
             schema = {"type": "object", "properties": fields, "required": required, "additionalProperties": False}
@@ -52,7 +55,14 @@ def dispatch(client, method, params):
     if type(args) != dict or set(args)-schema["properties"].keys() or not set(schema["required"]) <= args.keys():
         raise ValueError
     if op == "commit":
-        result = client.commit(cap, args["intent_id"], args["prepare_digest"])
+        if "resume" in args:
+            resume = args["resume"]
+            if not isinstance(resume, dict) or set(resume) != {"approval_id", "params"}:
+                raise ValueError
+            result = client.resume_pending(cap, args["intent_id"], args["prepare_digest"],
+                                           resume["approval_id"], resume["params"])
+        else:
+            result = client.commit(cap, args["intent_id"], args["prepare_digest"])
     elif op == "prepare":
         result = client.prepare(cap, args["intent_id"], **args.get("params", {}))
     else:

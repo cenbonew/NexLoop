@@ -47,6 +47,31 @@ def _intent(value):
         raise MachineError("Invalid intent ID")
 
 
+def _intent_view(value, intent_id, capability=None):
+    """Validate machine-intent.schema.json before trusting a readback or commit response."""
+    required = {"intent_id", "capability", "phase", "result_code", "outcome_id",
+                "approval_id", "expires_at", "committed_at"}
+    if not required <= value.keys() <= required | {"replayed", "approval_status"}:
+        raise MachineError("Invalid intent response fields")
+    if (value["intent_id"] != intent_id or not allowed_name(value["capability"])
+            or (capability is not None and value["capability"] != capability)):
+        raise MachineError("Intent response mismatch")
+    if (value["phase"] not in ("prepare", "pending_approval", "committed", "refused")
+            or not isinstance(value["expires_at"], str)
+            or type(value.get("replayed", False)) is not bool
+            or value.get("approval_status") not in (None, "approved", "waiting_approval", "rejected", "cancelled", "expired")):
+        raise MachineError("Invalid intent state")
+    for field in ("committed_at", "approval_id", "result_code", "outcome_id"):
+        if value[field] is not None and not isinstance(value[field], str):
+            raise MachineError("Invalid intent field type")
+    for field, pattern in (("result_code", "[a-z_:0-9A-Z]{1,80}"), ("outcome_id", "[0-9a-f]{64}")):
+        if value[field] is not None and not re.fullmatch(pattern, value[field]):
+            raise MachineError("Invalid intent result")
+    if value["phase"] == "pending_approval" and not value["approval_id"]:
+        raise MachineError("Missing approval reference")
+    return value
+
+
 class Client:
     def __init__(self, base_url, key_file, ca_file=None):
         try:
@@ -60,6 +85,8 @@ class Client:
             raise MachineError("Invalid HTTPS origin or CA") from None
         self._token = _key(key_file)
         self._prepared = {}
+        self._pending = {}
+        self._uncertain = set()
 
     def _exchange(self, method, path, payload):
         connection = http.client.HTTPSConnection(self._host, self._port, context=self._tls, timeout=15)
@@ -100,6 +127,8 @@ class Client:
         _intent(intent_id)
         if not allowed_name(cap):
             raise MachineError("Invalid capability")
+        if intent_id in self._uncertain:
+            raise MachineError("Query original intent only")
         saved_params = json.dumps(params, allow_nan=False)
         value = self._request("POST", "prepare", {"capability": cap, "intent_id": intent_id, "params": params})
         digest = value.get("prepare_digest")
@@ -110,22 +139,52 @@ class Client:
 
     def commit(self, cap, intent_id, prepare_digest):
         _intent(intent_id)
-        params = self._prepared.pop((cap, intent_id, prepare_digest), None)
+        key = (cap, intent_id, prepare_digest)
+        pending = self._pending.get(key)
+        if pending is not None:
+            approval_id, params = pending
+            return self.resume_pending(cap, intent_id, prepare_digest, approval_id, json.loads(params))
+        params = self._prepared.pop(key, None)
         if params is None:
             raise MachineError("Matching prepare required")
+        return self._submit(cap, intent_id, prepare_digest, params)
+
+    def resume_pending(self, cap, intent_id, prepare_digest, approval_id, params):
+        """Explicit continuation using a trusted prepare request and pending approval receipt."""
+        if (not allowed_name(cap) or not isinstance(approval_id, str) or not approval_id
+                or not isinstance(prepare_digest, str) or not re.fullmatch("[0-9a-f]{64}", prepare_digest)
+                or not isinstance(params, dict)):
+            raise MachineError("Invalid pending approval reference")
+        key = (cap, intent_id, prepare_digest)
+        current = self._query(intent_id, cap)
+        if intent_id in self._uncertain:
+            return current
+        if current["approval_id"] != approval_id:
+            raise MachineError("Approval reference mismatch")
+        if current["phase"] != "pending_approval" or current.get("approval_status") != "approved":
+            return current
+        self._pending.pop(key, None)
+        return self._submit(cap, intent_id, prepare_digest, json.dumps(params, allow_nan=False))
+
+    def _submit(self, cap, intent_id, digest, params):
         body = {"capability": cap, "intent_id": intent_id, "params": json.loads(params),
-                "prepare_digest": prepare_digest}
+                "prepare_digest": digest}
         try:
             value = self._request("POST", "commit", body)
+            _intent_view(value, intent_id, cap)
+            if value["phase"] == "pending_approval":
+                self._pending[cap, intent_id, digest] = (value["approval_id"], params)
+            return value
         except MachineError as error:
             if error.status is not None and error.status < 500:
                 raise
-        else:
-            if (value.get("intent_id") == intent_id and value.get("phase") in ("committed", "pending_approval", "refused")
-                    and value.get("status") != "unknown"):
-                return value
-        return self.query(intent_id)
+        # Ambiguous POST: only query. Its result must not implicitly arm another POST.
+        self._uncertain.add(intent_id)
+        return self._query(intent_id, cap)
+
+    def _query(self, intent_id, capability=None):
+        _intent(intent_id)
+        return _intent_view(self._request("GET", "intents/" + intent_id), intent_id, capability)
 
     def query(self, intent_id):
-        _intent(intent_id)
-        return self._request("GET", "intents/" + intent_id)
+        return self._query(intent_id)
