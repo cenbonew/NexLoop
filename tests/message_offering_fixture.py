@@ -44,7 +44,7 @@ def message_read_rule_row(tenant,principal,valid_until,*,active=True):
 
 
 def install_message_catalog(admin,backend,tenant,consumer,source_token,*,suffix,manifest=None,paths=None):
-    expiry=(datetime.now(UTC)+timedelta(minutes=5)).isoformat();actions=definitions(tenant)
+    expiry=(datetime.now(UTC)+timedelta(minutes=5)).isoformat(timespec='microseconds');actions=definitions(tenant)
     if manifest is None:
         for schema in offering_schemas():admin.execute('insert into ontology.object_type_versions(tenant_id,type_name,version,definition) values(%s,%s,1,%s)',(tenant,schema.type_name,Jsonb(schema.model_dump(mode='json'))))
         # catalog-exception: offering Actions on the message test tenant schemas; the catalog rows are covered by assembled_message

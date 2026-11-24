@@ -3,6 +3,7 @@ in-process IdP (nothing leaves the process): an SSO session ends at most the pro
 session keeps its 30 days); a valid back-channel logout token ends every session of the linked member at once; every invalid, replayed or
 unlinked token changes nothing; the endpoint exists only for a provider that enabled it, is rate limited and fails closed without its
 policy. The JWKS refetch for an unknown kid is rate limited per provider and both keys of a rotation verify."""
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 import json
 import time
@@ -16,7 +17,8 @@ from nexloop_eios import workbench_oidc as O
 from support.mock_oidc_idp import MockIdp, cached_keypair, jws, _int_b64
 from test_browser_http import ORIGIN
 from test_workbench_oidc_pg import app, link, sign_in, private, sso  # noqa: F401
-from test_workbench_read_pg import workbench_login
+from nexloop_eios.workbench_roles import apply_members, compile_members
+from test_workbench_read_pg import ROLES, add_human, members_file, workbench_login, write_facts
 from test_real_dispatch_switch_pg import switching  # noqa: F401
 from commitment_fixture import TENANT, commitments  # noqa: F401
 from effect_execution_fixture import governed_effect_executor, execution_plan  # noqa: F401
@@ -96,6 +98,44 @@ def test_a_valid_logout_token_ends_every_session_of_the_member_at_once(sso, admi
     assert event[0] == {'provider_id': 'corp', 'principal_id': c['operator_member']['principal_id']} and SUBJECT not in json.dumps(event)
     stored = admin.execute('select jti_hmac from control.nexloop_workbench_oidc_logout_jti').fetchall()
     assert len(stored) == 1 and len(stored[0][0]) == 64
+
+
+
+def test_backchannel_matches_the_provider_when_two_members_have_the_same_external_subject(sso, admin):
+    c, idp = sso, sso['idp']
+    operator, reviewer = c['operator_member'], add_human(admin, 'reviewer')
+    members = members_file((c['owner_member'], 'owner'), (operator, 'operator'), (reviewer, 'reviewer'))
+    apply_members(ROLES, members, database_url_file=c['configurator'])
+    write_facts(admin, compile_members(ROLES, members))
+    # Hold issuer and sub constant so that only provider_id distinguishes the two bindings.
+    secret = c['providers'].parent / 'oidc-client-secret'
+    providers = [dict(idp.provider(provider, secret), backchannel_logout=True) for provider in ('corp', 'partner')]
+    c['providers'].write_text(json.dumps({'version': 1, 'providers': providers}))
+    session = '/api/v1/workbench/auth/session'
+    with ExitStack() as clients:
+        def client():
+            return clients.enter_context(TestClient(app(c), base_url=ORIGIN))
+
+        owner = client()
+        csrf = workbench_login(owner, c['owner_member']).json()['csrf_token']
+        sessions = {}
+        for provider, member in [('corp', operator), ('partner', reviewer)]:
+            assert link(owner, csrf, member['principal_id'], SUBJECT, provider=provider).status_code == 200
+            oidc, password = client(), client()
+            assert sign_in(oidc, idp, SUBJECT, provider=provider).headers['location'] == '/workbench'
+            assert workbench_login(password, member).status_code == 200
+            sessions[provider] = (oidc, password)
+            for browser in sessions[provider]:
+                assert browser.get(session).json()['principal_id'] == member['principal_id']
+
+        issuer_client = client()
+        answer = issuer_client.post('/api/v1/workbench/auth/oidc/backchannel/partner',
+                                    data={'logout_token': idp.logout_token(SUBJECT)})
+        assert answer.status_code == 200
+        for browser in sessions['partner']:
+            assert browser.get(session).status_code == 401
+        for browser in sessions['corp']:
+            assert browser.get(session).json()['principal_id'] == operator['principal_id']
 
 
 def other_key():
