@@ -1,6 +1,7 @@
 """Machine SDK and stdio against the governed application, loopback TLS and disposable PG."""
 import dataclasses
 import json
+import logging
 import os
 import select
 import socket
@@ -26,7 +27,7 @@ with patch.object(sys, "path", [str(SDK), *sys.path]):
 
 
 @pytest.fixture
-def endpoint(notes, tmp_path):
+def endpoint(notes, tmp_path, monkeypatch):
     assert grant(notes, "object.get", ["Commitment"]).status_code == 200
     limits(notes["admin"])
     config = notes["config"]
@@ -68,8 +69,12 @@ def endpoint(notes, tmp_path):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         url = f"https://127.0.0.1:{listener.getsockname()[1]}"
+        # This server shares the pytest worker. Keep its transport logs private
+        # without replacing the worker's handlers, levels or propagation settings.
+        for name in ("uvicorn.error", "uvicorn.access", "uvicorn.asgi"):
+            monkeypatch.setattr(logging.getLogger(name), "disabled", True)
         server = uvicorn.Server(uvicorn.Config(application, http="h11", ssl_certfile=cert,
-                                               ssl_keyfile=private, access_log=False, log_level="critical"))
+                                               ssl_keyfile=private, log_config=None))
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
         thread.start()
         try:
