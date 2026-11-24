@@ -3533,6 +3533,12 @@
         "ref": "ed5d157534df5f64986e15e41df1dbabd048f69f",
         "summary": "AT-048 wording and report metadata only: include by_consumer; missing near-duplicate blocks all four routes; successful blocked=[]; targeted evidence, evolution PG and preflight PG regression 23 passed (11 warnings). No stage execution or acceptance status change.",
         "recorded_at": "2026-11-19T14:15:58.530157+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:650329bd6356a605c7c1fcad7d68ca57df76cac39413b8769141efbe2d8fd05d",
+        "summary": "AT-024 有界前检核对了配置指定的模板与结果目录。仅有 schema_only 模板和 fixture-type 等历史材料，没有正常模板或完整同版 038-6 回执。未连接 stage，候选写入、冻结和无许可发布请求均为零。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
       }
     ]
   },
@@ -4015,6 +4021,12 @@
         "ref": "e72ea779b72e",
         "summary": "第 108 批：nx043 报告测试在运行时取今天/现在，修复 CI 跨 UTC 零点的偶发失败（仅测试）；执行 L7，判定 L6 PASS。",
         "recorded_at": "2026-11-02T09:33:44+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:d05e9baf55274ef323697498cd757016fc428f3bd9838d1b1a71d7c36d84d5a5",
+        "summary": "独审核对同一轮 X7 原件：S1 五项、S2 三项通过；S7 两个报告请求均返回 422，关闭复制成功。S8 静默基准不满足，缺 S9，无法据此判整链通过。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
       }
     ]
   },
@@ -4920,6 +4932,12 @@
         "ref": "3e95169be2999a1233d54922719da035280e5516",
         "summary": "审批演练矛盾证据整改，独审离线回归 28 项通过。",
         "recorded_at": "2026-11-15T23:48:36+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:7e32759d1cf3a08a8a3a9cad538f05cf5456302dd6ee3ed4ffd3771019d13ca9",
+        "summary": "第 1 天演练证据可复用，第 2 天演练及次日过期、拒绝执行和告警解除仍待现场证据。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
       }
     ]
   },
@@ -4995,6 +5013,18 @@
         "ref": "b824aca7f8cb129fb8f069b8cc1abe5184b7a461",
         "summary": "规则文件原始字节摘要与异常输入，独审离线回归 26 项通过。",
         "recorded_at": "2026-11-15T23:48:36+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:7e32759d1cf3a08a8a3a9cad538f05cf5456302dd6ee3ed4ffd3771019d13ca9",
+        "summary": "启用后约 23 小时 20 分取得的全零复查符合 24 小时内复查一次的 I1 条件。K4j 尚缺有条目或暂停的页面展示。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:a465f4fa087b4867d1045528b1b32c06fbc8a5cb84e351f30b12c392e95ace48",
+        "summary": "展示预检未取得本次指定租户和受限查看身份的绑定，页面请求为零。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
       }
     ]
   },
@@ -5286,6 +5316,18 @@
         "ref": "aea394267fe67dc7ab2828caa7ad8425305b87f2",
         "summary": "畸形数字证据判读，独审离线回归 107 项通过。",
         "recorded_at": "2026-11-15T23:48:36+00:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:7e32759d1cf3a08a8a3a9cad538f05cf5456302dd6ee3ed4ffd3771019d13ca9",
+        "summary": "独审接受 B5 当轮在线结果、B9 和 E4 的当轮读类采样。E4 只覆盖一个工作台活动窗：1 次调用，p95 386 ms。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
+      },
+      {
+        "type": "note",
+        "ref": "sha256:a465f4fa087b4867d1045528b1b32c06fbc8a5cb84e351f30b12c392e95ace48",
+        "summary": "A1 隔离用例有历史证据。尚无真实提案、租户及受限查看身份的完整绑定，提案查询为零。",
+        "recorded_at": "2026-11-24T16:37:20+08:00"
       }
     ]
   },
