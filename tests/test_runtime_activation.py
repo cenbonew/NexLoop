@@ -147,10 +147,10 @@ def test_api_database_role_cannot_gain_worker_activation_authority(authority,syn
             run_id=issued.run_id,command=command,input='synthetic activation input',owner_epoch=1)
 
 
-def test_actual_short_lived_run_expiry_denies_activation(authority,synthetic_credentials):
+def test_actual_short_lived_run_expiry_denies_activation(authority,synthetic_credentials,admin):
     guard,original,worker,_,_=authority
     issued=guard.backend.authenticate(synthetic_credentials['agent'],world='real').issue_run_credential(
-        action_resources=['eios:action:Consumer.create:1'],ttl_seconds=1)
+        action_resources=['eios:action:Consumer.create:1'],ttl_seconds=10)
     command=copy.deepcopy(original);command.update(run_id=issued.run_id,
         request_id='synthetic-short-run-'+str(uuid.uuid4()),trigger_event_id=str(uuid.uuid4()),
         credential_ref='run_credential:'+issued.run_id,not_after=issued.expires_at.isoformat())
@@ -160,7 +160,14 @@ def test_actual_short_lived_run_expiry_denies_activation(authority,synthetic_cre
     registration(authority,synthetic_credentials,command=command,issued=issued,task_id=job['task_id'])
     result=worker.create_runtime_activation(queue='operations',task_id=job['task_id'],fence=job['fence'],
         run_id=issued.run_id,command=command,input='synthetic activation input',owner_epoch=1)
-    time.sleep(1.1)
+    assert authorize(worker,result['activation_ref'],command)['authorized'] is True
+    # Setup consumes part of the issued lifetime. Wait only for the remaining
+    # interval, then verify the Run deadline passed while the task is still leased.
+    now=admin.execute('select clock_timestamp()').fetchone()[0]
+    time.sleep(max(0,(issued.expires_at-now).total_seconds()))
+    assert admin.execute('''select %s <= clock_timestamp() and clock_timestamp() < lease_until
+        from runtime.jobs where job_id=%s and fencing_token=%s and status='running' ''',
+        (issued.expires_at,job['task_id'],job['fence'])).fetchone()==(True,)
     with pytest.raises(AuthorizationUnavailable):authorize(worker,result['activation_ref'],command)
 
 
