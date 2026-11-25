@@ -104,7 +104,7 @@ ODD = {**LISTED, 'dependents': [*LISTED['dependents'], 'not an entry']}
     (None, 'not_reported', None, '不是无影响'),                                             # an answer without impact
 ])
 def test_the_impact_verdict_is_never_silent(impact, verdict, complete, text):
-    shown = T.summarize('check', {'compatibility': {'allowed': True}, 'impact': impact})['impact']
+    shown = T.summarize('check', {'type_name': 'Store', 'compatibility': {'allowed': True}, 'impact': impact})['impact']
     assert shown['verdict'] == verdict and text in shown['verdict_text'] and shown.get('complete') is complete
     assert ('不完整' in shown['verdict_text']) is (complete is False)
     if verdict == 'not_reported':
@@ -137,7 +137,7 @@ class AnsweringWorkbench:
         return 200, self.answer
 
 
-CHECKED = {'proposal_id': PID, 'compatibility': {'allowed': True, 'codes': []}}
+CHECKED = {'proposal_id': PID, 'type_name': 'Store', 'compatibility': {'allowed': True, 'codes': []}}
 
 
 @pytest.mark.parametrize('answer, code, verdict', [
@@ -149,7 +149,7 @@ CHECKED = {'proposal_id': PID, 'compatibility': {'allowed': True, 'codes': []}}
     ({'impact': None}, 1, 'not_reported'),
     ({}, 1, 'not_reported'),
     ({'allowed': True}, 1, 'not_reported'),
-    ({'proposal_id': PID, 'impact': EMPTY}, 0, 'no_impact'),                       # no compatibility: the impact is still read, not dropped
+    ({'proposal_id': PID, 'type_name': 'Store', 'impact': EMPTY}, 0, 'no_impact'),                       # no compatibility: the impact is still read, not dropped
     ([], 1, 'not_reported'),                                   # not even an object
     ({**CHECKED, 'impact': 'none'}, 1, 'not_reported'),
 ])
@@ -195,6 +195,20 @@ def test_check_binds_impact_to_requested_proposal(tmp_path, capsys, monkeypatch,
         assert result['proposal_id'] == PID
     if impact.get('truncated') is True:
         assert shown['truncated'] is True and shown['unreadable'] == impact['unreadable'] and shown['affected'] == 3
+
+
+@pytest.mark.parametrize('outer_type, impact', [
+    ('Consumer', EMPTY),
+    ('Store', {**EMPTY, 'dependents': [{}]}),
+])
+def test_check_excludes_unbound_or_invalid_dependents(tmp_path, capsys, monkeypatch, outer_type, impact):
+    monkeypatch.setattr(T, 'Workbench', AnsweringWorkbench)
+    monkeypatch.setattr(AnsweringWorkbench, 'answer', {**CHECKED, 'type_name': outer_type, 'impact': impact})
+    conf, user = private(tmp_path, 'c.json', cfg()), private(tmp_path, 'u', 'owner\n')
+    argv = ['check', '--config', str(conf), '--origin', 'https://app.example.invalid', '--username-file', str(user), '--password-stdin']
+    assert T.main(argv, stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == 0
+    shown = json.loads(capsys.readouterr().out)['result']['impact']
+    assert (shown['verdict'], shown['complete'], shown['affected'], shown['dependents']) == ('incomplete', False, 0, [])
 
 
 def test_a_check_result_with_no_verdict_is_not_ok(tmp_path, capsys, monkeypatch):
