@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nexloop-machine"
+version = "0.1.0"
+requires-python = ">=3.12"
+license = "MIT"
+description = "NexLoop machine HTTP client and local stdio tools"
+
+[project.scripts]
+nexloop-machine-mcp = "nexloop_machine.stdio:main"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/README.md", "/pyproject.toml"]
