@@ -206,7 +206,7 @@ def new_nonce() -> str:
     return secrets.token_hex(12)
 
 
-def load_chain(paths, *, prefix, order, nonce=None):
+def load_chain(paths, *, prefix, order, nonce=None, validate_part=None):
     """The earlier parts of one run (--from), checked as a chain (L6 AT-046 review 1.1 / NX-043 X7 review 3.1): each a result document
     of this script (check starting with prefix, never a dry run) with the same run_nonce (and the expected one when given), each part
     once, exactly the checks of `order` (the caller passes the prefix of its chain it needs), executed in that order. Returns (steps, blocked, nonce) - the steps and blocks of all parts."""
@@ -238,6 +238,8 @@ def load_chain(paths, *, prefix, order, nonce=None):
     steps, blocked = [], []
     for c in order:
         if c in by:
+            if validate_part is not None:
+                validate_part(by[c])
             steps += by[c].get('steps') or []
             blocked += by[c].get('blocked') or []
     return steps, blocked, (next(iter(nonces)) if docs else None)

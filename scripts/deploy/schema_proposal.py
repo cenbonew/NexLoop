@@ -99,8 +99,17 @@ def idempotency_key(command, config):
 
 def summarize(command, value):
     out = _summary(command, value)
-    if command == 'check' and not isinstance(out.get('impact'), dict):  # L6 F1: whatever the answer's shape, the impact or not_reported
-        out['impact'] = impact_of(value.get('impact') if isinstance(value, dict) else None)
+    if command == 'check':
+        answer = value if isinstance(value, dict) else {}
+        impact = answer.get('impact')
+        if isinstance(impact, dict) and (not _name(answer.get('type_name')) or impact.get('type_name') != answer['type_name']):
+            # The reported dependencies cannot be attributed to this proposal's type.
+            impact = {}
+        out['impact'] = impact_of(impact)
+        if isinstance(answer.get('proposal_id'), str) and UUID.fullmatch(answer['proposal_id']):
+            out['proposal_id'] = answer['proposal_id']
+    elif command != 'basis' and isinstance(value, dict) and 'compatibility' in value:
+        out['impact'] = impact_of(value.get('impact'))
     return out
 
 
@@ -114,8 +123,7 @@ def _summary(command, value):
         c = value['compatibility'] or {}
         return {'operation': value.get('operation'), 'type_name': value.get('type_name'), 'parent_version': value.get('parent_version'),
                 'next_version': value.get('next_version'), 'successor_actions': value.get('successor_actions'),
-                'allowed': c.get('allowed'), 'change_class': c.get('change_class'), 'codes': c.get('codes') or [],
-                'impact': impact_of(value.get('impact'))}
+                'allowed': c.get('allowed'), 'change_class': c.get('change_class'), 'codes': c.get('codes') or []}
     return {k: value[k] for k in SUMMARY if k in value}
 
 
@@ -128,6 +136,20 @@ VERDICT_TEXT = {'affected': '有影响', 'no_impact': '无影响', 'incomplete':
 PARTIAL = '（不完整：有一类被截断、有定义解析失败或回答格式不对，affected 是至少这么多条）'
 
 
+def _name(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _names(value):
+    return isinstance(value, list) and all(_name(name) for name in value)
+
+
+def _valid_dependent(row):
+    return (isinstance(row, dict) and _name(row.get('definition_type')) and _name(row.get('stable_name'))
+            and all(type(row.get(k)) is int and row[k] > 0 for k in ('version', 'pinned_type_version'))
+            and _names(row.get('changed_properties')))
+
+
 def impact_of(value):
     """NX-061 A1 (owner 2026-10-26: shown, not a release gate): the Definitions the /check answer lists, those depending on a changed
     property first - names, versions and property names only, as /check returns them (schema_impact.impact), and the same list by
@@ -138,19 +160,25 @@ def impact_of(value):
     if not isinstance(value, dict):
         return {'verdict': 'not_reported', 'verdict_text': VERDICT_TEXT['not_reported']}
     raw = value.get('dependents')
-    malformed = not isinstance(raw, list) or not all(isinstance(e, dict) for e in raw)
-    listed = [{k: e.get(k) for k in IMPACT_ENTRY} for e in (raw if isinstance(raw, list) else ()) if isinstance(e, dict)]
+    listed = [{k: e[k] for k in IMPACT_ENTRY} for e in raw if _valid_dependent(e)] if isinstance(raw, list) else []
+    malformed = not isinstance(raw, list) or len(listed) != len(raw)
     known = {kind for kind, _ in IMPACT_KINDS}
     by_kind = {name: [f"{e['stable_name']}@{e['version']}" for e in listed if e['definition_type'] == kind] for kind, name in IMPACT_KINDS}
     by_kind['other'] = [f"{e['definition_type']}:{e['stable_name']}@{e['version']}" for e in listed if e['definition_type'] not in known]
     truncated, unreadable = bool(value.get('truncated')), value.get('unreadable') or []
-    complete = not (truncated or unreadable or malformed)
+    changed = value.get('changed_properties')
+    affected_by = value.get('affected_by_changed_properties')
+    listed_by_property = sum(bool(e['changed_properties']) for e in listed)
+    complete = (not malformed and value.get('truncated') is False and value.get('unreadable') == []
+                and isinstance(value.get('type_name'), str) and bool(value['type_name'].strip())
+                and _names(changed)
+                and type(affected_by) is int and affected_by == listed_by_property)
     verdict = 'affected' if listed else 'no_impact' if complete else 'incomplete'
     return {'verdict': verdict, 'verdict_text': VERDICT_TEXT[verdict] + ('' if complete or not listed else PARTIAL), 'complete': complete,
             'type_name': value.get('type_name'),
             'object_types': [value['type_name']] if listed and value.get('type_name') else [],
             'changed_properties': value.get('changed_properties') or [], 'affected': len(listed),
-            'affected_by_changed_properties': value.get('affected_by_changed_properties', 0), 'dependents': listed, **by_kind,
+            'affected_by_changed_properties': listed_by_property, 'dependents': listed, **by_kind,
             'truncated': truncated, 'unreadable': unreadable}
 
 
@@ -205,7 +233,11 @@ def main(argv=None, *, stdin=None, transport=None):
     if status != 200:
         out.update(ok=False, code=result.get('code') if isinstance(result, dict) else None)
         return emit(out, 1)
-    out['result'] = summarize('check' if args.verify_reject else args.command, result)
+    command = 'check' if args.verify_reject else args.command
+    if command == 'check' and (not isinstance(result, dict) or result.get('proposal_id') != config['proposal_id']):
+        out.update(ok=False, code='proposal_id_mismatch', result={'impact': impact_of(None)})
+        return emit(out, 1)
+    out['result'] = summarize(command, result)
     if args.verify_reject:
         codes, expected = out['result'].get('codes') or [], config.get('expect_codes') or []
         rejected = out['result'].get('allowed') is False and set(expected) <= set(codes)

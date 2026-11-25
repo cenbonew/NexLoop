@@ -5410,6 +5410,18 @@
         "ref": "sha256:f539d56f48948bef98d33d57531c0ee8dbe620a17b9ed5ccd8a0a7d6218dac51",
         "summary": "M5 隔离浏览器分项独审通过。真实 SDK 写入机器备注，owner 在 Chromium 中读取署名和未核实标签、保存人工备注。刷新后两个备注 ID 与临时 PostgreSQL 及审计对应。首轮因 PG locale 无效中止，修正后通过；独立复跑 1 项通过、0 跳过。stage test 机器生命周期仍待验。",
         "recorded_at": "2026-11-24T18:30:53+08:00"
+      },
+      {
+        "type": "commit",
+        "ref": "575d05dc4c3a49944305292f4b09ae89b4a2e9a7",
+        "summary": "0455 将 prepare、意图查询与 commit 的首次取行绑定到认证 world，过期 prepare 冲突更新也受同一约束。同世界换钥后可继续对账与提交。本地两组回归分别 136 项通过，部分用例重叠。",
+        "recorded_at": "2026-11-24T20:54:54+08:00"
+      },
+      {
+        "type": "test_report",
+        "ref": "sha256:ad5af26b83ab7bf036e0f02fb697af6c18ccfe57fedbd292cdeafcfffca9f561",
+        "summary": "0455 原 L6 独审通过，可组批送完整 CI。455 个迁移摘要核对通过，前 454 条与父提交一致。独审三组分别 133、6、4 项通过，无失败或跳过；涵盖跨世界拒绝无副作用、同世界换钥恢复、0454 升级及重复 bootstrap。完整 CI 与 stage test 机器生命周期待验。",
+        "recorded_at": "2026-11-24T20:54:54+08:00"
       }
     ]
   },

@@ -69,6 +69,15 @@ REGISTRY = [
     *[Allowed('nx068_publish_gate_smoke', name, "NX-068 N1: the proof's A' conditions move into authz.nexloop_effect_successor_admissible; same result; nothing else",
               tuple((re.escape(new), old.replace('\\', '\\\\')) for old, new in reversed(edits)))
       for name, edits in NX068_EDITS.items()],
+    Allowed('nx062_machine_intent_world', 'authz.nexloop_machine_prepare', 'match world on lookup and conflict update',
+            ((re.escape('and world=v_world and intent_id=p_intent'), 'and intent_id=p_intent'),
+             (re.escape('set capability=excluded.capability,'), 'set capability=excluded.capability,world=excluded.world,'),
+             (re.escape("where runtime.nexloop_machine_intents.world=excluded.world\n  returning * into i;\n"
+                        " if not found then raise exception 'machine write: intent_conflict' using errcode='NX409';end if;"),
+              'returning * into i;'))),
+    *[Allowed('nx062_machine_intent_world', name, 'scope the first intent lookup to the authenticated world',
+              ((re.escape("and world=ident->>'world' and intent_id=p_intent"), 'and intent_id=p_intent'),))
+      for name in ('authz.nexloop_machine_commit', 'authz.nexloop_machine_intent')],
     # NX-067: the SSO refusal audit accepts the group-mapping and back-channel reasons.
     Allowed('nx067_oidc_gaps', 'control.nexloop_workbench_oidc_failed', 'the reason list gains groups_invalid, no_mapped_role and logout_token_invalid; nothing else',
             ((r",'groups_invalid','no_mapped_role','logout_token_invalid'\)", ')'),)),
