@@ -101,6 +101,8 @@ def summarize(command, value):
     out = _summary(command, value)
     if command == 'check' and not isinstance(out.get('impact'), dict):  # L6 F1: whatever the answer's shape, the impact or not_reported
         out['impact'] = impact_of(value.get('impact') if isinstance(value, dict) else None)
+    if command == 'check' and isinstance(value, dict) and isinstance(value.get('proposal_id'), str) and UUID.fullmatch(value['proposal_id']):
+        out['proposal_id'] = value['proposal_id']
     return out
 
 
@@ -144,7 +146,12 @@ def impact_of(value):
     by_kind = {name: [f"{e['stable_name']}@{e['version']}" for e in listed if e['definition_type'] == kind] for kind, name in IMPACT_KINDS}
     by_kind['other'] = [f"{e['definition_type']}:{e['stable_name']}@{e['version']}" for e in listed if e['definition_type'] not in known]
     truncated, unreadable = bool(value.get('truncated')), value.get('unreadable') or []
-    complete = not (truncated or unreadable or malformed)
+    changed = value.get('changed_properties')
+    affected_by = value.get('affected_by_changed_properties')
+    complete = (not malformed and value.get('truncated') is False and value.get('unreadable') == []
+                and isinstance(value.get('type_name'), str) and bool(value['type_name'].strip())
+                and isinstance(changed, list) and all(isinstance(name, str) and name for name in changed)
+                and type(affected_by) is int and affected_by == sum(bool(e['changed_properties']) for e in listed))
     verdict = 'affected' if listed else 'no_impact' if complete else 'incomplete'
     return {'verdict': verdict, 'verdict_text': VERDICT_TEXT[verdict] + ('' if complete or not listed else PARTIAL), 'complete': complete,
             'type_name': value.get('type_name'),
@@ -205,7 +212,11 @@ def main(argv=None, *, stdin=None, transport=None):
     if status != 200:
         out.update(ok=False, code=result.get('code') if isinstance(result, dict) else None)
         return emit(out, 1)
-    out['result'] = summarize('check' if args.verify_reject else args.command, result)
+    command = 'check' if args.verify_reject else args.command
+    if command == 'check' and (not isinstance(result, dict) or result.get('proposal_id') != config['proposal_id']):
+        out.update(ok=False, code='proposal_id_mismatch', result={'impact': impact_of(None)})
+        return emit(out, 1)
+    out['result'] = summarize(command, result)
     if args.verify_reject:
         codes, expected = out['result'].get('codes') or [], config.get('expect_codes') or []
         rejected = out['result'].get('allowed') is False and set(expected) <= set(codes)

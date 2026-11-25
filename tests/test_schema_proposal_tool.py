@@ -137,7 +137,7 @@ class AnsweringWorkbench:
         return 200, self.answer
 
 
-CHECKED = {'compatibility': {'allowed': True, 'codes': []}}
+CHECKED = {'proposal_id': PID, 'compatibility': {'allowed': True, 'codes': []}}
 
 
 @pytest.mark.parametrize('answer, code, verdict', [
@@ -149,7 +149,7 @@ CHECKED = {'compatibility': {'allowed': True, 'codes': []}}
     ({'impact': None}, 1, 'not_reported'),
     ({}, 1, 'not_reported'),
     ({'allowed': True}, 1, 'not_reported'),
-    ({'impact': EMPTY}, 0, 'no_impact'),                       # no compatibility: the impact is still read, not dropped
+    ({'proposal_id': PID, 'impact': EMPTY}, 0, 'no_impact'),                       # no compatibility: the impact is still read, not dropped
     ([], 1, 'not_reported'),                                   # not even an object
     ({**CHECKED, 'impact': 'none'}, 1, 'not_reported'),
 ])
@@ -164,6 +164,37 @@ def test_check_exits_1_when_the_answer_carries_no_impact(tmp_path, capsys, monke
     # --verify-reject keeps its own exit rule (refused or not: none of these is refused); the impact rides along
     assert T.main([*argv, '--verify-reject'], stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == 1
     assert json.loads(capsys.readouterr().out)['result']['impact']['verdict'] == verdict
+
+
+@pytest.mark.parametrize('proposal, impact, code, verdict, complete', [
+    (None, EMPTY, 1, 'not_reported', None),
+    ('22222222-2222-4222-8222-222222222222', EMPTY, 1, 'not_reported', None),
+    (PID, {'dependents': []}, 0, 'incomplete', False),
+    (PID, {**EMPTY, 'unreadable': None}, 0, 'incomplete', False),
+    (PID, {**EMPTY, 'truncated': 0}, 0, 'incomplete', False),
+    (PID, {**EMPTY, 'affected_by_changed_properties': 1}, 0, 'incomplete', False),
+    (PID, EMPTY, 0, 'no_impact', True),
+    (PID, {**LISTED, 'truncated': True, 'unreadable': [{'kind':'actions','stable_name':'fixture.broken'}]},
+     0, 'affected', False),
+])
+def test_check_binds_impact_to_requested_proposal(tmp_path, capsys, monkeypatch, proposal, impact, code, verdict, complete):
+    answer = {**CHECKED, 'impact': impact}
+    if proposal is None:
+        del answer['proposal_id']
+    else:
+        answer['proposal_id'] = proposal
+    monkeypatch.setattr(T, 'Workbench', AnsweringWorkbench)
+    monkeypatch.setattr(AnsweringWorkbench, 'answer', answer)
+    conf, user = private(tmp_path, 'c.json', cfg()), private(tmp_path, 'u', 'owner\n')
+    argv = ['check', '--config', str(conf), '--origin', 'https://app.example.invalid', '--username-file', str(user), '--password-stdin']
+    assert T.main(argv, stdin=io.StringIO(SECRET + '\n'), transport=NoNetwork()) == code
+    result = json.loads(capsys.readouterr().out)['result']
+    shown = result['impact']
+    assert shown['verdict'] == verdict and shown.get('complete') is complete
+    if proposal == PID:
+        assert result['proposal_id'] == PID
+    if impact.get('truncated') is True:
+        assert shown['truncated'] is True and shown['unreadable'] == impact['unreadable'] and shown['affected'] == 3
 
 
 def test_a_check_result_with_no_verdict_is_not_ok(tmp_path, capsys, monkeypatch):

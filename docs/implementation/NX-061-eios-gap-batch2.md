@@ -70,7 +70,8 @@
     | `incomplete` | 影响不完整…… | 一条没列，但清单不完整：不能说无影响 |
     | `not_reported` | 接口未返回影响清单（不是无影响） | 回答里没有 `impact`，或 `impact` 不是对象 |
 
-  - **完整**（`complete`）指三条同时成立：没有截断；`unreadable` 为空；`dependents` 是一个列表，且每一项都是对象。缺 `dependents`、`dependents` 不是列表、其中混有非对象，都算回答格式不对（L6 复审 S2）。列出了条目但清单不完整时，`verdict` 仍为 `affected`，`complete` 为 false，文字注明“不完整”，`affected` 要读作“至少这么多条”（L6 复审 S1）。
+  - 实际 `check` 与 `--verify-reject` 先核对响应 `proposal_id` 与请求 UUID；缺失或不符时退出 1，不采信影响清单。通过核对的摘要保留该 UUID。空清单须显式给出类型名、属性数组、一致的受影响属性计数、布尔 `truncated=false`、空 `unreadable` 与空 `dependents` 才能判为无影响。
+  - **完整**（`complete`）还要求以下条件同时成立：没有截断；`unreadable` 为空；`dependents` 是一个列表，且每一项都是对象。缺 `dependents`、`dependents` 不是列表、其中混有非对象，都算回答格式不对（L6 复审 S2）。列出了条目但清单不完整时，`verdict` 仍为 `affected`，`complete` 为 false，文字注明“不完整”，`affected` 要读作“至少这么多条”（L6 复审 S1）。
   - `not_reported` 时 `impact` 只有 `verdict` 和 `verdict_text` 两个字段，不给空列表，免得读成“没有受影响的定义”。此时 `check` 的 `ok` 为 false，退出码为 1。以前这种情况输出 `impact: null`，退出码为 0。
   - **L6 复审 F1**（f7245ec4 判 FAIL）：
     - 原来的 `summarize` 只在回答里有 `compatibility` 时才写入 `impact`。200 的回答如果没有 `compatibility`（`{}`、`{'impact': None}`、`{'allowed': True}`），结果里就根本没有 `impact`，`check` 照样 ok、退出 0。
